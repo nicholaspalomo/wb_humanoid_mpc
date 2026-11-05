@@ -50,7 +50,7 @@ class EulerBoundaryTest(unittest.TestCase):
             " quaternionToEulerZYX(xi);\nconst vector3_t c ="
             " eulerZyxFromQuaternion(xi);\nconst matrix3_t d ="
             " getRotationMatrixFromZyxEulerAngles(c);\nconst vector3_t e ="
-            " getEulerAnglesZyxDerivativesFromGlobalAngularVelocity(c, w);\n"
+            " getEulerAnglesZyxDerivativesFromWorldRates(c, w);\n"
         )
         self.assertEqual(
             _found(source), [(1, 27), (2, 21), (3, 21), (4, 21), (5, 21)]
@@ -88,7 +88,7 @@ class EulerBoundaryTest(unittest.TestCase):
         # The helpers of the taped flow maps and terms: an Euler conversion there would reach a CppAD tape.
         flagged = (
             "const vector3_t a ="
-            " getEulerAnglesZyxDerivativesFromGlobalAngularVelocity<SCALAR_T>(c,"
+            " getEulerAnglesZyxDerivativesFromWorldRates<SCALAR_T>(c,"
             " w);\n#include"
             ' "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"\n'
         )

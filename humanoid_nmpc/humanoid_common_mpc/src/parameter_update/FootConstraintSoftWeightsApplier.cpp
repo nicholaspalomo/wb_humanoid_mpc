@@ -35,11 +35,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
 #include "humanoid_common_mpc/common/ContactTermNames.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/parameter_update/HotUpdateTarget.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
 
 namespace ocs2::humanoid {

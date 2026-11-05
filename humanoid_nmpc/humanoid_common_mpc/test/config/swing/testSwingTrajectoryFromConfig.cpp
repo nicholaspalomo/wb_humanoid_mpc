@@ -76,8 +76,9 @@ std::vector<uint64_t> memberBits(const Settings& settings) {
   std::array<double, sizeof(Settings) / sizeof(double)> members{};
   std::memcpy(members.data(), &settings, sizeof(Settings));
   std::vector<uint64_t> bits;
-  for (const double member : members)
+  for (const double member : members) {
     bits.push_back(std::bit_cast<uint64_t>(member));
+  }
   return bits;
 }
 
@@ -180,7 +181,8 @@ TEST(SwingTrajectoryFromConfigTest, AValueOutOfItsRangeIsRefusedByName) {
   for (const OutOfRange& refused :
        {OutOfRange{.field = "swing_time_scale", .value = 0.0},
         OutOfRange{.field = "swing_time_scale", .value = -0.1},
-        OutOfRange{.field = "swing_height", .value = -0.01},
+        OutOfRange{.field = "apex_pos_foot_rt_swingend_ewrt_world_z",
+                   .value = -0.01},
         OutOfRange{.field = "impact_proximity_factor_liftoff_slope",
                    .value = 0.1},
         OutOfRange{.field = "impact_proximity_factor_touchdown_slope",
@@ -210,7 +212,7 @@ TEST(SwingTrajectoryFromConfigTest, AValueOutOfItsRangeIsRefusedByName) {
   // The ends of the ranges are accepted: a flat swing, a slope of 0, a factor
   // of 0 or 1.
   mpc_config::SwingTrajectoryConfig ends;
-  ends.swing_height = 0.0;
+  ends.apex_pos_foot_rt_swingend_ewrt_world_z = 0.0;
   ends.impact_proximity_factor_mid_point_value = 1.0;
   ends.swing_pitch_rise_fraction = 0.0;
   EXPECT_TRUE(swingTrajectorySettingsFromConfig(ends).ok());
@@ -233,12 +235,13 @@ TEST(SwingTrajectoryFromConfigTest,
 TEST(SwingTrajectoryFromConfigTest, AWrittenValueIsTheSetting) {
   const absl::StatusOr<humanoid_mpc_config::TaskFile> file =
       nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(
-          "swing_trajectory_config {\n  swing_height: 0.08\n  "
+          "swing_trajectory_config {\n  "
+          "apex_pos_foot_rt_swingend_ewrt_world_z: 0.08\n  "
           "touchdown_linvel_foot_rt_world_ewrt_world_z: -0.0\n}\n",
           "task.textproto");
   ASSERT_TRUE(file.ok()) << file.status();
   const Settings settings = convert(file->swing_trajectory_config());
-  EXPECT_EQ(settings.swingHeight, 0.08);
+  EXPECT_EQ(settings.apexPosFootRtSwingendEwrtWorldZ, 0.08);
   // A negative zero survives as one.
   EXPECT_TRUE(std::signbit(settings.touchdownLinvelFootRtWorldEwrtWorldZ));
   EXPECT_EQ(settings.swingTimeScale, Settings{}.swingTimeScale);

@@ -86,7 +86,7 @@ class FakeCheckoutTestCase(unittest.TestCase):
         )
         self.reference = _write(
             os.path.join(self.config, "command", "reference.textproto"),
-            f"{_REFERENCE_HEADER}nom_pos_base_rt_world_ewrt_world_z: 0.91\n",
+            f"{_REFERENCE_HEADER}nom_pos_base_rt_surface_ewrt_world_z: 0.91\n",
         )
         self.pd_gains = _write(
             os.path.join(self.config, "controller", "joint_pd_gains.textproto"),
@@ -360,33 +360,48 @@ class TestResolveConfigFiles(FakeCheckoutTestCase):
 class TestDefaults(FakeCheckoutTestCase):
     def test_the_pelvis_height_is_the_reference_files_default_base_height(self):
         self.assertAlmostEqual(
-            config_files.read_default_pelvis_height(self.reference), 0.91
+            config_files.read_nom_pos_base_rt_surface_ewrt_world_z(
+                self.reference
+            ),
+            0.91,
         )
 
     def test_a_missing_or_unreadable_reference_falls_back(self):
         self.assertEqual(
-            config_files.read_default_pelvis_height("", fallback=0.5), 0.5
+            config_files.read_nom_pos_base_rt_surface_ewrt_world_z(
+                "", fallback=0.5
+            ),
+            0.5,
         )
         broken = _write(
             os.path.join(self.tmpdir, "broken.textproto"),
-            f"{_REFERENCE_HEADER}nom_pos_base_rt_world_ewrt_world_z: [unclosed\n",
+            f"{_REFERENCE_HEADER}nom_pos_base_rt_surface_ewrt_world_z: [unclosed\n",
         )
         self.assertEqual(
-            config_files.read_default_pelvis_height(broken, fallback=0.5), 0.5
+            config_files.read_nom_pos_base_rt_surface_ewrt_world_z(
+                broken, fallback=0.5
+            ),
+            0.5,
         )
         unknown = _write(
             os.path.join(self.tmpdir, "unknown.textproto"),
             f"{_REFERENCE_HEADER}defaultBaseHeight: 0.9\n",
         )
         self.assertEqual(
-            config_files.read_default_pelvis_height(unknown, fallback=0.5), 0.5
+            config_files.read_nom_pos_base_rt_surface_ewrt_world_z(
+                unknown, fallback=0.5
+            ),
+            0.5,
         )
         no_key = _write(
             os.path.join(self.tmpdir, "no_key.textproto"),
             f"{_REFERENCE_HEADER}cmd_max_angvel_base_rt_world_ewrt_world_z: 1\n",
         )
         self.assertEqual(
-            config_files.read_default_pelvis_height(no_key, fallback=0.5), 0.5
+            config_files.read_nom_pos_base_rt_surface_ewrt_world_z(
+                no_key, fallback=0.5
+            ),
+            0.5,
         )
 
     def test_online_tuning_follows_the_task_file_and_defaults_to_on(self):
@@ -401,7 +416,7 @@ class TestDefaults(FakeCheckoutTestCase):
         self.assertTrue(config_files.read_online_tuning_state(on).enabled)
         silent = _write(
             os.path.join(self.tmpdir, "silent.textproto"),
-            f"{_TASK_HEADER}terrain_height: 0.1\n",
+            f"{_TASK_HEADER}pos_surface_rt_world_ewrt_world_z: 0.1\n",
         )
         self.assertTrue(config_files.read_online_tuning_state(silent).enabled)
         # A file that does not parse into the schema (the retired YAML spelling) turns tuning off, saying where.
@@ -425,7 +440,7 @@ class TestDefaults(FakeCheckoutTestCase):
         self.assertIsInstance(state.enabled, bool)
         self.assertNotIn("does not parse", state.reason)
         self.assertGreater(
-            config_files.read_default_pelvis_height(
+            config_files.read_nom_pos_base_rt_surface_ewrt_world_z(
                 operator_test_support.repo_path(
                     _ATLAS, "command", "reference.textproto"
                 ),

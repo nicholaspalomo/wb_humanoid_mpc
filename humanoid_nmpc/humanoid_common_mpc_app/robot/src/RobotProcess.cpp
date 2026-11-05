@@ -145,9 +145,10 @@ absl::StatusOr<std::unique_ptr<RobotProcess>> RobotProcess::Create(
   mailboxConfig.robotName = processConfig.robotName;
   mailboxConfig.taskFileIdentity = processConfig.taskFileIdentity;
   mailboxConfig.pdGainsFileIdentity = processConfig.pdGainsFileIdentity;
-  mailboxConfig.initialNominalPositions.resize(description.getNumJoints(), 0.0);
+  mailboxConfig.initialNominalJointPositions.resize(description.getNumJoints(),
+                                                    0.0);
   for (size_t joint = 0; joint < description.getNumJoints(); ++joint) {
-    mailboxConfig.initialNominalPositions[joint] =
+    mailboxConfig.initialNominalJointPositions[joint] =
         initialState.getCheckedJointPosition(joint);
   }
   OperatorCommandMailbox::Hooks mailboxHooks;
@@ -190,8 +191,7 @@ absl::StatusOr<std::unique_ptr<RobotProcess>> RobotProcess::Create(
   // LINT.IfChange(robot_process_state_estimator)
   const estimation::StateEstimatorContext estimatorContext{
       .urdfFile = processConfig.urdfFile,
-      .contactFrameNames = processConfig.contactFrameNames,
-      .contactParentJointNames = processConfig.contactParentJointNames,
+      .contacts = processConfig.stateEstimatorContacts,
       .description = &description,
       .kalman = processConfig.settings.kalmanStateEstimator};
   absl::StatusOr<std::unique_ptr<estimation::StateEstimator>> stateEstimator =
@@ -295,7 +295,7 @@ RobotProcess::RobotProcess(robot::ipc::Bus* absl_nonnull bus,
                       control_mode::kZeroJointTorque.size());
   contactEstimatorName_.reserve(
       ControllerSettingsUpdate::kContactEstimatorNameCapacity);
-  measuredContactForces_.fill(vector3_t::Zero());
+  measForceFeetEwrtWorld_.fill(vector3_t::Zero());
 }
 
 RobotProcess::~RobotProcess() {
@@ -449,10 +449,10 @@ void RobotProcess::cycle() {
   }
 
   if (sampler_ != nullptr) {
-    backend_->readMeasuredContactForces(measuredContactForces_);
+    backend_->readMeasForceFeetEwrtWorld(measForceFeetEwrtWorld_);
     sampler_->sample(robotState, hardware.getRobotJointAction(), currentMode_,
                      controller_->measuredContactFlags(),
-                     measuredContactForces_);
+                     measForceFeetEwrtWorld_);
   }
 
   applyControllerSettings();

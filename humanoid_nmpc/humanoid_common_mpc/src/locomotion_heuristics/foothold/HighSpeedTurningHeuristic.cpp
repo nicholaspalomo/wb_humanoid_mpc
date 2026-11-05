@@ -32,20 +32,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 
 namespace ocs2::humanoid {
 
 namespace {
 
-/** Rotates a (forward, left) offset of the base's yaw frame into the world. */
-vector2_t toWorld(const vector2_t& inBaseFrame, scalar_t yaw) {
-  const scalar_t cosYaw = std::cos(yaw);
-  const scalar_t sinYaw = std::sin(yaw);
-  return vector2_t(cosYaw * inBaseFrame.x() - sinYaw * inBaseFrame.y(),
-                   sinYaw * inBaseFrame.x() + cosYaw * inBaseFrame.y());
+/** Rotates `planarVector` by `angle` [rad] about the vertical: the components
+ * in the heading frame into the world's for angle = yaw_base_rt_world, and back
+ * for -yaw_base_rt_world. */
+vector2_t rotateAboutVertical(const vector2_t& planarVector, scalar_t angle) {
+  const scalar_t cosAngle = std::cos(angle);
+  const scalar_t sinAngle = std::sin(angle);
+  return vector2_t(cosAngle * planarVector.x() - sinAngle * planarVector.y(),
+                   sinAngle * planarVector.x() + cosAngle * planarVector.y());
 }
 
 }  // namespace
@@ -57,7 +64,7 @@ absl::Status HighSpeedTurningHeuristic::configure(
   return absl::OkStatus();
 }
 
-vector2_t HighSpeedTurningHeuristic::offset(
+vector2_t HighSpeedTurningHeuristic::computeOffsetPosFootRtWorldEwrtWorldXy(
     const FootholdHeuristicContext& context) const {
   // H_r(pdot x omega) = a1 (pdot x omega) + a0, Bledt Table C.2.
   //
@@ -69,30 +76,32 @@ vector2_t HighSpeedTurningHeuristic::offset(
   //     v x omega = (v_x, v_y, 0) x (0, 0, psidot) = (v_y psidot, -v_x psidot,
   //     0).
   //
-  // Evaluated in the BASE frame, so that "forward" and "lateral" below mean the
-  // robot's own, and the whole offset is rotated into the world afterwards.
+  // Evaluated in the heading frame, so that "forward" and "lateral" below mean
+  // the robot's own, and the whole offset is rotated into the world afterwards.
   // This is the term that vanishes at zero speed however fast the robot spins,
   // which is what distinguishes it from in_place_turning.
-  const vector2_t commandedInBaseFrame =
-      toWorld(context.commandedVelocity, -context.baseYaw);
+  const vector2_t cmdLinvelBaseRtWorldEwrtHeadingXy = rotateAboutVertical(
+      context.cmdLinvelBaseRtWorldEwrtWorldXy, -context.yawBaseRtWorld);
   const scalar_t crossForward =
-      commandedInBaseFrame.y() * context.commandedYawRate;
+      cmdLinvelBaseRtWorldEwrtHeadingXy.y() * context.cmdRateYawBaseRtWorld;
   const scalar_t crossLateral =
-      -commandedInBaseFrame.x() * context.commandedYawRate;
-  const vector2_t offsetInBaseFrame(
+      -cmdLinvelBaseRtWorldEwrtHeadingXy.x() * context.cmdRateYawBaseRtWorld;
+  const vector2_t offsetPosFootRtWorldEwrtHeadingXy(
       parameters_.forwardPerCrossTerm * crossForward +
-          parameters_.forwardOffset,
+          parameters_.offsetPosFootRtWorldEwrtHeadingX,
       parameters_.lateralPerCrossTerm * crossLateral +
-          context.side * parameters_.lateralOffset);
-  return toWorld(offsetInBaseFrame, context.baseYaw);
+          context.side * parameters_.offsetPosFootRtWorldEwrtHeadingY);
+  return rotateAboutVertical(offsetPosFootRtWorldEwrtHeadingXy,
+                             context.yawBaseRtWorld);
 }
 
 std::string HighSpeedTurningHeuristic::describe() const {
   return absl::StrCat(
       "high_speed_turning: d_forward = ", parameters_.forwardPerCrossTerm,
-      " * (v_y * psidot) + ", parameters_.forwardOffset,
+      " * (v_y * psidot) + ", parameters_.offsetPosFootRtWorldEwrtHeadingX,
       " [m], d_lateral = ", parameters_.lateralPerCrossTerm,
-      " * (-v_x * psidot) + side * ", parameters_.lateralOffset, " [m]");
+      " * (-v_x * psidot) + side * ",
+      parameters_.offsetPosFootRtWorldEwrtHeadingY, " [m]");
 }
 
 }  // namespace ocs2::humanoid

@@ -51,28 +51,28 @@ struct DecodedRobotState {
   scalar_t time = 0.0;
 
   // The root of the floating base, in the world frame.
-  vector3_t basePosition = vector3_t::Zero();
+  vector3_t posBaseRtWorldEwrtWorld = vector3_t::Zero();
   /** Local to world. */
-  matrix3_t baseRotation = matrix3_t::Identity();
+  matrix3_t rotmatBaseRtWorld = matrix3_t::Identity();
   /** The sample's orientation, normalized. */
-  quaternion_t baseOrientation = quaternion_t::Identity();
+  quaternion_t quatBaseRtWorld = quaternion_t::Identity();
   /** The linear and the angular velocity of the base in the world frame: the
    * sample's local ones, rotated. */
-  vector3_t baseLinearVelocity = vector3_t::Zero();
-  vector3_t baseAngularVelocity = vector3_t::Zero();
+  vector3_t linvelBaseRtWorldEwrtWorld = vector3_t::Zero();
+  vector3_t angvelBaseRtWorldEwrtWorld = vector3_t::Zero();
   /** The body angular velocity w_B of the base, in its own frame: the sample's
    * angvel_base_rt_world_ewrt_base. */
-  vector3_t baseAngularVelocityLocal = vector3_t::Zero();
+  vector3_t angvelBaseRtWorldEwrtBase = vector3_t::Zero();
   /**
    * For display only: the ZYX Euler angles (yaw, pitch, roll) of
-   * baseOrientation (eulerZyxFromQuaternion(), orientation/EulerBoundary.h),
-   * and their rates (yaw, pitch, roll rate) of baseAngularVelocityLocal
+   * quatBaseRtWorld (eulerZyxFromQuaternion(), orientation/EulerBoundary.h),
+   * and their rates (yaw, pitch, roll rate) of angvelBaseRtWorldEwrtBase
    * (eulerZyxRatesForDisplay(): all three NaN within
    * kDisplayEulerRateMinCosPitch of a pitch of +-90 degrees). The MPC never
    * reads them; its state and q hold the quaternion.
    */
-  vector3_t baseEulerAnglesZyx = vector3_t::Zero();
-  vector3_t baseEulerZyxRates = vector3_t::Zero();
+  vector3_t eulerzyxBaseRtWorld = vector3_t::Zero();
+  vector3_t rateEulerzyxBaseRtWorld = vector3_t::Zero();
 
   /**
    * The generalized coordinates q, velocities v and forces (sized as v) of the
@@ -105,7 +105,7 @@ struct DecodedRobotState {
 
   /** Per contact of ModelSettings::contactNames: the measured wrench [force;
    * torque], world frame; 0 when not sent. */
-  feet_array_t<vector6_t> measuredContactWrenches =
+  feet_array_t<vector6_t> measWrenchContactsEwrtWorld =
       makeFeetArray<vector6_t>(vector6_t::Zero());
 };
 
@@ -118,14 +118,14 @@ inline constexpr scalar_t kDisplayEulerRateMinCosPitch = 1.0e-6;
 
 /**
  * Returns the ZYX Euler rates (yaw, pitch, roll rate) dTheta/dt = T_B(Theta)^-1
- * w_B of the body angular velocity `angularVelocityLocal` at the ZYX Euler
- * angles `eulerZyx` (yaw, pitch, roll), for display:
+ * w_B of the body angular velocity `angvelLocalRtWorldEwrtLocal` at the ZYX
+ * Euler angles `eulerzyxLocalRtWorld` (yaw, pitch, roll), for display:
  * eulerZyxRatesFromBodyRates() of orientation/EulerBoundary.h, and
  * all three NaN where |cos(pitch)| is below kDisplayEulerRateMinCosPitch or the
  * pitch is not a number. Allocates nothing.
  */
-vector3_t eulerZyxRatesForDisplay(const vector3_t& eulerZyx,
-                                  const vector3_t& angularVelocityLocal);
+vector3_t eulerZyxRatesForDisplay(const vector3_t& eulerzyxLocalRtWorld,
+                                  const vector3_t& angvelLocalRtWorldEwrtLocal);
 
 /**
  * Reads robot/state samples for the visualization. A sample names its joints,

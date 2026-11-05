@@ -30,13 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <array>
-#include <string>
 
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_centroidal_mpc/multi_contact/PlanPlayback.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_swing/ContactSwingTrajectory.h"
 #include "humanoid_mpc_config/multi_contact_plan_config.nproto.h"
 #include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
@@ -69,7 +68,7 @@ absl::StatusOr<MultiContactPlanSource> loadMultiContactPlanSource(
     absl::string_view scenarioFile, absl::string_view planFile);
 
 /** The contact-force reference of the input costs under a tracked plan
- * (multi_contact_plan.force_reference). */
+ * (multi_contact_plan.force_reference_mode). */
 enum class ForceReference {
   kWeightShare,      // the weight shared among the active contacts
   kPlannedWrenches,  // the plan's wrenches at the plan time
@@ -89,8 +88,8 @@ struct PlannedMotionSettings {
   // [m] How far along its patch normal a contact of the stance may be from
   // its patch, and how far horizontally the center of mass from the plan's,
   // for the stance to count as reached.
-  scalar_t contactTolerance = 0.0;
-  scalar_t comTolerance = 0.0;
+  scalar_t maxNormPosContactRtSurfaceEwrtSurfaceZ = 0.0;
+  scalar_t maxNormErrPosComRtWorldEwrtWorldXy = 0.0;
   ContactSwingSettings swing;
   // The soft constraint contact_swing: its quadratic penalty's weight and its
   // position gain [1/s].
@@ -106,7 +105,7 @@ struct PlannedMotionSettings {
   scalar_t nonPenetrationMu = 0.0;
   scalar_t nonPenetrationDelta = 0.0;
   scalar_t nonPenetrationMargin = 0.0;
-  ForceReference forceReference = ForceReference::kWeightShare;
+  ForceReference forceReferenceMode = ForceReference::kWeightShare;
   // How the plan plays, and [s] how long the robot stands at either end of it
   // under PlanPlayback::kForwardAndReverse.
   PlanPlayback playback = PlanPlayback::kOnce;

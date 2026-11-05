@@ -36,7 +36,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 
+#include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
+#include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
+#include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 
 namespace ocs2::humanoid {
 

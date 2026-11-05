@@ -39,7 +39,7 @@ namespace ocs2::humanoid {
 /** The settle sequence of SimFallRecovery (see its class comment). */
 enum class SettlePhase : int32_t {
   kIdle = 0,        ///< no sequence running: WB_MPC is accepted
-  kLifting,         ///< raising the gantry by catchLift
+  kLifting,         ///< raising the gantry by catchErrPosBaseRtWorldEwrtWorldZ
   kSettlingLifted,  ///< feet clear of the ground, waiting for rest at the
                     ///< nominal posture
   kLowering,        ///< lowering the gantry back to the height of the catch
@@ -56,19 +56,19 @@ enum class DiscontinuityCause : int32_t {
   kSimulatorReset,  ///< the simulator put the robot back in its initial state
                     ///< (its reset epoch moved)
   kGantryLocked,    ///< the gantry was locked since the previous cycle
-  kTiltCaught,  ///< the base tilted past sim_max_base_tilt_angle and was caught
-                ///< on the gantry
+  kTiltCaught,  ///< the base tilted past sim_max_tiltangle_base_rt_world and
+                ///< was caught on the gantry
 };
 
 /**
  * The reason of a discontinuity as the log states it: "the simulator put the
  * robot back in its initial state (reset epoch 3)", "the gantry was locked",
- * "the base tilted 1.2 rad, past sim_max_base_tilt_angle 1 rad". Allocates; not
- * for the realtime thread.
+ * "the base tilted 1.2 rad, past sim_max_tiltangle_base_rt_world 1 rad".
+ * Allocates; not for the realtime thread.
  */
 std::string discontinuityReason(DiscontinuityCause cause,
                                 uint64_t resetEpoch,
-                                double tilt,
-                                double maxTilt);
+                                double tiltangleBaseRtWorld,
+                                double maxTiltangleBaseRtWorld);
 
 }  // namespace ocs2::humanoid

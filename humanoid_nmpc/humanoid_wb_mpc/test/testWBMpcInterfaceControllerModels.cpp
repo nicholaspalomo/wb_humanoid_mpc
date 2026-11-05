@@ -107,11 +107,12 @@ TEST(WBMpcInterfaceControllerModels, TheInitialStateIsTheFilesByName) {
   const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(kTask);
   ASSERT_TRUE(task.ok()) << task.status();
   mpc_config::TaskFile raised = *task;
-  mpc_config::Xyz basePosition =
+  mpc_config::Xyz initPosBaseRtWorldEwrtWorld =
       raised.initial_state.pos_base_rt_world_ewrt_world.value_or(
           mpc_config::Xyz{});
-  basePosition.z = 1.25;
-  raised.initial_state.pos_base_rt_world_ewrt_world = basePosition;
+  initPosBaseRtWorldEwrtWorld.z = 1.25;
+  raised.initial_state.pos_base_rt_world_ewrt_world =
+      initPosBaseRtWorldEwrtWorld;
   ASSERT_FALSE(raised.initial_state.joint_positions.empty());
   raised.initial_state.joint_positions.front().value = 0.375;
   const std::string joint = raised.initial_state.joint_positions.front().joint;

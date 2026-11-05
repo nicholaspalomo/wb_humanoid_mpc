@@ -22,6 +22,8 @@ cc_library(
     copts = FIRST_PARTY_COPTS,
     deps = [
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_dimensions",
         "@abseil-cpp//absl/base:no_destructor",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
@@ -43,6 +45,7 @@ cc_library(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/functional:function_ref",
         "@abseil-cpp//absl/log",
@@ -94,6 +97,7 @@ cc_library(
     deps = [
         ":controller_event",
         ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
         "//robot_runtime/robot_model",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:absl_check",
@@ -118,8 +122,10 @@ cc_library(
     includes = ["include"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "//humanoid_nmpc/humanoid_mpc_ipc",
         "//humanoid_nmpc/humanoid_mpc_ipc:realtime_policy_evaluator",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "//lib/ocs2:ocs2_oc",
         "@abseil-cpp//absl/base:nullability",
         "@eigen",
@@ -143,10 +149,12 @@ cc_library(
     ],
 )
 
-# The operator's walking command (command/WalkingVelocityCommand.h), a plain value, header only, so that the MPC node's
+# The operator's walking command, normalized as the bus carries it (command/NormalizedWalkingVelocityCommand.h) and
+# scaled to m/s and rad/s (command/WalkingVelocityCommand.h), plain values, header only, so that the MPC node's
 # conversion of the bus message (//humanoid_nmpc/humanoid_common_mpc_app/node:walking_velocity_command_conversions) and
 # the closed-loop metrics that apply it build without the robot model.
 _WALKING_VELOCITY_COMMAND_HDRS = [
+    "include/humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h",
     "include/humanoid_common_mpc/command/WalkingVelocityCommand.h",
 ]
 
@@ -157,6 +165,7 @@ cc_library(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
     ],
 )
@@ -181,6 +190,8 @@ cc_library(
     deps = [
         ":humanoid_common_mpc_types",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_dimensions",
         "//lib/ocs2:ocs2_robotic_tools",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
@@ -258,21 +269,24 @@ cc_library(
     deps = [
         ":humanoid_common_mpc_types",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_dimensions",
+        "//lib/ocs2:ocs2_physical_constants",
         "//lib/ocs2:ocs2_robotic_tools",
         "@abseil-cpp//absl/base:nullability",
-        "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/container:flat_hash_map",
         "@abseil-cpp//absl/container:flat_hash_set",
         "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:str_format",
         "@abseil-cpp//absl/strings:string_view",
         "@blasfeo",
-        "@hpipm",
         "@eigen",
+        "@hpipm",
     ],
 )
 
@@ -396,9 +410,15 @@ cc_library(
         ":walking_velocity_command",
         "//lib/ocs2:ocs2_centroidal_model",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_dimensions",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_physical_constants",
         "//lib/ocs2:ocs2_pinocchio_interface",
+        "//lib/ocs2:ocs2_robotic_tools",
+        # The CppAD of the AD types (pinocchio_model/DynamicsHelperFunctions.h).
+        "//lib/ocs2:ocs2_thirdparty",
         # The SQP settings the typed task file converts into (config/solver/SolverSettingsFromConfig.h).
         "//lib/ocs2:ocs2_sqp",
         "//robot_runtime/robot_core",
@@ -422,11 +442,13 @@ cc_library(
         "@abseil-cpp//absl/functional:function_ref",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/log:absl_log",
         "@abseil-cpp//absl/log:die_if_null",
         "@abseil-cpp//absl/log:log",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
         "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/synchronization",
         "@abseil-cpp//absl/time",
@@ -457,6 +479,7 @@ cc_test(
         ":humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core_types",
         "//tools/nproto:nproto_runtime",
         "@abseil-cpp//absl/base:no_destructor",
         "@abseil-cpp//absl/base:nullability",
@@ -486,7 +509,9 @@ cc_test(
     ],
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":state_layout",
+        ":status_test_macros",
         "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//tools/nproto:nproto_runtime",
@@ -497,7 +522,6 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@pinocchio",
-        ":status_test_macros",
     ],
 )
 
@@ -508,7 +532,11 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
 )
@@ -520,8 +548,15 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "@abseil-cpp//absl/base:log_severity",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:scoped_mock_log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
     ],
 )
@@ -545,9 +580,11 @@ cc_test(
     ],
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":quaternion_layout_robot_model",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "//lib/ocs2:ocs2_pinocchio_interface",
         "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/base:no_destructor",
@@ -570,6 +607,9 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        ":orientation",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/status:statusor",
         "@eigen",
         "@googletest//:gtest_main",
@@ -612,7 +652,11 @@ cc_test(
     srcs = ["test/testStanceDutyFactor.cpp"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        ":contact_planning_core",
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
@@ -626,7 +670,10 @@ cc_test(
     data = ["config/command/gait.textproto"],
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
@@ -642,6 +689,8 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:no_destructor",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log",
@@ -659,6 +708,8 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/strings",
         "@eigen",
@@ -673,6 +724,8 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
@@ -688,6 +741,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
@@ -700,7 +754,9 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":status_test_macros",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
@@ -716,6 +772,8 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":mpc_reset_supervisor",
+        "//lib/ocs2:ocs2_core_types",
+        "@abseil-cpp//absl/base:log_severity",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:scoped_mock_log",
         "@abseil-cpp//absl/status",
@@ -732,10 +790,13 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_mpc_test_support",
         "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:log_severity",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:scoped_mock_log",
         "@abseil-cpp//absl/status",
@@ -784,6 +845,7 @@ cc_test(
     deps = [
         ":humanoid_common_mpc",
         "//humanoid_state_estimation/humanoid_state_estimator:allocation_counter",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:no_destructor",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
@@ -801,12 +863,14 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":lookahead_policy_evaluator",
+        ":status_test_macros",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
         "//humanoid_nmpc/humanoid_mpc_ipc:realtime_policy_evaluator",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "//lib/ocs2:ocs2_oc",
         "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
-        ":status_test_macros",
     ],
 )
 
@@ -818,6 +882,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":mrt_control_thread",
+        "//lib/ocs2:ocs2_core_types",
         "//robot_runtime/robot_model",
         "@googletest//:gtest_main",
     ],
@@ -831,6 +896,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core_types",
         "@googletest//:gtest_main",
     ],
 )
@@ -843,6 +909,7 @@ cc_library(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "@abseil-cpp//absl/base:nullability",
     ],
@@ -857,6 +924,8 @@ cc_library(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":mpc_reset_supervisor",
+        "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_oc",
         "@abseil-cpp//absl/base:nullability",
@@ -900,11 +969,14 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     linkstatic = True,
     deps = [
+        ":controller_event",
+        ":humanoid_common_mpc_types",
         ":mrt_control_thread",
         "//robot_runtime/robot_model",
         "//robot_runtime/robot_realtime:allocation_counter",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
     ],
 )
@@ -931,6 +1003,9 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
@@ -943,6 +1018,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
@@ -956,6 +1032,9 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
@@ -980,8 +1059,10 @@ cc_test(
     # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testBreakFrequencyAlphaFilter.cpp:shipped_reference_files)
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core_types",
         "//tools/nproto:nproto_runtime",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
@@ -1009,9 +1090,14 @@ cc_test(
     # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots)
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":orientation",
+        ":status_test_macros",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_centroidal_model",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
         "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:log",
@@ -1019,7 +1105,6 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
-        ":status_test_macros",
     ],
 )
 
@@ -1033,17 +1118,21 @@ cc_test(
     ],
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":orientation",
         ":quaternion_layout_robot_model",
+        ":status_test_macros",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_centroidal_model",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
         "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
-        ":status_test_macros",
     ],
 )
 
@@ -1065,8 +1154,11 @@ cc_test(
     ],
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":orientation",
         ":quaternion_layout_robot_model",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status:statusor",
@@ -1091,8 +1183,11 @@ cc_test(
     ],
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        ":orientation",
         ":quaternion_layout_robot_model",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
@@ -1118,6 +1213,7 @@ cc_test(
         ":layout_robot_model",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "//lib/ocs2:ocs2_pinocchio_interface",
         "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/base:nullability",
@@ -1145,10 +1241,12 @@ cc_test(
     deps = [
         ":contact_planning_core",
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":orientation",
         ":quaternion_layout_robot_model",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "//lib/ocs2:ocs2_pinocchio_interface",
         "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/base:nullability",
@@ -1170,7 +1268,9 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":orientation",
+        "//lib/ocs2:ocs2_core_types",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -1198,8 +1298,11 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":status_test_macros",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
 )
@@ -1213,6 +1316,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core_types",
         "@googletest//:gtest_main",
     ],
 )
@@ -1226,6 +1330,8 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
         "@googletest//:gtest_main",
     ],
 )
@@ -1239,11 +1345,13 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
         "@googletest//:gtest_main",
     ],
 )
 
-# The base the reference manager predicts for a touch-down (SwitchedModelReferenceManager::commandedPoseChange()): the arc
+# The base the reference manager predicts for a touch-down (SwitchedModelReferenceManager::integratePlanarCommand()): the arc
 # of a turning command against its closed form, the trapezoid without a turn, and the leading error of a ramping
 # command against a quadrature. Builds no model.
 cc_test(
@@ -1253,6 +1361,8 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
         "@googletest//:gtest_main",
     ],
 )
@@ -1266,6 +1376,8 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
         "@googletest//:gtest_main",
     ],
 )
@@ -1277,6 +1389,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
@@ -1291,7 +1404,9 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":humanoid_common_mpc_types",
         ":status_test_macros",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
@@ -1306,9 +1421,14 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":humanoid_common_mpc_types",
         ":status_test_macros",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
@@ -1321,6 +1441,9 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_robotic_tools",
         "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
@@ -1332,7 +1455,10 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":orientation",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
@@ -1340,7 +1466,34 @@ cc_test(
     ],
 )
 
-# The ACoM heading of the contact planner's input (ContactPlanningReferenceManager::computeHeading) and of
+# planned_com_override's base-to-CoM offset turns with each knot's reference heading, on the shipped DRC Atlas's
+# centroidal quaternion layout. Builds no CppAD model.
+cc_test(
+    name = "testPlannedComOverride",
+    size = "small",
+    srcs = ["test/testPlannedComOverride.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":contact_planning_core",
+        ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        ":quaternion_layout_robot_model",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The ACoM heading of the contact planner's input (ContactPlanningReferenceManager::computeYawAcomRtWorld) and of
 # planned_heading_override on the shipped DRC Atlas: the twist heading of the ACoM attitude, exact for level knots.
 # Builds no CppAD model.
 cc_test(
@@ -1355,10 +1508,12 @@ cc_test(
     deps = [
         ":contact_planning_core",
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":orientation",
         ":quaternion_layout_robot_model",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "//lib/ocs2:ocs2_pinocchio_interface",
         "//lib/ocs2:ocs2_robotic_tools",
         "//robot_runtime/robot_core:resource_paths",
@@ -1377,6 +1532,9 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
@@ -1393,7 +1551,10 @@ cc_test(
     tags = ["exclusive"],
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_dimensions",
         "@googletest//:gtest_main",
     ],
 )
@@ -1413,9 +1574,13 @@ cc_test(
     linkstatic = True,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
         "//robot_runtime/robot_core:resource_paths",
         "//robot_runtime/robot_realtime:allocation_counter",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
         "@pinocchio",
@@ -1432,7 +1597,10 @@ cc_test(
     tags = ["exclusive"],
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_dimensions",
         "//lib/ocs2:ocs2_robotic_tools",
         "@googletest//:gtest_main",
     ],
@@ -1445,6 +1613,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core_types",
         "@googletest//:gtest_main",
     ],
 )
@@ -1456,6 +1625,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core_types",
         "@googletest//:gtest_main",
     ],
 )
@@ -1468,7 +1638,10 @@ cc_test(
     data = ["config/command/gait.textproto"],
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
@@ -1482,6 +1655,9 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
@@ -1494,7 +1670,11 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
         "@googletest//:gtest_main",
     ],
 )
@@ -1506,6 +1686,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/status",
@@ -1521,7 +1702,10 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
         "@googletest//:gtest_main",
     ],
 )
@@ -1533,7 +1717,10 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":humanoid_common_mpc_types",
         ":status_test_macros",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/status",
@@ -1550,8 +1737,12 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":humanoid_common_mpc_types",
         ":status_test_macros",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
@@ -1566,6 +1757,8 @@ cc_test(
     deps = [
         ":contact_planning_core",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
 )
@@ -1577,9 +1770,14 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":humanoid_common_mpc_types",
         ":status_test_macros",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
@@ -1591,7 +1789,9 @@ cc_test(
     srcs = ["test/testContactPlannerModule.cpp"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        ":contact_planning_core",
         ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
@@ -1605,7 +1805,11 @@ cc_test(
     srcs = ["test/testContactPlanningModelParameters.cpp"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        ":contact_planning_core",
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
         "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
         "@pinocchio",
@@ -1619,6 +1823,9 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
@@ -1631,7 +1838,9 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":humanoid_common_mpc_types",
         ":status_test_macros",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/status",
@@ -1648,7 +1857,11 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":humanoid_common_mpc_types",
         ":status_test_macros",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_dimensions",
         "//lib/ocs2:ocs2_robotic_tools",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:absl_check",
@@ -1669,10 +1882,13 @@ cc_test(
     data = glob(["test/data/contact_planning/*.txt"], allow_empty = True),
     deps = [
         ":contact_planning_core",
+        ":humanoid_common_mpc_types",
         ":status_test_macros",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
@@ -1691,11 +1907,14 @@ cc_test(
     ],
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        ":status_test_macros",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
-        ":status_test_macros",
     ],
 )
 
@@ -1716,8 +1935,13 @@ cc_test(
     # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testJointTorqueInverseDynamics.cpp:robot_files)
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        ":orientation",
+        ":status_test_macros",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/status",
@@ -1725,7 +1949,6 @@ cc_test(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
-        ":status_test_macros",
     ],
 )
 
@@ -1741,13 +1964,15 @@ cc_test(
     ],
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        ":status_test_macros",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_pinocchio_interface",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
-        ":status_test_macros",
     ],
 )
 
@@ -1777,6 +2002,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":state_layout",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
@@ -1802,9 +2028,12 @@ cc_test(
     tags = ["exclusive"],
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        ":status_test_macros",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_centroidal_model",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "//lib/ocs2:ocs2_pinocchio_interface",
         "//lib/ocs2:ocs2_robotic_tools",
         "@abseil-cpp//absl/base:nullability",
@@ -1814,7 +2043,6 @@ cc_test(
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@pinocchio",
-        ":status_test_macros",
     ],
 )
 
@@ -1826,7 +2054,10 @@ cc_test(
     srcs = ["test/testBaseOrientation.cpp"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        ":humanoid_common_mpc_types",
         ":orientation",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
@@ -1841,7 +2072,10 @@ cc_test(
     srcs = ["test/testEulerBoundary.cpp"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        ":humanoid_common_mpc_types",
         ":orientation",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "//lib/ocs2:ocs2_robotic_tools",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
@@ -1860,8 +2094,10 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":orientation",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -1878,8 +2114,10 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     tags = ["exclusive"],
     deps = [
+        ":humanoid_common_mpc_types",
         ":orientation",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
@@ -1944,10 +2182,12 @@ cc_test(
     # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testConfigurationTangent.cpp:configuration_tangent_robots)
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":orientation",
         ":quaternion_layout_robot_model",
         "//lib/ocs2:ocs2_centroidal_model",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "//lib/ocs2:ocs2_pinocchio_interface",
         "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/base:nullability",
@@ -1995,9 +2235,12 @@ cc_library(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":orientation",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/status:statusor",
         "@eigen",
         "@googletest//:gtest",
@@ -2013,8 +2256,10 @@ cc_library(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":orientation",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status:statusor",
         "@eigen",
@@ -2049,12 +2294,16 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     data = _SHIPPED_ROBOT_DATA,
     deps = [
+        ":contact_planning_core",
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":layout_robot_model",
+        ":walking_velocity_command",
         # The schemas' descriptors the reload classes are read from (test/config/testConfigReload.cpp).
         "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "//lib/ocs2:ocs2_pinocchio_interface",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
@@ -2070,11 +2319,18 @@ cc_test(
 # The tests of the conversions of the typed configuration, one per area (test/config/<area>/). The conversions themselves
 # are in :humanoid_common_mpc (src/config/<area>/).
 _CONFIG_TEST_DEPS = [
+    ":contact_planning_core",
     ":humanoid_common_mpc",
+    ":humanoid_common_mpc_types",
     ":orientation",
     ":state_layout",
     "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
     "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+    "//lib/ocs2:ocs2_centroidal_model",
+    "//lib/ocs2:ocs2_core",
+    "//lib/ocs2:ocs2_core_types",
+    "//lib/ocs2:ocs2_mpc",
+    "//lib/ocs2:ocs2_oc",
     "//lib/ocs2:ocs2_pinocchio_interface",
     "//lib/ocs2:ocs2_sqp",
     "//tools/nproto:nproto_runtime",
@@ -2134,16 +2390,20 @@ cc_test(
     ],
     deps = [
         ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
         ":layout_robot_model",
+        ":orientation",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_centroidal_model",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_oc",
         "//lib/ocs2:ocs2_pinocchio_interface",
         "//lib/ocs2:ocs2_sqp",
         "//robot_runtime/robot_core:resource_paths",
-        "@pinocchio",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:log_severity",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:scoped_mock_log",
         "@abseil-cpp//absl/status",
@@ -2154,5 +2414,6 @@ cc_test(
         "@abseil-cpp//absl/time",
         "@abseil-cpp//absl/types:span",
         "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )

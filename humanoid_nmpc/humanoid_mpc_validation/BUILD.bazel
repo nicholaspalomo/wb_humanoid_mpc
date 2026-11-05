@@ -445,7 +445,7 @@ cc_test(
 )
 
 # The initial-state gap of a solve, the state manifold's rotation angle of the SQP's step; and a solution's largest
-# quaternion norm deviation (maxQuaternionNormDeviationOf()).
+# quaternion norm deviation (maxUnitQuaternionNormDeviationOf()).
 cc_test(
     name = "test_initial_state_gap",
     size = "small",

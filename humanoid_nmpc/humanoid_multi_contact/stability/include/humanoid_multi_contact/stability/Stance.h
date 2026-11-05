@@ -59,10 +59,10 @@ struct StanceContact {
   int candidateIndex = 0;
   ContactKind kind = ContactKind::kPoint;
   // [m] The pad's center.
-  Eigen::Vector3d position = Eigen::Vector3d::Zero();
-  // world_R_cone: z is the terrain's outward normal at the contact; a surface
-  // contact's rectangle lies in the frame's (x, y) plane.
-  Eigen::Matrix3d rotation = Eigen::Matrix3d::Identity();
+  Eigen::Vector3d posPadRtWorldEwrtWorld = Eigen::Vector3d::Zero();
+  // world_R_surface: z is the terrain's outward normal at the contact; a
+  // surface contact's rectangle lies in the frame's (x, y) plane.
+  Eigen::Matrix3d rotmatSurfaceRtWorld = Eigen::Matrix3d::Identity();
   // The Coulomb friction coefficient, positive.
   double friction = 0.0;
   // Set exactly for a surface contact.
@@ -89,19 +89,22 @@ using Wrench = Eigen::Matrix<double, kWrenchDim, 1>;
  * force. Passive data.
  */
 struct WrenchGenerators {
-  // [m] The point the moments are taken about: the mean of the contact
-  // positions, so that the moments are of the size of the stance.
-  Eigen::Vector3d reference = Eigen::Vector3d::Zero();
+  // [m] The point the moments are taken about, the origin of the `stance`
+  // frame: the mean of the contact positions, so that the moments are of the
+  // size of the stance.
+  Eigen::Vector3d posStanceRtWorldEwrtWorld = Eigen::Vector3d::Zero();
   // One column per generator: its unit force, then its moment about
-  // `reference`.
-  Eigen::Matrix<double, kWrenchDim, Eigen::Dynamic> wrenches;
+  // posStanceRtWorldEwrtWorld.
+  Eigen::Matrix<double, kWrenchDim, Eigen::Dynamic> generatorWrenches;
   // Per generator: the index of its contact in the stance, its point of
-  // application and its force direction, in the world frame.
+  // application (a point pad's center or a rectangle's corner) and its force
+  // per unit scaling (a unit normal force plus its friction), in the world
+  // frame.
   std::vector<int> contactIndices;
-  std::vector<Eigen::Vector3d> points;
-  std::vector<Eigen::Vector3d> directions;
+  std::vector<Eigen::Vector3d> posGeneratorsRtWorldEwrtWorld;
+  std::vector<Eigen::Vector3d> forceGeneratorsEwrtWorld;
 
-  int size() const { return static_cast<int>(wrenches.cols()); }
+  int size() const { return static_cast<int>(generatorWrenches.cols()); }
 };
 
 /**

@@ -338,14 +338,14 @@ void WBMpcMrtJointController::updateMpcState(
   // the robot model's measurement helpers: q of the measured base pose and
   // joint positions, v of the base velocities the robot measures in the base
   // frame and of the joint velocities.
-  const quaternion_t rootOrientation = robotState.getQuatBaseRtWorld();
+  const quaternion_t quatBaseRtWorld = robotState.getQuatBaseRtWorld();
   robotState.getJointPositions(mpcJointIndices_, mpcJointPositions_);
   robotState.getJointVelocities(mpcJointIndices_, mpcJointVelocities_);
   mpcRobotModel_.fillGeneralizedCoordinatesFromMeasurement(
-      robotState.getPosBaseRtWorldEwrtWorld(), rootOrientation.coeffs(),
+      robotState.getPosBaseRtWorldEwrtWorld(), quatBaseRtWorld.coeffs(),
       mpcJointPositions_, mpcState.head(mpcRobotModel_.getConfigurationDim()));
   mpcRobotModel_.fillGeneralizedVelocitiesFromMeasurement(
-      rootOrientation.coeffs(), robotState.getLinvelBaseRtWorldEwrtBase(),
+      quatBaseRtWorld.coeffs(), robotState.getLinvelBaseRtWorldEwrtBase(),
       robotState.getAngvelBaseRtWorldEwrtBase(), mpcJointVelocities_,
       mpcState.tail(mpcRobotModel_.getVelocityDim()));
 }
@@ -484,10 +484,10 @@ const vector_t& WBMpcMrtJointController::computeGravityCompensation(
   // In the workspaces, sized by the constructor: the Pinocchio configuration q
   // of the measured robot, as updateMpcState() writes it into the head of the
   // MPC state.
-  const quaternion_t rootOrientation = robotState.getQuatBaseRtWorld();
+  const quaternion_t quatBaseRtWorld = robotState.getQuatBaseRtWorld();
   robotState.getJointPositions(mpcJointIndices_, mpcJointPositions_);
   mpcRobotModel_.fillGeneralizedCoordinatesFromMeasurement(
-      robotState.getPosBaseRtWorldEwrtWorld(), rootOrientation.coeffs(),
+      robotState.getPosBaseRtWorldEwrtWorld(), quatBaseRtWorld.coeffs(),
       mpcJointPositions_, gravityCoordinates_);
   // The joint rows of g(q): nle(q, 0) of the model, without its allocations on
   // the composite root.
@@ -502,8 +502,8 @@ scalar_t WBMpcMrtJointController::nominalJointPosition(
 }
 
 scalar_t WBMpcMrtJointController::clampedMpcJointFeedforward(
-    size_t mpcJoint, scalar_t torque) const {
-  return std::clamp(torque, -pdGains_.mpcJointTorqueLimit[mpcJoint],
+    size_t mpcJoint, scalar_t jointTorque) const {
+  return std::clamp(jointTorque, -pdGains_.mpcJointTorqueLimit[mpcJoint],
                     pdGains_.mpcJointTorqueLimit[mpcJoint]);
 }
 
@@ -536,7 +536,7 @@ void WBMpcMrtJointController::reportPolicyUpdateLockContention() {
   }
 }
 
-void WBMpcMrtJointController::fillZeroTorqueAction(
+void WBMpcMrtJointController::fillZeroJointTorqueAction(
     const ::robot::model::RobotState& robotState,
     ::robot::model::RobotJointAction& robotJointAction) {
   const std::array<const std::vector<size_t>* absl_nonnull, kNumMrtJointGroups>
@@ -557,7 +557,7 @@ void WBMpcMrtJointController::fillZeroTorqueAction(
 void WBMpcMrtJointController::fillJointPdAction(
     const ::robot::model::RobotState& robotState,
     ::robot::model::RobotJointAction& robotJointAction) {
-  const vector_t& gravityTorques = computeGravityCompensation(robotState);
+  const vector_t& gravityJointTorques = computeGravityCompensation(robotState);
   for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
     const size_t index = mpcJointIndices_[i];
     robot::model::JointAction& action =
@@ -567,7 +567,7 @@ void WBMpcMrtJointController::fillJointPdAction(
     action.kp = pdGains_.mpcJointKp[i];
     action.kd = pdGains_.mpcJointKd[i];
     action.feed_forward_effort =
-        clampedMpcJointFeedforward(i, gravityTorques[i]);
+        clampedMpcJointFeedforward(i, gravityJointTorques[i]);
   }
   fillOtherJointsHold(robotState, /*kpScale=*/1.0, robotJointAction);
 }
@@ -579,7 +579,7 @@ void WBMpcMrtJointController::fillGravityCompAction(
   // suspended from the gantry (see the centroidal controller's
   // fillGravityCompAction for why this is not enough for a robot bearing its
   // own weight).
-  const vector_t& gravityTorques = computeGravityCompensation(robotState);
+  const vector_t& gravityJointTorques = computeGravityCompensation(robotState);
   for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
     const size_t index = mpcJointIndices_[i];
     robot::model::JointAction& action =
@@ -589,7 +589,7 @@ void WBMpcMrtJointController::fillGravityCompAction(
     action.kp = 0.0;
     action.kd = pdGains_.mpcJointKd[i] * pdGains_.gravityCompDampingFraction;
     action.feed_forward_effort =
-        clampedMpcJointFeedforward(i, gravityTorques[i]);
+        clampedMpcJointFeedforward(i, gravityJointTorques[i]);
   }
   // The other joints keep their posture with half their position gain.
   fillOtherJointsHold(robotState, kGravityCompOtherJointKpScale,
@@ -678,7 +678,7 @@ void WBMpcMrtJointController::computeJointControlAction(
   // The passive modes: independent of the MPC and of the solver.
   if (control_mode::isPassive(controlMode_)) {
     if (controlMode_ == control_mode::kZeroJointTorque) {
-      fillZeroTorqueAction(robotState, robotJointAction);
+      fillZeroJointTorqueAction(robotState, robotJointAction);
     } else if (controlMode_ == control_mode::kJointPd) {
       fillJointPdAction(robotState, robotJointAction);
     } else if (controlMode_ == control_mode::kGravityComp) {
@@ -796,7 +796,7 @@ void WBMpcMrtJointController::executePolicy(
   // configured (ContactWrenchGate). World-frame wrenches for the
   // LOCAL_WORLD_ALIGNED Jacobians; the whole-body input carries them as they
   // are (fixed-size copies).
-  const std::array<vector6_t, kNumContacts> footWrenches =
+  const std::array<vector6_t, kNumContacts> wrenchFeetEwrtWorld =
       contactWrenchGate_.apply(
           {mpcRobotModel_.getWrenchContactEwrtWorld(
                mpcPolicyState, mpcPolicyInput, /*contactIndex=*/0),
@@ -813,7 +813,7 @@ void WBMpcMrtJointController::executePolicy(
   fillPolicyCoordinates(mpcPolicyState);
   const vector_t& mpcJointTorques = rigidBodyDynamics_->freeBaseJointTorques(
       policyCoordinates_, mpcPolicyState.tail(velocityDim),
-      mpcPolicyInput.tail(jointDim), footWrenches);
+      mpcPolicyInput.tail(jointDim), wrenchFeetEwrtWorld);
   // [q, v]: the joint angles follow the base pose in q, the joint velocities
   // end v.
   const Eigen::Index jointStart =
@@ -861,7 +861,7 @@ void WBMpcMrtJointController::fillWeightCompensationAction(
   mpcPolicyState = currentMpcObservation_.state;
   mpcPolicyInput.setZero();
   const size_t numStanceLegs = numberOfLegsInContacts(measuredContactFlags_);
-  feet_array_t<vector6_t> footWrenches;
+  feet_array_t<vector6_t> wrenchFeetEwrtWorld;
   for (size_t i = 0; i < kNumContacts; ++i) {
     if (numStanceLegs > 0 && measuredContactFlags_[i]) {
       mpcRobotModel_.setForceContactEwrtParam(
@@ -870,7 +870,7 @@ void WBMpcMrtJointController::fillWeightCompensationAction(
                     robotWeight_ / static_cast<scalar_t>(numStanceLegs)),
           i);
     }
-    footWrenches[i] = mpcRobotModel_.getWrenchContactEwrtWorld(
+    wrenchFeetEwrtWorld[i] = mpcRobotModel_.getWrenchContactEwrtWorld(
         mpcPolicyState, mpcPolicyInput, i);
   }
   latestPolicyInput_ = mpcPolicyInput;
@@ -879,10 +879,10 @@ void WBMpcMrtJointController::fillWeightCompensationAction(
       static_cast<Eigen::Index>(mpcRobotModel_.getVelocityDim());
   const Eigen::Index jointDim =
       static_cast<Eigen::Index>(mpcRobotModel_.getJointDim());
-  const vector_t& weightCompensatingTorques =
+  const vector_t& weightCompensatingJointTorques =
       rigidBodyDynamics_->heldBaseJointTorques(
           policyCoordinates_, mpcPolicyState.tail(velocityDim),
-          mpcPolicyInput.tail(jointDim), footWrenches);
+          mpcPolicyInput.tail(jointDim), wrenchFeetEwrtWorld);
 
   for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
     const size_t index = mpcJointIndices_[i];
@@ -893,7 +893,7 @@ void WBMpcMrtJointController::fillWeightCompensationAction(
     action.kp = pdGains_.mpcJointKp[i];
     action.kd = pdGains_.mpcJointKd[i];
     action.feed_forward_effort = clampedMpcJointFeedforward(
-        i, weightCompensatingTorques[static_cast<Eigen::Index>(i)]);
+        i, weightCompensatingJointTorques[static_cast<Eigen::Index>(i)]);
   }
 }
 

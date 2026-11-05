@@ -37,8 +37,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "ocs2_core/PhysicalConstants.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/CppAdInterface.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/cost/StateCost.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -53,27 +57,33 @@ namespace ocs2::humanoid {
  * terminal viability.
  *
  * At the end of the horizon the DCM  xi = c_xy + v_xy / omega  (omega = sqrt(g
- * / comHeight)) is pulled towards xi_ref = p_support + velocityOffsetFactor *
- * v_cmd / omega, where p_support is the (time-blended) center of the feet in
- * contact at the terminal time (from the mode schedule) and v_cmd the commanded
- * CoM velocity of the target trajectories. With velocityOffsetFactor = 0 this
- * is the classic capturability condition (the robot can come to rest over its
- * terminal support); the velocity offset keeps the condition consistent with a
- * steadily walking robot, whose DCM leads the support point by v / omega, so
- * that the cost does not decelerate the walk. Under an active reduced-order
- * plan the reference is the plan's own DCM instead, and both DCMs are then
- * taken on the plan's pendulum (getParameters).
+ * / nomPosComRtFeetmeanEwrtWorldZ)) is pulled towards xi_ref = p_support +
+ * velocityCommandOffsetFactor * v_ref / omega, where p_support is the
+ * (time-blended) center of the feet in contact at the terminal time (from the
+ * mode schedule) and v_ref the reference CoM velocity of the target
+ * trajectories (the planned one under contact planning). With
+ * velocityCommandOffsetFactor = 0 this is the classic capturability condition
+ * (the robot can come to rest over its terminal support); the velocity offset
+ * keeps the condition consistent with a steadily walking robot, whose DCM leads
+ * the support point by v / omega, so that the cost does not decelerate the
+ * walk. Under an active reduced-order plan the reference is the plan's own DCM
+ * instead, and both DCMs are then taken on the plan's pendulum (getParameters).
  *
- * THE PENDULUM. comHeight is the robot's own by default: a `dcm_terminal_cost`
- * block without `com_height` (a comHeight of nullopt here) means the model's
- * center of mass above its feet at the task file's initial_state
- * (computeComHeightAboveFeet, the length every LIP consumer shares), which the
- * cost is given at construction and resolves on every setConfig(), so a hot
- * reload of the block keeps meaning the same thing. A value is an explicit
- * override.
+ * THE PENDULUM. nomPosComRtFeetmeanEwrtWorldZ is the robot's own by default: a
+ * `dcm_terminal_cost` block without `nom_pos_com_rt_feetmean_ewrt_world_z` (a
+ * nomPosComRtFeetmeanEwrtWorldZ of nullopt here) means the model's center of
+ * mass above its feet at the task file's initial_state
+ * (computeProxyPosComRtFeetmeanEwrtWorldZ, the length every LIP consumer
+ * shares), which the cost is given at construction and resolves on every
+ * setConfig(), so a hot reload of the block keeps meaning the same thing. A
+ * value is an explicit override.
  *
- * The cost is 0.5 ||W^(1/2) (xi - xi_ref)||^2 with a Gauss-Newton Hessian, so
- * it stays positive semi-definite for every configuration. It replaces the
+ * The cost is 0.5 ||W^(1/2) R_z(psi)^T (xi - xi_ref)||^2 with a Gauss-Newton
+ * Hessian, so it stays positive semi-definite for every configuration. W =
+ * diag(weight_x, weight_y) weighs the longitudinal and the lateral DCM error:
+ * the error in the axes of the heading frame, whose yaw psi is the target's
+ * base heading at the terminal time (world x without a target). psi is a
+ * parameter, not a function of the state. It replaces the
  * quadratic final_state_weights terminal cost on the full state, whose base
  * pose entries are meaningless for varying gait cadences.
  *
@@ -105,56 +115,65 @@ class DcmTerminalCost final : public StateCost {
     static constexpr scalar_t kDefaultSupportBlendTime = 0.1;
 
     // [m] pendulum height for omega. nullopt: the model's (resolveConfig()
-    // fills it in), what a file without dcm_terminal_cost.com_height converts
-    // to; a value: an explicit override, positive.
-    std::optional<scalar_t> comHeight;
+    // fills it in), what a file without
+    // dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z converts to; a
+    // value: an explicit override, positive.
+    std::optional<scalar_t> nomPosComRtFeetmeanEwrtWorldZ;
     // [m/s^2] the robot model's gravity (modelGravity()), the one its dynamics
     // use; not a file key. resolveConfig() writes the model's, at start-up and
     // on every setConfig().
-    scalar_t gravity = kGravityMagnitude;
-    vector2_t weights{kDefaultWeight,
-                      kDefaultWeight};  // [x, y] weights on the DCM error
-    scalar_t velocityOffsetFactor =
-        1.0;  // scales the v_cmd / omega offset of the DCM reference
+    scalar_t gravityMagnitude = kGravityMagnitude;
+    // The weights on the longitudinal and the lateral DCM error, the error in
+    // the heading frame's x and y axes.
+    vector2_t weights{kDefaultWeight, kDefaultWeight};
+    scalar_t velocityCommandOffsetFactor =
+        1.0;  // scales the v_ref / omega offset of the DCM reference
     // [s] a foot's support weight ramps 0->1 after touch-down and 1->0 before
     // lift-off
     scalar_t supportBlendTime = kDefaultSupportBlendTime;
 
-    /** [1/s] sqrt(gravity / comHeight); empty while comHeight is not resolved
-     * (resolveConfig()). */
+    /** [1/s] sqrt(gravity / nomPosComRtFeetmeanEwrtWorldZ); empty while
+     * nomPosComRtFeetmeanEwrtWorldZ is not resolved (resolveConfig()). */
     std::optional<scalar_t> omega() const;
 
     /**
      * OK, or InvalidArgument naming the dcm_terminal_cost field to change: a
-     * com_height that is given and is not a positive number, a negative weight
-     * or blend time. The gravity is the model's, which modelGravity() checks.
+     * nom_pos_com_rt_feetmean_ewrt_world_z that is given and is not a positive
+     * number, a negative weight or blend time. The gravity is the model's,
+     * which modelGravity() checks.
      */
     absl::Status validate() const;
   };
 
   /**
-   * `config` with an unset comHeight set to `modelComHeight`, the pendulum
-   * length of the robot's model, its gravity set to `modelGravity`, the
-   * model's, and validated. InvalidArgument naming dcm_terminal_cost.com_height
-   * when neither the file nor the model gives a positive height.
+   * `config` with an unset nomPosComRtFeetmeanEwrtWorldZ set to
+   * `modelNomPosComRtFeetmeanEwrtWorldZ`, the pendulum length of the robot's
+   * model, its gravity set to `modelGravityMagnitude`, the model's, and
+   * validated. InvalidArgument naming
+   * dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z when neither the
+   * file nor the model gives a positive height.
    */
-  static absl::StatusOr<Config> resolveConfig(Config config,
-                                              scalar_t modelComHeight,
-                                              scalar_t modelGravity);
+  static absl::StatusOr<Config> resolveConfig(
+      Config config,
+      scalar_t modelNomPosComRtFeetmeanEwrtWorldZ,
+      scalar_t modelGravityMagnitude);
 
   /**
-   * Builds the cost with `config` resolved against `modelComHeight` and the
-   * gravity of `pinocchioInterface`'s model (resolveConfig, modelGravity()), or
-   * returns the InvalidArgument that names the field to change.
+   * Builds the cost with `config` resolved against
+   * `modelNomPosComRtFeetmeanEwrtWorldZ` and the gravity of
+   * `pinocchioInterface`'s model (resolveConfig, modelGravity()), or returns
+   * the InvalidArgument that names the field to change.
    *
-   * @param modelComHeight [m] the model's pendulum length at the nominal state
-   *                       (CentroidalMpcInterface::getNominalComHeight()); what
-   * an unset comHeight stands for, now and on every later setConfig().
+   * @param modelNomPosComRtFeetmeanEwrtWorldZ [m] the model's pendulum length
+   * at the nominal state
+   *                       (CentroidalMpcInterface::getNomPosComRtFeetmeanEwrtWorldZ());
+   * what an unset nomPosComRtFeetmeanEwrtWorldZ stands for, now and on every
+   * later setConfig().
    */
   static absl::StatusOr<std::unique_ptr<DcmTerminalCost>> Create(
       const SwitchedModelReferenceManager& referenceManager,
       const Config& config,
-      scalar_t modelComHeight,
+      scalar_t modelNomPosComRtFeetmeanEwrtWorldZ,
       const PinocchioInterface& pinocchioInterface,
       const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
       const std::string& costName,
@@ -185,48 +204,55 @@ class DcmTerminalCost final : public StateCost {
 
   /**
    * Live update of weights / height; the CppAD model is parameterized so no
-   * recompilation is needed. An unset comHeight is resolved to the model's
-   * height the cost was built with, and the gravity is always the model's. A
-   * configuration that does not validate is refused with the InvalidArgument
-   * naming its field, and the running one is kept.
+   * recompilation is needed. An unset nomPosComRtFeetmeanEwrtWorldZ is resolved
+   * to the model's height the cost was built with, and the gravity is always
+   * the model's. A configuration that does not validate is refused with the
+   * InvalidArgument naming its field, and the running one is kept.
    */
   absl::Status setConfig(const Config& config);
-  /** The running configuration, comHeight resolved. */
+  /** The running configuration, nomPosComRtFeetmeanEwrtWorldZ resolved. */
   const Config& getConfig() const { return config_; }
-  /** [1/s] the running configuration's omega, sqrt(gravity / comHeight) of the
-   * resolved comHeight. */
+  /** [1/s] the running configuration's omega, sqrt(gravity /
+   * nomPosComRtFeetmeanEwrtWorldZ) of the resolved
+   * nomPosComRtFeetmeanEwrtWorldZ. */
   scalar_t omega() const { return omega_; }
-  /** [m] the model's pendulum length an unset comHeight resolves to. */
-  scalar_t getModelComHeight() const { return modelComHeight_; }
+  /** [m] the model's pendulum length an unset nomPosComRtFeetmeanEwrtWorldZ
+   * resolves to. */
+  scalar_t getModelNomPosComRtFeetmeanEwrtWorldZ() const {
+    return modelNomPosComRtFeetmeanEwrtWorldZ_;
+  }
   /** [m/s^2] the model's gravity, which every configuration resolves to. */
-  scalar_t getModelGravity() const { return modelGravity_; }
+  scalar_t getModelGravityMagnitude() const { return modelGravityMagnitude_; }
 
   /**
-   * Parameter vector [w_left, w_right, omega, v_cmd_x, v_cmd_y, offsetFactor,
-   * sqrtW_x, sqrtW_y, plannedWeight, plannedDcm_x, plannedDcm_y]; public for
-   * tests. The support weights are continuous in time: 1 while a foot is in
-   * contact and further than supportBlendTime from a lift-off or touch-down,
-   * ramping linearly through the transitions, so that the terminal reference
-   * does not jump when the receding horizon end crosses a mode switch. omega is
-   * the configuration's, or the plan's while the reference manager supplies a
-   * planned DCM, so that the robot's DCM and the plan's are taken on one
-   * pendulum.
+   * Parameter vector [w_left, w_right, omega, v_ref_x, v_ref_y, offsetFactor,
+   * sqrtW_x, sqrtW_y, plannedWeight, plannedDcm_x, plannedDcm_y,
+   * refYawHeadingRtWorld]; public for tests. refYawHeadingRtWorld [rad] is the
+   * heading of the target's base at `time` (MpcRobotModelBase::
+   * getYawBaseRtWorld()), 0 without a target, and sets the axes sqrtW_x and
+   * sqrtW_y act in. The support weights are continuous in time: 1 while a foot
+   * is in contact and further than supportBlendTime from a lift-off or
+   * touch-down, ramping linearly through the transitions, so that the terminal
+   * reference does not jump when the receding horizon end crosses a mode
+   * switch. omega is the configuration's, or the plan's while the reference
+   * manager supplies a planned DCM, so that the robot's DCM and the plan's are
+   * taken on one pendulum.
    */
   vector_t getParameters(scalar_t time,
                          const TargetTrajectories& targetTrajectories) const;
 
-  /** Unweighted DCM error xi - xi_ref for the given state and parameters;
-   * public for tests. */
-  vector2_t computeDcmError(const vector_t& state,
-                            const vector_t& parameters) const;
+  /** Unweighted DCM error xi - xi_ref in world axes for the given state and
+   * parameters (their weights and heading ignored); public for tests. */
+  vector2_t computeErrPosDcmRtWorldEwrtWorldXy(
+      const vector_t& state, const vector_t& parameters) const;
 
   /**
-   * d computeDcmError() / d state (2 x the state dimension), from the same
-   * library: the Jacobian whose product with the weights
+   * d computeErrPosDcmRtWorldEwrtWorldXy() / d state (2 x the state dimension),
+   * from the same library: the Jacobian whose product with the weights
    * getQuadraticApproximation()'s Gauss-Newton Hessian is; public for tests.
    */
-  matrix_t computeDcmErrorJacobian(const vector_t& state,
-                                   const vector_t& parameters) const;
+  matrix_t computeJacobianErrPosDcmRtWorldEwrtWorldXy(
+      const vector_t& state, const vector_t& parameters) const;
 
   /** Time-blended support weights [w_left, w_right] at `time`; public for
    * tests. */
@@ -237,8 +263,8 @@ class DcmTerminalCost final : public StateCost {
    * CHECK-fails on an unresolved one. */
   DcmTerminalCost(const SwitchedModelReferenceManager& referenceManager,
                   Config config,
-                  scalar_t modelComHeight,
-                  scalar_t modelGravity,
+                  scalar_t modelNomPosComRtFeetmeanEwrtWorldZ,
+                  scalar_t modelGravityMagnitude,
                   const PinocchioInterface& pinocchioInterface,
                   const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
                   const std::string& costName,
@@ -247,9 +273,9 @@ class DcmTerminalCost final : public StateCost {
 
   const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
   Config config_;
-  scalar_t modelComHeight_;
+  scalar_t modelNomPosComRtFeetmeanEwrtWorldZ_;
   // [m/s^2] the gravity of the model the cost was built on (modelGravity()).
-  scalar_t modelGravity_;
+  scalar_t modelGravityMagnitude_;
   scalar_t omega_ = 0.0;  // [1/s] config_.omega() of the resolved config_, set
                           // with every config_
   bool isActive_ = true;

@@ -27,6 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -42,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/contact_planning_file.pb.h"
 #include "humanoid_mpc_config/reference_file.pb.h"
 #include "humanoid_mpc_config/task_file.pb.h"
+#include "humanoid_mpc_config/task_space_cost_config.pb.h"
 
 /**
  * The reload classes of the configuration schemas as the C++ side reads them
@@ -72,8 +74,9 @@ std::vector<std::string> changedPaths(
     const google::protobuf::Message& running,
     const google::protobuf::Message& reloaded) {
   std::vector<std::string> paths;
-  for (const ConfigChange& change : changedStartUpFields(running, reloaded))
+  for (const ConfigChange& change : changedStartUpFields(running, reloaded)) {
     paths.push_back(change.path);
+  }
   return paths;
 }
 
@@ -98,7 +101,10 @@ TEST(ConfigReload, ABlocksOptionsApplyBelowItUnlessAFieldSetsItsOwn) {
   // A START_UP block's own HOT field is hot; its other fields are not.
   EXPECT_EQ(leafAt(leaves, "contacts.basis_scaling_regularization").reload,
             ConfigReload::kHot);
-  EXPECT_EQ(leafAt(leaves, "contacts.contact_rectangle.x_min").reload,
+  EXPECT_EQ(leafAt(leaves,
+                   "contacts.contact_rectangle.min_pos_corners_rt_contact_ewrt_"
+                   "contact_x")
+                .reload,
             ConfigReload::kStartUp);
   EXPECT_EQ(leafAt(leaves, "multiple_shooting.sqp_iteration").reload,
             ConfigReload::kHot);
@@ -167,7 +173,7 @@ TEST(ConfigReload,
   humanoid_mpc_config::TaskFile reloaded = running;
   // Hot fields are applied, so they are not reported.
   reloaded.mutable_state_weights()->set_scaling(3.0);
-  reloaded.set_terrain_height(0.1);
+  reloaded.set_pos_surface_rt_world_ewrt_world_z(0.1);
   reloaded.mutable_multiple_shooting()->set_sqp_iteration(7);
   EXPECT_THAT(changedPaths(running, reloaded), testing::IsEmpty());
 

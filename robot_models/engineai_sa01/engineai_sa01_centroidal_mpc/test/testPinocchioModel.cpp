@@ -86,8 +86,8 @@ constexpr absl::string_view kTaskFile =
 
 // The nominal standing pose of config/command/reference.textproto. Keep the two
 // in sync: this test prints the sole and contact-frame heights that
-// nom_pos_base_rt_world_ewrt_world_z and contacts.pos_contact_rt_link_ewrt_link
-// are derived from.
+// nom_pos_base_rt_surface_ewrt_world_z and
+// contacts.pos_contact_rt_link_ewrt_link are derived from.
 // LINT.IfChange(sa01_nominal_pose)
 constexpr double kNominalBaseHeight = 0.8135;
 constexpr double kNominalHipPitch = -0.30;
@@ -189,7 +189,8 @@ void printContactFrameHeights(PinocchioInterface& pinocchioInterface,
 
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
-  const vector3_t com = pinocchio::centerOfMass(model, data, q);
+  const vector3_t posComRtWorldEwrtWorld =
+      pinocchio::centerOfMass(model, data, q);
 
   LOG(INFO) << "###########################################";
   LOG(INFO) << "########## Nominal Standing Pose ##########";
@@ -206,13 +207,14 @@ void printContactFrameHeights(PinocchioInterface& pinocchioInterface,
   }
   LOG(INFO) << absl::StrFormat(
       "base height : %.5f m (reference.textproto "
-      "nom_pos_base_rt_world_ewrt_world_z)",
+      "nom_pos_base_rt_surface_ewrt_world_z)",
       q[model.joints[1].idx_q() + 2]);
-  LOG(INFO) << "CoM         : " << com.transpose();
+  LOG(INFO) << "CoM         : " << posComRtWorldEwrtWorld.transpose();
   LOG(INFO) << "CoM height above the contact frames: "
-            << com[2] -
+            << posComRtWorldEwrtWorld[2] -
                    data.oMf[model.getFrameId("foot_l_contact")].translation()[2]
-            << " m" << " (dcm_terminal_cost.com_height)";
+            << " m"
+            << " (dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z)";
 }
 
 /** The default model, straight from the URDF, and the model the MPC builds from

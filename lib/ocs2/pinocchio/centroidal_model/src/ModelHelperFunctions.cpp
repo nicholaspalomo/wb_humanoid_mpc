@@ -66,7 +66,7 @@ Eigen::Matrix<SCALAR_T, centroidal_model::kCentroidalMomentumDim, centroidal_mod
   Ab.template topRightCorner<centroidal_model::kLinearMomentumDim, kRotationTangentDim>().noalias() =
       info.robotMass * skewSymmetricMap * rotmatBaseRtWorld;
   Ab.template bottomRightCorner<centroidal_model::kAngularMomentumDim, kRotationTangentDim>().noalias() =
-      rotmatBaseRtWorld * info.centroidalInertiaNominal;
+      rotmatBaseRtWorld * info.nomInertiaComEwrtBase;
   return Ab;
 }
 template Eigen::Matrix<scalar_t, centroidal_model::kCentroidalMomentumDim, centroidal_model::kBaseVelocityDim>
@@ -159,10 +159,8 @@ Eigen::Matrix<SCALAR_T, centroidal_model::kCentroidalMomentumDim, 1> getMnormRat
         posContactRtComEwrtWorld.cross(forceContactEwrtWorld) + torqueContactEwrtWorld;
   }  // end of i loop
 
-  // normalize by the total mass
-  rateCmomComRtWorldEwrtWorld /= info.robotMass;
-
-  return rateCmomComRtWorldEwrtWorld;
+  // The mass-normalized rate.
+  return rateCmomComRtWorldEwrtWorld / info.robotMass;
 }
 
 /******************************************************************************************************/

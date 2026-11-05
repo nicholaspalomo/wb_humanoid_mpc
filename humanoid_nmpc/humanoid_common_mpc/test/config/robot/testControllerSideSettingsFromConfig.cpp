@@ -142,8 +142,9 @@ TEST(WholeFileContactWrenchGateTest,
   const mpc_config::TaskFile task;
   ASSERT_FALSE(task.contact_wrench_gate.has_value());
   const std::optional<ContactWrenchGate::Config> gate = gateOfTaskFile(task);
-  if (!gate.has_value())
+  if (!gate.has_value()) {
     GTEST_FAIL() << "no gate: the gate in use would be kept";
+  }
   const ContactWrenchGate::Config instantaneous;
   EXPECT_EQ(gate->debounceTime, instantaneous.debounceTime);
   EXPECT_EQ(gate->rampTime, instantaneous.rampTime);
@@ -155,8 +156,9 @@ TEST(WholeFileContactWrenchGateTest, AGateBlockSetsItsOwnTimes) {
   mpc_config::TaskFile task;
   task.contact_wrench_gate = block;
   const std::optional<ContactWrenchGate::Config> gate = gateOfTaskFile(task);
-  if (!gate.has_value())
+  if (!gate.has_value()) {
     GTEST_FAIL() << "no gate: the gate in use would be kept";
+  }
   EXPECT_EQ(gate->debounceTime, block.debounce_time);
   EXPECT_EQ(gate->rampTime, block.ramp_time);
 }

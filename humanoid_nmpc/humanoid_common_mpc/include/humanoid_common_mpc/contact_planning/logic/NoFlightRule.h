@@ -31,6 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
+#include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactLogicRule.h"
 
 namespace ocs2::humanoid {

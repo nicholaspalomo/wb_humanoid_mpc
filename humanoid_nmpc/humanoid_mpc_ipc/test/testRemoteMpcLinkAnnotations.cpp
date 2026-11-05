@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // each, and none of a policy the link drops.
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 
 #include "absl/base/nullability.h"
@@ -43,12 +44,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 #include "humanoid_mpc_ipc/MpcServer.h"
 #include "humanoid_mpc_ipc/RemoteMpcLink.h"
+#include "humanoid_mpc_msgs/target_contact_patch.nproto.h"
+#include "humanoid_mpc_msgs/target_contact_patch.pb.h"
 #include "humanoid_mpc_msgs/viewer_annotations.nproto.h"
 #include "humanoid_mpc_msgs/viewer_annotations.pb.h"
 #include "humanoid_nmpc/humanoid_mpc_ipc/test/MpcLinkTestSupport.h"
@@ -92,7 +97,8 @@ TEST(RemoteMpcLinkAnnotations,
                   ? humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING
                   : humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE);
           patch->mutable_des_pose_foot_rt_world()->set_x(0.1 * contact);
-          patch->mutable_des_pose_foot_rt_world()->set_yaw(0.2);
+          patch->mutable_des_pose_foot_rt_world()
+              ->set_eulerzyx_foot_rt_world_yaw(0.2);
         }
         annotations->set_scaled_cmd_linvel_base_rt_world_ewrt_heading_x(
             static_cast<double>(solve));

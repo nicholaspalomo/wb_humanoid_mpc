@@ -299,14 +299,18 @@ TEST_F(MpcParameterUpdaterModuleTest,
       matrix_t::Random(wrenchInputDim, config.numBasisInputs + numJoints);
   ASSERT_NE(config.basisInputDim(), wrenchInputDim);
 
-  const absl::StatusOr<std::unique_ptr<BasisInputsCostApplier>> wrench =
-      BasisInputsCostApplier::Create(config, wrenchInputDim);
-  ASSERT_FALSE(wrench.ok()) << "the wrench-space input dimension was accepted "
-                               "beside a basis-space transform";
-  EXPECT_EQ(wrench.status().code(), absl::StatusCode::kInvalidArgument)
-      << wrench.status();
-  EXPECT_NE(wrench.status().message().find("inputDim"), absl::string_view::npos)
-      << wrench.status();
+  const absl::StatusOr<std::unique_ptr<BasisInputsCostApplier>>
+      wrenchModeApplier =
+          BasisInputsCostApplier::Create(config, wrenchInputDim);
+  ASSERT_FALSE(wrenchModeApplier.ok())
+      << "the wrench-space input dimension was accepted "
+         "beside a basis-space transform";
+  EXPECT_EQ(wrenchModeApplier.status().code(),
+            absl::StatusCode::kInvalidArgument)
+      << wrenchModeApplier.status();
+  EXPECT_NE(wrenchModeApplier.status().message().find("inputDim"),
+            absl::string_view::npos)
+      << wrenchModeApplier.status();
   const absl::StatusOr<std::unique_ptr<BasisInputsCostApplier>> basis =
       BasisInputsCostApplier::Create(config, config.basisInputDim());
   EXPECT_TRUE(basis.ok()) << basis.status();

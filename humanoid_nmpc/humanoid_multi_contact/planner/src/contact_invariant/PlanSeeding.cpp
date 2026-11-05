@@ -160,8 +160,9 @@ vector_t mpcStateOf(const MpcRobotModelBase<scalar_t>& model,
                     const RobotConfiguration& configuration) {
   vector_t state =
       vector_t::Zero(static_cast<Eigen::Index>(model.getStateDim()));
-  model.setPosBaseRtWorldEwrtWorld(state, configuration.basePosition);
-  model.setQuatBaseRtWorldXyzw(state, configuration.baseOrientation.coeffs());
+  model.setPosBaseRtWorldEwrtWorld(state,
+                                   configuration.posBaseRtWorldEwrtWorld);
+  model.setQuatBaseRtWorldXyzw(state, configuration.quatBaseRtWorld.coeffs());
   model.setJointAngles(state, mpcJointsOf(model, configuration.jointNames,
                                           configuration.jointPositions));
   return state;
@@ -187,8 +188,8 @@ absl::StatusOr<MpcTrajectory> mpcTrajectoryOfPlan(
     const size_t next = std::min(j + 1, plan.knots.size() - 1);
     const PlanKnot& a = plan.knots[j];
     const PlanKnot& b = plan.knots[next];
-    if (a.base_position.size() != kPositionDim ||
-        a.base_orientation_xyzw.size() != kQuaternionCoefficients ||
+    if (a.pos_base_rt_world_ewrt_world.size() != kPositionDim ||
+        a.quat_base_rt_world_xyzw.size() != kQuaternionCoefficients ||
         a.joint_positions.size() !=
             static_cast<Eigen::Index>(plan.joint_names.size())) {
       return absl::InvalidArgumentError(
@@ -200,44 +201,55 @@ absl::StatusOr<MpcTrajectory> mpcTrajectoryOfPlan(
     const double alpha =
         span > 0.0 ? std::clamp((time - a.time) / span, 0.0, 1.0) : 0.0;
     RobotConfiguration configuration;
-    configuration.basePosition =
-        (1.0 - alpha) * Eigen::Vector3d(a.base_position) +
-        alpha * Eigen::Vector3d(b.base_position);
-    const Eigen::Quaterniond qa(Eigen::Vector4d(a.base_orientation_xyzw));
-    const Eigen::Quaterniond qb(Eigen::Vector4d(b.base_orientation_xyzw));
-    configuration.baseOrientation = qa.slerp(alpha, qb).normalized();
+    configuration.posBaseRtWorldEwrtWorld =
+        (1.0 - alpha) * Eigen::Vector3d(a.pos_base_rt_world_ewrt_world) +
+        alpha * Eigen::Vector3d(b.pos_base_rt_world_ewrt_world);
+    const Eigen::Quaterniond initQuatBaseRtWorld(
+        Eigen::Vector4d(a.quat_base_rt_world_xyzw));
+    const Eigen::Quaterniond finalQuatBaseRtWorld(
+        Eigen::Vector4d(b.quat_base_rt_world_xyzw));
+    configuration.quatBaseRtWorld =
+        initQuatBaseRtWorld.slerp(alpha, finalQuatBaseRtWorld).normalized();
     configuration.jointNames = plan.joint_names;
     configuration.jointPositions =
         (1.0 - alpha) * a.joint_positions + alpha * b.joint_positions;
     vector_t state = mpcStateOf(model, configuration);
-    if (a.linear_momentum.size() == kPositionDim &&
-        b.linear_momentum.size() == kPositionDim) {
+    if (a.linmom_com_rt_world_ewrt_world.size() == kPositionDim &&
+        b.linmom_com_rt_world_ewrt_world.size() == kPositionDim) {
       state.head<kPositionDim>() =
-          ((1.0 - alpha) * a.linear_momentum + alpha * b.linear_momentum) /
+          ((1.0 - alpha) * a.linmom_com_rt_world_ewrt_world +
+           alpha * b.linmom_com_rt_world_ewrt_world) /
           mass;
     }
-    if (a.angular_momentum.size() == kPositionDim &&
-        b.angular_momentum.size() == kPositionDim) {
+    if (a.angmom_com_rt_world_ewrt_world.size() == kPositionDim &&
+        b.angmom_com_rt_world_ewrt_world.size() == kPositionDim) {
       state.segment<kPositionDim>(kPositionDim) =
-          ((1.0 - alpha) * a.angular_momentum + alpha * b.angular_momentum) /
+          ((1.0 - alpha) * a.angmom_com_rt_world_ewrt_world +
+           alpha * b.angmom_com_rt_world_ewrt_world) /
           mass;
     }
     vector_t input =
         vector_t::Zero(static_cast<Eigen::Index>(model.getInputDim()));
-    for (const config::MultiContactPlan::ContactWrench& wrench :
-         a.contact_wrenches) {
+    for (const config::MultiContactPlan::ContactWrench& wrenchMsg :
+         a.wrench_contacts_ewrt_world) {
       for (size_t i = 0; i < contactNames.size(); ++i) {
-        if (contactNames[i] != wrench.contact) continue;
-        if (wrench.force.size() == kForceDim) {
-          model.setForceContactEwrtParam(input, wrench.force, i);
+        if (contactNames[i] != wrenchMsg.contact) continue;
+        // The plan stores world-frame wrenches; the setters convert them into
+        // the frame the input parameterizes them in.
+        // NOLINTBEGIN(frame-naming): the components of a ContactWrench, whose frames its field names
+        if (wrenchMsg.force.size() == kForceDim) {
+          model.setForceContactEwrtWorld(state, input, wrenchMsg.force, i);
         }
-        if (wrench.torque.size() == kTorqueDim &&
+        if (wrenchMsg.torque.size() == kTorqueDim &&
             model.getContactInputDim(i) == static_cast<size_t>(kWrenchDim)) {
-          vector6_t full;
-          full << model.getForceContactEwrtParam(input, i),
-              Eigen::Vector3d(wrench.torque);
-          model.setWrenchContactEwrtParam(input, full, i);
+          vector6_t wrenchContactEwrtWorld;
+          wrenchContactEwrtWorld
+              << model.getForceContactEwrtWorld(state, input, i),
+              Eigen::Vector3d(wrenchMsg.torque);
+          model.setWrenchContactEwrtWorld(state, input, wrenchContactEwrtWorld,
+                                          i);
         }
+        // NOLINTEND(frame-naming)
       }
     }
     if (a.joint_velocities.size() == a.joint_positions.size()) {
@@ -330,8 +342,10 @@ absl::StatusOr<config::MultiContactPlan> retimedPlan(
       PlanKnot& knot = retimed.knots[k];
       knot.time =
           starts[r] + (plan.knots[k].time - plan.knots[begins[r]].time) * scale;
-      knot.linear_momentum = plan.knots[k].linear_momentum / scale;
-      knot.angular_momentum = plan.knots[k].angular_momentum / scale;
+      knot.linmom_com_rt_world_ewrt_world =
+          plan.knots[k].linmom_com_rt_world_ewrt_world / scale;
+      knot.angmom_com_rt_world_ewrt_world =
+          plan.knots[k].angmom_com_rt_world_ewrt_world / scale;
       knot.joint_velocities = plan.knots[k].joint_velocities / scale;
     }
   }
@@ -378,18 +392,20 @@ absl::Status checkGoalReached(const config::MultiContactPlan& plan,
     }
   }
   if (goal.base_region.has_value()) {
-    const Eigen::Vector3d offset = (Eigen::Vector3d(last.base_position) -
-                                    Eigen::Vector3d(goal.base_region->center))
-                                       .cwiseAbs();
-    if ((offset.array() >
+    // Componentwise absolute.
+    const Eigen::Vector3d posBaseRtBoxEwrtWorld =
+        (Eigen::Vector3d(last.pos_base_rt_world_ewrt_world) -
+         Eigen::Vector3d(goal.base_region->pos_box_rt_world_ewrt_world))
+            .cwiseAbs();
+    if ((posBaseRtBoxEwrtWorld.array() >
          Eigen::Vector3d(goal.base_region->half_extents).array())
             .any()) {
       return absl::NotFoundError(absl::StrFormat(
           "the plan ends with the base at (%.3f, %.3f, %.3f), outside the "
           "goal region",
-          Eigen::Vector3d(last.base_position).x(),
-          Eigen::Vector3d(last.base_position).y(),
-          Eigen::Vector3d(last.base_position).z()));
+          Eigen::Vector3d(last.pos_base_rt_world_ewrt_world).x(),
+          Eigen::Vector3d(last.pos_base_rt_world_ewrt_world).y(),
+          Eigen::Vector3d(last.pos_base_rt_world_ewrt_world).z()));
     }
   }
   return absl::OkStatus();

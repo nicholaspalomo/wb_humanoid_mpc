@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/die_if_null.h"
 #include "absl/log/log.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -63,7 +64,7 @@ struct AngularVelocityError {
   vector3_t residual;
   /** a = R(xi)^T R(xi_r) w_B,r: the reference's body angular velocity, in the
    * body frame of xi. */
-  vector3_t referenceInBody;
+  vector3_t rotatedRefAngvelBaseRtWorldEwrtBase;
 };
 
 /**
@@ -79,16 +80,19 @@ AngularVelocityError computeErrAngvelBaseRtWorldEwrtBase(
     const vector4_t& refQuatBaseRtWorldXyzw,
     const vector3_t& angvelBaseRtWorldEwrtBase,
     const vector3_t& refAngvelBaseRtWorldEwrtBase) {
-  const vector3_t referenceInBody =
+  const vector3_t rotatedRefAngvelBaseRtWorldEwrtBase =
       quaternionRotationMatrix<scalar_t>(quatBaseRtWorldXyzw).transpose() *
       (quaternionRotationMatrix<scalar_t>(refQuatBaseRtWorldXyzw) *
        refAngvelBaseRtWorldEwrtBase);
-  const vector3_t difference = angvelBaseRtWorldEwrtBase - referenceInBody;
+  const vector3_t errAngvelBaseRtWorldEwrtBase =
+      angvelBaseRtWorldEwrtBase - rotatedRefAngvelBaseRtWorldEwrtBase;
   // P_3: the body axes (x, y, z) in the rows (z, y, x) of the tuning layout.
   return AngularVelocityError{
-      .residual = vector3_t(difference(kZAxisIndex), difference(kYAxisIndex),
-                            difference(kXAxisIndex)),
-      .referenceInBody = referenceInBody};
+      .residual = vector3_t(errAngvelBaseRtWorldEwrtBase(kZAxisIndex),
+                            errAngvelBaseRtWorldEwrtBase(kYAxisIndex),
+                            errAngvelBaseRtWorldEwrtBase(kXAxisIndex)),
+      .rotatedRefAngvelBaseRtWorldEwrtBase =
+          rotatedRefAngvelBaseRtWorldEwrtBase};
 }
 
 /** P_3 m: the rows of `m` in reverse order, (x, y, z) -> (z, y, x). */
@@ -260,7 +264,7 @@ TuningDeviationApproximation TuningLayoutDeviation::linearize(
   for (Eigen::Index column = 0; column < orientationSlotsColumns.cols();
        ++column) {
     orientationSlotsColumns.col(column) -=
-        errAngvelBaseRtWorldEwrtBase.referenceInBody.cross(
+        errAngvelBaseRtWorldEwrtBase.rotatedRefAngvelBaseRtWorldEwrtBase.cross(
             vector3_t(rotationTangent.col(column)));
   }
   approximation.denseBlocks.push_back(TuningJacobianDenseBlock{

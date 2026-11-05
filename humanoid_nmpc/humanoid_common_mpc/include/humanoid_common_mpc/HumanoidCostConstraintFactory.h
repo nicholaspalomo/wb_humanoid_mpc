@@ -31,14 +31,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
 #include "ocs2_core/cost/StateCost.h"
 #include "ocs2_core/cost/StateInputCost.h"
@@ -49,10 +51,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
-#include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 

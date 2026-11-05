@@ -17,6 +17,6 @@ message NominalFootholdConfig {
   // [m] The full lateral distance between the feet: each foot is placed this far to its own side of the stance foot.
   // 0 disables the nominal reference.
   // LINT.IfChange(derive_parameters_step_width)
-  double step_width = 1 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m" }];
+  double nom_pos_lfoot_rt_rfoot_ewrt_heading_y = 1 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m" }];
   // LINT.ThenChange(//tools/locomotion_heuristics/derive_parameters.py:derive_parameters_inputs)
 }

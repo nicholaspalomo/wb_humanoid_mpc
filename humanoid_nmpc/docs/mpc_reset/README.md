@@ -118,15 +118,15 @@ process with the MuJoCo backend, after the operator's commands:
                      ▼                                                    ▼
   resetEpoch() moved?  ── yes ──▶ discontinuity (the simulator reset the robot; it also locked the gantry)
   locked, was unlocked? ── yes ──▶ discontinuity (LOCK_GANTRY)
-  unlocked, tilt > sim_max_base_tilt_angle? ── yes ──▶ lockGantry(), discontinuity (the tilt catch)
+  unlocked, tilt > sim_max_tiltangle_base_rt_world? ── yes ──▶ lockGantry(), discontinuity (the tilt catch)
   unlocked, was locked? ── yes ──▶ gantryUnlocked
                      │
    discontinuity ──▶ JOINT_PD (torques on), the loop calls requestMpcResetAndHold() and publishControllerReset(), which
                      counts the reset in the FSM state it publishes (the remote control re-centers its joysticks on
                      every counted reset, every new lock and every transition into a passive mode)
-   caught after a fall, sim_gantry_catch_lift given ──▶ settle sequence:
+   caught after a fall, sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z given ──▶ settle sequence:
 
-        lift the gantry by sim_gantry_catch_lift ──▶ wait until at rest ──▶ lower to the height of the catch ──▶ wait until at rest
+        lift the gantry by sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z ──▶ wait until at rest ──▶ lower to the height of the catch ──▶ wait until at rest
         (0.25 m/s)                                (tilt < 0.05 rad, base < 0.05 m/s and 0.2 rad/s, the MPC joints within 0.15 rad
                                                    of the nominal posture, for 0.5 s; a 5 s timeout moves on with a warning)
 
@@ -144,8 +144,8 @@ Task file fields (`config/mpc/task.textproto`, simulation only, read by the robo
 <!-- LINT.IfChange(sim_fall_recovery_keys) -->
 | Field | Meaning |
 | --- | --- |
-| `sim_max_base_tilt_angle` | [rad] tilt past which the robot is caught, positive; absent disables the catch |
-| `sim_gantry_catch_lift` | [m] how far the gantry lifts a caught robot to settle it, positive; absent skips the sequence and accepts WB_MPC at once. Every robot ships 0.15. |
+| `sim_max_tiltangle_base_rt_world` | [rad] tilt past which the robot is caught, positive; absent disables the catch |
+| `sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z` | [m] how far the gantry lifts a caught robot to settle it, positive; absent skips the sequence and accepts WB_MPC at once. Every robot ships 0.15. |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto:sim_fall_recovery_keys) -->
 
 Rest is judged on joint positions, not joint velocities: with the shipped DRC Atlas JOINT_PD gains an unloaded ankle

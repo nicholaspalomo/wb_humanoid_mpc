@@ -34,8 +34,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
+#include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/search/SearchStage.h"
 
 namespace ocs2::humanoid {
 
@@ -56,8 +62,9 @@ void HeadingRelinearizationStage::configure(
 
 absl::Status HeadingRelinearizationStage::afterSearch(SearchRun& run) const {
   MiqpResult& result = *run.result;
-  if (!run.layout->hasHeading || !result.hasIncumbent || passes_ <= 0)
+  if (!run.layout->hasHeading || !result.hasIncumbent || passes_ <= 0) {
     return absl::OkStatus();
+  }
   for (int pass = 0; pass < passes_; ++pass) {
     if (run.elapsedSeconds() > timeBudget_) break;
     // A pass that fails ends the stage; the passes before it stay adopted.

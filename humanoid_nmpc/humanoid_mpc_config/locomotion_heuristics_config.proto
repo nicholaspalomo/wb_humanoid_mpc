@@ -9,7 +9,8 @@ import "nproto/retired_field_options.proto";
 // The locomotion heuristics of the centroidal MPC's reference (the task file's locomotion_heuristics block,
 // LocomotionHeuristicConfig; humanoid_nmpc/docs/locomotion_heuristics/README.md): the ten heuristics of Bledt's
 // Regularized Predictive Control, Appendix C. Three lists name the heuristics that shape the base pose, the footholds
-// and the contact wrenches, and every heuristic has a parameter block named after it.
+// and the contact wrenches, and every heuristic has a parameter block named after it (with `_parameters` where the
+// heuristic's name holds a quantity word, humanoid_nmpc/docs/frame_naming/README.md).
 //
 // Every list is empty by default, which makes the layer an exact no-op: a block of parameters does nothing until its
 // heuristic is listed. A list names a heuristic at most once, and only in the list of its kind; names compare without
@@ -20,14 +21,13 @@ message LocomotionHeuristicsConfig {
 
   reserved 14 to max;
 
-  // The names of the lists, of the heuristics in them and of the parameter blocks are the registry's
-  // (LocomotionHeuristicFormulation.cpp), as the conversion's tests check.
+  // The names of the lists (heuristicListName()), of the heuristics in them and of the parameter blocks follow the
+  // registry's (LocomotionHeuristicFormulation.cpp), as the conversion's tests check.
   // LINT.IfChange(locomotion_heuristic_keys)
 
   // The heuristics that shape the base-pose reference: orientation_compensation, periodic_orientation,
   // height_compensation.
-  // NOLINTNEXTLINE(frame-naming): the names of the heuristics that shape the base-pose reference
-  repeated string base_pose = 1 [
+  repeated string base_pose_heuristics = 1 [
     (humanoid_mpc_config.tuning) = {
       reload: RELOAD_START_UP
       registry: "locomotion_heuristic"
@@ -35,22 +35,22 @@ message LocomotionHeuristicsConfig {
   ];
   // The heuristics that shape the foothold reference: hip_centered_stepping, capture_point, translational_stepping,
   // in_place_turning, high_speed_turning.
-  repeated string foothold = 2 [
+  repeated string foothold_heuristics = 2 [
     (humanoid_mpc_config.tuning) = {
       reload: RELOAD_START_UP
       registry: "locomotion_heuristic"
     }
   ];
   // The heuristics that shape the contact-wrench reference: impulse_scaling, centripetal_acceleration.
-  // NOLINTNEXTLINE(frame-naming): the names of the heuristics that shape the contact-wrench reference
-  repeated string wrench = 3 [
+  repeated string wrench_heuristics = 3 [
     (humanoid_mpc_config.tuning) = {
       reload: RELOAD_START_UP
       registry: "locomotion_heuristic"
     }
   ];
 
-  // The parameter blocks: a message per heuristic, and the field of each, named after the heuristic.
+  // The parameter blocks: a message per heuristic, and the field of each, named after the heuristic
+  // (parameterBlockName()).
 
   // H_Theta(pdot) = a1 pdot + a0 (Table C.2): roll from the commanded lateral speed, pitch from the commanded forward
   // speed, in the base's yaw frame. Positive pitch is nose down (Euler ZYX about a z-up world).
@@ -59,17 +59,15 @@ message LocomotionHeuristicsConfig {
     reserved 6 to max;
 
     // a1 [rad s/m] Roll reference per commanded lateral speed.
-    // NOLINTNEXTLINE(frame-naming): Bledt's coefficient a1 [rad s/m] of a linear map; the comment names its frames
-    double roll_per_lateral_velocity = 1 [default = 0.0];
+    double roll_per_lateral_velocity_gain = 1 [default = 0.0];
     // a0 [rad] Standing roll trim.
-    double roll_offset = 2 [default = 0.0];
+    double offset_eulerzyx_base_rt_world_roll = 2 [default = 0.0];
     // a1 [rad s/m] Pitch reference per commanded forward speed.
-    // NOLINTNEXTLINE(frame-naming): Bledt's coefficient a1 [rad s/m] of a linear map; the comment names its frames
-    double pitch_per_forward_velocity = 3 [default = 0.0];
+    double pitch_per_forward_velocity_gain = 3 [default = 0.0];
     // a0 [rad] Standing pitch trim.
-    double pitch_offset = 4 [default = 0.0];
-    // [rad] Each of roll and pitch is clamped to +/- this; positive.
-    double maximum_tilt = 5 [default = 0.35, (humanoid_mpc_config.tuning) = { unit: "rad" }];
+    double offset_eulerzyx_base_rt_world_pitch = 4 [default = 0.0];
+    // [rad] Each of the ZYX roll and pitch offsets of the base is clamped to +/- this; positive.
+    double max_offset_eulerzyx_base_rt_world = 5 [default = 0.35, (humanoid_mpc_config.tuning) = { unit: "rad" }];
   }
 
   // H_Theta(Phi) = b1 sin(c1 Phi + d1) (Table C.2): the roll and pitch limit cycle of the gait, with Phi the gait phase
@@ -79,13 +77,13 @@ message LocomotionHeuristicsConfig {
     reserved 7 to max;
 
     // b1 [rad]
-    double roll_amplitude = 1 [default = 0.0];
+    double amplitude_eulerzyx_base_rt_world_roll = 1 [default = 0.0];
     // c1 [rad per unit phase]; 2 pi is one period per left-right cycle.
     double roll_phase_rate = 2 [default = 6.283185307179586];
     // d1 [rad]
     double roll_phase_offset = 3 [default = 0.0];
     // b1 [rad]
-    double pitch_amplitude = 4 [default = 0.0];
+    double amplitude_eulerzyx_base_rt_world_pitch = 4 [default = 0.0];
     // c1 [rad per unit phase]; 4 pi is one period per step.
     double pitch_phase_rate = 5 [default = 12.566370614359172];
     // d1 [rad]
@@ -99,13 +97,13 @@ message LocomotionHeuristicsConfig {
     reserved 5 to max;
 
     // a2 [m s^2/m^2]
-    double height_per_speed_squared = 1 [default = 0.0];
+    double height_per_speed_squared_gain = 1 [default = 0.0];
     // a1 [m s/m]; negative lowers the base with speed.
-    double height_per_speed = 2 [default = 0.0];
+    double height_per_speed_gain = 2 [default = 0.0];
     // a0 [m]
-    double height_offset = 3 [default = 0.0];
-    // [m] The offset is clamped to +/- this; not negative.
-    double maximum_height_offset = 4 [default = 0.05, (humanoid_mpc_config.tuning) = { unit: "m" }];
+    double offset_pos_base_rt_world_ewrt_world_z = 3 [default = 0.0];
+    // [m] The offset of the base height is clamped to +/- this; not negative.
+    double max_offset_pos_base_rt_world_ewrt_world_z = 4 [default = 0.05, (humanoid_mpc_config.tuning) = { unit: "m" }];
   }
 
   // H_r(Theta) = PTP(R(Theta) r_hip) (Table C.1): the foot under its own hip, whose offset r_hip comes from the robot
@@ -136,9 +134,9 @@ message LocomotionHeuristicsConfig {
     // 1 is the textbook capture point; not negative.
     double gain = 1 [default = 1.0];
     // [m] A fixed center-of-mass height, positive; absent: the height measured at each solve.
-    double com_height_override = 2 [(humanoid_mpc_config.tuning) = { unit: "m" }];
+    double override_pos_com_rt_feetmean_ewrt_world_z = 2 [(humanoid_mpc_config.tuning) = { unit: "m" }];
     // [m] The offset is clamped to this magnitude; positive.
-    double maximum_offset = 4 [default = 0.25, (humanoid_mpc_config.tuning) = { unit: "m" }];
+    double max_norm_offset_pos_foot_rt_world_ewrt_world_xy = 4 [default = 0.25, (humanoid_mpc_config.tuning) = { unit: "m" }];
   }
 
   // H_r(pdot) = a1 pdot + a0 (Table C.2): step in the direction of travel, in the base's yaw frame.
@@ -147,19 +145,17 @@ message LocomotionHeuristicsConfig {
     reserved 7 to max;
 
     // a1 [m s/m], Bledt's constant.
-    // NOLINTNEXTLINE(frame-naming): Bledt's coefficient a1 [m s/m] of a linear map; the comment names its frames
-    double forward_per_forward_velocity = 1 [default = 0.0];
+    double forward_per_forward_velocity_gain = 1 [default = 0.0];
     // [-] Adds this times the upcoming stance duration to a1; Raibert's rule is 0.5.
     double forward_stance_fraction = 2 [default = 0.0];
     // a0 [m]
-    double forward_offset = 3 [default = 0.0];
+    double offset_pos_foot_rt_world_ewrt_heading_x = 3 [default = 0.0];
     // a1 [m s/m], Bledt's constant.
-    // NOLINTNEXTLINE(frame-naming): Bledt's coefficient a1 [m s/m] of a linear map; the comment names its frames
-    double lateral_per_lateral_velocity = 4 [default = 0.0];
+    double lateral_per_lateral_velocity_gain = 4 [default = 0.0];
     // [-] Adds this times the upcoming stance duration to a1.
     double lateral_stance_fraction = 5 [default = 0.0];
     // a0 [m], applied to each foot's own side.
-    double lateral_offset = 6 [default = 0.0];
+    double offset_pos_foot_rt_world_ewrt_heading_y = 6 [default = 0.0];
   }
 
   // H_r(psidot) = a1 psidot + a0 (Table C.2): step along the arc while turning on the spot, psidot being the commanded
@@ -173,11 +169,11 @@ message LocomotionHeuristicsConfig {
     // [m/rad] Adds this times the upcoming stance duration to a1; Raibert's is half the hip's lever arm.
     double forward_stance_lever = 2 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m/rad" }];
     // a0 [m]
-    double forward_offset = 3 [default = 0.0];
+    double offset_pos_foot_rt_world_ewrt_heading_x = 3 [default = 0.0];
     // a1 [m s/rad]
     double lateral_per_yaw_rate = 4 [default = 0.0];
     // a0 [m], applied to each foot's own side.
-    double lateral_offset = 5 [default = 0.0];
+    double offset_pos_foot_rt_world_ewrt_heading_y = 5 [default = 0.0];
   }
 
   // H_r(pdot x omega) = a1 (pdot x omega) + a0 (Table C.2): throw the feet out along the turn radius at speed; zero at
@@ -189,11 +185,11 @@ message LocomotionHeuristicsConfig {
     // a1 [m s^2/(m rad)] on v_y psidot.
     double forward_per_cross_term = 1 [default = 0.0];
     // a0 [m]
-    double forward_offset = 2 [default = 0.0];
+    double offset_pos_foot_rt_world_ewrt_heading_x = 2 [default = 0.0];
     // a1 [m s^2/(m rad)] on -v_x psidot.
     double lateral_per_cross_term = 3 [default = 0.0];
     // a0 [m], applied to each foot's own side.
-    double lateral_offset = 4 [default = 0.0];
+    double offset_pos_foot_rt_world_ewrt_heading_y = 4 [default = 0.0];
   }
 
   // H_f(Phi) = m g / (F beta) (Table C.1): the vertical stance force scaled by the reciprocal of the duty factor beta.
@@ -206,8 +202,7 @@ message LocomotionHeuristicsConfig {
     // beta is clamped up to this, in (0, 1], before its reciprocal is taken.
     double minimum_duty_factor = 2 [default = 0.2];
     // The reference is clamped to this many times weight compensation; at least 1.
-    // NOLINTNEXTLINE(frame-naming): a dimensionless ratio of the weight-compensation force
-    double maximum_force_ratio = 3 [default = 2.0];
+    double maximum_weight_compensation_ratio = 3 [default = 2.0];
   }
 
   // H_f(Theta x pdot) = m omega x pdot (Table C.1): the horizontal force that holds the robot on a circular path.
@@ -218,18 +213,16 @@ message LocomotionHeuristicsConfig {
     // Scales m omega x v; 0 disables it. Not negative.
     double scale = 1 [default = 1.0];
     // [N] The TOTAL horizontal force, before it is shared equally over the stance feet, is clamped to this magnitude,
-    // positive; absent: maximum_force_ratio_of_weight sets the clamp instead. A total, so that the clamp is the same
+    // positive; absent: max_wnorm_force_com_ewrt_world_xy sets the clamp instead. A total, so that the clamp is the same
     // fraction of each foot's friction budget (mu W / n_stance) in single and in double support.
     double max_force_com_ewrt_world_xy = 2 [(humanoid_mpc_config.tuning) = { unit: "N" }];
     // The clamp on the total as a fraction of the robot's weight, used while max_force_com_ewrt_world_xy is absent, when it must be
     // positive.
-    double maximum_force_ratio_of_weight = 3 [default = 0.3];
+    double max_wnorm_force_com_ewrt_world_xy = 3 [default = 0.3];
   }
 
-  // NOLINTNEXTLINE(frame-naming): the block of the heuristic `orientation_compensation`, named after its registry name
-  OrientationCompensation orientation_compensation = 4;
-  // NOLINTNEXTLINE(frame-naming): the block of the heuristic `periodic_orientation`, named after its registry name
-  PeriodicOrientation periodic_orientation = 5;
+  OrientationCompensation orientation_compensation_parameters = 4;
+  PeriodicOrientation periodic_orientation_parameters = 5;
   HeightCompensation height_compensation = 6;
   HipCenteredStepping hip_centered_stepping = 7;
   CapturePoint capture_point = 8;
@@ -237,7 +230,6 @@ message LocomotionHeuristicsConfig {
   InPlaceTurning in_place_turning = 10;
   HighSpeedTurning high_speed_turning = 11;
   ImpulseScaling impulse_scaling = 12;
-  // NOLINTNEXTLINE(frame-naming): the block of the heuristic `centripetal_acceleration`, named after its registry name
-  CentripetalAcceleration centripetal_acceleration = 13;
+  CentripetalAcceleration centripetal_acceleration_parameters = 13;
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicFormulation.cpp:known_heuristic_names, //tools/locomotion_heuristics/derive_parameters.py:derived_heuristic_keys)
 }

@@ -32,21 +32,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <memory>
+#include <numbers>
 #include <random>
 #include <utility>
 #include <vector>
 
-#include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/dynamics/SystemDynamicsBase.h"
 #include "ocs2_core/integration/SensitivityIntegrator.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "pinocchio/algorithm/centroidal.hpp"
-#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/equivalence/EulerMpcOracle.h"
@@ -124,13 +127,14 @@ std::vector<vector_t> eulerRollout(const EulerMpcOracle& oracle,
                                    scalar_t dt,
                                    int steps) {
   std::vector<vector_t> states = {initialEulerState};
-  for (int step = 0; step < steps; ++step)
+  for (int step = 0; step < steps; ++step) {
     states.push_back(oracle.rk4Step(states.back(), input, dt));
+  }
   return states;
 }
 
 /** One rollout comparison: the MPC's world and the oracle's (turned by
- * `worldRotation`), the inputs of each. Passive data. */
+ * `worldTurn`), the inputs of each. Passive data. */
 struct RolloutCase {
   vector_t state;
   vector_t input;
@@ -138,8 +142,8 @@ struct RolloutCase {
   vector_t eulerState;
   vector_t eulerInput;
   /** g: the oracle's world is the MPC's turned by g
-   * (MpcEquivalenceFixture::ambientWorldRotation()). */
-  vector4_t worldRotation = vector4_t(0.0, 0.0, 0.0, 1.0);
+   * (MpcEquivalenceFixture::ambientWorldTurn()). */
+  vector4_t worldTurn = vector4_t(0.0, 0.0, 0.0, 1.0);
 };
 
 /** max |d|. */
@@ -170,7 +174,7 @@ Rollouts rolloutsOf(MpcEquivalenceFixture& mpc,
   Rollouts rollouts;
   rollouts.steps = static_cast<int>(std::lround(mpc.timeHorizon() / dt));
   const matrix_t back =
-      mpc.ambientWorldRotation(quaternionConjugate(rolloutCase.worldRotation));
+      mpc.ambientWorldTurn(quaternionConjugate(rolloutCase.worldTurn));
   for (int refinement = 0; refinement < 3; ++refinement) {
     const int factor = 1 << refinement;
     rollouts.production.push_back(
@@ -180,8 +184,9 @@ Rollouts rolloutsOf(MpcEquivalenceFixture& mpc,
                                           rolloutCase.eulerInput, dt / factor,
                                           rollouts.steps * factor));
     std::vector<vector_t> physical;
-    for (const vector_t& eulerState : rollouts.euler.back())
-      physical.emplace_back(back * mpc.quaternionStateOf(eulerState));
+    for (const vector_t& eulerState : rollouts.euler.back()) {
+      physical.emplace_back(back * mpc.quaternionModelStateOf(eulerState));
+    }
     rollouts.physical.push_back(std::move(physical));
   }
   return rollouts;
@@ -195,9 +200,11 @@ Rollouts rolloutsOf(MpcEquivalenceFixture& mpc,
 void expectSamePhysicalTrajectory(const MpcEquivalenceFixture& mpc,
                                   const Rollouts& rollouts) {
   for (const vector_t& eulerState : rollouts.euler[0]) {
-    const vector3_t angles = eulerState.segment<3>(
+    const vector3_t eulerzyxBaseRtWorld = eulerState.segment<3>(
         static_cast<Eigen::Index>(mpc.model().getBaseOrientationStartIndex()));
-    ASSERT_LE(std::max(std::abs(angles(1)), std::abs(angles(2))), kMaxEulerTilt)
+    ASSERT_LE(std::max(std::abs(eulerzyxBaseRtWorld(1)),
+                       std::abs(eulerzyxBaseRtWorld(2))),
+              kMaxEulerTilt)
         << "the Euler side left its well-conditioned region";
   }
   const StateManifold& manifold = mpc.manifold();
@@ -261,57 +268,61 @@ vector_t smallInput(const MpcEquivalenceFixture& mpc,
   Eigen::Index row = 0;
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
     if (oracle.options().contactInput == OracleContactInput::kWorldWrench) {
-      for (Eigen::Index i = 0; i < 3; ++i)
+      for (Eigen::Index i = 0; i < 3; ++i) {
         input(row + i) = 0.01 * halfWeight * unit(generator);
+      }
       for (Eigen::Index i = 3; i < 6; ++i) input(row + i) = unit(generator);
       row += 6;
       continue;
     }
     const matrix_t& basis = oracle.options().localBasisMatrices[contact];
     const scalar_t nominal = halfWeight / basis.row(2).sum();
-    for (Eigen::Index i = 0; i < basis.cols(); ++i)
+    for (Eigen::Index i = 0; i < basis.cols(); ++i) {
       input(row + i) = 0.01 * (1.0 + unit(generator)) * nominal;
+    }
     row += basis.cols();
   }
-  for (Eigen::Index joint = 0; joint < oracle.jointDim(); ++joint)
+  for (Eigen::Index joint = 0; joint < oracle.jointDim(); ++joint) {
     input(row + joint) = maxAbsJointEntry * unit(generator);
+  }
   return input;
 }
 
 /** Where the rollouts' initial states are drawn: moderate momenta and rates. */
 EulerSamplingBounds rolloutBounds(scalar_t maxAbsTilt) {
   EulerSamplingBounds bounds;
-  bounds.maxAbsPitch = maxAbsTilt;
-  bounds.maxAbsRoll = maxAbsTilt;
-  bounds.maxAbsLinearVelocity = 0.3;
-  bounds.maxAbsNormalizedAngularMomentum = 0.005;
-  bounds.maxAbsEulerRate = 0.3;
+  bounds.maxAbsEulerzyxBaseRtWorldPitch = maxAbsTilt;
+  bounds.maxAbsEulerzyxBaseRtWorldRoll = maxAbsTilt;
+  bounds.maxAbsProxyLinvelComRtWorldEwrtWorld = 0.3;
+  bounds.maxAbsMnormAngmomComRtWorldEwrtWorld = 0.005;
+  bounds.maxAbsRateEulerzyxBaseRtWorld = 0.3;
   bounds.maxAbsJointVelocity = 0.3;
   return bounds;
 }
 
 /**
  * Sets the base velocity of the Euler state `eulerState` of `oracle` to
- * `baseVelocity` = [pd_W; dTheta/dt] with the joint rates `jointRates`: the
- * whole body's state holds it; the centroidal state holds the momentum hbar =
- * A_G,e [v_b; qd_j] / m whose base velocity it is (O2).
+ * `baseGeneralizedVelocity` = [pd_W; dTheta/dt] with the joint rates
+ * `jointRates`: the whole body's state holds it; the centroidal state holds the
+ * momentum hbar = A_G,e [v_b; qd_j] / m whose base velocity it is (O2).
  */
-void setBaseVelocity(const EulerMpcOracle& oracle,
-                     bool wholeBody,
-                     const vector6_t& baseVelocity,
-                     const vector_t& jointRates,
-                     vector_t& eulerState) {
+void setBaseGeneralizedVelocity(const EulerMpcOracle& oracle,
+                                bool wholeBody,
+                                const vector6_t& baseGeneralizedVelocity,
+                                const vector_t& jointRates,
+                                vector_t& eulerState) {
   const Eigen::Index nj = oracle.jointDim();
   if (wholeBody) {
-    eulerState.segment<6>(6 + nj) = baseVelocity;
+    eulerState.segment<6>(6 + nj) = baseGeneralizedVelocity;
     return;
   }
   pinocchio::Data data(oracle.eulerModel());
   const matrix_t centroidalMap = pinocchio::computeCentroidalMap(
       oracle.eulerModel(), data, vector_t(eulerState.segment(6, 6 + nj)));
-  vector_t velocity(6 + nj);
-  velocity << baseVelocity, jointRates;
-  eulerState.head<6>() = centroidalMap * velocity / oracle.totalMass();
+  vector_t generalizedVelocity(6 + nj);
+  generalizedVelocity << baseGeneralizedVelocity, jointRates;
+  eulerState.head<6>() =
+      centroidalMap * generalizedVelocity / oracle.totalMass();
 }
 
 /** The joint entries of the input that are the joint rates of the centroidal
@@ -335,7 +346,7 @@ TEST_P(MpcRolloutEquivalence, RolloutsFromOneStateAreOnePhysicalTrajectory) {
     RolloutCase rolloutCase;
     rolloutCase.eulerState =
         mpc.randomEulerState(rolloutBounds(/*maxAbsTilt=*/0.3), generator);
-    rolloutCase.state = mpc.quaternionStateOf(rolloutCase.eulerState);
+    rolloutCase.state = mpc.quaternionModelStateOf(rolloutCase.eulerState);
     rolloutCase.input = smallInput(mpc, maxAbsJointInput(mpc), generator);
     rolloutCase.eulerInput = rolloutCase.input;
     expectSamePhysicalTrajectory(mpc,
@@ -346,25 +357,27 @@ TEST_P(MpcRolloutEquivalence, RolloutsFromOneStateAreOnePhysicalTrajectory) {
 TEST_P(MpcRolloutEquivalence, AcrossAYawOfPiTheRolloutTurnsOnThroughTheCut) {
   MpcEquivalenceFixture& mpc = this->mpc();
   std::mt19937 generator(/*sd=*/20261021);
-  const Eigen::Index orientation =
+  const Eigen::Index orientationStartIndex =
       static_cast<Eigen::Index>(mpc.model().getBaseOrientationStartIndex());
   RolloutCase rolloutCase;
   rolloutCase.eulerState =
       mpc.randomEulerState(rolloutBounds(/*maxAbsTilt=*/0.1), generator);
-  rolloutCase.eulerState(orientation) = M_PI - 0.2;
+  rolloutCase.eulerState(orientationStartIndex) = std::numbers::pi - 0.2;
   // The joints still: the base turns at its own rate.
   rolloutCase.input = smallInput(mpc, /*maxAbsJointEntry=*/0.0, generator);
   // Turning at 0.5 rad/s, the base otherwise still.
   const vector6_t turning =
       (vector6_t() << 0.0, 0.0, 0.0, 0.5, 0.0, 0.0).finished();
-  setBaseVelocity(mpc.oracle(), mpc.isWholeBody(), turning,
-                  jointRatesOf(mpc, rolloutCase.input), rolloutCase.eulerState);
-  rolloutCase.state = mpc.quaternionStateOf(rolloutCase.eulerState);
+  setBaseGeneralizedVelocity(mpc.oracle(), mpc.isWholeBody(), turning,
+                             jointRatesOf(mpc, rolloutCase.input),
+                             rolloutCase.eulerState);
+  rolloutCase.state = mpc.quaternionModelStateOf(rolloutCase.eulerState);
   rolloutCase.eulerInput = rolloutCase.input;
   const Rollouts rollouts = rolloutsOf(mpc, mpc.oracle(), rolloutCase);
   // The Euler yaw goes on past pi; the MPC's heading reading wraps from +pi to
   // -pi between two nodes while the quaternion moves on by one interval's turn.
-  ASSERT_GT(rollouts.euler[0].back()(orientation), M_PI + 0.05)
+  ASSERT_GT(rollouts.euler[0].back()(orientationStartIndex),
+            std::numbers::pi + 0.05)
       << "the case does not cross the cut";
   bool wrapped = false;
   for (size_t node = 0; node + 1 < rollouts.production[0].size(); ++node) {
@@ -385,7 +398,7 @@ TEST_P(MpcRolloutEquivalence,
        ThroughAPitchOfNinetyDegreesTheRolloutIsTheTurnedOracles) {
   MpcEquivalenceFixture& mpc = this->mpc();
   std::mt19937 generator(/*sd=*/20261022);
-  const Eigen::Index orientation =
+  const Eigen::Index orientationStartIndex =
       static_cast<Eigen::Index>(mpc.model().getBaseOrientationStartIndex());
   // In the turned world the robot is level but for a pitch of -0.15 rad,
   // pitching up at 0.6 rad/s about its own y axis; in the MPC's world, turned
@@ -394,28 +407,28 @@ TEST_P(MpcRolloutEquivalence,
   RolloutCase rolloutCase;
   rolloutCase.eulerState =
       mpc.randomEulerState(rolloutBounds(/*maxAbsTilt=*/0.0), generator);
-  rolloutCase.eulerState.segment<3>(orientation) << 0.0, -0.15, 0.0;
-  const scalar_t yaw =
-      std::uniform_real_distribution<scalar_t>(-M_PI, M_PI)(generator);
-  rolloutCase.worldRotation = quaternionConjugate(
-      quaternionFromEulerZyx(vector3_t(yaw, 0.5 * M_PI, 0.0)));
+  rolloutCase.eulerState.segment<3>(orientationStartIndex) << 0.0, -0.15, 0.0;
+  const scalar_t yaw = std::uniform_real_distribution<scalar_t>(
+      -std::numbers::pi, std::numbers::pi)(generator);
+  rolloutCase.worldTurn = quaternionConjugate(
+      quaternionFromEulerZyx(vector3_t(yaw, 0.5 * std::numbers::pi, 0.0)));
   const matrix_t back =
-      mpc.ambientWorldRotation(quaternionConjugate(rolloutCase.worldRotation));
+      mpc.ambientWorldTurn(quaternionConjugate(rolloutCase.worldTurn));
   // The joints still: the base pitches at its own rate.
   rolloutCase.input = smallInput(mpc, /*maxAbsJointEntry=*/0.0, generator);
   rolloutCase.eulerInput =
-      mpc.inputWorldRotation(rolloutCase.worldRotation) * rolloutCase.input;
+      mpc.inputWorldTurn(rolloutCase.worldTurn) * rolloutCase.input;
   const vector6_t pitching =
       (vector6_t() << 0.0, 0.0, 0.0, 0.0, 0.6, 0.0).finished();
-  setBaseVelocity(mpc.oracle(), mpc.isWholeBody(), pitching,
-                  jointRatesOf(mpc, rolloutCase.eulerInput),
-                  rolloutCase.eulerState);
-  rolloutCase.state = back * mpc.quaternionStateOf(rolloutCase.eulerState);
-  const vector3_t turnedGravity =
-      quaternionRotationMatrix(rolloutCase.worldRotation) *
+  setBaseGeneralizedVelocity(mpc.oracle(), mpc.isWholeBody(), pitching,
+                             jointRatesOf(mpc, rolloutCase.eulerInput),
+                             rolloutCase.eulerState);
+  rolloutCase.state = back * mpc.quaternionModelStateOf(rolloutCase.eulerState);
+  const vector3_t turnedGravityEwrtWorld =
+      quaternionRotationMatrix(rolloutCase.worldTurn) *
       vector3_t(0.0, 0.0, -9.81);
   const absl::StatusOr<std::unique_ptr<EulerMpcOracle>> turnedOracle =
-      mpc.oracleUnderGravity(turnedGravity);
+      mpc.oracleUnderGravity(turnedGravityEwrtWorld);
   ASSERT_TRUE(turnedOracle.ok()) << turnedOracle.status();
   const Rollouts rollouts = rolloutsOf(mpc, **turnedOracle, rolloutCase);
 
@@ -425,9 +438,11 @@ TEST_P(MpcRolloutEquivalence,
   size_t lowestNode = 0;
   for (size_t node = 0; node < rollouts.production[0].size(); ++node) {
     const vector_t& state = rollouts.production[0][node];
-    const vector4_t xi = mpc.model().getQuatBaseRtWorldXyzw(state);
-    EXPECT_NEAR(xi.norm(), 1.0, 1.0e-14) << "node " << node;
-    const scalar_t bodyXDown = quaternionRotationMatrix(xi)(2, 0);
+    const vector4_t quatBaseRtWorldXyzw =
+        mpc.model().getQuatBaseRtWorldXyzw(state);
+    EXPECT_NEAR(quatBaseRtWorldXyzw.norm(), 1.0, 1.0e-14) << "node " << node;
+    const scalar_t bodyXDown =
+        quaternionRotationMatrix(quatBaseRtWorldXyzw)(2, 0);
     if (bodyXDown < lowest) {
       lowest = bodyXDown;
       lowestNode = node;

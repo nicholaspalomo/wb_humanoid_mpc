@@ -29,15 +29,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/constraint/PointFrictionConeConstraint.h"
 
+#include <cstddef>
 #include <memory>
 
 #include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactInputJacobian.h"
 #include "humanoid_common_mpc/contact/ContactPatchFrame.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 

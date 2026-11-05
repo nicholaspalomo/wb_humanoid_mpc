@@ -66,6 +66,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/loop_timing.pb.h"
 #include "humanoid_mpc_msgs/robot_state_sample.pb.h"
 #include "humanoid_mpc_msgs/viewer_annotations.nproto.h"
+#include "humanoid_state_estimator/ContactKinematics.h"
 #include "humanoid_state_estimator/StateEstimator.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "robot_ipc/Bus.h"
@@ -216,15 +217,13 @@ class RobotProcess {
     /** The joints the fall recovery judges rest on: those of the MPC model. */
     std::vector<size_t> restJointIndices;
     /**
-     * The robot's URDF and the MPC's contact frames, in contact order
-     * (model_settings): the leg kinematics of the `kalman` state estimator,
-     * with the contact frames' parent joints, whose frames stand in for a
-     * contact frame the URDF does not have (the MPC builds those from the task
-     * file's contact rectangles). Unused by `ground_truth`.
+     * The robot's URDF and the MPC's contact points in contact order
+     * (stateEstimatorContacts() of the model settings): the leg kinematics of
+     * the `kalman` state estimator (StateEstimatorContext::contacts). Unused
+     * by `ground_truth`.
      */
     std::string urdfFile;
-    std::vector<std::string> contactFrameNames;
-    std::vector<std::string> contactParentJointNames;
+    std::vector<estimation::ContactPointSpec> stateEstimatorContacts;
     /** The PD gains file is checked every this many control periods (100
      * centroidal, 500 whole-body, ~1 Hz). */
     size_t pdGainsFileCheckInterval = kDefaultPdGainsFileCheckInterval;
@@ -372,7 +371,7 @@ class RobotProcess {
   std::string contactEstimatorName_;
   std::vector<bool> plannedContactFlags_;
   const std::vector<bool> noContactFlags_;
-  std::array<vector3_t, kNumContacts> measuredContactForces_;
+  std::array<vector3_t, kNumContacts> measForceFeetEwrtWorld_;
 
   // ---- Communication thread state.
   msgs::FsmState fsmState_;

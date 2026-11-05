@@ -69,7 +69,8 @@ absl::StatusOr<TimedPolygon> polygonOf(
   TimedPolygon polygon;
   polygon.startTime = startTime;
   polygon.endTime = endTime;
-  polygon.normals.resize(static_cast<Eigen::Index>(n), kHorizontalPositionDim);
+  polygon.outwardDirEwrtWorldXySamples.resize(static_cast<Eigen::Index>(n),
+                                              kHorizontalPositionDim);
   polygon.offsets.resize(static_cast<Eigen::Index>(n));
   for (size_t k = 0; k < n; ++k) {
     const Eigen::Vector2d edge = vertices[(k + 1) % n] - vertices[k];
@@ -78,14 +79,17 @@ absl::StatusOr<TimedPolygon> polygonOf(
           absl::StrCat("support polygon: edge ", k, " has no length"));
     }
     // Counterclockwise: the outward normal is the edge turned clockwise.
-    const Eigen::Vector2d normal =
+    const Eigen::Vector2d outwardDirEwrtWorldXy =
         Eigen::Vector2d(edge.y(), -edge.x()) / edge.norm();
-    polygon.normals.row(static_cast<Eigen::Index>(k)) = normal.transpose();
-    polygon.offsets(static_cast<Eigen::Index>(k)) = normal.dot(vertices[k]);
+    polygon.outwardDirEwrtWorldXySamples.row(static_cast<Eigen::Index>(k)) =
+        outwardDirEwrtWorldXy.transpose();
+    polygon.offsets(static_cast<Eigen::Index>(k)) =
+        outwardDirEwrtWorldXy.dot(vertices[k]);
   }
   for (size_t k = 0; k < n; ++k) {
     for (const Eigen::Vector2d& vertex : vertices) {
-      if (polygon.normals.row(static_cast<Eigen::Index>(k)).dot(vertex) >
+      if (polygon.outwardDirEwrtWorldXySamples.row(static_cast<Eigen::Index>(k))
+              .dot(vertex) >
           polygon.offsets(static_cast<Eigen::Index>(k)) + kGeometricTolerance) {
         return absl::InvalidArgumentError(absl::StrCat(
             "support polygon: not counterclockwise and convex at edge ", k));
@@ -134,8 +138,10 @@ vector_t SupportPolygonConstraint::getParameters(
   if (const std::optional<size_t> index = polygonAt(time); index.has_value()) {
     const TimedPolygon& polygon = polygons_[*index];
     for (Eigen::Index k = 0; k < polygon.offsets.size(); ++k) {
-      parameters(kHorizontalPositionDim * k) = polygon.normals.row(k).x();
-      parameters(kHorizontalPositionDim * k + 1) = polygon.normals.row(k).y();
+      parameters(kHorizontalPositionDim * k) =
+          polygon.outwardDirEwrtWorldXySamples.row(k).x();
+      parameters(kHorizontalPositionDim * k + 1) =
+          polygon.outwardDirEwrtWorldXySamples.row(k).y();
       parameters(kOffsetParameters + k) = polygon.offsets(k);
     }
   }
@@ -149,14 +155,15 @@ ad_vector_t SupportPolygonConstraint::constraintFunction(
   PinocchioInterfaceCppAd interface = pinocchioCppAd_;
   const CentroidalModelPinocchioMappingCppAd mapping(infoCppAd_);
   const ad_vector_t q = mapping.getPinocchioJointPosition(state);
-  const Eigen::Matrix<ad_scalar_t, kPositionDim, 1> com =
+  const Eigen::Matrix<ad_scalar_t, kPositionDim, 1> posComRtWorldEwrtWorld =
       pinocchio::centerOfMass(interface.getModel(), interface.getData(), q,
                               /*computeSubtreeComs=*/false);
   ad_vector_t value(kMaxPolygonEdges);
   for (int k = 0; k < kMaxPolygonEdges; ++k) {
-    value(k) = parameters(kOffsetParameters + k) - ad_scalar_t(margin_) -
-               parameters(kHorizontalPositionDim * k) * com.x() -
-               parameters(kHorizontalPositionDim * k + 1) * com.y();
+    value(k) =
+        parameters(kOffsetParameters + k) - ad_scalar_t(margin_) -
+        parameters(kHorizontalPositionDim * k) * posComRtWorldEwrtWorld.x() -
+        parameters(kHorizontalPositionDim * k + 1) * posComRtWorldEwrtWorld.y();
   }
   return value;
 }

@@ -29,25 +29,38 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/problem/LipIndices.h"
 
+#include <cstddef>
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/contact_planning/problem/Layout.h"
+
 namespace ocs2::humanoid {
 
 void LipIndices::bind(const Layout& layout) {
-  com = {layout.state(var::kComX), layout.state(var::kComY)};
-  vel = {layout.state(var::kVelX), layout.state(var::kVelY)};
-  zmp = {layout.input(var::kZmpX), layout.input(var::kZmpY)};
+  posComRtWorldEwrtWorld = {layout.state(var::kPosComRtWorldEwrtWorldX),
+                            layout.state(var::kPosComRtWorldEwrtWorldY)};
+  linvelComRtWorldEwrtWorld = {layout.state(var::kLinvelComRtWorldEwrtWorldX),
+                               layout.state(var::kLinvelComRtWorldEwrtWorldY)};
+  posZmpRtWorldEwrtWorld = {layout.input(var::kPosZmpRtWorldEwrtWorldX),
+                            layout.input(var::kPosZmpRtWorldEwrtWorldY)};
   for (size_t i = 0; i < kNumContacts; ++i) {
-    foot[i] = {layout.state(var::footX(i)), layout.state(var::footY(i))};
-    footDelta[i] = {layout.input(var::footDeltaX(i)),
-                    layout.input(var::footDeltaY(i))};
+    posFeetRtWorldEwrtWorld[i] = {
+        layout.state(var::posFootRtWorldEwrtWorldX(i)),
+        layout.state(var::posFootRtWorldEwrtWorldY(i))};
+    errPosFeetRtWorldEwrtWorld[i] = {
+        layout.input(var::errPosFootRtWorldEwrtWorldX(i)),
+        layout.input(var::errPosFootRtWorldEwrtWorldY(i))};
     contact[i] = layout.input(var::contact(i));
   }
   hasHeading = layout.hasHeading;
-  heading = layout.heading;
-  headingRate = layout.headingRate;
+  headingModelYaw = layout.headingModelYaw;
+  headingModelYawRate = layout.headingModelYawRate;
   for (size_t i = 0; i < kNumContacts; ++i) {
-    footYaw[i] = hasHeading ? layout.footYaw(i) : -1;
-    yawTorque[i] = hasHeading ? layout.yawTorque(i) : -1;
-    footYawDelta[i] = hasHeading ? layout.footYawDelta(i) : -1;
+    eulerzyxFeetRtWorldYaw[i] =
+        hasHeading ? layout.eulerzyxFootRtWorldYaw(i) : -1;
+    torqueFeetEwrtWorldZ[i] = hasHeading ? layout.torqueFootEwrtWorldZ(i) : -1;
+    errEulerzyxFeetRtWorldYaw[i] =
+        hasHeading ? layout.errEulerzyxFootRtWorldYaw(i) : -1;
   }
 }
 

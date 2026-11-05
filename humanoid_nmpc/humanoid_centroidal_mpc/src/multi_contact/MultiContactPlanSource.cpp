@@ -36,11 +36,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_centroidal_mpc/multi_contact/PlanPlayback.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_mpc_config/multi_contact_plan_config.nproto.h"
 #include "humanoid_multi_contact/plan/PlanFile.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
+#include "humanoid_multi_contact/scenarios/Scenario.h"
 #include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid {
@@ -120,19 +127,25 @@ absl::StatusOr<PlannedMotionSettings> plannedMotionSettingsFromConfig(
   const mpc_config::MultiContactPlanConfig::ClockHold& hold = config.clock_hold;
   RETURN_IF_ERROR(
       checkValue("clock_hold", "lead", hold.lead, Range::kPositive));
-  RETURN_IF_ERROR(checkValue("clock_hold", "contact_tolerance",
-                             hold.contact_tolerance, Range::kPositive));
-  RETURN_IF_ERROR(checkValue("clock_hold", "com_tolerance", hold.com_tolerance,
-                             Range::kPositive));
+  RETURN_IF_ERROR(checkValue(
+      "clock_hold", "max_norm_pos_contact_rt_surface_ewrt_surface_z",
+      hold.max_norm_pos_contact_rt_surface_ewrt_surface_z, Range::kPositive));
+  RETURN_IF_ERROR(checkValue(
+      "clock_hold", "max_norm_err_pos_com_rt_world_ewrt_world_xy",
+      hold.max_norm_err_pos_com_rt_world_ewrt_world_xy, Range::kPositive));
   settings.clockHoldLead = hold.lead;
-  settings.contactTolerance = hold.contact_tolerance;
-  settings.comTolerance = hold.com_tolerance;
+  settings.maxNormPosContactRtSurfaceEwrtSurfaceZ =
+      hold.max_norm_pos_contact_rt_surface_ewrt_surface_z;
+  settings.maxNormErrPosComRtWorldEwrtWorldXy =
+      hold.max_norm_err_pos_com_rt_world_ewrt_world_xy;
 
-  RETURN_IF_ERROR(checkValue("swing", "lift_height", config.swing.lift_height,
+  RETURN_IF_ERROR(checkValue("swing", "min_dist_controlpoint_rt_contact",
+                             config.swing.min_dist_controlpoint_rt_contact,
                              Range::kPositive));
   RETURN_IF_ERROR(checkValue("swing", "clearance", config.swing.clearance,
                              Range::kNotNegative));
-  settings.swing.liftHeight = config.swing.lift_height;
+  settings.swing.minDistControlpointRtContact =
+      config.swing.min_dist_controlpoint_rt_contact;
   settings.swing.clearance = config.swing.clearance;
 
   RETURN_IF_ERROR(checkValue("contact_swing", "weight",
@@ -167,14 +180,15 @@ absl::StatusOr<PlannedMotionSettings> plannedMotionSettingsFromConfig(
   settings.nonPenetrationMu = barrier.mu;
   settings.nonPenetrationDelta = barrier.delta;
   settings.nonPenetrationMargin = barrier.margin;
-  if (config.force_reference == kForceReferenceNames[0]) {
-    settings.forceReference = ForceReference::kWeightShare;
-  } else if (config.force_reference == kForceReferenceNames[1]) {
-    settings.forceReference = ForceReference::kPlannedWrenches;
+  if (config.force_reference_mode == kForceReferenceNames[0]) {
+    settings.forceReferenceMode = ForceReference::kWeightShare;
+  } else if (config.force_reference_mode == kForceReferenceNames[1]) {
+    settings.forceReferenceMode = ForceReference::kPlannedWrenches;
   } else {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "multi_contact_plan.force_reference: '", config.force_reference,
-        "' is none of ", absl::StrJoin(kForceReferenceNames, ", ")));
+    return absl::InvalidArgumentError(
+        absl::StrCat("multi_contact_plan.force_reference_mode: '",
+                     config.force_reference_mode, "' is none of ",
+                     absl::StrJoin(kForceReferenceNames, ", ")));
   }
   ASSIGN_OR_RETURN(settings.playback, planPlaybackFromName(config.playback));
   if (settings.playback == PlanPlayback::kForwardAndReverse &&

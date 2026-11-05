@@ -32,8 +32,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 
 namespace ocs2::humanoid {
@@ -42,42 +48,51 @@ absl::Status HipCenteredSteppingHeuristic::configure(
     const LocomotionHeuristicConfig& config,
     const LocomotionHeuristicModelParameters& model) {
   parameters_ = config.hipCenteredStepping;
-  hipPositionInBaseFrame_ = model.hipPositionInBaseFrame;
+  posHipsRtBaseEwrtHeadingXy_ = model.posHipsRtBaseEwrtHeadingXy;
   return absl::OkStatus();
 }
 
-vector2_t HipCenteredSteppingHeuristic::offset(
+vector2_t HipCenteredSteppingHeuristic::computeOffsetPosFootRtWorldEwrtWorldXy(
     const FootholdHeuristicContext& context) const {
-  // H_r(Theta) = PTP(R(Theta) r_hip): the hip's position in the base frame,
+  // H_r(Theta) = PTP(R(Theta) r_hip): the hip's position relative to the base
+  // in the heading frame,
   // rotated into the world by the base yaw predicted at the touch-down and
   // dropped onto the ground. R(Theta) is the full body rotation in the
   // dissertation and R_z(yaw) here - a choice of this heuristic, not a
   // simplification of the control model, which carries the full base rotation:
   // only the heading at the touch-down is predicted, and the roll and pitch of
   // a walking base move a ground-projected hip offset by a second-order amount.
-  const vector2_t hip = hipPositionInBaseFrame_[context.contactIndex];
-  const scalar_t longitudinal = parameters_.longitudinalScale * hip.x();
-  const scalar_t lateral = parameters_.lateralScale * hip.y();
-  const scalar_t cosYaw = std::cos(context.baseYaw);
-  const scalar_t sinYaw = std::sin(context.baseYaw);
-  const vector2_t hipInWorld(
-      context.basePosition.x() + cosYaw * longitudinal - sinYaw * lateral,
-      context.basePosition.y() + sinYaw * longitudinal + cosYaw * lateral);
+  const vector2_t posHipRtBaseEwrtHeadingXy =
+      posHipsRtBaseEwrtHeadingXy_[context.contactIndex];
+  const scalar_t scaledPosHipRtBaseEwrtHeadingX =
+      parameters_.longitudinalScale * posHipRtBaseEwrtHeadingXy.x();
+  const scalar_t scaledPosHipRtBaseEwrtHeadingY =
+      parameters_.lateralScale * posHipRtBaseEwrtHeadingXy.y();
+  const scalar_t cosYaw = std::cos(context.yawBaseRtWorld);
+  const scalar_t sinYaw = std::sin(context.yawBaseRtWorld);
+  const vector2_t scaledPosHipRtWorldEwrtWorldXy(
+      context.posBaseRtWorldEwrtWorldXy.x() +
+          cosYaw * scaledPosHipRtBaseEwrtHeadingX -
+          sinYaw * scaledPosHipRtBaseEwrtHeadingY,
+      context.posBaseRtWorldEwrtWorldXy.y() +
+          sinYaw * scaledPosHipRtBaseEwrtHeadingX +
+          cosYaw * scaledPosHipRtBaseEwrtHeadingY);
   // This heuristic MOVES THE ANCHOR:
-  // SwitchedModelReferenceManager::nominalFoothold() adds the offsets of a list
-  // that contains it to the predicted base rather than to the step-width
-  // anchor. Everything here is expressed relative to that predicted base, so
-  // what it has to return is exactly the hip position relative to it.
-  return vector2_t(hipInWorld - context.basePosition);
+  // SwitchedModelReferenceManager::getNomPosFootRtWorldEwrtWorldXy() adds the
+  // offsets of a list that contains it to the predicted base rather than to the
+  // step-width anchor. Everything here is expressed relative to that predicted
+  // base, so what it has to return is exactly the hip position relative to it.
+  return vector2_t(scaledPosHipRtWorldEwrtWorldXy -
+                   context.posBaseRtWorldEwrtWorldXy);
 }
 
 std::string HipCenteredSteppingHeuristic::describe() const {
-  return absl::StrCat("hip_centered_stepping: foot under the hip at (",
-                      parameters_.longitudinalScale, " * x_hip, ",
-                      parameters_.lateralScale,
-                      " * y_hip) of the measured base; left hip = (",
-                      hipPositionInBaseFrame_[kContactLeftIndex].x(), ", ",
-                      hipPositionInBaseFrame_[kContactLeftIndex].y(), ") m");
+  return absl::StrCat(
+      "hip_centered_stepping: foot under the hip at (",
+      parameters_.longitudinalScale, " * x_hip, ", parameters_.lateralScale,
+      " * y_hip) of the measured base; left hip = (",
+      posHipsRtBaseEwrtHeadingXy_[kContactLeftIndex].x(), ", ",
+      posHipsRtBaseEwrtHeadingXy_[kContactLeftIndex].y(), ") m");
 }
 
 }  // namespace ocs2::humanoid

@@ -42,24 +42,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::multi_contact {
 
 /** The defaults of TimingOptions; its fields say what each is. */
-inline constexpr double kDefaultMaxComSpeed = 0.15;
-inline constexpr double kDefaultMaxComAcceleration = 0.15;
-inline constexpr double kDefaultMaxBaseSpeed = 0.2;
-inline constexpr double kDefaultMaxPadSpeed = 0.3;
-inline constexpr double kDefaultMaxAngularSpeed = 0.5;
+inline constexpr double kNomMaxSpeedComRtWorld = 0.15;
+inline constexpr double kNomMaxNormLinaccComRtWorldEwrtWorld = 0.15;
+inline constexpr double kNomMaxSpeedBaseRtWorld = 0.2;
+inline constexpr double kNomMaxSpeedPadRtWorld = 0.3;
+inline constexpr double kNomMaxNormAngvelBaseRtWorldEwrtBase = 0.5;
+inline constexpr double kDefaultMaxJointVelocity = 0.5;
 inline constexpr double kDefaultMinSegmentDuration = 0.8;
 inline constexpr double kDefaultDwell = 0.4;
 
 /** The speed limits of the timing law (design section 5, "timing"). */
 struct TimingOptions {
-  // [m/s, m/s^2] The CoM's speed and acceleration.
-  double maxComSpeed = kDefaultMaxComSpeed;
-  double maxComAcceleration = kDefaultMaxComAcceleration;
-  // [m/s] The base's and any pad's speed; [rad/s] the base's turn and any
-  // joint's speed.
-  double maxBaseSpeed = kDefaultMaxBaseSpeed;
-  double maxPadSpeed = kDefaultMaxPadSpeed;
-  double maxAngularSpeed = kDefaultMaxAngularSpeed;
+  // [m/s, m/s^2] The CoM's speed and the norm of its acceleration.
+  double maxSpeedComRtWorld = kNomMaxSpeedComRtWorld;
+  double maxNormLinaccComRtWorldEwrtWorld =
+      kNomMaxNormLinaccComRtWorldEwrtWorld;
+  // [m/s] The base's and any pad's speed.
+  double maxSpeedBaseRtWorld = kNomMaxSpeedBaseRtWorld;
+  double maxSpeedPadRtWorld = kNomMaxSpeedPadRtWorld;
+  // [rad/s] The norm of the base's mean angular velocity over a segment, the
+  // rotation part of pinocchio::difference() per second, in base axes.
+  double maxNormAngvelBaseRtWorldEwrtBase =
+      kNomMaxNormAngvelBaseRtWorldEwrtBase;
+  // [rad/s] Any joint's speed.
+  double maxJointVelocity = kDefaultMaxJointVelocity;
   // [s] The shortest segment, and the hold at rest between two segments, in
   // which a contact is loaded or unloaded.
   double minSegmentDuration = kDefaultMinSegmentDuration;

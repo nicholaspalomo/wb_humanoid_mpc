@@ -29,21 +29,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/constraint/StateConstraint.h"
 
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
 
 namespace ocs2::humanoid {
 
 /**
- * The unilateral side of the contact condition: g(x) = h(x) - terrainHeight >=
- * 0, the foot may not go through the ground. One row per point of the foot it
- * is given.
+ * The unilateral side of the contact condition: g(x) = h(x) -
+ * posSurfaceRtWorldEwrtWorldZ >= 0, the foot may not go through the ground. One
+ * row per point of the foot it is given.
  *
  * With the mode-scheduled stance constraint gone (see
  * ForceWeightedSlipConstraint), nothing else holds a foot above the terrain:
@@ -83,11 +85,12 @@ class GroundPenetrationConstraint final : public StateConstraint {
    * @param [in] cornerHeights : the points of this foot that may not go below
    * the ground, normally the footprint's corner frames; the contact frame alone
    * leaves the toe and the heel unconstrained. It is cloned, not retained.
-   * @param [in] terrainHeight : [m] height of the ground under the foot.
+   * @param [in] posSurfaceRtWorldEwrtWorldZ : [m] height of the ground under
+   * the foot.
    */
   static absl::StatusOr<std::unique_ptr<GroundPenetrationConstraint>> Create(
       const FootprintCornerHeights& cornerHeights,
-      scalar_t terrainHeight = 0.0);
+      scalar_t posSurfaceRtWorldEwrtWorldZ = 0.0);
 
   ~GroundPenetrationConstraint() override = default;
   GroundPenetrationConstraint& operator=(const GroundPenetrationConstraint&) =
@@ -113,19 +116,21 @@ class GroundPenetrationConstraint final : public StateConstraint {
       const vector_t& state,
       const PreComputation& preComp) const override;
 
-  void setTerrainHeight(scalar_t terrainHeight) {
-    terrainHeight_ = terrainHeight;
+  void setPosSurfaceRtWorldEwrtWorldZ(scalar_t posSurfaceRtWorldEwrtWorldZ) {
+    posSurfaceRtWorldEwrtWorldZ_ = posSurfaceRtWorldEwrtWorldZ;
   }
-  scalar_t getTerrainHeight() const { return terrainHeight_; }
+  scalar_t getPosSurfaceRtWorldEwrtWorldZ() const {
+    return posSurfaceRtWorldEwrtWorldZ_;
+  }
 
  private:
   GroundPenetrationConstraint(const FootprintCornerHeights& cornerHeights,
-                              scalar_t terrainHeight);
+                              scalar_t posSurfaceRtWorldEwrtWorldZ);
   GroundPenetrationConstraint(const GroundPenetrationConstraint& rhs);
 
   std::unique_ptr<FootprintCornerHeights> cornerHeightsPtr_;
   size_t numPoints_;
-  scalar_t terrainHeight_;
+  scalar_t posSurfaceRtWorldEwrtWorldZ_;
 };
 
 }  // namespace ocs2::humanoid

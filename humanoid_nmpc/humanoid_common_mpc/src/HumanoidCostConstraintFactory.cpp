@@ -38,21 +38,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 
 #include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_core/cost/StateCost.h"
+#include "ocs2_core/cost/StateInputCost.h"
 #include "ocs2_core/penalties/penalties/PenaltyBase.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 #include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
 #include "ocs2_core/penalties/penalties/SquaredHingePenalty.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/costs/CollisionConstraintFromConfig.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
@@ -75,6 +84,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/cost/StateInputQuadraticCost.h"
 #include "humanoid_common_mpc/cost/StateQuadraticCost.h"
 #include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 
 namespace ocs2::humanoid {
@@ -595,10 +605,13 @@ HumanoidCostConstraintFactory::makeFrictionForceConeConstraint(
               << ", mu = " << barrierPenaltyConfig.mu
               << ", delta = " << barrierPenaltyConfig.delta;
   }
-  std::unique_ptr<FrictionForceConeConstraint> frictionForceConeConstraintPtr =
-      std::make_unique<FrictionForceConeConstraint>(
+  ASSIGN_OR_RETURN(
+      std::unique_ptr<FrictionForceConeConstraint>
+          frictionForceConeConstraintPtr,
+      FrictionForceConeConstraint::Create(
           *referenceManagerPtr_, frictionConeConfig, contactPointIndex,
-          *mpcRobotModelPtr_, scheduleGatedContactConstraints_);
+          *mpcRobotModelPtr_, *pinocchioInterfacePtr_,
+          scheduleGatedContactConstraints_));
   std::unique_ptr<PenaltyBase> penalty = makeContactConePenalty(
       barrierPenaltyConfig,
       contactConeGatingOf(scheduleGatedContactConstraints_));

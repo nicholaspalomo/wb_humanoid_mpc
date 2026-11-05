@@ -29,11 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <array>
 #include <optional>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 

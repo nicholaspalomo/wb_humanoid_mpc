@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -41,8 +42,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PhysicalConstants.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
 
@@ -51,12 +56,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/multi_contact/PlanContactOrder.h"
 #include "humanoid_centroidal_mpc/multi_contact/PlannedMotion.h"
 #include "humanoid_centroidal_mpc/multi_contact/PlannedMotionReferenceManager.h"
+#include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactPatchFrame.h"
+#include "humanoid_common_mpc/contact_swing/ContactSwingPlanner.h"
+#include "humanoid_common_mpc/contact_swing/ContactSwingTrajectory.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_mpc_config/multi_contact_plan_config.nproto.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
-#include "robot_core/ResourcePaths.h"
 #include "support/MultiContactTestFiles.h"
 #include "support/TypedConfigFiles.h"
 
@@ -205,7 +218,7 @@ TEST(PlannedMotionReferenceManager, theTargetsAreThePlansStatesFromTheStart) {
   const vector_t target = model.getDesiredState(targets, /*time=*/10.25);
   EXPECT_TRUE(target.isApprox(motion.targets().stateTrajectory[1], kTolerance));
   EXPECT_NEAR(model.getPosBaseRtWorldEwrtWorld(target).x(), 0.03, kTolerance);
-  EXPECT_NEAR(model.getBaseComLinearVelocity(target).x(),
+  EXPECT_NEAR(model.getLinvelComRtWorldEwrtWorld(target).x(),
               19.164 / models->getCentroidalModelInfo().robotMass, kTolerance);
   // Past the plan's end it holds the last knot.
   manager->preSolverRun(/*initTime=*/20.0, /*finalTime=*/20.0 + kHorizon,
@@ -222,12 +235,12 @@ TEST(PlannedMotionReferenceManager, theForceReferenceIsThePlansWrenches) {
   std::unique_ptr<CentroidalMpcInterface> models = multiContactModels();
   const MultiContactPlanSource source = swaySource();
   PlannedMotionSettings settings = settingsOf(*models);
-  ASSERT_EQ(settings.forceReference, ForceReference::kPlannedWrenches)
+  ASSERT_EQ(settings.forceReferenceMode, ForceReference::kPlannedWrenches)
       << "the multi-contact task file names planned_wrenches";
   const MpcRobotModelBase<scalar_t>& model = models->getMpcRobotModel();
   std::shared_ptr<PlannedMotionReferenceManager> planned =
       managerOf(*models, source, settings);
-  settings.forceReference = ForceReference::kWeightShare;
+  settings.forceReferenceMode = ForceReference::kWeightShare;
   std::shared_ptr<PlannedMotionReferenceManager> shared =
       managerOf(*models, source, settings);
   const vector_t initial = planned->plannedMotion().initialState();
@@ -242,12 +255,14 @@ TEST(PlannedMotionReferenceManager, theForceReferenceIsThePlansWrenches) {
   ASSERT_NEAR(knot.time, 0.25, kTolerance);
   const vector_t plannedInput = planned->getDesiredInput(
       planned->getTargetTrajectories(), initial, /*time=*/10.3);
-  for (const multi_contact::config::MultiContactPlan::ContactWrench& wrench :
-       knot.contact_wrenches) {
-    const size_t i = contactIndex(*models, wrench.contact);
+  for (const multi_contact::config::MultiContactPlan::ContactWrench& wrenchMsg :
+       knot.wrench_contacts_ewrt_world) {
+    const size_t i = contactIndex(*models, wrenchMsg.contact);
+    // NOLINTBEGIN(frame-naming): the components of a ContactWrench, whose frames its field names
     EXPECT_TRUE(model.getForceContactEwrtParam(plannedInput, i)
-                    .isApprox(vector3_t(wrench.force), kTolerance))
-        << wrench.contact;
+                    .isApprox(vector3_t(wrenchMsg.force), kTolerance))
+        << wrenchMsg.contact;
+    // NOLINTEND(frame-naming)
   }
   // Weight share: the base's reference.
   const vector_t sharedInput = shared->getDesiredInput(
@@ -348,13 +363,14 @@ TEST(PlannedMotionReferenceManager, swingsAContactFromWhereItLiftedOff) {
   const size_t left = contactIndex(*models, "foot_l_contact");
   // Track the plan's own states, so that the clock never holds. The last
   // solve with the right foot in contact is at 0.4 s.
-  vector3_t lastInContact = vector3_t::Zero();
+  vector3_t liftoffPosRfootRtWorldEwrtWorld = vector3_t::Zero();
   for (const scalar_t time : {0.0, 0.2, 0.4, 0.6}) {
     manager->preSolverRun(time, time + kHorizon,
                           model.getDesiredState(motion.targets(), time),
                           ModeNumber::kStance);
     if (manager->isInContact(time, right)) {
-      lastInContact = manager->measuredContactPositions()[right];
+      liftoffPosRfootRtWorldEwrtWorld =
+          manager->measPosContactsRtWorldEwrtWorld()[right];
     }
   }
   EXPECT_FALSE(manager->clock().isHolding());
@@ -368,16 +384,16 @@ TEST(PlannedMotionReferenceManager, swingsAContactFromWhereItLiftedOff) {
   // From where the foot was in contact, along the floor's normal, to its pad.
   const std::optional<PlannedContactPhase> pad =
       motion.nextPhase(right, /*planTime=*/0.6);
-  ASSERT_TRUE(pad.has_value());
+  if (!pad.has_value()) GTEST_FAIL();
   EXPECT_TRUE(swing.reference(swing.touchDownTime())
-                  .posContactRtWorldEwrtWorld.isApprox(pad->targetPosition,
-                                                       kTolerance));
-  EXPECT_TRUE(
-      swing.reference(swing.liftOffTime())
-          .posContactRtWorldEwrtWorld.isApprox(lastInContact, kTolerance))
+                  .posContactRtWorldEwrtWorld.isApprox(
+                      pad->desPosContactRtWorldEwrtWorld, kTolerance));
+  EXPECT_TRUE(swing.reference(swing.liftOffTime())
+                  .posContactRtWorldEwrtWorld.isApprox(
+                      liftoffPosRfootRtWorldEwrtWorld, kTolerance))
       << swing.reference(swing.liftOffTime())
              .posContactRtWorldEwrtWorld.transpose()
-      << " against " << lastInContact.transpose();
+      << " against " << liftoffPosRfootRtWorldEwrtWorld.transpose();
   EXPECT_TRUE(swing.clearanceSatisfied());
   EXPECT_GT(swing.reference(0.5 * (swing.liftOffTime() + swing.touchDownTime()))
                 .posContactRtWorldEwrtWorld.z(),
@@ -388,10 +404,10 @@ TEST(PlannedMotionReferenceManager, swingsAContactFromWhereItLiftedOff) {
 }
 
 /** [m] Where the plan of `motion` has the frame `frame` at plan time `time`. */
-vector3_t plannedFramePosition(CentroidalMpcInterface& models,
-                               const PlannedMotion& motion,
-                               const std::string& frame,
-                               scalar_t time) {
+vector3_t computePlannedPosLinkRtWorldEwrtWorld(CentroidalMpcInterface& models,
+                                                const PlannedMotion& motion,
+                                                const std::string& frame,
+                                                scalar_t time) {
   const MpcRobotModelBase<scalar_t>& model = models.getMpcRobotModel();
   PinocchioInterface pinocchio = models.getPinocchioInterface();
   pinocchio::forwardKinematics(
@@ -435,25 +451,37 @@ TEST(PlannedMotionReferenceManager, aSwingLongerThanTheArcLimitFollowsThePlan) {
                 kTolerance);
     EXPECT_NEAR(manager->planTimeAt(segment.touchDownTime()), knots[k + 1],
                 kTolerance);
-    const vector3_t start =
-        plannedFramePosition(*models, motion, "foot_r_contact", knots[k]);
-    const vector3_t end =
-        plannedFramePosition(*models, motion, "foot_r_contact", knots[k + 1]);
+    const vector3_t initPosRfootRtWorldEwrtWorld =
+        computePlannedPosLinkRtWorldEwrtWorld(*models, motion, "foot_r_contact",
+                                              knots[k]);
+    const vector3_t finalPosRfootRtWorldEwrtWorld =
+        computePlannedPosLinkRtWorldEwrtWorld(*models, motion, "foot_r_contact",
+                                              knots[k + 1]);
     EXPECT_TRUE(segment.reference(segment.liftOffTime())
-                    .posContactRtWorldEwrtWorld.isApprox(start, kTolerance))
+                    .posContactRtWorldEwrtWorld.isApprox(
+                        initPosRfootRtWorldEwrtWorld, kTolerance))
         << segment.reference(segment.liftOffTime())
                .posContactRtWorldEwrtWorld.transpose()
-        << " against " << start.transpose();
+        << " against " << initPosRfootRtWorldEwrtWorld.transpose();
     EXPECT_TRUE(segment.reference(segment.touchDownTime())
-                    .posContactRtWorldEwrtWorld.isApprox(end, kTolerance));
-    // Half way in time, on the straight line between the knots' feet.
-    const vector3_t middle =
+                    .posContactRtWorldEwrtWorld.isApprox(
+                        finalPosRfootRtWorldEwrtWorld, kTolerance));
+    // Half errPosRfootRtWorldEwrtWorld in time, on the straight line between
+    // the knots' feet.
+    const vector3_t midPosRfootRtWorldEwrtWorld =
         segment
             .reference(0.5 * (segment.liftOffTime() + segment.touchDownTime()))
             .posContactRtWorldEwrtWorld;
-    const vector3_t way = end - start;
-    const scalar_t along = (middle - start).dot(way) / way.squaredNorm();
-    EXPECT_LT((middle - start - along * way).norm(), kPathTolerance);
+    const vector3_t errPosRfootRtWorldEwrtWorld =
+        finalPosRfootRtWorldEwrtWorld - initPosRfootRtWorldEwrtWorld;
+    const scalar_t along =
+        (midPosRfootRtWorldEwrtWorld - initPosRfootRtWorldEwrtWorld)
+            .dot(errPosRfootRtWorldEwrtWorld) /
+        errPosRfootRtWorldEwrtWorld.squaredNorm();
+    EXPECT_LT((midPosRfootRtWorldEwrtWorld - initPosRfootRtWorldEwrtWorld -
+               along * errPosRfootRtWorldEwrtWorld)
+                  .norm(),
+              kPathTolerance);
   }
   // At the arc limit's default (0) the same step is one arc.
   PlannedMotionSettings arcSettings = settingsOf(*models);
@@ -486,7 +514,7 @@ TEST(PlannedMotionReferenceManager, thePatchesAreThePlansPhases) {
   const ContactPatchFrame foot = manager->getContactPatchFrame(
       contactIndex(*models, "foot_l_contact"), /*time=*/0.5);
   EXPECT_TRUE(isWorldAligned(foot));
-  EXPECT_NEAR(foot.normalOffset, 0.0, kTolerance);
+  EXPECT_NEAR(foot.posSurfaceRtWorldEwrtSurfaceZ, 0.0, kTolerance);
   // A contact the plan never puts down falls back to the base's patch.
   const ContactPatchFrame knee = manager->getContactPatchFrame(
       contactIndex(*models, "knee_l_contact"), /*time=*/0.5);
@@ -494,22 +522,28 @@ TEST(PlannedMotionReferenceManager, thePatchesAreThePlansPhases) {
 }
 
 TEST(PlannedMotion, aPatchFrameIsOrthonormalWithItsNormalAsZ) {
-  const vector3_t normal = vector3_t(0.3, -0.5, 0.8).normalized();
-  const vector3_t point(1.0, 2.0, 0.5);
-  const ContactPatchFrame patch = PlannedMotion::patchFrameOf(point, normal);
-  const matrix3_t& rotation = patch.rotmatWorldRtSurface;
-  EXPECT_TRUE((rotation * rotation.transpose())
+  const vector3_t normalSurfaceEwrtWorld =
+      vector3_t(0.3, -0.5, 0.8).normalized();
+  const vector3_t posSurfaceRtWorldEwrtWorld(1.0, 2.0, 0.5);
+  const ContactPatchFrame patch = PlannedMotion::patchFrameOf(
+      posSurfaceRtWorldEwrtWorld, normalSurfaceEwrtWorld);
+  const matrix3_t& rotmatWorldRtSurface = patch.rotmatWorldRtSurface;
+  EXPECT_TRUE((rotmatWorldRtSurface * rotmatWorldRtSurface.transpose())
                   .isApprox(matrix3_t::Identity(), kTolerance));
-  EXPECT_NEAR(rotation.determinant(), 1.0, kTolerance);
-  EXPECT_TRUE((rotation * normal).isApprox(vector3_t::UnitZ(), kTolerance));
-  EXPECT_TRUE(patchNormal(patch).isApprox(normal, kTolerance));
-  EXPECT_NEAR(patch.normalOffset, normal.dot(point), kTolerance);
+  EXPECT_NEAR(rotmatWorldRtSurface.determinant(), 1.0, kTolerance);
+  EXPECT_TRUE((rotmatWorldRtSurface * normalSurfaceEwrtWorld)
+                  .isApprox(vector3_t::UnitZ(), kTolerance));
+  EXPECT_TRUE(getNormalSurfaceEwrtWorld(patch).isApprox(normalSurfaceEwrtWorld,
+                                                        kTolerance));
+  EXPECT_NEAR(patch.posSurfaceRtWorldEwrtSurfaceZ,
+              normalSurfaceEwrtWorld.dot(posSurfaceRtWorldEwrtWorld),
+              kTolerance);
   // The world's z axis is the identity, exactly.
-  EXPECT_TRUE(
-      isWorldAligned(PlannedMotion::patchFrameOf(point, vector3_t::UnitZ())));
+  EXPECT_TRUE(isWorldAligned(PlannedMotion::patchFrameOf(
+      posSurfaceRtWorldEwrtWorld, vector3_t::UnitZ())));
   // A wall facing x takes the world's y axis as its x direction.
-  const ContactPatchFrame wall =
-      PlannedMotion::patchFrameOf(point, -vector3_t::UnitX());
+  const ContactPatchFrame wall = PlannedMotion::patchFrameOf(
+      posSurfaceRtWorldEwrtWorld, -vector3_t::UnitX());
   EXPECT_TRUE((wall.rotmatWorldRtSurface * -vector3_t::UnitX())
                   .isApprox(vector3_t::UnitZ(), kTolerance));
 }
@@ -530,6 +564,52 @@ absl::Status motionStatusOn(const CentroidalMpcInterface& models,
   return PlannedMotion::Create(source.plan, order, models.getMpcRobotModel(),
                                models.getCentroidalModelInfo().robotMass)
       .status();
+}
+
+TEST(PlannedMotion, writesThePlansWorldWrenchesThroughTheContactFrames) {
+  // The plan's wrenches are in world axes. Under basis-vector inputs the input
+  // is in each contact's own frame, so a plan written through the param
+  // setters came out rotated by the contact's orientation. The base is tilted
+  // on every knot here, so that no contact frame is world-aligned.
+  std::unique_ptr<CentroidalMpcInterface> biped = bipedModels();
+  const BasisInputsModelDecorator<scalar_t>* absl_nullable basis =
+      biped->getBasisDecoratorPtr();
+  ASSERT_NE(basis, nullptr) << "the biped Atlas runs basis-vector inputs";
+  MultiContactPlanSource source = swaySource();
+  const vector4_t tiltedQuatBaseRtWorldXyzw =
+      Eigen::Quaterniond(Eigen::AngleAxisd(0.3, vector3_t::UnitX())).coeffs();
+  for (multi_contact::config::MultiContactPlan::Knot& knot :
+       source.plan.knots) {
+    knot.quat_base_rt_world_xyzw = tiltedQuatBaseRtWorldXyzw;
+  }
+  const PlanContactOrder order = checkedValue(PlanContactOrder::Create(
+      source.scenario.contactSet, biped->modelSettings().contactNames));
+  const PlannedMotion motion = checkedValue(PlannedMotion::Create(
+      source.plan, order, *basis, biped->getCentroidalModelInfo().robotMass));
+  const multi_contact::config::MultiContactPlan::Knot& knot =
+      source.plan.knots[1];
+  const vector_t& state = motion.targets().stateTrajectory[1];
+  const vector_t& input = motion.plannedInputAt(knot.time);
+  ASSERT_FALSE(basis->getRotmatContactRtWorld(state, /*contactIndex=*/0)
+                   .isApprox(matrix3_t::Identity(), kTolerance))
+      << "the contact frame is world-aligned, so the test proves nothing";
+  for (const multi_contact::config::MultiContactPlan::ContactWrench& wrenchMsg :
+       knot.wrench_contacts_ewrt_world) {
+    const size_t i = contactIndex(*biped, wrenchMsg.contact);
+    // NOLINTBEGIN(frame-naming): the components of a ContactWrench, whose frames its field names
+    EXPECT_TRUE(basis->getForceContactEwrtWorld(state, input, i)
+                    .isApprox(vector3_t(wrenchMsg.force), 1.0e-6))
+        << wrenchMsg.contact << ": "
+        << basis->getForceContactEwrtWorld(state, input, i).transpose()
+        << " for the plan's " << wrenchMsg.force.transpose();
+    if (wrenchMsg.torque.size() == kTorqueDim) {
+      EXPECT_TRUE((basis->getTorqueContactEwrtWorld(state, input, i) -
+                   vector3_t(wrenchMsg.torque))
+                      .norm() < 1.0e-6 * (1.0 + wrenchMsg.force.norm()))
+          << wrenchMsg.contact;
+    }
+    // NOLINTEND(frame-naming)
+  }
 }
 
 TEST(PlannedMotion, refusesWhatTheMpcCannotTrack) {

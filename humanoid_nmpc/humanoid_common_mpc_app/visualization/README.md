@@ -120,7 +120,7 @@ it is display only and runs on this thread, never in the robot process; `mpc_obs
 
 **Balance** (`BalanceQuantities.h`), per source: the whole-body CoM `c` and `c_dot` (Pinocchio's, of the source's `q`
 and `v`), the DCM / instantaneous capture point `xi = c_xy + c_dot_xy / omega` with `omega = sqrt(g / z0)` (`g` the
-Pinocchio model's gravity, `z0 = computeComHeightAboveFeet()` at `VisualizationModel::nominalState`, the MPC
+Pinocchio model's gravity, `z0 = computeProxyPosComRtFeetmeanEwrtWorldZ()` at `VisualizationModel::nominalState`, the MPC
 interface's initial state: the repository's one pendulum height, logged at start-up), the ZMP of the contact wrenches at
 the contact frames (`p_x = (h F_x - M_y) / F_z`, `p_y = (h F_y + M_x) / F_z`, `h` the normal-force-weighted contact
 height; NaN below 1 N), and the ACoM attitude (`AngularCenterOfMass`, NaN for a robot without a network) as roll,
@@ -139,7 +139,8 @@ per term per node: tens of microseconds per solve, never on the robot's realtime
 - One **measured robot** is drawn from `robot/state`, with every joint of the URDF.
 - The **force, center-of-pressure and corner-force markers** use the policy's input at the
   observation's time, not the observation's input, which a simulated robot may leave zero. Below
-  `kMinNormalForceForCop` (1 N) the center of pressure is the contact frame, never 0/0.
+  `kCopMinForceContactEwrtContactZ` (1 N) the center of pressure is the contact frame, never 0/0, and below
+  `kCopMinSumForceContactsEwrtWorldZ` (1 N) of world z force summed over the contacts there is no net center of pressure.
 - The **reference and plan** stay apart: the `reference` groups are the target trajectory's; the `plan` groups
   (`dofs/{position,velocity}/plan`, `frames/*/<frame>/plan`) and the `mpc` wrenches are the MPC policy's.
 - **Euler angles** come from the Euler boundary: `eulerZyxFromQuaternion()` returns (yaw, pitch, roll), regular at gimbal
@@ -181,7 +182,7 @@ order, in the world frame. The base and the MPC joints become the MPC's generali
 velocities `[v_W, w_B, dq_j]` through the robot model's measurement helpers (`fillGeneralizedCoordinatesFromMeasurement()`,
 `fillGeneralizedVelocitiesFromMeasurement()`), the conversion the MRT controllers use; the generalized forces are sized
 as the velocities. Beside them the decoder keeps, for display only, the sample's body angular velocity, the Euler angles
-of its quaternion and their rates (`baseEulerAnglesZyx`, `baseEulerZyxRates`).
+of its quaternion and their rates (`eulerzyxBaseRtWorld`, `rateEulerzyxBaseRtWorld`).
 
 ## Tests
 

@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -45,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
+#include "robot_core/Types.h"
 #include "robot_model/RobotJointAction.h"
 
 /*
@@ -129,8 +131,8 @@ std::unique_ptr<MujocoSimInterface> makeSim() {
   return *std::move(sim);
 }
 
-/** Applies a pure feedforward torque of `torque` on every joint, as the control
- * thread would. */
+/** Applies a pure feedforward joint torque of `jointTorque` on every joint, as
+ * the control thread would. */
 void applyFeedforward(MujocoSimInterface& sim, double jointTorque) {
   model::RobotJointAction& action = sim.getRobotJointAction();
   for (size_t joint = 0; joint < sim.getRobotDescription().getNumJoints();
@@ -147,8 +149,9 @@ void applyFeedforward(MujocoSimInterface& sim, double jointTorque) {
 
 double largestControl(const MujocoSimInterface& sim) {
   double largest = 0.0;
-  for (double control : sim.actuatorControlsForTesting())
+  for (double control : sim.actuatorControlsForTesting()) {
     largest = std::max(largest, std::abs(control));
+  }
   return largest;
 }
 
@@ -163,7 +166,7 @@ TEST(SimTorqueSwitch,
   const std::unique_ptr<MujocoSimInterface> sim = makeSim();
   ASSERT_GT(sim->getModel()->nu, 0);
   sim->enableTorques();
-  applyFeedforward(*sim, /*torque=*/5.0);
+  applyFeedforward(*sim, /*jointTorque=*/5.0);
   sim->simulationStep();
   EXPECT_NEAR(largestControl(*sim), 5.0, 1.0e-9)
       << "an action applied while the torques are on is executed";
@@ -181,7 +184,7 @@ TEST(SimTorqueSwitch,
     EXPECT_EQ(largestControl(*sim), 0.0)
         << "step " << step << " executed the stale action";
   }
-  applyFeedforward(*sim, /*torque=*/3.0);
+  applyFeedforward(*sim, /*jointTorque=*/3.0);
   sim->simulationStep();
   EXPECT_NEAR(largestControl(*sim), 3.0, 1.0e-9)
       << "the action applied after the switch is executed";
@@ -279,7 +282,7 @@ TEST(SimActuators,
       << "the contact point is resolved through its parent joint";
 
   sim->enableTorques();
-  applyFeedforward(*sim, /*torque=*/2.0);
+  applyFeedforward(*sim, /*jointTorque=*/2.0);
   sim->simulationStep();
   const std::vector<double> controls = sim->actuatorControlsForTesting();
   ASSERT_EQ(controls.size(), 2u);
@@ -296,7 +299,7 @@ TEST(SimActuators, AJointWhoseActionWasResetIsCommandedNothing) {
   ASSERT_TRUE(created.ok()) << created.status();
   const std::unique_ptr<MujocoSimInterface> sim = *std::move(created);
   sim->enableTorques();
-  applyFeedforward(*sim, /*torque=*/2.0);
+  applyFeedforward(*sim, /*jointTorque=*/2.0);
   sim->getRobotJointAction()[sim->getRobotDescription().getJointIndex("hinge")]
       .reset();
   sim->applyJointAction();
@@ -311,12 +314,13 @@ TEST(SimTorqueSwitch, TheFeetsForcesComeFromThePublishedStep) {
   // The Atlas scene has no foot force sensor: zero, read from the buffer the
   // physics step fills, not from mjData.
   const std::unique_ptr<MujocoSimInterface> sim = makeSim();
-  vector3_t left = vector3_t::Constant(1.0);
-  vector3_t right = vector3_t::Constant(1.0);
+  vector3_t measForceLfootEwrtWorld = vector3_t::Constant(1.0);
+  vector3_t measForceRfootEwrtWorld = vector3_t::Constant(1.0);
   sim->simulationStep();
-  sim->takeMeasForceFeetEwrtWorld(left, right);
-  EXPECT_TRUE(left.isZero());
-  EXPECT_TRUE(right.isZero());
+  sim->takeMeasForceFeetEwrtWorld(measForceLfootEwrtWorld,
+                                  measForceRfootEwrtWorld);
+  EXPECT_TRUE(measForceLfootEwrtWorld.isZero());
+  EXPECT_TRUE(measForceRfootEwrtWorld.isZero());
 }
 
 }  // namespace

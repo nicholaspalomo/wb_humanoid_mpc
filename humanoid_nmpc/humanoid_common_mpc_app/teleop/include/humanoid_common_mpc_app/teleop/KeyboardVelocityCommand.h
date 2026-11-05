@@ -50,31 +50,31 @@ struct KeyboardCommandLimits {
    * their count. */
   static constexpr int kVelocityXIndex = 0;
   static constexpr int kVelocityYIndex = 1;
-  static constexpr int kPelvisHeightChangeIndex = 2;
+  static constexpr int kBaseHeightChangeIndex = 2;
   static constexpr int kYawRateIndex = 3;
   static constexpr int kNumEntries = kYawRateIndex + 1;
 
   /** The defaults of the entries of `limits`, in their order and units, and of
-   * defaultBaseHeight [m]. */
-  static constexpr scalar_t kDefaultMaxVelocityX = 0.5;
-  static constexpr scalar_t kDefaultMaxVelocityY = 0.3;
-  static constexpr scalar_t kDefaultMaxDeltaPelvisHeight = 0.4;
-  static constexpr scalar_t kDefaultMaxYawRate = 0.5;
-  static constexpr scalar_t kDefaultBaseHeight = 0.7;
+   * nomPosBaseRtSurfaceEwrtWorldZ [m]. */
+  static constexpr scalar_t kNomCmdMaxLinvelBaseRtWorldEwrtHeadingX = 0.5;
+  static constexpr scalar_t kNomCmdMaxLinvelBaseRtWorldEwrtHeadingY = 0.3;
+  static constexpr scalar_t kNomCmdMaxErrPosBaseRtSurfaceEwrtWorldZ = 0.4;
+  static constexpr scalar_t kNomCmdMaxAngvelBaseRtWorldEwrtWorldZ = 0.5;
+  static constexpr scalar_t kNomPosBaseRtSurfaceEwrtWorldZ = 0.7;
 
   /** [v_x m/s, v_y m/s, pelvis height change m, yaw rate rad/s]:
    * cmd_max_linvel_base_rt_world_ewrt_heading_x,
    * cmd_max_linvel_base_rt_world_ewrt_heading_y,
-   * cmd_max_err_pos_base_rt_world_ewrt_world_z,
+   * cmd_max_err_pos_base_rt_surface_ewrt_world_z,
    * cmd_max_angvel_base_rt_world_ewrt_world_z. */
-  vector4_t limits = vector4_t(kDefaultMaxVelocityX,
-                               kDefaultMaxVelocityY,
-                               kDefaultMaxDeltaPelvisHeight,
-                               kDefaultMaxYawRate);
-  /** [m] nom_pos_base_rt_world_ewrt_world_z: the pelvis height a zero height
+  vector4_t limits = vector4_t(kNomCmdMaxLinvelBaseRtWorldEwrtHeadingX,
+                               kNomCmdMaxLinvelBaseRtWorldEwrtHeadingY,
+                               kNomCmdMaxErrPosBaseRtSurfaceEwrtWorldZ,
+                               kNomCmdMaxAngvelBaseRtWorldEwrtWorldZ);
+  /** [m] nom_pos_base_rt_surface_ewrt_world_z: the pelvis height a zero height
    * change commands.
    */
-  scalar_t defaultBaseHeight = kDefaultBaseHeight;
+  scalar_t nomPosBaseRtSurfaceEwrtWorldZ = kNomPosBaseRtSurfaceEwrtWorldZ;
 };
 
 /**
@@ -101,7 +101,7 @@ absl::StatusOr<vector4_t> parseKeyboardCommandLine(absl::string_view line);
 /**
  * The operator/walking_velocity_command of `command`: clamped to +-limits, the
  * velocities normalized by their limits, the pelvis height
- * nom_pos_base_rt_world_ewrt_world_z plus the clamped change.
+ * nom_pos_base_rt_surface_ewrt_world_z plus the clamped change.
  */
 humanoid_mpc_msgs::WalkingVelocityCommand keyboardCommandToMessage(
     const vector4_t& command, const KeyboardCommandLimits& limits);

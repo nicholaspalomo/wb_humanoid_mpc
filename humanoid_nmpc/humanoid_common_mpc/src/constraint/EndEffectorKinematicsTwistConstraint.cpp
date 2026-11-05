@@ -31,11 +31,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h"
 
 #include <cmath>
+#include <cstddef>
 #include <utility>
 
 #include "absl/log/absl_check.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
+#include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -50,7 +56,7 @@ EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(
     size_t numConstraints,
     Config config)
     : StateInputConstraint(ConstraintOrder::Linear),
-      ground_plane_normal_(0.0, 0.0, 1.0),
+      normalTerrainEwrtWorld_(0.0, 0.0, 1.0),
       endEffectorKinematicsPtr_(endEffectorKinematics.clone()),
       numConstraints_(numConstraints),
       config_(std::move(config)) {
@@ -66,7 +72,7 @@ EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(
 EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(
     const EndEffectorKinematicsTwistConstraint& rhs)
     : StateInputConstraint(rhs),
-      ground_plane_normal_(rhs.ground_plane_normal_),
+      normalTerrainEwrtWorld_(rhs.normalTerrainEwrtWorld_),
       rotmatWorldRtSurface_(rhs.rotmatWorldRtSurface_),
       constrainYawRateAboutNormal_(rhs.constrainYawRateAboutNormal_),
       endEffectorKinematicsPtr_(rhs.endEffectorKinematicsPtr_->clone()),
@@ -89,17 +95,15 @@ void EndEffectorKinematicsTwistConstraint::configure(Config&& config) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-matrix3_t
-EndEffectorKinematicsTwistConstraint::getTiltRateMapAngvelEeRtWorldEwrtWorld(
+matrix3_t EndEffectorKinematicsTwistConstraint::getTiltRateMap(
     const vector_t& state) const {
   const quaternion_t quatEeRtWorld =
       endEffectorKinematicsPtr_->getQuatEesRtWorld(state).front();
-  const vector3_t v =
-      quatEeRtWorld.toRotationMatrix() *
-      vector3_t::UnitZ();  // end-effector normal in the world frame
-  const vector3_t n = planeNormal();
+  const vector3_t zAxisEeEwrtWorld =
+      quatEeRtWorld.toRotationMatrix() * vector3_t::UnitZ();
+  const vector3_t normalSurfaceEwrtWorld = getNormalSurfaceEwrtWorld();
 
-  const scalar_t cosAngle = v.dot(n);
+  const scalar_t cosAngle = zAxisEeEwrtWorld.dot(normalSurfaceEwrtWorld);
   const scalar_t w = 1.0 + cosAngle;
   if (w < kPlaneNormalAntiParallelThreshold) {
     // The end-effector normal points (almost) away from the plane normal: the
@@ -111,28 +115,34 @@ EndEffectorKinematicsTwistConstraint::getTiltRateMapAngvelEeRtWorldEwrtWorld(
   }
 
   // Analytic derivative of e = -(v x n) / sqrt(2 (1 + v.n)) with respect to the
-  // angular velocity, see the header.
-  const vector3_t axis = v.cross(n);
+  // angular velocity, with v = zAxisEeEwrtWorld and n = normalSurfaceEwrtWorld;
+  // see the header.
+  const vector3_t vCrossN = zAxisEeEwrtWorld.cross(normalSurfaceEwrtWorld);
   const scalar_t s = std::sqrt(2.0 * w);
-  matrix3_t map = (cosAngle * matrix3_t::Identity() - v * n.transpose()) / s +
-                  (axis * axis.transpose()) / (s * s * s);
+  matrix3_t map = (cosAngle * matrix3_t::Identity() -
+                   zAxisEeEwrtWorld * normalSurfaceEwrtWorld.transpose()) /
+                      s +
+                  (vCrossN * vCrossN.transpose()) / (s * s * s);
   // The tilt error carries no information about the rotation about the
   // end-effector normal. Adding that rate in the plane-normal direction makes
   // the orientation rows full rank and stops a stance foot pivoting on the
   // spot; without it the last row of a 6D constraint is identically zero.
   if (constrainYawRateAboutNormal_) {
-    map.noalias() += kUnitQuaternionHalfAngleFactor * n * v.transpose();
+    map.noalias() += kUnitQuaternionHalfAngleFactor * normalSurfaceEwrtWorld *
+                     zAxisEeEwrtWorld.transpose();
   }
   return map;
 }
 
-vector3_t EndEffectorKinematicsTwistConstraint::planeNormal() const {
-  if (!rotmatWorldRtSurface_.has_value()) return ground_plane_normal_;
+vector3_t EndEffectorKinematicsTwistConstraint::getNormalSurfaceEwrtWorld()
+    const {
+  if (!rotmatWorldRtSurface_.has_value()) return normalTerrainEwrtWorld_;
   return rotmatWorldRtSurface_->row(kZAxisIndex).transpose();
 }
 
 matrix_t EndEffectorKinematicsTwistConstraint::inPatchFrame(
     const matrix_t& gains) const {
+  // NOLINTNEXTLINE(bugprone-unchecked-optional-access): a documented precondition; every caller checks has_value().
   const matrix3_t& rotmatWorldRtSurface = *rotmatWorldRtSurface_;
   matrix_t rotated(gains.rows(), gains.cols());
   rotated.leftCols<kPositionDim>() =
@@ -172,7 +182,8 @@ vector_t EndEffectorKinematicsTwistConstraint::getValue(
     if (!Ax.rightCols(kRotationTangentDim).isZero(0.0)) {
       xee.tail<kRotationTangentDim>() =
           endEffectorKinematicsPtr_
-              ->getOrientationErrorWrtPlane(state, {planeNormal()})
+              ->getTiltEesRtSurfaceEwrtWorld(state,
+                                             {getNormalSurfaceEwrtWorld()})
               .front();
     }
     f.noalias() += Ax * xee;
@@ -189,8 +200,7 @@ vector_t EndEffectorKinematicsTwistConstraint::getValue(
     if (!config_.Av.topRightCorner(numConstraints_, kRotationTangentDim)
              .isZero(0.0)) {
       vee.tail(kRotationTangentDim) =
-          getTiltRateMapAngvelEeRtWorldEwrtWorld(state) *
-          vee.tail(kRotationTangentDim);
+          getTiltRateMap(state) * vee.tail(kRotationTangentDim);
     }
     if (rotmatWorldRtSurface_.has_value()) {
       f.noalias() += inPatchFrame(config_.Av.topRows(numConstraints_)) * vee;
@@ -230,15 +240,15 @@ EndEffectorKinematicsTwistConstraint::getLinearApproximation(
         Ax.leftCols(kPositionDim) * approxPosEeRtWorldEwrtWorld.dfdx;
 
     if (!Ax.rightCols(kRotationTangentDim).isZero(0.0)) {
-      const VectorFunctionLinearApproximation approxTilt =
+      const VectorFunctionLinearApproximation approxTiltEeRtSurfaceEwrtWorld =
           endEffectorKinematicsPtr_
-              ->getOrientationErrorWrtPlaneLinearApproximation(state,
-                                                               {planeNormal()})
+              ->getLinearApproximationTiltEesRtSurfaceEwrtWorld(
+                  state, {getNormalSurfaceEwrtWorld()})
               .front();
       linearApproximation.f.noalias() +=
-          Ax.rightCols(kRotationTangentDim) * approxTilt.f;
-      linearApproximation.dfdx.noalias() +=
-          Ax.rightCols(kRotationTangentDim) * approxTilt.dfdx;
+          Ax.rightCols(kRotationTangentDim) * approxTiltEeRtSurfaceEwrtWorld.f;
+      linearApproximation.dfdx.noalias() += Ax.rightCols(kRotationTangentDim) *
+                                            approxTiltEeRtSurfaceEwrtWorld.dfdx;
     }
   }
 
@@ -257,8 +267,7 @@ EndEffectorKinematicsTwistConstraint::getLinearApproximation(
       // the yaw rate (tilt rows alone leave the pivot rate about the normal
       // free). The input Jacobian is exact: M reads no input (qdoc 2.8.5).
       const matrix_t mappedAngularGains =
-          Av.rightCols(kRotationTangentDim) *
-          getTiltRateMapAngvelEeRtWorldEwrtWorld(state);
+          Av.rightCols(kRotationTangentDim) * getTiltRateMap(state);
       Av.rightCols(kRotationTangentDim) = mappedAngularGains;
     }
     linearApproximation.f.noalias() += Av * approxTwistEeRtWorldEwrtWorld.f;

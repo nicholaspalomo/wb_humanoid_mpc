@@ -196,14 +196,14 @@ TEST(CentroidalMpcMrtPolicyExecution,
   const Eigen::Index nx = static_cast<Eigen::Index>(mpcModel.getStateDim());
   const Eigen::Index nu = static_cast<Eigen::Index>(mpcModel.getInputDim());
   vector_t state = vector_t::Zero(nx);
-  const Eigen::Index orientation =
+  const Eigen::Index orientationStart =
       static_cast<Eigen::Index>(mpcModel.getBaseOrientationStartIndex());
-  state(orientation - 1) = 0.75;  // the base height, the last of the base
-                                  // position before the quaternion
-  state.segment<4>(orientation) = vector4_t(0.0, 0.0, 0.0, 1.0);
+  state(orientationStart - 1) = 0.75;  // the base height, the last of the base
+                                       // position before the quaternion
+  state.segment<4>(orientationStart) = vector4_t(0.0, 0.0, 0.0, 1.0);
   // The joint angles follow the base pose [p_W (3), xi (4)].
   state
-      .segment(orientation + 4,
+      .segment(orientationStart + 4,
                static_cast<Eigen::Index>(mpcModel.getJointDim()))
       .setConstant(0.15);
   const vector_t input = vector_t::Zero(nu);

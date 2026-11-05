@@ -79,10 +79,11 @@ exports_files([".clang-format"])
 exports_files(["LICENCE.txt"])  # NOLINT(american-spelling): the license file's name.
 
 # The enforced clang-tidy checks, which the aspect of //tools/clang_tidy reads (and fixes are formatted with
-# .clang-format), and the script that installs clang-tidy; //tools/clang_tidy and //tools/hooks:test_lint_tool_versions
-# test them.
+# .clang-format), clangd's settings, whose include-cleaner exceptions are the checks', and the script that installs
+# clang-tidy; //tools/clang_tidy and //tools/hooks:test_lint_tool_versions test them.
 exports_files([
     ".clang-tidy",
+    ".clangd",
     "docker/install_llvm_tools.sh",
 ])
 

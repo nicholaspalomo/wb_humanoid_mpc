@@ -138,8 +138,8 @@ message ModelSettingsConfig {
     string name = 1 [default = ""];
     // The joint the frame is attached to, or a joint the MPC fixes (fixed_joint_names), whose frame it then hangs from.
     string parent_joint_name = 2 [default = ""];
-    // [m] The frame's position in the parent's frame.
-    Xyz translation = 3 [(humanoid_mpc_config.tuning) = { unit: "m" }];
+    // [m] The frame's position relative to its parent joint's frame, in that frame's axes.
+    Xyz pos_contact_rt_link_ewrt_link = 3 [(humanoid_mpc_config.tuning) = { unit: "m" }];
   }
 
   // The 3-DoF contacts; none by default, as every shipped robot is a biped on its two 6-DoF feet. They come before the

@@ -105,7 +105,7 @@ TEST(KeyboardCommandLimits, EveryShippedReferenceFileHasPositiveLimits) {
         loadKeyboardCommandLimits(*path);
     ASSERT_TRUE(limits.ok()) << limits.status();
     EXPECT_TRUE((limits->limits.array() > 0.0).all()) << file;
-    EXPECT_GT(limits->defaultBaseHeight, 0.0) << file;
+    EXPECT_GT(limits->nomPosBaseRtSurfaceEwrtWorldZ, 0.0) << file;
   }
 }
 
@@ -114,9 +114,9 @@ TEST(KeyboardCommandLimits,
   const std::string complete =
       "cmd_max_linvel_base_rt_world_ewrt_heading_x: "
       "0.6\ncmd_max_linvel_base_rt_world_ewrt_heading_y: "
-      "0.3\ncmd_max_err_pos_base_rt_world_ewrt_world_z: 0.2\n"
+      "0.3\ncmd_max_err_pos_base_rt_surface_ewrt_world_z: 0.2\n"
       "cmd_max_angvel_base_rt_world_ewrt_world_z: "
-      "0.8\nnom_pos_base_rt_world_ewrt_world_z: "
+      "0.8\nnom_pos_base_rt_surface_ewrt_world_z: "
       "0.75\n";
   const absl::StatusOr<KeyboardCommandLimits> loaded =
       loadKeyboardCommandLimits(
@@ -124,7 +124,7 @@ TEST(KeyboardCommandLimits,
   ASSERT_TRUE(loaded.ok()) << loaded.status();
   EXPECT_EQ(loaded->limits(0), 0.6);
   EXPECT_EQ(loaded->limits(3), 0.8);
-  EXPECT_EQ(loaded->defaultBaseHeight, 0.75);
+  EXPECT_EQ(loaded->nomPosBaseRtSurfaceEwrtWorldZ, 0.75);
 
   const std::string missingFile =
       writeTemporaryFile("missing.textproto",
@@ -190,21 +190,23 @@ TEST(ParseKeyboardCommandLine, RefusesAWordThatIsNotAFiniteNumber) {
 TEST(KeyboardCommandToMessage, NormalizesByTheLimitsAndClampsToThem) {
   KeyboardCommandLimits limits;
   limits.limits = vector4_t(0.5, 0.25, 0.2, 1.0);
-  limits.defaultBaseHeight = 0.7;
+  limits.nomPosBaseRtSurfaceEwrtWorldZ = 0.7;
 
   const humanoid_mpc_msgs::WalkingVelocityCommand inside =
       keyboardCommandToMessage(vector4_t(0.25, -0.125, -0.1, 0.5), limits);
-  EXPECT_DOUBLE_EQ(inside.cmd_linvel_base_rt_world_ewrt_heading_x(), 0.5);
-  EXPECT_DOUBLE_EQ(inside.cmd_linvel_base_rt_world_ewrt_heading_y(), -0.5);
-  EXPECT_DOUBLE_EQ(inside.cmd_pos_base_rt_world_ewrt_world_z(), 0.6);
-  EXPECT_DOUBLE_EQ(inside.cmd_angvel_base_rt_world_ewrt_world_z(), 0.5);
+  EXPECT_DOUBLE_EQ(inside.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x(), 0.5);
+  EXPECT_DOUBLE_EQ(inside.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y(),
+                   -0.5);
+  EXPECT_DOUBLE_EQ(inside.cmd_pos_base_rt_surface_ewrt_world_z(), 0.6);
+  EXPECT_DOUBLE_EQ(inside.cmd_lnorm_angvel_base_rt_world_ewrt_world_z(), 0.5);
 
   const humanoid_mpc_msgs::WalkingVelocityCommand beyond =
       keyboardCommandToMessage(vector4_t(3.0, -3.0, 1.0, -9.0), limits);
-  EXPECT_DOUBLE_EQ(beyond.cmd_linvel_base_rt_world_ewrt_heading_x(), 1.0);
-  EXPECT_DOUBLE_EQ(beyond.cmd_linvel_base_rt_world_ewrt_heading_y(), -1.0);
-  EXPECT_DOUBLE_EQ(beyond.cmd_pos_base_rt_world_ewrt_world_z(), 0.9);
-  EXPECT_DOUBLE_EQ(beyond.cmd_angvel_base_rt_world_ewrt_world_z(), -1.0);
+  EXPECT_DOUBLE_EQ(beyond.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x(), 1.0);
+  EXPECT_DOUBLE_EQ(beyond.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y(),
+                   -1.0);
+  EXPECT_DOUBLE_EQ(beyond.cmd_pos_base_rt_surface_ewrt_world_z(), 0.9);
+  EXPECT_DOUBLE_EQ(beyond.cmd_lnorm_angvel_base_rt_world_ewrt_world_z(), -1.0);
 }
 
 TEST(LineReader, ReadsLinesAndTheLastOneWithoutABreak) {
@@ -237,14 +239,16 @@ TEST(LineReader, GivesUpWaitingOnceTheStopPredicateHolds) {
 }
 
 // A complete reference file whose cmd_max_linvel_base_rt_world_ewrt_heading_x
-// is `maxVelocityX` (nom_pos_base_rt_world_ewrt_world_z 0.75 m).
-std::string referenceWithMaxVelocityX(const std::string& maxVelocityX) {
-  return absl::StrCat(
-      "cmd_max_linvel_base_rt_world_ewrt_heading_x: ", maxVelocityX,
-      "\ncmd_max_linvel_base_rt_world_ewrt_heading_y: "
-      "0.3\ncmd_max_err_pos_base_rt_world_ewrt_world_z: "
-      "0.2\ncmd_max_angvel_base_rt_world_ewrt_world_z: 0.8\n"
-      "nom_pos_base_rt_world_ewrt_world_z: 0.75\n");
+// is `cmdMaxLinvelBaseRtWorldEwrtHeadingX`
+// (nom_pos_base_rt_surface_ewrt_world_z 0.75 m).
+std::string makeReferenceTextproto(
+    const std::string& cmdMaxLinvelBaseRtWorldEwrtHeadingX) {
+  return absl::StrCat("cmd_max_linvel_base_rt_world_ewrt_heading_x: ",
+                      cmdMaxLinvelBaseRtWorldEwrtHeadingX,
+                      "\ncmd_max_linvel_base_rt_world_ewrt_heading_y: "
+                      "0.3\ncmd_max_err_pos_base_rt_surface_ewrt_world_z: "
+                      "0.2\ncmd_max_angvel_base_rt_world_ewrt_world_z: 0.8\n"
+                      "nom_pos_base_rt_surface_ewrt_world_z: 0.75\n");
 }
 
 // Rewrites `path` with the reference file `content` below kReferenceHeader and
@@ -329,7 +333,7 @@ TEST(VelocityCommandRepeater,
              })
           .ok());
   const std::string referenceFile = writeTemporaryFile(
-      "repeater_rate.textproto", referenceWithMaxVelocityX("1.0"));
+      "repeater_rate.textproto", makeReferenceTextproto("1.0"));
   const absl::StatusOr<KeyboardCommandLimits> limits =
       loadKeyboardCommandLimits(referenceFile);
   ASSERT_TRUE(limits.ok()) << limits.status();
@@ -353,7 +357,7 @@ TEST(VelocityCommandRepeater,
     // An if, not ASSERT_TRUE: clang-tidy sees the check
     // (bugprone-unchecked-optional-access) only through an if.
     if (!received.has_value()) FAIL() << "no command";
-    EXPECT_EQ(received->cmd_linvel_base_rt_world_ewrt_heading_x(), 0.5);
+    EXPECT_EQ(received->cmd_lnorm_linvel_base_rt_world_ewrt_heading_x(), 0.5);
   }
   // Repeated at about 25 Hz, not as fast as the IO thread can.
   const uint64_t before = (*repeater)->published();
@@ -405,7 +409,7 @@ RepeaterRig startRepeaterRig(const std::string& referenceFile,
 
 TEST(VelocityCommandRepeater, ASavedChangeOfTheLimitsKeepsTheTypedSpeed) {
   const std::string referenceFile = writeTemporaryFile(
-      "repeater_limits.textproto", referenceWithMaxVelocityX("1.0"));
+      "repeater_limits.textproto", makeReferenceTextproto("1.0"));
   const absl::StatusOr<KeyboardCommandLimits> limits =
       loadKeyboardCommandLimits(referenceFile);
   ASSERT_TRUE(limits.ok()) << limits.status();
@@ -417,28 +421,28 @@ TEST(VelocityCommandRepeater, ASavedChangeOfTheLimitsKeepsTheTypedSpeed) {
   rig.repeater->setCommand(vector4_t(0.5, 0.0, 0.0, 0.0), *limits);
   ASSERT_TRUE(rig.recorder->waitFor(
       [](const humanoid_mpc_msgs::WalkingVelocityCommand& c) {
-        return c.cmd_linvel_base_rt_world_ewrt_heading_x() == 0.5;
+        return c.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x() == 0.5;
       },
       absl::Seconds(10)));
 
   // The MPC now scales by 2.0 m/s: the repeater sends 0.25, so the robot still
   // walks at the 0.5 m/s the terminal showed.
-  rewriteLater(referenceFile, referenceWithMaxVelocityX("2.0"),
+  rewriteLater(referenceFile, makeReferenceTextproto("2.0"),
                /*secondsLater=*/2);
   EXPECT_TRUE(rig.recorder->waitFor(
       [](const humanoid_mpc_msgs::WalkingVelocityCommand& c) {
-        return c.cmd_linvel_base_rt_world_ewrt_heading_x() == 0.25;
+        return c.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x() == 0.25;
       },
       absl::Seconds(10)));
   EXPECT_GE(rig.repeater->limitsReloads(), 1u);
 
   // A lowered limit clamps the held command: 0.5 m/s at a limit of 0.4 m/s is
   // the full 1.0.
-  rewriteLater(referenceFile, referenceWithMaxVelocityX("0.4"),
+  rewriteLater(referenceFile, makeReferenceTextproto("0.4"),
                /*secondsLater=*/4);
   EXPECT_TRUE(rig.recorder->waitFor(
       [](const humanoid_mpc_msgs::WalkingVelocityCommand& c) {
-        return c.cmd_linvel_base_rt_world_ewrt_heading_x() == 1.0;
+        return c.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x() == 1.0;
       },
       absl::Seconds(10)));
 
@@ -449,14 +453,14 @@ TEST(VelocityCommandRepeater, ASavedChangeOfTheLimitsKeepsTheTypedSpeed) {
   const std::optional<humanoid_mpc_msgs::WalkingVelocityCommand> kept =
       rig.recorder->last();
   if (!kept.has_value()) FAIL() << "no command";
-  EXPECT_EQ(kept->cmd_linvel_base_rt_world_ewrt_heading_x(), 1.0);
+  EXPECT_EQ(kept->cmd_lnorm_linvel_base_rt_world_ewrt_heading_x(), 1.0);
   rig.teleop->stop();
   rig.mpc->stop();
 }
 
 TEST(VelocityCommandRepeater, EndsWithTheStopCommandKeepingTheHeight) {
   const std::string referenceFile = writeTemporaryFile(
-      "repeater_stop.textproto", referenceWithMaxVelocityX("1.0"));
+      "repeater_stop.textproto", makeReferenceTextproto("1.0"));
   const absl::StatusOr<KeyboardCommandLimits> limits =
       loadKeyboardCommandLimits(referenceFile);
   ASSERT_TRUE(limits.ok()) << limits.status();
@@ -473,28 +477,28 @@ TEST(VelocityCommandRepeater, EndsWithTheStopCommandKeepingTheHeight) {
   rig.repeater->setCommand(vector4_t(0.5, 0.1, 0.05, 0.2), *limits);
   ASSERT_TRUE(rig.recorder->waitFor(
       [](const humanoid_mpc_msgs::WalkingVelocityCommand& c) {
-        return c.cmd_linvel_base_rt_world_ewrt_heading_x() == 0.5;
+        return c.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x() == 0.5;
       },
       absl::Seconds(10)));
   EXPECT_TRUE(rig.repeater->publishStopCommand());
   EXPECT_TRUE(rig.recorder->waitFor(
       [](const humanoid_mpc_msgs::WalkingVelocityCommand& c) {
-        return c.cmd_linvel_base_rt_world_ewrt_heading_x() == 0.0 &&
-               c.cmd_linvel_base_rt_world_ewrt_heading_y() == 0.0 &&
-               c.cmd_angvel_base_rt_world_ewrt_world_z() == 0.0;
+        return c.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x() == 0.0 &&
+               c.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y() == 0.0 &&
+               c.cmd_lnorm_angvel_base_rt_world_ewrt_world_z() == 0.0;
       },
       absl::Seconds(10)));
   const std::optional<humanoid_mpc_msgs::WalkingVelocityCommand> stop =
       rig.recorder->last();
   if (!stop.has_value()) FAIL() << "no command";
-  EXPECT_DOUBLE_EQ(stop->cmd_pos_base_rt_world_ewrt_world_z(), 0.75 + 0.05);
+  EXPECT_DOUBLE_EQ(stop->cmd_pos_base_rt_surface_ewrt_world_z(), 0.75 + 0.05);
   rig.teleop->stop();
   rig.mpc->stop();
 }
 
 TEST(VelocityCommandRepeater, ABusThatIsNotRunningNeverSendsTheStopCommand) {
   const std::string referenceFile = writeTemporaryFile(
-      "repeater_stopped.textproto", referenceWithMaxVelocityX("1.0"));
+      "repeater_stopped.textproto", makeReferenceTextproto("1.0"));
   const absl::StatusOr<KeyboardCommandLimits> limits =
       loadKeyboardCommandLimits(referenceFile);
   ASSERT_TRUE(limits.ok()) << limits.status();

@@ -68,7 +68,7 @@ inline constexpr double kDefaultLandingWeight = 1.0e3;
 inline constexpr int kDefaultRefinementIterations = 60;
 inline constexpr int kDefaultPlannerThreads = 4;
 inline constexpr double kDefaultRefinementMarginBuffer = 0.005;
-inline constexpr double kDefaultRefinementTorqueBuffer = 0.02;
+inline constexpr double kDefaultRefinementJointTorqueBuffer = 0.02;
 inline constexpr int kDefaultMaxPolygonUpdates = 3;
 
 /** The settings of solve 3 (design sections 4.2 and 4.3). */
@@ -84,14 +84,14 @@ struct RefinementOptions {
   // The relaxed barriers of the torques (rows in fractions of the effort
   // limit), the collision spheres (rows in meters) and the support polygons
   // (rows in meters).
-  RelaxedBarrierPenalty::Config torqueBarrier;
+  RelaxedBarrierPenalty::Config jointTorqueBarrier;
   RelaxedBarrierPenalty::Config clearanceBarrier;
   RelaxedBarrierPenalty::Config polygonBarrier;
   // [m] Added to the scenario's static margin in the polygon constraints;
   // subtracted from the torque margin in the torque constraints: the
   // certifier must find the scenario's margins.
   double staticMarginBuffer = kDefaultRefinementMarginBuffer;
-  double torqueMarginBuffer = kDefaultRefinementTorqueBuffer;
+  double jointTorqueMarginBuffer = kDefaultRefinementJointTorqueBuffer;
   // How often the polygons are recomputed at the solution when the certifier
   // fails a static condition (design section 4.3).
   int maxPolygonUpdates = kDefaultMaxPolygonUpdates;

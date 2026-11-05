@@ -75,8 +75,8 @@ class MujocoRobotBackend final : public RobotBackend {
     return !simulator_->isZeroTorqueMode();
   }
   void enableTorques() override { simulator_->enableTorques(); }
-  void readMeasuredContactForces(
-      std::array<vector3_t, kNumContacts>& forces) override;
+  void readMeasForceFeetEwrtWorld(
+      std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld) override;
   /** Zero torque (disableTorques()): the start-up state of the simulator. */
   void enterSafeState() override { simulator_->disableTorques(); }
   void registerContactEstimators(

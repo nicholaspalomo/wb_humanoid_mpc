@@ -29,11 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <utility>
 
 #include "absl/base/nullability.h"
 #include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_pinocchio_interface/PinocchioStateInputMapping.h"
 
 namespace ocs2::humanoid {

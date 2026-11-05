@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_mpc/MPC_MRT_Interface.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_oc/oc_data/PerformanceIndex.h"
@@ -43,7 +44,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/multi_contact/PlannedMotionReferenceManager.h"
-#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 

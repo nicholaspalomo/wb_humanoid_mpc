@@ -53,8 +53,8 @@ namespace ocs2::humanoid::test_support {
 /** The lowest and highest base heights [m] of the robot/state samples received
  * since ScriptedOperator::resetBaseHeightRange(). */
 struct BaseHeightRange {
-  double min = std::numeric_limits<double>::infinity();
-  double max = -std::numeric_limits<double>::infinity();
+  double minPosBaseRtWorldEwrtWorldZ = std::numeric_limits<double>::infinity();
+  double maxPosBaseRtWorldEwrtWorldZ = -std::numeric_limits<double>::infinity();
   uint64_t samples = 0;
 };
 

@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/CommandData.h"
 #include "ocs2_mpc/MRT_BASE.h"
 #include "ocs2_mpc/SystemObservation.h"

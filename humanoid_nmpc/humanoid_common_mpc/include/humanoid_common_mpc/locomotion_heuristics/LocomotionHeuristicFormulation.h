@@ -60,10 +60,11 @@ namespace heuristic {
 
 /** Table C.2. H_Theta(pdot) = a1 pdot + a0: roll from lateral speed, pitch from
  * forward speed. */
-inline constexpr char kOrientationCompensation[] = "orientation_compensation";
+inline constexpr char kOrientationCompensationName[] =
+    "orientation_compensation";
 /** Table C.2. H_Theta(Phi) = b1 sin(c1 Phi + d1): the orientation limit cycle
  * of the gait. */
-inline constexpr char kPeriodicOrientation[] = "periodic_orientation";
+inline constexpr char kPeriodicOrientationName[] = "periodic_orientation";
 /** Table C.2. H_z(v) = a2 v^2 + a1 v + a0: base height against forward speed.
  */
 inline constexpr char kHeightCompensation[] = "height_compensation";
@@ -92,7 +93,8 @@ inline constexpr char kHighSpeedTurning[] = "high_speed_turning";
 inline constexpr char kImpulseScaling[] = "impulse_scaling";
 /** Table C.1. H_f(Theta x pdot) = m omega x pdot: the centripetal force of a
  * turn taken at speed. */
-inline constexpr char kCentripetalAcceleration[] = "centripetal_acceleration";
+inline constexpr char kCentripetalAccelerationName[] =
+    "centripetal_acceleration";
 
 }  // namespace heuristic
 
@@ -116,9 +118,21 @@ enum class HeuristicKind { kBasePose, kFoothold, kWrench };
 inline constexpr size_t kNumHeuristicKinds = 3;
 const std::array<HeuristicKind, kNumHeuristicKinds>& allHeuristicKinds();
 
-/** The name of a kind as the task file spells its list: "base_pose",
- * "foothold", "wrench". */
+/** Returns the name of a kind: "base_pose", "foothold", "wrench". */
 absl::string_view heuristicKindName(HeuristicKind kind);
+
+/** Returns the name of a kind's list as the task file spells it:
+ * "base_pose_heuristics", "foothold_heuristics", "wrench_heuristics". */
+absl::string_view heuristicListName(HeuristicKind kind);
+
+/**
+ * Returns the field of the task file's locomotion_heuristics block that holds
+ * the parameters of the heuristic `name`, a registry name: the name itself, or
+ * the name with `_parameters` where it holds a frame-dependent quantity word
+ * (orientation_compensation_parameters, periodic_orientation_parameters,
+ * centripetal_acceleration_parameters; humanoid_nmpc/docs/frame_naming).
+ */
+std::string parameterBlockName(absl::string_view name);
 
 /** Normalizes a heuristic name for comparison: lower case, `_`, `-` and spaces
  * removed. */
@@ -156,15 +170,16 @@ std::optional<HeuristicKind> heuristicKindOf(absl::string_view name);
  * each).
  */
 struct LocomotionHeuristicFormulation {
-  std::vector<std::string> basePose{};
-  std::vector<std::string> foothold{};
-  std::vector<std::string> wrench{};
+  std::vector<std::string> basePoseHeuristics{};
+  std::vector<std::string> footholdHeuristics{};
+  std::vector<std::string> wrenchHeuristics{};
 
   std::vector<std::string>& list(HeuristicKind kind);
   const std::vector<std::string>& list(HeuristicKind kind) const;
 
   bool empty() const {
-    return basePose.empty() && foothold.empty() && wrench.empty();
+    return basePoseHeuristics.empty() && footholdHeuristics.empty() &&
+           wrenchHeuristics.empty();
   }
   bool listed(HeuristicKind kind, absl::string_view name) const;
 

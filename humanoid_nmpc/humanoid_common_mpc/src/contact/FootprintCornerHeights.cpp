@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <climits>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -42,9 +43,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/CppAdInterface.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/spatial/fwd.hpp"
 
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "nproto/Fnv1a64Constants.h"
 
@@ -179,13 +186,14 @@ FootprintCornerHeights::FootprintCornerHeights(
 
 void FootprintCornerHeights::createAdInterface(LibraryCreation creation) {
   const size_t stateDim = mpcRobotModelAdPtr_->getStateDim();
-  CppAdInterface::ad_function_t heightsAd =
+  CppAdInterface::ad_function_t tapePosLinksRtWorldEwrtWorldZ =
       [this, stateDim](const ad_vector_t& x, ad_vector_t& y) {
         CHECK_EQ(static_cast<size_t>(x.rows()), stateDim);
-        y = this->heightsFunction(x);
+        y = this->computePosLinksRtWorldEwrtWorldZ(x);
       };
-  adInterfacePtr_ = std::make_unique<CppAdInterface>(
-      std::move(heightsAd), stateDim, modelName_, modelFolder_);
+  adInterfacePtr_ =
+      std::make_unique<CppAdInterface>(std::move(tapePosLinksRtWorldEwrtWorldZ),
+                                       stateDim, modelName_, modelFolder_);
 
   // First order only. Both callers are ConstraintOrder::Linear, so the
   // second-order tape would be generated, compiled and then never evaluated -
@@ -199,7 +207,7 @@ void FootprintCornerHeights::createAdInterface(LibraryCreation creation) {
   }
 }
 
-ad_vector_t FootprintCornerHeights::heightsFunction(
+ad_vector_t FootprintCornerHeights::computePosLinksRtWorldEwrtWorldZ(
     const ad_vector_t& state) const {
   const pinocchio::ModelTpl<ad_scalar_t>& model =
       pinocchioInterfaceCppAd_.getModel();
@@ -208,19 +216,20 @@ ad_vector_t FootprintCornerHeights::heightsFunction(
   updateFramePlacements(mpcRobotModelAdPtr_->getGeneralizedCoordinates(state),
                         model, data);
 
-  ad_vector_t heights(frameIds_.size());
+  ad_vector_t posLinksRtWorldEwrtWorldZ(frameIds_.size());
   for (size_t corner = 0; corner < frameIds_.size(); ++corner) {
-    heights(static_cast<Eigen::Index>(corner)) =
+    posLinksRtWorldEwrtWorldZ(static_cast<Eigen::Index>(corner)) =
         data.oMf[frameIds_[corner]].translation()(kZAxisIndex);
   }
-  return heights;
+  return posLinksRtWorldEwrtWorldZ;
 }
 
-vector_t FootprintCornerHeights::getHeights(const vector_t& state) const {
+vector_t FootprintCornerHeights::getPosLinksRtWorldEwrtWorldZ(
+    const vector_t& state) const {
   return adInterfacePtr_->getFunctionValue(state);
 }
 
-matrix_t FootprintCornerHeights::getHeightsJacobian(
+matrix_t FootprintCornerHeights::getJacobianPosLinksRtWorldEwrtWorldZ(
     const vector_t& state) const {
   return adInterfacePtr_->getJacobian(state);
 }

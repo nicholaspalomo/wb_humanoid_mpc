@@ -28,7 +28,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <array>
-#include <cstddef>
 
 #include "absl/base/nullability.h"
 #include "absl/strings/match.h"

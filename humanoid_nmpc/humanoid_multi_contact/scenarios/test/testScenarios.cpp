@@ -89,14 +89,14 @@ absl::StatusOr<LoadedScenario> loadNamedScenario(const std::string& name) {
   return loadScenario(path);
 }
 
-/** The certifier's report on `pose` held still. */
-absl::StatusOr<config::CertifierReport::Knot> certifyPose(
+/** The certifier's report on `posture` held still. */
+absl::StatusOr<config::CertifierReport::Knot> certifyPosture(
     StabilityCertifier& certifier,
-    const config::Scenario::Pose& pose,
+    const config::Scenario::Pose& posture,
     const ContactSet& contactSet) {
   CertifierKnot knot;
-  ASSIGN_OR_RETURN(knot.configuration, configurationOf(pose));
-  ASSIGN_OR_RETURN(knot.activeContacts, contactsOf(pose, contactSet));
+  ASSIGN_OR_RETURN(knot.configuration, configurationOf(posture));
+  ASSIGN_OR_RETURN(knot.activeContacts, contactsOf(posture, contactSet));
   ASSIGN_OR_RETURN(const config::CertifierReport report,
                    certifier.certifyKnots({knot}));
   return report.knots.front();
@@ -109,11 +109,11 @@ void expectStable(const config::CertifierReport::Knot& knot,
   EXPECT_TRUE(knot.dynamic_condition);
   EXPECT_LE(knot.max_active_contact_distance, kDefaultContactDistanceTolerance);
   ASSERT_TRUE(knot.static_margin.has_value());
-  // Every shipped pose stands with the design's margin, whether or not its
+  // Every shipped posture stands with the design's margin, whether or not its
   // scenario judges it.
   EXPECT_GE(*knot.static_margin, 0.03);
-  ASSERT_TRUE(knot.torque_utilization.has_value());
-  EXPECT_LE(*knot.torque_utilization, 0.9) << knot.max_torque_joint;
+  ASSERT_TRUE(knot.joint_torque_utilization.has_value());
+  EXPECT_LE(*knot.joint_torque_utilization, 0.9) << knot.max_torque_joint;
   EXPECT_TRUE(knot.collision_free.value_or(false))
       << knot.min_sphere_clearance_link;
   // No inactive pad's geometry sinks into the terrain by more than 1 cm, and
@@ -137,7 +137,7 @@ TEST(ScenariosTest, EveryScenarioParsesAndReferencesItsContactsAndTerrain) {
         << validateScenario(loaded->scenario, loaded->contactSet,
                             loaded->terrain);
     EXPECT_EQ(loaded->scenario.static_margin, expected.staticMargin);
-    EXPECT_GT(loaded->scenario.torque_margin, 0.0);
+    EXPECT_GT(loaded->scenario.joint_torque_margin, 0.0);
     // Every shipped scenario plans within the position limits only (design
     // section 11, decision 6), the box climb's and the get-up from the front's
     // widened by 0.1 rad (decision 8), the get-up from the back's by 0.05 rad
@@ -179,16 +179,16 @@ TEST(ScenariosTest, TheJointLimitsDefaultToEnforcingTheEffortLimits) {
   const absl::StatusOr<CertifierOptions> options = certifierOptionsOf(scenario);
   ASSERT_TRUE(options.ok()) << options.status();
   EXPECT_EQ(options->jointLimits, JointLimits::kPositionAndEffort);
-  config::Scenario positionOnly;
-  positionOnly.joint_limits = "position_only";
-  positionOnly.torque_margin = 0.5;
+  config::Scenario jointPositionOnly;
+  jointPositionOnly.joint_limits = "position_only";
+  jointPositionOnly.joint_torque_margin = 0.5;
   const absl::StatusOr<CertifierOptions> relaxed =
-      certifierOptionsOf(positionOnly);
+      certifierOptionsOf(jointPositionOnly);
   ASSERT_TRUE(relaxed.ok()) << relaxed.status();
   EXPECT_EQ(relaxed->jointLimits, JointLimits::kPositionOnly);
-  EXPECT_EQ(relaxed->torqueMargin, 0.5);
-  positionOnly.joint_limits = "velocity_only";
-  EXPECT_EQ(certifierOptionsOf(positionOnly).status().code(),
+  EXPECT_EQ(relaxed->jointTorqueMargin, 0.5);
+  jointPositionOnly.joint_limits = "velocity_only";
+  EXPECT_EQ(certifierOptionsOf(jointPositionOnly).status().code(),
             absl::StatusCode::kInvalidArgument);
 }
 
@@ -245,17 +245,18 @@ TEST(ScenariosTest, InitialAndGoalStancesPassTheCertifier) {
     const absl::StatusOr<std::unique_ptr<StabilityCertifier>> certifier =
         makeCertifier(*loaded);
     ASSERT_TRUE(certifier.ok()) << certifier.status();
-    const absl::StatusOr<config::CertifierReport::Knot> initial = certifyPose(
-        **certifier, loaded->scenario.initial_pose, loaded->contactSet);
+    const absl::StatusOr<config::CertifierReport::Knot> initial =
+        certifyPosture(**certifier, loaded->scenario.initial_posture,
+                       loaded->contactSet);
     ASSERT_TRUE(initial.ok()) << initial.status();
-    expectStable(*initial, "initial pose");
+    expectStable(*initial, "initial posture");
     EXPECT_EQ(initial->static_condition.has_value(),
               expected.staticMargin.has_value());
-    ASSERT_TRUE(loaded->scenario.goal.pose.has_value());
-    const absl::StatusOr<config::CertifierReport::Knot> goal = certifyPose(
-        **certifier, *loaded->scenario.goal.pose, loaded->contactSet);
+    ASSERT_TRUE(loaded->scenario.goal.posture.has_value());
+    const absl::StatusOr<config::CertifierReport::Knot> goal = certifyPosture(
+        **certifier, *loaded->scenario.goal.posture, loaded->contactSet);
     ASSERT_TRUE(goal.ok()) << goal.status();
-    expectStable(*goal, "goal pose");
+    expectStable(*goal, "goal posture");
   }
 }
 
@@ -271,9 +272,9 @@ TEST(ScenariosTest, AKneelingWaypointRestsTheEndOfItsThighBesideTheKnee) {
   ASSERT_TRUE(certifier.ok()) << certifier.status();
   const config::Scenario::Pose* absl_nullable kneeling = nullptr;
   for (const config::Scenario::Goal& waypoint : loaded->scenario.waypoints) {
-    if (waypoint.pose.has_value() &&
-        waypoint.pose->name == "left_knee_on_the_box") {
-      kneeling = &*waypoint.pose;
+    if (waypoint.posture.has_value() &&
+        waypoint.posture->name == "left_knee_on_the_box") {
+      kneeling = &*waypoint.posture;
     }
   }
   ASSERT_NE(kneeling, nullptr);
@@ -329,7 +330,7 @@ TEST(ScenariosTest, ValidationRefusesBadScenarios) {
   contact.allowed_contacts.push_back("tail_contact");
   expectRefused(*loaded, contact, "not a candidate");
   config::Scenario notAllowed = loaded->scenario;
-  notAllowed.initial_pose.active_contacts.push_back("seat_contact");
+  notAllowed.initial_posture.active_contacts.push_back("seat_contact");
   expectRefused(*loaded, notAllowed, "is not allowed");
   config::Scenario primitive = loaded->scenario;
   primitive.goal.contacts.front().primitive = "roof";
@@ -350,7 +351,7 @@ TEST(ScenariosTest, ValidationRefusesBadScenarios) {
   expectRefused(*loaded, margin, "static_margin");
   config::Scenario arming = loaded->scenario;
   arming.simulation_start.gantry_arming = "when_standing";
-  expectRefused(*loaded, arming, "standing_base_height");
+  expectRefused(*loaded, arming, "standing_min_pos_base_rt_world_ewrt_world_z");
   arming.simulation_start.gantry_arming = "never";
   expectRefused(*loaded, arming, "unknown arming");
   config::Scenario limits = loaded->scenario;

@@ -122,10 +122,10 @@ SCALAR_T ifLessThan(const SCALAR_T& left,
 /** What both derivatives of e read of the attitude. Passive data. */
 template <typename SCALAR_T>
 struct PlaneTilt {
-  /** v = R e_z, the end-effector normal in the world frame. */
-  VECTOR3_T<SCALAR_T> normal;
+  /** v = R e_z, the end effector's z axis in the world frame. */
+  VECTOR3_T<SCALAR_T> zAxisEeEwrtWorld;
   /** a = v x n. */
-  VECTOR3_T<SCALAR_T> axis;
+  VECTOR3_T<SCALAR_T> vCrossN;
   /** 1 + v.n; the anti-parallel guard applies below
    * kPlaneNormalAntiParallelThreshold. */
   SCALAR_T onePlusCosine = SCALAR_T(0.0);
@@ -134,23 +134,25 @@ struct PlaneTilt {
   SCALAR_T root = SCALAR_T(0.0);
 };
 
-/** The PlaneTilt of the attitude `rotation` (end effector to world) against the
- * unit normal `planeNormal`. */
+/** The PlaneTilt of the attitude `rotmatEeRtWorld` (end effector to world)
+ * against the unit normal `normalSurfaceEwrtWorld`. */
 template <typename SCALAR_T>
-PlaneTilt<SCALAR_T> planeTiltOf(const MATRIX3_T<SCALAR_T>& rotation,
-                                const VECTOR3_T<SCALAR_T>& planeNormal) {
+PlaneTilt<SCALAR_T> planeTiltOf(
+    const MATRIX3_T<SCALAR_T>& rotmatEeRtWorld,
+    const VECTOR3_T<SCALAR_T>& normalSurfaceEwrtWorld) {
   using std::sqrt;
-  PlaneTilt<SCALAR_T> tilt;
-  tilt.normal = rotation.col(kZAxisIndex);
-  tilt.axis = tilt.normal.cross(planeNormal);
-  tilt.onePlusCosine = SCALAR_T(1.0) + tilt.normal.dot(planeNormal);
+  PlaneTilt<SCALAR_T> planeTilt;
+  planeTilt.zAxisEeEwrtWorld = rotmatEeRtWorld.col(kZAxisIndex);
+  planeTilt.vCrossN = planeTilt.zAxisEeEwrtWorld.cross(normalSurfaceEwrtWorld);
+  planeTilt.onePlusCosine =
+      SCALAR_T(1.0) + planeTilt.zAxisEeEwrtWorld.dot(normalSurfaceEwrtWorld);
   // The guard is applied before the square root and the divisions: the branch
   // selected away sees 1 + v.n = 1.
   const SCALAR_T guarded = ifLessThan(
-      tilt.onePlusCosine, SCALAR_T(kPlaneNormalAntiParallelThreshold),
-      SCALAR_T(1.0), tilt.onePlusCosine);
-  tilt.root = sqrt(SCALAR_T(kSquaredRootPerOnePlusCosine) * guarded);
-  return tilt;
+      planeTilt.onePlusCosine, SCALAR_T(kPlaneNormalAntiParallelThreshold),
+      SCALAR_T(1.0), planeTilt.onePlusCosine);
+  planeTilt.root = sqrt(SCALAR_T(kSquaredRootPerOnePlusCosine) * guarded);
+  return planeTilt;
 }
 
 /** `fallback` where 1 + v.n < kPlaneNormalAntiParallelThreshold,
@@ -173,78 +175,88 @@ VECTOR3_T<SCALAR_T> selectOutsideAntiParallelGuard(
 
 /**
  * Returns de/dt + 1/2 n (v.w) of the file comment: the rate of the orientation
- * error with respect to the plane of the unit normal `planeNormal`, completed
- * along the normal by half the rotation rate about the end-effector normal; w /
- * 2 where 1 + v.n < kPlaneNormalAntiParallelThreshold. `rotation`
- * maps the end-effector frame to the world frame and `angularVelocity` is the
- * end effector's, in the world frame.
+ * error with respect to the plane of the unit normal `normalSurfaceEwrtWorld`,
+ * completed along the normal by half the rotation rate about the end effector's
+ * z axis; w / 2 where 1 + v.n < kPlaneNormalAntiParallelThreshold.
+ * `rotmatEeRtWorld` maps the end-effector frame to the world frame and
+ * `angvelEeRtWorldEwrtWorld` is the end effector's, in the world frame.
  */
 template <typename SCALAR_T>
-VECTOR3_T<SCALAR_T> orientationErrorWrtPlaneRate(
-    const MATRIX3_T<SCALAR_T>& rotation,
-    const VECTOR3_T<SCALAR_T>& angularVelocity,
-    const VECTOR3_T<SCALAR_T>& planeNormal) {
-  const internal::PlaneTilt<SCALAR_T> tilt =
-      internal::planeTiltOf(rotation, planeNormal);
-  const VECTOR3_T<SCALAR_T> normalRate = angularVelocity.cross(tilt.normal);
-  const VECTOR3_T<SCALAR_T> axisRate = normalRate.cross(planeNormal);
-  const SCALAR_T cosineRate = normalRate.dot(planeNormal);
-  const SCALAR_T squaredRoot = tilt.root * tilt.root;
-  const VECTOR3_T<SCALAR_T> tiltRate =
-      (tilt.axis * (cosineRate / squaredRoot) - axisRate) / tilt.root;
-  const SCALAR_T normalSpinRate = tilt.normal.dot(angularVelocity);
+VECTOR3_T<SCALAR_T> planeTiltRate(
+    const MATRIX3_T<SCALAR_T>& rotmatEeRtWorld,
+    const VECTOR3_T<SCALAR_T>& angvelEeRtWorldEwrtWorld,
+    const VECTOR3_T<SCALAR_T>& normalSurfaceEwrtWorld) {
+  const internal::PlaneTilt<SCALAR_T> planeTilt =
+      internal::planeTiltOf(rotmatEeRtWorld, normalSurfaceEwrtWorld);
+  const VECTOR3_T<SCALAR_T> rateZAxisEeEwrtWorld =
+      angvelEeRtWorldEwrtWorld.cross(planeTilt.zAxisEeEwrtWorld);
+  const VECTOR3_T<SCALAR_T> rateVCrossN =
+      rateZAxisEeEwrtWorld.cross(normalSurfaceEwrtWorld);
+  const SCALAR_T cosineRate = rateZAxisEeEwrtWorld.dot(normalSurfaceEwrtWorld);
+  const SCALAR_T squaredRoot = planeTilt.root * planeTilt.root;
+  const VECTOR3_T<SCALAR_T> rateTiltEeRtSurfaceEwrtWorld =
+      (planeTilt.vCrossN * (cosineRate / squaredRoot) - rateVCrossN) /
+      planeTilt.root;
+  const SCALAR_T angvelEeRtWorldEwrtEeZ =
+      planeTilt.zAxisEeEwrtWorld.dot(angvelEeRtWorldEwrtWorld);
   const VECTOR3_T<SCALAR_T> regular =
-      tiltRate +
-      planeNormal * (SCALAR_T(kUnitQuaternionHalfAngleFactor) * normalSpinRate);
+      rateTiltEeRtSurfaceEwrtWorld +
+      normalSurfaceEwrtWorld *
+          (SCALAR_T(kUnitQuaternionHalfAngleFactor) * angvelEeRtWorldEwrtEeZ);
   const VECTOR3_T<SCALAR_T> fallback =
-      angularVelocity * SCALAR_T(kUnitQuaternionHalfAngleFactor);
-  return internal::selectOutsideAntiParallelGuard(tilt.onePlusCosine, fallback,
-                                                  regular);
+      angvelEeRtWorldEwrtWorld * SCALAR_T(kUnitQuaternionHalfAngleFactor);
+  return internal::selectOutsideAntiParallelGuard(planeTilt.onePlusCosine,
+                                                  fallback, regular);
 }
 
 /**
- * Returns the time derivative of orientationErrorWrtPlaneRate() along the
+ * Returns the time derivative of planeTiltRate() along the
  * motion, d2e/dt2 + 1/2 n (v.alpha) of the file comment; alpha / 2 where 1 +
- * v.n < kPlaneNormalAntiParallelThreshold. `angularAcceleration`
- * is the time derivative of `angularVelocity`, in the world frame (the angular
- * part of Pinocchio's frame acceleration, LOCAL_WORLD_ALIGNED).
+ * v.n < kPlaneNormalAntiParallelThreshold. `angaccEeRtWorldEwrtWorld`
+ * is the time derivative of `angvelEeRtWorldEwrtWorld`, in the world frame (the
+ * angular part of Pinocchio's frame acceleration, LOCAL_WORLD_ALIGNED).
  */
 template <typename SCALAR_T>
-VECTOR3_T<SCALAR_T> orientationErrorWrtPlaneAcceleration(
-    const MATRIX3_T<SCALAR_T>& rotation,
-    const VECTOR3_T<SCALAR_T>& angularVelocity,
-    const VECTOR3_T<SCALAR_T>& angularAcceleration,
-    const VECTOR3_T<SCALAR_T>& planeNormal) {
-  const internal::PlaneTilt<SCALAR_T> tilt =
-      internal::planeTiltOf(rotation, planeNormal);
-  const VECTOR3_T<SCALAR_T> normalRate = angularVelocity.cross(tilt.normal);
-  const VECTOR3_T<SCALAR_T> normalAcceleration =
-      angularAcceleration.cross(tilt.normal) +
-      angularVelocity.cross(normalRate);
-  const VECTOR3_T<SCALAR_T> axisRate = normalRate.cross(planeNormal);
-  const VECTOR3_T<SCALAR_T> axisAcceleration =
-      normalAcceleration.cross(planeNormal);
-  const SCALAR_T cosineRate = normalRate.dot(planeNormal);
-  const SCALAR_T cosineAcceleration = normalAcceleration.dot(planeNormal);
-  const SCALAR_T squaredRoot = tilt.root * tilt.root;
-  const VECTOR3_T<SCALAR_T> tiltAcceleration =
-      ((axisRate *
+VECTOR3_T<SCALAR_T> planeTiltSecondRate(
+    const MATRIX3_T<SCALAR_T>& rotmatEeRtWorld,
+    const VECTOR3_T<SCALAR_T>& angvelEeRtWorldEwrtWorld,
+    const VECTOR3_T<SCALAR_T>& angaccEeRtWorldEwrtWorld,
+    const VECTOR3_T<SCALAR_T>& normalSurfaceEwrtWorld) {
+  const internal::PlaneTilt<SCALAR_T> planeTilt =
+      internal::planeTiltOf(rotmatEeRtWorld, normalSurfaceEwrtWorld);
+  const VECTOR3_T<SCALAR_T> rateZAxisEeEwrtWorld =
+      angvelEeRtWorldEwrtWorld.cross(planeTilt.zAxisEeEwrtWorld);
+  const VECTOR3_T<SCALAR_T> secondRateZAxisEeEwrtWorld =
+      angaccEeRtWorldEwrtWorld.cross(planeTilt.zAxisEeEwrtWorld) +
+      angvelEeRtWorldEwrtWorld.cross(rateZAxisEeEwrtWorld);
+  const VECTOR3_T<SCALAR_T> rateVCrossN =
+      rateZAxisEeEwrtWorld.cross(normalSurfaceEwrtWorld);
+  const VECTOR3_T<SCALAR_T> secondRateVCrossN =
+      secondRateZAxisEeEwrtWorld.cross(normalSurfaceEwrtWorld);
+  const SCALAR_T cosineRate = rateZAxisEeEwrtWorld.dot(normalSurfaceEwrtWorld);
+  const SCALAR_T cosineSecondRate =
+      secondRateZAxisEeEwrtWorld.dot(normalSurfaceEwrtWorld);
+  const SCALAR_T squaredRoot = planeTilt.root * planeTilt.root;
+  const VECTOR3_T<SCALAR_T> secondRateTiltEeRtSurfaceEwrtWorld =
+      ((rateVCrossN *
             (SCALAR_T(internal::kAxisRateCosineRateCoefficient) * cosineRate) +
-        tilt.axis * cosineAcceleration) /
+        planeTilt.vCrossN * cosineSecondRate) /
            squaredRoot -
-       tilt.axis * (SCALAR_T(internal::kSquaredCosineRateCoefficient) *
-                    cosineRate * cosineRate / (squaredRoot * squaredRoot)) -
-       axisAcceleration) /
-      tilt.root;
-  const SCALAR_T normalSpinAcceleration = tilt.normal.dot(angularAcceleration);
+       planeTilt.vCrossN *
+           (SCALAR_T(internal::kSquaredCosineRateCoefficient) * cosineRate *
+            cosineRate / (squaredRoot * squaredRoot)) -
+       secondRateVCrossN) /
+      planeTilt.root;
+  const SCALAR_T angaccEeRtWorldEwrtEeZ =
+      planeTilt.zAxisEeEwrtWorld.dot(angaccEeRtWorldEwrtWorld);
   const VECTOR3_T<SCALAR_T> regular =
-      tiltAcceleration +
-      planeNormal *
-          (SCALAR_T(kUnitQuaternionHalfAngleFactor) * normalSpinAcceleration);
+      secondRateTiltEeRtSurfaceEwrtWorld +
+      normalSurfaceEwrtWorld *
+          (SCALAR_T(kUnitQuaternionHalfAngleFactor) * angaccEeRtWorldEwrtEeZ);
   const VECTOR3_T<SCALAR_T> fallback =
-      angularAcceleration * SCALAR_T(kUnitQuaternionHalfAngleFactor);
-  return internal::selectOutsideAntiParallelGuard(tilt.onePlusCosine, fallback,
-                                                  regular);
+      angaccEeRtWorldEwrtWorld * SCALAR_T(kUnitQuaternionHalfAngleFactor);
+  return internal::selectOutsideAntiParallelGuard(planeTilt.onePlusCosine,
+                                                  fallback, regular);
 }
 
 }  // namespace ocs2::humanoid

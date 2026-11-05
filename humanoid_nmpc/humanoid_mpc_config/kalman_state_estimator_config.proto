@@ -33,10 +33,10 @@ message KalmanStateEstimatorConfig {
   double kinematic_position_noise = 6 [default = 0.005, (humanoid_mpc_config.tuning) = { unit: "m" }];
   // [m/s] Standard deviation of the base velocity a stance contact point gives through the leg kinematics.
   double kinematic_velocity_noise = 7 [default = 0.05, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
-  // [m] Standard deviation of a stance contact point's height above the world frame, against contact_height.
+  // [m] Standard deviation of a stance contact point's height above the world frame, against nom_pos_contact_rt_world_ewrt_world_z.
   double contact_height_noise = 8 [default = 0.01, (humanoid_mpc_config.tuning) = { unit: "m" }];
   // [m] The height of a contact frame in the world while its foot stands on flat ground at z = 0: what makes the base
   // height observable. 0 for contact frames at the soles.
-  double contact_height = 9 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m" }];
+  double nom_pos_contact_rt_world_ewrt_world_z = 9 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m" }];
   // LINT.ThenChange(//humanoid_state_estimation/humanoid_state_estimator/include/humanoid_state_estimator/KalmanBaseEstimator.h:kalman_state_estimator_defaults)
 }

@@ -45,19 +45,50 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
 
+#include "humanoid_mpc_config/config_registries.nproto.h"
 #include "humanoid_mpc_config/config_registries.nproto.pb.h"
+#include "humanoid_mpc_config/config_registries.pb.h"
+#include "humanoid_mpc_config/contact_planning_file.nproto.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.pb.h"
+#include "humanoid_mpc_config/contact_planning_file.pb.h"
+#include "humanoid_mpc_config/contact_wrench_gate_config.nproto.h"
+#include "humanoid_mpc_config/dcm_terminal_cost_config.nproto.h"
+#include "humanoid_mpc_config/gait_file.nproto.h"
 #include "humanoid_mpc_config/gait_file.nproto.pb.h"
+#include "humanoid_mpc_config/gait_file.pb.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.pb.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.pb.h"
+#include "humanoid_mpc_config/joint_pd_gains_update.nproto.h"
 #include "humanoid_mpc_config/joint_pd_gains_update.nproto.pb.h"
+#include "humanoid_mpc_config/joint_pd_gains_update.pb.h"
+#include "humanoid_mpc_config/joint_value.nproto.h"
 #include "humanoid_mpc_config/joint_value.nproto.pb.h"
+#include "humanoid_mpc_config/joint_value.pb.h"
+#include "humanoid_mpc_config/mode_sequence_template_config.nproto.h"
+#include "humanoid_mpc_config/mpc_parameter_update.nproto.h"
 #include "humanoid_mpc_config/mpc_parameter_update.nproto.pb.h"
+#include "humanoid_mpc_config/mpc_parameter_update.pb.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_mpc_config/reference_file.nproto.pb.h"
+#include "humanoid_mpc_config/reference_file.pb.h"
+#include "humanoid_mpc_config/state_weights.nproto.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.pb.h"
+#include "humanoid_mpc_config/task_file.pb.h"
+#include "humanoid_mpc_config/task_space_cost_config.nproto.h"
+#include "humanoid_mpc_config/tuning_group_options.nproto.h"
 #include "humanoid_mpc_config/tuning_group_options.nproto.pb.h"
+#include "humanoid_mpc_config/tuning_group_options.pb.h"
+#include "humanoid_mpc_config/tuning_options.nproto.h"
 #include "humanoid_mpc_config/tuning_options.nproto.pb.h"
+#include "humanoid_mpc_config/tuning_options.pb.h"
+#include "humanoid_mpc_config/xyz.nproto.h"
 #include "humanoid_mpc_config/xyz.nproto.pb.h"
+#include "humanoid_mpc_config/xyz.pb.h"
+#include "humanoid_mpc_config/yaw_pitch_roll.nproto.h"
 #include "humanoid_mpc_config/yaw_pitch_roll.nproto.pb.h"
+#include "humanoid_mpc_config/yaw_pitch_roll.pb.h"
 #include "nproto/Textproto.h"
 #include "tools/nproto/test/ProtoTestValues.h"
 
@@ -80,8 +111,10 @@ static_assert(kIs<decltype(TaskFile::enable_online_tuning), bool>);
 static_assert(
     kIs<decltype(TaskFile::centroidal_model), std::optional<std::string>>);
 static_assert(
-    kIs<decltype(DcmTerminalCostConfig::com_height), std::optional<double>>);
-static_assert(kIs<decltype(ContactPlanningFile::SharedConfig::com_height),
+    kIs<decltype(DcmTerminalCostConfig::nom_pos_com_rt_feetmean_ewrt_world_z),
+        std::optional<double>>);
+static_assert(kIs<decltype(ContactPlanningFile::SharedConfig::
+                               nom_pos_com_rt_feetmean_ewrt_world_z),
                   std::optional<double>>);
 static_assert(
     kIs<decltype(TaskFile::terminal_cost_scaling), std::optional<double>>);

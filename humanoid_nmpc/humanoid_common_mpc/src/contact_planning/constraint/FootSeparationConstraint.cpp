@@ -29,14 +29,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/constraint/FootSeparationConstraint.h"
 
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <string>
-#include <utility>
 
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipCoefficients.h"
+#include "humanoid_common_mpc/contact_planning/problem/RowBuilder.h"
 
 namespace ocs2::humanoid {
 
@@ -45,8 +52,9 @@ static_assert(kNumContacts == kBipedFootCount,
 
 std::string FootSeparationConstraint::describe() const {
   return absl::StrCat(
-      "|e_x . (p_L - p_R)| <= ", params_.maxStepLength, " m, ",
-      params_.minStepWidth, " <= e_y . (p_L - p_R) <= ", params_.maxStepWidth,
+      "|e_x . (p_L - p_R)| <= ", params_.maxNormPosLfootRtRfootEwrtHeadingX,
+      " m, ", params_.minPosLfootRtRfootEwrtHeadingY,
+      " <= e_y . (p_L - p_R) <= ", params_.maxPosLfootRtRfootEwrtHeadingY,
       " m at every node (first-order in the heading), ", penaltyText());
 }
 
@@ -58,29 +66,40 @@ void FootSeparationConstraint::configure(const ContactPlanningConfig& config) {
 void FootSeparationConstraint::addRows(const ContactPlanningContext& ctx,
                                        int node,
                                        RowBuilder& rows) const {
-  const std::array<vector2_t, kHorizontalPositionDim>& axes = ctx.axesAt(node);
+  const std::array<vector2_t, kHorizontalPositionDim>& rotmatHeadingRtWorld =
+      ctx.getRotmatHeadingRtWorld(node);
   for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
     Coefficients xc;
     for (int w = 0; w < kHorizontalPositionDim; ++w) {
-      xc.emplace_back(idx_.foot[0][w], axes[static_cast<size_t>(axis)](w));
-      xc.emplace_back(idx_.foot[1][w], -axes[static_cast<size_t>(axis)](w));
+      xc.emplace_back(idx_.posFeetRtWorldEwrtWorld[0][w],
+                      rotmatHeadingRtWorld[static_cast<size_t>(axis)](w));
+      xc.emplace_back(idx_.posFeetRtWorldEwrtWorld[1][w],
+                      -rotmatHeadingRtWorld[static_cast<size_t>(axis)](w));
     }
-    const vector2_t dNominal =
+    const vector2_t nomPosLfootRtRfootEwrtWorldXy =
         ctx.hasHeading()
-            ? vector2_t(ctx.nominal->feet[static_cast<size_t>(node)][0] -
-                        ctx.nominal->feet[static_cast<size_t>(node)][1])
+            ? vector2_t(
+                  ctx.nominal
+                      ->nomPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(
+                          node)][0] -
+                  ctx.nominal
+                      ->nomPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(
+                          node)][1])
             : vector2_t(vector2_t::Zero());
     const ContactPlanningContext::HeadingFrameTerm frameTerm =
-        ctx.frameTerm(node, axis, dNominal);
+        ctx.frameTerm(node, axis, nomPosLfootRtRfootEwrtWorldXy);
     const scalar_t g = frameTerm.gain;
     const scalar_t offset = frameTerm.offset;
-    if (ctx.hasHeading()) xc.emplace_back(idx_.heading, g);
+    if (ctx.hasHeading()) xc.emplace_back(idx_.headingModelYaw, g);
     if (axis == 0) {
-      rows.addSoft(xc, /*uCoefficients=*/{}, -params_.maxStepLength - offset,
-                   params_.maxStepLength - offset, penalty_);
+      rows.addSoft(xc, /*uCoefficients=*/{},
+                   -params_.maxNormPosLfootRtRfootEwrtHeadingX - offset,
+                   params_.maxNormPosLfootRtRfootEwrtHeadingX - offset,
+                   penalty_);
     } else {
-      rows.addSoft(xc, /*uCoefficients=*/{}, params_.minStepWidth - offset,
-                   params_.maxStepWidth - offset, penalty_);
+      rows.addSoft(xc, /*uCoefficients=*/{},
+                   params_.minPosLfootRtRfootEwrtHeadingY - offset,
+                   params_.maxPosLfootRtRfootEwrtHeadingY - offset, penalty_);
     }
   }
 }

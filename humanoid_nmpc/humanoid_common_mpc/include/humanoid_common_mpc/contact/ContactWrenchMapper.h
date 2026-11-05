@@ -30,9 +30,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <array>
+#include <cstddef>
+
 #include "absl/log/absl_check.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
 
 namespace ocs2::humanoid {
@@ -68,7 +73,7 @@ class ContactWrenchMapper {
     for (int i = 0; i < N_POLYGON_POINTS; ++i) {
       A.block(0, kForceDim * i, kForceDim, kForceDim) = matrix3_t::Identity();
       A.block(kForceDim, kForceDim * i, kTorqueDim, kForceDim) =
-          contactPolygon.getContactPointTranslationCrossProductMatrix(i);
+          contactPolygon.getCrossProductMatrixPosCornerRtContactEwrtContact(i);
     }
     mapWrenchToVisualizationForces_ =
         A.transpose() * (A * A.transpose()).inverse();
@@ -79,18 +84,19 @@ class ContactWrenchMapper {
   ///
   /// \param[in] wrenchContactEwrtContact Expressed in the local contact frame
   ///
-  /// \param[out] visualizationForceArray vector of 3D contact forces
+  /// \param[out] forceCornersEwrtContact vector of 3D contact forces
 
-  std::array<vector3_t, N_POLYGON_POINTS> computeVisualizationForceArray(
+  std::array<vector3_t, N_POLYGON_POINTS> computeForceCornersEwrtContact(
       const vector6_t& wrenchContactEwrtContact) const {
-    std::array<vector3_t, N_POLYGON_POINTS> visualizationForceArray;
-    Eigen::Matrix<scalar_t, kCornerForcesDim, 1> visualizationForces =
-        mapWrenchToVisualizationForces_ * wrenchContactEwrtContact;
+    std::array<vector3_t, N_POLYGON_POINTS> forceCornersEwrtContact;
+    Eigen::Matrix<scalar_t, kCornerForcesDim, 1>
+        stackedForceCornersEwrtContact =
+            mapWrenchToVisualizationForces_ * wrenchContactEwrtContact;
     for (int i = 0; i < N_POLYGON_POINTS; ++i) {
-      visualizationForceArray[i]
-          << (visualizationForces.segment(kForceDim * i, kForceDim));
+      forceCornersEwrtContact[i]
+          << (stackedForceCornersEwrtContact.segment(kForceDim * i, kForceDim));
     }
-    return visualizationForceArray;
+    return forceCornersEwrtContact;
   }
 
  private:

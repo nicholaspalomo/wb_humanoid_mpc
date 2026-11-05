@@ -33,9 +33,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 
 namespace ocs2::humanoid {
 
@@ -117,14 +119,14 @@ ContactPlanningConfig makeHlipConfig() {
   config.planner.numNodes = 56;
   config.planner.commitTime = 0.05;
   config.planner.runInBackgroundThread = false;
-  config.shared.comHeight = 0.85;
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ = 0.85;
   config.shared.gaitLimits.minSwingDuration = 0.25;
   config.shared.gaitLimits.maxSwingDuration = 0.35;
   config.shared.gaitLimits.minDoubleSupportDuration = 0.0;
   config.hlip.sspDuration = 0.25;
   config.hlip.dspDuration = 0.05;
-  config.hlip.stepWidth = 0.25;
-  config.hlip.maxStepWidth = 0.45;
+  config.hlip.nomPosLfootRtRfootEwrtHeadingY = 0.25;
+  config.hlip.maxPosLfootRtRfootEwrtHeadingY = 0.45;
   return config;
 }
 
@@ -143,20 +145,21 @@ TEST(ContactPlannerModuleReload,
 TEST(ContactPlannerModuleReload,
      RetuningTheCadenceReprintsTheSummaryWithItsStartUpCheck) {
   // The H-LIP summary ends with the start-up check - does the first step out of
-  // a standstill fit hlip.maxStepWidth? - and every key it depends on is a
-  // hot-reloadable slider. The summary used to be re-printed only for a change
-  // of the formulation, the grid or the planner type, so a cadence retuned from
-  // the GUI was never checked: raising hlip.sspDuration from 0.25 s to 0.35 s
-  // makes the first step need 0.52 m against a 0.45 m reach, and nothing said
-  // so.
+  // a standstill fit hlip.maxPosLfootRtRfootEwrtHeadingY? - and every key it
+  // depends on is a hot-reloadable slider. The summary used to be re-printed
+  // only for a change of the formulation, the grid or the planner type, so a
+  // cadence retuned from the GUI was never checked: raising hlip.sspDuration
+  // from 0.25 s to 0.35 s makes the first step need 0.52 m against a 0.45 m
+  // reach, and nothing said so.
   const ContactPlanningConfig fits = makeHlipConfig();
   ContactPlanningConfig longSwing = fits;
   longSwing.hlip.sspDuration = 0.35;
 
   const std::optional<std::string> reloaded =
       ContactPlannerModule::reloadSummary(fits, longSwing);
-  if (!reloaded.has_value())
+  if (!reloaded.has_value()) {
     GTEST_FAIL() << "a cadence change must be re-checked and re-printed";
+  }
   EXPECT_NE(reloaded->find("single support 0.35"), std::string::npos)
       << *reloaded;
   EXPECT_NE(reloaded->find("DOES NOT FIT"), std::string::npos) << *reloaded;
@@ -173,19 +176,19 @@ TEST(ContactPlannerModuleReload,
 
   // Each of the other keys the check reads re-prints it too.
   ContactPlanningConfig narrowReach = fits;
-  narrowReach.hlip.maxStepWidth = 0.35;
+  narrowReach.hlip.maxPosLfootRtRfootEwrtHeadingY = 0.35;
   EXPECT_TRUE(
       ContactPlannerModule::reloadSummary(fits, narrowReach).has_value())
-      << "hlip.maxStepWidth";
+      << "hlip.maxPosLfootRtRfootEwrtHeadingY";
   ContactPlanningConfig longerTransfer = fits;
   longerTransfer.hlip.dspDuration = 0.1;
   EXPECT_TRUE(
       ContactPlannerModule::reloadSummary(fits, longerTransfer).has_value())
       << "hlip.dspDuration";
   ContactPlanningConfig wider = fits;
-  wider.hlip.stepWidth = 0.3;
+  wider.hlip.nomPosLfootRtRfootEwrtHeadingY = 0.3;
   EXPECT_TRUE(ContactPlannerModule::reloadSummary(fits, wider).has_value())
-      << "hlip.stepWidth";
+      << "hlip.nomPosLfootRtRfootEwrtHeadingY";
 }
 
 TEST(ContactPlannerModuleReload, AStructuralChangeAlwaysReprints) {

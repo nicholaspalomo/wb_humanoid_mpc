@@ -244,9 +244,9 @@ TEST(WBMpcNode, TheVelocityCommandReachesTheMotionManager) {
   NodeHarness harness;
   ASSERT_TRUE(harness.solve(/*time=*/0.0, /*sequence=*/1).has_value());
   humanoid_mpc_msgs::WalkingVelocityCommand command;
-  command.set_cmd_linvel_base_rt_world_ewrt_heading_x(0.5);
-  command.set_cmd_pos_base_rt_world_ewrt_world_z(0.8);
-  command.set_cmd_angvel_base_rt_world_ewrt_world_z(-0.25);
+  command.set_cmd_lnorm_linvel_base_rt_world_ewrt_heading_x(0.5);
+  command.set_cmd_pos_base_rt_surface_ewrt_world_z(0.8);
+  command.set_cmd_lnorm_angvel_base_rt_world_ewrt_world_z(-0.25);
   ProceduralMpcMotionManager& motionManager = harness.node().motionManager();
   ASSERT_TRUE(harness.robot().sendAsOperator(
       topics::kOperatorWalkingVelocityCommand, command, [&]() {
@@ -433,13 +433,15 @@ TEST(WBMpcNode, ResetsToTheTargetTheControllerHandsItsInProcessLink) {
   const MpcRobotModelBase<scalar_t>& model = interface.getMpcRobotModel();
   for (const scalar_t time : {0.0, 1.5, 12.25}) {
     SystemObservation observation = harness.standing(time);
-    vector3_t basePosition =
+    vector3_t posBaseRtWorldEwrtWorld =
         model.getPosBaseRtWorldEwrtWorld(observation.state);
-    basePosition.x() += 0.2 * time;
-    model.setPosBaseRtWorldEwrtWorld(observation.state, basePosition);
-    vector3_t eulerZyx = model.getEulerzyxBaseRtWorld(observation.state);
-    eulerZyx(1) = 0.03;  // pitch
-    model.setEulerzyxBaseRtWorld(observation.state, eulerZyx);
+    posBaseRtWorldEwrtWorld.x() += 0.2 * time;
+    model.setPosBaseRtWorldEwrtWorld(observation.state,
+                                     posBaseRtWorldEwrtWorld);
+    vector3_t eulerzyxBaseRtWorld =
+        model.getEulerzyxBaseRtWorld(observation.state);
+    eulerzyxBaseRtWorld(1) = 0.03;  // pitch
+    model.setEulerzyxBaseRtWorld(observation.state, eulerzyxBaseRtWorld);
     // The velocities v of Pinocchio's tangent, the state's tail.
     observation.state.tail(static_cast<Eigen::Index>(model.getVelocityDim()))
         .setConstant(0.1);
@@ -541,14 +543,19 @@ TEST(WBMpcNode, TheDummySimulatorStandsOnTheNodesPoliciesWithoutAReset) {
   const MpcRobotModelBase<scalar_t>& model =
       (*node)->interface().getMpcRobotModel();
   const SystemObservation latest = dummySim.loop().latestObservation();
-  const vector3_t startPosition =
+  const vector3_t initPosBaseRtWorldEwrtWorld =
       model.getPosBaseRtWorldEwrtWorld(dummySim.initialObservation().state);
-  const vector3_t position = model.getPosBaseRtWorldEwrtWorld(latest.state);
-  EXPECT_NEAR(position.z(), startPosition.z(), 0.05);
-  EXPECT_LT((position - startPosition).head<2>().norm(), 0.05);
-  const vector3_t orientation = model.getEulerzyxBaseRtWorld(latest.state);
-  EXPECT_LT(std::abs(orientation(1)), 0.1);  // pitch
-  EXPECT_LT(std::abs(orientation(2)), 0.1);  // roll
+  const vector3_t posBaseRtWorldEwrtWorld =
+      model.getPosBaseRtWorldEwrtWorld(latest.state);
+  EXPECT_NEAR(posBaseRtWorldEwrtWorld.z(), initPosBaseRtWorldEwrtWorld.z(),
+              0.05);
+  EXPECT_LT(
+      (posBaseRtWorldEwrtWorld - initPosBaseRtWorldEwrtWorld).head<2>().norm(),
+      0.05);
+  const vector3_t eulerzyxBaseRtWorld =
+      model.getEulerzyxBaseRtWorld(latest.state);
+  EXPECT_LT(std::abs(eulerzyxBaseRtWorld(1)), 0.1);  // pitch
+  EXPECT_LT(std::abs(eulerzyxBaseRtWorld(2)), 0.1);  // roll
   EXPECT_TRUE(latest.state.allFinite());
   // The plant's rollout keeps the stored quaternion on the unit sphere.
   EXPECT_NEAR(latest.state

@@ -93,7 +93,7 @@ scalar_t maxAbs(const vector_t& v) {
 /** RNEA at the base acceleration that balances its own base rows, the oracle of
  * the floating-base dynamics. */
 struct RneaReference {
-  vector6_t baseAcceleration;
+  vector6_t baseGeneralizedAcceleration;
   vector_t jointTorques;
 };
 
@@ -109,7 +109,7 @@ RneaReference floatingBaseRnea(
     const vector_t& q,
     const vector_t& v,
     const vector_t& qddJoints,
-    const std::array<vector6_t, 2>& wrenches,
+    const std::array<vector6_t, 2>& wrenchFeetEwrtWorld,
     const feet_array_t<pinocchio::FrameIndex>& soleFrames) {
   pinocchio::Data data(model);
   pinocchio::framesForwardKinematics(model, data, q);
@@ -118,24 +118,29 @@ RneaReference floatingBaseRnea(
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     const pinocchio::JointIndex joint =
         model.frames[soleFrames[foot]].parentJoint;
-    const matrix3_t rotation = data.oMi[joint].rotation();
-    const vector3_t lever = data.oMf[soleFrames[foot]].translation() -
-                            data.oMi[joint].translation();
-    const vector3_t force = wrenches[foot].head<3>();
-    const vector3_t moment = wrenches[foot].tail<3>() + lever.cross(force);
-    fext[joint] += pinocchio::Force(rotation.transpose() * force,
-                                    rotation.transpose() * moment);
+    const matrix3_t rotmatLinkRtWorld = data.oMi[joint].rotation();
+    const vector3_t posFootRtLinkEwrtWorld =
+        data.oMf[soleFrames[foot]].translation() -
+        data.oMi[joint].translation();
+    const vector3_t forceFootEwrtWorld = wrenchFeetEwrtWorld[foot].head<3>();
+    const vector3_t torqueLinkEwrtWorld =
+        wrenchFeetEwrtWorld[foot].tail<3>() +
+        posFootRtLinkEwrtWorld.cross(forceFootEwrtWorld);
+    fext[joint] +=
+        pinocchio::Force(rotmatLinkRtWorld.transpose() * forceFootEwrtWorld,
+                         rotmatLinkRtWorld.transpose() * torqueLinkEwrtWorld);
   }
   vector_t a = vector_t::Zero(model.nv);
   a.tail(qddJoints.size()) = qddJoints;
-  const vector6_t baseForceAtZeroBaseAcceleration =
+  const vector6_t baseGeneralizedForceAtZeroBaseGeneralizedAcceleration =
       pinocchio::rnea(model, data, q, v, a, fext).head<6>();
   pinocchio::crba(model, data, q);
   const matrix6_t baseMassMatrix =
       data.M.topLeftCorner<6, 6>().selfadjointView<Eigen::Upper>();
-  a.head<6>() = -baseMassMatrix.ldlt().solve(baseForceAtZeroBaseAcceleration);
+  a.head<6>() = -baseMassMatrix.ldlt().solve(
+      baseGeneralizedForceAtZeroBaseGeneralizedAcceleration);
   const vector_t tau = pinocchio::rnea(model, data, q, v, a, fext);
-  return {.baseAcceleration = a.head<6>(),
+  return {.baseGeneralizedAcceleration = a.head<6>(),
           .jointTorques = tau.tail(qddJoints.size())};
 }
 
@@ -169,7 +174,9 @@ class JointTorqueStateInputOverloadsTest : public ::testing::Test {
     // (pinocchio::randomConfiguration, which draws from std::rand), the base
     // within a box.
     const pinocchio::Model& model = pinocchioInterface_->getModel();
+    // NOLINTNEXTLINE(frame-naming): Pinocchio's Model field
     vector_t lower = model.lowerPositionLimit;
+    // NOLINTNEXTLINE(frame-naming): Pinocchio's Model field
     vector_t upper = model.upperPositionLimit;
     lower.head<3>() = vector3_t(-1.0, -1.0, 0.6);
     upper.head<3>() = vector3_t(1.0, 1.0, 1.0);
@@ -183,8 +190,8 @@ class JointTorqueStateInputOverloadsTest : public ::testing::Test {
       v_(i) = 0.8 * spread(i, /*phase=*/1.9);
     for (Eigen::Index i = 0; i < qddJoints_.size(); ++i)
       qddJoints_(i) = 3.0 * spread(i, /*phase=*/0.4);
-    wrenches_[0] << 30.0, -12.0, 320.0, 4.0, -6.0, 1.5;
-    wrenches_[1] << -18.0, 25.0, 210.0, -3.0, 5.0, -0.8;
+    wrenchFeetEwrtWorld_[0] << 30.0, -12.0, 320.0, 4.0, -6.0, 1.5;
+    wrenchFeetEwrtWorld_[1] << -18.0, 25.0, 210.0, -3.0, 5.0, -0.8;
     for (size_t i = 0; i < kNumContacts; ++i)
       soleFrames_[i] = model.getFrameId(modelSettings_->contactNames[i]);
   }
@@ -195,13 +202,15 @@ class JointTorqueStateInputOverloadsTest : public ::testing::Test {
       const vector_t& q,
       const vector_t& v,
       const vector_t& qddJoints,
-      const std::array<vector6_t, 2>& wrenches) const {
+      const std::array<vector6_t, 2>& wrenchFeetEwrtWorld) const {
     vector_t state = model_->getNeutralState();
     model_->setGeneralizedCoordinates(state, q);
     state.tail(v.size()) = v;
     vector_t input = vector_t::Zero(model_->getInputDim());
-    model_->setWrenchContactEwrtParam(input, wrenches[0], /*contactIndex=*/0);
-    model_->setWrenchContactEwrtParam(input, wrenches[1], /*contactIndex=*/1);
+    model_->setWrenchContactEwrtParam(input, wrenchFeetEwrtWorld[0],
+                                      /*contactIndex=*/0);
+    model_->setWrenchContactEwrtParam(input, wrenchFeetEwrtWorld[1],
+                                      /*contactIndex=*/1);
     input.tail(qddJoints.size()) = qddJoints;
     return {state, input};
   }
@@ -214,14 +223,14 @@ class JointTorqueStateInputOverloadsTest : public ::testing::Test {
   vector_t q_;
   vector_t v_;
   vector_t qddJoints_;
-  std::array<vector6_t, 2> wrenches_;
+  std::array<vector6_t, 2> wrenchFeetEwrtWorld_;
   feet_array_t<pinocchio::FrameIndex> soleFrames_{};
 };
 
 TEST_F(JointTorqueStateInputOverloadsTest,
        theOverloadsReadTheStateAndTheInputTheirPiecesCameFrom) {
   const std::pair<vector_t, vector_t> stateInput =
-      stateAndInput(q_, v_, qddJoints_, wrenches_);
+      stateAndInput(q_, v_, qddJoints_, wrenchFeetEwrtWorld_);
   ASSERT_TRUE(model_->getGeneralizedVelocities(stateInput.first,
                                                stateInput.second) == v_)
       << "the state layout of the test is stale";
@@ -233,14 +242,14 @@ TEST_F(JointTorqueStateInputOverloadsTest,
   const vector_t baseHeld = computeBaseHeldJointTorques<scalar_t>(
       stateInput.first, stateInput.second, overloadInterface, *model_);
   const vector_t baseHeldDirect = computeBaseHeldJointTorques<scalar_t>(
-      q_, v_, qddJoints_, wrenches_, soleFrames_, directInterface);
+      q_, v_, qddJoints_, wrenchFeetEwrtWorld_, soleFrames_, directInterface);
   const scalar_t scale = std::max(1.0, maxAbs(baseHeldDirect));
   EXPECT_LT(maxAbs(baseHeld - baseHeldDirect), 1.0e-12 * scale);
 
   const vector_t floating = computeJointTorques<scalar_t>(
       stateInput.first, stateInput.second, overloadInterface, *model_);
   const vector_t floatingDirect = computeJointTorques<scalar_t>(
-      q_, v_, qddJoints_, wrenches_, soleFrames_, directInterface);
+      q_, v_, qddJoints_, wrenchFeetEwrtWorld_, soleFrames_, directInterface);
   EXPECT_LT(maxAbs(floating - floatingDirect),
             1.0e-12 * std::max(1.0, maxAbs(floatingDirect)));
 
@@ -249,7 +258,8 @@ TEST_F(JointTorqueStateInputOverloadsTest,
   EXPECT_GT(maxAbs(baseHeld - floating), 1.0);
   // And the soles are told apart: the same wrenches under the other feet are
   // other torques.
-  const std::array<vector6_t, 2> exchanged = {wrenches_[1], wrenches_[0]};
+  const std::array<vector6_t, 2> exchanged = {wrenchFeetEwrtWorld_[1],
+                                              wrenchFeetEwrtWorld_[0]};
   EXPECT_GT(
       maxAbs(computeBaseHeldJointTorques<scalar_t>(
                  q_, v_, qddJoints_, exchanged, soleFrames_, directInterface) -
@@ -270,18 +280,20 @@ TEST_F(JointTorqueStateInputOverloadsTest,
       stateInput.first, stateInput.second, pinocchioInterface, *model_);
 
   pinocchio::Data data(pinocchioInterface_->getModel());
-  const vector_t gravity = pinocchio::computeGeneralizedGravity(
-                               pinocchioInterface_->getModel(), data, q_)
-                               .tail(qddJoints_.size());
-  ASSERT_GT(maxAbs(gravity), 1.0)
+  const vector_t gravityJointTorques =
+      pinocchio::computeGeneralizedGravity(pinocchioInterface_->getModel(),
+                                           data, q_)
+          .tail(qddJoints_.size());
+  ASSERT_GT(maxAbs(gravityJointTorques), 1.0)
       << "positive control: gravity loads the joints of this posture";
-  EXPECT_LT(maxAbs(baseHeld - gravity), 1.0e-9 * maxAbs(gravity));
+  EXPECT_LT(maxAbs(baseHeld - gravityJointTorques),
+            1.0e-9 * maxAbs(gravityJointTorques));
   // The floating base, by contrast, falls freely without a wrench, and gravity
   // then loads no joint.
   EXPECT_GT(
       maxAbs(computeJointTorques<scalar_t>(stateInput.first, stateInput.second,
                                            pinocchioInterface, *model_) -
-             gravity),
+             gravityJointTorques),
       1.0);
 }
 
@@ -312,30 +324,36 @@ TEST_F(
   WBAccelMpcRobotModel<scalar_t> renamedMpcModel(renamedSettings);
 
   const std::pair<vector_t, vector_t> stateInput =
-      stateAndInput(q_, v_, qddJoints_, wrenches_);
+      stateAndInput(q_, v_, qddJoints_, wrenchFeetEwrtWorld_);
   const RneaReference reference = floatingBaseRnea(
-      renamedModel, q_, v_, qddJoints_, wrenches_, soleFrames_);
-  ASSERT_GT(reference.baseAcceleration.norm(), 0.1)
+      renamedModel, q_, v_, qddJoints_, wrenchFeetEwrtWorld_, soleFrames_);
+  ASSERT_GT(reference.baseGeneralizedAcceleration.norm(), 0.1)
       << "the sample accelerates the base";
 
-  const vector_t accelerations = computeGeneralizedAccelerations<scalar_t>(
-      stateInput.first, stateInput.second, renamedInterface, renamedMpcModel);
-  EXPECT_LT(maxAbs(accelerations.head<6>() - reference.baseAcceleration),
-            1.0e-9 * std::max(1.0, maxAbs(reference.baseAcceleration)));
-  EXPECT_LT(maxAbs(accelerations.tail(qddJoints_.size()) - qddJoints_),
-            1.0e-15);
+  const vector_t generalizedAccelerations =
+      computeGeneralizedAccelerations<scalar_t>(
+          stateInput.first, stateInput.second, renamedInterface,
+          renamedMpcModel);
+  EXPECT_LT(
+      maxAbs(generalizedAccelerations.head<6>() -
+             reference.baseGeneralizedAcceleration),
+      1.0e-9 * std::max(1.0, maxAbs(reference.baseGeneralizedAcceleration)));
+  EXPECT_LT(
+      maxAbs(generalizedAccelerations.tail(qddJoints_.size()) - qddJoints_),
+      1.0e-15);
 
-  const vector_t torques = computeJointTorques<scalar_t>(
+  const vector_t jointTorques = computeJointTorques<scalar_t>(
       stateInput.first, stateInput.second, renamedInterface, renamedMpcModel);
-  EXPECT_LT(maxAbs(torques - reference.jointTorques),
+  EXPECT_LT(maxAbs(jointTorques - reference.jointTorques),
             1.0e-9 * std::max(1.0, maxAbs(reference.jointTorques)));
 
   // Positive control: the oracle tells the frames apart - the same wrenches on
   // the exchanged soles accelerate the base otherwise.
   const RneaReference exchanged =
-      floatingBaseRnea(renamedModel, q_, v_, qddJoints_, wrenches_,
+      floatingBaseRnea(renamedModel, q_, v_, qddJoints_, wrenchFeetEwrtWorld_,
                        {soleFrames_[1], soleFrames_[0]});
-  EXPECT_GT(maxAbs(exchanged.baseAcceleration - reference.baseAcceleration),
+  EXPECT_GT(maxAbs(exchanged.baseGeneralizedAcceleration -
+                   reference.baseGeneralizedAcceleration),
             1.0e-2);
 }
 

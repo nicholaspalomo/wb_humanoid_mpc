@@ -35,10 +35,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <utility>
+// The macros expand to these names at their use sites.
+#include <utility>  // IWYU pragma: keep
 
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
+#include "absl/status/status.h"    // IWYU pragma: keep
+#include "absl/status/statusor.h"  // IWYU pragma: keep
 
 #define ROBOT_IPC_CONCAT_INNER(x, y) x##y
 #define ROBOT_IPC_CONCAT(x, y) ROBOT_IPC_CONCAT_INNER(x, y)
@@ -55,14 +56,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // `status_or` is a variable name and `decl` a declaration: the two lines that
 // declare them cannot parenthesize them.
-#define ROBOT_IPC_ASSIGN_OR_RETURN_IMPL(status_or, decl, rexpr)        \
-  auto status_or =                                                     \
-      (rexpr); /* NOLINT(bugprone-macro-parentheses): a declaration */ \
-  if (!(status_or).ok()) {                                             \
-    return (status_or).status();                                       \
-  }                                                                    \
-  decl = std::move(                                                    \
-      *(status_or)) /* NOLINT(bugprone-macro-parentheses): a declaration */
+// NOLINTBEGIN(bugprone-macro-parentheses): status_or and decl are declarators
+#define ROBOT_IPC_ASSIGN_OR_RETURN_IMPL(status_or, decl, rexpr) \
+  auto status_or = (rexpr);                                     \
+  if (!(status_or).ok()) {                                      \
+    return (status_or).status();                                \
+  }                                                             \
+  decl = std::move(*(status_or))
+// NOLINTEND(bugprone-macro-parentheses)
 
 #define ROBOT_IPC_ASSIGN_OR_RETURN(decl, rexpr)                               \
   ROBOT_IPC_ASSIGN_OR_RETURN_IMPL(ROBOT_IPC_CONCAT(_status_or_, __COUNTER__), \

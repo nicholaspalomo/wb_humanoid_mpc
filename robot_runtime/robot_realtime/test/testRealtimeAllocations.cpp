@@ -91,8 +91,9 @@ TEST(RealtimeAllocationTest, thePerThreadCounterCountsTheCallingThreadOnly) {
   std::thread other([&otherThreadAllocations]() {
     const size_t otherBefore = heapAllocationCountOnThisThread();
     std::vector<std::unique_ptr<int>> values;
-    for (int value = 0; value < 100; ++value)
+    for (int value = 0; value < 100; ++value) {
       values.push_back(std::make_unique<int>(value));
+    }
     otherThreadAllocations = heapAllocationCountOnThisThread() - otherBefore;
   });
   other.join();

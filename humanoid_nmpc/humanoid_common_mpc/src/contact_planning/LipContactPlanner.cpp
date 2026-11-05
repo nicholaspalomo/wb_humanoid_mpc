@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -43,11 +44,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
-#include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
+#include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
+#include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
+#include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningProblem.h"
+#include "humanoid_common_mpc/contact_planning/problem/Layout.h"
+#include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
+#include "humanoid_common_mpc/contact_planning/search/SearchStage.h"
 
 namespace ocs2::humanoid {
 
@@ -93,14 +105,14 @@ absl::StatusOr<Layout> LipContactPlanner::makeLayout(
   return problem.layout();
 }
 
-absl::StatusOr<scalar_t> LipContactPlanner::yawInertia(
+absl::StatusOr<scalar_t> LipContactPlanner::getInertiaComEwrtWorldZz(
     const ContactPlannerInput& input) {
-  if (input.yawInertia <= 0.0) {
+  if (input.inertiaComEwrtWorldZz <= 0.0) {
     return absl::InvalidArgumentError(
         "[LipContactPlanner] the heading model needs a positive yaw inertia in "
         "the input (from the robot model)");
   }
-  return input.yawInertia;
+  return input.inertiaComEwrtWorldZz;
 }
 
 absl::StatusOr<std::unique_ptr<LipContactPlanner>> LipContactPlanner::Create(
@@ -194,8 +206,9 @@ absl::StatusOr<std::string> LipContactPlanner::formulationSummary(
 
 std::optional<int> LipContactPlanner::previousPlanShift(
     const ContactPlannerInput& input) const {
-  if (!previousPlan_ || !previousPlan_->valid || previousAssignment_.empty())
+  if (!previousPlan_ || !previousPlan_->valid || previousAssignment_.empty()) {
     return std::nullopt;
+  }
   const ContactPlan& prev = *previousPlan_;
   // The node count still has to match, because the shift indexes the previous
   // plan's per-node arrays and the previous assignment with the SAME node count
@@ -226,8 +239,9 @@ std::optional<int> LipContactPlanner::previousPlanShift(
   // none of which is a function of how long a node lasts. Measuring the shift
   // on prev.dt is what makes "the node of the previous plan that is live now"
   // mean the same thing on both grids.
-  if (prev.numIntervals() != config_.planner.numNodes || !(prev.dt > 0.0))
+  if (prev.numIntervals() != config_.planner.numNodes || !(prev.dt > 0.0)) {
     return std::nullopt;
+  }
   const int shift =
       static_cast<int>(std::lround((input.time - prev.startTime) / prev.dt));
   if (shift < 0 || shift >= config_.planner.numNodes) return std::nullopt;
@@ -287,16 +301,18 @@ HeadingNominal LipContactPlanner::defaultNominal(
   // sampled there.
   const scalar_t dt = nodeDuration > 0.0 ? nodeDuration : config_.planner.dt;
   HeadingNominal nominal;
-  nominal.heading.resize(static_cast<size_t>(N) + 1);
-  nominal.com.resize(static_cast<size_t>(N) + 1);
-  nominal.feet.resize(static_cast<size_t>(N) + 1);
-  nominal.footYaws.resize(static_cast<size_t>(N) + 1);
+  nominal.nomHeadingModelYawTraj.resize(static_cast<size_t>(N) + 1);
+  nominal.nomPosComRtWorldEwrtWorldXyTraj.resize(static_cast<size_t>(N) + 1);
+  nominal.nomPosFeetRtWorldEwrtWorldXyTraj.resize(static_cast<size_t>(N) + 1);
+  nominal.nomEulerzyxFeetRtWorldYawTraj.resize(static_cast<size_t>(N) + 1);
   const std::optional<int> shift = previousPlanShift(input);
   const bool fromPrevious =
       shift.has_value() && previousPlan_ && previousPlan_->hasHeading() &&
-      previousPlan_->heading.size() == static_cast<size_t>(N + 1) &&
-      previousPlan_->comPosition.size() == static_cast<size_t>(N + 1) &&
-      previousPlan_->footholds.size() == static_cast<size_t>(N + 1);
+      previousPlan_->headingModelYawTraj.size() == static_cast<size_t>(N + 1) &&
+      previousPlan_->posComRtWorldEwrtWorldXyTraj.size() ==
+          static_cast<size_t>(N + 1) &&
+      previousPlan_->desPosFeetRtWorldEwrtWorldXyTraj.size() ==
+          static_cast<size_t>(N + 1);
   // The measured heading arrives wrapped to [-pi, pi] (an atan2 of the base
   // quaternion), the previous plan's heading is whatever branch that plan
   // started on. Across a crossing of +-pi the two differ by 2 pi, and a nominal
@@ -308,32 +324,44 @@ HeadingNominal LipContactPlanner::defaultNominal(
   const int previousShift =
       shift.value_or(0);  // read only when fromPrevious, which requires a shift
   scalar_t branchOffset = 0.0;
-  const bool previousYaws = fromPrevious && previousPlan_->footYaws.size() ==
-                                                static_cast<size_t>(N + 1);
+  const bool previousYaws =
+      fromPrevious && previousPlan_->desEulerzyxFeetRtWorldYawTraj.size() ==
+                          static_cast<size_t>(N + 1);
   if (fromPrevious) {
     const scalar_t previousNow =
-        previousPlan_->heading[static_cast<size_t>(std::min(previousShift, N))];
+        previousPlan_->headingModelYawTraj[static_cast<size_t>(
+            std::min(previousShift, N))];
     branchOffset =
-        moduloAngleWithReference(previousNow, input.heading) - previousNow;
+        moduloAngleWithReference(previousNow, input.initYawHeadingRtWorld) -
+        previousNow;
   }
   for (int k = 0; k <= N; ++k) {
     const size_t i = static_cast<size_t>(k);
     if (fromPrevious) {
       const size_t source = static_cast<size_t>(std::min(k + previousShift, N));
-      nominal.heading[i] = previousPlan_->heading[source] + branchOffset;
-      nominal.com[i] = previousPlan_->comPosition[source];
-      nominal.feet[i] = previousPlan_->footholds[source];
+      nominal.nomHeadingModelYawTraj[i] =
+          previousPlan_->headingModelYawTraj[source] + branchOffset;
+      nominal.nomPosComRtWorldEwrtWorldXyTraj[i] =
+          previousPlan_->posComRtWorldEwrtWorldXyTraj[source];
+      nominal.nomPosFeetRtWorldEwrtWorldXyTraj[i] =
+          previousPlan_->desPosFeetRtWorldEwrtWorldXyTraj[source];
       for (size_t foot = 0; foot < kNumContacts; ++foot) {
-        nominal.footYaws[i][foot] =
-            previousYaws ? previousPlan_->footYaws[source][foot] + branchOffset
-                         : input.footYaws[foot];
+        nominal.nomEulerzyxFeetRtWorldYawTraj[i][foot] =
+            previousYaws
+                ? previousPlan_->desEulerzyxFeetRtWorldYawTraj[source][foot] +
+                      branchOffset
+                : input.eulerzyxFeetRtWorldYaw[foot];
       }
     } else {
       const scalar_t t = static_cast<scalar_t>(k) * dt;
-      nominal.heading[i] = input.heading + input.headingRateCommand * t;
-      nominal.com[i] = input.comPosition + input.comVelocity * t;
-      nominal.feet[i] = input.footPositions;
-      nominal.footYaws[i] = input.footYaws;
+      nominal.nomHeadingModelYawTraj[i] =
+          input.initYawHeadingRtWorld + input.cmdRateYawBaseRtWorld * t;
+      nominal.nomPosComRtWorldEwrtWorldXyTraj[i] =
+          input.posComRtWorldEwrtWorldXy +
+          input.proxyLinvelComRtWorldEwrtWorldXy * t;
+      nominal.nomPosFeetRtWorldEwrtWorldXyTraj[i] =
+          input.posFeetRtWorldEwrtWorldXy;
+      nominal.nomEulerzyxFeetRtWorldYawTraj[i] = input.eulerzyxFeetRtWorldYaw;
     }
   }
   return nominal;
@@ -351,9 +379,11 @@ absl::StatusOr<ContactPlanningContext> LipContactPlanner::makeContext(
   const int N = config_.planner.numNodes;
   const Layout& layout = problem_.layout();
   if (layout.hasHeading &&
-      (nominal.heading.size() < static_cast<size_t>(N + 1) ||
-       nominal.feet.size() < static_cast<size_t>(N + 1) ||
-       nominal.com.size() < static_cast<size_t>(N + 1))) {
+      (nominal.nomHeadingModelYawTraj.size() < static_cast<size_t>(N + 1) ||
+       nominal.nomPosFeetRtWorldEwrtWorldXyTraj.size() <
+           static_cast<size_t>(N + 1) ||
+       nominal.nomPosComRtWorldEwrtWorldXyTraj.size() <
+           static_cast<size_t>(N + 1))) {
     return absl::InvalidArgumentError(
         "[LipContactPlanner] the nominal heading trajectory must cover every "
         "node");
@@ -364,9 +394,9 @@ absl::StatusOr<ContactPlanningContext> LipContactPlanner::makeContext(
         "parameters (torque limits, foot yaw bounds); apply "
         "ContactPlanningModelParameters to the configuration first");
   }
-  scalar_t headingYawInertia = 1.0;
+  scalar_t inertiaComEwrtWorldZz = 1.0;
   if (layout.hasHeading) {
-    ASSIGN_OR_RETURN(headingYawInertia, yawInertia(input));
+    ASSIGN_OR_RETURN(inertiaComEwrtWorldZz, getInertiaComEwrtWorldZz(input));
   }
   ContactPlanningContext ctx;
   ctx.input = &input;
@@ -378,7 +408,7 @@ absl::StatusOr<ContactPlanningContext> LipContactPlanner::makeContext(
       ctx.previousPlanShift.has_value() && previousPlan_.has_value()
           ? &*previousPlan_
           : nullptr;
-  ctx.yawInertia = headingYawInertia;
+  ctx.inertiaComEwrtWorldZz = inertiaComEwrtWorldZz;
   ctx.dt = dtOverride > 0.0 ? dtOverride : config_.planner.dt;
   ctx.numNodes = N;
   ctx.omega = config_.omega();
@@ -407,7 +437,10 @@ ContactPlan LipContactPlanner::decode(const ContactPlannerInput& input,
   plan.startTime = input.time;
   plan.dt = config_.planner.dt;
   plan.committedUntil = input.committedUntil;
-  plan.yaw = input.yaw;
+  plan.yawHeadingRtWorld = input.yawHeadingRtWorld;
+  // Without the heading model each node's frame is turned by the command
+  // (ContactPlanningContext::computeAxes()).
+  plan.rateYawHeadingRtWorld = input.cmdRateYawBaseRtWorld;
   plan.omega = config_.omega();
   plan.numBranchAndBoundNodes =
       statistics_.numBranchAndBoundRelaxations + statistics_.numLocalSearchQps;
@@ -465,8 +498,9 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   setup.numNodes = config_.planner.numNodes;
   setup.miqpSettings = miqp_->getSettings();
   setup.miqpSettings.useDivingHeuristic = false;
-  for (const std::unique_ptr<SearchStage>& stage : searchStages_)
+  for (const std::unique_ptr<SearchStage>& stage : searchStages_) {
     stage->beforeSearch(setup);
+  }
   miqp_->setSettings(setup.miqpSettings);
 
   absl::StatusOr<MiqpResult> solved =
@@ -523,13 +557,13 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   // into ContactPlan::dt below. The emitted plan paired a node duration of s *
   // dt with trajectories that satisfy the dt recursion, and since
   // ContactPlan::dt is the sole carrier of the grid - toModeSchedule() places
-  // every event at startTime + dt * k and footholdAtTime() rounds with it - a
-  // lift-off or touch-down at node k was handed to the whole-body MPC (s - 1) k
-  // dt late, 0.3 s at the end of a twelve-node horizon stretched by a quarter.
-  // Nothing rejected the order: the `search` list is documented as not
-  // order-sensitive and validate() imposes no order on it, and
-  // setHeadingModel(true) appends heading_relinearization to a list that may
-  // already contain cadence_stretch.
+  // every event at startTime + dt * k and getDesPosFootRtWorldEwrtWorldXy()
+  // rounds with it - a lift-off or touch-down at node k was handed to the
+  // whole-body MPC (s - 1) k dt late, 0.3 s at the end of a twelve-node horizon
+  // stretched by a quarter. Nothing rejected the order: the `search` list is
+  // documented as not order-sensitive and validate() imposes no order on it,
+  // and setHeadingModel(true) appends heading_relinearization to a list that
+  // may already contain cadence_stretch.
   run.assembleWithNominal =
       [this, &input, &run](
           const HeadingNominal& relinearized) -> absl::StatusOr<OcpQpProblem> {
@@ -541,17 +575,18 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   // that defaultNominal() built on the unstretched grid and hand it to a
   // context whose dt alone had been overridden. A HeadingNominal is indexed by
   // node, so on a grid of duration s * dt node k sits at time k * s * dt while
-  // nominal.heading[k] and nominal.com[k] still described k * dt. Every term
-  // that reads ctx.dt was re-timed (LipComDynamics, HeadingDoubleIntegrator,
-  // HeadingTrackingCost, StepLengthCost, TerminalDcmCost) and every term that
-  // reads ctx.nominal was not, so heading_tracking pulled the heading to the
-  // commanded ramp on the stretched clock while foot_yaw_tracking aimed the
-  // feet at the ramp on the old one, and the yaw-aligned frame the
-  // reachability, foot-separation and step-width rows are linearized in was
-  // rotated away from the heading the same QP was solving for. Rebuilding the
-  // nominal on the candidate grid removes that disagreement; the stretch then
-  // costs what it really costs, which is what CadenceStretchStage compares
-  // against the unstretched incumbent.
+  // nominal.nomHeadingModelYawTraj[k] and
+  // nominal.nomPosComRtWorldEwrtWorldXyTraj[k] still described k * dt. Every
+  // term that reads ctx.dt was re-timed (LipComDynamics,
+  // HeadingDoubleIntegrator, HeadingTrackingCost, StepLengthCost,
+  // TerminalDcmCost) and every term that reads ctx.nominal was not, so
+  // heading_tracking pulled the heading to the commanded ramp on the stretched
+  // clock while foot_yaw_tracking aimed the feet at the ramp on the old one,
+  // and the yaw-aligned frame the reachability, foot-separation and step-width
+  // rows are linearized in was rotated away from the heading the same QP was
+  // solving for. Rebuilding the nominal on the candidate grid removes that
+  // disagreement; the stretch then costs what it really costs, which is what
+  // CadenceStretchStage compares against the unstretched incumbent.
   run.assembleWithGrid =
       [this, &input](scalar_t nodeDuration) -> absl::StatusOr<OcpQpProblem> {
     const HeadingNominal retimed = defaultNominal(input, nodeDuration);

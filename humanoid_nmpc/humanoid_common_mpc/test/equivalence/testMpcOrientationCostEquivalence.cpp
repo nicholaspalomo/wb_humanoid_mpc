@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <numbers>
 #include <optional>
 #include <random>
 #include <string>
@@ -39,8 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/SVD"
 #include "absl/base/nullability.h"
-#include "absl/strings/str_format.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 #include "humanoid_common_mpc/common/CostTermNames.h"
@@ -48,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/cost/TuningQuadraticStateCost.h"
 #include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
 #include "humanoid_common_mpc/orientation/TuningLayoutDeviation.h"
+#include "humanoid_mpc_validation/chart/EulerChart.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/equivalence/MpcEquivalenceFixture.h"
 
 /*
@@ -142,7 +145,7 @@ vector2_t zyxTilt(scalar_t pitch, scalar_t roll) {
 }
 
 /** R_z(psi) R_y(theta) R_x(phi) from the elementary rotations. */
-matrix3_t zyxRotation(const vector3_t& eulerZyx) {
+matrix3_t rotmatFromEulerZyx(const vector3_t& eulerZyx) {
   const matrix3_t yaw =
       Eigen::AngleAxisd(eulerZyx(0), vector3_t::UnitZ()).toRotationMatrix();
   const matrix3_t pitch =
@@ -167,30 +170,32 @@ matrix3_t zyxRateMap(const vector3_t& eulerZyx) {
 
 /** wrap to (-pi, pi]. */
 scalar_t wrapped(scalar_t angle) {
-  const scalar_t turn = 2.0 * M_PI;
-  scalar_t result = std::fmod(angle + M_PI, turn);
+  const scalar_t turn = 2.0 * std::numbers::pi;
+  scalar_t result = std::fmod(angle + std::numbers::pi, turn);
   if (result <= 0.0) result += turn;
-  return result - M_PI;
+  return result - std::numbers::pi;
 }
 
 /** Where the orientation (and whole-body rate) rows of the tuning layout are:
  * the same rows of the Euler state. Passive data. */
 struct OrientationRows {
-  Eigen::Index orientation = 0;
+  Eigen::Index orientationStartIndex = 0;
   /** The whole body's angular-velocity rows (z, y, x), on the Euler state the
    * ZYX rates; nullopt on the centroidal MPC. */
   std::optional<Eigen::Index> rates;
 };
 
-OrientationRows orientationRowsOf(const MpcEquivalenceFixture& mpc) {
+OrientationRows orientationIndicesOf(const MpcEquivalenceFixture& mpc) {
   OrientationRows rows;
   Eigen::Index row = 0;
   for (const validation::EulerStateSegment& segment :
        mpc.eulerLayout().segments) {
-    if (segment.kind == validation::EulerStateSegmentKind::kEulerZyxAngles)
-      rows.orientation = row;
-    if (segment.kind == validation::EulerStateSegmentKind::kEulerZyxRates)
+    if (segment.kind == validation::EulerStateSegmentKind::kEulerZyxAngles) {
+      rows.orientationStartIndex = row;
+    }
+    if (segment.kind == validation::EulerStateSegmentKind::kEulerZyxRates) {
       rows.rates = row;
+    }
     row += static_cast<Eigen::Index>(segment.dim);
   }
   return rows;
@@ -202,31 +207,40 @@ vector_t closedFormDeviation(const OrientationRows& rows,
                              const vector_t& eulerState,
                              const vector_t& eulerReference) {
   vector_t deviation = eulerState - eulerReference;
-  const vector3_t angles = eulerState.segment<3>(rows.orientation);
-  const vector3_t referenceAngles = eulerReference.segment<3>(rows.orientation);
-  const vector2_t tilt = zyxTilt(angles(1), angles(2));
+  const vector3_t eulerzyxBaseRtWorld =
+      eulerState.segment<3>(rows.orientationStartIndex);
+  const vector3_t refEulerzyxBaseRtWorld =
+      eulerReference.segment<3>(rows.orientationStartIndex);
+  const vector2_t tilt =
+      zyxTilt(eulerzyxBaseRtWorld(1), eulerzyxBaseRtWorld(2));
   const vector2_t referenceTilt =
-      zyxTilt(referenceAngles(1), referenceAngles(2));
-  deviation(rows.orientation) = wrapped(
-      angles(0) - referenceAngles(0) + headingOffset(angles(1), angles(2)) -
-      headingOffset(referenceAngles(1), referenceAngles(2)));
-  deviation(rows.orientation + 1) = tilt(1) - referenceTilt(1);
-  deviation(rows.orientation + 2) = tilt(0) - referenceTilt(0);
+      zyxTilt(refEulerzyxBaseRtWorld(1), refEulerzyxBaseRtWorld(2));
+  deviation(rows.orientationStartIndex) = wrapped(
+      eulerzyxBaseRtWorld(0) - refEulerzyxBaseRtWorld(0) +
+      headingOffset(eulerzyxBaseRtWorld(1), eulerzyxBaseRtWorld(2)) -
+      headingOffset(refEulerzyxBaseRtWorld(1), refEulerzyxBaseRtWorld(2)));
+  deviation(rows.orientationStartIndex + 1) = tilt(1) - referenceTilt(1);
+  deviation(rows.orientationStartIndex + 2) = tilt(0) - referenceTilt(0);
   if (rows.rates.has_value()) {
-    const vector3_t rates = eulerState.segment<3>(*rows.rates);
-    const vector3_t referenceRates = eulerReference.segment<3>(*rows.rates);
-    const vector3_t transported = zyxRotation(angles).transpose() *
-                                  zyxRotation(referenceAngles) *
-                                  zyxRateMap(referenceAngles) * referenceRates;
+    const vector3_t rateEulerzyxBaseRtWorld =
+        eulerState.segment<3>(*rows.rates);
+    const vector3_t refRateEulerzyxBaseRtWorld =
+        eulerReference.segment<3>(*rows.rates);
+    const vector3_t transported =
+        rotmatFromEulerZyx(eulerzyxBaseRtWorld).transpose() *
+        rotmatFromEulerZyx(refEulerzyxBaseRtWorld) *
+        zyxRateMap(refEulerzyxBaseRtWorld) * refRateEulerzyxBaseRtWorld;
     deviation.segment<3>(*rows.rates) =
-        (zyxRateMap(angles) * rates - transported).reverse();
+        (zyxRateMap(eulerzyxBaseRtWorld) * rateEulerzyxBaseRtWorld -
+         transported)
+            .reverse();
   }
   return deviation;
 }
 
 /** The Euler state's angles' tilt |(theta, phi)|. */
 scalar_t tiltOf(const OrientationRows& rows, const vector_t& eulerState) {
-  return eulerState.segment<2>(rows.orientation + 1).norm();
+  return eulerState.segment<2>(rows.orientationStartIndex + 1).norm();
 }
 
 /** The bound of the second-order section on |d|, row by row. */
@@ -234,28 +248,35 @@ vector_t secondOrderRowBounds(const OrientationRows& rows,
                               const vector_t& eulerState,
                               const vector_t& eulerReference) {
   vector_t bound = vector_t::Zero(eulerState.size());
-  const vector3_t angles = eulerState.segment<3>(rows.orientation);
-  const vector3_t referenceAngles = eulerReference.segment<3>(rows.orientation);
+  const vector3_t eulerzyxBaseRtWorld =
+      eulerState.segment<3>(rows.orientationStartIndex);
+  const vector3_t refEulerzyxBaseRtWorld =
+      eulerReference.segment<3>(rows.orientationStartIndex);
   const scalar_t tilt = tiltOf(rows, eulerState);
   const scalar_t referenceTilt = tiltOf(rows, eulerReference);
   const scalar_t quintic =
       kTiltRemainder * (std::pow(tilt, 5) + std::pow(referenceTilt, 5));
-  bound(rows.orientation) =
-      0.5 * std::abs(angles(1) * angles(2) -
-                     referenceAngles(1) * referenceAngles(2)) +
+  bound(rows.orientationStartIndex) =
+      0.5 * std::abs(eulerzyxBaseRtWorld(1) * eulerzyxBaseRtWorld(2) -
+                     refEulerzyxBaseRtWorld(1) * refEulerzyxBaseRtWorld(2)) +
       kYawRemainder * (std::pow(tilt, 4) + std::pow(referenceTilt, 4));
-  bound(rows.orientation + 1) =
-      (std::abs(angles(1)) * angles(2) * angles(2) +
-       std::abs(referenceAngles(1)) * referenceAngles(2) * referenceAngles(2)) /
+  bound(rows.orientationStartIndex + 1) =
+      (std::abs(eulerzyxBaseRtWorld(1)) * eulerzyxBaseRtWorld(2) *
+           eulerzyxBaseRtWorld(2) +
+       std::abs(refEulerzyxBaseRtWorld(1)) * refEulerzyxBaseRtWorld(2) *
+           refEulerzyxBaseRtWorld(2)) /
           6.0 +
       quintic;
-  bound(rows.orientation + 2) =
-      (std::abs(angles(2)) * angles(1) * angles(1) +
-       std::abs(referenceAngles(2)) * referenceAngles(1) * referenceAngles(1)) /
+  bound(rows.orientationStartIndex + 2) =
+      (std::abs(eulerzyxBaseRtWorld(2)) * eulerzyxBaseRtWorld(1) *
+           eulerzyxBaseRtWorld(1) +
+       std::abs(refEulerzyxBaseRtWorld(2)) * refEulerzyxBaseRtWorld(1) *
+           refEulerzyxBaseRtWorld(1)) /
           3.0 +
       quintic;
   if (rows.rates.has_value()) {
-    const scalar_t attitudeError = (angles - referenceAngles).cwiseAbs().sum();
+    const scalar_t attitudeError =
+        (eulerzyxBaseRtWorld - refEulerzyxBaseRtWorld).cwiseAbs().sum();
     bound.segment<3>(*rows.rates)
         .setConstant(tilt * eulerState.segment<3>(*rows.rates).norm() +
                      (referenceTilt + std::sqrt(3.0) * attitudeError) *
@@ -320,7 +341,7 @@ TEST(SeriesBoundsOfTheHeadingTiltRows, HoldOnAGridUpToTheTiltLimit) {
   for (int radius = 1; radius <= 70; ++radius) {
     const scalar_t tilt = kSeriesTiltLimit * radius / 70.0;
     for (int direction = 0; direction < 360; ++direction) {
-      const scalar_t angle = 2.0 * M_PI * direction / 360.0;
+      const scalar_t angle = 2.0 * std::numbers::pi * direction / 360.0;
       const scalar_t roll = tilt * std::cos(angle);
       const scalar_t pitch = tilt * std::sin(angle);
       const vector2_t tau = zyxTilt(pitch, roll);
@@ -347,21 +368,21 @@ TEST_P(MpcOrientationCostEquivalence,
        TheTuningRowsAreTheClosedFormsOfTheEulerAngles) {
   MpcEquivalenceFixture& mpc = this->mpc();
   const TuningLayoutDeviation deviation(&mpc.model());
-  const OrientationRows rows = orientationRowsOf(mpc);
+  const OrientationRows rows = orientationIndicesOf(mpc);
   std::mt19937 generator(/*sd=*/20261030);
   std::uniform_real_distribution<scalar_t> yawError(-2.5, 2.5);
   EulerSamplingBounds bounds;
-  bounds.maxAbsPitch = 0.6;
-  bounds.maxAbsRoll = 0.6;
+  bounds.maxAbsEulerzyxBaseRtWorldPitch = 0.6;
+  bounds.maxAbsEulerzyxBaseRtWorldRoll = 0.6;
   for (int sample = 0; sample < 50; ++sample) {
     SCOPED_TRACE(sample);
     const vector_t eulerState = mpc.randomEulerState(bounds, generator);
     vector_t eulerReference = mpc.randomEulerState(bounds, generator);
-    eulerReference(rows.orientation) =
-        eulerState(rows.orientation) + yawError(generator);
+    eulerReference(rows.orientationStartIndex) =
+        eulerState(rows.orientationStartIndex) + yawError(generator);
     const vector_t residual =
-        deviation.evaluate(mpc.quaternionStateOf(eulerState),
-                           mpc.quaternionStateOf(eulerReference));
+        deviation.evaluate(mpc.quaternionModelStateOf(eulerState),
+                           mpc.quaternionModelStateOf(eulerReference));
     EXPECT_TRUE(isCloseToScale(
         residual, closedFormDeviation(rows, eulerState, eulerReference),
         kClosedFormTolerance, /*floor=*/1.0));
@@ -371,8 +392,8 @@ TEST_P(MpcOrientationCostEquivalence,
 /** The quadratic cost of today's deviation and the Euler difference's, at one
  * state and reference. Passive data. */
 struct CostPair {
-  scalar_t quaternion = 0.0;
-  scalar_t euler = 0.0;
+  scalar_t quaternionCost = 0.0;
+  scalar_t eulerCost = 0.0;
 };
 
 /** 1/2 r' Q r of the tuning-layout deviation at Phi(x_e), Phi(x_e,r), and 1/2
@@ -382,22 +403,23 @@ CostPair costsAt(const TuningLayoutDeviation& deviation,
                  const matrix_t& stateWeights,
                  const vector_t& eulerState,
                  const vector_t& eulerReference) {
-  const vector_t residual = deviation.evaluate(
-      mpc.quaternionStateOf(eulerState), mpc.quaternionStateOf(eulerReference));
+  const vector_t residual =
+      deviation.evaluate(mpc.quaternionModelStateOf(eulerState),
+                         mpc.quaternionModelStateOf(eulerReference));
   const vector_t eulerDifference = eulerState - eulerReference;
   return CostPair{
-      .quaternion = 0.5 * residual.dot(stateWeights * residual),
-      .euler = 0.5 * eulerDifference.dot(stateWeights * eulerDifference)};
+      .quaternionCost = 0.5 * residual.dot(stateWeights * residual),
+      .eulerCost = 0.5 * eulerDifference.dot(stateWeights * eulerDifference)};
 }
 
 /** One direction of the scaling test: the state's and the reference's
  * orientation (and rate) offsets per unit eps. Passive data. */
 struct ScalingDirection {
   vector_t base;
-  vector3_t stateAngles;
-  vector3_t referenceAngles;
-  vector3_t stateRates;
-  vector3_t referenceRates;
+  vector3_t offsetEulerzyxBaseRtWorld;
+  vector3_t refOffsetEulerzyxBaseRtWorld;
+  vector3_t offsetRateEulerzyxBaseRtWorld;
+  vector3_t refOffsetRateEulerzyxBaseRtWorld;
 };
 
 /** The state (`reference` false) or reference of `direction` at scale eps: the
@@ -407,11 +429,14 @@ vector_t scaledState(const OrientationRows& rows,
                      scalar_t eps,
                      bool reference) {
   vector_t state = direction.base;
-  state.segment<3>(rows.orientation) +=
-      eps * (reference ? direction.referenceAngles : direction.stateAngles);
-  if (rows.rates.has_value())
+  state.segment<3>(rows.orientationStartIndex) +=
+      eps * (reference ? direction.refOffsetEulerzyxBaseRtWorld
+                       : direction.offsetEulerzyxBaseRtWorld);
+  if (rows.rates.has_value()) {
     state.segment<3>(*rows.rates) =
-        eps * (reference ? direction.referenceRates : direction.stateRates);
+        eps * (reference ? direction.refOffsetRateEulerzyxBaseRtWorld
+                         : direction.offsetRateEulerzyxBaseRtWorld);
+  }
   return state;
 }
 
@@ -419,14 +444,14 @@ TEST_P(MpcOrientationCostEquivalence,
        TheCostsAgreeToSecondOrderWithinTheDerivedBound) {
   MpcEquivalenceFixture& mpc = this->mpc();
   const TuningLayoutDeviation deviation(&mpc.model());
-  const OrientationRows rows = orientationRowsOf(mpc);
+  const OrientationRows rows = orientationIndicesOf(mpc);
   const std::vector<CostWeights> weights = stateWeightsOf(mpc);
   ASSERT_FALSE(weights.empty()) << "the MPC has no tuning-layout state cost";
   std::mt19937 generator(/*sd=*/20261031);
   std::uniform_real_distribution<scalar_t> unit(-1.0, 1.0);
   EulerSamplingBounds level;
-  level.maxAbsPitch = 0.0;
-  level.maxAbsRoll = 0.0;
+  level.maxAbsEulerzyxBaseRtWorldPitch = 0.0;
+  level.maxAbsEulerzyxBaseRtWorldRoll = 0.0;
   for (const CostWeights& weight : weights) {
     SCOPED_TRACE(weight.term);
     const matrix_t& stateWeights = weight.stateWeights;
@@ -438,13 +463,13 @@ TEST_P(MpcOrientationCostEquivalence,
       // angles of both offset in random directions.
       ScalingDirection direction{
           .base = mpc.randomEulerState(level, generator),
-          .stateAngles =
+          .offsetEulerzyxBaseRtWorld =
               vector3_t(unit(generator), unit(generator), unit(generator)),
-          .referenceAngles =
+          .refOffsetEulerzyxBaseRtWorld =
               vector3_t(unit(generator), unit(generator), unit(generator)),
-          .stateRates =
+          .offsetRateEulerzyxBaseRtWorld =
               vector3_t(unit(generator), unit(generator), unit(generator)),
-          .referenceRates =
+          .refOffsetRateEulerzyxBaseRtWorld =
               vector3_t(unit(generator), unit(generator), unit(generator))};
       // The derived bound at attitude and rate scales eps up to 0.2.
       for (const scalar_t eps : {0.2, 0.1, 0.05}) {
@@ -465,10 +490,10 @@ TEST_P(MpcOrientationCostEquivalence,
         const scalar_t bound =
             eulerDifference.cwiseAbs().dot(absoluteWeights * rowBound) +
             0.5 * rowBound.dot(absoluteWeights * rowBound) +
-            kClosedFormTolerance * std::max(1.0, std::abs(costs.euler));
-        EXPECT_LE(std::abs(costs.quaternion - costs.euler), bound)
-            << "eps " << eps << ": " << costs.quaternion
-            << " against the Euler " << costs.euler;
+            kClosedFormTolerance * std::max(1.0, std::abs(costs.eulerCost));
+        EXPECT_LE(std::abs(costs.quaternionCost - costs.eulerCost), bound)
+            << "eps " << eps << ": " << costs.quaternionCost
+            << " against the Euler " << costs.eulerCost;
       }
       // Third order: halving eps divides the difference by 8, where the cubic
       // term dominates; round-off aside.
@@ -478,12 +503,14 @@ TEST_P(MpcOrientationCostEquivalence,
             costsAt(deviation, mpc, stateWeights,
                     scaledState(rows, direction, eps, /*reference=*/false),
                     scaledState(rows, direction, eps, /*reference=*/true));
-        differences.push_back(std::abs(costs.quaternion - costs.euler));
+        differences.push_back(std::abs(costs.quaternionCost - costs.eulerCost));
       }
       for (size_t i = 0; i + 1 < differences.size(); ++i) {
         if (differences[i] <= 1.0e3 * kClosedFormTolerance *
-                                  kScalingTestScales[i] * kScalingTestScales[i])
+                                  kScalingTestScales[i] *
+                                  kScalingTestScales[i]) {
           continue;
+        }
         EXPECT_GE(differences[i] / differences[i + 1], kMinimumThirdOrderRatio)
             << differences[i] << " " << differences[i + 1];
       }
@@ -496,61 +523,62 @@ TEST_P(
     TheGaussNewtonModelIsTheEulerOneAtALevelStateAndWithinTheTiltBoundElsewhere) {
   MpcEquivalenceFixture& mpc = this->mpc();
   const TuningLayoutDeviation deviation(&mpc.model());
-  const OrientationRows rows = orientationRowsOf(mpc);
+  const OrientationRows rows = orientationIndicesOf(mpc);
   const std::vector<CostWeights> weights = stateWeightsOf(mpc);
   ASSERT_FALSE(weights.empty());
   std::mt19937 generator(/*sd=*/20261032);
   std::uniform_real_distribution<scalar_t> unit(-1.0, 1.0);
   EulerSamplingBounds tilted;
-  tilted.maxAbsPitch = 0.6;
-  tilted.maxAbsRoll = 0.6;
+  tilted.maxAbsEulerzyxBaseRtWorldPitch = 0.6;
+  tilted.maxAbsEulerzyxBaseRtWorldRoll = 0.6;
   EulerSamplingBounds level;
-  level.maxAbsPitch = 0.0;
-  level.maxAbsRoll = 0.0;
-  const Eigen::Index orientation = rows.orientation;
+  level.maxAbsEulerzyxBaseRtWorldPitch = 0.0;
+  level.maxAbsEulerzyxBaseRtWorldRoll = 0.0;
+  const Eigen::Index orientationStartIndex = rows.orientationStartIndex;
   for (int sample = 0; sample < 20; ++sample) {
     SCOPED_TRACE(sample);
     const bool isLevel = sample % 2 == 0;
     const vector_t eulerState =
         mpc.randomEulerState(isLevel ? level : tilted, generator);
     vector_t eulerReference = mpc.randomEulerState(tilted, generator);
-    eulerReference(orientation) =
-        eulerState(orientation) + 2.5 * unit(generator);
-    if (isLevel)
-      eulerReference(orientation + 1 + sample % 4 / 2) =
+    eulerReference(orientationStartIndex) =
+        eulerState(orientationStartIndex) + 2.5 * unit(generator);
+    if (isLevel) {
+      eulerReference(orientationStartIndex + 1 + sample % 4 / 2) =
           0.0;  // a reference tilted about one axis
-    const vector_t state = mpc.quaternionStateOf(eulerState);
+    }
+    const vector_t state = mpc.quaternionModelStateOf(eulerState);
     const TuningDeviationApproximation approximation =
-        deviation.linearize(state, mpc.quaternionStateOf(eulerReference));
+        deviation.linearize(state, mpc.quaternionModelStateOf(eulerReference));
     // (E2): the Euler-chart Jacobian of the residual.
     const matrix_t eulerJacobian = denseJacobian(approximation, state.size()) *
                                    mpc.chartJacobian(eulerState);
-    const matrix3_t orientationJacobian =
-        eulerJacobian.block<3, 3>(orientation, orientation);
+    const matrix3_t eulerAngleJacobian =
+        eulerJacobian.block<3, 3>(orientationStartIndex, orientationStartIndex);
     const scalar_t tilt = tiltOf(rows, eulerState);
     if (isLevel) {
       // J_HT T_B(0) = I; against a reference tilted about one axis the rows are
       // the Euler differences (yaw wrapped).
-      EXPECT_TRUE(isCloseToScale(orientationJacobian, matrix3_t::Identity(),
+      EXPECT_TRUE(isCloseToScale(eulerAngleJacobian, matrix3_t::Identity(),
                                  kClosedFormTolerance, /*floor=*/1.0));
-      vector3_t eulerOrientationDifference =
-          (eulerState - eulerReference).segment<3>(orientation);
-      eulerOrientationDifference(0) = wrapped(eulerOrientationDifference(0));
-      EXPECT_TRUE(isCloseToScale(approximation.residual.segment<3>(orientation),
-                                 eulerOrientationDifference,
-                                 kClosedFormTolerance, /*floor=*/1.0));
+      vector3_t eulerAngleDifference =
+          (eulerState - eulerReference).segment<3>(orientationStartIndex);
+      eulerAngleDifference(0) = wrapped(eulerAngleDifference(0));
+      EXPECT_TRUE(isCloseToScale(
+          approximation.residual.segment<3>(orientationStartIndex),
+          eulerAngleDifference, kClosedFormTolerance, /*floor=*/1.0));
     } else {
       // Design section 4.4: |J_e - I|_max <= 0.6 |tilt| (the coefficient is 1/2
       // to first order, 0.52 measured at 0.85 rad).
       EXPECT_LE(
-          (orientationJacobian - matrix3_t::Identity()).cwiseAbs().maxCoeff(),
+          (eulerAngleJacobian - matrix3_t::Identity()).cwiseAbs().maxCoeff(),
           0.6 * tilt);
     }
     for (const CostWeights& weight : weights) {
-      const matrix3_t orientationWeights =
-          weight.stateWeights.block<3, 3>(orientation, orientation);
-      const matrix3_t hessian = orientationJacobian.transpose() *
-                                orientationWeights * orientationJacobian;
+      const matrix3_t orientationWeights = weight.stateWeights.block<3, 3>(
+          orientationStartIndex, orientationStartIndex);
+      const matrix3_t hessian = eulerAngleJacobian.transpose() *
+                                orientationWeights * eulerAngleJacobian;
       // |J' Q J - Q|_max <= |tilt| |Q|_max (0.52 measured); zero at a level
       // state.
       const scalar_t largestWeight = orientationWeights.cwiseAbs().maxCoeff();

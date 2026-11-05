@@ -59,7 +59,7 @@ constexpr char kAtlasScene[] =
     "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
 constexpr char kAtlasUrdf[] =
     "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
-constexpr double kGravity = 9.81;
+constexpr double kGravityMagnitude = 9.81;
 
 std::unique_ptr<MujocoSimInterface> makeSim(bool gantryLocked) {
   MujocoSimConfig config;
@@ -96,8 +96,9 @@ std::unique_ptr<MujocoSimInterface> makeSimWithoutABall() {
 int firstFreeBody(const mjModel* absl_nonnull model) {
   for (int body = 1; body < model->nbody; ++body) {
     if (model->body_jntnum[body] > 0 &&
-        model->jnt_type[model->body_jntadr[body]] == mjJNT_FREE)
+        model->jnt_type[model->body_jntadr[body]] == mjJNT_FREE) {
       return body;
+    }
   }
   return -1;
 }
@@ -110,12 +111,12 @@ struct Snapshot {
     sim.readLatestMjState(state);
   }
 
-  std::array<double, 3> ball() const {
+  std::array<double, 3> posBallRtWorldEwrtWorld() const {
     const int qpos = model->jnt_qposadr[model->body_jntadr[ballBody()]];
     return {{state.data->qpos[qpos], state.data->qpos[qpos + 1],
              state.data->qpos[qpos + 2]}};
   }
-  std::array<double, 3> base() const {
+  std::array<double, 3> posBaseRtWorldEwrtWorld() const {
     const int body = firstFreeBody(model);
     return {{state.data->xpos[3 * body], state.data->xpos[3 * body + 1],
              state.data->xpos[3 * body + 2]}};
@@ -130,11 +131,15 @@ struct Snapshot {
 
 bool isParked(const MujocoSimInterface& sim) {
   const Snapshot snapshot(sim);
-  const std::array<double, 3> ball = snapshot.ball();
+  const std::array<double, 3> posBallRtWorldEwrtWorld =
+      snapshot.posBallRtWorldEwrtWorld();
   const int ballGeom = sim.getModel()->body_geomadr[sim.projectileBodyId()];
-  return std::abs(ball[0] - kParkPosBallRtWorldEwrtWorld[0]) < 1.0e-6 &&
-         std::abs(ball[1] - kParkPosBallRtWorldEwrtWorld[1]) < 1.0e-6 &&
-         std::abs(ball[2] - kParkPosBallRtWorldEwrtWorld[2]) < 1.0e-6 &&
+  return std::abs(posBallRtWorldEwrtWorld[0] -
+                  kParkPosBallRtWorldEwrtWorld[0]) < 1.0e-6 &&
+         std::abs(posBallRtWorldEwrtWorld[1] -
+                  kParkPosBallRtWorldEwrtWorld[1]) < 1.0e-6 &&
+         std::abs(posBallRtWorldEwrtWorld[2] -
+                  kParkPosBallRtWorldEwrtWorld[2]) < 1.0e-6 &&
          sim.getModel()->geom_contype[ballGeom] == 0;
 }
 
@@ -143,17 +148,21 @@ bool isArmed(const MujocoSimInterface& sim) {
              [sim.getModel()->body_geomadr[sim.projectileBodyId()]] == 1;
 }
 
-/** A throw from `offset` (base yaw frame) that arrives at the base after
- * `flightTime`, as dodgeball.py aims one. */
+/** A throw from `spawnPosBallRtBaseEwrtHeading` (base yaw frame) that arrives
+ * at the base after `flightTime`, as dodgeball.py aims one. */
 MujocoSimInterface::DodgeballThrow aimedThrow(
-    const std::array<double, 3>& offset, double flightTime, double mass) {
+    const std::array<double, 3>& spawnPosBallRtBaseEwrtHeading,
+    double flightTime,
+    double mass) {
   MujocoSimInterface::DodgeballThrow command;
   for (int axis = 0; axis < 3; ++axis) {
-    command.spawnPosBallRtBaseEwrtHeading[axis] = offset[axis];
+    command.spawnPosBallRtBaseEwrtHeading[axis] =
+        spawnPosBallRtBaseEwrtHeading[axis];
     command.launchLinvelBallRtWorldEwrtHeading[axis] =
-        -offset[axis] / flightTime;
+        -spawnPosBallRtBaseEwrtHeading[axis] / flightTime;
   }
-  command.launchLinvelBallRtWorldEwrtHeading[2] += 0.5 * kGravity * flightTime;
+  command.launchLinvelBallRtWorldEwrtHeading[2] +=
+      0.5 * kGravityMagnitude * flightTime;
   command.flightTime = flightTime;
   command.mass = mass;
   return command;
@@ -217,34 +226,45 @@ TEST(SimDodgeball, AThrowFliesTheRealBallAtTheSlidersMassToTheBase) {
   const std::unique_ptr<MujocoSimInterface> sim =
       makeSim(/*gantryLocked=*/true);
   step(*sim, /*steps=*/10);
-  const std::array<double, 3> base = Snapshot(*sim).base();
-  const std::array<double, 3> offset{{3.0, 0.0, 0.5}};
+  const std::array<double, 3> posBaseRtWorldEwrtWorld =
+      Snapshot(*sim).posBaseRtWorldEwrtWorld();
+  const std::array<double, 3> spawnPosBallRtBaseEwrtHeading{{3.0, 0.0, 0.5}};
   const double flight = 0.4;
-  sim->throwDodgeball(aimedThrow(offset, flight, /*mass=*/2.0));
+  sim->throwDodgeball(
+      aimedThrow(spawnPosBallRtBaseEwrtHeading, flight, /*mass=*/2.0));
   step(*sim, /*steps=*/1);
 
   EXPECT_TRUE(isArmed(*sim));
   EXPECT_NEAR(sim->getModel()->body_mass[sim->projectileBodyId()], 2.0, 1.0e-12)
       << "the slider's mass did not reach the ball";
-  const std::array<double, 3> start = Snapshot(*sim).ball();
+  const std::array<double, 3> initPosBallRtWorldEwrtWorld =
+      Snapshot(*sim).posBallRtWorldEwrtWorld();
   for (int axis = 0; axis < 3; ++axis) {
-    EXPECT_NEAR(start[axis], base[axis] + offset[axis], 0.05)
+    EXPECT_NEAR(
+        initPosBallRtWorldEwrtWorld[axis],
+        posBaseRtWorldEwrtWorld[axis] + spawnPosBallRtBaseEwrtHeading[axis],
+        0.05)
         << "axis " << axis << ": the ball did not start at the spawn point";
   }
 
   // It is aimed at the base, so its center should pass close to it - unless an
   // arm is in the way, which on Atlas held on the gantry it is not from
   // straight ahead.
-  double closest = 1.0e9;
+  double minDistBallRtBase = 1.0e9;
   for (int i = 0; i < stepsFor(*sim, flight + 0.1); ++i) {
     sim->simulationStep();
     const Snapshot snapshot(*sim);
-    const std::array<double, 3> ball = snapshot.ball();
-    const std::array<double, 3> now = snapshot.base();
-    closest = std::min(closest, std::hypot(ball[0] - now[0], ball[1] - now[1],
-                                           ball[2] - now[2]));
+    const std::array<double, 3> posBallRtWorldEwrtWorld =
+        snapshot.posBallRtWorldEwrtWorld();
+    const std::array<double, 3> nowPosBaseRtWorldEwrtWorld =
+        snapshot.posBaseRtWorldEwrtWorld();
+    minDistBallRtBase = std::min(
+        minDistBallRtBase,
+        std::hypot(posBallRtWorldEwrtWorld[0] - nowPosBaseRtWorldEwrtWorld[0],
+                   posBallRtWorldEwrtWorld[1] - nowPosBaseRtWorldEwrtWorld[1],
+                   posBallRtWorldEwrtWorld[2] - nowPosBaseRtWorldEwrtWorld[2]));
   }
-  EXPECT_LT(closest, 0.5)
+  EXPECT_LT(minDistBallRtBase, 0.5)
       << "the ball never came near the base it was aimed at";
 }
 
@@ -267,14 +287,17 @@ TEST(SimDodgeball, ASpawnPointUnderTheFloorIsLiftedAlongTheBallsOwnPath) {
   const std::unique_ptr<MujocoSimInterface> sim =
       makeSim(/*gantryLocked=*/true);
   step(*sim, /*steps=*/10);
-  const double baseHeight = Snapshot(*sim).base()[2];
+  const double posBaseRtWorldEwrtWorldZ =
+      Snapshot(*sim).posBaseRtWorldEwrtWorld()[2];
   // Far enough below the base to start under the floor, as a negative elevation
   // from a distance does.
-  const std::array<double, 3> offset{{2.5, 0.0, -(baseHeight + 0.5)}};
-  sim->throwDodgeball(aimedThrow(offset, /*flightTime=*/0.6, /*mass=*/0.45));
+  const std::array<double, 3> spawnPosBallRtBaseEwrtHeading{
+      {2.5, 0.0, -(posBaseRtWorldEwrtWorldZ + 0.5)}};
+  sim->throwDodgeball(aimedThrow(spawnPosBallRtBaseEwrtHeading,
+                                 /*flightTime=*/0.6, /*mass=*/0.45));
   step(*sim, /*steps=*/1);
   ASSERT_TRUE(isArmed(*sim)) << "the throw was refused rather than lifted";
-  EXPECT_GT(Snapshot(*sim).ball()[2], 0.108)
+  EXPECT_GT(Snapshot(*sim).posBallRtWorldEwrtWorld()[2], 0.108)
       << "the ball was left inside the floor, which would fire it out";
 }
 
@@ -345,11 +368,13 @@ TEST(SimDodgeball, WithoutABallEverySnapshotCarriesThePush) {
   const Snapshot after(*sim);
   const int base = firstFreeBody(sim->getModel());
   EXPECT_EQ(after.state.push.bodyId, base);
-  const double impulse = std::hypot(after.state.push.impulseWorld[0],
-                                    after.state.push.impulseWorld[1],
-                                    after.state.push.impulseWorld[2]);
-  EXPECT_GT(impulse, 0.1) << "the snapshot holds no push";
-  EXPECT_LT(after.state.push.impulseWorld[0], 0.0) << "the ball came from +x";
+  const double normImpulseLinkEwrtWorld =
+      std::hypot(after.state.push.impulseLinkEwrtWorld[0],
+                 after.state.push.impulseLinkEwrtWorld[1],
+                 after.state.push.impulseLinkEwrtWorld[2]);
+  EXPECT_GT(normImpulseLinkEwrtWorld, 0.1) << "the snapshot holds no push";
+  EXPECT_LT(after.state.push.impulseLinkEwrtWorld[0], 0.0)
+      << "the ball came from +x";
   // Applied at the impact, which the snapshot (published at most a publish
   // interval before the last step) follows.
   const double sinceThePush =
@@ -357,8 +382,9 @@ TEST(SimDodgeball, WithoutABallEverySnapshotCarriesThePush) {
   EXPECT_GE(sinceThePush, 0.0);
   EXPECT_LE(sinceThePush, 41.0 * sim->getModel()->opt.timestep);
   // The force itself was cleared after its step.
-  for (int axis = 0; axis < 3; ++axis)
+  for (int axis = 0; axis < 3; ++axis) {
     EXPECT_EQ(after.state.data->xfrc_applied[6 * base + axis], 0.0);
+  }
 }
 
 }  // namespace robot::mujoco_sim_interface

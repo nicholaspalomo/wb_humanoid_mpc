@@ -37,9 +37,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/penalties/penalties/PenaltyBase.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_sqp/SqpSolver.h"
 
 #include "humanoid_common_mpc/common/ContactTermNames.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -48,7 +51,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
 #include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
 #include "humanoid_common_mpc/constraint/GroundPenetrationConstraint.h"
+#include "humanoid_common_mpc/parameter_update/HotUpdateTarget.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 
@@ -88,8 +93,9 @@ absl::Span<const absl::string_view> ContactImplicitApplier::staticFields() {
 
 void ContactImplicitApplier::apply(HotUpdateTarget& target) {
   if (!carriesContactImplicitTerms(target.runningProblem(),
-                                   target.contactNames()))
+                                   target.contactNames())) {
     return;
+  }
   // The residual references and the weights, retuned live; checked as at
   // start-up, and refused as a whole, so that the terms never run on half of an
   // edit. The ground is not applied here: see beforeEverySolve().
@@ -117,7 +123,8 @@ void ContactImplicitApplier::apply(HotUpdateTarget& target) {
             setPenaltyParameters(softCon, complementarityParams);
             ContactComplementarityConstraint& constraint =
                 softCon.get<ContactComplementarityConstraint>();
-            constraint.setHeightReference(reloaded.heightReference);
+            constraint.setScalePosContactRtSurfaceEwrtWorldZ(
+                reloaded.scalePosContactRtSurfaceEwrtWorldZ);
             constraint.setGapSmoothing(reloaded.gapSmoothing);
           });
       updateTermIfPresent<StateInputSoftConstraint>(
@@ -143,35 +150,38 @@ void ContactImplicitApplier::beforeEverySolve(
     SqpSolver& solver,
     const SwitchedModelReferenceManager* absl_nullable referenceManager) {
   if (referenceManager == nullptr) return;
-  const scalar_t appliedTerrainHeight =
-      referenceManager->getAppliedTerrainHeight();
-  if (termsTerrainHeight_.has_value() &&
-      *termsTerrainHeight_ == appliedTerrainHeight)
+  const scalar_t appliedPosSurfaceRtWorldEwrtWorldZ =
+      referenceManager->getAppliedPosSurfaceRtWorldEwrtWorldZ();
+  if (termsPosSurfaceRtWorldEwrtWorldZ_.has_value() &&
+      *termsPosSurfaceRtWorldEwrtWorldZ_ ==
+          appliedPosSurfaceRtWorldEwrtWorldZ) {
     return;
-  setContactImplicitTermsTerrainHeight(solver.getOcpDefinitions(),
-                                       contactNames_, appliedTerrainHeight);
-  termsTerrainHeight_ = appliedTerrainHeight;
+  }
+  setContactImplicitTermsPosSurfaceRtWorldEwrtWorldZ(
+      solver.getOcpDefinitions(), contactNames_,
+      appliedPosSurfaceRtWorldEwrtWorldZ);
+  termsPosSurfaceRtWorldEwrtWorldZ_ = appliedPosSurfaceRtWorldEwrtWorldZ;
 }
 
-void setContactImplicitTermsTerrainHeight(
+void setContactImplicitTermsPosSurfaceRtWorldEwrtWorldZ(
     std::vector<OptimalControlProblem>& problems,
     const std::vector<std::string>& contactNames,
-    scalar_t terrainHeight) {
+    scalar_t posSurfaceRtWorldEwrtWorldZ) {
   for (OptimalControlProblem& ocp : problems) {
     for (const std::string& footName : contactNames) {
       updateTermIfPresent<StateInputSoftConstraint>(
           *ocp.softConstraintPtr,
           contact_term::name(footName, contact_term::kContactComplementarity),
           [&](StateInputSoftConstraint& softCon) {
-            softCon.get<ContactComplementarityConstraint>().setTerrainHeight(
-                terrainHeight);
+            softCon.get<ContactComplementarityConstraint>()
+                .setPosSurfaceRtWorldEwrtWorldZ(posSurfaceRtWorldEwrtWorldZ);
           });
       updateTermIfPresent<StateSoftConstraint>(
           *ocp.stateSoftConstraintPtr,
           contact_term::name(footName, contact_term::kGroundPenetration),
           [&](StateSoftConstraint& softCon) {
-            softCon.get<GroundPenetrationConstraint>().setTerrainHeight(
-                terrainHeight);
+            softCon.get<GroundPenetrationConstraint>()
+                .setPosSurfaceRtWorldEwrtWorldZ(posSurfaceRtWorldEwrtWorldZ);
           });
     }
   }

@@ -70,32 +70,42 @@ config::MultiContactPlan::Knot knotBetween(
     double fraction) {
   config::MultiContactPlan::Knot knot = from;
   knot.time = from.time + fraction * (to.time - from.time);
-  knot.base_position = lerp(from.base_position, to.base_position, fraction);
-  if (from.base_orientation_xyzw.size() == kQuaternionCoefficients &&
-      to.base_orientation_xyzw.size() == kQuaternionCoefficients) {
-    knot.base_orientation_xyzw = quaternionSlerp<double>(
-        Eigen::Vector4d(from.base_orientation_xyzw),
-        Eigen::Vector4d(to.base_orientation_xyzw), fraction);
+  knot.pos_base_rt_world_ewrt_world =
+      lerp(from.pos_base_rt_world_ewrt_world, to.pos_base_rt_world_ewrt_world,
+           fraction);
+  if (from.quat_base_rt_world_xyzw.size() == kQuaternionCoefficients &&
+      to.quat_base_rt_world_xyzw.size() == kQuaternionCoefficients) {
+    knot.quat_base_rt_world_xyzw = quaternionSlerp<double>(
+        Eigen::Vector4d(from.quat_base_rt_world_xyzw),
+        Eigen::Vector4d(to.quat_base_rt_world_xyzw), fraction);
   }
   knot.joint_positions =
       lerp(from.joint_positions, to.joint_positions, fraction);
   knot.joint_velocities =
       lerp(from.joint_velocities, to.joint_velocities, fraction);
-  knot.linear_momentum =
-      lerp(from.linear_momentum, to.linear_momentum, fraction);
-  knot.angular_momentum =
-      lerp(from.angular_momentum, to.angular_momentum, fraction);
-  if (from.contact_wrenches.size() != to.contact_wrenches.size()) return knot;
-  for (size_t c = 0; c < knot.contact_wrenches.size(); ++c) {
-    if (from.contact_wrenches[c].contact != to.contact_wrenches[c].contact) {
-      knot.contact_wrenches = from.contact_wrenches;
+  knot.linmom_com_rt_world_ewrt_world =
+      lerp(from.linmom_com_rt_world_ewrt_world,
+           to.linmom_com_rt_world_ewrt_world, fraction);
+  knot.angmom_com_rt_world_ewrt_world =
+      lerp(from.angmom_com_rt_world_ewrt_world,
+           to.angmom_com_rt_world_ewrt_world, fraction);
+  if (from.wrench_contacts_ewrt_world.size() !=
+      to.wrench_contacts_ewrt_world.size())
+    return knot;
+  for (size_t c = 0; c < knot.wrench_contacts_ewrt_world.size(); ++c) {
+    if (from.wrench_contacts_ewrt_world[c].contact !=
+        to.wrench_contacts_ewrt_world[c].contact) {
+      knot.wrench_contacts_ewrt_world = from.wrench_contacts_ewrt_world;
       return knot;
     }
-    knot.contact_wrenches[c].force = lerp(
-        from.contact_wrenches[c].force, to.contact_wrenches[c].force, fraction);
-    knot.contact_wrenches[c].torque =
-        lerp(from.contact_wrenches[c].torque, to.contact_wrenches[c].torque,
-             fraction);
+    // NOLINTBEGIN(frame-naming): the components of a ContactWrench, whose frames its field names
+    knot.wrench_contacts_ewrt_world[c].force =
+        lerp(from.wrench_contacts_ewrt_world[c].force,
+             to.wrench_contacts_ewrt_world[c].force, fraction);
+    knot.wrench_contacts_ewrt_world[c].torque =
+        lerp(from.wrench_contacts_ewrt_world[c].torque,
+             to.wrench_contacts_ewrt_world[c].torque, fraction);
+    // NOLINTEND(frame-naming)
   }
   return knot;
 }
@@ -148,16 +158,16 @@ absl::StatusOr<config::MultiContactPlan> certifyPlanFile(
 
 std::string formatReport(const config::CertifierReport& report) {
   // The torque margin, or the joint limits that judge no torque.
-  const std::string torques =
-      report.torque_margin.has_value()
-          ? absl::StrFormat("torque margin %.2f", *report.torque_margin)
+  const std::string jointTorquesSummary =
+      report.joint_torque_margin.has_value()
+          ? absl::StrFormat("torque margin %.2f", *report.joint_torque_margin)
           : absl::StrFormat("torques not judged: joint limits %s",
                             report.joint_limits);
   std::string text =
       absl::StrFormat("%s: %d of %d knots fail (static margin %s m, %s)\n",
                       report.passed ? "PASSED" : "FAILED", report.failed_knots,
                       static_cast<int>(report.knots.size()),
-                      optionalValue(report.static_margin), torques);
+                      optionalValue(report.static_margin), jointTorquesSummary);
   for (const config::CertifierReport::Knot& knot : report.knots) {
     absl::StrAppend(
         &text,
@@ -166,8 +176,8 @@ std::string formatReport(const config::CertifierReport& report) {
             knot.time, knot.passed ? "ok  " : "FAIL",
             absl::StrJoin(knot.active_contacts, ","),
             optionalValue(knot.static_margin),
-            optionalValue(knot.torque_utilization), knot.max_torque_joint,
-            knot.momentum_rate_feasible ? "in" : "OUT",
+            optionalValue(knot.joint_torque_utilization), knot.max_torque_joint,
+            knot.wrench_cone_feasible ? "in" : "OUT",
             knot.max_active_contact_distance,
             knot.failures.empty()
                 ? ""

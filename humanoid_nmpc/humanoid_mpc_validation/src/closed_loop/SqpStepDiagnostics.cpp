@@ -87,9 +87,10 @@ SqpStepKind sqpStepKindOf(FilterLinesearch::StepType stepType) {
   return SqpStepKind::kUnknown;  // Not a value of the enum.
 }
 
-SqpStepSample sqpStepSampleOf(const sqp::IterationRecord& iteration,
-                              const ProblemMetrics& metrics,
-                              absl::Span<const size_t> normalVelocityTerms) {
+SqpStepSample sqpStepSampleOf(
+    const sqp::IterationRecord& iteration,
+    const ProblemMetrics& metrics,
+    absl::Span<const size_t> normalVelocityConstraintTerms) {
   const sqp::StepInfo& step = iteration.stepInfo;
   return SqpStepSample{
       .stepSize = step.stepSize,
@@ -97,8 +98,9 @@ SqpStepSample sqpStepSampleOf(const sqp::IterationRecord& iteration,
       .fullStepKind = sqpStepKindOf(step.fullStepType),
       .fullStepConstraintViolation = step.fullStepConstraintViolation,
       .constraintViolation = step.totalConstraintViolationAfterStep,
-      .swingNormalVelocityResidual =
-          largestEqualityConstraintResidual(metrics, normalVelocityTerms)};
+      .swingNormalVelocityConstraintResidual =
+          largestEqualityConstraintResidual(metrics,
+                                            normalVelocityConstraintTerms)};
 }
 
 }  // namespace ocs2::humanoid::validation

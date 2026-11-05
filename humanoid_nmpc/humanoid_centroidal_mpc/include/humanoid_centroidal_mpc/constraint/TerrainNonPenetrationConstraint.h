@@ -35,6 +35,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/constraint/StateConstraintCppAd.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
@@ -55,13 +59,13 @@ namespace ocs2::humanoid {
  *
  * with d the terrain's signed distance (TerrainModel, its smooth minimum over
  * the primitives), p_c the center of the sphere of the contact's collision
- * geometry - the contact frame's origin moved by `centerOffset`, a vector in
- * the contact frame (minus the geom radius along the pad normal) - r its
- * radius and the margin [m]. The radius, the margin and the offset are
- * parameters of the tape; the terrain is recorded on it as constants, so the
- * library's name carries the scene's hash. Wrapped in a relaxed barrier it is
- * a soft constraint, inactive while the mode schedule has the contact in
- * contact, where its pad rests on the terrain.
+ * geometry - the contact frame's origin moved by
+ * `posSphereRtContactEwrtContact`, a vector in the contact frame (minus the
+ * geom radius along the pad normal) - r its radius and the margin [m]. The
+ * radius, the margin and the offset are parameters of the tape; the terrain is
+ * recorded on it as constants, so the library's name carries the scene's hash.
+ * Wrapped in a relaxed barrier it is a soft constraint, inactive while the mode
+ * schedule has the contact in contact, where its pad rests on the terrain.
  *
  * Like every OCS2 term it is cloned for each solver thread, and a single
  * instance is not thread-safe. The reference manager, the robot model and the
@@ -71,8 +75,9 @@ class TerrainNonPenetrationConstraint final : public StateConstraintCppAd {
  public:
   /** The geometry of one contact's collision sphere. Passive data. */
   struct Sphere {
-    // [m] The sphere's center in the contact frame.
-    vector3_t centerOffset = vector3_t::Zero();
+    // [m] The sphere's center (frame `sphere`) relative to the
+    // contact frame, in the contact frame.
+    vector3_t posSphereRtContactEwrtContact = vector3_t::Zero();
     // [m] Not negative.
     scalar_t radius = 0.0;
   };

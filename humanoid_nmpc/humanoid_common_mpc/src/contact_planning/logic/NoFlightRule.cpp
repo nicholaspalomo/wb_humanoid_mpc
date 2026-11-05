@@ -29,10 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/logic/NoFlightRule.h"
 
+#include <cstddef>
 #include <string>
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicHelpers.h"
+#include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 
 namespace ocs2::humanoid {
 
@@ -49,14 +52,17 @@ bool NoFlightRule::propagate(const ContactLogicState& s,
   for (int k = 0; k < s.numNodes; ++k) {
     const int cL = ContactLogicState::contactBinaryIndex(k, /*foot=*/0);
     const int cR = ContactLogicState::contactBinaryIndex(k, /*foot=*/1);
-    if (a[static_cast<size_t>(cL)] == 0 && a[static_cast<size_t>(cR)] == 0)
+    if (a[static_cast<size_t>(cL)] == 0 && a[static_cast<size_t>(cR)] == 0) {
       return false;
+    }
     if (a[static_cast<size_t>(cL)] == 0 &&
-        !fixBinary(a, cR, /*value=*/1, changed))
+        !fixBinary(a, cR, /*value=*/1, changed)) {
       return false;
+    }
     if (a[static_cast<size_t>(cR)] == 0 &&
-        !fixBinary(a, cL, /*value=*/1, changed))
+        !fixBinary(a, cL, /*value=*/1, changed)) {
       return false;
+    }
   }
   return true;
 }

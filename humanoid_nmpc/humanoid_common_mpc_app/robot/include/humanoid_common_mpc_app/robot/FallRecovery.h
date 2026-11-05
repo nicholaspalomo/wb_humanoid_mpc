@@ -60,7 +60,7 @@ class FallRecovery {
     /// The simulator's reset epoch this cycle (kSimulatorReset) and the tilt
     /// that was caught [rad] (kTiltCaught).
     uint64_t resetEpoch = 0;
-    scalar_t tilt = 0.0;
+    scalar_t tiltangleBaseRtWorld = 0.0;
     /// The gantry was released since the previous cycle.
     bool gantryUnlocked = false;
     /// update() changed the mode: the loop publishes the FSM state.

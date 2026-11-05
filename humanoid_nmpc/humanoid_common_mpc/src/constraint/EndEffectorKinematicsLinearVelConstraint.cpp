@@ -30,9 +30,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsLinearVelConstraint.h"
 
+#include <cstddef>
 #include <utility>
 
 #include "absl/log/absl_check.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
 
 namespace ocs2::humanoid {
 

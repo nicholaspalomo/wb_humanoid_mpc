@@ -73,18 +73,19 @@ using Data = PinocchioInterface::Data;
 
 constexpr scalar_t kTolerance = 1.0e-9;
 constexpr size_t kNodes = 21;
-constexpr scalar_t kNormalForce = 300.0;
+constexpr scalar_t kForceFootEwrtWorldZ = 300.0;
 /** [m] Less than the CoM height above the feet of every robot the tests load.
  */
-constexpr scalar_t kMinPendulumHeight = 0.3;
+constexpr scalar_t kMinPosComRtContactEwrtWorldZ = 0.3;
 
 vector3_t toVector(const humanoid_mpc_msgs::Vector3& vector) {
   return vector3_t(vector.x(), vector.y(), vector.z());
 }
 
-matrix3_t toRotation(const humanoid_mpc_msgs::Quaternion& quaternion) {
-  return quaternion_t(vector4_t(quaternion.x(), quaternion.y(), quaternion.z(),
-                                quaternion.w()))
+matrix3_t rotmatOf(const humanoid_mpc_msgs::Quaternion& msgQuatLocalRtWorld) {
+  return quaternion_t(
+             vector4_t(msgQuatLocalRtWorld.x(), msgQuatLocalRtWorld.y(),
+                       msgQuatLocalRtWorld.z(), msgQuatLocalRtWorld.w()))
       .normalized()
       .toRotationMatrix();
 }
@@ -144,8 +145,9 @@ void forwardKinematics(PinocchioInterface& interface, const vector_t& q) {
 
 /** Every link pose of `instance` equals the frame of the same name in
  * `interface`'s data. */
-void expectLinkPoses(const humanoid_mpc_msgs::RobotModelInstance& instance,
-                     const PinocchioInterface& interface) {
+void expectPoseLinksRtWorld(
+    const humanoid_mpc_msgs::RobotModelInstance& instance,
+    const PinocchioInterface& interface) {
   ASSERT_EQ(instance.link_names_size(), instance.pose_links_rt_world_size());
   ASSERT_GT(instance.link_names_size(), 0);
   for (int link = 0; link < instance.link_names_size(); ++link) {
@@ -153,14 +155,16 @@ void expectLinkPoses(const humanoid_mpc_msgs::RobotModelInstance& instance,
     ASSERT_TRUE(interface.getModel().existFrame(name)) << name;
     const pinocchio::SE3& expected =
         interface.getData().oMf[interface.getModel().getFrameId(name)];
+    // NOLINTBEGIN(frame-naming): the components of a Pose message, whose frames its field names
     EXPECT_LT((toVector(instance.pose_links_rt_world(link).position()) -
                expected.translation())
                   .norm(),
               kTolerance)
         << instance.name() << " " << name;
-    EXPECT_TRUE(toRotation(instance.pose_links_rt_world(link).orientation())
+    EXPECT_TRUE(rotmatOf(instance.pose_links_rt_world(link).orientation())
                     .isApprox(expected.rotation(), 1.0e-9))
         << instance.name() << " " << name;
+    // NOLINTEND(frame-naming)
   }
 }
 
@@ -203,16 +207,16 @@ class SceneBuilderTest : public ::testing::TestWithParam<test::Formulation> {
     builder_ = std::move(*builder);
 
     observation_ = robot_->observation(/*time=*/0.0, ModeNumber::kStance);
-    makePolicy(kNormalForce);
+    makePolicy(kForceFootEwrtWorldZ);
     const humanoid_mpc_msgs::RobotStateSample proto = robot_->robotState(
         /*time=*/0.02, vector3_t(0.1, -0.2, 0.75), vector3_t(0.05, -0.1, 0.4));
     ASSERT_TRUE(msgs::FromProto(proto, &sample_).ok());
   }
 
-  void makePolicy(scalar_t normalForce) {
+  void makePolicy(scalar_t forceFootEwrtWorldZ) {
     CommandData command;
     PrimalSolution solution;
-    robot_->makePolicy(/*startTime=*/0.0, kNodes, normalForce,
+    robot_->makePolicy(/*startTime=*/0.0, kNodes, forceFootEwrtWorldZ,
                        vector2_t(0.02, -0.01), &command, &solution);
     // The reference at the plan's end is the nominal state, not the plan's last
     // state.
@@ -268,10 +272,14 @@ TEST_P(SceneBuilderTest, EveryMarkerPathIsInTheSceneOnceAndTheThreeRobotsAre) {
   for (const humanoid_mpc_msgs::LineStrips& strips : scene.line_strips()) {
     ++paths[strips.path()];
   }
-  const std::vector<absl::string_view> expected = {
-      scene::kContactForces,    scene::kCenterOfPressure, scene::kCornerForces,
-      scene::kPlanEndEffectors, scene::kPlanBase,         scene::kPlanCom,
-      scene::kPlanFootholds,    scene::kCollisionSpheres};
+  const std::vector<absl::string_view> expected = {scene::kContactForceMarkers,
+                                                   scene::kCenterOfPressure,
+                                                   scene::kCornerForceMarkers,
+                                                   scene::kPlanEndEffectors,
+                                                   scene::kPlanBase,
+                                                   scene::kPlanCom,
+                                                   scene::kPlanFootholds,
+                                                   scene::kCollisionSpheres};
   EXPECT_EQ(paths.size(), expected.size());
   for (const absl::string_view path : expected) {
     EXPECT_EQ(paths[std::string(path)], 1) << path;
@@ -301,18 +309,18 @@ TEST_P(SceneBuilderTest, TheMeasuredRobotHasEveryJointOfTheUrdf) {
                           sample_.pos_base_rt_world_ewrt_world.y,
                           sample_.pos_base_rt_world_ewrt_world.z);
   q.segment<4>(3) =
-      test::quaternionFromRollPitchYaw(vector3_t(0.05, -0.1, 0.4)).coeffs();
-  absl::flat_hash_map<std::string, scalar_t> positions;
+      test::unitQuaternionOfRollPitchYaw(vector3_t(0.05, -0.1, 0.4)).coeffs();
+  absl::flat_hash_map<std::string, scalar_t> jointPositions;
   for (size_t joint = 0; joint < sample_.joint_names.size(); ++joint) {
-    positions[sample_.joint_names[joint]] =
+    jointPositions[sample_.joint_names[joint]] =
         sample_.joint_positions[static_cast<Eigen::Index>(joint)];
   }
   size_t jointsSet = 0;
   for (pinocchio::JointIndex joint = 2;
        joint < static_cast<pinocchio::JointIndex>(model.njoints); ++joint) {
     const absl::flat_hash_map<std::string, scalar_t>::const_iterator found =
-        positions.find(model.names[joint]);
-    if (found != positions.end()) {
+        jointPositions.find(model.names[joint]);
+    if (found != jointPositions.end()) {
       ASSERT_EQ(model.joints[joint].nq(), 1);
       q[model.joints[joint].idx_q()] = found->second;
       ++jointsSet;
@@ -320,7 +328,7 @@ TEST_P(SceneBuilderTest, TheMeasuredRobotHasEveryJointOfTheUrdf) {
   }
   EXPECT_EQ(jointsSet, robot_->modelSettings().fullJointNames.size());
   forwardKinematics(reference, q);
-  expectLinkPoses(*measured, reference);
+  expectPoseLinksRtWorld(*measured, reference);
 
   size_t links = 0;
   for (const pinocchio::Frame& frame : model.frames) {
@@ -338,75 +346,90 @@ TEST_P(SceneBuilderTest,
   const humanoid_mpc_msgs::RobotModelInstance* absl_nullable terminalState =
       findInstance(scene, scene::kTerminalStateInstance);
   ASSERT_NE(terminalState, nullptr);
-  expectLinkPoses(*terminalState, reference);
+  expectPoseLinksRtWorld(*terminalState, reference);
 
   forwardKinematics(reference, robot_->robotModel().getGeneralizedCoordinates(
                                    robot_->nominalState()));
   const humanoid_mpc_msgs::RobotModelInstance* absl_nullable terminalTarget =
       findInstance(scene, scene::kTerminalTargetInstance);
   ASSERT_NE(terminalTarget, nullptr);
-  expectLinkPoses(*terminalTarget, reference);
+  expectPoseLinksRtWorld(*terminalTarget, reference);
   EXPECT_EQ(terminalTarget->link_names_size(),
             terminalState->link_names_size());
 }
 
 TEST_P(SceneBuilderTest, ContactForcesEndAtTheCentersOfPressure) {
   const humanoid_mpc_msgs::VisualizationScene scene = build(allInputs());
-  const humanoid_mpc_msgs::Arrows& forces =
-      arrowsAt(scene, scene::kContactForces);
-  ASSERT_EQ(forces.vectors_size(), static_cast<int>(kNumContacts));
-  ASSERT_EQ(forces.origins_size(), static_cast<int>(kNumContacts));
+  const humanoid_mpc_msgs::Arrows& contactArrows =
+      arrowsAt(scene, scene::kContactForceMarkers);
+  ASSERT_EQ(contactArrows.pos_arrowheads_rt_arrow_ewrt_world_size(),
+            static_cast<int>(kNumContacts));
+  ASSERT_EQ(contactArrows.pos_arrows_rt_world_ewrt_world_size(),
+            static_cast<int>(kNumContacts));
 
   PinocchioInterface reference = robot_->makeReferencePinocchioInterface();
   forwardKinematics(reference, robot_->robotModel().getGeneralizedCoordinates(
                                    observation_.state));
   const vector_t input = inputAtObservation();
-  vector3_t weighted = vector3_t::Zero();
-  scalar_t normalForceSum = 0.0;
+  vector3_t weightedSumPosCopRtWorldEwrtWorld = vector3_t::Zero();
+  scalar_t sumForceContactsEwrtWorldZ = 0.0;
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
     const pinocchio::SE3& frame =
         reference.getData().oMf[reference.getModel().getFrameId(
             robot_->modelSettings().contactNames[contact])];
-    const vector6_t wrench = robot_->robotModel().getWrenchContactEwrtWorld(
-        observation_.state, input, contact);
-    const vector3_t localForce =
-        frame.rotation().transpose() * wrench.head<3>();
-    const vector3_t localTorque =
-        frame.rotation().transpose() * wrench.tail<3>();
-    const vector3_t cop =
-        frame.act(vector3_t(-localTorque.y() / localForce.z(),
-                            localTorque.x() / localForce.z(), 0.0));
-    const vector3_t vector =
-        toVector(forces.vectors(static_cast<int>(contact)));
-    const vector3_t tip =
-        toVector(forces.origins(static_cast<int>(contact))) + vector;
-    EXPECT_TRUE((tip - cop).norm() < 1.0e-9)
-        << "contact " << contact << ": " << tip.transpose() << " vs "
-        << cop.transpose();
-    EXPECT_TRUE((vector - wrench.head<3>() / scene::kForceScale).norm() <
+    const vector6_t wrenchContactEwrtWorld =
+        robot_->robotModel().getWrenchContactEwrtWorld(observation_.state,
+                                                       input, contact);
+    const vector3_t forceContactEwrtContact =
+        frame.rotation().transpose() * wrenchContactEwrtWorld.head<3>();
+    const vector3_t torqueContactEwrtContact =
+        frame.rotation().transpose() * wrenchContactEwrtWorld.tail<3>();
+    const vector3_t posCopRtWorldEwrtWorld = frame.act(vector3_t(
+        -torqueContactEwrtContact.y() / forceContactEwrtContact.z(),
+        torqueContactEwrtContact.x() / forceContactEwrtContact.z(), 0.0));
+    const vector3_t posArrowheadRtArrowEwrtWorld =
+        toVector(contactArrows.pos_arrowheads_rt_arrow_ewrt_world(
+            static_cast<int>(contact)));
+    const vector3_t posArrowheadRtWorldEwrtWorld =
+        toVector(contactArrows.pos_arrows_rt_world_ewrt_world(
+            static_cast<int>(contact))) +
+        posArrowheadRtArrowEwrtWorld;
+    EXPECT_TRUE((posArrowheadRtWorldEwrtWorld - posCopRtWorldEwrtWorld).norm() <
                 1.0e-9)
+        << "contact " << contact << ": "
+        << posArrowheadRtWorldEwrtWorld.transpose() << " vs "
+        << posCopRtWorldEwrtWorld.transpose();
+    EXPECT_TRUE(
+        (posArrowheadRtArrowEwrtWorld -
+         wrenchContactEwrtWorld.head<3>() / scene::kNewtonsPerArrowMeter)
+            .norm() < 1.0e-9)
         << contact;
-    weighted += wrench.z() * cop;
-    normalForceSum += wrench.z();
+    weightedSumPosCopRtWorldEwrtWorld +=
+        wrenchContactEwrtWorld.z() * posCopRtWorldEwrtWorld;
+    sumForceContactsEwrtWorldZ += wrenchContactEwrtWorld.z();
     if (GetParam() != test::Formulation::kCentroidalBasisVectors) {
       // The world wrench the policy was written with: 300 N up, 15 N forward.
-      EXPECT_NEAR(vector.z(), kNormalForce / scene::kForceScale, 1.0e-9);
-      EXPECT_NEAR(vector.x(), 0.05 * kNormalForce / scene::kForceScale, 1.0e-9);
+      EXPECT_NEAR(posArrowheadRtArrowEwrtWorld.z(),
+                  kForceFootEwrtWorldZ / scene::kNewtonsPerArrowMeter, 1.0e-9);
+      EXPECT_NEAR(posArrowheadRtArrowEwrtWorld.x(),
+                  0.05 * kForceFootEwrtWorldZ / scene::kNewtonsPerArrowMeter,
+                  1.0e-9);
     }
   }
   const humanoid_mpc_msgs::Spheres& centerOfPressure =
       spheresAt(scene, scene::kCenterOfPressure);
-  ASSERT_EQ(centerOfPressure.centers_size(), 1);
-  EXPECT_TRUE(
-      (toVector(centerOfPressure.centers(0)) - weighted / normalForceSum)
-          .norm() < 1.0e-9);
+  ASSERT_EQ(centerOfPressure.pos_spheres_rt_world_ewrt_world_size(), 1);
+  EXPECT_TRUE((toVector(centerOfPressure.pos_spheres_rt_world_ewrt_world(0)) -
+               weightedSumPosCopRtWorldEwrtWorld / sumForceContactsEwrtWorldZ)
+                  .norm() < 1.0e-9);
 }
 
 TEST_P(SceneBuilderTest, TheCornerForcesAreEquivalentToTheContactWrench) {
   const humanoid_mpc_msgs::VisualizationScene scene = build(allInputs());
   const humanoid_mpc_msgs::Arrows& corners =
-      arrowsAt(scene, scene::kCornerForces);
-  ASSERT_EQ(corners.vectors_size(), static_cast<int>(4 * kNumContacts));
+      arrowsAt(scene, scene::kCornerForceMarkers);
+  ASSERT_EQ(corners.pos_arrowheads_rt_arrow_ewrt_world_size(),
+            static_cast<int>(4 * kNumContacts));
 
   PinocchioInterface reference = robot_->makeReferencePinocchioInterface();
   forwardKinematics(reference, robot_->robotModel().getGeneralizedCoordinates(
@@ -414,7 +437,7 @@ TEST_P(SceneBuilderTest, TheCornerForcesAreEquivalentToTheContactWrench) {
   const vector_t input = inputAtObservation();
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
     const Model& model = reference.getModel();
-    const vector3_t origin =
+    const vector3_t posContactRtWorldEwrtWorld =
         reference.getData()
             .oMf[model.getFrameId(
                 robot_->modelSettings().contactNames[contact])]
@@ -424,63 +447,90 @@ TEST_P(SceneBuilderTest, TheCornerForcesAreEquivalentToTheContactWrench) {
                                    robot_->modelSettings(),
                                    static_cast<int>(contact))
             .value();
-    vector3_t force = vector3_t::Zero();
-    vector3_t torque = vector3_t::Zero();
+    // The corner forces' net force and net moment about the contact frame.
+    vector3_t forceContactEwrtWorld = vector3_t::Zero();
+    vector3_t torqueContactEwrtWorld = vector3_t::Zero();
     for (size_t corner = 0; corner < 4; ++corner) {
       const int arrow = static_cast<int>(4 * contact + corner);
-      const vector3_t cornerForce =
-          toVector(corners.vectors(arrow)) * scene::kForceScale;
-      const vector3_t tip =
-          toVector(corners.origins(arrow)) + toVector(corners.vectors(arrow));
-      const vector3_t cornerPosition =
+      const vector3_t forceCornerEwrtWorld =
+          toVector(corners.pos_arrowheads_rt_arrow_ewrt_world(arrow)) *
+          scene::kNewtonsPerArrowMeter;
+      const vector3_t posArrowheadRtWorldEwrtWorld =
+          toVector(corners.pos_arrows_rt_world_ewrt_world(arrow)) +
+          toVector(corners.pos_arrowheads_rt_arrow_ewrt_world(arrow));
+      const vector3_t posCornerRtWorldEwrtWorld =
           reference.getData()
               .oMf[model.getFrameId(
                   rectangle.getPolygonPointFrameName(static_cast<int>(corner)))]
               .translation();
-      EXPECT_TRUE((tip - cornerPosition).norm() < 1.0e-9)
+      EXPECT_TRUE(
+          (posArrowheadRtWorldEwrtWorld - posCornerRtWorldEwrtWorld).norm() <
+          1.0e-9)
           << contact << " " << corner;
-      force += cornerForce;
-      torque += (cornerPosition - origin).cross(cornerForce);
+      forceContactEwrtWorld += forceCornerEwrtWorld;
+      torqueContactEwrtWorld +=
+          (posCornerRtWorldEwrtWorld - posContactRtWorldEwrtWorld)
+              .cross(forceCornerEwrtWorld);
     }
-    const vector6_t wrench = robot_->robotModel().getWrenchContactEwrtWorld(
-        observation_.state, input, contact);
-    EXPECT_TRUE((force - wrench.head<3>()).norm() < 1.0e-6)
-        << force.transpose() << " vs " << wrench.head<3>().transpose();
-    EXPECT_TRUE((torque - wrench.tail<3>()).norm() < 1.0e-6)
-        << torque.transpose() << " vs " << wrench.tail<3>().transpose();
+    const vector6_t wrenchContactEwrtWorld =
+        robot_->robotModel().getWrenchContactEwrtWorld(observation_.state,
+                                                       input, contact);
+    EXPECT_TRUE(
+        (forceContactEwrtWorld - wrenchContactEwrtWorld.head<3>()).norm() <
+        1.0e-6)
+        << forceContactEwrtWorld.transpose() << " vs "
+        << wrenchContactEwrtWorld.head<3>().transpose();
+    EXPECT_TRUE(
+        (torqueContactEwrtWorld - wrenchContactEwrtWorld.tail<3>()).norm() <
+        1.0e-6)
+        << torqueContactEwrtWorld.transpose() << " vs "
+        << wrenchContactEwrtWorld.tail<3>().transpose();
   }
 }
 
 TEST_P(SceneBuilderTest, ASwingFootHasNoContactMarkers) {
   observation_.mode = ModeNumber::kRf;
   const humanoid_mpc_msgs::VisualizationScene scene = build(allInputs());
-  EXPECT_EQ(arrowsAt(scene, scene::kContactForces).vectors_size(), 1);
-  EXPECT_EQ(arrowsAt(scene, scene::kCornerForces).vectors_size(), 4);
+  EXPECT_EQ(arrowsAt(scene, scene::kContactForceMarkers)
+                .pos_arrowheads_rt_arrow_ewrt_world_size(),
+            1);
+  EXPECT_EQ(arrowsAt(scene, scene::kCornerForceMarkers)
+                .pos_arrowheads_rt_arrow_ewrt_world_size(),
+            4);
 }
 
 TEST_P(SceneBuilderTest, ACenterOfPressureWithoutForceIsTheContactFrameNotNan) {
-  makePolicy(/*normalForce=*/0.0);
+  makePolicy(/*forceFootEwrtWorldZ=*/0.0);
   const humanoid_mpc_msgs::VisualizationScene scene = build(allInputs());
   PinocchioInterface reference = robot_->makeReferencePinocchioInterface();
   forwardKinematics(reference, robot_->robotModel().getGeneralizedCoordinates(
                                    observation_.state));
-  const humanoid_mpc_msgs::Arrows& forces =
-      arrowsAt(scene, scene::kContactForces);
-  ASSERT_EQ(forces.vectors_size(), static_cast<int>(kNumContacts));
+  const humanoid_mpc_msgs::Arrows& contactArrows =
+      arrowsAt(scene, scene::kContactForceMarkers);
+  ASSERT_EQ(contactArrows.pos_arrowheads_rt_arrow_ewrt_world_size(),
+            static_cast<int>(kNumContacts));
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    const vector3_t tip = toVector(forces.origins(static_cast<int>(contact))) +
-                          toVector(forces.vectors(static_cast<int>(contact)));
-    ASSERT_TRUE(tip.allFinite());
-    const vector3_t frame =
+    const vector3_t posArrowheadRtWorldEwrtWorld =
+        toVector(contactArrows.pos_arrows_rt_world_ewrt_world(
+            static_cast<int>(contact))) +
+        toVector(contactArrows.pos_arrowheads_rt_arrow_ewrt_world(
+            static_cast<int>(contact)));
+    ASSERT_TRUE(posArrowheadRtWorldEwrtWorld.allFinite());
+    const vector3_t posContactRtWorldEwrtWorld =
         reference.getData()
             .oMf[reference.getModel().getFrameId(
                 robot_->modelSettings().contactNames[contact])]
             .translation();
-    EXPECT_TRUE((tip - frame).norm() < 1.0e-9);
+    EXPECT_TRUE(
+        (posArrowheadRtWorldEwrtWorld - posContactRtWorldEwrtWorld).norm() <
+        1.0e-9);
   }
-  EXPECT_EQ(spheresAt(scene, scene::kCenterOfPressure).centers_size(), 0);
+  EXPECT_EQ(spheresAt(scene, scene::kCenterOfPressure)
+                .pos_spheres_rt_world_ewrt_world_size(),
+            0);
   for (const humanoid_mpc_msgs::Arrows& arrows : scene.arrows()) {
-    for (const humanoid_mpc_msgs::Vector3& vector : arrows.vectors()) {
+    for (const humanoid_mpc_msgs::Vector3& vector :
+         arrows.pos_arrowheads_rt_arrow_ewrt_world()) {
       EXPECT_TRUE(toVector(vector).allFinite()) << arrows.path();
     }
   }
@@ -513,17 +563,19 @@ TEST_P(SceneBuilderTest, TheCollisionSpheresAreAtTheirFrames) {
   }
   const humanoid_mpc_msgs::Spheres& spheres =
       spheresAt(scene, scene::kCollisionSpheres);
-  ASSERT_EQ(spheres.centers_size(), static_cast<int>(expected.size()));
+  ASSERT_EQ(spheres.pos_spheres_rt_world_ewrt_world_size(),
+            static_cast<int>(expected.size()));
   ASSERT_EQ(spheres.radii_size(), static_cast<int>(expected.size()));
   EXPECT_GE(expected.size(), 6u);
   for (size_t sphere = 0; sphere < expected.size(); ++sphere) {
-    const vector3_t center =
+    const vector3_t posLinkRtWorldEwrtWorld =
         reference.getData()
             .oMf[reference.getModel().getFrameId(expected[sphere].first)]
             .translation();
-    EXPECT_TRUE(
-        (toVector(spheres.centers(static_cast<int>(sphere))) - center).norm() <
-        1.0e-9)
+    EXPECT_TRUE((toVector(spheres.pos_spheres_rt_world_ewrt_world(
+                     static_cast<int>(sphere))) -
+                 posLinkRtWorldEwrtWorld)
+                    .norm() < 1.0e-9)
         << expected[sphere].first;
     EXPECT_FLOAT_EQ(spheres.radii(static_cast<int>(sphere)),
                     static_cast<float>(expected[sphere].second));
@@ -558,7 +610,9 @@ TEST_P(SceneBuilderTest, WithoutSphereRadiiThereAreNoCollisionSpheres) {
   ASSERT_TRUE(builder.ok()) << builder.status();
   humanoid_mpc_msgs::VisualizationScene scene;
   ASSERT_TRUE((*builder)->build(allInputs(), &scene).ok());
-  EXPECT_EQ(spheresAt(scene, scene::kCollisionSpheres).centers_size(), 0);
+  EXPECT_EQ(spheresAt(scene, scene::kCollisionSpheres)
+                .pos_spheres_rt_world_ewrt_world_size(),
+            0);
 }
 
 TEST_P(SceneBuilderTest, AUrdfThatDoesNotParseIsRefused) {
@@ -604,52 +658,60 @@ TEST_P(SceneBuilderTest, ThePlanIsTheFramesBaseAndTheComAtItsHeight) {
             static_cast<int>(config_.planFrames.size()));
   ASSERT_EQ(base.strips_size(), 1);
   ASSERT_EQ(com.strips_size(), 1);
-  ASSERT_EQ(base.strips(0).points_size(), static_cast<int>(kNodes));
-  ASSERT_EQ(com.strips(0).points_size(), static_cast<int>(kNodes));
+  ASSERT_EQ(base.strips(0).pos_strippoints_rt_world_ewrt_world_size(),
+            static_cast<int>(kNodes));
+  ASSERT_EQ(com.strips(0).pos_strippoints_rt_world_ewrt_world_size(),
+            static_cast<int>(kNodes));
   for (size_t node = 0; node < kNodes; ++node) {
     const vector_t q =
         robot_->robotModel().getGeneralizedCoordinates(policy_.state[node]);
     forwardKinematics(reference, q);
     const int point = static_cast<int>(node);
     for (size_t frame = 0; frame < config_.planFrames.size(); ++frame) {
-      ASSERT_EQ(endEffectors.strips(static_cast<int>(frame)).points_size(),
+      ASSERT_EQ(endEffectors.strips(static_cast<int>(frame))
+                    .pos_strippoints_rt_world_ewrt_world_size(),
                 static_cast<int>(kNodes));
       const vector3_t expected =
           reference.getData()
               .oMf[model.getFrameId(config_.planFrames[frame])]
               .translation();
-      EXPECT_TRUE(
-          (toVector(
-               endEffectors.strips(static_cast<int>(frame)).points(point)) -
-           expected)
-              .norm() < 1.0e-9)
+      EXPECT_TRUE((toVector(endEffectors.strips(static_cast<int>(frame))
+                                .pos_strippoints_rt_world_ewrt_world(point)) -
+                   expected)
+                      .norm() < 1.0e-9)
           << config_.planFrames[frame] << " node " << node;
     }
     // The base is the root link: the MPC model's first link.
-    const vector3_t root =
+    const vector3_t posBaseRtWorldEwrtWorld =
         reference.getData()
             .oMf[model.getFrameId(builder_->mpcLinkNames().front())]
             .translation();
-    EXPECT_TRUE((toVector(base.strips(0).points(point)) - root).norm() < 1.0e-9)
+    EXPECT_TRUE(
+        (toVector(base.strips(0).pos_strippoints_rt_world_ewrt_world(point)) -
+         posBaseRtWorldEwrtWorld)
+            .norm() < 1.0e-9)
         << node;
     // The CoM is the whole-body CoM of the node's state, at its own height: not
     // flattened onto the ground the feet stand on, so that it stands a pendulum
     // height above every contact frame.
-    const vector3_t centerOfMass = pinocchio::centerOfMass(
+    const vector3_t posComRtWorldEwrtWorld = pinocchio::centerOfMass(
         model, reference.getData(), q, /*computeSubtreeComs=*/false);
-    EXPECT_TRUE((toVector(com.strips(0).points(point)) - centerOfMass).norm() <
-                1.0e-9)
+    EXPECT_TRUE(
+        (toVector(com.strips(0).pos_strippoints_rt_world_ewrt_world(point)) -
+         posComRtWorldEwrtWorld)
+            .norm() < 1.0e-9)
         << node;
     forwardKinematics(reference, q);
     for (size_t contact = 0; contact < kNumContacts; ++contact) {
-      const scalar_t footHeight =
+      const scalar_t posContactRtWorldEwrtWorldZ =
           reference.getData()
               .oMf[model.getFrameId(
                   robot_->modelSettings().contactNames[contact])]
               .translation()
               .z();
-      EXPECT_GT(com.strips(0).points(point).z() - footHeight,
-                kMinPendulumHeight)
+      EXPECT_GT(com.strips(0).pos_strippoints_rt_world_ewrt_world(point).z() -
+                    posContactRtWorldEwrtWorldZ,
+                kMinPosComRtContactEwrtWorldZ)
           << node;
     }
   }
@@ -661,7 +723,7 @@ TEST_P(SceneBuilderTest, AFootholdIsWhereAFootLandsInTheHorizon) {
   // lands.
   const humanoid_mpc_msgs::Spheres& footholds =
       spheresAt(scene, scene::kPlanFootholds);
-  ASSERT_EQ(footholds.centers_size(), 1);
+  ASSERT_EQ(footholds.pos_spheres_rt_world_ewrt_world_size(), 1);
   ASSERT_EQ(footholds.colors_size(), 1);
   vector_t state;
   vector_t input;
@@ -669,12 +731,14 @@ TEST_P(SceneBuilderTest, AFootholdIsWhereAFootLandsInTheHorizon) {
   PinocchioInterface reference = robot_->makeReferencePinocchioInterface();
   forwardKinematics(reference,
                     robot_->robotModel().getGeneralizedCoordinates(state));
-  const vector3_t foot =
+  const vector3_t posLfootRtWorldEwrtWorld =
       reference.getData()
           .oMf[reference.getModel().getFrameId(
               robot_->modelSettings().contactNames[kContactLeftIndex])]
           .translation();
-  EXPECT_TRUE((toVector(footholds.centers(0)) - foot).norm() < 1.0e-9);
+  EXPECT_TRUE((toVector(footholds.pos_spheres_rt_world_ewrt_world(0)) -
+               posLfootRtWorldEwrtWorld)
+                  .norm() < 1.0e-9);
   EXPECT_FLOAT_EQ(footholds.colors(0).r(), scene::kPurple.r);
   EXPECT_FLOAT_EQ(footholds.colors(0).a(), 1.0f);
 }
@@ -689,10 +753,12 @@ TEST_P(SceneBuilderTest, ASampleAloneDrawsTheMeasuredRobotAndEmptyMarkers) {
   EXPECT_EQ(
       scene.arrows_size() + scene.spheres_size() + scene.line_strips_size(), 8);
   for (const humanoid_mpc_msgs::Arrows& arrows : scene.arrows()) {
-    EXPECT_EQ(arrows.vectors_size(), 0) << arrows.path();
+    EXPECT_EQ(arrows.pos_arrowheads_rt_arrow_ewrt_world_size(), 0)
+        << arrows.path();
   }
   for (const humanoid_mpc_msgs::Spheres& spheres : scene.spheres()) {
-    EXPECT_EQ(spheres.centers_size(), 0) << spheres.path();
+    EXPECT_EQ(spheres.pos_spheres_rt_world_ewrt_world_size(), 0)
+        << spheres.path();
   }
   for (const humanoid_mpc_msgs::LineStrips& strips : scene.line_strips()) {
     EXPECT_EQ(strips.strips_size(), 0) << strips.path();
@@ -710,7 +776,7 @@ TEST_P(SceneBuilderTest, WithoutASampleTheMeasuredRobotIsTheObservation) {
   PinocchioInterface reference = robot_->makeReferencePinocchioInterface();
   forwardKinematics(reference, robot_->robotModel().getGeneralizedCoordinates(
                                    observation_.state));
-  expectLinkPoses(*measured, reference);
+  expectPoseLinksRtWorld(*measured, reference);
 }
 
 TEST_P(SceneBuilderTest, WithNothingToDrawThereIsNoScene) {
@@ -731,18 +797,25 @@ TEST_P(SceneBuilderTest, ThePlanIsComputedAgainOnlyForANewPolicy) {
   SceneInputs inputs = allInputs();
   const humanoid_mpc_msgs::VisualizationScene first = build(inputs);
   for (vector_t& state : policy_.state) {
-    vector3_t basePosition =
+    vector3_t posBaseRtWorldEwrtWorld =
         robot_->robotModel().getPosBaseRtWorldEwrtWorld(state);
-    basePosition.y() += 0.5;
-    robot_->robotModel().setPosBaseRtWorldEwrtWorld(state, basePosition);
+    posBaseRtWorldEwrtWorld.y() += 0.5;
+    robot_->robotModel().setPosBaseRtWorldEwrtWorld(state,
+                                                    posBaseRtWorldEwrtWorld);
   }
   const humanoid_mpc_msgs::VisualizationScene same = build(inputs);
   EXPECT_EQ(lineStripsAt(same, scene::kPlanBase).SerializeAsString(),
             lineStripsAt(first, scene::kPlanBase).SerializeAsString());
   inputs.policyVersion = 2;
   const humanoid_mpc_msgs::VisualizationScene changed = build(inputs);
-  EXPECT_NEAR(lineStripsAt(changed, scene::kPlanBase).strips(0).points(0).y() -
-                  lineStripsAt(first, scene::kPlanBase).strips(0).points(0).y(),
+  EXPECT_NEAR(lineStripsAt(changed, scene::kPlanBase)
+                      .strips(0)
+                      .pos_strippoints_rt_world_ewrt_world(0)
+                      .y() -
+                  lineStripsAt(first, scene::kPlanBase)
+                      .strips(0)
+                      .pos_strippoints_rt_world_ewrt_world(0)
+                      .y(),
               0.5, 1.0e-9);
   // A policy of other dimensions is no policy: no plan and no terminal robots.
   policy_.input.front().resize(1);
@@ -750,7 +823,9 @@ TEST_P(SceneBuilderTest, ThePlanIsComputedAgainOnlyForANewPolicy) {
   const humanoid_mpc_msgs::VisualizationScene without = build(inputs);
   EXPECT_EQ(lineStripsAt(without, scene::kPlanBase).strips_size(), 0);
   EXPECT_EQ(findInstance(without, scene::kTerminalStateInstance), nullptr);
-  EXPECT_EQ(arrowsAt(without, scene::kContactForces).vectors_size(), 0);
+  EXPECT_EQ(arrowsAt(without, scene::kContactForceMarkers)
+                .pos_arrowheads_rt_arrow_ewrt_world_size(),
+            0);
 }
 
 INSTANTIATE_TEST_SUITE_P(

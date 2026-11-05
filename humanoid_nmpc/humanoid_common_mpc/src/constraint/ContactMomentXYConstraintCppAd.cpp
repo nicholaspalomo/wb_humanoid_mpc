@@ -32,12 +32,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/constraint/ContactMomentXYConstraintCppAd.h"
 
+#include <cstddef>
 #include <string>
 
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateInputConstraintCppAd.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/multibody.hpp"
 
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_common_mpc/pinocchio_model/PinocchioFrameConversions.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 
@@ -117,14 +128,21 @@ ad_vector_t ContactMomentXYConstraintCppAd::constraintFunction(
 
   ad_vector_t constraintValue(kNumConstraints);
   constraintValue << torqueContactEwrtContact.x() -
-                         contactRectangle_.getBounds().y_min *
+                         contactRectangle_.getBounds()
+                                 .min_pos_corners_rt_contact_ewrt_contact_y *
                              forceContactEwrtContact.z(),
       -torqueContactEwrtContact.x() +
-          contactRectangle_.getBounds().y_max * forceContactEwrtContact.z(),
+          contactRectangle_.getBounds()
+                  .max_pos_corners_rt_contact_ewrt_contact_y *
+              forceContactEwrtContact.z(),
       -torqueContactEwrtContact.y() -
-          contactRectangle_.getBounds().x_min * forceContactEwrtContact.z(),
+          contactRectangle_.getBounds()
+                  .min_pos_corners_rt_contact_ewrt_contact_x *
+              forceContactEwrtContact.z(),
       torqueContactEwrtContact.y() +
-          contactRectangle_.getBounds().x_max * forceContactEwrtContact.z();
+          contactRectangle_.getBounds()
+                  .max_pos_corners_rt_contact_ewrt_contact_x *
+              forceContactEwrtContact.z();
   return constraintValue;
 }
 

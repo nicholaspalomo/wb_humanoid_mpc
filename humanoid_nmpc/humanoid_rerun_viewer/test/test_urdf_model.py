@@ -98,9 +98,9 @@ class SampleUrdfTest(TemporaryDirectoryTestCase):
         self.assertTrue(os.path.isfile(mesh.path))
         self.assertEqual(mesh.media_type, "model/stl")
         self.assertEqual(mesh.scale, (0.001, 0.001, 0.001))
-        self.assertEqual(visual.origin.translation, (0.0, 0.0, 0.1))
+        self.assertEqual(visual.pose_geom_rt_link.translation, (0.0, 0.0, 0.1))
         for actual, expected in zip(
-            visual.origin.quaternion_xyzw,
+            visual.pose_geom_rt_link.quaternion_xyzw,  # NOLINT(frame-naming): a component of pose_geom_rt_link, which names the frames
             (0.0, 0.0, math.sin(math.pi / 4), math.cos(math.pi / 4)),
         ):
             self.assertAlmostEqual(actual, expected)

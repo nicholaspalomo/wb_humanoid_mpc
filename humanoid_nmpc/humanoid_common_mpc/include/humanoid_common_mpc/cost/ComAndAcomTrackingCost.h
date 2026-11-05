@@ -38,11 +38,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/cost/StateCost.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
@@ -51,10 +55,11 @@ namespace ocs2::humanoid {
  * orientation against the reference trajectory, in place of the base pose.
  *
  * The ACoM attitude is xi_a(x) = xi_hat (x) Exp(Delta_theta(q_j))
- * (AngularCenterOfMass::acomAttitude()), the base orientation composed with the
- * learned joint-induced rotation, and its error is the heading-tilt residual
- * e_HT(xi_a(x), xi_a(x_ref)) of orientation/BaseOrientation.h, rows (yaw,
- * pitch, roll) - the rows acom_weights names (design section 2.8.3 of
+ * (AngularCenterOfMass::computeQuatAcomRtWorldXyzw()), the base orientation
+ * composed with the learned joint-induced rotation, and its error is the
+ * heading-tilt residual e_HT(xi_a(x), xi_a(x_ref)) of
+ * orientation/BaseOrientation.h, rows (yaw, pitch, roll) - the rows
+ * acom_weights names (design section 2.8.3 of
  * humanoid_nmpc/docs/quaternion_base_orientation/README.md):
  *
  *   L = 1/2 e_com^T Q_com e_com + 1/2 e_acom^T Q_acom e_acom,  e_com = c(q) -
@@ -221,7 +226,7 @@ class ComAndAcomTrackingCost : public StateCost {
 
   /** Computes the ACoM attitude xi_a of `state`, from the robot model's base
    * orientation and joint angles. */
-  vector4_t acomAttitudeOf(const vector_t& state) const;
+  vector4_t computeQuatAcomRtWorldXyzw(const vector_t& state) const;
 
   matrix_t Q_com_;
   matrix_t Q_acom_;

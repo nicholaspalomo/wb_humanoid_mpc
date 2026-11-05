@@ -90,7 +90,9 @@ def _matches(
     """Whether the link's shape is the body's collision geometry."""
     shape = link.WhichOneof("shape")
     if shape == "capsule":
-        expected = list(link.capsule.start) + list(link.capsule.end)
+        expected = list(link.capsule.pos_capsulestart_rt_link_ewrt_link) + list(
+            link.capsule.pos_capsuleend_rt_link_ewrt_link
+        )
         return any(
             geom.get("type") == "capsule"
             and _close(_numbers(geom.get("fromto", "")), expected)
@@ -101,7 +103,8 @@ def _matches(
         return any(
             geom.get("type") == "box"
             and _close(
-                _numbers(geom.get("pos", "0 0 0")), list(link.box.center)
+                _numbers(geom.get("pos", "0 0 0")),
+                list(link.box.pos_box_rt_link_ewrt_link),
             )
             and _close(
                 _numbers(geom.get("size", "")), list(link.box.half_extents)
@@ -113,7 +116,10 @@ def _matches(
         return False
     return all(
         any(
-            _close(_numbers(geom.get("pos", "0 0 0")), list(sphere.center))
+            _close(
+                _numbers(geom.get("pos", "0 0 0")),
+                list(sphere.pos_sphere_rt_link_ewrt_link),
+            )
             and _close(_numbers(geom.get("size", "")), [sphere.radius])
             for geom in spheres
         )

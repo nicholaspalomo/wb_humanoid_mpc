@@ -194,9 +194,9 @@ TEST_F(WBContactWrenchConeCreateTest,
   torsion.torsionalFrictionCoefficient =
       std::numeric_limits<scalar_t>::quiet_NaN();
   refused.emplace_back("torsional_friction_coefficient", torsion);
-  ContactWrenchConeConstraint::Config minForce = valid;
-  minForce.minForceContactEwrtContactZ = -5.0;
-  refused.emplace_back("min_force_contact_ewrt_contact_z", minForce);
+  ContactWrenchConeConstraint::Config minForceConfig = valid;
+  minForceConfig.minForceContactEwrtContactZ = -5.0;
+  refused.emplace_back("min_force_contact_ewrt_contact_z", minForceConfig);
   ContactWrenchConeConstraint::Config gripper = valid;
   gripper.gripForceContactEwrtContactZ =
       std::numeric_limits<scalar_t>::infinity();
@@ -215,7 +215,7 @@ TEST_F(WBContactWrenchConeCreateTest,
   }
 
   ContactWrenchConeConstraint::Config offPatch = valid;
-  offPatch.patchOffset =
+  offPatch.posPatchpointRtContactEwrtContact =
       vector3_t(0.0, std::numeric_limits<scalar_t>::quiet_NaN(), 0.0);
   EXPECT_EQ(create(offPatch).status().code(),
             absl::StatusCode::kInvalidArgument);

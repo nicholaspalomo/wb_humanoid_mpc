@@ -42,7 +42,7 @@ accessors. This check keeps the Euler API out of the code that must not convert:
                   headers ROBOT_MODEL_HEADERS:
                     - an identifier that names the Euler API: one containing `EulerZyx`, `EulerAnglesZyx` or
                       `ZyxEulerAngles` in any capitalization (`EulerZYX`, `eulerZyxFromQuaternion`,
-                      `getEulerzyxBaseRtWorld`, `getEulerAnglesZyxDerivativesFromGlobalAngularVelocity`, ...);
+                      `getEulerzyxBaseRtWorld`, `getEulerAnglesZyxDerivativesFromWorldRates`, ...);
                     - an #include of `RotationDerivativesTransforms.h` or `orientation/EulerBoundary.h`.
                   Comments and string literals are not read.
 

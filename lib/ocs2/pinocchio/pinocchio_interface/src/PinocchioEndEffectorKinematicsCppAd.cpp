@@ -110,12 +110,11 @@ ad_vector_t computeQuatEesRtWorldXyzw(PinocchioInterfaceCppAd& pinocchioInterfac
   return quatEesRtWorldXyzw;
 }
 
-// NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
-ad_vector_t getOrientationErrorWrtPlaneCppAd(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
+ad_vector_t computeTiltEesRtSurfaceEwrtWorld(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
                                              const PinocchioStateInputMapping<ad_scalar_t>& mapping,
                                              const std::vector<size_t>& frameIds,
                                              const ad_vector_t& state,
-                                             const ad_vector_t& params) {
+                                             const ad_vector_t& stackedNormalSurfacesEwrtWorld) {
   const auto& model = pinocchioInterfaceCppAd.getModel();
   auto& data = pinocchioInterfaceCppAd.getData();
   const ad_vector_t q = mapping.getPinocchioJointPosition(state);
@@ -123,14 +122,14 @@ ad_vector_t getOrientationErrorWrtPlaneCppAd(PinocchioInterfaceCppAd& pinocchioI
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
 
-  ad_vector_t errors(kRotationTangentDim * frameIds.size());
+  ad_vector_t tiltEesRtSurfaceEwrtWorld(kRotationTangentDim * frameIds.size());
   for (size_t i = 0; i < frameIds.size(); ++i) {
     const size_t frameId = frameIds[i];
-    ad_vector_t planeNormal = params.segment<kPositionDim>(kPositionDim * i);
-    errors.segment<kRotationTangentDim>(kRotationTangentDim * i) =
-        rotationMatrixDistanceToPlane<ad_scalar_t>(data.oMf[frameId].rotation(), planeNormal);
+    ad_vector_t normalSurfaceEwrtWorld = stackedNormalSurfacesEwrtWorld.segment<kPositionDim>(kPositionDim * i);
+    tiltEesRtSurfaceEwrtWorld.segment<kRotationTangentDim>(kRotationTangentDim * i) =
+        rotationMatrixDistanceToPlane<ad_scalar_t>(data.oMf[frameId].rotation(), normalSurfaceEwrtWorld);
   }
-  return errors;
+  return tiltEesRtSurfaceEwrtWorld;
 }
 
 ad_vector_t computeAngvelEesRtWorldEwrtWorld(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
@@ -171,10 +170,10 @@ ad_vector_t computeTwistEesRtWorldEwrtWorld(PinocchioInterfaceCppAd& pinocchioIn
   ad_vector_t twistEesRtWorldEwrtWorld(kTwistDim * frameIds.size());
   for (size_t i = 0; i < frameIds.size(); ++i) {
     const size_t frameId = frameIds[i];
-    auto motion = pinocchio::getFrameVelocity(model, data, frameId, rf);
+    auto pinocchioTwistEeRtWorldEwrtWorld = pinocchio::getFrameVelocity(model, data, frameId, rf);
     ad_vector_t twistEeRtWorldEwrtWorld(kTwistDim);
-    twistEeRtWorldEwrtWorld.head(kPositionDim) = motion.linear();
-    twistEeRtWorldEwrtWorld.tail(kRotationTangentDim) = motion.angular();
+    twistEeRtWorldEwrtWorld.head(kPositionDim) = pinocchioTwistEeRtWorldEwrtWorld.linear();
+    twistEeRtWorldEwrtWorld.tail(kRotationTangentDim) = pinocchioTwistEeRtWorldEwrtWorld.angular();
     twistEesRtWorldEwrtWorld.segment<kTwistDim>(kTwistDim * i) = twistEeRtWorldEwrtWorld;
   }
   return twistEesRtWorldEwrtWorld;
@@ -217,7 +216,7 @@ PinocchioEndEffectorKinematicsCppAd::PinocchioEndEffectorKinematicsCppAd(const P
   };
   positionCppAdInterfacePtr_.reset(new CppAdInterface(tapePosEesRtWorldEwrtWorld, stateDim, modelName + "_position", modelFolder));
 
-  // velocity function
+  // linear velocity function
   const CppAdInterface::ad_function_t tapeLinvelEesRtWorldEwrtWorld = [pinocchioInterfaceCppAd, mappingPtr, frameIds, updateCallback,
                                                                             stateDim, inputDim](const ad_vector_t& x, ad_vector_t& y) {
     const ad_vector_t state = x.head(stateDim);
@@ -235,19 +234,16 @@ PinocchioEndEffectorKinematicsCppAd::PinocchioEndEffectorKinematicsCppAd(const P
   };
   orientationCppAdInterfacePtr_.reset(new CppAdInterface(tapeQuatEesRtWorldXyzw, stateDim, modelName + "_orientation", modelFolder));
 
-  // orientation w.r.t plane function
-  // NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
-  const CppAdInterface::ad_parameterized_function_t orientationWrtPlaneFunc =
+  // tilt relative to the surface function (the library keeps its name _orientation_wrt_plane)
+  const CppAdInterface::ad_parameterized_function_t tapeTiltEesRtSurfaceEwrtWorld =
       [pinocchioInterfaceCppAd, mappingPtr, frameIds, updateCallback](const ad_vector_t& x, const ad_vector_t& params, ad_vector_t& y) {
         updateCallback(x, *pinocchioInterfaceCppAd);
-        // NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
-        y = getOrientationErrorWrtPlaneCppAd(*pinocchioInterfaceCppAd, *mappingPtr, frameIds, x, params);
+        y = computeTiltEesRtSurfaceEwrtWorld(*pinocchioInterfaceCppAd, *mappingPtr, frameIds, x, params);
       };
-  // NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
-  orientationErrorWrtPlaneCppAdInterfacePtr_.reset(new CppAdInterface(orientationWrtPlaneFunc, stateDim, kPositionDim * frameIds.size(),
+  tiltEesCppAdInterfacePtr_.reset(new CppAdInterface(tapeTiltEesRtSurfaceEwrtWorld, stateDim, kPositionDim * frameIds.size(),
                                                                       modelName + "_orientation_wrt_plane", modelFolder));
 
-  // velocity function
+  // angular velocity function
   const CppAdInterface::ad_function_t tapeAngvelEesRtWorldEwrtWorld = [pinocchioInterfaceCppAd, mappingPtr, frameIds, updateCallback, stateDim,
                                                              inputDim](const ad_vector_t& x, ad_vector_t& y) {
     const ad_vector_t state = x.head(stateDim);
@@ -272,14 +268,14 @@ PinocchioEndEffectorKinematicsCppAd::PinocchioEndEffectorKinematicsCppAd(const P
     positionCppAdInterfacePtr_->createModels(CppAdInterface::ApproximationOrder::First, verbose);
     velocityCppAdInterfacePtr_->createModels(CppAdInterface::ApproximationOrder::First, verbose);
     orientationCppAdInterfacePtr_->createModels(CppAdInterface::ApproximationOrder::Zero, verbose);
-    orientationErrorWrtPlaneCppAdInterfacePtr_->createModels(CppAdInterface::ApproximationOrder::First, verbose);
+    tiltEesCppAdInterfacePtr_->createModels(CppAdInterface::ApproximationOrder::First, verbose);
     angularVelocityCppAdInterfacePtr_->createModels(CppAdInterface::ApproximationOrder::First, verbose);
     twistCppAdInterfacePtr_->createModels(CppAdInterface::ApproximationOrder::First, verbose);
   } else {
     positionCppAdInterfacePtr_->loadModelsIfAvailable(CppAdInterface::ApproximationOrder::First, verbose);
     velocityCppAdInterfacePtr_->loadModelsIfAvailable(CppAdInterface::ApproximationOrder::First, verbose);
     orientationCppAdInterfacePtr_->loadModelsIfAvailable(CppAdInterface::ApproximationOrder::Zero, verbose);
-    orientationErrorWrtPlaneCppAdInterfacePtr_->loadModelsIfAvailable(CppAdInterface::ApproximationOrder::First, verbose);
+    tiltEesCppAdInterfacePtr_->loadModelsIfAvailable(CppAdInterface::ApproximationOrder::First, verbose);
     angularVelocityCppAdInterfacePtr_->loadModelsIfAvailable(CppAdInterface::ApproximationOrder::First, verbose);
     twistCppAdInterfacePtr_->loadModelsIfAvailable(CppAdInterface::ApproximationOrder::First, verbose);
   }
@@ -293,7 +289,7 @@ PinocchioEndEffectorKinematicsCppAd::PinocchioEndEffectorKinematicsCppAd(const P
       positionCppAdInterfacePtr_(new CppAdInterface(*rhs.positionCppAdInterfacePtr_)),
       velocityCppAdInterfacePtr_(new CppAdInterface(*rhs.velocityCppAdInterfacePtr_)),
       orientationCppAdInterfacePtr_(new CppAdInterface(*rhs.orientationCppAdInterfacePtr_)),
-      orientationErrorWrtPlaneCppAdInterfacePtr_(new CppAdInterface(*rhs.orientationErrorWrtPlaneCppAdInterfacePtr_)),
+      tiltEesCppAdInterfacePtr_(new CppAdInterface(*rhs.tiltEesCppAdInterfacePtr_)),
       angularVelocityCppAdInterfacePtr_(new CppAdInterface(*rhs.angularVelocityCppAdInterfacePtr_)),
       twistCppAdInterfacePtr_(new CppAdInterface(*rhs.twistCppAdInterfacePtr_)),
       endEffectorIds_(rhs.endEffectorIds_) {}
@@ -334,15 +330,15 @@ std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematicsCpp
   const vector_t stackedPosEesRtWorldEwrtWorld = positionCppAdInterfacePtr_->getFunctionValue(state);
   const matrix_t stackedJacobianPosEesRtWorldEwrtWorld = positionCppAdInterfacePtr_->getJacobian(state);
 
-  std::vector<VectorFunctionLinearApproximation> posEesRtWorldEwrtWorld;
-  posEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
+  std::vector<VectorFunctionLinearApproximation> approxPosEesRtWorldEwrtWorld;
+  approxPosEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    VectorFunctionLinearApproximation posEeRtWorldEwrtWorld;
-    posEeRtWorldEwrtWorld.f = stackedPosEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim * i);
-    posEeRtWorldEwrtWorld.dfdx = stackedJacobianPosEesRtWorldEwrtWorld.block(kPositionDim * i, 0, kPositionDim, state.rows());
-    posEesRtWorldEwrtWorld.emplace_back(std::move(posEeRtWorldEwrtWorld));
+    VectorFunctionLinearApproximation approxPosEeRtWorldEwrtWorld;
+    approxPosEeRtWorldEwrtWorld.f = stackedPosEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim * i);
+    approxPosEeRtWorldEwrtWorld.dfdx = stackedJacobianPosEesRtWorldEwrtWorld.block(kPositionDim * i, 0, kPositionDim, state.rows());
+    approxPosEesRtWorldEwrtWorld.emplace_back(std::move(approxPosEeRtWorldEwrtWorld));
   }
-  return posEesRtWorldEwrtWorld;
+  return approxPosEesRtWorldEwrtWorld;
 }
 
 /******************************************************************************************************/
@@ -371,16 +367,16 @@ std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematicsCpp
   const vector_t stackedLinvelEesRtWorldEwrtWorld = velocityCppAdInterfacePtr_->getFunctionValue(stateInput);
   const matrix_t stackedJacobianLinvelEesRtWorldEwrtWorld = velocityCppAdInterfacePtr_->getJacobian(stateInput);
 
-  std::vector<VectorFunctionLinearApproximation> linvelEesRtWorldEwrtWorld;
-  linvelEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
+  std::vector<VectorFunctionLinearApproximation> approxLinvelEesRtWorldEwrtWorld;
+  approxLinvelEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    VectorFunctionLinearApproximation linvelEeRtWorldEwrtWorld;
-    linvelEeRtWorldEwrtWorld.f = stackedLinvelEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim * i);
-    linvelEeRtWorldEwrtWorld.dfdx = stackedJacobianLinvelEesRtWorldEwrtWorld.block(kPositionDim * i, 0, kPositionDim, state.rows());
-    linvelEeRtWorldEwrtWorld.dfdu = stackedJacobianLinvelEesRtWorldEwrtWorld.block(kPositionDim * i, state.rows(), kPositionDim, input.rows());
-    linvelEesRtWorldEwrtWorld.emplace_back(std::move(linvelEeRtWorldEwrtWorld));
+    VectorFunctionLinearApproximation approxLinvelEeRtWorldEwrtWorld;
+    approxLinvelEeRtWorldEwrtWorld.f = stackedLinvelEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim * i);
+    approxLinvelEeRtWorldEwrtWorld.dfdx = stackedJacobianLinvelEesRtWorldEwrtWorld.block(kPositionDim * i, 0, kPositionDim, state.rows());
+    approxLinvelEeRtWorldEwrtWorld.dfdu = stackedJacobianLinvelEesRtWorldEwrtWorld.block(kPositionDim * i, state.rows(), kPositionDim, input.rows());
+    approxLinvelEesRtWorldEwrtWorld.emplace_back(std::move(approxLinvelEeRtWorldEwrtWorld));
   }
-  return linvelEesRtWorldEwrtWorld;
+  return approxLinvelEesRtWorldEwrtWorld;
 }
 
 /******************************************************************************************************/
@@ -400,48 +396,46 @@ auto PinocchioEndEffectorKinematicsCppAd::getQuatEesRtWorld(const vector_t& stat
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-// NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
-auto PinocchioEndEffectorKinematicsCppAd::getOrientationErrorWrtPlane(const vector_t& state,
-                                                                      const std::vector<vector3_t>& planeNormals) const
+auto PinocchioEndEffectorKinematicsCppAd::getTiltEesRtSurfaceEwrtWorld(const vector_t& state,
+                                                                      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const
     -> std::vector<vector3_t> {
-  vector_t params(kPositionDim * endEffectorIds_.size());
+  vector_t stackedNormalSurfacesEwrtWorld(kPositionDim * endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    params.segment<kPositionDim>(kPositionDim * i) = planeNormals[i];
+    stackedNormalSurfacesEwrtWorld.segment<kPositionDim>(kPositionDim * i) = normalSurfacesEwrtWorld[i];
   }
 
-  const vector_t errorValues = orientationErrorWrtPlaneCppAdInterfacePtr_->getFunctionValue(state, params);
+  const vector_t stackedTiltEesRtSurfaceEwrtWorld = tiltEesCppAdInterfacePtr_->getFunctionValue(state, stackedNormalSurfacesEwrtWorld);
 
-  std::vector<vector3_t> errors;
-  errors.reserve(endEffectorIds_.size());
+  std::vector<vector3_t> tiltEesRtSurfaceEwrtWorld;
+  tiltEesRtSurfaceEwrtWorld.reserve(endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    errors.emplace_back(errorValues.segment<kRotationTangentDim>(kRotationTangentDim * i));
+    tiltEesRtSurfaceEwrtWorld.emplace_back(stackedTiltEesRtSurfaceEwrtWorld.segment<kRotationTangentDim>(kRotationTangentDim * i));
   }
-  return errors;
+  return tiltEesRtSurfaceEwrtWorld;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-// NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
-std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematicsCppAd::getOrientationErrorWrtPlaneLinearApproximation(
-    const vector_t& state, const std::vector<vector3_t>& planeNormals) const {
-  vector_t params(kPositionDim * endEffectorIds_.size());
+std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematicsCppAd::getLinearApproximationTiltEesRtSurfaceEwrtWorld(
+    const vector_t& state, const std::vector<vector3_t>& normalSurfacesEwrtWorld) const {
+  vector_t stackedNormalSurfacesEwrtWorld(kPositionDim * endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    params.segment<kPositionDim>(kPositionDim * i) = planeNormals[i];
+    stackedNormalSurfacesEwrtWorld.segment<kPositionDim>(kPositionDim * i) = normalSurfacesEwrtWorld[i];
   }
-  const vector_t errorValues = orientationErrorWrtPlaneCppAdInterfacePtr_->getFunctionValue(state, params);
-  const matrix_t errorJacobian = orientationErrorWrtPlaneCppAdInterfacePtr_->getJacobian(state, params);
+  const vector_t stackedTiltEesRtSurfaceEwrtWorld = tiltEesCppAdInterfacePtr_->getFunctionValue(state, stackedNormalSurfacesEwrtWorld);
+  const matrix_t stackedJacobianTiltEesRtSurfaceEwrtWorld = tiltEesCppAdInterfacePtr_->getJacobian(state, stackedNormalSurfacesEwrtWorld);
 
-  std::vector<VectorFunctionLinearApproximation> errors;
-  errors.reserve(endEffectorIds_.size());
+  std::vector<VectorFunctionLinearApproximation> approxTiltEesRtSurfaceEwrtWorld;
+  approxTiltEesRtSurfaceEwrtWorld.reserve(endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    VectorFunctionLinearApproximation err;
-    err.f = errorValues.segment<kRotationTangentDim>(kRotationTangentDim * i);
-    err.dfdx = errorJacobian.block(kRotationTangentDim * i, 0, kRotationTangentDim, state.rows());
-    errors.emplace_back(std::move(err));
+    VectorFunctionLinearApproximation approxTiltEeRtSurfaceEwrtWorld;
+    approxTiltEeRtSurfaceEwrtWorld.f = stackedTiltEesRtSurfaceEwrtWorld.segment<kRotationTangentDim>(kRotationTangentDim * i);
+    approxTiltEeRtSurfaceEwrtWorld.dfdx = stackedJacobianTiltEesRtSurfaceEwrtWorld.block(kRotationTangentDim * i, 0, kRotationTangentDim, state.rows());
+    approxTiltEesRtSurfaceEwrtWorld.emplace_back(std::move(approxTiltEeRtSurfaceEwrtWorld));
   }
-  return errors;
+  return approxTiltEesRtSurfaceEwrtWorld;
 }
 
 /******************************************************************************************************/
@@ -470,16 +464,16 @@ std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematicsCpp
   const vector_t stackedAngvelEesRtWorldEwrtWorld = angularVelocityCppAdInterfacePtr_->getFunctionValue(stateInput);
   const matrix_t stackedJacobianAngvelEesRtWorldEwrtWorld = angularVelocityCppAdInterfacePtr_->getJacobian(stateInput);
 
-  std::vector<VectorFunctionLinearApproximation> angvelEesRtWorldEwrtWorld;
-  angvelEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
+  std::vector<VectorFunctionLinearApproximation> approxAngvelEesRtWorldEwrtWorld;
+  approxAngvelEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    VectorFunctionLinearApproximation angvelEeRtWorldEwrtWorld;
-    angvelEeRtWorldEwrtWorld.f = stackedAngvelEesRtWorldEwrtWorld.segment<kRotationTangentDim>(kRotationTangentDim * i);
-    angvelEeRtWorldEwrtWorld.dfdx = stackedJacobianAngvelEesRtWorldEwrtWorld.block(kRotationTangentDim * i, 0, kRotationTangentDim, state.rows());
-    angvelEeRtWorldEwrtWorld.dfdu = stackedJacobianAngvelEesRtWorldEwrtWorld.block(kRotationTangentDim * i, state.rows(), kRotationTangentDim, input.rows());
-    angvelEesRtWorldEwrtWorld.emplace_back(std::move(angvelEeRtWorldEwrtWorld));
+    VectorFunctionLinearApproximation approxAngvelEeRtWorldEwrtWorld;
+    approxAngvelEeRtWorldEwrtWorld.f = stackedAngvelEesRtWorldEwrtWorld.segment<kRotationTangentDim>(kRotationTangentDim * i);
+    approxAngvelEeRtWorldEwrtWorld.dfdx = stackedJacobianAngvelEesRtWorldEwrtWorld.block(kRotationTangentDim * i, 0, kRotationTangentDim, state.rows());
+    approxAngvelEeRtWorldEwrtWorld.dfdu = stackedJacobianAngvelEesRtWorldEwrtWorld.block(kRotationTangentDim * i, state.rows(), kRotationTangentDim, input.rows());
+    approxAngvelEesRtWorldEwrtWorld.emplace_back(std::move(approxAngvelEeRtWorldEwrtWorld));
   }
-  return angvelEesRtWorldEwrtWorld;
+  return approxAngvelEesRtWorldEwrtWorld;
 }
 
 /******************************************************************************************************/
@@ -508,16 +502,16 @@ std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematicsCpp
   const vector_t stackedTwistEesRtWorldEwrtWorld = twistCppAdInterfacePtr_->getFunctionValue(stateInput);
   const matrix_t stackedJacobianTwistEesRtWorldEwrtWorld = twistCppAdInterfacePtr_->getJacobian(stateInput);
 
-  std::vector<VectorFunctionLinearApproximation> twistEesRtWorldEwrtWorld;
-  twistEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
+  std::vector<VectorFunctionLinearApproximation> approxTwistEesRtWorldEwrtWorld;
+  approxTwistEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (int i = 0; i < static_cast<int>(endEffectorIds_.size()); i++) {
-    VectorFunctionLinearApproximation twistEeRtWorldEwrtWorld;
-    twistEeRtWorldEwrtWorld.f = stackedTwistEesRtWorldEwrtWorld.segment<kTwistDim>(kTwistDim * i);
-    twistEeRtWorldEwrtWorld.dfdx = stackedJacobianTwistEesRtWorldEwrtWorld.block(kTwistDim * i, 0, kTwistDim, state.rows());
-    twistEeRtWorldEwrtWorld.dfdu = stackedJacobianTwistEesRtWorldEwrtWorld.block(kTwistDim * i, state.rows(), kTwistDim, input.rows());
-    twistEesRtWorldEwrtWorld.emplace_back(std::move(twistEeRtWorldEwrtWorld));
+    VectorFunctionLinearApproximation approxTwistEeRtWorldEwrtWorld;
+    approxTwistEeRtWorldEwrtWorld.f = stackedTwistEesRtWorldEwrtWorld.segment<kTwistDim>(kTwistDim * i);
+    approxTwistEeRtWorldEwrtWorld.dfdx = stackedJacobianTwistEesRtWorldEwrtWorld.block(kTwistDim * i, 0, kTwistDim, state.rows());
+    approxTwistEeRtWorldEwrtWorld.dfdu = stackedJacobianTwistEesRtWorldEwrtWorld.block(kTwistDim * i, state.rows(), kTwistDim, input.rows());
+    approxTwistEesRtWorldEwrtWorld.emplace_back(std::move(approxTwistEeRtWorldEwrtWorld));
   }
-  return twistEesRtWorldEwrtWorld;
+  return approxTwistEesRtWorldEwrtWorld;
 }
 
 }  // namespace ocs2

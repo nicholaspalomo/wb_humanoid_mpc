@@ -42,12 +42,9 @@ frames, the qualifiers and the suffixes), which the README's tables list, and th
                   abbreviations) is a legacy name, unless it is exempt: a type, an enumerator, a macro, a module, a
                   joint-space, dimension or index name, a weight or gain, a third-party API name, or a test name.
                 Comments and string literals are not read.
-
-It is opt-in while the rename runs (`opt_in=True`): `make lint` skips it and
-`python3 -m tools.hooks.lint_code --only frame-naming --paths <dir>` runs it. The rename's Verify phase deletes
-`opt_in=True` below once the last finding is fixed.
 """
 
+from collections.abc import Sequence
 import io
 import keyword
 import re
@@ -101,6 +98,7 @@ QUANTITIES: dict[str, str] = {
     "angacc": RELATIVE_EXPRESSED,
     "twist": RELATIVE_EXPRESSED,
     "spatialacc": RELATIVE_EXPRESSED,
+    "classicalacc": RELATIVE_EXPRESSED,
     "specforce": RELATIVE_EXPRESSED,
     "linmom": RELATIVE_EXPRESSED,
     "angmom": RELATIVE_EXPRESSED,
@@ -108,24 +106,35 @@ QUANTITIES: dict[str, str] = {
     "jac": RELATIVE_EXPRESSED,
     "linjac": RELATIVE_EXPRESSED,
     "angjac": RELATIVE_EXPRESSED,
+    "tilt": RELATIVE_EXPRESSED,
+    "tiltangle": RELATIVE,
     "quat": RELATIVE,
     "rotmat": RELATIVE,
     "rotvec": RELATIVE,
     "eulerzyx": RELATIVE,
+    "rpy": RELATIVE,
     "pose": RELATIVE,
     "poseeulerzyx": RELATIVE,
     "yaw": RELATIVE,
     "dist": RELATIVE,
+    "azimuth": RELATIVE_EXPRESSED,
+    "elevation": RELATIVE_EXPRESSED,
     "speed": RELATIVE,
     "force": APPLIED,
     "torque": APPLIED,
     "wrench": APPLIED,
+    "impulse": APPLIED,
+    "inertia": APPLIED,
     "normal": FREE,
-    "axis": FREE,
+    "axis": FREE,  # a frame's axis takes its column as a context word: `z_axis_base_ewrt_world`
     "dir": FREE,
     "gravity": FREE,
 }
 # LINT.ThenChange(//humanoid_nmpc/docs/frame_naming/README.md:quantities)
+
+# The quantities whose frame1 is a reference point rather than a moving frame (README section 2.3): the angular
+# momentum about the world origin relative to the world is `angmom_world_rt_world_ewrt_world`.
+POINT_REFERENCED_QUANTITIES = frozenset({"angmom", "cmom"})
 
 # LINT.IfChange(frames)
 # The frame names. The README's frame table defines each one.
@@ -135,6 +144,7 @@ FRAMES = frozenset(
         "base",
         "com",
         "acom",
+        "crb",
         "heading",
         "torso",
         "imu",
@@ -158,15 +168,42 @@ FRAMES = frozenset(
         "pad",
         "ee",
         "link",
+        "linkcom",
+        "subtreecom",
+        "site",
         "surface",
+        "box",
+        "stance",
         "icp",
         "dcm",
         "zmp",
         "cop",
         "cam",
         "ball",
+        "sphere",
         "param",
         "local",
+        "feetmean",
+        "supportcenter",
+        "reachcenter",
+        "lowcontact",
+        "swingend",
+        "corner",
+        "footprint",
+        "patchpoint",
+        "geom",  # a MuJoCo geom or a URDF <visual>'s geometry
+        "generator",
+        "capsulestart",
+        "capsuleend",
+        "segmentpoint",
+        "chordmid",
+        "controlpoint",
+        "query",
+        "arrow",
+        "arrowhead",
+        "strippoint",
+        "camfocus",
+        "mjbody",
     }
 )
 # The plurals of the generic roles, for a container indexed by that role; frame1 only.
@@ -180,6 +217,14 @@ PLURAL_FRAMES: dict[str, str] = {
     "pads": "pad",
     "ees": "ee",
     "links": "link",
+    "surfaces": "surface",
+    "spheres": "sphere",
+    "corners": "corner",
+    "mjcontacts": "mjcontact",
+    "generators": "generator",
+    "arrows": "arrow",
+    "arrowheads": "arrowhead",
+    "strippoints": "strippoint",
 }
 # What a free vector may belong to besides a frame.
 FREE_SUBJECTS = frozenset({"terrain", "joint"})
@@ -204,6 +249,8 @@ QUALIFIERS: tuple[str, ...] = (
     "max",
     "err",
     "mnorm",
+    "wnorm",
+    "lnorm",
     "rate",
 )
 # Spellings of a qualifier that the convention replaces.
@@ -238,11 +285,13 @@ QUALIFIER_SYNONYMS: dict[str, str] = {
 
 # LINT.IfChange(suffixes)
 # The suffixes after the frames: the components of a vector in frame3's axes, the coefficient order of a quaternion,
-# one Euler angle, a time-indexed container, and the `_size` of a generated repeated-field accessor.
+# one Euler angle, a diagonal entry of an inertia matrix, a time-indexed container, a container of samples indexed by
+# something other than time, and the `_size` of a generated repeated-field accessor.
 VECTOR_COMPONENTS = frozenset({"x", "y", "z", "xy", "xz", "yz"})
 QUATERNION_LAYOUTS = frozenset({"xyzw", "wxyz"})
 EULER_ANGLES = frozenset({"yaw", "pitch", "roll"})
-CONTAINER_SUFFIXES = frozenset({"traj", "size"})
+INERTIA_ENTRIES = frozenset({"xx", "yy", "zz"})
+CONTAINER_SUFFIXES = frozenset({"traj", "samples", "size"})
 # LINT.ThenChange(//humanoid_nmpc/docs/frame_naming/README.md:suffixes)
 
 # LINT.IfChange(legacy_words)
@@ -316,6 +365,7 @@ EXEMPT_WORDS = frozenset(
         "constraints",
         "penalty",
         "noise",
+        "walk",
         "command",
         "commands",
         "message",
@@ -356,11 +406,15 @@ EXEMPT_WORDS = frozenset(
         "interface",
         "callback",
         "rule",
+        "heuristic",
+        "heuristics",
         "gate",
         "enable",
         "disable",
         "mode",
         "brute",
+        "sensor",
+        "sensors",
     }
 )
 # The words of a generic operation on rotations or vectors whose frames are its arguments (the quaternion algebra of
@@ -408,7 +462,6 @@ REPRESENTATION_WORDS = frozenset(
 THIRD_PARTY_NAMES = frozenset(
     {
         # Eigen.
-        "rotation",
         "toRotationMatrix",
         "rotate",
         "prerotate",
@@ -469,6 +522,10 @@ THIRD_PARTY_NAMES = frozenset(
         "as_rotvec",
     }
 )
+# Third-party member names that are also common local names: exempt only where they follow a member access (`.` or
+# `->`), as in Eigen's and Pinocchio's `pose.rotation()`. A first-party variable spelled `rotation` is a legacy name.
+THIRD_PARTY_MEMBER_NAMES = frozenset({"rotation"})
+_MEMBER_ACCESS = frozenset({".", "->"})
 _THIRD_PARTY_NAMESPACES = frozenset(
     {"std", "absl", "Eigen", "pinocchio", "CppAD", "google", "mujoco", "rerun"}
 )
@@ -494,7 +551,7 @@ _THIRD_PARTY_MODULES = frozenset(
     }
 )
 
-_CAMEL_WORD = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z0-9]+|[A-Z]+[0-9]*")
+_CAMEL_WORD = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|[0-9]+")
 _CONSTANT = re.compile(r"^k[A-Z0-9][A-Za-z0-9]*$")
 _UPPER_SNAKE = re.compile(r"^_*[A-Z][A-Z0-9_]*$")
 _TYPE_NAME = re.compile(r"^_*[A-Z]")
@@ -558,8 +615,14 @@ def split_words(identifier: str) -> list[str]:
     for piece in core.split("_"):
         if not piece:
             continue
-        if piece.islower() or piece.isupper() or piece.isdigit():
-            words.append(piece.lower())
+        if piece.isdigit():
+            words.append(piece)
+            continue
+        if piece.islower() or piece.isupper():
+            # A digit run is a word of its own (`torque0` is torque | 0).
+            words.extend(
+                run.lower() for run in re.findall(r"[A-Za-z]+|[0-9]+", piece)
+            )
             continue
         words.extend(hump.lower() for hump in _CAMEL_WORD.findall(piece))
     return words
@@ -652,9 +715,12 @@ def _suffix_problems(quantity: str, form: str, suffix: list[str]) -> list[str]:
             "poseeulerzyx",
         ):
             return []
+        if component in INERTIA_ENTRIES and quantity == "inertia":
+            return []
     return [
         f"`{'_'.join(texts)}` after the frames is not a suffix of `{quantity}`"
-        " (a component, a quaternion layout, an Euler angle, `traj` or `size`)"
+        " (a component, a quaternion layout, an Euler angle, an inertia entry,"
+        " `traj`, `samples` or `size`)"
     ]
 
 
@@ -682,7 +748,10 @@ def _parse_relative(words: list[str], at: int) -> tuple[list[str], int, str]:
     problem = _frame_problem(frame2, "frame2", plural_ok=False)
     if problem:
         problems.append(problem)
-    if PLURAL_FRAMES.get(subject, subject) == frame2:
+    if (
+        PLURAL_FRAMES.get(subject, subject) == frame2
+        and quantity not in POINT_REFERENCED_QUANTITIES
+    ):
         problems.append(f"frame1 and frame2 are both `{frame2}`")
     end = at + 2
     has_ewrt = end < len(words) and words[end] == EWRT
@@ -751,12 +820,21 @@ def _parse_expressed(words: list[str], at: int) -> tuple[list[str], int, str]:
 
 
 def is_frame_name(identifier: str) -> bool:
-    """True when `identifier` is written in the grammar: it has an `rt` or `ewrt` word and a quantity word.
+    """True when `identifier` is written in the grammar: it has an `ewrt` word, or an `rt` word and a quantity word.
 
-    `rt` alone is another word (a gamepad's right trigger) when no quantity word comes with it.
+    `rt` alone is another word (a gamepad's right trigger) when no quantity word comes with it. `ewrt` is no other
+    word, so a name with it and no quantity (`vectorEwrtWorld`) is a frame name that lacks its quantity.
+
+    Args:
+      identifier: A C++, Python or proto identifier.
+
+    Returns:
+      Whether grammar_problems() reads it.
     """
     words = split_words(identifier)
-    return any(word in (RT, EWRT) for word in words) and any(
+    if EWRT in words:
+        return True
+    return RT in words and any(
         word in QUANTITIES or word in LEGACY_WORDS for word in words
     )
 
@@ -821,8 +899,16 @@ def grammar_problems(identifier: str) -> list[str]:
     return problems
 
 
-def is_legacy(identifier: str) -> bool:
-    """True when `identifier` names a frame quantity without its frames and is not exempt (README section 4)."""
+def is_legacy(identifier: str, member_access: bool = False) -> bool:
+    """True when `identifier` names a frame quantity without its frames and is not exempt (README section 4).
+
+    Args:
+      identifier: The identifier.
+      member_access: Whether it follows a `.` or `->`, where THIRD_PARTY_MEMBER_NAMES are a library's members.
+
+    Returns:
+      Whether it is a legacy name.
+    """
     ordered = split_words(identifier)
     words = set(ordered)
     if (RT in words or EWRT in words) and words & (
@@ -840,6 +926,8 @@ def is_legacy(identifier: str) -> bool:
     # The centroidal momentum matrix and its blocks, maps from velocities to momentum (README section 3.1):
     # getCentroidalMomentumMatrix, computeFloatingBaseCentroidalMomentumMatrixInverse.
     if words & LEGACY_WORDS == {"momentum"} and "matrix" in words:
+        return False
+    if member_access and identifier in THIRD_PARTY_MEMBER_NAMES:
         return False
     return identifier not in THIRD_PARTY_NAMES
 
@@ -861,6 +949,7 @@ def _finding(
     identifier: str,
     allowed: tuple[str, ...],
     kind: str,
+    member_access: bool,
 ) -> check_types.Finding | None:
     """The finding for `identifier` at the position: a grammar or spelling error, a legacy name, or None.
 
@@ -871,6 +960,7 @@ def _finding(
       identifier: The identifier.
       allowed: The case styles its kind of identifier is spelled in (style_problem()).
       kind: What the identifier is, for the message.
+      member_access: Whether the identifier follows a `.` or `->` (is_legacy()).
 
     Returns:
       The finding, or None when the name is fine.
@@ -889,7 +979,7 @@ def _finding(
             + "; ".join(problems)
             + ".",
         )
-    if is_legacy(identifier):
+    if is_legacy(identifier, member_access):
         return check_types.Finding(
             path,
             line,
@@ -903,15 +993,104 @@ def _finding(
 
 # The case styles of each kind of identifier (README section 2.4). A new name keeps the style of the identifier it
 # replaces. In C++ that is camelCase for most locals, parameters, members and functions and kName for constants, but
-# snake_case for a snake_case local or a member that mirrors a snake_case field (a CentroidalModelInfo field, a
-# protobuf accessor); the check cannot tell which style the replaced name had, so C++ accepts all three and rejects
-# only the mixed spelling.
+# snake_case for a snake_case local or a member that mirrors a snake_case field (a protobuf accessor); the check
+# cannot tell which style the replaced name had, so C++ accepts all three and rejects only the mixed spelling.
 _CPP_STYLES: tuple[str, ...] = (CAMEL, CONSTANT, SNAKE)
 _CPP_KIND = "a C++ name"
 _PROTO_STYLES: tuple[str, ...] = (SNAKE,)
 _PROTO_KIND = "a proto field"
 _PYTHON_STYLES: tuple[str, ...] = (SNAKE, UPPER_SNAKE)
 _PYTHON_KIND = "a Python name (a module constant: UPPER_SNAKE)"
+
+
+# The gtest macros whose second argument names a test (README section 5: test names describe behavior).
+_GTEST_MACROS = frozenset(
+    {"TEST", "TEST_F", "TEST_P", "TYPED_TEST", "TYPED_TEST_P"}
+)
+
+
+def _is_gtest_name(tokens: Sequence[cpp_source.Token], k: int) -> bool:
+    """True when token `k` is the test name of `TEST(Suite, name)` or one of the other gtest macros."""
+    return (
+        k >= 4
+        and tokens[k - 1].text == ","
+        and tokens[k - 3].text == "("
+        and tokens[k - 4].text in _GTEST_MACROS
+    )
+
+
+# The fixed-size vector types a frame quantity is held in, and the containers of them. A declaration of one whose name
+# is only frame words or point words (`center`, `com`, `stanceFoot`, `centers`) names where a vector belongs but not
+# which quantity it is: a position, a velocity or a direction (README section 9).
+_VECTOR_TYPES = frozenset(
+    {
+        "vector2_t",
+        "vector3_t",
+        "Vector2d",
+        "Vector3d",
+        "Vector2",
+        "Vector3",
+        "AdVector2",
+        "AdVector3",
+        "VECTOR2_T",
+        "VECTOR3_T",
+    }
+)
+_VECTOR_CONTAINERS = frozenset({"vector", "array", "feet_array_t"})
+POINT_WORDS = frozenset({"center", "centers"})
+_DECLARATOR_FOLLOWERS = frozenset({"=", ";", ",", ")", "{", "(", "["})
+_DECLARATOR_QUALIFIERS = frozenset({"const", "&", "&&", "*"})
+
+
+def _declared_type_is_vector(
+    tokens: Sequence[cpp_source.Token], k: int
+) -> bool:
+    """True when the declarator at token `k` is declared with a vector type of _VECTOR_TYPES or a container of one."""
+    j = k - 1
+    while j >= 0 and tokens[j].text in _DECLARATOR_QUALIFIERS:
+        j -= 1
+    if j < 0:
+        return False
+    if tokens[j].text != ">":
+        return tokens[j].text in _VECTOR_TYPES
+    depth = 0
+    inner: list[str] = []
+    while j >= 0:
+        text = tokens[j].text
+        if text == ">":
+            depth += 1
+        elif text == "<":
+            depth -= 1
+            if depth == 0:
+                break
+        else:
+            inner.append(text)
+        j -= 1
+    if j < 1:
+        return False
+    head = tokens[j - 1].text
+    if head in _VECTOR_TYPES:
+        return True
+    return head in _VECTOR_CONTAINERS and any(
+        text in _VECTOR_TYPES for text in inner
+    )
+
+
+def _is_point_named_vector(tokens: Sequence[cpp_source.Token], k: int) -> bool:
+    """True when token `k` declares a vector whose name, without its qualifiers, is only frame and point words."""
+    if k + 1 >= len(tokens) or tokens[k + 1].text not in _DECLARATOR_FOLLOWERS:
+        return False
+    if not _declared_type_is_vector(tokens, k):
+        return False
+    words = [
+        word
+        for word in split_words(tokens[k].text)
+        if word not in QUALIFIERS and word not in QUALIFIER_SYNONYMS
+    ]
+    return bool(words) and all(
+        word in FRAMES or word in PLURAL_FRAMES or word in POINT_WORDS
+        for word in words
+    )
 
 
 def _cpp_findings(
@@ -947,17 +1126,42 @@ def _cpp_findings(
             cpp_source.ENUM_SCOPE,
         ):
             continue
+        if _is_gtest_name(tokens, k):
+            continue
         if (token.line, name) in seen:
             continue
         if language == check_types.Language.PROTO:
             allowed, kind = _PROTO_STYLES, _PROTO_KIND
         else:
             allowed, kind = _CPP_STYLES, _CPP_KIND
-        finding = _finding(path, token.line, token.col, name, allowed, kind)
+        member_access = k >= 1 and tokens[k - 1].text in _MEMBER_ACCESS
+        finding = _finding(
+            path, token.line, token.col, name, allowed, kind, member_access
+        )
+        if finding is None and _is_point_named_vector(tokens, k):
+            finding = check_types.Finding(
+                path,
+                token.line,
+                token.col,
+                NAME,
+                f"`{name}` is a vector named only by the point or frame it"
+                " belongs to: name its quantity and frames"
+                " (`posSphereRtLinkEwrtLink`, `dirHeadingEwrtWorldXy`).",
+            )
         if finding is not None:
             seen.add((token.line, name))
             findings.append(finding)
     return findings
+
+
+def _is_enum_class_line(line: Sequence[tokenize.TokenInfo]) -> bool:
+    """True when the logical line of `line`'s tokens is `class Name(...Enum...):`, an `enum` class header."""
+    texts = [token.string for token in line]
+    return (
+        len(texts) >= 2
+        and texts[0] == "class"
+        and any(text.endswith("Enum") for text in texts[2:])
+    )
 
 
 def _python_findings(source: str, path: str) -> list[check_types.Finding]:
@@ -970,13 +1174,37 @@ def _python_findings(source: str, path: str) -> list[check_types.Finding]:
         return []
     in_import = False
     previous: list[tokenize.TokenInfo] = []
+    # The enumerators of an `enum.Enum` subclass name modes, not values (README section 5): the depth of the body of
+    # each enclosing Enum class, and whether the class line just read opened one.
+    depth = 0
+    enum_bodies: list[int] = []
+    opens_enum = False
     for token in tokens:
         if token.type in (tokenize.NEWLINE, tokenize.NL):
+            if token.type == tokenize.NEWLINE:
+                opens_enum = _is_enum_class_line(previous)
             in_import = False
             previous = []
             continue
-        if token.type in (tokenize.COMMENT, tokenize.INDENT, tokenize.DEDENT):
+        if token.type == tokenize.INDENT:
+            depth += 1
+            if opens_enum:
+                enum_bodies.append(depth)
+                opens_enum = False
             continue
+        if token.type == tokenize.DEDENT:
+            if enum_bodies and enum_bodies[-1] == depth:
+                enum_bodies.pop()
+            depth -= 1
+            continue
+        if token.type == tokenize.COMMENT:
+            continue
+        is_enumerator = (
+            not previous
+            and bool(enum_bodies)
+            and enum_bodies[-1] == depth
+            and token.type == tokenize.NAME
+        )
         if token.type == tokenize.NAME and token.string in ("import", "from"):
             if not previous:
                 in_import = True
@@ -985,9 +1213,17 @@ def _python_findings(source: str, path: str) -> list[check_types.Finding]:
         if token.type != tokenize.NAME or in_import:
             continue
         name = token.string
-        if keyword.iskeyword(name) or _is_type_like(name):
+        if keyword.iskeyword(name) or _is_type_like(name) or is_enumerator:
             continue
         if name.startswith(("test_", "assert")):
+            continue
+        # `Mode.ZERO_TORQUE`: an enumerator or a class constant, read where it is declared.
+        if (
+            len(context) == 2
+            and context[1].string == "."
+            and _is_type_like(context[0].string)
+            and _UPPER_SNAKE.match(name)
+        ):
             continue
         if (
             len(context) == 2
@@ -1004,6 +1240,7 @@ def _python_findings(source: str, path: str) -> list[check_types.Finding]:
             name,
             _PYTHON_STYLES,
             _PYTHON_KIND,
+            bool(context) and context[-1].string == ".",
         )
         if finding is not None:
             seen.add((token.start[0], name))
@@ -1011,7 +1248,32 @@ def _python_findings(source: str, path: str) -> list[check_types.Finding]:
     return findings
 
 
+# A frame-naming case is resolved in the change that meets it, never deferred (README section 6).
+_TODO_MARKER = re.compile(r"TODO\(frame-naming\)")
+
+
+def _todo_findings(source: str, path: str) -> list[check_types.Finding]:
+    """The `TODO(frame-naming)` markers in `source`, comments and strings included."""
+    findings = []
+    for number, line in enumerate(source.splitlines(), start=1):
+        match = _TODO_MARKER.search(line)
+        if match is not None:
+            findings.append(
+                check_types.Finding(
+                    path,
+                    number,
+                    match.start() + 1,
+                    NAME,
+                    "a `TODO(frame-naming)` is never left in the code: split"
+                    " a model-dependent value, add the missing word to the"
+                    " vocabulary, or fix the math in the same change.",
+                )
+            )
+    return findings
+
+
 def _findings(source: str, path: str) -> list[check_types.Finding]:
+    """The findings of `source`, the file at `path`: its TODO markers and its names, by language."""
     normalized = lint_files.normalize(path)
     if not normalized.startswith(DIRS) or normalized.endswith(
         _NPROTO_GENERATED_SUFFIXES
@@ -1019,9 +1281,11 @@ def _findings(source: str, path: str) -> list[check_types.Finding]:
         return []
     language = check_types.language_of(path)
     if language == check_types.Language.PYTHON:
-        return _python_findings(source, path)
+        return _todo_findings(source, path) + _python_findings(source, path)
     if language in (check_types.Language.CPP, check_types.Language.PROTO):
-        return _cpp_findings(source, path, language)
+        return _todo_findings(source, path) + _cpp_findings(
+            source, path, language
+        )
     return []
 
 
@@ -1043,6 +1307,5 @@ CHECKS = [
             f" of tools/hooks/frame_naming.py ({README})."
         ),
         hint=_GRAMMAR_HINT,
-        opt_in=True,
     ),
 ]

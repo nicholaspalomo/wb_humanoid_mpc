@@ -51,6 +51,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/constraint/ConstraintOrder.h"
 #include "ocs2_core/constraint/StateConstraint.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
@@ -64,16 +66,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/penalties/penalties/PenaltyBase.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 #include "ocs2_core/penalties/penalties/SquaredHingePenalty.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
@@ -88,6 +91,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/orientation/TuningLayoutDeviation.h"
 #include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/equivalence/EulerMpcOracle.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/equivalence/MpcEquivalenceFixture.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/equivalence/TermProbePoints.h"
@@ -279,7 +283,7 @@ struct ConstraintSecondOrder {
    * on the state and input diagonals. */
   scalar_t diagonalShift = 0.0;
   /** Whether its class documents its state Hessian as that shift alone
-   * (FrictionForceConeConstraint reads only u). */
+   * (FrictionForceConeConstraint on a world-frame input reads only u). */
   bool stateHessianIsShift = false;
 };
 
@@ -526,8 +530,11 @@ SecondOrderRule dcmRule(const DcmTerminalCost& cost,
             const vector_t parameters =
                 term->getParameters(time, *targetTrajectories);
             return InnerLinearization{
-                .value = term->computeDcmError(x, parameters),
-                .stateJacobian = term->computeDcmErrorJacobian(x, parameters),
+                .value =
+                    term->computeErrPosDcmRtWorldEwrtWorldXy(x, parameters),
+                .stateJacobian =
+                    term->computeJacobianErrPosDcmRtWorldEwrtWorldXy(
+                        x, parameters),
                 .inputJacobian = matrix_t(2, 0)};
           },
       .outer =
@@ -552,28 +559,32 @@ InnerLinearization comAndAcomResidual(const MpcRobotModelBase<scalar_t>& model,
   pinocchio::Data data(pinocchioModel);
   pinocchio::jacobianCenterOfMass(pinocchioModel, data,
                                   model.getGeneralizedCoordinates(state));
-  const vector3_t com = data.com[0];
+  const vector3_t posComRtWorldEwrtWorld = data.com[0];
   const matrix_t comJacobian =
       data.Jcom * model.getPinocchioTangentJacobian(state);
-  const vector3_t comReference = pinocchio::centerOfMass(
+  const vector3_t refPosComRtWorldEwrtWorld = pinocchio::centerOfMass(
       pinocchioModel, data, model.getGeneralizedCoordinates(stateReference));
   const vector_t joints = model.getJointAngles(state);
-  const HeadingTiltError acomError = headingTiltError(
-      acom.acomAttitude(model.getQuatBaseRtWorldXyzw(state), joints),
-      acom.acomAttitude(model.getQuatBaseRtWorldXyzw(stateReference),
-                        model.getJointAngles(stateReference)));
+  const HeadingTiltError acomError =
+      headingTiltError(acom.computeQuatAcomRtWorldXyzw(
+                           model.getQuatBaseRtWorldXyzw(state), joints),
+                       acom.computeQuatAcomRtWorldXyzw(
+                           model.getQuatBaseRtWorldXyzw(stateReference),
+                           model.getJointAngles(stateReference)));
   const AcomAttitudeTangentJacobian tangent =
       acom.acomAttitudeTangentJacobian(joints);
-  const matrix_t rotation = model.getBaseRotationTangentJacobian(state);
+  const matrix_t baseTangentJacobian =
+      model.getBaseRotationTangentJacobian(state);
   InnerLinearization inner{.value = vector_t(6),
                            .stateJacobian = matrix_t::Zero(6, state.size()),
                            .inputJacobian = matrix_t(6, 0)};
-  inner.value << com - comReference, acomError.residual;
+  inner.value << posComRtWorldEwrtWorld - refPosComRtWorldEwrtWorld,
+      acomError.residual;
   inner.stateJacobian.topRows(3) = comJacobian;
   inner.stateJacobian.block(
       3, static_cast<Eigen::Index>(model.getBaseOrientationStartIndex()), 3,
-      rotation.cols()) =
-      acomError.jacobianBodyTangent * tangent.baseTangent * rotation;
+      baseTangentJacobian.cols()) =
+      acomError.jacobianBodyTangent * tangent.baseTangent * baseTangentJacobian;
   inner.stateJacobian.block(
       3, static_cast<Eigen::Index>(model.getJointStartindex()), 3,
       tangent.jointAngles.cols()) =
@@ -662,11 +673,13 @@ absl::StatusOr<SecondOrderRule> basisScalingRule(
       mpc.modelSettings().contactNames;
   size_t contact = 0;
   while (contact < contactNames.size() &&
-         basisNonNegativityTermName(contactNames[contact]) != name)
+         basisNonNegativityTermName(contactNames[contact]) != name) {
     ++contact;
-  if (contact == contactNames.size())
+  }
+  if (contact == contactNames.size()) {
     return absl::NotFoundError(
         absl::StrCat("no contact owns the scalings of ", name));
+  }
   const Eigen::Index start = static_cast<Eigen::Index>(
       mpc.model().getContactWrenchStartIndices(contact));
   const Eigen::Index scalings =
@@ -687,8 +700,9 @@ absl::StatusOr<SecondOrderRule> basisScalingRule(
           },
       .outer =
           [config, gated](const vector_t& v) {
-            if (gated)
+            if (gated) {
               return penaltyOuter(PieceWisePolynomialBarrierPenalty(config), v);
+            }
             return penaltyOuter(SquaredHingePenalty(SquaredHingePenalty::Config(
                                     config.mu, /*deltaParam=*/0.0)),
                                 v);
@@ -708,7 +722,9 @@ stateInputConstraintSecondOrder(const StateInputConstraint& constraint,
       dynamic_cast<const FrictionForceConeConstraint*>(&constraint);
   const scalar_t shift =
       cone != nullptr ? cone->getConfig().hessianDiagonalShift : 0.0;
-  const bool stateHessianIsShift = cone != nullptr;
+  const bool stateHessianIsShift =
+      cone != nullptr &&
+      cone->getContactInputFrame() == ContactInputFrame::kWorld;
   const StateInputConstraint* absl_nonnull term = &constraint;
   const PreComputation* absl_nonnull precomputation = &preComputation;
   return [term, precomputation, time, shift, stateHessianIsShift](
@@ -1044,8 +1060,9 @@ Differenced extrapolateOneSided(
   vector_t value = (8.0 * fine - 6.0 * middle + coarse) / 3.0;
   const vector_t once = 2.0 * fine - middle;
   vector_t magnitude = center.cwiseAbs();
-  for (size_t i = offset; i < samples.size(); i += 2)
+  for (size_t i = offset; i < samples.size(); i += 2) {
     magnitude = magnitude.cwiseMax(samples[i].cwiseAbs());
+  }
   const vector_t evaluationScale =
       (magnitude.array() > 0.0)
           .select(magnitude.cwiseMax(1.0), vector_t::Zero(value.size()));
@@ -1203,8 +1220,9 @@ std::array<vector_t, kStepFractions.size()> samplesOf(
     size_t term,
     vector_t TermSample::*absl_nonnull field) {
   std::array<vector_t, kStepFractions.size()> values;
-  for (size_t i = 0; i < values.size(); ++i)
+  for (size_t i = 0; i < values.size(); ++i) {
     values[i] = samples[i][term].*field;
+  }
   return values;
 }
 
@@ -1241,8 +1259,9 @@ size_t alignSigns(const TermSample& center,
     for (size_t i = 0; i < inner.size(); ++i) {
       if (!(inner[i](row) * center.inner(row) < 0.0)) continue;
       inner[i](row) = -inner[i](row);
-      for (Eigen::Index column = 0; column < columns; ++column)
+      for (Eigen::Index column = 0; column < columns; ++column) {
         jacobian[i](row + rows * column) *= -1.0;
+      }
       ++turned;
     }
   }
@@ -1326,13 +1345,15 @@ std::vector<TermDifferences> differenceTerms(
       const StateInput moved = movedPoint(manifold, point, direction,
                                           kStepFractions[i] * kDifferenceStep);
       requestGroup(problem, group, time, moved, TermRequest::kApproximation);
-      for (const TermUnderTest& term : terms)
+      for (const TermUnderTest& term : terms) {
         samples[i].push_back(sampleTerm(manifold, term, moved));
+      }
     }
     for (size_t term = 0; term < terms.size(); ++term) {
-      if (direction < termDims[term])
+      if (direction < termDims[term]) {
         storeDirection(centers[term], samples, term, direction,
                        differences[term]);
+      }
     }
   }
   return differences;
@@ -1427,8 +1448,9 @@ struct MutatedMatrix {
 MutatedMatrix mutated(const matrix_t& matrix, Mutation mutation) {
   matrix_t candidates = matrix.cwiseAbs();
   const scalar_t largest = matrix.size() == 0 ? 0.0 : candidates.maxCoeff();
-  if (mutation == Mutation::kOffDiagonalOfScale)
+  if (mutation == Mutation::kOffDiagonalOfScale) {
     candidates.diagonal().setConstant(-1.0);
+  }
   MutatedMatrix result{.matrix = matrix, .row = 0, .column = 0, .change = 0.0};
   candidates.maxCoeff(&result.row, &result.column);
   const scalar_t magnitude = mutation == Mutation::kOffDiagonalOfScale
@@ -1442,8 +1464,9 @@ MutatedMatrix mutated(const matrix_t& matrix, Mutation mutation) {
   result.matrix(result.row, result.column) += result.change;
   const bool mirrored = mutation == Mutation::kRelativeSymmetric ||
                         mutation == Mutation::kFloorOneSymmetric;
-  if (mirrored && result.row != result.column)
+  if (mirrored && result.row != result.column) {
     result.matrix(result.column, result.row) += result.change;
+  }
   return result;
 }
 
@@ -1729,19 +1752,21 @@ void checkValueAndRadialGradient(const TermAtPoint& at,
                           context.what, value, phi));
     }
   }
-  const Eigen::Index orientation =
+  const Eigen::Index orientationStartIndex =
       static_cast<Eigen::Index>(mpc.model().getBaseOrientationStartIndex());
-  const vector4_t gradient = at.approximation.dfdx.segment<4>(orientation);
-  const vector4_t xi = mpc.model().getQuatBaseRtWorldXyzw(state).normalized();
+  const vector4_t gradient =
+      at.approximation.dfdx.segment<4>(orientationStartIndex);
+  const vector4_t quatBaseRtWorldXyzw =
+      mpc.model().getQuatBaseRtWorldXyzw(state).normalized();
   ++tally.comparisons;
-  if (!(std::abs(xi.dot(gradient)) <=
+  if (!(std::abs(quatBaseRtWorldXyzw.dot(gradient)) <=
         kRadialGradientTolerance *
             std::max(1.0, gradient.cwiseAbs().maxCoeff()))) {
     tally.findings.push_back(
         absl::StrFormat("%s: the ambient gradient has a radial part xi' dL/dxi "
                         "= %.3e: the pull-back E' H E lacks "
                         "the retraction curvature -1/4 (xi' dL/dxi) I",
-                        context.what, xi.dot(gradient)));
+                        context.what, quatBaseRtWorldXyzw.dot(gradient)));
   }
 }
 
@@ -1861,8 +1886,10 @@ matrix_t unitTangentGram(const StateManifold& manifold) {
       static_cast<Eigen::Index>(manifold.getTangentDim());
   matrix_t gram = matrix_t::Identity(tangentDim, tangentDim);
   for (Eigen::Index row = 0; row < tangentDim; ++row) {
-    if (manifold.getMaximumTangentAngle(vector_t::Unit(tangentDim, row)) > 0.0)
+    if (manifold.getMaximumTangentAngle(vector_t::Unit(tangentDim, row)) >
+        0.0) {
       gram(row, row) = 0.25;
+    }
   }
   return gram;
 }
@@ -2030,8 +2057,9 @@ std::vector<TermAtPoint> evaluateAtPoint(
   const StateInput at{.state = point.state, .input = point.input};
   std::vector<TermAtPoint> evaluated(terms.size());
   requestGroup(problem, group, time, at, TermRequest::kValues);
-  for (size_t j = 0; j < terms.size(); ++j)
+  for (size_t j = 0; j < terms.size(); ++j) {
     evaluated[j].value = terms[j].value(point.state, point.input);
+  }
   requestGroup(problem, group, time, at, TermRequest::kApproximation);
   for (size_t j = 0; j < terms.size(); ++j) {
     const SecondOrderRule& rule = *terms[j].rule;
@@ -2039,9 +2067,10 @@ std::vector<TermAtPoint> evaluateAtPoint(
         terms[j].approximation(point.state, point.input);
     evaluated[j].inner = rule.inner(point.state, point.input);
     evaluated[j].outer = rule.outer(evaluated[j].inner.value);
-    if (rule.constraintSecondOrder != nullptr)
+    if (rule.constraintSecondOrder != nullptr) {
       evaluated[j].secondOrder =
           rule.constraintSecondOrder(point.state, point.input);
+    }
   }
   return evaluated;
 }
@@ -2086,8 +2115,9 @@ void checkGroupAtPoint(
     termStatistics.rule = terms[j].rule->name;
     ++termStatistics.points;
     if (context.stateDifferencesHold) ++termStatistics.statePoints;
-    if (!model.reported.isZero(/*prec=*/0.0))
+    if (!model.reported.isZero(/*prec=*/0.0)) {
       ++termStatistics.nonZeroHessianPoints;
+    }
     termStatistics.turnedRows += differences[j].turnedRows;
     const std::vector<HessianBlock> blocks =
         hessianBlocks(static_cast<Eigen::Index>(manifold.getTangentDim()),
@@ -2195,8 +2225,9 @@ TEST_P(QuaternionRootTermHessians,
   EXPECT_TRUE(tally.findings.empty())
       << tally.findings.size() << " findings, the first:\n"
       << (tally.findings.empty() ? std::string() : tally.findings.front());
-  for (size_t i = 0; i < tally.findings.size() && i < 20; ++i)
+  for (size_t i = 0; i < tally.findings.size() && i < 20; ++i) {
     ADD_FAILURE() << tally.findings[i];
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(

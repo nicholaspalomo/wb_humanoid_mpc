@@ -51,21 +51,24 @@ ContactForceGateCost::ContactForceGateCost(const ContactInvariantLayout& layout,
                                            const ForceGateWeights& weights)
     : layout_(layout), weights_(weights) {}
 
-vector_t ContactForceGateCost::wrenchScales(int candidate) const {
+vector_t ContactForceGateCost::computeScaleWrenchContactEwrtWorld(
+    int candidate) const {
   const int dim = layout_.candidates[candidate].wrenchDim;
-  vector_t scales = vector_t::Constant(dim, 1.0 / weights_.forceScale);
+  vector_t scales =
+      vector_t::Constant(dim, 1.0 / weights_.scaleForceContactEwrtWorld);
   if (dim > kForceDim) {
     scales.tail(dim - kForceDim)
-        .setConstant(1.0 / (weights_.forceScale * weights_.momentArm));
+        .setConstant(1.0 /
+                     (weights_.scaleForceContactEwrtWorld * weights_.leverArm));
   }
   return scales;
 }
 
-vector_t ContactForceGateCost::scaledWrench(const vector_t& input,
-                                            int candidate) const {
+vector_t ContactForceGateCost::computeScaledWrenchContactEwrtWorld(
+    const vector_t& input, int candidate) const {
   const ActivationCandidate& entry = layout_.candidates[candidate];
-  return input.segment(entry.forceOffset, entry.wrenchDim)
-      .cwiseProduct(wrenchScales(candidate));
+  return input.segment(entry.wrenchStartIndex, entry.wrenchDim)
+      .cwiseProduct(computeScaleWrenchContactEwrtWorld(candidate));
 }
 
 scalar_t ContactForceGateCost::getValue(
@@ -77,7 +80,8 @@ scalar_t ContactForceGateCost::getValue(
   scalar_t value = 0.0;
   for (int i = 0; i < layout_.numCandidates(); ++i) {
     const scalar_t c = std::clamp(state(layout_.activationIndex(i)), 0.0, 1.0);
-    value += weights_.k0 * scaledWrench(input, i).squaredNorm() /
+    value += weights_.k0 *
+             computeScaledWrenchContactEwrtWorld(input, i).squaredNorm() /
              (c * c + weights_.k1);
   }
   return value;
@@ -99,7 +103,7 @@ ContactForceGateCost::getQuadraticApproximation(
     const scalar_t rawActivation = state(layout_.activationIndex(i));
     const bool claimed = rawActivation > 0.0 && rawActivation < 1.0;
     const scalar_t c = std::clamp(rawActivation, 0.0, 1.0);
-    const vector_t w = scaledWrench(input, i);
+    const vector_t w = computeScaledWrenchContactEwrtWorld(input, i);
     const scalar_t s = w.squaredNorm();
     const scalar_t d = c * c + weights_.k1;
     result.f += k0 * s / d;
@@ -121,16 +125,17 @@ ContactForceGateCost::getQuadraticApproximation(
     const matrix_t projected = projectToPositiveSemidefinite(hessian);
 
     // w = S u_w: the chain to the input; c is a state.
-    const vector_t scales = wrenchScales(i);
+    const vector_t scales = computeScaleWrenchContactEwrtWorld(i);
     const int cIndex = layout_.activationIndex(i);
     result.dfdx(cIndex) += gradient(0);
     result.dfdxx(cIndex, cIndex) += projected(0, 0);
-    result.dfdu.segment(entry.forceOffset, dim) +=
+    result.dfdu.segment(entry.wrenchStartIndex, dim) +=
         scales.cwiseProduct(gradient.tail(dim));
-    result.dfduu.block(entry.forceOffset, entry.forceOffset, dim, dim) +=
-        scales.asDiagonal() * projected.bottomRightCorner(dim, dim) *
-        scales.asDiagonal();
-    result.dfdux.block(entry.forceOffset, cIndex, dim, 1) +=
+    result.dfduu.block(entry.wrenchStartIndex, entry.wrenchStartIndex, dim,
+                       dim) += scales.asDiagonal() *
+                               projected.bottomRightCorner(dim, dim) *
+                               scales.asDiagonal();
+    result.dfdux.block(entry.wrenchStartIndex, cIndex, dim, 1) +=
         scales.cwiseProduct(projected.block(1, 0, dim, 1));
   }
   return result;

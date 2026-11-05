@@ -30,12 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <memory>
-#include <string>
 #include <type_traits>
-#include <vector>
 
 #include "Eigen/Core"
 #include "Eigen/Geometry"
@@ -49,9 +46,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
-#include "ocs2_pinocchio_interface/PinocchioStateInputMapping.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -109,7 +106,7 @@ namespace ocs2::humanoid {
  * The state holds no base velocity: the base angular velocity accessors abort,
  * and getTwistBaseRtWorldEwrtWorld() needs the joint velocities besides the
  * state, whose size it checks (once per restart of the motion manager's stride
- * history, not on every evaluation). It and getTargetPlanarCommand() need the
+ * history, not on every evaluation). It and getRefPlanarMotion() need the
  * model in double precision and abort in the CppAD instantiation, which no
  * caller of theirs uses.
  */
@@ -215,21 +212,32 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
                          kPositionDim);
   }
 
-  // Return Com linear velocity
-  VECTOR3_T<SCALAR_T> getBaseComLinearVelocity(
+  StoredLinvelPoint getStoredLinvelPoint() const override {
+    return StoredLinvelPoint::kCenterOfMass;
+  }
+
+  // The linear part of the normalized centroidal momentum h = [p / m, L / m].
+  VECTOR3_T<SCALAR_T> getLinvelComRtWorldEwrtWorld(
       const VECTOR_T<SCALAR_T>& state) const override {
     return state.head(kPositionDim);
   }
 
-  VECTOR6_T<SCALAR_T> getBaseComVelocity(
-      const VECTOR_T<SCALAR_T>& state) const override {
-    return state.head(centroidal_model::kCentroidalMomentumDim);
+  void setLinvelComRtWorldEwrtWorld(
+      VECTOR_T<SCALAR_T>& state,
+      const VECTOR3_T<SCALAR_T>& linvelComRtWorldEwrtWorld) const override {
+    state.head(kPositionDim) = linvelComRtWorldEwrtWorld;
   }
 
-  void setBaseComLinearVelocity(
-      VECTOR_T<SCALAR_T>& state,
-      const VECTOR3_T<SCALAR_T>& velocity) const override {
-    state.head(kPositionDim) = velocity;
+  VECTOR3_T<SCALAR_T> getLinvelBaseRtWorldEwrtWorld(
+      const VECTOR_T<SCALAR_T>& /*state*/) const override {
+    abortWithoutLinvelBaseRtWorldEwrtWorld("getLinvelBaseRtWorldEwrtWorld");
+  }
+
+  void setLinvelBaseRtWorldEwrtWorld(
+      VECTOR_T<SCALAR_T>& /*state*/,
+      const VECTOR3_T<SCALAR_T>& /*linvelBaseRtWorldEwrtWorld*/)
+      const override {
+    abortWithoutLinvelBaseRtWorldEwrtWorld("setLinvelBaseRtWorldEwrtWorld");
   }
 
   VECTOR_T<SCALAR_T> getJointAngles(
@@ -260,9 +268,9 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
 
   void setPosBaseRtWorldEwrtWorld(
       VECTOR_T<SCALAR_T>& state,
-      const VECTOR3_T<SCALAR_T>& position) const override {
+      const VECTOR3_T<SCALAR_T>& posBaseRtWorldEwrtWorld) const override {
     state.segment(centroidal_model::kBasePositionStartInState, kPositionDim) =
-        position;
+        posBaseRtWorldEwrtWorld;
   }
 
   void setJointAngles(VECTOR_T<SCALAR_T>& state,
@@ -277,10 +285,11 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     input.tail(this->modelSettings.mpc_joint_dim) = jointVelocities;
   }
 
-  void adaptPosBaseRtWorldEwrtWorldZ(VECTOR_T<SCALAR_T>& state,
-                                     scalar_t heightChange) const override {
+  void adaptPosBaseRtWorldEwrtWorldZ(
+      VECTOR_T<SCALAR_T>& state,
+      scalar_t errPosBaseRtWorldEwrtWorldZ) const override {
     state[centroidal_model::kBasePositionStartInState + kZAxisIndex] +=
-        heightChange;
+        errPosBaseRtWorldEwrtWorldZ;
   }
 
   /******************************************************************************************************/
@@ -295,61 +304,65 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
             getBaseOrientationStartIndex())));
   }
 
-  void setQuatBaseRtWorldXyzw(vector_t& state,
-                              const vector4_t& orientation) const override {
+  void setQuatBaseRtWorldXyzw(
+      vector_t& state, const vector4_t& quatBaseRtWorldXyzw) const override {
     state.segment<kQuaternionCoefficients>(getBaseOrientationStartIndex()) =
-        safelyNormalizedQuaternion(orientation);
+        safelyNormalizedQuaternion(quatBaseRtWorldXyzw);
   }
 
   scalar_t getYawBaseRtWorld(const vector_t& state) const override {
-    return yawOf(baseOrientationOf(state));
+    return yawOf(getDoubleQuatBaseRtWorldXyzw(state));
   }
 
   // NOLINTBEGIN(euler-boundary): Euler boundary accessor (design section 4.2)
   vector6_t getPoseeulerzyxBaseRtWorld(const vector_t& state) const override {
-    vector6_t basePose;
-    basePose << state.segment<kPositionDim>(getBaseStartindex()),
+    vector6_t poseeulerzyxBaseRtWorld;
+    poseeulerzyxBaseRtWorld << state.segment<kPositionDim>(getBaseStartindex()),
         getEulerzyxBaseRtWorld(state);
-    return basePose;
+    return poseeulerzyxBaseRtWorld;
   }
 
-  void setPoseeulerzyxBaseRtWorld(vector_t& state,
-                                  const vector6_t& basePose) const override {
+  void setPoseeulerzyxBaseRtWorld(
+      vector_t& state,
+      const vector6_t& poseeulerzyxBaseRtWorld) const override {
     state.segment<kPositionDim>(getBaseStartindex()) =
-        basePose.head<kPositionDim>();
-    setEulerzyxBaseRtWorld(state, basePose.tail<kEulerAnglesZyxDim>());
+        poseeulerzyxBaseRtWorld.head<kPositionDim>();
+    setEulerzyxBaseRtWorld(state,
+                           poseeulerzyxBaseRtWorld.tail<kEulerAnglesZyxDim>());
   }
 
   vector3_t getEulerzyxBaseRtWorld(const vector_t& state) const override {
-    return eulerZyxFromQuaternion(baseOrientationOf(state));
+    return eulerZyxFromQuaternion(getDoubleQuatBaseRtWorldXyzw(state));
   }
 
-  void setEulerzyxBaseRtWorld(vector_t& state,
-                              const vector3_t& eulerZyx) const override {
+  void setEulerzyxBaseRtWorld(
+      vector_t& state, const vector3_t& eulerzyxBaseRtWorld) const override {
     state.segment<kQuaternionCoefficients>(getBaseOrientationStartIndex()) =
-        quaternionFromEulerZyx(eulerZyx);
+        quaternionFromEulerZyx(eulerzyxBaseRtWorld);
   }
   // NOLINTEND(euler-boundary)
 
   vector3_t getAngvelBaseRtWorldEwrtBase(
       const vector_t& /*state*/) const override {
-    abortWithoutBaseAngularVelocity("getAngvelBaseRtWorldEwrtBase");
+    abortWithoutAngvelBaseRtWorldEwrtBase("getAngvelBaseRtWorldEwrtBase");
   }
 
   void setAngvelBaseRtWorldEwrtBase(
       vector_t& /*state*/,
-      const vector3_t& /*angularVelocityLocal*/) const override {
-    abortWithoutBaseAngularVelocity("setBaseAngularVelocityLocal");
+      const vector3_t& /*angvelBaseRtWorldEwrtBase*/) const override {
+    abortWithoutAngvelBaseRtWorldEwrtBase("setAngvelBaseRtWorldEwrtBase");
   }
 
-  void setTurnAngvelBaseRtWorldEwrtBase(vector_t& /*state*/,
-                                        scalar_t /*yawRate*/) const override {
-    abortWithoutBaseAngularVelocity("setTurnAngvelBaseRtWorldEwrtBase");
+  void setTurnAngvelBaseRtWorldEwrtBase(
+      vector_t& /*state*/,
+      scalar_t /*angvelBaseRtWorldEwrtWorldZ*/) const override {
+    abortWithoutAngvelBaseRtWorldEwrtBase("setTurnAngvelBaseRtWorldEwrtBase");
   }
 
   BaseAngularVelocityJacobian getJacobianAngvelBaseRtWorldEwrtBase(
       const vector_t& /*state*/) const override {
-    abortWithoutBaseAngularVelocity("getJacobianAngvelBaseRtWorldEwrtBase");
+    abortWithoutAngvelBaseRtWorldEwrtBase(
+        "getJacobianAngvelBaseRtWorldEwrtBase");
   }
 
   /**
@@ -389,44 +402,46 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
                           kPoseTangentDim>
           baseMomentumMatrix =
               momentumMatrix.template leftCols<kPoseTangentDim>();
-      const vector6_t baseMomentum =
-          centroidalModelInfo_.robotMass * getCentroidalMomentum(state) -
+      const vector6_t baseMotionCmomComRtWorldEwrtWorld =
+          centroidalModelInfo_.robotMass *
+              getMnormCmomComRtWorldEwrtWorld(state) -
           momentumMatrix.rightCols(jointVelocities.size()) * jointVelocities;
-      const vector6_t baseVelocity =
+      const vector6_t baseGeneralizedVelocity =
           computeFloatingBaseCentroidalMomentumMatrixInverse<scalar_t>(
               baseMomentumMatrix) *
-          baseMomentum;
-      vector6_t twist;
-      twist.head<kPositionDim>() = baseVelocity.head<kPositionDim>();
-      twist.tail<kRotationTangentDim>() =
-          quaternionRotationMatrix<scalar_t>(baseOrientationOf(state)) *
-          baseVelocity.tail<kRotationTangentDim>();
-      return twist;
+          baseMotionCmomComRtWorldEwrtWorld;
+      vector6_t twistBaseRtWorldEwrtWorld;
+      twistBaseRtWorldEwrtWorld.head<kPositionDim>() =
+          baseGeneralizedVelocity.head<kPositionDim>();
+      twistBaseRtWorldEwrtWorld.tail<kRotationTangentDim>() =
+          quaternionRotationMatrix<scalar_t>(
+              getDoubleQuatBaseRtWorldXyzw(state)) *
+          baseGeneralizedVelocity.tail<kRotationTangentDim>();
+      return twistBaseRtWorldEwrtWorld;
     } else {
       abortWithoutDoublePrecisionModel("getTwistBaseRtWorldEwrtWorld");
     }
   }
 
   /**
-   * (h_x, h_y, m h_z / compositeYawInertia) of the knot's normalized momentum:
-   * the CoM velocity, and the yaw rate
+   * (h_x, h_y, m h_z / inertiaComEwrtWorldZz) of the knot's normalized
+   * momentum: the CoM velocity, and the yaw rate
    * CentroidalMpcTargetTrajectoriesCalculator wrote into the angular part as
    * I_zz psidot / m (0 while the inertia is not positive).
    */
-  vector3_t getTargetPlanarCommand(
-      const vector_t& targetState,
-      scalar_t compositeYawInertia) const override {
+  vector3_t getRefPlanarMotion(const vector_t& targetState,
+                               scalar_t inertiaComEwrtWorldZz) const override {
     if constexpr (std::is_same_v<SCALAR_T, scalar_t>) {
-      const scalar_t yawRate =
-          compositeYawInertia > 0.0
+      const scalar_t refRateYawBaseRtWorld =
+          inertiaComEwrtWorldZz > 0.0
               ? centroidalModelInfo_.robotMass *
                     targetState(centroidal_model::kAngularMomentumStartIndex +
                                 kZAxisIndex) /
-                    compositeYawInertia
+                    inertiaComEwrtWorldZz
               : 0.0;
-      return vector3_t(targetState(0), targetState(1), yawRate);
+      return vector3_t(targetState(0), targetState(1), refRateYawBaseRtWorld);
     } else {
-      abortWithoutDoublePrecisionModel("getTargetPlanarCommand");
+      abortWithoutDoublePrecisionModel("getRefPlanarMotion");
     }
   }
 
@@ -480,25 +495,26 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   }
 
   void fillGeneralizedCoordinatesFromMeasurement(
-      const vector3_t& positionWorld,
-      const vector4_t& orientation,
+      const vector3_t& posBaseRtWorldEwrtWorld,
+      const vector4_t& quatBaseRtWorldXyzw,
       const vector_t& jointPositions,
       Eigen::Ref<vector_t> q) const override {
-    q.head<kPositionDim>() = positionWorld;
+    q.head<kPositionDim>() = posBaseRtWorldEwrtWorld;
     q.segment<kQuaternionCoefficients>(kPositionDim) =
-        safelyNormalizedQuaternion(orientation);
+        safelyNormalizedQuaternion(quatBaseRtWorldXyzw);
     q.tail(this->modelSettings.mpc_joint_dim) = jointPositions;
   }
 
   void fillGeneralizedVelocitiesFromMeasurement(
-      const vector4_t& orientation,
-      const vector3_t& linearVelocityLocal,
-      const vector3_t& angularVelocityLocal,
+      const vector4_t& quatBaseRtWorldXyzw,
+      const vector3_t& linvelBaseRtWorldEwrtBase,
+      const vector3_t& angvelBaseRtWorldEwrtBase,
       const vector_t& jointVelocities,
       Eigen::Ref<vector_t> v) const override {
-    const quaternion_t rotation(safelyNormalizedQuaternion(orientation));
-    v.head<kPositionDim>() = rotation * linearVelocityLocal;
-    v.segment<kRotationTangentDim>(kPositionDim) = angularVelocityLocal;
+    const quaternion_t quatBaseRtWorld(
+        safelyNormalizedQuaternion(quatBaseRtWorldXyzw));
+    v.head<kPositionDim>() = quatBaseRtWorld * linvelBaseRtWorldEwrtBase;
+    v.segment<kRotationTangentDim>(kPositionDim) = angvelBaseRtWorldEwrtBase;
     v.tail(this->modelSettings.mpc_joint_dim) = jointVelocities;
   }
 
@@ -511,9 +527,10 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   VECTOR6_T<SCALAR_T> getWrenchContactEwrtParam(
       const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {
     if (isPointContact(contactIndex)) {
-      VECTOR6_T<SCALAR_T> wrench = VECTOR6_T<SCALAR_T>::Zero();
-      wrench.head(kForceDim) = getForceContactEwrtParam(input, contactIndex);
-      return wrench;
+      VECTOR6_T<SCALAR_T> wrenchContactEwrtParam = VECTOR6_T<SCALAR_T>::Zero();
+      wrenchContactEwrtParam.head(kForceDim) =
+          getForceContactEwrtParam(input, contactIndex);
+      return wrenchContactEwrtParam;
     }
     return input.segment(getContactWrenchStartIndices(contactIndex),
                          kContactWrenchDim);
@@ -531,37 +548,41 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
         (getContactWrenchStartIndices(contactIndex) + kForceDim), kTorqueDim);
   }
 
-  void setWrenchContactEwrtParam(VECTOR_T<SCALAR_T>& input,
-                                 const VECTOR6_T<SCALAR_T>& wrench,
-                                 size_t contactIndex) const override {
+  void setWrenchContactEwrtParam(
+      VECTOR_T<SCALAR_T>& input,
+      const VECTOR6_T<SCALAR_T>& wrenchContactEwrtParam,
+      size_t contactIndex) const override {
     if (isPointContact(contactIndex)) {
-      setForceContactEwrtParam(input, wrench.head(kForceDim), contactIndex);
+      setForceContactEwrtParam(input, wrenchContactEwrtParam.head(kForceDim),
+                               contactIndex);
       return;
     }
     input.segment(getContactWrenchStartIndices(contactIndex), kWrenchDim) =
-        wrench;
+        wrenchContactEwrtParam;
   }
 
-  void setForceContactEwrtParam(VECTOR_T<SCALAR_T>& input,
-                                const VECTOR3_T<SCALAR_T>& force,
-                                size_t contactIndex) const override {
+  void setForceContactEwrtParam(
+      VECTOR_T<SCALAR_T>& input,
+      const VECTOR3_T<SCALAR_T>& forceContactEwrtParam,
+      size_t contactIndex) const override {
     input.segment(getContactWrenchStartIndices(contactIndex), kForceDim) =
-        force;
+        forceContactEwrtParam;
   }
 
-  void setTorqueContactEwrtParam(VECTOR_T<SCALAR_T>& input,
-                                 const VECTOR3_T<SCALAR_T>& moment,
-                                 size_t contactIndex) const override {
+  void setTorqueContactEwrtParam(
+      VECTOR_T<SCALAR_T>& input,
+      const VECTOR3_T<SCALAR_T>& torqueContactEwrtParam,
+      size_t contactIndex) const override {
     if (isPointContact(contactIndex)) return;
     input.segment(getContactWrenchStartIndices(contactIndex) + kForceDim,
-                  kTorqueDim) = moment;
+                  kTorqueDim) = torqueContactEwrtParam;
   }
 
   /******************************************************************************************************/
   /*                                    Custom Centroidal Methods */
   /******************************************************************************************************/
 
-  VECTOR_T<SCALAR_T> getCentroidalMomentum(
+  VECTOR_T<SCALAR_T> getMnormCmomComRtWorldEwrtWorld(
       const VECTOR_T<SCALAR_T>& state) const {
     return state.head(centroidal_model::kCentroidalMomentumDim);
   }
@@ -579,10 +600,21 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
 
   /** The base angular velocity accessors' answer: the centroidal state holds
    * none, so calling one is a programming error. */
-  [[noreturn]] static void abortWithoutBaseAngularVelocity(
+  [[noreturn]] static void abortWithoutAngvelBaseRtWorldEwrtBase(
       absl::string_view accessor) {
     ABSL_LOG(FATAL) << "CentroidalMpcRobotModel::" << accessor
                     << ": the centroidal state holds no base angular velocity";
+    ABSL_UNREACHABLE();
+  }
+
+  /** The base linear velocity accessors' answer: the centroidal state stores
+   * the center of mass's velocity instead, so calling one is a programming
+   * error. */
+  [[noreturn]] static void abortWithoutLinvelBaseRtWorldEwrtWorld(
+      absl::string_view accessor) {
+    ABSL_LOG(FATAL) << "CentroidalMpcRobotModel::" << accessor
+                    << ": the centroidal state stores the center of mass's "
+                       "linear velocity, not the base's";
     ABSL_UNREACHABLE();
   }
 
@@ -602,7 +634,7 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
   /** getQuatBaseRtWorldXyzw() of a state in double precision, for every
    * SCALAR_T.
    */
-  vector4_t baseOrientationOf(const vector_t& state) const {
+  vector4_t getDoubleQuatBaseRtWorldXyzw(const vector_t& state) const {
     return safelyNormalizedQuaternion(
         vector4_t(state.segment<kQuaternionCoefficients>(
             getBaseOrientationStartIndex())));

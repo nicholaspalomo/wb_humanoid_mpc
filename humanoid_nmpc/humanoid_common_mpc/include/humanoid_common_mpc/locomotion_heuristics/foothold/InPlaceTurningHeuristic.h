@@ -31,8 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 
 namespace ocs2::humanoid {
 
@@ -62,7 +68,7 @@ namespace ocs2::humanoid {
  * BACKWARDS (omega x r), so the fore-aft displacements of the two feet are
  * equal and opposite. The implementation carries the sign, so a positive
  * `forwardPerYawRate` means "lead the hips into the turn"; see the comment on
- * offset().
+ * computeOffsetPosFootRtWorldEwrtWorldXy().
  *
  * Like every LocomotionHeuristic, its const methods are safe to call
  * concurrently; configure() is not, and must not run while they do.
@@ -78,7 +84,8 @@ class InPlaceTurningHeuristic final : public FootholdHeuristic {
       const LocomotionHeuristicModelParameters& model) override;
   std::string describe() const override;
 
-  vector2_t offset(const FootholdHeuristicContext& context) const override;
+  vector2_t computeOffsetPosFootRtWorldEwrtWorldXy(
+      const FootholdHeuristicContext& context) const override;
 
  private:
   InPlaceTurningParameters parameters_;

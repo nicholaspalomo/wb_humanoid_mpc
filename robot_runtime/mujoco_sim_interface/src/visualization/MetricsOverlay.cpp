@@ -34,6 +34,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_format.h"
 #include "ocs2_core/PhysicalConstants.h"
 
+#include "mujoco_sim_interface/MujocoUtils.h"
+#include "mujoco_sim_interface/visualization/MujocoVisualization.h"
+
 namespace robot::mujoco_sim_interface {
 
 std::string MetricsOverlay::text(const Metrics& metrics,
@@ -58,8 +61,9 @@ std::string MetricsOverlay::text(const Metrics& metrics,
 
 void MetricsOverlay::renderOverlay(const VisualizationFrame& frame) {
   if (frame.state == nullptr || frame.state->data == nullptr ||
-      frame.context == nullptr)
+      frame.context == nullptr) {
     return;
+  }
   const MjState& state = *frame.state;
   const std::string metrics = text(state.metrics, frame.renderFps,
                                    frame.elapsedRealTime, state.data->time);

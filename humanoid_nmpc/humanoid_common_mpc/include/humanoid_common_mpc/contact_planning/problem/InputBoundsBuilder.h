@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <vector>
 
+#include "ocs2_core/Types.h"
+
 #include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
 
 namespace ocs2::humanoid {

@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"

@@ -52,9 +52,11 @@ constexpr Eigen::Index kJoints = 5;
 
 /** A step whose orientation part is `rotation` and whose other entries are
  * small and nonzero. */
-vector_t stepWithRotation(const vector3_t& rotation, Eigen::Index stateDim) {
+vector_t stepWithAttitudeTangent(const vector3_t& attitudeTangent,
+                                 Eigen::Index stateDim) {
   vector_t delta = vector_t::LinSpaced(stateDim, -0.03, 0.04);
-  delta.segment<3>(static_cast<Eigen::Index>(kOrientationStart)) = rotation;
+  delta.segment<3>(static_cast<Eigen::Index>(kOrientationStart)) =
+      attitudeTangent;
   return delta;
 }
 
@@ -68,12 +70,12 @@ TEST(InitialStateGapTest, OnAManifoldTheRotationIsTheManifoldsRotationAngle) {
            StateManifoldSegment::unitQuaternion(),
            StateManifoldSegment::euclidean(static_cast<size_t>(kJoints))});
   ASSERT_TRUE(manifold.ok()) << manifold.status();
-  const vector3_t rotation(0.3, -0.1, 0.05);
-  const vector_t delta = stepWithRotation(
-      rotation, static_cast<Eigen::Index>((*manifold)->getTangentDim()));
+  const vector3_t attitudeTangent(0.3, -0.1, 0.05);
+  const vector_t delta = stepWithAttitudeTangent(
+      attitudeTangent, static_cast<Eigen::Index>((*manifold)->getTangentDim()));
   const InitialStateGap gap = initialStateGapOf(delta, **manifold);
-  EXPECT_EQ(gap.rotation, (*manifold)->getMaximumTangentAngle(delta));
-  EXPECT_NEAR(gap.rotation, rotation.norm(), 1.0e-15);
+  EXPECT_EQ(gap.angle, (*manifold)->getMaximumTangentAngle(delta));
+  EXPECT_NEAR(gap.angle, attitudeTangent.norm(), 1.0e-15);
   EXPECT_EQ(gap.norm, delta.norm());
 
   // Without rotation blocks there is no rotation.
@@ -81,7 +83,7 @@ TEST(InitialStateGapTest, OnAManifoldTheRotationIsTheManifoldsRotationAngle) {
       ProductStateManifold::create(
           {StateManifoldSegment::euclidean(static_cast<size_t>(delta.size()))});
   ASSERT_TRUE(flat.ok()) << flat.status();
-  EXPECT_EQ(initialStateGapOf(delta, **flat).rotation, 0.0);
+  EXPECT_EQ(initialStateGapOf(delta, **flat).angle, 0.0);
 }
 
 // The stored quaternions of the solver's nodes, unnormalized: the largest
@@ -100,15 +102,15 @@ TEST(QuaternionNormDeviationTest,
   inside.segment<4>(start) *= 1.0 - 5.0e-10;
 
   const std::optional<double> unit =
-      maxQuaternionNormDeviationOf({onTheSphere}, kOrientationStart);
+      maxUnitQuaternionNormDeviationOf({onTheSphere}, kOrientationStart);
   ASSERT_TRUE(unit.has_value());
   EXPECT_EQ(unit.value_or(-1.0), 0.0);
-  const std::optional<double> deviation = maxQuaternionNormDeviationOf(
+  const std::optional<double> deviation = maxUnitQuaternionNormDeviationOf(
       {onTheSphere, outside, inside, onTheSphere}, kOrientationStart);
   ASSERT_TRUE(deviation.has_value());
   EXPECT_NEAR(deviation.value_or(-1.0), 5.0e-10, 1.0e-15);
   const std::optional<double> outward =
-      maxQuaternionNormDeviationOf({outside}, kOrientationStart);
+      maxUnitQuaternionNormDeviationOf({outside}, kOrientationStart);
   ASSERT_TRUE(outward.has_value());
   EXPECT_NEAR(outward.value_or(-1.0), 3.0e-10, 1.0e-15);
 }
@@ -120,14 +122,14 @@ TEST(QuaternionNormDeviationTest, ANanQuaternionMakesTheDeviationNan) {
   const Eigen::Index start = static_cast<Eigen::Index>(kOrientationStart);
   vector_t onTheSphere = vector_t::Zero(start + 4 + kJoints);
   onTheSphere(start + 3) = 1.0;
-  vector_t nanQuaternion = onTheSphere;
-  nanQuaternion(start) = std::numeric_limits<double>::quiet_NaN();
+  vector_t nanAttitudeState = onTheSphere;
+  nanAttitudeState(start) = std::numeric_limits<double>::quiet_NaN();
   for (const vector_array_t& states :
-       {vector_array_t{onTheSphere, nanQuaternion},
-        vector_array_t{nanQuaternion, onTheSphere},
-        vector_array_t{nanQuaternion}}) {
+       {vector_array_t{onTheSphere, nanAttitudeState},
+        vector_array_t{nanAttitudeState, onTheSphere},
+        vector_array_t{nanAttitudeState}}) {
     const std::optional<double> deviation =
-        maxQuaternionNormDeviationOf(states, kOrientationStart);
+        maxUnitQuaternionNormDeviationOf(states, kOrientationStart);
     ASSERT_TRUE(deviation.has_value());
     EXPECT_TRUE(std::isnan(deviation.value_or(0.0)))
         << deviation.value_or(0.0) << " over " << states.size() << " nodes";
@@ -142,15 +144,16 @@ TEST(InitialStateGapTest, ANanRotationMakesTheRotationNan) {
            StateManifoldSegment::unitQuaternion(),
            StateManifoldSegment::euclidean(static_cast<size_t>(kJoints))});
   ASSERT_TRUE(manifold.ok()) << manifold.status();
-  const vector_t delta = stepWithRotation(
+  const vector_t delta = stepWithAttitudeTangent(
       vector3_t(std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0),
       static_cast<Eigen::Index>((*manifold)->getTangentDim()));
-  EXPECT_TRUE(std::isnan(initialStateGapOf(delta, **manifold).rotation));
+  EXPECT_TRUE(std::isnan(initialStateGapOf(delta, **manifold).angle));
 }
 
 TEST(QuaternionNormDeviationTest, IsEmptyWithoutAnyNode) {
-  EXPECT_FALSE(maxQuaternionNormDeviationOf(/*states=*/{}, kOrientationStart)
-                   .has_value());
+  EXPECT_FALSE(
+      maxUnitQuaternionNormDeviationOf(/*states=*/{}, kOrientationStart)
+          .has_value());
 }
 
 }  // namespace

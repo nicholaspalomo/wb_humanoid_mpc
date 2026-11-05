@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <limits>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
 
@@ -106,10 +107,10 @@ TEST(SmoothMinimumHeight, theBiasIsLogOfTheFractionOfCornersThatTouch) {
   //
   // Against the shipped penetration hinge (penetrationWeight 5e4 on every
   // corner that is down, against a complementarity curvature of
-  // complementarityWeight / heightReference^2 = 7812 at full body weight) those
-  // become 0.050 mm and 0.187 mm of equilibrium penetration respectively - the
-  // edge's two corners both resist, so its bias is attenuated by C / (C + 2P)
-  // rather than C / (C + P).
+  // complementarityWeight / scalePosContactRtSurfaceEwrtWorldZ^2 = 7812 at full
+  // body weight) those become 0.050 mm and 0.187 mm of equilibrium penetration
+  // respectively - the edge's two corners both resist, so its bias is
+  // attenuated by C / (C + 2P) rather than C / (C + P).
   // equilibriumPenetrationAttenuatesTheBiasByEveryCornerThatIsDown holds that
   // arithmetic.
   const SmoothMinimumHeight flat =
@@ -173,8 +174,8 @@ TEST(SmoothMinimumHeight,
   // about the formula, and holds for any positive pair.
   constexpr scalar_t kCurvature =
       50.0 /
-      (0.08 *
-       0.08);  // complementarityWeight / heightReference^2, full body weight
+      (0.08 * 0.08);  // complementarityWeight /
+                      // scalePosContactRtSurfaceEwrtWorldZ^2, full body weight
   constexpr scalar_t kPenetrationWeight = 5.0e4;
   for (const int cornersDown : {1, 2, 4}) {
     // The slope is increasing in m, so bisection finds its single root.

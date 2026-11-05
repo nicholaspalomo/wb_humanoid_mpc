@@ -99,6 +99,7 @@ cc_library(
     hdrs = ["src/Textproto.h"],
     visibility = ["//visibility:private"],
     deps = [
+        "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/strings",
@@ -123,6 +124,8 @@ cc_library(
     hdrs = glob(["include/robot_ipc/*.h"]),
     includes = ["include"],
     deps = [
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/strings:string_view",
         ":envelope_type",
         ":network_config_cc_proto",
         ":textproto",

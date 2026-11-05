@@ -104,9 +104,11 @@ const std::map<std::string, std::string>& notReadByTheConversions() {
            "the pads of 3-DoF contacts, which none of the dumped "
            "configurations has: ContactsFromConfig reads them for the "
            "multi-contact task (testMultiContactPlanTracking)"},
-          {"TaskFile.multi_contact_plan.clock_hold.com_tolerance",
+          {"TaskFile.multi_contact_plan.clock_hold.max_norm_err_pos_com_rt_"
+           "world_ewrt_world_xy",
            kReadByThePlanSource},
-          {"TaskFile.multi_contact_plan.clock_hold.contact_tolerance",
+          {"TaskFile.multi_contact_plan.clock_hold.max_norm_pos_contact_rt_"
+           "surface_ewrt_surface_z",
            kReadByThePlanSource},
           {"TaskFile.multi_contact_plan.clock_hold.lead", kReadByThePlanSource},
           {"TaskFile.multi_contact_plan.contact_swing.landing_alignment_weight",
@@ -119,13 +121,14 @@ const std::map<std::string, std::string>& notReadByTheConversions() {
            kReadByThePlanSource},
           {"TaskFile.multi_contact_plan.arc_swing_duration_limit",
            kReadByThePlanSource},
-          {"TaskFile.multi_contact_plan.force_reference", kReadByThePlanSource},
+          {"TaskFile.multi_contact_plan.force_reference_mode",
+           kReadByThePlanSource},
           {"TaskFile.multi_contact_plan.plan_file", kReadByThePlanSource},
           {"TaskFile.multi_contact_plan.playback", kReadByThePlanSource},
           {"TaskFile.multi_contact_plan.playback_dwell", kReadByThePlanSource},
           {"TaskFile.multi_contact_plan.scenario_file", kReadByThePlanSource},
           {"TaskFile.multi_contact_plan.swing.clearance", kReadByThePlanSource},
-          {"TaskFile.multi_contact_plan.swing.lift_height",
+          {"TaskFile.multi_contact_plan.swing.min_dist_controlpoint_rt_contact",
            kReadByThePlanSource},
           {"TaskFile.multi_contact_plan.terrain_non_penetration.delta",
            kReadByThePlanSource},

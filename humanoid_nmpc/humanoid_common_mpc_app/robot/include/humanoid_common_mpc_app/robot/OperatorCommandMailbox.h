@@ -100,7 +100,7 @@ struct ControllerSettingsUpdate {
  * merged into the posture   -> TripleBuffer of the whole posture
  *   operator/dodgeball_throw         DodgeballThrow  ->
  * dodgeballThrowFromMessage() -> SpscQueue<DodgeballThrow>
- *   operator/walking_velocity_command  cmd_pos_base_rt_world_ewrt_world_z,
+ *   operator/walking_velocity_command  cmd_pos_base_rt_surface_ewrt_world_z,
  * clamped -> atomic gantry height operator/mpc_parameters MpcParameterUpdate
  * (humanoid_mpc_config) -> controllerSideSettingsFromConfig() of its task file,
  * estimator built -> SpscQueue<ControllerSettingsUpdate> operator/pd_gains
@@ -138,7 +138,7 @@ class OperatorCommandMailbox {
     std::vector<std::string> jointNames;
     /** The JOINT_PD posture at start-up, by joint index: the operator's joint
      * targets are merged into it. */
-    std::vector<double> initialNominalPositions;
+    std::vector<double> initialNominalJointPositions;
     /**
      * The running robot (ModelSettings::robotName, the task file's
      * model_settings.robot_name): an operator/mpc_parameters update whose task
@@ -249,10 +249,10 @@ class OperatorCommandMailbox {
           throwCommand);
   /** The JOINT_PD posture with every joint target received so far, when it
    * changed since the last call. */
-  bool takeNominalPosture(std::vector<double>& nominalPositions);
-  /** The gantry height the operator's slider asks for [m], once one walking
-   * command has been received. */
-  std::optional<double> desiredGantryHeight() const;
+  bool takeNominalPosture(std::vector<double>& nominalJointPositions);
+  /** The gantry height above the ground the operator's slider asks for [m],
+   * once one walking command has been received. */
+  std::optional<double> desGantryPosBaseRtSurfaceEwrtWorldZ() const;
   /** Calls `apply` with the oldest controller settings update not taken yet;
    * false when there is none. */
   template <typename Apply>
@@ -329,10 +329,10 @@ class OperatorCommandMailbox {
   robot::realtime::SpscQueue<ControllerSettingsUpdate> controllerSettings_;
   robot::TripleBuffer<std::vector<double>> nominalPosture_;
   /** [m] NaN until a walking command has arrived. */
-  std::atomic<double> desiredGantryHeight_;
+  std::atomic<double> desGantryPosBaseRtSurfaceEwrtWorldZ_;
 
   // ---- IO thread.
-  std::vector<double> ioNominalPositions_;
+  std::vector<double> ioNominalJointPositions_;
   absl::flat_hash_map<std::string, size_t> jointIndexByName_;
   uint64_t lastFsmSequence_ = 0;
   bool haveFsmSequence_ = false;

@@ -56,6 +56,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/manifold/ProductStateManifold.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/manifold/StateManifoldSegment.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
 #include "humanoid_mpc_ipc/PolicyControllers.h"

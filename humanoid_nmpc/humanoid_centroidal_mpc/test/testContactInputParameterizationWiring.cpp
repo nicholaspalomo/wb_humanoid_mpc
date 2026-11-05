@@ -29,7 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
-#include <filesystem>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -47,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
+#include "humanoid_common_mpc/common/ContactInputParameterization.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "support/TypedConfigFiles.h"
@@ -142,8 +142,9 @@ TEST_F(ContactInputParameterizationWiringTest,
   // The field reaches the builder: an unknown name is refused listing the
   // registered sets.
   std::vector<std::string> phrases = {"'exact'"};
-  for (const std::string& set : basisGeneratorSetNames())
+  for (const std::string& set : basisGeneratorSetNames()) {
     phrases.push_back(set);
+  }
   expectRefusedNaming(
       "unknown_generator_set",
       [](mpc_config::TaskFile& task) {
@@ -155,8 +156,9 @@ TEST_F(ContactInputParameterizationWiringTest,
 TEST_F(ContactInputParameterizationWiringTest,
        TheRegularizationIsReadFromTheTaskFileAndValidated) {
   std::vector<std::string> phrases = {"'diagonal'"};
-  for (const std::string& name : basisRegularizationNames())
+  for (const std::string& name : basisRegularizationNames()) {
     phrases.push_back(name);
+  }
   expectRefusedNaming(
       "unknown_regularization",
       [](mpc_config::TaskFile& task) {
@@ -232,8 +234,9 @@ TEST_F(
                         task.contact_input_parameterization =
                             kWrenchContactInputParameterizationName;
                         for (std::string& constraint : task.soft_constraints) {
-                          if (constraint == "contact_wrench_cone")
+                          if (constraint == "contact_wrench_cone") {
                             constraint = "friction_force_cone";
+                          }
                         }
                         task.contact_schedule_source = "contact_planner";
                         task.contacts.contact_wrench_cone_soft_constraint

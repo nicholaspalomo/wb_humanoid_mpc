@@ -116,9 +116,9 @@ class App(tk.Tk):
         fsm_command_callback: sends an FSM command (a mode name, LOCK_GANTRY or UNLOCK_GANTRY).
 
     Attributes:
-        default_pelvis_height: The pelvis height the height slider centers on [m]: the reference file's
-            nom_pos_base_rt_world_ewrt_world_z, followed when the file changes (poll_reference_file()), or the command line's.
-        follows_reference_file_default: Whether a change of the reference file moves default_pelvis_height; False once
+        nom_pos_base_rt_surface_ewrt_world_z: The pelvis height the height slider centers on [m]: the reference file's
+            nom_pos_base_rt_surface_ewrt_world_z, followed when the file changes (poll_reference_file()), or the command line's.
+        follows_reference_file_default: Whether a change of the reference file moves nom_pos_base_rt_surface_ewrt_world_z; False once
             the command line set it (--default_pelvis_height).
     """
 
@@ -158,9 +158,9 @@ class App(tk.Tk):
         # Position window on the left side of the screen, on top of the Rerun viewer
         gui_width = 960
         gui_height = 700
-        pos_x = 30
-        pos_y = 50
-        self.geometry(f"{gui_width}x{gui_height}+{pos_x}+{pos_y}")
+        window_x = 30
+        window_y = 50
+        self.geometry(f"{gui_width}x{gui_height}+{window_x}+{window_y}")
         self.minsize(800, 520)
 
         # Raise window on top of other windows (e.g. the Rerun viewer)
@@ -313,7 +313,7 @@ class App(tk.Tk):
             reference_file=self.reference_file,
             enable_online_tuning=self.enable_online_tuning,
             robot_saver=robot_saver,
-            # The tab's Save may move nom_pos_base_rt_world_ewrt_world_z, which the height slider centers on.
+            # The tab's Save may move nom_pos_base_rt_surface_ewrt_world_z, which the height slider centers on.
             on_saved=self.poll_reference_file,
         )
         self.command_limits_tab.pack(fill="both", expand=True)
@@ -361,16 +361,22 @@ class App(tk.Tk):
         )
         self.joystick_right.pack(pady=(5, 5))
 
-        # Slider frame
-        self.min_height = 0.2
-        self.max_height = 1.3
-        self.height_scale = (self.max_height - self.min_height) / 100.0
-        self.default_pelvis_height = config_files.DEFAULT_PELVIS_HEIGHT
+        # Slider frame: [m] the range of the height command, and the height of one of the slider's 100 steps.
+        self.cmd_min_pos_base_rt_surface_ewrt_world_z = 0.2
+        self.cmd_max_pos_base_rt_surface_ewrt_world_z = 1.3
+        self.cmd_step_pos_base_rt_surface_ewrt_world_z = (
+            self.cmd_max_pos_base_rt_surface_ewrt_world_z
+            - self.cmd_min_pos_base_rt_surface_ewrt_world_z
+        ) / 100.0
+        self.nom_pos_base_rt_surface_ewrt_world_z = (
+            config_files.NOM_POS_BASE_RT_SURFACE_EWRT_WORLD_Z
+        )
         self.follows_reference_file_default = True
         self._reference_file_mtime = _modification_time(self.reference_file)
         self.slider_default_value = (
-            self.default_pelvis_height - self.min_height
-        ) / self.height_scale
+            self.nom_pos_base_rt_surface_ewrt_world_z
+            - self.cmd_min_pos_base_rt_surface_ewrt_world_z
+        ) / self.cmd_step_pos_base_rt_surface_ewrt_world_z
         self.slider_frame = ttk.Frame(main_frame)
         self.slider_frame.grid(row=0, column=2, padx=15, pady=10, sticky="ns")
 
@@ -591,8 +597,8 @@ class App(tk.Tk):
         if self.gantry_var.get():
             # Auto-center joysticks when re-locking the gantry so no residual
             # velocity command is applied while the robot is suspended.
-            self.joystick_left.set_position()
-            self.joystick_right.set_position()
+            self.joystick_left.set_deflection()
+            self.joystick_right.set_deflection()
 
     def _on_gantry_touch(self) -> None:
         """Smoothly lower the gantry height slider to the default pelvis height over 2 seconds."""
@@ -634,8 +640,8 @@ class App(tk.Tk):
         if self.gantry_var.get() != state.gantry_locked:
             self.gantry_var.set(state.gantry_locked)
         if fsm_state.should_recenter(previous, state):
-            self.joystick_left.set_position()
-            self.joystick_right.set_position()
+            self.joystick_left.set_deflection()
+            self.joystick_right.set_deflection()
 
     def set_joystick_connected(self, is_connected: bool) -> None:
         """Shows whether an Xbox controller drives the sticks; the on-screen centering is disabled while one does.
@@ -670,14 +676,14 @@ class App(tk.Tk):
             self.slider.set(self.slider_default_value)
 
     def center_all(self) -> None:
-        self.joystick_left.set_position()
-        self.joystick_right.set_position()
+        self.joystick_left.set_deflection()
+        self.joystick_right.set_deflection()
         self.slider.set(self.slider_default_value)
 
-    def center_velocity_sticks(self) -> None:
+    def center_walking_sticks(self) -> None:
         """Centers the two velocity sticks and keeps the height slider: the command of a robot that stands still."""
-        self.joystick_left.set_position()
-        self.joystick_right.set_position()
+        self.joystick_left.set_deflection()
+        self.joystick_right.set_deflection()
 
     def publishes_walking_commands(self) -> bool:
         """Whether the GUI publishes the walking command (the "Publish walking commands" checkbox)."""
@@ -687,42 +693,62 @@ class App(tk.Tk):
         """Ticks or unticks the "Publish walking commands" checkbox."""
         self.walking_commands_var.set(publishes)
 
-    def set_default_pelvis_height(self, height: float) -> None:
+    def set_nom_pos_base_rt_surface_ewrt_world_z(self, height: float) -> None:
         """Centers the height slider on `height` [m] and moves it there."""
-        self.default_pelvis_height = height
-        self.max_height = max(1.3, height + 0.3)
-        self.height_scale = (self.max_height - self.min_height) / 100.0
+        self.nom_pos_base_rt_surface_ewrt_world_z = height
+        self.cmd_max_pos_base_rt_surface_ewrt_world_z = max(1.3, height + 0.3)
+        self.cmd_step_pos_base_rt_surface_ewrt_world_z = (
+            self.cmd_max_pos_base_rt_surface_ewrt_world_z
+            - self.cmd_min_pos_base_rt_surface_ewrt_world_z
+        ) / 100.0
         self.slider_default_value = (
-            height - self.min_height
-        ) / self.height_scale
+            height - self.cmd_min_pos_base_rt_surface_ewrt_world_z
+        ) / self.cmd_step_pos_base_rt_surface_ewrt_world_z
         self.slider.set(self.slider_default_value)
 
     def slider_height(self) -> float:
         """The pelvis height the height slider commands [m]."""
-        return self.slider.get() * self.height_scale + self.min_height
+        return (
+            self.slider.get() * self.cmd_step_pos_base_rt_surface_ewrt_world_z
+            + self.cmd_min_pos_base_rt_surface_ewrt_world_z
+        )
 
-    def move_default_pelvis_height(self, height: float) -> None:
+    def move_nom_pos_base_rt_surface_ewrt_world_z(self, height: float) -> None:
         """Centers the height slider on `height` [m], keeping the slider as far from the default as it was.
 
         Centering and auto-centering then return to the new default, and a height the operator set keeps its offset
-        (moved_pelvis_height()).
+        (moved_cmd_pos_base_rt_surface_ewrt_world_z()).
 
         Args:
           height: The new default pelvis height [m].
         """
-        target = moved_pelvis_height(
-            self.slider_height(), self.default_pelvis_height, height
+        cmd_pos_base_rt_surface_ewrt_world_z = (
+            moved_cmd_pos_base_rt_surface_ewrt_world_z(
+                self.slider_height(),
+                self.nom_pos_base_rt_surface_ewrt_world_z,
+                height,
+            )
         )
-        self.set_default_pelvis_height(height)
+        self.set_nom_pos_base_rt_surface_ewrt_world_z(height)
         self.slider.set(
-            min(100.0, max(0.0, (target - self.min_height) / self.height_scale))
+            min(
+                100.0,
+                max(
+                    0.0,
+                    (
+                        cmd_pos_base_rt_surface_ewrt_world_z
+                        - self.cmd_min_pos_base_rt_surface_ewrt_world_z
+                    )
+                    / self.cmd_step_pos_base_rt_surface_ewrt_world_z,
+                ),
+            )
         )
 
     def poll_reference_file(self) -> None:
-        """Follows the reference file's nom_pos_base_rt_world_ewrt_world_z when the file changed since the last call.
+        """Follows the reference file's nom_pos_base_rt_surface_ewrt_world_z when the file changed since the last call.
 
         A change - the Command Limits tab's Save, an editor's, push_robot_config's file - moves the default pelvis height
-        to the file's (move_default_pelvis_height()), unless the command line set it; a file that names none or cannot
+        to the file's (move_nom_pos_base_rt_surface_ewrt_world_z()), unless the command line set it; a file that names none or cannot
         be read keeps it. For the GUI's tick (OperatorGui) and the tab's Save.
         """
         mtime = _modification_time(self.reference_file)
@@ -731,11 +757,12 @@ class App(tk.Tk):
         self._reference_file_mtime = mtime
         if not self.follows_reference_file_default or not self.reference_file:
             return
-        height = config_files.read_default_pelvis_height(
-            self.reference_file, fallback=self.default_pelvis_height
+        height = config_files.read_nom_pos_base_rt_surface_ewrt_world_z(
+            self.reference_file,
+            fallback=self.nom_pos_base_rt_surface_ewrt_world_z,
         )
-        if height != self.default_pelvis_height:
-            self.move_default_pelvis_height(height)
+        if height != self.nom_pos_base_rt_surface_ewrt_world_z:
+            self.move_nom_pos_base_rt_surface_ewrt_world_z(height)
 
     def poll_tuning_files(self) -> None:
         """Polls the tuning tabs' files for disk modifications, re-rendering and republishing if changed."""
@@ -743,19 +770,22 @@ class App(tk.Tk):
         self.joint_pd_tab.poll_files()
         self.command_limits_tab.poll_files()
 
-    def set_knob_positions(
+    def set_knob_deflections(
         self, msg: walking_velocity_command_pb2.WalkingVelocityCommand
     ) -> None:
-        self.joystick_left.set_position(
-            msg.cmd_linvel_base_rt_world_ewrt_heading_x,
-            msg.cmd_linvel_base_rt_world_ewrt_heading_y,
+        self.joystick_left.set_deflection(
+            msg.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x,
+            msg.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y,
         )
-        self.joystick_right.set_position(
-            0.0, msg.cmd_angvel_base_rt_world_ewrt_world_z
+        self.joystick_right.set_deflection(
+            0.0, msg.cmd_lnorm_angvel_base_rt_world_ewrt_world_z
         )
         self.slider.set(
-            (msg.cmd_pos_base_rt_world_ewrt_world_z - self.min_height)
-            / self.height_scale
+            (
+                msg.cmd_pos_base_rt_surface_ewrt_world_z
+                - self.cmd_min_pos_base_rt_surface_ewrt_world_z
+            )
+            / self.cmd_step_pos_base_rt_surface_ewrt_world_z
         )
 
     def get_walking_command_msg(
@@ -763,32 +793,39 @@ class App(tk.Tk):
     ) -> walking_velocity_command_pb2.WalkingVelocityCommand:
         """The command of the on-screen sticks and the height slider."""
         return operator_bus.walking_velocity_command(
-            cmd_linvel_base_rt_world_ewrt_heading_x=self.joystick_left.x_norm,
-            cmd_linvel_base_rt_world_ewrt_heading_y=self.joystick_left.y_norm,
-            cmd_angvel_base_rt_world_ewrt_world_z=self.joystick_right.y_norm,
-            cmd_pos_base_rt_world_ewrt_world_z=self.slider.get()
-            * self.height_scale
-            + self.min_height,
+            cmd_lnorm_linvel_base_rt_world_ewrt_heading_x=self.joystick_left.x_norm,
+            cmd_lnorm_linvel_base_rt_world_ewrt_heading_y=self.joystick_left.y_norm,
+            cmd_lnorm_angvel_base_rt_world_ewrt_world_z=self.joystick_right.y_norm,
+            cmd_pos_base_rt_surface_ewrt_world_z=self.slider.get()
+            * self.cmd_step_pos_base_rt_surface_ewrt_world_z
+            + self.cmd_min_pos_base_rt_surface_ewrt_world_z,
         )
 
 
-def moved_pelvis_height(
-    height: float, old_default: float, new_default: float
+def moved_cmd_pos_base_rt_surface_ewrt_world_z(
+    height: float,
+    prev_nom_pos_base_rt_surface_ewrt_world_z: float,
+    nom_pos_base_rt_surface_ewrt_world_z: float,
 ) -> float:
-    """The commanded pelvis height `height` [m] after the default it was set from moved from `old_default` to `new_default`.
+    """The commanded pelvis height `height` [m] after the default it was set from moved.
+
+    The default moved from `prev_nom_pos_base_rt_surface_ewrt_world_z` to `nom_pos_base_rt_surface_ewrt_world_z`.
 
     The operator's offset from the default is kept: a height at the default follows it, and one set 5 cm below it stays
     5 cm below the new one.
 
     Args:
       height: The commanded height [m].
-      old_default: The default it was set from [m].
-      new_default: The default it follows [m].
+      prev_nom_pos_base_rt_surface_ewrt_world_z: The default it was set from [m].
+      nom_pos_base_rt_surface_ewrt_world_z: The default it follows [m].
 
     Returns:
       The height to command [m].
     """
-    return height + (new_default - old_default)
+    return height + (
+        nom_pos_base_rt_surface_ewrt_world_z
+        - prev_nom_pos_base_rt_surface_ewrt_world_z
+    )
 
 
 def _modification_time(path: str) -> float | None:
@@ -896,7 +933,9 @@ class OperatorGui:
         # Whether the controller's command moved the on-screen sticks: they are centered when it goes away.
         self._gamepad_drives_sticks = False
         # The App's default pelvis height the controller's target last followed [m].
-        self._default_pelvis_height = app.default_pelvis_height
+        self._prev_nom_pos_base_rt_surface_ewrt_world_z = (
+            app.nom_pos_base_rt_surface_ewrt_world_z
+        )
         app.set_fsm_command_callback(bus.fsm_command.send)
         app.set_publishes_walking_commands(
             walking_commands is WalkingCommands.PUBLISH
@@ -918,7 +957,7 @@ class OperatorGui:
                 self._operator_bus.walking_velocity_command.publish(command)
         elif self._published_walking_command:
             # Handed to a teleoperation publisher: the MPC keeps the last command it received, so the last one stops.
-            self._app.center_velocity_sticks()
+            self._app.center_walking_sticks()
             self._gamepad_drives_sticks = False
             self._operator_bus.walking_velocity_command.publish(
                 self._app.get_walking_command_msg()
@@ -931,16 +970,21 @@ class OperatorGui:
         """The walking command of this tick: the Xbox controller's while one is read, the App's otherwise."""
         gamepad = self._gamepad
         default_moved = (
-            self._app.default_pelvis_height != self._default_pelvis_height
+            self._app.nom_pos_base_rt_surface_ewrt_world_z
+            != self._prev_nom_pos_base_rt_surface_ewrt_world_z
         )
-        self._default_pelvis_height = self._app.default_pelvis_height
+        self._prev_nom_pos_base_rt_surface_ewrt_world_z = (
+            self._app.nom_pos_base_rt_surface_ewrt_world_z
+        )
         if gamepad is not None and gamepad.connected:
             if not self._gamepad_drives_sticks or default_moved:
                 # The controller starts from the height the slider shows, which a moved default has moved.
-                gamepad.set_pelvis_height_target(self._app.slider_height())
+                gamepad.set_cmd_pos_base_rt_surface_ewrt_world_z(
+                    self._app.slider_height()
+                )
             command = gamepad.tick()
             if command is not None:
-                self._app.set_knob_positions(command)
+                self._app.set_knob_deflections(command)
                 self._app.set_joystick_connected(True)
                 self._gamepad_drives_sticks = True
                 return command
@@ -950,7 +994,7 @@ class OperatorGui:
             gamepad.tick()
         if self._gamepad_drives_sticks:
             # The controller that held the sticks went away: its last deflection must not keep walking the robot.
-            self._app.center_velocity_sticks()
+            self._app.center_walking_sticks()
             self._gamepad_drives_sticks = False
         self._app.set_joystick_connected(False)
         return self._app.get_walking_command_msg()
@@ -1024,11 +1068,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--default_pelvis_height",
+        dest="nom_pos_base_rt_surface_ewrt_world_z",
         type=float,
         default=None,
         help=(
             "the height slider's default [m] (default: the reference file's"
-            " nom_pos_base_rt_world_ewrt_world_z)"
+            " nom_pos_base_rt_surface_ewrt_world_z)"
         ),
     )
     parser.add_argument(
@@ -1046,14 +1091,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _make_gamepad(
-    initial_pelvis_height: float,
+    init_cmd_pos_base_rt_surface_ewrt_world_z: float,
 ) -> xbox_controller_interface.GamepadPoller | None:
-    """The Xbox controller's poller, its pelvis height target at `initial_pelvis_height` [m], or None when pygame cannot run here."""
+    """The Xbox controller's poller, or None when pygame cannot run here.
+
+    Args:
+      init_cmd_pos_base_rt_surface_ewrt_world_z: The pelvis height target the controller starts from [m].
+
+    Returns:
+      The poller, or None when pygame is missing or fails to start.
+    """
     try:
         # Imports pygame (xbox_controller_interface.PygameJoystickBackend), which may be missing or fail to start.
         controller = xbox_controller_interface.XBoxControllerInterface(
             teleop.WALKING_COMMAND_RATE_HZ,
-            initial_pelvis_height=initial_pelvis_height,
+            init_cmd_pos_base_rt_surface_ewrt_world_z=init_cmd_pos_base_rt_surface_ewrt_world_z,
         )
     # pylint: disable-next=broad-exception-caught  # The GUI works without a controller.
     except Exception as error:
@@ -1134,12 +1186,16 @@ def main(argv: list[str] | None = None) -> int:
         ),
         viewer_launcher=viewer,
     )
-    if args.default_pelvis_height is None:
-        app.set_default_pelvis_height(
-            config_files.read_default_pelvis_height(files.reference_file)
+    if args.nom_pos_base_rt_surface_ewrt_world_z is None:
+        app.set_nom_pos_base_rt_surface_ewrt_world_z(
+            config_files.read_nom_pos_base_rt_surface_ewrt_world_z(
+                files.reference_file
+            )
         )
     else:
-        app.set_default_pelvis_height(args.default_pelvis_height)
+        app.set_nom_pos_base_rt_surface_ewrt_world_z(
+            args.nom_pos_base_rt_surface_ewrt_world_z
+        )
         app.follows_reference_file_default = False
 
     gui = OperatorGui(

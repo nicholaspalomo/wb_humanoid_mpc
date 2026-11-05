@@ -64,8 +64,8 @@ One covers what the controller does when the plant jumps:
 
 * [mpc_reset](mpc_reset/README.md) - the full reset of the MPC (solver, reference manager, gait schedule, contact
   planner, command ramps, the MRT's policy buffer), when the MRT joint controllers reset and hold the robot, how
-  repeated solver failures back off, the gantry catch and settle sequence of the MuJoCo sims (`sim_max_base_tilt_angle`,
-  `sim_gantry_catch_lift`), and the swing-foot yaw residual that was not differentiable at the reset pose.
+  repeated solver failures back off, the gantry catch and settle sequence of the MuJoCo sims (`sim_max_tiltangle_base_rt_world`,
+  `sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z`), and the swing-foot yaw residual that was not differentiable at the reset pose.
 
 One covers how both MPCs represent the attitude of the floating base:
 
@@ -120,7 +120,7 @@ at the end of the horizon depends on where in the gait cycle the horizon ends.
 
 The DCM terminal cost replaces it with the physically meaningful quantity. At the terminal time $T$ it penalizes
 
-$$\ell_T(\mathbf{x}_T) = \tfrac{1}{2}\, \big(\boldsymbol{\xi}_T - \boldsymbol{\xi}^{\mathrm{ref}}_T\big)^\top W \big(\boldsymbol{\xi}_T - \boldsymbol{\xi}^{\mathrm{ref}}_T\big),
+$$\ell_T(\mathbf{x}_T) = \tfrac{1}{2}\, \big(\boldsymbol{\xi}_T - \boldsymbol{\xi}^{\mathrm{ref}}_T\big)^\top R_z(\psi) W R_z(\psi)^\top \big(\boldsymbol{\xi}_T - \boldsymbol{\xi}^{\mathrm{ref}}_T\big),
 \qquad
 \boldsymbol{\xi}^{\mathrm{ref}}_T = \mathbf{p}_{\mathrm{support}}(\mathbf{q}_T) + \beta \frac{\mathbf{v}_{\mathrm{cmd}}}{\omega},$$
 
@@ -133,6 +133,10 @@ Without a plan the support-center reference below stands.
 
 where
 
+* $W = \mathrm{diag}(w_x, w_y)$ weighs the longitudinal and the lateral DCM error: $R_z(\psi)^\top$ turns the world-axis
+  error into the axes of the heading frame, whose yaw $\psi$ is the base heading of the target trajectories at $T$
+  (0 without a target). $\psi$ is a parameter, not a function of the state, so the Gauss-Newton Hessian below has no
+  term from it, and with $w_x = w_y$ the cost does not depend on $\psi$;
 * $\boldsymbol{\xi}_T = \mathbf{c}_{xy}(\mathbf{q}_T) + \mathbf{h}_{xy}(\mathbf{x}_T)/\omega$ is evaluated on the full model: the CoM position
   from the kinematics and the CoM velocity from the normalized linear momentum in the centroidal state;
 * $\mathbf{p}_{\mathrm{support}}$ is the weighted center of the contact frames of the feet in contact at $T$ according to the
@@ -140,7 +144,7 @@ where
   linearly to 0 over `support_blend_time` before its lift-off and after its touch-down (both feet as a fallback in flight).
   Without the blending the reference would jump by half the step width every time the receding horizon end crosses a
   mode switch, which with a weight of several hundred is a visible disturbance at every solve;
-* $\mathbf{v}_{\mathrm{cmd}}$ is the commanded CoM velocity from the target trajectories and $\beta$ (`velocity_offset_factor`)
+* $\mathbf{v}_{\mathrm{cmd}}$ is the commanded CoM velocity from the target trajectories and $\beta$ (`velocity_command_offset_factor`)
   scales the offset. With $\beta = 0$ the cost demands pure capturability (the robot can stop over its feet). With
   $\beta = 1$ the reference is the DCM of a CoM that moves at the commanded speed over the support point
   ($\dot{\mathbf{c}} = \omega(\boldsymbol{\xi} - \mathbf{c}) = \mathbf{v}_{\mathrm{cmd}}$), so a steady walk is not decelerated by the
@@ -154,16 +158,16 @@ not: which terminal cost the problem ends on is decided when it is built, and a 
 and the `dcm_terminal_cost` block to whichever of the two the running problem carries - the updater asks the running
 problem, never the reloaded file - with a warning when the reloaded file selects the other one.
 
-$z_c$ is the robot's own by default: a block without `com_height`, as both shipped robots write it, has the model's
-center of mass above the mean height of its soles at the task file's `initial_state` (`computeComHeightAboveFeet`, the
-one definition of the pendulum length that the contact planner's `shared` block without `com_height` and the locomotion
+$z_c$ is the robot's own by default: a block without `nom_pos_com_rt_feetmean_ewrt_world_z`, as both shipped robots write it, has the model's
+center of mass above the mean height of its soles at the task file's `initial_state` (`computeProxyPosComRtFeetmeanEwrtWorldZ`, the
+one definition of the pendulum length that the contact planner's `shared` block without `nom_pos_com_rt_feetmean_ewrt_world_z` and the locomotion
 heuristics resolve too, so they cannot disagree). `DcmTerminalCost::Create` is given that height by
 `CentroidalMpcInterface` and resolves the absent height to it there and on every hot reload of the block; the interface
 logs the height and $\omega$ at start-up (1.0805 m and 3.01 rad/s on the DRC Atlas, 0.6124 m and 4.00 rad/s on the
-SA01). A positive `com_height` is an explicit override. $g$ is not a key: the cost, the contact planner and the
+SA01). A positive `nom_pos_com_rt_feetmean_ewrt_world_z` is an explicit override. $g$ is not a key: the cost, the contact planner and the
 locomotion heuristics take it from the robot model (the magnitude of the Pinocchio model's gravity, which
 `testShippedRobotGravity` pins to the dynamics' `kGravityMagnitude` and to every MuJoCo scene's
-`opt.gravity`), so no pendulum can run on another gravity than the dynamics. A `com_height` of 0 or less (0 meant "the model's" before the
+`opt.gravity`), so no pendulum can run on another gravity than the dynamics. A `nom_pos_com_rt_feetmean_ewrt_world_z` of 0 or less (0 meant "the model's" before the
 field was optional) and a negative weight are refused with a Status naming the field, at
 start-up and on a reload, which then keeps the running cost.
 
@@ -171,10 +175,10 @@ start-up and on a reload, which then keeps the running cost.
 costs: "state_quadratic_cost"  # ... the other entries of the list
 costs: "dcm_terminal_cost"     # in place of terminal_cost; start-up refuses a list that names both
 dcm_terminal_cost {
-  # com_height [m]: z_c for omega; left out, the model's center of mass above its feet at initial_state
-  weight_x: 400                # W = diag(weight_x, weight_y)
+  # nom_pos_com_rt_feetmean_ewrt_world_z [m]: z_c for omega; left out, the model's center of mass above its feet at initial_state
+  weight_x: 400                # W = diag(weight_x, weight_y), longitudinal and lateral in the heading frame
   weight_y: 400
-  velocity_offset_factor: 1.0  # beta
+  velocity_command_offset_factor: 1.0  # beta
   support_blend_time: 0.1      # [s] ramp of the support weights through lift-off / touch-down
 }
 ```
@@ -253,8 +257,10 @@ $$\begin{bmatrix}\mathbf{c}_{k+1}\\ \dot{\mathbf{c}}_{k+1}\end{bmatrix} =
 \begin{bmatrix}1-\cosh(\omega\Delta t)\\ -\omega\sinh(\omega\Delta t)\end{bmatrix}\mathbf{z}_k,
 \qquad \mathbf{p}_{i,k+1} = \mathbf{p}_{i,k} + \delta\mathbf{p}_{i,k}.$$
 
-All geometric constraints are written in the yaw-aligned frame of the base at planning time (unit vectors $\mathbf{e}_x$,
-$\mathbf{e}_y$), so the linear model stays valid for any heading.
+All geometric constraints of node $k$ are written in the yaw-aligned frame of the commanded heading at that node, the base
+yaw at planning time turned by $\omega_{\mathrm{cmd}} k \Delta t$ (unit vectors $\mathbf{e}_{x,k}$, $\mathbf{e}_{y,k}$),
+the frame the command references $\mathbf{v}_{\mathrm{cmd},k}$ are turned into. The axes are fixed per node, so the linear
+model stays valid for any heading.
 
 ### 2.3 Constraints
 
@@ -263,7 +269,7 @@ $\mathbf{e}_y$), so the linear model stays valid for any heading.
 $$|\mathbf{e}_j^\top \delta\mathbf{p}_{i,k}| \le M\,(1 - c_{i,k}).$$
 
 The ZMP must lie in the support region. In single support that is a box of half-widths $(r_x, r_y)$
-(`zmp_support_region.half_width_x` / `.half_width_y`) around the supporting foot; each foot's box is relaxed unless that foot is the
+(`zmp_support_region.max_norm_pos_zmp_rt_foot_ewrt_foot_x` / `.max_norm_pos_zmp_rt_foot_ewrt_foot_y`) around the supporting foot; each foot's box is relaxed unless that foot is the
 *only* contact:
 
 $$\pm \mathbf{e}_j^\top(\mathbf{z}_k - \mathbf{p}_{i,k}) \le r_j + M(1 - c_{i,k}) + M c_{\bar i,k}.$$
@@ -299,9 +305,9 @@ simulation behind its own field, not a correctness repair. See `ZmpSupportRegion
 own `slack` block, e.g. `zmp_support_region.slack.quadratic`, overrides) so that the relaxations always stay feasible and
 an unavoidable violation shows up as cost instead of as a solver failure.
 
-**Kinematics (soft).** Reachability of every foot with respect to the CoM (`reachability.reach_x`, `.reach_y_inner`,
-`.reach_y_outer`), step length $|\mathbf{e}_x^\top(\mathbf{p}_L - \mathbf{p}_R)| \le$ `foot_separation.max_step_length` and step width
-`foot_separation.min_step_width` $\le \mathbf{e}_y^\top(\mathbf{p}_L - \mathbf{p}_R) \le$ `foot_separation.max_step_width`
+**Kinematics (soft).** Reachability of every foot with respect to the CoM (`reachability.max_norm_pos_foot_rt_com_ewrt_heading_x`, `.min_pos_foot_rt_com_ewrt_heading_y`,
+`.max_pos_foot_rt_com_ewrt_heading_y`), step length $|\mathbf{e}_x^\top(\mathbf{p}_L - \mathbf{p}_R)| \le$ `foot_separation.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x` and step width
+`foot_separation.min_pos_lfoot_rt_rfoot_ewrt_heading_y` $\le \mathbf{e}_y^\top(\mathbf{p}_L - \mathbf{p}_R) \le$ `foot_separation.max_pos_lfoot_rt_rfoot_ewrt_heading_y`
 (self-collision margin). These
 rows involve the state alone and are imposed at every node $k = 0 \dots N$, the terminal node included: the foothold of a
 swing that ends at the horizon, $\mathbf{p}_{i,N} = \mathbf{p}_{i,N-1} + \delta\mathbf{p}_{i,N-1}$, is produced by an
@@ -384,26 +390,26 @@ The objective is the `costs` list (quadratic, in the QP) plus the `assignment_co
 logical cost hook). With the terms the shipped files list, and the heading costs of section 2.9 left out,
 
 $$\begin{aligned}
-J = {} & \sum_{k=0}^{N} \Big( w_v \|\dot{\mathbf{c}}_k - \mathbf{v}_{\mathrm{cmd}}\|^2 + w_w\big(\mathbf{e}_y^\top(\mathbf{p}_{L,k}-\mathbf{p}_{R,k}) - w_{\mathrm{nom}}\big)^2
+J = {} & \sum_{k=0}^{N} \Big( w_v \|\dot{\mathbf{c}}_k - \mathbf{v}_{\mathrm{cmd},k}\|^2 + w_w\big(\mathbf{e}_y^\top(\mathbf{p}_{L,k}-\mathbf{p}_{R,k}) - w_{\mathrm{nom}}\big)^2
  + w_f \sum_i \|\mathbf{p}_{i,k} - \mathbf{p}^{\mathrm{prev}}_{i,k}\|^2 \Big) \\
 & + \sum_{k=0}^{N-1} \Big( w_z\|\mathbf{z}_k - \mathbf{c}_k\|^2 + w_p \sum_i \|\delta\mathbf{p}_{i,k}\|^2
- + w_\ell \sum_i \big\|\delta\mathbf{p}_{i,k} - \mathbf{d}_{\mathrm{nom}} (1 - c_{i,k})\big\|^2 \Big)
+ + w_\ell \sum_i \big\|\delta\mathbf{p}_{i,k} - \mathbf{d}_{\mathrm{nom},k} (1 - c_{i,k})\big\|^2 \Big)
  + w_T\, \big\|\boldsymbol{\xi}_N - \mathbf{z}_{N-1} - \mathbf{r}\big\|^2 \\
 & + w_s\, n_{\mathrm{switch}} + w_c\, n_{\mathrm{changed}} + w_d\, n_{\mathrm{double}} + \text{regularization},
 \end{aligned}$$
 
-with, term by term: `velocity_tracking` ($w_v$), `step_width` ($w_w$, `step_width.nominal_step_width`),
+with, term by term: `velocity_tracking` ($w_v$, against $\mathbf{v}_{\mathrm{cmd},k} = R_z(\omega_{\mathrm{cmd}} k \Delta t)\,\mathbf{v}_{\mathrm{cmd}}$, the command captured at the planning instant turned with the commanded heading as the operator's target turns it, with or without the heading model), `step_width` ($w_w$, `step_width.nom_pos_lfoot_rt_rfoot_ewrt_heading_y`),
 `previous_foothold_consistency` ($w_f$, the previous plan's footholds shifted to the current time, only when a previous
 plan is usable), `zmp_regularization` ($w_z$), `foothold_regularization` ($w_p$), `step_length` ($w_\ell$, the
 displacement $\mathbf{d}_{\mathrm{nom}} = \mathbf{v}_{\mathrm{cmd}}\,\Delta t\, T_{\mathrm{stride}} / T_{\mathrm{swing}}$ a cyclic gait at the
-commanded speed needs per swing node, section 2.7), `terminal_dcm` ($w_T$), and the assignment costs `contact_switch`
+commanded speed needs per swing node, $\mathbf{d}_{\mathrm{nom},k}$ the same turned by $\omega_{\mathrm{cmd}} k \Delta t$, section 2.7), `terminal_dcm` ($w_T$), and the assignment costs `contact_switch`
 ($n_{\mathrm{switch}}$ counts lift-off and touch-down events), `plan_consistency` ($n_{\mathrm{changed}}$ counts the decided
 nodes whose contact differs from the previous plan) and `double_support_penalty` ($n_{\mathrm{double}}$ counts the nodes
 with both feet down). `regularization` adds a small multiple of the identity to every stage's Hessian.
 
 The terminal term is the same terminal capturability idea as in section 1, on the reduced model. Its target is
 $\mathbf{r} = 0$, a DCM that comes to rest over the last ZMP (`terminal_dcm.target: "rest"`), or with
-`terminal_dcm.target: "commanded_velocity"` $\mathbf{r} = \mathbf{v}_{\mathrm{cmd}}/\omega$, the DCM offset of a CoM that keeps moving at the commanded velocity over the foot.
+`terminal_dcm.target: "commanded_velocity"` $\mathbf{r} = \mathbf{v}_{\mathrm{cmd},N}/\omega$ (the command of node $N$, where $\boldsymbol{\xi}_N$ is), the DCM offset of a CoM that keeps moving at the commanded velocity over the foot.
 The terminal node has no ZMP, so the term is written on the last running node: with
 $\boldsymbol{\xi}_N - \mathbf{z}_{N-1} = e^{\omega \Delta t}(\boldsymbol{\xi}_{N-1} - \mathbf{z}_{N-1})$ it is exactly
 $w_T e^{2\omega\Delta t} \|\boldsymbol{\xi}_{N-1} - \mathbf{z}_{N-1} - e^{-\omega\Delta t}\mathbf{r}\|^2$, a quadratic function of
@@ -481,7 +487,8 @@ $\Delta t = 0.1$ s.)
   pattern. Three pieces make the gait progressive and cyclic instead: `cmd_max_linacc_base_rt_world_ewrt_heading_xy` /
   `cmd_max_angacc_base_rt_world_ewrt_world_z` in `command/reference.textproto` rate-limit the velocity reference the MPC target and the planner
   follow (0 = off); the `step_length` cost draws every swing to the displacement a cyclic gait at the commanded speed
-  needs, `d_nom = v_cmd dt T_stride / T_swing` at the nominal cadence of the gait limits, with the residual affine in
+  needs, `d_nom = v_cmd dt T_stride / T_swing` at the nominal cadence of the gait limits, rotated about z by
+  `omega_cmd k dt` at node k so that the steps follow a turning command, with the residual affine in
   the foot displacement and the relaxed contact binary; and `terminal_dcm.target: "commanded_velocity"` moves the terminal
   target of the terminal DCM $\boldsymbol{\xi}_N$ from the last ZMP (a stop at the end of the horizon, which shortens the
   steps at speed) to `zmp + v_cmd / omega`, a CoM over the foot that keeps walking. `planner.log_plans` prints one line per plan with the
@@ -496,7 +503,7 @@ $\Delta t = 0.1$ s.)
 * `shared.gait_limits.min_swing_duration` / `max_swing_duration` / `min_contact_duration` are the main shape parameters of
   the gait. `shared.gait_limits.max_contact_duration` forces stepping even without a command (leave at 0 to allow
   standing).
-* `zmp_support_region.half_width_x` / `.half_width_y` should stay inside the physical foot (the NMPC enforces the real wrench cone); a
+* `zmp_support_region.max_norm_pos_zmp_rt_foot_ewrt_foot_x` / `.max_norm_pos_zmp_rt_foot_ewrt_foot_y` should stay inside the physical foot (the NMPC enforces the real wrench cone); a
   smaller box makes the planner step earlier under disturbances. 0 takes the sole's footprint from the model.
 * `contact_switch.cost` trades stepping against ankle strategy; `terminal_dcm.weight` makes plans end capturable.
 * Raise `shared.slack_penalty.quadratic` (or a term's own `slack.quadratic`) if plans exploit the soft support region.
@@ -527,7 +534,9 @@ Each correction changes the closed loop, and with none listed the reference mana
 before they existed, which is the behavior every gait is tuned against. Enable one at a time and validate it in
 simulation. They are execution rules of the `execution` list of `contact_planning.textproto`, each with a parameter block of
 its own (`phase_resetting` must precede `energy_cadence_modulation` when both are listed, because an early touch-down
-ends a swing before the cadence rule may re-time it). The snippet below shows `phase_resetting` enabled, as an example
+ends a swing before the cadence rule may re-time it; `planned_heading_override` must precede `planned_com_override`,
+because the center-of-mass override turns the measured offset by the base yaw the heading override writes;
+validation rejects either pair in the other order). The snippet below shows `phase_resetting` enabled, as an example
 of opting one in; it is not the shipped list:
 
 ```textproto
@@ -550,7 +559,7 @@ energy_cadence_modulation {
 }
 dcm_step_adjustment {
   gain: 0.5                                   # 1 = exact LIP compensation of the DCM error at touch-down
-  max_offset: 0.05                            # [m] bound on the landing target offset (also clipped to the reachable region)
+  max_norm_err_pos_foot_rt_world_ewrt_world_xy: 0.05   # [m] bound on the norm of the landing target's horizontal offset (also clipped to the reachable region)
 }
 ```
 
@@ -601,7 +610,7 @@ patch is the landing pose of the swing in flight (the plan's foothold at its tou
 a translucent one is the landing pose of the foot's next swing, and a faint outline marks a foot with no upcoming swing
 at its current placement. The arrow is the patch's x axis, i.e. its yaw: the planned landing yaw with the heading model
 (`heading_double_integrator` in `dynamics`) and the measured foot yaw without it. The poses are the ones the reference manager computed at its
-last solve (`ContactPlanningReferenceManager::getTargetContactPoses`), so they move whenever a new plan or a contact
+last solve (`ContactPlanningReferenceManager::getDesPoseFeetRtWorld`), so they move whenever a new plan or a contact
 event re-times the schedule.
 
 Three centroidal markers put the reduced model the planner reasons with next to the physics: `center_of_mass` (`o`)
@@ -666,8 +675,8 @@ it), and moving the foothold by exactly that amount restores the planned DCM off
 $$\mathbf{p}^{\mathrm{adj}}_{\mathrm{land}} = \mathbf{p}^{\mathrm{nom}}_{\mathrm{land}} + K_{\mathrm{dcm}}\, e^{\omega (t_{\mathrm{TD}} - t)}\, \Delta\boldsymbol{\xi}(t),$$
 
 with $K_{\mathrm{dcm}} = 1$ the exact LIP compensation (`dcm_step_adjustment.gain`). The offset is limited to
-`dcm_step_adjustment.max_offset` in norm and the adjusted foothold is clipped to the planner's reachable region around the
-planned CoM at touch-down, in the planner's frame at touch-down (`reachability.reach_x`, `.reach_y_inner`, `.reach_y_outer`; with the heading
+`dcm_step_adjustment.max_norm_err_pos_foot_rt_world_ewrt_world_xy` in norm and the adjusted foothold is clipped to the planner's reachable region around the
+planned CoM at touch-down, in the planner's frame at touch-down (`reachability.max_norm_pos_foot_rt_com_ewrt_heading_x`, `.min_pos_foot_rt_com_ewrt_heading_y`, `.max_pos_foot_rt_com_ewrt_heading_y`; with the heading
 model that is the planned heading at the touch-down time, not the heading at the plan's snapshot, which is stale by the
 plan's age while the robot turns), where the side of the foot (left or right of the CoM) is the foot's own, as in the
 planner's reachability rows, so that a foot is never moved across the body. The
@@ -749,9 +758,9 @@ boundary, the warm start surviving a hot reload, and the alternation rule not ju
 
 ### 2.9 Heading model: ACoM dynamics in the planner (`heading_double_integrator`)
 
-The point-mass LIP has no notion of heading. Its foothold frame is the base yaw at planning time, held fixed over the
-horizon, and the planner only receives the commanded linear velocity, so a pure yaw command produces no step at all
-and the robot cannot turn. The heading model is the `heading_double_integrator` block of the `dynamics` list together
+The point-mass LIP has no notion of heading. Its foothold frame is the base yaw at planning time turned open loop by the
+commanded yaw rate (section 2.2): the support geometry follows the command, but no state of the problem is the heading,
+so nothing ties the turn to the yaw torque the feet can apply or to how far the robot has actually turned. The heading model is the `heading_double_integrator` block of the `dynamics` list together
 with its costs (`heading_rate_tracking`, `heading_tracking`, `foot_yaw_tracking`, `yaw_torque_regularization`,
 `foot_yaw_regularization`), its constraints (`hip_yaw_range`, `yaw_torque_budget`, `foot_yaw_pinned_in_contact`), the
 `heading_relinearization` search stage and the `planned_heading_override` execution rule;
@@ -782,8 +791,8 @@ lower_i + delta <= psi_i - theta <= upper_i + delta     hip range (soft, hip_yaw
 
 The heading is driven only by the ground: a point mass's horizontal contact force acts through the ZMP and produces no
 yaw moment about the center of mass, so what remains is the torsional friction of the weight a stance foot carries
-(`torsionalFrictionTorque`, `T_t`, for the whole weight on one foot) and, in double support, the friction couple of the
-two feet (`doubleSupportYawCouple`, `T_c`). With both feet down each carries half the weight and half the couple, so the
+(`maxTorqueFootEwrtFootZ`, `T_t`, for the whole weight on one foot) and, in double support, the friction couple of the
+two feet (`doubleSupportMaxTorqueFeetmeanEwrtWorldZ`, `T_c`). With both feet down each carries half the weight and half the couple, so the
 pair has `T_t + T_c`; granting the full-weight torsion to both feet at once, as an earlier version did, over-estimated
 the double-support budget by `T_t` (78 N m on the DRC Atlas). A turn therefore has to be stepped: the planner rotates
 the foothold frame with the heading, the feet must follow it within hip range, and the yaw torques bound how fast the
@@ -812,7 +821,7 @@ through.
 
 Downstream, the plan carries the heading and the foot yaws per node. The swing-foot reference turns each foot from
 its lift-off yaw to the planned landing yaw with the same profile as the position, and the foot cost tracks that yaw
-through `task_space_foot_cost.weights.orientation_z` (0 by default: not tracked). With the `planned_heading_override`
+through `task_space_foot_cost.weights.rotvec_z` (0 by default: not tracked). With the `planned_heading_override`
 execution rule listed the plan's heading replaces the commanded yaw in the MPC's target trajectory, so that the whole-body controller is
 asked for the turn the ground can support rather than the raw command; with ACoM tracking the reference base yaw is
 set so that the reference ACoM heading equals the planned heading.
@@ -823,20 +832,20 @@ and when the feet go and how fast the heading may change for the ground to carry
 
 **Parameters from the model.** The quantities that are properties of the robot and of the ground rather than tuning
 are not task-file fields: the yaw inertia (composite inertia about the vertical through the center of mass, at every
-plan), `torsionalFrictionTorque` (`torsional_friction_coefficient`, capped at the wrench cone's torsion limit for a
-normal force at the footprint center, times the weight), `doubleSupportYawCouple` (the friction the inscribed pyramid
-admits in every direction, `mu cos(pi/N)`, times half the weight times `step_width.nominal_step_width`) and the
+plan), `maxTorqueFootEwrtFootZ` (`torsional_friction_coefficient`, capped at the wrench cone's torsion limit for a
+normal force at the footprint center, times the weight), `doubleSupportMaxTorqueFeetmeanEwrtWorldZ` (the friction the inscribed pyramid
+admits in every direction, `mu cos(pi/N)`, times half the weight times `step_width.nom_pos_lfoot_rt_rfoot_ewrt_heading_y`) and the
 foot yaw bounds of `hip_yaw_range` (the hip yaw joint limits of every leg, found by walking the kinematic tree up from
 the joint that carries the contact frame to the first revolute joint whose axis is vertical in the world frame at the
 neutral configuration, and mirrored when that axis points down, since the foot yaw is then minus the joint angle; per
 foot and asymmetric, which matters because a hip yaw range is typically much wider outward than inward;
 `deriveHipYawRange`). They are derived once by the interface and applied to every
-planner configuration, including the hot reloads of `contact_planning.textproto`, and logged at start-up. `shared.com_height` and the ZMP
-box stay tunable, a `shared.com_height` left out and a ZMP half width of 0 meaning "from the model": the center of mass
-height above the feet at `initial_state` (`computeComHeightAboveFeet`, the same pendulum a `dcm_terminal_cost` without
-`com_height` resolves to; both shipped robots leave it out, which the conversion marks with the library default of 0 -
+planner configuration, including the hot reloads of `contact_planning.textproto`, and logged at start-up. `shared.nom_pos_com_rt_feetmean_ewrt_world_z` and the ZMP
+box stay tunable, a `shared.nom_pos_com_rt_feetmean_ewrt_world_z` left out and a ZMP half width of 0 meaning "from the model": the center of mass
+height above the feet at `initial_state` (`computeProxyPosComRtFeetmeanEwrtWorldZ`, the same pendulum a `dcm_terminal_cost` without
+`nom_pos_com_rt_feetmean_ewrt_world_z` resolves to; both shipped robots leave it out, which the conversion marks with the library default of 0 -
 a configuration with no model to fill it in must set a positive height, which validation otherwise refuses naming
-`shared.com_height`, and a file that gives 0 is refused as no height), and the sole's footprint from the wrench cone. The friction and footprint come from `contact_wrench_cone_soft_constraint`, so the
+`shared.nom_pos_com_rt_feetmean_ewrt_world_z`, and a file that gives 0 is refused as no height), and the sole's footprint from the wrench cone. The friction and footprint come from `contact_wrench_cone_soft_constraint`, so the
 planner cannot assume more yaw torque than the whole-body constraint would ever allow. That block is read through
 `contactWrenchConeConfigFromConfig`, which requires every one of its geometry fields, so a task file without it
 (the Unitree G1 and R1 configure friction in `friction_force_cone_soft_constraint` only) is refused under
@@ -855,7 +864,7 @@ The file `contact_planning.textproto` mirrors that structure:
 | Field | What it holds |
 | --- | --- |
 | `planner` | properties of the planner itself: `type` (`hlip` or `lip_miqp`), grid (`dt`, `num_nodes`), `commit_time`, `max_commit_extension`, solver budget, threading, `log_plans` (one line per plan: search statistics, phase durations, step lengths) |
-| `shared` | parameters read by more than one term: `gravity`, `com_height`, `big_m`, the default `slack_penalty` of the soft constraints, the `gait_limits` |
+| `shared` | parameters read by more than one term: `gravity`, `nom_pos_com_rt_feetmean_ewrt_world_z`, `big_m`, the default `slack_penalty` of the soft constraints, the `gait_limits` |
 | `dynamics` | model blocks, in the order that fixes the variable layout: `lip_com`, `foothold_integrator` (mandatory, always first), `heading_double_integrator` |
 | `costs` | in the accumulation order of the stage matrices: `regularization`, `previous_foothold_consistency`, `velocity_tracking`, `step_width`, the heading costs, `zmp_regularization`, `foothold_regularization`, `step_length`, `terminal_dcm` |
 | `soft_constraints` | `zmp_support_region`, `reachability`, `foot_separation`, `hip_yaw_range`; each may carry a `slack` block that overrides the shared penalty |

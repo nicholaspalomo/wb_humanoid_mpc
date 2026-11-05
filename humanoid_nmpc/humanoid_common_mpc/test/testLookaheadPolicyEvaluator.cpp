@@ -36,15 +36,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerBase.h"
 #include "ocs2_core/control/FeedforwardController.h"
 #include "ocs2_core/control/LinearController.h"
 #include "ocs2_core/control/ManifoldLinearController.h"
 #include "ocs2_core/manifold/ProductStateManifold.h"
+#include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_core/manifold/StateManifoldSegment.h"
 #include "ocs2_core/misc/LinearInterpolation.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_common_mpc/mrt/LookaheadPolicyEvaluator.h"
+#include "humanoid_mpc_ipc/MpcMessageConversions.h"
 #include "humanoid_mpc_ipc/RealtimePolicyEvaluator.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
@@ -80,8 +85,9 @@ ipc::ModelDimensions dimensions() {
 
 scalar_array_t nodeTimes() {
   scalar_array_t times;
-  for (size_t k = 0; k < kNodes; ++k)
+  for (size_t k = 0; k < kNodes; ++k) {
     times.push_back(static_cast<scalar_t>(k) * kNodeSpacing);
+  }
   return times;
 }
 
@@ -120,8 +126,9 @@ matrix_array_t randomGains(Eigen::Index columns, std::mt19937& generator) {
   matrix_array_t gains;
   for (size_t k = 0; k < kNodes; ++k) {
     matrix_t gain(static_cast<Eigen::Index>(kInputDim), columns);
-    for (Eigen::Index i = 0; i < gain.size(); ++i)
+    for (Eigen::Index i = 0; i < gain.size(); ++i) {
       gain.data()[i] = normal(generator);
+    }
     gains.push_back(gain);
   }
   return gains;
@@ -235,8 +242,9 @@ TEST(LookaheadPolicyEvaluator,
       const vector_t planLater =
           LinearInterpolation::interpolate(later, states);
       vector_t measured = planNow;
-      for (Eigen::Index i = 0; i < measured.size(); ++i)
+      for (Eigen::Index i = 0; i < measured.size(); ++i) {
         measured(i) += normal(generator);
+      }
       const vector_t biasLater =
           LinearInterpolation::interpolate(later, biases);
       const matrix_t gainLater = LinearInterpolation::interpolate(later, gains);

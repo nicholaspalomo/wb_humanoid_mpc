@@ -44,12 +44,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/cost/StateCost.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
+#include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 
 namespace ocs2::humanoid {
@@ -208,9 +216,11 @@ ComAndAcomTrackingCost* absl_nonnull ComAndAcomTrackingCost::clone() const {
   return new ComAndAcomTrackingCost(*this);
 }
 
-vector4_t ComAndAcomTrackingCost::acomAttitudeOf(const vector_t& state) const {
-  return acom_->acomAttitude(mpcRobotModelPtr_->getQuatBaseRtWorldXyzw(state),
-                             mpcRobotModelPtr_->getJointAngles(state));
+vector4_t ComAndAcomTrackingCost::computeQuatAcomRtWorldXyzw(
+    const vector_t& state) const {
+  return acom_->computeQuatAcomRtWorldXyzw(
+      mpcRobotModelPtr_->getQuatBaseRtWorldXyzw(state),
+      mpcRobotModelPtr_->getJointAngles(state));
 }
 
 scalar_t ComAndAcomTrackingCost::getValue(
@@ -235,8 +245,8 @@ scalar_t ComAndAcomTrackingCost::getValue(
       pinocchio::centerOfMass(pinocchioModel, pinocchioData, qRef);
   const vector3_t err_pos_com_rt_world_ewrt_world =
       pos_com_rt_world_ewrt_world - ref_pos_com_rt_world_ewrt_world;
-  const vector3_t theta_err =
-      headingTiltResidual(acomAttitudeOf(state), acomAttitudeOf(stateRef));
+  const vector3_t theta_err = headingTiltResidual(
+      computeQuatAcomRtWorldXyzw(state), computeQuatAcomRtWorldXyzw(stateRef));
 
   return 0.5 * err_pos_com_rt_world_ewrt_world.dot(
                    Q_com_ * err_pos_com_rt_world_ewrt_world) +
@@ -295,9 +305,9 @@ ComAndAcomTrackingCost::getQuadraticApproximation(
   // step of the orientation slots. Nothing else in the state moves the ACoM.
   const vector_t qJoints = mpcRobotModelPtr_->getJointAngles(state);
   const HeadingTiltError acomError = headingTiltError(
-      acom_->acomAttitude(mpcRobotModelPtr_->getQuatBaseRtWorldXyzw(state),
-                          qJoints),
-      acomAttitudeOf(stateRef));
+      acom_->computeQuatAcomRtWorldXyzw(
+          mpcRobotModelPtr_->getQuatBaseRtWorldXyzw(state), qJoints),
+      computeQuatAcomRtWorldXyzw(stateRef));
   const AcomAttitudeTangentJacobian acomTangent =
       acom_->acomAttitudeTangentJacobian(qJoints);
   const matrix_t baseRotationTangentJacobian =

@@ -76,9 +76,10 @@ class TermCollection {
    * leaves the collection unchanged.
    */
   absl::Status add(std::string name, TermPtr term) {
-    if (term == nullptr)
+    if (term == nullptr) {
       return absl::InvalidArgumentError(
           absl::StrCat("[TermCollection] term '", name, "' is null"));
+    }
     if (indexByName_.contains(name)) {
       return absl::InvalidArgumentError(absl::StrCat(
           "[TermCollection] term '", name, "' is already in the collection"));

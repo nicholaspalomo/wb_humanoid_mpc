@@ -38,12 +38,12 @@ with two chances to get the sign wrong.
 
 ANGLE CONVENTIONS, which are the thing most easily misread:
 
-* `azimuth_deg` is the angle about the world z axis, measured in the robot's OWN yaw frame, giving the direction the
-  ball is thrown FROM. 0 deg is straight ahead of the robot, +90 deg is to its left, 180 deg is behind it. Measuring
-  it in the robot's frame rather than the world's is what makes "hit it from the front" mean the same thing wherever
-  the robot happens to be facing.
-* `elevation_deg` is the angle out of the horizontal plane, again of the spawn point rather than of the velocity.
-  0 deg spawns level with the base, +45 deg spawns above it and throws downwards, -20 deg spawns below it and throws
+* `cmd_azimuth_ball_rt_base_ewrt_heading` is the angle about the world z axis, measured in the robot's OWN yaw frame,
+  giving the direction the ball is thrown FROM. 0 deg is straight ahead of the robot, +90 deg is to its left, 180 deg
+  is behind it. Measuring it in the robot's frame rather than the world's is what makes "hit it from the front" mean
+  the same thing wherever the robot happens to be facing.
+* `cmd_elevation_ball_rt_base_ewrt_heading` is the angle out of the horizontal plane, again of the spawn point rather
+  than of the velocity. 0 deg spawns level with the base, +45 deg spawns above it and throws downwards, -20 deg spawns below it and throws
   upwards. The name is `elevation` rather than "the angle about the x-y axes" because a single angle out of the
   horizontal plane is what that describes once the azimuth has fixed which vertical plane we are in.
 """
@@ -70,9 +70,9 @@ DEFAULT_BALL_MASS_KG = 0.45
 # LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/Projectile.cpp:dodgeball_properties)
 
 #: [m/s^2] Gravity the flight is computed under. The launch velocity is lifted so that the ball's BALLISTIC path
-#: passes through the base, rather than pointing straight at it and landing low - see `launch_velocity`. The simulator
-#: flies the ball, and times the fallback impulse, under the scene's gravity, which every shipped scene keeps at
-#: this value (testShippedRobotGravity).
+#: passes through the base, rather than pointing straight at it and landing low - see
+#: `compute_launch_linvel_ball_rt_world_ewrt_heading`. The simulator flies the ball, and times the fallback impulse, under
+#: the scene's gravity, which every shipped scene keeps at this value (testShippedRobotGravity).
 # LINT.IfChange(dodgeball_gravity)
 GRAVITY = 9.81
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/test/testShippedRobotGravity.cpp:shipped_gravity)
@@ -100,10 +100,13 @@ MASS_RANGE_KG = (0.1, 5.0)
 class DodgeballThrow:
     """One throw, as the operator specifies it with the five sliders."""
 
-    azimuth_deg: float
-    elevation_deg: float
-    distance_m: float
-    speed_mps: float
+    # [deg] The spawn point's azimuth and elevation (the module docstring's conventions).
+    cmd_azimuth_ball_rt_base_ewrt_heading: float
+    cmd_elevation_ball_rt_base_ewrt_heading: float
+    # [m] The spawn point's distance from the base.
+    cmd_dist_ball_rt_base: float
+    # [m/s] The launch speed of the slider, which compute_launch_speed_ball_rt_world may raise.
+    cmd_speed_ball_rt_world: float
     mass_kg: float = DEFAULT_BALL_MASS_KG
 
     def clamped(self) -> "DodgeballThrow":
@@ -117,10 +120,19 @@ class DodgeballThrow:
             The throw with each parameter clamped into its *_RANGE_*; a NaN takes the low end of its range.
         """
         return DodgeballThrow(
-            azimuth_deg=_clamp(self.azimuth_deg, *AZIMUTH_RANGE_DEG),
-            elevation_deg=_clamp(self.elevation_deg, *ELEVATION_RANGE_DEG),
-            distance_m=_clamp(self.distance_m, *DISTANCE_RANGE_M),
-            speed_mps=_clamp(self.speed_mps, *SPEED_RANGE_MPS),
+            cmd_azimuth_ball_rt_base_ewrt_heading=_clamp(
+                self.cmd_azimuth_ball_rt_base_ewrt_heading, *AZIMUTH_RANGE_DEG
+            ),
+            cmd_elevation_ball_rt_base_ewrt_heading=_clamp(
+                self.cmd_elevation_ball_rt_base_ewrt_heading,
+                *ELEVATION_RANGE_DEG
+            ),
+            cmd_dist_ball_rt_base=_clamp(
+                self.cmd_dist_ball_rt_base, *DISTANCE_RANGE_M
+            ),
+            cmd_speed_ball_rt_world=_clamp(
+                self.cmd_speed_ball_rt_world, *SPEED_RANGE_MPS
+            ),
             mass_kg=_clamp(self.mass_kg, *MASS_RANGE_KG),
         )
 
@@ -132,12 +144,15 @@ def _clamp(value: float, low: float, high: float) -> float:
     return low if value < low else (high if value > high else value)
 
 
-def spawn_offset(throw: DodgeballThrow) -> tuple[float, float, float]:
+def compute_spawn_pos_ball_rt_base_ewrt_heading(
+    throw: DodgeballThrow,
+) -> tuple[float, float, float]:
     """Where the ball appears, as an offset from the robot's base in the base's yaw frame, in meters.
 
     Spherical: the azimuth sweeps the horizontal plane and the elevation lifts out of it, both of the SPAWN POINT.
-    The distance is the straight-line distance to the base, so `norm(spawn_offset) == distance` exactly, whatever the
-    two angles are - which is the property that makes the slider mean what it says.
+    The distance is the straight-line distance to the base, so
+    `norm(compute_spawn_pos_ball_rt_base_ewrt_heading(throw)) == throw.cmd_dist_ball_rt_base` exactly, whatever the two angles
+    are - which is the property that makes the slider mean what it says.
 
     Args:
         throw: the throw, clamped into the slider ranges first.
@@ -146,23 +161,34 @@ def spawn_offset(throw: DodgeballThrow) -> tuple[float, float, float]:
         The (x, y, z) offset of the spawn point from the base [m], in the base's yaw frame.
     """
     throw = throw.clamped()
-    azimuth = math.radians(throw.azimuth_deg)
-    elevation = math.radians(throw.elevation_deg)
-    horizontal = throw.distance_m * math.cos(elevation)
+    # [rad] The throw's angles, which it holds in degrees.
+    cmd_azimuth_ball_rt_base_ewrt_heading = math.radians(
+        throw.cmd_azimuth_ball_rt_base_ewrt_heading
+    )
+    cmd_elevation_ball_rt_base_ewrt_heading = math.radians(
+        throw.cmd_elevation_ball_rt_base_ewrt_heading
+    )
+    spawn_norm_pos_ball_rt_base_ewrt_heading_xy = (
+        throw.cmd_dist_ball_rt_base
+        * math.cos(cmd_elevation_ball_rt_base_ewrt_heading)
+    )
     return (
-        horizontal * math.cos(azimuth),
-        horizontal * math.sin(azimuth),
-        throw.distance_m * math.sin(elevation),
+        spawn_norm_pos_ball_rt_base_ewrt_heading_xy
+        * math.cos(cmd_azimuth_ball_rt_base_ewrt_heading),
+        spawn_norm_pos_ball_rt_base_ewrt_heading_xy
+        * math.sin(cmd_azimuth_ball_rt_base_ewrt_heading),
+        throw.cmd_dist_ball_rt_base
+        * math.sin(cmd_elevation_ball_rt_base_ewrt_heading),
     )
 
 
-def minimum_launch_speed(
+def compute_min_launch_speed_ball_rt_world(
     throw: DodgeballThrow, gravity: float = GRAVITY
 ) -> float:
     """[m/s] The slowest launch that can reach the base at all: sqrt(g (d + dz)).
 
     Here d is the distance and dz the height of the base above the spawn point. A ball launched any slower falls short
-    whichever way it is aimed, so `launch_speed` raises the slider's speed to this. It is 5.4 m/s from 3 m level with
+    whichever way it is aimed, so `compute_launch_speed_ball_rt_world` raises the slider's speed to this. It is 5.4 m/s from 3 m level with
     the base and 8.9 m/s from 8 m, which is why the bottom of the speed slider only works for short or high throws.
 
     Args:
@@ -173,22 +199,38 @@ def minimum_launch_speed(
         The speed in m/s, 0 when the base is below the spawn point by at least the distance.
     """
     throw = throw.clamped()
-    rise = -spawn_offset(throw)[2]
-    return math.sqrt(max(gravity * (throw.distance_m + rise), 0.0))
+    spawn_pos_base_rt_ball_ewrt_heading_z = (
+        -compute_spawn_pos_ball_rt_base_ewrt_heading(throw)[2]
+    )
+    return math.sqrt(
+        max(
+            gravity
+            * (
+                throw.cmd_dist_ball_rt_base
+                + spawn_pos_base_rt_ball_ewrt_heading_z
+            ),
+            0.0,
+        )
+    )
 
 
-def launch_speed(throw: DodgeballThrow, gravity: float = GRAVITY) -> float:
+def compute_launch_speed_ball_rt_world(
+    throw: DodgeballThrow, gravity: float = GRAVITY
+) -> float:
     """[m/s] The speed the ball actually leaves at: the slider's, or the minimum that reaches the base if that is more."""
     throw = throw.clamped()
-    return max(throw.speed_mps, minimum_launch_speed(throw, gravity))
+    return max(
+        throw.cmd_speed_ball_rt_world,
+        compute_min_launch_speed_ball_rt_world(throw, gravity),
+    )
 
 
 def flight_time(throw: DodgeballThrow, gravity: float = GRAVITY) -> float:
-    """[s] How long the ball is in the air on its way to the base, launched at `launch_speed`.
+    """[s] How long the ball is in the air on its way to the base, launched at `compute_launch_speed_ball_rt_world`.
 
     The speed slider is the LAUNCH speed, as its label says. A ball launched at speed s from a point d away and dz
     below the base, aimed so that it arrives there after t seconds, leaves with v = (base - spawn) / t + (0, 0, g t/2)
-    (see `launch_velocity`), and |v| = s gives a quadratic in t^2:
+    (see `compute_launch_linvel_ball_rt_world_ewrt_heading`), and |v| = s gives a quadratic in t^2:
 
         (g^2 / 4) t^4 + (g dz - s^2) t^2 + d^2 = 0.
 
@@ -203,15 +245,31 @@ def flight_time(throw: DodgeballThrow, gravity: float = GRAVITY) -> float:
         The flight time of the direct throw [s].
     """
     throw = throw.clamped()
-    speed = launch_speed(throw, gravity)
-    rise = -spawn_offset(throw)[2]
-    distance = throw.distance_m
-    b = speed * speed - gravity * rise
-    discriminant = max(b * b - gravity * gravity * distance * distance, 0.0)
-    return math.sqrt(2.0 * distance * distance / (b + math.sqrt(discriminant)))
+    launch_speed_ball_rt_world = compute_launch_speed_ball_rt_world(
+        throw, gravity
+    )
+    spawn_pos_base_rt_ball_ewrt_heading_z = (
+        -compute_spawn_pos_ball_rt_base_ewrt_heading(throw)[2]
+    )
+    cmd_dist_ball_rt_base = throw.cmd_dist_ball_rt_base
+    b = (
+        launch_speed_ball_rt_world * launch_speed_ball_rt_world
+        - gravity * spawn_pos_base_rt_ball_ewrt_heading_z
+    )
+    discriminant = max(
+        b * b
+        - gravity * gravity * cmd_dist_ball_rt_base * cmd_dist_ball_rt_base,
+        0.0,
+    )
+    return math.sqrt(
+        2.0
+        * cmd_dist_ball_rt_base
+        * cmd_dist_ball_rt_base
+        / (b + math.sqrt(discriminant))
+    )
 
 
-def launch_velocity(
+def compute_launch_linvel_ball_rt_world_ewrt_heading(
     throw: DodgeballThrow, gravity: float = GRAVITY
 ) -> tuple[float, float, float]:
     """[m/s] The velocity the ball leaves at, in the base's yaw frame, so that it HITS the base.
@@ -223,7 +281,7 @@ def launch_velocity(
         v = (base - spawn) / t + (0, 0, g t / 2)
 
     puts the ball at the base at time `t` under constant gravity, because the vertical term integrates to exactly the
-    drop it cancels, and |v| is `launch_speed` by construction of `t`. Pass `gravity=0.0` to get the straight-line
+    drop it cancels, and |v| is `compute_launch_speed_ball_rt_world` by construction of `t`. Pass `gravity=0.0` to get the straight-line
     aim, which is what the tests use to check the geometry on its own.
 
     Args:
@@ -234,28 +292,40 @@ def launch_velocity(
         The (x, y, z) launch velocity [m/s], in the base's yaw frame.
     """
     throw = throw.clamped()
-    offset_x, offset_y, offset_z = spawn_offset(throw)
+    (
+        spawn_pos_ball_rt_base_ewrt_heading_x,
+        spawn_pos_ball_rt_base_ewrt_heading_y,
+        spawn_pos_ball_rt_base_ewrt_heading_z,
+    ) = compute_spawn_pos_ball_rt_base_ewrt_heading(throw)
     time_of_flight = flight_time(throw, gravity)
     return (
-        -offset_x / time_of_flight,
-        -offset_y / time_of_flight,
-        -offset_z / time_of_flight + 0.5 * gravity * time_of_flight,
+        -spawn_pos_ball_rt_base_ewrt_heading_x / time_of_flight,
+        -spawn_pos_ball_rt_base_ewrt_heading_y / time_of_flight,
+        -spawn_pos_ball_rt_base_ewrt_heading_z / time_of_flight
+        + 0.5 * gravity * time_of_flight,
     )
 
 
-def arrival_velocity(
+def compute_arrival_linvel_ball_rt_world_ewrt_heading(
     throw: DodgeballThrow, gravity: float = GRAVITY
 ) -> tuple[float, float, float]:
     """[m/s] The velocity the ball reaches the base with: the launch velocity less what gravity took, `g t`."""
-    velocity_x, velocity_y, velocity_z = launch_velocity(throw, gravity)
+    (
+        launch_linvel_ball_rt_world_ewrt_heading_x,
+        launch_linvel_ball_rt_world_ewrt_heading_y,
+        launch_linvel_ball_rt_world_ewrt_heading_z,
+    ) = compute_launch_linvel_ball_rt_world_ewrt_heading(throw, gravity)
     return (
-        velocity_x,
-        velocity_y,
-        velocity_z - gravity * flight_time(throw, gravity),
+        launch_linvel_ball_rt_world_ewrt_heading_x,
+        launch_linvel_ball_rt_world_ewrt_heading_y,
+        launch_linvel_ball_rt_world_ewrt_heading_z
+        - gravity * flight_time(throw, gravity),
     )
 
 
-def impact_momentum(throw: DodgeballThrow, gravity: float = GRAVITY) -> float:
+def compute_impact_norm_linmom_ball_rt_world_ewrt_world(
+    throw: DodgeballThrow, gravity: float = GRAVITY
+) -> float:
     """[N s] The momentum the ball carries when it reaches the base: its mass times its ARRIVAL speed.
 
     Not mass times the slider's speed: a ball thrown from above arrives faster than it left and one thrown upwards
@@ -263,9 +333,18 @@ def impact_momentum(throw: DodgeballThrow, gravity: float = GRAVITY) -> float:
     brings to the collision. A ball that bounces off hands the robot more than this - up to (1 + e) times as much -
     and a real ball compiled into the scene does exactly that; the simulator applies precisely this momentum only when
     no ball is compiled in and the throw falls back to an impulse on the base.
+
+    Args:
+        throw: the throw, clamped into the slider ranges first.
+        gravity: the gravity the flight is computed under [m/s^2].
+
+    Returns:
+        The norm of the arriving linear momentum [N s].
     """
     throw = throw.clamped()
-    return throw.mass_kg * math.hypot(*arrival_velocity(throw, gravity))
+    return throw.mass_kg * math.hypot(
+        *compute_arrival_linvel_ball_rt_world_ewrt_heading(throw, gravity)
+    )
 
 
 def sample_random_angles(
@@ -313,31 +392,44 @@ def throw_message(
         The message.
     """
     throw = throw.clamped()
-    offset = spawn_offset(throw)
-    velocity = launch_velocity(throw, gravity)
+    spawn_pos_ball_rt_base_ewrt_heading = (
+        compute_spawn_pos_ball_rt_base_ewrt_heading(throw)
+    )
+    launch_linvel_ball_rt_world_ewrt_heading = (
+        compute_launch_linvel_ball_rt_world_ewrt_heading(throw, gravity)
+    )
     message = dodgeball_throw_pb2.DodgeballThrow(
         # What the operator set.
-        azimuth_deg=round(throw.azimuth_deg, 4),
-        elevation_deg=round(throw.elevation_deg, 4),
-        cmd_dist_ball_rt_base=round(throw.distance_m, 4),
-        cmd_speed_ball_rt_world=round(throw.speed_mps, 4),
+        cmd_azimuth_ball_rt_base_ewrt_heading=round(
+            throw.cmd_azimuth_ball_rt_base_ewrt_heading, 4
+        ),
+        cmd_elevation_ball_rt_base_ewrt_heading=round(
+            throw.cmd_elevation_ball_rt_base_ewrt_heading, 4
+        ),
+        cmd_dist_ball_rt_base=round(throw.cmd_dist_ball_rt_base, 4),
+        cmd_speed_ball_rt_world=round(throw.cmd_speed_ball_rt_world, 4),
         mass=round(throw.mass_kg, 4),
         # What the simulator acts on, in the robot's own yaw frame: it rotates these by the measured base yaw and adds
         # the base position. With a ball compiled into the scene it flies the ball from there; without one, it applies
         # the arrival momentum to the base after `flight_time`.
         flight_time=round(flight_time(throw, gravity), 6),
         # Documentation only.
-        launch_speed_ball_rt_world=round(launch_speed(throw, gravity), 6),
-        impact_momentum=round(impact_momentum(throw, gravity), 6),
+        launch_speed_ball_rt_world=round(
+            compute_launch_speed_ball_rt_world(throw, gravity), 6
+        ),
+        impact_norm_linmom_ball_rt_world_ewrt_world=round(
+            compute_impact_norm_linmom_ball_rt_world_ewrt_world(throw, gravity),
+            6,
+        ),
     )
     (
         message.spawn_pos_ball_rt_base_ewrt_heading.x,
         message.spawn_pos_ball_rt_base_ewrt_heading.y,
         message.spawn_pos_ball_rt_base_ewrt_heading.z,
-    ) = (round(value, 6) for value in offset)
+    ) = (round(value, 6) for value in spawn_pos_ball_rt_base_ewrt_heading)
     (
         message.launch_linvel_ball_rt_world_ewrt_heading.x,
         message.launch_linvel_ball_rt_world_ewrt_heading.y,
         message.launch_linvel_ball_rt_world_ewrt_heading.z,
-    ) = (round(value, 6) for value in velocity)
+    ) = (round(value, 6) for value in launch_linvel_ball_rt_world_ewrt_heading)
     return message

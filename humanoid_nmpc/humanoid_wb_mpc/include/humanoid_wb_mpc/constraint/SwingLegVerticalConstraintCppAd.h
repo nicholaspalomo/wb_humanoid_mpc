@@ -42,8 +42,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The equality constraint on the normal motion of a swing foot: one row on its
- * position, velocity and acceleration along the ground normal, with the
+ * The equality constraint on the vertical motion of a swing foot: one row on
+ * the world z component of its position, velocity and acceleration
+ * (posFootRtWorldEwrtWorldZ and its derivatives), with the
  * coefficients the pre-computation (WBMpcPreComputation) derives from the swing
  * trajectory planner at each node. Active while the reference manager has the
  * foot in swing. Not thread-safe; the solver clones one per worker thread.

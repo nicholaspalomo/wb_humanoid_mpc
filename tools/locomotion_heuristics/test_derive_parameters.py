@@ -84,19 +84,19 @@ MOTION_MANAGER_HEADER = os.path.join(
 # The names of Bledt's Appendix C by list, which is also what LocomotionHeuristicFormulation registers.
 # LINT.IfChange(expected_heuristic_names)
 EXPECTED_HEURISTIC_NAMES = {
-    "base_pose": (
+    "base_pose_heuristics": (
         "orientation_compensation",
         "periodic_orientation",
         "height_compensation",
     ),
-    "foothold": (
+    "foothold_heuristics": (
         "hip_centered_stepping",
         "capture_point",
         "translational_stepping",
         "in_place_turning",
         "high_speed_turning",
     ),
-    "wrench": ("impulse_scaling", "centripetal_acceleration"),
+    "wrench_heuristics": ("impulse_scaling", "centripetal_acceleration"),
 }
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicFormulation.cpp:known_heuristic_names)
 
@@ -145,7 +145,7 @@ CAPTURE_POINT_FALLBACK_CLAMP = 0.25
 UNIT_GAINS = (
     "capture_point.gain",
     "impulse_scaling.scale",
-    "centripetal_acceleration.scale",
+    "centripetal_acceleration_parameters.scale",
     "hip_centered_stepping.longitudinal_scale",
 )
 
@@ -192,6 +192,10 @@ def _load_script(have_pinocchio: bool) -> types.ModuleType:
 
 HAVE_PINOCCHIO = _pinocchio_available()
 derive = _load_script(HAVE_PINOCCHIO)
+# The blocks of the derived parameters, one per heuristic, in the same order.
+ALL_PARAMETER_BLOCKS = tuple(
+    derive.parameter_block_name(name) for name in ALL_HEURISTIC_NAMES
+)
 
 
 def _read_textproto(path):
@@ -232,21 +236,31 @@ def _robot_inputs(robot):
 
 
 def _step_width(task):
-    return float((task.get("nominal_foothold") or {}).get("step_width", 0.0))
+    return float(
+        (task.get("nominal_foothold") or {}).get(
+            "nom_pos_lfoot_rt_rfoot_ewrt_heading_y", 0.0
+        )
+    )
 
 
 def _configured_lip_height(task, planning):
     """The LIP length the robot's files configure: the DCM terminal cost's, else the contact planner's, else 0."""
-    dcm = float((task.get("dcm_terminal_cost") or {}).get("com_height", 0.0))
+    dcm = float(
+        (task.get("dcm_terminal_cost") or {}).get(
+            "nom_pos_com_rt_feetmean_ewrt_world_z", 0.0
+        )
+    )
     if dcm > 0.0:
         return dcm
     shared = planning.get("shared") or {}
-    return float(shared.get("com_height", 0.0))
+    return float(shared.get("nom_pos_com_rt_feetmean_ewrt_world_z", 0.0))
 
 
 def _hip_width(geometry):
     """Distance between the two hips, from the hip offsets themselves."""
-    return 2.0 * max(abs(y) for _, y in geometry.hip_offset)
+    return 2.0 * max(
+        abs(y) for _, y in geometry.pos_hips_rt_base_ewrt_heading_xy
+    )
 
 
 def _stance_width(task, geometry):
@@ -254,8 +268,8 @@ def _stance_width(task, geometry):
     step_width = _step_width(task)
     if step_width > 0.0:
         return step_width
-    if geometry.nominal_foot_separation > 0.0:
-        return geometry.nominal_foot_separation
+    if geometry.nom_norm_pos_lfoot_rt_rfoot_ewrt_heading_y > 0.0:
+        return geometry.nom_norm_pos_lfoot_rt_rfoot_ewrt_heading_y
     return _hip_width(geometry)
 
 
@@ -448,10 +462,10 @@ def _synthetic_geometry():
     """
     return derive.RobotGeometry(
         total_mass=60.0,
-        com_height=0.70,
-        hip_offset=[(0.02, 0.0893), (0.02, -0.0893)],
+        pos_com_rt_feetmean_ewrt_world_z=0.70,
+        pos_hips_rt_base_ewrt_heading_xy=[(0.02, 0.0893), (0.02, -0.0893)],
         hip_joint_names=["left_hip", "right_hip"],
-        nominal_foot_separation=0.23,
+        nom_norm_pos_lfoot_rt_rfoot_ewrt_heading_y=0.23,
     )
 
 
@@ -469,30 +483,30 @@ def _derive(geometry, task, limits, planning, gait="trot"):
 
 # The ranges LocomotionHeuristicConfig::validate() enforces with requirePositive / requireNonNegative, spelled out so
 # that each admissibility assertion names its key. test_admissibility_table_matches_validate keeps it in step with the
-# C++, which is how the checks of lateral_scale, max_force_com_ewrt_world_xy, maximum_force_ratio_of_weight, gain and longitudinal_scale
+# C++, which is how the checks of lateral_scale, max_force_com_ewrt_world_xy, max_wnorm_force_com_ewrt_world_xy, gain and longitudinal_scale
 # came to be missing before.
 MUST_BE_POSITIVE = (
-    "orientation_compensation.maximum_tilt",
-    "capture_point.maximum_offset",
+    "orientation_compensation_parameters.max_offset_eulerzyx_base_rt_world",
+    "capture_point.max_norm_offset_pos_foot_rt_world_ewrt_world_xy",
 )
 MUST_NOT_BE_NEGATIVE = (
-    "height_compensation.maximum_height_offset",
-    "capture_point.com_height_override",
+    "height_compensation.max_offset_pos_base_rt_world_ewrt_world_z",
+    "capture_point.override_pos_com_rt_feetmean_ewrt_world_z",
     "hip_centered_stepping.lateral_scale",
     "hip_centered_stepping.longitudinal_scale",
     "capture_point.gain",
     "impulse_scaling.scale",
-    "centripetal_acceleration.scale",
-    "centripetal_acceleration.max_force_com_ewrt_world_xy",
-    "centripetal_acceleration.maximum_force_ratio_of_weight",
+    "centripetal_acceleration_parameters.scale",
+    "centripetal_acceleration_parameters.max_force_com_ewrt_world_xy",
+    "centripetal_acceleration_parameters.max_wnorm_force_com_ewrt_world_xy",
 )
 
 # The keys a derivation or a task file may leave out, whose absence is a setting of its own (no 0 sentinel in the
-# schema): without centripetal_acceleration.max_force_com_ewrt_world_xy, maximum_force_ratio_of_weight is the clamp; without
-# capture_point.com_height_override, the CoM height measured each solve is the pendulum.
+# schema): without centripetal_acceleration_parameters.max_force_com_ewrt_world_xy, max_wnorm_force_com_ewrt_world_xy is the clamp; without
+# capture_point.override_pos_com_rt_feetmean_ewrt_world_z, the CoM height measured each solve is the pendulum.
 OPTIONAL_KEYS = (
-    "centripetal_acceleration.max_force_com_ewrt_world_xy",
-    "capture_point.com_height_override",
+    "centripetal_acceleration_parameters.max_force_com_ewrt_world_xy",
+    "capture_point.override_pos_com_rt_feetmean_ewrt_world_z",
 )
 
 
@@ -522,12 +536,13 @@ class _DerivedBlockAssertions(unittest.TestCase):
             0.0 < duty <= 1.0, "minimum_duty_factor %s is outside (0, 1]" % duty
         )
         self.assertGreaterEqual(
-            parameters["impulse_scaling"]["maximum_force_ratio"], 1.0
+            parameters["impulse_scaling"]["maximum_weight_compensation_ratio"],
+            1.0,
         )
-        centripetal = parameters["centripetal_acceleration"]
+        centripetal = parameters["centripetal_acceleration_parameters"]
         self.assertTrue(
             centripetal.get("max_force_com_ewrt_world_xy", 0.0) > 0.0
-            or centripetal["maximum_force_ratio_of_weight"] > 0.0,
+            or centripetal["max_wnorm_force_com_ewrt_world_xy"] > 0.0,
             "both centripetal clamps at zero would remove the clamp",
         )
 
@@ -536,14 +551,14 @@ class _DerivedBlockAssertions(unittest.TestCase):
     ) -> None:
         """hip_centered_stepping REPLACES the step-width anchor, so the scale must give back the stance it replaces.
 
-        Catches a hip_width / hip_half_width mix-up, which doubles lateral_scale (Atlas's 0.45 m stance becomes 0.9 m),
-        and, on a robot with no nominal step, a scale of 1 that narrows the stance the robot stands in to its hips (G1:
-        0.237 m to 0.129 m). The tolerance is exactly what rounding lateral_scale to three decimals can cost.
+        Catches a hip_width / max_norm_pos_hips_rt_base_ewrt_heading_y mix-up, which doubles lateral_scale (Atlas's 0.45 m
+        stance becomes 0.9 m), and, on a robot with no nominal step, a scale of 1 that narrows the stance the robot
+        stands in to its hips (G1: 0.237 m to 0.129 m). The tolerance is exactly what rounding lateral_scale to three decimals can cost.
 
         Args:
           parameters: The derived block.
           geometry: The geometry it was derived from.
-          task: The task file, whose nominal_foothold.step_width is the stance, else the nominal posture's.
+          task: The task file, whose nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y is the stance, else the nominal posture's.
         """
         scale = parameters["hip_centered_stepping"]["lateral_scale"]
         stance_width = _stance_width(task, geometry)
@@ -574,10 +589,15 @@ class _DerivedBlockAssertions(unittest.TestCase):
           task: The task file.
           planning: contact_planning.textproto, or an empty dict.
         """
-        lip = _configured_lip_height(task, planning) or geometry.com_height
+        lip = (
+            _configured_lip_height(task, planning)
+            or geometry.pos_com_rt_feetmean_ewrt_world_z
+        )
         capture = parameters["capture_point"]
         self.assertAlmostEqual(
-            capture["com_height_override"], lip, delta=ROUNDING_4
+            capture["override_pos_com_rt_feetmean_ewrt_world_z"],
+            lip,
+            delta=ROUNDING_4,
         )
         turning = parameters["high_speed_turning"]
         self.assertEqual(
@@ -589,8 +609,12 @@ class _DerivedBlockAssertions(unittest.TestCase):
             lip / derive.GRAVITY,
             delta=ROUNDING_4,
         )
-        self.assertEqual(turning["forward_offset"], 0.0)
-        self.assertEqual(turning["lateral_offset"], 0.0)
+        self.assertEqual(
+            turning["offset_pos_foot_rt_world_ewrt_heading_x"], 0.0
+        )
+        self.assertEqual(
+            turning["offset_pos_foot_rt_world_ewrt_heading_y"], 0.0
+        )
 
     def assert_stepping_follows_the_stance(
         self, parameters: dict[str, dict[str, float]], geometry: Any, task: dict
@@ -609,10 +633,10 @@ class _DerivedBlockAssertions(unittest.TestCase):
         self.assertEqual(stepping["forward_stance_fraction"], 0.5)
         self.assertEqual(stepping["lateral_stance_fraction"], 0.5)
         for key in (
-            "forward_per_forward_velocity",
-            "forward_offset",
-            "lateral_per_lateral_velocity",
-            "lateral_offset",
+            "forward_per_forward_velocity_gain",
+            "offset_pos_foot_rt_world_ewrt_heading_x",
+            "lateral_per_lateral_velocity_gain",
+            "offset_pos_foot_rt_world_ewrt_heading_y",
         ):
             self.assertEqual(
                 stepping[key], 0.0, "translational_stepping.%s" % key
@@ -625,9 +649,9 @@ class _DerivedBlockAssertions(unittest.TestCase):
         )
         for key in (
             "forward_per_yaw_rate",
-            "forward_offset",
+            "offset_pos_foot_rt_world_ewrt_heading_x",
             "lateral_per_yaw_rate",
-            "lateral_offset",
+            "offset_pos_foot_rt_world_ewrt_heading_y",
         ):
             self.assertEqual(turning[key], 0.0, "in_place_turning.%s" % key)
 
@@ -638,8 +662,8 @@ class LoadTextprotoTest(unittest.TestCase):
     def test_fields_blocks_and_repeated_fields(self):
         task = derive.parse_textproto(
             '# a comment\ncosts: "state_quadratic_cost"\nsoft_constraints:'
-            ' "a"\nsoft_constraints: "b"\nterrain_height: 0.25  #'
-            " [m]\nnominal_foothold { step_width: 0.3 }\nswitching_times: [0.0,"
+            ' "a"\nsoft_constraints: "b"\npos_surface_rt_world_ewrt_world_z: 0.25  #'
+            " [m]\nnominal_foothold { nom_pos_lfoot_rt_rfoot_ewrt_heading_y: 0.3 }\nswitching_times: [0.0,"
             ' 0.5]\ninitial_state { joint_positions { joint: "x" value: 1 }'
             ' joint_positions { joint: "y" value: -2.5 } }\n'
         )
@@ -648,8 +672,11 @@ class LoadTextprotoTest(unittest.TestCase):
             derive.as_list(task["costs"]), ["state_quadratic_cost"]
         )
         self.assertEqual(task["soft_constraints"], ["a", "b"])
-        self.assertEqual(task["terrain_height"], 0.25)
-        self.assertEqual(task["nominal_foothold"], {"step_width": 0.3})
+        self.assertEqual(task["pos_surface_rt_world_ewrt_world_z"], 0.25)
+        self.assertEqual(
+            task["nominal_foothold"],
+            {"nom_pos_lfoot_rt_rfoot_ewrt_heading_y": 0.3},
+        )
         self.assertEqual(task["switching_times"], [0.0, 0.5])
         self.assertEqual(
             task["initial_state"]["joint_positions"],
@@ -658,7 +685,9 @@ class LoadTextprotoTest(unittest.TestCase):
         self.assertEqual(derive.as_list(None), [])
         self.assertEqual(derive.parse_textproto(""), {})
         with self.assertRaises(derive.textproto_document.DocumentError):
-            derive.parse_textproto("nominal_foothold { step_width: ")
+            derive.parse_textproto(
+                "nominal_foothold { nom_pos_lfoot_rt_rfoot_ewrt_heading_y: "
+            )
 
     def test_the_gait_table_is_by_name(self):
         gaits = derive.gait_table(
@@ -1112,7 +1141,8 @@ class ShippedConfigurationTest(unittest.TestCase):
 
     def test_admissibility_table_matches_validate(self):
         # MUST_BE_POSITIVE / MUST_NOT_BE_NEGATIVE are what the derivation tests hold every derived block to. They fell
-        # behind validate() once (lateral_scale, max_force_com_ewrt_world_xy, maximum_force_ratio_of_weight), so they are read against it.
+        # behind validate() once (lateral_scale, max_force_com_ewrt_world_xy, max_wnorm_force_com_ewrt_world_xy), so
+        # they are read against it.
         positive, non_negative, calls = _validate_range_checks()
         self.assertTrue(positive, "no requirePositive call found in validate()")
         self.assertTrue(
@@ -1236,16 +1266,16 @@ class ShippedConfigurationTest(unittest.TestCase):
                 self.assertAlmostEqual(cadence.duty_factor, 0.5, places=9)
                 self.assertTrue(cadence.has_double_support)
 
-    def test_largest_force_ratio_is_walks_one_over_beta(self):
+    def test_largest_weight_compensation_ratio_is_walks_one_over_beta(self):
         # Walk's double support asks for 1/beta = 1.4 / 0.8 = 1.75 x weight compensation, the most of the shipped gaits:
         # slow_walk 1.7 / 1.05 = 1.62, fast_walk 1.43, very_slow_walk 1.47, jump 1.67; the flight gaits ask for their
         # single support's 1/(2 beta): run 1 / 0.75 = 1.33, skip 1 / 0.9 = 1.11.
         gaits = _gaits()
-        name, ratio = derive.largest_force_ratio(gaits)
+        name, ratio = derive.largest_weight_compensation_ratio(gaits)
         self.assertEqual(name, "walk")
         self.assertAlmostEqual(ratio, 1.4 / 0.8, places=9)
 
-    def test_largest_force_ratio_counts_the_single_support_of_a_flight_gait(
+    def test_largest_weight_compensation_ratio_counts_the_single_support_of_a_flight_gait(
         self,
     ):
         # A synthetic table, so the rule is pinned whatever the gait file becomes. With n feet down the reference is
@@ -1268,12 +1298,12 @@ class ShippedConfigurationTest(unittest.TestCase):
                 "switching_times": [0.0, 0.3, 0.8, 1.1, 1.6],
             },
         }
-        name, ratio = derive.largest_force_ratio(gaits)
+        name, ratio = derive.largest_weight_compensation_ratio(gaits)
         self.assertEqual(name, "hop")
         self.assertAlmostEqual(ratio, 2.0, places=9)
         # Without the flight gait the double support of amble binds, at 1/beta.
         gaits["gait_list"] = ["amble", "stroll"]
-        name, ratio = derive.largest_force_ratio(gaits)
+        name, ratio = derive.largest_weight_compensation_ratio(gaits)
         self.assertEqual(name, "amble")
         self.assertAlmostEqual(ratio, 1.5, places=9)
         smallest_name, smallest_duty = derive.smallest_duty_factor(
@@ -1282,7 +1312,9 @@ class ShippedConfigurationTest(unittest.TestCase):
         self.assertEqual(smallest_name, "hop")
         self.assertAlmostEqual(smallest_duty, 0.25, places=9)
 
-    def test_largest_force_ratio_is_what_impulse_scaling_asks_for(self):
+    def test_largest_weight_compensation_ratio_is_what_impulse_scaling_asks_for(
+        self,
+    ):
         # An independent oracle: walk each gait's phases and take the largest per-foot reference W/(2 beta) over the
         # baseline W/n of the phase, over every phase that has a foot down.
         gaits = _gaits()
@@ -1306,7 +1338,7 @@ class ShippedConfigurationTest(unittest.TestCase):
                 if feet_down > 0:
                     worst = max(worst, (1.0 / (2.0 * beta)) / (1.0 / feet_down))
         self.assertAlmostEqual(
-            derive.largest_force_ratio(gaits)[1], worst, places=9
+            derive.largest_weight_compensation_ratio(gaits)[1], worst, places=9
         )
 
     def test_an_unknown_gait_is_reported_rather_than_guessed(self):
@@ -1356,7 +1388,7 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         for robot in sorted(derive.ROBOTS):
             with self.subTest(robot=robot):
                 _, _, _, parameters, notes = self._derive_robot(robot)
-                self.assertEqual(list(parameters), list(ALL_HEURISTIC_NAMES))
+                self.assertEqual(list(parameters), list(ALL_PARAMETER_BLOCKS))
                 self.assertTrue(notes)
                 self.assert_admissible(parameters)
 
@@ -1411,7 +1443,9 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         # A robot with a stance is exercised whatever the shipped files say: 0.30 m over the synthetic 0.1786 m hips
         # is 1.680 after rounding, and the property must still hold within that rounding.
         geometry = _synthetic_geometry()
-        task = {"nominal_foothold": {"step_width": 0.30}}
+        task = {
+            "nominal_foothold": {"nom_pos_lfoot_rt_rfoot_ewrt_heading_y": 0.30}
+        }
         parameters, _ = _derive(geometry, task, {}, {})
         self.assertAlmostEqual(
             parameters["hip_centered_stepping"]["lateral_scale"],
@@ -1437,9 +1471,17 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
     ):
         # Hand-picked lengths, all different from the synthetic model's 0.70 m CoM height.
         geometry = _synthetic_geometry()
-        planning = {"shared": {"com_height": 0.80}}
+        planning = {"shared": {"nom_pos_com_rt_feetmean_ewrt_world_z": 0.80}}
         cases: tuple[tuple[dict, dict, float], ...] = (
-            ({"dcm_terminal_cost": {"com_height": 0.90}}, planning, 0.90),
+            (
+                {
+                    "dcm_terminal_cost": {
+                        "nom_pos_com_rt_feetmean_ewrt_world_z": 0.90
+                    }
+                },
+                planning,
+                0.90,
+            ),
             ({}, planning, 0.80),
             ({}, {}, 0.70),
         )
@@ -1447,7 +1489,9 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
             with self.subTest(expected=expected):
                 parameters, _ = _derive(geometry, task, {}, planning_file)
                 self.assertAlmostEqual(
-                    parameters["capture_point"]["com_height_override"],
+                    parameters["capture_point"][
+                        "override_pos_com_rt_feetmean_ewrt_world_z"
+                    ],
                     expected,
                     places=9,
                 )
@@ -1513,7 +1557,7 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         self.assertLessEqual(smallest_duty - clamp, DUTY_CLAMP_HEADROOM + 1e-12)
 
     def test_impulse_clamps_bracket_every_shipped_gait(self):
-        # minimum_duty_factor has to sit just below the smallest duty factor of any gait, and maximum_force_ratio at or
+        # minimum_duty_factor has to sit just below the smallest duty factor of any gait, and maximum_weight_compensation_ratio at or
         # above the largest W / (F beta) of any double support (or it clips a real one). The gait table is read with
         # the test's own mode parse.
         smallest_duty, largest_ratio = _gait_table_extremes(_gaits())
@@ -1524,11 +1568,11 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
                     block["minimum_duty_factor"], smallest_duty
                 )
                 self.assertGreaterEqual(
-                    block["maximum_force_ratio"], largest_ratio
+                    block["maximum_weight_compensation_ratio"], largest_ratio
                 )
 
     def test_impulse_clamps_follow_a_gait_table_beyond_the_floors(self):
-        # The shipped gaits never reach the part of maximum_force_ratio that reads the gait table: walk's 1/beta is 1.75
+        # The shipped gaits never reach the part of maximum_weight_compensation_ratio that reads the gait table: walk's 1/beta is 1.75
         # and the script floors the clamp at 2.0, so a clamp hard-coded to 2.0, or to 1000, passes the test above.
         # `bound` is LF 0.2, STANCE 0.1, FLY 0.3, RF 0.2, STANCE 0.1, FLY 0.3: each foot is down 0.2 + 0.1 + 0.1 = 0.4 s
         # of a 1.2 s stride, so beta = 1/3 and its double support asks for 3 x weight compensation; the clamp has to
@@ -1562,24 +1606,34 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
                 self.assert_duty_clamp_is_just_below(
                     block["minimum_duty_factor"], smallest_duty
                 )
-                self.assertGreaterEqual(block["maximum_force_ratio"], 3.0)
-                self.assertLessEqual(block["maximum_force_ratio"], 3.1)
+                self.assertGreaterEqual(
+                    block["maximum_weight_compensation_ratio"], 3.0
+                )
+                self.assertLessEqual(
+                    block["maximum_weight_compensation_ratio"], 3.1
+                )
 
     def test_capture_point_clamp_is_a_fraction_of_the_reach_bound(self):
-        # maximum_offset is CAPTURE_POINT_STEP_FRACTION of foot_separation.max_step_length, the reach bound, and not of
-        # hlip.max_step_length, the closed-form planner's clip on the step it emits: with no planner running it is the
-        # reach that bounds how far a landing target may be pushed. The two differ on Atlas (0.28 m against 0.20 m)
-        # and SA01 (0.232 m against 0.16 m). The planning file is read here with the schema-less reader.
+        # max_norm_offset_pos_foot_rt_world_ewrt_world_xy is CAPTURE_POINT_STEP_FRACTION of
+        # foot_separation.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x,
+        # the reach bound, and not of hlip.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x, the closed-form planner's clip
+        # on the step it emits: with no planner running it is the reach that bounds how far a landing target may be
+        # pushed. The two differ on Atlas (0.28 m against 0.20 m) and SA01 (0.232 m against 0.16 m). The planning file
+        # is read here with the schema-less reader.
         fraction = derive.CAPTURE_POINT_STEP_FRACTION
         robots_with_a_reach_bound = []
         for robot in sorted(derive.ROBOTS):
             with self.subTest(robot=robot):
                 _, _, planning, parameters, _ = self._derive_robot(robot)
-                clamp = parameters["capture_point"]["maximum_offset"]
+                clamp = parameters["capture_point"][
+                    "max_norm_offset_pos_foot_rt_world_ewrt_world_xy"
+                ]
                 separation = planning.get("foot_separation") or {}
-                if "max_step_length" in separation:
+                if "max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x" in separation:
                     robots_with_a_reach_bound.append(robot)
-                    reach = float(separation["max_step_length"])
+                    reach = float(
+                        separation["max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x"]
+                    )
                     self.assertLessEqual(
                         abs(clamp - fraction * reach), ROUNDING_3
                     )
@@ -1590,32 +1644,54 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
 
         # And whatever the shipped planning files come to say: two bounds that differ, with the reach one expected.
         planning = {
-            "foot_separation": {"max_step_length": 0.9},
-            "hlip": {"max_step_length": 0.3},
+            "foot_separation": {
+                "max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x": 0.9
+            },
+            "hlip": {"max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x": 0.3},
         }
         parameters, notes = _derive(_synthetic_geometry(), {}, {}, planning)
         self.assertLessEqual(
-            abs(parameters["capture_point"]["maximum_offset"] - fraction * 0.9),
+            abs(
+                parameters["capture_point"][
+                    "max_norm_offset_pos_foot_rt_world_ewrt_world_xy"
+                ]
+                - fraction * 0.9
+            ),
             ROUNDING_3,
         )
         # The note says where the clamp came from: the reach bound here, the fallback with no planning file. It once
-        # printed "40% of foot_separation.max_step_length 0.00 = 0.250 m" for the fallback.
+        # printed "40% of foot_separation.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x 0.00 = 0.250 m" for the fallback.
         clamp_notes = [
-            n for n in notes if n.startswith("capture_point.maximum_offset")
+            n
+            for n in notes
+            if n.startswith(
+                "capture_point.max_norm_offset_pos_foot_rt_world_ewrt_world_xy"
+            )
         ]
         self.assertEqual(len(clamp_notes), 1)
-        self.assertIn("foot_separation.max_step_length 0.90", clamp_notes[0])
+        self.assertIn(
+            "foot_separation.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x 0.90",
+            clamp_notes[0],
+        )
         parameters, notes = _derive(_synthetic_geometry(), {}, {}, {})
         self.assertEqual(
-            parameters["capture_point"]["maximum_offset"],
+            parameters["capture_point"][
+                "max_norm_offset_pos_foot_rt_world_ewrt_world_xy"
+            ],
             CAPTURE_POINT_FALLBACK_CLAMP,
         )
         clamp_notes = [
-            n for n in notes if n.startswith("capture_point.maximum_offset")
+            n
+            for n in notes
+            if n.startswith(
+                "capture_point.max_norm_offset_pos_foot_rt_world_ewrt_world_xy"
+            )
         ]
         self.assertEqual(len(clamp_notes), 1)
         self.assertIn("fallback", clamp_notes[0])
-        self.assertNotIn("max_step_length 0.00", clamp_notes[0])
+        self.assertNotIn(
+            "max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x 0.00", clamp_notes[0]
+        )
 
     def test_a_planning_file_that_leaves_a_bound_out_runs_the_schemas_default(
         self,
@@ -1627,14 +1703,22 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         )
         self.assertLessEqual(
             abs(
-                parameters["capture_point"]["maximum_offset"]
+                parameters["capture_point"][
+                    "max_norm_offset_pos_foot_rt_world_ewrt_world_xy"
+                ]
                 - derive.CAPTURE_POINT_STEP_FRACTION
-                * derive.FOOT_SEPARATION_DEFAULTS["max_step_length"]
+                * derive.FOOT_SEPARATION_DEFAULTS[
+                    "max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x"
+                ]
             ),
             ROUNDING_3,
         )
         clamp_notes = [
-            n for n in notes if n.startswith("capture_point.maximum_offset")
+            n
+            for n in notes
+            if n.startswith(
+                "capture_point.max_norm_offset_pos_foot_rt_world_ewrt_world_xy"
+            )
         ]
         self.assertNotIn("fallback", clamp_notes[0])
 
@@ -1654,13 +1738,13 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
             )
         )
         self.assertTrue(
-            any("nom_pos_base_rt_world_ewrt_world_z" in n for n in missing)
+            any("nom_pos_base_rt_surface_ewrt_world_z" in n for n in missing)
         )
 
     def test_lean_and_crouch_reach_their_assumed_values_at_the_forward_limit(
         self,
     ):
-        # pitch_per_forward_velocity and height_per_speed are sized so that the maximum FORWARD stick gives the script's
+        # pitch_per_forward_velocity_gain and height_per_speed_gain are sized so that the maximum FORWARD stick gives the script's
         # stated lean and crouch. Dividing by the lateral or the yaw-rate limit instead lands on a different lean; the
         # synthetic limits keep the three apart whatever the shipped reference files come to say. The tolerance is the
         # four-decimal rounding of the coefficient, magnified by vmax.
@@ -1687,24 +1771,40 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
                 vmax = float(
                     limits["cmd_max_linvel_base_rt_world_ewrt_heading_x"]
                 )
-                orientation = parameters["orientation_compensation"]
+                orientation_compensation_parameters = parameters[
+                    "orientation_compensation_parameters"
+                ]
                 height = parameters["height_compensation"]
-                lean = orientation["pitch_per_forward_velocity"] * vmax
-                crouch = height["height_per_speed"] * vmax
+                lean = (
+                    orientation_compensation_parameters[
+                        "pitch_per_forward_velocity_gain"
+                    ]
+                    * vmax
+                )
+                crouch = height["height_per_speed_gain"] * vmax
                 self.assertLessEqual(
-                    abs(lean - derive.PITCH_AT_MAX_FORWARD_SPEED),
+                    abs(lean - derive.DES_ERR_EULERZYX_BASE_RT_WORLD_PITCH),
                     0.5e-4 * vmax + 1e-12,
                 )
                 self.assertLessEqual(
-                    abs(crouch + derive.CROUCH_AT_MAX_FORWARD_SPEED),
+                    abs(
+                        crouch + derive.DES_ERR_POS_BASE_RT_SURFACE_EWRT_WORLD_Z
+                    ),
                     0.5e-4 * vmax + 1e-12,
                 )
-                # And the clamps leave them whole: OrientationCompensationHeuristic clamps the pitch to +/- maximum_tilt
-                # and HeightCompensationHeuristic the offset to +/- maximum_height_offset, so a clamp below the designed
-                # value would cut the lean or the crouch short of the maximum stick.
-                self.assertGreater(orientation["maximum_tilt"], lean)
+                # And the clamps leave them whole: OrientationCompensationHeuristic clamps the pitch to
+                # +/- max_offset_eulerzyx_base_rt_world and HeightCompensationHeuristic the offset to
+                # +/- max_offset_pos_base_rt_world_ewrt_world_z, so a clamp below the designed value would cut the lean
+                # or the crouch short of the maximum stick.
+                self.assertGreater(
+                    orientation_compensation_parameters[
+                        "max_offset_eulerzyx_base_rt_world"
+                    ],
+                    lean,
+                )
                 self.assertGreaterEqual(
-                    height["maximum_height_offset"], abs(crouch)
+                    height["max_offset_pos_base_rt_world_ewrt_world_z"],
+                    abs(crouch),
                 )
 
     def test_every_blend_starts_at_the_unattenuated_heuristic(self):
@@ -1762,8 +1862,8 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         geometry = _synthetic_geometry()
         parameters, notes = _derive(geometry, force_cone, {}, {})
         self.assertAlmostEqual(
-            parameters["centripetal_acceleration"][
-                "maximum_force_ratio_of_weight"
+            parameters["centripetal_acceleration_parameters"][
+                "max_wnorm_force_com_ewrt_world_xy"
             ],
             round(fraction * 0.3, 3),
             places=9,
@@ -1772,8 +1872,8 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
         # With no cone listed the assumed coefficient is used and SAID to be assumed.
         parameters, notes = _derive(geometry, neither, {}, {})
         self.assertAlmostEqual(
-            parameters["centripetal_acceleration"][
-                "maximum_force_ratio_of_weight"
+            parameters["centripetal_acceleration_parameters"][
+                "max_wnorm_force_com_ewrt_world_xy"
             ],
             round(fraction * 0.5, 3),
             places=9,
@@ -1791,8 +1891,8 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
                     if cone in soft
                 )
                 self.assertAlmostEqual(
-                    parameters["centripetal_acceleration"][
-                        "maximum_force_ratio_of_weight"
+                    parameters["centripetal_acceleration_parameters"][
+                        "max_wnorm_force_com_ewrt_world_xy"
                     ],
                     round(derive.CENTRIPETAL_FRICTION_FRACTION * friction, 3),
                     places=9,
@@ -1840,15 +1940,24 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
     def test_shipped_parameters_reads_the_blocks_and_not_the_lists(self):
         task = {
             "locomotion_heuristics": {
-                "base_pose": ["orientation_compensation"],
-                "foothold": None,
-                "wrench": [],
-                "capture_point": {"gain": 2, "maximum_offset": 0.3},
+                "base_pose_heuristics": ["orientation_compensation"],
+                "foothold_heuristics": None,
+                "wrench_heuristics": [],
+                "capture_point": {
+                    "gain": 2,
+                    "max_norm_offset_pos_foot_rt_world_ewrt_world_xy": 0.3,
+                },
             }
         }
         shipped = derive.shipped_parameters(task)
         self.assertEqual(
-            shipped, {"capture_point": {"gain": 2.0, "maximum_offset": 0.3}}
+            shipped,
+            {
+                "capture_point": {
+                    "gain": 2.0,
+                    "max_norm_offset_pos_foot_rt_world_ewrt_world_xy": 0.3,
+                }
+            },
         )
         self.assertIsInstance(shipped["capture_point"]["gain"], float)
         self.assertEqual(derive.shipped_parameters({}), {})
@@ -1861,47 +1970,62 @@ class DerivationPropertiesTest(_DerivedBlockAssertions):
             with self.subTest(robot=robot):
                 parameters = self._derive_robot(robot)[3]
                 self.assertEqual(
-                    parameters["orientation_compensation"][
-                        "roll_per_lateral_velocity"
+                    parameters["orientation_compensation_parameters"][
+                        "roll_per_lateral_velocity_gain"
                     ],
                     0.0,
                 )
                 self.assertEqual(
-                    parameters["periodic_orientation"]["pitch_amplitude"], 0.0
+                    parameters["periodic_orientation_parameters"][
+                        "amplitude_eulerzyx_base_rt_world_pitch"
+                    ],
+                    0.0,
                 )
                 self.assertEqual(
                     parameters["height_compensation"][
-                        "height_per_speed_squared"
+                        "height_per_speed_squared_gain"
                     ],
                     0.0,
                 )
-                for name in ALL_HEURISTIC_NAMES:
+                for name in ALL_PARAMETER_BLOCKS:
                     self.assertEqual(
-                        parameters[name].get("forward_offset", 0.0), 0.0
+                        parameters[name].get(
+                            "offset_pos_foot_rt_world_ewrt_heading_x", 0.0
+                        ),
+                        0.0,
                     )
                     self.assertEqual(
-                        parameters[name].get("lateral_offset", 0.0), 0.0
+                        parameters[name].get(
+                            "offset_pos_foot_rt_world_ewrt_heading_y", 0.0
+                        ),
+                        0.0,
                     )
                 # Positive control: the SIZED coefficients beside them are not zero, so a block of zeros fails.
                 self.assertGreater(
-                    parameters["orientation_compensation"][
-                        "pitch_per_forward_velocity"
+                    parameters["orientation_compensation_parameters"][
+                        "pitch_per_forward_velocity_gain"
                     ],
                     0.0,
                 )
                 self.assertLess(
-                    parameters["height_compensation"]["height_per_speed"], 0.0
+                    parameters["height_compensation"]["height_per_speed_gain"],
+                    0.0,
                 )
                 self.assertGreater(
-                    parameters["periodic_orientation"]["roll_amplitude"], 0.0
+                    parameters["periodic_orientation_parameters"][
+                        "amplitude_eulerzyx_base_rt_world_roll"
+                    ],
+                    0.0,
                 )
 
     def test_periodic_roll_peaks_at_mid_left_stance(self):
         # The one phase in the family that is derived rather than fitted, and the derivation is easy to invert by
         # accident: phase [0, 0.5) is the LF mode, which names the foot IN CONTACT, so 0.25 is mid LEFT stance; and a
         # positive roll raises the left side, i.e. drops the hip on the SWING side, which is what a biped does.
-        block = self._derive_robot("drc_atlas")[3]["periodic_orientation"]
-        self.assertGreater(block["roll_amplitude"], 0.0)
+        block = self._derive_robot("drc_atlas")[3][
+            "periodic_orientation_parameters"
+        ]
+        self.assertGreater(block["amplitude_eulerzyx_base_rt_world_roll"], 0.0)
         # Roll once per gait cycle, pitch once per step, i.e. twice per cycle.
         self.assertAlmostEqual(
             block["roll_phase_rate"], 2.0 * math.pi, delta=1e-7
@@ -1948,17 +2072,19 @@ class DeriveParametersTest(_DerivedBlockAssertions):
                     geometry.total_mass, 1.0, "the model has no mass"
                 )
                 self.assertGreater(
-                    geometry.com_height,
+                    geometry.pos_com_rt_feetmean_ewrt_world_z,
                     0.3,
                     "the CoM is not above the feet; check initial_state",
                 )
-                self.assertLess(geometry.com_height, 2.0)
+                self.assertLess(geometry.pos_com_rt_feetmean_ewrt_world_z, 2.0)
                 self.assertGreater(
-                    geometry.nominal_foot_separation,
+                    geometry.nom_norm_pos_lfoot_rt_rfoot_ewrt_heading_y,
                     0.05,
                     "the feet are on top of each other",
                 )
-                self.assertEqual(len(geometry.hip_offset), 2)
+                self.assertEqual(
+                    len(geometry.pos_hips_rt_base_ewrt_heading_xy), 2
+                )
                 for name in geometry.hip_joint_names:
                     self.assertNotIn(
                         "not found",
@@ -1966,15 +2092,19 @@ class DeriveParametersTest(_DerivedBlockAssertions):
                         "the walk up the kinematic tree failed",
                     )
                 # Left hip to the left, right hip to the right, and symmetric about the base.
-                self.assertGreater(geometry.hip_offset[0][1], 0.0)
-                self.assertLess(geometry.hip_offset[1][1], 0.0)
+                self.assertGreater(
+                    geometry.pos_hips_rt_base_ewrt_heading_xy[0][1], 0.0
+                )
+                self.assertLess(
+                    geometry.pos_hips_rt_base_ewrt_heading_xy[1][1], 0.0
+                )
                 self.assertAlmostEqual(
-                    geometry.hip_offset[0][1],
-                    -geometry.hip_offset[1][1],
+                    geometry.pos_hips_rt_base_ewrt_heading_xy[0][1],
+                    -geometry.pos_hips_rt_base_ewrt_heading_xy[1][1],
                     places=4,
                 )
 
-                self.assertEqual(list(parameters), list(ALL_HEURISTIC_NAMES))
+                self.assertEqual(list(parameters), list(ALL_PARAMETER_BLOCKS))
                 self.assertTrue(notes)
                 self.assert_admissible(parameters)
 
@@ -1995,9 +2125,10 @@ class DeriveParametersTest(_DerivedBlockAssertions):
                 )
 
     def test_every_shipped_pendulum_number_is_the_models(self):
-        # The pendulum is the model's: a com_height left out of dcm_terminal_cost or the planner's shared block is resolved
-        # by the C++ computeComHeightAboveFeet(), and the two heuristic numbers the task files write out -
-        # capture_point.com_height_override and high_speed_turning's z / g - are derived from it. This pins, per robot, that
+        # The pendulum is the model's: a nom_pos_com_rt_feetmean_ewrt_world_z left out of dcm_terminal_cost or the
+        # planner's shared block is resolved by the C++ computeProxyPosComRtFeetmeanEwrtWorldZ(), and the two heuristic
+        # numbers the task files write out - capture_point.override_pos_com_rt_feetmean_ewrt_world_z and
+        # high_speed_turning's z / g - are derived from it. This pins, per robot, that
         # the numbers a task file SHIPS are the ones this script derives from the model within their printed rounding;
         # humanoid_centroidal_mpc:testNominalPendulum pins the same shipped numbers against the C++ derivation, so the two
         # derivations agree wherever a robot ships a derived number. A zero is not a derived number (it is "derive it"),
@@ -2008,14 +2139,18 @@ class DeriveParametersTest(_DerivedBlockAssertions):
                 geometry, task, planning, _, _ = self._derive(robot)
                 block = task.get("locomotion_heuristics") or {}
                 capture = block.get("capture_point") or {}
-                override = float(capture.get("com_height_override", 0.0))
+                override = float(
+                    capture.get(
+                        "override_pos_com_rt_feetmean_ewrt_world_z", 0.0
+                    )
+                )
                 if override > 0.0:
                     self.assertAlmostEqual(
                         override,
-                        geometry.com_height,
+                        geometry.pos_com_rt_feetmean_ewrt_world_z,
                         delta=ROUNDING_4,
                         msg=(
-                            "capture_point.com_height_override is not the"
+                            "capture_point.override_pos_com_rt_feetmean_ewrt_world_z is not the"
                             " model's CoM height above its feet"
                         ),
                     )
@@ -2027,7 +2162,7 @@ class DeriveParametersTest(_DerivedBlockAssertions):
                     if value > 0.0:
                         self.assertAlmostEqual(
                             value,
-                            geometry.com_height / gravity,
+                            geometry.pos_com_rt_feetmean_ewrt_world_z / gravity,
                             delta=ROUNDING_4,
                             msg=(
                                 "high_speed_turning.%s is not z_com / g of the"
@@ -2038,18 +2173,18 @@ class DeriveParametersTest(_DerivedBlockAssertions):
                         checked += 1
                 for label, height in (
                     (
-                        "dcm_terminal_cost.com_height",
+                        "dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z",
                         float(
                             (task.get("dcm_terminal_cost") or {}).get(
-                                "com_height", 0.0
+                                "nom_pos_com_rt_feetmean_ewrt_world_z", 0.0
                             )
                         ),
                     ),
                     (
-                        "shared.com_height",
+                        "shared.nom_pos_com_rt_feetmean_ewrt_world_z",
                         float(
                             (planning.get("shared") or {}).get(
-                                "com_height", 0.0
+                                "nom_pos_com_rt_feetmean_ewrt_world_z", 0.0
                             )
                         ),
                     ),
@@ -2057,17 +2192,23 @@ class DeriveParametersTest(_DerivedBlockAssertions):
                     self.assertGreaterEqual(height, 0.0, label)
                     if height > 0.0:
                         self.assertLess(
-                            abs(height - geometry.com_height),
-                            0.05 * geometry.com_height,
+                            abs(
+                                height
+                                - geometry.pos_com_rt_feetmean_ewrt_world_z
+                            ),
+                            0.05 * geometry.pos_com_rt_feetmean_ewrt_world_z,
                             "%s = %.4f is an override %.0f%% off the model's"
                             " %.4f m"
                             % (
                                 label,
                                 height,
                                 100.0
-                                * abs(height - geometry.com_height)
-                                / geometry.com_height,
-                                geometry.com_height,
+                                * abs(
+                                    height
+                                    - geometry.pos_com_rt_feetmean_ewrt_world_z
+                                )
+                                / geometry.pos_com_rt_feetmean_ewrt_world_z,
+                                geometry.pos_com_rt_feetmean_ewrt_world_z,
                             ),
                         )
         # Positive control: at least one robot ships a derived number, so the loop above is not vacuous.
@@ -2075,7 +2216,8 @@ class DeriveParametersTest(_DerivedBlockAssertions):
         # And the hand-set 0.85 m Atlas used to ship for its pendulum is exactly what the 5 % check refuses.
         atlas, _, _, _, _ = self._derive("drc_atlas")
         self.assertGreater(
-            abs(0.85 - atlas.com_height), 0.05 * atlas.com_height
+            abs(0.85 - atlas.pos_com_rt_feetmean_ewrt_world_z),
+            0.05 * atlas.pos_com_rt_feetmean_ewrt_world_z,
         )
 
 

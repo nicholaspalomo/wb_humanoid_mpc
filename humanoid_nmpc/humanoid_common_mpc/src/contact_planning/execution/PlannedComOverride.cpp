@@ -29,11 +29,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/execution/PlannedComOverride.h"
 
+#include <cstddef>
 #include <optional>
 #include <string>
 
+#include "Eigen/Geometry"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
 #include "humanoid_common_mpc/contact_planning/execution/PlanCoverage.h"
 
 namespace ocs2::humanoid {
@@ -47,12 +55,15 @@ void PlannedComOverride::overrideTarget(
     const ExecutionContext& ctx, TargetTrajectories& targetTrajectories) const {
   if (!ctx.hasPlan()) return;
   const ContactPlan& plan = *ctx.activePlan;
-  if (plan.comPosition.empty()) return;
+  if (plan.posComRtWorldEwrtWorldXyTraj.empty()) return;
 
   // The reference carries the base pose, the plan carries the center of mass.
-  // The horizontal offset between them is a property of the posture, so the one
-  // measured at this cycle is the right one to carry the plan across.
-  const vector2_t comOffsetFromBase = ctx.com - ctx.basePosition;
+  // The horizontal offset between them is measured at this cycle, in world
+  // axes at the measured heading. It is fixed in the base for a fixed posture,
+  // so a knot whose reference heading differs from the measured one by dpsi
+  // carries it turned by dpsi.
+  const vector2_t measPosComRtBaseEwrtWorldXy =
+      ctx.posComRtWorldEwrtWorldXy - ctx.posBaseRtWorldEwrtWorldXy;
 
   const size_t numPoints = targetTrajectories.timeTrajectory.size();
   for (size_t i = 0; i < numPoints; ++i) {
@@ -64,22 +75,37 @@ void PlannedComOverride::overrideTarget(
     // once the plan runs out - came back frozen at the plan's last position
     // while its velocity went on asking for the plan's last, non-zero velocity.
     if (!planCoversTime(plan, time)) continue;
-    const std::optional<vector2_t> plannedPosition =
-        plan.comPositionAtTime(time);
-    const std::optional<vector2_t> plannedVelocity =
-        plan.comVelocityAtTime(time);
-    if (!plannedPosition.has_value() || !plannedVelocity.has_value()) continue;
+    const std::optional<vector2_t> plannedPosComRtWorldEwrtWorldXy =
+        plan.evaluatePosComRtWorldEwrtWorldXy(time);
+    const std::optional<vector2_t> plannedLinvelComRtWorldEwrtWorldXy =
+        plan.evaluateLinvelComRtWorldEwrtWorldXy(time);
+    if (!plannedPosComRtWorldEwrtWorldXy.has_value() ||
+        !plannedLinvelComRtWorldEwrtWorldXy.has_value()) {
+      continue;
+    }
 
     vector_t& stateRef = targetTrajectories.stateTrajectory[i];
-    vector3_t basePosition =
+    // No turn is exactly the identity, so a knot at the measured heading gets
+    // the measured offset bit for bit.
+    const vector2_t refPosComRtBaseEwrtWorldXy =
+        Eigen::Rotation2D<scalar_t>(
+            mpcRobotModel_->getYawBaseRtWorld(stateRef) - ctx.yawBaseRtWorld) *
+        measPosComRtBaseEwrtWorldXy;
+    vector3_t posBaseRtWorldEwrtWorld =
         mpcRobotModel_->getPosBaseRtWorldEwrtWorld(stateRef);
-    basePosition.head<kHorizontalPositionDim>() =
-        *plannedPosition - comOffsetFromBase;
-    mpcRobotModel_->setPosBaseRtWorldEwrtWorld(stateRef, basePosition);
+    posBaseRtWorldEwrtWorld.head<kHorizontalPositionDim>() =
+        *plannedPosComRtWorldEwrtWorldXy - refPosComRtBaseEwrtWorldXy;
+    mpcRobotModel_->setPosBaseRtWorldEwrtWorld(stateRef,
+                                               posBaseRtWorldEwrtWorld);
 
-    vector3_t comVelocity = mpcRobotModel_->getBaseComLinearVelocity(stateRef);
-    comVelocity.head<kHorizontalPositionDim>() = *plannedVelocity;
-    mpcRobotModel_->setBaseComLinearVelocity(stateRef, comVelocity);
+    // The plan's CoM velocity becomes the knot's CoM velocity, or on a
+    // whole-body knot its base velocity, which stands in for it.
+    vector3_t refLinvelComRtWorldEwrtWorld =
+        getProxyLinvelComRtWorldEwrtWorld(*mpcRobotModel_, stateRef);
+    refLinvelComRtWorldEwrtWorld.head<kHorizontalPositionDim>() =
+        *plannedLinvelComRtWorldEwrtWorldXy;
+    setProxyLinvelComRtWorldEwrtWorld(*mpcRobotModel_, stateRef,
+                                      refLinvelComRtWorldEwrtWorld);
   }
 }
 

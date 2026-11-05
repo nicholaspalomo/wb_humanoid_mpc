@@ -80,9 +80,10 @@ TEST(ViewerInputQueueTest, MergesConsecutiveDragsWithTheSameButtonAndShift) {
 TEST(ViewerInputQueueTest,
      AMergedDragKeepsTheRangeOfOneDragWithoutLosingMotion) {
   ViewerInputQueue queue;
-  for (int index = 0; index < 5; ++index)
+  for (int index = 0; index < 5; ++index) {
     queue.push(drag(ViewerMouseButton::kMiddle, /*shift=*/false, /*dx=*/-1.5,
                     /*dy=*/1.5));
+  }
   queue.push(drag(ViewerMouseButton::kMiddle, /*shift=*/false, /*dx=*/0.25,
                   /*dy=*/0.25));
   const std::vector<ViewerInput> drained = queue.drain();
@@ -103,8 +104,9 @@ TEST(ViewerInputQueueTest,
 TEST(ViewerInputQueueTest, DropsTheOldestEventWhenFull) {
   ViewerInputQueue queue;
   constexpr int kPushed = ViewerInputQueue::kCapacity + 44;
-  for (int index = 0; index < kPushed; ++index)
+  for (int index = 0; index < kPushed; ++index) {
     queue.push(key(static_cast<char>('a' + index % 26)));
+  }
   EXPECT_EQ(queue.size(), ViewerInputQueue::kCapacity);
   EXPECT_EQ(queue.droppedCount(), 44);
   const std::vector<ViewerInput> drained = queue.drain();

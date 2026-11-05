@@ -38,7 +38,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 
 namespace ocs2::humanoid {
@@ -109,15 +114,15 @@ vector_t JointMimicKinematicConstraint::getValue(
   vector_t jointAngles = mpcRobotModelPtr_->getJointAngles(state);
   vector_t jointVelocities =
       mpcRobotModelPtr_->getJointVelocities(state, input);
-  scalar_t posError =
+  scalar_t jointPositionError =
       config_.multiplier * jointAngles[config_.parentJointIndex] -
       jointAngles[config_.childJointIndex];
-  scalar_t velError =
+  scalar_t jointVelocityError =
       config_.multiplier * jointVelocities[config_.parentJointIndex] -
       jointVelocities[config_.childJointIndex];
 
   vector_t value(1);
-  value << (config_.positionGain * posError + velError);
+  value << (config_.positionGain * jointPositionError + jointVelocityError);
 
   return value;
 }

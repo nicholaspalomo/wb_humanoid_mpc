@@ -42,7 +42,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/reference/GaitFromConfig.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
@@ -99,8 +102,9 @@ mpc_config::ModeSequenceTemplateConfig gait(
 mpc_config::GaitFile gaitFileOf(
     const std::vector<mpc_config::ModeSequenceTemplateConfig>& gaits) {
   mpc_config::GaitFile file;
-  for (const mpc_config::ModeSequenceTemplateConfig& config : gaits)
+  for (const mpc_config::ModeSequenceTemplateConfig& config : gaits) {
     file.gait_list.push_back(config.name);
+  }
   file.gaits = gaits;
   return file;
 }

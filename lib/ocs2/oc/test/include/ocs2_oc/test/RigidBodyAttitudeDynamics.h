@@ -116,34 +116,32 @@ class RigidBodyAttitudeDynamics final : public SystemDynamicsBase {
   /** The flow map on AD scalars, x and u stacked. */
   ad_vector_t flowMap(const ad_vector_t& xu) const {
     const size_t q = getQuaternionStartIndex();
-    const quaternion_coeffs_t<ad_t> xi = xu.template segment<4>(q);
-    const rotation_vector_t<ad_t> omega = xu.template segment<3>(q + 4);
-    const rotation_vector_t<ad_t> tau = xu.template tail<3>();
-    const Eigen::Matrix<ad_t, 3, 3> inertia = inertiaMatrix().template cast<ad_t>();
-    const Eigen::Matrix<ad_t, 3, 3> inertiaInverse = inertiaMatrix().inverse().template cast<ad_t>();
+    const quaternion_coeffs_t<ad_t> quatBaseRtWorldXyzw = xu.template segment<4>(q);
+    const rotation_vector_t<ad_t> angvelBaseRtWorldEwrtBase = xu.template segment<3>(q + 4);
+    const rotation_vector_t<ad_t> torqueBaseEwrtBase = xu.template tail<3>();
+    const Eigen::Matrix<ad_t, 3, 3> inertiaBaseEwrtBase = getInertiaBaseEwrtBase().template cast<ad_t>();
+    const Eigen::Matrix<ad_t, 3, 3> inverseInertiaBaseEwrtBase = getInertiaBaseEwrtBase().inverse().template cast<ad_t>();
 
     ad_vector_t dxdt(getStateDim());
     if (withTranslation_) {
       const rotation_vector_t<ad_t> linvelBaseRtWorldEwrtBase = xu.template segment<3>(getStateDim());
-      dxdt.template head<3>() = quaternionRotationMatrix(quaternionSafeNormalize(xi)) * linvelBaseRtWorldEwrtBase;
+      dxdt.template head<3>() = quaternionRotationMatrix(quaternionSafeNormalize(quatBaseRtWorldXyzw)) * linvelBaseRtWorldEwrtBase;
     }
-    dxdt.template segment<4>(q) = ad_t(0.5) * quaternionRateMatrix(xi) * omega;
-    const rotation_vector_t<ad_t> angmomBaseRtWorldEwrtBase = inertia * omega;
-    dxdt.template segment<3>(q + 4) = inertiaInverse * (tau - omega.cross(angmomBaseRtWorldEwrtBase));
+    dxdt.template segment<4>(q) = ad_t(0.5) * quaternionRateMatrix(quatBaseRtWorldXyzw) * angvelBaseRtWorldEwrtBase;
+    const rotation_vector_t<ad_t> angmomBaseRtWorldEwrtBase = inertiaBaseEwrtBase * angvelBaseRtWorldEwrtBase;
+    dxdt.template segment<3>(q + 4) = inverseInertiaBaseEwrtBase * (torqueBaseEwrtBase - angvelBaseRtWorldEwrtBase.cross(angmomBaseRtWorldEwrtBase));
     return dxdt;
   }
 
   /** The fixed rotation of the jump map. */
   static quaternion_coeffs_t<scalar_t> jumpUnitQuaternion() {
-    rotation_vector_t<scalar_t> rotvec;
-    rotvec << 0.3, -0.2, 0.5;
-    return quaternionExp(rotvec);
+    return quaternionExp(rotation_vector_t<scalar_t>(0.3, -0.2, 0.5));
   }
 
-  static Eigen::Matrix<scalar_t, 3, 3> inertiaMatrix() {
-    Eigen::Matrix<scalar_t, 3, 3> inertia;
-    inertia << 0.8, 0.05, -0.02, 0.05, 1.1, 0.03, -0.02, 0.03, 1.4;
-    return inertia;
+  static Eigen::Matrix<scalar_t, 3, 3> getInertiaBaseEwrtBase() {
+    Eigen::Matrix<scalar_t, 3, 3> inertiaBaseEwrtBase;
+    inertiaBaseEwrtBase << 0.8, 0.05, -0.02, 0.05, 1.1, 0.03, -0.02, 0.03, 1.4;
+    return inertiaBaseEwrtBase;
   }
 
  private:
@@ -174,8 +172,8 @@ class RigidBodyAttitudeDynamics final : public SystemDynamicsBase {
     CppAD::Independent(x);
     const size_t q = getQuaternionStartIndex();
     ad_vector_t xNext = x;
-    const quaternion_coeffs_t<ad_t> xi = x.template segment<4>(q);
-    xNext.template segment<4>(q) = quaternionProduct(xi, quaternion_coeffs_t<ad_t>(jumpUnitQuaternion().template cast<ad_t>()));
+    const quaternion_coeffs_t<ad_t> quatBaseRtWorldXyzw = x.template segment<4>(q);
+    xNext.template segment<4>(q) = quaternionProduct(quatBaseRtWorldXyzw, quaternion_coeffs_t<ad_t>(jumpUnitQuaternion().template cast<ad_t>()));
     xNext.template segment<3>(q + 4) = ad_t(0.5) * x.template segment<3>(q + 4);
     jumpTape_ = std::make_unique<CppAD::ADFun<scalar_t>>(x, xNext);
   }

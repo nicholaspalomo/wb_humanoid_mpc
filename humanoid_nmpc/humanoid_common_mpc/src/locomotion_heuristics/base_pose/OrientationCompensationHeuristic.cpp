@@ -32,8 +32,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 
+#include "humanoid_common_mpc/locomotion_heuristics/BasePoseHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 
 namespace ocs2::humanoid {
@@ -41,7 +44,7 @@ namespace ocs2::humanoid {
 absl::Status OrientationCompensationHeuristic::configure(
     const LocomotionHeuristicConfig& config,
     const LocomotionHeuristicModelParameters& /*model*/) {
-  parameters_ = config.orientationCompensation;
+  parameters_ = config.orientationCompensationParameters;
   return absl::OkStatus();
 }
 
@@ -53,31 +56,39 @@ BasePoseOffset OrientationCompensationHeuristic::offset(
   // is the pairing Bledt's regressions found (equations 4.11 and 4.12). The
   // velocity is already in the base's own yaw frame, so these are the robot's
   // forward and left, not the world's.
-  result.roll = parameters_.rollPerLateralVelocity *
-                    context.commandedVelocityInBaseFrame.y() +
-                parameters_.rollOffset;
-  result.pitch = parameters_.pitchPerForwardVelocity *
-                     context.commandedVelocityInBaseFrame.x() +
-                 parameters_.pitchOffset;
+  result.offsetEulerzyxBaseRtWorldRoll =
+      parameters_.rollPerLateralVelocityGain *
+          context.cmdLinvelBaseRtWorldEwrtHeadingXy.y() +
+      parameters_.offsetEulerzyxBaseRtWorldRoll;
+  result.offsetEulerzyxBaseRtWorldPitch =
+      parameters_.pitchPerForwardVelocityGain *
+          context.cmdLinvelBaseRtWorldEwrtHeadingXy.x() +
+      parameters_.offsetEulerzyxBaseRtWorldPitch;
   // The clamp is not defensive trimming: the command this reads is the
   // operator's, filtered but not rate limited, and an affine law applied to it
   // has no bound of its own. A reference tilt the legs cannot reach is worse
   // than no reference at all, because the state cost pulls towards it at every
   // node and the solver spends its iterations on a target it cannot have.
-  result.roll = std::clamp(result.roll, -parameters_.maximumTilt,
-                           parameters_.maximumTilt);
-  result.pitch = std::clamp(result.pitch, -parameters_.maximumTilt,
-                            parameters_.maximumTilt);
+  result.offsetEulerzyxBaseRtWorldRoll =
+      std::clamp(result.offsetEulerzyxBaseRtWorldRoll,
+                 -parameters_.maxOffsetEulerzyxBaseRtWorld,
+                 parameters_.maxOffsetEulerzyxBaseRtWorld);
+  result.offsetEulerzyxBaseRtWorldPitch =
+      std::clamp(result.offsetEulerzyxBaseRtWorldPitch,
+                 -parameters_.maxOffsetEulerzyxBaseRtWorld,
+                 parameters_.maxOffsetEulerzyxBaseRtWorld);
   return result;
 }
 
 std::string OrientationCompensationHeuristic::describe() const {
   return absl::StrCat(
-      "orientation_compensation: roll = ", parameters_.rollPerLateralVelocity,
-      " * v_y + ", parameters_.rollOffset,
-      " [rad], pitch = ", parameters_.pitchPerForwardVelocity, " * v_x + ",
-      parameters_.pitchOffset, " [rad], both clamped to +/- ",
-      parameters_.maximumTilt, " rad");
+      "orientation_compensation: roll = ",
+      parameters_.rollPerLateralVelocityGain, " * v_y + ",
+      parameters_.offsetEulerzyxBaseRtWorldRoll,
+      " [rad], pitch = ", parameters_.pitchPerForwardVelocityGain, " * v_x + ",
+      parameters_.offsetEulerzyxBaseRtWorldPitch,
+      " [rad], both clamped to +/- ", parameters_.maxOffsetEulerzyxBaseRtWorld,
+      " rad");
 }
 
 }  // namespace ocs2::humanoid

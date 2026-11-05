@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "ocs2_core/Types.h"
+
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristic.h"
 
@@ -54,29 +56,33 @@ namespace ocs2::humanoid {
  */
 // LINT.IfChange(base_pose_offset_convention)
 struct BasePoseOffset {
-  scalar_t roll = 0.0;  // [rad] added to index 2 of the base's ZYX Euler angles
-                        // (yaw, pitch, roll)
-  scalar_t pitch =
+  scalar_t offsetEulerzyxBaseRtWorldRoll =
+      0.0;  // [rad] added to index 2 of the base's ZYX Euler angles
+            // (yaw, pitch, roll)
+  scalar_t offsetEulerzyxBaseRtWorldPitch =
       0.0;  // [rad] added to index 1 of the base's ZYX Euler angles
-  scalar_t height = 0.0;  // [m] added to index 2 (z) of the base position
+  scalar_t offsetPosBaseRtWorldEwrtWorldZ =
+      0.0;  // [m] added to index 2 (z) of the base position
   /**
-   * [rad/s] The time derivatives of `roll` and `pitch` along the reference,
-   * d/dt at fixed command: what the seam adds to the reference's Euler rates so
-   * that its angular velocity (or, on the centroidal state, its angular
-   * momentum) is the derivative of the attitude it shapes rather than the
-   * unshaped one's. Only a heuristic of the gait phase has one; a function of
-   * the command alone is constant along a constant command and leaves them at
-   * 0.
+   * [rad/s] The time derivatives of the roll and pitch offsets along the
+   * reference, d/dt at fixed command: what the seam adds to the reference's
+   * Euler rates so that its angular velocity (or, on the centroidal state, its
+   * angular momentum) is the derivative of the attitude it shapes rather than
+   * the unshaped one's. Only a heuristic of the gait phase has one; a function
+   * of the command alone is constant along a constant command and leaves them
+   * at 0.
    */
-  scalar_t rollRate = 0.0;
-  scalar_t pitchRate = 0.0;
+  scalar_t offsetRateEulerzyxBaseRtWorldRoll = 0.0;
+  scalar_t offsetRateEulerzyxBaseRtWorldPitch = 0.0;
 
   BasePoseOffset& operator+=(const BasePoseOffset& other) {
-    roll += other.roll;
-    pitch += other.pitch;
-    height += other.height;
-    rollRate += other.rollRate;
-    pitchRate += other.pitchRate;
+    offsetEulerzyxBaseRtWorldRoll += other.offsetEulerzyxBaseRtWorldRoll;
+    offsetEulerzyxBaseRtWorldPitch += other.offsetEulerzyxBaseRtWorldPitch;
+    offsetPosBaseRtWorldEwrtWorldZ += other.offsetPosBaseRtWorldEwrtWorldZ;
+    offsetRateEulerzyxBaseRtWorldRoll +=
+        other.offsetRateEulerzyxBaseRtWorldRoll;
+    offsetRateEulerzyxBaseRtWorldPitch +=
+        other.offsetRateEulerzyxBaseRtWorldPitch;
     return *this;
   }
 };
@@ -95,9 +101,9 @@ struct BasePoseOffset {
 struct BasePoseHeuristicContext {
   /** [m/s] commanded CoM velocity at this node, rotated into the reference
    * base's yaw frame: x forward, y left. */
-  vector2_t commandedVelocityInBaseFrame = vector2_t::Zero();
+  vector2_t cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t::Zero();
   /** [rad/s] commanded yaw rate at this node. */
-  scalar_t commandedYawRate = 0.0;
+  scalar_t cmdRateYawBaseRtWorld = 0.0;
   /**
    * Gait phase at this node, in [0, 1), from
    * SwitchedModelReferenceManager::getPhaseVariable().
@@ -128,7 +134,9 @@ struct BasePoseHeuristicContext {
  * This is the channel with the most to gain, because the reference it shapes is
  * currently a hard zero:
  * TargetTrajectoriesCalculatorBase::integrateRefPoseeulerzyxBaseRtWorld writes
- * `targetPose[4] = 0.0; targetPose[5] = 0.0;` on every call, while Q's
+ * `finalPoseeulerzyxBaseRtWorld[kPoseTargetPitchIndex] = 0.0;
+ * finalPoseeulerzyxBaseRtWorld[kPoseTargetRollIndex] = 0.0;` on every call,
+ * while Q's
  * base-pose block is live and non-zero on every robot in this repository. The
  * MPC is therefore being asked to walk with the base held exactly level at
  * every speed, which is not what a legged system wants and is precisely the
@@ -153,7 +161,8 @@ class BasePoseHeuristic : public LocomotionHeuristic {
 
   /**
    * The offset this heuristic contributes at one shooting node, with its rates
-   * (BasePoseOffset::rollRate, pitchRate). Must be a pure function of its
+   * (BasePoseOffset::offsetRateEulerzyxBaseRtWorldRoll,
+   * offsetRateEulerzyxBaseRtWorldPitch). Must be a pure function of its
    * coefficients and `context`.
    */
   virtual BasePoseOffset offset(

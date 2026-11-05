@@ -55,9 +55,9 @@ struct RobotFeatureCandidate {
   std::string frameName;
   size_t mpcContactIndex = 0;
   ContactKind kind = ContactKind::kPoint;
-  // parent_R_pad of the contact set (ContactCandidate::padRotation): its z
+  // parent_R_pad of the contact set (ContactCandidate::rotmatPadRtLink): its z
   // axis is the terrain normal when the pad rests on a surface.
-  Eigen::Matrix3d padRotation = Eigen::Matrix3d::Identity();
+  Eigen::Matrix3d rotmatPadRtLink = Eigen::Matrix3d::Identity();
   // [m] The radius of the pad's collision geometry; 0 for a flat pad.
   double geomRadius = 0.0;
 };
@@ -70,8 +70,8 @@ struct RobotFeatureSettings {
   // eps of the cone's smooth norm, in units of the robot's weight.
   double coneSmoothing = 0.0;
   // [rad] The tilt a point pad's normal may have from the surface's for free
-  // (design section 3.1, max_pad_tilt).
-  double maxPointTilt = 0.0;
+  // (design section 3.1, StanceIkOptions::maxTiltanglePadRtSurface).
+  double pointMaxTiltanglePadRtSurface = 0.0;
 };
 
 /**

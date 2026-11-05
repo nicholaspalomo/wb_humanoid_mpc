@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 
+#include <cstddef>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -42,19 +43,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 
 #include "humanoid_mpc_config/contact_planning_file.nproto.h"
-#include "humanoid_mpc_config/contact_planning_file.nproto.pb.h"
+#include "humanoid_mpc_config/contact_planning_file.nproto.pb.h"  // IWYU pragma: keep
 #include "humanoid_mpc_config/contact_planning_file.pb.h"
 #include "humanoid_mpc_config/gait_file.nproto.h"
-#include "humanoid_mpc_config/gait_file.nproto.pb.h"
+#include "humanoid_mpc_config/gait_file.nproto.pb.h"  // IWYU pragma: keep
 #include "humanoid_mpc_config/gait_file.pb.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
-#include "humanoid_mpc_config/joint_pd_gains_file.nproto.pb.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.nproto.pb.h"  // IWYU pragma: keep
 #include "humanoid_mpc_config/joint_pd_gains_file.pb.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
-#include "humanoid_mpc_config/reference_file.nproto.pb.h"
+#include "humanoid_mpc_config/reference_file.nproto.pb.h"  // IWYU pragma: keep
 #include "humanoid_mpc_config/reference_file.pb.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
-#include "humanoid_mpc_config/task_file.nproto.pb.h"
+#include "humanoid_mpc_config/task_file.nproto.pb.h"  // IWYU pragma: keep
 #include "humanoid_mpc_config/task_file.pb.h"
 #include "nproto/Textproto.h"
 
@@ -160,8 +161,9 @@ std::string configFileIdentity(absl::string_view path) {
     return normal.generic_string();
   }
   std::filesystem::path identity;
-  for (size_t index = start; index < components.size(); ++index)
+  for (size_t index = start; index < components.size(); ++index) {
     identity /= components[index];
+  }
   return identity.generic_string();
 }
 // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/robot_config_save.py:config_path_of)

@@ -36,7 +36,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipStandingBlend.h"
 
@@ -109,11 +111,11 @@ HlipBlendParameters makeParameters() {
   HlipBlendParameters parameters;
   parameters.sharpness = 4.0;
   parameters.threshold = 0.25;
-  parameters.maxCommandedVelocityX = 1.0;
-  parameters.maxCommandedVelocityY = 0.5;
-  parameters.maxCommandedYawRate = 2.0;
-  parameters.maxComVelocityX = 0.25;
-  parameters.maxComVelocityY = 4.0;
+  parameters.cmdMaxLinvelBaseRtWorldEwrtHeadingX = 1.0;
+  parameters.cmdMaxLinvelBaseRtWorldEwrtHeadingY = 0.5;
+  parameters.cmdMaxAngvelBaseRtWorldEwrtWorldZ = 2.0;
+  parameters.maxProxyLinvelComRtWorldEwrtHeadingX = 0.25;
+  parameters.maxProxyLinvelComRtWorldEwrtHeadingY = 4.0;
   return parameters;
 }
 
@@ -121,15 +123,15 @@ scalar_t componentMaximum(const HlipBlendParameters& parameters,
                           BlendComponent component) {
   switch (component) {
     case BlendComponent::kCommandedVelocityX:
-      return parameters.maxCommandedVelocityX;
+      return parameters.cmdMaxLinvelBaseRtWorldEwrtHeadingX;
     case BlendComponent::kCommandedVelocityY:
-      return parameters.maxCommandedVelocityY;
+      return parameters.cmdMaxLinvelBaseRtWorldEwrtHeadingY;
     case BlendComponent::kCommandedYawRate:
-      return parameters.maxCommandedYawRate;
+      return parameters.cmdMaxAngvelBaseRtWorldEwrtWorldZ;
     case BlendComponent::kComVelocityX:
-      return parameters.maxComVelocityX;
+      return parameters.maxProxyLinvelComRtWorldEwrtHeadingX;
     case BlendComponent::kComVelocityY:
-      return parameters.maxComVelocityY;
+      return parameters.maxProxyLinvelComRtWorldEwrtHeadingY;
   }
   return 0.0;
 }
@@ -137,46 +139,49 @@ scalar_t componentMaximum(const HlipBlendParameters& parameters,
 /** The three arguments of the blend, so that one component can be driven while
  * the other four stay at exactly zero. */
 struct BlendInput {
-  vector2_t velocityCommand = vector2_t::Zero();
-  scalar_t yawRateCommand = 0.0;
-  vector2_t comVelocity = vector2_t::Zero();
+  vector2_t cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t::Zero();
+  scalar_t cmdRateYawBaseRtWorld = 0.0;
+  vector2_t linvelComRtWorldEwrtHeadingXy = vector2_t::Zero();
 };
 
 BlendInput makeInput(BlendComponent component, scalar_t value) {
   BlendInput input;
   switch (component) {
     case BlendComponent::kCommandedVelocityX:
-      input.velocityCommand.x() = value;
+      input.cmdLinvelBaseRtWorldEwrtHeadingXy.x() = value;
       break;
     case BlendComponent::kCommandedVelocityY:
-      input.velocityCommand.y() = value;
+      input.cmdLinvelBaseRtWorldEwrtHeadingXy.y() = value;
       break;
     case BlendComponent::kCommandedYawRate:
-      input.yawRateCommand = value;
+      input.cmdRateYawBaseRtWorld = value;
       break;
     case BlendComponent::kComVelocityX:
-      input.comVelocity.x() = value;
+      input.linvelComRtWorldEwrtHeadingXy.x() = value;
       break;
     case BlendComponent::kComVelocityY:
-      input.comVelocity.y() = value;
+      input.linvelComRtWorldEwrtHeadingXy.y() = value;
       break;
   }
   return input;
 }
 
 scalar_t activityOf(const HlipStandingBlend& blend, const BlendInput& input) {
-  return blend.activity(input.velocityCommand, input.yawRateCommand,
-                        input.comVelocity);
+  return blend.activity(input.cmdLinvelBaseRtWorldEwrtHeadingXy,
+                        input.cmdRateYawBaseRtWorld,
+                        input.linvelComRtWorldEwrtHeadingXy);
 }
 
 scalar_t weightOf(const HlipStandingBlend& blend, const BlendInput& input) {
-  return blend.weight(input.velocityCommand, input.yawRateCommand,
-                      input.comVelocity);
+  return blend.weight(input.cmdLinvelBaseRtWorldEwrtHeadingXy,
+                      input.cmdRateYawBaseRtWorld,
+                      input.linvelComRtWorldEwrtHeadingXy);
 }
 
 bool isWalkingOf(const HlipStandingBlend& blend, const BlendInput& input) {
-  return blend.isWalking(input.velocityCommand, input.yawRateCommand,
-                         input.comVelocity);
+  return blend.isWalking(input.cmdLinvelBaseRtWorldEwrtHeadingXy,
+                         input.cmdRateYawBaseRtWorld,
+                         input.linvelComRtWorldEwrtHeadingXy);
 }
 
 /**
@@ -190,13 +195,13 @@ ContactPlanningConfig makeValidConfig() {
   config.planner.dt = 0.025;
   config.planner.numNodes = 56;
   config.planner.commitTime = 0.05;
-  config.shared.comHeight = 0.85;
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ = 0.85;
   config.shared.gaitLimits.minSwingDuration = 0.25;
   config.shared.gaitLimits.maxSwingDuration = 0.35;
   config.shared.gaitLimits.minDoubleSupportDuration = 0.0;
   config.hlip.sspDuration = 0.25;
   config.hlip.dspDuration = 0.05;
-  config.hlip.stepWidth = 0.25;
+  config.hlip.nomPosLfootRtRfootEwrtHeadingY = 0.25;
   return config;
 }
 
@@ -205,19 +210,19 @@ ContactPlanningConfig makeConfigWithMaximum(BlendComponent component,
   ContactPlanningConfig config = makeValidConfig();
   switch (component) {
     case BlendComponent::kCommandedVelocityX:
-      config.hlip.blend.maxCommandedVelocityX = value;
+      config.hlip.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingX = value;
       break;
     case BlendComponent::kCommandedVelocityY:
-      config.hlip.blend.maxCommandedVelocityY = value;
+      config.hlip.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingY = value;
       break;
     case BlendComponent::kCommandedYawRate:
-      config.hlip.blend.maxCommandedYawRate = value;
+      config.hlip.blend.cmdMaxAngvelBaseRtWorldEwrtWorldZ = value;
       break;
     case BlendComponent::kComVelocityX:
-      config.hlip.blend.maxComVelocityX = value;
+      config.hlip.blend.maxProxyLinvelComRtWorldEwrtHeadingX = value;
       break;
     case BlendComponent::kComVelocityY:
-      config.hlip.blend.maxComVelocityY = value;
+      config.hlip.blend.maxProxyLinvelComRtWorldEwrtHeadingY = value;
       break;
   }
   return config;
@@ -259,13 +264,17 @@ TEST(HlipStandingBlend, phiIsTheSumOfTheIndependentlyNormalizedSquaredRatios) {
   const std::array<scalar_t, 5> ratios = {
       0.25, 0.5, 0.75, 1.0, 1.5};  // one per component, all different
 
-  const vector2_t velocityCommand(ratios[0] * parameters.maxCommandedVelocityX,
-                                  ratios[1] * parameters.maxCommandedVelocityY);
-  const scalar_t yawRateCommand = ratios[2] * parameters.maxCommandedYawRate;
-  const vector2_t comVelocity(ratios[3] * parameters.maxComVelocityX,
-                              ratios[4] * parameters.maxComVelocityY);
+  const vector2_t cmdLinvelBaseRtWorldEwrtHeadingXy(
+      ratios[0] * parameters.cmdMaxLinvelBaseRtWorldEwrtHeadingX,
+      ratios[1] * parameters.cmdMaxLinvelBaseRtWorldEwrtHeadingY);
+  const scalar_t cmdRateYawBaseRtWorld =
+      ratios[2] * parameters.cmdMaxAngvelBaseRtWorldEwrtWorldZ;
+  const vector2_t linvelComRtWorldEwrtHeadingXy(
+      ratios[3] * parameters.maxProxyLinvelComRtWorldEwrtHeadingX,
+      ratios[4] * parameters.maxProxyLinvelComRtWorldEwrtHeadingY);
   const scalar_t combined =
-      blend.activity(velocityCommand, yawRateCommand, comVelocity);
+      blend.activity(cmdLinvelBaseRtWorldEwrtHeadingXy, cmdRateYawBaseRtWorld,
+                     linvelComRtWorldEwrtHeadingXy);
 
   scalar_t expected = 0.0;
   scalar_t sumOfParts = 0.0;
@@ -364,13 +373,14 @@ TEST(HlipStandingBlend, alphaIsMonotoneInPhiAndNeverLeavesTheUnitInterval) {
   // "alpha in (0, 1): 0 stands still, 1 walks the full H-LIP gait." A weight
   // outside that interval would be handed straight to HlipContactPlanner, which
   // uses it as the convex weight of the walking reference against the standing
-  // one (plan.comPosition = alpha * rolled-out + (1 - alpha) * support center),
-  // so a value above one or below zero would extrapolate the reference rather
-  // than interpolate it. Monotonicity is the other half of the contract: more
-  // command, or more measured motion, may never make the planner LESS willing
-  // to walk.
+  // one (plan.posComRtWorldEwrtWorldXyTraj = alpha * rolled-out + (1 - alpha) *
+  // support center), so a value above one or below zero would extrapolate the
+  // reference rather than interpolate it. Monotonicity is the other half of the
+  // contract: more command, or more measured motion, may never make the planner
+  // LESS willing to walk.
   const HlipStandingBlend blend(makeParameters());
-  const scalar_t maximum = blend.getParameters().maxCommandedVelocityX;
+  const scalar_t maximum =
+      blend.getParameters().cmdMaxLinvelBaseRtWorldEwrtHeadingX;
   scalar_t previousWeight = -1.0;
   for (int step = 0; step <= 100; ++step) {
     const scalar_t command =
@@ -430,7 +440,7 @@ TEST(HlipStandingBlend, alphaLandsOnBothOfItsAsymptotes) {
 
   const BlendInput fullStick =
       makeInput(BlendComponent::kCommandedVelocityX,
-                2.0 * parameters.maxCommandedVelocityX);
+                2.0 * parameters.cmdMaxLinvelBaseRtWorldEwrtHeadingX);
   EXPECT_NEAR(weightOf(blend, fullStick), 1.0, 1.0e-12)
       << "a saturated command must be given the full walking gait";
   EXPECT_LE(weightOf(blend, fullStick), 1.0);
@@ -453,7 +463,7 @@ TEST(HlipStandingBlend, theHalfPointSitsExactlyAtTheThresholdAndIsInclusive) {
     const HlipStandingBlend blend(parameters);
 
     const scalar_t crossing =
-        std::sqrt(threshold) * parameters.maxCommandedVelocityX;
+        std::sqrt(threshold) * parameters.cmdMaxLinvelBaseRtWorldEwrtHeadingX;
     const BlendInput atCrossing =
         makeInput(BlendComponent::kCommandedVelocityX, crossing);
     ASSERT_DOUBLE_EQ(activityOf(blend, atCrossing), threshold);
@@ -556,43 +566,52 @@ TEST(HlipStandingBlend,
   const HlipStandingBlend blend(defaults);
 
   const vector2_t atRest = vector2_t::Zero();
-  EXPECT_FALSE(blend.isWalking(atRest, /*yawRateCommand=*/0.0, atRest))
+  EXPECT_FALSE(blend.isWalking(atRest, /*cmdRateYawBaseRtWorld=*/0.0, atRest))
       << "no command and no motion must stand";
-  EXPECT_FALSE(
-      blend.isWalking(vector2_t(0.09, 0.0), /*yawRateCommand=*/0.0, atRest))
+  EXPECT_FALSE(blend.isWalking(vector2_t(0.09, 0.0),
+                               /*cmdRateYawBaseRtWorld=*/0.0, atRest))
       << "0.09 m/s is below the documented half point";
-  EXPECT_TRUE(
-      blend.isWalking(vector2_t(0.10, 0.0), /*yawRateCommand=*/0.0, atRest))
+  EXPECT_TRUE(blend.isWalking(vector2_t(0.10, 0.0),
+                              /*cmdRateYawBaseRtWorld=*/0.0, atRest))
       << "0.10 m/s is above the documented half point";
 
-  // The half point itself, phi = rho_2, is at maxCommandedVelocityX *
-  // sqrt(threshold) = 0.7 * sqrt(0.02) m/s: 14 % of the range, not a tenth of
-  // it.
-  const scalar_t halfPoint =
-      defaults.maxCommandedVelocityX * std::sqrt(defaults.threshold);
-  EXPECT_NEAR(halfPoint, 0.099, 1.0e-3);
-  EXPECT_NEAR(halfPoint / defaults.maxCommandedVelocityX, 0.14, 0.005);
+  // The half point itself, phi = rho_2, is at
+  // cmdMaxLinvelBaseRtWorldEwrtHeadingX * sqrt(threshold) = 0.7 * sqrt(0.02)
+  // m/s: 14 % of the range, not a tenth of it.
+  const scalar_t halfWeightCmdLinvelBaseRtWorldEwrtHeadingX =
+      defaults.cmdMaxLinvelBaseRtWorldEwrtHeadingX *
+      std::sqrt(defaults.threshold);
+  EXPECT_NEAR(halfWeightCmdLinvelBaseRtWorldEwrtHeadingX, 0.099, 1.0e-3);
+  EXPECT_NEAR(halfWeightCmdLinvelBaseRtWorldEwrtHeadingX /
+                  defaults.cmdMaxLinvelBaseRtWorldEwrtHeadingX,
+              0.14, 0.005);
   EXPECT_NEAR(
-      blend.weight(vector2_t(halfPoint, 0.0), /*yawRateCommand=*/0.0, atRest),
+      blend.weight(vector2_t(halfWeightCmdLinvelBaseRtWorldEwrtHeadingX, 0.0),
+                   /*cmdRateYawBaseRtWorld=*/0.0, atRest),
       0.5, 1.0e-12);
 
   // "about 0.83 at a fifth of the range": most of the way to the full gait, and
   // NOT saturated there.
-  const scalar_t atAFifth =
-      blend.weight(vector2_t(0.2 * defaults.maxCommandedVelocityX, 0.0),
-                   /*yawRateCommand=*/0.0, atRest);
+  const scalar_t atAFifth = blend.weight(
+      vector2_t(0.2 * defaults.cmdMaxLinvelBaseRtWorldEwrtHeadingX, 0.0),
+      /*cmdRateYawBaseRtWorld=*/0.0, atRest);
   EXPECT_NEAR(atAFifth, 0.83, 0.01);
   // "passes 0.99 only near 28 %".
-  EXPECT_LT(blend.weight(vector2_t(0.27 * defaults.maxCommandedVelocityX, 0.0),
-                         /*yawRateCommand=*/0.0, atRest),
-            0.99);
-  EXPECT_GT(blend.weight(vector2_t(0.29 * defaults.maxCommandedVelocityX, 0.0),
-                         /*yawRateCommand=*/0.0, atRest),
-            0.99);
+  EXPECT_LT(
+      blend.weight(
+          vector2_t(0.27 * defaults.cmdMaxLinvelBaseRtWorldEwrtHeadingX, 0.0),
+          /*cmdRateYawBaseRtWorld=*/0.0, atRest),
+      0.99);
+  EXPECT_GT(
+      blend.weight(
+          vector2_t(0.29 * defaults.cmdMaxLinvelBaseRtWorldEwrtHeadingX, 0.0),
+          /*cmdRateYawBaseRtWorld=*/0.0, atRest),
+      0.99);
   // At the maximum command it is on the walking asymptote.
-  EXPECT_NEAR(blend.weight(vector2_t(defaults.maxCommandedVelocityX, 0.0),
-                           /*yawRateCommand=*/0.0, atRest),
-              1.0, 1.0e-12);
+  EXPECT_NEAR(
+      blend.weight(vector2_t(defaults.cmdMaxLinvelBaseRtWorldEwrtHeadingX, 0.0),
+                   /*cmdRateYawBaseRtWorld=*/0.0, atRest),
+      1.0, 1.0e-12);
 }
 
 TEST(HlipStandingBlend,
@@ -627,9 +646,9 @@ TEST(HlipStandingBlend,
       case BlendComponent::kCommandedYawRate:
         return "hlip.blend.cmd_max_angvel_base_rt_world_ewrt_world_z";
       case BlendComponent::kComVelocityX:
-        return "hlip.blend.max_linvel_com_rt_world_ewrt_heading_x";
+        return "hlip.blend.max_proxy_linvel_com_rt_world_ewrt_heading_x";
       case BlendComponent::kComVelocityY:
-        return "hlip.blend.max_linvel_com_rt_world_ewrt_heading_y";
+        return "hlip.blend.max_proxy_linvel_com_rt_world_ewrt_heading_y";
     }
     return std::string();
   };

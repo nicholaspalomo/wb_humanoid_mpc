@@ -30,9 +30,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactInputJacobian.h"
 
 #include <cmath>
+#include <cstddef>
 
 #include "absl/log/check.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
@@ -43,14 +48,15 @@ matrix_t inputJacobianForceContactEwrtParam(
 
   const size_t inputDim = mpcRobotModel.getInputDim();
   const vector_t zeroInput = vector_t::Zero(inputDim);
-  const vector3_t offset =
+  const vector3_t zeroInputForceContactEwrtParam =
       mpcRobotModel.getForceContactEwrtParam(zeroInput, contactPointIndex);
-  CHECK_LE(offset.cwiseAbs().maxCoeff(), kLinearityTolerance)
+  CHECK_LE(zeroInputForceContactEwrtParam.cwiseAbs().maxCoeff(),
+           kLinearityTolerance)
       << "[inputJacobianForceContactEwrtParam] the contact force of contact "
       << contactPointIndex
       << " must be linear in the input for it to be probed by unit inputs; the "
          "zero input produced "
-      << offset.transpose();
+      << zeroInputForceContactEwrtParam.transpose();
 
   matrix_t jacobian = matrix_t::Zero(kForceDim, inputDim);
   for (size_t index = 0; index < inputDim; ++index) {

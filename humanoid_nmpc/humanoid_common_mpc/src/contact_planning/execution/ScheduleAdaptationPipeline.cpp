@@ -30,10 +30,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/execution/ScheduleAdaptationPipeline.h"
 
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <memory>
+#include <optional>
 
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
+#include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 namespace ocs2::humanoid {
@@ -86,8 +96,9 @@ feet_array_t<ContactEventReport> adaptScheduleWithRules(
       }
       for (const std::unique_ptr<ExecutionRule>& rule : rules) {
         if (rule->adaptSwingingFoot(ctx, foot, liftOff, touchDown, schedule,
-                                    latch, report))
+                                    latch, report)) {
           break;
+        }
       }
       continue;
     }

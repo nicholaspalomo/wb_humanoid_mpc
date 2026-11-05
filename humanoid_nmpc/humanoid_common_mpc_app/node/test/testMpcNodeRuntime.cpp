@@ -265,15 +265,20 @@ class Harness {
   absl::Duration walkingCommandTimeout_ = absl::ZeroDuration();
 };
 
-humanoid_mpc_msgs::WalkingVelocityCommand velocityCommand(double vx,
-                                                          double vy,
-                                                          double height,
-                                                          double yawRate) {
+humanoid_mpc_msgs::WalkingVelocityCommand velocityCommand(
+    double cmdLinvelBaseRtWorldEwrtHeadingX,
+    double cmdLinvelBaseRtWorldEwrtHeadingY,
+    double cmdPosBaseRtSurfaceEwrtWorldZ,
+    double cmdAngvelBaseRtWorldEwrtWorldZ) {
   humanoid_mpc_msgs::WalkingVelocityCommand message;
-  message.set_cmd_linvel_base_rt_world_ewrt_heading_x(vx);
-  message.set_cmd_linvel_base_rt_world_ewrt_heading_y(vy);
-  message.set_cmd_pos_base_rt_world_ewrt_world_z(height);
-  message.set_cmd_angvel_base_rt_world_ewrt_world_z(yawRate);
+  message.set_cmd_lnorm_linvel_base_rt_world_ewrt_heading_x(
+      cmdLinvelBaseRtWorldEwrtHeadingX);
+  message.set_cmd_lnorm_linvel_base_rt_world_ewrt_heading_y(
+      cmdLinvelBaseRtWorldEwrtHeadingY);
+  message.set_cmd_pos_base_rt_surface_ewrt_world_z(
+      cmdPosBaseRtSurfaceEwrtWorldZ);
+  message.set_cmd_lnorm_angvel_base_rt_world_ewrt_world_z(
+      cmdAngvelBaseRtWorldEwrtWorldZ);
   return message;
 }
 
@@ -354,15 +359,18 @@ TEST(MpcNodeRuntime,
   ASSERT_TRUE(harness.create().ok());
   const ReferenceSettings limits =
       commandLimits(harness.stack().referenceFile());
-  const scalar_t maxVelocityX = limits.cmdMaxLinvelBaseRtWorldEwrtHeadingX;
+  const scalar_t cmdMaxLinvelBaseRtWorldEwrtHeadingX =
+      limits.cmdMaxLinvelBaseRtWorldEwrtHeadingX;
   const scalar_t cmdMaxAngvelBaseRtWorldEwrtWorldZ =
       limits.cmdMaxAngvelBaseRtWorldEwrtWorldZ;
 
   ProceduralMpcMotionManager& motionManager = harness.stack().motionManager();
   ASSERT_TRUE(harness.sendAsOperator(
       topics::kOperatorWalkingVelocityCommand,
-      velocityCommand(/*vx=*/0.5, /*vy=*/0.0, /*height=*/0.8,
-                      /*yawRate=*/-0.25),
+      velocityCommand(/*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5,
+                      /*cmdLinvelBaseRtWorldEwrtHeadingY=*/0.0,
+                      /*cmdPosBaseRtSurfaceEwrtWorldZ=*/0.8,
+                      /*cmdAngvelBaseRtWorldEwrtWorldZ=*/-0.25),
       [&]() {
         return motionManager.getScaledWalkingVelocityCommand()
                    .cmd_linvel_base_rt_world_ewrt_heading_x != 0.0;
@@ -370,7 +378,7 @@ TEST(MpcNodeRuntime,
   const WalkingVelocityCommand scaled =
       motionManager.getScaledWalkingVelocityCommand();
   EXPECT_DOUBLE_EQ(scaled.cmd_linvel_base_rt_world_ewrt_heading_x,
-                   0.5 * maxVelocityX);
+                   0.5 * cmdMaxLinvelBaseRtWorldEwrtHeadingX);
   EXPECT_EQ(scaled.cmd_linvel_base_rt_world_ewrt_heading_y, 0.0);
   EXPECT_DOUBLE_EQ(scaled.cmd_angvel_base_rt_world_ewrt_world_z,
                    -0.25 * cmdMaxAngvelBaseRtWorldEwrtWorldZ);
@@ -401,7 +409,10 @@ TEST(MpcNodeRuntime,
   const double nan = std::numeric_limits<double>::quiet_NaN();
   ASSERT_TRUE(harness.sendAsOperator(
       topics::kOperatorWalkingVelocityCommand,
-      velocityCommand(/*vx=*/nan, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0),
+      velocityCommand(/*cmdLinvelBaseRtWorldEwrtHeadingX=*/nan,
+                      /*cmdLinvelBaseRtWorldEwrtHeadingY=*/0.0,
+                      /*cmdPosBaseRtSurfaceEwrtWorldZ=*/0.8,
+                      /*cmdAngvelBaseRtWorldEwrtWorldZ=*/0.0),
       [&]() {
         return harness.runtime().statistics().velocityCommandsRejected > 0;
       }));
@@ -421,14 +432,17 @@ TEST(MpcNodeRuntime,
   ProceduralMpcMotionManager& motionManager = harness.stack().motionManager();
   ASSERT_TRUE(harness.sendAsOperator(
       topics::kOperatorWalkingVelocityCommand,
-      velocityCommand(/*vx=*/0.5, /*vy=*/0.2, /*height=*/0.8,
-                      /*yawRate=*/-0.25),
+      velocityCommand(/*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5,
+                      /*cmdLinvelBaseRtWorldEwrtHeadingY=*/0.2,
+                      /*cmdPosBaseRtSurfaceEwrtWorldZ=*/0.8,
+                      /*cmdAngvelBaseRtWorldEwrtWorldZ=*/-0.25),
       [&]() {
         return motionManager.getScaledWalkingVelocityCommand()
                    .cmd_linvel_base_rt_world_ewrt_heading_x != 0.0;
       }));
-  const scalar_t walkingHeight = motionManager.getScaledWalkingVelocityCommand()
-                                     .cmd_pos_base_rt_world_ewrt_world_z;
+  const scalar_t cmdPosBaseRtSurfaceEwrtWorldZ =
+      motionManager.getScaledWalkingVelocityCommand()
+          .cmd_pos_base_rt_surface_ewrt_world_z;
 
   // The publisher went away: within the timeout and a check period, the robot
   // is commanded to stand, at its height.
@@ -442,7 +456,8 @@ TEST(MpcNodeRuntime,
   EXPECT_EQ(stopped.cmd_linvel_base_rt_world_ewrt_heading_x, 0.0);
   EXPECT_EQ(stopped.cmd_linvel_base_rt_world_ewrt_heading_y, 0.0);
   EXPECT_EQ(stopped.cmd_angvel_base_rt_world_ewrt_world_z, 0.0);
-  EXPECT_DOUBLE_EQ(stopped.cmd_pos_base_rt_world_ewrt_world_z, walkingHeight);
+  EXPECT_DOUBLE_EQ(stopped.cmd_pos_base_rt_surface_ewrt_world_z,
+                   cmdPosBaseRtSurfaceEwrtWorldZ);
   // Once per lost command, not on every check.
   absl::SleepFor(absl::Milliseconds(400));
   EXPECT_EQ(harness.runtime().statistics().walkingCommandTimeouts, 1u);
@@ -450,7 +465,10 @@ TEST(MpcNodeRuntime,
   // A new command walks again.
   ASSERT_TRUE(harness.sendAsOperator(
       topics::kOperatorWalkingVelocityCommand,
-      velocityCommand(/*vx=*/0.4, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0),
+      velocityCommand(/*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.4,
+                      /*cmdLinvelBaseRtWorldEwrtHeadingY=*/0.0,
+                      /*cmdPosBaseRtSurfaceEwrtWorldZ=*/0.8,
+                      /*cmdAngvelBaseRtWorldEwrtWorldZ=*/0.0),
       [&]() {
         return motionManager.getScaledWalkingVelocityCommand()
                    .cmd_linvel_base_rt_world_ewrt_heading_x != 0.0;
@@ -463,7 +481,10 @@ TEST(MpcNodeRuntime, WithoutATimeoutTheLastWalkingCommandStays) {
   ProceduralMpcMotionManager& motionManager = harness.stack().motionManager();
   ASSERT_TRUE(harness.sendAsOperator(
       topics::kOperatorWalkingVelocityCommand,
-      velocityCommand(/*vx=*/0.5, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0),
+      velocityCommand(/*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5,
+                      /*cmdLinvelBaseRtWorldEwrtHeadingY=*/0.0,
+                      /*cmdPosBaseRtSurfaceEwrtWorldZ=*/0.8,
+                      /*cmdAngvelBaseRtWorldEwrtWorldZ=*/0.0),
       [&]() {
         return motionManager.getScaledWalkingVelocityCommand()
                    .cmd_linvel_base_rt_world_ewrt_heading_x != 0.0;
@@ -481,33 +502,37 @@ TEST(ApplyWalkingVelocityCommand,
   // message with, without a bus.
   AtlasReferenceStack stack;
   ProceduralMpcMotionManager& motionManager = stack.motionManager();
-  const scalar_t maxVelocityX =
+  const scalar_t cmdMaxLinvelBaseRtWorldEwrtHeadingX =
       commandLimits(stack.referenceFile()).cmdMaxLinvelBaseRtWorldEwrtHeadingX;
 
   ASSERT_TRUE(applyWalkingVelocityCommand(
-                  velocityCommand(/*vx=*/3.0, /*vy=*/0.0, /*height=*/0.8,
-                                  /*yawRate=*/0.0),
+                  velocityCommand(/*cmdLinvelBaseRtWorldEwrtHeadingX=*/3.0,
+                                  /*cmdLinvelBaseRtWorldEwrtHeadingY=*/0.0,
+                                  /*cmdPosBaseRtSurfaceEwrtWorldZ=*/0.8,
+                                  /*cmdAngvelBaseRtWorldEwrtWorldZ=*/0.0),
                   motionManager)
                   .ok());
   EXPECT_DOUBLE_EQ(motionManager.getScaledWalkingVelocityCommand()
                        .cmd_linvel_base_rt_world_ewrt_heading_x,
-                   maxVelocityX)
+                   cmdMaxLinvelBaseRtWorldEwrtHeadingX)
       << "clamped to the stick's stop";
 
   const WalkingVelocityCommand before =
       motionManager.getScaledWalkingVelocityCommand();
   const absl::Status refused = applyWalkingVelocityCommand(
-      velocityCommand(/*vx=*/0.1, /*vy=*/0.0,
-                      /*height=*/std::numeric_limits<double>::infinity(),
-                      /*yawRate=*/0.0),
+      velocityCommand(/*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.1,
+                      /*cmdLinvelBaseRtWorldEwrtHeadingY=*/0.0,
+                      /*cmdPosBaseRtSurfaceEwrtWorldZ=*/
+                      std::numeric_limits<double>::infinity(),
+                      /*cmdAngvelBaseRtWorldEwrtWorldZ=*/0.0),
       motionManager);
   EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(motionManager.getScaledWalkingVelocityCommand()
                 .cmd_linvel_base_rt_world_ewrt_heading_x,
             before.cmd_linvel_base_rt_world_ewrt_heading_x);
   EXPECT_EQ(motionManager.getScaledWalkingVelocityCommand()
-                .cmd_pos_base_rt_world_ewrt_world_z,
-            before.cmd_pos_base_rt_world_ewrt_world_z);
+                .cmd_pos_base_rt_surface_ewrt_world_z,
+            before.cmd_pos_base_rt_surface_ewrt_world_z);
 }
 
 TEST(MpcNodeRuntime, AParameterUpdateIsAppliedBeforeTheNextSolve) {
@@ -664,7 +689,10 @@ TEST(MpcNodeRuntime, WithoutAParameterSinkTheParameterDocumentsAreNotTaken) {
   // The operator reaches the node: its velocity commands arrive.
   ASSERT_TRUE(harness.sendAsOperator(
       topics::kOperatorWalkingVelocityCommand,
-      velocityCommand(/*vx=*/0.1, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0),
+      velocityCommand(/*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.1,
+                      /*cmdLinvelBaseRtWorldEwrtHeadingY=*/0.0,
+                      /*cmdPosBaseRtSurfaceEwrtWorldZ=*/0.8,
+                      /*cmdAngvelBaseRtWorldEwrtWorldZ=*/0.0),
       [&]() {
         return harness.runtime().statistics().velocityCommandsReceived > 0;
       }));
@@ -735,7 +763,7 @@ class MotionManagerRecorder final : public SolverSynchronizedModule {
   struct Solve {
     scalar_t time = 0.0;
     std::string gait;
-    scalar_t measuredHeadingRate = 0.0;
+    scalar_t measRateYawBaseRtWorld = 0.0;
     bool measuredOverTheWholeWindow = false;
   };
 
@@ -753,7 +781,7 @@ class MotionManagerRecorder final : public SolverSynchronizedModule {
     solves_.push_back(
         Solve{.time = initTime,
               .gait = motionManager_->getCurrentGaitCommand(),
-              .measuredHeadingRate =
+              .measRateYawBaseRtWorld =
                   motionManager_->getMeasuredPlanarMotion().rateYawBaseRtWorld,
               .measuredOverTheWholeWindow =
                   motionManager_->measuredOverTheWholeWindow()});
@@ -773,16 +801,16 @@ class MotionManagerRecorder final : public SolverSynchronizedModule {
 
 /**
  * A robot that stands at the origin until `start` and then walks straight along
- * the world x axis at `forwardSpeed`, its heading swaying by `headingSway`
- * sin(w (t - start)). Passive data.
+ * the world x axis at `linvelBaseRtWorldEwrtWorldX`, its heading swaying by
+ * `amplitudeYawBaseRtWorld` sin(w (t - start)). Passive data.
  */
 struct SwayingWalk {
   /** [s] */
   scalar_t start = 0.0;
   /** [m/s] */
-  scalar_t forwardSpeed = 0.0;
+  scalar_t linvelBaseRtWorldEwrtWorldX = 0.0;
   /** [rad] */
-  scalar_t headingSway = 0.0;
+  scalar_t amplitudeYawBaseRtWorld = 0.0;
   /** [rad/s] w */
   scalar_t frequency = 0.0;
 };
@@ -801,21 +829,26 @@ humanoid_mpc_msgs::MpcObservation swayingWalkObservation(
   SystemObservation observation;
   observation.time = time;
   observation.state = stack.standingAt(
-      stack.initialState(), walk.forwardSpeed * walked, /*y=*/0.0,
-      walk.headingSway * std::sin(walk.frequency * walked));
-  // The Pinocchio velocity [dp_W, dTheta/dt, dq_j] of the walk, and h = A(q) v
-  // / m, as the MRT measures it.
-  vector_t velocity = vector_t::Zero(pinocchioModel.nv);
+      stack.initialState(), walk.linvelBaseRtWorldEwrtWorldX * walked,
+      /*posBaseRtWorldEwrtWorldY=*/0.0,
+      walk.amplitudeYawBaseRtWorld * std::sin(walk.frequency * walked));
+  // The Pinocchio velocity [dp_W, w_B, dq_j] of the walk
+  // (linvelBaseRtWorldEwrtWorld, angvelBaseRtWorldEwrtBase), and h = A(q) v /
+  // m, as the MRT measures it. The base neither rolls nor pitches, so the body
+  // z rate is the yaw rate.
+  vector_t generalizedVelocity = vector_t::Zero(pinocchioModel.nv);
   if (time > walk.start) {
-    velocity(0) = walk.forwardSpeed;
-    velocity(3) =
-        walk.headingSway * walk.frequency * std::cos(walk.frequency * walked);
+    const scalar_t rateYawBaseRtWorld = walk.amplitudeYawBaseRtWorld *
+                                        walk.frequency *
+                                        std::cos(walk.frequency * walked);
+    generalizedVelocity(0) = walk.linvelBaseRtWorldEwrtWorldX;
+    generalizedVelocity(5) = rateYawBaseRtWorld;
   }
   pinocchio::computeCentroidalMap(
       pinocchioModel, data,
       stack.model().getGeneralizedCoordinates(observation.state));
   observation.state.head<6>() =
-      data.Ag * velocity / stack.centroidalModelInfo().robotMass;
+      data.Ag * generalizedVelocity / stack.centroidalModelInfo().robotMass;
   observation.input =
       vector_t::Zero(static_cast<Eigen::Index>(stack.model().getInputDim()));
   observation.mode = ModeNumber::kStance;
@@ -860,10 +893,10 @@ TEST(
   // It sets off once slow_walk runs: the first solve selects it, and the
   // schedule starts it within 1.2 s.
   const SwayingWalk walk{.start = 2.5,
-                         .forwardSpeed = 0.2,
-                         .headingSway = 0.08,
+                         .linvelBaseRtWorldEwrtWorldX = 0.2,
+                         .amplitudeYawBaseRtWorld = 0.08,
                          .frequency = 2.0 * M_PI / kCycle};
-  ASSERT_GT(walk.headingSway * walk.frequency, 0.15)
+  ASSERT_GT(walk.amplitudeYawBaseRtWorld * walk.frequency, 0.15)
       << "the sway alone must turn fast enough to raise slow_walk";
   Harness harness;
   const std::shared_ptr<MotionManagerRecorder> recorder =
@@ -873,7 +906,10 @@ TEST(
   ProceduralMpcMotionManager& motionManager = harness.stack().motionManager();
   ASSERT_TRUE(harness.sendAsOperator(
       topics::kOperatorWalkingVelocityCommand,
-      velocityCommand(/*vx=*/0.0, /*vy=*/0.0, /*height=*/0.0, /*yawRate=*/0.3),
+      velocityCommand(/*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0,
+                      /*cmdLinvelBaseRtWorldEwrtHeadingY=*/0.0,
+                      /*cmdPosBaseRtSurfaceEwrtWorldZ=*/0.0,
+                      /*cmdAngvelBaseRtWorldEwrtWorldZ=*/0.3),
       [&]() {
         return motionManager.getScaledWalkingVelocityCommand()
                    .cmd_angvel_base_rt_world_ewrt_world_z != 0.0;
@@ -911,7 +947,8 @@ TEST(
   // stall.
   for (size_t i = 1; i < solves.size(); ++i)
     EXPECT_EQ(solves[i].gait, "slow_walk") << "t = " << solves[i].time;
-  const scalar_t insideTheStallBound = 2.0 * walk.headingSway / kCycle;
+  const scalar_t insideTheStallBound =
+      2.0 * walk.amplitudeYawBaseRtWorld / kCycle;
   for (const Stall& stall : stalls) {
     SCOPED_TRACE(stall.end - stall.start);
     for (const MotionManagerRecorder::Solve& solve : solves) {
@@ -924,16 +961,16 @@ TEST(
         EXPECT_FALSE(solve.measuredOverTheWholeWindow) << "t = " << solve.time;
       }
       if (solve.time - kCycle <= stall.start) {
-        EXPECT_LT(std::abs(solve.measuredHeadingRate), 1.0e-3)
+        EXPECT_LT(std::abs(solve.measRateYawBaseRtWorld), 1.0e-3)
             << "t = " << solve.time << ": the window starts before the stall";
       } else {
-        EXPECT_LT(std::abs(solve.measuredHeadingRate), insideTheStallBound)
+        EXPECT_LT(std::abs(solve.measRateYawBaseRtWorld), insideTheStallBound)
             << "t = " << solve.time;
       }
     }
   }
   EXPECT_TRUE(solves.back().measuredOverTheWholeWindow);
-  EXPECT_LT(std::abs(solves.back().measuredHeadingRate), 1.0e-3);
+  EXPECT_LT(std::abs(solves.back().measRateYawBaseRtWorld), 1.0e-3);
 }
 
 TEST(MpcNodeRuntime,

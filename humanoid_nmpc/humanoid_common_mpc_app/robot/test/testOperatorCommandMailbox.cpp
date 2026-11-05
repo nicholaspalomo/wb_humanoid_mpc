@@ -93,7 +93,8 @@ class OperatorCommandMailboxTest : public ::testing::Test {
     config.jointNames = jointNamesByIndex(description_);
     config.robotName = robotName;
     config.pdGainsFileIdentity = pdGainsFileIdentity;
-    config.initialNominalPositions.assign(description_.getNumJoints(), 0.25);
+    config.initialNominalJointPositions.assign(description_.getNumJoints(),
+                                               0.25);
     config.commandQueueCapacity = 4;
     absl::StatusOr<std::unique_ptr<OperatorCommandMailbox>> mailbox =
         OperatorCommandMailbox::Create(config, &registry_, std::move(hooks));
@@ -277,21 +278,25 @@ TEST_F(OperatorCommandMailboxTest,
 TEST_F(OperatorCommandMailboxTest,
        TheGantryHeightFollowsTheSliderClampedOnceItHasMoved) {
   std::unique_ptr<OperatorCommandMailbox> mailbox = makeMailbox();
-  EXPECT_FALSE(mailbox->desiredGantryHeight().has_value());
+  EXPECT_FALSE(mailbox->desGantryPosBaseRtSurfaceEwrtWorldZ().has_value());
   humanoid_mpc_msgs::WalkingVelocityCommand command;
-  command.set_cmd_pos_base_rt_world_ewrt_world_z(0.9);
+  command.set_cmd_pos_base_rt_surface_ewrt_world_z(0.9);
   mailbox->onWalkingVelocityCommand(command);
-  EXPECT_THAT(mailbox->desiredGantryHeight(), Optional(DoubleEq(0.9)));
-  command.set_cmd_pos_base_rt_world_ewrt_world_z(4.0);
+  EXPECT_THAT(mailbox->desGantryPosBaseRtSurfaceEwrtWorldZ(),
+              Optional(DoubleEq(0.9)));
+  command.set_cmd_pos_base_rt_surface_ewrt_world_z(4.0);
   mailbox->onWalkingVelocityCommand(command);
-  EXPECT_THAT(mailbox->desiredGantryHeight(), Optional(DoubleEq(1.5)));
-  command.set_cmd_pos_base_rt_world_ewrt_world_z(-1.0);
+  EXPECT_THAT(mailbox->desGantryPosBaseRtSurfaceEwrtWorldZ(),
+              Optional(DoubleEq(1.5)));
+  command.set_cmd_pos_base_rt_surface_ewrt_world_z(-1.0);
   mailbox->onWalkingVelocityCommand(command);
-  EXPECT_THAT(mailbox->desiredGantryHeight(), Optional(DoubleEq(0.2)));
-  command.set_cmd_pos_base_rt_world_ewrt_world_z(
+  EXPECT_THAT(mailbox->desGantryPosBaseRtSurfaceEwrtWorldZ(),
+              Optional(DoubleEq(0.2)));
+  command.set_cmd_pos_base_rt_surface_ewrt_world_z(
       std::numeric_limits<double>::quiet_NaN());
   mailbox->onWalkingVelocityCommand(command);
-  EXPECT_THAT(mailbox->desiredGantryHeight(), Optional(DoubleEq(0.2)))
+  EXPECT_THAT(mailbox->desGantryPosBaseRtSurfaceEwrtWorldZ(),
+              Optional(DoubleEq(0.2)))
       << "a height that is not finite is ignored";
 }
 
@@ -591,7 +596,7 @@ TEST_F(OperatorCommandMailboxTest,
 TEST_F(OperatorCommandMailboxTest, ThePostureMustMatchTheJoints) {
   OperatorCommandMailbox::Config config;
   config.jointNames = jointNamesByIndex(description_);
-  config.initialNominalPositions = {0.0};
+  config.initialNominalJointPositions = {0.0};
   EXPECT_EQ(OperatorCommandMailbox::Create(config, &registry_).status().code(),
             absl::StatusCode::kInvalidArgument);
 }
@@ -620,12 +625,12 @@ TEST_F(OperatorCommandMailboxTest, TheHandlersAreTheBusesSubscriptions) {
   ASSERT_TRUE(arrived);
   EXPECT_EQ(event.kind, FsmCommandKind::kGravityComp);
   humanoid_mpc_msgs::WalkingVelocityCommand command;
-  command.set_cmd_pos_base_rt_world_ewrt_world_z(1.1);
+  command.set_cmd_pos_base_rt_surface_ewrt_world_z(1.1);
   EXPECT_TRUE(robot_test::waitFor([&]() {
     operatorBus->publish(ipc::topics::kOperatorWalkingVelocityCommand, command)
         .IgnoreError();
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    return mailbox->desiredGantryHeight().has_value();
+    return mailbox->desGantryPosBaseRtSurfaceEwrtWorldZ().has_value();
   }));
   // The tuning payloads are the typed messages the GUI publishes (the bus drops
   // a message of another type).

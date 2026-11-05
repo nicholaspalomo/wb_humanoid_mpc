@@ -30,20 +30,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalContactSet.h"
 
 #include <array>
+#include <cstddef>
 #include <string>
 #include <vector>
 
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
 #include "humanoid_common_mpc/config/swing/LocomotionHeuristicsFromConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 
 namespace ocs2::humanoid {
 namespace {

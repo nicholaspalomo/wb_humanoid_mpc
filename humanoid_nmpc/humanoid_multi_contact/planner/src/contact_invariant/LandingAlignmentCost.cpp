@@ -39,9 +39,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::multi_contact {
 namespace {
 
-// The tilt below which the Hessian's 1 / (2 t) is held: the Gauss-Newton
-// curvature of a sole that is already flat.
-constexpr scalar_t kMinimumTilt = 1.0e-4;
+// The misalignment below which the Hessian's 1 / (2 t) is held: the
+// Gauss-Newton curvature of a sole that is already flat.
+constexpr scalar_t kMinMisalignment = 1.0e-4;
 
 }  // namespace
 
@@ -96,11 +96,12 @@ LandingAlignmentCost::getQuadraticApproximation(
   for (const LandingWindow& window : windows_) {
     if (time < window.startTime || time >= window.endTime) continue;
     const int row = featureRow(window.candidate, kTiltFeature);
-    const scalar_t tilt = features.f(row);
+    const scalar_t misalignment = features.f(row);
     const vector_t gx = features.dfdx.row(row).transpose();
     const vector_t gu = features.dfdu.row(row).transpose();
-    const scalar_t curvature = weight_ / (2.0 * std::max(tilt, kMinimumTilt));
-    result.f += weight_ * tilt;
+    const scalar_t curvature =
+        weight_ / (2.0 * std::max(misalignment, kMinMisalignment));
+    result.f += weight_ * misalignment;
     result.dfdx += weight_ * gx;
     result.dfdu += weight_ * gu;
     result.dfdxx += curvature * gx * gx.transpose();

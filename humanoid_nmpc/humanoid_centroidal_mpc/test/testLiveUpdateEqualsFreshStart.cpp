@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <map>
@@ -54,13 +56,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/StateConstraint.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_core/cost/StateCost.h"
+#include "ocs2_core/cost/StateCostCollection.h"
+#include "ocs2_core/cost/StateInputCost.h"
 #include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_core/penalties/penalties/PenaltyBase.h"
+#include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
 #include "ocs2_mpc/MPC_MRT_Interface.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_sqp/SqpMpc.h"
+#include "ocs2_sqp/SqpSettings.h"
 #include "ocs2_sqp/SqpSolver.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
@@ -72,9 +83,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcParameterUpdater.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
-#include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
+#include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
 #include "humanoid_common_mpc/common/ContactTermNames.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigReload.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
@@ -127,12 +140,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * of Q and Q_final moved off the shipped zero (on a variant without the CoM +
  * ACoM cost), and every row of Q_acom weighed (on the Atlas as it ships).
  *
- * terrain_height is left out of that equality on purpose (a live ground change
- * lifts the target in use once, a fresh start on the new ground does not); its
- * live semantics are pinned on their own (L4t). Every perturbed field is also
- * shown to change what it writes, one field at a time, on the variant whose
- * problem carries its term (the liveness of the design); and an updater fed
- * nothing changes no solve at all (L5).
+ * pos_surface_rt_world_ewrt_world_z is left out of that equality on purpose (a
+ * live ground change lifts the target in use once, a fresh start on the new
+ * ground does not); its live semantics are pinned on their own (L4t). Every
+ * perturbed field is also shown to change what it writes, one field at a time,
+ * on the variant whose problem carries its term (the liveness of the design);
+ * and an updater fed nothing changes no solve at all (L5).
  *
  * Every case runs on the quaternion layout of the base orientation, which every
  * stack checks as it is built: the problem and every worker of its solver on a
@@ -204,13 +217,14 @@ CentroidalMpcConfig contactImplicitAtlas(CentroidalMpcConfig config) {
 /**
  * `config` ending on the quadratic terminal cost, with one state-input
  * quadratic cost in place of the state and the input ones, a soft
- * zero_velocity, and the locomotion heuristics `basePose`, `foothold` and
- * `wrench` listed.
+ * zero_velocity, and the locomotion heuristics `basePoseHeuristics`,
+ * `footholdHeuristics` and `wrenchHeuristics` listed.
  */
-CentroidalMpcConfig quadraticCostsAtlas(CentroidalMpcConfig config,
-                                        std::vector<std::string> basePose,
-                                        std::vector<std::string> foothold,
-                                        std::vector<std::string> wrench) {
+CentroidalMpcConfig quadraticCostsAtlas(
+    CentroidalMpcConfig config,
+    std::vector<std::string> basePoseHeuristics,
+    std::vector<std::string> footholdHeuristics,
+    std::vector<std::string> wrenchHeuristics) {
   config.task.costs =
       replaced(config.task.costs, "dcm_terminal_cost", "terminal_cost");
   config.task.costs = replaced(config.task.costs, "state_quadratic_cost",
@@ -219,9 +233,12 @@ CentroidalMpcConfig quadraticCostsAtlas(CentroidalMpcConfig config,
   config.task.hard_constraints =
       without(config.task.hard_constraints, "zero_velocity");
   config.task.soft_constraints.emplace_back("zero_velocity");
-  config.task.locomotion_heuristics.base_pose = std::move(basePose);
-  config.task.locomotion_heuristics.foothold = std::move(foothold);
-  config.task.locomotion_heuristics.wrench = std::move(wrench);
+  config.task.locomotion_heuristics.base_pose_heuristics =
+      std::move(basePoseHeuristics);
+  config.task.locomotion_heuristics.foothold_heuristics =
+      std::move(footholdHeuristics);
+  config.task.locomotion_heuristics.wrench_heuristics =
+      std::move(wrenchHeuristics);
   return config;
 }
 
@@ -266,7 +283,7 @@ bool covers(absl::string_view declared, absl::string_view path) {
  * The paths of the task file's leaves a centroidal reload applies
  * (configLeaves() paths): RELOAD_HOT, rendered by the GUI, read by the MPC of
  * the centroidal formulation and covered by centroidalHotFieldNames().
- * terrain_height is left out (see the file comment).
+ * pos_surface_rt_world_ewrt_world_z is left out (see the file comment).
  */
 std::set<std::string> appliedLeafPaths() {
   const std::vector<std::string> names = centroidalHotFieldNames();
@@ -280,7 +297,7 @@ std::set<std::string> appliedLeafPaths() {
                   kCentroidalFormulation) == leaf.formulations.end()) {
       continue;
     }
-    if (leaf.path == "terrain_height") continue;
+    if (leaf.path == "pos_surface_rt_world_ewrt_world_z") continue;
     const bool applied = std::any_of(
         names.begin(), names.end(),
         [&leaf](const std::string& name) { return covers(name, leaf.path); });
@@ -404,8 +421,9 @@ void forEachNumber(
         continue;
       }
       if (!reflection.HasField(message, &field) &&
-          field.options().GetExtension(nproto::optional_message))
+          field.options().GetExtension(nproto::optional_message)) {
         continue;
+      }
       forEachNumber(*reflection.MutableMessage(&message, &field), path, paths,
                     visit);
       continue;
@@ -420,8 +438,9 @@ void forEachNumber(
       continue;
     }
     if (field.has_presence() && !reflection.HasField(message, &field) &&
-        !field.has_default_value())
+        !field.has_default_value()) {
       continue;
+    }
     visit(NumberField{.message = &message, .field = &field, .index = -1}, path);
   }
 }
@@ -491,10 +510,10 @@ class Stack {
     EXPECT_TRUE(calculator.ok()) << calculator.status();
     if (!calculator.ok()) return;
     calculator_ = *std::move(calculator);
-    calculator_->setTerrainHeightSource(
+    calculator_->setSourcePosSurfaceRtWorldEwrtWorldZ(
         [referenceManager =
              interface_->getSwitchedModelReferenceManagerPtr()]() {
-          return referenceManager->getAppliedTerrainHeight();
+          return referenceManager->getAppliedPosSurfaceRtWorldEwrtWorldZ();
         });
     CentroidalMpcTargetTrajectoriesCalculator* absl_nonnull calculatorPtr =
         calculator_.get();
@@ -505,11 +524,11 @@ class Stack {
                                            "config/command/gait.textproto")),
             files.referenceFile,
             interface_->getSwitchedModelReferenceManagerPtr(), effectiveModel,
-            [calculatorPtr](const vector4_t& velocity, scalar_t initTime,
+            [calculatorPtr](const vector4_t& velocityCommand, scalar_t initTime,
                             scalar_t /*finalTime*/, const vector_t& initState,
                             const BasePlanarMotion& measuredMotion) {
               return calculatorPtr->velocityCommandToTargetTrajectories(
-                  velocity, initTime, initState, measuredMotion);
+                  velocityCommand, initTime, initState, measuredMotion);
             });
     EXPECT_TRUE(motionManager.ok()) << motionManager.status();
     if (!motionManager.ok()) return;
@@ -525,8 +544,9 @@ class Stack {
     EXPECT_TRUE(parameterUpdater.ok()) << parameterUpdater.status();
     if (!parameterUpdater.ok()) return;
     updater_ = *std::move(parameterUpdater);
-    if (updaterUse == Updater::kRegistered)
+    if (updaterUse == Updater::kRegistered) {
       mpc_->getSolverPtr()->addSynchronizedModule(updater_);
+    }
     mrt_ = std::make_unique<MPC_MRT_Interface>(*mpc_);
     // The robot follows the plan as the robot's MRT reads it: the base
     // quaternion slerped along the state manifold.
@@ -579,8 +599,10 @@ class Stack {
 
   /** The operator's walking command: `forward` of the command limit along x. */
   void command(scalar_t forward) {
-    motionManager_->setAndScaleVelocityCommand(WalkingVelocityCommand(
-        forward, /*v_y=*/0.0, /*desired_pelvis_h=*/0.0, /*v_yaw=*/0.0));
+    motionManager_->setAndScaleVelocityCommand(NormalizedWalkingVelocityCommand(
+        forward, /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_y=*/0.0,
+        /*cmd_pos_base_rt_surface_ewrt_world_z=*/0.0,
+        /*cmd_lnorm_angvel_base_rt_world_ewrt_world_z=*/0.0));
   }
 
   /** One solve at the current observation; the robot then moves as the policy
@@ -719,9 +741,10 @@ void expectTheSameSolves(Stack& a, Stack& b) {
 CentroidalMpcConfig editedFile(const CentroidalMpcConfig& config,
                                const std::set<std::string>& moved) {
   const std::set<std::string> applied = appliedLeafPaths();
-  for (const std::string& path : moved)
+  for (const std::string& path : moved) {
     EXPECT_TRUE(applied.contains(path))
         << path << " is not a leaf a reload applies";
+  }
   std::set<std::string> scaled;
   for (const std::string& path : applied) {
     if (!moved.contains(path)) scaled.insert(path);
@@ -848,11 +871,11 @@ TEST(LiveUpdateEqualsFreshStart,
  * every worker) to weigh the yaw, pitch and roll rows of the base orientation
  * in the model's tuning layout.
  */
-void expectEveryBaseOrientationRowWeighed(Stack& reloaded) {
-  const absl::StatusOr<size_t> orientationRow = tuningSegmentStart(
+void expectEveryBaseAttitudeRowWeighed(Stack& reloaded) {
+  const absl::StatusOr<size_t> attitudeRow = tuningSegmentStart(
       reloaded.interface().getMpcRobotModel().getTuningLayout(),
       "eulerzyx_base_rt_world");
-  ASSERT_TRUE(orientationRow.ok()) << orientationRow.status();
+  ASSERT_TRUE(attitudeRow.ok()) << attitudeRow.status();
   size_t weighed = 0;
   for (OptimalControlProblem& ocp : reloaded.solver().getOcpDefinitions()) {
     std::vector<matrix_t> stateWeights;
@@ -873,8 +896,8 @@ void expectEveryBaseOrientationRowWeighed(Stack& reloaded) {
       }
     }
     for (const matrix_t& weights : stateWeights) {
-      for (Eigen::Index row = static_cast<Eigen::Index>(*orientationRow);
-           row < static_cast<Eigen::Index>(*orientationRow) + 3; ++row) {
+      for (Eigen::Index row = static_cast<Eigen::Index>(*attitudeRow);
+           row < static_cast<Eigen::Index>(*attitudeRow) + 3; ++row) {
         EXPECT_NE(weights(row, row), 0.0)
             << "tuning row " << row
             << " of a running state weight is not weighed";
@@ -900,9 +923,10 @@ void expectEveryAcomRowWeighed(Stack& reloaded) {
                     &collection->get<StateCost>(term.first))) {
           const matrix_t& acomWeights = comAndAcom->getQAcom();
           ASSERT_EQ(acomWeights.rows(), 3);
-          for (Eigen::Index row = 0; row < 3; ++row)
+          for (Eigen::Index row = 0; row < 3; ++row) {
             EXPECT_NE(acomWeights(row, row), 0.0)
                 << "Q_acom row " << row << " is not weighed";
+          }
           ++weighed;
         }
       }
@@ -915,7 +939,7 @@ TEST(LiveUpdateEqualsFreshStart,
      WithEveryBaseOrientationRowWeighedOnTheAtlasWithoutTheAcomCost) {
   // Without the CoM + ACoM cost, so that the factory weighs the base-pose
   // blocks of Q and Q_final rather than zeroes them.
-  const std::set<std::string> baseOrientation = {
+  const std::set<std::string> baseAttitudeWeightPaths = {
       "state_weights.eulerzyx_base_rt_world.yaw",
       "state_weights.eulerzyx_base_rt_world.pitch",
       "state_weights.eulerzyx_base_rt_world.roll",
@@ -923,16 +947,16 @@ TEST(LiveUpdateEqualsFreshStart,
       "final_state_weights.eulerzyx_base_rt_world.pitch",
       "final_state_weights.eulerzyx_base_rt_world.roll"};
   expectALiveUpdateIsAFreshStart(
-      otherHeuristicsWithoutAcomAtlas(shippedAtlas()), baseOrientation,
-      expectEveryBaseOrientationRowWeighed);
+      otherHeuristicsWithoutAcomAtlas(shippedAtlas()), baseAttitudeWeightPaths,
+      expectEveryBaseAttitudeRowWeighed);
 }
 
 TEST(LiveUpdateEqualsFreshStart, WithEveryAcomRowWeighedOnTheShippedAtlas) {
   // The CoM + ACoM cost as it ships, which zeroes the base-pose blocks of Q and
   // Q_final and weighs the ACoM attitude.
-  const std::set<std::string> acomAttitude = {
+  const std::set<std::string> computeQuatAcomRtWorldXyzw = {
       "acom_weights.yaw", "acom_weights.pitch", "acom_weights.roll"};
-  expectALiveUpdateIsAFreshStart(shippedAtlas(), acomAttitude,
+  expectALiveUpdateIsAFreshStart(shippedAtlas(), computeQuatAcomRtWorldXyzw,
                                  expectEveryAcomRowWeighed);
 }
 
@@ -964,7 +988,7 @@ TEST_P(LiveUpdateWeightsEqualFreshStart, WithEveryOrientationRowMoved) {
   live.applyNow(edited.task);
   Stack fresh(edited, Stack::Updater::kRegistered, files);
   ASSERT_TRUE(fresh.ok());
-  expectEveryBaseOrientationRowWeighed(live);
+  expectEveryBaseAttitudeRowWeighed(live);
   const Dump liveWeights = runningWeightsOf(live);
   const Dump freshWeights = runningWeightsOf(fresh);
   EXPECT_FALSE(freshWeights.empty()) << "no running weight to compare";
@@ -1011,40 +1035,45 @@ TEST(LiveUpdateEqualsFreshStart, AnUpdaterFedNothingChangesNoSolve) {
 }
 
 // --------------------------------------------------------------------------------------------------------------------
-// L4t: terrain_height
+// L4t: pos_surface_rt_world_ewrt_world_z
 // --------------------------------------------------------------------------------------------------------------------
 
 /** The one ground every contact-implicit term of every worker is on, or NaN
  * when they disagree or there is none. */
-scalar_t contactImplicitTermsTerrainHeight(
+scalar_t contactImplicitTermsPosSurfaceRtWorldEwrtWorldZ(
     SqpSolver& solver, const std::vector<std::string>& contactNames) {
-  std::vector<scalar_t> heights;
+  std::vector<scalar_t> posSurfacesRtWorldEwrtWorldZ;
   for (OptimalControlProblem& ocp : solver.getOcpDefinitions()) {
     for (const std::string& footName : contactNames) {
-      heights.push_back(
+      posSurfacesRtWorldEwrtWorldZ.push_back(
           ocp.softConstraintPtr
               ->get<StateInputSoftConstraint>(contact_term::name(
                   footName, contact_term::kContactComplementarity))
               .get<ContactComplementarityConstraint>()
-              .getTerrainHeight());
-      heights.push_back(ocp.stateSoftConstraintPtr
-                            ->get<StateSoftConstraint>(contact_term::name(
-                                footName, contact_term::kGroundPenetration))
-                            .get<GroundPenetrationConstraint>()
-                            .getTerrainHeight());
+              .getPosSurfaceRtWorldEwrtWorldZ());
+      posSurfacesRtWorldEwrtWorldZ.push_back(
+          ocp.stateSoftConstraintPtr
+              ->get<StateSoftConstraint>(contact_term::name(
+                  footName, contact_term::kGroundPenetration))
+              .get<GroundPenetrationConstraint>()
+              .getPosSurfaceRtWorldEwrtWorldZ());
     }
   }
-  if (heights.empty()) return std::numeric_limits<scalar_t>::quiet_NaN();
-  for (const scalar_t height : heights) {
-    if (height != heights.front())
-      return std::numeric_limits<scalar_t>::quiet_NaN();
+  if (posSurfacesRtWorldEwrtWorldZ.empty()) {
+    return std::numeric_limits<scalar_t>::quiet_NaN();
   }
-  return heights.front();
+  for (const scalar_t posSurfaceRtWorldEwrtWorldZ :
+       posSurfacesRtWorldEwrtWorldZ) {
+    if (posSurfaceRtWorldEwrtWorldZ != posSurfacesRtWorldEwrtWorldZ.front()) {
+      return std::numeric_limits<scalar_t>::quiet_NaN();
+    }
+  }
+  return posSurfacesRtWorldEwrtWorldZ.front();
 }
 
 /** The height reference of the stance feet of `stack` at its current time (the
  * ground), or NaN with no foot in stance. */
-scalar_t stanceFootHeightReference(Stack& stack) {
+scalar_t computeStanceDesPosFootRtWorldEwrtWorldZ(Stack& stack) {
   SwitchedModelReferenceManager& referenceManager = stack.referenceManager();
   for (size_t foot = 0;
        foot < stack.interface().modelSettings().contactNames.size(); ++foot) {
@@ -1067,39 +1096,47 @@ TEST(
   ASSERT_TRUE(stack.ok());
   const std::vector<std::string>& contactNames =
       stack.interface().modelSettings().contactNames;
-  const scalar_t launched = stack.interface().modelSettings().terrainHeight;
+  const scalar_t launched =
+      stack.interface().modelSettings().posSurfaceRtWorldEwrtWorldZ;
   constexpr scalar_t kStep = 0.02;
   ASSERT_TRUE(stack.solve().ok());
-  EXPECT_EQ(stack.referenceManager().getAppliedTerrainHeight(), launched);
-  EXPECT_EQ(contactImplicitTermsTerrainHeight(stack.solver(), contactNames),
+  EXPECT_EQ(stack.referenceManager().getAppliedPosSurfaceRtWorldEwrtWorldZ(),
+            launched);
+  EXPECT_EQ(contactImplicitTermsPosSurfaceRtWorldEwrtWorldZ(stack.solver(),
+                                                            contactNames),
             launched);
 
   mpc_config::TaskFile task = config.task;
-  task.terrain_height = launched + kStep;
+  task.pos_surface_rt_world_ewrt_world_z = launched + kStep;
   stack.enqueue(task);
   ASSERT_TRUE(stack.solve().ok());
   // Solve 1 ran on the references of the old ground: the update arrived after
   // they were built.
-  EXPECT_EQ(stack.referenceManager().getTerrainHeight(), launched + kStep);
-  EXPECT_EQ(stack.referenceManager().getAppliedTerrainHeight(), launched);
-  EXPECT_EQ(contactImplicitTermsTerrainHeight(stack.solver(), contactNames),
+  EXPECT_EQ(stack.referenceManager().getPosSurfaceRtWorldEwrtWorldZ(),
+            launched + kStep);
+  EXPECT_EQ(stack.referenceManager().getAppliedPosSurfaceRtWorldEwrtWorldZ(),
+            launched);
+  EXPECT_EQ(contactImplicitTermsPosSurfaceRtWorldEwrtWorldZ(stack.solver(),
+                                                            contactNames),
             launched)
       << "the terms moved before the references";
 
   // Solve 2 stands on the new ground, and the terms with it; solve 3 does not
   // move it again.
   ASSERT_TRUE(stack.solve().ok());
-  EXPECT_EQ(stack.referenceManager().getAppliedTerrainHeight(),
+  EXPECT_EQ(stack.referenceManager().getAppliedPosSurfaceRtWorldEwrtWorldZ(),
             launched + kStep);
-  EXPECT_EQ(contactImplicitTermsTerrainHeight(stack.solver(), contactNames),
+  EXPECT_EQ(contactImplicitTermsPosSurfaceRtWorldEwrtWorldZ(stack.solver(),
+                                                            contactNames),
             launched + kStep);
-  const scalar_t afterTheChange = stanceFootHeightReference(stack);
+  const scalar_t afterTheChange =
+      computeStanceDesPosFootRtWorldEwrtWorldZ(stack);
   EXPECT_NEAR(afterTheChange, launched + kStep, 1.0e-12)
       << "the stance feet do not stand on the new ground";
   ASSERT_TRUE(stack.solve().ok());
-  EXPECT_EQ(stack.referenceManager().getAppliedTerrainHeight(),
+  EXPECT_EQ(stack.referenceManager().getAppliedPosSurfaceRtWorldEwrtWorldZ(),
             launched + kStep);
-  EXPECT_EQ(stanceFootHeightReference(stack), afterTheChange)
+  EXPECT_EQ(computeStanceDesPosFootRtWorldEwrtWorldZ(stack), afterTheChange)
       << "the ground moved a second time";
 }
 
@@ -1113,8 +1150,9 @@ std::string exact(scalar_t value) {
 
 std::string exact(const matrix_t& value) {
   std::string out = absl::StrCat(value.rows(), "x", value.cols(), ":");
-  for (Eigen::Index i = 0; i < value.size(); ++i)
+  for (Eigen::Index i = 0; i < value.size(); ++i) {
     absl::StrAppend(&out, " ", exact(value.data()[i]));
+  }
   return out;
 }
 
@@ -1131,12 +1169,13 @@ std::string penaltyParameters(SoftConstraint& softConstraint) {
   return out;
 }
 
-/** The twist constraint `twist` of a zero_velocity term. */
-std::string twistParameters(EndEffectorKinematicsTwistConstraint& twist) {
-  return absl::StrCat(exact(twist.getConfig().Ax), " | ",
-                      exact(twist.getConfig().Av), " | ",
-                      twist.getNumConstraints(/*time=*/0.0), " | ",
-                      twist.getConstrainYawRateAboutNormal());
+/** The twist constraint `twistConstraint` of a zero_velocity term. */
+std::string twistParameters(
+    EndEffectorKinematicsTwistConstraint& twistConstraint) {
+  return absl::StrCat(exact(twistConstraint.getConfig().Ax), " | ",
+                      exact(twistConstraint.getConfig().Av), " | ",
+                      twistConstraint.getNumConstraints(/*time=*/0.0), " | ",
+                      twistConstraint.getConstrainYawRateAboutNormal());
 }
 
 /** Appends the parameters of every running term the parameter updater writes,
@@ -1158,10 +1197,10 @@ void dumpTerms(OptimalControlProblem& ocp, Dump& dump) {
       vector12_t weights;
       link->getWeights(weights);
       dump[key] = exact(weights);
-    } else if (ExternalTorqueQuadraticCostAD* absl_nullable torque =
+    } else if (ExternalTorqueQuadraticCostAD* absl_nullable externalTorqueCost =
                    dynamic_cast<ExternalTorqueQuadraticCostAD*>(&cost)) {
       vector_t weights;
-      torque->getWeights(weights);
+      externalTorqueCost->getWeights(weights);
       dump[key] = exact(weights);
     } else if (CentroidalMpcEndEffectorFootCost* absl_nullable foot =
                    dynamic_cast<CentroidalMpcEndEffectorFootCost*>(&cost)) {
@@ -1196,9 +1235,10 @@ void dumpTerms(OptimalControlProblem& ocp, Dump& dump) {
                    dynamic_cast<DcmTerminalCost*>(&cost)) {
       const DcmTerminalCost::Config& config = dcm->getConfig();
       dump[key] = absl::StrCat(
-          exact(config.comHeight.value_or(-1.0)), " ", exact(config.gravity),
-          " ", exact(config.weights), " ", exact(config.velocityOffsetFactor),
-          " ", exact(config.supportBlendTime));
+          exact(config.nomPosComRtFeetmeanEwrtWorldZ.value_or(-1.0)), " ",
+          exact(config.gravityMagnitude), " ", exact(config.weights), " ",
+          exact(config.velocityCommandOffsetFactor), " ",
+          exact(config.supportBlendTime));
     } else if (ComAndAcomTrackingCost* absl_nullable comAndAcom =
                    dynamic_cast<ComAndAcomTrackingCost*>(&cost)) {
       dump[key] = absl::StrCat(exact(comAndAcom->getQCom()), " | ",
@@ -1215,17 +1255,20 @@ void dumpTerms(OptimalControlProblem& ocp, Dump& dump) {
     StateInputConstraint& constraint = softCon->get<StateInputConstraint>();
     if (ContactComplementarityConstraint* absl_nullable complementarity =
             dynamic_cast<ContactComplementarityConstraint*>(&constraint)) {
-      absl::StrAppend(&value, " | ",
-                      exact(complementarity->getHeightReference()), " ",
-                      exact(complementarity->getGapSmoothing()), " ",
-                      exact(complementarity->getTerrainHeight()));
+      absl::StrAppend(
+          &value, " | ",
+          exact(complementarity->getScalePosContactRtSurfaceEwrtWorldZ()), " ",
+          exact(complementarity->getGapSmoothing()), " ",
+          exact(complementarity->getPosSurfaceRtWorldEwrtWorldZ()));
     } else if (ForceWeightedSlipConstraint* absl_nullable slip =
                    dynamic_cast<ForceWeightedSlipConstraint*>(&constraint)) {
       absl::StrAppend(&value, " | ", exact(slip->getInverseScaleSlip()));
-    } else if (ZeroVelocityConstraintCppAd* absl_nullable zeroVelocity =
+    } else if (ZeroVelocityConstraintCppAd* absl_nullable
+               zeroVelocityConstraint =
                    dynamic_cast<ZeroVelocityConstraintCppAd*>(&constraint)) {
-      absl::StrAppend(&value, " | ",
-                      twistParameters(zeroVelocity->getTwistConstraint()));
+      absl::StrAppend(
+          &value, " | ",
+          twistParameters(zeroVelocityConstraint->getTwistConstraint()));
     } else if (FootCollisionCbfConstraint* absl_nullable cbf =
                    dynamic_cast<FootCollisionCbfConstraint*>(&constraint)) {
       absl::StrAppend(&value, " | ", exact(cbf->getGamma()));
@@ -1247,22 +1290,23 @@ void dumpTerms(OptimalControlProblem& ocp, Dump& dump) {
       if (GroundPenetrationConstraint* absl_nullable penetration =
               dynamic_cast<GroundPenetrationConstraint*>(
                   &softCon->get<StateConstraint>())) {
-        absl::StrAppend(&value, " | ", exact(penetration->getTerrainHeight()));
+        absl::StrAppend(&value, " | ",
+                        exact(penetration->getPosSurfaceRtWorldEwrtWorldZ()));
       }
       dump[key] = value;
     }
   }
   for (const std::pair<const std::string, size_t>& term :
        ocp.equalityConstraintPtr->getTermNameMap()) {
-    if (ZeroVelocityConstraintCppAd* absl_nullable zeroVelocity =
+    if (ZeroVelocityConstraintCppAd* absl_nullable zeroVelocityConstraint =
             dynamic_cast<ZeroVelocityConstraintCppAd*>(
                 &ocp.equalityConstraintPtr->get<StateInputConstraint>(
                     term.first))) {
       // The term's own row count too: OCS2 sizes the stacked constraint by it,
       // not by the twist's.
-      dump[absl::StrCat("equalityConstraint/", term.first)] =
-          absl::StrCat(zeroVelocity->getNumConstraints(/*time=*/0.0), " | ",
-                       twistParameters(zeroVelocity->getTwistConstraint()));
+      dump[absl::StrCat("equalityConstraint/", term.first)] = absl::StrCat(
+          zeroVelocityConstraint->getNumConstraints(/*time=*/0.0), " | ",
+          twistParameters(zeroVelocityConstraint->getTwistConstraint()));
     }
   }
   if (const HumanoidPreComputation* absl_nullable preComputation =
@@ -1284,19 +1328,21 @@ Dump dumpOf(Stack& stack) {
                    exact(settings.g_max), " ", exact(settings.g_min));
   const SwingTrajectoryPlanner::Config& swing =
       stack.referenceManager().getSwingTrajectoryPlanner()->getConfig();
-  dump["swingTrajectoryPlanner"] = absl::StrJoin(
-      {exact(swing.liftoffLinvelFootRtWorldEwrtWorldZ),
-       exact(swing.touchdownLinvelFootRtWorldEwrtWorldZ),
-       exact(swing.swingHeight), exact(swing.swingTimeScale),
-       exact(swing.touchDownHeightOffset),
-       exact(swing.impactProximityFactorLiftoffSlope),
-       exact(swing.impactProximityFactorTouchdownSlope),
-       exact(swing.impactProximityFactorMidPointValue),
-       exact(swing.swingPitchAngle), exact(swing.swingPitchRiseFraction),
-       exact(swing.swingPitchFallFraction)},
-      " ");
-  dump["referenceManager/terrainHeight"] =
-      exact(stack.referenceManager().getTerrainHeight());
+  dump["swingTrajectoryPlanner"] =
+      absl::StrJoin({exact(swing.liftoffLinvelFootRtWorldEwrtWorldZ),
+                     exact(swing.touchdownLinvelFootRtWorldEwrtWorldZ),
+                     exact(swing.apexPosFootRtSwingendEwrtWorldZ),
+                     exact(swing.swingTimeScale),
+                     exact(swing.touchdownPosFootRtSurfaceEwrtWorldZ),
+                     exact(swing.impactProximityFactorLiftoffSlope),
+                     exact(swing.impactProximityFactorTouchdownSlope),
+                     exact(swing.impactProximityFactorMidPointValue),
+                     exact(swing.swingMaxTiltangleFootRtSurface),
+                     exact(swing.swingPitchRiseFraction),
+                     exact(swing.swingPitchFallFraction)},
+                    " ");
+  dump["referenceManager/posSurfaceRtWorldEwrtWorldZ"] =
+      exact(stack.referenceManager().getPosSurfaceRtWorldEwrtWorldZ());
   // The arm swing's tuning, which ReferenceManagerApplier writes into the
   // reference manager whether or not the swing runs: under
   // com_and_acom_tracking_cost (the shipped Atlas) the generator is switched
@@ -1318,8 +1364,9 @@ std::vector<std::string> changedKeys(const Dump& a, const Dump& b) {
   std::vector<std::string> changed;
   for (const std::pair<const std::string, std::string>& entry : a) {
     const Dump::const_iterator other = b.find(entry.first);
-    if (other == b.end() || other->second != entry.second)
+    if (other == b.end() || other->second != entry.second) {
       changed.push_back(entry.first);
+    }
   }
   return changed;
 }
@@ -1342,18 +1389,18 @@ constexpr std::array<absl::string_view, 18> kNotExercisedHere = {
     // a nonzero one by its field (taskSpaceFootCostFromConfig(),
     // taskSpaceLinkCostsFromConfig()), and only the
     // whole-body MPC applies them.
-    "task_space_costs[*].weights.ang_acceleration_x",
-    "task_space_costs[*].weights.ang_acceleration_y",
-    "task_space_costs[*].weights.ang_acceleration_z",
-    "task_space_costs[*].weights.lin_acceleration_x",
-    "task_space_costs[*].weights.lin_acceleration_y",
-    "task_space_costs[*].weights.lin_acceleration_z",
-    "task_space_foot_cost.weights.ang_acceleration_x",
-    "task_space_foot_cost.weights.ang_acceleration_y",
-    "task_space_foot_cost.weights.ang_acceleration_z",
-    "task_space_foot_cost.weights.lin_acceleration_x",
-    "task_space_foot_cost.weights.lin_acceleration_y",
-    "task_space_foot_cost.weights.lin_acceleration_z",
+    "task_space_costs[*].weights.angacc_x",
+    "task_space_costs[*].weights.angacc_y",
+    "task_space_costs[*].weights.angacc_z",
+    "task_space_costs[*].weights.linacc_x",
+    "task_space_costs[*].weights.linacc_y",
+    "task_space_costs[*].weights.linacc_z",
+    "task_space_foot_cost.weights.angacc_x",
+    "task_space_foot_cost.weights.angacc_y",
+    "task_space_foot_cost.weights.angacc_z",
+    "task_space_foot_cost.weights.linacc_x",
+    "task_space_foot_cost.weights.linacc_y",
+    "task_space_foot_cost.weights.linacc_z",
 };
 
 TEST(LiveUpdateEqualsFreshStart,

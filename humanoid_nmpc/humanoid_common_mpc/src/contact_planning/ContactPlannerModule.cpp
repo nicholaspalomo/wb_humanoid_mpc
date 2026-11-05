@@ -29,7 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 
+#include <chrono>
+#include <cstdint>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -37,9 +41,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlannerInterface.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 
 namespace ocs2::humanoid {
 
@@ -88,8 +101,9 @@ ContactPlannerModule::~ContactPlannerModule() {
 }
 
 void ContactPlannerModule::startWorker() {
-  if (worker_.joinable())
+  if (worker_.joinable()) {
     stopWorker();  // never assign over a joinable thread (std::terminate)
+  }
   {
     // A snapshot posted before the thread was stopped, or the throttle
     // timestamp of the previous incarnation, must not leak into the new worker:
@@ -263,8 +277,9 @@ void ContactPlannerModule::runPlanner(const ContactPlannerInput& input,
   // ContactPlannerInterface::plan() reports a failure to plan as an invalid
   // plan, never by throwing.
   const ContactPlan plan = planner_->plan(input);
-  if (logPlans_.load())
+  if (logPlans_.load()) {
     LOG(INFO) << "[ContactPlannerModule] " << plan.describe();
+  }
   // A plan made from a snapshot taken before an MPC reset describes the robot
   // before it: the reference manager refuses it, and the snapshot waiting for
   // the worker (taken after the reset) is the one to plan from next.
@@ -306,9 +321,10 @@ void ContactPlannerModule::workerLoop() {
         return !running_.load() || pendingInput_.has_value();
       });
       if (!running_.load()) return;
-      if (!pendingInput_.has_value())
+      if (!pendingInput_.has_value()) {
         continue;  // the wait above returns with one; this states it for the
-                   // reader
+      }
+      // reader
       input = std::move(*pendingInput_);
       planEpoch = pendingInputPlanEpoch_;
       pendingInput_.reset();
@@ -336,7 +352,8 @@ void ContactPlannerModule::preSolverRun(
   // Taking it from the target here instead would feed the planner its own
   // output whenever planned_com_override is listed, since that rule rewrites
   // exactly that channel with the planned velocity.
-  const vector2_t velocityCommand = referenceManagerPtr_->commandedVelocity();
+  const vector2_t velocityCommand =
+      referenceManagerPtr_->cmdLinvelBaseRtWorldEwrtWorldXy();
   const ContactPlannerInput input = referenceManagerPtr_->makePlannerInput(
       initTime, initState, velocityCommand);
   // Taken on the solver thread, like the reference manager's reset(): the

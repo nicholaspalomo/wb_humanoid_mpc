@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -47,10 +48,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_mpc/MPC_MRT_Interface.h"
 #include "ocs2_mpc/SystemObservation.h"
 
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
@@ -134,8 +138,9 @@ class PdGainsHarness {
     robotState_.setQuatBaseRtWorld(
         quaternion_t(model.getQuatBaseRtWorldXyzw(state)));
     const vector_t joints = model.getJointAngles(state);
-    for (size_t i = 0; i < mpcJointIndices_.size(); ++i)
+    for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
       robotState_.setJointPosition(mpcJointIndices_[i], joints[i]);
+    }
     robotState_.setContactFlag(/*index=*/0, /*contactFlag=*/true);
     robotState_.setContactFlag(/*index=*/1, /*contactFlag=*/true);
   }
@@ -259,11 +264,13 @@ TEST(MrtJointControllerPdGains,
   harness.controller().setControlMode("JOINT_PD");
   const robot::model::RobotJointAction& action = harness.cycle();
   EXPECT_EQ(jointAction(action, harness.mpcJointIndices()[0]).kp, 77.0);
-  for (size_t i = 1; i < harness.mpcJointIndices().size(); ++i)
+  for (size_t i = 1; i < harness.mpcJointIndices().size(); ++i) {
     EXPECT_EQ(jointAction(action, harness.mpcJointIndices()[i]).kp, 123.0);
-  for (size_t index : harness.otherJointIndices())
+  }
+  for (size_t index : harness.otherJointIndices()) {
     EXPECT_EQ(jointAction(action, index).kp,
               123.0 * kOtherJointDefaultGainScale);
+  }
 }
 
 TEST(MrtJointControllerPdGains,
@@ -490,9 +497,10 @@ TEST(MrtJointControllerPdGains,
                     .ok());
     scalar_t largest = 0.0;
     const robot::model::RobotJointAction& unlimited = harness.cycle();
-    for (size_t index : harness.mpcJointIndices())
+    for (size_t index : harness.mpcJointIndices()) {
       largest = std::max(
           largest, std::abs(jointAction(unlimited, index).feed_forward_effort));
+    }
     ASSERT_GT(largest, limit) << "positive control, " << mode;
     mpc_config::JointPdGainsFile limited = gainsFile(
         /*kp=*/100.0, harness.mpcJointNames().front(), /*firstJointKp=*/100.0);

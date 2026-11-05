@@ -202,13 +202,13 @@ TEST_F(BasisScalingNonNegativityConstraintTest,
   const TargetTrajectories targets = makeEmptyTargets();
   const PreComputation preComp = makePreComp();
 
-  scalar_t valueNeg = leftFootConstraint_->getValue(
+  scalar_t valueNegative = leftFootConstraint_->getValue(
       kTestTime, state, makeInput(-0.01), targets, preComp);
-  scalar_t valuePos = leftFootConstraint_->getValue(
+  scalar_t valueNonNegative = leftFootConstraint_->getValue(
       kTestTime, state, makeInput(5.0e-4), targets, preComp);
 
-  EXPECT_TRUE(std::isfinite(valueNeg));
-  EXPECT_GT(valueNeg, valuePos)
+  EXPECT_TRUE(std::isfinite(valueNegative));
+  EXPECT_GT(valueNegative, valueNonNegative)
       << "Negative λ should produce higher cost than positive λ";
 }
 

@@ -38,27 +38,34 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::multi_contact {
 
-Wrench requiredContactWrench(double mass,
-                             const Eigen::Vector3d& com,
-                             const CentroidalMomentumRate& rate,
-                             const Eigen::Vector3d& reference) {
+Wrench computeRequiredWnormWrenchStanceEwrtWorld(
+    double mass,
+    const Eigen::Vector3d& posComRtWorldEwrtWorld,
+    const CentroidalMomentumRate& rateCmomComRtWorldEwrtWorld,
+    const Eigen::Vector3d& posStanceRtWorldEwrtWorld) {
   const double weight = mass * kGravityMagnitude;
-  const Eigen::Vector3d force = rate.linear / weight + Eigen::Vector3d::UnitZ();
-  Wrench wrench;
-  wrench.head<kForceDim>() = force;
-  wrench.tail<kTorqueDim>() =
-      rate.angular / weight + (com - reference).cross(force);
-  return wrench;
+  const Eigen::Vector3d wnormForceStanceEwrtWorld =
+      rateCmomComRtWorldEwrtWorld.linear / weight + Eigen::Vector3d::UnitZ();
+  Wrench wnormWrenchStanceEwrtWorld;
+  wnormWrenchStanceEwrtWorld.head<kForceDim>() = wnormForceStanceEwrtWorld;
+  wnormWrenchStanceEwrtWorld.tail<kTorqueDim>() =
+      rateCmomComRtWorldEwrtWorld.angular / weight +
+      (posComRtWorldEwrtWorld - posStanceRtWorldEwrtWorld)
+          .cross(wnormForceStanceEwrtWorld);
+  return wnormWrenchStanceEwrtWorld;
 }
 
 absl::StatusOr<ContactWrenchConeResult> checkContactWrenchCone(
     const StaticEquilibrium& equilibrium,
     double mass,
-    const Eigen::Vector3d& com,
-    const CentroidalMomentumRate& rate) {
-  ASSIGN_OR_RETURN(const double residual,
-                   equilibrium.wrenchResidual(requiredContactWrench(
-                       mass, com, rate, equilibrium.generators().reference)));
+    const Eigen::Vector3d& posComRtWorldEwrtWorld,
+    const CentroidalMomentumRate& rateCmomComRtWorldEwrtWorld) {
+  ASSIGN_OR_RETURN(
+      const double residual,
+      equilibrium.computeResidualWnormWrenchStanceEwrtWorld(
+          computeRequiredWnormWrenchStanceEwrtWorld(
+              mass, posComRtWorldEwrtWorld, rateCmomComRtWorldEwrtWorld,
+              equilibrium.generators().posStanceRtWorldEwrtWorld)));
   return ContactWrenchConeResult{
       .feasible = residual <= equilibrium.options().feasibilityTolerance,
       .residual = residual};

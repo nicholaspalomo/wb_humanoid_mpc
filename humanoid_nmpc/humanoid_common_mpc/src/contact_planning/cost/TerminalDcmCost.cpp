@@ -33,14 +33,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/StageAccumulator.h"
 
 namespace ocs2::humanoid {
 
 std::string TerminalDcmCost::describe() const {
-  return trackCommandedVelocity_
+  return trackVelocityCommand_
              ? weightLine(
-                   "w ||xi_N - zmp_{N-1} - v_cmd / omega||^2 on the last "
-                   "running node (keeps walking)")
+                   "w ||xi_N - zmp_{N-1} - R_z(omega_cmd N dt) v_cmd / "
+                   "omega||^2 "
+                   "on the last running node (keeps walking)")
              : weightLine(
                    "w ||xi_N - zmp_{N-1}||^2 on the last running node "
                    "(terminal capturability)");
@@ -48,11 +55,11 @@ std::string TerminalDcmCost::describe() const {
 
 void TerminalDcmCost::configure(const ContactPlanningConfig& config) {
   weight_ = config.terminalDcm.weight;
-  trackCommandedVelocity_ = config.terminalDcm.trackCommandedVelocity;
+  trackVelocityCommand_ = config.terminalDcm.trackVelocityCommand;
 }
 
 void TerminalDcmCost::addToStage(const ContactPlanningContext& ctx,
-                                 int /*node*/,
+                                 int node,
                                  StageAccumulator& stage) const {
   // The terminal DCM is written on the last running node, where the ZMP of the
   // last interval is a variable: xi_N - zmp_{N-1} = e^{omega dt} (xi_{N-1} -
@@ -60,19 +67,25 @@ void TerminalDcmCost::addToStage(const ContactPlanningContext& ctx,
   // - zmp_{N-1} - e^{-omega dt} r||^2 exactly.
   const scalar_t omega = ctx.omega;
   const scalar_t growth = std::exp(omega * ctx.dt);
+  // xi_N, the DCM the target is for, is at node N = node + 1, so its velocity
+  // is the command of that node: the captured one turned by omega_cmd N dt.
+  const vector2_t cmdLinvelBaseRtWorldEwrtWorldXy =
+      ctx.getCmdLinvelBaseRtWorldEwrtWorldXy(node + 1);
   for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
-    // With trackCommandedVelocity the target of the terminal DCM is zmp_{N-1} +
+    // With trackVelocityCommand the target of the terminal DCM is zmp_{N-1} +
     // v_cmd / omega, the offset of a CoM over the foot that keeps moving at the
     // commanded velocity, instead of the rest condition xi_N = zmp_{N-1}. The
     // residual used to apply that offset to xi_{N-1} instead, which put the
     // target of xi_N at e^{omega dt} v_cmd / omega - 35 % further ahead than
     // documented at dt 0.1 on the Atlas's 1.0805 m pendulum.
-    const scalar_t target = trackCommandedVelocity_
-                                ? ctx.input->velocityCommand(axis) / omega
-                                : 0.0;
+    const scalar_t refPosDcmRtZmpEwrtWorld =
+        trackVelocityCommand_ ? cmdLinvelBaseRtWorldEwrtWorldXy(axis) / omega
+                              : 0.0;
     stage.addQuadraticResidual(
-        {{idx_.com[axis], 1.0}, {idx_.vel[axis], 1.0 / omega}},
-        {{idx_.zmp[axis], -1.0}}, -target / growth, weight_ * growth * growth);
+        {{idx_.posComRtWorldEwrtWorld[axis], 1.0},
+         {idx_.linvelComRtWorldEwrtWorld[axis], 1.0 / omega}},
+        {{idx_.posZmpRtWorldEwrtWorld[axis], -1.0}},
+        -refPosDcmRtZmpEwrtWorld / growth, weight_ * growth * growth);
   }
 }
 

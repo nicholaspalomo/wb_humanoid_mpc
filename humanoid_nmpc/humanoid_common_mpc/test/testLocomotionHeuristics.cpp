@@ -28,15 +28,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <cmath>
+#include <memory>
+#include <numbers>
 #include <string>
 #include <vector>
 
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/locomotion_heuristics/BasePoseHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFactory.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
+#include "humanoid_common_mpc/locomotion_heuristics/WrenchHeuristic.h"
 
 namespace ocs2::humanoid {
 
@@ -48,7 +58,7 @@ constexpr scalar_t kTol = 1.0e-12;
  * width, so the feet have a separation. */
 LocomotionHeuristicEnvironment testEnvironment() {
   LocomotionHeuristicEnvironment environment;
-  environment.nominalStepWidth = 0.2;
+  environment.nomPosLfootRtRfootEwrtHeadingY = 0.2;
   return environment;
 }
 
@@ -65,9 +75,9 @@ LocomotionHeuristicModelParameters testModel() {
   model.totalMass = 40.0;
   model.gravity = 9.81;
   model.totalWeight = model.totalMass * model.gravity;
-  model.nominalComHeight = 0.6125;
-  model.hipPositionInBaseFrame[kContactLeftIndex] = vector2_t(0.0, 0.08);
-  model.hipPositionInBaseFrame[kContactRightIndex] = vector2_t(0.0, -0.08);
+  model.nomPosComRtFeetmeanEwrtWorldZ = 0.6125;
+  model.posHipsRtBaseEwrtHeadingXy[kContactLeftIndex] = vector2_t(0.0, 0.08);
+  model.posHipsRtBaseEwrtHeadingXy[kContactRightIndex] = vector2_t(0.0, -0.08);
   return model;
 }
 
@@ -75,11 +85,11 @@ FootholdHeuristicContext footholdContext() {
   FootholdHeuristicContext context;
   context.contactIndex = kContactLeftIndex;
   context.side = 1.0;
-  context.comHeight = 0.6125;
+  context.measPosComRtFeetmeanEwrtWorldZ = 0.6125;
   return context;
 }
 
-WrenchHeuristicContext wrenchContext() {
+WrenchHeuristicContext wrenchHeuristicContext() {
   WrenchHeuristicContext context;
   context.contactFlags = {true, true};
   context.numStanceFeet = 2;
@@ -117,17 +127,19 @@ TEST(LocomotionHeuristics, EveryNameOfBledtsAppendixCIsRegisteredAndBuildable) {
   // The ten of Tables C.1 and C.2. Pinned as a list so that dropping one is a
   // test failure rather than a silent gap between the dissertation and this
   // implementation.
-  const std::vector<std::string> expectedBasePose{"orientation_compensation",
-                                                  "periodic_orientation",
-                                                  "height_compensation"};
+  const std::vector<std::string> expectedBasePoseHeuristics{
+      "orientation_compensation", "periodic_orientation",
+      "height_compensation"};
   const std::vector<std::string> expectedFoothold{
       "hip_centered_stepping", "capture_point", "translational_stepping",
       "in_place_turning", "high_speed_turning"};
-  const std::vector<std::string> expectedWrench{"impulse_scaling",
-                                                "centripetal_acceleration"};
-  EXPECT_EQ(knownHeuristicNames(HeuristicKind::kBasePose), expectedBasePose);
+  const std::vector<std::string> expectedWrenchHeuristics{
+      "impulse_scaling", "centripetal_acceleration"};
+  EXPECT_EQ(knownHeuristicNames(HeuristicKind::kBasePose),
+            expectedBasePoseHeuristics);
   EXPECT_EQ(knownHeuristicNames(HeuristicKind::kFoothold), expectedFoothold);
-  EXPECT_EQ(knownHeuristicNames(HeuristicKind::kWrench), expectedWrench);
+  EXPECT_EQ(knownHeuristicNames(HeuristicKind::kWrench),
+            expectedWrenchHeuristics);
 
   const LocomotionHeuristicConfig config;
   const LocomotionHeuristicModelParameters model = testModel();
@@ -178,7 +190,7 @@ TEST(LocomotionHeuristics, UnknownNameNamesTheValidOnes) {
 
 TEST(LocomotionHeuristics, MisfiledNameSaysWhereItBelongs) {
   LocomotionHeuristicFormulation formulation;
-  formulation.basePose = {"capture_point"};
+  formulation.basePoseHeuristics = {"capture_point"};
   const absl::Status status = formulation.validate();
   ASSERT_FALSE(status.ok());
   const std::string message(status.message());
@@ -187,7 +199,7 @@ TEST(LocomotionHeuristics, MisfiledNameSaysWhereItBelongs) {
 
 TEST(LocomotionHeuristics, DuplicateNameIsRejectedBecauseTheOffsetsAreSummed) {
   LocomotionHeuristicFormulation formulation;
-  formulation.foothold = {"capture_point", "capturePoint"};
+  formulation.footholdHeuristics = {"capture_point", "capturePoint"};
   const absl::Status status = formulation.validate();
   ASSERT_FALSE(status.ok());
   EXPECT_NE(std::string(status.message()).find("more than once"),
@@ -208,20 +220,26 @@ TEST(LocomotionHeuristics, EmptyListsAreAnExactNoOp) {
   ASSERT_TRUE(layer.ok()) << layer.status().message();
   EXPECT_TRUE((*layer)->empty());
   EXPECT_FALSE((*layer)->footholdMovesAnchor());
-  EXPECT_FALSE((*layer)->wrenchNeedsWorldFrame())
+  EXPECT_FALSE((*layer)->wrenchHeuristicsNeedWorldFrame())
       << "an empty layer must not push the input costs onto the FK path";
 
-  BasePoseHeuristicContext basePose;
-  basePose.commandedVelocityInBaseFrame = vector2_t(1.0, 0.4);
-  basePose.commandedYawRate = 0.7;
-  basePose.gaitPhase = 0.3;
-  const BasePoseOffset offset = (*layer)->basePoseOffset(basePose);
-  EXPECT_NEAR(offset.roll, 0.0, kTol);
-  EXPECT_NEAR(offset.pitch, 0.0, kTol);
-  EXPECT_NEAR(offset.height, 0.0, kTol);
-  EXPECT_TRUE((*layer)->footholdOffset(footholdContext()).isZero());
-  EXPECT_TRUE(
-      (*layer)->wrenchOffset(wrenchContext(), kContactLeftIndex).isZero());
+  BasePoseHeuristicContext basePoseHeuristicContext;
+  basePoseHeuristicContext.cmdLinvelBaseRtWorldEwrtHeadingXy =
+      vector2_t(1.0, 0.4);
+  basePoseHeuristicContext.cmdRateYawBaseRtWorld = 0.7;
+  basePoseHeuristicContext.gaitPhase = 0.3;
+  const BasePoseOffset offset =
+      (*layer)->basePoseHeuristicOffset(basePoseHeuristicContext);
+  EXPECT_NEAR(offset.offsetEulerzyxBaseRtWorldRoll, 0.0, kTol);
+  EXPECT_NEAR(offset.offsetEulerzyxBaseRtWorldPitch, 0.0, kTol);
+  EXPECT_NEAR(offset.offsetPosBaseRtWorldEwrtWorldZ, 0.0, kTol);
+  EXPECT_TRUE((*layer)
+                  ->computeOffsetPosFootRtWorldEwrtWorldXy(footholdContext())
+                  .isZero());
+  EXPECT_TRUE((*layer)
+                  ->computeOffsetForceFootEwrtWorld(wrenchHeuristicContext(),
+                                                    kContactLeftIndex)
+                  .isZero());
 }
 
 TEST(LocomotionHeuristics, AListedHeuristicWithZeroCoefficientsIsStillANoOp) {
@@ -229,20 +247,21 @@ TEST(LocomotionHeuristics, AListedHeuristicWithZeroCoefficientsIsStillANoOp) {
   // "does listing it change anything" be a separate experiment from "what
   // should the number be". Every fitted coefficient of Table C.2 ships at zero.
   LocomotionHeuristicConfig config;
-  config.formulation.basePose = {"orientation_compensation",
-                                 "periodic_orientation", "height_compensation"};
+  config.formulation.basePoseHeuristics = {"orientation_compensation",
+                                           "periodic_orientation",
+                                           "height_compensation"};
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
   EXPECT_FALSE((*layer)->empty());
 
   BasePoseHeuristicContext context;
-  context.commandedVelocityInBaseFrame = vector2_t(1.5, -0.6);
+  context.cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t(1.5, -0.6);
   context.gaitPhase = 0.42;
-  const BasePoseOffset offset = (*layer)->basePoseOffset(context);
-  EXPECT_NEAR(offset.roll, 0.0, kTol);
-  EXPECT_NEAR(offset.pitch, 0.0, kTol);
-  EXPECT_NEAR(offset.height, 0.0, kTol);
+  const BasePoseOffset offset = (*layer)->basePoseHeuristicOffset(context);
+  EXPECT_NEAR(offset.offsetEulerzyxBaseRtWorldRoll, 0.0, kTol);
+  EXPECT_NEAR(offset.offsetEulerzyxBaseRtWorldPitch, 0.0, kTol);
+  EXPECT_NEAR(offset.offsetPosBaseRtWorldEwrtWorldZ, 0.0, kTol);
 }
 
 /*============================================ the formulae
@@ -251,41 +270,46 @@ TEST(LocomotionHeuristics, AListedHeuristicWithZeroCoefficientsIsStillANoOp) {
 TEST(LocomotionHeuristics,
      OrientationCompensationIsAffineInTheCommandAndClamped) {
   LocomotionHeuristicConfig config;
-  config.formulation.basePose = {"orientation_compensation"};
-  config.orientationCompensation.rollPerLateralVelocity =
+  config.formulation.basePoseHeuristics = {"orientation_compensation"};
+  config.orientationCompensationParameters.rollPerLateralVelocityGain =
       -0.339;  // Bledt equation 4.11
-  config.orientationCompensation.pitchPerForwardVelocity =
+  config.orientationCompensationParameters.pitchPerForwardVelocityGain =
       0.0725;  // Bledt equation 4.12
-  config.orientationCompensation.rollOffset = 0.01;
-  config.orientationCompensation.pitchOffset = -0.02;
-  config.orientationCompensation.maximumTilt = 0.1;
+  config.orientationCompensationParameters.offsetEulerzyxBaseRtWorldRoll = 0.01;
+  config.orientationCompensationParameters.offsetEulerzyxBaseRtWorldPitch =
+      -0.02;
+  config.orientationCompensationParameters.maxOffsetEulerzyxBaseRtWorld = 0.1;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
   BasePoseHeuristicContext context;
-  context.commandedVelocityInBaseFrame = vector2_t(1.0, 0.2);
-  const BasePoseOffset offset = (*layer)->basePoseOffset(context);
-  EXPECT_NEAR(offset.roll, -0.339 * 0.2 + 0.01, 1.0e-9)
+  context.cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t(1.0, 0.2);
+  const BasePoseOffset offset = (*layer)->basePoseHeuristicOffset(context);
+  EXPECT_NEAR(offset.offsetEulerzyxBaseRtWorldRoll, -0.339 * 0.2 + 0.01, 1.0e-9)
       << "roll follows the LATERAL command";
-  EXPECT_NEAR(offset.pitch, 0.0725 * 1.0 - 0.02, 1.0e-9)
+  EXPECT_NEAR(offset.offsetEulerzyxBaseRtWorldPitch, 0.0725 * 1.0 - 0.02,
+              1.0e-9)
       << "pitch follows the FORWARD command";
-  EXPECT_NEAR(offset.height, 0.0, kTol)
+  EXPECT_NEAR(offset.offsetPosBaseRtWorldEwrtWorldZ, 0.0, kTol)
       << "this heuristic has no opinion about height";
 
   // The command is filtered but not rate limited, so an affine law on it has no
   // bound of its own.
   BasePoseHeuristicContext fast;
-  fast.commandedVelocityInBaseFrame = vector2_t(0.0, 100.0);
-  EXPECT_NEAR((*layer)->basePoseOffset(fast).roll, -0.1, 1.0e-9);
+  fast.cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t(0.0, 100.0);
+  EXPECT_NEAR(
+      (*layer)->basePoseHeuristicOffset(fast).offsetEulerzyxBaseRtWorldRoll,
+      -0.1, 1.0e-9);
 }
 
 TEST(LocomotionHeuristics, PeriodicOrientationIsASinusoidInTheGaitPhase) {
   LocomotionHeuristicConfig config;
-  config.formulation.basePose = {"periodic_orientation"};
-  config.periodicOrientation.pitchAmplitude = 0.023;  // Bledt equation 4.13
-  config.periodicOrientation.pitchPhaseRate = 4.0 * M_PI;
-  config.periodicOrientation.pitchPhaseOffset = 0.5;
+  config.formulation.basePoseHeuristics = {"periodic_orientation"};
+  config.periodicOrientationParameters.amplitudeEulerzyxBaseRtWorldPitch =
+      0.023;  // Bledt equation 4.13
+  config.periodicOrientationParameters.pitchPhaseRate = 4.0 * std::numbers::pi;
+  config.periodicOrientationParameters.pitchPhaseOffset = 0.5;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
@@ -293,45 +317,57 @@ TEST(LocomotionHeuristics, PeriodicOrientationIsASinusoidInTheGaitPhase) {
   for (const scalar_t phase : {0.0, 0.25, 0.5, 0.75}) {
     BasePoseHeuristicContext context;
     context.gaitPhase = phase;
-    EXPECT_NEAR((*layer)->basePoseOffset(context).pitch,
-                0.023 * std::sin(4.0 * M_PI * phase + 0.5), 1.0e-12);
+    EXPECT_NEAR((*layer)
+                    ->basePoseHeuristicOffset(context)
+                    .offsetEulerzyxBaseRtWorldPitch,
+                0.023 * std::sin(4.0 * std::numbers::pi * phase + 0.5),
+                1.0e-12);
   }
   // A whole number of periods per cycle is what makes the reference periodic in
   // the gait rather than drifting with it.
   BasePoseHeuristicContext start;
   BasePoseHeuristicContext end;
   end.gaitPhase = 1.0;
-  EXPECT_NEAR((*layer)->basePoseOffset(start).pitch,
-              (*layer)->basePoseOffset(end).pitch, 1.0e-12);
+  EXPECT_NEAR(
+      (*layer)->basePoseHeuristicOffset(start).offsetEulerzyxBaseRtWorldPitch,
+      (*layer)->basePoseHeuristicOffset(end).offsetEulerzyxBaseRtWorldPitch,
+      1.0e-12);
 }
 
 TEST(LocomotionHeuristics, HeightCompensationIsEvenInTheDirectionOfTravel) {
   LocomotionHeuristicConfig config;
-  config.formulation.basePose = {"height_compensation"};
-  config.heightCompensation.heightPerSpeed = -0.02;
-  config.heightCompensation.maximumHeightOffset = 0.05;
+  config.formulation.basePoseHeuristics = {"height_compensation"};
+  config.heightCompensation.heightPerSpeedGain = -0.02;
+  config.heightCompensation.maxOffsetPosBaseRtWorldEwrtWorldZ = 0.05;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
   BasePoseHeuristicContext forward;
-  forward.commandedVelocityInBaseFrame = vector2_t(1.0, 0.0);
+  forward.cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t(1.0, 0.0);
   BasePoseHeuristicContext backward;
-  backward.commandedVelocityInBaseFrame = vector2_t(-1.0, 0.0);
-  EXPECT_NEAR((*layer)->basePoseOffset(forward).height, -0.02, 1.0e-12);
+  backward.cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t(-1.0, 0.0);
+  EXPECT_NEAR(
+      (*layer)->basePoseHeuristicOffset(forward).offsetPosBaseRtWorldEwrtWorldZ,
+      -0.02, 1.0e-12);
   // Crouching to walk forwards and rising to walk backwards is not a thing any
   // legged system does.
-  EXPECT_NEAR((*layer)->basePoseOffset(backward).height, -0.02, 1.0e-12);
+  EXPECT_NEAR((*layer)
+                  ->basePoseHeuristicOffset(backward)
+                  .offsetPosBaseRtWorldEwrtWorldZ,
+              -0.02, 1.0e-12);
 
   BasePoseHeuristicContext fast;
-  fast.commandedVelocityInBaseFrame = vector2_t(100.0, 0.0);
-  EXPECT_NEAR((*layer)->basePoseOffset(fast).height, -0.05, 1.0e-12)
+  fast.cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t(100.0, 0.0);
+  EXPECT_NEAR(
+      (*layer)->basePoseHeuristicOffset(fast).offsetPosBaseRtWorldEwrtWorldZ,
+      -0.05, 1.0e-12)
       << "clamped: the base must not fall into its knees";
 }
 
 TEST(LocomotionHeuristics, CapturePointIsZeroWhenTheCommandIsTracked) {
   LocomotionHeuristicConfig config;
-  config.formulation.foothold = {"capture_point"};
+  config.formulation.footholdHeuristics = {"capture_point"};
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
@@ -340,70 +376,78 @@ TEST(LocomotionHeuristics, CapturePointIsZeroWhenTheCommandIsTracked) {
   // going exactly as fast as it was asked to gets no offset however fast that
   // is.
   FootholdHeuristicContext tracking = footholdContext();
-  tracking.measuredVelocity = vector2_t(1.2, 0.3);
-  tracking.commandedVelocityAtMeasurement = vector2_t(1.2, 0.3);
-  tracking.commandedVelocity = vector2_t(1.2, 0.3);
-  EXPECT_TRUE((*layer)->footholdOffset(tracking).isZero(1.0e-12));
+  tracking.measProxyLinvelComRtWorldEwrtWorldXy = vector2_t(1.2, 0.3);
+  tracking.prevCmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(1.2, 0.3);
+  tracking.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(1.2, 0.3);
+  EXPECT_TRUE((*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(tracking).isZero(
+      1.0e-12));
 
   FootholdHeuristicContext pushed = footholdContext();
-  pushed.measuredVelocity = vector2_t(0.5, 0.0);
-  pushed.commandedVelocity = vector2_t(0.0, 0.0);
+  pushed.measProxyLinvelComRtWorldEwrtWorldXy = vector2_t(0.5, 0.0);
+  pushed.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.0, 0.0);
   const scalar_t expected = std::sqrt(0.6125 / 9.81) * 0.5;
-  EXPECT_NEAR((*layer)->footholdOffset(pushed).x(), expected, 1.0e-9);
-  EXPECT_NEAR((*layer)->footholdOffset(pushed).y(), 0.0, 1.0e-12);
+  EXPECT_NEAR((*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(pushed).x(),
+              expected, 1.0e-9);
+  EXPECT_NEAR((*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(pushed).y(), 0.0,
+              1.0e-12);
 
   // Clamped in MAGNITUDE, which preserves the direction of the step into the
   // error - a per-axis clamp would rotate the offset towards the diagonal
   // exactly when the robot most needs the foot to go where the push came from.
   FootholdHeuristicContext thrown = footholdContext();
-  thrown.measuredVelocity = vector2_t(30.0, 40.0);
-  const vector2_t offset = (*layer)->footholdOffset(thrown);
-  EXPECT_NEAR(offset.norm(), 0.25, 1.0e-9);
-  EXPECT_NEAR(offset.x() / offset.y(), 30.0 / 40.0, 1.0e-9)
+  thrown.measProxyLinvelComRtWorldEwrtWorldXy = vector2_t(30.0, 40.0);
+  const vector2_t offsetPosFootRtWorldEwrtWorldXy =
+      (*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(thrown);
+  EXPECT_NEAR(offsetPosFootRtWorldEwrtWorldXy.norm(), 0.25, 1.0e-9);
+  EXPECT_NEAR(
+      offsetPosFootRtWorldEwrtWorldXy.x() / offsetPosFootRtWorldEwrtWorldXy.y(),
+      30.0 / 40.0, 1.0e-9)
       << "the direction survives the clamp";
 }
 
 TEST(LocomotionHeuristics, TranslationalSteppingRotatesWithTheHeading) {
   LocomotionHeuristicConfig config;
-  config.formulation.foothold = {"translational_stepping"};
-  config.translationalStepping.forwardPerForwardVelocity = 0.15;
+  config.formulation.footholdHeuristics = {"translational_stepping"};
+  config.translationalStepping.forwardPerForwardVelocityGain = 0.15;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
   // Facing +x and walking +x: the step goes forward along +x.
   FootholdHeuristicContext alongX = footholdContext();
-  alongX.commandedVelocity = vector2_t(2.0, 0.0);
-  const vector2_t stepAlongX = (*layer)->footholdOffset(alongX);
-  EXPECT_NEAR(stepAlongX.x(), 0.3, 1.0e-9);
-  EXPECT_NEAR(stepAlongX.y(), 0.0, 1.0e-9);
+  alongX.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(2.0, 0.0);
+  const vector2_t alongXOffsetPosFootRtWorldEwrtWorldXy =
+      (*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(alongX);
+  EXPECT_NEAR(alongXOffsetPosFootRtWorldEwrtWorldXy.x(), 0.3, 1.0e-9);
+  EXPECT_NEAR(alongXOffsetPosFootRtWorldEwrtWorldXy.y(), 0.0, 1.0e-9);
 
   // Facing +y and walking +y: the same step, in the world's +y. The
   // coefficients are in the base's frame, so the law has to be applied there
   // and rotated back - applying it in the world would swap forward for lateral
   // here.
   FootholdHeuristicContext alongY = footholdContext();
-  alongY.baseYaw = M_PI / 2.0;
-  alongY.commandedVelocity = vector2_t(0.0, 2.0);
-  const vector2_t stepAlongY = (*layer)->footholdOffset(alongY);
-  EXPECT_NEAR(stepAlongY.x(), 0.0, 1.0e-9);
-  EXPECT_NEAR(stepAlongY.y(), 0.3, 1.0e-9);
+  alongY.yawBaseRtWorld = std::numbers::pi / 2.0;
+  alongY.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.0, 2.0);
+  const vector2_t alongYOffsetPosFootRtWorldEwrtWorldXy =
+      (*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(alongY);
+  EXPECT_NEAR(alongYOffsetPosFootRtWorldEwrtWorldXy.x(), 0.0, 1.0e-9);
+  EXPECT_NEAR(alongYOffsetPosFootRtWorldEwrtWorldXy.y(), 0.3, 1.0e-9);
 }
 
 TEST(LocomotionHeuristics, InPlaceTurningLeadsEachHipIntoTheTurn) {
   LocomotionHeuristicConfig config;
-  config.formulation.foothold = {"in_place_turning"};
+  config.formulation.footholdHeuristics = {"in_place_turning"};
   config.inPlaceTurning.forwardPerYawRate = 0.05;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
   FootholdHeuristicContext left = footholdContext();
-  left.commandedYawRate = 1.0;
+  left.cmdRateYawBaseRtWorld = 1.0;
   FootholdHeuristicContext right = footholdContext();
   right.contactIndex = kContactRightIndex;
   right.side = -1.0;
-  right.commandedYawRate = 1.0;
+  right.cmdRateYawBaseRtWorld = 1.0;
 
   // A foot to the LEFT of a body turning counter-clockwise travels BACKWARDS:
   // its velocity is omega x r = (0,0,psidot) x (0,d,0) = (-psidot d, 0, 0).
@@ -412,16 +456,19 @@ TEST(LocomotionHeuristics, InPlaceTurningLeadsEachHipIntoTheTurn) {
   // otherwise a tuner following the documentation drives the feet to TRAIL the
   // hips by twice the intended amount, which is the very workspace-exhaustion
   // failure the heuristic exists to remove.
-  EXPECT_NEAR((*layer)->footholdOffset(left).x(), -0.05, 1.0e-9);
-  EXPECT_NEAR((*layer)->footholdOffset(right).x(), 0.05, 1.0e-9);
+  EXPECT_NEAR((*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(left).x(), -0.05,
+              1.0e-9);
+  EXPECT_NEAR((*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(right).x(), 0.05,
+              1.0e-9);
   // Equal and opposite: that is what a turn on the spot is.
-  EXPECT_NEAR((*layer)->footholdOffset(left).x(),
-              -(*layer)->footholdOffset(right).x(), 1.0e-12);
+  EXPECT_NEAR((*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(left).x(),
+              -(*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(right).x(),
+              1.0e-12);
 }
 
 TEST(LocomotionHeuristics, HighSpeedTurningVanishesAtZeroSpeed) {
   LocomotionHeuristicConfig config;
-  config.formulation.foothold = {"high_speed_turning"};
+  config.formulation.footholdHeuristics = {"high_speed_turning"};
   config.highSpeedTurning.lateralPerCrossTerm = 0.1;
   config.highSpeedTurning.forwardPerCrossTerm = 0.1;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
@@ -431,21 +478,23 @@ TEST(LocomotionHeuristics, HighSpeedTurningVanishesAtZeroSpeed) {
   // The property that distinguishes it from in_place_turning: however fast the
   // robot spins, standing still it is zero.
   FootholdHeuristicContext spinning = footholdContext();
-  spinning.commandedYawRate = 5.0;
-  EXPECT_TRUE((*layer)->footholdOffset(spinning).isZero(1.0e-12));
+  spinning.cmdRateYawBaseRtWorld = 5.0;
+  EXPECT_TRUE((*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(spinning).isZero(
+      1.0e-12));
 
   // Walking forwards and turning left throws the foot to the OUTSIDE of the
   // turn, i.e. to the right: the cross product v x omega = (v_y psidot, -v_x
   // psidot) has a negative lateral component here.
   FootholdHeuristicContext turning = footholdContext();
-  turning.commandedVelocity = vector2_t(2.0, 0.0);
-  turning.commandedYawRate = 1.0;
-  EXPECT_NEAR((*layer)->footholdOffset(turning).y(), 0.1 * -2.0, 1.0e-9);
+  turning.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(2.0, 0.0);
+  turning.cmdRateYawBaseRtWorld = 1.0;
+  EXPECT_NEAR((*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(turning).y(),
+              0.1 * -2.0, 1.0e-9);
 }
 
 TEST(LocomotionHeuristics, HipCenteredSteppingPlacesEachFootOnItsOwnSide) {
   LocomotionHeuristicConfig config;
-  config.formulation.foothold = {"hip_centered_stepping"};
+  config.formulation.footholdHeuristics = {"hip_centered_stepping"};
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
@@ -456,24 +505,28 @@ TEST(LocomotionHeuristics, HipCenteredSteppingPlacesEachFootOnItsOwnSide) {
   FootholdHeuristicContext right = footholdContext();
   right.contactIndex = kContactRightIndex;
   right.side = -1.0;
-  EXPECT_NEAR((*layer)->footholdOffset(left).y(), 0.08, 1.0e-12);
-  EXPECT_NEAR((*layer)->footholdOffset(right).y(), -0.08, 1.0e-12);
+  EXPECT_NEAR((*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(left).y(), 0.08,
+              1.0e-12);
+  EXPECT_NEAR((*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(right).y(),
+              -0.08, 1.0e-12);
 
   // r_hip is in the BASE frame, so a robot facing +y puts its left hip towards
   // -x in the world.
   FootholdHeuristicContext turned = footholdContext();
-  turned.baseYaw = M_PI / 2.0;
-  EXPECT_NEAR((*layer)->footholdOffset(turned).x(), -0.08, 1.0e-9);
-  EXPECT_NEAR((*layer)->footholdOffset(turned).y(), 0.0, 1.0e-9);
+  turned.yawBaseRtWorld = std::numbers::pi / 2.0;
+  EXPECT_NEAR((*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(turned).x(),
+              -0.08, 1.0e-9);
+  EXPECT_NEAR((*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(turned).y(), 0.0,
+              1.0e-9);
 }
 
 TEST(LocomotionHeuristics, ImpulseScalingTargetsBledtsImpulseBudget) {
   LocomotionHeuristicConfig config;
-  config.formulation.wrench = {"impulse_scaling"};
+  config.formulation.wrenchHeuristics = {"impulse_scaling"};
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
-  EXPECT_FALSE((*layer)->wrenchNeedsWorldFrame())
+  EXPECT_FALSE((*layer)->wrenchHeuristicsNeedWorldFrame())
       << "a vertical force is yaw-invariant and must keep the cheap path";
 
   const scalar_t weight = 40.0 * 9.81;
@@ -481,19 +534,22 @@ TEST(LocomotionHeuristics, ImpulseScalingTargetsBledtsImpulseBudget) {
 
   // beta = 1 is standing, with both feet down: W/(F beta) is W/2, which IS the
   // existing reference, so the correction is zero.
-  WrenchHeuristicContext standing = wrenchContext();
+  WrenchHeuristicContext standing = wrenchHeuristicContext();
   standing.stanceDutyFactor = {1.0, 1.0};
-  EXPECT_TRUE(
-      (*layer)->wrenchOffset(standing, kContactLeftIndex).isZero(1.0e-9));
+  EXPECT_TRUE((*layer)
+                  ->computeOffsetForceFootEwrtWorld(standing, kContactLeftIndex)
+                  .isZero(1.0e-9));
 
   // beta = 1/2 in SINGLE support is the other fixed point: W/(F beta) = W, and
   // the one stance foot already carries W.
-  WrenchHeuristicContext singleSupport = wrenchContext();
+  WrenchHeuristicContext singleSupport = wrenchHeuristicContext();
   singleSupport.contactFlags = {true, false};
   singleSupport.numStanceFeet = 1;
   singleSupport.stanceDutyFactor = {0.5, 0.5};
   EXPECT_TRUE(
-      (*layer)->wrenchOffset(singleSupport, kContactLeftIndex).isZero(1.0e-9))
+      (*layer)
+          ->computeOffsetForceFootEwrtWorld(singleSupport, kContactLeftIndex)
+          .isZero(1.0e-9))
       << "a pure alternating single support is exactly weight compensation; "
          "the correction must not fire there";
 
@@ -501,13 +557,15 @@ TEST(LocomotionHeuristics, ImpulseScalingTargetsBledtsImpulseBudget) {
   // also has single support. Bledt's reference is W/(F beta) per foot whatever
   // n_stance is, so at beta = 0.6 each foot is asked for W/1.2 = 0.833 W rather
   // than the 0.5 W of instantaneous weight compensation.
-  WrenchHeuristicContext doubleSupport = wrenchContext();
+  WrenchHeuristicContext doubleSupport = wrenchHeuristicContext();
   doubleSupport.stanceDutyFactor = {0.6, 0.6};
-  const vector3_t offset =
-      (*layer)->wrenchOffset(doubleSupport, kContactLeftIndex);
-  EXPECT_NEAR(offset.x(), 0.0, kTol);
-  EXPECT_NEAR(offset.y(), 0.0, kTol);
-  EXPECT_NEAR(offset.z(), weight / (numFeet * 0.6) - weight / 2.0, 1.0e-6);
+  const vector3_t offsetForceFootEwrtWorld =
+      (*layer)->computeOffsetForceFootEwrtWorld(doubleSupport,
+                                                kContactLeftIndex);
+  EXPECT_NEAR(offsetForceFootEwrtWorld.x(), 0.0, kTol);
+  EXPECT_NEAR(offsetForceFootEwrtWorld.y(), 0.0, kTol);
+  EXPECT_NEAR(offsetForceFootEwrtWorld.z(),
+              weight / (numFeet * 0.6) - weight / 2.0, 1.0e-6);
 
   // THE IMPULSE BUDGET. Over one
   // cycle the mean number of feet on the ground is F * beta, so the mean total
@@ -526,50 +584,56 @@ TEST(LocomotionHeuristics, ImpulseScalingTargetsBledtsImpulseBudget) {
       << "the cycle-averaged vertical reference must equal the robot's weight";
 
   // 1/beta is unbounded as a flight phase opens, so both clamps have to bite.
-  WrenchHeuristicContext flying = wrenchContext();
+  WrenchHeuristicContext flying = wrenchHeuristicContext();
   flying.stanceDutyFactor = {1.0e-6, 1.0e-6};
   const scalar_t baseline = weight / 2.0;
-  EXPECT_NEAR((*layer)->wrenchOffset(flying, kContactLeftIndex).z(), baseline,
-              1.0e-6)
-      << "clamped at maximumForceRatio (2) times weight compensation";
+  EXPECT_NEAR(
+      (*layer)->computeOffsetForceFootEwrtWorld(flying, kContactLeftIndex).z(),
+      baseline, 1.0e-6)
+      << "clamped at maximumWeightCompensationRatio (2) times weight "
+         "compensation";
 }
 
 TEST(LocomotionHeuristics,
      CentripetalAccelerationPointsIntoTheTurnAndNeedsTheWorldFrame) {
   LocomotionHeuristicConfig config;
-  config.formulation.wrench = {"centripetal_acceleration"};
+  config.formulation.wrenchHeuristics = {"centripetal_acceleration"};
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
   // The one heuristic of the ten that forces the input costs onto the
   // forward-kinematics path.
-  EXPECT_TRUE((*layer)->wrenchNeedsWorldFrame());
+  EXPECT_TRUE((*layer)->wrenchHeuristicsNeedWorldFrame());
 
   // Walking along +x and turning left (positive yaw rate): the center of the
   // turn is to the LEFT, so the force is +y.
-  WrenchHeuristicContext turning = wrenchContext();
-  turning.commandedVelocity = vector2_t(2.0, 0.0);
-  turning.commandedYawRate = 1.0;
-  const vector3_t offset = (*layer)->wrenchOffset(turning, kContactLeftIndex);
-  EXPECT_NEAR(offset.x(), 0.0, 1.0e-9);
-  EXPECT_NEAR(offset.y(), 40.0 * 1.0 * 2.0 / 2.0, 1.0e-9)
+  WrenchHeuristicContext turning = wrenchHeuristicContext();
+  turning.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(2.0, 0.0);
+  turning.cmdRateYawBaseRtWorld = 1.0;
+  const vector3_t offsetForceFootEwrtWorld =
+      (*layer)->computeOffsetForceFootEwrtWorld(turning, kContactLeftIndex);
+  EXPECT_NEAR(offsetForceFootEwrtWorld.x(), 0.0, 1.0e-9);
+  EXPECT_NEAR(offsetForceFootEwrtWorld.y(), 40.0 * 1.0 * 2.0 / 2.0, 1.0e-9)
       << "m * omega x v, shared over the two stance feet";
-  EXPECT_NEAR(offset.z(), 0.0, kTol)
+  EXPECT_NEAR(offsetForceFootEwrtWorld.z(), 0.0, kTol)
       << "purely horizontal: the vertical reference is weight compensation's "
          "job";
 
   // Straight-line walking is not a turn.
-  WrenchHeuristicContext straight = wrenchContext();
-  straight.commandedVelocity = vector2_t(2.0, 0.0);
-  EXPECT_TRUE(
-      (*layer)->wrenchOffset(straight, kContactLeftIndex).isZero(1.0e-12));
+  WrenchHeuristicContext straight = wrenchHeuristicContext();
+  straight.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(2.0, 0.0);
+  EXPECT_TRUE((*layer)
+                  ->computeOffsetForceFootEwrtWorld(straight, kContactLeftIndex)
+                  .isZero(1.0e-12));
 
   // The feet cannot pull sideways harder than friction allows: the TOTAL is
   // clamped to 0.3 W, and the two stance feet share it, 0.15 W each.
-  WrenchHeuristicContext extreme = wrenchContext();
-  extreme.commandedVelocity = vector2_t(50.0, 0.0);
-  extreme.commandedYawRate = 10.0;
-  EXPECT_NEAR((*layer)->wrenchOffset(extreme, kContactLeftIndex).norm(),
+  WrenchHeuristicContext extreme = wrenchHeuristicContext();
+  extreme.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(50.0, 0.0);
+  extreme.cmdRateYawBaseRtWorld = 10.0;
+  EXPECT_NEAR((*layer)
+                  ->computeOffsetForceFootEwrtWorld(extreme, kContactLeftIndex)
+                  .norm(),
               0.3 * extreme.totalWeight / 2.0, 1.0e-6);
 }
 
@@ -578,10 +642,10 @@ TEST(LocomotionHeuristics,
 
 TEST(LocomotionHeuristics, FootholdHeuristicUnderContactPlanningIsRejected) {
   // It would be silently inert: ContactPlanningReferenceManager supplies the
-  // landing target itself and never calls nominalFoothold(), which is this
-  // family's only seam.
+  // landing target itself and never calls getNomPosFootRtWorldEwrtWorldXy(),
+  // which is this family's only seam.
   LocomotionHeuristicConfig config;
-  config.formulation.foothold = {"capture_point"};
+  config.formulation.footholdHeuristics = {"capture_point"};
   const absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, testModel(),
                                        planningEnvironment());
@@ -597,8 +661,8 @@ TEST(LocomotionHeuristics, FootholdHeuristicUnderContactPlanningIsRejected) {
   // The other two channels are unaffected: the planner has no opinion about
   // base pose or contact force.
   LocomotionHeuristicConfig other;
-  other.formulation.basePose = {"orientation_compensation"};
-  other.formulation.wrench = {"impulse_scaling"};
+  other.formulation.basePoseHeuristics = {"orientation_compensation"};
+  other.formulation.wrenchHeuristics = {"impulse_scaling"};
   EXPECT_TRUE(LocomotionHeuristicLayer::Create(other, testModel(),
                                                planningEnvironment())
                   .ok());
@@ -614,7 +678,7 @@ TEST(LocomotionHeuristics, InvalidParametersAreRejectedWithTheKeyThatIsWrong) {
       << status.message();
 
   LocomotionHeuristicConfig tooSmall;
-  tooSmall.impulseScaling.maximumForceRatio = 0.5;
+  tooSmall.impulseScaling.maximumWeightCompensationRatio = 0.5;
   EXPECT_FALSE(tooSmall.validate().ok())
       << "a ratio below 1 asks the feet to carry less than the robot weighs";
 }
@@ -624,23 +688,26 @@ TEST(LocomotionHeuristics, ClampsCannotBeConfiguredAway) {
   // reaching the solver, so a value that REMOVES one has to be rejected rather
   // than read as "no limit".
   LocomotionHeuristicConfig noCaptureClamp;
-  noCaptureClamp.capturePoint.maximumOffset = 0.0;
+  noCaptureClamp.capturePoint.maxNormOffsetPosFootRtWorldEwrtWorldXy = 0.0;
   EXPECT_FALSE(noCaptureClamp.validate().ok());
 
   LocomotionHeuristicConfig noCentripetalClamp;
-  noCentripetalClamp.centripetalAcceleration.maximumForce = 0.0;
-  noCentripetalClamp.centripetalAcceleration.maximumForceRatioOfWeight = 0.0;
+  noCentripetalClamp.centripetalAccelerationParameters.maxForceComEwrtWorldXy =
+      0.0;
+  noCentripetalClamp.centripetalAccelerationParameters
+      .maxWnormForceComEwrtWorldXy = 0.0;
   const absl::Status status = noCentripetalClamp.validate();
   ASSERT_FALSE(status.ok());
   EXPECT_NE(std::string(status.message()).find("force clamp"),
             std::string::npos)
       << status.message();
 
-  // `maximumForce: 0` is the documented way to select the ratio instead, so
-  // that combination stays valid.
+  // `max_force_com_ewrt_world_xy: 0` is the documented way to select the ratio
+  // instead, so that combination stays valid.
   LocomotionHeuristicConfig ratioClamp;
-  ratioClamp.centripetalAcceleration.maximumForce = 0.0;
-  ratioClamp.centripetalAcceleration.maximumForceRatioOfWeight = 0.3;
+  ratioClamp.centripetalAccelerationParameters.maxForceComEwrtWorldXy = 0.0;
+  ratioClamp.centripetalAccelerationParameters.maxWnormForceComEwrtWorldXy =
+      0.3;
   EXPECT_TRUE(ratioClamp.validate().ok());
 
   // A negative blend would invert a heuristic rather than reduce it.
@@ -652,22 +719,27 @@ TEST(LocomotionHeuristics, ClampsCannotBeConfiguredAway) {
 TEST(LocomotionHeuristics,
      ReconfigureReplacesCoefficientsWithoutRebuildingTheLayer) {
   LocomotionHeuristicConfig config;
-  config.formulation.basePose = {"orientation_compensation"};
-  config.orientationCompensation.pitchPerForwardVelocity = 0.05;
+  config.formulation.basePoseHeuristics = {"orientation_compensation"};
+  config.orientationCompensationParameters.pitchPerForwardVelocityGain = 0.05;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
   BasePoseHeuristicContext context;
-  context.commandedVelocityInBaseFrame = vector2_t(1.0, 0.0);
-  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, 0.05, 1.0e-12);
+  context.cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t(1.0, 0.0);
+  EXPECT_NEAR(
+      (*layer)->basePoseHeuristicOffset(context).offsetEulerzyxBaseRtWorldPitch,
+      0.05, 1.0e-12);
 
   // configure() must overwrite rather than accumulate, or a slider drag would
   // ratchet.
   LocomotionHeuristicConfig reloaded = config;
-  reloaded.orientationCompensation.pitchPerForwardVelocity = -0.03;
+  reloaded.orientationCompensationParameters.pitchPerForwardVelocityGain =
+      -0.03;
   ASSERT_TRUE((*layer)->reconfigure(reloaded).ok());
-  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.03, 1.0e-12);
+  EXPECT_NEAR(
+      (*layer)->basePoseHeuristicOffset(context).offsetEulerzyxBaseRtWorldPitch,
+      -0.03, 1.0e-12);
 
   // An invalid reload leaves the running values alone rather than half-applying
   // itself. It must CHANGE the coefficient it is checked on: copied unchanged
@@ -675,23 +747,29 @@ TEST(LocomotionHeuristics,
   // before configuring anything or configured the heuristics first and was
   // rejected afterwards.
   LocomotionHeuristicConfig invalid = reloaded;
-  invalid.orientationCompensation.pitchPerForwardVelocity = 0.2;
+  invalid.orientationCompensationParameters.pitchPerForwardVelocityGain = 0.2;
   invalid.impulseScaling.minimumDutyFactor = -1.0;
   EXPECT_FALSE((*layer)->reconfigure(invalid).ok());
-  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.03, 1.0e-12);
+  EXPECT_NEAR(
+      (*layer)->basePoseHeuristicOffset(context).offsetEulerzyxBaseRtWorldPitch,
+      -0.03, 1.0e-12);
 
   // Which heuristics are listed is structural and is NOT hot-reloaded: a list
   // edited on disk is ignored, while the coefficients of the running list are
   // still re-read from the same file.
   LocomotionHeuristicConfig relisted = reloaded;
-  relisted.formulation.basePose = {"orientation_compensation",
-                                   "height_compensation"};
-  relisted.heightCompensation.heightOffset = 0.02;
-  relisted.orientationCompensation.pitchPerForwardVelocity = 0.04;
+  relisted.formulation.basePoseHeuristics = {"orientation_compensation",
+                                             "height_compensation"};
+  relisted.heightCompensation.offsetPosBaseRtWorldEwrtWorldZ = 0.02;
+  relisted.orientationCompensationParameters.pitchPerForwardVelocityGain = 0.04;
   ASSERT_TRUE((*layer)->reconfigure(relisted).ok());
-  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, 0.04, 1.0e-12)
+  EXPECT_NEAR(
+      (*layer)->basePoseHeuristicOffset(context).offsetEulerzyxBaseRtWorldPitch,
+      0.04, 1.0e-12)
       << "the running list's coefficients are re-read";
-  EXPECT_NEAR((*layer)->basePoseOffset(context).height, 0.0, kTol)
+  EXPECT_NEAR(
+      (*layer)->basePoseHeuristicOffset(context).offsetPosBaseRtWorldEwrtWorldZ,
+      0.0, kTol)
       << "a heuristic added on disk is not instantiated";
 }
 

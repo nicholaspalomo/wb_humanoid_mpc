@@ -69,8 +69,9 @@ RobotBackendOptions atlasOptions() {
   options.initialState.emplace(description);
   options.initialState->setPosBaseRtWorldEwrtWorld(vector3_t(0.0, 0.0, 0.95));
   options.contactFrameNames = modelSettings.contactNames;
-  options.contactParentJointNames = modelSettings.contactParentJointNames;
-  options.simulator.contactForceThreshold = 7.0;
+  options.contactParentJointNames =
+      modelSettings.contactParentJointNamesInContactOrder();
+  options.simulator.minForceMjcontactEwrtMjcontactX = 7.0;
   options.simulator.visualizations = std::vector<std::string>{};
   options.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
   return options;
@@ -102,9 +103,10 @@ TEST(RobotBackendRegistry, TheMujocoBackendIsBuiltByName) {
   EXPECT_FALSE(estimators.has("cheater_sim"));
   (*backend)->registerContactEstimators(estimators);
   EXPECT_TRUE(estimators.has("cheater_sim"));
-  std::array<vector3_t, kNumContacts> forces;
-  (*backend)->readMeasuredContactForces(forces);
-  EXPECT_TRUE(forces[0].allFinite() && forces[1].allFinite());
+  std::array<vector3_t, kNumContacts> measForceFeetEwrtWorld;
+  (*backend)->readMeasForceFeetEwrtWorld(measForceFeetEwrtWorld);
+  EXPECT_TRUE(measForceFeetEwrtWorld[0].allFinite() &&
+              measForceFeetEwrtWorld[1].allFinite());
 }
 
 TEST(RobotBackendRegistry, AnUnknownNameListsTheAvailableOnes) {
@@ -160,7 +162,7 @@ TEST(MujocoRobotBackend, TheSimulatorConfigurationComesFromTheOptions) {
   options.simulator.gantryHold = "kinematic_teleport";
   options.simulator.projectile = "dodgeball";
   options.simulator.ragdollJointDamping = 12.5;
-  options.simulator.autoResetBaseHeight = 0.3;
+  options.simulator.autoResetMinPosBaseRtWorldEwrtWorldZ = 0.3;
   absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> config =
       MujocoRobotBackend::makeConfig(options);
   ASSERT_TRUE(config.ok()) << config.status();
@@ -172,7 +174,7 @@ TEST(MujocoRobotBackend, TheSimulatorConfigurationComesFromTheOptions) {
   EXPECT_EQ(config->gantryHold, "kinematic_teleport");
   EXPECT_EQ(config->projectile, "dodgeball");
   EXPECT_DOUBLE_EQ(config->ragdollJointDamping, 12.5);
-  EXPECT_DOUBLE_EQ(config->autoResetBaseHeight, 0.3);
+  EXPECT_DOUBLE_EQ(config->autoResetMinPosBaseRtWorldEwrtWorldZ, 0.3);
   EXPECT_TRUE(config->visualizations.empty());
   if (!config->initialState.has_value()) {
     FAIL() << "the task file sets an initial state";

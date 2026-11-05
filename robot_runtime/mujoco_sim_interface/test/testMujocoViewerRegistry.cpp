@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -165,8 +166,9 @@ TEST(ValidateViewerSettings, ChecksEveryWebViewerOptionAgainstItsRange) {
       "msaaSamples",   "shadowSize", "cores",       "threadPriority",
       "EGL device id", "address",    "EGL library", "start timeout",
       "allowed hosts"};
-  for (const std::string& field : fields)
+  for (const std::string& field : fields) {
     cases.push_back({.field = field, .options = WebViewerOptions{}});
+  }
   cases[0].options.port = 70000;
   cases[1].options.maxClients = 0;
   cases[2].options.width = 1921;  // past maxWidth

@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <string>
 #include <utility>
@@ -40,8 +42,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
+#include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
+#include "humanoid_common_mpc/contact_planning/search/SearchStage.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -170,8 +179,9 @@ scalar_t CadenceStretchStage::admissibleStretch(
       }
     }
   }
-  if (input != nullptr)
+  if (input != nullptr) {
     stretch = std::min(stretch, commitWindowStretch(*input, dt, numNodes));
+  }
   return stretch;
 }
 

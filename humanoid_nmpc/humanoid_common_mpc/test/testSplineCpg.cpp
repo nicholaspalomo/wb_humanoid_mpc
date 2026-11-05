@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <random>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/swing_foot_planner/CubicSpline.h"
 #include "humanoid_common_mpc/swing_foot_planner/SplineCpg.h"
@@ -92,8 +93,9 @@ TEST(SplineCpg, TimeDerivativesMatchFiniteDifferences) {
     // Keep the evaluation away from the apex, where the active half changes
     // under a shift of the ends.
     if (std::abs(time - 0.5 * (nodes.liftOff.time + nodes.touchDown.time)) <
-        1.0e-3)
+        1.0e-3) {
       continue;
+    }
 
     const scalar_t startDifference =
         (shifted(nodes, kStep, /*touchDownShift=*/0.0).value(time) -

@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <random>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/mrt/JointActionBlend.h"
 #include "robot_model/RobotJointAction.h"

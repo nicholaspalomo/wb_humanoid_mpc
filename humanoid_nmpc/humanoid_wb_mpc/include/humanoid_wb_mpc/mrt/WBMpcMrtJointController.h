@@ -236,8 +236,8 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
 
   /** Nominal joint positions of JOINT_PD, indexed like the RobotDescription's
    * joints. Empty: hold the current posture. */
-  void setNominalJointPositions(const std::vector<scalar_t>& positions) {
-    nominalJointPositions_ = positions;
+  void setNominalJointPositions(const std::vector<scalar_t>& jointPositions) {
+    nominalJointPositions_ = jointPositions;
   }
 
   /** Time constant [s] of the SAFETY decay (see
@@ -433,9 +433,10 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
    * while no nominal posture is set. */
   scalar_t nominalJointPosition(const ::robot::model::RobotState& robotState,
                                 size_t index) const;
-  /** `torque` clamped to the torque limit of MPC joint `mpcJoint` (|ff| <=
-   * max_joint_torque). Control thread. */
-  scalar_t clampedMpcJointFeedforward(size_t mpcJoint, scalar_t torque) const;
+  /** `jointTorque` clamped to the joint torque limit of MPC joint `mpcJoint`
+   * (|ff| <= max_joint_torque). Control thread. */
+  scalar_t clampedMpcJointFeedforward(size_t mpcJoint,
+                                      scalar_t jointTorque) const;
   /**
    * The action of the joints outside the MPC in JOINT_PD, GRAVITY_COMP (kpScale
    * 0.5), the hold and the execution of WB_MPC: their nominal posture
@@ -481,8 +482,9 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
    */
   void reportPolicyUpdateLockContention();
 
-  void fillZeroTorqueAction(const ::robot::model::RobotState& robotState,
-                            ::robot::model::RobotJointAction& robotJointAction);
+  void fillZeroJointTorqueAction(
+      const ::robot::model::RobotState& robotState,
+      ::robot::model::RobotJointAction& robotJointAction);
   void fillJointPdAction(const ::robot::model::RobotState& robotState,
                          ::robot::model::RobotJointAction& robotJointAction);
   void fillGravityCompAction(

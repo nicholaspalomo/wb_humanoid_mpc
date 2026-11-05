@@ -124,8 +124,12 @@ class _RobotStateRecorder:
         self._speeds: list[tuple[float, float]] = []
 
     def put(self, sample: robot_state_sample_pb2.RobotStateSample) -> None:
-        velocity = sample.linvel_base_rt_world_ewrt_base
-        speed = math.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2)
+        linvel_base_rt_world_ewrt_base = sample.linvel_base_rt_world_ewrt_base
+        speed = math.sqrt(
+            linvel_base_rt_world_ewrt_base.x**2
+            + linvel_base_rt_world_ewrt_base.y**2
+            + linvel_base_rt_world_ewrt_base.z**2
+        )
         with self._lock:
             self._latest = sample
             self._speeds.append((time.monotonic(), speed))
@@ -212,8 +216,10 @@ class GuiControlsEndToEndTest(unittest.TestCase):
         self.app.report_callback_exception = self._record_tk_error
         self.addCleanup(self.app.destroy)
         # As the GUI's main() does.
-        self.app.set_default_pelvis_height(
-            config_files.read_default_pelvis_height(reference_file)
+        self.app.set_nom_pos_base_rt_surface_ewrt_world_z(
+            config_files.read_nom_pos_base_rt_surface_ewrt_world_z(
+                reference_file
+            )
         )
         self.gui = base_velocity_controller_gui.OperatorGui(self.app, self.bus)
         self.bus.start()
@@ -324,20 +330,29 @@ class GuiControlsEndToEndTest(unittest.TestCase):
         )
         self.assertEqual(self.app.gantry_var.get(), locked)
 
-    def _base_height(self) -> float:
+    def _get_pos_base_rt_world_ewrt_world_z(self) -> float:
         sample = self.states.latest()
         assert sample is not None
         return sample.pos_base_rt_world_ewrt_world.z
 
+    def _is_near_pos_base_rt_world_ewrt_world_z(self, target: float) -> bool:
+        return (
+            abs(self._get_pos_base_rt_world_ewrt_world_z() - target)
+            < HEIGHT_TOLERANCE_M
+        )
+
     def _set_slider_height(self, height: float) -> None:
         """Moves the height slider to command the pelvis height `height` [m]."""
         self.app.slider.set(
-            (height - self.app.min_height) / self.app.height_scale
+            (height - self.app.cmd_min_pos_base_rt_surface_ewrt_world_z)
+            / self.app.cmd_step_pos_base_rt_surface_ewrt_world_z
         )
 
-    def _settled_base_height(self, duration: float = 1.5) -> float:
+    def _settled_pos_base_rt_world_ewrt_world_z(
+        self, duration: float = 1.5
+    ) -> float:
         self._pump_for(duration)
-        return self._base_height()
+        return self._get_pos_base_rt_world_ewrt_world_z()
 
     def _touch_ground(self) -> float:
         """Clicks Touch Ground and waits out its descent; the base height after it [m]."""
@@ -345,9 +360,11 @@ class GuiControlsEndToEndTest(unittest.TestCase):
         # The descent moves the slider for TOUCH_GROUND_S, also when it starts at the default already.
         self._pump_for(TOUCH_GROUND_S)
         self.assertAlmostEqual(
-            self.app.slider_height(), self.app.default_pelvis_height, places=6
+            self.app.slider_height(),
+            self.app.nom_pos_base_rt_surface_ewrt_world_z,
+            places=6,
         )
-        return self._settled_base_height()
+        return self._settled_pos_base_rt_world_ewrt_world_z()
 
     def _joint_sample(self, field: str, joint: str) -> float:
         sample = self.states.latest()
@@ -369,14 +386,16 @@ class GuiControlsEndToEndTest(unittest.TestCase):
 
         # While locked, the gantry follows the height slider: the walking command's pelvis height reaches the robot.
         standing = self._touch_ground()
-        self._set_slider_height(self.app.default_pelvis_height + HEIGHT_STEP_M)
+        self._set_slider_height(
+            self.app.nom_pos_base_rt_surface_ewrt_world_z + HEIGHT_STEP_M
+        )
         lifted = standing + HEIGHT_STEP_M
         self.assertTrue(
             self._pump_until(
-                lambda: abs(self._base_height() - lifted) < HEIGHT_TOLERANCE_M
+                lambda: self._is_near_pos_base_rt_world_ewrt_world_z(lifted)
             ),
             f"the locked gantry did not lift the base from {standing} m: it is"
-            f" at {self._base_height()} m",
+            f" at {self._get_pos_base_rt_world_ewrt_world_z()} m",
         )
         standing = self._touch_ground()
 
@@ -392,8 +411,10 @@ class GuiControlsEndToEndTest(unittest.TestCase):
         self.app.gantry_toggle.invoke()
         self._assert_gantry(locked=False)
         resets = self._robot_state().controller_resets
-        self._set_slider_height(self.app.default_pelvis_height + HEIGHT_STEP_M)
-        released = self._settled_base_height()
+        self._set_slider_height(
+            self.app.nom_pos_base_rt_surface_ewrt_world_z + HEIGHT_STEP_M
+        )
+        released = self._settled_pos_base_rt_world_ewrt_world_z()
         self.assertLess(
             released,
             standing + HEIGHT_STEP_M - HEIGHT_TOLERANCE_M,
@@ -403,7 +424,7 @@ class GuiControlsEndToEndTest(unittest.TestCase):
 
         # And back: a stick left deflected, the gantry locked again, which puts the robot in JOINT_PD, counts a
         # controller reset and re-centers the sticks; then zero torque.
-        self.app.joystick_left.set_position(0.5, 0.0)
+        self.app.joystick_left.set_deflection(0.5, 0.0)
         self.app.gantry_toggle.invoke()
         self._assert_gantry(locked=True)
         self._assert_mode("JOINT_PD")
@@ -417,7 +438,8 @@ class GuiControlsEndToEndTest(unittest.TestCase):
         self._assert_mode("JOINT_PD")
         tab = self.app.joint_targets_tab
         target = (
-            tab.default_positions.get(TARGET_JOINT, 0.0) + TARGET_OFFSET_RAD
+            tab.default_joint_positions.get(TARGET_JOINT, 0.0)
+            + TARGET_OFFSET_RAD
         )
         tab.slider_rows[TARGET_JOINT].set_value(target)
 

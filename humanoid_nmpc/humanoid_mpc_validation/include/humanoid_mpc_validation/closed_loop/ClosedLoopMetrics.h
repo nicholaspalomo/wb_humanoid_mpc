@@ -45,19 +45,21 @@ namespace ocs2::humanoid::validation {
  * commands. */
 struct ControlCycleSample {
   double time = 0.0;  ///< [s] simulation time
-  Eigen::Vector3d basePosition = Eigen::Vector3d::Zero();  ///< [m] world frame
-  Eigen::Vector4d baseQuaternion =
+  Eigen::Vector3d posBaseRtWorldEwrtWorld =
+      Eigen::Vector3d::Zero();  ///< [m] world frame
+  Eigen::Vector4d quatBaseRtWorldXyzw =
       Eigen::Vector4d::UnitW();  ///< base to world, coefficients (x, y, z, w)
-  Eigen::Vector3d baseLinearVelocityWorld = Eigen::Vector3d::Zero();  ///< [m/s]
-  Eigen::Vector3d baseAngularVelocityLocal =
+  Eigen::Vector3d linvelBaseRtWorldEwrtWorld =
+      Eigen::Vector3d::Zero();  ///< [m/s]
+  Eigen::Vector3d angvelBaseRtWorldEwrtBase =
       Eigen::Vector3d::Zero();  ///< [rad/s] base frame
   /// The velocity the MPC is asked to track: (forward, lateral) in the heading
   /// frame [m/s] and the yaw rate [rad/s], i.e. the operator's command after
   /// the motion manager's filter and acceleration ramps.
-  Eigen::Vector3d referenceVelocity = Eigen::Vector3d::Zero();
+  Eigen::Vector3d refVelocityCommand = Eigen::Vector3d::Zero();
   double referenceBaseHeight =
       0.0;  ///< [m] world height of the base the command asks for
-  std::array<Eigen::Vector3d, kNumContacts> contactPositions{
+  std::array<Eigen::Vector3d, kNumContacts> posContactsRtWorldEwrtWorld{
       Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero()};  ///< [m] world
   std::array<bool, kNumContacts> contactFlags{
       false, false};  ///< measured: the simulator's ground truth
@@ -108,7 +110,7 @@ struct SqpStepSample {
   /// is v_z - zdot_ref + k_p (z - z_ref), and [m/s^2] on the whole-body MPC,
   /// whose row is k_v (v_z - zdot_ref) + k_a (a_z - zddot_ref) + k_p (z -
   /// z_ref) (WBMpcPreComputation::normalAccelerationConstraintConfig()).
-  std::optional<double> swingNormalVelocityResidual;
+  std::optional<double> swingNormalVelocityConstraintResidual;
 };
 
 /** What the lockstep loop measures at one solve during a scenario's commands.
@@ -126,11 +128,11 @@ struct SolveSample {
   /// the solve's first SQP iteration (SqpSolver::getInitialStateGap()): the
   /// observation against the node 0 the SQP warm-started from, zero after a
   /// reset the solve served first. Empty when the solve failed.
-  std::optional<double> initialStateRotationGap;
+  std::optional<double> initialStateGapAngle;
   std::optional<double> initialStateGapNorm;
   /// max | |xi_k| - 1 | over the nodes of the new solution; empty for a
   /// formulation without a quaternion in its state.
-  std::optional<double> quaternionNormDeviation;
+  std::optional<double> unitQuaternionNormDeviation;
   /// The SQP's step in the solve (SqpSolver::getIterationRecords()); empty when
   /// the solve failed.
   std::optional<SqpStepSample> sqpStep;
@@ -214,11 +216,13 @@ class ClosedLoopMetrics {
   /** One contact point's stance phase in progress. */
   struct StancePhase {
     bool active = false;
-    Eigen::Vector2d touchDownPosition = Eigen::Vector2d::Zero();
+    Eigen::Vector2d touchdownPosContactRtWorldEwrtWorldXy =
+        Eigen::Vector2d::Zero();
     double maxDrift = 0.0;
   };
 
-  void closeStancePhase(size_t contact, const Eigen::Vector2d& position);
+  void closeStancePhase(size_t contact,
+                        const Eigen::Vector2d& posContactRtWorldEwrtWorldXy);
   /** Counts the SQP step of a solve and extends or ends the run of growing
    * constraint violations. */
   void addSqpStep(const SqpStepSample& step);
@@ -236,7 +240,7 @@ class ClosedLoopMetrics {
   double heightErrorSquaredSum_ = 0.0;
   double tiltSquaredSum_ = 0.0;
   double tiltMax_ = 0.0;
-  double velocityErrorSquaredSum_ = 0.0;
+  double squaredSumErrLinvelBaseRtWorldEwrtHeadingXy_ = 0.0;
   double yawRateErrorSquaredSum_ = 0.0;
 
   bool haveHeading_ = false;
@@ -246,13 +250,13 @@ class ClosedLoopMetrics {
   double cumulativeHeadingMin_ = 0.0;
 
   std::array<StancePhase, kNumContacts> stance_{};
-  std::array<Eigen::Vector2d, kNumContacts> lastContactPosition_{
+  std::array<Eigen::Vector2d, kNumContacts> prevPosContactsRtWorldEwrtWorldXy_{
       Eigen::Vector2d::Zero(), Eigen::Vector2d::Zero()};
   std::vector<double> stanceFinalDrifts_;
   double slipMax_ = 0.0;
 
-  double torqueSquaredSum_ = 0.0;
-  size_t torqueCount_ = 0;
+  double jointTorqueSquaredSum_ = 0.0;
+  size_t jointTorqueCount_ = 0;
   size_t nonFiniteValues_ = 0;
   size_t unhealthyCycles_ = 0;
 
@@ -277,12 +281,12 @@ class ClosedLoopMetrics {
   size_t violationGrowthRun_ = 0;
   size_t longestViolationGrowthRun_ = 0;
   std::vector<double> constraintViolations_;
-  std::vector<double> swingNormalVelocityResiduals_;
-  std::optional<double> maxRotationGap_;
-  double maxRotationGapTime_ = 0.0;
+  std::vector<double> swingNormalVelocityConstraintResiduals_;
+  std::optional<double> maxGapAngle_;
+  double maxGapAngleTime_ = 0.0;
   std::optional<double> maxGapNorm_;
-  std::optional<double> maxQuaternionNormDeviation_;
-  size_t nonFiniteQuaternionSolves_ = 0;
+  std::optional<double> maxUnitQuaternionNormDeviation_;
+  size_t nonFiniteUnitQuaternionSolves_ = 0;
 
   std::optional<double> fallTime_;
   std::string fallReason_;

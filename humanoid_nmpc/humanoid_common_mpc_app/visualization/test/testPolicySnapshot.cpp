@@ -61,10 +61,11 @@ std::shared_ptr<const StateManifold> toyManifold() {
   return manifold.ok() ? *manifold : nullptr;
 }
 
-/** A toy state at `position`, `yaw` about z and joint `joint`. */
-vector_t toyState(scalar_t position, scalar_t yaw, scalar_t joint) {
+/** A toy state at the coordinates (`coordinate`, -`coordinate`), `yaw` about z
+ * and joint `joint`. */
+vector_t toyState(scalar_t coordinate, scalar_t yaw, scalar_t joint) {
   vector_t state(kStateDim);
-  state.head<2>() = vector2_t(position, -position);
+  state.head<2>() = vector2_t(coordinate, -coordinate);
   state.segment<4>(kQuaternionStart) =
       quaternion_t(Eigen::AngleAxis<scalar_t>(yaw, vector3_t::UnitZ()))
           .coeffs();

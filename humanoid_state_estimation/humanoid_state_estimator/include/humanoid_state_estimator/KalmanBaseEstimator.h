@@ -55,8 +55,8 @@ namespace ocs2::humanoid::estimation {
  *   predict:  p+ = p + dt v + dt^2/2 a,  v+ = v + dt a,  c_i+ = c_i,   a = R f
  * + g, correct, per contact i in stance: c_i - p = R p_rel_i (where the leg
  * kinematics put the contact point) v = -R (omega x p_rel_i + v_rel_i) (the
- * stance contact point does not move) e_z^T c_i = contact_height (it stands on
- * flat ground at z = 0)
+ * stance contact point does not move) e_z^T c_i =
+ * nom_pos_contact_rt_world_ewrt_world_z (it stands on flat ground at z = 0)
  *
  * with R the IMU's orientation (base to world), omega the base's angular
  * velocity and f the accelerometer's specific force R^T (a - g), both in the
@@ -92,7 +92,7 @@ class KalmanBaseEstimator {
     static constexpr scalar_t kDefaultKinematicPositionNoise = 0.005;
     static constexpr scalar_t kDefaultKinematicVelocityNoise = 0.05;
     static constexpr scalar_t kDefaultContactHeightNoise = 0.01;
-    static constexpr scalar_t kDefaultContactHeight = 0.0;
+    static constexpr scalar_t kNomPosContactRtWorldEwrtWorldZ = 0.0;
     // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/kalman_state_estimator_config.proto:kalman_state_estimator_defaults)
 
     /** [m/s^2] The accelerometer's noise on one sample
@@ -113,8 +113,8 @@ class KalmanBaseEstimator {
     /** [m] (contact_height_noise). */
     scalar_t contactHeightNoise = kDefaultContactHeightNoise;
     /** [m] The height of a standing contact point in the world
-     * (contact_height); any finite value. */
-    scalar_t contactHeight = kDefaultContactHeight;
+     * (nom_pos_contact_rt_world_ewrt_world_z); any finite value. */
+    scalar_t nomPosContactRtWorldEwrtWorldZ = kNomPosContactRtWorldEwrtWorldZ;
   };
 
   /**

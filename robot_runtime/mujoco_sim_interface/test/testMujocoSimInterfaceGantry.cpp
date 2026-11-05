@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -123,19 +122,21 @@ std::unique_ptr<MujocoSimInterface> makeSim(bool gantryLocked) {
 int baseBody(const mjModel* absl_nonnull model) {
   for (int body = 1; body < model->nbody; ++body) {
     if (model->body_jntnum[body] > 0 &&
-        model->jnt_type[model->body_jntadr[body]] == mjJNT_FREE)
+        model->jnt_type[model->body_jntadr[body]] == mjJNT_FREE) {
       return body;
+    }
   }
   return -1;
 }
 
-/** The base's position, heading and the clock after the simulator's last step.
+/** The base's position, the yaw of its ZYX Euler angles and the clock after the
+ * simulator's last step.
  */
 struct BaseSnapshot {
-  double x = 0.0;
-  double y = 0.0;
-  double z = 0.0;
-  double yaw = 0.0;
+  double posBaseRtWorldEwrtWorldX = 0.0;
+  double posBaseRtWorldEwrtWorldY = 0.0;
+  double posBaseRtWorldEwrtWorldZ = 0.0;
+  double eulerzyxBaseRtWorldYaw = 0.0;
   double time = 0.0;
   bool finite = false;
 };
@@ -148,25 +149,35 @@ BaseSnapshot snapshot(const MujocoSimInterface& sim) {
       state.data->xpos + 3 * body;
   const mjtNum* absl_nonnull quatBaseRtWorldWxyz = state.data->xquat + 4 * body;
   BaseSnapshot result;
-  result.x = posBaseRtWorldEwrtWorld[0];
-  result.y = posBaseRtWorldEwrtWorld[1];
-  result.z = posBaseRtWorldEwrtWorld[2];
-  result.yaw =
+  result.posBaseRtWorldEwrtWorldX = posBaseRtWorldEwrtWorld[0];
+  result.posBaseRtWorldEwrtWorldY = posBaseRtWorldEwrtWorld[1];
+  result.posBaseRtWorldEwrtWorldZ = posBaseRtWorldEwrtWorld[2];
+  result.eulerzyxBaseRtWorldYaw =
       std::atan2(2.0 * (quatBaseRtWorldWxyz[0] * quatBaseRtWorldWxyz[3] +
                         quatBaseRtWorldWxyz[1] * quatBaseRtWorldWxyz[2]),
                  1.0 - 2.0 * (quatBaseRtWorldWxyz[2] * quatBaseRtWorldWxyz[2] +
                               quatBaseRtWorldWxyz[3] * quatBaseRtWorldWxyz[3]));
   result.time = state.data->time;
   result.finite = true;
-  for (int i = 0; i < sim.getModel()->nq; ++i)
+  for (int i = 0; i < sim.getModel()->nq; ++i) {
     result.finite = result.finite && std::isfinite(state.data->qpos[i]);
+  }
   return result;
 }
 
-/** A base pose at (x, y, z) with heading `yaw` and no roll or pitch, as
- * setBaseStateForTesting takes it. */
-std::array<double, 7> baseQpos(double x, double y, double z, double yaw) {
-  return {x, y, z, std::cos(0.5 * yaw), 0.0, 0.0, std::sin(0.5 * yaw)};
+/** A base pose at the given world position with twist heading
+ * `yawBaseRtWorld` and no roll or pitch, as setBaseStateForTesting takes it. */
+std::array<double, 7> baseQpos(double posBaseRtWorldEwrtWorldX,
+                               double posBaseRtWorldEwrtWorldY,
+                               double posBaseRtWorldEwrtWorldZ,
+                               double yawBaseRtWorld) {
+  return {posBaseRtWorldEwrtWorldX,
+          posBaseRtWorldEwrtWorldY,
+          posBaseRtWorldEwrtWorldZ,
+          std::cos(0.5 * yawBaseRtWorld),
+          0.0,
+          0.0,
+          std::sin(0.5 * yawBaseRtWorld)};
 }
 
 constexpr std::array<double, 6> kAtRest{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
@@ -248,8 +259,9 @@ JointDrift jointDriftUnderGravityCompensation(const WeldedScene& robot,
   sim->readLatestMjState(state);
   std::vector<double> caught;
   caught.reserve(joints.size());
-  for (const SceneJoint& joint : joints)
+  for (const SceneJoint& joint : joints) {
     caught.push_back(state.data->qpos[joint.qposAddress]);
+  }
 
   const int settleSteps = stepsFor(*sim, settleSeconds);
   std::vector<double> settled = caught;
@@ -279,9 +291,10 @@ JointDrift jointDriftUnderGravityCompensation(const WeldedScene& robot,
       if (i + 1 == settleSteps) settled[k] = jointPosition;
       drift.sinceCaught =
           std::max(drift.sinceCaught, std::abs(jointPosition - caught[k]));
-      if (i >= settleSteps)
+      if (i >= settleSteps) {
         drift.sinceSettled =
             std::max(drift.sinceSettled, std::abs(jointPosition - settled[k]));
+      }
     }
   }
   LOG(INFO) << robot.scene << " on " << hold << ": largest joint drift "
@@ -304,20 +317,25 @@ TEST(SimGantry, TheGantryHoldsTheRobotWhereItWasCaught) {
   // welding it back to the scene's anchor above the origin facing +x.
   const std::unique_ptr<MujocoSimInterface> sim =
       makeSim(/*gantryLocked=*/false);
-  const double height = sim->getGantryHeight();
-  ASSERT_GT(height, 0.5);
+  const double gantryPosBaseRtWorldEwrtWorldZ =
+      sim->getGantryPosBaseRtWorldEwrtWorldZ();
+  ASSERT_GT(gantryPosBaseRtWorldEwrtWorldZ, 0.5);
   sim->setBaseStateForTesting(
-      baseQpos(/*x=*/5.0, /*y=*/-3.0, height, /*yaw=*/1.0), kAtRest);
+      baseQpos(/*posBaseRtWorldEwrtWorldX=*/5.0,
+               /*posBaseRtWorldEwrtWorldY=*/-3.0,
+               gantryPosBaseRtWorldEwrtWorldZ, /*yawBaseRtWorld=*/1.0),
+      kAtRest);
   step(*sim, /*steps=*/5);
   sim->lockGantry();
   step(*sim, stepsFor(*sim, /*seconds=*/2.0));
 
   const BaseSnapshot held = snapshot(*sim);
   ASSERT_TRUE(held.finite);
-  EXPECT_NEAR(held.x, 5.0, 0.05);
-  EXPECT_NEAR(held.y, -3.0, 0.05);
-  EXPECT_NEAR(held.z, height, 0.05);
-  EXPECT_NEAR(held.yaw, 1.0, 0.05);
+  EXPECT_NEAR(held.posBaseRtWorldEwrtWorldX, 5.0, 0.05);
+  EXPECT_NEAR(held.posBaseRtWorldEwrtWorldY, -3.0, 0.05);
+  EXPECT_NEAR(held.posBaseRtWorldEwrtWorldZ, gantryPosBaseRtWorldEwrtWorldZ,
+              0.05);
+  EXPECT_NEAR(held.eulerzyxBaseRtWorldYaw, 1.0, 0.05);
   EXPECT_EQ(sim->resetEpoch(), 0u)
       << "holding the robot must not have needed a reset";
 }
@@ -331,20 +349,26 @@ TEST(SimGantry, EveryWeldedSceneHoldsItsRobotWhereItWasCaught) {
         makeSimOf(robot, /*gantryLocked=*/false);
     ASSERT_EQ(sim->gantryHold(), GantryHold::kWeldConstraint)
         << robot.scene << " fell back from its weld";
-    const double height = sim->getGantryHeight();
-    ASSERT_GT(height, 0.5) << robot.scene;
+    const double gantryPosBaseRtWorldEwrtWorldZ =
+        sim->getGantryPosBaseRtWorldEwrtWorldZ();
+    ASSERT_GT(gantryPosBaseRtWorldEwrtWorldZ, 0.5) << robot.scene;
     sim->setBaseStateForTesting(
-        baseQpos(/*x=*/2.0, /*y=*/-1.0, height, /*yaw=*/0.7), kAtRest);
+        baseQpos(/*posBaseRtWorldEwrtWorldX=*/2.0,
+                 /*posBaseRtWorldEwrtWorldY=*/-1.0,
+                 gantryPosBaseRtWorldEwrtWorldZ, /*yawBaseRtWorld=*/0.7),
+        kAtRest);
     step(*sim, /*steps=*/5);
     sim->lockGantry();
     step(*sim, stepsFor(*sim, /*seconds=*/2.0));
 
     const BaseSnapshot held = snapshot(*sim);
     ASSERT_TRUE(held.finite) << robot.scene;
-    EXPECT_NEAR(held.x, 2.0, 0.05) << robot.scene;
-    EXPECT_NEAR(held.y, -1.0, 0.05) << robot.scene;
-    EXPECT_NEAR(held.z, height, 0.05) << robot.scene;
-    EXPECT_NEAR(held.yaw, 0.7, 0.05) << robot.scene;
+    EXPECT_NEAR(held.posBaseRtWorldEwrtWorldX, 2.0, 0.05) << robot.scene;
+    EXPECT_NEAR(held.posBaseRtWorldEwrtWorldY, -1.0, 0.05) << robot.scene;
+    EXPECT_NEAR(held.posBaseRtWorldEwrtWorldZ, gantryPosBaseRtWorldEwrtWorldZ,
+                0.05)
+        << robot.scene;
+    EXPECT_NEAR(held.eulerzyxBaseRtWorldYaw, 0.7, 0.05) << robot.scene;
     EXPECT_EQ(sim->resetEpoch(), 0u) << robot.scene;
   }
 }
@@ -389,30 +413,38 @@ TEST(SimGantry, OnKinematicTeleportTheSameTorquesDriveTheLimbsAway) {
 TEST(SimGantry, EachLockAnchorsAtWhereTheRobotIsThen) {
   const std::unique_ptr<MujocoSimInterface> sim =
       makeSim(/*gantryLocked=*/false);
-  const double height = sim->getGantryHeight();
+  const double gantryPosBaseRtWorldEwrtWorldZ =
+      sim->getGantryPosBaseRtWorldEwrtWorldZ();
   sim->setBaseStateForTesting(
-      baseQpos(/*x=*/1.0, /*y=*/1.0, height, /*yaw=*/0.0), kAtRest);
+      baseQpos(/*posBaseRtWorldEwrtWorldX=*/1.0,
+               /*posBaseRtWorldEwrtWorldY=*/1.0, gantryPosBaseRtWorldEwrtWorldZ,
+               /*yawBaseRtWorld=*/0.0),
+      kAtRest);
   sim->lockGantry();
   step(*sim, stepsFor(*sim, /*seconds=*/1.0));
-  EXPECT_NEAR(snapshot(*sim).x, 1.0, 0.05);
+  EXPECT_NEAR(snapshot(*sim).posBaseRtWorldEwrtWorldX, 1.0, 0.05);
 
   // Released, carried elsewhere, caught again: the second catch holds it at the
   // second place, not the first.
   sim->unlockGantry();
   step(*sim, /*steps=*/1);
   sim->setBaseStateForTesting(
-      baseQpos(/*x=*/-4.0, /*y=*/2.0, height, /*yaw=*/-0.5), kAtRest);
+      baseQpos(/*posBaseRtWorldEwrtWorldX=*/-4.0,
+               /*posBaseRtWorldEwrtWorldY=*/2.0, gantryPosBaseRtWorldEwrtWorldZ,
+               /*yawBaseRtWorld=*/-0.5),
+      kAtRest);
   sim->lockGantry();
   step(*sim, stepsFor(*sim, /*seconds=*/1.0));
   const BaseSnapshot held = snapshot(*sim);
-  EXPECT_NEAR(held.x, -4.0, 0.05);
-  EXPECT_NEAR(held.y, 2.0, 0.05);
-  EXPECT_NEAR(held.yaw, -0.5, 0.05);
+  EXPECT_NEAR(held.posBaseRtWorldEwrtWorldX, -4.0, 0.05);
+  EXPECT_NEAR(held.posBaseRtWorldEwrtWorldY, 2.0, 0.05);
+  EXPECT_NEAR(held.eulerzyxBaseRtWorldYaw, -0.5, 0.05);
 }
 
-/** The relpose quaternion (w, x, y, z) of the scene's gantry weld, its first
+/** The anchor attitude, (w, x, y, z), of the scene's gantry weld, its first
  * weld constraint. */
-std::array<double, 4> weldRelposeCoefficients(const MujocoSimInterface& sim) {
+std::array<double, 4> getAnchorQuatHeadingRtWorldWxyz(
+    const MujocoSimInterface& sim) {
   // MuJoCo's weld data: the anchor (3), the relpose position (3), the relpose
   // quaternion (4) and the torque scale.
   constexpr int kRelposeQuaternionIndex = 6;
@@ -435,42 +467,53 @@ TEST(SimGantry, ACatchAnchorsAtTheNearestUprightAttitude) {
   // weld lifted it upright.
   const std::unique_ptr<MujocoSimInterface> sim =
       makeSim(/*gantryLocked=*/false);
-  const double height = sim->getGantryHeight();
-  constexpr double kYaw = 0.4;
-  constexpr double kPitch = 0.75;
-  constexpr double kRoll = 0.75;
+  const double gantryPosBaseRtWorldEwrtWorldZ =
+      sim->getGantryPosBaseRtWorldEwrtWorldZ();
+  constexpr double kEulerzyxBaseRtWorldYaw = 0.4;
+  constexpr double kEulerzyxBaseRtWorldPitch = 0.75;
+  constexpr double kEulerzyxBaseRtWorldRoll = 0.75;
   // q = q_z(yaw) q_y(pitch) q_x(roll), (w, x, y, z).
-  const double cy = std::cos(0.5 * kYaw);
-  const double sy = std::sin(0.5 * kYaw);
-  const double cp = std::cos(0.5 * kPitch);
-  const double sp = std::sin(0.5 * kPitch);
-  const double cr = std::cos(0.5 * kRoll);
-  const double sr = std::sin(0.5 * kRoll);
-  const std::array<double, 4> tilted = {
+  const double cy = std::cos(0.5 * kEulerzyxBaseRtWorldYaw);
+  const double sy = std::sin(0.5 * kEulerzyxBaseRtWorldYaw);
+  const double cp = std::cos(0.5 * kEulerzyxBaseRtWorldPitch);
+  const double sp = std::sin(0.5 * kEulerzyxBaseRtWorldPitch);
+  const double cr = std::cos(0.5 * kEulerzyxBaseRtWorldRoll);
+  const double sr = std::sin(0.5 * kEulerzyxBaseRtWorldRoll);
+  const std::array<double, 4> quatBaseRtWorldWxyz = {
       cy * cp * cr + sy * sp * sr, cy * cp * sr - sy * sp * cr,
       cy * sp * cr + sy * cp * sr, sy * cp * cr - cy * sp * sr};
   sim->setBaseStateForTesting(
-      {1.0, 2.0, height, tilted[0], tilted[1], tilted[2], tilted[3]}, kAtRest);
+      {1.0, 2.0, gantryPosBaseRtWorldEwrtWorldZ, quatBaseRtWorldWxyz[0],
+       quatBaseRtWorldWxyz[1], quatBaseRtWorldWxyz[2], quatBaseRtWorldWxyz[3]},
+      kAtRest);
   sim->lockGantry();
   step(*sim, /*steps=*/1);
-  const double yawBaseRtWorld = 2.0 * std::atan2(tilted[3], tilted[0]);
+  const double yawBaseRtWorld =
+      2.0 * std::atan2(quatBaseRtWorldWxyz[3], quatBaseRtWorldWxyz[0]);
   EXPECT_NEAR(yawBaseRtWorld, 0.0926, 1.0e-3);
-  const std::array<double, 4> anchored = weldRelposeCoefficients(*sim);
-  EXPECT_NEAR(anchored[0], std::cos(0.5 * yawBaseRtWorld), 1.0e-9);
-  EXPECT_NEAR(anchored[1], 0.0, 1.0e-12);
-  EXPECT_NEAR(anchored[2], 0.0, 1.0e-12);
-  EXPECT_NEAR(anchored[3], std::sin(0.5 * yawBaseRtWorld), 1.0e-9);
+  const std::array<double, 4> anchoredQuatHeadingRtWorldWxyz =
+      getAnchorQuatHeadingRtWorldWxyz(*sim);
+  EXPECT_NEAR(anchoredQuatHeadingRtWorldWxyz[0], std::cos(0.5 * yawBaseRtWorld),
+              1.0e-9);
+  EXPECT_NEAR(anchoredQuatHeadingRtWorldWxyz[1], 0.0, 1.0e-12);
+  EXPECT_NEAR(anchoredQuatHeadingRtWorldWxyz[2], 0.0, 1.0e-12);
+  EXPECT_NEAR(anchoredQuatHeadingRtWorldWxyz[3], std::sin(0.5 * yawBaseRtWorld),
+              1.0e-9);
 
   // A level robot is anchored at its own heading.
   sim->unlockGantry();
   step(*sim, /*steps=*/1);
   sim->setBaseStateForTesting(
-      baseQpos(/*x=*/0.0, /*y=*/0.0, height, /*yaw=*/1.0), kAtRest);
+      baseQpos(/*posBaseRtWorldEwrtWorldX=*/0.0,
+               /*posBaseRtWorldEwrtWorldY=*/0.0, gantryPosBaseRtWorldEwrtWorldZ,
+               /*yawBaseRtWorld=*/1.0),
+      kAtRest);
   sim->lockGantry();
   step(*sim, /*steps=*/1);
-  const std::array<double, 4> level = weldRelposeCoefficients(*sim);
-  EXPECT_NEAR(level[0], std::cos(0.5), 1.0e-9);
-  EXPECT_NEAR(level[3], std::sin(0.5), 1.0e-9);
+  const std::array<double, 4> levelQuatHeadingRtWorldWxyz =
+      getAnchorQuatHeadingRtWorldWxyz(*sim);
+  EXPECT_NEAR(levelQuatHeadingRtWorldWxyz[0], std::cos(0.5), 1.0e-9);
+  EXPECT_NEAR(levelQuatHeadingRtWorldWxyz[3], std::sin(0.5), 1.0e-9);
 }
 
 TEST(SimGantry, AnUnstableStepIsRecoveredWithoutRewindingTheClock) {
@@ -483,7 +526,8 @@ TEST(SimGantry, AnUnstableStepIsRecoveredWithoutRewindingTheClock) {
 
   // A base velocity no integrator survives.
   sim->setBaseStateForTesting(
-      baseQpos(before.x, before.y, before.z, /*yaw=*/0.0),
+      baseQpos(before.posBaseRtWorldEwrtWorldX, before.posBaseRtWorldEwrtWorldY,
+               before.posBaseRtWorldEwrtWorldZ, /*yawBaseRtWorld=*/0.0),
       {1.0e12, 0.0, 0.0, 0.0, 1.0e12, 0.0});
   step(*sim, /*steps=*/1);
 
@@ -496,8 +540,8 @@ TEST(SimGantry, AnUnstableStepIsRecoveredWithoutRewindingTheClock) {
   EXPECT_GE(after.time, before.time) << "the clock went backwards, from "
                                      << before.time << " to " << after.time;
   // Back in its initial state: over the origin at the spawn height.
-  EXPECT_NEAR(after.x, 0.0, 0.05);
-  EXPECT_NEAR(after.y, 0.0, 0.05);
+  EXPECT_NEAR(after.posBaseRtWorldEwrtWorldX, 0.0, 0.05);
+  EXPECT_NEAR(after.posBaseRtWorldEwrtWorldY, 0.0, 0.05);
 
   // And it keeps simulating normally from there.
   step(*sim, /*steps=*/200);
@@ -516,7 +560,7 @@ TEST(SimGantry, ABaseBelowTheFloorLimitIsResetCaughtAndCounted) {
   EXPECT_EQ(sim->resetEpoch(), 1u);
   EXPECT_TRUE(sim->isGantryLocked());
   EXPECT_GE(snapshot(*sim).time, time);
-  EXPECT_NEAR(snapshot(*sim).x, 0.0, 0.05);
+  EXPECT_NEAR(snapshot(*sim).posBaseRtWorldEwrtWorldX, 0.0, 0.05);
 }
 
 TEST(SimGantry, AnExplicitResetKeepsTheClockAndCounts) {

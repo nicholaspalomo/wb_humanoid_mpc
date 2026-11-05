@@ -159,13 +159,14 @@ TEST(RobotProcessSettings,
       settingsOfText("mpc { time_horizon: 1.0 }\n");
   ASSERT_TRUE(settings.ok()) << settings.status();
   EXPECT_EQ(settings->contactEstimator, "cheater_sim");
-  EXPECT_DOUBLE_EQ(settings->simulator.contactForceThreshold, 5.0);
+  EXPECT_DOUBLE_EQ(settings->simulator.minForceMjcontactEwrtMjcontactX, 5.0);
   EXPECT_DOUBLE_EQ(settings->simulator.contactTimelineWindow, 5.0);
   EXPECT_EQ(settings->simulator.gantryHold, "weld_constraint");
   EXPECT_TRUE(settings->simulator.projectile.empty());
-  EXPECT_DOUBLE_EQ(settings->fallRecovery.maxBaseTiltAngle, 0.0)
+  EXPECT_DOUBLE_EQ(settings->fallRecovery.maxTiltangleBaseRtWorld, 0.0)
       << "the catch is off unless the file turns it on";
-  EXPECT_DOUBLE_EQ(settings->fallRecovery.catchLift, 0.0);
+  EXPECT_DOUBLE_EQ(settings->fallRecovery.catchErrPosBaseRtWorldEwrtWorldZ,
+                   0.0);
   EXPECT_FALSE(settings->mpcEntryBlendTime.has_value());
   EXPECT_FALSE(settings->safetyDecayTimeConstant.has_value());
   EXPECT_FALSE(settings->contactWrenchGate.has_value());
@@ -198,8 +199,8 @@ TEST(RobotProcessSettings, EveryFieldIsRead) {
       "sim_visualizations: [\"zmp\", \"dcm\"]\n"
       "gantry_hold: \"kinematic_teleport\"\n"
       "sim_projectile: \"dodgeball\"\n"
-      "sim_max_base_tilt_angle: 1\n"
-      "sim_gantry_catch_lift: 0.15\n"
+      "sim_max_tiltangle_base_rt_world: 1\n"
+      "sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z: 0.15\n"
       "mpc_entry_blend_time: 2\n"
       "safety_decay_time_constant: 0.4\n"
       "contact_wrench_gate { debounce_time: 0.01 ramp_time: 0.04 }\n"
@@ -212,7 +213,8 @@ TEST(RobotProcessSettings, EveryFieldIsRead) {
       "base_velocity_random_walk: 0.2 base_position_random_walk: 0.002 "
       "stance_contact_random_walk: 0.02 swing_contact_random_walk: 5 "
       "kinematic_position_noise: 0.004 kinematic_velocity_noise: 0.06 "
-      "contact_height_noise: 0.02 contact_height: 0.03 }\n");
+      "contact_height_noise: 0.02 nom_pos_contact_rt_world_ewrt_world_z: 0.03 "
+      "}\n");
   ASSERT_TRUE(settings.ok()) << settings.status();
   EXPECT_EQ(settings->stateEstimator, "kalman");
   const estimation::KalmanBaseEstimator::Config& kalman =
@@ -225,16 +227,17 @@ TEST(RobotProcessSettings, EveryFieldIsRead) {
   EXPECT_DOUBLE_EQ(kalman.kinematicPositionNoise, 0.004);
   EXPECT_DOUBLE_EQ(kalman.kinematicVelocityNoise, 0.06);
   EXPECT_DOUBLE_EQ(kalman.contactHeightNoise, 0.02);
-  EXPECT_DOUBLE_EQ(kalman.contactHeight, 0.03);
+  EXPECT_DOUBLE_EQ(kalman.nomPosContactRtWorldEwrtWorldZ, 0.03);
   EXPECT_EQ(settings->contactEstimator, "robot_state");
-  EXPECT_DOUBLE_EQ(settings->simulator.contactForceThreshold, 8.0);
+  EXPECT_DOUBLE_EQ(settings->simulator.minForceMjcontactEwrtMjcontactX, 8.0);
   EXPECT_DOUBLE_EQ(settings->simulator.contactTimelineWindow, 3.0);
   EXPECT_THAT(settings->simulator.visualizations,
               Optional(ElementsAre("zmp", "dcm")));
   EXPECT_EQ(settings->simulator.gantryHold, "kinematic_teleport");
   EXPECT_EQ(settings->simulator.projectile, "dodgeball");
-  EXPECT_DOUBLE_EQ(settings->fallRecovery.maxBaseTiltAngle, 1.0);
-  EXPECT_DOUBLE_EQ(settings->fallRecovery.catchLift, 0.15);
+  EXPECT_DOUBLE_EQ(settings->fallRecovery.maxTiltangleBaseRtWorld, 1.0);
+  EXPECT_DOUBLE_EQ(settings->fallRecovery.catchErrPosBaseRtWorldEwrtWorldZ,
+                   0.15);
   EXPECT_THAT(settings->mpcEntryBlendTime, Optional(DoubleEq(2.0)));
   EXPECT_THAT(settings->safetyDecayTimeConstant, Optional(DoubleEq(0.4)));
   EXPECT_THAT(
@@ -253,7 +256,8 @@ TEST(
     RobotProcessSettings,
     AValueOfTheWrongTypeIsRefusedWhereItIsWrittenAndOneThatCannotRunByItsField) {
   for (const std::string& text :
-       {std::string("sim_gantry_catch_lift: \"high\"\n"),
+       {std::string(
+            "sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z: \"high\"\n"),
         std::string("sim_visualizations: zmp\n"),
         std::string("contact_wrench_gate { ramp_time: \"soon\" }\n"),
         std::string("mpc_link { policy_timeout: x }\n"),

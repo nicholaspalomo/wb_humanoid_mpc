@@ -30,7 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+
+#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
@@ -83,22 +87,23 @@ template VECTOR12_T<ad_scalar_t> computeTaskSpaceErrors(
 /******************************************************************************************************/
 
 template <typename SCALAR_T>
-VECTOR3_T<SCALAR_T> tiltAngleToPlane(const MATRIX3_T<SCALAR_T>& rotmatEeRtWorld,
-                                     const VECTOR3_T<SCALAR_T>& planeNormal) {
-  const VECTOR3_T<SCALAR_T> endEffectorNormal =
-      rotmatEeRtWorld.col(kZAxisIndex);
+VECTOR3_T<SCALAR_T> tiltAngleToPlane(
+    const MATRIX3_T<SCALAR_T>& rotmatEeRtWorld,
+    const VECTOR3_T<SCALAR_T>& normalSurfaceEwrtWorld) {
+  const VECTOR3_T<SCALAR_T> zAxisEeEwrtWorld = rotmatEeRtWorld.col(kZAxisIndex);
   // The shortest arc from v to n has the vector part (v x n) / sqrt(2 (1 + v .
   // n)), finite at v = -n (its clamp); Log takes it to theta (v x n) / |v x n|,
   // and the tilt turns n into v, the other way.
   const Eigen::Quaternion<SCALAR_T> shortestArc =
-      getQuaternionFromUnitVectors<SCALAR_T>(endEffectorNormal, planeNormal);
+      getQuaternionFromUnitVectors<SCALAR_T>(zAxisEeEwrtWorld,
+                                             normalSurfaceEwrtWorld);
   return -quaternionLog<SCALAR_T>(shortestArc.coeffs());
 }
 template VECTOR3_T<scalar_t> tiltAngleToPlane(
     const MATRIX3_T<scalar_t>& rotmatEeRtWorld,
-    const VECTOR3_T<scalar_t>& planeNormal);
+    const VECTOR3_T<scalar_t>& normalSurfaceEwrtWorld);
 template VECTOR3_T<ad_scalar_t> tiltAngleToPlane(
     const MATRIX3_T<ad_scalar_t>& rotmatEeRtWorld,
-    const VECTOR3_T<ad_scalar_t>& planeNormal);
+    const VECTOR3_T<ad_scalar_t>& normalSurfaceEwrtWorld);
 
 }  // namespace ocs2::humanoid

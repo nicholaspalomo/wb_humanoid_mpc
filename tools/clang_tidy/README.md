@@ -90,9 +90,17 @@ It lists every diagnostic it left alone, for a manual fix.
 
 Add the check to `.clang-tidy` with the guide section or tip it enforces, fix every finding it reports in the same
 change (`make lint-tidy-fix CHECKS=<check>` where it has fix-its), and list it in `AGENTS.md`. A check that cannot be
-enabled with its findings fixed stays out of the file, with a comment that says why (`misc-include-cleaner` is one).
+enabled with its findings fixed stays out of the file, with a comment that says why.
 `test_clang_tidy_config.py` keeps the checks that contradict this repository's rules out, for example
 `modernize-use-auto` and `readability-implicit-bool-conversion`.
+
+`misc-include-cleaner` is clangd's unused-includes and missing-includes analysis, so `.clangd` lists the same
+`IgnoreHeader` regexes as the check's `IgnoreHeaders` (`test_clang_tidy_config.py` compares them). They are the
+libraries whose public headers are umbrellas without IWYU pragmas (Eigen, CppAD, MuJoCo, the OCS2 thirdparty copies),
+the ones first-party code reaches only through Pinocchio (Boost, Coal, hpp-fcl), `pinocchio/fwd.hpp`, which comes first
+and provides nothing, and the internal directories of the libraries whose pragmas map private headers to public ones.
+A fix-it that proposes an internal header means a regex is missing. The fix-its spell a third-party header with angle
+brackets; `make format` quotes it (`include-style`).
 
 To silence one finding, write `// NOLINT(<check>): <reason>` on its line, or `NOLINTNEXTLINE(<check>): <reason>` on the
 line above. A marker without a reason is itself a lint error (`tools/hooks/nolint.py`).

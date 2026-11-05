@@ -164,7 +164,8 @@ class RobotProcessTest : public ::testing::Test {
                               "centroidal_mpc_", /*verbose=*/false)
             .value();
     options.contactFrameNames = modelSettings.contactNames;
-    options.contactParentJointNames = modelSettings.contactParentJointNames;
+    options.contactParentJointNames =
+        modelSettings.contactParentJointNamesInContactOrder();
     options.simulator.visualizations = std::vector<std::string>{};
     options.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
     initialState_.emplace(*options.initialState);
@@ -608,9 +609,9 @@ class RecordingBackend final : public RobotBackend {
     if (accepted) acceptedInModes_.push_back(controller_.mode());
     return accepted;
   }
-  void readMeasuredContactForces(
-      std::array<vector3_t, kNumContacts>& forces) override {
-    backend_.readMeasuredContactForces(forces);
+  void readMeasForceFeetEwrtWorld(
+      std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld) override {
+    backend_.readMeasForceFeetEwrtWorld(measForceFeetEwrtWorld);
   }
   void enterSafeState() override {
     safeStates_.fetch_add(1);
@@ -666,9 +667,9 @@ class NoSimulatorBackend final : public RobotBackend {
   bool acceptsJointAction() const override {
     return backend_.acceptsJointAction();
   }
-  void readMeasuredContactForces(
-      std::array<vector3_t, kNumContacts>& forces) override {
-    backend_.readMeasuredContactForces(forces);
+  void readMeasForceFeetEwrtWorld(
+      std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld) override {
+    backend_.readMeasForceFeetEwrtWorld(measForceFeetEwrtWorld);
   }
   void enterSafeState() override { backend_.enterSafeState(); }
   void registerContactEstimators(

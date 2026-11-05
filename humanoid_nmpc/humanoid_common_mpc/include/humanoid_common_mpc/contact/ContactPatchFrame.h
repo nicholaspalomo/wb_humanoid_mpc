@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -51,9 +52,10 @@ namespace ocs2::humanoid {
 struct ContactPatchFrame {
   /** p_R_w: the patch-frame coordinates of a world vector v are p_R_w v. */
   matrix3_t rotmatWorldRtSurface = matrix3_t::Identity();
-  /** [m] n . o for a point o of the patch and its normal n: the height of a
-   * world-aligned patch. */
-  scalar_t normalOffset = 0.0;
+  /** [m] n . o for a point o of the patch and its normal n, which is the z
+   * component, in the patch's axes, of the patch origin's world position: the
+   * height of a world-aligned patch. */
+  scalar_t posSurfaceRtWorldEwrtSurfaceZ = 0.0;
 };
 
 /** Whether `patch` is world aligned: its rotation is exactly the identity, so
@@ -63,7 +65,7 @@ inline bool isWorldAligned(const ContactPatchFrame& patch) {
 }
 
 /** The outward normal of `patch` in the world frame: the last row of p_R_w. */
-inline vector3_t patchNormal(const ContactPatchFrame& patch) {
+inline vector3_t getNormalSurfaceEwrtWorld(const ContactPatchFrame& patch) {
   return patch.rotmatWorldRtSurface.row(kZAxisIndex).transpose();
 }
 

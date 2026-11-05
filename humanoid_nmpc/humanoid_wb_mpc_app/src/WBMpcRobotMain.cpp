@@ -216,7 +216,7 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options,
   backendOptions.initialState.emplace(initState);
   backendOptions.contactFrameNames = modelSettings.contactNames;
   backendOptions.contactParentJointNames =
-      modelSettings.contactParentJointNames;
+      modelSettings.contactParentJointNamesInContactOrder();
   backendOptions.simulator = settings.simulator;
   backendOptions.viewer = options.viewer;
   // clang-format off

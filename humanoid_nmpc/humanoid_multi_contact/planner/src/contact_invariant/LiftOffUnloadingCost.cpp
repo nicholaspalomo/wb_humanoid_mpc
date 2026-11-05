@@ -36,8 +36,10 @@ namespace ocs2::humanoid::multi_contact {
 
 LiftOffUnloadingCost::LiftOffUnloadingCost(std::vector<UnloadingWindow> windows,
                                            scalar_t weight,
-                                           scalar_t forceScale)
-    : windows_(std::move(windows)), weight_(weight), forceScale_(forceScale) {}
+                                           scalar_t scaleForceContactEwrtWorld)
+    : windows_(std::move(windows)),
+      weight_(weight),
+      scaleForceContactEwrtWorld_(scaleForceContactEwrtWorld) {}
 
 bool LiftOffUnloadingCost::isActive(scalar_t time) const {
   for (const UnloadingWindow& window : windows_) {
@@ -55,9 +57,10 @@ scalar_t LiftOffUnloadingCost::getValue(
   scalar_t value = 0.0;
   for (const UnloadingWindow& window : windows_) {
     if (time < window.startTime || time >= window.endTime) continue;
-    value += weight_ *
-             input.segment(window.forceOffset, window.wrenchDim).squaredNorm() /
-             (forceScale_ * forceScale_);
+    value +=
+        weight_ *
+        input.segment(window.wrenchStartIndex, window.wrenchDim).squaredNorm() /
+        (scaleForceContactEwrtWorld_ * scaleForceContactEwrtWorld_);
   }
   return value;
 }
@@ -73,14 +76,16 @@ LiftOffUnloadingCost::getQuadraticApproximation(
   result.setZero(static_cast<int>(state.size()),
                  static_cast<int>(input.size()));
   result.f = getValue(time, state, input, targetTrajectories, preComp);
-  const scalar_t scale = 2.0 * weight_ / (forceScale_ * forceScale_);
+  const scalar_t scale =
+      2.0 * weight_ /
+      (scaleForceContactEwrtWorld_ * scaleForceContactEwrtWorld_);
   for (const UnloadingWindow& window : windows_) {
     if (time < window.startTime || time >= window.endTime) continue;
-    result.dfdu.segment(window.forceOffset, window.wrenchDim) +=
-        scale * input.segment(window.forceOffset, window.wrenchDim);
+    result.dfdu.segment(window.wrenchStartIndex, window.wrenchDim) +=
+        scale * input.segment(window.wrenchStartIndex, window.wrenchDim);
     result.dfduu
-        .block(window.forceOffset, window.forceOffset, window.wrenchDim,
-               window.wrenchDim)
+        .block(window.wrenchStartIndex, window.wrenchStartIndex,
+               window.wrenchDim, window.wrenchDim)
         .diagonal()
         .array() += scale;
   }

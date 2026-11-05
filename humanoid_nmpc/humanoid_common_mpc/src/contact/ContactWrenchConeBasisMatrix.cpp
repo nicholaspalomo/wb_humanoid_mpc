@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <utility>
@@ -40,12 +42,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/QR"
 #include "Eigen/SVD"
 #include "absl/log/absl_check.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
+#include "humanoid_common_mpc/contact/ContactPolygon.h"
+#include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "nproto/Fnv1a64Constants.h"
 
 namespace ocs2::humanoid {
@@ -93,34 +103,57 @@ absl::StatusOr<matrix_t> buildConservativeInnerApproximation(
     const ContactWrenchConeConstraint::Config& config,
     const ContactRectangle& contactRectangle) {
   const PolygonBounds& bounds = contactRectangle.getBounds();
-  const vector3_t patchPoint =
-      contactPatchReferencePoint(config, contactRectangle);
-  if (patchPoint.x() < bounds.x_min - kPatchInsideTolerance ||
-      patchPoint.x() > bounds.x_max + kPatchInsideTolerance ||
-      patchPoint.y() < bounds.y_min - kPatchInsideTolerance ||
-      patchPoint.y() > bounds.y_max + kPatchInsideTolerance) {
+  const vector3_t posPatchpointRtContactEwrtContact =
+      computePosPatchpointRtContactEwrtContact(config, contactRectangle);
+  if (posPatchpointRtContactEwrtContact.x() <
+          bounds.min_pos_corners_rt_contact_ewrt_contact_x -
+              kPatchInsideTolerance ||
+      posPatchpointRtContactEwrtContact.x() >
+          bounds.max_pos_corners_rt_contact_ewrt_contact_x +
+              kPatchInsideTolerance ||
+      posPatchpointRtContactEwrtContact.y() <
+          bounds.min_pos_corners_rt_contact_ewrt_contact_y -
+              kPatchInsideTolerance ||
+      posPatchpointRtContactEwrtContact.y() >
+          bounds.max_pos_corners_rt_contact_ewrt_contact_y +
+              kPatchInsideTolerance) {
     return absl::InvalidArgumentError(absl::StrCat(
-        "[ContactWrenchConeBasisMatrix] the patch point (", patchPoint.x(),
-        ", ", patchPoint.y(), ") lies outside ", kContactRectanglePrefix,
-        "{x_min, x_max, y_min, y_max} = [", bounds.x_min, ", ", bounds.x_max,
-        "] x [", bounds.y_min, ", ", bounds.y_max, "]. The '",
+        "[ContactWrenchConeBasisMatrix] the patch point (",
+        posPatchpointRtContactEwrtContact.x(), ", ",
+        posPatchpointRtContactEwrtContact.y(), ") lies outside ",
+        kContactRectanglePrefix,
+        "{min_pos_corners_rt_contact_ewrt_contact_x, "
+        "max_pos_corners_rt_contact_ewrt_contact_x, "
+        "min_pos_corners_rt_contact_ewrt_contact_y, "
+        "max_pos_corners_rt_contact_ewrt_contact_y} = [",
+        bounds.min_pos_corners_rt_contact_ewrt_contact_x, ", ",
+        bounds.max_pos_corners_rt_contact_ewrt_contact_x, "] x [",
+        bounds.min_pos_corners_rt_contact_ewrt_contact_y, ", ",
+        bounds.max_pos_corners_rt_contact_ewrt_contact_y, "]. The '",
         kConservativeInnerApproximationGeneratorSet,
         "' generator set applies its friction and torsion rays at that point, "
         "so they would leave the footprint; enlarge the "
         "footprint, move the patch offset onto it, or set ",
         kBasisGeneratorSetKey, ": ", kExactWrenchConeGeneratorSet, "."));
   }
-  const vector2_t patchXy(patchPoint.x(), patchPoint.y());
+  const vector2_t posPatchpointRtContactEwrtContactXy(
+      posPatchpointRtContactEwrtContact.x(),
+      posPatchpointRtContactEwrtContact.y());
   // The torsion a unit normal force at the patch point can carry, from the
   // cone's own rows: the corner friction decides it, not a separate
   // coefficient. A patch point on the footprint boundary is clamped onto it
   // first.
-  const vector2_t clampedPatch(
-      std::clamp(patchXy.x(), bounds.x_min, bounds.x_max),
-      std::clamp(patchXy.y(), bounds.y_min, bounds.y_max));
+  const vector2_t clampedPosPatchpointRtContactEwrtContactXy(
+      std::clamp(posPatchpointRtContactEwrtContactXy.x(),
+                 bounds.min_pos_corners_rt_contact_ewrt_contact_x,
+                 bounds.max_pos_corners_rt_contact_ewrt_contact_x),
+      std::clamp(posPatchpointRtContactEwrtContactXy.y(),
+                 bounds.min_pos_corners_rt_contact_ewrt_contact_y,
+                 bounds.max_pos_corners_rt_contact_ewrt_contact_y));
   const std::optional<TorsionInterval> torsionLimits =
       computeLimitsPerNewtonTorqueContactEwrtContactZ(
-          buildLocalWrenchConeRows(config, contactRectangle), clampedPatch);
+          buildLocalWrenchConeRows(config, contactRectangle),
+          clampedPosPatchpointRtContactEwrtContactXy);
   if (!torsionLimits.has_value()) {
     return absl::InternalError(
         "[ContactWrenchConeBasisMatrix] a unit normal force at the patch point "
@@ -131,9 +164,15 @@ absl::StatusOr<matrix_t> buildConservativeInnerApproximation(
     // no lever arm: the torsion rays would carry no torsion and the set would
     // not span the yaw moment at all.
     return absl::InvalidArgumentError(absl::StrCat(
-        "[ContactWrenchConeBasisMatrix] the patch point (", patchPoint.x(),
-        ", ", patchPoint.y(), ") is a corner of ", kContactRectanglePrefix,
-        "{x_min, x_max, y_min, y_max}, where a normal force can carry no "
+        "[ContactWrenchConeBasisMatrix] the patch point (",
+        posPatchpointRtContactEwrtContact.x(), ", ",
+        posPatchpointRtContactEwrtContact.y(), ") is a corner of ",
+        kContactRectanglePrefix,
+        "{min_pos_corners_rt_contact_ewrt_contact_x, "
+        "max_pos_corners_rt_contact_ewrt_contact_x, "
+        "min_pos_corners_rt_contact_ewrt_contact_y, "
+        "max_pos_corners_rt_contact_ewrt_contact_y}, where a normal force can "
+        "carry no "
         "torsion, so the '",
         kConservativeInnerApproximationGeneratorSet,
         "' generator set would not span the yaw moment; move the patch offset "
@@ -148,24 +187,29 @@ absl::StatusOr<matrix_t> buildConservativeInnerApproximation(
   Eigen::Index column = 0;
   // 1. Friction-pyramid edges at the patch point.
   for (const vector3_t& edge : frictionPyramidEdges(config)) {
-    basis.col(column++) =
-        generatorWrenchAt(clampedPatch, edge, /*torsion=*/0.0);
+    basis.col(column++) = generatorWrenchAt(
+        clampedPosPatchpointRtContactEwrtContactXy, edge, /*torsion=*/0.0);
   }
   // 2. A pure normal force at the patch point.
   basis.col(column++) =
-      generatorWrenchAt(clampedPatch, vector3_t::UnitZ(), /*torsion=*/0.0);
+      generatorWrenchAt(clampedPosPatchpointRtContactEwrtContactXy,
+                        vector3_t::UnitZ(), /*torsion=*/0.0);
   // 3. A unit normal force at each footprint corner, which puts the center of
   // pressure on that corner.
-  for (const vector2_t& corner : footprintCorners(contactRectangle)) {
+  for (const vector2_t& posCornerRtContactEwrtContactXy :
+       computePosCornersRtContactEwrtContactXy(contactRectangle)) {
     basis.col(column++) =
-        generatorWrenchAt(corner, vector3_t::UnitZ(), /*torsion=*/0.0);
+        generatorWrenchAt(posCornerRtContactEwrtContactXy, vector3_t::UnitZ(),
+                          /*torsion=*/0.0);
   }
   // 4. A unit normal force at the patch point with the torsional limit of
   // either sign.
   basis.col(column++) =
-      generatorWrenchAt(clampedPatch, vector3_t::UnitZ(), torsionLimits->upper);
+      generatorWrenchAt(clampedPosPatchpointRtContactEwrtContactXy,
+                        vector3_t::UnitZ(), torsionLimits->upper);
   basis.col(column++) =
-      generatorWrenchAt(clampedPatch, vector3_t::UnitZ(), torsionLimits->lower);
+      generatorWrenchAt(clampedPosPatchpointRtContactEwrtContactXy,
+                        vector3_t::UnitZ(), torsionLimits->lower);
   ABSL_CHECK_EQ(column, basis.cols())
       << "ContactWrenchConeBasisMatrix: a generator set filled another number "
          "of columns than it has";

@@ -83,7 +83,7 @@ std::unique_ptr<RobotStanceModel> atlasModel() {
  * 0. */
 RobotConfiguration standing() {
   RobotConfiguration configuration;
-  configuration.basePosition = Eigen::Vector3d(0.0, 0.0, 0.9232239);
+  configuration.posBaseRtWorldEwrtWorld = Eigen::Vector3d(0.0, 0.0, 0.9232239);
   configuration.jointNames = {"l_leg_hpy", "r_leg_hpy", "l_leg_kny",
                               "r_leg_kny", "l_leg_aky", "r_leg_aky",
                               "l_arm_shx", "r_arm_shx"};
@@ -100,13 +100,14 @@ Stance flatStance(const RobotStanceModel& model,
   for (const std::string& name : names) {
     const int index = *model.contactSet().indexOf(name);
     const ContactCandidate& candidate = model.contactSet().candidate(index);
-    stance.push_back(StanceContact{.name = name,
-                                   .candidateIndex = index,
-                                   .kind = candidate.kind,
-                                   .position = model.padPosition(index),
-                                   .rotation = model.padRotation(index),
-                                   .friction = 0.8,
-                                   .rectangle = candidate.rectangle});
+    stance.push_back(StanceContact{
+        .name = name,
+        .candidateIndex = index,
+        .kind = candidate.kind,
+        .posPadRtWorldEwrtWorld = model.getPosPadRtWorldEwrtWorld(index),
+        .rotmatSurfaceRtWorld = model.getRotmatPadRtWorld(index),
+        .friction = 0.8,
+        .rectangle = candidate.rectangle});
   }
   return stance;
 }
@@ -125,8 +126,8 @@ TEST(RobotStanceModelTest, EveryParentJointIsAJointOfTheUrdf) {
   candidate.name = "tail";
   candidate.kind = config::ContactSet::Kind::kPoint;
   candidate.parent_joint = "tail_joint";
-  candidate.offset = Eigen::Vector3d::Zero();
-  candidate.pad_normal = Eigen::Vector3d::UnitZ();
+  candidate.pos_pad_rt_link_ewrt_link = Eigen::Vector3d::Zero();
+  candidate.normal_pad_ewrt_link = Eigen::Vector3d::UnitZ();
   config.candidates = {candidate};
   const absl::StatusOr<std::string> urdf =
       robot::resolveResourcePath(kAtlasUrdf);
@@ -139,26 +140,28 @@ TEST(RobotStanceModelTest, EveryParentJointIsAJointOfTheUrdf) {
 TEST(RobotStanceModelTest, PadsAtTheZeroPose) {
   const std::unique_ptr<RobotStanceModel> model = atlasModel();
   RobotConfiguration zero;
-  zero.basePosition = Eigen::Vector3d(0.0, 0.0, 0.944);
+  zero.posBaseRtWorldEwrtWorld = Eigen::Vector3d(0.0, 0.0, 0.944);
   ASSERT_TRUE(model->setConfiguration(zero).ok());
   const ContactSet& set = model->contactSet();
   // The soles: 0.944 m below the base with straight legs (0.066 + 0.374 +
   // 0.422 + 0.082), 0.04 m ahead of the ankles.
-  EXPECT_LT((model->padPosition(*set.indexOf("foot_l_contact")) -
+  EXPECT_LT((model->getPosPadRtWorldEwrtWorld(*set.indexOf("foot_l_contact")) -
              Eigen::Vector3d(0.04, 0.1115, 0.0))
                 .norm(),
             1.0e-9);
-  EXPECT_TRUE(
-      model->padRotation(*set.indexOf("foot_l_contact")).isIdentity(1.0e-12));
-  EXPECT_LT((model->padPosition(*set.indexOf("torso_back_contact")) -
-             Eigen::Vector3d(-0.2325, 0.0, 1.456))
-                .norm(),
-            1.0e-9);
+  EXPECT_TRUE(model->getRotmatPadRtWorld(*set.indexOf("foot_l_contact"))
+                  .isIdentity(1.0e-12));
+  EXPECT_LT(
+      (model->getPosPadRtWorldEwrtWorld(*set.indexOf("torso_back_contact")) -
+       Eigen::Vector3d(-0.2325, 0.0, 1.456))
+          .norm(),
+      1.0e-9);
   // The torso pad's z axis points into the body, forward.
-  EXPECT_LT((model->padRotation(*set.indexOf("torso_back_contact")).col(2) -
-             Eigen::Vector3d::UnitX())
-                .norm(),
-            1.0e-12);
+  EXPECT_LT(
+      (model->getRotmatPadRtWorld(*set.indexOf("torso_back_contact")).col(2) -
+       Eigen::Vector3d::UnitX())
+          .norm(),
+      1.0e-12);
   EXPECT_GT(model->mass(), 100.0);
   EXPECT_FALSE(model->actuatedJoints().empty());
 }
@@ -173,9 +176,11 @@ TEST(RobotStanceModelTest, PointJacobiansMatchDifferences) {
         std::string("thigh_l_contact")}) {
     const int index = *model->contactSet().indexOf(name);
     ASSERT_TRUE(model->setConfiguration(configuration).ok());
-    const Eigen::Vector3d point = model->padPosition(index);
+    const Eigen::Vector3d posPadRtWorldEwrtWorld =
+        model->getPosPadRtWorldEwrtWorld(index);
     const Eigen::Matrix<double, 3, Eigen::Dynamic> jacobian =
-        model->pointJacobian(index, point);
+        model->computeLinjacQueryRtWorldEwrtWorld(index,
+                                                  posPadRtWorldEwrtWorld);
     for (const ActuatedJoint& joint : model->actuatedJoints()) {
       RobotConfiguration plus = configuration;
       RobotConfiguration minus = configuration;
@@ -193,13 +198,16 @@ TEST(RobotStanceModelTest, PointJacobiansMatchDifferences) {
       plus.jointPositions(last) = kStep;
       minus.jointPositions(last) = -kStep;
       ASSERT_TRUE(model->setConfiguration(plus).ok());
-      const Eigen::Vector3d after = model->padPosition(index);
+      const Eigen::Vector3d plusPosPadRtWorldEwrtWorld =
+          model->getPosPadRtWorldEwrtWorld(index);
       ASSERT_TRUE(model->setConfiguration(minus).ok());
-      const Eigen::Vector3d before = model->padPosition(index);
-      EXPECT_LT(
-          (jacobian.col(joint.velocityIndex) - (after - before) / (2.0 * kStep))
-              .norm(),
-          1.0e-6)
+      const Eigen::Vector3d minusPosPadRtWorldEwrtWorld =
+          model->getPosPadRtWorldEwrtWorld(index);
+      EXPECT_LT((jacobian.col(joint.velocityIndex) -
+                 (plusPosPadRtWorldEwrtWorld - minusPosPadRtWorldEwrtWorld) /
+                     (2.0 * kStep))
+                    .norm(),
+                1.0e-6)
           << name << " / " << joint.name;
     }
   }
@@ -213,10 +221,12 @@ TEST(TorqueFeasibilityTest, TheForcesBalanceTheBaseAndScaledLimitsFail) {
           flatStance(*model, {"foot_l_contact", "foot_r_contact"}),
           StaticEquilibriumOptions());
   ASSERT_TRUE(equilibrium.ok()) << equilibrium.status();
-  const Eigen::Vector2d com = model->centerOfMass().head<2>();
-  ASSERT_LT(*equilibrium->equilibriumResidual(com), 1.0e-6);
+  const Eigen::Vector2d posComRtWorldEwrtWorldXy =
+      model->getPosComRtWorldEwrtWorld().head<2>();
+  ASSERT_LT(*equilibrium->equilibriumResidual(posComRtWorldEwrtWorldXy),
+            1.0e-6);
   const absl::StatusOr<TorqueFeasibilityResult> result =
-      minimumTorqueUtilization(*model, *equilibrium);
+      minimumJointTorqueUtilization(*model, *equilibrium);
   ASSERT_TRUE(result.ok()) << result.status();
 
   // g(q) - sum_g J_g^T f_g: zero on the floating base, the joint torques on the
@@ -229,8 +239,11 @@ TEST(TorqueFeasibilityTest, TheForcesBalanceTheBaseAndScaledLimitsFail) {
         equilibrium->stance()[generators.contactIndices[g]].candidateIndex;
     generalized -=
         weight * result->scalings(g) *
-        model->pointJacobian(candidate, generators.points[g]).transpose() *
-        generators.directions[g];
+        model
+            ->computeLinjacQueryRtWorldEwrtWorld(
+                candidate, generators.posGeneratorsRtWorldEwrtWorld[g])
+            .transpose() *
+        generators.forceGeneratorsEwrtWorld[g];
   }
   EXPECT_LT(generalized.head<6>().norm(), 1.0e-6 * weight)
       << generalized.head<6>().transpose();
@@ -244,8 +257,8 @@ TEST(TorqueFeasibilityTest, TheForcesBalanceTheBaseAndScaledLimitsFail) {
   EXPECT_GT(result->utilization, 0.0);
   EXPECT_LT(result->utilization, 1.0);
   EXPECT_FALSE(result->maxTorqueJoint.empty());
-  EXPECT_TRUE(isTorqueFeasible(*result, /*torqueMargin=*/1.0));
-  EXPECT_FALSE(isTorqueFeasible(*result, /*torqueMargin=*/0.01));
+  EXPECT_TRUE(isJointTorqueFeasible(*result, /*jointTorqueMargin=*/1.0));
+  EXPECT_FALSE(isJointTorqueFeasible(*result, /*jointTorqueMargin=*/0.01));
 }
 
 TEST(RobotStanceModelTest, RelaxingThePositionLimitsWidensBothSides) {
@@ -253,7 +266,7 @@ TEST(RobotStanceModelTest, RelaxingThePositionLimitsWidensBothSides) {
   ASSERT_NE(model, nullptr);
   const std::vector<ActuatedJoint> urdf = model->actuatedJoints();
   constexpr double kRelaxation = 0.1;
-  ASSERT_TRUE(model->relaxPositionLimits(kRelaxation).ok());
+  ASSERT_TRUE(model->relaxJointPositionLimits(kRelaxation).ok());
   ASSERT_EQ(model->actuatedJoints().size(), urdf.size());
   for (size_t i = 0; i < urdf.size(); ++i) {
     EXPECT_DOUBLE_EQ(model->actuatedJoints()[i].lowerLimit,
@@ -262,7 +275,7 @@ TEST(RobotStanceModelTest, RelaxingThePositionLimitsWidensBothSides) {
                      urdf[i].upperLimit + kRelaxation);
     EXPECT_EQ(model->actuatedJoints()[i].effortLimit, urdf[i].effortLimit);
   }
-  EXPECT_EQ(model->relaxPositionLimits(-kRelaxation).code(),
+  EXPECT_EQ(model->relaxJointPositionLimits(-kRelaxation).code(),
             absl::StatusCode::kInvalidArgument);
 }
 

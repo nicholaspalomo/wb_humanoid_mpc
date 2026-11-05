@@ -31,18 +31,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/string_view.h"
 #include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 
@@ -174,24 +173,26 @@ struct SharedParameters {
   // every hot reload; a configuration with no model (a planner unit test) keeps
   // the default.
   scalar_t gravity = kGravityMagnitude;
-  // [m] LIP height, omega = sqrt(g / comHeight). Unset = from the model: its
-  // center of mass above its feet at the task file's initialState
-  // (computeComHeightAboveFeet, which an unset DCM terminal cost height
-  // resolves to as well), filled in by ContactPlanningModelParameters::applyTo
-  // before validation, at start-up and on every hot reload. It is also the
-  // library default, so a robot file that leaves shared.com_height out (as both
-  // shipped files do) plans on its own model's pendulum - the one its DCM
-  // terminal cost derives - rather than on a fixed height that belongs to no
-  // robot (it was 0.85 m, the height the Atlas was once hand-set to). A
-  // configuration with no model to derive it from - a planner unit test - must
-  // set a positive height itself: validateStatus() refuses an unset one.
-  std::optional<scalar_t> comHeight;
+  // [m] LIP height, omega = sqrt(g / nomPosComRtFeetmeanEwrtWorldZ). Unset =
+  // from the model: its center of mass above its feet at the task file's
+  // initialState (computeProxyPosComRtFeetmeanEwrtWorldZ, which an unset DCM
+  // terminal cost height resolves to as well), filled in by
+  // ContactPlanningModelParameters::applyTo before validation, at start-up and
+  // on every hot reload. It is also the library default, so a robot file that
+  // leaves shared.nom_pos_com_rt_feetmean_ewrt_world_z out (as both shipped
+  // files do) plans on its own model's pendulum - the one its DCM terminal cost
+  // derives - rather than on a fixed height that belongs to no robot (it was
+  // 0.85 m, the height the Atlas was once hand-set to). A configuration with no
+  // model to derive it from - a planner unit test - must set a positive height
+  // itself: validateStatus() refuses an unset one.
+  std::optional<scalar_t> nomPosComRtFeetmeanEwrtWorldZ;
   // [m] big-M of the ZMP / foothold disjunctions. Two bounds, not one: it must
-  // EXCEED foot_separation.maxStepLength, which the foothold displacement bound
-  // needs, and it must be at least foot_separation.maxStepWidth, because that
-  // is what it takes for a single-support ZMP box to actually switch off in
-  // double support (the lateral axis is the one that binds there; see the
-  // derivation next to the check in ContactPlanningConfig::validateStatus()).
+  // EXCEED foot_separation.maxNormPosLfootRtRfootEwrtHeadingX, which the
+  // foothold displacement bound needs, and it must be at least
+  // foot_separation.maxPosLfootRtRfootEwrtHeadingY, because that is what it
+  // takes for a single-support ZMP box to actually switch off in double support
+  // (the lateral axis is the one that binds there; see the derivation next to
+  // the check in ContactPlanningConfig::validateStatus()).
   scalar_t bigM = 1.0;
   SlackPenalty slackPenalty;  // default of every soft constraint without a
                               // penalty of its own
@@ -210,7 +211,8 @@ struct SharedParameters {
  * that the step length grows out of standing instead of jumping to its full
  * value at the first non-zero command. HlipContactPlanner feeds the blend the
  * measured center-of-mass velocity with its lateral component taken relative to
- * the sway of stepping in place (HlipContactPlanner::blendVelocity), so the
+ * the sway of stepping in place
+ * (HlipContactPlanner::computeBlendLinvelComRtWorldEwrtHeadingXy), so the
  * zero-command orbit's own lateral velocity (0.132 m/s at the Atlas cadence on
  * its 1.0805 m pendulum) does not count as motion.
  *
@@ -231,28 +233,38 @@ struct SharedParameters {
 struct HlipBlendParameters {
   static constexpr scalar_t kDefaultSharpness = 40.0;
   static constexpr scalar_t kDefaultThreshold = 0.02;
-  static constexpr scalar_t kDefaultMaxCommandedVelocityX = 0.7;   // [m/s]
-  static constexpr scalar_t kDefaultMaxCommandedVelocityY = 0.25;  // [m/s]
-  static constexpr scalar_t kDefaultMaxCommandedYawRate = 0.61;    // [rad/s]
-  static constexpr scalar_t kDefaultMaxComVelocityX = 0.5;         // [m/s]
-  static constexpr scalar_t kDefaultMaxComVelocityY = 0.4;         // [m/s]
+  static constexpr scalar_t kNomCmdMaxLinvelBaseRtWorldEwrtHeadingX =
+      0.7;  // [m/s]
+  static constexpr scalar_t kNomCmdMaxLinvelBaseRtWorldEwrtHeadingY =
+      0.25;  // [m/s]
+  static constexpr scalar_t kNomCmdMaxAngvelBaseRtWorldEwrtWorldZ =
+      0.61;  // [rad/s]
+  static constexpr scalar_t kNomMaxProxyLinvelComRtWorldEwrtHeadingX =
+      0.5;  // [m/s]
+  static constexpr scalar_t kNomMaxProxyLinvelComRtWorldEwrtHeadingY =
+      0.4;  // [m/s]
 
-  scalar_t sharpness = kDefaultSharpness;                          // rho_1
-  scalar_t threshold = kDefaultThreshold;                          // rho_2
-  scalar_t maxCommandedVelocityX = kDefaultMaxCommandedVelocityX;  // [m/s]
+  scalar_t sharpness = kDefaultSharpness;  // rho_1
+  scalar_t threshold = kDefaultThreshold;  // rho_2
+  scalar_t cmdMaxLinvelBaseRtWorldEwrtHeadingX =
+      kNomCmdMaxLinvelBaseRtWorldEwrtHeadingX;  // [m/s]
   // [m/s]. This is a command range, but it is not free of the step geometry:
   // the planner plans the period-two orbit at
-  // +-hlip.stepWidth + v_y (sspDuration + dspDuration), so at the largest
-  // lateral command the narrow side of the orbit must still clear
-  // hlip.minStepWidth and the wide side must still fit hlip.maxStepWidth
-  // (ContactPlanningConfig::warnings() checks both and says which key to move).
-  // Against the defaults below, a 0.30 s step, 0.25 m/s leaves 0.175 m on the
-  // narrow side and asks 0.325 m on the wide one, both inside the clips.
-  scalar_t maxCommandedVelocityY = kDefaultMaxCommandedVelocityY;
-  scalar_t maxCommandedYawRate =
-      kDefaultMaxCommandedYawRate;                     // [rad/s] (35 deg/s)
-  scalar_t maxComVelocityX = kDefaultMaxComVelocityX;  // [m/s]
-  scalar_t maxComVelocityY = kDefaultMaxComVelocityY;  // [m/s]
+  // +-hlip.nomPosLfootRtRfootEwrtHeadingY + v_y (sspDuration + dspDuration), so
+  // at the largest lateral command the narrow side of the orbit must still
+  // clear hlip.minPosLfootRtRfootEwrtHeadingY and the wide side must still fit
+  // hlip.maxPosLfootRtRfootEwrtHeadingY (ContactPlanningConfig::warnings()
+  // checks both and says which key to move). Against the defaults below, a 0.30
+  // s step, 0.25 m/s leaves 0.175 m on the narrow side and asks 0.325 m on the
+  // wide one, both inside the clips.
+  scalar_t cmdMaxLinvelBaseRtWorldEwrtHeadingY =
+      kNomCmdMaxLinvelBaseRtWorldEwrtHeadingY;
+  scalar_t cmdMaxAngvelBaseRtWorldEwrtWorldZ =
+      kNomCmdMaxAngvelBaseRtWorldEwrtWorldZ;  // [rad/s] (35 deg/s)
+  scalar_t maxProxyLinvelComRtWorldEwrtHeadingX =
+      kNomMaxProxyLinvelComRtWorldEwrtHeadingX;  // [m/s]
+  scalar_t maxProxyLinvelComRtWorldEwrtHeadingY =
+      kNomMaxProxyLinvelComRtWorldEwrtHeadingY;  // [m/s]
 };
 
 /**
@@ -269,28 +281,29 @@ struct HlipBlendParameters {
  *
  * The cadence defaults are the one validated in simulation on the DRC Atlas,
  * not the paper's. The figures below are for a 0.85 m pendulum
- * (shared.comHeight 0.85), the one the Atlas was hand-set to when that cadence
- * fell (on its model's 1.0805 m pendulum, which both shipped files now resolve,
- * each demand is smaller: 0.45, 0.47 and 0.39 m, and 0.35 s / 0.05 s recovers
- * instead of locking). The previous 0.35 s with an instantaneous exchange
- * (dspDuration 0) asked 0.49 m of the first step out of a standstill against
- * the 0.45 m maxStepWidth below, so that step was clipped; the reduced model
- * still recovers from that particular cut, but the same 0.35 s with the 0.05 s
- * double support the whole-body MPC needs asks 0.52 m and locks into README
- * section 3b's "cadence that fell". A zero double support with an uncapped
- * planner.maxCommitExtension is also the chain that stalls the commit boundary.
- * At 0.25 / 0.05 the first step needs 0.42 m and fits.
- * ContactPlanningConfig::warnings() reports a first step that does not fit and
- * the uncapped instantaneous exchange for any configuration that reintroduces
- * them.
+ * (shared.nomPosComRtFeetmeanEwrtWorldZ 0.85), the one the Atlas was hand-set
+ * to when that cadence fell (on its model's 1.0805 m pendulum, which both
+ * shipped files now resolve, each demand is smaller: 0.45, 0.47 and 0.39 m, and
+ * 0.35 s / 0.05 s recovers instead of locking). The previous 0.35 s with an
+ * instantaneous exchange (dspDuration 0) asked 0.49 m of the first step out of
+ * a standstill against the 0.45 m maxPosLfootRtRfootEwrtHeadingY below, so that
+ * step was clipped; the reduced model still recovers from that particular cut,
+ * but the same 0.35 s with the 0.05 s double support the whole-body MPC needs
+ * asks 0.52 m and locks into README section 3b's "cadence that fell". A zero
+ * double support with an uncapped planner.maxCommitExtension is also the chain
+ * that stalls the commit boundary. At 0.25 / 0.05 the first step needs 0.42 m
+ * and fits. ContactPlanningConfig::warnings() reports a first step that does
+ * not fit and the uncapped instantaneous exchange for any configuration that
+ * reintroduces them.
  */
 struct HlipParameters {
-  static constexpr scalar_t kDefaultSingleSupportDuration = 0.25;  // [s]
-  static constexpr scalar_t kDefaultDoubleSupportDuration = 0.05;  // [s]
-  static constexpr scalar_t kDefaultStepWidth = 0.25;              // [m]
-  static constexpr scalar_t kDefaultMaxStepLength = 0.5;           // [m]
-  static constexpr scalar_t kDefaultMaxStepWidth = 0.45;           // [m]
-  static constexpr scalar_t kDefaultMinStepWidth = 0.15;           // [m]
+  static constexpr scalar_t kDefaultSingleSupportDuration = 0.25;    // [s]
+  static constexpr scalar_t kDefaultDoubleSupportDuration = 0.05;    // [s]
+  static constexpr scalar_t kNomPosLfootRtRfootEwrtHeadingY = 0.25;  // [m]
+  static constexpr scalar_t kNomMaxNormPosLfootRtRfootEwrtHeadingX =
+      0.5;                                                              // [m]
+  static constexpr scalar_t kNomMaxPosLfootRtRfootEwrtHeadingY = 0.45;  // [m]
+  static constexpr scalar_t kNomMinPosLfootRtRfootEwrtHeadingY = 0.15;  // [m]
 
   scalar_t sspDuration =
       kDefaultSingleSupportDuration;  // [s] single support duration
@@ -298,15 +311,18 @@ struct HlipParameters {
       kDefaultDoubleSupportDuration;  // [s] double support duration; the
                                       // paper's 0 exchanges support in one
                                       // instant
-  scalar_t stepWidth =
-      kDefaultStepWidth;  // [m] lateral distance between the feet of the
-                          // nominal period-two orbit
-  scalar_t maxStepLength =
-      kDefaultMaxStepLength;  // [m] clip on the planned step along the heading
-  scalar_t maxStepWidth = kDefaultMaxStepWidth;  // [m] clip on the lateral
-                                                 // distance between the feet
-  scalar_t minStepWidth =
-      kDefaultMinStepWidth;  // [m] self-collision margin on that distance
+  scalar_t nomPosLfootRtRfootEwrtHeadingY =
+      kNomPosLfootRtRfootEwrtHeadingY;  // [m] lateral distance between the feet
+                                        // of the nominal period-two orbit
+  scalar_t maxNormPosLfootRtRfootEwrtHeadingX =
+      kNomMaxNormPosLfootRtRfootEwrtHeadingX;  // [m] clip on the planned step
+                                               // along the heading
+  scalar_t maxPosLfootRtRfootEwrtHeadingY =
+      kNomMaxPosLfootRtRfootEwrtHeadingY;  // [m] clip on the lateral
+                                           // distance between the feet
+  scalar_t minPosLfootRtRfootEwrtHeadingY =
+      kNomMinPosLfootRtRfootEwrtHeadingY;  // [m] self-collision margin on that
+                                           // distance
   HlipBlendParameters blend;
 };
 
@@ -342,13 +358,14 @@ struct VelocityTrackingParameters {
  * contact_planning). Passive data. */
 struct StepWidthParameters {
   static constexpr scalar_t kDefaultWeight = 10.0;
-  static constexpr scalar_t kDefaultNominalStepWidth = 0.25;  // [m]
+  static constexpr scalar_t kNomPosLfootRtRfootEwrtHeadingY = 0.25;  // [m]
 
   scalar_t weight =
-      kDefaultWeight;  // (step width - nominalStepWidth)^2 per node
-  scalar_t nominalStepWidth =
-      kDefaultNominalStepWidth;  // [m] lateral distance left foot - right foot
-                                 // the planner is drawn to
+      kDefaultWeight;  // (step width - nomPosLfootRtRfootEwrtHeadingY)^2 per
+                       // node
+  scalar_t nomPosLfootRtRfootEwrtHeadingY =
+      kNomPosLfootRtRfootEwrtHeadingY;  // [m] lateral distance left foot -
+                                        // right foot the planner is drawn to
 };
 /** The parameters of the `heading_rate_tracking` cost (the
  * `heading_rate_tracking` block of contact_planning). Passive data. */
@@ -373,7 +390,8 @@ struct FootYawTrackingParameters {
   scalar_t weight = kDefaultWeight;  // (foot yaw - nominal heading)^2 per node
 };
 /** The parameters of the `yaw_torque_regularization` cost (the
- * `yaw_torque_regularization` block of contact_planning). Passive data. */
+ * `yaw_torque_regularization_parameters` block of contact_planning). Passive
+ * data. */
 struct YawTorqueRegularizationParameters {
   static constexpr scalar_t kDefaultWeight = 1.0e-3;
 
@@ -419,66 +437,77 @@ struct TerminalDcmParameters {
   // DCM xi_N is drawn to zmp_{N-1} + v_cmd / omega, the offset of a CoM over
   // the foot that keeps moving at the commanded velocity, so the plan is asked
   // to keep walking, not to stop.
-  bool trackCommandedVelocity = false;
+  bool trackVelocityCommand = false;
 };
 /** The parameters of the `zmp_support_region` soft constraint (the
  * `zmp_support_region` block of contact_planning). Passive data. */
 struct ZmpSupportRegionParameters {
-  static constexpr scalar_t kDefaultHalfWidthX = 0.08;  // [m]
-  static constexpr scalar_t kDefaultHalfWidthY = 0.04;  // [m]
+  static constexpr scalar_t kNomMaxNormPosZmpRtFootEwrtFootX = 0.08;  // [m]
+  static constexpr scalar_t kNomMaxNormPosZmpRtFootEwrtFootY = 0.04;  // [m]
 
   // ZMP support region half-widths. Single support: a box of these half-widths
   // around the stance foot. Double support: along the heading a box of
-  // half-width halfWidthX around the midpoint of the feet, laterally the strip
-  // between the right foot minus and the left foot plus halfWidthY. 0 = from
-  // the sole's footprint (model parameters).
-  scalar_t halfWidthX = kDefaultHalfWidthX;  // [m] along the heading
-  scalar_t halfWidthY = kDefaultHalfWidthY;  // [m] lateral
+  // half-width maxNormPosZmpRtFootEwrtFootX around the midpoint of the feet,
+  // laterally the strip between the right foot minus and the left foot plus
+  // maxNormPosZmpRtFootEwrtFootY. 0 = from the sole's footprint (model
+  // parameters). [m] x: along the stance foot's x axis in single support and
+  // along the heading in double support; y: across them.
+  scalar_t maxNormPosZmpRtFootEwrtFootX = kNomMaxNormPosZmpRtFootEwrtFootX;
+  scalar_t maxNormPosZmpRtFootEwrtFootY = kNomMaxNormPosZmpRtFootEwrtFootY;
   std::optional<SlackPenalty> slack;
 };
 /** The parameters of the `reachability` soft constraint (the `reachability`
  * block of contact_planning). Passive data. */
 struct ReachabilityParameters {
-  static constexpr scalar_t kDefaultReachX = 0.45;       // [m]
-  static constexpr scalar_t kDefaultReachYInner = 0.05;  // [m]
-  static constexpr scalar_t kDefaultReachYOuter = 0.45;  // [m]
+  static constexpr scalar_t kNomMaxNormPosFootRtComEwrtHeadingX = 0.45;  // [m]
+  static constexpr scalar_t kNomMinPosFootRtComEwrtHeadingY = 0.05;      // [m]
+  static constexpr scalar_t kNomMaxPosFootRtComEwrtHeadingY = 0.45;      // [m]
 
-  scalar_t reachX = kDefaultReachX;  // foot x offset from the CoM must stay
-                                     // within [-reachX, reachX]
-  scalar_t reachYInner =
-      kDefaultReachYInner;  // left foot y - CoM y >= reachYInner (mirrored for
-                            // the right foot)
-  scalar_t reachYOuter =
-      kDefaultReachYOuter;  // left foot y - CoM y <= reachYOuter (mirrored for
-                            // the right foot)
+  scalar_t maxNormPosFootRtComEwrtHeadingX =
+      kNomMaxNormPosFootRtComEwrtHeadingX;  // foot x offset from the CoM must
+                                            // stay within
+                                            // [-maxNormPosFootRtComEwrtHeadingX,
+                                            // maxNormPosFootRtComEwrtHeadingX]
+  scalar_t minPosFootRtComEwrtHeadingY =
+      kNomMinPosFootRtComEwrtHeadingY;  // left foot y - CoM y >=
+                                        // minPosFootRtComEwrtHeadingY (mirrored
+                                        // for the right foot)
+  scalar_t maxPosFootRtComEwrtHeadingY =
+      kNomMaxPosFootRtComEwrtHeadingY;  // left foot y - CoM y <=
+                                        // maxPosFootRtComEwrtHeadingY (mirrored
+                                        // for the right foot)
   std::optional<SlackPenalty> slack;
 };
 /** The parameters of the `foot_separation` soft constraint (the
  * `foot_separation` block of contact_planning). Passive data. */
 struct FootSeparationParameters {
-  static constexpr scalar_t kDefaultMaxStepLength = 0.5;  // [m]
-  static constexpr scalar_t kDefaultMinStepWidth = 0.15;  // [m]
-  static constexpr scalar_t kDefaultMaxStepWidth = 0.45;  // [m]
+  static constexpr scalar_t kNomMaxNormPosLfootRtRfootEwrtHeadingX =
+      0.5;                                                              // [m]
+  static constexpr scalar_t kNomMinPosLfootRtRfootEwrtHeadingY = 0.15;  // [m]
+  static constexpr scalar_t kNomMaxPosLfootRtRfootEwrtHeadingY = 0.45;  // [m]
 
-  scalar_t maxStepLength = kDefaultMaxStepLength;  // |x_left - x_right| bound
-  scalar_t minStepWidth = kDefaultMinStepWidth;    // self-collision margin
-  scalar_t maxStepWidth = kDefaultMaxStepWidth;
+  scalar_t maxNormPosLfootRtRfootEwrtHeadingX =
+      kNomMaxNormPosLfootRtRfootEwrtHeadingX;  // |x_left - x_right| bound
+  scalar_t minPosLfootRtRfootEwrtHeadingY =
+      kNomMinPosLfootRtRfootEwrtHeadingY;  // self-collision margin
+  scalar_t maxPosLfootRtRfootEwrtHeadingY = kNomMaxPosLfootRtRfootEwrtHeadingY;
   std::optional<SlackPenalty> slack;
 };
 /** Hip yaw range per foot, derived from the model
  * (ContactPlanningModelParameters), not a file key. */
 struct HipYawRangeParameters {
-  feet_array_t<scalar_t> lower =
-      makeFeetArray(0.0);  // [rad] bounds on foot yaw - heading
-  feet_array_t<scalar_t> upper = makeFeetArray(0.0);
+  feet_array_t<scalar_t> minYawFeetRtBase =
+      makeFeetArray(0.0);  // [rad] bounds on foot yaw - pelvis (base) yaw, the
+                           // hip yaw joint range
+  feet_array_t<scalar_t> maxYawFeetRtBase = makeFeetArray(0.0);
   std::optional<SlackPenalty> slack;
 };
 /** Yaw torque the ground can carry, derived from the model and the wrench cone,
  * not a file key. */
 struct YawTorqueBudgetParameters {
-  scalar_t torsionalFrictionTorque =
+  scalar_t maxTorqueFootEwrtFootZ =
       0.0;  // [N m] |yaw torque| one stance foot carries
-  scalar_t doubleSupportYawCouple =
+  scalar_t doubleSupportMaxTorqueFeetmeanEwrtWorldZ =
       0.0;  // [N m] additional |yaw torque| from the couple of two stance feet
 };
 /** The parameters of the `contact_switch` assignment cost (the `contact_switch`
@@ -578,7 +607,7 @@ struct PhaseResettingParameters {
   static constexpr scalar_t kDefaultEarlyTouchdownMinAdvance = 0.04;    // [s]
   static constexpr scalar_t kDefaultMaxLateTouchdownExtension = 0.15;   // [s]
   static constexpr scalar_t kDefaultLateTouchdownExtensionStep = 0.05;  // [s]
-  static constexpr scalar_t kDefaultLateTouchdownSearchVelocity =
+  static constexpr scalar_t kNomLateTouchdownSearchSpeedFootRtWorld =
       0.05;  // [m/s]
 
   // Contact during this initial fraction of the nominal swing is ignored
@@ -604,7 +633,8 @@ struct PhaseResettingParameters {
   // [s] the touch-down is pushed this far ahead of the current time per cycle
   scalar_t lateTouchdownExtensionStep = kDefaultLateTouchdownExtensionStep;
   // [m/s] the foot height target descends at this rate during the extension
-  scalar_t lateTouchdownSearchVelocity = kDefaultLateTouchdownSearchVelocity;
+  scalar_t lateTouchdownSearchSpeedFootRtWorld =
+      kNomLateTouchdownSearchSpeedFootRtWorld;
 };
 /** The parameters of the `energy_cadence_modulation` execution rule (the
  * `energy_cadence_modulation` block of contact_planning). Passive data. */
@@ -622,13 +652,15 @@ struct EnergyCadenceModulationParameters {
  * `dcm_step_adjustment` block of contact_planning). Passive data. */
 struct DcmStepAdjustmentParameters {
   static constexpr scalar_t kDefaultGain = 0.5;
-  static constexpr scalar_t kDefaultMaxOffset = 0.05;  // [m]
+  static constexpr scalar_t kNomMaxNormErrPosFootRtWorldEwrtWorldXy =
+      0.05;  // [m]
 
   scalar_t gain = kDefaultGain;  // gain on the closed-form LIP step adjustment
                                  // (1 = exact compensation of the increment)
-  scalar_t maxOffset =
-      kDefaultMaxOffset;  // [m] bound on the landing target offset (also
-                          // clipped to the reachable region)
+  scalar_t maxNormErrPosFootRtWorldEwrtWorldXy =
+      kNomMaxNormErrPosFootRtWorldEwrtWorldXy;  // [m] bound on the landing
+                                                // target offset (also clipped
+                                                // to the reachable region)
 };
 
 /**
@@ -652,7 +684,7 @@ struct ContactPlanningConfig {
   HeadingRateTrackingParameters headingRateTracking;
   HeadingTrackingParameters headingTracking;
   FootYawTrackingParameters footYawTracking;
-  YawTorqueRegularizationParameters yawTorqueRegularization;
+  YawTorqueRegularizationParameters yawTorqueRegularizationParameters;
   FootYawRegularizationParameters footYawRegularization;
   ZmpRegularizationParameters zmpRegularization;
   FootholdRegularizationParameters footholdRegularization;
@@ -662,7 +694,7 @@ struct ContactPlanningConfig {
   ReachabilityParameters reachability;
   FootSeparationParameters footSeparation;
   HipYawRangeParameters hipYawRange;
-  YawTorqueBudgetParameters yawTorqueBudget;
+  YawTorqueBudgetParameters yawTorqueBudgetParameters;
   ContactSwitchParameters contactSwitch;
   PlanConsistencyParameters planConsistency;
   DoubleSupportPenaltyParameters doubleSupportPenalty;
@@ -674,7 +706,7 @@ struct ContactPlanningConfig {
   EnergyCadenceModulationParameters energyCadenceModulation;
   DcmStepAdjustmentParameters dcmStepAdjustment;
 
-  static constexpr scalar_t kDefaultFootYawOffset =
+  static constexpr scalar_t kNomMaxYawFootRtBase =
       0.5;  // [rad] symmetric fallback when no hip yaw joint can be identified
   // [nodes] a duration within this of a whole number of nodes counts as that
   // number in the node conversions below.
@@ -684,35 +716,38 @@ struct ContactPlanningConfig {
   bool usesHeadingModel() const { return formulation.usesHeadingModel(); }
   void setHeadingModel(bool on) { formulation.setHeadingModel(on); }
 
-  /** sqrt(gravity / comHeight); NaN while shared.comHeight is unset
-   * (validateStatus() refuses that). */
+  /** sqrt(gravity / nomPosComRtFeetmeanEwrtWorldZ); NaN while
+   * shared.nomPosComRtFeetmeanEwrtWorldZ is unset (validateStatus() refuses
+   * that). */
   scalar_t omega() const {
-    return std::sqrt(shared.gravity / pendulumHeight());
+    return std::sqrt(shared.gravity / getNomPosComRtFeetmeanEwrtWorldZ());
   }
-  /** [m] shared.comHeight; NaN while it is unset (validateStatus() refuses
-   * that), for the code that runs validated. */
-  scalar_t pendulumHeight() const {
-    return shared.comHeight.value_or(
+  /** [m] shared.nomPosComRtFeetmeanEwrtWorldZ; NaN while it is unset
+   * (validateStatus() refuses that), for the code that runs validated. */
+  scalar_t getNomPosComRtFeetmeanEwrtWorldZ() const {
+    return shared.nomPosComRtFeetmeanEwrtWorldZ.value_or(
         std::numeric_limits<scalar_t>::quiet_NaN());
   }
   scalar_t horizon() const {
     return planner.dt * static_cast<scalar_t>(planner.numNodes);
   }
 
-  /** Bounds [rad] on (foot yaw - heading) of one foot. */
+  /** Bounds [rad] on (foot yaw - pelvis (base) yaw) of one foot, the hip yaw
+   * joint range. */
   struct FootYawOffsetBounds {
-    scalar_t lower = 0.0;
-    scalar_t upper = 0.0;
+    scalar_t minYawFootRtBase = 0.0;
+    scalar_t maxYawFootRtBase = 0.0;
   };
-  /** Bounds on (foot yaw - heading) of a foot. */
+  /** Bounds on (foot yaw - pelvis (base) yaw) of a foot. */
   FootYawOffsetBounds footYawOffsetBounds(size_t foot) const {
-    return {.lower = hipYawRange.lower[foot], .upper = hipYawRange.upper[foot]};
+    return {.minYawFootRtBase = hipYawRange.minYawFeetRtBase[foot],
+            .maxYawFootRtBase = hipYawRange.maxYawFeetRtBase[foot]};
   }
   /** Symmetric foot yaw bounds, for tests and for robots without a
    * model-derived value. */
-  void setSymmetricFootYawOffset(scalar_t offset) {
-    hipYawRange.lower = makeFeetArray(-offset);
-    hipYawRange.upper = makeFeetArray(offset);
+  void setSymmetricMaxYawFootRtBase(scalar_t maxYawFootRtBase) {
+    hipYawRange.minYawFeetRtBase = makeFeetArray(-maxYawFootRtBase);
+    hipYawRange.maxYawFeetRtBase = makeFeetArray(maxYawFootRtBase);
   }
   /** True once the model-derived parameters of the heading model have been
    * applied. */
@@ -720,12 +755,16 @@ struct ContactPlanningConfig {
     // The foot yaw bounds are the marker: derived bounds always straddle zero,
     // and a zero torque limit is a legitimate derived value (a frictionless
     // sole), not a missing one.
-    if (yawTorqueBudget.torsionalFrictionTorque < 0.0 ||
-        yawTorqueBudget.doubleSupportYawCouple < 0.0)
+    if (yawTorqueBudgetParameters.maxTorqueFootEwrtFootZ < 0.0 ||
+        yawTorqueBudgetParameters.doubleSupportMaxTorqueFeetmeanEwrtWorldZ <
+            0.0) {
       return false;
+    }
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      if (!(hipYawRange.lower[foot] < 0.0 && hipYawRange.upper[foot] > 0.0))
+      if (!(hipYawRange.minYawFeetRtBase[foot] < 0.0 &&
+            hipYawRange.maxYawFeetRtBase[foot] > 0.0)) {
         return false;
+      }
     }
     return true;
   }
@@ -770,8 +809,8 @@ struct ContactPlanningConfig {
    * OK, or InvalidArgument for the first inconsistent key (every block, and the
    * formulation). Each message names the key to change with its path inside the
    * `contact_planning` block (`foothold_regularization.weight`,
-   * `planner.maxSolveTime`, `hlip.minStepWidth`, ...) and the value it read. On
-   * success the warnings() are logged with LOG(WARNING).
+   * `planner.maxSolveTime`, `hlip.minPosLfootRtRfootEwrtHeadingY`, ...) and the
+   * value it read. On success the warnings() are logged with LOG(WARNING).
    */
   absl::Status validateStatus() const;
 
@@ -781,10 +820,10 @@ struct ContactPlanningConfig {
    * Per planner:
    *  - hlip: planned_com_override missing from `execution` (the robot sidesteps
    * and falls, H-LIP README 3c); a first step out of a standstill that does not
-   * fit hlip.maxStepWidth (README 3b); a background thread (a stale feedback
-   *    law, README 6); a sustained sidestep that is clipped on every step; an
-   * instantaneous exchange of support with an uncapped commit extension (the
-   * planner stalls, PlannerSettings::maxCommitExtension).
+   * fit hlip.maxPosLfootRtRfootEwrtHeadingY (README 3b); a background thread (a
+   * stale feedback law, README 6); a sustained sidestep that is clipped on
+   * every step; an instantaneous exchange of support with an uncapped commit
+   * extension (the planner stalls, PlannerSettings::maxCommitExtension).
    *  - lip_miqp: a synchronous planner (the branch-and-bound blocks every MPC
    * solve); a commit window shorter than the solve budget (plans arrive stale
    * and are dropped); a zero minimum double support with an uncapped commit

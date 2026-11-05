@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <memory>
 #include <string>
 #include <system_error>
@@ -142,8 +143,9 @@ std::vector<int> processThreadIds() {
        !error && entry != std::filesystem::directory_iterator();
        entry.increment(error)) {
     int id = 0;
-    if (absl::SimpleAtoi(entry->path().filename().string(), &id))
+    if (absl::SimpleAtoi(entry->path().filename().string(), &id)) {
       ids.push_back(id);
+    }
   }
   std::sort(ids.begin(), ids.end());
   return ids;
@@ -156,8 +158,9 @@ double differingPixelFraction(absl::Span<const uint8_t> first,
   for (size_t pixel = 0; pixel + 2 < first.size(); pixel += 3) {
     if (first[pixel] != second[pixel] ||
         first[pixel + 1] != second[pixel + 1] ||
-        first[pixel + 2] != second[pixel + 2])
+        first[pixel + 2] != second[pixel + 2]) {
       ++differing;
+    }
   }
   return static_cast<double>(differing) / static_cast<double>(first.size() / 3);
 }
@@ -181,8 +184,9 @@ void writeTestImage(absl::string_view name,
   const char* absl_nullable directory =
       std::getenv("TEST_UNDECLARED_OUTPUTS_DIR");
   if (directory == nullptr || width <= 0 || height <= 0 ||
-      rgb.size() != static_cast<size_t>(width) * height * 3)
+      rgb.size() != static_cast<size_t>(width) * height * 3) {
     return;
+  }
   std::ofstream file(absl::StrCat(directory, "/", name, ".ppm"),
                      std::ios::binary);
   file << absl::StrCat("P6\n", width, " ", height, "\n255\n");

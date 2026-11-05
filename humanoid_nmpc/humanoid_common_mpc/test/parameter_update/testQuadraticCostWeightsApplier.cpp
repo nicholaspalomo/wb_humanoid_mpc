@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <cstddef>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -36,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/statusor.h"
@@ -43,7 +45,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/FactoryFunctions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/cost/QuadraticStateCost.h"
+#include "ocs2_core/cost/StateCost.h"
+#include "ocs2_core/cost/StateInputCost.h"
 #include "ocs2_core/initialization/DefaultInitializer.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
@@ -53,7 +59,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
@@ -62,6 +67,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/cost/TuningQuadraticStateCost.h"
 #include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
+#include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/parameter_update/HotUpdateTarget.h"
 #include "humanoid_common_mpc/parameter_update/QuadraticCostWeightsApplier.h"
 #include "humanoid_common_mpc/parameter_update/ReferenceManagerApplier.h"

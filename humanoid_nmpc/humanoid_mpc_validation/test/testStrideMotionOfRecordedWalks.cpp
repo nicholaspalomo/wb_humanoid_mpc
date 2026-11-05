@@ -135,12 +135,13 @@ std::map<std::string, scalar_t> gaitCycles() {
 
 /** The world-frame base twist [v_W, w_W] of a record (its velocities are in the
  * base frame). */
-vector6_t worldTwistOf(const RobotStateRecord& record) {
-  const Eigen::Quaterniond rotation(record.baseQuaternion);
-  vector6_t twist;
-  twist << rotation * record.baseLinearVelocityLocal,
-      rotation * record.baseAngularVelocityLocal;
-  return twist;
+vector6_t computeTwistBaseRtWorldEwrtWorld(const RobotStateRecord& record) {
+  const Eigen::Quaterniond quatBaseRtWorld(record.quatBaseRtWorldXyzw);
+  vector6_t twistBaseRtWorldEwrtWorld;
+  twistBaseRtWorldEwrtWorld
+      << quatBaseRtWorld * record.linvelBaseRtWorldEwrtBase,
+      quatBaseRtWorld * record.angvelBaseRtWorldEwrtBase;
+  return twistBaseRtWorldEwrtWorld;
 }
 
 /** [s] The lag in [0.8, 2.2] s at which the autocorrelation of the pelvis yaw
@@ -156,8 +157,10 @@ scalar_t strideOfYawRate(const RecordedRobotStates& recording) {
     while (next + 1 < records.size() && records[next].time < time) ++next;
     const scalar_t fraction = (time - records[next - 1].time) /
                               (records[next].time - records[next - 1].time);
-    rate.push_back((1.0 - fraction) * worldTwistOf(records[next - 1])(5) +
-                   fraction * worldTwistOf(records[next])(5));
+    rate.push_back((1.0 - fraction) *
+                       computeTwistBaseRtWorldEwrtWorld(records[next - 1])(5) +
+                   fraction *
+                       computeTwistBaseRtWorldEwrtWorld(records[next])(5));
   }
   scalar_t mean = 0.0;
   for (const scalar_t value : rate)
@@ -181,8 +184,8 @@ scalar_t strideOfYawRate(const RecordedRobotStates& recording) {
  * Passive data. */
 struct StrideMeans {
   scalar_t largestTurn = 0.0;
-  scalar_t largestLateralVelocity = 0.0;
-  scalar_t smallestForwardVelocity = 1.0e300;
+  scalar_t largestLinvelBaseRtWorldEwrtHeadingY = 0.0;
+  scalar_t smallestLinvelBaseRtWorldEwrtHeadingX = 1.0e300;
   /** The means, sample by sample from the first whole stride on. */
   std::vector<scalar_t> turns;
 };
@@ -202,24 +205,27 @@ StrideMeans strideMeansOf(const RecordedRobotStates& recording,
     const scalar_t addedTurn = turnRate * (record.time - start);
     const Eigen::Quaterniond turned =
         Eigen::Quaterniond(Eigen::AngleAxisd(addedTurn, vector3_t::UnitZ())) *
-        Eigen::Quaterniond(record.baseQuaternion);
+        Eigen::Quaterniond(record.quatBaseRtWorldXyzw);
     // The motion before the recording: its first sample's exact planar motion,
     // as the motion manager seeds a history.
-    history.addSample(record.time, vector2_t(record.basePosition.head<2>()),
+    history.addSample(record.time,
+                      vector2_t(record.posBaseRtWorldEwrtWorld.head<2>()),
                       yawOf(turned.coeffs()), [&record]() {
-                        return instantaneousPlanarMotion(record.baseQuaternion,
-                                                         worldTwistOf(record));
+                        return instantaneousPlanarMotion(
+                            record.quatBaseRtWorldXyzw,
+                            computeTwistBaseRtWorldEwrtWorld(record));
                       });
     if (record.time < start + window) continue;
     const BasePlanarMotion mean = history.mean(window);
     means.turns.push_back(mean.rateYawBaseRtWorld);
     means.largestTurn =
         std::max(means.largestTurn, std::abs(mean.rateYawBaseRtWorld));
-    means.largestLateralVelocity =
-        std::max(means.largestLateralVelocity,
+    means.largestLinvelBaseRtWorldEwrtHeadingY =
+        std::max(means.largestLinvelBaseRtWorldEwrtHeadingY,
                  std::abs(mean.linvelBaseRtWorldEwrtHeadingXy(1)));
-    means.smallestForwardVelocity = std::min(
-        means.smallestForwardVelocity, mean.linvelBaseRtWorldEwrtHeadingXy(0));
+    means.smallestLinvelBaseRtWorldEwrtHeadingX =
+        std::min(means.smallestLinvelBaseRtWorldEwrtHeadingX,
+                 mean.linvelBaseRtWorldEwrtHeadingXy(0));
   }
   return means;
 }
@@ -243,24 +249,28 @@ TEST(StrideMotionOfRecordedWalks,
     // The instantaneous motion of the pelvis, exact, sways past the thresholds
     // ...
     scalar_t largestYawRate = 0.0;
-    scalar_t largestLateralVelocity = 0.0;
+    scalar_t largestLinvelBaseRtWorldEwrtHeadingY = 0.0;
     for (const RobotStateRecord& record : recording.records) {
       const BasePlanarMotion instantaneous = instantaneousPlanarMotion(
-          record.baseQuaternion, worldTwistOf(record));
+          record.quatBaseRtWorldXyzw, computeTwistBaseRtWorldEwrtWorld(record));
       largestYawRate =
-          std::max(largestYawRate, std::abs(worldTwistOf(record)(5)));
-      largestLateralVelocity =
-          std::max(largestLateralVelocity,
+          std::max(largestYawRate,
+                   std::abs(computeTwistBaseRtWorldEwrtWorld(record)(5)));
+      largestLinvelBaseRtWorldEwrtHeadingY =
+          std::max(largestLinvelBaseRtWorldEwrtHeadingY,
                    std::abs(instantaneous.linvelBaseRtWorldEwrtHeadingXy(1)));
     }
     EXPECT_GT(largestYawRate, 0.15)
         << "the pelvis must yaw fast enough to have raised slow_walk";
-    EXPECT_GT(largestLateralVelocity, 0.1) << "the pelvis must sway sideways";
+    EXPECT_GT(largestLinvelBaseRtWorldEwrtHeadingY, 0.1)
+        << "the pelvis must sway sideways";
     // ... its mean over the gait's cycle does not.
     const StrideMeans means = strideMeansOf(recording, cycle, /*turnRate=*/0.0);
     EXPECT_LT(means.largestTurn, kStraightTurnBound);
-    EXPECT_LT(means.largestLateralVelocity, kStraightLateralBound);
-    EXPECT_GT(means.smallestForwardVelocity, 0.05) << "it walks forward";
+    EXPECT_LT(means.largestLinvelBaseRtWorldEwrtHeadingY,
+              kStraightLateralBound);
+    EXPECT_GT(means.smallestLinvelBaseRtWorldEwrtHeadingX, 0.05)
+        << "it walks forward";
   }
 }
 
@@ -289,9 +299,10 @@ scalar_t fractionMovingSidewaysFasterThan(const RecordedRobotStates& recording,
                                           scalar_t speed) {
   size_t faster = 0;
   for (const RobotStateRecord& record : recording.records) {
-    if (std::abs(instantaneousPlanarMotion(record.baseQuaternion,
-                                           worldTwistOf(record))
-                     .linvelBaseRtWorldEwrtHeadingXy(1)) > speed)
+    if (std::abs(
+            instantaneousPlanarMotion(record.quatBaseRtWorldXyzw,
+                                      computeTwistBaseRtWorldEwrtWorld(record))
+                .linvelBaseRtWorldEwrtHeadingXy(1)) > speed)
       ++faster;
   }
   return static_cast<scalar_t>(faster) /
@@ -338,8 +349,9 @@ BridgedMeans meansWithAGap(const std::vector<RobotStateRecord>& records,
   for (const RobotStateRecord& record : records) {
     if (record.time > gapStart + 1.0e-9 && record.time < gapEnd - 1.0e-9)
       continue;
-    history.addSample(record.time, vector2_t(record.basePosition.head<2>()),
-                      yawOf(record.baseQuaternion), [&seeds]() {
+    history.addSample(record.time,
+                      vector2_t(record.posBaseRtWorldEwrtWorld.head<2>()),
+                      yawOf(record.quatBaseRtWorldXyzw), [&seeds]() {
                         ++seeds;
                         return BasePlanarMotion{};
                       });
@@ -375,8 +387,8 @@ TEST(StrideMotionOfRecordedWalks,
       SCOPED_TRACE(gap);
       int stalls = 0;
       scalar_t largestTurnError = 0.0;
-      scalar_t largestVelocityErrorBeforeTheStall = 0.0;
-      scalar_t largestVelocityError = 0.0;
+      scalar_t beforeStallLargestNormErrLinvelBaseRtWorldEwrtHeadingXy = 0.0;
+      scalar_t largestNormErrLinvelBaseRtWorldEwrtHeadingXy = 0.0;
       for (size_t start = 0; start < records.size(); start += 7) {
         const scalar_t gapStart = records[start].time;
         if (gapStart - cycle < records.front().time ||
@@ -398,18 +410,21 @@ TEST(StrideMotionOfRecordedWalks,
           const scalar_t turnError =
               std::abs(bridged.means[i].rateYawBaseRtWorld -
                        dense.means[denseIndex].rateYawBaseRtWorld);
-          const scalar_t velocityError =
+          const scalar_t normErrLinvelBaseRtWorldEwrtHeadingXy =
               (bridged.means[i].linvelBaseRtWorldEwrtHeadingXy -
                dense.means[denseIndex].linvelBaseRtWorldEwrtHeadingXy)
                   .norm();
           if (time - cycle <= gapStart) {
             EXPECT_LT(turnError, 1.0e-12)
                 << "t = " << time << ": the window starts before the stall";
-            largestVelocityErrorBeforeTheStall =
-                std::max(largestVelocityErrorBeforeTheStall, velocityError);
+            beforeStallLargestNormErrLinvelBaseRtWorldEwrtHeadingXy = std::max(
+                beforeStallLargestNormErrLinvelBaseRtWorldEwrtHeadingXy,
+                normErrLinvelBaseRtWorldEwrtHeadingXy);
           }
           largestTurnError = std::max(largestTurnError, turnError);
-          largestVelocityError = std::max(largestVelocityError, velocityError);
+          largestNormErrLinvelBaseRtWorldEwrtHeadingXy =
+              std::max(largestNormErrLinvelBaseRtWorldEwrtHeadingXy,
+                       normErrLinvelBaseRtWorldEwrtHeadingXy);
           if (time - cycle < gapStart + gap - 1.0e-6) {
             EXPECT_FALSE(bridged.measured[i]) << "t = " << time;
           }
@@ -417,9 +432,10 @@ TEST(StrideMotionOfRecordedWalks,
       }
       if (stalls == 0)
         continue;  // a recording shorter than two strides and the stall
-      EXPECT_LT(largestVelocityErrorBeforeTheStall, 0.0075);
+      EXPECT_LT(beforeStallLargestNormErrLinvelBaseRtWorldEwrtHeadingXy,
+                0.0075);
       EXPECT_LT(largestTurnError, 0.045);
-      EXPECT_LT(largestVelocityError, 0.051);
+      EXPECT_LT(largestNormErrLinvelBaseRtWorldEwrtHeadingXy, 0.051);
     }
   }
 }
@@ -454,10 +470,12 @@ TEST(StrideMotionOfRecordedWalks,
            ++i) {
         const RobotStateRecord& seedRecord = records[first];
         history.addSample(
-            records[i].time, vector2_t(records[i].basePosition.head<2>()),
-            yawOf(records[i].baseQuaternion), [&seedRecord]() {
-              return instantaneousPlanarMotion(seedRecord.baseQuaternion,
-                                               worldTwistOf(seedRecord));
+            records[i].time,
+            vector2_t(records[i].posBaseRtWorldEwrtWorld.head<2>()),
+            yawOf(records[i].quatBaseRtWorldXyzw), [&seedRecord]() {
+              return instantaneousPlanarMotion(
+                  seedRecord.quatBaseRtWorldXyzw,
+                  computeTwistBaseRtWorldEwrtWorld(seedRecord));
             });
         turned =
             turned || std::abs(history.mean(cycle).rateYawBaseRtWorld) > 0.15;

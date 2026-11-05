@@ -121,10 +121,11 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
                 f"state_weights.joint_positions[joint={joint.joint}].value",
                 rendered,
             )
-        for wrench in task.input_weights.contact_wrenches:
+        # NOLINTNEXTLINE(frame-naming): per-component weights (section 5)
+        for wrench_weight in task.input_weights.contact_wrenches:
             for axis in "xyz":
                 self.assertIn(
-                    f"input_weights.contact_wrenches[contact={wrench.contact}].force.{axis}",
+                    f"input_weights.contact_wrenches[contact={wrench_weight.contact}].force.{axis}",
                     rendered,
                 )
 

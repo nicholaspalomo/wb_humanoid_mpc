@@ -34,29 +34,40 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <numbers>
 #include <numeric>
 #include <optional>
-#include <string>
 #include <utility>
 #include <vector>
 
 #include "Eigen/LU"
-#include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/frames.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact/ContactPolygon.h"
+#include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/PinocchioFrameConversions.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 
@@ -231,12 +242,13 @@ absl::Status ContactWrenchConeConstraint::validateConfig(const Config& config) {
           config.gripForceContactEwrtContactZ >= 0.0,
       "grip_force_contact_ewrt_contact_z", config.gripForceContactEwrtContactZ,
       "finite and non-negative"));
-  if (!config.patchOffset.allFinite()) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("[ContactWrenchConeConstraint] the torsional reference "
-                     "point (Config::patchOffset) is [",
-                     config.patchOffset.x(), ", ", config.patchOffset.y(), ", ",
-                     config.patchOffset.z(), "] but must be finite."));
+  if (!config.posPatchpointRtContactEwrtContact.allFinite()) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[ContactWrenchConeConstraint] the torsional reference "
+        "point (Config::posPatchpointRtContactEwrtContact) is [",
+        config.posPatchpointRtContactEwrtContact.x(), ", ",
+        config.posPatchpointRtContactEwrtContact.y(), ", ",
+        config.posPatchpointRtContactEwrtContact.z(), "] but must be finite."));
   }
   return absl::OkStatus();
 }
@@ -245,16 +257,31 @@ absl::Status ContactWrenchConeConstraint::validateFootprint(
     const ContactRectangle& contactRectangle) {
   const PolygonBounds& bounds = contactRectangle.getBounds();
   const bool finite =
-      std::isfinite(bounds.x_min) && std::isfinite(bounds.x_max) &&
-      std::isfinite(bounds.y_min) && std::isfinite(bounds.y_max);
-  if (finite && bounds.x_min < bounds.x_max && bounds.y_min < bounds.y_max) {
+      std::isfinite(bounds.min_pos_corners_rt_contact_ewrt_contact_x) &&
+      std::isfinite(bounds.max_pos_corners_rt_contact_ewrt_contact_x) &&
+      std::isfinite(bounds.min_pos_corners_rt_contact_ewrt_contact_y) &&
+      std::isfinite(bounds.max_pos_corners_rt_contact_ewrt_contact_y);
+  if (finite &&
+      bounds.min_pos_corners_rt_contact_ewrt_contact_x <
+          bounds.max_pos_corners_rt_contact_ewrt_contact_x &&
+      bounds.min_pos_corners_rt_contact_ewrt_contact_y <
+          bounds.max_pos_corners_rt_contact_ewrt_contact_y) {
     return absl::OkStatus();
   }
   return absl::InvalidArgumentError(absl::StrCat(
       "[ContactWrenchConeConstraint] ", kFootprintField,
-      ".{x_min, x_max, y_min, y_max} is [", bounds.x_min, ", ", bounds.x_max,
-      "] x [", bounds.y_min, ", ", bounds.y_max,
-      "] but must be finite with x_min < x_max and y_min < y_max: the wrench "
+      ".{min_pos_corners_rt_contact_ewrt_contact_x, "
+      "max_pos_corners_rt_contact_ewrt_contact_x, "
+      "min_pos_corners_rt_contact_ewrt_contact_y, "
+      "max_pos_corners_rt_contact_ewrt_contact_y} is [",
+      bounds.min_pos_corners_rt_contact_ewrt_contact_x, ", ",
+      bounds.max_pos_corners_rt_contact_ewrt_contact_x, "] x [",
+      bounds.min_pos_corners_rt_contact_ewrt_contact_y, ", ",
+      bounds.max_pos_corners_rt_contact_ewrt_contact_y,
+      "] but must be finite with min_pos_corners_rt_contact_ewrt_contact_x < "
+      "max_pos_corners_rt_contact_ewrt_contact_x and "
+      "min_pos_corners_rt_contact_ewrt_contact_y < "
+      "max_pos_corners_rt_contact_ewrt_contact_y: the wrench "
       "cone of a "
       "footprint of zero length or width is not full-dimensional."));
 }
@@ -304,27 +331,33 @@ bool ContactWrenchConeConstraint::isActive(scalar_t time) const {
   return referenceManagerPtr_->isInContact(time, contactPointIndex_);
 }
 
-vector3_t contactPatchReferencePoint(
+vector3_t computePosPatchpointRtContactEwrtContact(
     const ContactWrenchConeConstraint::Config& config,
     const ContactRectangle& contactRectangle) {
-  if (!config.patchOffset.isZero(kPatchOffsetZeroThreshold)) {
-    return config.patchOffset;
+  if (!config.posPatchpointRtContactEwrtContact.isZero(
+          kPatchOffsetZeroThreshold)) {
+    return config.posPatchpointRtContactEwrtContact;
   }
   const PolygonBounds& bounds = contactRectangle.getBounds();
-  return vector3_t(0.5 * (bounds.x_min + bounds.x_max),
-                   0.5 * (bounds.y_min + bounds.y_max), 0.0);
+  return vector3_t(0.5 * (bounds.min_pos_corners_rt_contact_ewrt_contact_x +
+                          bounds.max_pos_corners_rt_contact_ewrt_contact_x),
+                   0.5 * (bounds.min_pos_corners_rt_contact_ewrt_contact_y +
+                          bounds.max_pos_corners_rt_contact_ewrt_contact_y),
+                   0.0);
 }
 
 scalar_t inscribedFrictionCoefficient(
     const ContactWrenchConeConstraint::Config& config) {
   return config.frictionCoefficient *
-         std::cos(M_PI / static_cast<scalar_t>(config.numBasisVectors));
+         std::cos(std::numbers::pi /
+                  static_cast<scalar_t>(config.numBasisVectors));
 }
 
 std::vector<vector3_t> frictionPyramidEdges(
     const ContactWrenchConeConstraint::Config& config) {
   const size_t numEdges = config.numBasisVectors;
-  const scalar_t angleStep = 2.0 * M_PI / static_cast<scalar_t>(numEdges);
+  const scalar_t angleStep =
+      2.0 * std::numbers::pi / static_cast<scalar_t>(numEdges);
   std::vector<vector3_t> edges;
   edges.reserve(numEdges);
   for (size_t k = 0; k < numEdges; ++k) {
@@ -336,13 +369,18 @@ std::vector<vector3_t> frictionPyramidEdges(
   return edges;
 }
 
-std::array<vector2_t, ContactRectangle::kNumCorners> footprintCorners(
+std::array<vector2_t, ContactRectangle::kNumCorners>
+computePosCornersRtContactEwrtContactXy(
     const ContactRectangle& contactRectangle) {
   const PolygonBounds& bounds = contactRectangle.getBounds();
-  return {vector2_t(bounds.x_max, bounds.y_max),
-          vector2_t(bounds.x_max, bounds.y_min),
-          vector2_t(bounds.x_min, bounds.y_max),
-          vector2_t(bounds.x_min, bounds.y_min)};
+  return {vector2_t(bounds.max_pos_corners_rt_contact_ewrt_contact_x,
+                    bounds.max_pos_corners_rt_contact_ewrt_contact_y),
+          vector2_t(bounds.max_pos_corners_rt_contact_ewrt_contact_x,
+                    bounds.min_pos_corners_rt_contact_ewrt_contact_y),
+          vector2_t(bounds.min_pos_corners_rt_contact_ewrt_contact_x,
+                    bounds.max_pos_corners_rt_contact_ewrt_contact_y),
+          vector2_t(bounds.min_pos_corners_rt_contact_ewrt_contact_x,
+                    bounds.min_pos_corners_rt_contact_ewrt_contact_y)};
 }
 
 namespace {
@@ -434,21 +472,34 @@ std::vector<vector6_t> torsionFacets(
     const ContactWrenchConeConstraint::Config& config,
     const ContactRectangle& contactRectangle) {
   const PolygonBounds& bounds = contactRectangle.getBounds();
-  const vector2_t planarCenter(0.5 * (bounds.x_min + bounds.x_max),
-                               0.5 * (bounds.y_min + bounds.y_max));
-  const vector3_t center(planarCenter.x(), planarCenter.y(), 0.0);
+  const vector2_t posFootprintRtContactEwrtContactXy(
+      0.5 * (bounds.min_pos_corners_rt_contact_ewrt_contact_x +
+             bounds.max_pos_corners_rt_contact_ewrt_contact_x),
+      0.5 * (bounds.min_pos_corners_rt_contact_ewrt_contact_y +
+             bounds.max_pos_corners_rt_contact_ewrt_contact_y));
+  const vector3_t posFootprintRtContactEwrtContact(
+      posFootprintRtContactEwrtContactXy.x(),
+      posFootprintRtContactEwrtContactXy.y(), 0.0);
   const scalar_t lengthScale =
-      0.5 * std::max(bounds.x_max - bounds.x_min, bounds.y_max - bounds.y_min);
+      0.5 * std::max(bounds.max_pos_corners_rt_contact_ewrt_contact_x -
+                         bounds.min_pos_corners_rt_contact_ewrt_contact_x,
+                     bounds.max_pos_corners_rt_contact_ewrt_contact_y -
+                         bounds.min_pos_corners_rt_contact_ewrt_contact_y);
 
   const std::vector<vector3_t> edges = frictionPyramidEdges(config);
-  const std::array<vector2_t, ContactRectangle::kNumCorners> corners =
-      footprintCorners(contactRectangle);
+  const std::array<vector2_t, ContactRectangle::kNumCorners>
+      posCornersRtContactEwrtContactXy =
+          computePosCornersRtContactEwrtContactXy(contactRectangle);
   matrix_t scaledGenerators(
-      kWrenchDim, static_cast<Eigen::Index>(edges.size() * corners.size()));
+      kWrenchDim, static_cast<Eigen::Index>(
+                      edges.size() * posCornersRtContactEwrtContactXy.size()));
   Eigen::Index column = 0;
   for (const vector3_t& edge : edges) {
-    for (const vector2_t& corner : corners) {
-      vector6_t generator = generatorWrenchAt(corner - planarCenter, edge);
+    for (const vector2_t& posCornerRtContactEwrtContactXy :
+         posCornersRtContactEwrtContactXy) {
+      vector6_t generator = generatorWrenchAt(
+          posCornerRtContactEwrtContactXy - posFootprintRtContactEwrtContactXy,
+          edge);
       generator.tail<kTorqueDim>() /= lengthScale;
       scaledGenerators.col(column++) = generator.normalized();
     }
@@ -456,13 +507,15 @@ std::vector<vector6_t> torsionFacets(
 
   std::vector<vector6_t> rows;
   for (const vector6_t& normal : enumerateConeFacets(scaledGenerators)) {
-    if (std::abs(normal(kWrenchDim - 1)) <= kYawComponentThreshold)
+    if (std::abs(normal(kWrenchDim - 1)) <= kYawComponentThreshold) {
       continue;  // a friction or CoP facet
+    }
     const vector3_t momentCoefficients =
         normal.tail<kTorqueDim>() / lengthScale;
     vector6_t row;
     row.head<kForceDim>() =
-        normal.head<kForceDim>() - momentCoefficients.cross(center);
+        normal.head<kForceDim>() -
+        momentCoefficients.cross(posFootprintRtContactEwrtContact);
     row.tail<kTorqueDim>() = momentCoefficients;
     rows.push_back(row / std::abs(momentCoefficients.z()));
   }
@@ -475,14 +528,18 @@ matrix_t cornerContactWrenchGenerators(
     const ContactWrenchConeConstraint::Config& config,
     const ContactRectangle& contactRectangle) {
   const std::vector<vector3_t> edges = frictionPyramidEdges(config);
-  const std::array<vector2_t, ContactRectangle::kNumCorners> corners =
-      footprintCorners(contactRectangle);
-  matrix_t generators(kWrenchDim,
-                      static_cast<Eigen::Index>(edges.size() * corners.size()));
+  const std::array<vector2_t, ContactRectangle::kNumCorners>
+      posCornersRtContactEwrtContactXy =
+          computePosCornersRtContactEwrtContactXy(contactRectangle);
+  matrix_t generators(
+      kWrenchDim, static_cast<Eigen::Index>(
+                      edges.size() * posCornersRtContactEwrtContactXy.size()));
   Eigen::Index column = 0;
   for (const vector3_t& edge : edges) {
-    for (const vector2_t& corner : corners) {
-      generators.col(column++) = generatorWrenchAt(corner, edge);
+    for (const vector2_t& posCornerRtContactEwrtContactXy :
+         posCornersRtContactEwrtContactXy) {
+      generators.col(column++) =
+          generatorWrenchAt(posCornerRtContactEwrtContactXy, edge);
     }
   }
   return generators;
@@ -508,7 +565,7 @@ ContactWrenchConeRows buildFrictionPyramidRows(
   // mu / cos(pi/N).
   const scalar_t facetFriction = inscribedFrictionCoefficient(config);
   const scalar_t angleStep =
-      2.0 * M_PI / static_cast<scalar_t>(numFrictionRows);
+      2.0 * std::numbers::pi / static_cast<scalar_t>(numFrictionRows);
   for (size_t k = 0; k < numFrictionRows; ++k) {
     const scalar_t theta_k = static_cast<scalar_t>(k) * angleStep;
     rows.A_f(constraintIdx, kXAxisIndex) = -std::cos(theta_k);
@@ -561,32 +618,40 @@ ContactWrenchConeRows buildLocalWrenchConeRows(
   // 3. Center of Pressure (CoP) / Moment constraints (Bounds relative to local
   // foot contact frame)
   const PolygonBounds& bounds = contactRectangle.getBounds();
-  // tau_x - y_min * Fz >= 0
-  rows.A_f(constraintIdx, kZAxisIndex) = -bounds.y_min;
+  // tau_x - min_pos_corners_rt_contact_ewrt_contact_y * Fz >= 0
+  rows.A_f(constraintIdx, kZAxisIndex) =
+      -bounds.min_pos_corners_rt_contact_ewrt_contact_y;
   rows.A_tau(constraintIdx, kXAxisIndex) = 1.0;
   ++constraintIdx;
 
-  // -tau_x + y_max * Fz >= 0
-  rows.A_f(constraintIdx, kZAxisIndex) = bounds.y_max;
+  // -tau_x + max_pos_corners_rt_contact_ewrt_contact_y * Fz >= 0
+  rows.A_f(constraintIdx, kZAxisIndex) =
+      bounds.max_pos_corners_rt_contact_ewrt_contact_y;
   rows.A_tau(constraintIdx, kXAxisIndex) = -1.0;
   ++constraintIdx;
 
-  // -tau_y - x_min * Fz >= 0
-  rows.A_f(constraintIdx, kZAxisIndex) = -bounds.x_min;
+  // -tau_y - min_pos_corners_rt_contact_ewrt_contact_x * Fz >= 0
+  rows.A_f(constraintIdx, kZAxisIndex) =
+      -bounds.min_pos_corners_rt_contact_ewrt_contact_x;
   rows.A_tau(constraintIdx, kYAxisIndex) = -1.0;
   ++constraintIdx;
 
-  // tau_y + x_max * Fz >= 0
-  rows.A_f(constraintIdx, kZAxisIndex) = bounds.x_max;
+  // tau_y + max_pos_corners_rt_contact_ewrt_contact_x * Fz >= 0
+  rows.A_f(constraintIdx, kZAxisIndex) =
+      bounds.max_pos_corners_rt_contact_ewrt_contact_x;
   rows.A_tau(constraintIdx, kYAxisIndex) = 1.0;
   ++constraintIdx;
 
   // 4. The torsion facets of the corner cone. The gripper force acts on them as
   // a normal force at the footprint center.
-  const vector2_t center(0.5 * (bounds.x_min + bounds.x_max),
-                         0.5 * (bounds.y_min + bounds.y_max));
+  const vector2_t posFootprintRtContactEwrtContactXy(
+      0.5 * (bounds.min_pos_corners_rt_contact_ewrt_contact_x +
+             bounds.max_pos_corners_rt_contact_ewrt_contact_x),
+      0.5 * (bounds.min_pos_corners_rt_contact_ewrt_contact_y +
+             bounds.max_pos_corners_rt_contact_ewrt_contact_y));
   const vector6_t gripWrenchContactEwrtContact = generatorWrenchAt(
-      center, vector3_t(0.0, 0.0, config.gripForceContactEwrtContactZ));
+      posFootprintRtContactEwrtContactXy,
+      vector3_t(0.0, 0.0, config.gripForceContactEwrtContactZ));
   for (const vector6_t& torsionRow : torsionRows) {
     rows.A_f.row(constraintIdx) = torsionRow.head<kForceDim>().transpose();
     rows.A_tau.row(constraintIdx) = torsionRow.tail<kTorqueDim>().transpose();
@@ -645,16 +710,20 @@ vector_t ContactWrenchConeConstraint::getValue(
   const pinocchio::FrameIndex frameID = getContactFrameIndex(
       *pinocchioInterfacePtr_, *mpcRobotModelPtr_, contactPointIndex_);
 
-  const matrix3_t w_R_l = getRotmatLinkRtWorld(data, frameID);
-  const matrix3_t l_R_w = w_R_l.transpose();
+  const matrix3_t rotmatContactRtWorld = getRotmatLinkRtWorld(data, frameID);
+  const matrix3_t rotmatWorldRtContact = rotmatContactRtWorld.transpose();
 
+  // checkWrenchInputLayout() admits only wrench-space models, whose input
+  // stores the world-frame wrench: param = world here.
   const vector3_t forceContactEwrtWorld =
       mpcRobotModelPtr_->getForceContactEwrtParam(input, contactPointIndex_);
   const vector3_t torqueContactEwrtWorld =
       mpcRobotModelPtr_->getTorqueContactEwrtParam(input, contactPointIndex_);
 
-  const vector3_t forceContactEwrtContact = l_R_w * forceContactEwrtWorld;
-  const vector3_t torqueContactEwrtContact = l_R_w * torqueContactEwrtWorld;
+  const vector3_t forceContactEwrtContact =
+      rotmatWorldRtContact * forceContactEwrtWorld;
+  const vector3_t torqueContactEwrtContact =
+      rotmatWorldRtContact * torqueContactEwrtWorld;
 
   return A_f_local_ * forceContactEwrtContact +
          A_tau_local_ * torqueContactEwrtContact + b_local_;
@@ -673,35 +742,41 @@ ContactWrenchConeConstraint::getLinearApproximation(
   const pinocchio::FrameIndex frameID = getContactFrameIndex(
       *pinocchioInterfacePtr_, *mpcRobotModelPtr_, contactPointIndex_);
 
-  const matrix3_t w_R_l = getRotmatLinkRtWorld(data, frameID);
-  const matrix3_t l_R_w = w_R_l.transpose();
+  const matrix3_t rotmatContactRtWorld = getRotmatLinkRtWorld(data, frameID);
+  const matrix3_t rotmatWorldRtContact = rotmatContactRtWorld.transpose();
 
-  const matrix_t A_f_world = A_f_local_ * l_R_w;
-  const matrix_t A_tau_world = A_tau_local_ * l_R_w;
+  const matrix_t A_f_world = A_f_local_ * rotmatWorldRtContact;
+  const matrix_t A_tau_world = A_tau_local_ * rotmatWorldRtContact;
 
+  // checkWrenchInputLayout() admits only wrench-space models, whose input
+  // stores the world-frame wrench: param = world here.
   const vector3_t forceContactEwrtWorld =
       mpcRobotModelPtr_->getForceContactEwrtParam(input, contactPointIndex_);
   const vector3_t torqueContactEwrtWorld =
       mpcRobotModelPtr_->getTorqueContactEwrtParam(input, contactPointIndex_);
-  const vector3_t forceContactEwrtContact = l_R_w * forceContactEwrtWorld;
-  const vector3_t torqueContactEwrtContact = l_R_w * torqueContactEwrtWorld;
+  const vector3_t forceContactEwrtContact =
+      rotmatWorldRtContact * forceContactEwrtWorld;
+  const vector3_t torqueContactEwrtContact =
+      rotmatWorldRtContact * torqueContactEwrtWorld;
 
-  // THE STATE DERIVATIVE, through the rotation. With w_R_l' = w_R_l
-  // [omega_local]x, the local image of a fixed world vector moves as d(l_R_w
-  // v)/dt = -[omega_local]x (l_R_w v) = [v_local]x omega_local, and omega_local
-  // is the angular half of the contact frame's LOCAL Jacobian times the
-  // Pinocchio velocity v. That gives the derivative in a step of q in v's
-  // coordinates (Pinocchio's tangent), which the robot model's
+  // THE STATE DERIVATIVE, through the rotation. With rotmatContactRtWorld' =
+  // rotmatContactRtWorld [omega_local]x, the local image of a fixed world
+  // vector moves as d(rotmatWorldRtContact v)/dt = -[omega_local]x
+  // (rotmatWorldRtContact v) = [v_local]x omega_local, and omega_local is the
+  // angular half of the contact frame's LOCAL Jacobian times the Pinocchio
+  // velocity v. That gives the derivative in a step of q in v's coordinates
+  // (Pinocchio's tangent), which the robot model's
   // getPinocchioTangentJacobian() takes to the state: the identity on the
   // position and joint slots, E^+(xi) on the quaternion's.
-  matrix_t frameJacobian = matrix_t::Zero(kTwistDim, model.nv);
+  matrix_t jacContactRtWorldEwrtContact = matrix_t::Zero(kTwistDim, model.nv);
   pinocchio::computeFrameJacobian(model, data, q, frameID, pinocchio::LOCAL,
-                                  frameJacobian);
-  const matrix_t angularJacobian =
-      frameJacobian.bottomRows<kRotationTangentDim>();
-  const matrix_t dfdq =
-      A_f_local_ * skewSymmetric(forceContactEwrtContact) * angularJacobian +
-      A_tau_local_ * skewSymmetric(torqueContactEwrtContact) * angularJacobian;
+                                  jacContactRtWorldEwrtContact);
+  const matrix_t angjacContactRtWorldEwrtContact =
+      jacContactRtWorldEwrtContact.bottomRows<kRotationTangentDim>();
+  const matrix_t dfdq = A_f_local_ * skewSymmetric(forceContactEwrtContact) *
+                            angjacContactRtWorldEwrtContact +
+                        A_tau_local_ * skewSymmetric(torqueContactEwrtContact) *
+                            angjacContactRtWorldEwrtContact;
 
   VectorFunctionLinearApproximation linearApproximation;
   linearApproximation.f = A_f_local_ * forceContactEwrtContact +

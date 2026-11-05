@@ -33,16 +33,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <vector>
 
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
-#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "support/CentroidalMpcLoop.h"
 #include "support/ShippedCentroidalRobot.h"
 
@@ -67,9 +68,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-constexpr scalar_t kYawRate = 1.0;           // [rad/s]
-constexpr scalar_t kStandingTime = 1.0;      // [s] before the command
-constexpr scalar_t kTurn = 4.0 * M_PI;       // [rad]
+constexpr scalar_t kCmdRateYawBaseRtWorld = 1.0;  // [rad/s]
+constexpr scalar_t kStandingTime = 1.0;           // [s] before the command
+constexpr scalar_t kCmdErrYawBaseRtWorld = 4.0 * std::numbers::pi;  // [rad]
 constexpr scalar_t kLongestTurnTime = 25.0;  // [s] the turn must be done by
 // The yaw weight of the base orientation, about half the shipped roll weight:
 // the shipped SA01 weighs no yaw and does not follow a turn in place
@@ -78,20 +79,21 @@ constexpr scalar_t kLongestTurnTime = 25.0;  // [s] the turn must be done by
 constexpr scalar_t kBaseYawWeight = 40.0;
 // The sum of squared shooting gaps of a solve that counts as converged.
 constexpr scalar_t kConvergedViolation = 1.0e-6;
-// The solves after the step of the yaw rate command from 0 to kYawRate (0.1 s
-// at the SA01's 80 Hz), which the check of a jump of the dynamics violation
-// leaves out; one of them must be converged again. The shipped SA01 takes one
-// SQP iteration per solve (sqp_iteration: 1), and one Newton step zeroes the
-// linearized shooting gaps, not the gaps: what is left is their second-order
-// remainder, 1/2 dw' (d^2 F) dw, which grows with the step dw the solve takes.
-// A step of the reference makes dw large for the solve or two that move the
-// plan onto it (an SQP-RTI transient, Diehl et al. 2005): 4.8e-6 on the solve
-// after the command, below 1e-7 three solves later. Three iterations per solve
-// take it below 1e-12 the solve after, the quadratic convergence of a
-// consistent formulation. The reference used to reach the solver through a
-// low-pass filter of the target calculator (alpha 0.8 per call, which made the
-// reference depend on the solve rate and was removed), so the step reached it
-// as a ramp and the transient stayed below kConvergedViolation.
+// The solves after the step of the yaw rate command from 0 to
+// kCmdRateYawBaseRtWorld (0.1 s at the SA01's 80 Hz), which the check of a jump
+// of the dynamics violation leaves out; one of them must be converged again.
+// The shipped SA01 takes one SQP iteration per solve (sqp_iteration: 1), and
+// one Newton step zeroes the linearized shooting gaps, not the gaps: what is
+// left is their second-order remainder, 1/2 dw' (d^2 F) dw, which grows with
+// the step dw the solve takes. A step of the reference makes dw large for the
+// solve or two that move the plan onto it (an SQP-RTI transient, Diehl et al.
+// 2005): 4.8e-6 on the solve after the command, below 1e-7 three solves later.
+// Three iterations per solve take it below 1e-12 the solve after, the quadratic
+// convergence of a consistent formulation. The reference used to reach the
+// solver through a low-pass filter of the target calculator (alpha 0.8 per
+// call, which made the reference depend on the solve rate and was removed), so
+// the step reached it as a ramp and the transient stayed below
+// kConvergedViolation.
 constexpr int kOnsetSolves = 8;
 // [rad] How far the heading may go back between two solves (the gait sways it):
 // monotone up to that.
@@ -118,18 +120,21 @@ TEST(TurnInPlace720, TheMpcTurnsTwiceRoundThroughPiWithoutAJumpOfItsSolves) {
 
   // Standing, then turning; the heading unwrapped by the steps between solves,
   // each far below pi.
-  scalar_t previousHeading = model.getYawBaseRtWorld(loop.observation().state);
-  scalar_t turned = 0.0;
-  scalar_t largestGapRotation = 0.0;
+  scalar_t prevYawBaseRtWorld =
+      model.getYawBaseRtWorld(loop.observation().state);
+  scalar_t errYawBaseRtWorld = 0.0;
+  scalar_t largestGapAngle = 0.0;
   scalar_t largestFeedbackShare = 0.0;
   scalar_t largestHeadingDecrease = 0.0;
   std::vector<scalar_t> costs;
   std::vector<scalar_t> dynamicsViolations;
   int crossingsOfPi = 0;
-  loop.command(/*forward=*/0.0, /*lateral=*/0.0, /*yawRate=*/0.0);
+  loop.command(/*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0,
+               /*cmdLinvelBaseRtWorldEwrtHeadingY=*/0.0,
+               /*cmdRateYawBaseRtWorld=*/0.0);
   bool turning = false;
   std::string gaits;  // the gait at every second, for a failure's message
-  while (turned < kTurn) {
+  while (errYawBaseRtWorld < kCmdErrYawBaseRtWorld) {
     const scalar_t time = loop.observation().time;
     if (std::floor(time) != std::floor(time - loop.period())) {
       // The gait, the heading turned so far, and the headings the reference and
@@ -138,24 +143,28 @@ TEST(TurnInPlace720, TheMpcTurnsTwiceRoundThroughPiWithoutAJumpOfItsSolves) {
           loop.interface()
               .getSwitchedModelReferenceManagerPtr()
               ->getTargetTrajectories();
-      const scalar_t targetHeading =
+      const scalar_t finalRefYawBaseRtWorld =
           targets.empty()
               ? 0.0
               : model.getYawBaseRtWorld(targets.stateTrajectory.back());
-      const scalar_t plannedHeading =
+      const scalar_t plannedFinalYawBaseRtWorld =
           loop.hasPolicy() && !loop.policy().stateTrajectory_.empty()
               ? model.getYawBaseRtWorld(loop.policy().stateTrajectory_.back())
               : 0.0;
       absl::StrAppend(&gaits, " t=", std::floor(time), ":",
                       loop.motionManager().getCurrentGaitCommand(), " turned ",
-                      turned, " heading ",
+                      errYawBaseRtWorld, " heading ",
                       model.getYawBaseRtWorld(loop.observation().state),
-                      " target ", targetHeading, " plan ", plannedHeading, ";");
+                      " target ", finalRefYawBaseRtWorld, " plan ",
+                      plannedFinalYawBaseRtWorld, ";");
     }
     ASSERT_LT(time, kStandingTime + kLongestTurnTime)
-        << "the robot turned only " << turned << " rad; gaits:" << gaits;
+        << "the robot turned only " << errYawBaseRtWorld
+        << " rad; gaits:" << gaits;
     if (!turning && time >= kStandingTime) {
-      loop.command(/*forward=*/0.0, /*lateral=*/0.0, kYawRate);
+      loop.command(/*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0,
+                   /*cmdLinvelBaseRtWorldEwrtHeadingY=*/0.0,
+                   kCmdRateYawBaseRtWorld);
       turning = true;
     }
     // A small push of the momentum after every solve, so that the plant leaves
@@ -166,24 +175,27 @@ TEST(TurnInPlace720, TheMpcTurnsTwiceRoundThroughPiWithoutAJumpOfItsSolves) {
                   .finished());
     const absl::StatusOr<CentroidalMpcLoopStep> step = loop.step();
     ASSERT_TRUE(step.ok()) << "t = " << time << ": " << step.status();
-    largestGapRotation = std::max(largestGapRotation, step->initialGapRotation);
+    largestGapAngle = std::max(largestGapAngle, step->initialGapAngle);
     largestFeedbackShare = std::max(
         largestFeedbackShare,
         step->feedbackCorrection / std::max(1.0, step->feedforwardMagnitude));
-    const scalar_t heading = model.getYawBaseRtWorld(loop.observation().state);
-    const scalar_t change =
-        std::remainder(heading - previousHeading, 2.0 * M_PI);
-    if (std::abs(heading - previousHeading) > M_PI) ++crossingsOfPi;
-    previousHeading = heading;
+    const scalar_t yawBaseRtWorld =
+        model.getYawBaseRtWorld(loop.observation().state);
+    const scalar_t change = std::remainder(yawBaseRtWorld - prevYawBaseRtWorld,
+                                           2.0 * std::numbers::pi);
+    if (std::abs(yawBaseRtWorld - prevYawBaseRtWorld) > std::numbers::pi) {
+      ++crossingsOfPi;
+    }
+    prevYawBaseRtWorld = yawBaseRtWorld;
     if (!turning) continue;
-    turned += change;
+    errYawBaseRtWorld += change;
     largestHeadingDecrease = std::max(largestHeadingDecrease, -change);
     costs.push_back(step->performance.cost);
     dynamicsViolations.push_back(step->performance.dynamicsViolationSSE);
   }
   ASSERT_GT(dynamicsViolations.size(), static_cast<size_t>(kOnsetSolves));
 
-  EXPECT_LT(largestGapRotation, 0.1)
+  EXPECT_LT(largestGapAngle, 0.1)
       << "the rotation part of the initial state gap";
   const scalar_t medianCost = median(costs);
   const std::vector<scalar_t> onsetViolations(
@@ -213,7 +225,7 @@ TEST(TurnInPlace720, TheMpcTurnsTwiceRoundThroughPiWithoutAJumpOfItsSolves) {
   EXPECT_GT(largestFeedbackShare, 1.0e-6)
       << "the push must make the feedback act";
   ::testing::Test::RecordProperty("largest_initial_gap_rotation",
-                                  absl::StrCat(largestGapRotation));
+                                  absl::StrCat(largestGapAngle));
   ::testing::Test::RecordProperty("largest_feedback_share",
                                   absl::StrCat(largestFeedbackShare));
   ::testing::Test::RecordProperty("largest_heading_decrease",

@@ -31,15 +31,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
-#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/constraint/LipConstraintBase.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningTerm.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipConstraint.h"
+#include "humanoid_common_mpc/contact_planning/problem/RowBuilder.h"
 
 namespace ocs2::humanoid {
 
 /**
- * `foot_separation` (soft, every node): |e_x . (p_L - p_R)| <= maxStepLength
- * and minStepWidth <= e_y . (p_L - p_R) <= maxStepWidth (the self-collision
- * margin), with the first-order heading term of the frame.
+ * `foot_separation` (soft, every node): |e_x . (p_L - p_R)| <=
+ * maxNormPosLfootRtRfootEwrtHeadingX and minPosLfootRtRfootEwrtHeadingY <= e_y
+ * . (p_L - p_R) <= maxPosLfootRtRfootEwrtHeadingY (the self-collision margin),
+ * with the first-order heading term of the frame.
  *
  * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
  * configures and evaluates it from one thread at a time.

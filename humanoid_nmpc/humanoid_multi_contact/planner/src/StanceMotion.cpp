@@ -82,12 +82,37 @@ constexpr double kSegmentEnd = 1.0e-9;
 constexpr double kMiddle = 0.5;
 
 /** world_R_pad of a placement: z along the normal, x along its x axis. */
-Eigen::Matrix3d placementRotation(const ContactPlacement& placement) {
-  Eigen::Matrix3d rotation;
-  rotation.col(kXAxisIndex) = placement.xAxis;
-  rotation.col(kYAxisIndex) = placement.normal.cross(placement.xAxis);
-  rotation.col(kZAxisIndex) = placement.normal;
-  return rotation;
+Eigen::Matrix3d computeRotmatPadRtWorld(const ContactPlacement& placement) {
+  Eigen::Matrix3d rotmatPadRtWorld;
+  rotmatPadRtWorld.col(kXAxisIndex) = placement.xAxisPadEwrtWorld;
+  rotmatPadRtWorld.col(kYAxisIndex) =
+      placement.normalSurfaceEwrtWorld.cross(placement.xAxisPadEwrtWorld);
+  rotmatPadRtWorld.col(kZAxisIndex) = placement.normalSurfaceEwrtWorld;
+  return rotmatPadRtWorld;
+}
+
+/** Returns the exact coordinates of `vector`, "%a" keeping every bit of each
+ * double. */
+std::string exactCoordinatesOf(const Eigen::Vector3d& vector) {
+  return absl::StrFormat("%a,%a,%a", vector.x(), vector.y(), vector.z());
+}
+
+/**
+ * Returns the key of the support polygon of `stance`. The polygon depends on
+ * each pad's exact position, its surface normal (the friction cone's axis) and
+ * its x axis (the sole rectangle's yaw), besides its candidate (the rectangle)
+ * and primitive (the friction); stanceKey() rounds the position and keeps no
+ * orientation, so it cannot key the polygon.
+ */
+std::string polygonKey(const StancePlacements& stance) {
+  std::string key;
+  for (const ContactPlacement& placement : stance) {
+    absl::StrAppend(&key, placement.candidate, "@", placement.primitive, ":",
+                    exactCoordinatesOf(placement.posPadRtWorldEwrtWorld), "|",
+                    exactCoordinatesOf(placement.normalSurfaceEwrtWorld), "|",
+                    exactCoordinatesOf(placement.xAxisPadEwrtWorld), ";");
+  }
+  return key;
 }
 
 }  // namespace
@@ -103,7 +128,8 @@ ContactMask maskOf(const StancePlacements& stance) {
 std::string stanceKey(const StancePlacements& stance) {
   std::string key;
   for (const ContactPlacement& placement : stance) {
-    const Eigen::Vector3d cell = placement.position / kKeyResolution;
+    const Eigen::Vector3d cell =
+        placement.posPadRtWorldEwrtWorld / kKeyResolution;
     absl::StrAppend(
         &key, placement.candidate, "@", placement.primitive, ":",
         placement.face.has_value() ? static_cast<int>(*placement.face) : -1,
@@ -145,35 +171,48 @@ std::optional<ContactPlacement> placementOf(const StancePlacements& stance,
 namespace {
 
 /** The corners of a surface placement's rectangle in the world. */
-std::vector<Eigen::Vector3d> cornersOf(const ContactPlacement& placement,
-                                       const ContactRectangle& rectangle) {
-  const Eigen::Vector3d yAxis = placement.normal.cross(placement.xAxis);
-  std::vector<Eigen::Vector3d> corners;
-  for (const double x : {rectangle.xMin, rectangle.xMax}) {
-    for (const double y : {rectangle.yMin, rectangle.yMax}) {
-      corners.push_back(placement.position + x * placement.xAxis + y * yAxis);
+std::vector<Eigen::Vector3d> computePosCornersRtWorldEwrtWorld(
+    const ContactPlacement& placement, const ContactRectangle& rectangle) {
+  const Eigen::Vector3d yAxisPadEwrtWorld =
+      placement.normalSurfaceEwrtWorld.cross(placement.xAxisPadEwrtWorld);
+  std::vector<Eigen::Vector3d> posCornersRtWorldEwrtWorld;
+  for (const double x : {rectangle.minPosCornersRtPadEwrtPadX,
+                         rectangle.maxPosCornersRtPadEwrtPadX}) {
+    for (const double y : {rectangle.minPosCornersRtPadEwrtPadY,
+                           rectangle.maxPosCornersRtPadEwrtPadY}) {
+      posCornersRtWorldEwrtWorld.push_back(placement.posPadRtWorldEwrtWorld +
+                                           x * placement.xAxisPadEwrtWorld +
+                                           y * yAxisPadEwrtWorld);
     }
   }
-  return corners;
+  return posCornersRtWorldEwrtWorld;
 }
 
-/** Whether the projections of `first` and `second` on `axis` are apart by at
- * least `margin`. */
-bool separatedAlong(const std::vector<Eigen::Vector3d>& first,
-                    const std::vector<Eigen::Vector3d>& second,
-                    const Eigen::Vector3d& axis,
-                    double margin) {
+/** Whether the projections of `firstPosCornersRtWorldEwrtWorld` and
+ * `secondPosCornersRtWorldEwrtWorld` on `separatingAxisEwrtWorld` are apart by
+ * at least `margin`. */
+bool separatedAlong(
+    const std::vector<Eigen::Vector3d>& firstPosCornersRtWorldEwrtWorld,
+    const std::vector<Eigen::Vector3d>& secondPosCornersRtWorldEwrtWorld,
+    const Eigen::Vector3d& separatingAxisEwrtWorld,
+    double margin) {
   double firstLow = std::numeric_limits<double>::infinity();
   double firstHigh = -firstLow;
   double secondLow = firstLow;
   double secondHigh = -firstLow;
-  for (const Eigen::Vector3d& corner : first) {
-    firstLow = std::min(firstLow, axis.dot(corner));
-    firstHigh = std::max(firstHigh, axis.dot(corner));
+  for (const Eigen::Vector3d& posCornerRtWorldEwrtWorld :
+       firstPosCornersRtWorldEwrtWorld) {
+    firstLow = std::min(firstLow,
+                        separatingAxisEwrtWorld.dot(posCornerRtWorldEwrtWorld));
+    firstHigh = std::max(
+        firstHigh, separatingAxisEwrtWorld.dot(posCornerRtWorldEwrtWorld));
   }
-  for (const Eigen::Vector3d& corner : second) {
-    secondLow = std::min(secondLow, axis.dot(corner));
-    secondHigh = std::max(secondHigh, axis.dot(corner));
+  for (const Eigen::Vector3d& posCornerRtWorldEwrtWorld :
+       secondPosCornersRtWorldEwrtWorld) {
+    secondLow = std::min(
+        secondLow, separatingAxisEwrtWorld.dot(posCornerRtWorldEwrtWorld));
+    secondHigh = std::max(
+        secondHigh, separatingAxisEwrtWorld.dot(posCornerRtWorldEwrtWorld));
   }
   return secondLow - firstHigh >= margin || firstLow - secondHigh >= margin;
 }
@@ -187,8 +226,10 @@ bool placementsOverlap(const ContactPlacement& first,
   // Normals within about 25 degrees, planes within 5 cm: one surface.
   constexpr double kSameSurfaceCosine = 0.9;
   constexpr double kSameSurfaceOffset = 0.05;
-  if (first.normal.dot(second.normal) < kSameSurfaceCosine ||
-      std::abs(first.normal.dot(second.position - first.position)) >
+  if (first.normalSurfaceEwrtWorld.dot(second.normalSurfaceEwrtWorld) <
+          kSameSurfaceCosine ||
+      std::abs(first.normalSurfaceEwrtWorld.dot(second.posPadRtWorldEwrtWorld -
+                                                first.posPadRtWorldEwrtWorld)) >
           kSameSurfaceOffset) {
     return false;
   }
@@ -198,7 +239,8 @@ bool placementsOverlap(const ContactPlacement& first,
       contactSet.candidate(second.candidate);
   if (!firstCandidate.rectangle.has_value() &&
       !secondCandidate.rectangle.has_value()) {
-    return (first.position - second.position).norm() <
+    return (first.posPadRtWorldEwrtWorld - second.posPadRtWorldEwrtWorld)
+               .norm() <
            firstCandidate.geomRadius + secondCandidate.geomRadius + margin;
   }
   if (!firstCandidate.rectangle.has_value() ||
@@ -207,17 +249,25 @@ bool placementsOverlap(const ContactPlacement& first,
         firstCandidate.rectangle.has_value() ? second : first;
     const ContactPlacement& surface =
         firstCandidate.rectangle.has_value() ? first : second;
-    return distanceToPad(padRegionOf(surface, contactSet), point.position) <
+    return distanceToPad(padRegionOf(surface, contactSet),
+                         point.posPadRtWorldEwrtWorld) <
            contactSet.candidate(point.candidate).geomRadius + margin;
   }
-  const std::vector<Eigen::Vector3d> firstCorners =
-      cornersOf(first, *firstCandidate.rectangle);
-  const std::vector<Eigen::Vector3d> secondCorners =
-      cornersOf(second, *secondCandidate.rectangle);
-  for (const Eigen::Vector3d& axis :
-       {first.xAxis, Eigen::Vector3d(first.normal.cross(first.xAxis)),
-        second.xAxis, Eigen::Vector3d(second.normal.cross(second.xAxis))}) {
-    if (separatedAlong(firstCorners, secondCorners, axis, margin)) return false;
+  const std::vector<Eigen::Vector3d> firstPosCornersRtWorldEwrtWorld =
+      computePosCornersRtWorldEwrtWorld(first, *firstCandidate.rectangle);
+  const std::vector<Eigen::Vector3d> secondPosCornersRtWorldEwrtWorld =
+      computePosCornersRtWorldEwrtWorld(second, *secondCandidate.rectangle);
+  for (const Eigen::Vector3d& separatingAxisEwrtWorld :
+       {first.xAxisPadEwrtWorld,
+        Eigen::Vector3d(
+            first.normalSurfaceEwrtWorld.cross(first.xAxisPadEwrtWorld)),
+        second.xAxisPadEwrtWorld,
+        Eigen::Vector3d(
+            second.normalSurfaceEwrtWorld.cross(second.xAxisPadEwrtWorld))}) {
+    if (separatedAlong(firstPosCornersRtWorldEwrtWorld,
+                       secondPosCornersRtWorldEwrtWorld,
+                       separatingAxisEwrtWorld, margin))
+      return false;
   }
   return true;
 }
@@ -225,8 +275,8 @@ bool placementsOverlap(const ContactPlacement& first,
 PadRegion padRegionOf(const ContactPlacement& placement,
                       const ContactSet& contactSet) {
   return PadRegion{
-      .center = placement.position,
-      .rotation = placementRotation(placement),
+      .posPadRtWorldEwrtWorld = placement.posPadRtWorldEwrtWorld,
+      .rotmatPadRtWorld = computeRotmatPadRtWorld(placement),
       .rectangle = contactSet.candidate(placement.candidate).rectangle};
 }
 
@@ -261,8 +311,10 @@ absl::StatusOr<std::unique_ptr<StanceMotion>> StanceMotion::Create(
     return absl::InvalidArgumentError("the stance motion needs an IK");
   }
   if (!(options.comMargin >= 0.0) || !(options.swingClearance > 0.0) ||
-      !(options.maxKnotComStep > 0.0) || !(options.maxKnotBaseStep > 0.0) ||
-      !(options.maxKnotPadStep > 0.0) || !(options.maxKnotJointStep > 0.0) ||
+      !(options.knotMaxNormErrPosComRtWorldEwrtWorld > 0.0) ||
+      !(options.knotMaxNormErrPosBaseRtWorldEwrtWorld > 0.0) ||
+      !(options.knotMaxNormErrPosPadRtWorldEwrtWorld > 0.0) ||
+      !(options.maxKnotJointStep > 0.0) ||
       options.maxSegmentKnots < kMinSegmentIntervals ||
       !(options.sphereTolerance >= 0.0) || !(options.padNeighborhood >= 0.0) ||
       !(options.pointTouchdownPostureLead > 0.0 &&
@@ -271,7 +323,7 @@ absl::StatusOr<std::unique_ptr<StanceMotion>> StanceMotion::Create(
         "the stance motion's margins and steps must be positive");
   }
   if (options.sweep.has_value() &&
-      !(options.sweep->joint > 0.0 && options.sweep->position > 0.0 &&
+      !(options.sweep->joint > 0.0 && options.sweep->baseTranslation > 0.0 &&
         options.sweep->tolerance >= 0.0 && options.sweep->minIntervals >= 1)) {
     return absl::InvalidArgumentError(
         "the stance motion's sweep resolution must be positive");
@@ -281,7 +333,7 @@ absl::StatusOr<std::unique_ptr<StanceMotion>> StanceMotion::Create(
 
 absl::StatusOr<std::vector<Eigen::Vector2d>> StanceMotion::polygonOf(
     const StancePlacements& stance) {
-  const std::string key = stanceKey(stance);
+  const std::string key = polygonKey(stance);
   if (const absl::flat_hash_map<
           std::string, std::vector<Eigen::Vector2d>>::const_iterator cached =
           polygons_.find(key);
@@ -297,13 +349,14 @@ absl::StatusOr<std::vector<Eigen::Vector2d>> StanceMotion::polygonOf(
         .name = candidate.name,
         .candidateIndex = placement.candidate,
         .kind = candidate.kind,
-        .position = placement.position,
-        .rotation = coneRotationOnSurface(placementRotation(placement),
-                                          placement.normal),
+        .posPadRtWorldEwrtWorld = placement.posPadRtWorldEwrtWorld,
+        .rotmatSurfaceRtWorld =
+            computeRotmatSurfaceRtWorld(computeRotmatPadRtWorld(placement),
+                                        placement.normalSurfaceEwrtWorld),
         .friction = ik_->terrain().primitive(placement.primitive).friction,
         .rectangle = candidate.rectangle});
   }
-  std::vector<Eigen::Vector2d> polygon;
+  std::vector<Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples;
   if (!contacts.empty()) {
     ASSIGN_OR_RETURN(
         const StaticEquilibrium equilibrium,
@@ -313,27 +366,30 @@ absl::StatusOr<std::vector<Eigen::Vector2d>> StanceMotion::polygonOf(
     if (absl::StatusOr<std::vector<Eigen::Vector2d>> support =
             equilibrium.supportPolygon();
         support.ok()) {
-      polygon = *std::move(support);
+      supportPosComRtWorldEwrtWorldXySamples = *std::move(support);
     } else if (support.status().code() != absl::StatusCode::kInternal) {
       return support.status();
     }
   }
-  polygons_[key] = polygon;
-  return polygon;
+  polygons_[key] = supportPosComRtWorldEwrtWorldXySamples;
+  return supportPosComRtWorldEwrtWorldXySamples;
 }
 
 StanceIkProblem StanceMotion::holdingProblem(
-    const StancePlacements& held, std::vector<Eigen::Vector2d> polygon) const {
+    const StancePlacements& held,
+    std::vector<Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples) const {
   StanceIkProblem problem;
   for (const ContactPlacement& placement : held) {
-    problem.contacts.push_back(ContactTarget{.candidate = placement.candidate,
-                                             .position = placement.position,
-                                             .normal = placement.normal,
-                                             .xAxis = placement.xAxis});
+    problem.contacts.push_back(ContactTarget{
+        .candidate = placement.candidate,
+        .posPadRtWorldEwrtWorld = placement.posPadRtWorldEwrtWorld,
+        .normalSurfaceEwrtWorld = placement.normalSurfaceEwrtWorld,
+        .xAxisPadEwrtWorld = placement.xAxisPadEwrtWorld});
     problem.exemptPads.push_back(
         exemptRegionOf(placement, ik_->model(), ik_->collision().linkAbove()));
   }
-  problem.comPolygon = std::move(polygon);
+  problem.supportPosComRtWorldEwrtWorldXySamples =
+      std::move(supportPosComRtWorldEwrtWorldXySamples);
   problem.comMargin = options_.comMargin;
   return problem;
 }
@@ -347,16 +403,18 @@ absl::StatusOr<std::optional<std::string>> StanceMotion::checkStatics(
   if (onTerrain.stance.empty()) {
     return std::optional<std::string>("the stance has no contact");
   }
-  if (onTerrain.maxPadDistance > ik_->options().reachTolerance) {
+  if (onTerrain.maxPadDistance >
+      ik_->options().maxNormErrPosPadRtWorldEwrtWorld) {
     return std::optional<std::string>(absl::StrFormat(
         "a pad is %.4f m from the terrain", onTerrain.maxPadDistance));
   }
   ASSIGN_OR_RETURN(
       const StaticEquilibrium equilibrium,
       StaticEquilibrium::Create(onTerrain.stance, options_.equilibrium));
-  const Eigen::Vector2d com =
-      robot.centerOfMass().head<kHorizontalPositionDim>();
-  const absl::StatusOr<double> residual = equilibrium.equilibriumResidual(com);
+  const Eigen::Vector2d posComRtWorldEwrtWorldXy =
+      robot.getPosComRtWorldEwrtWorld().head<kHorizontalPositionDim>();
+  const absl::StatusOr<double> residual =
+      equilibrium.equilibriumResidual(posComRtWorldEwrtWorldXy);
   if (!residual.ok()) {
     return std::optional<std::string>(absl::StrCat(
         "the equilibrium LP fails: ", residual.status().message()));
@@ -372,8 +430,10 @@ absl::StatusOr<std::optional<std::string>> StanceMotion::checkStatics(
       return std::optional<std::string>(absl::StrCat(
           "the support polygon's LPs fail: ", support.status().message()));
     }
-    const std::vector<Eigen::Vector2d>& polygon = *support;
-    const std::optional<double> margin = staticMargin(polygon, com);
+    const std::vector<Eigen::Vector2d>& supportPosComRtWorldEwrtWorldXySamples =
+        *support;
+    const std::optional<double> margin = staticMargin(
+        supportPosComRtWorldEwrtWorldXySamples, posComRtWorldEwrtWorldXy);
     if (!margin.has_value() || *margin < *options_.exactStaticMargin) {
       return std::optional<std::string>(
           absl::StrFormat("static margin %.4f m (needs %.4f m)",
@@ -383,16 +443,17 @@ absl::StatusOr<std::optional<std::string>> StanceMotion::checkStatics(
   if (!enforcesEffortLimits(options_.jointLimits)) {
     return std::optional<std::string>();
   }
-  const absl::StatusOr<TorqueFeasibilityResult> torques =
-      minimumTorqueUtilization(robot, equilibrium);
-  if (!torques.ok()) {
+  const absl::StatusOr<TorqueFeasibilityResult> jointTorques =
+      minimumJointTorqueUtilization(robot, equilibrium);
+  if (!jointTorques.ok()) {
     return std::optional<std::string>(
-        absl::StrCat("the torque LP fails: ", torques.status().message()));
+        absl::StrCat("the torque LP fails: ", jointTorques.status().message()));
   }
-  if (!isTorqueFeasible(*torques, options_.torqueMargin)) {
-    return std::optional<std::string>(absl::StrFormat(
-        "torque utilization %.3f at %s (at most %.3f)", torques->utilization,
-        torques->maxTorqueJoint, options_.torqueMargin));
+  if (!isJointTorqueFeasible(*jointTorques, options_.jointTorqueMargin)) {
+    return std::optional<std::string>(
+        absl::StrFormat("torque utilization %.3f at %s (at most %.3f)",
+                        jointTorques->utilization, jointTorques->maxTorqueJoint,
+                        options_.jointTorqueMargin));
   }
   return std::optional<std::string>();
 }
@@ -410,7 +471,7 @@ absl::StatusOr<std::optional<std::string>> StanceMotion::sphereClearance(
   RETURN_IF_ERROR(robot.setGeneralizedPosition(q));
   const SphereClearance clearance = ik_->collision().terrainClearance(
       robot, ik_->terrain(), maskOf(stance), options_.padNeighborhood,
-      /*restingTolerance=*/ik_->options().reachTolerance);
+      /*restingTolerance=*/ik_->options().maxNormErrPosPadRtWorldEwrtWorld);
   if (clearance.clearance.has_value() && *clearance.clearance < -tolerance) {
     return std::optional<std::string>(
         absl::StrFormat("a collision sphere of %s is %.4f m inside the terrain",
@@ -429,15 +490,15 @@ absl::StatusOr<std::optional<std::string>> StanceMotion::sweptClearance(
   const double samples = std::max(
       tangent.tail(tangent.size() - kPositionDim).lpNorm<Eigen::Infinity>() /
           options_.sweep->joint,
-      tangent.head<kPositionDim>().norm() / options_.sweep->position);
+      tangent.head<kPositionDim>().norm() / options_.sweep->baseTranslation);
   const int intervals = std::max(options_.sweep->minIntervals,
                                  static_cast<int>(std::ceil(samples)));
   ASSIGN_OR_RETURN(const std::optional<std::string> chord,
                    padChordCollision(from, to, stance, intervals));
   if (chord.has_value()) return chord;
-  std::vector<Eigen::Vector2d> polygon;
+  std::vector<Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples;
   if (!stance.empty()) {
-    ASSIGN_OR_RETURN(polygon, polygonOf(stance));
+    ASSIGN_OR_RETURN(supportPosComRtWorldEwrtWorldXySamples, polygonOf(stance));
   }
   const double comMargin = options_.comMargin - options_.sweep->comMarginSlack;
   for (int i = 1; i < intervals; ++i) {
@@ -450,9 +511,11 @@ absl::StatusOr<std::optional<std::string>> StanceMotion::sweptClearance(
           "%.2f of the way between two knots, %s", fraction, *penetration));
     }
     // sphereClearance() set the model's configuration.
-    if (polygon.size() < kMinPolygonVertices) continue;
+    if (supportPosComRtWorldEwrtWorldXySamples.size() < kMinPolygonVertices)
+      continue;
     const double margin = signedDistanceToConvexPolygon(
-        polygon, model().centerOfMass().head<kHorizontalPositionDim>());
+        supportPosComRtWorldEwrtWorldXySamples,
+        model().getPosComRtWorldEwrtWorld().head<kHorizontalPositionDim>());
     if (margin < comMargin) {
       return std::optional<std::string>(absl::StrFormat(
           "%.2f of the way between two knots, the CoM is %.4f m inside its "
@@ -475,18 +538,21 @@ absl::StatusOr<std::optional<std::string>> StanceMotion::jumpComDefect(
   const double samples = std::max(
       tangent.tail(tangent.size() - kPositionDim).lpNorm<Eigen::Infinity>() /
           options_.sweep->joint,
-      tangent.head<kPositionDim>().norm() / options_.sweep->position);
+      tangent.head<kPositionDim>().norm() / options_.sweep->baseTranslation);
   const int intervals = std::max(options_.sweep->minIntervals,
                                  static_cast<int>(std::ceil(samples)));
-  ASSIGN_OR_RETURN(const std::vector<Eigen::Vector2d> polygon,
-                   polygonOf(stance));
-  if (polygon.size() < kMinPolygonVertices) return std::optional<std::string>();
+  ASSIGN_OR_RETURN(
+      const std::vector<Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples,
+      polygonOf(stance));
+  if (supportPosComRtWorldEwrtWorldXySamples.size() < kMinPolygonVertices)
+    return std::optional<std::string>();
   for (int i = 1; i < intervals; ++i) {
     const double fraction = static_cast<double>(i) / intervals;
     RETURN_IF_ERROR(
         model().setGeneralizedPosition(knotInterpolation(from, to, fraction)));
     const double margin = signedDistanceToConvexPolygon(
-        polygon, model().centerOfMass().head<kHorizontalPositionDim>());
+        supportPosComRtWorldEwrtWorldXySamples,
+        model().getPosComRtWorldEwrtWorld().head<kHorizontalPositionDim>());
     if (margin < options_.comMargin) {
       return std::optional<std::string>(absl::StrFormat(
           "%.2f of the way through a jump, the CoM is %.4f m inside its "
@@ -504,12 +570,13 @@ absl::StatusOr<std::optional<std::string>> StanceMotion::padChordCollision(
     int intervals) {
   RobotStanceModel& robot = model();
   const ContactSet& contactSet = robot.contactSet();
-  // The points of each free pad's geometry, in its frame (z = -padNormal),
-  // with their radii: a point pad's sphere behind its center, as the MPC's
-  // terrain_non_penetration barrier places it; a sole's four corners.
+  // The points of each free pad's geometry, in its frame (z =
+  // -normalPadEwrtLink), with their radii: a point pad's sphere behind its
+  // center, as the MPC's terrain_non_penetration barrier places it; a sole's
+  // four corners, spheres of radius 0.
   struct PadPoint {
     int candidate = 0;
-    Eigen::Vector3d offset = Eigen::Vector3d::Zero();
+    Eigen::Vector3d posSphereRtPadEwrtPad = Eigen::Vector3d::Zero();
     double radius = 0.0;
   };
   std::vector<PadPoint> points;
@@ -517,38 +584,48 @@ absl::StatusOr<std::optional<std::string>> StanceMotion::padChordCollision(
     if (placementOf(stance, candidate).has_value()) continue;
     const ContactCandidate& pad = contactSet.candidate(candidate);
     if (pad.rectangle.has_value()) {
-      for (const double x : {pad.rectangle->xMin, pad.rectangle->xMax}) {
-        for (const double y : {pad.rectangle->yMin, pad.rectangle->yMax}) {
-          points.push_back(PadPoint{.candidate = candidate,
-                                    .offset = Eigen::Vector3d(x, y, 0.0)});
+      for (const double x : {pad.rectangle->minPosCornersRtPadEwrtPadX,
+                             pad.rectangle->maxPosCornersRtPadEwrtPadX}) {
+        for (const double y : {pad.rectangle->minPosCornersRtPadEwrtPadY,
+                               pad.rectangle->maxPosCornersRtPadEwrtPadY}) {
+          points.push_back(
+              PadPoint{.candidate = candidate,
+                       .posSphereRtPadEwrtPad = Eigen::Vector3d(x, y, 0.0)});
         }
       }
     } else if (pad.geomRadius > 0.0) {
-      points.push_back(
-          PadPoint{.candidate = candidate,
-                   .offset = pad.geomRadius * Eigen::Vector3d::UnitZ(),
-                   .radius = pad.geomRadius});
+      points.push_back(PadPoint{
+          .candidate = candidate,
+          .posSphereRtPadEwrtPad = pad.geomRadius * Eigen::Vector3d::UnitZ(),
+          .radius = pad.geomRadius});
     }
   }
   if (points.empty()) return std::optional<std::string>();
-  std::vector<Eigen::Vector3d> fromPositions;
-  std::vector<Eigen::Quaterniond> fromRotations;
+  std::vector<Eigen::Vector3d> initPosPadsRtWorldEwrtWorld;
+  std::vector<Eigen::Quaterniond> initQuatPadsRtWorld;
   RETURN_IF_ERROR(robot.setGeneralizedPosition(from));
   for (const PadPoint& point : points) {
-    fromPositions.push_back(robot.padPosition(point.candidate));
-    fromRotations.emplace_back(robot.padRotation(point.candidate));
+    initPosPadsRtWorldEwrtWorld.push_back(
+        robot.getPosPadRtWorldEwrtWorld(point.candidate));
+    initQuatPadsRtWorld.emplace_back(
+        robot.getRotmatPadRtWorld(point.candidate));
   }
   RETURN_IF_ERROR(robot.setGeneralizedPosition(to));
   for (size_t p = 0; p < points.size(); ++p) {
-    const Eigen::Vector3d toPosition = robot.padPosition(points[p].candidate);
-    const Eigen::Quaterniond toRotation(robot.padRotation(points[p].candidate));
+    const Eigen::Vector3d finalPosPadRtWorldEwrtWorld =
+        robot.getPosPadRtWorldEwrtWorld(points[p].candidate);
+    const Eigen::Quaterniond finalQuatPadRtWorld(
+        robot.getRotmatPadRtWorld(points[p].candidate));
     for (int i = 1; i < intervals; ++i) {
       const double fraction = static_cast<double>(i) / intervals;
-      const Eigen::Vector3d point =
-          fromPositions[p] + fraction * (toPosition - fromPositions[p]) +
-          fromRotations[p].slerp(fraction, toRotation) * points[p].offset;
-      const double depth =
-          points[p].radius - ik_->terrain().signedDistance(point);
+      const Eigen::Vector3d posSphereRtWorldEwrtWorld =
+          initPosPadsRtWorldEwrtWorld[p] +
+          fraction *
+              (finalPosPadRtWorldEwrtWorld - initPosPadsRtWorldEwrtWorld[p]) +
+          initQuatPadsRtWorld[p].slerp(fraction, finalQuatPadRtWorld) *
+              points[p].posSphereRtPadEwrtPad;
+      const double depth = points[p].radius - ik_->terrain().signedDistance(
+                                                  posSphereRtWorldEwrtWorld);
       if (depth > options_.sweep->tolerance) {
         return std::optional<std::string>(absl::StrFormat(
             "%.2f of the way between two knots, the straight path of the pad "
@@ -568,8 +645,8 @@ std::optional<std::string> StanceMotion::padInTerrain(
   }
   for (const int candidate : options_.clearedPads) {
     if (placementOf(held, candidate).has_value()) continue;
-    const double distance =
-        ik_->terrain().signedDistance(robot.padPosition(candidate));
+    const double distance = ik_->terrain().signedDistance(
+        robot.getPosPadRtWorldEwrtWorld(candidate));
     if (distance < -options_.padPenetrationTolerance) {
       return std::optional<std::string>(absl::StrFormat(
           "the pad of %s is %.4f m inside the terrain",
@@ -584,15 +661,18 @@ absl::StatusOr<MotionCheck> StanceMotion::transition(
     const StancePlacements& supporting,
     const Eigen::VectorXd& start,
     const std::vector<Eigen::VectorXd>& references) {
-  ASSIGN_OR_RETURN(std::vector<Eigen::Vector2d> polygon, polygonOf(supporting));
+  ASSIGN_OR_RETURN(
+      std::vector<Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples,
+      polygonOf(supporting));
   MotionCheck check;
-  if (polygon.size() < kMinPolygonVertices) {
+  if (supportPosComRtWorldEwrtWorldXySamples.size() < kMinPolygonVertices) {
     check.failure = "the supporting stance has no static equilibrium polygon";
     return check;
   }
-  StanceIkProblem problem = holdingProblem(held, std::move(polygon));
+  StanceIkProblem problem =
+      holdingProblem(held, std::move(supportPosComRtWorldEwrtWorldXySamples));
   StanceIkProblem reachOnly = problem;
-  reachOnly.comPolygon.clear();
+  reachOnly.supportPosComRtWorldEwrtWorldXySamples.clear();
   for (const Eigen::VectorXd& reference : references) {
     problem.postureReference = reference;
     ASSIGN_OR_RETURN(StanceIkResult result, ik_->solve(problem, start));
@@ -635,23 +715,32 @@ absl::StatusOr<std::optional<std::string>> StanceMotion::knotJump(
   constexpr double kAllowedLag = 2.0;
   RobotStanceModel& robot = model();
   RETURN_IF_ERROR(robot.setGeneralizedPosition(from));
-  const Eigen::Vector3d comFrom = robot.centerOfMass();
-  std::vector<Eigen::Vector3d> padsFrom;
+  const Eigen::Vector3d initPosComRtWorldEwrtWorld =
+      robot.getPosComRtWorldEwrtWorld();
+  std::vector<Eigen::Vector3d> initPosPadsRtWorldEwrtWorld;
   for (int pad = 0; pad < robot.contactSet().size(); ++pad) {
-    padsFrom.push_back(robot.padPosition(pad));
+    initPosPadsRtWorldEwrtWorld.push_back(robot.getPosPadRtWorldEwrtWorld(pad));
   }
   RETURN_IF_ERROR(robot.setGeneralizedPosition(to));
-  const double com = (robot.centerOfMass() - comFrom).norm();
-  if (com > kAllowedLag * options_.maxKnotComStep) {
+  const double normErrPosComRtWorldEwrtWorld =
+      (robot.getPosComRtWorldEwrtWorld() - initPosComRtWorldEwrtWorld).norm();
+  if (normErrPosComRtWorldEwrtWorld >
+      kAllowedLag * options_.knotMaxNormErrPosComRtWorldEwrtWorld) {
     return std::optional<std::string>(
-        absl::StrFormat("the CoM moves %.3f m between two knots", com));
+        absl::StrFormat("the CoM moves %.3f m between two knots",
+                        normErrPosComRtWorldEwrtWorld));
   }
   for (const int pad : movingPads) {
-    const double moved = (robot.padPosition(pad) - padsFrom[pad]).norm();
-    if (moved > kAllowedLag * options_.maxKnotPadStep) {
+    const double normErrPosPadRtWorldEwrtWorld =
+        (robot.getPosPadRtWorldEwrtWorld(pad) -
+         initPosPadsRtWorldEwrtWorld[pad])
+            .norm();
+    if (normErrPosPadRtWorldEwrtWorld >
+        kAllowedLag * options_.knotMaxNormErrPosPadRtWorldEwrtWorld) {
       return std::optional<std::string>(
           absl::StrFormat("the pad of %s moves %.3f m between two knots",
-                          robot.contactSet().candidate(pad).name, moved));
+                          robot.contactSet().candidate(pad).name,
+                          normErrPosPadRtWorldEwrtWorld));
     }
   }
   const Eigen::VectorXd tangent =
@@ -677,23 +766,28 @@ absl::StatusOr<int> StanceMotion::segmentIntervals(const Eigen::VectorXd& from,
                                                    double swingLength) {
   RobotStanceModel& robot = model();
   RETURN_IF_ERROR(robot.setGeneralizedPosition(from));
-  const Eigen::Vector3d comFrom = robot.centerOfMass();
-  std::vector<Eigen::Vector3d> padsFrom;
+  const Eigen::Vector3d initPosComRtWorldEwrtWorld =
+      robot.getPosComRtWorldEwrtWorld();
+  std::vector<Eigen::Vector3d> initPosPadsRtWorldEwrtWorld;
   for (int pad = 0; pad < robot.contactSet().size(); ++pad) {
-    padsFrom.push_back(robot.padPosition(pad));
+    initPosPadsRtWorldEwrtWorld.push_back(robot.getPosPadRtWorldEwrtWorld(pad));
   }
   RETURN_IF_ERROR(robot.setGeneralizedPosition(to));
   double intervals =
-      (robot.centerOfMass() - comFrom).norm() / options_.maxKnotComStep;
+      (robot.getPosComRtWorldEwrtWorld() - initPosComRtWorldEwrtWorld).norm() /
+      options_.knotMaxNormErrPosComRtWorldEwrtWorld;
   for (int pad = 0; pad < robot.contactSet().size(); ++pad) {
     intervals =
-        std::max(intervals, (robot.padPosition(pad) - padsFrom[pad]).norm() /
-                                options_.maxKnotPadStep);
+        std::max(intervals, (robot.getPosPadRtWorldEwrtWorld(pad) -
+                             initPosPadsRtWorldEwrtWorld[pad])
+                                    .norm() /
+                                options_.knotMaxNormErrPosPadRtWorldEwrtWorld);
   }
-  intervals = std::max(intervals, swingLength / options_.maxKnotPadStep);
+  intervals = std::max(
+      intervals, swingLength / options_.knotMaxNormErrPosPadRtWorldEwrtWorld);
   intervals = std::max(
       intervals, (to.head<kPositionDim>() - from.head<kPositionDim>()).norm() /
-                     options_.maxKnotBaseStep);
+                     options_.knotMaxNormErrPosBaseRtWorldEwrtWorld);
   const Eigen::VectorXd tangent =
       pinocchio::difference(robot.model(), from, to);
   intervals = std::max(
@@ -713,8 +807,8 @@ struct Swing {
   // The touchdown's path; std::nullopt for a lift-off alone.
   std::optional<SwingPath> path;
   // [m] Where the pad starts, and the outward normal there.
-  Eigen::Vector3d start = Eigen::Vector3d::Zero();
-  Eigen::Vector3d startNormal = Eigen::Vector3d::UnitZ();
+  Eigen::Vector3d initPosPadRtWorldEwrtWorld = Eigen::Vector3d::Zero();
+  Eigen::Vector3d initNormalSurfaceEwrtWorld = Eigen::Vector3d::UnitZ();
   // The regions exempt from the clearance near its start and its target.
   PadRegion startRegion;
   std::optional<PadRegion> targetRegion;
@@ -724,11 +818,11 @@ struct Swing {
   bool surface = false;
   // The normal a touchdown's sole is held level with
   // (SegmentContacts::levelTouchdownSole); std::nullopt: it turns freely.
-  std::optional<Eigen::Vector3d> levelNormal;
+  std::optional<Eigen::Vector3d> levelNormalSurfaceEwrtWorld;
   // The surface normal the pad is level with at the start (its pad frame's
-  // z): a sole's levelNormal is reached from it over the first half of the
-  // swing, and a point pad that lifts off keeps it while it lifts.
-  Eigen::Vector3d startLevel = Eigen::Vector3d::UnitZ();
+  // z): a sole's levelNormalSurfaceEwrtWorld is reached from it over the first
+  // half of the swing, and a point pad that lifts off keeps it while it lifts.
+  Eigen::Vector3d initZAxisPadEwrtWorld = Eigen::Vector3d::UnitZ();
   // The fraction of the segment its motion spans.
   double span = 1.0;
   // [m] How far it lifts off.
@@ -736,17 +830,22 @@ struct Swing {
   // [m] Of a point pad that only lifts off: where the segment's end has it,
   // which it goes to from where its lift-off ended over the rest of the
   // segment (a knee rising off a box as the leg folds forward).
-  std::optional<Eigen::Vector3d> end;
+  std::optional<Eigen::Vector3d> finalPosPadRtWorldEwrtWorld;
 
   /** The pad's target at `fraction` of its motion; past 1, `s` of the
    * segment moves a lift-off with an end toward it. */
-  Eigen::Vector3d targetAt(double fraction, double s) const {
-    if (path.has_value()) return path->pointAt(fraction);
-    const Eigen::Vector3d lifted =
-        start + std::clamp(fraction, 0.0, 1.0) * clearance * startNormal;
-    if (!end.has_value() || fraction <= 1.0) return lifted;
+  Eigen::Vector3d computeDesPosPadRtWorldEwrtWorld(double fraction,
+                                                   double s) const {
+    if (path.has_value()) return path->getDesPosPadRtWorldEwrtWorld(fraction);
+    const Eigen::Vector3d liftoffDesPosPadRtWorldEwrtWorld =
+        initPosPadRtWorldEwrtWorld +
+        std::clamp(fraction, 0.0, 1.0) * clearance * initNormalSurfaceEwrtWorld;
+    if (!finalPosPadRtWorldEwrtWorld.has_value() || fraction <= 1.0)
+      return liftoffDesPosPadRtWorldEwrtWorld;
     const double share = std::clamp((s - span) / (1.0 - span), 0.0, 1.0);
-    return lifted + share * (*end - lifted);
+    return liftoffDesPosPadRtWorldEwrtWorld +
+           share * (*finalPosPadRtWorldEwrtWorld -
+                    liftoffDesPosPadRtWorldEwrtWorld);
   }
   /** Until which fraction its start region is exempt, and from which its
    * target region is. */
@@ -765,10 +864,14 @@ double padExtent(const ContactCandidate& candidate) {
   if (!candidate.rectangle.has_value()) return candidate.geomRadius;
   const ContactRectangle& rectangle = *candidate.rectangle;
   return std::max(
-      std::hypot(rectangle.xMin, rectangle.yMin),
-      std::max(std::hypot(rectangle.xMax, rectangle.yMin),
-               std::max(std::hypot(rectangle.xMin, rectangle.yMax),
-                        std::hypot(rectangle.xMax, rectangle.yMax))));
+      std::hypot(rectangle.minPosCornersRtPadEwrtPadX,
+                 rectangle.minPosCornersRtPadEwrtPadY),
+      std::max(std::hypot(rectangle.maxPosCornersRtPadEwrtPadX,
+                          rectangle.minPosCornersRtPadEwrtPadY),
+               std::max(std::hypot(rectangle.minPosCornersRtPadEwrtPadX,
+                                   rectangle.maxPosCornersRtPadEwrtPadY),
+                        std::hypot(rectangle.maxPosCornersRtPadEwrtPadX,
+                                   rectangle.maxPosCornersRtPadEwrtPadY))));
 }
 
 /** The swing of `candidate` from where `robot` has its pad, its start region
@@ -780,17 +883,20 @@ Swing swingFrom(const RobotStanceModel& robot,
                 LinkAbove linkAbove) {
   Swing swing;
   swing.candidate = candidate;
-  swing.start = robot.padPosition(candidate);
-  swing.startNormal = terrain.normal(swing.start);
+  swing.initPosPadRtWorldEwrtWorld = robot.getPosPadRtWorldEwrtWorld(candidate);
+  swing.initNormalSurfaceEwrtWorld =
+      terrain.getNormalTerrainEwrtWorld(swing.initPosPadRtWorldEwrtWorld);
   swing.lifts =
-      std::abs(terrain.signedDistance(swing.start)) < options.touchingDistance;
+      std::abs(terrain.signedDistance(swing.initPosPadRtWorldEwrtWorld)) <
+      options.touchingDistance;
   swing.startRegion =
-      PadRegion{.center = swing.start,
-                .rotation = robot.padRotation(candidate),
+      PadRegion{.posPadRtWorldEwrtWorld = swing.initPosPadRtWorldEwrtWorld,
+                .rotmatPadRtWorld = robot.getRotmatPadRtWorld(candidate),
                 .rectangle = robot.contactSet().candidate(candidate).rectangle,
                 .joints = exemptJointsOf(robot, candidate, linkAbove),
                 .restingJoints = restingJointsOf(robot, candidate, linkAbove)};
-  swing.startLevel = robot.padRotation(candidate).col(kZAxisIndex);
+  swing.initZAxisPadEwrtWorld =
+      robot.getRotmatPadRtWorld(candidate).col(kZAxisIndex);
   swing.clearance = options.swingClearance;
   swing.surface =
       robot.contactSet().candidate(candidate).kind == ContactKind::kSurface;
@@ -805,8 +911,8 @@ namespace {
 struct SegmentPath {
   Eigen::VectorXd from;
   Eigen::VectorXd to;
-  Eigen::Vector3d comFrom = Eigen::Vector3d::Zero();
-  Eigen::Vector3d comTo = Eigen::Vector3d::Zero();
+  Eigen::Vector3d initPosComRtWorldEwrtWorld = Eigen::Vector3d::Zero();
+  Eigen::Vector3d finalPosComRtWorldEwrtWorld = Eigen::Vector3d::Zero();
   std::vector<PadRegion> heldRegions;
   std::vector<Swing> swings;
   std::vector<int> movingPads;
@@ -820,24 +926,32 @@ double postureProgress(const SegmentPath& path, double s) {
   return std::min(1.0, s / path.postureLead);
 }
 
-/** The normal a sole held level (Swing::levelNormal) is held to at
- * `fraction` of its swing: turned from where it starts toward the level over
+/** The z axis a sole held level (Swing::levelNormalSurfaceEwrtWorld) is held to
+ * at `fraction` of its swing (PadTarget::desZAxisPadEwrtWorld): turned from
+ * where it starts toward the level normal over
  * the first half of the swing, so that a sole that starts tilted (a foot
  * whose toes rest on the floor behind a kneeling robot) turns level while it
  * swings instead of flipping its ankle at the first knot; the level itself
  * from the start when it starts within 1e-6 rad of it. */
-Eigen::Vector3d levelNormalAt(const Swing& swing, double fraction) {
+Eigen::Vector3d computeDesZAxisPadEwrtWorld(const Swing& swing,
+                                            double fraction) {
   constexpr double kLevelTurnEnd = 0.5;
   constexpr double kLevelAlready = 1.0e-6;
-  const Eigen::Vector3d& level = *swing.levelNormal;
-  if (std::acos(std::clamp(swing.startLevel.dot(level), -1.0, 1.0)) <
-      kLevelAlready) {
-    return level;
+  const Eigen::Vector3d& levelNormalSurfaceEwrtWorld =
+      *swing.levelNormalSurfaceEwrtWorld;
+  if (std::acos(std::clamp(
+          swing.initZAxisPadEwrtWorld.dot(levelNormalSurfaceEwrtWorld), -1.0,
+          1.0)) < kLevelAlready) {
+    return levelNormalSurfaceEwrtWorld;
   }
   const double share = std::clamp(fraction / kLevelTurnEnd, 0.0, 1.0);
-  const Eigen::Quaterniond turn =
-      Eigen::Quaterniond::FromTwoVectors(swing.startLevel, level);
-  return Eigen::Quaterniond::Identity().slerp(share, turn) * swing.startLevel;
+  // The rotation, in world axes, that takes the pad's start z axis to the
+  // level normal.
+  const Eigen::Quaterniond levelErrQuatPadRtWorld =
+      Eigen::Quaterniond::FromTwoVectors(swing.initZAxisPadEwrtWorld,
+                                         levelNormalSurfaceEwrtWorld);
+  return Eigen::Quaterniond::Identity().slerp(share, levelErrQuatPadRtWorld) *
+         swing.initZAxisPadEwrtWorld;
 }
 
 /** Sets `problem` to the knot at fraction `s` of `path`, after the knot
@@ -859,30 +973,34 @@ void configureKnot(const pinocchio::Model& model,
                  0.0, 1.0);
   problem.postureReference =
       pinocchio::interpolate(model, previous, path.to, share);
-  problem.comTarget = path.comFrom + s * (path.comTo - path.comFrom);
+  problem.desPosComRtWorldEwrtWorld =
+      path.initPosComRtWorldEwrtWorld +
+      s * (path.finalPosComRtWorldEwrtWorld - path.initPosComRtWorldEwrtWorld);
   problem.padTargets.clear();
   problem.exemptPads = path.heldRegions;
   for (const Swing& swing : path.swings) {
     const double fraction = s / swing.span;
     PadTarget target{.candidate = swing.candidate,
-                     .position = swing.targetAt(fraction, s)};
+                     .posPadRtWorldEwrtWorld =
+                         swing.computeDesPosPadRtWorldEwrtWorld(fraction, s)};
     // A sole that only lifts off (its contact is not the one the segment
     // makes) stays level while it lifts: free, the posture's pull would tilt
     // it and press its toe or heel into the surface it left. One that goes on
     // to the end's position turns freely after its lift-off.
     if (swing.lifts && !swing.path.has_value() && swing.surface &&
-        (!swing.end.has_value() || fraction <= 1.0)) {
-      target.normal = swing.startNormal;
+        (!swing.finalPosPadRtWorldEwrtWorld.has_value() || fraction <= 1.0)) {
+      target.desZAxisPadEwrtWorld = swing.initNormalSurfaceEwrtWorld;
     }
     // A point pad that lifts off keeps facing the surface it left while it
     // lifts, so that its link rises with it: a knee that turned while it
     // lifted pressed the end of its thigh 8 mm into the floor.
     if (swing.lifts && !swing.path.has_value() && !swing.surface &&
         fraction <= 1.0) {
-      target.normal = swing.startLevel;
+      target.desZAxisPadEwrtWorld = swing.initZAxisPadEwrtWorld;
     }
-    if (swing.levelNormal.has_value()) {
-      target.normal = levelNormalAt(swing, fraction);
+    if (swing.levelNormalSurfaceEwrtWorld.has_value()) {
+      target.desZAxisPadEwrtWorld =
+          computeDesZAxisPadEwrtWorld(swing, fraction);
     }
     problem.padTargets.push_back(target);
     if (swing.lifts && fraction <= swing.liftEnd()) {
@@ -925,10 +1043,11 @@ absl::StatusOr<KnotSolution> solveKnot(StanceMotion& motion,
     VLOG(kKnotLogLevel) << absl::StrFormat(
         "knot s=%.3f: the pad of %s is %.3f m from its swing target", s,
         robot.contactSet().candidate(swing.candidate).name,
-        (robot.padPosition(swing.candidate) - swing.targetAt(s / swing.span, s))
+        (robot.getPosPadRtWorldEwrtWorld(swing.candidate) -
+         swing.computeDesPosPadRtWorldEwrtWorld(s / swing.span, s))
             .norm());
     const double distance = motion.ik().terrain().signedDistance(
-        robot.padPosition(swing.candidate));
+        robot.getPosPadRtWorldEwrtWorld(swing.candidate));
     if (distance < -motion.options().padPenetrationTolerance) {
       solution.failure = absl::StrFormat(
           "%sthe swinging pad of %s is %.4f m inside the terrain", at,
@@ -1073,24 +1192,28 @@ absl::StatusOr<std::optional<Eigen::VectorXd>> endOnReach(
   }
   RobotStanceModel& robot = motion.model();
   RETURN_IF_ERROR(robot.setGeneralizedPosition(knot));
-  const double reach = (robot.padPosition(contacts.touchdown->candidate) -
-                        contacts.touchdown->position)
-                           .norm();
-  if (reach > motion.ik().options().reachTolerance) {
+  const double normErrPosPadRtWorldEwrtWorld =
+      (robot.getPosPadRtWorldEwrtWorld(contacts.touchdown->candidate) -
+       contacts.touchdown->posPadRtWorldEwrtWorld)
+          .norm();
+  if (normErrPosPadRtWorldEwrtWorld >
+      motion.ik().options().maxNormErrPosPadRtWorldEwrtWorld) {
     return std::optional<Eigen::VectorXd>();
   }
   ASSIGN_OR_RETURN(const MotionCheck end,
                    motion.transition(*contacts.endHeld, *contacts.endSupporting,
                                      knot, {knot}));
   if (!end.feasible) {
-    VLOG(kEndLogLevel) << "segment end on reach (" << reach
+    VLOG(kEndLogLevel) << "segment end on reach ("
+                       << normErrPosPadRtWorldEwrtWorld
                        << " m): " << end.failure;
     return std::optional<Eigen::VectorXd>();
   }
   ASSIGN_OR_RETURN(const StepDefect defect,
                    stepDefect(motion, stance, path, knot, end.q));
   if (defect.any()) {
-    VLOG(kEndLogLevel) << "segment end on reach (" << reach
+    VLOG(kEndLogLevel) << "segment end on reach ("
+                       << normErrPosPadRtWorldEwrtWorld
                        << " m): " << defect.describe();
     return std::optional<Eigen::VectorXd>();
   }
@@ -1109,25 +1232,33 @@ absl::StatusOr<SegmentCheck> StanceMotion::segment(
   RobotStanceModel& robot = model();
   const TerrainModel& terrain = ik_->terrain();
   RETURN_IF_ERROR(robot.setGeneralizedPosition(from));
-  SegmentPath path{.from = from, .to = to, .comFrom = robot.centerOfMass()};
+  SegmentPath path{
+      .from = from,
+      .to = to,
+      .initPosComRtWorldEwrtWorld = robot.getPosComRtWorldEwrtWorld()};
   if (contacts.touchdown.has_value()) {
     Swing swing = swingFrom(robot, terrain, contacts.touchdown->candidate,
                             options_, ik_->collision().linkAbove());
     swing.path = SwingPath::Create(
-        SwingEnds{.start = swing.start,
-                  .startNormal = swing.startNormal,
-                  .lifts = swing.lifts,
-                  .target = contacts.touchdown->position,
-                  .targetNormal = contacts.touchdown->normal,
-                  .extent = padExtent(robot.contactSet().candidate(
-                      contacts.touchdown->candidate))},
+        SwingEnds{
+            .initPosPadRtWorldEwrtWorld = swing.initPosPadRtWorldEwrtWorld,
+            .initNormalSurfaceEwrtWorld = swing.initNormalSurfaceEwrtWorld,
+            .lifts = swing.lifts,
+            .desPosPadRtWorldEwrtWorld =
+                contacts.touchdown->posPadRtWorldEwrtWorld,
+            .desNormalSurfaceEwrtWorld =
+                contacts.touchdown->normalSurfaceEwrtWorld,
+            .extent = padExtent(
+                robot.contactSet().candidate(contacts.touchdown->candidate))},
         options_.swingClearance, terrain);
     swing.targetRegion = exemptRegionOf(*contacts.touchdown, robot,
                                         ik_->collision().linkAbove());
     if (contacts.levelTouchdownSole && swing.surface) {
-      swing.levelNormal = contacts.touchdown->normal;
-      swing.startLevel =
-          robot.padRotation(contacts.touchdown->candidate).col(kZAxisIndex);
+      swing.levelNormalSurfaceEwrtWorld =
+          contacts.touchdown->normalSurfaceEwrtWorld;
+      swing.initZAxisPadEwrtWorld =
+          robot.getRotmatPadRtWorld(contacts.touchdown->candidate)
+              .col(kZAxisIndex);
     }
     if (!swing.surface) path.postureLead = options_.pointTouchdownPostureLead;
     path.swings.push_back(std::move(swing));
@@ -1148,7 +1279,7 @@ absl::StatusOr<SegmentCheck> StanceMotion::segment(
   ASSIGN_OR_RETURN(const int intervals,
                    segmentIntervals(from, to, swingLength));
   RETURN_IF_ERROR(robot.setGeneralizedPosition(to));
-  path.comTo = robot.centerOfMass();
+  path.finalPosComRtWorldEwrtWorld = robot.getPosComRtWorldEwrtWorld();
   // A point pad that only lifts off goes on to where the end has it; a sole
   // stays where its lift-off ended, unless the pad the segment sets down is
   // above it on its own leg (the foot of a knee that goes onto a box, which
@@ -1163,15 +1294,20 @@ absl::StatusOr<SegmentCheck> StanceMotion::segment(
         std::find(touchdownLeg.begin(), touchdownLeg.end(),
                   robot.padJoint(swing.candidate)) != touchdownLeg.end();
     if (!swing.surface || belowTouchdown) {
-      swing.end = robot.padPosition(swing.candidate);
+      swing.finalPosPadRtWorldEwrtWorld =
+          robot.getPosPadRtWorldEwrtWorld(swing.candidate);
     }
   }
-  if (contacts.comGoal.has_value()) {
-    path.comTo.head<kHorizontalPositionDim>() = *contacts.comGoal;
-    path.comTo.z() = path.comFrom.z();
+  if (contacts.desPosComRtWorldEwrtWorldXy.has_value()) {
+    path.finalPosComRtWorldEwrtWorld.head<kHorizontalPositionDim>() =
+        *contacts.desPosComRtWorldEwrtWorldXy;
+    path.finalPosComRtWorldEwrtWorld.z() = path.initPosComRtWorldEwrtWorld.z();
   }
-  ASSIGN_OR_RETURN(std::vector<Eigen::Vector2d> polygon, polygonOf(stance));
-  StanceIkProblem problem = holdingProblem(stance, std::move(polygon));
+  ASSIGN_OR_RETURN(
+      std::vector<Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples,
+      polygonOf(stance));
+  StanceIkProblem problem =
+      holdingProblem(stance, std::move(supportPosComRtWorldEwrtWorldXySamples));
   problem.postureWeight = options_.segmentPostureWeight;
   path.heldRegions = problem.exemptPads;
 

@@ -29,10 +29,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <utility>
+// The macros expand to absl::Status, absl::StatusOr and std::move where they
+// are used, which include-cleaner does not see.
+#include <utility>  // IWYU pragma: keep
 
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
+#include "absl/status/status.h"    // IWYU pragma: keep
+#include "absl/status/statusor.h"  // IWYU pragma: keep
 
 #define STATUS_MACROS_CONCAT_NAME_INNER(x, y) x##y
 #define STATUS_MACROS_CONCAT_NAME(x, y) STATUS_MACROS_CONCAT_NAME_INNER(x, y)
@@ -49,14 +51,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // `status_var` is a name and `decl` a declaration, which parentheses would
 // break; they are used bare where declared.
-#define ASSIGN_OR_RETURN_IMPL(status_var, decl, rexpr)                     \
-  auto status_var =                                                        \
-      (rexpr); /* NOLINT(bugprone-macro-parentheses): declares the name */ \
-  if (!(status_var).ok()) {                                                \
-    return (status_var).status();                                          \
-  }                                                                        \
-  decl = std::move(                                                        \
-      *(status_var)) /* NOLINT(bugprone-macro-parentheses): a declaration */
+#define ASSIGN_OR_RETURN_IMPL(status_var, decl, rexpr)                \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses): declares the name */ \
+  auto status_var = (rexpr);                                          \
+  if (!(status_var).ok()) {                                           \
+    return (status_var).status();                                     \
+  }                                                                   \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses): a declaration */     \
+  decl = std::move(*(status_var))
 
 #define ASSIGN_OR_RETURN(decl, rexpr)                                        \
   ASSIGN_OR_RETURN_IMPL(STATUS_MACROS_CONCAT_NAME(_status_or_, __COUNTER__), \

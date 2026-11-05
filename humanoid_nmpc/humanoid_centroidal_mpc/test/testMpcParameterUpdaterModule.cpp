@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <limits>
@@ -43,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
@@ -52,12 +55,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/time.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/cost/QuadraticStateCost.h"
 #include "ocs2_core/misc/Collection.h"
+#include "ocs2_core/penalties/penalties/PenaltyBase.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
-#include "ocs2_mpc/MPC_BASE.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 #include "ocs2_sqp/SqpMpc.h"
 #include "ocs2_sqp/SqpSolver.h"
 
@@ -71,6 +77,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/parameter_update/BasisInputsCostApplier.h"
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactTermNames.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -106,9 +113,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_mpc_config/contact_planning_file.nproto.h"
 #include "humanoid_mpc_config/joint_value.nproto.h"
+#include "humanoid_mpc_config/model_settings_config.nproto.h"
 #include "humanoid_mpc_config/mpc_parameter_update.nproto.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
+#include "humanoid_mpc_config/state_weights.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_mpc_config/xyz.nproto.h"
+#include "humanoid_mpc_config/yaw_pitch_roll.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/TypedConfigFiles.h"
 
@@ -166,17 +179,18 @@ std::vector<std::string> replaced(std::vector<std::string> list,
   return list;
 }
 
-// The base pose in the centroidal state x = [h_norm(6), p_base(3),
-// euler_zyx(3), q_j], written out rather than taken from ComAndAcomTrackingCost
-// so that a drift of the one definition fails here instead of moving the
-// expectation.
+// The base pose in the tuning layout of the state weights Q,
+// [mnorm_cmom_com_rt_world_ewrt_world(6), pos_base_rt_world_ewrt_world(3),
+// eulerzyx_base_rt_world(3), q_j] (getTuningLayout()), written out rather than
+// taken from ComAndAcomTrackingCost so that a drift of the one definition fails
+// here instead of moving the expectation.
 constexpr Eigen::Index kBasePoseIndex = 6;
 constexpr Eigen::Index kBasePoseDim = 6;
-// The first joint of the centroidal state.
+// The first joint of the tuning layout.
 constexpr Eigen::Index kFirstJointIndex = 12;
 
 /** The base-pose block of a state weight matrix. */
-matrix_t basePoseBlock(const matrix_t& Q) {
+matrix_t basePoseWeightBlock(const matrix_t& Q) {
   return Q.block(kBasePoseIndex, kBasePoseIndex, kBasePoseDim, kBasePoseDim);
 }
 
@@ -228,34 +242,42 @@ StateSoftConstraint& penetrationTerm(OptimalControlProblem& ocp,
 
 /** The one ground every contact-implicit term of every worker is on, or NaN
  * when they disagree or there is none. */
-scalar_t contactImplicitTermsTerrainHeight(
+scalar_t contactImplicitTermsPosSurfaceRtWorldEwrtWorldZ(
     SqpSolver& solver, const std::vector<std::string>& contactNames) {
-  std::vector<scalar_t> heights;
+  std::vector<scalar_t> posSurfacesRtWorldEwrtWorldZ;
   for (OptimalControlProblem& ocp : solver.getOcpDefinitions()) {
     for (const std::string& footName : contactNames) {
-      heights.push_back(complementarityTerm(ocp, footName)
-                            .get<ContactComplementarityConstraint>()
-                            .getTerrainHeight());
-      heights.push_back(penetrationTerm(ocp, footName)
-                            .get<GroundPenetrationConstraint>()
-                            .getTerrainHeight());
+      posSurfacesRtWorldEwrtWorldZ.push_back(
+          complementarityTerm(ocp, footName)
+              .get<ContactComplementarityConstraint>()
+              .getPosSurfaceRtWorldEwrtWorldZ());
+      posSurfacesRtWorldEwrtWorldZ.push_back(
+          penetrationTerm(ocp, footName)
+              .get<GroundPenetrationConstraint>()
+              .getPosSurfaceRtWorldEwrtWorldZ());
     }
   }
-  if (heights.empty()) return std::numeric_limits<scalar_t>::quiet_NaN();
-  for (const scalar_t height : heights) {
-    if (height != heights.front())
-      return std::numeric_limits<scalar_t>::quiet_NaN();
+  if (posSurfacesRtWorldEwrtWorldZ.empty()) {
+    return std::numeric_limits<scalar_t>::quiet_NaN();
   }
-  return heights.front();
+  for (const scalar_t posSurfaceRtWorldEwrtWorldZ :
+       posSurfacesRtWorldEwrtWorldZ) {
+    if (posSurfaceRtWorldEwrtWorldZ != posSurfacesRtWorldEwrtWorldZ.front()) {
+      return std::numeric_limits<scalar_t>::quiet_NaN();
+    }
+  }
+  return posSurfacesRtWorldEwrtWorldZ.front();
 }
 
 /** The base-pose offset the layer's heuristics give a forward walk at
- * `forwardSpeed`. */
-BasePoseOffset basePoseOffsetAtForwardSpeed(
-    const LocomotionHeuristicLayer& layer, scalar_t forwardSpeed) {
+ * `cmdLinvelBaseRtWorldEwrtHeadingX`. */
+BasePoseOffset basePoseHeuristicOffsetAtForwardSpeed(
+    const LocomotionHeuristicLayer& layer,
+    scalar_t cmdLinvelBaseRtWorldEwrtHeadingX) {
   BasePoseHeuristicContext context;
-  context.commandedVelocityInBaseFrame = vector2_t(forwardSpeed, 0.0);
-  return layer.basePoseOffset(context);
+  context.cmdLinvelBaseRtWorldEwrtHeadingXy =
+      vector2_t(cmdLinvelBaseRtWorldEwrtHeadingX, 0.0);
+  return layer.basePoseHeuristicOffset(context);
 }
 
 /** An MPC built from a configuration, with the SQP solver a node runs it with.
@@ -357,8 +379,9 @@ std::unique_ptr<MpcParameterUpdaterModule> makeUpdater(
   EXPECT_TRUE(appliers.ok()) << appliers.status();
   if (!appliers.ok()) return nullptr;
   options.appliers = *std::move(appliers);
-  if (order == ApplierOrder::kReversed)
+  if (order == ApplierOrder::kReversed) {
     std::reverse(options.appliers.begin(), options.appliers.end());
+  }
   absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>> created =
       MpcParameterUpdaterModule::Create(built.mpc.get(), std::move(options));
   EXPECT_TRUE(created.ok()) << created.status();
@@ -437,8 +460,9 @@ matrix_t stateWeightsOf(const OptimalControlProblem& ocp,
  * TuningQuadraticStateInputCost's. */
 matrix_t inputWeightsOf(const OptimalControlProblem& ocp,
                         const std::string& term) {
-  if (term == "inputQuadraticCost")
+  if (term == "inputQuadraticCost") {
     return ocp.costPtr->get<InputQuadraticCost>(term).getInputWeights();
+  }
   return ocp.costPtr->get<TuningQuadraticStateInputCost>(term)
       .getInputWeights();
 }
@@ -518,8 +542,9 @@ TEST_F(MpcParameterUpdaterModuleTest,
   // guards against.
   std::optional<BasisInputsCostTransformConfig> transform =
       atlas_.interface->getBasisInputsCostTransformConfig();
-  if (!transform.has_value())
+  if (!transform.has_value()) {
     GTEST_FAIL() << "the shipped Atlas runs basis-vector contact inputs";
+  }
   for (const size_t wrongInputDim : {atlas_.interface->getWrenchInputDim(),
                                      transform->basisInputDim() + 1}) {
     const absl::StatusOr<std::unique_ptr<BasisInputsCostApplier>> created =
@@ -721,10 +746,10 @@ TEST_F(MpcParameterUpdaterModuleTest,
     EXPECT_NEAR(Q(kFirstJointIndex, kFirstJointIndex),
                 task.state_weights.scaling * 123.0, 1.0e-9)
         << "the reload was not applied";
-    EXPECT_TRUE(basePoseBlock(Q).isZero(0.0))
+    EXPECT_TRUE(basePoseWeightBlock(Q).isZero(0.0))
         << "a reload re-introduced base-pose tracking beside the running ACoM "
            "cost:\n"
-        << basePoseBlock(Q);
+        << basePoseWeightBlock(Q);
     EXPECT_TRUE(hasTerm(*ocp.stateCostPtr,
                         std::string(ComAndAcomTrackingCost::kRunningTermName)))
         << "a reload never removes a term";
@@ -751,11 +776,12 @@ TEST_F(MpcParameterUpdaterModuleTest,
   setBasePoseWeights(task.state_weights, /*offset=*/60.0);
   reload(*updater, built, task);
   for (OptimalControlProblem& ocp : built.solver().getOcpDefinitions()) {
-    const vector_t basePose =
-        basePoseBlock(stateWeightsOf(ocp, "stateQuadraticCost")).diagonal();
+    const vector_t basePoseWeights =
+        basePoseWeightBlock(stateWeightsOf(ocp, "stateQuadraticCost"))
+            .diagonal();
     for (Eigen::Index i = 0; i < kBasePoseDim; ++i) {
       EXPECT_NEAR(
-          basePose(i),
+          basePoseWeights(i),
           task.state_weights.scaling * (60.0 + static_cast<scalar_t>(i + 1)),
           1.0e-9)
           << "a reload zeroed the base-pose weights of a problem that has no "
@@ -784,15 +810,16 @@ TEST_F(MpcParameterUpdaterModuleTest,
   const Built built = build(config, files_.urdfFile);
   ASSERT_NE(built.interface, nullptr);
   ASSERT_TRUE(hasTerm(*built.firstProblem().finalCostPtr, "terminalCost"));
-  ASSERT_TRUE(
-      basePoseBlock(finalStateWeightsOf(built.firstProblem())).isZero(0.0))
+  ASSERT_TRUE(basePoseWeightBlock(finalStateWeightsOf(built.firstProblem()))
+                  .isZero(0.0))
       << "zeroed at start-up already";
   std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(built);
   ASSERT_NE(updater, nullptr);
 
   mpc_config::TaskFile task = config.task;
-  if (!task.terminal_cost_scaling.has_value())
+  if (!task.terminal_cost_scaling.has_value()) {
     GTEST_FAIL() << "the shipped task file has no terminal_cost_scaling";
+  }
   const scalar_t terminalCostScaling = 2.5 * *task.terminal_cost_scaling;
   task.terminal_cost_scaling = terminalCostScaling;
   setBasePoseWeights(task.final_state_weights, /*offset=*/70.0);
@@ -815,7 +842,8 @@ TEST_F(MpcParameterUpdaterModuleTest,
     EXPECT_NEAR(Q_final(kFirstJointIndex, kFirstJointIndex),
                 terminalCostScaling * task.final_state_weights.scaling * 321.0,
                 1.0e-9);
-    EXPECT_TRUE(basePoseBlock(Q_final).isZero(0.0)) << basePoseBlock(Q_final);
+    EXPECT_TRUE(basePoseWeightBlock(Q_final).isZero(0.0))
+        << basePoseWeightBlock(Q_final);
     EXPECT_FALSE(hasTerm(*ocp.finalCostPtr, DcmTerminalCost::kTermName))
         << "a reload never adds a term";
     const ComAndAcomTrackingCost& running =
@@ -861,41 +889,44 @@ TEST_F(MpcParameterUpdaterModuleTest,
 TEST_F(
     MpcParameterUpdaterModuleTest,
     TheRunningDcmCostFollowsItsBlockAndALeftOutComHeightIsTheModelsPendulum) {
-  const scalar_t model = atlas_.interface->getNominalComHeight();
+  const scalar_t model = atlas_.interface->getNomPosComRtFeetmeanEwrtWorldZ();
   ASSERT_GT(model, 0.5);
-  ASSERT_FALSE(shippedTask().dcm_terminal_cost.com_height.has_value())
+  ASSERT_FALSE(
+      shippedTask()
+          .dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z.has_value())
       << "the shipped DCM cost no longer derives its pendulum";
   std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(
       atlas_, atlas_.interface->getSwitchedModelReferenceManagerPtr().get());
   ASSERT_NE(updater, nullptr);
   const std::function<void(scalar_t, scalar_t)> expectOnEveryWorker =
-      [this](scalar_t height, scalar_t weightX) {
+      [this](scalar_t nomPosComRtFeetmeanEwrtWorldZ, scalar_t weightX) {
         for (OptimalControlProblem& ocp : atlas_.solver().getOcpDefinitions()) {
           const DcmTerminalCost& cost = ocp.finalCostPtr->get<DcmTerminalCost>(
               DcmTerminalCost::kTermName);
-          EXPECT_THAT(cost.getConfig().comHeight,
-                      ::testing::Optional(::testing::DoubleNear(
-                          height, /*max_abs_error=*/1.0e-12)));
+          EXPECT_THAT(
+              cost.getConfig().nomPosComRtFeetmeanEwrtWorldZ,
+              ::testing::Optional(::testing::DoubleNear(
+                  nomPosComRtFeetmeanEwrtWorldZ, /*max_abs_error=*/1.0e-12)));
           EXPECT_NEAR(cost.getParameters(/*time=*/0.5, TargetTrajectories())(2),
-                      std::sqrt(9.81 / height), 1.0e-12);
+                      std::sqrt(9.81 / nomPosComRtFeetmeanEwrtWorldZ), 1.0e-12);
           EXPECT_NEAR(cost.getConfig().weights(0), weightX, 1.0e-12);
         }
       };
   const scalar_t shippedWeight = shippedTask().dcm_terminal_cost.weight_x;
   expectOnEveryWorker(model, shippedWeight);
   mpc_config::TaskFile task = shippedTask();
-  task.dcm_terminal_cost.com_height = 0.9;
+  task.dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z = 0.9;
   task.dcm_terminal_cost.weight_x = 123.0;
   ASSERT_GT(std::abs(0.9 - model), 0.05)
       << "the override must differ from the model, or the checks prove nothing";
   reload(*updater, atlas_, task);
-  expectOnEveryWorker(/*height=*/0.9, /*weightX=*/123.0);
-  task.dcm_terminal_cost.com_height.reset();
+  expectOnEveryWorker(/*nomPosComRtFeetmeanEwrtWorldZ=*/0.9, /*weightX=*/123.0);
+  task.dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z.reset();
   reload(*updater, atlas_, task);
   expectOnEveryWorker(model, /*weightX=*/123.0);
   // A height that is no height is refused by the conversion, and the running
   // cost kept: a negative one, and the 0 that stood for the model's pendulum
-  // before com_height was optional.
+  // before nom_pos_com_rt_feetmean_ewrt_world_z was optional.
   absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
   EXPECT_CALL(log, Log(absl::LogSeverity::kWarning, testing::_,
                        testing::AllOf(testing::HasSubstr("dcm_terminal_cost"),
@@ -903,7 +934,7 @@ TEST_F(
       .Times(2);
   log.StartCapturingLogs();
   for (const scalar_t refused : {-0.9, 0.0}) {
-    task.dcm_terminal_cost.com_height = refused;
+    task.dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z = refused;
     reload(*updater, atlas_, task);
   }
   log.StopCapturingLogs();
@@ -914,6 +945,7 @@ TEST_F(MpcParameterUpdaterModuleTest, TheTaskSpaceAndTorqueCostsFollowAReload) {
   std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(atlas_);
   ASSERT_NE(updater, nullptr);
   mpc_config::TaskFile task = shippedTask();
+  // NOLINTNEXTLINE(frame-naming): a weight field
   task.task_space_foot_cost.weights.pos_x = 11.0;
   const bool shippedActiveInStance =
       task.task_space_foot_cost.active_phases == "swing_and_stance";
@@ -921,7 +953,7 @@ TEST_F(MpcParameterUpdaterModuleTest, TheTaskSpaceAndTorqueCostsFollowAReload) {
       shippedActiveInStance ? "swing" : "swing_and_stance";
   ASSERT_FALSE(task.task_space_costs.empty())
       << "the shipped Atlas tracks its torso";
-  task.task_space_costs.front().weights.orientation_z = 12.0;
+  task.task_space_costs.front().weights.rotvec_z = 12.0;
   task.task_space_foot_cost.swing_velocity_reference_weight = 13.0;
   ASSERT_FALSE(task.left_leg_torque_cost.joints.empty());
   task.left_leg_torque_cost.joints.front().value = 14.0;
@@ -1059,7 +1091,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
   mpc_config::TaskSpaceCostConfig copy = added.task_space_costs.front();
   copy.name = "torso_copy";
   added.task_space_costs.push_back(copy);
-  added.task_space_costs.front().weights.orientation_z = 21.0;
+  added.task_space_costs.front().weights.rotvec_z = 21.0;
   {
     absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
     EXPECT_CALL(
@@ -1124,8 +1156,9 @@ TEST_F(MpcParameterUpdaterModuleTest,
       << "the shipped Atlas selects basis-vector contact inputs";
   const std::optional<BasisInputsCostTransformConfig> transform =
       atlas_.interface->getBasisInputsCostTransformConfig();
-  if (!transform.has_value())
+  if (!transform.has_value()) {
     GTEST_FAIL() << "the basis-mode interface has no cost transform";
+  }
   const std::string rTerm = inputCostTerm(atlas_.firstProblem());
   ASSERT_FALSE(rTerm.empty());
   const matrix_t factoryR = inputWeightsOf(atlas_.firstProblem(), rTerm);
@@ -1145,8 +1178,9 @@ TEST_F(MpcParameterUpdaterModuleTest,
   ASSERT_TRUE(atlas_.interface->usesContactBasisVectorInputs());
   const std::optional<BasisInputsCostTransformConfig> transform =
       atlas_.interface->getBasisInputsCostTransformConfig();
-  if (!transform.has_value())
+  if (!transform.has_value()) {
     GTEST_FAIL() << "the basis-mode interface has no cost transform";
+  }
   ASSERT_EQ(transform->regularization, kFullDiagonalBasisRegularization)
       << "the shipped regularization is the full diagonal";
   const std::string rTerm = inputCostTerm(atlas_.firstProblem());
@@ -1165,7 +1199,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
   expected.lambdaRegularization = task.contacts.basis_scaling_regularization;
   // The wrench-space R is the factory's R undone: transform it with the shipped
   // regularization and with the reloaded one.
-  const matrix_t wrenchR = [&]() {
+  const matrix_t wrenchModeInputWeights = [&]() {
     absl::StatusOr<matrix_t> converted = inputWeightsFromConfig(
         task.input_weights,
         stateInputLayout(atlas_.interface->modelSettings(),
@@ -1174,10 +1208,11 @@ TEST_F(MpcParameterUpdaterModuleTest,
     EXPECT_TRUE(converted.ok()) << converted.status();
     return converted.ok() ? *converted : matrix_t();
   }();
-  ASSERT_TRUE(transformWrenchInputCostToBasisSpace(wrenchR, *transform)
-                  .isApprox(shippedR, 1.0e-12));
+  ASSERT_TRUE(
+      transformWrenchInputCostToBasisSpace(wrenchModeInputWeights, *transform)
+          .isApprox(shippedR, 1.0e-12));
   const matrix_t expectedR =
-      transformWrenchInputCostToBasisSpace(wrenchR, expected);
+      transformWrenchInputCostToBasisSpace(wrenchModeInputWeights, expected);
   ASSERT_GT((expectedR - shippedR).cwiseAbs().maxCoeff(), 1.0e-9)
       << "the two shapes give the same cost, so the check proves nothing";
   for (const OptimalControlProblem& ocp : atlas_.solver().getOcpDefinitions()) {
@@ -1354,8 +1389,8 @@ TEST_F(
 /** The twist constraints behind every foot's zeroVelocity term of every worker,
  * hard or soft. */
 std::vector<EndEffectorKinematicsTwistConstraint* absl_nonnull>
-zeroVelocityTwists(SqpSolver& solver,
-                   const std::vector<std::string>& contactNames) {
+zeroVelocityTwistConstraints(SqpSolver& solver,
+                             const std::vector<std::string>& contactNames) {
   std::vector<EndEffectorKinematicsTwistConstraint* absl_nonnull> found;
   for (OptimalControlProblem& ocp : solver.getOcpDefinitions()) {
     for (const std::string& footName : contactNames) {
@@ -1380,9 +1415,10 @@ TEST_F(MpcParameterUpdaterModuleTest,
        TheFootConstraintGainsReachTheTwistConstraintsAndThePreComputation) {
   std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(atlas_);
   ASSERT_NE(updater, nullptr);
-  const std::vector<EndEffectorKinematicsTwistConstraint* absl_nonnull> twists =
-      zeroVelocityTwists(atlas_.solver(), atlas_.contactNames());
-  ASSERT_FALSE(twists.empty())
+  const std::vector<EndEffectorKinematicsTwistConstraint* absl_nonnull>
+      twistConstraints =
+          zeroVelocityTwistConstraints(atlas_.solver(), atlas_.contactNames());
+  ASSERT_FALSE(twistConstraints.empty())
       << "the shipped Atlas lists zero_velocity as a hard constraint";
   mpc_config::TaskFile task = shippedTask();
   mpc_config::ModelSettingsConfig::FootConstraintConfig& gains =
@@ -1399,10 +1435,12 @@ TEST_F(MpcParameterUpdaterModuleTest,
   // there, and zeroVelocity is not built at all.
   gains.position_error_gain_z = 3.5;
   reload(*updater, atlas_, task);
-  for (EndEffectorKinematicsTwistConstraint* absl_nonnull twist : twists) {
-    EXPECT_NEAR(twist->getConfig().Av(0, 0), 99.0, 1.0e-12);
-    EXPECT_EQ(twist->getConstrainYawRateAboutNormal(), !shippedYawRate);
-    EXPECT_EQ(twist->getNumConstraints(/*time=*/0.0), 6U)
+  for (EndEffectorKinematicsTwistConstraint* absl_nonnull twistConstraint :
+       twistConstraints) {
+    EXPECT_NEAR(twistConstraint->getConfig().Av(0, 0), 99.0, 1.0e-12);
+    EXPECT_EQ(twistConstraint->getConstrainYawRateAboutNormal(),
+              !shippedYawRate);
+    EXPECT_EQ(twistConstraint->getNumConstraints(/*time=*/0.0), 6U)
         << "both stance constraints have the orientation rows";
   }
   for (OptimalControlProblem& ocp : atlas_.solver().getOcpDefinitions()) {
@@ -1560,7 +1598,7 @@ CentroidalMpcConfig contactImplicitConfig(CentroidalMpcConfig config) {
       .complementarity_weight = 61.5,
       .slip_weight = 173.25,
       .penetration_weight = 4.25e4,
-      .height_reference = 0.0725,
+      .scale_pos_contact_rt_surface_ewrt_world_z = 0.0725,
       .scale_linvel_contact_rt_world_ewrt_world_xy = 0.35,
       .scale_angvel_contact_rt_world_ewrt_world_z = 1.25,
       .gap_smoothing = 1.5e-3};
@@ -1578,7 +1616,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
       .complementarity_weight = 71.5,
       .slip_weight = 183.25,
       .penetration_weight = 5.25e4,
-      .height_reference = 0.0825,
+      .scale_pos_contact_rt_surface_ewrt_world_z = 0.0825,
       .scale_linvel_contact_rt_world_ewrt_world_xy = 0.45,
       .scale_angvel_contact_rt_world_ewrt_world_z = 1.35,
       .gap_smoothing = 2.5e-3};
@@ -1595,8 +1633,8 @@ TEST_F(MpcParameterUpdaterModuleTest,
       EXPECT_EQ(penaltyParameters(complementarity),
                 (vector_t(1) << expected.complementarity_weight).finished());
       EXPECT_EQ(complementarity.get<ContactComplementarityConstraint>()
-                    .getHeightReference(),
-                expected.height_reference);
+                    .getScalePosContactRtSurfaceEwrtWorldZ(),
+                expected.scale_pos_contact_rt_surface_ewrt_world_z);
       EXPECT_EQ(complementarity.get<ContactComplementarityConstraint>()
                     .getGapSmoothing(),
                 expected.gap_smoothing);
@@ -1643,8 +1681,8 @@ TEST_F(MpcParameterUpdaterModuleTest,
                 (vector_t(1) << defaults.complementarityWeight).finished());
       EXPECT_EQ(complementarityTerm(ocp, footName)
                     .get<ContactComplementarityConstraint>()
-                    .getHeightReference(),
-                defaults.heightReference);
+                    .getScalePosContactRtSurfaceEwrtWorldZ(),
+                defaults.scalePosContactRtSurfaceEwrtWorldZ);
     }
   }
 }
@@ -1717,20 +1755,23 @@ TEST_F(
   std::unique_ptr<MpcParameterUpdaterModule> updater =
       makeUpdater(built, &referenceManager);
   ASSERT_NE(updater, nullptr);
-  const scalar_t launched = built.interface->modelSettings().terrainHeight;
+  const scalar_t launched =
+      built.interface->modelSettings().posSurfaceRtWorldEwrtWorldZ;
   constexpr scalar_t kReloaded = 0.013;
   ASSERT_NE(launched, kReloaded);
   mpc_config::TaskFile task = built.interface->config().task;
-  task.terrain_height = kReloaded;
+  task.pos_surface_rt_world_ewrt_world_z = kReloaded;
   reload(*updater, built, task);
   // The ground went to the reference manager, which applies it at its next
   // pre-solve hook; the terms follow it in that same solve, never before the
   // references stand on it.
-  EXPECT_DOUBLE_EQ(referenceManager.getTerrainHeight(), kReloaded);
-  EXPECT_DOUBLE_EQ(referenceManager.getAppliedTerrainHeight(), launched);
-  EXPECT_DOUBLE_EQ(
-      contactImplicitTermsTerrainHeight(built.solver(), built.contactNames()),
-      launched);
+  EXPECT_DOUBLE_EQ(referenceManager.getPosSurfaceRtWorldEwrtWorldZ(),
+                   kReloaded);
+  EXPECT_DOUBLE_EQ(referenceManager.getAppliedPosSurfaceRtWorldEwrtWorldZ(),
+                   launched);
+  EXPECT_DOUBLE_EQ(contactImplicitTermsPosSurfaceRtWorldEwrtWorldZ(
+                       built.solver(), built.contactNames()),
+                   launched);
 
   const vector_t& state = built.interface->getInitialState();
   referenceManager.setTargetTrajectories(TargetTrajectories(
@@ -1742,10 +1783,11 @@ TEST_F(
                                 state, ModeNumber::kStance);
   updater->preSolverRun(/*initTime=*/0.1, /*finalTime=*/0.1 + horizon, state,
                         referenceManager);
-  EXPECT_DOUBLE_EQ(referenceManager.getAppliedTerrainHeight(), kReloaded);
-  EXPECT_DOUBLE_EQ(
-      contactImplicitTermsTerrainHeight(built.solver(), built.contactNames()),
-      kReloaded);
+  EXPECT_DOUBLE_EQ(referenceManager.getAppliedPosSurfaceRtWorldEwrtWorldZ(),
+                   kReloaded);
+  EXPECT_DOUBLE_EQ(contactImplicitTermsPosSurfaceRtWorldEwrtWorldZ(
+                       built.solver(), built.contactNames()),
+                   kReloaded);
   for (size_t foot = 0; foot < built.contactNames().size(); ++foot) {
     if (!referenceManager.isInContact(/*time=*/0.1, foot)) continue;
     EXPECT_DOUBLE_EQ(referenceManager.getSwingTrajectoryPlanner()
@@ -1762,15 +1804,16 @@ TEST_F(MpcParameterUpdaterModuleTest,
   ASSERT_NE(built.interface, nullptr);
   std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(built);
   ASSERT_NE(updater, nullptr);
-  const scalar_t launched = built.interface->modelSettings().terrainHeight;
+  const scalar_t launched =
+      built.interface->modelSettings().posSurfaceRtWorldEwrtWorldZ;
   mpc_config::TaskFile task = built.interface->config().task;
-  task.terrain_height = 0.017;
+  task.pos_surface_rt_world_ewrt_world_z = 0.017;
   reload(*updater, built, task);
-  EXPECT_DOUBLE_EQ(
-      contactImplicitTermsTerrainHeight(built.solver(), built.contactNames()),
-      0.017);
+  EXPECT_DOUBLE_EQ(contactImplicitTermsPosSurfaceRtWorldEwrtWorldZ(
+                       built.solver(), built.contactNames()),
+                   0.017);
   EXPECT_DOUBLE_EQ(built.interface->getSwitchedModelReferenceManagerPtr()
-                       ->getTerrainHeight(),
+                       ->getPosSurfaceRtWorldEwrtWorldZ(),
                    launched)
       << "the updater was given no reference manager, so it cannot have moved "
          "the one the interface holds";
@@ -1845,83 +1888,98 @@ TEST_F(MpcParameterUpdaterModuleTest, TheSwingTrajectoriesFollowAReload) {
       makeUpdater(atlas_, &referenceManager);
   ASSERT_NE(updater, nullptr);
   mpc_config::TaskFile task = shippedTask();
-  task.swing_trajectory_config.swing_height = 0.2345;
+  task.swing_trajectory_config.apex_pos_foot_rt_swingend_ewrt_world_z = 0.2345;
   reload(*updater, atlas_, task);
-  EXPECT_EQ(
-      referenceManager.getSwingTrajectoryPlanner()->getConfig().swingHeight,
-      0.2345);
+  EXPECT_EQ(referenceManager.getSwingTrajectoryPlanner()
+                ->getConfig()
+                .apexPosFootRtSwingendEwrtWorldZ,
+            0.2345);
 }
 
 TEST_F(MpcParameterUpdaterModuleTest,
        LocomotionHeuristicCoefficientsHotReloadButTheirListsDoNot) {
   CentroidalMpcConfig config = shipped_;
-  config.task.locomotion_heuristics.base_pose = {"orientation_compensation"};
-  config.task.locomotion_heuristics.orientation_compensation
-      .pitch_per_forward_velocity = 0.05;
+  config.task.locomotion_heuristics.base_pose_heuristics = {
+      "orientation_compensation"};
+  config.task.locomotion_heuristics.orientation_compensation_parameters
+      .pitch_per_forward_velocity_gain = 0.05;
   const Built built = build(config, files_.urdfFile);
   ASSERT_NE(built.interface, nullptr);
   const std::shared_ptr<LocomotionHeuristicLayer> layer =
       built.interface->getLocomotionHeuristicLayerPtr();
   ASSERT_NE(layer, nullptr);
-  ASSERT_NEAR(basePoseOffsetAtForwardSpeed(*layer, /*forwardSpeed=*/1.0).pitch,
+  ASSERT_NEAR(basePoseHeuristicOffsetAtForwardSpeed(
+                  *layer, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/1.0)
+                  .offsetEulerzyxBaseRtWorldPitch,
               0.05, 1.0e-12)
       << "the start-up did not list the heuristic";
   std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(built);
   ASSERT_NE(updater, nullptr);
 
   mpc_config::TaskFile task = config.task;
-  task.locomotion_heuristics.orientation_compensation
-      .pitch_per_forward_velocity = 0.09;
+  task.locomotion_heuristics.orientation_compensation_parameters
+      .pitch_per_forward_velocity_gain = 0.09;
   reload(*updater, built, task);
-  EXPECT_NEAR(basePoseOffsetAtForwardSpeed(*layer, /*forwardSpeed=*/1.0).pitch,
+  EXPECT_NEAR(basePoseHeuristicOffsetAtForwardSpeed(
+                  *layer, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/1.0)
+                  .offsetEulerzyxBaseRtWorldPitch,
               0.09, 1.0e-12)
       << "the coefficient did not reload";
-  EXPECT_NEAR(basePoseOffsetAtForwardSpeed(*layer, /*forwardSpeed=*/0.5).pitch,
+  EXPECT_NEAR(basePoseHeuristicOffsetAtForwardSpeed(
+                  *layer, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5)
+                  .offsetEulerzyxBaseRtWorldPitch,
               0.045, 1.0e-12)
       << "the reload sets the GAIN";
 
   // A coefficient the layer refuses keeps the running one.
-  task.locomotion_heuristics.orientation_compensation.maximum_tilt = -1.0;
-  task.locomotion_heuristics.orientation_compensation
-      .pitch_per_forward_velocity = 0.11;
+  task.locomotion_heuristics.orientation_compensation_parameters
+      .max_offset_eulerzyx_base_rt_world = -1.0;
+  task.locomotion_heuristics.orientation_compensation_parameters
+      .pitch_per_forward_velocity_gain = 0.11;
   reload(*updater, built, task);
-  EXPECT_NEAR(basePoseOffsetAtForwardSpeed(*layer, /*forwardSpeed=*/1.0).pitch,
+  EXPECT_NEAR(basePoseHeuristicOffsetAtForwardSpeed(
+                  *layer, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/1.0)
+                  .offsetEulerzyxBaseRtWorldPitch,
               0.09, 1.0e-12)
       << "a refused reload changed the layer";
 
   // A changed list is structural: reported, not applied, and the running
   // heuristic's coefficients still reload.
-  task.locomotion_heuristics.orientation_compensation.maximum_tilt =
-      config.task.locomotion_heuristics.orientation_compensation.maximum_tilt;
-  task.locomotion_heuristics.orientation_compensation
-      .pitch_per_forward_velocity = 0.06;
-  task.locomotion_heuristics.base_pose = {"height_compensation"};
-  task.locomotion_heuristics.height_compensation.height_offset = 0.03;
+  task.locomotion_heuristics.orientation_compensation_parameters
+      .max_offset_eulerzyx_base_rt_world =
+      config.task.locomotion_heuristics.orientation_compensation_parameters
+          .max_offset_eulerzyx_base_rt_world;
+  task.locomotion_heuristics.orientation_compensation_parameters
+      .pitch_per_forward_velocity_gain = 0.06;
+  task.locomotion_heuristics.base_pose_heuristics = {"height_compensation"};
+  task.locomotion_heuristics.height_compensation
+      .offset_pos_base_rt_world_ewrt_world_z = 0.03;
   absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
   EXPECT_CALL(log, Log(absl::LogSeverity::kWarning, testing::_,
-                       testing::AllOf(testing::HasSubstr("next start"),
-                                      testing::HasSubstr(
-                                          "locomotion_heuristics.base_pose"))))
+                       testing::AllOf(
+                           testing::HasSubstr("next start"),
+                           testing::HasSubstr(
+                               "locomotion_heuristics.base_pose_heuristics"))))
       .Times(1);
   log.StartCapturingLogs();
   reload(*updater, built, task);
   log.StopCapturingLogs();
-  const BasePoseOffset offset =
-      basePoseOffsetAtForwardSpeed(*layer, /*forwardSpeed=*/1.0);
-  EXPECT_NEAR(offset.pitch, 0.06, 1.0e-12)
+  const BasePoseOffset offset = basePoseHeuristicOffsetAtForwardSpeed(
+      *layer, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/1.0);
+  EXPECT_NEAR(offset.offsetEulerzyxBaseRtWorldPitch, 0.06, 1.0e-12)
       << "a changed list stopped the running heuristic's coefficients from "
          "reloading";
-  EXPECT_EQ(offset.height, 0.0)
+  EXPECT_EQ(offset.offsetPosBaseRtWorldEwrtWorldZ, 0.0)
       << "height_compensation, newly listed, was switched on by a hot reload";
 }
 
 /** The Atlas planner's file as the start-up and the reload derive it from the
- * model: no com_height, the ZMP box at 0. */
+ * model: no nom_pos_com_rt_feetmean_ewrt_world_z, the ZMP box at 0. */
 mpc_config::ContactPlanningFile derivedPlanningFile(
     mpc_config::ContactPlanningFile file) {
-  file.shared.com_height.reset();
-  file.zmp_support_region.half_width_x = 0.0;
-  file.zmp_support_region.half_width_y = 0.0;
+  file.shared.nom_pos_com_rt_feetmean_ewrt_world_z.reset();
+  file.zmp_support_region.max_norm_pos_zmp_rt_foot_ewrt_foot_x = 0.0;
+  file.zmp_support_region.max_norm_pos_zmp_rt_foot_ewrt_foot_y = 0.0;
   // Plan in the pre-solve hook, so that the test starts no worker thread.
   file.planner.threading = "pre_solve_hook";
   return file;
@@ -1929,13 +1987,14 @@ mpc_config::ContactPlanningFile derivedPlanningFile(
 
 TEST_F(MpcParameterUpdaterModuleTest,
        AContactPlanningReloadAppliesTheModelParametersBeforeValidating) {
-  // A robot may leave out shared.com_height and write 0 for the ZMP box, the
-  // planner parameters that are properties of its model, and have them derived.
-  // Such a file does not validate on its own; the reload converts it without
-  // validation and leaves ContactPlannerModule::setConfig() to apply the model
-  // parameters first, exactly as the start-up does.
-  if (!shipped_.contactPlanning.has_value())
+  // A robot may leave out shared.nom_pos_com_rt_feetmean_ewrt_world_z and write
+  // 0 for the ZMP box, the planner parameters that are properties of its model,
+  // and have them derived. Such a file does not validate on its own; the reload
+  // converts it without validation and leaves ContactPlannerModule::setConfig()
+  // to apply the model parameters first, exactly as the start-up does.
+  if (!shipped_.contactPlanning.has_value()) {
     GTEST_FAIL() << "the shipped Atlas has a contact planner's file";
+  }
   const mpc_config::ContactPlanningFile file =
       derivedPlanningFile(*shipped_.contactPlanning);
   absl::StatusOr<ContactPlanningConfig> unvalidated =
@@ -1949,15 +2008,13 @@ TEST_F(MpcParameterUpdaterModuleTest,
 
   ContactPlanningModelParameters modelParameters;
   modelParameters.totalMass = 80.0;
-  modelParameters.comHeight = 0.93;
-  modelParameters.zmpHalfWidthX = 0.11;
-  modelParameters.zmpHalfWidthY = 0.055;
-  modelParameters.torsionalFrictionTorque = 12.0;
-  modelParameters.doubleSupportYawCouplePerStepWidth = 34.0;
-  modelParameters.footYawOffsetLower =
-      makeFeetArray(static_cast<scalar_t>(-0.4));
-  modelParameters.footYawOffsetUpper =
-      makeFeetArray(static_cast<scalar_t>(0.4));
+  modelParameters.nomPosComRtFeetmeanEwrtWorldZ = 0.93;
+  modelParameters.maxPosCornersRtFootprintEwrtContactX = 0.11;
+  modelParameters.maxPosCornersRtFootprintEwrtContactY = 0.055;
+  modelParameters.maxTorqueFootEwrtFootZ = 12.0;
+  modelParameters.perStepWidthDoubleSupportMaxTorqueFeetmeanEwrtWorldZ = 34.0;
+  modelParameters.minYawFeetRtBase = makeFeetArray(static_cast<scalar_t>(-0.4));
+  modelParameters.maxYawFeetRtBase = makeFeetArray(static_cast<scalar_t>(0.4));
   modelParameters.hipYawJoints.assign(kNumContacts, std::string());
   ContactPlanningConfig config = *unvalidated;
   modelParameters.applyTo(config);
@@ -1997,14 +2054,15 @@ TEST_F(MpcParameterUpdaterModuleTest,
   const ContactPlanningConfig applied = (*module)->getConfig();
   EXPECT_NEAR(applied.planner.maxSolveTime, 0.234, 1.0e-12)
       << "the edited planner file never reached the module";
-  EXPECT_THAT(applied.shared.comHeight,
+  EXPECT_THAT(applied.shared.nomPosComRtFeetmeanEwrtWorldZ,
               ::testing::Optional(::testing::DoubleNear(
-                  modelParameters.comHeight, /*max_abs_error=*/1.0e-12)))
+                  modelParameters.nomPosComRtFeetmeanEwrtWorldZ,
+                  /*max_abs_error=*/1.0e-12)))
       << "the reload has to re-apply the model-derived height";
-  EXPECT_NEAR(applied.zmpSupportRegion.halfWidthX,
-              modelParameters.zmpHalfWidthX, 1.0e-12);
-  EXPECT_NEAR(applied.zmpSupportRegion.halfWidthY,
-              modelParameters.zmpHalfWidthY, 1.0e-12);
+  EXPECT_NEAR(applied.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootX,
+              modelParameters.maxPosCornersRtFootprintEwrtContactX, 1.0e-12);
+  EXPECT_NEAR(applied.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootY,
+              modelParameters.maxPosCornersRtFootprintEwrtContactY, 1.0e-12);
   EXPECT_TRUE(applied.validateStatus().ok())
       << "the planner was handed an unvalidated configuration";
 
@@ -2131,15 +2189,16 @@ TEST_F(
     return absl::InvalidArgumentError(
         "cmd_max_angvel_base_rt_world_ewrt_world_z is -1");
   });
-  std::vector<scalar_t> reloadedRotationVelocities;
+  std::vector<scalar_t> reloadedCmdMaxAngvelBaseRtWorldEwrtWorldZ;
   updater->addReferenceFileReloader(
-      [&reloadedRotationVelocities](const ReferenceSettings& settings) {
-        reloadedRotationVelocities.push_back(
+      [&reloadedCmdMaxAngvelBaseRtWorldEwrtWorldZ](
+          const ReferenceSettings& settings) {
+        reloadedCmdMaxAngvelBaseRtWorldEwrtWorldZ.push_back(
             settings.cmdMaxAngvelBaseRtWorldEwrtWorldZ);
         return absl::OkStatus();
       });
   runFileWatch(*updater, atlas_);
-  EXPECT_TRUE(reloadedRotationVelocities.empty())
+  EXPECT_TRUE(reloadedCmdMaxAngvelBaseRtWorldEwrtWorldZ.empty())
       << "an untouched reference file triggered a reload";
 
   // The edited file's limits reach every reloader, the ones after a refusing
@@ -2161,7 +2220,8 @@ TEST_F(
     runFileWatch(*updater, atlas_);
     log.StopCapturingLogs();
   }
-  EXPECT_EQ(reloadedRotationVelocities, std::vector<scalar_t>({0.75}))
+  EXPECT_EQ(reloadedCmdMaxAngvelBaseRtWorldEwrtWorldZ,
+            std::vector<scalar_t>({0.75}))
       << "the reloader after the refusing one did not run once";
 
   // A file whose limits do not convert reaches no typed reloader: it is
@@ -2185,7 +2245,7 @@ TEST_F(
     runFileWatch(*updater, atlas_);
     log.StopCapturingLogs();
   }
-  EXPECT_EQ(reloadedRotationVelocities.size(), 1U)
+  EXPECT_EQ(reloadedCmdMaxAngvelBaseRtWorldEwrtWorldZ.size(), 1U)
       << "a reference file that does not convert reached a reloader";
 }
 
@@ -2193,17 +2253,17 @@ TEST_F(MpcParameterUpdaterModuleTest,
        ReloadingCommandLimitsChangesTheTargetItProduces) {
   // The pelvis height is the observable one:
   // poseCommandToTargetTrajectories clamps the commanded delta to
-  // cmd_max_err_pos_base_rt_world_ewrt_world_z and adds
-  // nom_pos_base_rt_world_ewrt_world_z, so both reloaded values appear in the
+  // cmd_max_err_pos_base_rt_surface_ewrt_world_z and adds
+  // nom_pos_base_rt_surface_ewrt_world_z, so both reloaded values appear in the
   // target it returns.
   const std::function<mpc_config::ReferenceFile(scalar_t, scalar_t)>
-      referenceWith = [this](scalar_t cmdMaxErrPosBaseRtWorldEwrtWorldZ,
-                             scalar_t nomPosBaseRtWorldEwrtWorldZ) {
+      referenceWith = [this](scalar_t cmdMaxErrPosBaseRtSurfaceEwrtWorldZ,
+                             scalar_t nomPosBaseRtSurfaceEwrtWorldZ) {
         mpc_config::ReferenceFile reference = shipped_.reference;
-        reference.cmd_max_err_pos_base_rt_world_ewrt_world_z =
-            cmdMaxErrPosBaseRtWorldEwrtWorldZ;
-        reference.nom_pos_base_rt_world_ewrt_world_z =
-            nomPosBaseRtWorldEwrtWorldZ;
+        reference.cmd_max_err_pos_base_rt_surface_ewrt_world_z =
+            cmdMaxErrPosBaseRtSurfaceEwrtWorldZ;
+        reference.nom_pos_base_rt_surface_ewrt_world_z =
+            nomPosBaseRtSurfaceEwrtWorldZ;
         return reference;
       };
   const std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator> calculator =
@@ -2214,21 +2274,21 @@ TEST_F(MpcParameterUpdaterModuleTest,
           atlas_.interface->mpcSettings().timeHorizon_));
   const vector_t& state = atlas_.interface->getInitialState();
   const vector4_t deepCrouch(0.0, 0.0, -10.0, 0.0);
-  const std::function<scalar_t()> commandedHeight = [&]() {
+  const std::function<scalar_t()> refPosBaseRtWorldEwrtWorldZ = [&]() {
     const TargetTrajectories target =
         calculator->poseCommandToTargetTrajectories(deepCrouch,
                                                     /*initTime=*/0.0, state);
     return atlas_.interface->getEffectiveMpcRobotModel()
         .getPosBaseRtWorldEwrtWorld(target.stateTrajectory.back())(2);
   };
-  EXPECT_NEAR(commandedHeight(), 0.90 - 0.10, 1.0e-6);
+  EXPECT_NEAR(refPosBaseRtWorldEwrtWorldZ(), 0.90 - 0.10, 1.0e-6);
   // What a reload of the reference file hands the calculator
   // (MpcParameterUpdaterModule::ReferenceFileReloader).
   const absl::StatusOr<ReferenceSettings> reloaded =
       referenceSettingsFromConfig(referenceWith(0.25, 0.80));
   ASSERT_TRUE(reloaded.ok()) << reloaded.status();
   calculator->applyCommandLimits(*reloaded);
-  EXPECT_NEAR(commandedHeight(), 0.80 - 0.25, 1.0e-6)
+  EXPECT_NEAR(refPosBaseRtWorldEwrtWorldZ(), 0.80 - 0.25, 1.0e-6)
       << "the reloaded limits must be the ones the target is built from";
 }
 
@@ -2242,14 +2302,16 @@ TEST_F(
   // The robot's files in a directory of the test's own, with the planner and a
   // heuristic switched on.
   CentroidalMpcConfig config = shipped_;
-  if (!config.contactPlanning.has_value())
+  if (!config.contactPlanning.has_value()) {
     GTEST_FAIL() << "the shipped Atlas has a contact planner's file";
+  }
   config.task.contact_schedule_source = "contact_planner";
-  config.task.locomotion_heuristics.base_pose = {"orientation_compensation"};
-  config.task.locomotion_heuristics.orientation_compensation
-      .pitch_per_forward_velocity = 0.05;
+  config.task.locomotion_heuristics.base_pose_heuristics = {
+      "orientation_compensation"};
+  config.task.locomotion_heuristics.orientation_compensation_parameters
+      .pitch_per_forward_velocity_gain = 0.05;
   config.contactPlanning->planner.threading = "pre_solve_hook";
-  config.contactPlanning->hlip.step_width = 0.25;
+  config.contactPlanning->hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y = 0.25;
   const std::string directory = freshDirectory("updater_shared_wiring");
   absl::StatusOr<CentroidalRobotFiles> files =
       writeConfig(directory, config, files_.urdfFile);
@@ -2265,13 +2327,14 @@ TEST_F(
              interface->getOptimalControlProblem(),
              interface->getInitializer());
   mpc.getSolverPtr()->setReferenceManager(interface->getReferenceManagerPtr());
-  std::vector<scalar_t> reloadedRotationVelocities;
+  std::vector<scalar_t> reloadedCmdMaxAngvelBaseRtWorldEwrtWorldZ;
   absl::Time now = absl::FromUnixSeconds(1000);
   absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> wired =
       makeCentroidalMpcParameterUpdater(
           &mpc, *interface, files->taskFile, files->referenceFile,
-          {[&reloadedRotationVelocities](const ReferenceSettings& settings) {
-            reloadedRotationVelocities.push_back(
+          {[&reloadedCmdMaxAngvelBaseRtWorldEwrtWorldZ](
+               const ReferenceSettings& settings) {
+            reloadedCmdMaxAngvelBaseRtWorldEwrtWorldZ.push_back(
                 settings.cmdMaxAngvelBaseRtWorldEwrtWorldZ);
             return absl::OkStatus();
           }},
@@ -2289,16 +2352,16 @@ TEST_F(
                          *interface->getReferenceManagerPtr());
   };
   const std::function<scalar_t()> pitchGain = [&interface]() {
-    return basePoseOffsetAtForwardSpeed(
+    return basePoseHeuristicOffsetAtForwardSpeed(
                *interface->getLocomotionHeuristicLayerPtr(),
-               /*forwardSpeed=*/1.0)
-        .pitch;
+               /*cmdLinvelBaseRtWorldEwrtHeadingX=*/1.0)
+        .offsetEulerzyxBaseRtWorldPitch;
   };
   ASSERT_NEAR(pitchGain(), 0.05, 1.0e-12);
 
   CentroidalMpcConfig edited = config;
-  edited.task.locomotion_heuristics.orientation_compensation
-      .pitch_per_forward_velocity = 0.09;
+  edited.task.locomotion_heuristics.orientation_compensation_parameters
+      .pitch_per_forward_velocity_gain = 0.09;
   edited.task.multiple_shooting.sqp_iteration = 12;
   writeWatched(files->taskFile, taskFileText(edited.task), /*seconds=*/1);
   runUpdater();
@@ -2309,24 +2372,27 @@ TEST_F(
   EXPECT_NEAR(pitchGain(), 0.09, 1.0e-12)
       << "the wired updater does not reach the interface's "
          "locomotion-heuristic layer";
-  if (!edited.contactPlanning.has_value())
+  if (!edited.contactPlanning.has_value()) {
     GTEST_FAIL() << "the copy of the configuration lost the planner's file";
-  edited.contactPlanning->hlip.step_width = 0.27;
+  }
+  edited.contactPlanning->hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y = 0.27;
   writeWatched(
       (std::filesystem::path(directory) / std::string(kContactPlanningFileName))
           .string(),
       contactPlanningFileText(*edited.contactPlanning), /*seconds=*/2);
   runUpdater();
-  EXPECT_NEAR(
-      interface->getContactPlannerModulePtr()->getConfig().hlip.stepWidth, 0.27,
-      1.0e-12)
+  EXPECT_NEAR(interface->getContactPlannerModulePtr()
+                  ->getConfig()
+                  .hlip.nomPosLfootRtRfootEwrtHeadingY,
+              0.27, 1.0e-12)
       << "the wired updater does not reach the contact planner module";
   mpc_config::ReferenceFile reference = config.reference;
   reference.cmd_max_angvel_base_rt_world_ewrt_world_z = 0.75;
   writeWatched(files->referenceFile, referenceFileText(reference),
                /*seconds=*/3);
   runUpdater();
-  EXPECT_EQ(reloadedRotationVelocities, std::vector<scalar_t>({0.75}))
+  EXPECT_EQ(reloadedCmdMaxAngvelBaseRtWorldEwrtWorldZ,
+            std::vector<scalar_t>({0.75}))
       << "the reference file's reloaders were not registered";
 
   // Verify that taskFileReadAt suppresses reload of an edit that was already on

@@ -10,14 +10,14 @@ ref_rate_yaw_base_rt_world: 0.5
 
 cmd_max_linvel_base_rt_world_ewrt_heading_x: 1.2
 cmd_max_linvel_base_rt_world_ewrt_heading_y: 0.25
-cmd_max_err_pos_base_rt_world_ewrt_world_z: 0.4
+cmd_max_err_pos_base_rt_surface_ewrt_world_z: 0.4
 cmd_max_angvel_base_rt_world_ewrt_world_z: 1.0
 cmd_max_linacc_base_rt_world_ewrt_heading_xy: 1.0  # [m/s^2]
 cmd_max_angacc_base_rt_world_ewrt_world_z: 2.0  # [rad/s^2]
 velocity_command_filter_break_frequency: 0.0  # [Hz] command low-pass filter, 0 = off
 target_joint_state_interpolation_time_constant: 2.0
 
-nom_pos_base_rt_world_ewrt_world_z: 0.8952
+nom_pos_base_rt_surface_ewrt_world_z: 0.8952
 # LINT.IfChange(default_joint_state)
 default_joint_state { joint: "back_bkz" value: 0.0 }
 default_joint_state { joint: "back_bky" value: 0.0 }

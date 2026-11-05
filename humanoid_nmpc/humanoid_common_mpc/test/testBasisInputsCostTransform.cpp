@@ -28,8 +28,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <algorithm>
+#include <cstddef>
 #include <random>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -37,9 +37,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Eigenvalues"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactCenterPoint.h"
@@ -183,20 +186,21 @@ TEST(BasisRegularizationRegistryTest,
 // ====================
 
 TEST(BasisInputsCostTransformTest, FullDiagonalConfigIsTheLegacyTransform) {
-  for (const std::string& set : allGeneratorSets()) {
-    const matrix_t M = makeBasisGeneratorMap(makeBases(set));
+  for (const std::string& generatorSet : allGeneratorSets()) {
+    const matrix_t M = makeBasisGeneratorMap(makeBases(generatorSet));
     const matrix_t R = makeWrappedSpaceR(atlasLikeContactWeights());
     const BasisInputsCostTransformConfig config =
         makeConfig(M, kFullDiagonalBasisRegularization);
     const matrix_t viaConfig = transformWrenchInputCostToBasisSpace(R, config);
     const matrix_t legacy = transformWrenchInputCostToBasisSpace(
         R, M, config.numBasisInputs, kRegularization);
-    EXPECT_TRUE((viaConfig - legacy).isZero(0.0)) << set;
+    EXPECT_TRUE((viaConfig - legacy).isZero(0.0)) << generatorSet;
     matrix_t expected = M.transpose() * R * M;
     expected.diagonal()
         .head(static_cast<Eigen::Index>(config.numBasisInputs))
         .array() += kRegularization;
-    EXPECT_LE((viaConfig - expected).cwiseAbs().maxCoeff(), 1.0e-18) << set;
+    EXPECT_LE((viaConfig - expected).cwiseAbs().maxCoeff(), 1.0e-18)
+        << generatorSet;
   }
 }
 
@@ -222,14 +226,14 @@ TEST(BasisInputsCostTransformDeathTest,
 
 TEST(BasisInputsCostTransformTest,
      ZeroWeightIsAnExactNoOpForEveryRegularization) {
-  for (const std::string& set : allGeneratorSets()) {
-    const matrix_t M = makeBasisGeneratorMap(makeBases(set));
+  for (const std::string& generatorSet : allGeneratorSets()) {
+    const matrix_t M = makeBasisGeneratorMap(makeBases(generatorSet));
     const matrix_t R = makeWrappedSpaceR(atlasLikeContactWeights());
     for (const std::string& name : basisRegularizationNames()) {
       const matrix_t R_basis = transformWrenchInputCostToBasisSpace(
           R, makeConfig(M, name, /*weight=*/0.0));
       EXPECT_TRUE((R_basis - M.transpose() * R * M).isZero(0.0))
-          << set << " " << name;
+          << generatorSet << " " << name;
     }
   }
 }
@@ -256,8 +260,8 @@ TEST(BasisInputsCostTransformTest,
 
 TEST(BasisInputsCostTransformTest,
      NullSpaceShapeIsTheBlockDiagonalProjectorOfEachFoot) {
-  for (const std::string& set : allGeneratorSets()) {
-    const feet_array_t<matrix_t> bases = makeBases(set);
+  for (const std::string& generatorSet : allGeneratorSets()) {
+    const feet_array_t<matrix_t> bases = makeBases(generatorSet);
     const matrix_t M = makeBasisGeneratorMap(bases);
     const size_t numBasisInputs = static_cast<size_t>(M.cols()) - kJointDim;
     const matrix_t S = nullSpaceRegularizationShape(M, numBasisInputs);
@@ -271,13 +275,13 @@ TEST(BasisInputsCostTransformTest,
         PolygonBounds(-0.12, 0.12, -0.055, 0.055),
         ContactCenterPoint("foot", "ankle", vector3_t::Zero()));
     const absl::StatusOr<ContactWrenchConeBasisMatrix> basis =
-        ContactWrenchConeBasisMatrix::Create(config, rectangle, set);
+        ContactWrenchConeBasisMatrix::Create(config, rectangle, generatorSet);
     ASSERT_TRUE(basis.ok());
     const Eigen::Index n = static_cast<Eigen::Index>(basis->numBasis());
     matrix_t expected = matrix_t::Zero(2 * n, 2 * n);
     expected.topLeftCorner(n, n) = basis->getNullSpaceProjector();
     expected.bottomRightCorner(n, n) = basis->getNullSpaceProjector();
-    EXPECT_LE((S - expected).cwiseAbs().maxCoeff(), 1.0e-10) << set;
+    EXPECT_LE((S - expected).cwiseAbs().maxCoeff(), 1.0e-10) << generatorSet;
   }
 }
 
@@ -285,8 +289,8 @@ TEST(BasisInputsCostTransformTest,
      NullSpaceCostIsTheWrenchCostPlusATermThatVanishesOnRangeOfMTranspose) {
   std::mt19937 gen(7);
   std::normal_distribution<scalar_t> normal(0.0, 1.0);
-  for (const std::string& set : allGeneratorSets()) {
-    const matrix_t M = makeBasisGeneratorMap(makeBases(set));
+  for (const std::string& generatorSet : allGeneratorSets()) {
+    const matrix_t M = makeBasisGeneratorMap(makeBases(generatorSet));
     const matrix_t R = makeWrappedSpaceR(atlasLikeContactWeights());
     const BasisInputsCostTransformConfig config =
         makeConfig(M, kNullSpaceBasisRegularization);
@@ -304,7 +308,7 @@ TEST(BasisInputsCostTransformTest,
       EXPECT_NEAR(u.dot(R_basis * u),
                   wrappedInputCost + kRegularization * lambda.dot(S * lambda),
                   1.0e-10 * (1.0 + wrappedInputCost))
-          << set;
+          << generatorSet;
 
       // On λ = Mᵀ y (the range of Mᵀ, where the minimum-norm λ of every wrench
       // lives) the regularization vanishes and the cost is exactly the
@@ -317,7 +321,7 @@ TEST(BasisInputsCostTransformTest,
           inRangeWrappedInput.dot(R * inRangeWrappedInput);
       EXPECT_NEAR(inRange.dot(R_basis * inRange), inRangeWrappedInputCost,
                   1.0e-10 * inRangeWrappedInputCost)
-          << set;
+          << generatorSet;
     }
   }
 }
@@ -329,8 +333,8 @@ TEST(BasisInputsCostTransformTest,
   // must give G = R exactly; full_diagonal gives R + reg (B Bᵀ)⁻¹ on the
   // contact block, which is what made R's moment and tangential weights nearly
   // irrelevant on Atlas.
-  for (const std::string& set : allGeneratorSets()) {
-    const feet_array_t<matrix_t> bases = makeBases(set);
+  for (const std::string& generatorSet : allGeneratorSets()) {
+    const feet_array_t<matrix_t> bases = makeBases(generatorSet);
     const matrix_t M = makeBasisGeneratorMap(bases);
     const matrix_t R = makeWrappedSpaceR(atlasLikeContactWeights());
 
@@ -340,7 +344,7 @@ TEST(BasisInputsCostTransformTest,
     EXPECT_LE(
         ((G_null - R).cwiseAbs().array() / R.diagonal().maxCoeff()).maxCoeff(),
         1.0e-6)
-        << set << ":\n"
+        << generatorSet << ":\n"
         << G_null.diagonal().transpose();
 
     const matrix_t H_full = transformWrenchInputCostToBasisSpace(
@@ -355,12 +359,12 @@ TEST(BasisInputsCostTransformTest,
                expectedContactMetric.cwiseAbs().maxCoeff())
                   .maxCoeff(),
               1.0e-6)
-        << set;
+        << generatorSet;
     EXPECT_GT((G_full.topLeftCorner(6, 6) - R.topLeftCorner(6, 6))
                   .cwiseAbs()
                   .maxCoeff(),
               R.topLeftCorner(6, 6).maxCoeff())
-        << set
+        << generatorSet
         << ": full_diagonal is expected to distort the wrench metric by more "
            "than R's largest weight";
   }
@@ -368,8 +372,8 @@ TEST(BasisInputsCostTransformTest,
 
 TEST(BasisInputsCostTransformTest,
      LambdaBlockIsPositiveDefiniteExactlyWhenItShouldBe) {
-  for (const std::string& set : allGeneratorSets()) {
-    const matrix_t M = makeBasisGeneratorMap(makeBases(set));
+  for (const std::string& generatorSet : allGeneratorSets()) {
+    const matrix_t M = makeBasisGeneratorMap(makeBases(generatorSet));
     const size_t numBasisInputs = static_cast<size_t>(M.cols()) - kJointDim;
     const matrix_t R = makeWrappedSpaceR(atlasLikeContactWeights());
     for (const std::string& name : basisRegularizationNames()) {
@@ -378,7 +382,7 @@ TEST(BasisInputsCostTransformTest,
               transformWrenchInputCostToBasisSpace(R, makeConfig(M, name)),
               numBasisInputs)
               .ok())
-          << set << " " << name;
+          << generatorSet << " " << name;
       // Without a regularization weight the λ block is singular: there are more
       // generators than wrench components.
       const absl::Status unregularized = checkLambdaBlockPositiveDefinite(
@@ -386,7 +390,7 @@ TEST(BasisInputsCostTransformTest,
               R, makeConfig(M, name, /*weight=*/0.0)),
           numBasisInputs);
       EXPECT_EQ(unregularized.code(), absl::StatusCode::kInvalidArgument)
-          << set << " " << name;
+          << generatorSet << " " << name;
       EXPECT_NE(unregularized.message().find(kBasisScalingRegularizationField),
                 absl::string_view::npos)
           << unregularized;
@@ -401,7 +405,7 @@ TEST(BasisInputsCostTransformTest,
         transformWrenchInputCostToBasisSpace(
             R_singular, makeConfig(M, kNullSpaceBasisRegularization)),
         numBasisInputs);
-    EXPECT_FALSE(nullSpace.ok()) << set;
+    EXPECT_FALSE(nullSpace.ok()) << generatorSet;
     EXPECT_NE(nullSpace.message().find(kBasisRegularizationField),
               absl::string_view::npos)
         << nullSpace;
@@ -411,7 +415,7 @@ TEST(BasisInputsCostTransformTest,
                 R_singular, makeConfig(M, kFullDiagonalBasisRegularization)),
             numBasisInputs)
             .ok())
-        << set;
+        << generatorSet;
   }
 }
 

@@ -28,18 +28,25 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
+
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
 #include <climits>
+#include <cstddef>
 #include <cstdint>
 #include <iterator>
 #include <string>
 #include <vector>
 
 #include "absl/log/log.h"
-#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 
 #include "humanoid_common_mpc/common/StateLayout.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -68,8 +75,9 @@ constexpr ModelSettings::ContactImplicitKey kContactImplicitKeys[] = {
     {.fieldName = "penetration_weight",
      .field = &ModelSettings::ContactImplicitConfig::penetrationWeight,
      .isWeight = true},
-    {.fieldName = "height_reference",
-     .field = &ModelSettings::ContactImplicitConfig::heightReference,
+    {.fieldName = "scale_pos_contact_rt_surface_ewrt_world_z",
+     .field = &ModelSettings::ContactImplicitConfig::
+                  scalePosContactRtSurfaceEwrtWorldZ,
      .isWeight = false},
     {.fieldName = "scale_linvel_contact_rt_world_ewrt_world_xy",
      .field = &ModelSettings::ContactImplicitConfig::
@@ -171,6 +179,21 @@ class LayoutHash {
 };
 
 }  // namespace
+
+std::vector<std::string> ModelSettings::contactParentJointNamesInContactOrder()
+    const {
+  std::vector<std::string> parents;
+  parents.reserve(contactNames.size());
+  for (const PointContact& point : pointContacts) {
+    parents.push_back(point.parentJointName);
+  }
+  for (size_t contact = 0; contact < contactNames6DoF.size(); ++contact) {
+    parents.push_back(contact < contactParentJointNames.size()
+                          ? contactParentJointNames[contact]
+                          : std::string());
+  }
+  return parents;
+}
 
 uint64_t modelLayoutFingerprint(const ModelSettings& settings) {
   LayoutHash hash;

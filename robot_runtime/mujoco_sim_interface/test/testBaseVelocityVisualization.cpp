@@ -109,21 +109,22 @@ TEST(BaseVelocityVisualization,
 
   // Yawed by 90 degrees: the base's forward axis is the world's +y. A free
   // joint's linear velocity is in world axes.
-  const double halfYaw = std::numbers::pi / 4.0;
-  data.qpos[3] = std::cos(halfYaw);
+  const double halfYawBaseRtWorld = std::numbers::pi / 4.0;
+  data.qpos[3] = std::cos(halfYawBaseRtWorld);
   data.qpos[4] = 0.0;
   data.qpos[5] = 0.0;
-  data.qpos[6] = std::sin(halfYaw);
-  const double speed = 0.5;
+  data.qpos[6] = std::sin(halfYawBaseRtWorld);
+  const double linvelBaseRtWorldEwrtWorldY = 0.5;
   data.qvel[0] = 0.0;
-  data.qvel[1] = speed;
+  data.qvel[1] = linvelBaseRtWorldEwrtWorldY;
   data.qvel[2] = 0.0;
   mj_forward(model.get(), &data);
 
   OwnedScene scene(model.get(), /*maxGeoms=*/16);
   BaseVelocityVisualization::addArrows(
       model.get(), &data,
-      BaseVelocityCommand{.cmdLinvelBaseRtWorldEwrtHeadingX = speed},
+      BaseVelocityCommand{.cmdLinvelBaseRtWorldEwrtHeadingX =
+                              linvelBaseRtWorldEwrtWorldY},
       scene.get());
 
   ASSERT_EQ(scene.get().ngeom, 2)
@@ -156,23 +157,25 @@ TEST(BaseVelocityVisualization,
 
   // Heading 90 degrees, then pitched by 0.3 rad about the base's y axis: q =
   // q_z(pi/2) (x) q_y(0.3), w first.
-  const double heading = std::numbers::pi / 2.0;
-  const double pitch = 0.3;
-  const mjtNum quatHeadingRtWorldWxyz[4] = {std::cos(heading / 2.0), 0.0, 0.0,
-                                            std::sin(heading / 2.0)};
-  const mjtNum quatBaseRtHeadingWxyz[4] = {std::cos(pitch / 2.0), 0.0,
-                                           std::sin(pitch / 2.0), 0.0};
+  const double yawBaseRtWorld = std::numbers::pi / 2.0;
+  const double eulerzyxBaseRtHeadingPitch = 0.3;
+  const mjtNum quatHeadingRtWorldWxyz[4] = {
+      std::cos(yawBaseRtWorld / 2.0), 0.0, 0.0, std::sin(yawBaseRtWorld / 2.0)};
+  const mjtNum quatBaseRtHeadingWxyz[4] = {
+      std::cos(eulerzyxBaseRtHeadingPitch / 2.0), 0.0,
+      std::sin(eulerzyxBaseRtHeadingPitch / 2.0), 0.0};
   mju_mulQuat(&data.qpos[3], quatHeadingRtWorldWxyz, quatBaseRtHeadingWxyz);
   data.qvel[5] = 0.4;  // a measured angular velocity about the base's own z
                        // axis (MuJoCo's free-joint qvel is local)
   mj_forward(model.get(), &data);
 
   OwnedScene scene(model.get(), /*maxGeoms=*/16);
-  const double speed = 0.5;
+  const double cmdLinvelBaseRtWorldEwrtHeadingX = 0.5;
   BaseVelocityVisualization::addArrows(
       model.get(), &data,
-      BaseVelocityCommand{.cmdLinvelBaseRtWorldEwrtHeadingX = speed,
-                          .cmdRateYawBaseRtWorld = 0.7},
+      BaseVelocityCommand{
+          .cmdLinvelBaseRtWorldEwrtHeadingX = cmdLinvelBaseRtWorldEwrtHeadingX,
+          .cmdAngvelBaseRtWorldEwrtWorldZ = 0.7},
       scene.get());
 
   ASSERT_EQ(scene.get().ngeom, 3)
@@ -183,7 +186,7 @@ TEST(BaseVelocityVisualization,
       << "the first arrow is the green, commanded one";
   expectPointsAlong(commanded, /*x=*/0.0, /*y=*/1.0,
                     "commanded, turned by the heading only");
-  EXPECT_NEAR(commanded.size[2], speed, 1.0e-6)
+  EXPECT_NEAR(commanded.size[2], cmdLinvelBaseRtWorldEwrtHeadingX, 1.0e-6)
       << "an arrow as long as the commanded speed";
   for (const int index : {1, 2}) {
     const mjvGeom& yawArrow = scene.get().geoms[index];

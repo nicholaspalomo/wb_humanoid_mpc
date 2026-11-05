@@ -29,8 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <functional>
 #include <limits>
+#include <numbers>
 #include <random>
 #include <utility>
 #include <vector>
@@ -38,7 +40,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Geometry"
 #include "Eigen/SVD"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 
@@ -63,7 +68,7 @@ constexpr scalar_t kFiniteDifferenceStep = 1.0e-6;
  * round-off about 1e-10. */
 constexpr scalar_t kFiniteDifferenceTolerance = 1.0e-8;
 constexpr scalar_t kRoundOffTolerance = 1.0e-14;
-constexpr scalar_t kDegree = M_PI / 180.0;
+constexpr scalar_t kDegree = std::numbers::pi / 180.0;
 constexpr size_t kNumChosenAttitudes = 7;
 constexpr size_t kRandomAttitudes = 24;
 constexpr scalar_t kMinimumTestHeadingCoefficientsNorm = 0.3;
@@ -141,8 +146,9 @@ std::vector<vector4_t> testAttitudes() {
   std::mt19937 generator(7);
   while (attitudes.size() < kNumChosenAttitudes + kRandomAttitudes) {
     const vector4_t xi = randomUnitQuaternion(generator);
-    if (std::hypot(xi(2), xi(3)) >= kMinimumTestHeadingCoefficientsNorm)
+    if (std::hypot(xi(2), xi(3)) >= kMinimumTestHeadingCoefficientsNorm) {
       attitudes.push_back(xi);
+    }
   }
   return attitudes;
 }
@@ -242,14 +248,18 @@ TEST(BaseOrientation,
   std::uniform_real_distribution<scalar_t> uniform(-2.0, 2.0);
   for (int i = 0; i < 8; ++i) {
     const vector4_t xi = uniform(generator) * randomUnitQuaternion(generator);
-    const vector3_t omega(uniform(generator), uniform(generator),
-                          uniform(generator));
+    const vector3_t angvelLocalRtWorldEwrtLocal(
+        uniform(generator), uniform(generator), uniform(generator));
     const Eigen::Matrix<scalar_t, 4, 3> rateMatrix =
         quaternionRateMatrix<scalar_t>(xi);
-    const vector4_t pureOmega(omega(0), omega(1), omega(2), 0.0);
-    EXPECT_LT(
-        (rateMatrix * omega - product(xi, pureOmega)).cwiseAbs().maxCoeff(),
-        kRoundOffTolerance);
+    const vector4_t pureAngvelLocalRtWorldEwrtLocal(
+        angvelLocalRtWorldEwrtLocal(0), angvelLocalRtWorldEwrtLocal(1),
+        angvelLocalRtWorldEwrtLocal(2), 0.0);
+    EXPECT_LT((rateMatrix * angvelLocalRtWorldEwrtLocal -
+               product(xi, pureAngvelLocalRtWorldEwrtLocal))
+                  .cwiseAbs()
+                  .maxCoeff(),
+              kRoundOffTolerance);
     EXPECT_LT((rateMatrix.transpose() * rateMatrix -
                xi.squaredNorm() * matrix3_t::Identity())
                   .cwiseAbs()
@@ -258,12 +268,12 @@ TEST(BaseOrientation,
     EXPECT_LT((rateMatrix.transpose() * xi).cwiseAbs().maxCoeff(),
               kRoundOffTolerance);
     // d/dt xi (x) Exp(t w) at t = 0 is 1/2 G(xi) w.
-    const vector4_t forward =
-        product(xi, expMap(kFiniteDifferenceStep * omega));
-    const vector4_t backward =
-        product(xi, expMap(-kFiniteDifferenceStep * omega));
+    const vector4_t forward = product(
+        xi, expMap(kFiniteDifferenceStep * angvelLocalRtWorldEwrtLocal));
+    const vector4_t backward = product(
+        xi, expMap(-kFiniteDifferenceStep * angvelLocalRtWorldEwrtLocal));
     EXPECT_LT(((forward - backward) / (2.0 * kFiniteDifferenceStep) -
-               0.5 * rateMatrix * omega)
+               0.5 * rateMatrix * angvelLocalRtWorldEwrtLocal)
                   .cwiseAbs()
                   .maxCoeff(),
               kFiniteDifferenceTolerance);
@@ -301,17 +311,18 @@ TEST(BaseOrientation, ConfigurationTangentLiftIsTheLeftInverseOfTheTangentMap) {
 /******************************************************************************************************/
 
 TEST(BaseOrientation, HeadingOfALevelAttitudeIsItsYawWrapped) {
-  for (const scalar_t yaw : {0.0, 0.3, -2.9, 3.1, M_PI - 1.0e-9, -M_PI + 1.0e-9,
-                             4.0, -7.0, 10.0 * M_PI + 0.1}) {
-    const scalar_t wrapped = std::remainder(yaw, 2.0 * M_PI);
+  for (const scalar_t yaw :
+       {0.0, 0.3, -2.9, 3.1, std::numbers::pi - 1.0e-9,
+        -std::numbers::pi + 1.0e-9, 4.0, -7.0, 10.0 * std::numbers::pi + 0.1}) {
+    const scalar_t wrapped = std::remainder(yaw, 2.0 * std::numbers::pi);
     EXPECT_NEAR(yawOf(unitQuaternionAboutZ(yaw)), wrapped, 1.0e-13)
         << "yaw " << yaw;
-    EXPECT_GT(yawOf(unitQuaternionAboutZ(yaw)), -M_PI);
-    EXPECT_LE(yawOf(unitQuaternionAboutZ(yaw)), M_PI);
+    EXPECT_GT(yawOf(unitQuaternionAboutZ(yaw)), -std::numbers::pi);
+    EXPECT_LE(yawOf(unitQuaternionAboutZ(yaw)), std::numbers::pi);
   }
   // Half a turn is pi from either side of the double cover.
-  EXPECT_EQ(yawOf(vector4_t(0.0, 0.0, 1.0, 0.0)), M_PI);
-  EXPECT_EQ(yawOf(vector4_t(0.0, 0.0, -1.0, 0.0)), M_PI);
+  EXPECT_EQ(yawOf(vector4_t(0.0, 0.0, 1.0, 0.0)), std::numbers::pi);
+  EXPECT_EQ(yawOf(vector4_t(0.0, 0.0, -1.0, 0.0)), std::numbers::pi);
   // Invariant to the scale and, bit for bit, to the sign of xi.
   for (const vector4_t& xi : testAttitudes()) {
     EXPECT_EQ(yawOf(vector4_t(-xi)), yawOf(xi));
@@ -334,7 +345,7 @@ TEST(BaseOrientation, HeadingTimesSwingIsTheAttitude) {
     EXPECT_GT(heading(2) * xi(2) + heading(3) * xi(3), 0.0);
     EXPECT_NEAR(
         std::remainder(2.0 * std::atan2(heading(2), heading(3)) - yawOf(xi),
-                       2.0 * M_PI),
+                       2.0 * std::numbers::pi),
         0.0, 1.0e-13);
     EXPECT_EQ(swing(2), 0.0);
     EXPECT_GE(swing(3), 0.0);
@@ -375,7 +386,7 @@ TEST(BaseOrientation, TiltOfASingleAxisTiltIsExact) {
 TEST(BaseOrientation, TiltIsExactlyZeroAndRegularAtALevelAttitude) {
   // n = |s_xy| = 0 at a level attitude: the tilt is the series, exactly zero,
   // never 0 / 0 (the judges' fix).
-  for (const scalar_t yaw : {0.0, 0.7, -2.2, M_PI}) {
+  for (const scalar_t yaw : {0.0, 0.7, -2.2, std::numbers::pi}) {
     const vector4_t level = unitQuaternionAboutZ(yaw);
     ASSERT_EQ(level(0), 0.0);
     ASSERT_EQ(level(1), 0.0);
@@ -614,7 +625,7 @@ TEST(BaseOrientationProperties, JacobianAtALevelAttitudeIsThePermutation) {
   // the Euler-weighted rows equal those of the Euler formulation.
   const matrix3_t eulerRateMap =
       eulerZyxRateToBodyRateMatrix(vector3_t::Zero());
-  for (const scalar_t yaw : {0.0, 0.4, -1.9, 3.0, M_PI}) {
+  for (const scalar_t yaw : {0.0, 0.4, -1.9, 3.0, std::numbers::pi}) {
     const matrix3_t jacobian = headingTiltJacobian(unitQuaternionAboutZ(yaw));
     EXPECT_LT((jacobian - permutationP3()).cwiseAbs().maxCoeff(), 1.0e-15)
         << "yaw " << yaw << "\n"
@@ -713,7 +724,8 @@ TEST(BaseOrientationProperties, YawRowDiffersFromTheEulerYawByTheStatedTerm) {
   // e_yaw - (psi - psi_r) = -2 atan(tan(theta / 2) tan(phi / 2)) + 2
   // atan(tan(theta_r / 2) tan(phi_r / 2)), modulo 2 pi.
   std::mt19937 generator(4);
-  std::uniform_real_distribution<scalar_t> yawDistribution(-M_PI, M_PI);
+  std::uniform_real_distribution<scalar_t> yawDistribution(-std::numbers::pi,
+                                                           std::numbers::pi);
   std::uniform_real_distribution<scalar_t> tiltDistribution(-0.6, 0.6);
   for (int i = 0; i < 16; ++i) {
     const vector3_t euler(yawDistribution(generator),
@@ -731,7 +743,7 @@ TEST(BaseOrientationProperties, YawRowDiffersFromTheEulerYawByTheStatedTerm) {
         2.0 * std::atan(std::tan(eulerReference(1) / 2.0) *
                         std::tan(eulerReference(2) / 2.0));
     EXPECT_NEAR(std::remainder(yawRow - (euler(0) - eulerReference(0)) - stated,
-                               2.0 * M_PI),
+                               2.0 * std::numbers::pi),
                 0.0, 1.0e-13);
   }
   // About -theta phi / 2: 0.0113 rad at theta = phi = 0.15 (design decision
@@ -747,7 +759,8 @@ TEST(BaseOrientationProperties, TiltRowsAreIndependentOfTheYawError) {
     const vector4_t reference = randomUnitQuaternion(generator);
     const vector3_t residual = headingTiltResidual(xi, reference);
     for (const scalar_t yawError :
-         {0.35, M_PI - 0.01, -M_PI + 0.01, -3.0, 10.0 * M_PI + 0.1}) {
+         {0.35, std::numbers::pi - 0.01, -std::numbers::pi + 0.01, -3.0,
+          10.0 * std::numbers::pi + 0.1}) {
       const vector4_t rotated = product(unitQuaternionAboutZ(yawError), xi);
       EXPECT_LT((tiltVector(rotated) - tiltVector(xi)).cwiseAbs().maxCoeff(),
                 kRoundOffTolerance);
@@ -755,7 +768,7 @@ TEST(BaseOrientationProperties, TiltRowsAreIndependentOfTheYawError) {
       EXPECT_NEAR(rotatedResidual(1), residual(1), kRoundOffTolerance);
       EXPECT_NEAR(rotatedResidual(2), residual(2), kRoundOffTolerance);
       EXPECT_NEAR(std::remainder(rotatedResidual(0) - residual(0) - yawError,
-                                 2.0 * M_PI),
+                                 2.0 * std::numbers::pi),
                   0.0, 1.0e-13);
     }
   }
@@ -843,10 +856,10 @@ TEST(BaseOrientationProperties,
     ASSERT_TRUE(std::signbit(negated(2)) == !std::signbit(upsideDown(2)) &&
                 std::signbit(negated(3)) == !std::signbit(upsideDown(3)));
     for (const vector4_t& xi : {upsideDown, negated}) {
-      const scalar_t heading = yawOf(xi);
-      EXPECT_GT(heading, -M_PI) << xi.transpose();
-      EXPECT_LE(heading, M_PI) << xi.transpose();
-      EXPECT_EQ(heading, 0.0) << xi.transpose();
+      const scalar_t yawBaseRtWorld = yawOf(xi);
+      EXPECT_GT(yawBaseRtWorld, -std::numbers::pi) << xi.transpose();
+      EXPECT_LE(yawBaseRtWorld, std::numbers::pi) << xi.transpose();
+      EXPECT_EQ(yawBaseRtWorld, 0.0) << xi.transpose();
       EXPECT_EQ(verticalTwistFromQuaternion(xi), identity) << xi.transpose();
     }
     EXPECT_EQ(yawOf(negated), yawOf(upsideDown));
@@ -859,8 +872,8 @@ TEST(BaseOrientationProperties,
     }
   }
   for (const scalar_t w : {0.0, -0.0}) {
-    EXPECT_EQ(yawOf(vector4_t(0.0, 0.0, 1.0, w)), M_PI);
-    EXPECT_EQ(yawOf(vector4_t(0.0, 0.0, -1.0, w)), M_PI);
+    EXPECT_EQ(yawOf(vector4_t(0.0, 0.0, 1.0, w)), std::numbers::pi);
+    EXPECT_EQ(yawOf(vector4_t(0.0, 0.0, -1.0, w)), std::numbers::pi);
   }
 }
 
@@ -874,16 +887,16 @@ TEST(BaseOrientationProperties,
   // world z by alpha turns the half turn's axis by alpha / 2.
   const vector4_t reference = unitQuaternionFromEulerZyx(0.4, 0.2, -0.3);
   const vector2_t referenceTilt = tiltVector(reference);
-  for (const scalar_t axisAngle : {0.0, 0.6, -2.0, 0.5 * M_PI}) {
+  for (const scalar_t axisAngle : {0.0, 0.6, -2.0, 0.5 * std::numbers::pi}) {
     const vector4_t upsideDown(std::cos(axisAngle), std::sin(axisAngle), 0.0,
                                0.0);
     const vector4_t negated = -upsideDown;
     const vector2_t tilt = tiltVector(upsideDown);
-    EXPECT_LT(
-        (tilt - M_PI * vector2_t(std::cos(axisAngle), std::sin(axisAngle)))
-            .cwiseAbs()
-            .maxCoeff(),
-        kRoundOffTolerance);
+    EXPECT_LT((tilt - std::numbers::pi *
+                          vector2_t(std::cos(axisAngle), std::sin(axisAngle)))
+                  .cwiseAbs()
+                  .maxCoeff(),
+              kRoundOffTolerance);
     EXPECT_EQ(swingFromQuaternion(negated),
               vector4_t(-swingFromQuaternion(upsideDown)))
         << axisAngle;
@@ -912,14 +925,15 @@ TEST(BaseOrientationProperties,
     EXPECT_EQ(headingTiltJacobian(negated), headingTiltJacobian(upsideDown));
     // A heading-zero rule cannot be invariant to world yaw here: q_z(alpha) (x)
     // xi is the half turn about R_z(alpha / 2) n.
-    for (const scalar_t alpha : {0.7, -2.4, M_PI}) {
+    for (const scalar_t alpha : {0.7, -2.4, std::numbers::pi}) {
       const vector4_t rotated =
           product(unitQuaternionAboutZ(alpha), upsideDown);
       ASSERT_EQ(rotated(2), 0.0);
       ASSERT_EQ(rotated(3), 0.0);
       const scalar_t turnedAxis = axisAngle + 0.5 * alpha;
       EXPECT_LT((tiltVector(rotated) -
-                 M_PI * vector2_t(std::cos(turnedAxis), std::sin(turnedAxis)))
+                 std::numbers::pi *
+                     vector2_t(std::cos(turnedAxis), std::sin(turnedAxis)))
                     .cwiseAbs()
                     .maxCoeff(),
                 1.0e-14);
@@ -972,7 +986,7 @@ TEST(BaseOrientationProperties, DoubleCoverIsExactInTheUpsideDownBand) {
                 .cwiseAbs()
                 .maxCoeff(),
             kRoundOffTolerance);
-        EXPECT_NEAR(tiltVector(xi).norm(), M_PI,
+        EXPECT_NEAR(tiltVector(xi).norm(), std::numbers::pi,
                     3.0 * headingCoefficientsNorm + kRoundOffTolerance)
             << xi.transpose();
       }
@@ -983,7 +997,7 @@ TEST(BaseOrientationProperties, DoubleCoverIsExactInTheUpsideDownBand) {
 TEST(BaseOrientationProperties, SingularOnlyUpsideDownAndAtAYawErrorOfPi) {
   // |tau| < pi short of upside down.
   for (const vector4_t& xi : testAttitudes()) {
-    EXPECT_LT(tiltVector(xi).norm(), M_PI);
+    EXPECT_LT(tiltVector(xi).norm(), std::numbers::pi);
   }
   // Upside down (rho = 0) the heading is read as zero, the tilt is pi about the
   // horizontal axis, and the Jacobian is finite, bounded through
@@ -994,11 +1008,12 @@ TEST(BaseOrientationProperties, SingularOnlyUpsideDownAndAtAYawErrorOfPi) {
     EXPECT_EQ(yawOf(upsideDown), 0.0);
     EXPECT_EQ(verticalTwistFromQuaternion(upsideDown),
               vector4_t(0.0, 0.0, 0.0, 1.0));
-    EXPECT_LT((tiltVector(upsideDown) -
-               M_PI * vector2_t(std::cos(axisAngle), std::sin(axisAngle)))
-                  .cwiseAbs()
-                  .maxCoeff(),
-              kRoundOffTolerance);
+    EXPECT_LT(
+        (tiltVector(upsideDown) -
+         std::numbers::pi * vector2_t(std::cos(axisAngle), std::sin(axisAngle)))
+            .cwiseAbs()
+            .maxCoeff(),
+        kRoundOffTolerance);
     const HeadingTiltError error =
         headingTiltError(upsideDown, vector4_t(0.0, 0.0, 0.0, 1.0));
     EXPECT_TRUE(error.residual.allFinite());
@@ -1016,20 +1031,20 @@ TEST(BaseOrientationProperties, SingularOnlyUpsideDownAndAtAYawErrorOfPi) {
       EXPECT_TRUE(nearError.residual.allFinite()) << headingCoefficientsNorm;
       EXPECT_TRUE(allFinite(nearError.jacobianBodyTangent))
           << headingCoefficientsNorm;
-      EXPECT_NEAR(tiltVector(nearlyUpsideDown).norm(), M_PI,
+      EXPECT_NEAR(tiltVector(nearlyUpsideDown).norm(), std::numbers::pi,
                   3.0 * headingCoefficientsNorm);
     }
   }
   // The yaw row jumps from pi to -pi across a yaw error of pi, and is pi there.
   const vector4_t identity(0.0, 0.0, 0.0, 1.0);
-  EXPECT_NEAR(
-      headingTiltResidual(unitQuaternionAboutZ(M_PI - 1.0e-6), identity)(0),
-      M_PI - 1.0e-6, 1.0e-12);
-  EXPECT_NEAR(
-      headingTiltResidual(unitQuaternionAboutZ(M_PI + 1.0e-6), identity)(0),
-      -M_PI + 1.0e-6, 1.0e-12);
+  EXPECT_NEAR(headingTiltResidual(
+                  unitQuaternionAboutZ(std::numbers::pi - 1.0e-6), identity)(0),
+              std::numbers::pi - 1.0e-6, 1.0e-12);
+  EXPECT_NEAR(headingTiltResidual(
+                  unitQuaternionAboutZ(std::numbers::pi + 1.0e-6), identity)(0),
+              -std::numbers::pi + 1.0e-6, 1.0e-12);
   EXPECT_EQ(headingTiltResidual(vector4_t(0.0, 0.0, 1.0, 0.0), identity)(0),
-            M_PI);
+            std::numbers::pi);
 }
 
 TEST(BaseOrientationProperties, Sa01WeightedCostChangesByTheStatedFraction) {

@@ -32,8 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <map>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <utility>
 #include <vector>
@@ -47,9 +49,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/StateConstraint.h"
 #include "ocs2_core/constraint/StateConstraintCollection.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 #include "ocs2_core/constraint/StateInputConstraintCollection.h"
+#include "ocs2_core/cost/StateCost.h"
 #include "ocs2_core/cost/StateCostCollection.h"
+#include "ocs2_core/cost/StateInputCost.h"
 #include "ocs2_core/cost/StateInputCostCollection.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
@@ -57,16 +64,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_sqp/SqpSettings.h"
 #include "ocs2_sqp/SqpSolver.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/dynamics/DynamicsHelperFunctions.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
-#include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "support/ShippedCentroidalRobot.h"
+#include "support/TypedConfigFiles.h"
 
 /*
  * The invariances of the quaternion base orientation (design README
@@ -329,7 +339,7 @@ bool linearizesWithTheFootAtRest(const std::string& label) {
 
 /** The unit quaternion of a turn by `angle` about the world z axis, (x, y, z,
  * w). */
-vector4_t yawQuaternion(scalar_t angle) {
+vector4_t unitQuaternionOfYaw(scalar_t angle) {
   return vector4_t(0.0, 0.0, std::sin(0.5 * angle), std::cos(0.5 * angle));
 }
 
@@ -358,7 +368,8 @@ vector_t turnedState(const MpcRobotModelBase<scalar_t>& model,
   const Eigen::Index orientationStart =
       static_cast<Eigen::Index>(model.getBaseOrientationStartIndex());
   turned.segment<4>(orientationStart) = quaternionProduct<scalar_t>(
-      yawQuaternion(angle), vector4_t(state.segment<4>(orientationStart)));
+      unitQuaternionOfYaw(angle),
+      vector4_t(state.segment<4>(orientationStart)));
   return turned;
 }
 
@@ -446,24 +457,28 @@ class QuaternionInvariances
    * and tilted, its joints bent; the input the weight on both feet, perturbed,
    * every joint moving.
    */
-  ProblemPoint pointAt(scalar_t time, const vector3_t& eulerZyx) const {
+  ProblemPoint pointAt(scalar_t time,
+                       const vector3_t& eulerzyxBaseRtWorld) const {
     const MpcRobotModelBase<scalar_t>& effectiveModel =
         interface_->getEffectiveMpcRobotModel();
     vector_t state = interface_->getInitialState();
     state.head<6>() << 0.3, 0.05, -0.02, 0.02, -0.01, 0.03;
-    model().setEulerzyxBaseRtWorld(state, eulerZyx);
+    model().setEulerzyxBaseRtWorld(state, eulerzyxBaseRtWorld);
     vector_t joints = model().getJointAngles(state);
-    for (Eigen::Index i = 0; i < joints.size(); ++i)
+    for (Eigen::Index i = 0; i < joints.size(); ++i) {
       joints(i) += 0.05 * std::sin(1.3 * static_cast<scalar_t>(i) + 0.4);
+    }
     model().setJointAngles(state, joints);
     vector_t input = weightCompensatingInput(
         interface_->getCentroidalModelInfo(), contact_flag_t{true, true},
         effectiveModel, state);
-    for (Eigen::Index i = 0; i < input.size(); ++i)
+    for (Eigen::Index i = 0; i < input.size(); ++i) {
       input(i) *= 1.0 + 0.1 * std::sin(0.7 * static_cast<scalar_t>(i));
+    }
     vector_t jointVelocities(joints.size());
-    for (Eigen::Index i = 0; i < jointVelocities.size(); ++i)
+    for (Eigen::Index i = 0; i < jointVelocities.size(); ++i) {
       jointVelocities(i) = 0.3 * std::cos(0.9 * static_cast<scalar_t>(i));
+    }
     effectiveModel.setJointVelocities(state, input, jointVelocities);
     return ProblemPoint{
         .time = time, .state = std::move(state), .input = std::move(input)};
@@ -471,8 +486,9 @@ class QuaternionInvariances
 
   /** pointAt() with the robot still: no momentum and no joint velocity, so
    * every foot's twist is zero. */
-  ProblemPoint stillPointAt(scalar_t time, const vector3_t& eulerZyx) const {
-    ProblemPoint point = pointAt(time, eulerZyx);
+  ProblemPoint stillPointAt(scalar_t time,
+                            const vector3_t& eulerzyxBaseRtWorld) const {
+    ProblemPoint point = pointAt(time, eulerzyxBaseRtWorld);
     point.state.head<6>().setZero();
     const MpcRobotModelBase<scalar_t>& effectiveModel =
         interface_->getEffectiveMpcRobotModel();
@@ -483,8 +499,8 @@ class QuaternionInvariances
   }
 
   /** `point` with its base quaternion multiplied by `c`. */
-  ProblemPoint withScaledQuaternion(const ProblemPoint& point,
-                                    scalar_t c) const {
+  ProblemPoint withScaledAttitudeCoefficients(const ProblemPoint& point,
+                                              scalar_t c) const {
     ProblemPoint scaled = point;
     scaled.state.segment<4>(orientationStart()) *= c;
     return scaled;
@@ -543,8 +559,9 @@ size_t expectTangentJacobiansAreFiniteDifferences(
         evaluateProblem(problem, minus, Derivatives::kWithout);
     for (const std::pair<const std::string, TermValue>& entry : values) {
       matrix_t& difference = differences[entry.first];
-      if (difference.size() == 0)
+      if (difference.size() == 0) {
         difference.setZero(entry.second.value.size(), tangentDim);
+      }
       difference.col(i) = (plusValues.at(entry.first).value -
                            minusValues.at(entry.first).value) /
                           (2.0 * kFiniteDifferenceStep);
@@ -615,14 +632,16 @@ TEST_P(QuaternionInvariances, EveryTermReadsOnlyTheAttitudeOfTheQuaternion) {
     const vector4_t xi = point.state.segment<4>(orientationStart());
     for (const scalar_t c : {0.5, 2.0, -1.0, -2.0}) {
       SCOPED_TRACE(absl::StrCat("xi scaled by ", c));
-      const TermValues scaled = evaluateProblem(
-          problem(), withScaledQuaternion(point, c), Derivatives::kWithout);
+      const TermValues scaled =
+          evaluateProblem(problem(), withScaledAttitudeCoefficients(point, c),
+                          Derivatives::kWithout);
       ASSERT_EQ(scaled.size(), values.size());
       for (const std::pair<const std::string, TermValue>& entry : values) {
         vector_t expected = entry.second.value;
-        if (isFlowMap(entry.first))
+        if (isFlowMap(entry.first)) {
           expected.segment<4>(orientationStart()) *=
               c;  // G(c xi) w_B / 2 = c G(xi) w_B / 2
+        }
         EXPECT_TRUE(isCloseRelative(entry.first, scaled.at(entry.first).value,
                                     expected, /*tolerance=*/1.0e-12));
       }
@@ -634,9 +653,10 @@ TEST_P(QuaternionInvariances, EveryTermReadsOnlyTheAttitudeOfTheQuaternion) {
       const matrix_t& jacobian = entry.second.stateJacobian;
       const vector_t radial = jacobian.middleCols<4>(orientationStart()) * xi;
       vector_t expected = vector_t::Zero(radial.size());
-      if (isFlowMap(entry.first))
+      if (isFlowMap(entry.first)) {
         expected.segment<4>(orientationStart()) =
             entry.second.value.segment<4>(orientationStart());
+      }
       const scalar_t scale = std::max(
           1.0,
           jacobian.middleCols<4>(orientationStart()).cwiseAbs().maxCoeff());
@@ -648,11 +668,12 @@ TEST_P(QuaternionInvariances, EveryTermReadsOnlyTheAttitudeOfTheQuaternion) {
 
 TEST_P(QuaternionInvariances,
        AtAPitchOf90DegreesEveryTermAndOneSqpIterationAreFinite) {
-  for (const vector3_t& eulerZyx :
-       {vector3_t(0.3, M_PI / 2.0, 0.2), vector3_t(-2.0, -M_PI / 2.0, 0.0)}) {
-    SCOPED_TRACE(eulerZyx.transpose());
+  for (const vector3_t& eulerzyxBaseRtWorld :
+       {vector3_t(0.3, std::numbers::pi / 2.0, 0.2),
+        vector3_t(-2.0, -std::numbers::pi / 2.0, 0.0)}) {
+    SCOPED_TRACE(eulerzyxBaseRtWorld.transpose());
     for (const scalar_t time : kTimes) {
-      const ProblemPoint point = pointAt(time, eulerZyx);
+      const ProblemPoint point = pointAt(time, eulerzyxBaseRtWorld);
       for (const std::pair<const std::string, TermValue>& entry :
            evaluateProblem(problem(), point, Derivatives::kWith)) {
         EXPECT_TRUE(entry.second.value.allFinite())
@@ -671,7 +692,7 @@ TEST_P(QuaternionInvariances,
     SqpSolver solver(settings, interface_->getOptimalControlProblem(),
                      interface_->getInitializer());
     solver.setReferenceManager(interface_->getReferenceManagerPtr());
-    const ProblemPoint start = pointAt(/*time=*/0.0, eulerZyx);
+    const ProblemPoint start = pointAt(/*time=*/0.0, eulerzyxBaseRtWorld);
     solver.run(/*initTime=*/0.0, start.state, ModeNumber::kStance,
                /*finalTime=*/interface_->mpcSettings().timeHorizon_);
     PrimalSolution solution;
@@ -696,10 +717,10 @@ TEST_P(QuaternionInvariances,
   // across
   // +-pi and ten half turns out.
   const std::vector<std::pair<scalar_t, scalar_t>> sameTurns = {
-      {M_PI - 0.01, -M_PI - 0.01},
-      {-M_PI + 0.01, M_PI + 0.01},
-      {0.1, 10.0 * M_PI + 0.1},
-      {0.1, -4.0 * M_PI + 0.1}};
+      {std::numbers::pi - 0.01, -std::numbers::pi - 0.01},
+      {-std::numbers::pi + 0.01, std::numbers::pi + 0.01},
+      {0.1, 10.0 * std::numbers::pi + 0.1},
+      {0.1, -4.0 * std::numbers::pi + 0.1}};
   for (const scalar_t time : kTimes) {
     SCOPED_TRACE(absl::StrCat("t = ", time));
     const ProblemPoint point = pointAt(time, vector3_t(0.6, 0.12, -0.08));
@@ -726,10 +747,14 @@ TEST_P(QuaternionInvariances,
         // The flow map's quaternion rate turns with the quaternion: negated
         // with it for an odd k.
         if (isFlowMap(entry.first)) {
-          const vector4_t firstQuaternion = yawQuaternion(turns.first);
-          const vector4_t secondQuaternion = yawQuaternion(turns.second);
+          const vector4_t firstQuatBaseRtWorldXyzw =
+              unitQuaternionOfYaw(turns.first);
+          const vector4_t secondQuatBaseRtWorldXyzw =
+              unitQuaternionOfYaw(turns.second);
           expected.segment<4>(orientationStart()) *=
-              firstQuaternion.dot(secondQuaternion) < 0.0 ? -1.0 : 1.0;
+              firstQuatBaseRtWorldXyzw.dot(secondQuatBaseRtWorldXyzw) < 0.0
+                  ? -1.0
+                  : 1.0;
         }
         EXPECT_TRUE(isCloseRelative(entry.first, second.at(entry.first).value,
                                     expected, /*tolerance=*/1.0e-9));
@@ -754,7 +779,8 @@ TEST_P(QuaternionInvariances, TheDynamicsTurnWithTheStateAboutTheVertical) {
     const vector_t flow = problem().dynamicsPtr->computeFlowMap(
         point.time, point.state, point.input, preComputation);
     for (const scalar_t angle :
-         {M_PI - 0.01, -M_PI + 0.01, 10.0 * M_PI + 0.1}) {
+         {std::numbers::pi - 0.01, -std::numbers::pi + 0.01,
+          10.0 * std::numbers::pi + 0.1}) {
       SCOPED_TRACE(absl::StrCat("turned by ", angle));
       const ProblemPoint turned{
           .time = time,

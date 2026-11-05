@@ -32,7 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/visualization/GroundMarkerGeoms.h"
+#include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -42,8 +44,9 @@ constexpr double kZmpMarkerRadius = 0.025;  // [m]
 
 void ZmpVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   if (frame.sim == nullptr || frame.model == nullptr ||
-      frame.state == nullptr || frame.scene == nullptr)
+      frame.state == nullptr || frame.scene == nullptr) {
     return;
+  }
   const mjModel* absl_nonnull model = frame.model;
   const RobotCentroidalState state =
       robotCentroidalState(model, frame.state->data);

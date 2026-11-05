@@ -90,15 +90,17 @@ class TelemetrySamplerTest : public ::testing::Test {
   robot::model::RobotState state_;
   robot::model::RobotJointAction action_;
   const contact_flag_t flags_{true, false};
-  const std::array<vector3_t, kNumContacts> forces_{vector3_t(1.0, 2.0, 300.0),
-                                                    vector3_t(0.0, 0.0, 0.5)};
+  const std::array<vector3_t, kNumContacts> measForceFeetEwrtWorld_{
+      vector3_t(1.0, 2.0, 300.0), vector3_t(0.0, 0.0, 0.5)};
 };
 
 TEST_F(TelemetrySamplerTest, TakesOneSampleEveryDecimationCycles) {
   TelemetrySampler sampler(config(/*decimation=*/5));
   size_t taken = 0;
   for (int cycle = 0; cycle < 23; ++cycle) {
-    if (sampler.sample(state_, action_, "WB_MPC", flags_, forces_)) ++taken;
+    if (sampler.sample(state_, action_, "WB_MPC", flags_,
+                       measForceFeetEwrtWorld_))
+      ++taken;
   }
   EXPECT_EQ(taken, 4u);
   EXPECT_EQ(sampler.samplesTaken(), 4u);
@@ -109,7 +111,8 @@ TEST_F(TelemetrySamplerTest, TakesOneSampleEveryDecimationCycles) {
 TEST_F(TelemetrySamplerTest,
        TheSampleIsTheCycleAndRoundTripsThroughItsMessage) {
   TelemetrySampler sampler(config(/*decimation=*/1));
-  ASSERT_TRUE(sampler.sample(state_, action_, "GRAVITY_COMP", flags_, forces_));
+  ASSERT_TRUE(sampler.sample(state_, action_, "GRAVITY_COMP", flags_,
+                             measForceFeetEwrtWorld_));
   msgs::RobotStateSample sample;
   ASSERT_EQ(sampler.drain(
                 [&](const msgs::RobotStateSample& taken) { sample = taken; }),
@@ -118,9 +121,9 @@ TEST_F(TelemetrySamplerTest,
   EXPECT_DOUBLE_EQ(sample.time, 1.25);
   EXPECT_EQ(sample.control_mode, "GRAVITY_COMP");
   EXPECT_DOUBLE_EQ(sample.pos_base_rt_world_ewrt_world.z, 0.9);
-  const quaternion_t orientation = state_.getQuatBaseRtWorld();
-  EXPECT_DOUBLE_EQ(sample.quat_base_rt_world.w, orientation.w());
-  EXPECT_DOUBLE_EQ(sample.quat_base_rt_world.z, orientation.z());
+  const quaternion_t quatBaseRtWorld = state_.getQuatBaseRtWorld();
+  EXPECT_DOUBLE_EQ(sample.quat_base_rt_world.w, quatBaseRtWorld.w());
+  EXPECT_DOUBLE_EQ(sample.quat_base_rt_world.z, quatBaseRtWorld.z());
   EXPECT_DOUBLE_EQ(sample.linvel_base_rt_world_ewrt_base.x, 0.5);
   EXPECT_DOUBLE_EQ(sample.angvel_base_rt_world_ewrt_base.y, 0.2);
   ASSERT_EQ(sample.joint_names, jointNamesByIndex(description_))
@@ -148,8 +151,10 @@ TEST_F(TelemetrySamplerTest,
   }
   EXPECT_EQ(sample.contact_flags, (std::vector<bool>{true, false}));
   ASSERT_EQ(sample.meas_wrench_contacts_ewrt_world.size(), kNumContacts);
+  // NOLINTBEGIN(frame-naming): the components of a Wrench message, whose frames its field names
   EXPECT_DOUBLE_EQ(sample.meas_wrench_contacts_ewrt_world[0].force.z, 300.0);
   EXPECT_DOUBLE_EQ(sample.meas_wrench_contacts_ewrt_world[1].force.z, 0.5);
+  // NOLINTEND(frame-naming)
 
   // What the communication thread publishes on robot/state, and what a
   // subscriber reads back.
@@ -168,7 +173,8 @@ TEST_F(TelemetrySamplerTest, AJointWithoutAnActionHasANanPositionTarget) {
   const size_t idle = description_.getNumJoints() / 2;
   action_.at(idle).reset();
   TelemetrySampler sampler(config(/*decimation=*/1));
-  ASSERT_TRUE(sampler.sample(state_, action_, "JOINT_PD", flags_, forces_));
+  ASSERT_TRUE(sampler.sample(state_, action_, "JOINT_PD", flags_,
+                             measForceFeetEwrtWorld_));
   msgs::RobotStateSample sample;
   ASSERT_EQ(sampler.drain(
                 [&](const msgs::RobotStateSample& taken) { sample = taken; }),
@@ -185,7 +191,7 @@ TEST_F(TelemetrySamplerTest, AJointWithoutAnActionHasANanPositionTarget) {
 TEST_F(TelemetrySamplerTest, AFullRingDropsAndCountsTheSamples) {
   TelemetrySampler sampler(config(/*decimation=*/1, /*capacity=*/3));
   for (int cycle = 0; cycle < 5; ++cycle)
-    sampler.sample(state_, action_, "WB_MPC", flags_, forces_);
+    sampler.sample(state_, action_, "WB_MPC", flags_, measForceFeetEwrtWorld_);
   EXPECT_EQ(sampler.dropped(), 2u);
   std::vector<double> times;
   EXPECT_EQ(sampler.drain([&](const msgs::RobotStateSample& sample) {
@@ -193,7 +199,8 @@ TEST_F(TelemetrySamplerTest, AFullRingDropsAndCountsTheSamples) {
   }),
             3u);
   // Room again, and the counter keeps the drops of before.
-  EXPECT_TRUE(sampler.sample(state_, action_, "WB_MPC", flags_, forces_));
+  EXPECT_TRUE(sampler.sample(state_, action_, "WB_MPC", flags_,
+                             measForceFeetEwrtWorld_));
   EXPECT_EQ(sampler.drain([](const msgs::RobotStateSample&) {}), 1u);
   EXPECT_EQ(sampler.dropped(), 2u);
 }
@@ -201,7 +208,8 @@ TEST_F(TelemetrySamplerTest, AFullRingDropsAndCountsTheSamples) {
 TEST_F(TelemetrySamplerTest, ADecimationOfZeroSamplesEveryCycle) {
   TelemetrySampler sampler(config(/*decimation=*/0));
   EXPECT_EQ(sampler.decimation(), 1u);
-  EXPECT_TRUE(sampler.sample(state_, action_, "WB_MPC", flags_, forces_));
+  EXPECT_TRUE(sampler.sample(state_, action_, "WB_MPC", flags_,
+                             measForceFeetEwrtWorld_));
 }
 
 }  // namespace

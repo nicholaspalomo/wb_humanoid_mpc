@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -120,9 +121,10 @@ constexpr float kDodgeballBlue = 0.15f;
 absl::Status checkIsProjectile(const mjModel* absl_nullable model,
                                int bodyId,
                                absl::string_view caller) {
-  if (model == nullptr)
+  if (model == nullptr) {
     return absl::InvalidArgumentError(
         absl::StrCat(caller, ": the model is null."));
+  }
   if (bodyId <= 0 || bodyId >= model->nbody) {
     return absl::InvalidArgumentError(absl::StrCat(
         caller, ": body ", bodyId, " is not a body of a model with ",
@@ -135,12 +137,12 @@ absl::Status checkIsProjectile(const mjModel* absl_nullable model,
       model->body_geomnum[bodyId] == 1 &&
       model->geom_type[model->body_geomadr[bodyId]] == mjGEOM_SPHERE;
   const bool ownTree = model->body_parentid[bodyId] == 0;
-  const mjtNum* absl_nonnull centerOfMass =
+  const mjtNum* absl_nonnull posLinkcomRtLinkEwrtLink =
       &model->body_ipos[kPositionDim * bodyId];
   const bool centered =
-      std::abs(centerOfMass[0]) < kCenteredTolerance &&
-      std::abs(centerOfMass[1]) < kCenteredTolerance &&
-      std::abs(centerOfMass[kZAxisIndex]) < kCenteredTolerance;
+      std::abs(posLinkcomRtLinkEwrtLink[0]) < kCenteredTolerance &&
+      std::abs(posLinkcomRtLinkEwrtLink[1]) < kCenteredTolerance &&
+      std::abs(posLinkcomRtLinkEwrtLink[kZAxisIndex]) < kCenteredTolerance;
   if (!oneFreeJoint || !oneSphere || !ownTree || !centered) {
     return absl::InvalidArgumentError(absl::StrCat(
         caller, ": body ", bodyId,
@@ -164,20 +166,21 @@ bool isFinite(const std::array<double, kPositionDim>& vector) {
  * is before the launch). */
 ProjectileLaunch alongPath(const ProjectileLaunch& launch,
                            double tau,
-                           double gravity) {
+                           double gravityMagnitude) {
   ProjectileLaunch shifted = launch;
   for (int axis = 0; axis < kPositionDim; ++axis) {
     shifted.posBallRtWorldEwrtWorld[axis] =
         launch.posBallRtWorldEwrtWorld[axis] +
         launch.linvelBallRtWorldEwrtWorld[axis] * tau;
   }
-  shifted.posBallRtWorldEwrtWorld[kZAxisIndex] -= 0.5 * gravity * tau * tau;
-  shifted.linvelBallRtWorldEwrtWorld[kZAxisIndex] -= gravity * tau;
+  shifted.posBallRtWorldEwrtWorld[kZAxisIndex] -=
+      0.5 * gravityMagnitude * tau * tau;
+  shifted.linvelBallRtWorldEwrtWorld[kZAxisIndex] -= gravityMagnitude * tau;
   shifted.flightTime = launch.flightTime - tau;
   return shifted;
 }
 
-/** True when a ball centered at `position` is at least
+/** True when a ball centered at `posBallRtWorldEwrtWorld` is at least
  * kProjectileSpawnClearance from every geom it could collide with. */
 bool isClearAt(
     const mjModel* absl_nonnull model,
@@ -206,12 +209,16 @@ bool isClearAt(
     // unbounded, and is always measured.
     const double bound = model->geom_rbound[geom];
     if (bound > 0.0) {
-      const mjtNum* absl_nonnull center = &data->geom_xpos[kPositionDim * geom];
-      const double separation = std::hypot(
-          posBallRtWorldEwrtWorld[kXAxisIndex] - center[kXAxisIndex],
-          posBallRtWorldEwrtWorld[kYAxisIndex] - center[kYAxisIndex],
-          posBallRtWorldEwrtWorld[kZAxisIndex] - center[kZAxisIndex]);
-      if (separation - bound - radius > kProjectileSpawnClearance) continue;
+      const mjtNum* absl_nonnull posGeomRtWorldEwrtWorld =
+          &data->geom_xpos[kPositionDim * geom];
+      const double distBallRtGeom =
+          std::hypot(posBallRtWorldEwrtWorld[kXAxisIndex] -
+                         posGeomRtWorldEwrtWorld[kXAxisIndex],
+                     posBallRtWorldEwrtWorld[kYAxisIndex] -
+                         posGeomRtWorldEwrtWorld[kYAxisIndex],
+                     posBallRtWorldEwrtWorld[kZAxisIndex] -
+                         posGeomRtWorldEwrtWorld[kZAxisIndex]);
+      if (distBallRtGeom - bound - radius > kProjectileSpawnClearance) continue;
     }
     mjtNum fromTo[kGeomDistanceFromToSize];
     if (mj_geomDistance(model, data, ballGeom, geom, kProjectileSpawnClearance,
@@ -260,18 +267,21 @@ double contactRestitutionForDampRatio(double dampRatio) {
   // Within kCriticalDampingBand of zeta = 1 both closed forms are 0 / 0; the
   // exponent is 2 + (4/3)(zeta - 1) there, to first order, and the band keeps
   // the error of that form below round-off.
-  if (std::abs(zeta - 1.0) < kCriticalDampingBand)
+  if (std::abs(zeta - 1.0) < kCriticalDampingBand) {
     return std::exp(-kCriticalExponent - kCriticalExponentSlope * (zeta - 1.0));
-  if (zeta < 1.0)
+  }
+  if (zeta < 1.0) {
     return std::exp(-2.0 * zeta * std::acos(zeta) / std::sqrt(discriminant));
+  }
   return std::exp(-2.0 * zeta * std::acosh(zeta) / std::sqrt(-discriminant));
 }
 
 double contactDampRatioForRestitution(double restitution) {
   const double minRestitution =
       contactRestitutionForDampRatio(kMaxContactDampRatio);
-  if (!(restitution > minRestitution))
+  if (!(restitution > minRestitution)) {
     return kMaxContactDampRatio;  // NaN included
+  }
   const double target = std::min(restitution, kMaxContactRestitution);
   // e(zeta) falls strictly from 1 at zeta = 0 to minRestitution at
   // kMaxContactDampRatio: bisect down to round-off.
@@ -296,8 +306,9 @@ double projectileContactTimeConstant(double dampRatio) {
 absl::Status addProjectileToSpec(mjSpec* absl_nullable spec,
                                  const Projectile& projectile,
                                  absl::string_view bodyName) {
-  if (spec == nullptr)
+  if (spec == nullptr) {
     return absl::InvalidArgumentError("addProjectileToSpec: the spec is null.");
+  }
   if (!(projectile.radius > 0.0) || !(projectile.mass > 0.0)) {
     return absl::InvalidArgumentError(
         absl::StrCat("addProjectileToSpec: '", projectile.name,
@@ -315,16 +326,18 @@ absl::Status addProjectileToSpec(mjSpec* absl_nullable spec,
   }
 
   mjsBody* absl_nullable world = mjs_findBody(spec, "world");
-  if (world == nullptr)
+  if (world == nullptr) {
     return absl::NotFoundError(
         "addProjectileToSpec: the scene has no 'world' body to attach to.");
+  }
 
   // Appended last. See the header: the FIRST free-joint body in this scene is
   // taken to be the robot by the centroidal state, the viewer's camera and
   // every read of qpos[3..6].
   mjsBody* absl_nullable ball = mjs_addBody(world, /*def=*/nullptr);
-  if (ball == nullptr)
+  if (ball == nullptr) {
     return absl::InternalError("addProjectileToSpec: mjs_addBody failed.");
+  }
   const std::string name(bodyName);
   mjs_setName(ball->element, name.c_str());
   for (int axis = 0; axis < kPositionDim; ++axis) {
@@ -337,16 +350,18 @@ absl::Status addProjectileToSpec(mjSpec* absl_nullable spec,
   ball->gravcomp = 1.0;
 
   mjsJoint* absl_nullable joint = mjs_addFreeJoint(ball);
-  if (joint == nullptr)
+  if (joint == nullptr) {
     return absl::InternalError("addProjectileToSpec: mjs_addFreeJoint failed.");
+  }
   // Named so that the model's printout (and any log naming it) reads as what it
   // is rather than as a URDF/MJCF mismatch; MujocoSimInterface::buildJointMap()
   // skips it as the projectile's.
   mjs_setName(joint->element, absl::StrCat(name, "_free_joint").c_str());
 
   mjsGeom* absl_nullable geom = mjs_addGeom(ball, /*def=*/nullptr);
-  if (geom == nullptr)
+  if (geom == nullptr) {
     return absl::InternalError("addProjectileToSpec: mjs_addGeom failed.");
+  }
   mjs_setName(geom->element, absl::StrCat(name, "_geom").c_str());
   geom->type = mjGEOM_SPHERE;
   geom->size[0] = projectile.radius;
@@ -421,26 +436,28 @@ absl::Status setProjectileMass(mjModel* absl_nullable model,
   const double newMass = clampProjectileMass(mass);
   // A solid sphere, so the inertia tensor is isotropic: I = 2/5 m r^2 about
   // every axis through the center.
-  const double inertia = kSolidSphereInertiaFactor * newMass * radius * radius;
+  const double inertiaBallEwrtBallXx =
+      kSolidSphereInertiaFactor * newMass * radius * radius;
   const double previousMass = model->body_mass[bodyId];
 
   model->body_mass[bodyId] = newMass;
   for (int axis = 0; axis < kPositionDim; ++axis) {
-    model->body_inertia[kPositionDim * bodyId + axis] = inertia;
+    model->body_inertia[kPositionDim * bodyId + axis] = inertiaBallEwrtBallXx;
   }
   // The constants the compiler derived at qpos0. For a centered sphere on a
   // free joint the joint-space inertia is diag(m, m, m, I, I, I), so each is
   // its diagonal or the inverse of it. See the header for why not mj_setConst.
   model->body_invweight0[kMjBodyInvweightSize * bodyId + 0] = 1.0 / newMass;
-  model->body_invweight0[kMjBodyInvweightSize * bodyId + 1] = 1.0 / inertia;
+  model->body_invweight0[kMjBodyInvweightSize * bodyId + 1] =
+      1.0 / inertiaBallEwrtBallXx;
   const int firstDof = model->jnt_dofadr[model->body_jntadr[bodyId]];
   for (int axis = 0; axis < kPositionDim; ++axis) {
     model->dof_invweight0[firstDof + axis] = 1.0 / newMass;
-    model->dof_invweight0[firstDof + kMjFreeJointAngularVelocityOffset + axis] =
-        1.0 / inertia;
+    model->dof_invweight0[firstDof + kMjFreeJointAngularVelocityStartIndex +
+                          axis] = 1.0 / inertiaBallEwrtBallXx;
     model->dof_M0[firstDof + axis] = newMass;
-    model->dof_M0[firstDof + kMjFreeJointAngularVelocityOffset + axis] =
-        inertia;
+    model->dof_M0[firstDof + kMjFreeJointAngularVelocityStartIndex + axis] =
+        inertiaBallEwrtBallXx;
   }
   // The ball is its own subtree, and the world's subtree holds everything.
   model->body_subtreemass[bodyId] = newMass;
@@ -452,8 +469,9 @@ bool isProjectileDof(const mjModel* absl_nullable model,
                      int projectileBodyId,
                      int dof) {
   if (model == nullptr || projectileBodyId < 0 ||
-      projectileBodyId >= model->nbody)
+      projectileBodyId >= model->nbody) {
     return false;
+  }
   if (model->body_jntnum[projectileBodyId] <= 0) return false;
   const int firstDof = model->jnt_dofadr[model->body_jntadr[projectileBodyId]];
   return dof >= firstDof && dof < firstDof + kMjFreeJointDofs;
@@ -474,16 +492,18 @@ absl::StatusOr<ProjectileLaunch> clearProjectileLaunch(
     mjData* absl_nullable data,
     int projectileBodyId,
     const ProjectileLaunch& requested,
-    double gravity) {
+    double gravityMagnitude) {
   absl::Status isProjectile =
       checkIsProjectile(model, projectileBodyId, "clearProjectileLaunch");
   if (!isProjectile.ok()) return isProjectile;
-  if (data == nullptr)
+  if (data == nullptr) {
     return absl::InvalidArgumentError(
         "clearProjectileLaunch: the data is null.");
+  }
   if (!isFinite(requested.posBallRtWorldEwrtWorld) ||
       !isFinite(requested.linvelBallRtWorldEwrtWorld) ||
-      !std::isfinite(requested.flightTime) || !std::isfinite(gravity)) {
+      !std::isfinite(requested.flightTime) ||
+      !std::isfinite(gravityMagnitude)) {
     return absl::InvalidArgumentError(
         "clearProjectileLaunch: the requested throw is not finite.");
   }
@@ -500,9 +520,11 @@ absl::StatusOr<ProjectileLaunch> clearProjectileLaunch(
       if (step == 0 && direction > 0.0) continue;  // tau = 0 is tried once
       const double tau = direction * step * kClearanceSearchStep;
       if (tau < -kClearanceSearchBackward || tau > maxForward) continue;
-      const ProjectileLaunch candidate = alongPath(requested, tau, gravity);
-      if (isClearAt(model, data, ballGeom, candidate.posBallRtWorldEwrtWorld))
+      const ProjectileLaunch candidate =
+          alongPath(requested, tau, gravityMagnitude);
+      if (isClearAt(model, data, ballGeom, candidate.posBallRtWorldEwrtWorld)) {
         return candidate;
+      }
     }
   }
   return absl::FailedPreconditionError(absl::StrCat(
@@ -516,22 +538,22 @@ absl::StatusOr<ProjectileLaunch> clearProjectileLaunch(
 std::array<double, kPositionDim> computeArrivalLinvelBallRtWorldEwrtWorld(
     const std::array<double, kPositionDim>& launchLinvelBallRtWorldEwrtWorld,
     double flightTime,
-    double gravity) {
-  return {
-      {launchLinvelBallRtWorldEwrtWorld[kXAxisIndex],
-       launchLinvelBallRtWorldEwrtWorld[kYAxisIndex],
-       launchLinvelBallRtWorldEwrtWorld[kZAxisIndex] - gravity * flightTime}};
+    double gravityMagnitude) {
+  return {{launchLinvelBallRtWorldEwrtWorld[kXAxisIndex],
+           launchLinvelBallRtWorldEwrtWorld[kYAxisIndex],
+           launchLinvelBallRtWorldEwrtWorld[kZAxisIndex] -
+               gravityMagnitude * flightTime}};
 }
 
 double projectileImpactImpulse(double ballMass,
                                double effectiveMass,
                                double restitution,
-                               double approachSpeed) {
-  if (!(approachSpeed > 0.0)) return 0.0;
+                               double approachSpeedBallRtLink) {
+  if (!(approachSpeedBallRtLink > 0.0)) return 0.0;
   // m M / (m + M), written so that an infinite M gives m.
   const double reducedMass = ballMass / (1.0 + ballMass / effectiveMass);
   return (1.0 + std::clamp(restitution, 0.0, 1.0)) * reducedMass *
-         approachSpeed;
+         approachSpeedBallRtLink;
 }
 
 void ProjectileRestMonitor::start() {
@@ -539,9 +561,10 @@ void ProjectileRestMonitor::start() {
   timeInPlay_ = 0.0;
 }
 
-bool ProjectileRestMonitor::update(double speed, double dt) {
+bool ProjectileRestMonitor::update(double speedBallRtWorld, double dt) {
   timeInPlay_ += dt;
-  slowTime_ = (speed < kRestSpeed) ? slowTime_ + dt : 0.0;
+  slowTime_ =
+      (speedBallRtWorld < kRestMaxSpeedBallRtWorld) ? slowTime_ + dt : 0.0;
   return slowTime_ >= kRestDuration || timeInPlay_ >= kLifetime;
 }
 

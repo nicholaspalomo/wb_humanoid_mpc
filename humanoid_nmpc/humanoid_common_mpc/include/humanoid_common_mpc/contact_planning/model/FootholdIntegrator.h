@@ -32,6 +32,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
+#include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/InputBoundsBuilder.h"
+#include "humanoid_common_mpc/contact_planning/problem/Layout.h"
+#include "humanoid_common_mpc/contact_planning/problem/LayoutBuilder.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipIndices.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipModelBlock.h"
 

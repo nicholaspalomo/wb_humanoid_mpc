@@ -62,7 +62,7 @@ absl::StatusOr<GuiCommandScaling> guiCommandScalingFromConfig(
       Eigen::Vector3d(reference.cmdMaxLinvelBaseRtWorldEwrtHeadingX,
                       reference.cmdMaxLinvelBaseRtWorldEwrtHeadingY,
                       reference.cmdMaxAngvelBaseRtWorldEwrtWorldZ);
-  scaling.defaultPelvisHeight = reference.nomPosBaseRtWorldEwrtWorldZ;
+  scaling.defaultPelvisHeight = reference.nomPosBaseRtSurfaceEwrtWorldZ;
   // The GUI sends a command as its fraction of these: a limit that is not
   // positive leaves no command to send. Every value is finite
   // (referenceSettingsFromConfig()).

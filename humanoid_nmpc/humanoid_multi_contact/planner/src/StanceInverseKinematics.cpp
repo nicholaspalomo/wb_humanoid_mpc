@@ -89,13 +89,15 @@ constexpr size_t kMinPolygonVertices = 3;
 
 constexpr double kInfinity = std::numeric_limits<double>::infinity();
 
-/** world_R_target of a surface pad: z along the normal, x along `xAxis`. */
-Eigen::Matrix3d surfaceRotation(const ContactTarget& target) {
-  Eigen::Matrix3d rotation;
-  rotation.col(kXAxisIndex) = target.xAxis;
-  rotation.col(kYAxisIndex) = target.normal.cross(target.xAxis);
-  rotation.col(kZAxisIndex) = target.normal;
-  return rotation;
+/** The desired world_R_pad of a held surface pad: z along the surface normal,
+ * x along `xAxisPadEwrtWorld`. */
+Eigen::Matrix3d computeDesRotmatPadRtWorld(const ContactTarget& target) {
+  Eigen::Matrix3d desRotmatPadRtWorld;
+  desRotmatPadRtWorld.col(kXAxisIndex) = target.xAxisPadEwrtWorld;
+  desRotmatPadRtWorld.col(kYAxisIndex) =
+      target.normalSurfaceEwrtWorld.cross(target.xAxisPadEwrtWorld);
+  desRotmatPadRtWorld.col(kZAxisIndex) = target.normalSurfaceEwrtWorld;
+  return desRotmatPadRtWorld;
 }
 
 /** `error` scaled down to the norm `largest` when it is longer. */
@@ -104,11 +106,15 @@ Eigen::Vector3d capped(const Eigen::Vector3d& error, double largest) {
   return norm > largest ? Eigen::Vector3d(error * (largest / norm)) : error;
 }
 
-/** The rotation vector from `current` to `target`, in world axes. */
-Eigen::Vector3d rotationError(const Eigen::Matrix3d& target,
-                              const Eigen::Matrix3d& current) {
-  const Eigen::AngleAxisd error(target * current.transpose());
-  return error.angle() * error.axis();
+/** The pad's orientation error in world axes: the rotation vector of the
+ * desired times the actual transposed, `desRotmatPadRtWorld` *
+ * `rotmatPadRtWorld`^T. */
+Eigen::Vector3d computeErrRotvecPadRtWorld(
+    const Eigen::Matrix3d& desRotmatPadRtWorld,
+    const Eigen::Matrix3d& rotmatPadRtWorld) {
+  const Eigen::AngleAxisd errAngleaxis(desRotmatPadRtWorld *
+                                       rotmatPadRtWorld.transpose());
+  return errAngleaxis.angle() * errAngleaxis.axis();
 }
 
 /** [rad] The angle between two unit vectors. */
@@ -142,11 +148,11 @@ struct QpTerms {
  * options', a tenth of it for the base position. */
 Eigen::VectorXd postureWeightsOf(const StanceIkProblem& problem,
                                  const StanceIkOptions& options,
-                                 int velocities) {
+                                 int velocityDim) {
   // The base position's weight relative to the joints' and the base turn's.
   constexpr double kBasePositionWeightFraction = 0.1;
   const double weight = problem.postureWeight.value_or(options.postureWeight);
-  Eigen::VectorXd weights = Eigen::VectorXd::Constant(velocities, weight);
+  Eigen::VectorXd weights = Eigen::VectorXd::Constant(velocityDim, weight);
   weights.head<kPositionDim>().setConstant(kBasePositionWeightFraction *
                                            weight);
   return weights;
@@ -218,8 +224,10 @@ StanceInverseKinematics::Create(std::unique_ptr<RobotStanceModel> model,
   if (model == nullptr) {
     return absl::InvalidArgumentError("the inverse kinematics needs a model");
   }
-  if (options.maxIterations < 1 || !(options.reachTolerance > 0.0) ||
-      !(options.penetrationTolerance >= 0.0) || !(options.maxPadTilt > 0.0) ||
+  if (options.maxIterations < 1 ||
+      !(options.maxNormErrPosPadRtWorldEwrtWorld > 0.0) ||
+      !(options.penetrationTolerance >= 0.0) ||
+      !(options.maxTiltanglePadRtSurface > 0.0) ||
       !(options.contactWeight > 0.0) || !(options.damping > 0.0) ||
       !(options.slackPenalty > 0.0) || !(options.maxJointStep > 0.0) ||
       !(options.maxBaseStep > 0.0) || !(options.terrainClearance >= 0.0) ||
@@ -272,61 +280,73 @@ void addTargets(const RobotStanceModel& model,
                 const StanceIkOptions& options,
                 QpTerms& terms) {
   for (const ContactTarget& contact : problem.contacts) {
-    const Eigen::Vector3d position = model.padPosition(contact.candidate);
+    const Eigen::Vector3d currentPosPadRtWorldEwrtWorld =
+        model.getPosPadRtWorldEwrtWorld(contact.candidate);
     addEquality(
         [&]() -> Eigen::MatrixXd {
-          return model.pointJacobian(contact.candidate, position);
+          return model.computeLinjacQueryRtWorldEwrtWorld(
+              contact.candidate, currentPosPadRtWorldEwrtWorld);
         },
-        contact.position - position, options.contactWeight,
-        options.contactPenalty, terms);
-    const Eigen::Matrix3d rotation = model.padRotation(contact.candidate);
+        contact.posPadRtWorldEwrtWorld - currentPosPadRtWorldEwrtWorld,
+        options.contactWeight, options.contactPenalty, terms);
+    const Eigen::Matrix3d rotmatPadRtWorld =
+        model.getRotmatPadRtWorld(contact.candidate);
     const pinocchio::JointIndex joint = model.padJoint(contact.candidate);
     const ContactCandidate& candidate =
         model.contactSet().candidate(contact.candidate);
     if (candidate.kind == ContactKind::kSurface) {
       addEquality(
           [&]() -> Eigen::MatrixXd {
-            return model.jointAngularJacobian(joint);
+            return model.computeAngjacLinkRtWorldEwrtWorld(joint);
           },
-          rotationError(surfaceRotation(contact), rotation),
+          computeErrRotvecPadRtWorld(computeDesRotmatPadRtWorld(contact),
+                                     rotmatPadRtWorld),
           options.orientationWeight, options.contactPenalty, terms);
       continue;
     }
     // A point pad's normal z stays in the cone about the surface normal n:
     // d(n.z) = omega . (z x n).
-    const Eigen::Vector3d z = rotation.col(kZAxisIndex);
+    const Eigen::Vector3d zAxisPadEwrtWorld = rotmatPadRtWorld.col(kZAxisIndex);
     addInequality(
         [&]() -> Eigen::RowVectorXd {
-          return z.cross(contact.normal).transpose() *
-                 model.jointAngularJacobian(joint);
+          return zAxisPadEwrtWorld.cross(contact.normalSurfaceEwrtWorld)
+                     .transpose() *
+                 model.computeAngjacLinkRtWorldEwrtWorld(joint);
         },
-        std::cos(kTiltConeFraction * options.maxPadTilt) -
-            contact.normal.dot(z),
+        std::cos(kTiltConeFraction * options.maxTiltanglePadRtSurface) -
+            contact.normalSurfaceEwrtWorld.dot(zAxisPadEwrtWorld),
         options.contactPenalty, terms);
   }
   for (const PadTarget& target : problem.padTargets) {
-    const Eigen::Vector3d position = model.padPosition(target.candidate);
+    const Eigen::Vector3d currentPosPadRtWorldEwrtWorld =
+        model.getPosPadRtWorldEwrtWorld(target.candidate);
     addLeastSquares(
         [&]() -> Eigen::MatrixXd {
-          return model.pointJacobian(target.candidate, position);
+          return model.computeLinjacQueryRtWorldEwrtWorld(
+              target.candidate, currentPosPadRtWorldEwrtWorld);
         },
-        target.position - position, options.padTargetWeight, terms);
-    if (!target.normal.has_value()) continue;
+        target.posPadRtWorldEwrtWorld - currentPosPadRtWorldEwrtWorld,
+        options.padTargetWeight, terms);
+    if (!target.desZAxisPadEwrtWorld.has_value()) continue;
     // dz = omega x z: the pad's z axis toward the normal.
-    const Eigen::Vector3d z =
-        model.padRotation(target.candidate).col(kZAxisIndex);
+    const Eigen::Vector3d zAxisPadEwrtWorld =
+        model.getRotmatPadRtWorld(target.candidate).col(kZAxisIndex);
     const pinocchio::JointIndex joint = model.padJoint(target.candidate);
     addLeastSquares(
         [&]() -> Eigen::MatrixXd {
-          return -pinocchio::skew(z) * model.jointAngularJacobian(joint);
+          return -pinocchio::skew(zAxisPadEwrtWorld) *
+                 model.computeAngjacLinkRtWorldEwrtWorld(joint);
         },
-        *target.normal - z, options.orientationWeight, terms);
+        *target.desZAxisPadEwrtWorld - zAxisPadEwrtWorld,
+        options.orientationWeight, terms);
   }
-  if (problem.comTarget.has_value()) {
+  if (problem.desPosComRtWorldEwrtWorld.has_value()) {
     addLeastSquares(
-        [&]() -> Eigen::MatrixXd { return model.centerOfMassJacobian(); },
-        *problem.comTarget - model.centerOfMass(), options.comTargetWeight,
-        terms);
+        [&]() -> Eigen::MatrixXd {
+          return model.getLinjacComRtWorldEwrtWorld();
+        },
+        *problem.desPosComRtWorldEwrtWorld - model.getPosComRtWorldEwrtWorld(),
+        options.comTargetWeight, terms);
   }
 }
 
@@ -335,21 +355,32 @@ void addComPolygon(const RobotStanceModel& model,
                    const StanceIkProblem& problem,
                    double penalty,
                    QpTerms& terms) {
-  const std::vector<Eigen::Vector2d>& polygon = problem.comPolygon;
-  if (polygon.size() < kMinPolygonVertices) return;
-  const Eigen::Vector2d com =
-      model.centerOfMass().head<kHorizontalPositionDim>();
-  for (size_t i = 0; i < polygon.size(); ++i) {
-    const Eigen::Vector2d edge = polygon[(i + 1) % polygon.size()] - polygon[i];
-    const Eigen::Vector2d outward =
-        Eigen::Vector2d(edge.y(), -edge.x()).normalized();
-    const double offset = outward.dot(polygon[i]);
+  const std::vector<Eigen::Vector2d>& supportPosComRtWorldEwrtWorldXySamples =
+      problem.supportPosComRtWorldEwrtWorldXySamples;
+  if (supportPosComRtWorldEwrtWorldXySamples.size() < kMinPolygonVertices)
+    return;
+  const Eigen::Vector2d posComRtWorldEwrtWorldXy =
+      model.getPosComRtWorldEwrtWorld().head<kHorizontalPositionDim>();
+  for (size_t i = 0; i < supportPosComRtWorldEwrtWorldXySamples.size(); ++i) {
+    const Eigen::Vector2d edgeErrPosComRtWorldEwrtWorldXy =
+        supportPosComRtWorldEwrtWorldXySamples
+            [(i + 1) % supportPosComRtWorldEwrtWorldXySamples.size()] -
+        supportPosComRtWorldEwrtWorldXySamples[i];
+    const Eigen::Vector2d outwardDirEwrtWorldXy =
+        Eigen::Vector2d(edgeErrPosComRtWorldEwrtWorldXy.y(),
+                        -edgeErrPosComRtWorldEwrtWorldXy.x())
+            .normalized();
+    const double offset =
+        outwardDirEwrtWorldXy.dot(supportPosComRtWorldEwrtWorldXySamples[i]);
     addInequality(
         [&]() -> Eigen::RowVectorXd {
-          return -outward.transpose() *
-                 model.centerOfMassJacobian().topRows<kHorizontalPositionDim>();
+          return -outwardDirEwrtWorldXy.transpose() *
+                 model.getLinjacComRtWorldEwrtWorld()
+                     .topRows<kHorizontalPositionDim>();
         },
-        outward.dot(com) - offset + problem.comMargin, penalty, terms);
+        outwardDirEwrtWorldXy.dot(posComRtWorldEwrtWorldXy) - offset +
+            problem.comMargin,
+        penalty, terms);
   }
 }
 
@@ -361,9 +392,10 @@ void addCollisions(const RobotStanceModel& model,
                    const StanceIkOptions& options,
                    QpTerms& terms) {
   const std::vector<CollisionSphere>& spheres = collision.spheres();
-  std::vector<Eigen::Vector3d> centers(spheres.size());
+  std::vector<Eigen::Vector3d> posSpheresRtWorldEwrtWorld(spheres.size());
   for (int i = 0; i < static_cast<int>(spheres.size()); ++i) {
-    centers[i] = collision.worldCenter(model, i);
+    posSpheresRtWorldEwrtWorld[i] =
+        collision.getPosSphereRtWorldEwrtWorld(model, i);
   }
   // Inside a pad's neighborhood the clearance required of a sphere falls off
   // with this slope [m/m] instead of vanishing at once: the exemption is
@@ -374,22 +406,27 @@ void addCollisions(const RobotStanceModel& model,
     double nearestPad = std::numeric_limits<double>::infinity();
     for (const PadRegion& pad : problem.exemptPads) {
       if (!exemptsJoint(pad, spheres[i].joint)) continue;
-      nearestPad = std::min(nearestPad, distanceToPad(pad, centers[i]));
+      nearestPad = std::min(nearestPad,
+                            distanceToPad(pad, posSpheresRtWorldEwrtWorld[i]));
     }
     const double relaxed =
         kExemptionRamp *
         std::max(0.0, spheres[i].radius + options.padNeighborhood - nearestPad);
     const double distance =
-        terrain.sphereDistance(centers[i], spheres[i].radius) +
-        CollisionModel::restingAllowance(problem.exemptPads, spheres[i].joint,
-                                         centers[i], spheres[i].radius,
-                                         options.padNeighborhood);
+        terrain.sphereDistance(posSpheresRtWorldEwrtWorld[i],
+                               spheres[i].radius) +
+        CollisionModel::restingAllowance(
+            problem.exemptPads, spheres[i].joint, posSpheresRtWorldEwrtWorld[i],
+            spheres[i].radius, options.padNeighborhood);
     const double bound = options.terrainClearance - relaxed - distance;
     if (bound < -options.activationDistance) continue;
     addInequality(
         [&]() -> Eigen::RowVectorXd {
-          return terrain.normal(centers[i]).transpose() *
-                 model.jointPointJacobian(spheres[i].joint, centers[i]);
+          return terrain
+                     .getNormalTerrainEwrtWorld(posSpheresRtWorldEwrtWorld[i])
+                     .transpose() *
+                 model.computeJointLinjacQueryRtWorldEwrtWorld(
+                     spheres[i].joint, posSpheresRtWorldEwrtWorld[i]);
         },
         bound, options.slackPenalty, terms);
   }
@@ -397,9 +434,11 @@ void addCollisions(const RobotStanceModel& model,
   absl::flat_hash_map<std::pair<int, int>, SpherePair> closest;
   absl::flat_hash_map<std::pair<int, int>, double> closestClearance;
   for (const SpherePair& pair : collision.selfCollisionPairs()) {
-    const double clearance =
-        (centers[pair.first] - centers[pair.second]).norm() -
-        spheres[pair.first].radius - spheres[pair.second].radius;
+    const double clearance = (posSpheresRtWorldEwrtWorld[pair.first] -
+                              posSpheresRtWorldEwrtWorld[pair.second])
+                                 .norm() -
+                             spheres[pair.first].radius -
+                             spheres[pair.second].radius;
     const std::pair<int, int> links(spheres[pair.first].link,
                                     spheres[pair.second].link);
     const absl::flat_hash_map<std::pair<int, int>, double>::iterator found =
@@ -421,8 +460,11 @@ void addCollisions(const RobotStanceModel& model,
                      std::tie(second.first, second.second);
             });
   for (const SpherePair& pair : pairs) {
-    const Eigen::Vector3d offset = centers[pair.first] - centers[pair.second];
-    const double distance = offset.norm();
+    // The first sphere's center minus the second's.
+    const Eigen::Vector3d errPosSphereRtWorldEwrtWorld =
+        posSpheresRtWorldEwrtWorld[pair.first] -
+        posSpheresRtWorldEwrtWorld[pair.second];
+    const double distance = errPosSphereRtWorldEwrtWorld.norm();
     const double clearance =
         distance - spheres[pair.first].radius - spheres[pair.second].radius;
     // Below this [m], the centers coincide and the direction is undefined.
@@ -430,14 +472,17 @@ void addCollisions(const RobotStanceModel& model,
     if (clearance > options.selfActivationDistance || distance < kCoincident) {
       continue;
     }
-    const Eigen::Vector3d direction = offset / distance;
+    const Eigen::Vector3d dirSphereEwrtWorld =
+        errPosSphereRtWorldEwrtWorld / distance;
     addInequality(
         [&]() -> Eigen::RowVectorXd {
-          return direction.transpose() *
-                 (model.jointPointJacobian(spheres[pair.first].joint,
-                                           centers[pair.first]) -
-                  model.jointPointJacobian(spheres[pair.second].joint,
-                                           centers[pair.second]));
+          return dirSphereEwrtWorld.transpose() *
+                 (model.computeJointLinjacQueryRtWorldEwrtWorld(
+                      spheres[pair.first].joint,
+                      posSpheresRtWorldEwrtWorld[pair.first]) -
+                  model.computeJointLinjacQueryRtWorldEwrtWorld(
+                      spheres[pair.second].joint,
+                      posSpheresRtWorldEwrtWorld[pair.second]));
         },
         options.selfClearance - clearance, options.slackPenalty, terms);
   }
@@ -447,31 +492,31 @@ void addCollisions(const RobotStanceModel& model,
 
 absl::StatusOr<Eigen::VectorXd> StanceInverseKinematics::step(
     const StanceIkProblem& problem, double radius) {
-  const int velocities = model_->model().nv;
+  const int velocityDim = model_->model().nv;
   QpTerms terms;
   terms.hessian =
-      options_.damping * Eigen::MatrixXd::Identity(velocities, velocities);
-  terms.gradient = Eigen::VectorXd::Zero(velocities);
+      options_.damping * Eigen::MatrixXd::Identity(velocityDim, velocityDim);
+  terms.gradient = Eigen::VectorXd::Zero(velocityDim);
   addTargets(*model_, problem, options_, terms);
   // The posture reference, per coordinate of the tangent space.
   const Eigen::VectorXd toReference = pinocchio::difference(
       model_->model(), model_->generalizedPosition(), problem.postureReference);
   const Eigen::VectorXd postureWeights =
-      postureWeightsOf(problem, options_, velocities);
+      postureWeightsOf(problem, options_, velocityDim);
   terms.hessian.diagonal() += (postureWeights + postureWeights);
   terms.gradient -= (postureWeights + postureWeights).cwiseProduct(toReference);
   addComPolygon(*model_, problem, options_.slackPenalty, terms);
   addCollisions(*model_, terrain_, collision_, problem, options_, terms);
 
   const int slacks = static_cast<int>(terms.inequalities.size());
-  const int variables = velocities + slacks;
+  const int variables = velocityDim + slacks;
   LinearProgram program = LinearProgram::Unconstrained(variables);
-  program.cost.head(velocities) = terms.gradient;
+  program.cost.head(velocityDim) = terms.gradient;
   for (int r = 0; r < slacks; ++r) {
-    program.cost(velocities + r) = terms.inequalities[r].penalty;
+    program.cost(velocityDim + r) = terms.inequalities[r].penalty;
   }
   Eigen::MatrixXd hessian = Eigen::MatrixXd::Zero(variables, variables);
-  hessian.topLeftCorner(velocities, velocities) = terms.hessian;
+  hessian.topLeftCorner(velocityDim, velocityDim) = terms.hessian;
   hessian.bottomRightCorner(slacks, slacks)
       .diagonal()
       .setConstant(kSlackHessian);
@@ -500,9 +545,9 @@ absl::StatusOr<Eigen::VectorXd> StanceInverseKinematics::step(
   program.inequalityLower.resize(slacks);
   program.inequalityUpper = Eigen::VectorXd::Constant(slacks, kInfinity);
   for (int r = 0; r < slacks; ++r) {
-    program.inequalityMatrix.row(r).head(velocities) =
+    program.inequalityMatrix.row(r).head(velocityDim) =
         terms.inequalities[r].row;
-    program.inequalityMatrix(r, velocities + r) = 1.0;
+    program.inequalityMatrix(r, velocityDim + r) = 1.0;
     program.inequalityLower(r) = terms.inequalities[r].bound;
   }
   // HPIPM's tolerances for a step: a step is refined by the next iteration,
@@ -515,7 +560,7 @@ absl::StatusOr<Eigen::VectorXd> StanceInverseKinematics::step(
   settings.complementarityTolerance = kQpTolerance;
   ASSIGN_OR_RETURN(const LinearProgramSolution solution,
                    solveQuadraticProgram(hessian, program, settings));
-  return Eigen::VectorXd(solution.x.head(velocities));
+  return Eigen::VectorXd(solution.x.head(velocityDim));
 }
 
 namespace {
@@ -527,7 +572,7 @@ double meritOf(const RobotStanceModel& model,
                const CollisionModel& collision,
                const StanceIkProblem& problem,
                const StanceIkOptions& options) {
-  const int velocities = model.model().nv;
+  const int velocityDim = model.model().nv;
   QpTerms terms;
   terms.linearize = false;
   addTargets(model, problem, options, terms);
@@ -537,7 +582,7 @@ double meritOf(const RobotStanceModel& model,
       model.model(), model.generalizedPosition(), problem.postureReference);
   const double posture =
       toReference
-          .cwiseProduct(postureWeightsOf(problem, options, velocities)
+          .cwiseProduct(postureWeightsOf(problem, options, velocityDim)
                             .cwiseProduct(toReference))
           .sum();
   return terms.leastSquares + posture + terms.violation;
@@ -573,21 +618,26 @@ absl::StatusOr<Eigen::VectorXd> StanceInverseKinematics::correctContacts(
     Eigen::VectorXd error(rows);
     int row = 0;
     for (const ContactTarget& contact : problem.contacts) {
-      const Eigen::Vector3d position = model_->padPosition(contact.candidate);
+      const Eigen::Vector3d currentPosPadRtWorldEwrtWorld =
+          model_->getPosPadRtWorldEwrtWorld(contact.candidate);
       jacobian.middleRows<kPositionDim>(row) =
-          model_->pointJacobian(contact.candidate, position);
+          model_->computeLinjacQueryRtWorldEwrtWorld(
+              contact.candidate, currentPosPadRtWorldEwrtWorld);
       error.segment<kPositionDim>(row) =
-          capped(contact.position - position, kLargestCorrection);
+          capped(contact.posPadRtWorldEwrtWorld - currentPosPadRtWorldEwrtWorld,
+                 kLargestCorrection);
       row += kPositionDim;
       if (contactSet.candidate(contact.candidate).kind !=
           ContactKind::kSurface) {
         continue;
       }
       jacobian.middleRows<kRotationTangentDim>(row) =
-          model_->jointAngularJacobian(model_->padJoint(contact.candidate));
+          model_->computeAngjacLinkRtWorldEwrtWorld(
+              model_->padJoint(contact.candidate));
       error.segment<kRotationTangentDim>(row) =
-          capped(rotationError(surfaceRotation(contact),
-                               model_->padRotation(contact.candidate)),
+          capped(computeErrRotvecPadRtWorld(
+                     computeDesRotmatPadRtWorld(contact),
+                     model_->getRotmatPadRtWorld(contact.candidate)),
                  kLargestCorrection);
       row += kRotationTangentDim;
     }
@@ -681,32 +731,42 @@ absl::StatusOr<StanceIkResult> StanceInverseKinematics::evaluate(
   for (const ContactTarget& contact : problem.contacts) {
     const ContactCandidate& candidate =
         model_->contactSet().candidate(contact.candidate);
-    const double reach =
-        (model_->padPosition(contact.candidate) - contact.position).norm();
-    result.maxReachError = std::max(result.maxReachError, reach);
-    const double tilt =
-        angleBetween(model_->padRotation(contact.candidate).col(kZAxisIndex),
-                     contact.normal);
+    const double normErrPosPadRtWorldEwrtWorld =
+        (model_->getPosPadRtWorldEwrtWorld(contact.candidate) -
+         contact.posPadRtWorldEwrtWorld)
+            .norm();
+    result.maxNormErrPosPadRtWorldEwrtWorld = std::max(
+        result.maxNormErrPosPadRtWorldEwrtWorld, normErrPosPadRtWorldEwrtWorld);
+    const double tiltanglePadRtSurface = angleBetween(
+        model_->getRotmatPadRtWorld(contact.candidate).col(kZAxisIndex),
+        contact.normalSurfaceEwrtWorld);
     if (candidate.kind == ContactKind::kSurface) {
-      result.maxSurfaceTilt = std::max(result.maxSurfaceTilt, tilt);
+      result.surfaceMaxTiltanglePadRtSurface = std::max(
+          result.surfaceMaxTiltanglePadRtSurface, tiltanglePadRtSurface);
     } else {
-      result.maxPointTilt = std::max(result.maxPointTilt, tilt);
+      result.pointMaxTiltanglePadRtSurface =
+          std::max(result.pointMaxTiltanglePadRtSurface, tiltanglePadRtSurface);
     }
   }
-  if (result.maxReachError > options_.reachTolerance) {
-    failures.push_back(absl::StrFormat("a pad is %.4f m from its target",
-                                       result.maxReachError));
+  if (result.maxNormErrPosPadRtWorldEwrtWorld >
+      options_.maxNormErrPosPadRtWorldEwrtWorld) {
+    failures.push_back(
+        absl::StrFormat("a pad is %.4f m from its target",
+                        result.maxNormErrPosPadRtWorldEwrtWorld));
   }
-  if (result.maxPointTilt > options_.maxPadTilt ||
-      result.maxSurfaceTilt > options_.surfaceTiltTolerance) {
+  if (result.pointMaxTiltanglePadRtSurface >
+          options_.maxTiltanglePadRtSurface ||
+      result.surfaceMaxTiltanglePadRtSurface >
+          options_.surfaceMaxTiltanglePadRtSurface) {
     failures.push_back(absl::StrFormat(
         "a pad tilts %.3f rad (point) / %.3f rad (surface) from its surface",
-        result.maxPointTilt, result.maxSurfaceTilt));
+        result.pointMaxTiltanglePadRtSurface,
+        result.surfaceMaxTiltanglePadRtSurface));
   }
-  if (!problem.comPolygon.empty()) {
+  if (!problem.supportPosComRtWorldEwrtWorldXySamples.empty()) {
     result.comMargin = signedDistanceToConvexPolygon(
-        problem.comPolygon,
-        model_->centerOfMass().head<kHorizontalPositionDim>());
+        problem.supportPosComRtWorldEwrtWorldXySamples,
+        model_->getPosComRtWorldEwrtWorld().head<kHorizontalPositionDim>());
     if (*result.comMargin < problem.comMargin - kComMarginSlack) {
       failures.push_back(
           absl::StrFormat("the CoM is %.4f m inside its polygon (needs %.4f m)",
@@ -715,16 +775,18 @@ absl::StatusOr<StanceIkResult> StanceInverseKinematics::evaluate(
   }
   const std::vector<CollisionSphere>& spheres = collision_.spheres();
   for (int i = 0; i < static_cast<int>(spheres.size()); ++i) {
-    const Eigen::Vector3d center = collision_.worldCenter(*model_, i);
-    if (CollisionModel::isExempt(problem.exemptPads, spheres[i].joint, center,
-                                 spheres[i].radius, options_.padNeighborhood)) {
+    const Eigen::Vector3d posSphereRtWorldEwrtWorld =
+        collision_.getPosSphereRtWorldEwrtWorld(*model_, i);
+    if (CollisionModel::isExempt(problem.exemptPads, spheres[i].joint,
+                                 posSphereRtWorldEwrtWorld, spheres[i].radius,
+                                 options_.padNeighborhood)) {
       continue;
     }
     const double clearance =
-        terrain_.sphereDistance(center, spheres[i].radius) +
-        CollisionModel::restingAllowance(problem.exemptPads, spheres[i].joint,
-                                         center, spheres[i].radius,
-                                         options_.padNeighborhood);
+        terrain_.sphereDistance(posSphereRtWorldEwrtWorld, spheres[i].radius) +
+        CollisionModel::restingAllowance(
+            problem.exemptPads, spheres[i].joint, posSphereRtWorldEwrtWorld,
+            spheres[i].radius, options_.padNeighborhood);
     if (!result.terrainClearance.has_value() ||
         clearance < *result.terrainClearance) {
       result.terrainClearance = clearance;

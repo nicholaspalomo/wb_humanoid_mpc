@@ -56,9 +56,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * conversion (endEffectorDynamicsWeightsFromConfig(), with which
  * wholeBodyFootCostWeightsFromConfig() ends after refusing what the foot cost
  * does not have). The loader they replaced
- * (EndEffectorDynamicsWeights::getWeights()) once wrote the lin_acceleration_*
- * and ang_acceleration_* weights into the VELOCITY weights, over the
- * lin_velocity_* and ang_velocity_* weights it had just read, and left the
+ * (EndEffectorDynamicsWeights::getWeights()) once wrote the linacc_*
+ * and angacc_* weights into the VELOCITY weights, over the
+ * linvel_* and angvel_* weights it had just read, and left the
  * acceleration weights at their defaults. Each field lands in its own weight,
  * and the G1 whole-body task file was rewritten with the values that were in
  * effect, so the cost the robot ran was unchanged by the fix (shown on frozen
@@ -75,13 +75,12 @@ using ::google::protobuf::Reflection;
 // The weight groups and their axes, in the order of
 // EndEffectorDynamicsWeights::toVector().
 constexpr std::array<absl::string_view, 6> kWeightGroups = {
-    "pos",          "orientation",      "lin_velocity",
-    "ang_velocity", "lin_acceleration", "ang_acceleration"};
+    "pos", "rotvec", "linvel", "angvel", "linacc", "angacc"};
 constexpr std::array<absl::string_view, 3> kAxes = {"x", "y", "z"};
 constexpr size_t kNumWeights = kWeightGroups.size() * kAxes.size();
 
 /** The field of weight `index` of EndEffectorDynamicsWeights::toVector(), e.g.
- * "lin_velocity_y" for 7. */
+ * "linvel_y" for 7. */
 std::string weightField(size_t index) {
   return absl::StrCat(kWeightGroups[index / kAxes.size()], "_",
                       kAxes[index % kAxes.size()]);
@@ -156,21 +155,21 @@ constexpr absl::string_view kLegacyShippedBlock = R"pb(
       pos_x: 0.0
       pos_y: 0.0
       pos_z: 0.0
-      orientation_x: 10000.0
-      orientation_y: 10000.0
-      orientation_z: 0.0
-      lin_velocity_x: 50.0
-      lin_velocity_y: 50.0
-      lin_velocity_z: 0.0
-      ang_velocity_x: 100.0
-      ang_velocity_y: 100.0
-      ang_velocity_z: 100.0
-      lin_acceleration_x: 5.0
-      lin_acceleration_y: 5.0
-      lin_acceleration_z: 0.0
-      ang_acceleration_x: 2.0
-      ang_acceleration_y: 2.0
-      ang_acceleration_z: 2.0
+      rotvec_x: 10000.0
+      rotvec_y: 10000.0
+      rotvec_z: 0.0
+      linvel_x: 50.0
+      linvel_y: 50.0
+      linvel_z: 0.0
+      angvel_x: 100.0
+      angvel_y: 100.0
+      angvel_z: 100.0
+      linacc_x: 5.0
+      linacc_y: 5.0
+      linacc_z: 0.0
+      angacc_x: 2.0
+      angacc_y: 2.0
+      angacc_z: 2.0
     }
   }
 )pb";
@@ -181,21 +180,21 @@ constexpr absl::string_view kFixedShippedBlock = R"pb(
       pos_x: 0.0
       pos_y: 0.0
       pos_z: 0.0
-      orientation_x: 10000.0
-      orientation_y: 10000.0
-      orientation_z: 0.0
-      lin_velocity_x: 5.0
-      lin_velocity_y: 5.0
-      lin_velocity_z: 0.0
-      ang_velocity_x: 2.0
-      ang_velocity_y: 2.0
-      ang_velocity_z: 2.0
-      lin_acceleration_x: 0.01
-      lin_acceleration_y: 0.01
-      lin_acceleration_z: 0.01
-      ang_acceleration_x: 0.01
-      ang_acceleration_y: 0.01
-      ang_acceleration_z: 0.01
+      rotvec_x: 10000.0
+      rotvec_y: 10000.0
+      rotvec_z: 0.0
+      linvel_x: 5.0
+      linvel_y: 5.0
+      linvel_z: 0.0
+      angvel_x: 2.0
+      angvel_y: 2.0
+      angvel_z: 2.0
+      linacc_x: 0.01
+      linacc_y: 0.01
+      linacc_z: 0.01
+      angacc_x: 0.01
+      angacc_y: 0.01
+      angacc_z: 0.01
     }
   }
 )pb";
@@ -216,7 +215,7 @@ TEST(FootWeightsLoader, EachFieldLandsInItsOwnWeight) {
   // Positive control: the legacy loader lost the velocity weights and the
   // acceleration fields on the same block.
   const VECTOR18_T<scalar_t> legacy = legacyApplied(read).toVector();
-  EXPECT_EQ(legacy(6), 13.5) << "the legacy loader wrote lin_acceleration_x "
+  EXPECT_EQ(legacy(6), 13.5) << "the legacy loader wrote linacc_x "
                                 "into the linear velocity weight";
   EXPECT_EQ(
       legacy(12),

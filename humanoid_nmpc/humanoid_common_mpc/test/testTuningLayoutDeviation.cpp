@@ -45,11 +45,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
@@ -164,16 +164,17 @@ vector3_t randomEulerZyx(scalar_t maxTilt, std::mt19937& generator) {
 }
 
 /**
- * ZYX Euler angles of a reference for the attitude `eulerZyx`: a yaw within 2.5
- * rad of its yaw, so that the yaw error stays away from +-pi, where the heading
- * row jumps, and pitch and roll in [-0.3, 0.3].
+ * ZYX Euler angles of a reference for the attitude `eulerzyxBaseRtWorld`: a yaw
+ * within 2.5 rad of its yaw, so that the yaw error stays away from +-pi, where
+ * the heading row jumps, and pitch and roll in [-0.3, 0.3].
  */
-vector3_t referenceEulerZyxNear(const vector3_t& eulerZyx,
-                                std::mt19937& generator) {
+vector3_t drawNearbyRefEulerzyxBaseRtWorld(const vector3_t& eulerzyxBaseRtWorld,
+                                           std::mt19937& generator) {
   constexpr scalar_t kMaxTilt = 0.3;
-  return vector3_t(eulerZyx(0) + uniform(/*low=*/-2.5, /*high=*/2.5, generator),
-                   uniform(-kMaxTilt, kMaxTilt, generator),
-                   uniform(-kMaxTilt, kMaxTilt, generator));
+  return vector3_t(
+      eulerzyxBaseRtWorld(0) + uniform(/*low=*/-2.5, /*high=*/2.5, generator),
+      uniform(-kMaxTilt, kMaxTilt, generator),
+      uniform(-kMaxTilt, kMaxTilt, generator));
 }
 
 /** Euler rates (or any 3-vector) with entries uniform in [-1, 1]. */
@@ -216,8 +217,9 @@ bool bitwiseEqual(const TuningDeviationApproximation& a,
     const TuningJacobianIdentityRun& runA = a.identityRuns[i];
     const TuningJacobianIdentityRun& runB = b.identityRuns[i];
     if (runA.tuningRow != runB.tuningRow ||
-        runA.stateColumn != runB.stateColumn || runA.size != runB.size)
+        runA.stateColumn != runB.stateColumn || runA.size != runB.size) {
       return false;
+    }
   }
   for (size_t i = 0; i < a.denseBlocks.size(); ++i) {
     const TuningJacobianDenseBlock& blockA = a.denseBlocks[i];
@@ -320,8 +322,9 @@ matrix_t levelTangentJacobian(const TuningLayout& layout) {
  * symmetric bit for bit. */
 matrix_t randomWeights(Eigen::Index size, std::mt19937& generator) {
   matrix_t a(size, size);
-  for (Eigen::Index col = 0; col < size; ++col)
+  for (Eigen::Index col = 0; col < size; ++col) {
     a.col(col) = randomVector(size, generator);
+  }
   const matrix_t weights = a * a.transpose() + matrix_t::Identity(size, size);
   return 0.5 * (weights + weights.transpose());
 }
@@ -366,20 +369,20 @@ class TuningLayoutDeviationTest
 
   /**
    * A state with every entry uniform in [-1, 1] but the base orientation, which
-   * is the quaternion of the ZYX Euler angles `eulerZyx`, and on the whole body
-   * the body angular velocity, which is that of the Euler rates `eulerZyxRates`
-   * there.
+   * is the quaternion of the ZYX Euler angles `eulerzyxBaseRtWorld`, and on the
+   * whole body the body angular velocity, which is that of the Euler rates
+   * `rateEulerzyxBaseRtWorld` there.
    */
-  vector_t stateAt(const vector3_t& eulerZyx,
-                   const vector3_t& eulerZyxRates,
+  vector_t stateAt(const vector3_t& eulerzyxBaseRtWorld,
+                   const vector3_t& rateEulerzyxBaseRtWorld,
                    std::mt19937& generator) const {
     vector_t state = randomVector(
         static_cast<Eigen::Index>(model_->getStateDim()), generator);
-    model_->setEulerzyxBaseRtWorld(state, eulerZyx);
+    model_->setEulerzyxBaseRtWorld(state, eulerzyxBaseRtWorld);
     if (angularVelocityStart_.has_value()) {
       model_->setAngvelBaseRtWorldEwrtBase(
-          state,
-          localAngularVelocityFromEulerZyxRates(eulerZyx, eulerZyxRates));
+          state, bodyRatesFromEulerZyxRates(eulerzyxBaseRtWorld,
+                                            rateEulerzyxBaseRtWorld));
     }
     return state;
   }
@@ -493,8 +496,9 @@ TEST_P(TuningLayoutDeviationTest,
     ASSERT_TRUE(jointVelocities.ok()) << jointVelocities.status();
     // An if, not ASSERT_TRUE: bugprone-unchecked-optional-access sees the check
     // only through an if.
-    if (!angularVelocityStart_.has_value())
+    if (!angularVelocityStart_.has_value()) {
       FAIL() << "the whole-body layout has no angular-velocity block";
+    }
     const size_t angularVelocityStart = *angularVelocityStart_;
     ASSERT_EQ(angularVelocityStart, angularVelocityTuningIndex() + 1);
     // [base position] [orientation] [joints, base linear velocity] [angular
@@ -607,10 +611,12 @@ TEST_P(TuningLayoutDeviationTest, TheOrientationRowsAreTheHeadingTiltResidual) {
   // At a single-axis tilt against a level reference the rows are the Euler
   // differences, also for an unwrapped yaw.
   const vector_t level = stateAt(vector3_t(0.4, 0.0, 0.0), noRates, generator);
-  for (const scalar_t yaw : {1.2, 1.2 + 4.0 * std::numbers::pi}) {
+  for (const scalar_t eulerzyxBaseRtWorldYaw :
+       {1.2, 1.2 + 4.0 * std::numbers::pi}) {
     const vector3_t pitched =
         deviation
-            .evaluate(stateAt(vector3_t(yaw, 0.25, 0.0), noRates, generator),
+            .evaluate(stateAt(vector3_t(eulerzyxBaseRtWorldYaw, 0.25, 0.0),
+                              noRates, generator),
                       level)
             .segment<3>(row);
     EXPECT_LE((pitched - vector3_t(0.8, 0.25, 0.0)).cwiseAbs().maxCoeff(),
@@ -618,7 +624,8 @@ TEST_P(TuningLayoutDeviationTest, TheOrientationRowsAreTheHeadingTiltResidual) {
         << pitched.transpose();
     const vector3_t rolled =
         deviation
-            .evaluate(stateAt(vector3_t(yaw, 0.0, -0.3), noRates, generator),
+            .evaluate(stateAt(vector3_t(eulerzyxBaseRtWorldYaw, 0.0, -0.3),
+                              noRates, generator),
                       level)
             .segment<3>(row);
     EXPECT_LE((rolled - vector3_t(0.8, 0.0, -0.3)).cwiseAbs().maxCoeff(),
@@ -634,48 +641,56 @@ TEST_P(TuningLayoutDeviationTest, TheOrientationRowsAreTheHeadingTiltResidual) {
           .evaluate(tilted,
                     stateAt(vector3_t(0.0, 0.05, 0.1), noRates, generator))
           .segment<3>(row);
-  for (const scalar_t referenceYaw : {-2.0, 1.0, 2.5}) {
+  for (const scalar_t refEulerzyxBaseRtWorldYaw : {-2.0, 1.0, 2.5}) {
     const vector3_t atYaw =
         deviation
-            .evaluate(tilted, stateAt(vector3_t(referenceYaw, 0.05, 0.1),
-                                      noRates, generator))
+            .evaluate(tilted,
+                      stateAt(vector3_t(refEulerzyxBaseRtWorldYaw, 0.05, 0.1),
+                              noRates, generator))
             .segment<3>(row);
     EXPECT_NEAR(atYaw(1), atZeroYaw(1), 1.0e-12)
-        << "reference yaw " << referenceYaw;
+        << "reference yaw " << refEulerzyxBaseRtWorldYaw;
     EXPECT_NEAR(atYaw(2), atZeroYaw(2), 1.0e-12)
-        << "reference yaw " << referenceYaw;
+        << "reference yaw " << refEulerzyxBaseRtWorldYaw;
   }
 }
 
 TEST_P(TuningLayoutDeviationTest,
        TheAngularVelocityRowsAreTheBodyAngularVelocityError) {
-  if (!angularVelocityStart_.has_value())
+  if (!angularVelocityStart_.has_value()) {
     GTEST_SKIP() << "the centroidal state holds no base angular velocity";
+  }
   const TuningLayoutDeviation deviation(model_.get());
   const Eigen::Index row =
       static_cast<Eigen::Index>(angularVelocityTuningIndex());
   std::mt19937 generator(17);
   for (size_t trial = 0; trial < 20; ++trial) {
-    const vector3_t eulerZyx = randomEulerZyx(/*maxTilt=*/0.5, generator);
-    const vector3_t referenceEulerZyx =
+    const vector3_t eulerzyxBaseRtWorld =
         randomEulerZyx(/*maxTilt=*/0.5, generator);
-    const vector3_t rates = randomRates(generator);
-    const vector3_t referenceRates = randomRates(generator);
-    const vector_t state = stateAt(eulerZyx, rates, generator);
+    const vector3_t refEulerzyxBaseRtWorld =
+        randomEulerZyx(/*maxTilt=*/0.5, generator);
+    const vector3_t rateEulerzyxBaseRtWorld = randomRates(generator);
+    const vector3_t refRateEulerzyxBaseRtWorld = randomRates(generator);
+    const vector_t state =
+        stateAt(eulerzyxBaseRtWorld, rateEulerzyxBaseRtWorld, generator);
     const vector_t reference =
-        stateAt(referenceEulerZyx, referenceRates, generator);
+        stateAt(refEulerzyxBaseRtWorld, refRateEulerzyxBaseRtWorld, generator);
     // P_3 (w_B - R^T R_r w_B,r), with Eigen's rotation matrices.
-    const matrix3_t rotation =
-        quaternion_t(quaternionFromEulerZyx(eulerZyx)).toRotationMatrix();
-    const matrix3_t refRotmatBaseRtWorld =
-        quaternion_t(quaternionFromEulerZyx(referenceEulerZyx))
+    const matrix3_t rotmatBaseRtWorld =
+        quaternion_t(quaternionFromEulerZyx(eulerzyxBaseRtWorld))
             .toRotationMatrix();
-    const vector3_t difference =
-        localAngularVelocityFromEulerZyxRates(eulerZyx, rates) -
-        rotation.transpose() * refRotmatBaseRtWorld *
-            localAngularVelocityFromEulerZyxRates(referenceEulerZyx,
-                                                  referenceRates);
-    const vector3_t expected(difference(2), difference(1), difference(0));
+    const matrix3_t refRotmatBaseRtWorld =
+        quaternion_t(quaternionFromEulerZyx(refEulerzyxBaseRtWorld))
+            .toRotationMatrix();
+    const vector3_t errAngvelBaseRtWorldEwrtBase =
+        bodyRatesFromEulerZyxRates(eulerzyxBaseRtWorld,
+                                   rateEulerzyxBaseRtWorld) -
+        rotmatBaseRtWorld.transpose() * refRotmatBaseRtWorld *
+            bodyRatesFromEulerZyxRates(refEulerzyxBaseRtWorld,
+                                       refRateEulerzyxBaseRtWorld);
+    const vector3_t expected(errAngvelBaseRtWorldEwrtBase(2),
+                             errAngvelBaseRtWorldEwrtBase(1),
+                             errAngvelBaseRtWorldEwrtBase(0));
     EXPECT_LE((deviation.evaluate(state, reference).segment<3>(row) - expected)
                   .cwiseAbs()
                   .maxCoeff(),
@@ -685,32 +700,40 @@ TEST_P(TuningLayoutDeviationTest,
 
   // At a level state against a level reference of the same yaw the rows are the
   // Euler-rate differences.
-  for (const scalar_t yaw : {0.0, 2.0, 3.5}) {
-    const vector3_t rates(0.4, -0.7, 0.9);
-    const vector3_t referenceRates(-0.2, 0.3, 0.5);
+  for (const scalar_t eulerzyxBaseRtWorldYaw : {0.0, 2.0, 3.5}) {
+    const vector3_t rateEulerzyxBaseRtWorld(0.4, -0.7, 0.9);
+    const vector3_t refRateEulerzyxBaseRtWorld(-0.2, 0.3, 0.5);
     const vector3_t rows =
         deviation
-            .evaluate(
-                stateAt(vector3_t(yaw, 0.0, 0.0), rates, generator),
-                stateAt(vector3_t(yaw, 0.0, 0.0), referenceRates, generator))
+            .evaluate(stateAt(vector3_t(eulerzyxBaseRtWorldYaw, 0.0, 0.0),
+                              rateEulerzyxBaseRtWorld, generator),
+                      stateAt(vector3_t(eulerzyxBaseRtWorldYaw, 0.0, 0.0),
+                              refRateEulerzyxBaseRtWorld, generator))
             .segment<3>(row);
-    EXPECT_LE((rows - (rates - referenceRates)).cwiseAbs().maxCoeff(), 1.0e-12)
-        << "yaw " << yaw;
+    EXPECT_LE((rows - (rateEulerzyxBaseRtWorld - refRateEulerzyxBaseRtWorld))
+                  .cwiseAbs()
+                  .maxCoeff(),
+              1.0e-12)
+        << "yaw " << eulerzyxBaseRtWorldYaw;
   }
 
   // Design section 4.4, E2: against a reference at rest the rows differ from
   // the Euler rates by at most |tilt| |rates|.
   for (size_t trial = 0; trial < 50; ++trial) {
-    const vector3_t eulerZyx = randomEulerZyx(/*maxTilt=*/0.3, generator);
-    const vector3_t rates = randomRates(generator);
+    const vector3_t eulerzyxBaseRtWorld =
+        randomEulerZyx(/*maxTilt=*/0.3, generator);
+    const vector3_t rateEulerzyxBaseRtWorld = randomRates(generator);
     const vector3_t rows =
         deviation
-            .evaluate(stateAt(eulerZyx, rates, generator),
+            .evaluate(stateAt(eulerzyxBaseRtWorld, rateEulerzyxBaseRtWorld,
+                              generator),
                       stateAt(randomEulerZyx(/*maxTilt=*/0.3, generator),
                               vector3_t::Zero(), generator))
             .segment<3>(row);
-    EXPECT_LE((rows - rates).norm(),
-              std::hypot(eulerZyx(1), eulerZyx(2)) * rates.norm() + 1.0e-12)
+    EXPECT_LE((rows - rateEulerzyxBaseRtWorld).norm(),
+              std::hypot(eulerzyxBaseRtWorld(1), eulerzyxBaseRtWorld(2)) *
+                      rateEulerzyxBaseRtWorld.norm() +
+                  1.0e-12)
         << "trial " << trial;
   }
 }
@@ -736,12 +759,14 @@ TEST_P(TuningLayoutDeviationTest, TheBlocksAgreeWithFiniteDifferences) {
       static_cast<Eigen::Index>(model_->getStateDim());
   std::mt19937 generator(23);
   for (size_t trial = 0; trial < 8; ++trial) {
-    const vector3_t eulerZyx = randomEulerZyx(/*maxTilt=*/0.3, generator);
-    const vector3_t referenceEulerZyx =
-        referenceEulerZyxNear(eulerZyx, generator);
-    const vector_t state = stateAt(eulerZyx, randomRates(generator), generator);
+    const vector3_t eulerzyxBaseRtWorld =
+        randomEulerZyx(/*maxTilt=*/0.3, generator);
+    const vector3_t refEulerzyxBaseRtWorld =
+        drawNearbyRefEulerzyxBaseRtWorld(eulerzyxBaseRtWorld, generator);
+    const vector_t state =
+        stateAt(eulerzyxBaseRtWorld, randomRates(generator), generator);
     const vector_t reference =
-        stateAt(referenceEulerZyx, randomRates(generator), generator);
+        stateAt(refEulerzyxBaseRtWorld, randomRates(generator), generator);
     const matrix_t jacobian =
         denseJacobian(deviation.linearize(state, reference), stateDim);
     const matrix_t finiteDifferences =
@@ -759,11 +784,13 @@ TEST_P(TuningLayoutDeviationTest,
   const TuningLayoutDeviation deviation(model_.get());
   std::mt19937 generator(53);
   for (size_t trial = 0; trial < 8; ++trial) {
-    const vector3_t eulerZyx = randomEulerZyx(/*maxTilt=*/0.3, generator);
-    const vector_t state = stateAt(eulerZyx, randomRates(generator), generator);
-    const vector_t reference =
-        stateAt(referenceEulerZyxNear(eulerZyx, generator),
-                randomRates(generator), generator);
+    const vector3_t eulerzyxBaseRtWorld =
+        randomEulerZyx(/*maxTilt=*/0.3, generator);
+    const vector_t state =
+        stateAt(eulerzyxBaseRtWorld, randomRates(generator), generator);
+    const vector_t reference = stateAt(
+        drawNearbyRefEulerzyxBaseRtWorld(eulerzyxBaseRtWorld, generator),
+        randomRates(generator), generator);
     const matrix_t jacobian =
         tangentJacobian(deviation.linearize(state, reference), state);
     ASSERT_EQ(static_cast<size_t>(jacobian.cols()), manifold_->getTangentDim());
@@ -831,8 +858,9 @@ TEST_P(TuningLayoutDeviationTest,
   const matrix_t P = levelTangentJacobian(model_->getTuningLayout());
   const vector3_t atRest = vector3_t::Zero();
   for (size_t trial = 0; trial < 12; ++trial) {
-    const scalar_t yaw = randomYaw(generator);
-    const vector_t state = stateAt(vector3_t(yaw, 0.0, 0.0), atRest, generator);
+    const scalar_t eulerzyxBaseRtWorldYaw = randomYaw(generator);
+    const vector_t state =
+        stateAt(vector3_t(eulerzyxBaseRtWorldYaw, 0.0, 0.0), atRest, generator);
     const TuningDeviationApproximation anyReference = deviation.linearize(
         state,
         stateAt(randomEulerZyx(/*maxTilt=*/0.3, generator), atRest, generator));
@@ -843,13 +871,18 @@ TEST_P(TuningLayoutDeviationTest,
     EXPECT_LE(maxAbs(hessian - P.transpose() * Q * P), 1.0e-12 * maxAbs(Q))
         << "trial " << trial;
 
-    const vector3_t nearby =
-        referenceEulerZyxNear(vector3_t(yaw, 0.0, 0.0), generator);
+    const vector3_t nearbyRefEulerzyxBaseRtWorld =
+        drawNearbyRefEulerzyxBaseRtWorld(
+            vector3_t(eulerzyxBaseRtWorldYaw, 0.0, 0.0), generator);
     const std::array<vector3_t, 3> referenceAttitudes = {
-        vector3_t(nearby(0), 0.0, 0.0), vector3_t(nearby(0), nearby(1), 0.0),
-        vector3_t(nearby(0), 0.0, nearby(2))};
-    for (const vector3_t& referenceAttitude : referenceAttitudes) {
-      const vector_t reference = stateAt(referenceAttitude, atRest, generator);
+        vector3_t(nearbyRefEulerzyxBaseRtWorld(0), 0.0, 0.0),
+        vector3_t(nearbyRefEulerzyxBaseRtWorld(0),
+                  nearbyRefEulerzyxBaseRtWorld(1), 0.0),
+        vector3_t(nearbyRefEulerzyxBaseRtWorld(0), 0.0,
+                  nearbyRefEulerzyxBaseRtWorld(2))};
+    for (const vector3_t& refEulerzyxBaseRtWorld : referenceAttitudes) {
+      const vector_t reference =
+          stateAt(refEulerzyxBaseRtWorld, atRest, generator);
       const absl::StatusOr<vector_t> eulerState =
           model_->tuningFromState(state);
       const absl::StatusOr<vector_t> eulerReference =
@@ -868,7 +901,7 @@ TEST_P(TuningLayoutDeviationTest,
       EXPECT_LE(maxAbs(gradient - eulerDifferenceGradient),
                 1.0e-12 * std::max(1.0, maxAbs(eulerDifferenceGradient)))
           << "trial " << trial << ", reference "
-          << referenceAttitude.transpose();
+          << refEulerzyxBaseRtWorld.transpose();
     }
   }
 }
@@ -884,29 +917,32 @@ TEST_P(TuningLayoutDeviationTest,
   const TuningLayoutDeviation deviation(model_.get());
   std::mt19937 generator(41);
   for (size_t trial = 0; trial < 30; ++trial) {
-    const vector3_t levelState(randomYaw(generator), 0.0, 0.0);
-    const vector3_t referenceEulerZyx =
-        referenceEulerZyxNear(levelState, generator);
+    const vector3_t eulerzyxBaseRtWorld(randomYaw(generator), 0.0, 0.0);
+    const vector3_t refEulerzyxBaseRtWorld =
+        drawNearbyRefEulerzyxBaseRtWorld(eulerzyxBaseRtWorld, generator);
     const vector3_t rows =
         deviation
-            .evaluate(stateAt(levelState, vector3_t::Zero(), generator),
-                      stateAt(referenceEulerZyx, vector3_t::Zero(), generator))
+            .evaluate(
+                stateAt(eulerzyxBaseRtWorld, vector3_t::Zero(), generator),
+                stateAt(refEulerzyxBaseRtWorld, vector3_t::Zero(), generator))
             .segment<3>(orientationTuningIndex_);
     const scalar_t yawShift =
-        2.0 * std::atan(std::tan(0.5 * referenceEulerZyx(1)) *
-                        std::tan(0.5 * referenceEulerZyx(2)));
-    EXPECT_NEAR(std::remainder(
-                    rows(0) - (levelState(0) - referenceEulerZyx(0)) - yawShift,
-                    2.0 * std::numbers::pi),
-                0.0, 1.0e-12)
+        2.0 * std::atan(std::tan(0.5 * refEulerzyxBaseRtWorld(1)) *
+                        std::tan(0.5 * refEulerzyxBaseRtWorld(2)));
+    EXPECT_NEAR(
+        std::remainder(
+            rows(0) - (eulerzyxBaseRtWorld(0) - refEulerzyxBaseRtWorld(0)) -
+                yawShift,
+            2.0 * std::numbers::pi),
+        0.0, 1.0e-12)
         << "trial " << trial;
-    const scalar_t referenceTilt =
-        std::hypot(referenceEulerZyx(1), referenceEulerZyx(2));
-    EXPECT_LE(std::abs(rows(1) + referenceEulerZyx(1)),
-              0.2 * referenceTilt * referenceTilt * referenceTilt)
+    const scalar_t refInclination =
+        std::hypot(refEulerzyxBaseRtWorld(1), refEulerzyxBaseRtWorld(2));
+    EXPECT_LE(std::abs(rows(1) + refEulerzyxBaseRtWorld(1)),
+              0.2 * refInclination * refInclination * refInclination)
         << "trial " << trial;
-    EXPECT_LE(std::abs(rows(2) + referenceEulerZyx(2)),
-              0.2 * referenceTilt * referenceTilt * referenceTilt)
+    EXPECT_LE(std::abs(rows(2) + refEulerzyxBaseRtWorld(2)),
+              0.2 * refInclination * refInclination * refInclination)
         << "trial " << trial;
   }
 }
@@ -922,35 +958,46 @@ TEST_P(
   // is -P_3 [a]x, a = R^T R_r w_B,r the reference rate in the state's body
   // frame, at any attitude: zero only for a reference at rest, not for a state
   // at rest against a turning reference.
-  if (!angularVelocityStart_.has_value())
+  if (!angularVelocityStart_.has_value()) {
     GTEST_SKIP() << "the centroidal layout has no angular-velocity rows";
+  }
   const TuningLayoutDeviation deviation(model_.get());
   const size_t row = angularVelocityTuningIndex();
   std::mt19937 generator(37);
   for (size_t trial = 0; trial < 30; ++trial) {
-    const vector3_t eulerZyx = randomEulerZyx(/*maxTilt=*/0.6, generator);
-    const vector3_t rates = randomRates(generator);
-    const vector3_t referenceRates(
+    const vector3_t eulerzyxBaseRtWorld =
+        randomEulerZyx(/*maxTilt=*/0.6, generator);
+    const vector3_t rateEulerzyxBaseRtWorld = randomRates(generator);
+    const vector3_t refRateEulerzyxBaseRtWorld(
         uniform(/*low=*/-1.0, /*high=*/1.0, generator), 0.0, 0.0);
-    const vector_t reference = stateAt(
-        randomEulerZyx(/*maxTilt=*/0.6, generator), referenceRates, generator);
-    const vector3_t rateError = rates - referenceRates;
-    const vector3_t bodyRateError =
-        localAngularVelocityFromEulerZyxRates(eulerZyx, rateError);
+    const vector_t reference =
+        stateAt(randomEulerZyx(/*maxTilt=*/0.6, generator),
+                refRateEulerzyxBaseRtWorld, generator);
+    const vector3_t errRateEulerzyxBaseRtWorld =
+        rateEulerzyxBaseRtWorld - refRateEulerzyxBaseRtWorld;
+    const vector3_t errAngvelBaseRtWorldEwrtBase = bodyRatesFromEulerZyxRates(
+        eulerzyxBaseRtWorld, errRateEulerzyxBaseRtWorld);
     const vector3_t rows =
-        deviation.evaluate(stateAt(eulerZyx, rates, generator), reference)
+        deviation
+            .evaluate(stateAt(eulerzyxBaseRtWorld, rateEulerzyxBaseRtWorld,
+                              generator),
+                      reference)
             .segment<3>(row);
-    EXPECT_LE(
-        (rows - vector3_t(bodyRateError(2), bodyRateError(1), bodyRateError(0)))
-            .cwiseAbs()
-            .maxCoeff(),
-        1.0e-12)
+    EXPECT_LE((rows - vector3_t(errAngvelBaseRtWorldEwrtBase(2),
+                                errAngvelBaseRtWorldEwrtBase(1),
+                                errAngvelBaseRtWorldEwrtBase(0)))
+                  .cwiseAbs()
+                  .maxCoeff(),
+              1.0e-12)
         << "trial " << trial;
-    EXPECT_LE((rows - rateError).norm(),
-              std::hypot(eulerZyx(1), eulerZyx(2)) * rateError.norm() + 1.0e-12)
+    EXPECT_LE((rows - errRateEulerzyxBaseRtWorld).norm(),
+              std::hypot(eulerzyxBaseRtWorld(1), eulerzyxBaseRtWorld(2)) *
+                      errRateEulerzyxBaseRtWorld.norm() +
+                  1.0e-12)
         << "trial " << trial;
 
-    const vector_t state = stateAt(eulerZyx, rates, generator);
+    const vector_t state =
+        stateAt(eulerzyxBaseRtWorld, rateEulerzyxBaseRtWorld, generator);
     const matrix_t tangentBlock =
         tangentJacobian(deviation.linearize(state, reference), state)
             .block(static_cast<Eigen::Index>(row),
@@ -996,30 +1043,33 @@ TEST_P(
   // it as a = R_y(theta_r) (1, 0, 0) = (cos, 0, -sin), so e_w = P_3 (0 - a) =
   // (sin theta_r, 0, -cos theta_r), while the Euler-rate error is (0, 0, -1):
   // they differ by 2 sin(theta_r / 2), first order in the reference's tilt.
-  if (!angularVelocityStart_.has_value())
+  if (!angularVelocityStart_.has_value()) {
     GTEST_SKIP() << "the centroidal layout has no angular-velocity rows";
+  }
   const TuningLayoutDeviation deviation(model_.get());
   const size_t row = angularVelocityTuningIndex();
   std::mt19937 generator(41);
   std::vector<scalar_t> differences;
-  for (const scalar_t referencePitch : {0.2, 0.1, 0.05}) {
-    SCOPED_TRACE(referencePitch);
-    const vector3_t referenceRates(0.0, 0.0, 1.0);
+  for (const scalar_t refEulerzyxBaseRtWorldPitch : {0.2, 0.1, 0.05}) {
+    SCOPED_TRACE(refEulerzyxBaseRtWorldPitch);
+    const vector3_t refRateEulerzyxBaseRtWorld(0.0, 0.0, 1.0);
     const vector_t reference =
-        stateAt(vector3_t(0.0, referencePitch, 0.0), referenceRates, generator);
+        stateAt(vector3_t(0.0, refEulerzyxBaseRtWorldPitch, 0.0),
+                refRateEulerzyxBaseRtWorld, generator);
     const vector_t atRest =
         stateAt(vector3_t::Zero(), vector3_t::Zero(), generator);
     const vector3_t rows =
         deviation.evaluate(atRest, reference).segment<3>(row);
-    EXPECT_LE((rows - vector3_t(std::sin(referencePitch), 0.0,
-                                -std::cos(referencePitch)))
+    EXPECT_LE((rows - vector3_t(std::sin(refEulerzyxBaseRtWorldPitch), 0.0,
+                                -std::cos(refEulerzyxBaseRtWorldPitch)))
                   .cwiseAbs()
                   .maxCoeff(),
               1.0e-12);
-    const vector3_t eulerRateError = vector3_t::Zero() - referenceRates;
-    differences.push_back((rows - eulerRateError).norm());
-    EXPECT_NEAR(differences.back(), 2.0 * std::sin(0.5 * referencePitch),
-                1.0e-12);
+    const vector3_t errRateEulerzyxBaseRtWorld =
+        vector3_t::Zero() - refRateEulerzyxBaseRtWorld;
+    differences.push_back((rows - errRateEulerzyxBaseRtWorld).norm());
+    EXPECT_NEAR(differences.back(),
+                2.0 * std::sin(0.5 * refEulerzyxBaseRtWorldPitch), 1.0e-12);
   }
   // First order: halving the reference's tilt halves the difference (to within
   // the sine's curvature).
@@ -1045,15 +1095,16 @@ TEST_P(TuningLayoutDeviationTest,
     for (size_t direction = 0; direction < 8; ++direction) {
       const scalar_t angle =
           0.1 + static_cast<scalar_t>(direction) * std::numbers::pi / 4.0;
-      const vector3_t eulerZyx(randomYaw(generator), tilt * std::cos(angle),
-                               tilt * std::sin(angle));
-      const vector_t state = stateAt(eulerZyx, vector3_t::Zero(), generator);
+      const vector3_t eulerzyxBaseRtWorld(
+          randomYaw(generator), tilt * std::cos(angle), tilt * std::sin(angle));
+      const vector_t state =
+          stateAt(eulerzyxBaseRtWorld, vector3_t::Zero(), generator);
       const vector_t reference =
           stateAt(randomEulerZyx(/*maxTilt=*/0.3, generator), vector3_t::Zero(),
                   generator);
       const matrix_t jacobian =
           tangentJacobian(deviation.linearize(state, reference), state);
-      const matrix3_t chart = eulerZyxRateToBodyRateMatrix(eulerZyx);
+      const matrix3_t chart = eulerZyxRateToBodyRateMatrix(eulerzyxBaseRtWorld);
       const matrix_t orientationSlotsBlock =
           jacobian.block(orientationTuningIndex, orientationTuningIndex, 3, 3) *
           chart;
@@ -1151,21 +1202,24 @@ TEST_P(TuningLayoutDeviationTest,
   const TuningLayoutDeviation deviation(model_.get());
   std::mt19937 generator(41);
   for (size_t trial = 0; trial < 10; ++trial) {
-    const vector3_t eulerZyx = randomEulerZyx(/*maxTilt=*/0.3, generator);
-    const vector3_t referenceEulerZyx =
-        referenceEulerZyxNear(eulerZyx, generator);
-    const vector3_t rates = randomRates(generator);
-    const vector_t state = stateAt(eulerZyx, rates, generator);
+    const vector3_t eulerzyxBaseRtWorld =
+        randomEulerZyx(/*maxTilt=*/0.3, generator);
+    const vector3_t refEulerzyxBaseRtWorld =
+        drawNearbyRefEulerzyxBaseRtWorld(eulerzyxBaseRtWorld, generator);
+    const vector3_t rateEulerzyxBaseRtWorld = randomRates(generator);
+    const vector_t state =
+        stateAt(eulerzyxBaseRtWorld, rateEulerzyxBaseRtWorld, generator);
     const vector_t reference =
-        stateAt(referenceEulerZyx, randomRates(generator), generator);
+        stateAt(refEulerzyxBaseRtWorld, randomRates(generator), generator);
     const vector_t residual = deviation.evaluate(state, reference);
     const matrix_t jacobian =
         tangentJacobian(deviation.linearize(state, reference), state);
     for (const scalar_t turns : {-1.0, 1.0, 2.0}) {
       vector_t turned = state;
       model_->setEulerzyxBaseRtWorld(
-          turned, vector3_t(eulerZyx(0) + 2.0 * std::numbers::pi * turns,
-                            eulerZyx(1), eulerZyx(2)));
+          turned,
+          vector3_t(eulerzyxBaseRtWorld(0) + 2.0 * std::numbers::pi * turns,
+                    eulerzyxBaseRtWorld(1), eulerzyxBaseRtWorld(2)));
       // An odd number of turns gives the other quaternion of the same rotation,
       // an even number the same quaternion.
       const scalar_t alignment = model_->getQuatBaseRtWorldXyzw(turned).dot(
@@ -1177,8 +1231,9 @@ TEST_P(TuningLayoutDeviationTest,
         if (turnTheReference) {
           model_->setEulerzyxBaseRtWorld(
               turnedReference,
-              vector3_t(referenceEulerZyx(0) + 2.0 * std::numbers::pi * turns,
-                        referenceEulerZyx(1), referenceEulerZyx(2)));
+              vector3_t(
+                  refEulerzyxBaseRtWorld(0) + 2.0 * std::numbers::pi * turns,
+                  refEulerzyxBaseRtWorld(1), refEulerzyxBaseRtWorld(2)));
         }
         EXPECT_LE(
             maxAbs(deviation.evaluate(turned, turnedReference) - residual),

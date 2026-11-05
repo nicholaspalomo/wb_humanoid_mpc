@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/problem/InputBoundsBuilder.h"
 
+#include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
+
 namespace ocs2::humanoid {
 
 void InputBoundsBuilder::writeTo(OcpQpStage& stage) const {

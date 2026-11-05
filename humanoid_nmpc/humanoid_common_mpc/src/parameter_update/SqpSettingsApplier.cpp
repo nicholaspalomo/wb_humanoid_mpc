@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_sqp/SqpSolver.h"
 
 #include "humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h"
+#include "humanoid_common_mpc/parameter_update/HotUpdateTarget.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
 
 namespace ocs2::humanoid {

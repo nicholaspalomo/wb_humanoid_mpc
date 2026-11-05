@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <numbers>
 #include <random>
 #include <string>
 #include <utility>
@@ -39,10 +41,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 
-#include "humanoid_common_mpc/orientation/BaseOrientation.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 
 /*
@@ -61,10 +65,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
+// pi / 2, the pitch of the Euler gimbal lock.
+constexpr scalar_t kHalfPi = std::numbers::pi / 2.0;
+
 constexpr scalar_t kRoundOffTolerance = 1.0e-14;
 constexpr scalar_t kFiniteDifferenceStep = 1.0e-6;
 constexpr scalar_t kFiniteDifferenceTolerance = 1.0e-8;
-constexpr scalar_t kDegree = M_PI / 180.0;
+constexpr scalar_t kDegree = std::numbers::pi / 180.0;
 /** The G1's joint count, for layouts of the shipped sizes (centroidal 35 -> 36,
  * whole body 58 -> 59). */
 constexpr size_t kNumJoints = 23;
@@ -105,7 +112,8 @@ scalar_t rotationDistance(const vector4_t& a, const vector4_t& b) {
 }
 
 vector3_t randomEulerAngles(std::mt19937& generator, scalar_t maximumPitch) {
-  std::uniform_real_distribution<scalar_t> angle(-M_PI, M_PI);
+  std::uniform_real_distribution<scalar_t> angle(-std::numbers::pi,
+                                                 std::numbers::pi);
   std::uniform_real_distribution<scalar_t> pitch(-maximumPitch, maximumPitch);
   const scalar_t yaw = angle(generator);
   const scalar_t pitchAngle = pitch(generator);
@@ -123,7 +131,7 @@ std::vector<vector3_t> gimbalLockAngles() {
       for (const vector2_t& yawRoll :
            {vector2_t(0.0, 0.0), vector2_t(0.3, 0.7), vector2_t(-2.0, 1.1),
             vector2_t(2.9, -3.0)}) {
-        angles.emplace_back(yawRoll(0), sign * (M_PI_2 - pitchOffset),
+        angles.emplace_back(yawRoll(0), sign * (kHalfPi - pitchOffset),
                             yawRoll(1));
       }
     }
@@ -195,8 +203,9 @@ vector_t tuningVector(size_t dim,
                       Eigen::Index eulerStart,
                       const vector3_t& eulerZyx) {
   vector_t vector(static_cast<Eigen::Index>(dim));
-  for (Eigen::Index i = 0; i < vector.size(); ++i)
+  for (Eigen::Index i = 0; i < vector.size(); ++i) {
     vector(i) = 0.1 * static_cast<scalar_t>(i) - 1.3;
+  }
   vector.segment<3>(eulerStart) = eulerZyx;
   return vector;
 }
@@ -208,7 +217,8 @@ vector_t tuningVector(size_t dim,
 TEST(EulerBoundary, QuaternionFromEulerZyxIsTheZyxProduct) {
   std::mt19937 generator(11);
   for (int i = 0; i < 32; ++i) {
-    const vector3_t euler = randomEulerAngles(generator, /*maximumPitch=*/M_PI);
+    const vector3_t euler =
+        randomEulerAngles(generator, /*maximumPitch=*/std::numbers::pi);
     const vector4_t xi = quaternionFromEulerZyx(euler);
     // Bit for bit the quaternion the human-facing code builds today.
     EXPECT_EQ(xi, getQuaternionFromEulerAnglesZyx<scalar_t>(euler).coeffs());
@@ -227,7 +237,7 @@ TEST(EulerBoundary, EulerRoundTripIsExactBelowNinetyDegrees) {
   std::mt19937 generator(12);
   for (int i = 0; i < 64; ++i) {
     const vector3_t euler =
-        randomEulerAngles(generator, /*maximumPitch=*/M_PI_2 - 1.0e-3);
+        randomEulerAngles(generator, /*maximumPitch=*/kHalfPi - 1.0e-3);
     EXPECT_LT((eulerZyxFromQuaternion(quaternionFromEulerZyx(euler)) - euler)
                   .cwiseAbs()
                   .maxCoeff(),
@@ -237,9 +247,9 @@ TEST(EulerBoundary, EulerRoundTripIsExactBelowNinetyDegrees) {
   // Yaw and roll come back in (-pi, pi].
   const vector3_t wrapped =
       eulerZyxFromQuaternion(quaternionFromEulerZyx(vector3_t(4.0, 0.2, -3.5)));
-  EXPECT_NEAR(wrapped(0), 4.0 - 2.0 * M_PI, 1.0e-12);
+  EXPECT_NEAR(wrapped(0), 4.0 - 2.0 * std::numbers::pi, 1.0e-12);
   EXPECT_NEAR(wrapped(1), 0.2, 1.0e-12);
-  EXPECT_NEAR(wrapped(2), -3.5 + 2.0 * M_PI, 1.0e-12);
+  EXPECT_NEAR(wrapped(2), -3.5 + 2.0 * std::numbers::pi, 1.0e-12);
 }
 
 TEST(EulerBoundary, QuaternionRoundTripReproducesTheRotationAtEveryAttitude) {
@@ -252,7 +262,7 @@ TEST(EulerBoundary, QuaternionRoundTripReproducesTheRotationAtEveryAttitude) {
     const vector3_t euler = eulerZyxFromQuaternion(xi);
     EXPECT_LT(rotationDistance(quaternionFromEulerZyx(euler), xi), 1.0e-12)
         << xi.transpose();
-    EXPECT_LE(std::abs(euler(1)), M_PI_2);
+    EXPECT_LE(std::abs(euler(1)), kHalfPi);
   }
   // At and near gimbal lock, where the yaw and roll formulas alone lose the
   // rotation.
@@ -260,7 +270,7 @@ TEST(EulerBoundary, QuaternionRoundTripReproducesTheRotationAtEveryAttitude) {
     const vector4_t xi = quaternionFromEulerZyx(angles);
     const vector3_t euler = eulerZyxFromQuaternion(xi);
     ASSERT_TRUE(euler.allFinite()) << angles.transpose();
-    EXPECT_LE(std::abs(euler(1)), M_PI_2);
+    EXPECT_LE(std::abs(euler(1)), kHalfPi);
     EXPECT_LT(rotationDistance(quaternionFromEulerZyx(euler), xi), 1.0e-12)
         << "angles " << angles.transpose() << ", read back as "
         << euler.transpose();
@@ -278,7 +288,7 @@ TEST(EulerBoundary, AsinIsClampedAtNinetyDegrees) {
     ASSERT_TRUE(std::isnan(std::asin(2.0 * (xi(3) * xi(1) - xi(2) * xi(0)))));
     const vector3_t euler = eulerZyxFromQuaternion(xi);
     ASSERT_TRUE(euler.allFinite());
-    EXPECT_NEAR(euler(1), sign * M_PI_2, 1.0e-15);
+    EXPECT_NEAR(euler(1), sign * kHalfPi, 1.0e-15);
     EXPECT_LT(rotationDistance(quaternionFromEulerZyx(euler), xi), 1.0e-12);
   }
   // Every unit quaternion at exactly +-90 degrees, whichever way its round-off
@@ -286,11 +296,11 @@ TEST(EulerBoundary, AsinIsClampedAtNinetyDegrees) {
   for (const scalar_t sign : {1.0, -1.0}) {
     for (int yawStep = -6; yawStep <= 6; ++yawStep) {
       for (int rollStep = -6; rollStep <= 6; ++rollStep) {
-        const vector3_t angles(0.5 * yawStep, sign * M_PI_2, 0.5 * rollStep);
+        const vector3_t angles(0.5 * yawStep, sign * kHalfPi, 0.5 * rollStep);
         const vector4_t xi = quaternionFromEulerZyx(angles);
         const vector3_t euler = eulerZyxFromQuaternion(xi);
         ASSERT_TRUE(euler.allFinite()) << angles.transpose();
-        EXPECT_NEAR(euler(1), sign * M_PI_2, 1.0e-15) << angles.transpose();
+        EXPECT_NEAR(euler(1), sign * kHalfPi, 1.0e-15) << angles.transpose();
         EXPECT_LT(rotationDistance(quaternionFromEulerZyx(euler), xi), 1.0e-12)
             << angles.transpose();
       }
@@ -310,8 +320,8 @@ TEST(EulerBoundary, AsinIsClampedAtNinetyDegrees) {
       const vector3_t euler = eulerZyxFromQuaternion(xi);
       ASSERT_TRUE(euler.allFinite())
           << "scale " << scale << ": " << euler.transpose();
-      EXPECT_LE(std::abs(euler(1)), M_PI_2) << "scale " << scale;
-      EXPECT_NEAR(euler(1), sign * M_PI_2, 1.0e-8) << "scale " << scale;
+      EXPECT_LE(std::abs(euler(1)), kHalfPi) << "scale " << scale;
+      EXPECT_NEAR(euler(1), sign * kHalfPi, 1.0e-8) << "scale " << scale;
       EXPECT_LT(
           rotationDistance(quaternionFromEulerZyx(euler), xi.normalized()),
           1.0e-8)
@@ -329,7 +339,7 @@ TEST(EulerBoundary, AsinIsClampedAtNinetyDegrees) {
     ASSERT_GT(std::abs(2.0 * (xi(3) * xi(1) - xi(2) * xi(0))), 1.0);
     const vector3_t euler = eulerZyxFromQuaternion(xi);
     ASSERT_TRUE(euler.allFinite());
-    EXPECT_EQ(euler(1), sign * M_PI_2);
+    EXPECT_EQ(euler(1), sign * kHalfPi);
     EXPECT_EQ(euler, legacyEulerZyxFromQuaternion(xi));
   }
 }
@@ -361,7 +371,7 @@ TEST(EulerBoundary, LocalAngularVelocityIsTheRateOfTheRotation) {
                                rate(generator));
     // w_B = vee(R^T dR/dt), with dR/dt by central differences along Theta + t
     // dTheta/dt.
-    const matrix3_t rotation =
+    const matrix3_t rotmatLocalRtWorld =
         getRotationMatrixFromZyxEulerAngles<scalar_t>(euler);
     const matrix3_t rateRotmatLocalRtWorld =
         (getRotationMatrixFromZyxEulerAngles<scalar_t>(
@@ -369,11 +379,15 @@ TEST(EulerBoundary, LocalAngularVelocityIsTheRateOfTheRotation) {
          getRotationMatrixFromZyxEulerAngles<scalar_t>(
              vector3_t(euler - kFiniteDifferenceStep * eulerRates))) /
         (2.0 * kFiniteDifferenceStep);
-    const matrix3_t skew = rotation.transpose() * rateRotmatLocalRtWorld;
-    const vector3_t omega(skew(2, 1), skew(0, 2), skew(1, 0));
+    const matrix3_t skew =
+        rotmatLocalRtWorld.transpose() * rateRotmatLocalRtWorld;
+    const vector3_t fdAngvelLocalRtWorldEwrtLocal(skew(2, 1), skew(0, 2),
+                                                  skew(1, 0));
     const vector3_t angvelLocalRtWorldEwrtLocal =
-        localAngularVelocityFromEulerZyxRates(euler, eulerRates);
-    EXPECT_LT((angvelLocalRtWorldEwrtLocal - omega).cwiseAbs().maxCoeff(),
+        bodyRatesFromEulerZyxRates(euler, eulerRates);
+    EXPECT_LT((angvelLocalRtWorldEwrtLocal - fdAngvelLocalRtWorldEwrtLocal)
+                  .cwiseAbs()
+                  .maxCoeff(),
               kFiniteDifferenceTolerance);
     EXPECT_LT((eulerZyxRateToBodyRateMatrix(euler) * eulerRates -
                angvelLocalRtWorldEwrtLocal)
@@ -418,11 +432,9 @@ TEST(EulerBoundary, EulerRatesAreTheInverseOfTheLocalAngularVelocity) {
     const vector3_t eulerRates =
         eulerZyxRatesFromBodyRates(euler, angvelLocalRtWorldEwrtLocal);
     // Bit for bit OCS2's own conversion of the rates.
-    EXPECT_EQ(eulerRates,
-              // NOLINTNEXTLINE(frame-naming): a generic Euler conversion
-              getEulerAnglesZyxDerivativesFromLocalAngularVelocity<scalar_t>(
-                  euler, angvelLocalRtWorldEwrtLocal));
-    EXPECT_LT((localAngularVelocityFromEulerZyxRates(euler, eulerRates) -
+    EXPECT_EQ(eulerRates, getEulerAnglesZyxDerivativesFromBodyRates<scalar_t>(
+                              euler, angvelLocalRtWorldEwrtLocal));
+    EXPECT_LT((bodyRatesFromEulerZyxRates(euler, eulerRates) -
                angvelLocalRtWorldEwrtLocal)
                   .cwiseAbs()
                   .maxCoeff(),
@@ -446,11 +458,10 @@ TEST(EulerBoundary, LocalAngularVelocityJacobianMatchesFiniteDifferences) {
     const matrix3_t jacobian = bodyRateEulerZyxJacobian(euler, eulerRates);
     for (Eigen::Index j = 0; j < 3; ++j) {
       const vector3_t step = kFiniteDifferenceStep * vector3_t::Unit(j);
-      const vector3_t column = (localAngularVelocityFromEulerZyxRates(
-                                    vector3_t(euler + step), eulerRates) -
-                                localAngularVelocityFromEulerZyxRates(
-                                    vector3_t(euler - step), eulerRates)) /
-                               (2.0 * kFiniteDifferenceStep);
+      const vector3_t column =
+          (bodyRatesFromEulerZyxRates(vector3_t(euler + step), eulerRates) -
+           bodyRatesFromEulerZyxRates(vector3_t(euler - step), eulerRates)) /
+          (2.0 * kFiniteDifferenceStep);
       EXPECT_LT((column - jacobian.col(j)).cwiseAbs().maxCoeff(),
                 kFiniteDifferenceTolerance)
           << "column " << j;

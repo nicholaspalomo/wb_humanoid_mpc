@@ -45,7 +45,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_mpc/MPC_BASE.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
 #include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
 #include "ocs2_sqp/SqpSolver.h"
 
@@ -158,12 +161,13 @@ class MpcParameterUpdaterModule final : public SolverSynchronizedModule {
     // dimension, not the wrench-space one.
     size_t inputDim = 0;
     // Optional; must outlive the updater. Its swing trajectory planner is
-    // reconfigured, and it owns the ground: a reloaded terrain_height is handed
-    // to it (setTerrainHeight), and the contact-implicit terms follow the
-    // ground it applied (getAppliedTerrainHeight) from the next solve on, so
-    // that they never disagree with the swing trajectories or the landing
-    // targets about where it is. Without one, the terms take a reloaded height
-    // at once.
+    // reconfigured, and it owns the ground: a reloaded
+    // pos_surface_rt_world_ewrt_world_z is handed to it
+    // (setPosSurfaceRtWorldEwrtWorldZ), and the contact-implicit terms follow
+    // the ground it applied (getAppliedPosSurfaceRtWorldEwrtWorldZ) from the
+    // next solve on, so that they never disagree with the swing trajectories or
+    // the landing targets about where it is. Without one, the terms take a
+    // reloaded height at once.
     SwitchedModelReferenceManager* absl_nullable referenceManager = nullptr;
     // What a reload writes, in the order it is applied; none may be null.
     std::vector<std::unique_ptr<HotFieldApplier>> appliers;

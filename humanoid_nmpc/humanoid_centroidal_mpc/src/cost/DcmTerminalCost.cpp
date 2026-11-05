@@ -33,48 +33,67 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/CppAdInterface.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/cost/StateCost.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 
 namespace {
-// supportWeights(2), omega, velocityCommand(2), offsetFactor, sqrtWeights(2),
-// plannedDcmWeight, plannedDcm(2).
-constexpr size_t kNumParameters = 11;
+// supportWeights(2), omega, refLinvelComRtWorldEwrtWorldXy(2), offsetFactor,
+// sqrtWeights(2), plannedDcmWeight, plannedDcm(2), refYawHeadingRtWorld.
+constexpr size_t kNumParameters = 12;
 constexpr size_t kResidualDim = 2;
 
-// The layout of the parameters (getParameters()); each of the velocity command,
-// the sqrt weights and the planned DCM is a horizontal (x, y) pair.
+// The layout of the parameters (getParameters()); each of the reference CoM
+// velocity (from kSlotRefLinvelComRtWorldEwrtWorldXy), the sqrt weights and the
+// planned DCM is a horizontal (x, y) pair.
 constexpr int kLeftSupportWeightIndex = 0;
 constexpr int kRightSupportWeightIndex = 1;
 constexpr int kOmegaIndex = kRightSupportWeightIndex + 1;
-constexpr int kVelocityCommandStartIndex = kOmegaIndex + 1;
+constexpr int kSlotRefLinvelComRtWorldEwrtWorldXy = kOmegaIndex + 1;
 constexpr int kVelocityOffsetFactorIndex =
-    kVelocityCommandStartIndex + kHorizontalPositionDim;
+    kSlotRefLinvelComRtWorldEwrtWorldXy + kHorizontalPositionDim;
 constexpr int kSqrtWeightsStartIndex = kVelocityOffsetFactorIndex + 1;
 constexpr int kPlannedDcmWeightIndex =
     kSqrtWeightsStartIndex + kHorizontalPositionDim;
 constexpr int kPlannedDcmStartIndex = kPlannedDcmWeightIndex + 1;
-static_assert(static_cast<size_t>(kPlannedDcmStartIndex +
-                                  kHorizontalPositionDim) == kNumParameters);
+// [rad] the yaw of the heading frame whose axes the weights act in.
+constexpr int kSlotRefYawHeadingRtWorld =
+    kPlannedDcmStartIndex + kHorizontalPositionDim;
+static_assert(static_cast<size_t>(kSlotRefYawHeadingRtWorld + 1) ==
+              kNumParameters);
 
 // Below this total support weight no foot carries the support (a flight phase,
 // or both feet at a transition).
@@ -100,8 +119,9 @@ ad_vector_t dcmResidual(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
   const ad_scalar_t& weightLeft = parameters(kLeftSupportWeightIndex);
   const ad_scalar_t& weightRight = parameters(kRightSupportWeightIndex);
   const ad_scalar_t& omega = parameters(kOmegaIndex);
-  const ad_vector2_t velocityCommand =
-      parameters.segment<kHorizontalPositionDim>(kVelocityCommandStartIndex);
+  const ad_vector2_t refLinvelComRtWorldEwrtWorldXy =
+      parameters.segment<kHorizontalPositionDim>(
+          kSlotRefLinvelComRtWorldEwrtWorldXy);
   const ad_scalar_t& offsetFactor = parameters(kVelocityOffsetFactorIndex);
   const ad_vector2_t sqrtWeights =
       parameters.segment<kHorizontalPositionDim>(kSqrtWeightsStartIndex);
@@ -112,16 +132,22 @@ ad_vector_t dcmResidual(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
   const ad_vector_t q = mpcRobotModelAD.getGeneralizedCoordinates(state);
   pinocchio::centerOfMass(model, data, q, /*computeSubtreeComs=*/false);
   pinocchio::updateFramePlacements(model, data);
-  const ad_vector2_t com = data.com[0].head<kHorizontalPositionDim>();
-  const ad_vector2_t comVelocity =
-      mpcRobotModelAD.getBaseComLinearVelocity(state)
+  const ad_vector2_t posComRtWorldEwrtWorldXy =
+      data.com[0].head<kHorizontalPositionDim>();
+  // The CoM velocity: the centroidal model's getLinvelComRtWorldEwrtWorld().
+  const ad_vector2_t linvelComRtWorldEwrtWorldXy =
+      mpcRobotModelAD.getLinvelComRtWorldEwrtWorld(state)
           .head<kHorizontalPositionDim>();
-  const std::vector<ad_vector3_t> contactPositions =
+  const std::vector<ad_vector3_t> posContactsRtWorldEwrtWorld =
       getPosContactsRtWorldEwrtWorld<ad_scalar_t>(pinocchioInterfaceCppAd,
                                                   mpcRobotModelAD);
-  const ad_vector2_t support =
-      (weightLeft * contactPositions[0].head<kHorizontalPositionDim>() +
-       weightRight * contactPositions[1].head<kHorizontalPositionDim>()) /
+  // The mean of the feet weighted by the support blend (`supportcenter`), not
+  // the plain feetmean.
+  const ad_vector2_t posSupportcenterRtWorldEwrtWorldXy =
+      (weightLeft *
+           posContactsRtWorldEwrtWorld[0].head<kHorizontalPositionDim>() +
+       weightRight *
+           posContactsRtWorldEwrtWorld[1].head<kHorizontalPositionDim>()) /
       (weightLeft + weightRight);
 
   // Where the horizon should end. Without a reduced-order plan that is the
@@ -134,59 +160,86 @@ ad_vector_t dcmResidual(PinocchioInterfaceCppAd& pinocchioInterfaceCppAd,
   // than branched, so the expression stays differentiable and one compiled
   // model serves both.
   const ad_scalar_t& plannedWeight = parameters(kPlannedDcmWeightIndex);
-  const ad_vector2_t plannedDcm =
+  const ad_vector2_t desPosDcmRtWorldEwrtWorldXy =
       parameters.segment<kHorizontalPositionDim>(kPlannedDcmStartIndex);
 
-  const ad_vector2_t dcm = com + comVelocity / omega;
-  const ad_vector2_t supportReference =
-      support + offsetFactor * velocityCommand / omega;
-  const ad_vector2_t dcmReference =
-      plannedWeight * plannedDcm +
-      (ad_scalar_t(1.0) - plannedWeight) * supportReference;
+  const ad_vector2_t posDcmRtWorldEwrtWorldXy =
+      posComRtWorldEwrtWorldXy + linvelComRtWorldEwrtWorldXy / omega;
+  const ad_vector2_t supportRefPosDcmRtWorldEwrtWorldXy =
+      posSupportcenterRtWorldEwrtWorldXy +
+      offsetFactor * refLinvelComRtWorldEwrtWorldXy / omega;
+  const ad_vector2_t refPosDcmRtWorldEwrtWorldXy =
+      plannedWeight * desPosDcmRtWorldEwrtWorldXy +
+      (ad_scalar_t(1.0) - plannedWeight) * supportRefPosDcmRtWorldEwrtWorldXy;
+  // The weights are on the longitudinal and the lateral error: the error in
+  // the axes of the heading frame, rotated by the heading's yaw about world z.
+  const ad_vector2_t errPosDcmRtWorldEwrtWorldXy =
+      posDcmRtWorldEwrtWorldXy - refPosDcmRtWorldEwrtWorldXy;
+  const ad_scalar_t& refYawHeadingRtWorld =
+      parameters(kSlotRefYawHeadingRtWorld);
+  const ad_scalar_t cosYaw = CppAD::cos(refYawHeadingRtWorld);
+  const ad_scalar_t sinYaw = CppAD::sin(refYawHeadingRtWorld);
+  ad_vector2_t errPosDcmRtWorldEwrtHeadingXy;
+  errPosDcmRtWorldEwrtHeadingXy << cosYaw * errPosDcmRtWorldEwrtWorldXy(0) +
+                                       sinYaw * errPosDcmRtWorldEwrtWorldXy(1),
+      -sinYaw * errPosDcmRtWorldEwrtWorldXy(0) +
+          cosYaw * errPosDcmRtWorldEwrtWorldXy(1);
   ad_vector_t r(kResidualDim);
-  r = (dcm - dcmReference).cwiseProduct(sqrtWeights);
+  r = errPosDcmRtWorldEwrtHeadingXy.cwiseProduct(sqrtWeights);
   return r;
 }
 
 }  // namespace
 
 std::optional<scalar_t> DcmTerminalCost::Config::omega() const {
-  if (!comHeight.has_value()) return std::nullopt;
-  return std::sqrt(gravity / *comHeight);
+  if (!nomPosComRtFeetmeanEwrtWorldZ.has_value()) return std::nullopt;
+  return std::sqrt(gravityMagnitude / *nomPosComRtFeetmeanEwrtWorldZ);
 }
 
 absl::Status DcmTerminalCost::Config::validate() const {
-  if (comHeight.has_value() &&
-      !(std::isfinite(*comHeight) && *comHeight > 0.0)) {
-    return keyMustBe("com_height", *comHeight,
+  if (nomPosComRtFeetmeanEwrtWorldZ.has_value() &&
+      !(std::isfinite(*nomPosComRtFeetmeanEwrtWorldZ) &&
+        *nomPosComRtFeetmeanEwrtWorldZ > 0.0)) {
+    return keyMustBe("nom_pos_com_rt_feetmean_ewrt_world_z",
+                     *nomPosComRtFeetmeanEwrtWorldZ,
                      "positive; left out, it is the model's center of mass "
                      "above its feet at initial_state");
   }
-  if (!std::isfinite(weights(0)) || weights(0) < 0.0)
+  if (!std::isfinite(weights(0)) || weights(0) < 0.0) {
     return keyMustBe("weight_x", weights(0), "non-negative");
-  if (!std::isfinite(weights(1)) || weights(1) < 0.0)
+  }
+  if (!std::isfinite(weights(1)) || weights(1) < 0.0) {
     return keyMustBe("weight_y", weights(1), "non-negative");
-  if (!std::isfinite(velocityOffsetFactor))
-    return keyMustBe("velocity_offset_factor", velocityOffsetFactor, "finite");
-  if (!std::isfinite(supportBlendTime) || supportBlendTime < 0.0)
+  }
+  if (!std::isfinite(velocityCommandOffsetFactor)) {
+    return keyMustBe("velocity_command_offset_factor",
+                     velocityCommandOffsetFactor, "finite");
+  }
+  if (!std::isfinite(supportBlendTime) || supportBlendTime < 0.0) {
     return keyMustBe("support_blend_time", supportBlendTime, "non-negative");
+  }
   return absl::OkStatus();
 }
 
 absl::StatusOr<DcmTerminalCost::Config> DcmTerminalCost::resolveConfig(
-    Config config, scalar_t modelComHeight, scalar_t modelGravity) {
-  config.gravity = modelGravity;
+    Config config,
+    scalar_t modelNomPosComRtFeetmeanEwrtWorldZ,
+    scalar_t modelGravityMagnitude) {
+  config.gravityMagnitude = modelGravityMagnitude;
   RETURN_IF_ERROR(config.validate());
-  if (!config.comHeight.has_value()) {
-    if (!std::isfinite(modelComHeight) || modelComHeight <= 0.0) {
+  if (!config.nomPosComRtFeetmeanEwrtWorldZ.has_value()) {
+    if (!std::isfinite(modelNomPosComRtFeetmeanEwrtWorldZ) ||
+        modelNomPosComRtFeetmeanEwrtWorldZ <= 0.0) {
       return absl::InvalidArgumentError(absl::StrCat(
           "[DcmTerminalCost] ", kConfigPrefix,
-          "com_height is left out, i.e. the model's center of mass above its "
+          "nom_pos_com_rt_feetmean_ewrt_world_z is left out, i.e. the model's "
+          "center of mass above its "
           "feet at initial_state, but that is ",
-          modelComHeight, " m. Give ", kConfigPrefix,
-          "com_height a positive value, or correct initial_state."));
+          modelNomPosComRtFeetmeanEwrtWorldZ, " m. Give ", kConfigPrefix,
+          "nom_pos_com_rt_feetmean_ewrt_world_z a positive value, or correct "
+          "initial_state."));
     }
-    config.comHeight = modelComHeight;
+    config.nomPosComRtFeetmeanEwrtWorldZ = modelNomPosComRtFeetmeanEwrtWorldZ;
   }
   return config;
 }
@@ -194,37 +247,40 @@ absl::StatusOr<DcmTerminalCost::Config> DcmTerminalCost::resolveConfig(
 absl::StatusOr<std::unique_ptr<DcmTerminalCost>> DcmTerminalCost::Create(
     const SwitchedModelReferenceManager& referenceManager,
     const Config& config,
-    scalar_t modelComHeight,
+    scalar_t modelNomPosComRtFeetmeanEwrtWorldZ,
     const PinocchioInterface& pinocchioInterface,
     const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
     const std::string& costName,
     const ModelSettings& modelSettings) {
-  ASSIGN_OR_RETURN(const scalar_t gravity,
+  ASSIGN_OR_RETURN(const scalar_t modelGravityMagnitude,
                    modelGravity(pinocchioInterface.getModel()));
   ASSIGN_OR_RETURN(Config resolved,
-                   resolveConfig(config, modelComHeight, gravity));
+                   resolveConfig(config, modelNomPosComRtFeetmeanEwrtWorldZ,
+                                 modelGravityMagnitude));
   return absl::WrapUnique(new DcmTerminalCost(
-      referenceManager, std::move(resolved), modelComHeight, gravity,
-      pinocchioInterface, mpcRobotModelAD, costName, modelSettings));
+      referenceManager, std::move(resolved), modelNomPosComRtFeetmeanEwrtWorldZ,
+      modelGravityMagnitude, pinocchioInterface, mpcRobotModelAD, costName,
+      modelSettings));
 }
 
 DcmTerminalCost::DcmTerminalCost(
     const SwitchedModelReferenceManager& referenceManager,
     Config config,
-    scalar_t modelComHeight,
-    scalar_t modelGravity,
+    scalar_t modelNomPosComRtFeetmeanEwrtWorldZ,
+    scalar_t modelGravityMagnitude,
     const PinocchioInterface& pinocchioInterface,
     const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
     const std::string& costName,
     const ModelSettings& modelSettings)
     : referenceManagerPtr_(&referenceManager),
       config_(std::move(config)),
-      modelComHeight_(modelComHeight),
-      modelGravity_(modelGravity),
+      modelNomPosComRtFeetmeanEwrtWorldZ_(modelNomPosComRtFeetmeanEwrtWorldZ),
+      modelGravityMagnitude_(modelGravityMagnitude),
       mpcRobotModelAdPtr_(mpcRobotModelAD.clone()) {
   // The documented guard behind Create(), which has already resolved and
   // validated the configuration.
-  CHECK(config_.validate().ok() && config_.comHeight.has_value())
+  CHECK(config_.validate().ok() &&
+        config_.nomPosComRtFeetmeanEwrtWorldZ.has_value())
       << "[DcmTerminalCost] build it with DcmTerminalCost::Create()";
   omega_ = config_.omega().value_or(0.0);  // resolved, as checked above
   // The function holds what it reads and never this cost: every copy of the
@@ -262,22 +318,27 @@ DcmTerminalCost::DcmTerminalCost(
     adInterfacePtr_->loadModelsIfAvailable(
         CppAdInterface::ApproximationOrder::First, modelSettings.verboseCppAd);
   }
-  const scalar_t comHeight = config_.comHeight.value_or(
-      modelComHeight_);  // resolved, as checked above
+  const scalar_t nomPosComRtFeetmeanEwrtWorldZ =
+      config_.nomPosComRtFeetmeanEwrtWorldZ.value_or(
+          modelNomPosComRtFeetmeanEwrtWorldZ_);  // resolved, as checked above
   LOG(INFO) << "Initialized DcmTerminalCost with weights "
-            << config_.weights.transpose() << ", comHeight " << comHeight
-            << " m"
-            << (comHeight == modelComHeight_ ? " (the model's)" : " (explicit)")
-            << ", omega " << omega_ << " rad/s, velocityOffsetFactor "
-            << config_.velocityOffsetFactor;
+            << config_.weights.transpose() << ", pendulum height "
+            << nomPosComRtFeetmeanEwrtWorldZ << " m"
+            << (nomPosComRtFeetmeanEwrtWorldZ ==
+                        modelNomPosComRtFeetmeanEwrtWorldZ_
+                    ? " (the model's)"
+                    : " (explicit)")
+            << ", omega " << omega_ << " rad/s, velocityCommandOffsetFactor "
+            << config_.velocityCommandOffsetFactor;
 }
 
 DcmTerminalCost::DcmTerminalCost(const DcmTerminalCost& other)
     : StateCost(other),
       referenceManagerPtr_(other.referenceManagerPtr_),
       config_(other.config_),
-      modelComHeight_(other.modelComHeight_),
-      modelGravity_(other.modelGravity_),
+      modelNomPosComRtFeetmeanEwrtWorldZ_(
+          other.modelNomPosComRtFeetmeanEwrtWorldZ_),
+      modelGravityMagnitude_(other.modelGravityMagnitude_),
       omega_(other.omega_),
       isActive_(other.isActive_),
       mpcRobotModelAdPtr_(other.mpcRobotModelAdPtr_->clone()),
@@ -286,9 +347,11 @@ DcmTerminalCost::DcmTerminalCost(const DcmTerminalCost& other)
 
 absl::Status DcmTerminalCost::setConfig(const Config& config) {
   ASSIGN_OR_RETURN(Config resolved,
-                   resolveConfig(config, modelComHeight_, modelGravity_));
+                   resolveConfig(config, modelNomPosComRtFeetmeanEwrtWorldZ_,
+                                 modelGravityMagnitude_));
   config_ = std::move(resolved);
-  omega_ = config_.omega().value_or(0.0);  // resolveConfig() resolves comHeight
+  omega_ =
+      config_.omega().value_or(0.0);  // resolveConfig() resolves the height
   return absl::OkStatus();
 }
 
@@ -307,12 +370,14 @@ vector2_t DcmTerminalCost::computeSupportWeights(scalar_t time) const {
           eventTimes.begin());
       if (index >= modeSequence.size()) index = modeSequence.size() - 1;
       size_t first = index;
-      while (first > 0 && modeNumber2StanceLeg(modeSequence[first - 1])[foot])
+      while (first > 0 && modeNumber2StanceLeg(modeSequence[first - 1])[foot]) {
         --first;
+      }
       size_t last = index;
       while (last + 1 < modeSequence.size() &&
-             modeNumber2StanceLeg(modeSequence[last + 1])[foot])
+             modeNumber2StanceLeg(modeSequence[last + 1])[foot]) {
         ++last;
+      }
       const scalar_t start = (first == 0)
                                  ? -std::numeric_limits<scalar_t>::infinity()
                                  : eventTimes[first - 1];
@@ -340,12 +405,23 @@ vector_t DcmTerminalCost::getParameters(
   // (planned_com_override), which is what the terminal DCM should be consistent
   // with: the reference then leads towards the planned foothold instead of
   // towards a straight line the gait is not following.
-  vector2_t velocityCommand = vector2_t::Zero();
+  // The heading the weights' longitudinal and lateral axes follow is the
+  // target's at `time`, a parameter rather than a function of the state, so
+  // that the Gauss-Newton Hessian keeps the error's Jacobian alone; without a
+  // target it is world x.
+  vector2_t refLinvelComRtWorldEwrtWorldXy = vector2_t::Zero();
+  scalar_t refYawHeadingRtWorld = 0.0;
   if (!targetTrajectories.empty()) {
     const vector_t desiredState =
         mpcRobotModelAdPtr_->getDesiredState(targetTrajectories, time);
     if (desiredState.size() >= kHorizontalPositionDim) {
-      velocityCommand = desiredState.head<kHorizontalPositionDim>();
+      refLinvelComRtWorldEwrtWorldXy =
+          desiredState.head<kHorizontalPositionDim>();
+    }
+    if (static_cast<size_t>(desiredState.size()) ==
+        mpcRobotModelAdPtr_->getStateDim()) {
+      refYawHeadingRtWorld =
+          mpcRobotModelAdPtr_->getYawBaseRtWorld(desiredState);
     }
   }
   // Under a plan the reference is the plan's DCM, which is only the plan's DCM
@@ -359,29 +435,33 @@ vector_t DcmTerminalCost::getParameters(
   parameters(kLeftSupportWeightIndex) = supportWeights(0);
   parameters(kRightSupportWeightIndex) = supportWeights(1);
   parameters(kOmegaIndex) = planned.has_value() ? planned->omega : omega_;
-  parameters.segment<kHorizontalPositionDim>(kVelocityCommandStartIndex) =
-      velocityCommand;
-  parameters(kVelocityOffsetFactorIndex) = config_.velocityOffsetFactor;
+  parameters.segment<kHorizontalPositionDim>(
+      kSlotRefLinvelComRtWorldEwrtWorldXy) = refLinvelComRtWorldEwrtWorldXy;
+  parameters(kVelocityOffsetFactorIndex) = config_.velocityCommandOffsetFactor;
   parameters.segment<kHorizontalPositionDim>(kSqrtWeightsStartIndex) =
       config_.weights.cwiseSqrt();
   parameters(kPlannedDcmWeightIndex) = planned.has_value() ? 1.0 : 0.0;
   parameters.segment<kHorizontalPositionDim>(kPlannedDcmStartIndex) =
-      planned.has_value() ? planned->dcm : vector2_t::Zero();
+      planned.has_value() ? planned->desPosDcmRtWorldEwrtWorldXy
+                          : vector2_t::Zero();
+  parameters(kSlotRefYawHeadingRtWorld) = refYawHeadingRtWorld;
   return parameters;
 }
 
-vector2_t DcmTerminalCost::computeDcmError(const vector_t& state,
-                                           const vector_t& parameters) const {
+vector2_t DcmTerminalCost::computeErrPosDcmRtWorldEwrtWorldXy(
+    const vector_t& state, const vector_t& parameters) const {
   vector_t unweighted = parameters;
   unweighted.segment<kHorizontalPositionDim>(kSqrtWeightsStartIndex).setOnes();
+  unweighted(kSlotRefYawHeadingRtWorld) = 0.0;  // world axes
   return adInterfacePtr_->getFunctionValue(state, unweighted)
       .head<kHorizontalPositionDim>();
 }
 
-matrix_t DcmTerminalCost::computeDcmErrorJacobian(
+matrix_t DcmTerminalCost::computeJacobianErrPosDcmRtWorldEwrtWorldXy(
     const vector_t& state, const vector_t& parameters) const {
   vector_t unweighted = parameters;
   unweighted.segment<kHorizontalPositionDim>(kSqrtWeightsStartIndex).setOnes();
+  unweighted(kSlotRefYawHeadingRtWorld) = 0.0;  // world axes
   return adInterfacePtr_->getJacobian(state, unweighted)
       .topRows<kHorizontalPositionDim>();
 }

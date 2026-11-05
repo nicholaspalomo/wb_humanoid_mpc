@@ -61,20 +61,22 @@ struct PatchFrame {
   // The box face, or std::nullopt for the tangent plane of a capsule.
   std::optional<BoxFace> face;
   // [m] The face's center, or the tangent point on a capsule, in the world.
-  Eigen::Vector3d origin = Eigen::Vector3d::Zero();
-  // world_R_patch: the columns are the two tangents and the outward normal, a
+  Eigen::Vector3d posSurfaceRtWorldEwrtWorld = Eigen::Vector3d::Zero();
+  // world_R_surface: the columns are the two tangents and the outward normal, a
   // right-handed frame.
-  Eigen::Matrix3d rotation = Eigen::Matrix3d::Identity();
-  // [m] The face's polygon in the patch's (x, y) coordinates about origin,
-  // counterclockwise seen from outside; empty for a capsule's tangent plane,
-  // which has no edge.
-  std::vector<Eigen::Vector2d> polygon;
+  Eigen::Matrix3d rotmatSurfaceRtWorld = Eigen::Matrix3d::Identity();
+  // [m] The face's polygon in the patch's (x, y) coordinates about
+  // posSurfaceRtWorldEwrtWorld, counterclockwise seen from outside; empty for a
+  // capsule's tangent plane, which has no edge.
+  std::vector<Eigen::Vector2d> posCornersRtSurfaceEwrtSurfaceXy;
   // The Coulomb friction coefficient of the primitive.
   double friction = 0.0;
 
-  Eigen::Vector3d normal() const { return rotation.col(kNormalColumn); }
+  Eigen::Vector3d getNormalSurfaceEwrtWorld() const {
+    return rotmatSurfaceRtWorld.col(kNormalColumn);
+  }
 
-  // The column of `rotation` that holds the normal.
+  // The column of `rotmatSurfaceRtWorld` that holds the normal.
   static constexpr int kNormalColumn = 2;
 };
 

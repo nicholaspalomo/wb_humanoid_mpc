@@ -43,12 +43,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/cost/QuadraticStateInputCost.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/cost/InputQuadraticCost.h"
@@ -168,13 +168,15 @@ class InputQuadraticCostTest : public ::testing::Test {
     const Eigen::Index inputDim =
         static_cast<Eigen::Index>(model_->getInputDim());
     R_ = matrix_t::Zero(inputDim, inputDim);
-    for (Eigen::Index i = 0; i < inputDim; ++i)
+    for (Eigen::Index i = 0; i < inputDim; ++i) {
       R_(i, i) = 2.0 + distribution(generator);
+    }
     R_(0, 1) = 0.25;
     R_(1, 0) = 0.25;
     input_ = vector_t(inputDim);
-    for (Eigen::Index i = 0; i < inputDim; ++i)
+    for (Eigen::Index i = 0; i < inputDim; ++i) {
       input_(i) = 100.0 * distribution(generator);
+    }
     state_ = vector_t::Zero(static_cast<Eigen::Index>(model_->getStateDim()));
   }
 

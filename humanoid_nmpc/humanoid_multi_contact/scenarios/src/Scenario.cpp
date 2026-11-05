@@ -56,8 +56,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::multi_contact {
 namespace {
 
-// How far from 1 the norm of a pose's quaternion may be.
-constexpr double kQuaternionNormTolerance = 1.0e-6;
+// How far from 1 the norm of a posture's base quaternion may be.
+constexpr double kUnitQuaternionNormTolerance = 1.0e-6;
 
 absl::Status scenarioError(const config::Scenario& scenario,
                            absl::string_view what) {
@@ -95,17 +95,18 @@ absl::Status checkContacts(
   return absl::OkStatus();
 }
 
-absl::Status checkPose(const config::Scenario& scenario,
-                       const config::Scenario::Pose& pose,
-                       absl::string_view field,
-                       const ContactSet& contactSet,
-                       const absl::flat_hash_set<std::string>& allowed) {
-  if (absl::StatusOr<RobotConfiguration> configuration = configurationOf(pose);
+absl::Status checkPosture(const config::Scenario& scenario,
+                          const config::Scenario::Pose& posture,
+                          absl::string_view field,
+                          const ContactSet& contactSet,
+                          const absl::flat_hash_set<std::string>& allowed) {
+  if (absl::StatusOr<RobotConfiguration> configuration =
+          configurationOf(posture);
       !configuration.ok()) {
     return scenarioError(
         scenario, absl::StrCat(field, ": ", configuration.status().message()));
   }
-  return checkContacts(scenario, pose.active_contacts,
+  return checkContacts(scenario, posture.active_contacts,
                        absl::StrCat(field, ".active_contacts"), contactSet,
                        &allowed);
 }
@@ -120,11 +121,12 @@ absl::Status checkSimulationStart(const config::Scenario& scenario) {
           absl::StrCat("simulation_start: unknown arming '", arming,
                        "' (known: ", absl::StrJoin(kArmingNames, ", "), ")"));
     }
-    if (arming == "when_standing" && !(start.standing_base_height > 0.0)) {
+    if (arming == "when_standing" &&
+        !(start.standing_min_pos_base_rt_world_ewrt_world_z > 0.0)) {
       return scenarioError(
           scenario,
           "simulation_start: \"when_standing\" needs a positive "
-          "standing_base_height");
+          "standing_min_pos_base_rt_world_ewrt_world_z");
     }
   }
   return absl::OkStatus();
@@ -134,12 +136,13 @@ absl::Status checkMargins(const config::Scenario& scenario) {
   if (scenario.static_margin.has_value() && !(*scenario.static_margin >= 0.0)) {
     return scenarioError(scenario, "static_margin must not be negative");
   }
-  if (!(scenario.torque_margin > 0.0 && scenario.torque_margin <= 1.0)) {
-    return scenarioError(scenario, "torque_margin must lie in (0, 1]");
+  if (!(scenario.joint_torque_margin > 0.0 &&
+        scenario.joint_torque_margin <= 1.0)) {
+    return scenarioError(scenario, "joint_torque_margin must lie in (0, 1]");
   }
   ASSIGN_OR_RETURN(const JointLimits limits,
                    jointLimitsOf(scenario.joint_limits));
-  if (relaxesPositionLimits(limits)
+  if (relaxesJointPositionLimits(limits)
           ? !(scenario.joint_limit_relaxation > 0.0 &&
               scenario.joint_limit_relaxation <= kMaxJointLimitRelaxation)
           : scenario.joint_limit_relaxation != 0.0) {
@@ -194,19 +197,20 @@ absl::Status checkGoalStance(const config::Scenario& scenario,
       scenario, names, absl::StrCat(field, ".contacts"), contactSet, &allowed));
   if (goal.base_region.has_value()) {
     const config::Scenario::BaseRegion& region = *goal.base_region;
-    if (region.center.size() != kPositionDim ||
+    if (region.pos_box_rt_world_ewrt_world.size() != kPositionDim ||
         region.half_extents.size() != kPositionDim ||
         !(region.half_extents.minCoeff() > 0.0)) {
       return scenarioError(
           scenario, absl::StrCat(field,
-                                 ".base_region needs a center and positive "
+                                 ".base_region needs "
+                                 "pos_box_rt_world_ewrt_world and positive "
                                  "half extents of three values"));
     }
   }
-  if (goal.pose.has_value()) {
-    RETURN_IF_ERROR(checkPose(scenario, *goal.pose,
-                              absl::StrCat(field, ".pose"), contactSet,
-                              allowed));
+  if (goal.posture.has_value()) {
+    RETURN_IF_ERROR(checkPosture(scenario, *goal.posture,
+                                 absl::StrCat(field, ".posture"), contactSet,
+                                 allowed));
   }
   return absl::OkStatus();
 }
@@ -255,38 +259,39 @@ absl::Status validateScenario(const config::Scenario& scenario,
                                 /*allowed=*/nullptr));
   const absl::flat_hash_set<std::string> allowed(
       scenario.allowed_contacts.begin(), scenario.allowed_contacts.end());
-  RETURN_IF_ERROR(checkPose(scenario, scenario.initial_pose, "initial_pose",
-                            contactSet, allowed));
+  RETURN_IF_ERROR(checkPosture(scenario, scenario.initial_posture,
+                               "initial_posture", contactSet, allowed));
   return checkGoal(scenario, contactSet, terrain, allowed);
 }
 
 absl::StatusOr<RobotConfiguration> configurationOf(
-    const config::Scenario::Pose& pose) {
-  if (pose.base_position.size() != kPositionDim ||
-      pose.base_orientation_xyzw.size() != kQuaternionCoefficients ||
-      !(std::abs(pose.base_orientation_xyzw.norm() - 1.0) <=
-        kQuaternionNormTolerance)) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("pose '", pose.name,
-                     "' needs a base_position of three values and a unit "
-                     "base_orientation_xyzw"));
+    const config::Scenario::Pose& posture) {
+  if (posture.pos_base_rt_world_ewrt_world.size() != kPositionDim ||
+      posture.quat_base_rt_world_xyzw.size() != kQuaternionCoefficients ||
+      !(std::abs(posture.quat_base_rt_world_xyzw.norm() - 1.0) <=
+        kUnitQuaternionNormTolerance)) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "posture '", posture.name,
+        "' needs a pos_base_rt_world_ewrt_world of three values and a unit "
+        "quat_base_rt_world_xyzw"));
   }
   RobotConfiguration configuration;
-  configuration.basePosition = Eigen::Vector3d(pose.base_position);
-  configuration.baseOrientation =
-      Eigen::Quaterniond(Eigen::Vector4d(pose.base_orientation_xyzw));
-  configuration.jointPositions.resize(pose.joint_positions.size());
-  for (size_t i = 0; i < pose.joint_positions.size(); ++i) {
-    configuration.jointNames.push_back(pose.joint_positions[i].joint);
+  configuration.posBaseRtWorldEwrtWorld =
+      Eigen::Vector3d(posture.pos_base_rt_world_ewrt_world);
+  configuration.quatBaseRtWorld =
+      Eigen::Quaterniond(Eigen::Vector4d(posture.quat_base_rt_world_xyzw));
+  configuration.jointPositions.resize(posture.joint_positions.size());
+  for (size_t i = 0; i < posture.joint_positions.size(); ++i) {
+    configuration.jointNames.push_back(posture.joint_positions[i].joint);
     configuration.jointPositions(static_cast<Eigen::Index>(i)) =
-        pose.joint_positions[i].position;
+        posture.joint_positions[i].joint_position;
   }
   return configuration;
 }
 
-absl::StatusOr<ContactMask> contactsOf(const config::Scenario::Pose& pose,
+absl::StatusOr<ContactMask> contactsOf(const config::Scenario::Pose& posture,
                                        const ContactSet& contactSet) {
-  return contactSet.maskOf(pose.active_contacts);
+  return contactSet.maskOf(posture.active_contacts);
 }
 
 absl::StatusOr<CertifierOptions> certifierOptionsOf(
@@ -294,7 +299,7 @@ absl::StatusOr<CertifierOptions> certifierOptionsOf(
   CertifierOptions options;
   options.staticMargin = scenario.static_margin;
   ASSIGN_OR_RETURN(options.jointLimits, jointLimitsOf(scenario.joint_limits));
-  options.torqueMargin = scenario.torque_margin;
+  options.jointTorqueMargin = scenario.joint_torque_margin;
   ASSIGN_OR_RETURN(options.equilibrium.supportPolygon,
                    supportPolygonOf(scenario.support_polygon));
   return options;

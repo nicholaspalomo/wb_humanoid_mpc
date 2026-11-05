@@ -73,8 +73,8 @@ JOINT_SOURCES: tuple[str, ...] = ("nominal", "sliders")
 # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/README.md:joint_sources)
 
 # The range of a slider whose joint has no limit: one turn for a rotation, a meter either way for a translation [m].
-_UNLIMITED_ROTATION = (-math.pi, math.pi)
-_UNLIMITED_TRANSLATION = (-1.0, 1.0)
+_UNLIMITED_JOINT_ANGLE_RANGE = (-math.pi, math.pi)
+_UNLIMITED_JOINT_TRANSLATION_RANGE = (-1.0, 1.0)
 # How often the main thread checks for a stop request [s].
 _POLL_PERIOD_S = 0.05
 
@@ -82,9 +82,9 @@ _POLL_PERIOD_S = 0.05
 def slider_range(joint: urdf_kinematics.Joint) -> tuple[float, float]:
     """The range of a joint's slider: its limits, or one turn (one meter either way) where it has none."""
     unlimited = (
-        _UNLIMITED_TRANSLATION
+        _UNLIMITED_JOINT_TRANSLATION_RANGE
         if joint.type in urdf_kinematics.PRISMATIC_TYPES
-        else _UNLIMITED_ROTATION
+        else _UNLIMITED_JOINT_ANGLE_RANGE
     )
     lower = joint.lower if joint.lower is not None else unlimited[0]
     upper = joint.upper if joint.upper is not None else unlimited[1]
@@ -108,16 +108,16 @@ class SandboxScene:
         self.instance = instance
         self._joints = {joint.name: joint for joint in tree.movable_joints()}
         self._lock = threading.Lock()
-        self._positions = tree.nominal_positions()
+        self._joint_positions = tree.nominal_joint_positions()
         self._version = 0
 
     @property
     def joints(self) -> tuple[urdf_kinematics.Joint, ...]:
         return self.tree.movable_joints()
 
-    def positions(self) -> dict[str, float]:
+    def joint_positions(self) -> dict[str, float]:
         with self._lock:
-            return dict(self._positions)
+            return dict(self._joint_positions)
 
     @property
     def version(self) -> int:
@@ -125,62 +125,74 @@ class SandboxScene:
         with self._lock:
             return self._version
 
-    def set_position(self, joint: str, position: float) -> float:
-        """Moves `joint` to `position`, clamped to its limits.
+    def set_joint_position(self, joint: str, joint_position: float) -> float:
+        """Moves `joint` to `joint_position`, clamped to its limits.
 
         Args:
             joint: the name of a settable joint (`joints`).
-            position: where to move it [rad or m].
+            joint_position: where to move it [rad or m].
 
         Returns:
-            The position taken: `position` clamped to the joint's limits.
+            The position taken: `joint_position` clamped to the joint's limits.
 
         Raises:
             KeyError: `joint` is not a settable joint of the robot.
-            ValueError: `position` is not finite.
+            ValueError: `joint_position` is not finite.
         """
         if joint not in self._joints:
             raise KeyError(
                 f"'{joint}' is not a settable joint; the joints are:"
                 f" {', '.join(self._joints)}"
             )
-        if not math.isfinite(position):
+        if not math.isfinite(joint_position):
             raise ValueError(
-                f"the position of '{joint}' must be finite, got {position}"
+                f"the position of '{joint}' must be finite, got {joint_position}"
             )
-        clamped = self._joints[joint].clamp(position)
+        clamped = self._joints[joint].clamp(joint_position)
         with self._lock:
-            if self._positions[joint] != clamped:
-                self._positions[joint] = clamped
+            if self._joint_positions[joint] != clamped:
+                self._joint_positions[joint] = clamped
                 self._version += 1
         return clamped
 
     def reset(self) -> None:
         """Every joint back at its nominal position."""
         with self._lock:
-            nominal = self.tree.nominal_positions()
-            if nominal != self._positions:
-                self._positions = nominal
+            nominal = self.tree.nominal_joint_positions()
+            if nominal != self._joint_positions:
+                self._joint_positions = nominal
                 self._version += 1
 
     def scene(
         self, time_s: float
     ) -> visualization_scene_pb2.VisualizationScene:
         """The scene of the current positions, at robot time `time_s`: one robot instance with every link."""
-        poses = self.tree.link_poses(self.positions())
+        pose_links_rt_base = self.tree.compute_pose_links_rt_base(
+            self.joint_positions()
+        )
         message = visualization_scene_pb2.VisualizationScene(time=time_s)
         robot = message.robots.add(name=self.instance)
         for link in self.tree.links:
-            translation, quaternion = poses[link]
+            pos_link_rt_base_ewrt_base, quat_link_rt_base_xyzw = (
+                pose_links_rt_base[link]
+            )
             robot.link_names.append(link)
-            pose = robot.pose_links_rt_world.add()
-            pose.position.x, pose.position.y, pose.position.z = translation
+            # The sandbox's base is the world frame (identity), so a pose relative to the base is one relative to the
+            # world.
+            pose_link_rt_world = robot.pose_links_rt_world.add()
+            # NOLINTBEGIN(frame-naming): the components of a frame-generic Pose; the enclosing field names the frames
             (
-                pose.orientation.x,
-                pose.orientation.y,
-                pose.orientation.z,
-                pose.orientation.w,
-            ) = quaternion
+                pose_link_rt_world.position.x,
+                pose_link_rt_world.position.y,
+                pose_link_rt_world.position.z,
+            ) = pos_link_rt_base_ewrt_base
+            (
+                pose_link_rt_world.orientation.x,
+                pose_link_rt_world.orientation.y,
+                pose_link_rt_world.orientation.z,
+                pose_link_rt_world.orientation.w,
+            ) = quat_link_rt_base_xyzw
+            # NOLINTEND(frame-naming)
         return message
 
 
@@ -260,11 +272,13 @@ class SliderWindow:  # pragma: no cover - drawn by test_model_sandbox where a di
         scrollbar.pack(side="right", fill="y")
         self.sliders: dict[str, tkinter.Scale] = {}
         self._values: list[tkinter.DoubleVar] = []
-        positions = scene.positions()
+        joint_positions = scene.joint_positions()
         for joint in scene.joints:
             lower, upper = slider_range(joint)
             # A variable trace rather than the scale's -command, which Tk only runs while the slider is drawn.
-            value = tkinter.DoubleVar(self.root, value=positions[joint.name])
+            value = tkinter.DoubleVar(
+                self.root, value=joint_positions[joint.name]
+            )
             value.trace_add("write", self._mover(joint.name, value))
             slider = tkinter.Scale(
                 inner,
@@ -284,7 +298,7 @@ class SliderWindow:  # pragma: no cover - drawn by test_model_sandbox where a di
         )
 
     def _moved(self, joint: str, value: float) -> None:
-        self._scene.set_position(joint, value)
+        self._scene.set_joint_position(joint, value)
 
     def _mover(
         self, joint: str, value: tkinter.DoubleVar
@@ -298,9 +312,9 @@ class SliderWindow:  # pragma: no cover - drawn by test_model_sandbox where a di
 
     def reset(self) -> None:
         self._scene.reset()
-        positions = self._scene.positions()
+        joint_positions = self._scene.joint_positions()
         for name, slider in self.sliders.items():
-            slider.set(positions[name])
+            slider.set(joint_positions[name])
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -33,11 +33,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <memory>
+#include <numbers>
 #include <numeric>
 #include <optional>
 #include <ostream>
 #include <random>
-#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -51,16 +51,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/FactoryFunctions.h"
-#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/centroidal.hpp"
 #include "pinocchio/algorithm/jacobian.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/joint/joint-free-flyer.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 #include "pinocchio/parsers/urdf.hpp"
 #include "urdf_parser/urdf_parser.h"
+#include "urdf_world/types.h"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -69,7 +70,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
-#include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
@@ -92,7 +92,7 @@ constexpr int kNumSamples = 200;
  * one.
  */
 // LINT.IfChange(acom_unlimited_joint_range)
-constexpr scalar_t kUnlimitedJointHalfRange = M_PI;
+constexpr scalar_t kUnlimitedJointHalfRange = std::numbers::pi;
 // LINT.ThenChange(//humanoid_learning/acom/dataset_generator.py:unlimited_joint_range)
 
 /**
@@ -245,12 +245,13 @@ std::string urdfFileOf(const AcomRobotCase& robotCase) {
  *
  * with I_G the locked rotational inertia at the center of mass and L_G the
  * centroidal angular momentum, both in world axes. The ACoM attitude is xi_a =
- * xi (x) Exp(Delta_theta(q_j)) (AngularCenterOfMass::acomAttitude()), so its
- * world angular velocity is omega_W + R(xi) J_l(Delta_theta) J_Delta_theta
- * qdot_j, with omega_W the base's; omega_locked is omega_W + R(xi) Abar_omega,j
- * qdot_j with the connection in base axes. The base term is exact by
- * construction, which reduces the claim to the joint block alone, exactly and
- * not only to first order in |Delta_theta|:
+ * xi (x) Exp(Delta_theta(q_j))
+ * (AngularCenterOfMass::computeQuatAcomRtWorldXyzw()), so its world angular
+ * velocity is omega_W + R(xi) J_l(Delta_theta) J_Delta_theta qdot_j, with
+ * omega_W the base's; omega_locked is omega_W + R(xi) Abar_omega,j qdot_j with
+ * the connection in base axes. The base term is exact by construction, which
+ * reduces the claim to the joint block alone, exactly and not only to first
+ * order in |Delta_theta|:
  *
  *   J_l(Delta_theta) d(Delta_theta)/d(q_j)  ~=  Abar_omega,j(q)  =  I_G(q)^-1
  * A_omega,j(q),
@@ -338,29 +339,29 @@ class AcomAngularVelocityConsistencyTest
    * is the same number whatever coordinates the root joint has, while the base
    * columns are with respect to the root's own velocity coordinates (the Euler
    * rates of an Euler-angle root, the body angular velocity of a quaternion
-   * one). The rate tests therefore drive the base through rootVelocityOf(),
-   * never through those columns.
+   * one). The rate tests therefore drive the base through
+   * rootGeneralizedVelocityOf(), never through those columns.
    */
   matrix_t connectionJointBlock(const vector_t& q) const {
     const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
     pinocchio::Data data(model);
     const vector_t zeroGeneralizedVelocity = vector_t::Zero(model.nv);
     pinocchio::ccrba(model, data, q, zeroGeneralizedVelocity);
-    const matrix3_t lockedInertia = data.Ig.inertia().matrix();
+    const matrix3_t inertiaComEwrtWorld = data.Ig.inertia().matrix();
     const matrix_t jointAngularMomentumMap =
         data.Ag.bottomRows(3).rightCols(numJoints_);
-    return lockedInertia.ldlt().solve(jointAngularMomentumMap);
+    return inertiaComEwrtWorld.ldlt().solve(jointAngularMomentumMap);
   }
 
   /** omega_locked = I_G^-1 L_G, the centroidal angular velocity, in world axes.
    */
-  vector3_t computeLockedAngularRate(const vector_t& q,
-                                     const vector_t& v) const {
+  vector3_t computeAngvelCrbRtWorldEwrtWorld(const vector_t& q,
+                                             const vector_t& v) const {
     const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
     pinocchio::Data data(model);
     pinocchio::ccrba(model, data, q, v);
-    const matrix3_t lockedInertia = data.Ig.inertia().matrix();
-    return lockedInertia.ldlt().solve(vector3_t(data.hg.angular()));
+    const matrix3_t inertiaComEwrtWorld = data.Ig.inertia().matrix();
+    return inertiaComEwrtWorld.ldlt().solve(vector3_t(data.hg.angular()));
   }
 
   /**
@@ -412,9 +413,9 @@ class AcomAngularVelocityConsistencyTest
 
   /**
    * The velocity v at `q` that rotates the whole robot, its joints locked, with
-   * the body angular velocity `angularVelocityLocal` about the base origin: the
-   * root joint's velocity coordinates whose local spatial velocity is (0,
-   * angularVelocityLocal), whatever coordinates the root joint has.
+   * the body angular velocity `angvelBaseRtWorldEwrtBase` about the base
+   * origin: the root joint's velocity coordinates whose local spatial velocity
+   * is (0, angvelBaseRtWorldEwrtBase), whatever coordinates the root joint has.
    */
   vector_t rootGeneralizedVelocityOf(
       const vector_t& q, const vector3_t& angvelBaseRtWorldEwrtBase) const {
@@ -437,7 +438,7 @@ class AcomAngularVelocityConsistencyTest
   /**
    * The world angular velocity of the ACoM attitude xi_a = xi (x)
    * Exp(Delta_theta(q_j)) at `q` under the body angular velocity
-   * `angularVelocityLocal` of the base and the joint velocities
+   * `angvelBaseRtWorldEwrtBase` of the base and the joint velocities
    * `jointVelocities`: R(xi_a) (R(Delta_theta)^T omega_B + J_r(Delta_theta)
    * J_Delta_theta qdot_j), through the tangent Jacobian the MPC cost assembles.
    */
@@ -446,13 +447,14 @@ class AcomAngularVelocityConsistencyTest
       const vector3_t& angvelBaseRtWorldEwrtBase,
       const vector_t& jointVelocities) const {
     const vector_t qJoints = q.tail(numJoints_);
-    const vector4_t attitude =
-        acomPtr_->acomAttitude(getQuatBaseRtWorldXyzw(q), qJoints);
+    const vector4_t attitude = acomPtr_->computeQuatAcomRtWorldXyzw(
+        getQuatBaseRtWorldXyzw(q), qJoints);
     const AcomAttitudeTangentJacobian tangent =
         acomPtr_->acomAttitudeTangentJacobian(qJoints);
-    const vector3_t bodyRate = tangent.baseTangent * angvelBaseRtWorldEwrtBase +
-                               tangent.jointAngles * jointVelocities;
-    return quaternionRotationMatrix(attitude) * bodyRate;
+    const vector3_t angvelAcomRtWorldEwrtAcom =
+        tangent.baseTangent * angvelBaseRtWorldEwrtBase +
+        tangent.jointAngles * jointVelocities;
+    return quaternionRotationMatrix(attitude) * angvelAcomRtWorldEwrtAcom;
   }
 
   /**
@@ -466,7 +468,7 @@ class AcomAngularVelocityConsistencyTest
    */
   matrix_t acomJointRateJacobian(const vector_t& qJoints) const {
     const matrix3_t rotmatAcomRtBase = quaternionRotationMatrix(
-        acomPtr_->acomAttitude(vector4_t::UnitW(), qJoints));
+        acomPtr_->computeQuatAcomRtWorldXyzw(vector4_t::UnitW(), qJoints));
     return rotmatAcomRtBase *
            acomPtr_->acomAttitudeTangentJacobian(qJoints).jointAngles;
   }
@@ -603,15 +605,18 @@ TEST_P(AcomAngularVelocityConsistencyTest,
     vector_t v = vector_t::Zero(model.nv);
     v.tail(numJoints_) = jointVelocities;
 
-    const vector3_t acomRate = computeAngvelAcomRtWorldEwrtWorld(
-        q, vector3_t::Zero(), jointVelocities);
-    const vector3_t locked = computeLockedAngularRate(q, v);
+    const vector3_t angvelAcomRtWorldEwrtWorld =
+        computeAngvelAcomRtWorldEwrtWorld(q, vector3_t::Zero(),
+                                          jointVelocities);
+    const vector3_t angvelCrbRtWorldEwrtWorld =
+        computeAngvelCrbRtWorldEwrtWorld(q, v);
 
     const scalar_t scale =
         connectionJointBlock(q).norm() * jointVelocities.norm();
     ASSERT_GT(scale, 1.0e-6) << "the sampled motion must actually swing the "
                                 "robot for this to mean anything";
-    const scalar_t relativeError = (acomRate - locked).norm() / scale;
+    const scalar_t relativeError =
+        (angvelAcomRtWorldEwrtWorld - angvelCrbRtWorldEwrtWorld).norm() / scale;
     worstRelativeError = std::max(worstRelativeError, relativeError);
     summedRelativeError += relativeError;
   }
@@ -646,20 +651,27 @@ TEST_P(AcomAngularVelocityConsistencyTest,
   for (int sample = 0; sample < 20; ++sample) {
     const vector_t q = withRotatedBase(sampleConfiguration(generator),
                                        vector3_t(0.25, -0.35, 0.4));
-    const vector3_t baseRate =
+    const vector3_t angvelBaseRtWorldEwrtWorld =
         quaternionRotationMatrix(getQuatBaseRtWorldXyzw(q)) *
         angvelBaseRtWorldEwrtBase;
 
-    const vector3_t locked = computeLockedAngularRate(
-        q, rootGeneralizedVelocityOf(q, angvelBaseRtWorldEwrtBase));
-    EXPECT_LT((locked - baseRate).norm(), 1.0e-9)
+    const vector3_t angvelCrbRtWorldEwrtWorld =
+        computeAngvelCrbRtWorldEwrtWorld(
+            q, rootGeneralizedVelocityOf(q, angvelBaseRtWorldEwrtBase));
+    EXPECT_LT((angvelCrbRtWorldEwrtWorld - angvelBaseRtWorldEwrtWorld).norm(),
+              1.0e-9)
         << "sample " << sample << ": the base was not driven at omega_B";
-    const vector3_t acomRate = computeAngvelAcomRtWorldEwrtWorld(
-        q, angvelBaseRtWorldEwrtBase, vector_t::Zero(numJoints_));
-    EXPECT_LT((acomRate - locked).norm(), 1.0e-9) << "sample " << sample;
+    const vector3_t angvelAcomRtWorldEwrtWorld =
+        computeAngvelAcomRtWorldEwrtWorld(q, angvelBaseRtWorldEwrtBase,
+                                          vector_t::Zero(numJoints_));
+    EXPECT_LT((angvelAcomRtWorldEwrtWorld - angvelCrbRtWorldEwrtWorld).norm(),
+              1.0e-9)
+        << "sample " << sample;
     // And it is the base's rate itself, unchanged by the configuration of the
     // joints.
-    EXPECT_LT((acomRate - baseRate).norm(), 1.0e-12) << "sample " << sample;
+    EXPECT_LT((angvelAcomRtWorldEwrtWorld - angvelBaseRtWorldEwrtWorld).norm(),
+              1.0e-12)
+        << "sample " << sample;
   }
 }
 

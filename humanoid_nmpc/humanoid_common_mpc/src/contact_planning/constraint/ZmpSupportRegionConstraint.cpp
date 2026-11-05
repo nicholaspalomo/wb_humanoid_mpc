@@ -31,13 +31,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <functional>
 #include <string>
 
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipCoefficients.h"
+#include "humanoid_common_mpc/contact_planning/problem/RowBuilder.h"
 
 namespace ocs2::humanoid {
 
@@ -46,16 +53,22 @@ static_assert(kNumContacts == kBipedFootCount,
 
 std::string ZmpSupportRegionConstraint::describe() const {
   return absl::StrCat(
-      "zmp in the support region, box half-widths (", halfWidthX_, ", ",
-      halfWidthY_,
+      "zmp in the support region, box half-widths (",
+      maxNormPosZmpRtFootEwrtFootX_, ", ", maxNormPosZmpRtFootEwrtFootY_,
       ") m around the stance foot / between both feet, big-M disjunction, ",
       penaltyText());
 }
 
 void ZmpSupportRegionConstraint::configure(
     const ContactPlanningConfig& config) {
-  halfWidthX_ = config.zmpSupportRegion.halfWidthX;
-  halfWidthY_ = config.zmpSupportRegion.halfWidthY;
+  maxNormPosZmpRtFootEwrtFootX_ =
+      config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootX;
+  maxNormPosZmpRtFootEwrtFootY_ =
+      config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootY;
+  maxNormPosZmpRtFeetmeanEwrtHeadingX_ =
+      config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootX;
+  maxOutwardPosZmpRtFootEwrtHeadingY_ =
+      config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootY;
   configurePenalty(config, config.zmpSupportRegion.slack);
 }
 
@@ -63,9 +76,11 @@ void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx,
                                          int node,
                                          RowBuilder& rows) const {
   const scalar_t M = ctx.bigM;
-  const std::array<vector2_t, kHorizontalPositionDim>& axes = ctx.axesAt(node);
-  const std::array<scalar_t, kHorizontalPositionDim> halfWidth{halfWidthX_,
-                                                               halfWidthY_};
+  const std::array<vector2_t, kHorizontalPositionDim>& rotmatHeadingRtWorld =
+      ctx.getRotmatHeadingRtWorld(node);
+  const std::array<scalar_t, kHorizontalPositionDim>
+      maxNormPosZmpRtFootEwrtFoot{maxNormPosZmpRtFootEwrtFootX_,
+                                  maxNormPosZmpRtFootEwrtFootY_};
   // +-e_j'(zmp - p_i) in the frame `frame`, with the sign folded in.
   const std::function<void(const std::array<vector2_t, kHorizontalPositionDim>&,
                            size_t, int, scalar_t, Coefficients&, Coefficients&)>
@@ -74,9 +89,9 @@ void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx,
               size_t foot, int axis, scalar_t sign, Coefficients& xc,
               Coefficients& uc) {
             for (int w = 0; w < kHorizontalPositionDim; ++w) {
-              xc.emplace_back(idx_.foot[foot][w],
+              xc.emplace_back(idx_.posFeetRtWorldEwrtWorld[foot][w],
                               -sign * frame[static_cast<size_t>(axis)](w));
-              uc.emplace_back(idx_.zmp[w],
+              uc.emplace_back(idx_.posZmpRtWorldEwrtWorld[w],
                               sign * frame[static_cast<size_t>(axis)](w));
             }
           };
@@ -86,27 +101,28 @@ void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx,
   // model lets a stance foot sit up to the hip yaw range away from the heading,
   // and a box aligned with the heading then admitted ZMPs past the footprint's
   // corners and refused ones inside it. psi_i is a decision variable, so the
-  // frame is the foot's NOMINAL yaw psi_n (ContactPlanningContext::footAxes),
-  // the linearization of e_j(psi)'(zmp - p_i) about (psi_n, zmp - p_i = 0): its
-  // first-order heading term (e_j'(psi_n) . 0) (psi - psi_n) vanishes, and what
-  // is left out is the product |zmp - p_i| |psi_i - psi_n| <= |r| |psi_i -
-  // psi_n|, which the heading re-linearization drives to zero. A stance foot's
-  // yaw is pinned while it is down (foot_yaw_pinned_in_contact), so for the
-  // foot standing at planning time the nominal is its measured yaw and the box
-  // is exact.
+  // frame is the foot's NOMINAL yaw psi_n
+  // (ContactPlanningContext::rotmatFeetRtWorldTraj), the linearization of
+  // e_j(psi)'(zmp - p_i) about (psi_n, zmp - p_i = 0): its first-order heading
+  // term (e_j'(psi_n) . 0) (psi - psi_n) vanishes, and what is left out is the
+  // product |zmp - p_i| |psi_i - psi_n| <= |r| |psi_i - psi_n|, which the
+  // heading re-linearization drives to zero. A stance foot's yaw is pinned
+  // while it is down (foot_yaw_pinned_in_contact), so for the foot standing at
+  // planning time the nominal is its measured yaw and the box is exact.
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     const size_t other = 1 - foot;
-    const std::array<vector2_t, kHorizontalPositionDim>& footprint =
-        ctx.footAxesAt(node, foot);
+    const std::array<vector2_t, kHorizontalPositionDim>& rotmatFootRtWorld =
+        ctx.getRotmatFootRtWorld(node, foot);
     for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       for (const scalar_t sign : {1.0, -1.0}) {
         Coefficients xc;
         Coefficients uc;
-        zmpMinusFoot(footprint, foot, axis, sign, xc, uc);
+        zmpMinusFoot(rotmatFootRtWorld, foot, axis, sign, xc, uc);
         uc.emplace_back(idx_.contact[foot], M);
         uc.emplace_back(idx_.contact[other], -M);
         rows.addSoft(xc, uc, -kLipLooseBound,
-                     halfWidth[static_cast<size_t>(axis)] + M, penalty_);
+                     maxNormPosZmpRtFootEwrtFoot[static_cast<size_t>(axis)] + M,
+                     penalty_);
       }
     }
   }
@@ -118,13 +134,17 @@ void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx,
     Coefficients xc;
     Coefficients uc;
     for (int w = 0; w < kHorizontalPositionDim; ++w) {
-      xc.emplace_back(idx_.foot[0][w], -0.5 * sign * axes[0](w));
-      xc.emplace_back(idx_.foot[1][w], -0.5 * sign * axes[0](w));
-      uc.emplace_back(idx_.zmp[w], sign * axes[0](w));
+      xc.emplace_back(idx_.posFeetRtWorldEwrtWorld[0][w],
+                      -0.5 * sign * rotmatHeadingRtWorld[0](w));
+      xc.emplace_back(idx_.posFeetRtWorldEwrtWorld[1][w],
+                      -0.5 * sign * rotmatHeadingRtWorld[0](w));
+      uc.emplace_back(idx_.posZmpRtWorldEwrtWorld[w],
+                      sign * rotmatHeadingRtWorld[0](w));
     }
     uc.emplace_back(idx_.contact[0], M);
     uc.emplace_back(idx_.contact[1], M);
-    rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[0] + 2.0 * M, penalty_);
+    rows.addSoft(xc, uc, -kLipLooseBound,
+                 maxNormPosZmpRtFeetmeanEwrtHeadingX_ + 2.0 * M, penalty_);
   }
   // Double support, lateral axis: upper bound from the left foot, lower bound
   // from the right foot.
@@ -144,18 +164,22 @@ void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx,
   {
     Coefficients xc;
     Coefficients uc;  // e_y'(zmp - p_L) <= r + M (1 - c_L) + M (1 - c_R)
-    zmpMinusFoot(axes, /*foot=*/0, /*axis=*/1, /*sign=*/1.0, xc, uc);
+    zmpMinusFoot(rotmatHeadingRtWorld, /*foot=*/0, /*axis=*/1, /*sign=*/1.0, xc,
+                 uc);
     uc.emplace_back(idx_.contact[0], M);
     uc.emplace_back(idx_.contact[1], M);
-    rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[1] + 2.0 * M, penalty_);
+    rows.addSoft(xc, uc, -kLipLooseBound,
+                 maxOutwardPosZmpRtFootEwrtHeadingY_ + 2.0 * M, penalty_);
   }
   {
     Coefficients xc;
     Coefficients uc;  // -e_y'(zmp - p_R) <= r + M (1 - c_L) + M (1 - c_R)
-    zmpMinusFoot(axes, /*foot=*/1, /*axis=*/1, /*sign=*/-1.0, xc, uc);
+    zmpMinusFoot(rotmatHeadingRtWorld, /*foot=*/1, /*axis=*/1, /*sign=*/-1.0,
+                 xc, uc);
     uc.emplace_back(idx_.contact[0], M);
     uc.emplace_back(idx_.contact[1], M);
-    rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[1] + 2.0 * M, penalty_);
+    rows.addSoft(xc, uc, -kLipLooseBound,
+                 maxOutwardPosZmpRtFootEwrtHeadingY_ + 2.0 * M, penalty_);
   }
 }
 

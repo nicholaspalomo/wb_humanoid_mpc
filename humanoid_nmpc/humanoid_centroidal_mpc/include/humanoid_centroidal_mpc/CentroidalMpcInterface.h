@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -43,10 +44,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 #include "ocs2_core/manifold/StateManifold.h"
-#include "ocs2_core/penalties/Penalties.h"
 #include "ocs2_mpc/MPC_Settings.h"
-#include "ocs2_oc/rollout/TimeTriggeredRollout.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_oc/rollout/RolloutBase.h"
+#include "ocs2_oc/rollout/RolloutSettings.h"
+#include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
 #include "ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_pinocchio_interface/PinocchioStateInputMapping.h"
@@ -61,15 +66,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/multi_contact/PlannedMotionReferenceManager.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
+#include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
-#include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
 
@@ -204,11 +212,13 @@ class CentroidalMpcInterface final : public RobotInterface {
   const vector_t& getInitialState() const { return initialState_; }
   /**
    * [m] The model's center of mass above its feet at the task file's
-   * initial_state (computeComHeightAboveFeet): the pendulum length a
-   * dcm_terminal_cost or a contact_planning.textproto shared block without
-   * com_height stands for.
+   * initial_state (computeProxyPosComRtFeetmeanEwrtWorldZ): the pendulum length
+   * a dcm_terminal_cost or a contact_planning.textproto shared block without
+   * nom_pos_com_rt_feetmean_ewrt_world_z stands for.
    */
-  scalar_t getNominalComHeight() const { return nominalComHeight_; }
+  scalar_t getNomPosComRtFeetmeanEwrtWorldZ() const {
+    return nomPosComRtFeetmeanEwrtWorldZ_;
+  }
   const RolloutBase& getRollout() const {
     CHECK(rolloutPtr_ != nullptr)
         << "[CentroidalMpcInterface] built by CreateControllerModels(): there "
@@ -318,8 +328,8 @@ class CentroidalMpcInterface final : public RobotInterface {
    * every contact wrench expressed in its local contact frame (see
    * BasisInputsModelDecorator::getLocalBasisGeneratorMap).
    */
-  const std::optional<matrix_t>& getBasisToWrenchMap() const {
-    return basisToWrenchMap_;
+  const std::optional<matrix_t>& getBasisGeneratorMap() const {
+    return basisGeneratorMap_;
   }
   size_t getWrenchInputDim() const { return centroidalModelInfo_.inputDim; }
   size_t getNumBasisInputs() const {
@@ -347,10 +357,10 @@ class CentroidalMpcInterface final : public RobotInterface {
    */
   std::optional<BasisInputsCostTransformConfig>
   getBasisInputsCostTransformConfig() const {
-    if (!usesContactBasisVectorInputs() || !basisToWrenchMap_.has_value()) {
+    if (!usesContactBasisVectorInputs() || !basisGeneratorMap_.has_value()) {
       return std::nullopt;
     }
-    return makeBasisInputsCostTransformConfig(*basisToWrenchMap_);
+    return makeBasisInputsCostTransformConfig(*basisGeneratorMap_);
   }
 
   std::vector<std::string> getCostNames() const;
@@ -575,7 +585,7 @@ class CentroidalMpcInterface final : public RobotInterface {
   ContactScheduleSource contactScheduleSource_ = kDefaultContactScheduleSource;
   /// Local-frame basis-to-wrench map M (wrenchInputDim × basisInputDim);
   /// populated only in basis-vector mode.
-  std::optional<matrix_t> basisToWrenchMap_;
+  std::optional<matrix_t> basisGeneratorMap_;
   /// Name of the generator set of the bases (contacts.basis_generator_set); set
   /// only in basis-vector mode.
   std::string basisGeneratorSet_;
@@ -590,7 +600,8 @@ class CentroidalMpcInterface final : public RobotInterface {
   std::unique_ptr<CentroidalWeightCompInitializer> initializerPtr_;
 
   vector_t initialState_;
-  scalar_t nominalComHeight_ = 0.0;  // [m] see getNominalComHeight()
+  scalar_t nomPosComRtFeetmeanEwrtWorldZ_ =
+      0.0;  // [m] see getNomPosComRtFeetmeanEwrtWorldZ()
 
   const std::string urdfFile_;
   // The task file's interface.verbose: whether the set-up logs what it builds.

@@ -35,8 +35,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
+
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -59,10 +64,12 @@ Plan::Knot reversedKnot(const Plan::Knot& knot,
   Plan::Knot reversed = knot;
   reversed.time = time;
   reversed.active_contacts = before.active_contacts;
-  reversed.contact_wrenches = before.contact_wrenches;
+  reversed.wrench_contacts_ewrt_world = before.wrench_contacts_ewrt_world;
   reversed.joint_velocities = -knot.joint_velocities;
-  reversed.linear_momentum = -knot.linear_momentum;
-  reversed.angular_momentum = -knot.angular_momentum;
+  reversed.linmom_com_rt_world_ewrt_world =
+      -knot.linmom_com_rt_world_ewrt_world;
+  reversed.angmom_com_rt_world_ewrt_world =
+      -knot.angmom_com_rt_world_ewrt_world;
   return reversed;
 }
 
@@ -72,8 +79,8 @@ Plan::Knot restingKnot(const Plan::Knot& knot, scalar_t time) {
   Plan::Knot resting = knot;
   resting.time = time;
   resting.joint_velocities.setZero();
-  resting.linear_momentum.setZero();
-  resting.angular_momentum.setZero();
+  resting.linmom_com_rt_world_ewrt_world.setZero();
+  resting.angmom_com_rt_world_ewrt_world.setZero();
   return resting;
 }
 

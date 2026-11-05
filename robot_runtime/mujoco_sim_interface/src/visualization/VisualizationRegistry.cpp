@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/visualization/ExternalForceVisualization.h"
 #include "mujoco_sim_interface/visualization/MetricsOverlay.h"
 #include "mujoco_sim_interface/visualization/MujocoOptionFlagVisualization.h"
+#include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 #include "mujoco_sim_interface/visualization/TargetContactPatchVisualization.h"
 #include "mujoco_sim_interface/visualization/ZmpVisualization.h"
 
@@ -82,8 +83,7 @@ const std::vector<Entry>& registry() {
           {[] { return std::make_unique<DcmVisualization>(); }, false},
           {[] { return MujocoOptionFlagVisualization::contactPoints(); },
            false},
-          // NOLINTNEXTLINE(frame-naming): MuJoCo's mjVIS_CONTACTFORCE flag
-          {[] { return MujocoOptionFlagVisualization::contactForces(); },
+          {[] { return MujocoOptionFlagVisualization::contactForceMarkers(); },
            false},
           {[] { return MujocoOptionFlagVisualization::centerOfMass(); }, false},
           {[] { return MujocoOptionFlagVisualization::inertia(); }, false},
@@ -128,8 +128,9 @@ std::vector<std::unique_ptr<MujocoVisualization>> createVisualizations(
     const std::vector<std::string>& names,
     std::vector<std::string>* absl_nullable errors) {
   std::set<std::string> known;
-  for (const VisualizationInfo& info : availableVisualizations())
+  for (const VisualizationInfo& info : availableVisualizations()) {
     known.insert(info.name);
+  }
   std::set<std::string> requested;
   for (const std::string& name : names) {
     if (!known.contains(name)) {

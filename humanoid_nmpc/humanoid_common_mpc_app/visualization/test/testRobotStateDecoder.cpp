@@ -64,55 +64,62 @@ scalar_t wrappedDifference(scalar_t a, scalar_t b) {
 }
 
 /**
- * The time derivative of the ZYX Euler angles of the attitude `orientation`
- * turning at the body angular velocity `angularVelocityLocal`, by a central
- * difference over +-`step` of the exact attitude xi (x) Exp(t w_B): an
+ * The time derivative of the ZYX Euler angles of the attitude `quatBaseRtWorld`
+ * turning at the body angular velocity `angvelBaseRtWorldEwrtBase`, by a
+ * central difference over +-`step` of the exact attitude xi (x) Exp(t w_B): an
  * independent check of T_B(Theta)^-1 w_B.
  */
 vector3_t eulerZyxRatesByCentralDifference(
-    const quaternion_t& orientation,
-    const vector3_t& angularVelocityLocal,
+    const quaternion_t& quatBaseRtWorld,
+    const vector3_t& angvelBaseRtWorldEwrtBase,
     scalar_t step) {
-  const scalar_t speed = angularVelocityLocal.norm();
-  const vector3_t axis = angularVelocityLocal / speed;
+  const scalar_t speed = angvelBaseRtWorldEwrtBase.norm();
+  const vector3_t axis = angvelBaseRtWorldEwrtBase / speed;
   const quaternion_t later =
-      orientation *
+      quatBaseRtWorld *
       quaternion_t(Eigen::AngleAxis<scalar_t>(step * speed, axis));
   const quaternion_t earlier =
-      orientation *
+      quatBaseRtWorld *
       quaternion_t(Eigen::AngleAxis<scalar_t>(-step * speed, axis));
-  const vector3_t laterAngles = eulerZyxFromQuaternion(later.coeffs());
-  const vector3_t earlierAngles = eulerZyxFromQuaternion(earlier.coeffs());
-  vector3_t rates;
+  const vector3_t laterEulerzyxBaseRtWorld =
+      eulerZyxFromQuaternion(later.coeffs());
+  const vector3_t earlierEulerzyxBaseRtWorld =
+      eulerZyxFromQuaternion(earlier.coeffs());
+  vector3_t rateEulerzyxBaseRtWorld;
   for (Eigen::Index angle = 0; angle < 3; ++angle) {
-    rates[angle] = wrappedDifference(laterAngles[angle], earlierAngles[angle]) /
-                   (2.0 * step);
+    rateEulerzyxBaseRtWorld[angle] =
+        wrappedDifference(laterEulerzyxBaseRtWorld[angle],
+                          earlierEulerzyxBaseRtWorld[angle]) /
+        (2.0 * step);
   }
-  return rates;
+  return rateEulerzyxBaseRtWorld;
 }
 
 TEST(EulerZyxRatesForDisplayTest,
      TheRatesAreTheInverseOfTheBodyRateMapAndNotANumberAtTheSingularity) {
-  const vector3_t angularVelocityLocal(0.3, -0.2, 0.6);
-  const vector3_t eulerZyx(2.9, -0.7, 0.4);
-  const vector3_t rates =
-      eulerZyxRatesForDisplay(eulerZyx, angularVelocityLocal);
-  EXPECT_EQ(rates, eulerZyxRatesFromBodyRates(eulerZyx, angularVelocityLocal));
-  EXPECT_TRUE(localAngularVelocityFromEulerZyxRates(eulerZyx, rates)
-                  .isApprox(angularVelocityLocal, kTolerance));
+  const vector3_t angvelBaseRtWorldEwrtBase(0.3, -0.2, 0.6);
+  const vector3_t eulerzyxBaseRtWorld(2.9, -0.7, 0.4);
+  const vector3_t rateEulerzyxBaseRtWorld =
+      eulerZyxRatesForDisplay(eulerzyxBaseRtWorld, angvelBaseRtWorldEwrtBase);
+  EXPECT_EQ(rateEulerzyxBaseRtWorld,
+            eulerZyxRatesFromBodyRates(eulerzyxBaseRtWorld,
+                                       angvelBaseRtWorldEwrtBase));
+  EXPECT_TRUE(
+      bodyRatesFromEulerZyxRates(eulerzyxBaseRtWorld, rateEulerzyxBaseRtWorld)
+          .isApprox(angvelBaseRtWorldEwrtBase, kTolerance));
   // Just above and below the threshold of |cos(pitch)|, and a pitch that is not
   // a number.
   EXPECT_TRUE(
       eulerZyxRatesForDisplay(
           vector3_t(0.1, std::acos(2.0 * kDisplayEulerRateMinCosPitch), 0.2),
-          angularVelocityLocal)
+          angvelBaseRtWorldEwrtBase)
           .allFinite());
   for (const scalar_t pitch :
        {std::acos(0.5 * kDisplayEulerRateMinCosPitch),
         -std::acos(0.5 * kDisplayEulerRateMinCosPitch), M_PI / 2.0, -M_PI / 2.0,
         std::numeric_limits<scalar_t>::quiet_NaN()}) {
     const vector3_t singular = eulerZyxRatesForDisplay(
-        vector3_t(0.1, pitch, 0.2), angularVelocityLocal);
+        vector3_t(0.1, pitch, 0.2), angvelBaseRtWorldEwrtBase);
     EXPECT_TRUE(singular.array().isNaN().all())
         << pitch << ": " << singular.transpose();
   }
@@ -155,27 +162,27 @@ class RobotStateDecoderTest : public ::testing::Test {
 test::TestRobot* absl_nullable RobotStateDecoderTest::robot_ = nullptr;
 
 TEST_F(RobotStateDecoderTest, TheBaseIsInTheWorldFrame) {
-  const vector3_t rollPitchYaw(0.1, 0.2, M_PI / 2.0);
-  humanoid_mpc_msgs::RobotStateSample proto =
-      robot_->robotState(/*time=*/1.5, vector3_t(1.0, 2.0, 3.0), rollPitchYaw);
+  const vector3_t rpyBaseRtWorld(0.1, 0.2, M_PI / 2.0);
+  humanoid_mpc_msgs::RobotStateSample proto = robot_->robotState(
+      /*time=*/1.5, vector3_t(1.0, 2.0, 3.0), rpyBaseRtWorld);
   proto.mutable_linvel_base_rt_world_ewrt_base()->set_x(1.0);
   proto.mutable_angvel_base_rt_world_ewrt_base()->set_z(0.5);
   RobotStateDecoder decoder(robot_->robotModel());
   DecodedRobotState state;
   ASSERT_TRUE(decoder.decode(toStruct(proto), &state).ok());
 
-  const quaternion_t orientation =
-      test::quaternionFromRollPitchYaw(rollPitchYaw);
-  const matrix3_t rotation = orientation.toRotationMatrix();
+  const quaternion_t quatBaseRtWorld =
+      test::unitQuaternionOfRollPitchYaw(rpyBaseRtWorld);
+  const matrix3_t rotmatBaseRtWorld = quatBaseRtWorld.toRotationMatrix();
   EXPECT_EQ(state.time, 1.5);
-  EXPECT_TRUE(state.basePosition.isApprox(vector3_t(1.0, 2.0, 3.0)));
-  EXPECT_TRUE(state.baseEulerAnglesZyx.isApprox(vector3_t(M_PI / 2.0, 0.2, 0.1),
-                                                kTolerance));
-  EXPECT_TRUE(state.baseLinearVelocity.isApprox(
-      rotation * vector3_t(1.0, 0.0, 0.0), kTolerance));
-  EXPECT_TRUE(state.baseAngularVelocity.isApprox(
-      rotation * vector3_t(0.0, 0.0, 0.5), kTolerance));
-  EXPECT_EQ(state.baseAngularVelocityLocal, vector3_t(0.0, 0.0, 0.5));
+  EXPECT_TRUE(state.posBaseRtWorldEwrtWorld.isApprox(vector3_t(1.0, 2.0, 3.0)));
+  EXPECT_TRUE(state.eulerzyxBaseRtWorld.isApprox(
+      vector3_t(M_PI / 2.0, 0.2, 0.1), kTolerance));
+  EXPECT_TRUE(state.linvelBaseRtWorldEwrtWorld.isApprox(
+      rotmatBaseRtWorld * vector3_t(1.0, 0.0, 0.0), kTolerance));
+  EXPECT_TRUE(state.angvelBaseRtWorldEwrtWorld.isApprox(
+      rotmatBaseRtWorld * vector3_t(0.0, 0.0, 0.5), kTolerance));
+  EXPECT_EQ(state.angvelBaseRtWorldEwrtBase, vector3_t(0.0, 0.0, 0.5));
 
   // Generalized coordinates of the MPC's model: position, the quaternion (x, y,
   // z, w), then the MPC joints by name.
@@ -188,7 +195,7 @@ TEST_F(RobotStateDecoderTest, TheBaseIsInTheWorldFrame) {
   EXPECT_TRUE(state.generalizedCoordinates.head<3>().isApprox(
       vector3_t(1.0, 2.0, 3.0)));
   EXPECT_TRUE(state.generalizedCoordinates.segment<4>(kBaseTranslationDim)
-                  .isApprox(orientation.coeffs(), kTolerance));
+                  .isApprox(quatBaseRtWorld.coeffs(), kTolerance));
   const std::vector<std::string>& fullJoints =
       robot_->modelSettings().fullJointNames;
   const std::vector<std::string>& mpcJoints =
@@ -209,16 +216,17 @@ TEST_F(RobotStateDecoderTest, TheBaseIsInTheWorldFrame) {
   }
 }
 
-/** `proto` with the base's body angular velocity `angularVelocityLocal`. */
-void setAngularVelocityLocal(
-    const vector3_t& angularVelocityLocal,
+/** `proto` with the base's body angular velocity `angvelBaseRtWorldEwrtBase`.
+ */
+void setAngvelBaseRtWorldEwrtBase(
+    const vector3_t& angvelBaseRtWorldEwrtBase,
     humanoid_mpc_msgs::RobotStateSample* absl_nonnull proto) {
   proto->mutable_angvel_base_rt_world_ewrt_base()->set_x(
-      angularVelocityLocal.x());
+      angvelBaseRtWorldEwrtBase.x());
   proto->mutable_angvel_base_rt_world_ewrt_base()->set_y(
-      angularVelocityLocal.y());
+      angvelBaseRtWorldEwrtBase.y());
   proto->mutable_angvel_base_rt_world_ewrt_base()->set_z(
-      angularVelocityLocal.z());
+      angvelBaseRtWorldEwrtBase.z());
 }
 
 // Level: v holds the body angular velocity, and the display's Euler rates of a
@@ -234,48 +242,50 @@ TEST_F(RobotStateDecoderTest,
   EXPECT_EQ(
       vector3_t(state.generalizedVelocities.segment<3>(kBaseTranslationDim)),
       vector3_t(0.0, 0.0, 0.7));
-  EXPECT_TRUE(
-      state.baseEulerZyxRates.isApprox(vector3_t(0.7, 0.0, 0.0), kTolerance))
-      << state.baseEulerZyxRates.transpose();
+  EXPECT_TRUE(state.rateEulerzyxBaseRtWorld.isApprox(vector3_t(0.7, 0.0, 0.0),
+                                                     kTolerance))
+      << state.rateEulerzyxBaseRtWorld.transpose();
 }
 
 // Tilted: the display's Euler angles are the sample's, and their rates those
 // the Euler layout's decoder plotted, the Euler rates of the world angular
-// velocity (getEulerAnglesZyxDerivativesFromGlobalAngularVelocity), to 1e-12: a
+// velocity (getEulerAnglesZyxDerivativesFromWorldRates), to 1e-12: a
 // different but exact formula. Both are the time derivative of the Euler angles
 // of the turning attitude.
 TEST_F(
     RobotStateDecoderTest,
     TheDisplayEulerRatesOfATiltedBaseAreTheEulerLayoutsAndTheAnglesDerivative) {
   RobotStateDecoder decoder(robot_->robotModel());
-  const vector3_t angularVelocityLocal(0.3, -0.2, 0.6);
-  for (const vector3_t& rollPitchYaw :
+  const vector3_t angvelBaseRtWorldEwrtBase(0.3, -0.2, 0.6);
+  for (const vector3_t& rpyBaseRtWorld :
        {vector3_t(0.15, -0.25, 2.8), vector3_t(-0.6, 1.2, -3.1),
         vector3_t(2.5, -1.3, 0.9), vector3_t(0.0, 0.7, M_PI - 1.0e-9)}) {
-    SCOPED_TRACE(rollPitchYaw.transpose());
+    SCOPED_TRACE(rpyBaseRtWorld.transpose());
     humanoid_mpc_msgs::RobotStateSample proto =
-        robot_->robotState(/*time=*/0.0, vector3_t::Zero(), rollPitchYaw);
-    setAngularVelocityLocal(angularVelocityLocal, &proto);
+        robot_->robotState(/*time=*/0.0, vector3_t::Zero(), rpyBaseRtWorld);
+    setAngvelBaseRtWorldEwrtBase(angvelBaseRtWorldEwrtBase, &proto);
     DecodedRobotState state;
     ASSERT_TRUE(decoder.decode(toStruct(proto), &state).ok());
-    const vector3_t eulerZyx = eulerZyxOf(rollPitchYaw);
+    const vector3_t eulerzyxBaseRtWorld = eulerZyxOf(rpyBaseRtWorld);
     for (Eigen::Index angle = 0; angle < 3; ++angle) {
-      EXPECT_NEAR(
-          wrappedDifference(state.baseEulerAnglesZyx[angle], eulerZyx[angle]),
-          0.0, kTolerance)
+      EXPECT_NEAR(wrappedDifference(state.eulerzyxBaseRtWorld[angle],
+                                    eulerzyxBaseRtWorld[angle]),
+                  0.0, kTolerance)
           << angle;
     }
-    const vector3_t eulerLayoutRates =
-        // NOLINTNEXTLINE(frame-naming): a generic Euler conversion
-        getEulerAnglesZyxDerivativesFromGlobalAngularVelocity<scalar_t>(
-            state.baseEulerAnglesZyx, state.baseAngularVelocity);
-    EXPECT_TRUE(state.baseEulerZyxRates.isApprox(eulerLayoutRates, kTolerance))
-        << state.baseEulerZyxRates.transpose() << " vs "
-        << eulerLayoutRates.transpose();
-    const vector3_t derivative = eulerZyxRatesByCentralDifference(
-        state.baseOrientation, angularVelocityLocal, /*step=*/1.0e-6);
-    EXPECT_TRUE(state.baseEulerZyxRates.isApprox(derivative, 1.0e-8))
-        << derivative.transpose();
+    const vector3_t layoutRateEulerzyxBaseRtWorld =
+        getEulerAnglesZyxDerivativesFromWorldRates<scalar_t>(
+            state.eulerzyxBaseRtWorld, state.angvelBaseRtWorldEwrtWorld);
+    EXPECT_TRUE(state.rateEulerzyxBaseRtWorld.isApprox(
+        layoutRateEulerzyxBaseRtWorld, kTolerance))
+        << state.rateEulerzyxBaseRtWorld.transpose() << " vs "
+        << layoutRateEulerzyxBaseRtWorld.transpose();
+    const vector3_t centralDifferenceRateEulerzyxBaseRtWorld =
+        eulerZyxRatesByCentralDifference(
+            state.quatBaseRtWorld, angvelBaseRtWorldEwrtBase, /*step=*/1.0e-6);
+    EXPECT_TRUE(state.rateEulerzyxBaseRtWorld.isApprox(
+        centralDifferenceRateEulerzyxBaseRtWorld, 1.0e-8))
+        << centralDifferenceRateEulerzyxBaseRtWorld.transpose();
   }
 }
 
@@ -285,32 +295,34 @@ TEST_F(
 TEST_F(RobotStateDecoderTest,
        TheDisplayEulerRatesNearThePitchSingularityAreTheAnglesDerivative) {
   RobotStateDecoder decoder(robot_->robotModel());
-  const vector3_t angularVelocityLocal(0.3, -0.2, 0.6);
+  const vector3_t angvelBaseRtWorldEwrtBase(0.3, -0.2, 0.6);
   for (const scalar_t cosPitch : {1.0e-2, 1.0e-3, 1.0e-4, 1.0e-5}) {
     for (const scalar_t sign : {1.0, -1.0}) {
-      const vector3_t rollPitchYaw(0.3, sign * std::acos(cosPitch), -1.1);
-      SCOPED_TRACE(rollPitchYaw.transpose());
+      const vector3_t rpyBaseRtWorld(0.3, sign * std::acos(cosPitch), -1.1);
+      SCOPED_TRACE(rpyBaseRtWorld.transpose());
       humanoid_mpc_msgs::RobotStateSample proto =
-          robot_->robotState(/*time=*/0.0, vector3_t::Zero(), rollPitchYaw);
-      setAngularVelocityLocal(angularVelocityLocal, &proto);
+          robot_->robotState(/*time=*/0.0, vector3_t::Zero(), rpyBaseRtWorld);
+      setAngvelBaseRtWorldEwrtBase(angvelBaseRtWorldEwrtBase, &proto);
       DecodedRobotState state;
       ASSERT_TRUE(decoder.decode(toStruct(proto), &state).ok());
-      ASSERT_TRUE(state.baseEulerZyxRates.allFinite())
-          << state.baseEulerZyxRates.transpose();
-      EXPECT_GT(std::abs(state.baseEulerZyxRates[kBaseRotYawIndex]),
+      ASSERT_TRUE(state.rateEulerzyxBaseRtWorld.allFinite())
+          << state.rateEulerzyxBaseRtWorld.transpose();
+      EXPECT_GT(std::abs(state.rateEulerzyxBaseRtWorld[kBaseRotYawIndex]),
                 0.1 / cosPitch);
       // A step that turns the yaw by about 1e-4 rad.
-      const vector3_t derivative = eulerZyxRatesByCentralDifference(
-          state.baseOrientation, angularVelocityLocal,
-          /*step=*/1.0e-4 * cosPitch);
-      EXPECT_TRUE(state.baseEulerZyxRates.isApprox(derivative, 1.0e-6))
-          << state.baseEulerZyxRates.transpose() << " vs "
-          << derivative.transpose();
+      const vector3_t centralDifferenceRateEulerzyxBaseRtWorld =
+          eulerZyxRatesByCentralDifference(state.quatBaseRtWorld,
+                                           angvelBaseRtWorldEwrtBase,
+                                           /*step=*/1.0e-4 * cosPitch);
+      EXPECT_TRUE(state.rateEulerzyxBaseRtWorld.isApprox(
+          centralDifferenceRateEulerzyxBaseRtWorld, 1.0e-6))
+          << state.rateEulerzyxBaseRtWorld.transpose() << " vs "
+          << centralDifferenceRateEulerzyxBaseRtWorld.transpose();
       // The rates map back to the body angular velocity through T_B of the
       // displayed angles.
-      EXPECT_TRUE(localAngularVelocityFromEulerZyxRates(
-                      state.baseEulerAnglesZyx, state.baseEulerZyxRates)
-                      .isApprox(angularVelocityLocal, 1.0e-9));
+      EXPECT_TRUE(bodyRatesFromEulerZyxRates(state.eulerzyxBaseRtWorld,
+                                             state.rateEulerzyxBaseRtWorld)
+                      .isApprox(angvelBaseRtWorldEwrtBase, 1.0e-9));
     }
   }
 }
@@ -321,39 +333,39 @@ TEST_F(RobotStateDecoderTest,
 TEST_F(RobotStateDecoderTest,
        TheDisplayEulerRatesAreNotANumberAtThePitchSingularity) {
   RobotStateDecoder decoder(robot_->robotModel());
-  const vector3_t angularVelocityLocal(0.3, -0.2, 0.6);
+  const vector3_t angvelBaseRtWorldEwrtBase(0.3, -0.2, 0.6);
   for (const scalar_t pitch :
        {M_PI / 2.0, -M_PI / 2.0, std::acos(5.0e-7), -std::acos(5.0e-7)}) {
-    const vector3_t rollPitchYaw(0.3, pitch, -1.1);
-    SCOPED_TRACE(rollPitchYaw.transpose());
+    const vector3_t rpyBaseRtWorld(0.3, pitch, -1.1);
+    SCOPED_TRACE(rpyBaseRtWorld.transpose());
     humanoid_mpc_msgs::RobotStateSample proto =
-        robot_->robotState(/*time=*/0.0, vector3_t::Zero(), rollPitchYaw);
-    setAngularVelocityLocal(angularVelocityLocal, &proto);
+        robot_->robotState(/*time=*/0.0, vector3_t::Zero(), rpyBaseRtWorld);
+    setAngvelBaseRtWorldEwrtBase(angvelBaseRtWorldEwrtBase, &proto);
     DecodedRobotState state;
     ASSERT_TRUE(decoder.decode(toStruct(proto), &state).ok());
-    EXPECT_TRUE(state.baseEulerZyxRates.array().isNaN().all())
-        << state.baseEulerZyxRates.transpose();
-    EXPECT_TRUE(state.baseEulerAnglesZyx.allFinite());
-    EXPECT_NEAR(state.baseEulerAnglesZyx[kBaseRotPitchIndex], pitch, 1.0e-9);
+    EXPECT_TRUE(state.rateEulerzyxBaseRtWorld.array().isNaN().all())
+        << state.rateEulerzyxBaseRtWorld.transpose();
+    EXPECT_TRUE(state.eulerzyxBaseRtWorld.allFinite());
+    EXPECT_NEAR(state.eulerzyxBaseRtWorld[kBaseRotPitchIndex], pitch, 1.0e-9);
     // The angles still reproduce the attitude: quaternionFromEulerZyx gives xi
     // or -xi.
-    const vector4_t xi = state.baseOrientation.coeffs();
+    const vector4_t xi = state.quatBaseRtWorld.coeffs();
     const vector4_t fromAngles =
-        quaternionFromEulerZyx(state.baseEulerAnglesZyx);
+        quaternionFromEulerZyx(state.eulerzyxBaseRtWorld);
     EXPECT_NEAR(std::abs(fromAngles.dot(xi)), 1.0, 1.0e-12);
     EXPECT_TRUE(state.generalizedCoordinates.allFinite());
     EXPECT_EQ(
         vector3_t(state.generalizedVelocities.segment<3>(kBaseTranslationDim)),
-        angularVelocityLocal);
+        angvelBaseRtWorldEwrtBase);
   }
   // Just outside the gap, the rates are finite.
   humanoid_mpc_msgs::RobotStateSample proto = robot_->robotState(
       /*time=*/0.0, vector3_t::Zero(), vector3_t(0.3, std::acos(2.0e-6), -1.1));
-  setAngularVelocityLocal(angularVelocityLocal, &proto);
+  setAngvelBaseRtWorldEwrtBase(angvelBaseRtWorldEwrtBase, &proto);
   DecodedRobotState state;
   ASSERT_TRUE(decoder.decode(toStruct(proto), &state).ok());
-  EXPECT_TRUE(state.baseEulerZyxRates.allFinite())
-      << state.baseEulerZyxRates.transpose();
+  EXPECT_TRUE(state.rateEulerzyxBaseRtWorld.allFinite())
+      << state.rateEulerzyxBaseRtWorld.transpose();
 }
 
 // The base and the MPC joints become the MPC's q and v through the robot
@@ -363,9 +375,9 @@ TEST_F(RobotStateDecoderTest,
 // The display's Euler rates are the Euler layout's.
 TEST_F(RobotStateDecoderTest,
        TheBaseIsTheRobotModelsMeasurementConversionInEveryFormulation) {
-  const vector3_t rollPitchYaw(0.15, -0.25, 2.8);
-  const vector3_t linearVelocityLocal(0.4, -0.1, 0.05);
-  const vector3_t angularVelocityLocal(0.3, -0.2, 0.6);
+  const vector3_t rpyBaseRtWorld(0.15, -0.25, 2.8);
+  const vector3_t linvelBaseRtWorldEwrtBase(0.4, -0.1, 0.05);
+  const vector3_t angvelBaseRtWorldEwrtBase(0.3, -0.2, 0.6);
   for (const std::pair<test::RobotFiles, test::Formulation>& configuration :
        test::shippedConfigurations()) {
     SCOPED_TRACE(configuration.first.taskFile);
@@ -373,19 +385,19 @@ TEST_F(RobotStateDecoderTest,
         test::TestRobot::load(configuration.first, configuration.second);
     const MpcRobotModelBase<scalar_t>& model = robot->robotModel();
     humanoid_mpc_msgs::RobotStateSample proto = robot->robotState(
-        /*time=*/0.0, vector3_t(0.5, -0.4, 0.9), rollPitchYaw);
+        /*time=*/0.0, vector3_t(0.5, -0.4, 0.9), rpyBaseRtWorld);
     proto.mutable_linvel_base_rt_world_ewrt_base()->set_x(
-        linearVelocityLocal.x());
+        linvelBaseRtWorldEwrtBase.x());
     proto.mutable_linvel_base_rt_world_ewrt_base()->set_y(
-        linearVelocityLocal.y());
+        linvelBaseRtWorldEwrtBase.y());
     proto.mutable_linvel_base_rt_world_ewrt_base()->set_z(
-        linearVelocityLocal.z());
+        linvelBaseRtWorldEwrtBase.z());
     proto.mutable_angvel_base_rt_world_ewrt_base()->set_x(
-        angularVelocityLocal.x());
+        angvelBaseRtWorldEwrtBase.x());
     proto.mutable_angvel_base_rt_world_ewrt_base()->set_y(
-        angularVelocityLocal.y());
+        angvelBaseRtWorldEwrtBase.y());
     proto.mutable_angvel_base_rt_world_ewrt_base()->set_z(
-        angularVelocityLocal.z());
+        angvelBaseRtWorldEwrtBase.z());
     RobotStateDecoder decoder(model);
     DecodedRobotState state;
     ASSERT_TRUE(decoder.decode(toStruct(proto), &state).ok());
@@ -407,10 +419,11 @@ TEST_F(RobotStateDecoderTest,
     vector_t q(static_cast<Eigen::Index>(model.getConfigurationDim()));
     vector_t v(static_cast<Eigen::Index>(model.getVelocityDim()));
     model.fillGeneralizedCoordinatesFromMeasurement(
-        state.basePosition, state.baseOrientation.coeffs(), jointPositions, q);
+        state.posBaseRtWorldEwrtWorld, state.quatBaseRtWorld.coeffs(),
+        jointPositions, q);
     model.fillGeneralizedVelocitiesFromMeasurement(
-        state.baseOrientation.coeffs(), linearVelocityLocal,
-        angularVelocityLocal, jointVelocities, v);
+        state.quatBaseRtWorld.coeffs(), linvelBaseRtWorldEwrtBase,
+        angvelBaseRtWorldEwrtBase, jointVelocities, v);
     EXPECT_EQ(state.generalizedCoordinates, q);
     EXPECT_EQ(state.generalizedVelocities, v);
     ASSERT_EQ(state.generalizedForces.size(), v.size());
@@ -421,21 +434,21 @@ TEST_F(RobotStateDecoderTest,
                                                   model.getJointDim()));
     ASSERT_EQ(v.size(), static_cast<Eigen::Index>(kBaseVelocityDim +
                                                   model.getJointDim()));
-    EXPECT_EQ(q.head<3>(), state.basePosition);
+    EXPECT_EQ(q.head<3>(), state.posBaseRtWorldEwrtWorld);
     EXPECT_EQ(vector4_t(q.segment<4>(kBaseTranslationDim)),
-              safelyNormalizedQuaternion(state.baseOrientation.coeffs()));
-    EXPECT_TRUE(v.head<3>().isApprox(state.baseRotation * linearVelocityLocal,
-                                     kTolerance));
+              safelyNormalizedQuaternion(state.quatBaseRtWorld.coeffs()));
+    EXPECT_TRUE(v.head<3>().isApprox(
+        state.rotmatBaseRtWorld * linvelBaseRtWorldEwrtBase, kTolerance));
     EXPECT_EQ(vector3_t(v.segment<3>(kBaseTranslationDim)),
-              angularVelocityLocal);
-    EXPECT_EQ(state.baseEulerAnglesZyx,
-              eulerZyxFromQuaternion(state.baseOrientation.coeffs()));
-    const vector3_t eulerLayoutRates =
-        // NOLINTNEXTLINE(frame-naming): a generic Euler conversion
-        getEulerAnglesZyxDerivativesFromGlobalAngularVelocity<scalar_t>(
-            state.baseEulerAnglesZyx, state.baseAngularVelocity);
-    EXPECT_TRUE(state.baseEulerZyxRates.isApprox(eulerLayoutRates, kTolerance))
-        << state.baseEulerZyxRates.transpose();
+              angvelBaseRtWorldEwrtBase);
+    EXPECT_EQ(state.eulerzyxBaseRtWorld,
+              eulerZyxFromQuaternion(state.quatBaseRtWorld.coeffs()));
+    const vector3_t layoutRateEulerzyxBaseRtWorld =
+        getEulerAnglesZyxDerivativesFromWorldRates<scalar_t>(
+            state.eulerzyxBaseRtWorld, state.angvelBaseRtWorldEwrtWorld);
+    EXPECT_TRUE(state.rateEulerzyxBaseRtWorld.isApprox(
+        layoutRateEulerzyxBaseRtWorld, kTolerance))
+        << state.rateEulerzyxBaseRtWorld.transpose();
   }
 }
 
@@ -461,16 +474,16 @@ TEST_F(RobotStateDecoderTest, TheEffortAppliedIsThePdLawOfTheAction) {
       robot_->modelSettings().fullJointNames;
   const size_t withoutAction = indexOf(fullJoints, proto.joint_names(0));
   for (size_t joint = 0; joint < fullJoints.size(); ++joint) {
-    const scalar_t position = 0.01 * static_cast<scalar_t>(joint + 1);
+    const scalar_t jointPosition = 0.01 * static_cast<scalar_t>(joint + 1);
     if (joint == withoutAction) {
       EXPECT_EQ(state.jointEfforts[joint], 0.0);
-      EXPECT_EQ(state.jointPositionTargets[joint], position);
+      EXPECT_EQ(state.jointPositionTargets[joint], jointPosition);
       EXPECT_EQ(state.jointVelocityTargets[joint], 0.0);
       EXPECT_EQ(state.jointFeedForwardEfforts[joint], 0.0);
       continue;
     }
     EXPECT_NEAR(state.jointEfforts[joint],
-                3.0 + 100.0 * (0.5 - position) + 2.0 * (0.2 - 0.1), 1.0e-9)
+                3.0 + 100.0 * (0.5 - jointPosition) + 2.0 * (0.2 - 0.1), 1.0e-9)
         << fullJoints[joint];
     EXPECT_EQ(state.jointPositionTargets[joint], 0.5);
     EXPECT_EQ(state.jointVelocityTargets[joint], 0.2);
@@ -536,20 +549,22 @@ TEST_F(RobotStateDecoderTest, JointsAreFoundByNameWhateverTheirOrder) {
 TEST_F(RobotStateDecoderTest, TheMeasuredContactWrenchesAreCopied) {
   humanoid_mpc_msgs::RobotStateSample proto =
       robot_->robotState(/*time=*/0.0, vector3_t::Zero(), vector3_t::Zero());
+  // NOLINTBEGIN(frame-naming): the components of a Wrench message, whose frames its field names
   proto.mutable_meas_wrench_contacts_ewrt_world(1)->mutable_force()->set_z(
       300.0);
   proto.mutable_meas_wrench_contacts_ewrt_world(1)->mutable_torque()->set_x(
       4.0);
+  // NOLINTEND(frame-naming)
   RobotStateDecoder decoder(robot_->robotModel());
   DecodedRobotState state;
   ASSERT_TRUE(decoder.decode(toStruct(proto), &state).ok());
-  EXPECT_TRUE(state.measuredContactWrenches[0].isZero());
-  EXPECT_EQ(state.measuredContactWrenches[1][2], 300.0);
-  EXPECT_EQ(state.measuredContactWrenches[1][3], 4.0);
+  EXPECT_TRUE(state.measWrenchContactsEwrtWorld[0].isZero());
+  EXPECT_EQ(state.measWrenchContactsEwrtWorld[1][2], 300.0);
+  EXPECT_EQ(state.measWrenchContactsEwrtWorld[1][3], 4.0);
 
   proto.clear_meas_wrench_contacts_ewrt_world();
   ASSERT_TRUE(decoder.decode(toStruct(proto), &state).ok());
-  EXPECT_TRUE(state.measuredContactWrenches[1].isZero());
+  EXPECT_TRUE(state.measWrenchContactsEwrtWorld[1].isZero());
 }
 
 TEST_F(RobotStateDecoderTest, AnInconsistentSampleIsRefused) {

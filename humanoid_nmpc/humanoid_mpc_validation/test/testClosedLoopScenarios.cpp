@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_replace.h"
 #include "gtest/gtest.h"
 
+#include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
 #include "humanoid_common_mpc_app/node/WalkingVelocityCommandConversions.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
@@ -144,7 +145,8 @@ TEST(ClosedLoopScenarios, TheCommandsAreWhatSection4Point5Asks) {
   }
   EXPECT_NEAR(peakHeading, 4.0 * M_PI, 1.0e-12);
   EXPECT_NEAR(heading, 0.0, 1.0e-12);
-  EXPECT_EQ(turn.segments[0].forwardVelocity, 0.0) << "in place";
+  EXPECT_EQ(turn.segments[0].cmdLinvelBaseRtWorldEwrtHeadingX, 0.0)
+      << "in place";
 
   const ClosedLoopScenario fastTurn = *findClosedLoopScenario("turn_1radps");
   EXPECT_NEAR(integrate(fastTurn, /*component=*/2), 12.6, 1.0e-6);
@@ -167,8 +169,9 @@ TEST(ClosedLoopScenarios, TheCommandsAreWhatSection4Point5Asks) {
 
 TEST(ClosedLoopScenarios, ASegmentHoldsItsStartButNotItsEnd) {
   ClosedLoopScenario scenario;
-  scenario.segments = {CommandSegment{.duration = 1.0, .forwardVelocity = 0.1},
-                       CommandSegment{.duration = 1.0, .forwardVelocity = 0.2}};
+  scenario.segments = {
+      CommandSegment{.duration = 1.0, .cmdLinvelBaseRtWorldEwrtHeadingX = 0.1},
+      CommandSegment{.duration = 1.0, .cmdLinvelBaseRtWorldEwrtHeadingX = 0.2}};
   EXPECT_EQ(commandAt(scenario, /*timeSinceStart=*/0.0)(0), 0.1);
   EXPECT_EQ(commandAt(scenario, /*timeSinceStart=*/1.0)(0), 0.2);
   EXPECT_EQ(commandAt(scenario, /*timeSinceStart=*/2.0)(0), 0.0);
@@ -215,21 +218,23 @@ TEST(GuiVelocityCommand, TheClampIsTheOneTheMpcNodeAppliesToAReceivedMessage) {
   };
   for (const Eigen::Vector4d& message : messages) {
     humanoid_mpc_msgs::WalkingVelocityCommand proto;
-    proto.set_cmd_linvel_base_rt_world_ewrt_heading_x(message(0));
-    proto.set_cmd_linvel_base_rt_world_ewrt_heading_y(message(1));
-    proto.set_cmd_pos_base_rt_world_ewrt_world_z(message(2));
-    proto.set_cmd_angvel_base_rt_world_ewrt_world_z(message(3));
-    const absl::StatusOr<WalkingVelocityCommand> command =
+    proto.set_cmd_lnorm_linvel_base_rt_world_ewrt_heading_x(message(0));
+    proto.set_cmd_lnorm_linvel_base_rt_world_ewrt_heading_y(message(1));
+    proto.set_cmd_pos_base_rt_surface_ewrt_world_z(message(2));
+    proto.set_cmd_lnorm_angvel_base_rt_world_ewrt_world_z(message(3));
+    const absl::StatusOr<NormalizedWalkingVelocityCommand> command =
         node::walkingVelocityCommandFromProto(proto);
     ASSERT_TRUE(command.ok()) << command.status();
     const Eigen::Vector4d clamped = clampGuiVelocityMessage(message);
-    EXPECT_EQ(clamped(0), command->cmd_linvel_base_rt_world_ewrt_heading_x)
+    EXPECT_EQ(clamped(0),
+              command->cmd_lnorm_linvel_base_rt_world_ewrt_heading_x)
         << message.transpose();
-    EXPECT_EQ(clamped(1), command->cmd_linvel_base_rt_world_ewrt_heading_y)
+    EXPECT_EQ(clamped(1),
+              command->cmd_lnorm_linvel_base_rt_world_ewrt_heading_y)
         << message.transpose();
-    EXPECT_EQ(clamped(2), command->cmd_pos_base_rt_world_ewrt_world_z)
+    EXPECT_EQ(clamped(2), command->cmd_pos_base_rt_surface_ewrt_world_z)
         << message.transpose();
-    EXPECT_EQ(clamped(3), command->cmd_angvel_base_rt_world_ewrt_world_z)
+    EXPECT_EQ(clamped(3), command->cmd_lnorm_angvel_base_rt_world_ewrt_world_z)
         << message.transpose();
   }
 }
@@ -367,7 +372,7 @@ TEST(RobotConfigurations, TheLaunchFileReaderSubstitutesTheVariables) {
 struct DocumentValues {
   bool survived = true;
   double tiltRms = 0.03;
-  double velocityError = 0.1;
+  double rmsErrLinvelBaseRtWorldEwrtHeadingXy = 0.1;
   double p99 = 10.0;
 };
 
@@ -380,7 +385,8 @@ JsonValue metricsDocument(const DocumentValues& values) {
   document.set("tilt", JsonValue::object())
       .set("rms_rad", JsonValue::number(values.tiltRms));
   document.set("velocity", JsonValue::object())
-      .set("rms_error_mps", JsonValue::number(values.velocityError));
+      .set("rms_error_mps",
+           JsonValue::number(values.rmsErrLinvelBaseRtWorldEwrtHeadingXy));
   document.set("base_height", JsonValue::object())
       .set("mean_m", JsonValue::number(0.8));
   document.set("solve_time_ms", JsonValue::object())
@@ -401,18 +407,23 @@ TEST(MetricBands, ARunIsWithinTheBandsOfItself) {
 
 TEST(MetricBands, EachBandIsTheLargerOfItsRelativeAndAbsoluteParts) {
   const JsonValue baseline =
-      metricsDocument({.tiltRms = 0.01, .velocityError = 0.5, .p99 = 10.0});
+      metricsDocument({.tiltRms = 0.01,
+                       .rmsErrLinvelBaseRtWorldEwrtHeadingXy = 0.5,
+                       .p99 = 10.0});
   // tilt: max(20 % of 0.01, 0.005) = 0.005; velocity: max(15 % of 0.5, 0.02) =
   // 0.075; p99: +10 %.
-  EXPECT_TRUE(compareClosedLoopMetrics(
-                  metricsDocument(
-                      {.tiltRms = 0.0149, .velocityError = 0.574, .p99 = 10.9}),
-                  baseline, BandOptions())
-                  .violations.empty());
+  EXPECT_TRUE(
+      compareClosedLoopMetrics(
+          metricsDocument({.tiltRms = 0.0149,
+                           .rmsErrLinvelBaseRtWorldEwrtHeadingXy = 0.574,
+                           .p99 = 10.9}),
+          baseline, BandOptions())
+          .violations.empty());
   const std::vector<std::string> outside =
       compareClosedLoopMetrics(
-          metricsDocument(
-              {.tiltRms = 0.0151, .velocityError = 0.576, .p99 = 11.1}),
+          metricsDocument({.tiltRms = 0.0151,
+                           .rmsErrLinvelBaseRtWorldEwrtHeadingXy = 0.576,
+                           .p99 = 11.1}),
           baseline, BandOptions())
           .violations;
   ASSERT_EQ(outside.size(), 3u);
@@ -423,8 +434,9 @@ TEST(MetricBands, EachBandIsTheLargerOfItsRelativeAndAbsoluteParts) {
   BandOptions withoutTiming;
   withoutTiming.compareSolveTime = false;
   EXPECT_EQ(compareClosedLoopMetrics(
-                metricsDocument(
-                    {.tiltRms = 0.0151, .velocityError = 0.576, .p99 = 100.0}),
+                metricsDocument({.tiltRms = 0.0151,
+                                 .rmsErrLinvelBaseRtWorldEwrtHeadingXy = 0.576,
+                                 .p99 = 100.0}),
                 baseline, withoutTiming)
                 .violations.size(),
             2u);
@@ -432,8 +444,10 @@ TEST(MetricBands, EachBandIsTheLargerOfItsRelativeAndAbsoluteParts) {
 
 TEST(MetricBands, SurvivalMustBeEqualOrBetter) {
   const JsonValue survived = metricsDocument({});
-  const JsonValue fell = metricsDocument(
-      {.survived = false, .tiltRms = 0.9, .velocityError = 2.0});
+  const JsonValue fell =
+      metricsDocument({.survived = false,
+                       .tiltRms = 0.9,
+                       .rmsErrLinvelBaseRtWorldEwrtHeadingXy = 2.0});
   const std::vector<std::string> worse =
       compareClosedLoopMetrics(fell, survived, BandOptions()).violations;
   ASSERT_EQ(worse.size(), 1u);

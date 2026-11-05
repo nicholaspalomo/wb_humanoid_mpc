@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_mpc/MPC_MRT_Interface.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_oc/oc_data/PerformanceIndex.h"
@@ -72,7 +73,7 @@ struct CentroidalMpcLoopStep {
    * policy's planned state at the solve's time to the observation; 0 for the
    * first solve.
    */
-  scalar_t initialGapRotation = 0.0;
+  scalar_t initialGapAngle = 0.0;
   /**
    * The feedback correction of the policy where the period starts, the
    * observation after the push: |u(t, x) - u(t, x_bar(t))|_inf, x_bar the
@@ -84,7 +85,7 @@ struct CentroidalMpcLoopStep {
   scalar_t feedforwardMagnitude = 0.0;
   /** max | |xi| - 1 | over the policy's nodes and the plant's state after the
    * step. */
-  scalar_t quaternionNormError = 0.0;
+  scalar_t unitQuaternionNormError = 0.0;
 };
 
 /**
@@ -117,15 +118,19 @@ class CentroidalMpcLoop {
 
   /** The operator's command, applied as given: [m/s] forward and to the left in
    * the heading frame, [rad/s] about z. */
-  void command(scalar_t forward, scalar_t lateral, scalar_t yawRate);
+  void command(scalar_t cmdLinvelBaseRtWorldEwrtHeadingX,
+               scalar_t cmdLinvelBaseRtWorldEwrtHeadingY,
+               scalar_t cmdRateYawBaseRtWorld);
 
   /**
-   * Pushes the plant in the next step(), after its solve: adds `momentumChange`
-   * to the normalized centroidal momentum [v_com, L / m] the period starts
-   * from, as an impulse would, so that the plant leaves the plan and the
-   * policy's feedback acts over the period.
+   * Pushes the plant in the next step(), after its solve: adds
+   * `errMnormCmomComRtWorldEwrtWorld` to the normalized centroidal momentum
+   * [v_com, L / m] the period starts from, as an impulse would, so that the
+   * plant leaves the plan and the policy's feedback acts over the period.
    */
-  void push(const vector6_t& momentumChange) { pendingPush_ = momentumChange; }
+  void push(const vector6_t& errMnormCmomComRtWorldEwrtWorld) {
+    pendingErrMnormCmomComRtWorldEwrtWorld_ = errMnormCmomComRtWorldEwrtWorld;
+  }
 
   /** One solve from the plant's state, then one MPC period of the plant; the
    * solve's status. */
@@ -153,7 +158,7 @@ class CentroidalMpcLoop {
   SystemObservation observation_;
   scalar_t period_ = 0.0;
   /** The push of the next period (push()); zero: none. */
-  vector6_t pendingPush_ = vector6_t::Zero();
+  vector6_t pendingErrMnormCmomComRtWorldEwrtWorld_ = vector6_t::Zero();
 };
 
 }  // namespace ocs2::humanoid

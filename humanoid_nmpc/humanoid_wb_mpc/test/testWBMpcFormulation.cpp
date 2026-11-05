@@ -365,25 +365,29 @@ TEST_F(WBMpcFormulationTest, renamedContactFramesAreTheFramesTheDynamicsUse) {
       (*shippedInterface)->getPinocchioInterface();
   PinocchioInterface renamedPinocchio =
       (*renamedInterface)->getPinocchioInterface();
-  const vector_t shippedTorques = computeJointTorques<scalar_t>(
+  const vector_t shippedJointTorques = computeJointTorques<scalar_t>(
       state, input, shippedPinocchio, *shippedModel);
-  const vector_t renamedTorques = computeJointTorques<scalar_t>(
+  const vector_t renamedJointTorques = computeJointTorques<scalar_t>(
       state, input, renamedPinocchio, *renamedModelOfMpc);
-  EXPECT_LT((renamedTorques - shippedTorques).cwiseAbs().maxCoeff(),
-            1.0e-9 * std::max(1.0, shippedTorques.cwiseAbs().maxCoeff()));
-  const vector_t shippedAccelerations =
+  EXPECT_LT((renamedJointTorques - shippedJointTorques).cwiseAbs().maxCoeff(),
+            1.0e-9 * std::max(1.0, shippedJointTorques.cwiseAbs().maxCoeff()));
+  const vector_t shippedGeneralizedAccelerations =
       computeGeneralizedAccelerations<scalar_t>(state, input, shippedPinocchio,
                                                 *shippedModel);
-  const vector_t renamedAccelerations =
+  const vector_t renamedGeneralizedAccelerations =
       computeGeneralizedAccelerations<scalar_t>(state, input, renamedPinocchio,
                                                 *renamedModelOfMpc);
-  EXPECT_LT((renamedAccelerations - shippedAccelerations).cwiseAbs().maxCoeff(),
-            1.0e-9 * std::max(1.0, shippedAccelerations.cwiseAbs().maxCoeff()));
+  EXPECT_LT(
+      (renamedGeneralizedAccelerations - shippedGeneralizedAccelerations)
+          .cwiseAbs()
+          .maxCoeff(),
+      1.0e-9 *
+          std::max(1.0, shippedGeneralizedAccelerations.cwiseAbs().maxCoeff()));
   // Positive control: the wrenches load the joints, so the comparison sees
   // where they act.
   const vector_t unloaded = computeJointTorques<scalar_t>(
       state, vector_t::Zero(input.size()), shippedPinocchio, *shippedModel);
-  EXPECT_GT((unloaded - shippedTorques).cwiseAbs().maxCoeff(), 1.0);
+  EXPECT_GT((unloaded - shippedJointTorques).cwiseAbs().maxCoeff(), 1.0);
 }
 
 }  // namespace ocs2::humanoid

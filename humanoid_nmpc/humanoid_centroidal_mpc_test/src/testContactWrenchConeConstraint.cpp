@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <iterator>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <vector>
 
@@ -64,13 +65,13 @@ constexpr size_t kEightBasisVectors = 8;
 constexpr size_t kExpectedConstraintsFourBasis = 17;
 
 constexpr scalar_t kTestMu = 0.6;
-constexpr scalar_t kTestMuRot = 0.1;
-constexpr scalar_t kTestMinFz = 10.0;
-constexpr scalar_t kTestFz = 100.0;
-constexpr scalar_t kTestFx = 30.0;
-constexpr scalar_t kTestFy = 10.0;
-constexpr scalar_t kTestMz = 1.0;
-constexpr scalar_t kTestBaseHeight = 0.8;
+constexpr scalar_t kTestMuTorsion = 0.1;
+constexpr scalar_t kMinForceContactEwrtContactZ = 10.0;
+constexpr scalar_t kForceContactEwrtParamZ = 100.0;
+constexpr scalar_t kForceContactEwrtParamX = 30.0;
+constexpr scalar_t kForceContactEwrtParamY = 10.0;
+constexpr scalar_t kTorqueContactEwrtParamZ = 1.0;
+constexpr scalar_t kPosBaseRtWorldEwrtWorldZ = 0.8;
 constexpr scalar_t kTolerance = 1.0e-4;
 constexpr scalar_t kPrecisionTolerance = 1.0e-6;
 constexpr scalar_t kFiniteDiffEps = 1.0e-7;
@@ -203,7 +204,7 @@ TEST_F(TestContactWrenchConeConstraint, FrictionConeAndNormalForceValues) {
 
   ContactWrenchConeConstraint::Config config(
       kFourBasisVectors, kTestMu, /*torsionalFrictionCoefficientParam=*/0.05,
-      kTestMinFz,
+      kMinForceContactEwrtContactZ,
       /*gripForceContactEwrtContactZ=*/0.0);
   ContactWrenchConeConstraint constraint(
       *referenceManager_, contactRectangle, kContactPointIndex,
@@ -214,27 +215,31 @@ TEST_F(TestContactWrenchConeConstraint, FrictionConeAndNormalForceValues) {
       testingModelInterface_->getMpcRobotModel();
   // Level at the test height: the identity quaternion, the joints straight.
   vector_t state = robotModel.getNeutralState();
-  robotModel.setPosBaseRtWorldEwrtWorld(state,
-                                        vector3_t(0.0, 0.0, kTestBaseHeight));
+  robotModel.setPosBaseRtWorldEwrtWorld(
+      state, vector3_t(0.0, 0.0, kPosBaseRtWorldEwrtWorldZ));
 
   vector_t input = vector_t::Zero(robotModel.getInputDim());
-  robotModel.setForceContactEwrtParam(input, vector3_t(kTestFx, 0.0, kTestFz),
-                                      kContactPointIndex);
+  robotModel.setForceContactEwrtParam(
+      input, vector3_t(kForceContactEwrtParamX, 0.0, kForceContactEwrtParamZ),
+      kContactPointIndex);
 
   PreComputation preComp;
   vector_t val = constraint.getValue(/*time=*/0.0, state, input, preComp);
 
   // For N=4, the facet normals are (1,0), (0,1), (-1,0), (0,-1), at the
   // inscribed mu' = mu cos(pi/4).
-  const scalar_t muFz = kTestMu * std::cos(M_PI / 4.0) * kTestFz;
+  const scalar_t muForceContactEwrtParamZ =
+      kTestMu * std::cos(std::numbers::pi / 4.0) * kForceContactEwrtParamZ;
   // 1. mu' Fz - Fx
-  EXPECT_NEAR(val[0], muFz - kTestFx, kTolerance);
+  EXPECT_NEAR(val[0], muForceContactEwrtParamZ - kForceContactEwrtParamX,
+              kTolerance);
   // 2. mu' Fz - Fy
-  EXPECT_NEAR(val[1], muFz, kTolerance);
+  EXPECT_NEAR(val[1], muForceContactEwrtParamZ, kTolerance);
   // 3. mu' Fz + Fx
-  EXPECT_NEAR(val[2], muFz + kTestFx, kTolerance);
+  EXPECT_NEAR(val[2], muForceContactEwrtParamZ + kForceContactEwrtParamX,
+              kTolerance);
   // 4. mu' Fz + Fy
-  EXPECT_NEAR(val[3], muFz, kTolerance);
+  EXPECT_NEAR(val[3], muForceContactEwrtParamZ, kTolerance);
   // 5. Normal force: Fz - minFz = 100 - 10 = 90.0
   EXPECT_NEAR(val[4], 90.0, kTolerance);
 }
@@ -247,7 +252,7 @@ TEST_F(TestContactWrenchConeConstraint, TorsionRowsAreCaronsClosedForm) {
                                  vector3_t::Zero()));
 
   ContactWrenchConeConstraint::Config config(
-      kFourBasisVectors, kTestMu, kTestMuRot,
+      kFourBasisVectors, kTestMu, kTestMuTorsion,
       /*minForceContactEwrtContactZ=*/0.0,
       /*gripForceContactEwrtContactZ=*/0.0);
   ContactWrenchConeConstraint constraint(
@@ -259,14 +264,17 @@ TEST_F(TestContactWrenchConeConstraint, TorsionRowsAreCaronsClosedForm) {
       testingModelInterface_->getMpcRobotModel();
   // Level at the test height: the identity quaternion, the joints straight.
   vector_t state = robotModel.getNeutralState();
-  robotModel.setPosBaseRtWorldEwrtWorld(state,
-                                        vector3_t(0.0, 0.0, kTestBaseHeight));
+  robotModel.setPosBaseRtWorldEwrtWorld(
+      state, vector3_t(0.0, 0.0, kPosBaseRtWorldEwrtWorldZ));
 
   vector_t input = vector_t::Zero(robotModel.getInputDim());
-  const vector3_t force(0.0, kTestFy, kTestFz);
-  const vector3_t moment(0.0, 0.0, kTestMz);
-  robotModel.setForceContactEwrtParam(input, force, kContactPointIndex);
-  robotModel.setTorqueContactEwrtParam(input, moment, kContactPointIndex);
+  const vector3_t forceContactEwrtParam(0.0, kForceContactEwrtParamY,
+                                        kForceContactEwrtParamZ);
+  const vector3_t torqueContactEwrtParam(0.0, 0.0, kTorqueContactEwrtParamZ);
+  robotModel.setForceContactEwrtParam(input, forceContactEwrtParam,
+                                      kContactPointIndex);
+  robotModel.setTorqueContactEwrtParam(input, torqueContactEwrtParam,
+                                       kContactPointIndex);
 
   PreComputation preComp;
   const vector_t val = constraint.getValue(/*time=*/0.0, state, input, preComp);
@@ -275,24 +283,31 @@ TEST_F(TestContactWrenchConeConstraint, TorsionRowsAreCaronsClosedForm) {
   // cos(pi/4) and half extents X, Y:
   //   tau_min = -mu' (X + Y) Fz + |Y Fx - mu' tau_x| + |X Fy - mu' tau_y| <=
   //   tau_z <= mu' (X + Y) Fz - |Y Fx + mu' tau_x| - |X Fy + mu' tau_y|
-  const scalar_t mu = kTestMu * std::cos(M_PI / 4.0);
+  const scalar_t mu = kTestMu * std::cos(std::numbers::pi / 4.0);
   const scalar_t X = 0.1;
   const scalar_t Y = 0.05;
-  const vector3_t aboutCenter = moment - vector3_t(0.1, 0.0, 0.0).cross(force);
-  const scalar_t tauMax = mu * (X + Y) * force.z() -
-                          std::abs(Y * force.x() + mu * aboutCenter.x()) -
-                          std::abs(X * force.y() + mu * aboutCenter.y());
-  const scalar_t tauMin = -mu * (X + Y) * force.z() +
-                          std::abs(Y * force.x() - mu * aboutCenter.x()) +
-                          std::abs(X * force.y() - mu * aboutCenter.y());
-  ASSERT_LT(tauMin, aboutCenter.z());
-  ASSERT_LT(aboutCenter.z(), tauMax);
+  const vector3_t torqueFootprintEwrtParam =
+      torqueContactEwrtParam -
+      vector3_t(0.1, 0.0, 0.0).cross(forceContactEwrtParam);
+  const scalar_t tauMax = mu * (X + Y) * forceContactEwrtParam.z() -
+                          std::abs(Y * forceContactEwrtParam.x() +
+                                   mu * torqueFootprintEwrtParam.x()) -
+                          std::abs(X * forceContactEwrtParam.y() +
+                                   mu * torqueFootprintEwrtParam.y());
+  const scalar_t tauMin = -mu * (X + Y) * forceContactEwrtParam.z() +
+                          std::abs(Y * forceContactEwrtParam.x() -
+                                   mu * torqueFootprintEwrtParam.x()) +
+                          std::abs(X * forceContactEwrtParam.y() -
+                                   mu * torqueFootprintEwrtParam.y());
+  ASSERT_LT(tauMin, torqueFootprintEwrtParam.z());
+  ASSERT_LT(torqueFootprintEwrtParam.z(), tauMax);
   // Every torsion row has a unit yaw coefficient, so the tightest is the
   // distance to the nearer limit.
   EXPECT_NEAR(val.tail(val.size() -
                        static_cast<Eigen::Index>(kFirstTorsionRowFourBasis))
                   .minCoeff(),
-              std::min(tauMax - aboutCenter.z(), aboutCenter.z() - tauMin),
+              std::min(tauMax - torqueFootprintEwrtParam.z(),
+                       torqueFootprintEwrtParam.z() - tauMin),
               kTolerance);
 }
 
@@ -316,8 +331,8 @@ TEST_F(TestContactWrenchConeConstraint, LinearAndQuadraticApproximation) {
       testingModelInterface_->getMpcRobotModel();
   // Level at the test height: the identity quaternion, the joints straight.
   vector_t state = robotModel.getNeutralState();
-  robotModel.setPosBaseRtWorldEwrtWorld(state,
-                                        vector3_t(0.0, 0.0, kTestBaseHeight));
+  robotModel.setPosBaseRtWorldEwrtWorld(
+      state, vector3_t(0.0, 0.0, kPosBaseRtWorldEwrtWorldZ));
 
   vector_t input = vector_t::Zero(robotModel.getInputDim());
   robotModel.setForceContactEwrtParam(input, vector3_t(10.0, 5.0, 50.0),
@@ -389,8 +404,8 @@ TEST_F(TestContactWrenchConeConstraint,
       testingModelInterface_->getModelSettings().mpcModelJointNames;
 
   vector_t state = robotModel.getNeutralState();
-  robotModel.setPosBaseRtWorldEwrtWorld(state,
-                                        vector3_t(0.0, 0.0, kTestBaseHeight));
+  robotModel.setPosBaseRtWorldEwrtWorld(
+      state, vector3_t(0.0, 0.0, kPosBaseRtWorldEwrtWorldZ));
   robotModel.setEulerzyxBaseRtWorld(state, vector3_t(0.2, 0.1, -0.05));
   for (const std::string& jointName : {std::string("left_ankle_pitch_joint"),
                                        std::string("left_ankle_roll_joint")}) {
@@ -412,7 +427,7 @@ TEST_F(TestContactWrenchConeConstraint,
         *referenceManager_, contactRectangle, kContactPointIndex,
         testingModelInterface_->getPinocchioInterface(), robotModel,
         ContactWrenchConeConstraint::Config(
-            kFourBasisVectors, kTestMu, kTestMuRot,
+            kFourBasisVectors, kTestMu, kTestMuTorsion,
             /*minForceContactEwrtContactZ=*/0.0,
             /*gripForceContactEwrtContactZ=*/0.0),
         scheduleGated);
@@ -455,11 +470,11 @@ TEST_F(TestContactWrenchConeConstraint, RefusesABasisVectorModel) {
 
   // Positive control: the wrench-space model is accepted.
   const absl::StatusOr<std::unique_ptr<ContactWrenchConeConstraint>>
-      wrenchSpace = ContactWrenchConeConstraint::Create(
+      wrenchModeConstraint = ContactWrenchConeConstraint::Create(
           *referenceManager_, contactRectangle, kContactPointIndex,
           testingModelInterface_->getPinocchioInterface(),
           testingModelInterface_->getMpcRobotModel(), coneConfig);
-  ASSERT_TRUE(wrenchSpace.ok()) << wrenchSpace.status();
+  ASSERT_TRUE(wrenchModeConstraint.ok()) << wrenchModeConstraint.status();
 
   const PolygonBounds footBounds(-0.1, 0.1, -0.05, 0.05);
   const absl::StatusOr<ContactWrenchConeBasisMatrix> leftBasis =

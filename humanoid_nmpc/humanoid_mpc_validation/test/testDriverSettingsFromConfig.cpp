@@ -66,10 +66,10 @@ mpc_config::ReferenceFile completeReferenceFile() {
   file.ref_rate_yaw_base_rt_world = 0.55;
   file.cmd_max_linvel_base_rt_world_ewrt_heading_x = 1.1;
   file.cmd_max_linvel_base_rt_world_ewrt_heading_y = 0.35;
-  file.cmd_max_err_pos_base_rt_world_ewrt_world_z = 0.2;
+  file.cmd_max_err_pos_base_rt_surface_ewrt_world_z = 0.2;
   file.cmd_max_angvel_base_rt_world_ewrt_world_z = 0.9;
   file.target_joint_state_interpolation_time_constant = 0.3;
-  file.nom_pos_base_rt_world_ewrt_world_z = 0.85;
+  file.nom_pos_base_rt_surface_ewrt_world_z = 0.85;
   return file;
 }
 
@@ -106,7 +106,7 @@ void expectScalingOfFile(const GuiCommandScaling& scaling,
         << what << ": " << fields[i].name;
   }
   EXPECT_EQ(std::optional<double>(scaling.defaultPelvisHeight),
-            file.nom_pos_base_rt_world_ewrt_world_z)
+            file.nom_pos_base_rt_surface_ewrt_world_z)
       << what;
 }
 
@@ -140,9 +140,9 @@ TEST(GuiCommandScalingTest, AFileThatLeavesOutAValueItReadsIsRefusedByName) {
       {limits[0],
        limits[1],
        limits[2],
-       {.name = "nom_pos_base_rt_world_ewrt_world_z",
+       {.name = "nom_pos_base_rt_surface_ewrt_world_z",
         .member =
-            &mpc_config::ReferenceFile::nom_pos_base_rt_world_ewrt_world_z}}};
+            &mpc_config::ReferenceFile::nom_pos_base_rt_surface_ewrt_world_z}}};
   for (const ScalingField& field : fields) {
     mpc_config::ReferenceFile file = completeReferenceFile();
     (file.*(field.member)).reset();

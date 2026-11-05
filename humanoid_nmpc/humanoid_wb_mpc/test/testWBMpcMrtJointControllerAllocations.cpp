@@ -394,7 +394,7 @@ TEST(
     const vector_t input = weightCompensatingInput(reference, contacts, model);
     EXPECT_LT((controller.getLatestPolicyInput() - input).cwiseAbs().maxCoeff(),
               1.0e-9);
-    const vector_t torques = computeBaseHeldJointTorques<scalar_t>(
+    const vector_t jointTorques = computeBaseHeldJointTorques<scalar_t>(
         observed, input, reference, model);
     const std::vector<size_t> mpcJoints =
         description.getJointIndices(modelSettings.mpcModelJointNames);
@@ -410,7 +410,7 @@ TEST(
       const scalar_t limit = controller.getPdGains().mpcJointTorqueLimit[i];
       EXPECT_NEAR(
           jointAction.feed_forward_effort,
-          std::clamp(torques[static_cast<Eigen::Index>(i)], -limit, limit),
+          std::clamp(jointTorques[static_cast<Eigen::Index>(i)], -limit, limit),
           1.0e-8)
           << modelSettings.mpcModelJointNames[i];
     }

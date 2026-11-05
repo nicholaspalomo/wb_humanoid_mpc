@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/no_destructor.h"
 #include "absl/strings/str_cat.h"
 
+#include "robot_ipc/NetworkConfig.h"
 #include "robot_ipc/NodeEndpoint.h"
 
 namespace robot::ipc {

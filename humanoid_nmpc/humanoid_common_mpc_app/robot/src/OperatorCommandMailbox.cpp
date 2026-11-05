@@ -69,10 +69,10 @@ using DodgeballThrow =
 
 constexpr double kLogPeriodSeconds = 5.0;
 // LINT.IfChange(gantry_height_limits)
-/// [m] The gantry heights the walking command's
-/// cmd_pos_base_rt_world_ewrt_world_z is clamped to.
-constexpr double kMinGantryHeight = 0.2;
-constexpr double kMaxGantryHeight = 1.5;
+/// [m] The gantry heights above the ground the walking command's
+/// cmd_pos_base_rt_surface_ewrt_world_z is clamped to.
+constexpr double kMinGantryPosBaseRtSurfaceEwrtWorldZ = 0.2;
+constexpr double kMaxGantryPosBaseRtSurfaceEwrtWorldZ = 1.5;
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:operator_mailbox)
 
 ControllerSettingsUpdate settingsPrototype() {
@@ -90,9 +90,9 @@ OperatorCommandMailbox::Create(
     const robot::model::ContactEstimatorRegistry* absl_nonnull
     contactEstimators,
     Hooks hooks) {
-  if (config.jointNames.size() != config.initialNominalPositions.size()) {
+  if (config.jointNames.size() != config.initialNominalJointPositions.size()) {
     return absl::InvalidArgumentError(absl::StrCat(
-        "OperatorCommandMailbox: ", config.initialNominalPositions.size(),
+        "OperatorCommandMailbox: ", config.initialNominalJointPositions.size(),
         " initial joint positions for ", config.jointNames.size(), " joints"));
   }
   if (config.commandQueueCapacity == 0 || config.dodgeballQueueCapacity == 0) {
@@ -114,9 +114,10 @@ OperatorCommandMailbox::OperatorCommandMailbox(
       fsmCommands_(config_.commandQueueCapacity),
       dodgeballs_(config_.dodgeballQueueCapacity),
       controllerSettings_(config_.commandQueueCapacity, settingsPrototype()),
-      nominalPosture_(config_.initialNominalPositions),
-      desiredGantryHeight_(std::numeric_limits<double>::quiet_NaN()),
-      ioNominalPositions_(config_.initialNominalPositions) {
+      nominalPosture_(config_.initialNominalJointPositions),
+      desGantryPosBaseRtSurfaceEwrtWorldZ_(
+          std::numeric_limits<double>::quiet_NaN()),
+      ioNominalJointPositions_(config_.initialNominalJointPositions) {
   for (size_t joint = 0; joint < config_.jointNames.size(); ++joint) {
     jointIndexByName_.emplace(config_.jointNames[joint], joint);
   }
@@ -184,22 +185,24 @@ bool OperatorCommandMailbox::takeDodgeballThrow(DodgeballThrow& throwCommand) {
 }
 
 bool OperatorCommandMailbox::takeNominalPosture(
-    std::vector<double>& nominalPositions) {
+    std::vector<double>& nominalJointPositions) {
   if (!nominalPosture_.acquireRead()) {
     return false;
   }
   // Both have one entry per joint, so the assignment copies into the storage
-  // nominalPositions already has.
-  nominalPositions = nominalPosture_.readSlot();
+  // nominalJointPositions already has.
+  nominalJointPositions = nominalPosture_.readSlot();
   return true;
 }
 
-std::optional<double> OperatorCommandMailbox::desiredGantryHeight() const {
-  const double height = desiredGantryHeight_.load(std::memory_order_acquire);
-  if (std::isnan(height)) {
+std::optional<double>
+OperatorCommandMailbox::desGantryPosBaseRtSurfaceEwrtWorldZ() const {
+  const double desGantryPosBaseRtSurfaceEwrtWorldZ =
+      desGantryPosBaseRtSurfaceEwrtWorldZ_.load(std::memory_order_acquire);
+  if (std::isnan(desGantryPosBaseRtSurfaceEwrtWorldZ)) {
     return std::nullopt;
   }
-  return height;
+  return desGantryPosBaseRtSurfaceEwrtWorldZ;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -256,13 +259,13 @@ void OperatorCommandMailbox::onJointTargets(
           << entry.second << " of " << entry.first << ": not a finite number.";
       continue;
     }
-    ioNominalPositions_[joint->second] = entry.second;
+    ioNominalJointPositions_[joint->second] = entry.second;
     changed = true;
   }
   if (!changed) {
     return;
   }
-  nominalPosture_.writeSlot() = ioNominalPositions_;
+  nominalPosture_.writeSlot() = ioNominalJointPositions_;
   nominalPosture_.publishWrite();
   jointTargetsApplied_.fetch_add(1);
 }
@@ -295,10 +298,11 @@ void OperatorCommandMailbox::onDodgeballThrow(
 
 void OperatorCommandMailbox::onWalkingVelocityCommand(
     const humanoid_mpc_msgs::WalkingVelocityCommand& message) {
-  if (std::isfinite(message.cmd_pos_base_rt_world_ewrt_world_z())) {
-    desiredGantryHeight_.store(
-        std::clamp(message.cmd_pos_base_rt_world_ewrt_world_z(),
-                   kMinGantryHeight, kMaxGantryHeight),
+  if (std::isfinite(message.cmd_pos_base_rt_surface_ewrt_world_z())) {
+    desGantryPosBaseRtSurfaceEwrtWorldZ_.store(
+        std::clamp(message.cmd_pos_base_rt_surface_ewrt_world_z(),
+                   kMinGantryPosBaseRtSurfaceEwrtWorldZ,
+                   kMaxGantryPosBaseRtSurfaceEwrtWorldZ),
         std::memory_order_release);
   }
 }

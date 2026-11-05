@@ -137,7 +137,7 @@ void dumpModelSettings(ValueDump& dump,
                  implicit.complementarityWeight);
   dump.addDouble(joinPath(implicitPath, "slipWeight"), implicit.slipWeight);
   dump.addDouble(joinPath(implicitPath, "heightReference"),
-                 implicit.heightReference);
+                 implicit.scalePosContactRtSurfaceEwrtWorldZ);
   dump.addDouble(joinPath(implicitPath, "velocityReference"),
                  implicit.scaleLinvelContactRtWorldEwrtWorldXy);
   dump.addDouble(joinPath(implicitPath, "angularVelocityReference"),
@@ -146,8 +146,9 @@ void dumpModelSettings(ValueDump& dump,
                  implicit.penetrationWeight);
   dump.addDouble(joinPath(implicitPath, "gapSmoothing"), implicit.gapSmoothing);
   dump.addDouble(joinPath(path, "nominalFootholdConfig.stepWidth"),
-                 settings.nominalFootholdConfig.stepWidth);
-  dump.addDouble(joinPath(path, "terrainHeight"), settings.terrainHeight);
+                 settings.nominalFootholdConfig.nomPosLfootRtRfootEwrtHeadingY);
+  dump.addDouble(joinPath(path, "terrainHeight"),
+                 settings.posSurfaceRtWorldEwrtWorldZ);
 }
 
 void dumpSqpSettings(ValueDump& dump,
@@ -234,17 +235,19 @@ void dumpSwingSettings(ValueDump& dump,
                  settings.liftoffLinvelFootRtWorldEwrtWorldZ);
   dump.addDouble(joinPath(path, "touchDownVelocity"),
                  settings.touchdownLinvelFootRtWorldEwrtWorldZ);
-  dump.addDouble(joinPath(path, "swingHeight"), settings.swingHeight);
+  dump.addDouble(joinPath(path, "swingHeight"),
+                 settings.apexPosFootRtSwingendEwrtWorldZ);
   dump.addDouble(joinPath(path, "swingTimeScale"), settings.swingTimeScale);
-  dump.addDouble(joinPath(path, "touchDownHeightOffset"),
-                 settings.touchDownHeightOffset);
+  dump.addDouble(joinPath(path, "touchdownPosFootRtSurfaceEwrtWorldZ"),
+                 settings.touchdownPosFootRtSurfaceEwrtWorldZ);
   dump.addDouble(joinPath(path, "impactProximityFactorLiftOffVelocity"),
                  settings.impactProximityFactorLiftoffSlope);
   dump.addDouble(joinPath(path, "impactProximityFactorTouchDownVelocity"),
                  settings.impactProximityFactorTouchdownSlope);
   dump.addDouble(joinPath(path, "impactProximityFactorMidPointValue"),
                  settings.impactProximityFactorMidPointValue);
-  dump.addDouble(joinPath(path, "swingPitchAngle"), settings.swingPitchAngle);
+  dump.addDouble(joinPath(path, "swingMaxTiltangleFootRtSurface"),
+                 settings.swingMaxTiltangleFootRtSurface);
   dump.addDouble(joinPath(path, "swingPitchRiseFraction"),
                  settings.swingPitchRiseFraction);
   dump.addDouble(joinPath(path, "swingPitchFallFraction"),
@@ -313,7 +316,7 @@ void dumpRobotProcessSettings(ValueDump& dump,
   dump.addString(joinPath(path, "contactEstimator"), settings.contactEstimator);
   const std::string simulatorPath = joinPath(path, "simulator");
   dump.addDouble(joinPath(simulatorPath, "contactForceThreshold"),
-                 settings.simulator.contactForceThreshold);
+                 settings.simulator.minForceMjcontactEwrtMjcontactX);
   dump.addDouble(joinPath(simulatorPath, "contactTimelineWindow"),
                  settings.simulator.contactTimelineWindow);
   dump.addBool(joinPath(simulatorPath, "visualizations.has_value"),
@@ -328,18 +331,23 @@ void dumpRobotProcessSettings(ValueDump& dump,
                  settings.simulator.projectile);
   dump.addDouble(joinPath(simulatorPath, "ragdollJointDamping"),
                  settings.simulator.ragdollJointDamping);
-  dump.addDouble(joinPath(simulatorPath, "autoResetBaseHeight"),
-                 settings.simulator.autoResetBaseHeight);
+  dump.addDouble(
+      joinPath(simulatorPath, "autoResetMinPosBaseRtWorldEwrtWorldZ"),
+      settings.simulator.autoResetMinPosBaseRtWorldEwrtWorldZ);
   const SimFallRecovery::Config& fall = settings.fallRecovery;
   const std::string fallPath = joinPath(path, "fallRecovery");
-  dump.addDouble(joinPath(fallPath, "maxBaseTiltAngle"), fall.maxBaseTiltAngle);
-  dump.addDouble(joinPath(fallPath, "catchLift"), fall.catchLift);
-  dump.addDouble(joinPath(fallPath, "gantryHeightRate"), fall.gantryHeightRate);
-  dump.addDouble(joinPath(fallPath, "settleTilt"), fall.settleTilt);
-  dump.addDouble(joinPath(fallPath, "settleLinearSpeed"),
-                 fall.settleLinearSpeed);
-  dump.addDouble(joinPath(fallPath, "settleAngularSpeed"),
-                 fall.settleAngularSpeed);
+  dump.addDouble(joinPath(fallPath, "maxTiltangleBaseRtWorld"),
+                 fall.maxTiltangleBaseRtWorld);
+  dump.addDouble(joinPath(fallPath, "catchLift"),
+                 fall.catchErrPosBaseRtWorldEwrtWorldZ);
+  dump.addDouble(joinPath(fallPath, "gantrySpeedBaseRtWorld"),
+                 fall.gantrySpeedBaseRtWorld);
+  dump.addDouble(joinPath(fallPath, "settleTilt"),
+                 fall.settleMaxTiltangleBaseRtWorld);
+  dump.addDouble(joinPath(fallPath, "settleMaxSpeedBaseRtWorld"),
+                 fall.settleMaxSpeedBaseRtWorld);
+  dump.addDouble(joinPath(fallPath, "settleMaxNormAngvelBaseRtWorldEwrtBase"),
+                 fall.settleMaxNormAngvelBaseRtWorldEwrtBase);
   dump.addDouble(joinPath(fallPath, "settleJointError"), fall.settleJointError);
   dump.addDouble(joinPath(fallPath, "settleHoldTime"), fall.settleHoldTime);
   dump.addDouble(joinPath(fallPath, "settleTimeout"), fall.settleTimeout);
@@ -382,7 +390,8 @@ void dumpRobotProcessSettings(ValueDump& dump,
                  kalman.kinematicVelocityNoise);
   dump.addDouble(joinPath(kalmanPath, "contactHeightNoise"),
                  kalman.contactHeightNoise);
-  dump.addDouble(joinPath(kalmanPath, "contactHeight"), kalman.contactHeight);
+  dump.addDouble(joinPath(kalmanPath, "nomPosContactRtWorldEwrtWorldZ"),
+                 kalman.nomPosContactRtWorldEwrtWorldZ);
 }
 
 void dumpVisualizationConfig(ValueDump& dump,
@@ -399,7 +408,8 @@ void dumpKeyboardCommandLimits(ValueDump& dump,
                                absl::string_view path,
                                const teleop::KeyboardCommandLimits& limits) {
   dump.addMatrix(joinPath(path, "limits"), limits.limits);
-  dump.addDouble(joinPath(path, "defaultBaseHeight"), limits.defaultBaseHeight);
+  dump.addDouble(joinPath(path, "defaultBaseHeight"),
+                 limits.nomPosBaseRtSurfaceEwrtWorldZ);
 }
 
 }  // namespace ocs2::humanoid::config_dump

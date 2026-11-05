@@ -108,7 +108,7 @@ TargetTrajectories noTargets(const vector4_t& /*velocityTarget*/,
 
 // A velocity command beyond every shipped limit, so that the limits clamp it:
 // [m/s], [m] and [rad/s].
-constexpr scalar_t kSaturatingLinearVelocity = 5.0;
+constexpr scalar_t kSaturatingCmdLinvelBaseRtWorldEwrtHeadingXy = 5.0;
 constexpr scalar_t kSaturatingHeightChange = 1.0;
 constexpr scalar_t kSaturatingYawRate = 5.0;
 
@@ -121,7 +121,8 @@ constexpr scalar_t kPoseCommandDeltaYaw = 0.5;
 /** [v_x, v_y, delta height, yaw rate]: beyond every shipped limit, so that the
  * limits clamp it. */
 vector4_t saturatingVelocityCommand() {
-  return vector4_t(kSaturatingLinearVelocity, kSaturatingLinearVelocity,
+  return vector4_t(kSaturatingCmdLinvelBaseRtWorldEwrtHeadingXy,
+                   kSaturatingCmdLinvelBaseRtWorldEwrtHeadingXy,
                    kSaturatingHeightChange, kSaturatingYawRate);
 }
 
@@ -211,7 +212,7 @@ void dumpReferenceManager(
       dump, "reference_manager.initial_mode_schedule",
       referenceManager.getGaitSchedule()->getCurrentModeSchedule());
   dump.addDouble("reference_manager.terrainHeight",
-                 referenceManager.getTerrainHeight());
+                 referenceManager.getPosSurfaceRtWorldEwrtWorldZ());
 }
 
 absl::Status dumpCentroidal(
@@ -225,7 +226,7 @@ absl::Status dumpCentroidal(
   dump.addSection("interface");
   dump.addMatrix("interface.initialState", interface->getInitialState());
   dump.addDouble("interface.nominalComHeight",
-                 interface->getNominalComHeight());
+                 interface->getNomPosComRtFeetmeanEwrtWorldZ());
   dump.addString("interface.contactInputParameterization",
                  contactInputParameterizationName(
                      interface->contactInputParameterization()));
@@ -242,10 +243,10 @@ absl::Status dumpCentroidal(
   dump.addString("interface.basisGeneratorSet",
                  interface->getBasisGeneratorSet());
   dump.addBool("interface.basisToWrenchMap.has_value",
-               interface->getBasisToWrenchMap().has_value());
-  if (interface->getBasisToWrenchMap().has_value()) {
+               interface->getBasisGeneratorMap().has_value());
+  if (interface->getBasisGeneratorMap().has_value()) {
     dump.addFingerprint("interface.basisToWrenchMap",
-                        *interface->getBasisToWrenchMap());
+                        *interface->getBasisGeneratorMap());
   }
   dump.addStrings("interface.costNames", interface->getCostNames());
   dump.addStrings("interface.terminalCostNames",
@@ -261,11 +262,11 @@ absl::Status dumpCentroidal(
   dump.addBool("interface.locomotionHeuristics.present", heuristics != nullptr);
   if (heuristics != nullptr) {
     dump.addBool("interface.locomotionHeuristics.basePoseEmpty",
-                 heuristics->basePoseEmpty());
+                 heuristics->basePoseHeuristicsEmpty());
     dump.addBool("interface.locomotionHeuristics.footholdEmpty",
                  heuristics->footholdEmpty());
     dump.addBool("interface.locomotionHeuristics.wrenchEmpty",
-                 heuristics->wrenchEmpty());
+                 heuristics->wrenchHeuristicsEmpty());
     dump.addString("interface.locomotionHeuristics.summary",
                    heuristics->summary());
   }

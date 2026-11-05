@@ -88,8 +88,9 @@ def runfile(path: str) -> str:
     return os.path.join(os.path.dirname(__file__), "..", "..", "..", path)
 
 
-def yaw_of(quaternion) -> float:
-    x, y, z, w = quaternion
+def eulerzyx_yaw_of(quat_local_rt_base_xyzw) -> float:
+    """The ZYX yaw of the rotation whose quaternion coefficients are `quat_local_rt_base_xyzw` (x, y, z, w)."""
+    x, y, z, w = quat_local_rt_base_xyzw
     return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
 
@@ -105,34 +106,67 @@ class SmallTreeTest(unittest.TestCase):
         )
         # 0 is outside the slide's limits: the nominal position is the nearest limit.
         self.assertEqual(
-            self.tree.nominal_positions(), {"shoulder": 0.0, "slide": 0.5}
+            self.tree.nominal_joint_positions(), {"shoulder": 0.0, "slide": 0.5}
         )
 
     def test_the_poses_at_the_nominal_positions(self) -> None:
-        poses = self.tree.link_poses(self.tree.nominal_positions())
-        np.testing.assert_allclose(poses["base"][0], (0, 0, 0), atol=1e-12)
-        np.testing.assert_allclose(poses["arm"][0], (1, 0, 0), atol=1e-12)
-        np.testing.assert_allclose(poses["hand"][0], (2.5, 0, 0), atol=1e-12)
-        np.testing.assert_allclose(poses["tool"][0], (2.5, 0, 0.5), atol=1e-12)
-        self.assertAlmostEqual(yaw_of(poses["tool"][1]), math.pi / 2)
-        self.assertAlmostEqual(yaw_of(poses["finger"][1]), 0.1)
+        pose_links_rt_base = self.tree.compute_pose_links_rt_base(
+            self.tree.nominal_joint_positions()
+        )
+        np.testing.assert_allclose(
+            pose_links_rt_base["base"][0], (0, 0, 0), atol=1e-12
+        )
+        np.testing.assert_allclose(
+            pose_links_rt_base["arm"][0], (1, 0, 0), atol=1e-12
+        )
+        np.testing.assert_allclose(
+            pose_links_rt_base["hand"][0], (2.5, 0, 0), atol=1e-12
+        )
+        np.testing.assert_allclose(
+            pose_links_rt_base["tool"][0], (2.5, 0, 0.5), atol=1e-12
+        )
+        self.assertAlmostEqual(
+            eulerzyx_yaw_of(pose_links_rt_base["tool"][1]), math.pi / 2
+        )
+        self.assertAlmostEqual(
+            eulerzyx_yaw_of(pose_links_rt_base["finger"][1]), 0.1
+        )
 
     def test_the_poses_with_the_shoulder_turned(self) -> None:
-        poses = self.tree.link_poses({"shoulder": math.pi / 2, "slide": 0.75})
+        pose_links_rt_base = self.tree.compute_pose_links_rt_base(
+            {"shoulder": math.pi / 2, "slide": 0.75}
+        )
         # The arm turns about its own origin; what hangs on it swings around that origin.
-        np.testing.assert_allclose(poses["arm"][0], (1, 0, 0), atol=1e-12)
-        np.testing.assert_allclose(poses["hand"][0], (1, 1.75, 0), atol=1e-12)
-        np.testing.assert_allclose(poses["tool"][0], (1, 1.75, 0.5), atol=1e-12)
-        self.assertAlmostEqual(yaw_of(poses["arm"][1]), math.pi / 2)
-        self.assertAlmostEqual(abs(yaw_of(poses["tool"][1])), math.pi)
+        np.testing.assert_allclose(
+            pose_links_rt_base["arm"][0], (1, 0, 0), atol=1e-12
+        )
+        np.testing.assert_allclose(
+            pose_links_rt_base["hand"][0], (1, 1.75, 0), atol=1e-12
+        )
+        np.testing.assert_allclose(
+            pose_links_rt_base["tool"][0], (1, 1.75, 0.5), atol=1e-12
+        )
         self.assertAlmostEqual(
-            yaw_of(poses["finger"][1]), math.pi / 2 + math.pi / 4 + 0.1
+            eulerzyx_yaw_of(pose_links_rt_base["arm"][1]), math.pi / 2
+        )
+        self.assertAlmostEqual(
+            abs(eulerzyx_yaw_of(pose_links_rt_base["tool"][1])), math.pi
+        )
+        self.assertAlmostEqual(
+            eulerzyx_yaw_of(pose_links_rt_base["finger"][1]),
+            math.pi / 2 + math.pi / 4 + 0.1,
         )
 
     def test_positions_are_clamped_and_missing_ones_are_nominal(self) -> None:
-        poses = self.tree.link_poses({"slide": 5.0})
-        np.testing.assert_allclose(poses["hand"][0], (3.0, 0, 0), atol=1e-12)
-        np.testing.assert_allclose(poses["arm"][0], (1, 0, 0), atol=1e-12)
+        pose_links_rt_base = self.tree.compute_pose_links_rt_base(
+            {"slide": 5.0}
+        )
+        np.testing.assert_allclose(
+            pose_links_rt_base["hand"][0], (3.0, 0, 0), atol=1e-12
+        )
+        np.testing.assert_allclose(
+            pose_links_rt_base["arm"][0], (1, 0, 0), atol=1e-12
+        )
 
     def test_the_rotation_convention_is_the_bridges(self) -> None:
         # urdf_model.quaternion_from_rpy draws the visuals; the link poses must use the same convention.
@@ -162,19 +196,26 @@ class ShippedRobotTest(unittest.TestCase):
                 self.assertGreater(len(tree.movable_joints()), 10)
                 for joint in tree.movable_joints():
                     self.assertEqual(
-                        joint.clamp(tree.nominal_positions()[joint.name]),
-                        tree.nominal_positions()[joint.name],
+                        joint.clamp(tree.nominal_joint_positions()[joint.name]),
+                        tree.nominal_joint_positions()[joint.name],
                     )
-                positions: dict[str, float] = {
+                joint_positions: dict[str, float] = {
                     joint.name: float(generator.uniform(-3.0, 3.0))
                     for joint in tree.movable_joints()
                 }
-                poses = tree.link_poses(positions)
-                self.assertEqual(set(poses), set(tree.links))
-                for link, (translation, quaternion) in poses.items():
-                    self.assertTrue(np.all(np.isfinite(translation)), link)
+                pose_links_rt_base = tree.compute_pose_links_rt_base(
+                    joint_positions
+                )
+                self.assertEqual(set(pose_links_rt_base), set(tree.links))
+                for link, (
+                    pos_link_rt_base_ewrt_base,
+                    quat_link_rt_base_xyzw,
+                ) in pose_links_rt_base.items():
+                    self.assertTrue(
+                        np.all(np.isfinite(pos_link_rt_base_ewrt_base)), link
+                    )
                     self.assertAlmostEqual(
-                        float(np.linalg.norm(quaternion)), 1.0
+                        float(np.linalg.norm(quat_link_rt_base_xyzw)), 1.0
                     )
                 # A joint moves its child about the joint's own origin: the distance from the parent's origin to
                 # the child's is that of the joint origin, whatever the positions.
@@ -183,7 +224,8 @@ class ShippedRobotTest(unittest.TestCase):
                         continue
                     distance = np.linalg.norm(
                         np.subtract(
-                            poses[joint.child][0], poses[joint.parent][0]
+                            pose_links_rt_base[joint.child][0],
+                            pose_links_rt_base[joint.parent][0],
                         )
                     )
                     self.assertAlmostEqual(

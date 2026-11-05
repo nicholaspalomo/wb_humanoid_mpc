@@ -33,8 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/Types.h"
-
 namespace ocs2::humanoid {
 
 /** Central-difference step and tolerance that every contact term in this

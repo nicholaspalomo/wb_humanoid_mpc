@@ -174,7 +174,7 @@ class BridgeCostTest(unittest.TestCase):
             f" {100.0 * total * 30.0:.1f} % of a core at 30 Hz"
         )
         self.assertEqual(
-            the_bridge.statistics.link_poses_logged,
+            the_bridge.statistics.logged_link_pose_count,
             SCENES * LINK_COUNT * len(scene_contract.ROBOT_INSTANCES)
             + LINK_COUNT * len(scene_contract.ROBOT_INSTANCES),
         )

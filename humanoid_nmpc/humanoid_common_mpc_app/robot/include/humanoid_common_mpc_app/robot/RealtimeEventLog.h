@@ -66,7 +66,8 @@ enum class RealtimeEventCode : uint8_t {
   /**
    * SimFallRecovery caught the robot and runs the settle sequence. detail: the
    * DiscontinuityCause; count: the reset epoch; values: the tilt [rad],
-   * sim_max_base_tilt_angle [rad] and sim_gantry_catch_lift [m].
+   * sim_max_tiltangle_base_rt_world [rad] and
+   * sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z [m].
    */
   kCaughtAndSettling,
   /** SimFallRecovery put the robot in JOINT_PD and resets the controller;

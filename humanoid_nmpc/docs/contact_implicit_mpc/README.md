@@ -102,7 +102,15 @@ assumes the input stores the three force components there. That is true of the w
 `B_local lambda`: the block landed on the first three scalings and was wrong in every entry, while `getValue()` stayed
 correct throughout - which is exactly why nothing caught it. The term now probes the model once at construction
 (`inputJacobianForceContactEwrtParam()` in `contact/ContactInputJacobian.h`, which also backs `inputRowForceContactEwrtParamZ()`) and
-linearizes through the result, so `friction_force_cone` is safe to list in either parameterization.
+linearizes through the result.
+
+The force it bounds also has to be in world axes before the patch rotation `p_R_w` applies. Under
+`BasisInputsModelDecorator`, `getForceContactEwrtParam()` is the force in contact axes, and the cone used to rotate it by
+`p_R_w` alone, which checks the cone in axes that turn with the foot: on a sole pitched by 0.3 rad a vertical world
+force of 600 N read as 177 N of friction, and the state Jacobian was zero. The model now reports its input axes
+(`MpcRobotModelBase::getContactInputFrame()`), and on a contact-frame input the cone evaluates
+`p_R_w w_R_c(q) F_c` with its state Jacobian through `w_R_c(q)`, from the contact frame's LOCAL Jacobian as in
+`ContactWrenchConeConstraint`. With both fixes `friction_force_cone` is safe to list in either parameterization.
 
 Un-gating is not quite enough on its own, because an always-active cone is evaluated on a foot at **zero wrench**, and
 two of the three were not satisfied there:
@@ -225,9 +233,9 @@ ground without lifting them. Three factors cause this:
 
 * the only vertical term left is `task_space_foot_cost.weights.pos_z`, at 150;
 * against it stand the leg-joint entries of `state_weights`, whose reference posture is the standing crouch of
-  `reference.textproto`'s `default_joint_state` - and `nom_pos_base_rt_world_ewrt_world_z` equals the pelvis-to-sole distance at that posture
+  `reference.textproto`'s `default_joint_state` - and `nom_pos_base_rt_surface_ewrt_world_z` equals the pelvis-to-sole distance at that posture
   to five decimals, so the posture prior is literally *the foot on the floor*. Every millimeter of lift is charged
-  against `state_weights` at scaling 85, and the `orientation_x/y` weights of 800 add the ankle's share by insisting the sole stay
+  against `state_weights` at scaling 85, and the `rotvec_x/y` weights of 800 add the ankle's share by insisting the sole stay
   flat. The effective vertical stiffness at the sole is of order 1e4, so the fight is about 100:1 and the static
   equilibrium swing height is a couple of millimeters;
 * and the same leg at that crouch is roughly **eighty times more compliant horizontally than vertically**, so the
@@ -240,7 +248,7 @@ got a vote on swing height. As a soft constraint the same row (`v_z - zdot_ref -
 anything else pays more, which is what a schedule-derived reference should be.
 
 One weight rather than two, deliberately: the hard row combines a velocity feedforward and a position feedback in a
-fixed ratio, and the foot cost cannot reproduce that at ANY pair of `pos_z` / `lin_velocity_z`, because only its
+fixed ratio, and the foot cost cannot reproduce that at ANY pair of `pos_z` / `linvel_z`, because only its
 velocity rows are faded by the impact-proximity factor while its position rows are not. Splitting the servo across two
 differently-faded channels gives a different controller at every point of the swing.
 
@@ -261,7 +269,7 @@ which gives the whole body weight to the schedule's stance feet and none to the 
 `zero_wrench`, and removing it along with the hard one was tried. It does not work:
 spreading the weight over all feet makes the nominal force on the foot that should be in the air half the body weight,
 so R pulls it there, and the complementarity penalty's curvature on that foot's height is
-`complementarity_weight (f_n/f_ref)^2 / height_reference^2` - about 1950 at half body weight, against the 150 of
+`complementarity_weight (f_n/f_ref)^2 / scale_pos_contact_rt_surface_ewrt_world_z^2` - about 1950 at half body weight, against the 150 of
 `task_space_foot_cost.weights.pos_z` trying to lift it. **The foot rises about six millimeters and stops.** With the
 schedule-derived nominal restored, R pulls the swing foot's force towards zero, the complementarity term goes quiet as
 it does, and the swing height reference is free to lift the foot. That nudge is the only asymmetry in an otherwise
@@ -311,7 +319,7 @@ minimum - not a single number, which is easy to get wrong:
 | 1 | a single corner: needs pitch *and* roll at once | `s log 4` = 1.39 mm | 0.187 mm |
 
 The equilibrium column balances the complementarity curvature `C = complementarity_weight * (f_n/f_ref)^2 /
-height_reference^2` = 7812 at full body weight against the hinge of EVERY corner that is down, `k * penetration_weight`
+scale_pos_contact_rt_surface_ewrt_world_z^2` = 7812 at full body weight against the hinge of EVERY corner that is down, `k * penetration_weight`
 with `penetration_weight` = 5e4, so the bias is attenuated by `C / (C + k P)`: 13.8x on an edge, whose two corners both
 resist, and 7.4x on a single corner. Both numbers are below the compliance of any real sole.
 `testFootprintCornerHeights` holds the formula by minimizing the two terms' energy directly.
@@ -354,9 +362,9 @@ a statement about SI units, not about the robot. Each row now carries a referenc
 
 | Field | Meaning |
 | --- | --- |
-| `complementarity_weight` | cost of a foot at `height_reference` carrying full body weight |
+| `complementarity_weight` | cost of a foot at `scale_pos_contact_rt_surface_ewrt_world_z` carrying full body weight |
 | `slip_weight` | cost of a foot sliding at `scale_linvel_contact_rt_world_ewrt_world_xy` under full body weight |
-| `height_reference` | [m] normally `swing_trajectory_config.swing_height` |
+| `scale_pos_contact_rt_surface_ewrt_world_z` | [m] normally `swing_trajectory_config.apex_pos_foot_rt_swingend_ewrt_world_z` |
 | `scale_linvel_contact_rt_world_ewrt_world_xy`, `scale_angvel_contact_rt_world_ewrt_world_z` | [m/s], [rad/s] a slide and a pivot that would already be failures |
 | `penetration_weight` | the one-sided quadratic hinge on `h >= 0`: cost `w h^2 / 2` below the ground, exactly zero on or above it |
 | `gap_smoothing` | [m] the length the footprint corners' minimum height is blended over; see section 3a |
@@ -368,45 +376,45 @@ hot-reloadable. A reload is the whole file: a field the block leaves out takes i
 block holding a value the start-up check would refuse is refused AS A WHOLE with a warning naming the field: the terms
 keep every value they had, while the rest of the file still applies.
 
-Where the ground is is NOT in this block: it is the top-level `terrain_height` of the task file, shared with the swing
+Where the ground is is NOT in this block: it is the top-level `pos_surface_rt_world_ewrt_world_z` of the task file, shared with the swing
 trajectories and the landing targets. There used to be two answers - this block had its own field, while
-`SwitchedModelReferenceManager::adaptToCurrentGroundHeight()` computed an estimate from the stance feet and then
+`SwitchedModelReferenceManager::applyPosSurfaceRtWorldEwrtWorldZ()` computed an estimate from the stance feet and then
 discarded it on the next line, silently returning 0. They agreed only because both were pinned to the same constant.
 
-The reference manager owns the ground from start-up on (`SwitchedModelReferenceManager::setTerrainHeight()`): it builds
-the swing trajectories and the landing targets of the contact planner on it. A hot reload of `terrain_height` hands the
+The reference manager owns the ground from start-up on (`SwitchedModelReferenceManager::setPosSurfaceRtWorldEwrtWorldZ()`): it builds
+the swing trajectories and the landing targets of the contact planner on it. A hot reload of `pos_surface_rt_world_ewrt_world_z` hands the
 new value to the reference manager, which applies it at the next solve, and the updater moves the complementarity and
-penetration terms onto the ground the reference manager applied (`getAppliedTerrainHeight()`) at the start of that same
+penetration terms onto the ground the reference manager applied (`getAppliedPosSurfaceRtWorldEwrtWorldZ()`) at the start of that same
 solve. So the foot references the solver tracks and the two terms never describe two grounds, not even for the one
 solve after the reload. (The updater used to write the new height into the two terms only, and the swing trajectories
 and the landing targets kept the launch value until the next start.) The base-height reference follows the ground as
-well: `nom_pos_base_rt_world_ewrt_world_z` and the commanded pelvis height are heights above it
-(`TargetTrajectoriesCalculatorBase::commandedBaseHeight()`, which in the MPC nodes reads the reference manager's applied
-ground, `getAppliedTerrainHeight()`), and a reload moves the target already in use by the change of the ground, once
-(`SwitchedModelReferenceManager::adaptToCurrentGroundHeight()`).
+well: `nom_pos_base_rt_surface_ewrt_world_z` and the commanded pelvis height are heights above it
+(`TargetTrajectoriesCalculatorBase::computeRefPosBaseRtWorldEwrtWorldZ()`, which in the MPC nodes reads the reference manager's applied
+ground, `getAppliedPosSurfaceRtWorldEwrtWorldZ()`), and a reload moves the target already in use by the change of the ground, once
+(`SwitchedModelReferenceManager::applyPosSurfaceRtWorldEwrtWorldZ()`).
 
 The two residuals are dimensionless and O(1) at their worst case, so `complementarity_weight` and `slip_weight` are
 comparable **with each other**. They are NOT comparable with `task_space_foot_cost.weights`.
 
 `pos_z` multiplies a residual in **meters**, not a normalized one. Its worst case over a swing is the apex,
-`height_reference` = 0.08 m, so the cost it can ever charge is
+`scale_pos_contact_rt_surface_ewrt_world_z` = 0.08 m, so the cost it can ever charge is
 
 ```
-0.5 * pos_z * height_reference^2  =  0.5 * 150 * 0.0064  =  0.48
+0.5 * pos_z * scale_pos_contact_rt_surface_ewrt_world_z^2  =  0.5 * 150 * 0.0064  =  0.48
 ```
 
 against the complementarity term's `0.5 * complementarity_weight * 1 = 25` for a foot at that height carrying full body
 weight. Comparing the raw numbers 150 and 50 suggests the swing reference wins three to one; in cost it loses fifty to
-one. The factor between them is `height_reference^2 = 0.0064`, i.e. **156x**, and it is pure unit mismatch.
+one. The factor between them is `scale_pos_contact_rt_surface_ewrt_world_z^2 = 0.0064`, i.e. **156x**, and it is pure unit mismatch.
 
 Two consequences follow, and they are the ones to tune against:
 
 * For the **break-even load**, holding the foot at the apex costs `0.5 * w_c * (f_n/f_ref)^2`; planting it costs
-  `0.5 * pos_z * height_reference^2`. They cross at `f_n/f_ref = height_reference * sqrt(pos_z / w_c)`, which for the
+  `0.5 * pos_z * scale_pos_contact_rt_surface_ewrt_world_z^2`. They cross at `f_n/f_ref = scale_pos_contact_rt_surface_ewrt_world_z * sqrt(pos_z / w_c)`, which for the
   shipped values is **14% of body weight**. Leak more than that onto the swing foot and landing early is simply the
   cheaper option.
 * For the **curvature on foot height**, the complementarity term contributes
-  `complementarity_weight * (f_n/f_ref)^2 / height_reference^2`, which is 7800 at full body weight but only 150 (level
+  `complementarity_weight * (f_n/f_ref)^2 / scale_pos_contact_rt_surface_ewrt_world_z^2`, which is 7800 at full body weight but only 150 (level
   with `pos_z`) at that same 14%. Quoting the 7800 figure without the load fraction overstates the effect at any
   realistic operating point.
 
@@ -422,7 +430,7 @@ A relaxed log barrier is the wrong object for a unilateral condition whose solut
 which `h >= 0` is for every foot that is carrying the robot. It never reaches zero: with the values that shipped here
 (`mu = 0.1`, `delta = 0.01`) its derivative below `delta` is `mu (h - 2 delta) / delta^2` (`-20` at `h = 0`, and
 negative, i.e. upward, at every height). The only term pulling a foot back down was the complementarity penalty, whose
-gradient in `h` is `C f^2 h` with `C = complementarity_weight / height_reference^2` and `f = f_n / f_ref`. Balancing the
+gradient in `h` is `C f^2 h` with `C = complementarity_weight / scale_pos_contact_rt_surface_ewrt_world_z^2` and `f = f_n / f_ref`. Balancing the
 two, `h = (2 mu / delta) / (C f^2 + mu / delta^2)`:
 
 ```
@@ -436,13 +444,13 @@ has no such equilibrium: it does nothing at all until the foot is actually below
 
 ### Tuning order
 
-1. Check **`terrain_height`** first: log `h` for a foot in stance. If it is not within a few millimeters of zero, the
+1. Check **`pos_surface_rt_world_ewrt_world_z`** first: log `h` for a foot in stance. If it is not within a few millimeters of zero, the
    contact frame sits off the sole and every stance foot carries a permanent residual that no weight can fix - set
-   `terrain_height` to that offset instead. It is hot-reloadable, and moves the swing trajectories and the landing
+   `pos_surface_rt_world_ewrt_world_z` to that offset instead. It is hot-reloadable, and moves the swing trajectories and the landing
    targets with the two terms.
 2. Tune **penetration** (`penetration_weight = 5e4`): a 1 cm penetration then has a restoring gradient of 500, decisively
    above anything that could push a foot down there, while its curvature is the same order as the complementarity
-   term's own (`complementarity_weight / height_reference^2 = 7.8e3`), so it does not degrade the QP's conditioning.
+   term's own (`complementarity_weight / scale_pos_contact_rt_surface_ewrt_world_z^2 = 7.8e3`), so it does not degrade the QP's conditioning.
 3. Tune **complementarity**: watch the normal force on a foot in flight. Raise the weight until it is negligible; if the
    foot starts landing early instead, you have passed `pos_z` and should raise `pos_z` rather than the weight.
 4. Tune **slip** last: watch the tangential velocity of a loaded foot.
@@ -478,9 +486,9 @@ Three things outside the constraint lists have to be right as well, and nothing 
 
 * Something must **hold the feet apart**: `zero_velocity` was what pinned a stance foot in place; without it and
   without a contact planner, nothing has an opinion about where the feet go sideways, and they drift together until
-  the robot falls. Either set `contact_schedule_source: "contact_planner"`, or give `nominal_foothold.step_width` a positive value AND
+  the robot falls. Either set `contact_schedule_source: "contact_planner"`, or give `nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y` a positive value AND
   `task_space_foot_cost.weights.pos_y` a non-zero weight - the nominal foothold is only a target, and `pos_y` is what
-  holds the foot to it. The Atlas ships `step_width: 0.45` with `pos_y: 0`, so the target is computed and then weighted
+  holds the foot to it. The Atlas ships `nom_pos_lfoot_rt_rfoot_ewrt_heading_y: 0.45` with `pos_y: 0`, so the target is computed and then weighted
   by zero; the SA01 ships both at zero.
 * The planner must **hear about the solver's contact choices**: with `contact_schedule_source: "contact_planner"`, list
   `phase_resetting` in `contact_planning.textproto`'s execution rules with a contact source, or the planner keeps planning
@@ -547,7 +555,7 @@ switched on: every field of the block, each set to a value that is neither the s
 every term of every worker's copy of the problem - the weights as the penalties' parameters, the hinge's `delta` still
 0. A block with a zero divisor or a negative weight is refused as a whole with a warning naming the field, while the
 rest of the file applies; a block the reload leaves out, or whose fields it leaves out, is applied at its defaults, as
-at start-up. And a reloaded `terrain_height`, on a problem that has the contact planner as well, reaches the reference
+at start-up. And a reloaded `pos_surface_rt_world_ewrt_world_z`, on a problem that has the contact planner as well, reaches the reference
 manager at once and nothing else, then moves the stance and touch-down height references, the landing targets and both
 terms together at the next solve - or, for an updater given no reference manager, reaches both terms at once.
 

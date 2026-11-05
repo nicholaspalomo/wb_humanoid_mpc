@@ -29,12 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
 #include "absl/strings/string_view.h"
-
-#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
@@ -43,26 +42,26 @@ namespace ocs2::humanoid {
 namespace var {
 std::string footLabel(size_t foot);
 // LIP block (lip_com): states c_x c_y v_x v_y, input zmp_x zmp_y.
-inline constexpr char kComX[] = "c_x";
-inline constexpr char kComY[] = "c_y";
-inline constexpr char kVelX[] = "v_x";
-inline constexpr char kVelY[] = "v_y";
-inline constexpr char kZmpX[] = "zmp_x";
-inline constexpr char kZmpY[] = "zmp_y";
+inline constexpr char kPosComRtWorldEwrtWorldX[] = "c_x";
+inline constexpr char kPosComRtWorldEwrtWorldY[] = "c_y";
+inline constexpr char kLinvelComRtWorldEwrtWorldX[] = "v_x";
+inline constexpr char kLinvelComRtWorldEwrtWorldY[] = "v_y";
+inline constexpr char kPosZmpRtWorldEwrtWorldX[] = "zmp_x";
+inline constexpr char kPosZmpRtWorldEwrtWorldY[] = "zmp_y";
 // Foothold block (foothold_integrator): states p_<foot>x p_<foot>y, inputs
 // dp_<foot>x dp_<foot>y c_<foot>.
-std::string footX(size_t foot);
-std::string footY(size_t foot);
-std::string footDeltaX(size_t foot);
-std::string footDeltaY(size_t foot);
+std::string posFootRtWorldEwrtWorldX(size_t foot);
+std::string posFootRtWorldEwrtWorldY(size_t foot);
+std::string errPosFootRtWorldEwrtWorldX(size_t foot);
+std::string errPosFootRtWorldEwrtWorldY(size_t foot);
 std::string contact(size_t foot);
 // Heading block (heading_double_integrator): states theta omega psi_<foot>,
 // inputs tau_<foot> dpsi_<foot>.
-inline constexpr char kHeading[] = "theta";
-inline constexpr char kHeadingRate[] = "omega";
-std::string footYaw(size_t foot);
-std::string yawTorque(size_t foot);
-std::string footYawDelta(size_t foot);
+inline constexpr char kHeadingModelYaw[] = "theta";
+inline constexpr char kHeadingModelYawRate[] = "omega";
+std::string eulerzyxFootRtWorldYaw(size_t foot);
+std::string torqueFootEwrtWorldZ(size_t foot);
+std::string errEulerzyxFootRtWorldYaw(size_t foot);
 }  // namespace var
 
 /**
@@ -82,33 +81,37 @@ struct Layout {
 
   // Heading block, -1 without it.
   bool hasHeading = false;
-  int heading = -1;        // state: whole-body heading [rad]
-  int headingRate = -1;    // state: heading rate [rad/s]
-  int footYaw0 = -1;       // states: foot yaws, one per foot
-  int yawTorque0 = -1;     // inputs: yaw torque per foot [N m]
-  int footYawDelta0 = -1;  // inputs: foot yaw displacement per foot [rad]
+  int headingModelYaw = -1;              // state: whole-body heading [rad]
+  int headingModelYawRate = -1;          // state: heading rate [rad/s]
+  int startEulerzyxFeetRtWorldYaw = -1;  // states: foot yaws, one per foot
+  int yawTorqueStart = -1;               // inputs: yaw torque per foot [N m]
+  int startErrEulerzyxFeetRtWorldYaw =
+      -1;  // inputs: foot yaw displacement per foot [rad]
   // The three accessors honor the sentinel of the members they read: without
   // the heading block they return -1 for EVERY foot. Plain offset arithmetic
-  // did not, and that was a trap rather than a live bug. With footYaw0 at -1,
-  // footYaw(0) came out as -1 as documented while footYaw(1) came out as 0 - an
-  // in-bounds, valid index that aliases c_x, because LipComDynamics forces the
-  // LIP block to declare its variables first; yawTorque(1) and footYawDelta(1)
-  // likewise aliased zmp_x. Code written against the documented contract, `if
-  // (layout.footYaw(foot) < 0) continue;`, therefore read or wrote the
-  // center-of-mass state of the second foot on any formulation without
-  // heading_double_integrator - which is the shipped EngineAI SA01
-  // configuration - with no error and no crash. Nothing was wrong in production
-  // only because LipIndices::bind, the single caller, worked around the hazard
-  // with its own `hasHeading ? ... : -1`; the guard belongs here, where the
-  // invariant is stated.
-  int footYaw(size_t foot) const {
-    return hasHeading ? footYaw0 + static_cast<int>(foot) : -1;
+  // did not, and that was a trap rather than a live bug. With
+  // startEulerzyxFeetRtWorldYaw at -1, eulerzyxFootRtWorldYaw(0) came out as -1
+  // as documented while eulerzyxFootRtWorldYaw(1) came out as 0 - an in-bounds,
+  // valid index that aliases c_x, because LipComDynamics forces the LIP block
+  // to declare its variables first; torqueFootEwrtWorldZ(1) and
+  // errEulerzyxFootRtWorldYaw(1) likewise aliased zmp_x. Code written against
+  // the documented contract, `if (layout.eulerzyxFootRtWorldYaw(foot) < 0)
+  // continue;`, therefore read or wrote the center-of-mass state of the second
+  // foot on any formulation without heading_double_integrator - which is the
+  // shipped EngineAI SA01 configuration - with no error and no crash. Nothing
+  // was wrong in production only because LipIndices::bind, the single caller,
+  // worked around the hazard with its own `hasHeading ? ... : -1`; the guard
+  // belongs here, where the invariant is stated.
+  int eulerzyxFootRtWorldYaw(size_t foot) const {
+    return hasHeading ? startEulerzyxFeetRtWorldYaw + static_cast<int>(foot)
+                      : -1;
   }
-  int yawTorque(size_t foot) const {
-    return hasHeading ? yawTorque0 + static_cast<int>(foot) : -1;
+  int torqueFootEwrtWorldZ(size_t foot) const {
+    return hasHeading ? yawTorqueStart + static_cast<int>(foot) : -1;
   }
-  int footYawDelta(size_t foot) const {
-    return hasHeading ? footYawDelta0 + static_cast<int>(foot) : -1;
+  int errEulerzyxFootRtWorldYaw(size_t foot) const {
+    return hasHeading ? startErrEulerzyxFeetRtWorldYaw + static_cast<int>(foot)
+                      : -1;
   }
 
   /**

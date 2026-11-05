@@ -61,7 +61,7 @@ namespace {
 /** Where the runner is in the operator's sequence. */
 enum class Phase { kJointPd, kEnteringMpc, kStanding, kCommands };
 
-/** [rad] The fall threshold without a sim_max_base_tilt_angle. */
+/** [rad] The fall threshold without a sim_max_tiltangle_base_rt_world. */
 constexpr double kDefaultMaxBaseTilt = 1.0;
 /** Times within this of each other are the same [s]: the clock is a sum of
  * simulation steps. */
@@ -108,9 +108,9 @@ void appendSqpStepRows(double time,
       stepKindCode(step.fullStepKind), step.fullStepConstraintViolation,
       step.constraintViolation;
   sqpSteps.append(row);
-  if (step.swingNormalVelocityResidual.has_value())
+  if (step.swingNormalVelocityConstraintResidual.has_value())
     swingResiduals.append(
-        Eigen::Vector2d(time, *step.swingNormalVelocityResidual));
+        Eigen::Vector2d(time, *step.swingNormalVelocityConstraintResidual));
 }
 
 }  // namespace
@@ -178,7 +178,7 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
   const double startTime = initialState.getTime();
   const double initialHeight = initialState.getPosBaseRtWorldEwrtWorld().z();
   const double configuredMaxTilt =
-      driver->settings().fallRecovery.maxBaseTiltAngle;
+      driver->settings().fallRecovery.maxTiltangleBaseRtWorld;
   const double maxTilt =
       configuredMaxTilt > 0.0 ? configuredMaxTilt : kDefaultMaxBaseTilt;
   const uint64_t initialResetEpoch = sim.resetEpoch();
@@ -202,11 +202,11 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
   LockstepResult result;
   result.recordedStates.jointNames = description.getJointNames();
   RowCollector seriesTime(/*cols=*/1);
-  RowCollector seriesPosition(/*cols=*/3);
-  RowCollector seriesQuaternion(/*cols=*/4);
-  RowCollector seriesVelocity(/*cols=*/3);
+  RowCollector seriesPosBaseRtWorldEwrtWorld(/*cols=*/3);
+  RowCollector seriesQuatBaseRtWorldXyzw(/*cols=*/4);
+  RowCollector seriesBasePlanarMotion(/*cols=*/3);
   RowCollector seriesReference(/*cols=*/3);
-  RowCollector seriesSolveRotationGap(/*cols=*/2);
+  RowCollector seriesSolveInitialGapAngle(/*cols=*/2);
   RowCollector seriesSolveSqpStep(time_series::kSolveSqpStepColumns);
   RowCollector seriesSolveSwingResidual(
       time_series::kSolveSwingResidualColumns);
@@ -218,7 +218,7 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
   while (true) {
     const robot::model::RobotState& state = sim.getRobotState();
     const double time = state.getTime();
-    const vector4_t baseQuaternion = state.getQuatBaseRtWorld().coeffs();
+    const vector4_t quatBaseRtWorldXyzw = state.getQuatBaseRtWorld().coeffs();
 
     // A fall ends the run. The gantry holds the robot until it is released; a
     // reset by the simulator counts at any time.
@@ -226,7 +226,7 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
     if (sim.resetEpoch() != initialResetEpoch) {
       fallReason = "the simulator reset the robot";
     } else if (phase == Phase::kStanding || phase == Phase::kCommands) {
-      const double tilt = tiltVector(baseQuaternion).norm();
+      const double tilt = tiltVector(quatBaseRtWorldXyzw).norm();
       const double height = state.getPosBaseRtWorldEwrtWorld().z();
       if (tilt > maxTilt) {
         fallReason = absl::StrCat("the base tilted ", tilt, " rad, past ",
@@ -304,11 +304,12 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
         solve.linesearchMs = outcome.linesearchMs;
         solve.computeControllerMs = outcome.computeControllerMs;
         if (gap.has_value()) {
-          solve.initialStateRotationGap = gap->rotation;
+          solve.initialStateGapAngle = gap->angle;
           solve.initialStateGapNorm = gap->norm;
-          seriesSolveRotationGap.append(Eigen::Vector2d(time, gap->rotation));
+          seriesSolveInitialGapAngle.append(Eigen::Vector2d(time, gap->angle));
         }
-        solve.quaternionNormDeviation = driver->maxQuaternionNormDeviation();
+        solve.unitQuaternionNormDeviation =
+            driver->maxUnitQuaternionNormDeviation();
         solve.sqpStep = outcome.sqpStep;
         if (outcome.sqpStep.has_value())
           appendSqpStepRows(time, *outcome.sqpStep, seriesSolveSqpStep,
@@ -370,20 +371,21 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
     // clang-format on
 
     if (inCommands) {
-      Eigen::Quaterniond rotation;
-      rotation.coeffs() = baseQuaternion;
+      Eigen::Quaterniond quatBaseRtWorld;
+      quatBaseRtWorld.coeffs() = quatBaseRtWorldXyzw;
       ControlCycleSample sample;
       sample.time = time;
-      sample.basePosition = state.getPosBaseRtWorldEwrtWorld();
-      sample.baseQuaternion = baseQuaternion;
-      sample.baseLinearVelocityWorld =
-          rotation.normalized() * state.getLinvelBaseRtWorldEwrtBase();
-      sample.baseAngularVelocityLocal = state.getAngvelBaseRtWorldEwrtBase();
-      sample.referenceVelocity = driver->referenceVelocity();
+      sample.posBaseRtWorldEwrtWorld = state.getPosBaseRtWorldEwrtWorld();
+      sample.quatBaseRtWorldXyzw = quatBaseRtWorldXyzw;
+      sample.linvelBaseRtWorldEwrtWorld =
+          quatBaseRtWorld.normalized() * state.getLinvelBaseRtWorldEwrtBase();
+      sample.angvelBaseRtWorldEwrtBase = state.getAngvelBaseRtWorldEwrtBase();
+      sample.refVelocityCommand = driver->refVelocityCommand();
       sample.referenceBaseHeight =
           driver->referenceBaseHeight(clampGuiVelocityMessage(gui.message)(2));
-      sample.contactPositions =
-          driver->contactPositions(driver->currentObservation());
+      sample.posContactsRtWorldEwrtWorld =
+          driver->computePosContactsRtWorldEwrtWorld(
+              driver->currentObservation());
       const std::vector<bool> contacts = sim.getGroundTruthContactFlags();
       for (size_t contact = 0; contact < 2 && contact < contacts.size();
            ++contact)
@@ -401,13 +403,14 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
       if (time + kTimeTolerance >= nextSeriesTime) {
         nextSeriesTime = time + seriesPeriod - kTimeTolerance;
         seriesTime.append(Eigen::VectorXd::Constant(/*size=*/1, time));
-        seriesPosition.append(sample.basePosition);
-        seriesQuaternion.append(sample.baseQuaternion);
-        seriesVelocity.append(Eigen::Vector3d(
-            sample.baseLinearVelocityWorld.x(),
-            sample.baseLinearVelocityWorld.y(),
-            (rotation.normalized() * sample.baseAngularVelocityLocal).z()));
-        seriesReference.append(sample.referenceVelocity);
+        seriesPosBaseRtWorldEwrtWorld.append(sample.posBaseRtWorldEwrtWorld);
+        seriesQuatBaseRtWorldXyzw.append(sample.quatBaseRtWorldXyzw);
+        seriesBasePlanarMotion.append(Eigen::Vector3d(
+            sample.linvelBaseRtWorldEwrtWorld.x(),
+            sample.linvelBaseRtWorldEwrtWorld.y(),
+            (quatBaseRtWorld.normalized() * sample.angvelBaseRtWorldEwrtBase)
+                .z()));
+        seriesReference.append(sample.refVelocityCommand);
       }
     }
 
@@ -474,13 +477,14 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
   result.timeSeries.provenance.notes.emplace_back("scenario", scenario.name);
   result.timeSeries.entries = {
       {time_series::kTime, seriesTime.matrix()},
-      {time_series::kBasePosition, seriesPosition.matrix()},
-      {time_series::kBaseQuaternion, seriesQuaternion.matrix()},
-      {time_series::kBaseVelocity, seriesVelocity.matrix()},
-      {time_series::kReferenceVelocity, seriesReference.matrix()},
-      {time_series::kSolveRotationGap, seriesSolveRotationGap.matrix()},
+      {time_series::kPosBaseRtWorldEwrtWorld,
+       seriesPosBaseRtWorldEwrtWorld.matrix()},
+      {time_series::kQuatBaseRtWorldXyzw, seriesQuatBaseRtWorldXyzw.matrix()},
+      {time_series::kBasePlanarMotion, seriesBasePlanarMotion.matrix()},
+      {time_series::kRefVelocityCommand, seriesReference.matrix()},
+      {time_series::kSolveInitialGapAngle, seriesSolveInitialGapAngle.matrix()},
       {time_series::kSolveSqpStep, seriesSolveSqpStep.matrix()},
-      {time_series::kSolveSwingNormalVelocityResidual,
+      {time_series::kSolveSwingNormalVelocityConstraintResidual,
        seriesSolveSwingResidual.matrix()}};
   result.finalObservationState = driver->currentObservation().state;
   return result;
@@ -490,7 +494,7 @@ absl::StatusOr<Eigen::VectorXd> jointFeedbackTorques(
     const robot::model::RobotJointAction& action,
     const robot::model::RobotState& state,
     absl::Span<const robot::joint_index_t> joints) {
-  Eigen::VectorXd torques(static_cast<Eigen::Index>(joints.size()));
+  Eigen::VectorXd jointTorques(static_cast<Eigen::Index>(joints.size()));
   for (size_t i = 0; i < joints.size(); ++i) {
     const std::optional<robot::model::JointAction>& jointAction =
         action[joints[i]];
@@ -499,12 +503,12 @@ absl::StatusOr<Eigen::VectorXd> jointFeedbackTorques(
           "[LockstepClosedLoop] the controller commanded no action for joint ",
           joints[i]));
     }
-    torques(static_cast<Eigen::Index>(i)) =
+    jointTorques(static_cast<Eigen::Index>(i)) =
         jointAction->getTotalFeedbackJointTorque(
             state.getJointPosition(joints[i]),
             state.getJointVelocity(joints[i]));
   }
-  return torques;
+  return jointTorques;
 }
 
 }  // namespace ocs2::humanoid::validation

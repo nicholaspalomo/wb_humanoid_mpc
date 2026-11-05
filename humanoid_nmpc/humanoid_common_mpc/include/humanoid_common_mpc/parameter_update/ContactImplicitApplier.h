@@ -58,11 +58,12 @@ namespace ocs2::humanoid {
  * It also keeps the complementarity and penetration terms on the ground the
  * reference manager applied: before every solve (beforeEverySolve(), which runs
  * right after the reference manager's own preSolverRun()), the terms move onto
- * getAppliedTerrainHeight() when it has moved, so a reloaded terrain_height
- * (ReferenceManagerApplier) reaches them in the very solve whose swing
- * trajectories and landing targets were built on it. Without a reference
- * manager there are no references to agree with, and ReferenceManagerApplier
- * sets the terms at once (setContactImplicitTermsTerrainHeight()).
+ * getAppliedPosSurfaceRtWorldEwrtWorldZ() when it has moved, so a reloaded
+ * pos_surface_rt_world_ewrt_world_z (ReferenceManagerApplier) reaches them in
+ * the very solve whose swing trajectories and landing targets were built on it.
+ * Without a reference manager there are no references to agree with, and
+ * ReferenceManagerApplier sets the terms at once
+ * (setContactImplicitTermsPosSurfaceRtWorldEwrtWorldZ()).
  *
  * Not thread-safe (HotFieldApplier).
  */
@@ -95,19 +96,19 @@ class ContactImplicitApplier final : public HotFieldApplier {
   std::vector<std::string> contactNames_;
   /// [m] The ground the terms were last set to by beforeEverySolve(); empty
   /// until the first one with a reference manager.
-  std::optional<scalar_t> termsTerrainHeight_;
+  std::optional<scalar_t> termsPosSurfaceRtWorldEwrtWorldZ_;
 };
 
 /**
  * Sets the terrain height of the complementarity and penetration terms of every
- * foot of `contactNames` in every problem of `problems` to `terrainHeight`: the
- * two terms are a pair - one says a foot may not carry load above the ground,
- * the other that it may not go below it - so they always move together. A
- * problem without them is left alone.
+ * foot of `contactNames` in every problem of `problems` to
+ * `posSurfaceRtWorldEwrtWorldZ`: the two terms are a pair - one says a foot may
+ * not carry load above the ground, the other that it may not go below it - so
+ * they always move together. A problem without them is left alone.
  */
-void setContactImplicitTermsTerrainHeight(
+void setContactImplicitTermsPosSurfaceRtWorldEwrtWorldZ(
     std::vector<OptimalControlProblem>& problems,
     const std::vector<std::string>& contactNames,
-    scalar_t terrainHeight);
+    scalar_t posSurfaceRtWorldEwrtWorldZ);
 
 }  // namespace ocs2::humanoid

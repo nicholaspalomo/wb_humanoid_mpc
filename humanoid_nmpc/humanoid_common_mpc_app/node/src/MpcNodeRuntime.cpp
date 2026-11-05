@@ -81,7 +81,7 @@ robot::realtime::RealtimeThreadConfig defaultSolverThreadConfig(
 absl::Status applyWalkingVelocityCommand(
     const humanoid_mpc_msgs::WalkingVelocityCommand& message,
     ProceduralMpcMotionManager& motionManager) {
-  ASSIGN_OR_RETURN(const WalkingVelocityCommand command,
+  ASSIGN_OR_RETURN(const NormalizedWalkingVelocityCommand command,
                    walkingVelocityCommandFromProto(message));
   motionManager.setAndScaleVelocityCommand(command);
   return absl::OkStatus();
@@ -130,11 +130,12 @@ absl::StatusOr<std::unique_ptr<MpcNodeRuntime>> MpcNodeRuntime::Create(
         const WalkingVelocityCommand scaledCommand =
             motionManager->getScaledWalkingVelocityCommand();
         if (planner != nullptr) {
-          const feet_array_t<TargetContactPose> poses =
-              planner->getTargetContactPoses();
-          fillViewerAnnotations(&poses, scaledCommand, annotations);
+          const feet_array_t<TargetContactPose> desPoseFeetRtWorld =
+              planner->getDesPoseFeetRtWorld();
+          fillViewerAnnotations(&desPoseFeetRtWorld, scaledCommand,
+                                annotations);
         } else {
-          fillViewerAnnotations(/*targetContactPoses=*/nullptr, scaledCommand,
+          fillViewerAnnotations(/*desPoseFeetRtWorld=*/nullptr, scaledCommand,
                                 annotations);
         }
         return absl::OkStatus();
@@ -194,8 +195,8 @@ absl::Status MpcNodeRuntime::subscribeOperatorInputs(
               return;
             }
             counters->lastWalkingCommandTime = std::chrono::steady_clock::now();
-            counters->lastPelvisHeight =
-                message.cmd_pos_base_rt_world_ewrt_world_z();
+            counters->prevCmdPosBaseRtSurfaceEwrtWorldZ =
+                message.cmd_pos_base_rt_surface_ewrt_world_z();
             counters->walkingCommandTimedOut = false;
           };
   RETURN_IF_ERROR(bus_->subscribe<humanoid_mpc_msgs::WalkingVelocityCommand>(
@@ -255,7 +256,8 @@ absl::Status MpcNodeRuntime::addWalkingCommandWatchdog(
             maxAge)
           return;
         humanoid_mpc_msgs::WalkingVelocityCommand stop;
-        stop.set_cmd_pos_base_rt_world_ewrt_world_z(counters->lastPelvisHeight);
+        stop.set_cmd_pos_base_rt_surface_ewrt_world_z(
+            counters->prevCmdPosBaseRtSurfaceEwrtWorldZ);
         // The last command converted, so its pelvis height does; the zero
         // velocities always do.
         applyWalkingVelocityCommand(stop, *motionManager).IgnoreError();

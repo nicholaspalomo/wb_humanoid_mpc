@@ -28,7 +28,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <sched.h>
-#include <unistd.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -67,6 +66,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/viewer/WebViewerOptions.h"
 #include "robot_runtime/mujoco_sim_interface/test/ViewerTestSupport.h"
 #include "robot_runtime/mujoco_sim_interface/test/WebViewerTestClient.h"
+#include "web_viewer/EncodedFrame.h"
 #include "web_viewer/JpegDecoder.h"
 #include "web_viewer/ViewerThreadPriority.h"
 
@@ -219,17 +219,20 @@ TEST(WebMujocoViewer, ADragTurnsTheCameraAndTheNextFrameDiffers) {
   ASSERT_GT(port, 0);
   const HttpReply before = httpGet(port, "/frame.jpg");
   ASSERT_EQ(before.status, 200);
-  const std::optional<double> azimuth =
+  const std::optional<double> initAzimuthCamfocusRtCamEwrtWorld =
       jsonNumberField(httpGet(port, "/state").body, "azimuth");
-  ASSERT_TRUE(azimuth.has_value());
+  ASSERT_TRUE(initAzimuthCamfocusRtCamEwrtWorld.has_value());
 
   ASSERT_EQ(httpPost(port, "/input?type=drag&button=left&shift=0&dx=0.25&dy=0")
                 .status,
             204);
   const std::string state = awaitState(port, [&](const std::string& body) {
-    return jsonNumberField(body, "azimuth") != azimuth;
+    return jsonNumberField(body, "azimuth") !=
+           initAzimuthCamfocusRtCamEwrtWorld;
   });
-  EXPECT_NE(jsonNumberField(state, "azimuth"), azimuth) << state;
+  EXPECT_NE(jsonNumberField(state, "azimuth"),
+            initAzimuthCamfocusRtCamEwrtWorld)
+      << state;
   // The physics does not run, so only the camera can change the picture.
   const HttpReply after = httpGet(
       port, absl::StrCat("/frame.jpg?after=", before.frameSequence + 1));
@@ -514,8 +517,9 @@ TEST(WebMujocoViewer, IsDestroyedPromptlyWithAStreamOpen) {
   ASSERT_THAT(viewer->start(), IsOk());
   MjpegStreamTestClient stream(viewer->port().value_or(0));
   const absl::Time deadline = absl::Now() + absl::Seconds(5);
-  while (stream.bytesReceived() < 10'000 && absl::Now() < deadline)
+  while (stream.bytesReceived() < 10'000 && absl::Now() < deadline) {
     absl::SleepFor(absl::Milliseconds(10));
+  }
   ASSERT_GE(stream.bytesReceived(), 10'000) << "the stream delivered no frame";
   const absl::Time begin = absl::Now();
   viewer.reset();
@@ -560,9 +564,10 @@ std::string threadName(int tid) {
 TEST(WebMujocoViewerPlacement,
      EveryThreadItStartsRunsOnItsCoresUnderSchedIdle) {
   const std::vector<int> allowed = threadCores(/*tid=*/0);
-  if (allowed.size() < 2)
+  if (allowed.size() < 2) {
     GTEST_SKIP() << "needs two allowed cores, the process has "
                  << allowed.size();
+  }
   const std::vector<int> cores = {allowed[allowed.size() - 2],
                                   allowed[allowed.size() - 1]};
 
@@ -581,8 +586,9 @@ TEST(WebMujocoViewerPlacement,
 
   std::vector<int> started;
   for (const int tid : processThreadIds()) {
-    if (!std::binary_search(before.begin(), before.end(), tid))
+    if (!std::binary_search(before.begin(), before.end(), tid)) {
       started.push_back(tid);
+    }
   }
   EXPECT_GE(started.size(), 3U)
       << "the render thread, the listen thread and the request pool";
@@ -606,8 +612,9 @@ TEST(WebMujocoViewerPlacement,
   }
   int lpNumThreads = 0;
   const char* absl_nullable configured = std::getenv("LP_NUM_THREADS");
-  if (configured != nullptr && !absl::SimpleAtoi(configured, &lpNumThreads))
+  if (configured != nullptr && !absl::SimpleAtoi(configured, &lpNumThreads)) {
     lpNumThreads = 0;
+  }
   EXPECT_LE(llvmpipeThreads,
             std::max(lpNumThreads, static_cast<int>(cores.size())));
 }

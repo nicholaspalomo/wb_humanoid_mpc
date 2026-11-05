@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
@@ -57,7 +58,7 @@ namespace {
 
 TEST(CostTermAndLibraryNames, TheDcmTerminalCostKeepsItsTermAndLibraryNames) {
   EXPECT_EQ(absl::string_view(DcmTerminalCost::kTermName), "dcmTerminalCost");
-  // The library is "dcmTerminalCost_p11" (DcmTerminalCost.cpp appends its
+  // The library is "dcmTerminalCost_p12" (DcmTerminalCost.cpp appends its
   // parameter count).
   EXPECT_EQ(absl::string_view(DcmTerminalCost::kLibraryName),
             "dcmTerminalCost");

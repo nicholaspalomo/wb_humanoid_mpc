@@ -12,19 +12,19 @@ links {
   name: "pelvis"
   parent_joint: "root_joint"
   mjcf_body: "pelvis"
-  box { center: [-0.02, 0, 0.01] half_extents: [0.12, 0.15, 0.08] }
+  box { pos_box_rt_link_ewrt_link: [-0.02, 0, 0.01] half_extents: [0.12, 0.15, 0.08] }
 }
 links {
   name: "utorso"
   parent_joint: "back_bkx"
   mjcf_body: "utorso"
-  box { center: [-0.04, 0, 0.30] half_extents: [0.18, 0.22, 0.30] }
+  box { pos_box_rt_link_ewrt_link: [-0.04, 0, 0.30] half_extents: [0.18, 0.22, 0.30] }
 }
 links {
   name: "head"
   parent_joint: "neck_ry"
   mjcf_body: "head"
-  spheres { spheres { center: [-0.05, 0, 0.05] radius: 0.10 } }
+  spheres { spheres { pos_sphere_rt_link_ewrt_link: [-0.05, 0, 0.05] radius: 0.10 } }
 }
 
 # The arms: the upper arm, the long forearm segment (l_larm, which carries forearm_l_contact), the short segment after
@@ -33,49 +33,49 @@ links {
   name: "l_uarm"
   parent_joint: "l_arm_ely"
   mjcf_body: "l_uarm"
-  capsule { start: [0, 0, 0] end: [0, -0.13, 0] radius: 0.04 }
+  capsule { pos_capsulestart_rt_link_ewrt_link: [0, 0, 0] pos_capsuleend_rt_link_ewrt_link: [0, -0.13, 0] radius: 0.04 }
 }
 links {
   name: "l_larm"
   parent_joint: "l_arm_elx"
   mjcf_body: "l_larm"
-  capsule { start: [0, 0, 0] end: [0, 0.10, 0] radius: 0.04 }
+  capsule { pos_capsulestart_rt_link_ewrt_link: [0, 0, 0] pos_capsuleend_rt_link_ewrt_link: [0, 0.10, 0] radius: 0.04 }
 }
 links {
   name: "l_farm"
   parent_joint: "l_arm_wry"
   mjcf_body: "l_farm"
-  capsule { start: [0, 0, 0] end: [0, -0.10, 0] radius: 0.035 }
+  capsule { pos_capsulestart_rt_link_ewrt_link: [0, 0, 0] pos_capsuleend_rt_link_ewrt_link: [0, -0.10, 0] radius: 0.035 }
 }
 links {
   name: "l_hand"
   parent_joint: "l_arm_wrx"
   mjcf_body: "l_hand"
-  spheres { spheres { center: [0, 0, 0] radius: 0.04 } }
+  spheres { spheres { pos_sphere_rt_link_ewrt_link: [0, 0, 0] radius: 0.04 } }
 }
 links {
   name: "r_uarm"
   parent_joint: "r_arm_ely"
   mjcf_body: "r_uarm"
-  capsule { start: [0, 0, 0] end: [0, 0.13, 0] radius: 0.04 }
+  capsule { pos_capsulestart_rt_link_ewrt_link: [0, 0, 0] pos_capsuleend_rt_link_ewrt_link: [0, 0.13, 0] radius: 0.04 }
 }
 links {
   name: "r_larm"
   parent_joint: "r_arm_elx"
   mjcf_body: "r_larm"
-  capsule { start: [0, 0, 0] end: [0, -0.10, 0] radius: 0.04 }
+  capsule { pos_capsulestart_rt_link_ewrt_link: [0, 0, 0] pos_capsuleend_rt_link_ewrt_link: [0, -0.10, 0] radius: 0.04 }
 }
 links {
   name: "r_farm"
   parent_joint: "r_arm_wry"
   mjcf_body: "r_farm"
-  capsule { start: [0, 0, 0] end: [0, 0.10, 0] radius: 0.035 }
+  capsule { pos_capsulestart_rt_link_ewrt_link: [0, 0, 0] pos_capsuleend_rt_link_ewrt_link: [0, 0.10, 0] radius: 0.035 }
 }
 links {
   name: "r_hand"
   parent_joint: "r_arm_wrx"
   mjcf_body: "r_hand"
-  spheres { spheres { center: [0, 0, 0] radius: 0.04 } }
+  spheres { spheres { pos_sphere_rt_link_ewrt_link: [0, 0, 0] radius: 0.04 } }
 }
 
 # The legs: the thigh (thigh_l_contact), the shin (knee_l_contact) and the four corner spheres of the sole.
@@ -83,46 +83,46 @@ links {
   name: "l_uleg"
   parent_joint: "l_leg_hpy"
   mjcf_body: "l_uleg"
-  capsule { start: [0, 0, 0] end: [-0.05, 0, -0.37] radius: 0.06 }
+  capsule { pos_capsulestart_rt_link_ewrt_link: [0, 0, 0] pos_capsuleend_rt_link_ewrt_link: [-0.05, 0, -0.37] radius: 0.06 }
 }
 links {
   name: "l_lleg"
   parent_joint: "l_leg_kny"
   mjcf_body: "l_lleg"
-  capsule { start: [0, 0, 0] end: [0, 0, -0.42] radius: 0.055 }
+  capsule { pos_capsulestart_rt_link_ewrt_link: [0, 0, 0] pos_capsuleend_rt_link_ewrt_link: [0, 0, -0.42] radius: 0.055 }
 }
 links {
   name: "l_foot"
   parent_joint: "l_leg_akx"
   mjcf_body: "l_foot"
   spheres {
-    spheres { center: [-0.08, 0.055, -0.07] radius: 0.012 }
-    spheres { center: [-0.08, -0.055, -0.07] radius: 0.012 }
-    spheres { center: [0.16, 0.055, -0.07] radius: 0.012 }
-    spheres { center: [0.16, -0.055, -0.07] radius: 0.012 }
+    spheres { pos_sphere_rt_link_ewrt_link: [-0.08, 0.055, -0.07] radius: 0.012 }
+    spheres { pos_sphere_rt_link_ewrt_link: [-0.08, -0.055, -0.07] radius: 0.012 }
+    spheres { pos_sphere_rt_link_ewrt_link: [0.16, 0.055, -0.07] radius: 0.012 }
+    spheres { pos_sphere_rt_link_ewrt_link: [0.16, -0.055, -0.07] radius: 0.012 }
   }
 }
 links {
   name: "r_uleg"
   parent_joint: "r_leg_hpy"
   mjcf_body: "r_uleg"
-  capsule { start: [0, 0, 0] end: [-0.05, 0, -0.37] radius: 0.06 }
+  capsule { pos_capsulestart_rt_link_ewrt_link: [0, 0, 0] pos_capsuleend_rt_link_ewrt_link: [-0.05, 0, -0.37] radius: 0.06 }
 }
 links {
   name: "r_lleg"
   parent_joint: "r_leg_kny"
   mjcf_body: "r_lleg"
-  capsule { start: [0, 0, 0] end: [0, 0, -0.42] radius: 0.055 }
+  capsule { pos_capsulestart_rt_link_ewrt_link: [0, 0, 0] pos_capsuleend_rt_link_ewrt_link: [0, 0, -0.42] radius: 0.055 }
 }
 links {
   name: "r_foot"
   parent_joint: "r_leg_akx"
   mjcf_body: "r_foot"
   spheres {
-    spheres { center: [-0.08, 0.055, -0.07] radius: 0.012 }
-    spheres { center: [-0.08, -0.055, -0.07] radius: 0.012 }
-    spheres { center: [0.16, 0.055, -0.07] radius: 0.012 }
-    spheres { center: [0.16, -0.055, -0.07] radius: 0.012 }
+    spheres { pos_sphere_rt_link_ewrt_link: [-0.08, 0.055, -0.07] radius: 0.012 }
+    spheres { pos_sphere_rt_link_ewrt_link: [-0.08, -0.055, -0.07] radius: 0.012 }
+    spheres { pos_sphere_rt_link_ewrt_link: [0.16, 0.055, -0.07] radius: 0.012 }
+    spheres { pos_sphere_rt_link_ewrt_link: [0.16, -0.055, -0.07] radius: 0.012 }
   }
 }
 

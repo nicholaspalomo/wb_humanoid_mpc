@@ -33,7 +33,7 @@
 
 Hold a key to command: the arrow keys walk (up/down forward and back, left/right sideways), `a` and `d` turn, `w` and
 `s` raise and lower the pelvis height target by 1 cm per tick, which starts at the reference file's
-nom_pos_base_rt_world_ewrt_world_z. Releasing every key stops the robot. Publishes operator/walking_velocity_command as the `teleop`
+nom_pos_base_rt_surface_ewrt_world_z. Releasing every key stops the robot. Publishes operator/walking_velocity_command as the `teleop`
 node at the topic's 25 Hz; Ctrl-C ends it, sends the stop command (zero velocities, the pelvis height kept), since the
 MPC keeps the last command it received, and restores the terminal.
 
@@ -100,76 +100,108 @@ class KeyboardCommand:
 
     Every tick applies the key that arrived (None when none did): each key commands one thing and releases the others,
     and no key releases everything, so that the robot stops when the operator lets go. The pelvis height target is the
-    one thing that stays, moving by `pelvis_height_step` per tick of `w` or `s`.
+    one thing that stays, moving by `cmd_step_pos_base_rt_surface_ewrt_world_z` per tick of `w` or `s`.
     """
 
     def __init__(
         self,
-        max_vel_x: float = 1.0,
-        max_vel_y: float = 1.0,
-        max_vel_yaw: float = 1.0,
-        pelvis_height: float = 0.8,
-        min_pelvis_height: float = 0.2,
-        max_pelvis_height: float = 1.0,
-        pelvis_height_step: float = 0.01,
+        cmd_max_lnorm_linvel_base_rt_world_ewrt_heading_x: float = 1.0,
+        cmd_max_lnorm_linvel_base_rt_world_ewrt_heading_y: float = 1.0,
+        cmd_max_lnorm_angvel_base_rt_world_ewrt_world_z: float = 1.0,
+        cmd_pos_base_rt_surface_ewrt_world_z: float = 0.8,
+        cmd_min_pos_base_rt_surface_ewrt_world_z: float = 0.2,
+        cmd_max_pos_base_rt_surface_ewrt_world_z: float = 1.0,
+        cmd_step_pos_base_rt_surface_ewrt_world_z: float = 0.01,
     ) -> None:
-        self.max_vel_x = max_vel_x
-        self.max_vel_y = max_vel_y
-        self.max_vel_yaw = max_vel_yaw
-        self.min_pelvis_height = min_pelvis_height
-        self.max_pelvis_height = max_pelvis_height
-        self.pelvis_height_step = pelvis_height_step
-        self.pelvis_height = clamp(
-            pelvis_height, min_pelvis_height, max_pelvis_height
+        self.cmd_max_lnorm_linvel_base_rt_world_ewrt_heading_x = (
+            cmd_max_lnorm_linvel_base_rt_world_ewrt_heading_x
         )
-        self.x_vel = 0.0
-        self.y_vel = 0.0
-        self.yaw_vel = 0.0
+        self.cmd_max_lnorm_linvel_base_rt_world_ewrt_heading_y = (
+            cmd_max_lnorm_linvel_base_rt_world_ewrt_heading_y
+        )
+        self.cmd_max_lnorm_angvel_base_rt_world_ewrt_world_z = (
+            cmd_max_lnorm_angvel_base_rt_world_ewrt_world_z
+        )
+        self.cmd_min_pos_base_rt_surface_ewrt_world_z = (
+            cmd_min_pos_base_rt_surface_ewrt_world_z
+        )
+        self.cmd_max_pos_base_rt_surface_ewrt_world_z = (
+            cmd_max_pos_base_rt_surface_ewrt_world_z
+        )
+        self.cmd_step_pos_base_rt_surface_ewrt_world_z = (
+            cmd_step_pos_base_rt_surface_ewrt_world_z
+        )
+        self.cmd_pos_base_rt_surface_ewrt_world_z = clamp(
+            cmd_pos_base_rt_surface_ewrt_world_z,
+            cmd_min_pos_base_rt_surface_ewrt_world_z,
+            cmd_max_pos_base_rt_surface_ewrt_world_z,
+        )
+        self.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x = 0.0
+        self.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y = 0.0
+        self.cmd_lnorm_angvel_base_rt_world_ewrt_world_z = 0.0
 
     def apply(
         self, key: str | None
     ) -> walking_velocity_command_pb2.WalkingVelocityCommand:
         """Applies one tick's key (None: no key) and returns the command to publish."""
-        self.x_vel = 0.0
-        self.y_vel = 0.0
-        self.yaw_vel = 0.0
-        height_change = 0.0
+        self.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x = 0.0
+        self.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y = 0.0
+        self.cmd_lnorm_angvel_base_rt_world_ewrt_world_z = 0.0
+        cmd_err_pos_base_rt_surface_ewrt_world_z = 0.0
         if key == KEY_UP:
-            self.x_vel = self.max_vel_x
+            self.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x = (
+                self.cmd_max_lnorm_linvel_base_rt_world_ewrt_heading_x
+            )
         elif key == KEY_DOWN:
-            self.x_vel = -self.max_vel_x
+            self.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x = (
+                -self.cmd_max_lnorm_linvel_base_rt_world_ewrt_heading_x
+            )
         elif key == KEY_RIGHT:
-            self.y_vel = -self.max_vel_y
+            self.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y = (
+                -self.cmd_max_lnorm_linvel_base_rt_world_ewrt_heading_y
+            )
         elif key == KEY_LEFT:
-            self.y_vel = self.max_vel_y
+            self.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y = (
+                self.cmd_max_lnorm_linvel_base_rt_world_ewrt_heading_y
+            )
         elif key == "a":
-            self.yaw_vel = self.max_vel_yaw
+            self.cmd_lnorm_angvel_base_rt_world_ewrt_world_z = (
+                self.cmd_max_lnorm_angvel_base_rt_world_ewrt_world_z
+            )
         elif key == "d":
-            self.yaw_vel = -self.max_vel_yaw
+            self.cmd_lnorm_angvel_base_rt_world_ewrt_world_z = (
+                -self.cmd_max_lnorm_angvel_base_rt_world_ewrt_world_z
+            )
         elif key == "w":
-            height_change = self.pelvis_height_step
+            cmd_err_pos_base_rt_surface_ewrt_world_z = (
+                self.cmd_step_pos_base_rt_surface_ewrt_world_z
+            )
         elif key == "s":
-            height_change = -self.pelvis_height_step
-        self.pelvis_height = clamp(
-            self.pelvis_height + height_change,
-            self.min_pelvis_height,
-            self.max_pelvis_height,
+            cmd_err_pos_base_rt_surface_ewrt_world_z = (
+                -self.cmd_step_pos_base_rt_surface_ewrt_world_z
+            )
+        self.cmd_pos_base_rt_surface_ewrt_world_z = clamp(
+            self.cmd_pos_base_rt_surface_ewrt_world_z
+            + cmd_err_pos_base_rt_surface_ewrt_world_z,
+            self.cmd_min_pos_base_rt_surface_ewrt_world_z,
+            self.cmd_max_pos_base_rt_surface_ewrt_world_z,
         )
         return self.command()
 
     def command(self) -> walking_velocity_command_pb2.WalkingVelocityCommand:
         return operator_bus.walking_velocity_command(
-            cmd_linvel_base_rt_world_ewrt_heading_x=self.x_vel,
-            cmd_linvel_base_rt_world_ewrt_heading_y=self.y_vel,
-            cmd_angvel_base_rt_world_ewrt_world_z=self.yaw_vel,
-            cmd_pos_base_rt_world_ewrt_world_z=self.pelvis_height,
+            cmd_lnorm_linvel_base_rt_world_ewrt_heading_x=self.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x,
+            cmd_lnorm_linvel_base_rt_world_ewrt_heading_y=self.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y,
+            cmd_lnorm_angvel_base_rt_world_ewrt_world_z=self.cmd_lnorm_angvel_base_rt_world_ewrt_world_z,
+            cmd_pos_base_rt_surface_ewrt_world_z=self.cmd_pos_base_rt_surface_ewrt_world_z,
         )
 
     def status_line(self) -> str:
         return (
-            f"Command: x={self.x_vel:+.2f}, y={self.y_vel:+.2f},"
-            f" yaw={self.yaw_vel:+.2f}, pelvis"
-            f" height={self.pelvis_height:.2f} m"
+            f"Command: x={self.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x:+.2f},"
+            f" y={self.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y:+.2f},"
+            f" yaw={self.cmd_lnorm_angvel_base_rt_world_ewrt_world_z:+.2f}, pelvis"
+            f" height={self.cmd_pos_base_rt_surface_ewrt_world_z:.2f} m"
         )
 
 
@@ -265,7 +297,9 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, lambda signum, frame: stop.set())
 
     state = KeyboardCommand(
-        pelvis_height=teleop.initial_pelvis_height(args.reference_file)
+        cmd_pos_base_rt_surface_ewrt_world_z=teleop.read_init_cmd_pos_base_rt_surface_ewrt_world_z(
+            args.reference_file
+        )
     )
     publisher = teleop.connect_walking_command_publisher(
         args.network_config, args.ipc_node
@@ -279,7 +313,10 @@ def main(argv: list[str] | None = None) -> int:
                 state=state,
             )
             teleop.publish_until_stopped(
-                publisher, node.tick, stop, lambda: state.pelvis_height
+                publisher,
+                node.tick,
+                stop,
+                lambda: state.cmd_pos_base_rt_surface_ewrt_world_z,
             )
     finally:
         # publish_until_stopped() has closed the bus; a failure before it leaves it to close here.

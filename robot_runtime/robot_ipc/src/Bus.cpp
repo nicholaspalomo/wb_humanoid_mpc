@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <chrono>
 #include <climits>
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <functional>
@@ -47,15 +48,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/time/time.h"
 #include "dds/dds.h"
+#include "google/protobuf/message.h"
 
+#include "robot_ipc/BusOptions.h"
+#include "robot_ipc/Delivery.h"
 #include "robot_ipc/DomainConfig.h"
+#include "robot_ipc/NetworkConfig.h"
 #include "robot_ipc/QosProfile.h"
+#include "robot_ipc/TopicStatistics.h"
 #include "robot_ipc/WireProtocol.h"
 #include "robot_runtime/robot_ipc/idl/Envelope.h"
 #include "robot_runtime/robot_ipc/src/DomainRegistry.h"
@@ -412,12 +423,14 @@ absl::Status Bus::Impl::initialize() {
   waitset_ = dds_create_waitset(participant_);
   if (waitset_ < 0) return ddsError("cannot create the waitset", waitset_);
   wakeCondition_ = dds_create_guardcondition(participant_);
-  if (wakeCondition_ < 0)
+  if (wakeCondition_ < 0) {
     return ddsError("cannot create the wake-up condition", wakeCondition_);
+  }
   const dds_return_t attached =
       dds_waitset_attach(waitset_, wakeCondition_, /*x=*/0);
-  if (attached < 0)
+  if (attached < 0) {
     return ddsError("cannot attach the wake-up condition", attached);
+  }
 
   // The writers of the topics this node publishes exist from the start, so that
   // the subscribers have discovered them before the first sample (a VOLATILE

@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <utility>
@@ -50,8 +51,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
 #include "ocs2_oc/oc_data/PerformanceIndex.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 
@@ -307,8 +311,9 @@ TEST_F(MpcServerTest,
               server_->serverInstance());
   }
   uint64_t received = 0;
-  for (const humanoid_mpc_msgs::MpcStatus& status : statuses)
+  for (const humanoid_mpc_msgs::MpcStatus& status : statuses) {
     received += status.observations_received();
+  }
   EXPECT_LE(received, server_->statistics().observationsReceived);
 }
 

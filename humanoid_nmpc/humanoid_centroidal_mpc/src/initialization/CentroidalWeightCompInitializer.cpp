@@ -30,12 +30,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/initialization/CentroidalWeightCompInitializer.h"
 
+#include <cstddef>
 #include <utility>
 
 #include "absl/base/nullability.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_centroidal_mpc/dynamics/DynamicsHelperFunctions.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 
@@ -46,11 +52,11 @@ CentroidalWeightCompInitializer::CentroidalWeightCompInitializer(
     CentroidalModelInfo info,
     const SwitchedModelReferenceManager& referenceManager,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-    bool extendNormalizedMomentum)
+    bool extendMnormCmomComRtWorldEwrtWorld)
     : mpcRobotModelPtr_(&mpcRobotModel),
       info_(std::move(info)),
       referenceManagerPtr_(&referenceManager),
-      extendNormalizedMomentum_(extendNormalizedMomentum) {}
+      extendMnormCmomComRtWorldEwrtWorld_(extendMnormCmomComRtWorldEwrtWorld) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -91,7 +97,7 @@ void CentroidalWeightCompInitializer::compute(scalar_t time,
         *mpcRobotModelPtr_, state);
   }
   nextState = state;
-  if (!extendNormalizedMomentum_) {
+  if (!extendMnormCmomComRtWorldEwrtWorld_) {
     centroidal_model::getMnormCmomComRtWorldEwrtWorld(nextState, info_)
         .setZero();
   }

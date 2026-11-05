@@ -30,18 +30,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_state_estimator/StateEstimatorRegistry.h"
 
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_state_estimator/ContactKinematics.h"
 #include "humanoid_state_estimator/GroundTruthStateEstimator.h"
+#include "humanoid_state_estimator/KalmanBaseEstimator.h"
 #include "humanoid_state_estimator/KalmanStateEstimator.h"
+#include "humanoid_state_estimator/StateEstimator.h"
+#include "humanoid_state_estimator/StateEstimatorNames.h"
 
 namespace ocs2::humanoid::estimation {
 namespace {
@@ -60,18 +66,9 @@ constexpr std::array<absl::string_view, 2> kDescriptions = {
 
 absl::StatusOr<std::unique_ptr<StateEstimator>> createKalman(
     const StateEstimatorContext& context) {
-  std::vector<ContactPointSpec> contacts;
-  for (size_t contact = 0; contact < context.contactFrameNames.size();
-       ++contact) {
-    ContactPointSpec spec;
-    spec.frameNames.push_back(context.contactFrameNames[contact]);
-    if (contact < context.contactParentJointNames.size())
-      spec.frameNames.push_back(context.contactParentJointNames[contact]);
-    contacts.push_back(std::move(spec));
-  }
   ASSIGN_OR_RETURN(
       std::unique_ptr<ContactKinematics> kinematics,
-      ContactKinematics::Create(context.urdfFile, contacts,
+      ContactKinematics::Create(context.urdfFile, context.contacts,
                                 context.description->getJointNames()));
   ASSIGN_OR_RETURN(
       std::unique_ptr<KalmanBaseEstimator> base,
@@ -108,9 +105,10 @@ bool StateEstimatorRegistry::has(absl::string_view name) const {
 
 absl::StatusOr<std::unique_ptr<StateEstimator>> StateEstimatorRegistry::create(
     absl::string_view name, const StateEstimatorContext& context) const {
-  if (name == kGroundTruthStateEstimatorName)
+  if (name == kGroundTruthStateEstimatorName) {
     return std::unique_ptr<StateEstimator>(
         std::make_unique<GroundTruthStateEstimator>());
+  }
   if (name == kKalmanStateEstimatorName) return createKalman(context);
   return absl::InvalidArgumentError(
       absl::StrCat("There is no state estimator '", name,

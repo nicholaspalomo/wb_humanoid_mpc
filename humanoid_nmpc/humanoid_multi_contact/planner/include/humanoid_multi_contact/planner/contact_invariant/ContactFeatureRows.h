@@ -49,7 +49,7 @@ namespace ocs2::humanoid::multi_contact {
  *  - kClearanceFeature: the clearance of the pad's collision geometry to the
  *    terrain [m], not negative out of it;
  *
- * then kMomentumRateFeatures rows of the momentum rate the forces produce,
+ * then kMomentumRateFeatureCount rows of the momentum rate the forces produce,
  * normalized by the mass: (sum f + m g) / m and sum (p - c) x f + tau over m.
  */
 inline constexpr int kDistanceFeature = 0;
@@ -60,7 +60,7 @@ inline constexpr int kClearanceFeature = kConeFeature + 1;
 inline constexpr int kFeaturesPerCandidate = kClearanceFeature + 1;
 /** The rows of the contact-invariant residual e_i: distance, slip, tilt. */
 inline constexpr int kResidualFeatures = kConeFeature;
-inline constexpr int kMomentumRateFeatures = kPoseTangentDim;
+inline constexpr int kMomentumRateFeatureCount = kPoseTangentDim;
 
 /** The row of `feature` of candidate `candidate`. */
 inline int featureRow(int candidate, int feature) {
@@ -68,13 +68,13 @@ inline int featureRow(int candidate, int feature) {
 }
 
 /** The first row of the momentum rate of `numCandidates` candidates. */
-inline int momentumRateRow(int numCandidates) {
+inline int momentumRateRowIndex(int numCandidates) {
   return numCandidates * kFeaturesPerCandidate;
 }
 
 /** The number of feature rows of `numCandidates` candidates. */
 inline int numFeatureRows(int numCandidates) {
-  return momentumRateRow(numCandidates) + kMomentumRateFeatures;
+  return momentumRateRowIndex(numCandidates) + kMomentumRateFeatureCount;
 }
 
 }  // namespace ocs2::humanoid::multi_contact

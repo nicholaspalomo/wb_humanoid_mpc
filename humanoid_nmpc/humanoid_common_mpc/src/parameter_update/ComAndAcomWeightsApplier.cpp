@@ -38,10 +38,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/misc/Collection.h"
 
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
+#include "humanoid_common_mpc/parameter_update/HotUpdateTarget.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 
 namespace ocs2::humanoid {
 
@@ -80,8 +84,9 @@ absl::Span<const absl::string_view> ComAndAcomWeightsApplier::staticFields() {
 
 void ComAndAcomWeightsApplier::apply(HotUpdateTarget& target) {
   const std::string runningTermName(ComAndAcomTrackingCost::kRunningTermName);
-  if (!carriesTerm(*target.runningProblem().stateCostPtr, runningTermName))
+  if (!carriesTerm(*target.runningProblem().stateCostPtr, runningTermName)) {
     return;
+  }
   // The terminal instance is weighted like final_state_weights, as at start-up;
   // without the scaling it keeps its weights.
   const std::optional<scalar_t>& terminalCostScaling =

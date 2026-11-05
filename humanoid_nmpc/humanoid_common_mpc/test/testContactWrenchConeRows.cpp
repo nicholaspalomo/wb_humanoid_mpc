@@ -29,7 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
+#include <numbers>
 #include <optional>
 #include <random>
 #include <string>
@@ -40,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
@@ -66,12 +69,15 @@ namespace {
 
 constexpr scalar_t kTol = 1.0e-9;
 
-ContactRectangle makeRectangle(scalar_t xMin,
-                               scalar_t xMax,
-                               scalar_t yMin,
-                               scalar_t yMax) {
+ContactRectangle makeRectangle(scalar_t minPosCornersRtContactEwrtContactX,
+                               scalar_t maxPosCornersRtContactEwrtContactX,
+                               scalar_t minPosCornersRtContactEwrtContactY,
+                               scalar_t maxPosCornersRtContactEwrtContactY) {
   return ContactRectangle(
-      PolygonBounds(xMin, xMax, yMin, yMax),
+      PolygonBounds(minPosCornersRtContactEwrtContactX,
+                    maxPosCornersRtContactEwrtContactX,
+                    minPosCornersRtContactEwrtContactY,
+                    maxPosCornersRtContactEwrtContactY),
       ContactCenterPoint("test_contact", "test_joint", vector3_t::Zero()));
 }
 
@@ -89,7 +95,9 @@ ContactWrenchConeConstraint::Config makeConfig(size_t numFacets,
 struct Geometry {
   size_t numFacets;
   scalar_t friction;
-  scalar_t xMin, xMax, yMin, yMax;
+  scalar_t minPosCornersRtContactEwrtContactX,
+      maxPosCornersRtContactEwrtContactX, minPosCornersRtContactEwrtContactY,
+      maxPosCornersRtContactEwrtContactY;
 };
 
 std::vector<Geometry> geometries() {
@@ -109,23 +117,36 @@ std::vector<Geometry> geometries() {
 
 std::string describe(const Geometry& g) {
   return absl::StrCat("N=", g.numFacets, " mu=", g.friction, " footprint [",
-                      g.xMin, ", ", g.xMax, "] x [", g.yMin, ", ", g.yMax, "]");
+                      g.minPosCornersRtContactEwrtContactX, ", ",
+                      g.maxPosCornersRtContactEwrtContactX, "] x [",
+                      g.minPosCornersRtContactEwrtContactY, ", ",
+                      g.maxPosCornersRtContactEwrtContactY, "]");
 }
 
-/** The wrench of the point force `generatorForce` at the planar point `point`,
- * moments about the contact frame origin. */
-vector6_t generatorWrenchAt(const vector2_t& point,
-                            const vector3_t& generatorForce) {
-  vector6_t generatorWrench;
-  generatorWrench.head<3>() = generatorForce;
-  generatorWrench.tail<3>() =
-      vector3_t(point.x(), point.y(), 0.0).cross(generatorForce);
-  return generatorWrench;
+/** Computes the wrench of the point force `forceQueryEwrtContact` at the planar
+ * point `posQueryRtContactEwrtContactXy`, moments about the contact frame
+ * origin, in contact axes. */
+vector6_t computeWrenchContactEwrtContact(
+    const vector2_t& posQueryRtContactEwrtContactXy,
+    const vector3_t& forceQueryEwrtContact) {
+  vector6_t wrenchContactEwrtContact;
+  wrenchContactEwrtContact.head<3>() = forceQueryEwrtContact;
+  wrenchContactEwrtContact.tail<3>() =
+      vector3_t(posQueryRtContactEwrtContactXy.x(),
+                posQueryRtContactEwrtContactXy.y(), 0.0)
+          .cross(forceQueryEwrtContact);
+  return wrenchContactEwrtContact;
 }
 
 std::vector<vector2_t> cornersOf(const Geometry& g) {
-  return {vector2_t(g.xMax, g.yMax), vector2_t(g.xMax, g.yMin),
-          vector2_t(g.xMin, g.yMax), vector2_t(g.xMin, g.yMin)};
+  return {vector2_t(g.maxPosCornersRtContactEwrtContactX,
+                    g.maxPosCornersRtContactEwrtContactY),
+          vector2_t(g.maxPosCornersRtContactEwrtContactX,
+                    g.minPosCornersRtContactEwrtContactY),
+          vector2_t(g.minPosCornersRtContactEwrtContactX,
+                    g.maxPosCornersRtContactEwrtContactY),
+          vector2_t(g.minPosCornersRtContactEwrtContactX,
+                    g.minPosCornersRtContactEwrtContactY)};
 }
 
 /** The vertices of the Fz = 1 friction polygon inscribed in the circle of
@@ -133,8 +154,8 @@ std::vector<vector2_t> cornersOf(const Geometry& g) {
 std::vector<vector2_t> inscribedPolygon(size_t numFacets, scalar_t friction) {
   std::vector<vector2_t> vertices;
   for (size_t k = 0; k < numFacets; ++k) {
-    const scalar_t angle = (2.0 * static_cast<scalar_t>(k) + 1.0) * M_PI /
-                           static_cast<scalar_t>(numFacets);
+    const scalar_t angle = (2.0 * static_cast<scalar_t>(k) + 1.0) *
+                           std::numbers::pi / static_cast<scalar_t>(numFacets);
     vertices.emplace_back(friction * std::cos(angle),
                           friction * std::sin(angle));
   }
@@ -156,14 +177,17 @@ bool insidePolygon(const std::vector<vector2_t>& vertices,
 matrix_t independentCornerGenerators(const Geometry& g) {
   const std::vector<vector2_t> polygon =
       inscribedPolygon(g.numFacets, g.friction);
-  const std::vector<vector2_t> corners = cornersOf(g);
+  const std::vector<vector2_t> posCornersRtContactEwrtContactXy = cornersOf(g);
   matrix_t generators(
-      6, static_cast<Eigen::Index>(polygon.size() * corners.size()));
+      6, static_cast<Eigen::Index>(polygon.size() *
+                                   posCornersRtContactEwrtContactXy.size()));
   Eigen::Index column = 0;
   for (const vector2_t& vertex : polygon) {
-    for (const vector2_t& corner : corners) {
-      generators.col(column++) =
-          generatorWrenchAt(corner, vector3_t(vertex.x(), vertex.y(), 1.0));
+    for (const vector2_t& posCornerRtContactEwrtContactXy :
+         posCornersRtContactEwrtContactXy) {
+      generators.col(column++) = computeWrenchContactEwrtContact(
+          posCornerRtContactEwrtContactXy,
+          vector3_t(vertex.x(), vertex.y(), 1.0));
     }
   }
   return generators;
@@ -198,18 +222,25 @@ TEST(ContactWrenchConeRowsTest, NoDirectionAdmitsATangentialRatioAboveMu) {
       const ContactRectangle rectangle = makeRectangle(-0.1, 0.15, -0.05, 0.06);
       const ContactWrenchConeRows rows =
           buildLocalWrenchConeRows(config, rectangle);
-      const vector2_t center(0.025, 0.005);
+      const vector2_t posFootprintRtContactEwrtContactXy(0.025, 0.005);
       scalar_t largest = 0.0;
       scalar_t smallest = std::numeric_limits<scalar_t>::infinity();
       for (size_t i = 0; i < kNumDirections; ++i) {
-        const scalar_t angle = 2.0 * M_PI * static_cast<scalar_t>(i) /
+        const scalar_t angle = 2.0 * std::numbers::pi *
+                               static_cast<scalar_t>(i) /
                                static_cast<scalar_t>(kNumDirections);
         // A force through the footprint center, with every row (friction, CoP,
         // torsion) checked.
-        const vector6_t normal = generatorWrenchAt(center, vector3_t::UnitZ());
-        const vector6_t tangential = generatorWrenchAt(
-            center, vector3_t(std::cos(angle), std::sin(angle), 0.0));
-        const scalar_t ratio = distanceToBoundary(rows, normal, tangential);
+        const vector6_t verticalWrenchContactEwrtContact =
+            computeWrenchContactEwrtContact(posFootprintRtContactEwrtContactXy,
+                                            vector3_t::UnitZ());
+        const vector6_t tangentialWrenchContactEwrtContact =
+            computeWrenchContactEwrtContact(
+                posFootprintRtContactEwrtContactXy,
+                vector3_t(std::cos(angle), std::sin(angle), 0.0));
+        const scalar_t ratio =
+            distanceToBoundary(rows, verticalWrenchContactEwrtContact,
+                               tangentialWrenchContactEwrtContact);
         EXPECT_LE(ratio, friction * (1.0 + 1.0e-12))
             << "N=" << numFacets << " mu=" << friction << " direction "
             << angle;
@@ -222,7 +253,8 @@ TEST(ContactWrenchConeRowsTest, NoDirectionAdmitsATangentialRatioAboveMu) {
                   1.0e-5 * friction)
           << "N=" << numFacets;
       EXPECT_NEAR(inscribedFrictionCoefficient(config),
-                  friction * std::cos(M_PI / static_cast<scalar_t>(numFacets)),
+                  friction * std::cos(std::numbers::pi /
+                                      static_cast<scalar_t>(numFacets)),
                   1.0e-15);
     }
   }
@@ -239,7 +271,10 @@ TEST(ContactWrenchConeRowsTest,
       EXPECT_EQ(edge.z(), 1.0);
     }
     const matrix_t generators = cornerContactWrenchGenerators(
-        config, makeRectangle(g.xMin, g.xMax, g.yMin, g.yMax));
+        config, makeRectangle(g.minPosCornersRtContactEwrtContactX,
+                              g.maxPosCornersRtContactEwrtContactX,
+                              g.minPosCornersRtContactEwrtContactY,
+                              g.maxPosCornersRtContactEwrtContactY));
     for (Eigen::Index j = 0; j < generators.cols(); ++j) {
       EXPECT_LE(generators.col(j).head<2>().norm(),
                 g.friction * (1.0 + 1.0e-15) * generators(/*row=*/2, j))
@@ -257,7 +292,10 @@ TEST(ContactWrenchConeRowsTest,
     const ContactWrenchConeConstraint::Config config =
         makeConfig(g.numFacets, g.friction);
     const ContactRectangle rectangle =
-        makeRectangle(g.xMin, g.xMax, g.yMin, g.yMax);
+        makeRectangle(g.minPosCornersRtContactEwrtContactX,
+                      g.maxPosCornersRtContactEwrtContactX,
+                      g.minPosCornersRtContactEwrtContactY,
+                      g.maxPosCornersRtContactEwrtContactY);
     const ContactWrenchConeRows rows =
         buildLocalWrenchConeRows(config, rectangle);
     const matrix_t generators =
@@ -289,15 +327,20 @@ TEST(ContactWrenchConeRowsTest,
   std::mt19937 gen(7);
   std::uniform_real_distribution<scalar_t> unit(0.0, 1.0);
   for (const Geometry& g : geometries()) {
-    const ContactWrenchConeRows rows =
-        buildLocalWrenchConeRows(makeConfig(g.numFacets, g.friction),
-                                 makeRectangle(g.xMin, g.xMax, g.yMin, g.yMax));
+    const ContactWrenchConeRows rows = buildLocalWrenchConeRows(
+        makeConfig(g.numFacets, g.friction),
+        makeRectangle(g.minPosCornersRtContactEwrtContactX,
+                      g.maxPosCornersRtContactEwrtContactX,
+                      g.minPosCornersRtContactEwrtContactY,
+                      g.maxPosCornersRtContactEwrtContactY));
     const std::vector<vector2_t> polygon =
         inscribedPolygon(g.numFacets, g.friction);
-    const std::vector<vector2_t> corners = cornersOf(g);
+    const std::vector<vector2_t> posCornersRtContactEwrtContactXy =
+        cornersOf(g);
     for (int trial = 0; trial < 2000; ++trial) {
       vector6_t wrenchContactEwrtContact = vector6_t::Zero();
-      for (const vector2_t& corner : corners) {
+      for (const vector2_t& posCornerRtContactEwrtContactXy :
+           posCornersRtContactEwrtContactXy) {
         if (unit(gen) < 0.25) continue;  // some corners unloaded
         const scalar_t forceContactEwrtContactZ = 500.0 * unit(gen);
         vector2_t ratio;
@@ -311,9 +354,9 @@ TEST(ContactWrenchConeRowsTest,
                               g.friction * (2.0 * unit(gen) - 1.0));
           } while (!insidePolygon(polygon, ratio));
         }
-        wrenchContactEwrtContact +=
-            generatorWrenchAt(corner, forceContactEwrtContactZ *
-                                          vector3_t(ratio.x(), ratio.y(), 1.0));
+        wrenchContactEwrtContact += computeWrenchContactEwrtContact(
+            posCornerRtContactEwrtContactXy,
+            forceContactEwrtContactZ * vector3_t(ratio.x(), ratio.y(), 1.0));
       }
       EXPECT_GE(rows.evaluateCone(wrenchContactEwrtContact).minCoeff(),
                 -kTol * std::max(1.0, wrenchContactEwrtContact.norm()))
@@ -328,27 +371,41 @@ TEST(ContactWrenchConeRowsTest,
   std::uniform_real_distribution<scalar_t> unit(0.0, 1.0);
   std::normal_distribution<scalar_t> gaussian(0.0, 1.0);
   for (const Geometry& g : geometries()) {
-    const ContactWrenchConeRows rows =
-        buildLocalWrenchConeRows(makeConfig(g.numFacets, g.friction),
-                                 makeRectangle(g.xMin, g.xMax, g.yMin, g.yMax));
+    const ContactWrenchConeRows rows = buildLocalWrenchConeRows(
+        makeConfig(g.numFacets, g.friction),
+        makeRectangle(g.minPosCornersRtContactEwrtContactX,
+                      g.maxPosCornersRtContactEwrtContactX,
+                      g.minPosCornersRtContactEwrtContactY,
+                      g.maxPosCornersRtContactEwrtContactY));
     const matrix_t generators = independentCornerGenerators(g);
-    const scalar_t halfLength = 0.5 * (g.xMax - g.xMin);
-    const scalar_t halfWidth = 0.5 * (g.yMax - g.yMin);
+    const scalar_t halfLength = 0.5 * (g.maxPosCornersRtContactEwrtContactX -
+                                       g.minPosCornersRtContactEwrtContactX);
+    const scalar_t halfWidth = 0.5 * (g.maxPosCornersRtContactEwrtContactY -
+                                      g.minPosCornersRtContactEwrtContactY);
     size_t numInterior = 0;
     size_t numBoundary = 0;
     for (int trial = 0; trial < 4000 && numBoundary < 300; ++trial) {
       // A candidate at Fz = 1 from a box that contains the cone's slice, scaled
       // by a random normal force.
       const scalar_t forceContactEwrtContactZ = 1.0 + 999.0 * unit(gen);
-      const vector2_t cop(g.xMin + (g.xMax - g.xMin) * unit(gen),
-                          g.yMin + (g.yMax - g.yMin) * unit(gen));
+      const vector2_t posCopRtContactEwrtContactXy(
+          g.minPosCornersRtContactEwrtContactX +
+              (g.maxPosCornersRtContactEwrtContactX -
+               g.minPosCornersRtContactEwrtContactX) *
+                  unit(gen),
+          g.minPosCornersRtContactEwrtContactY +
+              (g.maxPosCornersRtContactEwrtContactY -
+               g.minPosCornersRtContactEwrtContactY) *
+                  unit(gen));
       vector6_t wrenchContactEwrtContact;
       wrenchContactEwrtContact << g.friction * (2.0 * unit(gen) - 1.0),
-          g.friction * (2.0 * unit(gen) - 1.0), 1.0, cop.y(), -cop.x(),
+          g.friction * (2.0 * unit(gen) - 1.0), 1.0,
+          posCopRtContactEwrtContactXy.y(), -posCopRtContactEwrtContactXy.x(),
           g.friction * (halfLength + halfWidth + 0.2) * (2.0 * unit(gen) - 1.0);
       wrenchContactEwrtContact *= forceContactEwrtContactZ;
-      if (rows.evaluateCone(wrenchContactEwrtContact).minCoeff() < 0.0)
+      if (rows.evaluateCone(wrenchContactEwrtContact).minCoeff() < 0.0) {
         continue;
+      }
       ++numInterior;
       std::vector<vector6_t> targets = {wrenchContactEwrtContact};
       // The boundary point along a random direction: where an inner
@@ -387,9 +444,16 @@ TEST(ContactWrenchConeRowsTest,
  * origin with tau_c = tau - c x F.
  */
 std::vector<vector6_t> caronRows(scalar_t facetFriction, const Geometry& g) {
-  const scalar_t X = 0.5 * (g.xMax - g.xMin);
-  const scalar_t Y = 0.5 * (g.yMax - g.yMin);
-  const vector3_t center(0.5 * (g.xMin + g.xMax), 0.5 * (g.yMin + g.yMax), 0.0);
+  const scalar_t X = 0.5 * (g.maxPosCornersRtContactEwrtContactX -
+                            g.minPosCornersRtContactEwrtContactX);
+  const scalar_t Y = 0.5 * (g.maxPosCornersRtContactEwrtContactY -
+                            g.minPosCornersRtContactEwrtContactY);
+  const vector3_t posFootprintRtContactEwrtContact(
+      0.5 * (g.minPosCornersRtContactEwrtContactX +
+             g.maxPosCornersRtContactEwrtContactX),
+      0.5 * (g.minPosCornersRtContactEwrtContactY +
+             g.maxPosCornersRtContactEwrtContactY),
+      0.0);
   const scalar_t mu = facetFriction;
   std::vector<vector6_t> aboutCenter;
   for (const scalar_t s : {1.0, -1.0}) {
@@ -418,7 +482,8 @@ std::vector<vector6_t> caronRows(scalar_t facetFriction, const Geometry& g) {
   for (const vector6_t& u : aboutCenter) {
     vector6_t row;
     row.tail<3>() = u.tail<3>();
-    row.head<3>() = u.head<3>() - u.tail<3>().cross(center);
+    row.head<3>() =
+        u.head<3>() - u.tail<3>().cross(posFootprintRtContactEwrtContact);
     rows.push_back(row);
   }
   return rows;
@@ -438,17 +503,21 @@ TEST(ContactWrenchConeRowsTest, FourFacetsGiveCaronsClosedFormRows) {
     const ContactWrenchConeConstraint::Config config =
         makeConfig(g.numFacets, g.friction);
     const ContactWrenchConeRows rows = buildLocalWrenchConeRows(
-        config, makeRectangle(g.xMin, g.xMax, g.yMin, g.yMax));
+        config, makeRectangle(g.minPosCornersRtContactEwrtContactX,
+                              g.maxPosCornersRtContactEwrtContactX,
+                              g.minPosCornersRtContactEwrtContactY,
+                              g.maxPosCornersRtContactEwrtContactY));
     const std::vector<vector6_t> caron =
-        caronRows(g.friction * std::cos(M_PI / 4.0), g);
+        caronRows(g.friction * std::cos(std::numbers::pi / 4.0), g);
     ASSERT_EQ(rows.numTorsionRows(), 8u) << describe(g);
     ASSERT_EQ(rows.numRows(), caron.size() + 1)
         << describe(g) << ": Caron's 16 rows and the normal-force row";
     std::vector<vector6_t> ours;
     for (size_t row = 0; row < rows.numRows(); ++row) {
-      if (row == rows.numFrictionRows)
+      if (row == rows.numFrictionRows) {
         continue;  // Fz >= minForceContactEwrtContactZ, implied by the friction
-                   // rows when homogeneous
+      }
+      // rows when homogeneous
       vector6_t u;
       u << rows.A_f.row(static_cast<Eigen::Index>(row)).transpose(),
           rows.A_tau.row(static_cast<Eigen::Index>(row)).transpose();
@@ -475,12 +544,17 @@ TEST(ContactWrenchConeRowsTest, TorsionLimitsOfANormalForce) {
   const ContactWrenchConeConstraint::Config config =
       makeConfig(atlas.numFacets, atlas.friction);
   const ContactWrenchConeRows rows = buildLocalWrenchConeRows(
-      config, makeRectangle(atlas.xMin, atlas.xMax, atlas.yMin, atlas.yMax));
+      config, makeRectangle(atlas.minPosCornersRtContactEwrtContactX,
+                            atlas.maxPosCornersRtContactEwrtContactX,
+                            atlas.minPosCornersRtContactEwrtContactY,
+                            atlas.maxPosCornersRtContactEwrtContactY));
   // At the center: Caron's +-mu' (X + Y), with no tangential force and no CoP
   // excursion.
-  const scalar_t expected =
-      inscribedFrictionCoefficient(config) *
-      (0.5 * (atlas.xMax - atlas.xMin) + 0.5 * (atlas.yMax - atlas.yMin));
+  const scalar_t expected = inscribedFrictionCoefficient(config) *
+                            (0.5 * (atlas.maxPosCornersRtContactEwrtContactX -
+                                    atlas.minPosCornersRtContactEwrtContactX) +
+                             0.5 * (atlas.maxPosCornersRtContactEwrtContactY -
+                                    atlas.minPosCornersRtContactEwrtContactY));
   const std::optional<TorsionInterval> atCenter =
       computeLimitsPerNewtonTorqueContactEwrtContactZ(rows, vector2_t::Zero());
   if (!atCenter.has_value()) {
@@ -492,16 +566,18 @@ TEST(ContactWrenchConeRowsTest, TorsionLimitsOfANormalForce) {
   // lever arm: no torsion.
   const std::optional<TorsionInterval> atCorner =
       computeLimitsPerNewtonTorqueContactEwrtContactZ(
-          rows, vector2_t(atlas.xMax, atlas.yMin));
+          rows, vector2_t(atlas.maxPosCornersRtContactEwrtContactX,
+                          atlas.minPosCornersRtContactEwrtContactY));
   if (!atCorner.has_value()) {
     FAIL() << "a corner of the footprint admits a normal force";
   }
   EXPECT_NEAR(atCorner->upper, 0.0, 1.0e-10);
   EXPECT_NEAR(atCorner->lower, 0.0, 1.0e-10);
   // Off the footprint no yaw moment makes the wrench admissible.
-  EXPECT_FALSE(computeLimitsPerNewtonTorqueContactEwrtContactZ(
-                   rows, vector2_t(atlas.xMax + 0.01, 0.0))
-                   .has_value());
+  EXPECT_FALSE(
+      computeLimitsPerNewtonTorqueContactEwrtContactZ(
+          rows, vector2_t(atlas.maxPosCornersRtContactEwrtContactX + 0.01, 0.0))
+          .has_value());
 }
 
 // ==================== The audit's counterexample (common C8 / centroidal C10)
@@ -515,18 +591,21 @@ TEST(ContactWrenchConeRowsTest,
   // |tau_z - (p_x F_y - p_y F_x)| <= mu_t Fz, and rejected it.
   const Geometry g{.numFacets = 4,
                    .friction = 0.5,
-                   .xMin = -0.2,
-                   .xMax = 0.2,
-                   .yMin = -0.05,
-                   .yMax = 0.05};
+                   .minPosCornersRtContactEwrtContactX = -0.2,
+                   .maxPosCornersRtContactEwrtContactX = 0.2,
+                   .minPosCornersRtContactEwrtContactY = -0.05,
+                   .maxPosCornersRtContactEwrtContactY = 0.05};
   const ContactWrenchConeConstraint::Config config =
       makeConfig(g.numFacets, g.friction);
   const ContactWrenchConeRows rows = buildLocalWrenchConeRows(
-      config, makeRectangle(g.xMin, g.xMax, g.yMin, g.yMax));
+      config, makeRectangle(g.minPosCornersRtContactEwrtContactX,
+                            g.maxPosCornersRtContactEwrtContactX,
+                            g.minPosCornersRtContactEwrtContactY,
+                            g.maxPosCornersRtContactEwrtContactY));
   const scalar_t forceContactEwrtContactZ = 400.0;
-  const vector6_t wrenchContactEwrtContact =
-      generatorWrenchAt(vector2_t(0.9 * g.xMax, 0.0),
-                        forceContactEwrtContactZ * vector3_t(0.0, 0.3, 1.0));
+  const vector6_t wrenchContactEwrtContact = computeWrenchContactEwrtContact(
+      vector2_t(0.9 * g.maxPosCornersRtContactEwrtContactX, 0.0),
+      forceContactEwrtContactZ * vector3_t(0.0, 0.3, 1.0));
   ASSERT_GT(std::abs(wrenchContactEwrtContact(5)),
             config.torsionalFrictionCoefficient * forceContactEwrtContactZ)
       << "the old rows rejected this wrench";
@@ -547,24 +626,32 @@ TEST(ContactWrenchConeRowsTest, GripperAndMinimumNormalForceOffsets) {
   config.gripForceContactEwrtContactZ = 30.0;
   const Geometry g{.numFacets = 6,
                    .friction = 0.6,
-                   .xMin = -0.05,
-                   .xMax = 0.20,
-                   .yMin = -0.03,
-                   .yMax = 0.09};
+                   .minPosCornersRtContactEwrtContactX = -0.05,
+                   .maxPosCornersRtContactEwrtContactX = 0.20,
+                   .minPosCornersRtContactEwrtContactY = -0.03,
+                   .maxPosCornersRtContactEwrtContactY = 0.09};
   const ContactWrenchConeRows rows = buildLocalWrenchConeRows(
-      config, makeRectangle(g.xMin, g.xMax, g.yMin, g.yMax));
-  const ContactWrenchConeRows homogeneous =
-      buildLocalWrenchConeRows(makeConfig(g.numFacets, g.friction),
-                               makeRectangle(g.xMin, g.xMax, g.yMin, g.yMax));
+      config, makeRectangle(g.minPosCornersRtContactEwrtContactX,
+                            g.maxPosCornersRtContactEwrtContactX,
+                            g.minPosCornersRtContactEwrtContactY,
+                            g.maxPosCornersRtContactEwrtContactY));
+  const ContactWrenchConeRows homogeneous = buildLocalWrenchConeRows(
+      makeConfig(g.numFacets, g.friction),
+      makeRectangle(g.minPosCornersRtContactEwrtContactX,
+                    g.maxPosCornersRtContactEwrtContactX,
+                    g.minPosCornersRtContactEwrtContactY,
+                    g.maxPosCornersRtContactEwrtContactY));
   EXPECT_TRUE(rows.A_f.isApprox(homogeneous.A_f) &&
               rows.A_tau.isApprox(homogeneous.A_tau))
       << "the offsets only move b";
   // The gripper force acts like an extra normal force at the footprint center
   // on the friction and torsion rows.
-  const vector6_t gripper = generatorWrenchAt(
-      vector2_t(0.075, 0.03),
-      vector3_t(0.0, 0.0, config.gripForceContactEwrtContactZ));
-  const vector_t gripperOffsets = homogeneous.evaluateCone(gripper);
+  const vector6_t gripWrenchContactEwrtContact =
+      computeWrenchContactEwrtContact(
+          vector2_t(0.075, 0.03),
+          vector3_t(0.0, 0.0, config.gripForceContactEwrtContactZ));
+  const vector_t gripperOffsets =
+      homogeneous.evaluateCone(gripWrenchContactEwrtContact);
   for (size_t row = 0; row < rows.numRows(); ++row) {
     const Eigen::Index r = static_cast<Eigen::Index>(row);
     if (row < rows.numFrictionRows) {
@@ -595,8 +682,9 @@ TEST(ContactWrenchConeRowsTest,
        {makeRectangle(0.1, 0.1, -0.05, 0.05),
         makeRectangle(-0.1, 0.1, 0.0, 0.0),
         makeRectangle(0.1, -0.1, -0.05, 0.05),
-        makeRectangle(std::nan(""), /*xMax=*/0.1, /*yMin=*/-0.05,
-                      /*yMax=*/0.05)}) {
+        makeRectangle(std::nan(""), /*maxPosCornersRtContactEwrtContactX=*/0.1,
+                      /*minPosCornersRtContactEwrtContactY=*/-0.05,
+                      /*maxPosCornersRtContactEwrtContactY=*/0.05)}) {
     const absl::Status status =
         ContactWrenchConeConstraint::validateFootprint(rectangle);
     EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);

@@ -256,9 +256,9 @@ TEST(CentroidalMpcNode, TheVelocityCommandReachesTheMotionManager) {
   NodeHarness harness;
   ASSERT_TRUE(harness.solve(/*time=*/0.0, /*sequence=*/1).has_value());
   humanoid_mpc_msgs::WalkingVelocityCommand command;
-  command.set_cmd_linvel_base_rt_world_ewrt_heading_x(0.5);
-  command.set_cmd_pos_base_rt_world_ewrt_world_z(0.8);
-  command.set_cmd_angvel_base_rt_world_ewrt_world_z(-0.25);
+  command.set_cmd_lnorm_linvel_base_rt_world_ewrt_heading_x(0.5);
+  command.set_cmd_pos_base_rt_surface_ewrt_world_z(0.8);
+  command.set_cmd_lnorm_angvel_base_rt_world_ewrt_world_z(-0.25);
   ProceduralMpcMotionManager& motionManager = harness.node().motionManager();
   ASSERT_TRUE(harness.robot().sendAsOperator(
       topics::kOperatorWalkingVelocityCommand, command, [&]() {
@@ -440,13 +440,15 @@ TEST(CentroidalMpcNode, ResetsToTheTargetTheControllerHandsItsInProcessLink) {
   const MpcRobotModelBase<scalar_t>& model = interface.getMpcRobotModel();
   for (const scalar_t time : {0.0, 1.5, 12.25}) {
     SystemObservation observation = harness.standing(time);
-    vector3_t basePosition =
+    vector3_t posBaseRtWorldEwrtWorld =
         model.getPosBaseRtWorldEwrtWorld(observation.state);
-    basePosition.x() += 0.2 * time;
-    model.setPosBaseRtWorldEwrtWorld(observation.state, basePosition);
-    vector3_t eulerZyx = model.getEulerzyxBaseRtWorld(observation.state);
-    eulerZyx(1) = 0.03;  // pitch
-    model.setEulerzyxBaseRtWorld(observation.state, eulerZyx);
+    posBaseRtWorldEwrtWorld.x() += 0.2 * time;
+    model.setPosBaseRtWorldEwrtWorld(observation.state,
+                                     posBaseRtWorldEwrtWorld);
+    vector3_t eulerzyxBaseRtWorld =
+        model.getEulerzyxBaseRtWorld(observation.state);
+    eulerzyxBaseRtWorld(1) = 0.03;  // pitch
+    model.setEulerzyxBaseRtWorld(observation.state, eulerzyxBaseRtWorld);
     centroidal_model::getMnormCmomComRtWorldEwrtWorld(
         observation.state, interface.getCentroidalModelInfo())
         .setConstant(0.1);
@@ -552,14 +554,19 @@ TEST(CentroidalMpcNode,
   const MpcRobotModelBase<scalar_t>& model =
       (*node)->interface().getMpcRobotModel();
   const SystemObservation latest = dummySim.loop().latestObservation();
-  const vector3_t startPosition =
+  const vector3_t initPosBaseRtWorldEwrtWorld =
       model.getPosBaseRtWorldEwrtWorld(dummySim.initialObservation().state);
-  const vector3_t position = model.getPosBaseRtWorldEwrtWorld(latest.state);
-  EXPECT_NEAR(position.z(), startPosition.z(), 0.05);
-  EXPECT_LT((position - startPosition).head<2>().norm(), 0.05);
-  const vector3_t orientation = model.getEulerzyxBaseRtWorld(latest.state);
-  EXPECT_LT(std::abs(orientation(1)), 0.1);  // pitch
-  EXPECT_LT(std::abs(orientation(2)), 0.1);  // roll
+  const vector3_t posBaseRtWorldEwrtWorld =
+      model.getPosBaseRtWorldEwrtWorld(latest.state);
+  EXPECT_NEAR(posBaseRtWorldEwrtWorld.z(), initPosBaseRtWorldEwrtWorld.z(),
+              0.05);
+  EXPECT_LT(
+      (posBaseRtWorldEwrtWorld - initPosBaseRtWorldEwrtWorld).head<2>().norm(),
+      0.05);
+  const vector3_t eulerzyxBaseRtWorld =
+      model.getEulerzyxBaseRtWorld(latest.state);
+  EXPECT_LT(std::abs(eulerzyxBaseRtWorld(1)), 0.1);  // pitch
+  EXPECT_LT(std::abs(eulerzyxBaseRtWorld(2)), 0.1);  // roll
   EXPECT_TRUE(latest.state.allFinite());
   // The plant's rollout keeps the stored quaternion on the unit sphere.
   EXPECT_NEAR(latest.state
@@ -575,7 +582,7 @@ constexpr char kRobotBinary[] =
     "humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_robot";
 /** [m] How far the base may sink below, or rise above, its standing height
  * while the robot is up. */
-constexpr double kBaseHeightTolerance = 0.1;
+constexpr double kMaxErrPosBaseRtWorldEwrtWorldZ = 0.1;
 /** How long the operator lets a mode settle before the next command. */
 constexpr absl::Duration kSettleTime = absl::Seconds(1);
 
@@ -604,7 +611,8 @@ humanoid_mpc_msgs::LoopTiming timingOf(
 }
 
 /** The base position of the newest robot/state sample. */
-vector3_t basePosition(const test_support::ScriptedOperator& remoteControl) {
+vector3_t samplePosBaseRtWorldEwrtWorld(
+    const test_support::ScriptedOperator& remoteControl) {
   const std::optional<humanoid_mpc_msgs::RobotStateSample> sample =
       remoteControl.sample();
   if (!sample.has_value())
@@ -698,8 +706,9 @@ TEST(CentroidalMpcNodeEndToEnd,
       }));
   const uint64_t resetsAtRelease =
       fsmStateOf(remoteControl).controller_resets();
-  const vector3_t released = basePosition(remoteControl);
-  ASSERT_TRUE(released.allFinite());
+  const vector3_t releasePosBaseRtWorldEwrtWorld =
+      samplePosBaseRtWorldEwrtWorld(remoteControl);
+  ASSERT_TRUE(releasePosBaseRtWorldEwrtWorld.allFinite());
 
   // Stands, walks forward at 0.3 m/s as the keyboard teleoperation commands it,
   // and stops: the base stays at its standing height throughout and travels
@@ -708,20 +717,28 @@ TEST(CentroidalMpcNodeEndToEnd,
   remoteControl.sendVelocityCommand(
       teleop::keyboardCommandToMessage(vector4_t::Zero(), *limits),
       absl::Seconds(3));
-  const vector3_t walkStart = basePosition(remoteControl);
+  const vector3_t walkStartPosBaseRtWorldEwrtWorld =
+      samplePosBaseRtWorldEwrtWorld(remoteControl);
   remoteControl.sendVelocityCommand(
       teleop::keyboardCommandToMessage(vector4_t(0.3, 0.0, 0.0, 0.0), *limits),
       absl::Seconds(5));
-  const vector3_t walkEnd = basePosition(remoteControl);
+  const vector3_t walkEndPosBaseRtWorldEwrtWorld =
+      samplePosBaseRtWorldEwrtWorld(remoteControl);
   remoteControl.sendVelocityCommand(
       teleop::keyboardCommandToMessage(vector4_t::Zero(), *limits),
       absl::Seconds(3));
   const test_support::BaseHeightRange heights = remoteControl.baseHeightRange();
   EXPECT_GT(heights.samples, 500u) << "robot/state at the telemetry rate";
-  EXPECT_GT(heights.min, released.z() - kBaseHeightTolerance)
+  EXPECT_GT(
+      heights.minPosBaseRtWorldEwrtWorldZ,
+      releasePosBaseRtWorldEwrtWorld.z() - kMaxErrPosBaseRtWorldEwrtWorldZ)
       << "the robot fell";
-  EXPECT_LT(heights.max, released.z() + kBaseHeightTolerance);
-  EXPECT_GT(walkEnd.x() - walkStart.x(), 0.3)
+  EXPECT_LT(
+      heights.maxPosBaseRtWorldEwrtWorldZ,
+      releasePosBaseRtWorldEwrtWorld.z() + kMaxErrPosBaseRtWorldEwrtWorldZ);
+  EXPECT_GT(
+      walkEndPosBaseRtWorldEwrtWorld.x() - walkStartPosBaseRtWorldEwrtWorld.x(),
+      0.3)
       << "a fifth of the commanded 1.5 m at least";
   const humanoid_mpc_msgs::FsmState state = fsmStateOf(remoteControl);
   EXPECT_EQ(state.mode(), "WB_MPC");

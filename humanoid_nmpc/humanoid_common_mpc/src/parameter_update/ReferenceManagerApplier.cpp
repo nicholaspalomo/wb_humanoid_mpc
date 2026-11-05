@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cmath>
-#include <memory>
 #include <optional>
 
 #include "absl/base/nullability.h"
@@ -39,9 +38,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
 #include "humanoid_common_mpc/parameter_update/ContactImplicitApplier.h"
+#include "humanoid_common_mpc/parameter_update/HotUpdateTarget.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
 #include "humanoid_common_mpc/reference_manager/ArmSwing.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -53,7 +54,7 @@ namespace {
 
 // LINT.IfChange(reference_manager_fields)
 constexpr std::array<absl::string_view, 3> kFields = {
-    "terrain_height",
+    "pos_surface_rt_world_ewrt_world_z",
     "swing_trajectory_config",
     "arm_swing",
 };
@@ -74,17 +75,20 @@ void ReferenceManagerApplier::apply(HotUpdateTarget& target) {
   // it in that same solve - not in this one, whose references were built before
   // this reload. Without a reference manager there are no references to agree
   // with, and the terms take the height at once.
-  const scalar_t terrainHeight = target.task().terrain_height;
-  if (!std::isfinite(terrainHeight)) {
+  const scalar_t posSurfaceRtWorldEwrtWorldZ =
+      target.task().pos_surface_rt_world_ewrt_world_z;
+  if (!std::isfinite(posSurfaceRtWorldEwrtWorldZ)) {
     target.reportNotApplied(
-        "terrain_height",
+        "pos_surface_rt_world_ewrt_world_z",
         absl::InvalidArgumentError(absl::StrCat(
-            "terrain_height is ", terrainHeight, ", which is not finite.")));
+            "pos_surface_rt_world_ewrt_world_z is ",
+            posSurfaceRtWorldEwrtWorldZ, ", which is not finite.")));
   } else if (referenceManager != nullptr) {
-    referenceManager->setTerrainHeight(terrainHeight);
+    referenceManager->setPosSurfaceRtWorldEwrtWorldZ(
+        posSurfaceRtWorldEwrtWorldZ);
   } else {
-    setContactImplicitTermsTerrainHeight(target.problems(),
-                                         target.contactNames(), terrainHeight);
+    setContactImplicitTermsPosSurfaceRtWorldEwrtWorldZ(
+        target.problems(), target.contactNames(), posSurfaceRtWorldEwrtWorldZ);
   }
 
   if (referenceManager == nullptr) return;

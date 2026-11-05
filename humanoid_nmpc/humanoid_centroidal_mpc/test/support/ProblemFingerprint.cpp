@@ -31,17 +31,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/log/absl_check.h"
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/model_data/ModelData.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_oc/approximate_model/LinearQuadraticApproximator.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
@@ -148,14 +156,16 @@ Fingerprint fingerprintOf(CentroidalMpcInterface& interface) {
   for (size_t k = 0; k < times.size(); ++k) {
     const scalar_t t = times[k];
     vector_t step(tuningDim);
-    for (Eigen::Index i = 0; i < tuningDim; ++i)
+    for (Eigen::Index i = 0; i < tuningDim; ++i) {
       step(i) = 0.01 * std::sin(0.7 * static_cast<scalar_t>(i) +
                                 1.3 * static_cast<scalar_t>(k));
+    }
     const vector_t x = movedInTuningLayout(robotModel, x0, step);
     vector_t u(nu);
-    for (Eigen::Index i = 0; i < nu; ++i)
+    for (Eigen::Index i = 0; i < nu; ++i) {
       u(i) = 5.0 + 3.0 * std::cos(0.4 * static_cast<scalar_t>(i) +
                                   static_cast<scalar_t>(k));
+    }
     const std::string at = absl::StrCat("@", t);
     append(fingerprint, absl::StrCat("desiredState", at),
            referenceManager->getDesiredState(*problem.targetTrajectoriesPtr, x,
@@ -180,8 +190,9 @@ Fingerprint fingerprintOf(CentroidalMpcInterface& interface) {
   }
   const scalar_t finalTime = 1.5;
   vector_t finalStep(tuningDim);
-  for (Eigen::Index i = 0; i < tuningDim; ++i)
+  for (Eigen::Index i = 0; i < tuningDim; ++i) {
     finalStep(i) = 0.02 * std::cos(0.3 * static_cast<scalar_t>(i));
+  }
   const vector_t xFinal = movedInTuningLayout(robotModel, x0, finalStep);
   const ModelData finalModel = approximateFinalLQ(problem, finalTime, xFinal);
   append(fingerprint, "final.f", matrix_t::Constant(1, 1, finalModel.cost.f));

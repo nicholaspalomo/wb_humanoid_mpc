@@ -29,12 +29,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 
+#include <string.h>
+
 #include <algorithm>
 #include <cstring>
 #include <string>
 
 #include "absl/base/nullability.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 namespace ocs2::humanoid {
 

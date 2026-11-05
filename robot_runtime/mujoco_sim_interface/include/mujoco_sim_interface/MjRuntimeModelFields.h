@@ -96,7 +96,8 @@ class MjRuntimeModelFields {
  private:
   // Sized at construction, never resized: nv, neq x mjNEQDATA, ngeom, nbody
   // (body_inertia 3 x nbody, body_invweight0 2 x nbody); all empty in a
-  // default-constructed or moved-from value.
+  // default-constructed or moved-from value. Each is a copy of the mjModel
+  // array of the same name, camelCased, and keeps MuJoCo's name.
   std::vector<mjtNum> dofDamping_;
   std::vector<mjtNum> dofInvweight0_;
   std::vector<mjtNum> dofM0_;

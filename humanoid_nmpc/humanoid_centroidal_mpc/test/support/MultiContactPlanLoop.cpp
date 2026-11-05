@@ -29,14 +29,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "support/MultiContactPlanLoop.h"
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
 
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/MPC_MRT_Interface.h"
+#include "ocs2_sqp/SqpMpc.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
+#include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_centroidal_mpc/multi_contact/PlannedMotion.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 
 namespace ocs2::humanoid {

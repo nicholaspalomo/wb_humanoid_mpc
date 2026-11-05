@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <limits>
@@ -42,23 +43,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "Eigen/Geometry"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/spatial/fwd.hpp"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/constraint/SwingLandingAlignmentConstraint.h"
 #include "humanoid_centroidal_mpc/constraint/TerrainNonPenetrationConstraint.h"
+#include "humanoid_centroidal_mpc/multi_contact/PlanContactOrder.h"
 #include "humanoid_centroidal_mpc/multi_contact/PlannedMotion.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
 #include "humanoid_multi_contact/plan/PlanFile.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 #include "humanoid_multi_contact/scenarios/Scenario.h"
+#include "humanoid_multi_contact/stability/RobotStanceModel.h"
 #include "humanoid_multi_contact/stability/StabilityCertifier.h"
+#include "humanoid_multi_contact/stability/certifier_report.nproto.h"
+#include "humanoid_multi_contact/terrain/TerrainModel.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
-#include "robot_core/ResourcePaths.h"
 #include "support/MultiContactPlanLoop.h"
 #include "support/MultiContactTestFiles.h"
 #include "support/StairStepPlan.h"
@@ -200,8 +214,9 @@ TrackingRun runToTheEnd(MultiContactPlanLoop& loop) {
 multi_contact::RobotConfiguration configurationOf(
     const MpcRobotModelBase<scalar_t>& model, const vector_t& state) {
   multi_contact::RobotConfiguration configuration;
-  configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
-  configuration.baseOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(state);
+  configuration.posBaseRtWorldEwrtWorld =
+      model.getPosBaseRtWorldEwrtWorld(state);
+  configuration.quatBaseRtWorld.coeffs() = model.getQuatBaseRtWorldXyzw(state);
   configuration.jointNames = model.modelSettings.mpcModelJointNames;
   configuration.jointPositions = model.getJointAngles(state);
   return configuration;
@@ -226,14 +241,16 @@ std::vector<multi_contact::CertifierKnot> certifierKnotsOf(
     const size_t previous = k + 1 < n ? k : k - 1;
     const size_t next = previous + 1;
     const scalar_t dt = run.times[next] - run.times[previous];
-    const vector6_t momentumChange =
+    const vector6_t errCmomComRtWorldEwrtWorld =
         mass * (run.states[next].head<6>() - run.states[previous].head<6>());
     multi_contact::CertifierKnot knot;
     knot.time = run.times[k];
     knot.configuration = configurationOf(model, run.states[k]);
     knot.activeContacts = checkedValue(order.maskOf(run.modes[k]));
-    knot.momentumRate.linear = momentumChange.head<3>() / dt;
-    knot.momentumRate.angular = momentumChange.tail<3>() / dt;
+    knot.rateCmomComRtWorldEwrtWorld.linear =
+        errCmomComRtWorldEwrtWorld.head<3>() / dt;
+    knot.rateCmomComRtWorldEwrtWorld.angular =
+        errCmomComRtWorldEwrtWorld.tail<3>() / dt;
     knots.push_back(knot);
   }
   return knots;
@@ -272,7 +289,7 @@ void expectTheTrackedTrajectoryCertifies(
   std::map<std::string, FailureKind> kinds;
   for (const multi_contact::config::CertifierReport::Knot& knot :
        report.knots) {
-    worstResidual = std::max(worstResidual, knot.momentum_rate_residual);
+    worstResidual = std::max(worstResidual, knot.wrench_cone_residual);
     worstPadDistance =
         std::max(worstPadDistance, knot.max_active_contact_distance);
     if (knot.static_margin.has_value()) {
@@ -341,31 +358,43 @@ void expectTheGoalIsReached(MultiContactPlanLoop& loop,
     const std::string& name = interface.modelSettings().contactNames[i];
     const std::optional<PlannedContactPhase> phase =
         motion.phaseAt(i, motion.endTime());
-    ASSERT_TRUE(phase.has_value()) << name;
-    const vector3_t pad = pinocchio.getData()
-                              .oMf[pinocchio.getModel().getFrameId(name)]
-                              .translation();
-    const vector3_t error = pad - phase->targetPosition;
-    const scalar_t normal = phase->normal.dot(error);
-    EXPECT_LT(std::abs(normal), kPadNormalTolerance) << name;
-    EXPECT_LT((error - normal * phase->normal).norm(), kPadTangentialTolerance)
-        << name << ": " << pad.transpose() << " against "
-        << phase->targetPosition.transpose();
+    if (!phase.has_value()) GTEST_FAIL() << name;
+    const vector3_t posContactRtWorldEwrtWorld =
+        pinocchio.getData()
+            .oMf[pinocchio.getModel().getFrameId(name)]
+            .translation();
+    const vector3_t errPosContactRtWorldEwrtWorld =
+        posContactRtWorldEwrtWorld - phase->desPosContactRtWorldEwrtWorld;
+    const scalar_t errPosContactRtWorldEwrtSurfaceZ =
+        phase->desNormalSurfaceEwrtWorld.dot(errPosContactRtWorldEwrtWorld);
+    EXPECT_LT(std::abs(errPosContactRtWorldEwrtSurfaceZ), kPadNormalTolerance)
+        << name;
+    EXPECT_LT(
+        (errPosContactRtWorldEwrtWorld -
+         errPosContactRtWorldEwrtSurfaceZ * phase->desNormalSurfaceEwrtWorld)
+            .norm(),
+        kPadTangentialTolerance)
+        << name << ": " << posContactRtWorldEwrtWorld.transpose() << " against "
+        << phase->desPosContactRtWorldEwrtWorld.transpose();
   }
   // The base followed the plan's, at the plan time of every solve.
-  scalar_t worstBaseError = 0.0;
+  scalar_t maxNormErrPosBaseRtWorldEwrtWorld = 0.0;
   for (size_t k = 0; k < run.planTimes.size(); ++k) {
-    const vector3_t planned = model.getPosBaseRtWorldEwrtWorld(
-        model.getDesiredState(motion.targets(), run.planTimes[k]));
-    worstBaseError = std::max(
-        worstBaseError,
-        (model.getPosBaseRtWorldEwrtWorld(run.states[k]) - planned).norm());
+    const vector3_t refPosBaseRtWorldEwrtWorld =
+        model.getPosBaseRtWorldEwrtWorld(
+            model.getDesiredState(motion.targets(), run.planTimes[k]));
+    maxNormErrPosBaseRtWorldEwrtWorld =
+        std::max(maxNormErrPosBaseRtWorldEwrtWorld,
+                 (model.getPosBaseRtWorldEwrtWorld(run.states[k]) -
+                  refPosBaseRtWorldEwrtWorld)
+                     .norm());
   }
-  EXPECT_LT(worstBaseError, kBaseTolerance);
-  ::testing::Test::RecordProperty("worst_base_tracking_error_m",
-                                  absl::StrCat(worstBaseError));
+  EXPECT_LT(maxNormErrPosBaseRtWorldEwrtWorld, kBaseTolerance);
+  ::testing::Test::RecordProperty(
+      "worst_base_tracking_error_m",
+      absl::StrCat(maxNormErrPosBaseRtWorldEwrtWorld));
   ::testing::Test::RecordProperty("held_s", absl::StrCat(run.heldTime));
-  ASSERT_TRUE(run.worstCost.has_value());
+  if (!run.worstCost.has_value()) GTEST_FAIL();
   ::testing::Test::RecordProperty("worst_cost", absl::StrCat(*run.worstCost));
 }
 
@@ -524,11 +553,12 @@ TEST(MultiContactPlanTracking, aNonPenetrationTermIsItsSpheresTerrainDistance) {
   ASSERT_LT(foot, names.size());
   const std::optional<multi_contact::ContactCandidate> candidate =
       manager->candidateOf(knee);
-  ASSERT_TRUE(candidate.has_value());
+  if (!candidate.has_value()) GTEST_FAIL();
   // The knee's sphere: the geom radius inside its pad, against the pad normal,
   // in the knee frame's orientation (its parent joint's).
   const TerrainNonPenetrationConstraint::Sphere sphere{
-      .centerOffset = -candidate->geomRadius * candidate->padNormal,
+      .posSphereRtContactEwrtContact =
+          -candidate->geomRadius * candidate->normalPadEwrtLink,
       .radius = candidate->geomRadius};
   const scalar_t margin = manager->settings().nonPenetrationMargin;
   const multi_contact::TerrainModel& terrain = manager->scenario().terrain;
@@ -555,16 +585,19 @@ TEST(MultiContactPlanTracking, aNonPenetrationTermIsItsSpheresTerrainDistance) {
       interface->getMpcRobotModel().getGeneralizedCoordinates(state);
   pinocchio::forwardKinematics(pinocchio.getModel(), pinocchio.getData(), q);
   pinocchio::updateFramePlacements(pinocchio.getModel(), pinocchio.getData());
-  const pinocchio::SE3& frame =
+  const pinocchio::SE3& poseLkneeRtWorld =
       pinocchio.getData()
           .oMf[pinocchio.getModel().getFrameId("knee_l_contact")];
-  const vector3_t center =
-      frame.translation() + frame.rotation() * sphere.centerOffset;
+  const vector3_t posSphereRtWorldEwrtWorld =
+      poseLkneeRtWorld.translation() +
+      poseLkneeRtWorld.rotation() * sphere.posSphereRtContactEwrtContact;
   const PreComputation preComputation;
   const vector_t value = term.getValue(/*time=*/0.5, state, preComputation);
   ASSERT_EQ(value.size(), 1);
   EXPECT_NEAR(value(0),
-              terrain.sphereDistance<scalar_t>(center, sphere.radius) - margin,
+              terrain.sphereDistance<scalar_t>(posSphereRtWorldEwrtWorld,
+                                               sphere.radius) -
+                  margin,
               1.0e-9);
   EXPECT_GT(value(0), 0.0) << "a standing robot's knee is off the floor";
 }
@@ -588,8 +621,9 @@ TEST(MultiContactPlanTracking, walksUpTheStairsAndBackwardDownOverAndOver) {
       MultiContactPlanLoop::Create(std::move(config),
                                    atlasMultiContactFiles().urdfFile));
   const PlannedMotion& motion = loop->referenceManager().plannedMotion();
-  ASSERT_TRUE(motion.period().has_value());
-  const scalar_t period = *motion.period();
+  const std::optional<scalar_t> optionalPeriod = motion.period();
+  if (!optionalPeriod.has_value()) GTEST_FAIL();
+  const scalar_t period = *optionalPeriod;
   const scalar_t planEnd =
       motion.startTime() + static_cast<scalar_t>(kStairsPeriods) * period;
   const TrackingRun run =
@@ -604,71 +638,82 @@ TEST(MultiContactPlanTracking, walksUpTheStairsAndBackwardDownOverAndOver) {
   // The ascent's end: a period is the ascent, the dwell, the descent and the
   // dwell.
   const scalar_t top = motion.startTime() + 0.5 * (period - 2.0 * kStairsDwell);
-  const vector3_t topBase = model.getPosBaseRtWorldEwrtWorld(
+  const vector3_t topPosBaseRtWorldEwrtWorld = model.getPosBaseRtWorldEwrtWorld(
       model.getDesiredState(motion.targets(), top));
-  const vector3_t bottomBase =
+  const vector3_t bottomPosBaseRtWorldEwrtWorld =
       model.getPosBaseRtWorldEwrtWorld(motion.initialState());
-  ASSERT_GT(topBase.z() - bottomBase.z(), 0.5) << "the plan climbs the stairs";
-  scalar_t worstBaseError = 0.0;
-  scalar_t worstBottomError = 0.0;
+  ASSERT_GT(topPosBaseRtWorldEwrtWorld.z() - bottomPosBaseRtWorldEwrtWorld.z(),
+            0.5)
+      << "the plan climbs the stairs";
+  scalar_t maxNormErrPosBaseRtWorldEwrtWorld = 0.0;
+  scalar_t bottomMaxNormErrPosBaseRtWorldEwrtWorld = 0.0;
   std::vector<bool> onTheTop(kStairsPeriods, false);
   std::vector<bool> atTheBottom(kStairsPeriods, false);
   for (size_t k = 0; k < run.planTimes.size(); ++k) {
-    const vector3_t base = model.getPosBaseRtWorldEwrtWorld(run.states[k]);
-    const vector3_t planned =
+    const vector3_t posBaseRtWorldEwrtWorld =
+        model.getPosBaseRtWorldEwrtWorld(run.states[k]);
+    const vector3_t refPosBaseRtWorldEwrtWorld =
         model.getPosBaseRtWorldEwrtWorld(model.getDesiredState(
             motion.targets(), motion.cycleTime(run.planTimes[k])));
-    worstBaseError = std::max(worstBaseError, (base - planned).norm());
+    maxNormErrPosBaseRtWorldEwrtWorld =
+        std::max(maxNormErrPosBaseRtWorldEwrtWorld,
+                 (posBaseRtWorldEwrtWorld - refPosBaseRtWorldEwrtWorld).norm());
     const int64_t cycle = motion.cycleIndex(run.planTimes[k]);
     const scalar_t inCycle = motion.cycleTime(run.planTimes[k]);
     if (cycle < 0 || cycle >= kStairsPeriods) continue;
     if (inCycle >= top && inCycle <= top + kStairsDwell &&
-        (base - topBase).norm() < kBaseTolerance) {
+        (posBaseRtWorldEwrtWorld - topPosBaseRtWorldEwrtWorld).norm() <
+            kBaseTolerance) {
       onTheTop[static_cast<size_t>(cycle)] = true;
     }
     // Standing at the bottom again, in the bottom dwell that ends the period.
     if (inCycle >= motion.endTime() - kStairsDwell) {
       atTheBottom[static_cast<size_t>(cycle)] = true;
-      worstBottomError = std::max(worstBottomError, (base - bottomBase).norm());
+      bottomMaxNormErrPosBaseRtWorldEwrtWorld = std::max(
+          bottomMaxNormErrPosBaseRtWorldEwrtWorld,
+          (posBaseRtWorldEwrtWorld - bottomPosBaseRtWorldEwrtWorld).norm());
       EXPECT_EQ(run.modes[k], motion.modeSequence().front())
           << "at plan time " << run.planTimes[k];
     }
   }
-  EXPECT_LT(worstBaseError, kBaseTolerance);
+  EXPECT_LT(maxNormErrPosBaseRtWorldEwrtWorld, kBaseTolerance);
   for (int cycle = 0; cycle < kStairsPeriods; ++cycle) {
     EXPECT_TRUE(onTheTop[static_cast<size_t>(cycle)])
         << "not on the top step in period " << cycle;
     EXPECT_TRUE(atTheBottom[static_cast<size_t>(cycle)])
         << "not back at the bottom in period " << cycle;
   }
-  EXPECT_LT(worstBottomError, kBaseTolerance);
+  EXPECT_LT(bottomMaxNormErrPosBaseRtWorldEwrtWorld, kBaseTolerance);
   ::testing::Test::RecordProperty("periods", absl::StrCat(kStairsPeriods));
   ::testing::Test::RecordProperty("tracked_s",
                                   absl::StrCat(loop->observation().time));
-  ::testing::Test::RecordProperty("worst_base_tracking_error_m",
-                                  absl::StrCat(worstBaseError));
-  ::testing::Test::RecordProperty("worst_bottom_base_error_m",
-                                  absl::StrCat(worstBottomError));
+  ::testing::Test::RecordProperty(
+      "worst_base_tracking_error_m",
+      absl::StrCat(maxNormErrPosBaseRtWorldEwrtWorld));
+  ::testing::Test::RecordProperty(
+      "worst_bottom_base_error_m",
+      absl::StrCat(bottomMaxNormErrPosBaseRtWorldEwrtWorld));
   ::testing::Test::RecordProperty("held_s", absl::StrCat(run.heldTime));
   expectTheTrackedTrajectoryCertifies(run, loop->interface(), kStairsScenario);
 }
 
 /** The landing alignment term's z_c x n at `state`, by Pinocchio. */
-vector3_t padTiltOf(CentroidalMpcInterface& interface,
-                    const vector_t& state,
-                    const std::string& contactName,
-                    const vector3_t& patchNormal) {
+vector3_t landingAlignmentResidualOf(
+    CentroidalMpcInterface& interface,
+    const vector_t& state,
+    const std::string& contactName,
+    const vector3_t& desNormalSurfaceEwrtWorld) {
   PinocchioInterface pinocchio = interface.getPinocchioInterface();
   const vector_t q =
       interface.getMpcRobotModel().getGeneralizedCoordinates(state);
   pinocchio::forwardKinematics(pinocchio.getModel(), pinocchio.getData(), q);
   pinocchio::updateFramePlacements(pinocchio.getModel(), pinocchio.getData());
-  const vector3_t padNormal =
+  const vector3_t zAxisContactEwrtWorld =
       pinocchio.getData()
           .oMf[pinocchio.getModel().getFrameId(contactName)]
           .rotation()
           .col(kZAxisIndex);
-  return padNormal.cross(patchNormal);
+  return zAxisContactEwrtWorld.cross(desNormalSurfaceEwrtWorld);
 }
 
 TEST(MultiContactPlanTracking, aLandingAlignmentTermTurnsTheSoleToItsPatch) {
@@ -708,8 +753,9 @@ TEST(MultiContactPlanTracking, aLandingAlignmentTermTurnsTheSoleToItsPatch) {
   // the swing or early in it.
   const scalar_t landing = touchDown - 0.5 * kWindow;
   EXPECT_TRUE(term.isActive(landing));
-  ASSERT_TRUE(term.timeToTouchDown(landing).has_value());
-  EXPECT_NEAR(*term.timeToTouchDown(landing), 0.5 * kWindow, 1.0e-9);
+  const std::optional<scalar_t> timeToTouchDown = term.timeToTouchDown(landing);
+  if (!timeToTouchDown.has_value()) GTEST_FAIL();
+  EXPECT_NEAR(*timeToTouchDown, 0.5 * kWindow, 1.0e-9);
   EXPECT_FALSE(term.isActive(liftOff - 0.05));
   EXPECT_FALSE(term.timeToTouchDown(liftOff - 0.05).has_value());
   EXPECT_FALSE(term.isActive(touchDown - 1.5 * kWindow));
@@ -718,17 +764,20 @@ TEST(MultiContactPlanTracking, aLandingAlignmentTermTurnsTheSoleToItsPatch) {
   // Its value is z_c x n for the normal of the patch it lands on.
   const std::optional<PlannedContactPhase> target =
       motion.nextPhase(foot, swing.liftOffTime);
-  ASSERT_TRUE(target.has_value());
+  if (!target.has_value()) GTEST_FAIL();
   const PreComputation preComputation;
-  const vector_t normal = term.getParameters(landing, preComputation);
-  EXPECT_TRUE(normal.isApprox(target->normal, 1.0e-9)) << normal.transpose();
+  const vector_t desNormalSurfaceEwrtWorld =
+      term.getParameters(landing, preComputation);
+  EXPECT_TRUE(desNormalSurfaceEwrtWorld.isApprox(
+      target->desNormalSurfaceEwrtWorld, 1.0e-9))
+      << desNormalSurfaceEwrtWorld.transpose();
   for (const scalar_t planTime :
        {swing.liftOffTime + 0.05, swing.touchDownTime - 0.5 * kWindow}) {
     const vector_t state = interface->getMpcRobotModel().getDesiredState(
         motion.targets(), planTime);
     const vector_t value = term.getValue(landing, state, preComputation);
-    const vector3_t expected =
-        padTiltOf(*interface, state, "foot_r_contact", target->normal);
+    const vector3_t expected = landingAlignmentResidualOf(
+        *interface, state, "foot_r_contact", target->desNormalSurfaceEwrtWorld);
     ASSERT_EQ(value.size(), 3);
     EXPECT_LT((value - expected).norm(), 1.0e-9)
         << "at plan time " << planTime << ": " << value.transpose()

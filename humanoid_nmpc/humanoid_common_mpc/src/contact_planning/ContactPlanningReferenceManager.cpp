@@ -33,36 +33,58 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <memory>
+#include <mutex>
+#include <numbers>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "Eigen/Geometry"
 #include "absl/base/nullability.h"
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/centroidal.hpp"
-#include "pinocchio/algorithm/frames.hpp"
-#include "pinocchio/algorithm/kinematics.hpp"
 
+#include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
+#include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
+#include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
 #include "humanoid_common_mpc/contact_planning/execution/PlanCoverage.h"
 #include "humanoid_common_mpc/contact_planning/execution/PlannedComOverride.h"
 #include "humanoid_common_mpc/contact_planning/execution/PlannedHeadingOverride.h"
 #include "humanoid_common_mpc/contact_planning/execution/ScheduleAdaptationPipeline.h"
+#include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
+#include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
 
@@ -79,17 +101,16 @@ constexpr scalar_t kStalePlanTolerance = 1.0e-6;
 constexpr int kDroppedPlanLogInterval = 50;
 // The fewest knots of a prediction that can be interpolated.
 constexpr int kMinPredictionKnots = 2;
-// The size of a state's base CoM velocity, linear part first. A shorter target
-// state holds no velocity command; the yaw rate is read through
-// getTargetPlanarCommand(), since entry kTwistYawRateIndex of it is L_z / m
-// only on the centroidal layout.
-constexpr int kBaseComVelocityDim = kTwistDim;
+// The fewest entries of a target state that holds a velocity command, read
+// through getProxyLinvelComRtWorldEwrtWorld() (linear) and getRefPlanarMotion()
+// (yaw rate).
+constexpr int kMinCommandTargetStateDim = kTwistDim;
 // [rad] The largest rotation of the base between consecutive knots of the dense
 // resample of the target, the spacing of the target calculators' knots
-// (TargetTrajectoriesCalculatorBase::kMaxKnotYawSpacing): the shortest-path
-// slerp between two knots then follows the target the way it turns (design
-// README section 2.9).
-constexpr scalar_t kMaxResampleRotationSpacing = 0.5 * M_PI;
+// (TargetTrajectoriesCalculatorBase::kKnotMaxErrYawBaseRtWorld): the
+// shortest-path slerp between two knots then follows the target the way it
+// turns (design README section 2.9).
+constexpr scalar_t kMaxResampleAngleSpacing = 0.5 * std::numbers::pi;
 
 /** [rad] The angle |Log(xi_a^-1 xi_b)| in [0, pi] between the base orientations
  * of the states `a` and `b` of `model`. */
@@ -105,16 +126,16 @@ scalar_t baseRotationBetween(const MpcRobotModelBase<scalar_t>& model,
 /**
  * The times strictly between `startTime` and `endTime` at which the dense
  * resample of `source` must add knots so that consecutive knots are at most
- * kMaxResampleRotationSpacing apart, in increasing order; `startState` and
+ * kMaxResampleAngleSpacing apart, in increasing order; `startState` and
  * `endState` are source's desired states at the two times. None while the base
- * turns by no more along `source` (the sum of the rotations between its knots
+ * turns by no more along `source` (the sum of the angles between its knots
  * in the interval), the case of every command up to 63 rad/s. Otherwise every
  * knot of `source` in the interval, and each piece of `source` between them cut
  * into the fewest equal parts in time for the spacing: within a piece the slerp
  * turns at a constant rate, so equal parts in time are equal parts of its
  * rotation.
  */
-scalar_array_t boundedRotationResampleTimes(
+scalar_array_t boundedAngleResampleTimes(
     const MpcRobotModelBase<scalar_t>& model,
     const TargetTrajectories& source,
     scalar_t startTime,
@@ -135,17 +156,16 @@ scalar_array_t boundedRotationResampleTimes(
   }
   breakpoints.push_back(endTime);
   states.push_back(&endState);
-  std::vector<scalar_t> rotations(breakpoints.size() - 1);
-  scalar_t totalRotation = 0.0;
+  std::vector<scalar_t> pieceAngles(breakpoints.size() - 1);
+  scalar_t totalAngle = 0.0;
   for (size_t i = 0; i + 1 < breakpoints.size(); ++i) {
-    rotations[i] = baseRotationBetween(model, *states[i], *states[i + 1]);
-    totalRotation += rotations[i];
+    pieceAngles[i] = baseRotationBetween(model, *states[i], *states[i + 1]);
+    totalAngle += pieceAngles[i];
   }
-  if (totalRotation <= kMaxResampleRotationSpacing) return times;
+  if (totalAngle <= kMaxResampleAngleSpacing) return times;
   for (size_t i = 0; i + 1 < breakpoints.size(); ++i) {
     if (i > 0) times.push_back(breakpoints[i]);
-    const scalar_t parts =
-        std::ceil(rotations[i] / kMaxResampleRotationSpacing);
+    const scalar_t parts = std::ceil(pieceAngles[i] / kMaxResampleAngleSpacing);
     for (scalar_t part = 1.0; part < parts; part += 1.0) {
       times.push_back(breakpoints[i] +
                       (part / parts) * (breakpoints[i + 1] - breakpoints[i]));
@@ -197,11 +217,13 @@ ContactPlanningReferenceManager::buildExecutionRules(
   // factory.
   const ContactPlanningTermFactory::ExtraRuleMaker makeModelRule =
       [this](const std::string& name) -> std::unique_ptr<ExecutionRule> {
-    if (name == term::kPlannedHeadingOverride)
+    if (name == term::kPlannedHeadingOverride) {
       return std::make_unique<PlannedHeadingOverride>(*mpcRobotModelPtr_,
                                                       &acom_);
-    if (name == term::kPlannedComOverride)
+    }
+    if (name == term::kPlannedComOverride) {
       return std::make_unique<PlannedComOverride>(*mpcRobotModelPtr_);
+    }
     return nullptr;
   };
   return ContactPlanningTermFactory::buildExecutionRulesStatus(config,
@@ -215,8 +237,9 @@ void ContactPlanningReferenceManager::logSwingTimeScaleWarning(
   checkedSwingTimeScale_ = swingTimeScale;
   const std::optional<std::string> warning =
       config.swingTimeScaleWarning(swingTimeScale);
-  if (warning.has_value())
+  if (warning.has_value()) {
     LOG(WARNING) << "[ContactPlanningReferenceManager] " << *warning;
+  }
 }
 
 bool ContactPlanningReferenceManager::rulesNeedPredictedTrajectory() const {
@@ -252,8 +275,9 @@ absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> headingModelEvaluatorFor(
     const ContactPlanningConfig& config,
     const AngularCenterOfMass* absl_nullable installed,
     const ModelSettings& modelSettings) {
-  if (!config.usesHeadingModel() || installed != nullptr)
+  if (!config.usesHeadingModel() || installed != nullptr) {
     return std::unique_ptr<AngularCenterOfMass>();
+  }
   absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom =
       AngularCenterOfMass::Create(modelSettings.robotName,
                                   modelSettings.mpcModelJointNames);
@@ -284,32 +308,32 @@ absl::Status ContactPlanningReferenceManager::loadHeadingModelEvaluator() {
   return absl::OkStatus();
 }
 
-scalar_t ContactPlanningReferenceManager::computeHeading(
+std::optional<scalar_t> ContactPlanningReferenceManager::computeYawAcomRtWorld(
     const vector_t& state) const {
-  if (acom_) {
-    // The twist heading psi_h(xi_a) of the ACoM attitude (design section 2.9),
-    // in (-pi, pi].
-    return yawOf(
-        acom_->acomAttitude(mpcRobotModelPtr_->getQuatBaseRtWorldXyzw(state),
-                            mpcRobotModelPtr_->getJointAngles(state)));
-  }
-  return mpcRobotModelPtr_->getYawBaseRtWorld(state);
+  if (!acom_) return std::nullopt;
+  // The twist heading psi_h(xi_a) of the ACoM attitude (design section 2.9),
+  // in (-pi, pi].
+  return yawOf(acom_->computeQuatAcomRtWorldXyzw(
+      mpcRobotModelPtr_->getQuatBaseRtWorldXyzw(state),
+      mpcRobotModelPtr_->getJointAngles(state)));
 }
 
-feet_array_t<scalar_t> ContactPlanningReferenceManager::readFootYaws() const {
-  feet_array_t<scalar_t> yaws = makeFeetArray(0.0);
+feet_array_t<scalar_t>
+ContactPlanningReferenceManager::readEulerzyxFeetRtWorldYaw() const {
+  feet_array_t<scalar_t> eulerzyxFeetRtWorldYaw = makeFeetArray(0.0);
   const PinocchioInterface::Data& data = pinocchioInterface_.getData();
   for (size_t i = 0; i < kNumContacts; ++i) {
-    const matrix3_t rotation =
+    const matrix3_t rotmatFootRtWorld =
         data.oMf[getContactFrameIndex(pinocchioInterface_, *mpcRobotModelPtr_,
                                       i)]
             .rotation();
-    yaws[i] = std::atan2(rotation(1, 0), rotation(0, 0));
+    eulerzyxFeetRtWorldYaw[i] =
+        std::atan2(rotmatFootRtWorld(1, 0), rotmatFootRtWorld(0, 0));
   }
-  return yaws;
+  return eulerzyxFeetRtWorldYaw;
 }
 
-scalar_t ContactPlanningReferenceManager::computeYawInertia(
+matrix3_t ContactPlanningReferenceManager::computeInertiaComEwrtWorld(
     const vector_t& state) {
   const PinocchioInterface::Model& model = pinocchioInterface_.getModel();
   PinocchioInterface::Data& data = pinocchioInterface_.getData();
@@ -318,7 +342,12 @@ scalar_t ContactPlanningReferenceManager::computeYawInertia(
       model, data, q,
       vector_t::Zero(
           model.nv));  // the composite inertia about the CoM in the world frame
-  return data.Ig.inertia().matrix()(kZAxisIndex, kZAxisIndex);
+  return data.Ig.inertia().matrix();
+}
+
+scalar_t ContactPlanningReferenceManager::computeInertiaComEwrtWorldZz(
+    const vector_t& state) {
+  return computeInertiaComEwrtWorld(state)(kZAxisIndex, kZAxisIndex);
 }
 
 void ContactPlanningReferenceManager::setTargetTrajectories(
@@ -348,30 +377,48 @@ void ContactPlanningReferenceManager::captureOperatorCommand(
   // center-of-mass override the very momentum channel read here) and that
   // rewrite survives into the next solver run, so reading the live target would
   // feed each planner its own previous output.
-  commandedYawRate_ = 0.0;
-  commandedVelocity_.setZero();
+  cmdRateYawBaseRtWorld_ = 0.0;
+  cmdLinvelBaseRtWorldEwrtWorldXy_.setZero();
+  cmdLatchTime_ = initTime;
   operatorTarget_.updateFromBuffer();
   const TargetTrajectories& operatorTarget = operatorTarget_.get();
   if (operatorTarget.empty()) return;
   const vector_t desiredState =
       mpcRobotModelPtr_->getDesiredState(operatorTarget, initTime);
-  if (desiredState.size() < kBaseComVelocityDim) return;
-  // The linear part of the same channel is the commanded CoM velocity. It has
-  // to be read here, before the rules run, for the same reason the yaw rate
+  if (desiredState.size() < kMinCommandTargetStateDim) return;
+  // The linear part of the same channel, the velocity the target's knot
+  // stores (getProxyLinvelComRtWorldEwrtWorld(): the CoM's on a centroidal
+  // knot, the base's on a whole-body one), is the operator's commanded base
+  // velocity, which the target calculator writes there. It has to be
+  // read here, before the rules run, for the same reason the yaw rate
   // does and then some: planned_com_override rewrites exactly this channel with
   // the plan's own CoM velocity, so a planner that read the command back off
   // the target afterwards would be fed its own output. At rest that reads as a
   // zero command however far the operator pushes the stick, the standing blend
   // never crosses its half point, and the robot never starts walking.
-  commandedVelocity_ = mpcRobotModelPtr_->getBaseComLinearVelocity(desiredState)
-                           .head<kHorizontalPositionDim>();
-  const scalar_t yawInertia = computeYawInertia(initState);
-  if (yawInertia <= 0.0) return;
+  cmdLinvelBaseRtWorldEwrtWorldXy_ =
+      getProxyLinvelComRtWorldEwrtWorld(*mpcRobotModelPtr_, desiredState)
+          .head<kHorizontalPositionDim>();
+  const scalar_t inertiaComEwrtWorldZz =
+      computeInertiaComEwrtWorldZz(initState);
+  if (inertiaComEwrtWorldZz <= 0.0) return;
   // Through the layout: a centroidal knot answers m h_z / I_zz, a knot that
   // stores the base velocity its world yaw rate.
-  commandedYawRate_ =
-      mpcRobotModelPtr_->getTargetPlanarCommand(desiredState, yawInertia)(
-          MpcRobotModelBase<scalar_t>::kPlanarCommandYawRateIndex);
+  cmdRateYawBaseRtWorld_ = mpcRobotModelPtr_->getRefPlanarMotion(
+      desiredState, inertiaComEwrtWorldZz)(
+      MpcRobotModelBase<scalar_t>::kRefPlanarMotionYawRateIndex);
+}
+
+vector2_t ContactPlanningReferenceManager::getCmdLinvelBaseRtWorldEwrtWorldXy(
+    scalar_t time) const {
+  // The command is fixed in the commanded heading's axes, and that heading
+  // turns at the commanded rate from the latch. Answering the latched
+  // world-axes vector instead would leave it at the start heading, which over
+  // a turning horizon reads as a lateral command of |v| sin(omega (t - t0)).
+  const scalar_t cmdErrYawBaseRtWorld =
+      cmdRateYawBaseRtWorld_ * std::max(time - cmdLatchTime_, 0.0);
+  return Eigen::Rotation2D<scalar_t>(cmdErrYawBaseRtWorld) *
+         cmdLinvelBaseRtWorldEwrtWorldXy_;
 }
 
 std::optional<SwitchedModelReferenceManager::PlannedDcm>
@@ -395,11 +442,17 @@ ContactPlanningReferenceManager::getPlannedDcm(scalar_t time) const {
     omega = config_.omega();
   }
   if (!(omega > 0.0)) return std::nullopt;
-  const std::optional<vector2_t> position = plan->comPositionAtTime(time);
-  const std::optional<vector2_t> velocity = plan->comVelocityAtTime(time);
-  if (!position.has_value() || !velocity.has_value()) return std::nullopt;
+  const std::optional<vector2_t> posComRtWorldEwrtWorldXy =
+      plan->evaluatePosComRtWorldEwrtWorldXy(time);
+  const std::optional<vector2_t> linvelComRtWorldEwrtWorldXy =
+      plan->evaluateLinvelComRtWorldEwrtWorldXy(time);
+  if (!posComRtWorldEwrtWorldXy.has_value() ||
+      !linvelComRtWorldEwrtWorldXy.has_value()) {
+    return std::nullopt;
+  }
   PlannedDcm planned;
-  planned.dcm = *position + *velocity / omega;
+  planned.desPosDcmRtWorldEwrtWorldXy =
+      *posComRtWorldEwrtWorldXy + *linvelComRtWorldEwrtWorldXy / omega;
   planned.omega = omega;
   return planned;
 }
@@ -446,18 +499,19 @@ void ContactPlanningReferenceManager::resetRuntimeState() {
   liftOffHistory_ = LiftOffHistory();
   lastSolveTime_ = std::numeric_limits<scalar_t>::lowest();
 
-  commandedYawRate_ = 0.0;
-  commandedVelocity_.setZero();
-  footYaws_ = makeFeetArray(0.0);
-  liftOffYaws_ = makeFeetArray(0.0);
-  footPositions_ = makeFeetArray(vector3_t(vector3_t::Zero()));
-  liftOffPositions_ = makeFeetArray(vector3_t(vector3_t::Zero()));
+  cmdRateYawBaseRtWorld_ = 0.0;
+  cmdLinvelBaseRtWorldEwrtWorldXy_.setZero();
+  cmdLatchTime_ = 0.0;
+  eulerzyxFeetRtWorldYaw_ = makeFeetArray(0.0);
+  liftoffEulerzyxFeetRtWorldYaw_ = makeFeetArray(0.0);
+  posFeetRtWorldEwrtWorld_ = makeFeetArray(vector3_t(vector3_t::Zero()));
+  liftoffPosFeetRtWorldEwrtWorld_ = makeFeetArray(vector3_t(vector3_t::Zero()));
   footBookkeepingInitialized_ = false;
 
   swingLatches_ = makeFeetArray(SwingTimingLatch{});
   lastContactEvents_ = makeFeetArray(ContactEventReport{});
   cadenceTouchDownShift_ = makeFeetArray(0.0);
-  dcmStepAdjustment_ = makeFeetArray(vector2_t(vector2_t::Zero()));
+  errPosFeetRtWorldEwrtWorldXy_ = makeFeetArray(vector2_t(vector2_t::Zero()));
   comState_ = HorizontalComState{};
   {
     std::lock_guard<std::mutex> lock(predictionMutex_);
@@ -469,8 +523,8 @@ void ContactPlanningReferenceManager::resetRuntimeState() {
   scheduleShiftLog_.clear();
   replanRequested_.store(false);
   {
-    std::lock_guard<std::mutex> lock(targetPoseMutex_);
-    targetContactPoses_ = makeFeetArray(TargetContactPose{});
+    std::lock_guard<std::mutex> lock(targetContactMutex_);
+    desPoseFeetRtWorld_ = makeFeetArray(TargetContactPose{});
   }
 }
 
@@ -514,17 +568,18 @@ ContactPlanningConfig ContactPlanningReferenceManager::getConfig() const {
   return config_;
 }
 
-feet_array_t<vector3_t> ContactPlanningReferenceManager::computeFootPositions(
+feet_array_t<vector3_t>
+ContactPlanningReferenceManager::computePosFeetRtWorldEwrtWorld(
     const vector_t& state) {
   const vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(state);
-  const std::vector<vector3_t> positions =
+  const std::vector<vector3_t> posContactsRtWorldEwrtWorld =
       computePosContactsRtWorldEwrtWorld<scalar_t>(q, pinocchioInterface_,
                                                    *mpcRobotModelPtr_);
-  feet_array_t<vector3_t> feet;
+  feet_array_t<vector3_t> posFeetRtWorldEwrtWorld;
   for (size_t i = 0; i < kNumContacts; ++i) {
-    feet[i] = positions[i];
+    posFeetRtWorldEwrtWorld[i] = posContactsRtWorldEwrtWorld[i];
   }
-  return feet;
+  return posFeetRtWorldEwrtWorld;
 }
 
 ContactPlanningReferenceManager::HorizontalComState
@@ -533,23 +588,25 @@ ContactPlanningReferenceManager::computeComState(const vector_t& state) {
   PinocchioInterface::Data& data = pinocchioInterface_.getData();
   const vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(state);
   pinocchio::centerOfMass(model, data, q, /*computeSubtreeComs=*/false);
-  const vector2_t com = data.com[0].head<kHorizontalPositionDim>();
-  const vector2_t comVelocity =
-      mpcRobotModelPtr_->getBaseComLinearVelocity(state)
+  const vector2_t posComRtWorldEwrtWorldXy =
+      data.com[0].head<kHorizontalPositionDim>();
+  const vector2_t proxyLinvelComRtWorldEwrtWorldXy =
+      getProxyLinvelComRtWorldEwrtWorld(*mpcRobotModelPtr_, state)
           .head<kHorizontalPositionDim>();
-  return {.position = com, .velocity = comVelocity};
+  return {.posComRtWorldEwrtWorldXy = posComRtWorldEwrtWorldXy,
+          .proxyLinvelComRtWorldEwrtWorldXy = proxyLinvelComRtWorldEwrtWorldXy};
 }
 
 void ContactPlanningReferenceManager::updateFootBookkeeping(
     scalar_t initTime, const vector_t& initState) {
-  footPositions_ = computeFootPositions(initState);
-  footYaws_ = readFootYaws();
+  posFeetRtWorldEwrtWorld_ = computePosFeetRtWorldEwrtWorld(initState);
+  eulerzyxFeetRtWorldYaw_ = readEulerzyxFeetRtWorldYaw();
   const contact_flag_t contacts =
       contactFlagsAtTime(appliedSchedule_, initTime);
   for (size_t i = 0; i < kNumContacts; ++i) {
     if (contacts[i] || !footBookkeepingInitialized_) {
-      liftOffPositions_[i] = footPositions_[i];
-      liftOffYaws_[i] = footYaws_[i];
+      liftoffPosFeetRtWorldEwrtWorld_[i] = posFeetRtWorldEwrtWorld_[i];
+      liftoffEulerzyxFeetRtWorldYaw_[i] = eulerzyxFeetRtWorldYaw_[i];
     }
   }
   footBookkeepingInitialized_ = true;
@@ -640,22 +697,26 @@ void ContactPlanningReferenceManager::updatePredictedComState(
   // would poison the foot reference.
   if (predictedState.size() !=
           static_cast<Eigen::Index>(mpcRobotModelPtr_->getStateDim()) ||
-      !predictedState.allFinite())
+      !predictedState.allFinite()) {
     return;
+  }
   predictedComState_ = computeComState(predictedState);
-  hasPredictedComState_ = predictedComState_.position.allFinite() &&
-                          predictedComState_.velocity.allFinite();
+  hasPredictedComState_ =
+      predictedComState_.posComRtWorldEwrtWorldXy.allFinite() &&
+      predictedComState_.proxyLinvelComRtWorldEwrtWorldXy.allFinite();
 }
 
 void ContactPlanningReferenceManager::handleContactEvents(
     ExecutionContext& ctx) {
   lastContactEvents_.fill(ContactEventReport{});
   cadenceTouchDownShift_.fill(0.0);
-  if (!hasAppliedSchedule_ || !activePlan_.has_value())
+  if (!hasAppliedSchedule_ || !activePlan_.has_value()) {
     return;  // only the schedule of the planning path is adapted
+  }
 
-  for (const std::unique_ptr<ExecutionRule>& rule : executionRules_)
+  for (const std::unique_ptr<ExecutionRule>& rule : executionRules_) {
     rule->beginCycle(ctx);
+  }
   cadenceTouchDownShift_ = ctx.cadenceTouchDownShift;
   lastContactEvents_ = adaptScheduleWithRules(appliedSchedule_, ctx,
                                               executionRules_, swingLatches_);
@@ -702,8 +763,10 @@ void ContactPlanningReferenceManager::modifyReferences(
   // The swing trajectory planner's configuration is replaced by the task file's
   // reload, which does not pass through this manager, so a swingTimeScale moved
   // from the GUI is checked against the planned swings here, once per change.
-  if (checkedSwingTimeScale_ != swingTrajectoryPtr_->getConfig().swingTimeScale)
+  if (checkedSwingTimeScale_ !=
+      swingTrajectoryPtr_->getConfig().swingTimeScale) {
     logSwingTimeScaleWarning(config);
+  }
 
   activatePendingPlan(initTime);
 
@@ -718,6 +781,18 @@ void ContactPlanningReferenceManager::modifyReferences(
       scheduleToExecute(config, initTime, lowerBoundTime, upperBoundTime);
 
   captureOperatorCommand(initTime, initState);
+  // shapePoseBaseRtWorld() turns a base-pose heuristic's tilt rate into angular
+  // momentum with the composite inertia the base class latches in
+  // captureMeasuredState(), which this override does not call; left at the
+  // zero of resetRuntimeState(), the tilt rate never reached the momentum
+  // reference. Only the matrix is latched, in the measured heading's axes, so
+  // that it can be turned to each node's heading: its yaw entry, which the
+  // base class keeps beside it, would change the command its terms read
+  // (targetPlanarCommandAt()).
+  if (!heuristicLayerPtr_->basePoseHeuristicsEmpty()) {
+    latchInertiaComEwrtHeading(computeInertiaComEwrtWorld(initState),
+                               mpcRobotModelPtr_->getYawBaseRtWorld(initState));
+  }
 
   // The operator's target is resampled onto the plan's node grid so that a rule
   // which rewrites the state at a node has a knot there to rewrite. Three
@@ -756,25 +831,28 @@ void ContactPlanningReferenceManager::modifyReferences(
         targetOnPlanGrid(*usablePlan, targetTrajectories, finalTime);
   }
 
-  for (const std::unique_ptr<ExecutionRule>& rule : executionRules_)
+  for (const std::unique_ptr<ExecutionRule>& rule : executionRules_) {
     rule->overrideTarget(ctx, targetTrajectories);
-  const scalar_t previousTerrainHeight = targetTerrainHeight_;
-  const scalar_t terrainHeight =
-      adaptToCurrentGroundHeight(targetTrajectories, initState, initMode);
+  }
+  const scalar_t prevRefPosSurfaceRtWorldEwrtWorldZ =
+      refPosSurfaceRtWorldEwrtWorldZ_;
+  const scalar_t posSurfaceRtWorldEwrtWorldZ =
+      applyPosSurfaceRtWorldEwrtWorldZ(targetTrajectories, initState, initMode);
   // The operator's copy of the target stands on the same ground as the live one
   // - both are the target as published - and the tail of the densified target
   // above is read from it, so it moves with the ground as well. Left behind, a
-  // hot reload of `terrainHeight` moved the plan's knots but put every tail
-  // knot back on the old ground from the next run on, for as long as the
-  // operator published nothing new (for good, under a pose command).
-  const scalar_t heightChange = terrainHeight - previousTerrainHeight;
-  if (heightChange != 0.0) {
+  // hot reload of `posSurfaceRtWorldEwrtWorldZ` moved the plan's knots but put
+  // every tail knot back on the old ground from the next run on, for as long as
+  // the operator published nothing new (for good, under a pose command).
+  const scalar_t errPosSurfaceRtWorldEwrtWorldZ =
+      posSurfaceRtWorldEwrtWorldZ - prevRefPosSurfaceRtWorldEwrtWorldZ;
+  if (errPosSurfaceRtWorldEwrtWorldZ != 0.0) {
     for (vector_t& operatorState : operatorTarget_.get().stateTrajectory) {
-      mpcRobotModelPtr_->adaptPosBaseRtWorldEwrtWorldZ(operatorState,
-                                                       heightChange);
+      mpcRobotModelPtr_->adaptPosBaseRtWorldEwrtWorldZ(
+          operatorState, errPosSurfaceRtWorldEwrtWorldZ);
     }
   }
-  updateSwingTrajectories(schedule, ctx, terrainHeight);
+  updateSwingTrajectories(schedule, ctx, posSurfaceRtWorldEwrtWorldZ);
 
   modeSchedule = schedule;
   modeSchedule_ = schedule;
@@ -783,7 +861,7 @@ void ContactPlanningReferenceManager::modifyReferences(
   lastSolveTime_ = initTime;
   updateFootBookkeeping(initTime, initState);
   updateDcmStepAdjustment(ctx);
-  updateTargetContactPoses(initTime, terrainHeight);
+  updateDesPoseFeetRtWorld(initTime, posSurfaceRtWorldEwrtWorldZ);
 }
 
 void ContactPlanningReferenceManager::fillExecutionContext(
@@ -811,12 +889,17 @@ void ContactPlanningReferenceManager::fillExecutionContext(
     hasPredictedComState_ = false;
   }
   ctx.hasPredictedComState = hasPredictedComState_;
-  ctx.com = comState_.position;
-  ctx.comVelocity = comState_.velocity;
-  ctx.basePosition = mpcRobotModelPtr_->getPosBaseRtWorldEwrtWorld(initState)
-                         .head<kHorizontalPositionDim>();
-  ctx.predictedCom = predictedComState_.position;
-  ctx.predictedComVelocity = predictedComState_.velocity;
+  ctx.posComRtWorldEwrtWorldXy = comState_.posComRtWorldEwrtWorldXy;
+  ctx.proxyLinvelComRtWorldEwrtWorldXy =
+      comState_.proxyLinvelComRtWorldEwrtWorldXy;
+  ctx.posBaseRtWorldEwrtWorldXy =
+      mpcRobotModelPtr_->getPosBaseRtWorldEwrtWorld(initState)
+          .head<kHorizontalPositionDim>();
+  ctx.yawBaseRtWorld = mpcRobotModelPtr_->getYawBaseRtWorld(initState);
+  ctx.predictedPosComRtWorldEwrtWorldXy =
+      predictedComState_.posComRtWorldEwrtWorldXy;
+  ctx.predictedProxyLinvelComRtWorldEwrtWorldXy =
+      predictedComState_.proxyLinvelComRtWorldEwrtWorldXy;
 }
 
 ModeSchedule ContactPlanningReferenceManager::scheduleToExecute(
@@ -878,13 +961,14 @@ TargetTrajectories ContactPlanningReferenceManager::targetOnPlanGrid(
                                                  ? targetTrajectories
                                                  : operatorTarget_.get();
   TargetTrajectories denseTarget;
-  const size_t numNodes = plan.comPosition.size();
+  const size_t numNodes = plan.posComRtWorldEwrtWorldXyTraj.size();
   const size_t numOperatorKnots = operatorTarget.timeTrajectory.size();
   denseTarget.timeTrajectory.reserve(numNodes + numOperatorKnots + 1);
   denseTarget.stateTrajectory.reserve(numNodes + numOperatorKnots + 1);
   const bool hasInput = !targetTrajectories.inputTrajectory.empty();
-  if (hasInput)
+  if (hasInput) {
     denseTarget.inputTrajectory.reserve(numNodes + numOperatorKnots + 1);
+  }
   // The input of a tail knot: the operator's when the published target carries
   // one, the live target's otherwise.
   const std::function<vector_t(scalar_t)> tailInput =
@@ -898,9 +982,10 @@ TargetTrajectories ContactPlanningReferenceManager::targetOnPlanGrid(
       [&](scalar_t time, vector_t state) {
         denseTarget.timeTrajectory.push_back(time);
         denseTarget.stateTrajectory.push_back(std::move(state));
-        if (hasInput)
+        if (hasInput) {
           denseTarget.inputTrajectory.push_back(
               targetTrajectories.getDesiredInput(time));
+        }
       };
   for (size_t i = 0; i < numNodes; ++i) {
     const scalar_t time = plan.startTime + static_cast<scalar_t>(i) * plan.dt;
@@ -909,8 +994,8 @@ TargetTrajectories ContactPlanningReferenceManager::targetOnPlanGrid(
     if (i > 0) {
       // The nodes are omega dt apart in yaw, above the bound only for a turn
       // faster than 63 rad/s at dt = 0.025 s; the knots of the bound
-      // (boundedRotationResampleTimes()) go before the node.
-      for (const scalar_t boundTime : boundedRotationResampleTimes(
+      // (boundedAngleResampleTimes()) go before the node.
+      for (const scalar_t boundTime : boundedAngleResampleTimes(
                *mpcRobotModelPtr_, targetTrajectories,
                denseTarget.timeTrajectory.back(),
                denseTarget.stateTrajectory.back(), time, state)) {
@@ -940,40 +1025,44 @@ TargetTrajectories ContactPlanningReferenceManager::targetOnPlanGrid(
   return denseTarget;
 }
 
-void ContactPlanningReferenceManager::updateTargetContactPoses(
-    scalar_t initTime, scalar_t terrainHeight) {
-  feet_array_t<TargetContactPose> poses = makeFeetArray(TargetContactPose{});
+void ContactPlanningReferenceManager::updateDesPoseFeetRtWorld(
+    scalar_t initTime, scalar_t posSurfaceRtWorldEwrtWorldZ) {
+  feet_array_t<TargetContactPose> desPoseFeetRtWorld =
+      makeFeetArray(TargetContactPose{});
   const ContactPlan* absl_nullable usablePlan = usablePlanAt(initTime);
   if (usablePlan != nullptr && footBookkeepingInitialized_) {
     TargetContactPoseInputs inputs;
     inputs.time = initTime;
-    inputs.footPositions = footPositions_;
-    inputs.footYaws = footYaws_;
-    inputs.dcmStepAdjustment = dcmStepAdjustment_;
-    inputs.terrainHeight = terrainHeight;
-    poses = computeTargetContactPoses(*usablePlan, appliedSchedule_, inputs);
+    inputs.posFeetRtWorldEwrtWorld = posFeetRtWorldEwrtWorld_;
+    inputs.eulerzyxFeetRtWorldYaw = eulerzyxFeetRtWorldYaw_;
+    inputs.errPosFeetRtWorldEwrtWorldXy = errPosFeetRtWorldEwrtWorldXy_;
+    inputs.posSurfaceRtWorldEwrtWorldZ = posSurfaceRtWorldEwrtWorldZ;
+    desPoseFeetRtWorld =
+        computeDesPoseFeetRtWorld(*usablePlan, appliedSchedule_, inputs);
   }
-  std::lock_guard<std::mutex> lock(targetPoseMutex_);
-  targetContactPoses_ = poses;
+  std::lock_guard<std::mutex> lock(targetContactMutex_);
+  desPoseFeetRtWorld_ = desPoseFeetRtWorld;
 }
 
 feet_array_t<TargetContactPose>
-ContactPlanningReferenceManager::getTargetContactPoses() const {
-  std::lock_guard<std::mutex> lock(targetPoseMutex_);
-  return targetContactPoses_;
+ContactPlanningReferenceManager::getDesPoseFeetRtWorld() const {
+  std::lock_guard<std::mutex> lock(targetContactMutex_);
+  return desPoseFeetRtWorld_;
 }
 
 void ContactPlanningReferenceManager::updateSwingTrajectories(
     const ModeSchedule& schedule,
     const ExecutionContext& ctx,
-    scalar_t terrainHeight) {
+    scalar_t posSurfaceRtWorldEwrtWorldZ) {
   const SwingTrajectoryPlanner::Config& swingConfig =
       swingTrajectoryPtr_->getConfig();
   const size_t numPhases = schedule.modeSequence.size();
-  feet_array_t<scalar_array_t> liftOffHeights =
-      makeFeetArray(scalar_array_t(numPhases, terrainHeight));
-  feet_array_t<scalar_array_t> touchDownHeights = makeFeetArray(scalar_array_t(
-      numPhases, terrainHeight + swingConfig.touchDownHeightOffset));
+  feet_array_t<scalar_array_t> liftoffPosFeetRtWorldEwrtWorldZTraj =
+      makeFeetArray(scalar_array_t(numPhases, posSurfaceRtWorldEwrtWorldZ));
+  feet_array_t<scalar_array_t> touchdownPosFeetRtWorldEwrtWorldZTraj =
+      makeFeetArray(scalar_array_t(
+          numPhases, posSurfaceRtWorldEwrtWorldZ +
+                         swingConfig.touchdownPosFootRtSurfaceEwrtWorldZ));
 
   // A rule may have a foot searching for the ground (a late touch-down): its
   // height reference then continues the planned swing as a straight descent
@@ -989,23 +1078,25 @@ void ContactPlanningReferenceManager::updateSwingTrajectories(
         groundSearches[foot] = SwingTrajectoryPlanner::GroundSearch{
             .liftOffTime = search->liftOffTime,
             .plannedTouchDownTime = search->plannedTouchDownTime,
-            .descentSpeedFootRtWorld = search->searchVelocity};
+            .descentSpeedFootRtWorld = search->searchSpeedFootRtWorld};
         break;
       }
     }
   }
-  swingTrajectoryPtr_->update(schedule, liftOffHeights, touchDownHeights,
+  swingTrajectoryPtr_->update(schedule, liftoffPosFeetRtWorldEwrtWorldZTraj,
+                              touchdownPosFeetRtWorldEwrtWorldZTraj,
                               groundSearches);
 }
 
 void ContactPlanningReferenceManager::updateDcmStepAdjustment(
     const ExecutionContext& ctx) {
-  dcmStepAdjustment_.fill(vector2_t::Zero());
+  errPosFeetRtWorldEwrtWorldXy_.fill(vector2_t::Zero());
   for (const std::unique_ptr<ExecutionRule>& rule : executionRules_) {
-    const feet_array_t<vector2_t> correction =
+    const feet_array_t<vector2_t> errPosFeetRtWorldEwrtWorldXy =
         rule->correctFootholds(ctx, appliedSchedule_);
-    for (size_t foot = 0; foot < kNumContacts; ++foot)
-      dcmStepAdjustment_[foot] += correction[foot];
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      errPosFeetRtWorldEwrtWorldXy_[foot] += errPosFeetRtWorldEwrtWorldXy[foot];
+    }
   }
 }
 
@@ -1029,9 +1120,9 @@ ContactPlanningReferenceManager::getSwingFootReference(size_t contactIndex,
   if (!phase.has_value()) return std::nullopt;
   const scalar_t liftOffTime = phase->liftOff;
   const scalar_t touchDownTime = phase->touchDown;
-  const std::optional<vector2_t> landing =
-      plan->footholdAtTime(contactIndex, touchDownTime);
-  if (!landing.has_value()) return std::nullopt;
+  const std::optional<vector2_t> touchdownDesPosFootRtWorldEwrtWorldXy =
+      plan->getDesPosFootRtWorldEwrtWorldXy(contactIndex, touchDownTime);
+  if (!touchdownDesPosFootRtWorldEwrtWorldXy.has_value()) return std::nullopt;
 
   // The xy motion is timed on the swing without its late touch-down extension:
   // a foot searching for the ground holds its landing target instead of
@@ -1053,24 +1144,29 @@ ContactPlanningReferenceManager::getSwingFootReference(size_t contactIndex,
   // the start is the planned foot position at the node BEFORE that lift-off,
   // i.e. the stance position before the foot moves.
   //
-  // footholdBeforeTime(), not footholdAtTime() with the argument nudged back
-  // half a step: the nudge rounds back up to the lift-off node itself, and
-  // under the shipped `hlip` planner that node already carries the swing's
-  // LANDING position, so `start` became `*landing`, `delta` became zero, and
-  // this whole reference collapsed to a constant at the landing target with
-  // zero commanded velocity for every later swing in the horizon. See
-  // ContactPlan.h.
-  vector2_t start =
-      liftOffPositions_[contactIndex].head<kHorizontalPositionDim>();
+  // getPrevDesPosFootRtWorldEwrtWorldXy(), not
+  // getDesPosFootRtWorldEwrtWorldXy() with the argument nudged back half a
+  // step: the nudge rounds back up to the lift-off node itself, and under the
+  // shipped `hlip` planner that node already carries the swing's LANDING
+  // position, so `initDesPosFootRtWorldEwrtWorldXy` became
+  // `*touchdownDesPosFootRtWorldEwrtWorldXy`, `desErrPosFootRtWorldEwrtWorldXy`
+  // became zero, and this whole reference collapsed to a constant at the
+  // landing target with zero commanded velocity for every later swing in the
+  // horizon. See ContactPlan.h.
+  vector2_t initDesPosFootRtWorldEwrtWorldXy =
+      liftoffPosFeetRtWorldEwrtWorld_[contactIndex]
+          .head<kHorizontalPositionDim>();
   const std::optional<scalar_t> currentLiftOff =
       currentOrNextLiftOffTime(appliedSchedule_, contactIndex, lastSolveTime_);
   const bool endsCurrentContactPhase =
       currentLiftOff.has_value() &&
       std::abs(*currentLiftOff - liftOffTime) <= kSameSwingTolerance;
   if (!endsCurrentContactPhase) {
-    const std::optional<vector2_t> plannedStance =
-        plan->footholdBeforeTime(contactIndex, liftOffTime);
-    if (plannedStance.has_value()) start = *plannedStance;
+    const std::optional<vector2_t> prevDesPosFootRtWorldEwrtWorldXy =
+        plan->getPrevDesPosFootRtWorldEwrtWorldXy(contactIndex, liftOffTime);
+    if (prevDesPosFootRtWorldEwrtWorldXy.has_value()) {
+      initDesPosFootRtWorldEwrtWorldXy = *prevDesPosFootRtWorldEwrtWorldXy;
+    }
   }
   const scalar_t tau = std::clamp((time - liftOffTime) / duration, 0.0, 1.0);
 
@@ -1092,36 +1188,45 @@ ContactPlanningReferenceManager::getSwingFootReference(size_t contactIndex,
   const bool isTheSwingInFlight =
       swingInFlight.has_value() &&
       std::abs(swingInFlight->liftOff - liftOffTime) <= kSameSwingTolerance;
-  const vector2_t adjustment = isTheSwingInFlight
-                                   ? dcmStepAdjustment_[contactIndex]
-                                   : vector2_t(vector2_t::Zero());
-  const vector2_t delta = *landing + adjustment - start;
+  const vector2_t errPosFootRtWorldEwrtWorldXy =
+      isTheSwingInFlight ? errPosFeetRtWorldEwrtWorldXy_[contactIndex]
+                         : vector2_t(vector2_t::Zero());
+  // The landing (with its offset) minus the start.
+  const vector2_t desErrPosFootRtWorldEwrtWorldXy =
+      *touchdownDesPosFootRtWorldEwrtWorldXy + errPosFootRtWorldEwrtWorldXy -
+      initDesPosFootRtWorldEwrtWorldXy;
 
   SwingFootReference reference;
   reference.desPosFootRtWorldEwrtWorld.head<kHorizontalPositionDim>() =
-      start + blend * delta;
+      initDesPosFootRtWorldEwrtWorldXy +
+      blend * desErrPosFootRtWorldEwrtWorldXy;
   reference.desPosFootRtWorldEwrtWorld(kZAxisIndex) =
       swingTrajectoryPtr_->getDesPosFootRtWorldEwrtWorldZ(contactIndex, time);
   reference.desLinvelFootRtWorldEwrtWorld.head<kHorizontalPositionDim>() =
-      blendRate * delta;
+      blendRate * desErrPosFootRtWorldEwrtWorldXy;
   reference.desLinvelFootRtWorldEwrtWorld(kZAxisIndex) =
       swingTrajectoryPtr_->getDesLinvelFootRtWorldEwrtWorldZ(contactIndex,
                                                              time);
   // Heading model: the foot yaw turns from its lift-off yaw to the planned
   // landing yaw with the same profile.
   if (plan->hasHeading()) {
-    const std::optional<scalar_t> landingYaw =
-        plan->footYawAtTime(contactIndex, touchDownTime);
-    if (landingYaw.has_value()) {
-      scalar_t startYaw = liftOffYaws_[contactIndex];
+    const std::optional<scalar_t> touchdownDesEulerzyxFootRtWorldYaw =
+        plan->getDesEulerzyxFootRtWorldYaw(contactIndex, touchDownTime);
+    if (touchdownDesEulerzyxFootRtWorldYaw.has_value()) {
+      scalar_t initDesEulerzyxFootRtWorldYaw =
+          liftoffEulerzyxFeetRtWorldYaw_[contactIndex];
       if (!endsCurrentContactPhase) {
-        const std::optional<scalar_t> plannedYaw =
-            plan->footYawBeforeTime(contactIndex, liftOffTime);
-        if (plannedYaw.has_value()) startYaw = *plannedYaw;
+        const std::optional<scalar_t> prevDesEulerzyxFootRtWorldYaw =
+            plan->getPrevDesEulerzyxFootRtWorldYaw(contactIndex, liftOffTime);
+        if (prevDesEulerzyxFootRtWorldYaw.has_value()) {
+          initDesEulerzyxFootRtWorldYaw = *prevDesEulerzyxFootRtWorldYaw;
+        }
       }
-      reference.yaw =
-          startYaw +
-          blend * (moduloAngleWithReference(*landingYaw, startYaw) - startYaw);
+      reference.desYawFootRtWorld =
+          initDesEulerzyxFootRtWorldYaw +
+          blend * (moduloAngleWithReference(*touchdownDesEulerzyxFootRtWorldYaw,
+                                            initDesEulerzyxFootRtWorldYaw) -
+                   initDesEulerzyxFootRtWorldYaw);
     }
   }
   return reference;
@@ -1130,19 +1235,25 @@ ContactPlanningReferenceManager::getSwingFootReference(size_t contactIndex,
 ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(
     scalar_t initTime,
     const vector_t& initState,
-    const vector2_t& velocityCommand) {
+    const vector2_t& cmdLinvelBaseRtWorldEwrtWorldXy) {
   ContactPlannerInput input;
   input.time = initTime;
-  input.velocityCommand = velocityCommand;
+  input.cmdLinvelBaseRtWorldEwrtWorldXy = cmdLinvelBaseRtWorldEwrtWorldXy;
 
   const HorizontalComState com = computeComState(initState);
-  input.comPosition = com.position;
-  input.comVelocity = com.velocity;
-  input.yaw = mpcRobotModelPtr_->getYawBaseRtWorld(initState);
+  input.posComRtWorldEwrtWorldXy = com.posComRtWorldEwrtWorldXy;
+  // The planner's LIP starts from the CoM velocity, which a whole-body state
+  // stands in for with its base velocity (computeComState()).
+  input.proxyLinvelComRtWorldEwrtWorldXy = com.proxyLinvelComRtWorldEwrtWorldXy;
+  const scalar_t yawBaseRtWorld =
+      mpcRobotModelPtr_->getYawBaseRtWorld(initState);
+  input.yawHeadingRtWorld = yawBaseRtWorld;
 
-  const feet_array_t<vector3_t> feet = computeFootPositions(initState);
+  const feet_array_t<vector3_t> posFeetRtWorldEwrtWorld =
+      computePosFeetRtWorldEwrtWorld(initState);
   for (size_t i = 0; i < kNumContacts; ++i) {
-    input.footPositions[i] = feet[i].head<kHorizontalPositionDim>();
+    input.posFeetRtWorldEwrtWorldXy[i] =
+        posFeetRtWorldEwrtWorld[i].head<kHorizontalPositionDim>();
   }
 
   // The operator's commanded yaw rate is filled whether or not the heading
@@ -1153,26 +1264,32 @@ ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(
   // blend's activity, so `alpha` never crossed its half point on yaw alone and
   // the robot would not start stepping to turn in place however hard it was
   // asked.
-  input.headingRateCommand = commandedYawRate();
+  input.cmdRateYawBaseRtWorld = cmdRateYawBaseRtWorld();
 
   const ContactPlanningConfig config = getConfig();
   if (config.usesHeadingModel()) {
-    // Heading model: the whole-body heading, its rate from the angular momentum
-    // about the vertical, and the foot yaws unwrapped near the heading. The
-    // planning frame is the heading.
-    const feet_array_t<scalar_t> yaws = readFootYaws();
-    input.heading = computeHeading(initState);
-    input.baseYaw = moduloAngleWithReference(input.yaw, input.heading);
-    input.yaw = input.heading;
-    input.yawInertia = computeYawInertia(initState);
+    // Heading model: the whole-body heading - the ACoM's yaw when this manager
+    // has the ACoM evaluator, the base's otherwise - its rate from the angular
+    // momentum about the vertical, and the foot yaws unwrapped near the
+    // heading. The planning frame is the heading.
+    const feet_array_t<scalar_t> eulerzyxFeetRtWorldYaw =
+        readEulerzyxFeetRtWorldYaw();
+    const std::optional<scalar_t> yawAcomRtWorld =
+        computeYawAcomRtWorld(initState);
+    input.initYawHeadingRtWorld = yawAcomRtWorld.value_or(yawBaseRtWorld);
+    input.yawBaseRtWorld =
+        moduloAngleWithReference(yawBaseRtWorld, input.initYawHeadingRtWorld);
+    input.yawHeadingRtWorld = input.initYawHeadingRtWorld;
+    input.inertiaComEwrtWorldZz = computeInertiaComEwrtWorldZz(initState);
     // Through the layout, as the command: m h_z / I_zz on the centroidal state
     // (0 while I_zz is not positive), the base's world yaw rate on a state that
     // stores the base velocity.
-    input.headingRate =
-        mpcRobotModelPtr_->getTargetPlanarCommand(initState, input.yawInertia)(
-            MpcRobotModelBase<scalar_t>::kPlanarCommandYawRateIndex);
+    input.initRateYawHeadingRtWorld = mpcRobotModelPtr_->getRefPlanarMotion(
+        initState, input.inertiaComEwrtWorldZz)(
+        MpcRobotModelBase<scalar_t>::kRefPlanarMotionYawRateIndex);
     for (size_t i = 0; i < kNumContacts; ++i) {
-      input.footYaws[i] = moduloAngleWithReference(yaws[i], input.heading);
+      input.eulerzyxFeetRtWorldYaw[i] = moduloAngleWithReference(
+          eulerzyxFeetRtWorldYaw[i], input.initYawHeadingRtWorld);
     }
   }
 

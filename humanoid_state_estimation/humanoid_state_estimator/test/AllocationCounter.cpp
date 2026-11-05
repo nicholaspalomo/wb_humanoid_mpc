@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <atomic>
 #include <cstddef>
+#include <cstdlib>  // glibc's declarations of the functions this file defines.
 
 #include "absl/base/nullability.h"
 
@@ -44,25 +45,27 @@ constinit std::atomic<size_t> allocations_since_start{0};
 
 // glibc's own entry points. Defining malloc, calloc and realloc in the binary
 // interposes them on every caller in the process; free needs no counting and
-// stays glibc's.
+// stays glibc's. The parameters carry the C library's names (nmemb, ptr):
+// glibc declares them as __nmemb and __ptr, and a definition must not name them
+// differently (readability-inconsistent-declaration-parameter-name).
 extern "C" {
 void* absl_nullable __libc_malloc(size_t size);
-void* absl_nullable __libc_calloc(size_t count, size_t size);
-void* absl_nullable __libc_realloc(void* absl_nullable pointer, size_t size);
+void* absl_nullable __libc_calloc(size_t nmemb, size_t size);
+void* absl_nullable __libc_realloc(void* absl_nullable ptr, size_t size);
 
 void* absl_nullable malloc(size_t size) noexcept {
   ++allocations_since_start;
   return __libc_malloc(size);
 }
 
-void* absl_nullable calloc(size_t count, size_t size) noexcept {
+void* absl_nullable calloc(size_t nmemb, size_t size) noexcept {
   ++allocations_since_start;
-  return __libc_calloc(count, size);
+  return __libc_calloc(nmemb, size);
 }
 
-void* absl_nullable realloc(void* absl_nullable pointer, size_t size) noexcept {
+void* absl_nullable realloc(void* absl_nullable ptr, size_t size) noexcept {
   ++allocations_since_start;
-  return __libc_realloc(pointer, size);
+  return __libc_realloc(ptr, size);
 }
 }
 

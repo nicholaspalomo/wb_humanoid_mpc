@@ -36,6 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "gtest/gtest.h"
 #include "mujoco/mujoco.h"
 
@@ -143,8 +145,8 @@ struct Scene {
     model->body_gravcomp[body("sim_projectile")] = 0.0;
   }
 
-  /** Puts the ball at `position` with linear velocity `velocity`, unrotated and
-   * not spinning. */
+  /** Puts the ball at `posBallRtWorldEwrtWorld` with linear velocity
+   * `linvelBallRtWorldEwrtWorld`, unrotated and not spinning. */
   void place(const std::array<double, 3>& posBallRtWorldEwrtWorld,
              const std::array<double, 3>& linvelBallRtWorldEwrtWorld) const {
     for (int axis = 0; axis < 3; ++axis) {
@@ -162,8 +164,9 @@ struct Scene {
     const int ballGeom = geom("sim_projectile_geom");
     for (int c = 0; c < data->ncon; ++c) {
       if (data->contact[c].geom[0] == ballGeom ||
-          data->contact[c].geom[1] == ballGeom)
+          data->contact[c].geom[1] == ballGeom) {
         return true;
+      }
     }
     return false;
   }
@@ -194,25 +197,32 @@ void strikeTheFoot(const Scene& scene, const Projectile& ball) {
 
 /**
  * Coefficient of restitution of one bounce on the floor, measured as rebound
- * speed over impact speed: drops the ball from `height` well away from the
- * robot and returns v_out / v_in for its first floor contact.
+ * speed over impact speed: drops the ball from `initPosBallRtWorldEwrtWorldZ`
+ * well away from the robot and returns v_out / v_in for its first floor
+ * contact.
  */
-double measuredRestitution(const Scene& scene, double height) {
+double measuredRestitution(const Scene& scene,
+                           double initPosBallRtWorldEwrtWorldZ) {
   scene.arm();
-  scene.place({{3.0, 3.0, height}}, {{0.0, 0.0, 0.0}});
+  scene.place({{3.0, 3.0, initPosBallRtWorldEwrtWorldZ}}, {{0.0, 0.0, 0.0}});
   const int dof = scene.ballDof() + 2;
-  double impactSpeed = -1.0;
-  double previous = 0.0;
+  // The ball falls straight down, so its speed at touchdown is -vz.
+  double touchdownSpeedBallRtWorld = -1.0;
+  double prevLinvelBallRtWorldEwrtWorldZ = 0.0;
   const int steps = static_cast<int>(3.0 / scene.model->opt.timestep);
   for (int step = 0; step < steps; ++step) {
     mj_step(scene.model, scene.data);
-    const double verticalSpeed = scene.data->qvel[dof];
+    const double linvelBallRtWorldEwrtWorldZ = scene.data->qvel[dof];
     const bool touching = scene.ballTouchesAnything();
-    if (impactSpeed < 0.0 && touching && previous < 0.0)
-      impactSpeed = -previous;
-    if (impactSpeed > 0.0 && !touching && verticalSpeed > 0.0)
-      return verticalSpeed / impactSpeed;
-    previous = verticalSpeed;
+    if (touchdownSpeedBallRtWorld < 0.0 && touching &&
+        prevLinvelBallRtWorldEwrtWorldZ < 0.0) {
+      touchdownSpeedBallRtWorld = -prevLinvelBallRtWorldEwrtWorldZ;
+    }
+    if (touchdownSpeedBallRtWorld > 0.0 && !touching &&
+        linvelBallRtWorldEwrtWorldZ > 0.0) {
+      return linvelBallRtWorldEwrtWorldZ / touchdownSpeedBallRtWorld;
+    }
+    prevLinvelBallRtWorldEwrtWorldZ = linvelBallRtWorldEwrtWorldZ;
   }
   return std::numeric_limits<double>::quiet_NaN();
 }
@@ -551,7 +561,8 @@ TEST(ProjectileContact,
     const Scene scene(path, &ball);
     ASSERT_NE(scene.model, nullptr);
     scene.model->opt.timestep = timestep;
-    const double restitution = measuredRestitution(scene, /*height=*/1.0);
+    const double restitution =
+        measuredRestitution(scene, /*initPosBallRtWorldEwrtWorldZ=*/1.0);
     ASSERT_TRUE(std::isfinite(restitution))
         << "the ball never bounced at dt = " << timestep;
     // The discrete contact is not exactly the continuous one, so a band: 0.797
@@ -576,7 +587,8 @@ TEST(ProjectileContact, OneBounceKeepsTheFractionESquaredOfTheEnergy) {
       const Scene scene(path, &ball);
       ASSERT_NE(scene.model, nullptr);
       scene.model->opt.timestep = timestep;
-      const double speedRatio = measuredRestitution(scene, /*height=*/1.0);
+      const double speedRatio =
+          measuredRestitution(scene, /*initPosBallRtWorldEwrtWorldZ=*/1.0);
       ASSERT_TRUE(std::isfinite(speedRatio))
           << "the ball never bounced at e = " << restitution;
       const double energyRatio = speedRatio * speedRatio;
@@ -599,7 +611,8 @@ TEST(ProjectileContact, TheContactDoesNotAddEnergyAtTheSimulatorsTimesteps) {
     const Scene scene(path, &ball);
     ASSERT_NE(scene.model, nullptr);
     scene.model->opt.timestep = timestep;
-    EXPECT_LT(measuredRestitution(scene, /*height=*/2.0), 1.0)
+    EXPECT_LT(measuredRestitution(scene, /*initPosBallRtWorldEwrtWorldZ=*/2.0),
+              1.0)
         << "at dt = " << timestep;
   }
 }
@@ -623,10 +636,11 @@ TEST(ProjectileContact,
        step * timestep < ProjectileRestMonitor::kLifetime && parkedAt < 0.0;
        ++step) {
     mj_step(scene.model, scene.data);
-    const double speed = std::hypot(scene.data->qvel[scene.ballDof()],
-                                    scene.data->qvel[scene.ballDof() + 1],
-                                    scene.data->qvel[scene.ballDof() + 2]);
-    if (monitor.update(speed, timestep)) parkedAt = scene.data->time;
+    const double speedBallRtWorld =
+        std::hypot(scene.data->qvel[scene.ballDof()],
+                   scene.data->qvel[scene.ballDof() + 1],
+                   scene.data->qvel[scene.ballDof() + 2]);
+    if (monitor.update(speedBallRtWorld, timestep)) parkedAt = scene.data->time;
   }
   ASSERT_GT(parkedAt, 0.0)
       << "the ball was still rolling when its lifetime ran out";
@@ -807,7 +821,8 @@ TEST(SetProjectileMass, RestitutionDoesNotChangeWithTheMass) {
     ASSERT_TRUE(
         setProjectileMass(scene.model, scene.body("sim_projectile"), mass)
             .ok());
-    const double restitution = measuredRestitution(scene, /*height=*/1.0);
+    const double restitution =
+        measuredRestitution(scene, /*initPosBallRtWorldEwrtWorldZ=*/1.0);
     ASSERT_TRUE(std::isfinite(restitution))
         << "the " << mass << " kg ball never bounced";
     restitutions.push_back(restitution);
@@ -901,8 +916,9 @@ TEST(SetProjectileMass, RejectsASphereThatIsNotCenteredOrNotItsOwnTree) {
   char error[1000] = {0};
   mjModel* absl_nullable model =
       mj_loadXML(path.c_str(), /*vfs=*/nullptr, error, sizeof(error));
-  if (model == nullptr)
+  if (model == nullptr) {
     GTEST_SKIP() << "MuJoCo rejected the nested free joint fixture: " << error;
+  }
   EXPECT_FALSE(setProjectileMass(model,
                                  mj_name2id(model, mjOBJ_BODY, "offcenter"),
                                  /*mass=*/2.0)
@@ -957,8 +973,9 @@ TEST(RobotJointDamping, SetsTheRobotsJointsAndLeavesTheRootAndTheBallAlone) {
   }
   // The ankle is the robot's only joint, and the ball's six dofs follow it.
   EXPECT_NEAR(scene.model->dof_damping[6], 20.0, 1.0e-12);
-  for (int dof = 7; dof < 13; ++dof)
+  for (int dof = 7; dof < 13; ++dof) {
     EXPECT_TRUE(isProjectileDof(scene.model, ballBody, dof)) << dof;
+  }
   EXPECT_FALSE(isProjectileDof(scene.model, ballBody, /*dof=*/6));
   EXPECT_FALSE(isProjectileDof(scene.model, /*projectileBodyId=*/-1, /*dof=*/7))
       << "no projectile, no projectile dofs";
@@ -983,10 +1000,10 @@ ProjectileLaunch launch(const std::array<double, 3>& posBallRtWorldEwrtWorld,
  * seconds along it. */
 void expectOnThePath(const ProjectileLaunch& requested,
                      const ProjectileLaunch& moved,
-                     double gravity) {
+                     double gravityMagnitude) {
   const double tau = requested.flightTime - moved.flightTime;
   for (int axis = 0; axis < 3; ++axis) {
-    const double drop = axis == 2 ? 0.5 * gravity * tau * tau : 0.0;
+    const double drop = axis == 2 ? 0.5 * gravityMagnitude * tau * tau : 0.0;
     EXPECT_NEAR(moved.posBallRtWorldEwrtWorld[axis],
                 requested.posBallRtWorldEwrtWorld[axis] +
                     requested.linvelBallRtWorldEwrtWorld[axis] * tau - drop,
@@ -994,7 +1011,7 @@ void expectOnThePath(const ProjectileLaunch& requested,
         << "axis " << axis;
     EXPECT_NEAR(moved.linvelBallRtWorldEwrtWorld[axis],
                 requested.linvelBallRtWorldEwrtWorld[axis] -
-                    (axis == 2 ? gravity * tau : 0.0),
+                    (axis == 2 ? gravityMagnitude * tau : 0.0),
                 1.0e-9)
         << "axis " << axis;
   }
@@ -1012,7 +1029,7 @@ TEST(ClearProjectileLaunch, AClearSpawnIsLeftExactlyAsRequested) {
       launch({{3.0, 0.0, 1.0}}, {{-8.0, 0.0, 1.8}}, /*flightTime=*/0.375);
   const absl::StatusOr<ProjectileLaunch> result = clearProjectileLaunch(
       scene.model, scene.data, scene.body("sim_projectile"), requested,
-      /*gravity=*/9.81);
+      /*gravityMagnitude=*/9.81);
   ASSERT_TRUE(result.ok()) << result.status().message();
   EXPECT_EQ(result->posBallRtWorldEwrtWorld, requested.posBallRtWorldEwrtWorld);
   EXPECT_EQ(result->linvelBallRtWorldEwrtWorld,
@@ -1032,11 +1049,11 @@ TEST(ClearProjectileLaunch, ASpawnInsideTheRobotIsMovedBackAlongItsApproach) {
       launch({{0.15, 0.0, 1.0}}, {{-4.0, 0.0, 0.5}}, /*flightTime=*/0.04);
   const absl::StatusOr<ProjectileLaunch> result = clearProjectileLaunch(
       scene.model, scene.data, scene.body("sim_projectile"), requested,
-      /*gravity=*/9.81);
+      /*gravityMagnitude=*/9.81);
   ASSERT_TRUE(result.ok()) << result.status().message();
   EXPECT_GT(result->flightTime, requested.flightTime)
       << "it should start EARLIER on its approach, so fly for longer";
-  expectOnThePath(requested, *result, /*gravity=*/9.81);
+  expectOnThePath(requested, *result, /*gravityMagnitude=*/9.81);
   // And it is now clear of the torso's +x face at x = 0.1, by the clearance.
   EXPECT_GE(result->posBallRtWorldEwrtWorld[0] - ball.radius - 0.1,
             kProjectileSpawnClearance - 1.0e-9);
@@ -1054,11 +1071,11 @@ TEST(ClearProjectileLaunch, ASpawnUnderTheFloorIsMovedForwardAlongItsClimb) {
       launch({{2.0, 0.0, -0.5}}, {{-3.0, 0.0, 6.0}}, /*flightTime=*/0.6);
   const absl::StatusOr<ProjectileLaunch> result = clearProjectileLaunch(
       scene.model, scene.data, scene.body("sim_projectile"), requested,
-      /*gravity=*/9.81);
+      /*gravityMagnitude=*/9.81);
   ASSERT_TRUE(result.ok()) << result.status().message();
   EXPECT_LT(result->flightTime, requested.flightTime)
       << "it should start LATER on its climb";
-  expectOnThePath(requested, *result, /*gravity=*/9.81);
+  expectOnThePath(requested, *result, /*gravityMagnitude=*/9.81);
   EXPECT_GE(result->posBallRtWorldEwrtWorld[2],
             ball.radius + kProjectileSpawnClearance - 1.0e-9);
 }
@@ -1076,7 +1093,7 @@ TEST(ClearProjectileLaunch,
   const absl::StatusOr<ProjectileLaunch> hopeless = clearProjectileLaunch(
       scene.model, scene.data, ballBody,
       launch({{2.0, 0.0, -5.0}}, {{0.0, 0.0, -1.0}}, /*flightTime=*/0.5),
-      /*gravity=*/9.81);
+      /*gravityMagnitude=*/9.81);
   ASSERT_FALSE(hopeless.ok());
   EXPECT_EQ(hopeless.status().code(), absl::StatusCode::kFailedPrecondition);
   EXPECT_NE(std::string(hopeless.status().message()).find("spawn distance"),
@@ -1086,12 +1103,12 @@ TEST(ClearProjectileLaunch,
   const ProjectileLaunch fine =
       launch({{3.0, 0.0, 1.0}}, {{-8.0, 0.0, 1.8}}, /*flightTime=*/0.375);
   EXPECT_EQ(clearProjectileLaunch(scene.model, scene.data, scene.body("base"),
-                                  fine, /*gravity=*/9.81)
+                                  fine, /*gravityMagnitude=*/9.81)
                 .status()
                 .code(),
             absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(clearProjectileLaunch(scene.model, /*data=*/nullptr, ballBody, fine,
-                                  /*gravity=*/9.81)
+                                  /*gravityMagnitude=*/9.81)
                 .status()
                 .code(),
             absl::StatusCode::kInvalidArgument);
@@ -1099,7 +1116,7 @@ TEST(ClearProjectileLaunch,
       launch({{std::numeric_limits<double>::quiet_NaN(), 0.0, 1.0}},
              {{-8.0, 0.0, 1.8}}, /*flightTime=*/0.375);
   EXPECT_EQ(clearProjectileLaunch(scene.model, scene.data, ballBody, notFinite,
-                                  /*gravity=*/9.81)
+                                  /*gravityMagnitude=*/9.81)
                 .status()
                 .code(),
             absl::StatusCode::kInvalidArgument);
@@ -1114,7 +1131,7 @@ TEST(ProjectileArrivalVelocity, IsTheLaunchVelocityLessGravityOverTheFlight) {
   const std::array<double, 3> arrivalLinvelBallRtWorldEwrtWorld =
       computeArrivalLinvelBallRtWorldEwrtWorld(launchLinvelBallRtWorldEwrtWorld,
                                                /*flightTime=*/0.4,
-                                               /*gravity=*/9.81);
+                                               /*gravityMagnitude=*/9.81);
   EXPECT_EQ(arrivalLinvelBallRtWorldEwrtWorld[0], -8.0);
   EXPECT_EQ(arrivalLinvelBallRtWorldEwrtWorld[1], 1.0);
   EXPECT_NEAR(arrivalLinvelBallRtWorldEwrtWorld[2], 2.0 - 9.81 * 0.4, 1.0e-12)
@@ -1129,7 +1146,10 @@ TEST(ProjectileRestMonitor, ParksABallThatHasBeenSlowForTheRestDuration) {
   monitor.start();
   const double dt = 0.001;
   int steps = 0;
-  while (!monitor.update(0.5 * ProjectileRestMonitor::kRestSpeed, dt)) ++steps;
+  while (!monitor.update(0.5 * ProjectileRestMonitor::kRestMaxSpeedBallRtWorld,
+                         dt)) {
+    ++steps;
+  }
   EXPECT_NEAR((steps + 1) * dt, ProjectileRestMonitor::kRestDuration, 2 * dt);
 }
 
@@ -1139,11 +1159,13 @@ TEST(ProjectileRestMonitor, ABurstOfSpeedRestartsTheRestClock) {
   ProjectileRestMonitor monitor;
   monitor.start();
   const double dt = 0.001;
-  for (int step = 0; step < 200; ++step)
-    EXPECT_FALSE(monitor.update(/*speed=*/0.0, dt));
-  EXPECT_FALSE(monitor.update(/*speed=*/1.0, dt));
-  for (int step = 0; step < 200; ++step)
-    EXPECT_FALSE(monitor.update(/*speed=*/0.0, dt)) << step;
+  for (int step = 0; step < 200; ++step) {
+    EXPECT_FALSE(monitor.update(/*speedBallRtWorld=*/0.0, dt));
+  }
+  EXPECT_FALSE(monitor.update(/*speedBallRtWorld=*/1.0, dt));
+  for (int step = 0; step < 200; ++step) {
+    EXPECT_FALSE(monitor.update(/*speedBallRtWorld=*/0.0, dt)) << step;
+  }
 }
 
 TEST(ProjectileRestMonitor,
@@ -1152,11 +1174,11 @@ TEST(ProjectileRestMonitor,
   monitor.start();
   const double dt = 0.01;
   int steps = 0;
-  while (!monitor.update(/*speed=*/3.0, dt)) ++steps;
+  while (!monitor.update(/*speedBallRtWorld=*/3.0, dt)) ++steps;
   EXPECT_NEAR((steps + 1) * dt, ProjectileRestMonitor::kLifetime, 2 * dt);
   // And start() is a fresh ball.
   monitor.start();
-  EXPECT_FALSE(monitor.update(/*speed=*/3.0, dt));
+  EXPECT_FALSE(monitor.update(/*speedBallRtWorld=*/3.0, dt));
 }
 
 /*==================================== the ball is not the ground

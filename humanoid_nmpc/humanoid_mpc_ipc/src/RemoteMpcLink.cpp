@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -44,13 +45,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/time/time.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_oc/oc_data/PerformanceIndex.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
+#include "humanoid_mpc_ipc/MpcMessageConversions.h"
 #include "humanoid_mpc_ipc/Topics.h"
+#include "humanoid_mpc_msgs/mpc_policy.pb.h"
+#include "humanoid_mpc_msgs/mpc_status.pb.h"
+#include "humanoid_mpc_msgs/viewer_annotations.nproto.h"
 #include "humanoid_mpc_msgs/viewer_annotations.nproto.pb.h"
+#include "humanoid_mpc_msgs/viewer_annotations.pb.h"
+#include "robot_ipc/Bus.h"
+#include "robot_ipc/BusOptions.h"
 #include "robot_ipc/Delivery.h"
 
 namespace ocs2::humanoid::ipc {
@@ -301,8 +315,9 @@ void RemoteMpcLink::takeAndPublishObservation() {
       // lost link stays lost: only a policy that arrives ends that.
       newestPolicyInitTime_ = time;
       newestPolicyFinalTime_ = kNoEnd;
-      if (inUsePolicy_.has_value())
+      if (inUsePolicy_.has_value()) {
         inUsePolicy_ = PolicyWindow{.initTime = time, .finalTime = kNoEnd};
+      }
       publishPolicyDeadline();
       // No policy of this clock yet, so no policy age (statistics() reads the
       // observation time first).

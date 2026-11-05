@@ -43,15 +43,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/config/costs/DcmTerminalCostFromConfig.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipContactPlanner.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
@@ -80,8 +85,9 @@ struct ShippedPlannerFile {
   const char* absl_nonnull
   directory;  // under the runfiles root, i.e. the repository root
   const char* absl_nonnull
-  urdf;  // likewise; the pendulum a shared block without com_height stands for
-         // is read off this model
+  urdf;  // likewise; the pendulum a shared block without
+         // nom_pos_com_rt_feetmean_ewrt_world_z stands for is read off this
+         // model
 };
 
 void PrintTo(const ShippedPlannerFile& file, std::ostream* absl_nonnull os) {
@@ -151,9 +157,10 @@ class ShippedContactPlanningFile
         loadCentroidalMpcConfig(taskFile_, referenceFile);
     ASSERT_TRUE(files.ok()) << files.status();
     files_ = *std::move(files);
-    if (!files_.contactPlanning.has_value())
+    if (!files_.contactPlanning.has_value()) {
       GTEST_FAIL() << GetParam().robot
                    << ": the planner's file beside the task file was not read";
+    }
     planner_ = *files_.contactPlanning;
     // validate = false: the conversion must not be what decides whether this
     // suite can inspect the file.
@@ -164,8 +171,8 @@ class ShippedContactPlanningFile
     ASSERT_TRUE(converted.ok()) << converted.status().message();
     fileConfig_ = *converted;
 
-    // The pendulum a com_height left out stands for, read off the robot model
-    // exactly as CentroidalMpcInterface reads it.
+    // The pendulum a nom_pos_com_rt_feetmean_ewrt_world_z left out stands for,
+    // read off the robot model exactly as CentroidalMpcInterface reads it.
     const std::string urdfFile = runfilePath(GetParam().urdf);
     ASSERT_FALSE(urdfFile.empty())
         << GetParam().robot << ": the URDF is not in the runfiles";
@@ -182,22 +189,26 @@ class ShippedContactPlanningFile
         modelSettings, pinocchioInterface, info);
     HUMANOID_ASSERT_OK_AND_ASSIGN(const vector_t initialState,
                                   initialStateOnModel(files_.task, robotModel));
-    modelComHeight_ = computeComHeightAboveFeet(
-        robotModel.getGeneralizedCoordinates(initialState), pinocchioInterface,
-        robotModel);
-    ASSERT_GT(modelComHeight_, 0.4) << GetParam().robot;
+    modelNomPosComRtFeetmeanEwrtWorldZ_ =
+        computeProxyPosComRtFeetmeanEwrtWorldZ(
+            robotModel.getGeneralizedCoordinates(initialState),
+            pinocchioInterface, robotModel);
+    ASSERT_GT(modelNomPosComRtFeetmeanEwrtWorldZ_, 0.4) << GetParam().robot;
     const absl::StatusOr<scalar_t> gravity =
         modelGravity(pinocchioInterface.getModel());
     ASSERT_TRUE(gravity.ok()) << gravity.status();
     modelGravity_ = *gravity;
 
     // The configuration the planner runs: the file's, with the model's gravity
-    // and the unset comHeight of a file without shared.com_height resolved as
+    // and the unset nomPosComRtFeetmeanEwrtWorldZ of a file without
+    // shared.nom_pos_com_rt_feetmean_ewrt_world_z resolved as
     // ContactPlanningModelParameters resolves them.
     config_ = fileConfig_;
     config_.shared.gravity = modelGravity_;
-    if (!config_.shared.comHeight.has_value())
-      config_.shared.comHeight = modelComHeight_;
+    if (!config_.shared.nomPosComRtFeetmeanEwrtWorldZ.has_value()) {
+      config_.shared.nomPosComRtFeetmeanEwrtWorldZ =
+          modelNomPosComRtFeetmeanEwrtWorldZ_;
+    }
   }
 
   /** The planner's file as it is written. */
@@ -210,16 +221,17 @@ class ShippedContactPlanningFile
   CentroidalMpcConfig files_;  // the typed files, the planner's included
   mpc_config::ContactPlanningFile planner_;  // the planner's file of files_
   ContactPlanningConfig fileConfig_;         // as the file writes it
-  ContactPlanningConfig
-      config_;  // with an unset comHeight resolved to the model's pendulum
-  scalar_t modelComHeight_ = 0.0;
+  ContactPlanningConfig config_;  // with an unset nomPosComRtFeetmeanEwrtWorldZ
+                                  // resolved to the model's pendulum
+  scalar_t modelNomPosComRtFeetmeanEwrtWorldZ_ = 0.0;
   scalar_t modelGravity_ = 0.0;  // [m/s^2] modelGravity() of the robot's model
 };
 
 std::string joinWarnings(const std::vector<std::string>& warnings) {
   std::string out;
-  for (const std::string& warning : warnings)
+  for (const std::string& warning : warnings) {
     absl::StrAppend(&out, "\n  - ", warning);
+  }
   return out;
 }
 
@@ -230,10 +242,12 @@ std::string joinWarnings(const std::vector<std::string>& warnings) {
 TEST_P(ShippedContactPlanningFile, TheConversionReadsTheValuesTheFileWrites) {
   EXPECT_EQ(config_.planner.type, plannerFile().planner.type);
   EXPECT_EQ(config_.planner.numNodes, plannerFile().planner.num_nodes);
-  EXPECT_EQ(fileConfig_.shared.comHeight, plannerFile().shared.com_height)
+  EXPECT_EQ(fileConfig_.shared.nomPosComRtFeetmeanEwrtWorldZ,
+            plannerFile().shared.nom_pos_com_rt_feetmean_ewrt_world_z)
       << "absent: the model's, left unset";
   EXPECT_DOUBLE_EQ(config_.hlip.sspDuration, plannerFile().hlip.ssp_duration);
-  EXPECT_DOUBLE_EQ(config_.hlip.stepWidth, plannerFile().hlip.step_width);
+  EXPECT_DOUBLE_EQ(config_.hlip.nomPosLfootRtRfootEwrtHeadingY,
+                   plannerFile().hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y);
   EXPECT_EQ(config_.formulation.execution.size(),
             plannerFile().execution.size());
 }
@@ -247,7 +261,7 @@ TEST_P(ShippedContactPlanningFile,
        ValidatesWithNothingDocumentedToFallOrBlock) {
   // On the pendulum the planner actually runs: the H-LIP's first-step demand
   // and its sidestep checks depend on omega.
-  ASSERT_GT(config_.pendulumHeight(), 0.0);
+  ASSERT_GT(config_.getNomPosComRtFeetmeanEwrtWorldZ(), 0.0);
   EXPECT_TRUE(config_.validateStatus().ok())
       << config_.validateStatus().message();
   EXPECT_TRUE(config_.warnings().empty())
@@ -259,20 +273,22 @@ TEST_P(ShippedContactPlanningFile,
     const absl::StatusOr<scalar_t> startUpStep =
         HlipContactPlanner::startUpLateralStep(config_);
     ASSERT_TRUE(startUpStep.ok()) << startUpStep.status();
-    EXPECT_LE(*startUpStep, config_.hlip.maxStepWidth)
+    EXPECT_LE(*startUpStep, config_.hlip.maxPosLfootRtRfootEwrtHeadingY)
         << "README 3b: the first step must fit";
     EXPECT_FALSE(config_.planner.runInBackgroundThread)
         << "README 6: a feedback law must not run on a stale state";
   }
 
   // Control: the same file with its trailing sidestep step pushed just inside
-  // hlip.minStepWidth is reported, so the empty list above is a finding and not
-  // a check that cannot fail. This is the defect SA01's 0.18 m step width had.
+  // hlip.minPosLfootRtRfootEwrtHeadingY is reported, so the empty list above is
+  // a finding and not a check that cannot fail. This is the defect SA01's 0.18
+  // m step width had.
   ContactPlanningConfig narrow = config_;
   narrow.planner.type = planner::kHlip;
-  const scalar_t drift = narrow.hlip.blend.maxCommandedVelocityY *
+  const scalar_t drift = narrow.hlip.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingY *
                          (narrow.hlip.sspDuration + narrow.hlip.dspDuration);
-  narrow.hlip.stepWidth = narrow.hlip.minStepWidth + drift - 0.001;
+  narrow.hlip.nomPosLfootRtRfootEwrtHeadingY =
+      narrow.hlip.minPosLfootRtRfootEwrtHeadingY + drift - 0.001;
   EXPECT_FALSE(narrow.warnings().empty());
 }
 
@@ -306,23 +322,24 @@ TEST_P(ShippedContactPlanningFile,
 
 /**
  * The terminal DCM cost's pendulum is the planner's: both files leave
- * com_height out, which each consumer resolves with the same function of the
- * model (computeComHeightAboveFeet), or write the same explicit override. The
- * two keys live in different files (LINT: <robot>_pendulum <->
- * <robot>_dcm_pendulum). Checked on what each consumer RESOLVES, not only on
- * what the files write, so a consumer that resolved the model's pendulum
- * differently would fail here.
+ * nom_pos_com_rt_feetmean_ewrt_world_z out, which each consumer resolves with
+ * the same function of the model (computeProxyPosComRtFeetmeanEwrtWorldZ), or
+ * write the same explicit override. The two keys live in different files (LINT:
+ * <robot>_pendulum <-> <robot>_dcm_pendulum). Checked on what each consumer
+ * RESOLVES, not only on what the files write, so a consumer that resolved the
+ * model's pendulum differently would fail here.
  */
 TEST_P(ShippedContactPlanningFile, ThePlannerPendulumIsTheDcmCostPendulum) {
-  EXPECT_EQ(plannerFile().shared.com_height,
-            files_.task.dcm_terminal_cost.com_height);
+  EXPECT_EQ(plannerFile().shared.nom_pos_com_rt_feetmean_ewrt_world_z,
+            files_.task.dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z);
   const absl::StatusOr<DcmTerminalCost::Config> dcmFile =
       dcmTerminalCostConfigFromConfig(files_.task.dcm_terminal_cost);
   ASSERT_TRUE(dcmFile.ok()) << dcmFile.status();
   const absl::StatusOr<DcmTerminalCost::Config> dcm =
-      DcmTerminalCost::resolveConfig(*dcmFile, modelComHeight_, modelGravity_);
+      DcmTerminalCost::resolveConfig(
+          *dcmFile, modelNomPosComRtFeetmeanEwrtWorldZ_, modelGravity_);
   ASSERT_TRUE(dcm.ok()) << dcm.status();
-  EXPECT_EQ(dcm->gravity, config_.shared.gravity)
+  EXPECT_EQ(dcm->gravityMagnitude, config_.shared.gravity)
       << "the DCM cost and the planner would run on different gravities";
   EXPECT_THAT(dcm->omega(), ::testing::Optional(::testing::DoubleNear(
                                 config_.omega(), /*max_abs_error=*/1.0e-12)))

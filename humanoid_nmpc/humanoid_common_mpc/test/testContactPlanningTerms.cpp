@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -40,44 +41,47 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
-#include "absl/log/absl_check.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 #include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
 #include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
-#include "humanoid_common_mpc/contact_planning/constraint/HipYawRangeConstraint.h"
-#include "humanoid_common_mpc/contact_planning/cost/PreviousFootholdConsistencyCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/StepLengthCost.h"
-#include "humanoid_common_mpc/contact_planning/cost/StepWidthCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/TerminalDcmCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/VelocityTrackingCost.h"
-#include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
-#include "humanoid_common_mpc/contact_planning/execution/ScheduleAdaptationPipeline.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
-#include "humanoid_common_mpc/contact_planning/logic/ContactSwitchCost.h"
 #include "humanoid_common_mpc/contact_planning/logic/DoubleSupportPenaltyCost.h"
-#include "humanoid_common_mpc/contact_planning/logic/PlanConsistencyCost.h"
 #include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
 #include "humanoid_common_mpc/contact_planning/problem/AssignmentCost.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningProblem.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningTerm.h"
 #include "humanoid_common_mpc/contact_planning/problem/Layout.h"
 #include "humanoid_common_mpc/contact_planning/problem/LayoutBuilder.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipConstraint.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipCost.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipModelBlock.h"
 #include "humanoid_common_mpc/contact_planning/problem/RowBuilder.h"
 #include "humanoid_common_mpc/contact_planning/problem/StageAccumulator.h"
 #include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
 #include "humanoid_common_mpc/contact_planning/search/CadenceStretchStage.h"
+#include "humanoid_common_mpc/contact_planning/search/SearchStage.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
@@ -92,7 +96,7 @@ ContactPlanningConfig makeConfig() {
   config.planner.commitTime = 0.0;
   config.planner.maxBranchAndBoundNodes = 3000;
   config.planner.maxSolveTime = 10.0;
-  config.shared.comHeight = 0.85;
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ = 0.85;
   config.shared.gaitLimits.minSwingDuration = 0.3;
   config.shared.gaitLimits.maxSwingDuration = 0.5;
   config.shared.gaitLimits.minContactDuration = 0.15;
@@ -105,9 +109,10 @@ ContactPlanningConfig makeConfig() {
 ContactPlanningConfig makeHeadingConfig() {
   ContactPlanningConfig config = makeConfig();
   config.setHeadingModel(true);
-  config.yawTorqueBudget.torsionalFrictionTorque = 20.0;
-  config.yawTorqueBudget.doubleSupportYawCouple = 40.0;
-  config.setSymmetricFootYawOffset(0.5);
+  config.yawTorqueBudgetParameters.maxTorqueFootEwrtFootZ = 20.0;
+  config.yawTorqueBudgetParameters.doubleSupportMaxTorqueFeetmeanEwrtWorldZ =
+      40.0;
+  config.setSymmetricMaxYawFootRtBase(0.5);
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   return config;
 }
@@ -115,17 +120,17 @@ ContactPlanningConfig makeHeadingConfig() {
 ContactPlannerInput makeStandingInput() {
   ContactPlannerInput input;
   input.time = 3.0;
-  input.footPositions[0] = vector2_t(0.0, 0.125);
-  input.footPositions[1] = vector2_t(0.0, -0.125);
+  input.posFeetRtWorldEwrtWorldXy[0] = vector2_t(0.0, 0.125);
+  input.posFeetRtWorldEwrtWorldXy[1] = vector2_t(0.0, -0.125);
   input.contacts = {true, true};
   input.phaseElapsedTime = {5.0, 5.0};
-  input.yawInertia = 10.0;
+  input.inertiaComEwrtWorldZz = 10.0;
   return input;
 }
 
 ContactPlannerInput makeWalkingInput() {
   ContactPlannerInput input = makeStandingInput();
-  input.velocityCommand = vector2_t(0.4, 0.0);
+  input.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.4, 0.0);
   return input;
 }
 
@@ -162,8 +167,8 @@ TEST(ContactPlanningTerms, LayoutIsComposedFromTheBlocksInOrder) {
   EXPECT_EQ(lip.nx, kLipStateDim);
   EXPECT_EQ(lip.nu, kLipInputDim);
   EXPECT_FALSE(lip.hasHeading);
-  EXPECT_EQ(lip.state(var::kComX), kLipCx);
-  EXPECT_EQ(lip.state(var::footX(1)), kLipPrx);
+  EXPECT_EQ(lip.state(var::kPosComRtWorldEwrtWorldX), kLipCx);
+  EXPECT_EQ(lip.state(var::posFootRtWorldEwrtWorldX(1)), kLipPrx);
   EXPECT_EQ(lip.input(var::contact(0)), kLipCl);
   EXPECT_EQ(lip.input(var::contact(1)), kLipCr);
   EXPECT_NE(
@@ -176,12 +181,12 @@ TEST(ContactPlanningTerms, LayoutIsComposedFromTheBlocksInOrder) {
   EXPECT_EQ(heading.nx, kLipStateDim + 2 + static_cast<int>(kNumContacts));
   EXPECT_EQ(heading.nu, kLipInputDim + 2 * static_cast<int>(kNumContacts));
   EXPECT_TRUE(heading.hasHeading);
-  EXPECT_EQ(heading.heading, kLipStateDim)
+  EXPECT_EQ(heading.headingModelYaw, kLipStateDim)
       << "the heading block appends, the LIP indices are unchanged";
-  EXPECT_EQ(heading.state(var::kComX), kLipCx);
+  EXPECT_EQ(heading.state(var::kPosComRtWorldEwrtWorldX), kLipCx);
   EXPECT_EQ(heading.input(var::contact(1)), kLipCr);
-  EXPECT_EQ(heading.yawTorque(0), kLipInputDim);
-  EXPECT_EQ(heading.footYawDelta(1), kLipInputDim + 3);
+  EXPECT_EQ(heading.torqueFootEwrtWorldZ(0), kLipInputDim);
+  EXPECT_EQ(heading.errEulerzyxFootRtWorldYaw(1), kLipInputDim + 3);
 }
 
 TEST(ContactPlanningTerms, RowCountsPerNodeAreTheDocumentedOnes) {
@@ -261,10 +266,12 @@ TEST(ContactPlanningTerms,
   EXPECT_EQ(cost.nodeSet(), NodeSet::kRunning);
   // T_stride / T_swing = 2 (0.3 + 0.1) / 0.3
   EXPECT_NEAR(cost.strideToSwingRatio(), 8.0 / 3.0, 1.0e-12);
-  const vector2_t d =
-      cost.nominalDisplacementPerNode(vector2_t(0.4, 0.0), /*dt=*/0.1);
-  EXPECT_NEAR(d.x(), 0.4 * 0.1 * 8.0 / 3.0, 1.0e-12);
-  EXPECT_NEAR(d.y(), 0.0, 1.0e-12);
+  const vector2_t nomErrPosFootRtWorldEwrtWorldXy =
+      cost.computeNomErrPosFootRtWorldEwrtWorldXy(vector2_t(0.4, 0.0),
+                                                  /*dt=*/0.1);
+  EXPECT_NEAR(nomErrPosFootRtWorldEwrtWorldXy.x(), 0.4 * 0.1 * 8.0 / 3.0,
+              1.0e-12);
+  EXPECT_NEAR(nomErrPosFootRtWorldEwrtWorldXy.y(), 0.0, 1.0e-12);
 
   const scalar_t w = config.stepLength.weight;
   HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem qp,
@@ -272,14 +279,21 @@ TEST(ContactPlanningTerms,
   const OcpQpStage& stage = qp.stages.front();
   EXPECT_NEAR(stage.R(kLipDlx, kLipDlx), 2.0 * w, 1.0e-12);
   EXPECT_NEAR(stage.R(kLipDly, kLipDly), 2.0 * w, 1.0e-12);
-  EXPECT_NEAR(stage.R(kLipDlx, kLipCl), 2.0 * w * d.x(), 1.0e-12);
-  EXPECT_NEAR(stage.R(kLipCl, kLipDlx), 2.0 * w * d.x(), 1.0e-12);
+  EXPECT_NEAR(stage.R(kLipDlx, kLipCl),
+              2.0 * w * nomErrPosFootRtWorldEwrtWorldXy.x(), 1.0e-12);
+  EXPECT_NEAR(stage.R(kLipCl, kLipDlx),
+              2.0 * w * nomErrPosFootRtWorldEwrtWorldXy.x(), 1.0e-12);
   EXPECT_NEAR(stage.R(kLipDly, kLipCl), 0.0, 1.0e-12)
       << "no lateral command, no lateral nominal";
-  EXPECT_NEAR(stage.R(kLipCl, kLipCl), 2.0 * w * d.squaredNorm(), 1.0e-12);
-  EXPECT_NEAR(stage.r(kLipDlx), -2.0 * w * d.x(), 1.0e-12);
-  EXPECT_NEAR(stage.r(kLipCl), -2.0 * w * d.squaredNorm(), 1.0e-12);
-  EXPECT_NEAR(stage.R(kLipDrx, kLipCr), 2.0 * w * d.x(), 1.0e-12)
+  EXPECT_NEAR(stage.R(kLipCl, kLipCl),
+              2.0 * w * nomErrPosFootRtWorldEwrtWorldXy.squaredNorm(), 1.0e-12);
+  EXPECT_NEAR(stage.r(kLipDlx), -2.0 * w * nomErrPosFootRtWorldEwrtWorldXy.x(),
+              1.0e-12);
+  EXPECT_NEAR(stage.r(kLipCl),
+              -2.0 * w * nomErrPosFootRtWorldEwrtWorldXy.squaredNorm(),
+              1.0e-12);
+  EXPECT_NEAR(stage.R(kLipDrx, kLipCr),
+              2.0 * w * nomErrPosFootRtWorldEwrtWorldXy.x(), 1.0e-12)
       << "both feet";
   EXPECT_NEAR(stage.R(kLipDlx, kLipCr), 0.0, 1.0e-12)
       << "no coupling across feet";
@@ -297,7 +311,63 @@ TEST(ContactPlanningTerms,
             std::string::npos);
 }
 
-// terminal_dcm.trackCommandedVelocity moves the target of the TERMINAL DCM from
+// The input's world-frame command is the operator's heading-frame command
+// rotated by the commanded heading at the planning instant, and the commanded
+// heading turns at the commanded yaw rate over the horizon (the operator target
+// rotates it knot by knot, heading_tracking ramps theta_0 + omega_cmd k dt).
+// The nominal swing displacement of node k is therefore the node-0 nominal
+// rotated by omega_cmd k dt; it used to stay along the initial heading at every
+// node.
+TEST(ContactPlanningTerms, StepLengthCostTurnsTheNominalWithTheCommandedYaw) {
+  ContactPlanningConfig config = makeConfig();
+  config.formulation.costs = {term::kStepLength};
+  config.formulation.softConstraints = {};
+  config.formulation.hardConstraints = {};
+  config.stepLength.weight = 20.0;
+  EXPECT_EQ(config.validateStatus(), absl::OkStatus());
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<LipContactPlanner> planner,
+      LipContactPlanner::Create(config));
+  const StepLengthCost& cost =
+      termAs<StepLengthCost>(planner->getProblem().costs, term::kStepLength);
+
+  ContactPlannerInput input = makeStandingInput();
+  input.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.5, 0.0);
+  input.cmdRateYawBaseRtWorld = 0.6;
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem qp,
+                                planner->buildProblem(input));
+  const scalar_t w = config.stepLength.weight;
+  const vector2_t initNomErrPosFootRtWorldEwrtWorldXy =
+      cost.computeNomErrPosFootRtWorldEwrtWorldXy(
+          input.cmdLinvelBaseRtWorldEwrtWorldXy, config.planner.dt);
+  for (int node = 0; node < qp.numStages(); ++node) {
+    const scalar_t yaw = input.cmdRateYawBaseRtWorld * config.planner.dt * node;
+    const vector2_t nomErrPosFootRtWorldEwrtWorldXy(
+        std::cos(yaw) * initNomErrPosFootRtWorldEwrtWorldXy.x() -
+            std::sin(yaw) * initNomErrPosFootRtWorldEwrtWorldXy.y(),
+        std::sin(yaw) * initNomErrPosFootRtWorldEwrtWorldXy.x() +
+            std::cos(yaw) * initNomErrPosFootRtWorldEwrtWorldXy.y());
+    const OcpQpStage& stage = qp.stages[static_cast<size_t>(node)];
+    EXPECT_NEAR(stage.R(kLipDlx, kLipCl),
+                2.0 * w * nomErrPosFootRtWorldEwrtWorldXy.x(), 1.0e-12)
+        << "node " << node;
+    EXPECT_NEAR(stage.R(kLipDly, kLipCl),
+                2.0 * w * nomErrPosFootRtWorldEwrtWorldXy.y(), 1.0e-12)
+        << "node " << node;
+    EXPECT_NEAR(stage.R(kLipDry, kLipCr),
+                2.0 * w * nomErrPosFootRtWorldEwrtWorldXy.y(), 1.0e-12)
+        << "node " << node;
+    EXPECT_NEAR(stage.r(kLipDly),
+                -2.0 * w * nomErrPosFootRtWorldEwrtWorldXy.y(), 1.0e-12)
+        << "node " << node;
+    EXPECT_NEAR(stage.R(kLipCl, kLipCl),
+                2.0 * w * initNomErrPosFootRtWorldEwrtWorldXy.squaredNorm(),
+                1.0e-12)
+        << "the rotation keeps the step length";
+  }
+}
+
+// terminal_dcm.trackVelocityCommand moves the target of the TERMINAL DCM from
 // the last ZMP (rest) to zmp + v_cmd / omega (a CoM over the foot that keeps
 // moving at the commanded velocity): only the last running node changes, and it
 // evaluates to w ||xi_N - zmp_{N-1} - r||^2 with xi_N propagated exactly by the
@@ -310,7 +380,7 @@ TEST(ContactPlanningTerms,
   rest.formulation.hardConstraints = {};
   EXPECT_EQ(rest.validateStatus(), absl::OkStatus());
   ContactPlanningConfig walking = rest;
-  walking.terminalDcm.trackCommandedVelocity = true;
+  walking.terminalDcm.trackVelocityCommand = true;
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const std::unique_ptr<LipContactPlanner> restPlanner,
       LipContactPlanner::Create(rest));
@@ -319,17 +389,17 @@ TEST(ContactPlanningTerms,
       LipContactPlanner::Create(walking));
   EXPECT_FALSE(termAs<TerminalDcmCost>(restPlanner->getProblem().costs,
                                        term::kTerminalDcm)
-                   .tracksCommandedVelocity());
+                   .tracksVelocityCommand());
   EXPECT_TRUE(termAs<TerminalDcmCost>(walkingPlanner->getProblem().costs,
                                       term::kTerminalDcm)
-                  .tracksCommandedVelocity());
+                  .tracksVelocityCommand());
   EXPECT_NE(termNamed(walkingPlanner->getProblem().costs, term::kTerminalDcm)
                 .describe()
                 .find("v_cmd / omega"),
             std::string::npos);
 
   ContactPlannerInput input = makeWalkingInput();
-  input.velocityCommand = vector2_t(0.4, -0.15);
+  input.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.4, -0.15);
   HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem qpRest,
                                 restPlanner->buildProblem(input));
   HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem qpWalking,
@@ -344,7 +414,8 @@ TEST(ContactPlanningTerms,
   ASSERT_EQ(qpWalking.stages.size(),
             static_cast<size_t>(rest.planner.numNodes) + 1u);
   const size_t last = static_cast<size_t>(rest.planner.numNodes - 1);
-  const scalar_t omega = std::sqrt(rest.shared.gravity / rest.pendulumHeight());
+  const scalar_t omega =
+      std::sqrt(rest.shared.gravity / rest.getNomPosComRtFeetmeanEwrtWorldZ());
   const scalar_t dt = rest.planner.dt;
   const scalar_t w = rest.terminalDcm.weight;
 
@@ -376,13 +447,16 @@ TEST(ContactPlanningTerms,
     scalar_t restExpected = 0.0;
     scalar_t walkingExpected = 0.0;
     for (int axis = 0; axis < 2; ++axis) {
-      const scalar_t zmp = u(kLipZx + axis);
+      const scalar_t posZmpRtWorldEwrtWorld = u(kLipZx + axis);
       const scalar_t xiNext =
-          zmp + std::exp(omega * dt) *
-                    (x(kLipCx + axis) + x(kLipVx + axis) / omega - zmp);
-      restExpected += w * (xiNext - zmp) * (xiNext - zmp);
+          posZmpRtWorldEwrtWorld +
+          std::exp(omega * dt) * (x(kLipCx + axis) + x(kLipVx + axis) / omega -
+                                  posZmpRtWorldEwrtWorld);
+      restExpected += w * (xiNext - posZmpRtWorldEwrtWorld) *
+                      (xiNext - posZmpRtWorldEwrtWorld);
       const scalar_t walkingResidual =
-          xiNext - zmp - input.velocityCommand(axis) / omega;
+          xiNext - posZmpRtWorldEwrtWorld -
+          input.cmdLinvelBaseRtWorldEwrtWorldXy(axis) / omega;
       walkingExpected += w * walkingResidual * walkingResidual;
     }
     EXPECT_NEAR(stageCost(qpRest.stages[last], x, u), restExpected,
@@ -401,8 +475,9 @@ TEST(ContactPlanningTerms,
     x(kLipCx + axis) = 0.02;
     // xi_{N-1} - zmp = e^{-omega dt} v_cmd / omega, so that xi_N - zmp = v_cmd
     // / omega.
-    x(kLipVx + axis) = omega * (u(kLipZx + axis) - x(kLipCx + axis)) +
-                       std::exp(-omega * dt) * input.velocityCommand(axis);
+    x(kLipVx + axis) =
+        omega * (u(kLipZx + axis) - x(kLipCx + axis)) +
+        std::exp(-omega * dt) * input.cmdLinvelBaseRtWorldEwrtWorldXy(axis);
   }
   EXPECT_NEAR(stageCost(qpWalking.stages[last], x, u), 0.0, 1.0e-9);
 
@@ -421,9 +496,10 @@ TEST(ContactPlanningTerms,
   EXPECT_TRUE(qpRest.stages[last].q.isZero());
   EXPECT_TRUE(qpWalking.stages[last].Q.isApprox(qpRest.stages[last].Q))
       << "the target moves, the curvature does not";
-  for (size_t k = 0; k < last; ++k)
+  for (size_t k = 0; k < last; ++k) {
     EXPECT_TRUE(qpWalking.stages[k].q.isZero())
         << "only the last running node, k = " << k;
+  }
   EXPECT_TRUE(qpWalking.stages.back().q.isZero()) << "not on the terminal node";
 }
 
@@ -481,9 +557,13 @@ TEST(ContactPlanningTerms, APlanDescribesItsPhasesAndSteps) {
   // Right: contact throughout.
   plan.contacts = {{true, true},  {true, true},  {false, true},
                    {false, true}, {false, true}, {true, true}};
-  plan.footholds.assign(7, {vector2_t(0.0, 0.1), vector2_t(0.0, -0.1)});
-  for (size_t k = 5; k < 7; ++k) plan.footholds[k][0] = vector2_t(0.4, 0.1);
-  plan.comVelocity = {vector2_t(0.3, 0.0), vector2_t(0.5, 0.0)};
+  plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
+      7, {vector2_t(0.0, 0.1), vector2_t(0.0, -0.1)});
+  for (size_t k = 5; k < 7; ++k) {
+    plan.desPosFeetRtWorldEwrtWorldXyTraj[k][0] = vector2_t(0.4, 0.1);
+  }
+  plan.linvelComRtWorldEwrtWorldXyTraj = {vector2_t(0.3, 0.0),
+                                          vector2_t(0.5, 0.0)};
   const std::string line = plan.describe();
   EXPECT_NE(
       line.find(
@@ -513,7 +593,7 @@ namespace {
 // the assembly produced, so that it is an independent statement of what the
 // assembled objective has to evaluate to.
 scalar_t stepLengthFunctional(scalar_t weight,
-                              const vector2_t& nominalDisplacement,
+                              const vector2_t& nomErrPosFootRtWorldEwrtWorldXy,
                               const std::vector<vector_t>& inputs) {
   const std::array<std::array<int, 2>, kNumContacts> footDelta{
       {{kLipDlx, kLipDly}, {kLipDrx, kLipDry}}};
@@ -524,7 +604,8 @@ scalar_t stepLengthFunctional(scalar_t weight,
       for (int axis = 0; axis < 2; ++axis) {
         const scalar_t residual =
             input(footDelta[foot][static_cast<size_t>(axis)]) -
-            nominalDisplacement(axis) * (1.0 - input(contact[foot]));
+            nomErrPosFootRtWorldEwrtWorldXy(axis) *
+                (1.0 - input(contact[foot]));
         total += weight * residual * residual;
       }
     }
@@ -630,7 +711,7 @@ TEST(ContactPlanningTerms,
       LipContactPlanner::Create(stretchedConfig));
 
   ContactPlannerInput input = makeStandingInput();
-  input.velocityCommand = vector2_t(
+  input.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(
       0.4,
       -0.25);  // both axes, so that neither of the two offsets per foot is zero
 
@@ -638,10 +719,12 @@ TEST(ContactPlanningTerms,
   const scalar_t strideToSwingRatio =
       8.0 / 3.0;  // 2 (minSwingDuration + minDoubleSupportDuration) /
                   // minSwingDuration
-  const vector2_t nominalDisplacement =
-      input.velocityCommand * (config.planner.dt * strideToSwingRatio);
-  const vector2_t stretchedDisplacement =
-      input.velocityCommand * (stretchedConfig.planner.dt * strideToSwingRatio);
+  const vector2_t nomErrPosFootRtWorldEwrtWorldXy =
+      input.cmdLinvelBaseRtWorldEwrtWorldXy *
+      (config.planner.dt * strideToSwingRatio);
+  const vector2_t stretchedNomErrPosFootRtWorldEwrtWorldXy =
+      input.cmdLinvelBaseRtWorldEwrtWorldXy *
+      (stretchedConfig.planner.dt * strideToSwingRatio);
 
   HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem qp,
                                 planner->buildProblem(input));
@@ -651,9 +734,10 @@ TEST(ContactPlanningTerms,
   // nominal displacement shows up as a failure here rather than silently moving
   // both sides of the comparisons below.
   ASSERT_NEAR(qp.stages.front().R(kLipDlx, kLipCl),
-              2.0 * weight * nominalDisplacement.x(), 1.0e-12);
+              2.0 * weight * nomErrPosFootRtWorldEwrtWorldXy.x(), 1.0e-12);
   ASSERT_NEAR(stretchedQp.stages.front().R(kLipDry, kLipCr),
-              2.0 * weight * stretchedDisplacement.y(), 1.0e-12);
+              2.0 * weight * stretchedNomErrPosFootRtWorldEwrtWorldXy.y(),
+              1.0e-12);
   ASSERT_EQ(stretchedQp.stages.size(), qp.stages.size())
       << "the stretch changes the node duration, not the node count";
 
@@ -664,15 +748,17 @@ TEST(ContactPlanningTerms,
   std::vector<vector_t> inputTrajectory;
   for (int k = 0; k <= numRunningNodes; ++k) {
     vector_t stateAtNode = vector_t::Zero(numStates);
-    for (int i = 0; i < numStates; ++i)
+    for (int i = 0; i < numStates; ++i) {
       stateAtNode(i) =
           0.2 * static_cast<scalar_t>(i) - 0.03 * static_cast<scalar_t>(k);
+    }
     stateTrajectory.push_back(stateAtNode);
     if (k == numRunningNodes) break;  // the terminal stage carries no inputs
     vector_t inputAtNode = vector_t::Zero(numInputs);
-    for (int i = 0; i < numInputs; ++i)
+    for (int i = 0; i < numInputs; ++i) {
       inputAtNode(i) =
           0.05 * static_cast<scalar_t>(i + 1) - 0.01 * static_cast<scalar_t>(k);
+    }
     inputTrajectory.push_back(inputAtNode);
   }
 
@@ -680,13 +766,14 @@ TEST(ContactPlanningTerms,
       evaluateOcpQpObjective(qp, stateTrajectory, inputTrajectory);
   const scalar_t stretchedOnTrajectory =
       evaluateOcpQpObjective(stretchedQp, stateTrajectory, inputTrajectory);
-  EXPECT_NEAR(
-      nominalOnTrajectory,
-      stepLengthFunctional(weight, nominalDisplacement, inputTrajectory),
-      1.0e-9);
+  EXPECT_NEAR(nominalOnTrajectory,
+              stepLengthFunctional(weight, nomErrPosFootRtWorldEwrtWorldXy,
+                                   inputTrajectory),
+              1.0e-9);
   EXPECT_NEAR(
       stretchedOnTrajectory,
-      stepLengthFunctional(weight, stretchedDisplacement, inputTrajectory),
+      stepLengthFunctional(weight, stretchedNomErrPosFootRtWorldEwrtWorldXy,
+                           inputTrajectory),
       1.0e-9);
   // The two problems are not merely shifted by a constant each: on this
   // trajectory the dropped constants reversed the ORDER of the two grids. The
@@ -710,7 +797,7 @@ TEST(ContactPlanningTerms,
   const std::vector<vector_t> zeroInputs(static_cast<size_t>(numRunningNodes),
                                          zeroInput);
   const scalar_t expectedNominal =
-      stepLengthFunctional(weight, nominalDisplacement, zeroInputs);
+      stepLengthFunctional(weight, nomErrPosFootRtWorldEwrtWorldXy, zeroInputs);
   const scalar_t nominalObjective =
       evaluateOcpQpObjective(qp, zeroStates, zeroInputs);
   const scalar_t stretchedObjective =
@@ -800,10 +887,12 @@ TEST(ContactPlanningTerms,
 // that stops the process with the name, rather than a status to propagate.
 TEST(ContactPlanningTermsDeathTest, TheLayoutInvariantsCheckFailWithTheName) {
   LayoutBuilder builder;
-  builder.addState(var::kComX);
-  EXPECT_DEATH(builder.addState(var::kComX), "state 'c_x' declared twice");
-  builder.addInput(var::kZmpX);
-  EXPECT_DEATH(builder.addInput(var::kZmpX), "input 'zmp_x' declared twice");
+  builder.addState(var::kPosComRtWorldEwrtWorldX);
+  EXPECT_DEATH(builder.addState(var::kPosComRtWorldEwrtWorldX),
+               "state 'c_x' declared twice");
+  builder.addInput(var::kPosZmpRtWorldEwrtWorldX);
+  EXPECT_DEATH(builder.addInput(var::kPosZmpRtWorldEwrtWorldX),
+               "input 'zmp_x' declared twice");
   const Layout layout = builder.build();
   EXPECT_DEATH(static_cast<void>(layout.state("no_such_state")),
                "no state named 'no_such_state'");
@@ -1040,8 +1129,9 @@ TEST(ContactPlanningTerms, EveryKnownTermCanBeBuiltAndDescribed) {
   }
   HUMANOID_ASSERT_OK_AND_ASSIGN(const std::string summary,
                                 LipContactPlanner::formulationSummary(config));
-  for (const std::string& name : config.formulation.costs)
+  for (const std::string& name : config.formulation.costs) {
     EXPECT_NE(summary.find(name), std::string::npos) << summary;
+  }
   EXPECT_NE(summary.find("x = [c_x c_y v_x v_y p_Lx p_Ly p_Rx p_Ry theta omega "
                          "psi_L psi_R] (12)"),
             std::string::npos)
@@ -1095,7 +1185,8 @@ TEST(
   ContactPlannerInput next = input;
   next.time += 0.1;
   next.contacts = first.contactsAtTime(next.time);
-  ASSERT_GE(planner->defaultNominal(next).com.size(), 1u);
+  ASSERT_GE(
+      planner->defaultNominal(next).nomPosComRtWorldEwrtWorldXyTraj.size(), 1u);
   const bool warmBefore =
       checkedValue(planner->makeContext(next, planner->defaultNominal(next)))
           .previousPlanShift.has_value();
@@ -1806,8 +1897,9 @@ TEST(
   // node-foot pairs, counted here by an independent walk over the assignment
   // that applies the shift and the clamp itself.
   for (const MiqpAssignment& partial : partials) {
-    if (std::find(partial.begin(), partial.end(), kMiqpFree) != partial.end())
+    if (std::find(partial.begin(), partial.end(), kMiqpFree) != partial.end()) {
       continue;
+    }
     int expected = 0;
     for (int node = 0; node < kNumNodes; ++node) {
       const int source = std::min(node + 1, kNumNodes - 1);
@@ -1839,12 +1931,13 @@ ContactPlan makePreviousPlan(int numNodes) {
   plan.valid = true;
   plan.startTime = 0.0;
   plan.dt = 0.1;
-  plan.footholds.resize(static_cast<size_t>(numNodes) + 1u);
+  plan.desPosFeetRtWorldEwrtWorldXyTraj.resize(static_cast<size_t>(numNodes) +
+                                               1u);
   for (int node = 0; node <= numNodes; ++node) {
     const scalar_t s = static_cast<scalar_t>(node);
-    plan.footholds[static_cast<size_t>(node)][0] =
+    plan.desPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(node)][0] =
         vector2_t(0.10 * s, 0.125 + 0.01 * s);
-    plan.footholds[static_cast<size_t>(node)][1] =
+    plan.desPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(node)][1] =
         vector2_t(0.10 * s + 0.05, -0.125 - 0.01 * s);
   }
   return plan;
@@ -1853,20 +1946,23 @@ ContactPlan makePreviousPlan(int numNodes) {
 /** A nominal trajectory over numNodes + 1 nodes with a turning heading, for the
  * frame terms of the heading model. */
 HeadingNominal makeTurningNominal(int numNodes,
-                                  scalar_t headingAtStart,
-                                  scalar_t headingPerNode) {
+                                  scalar_t nomHeadingModelInitYaw,
+                                  scalar_t nomHeadingModelYawPerNode) {
   HeadingNominal nominal;
-  nominal.heading.resize(static_cast<size_t>(numNodes) + 1u);
-  nominal.com.resize(static_cast<size_t>(numNodes) + 1u);
-  nominal.feet.resize(static_cast<size_t>(numNodes) + 1u);
+  nominal.nomHeadingModelYawTraj.resize(static_cast<size_t>(numNodes) + 1u);
+  nominal.nomPosComRtWorldEwrtWorldXyTraj.resize(static_cast<size_t>(numNodes) +
+                                                 1u);
+  nominal.nomPosFeetRtWorldEwrtWorldXyTraj.resize(
+      static_cast<size_t>(numNodes) + 1u);
   for (int node = 0; node <= numNodes; ++node) {
     const scalar_t s = static_cast<scalar_t>(node);
-    nominal.heading[static_cast<size_t>(node)] =
-        headingAtStart + headingPerNode * s;
-    nominal.com[static_cast<size_t>(node)] = vector2_t(0.05 * s, 0.0);
-    nominal.feet[static_cast<size_t>(node)][0] =
+    nominal.nomHeadingModelYawTraj[static_cast<size_t>(node)] =
+        nomHeadingModelInitYaw + nomHeadingModelYawPerNode * s;
+    nominal.nomPosComRtWorldEwrtWorldXyTraj[static_cast<size_t>(node)] =
+        vector2_t(0.05 * s, 0.0);
+    nominal.nomPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(node)][0] =
         vector2_t(0.30 + 0.02 * s, 0.13 + 0.01 * s);
-    nominal.feet[static_cast<size_t>(node)][1] =
+    nominal.nomPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(node)][1] =
         vector2_t(0.26 + 0.02 * s, -0.11 - 0.01 * s);
   }
   return nominal;
@@ -1918,9 +2014,11 @@ TEST(
       << "otherwise the unclamped half of the horizon below is empty";
   const ContactPlannerInput input = makeStandingInput();
   const ContactPlan previousPlan = makePreviousPlan(numNodes);
-  ASSERT_EQ(previousPlan.footholds.size(), static_cast<size_t>(numNodes) + 1u);
-  const HeadingNominal nominal = makeTurningNominal(
-      numNodes, /*headingAtStart=*/0.0, /*headingPerNode=*/0.0);
+  ASSERT_EQ(previousPlan.desPosFeetRtWorldEwrtWorldXyTraj.size(),
+            static_cast<size_t>(numNodes) + 1u);
+  const HeadingNominal nominal =
+      makeTurningNominal(numNodes, /*nomHeadingModelInitYaw=*/0.0,
+                         /*nomHeadingModelYawPerNode=*/0.0);
 
   ContactPlanningContext ctx;
   ctx.input = &input;
@@ -1948,15 +2046,20 @@ TEST(
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
       for (int axis = 0; axis < 2; ++axis) {
         const int index =
-            layout.state(axis == 0 ? var::footX(foot) : var::footY(foot));
-        const scalar_t target =
-            previousPlan.footholds[static_cast<size_t>(source)][foot](axis);
+            layout.state(axis == 0 ? var::posFootRtWorldEwrtWorldX(foot)
+                                   : var::posFootRtWorldEwrtWorldY(foot));
+        const vector2_t& prevDesPosFootRtWorldEwrtWorldXy =
+            previousPlan.desPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(
+                source)][foot];
         EXPECT_NEAR(stage.Q(index, index), 2.0 * kWeight, 1.0e-12)
             << "node " << node << ", foot " << foot << ", axis " << axis;
-        EXPECT_NEAR(stage.q(index), -2.0 * kWeight * target, 1.0e-12)
+        EXPECT_NEAR(stage.q(index),
+                    -2.0 * kWeight * prevDesPosFootRtWorldEwrtWorldXy(axis),
+                    1.0e-12)
             << "node " << node << " must be pulled to the previous plan's node "
             << source << ", foot " << foot << ", axis " << axis;
-        expectedConstant += kWeight * target * target;
+        expectedConstant += kWeight * prevDesPosFootRtWorldEwrtWorldXy(axis) *
+                            prevDesPosFootRtWorldEwrtWorldXy(axis);
       }
     }
     EXPECT_NEAR(stage.constant, expectedConstant, 1.0e-12)
@@ -1979,13 +2082,15 @@ TEST(
   // foothold, and the nodes before it are not.
   const std::vector<int> clampedNodes = {numNodes - kShift, numNodes - 1,
                                          numNodes};
-  const scalar_t lastLeftX = previousPlan.footholds.back()[0].x();
+  const scalar_t prevFinalDesPosLfootRtWorldEwrtWorldX =
+      previousPlan.desPosFeetRtWorldEwrtWorldXyTraj.back()[0].x();
   for (const int node : clampedNodes) {
     OcpQpStage stage =
         OcpQpStage::Zero(layout.nx, 0, OcpQpStageKind::kTerminal);
     StageAccumulator accumulator(&stage);
     term->addToStage(ctx, node, accumulator);
-    EXPECT_NEAR(stage.q(kLipPlx), -2.0 * kWeight * lastLeftX, 1.0e-12)
+    EXPECT_NEAR(stage.q(kLipPlx),
+                -2.0 * kWeight * prevFinalDesPosLfootRtWorldEwrtWorldX, 1.0e-12)
         << "node " << node << " reaches past the previous plan";
   }
   {
@@ -1993,7 +2098,9 @@ TEST(
         OcpQpStage::Zero(layout.nx, 0, OcpQpStageKind::kTerminal);
     StageAccumulator accumulator(&stage);
     term->addToStage(ctx, numNodes - kShift - 1, accumulator);
-    EXPECT_GT(std::abs(stage.q(kLipPlx) + 2.0 * kWeight * lastLeftX), 1.0e-6)
+    EXPECT_GT(std::abs(stage.q(kLipPlx) +
+                       2.0 * kWeight * prevFinalDesPosLfootRtWorldEwrtWorldX),
+              1.0e-6)
         << "the last node before the clamp must still read a node of its own";
   }
 
@@ -2070,11 +2177,12 @@ TEST(
 TEST(ContactPlanningTerms,
      StepWidthCostCouplesTheFourFootholdsAndTheHeadingAtANonZeroHeading) {
   constexpr scalar_t kWeight = 7.0;
-  constexpr scalar_t kNominalWidth = 0.24;
+  constexpr scalar_t kNomPosLfootRtRfootEwrtHeadingY = 0.24;
   constexpr int kNode = 3;
   ContactPlanningConfig config = makeHeadingConfig();
   config.stepWidth.weight = kWeight;
-  config.stepWidth.nominalStepWidth = kNominalWidth;
+  config.stepWidth.nomPosLfootRtRfootEwrtHeadingY =
+      kNomPosLfootRtRfootEwrtHeadingY;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   HUMANOID_ASSERT_OK_AND_ASSIGN(const Layout layout,
                                 LipContactPlanner::makeLayout(config));
@@ -2093,8 +2201,9 @@ TEST(ContactPlanningTerms,
   const ContactPlannerInput input = makeStandingInput();
   // heading 0.2 at node 0 and +0.1 per node, so node 3 sits at exactly 0.5 rad
   // and no two nodes share a frame.
-  const HeadingNominal nominal = makeTurningNominal(
-      numNodes, /*headingAtStart=*/0.2, /*headingPerNode=*/0.1);
+  const HeadingNominal nominal =
+      makeTurningNominal(numNodes, /*nomHeadingModelInitYaw=*/0.2,
+                         /*nomHeadingModelYawPerNode=*/0.1);
   ContactPlanningContext ctx;
   ctx.input = &input;
   ctx.layout = &layout;
@@ -2102,7 +2211,7 @@ TEST(ContactPlanningTerms,
   ctx.config = &config;
   ctx.previousPlan = nullptr;
   ctx.previousPlanShift = std::nullopt;
-  ctx.yawInertia = input.yawInertia;
+  ctx.inertiaComEwrtWorldZz = input.inertiaComEwrtWorldZz;
   ctx.dt = config.planner.dt;
   ctx.numNodes = numNodes;
   ctx.omega = config.omega();
@@ -2111,32 +2220,37 @@ TEST(ContactPlanningTerms,
 
   // The hand computation. theta_n = 0.5, d_n = p_L,n - p_R,n = (0.36, 0.16) -
   // (0.32, -0.14) = (0.04, 0.30).
-  const scalar_t theta = nominal.heading[static_cast<size_t>(kNode)];
+  const scalar_t theta =
+      nominal.nomHeadingModelYawTraj[static_cast<size_t>(kNode)];
   ASSERT_NEAR(theta, 0.5, 1.0e-12);
-  const vector2_t nominalSeparation =
-      nominal.feet[static_cast<size_t>(kNode)][0] -
-      nominal.feet[static_cast<size_t>(kNode)][1];
-  ASSERT_NEAR(nominalSeparation.x(), 0.04, 1.0e-12);
-  ASSERT_NEAR(nominalSeparation.y(), 0.30, 1.0e-12);
-  const vector2_t ey(-std::sin(theta), std::cos(theta));
+  const vector2_t nomPosLfootRtRfootEwrtWorldXy =
+      nominal.nomPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(kNode)][0] -
+      nominal.nomPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(kNode)][1];
+  ASSERT_NEAR(nomPosLfootRtRfootEwrtWorldXy.x(), 0.04, 1.0e-12);
+  ASSERT_NEAR(nomPosLfootRtRfootEwrtWorldXy.y(), 0.30, 1.0e-12);
+  const vector2_t leftDirHeadingEwrtWorldXy(-std::sin(theta), std::cos(theta));
   // g = (d e_y / d theta) . d_n = -e_x(theta_n) . d_n = -(cos 0.5 * 0.04 + sin
   // 0.5 * 0.30).
-  const scalar_t g = -(std::cos(theta) * nominalSeparation.x() +
-                       std::sin(theta) * nominalSeparation.y());
+  const scalar_t g = -(std::cos(theta) * nomPosLfootRtRfootEwrtWorldXy.x() +
+                       std::sin(theta) * nomPosLfootRtRfootEwrtWorldXy.y());
   ASSERT_NEAR(g, -0.178930964056875812, 1.0e-12)
       << "-(0.8775825618903728 * 0.04 + 0.4794255386042030 * 0.30)";
   // The residual is e_y . (p_L - p_R) + g (theta - theta_n) - w_nom, so the
   // constant part is -w_nom - g theta_n.
-  const scalar_t offset = -kNominalWidth - g * theta;
+  const scalar_t offset = -kNomPosLfootRtRfootEwrtHeadingY - g * theta;
   ASSERT_NEAR(offset, -0.150534517971562094, 1.0e-12)
       << "-0.24 + 0.178930964056875812 * 0.5";
 
   vector_t coefficients = vector_t::Zero(layout.nx);
-  coefficients(layout.state(var::footX(0))) = ey.x();
-  coefficients(layout.state(var::footY(0))) = ey.y();
-  coefficients(layout.state(var::footX(1))) = -ey.x();
-  coefficients(layout.state(var::footY(1))) = -ey.y();
-  coefficients(layout.heading) = g;
+  coefficients(layout.state(var::posFootRtWorldEwrtWorldX(0))) =
+      leftDirHeadingEwrtWorldXy.x();
+  coefficients(layout.state(var::posFootRtWorldEwrtWorldY(0))) =
+      leftDirHeadingEwrtWorldXy.y();
+  coefficients(layout.state(var::posFootRtWorldEwrtWorldX(1))) =
+      -leftDirHeadingEwrtWorldXy.x();
+  coefficients(layout.state(var::posFootRtWorldEwrtWorldY(1))) =
+      -leftDirHeadingEwrtWorldXy.y();
+  coefficients(layout.headingModelYaw) = g;
 
   OcpQpStage stage =
       OcpQpStage::Zero(layout.nx, layout.nu, OcpQpStageKind::kIntermediate);
@@ -2154,20 +2268,26 @@ TEST(ContactPlanningTerms,
       << "q = " << stage.q.transpose() << ", expected "
       << expectedq.transpose();
   EXPECT_NEAR(stage.constant, kWeight * offset * offset, 1.0e-12);
-  EXPECT_NEAR(stage.Q(kLipPly, kLipPly), 2.0 * kWeight * ey.y() * ey.y(),
+  EXPECT_NEAR(stage.Q(kLipPly, kLipPly),
+              2.0 * kWeight * leftDirHeadingEwrtWorldXy.y() *
+                  leftDirHeadingEwrtWorldXy.y(),
               1.0e-12);
-  EXPECT_NEAR(stage.Q(kLipPly, kLipPry), -2.0 * kWeight * ey.y() * ey.y(),
+  EXPECT_NEAR(stage.Q(kLipPly, kLipPry),
+              -2.0 * kWeight * leftDirHeadingEwrtWorldXy.y() *
+                  leftDirHeadingEwrtWorldXy.y(),
               1.0e-12)
       << "the two feet enter with opposite signs";
-  EXPECT_NEAR(stage.Q(kLipPlx, layout.heading), 2.0 * kWeight * ey.x() * g,
-              1.0e-12)
+  EXPECT_NEAR(stage.Q(kLipPlx, layout.headingModelYaw),
+              2.0 * kWeight * leftDirHeadingEwrtWorldXy.x() * g, 1.0e-12)
       << "the heading is coupled to every foothold";
-  EXPECT_NEAR(stage.Q(layout.heading, layout.heading), 2.0 * kWeight * g * g,
+  EXPECT_NEAR(stage.Q(layout.headingModelYaw, layout.headingModelYaw),
+              2.0 * kWeight * g * g, 1.0e-12);
+  EXPECT_NEAR(stage.q(layout.headingModelYaw), 2.0 * kWeight * offset * g,
               1.0e-12);
-  EXPECT_NEAR(stage.q(layout.heading), 2.0 * kWeight * offset * g, 1.0e-12);
   EXPECT_NEAR(stage.Q(kLipCx, kLipCx), 0.0, 1.0e-12)
       << "the center of mass is not part of the step width";
-  EXPECT_NEAR(stage.Q(layout.headingRate, layout.headingRate), 0.0, 1.0e-12)
+  EXPECT_NEAR(stage.Q(layout.headingModelYawRate, layout.headingModelYawRate),
+              0.0, 1.0e-12)
       << "nor is the heading rate";
   EXPECT_TRUE(stage.R.isZero()) << "the term touches no input";
   EXPECT_TRUE(stage.r.isZero());
@@ -2177,16 +2297,20 @@ TEST(ContactPlanningTerms,
   // the statement the entries above add up to: the stage evaluates to w r^2 and
   // its gradient is 2 w r l, with r written out from the formula of the term.
   vector_t state = vector_t::Zero(layout.nx);
-  state(layout.state(var::footX(0))) = 0.31;
-  state(layout.state(var::footY(0))) = 0.14;
-  state(layout.state(var::footX(1))) = 0.27;
-  state(layout.state(var::footY(1))) = -0.12;
-  state(layout.heading) = 0.55;
-  const vector2_t separation(
-      state(layout.state(var::footX(0))) - state(layout.state(var::footX(1))),
-      state(layout.state(var::footY(0))) - state(layout.state(var::footY(1))));
+  state(layout.state(var::posFootRtWorldEwrtWorldX(0))) = 0.31;
+  state(layout.state(var::posFootRtWorldEwrtWorldY(0))) = 0.14;
+  state(layout.state(var::posFootRtWorldEwrtWorldX(1))) = 0.27;
+  state(layout.state(var::posFootRtWorldEwrtWorldY(1))) = -0.12;
+  state(layout.headingModelYaw) = 0.55;
+  const vector2_t posLfootRtRfootEwrtWorldXy(
+      state(layout.state(var::posFootRtWorldEwrtWorldX(0))) -
+          state(layout.state(var::posFootRtWorldEwrtWorldX(1))),
+      state(layout.state(var::posFootRtWorldEwrtWorldY(0))) -
+          state(layout.state(var::posFootRtWorldEwrtWorldY(1))));
   const scalar_t residual =
-      ey.dot(separation) + g * (state(layout.heading) - theta) - kNominalWidth;
+      leftDirHeadingEwrtWorldXy.dot(posLfootRtRfootEwrtWorldXy) +
+      g * (state(layout.headingModelYaw) - theta) -
+      kNomPosLfootRtRfootEwrtHeadingY;
   ASSERT_GT(std::abs(residual), 1.0e-3)
       << "the trial is only meaningful away from the minimum of the term";
   EXPECT_NEAR(
@@ -2205,28 +2329,36 @@ TEST(ContactPlanningTerms,
   // plausible off-by-one in a term that indexes ctx.nominal by node - changes
   // both the axis and g. Checking a second node also pins that the term is not
   // accidentally constant over the horizon.
-  const scalar_t thetaZero = nominal.heading[0];
+  const scalar_t thetaZero = nominal.nomHeadingModelYawTraj[0];
   ASSERT_NEAR(thetaZero, 0.2, 1.0e-12);
-  const vector2_t nominalSeparationZero =
-      nominal.feet[0][0] - nominal.feet[0][1];
-  ASSERT_NEAR(nominalSeparationZero.y(), 0.24, 1.0e-12);
-  const vector2_t eyZero(-std::sin(thetaZero), std::cos(thetaZero));
-  const scalar_t gZero = -(std::cos(thetaZero) * nominalSeparationZero.x() +
-                           std::sin(thetaZero) * nominalSeparationZero.y());
+  const vector2_t initNomPosLfootRtRfootEwrtWorldXy =
+      nominal.nomPosFeetRtWorldEwrtWorldXyTraj[0][0] -
+      nominal.nomPosFeetRtWorldEwrtWorldXyTraj[0][1];
+  ASSERT_NEAR(initNomPosLfootRtRfootEwrtWorldXy.y(), 0.24, 1.0e-12);
+  const vector2_t initLeftDirHeadingEwrtWorldXy(-std::sin(thetaZero),
+                                                std::cos(thetaZero));
+  const scalar_t gZero =
+      -(std::cos(thetaZero) * initNomPosLfootRtRfootEwrtWorldXy.x() +
+        std::sin(thetaZero) * initNomPosLfootRtRfootEwrtWorldXy.y());
   OcpQpStage stageZero =
       OcpQpStage::Zero(layout.nx, layout.nu, OcpQpStageKind::kIntermediate);
   StageAccumulator accumulatorZero(&stageZero);
   term->addToStage(ctx, /*node=*/0, accumulatorZero);
   EXPECT_NEAR(stageZero.Q(kLipPly, kLipPly),
-              2.0 * kWeight * eyZero.y() * eyZero.y(), 1.0e-12);
-  EXPECT_NEAR(stageZero.Q(layout.heading, layout.heading),
-              2.0 * kWeight * gZero * gZero, 1.0e-12);
-  EXPECT_NEAR(stageZero.q(layout.heading),
-              2.0 * kWeight * (-kNominalWidth - gZero * thetaZero) * gZero,
+              2.0 * kWeight * initLeftDirHeadingEwrtWorldXy.y() *
+                  initLeftDirHeadingEwrtWorldXy.y(),
               1.0e-12);
-  EXPECT_GT(std::abs(stageZero.Q(layout.heading, layout.heading) -
-                     stage.Q(layout.heading, layout.heading)),
-            1.0e-6)
+  EXPECT_NEAR(stageZero.Q(layout.headingModelYaw, layout.headingModelYaw),
+              2.0 * kWeight * gZero * gZero, 1.0e-12);
+  EXPECT_NEAR(stageZero.q(layout.headingModelYaw),
+              2.0 * kWeight *
+                  (-kNomPosLfootRtRfootEwrtHeadingY - gZero * thetaZero) *
+                  gZero,
+              1.0e-12);
+  EXPECT_GT(
+      std::abs(stageZero.Q(layout.headingModelYaw, layout.headingModelYaw) -
+               stage.Q(layout.headingModelYaw, layout.headingModelYaw)),
+      1.0e-6)
       << "two nodes with different nominal headings must not produce the same "
          "coupling";
 
@@ -2235,19 +2367,20 @@ TEST(ContactPlanningTerms,
   // and no expansion offset: e_y(yaw) . (p_L - p_R) - w_nom.
   ContactPlanningConfig flatConfig = makeConfig();
   flatConfig.stepWidth.weight = kWeight;
-  flatConfig.stepWidth.nominalStepWidth = kNominalWidth;
+  flatConfig.stepWidth.nomPosLfootRtRfootEwrtHeadingY =
+      kNomPosLfootRtRfootEwrtHeadingY;
   EXPECT_EQ(flatConfig.validateStatus(), absl::OkStatus());
   HUMANOID_ASSERT_OK_AND_ASSIGN(const Layout flatLayout,
                                 LipContactPlanner::makeLayout(flatConfig));
   ASSERT_FALSE(flatLayout.hasHeading);
-  ASSERT_EQ(flatLayout.heading, -1);
+  ASSERT_EQ(flatLayout.headingModelYaw, -1);
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<LipCost> flatTerm,
       ContactPlanningTermFactory::makeCost(term::kStepWidth));
   flatTerm->bind(flatLayout);
   flatTerm->configure(flatConfig);
   ContactPlannerInput yawedInput = makeStandingInput();
-  yawedInput.yaw = 0.4;
+  yawedInput.yawHeadingRtWorld = 0.4;
   ContactPlanningContext flatCtx;
   flatCtx.input = &yawedInput;
   flatCtx.layout = &flatLayout;
@@ -2262,16 +2395,26 @@ TEST(ContactPlanningTerms,
                                           OcpQpStageKind::kIntermediate);
   StageAccumulator flatAccumulator(&flatStage);
   flatTerm->addToStage(flatCtx, kNode, flatAccumulator);
-  const vector2_t flatEy(-std::sin(yawedInput.yaw), std::cos(yawedInput.yaw));
+  const vector2_t flatLeftDirHeadingEwrtWorldXy(
+      -std::sin(yawedInput.yawHeadingRtWorld),
+      std::cos(yawedInput.yawHeadingRtWorld));
   EXPECT_NEAR(flatStage.Q(kLipPly, kLipPly),
-              2.0 * kWeight * flatEy.y() * flatEy.y(), 1.0e-12)
+              2.0 * kWeight * flatLeftDirHeadingEwrtWorldXy.y() *
+                  flatLeftDirHeadingEwrtWorldXy.y(),
+              1.0e-12)
       << "the frame is the base yaw";
   EXPECT_NEAR(flatStage.Q(kLipPlx, kLipPly),
-              2.0 * kWeight * flatEy.x() * flatEy.y(), 1.0e-12);
-  EXPECT_NEAR(flatStage.q(kLipPly), -2.0 * kWeight * kNominalWidth * flatEy.y(),
+              2.0 * kWeight * flatLeftDirHeadingEwrtWorldXy.x() *
+                  flatLeftDirHeadingEwrtWorldXy.y(),
+              1.0e-12);
+  EXPECT_NEAR(flatStage.q(kLipPly),
+              -2.0 * kWeight * kNomPosLfootRtRfootEwrtHeadingY *
+                  flatLeftDirHeadingEwrtWorldXy.y(),
               1.0e-12)
       << "the offset is -w_nom alone";
-  EXPECT_NEAR(flatStage.constant, kWeight * kNominalWidth * kNominalWidth,
+  EXPECT_NEAR(flatStage.constant,
+              kWeight * kNomPosLfootRtRfootEwrtHeadingY *
+                  kNomPosLfootRtRfootEwrtHeadingY,
               1.0e-12);
   EXPECT_EQ(flatLayout.nx, kLipStateDim)
       << "no heading column exists for the term to couple to";
@@ -2303,8 +2446,9 @@ bool rowsHold(const OcpQpStage& stage,
   const vector_t value = stage.C * x + stage.D * u;
   for (int i = 0; i < value.size(); ++i) {
     if (value(i) < stage.lg(i) - tolerance ||
-        value(i) > stage.ug(i) + tolerance)
+        value(i) > stage.ug(i) + tolerance) {
       return false;
+    }
   }
   return true;
 }
@@ -2318,7 +2462,7 @@ ContactPlanningContext makeHeadingContext(const ContactPlannerInput& input,
   ctx.layout = &layout;
   ctx.nominal = &nominal;
   ctx.config = &config;
-  ctx.yawInertia = input.yawInertia;
+  ctx.inertiaComEwrtWorldZz = input.inertiaComEwrtWorldZz;
   ctx.dt = config.planner.dt;
   ctx.numNodes = config.planner.numNodes;
   ctx.omega = config.omega();
@@ -2344,11 +2488,12 @@ vector2_t rotated(scalar_t yaw, const vector2_t& vector) {
  */
 TEST(ContactPlanningTerms,
      TheSingleSupportZmpBoxIsTheStanceFootsRotatedFootprint) {
-  constexpr scalar_t kHeading = 0.1;
-  const feet_array_t<scalar_t> footYaws{kHeading + 0.6, kHeading - 0.5};
+  constexpr scalar_t kYawHeadingRtWorld = 0.1;
+  const feet_array_t<scalar_t> nomEulerzyxFeetRtWorldYaw{
+      kYawHeadingRtWorld + 0.6, kYawHeadingRtWorld - 0.5};
   ContactPlanningConfig config = makeHeadingConfig();
-  config.zmpSupportRegion.halfWidthX = 0.1;
-  config.zmpSupportRegion.halfWidthY = 0.05;
+  config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootX = 0.1;
+  config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootY = 0.05;
   ASSERT_EQ(config.validateStatus(), absl::OkStatus());
   HUMANOID_ASSERT_OK_AND_ASSIGN(const Layout layout,
                                 LipContactPlanner::makeLayout(config));
@@ -2361,44 +2506,59 @@ TEST(ContactPlanningTerms,
 
   const int numNodes = config.planner.numNodes;
   HeadingNominal nominal = makeTurningNominal(
-      numNodes, /*headingAtStart=*/kHeading, /*headingPerNode=*/0.0);
-  nominal.footYaws.assign(static_cast<size_t>(numNodes) + 1u, footYaws);
+      numNodes, /*nomHeadingModelInitYaw=*/kYawHeadingRtWorld,
+      /*nomHeadingModelYawPerNode=*/0.0);
+  nominal.nomEulerzyxFeetRtWorldYawTraj.assign(
+      static_cast<size_t>(numNodes) + 1u, nomEulerzyxFeetRtWorldYaw);
   const ContactPlannerInput input = makeStandingInput();
   const ContactPlanningContext ctx =
       makeHeadingContext(input, layout, nominal, config);
 
-  const vector2_t halfWidths(config.zmpSupportRegion.halfWidthX,
-                             config.zmpSupportRegion.halfWidthY);
-  const feet_array_t<vector2_t> feet{vector2_t(0.31, 0.12),
-                                     vector2_t(0.27, -0.13)};
+  const vector2_t maxNormPosZmpRtFootEwrtFootXy(
+      config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootX,
+      config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootY);
+  const feet_array_t<vector2_t> posFeetRtWorldEwrtWorldXy{
+      vector2_t(0.31, 0.12), vector2_t(0.27, -0.13)};
   for (const int node : {0, 4}) {
     const OcpQpStage stage = constraintRows(*term, ctx, layout, node);
     for (size_t stance = 0; stance < kNumContacts; ++stance) {
       vector_t x = vector_t::Zero(layout.nx);
       for (size_t foot = 0; foot < kNumContacts; ++foot) {
-        x(layout.state(var::footX(foot))) = feet[foot].x();
-        x(layout.state(var::footY(foot))) = feet[foot].y();
+        x(layout.state(var::posFootRtWorldEwrtWorldX(foot))) =
+            posFeetRtWorldEwrtWorldXy[foot].x();
+        x(layout.state(var::posFootRtWorldEwrtWorldY(foot))) =
+            posFeetRtWorldEwrtWorldXy[foot].y();
       }
       vector_t u = vector_t::Zero(layout.nu);
       u(layout.input(var::contact(stance))) = 1.0;
       int cornersOutsideTheHeadingBox = 0;
       for (const scalar_t signX : {1.0, -1.0}) {
         for (const scalar_t signY : {1.0, -1.0}) {
-          const vector2_t corner = rotated(
-              footYaws[stance],
-              vector2_t(signX * halfWidths.x(), signY * halfWidths.y()));
+          const vector2_t posCornerRtFootEwrtWorldXy =
+              rotated(nomEulerzyxFeetRtWorldYaw[stance],
+                      vector2_t(signX * maxNormPosZmpRtFootEwrtFootXy.x(),
+                                signY * maxNormPosZmpRtFootEwrtFootXy.y()));
           for (const scalar_t scale : {0.999, 1.001}) {
-            const vector2_t zmp = feet[stance] + scale * corner;
-            u(layout.input(var::kZmpX)) = zmp.x();
-            u(layout.input(var::kZmpY)) = zmp.y();
+            const vector2_t posZmpRtWorldEwrtWorldXy =
+                posFeetRtWorldEwrtWorldXy[stance] +
+                scale * posCornerRtFootEwrtWorldXy;
+            u(layout.input(var::kPosZmpRtWorldEwrtWorldX)) =
+                posZmpRtWorldEwrtWorldXy.x();
+            u(layout.input(var::kPosZmpRtWorldEwrtWorldY)) =
+                posZmpRtWorldEwrtWorldXy.y();
             EXPECT_EQ(rowsHold(stage, x, u, /*tolerance=*/1.0e-12), scale < 1.0)
-                << "node " << node << ", stance " << stance << ", corner ("
-                << signX << ", " << signY << "), scale " << scale;
+                << "node " << node << ", stance " << stance
+                << ", posCornerRtFootEwrtWorldXy (" << signX << ", " << signY
+                << "), scale " << scale;
           }
-          const vector2_t inHeadingFrame = rotated(-kHeading, corner);
-          if (std::abs(inHeadingFrame.x()) > halfWidths.x() ||
-              std::abs(inHeadingFrame.y()) > halfWidths.y())
+          const vector2_t posCornerRtFootEwrtHeadingXy =
+              rotated(-kYawHeadingRtWorld, posCornerRtFootEwrtWorldXy);
+          if (std::abs(posCornerRtFootEwrtHeadingXy.x()) >
+                  maxNormPosZmpRtFootEwrtFootXy.x() ||
+              std::abs(posCornerRtFootEwrtHeadingXy.y()) >
+                  maxNormPosZmpRtFootEwrtFootXy.y()) {
             ++cornersOutsideTheHeadingBox;
+          }
         }
       }
       EXPECT_GT(cornersOutsideTheHeadingBox, 0)
@@ -2412,11 +2572,14 @@ TEST(ContactPlanningTerms,
       const std::unique_ptr<LipContactPlanner> planner,
       LipContactPlanner::Create(config));
   ContactPlannerInput turned = makeStandingInput();
-  turned.footYaws = footYaws;
+  turned.eulerzyxFeetRtWorldYaw = nomEulerzyxFeetRtWorldYaw;
   const HeadingNominal plannerNominal = planner->defaultNominal(turned);
-  ASSERT_EQ(plannerNominal.footYaws.size(), static_cast<size_t>(numNodes) + 1u);
-  EXPECT_NEAR(plannerNominal.footYaws.front()[0], footYaws[0], 1.0e-12);
-  EXPECT_NEAR(plannerNominal.footYaws.front()[1], footYaws[1], 1.0e-12);
+  ASSERT_EQ(plannerNominal.nomEulerzyxFeetRtWorldYawTraj.size(),
+            static_cast<size_t>(numNodes) + 1u);
+  EXPECT_NEAR(plannerNominal.nomEulerzyxFeetRtWorldYawTraj.front()[0],
+              nomEulerzyxFeetRtWorldYaw[0], 1.0e-12);
+  EXPECT_NEAR(plannerNominal.nomEulerzyxFeetRtWorldYawTraj.front()[1],
+              nomEulerzyxFeetRtWorldYaw[1], 1.0e-12);
 }
 
 /**
@@ -2445,25 +2608,28 @@ TEST(ContactPlanningTerms, AConstantCostRateScoresTheSameOnEveryNodeGrid) {
       const std::unique_ptr<LipContactPlanner> stretchedPlanner,
       LipContactPlanner::Create(stretchedConfig));
   ContactPlannerInput input = makeStandingInput();
-  input.velocityCommand = vector2_t(0.4, -0.1);
+  input.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.4, -0.1);
   HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem qp,
                                 planner->buildProblem(input));
   HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem stretchedQp,
                                 stretchedPlanner->buildProblem(input));
   ASSERT_EQ(qp.stages.size(), stretchedQp.stages.size());
 
-  const vector2_t velocityError(0.07, -0.02);
+  const vector2_t errLinvelComRtWorldEwrtWorldXy(0.07, -0.02);
   std::vector<vector_t> states;
   std::vector<vector_t> inputs;
   for (size_t k = 0; k < qp.stages.size(); ++k) {
     vector_t x = vector_t::Zero(qp.stages[k].numStates());
-    x(kLipVx) = input.velocityCommand.x() + velocityError.x();
-    x(kLipVy) = input.velocityCommand.y() + velocityError.y();
+    x(kLipVx) = input.cmdLinvelBaseRtWorldEwrtWorldXy.x() +
+                errLinvelComRtWorldEwrtWorldXy.x();
+    x(kLipVy) = input.cmdLinvelBaseRtWorldEwrtWorldXy.y() +
+                errLinvelComRtWorldEwrtWorldXy.y();
     x(kLipCx) = 0.3 * static_cast<scalar_t>(
                           k);  // where the CoM is does not enter the rate
     states.push_back(x);
-    if (k + 1 < qp.stages.size())
+    if (k + 1 < qp.stages.size()) {
       inputs.push_back(vector_t::Zero(qp.stages[k].numInputs()));
+    }
   }
   const scalar_t score = evaluateOcpQpObjective(qp, states, inputs);
   const scalar_t stretchedScore =
@@ -2480,15 +2646,15 @@ TEST(ContactPlanningTerms, AConstantCostRateScoresTheSameOnEveryNodeGrid) {
 
 /**
  * Audit finding CP-5. The hip yaw joint turns the foot against the pelvis. With
- * the heading the ACoM's, the pelvis sits baseYaw - heading away from it, and
- * the rows bound psi_i - theta_base to the joint range: at the planning node
- * (theta = heading) a foot yaw is admitted exactly when psi_i - baseYaw is
- * inside [lower_i, upper_i], across the +-pi seam too.
+ * the heading the ACoM's, the pelvis sits yawBaseRtWorld - heading away from
+ * it, and the rows bound psi_i - theta_base to the joint range: at the planning
+ * node (theta = heading) a foot yaw is admitted exactly when psi_i -
+ * yawBaseRtWorld is inside [lower_i, upper_i], across the +-pi seam too.
  */
 TEST(ContactPlanningTerms, TheHipYawRangeIsMeasuredFromThePelvis) {
   ContactPlanningConfig config = makeHeadingConfig();
-  config.hipYawRange.lower = {-0.3, -0.6};
-  config.hipYawRange.upper = {0.6, 0.3};
+  config.hipYawRange.minYawFeetRtBase = {-0.3, -0.6};
+  config.hipYawRange.maxYawFeetRtBase = {0.6, 0.3};
   ASSERT_EQ(config.validateStatus(), absl::OkStatus());
   HUMANOID_ASSERT_OK_AND_ASSIGN(const Layout layout,
                                 LipContactPlanner::makeLayout(config));
@@ -2500,45 +2666,48 @@ TEST(ContactPlanningTerms, TheHipYawRangeIsMeasuredFromThePelvis) {
   const int numNodes = config.planner.numNodes;
 
   struct Case {
-    scalar_t heading;
-    std::optional<scalar_t> baseYaw;
+    scalar_t yawAcomRtWorld;
+    std::optional<scalar_t> yawBaseRtWorld;
   };
   const std::vector<Case> cases = {
-      {.heading = 0.4, .baseYaw = 0.55},
-      {.heading = 0.4, .baseYaw = std::nullopt},
-      {.heading = 3.10,
-       .baseYaw = -3.05},  // the pelvis across the seam, 0.133 rad ahead
-      {.heading = -1.0, .baseYaw = -1.25}};
+      {.yawAcomRtWorld = 0.4, .yawBaseRtWorld = 0.55},
+      {.yawAcomRtWorld = 0.4, .yawBaseRtWorld = std::nullopt},
+      {.yawAcomRtWorld = 3.10,
+       .yawBaseRtWorld = -3.05},  // the pelvis across the seam, 0.133 rad ahead
+      {.yawAcomRtWorld = -1.0, .yawBaseRtWorld = -1.25}};
   for (const Case& c : cases) {
     ContactPlannerInput input = makeStandingInput();
-    input.heading = c.heading;
-    input.yaw = c.heading;
-    input.baseYaw = c.baseYaw;
+    input.initYawHeadingRtWorld = c.yawAcomRtWorld;
+    input.yawHeadingRtWorld = c.yawAcomRtWorld;
+    input.yawBaseRtWorld = c.yawBaseRtWorld;
     const HeadingNominal nominal = makeTurningNominal(
-        numNodes, /*headingAtStart=*/c.heading, /*headingPerNode=*/0.0);
+        numNodes, /*nomHeadingModelInitYaw=*/c.yawAcomRtWorld,
+        /*nomHeadingModelYawPerNode=*/0.0);
     const ContactPlanningContext ctx =
         makeHeadingContext(input, layout, nominal, config);
     const OcpQpStage stage = constraintRows(*term, ctx, layout, /*node=*/0);
-    const scalar_t pelvis = c.baseYaw.value_or(c.heading);
+    const scalar_t yawBaseRtWorld = c.yawBaseRtWorld.value_or(c.yawAcomRtWorld);
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
       for (int sample = 0; sample <= 40; ++sample) {
         const scalar_t hipAngle = -1.0 + 0.05 * static_cast<scalar_t>(sample) +
                                   0.0013;  // off the bounds themselves
         vector_t x = vector_t::Zero(layout.nx);
-        x(layout.heading) = c.heading;
-        for (size_t other = 0; other < kNumContacts; ++other)
-          x(layout.footYaw(other)) = c.heading;  // inside both ranges
+        x(layout.headingModelYaw) = c.yawAcomRtWorld;
+        for (size_t other = 0; other < kNumContacts; ++other) {
+          x(layout.eulerzyxFootRtWorldYaw(other)) =
+              c.yawAcomRtWorld;  // inside both ranges
+        }
         // The foot yaw on the heading's branch, as the planner carries it.
-        x(layout.footYaw(foot)) =
-            moduloAngleWithReference(pelvis + hipAngle, c.heading);
+        x(layout.eulerzyxFootRtWorldYaw(foot)) = moduloAngleWithReference(
+            yawBaseRtWorld + hipAngle, c.yawAcomRtWorld);
         const vector_t u = vector_t::Zero(layout.nu);
         const bool insideJointRange =
-            config.hipYawRange.lower[foot] <= hipAngle &&
-            hipAngle <= config.hipYawRange.upper[foot];
+            config.hipYawRange.minYawFeetRtBase[foot] <= hipAngle &&
+            hipAngle <= config.hipYawRange.maxYawFeetRtBase[foot];
         EXPECT_EQ(rowsHold(stage, x, u, /*tolerance=*/1.0e-12),
                   insideJointRange)
-            << "heading " << c.heading << ", foot " << foot << ", hip angle "
-            << hipAngle;
+            << "heading " << c.yawAcomRtWorld << ", foot " << foot
+            << ", hip angle " << hipAngle;
       }
     }
   }
@@ -2559,14 +2728,16 @@ TEST(ContactPlanningTerms,
        {std::pair<scalar_t, scalar_t>(20.0, 40.0),
         std::pair<scalar_t, scalar_t>(40.0, 20.0)}) {
     ContactPlanningConfig config = makeHeadingConfig();
-    config.yawTorqueBudget.torsionalFrictionTorque = budgets.first;
-    config.yawTorqueBudget.doubleSupportYawCouple = budgets.second;
+    config.yawTorqueBudgetParameters.maxTorqueFootEwrtFootZ = budgets.first;
+    config.yawTorqueBudgetParameters.doubleSupportMaxTorqueFeetmeanEwrtWorldZ =
+        budgets.second;
     ASSERT_EQ(config.validateStatus(), absl::OkStatus());
     HUMANOID_ASSERT_OK_AND_ASSIGN(const Layout layout,
                                   LipContactPlanner::makeLayout(config));
     HUMANOID_ASSERT_OK_AND_ASSIGN(
         std::unique_ptr<LipConstraint> term,
-        ContactPlanningTermFactory::makeHardConstraint(term::kYawTorqueBudget));
+        ContactPlanningTermFactory::makeHardConstraint(
+            term::kYawTorqueBudgetName));
     term->bind(layout);
     term->configure(config);
     const ContactPlanningContext ctx;
@@ -2581,7 +2752,7 @@ TEST(ContactPlanningTerms,
           vector_t u = vector_t::Zero(layout.nu);
           u(layout.input(var::contact(foot))) = own;
           u(layout.input(var::contact(1 - foot))) = other;
-          const int column = layout.input(var::yawTorque(foot));
+          const int column = layout.input(var::torqueFootEwrtWorldZ(foot));
           scalar_t bound = std::numeric_limits<scalar_t>::infinity();
           for (int i = 0; i < stage.numGeneralConstraints(); ++i) {
             const scalar_t coefficient = sign * stage.D(i, column);
@@ -2621,6 +2792,195 @@ TEST(ContactPlanningTerms,
       }
     }
   }
+}
+
+/**
+ * The input's world-frame command is the operator's heading-frame command
+ * rotated by the commanded heading at the planning instant; the operator's
+ * target turns it by omega_cmd t over the horizon, and heading_tracking ramps
+ * theta_0 + omega_cmd k dt. The velocity reference of node k is therefore the
+ * captured command rotated by omega_cmd k dt, with or without the heading
+ * model. It used to stay along the initial heading at every node.
+ */
+TEST(ContactPlanningTerms,
+     VelocityTrackingReferenceTurnsWithTheCommandedYawRate) {
+  for (const bool withHeadingModel : {false, true}) {
+    ContactPlanningConfig config =
+        withHeadingModel ? makeHeadingConfig() : makeConfig();
+    config.formulation.costs = {term::kVelocityTracking};
+    config.formulation.softConstraints = {};
+    config.formulation.hardConstraints = {};
+    config.velocityTracking.weight = 3.0;
+    ASSERT_EQ(config.validateStatus(), absl::OkStatus());
+    HUMANOID_ASSERT_OK_AND_ASSIGN(
+        const std::unique_ptr<LipContactPlanner> planner,
+        LipContactPlanner::Create(config));
+    ContactPlannerInput input = makeStandingInput();
+    input.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.5, 0.1);
+    input.cmdRateYawBaseRtWorld = 0.6;
+    HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem qp,
+                                  planner->buildProblem(input));
+    ASSERT_EQ(qp.stages.size(),
+              static_cast<size_t>(config.planner.numNodes) + 1u);
+    for (size_t node = 0; node < qp.stages.size(); ++node) {
+      const OcpQpStage& stage = qp.stages[node];
+      const vector2_t cmdLinvelBaseRtWorldEwrtWorldXy =
+          rotated(input.cmdRateYawBaseRtWorld * config.planner.dt *
+                      static_cast<scalar_t>(node),
+                  input.cmdLinvelBaseRtWorldEwrtWorldXy);
+      for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
+        const int column = kLipVx + axis;
+        ASSERT_GT(stage.Q(column, column), 0.0);
+        // w (v - v_ref)^2 contributes Q = 2w and q = -2w v_ref.
+        EXPECT_NEAR(stage.q(column) / stage.Q(column, column),
+                    -cmdLinvelBaseRtWorldEwrtWorldXy(axis), 1.0e-12)
+            << "heading model " << withHeadingModel << ", node " << node
+            << ", axis " << axis;
+      }
+    }
+  }
+}
+
+/**
+ * The terminal DCM target zmp_{N-1} + v_cmd / omega is the target of xi_N, the
+ * DCM at the end of the horizon, so its velocity is the command at node N: the
+ * captured command rotated by omega_cmd N dt, one node past the last running
+ * node the residual is written on.
+ */
+TEST(ContactPlanningTerms, TerminalDcmTargetTurnsWithTheCommandedYawRate) {
+  ContactPlanningConfig config = makeConfig();
+  config.formulation.costs = {term::kTerminalDcm};
+  config.formulation.softConstraints = {};
+  config.formulation.hardConstraints = {};
+  config.terminalDcm.trackVelocityCommand = true;
+  ASSERT_EQ(config.validateStatus(), absl::OkStatus());
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<LipContactPlanner> planner,
+      LipContactPlanner::Create(config));
+  ContactPlannerInput input = makeStandingInput();
+  input.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.4, -0.15);
+  input.cmdRateYawBaseRtWorld = -0.8;
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const OcpQpProblem qp,
+                                planner->buildProblem(input));
+  const size_t last = static_cast<size_t>(config.planner.numNodes - 1);
+  const OcpQpStage& stage = qp.stages[last];
+  const scalar_t omega = config.omega();
+  const scalar_t dt = config.planner.dt;
+  const vector2_t cmdLinvelBaseRtWorldEwrtWorldXy =
+      rotated(input.cmdRateYawBaseRtWorld * dt *
+                  static_cast<scalar_t>(config.planner.numNodes),
+              input.cmdLinvelBaseRtWorldEwrtWorldXy);
+  // At xi_N = zmp + v_cmd,N / omega the cost vanishes: xi_{N-1} - zmp =
+  // e^{-omega dt} v_cmd,N / omega.
+  vector_t x = vector_t::Zero(stage.numStates());
+  vector_t u = vector_t::Zero(stage.numInputs());
+  for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
+    u(kLipZx + axis) = 0.07 * (axis + 1);
+    x(kLipCx + axis) = 0.02;
+    x(kLipVx + axis) =
+        omega * (u(kLipZx + axis) - x(kLipCx + axis)) +
+        std::exp(-omega * dt) * cmdLinvelBaseRtWorldEwrtWorldXy(axis);
+  }
+  const scalar_t cost = 0.5 * x.dot(stage.Q * x) + 0.5 * u.dot(stage.R * u) +
+                        u.dot(stage.S * x) + stage.q.dot(x) + stage.r.dot(u) +
+                        stage.constant;
+  EXPECT_NEAR(cost, 0.0, 1.0e-9)
+      << "the target of xi_N is the command at node N";
+}
+
+// Without the heading model the support geometry (step width, reachability,
+// foot separation, ZMP boxes) and the command references (velocity tracking,
+// step length, terminal DCM) of node k are in one frame: the planning-time yaw
+// turned by omega_cmd k dt. The axes used to stay at the planning-time yaw at
+// every node while the references turned, 1.2 rad apart at the last node here.
+TEST(ContactPlanningTerms,
+     WithoutTheHeadingModelTheSupportFrameTurnsWithTheCommand) {
+  constexpr scalar_t kWeight = 3.0;
+  constexpr scalar_t kNomPosLfootRtRfootEwrtHeadingY = 0.25;
+  ContactPlanningConfig config = makeConfig();
+  config.stepWidth.weight = kWeight;
+  config.stepWidth.nomPosLfootRtRfootEwrtHeadingY =
+      kNomPosLfootRtRfootEwrtHeadingY;
+  ASSERT_EQ(config.validateStatus(), absl::OkStatus());
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const std::unique_ptr<LipContactPlanner> planner,
+      LipContactPlanner::Create(config));
+  ASSERT_FALSE(planner->getProblem().layout().hasHeading);
+  ContactPlannerInput input = makeStandingInput();
+  input.yawHeadingRtWorld = 0.3;
+  input.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.5, 0.1);
+  input.cmdRateYawBaseRtWorld = 1.0;
+  const HeadingNominal nominal = planner->defaultNominal(input);
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const ContactPlanningContext ctx,
+                                planner->makeContext(input, nominal));
+  const scalar_t dt = config.planner.dt;
+  const vector2_t initCmdLinvelBaseRtWorldEwrtHeadingXy(
+      ctx.getRotmatHeadingRtWorld(/*node=*/0)[0].dot(
+          input.cmdLinvelBaseRtWorldEwrtWorldXy),
+      ctx.getRotmatHeadingRtWorld(/*node=*/0)[1].dot(
+          input.cmdLinvelBaseRtWorldEwrtWorldXy));
+  for (int node = 0; node <= ctx.numNodes; ++node) {
+    const scalar_t cmdYawHeadingRtWorld =
+        input.yawHeadingRtWorld +
+        input.cmdRateYawBaseRtWorld * dt * static_cast<scalar_t>(node);
+    const std::array<vector2_t, kHorizontalPositionDim>& axes =
+        ctx.getRotmatHeadingRtWorld(node);
+    EXPECT_TRUE(axes[0].isApprox(vector2_t(std::cos(cmdYawHeadingRtWorld),
+                                           std::sin(cmdYawHeadingRtWorld)),
+                                 1.0e-12))
+        << "node " << node << ": e_x = " << axes[0].transpose();
+    EXPECT_TRUE(axes[1].isApprox(vector2_t(-std::sin(cmdYawHeadingRtWorld),
+                                           std::cos(cmdYawHeadingRtWorld)),
+                                 1.0e-12))
+        << "node " << node << ": e_y = " << axes[1].transpose();
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      EXPECT_TRUE(
+          ctx.getRotmatFootRtWorld(node, foot)[1].isApprox(axes[1], 1.0e-12))
+          << "node " << node << ", foot " << foot;
+    }
+    // The command reference of the node, read in the node's frame, is the
+    // command read in the planning frame: the two turn together.
+    const vector2_t cmdLinvelBaseRtWorldEwrtWorldXy =
+        ctx.getCmdLinvelBaseRtWorldEwrtWorldXy(node);
+    EXPECT_NEAR(axes[0].dot(cmdLinvelBaseRtWorldEwrtWorldXy),
+                initCmdLinvelBaseRtWorldEwrtHeadingXy.x(), 1.0e-12)
+        << "node " << node;
+    EXPECT_NEAR(axes[1].dot(cmdLinvelBaseRtWorldEwrtWorldXy),
+                initCmdLinvelBaseRtWorldEwrtHeadingXy.y(), 1.0e-12)
+        << "node " << node;
+  }
+
+  // The step width of the last node penalizes the separation along the lateral
+  // axis of the commanded heading there, not of the planning-time yaw.
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<LipCost> stepWidth,
+      ContactPlanningTermFactory::makeCost(term::kStepWidth));
+  stepWidth->bind(planner->getProblem().layout());
+  stepWidth->configure(config);
+  const int lastNode = ctx.numNodes - 1;
+  OcpQpStage stage = OcpQpStage::Zero(planner->getProblem().layout().nx,
+                                      planner->getProblem().layout().nu,
+                                      OcpQpStageKind::kIntermediate);
+  StageAccumulator accumulator(&stage);
+  stepWidth->addToStage(ctx, lastNode, accumulator);
+  const scalar_t finalCmdYawHeadingRtWorld =
+      input.yawHeadingRtWorld +
+      input.cmdRateYawBaseRtWorld * dt * static_cast<scalar_t>(lastNode);
+  const vector2_t leftDirHeadingEwrtWorldXy(
+      -std::sin(finalCmdYawHeadingRtWorld),
+      std::cos(finalCmdYawHeadingRtWorld));
+  EXPECT_NEAR(stage.Q(kLipPly, kLipPly),
+              2.0 * kWeight * leftDirHeadingEwrtWorldXy.y() *
+                  leftDirHeadingEwrtWorldXy.y(),
+              1.0e-12);
+  EXPECT_NEAR(stage.Q(kLipPlx, kLipPly),
+              2.0 * kWeight * leftDirHeadingEwrtWorldXy.x() *
+                  leftDirHeadingEwrtWorldXy.y(),
+              1.0e-12);
+  EXPECT_NEAR(stage.q(kLipPly),
+              -2.0 * kWeight * kNomPosLfootRtRfootEwrtHeadingY *
+                  leftDirHeadingEwrtWorldXy.y(),
+              1.0e-12);
 }
 
 }  // namespace ocs2::humanoid

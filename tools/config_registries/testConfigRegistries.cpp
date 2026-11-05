@@ -213,7 +213,7 @@ absl::flat_hash_map<std::string, Accepts> acceptors() {
       {"multi_contact_force_reference",
        [](const std::string& name) {
          mpc_config::MultiContactPlanConfig config;
-         config.force_reference = name;
+         config.force_reference_mode = name;
          return plannedMotionSettingsFromConfig(config).ok();
        }},
       {"multi_contact_plan_playback",

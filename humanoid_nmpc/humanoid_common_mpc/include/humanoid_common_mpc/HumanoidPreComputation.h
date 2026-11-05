@@ -30,19 +30,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <memory>
+#include <cstddef>
 #include <optional>
-#include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
-#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsLinearVelConstraint.h"
 #include "humanoid_common_mpc/contact_swing/ContactSwingPlanner.h"
+#include "humanoid_common_mpc/contact_swing/ContactSwingTrajectory.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
@@ -77,11 +78,11 @@ class HumanoidPreComputation : public PreComputation {
   /** Whether the swing planner plans contact `contactIndex`: one of the
    * biped's two feet, whose reference height and normal velocity configuration
    * are here. */
-  bool hasFootReferenceHeight(size_t contactIndex) const {
-    return contactIndex < footHeightReferences_.size();
+  bool hasDesPosFootRtWorldEwrtWorldZ(size_t contactIndex) const {
+    return contactIndex < desPosFeetRtWorldEwrtWorldZ_.size();
   }
-  scalar_t getFootReferenceHeight(size_t contactIndex) const {
-    return footHeightReferences_[contactIndex];
+  scalar_t getDesPosFootRtWorldEwrtWorldZ(size_t contactIndex) const {
+    return desPosFeetRtWorldEwrtWorldZ_[contactIndex];
   }
 
   /**
@@ -144,7 +145,7 @@ class HumanoidPreComputation : public PreComputation {
 
   std::vector<EndEffectorKinematicsLinearVelConstraint::Config>
       eeNormalVelConConfigs_;
-  std::vector<scalar_t> footHeightReferences_;
+  std::vector<scalar_t> desPosFeetRtWorldEwrtWorldZ_;
   // The generalized swing planner, or null (setContactSwingPlanner()), and
   // its reference of every contact at the time of the last request(): one
   // entry per contact of the model's contact set while it is set, none

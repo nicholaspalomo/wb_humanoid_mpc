@@ -37,13 +37,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/jacobian.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/equivalence/RootJointModelPair.h"
@@ -106,16 +106,18 @@ class RootJointKinematicsEquivalence
 
   /** The motion `eulerMotion` on the quaternion root; fails the test when the
    * chart refuses it. */
-  PinocchioMotion quaternionMotion(const PinocchioMotion& eulerMotion) const {
+  PinocchioMotion quaternionModelMotion(
+      const PinocchioMotion& eulerMotion) const {
     absl::StatusOr<PinocchioMotion> motion =
-        quaternionMotionOf(eulerMotion, models_->pinocchioStateLayout());
+        quaternionModelMotionOf(eulerMotion, models_->pinocchioStateLayout());
     EXPECT_TRUE(motion.ok()) << motion.status();
     return motion.ok() ? *std::move(motion) : PinocchioMotion{};
   }
 
-  ChartVelocityMaps velocityMaps(const PinocchioMotion& eulerMotion) const {
-    absl::StatusOr<ChartVelocityMaps> maps =
-        chartVelocityMapsAt(eulerMotion, models_->pinocchioStateLayout());
+  ChartVelocityMaps generalizedVelocityMaps(
+      const PinocchioMotion& eulerMotion) const {
+    absl::StatusOr<ChartVelocityMaps> maps = chartGeneralizedVelocityMapsAt(
+        eulerMotion, models_->pinocchioStateLayout());
     EXPECT_TRUE(maps.ok()) << maps.status();
     return maps.ok() ? *std::move(maps) : ChartVelocityMaps{};
   }
@@ -151,10 +153,12 @@ TEST_P(RootJointKinematicsEquivalence, ModelsDifferOnlyInTheRootJoint) {
               eulerModel.frames[frame].parentJoint)
         << eulerModel.frames[frame].name;
   }
+  // NOLINTBEGIN(frame-naming): Pinocchio's joint limits (joint space)
   EXPECT_EQ(quaternionModel.lowerPositionLimit.tail(models_->numJoints()),
             eulerModel.lowerPositionLimit.tail(models_->numJoints()));
   EXPECT_EQ(quaternionModel.upperPositionLimit.tail(models_->numJoints()),
             eulerModel.upperPositionLimit.tail(models_->numJoints()));
+  // NOLINTEND(frame-naming)
 }
 
 TEST_P(RootJointKinematicsEquivalence,
@@ -165,20 +169,23 @@ TEST_P(RootJointKinematicsEquivalence,
   // The top block row of P_e [v_e; a_e] repeats Phi's velocity (C3).
   const pinocchio::Model& quaternionModel = models_->quaternionModel();
   const pinocchio::Model& eulerModel = models_->eulerModel();
-  pinocchio::Data quaternionData(quaternionModel);
+  pinocchio::Data quaternionModelData(quaternionModel);
   pinocchio::Data eulerData(eulerModel);
   std::mt19937 generator(101);
   for (int sample = 0; sample < kSamples; ++sample) {
     const PinocchioMotion eulerMotion =
         randomEulerMotion(eulerModel, MotionSamplingBounds{}, generator);
-    const PinocchioMotion motion = quaternionMotion(eulerMotion);
+    const PinocchioMotion motion = quaternionModelMotion(eulerMotion);
     pinocchio::forwardKinematics(eulerModel, eulerData, eulerMotion.q,
                                  eulerMotion.v);
-    pinocchio::forwardKinematics(quaternionModel, quaternionData, motion.q,
+    pinocchio::forwardKinematics(quaternionModel, quaternionModelData, motion.q,
                                  motion.v);
-    const vector6_t eulerRootVelocity = eulerData.v[1].toVector();
-    const vector6_t quaternionRootVelocity = quaternionData.v[1].toVector();
-    ASSERT_TRUE(isCloseRelative(quaternionRootVelocity, eulerRootVelocity,
+    const vector6_t eulerModelTwistBaseRtWorldEwrtBase =
+        eulerData.v[1].toVector();
+    const vector6_t sphericalModelTwistBaseRtWorldEwrtBase =
+        quaternionModelData.v[1].toVector();
+    ASSERT_TRUE(isCloseRelative(sphericalModelTwistBaseRtWorldEwrtBase,
+                                eulerModelTwistBaseRtWorldEwrtBase,
                                 kKinematicsTolerance))
         << "sample " << sample;
     ASSERT_TRUE(isCloseRelative(motion.v.segment<3>(3),
@@ -187,9 +194,10 @@ TEST_P(RootJointKinematicsEquivalence,
     ASSERT_TRUE(isCloseRelative(motion.v.head<3>(), eulerMotion.v.head<3>(),
                                 /*relativeTolerance=*/0.0))
         << "sample " << sample;
-    ASSERT_TRUE(
-        isCloseRelative(velocityMaps(eulerMotion).velocityMap * eulerMotion.v,
-                        motion.v, kKinematicsTolerance))
+    ASSERT_TRUE(isCloseRelative(
+        generalizedVelocityMaps(eulerMotion).generalizedVelocityMap *
+            eulerMotion.v,
+        motion.v, kKinematicsTolerance))
         << "sample " << sample;
   }
 }
@@ -211,10 +219,12 @@ TEST_P(RootJointKinematicsEquivalence,
     PinocchioMotion backward = eulerMotion;
     backward.q -= kIntegratorStep * eulerMotion.v;
     const vector_t tangentRate =
-        pinocchio::difference(quaternionModel, quaternionMotion(backward).q,
-                              quaternionMotion(forward).q) /
+        pinocchio::difference(quaternionModel,
+                              quaternionModelMotion(backward).q,
+                              quaternionModelMotion(forward).q) /
         (2.0 * kIntegratorStep);
-    ASSERT_TRUE(isCloseRelative(tangentRate, quaternionMotion(eulerMotion).v,
+    ASSERT_TRUE(isCloseRelative(tangentRate,
+                                quaternionModelMotion(eulerMotion).v,
                                 kIntegratorTolerance))
         << "sample " << sample;
   }
@@ -225,21 +235,21 @@ TEST_P(RootJointKinematicsEquivalence, EveryFramePlacementIsTheSame) {
   // has the same placement (T1).
   const pinocchio::Model& quaternionModel = models_->quaternionModel();
   const pinocchio::Model& eulerModel = models_->eulerModel();
-  pinocchio::Data quaternionData(quaternionModel);
+  pinocchio::Data quaternionModelData(quaternionModel);
   pinocchio::Data eulerData(eulerModel);
   std::mt19937 generator(107);
   for (int sample = 0; sample < kSamples; ++sample) {
     const PinocchioMotion eulerMotion =
         randomEulerMotion(eulerModel, MotionSamplingBounds{}, generator);
     pinocchio::framesForwardKinematics(eulerModel, eulerData, eulerMotion.q);
-    pinocchio::framesForwardKinematics(quaternionModel, quaternionData,
-                                       quaternionMotion(eulerMotion).q);
+    pinocchio::framesForwardKinematics(quaternionModel, quaternionModelData,
+                                       quaternionModelMotion(eulerMotion).q);
     for (int frame = 0; frame < eulerModel.nframes; ++frame) {
-      ASSERT_TRUE(isCloseRelative(quaternionData.oMf[frame].translation(),
+      ASSERT_TRUE(isCloseRelative(quaternionModelData.oMf[frame].translation(),
                                   eulerData.oMf[frame].translation(),
                                   kKinematicsTolerance))
           << eulerModel.frames[frame].name << ", sample " << sample;
-      ASSERT_TRUE(isCloseAbsolute(quaternionData.oMf[frame].rotation(),
+      ASSERT_TRUE(isCloseAbsolute(quaternionModelData.oMf[frame].rotation(),
                                   eulerData.oMf[frame].rotation(),
                                   kKinematicsTolerance))
           << eulerModel.frames[frame].name << ", sample " << sample;
@@ -253,27 +263,30 @@ TEST_P(RootJointKinematicsEquivalence, FrameJacobiansMapThroughTheVelocityMap) {
   // own axes and in world-aligned axes alike.
   const pinocchio::Model& quaternionModel = models_->quaternionModel();
   const pinocchio::Model& eulerModel = models_->eulerModel();
-  pinocchio::Data quaternionData(quaternionModel);
+  pinocchio::Data quaternionModelData(quaternionModel);
   pinocchio::Data eulerData(eulerModel);
   std::mt19937 generator(109);
   for (int sample = 0; sample < kSamples / 4; ++sample) {
     const PinocchioMotion eulerMotion =
         randomEulerMotion(eulerModel, MotionSamplingBounds{}, generator);
-    const matrix_t velocityMap = velocityMaps(eulerMotion).velocityMap;
+    const matrix_t generalizedVelocityMap =
+        generalizedVelocityMaps(eulerMotion).generalizedVelocityMap;
     pinocchio::computeJointJacobians(eulerModel, eulerData, eulerMotion.q);
-    pinocchio::computeJointJacobians(quaternionModel, quaternionData,
-                                     quaternionMotion(eulerMotion).q);
+    pinocchio::computeJointJacobians(quaternionModel, quaternionModelData,
+                                     quaternionModelMotion(eulerMotion).q);
     for (const pinocchio::ReferenceFrame referenceFrame :
          {pinocchio::LOCAL, pinocchio::LOCAL_WORLD_ALIGNED}) {
       for (int frame = 0; frame < eulerModel.nframes; ++frame) {
         matrix_t eulerJacobian = matrix_t::Zero(6, eulerModel.nv);
-        matrix_t quaternionJacobian = matrix_t::Zero(6, quaternionModel.nv);
+        matrix_t quaternionModelJacobian =
+            matrix_t::Zero(6, quaternionModel.nv);
         pinocchio::getFrameJacobian(eulerModel, eulerData, frame,
                                     referenceFrame, eulerJacobian);
-        pinocchio::getFrameJacobian(quaternionModel, quaternionData, frame,
-                                    referenceFrame, quaternionJacobian);
-        ASSERT_TRUE(isCloseRelative(quaternionJacobian * velocityMap,
-                                    eulerJacobian, kKinematicsTolerance))
+        pinocchio::getFrameJacobian(quaternionModel, quaternionModelData, frame,
+                                    referenceFrame, quaternionModelJacobian);
+        ASSERT_TRUE(
+            isCloseRelative(quaternionModelJacobian * generalizedVelocityMap,
+                            eulerJacobian, kKinematicsTolerance))
             << eulerModel.frames[frame].name << ", reference frame "
             << referenceFrame << ", sample " << sample;
       }
@@ -290,7 +303,7 @@ TEST_P(RootJointKinematicsEquivalence, FrameTwistsAndAccelerationsAreTheSame) {
   // below) breaks the equality, so the test sees the term.
   const pinocchio::Model& quaternionModel = models_->quaternionModel();
   const pinocchio::Model& eulerModel = models_->eulerModel();
-  pinocchio::Data quaternionData(quaternionModel);
+  pinocchio::Data quaternionModelData(quaternionModel);
   pinocchio::Data eulerData(eulerModel);
   pinocchio::Data controlData(quaternionModel);
   std::mt19937 generator(113);
@@ -298,19 +311,19 @@ TEST_P(RootJointKinematicsEquivalence, FrameTwistsAndAccelerationsAreTheSame) {
   for (int sample = 0; sample < kSamples; ++sample) {
     const PinocchioMotion eulerMotion =
         randomEulerMotion(eulerModel, MotionSamplingBounds{}, generator);
-    const PinocchioMotion motion = quaternionMotion(eulerMotion);
+    const PinocchioMotion motion = quaternionModelMotion(eulerMotion);
     pinocchio::forwardKinematics(eulerModel, eulerData, eulerMotion.q,
                                  eulerMotion.v, eulerMotion.a);
-    pinocchio::forwardKinematics(quaternionModel, quaternionData, motion.q,
+    pinocchio::forwardKinematics(quaternionModel, quaternionModelData, motion.q,
                                  motion.v, motion.a);
     pinocchio::updateFramePlacements(eulerModel, eulerData);
-    pinocchio::updateFramePlacements(quaternionModel, quaternionData);
+    pinocchio::updateFramePlacements(quaternionModel, quaternionModelData);
     for (int frame = 0; frame < eulerModel.nframes; ++frame) {
       const std::string label =
           absl::StrCat(eulerModel.frames[frame].name, ", sample ", sample);
       ASSERT_TRUE(isCloseRelative(
-          pinocchio::getFrameVelocity(quaternionModel, quaternionData, frame,
-                                      pinocchio::LOCAL_WORLD_ALIGNED)
+          pinocchio::getFrameVelocity(quaternionModel, quaternionModelData,
+                                      frame, pinocchio::LOCAL_WORLD_ALIGNED)
               .toVector(),
           pinocchio::getFrameVelocity(eulerModel, eulerData, frame,
                                       pinocchio::LOCAL_WORLD_ALIGNED)
@@ -318,7 +331,7 @@ TEST_P(RootJointKinematicsEquivalence, FrameTwistsAndAccelerationsAreTheSame) {
           kKinematicsTolerance))
           << label;
       ASSERT_TRUE(isCloseRelative(
-          pinocchio::getFrameAcceleration(quaternionModel, quaternionData,
+          pinocchio::getFrameAcceleration(quaternionModel, quaternionModelData,
                                           frame, pinocchio::LOCAL)
               .toVector(),
           pinocchio::getFrameAcceleration(eulerModel, eulerData, frame,
@@ -328,7 +341,7 @@ TEST_P(RootJointKinematicsEquivalence, FrameTwistsAndAccelerationsAreTheSame) {
           << label;
       ASSERT_TRUE(isCloseRelative(
           pinocchio::getFrameClassicalAcceleration(
-              quaternionModel, quaternionData, frame,
+              quaternionModel, quaternionModelData, frame,
               pinocchio::LOCAL_WORLD_ALIGNED)
               .toVector(),
           pinocchio::getFrameClassicalAcceleration(
@@ -339,13 +352,16 @@ TEST_P(RootJointKinematicsEquivalence, FrameTwistsAndAccelerationsAreTheSame) {
     }
 
     // The control: J_v a_e alone, without (dJ_v/dt) v_e.
-    const vector_t accelerationWithoutTheRateTerm =
-        velocityMaps(eulerMotion).velocityMap * eulerMotion.a;
+    const vector_t generalizedAccelerationWithoutTheRateTerm =
+        generalizedVelocityMaps(eulerMotion).generalizedVelocityMap *
+        eulerMotion.a;
     pinocchio::forwardKinematics(quaternionModel, controlData, motion.q,
-                                 motion.v, accelerationWithoutTheRateTerm);
+                                 motion.v,
+                                 generalizedAccelerationWithoutTheRateTerm);
     if (!isCloseRelative(controlData.a[1].toVector(), eulerData.a[1].toVector(),
-                         kKinematicsTolerance))
+                         kKinematicsTolerance)) {
       ++controlsThatDiffer;
+    }
   }
   EXPECT_EQ(controlsThatDiffer, kSamples)
       << "the chart's dT_B/dt term does not show in the root acceleration";
@@ -358,33 +374,34 @@ TEST_P(RootJointKinematicsEquivalence,
   // (C5).
   const pinocchio::Model& quaternionModel = models_->quaternionModel();
   const pinocchio::Model& eulerModel = models_->eulerModel();
-  pinocchio::Data quaternionData(quaternionModel);
+  pinocchio::Data quaternionModelData(quaternionModel);
   pinocchio::Data eulerData(eulerModel);
   std::mt19937 generator(127);
   for (int sample = 0; sample < kSamples; ++sample) {
     const PinocchioMotion eulerMotion =
         randomEulerMotion(eulerModel, MotionSamplingBounds{}, generator);
-    const PinocchioMotion motion = quaternionMotion(eulerMotion);
+    const PinocchioMotion motion = quaternionModelMotion(eulerMotion);
     pinocchio::centerOfMass(eulerModel, eulerData, eulerMotion.q, eulerMotion.v,
                             eulerMotion.a);
-    pinocchio::centerOfMass(quaternionModel, quaternionData, motion.q, motion.v,
-                            motion.a);
-    ASSERT_TRUE(isCloseRelative(quaternionData.com[0], eulerData.com[0],
+    pinocchio::centerOfMass(quaternionModel, quaternionModelData, motion.q,
+                            motion.v, motion.a);
+    ASSERT_TRUE(isCloseRelative(quaternionModelData.com[0], eulerData.com[0],
                                 kKinematicsTolerance))
         << "sample " << sample;
-    ASSERT_TRUE(isCloseRelative(quaternionData.vcom[0], eulerData.vcom[0],
+    ASSERT_TRUE(isCloseRelative(quaternionModelData.vcom[0], eulerData.vcom[0],
                                 kKinematicsTolerance))
         << "sample " << sample;
-    ASSERT_TRUE(isCloseRelative(quaternionData.acom[0], eulerData.acom[0],
+    ASSERT_TRUE(isCloseRelative(quaternionModelData.acom[0], eulerData.acom[0],
                                 kKinematicsTolerance))
         << "sample " << sample;
 
     const matrix_t eulerJacobian =
         pinocchio::jacobianCenterOfMass(eulerModel, eulerData, eulerMotion.q);
-    const matrix_t quaternionJacobian = pinocchio::jacobianCenterOfMass(
-        quaternionModel, quaternionData, motion.q);
+    const matrix_t quaternionModelJacobian = pinocchio::jacobianCenterOfMass(
+        quaternionModel, quaternionModelData, motion.q);
     ASSERT_TRUE(isCloseRelative(
-        quaternionJacobian * velocityMaps(eulerMotion).velocityMap,
+        quaternionModelJacobian *
+            generalizedVelocityMaps(eulerMotion).generalizedVelocityMap,
         eulerJacobian, kKinematicsTolerance))
         << "sample " << sample;
   }

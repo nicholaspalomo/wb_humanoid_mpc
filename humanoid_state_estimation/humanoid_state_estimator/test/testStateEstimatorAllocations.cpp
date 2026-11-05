@@ -34,14 +34,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_state_estimation/humanoid_state_estimator/test/AllocationCounter.h"
 #include "humanoid_state_estimation/humanoid_state_estimator/test/MeasuredState.h"
 #include "humanoid_state_estimation/humanoid_state_estimator/test/WalkingTrajectory.h"
+#include "humanoid_state_estimator/ContactKinematics.h"
+#include "humanoid_state_estimator/KalmanBaseEstimator.h"
 #include "humanoid_state_estimator/StateEstimator.h"
 #include "humanoid_state_estimator/StateEstimatorRegistry.h"
 #include "robot_model/RobotDescription.h"
@@ -52,6 +56,15 @@ namespace {
 
 constexpr scalar_t kDt = 0.002;
 
+/** The prismatic biped's feet, as contact points at their own frames. */
+std::vector<ContactPointSpec> footContacts() {
+  std::vector<ContactPointSpec> contacts;
+  for (const std::string& frame : test_support::prismaticBipedFootFrames()) {
+    contacts.push_back(ContactPointSpec{.frameNames = {frame}});
+  }
+  return contacts;
+}
+
 TEST(StateEstimatorAllocationTest,
      TheKalmanEstimatorEstimatesAndResetsWithoutAllocating) {
   const absl::StatusOr<robot::model::RobotDescription> description =
@@ -60,12 +73,10 @@ TEST(StateEstimatorAllocationTest,
   absl::StatusOr<std::unique_ptr<StateEstimator>> created =
       StateEstimatorRegistry().create(
           "kalman",
-          StateEstimatorContext{
-              .urdfFile = test_support::kPrismaticBipedUrdf,
-              .contactFrameNames = test_support::prismaticBipedFootFrames(),
-              .contactParentJointNames = {},
-              .description = &*description,
-              .kalman = KalmanBaseEstimator::Config()});
+          StateEstimatorContext{.urdfFile = test_support::kPrismaticBipedUrdf,
+                                .contacts = footContacts(),
+                                .description = &*description,
+                                .kalman = KalmanBaseEstimator::Config()});
   ASSERT_TRUE(created.ok()) << created.status();
   StateEstimator& estimator = **created;
   robot::model::RobotState measured(*description);
@@ -73,8 +84,9 @@ TEST(StateEstimatorAllocationTest,
   // allocates.
   constexpr int kSteps = 1000;
   std::vector<test_support::WalkingSample> samples;
-  for (int step = 0; step <= kSteps; ++step)
+  for (int step = 0; step <= kSteps; ++step) {
     samples.push_back(test_support::walkingSample(step * kDt));
+  }
   test_support::writeMeasuredState(samples[0], measured);
   estimator.reset(measured);
   // One step first, so that the estimated state owns its storage as every later

@@ -48,7 +48,7 @@ namespace ocs2::humanoid {
  * @param config The swing_trajectory_config block.
  * @return The settings; InvalidArgument naming the field when a value is not
  * finite (inf or nan) or out of the range its schema comment states:
- * swing_time_scale > 0, swing_height >= 0,
+ * swing_time_scale > 0, apex_pos_foot_rt_swingend_ewrt_world_z >= 0,
  * impact_proximity_factor_liftoff_slope
  *         <= 0, impact_proximity_factor_touchdown_slope >= 0,
  * impact_proximity_factor_mid_point_value, swing_pitch_rise_fraction and

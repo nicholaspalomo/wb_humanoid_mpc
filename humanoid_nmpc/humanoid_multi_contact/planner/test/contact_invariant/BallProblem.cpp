@@ -53,15 +53,15 @@ ContactInvariantLayout ballLayout() {
   layout.physicalStateDim = kBallStateDim;
   layout.physicalInputDim = kBallInputDim;
   layout.candidates.push_back(ActivationCandidate{
-      .name = "ball", .forceOffset = 0, .wrenchDim = kForceDim});
+      .name = "ball", .wrenchStartIndex = 0, .wrenchDim = kForceDim});
   return layout;
 }
 
 TerrainModel ballFloor() {
   config::TerrainScene::Box box;
-  box.center = Eigen::Vector3d(0.0, 0.0, -0.5);
+  box.pos_box_rt_world_ewrt_world = Eigen::Vector3d(0.0, 0.0, -0.5);
   box.half_extents = Eigen::Vector3d(10.0, 10.0, 0.5);
-  box.orientation_xyzw = Eigen::Vector4d(0.0, 0.0, 0.0, 1.0);
+  box.quat_box_rt_world_xyzw = Eigen::Vector4d(0.0, 0.0, 0.0, 1.0);
   config::TerrainScene::Primitive floor;
   floor.name = "floor";
   floor.friction = kBallFriction;
@@ -79,29 +79,33 @@ absl::StatusOr<std::unique_ptr<ContactFeatureFunction>> ballFeatures(
   const ContactFeatureFunction::Function function =
       [terrain](const ad_vector_t& state,
                 const ad_vector_t& input) -> ad_vector_t {
-    const AdVector3 center = state.head<kPositionDim>();
-    const AdVector3 velocity = state.segment<kPositionDim>(kPositionDim);
-    const AdVector3 force = input.head<kPositionDim>();
+    const AdVector3 posBallRtWorldEwrtWorld = state.head<kPositionDim>();
+    const AdVector3 linvelBallRtWorldEwrtWorld =
+        state.segment<kPositionDim>(kPositionDim);
+    const AdVector3 forceBallEwrtWorld = input.head<kPositionDim>();
     const ad_scalar_t weight(kBallMass * kGravityMagnitude);
-    const AdVector3 pad =
-        center - ad_scalar_t(kBallRadius) * AdVector3::UnitZ();
-    const AdVector3 normal = terrain.normal<ad_scalar_t>(pad);
+    const AdVector3 posPadRtWorldEwrtWorld =
+        posBallRtWorldEwrtWorld - ad_scalar_t(kBallRadius) * AdVector3::UnitZ();
+    const AdVector3 normal =
+        terrain.getNormalTerrainEwrtWorld<ad_scalar_t>(posPadRtWorldEwrtWorld);
     ad_vector_t features = ad_vector_t::Zero(numFeatureRows(1));
     features(featureRow(/*candidate=*/0, kDistanceFeature)) =
-        terrain.signedDistance<ad_scalar_t>(pad);
+        terrain.signedDistance<ad_scalar_t>(posPadRtWorldEwrtWorld);
     features.segment<kPositionDim>(featureRow(/*candidate=*/0, kSlipFeature)) =
-        velocity - velocity.dot(normal) * normal;
-    const AdVector3 scaled = force / weight;
-    const ad_scalar_t normalForce = scaled.dot(normal);
-    const AdVector3 tangential = scaled - normalForce * normal;
+        linvelBallRtWorldEwrtWorld -
+        linvelBallRtWorldEwrtWorld.dot(normal) * normal;
+    const AdVector3 scaled = forceBallEwrtWorld / weight;
+    const ad_scalar_t wnormForceBallEwrtSurfaceZ = scaled.dot(normal);
+    const AdVector3 tangential = scaled - wnormForceBallEwrtSurfaceZ * normal;
     features(featureRow(/*candidate=*/0, kConeFeature)) =
-        ad_scalar_t(kBallFriction) * normalForce -
+        ad_scalar_t(kBallFriction) * wnormForceBallEwrtSurfaceZ -
         CppAD::sqrt(tangential.squaredNorm() +
                     ad_scalar_t(kBallConeSmoothing * kBallConeSmoothing));
     features(featureRow(/*candidate=*/0, kClearanceFeature)) =
-        terrain.sphereDistance<ad_scalar_t>(center, ad_scalar_t(kBallRadius));
-    features.segment<kPositionDim>(momentumRateRow(1)) =
-        force / ad_scalar_t(kBallMass) -
+        terrain.sphereDistance<ad_scalar_t>(posBallRtWorldEwrtWorld,
+                                            ad_scalar_t(kBallRadius));
+    features.segment<kPositionDim>(momentumRateRowIndex(1)) =
+        forceBallEwrtWorld / ad_scalar_t(kBallMass) -
         ad_scalar_t(kGravityMagnitude) * AdVector3::UnitZ();
     return features;
   };

@@ -45,7 +45,7 @@ namespace ocs2::humanoid {
  * (ZeroAccelerationConstraintCppAd::configure() with
  * stanceFootAccelerationConstraintConfig(), as the interface built them), and
  * the swing foot's vertical velocity and acceleration gains to every worker's
- * WBMpcPreComputation (setSwingFootGains()), which derives the normal-motion
+ * WBMpcPreComputation (setSwingFootGains()), which derives the vertical-motion
  * constraint of a swing foot from them. The coefficients are applied to the
  * CppAD kinematics outside the tapes. The swing foot's position gain reaches
  * the pre-computation through FootConstraintSoftWeightsApplier, and the soft

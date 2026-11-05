@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include "robot_core/Types.h"
 #include "robot_model/RobotDescription.h"
 
 namespace robot::model {

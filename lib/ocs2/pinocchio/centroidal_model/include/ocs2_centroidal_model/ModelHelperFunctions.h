@@ -55,7 +55,7 @@ computeFloatingBaseCentroidalMomentumMatrixInverse(
  * joint block is zero: h = A_b v_b with the base velocity v_b = [dp_W, w_B] of the Composite(Translation, Spherical)
  * root, the CoM c = p_W - R r_nom moving at dc = dp_W + [R r_nom]x R w_B and the nominal inertia about it turning with
  * the base, L = R I_nom R' R w_B. Fixed-size: it allocates nothing, so a realtime thread can call it.
- * @param [in] info: centroidal model information (robotMass, nomPosBaseRtComEwrtBase, centroidalInertiaNominal)
+ * @param [in] info: centroidal model information (robotMass, nomPosBaseRtComEwrtBase, nomInertiaComEwrtBase)
  * @param [in] q: pinocchio joint positions (generalized coordinates) [p_W, xi, q_j] with a unit quaternion xi
  */
 template <typename SCALAR_T>

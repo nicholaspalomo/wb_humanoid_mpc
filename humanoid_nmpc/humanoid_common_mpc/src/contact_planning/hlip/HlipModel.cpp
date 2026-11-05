@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 
 namespace ocs2::humanoid {
 
@@ -44,10 +45,11 @@ constexpr int kPeriodTwoOrbitSteps = 2;
 constexpr int kPeriodTwoSystemDim = kPeriodTwoOrbitSteps * HlipModel::kStateDim;
 }  // namespace
 
-absl::StatusOr<HlipModel> HlipModel::Create(scalar_t sspDuration,
-                                            scalar_t dspDuration,
-                                            scalar_t comHeight,
-                                            scalar_t gravity) {
+absl::StatusOr<HlipModel> HlipModel::Create(
+    scalar_t sspDuration,
+    scalar_t dspDuration,
+    scalar_t nomPosComRtFeetmeanEwrtWorldZ,
+    scalar_t gravity) {
   // Negated comparisons, so that NaN is refused too.
   if (!(sspDuration > 0.0)) {
     return absl::InvalidArgumentError(absl::StrCat(
@@ -59,27 +61,28 @@ absl::StatusOr<HlipModel> HlipModel::Create(scalar_t sspDuration,
         "[HlipModel] the double support duration must not be negative, got ",
         dspDuration, " s"));
   }
-  if (!(comHeight > 0.0)) {
+  if (!(nomPosComRtFeetmeanEwrtWorldZ > 0.0)) {
     return absl::InvalidArgumentError(
         absl::StrCat("[HlipModel] the pendulum height must be positive, got ",
-                     comHeight, " m"));
+                     nomPosComRtFeetmeanEwrtWorldZ, " m"));
   }
   if (!(gravity > 0.0)) {
     return absl::InvalidArgumentError(absl::StrCat(
         "[HlipModel] gravity must be positive, got ", gravity, " m/s^2"));
   }
-  return HlipModel(sspDuration, dspDuration, comHeight, gravity);
+  return HlipModel(sspDuration, dspDuration, nomPosComRtFeetmeanEwrtWorldZ,
+                   gravity);
 }
 
 HlipModel::HlipModel(scalar_t sspDuration,
                      scalar_t dspDuration,
-                     scalar_t comHeight,
+                     scalar_t nomPosComRtFeetmeanEwrtWorldZ,
                      scalar_t gravity)
     : sspDuration_(sspDuration),
       dspDuration_(dspDuration),
-      comHeight_(comHeight),
+      nomPosComRtFeetmeanEwrtWorldZ_(nomPosComRtFeetmeanEwrtWorldZ),
       gravity_(gravity) {
-  omega_ = std::sqrt(gravity_ / comHeight_);
+  omega_ = std::sqrt(gravity_ / nomPosComRtFeetmeanEwrtWorldZ_);
 
   const scalar_t coshTerm = std::cosh(omega_ * sspDuration_);
   const scalar_t sinhTerm = std::sinh(omega_ * sspDuration_);
@@ -113,25 +116,28 @@ HlipModel::State HlipModel::flowDoubleSupport(const State& state,
   return State(state(0) + duration * state(1), state(1));
 }
 
-HlipModel::State HlipModel::applyStepTransition(const State& state,
-                                                scalar_t stepLength) {
-  return State(state(0) - stepLength, state(1));
+HlipModel::State HlipModel::applyStepTransition(
+    const State& state, scalar_t errPosFootRtWorldEwrtLocal) {
+  return State(state(0) - errPosFootRtWorldEwrtLocal, state(1));
 }
 
-HlipModel::State HlipModel::applyStepToStep(const State& state,
-                                            scalar_t stepLength) const {
-  return stepToStepA_ * state + stepToStepB_ * stepLength;
+HlipModel::State HlipModel::applyStepToStep(
+    const State& state, scalar_t errPosFootRtWorldEwrtLocal) const {
+  return stepToStepA_ * state + stepToStepB_ * errPosFootRtWorldEwrtLocal;
 }
 
-HlipModel::State HlipModel::periodOneOrbit(scalar_t stepLength) const {
+HlipModel::State HlipModel::periodOneOrbit(
+    scalar_t errPosFootRtWorldEwrtLocal) const {
   // x = A x + B u, which is regular because A has no unit eigenvalue for a
   // positive step duration.
   const Matrix2 system = Matrix2::Identity() - stepToStepA_;
-  return system.colPivHouseholderQr().solve(State(stepToStepB_ * stepLength));
+  return system.colPivHouseholderQr().solve(
+      State(stepToStepB_ * errPosFootRtWorldEwrtLocal));
 }
 
 HlipModel::PeriodTwoOrbit HlipModel::periodTwoOrbit(
-    scalar_t firstStepLength, scalar_t secondStepLength) const {
+    scalar_t firstErrPosFootRtWorldEwrtLocal,
+    scalar_t secondErrPosFootRtWorldEwrtLocal) const {
   // The orbit alternates the two steps: x1 = A x2 + B u2 and x2 = A x1 + B u1,
   // one 4 x 4 linear system.
   Eigen::Matrix<scalar_t, kPeriodTwoSystemDim, kPeriodTwoSystemDim> system =
@@ -140,18 +146,20 @@ HlipModel::PeriodTwoOrbit HlipModel::periodTwoOrbit(
   system.topRightCorner<kStateDim, kStateDim>() = -stepToStepA_;
   system.bottomLeftCorner<kStateDim, kStateDim>() = -stepToStepA_;
   Eigen::Matrix<scalar_t, kPeriodTwoSystemDim, 1> rhs;
-  rhs.head<kStateDim>() = stepToStepB_ * secondStepLength;
-  rhs.tail<kStateDim>() = stepToStepB_ * firstStepLength;
+  rhs.head<kStateDim>() = stepToStepB_ * secondErrPosFootRtWorldEwrtLocal;
+  rhs.tail<kStateDim>() = stepToStepB_ * firstErrPosFootRtWorldEwrtLocal;
   const Eigen::Matrix<scalar_t, kPeriodTwoSystemDim, 1> solution =
       system.colPivHouseholderQr().solve(rhs);
   return {.beforeFirstStep = State(solution.head<kStateDim>()),
           .beforeSecondStep = State(solution.tail<kStateDim>())};
 }
 
-scalar_t HlipModel::deadbeatStepLength(const State& state,
-                                       const State& nominalState,
-                                       scalar_t nominalStepLength) const {
-  return nominalStepLength + deadbeatGain_.dot(state - nominalState);
+scalar_t HlipModel::deadbeatStepLength(
+    const State& state,
+    const State& nominalState,
+    scalar_t nomErrPosFootRtWorldEwrtLocal) const {
+  return nomErrPosFootRtWorldEwrtLocal +
+         deadbeatGain_.dot(state - nominalState);
 }
 
 }  // namespace ocs2::humanoid

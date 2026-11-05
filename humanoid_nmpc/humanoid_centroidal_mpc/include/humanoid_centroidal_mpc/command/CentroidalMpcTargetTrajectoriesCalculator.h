@@ -30,18 +30,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <functional>
 #include <memory>
 #include <string>
 
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
-#include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
-#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
@@ -99,12 +97,15 @@ class CentroidalMpcTargetTrajectoriesCalculator
 
   /**
    * Converts command line to TargetTrajectories.
-   * @param [in] commandLinePoseTarget : [deltaX, deltaY, deltaZ, deltaYaw]
-   * defined in pelvis frame
-   * @param [in] observation : the current observation
+   * @param [in] poseCommand : [cmdErrPosBaseRtWorldEwrtHeadingX,
+   * cmdErrPosBaseRtWorldEwrtHeadingY, cmdErrPosBaseRtSurfaceEwrtWorldZ,
+   * cmdErrYawBaseRtWorld], x and y in the heading frame, the height relative to
+   * the nominal height above the ground, the yaw in degrees
+   * @param [in] initTime : the time of the first knot
+   * @param [in] initState : the state the target starts from
    */
   TargetTrajectories poseCommandToTargetTrajectories(
-      const vector4_t& commandLinePoseTarget,
+      const vector4_t& poseCommand,
       scalar_t initTime,
       const vector_t& initState) override;
 
@@ -117,7 +118,7 @@ class CentroidalMpcTargetTrajectoriesCalculator
    * over the second segment.
    */
   TargetTrajectories velocityCommandToTargetTrajectories(
-      const vector4_t& commandedVelocities,
+      const vector4_t& velocityCommand,
       scalar_t initTime,
       const vector_t& initState,
       const BasePlanarMotion& measuredMotion) override;

@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
 
@@ -241,8 +242,9 @@ TEST(OcpQpHpipmTest, StateInputCrossTermMatchesDenseKkt) {
   const OcpQpSolution without = solveOrFail(solver, noCrossTerm);
   ASSERT_TRUE(without.success());
   scalar_t difference = 0.0;
-  for (int k = 0; k < kNumStages; ++k)
+  for (int k = 0; k < kNumStages; ++k) {
     difference = std::max(difference, (solution.u[k] - without.u[k]).norm());
+  }
   EXPECT_GT(difference, 1.0e-3);
 }
 
@@ -263,8 +265,9 @@ TEST(OcpQpHpipmTest, InputBoxConstraintIsRespected) {
   // The unconstrained solution uses larger accelerations, so the bound must be
   // active somewhere.
   scalar_t maxAbsInput = 0.0;
-  for (int k = 0; k < kNumStages; ++k)
+  for (int k = 0; k < kNumStages; ++k) {
     maxAbsInput = std::max(maxAbsInput, std::abs(solution.u[k](0)));
+  }
   EXPECT_NEAR(maxAbsInput, 2.0, 1.0e-4);
   EXPECT_LT(evaluateOcpQpMaxHardViolation(problem, solution.x, solution.u),
             1.0e-6);

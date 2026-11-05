@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <exception>
 #include <functional>
 #include <memory>
@@ -48,14 +49,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "ocs2_core/PhysicalConstants.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/MPC_BASE.h"
 #include "ocs2_oc/oc_solver/SolverBase.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_mpc_ipc/MpcMessageConversions.h"
 #include "humanoid_mpc_ipc/SolutionTimeWindow.h"
 #include "humanoid_mpc_ipc/Topics.h"
+#include "humanoid_mpc_msgs/mpc_observation.pb.h"
+#include "humanoid_mpc_msgs/mpc_solver_status.pb.h"
+#include "humanoid_mpc_msgs/viewer_annotations.pb.h"
+#include "robot_ipc/Bus.h"
 #include "robot_ipc/Delivery.h"
+#include "robot_realtime/RealtimeThread.h"
 
 namespace ocs2::humanoid::ipc {
 namespace {

@@ -40,10 +40,11 @@ namespace ocs2::humanoid::validation {
 
 /** One piece of a scenario: the operator holds this velocity for `duration`. */
 struct CommandSegment {
-  double duration = 0.0;         ///< [s]
-  double forwardVelocity = 0.0;  ///< [m/s] along the heading
-  double lateralVelocity = 0.0;  ///< [m/s] to the left of the heading
-  double yawRate = 0.0;          ///< [rad/s] counterclockwise seen from above
+  double duration = 0.0;                          ///< [s]
+  double cmdLinvelBaseRtWorldEwrtHeadingX = 0.0;  ///< [m/s] along the heading
+  double cmdLinvelBaseRtWorldEwrtHeadingY =
+      0.0;               ///< [m/s] to the left of the heading
+  double yawRate = 0.0;  ///< [rad/s] counterclockwise seen from above
 };
 
 /**
@@ -94,7 +95,7 @@ double getCommandDuration(const ClosedLoopScenario& scenario);
 /**
  * The entries of a command vector, (forward velocity, lateral velocity, yaw
  * rate): what commandAt() returns, the command limits of toGuiVelocityCommand()
- * and ControlCycleSample::referenceVelocity. The planar velocity is the first
+ * and ControlCycleSample::refVelocityCommand. The planar velocity is the first
  * kCommandPlanarVelocityDim entries.
  */
 inline constexpr int kCommandForwardVelocityIndex = 0;
@@ -115,8 +116,9 @@ Eigen::Vector3d commandAt(const ClosedLoopScenario& scenario,
 struct GuiVelocityCommand {
   /// (cmd_linvel_base_rt_world_ewrt_heading_x,
   /// cmd_linvel_base_rt_world_ewrt_heading_y,
-  /// cmd_pos_base_rt_world_ewrt_world_z, cmd_angvel_base_rt_world_ewrt_world_z)
-  /// as the message carries them: the stick positions in
+  /// cmd_pos_base_rt_surface_ewrt_world_z,
+  /// cmd_angvel_base_rt_world_ewrt_world_z) as the message carries them: the
+  /// stick positions in
   /// [-1, 1], which ProceduralMpcMotionManager scales by the command limits of
   /// the reference file, and the pelvis height above the ground the GUI's
   /// slider sends.
@@ -132,8 +134,8 @@ struct GuiVelocityCommand {
  * cmd_max_linvel_base_rt_world_ewrt_heading_y,
  * cmd_max_angvel_base_rt_world_ewrt_world_z of the reference file,
  * GuiCommandScaling), at `pelvisHeight` (the GUI sends the reference file's
- * nom_pos_base_rt_world_ewrt_world_z). The sticks are clamped as the controller
- * clamps a received message.
+ * nom_pos_base_rt_surface_ewrt_world_z). The sticks are clamped as the
+ * controller clamps a received message.
  */
 GuiVelocityCommand toGuiVelocityCommand(const Eigen::Vector3d& command,
                                         const Eigen::Vector3d& commandLimits,

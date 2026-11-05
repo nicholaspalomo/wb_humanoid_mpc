@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/parameter_update/BasisInputsCostApplier.h"
 
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -43,8 +44,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
+#include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
@@ -52,6 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/cost/InputQuadraticCost.h"
 #include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
+#include "humanoid_common_mpc/parameter_update/HotUpdateTarget.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
 
 namespace ocs2::humanoid {
@@ -126,7 +131,7 @@ BasisInputsCostApplier::Create(
     if (static_cast<size_t>(cfg.basisGeneratorMap.rows()) !=
         cfg.wrenchInputDim) {
       return absl::InvalidArgumentError(absl::StrCat(
-          "[BasisInputsCostApplier] basisToWrenchMap has ",
+          "[BasisInputsCostApplier] basisGeneratorMap has ",
           cfg.basisGeneratorMap.rows(), " rows but wrenchInputDim is ",
           cfg.wrenchInputDim, "."));
     }
@@ -185,8 +190,9 @@ void BasisInputsCostApplier::apply(HotUpdateTarget& target) {
     target.reportNotApplied("input_weights", refused);
     return;
   }
-  if (inputCost.has_value())
+  if (inputCost.has_value()) {
     basisCostTransform_ = std::move(inputCost->transform);
+  }
 }
 
 }  // namespace ocs2::humanoid

@@ -28,26 +28,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <algorithm>
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
-#include "absl/log/absl_check.h"
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipContactPlanner.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningTerm.h"
 #include "humanoid_common_mpc/contact_planning/problem/Layout.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
@@ -68,26 +69,27 @@ bool anyMentions(const std::vector<std::string>& warnings,
 
 std::string joinWarnings(const std::vector<std::string>& warnings) {
   std::string out;
-  for (const std::string& warning : warnings)
+  for (const std::string& warning : warnings) {
     absl::StrAppend(&out, "\n  - ", warning);
+  }
   return out.empty() ? std::string(" (none)") : out;
 }
 
 /**
  * The pendulum a model-free configuration plans on. The library default of
- * shared.comHeight is 0, "the model's", which
+ * shared.nomPosComRtFeetmeanEwrtWorldZ is 0, "the model's", which
  * ContactPlanningModelParameters::applyTo fills in before validation; a
  * configuration with no model to derive it from - every configuration in this
  * file - has to set a height itself. 0.85 m is the height the DRC Atlas was
  * once hand-set to, the pendulum the library's cadence defaults were validated
  * on (ContactPlanningConfig.h, HlipParameters).
  */
-constexpr scalar_t kModelFreeComHeight = 0.85;
+constexpr scalar_t kNomPosComRtFeetmeanEwrtWorldZ = 0.85;
 
 /** The library defaults on the model-free pendulum above. */
 ContactPlanningConfig modelFreeConfig() {
   ContactPlanningConfig config;
-  config.shared.comHeight = kModelFreeComHeight;
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ = kNomPosComRtFeetmeanEwrtWorldZ;
   return config;
 }
 
@@ -128,8 +130,9 @@ std::unique_ptr<ContactPlanningTerm> makeTerm(TermKind kind,
       return checkedValue(ContactPlanningTermFactory::makeSearchStage(name));
     case TermKind::kExecutionRule:
       if (name == term::kPlannedHeadingOverride ||
-          name == term::kPlannedComOverride)
+          name == term::kPlannedComOverride) {
         return nullptr;
+      }
       return checkedValue(ContactPlanningTermFactory::makeExecutionRule(name));
   }
   return nullptr;
@@ -180,12 +183,12 @@ TEST(ContactPlanningFormulation, HeadingModelIsAddedAndRemovedAsAWhole) {
   EXPECT_TRUE(f.usesHeadingModel());
   for (const char* absl_nonnull name :
        {term::kHeadingRateTracking, term::kHeadingTracking,
-        term::kFootYawTracking, term::kYawTorqueRegularization,
+        term::kFootYawTracking, term::kYawTorqueRegularizationName,
         term::kFootYawRegularization}) {
     EXPECT_TRUE(f.hasCost(name)) << name;
   }
   EXPECT_TRUE(f.hasSoftConstraint(term::kHipYawRange));
-  EXPECT_TRUE(f.hasHardConstraint(term::kYawTorqueBudget));
+  EXPECT_TRUE(f.hasHardConstraint(term::kYawTorqueBudgetName));
   EXPECT_TRUE(f.hasHardConstraint(term::kFootYawPinnedInContact));
   EXPECT_TRUE(f.hasSearchStage(term::kHeadingRelinearization));
   EXPECT_TRUE(f.hasExecutionRule(term::kPlannedHeadingOverride));
@@ -300,6 +303,36 @@ TEST(ContactPlanningFormulation,
   f.execution = {term::kPhaseResetting, term::kEnergyCadenceModulation};
   EXPECT_TRUE(f.validateStatus().ok());
   EXPECT_TRUE(f.needsPredictedTrajectory());
+
+  // planned_com_override reads the knot's base yaw that
+  // planned_heading_override writes, so the heading rule has to run first.
+  f = ContactPlanningFormulation{};
+  f.setHeadingModel(true);
+  f.execution = {term::kPlannedComOverride, term::kPlannedHeadingOverride};
+  status = f.validateStatus();
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument)
+      << status.message();
+  EXPECT_TRUE(
+      absl::StrContains(status.message(), term::kPlannedHeadingOverride))
+      << status.message();
+  EXPECT_TRUE(absl::StrContains(status.message(), term::kPlannedComOverride))
+      << status.message();
+  EXPECT_TRUE(absl::StrContains(status.message(), "execution"))
+      << status.message();
+  f.execution = {term::kPlannedHeadingOverride, term::kPlannedComOverride};
+  EXPECT_EQ(f.validateStatus(), absl::OkStatus());
+  f.execution = {term::kPlannedComOverride};
+  EXPECT_EQ(f.validateStatus(), absl::OkStatus()) << "either rule alone";
+  // Switching the heading model on puts its override before a listed
+  // center-of-mass override, as the shipped files list planned_com_override.
+  f = ContactPlanningFormulation{};
+  f.execution = {term::kPhaseResetting, term::kPlannedComOverride};
+  f.setHeadingModel(true);
+  EXPECT_EQ(f.execution,
+            (std::vector<std::string>{term::kPhaseResetting,
+                                      term::kPlannedHeadingOverride,
+                                      term::kPlannedComOverride}));
+  EXPECT_EQ(f.validateStatus(), absl::OkStatus());
 }
 
 TEST(ContactPlanningFormulation, SummaryListsEveryCollection) {
@@ -374,8 +407,10 @@ TEST(ContactPlanningConfigValidation, EveryRejectionNamesTheKeyToChange) {
        [](ContactPlanningConfig& c) { c.planner.planningFrequency = 0.0; }},
       {"shared.gravity",
        [](ContactPlanningConfig& c) { c.shared.gravity = 0.0; }},
-      {"shared.com_height",
-       [](ContactPlanningConfig& c) { c.shared.comHeight = 0.0; }},
+      {"shared.nom_pos_com_rt_feetmean_ewrt_world_z",
+       [](ContactPlanningConfig& c) {
+         c.shared.nomPosComRtFeetmeanEwrtWorldZ = 0.0;
+       }},
       {"shared.gait_limits.min_swing_duration",
        [](ContactPlanningConfig& c) {
          c.shared.gaitLimits.minSwingDuration = 0.0;
@@ -403,10 +438,14 @@ TEST(ContactPlanningConfigValidation, EveryRejectionNamesTheKeyToChange) {
       {"shared.slack_penalty.linear",
        [](ContactPlanningConfig& c) { c.shared.slackPenalty.linear = -1.0; }},
       {"shared.big_m", [](ContactPlanningConfig& c) { c.shared.bigM = 0.1; }},
-      {"zmp_support_region.half_width_x",
-       [](ContactPlanningConfig& c) { c.zmpSupportRegion.halfWidthX = 0.0; }},
-      {"zmp_support_region.half_width_y",
-       [](ContactPlanningConfig& c) { c.zmpSupportRegion.halfWidthY = 0.0; }},
+      {"zmp_support_region.max_norm_pos_zmp_rt_foot_ewrt_foot_x",
+       [](ContactPlanningConfig& c) {
+         c.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootX = 0.0;
+       }},
+      {"zmp_support_region.max_norm_pos_zmp_rt_foot_ewrt_foot_y",
+       [](ContactPlanningConfig& c) {
+         c.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootY = 0.0;
+       }},
       {"zmp_support_region.slack.quadratic",
        [](ContactPlanningConfig& c) {
          c.zmpSupportRegion.slack =
@@ -416,18 +455,30 @@ TEST(ContactPlanningConfigValidation, EveryRejectionNamesTheKeyToChange) {
        [](ContactPlanningConfig& c) {
          c.reachability.slack = SlackPenalty{.quadratic = 1.0, .linear = -1.0};
        }},
-      {"foot_separation.min_step_width",
-       [](ContactPlanningConfig& c) { c.footSeparation.minStepWidth = 0.0; }},
-      {"foot_separation.max_step_width",
-       [](ContactPlanningConfig& c) { c.footSeparation.maxStepWidth = 0.1; }},
-      {"foot_separation.max_step_length",
-       [](ContactPlanningConfig& c) { c.footSeparation.maxStepLength = 0.0; }},
-      {"step_width.nominal_step_width",
-       [](ContactPlanningConfig& c) { c.stepWidth.nominalStepWidth = 0.9; }},
-      {"reachability.reach_x",
-       [](ContactPlanningConfig& c) { c.reachability.reachX = 0.0; }},
-      {"reachability.reach_y_outer",
-       [](ContactPlanningConfig& c) { c.reachability.reachYOuter = 0.0; }},
+      {"foot_separation.min_pos_lfoot_rt_rfoot_ewrt_heading_y",
+       [](ContactPlanningConfig& c) {
+         c.footSeparation.minPosLfootRtRfootEwrtHeadingY = 0.0;
+       }},
+      {"foot_separation.max_pos_lfoot_rt_rfoot_ewrt_heading_y",
+       [](ContactPlanningConfig& c) {
+         c.footSeparation.maxPosLfootRtRfootEwrtHeadingY = 0.1;
+       }},
+      {"foot_separation.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x",
+       [](ContactPlanningConfig& c) {
+         c.footSeparation.maxNormPosLfootRtRfootEwrtHeadingX = 0.0;
+       }},
+      {"step_width.nom_pos_lfoot_rt_rfoot_ewrt_heading_y",
+       [](ContactPlanningConfig& c) {
+         c.stepWidth.nomPosLfootRtRfootEwrtHeadingY = 0.9;
+       }},
+      {"reachability.max_norm_pos_foot_rt_com_ewrt_heading_x",
+       [](ContactPlanningConfig& c) {
+         c.reachability.maxNormPosFootRtComEwrtHeadingX = 0.0;
+       }},
+      {"reachability.max_pos_foot_rt_com_ewrt_heading_y",
+       [](ContactPlanningConfig& c) {
+         c.reachability.maxPosFootRtComEwrtHeadingY = 0.0;
+       }},
       {"regularization.state",
        [](ContactPlanningConfig& c) { c.regularization.state = -1.0; }},
       {"regularization.input",
@@ -446,9 +497,9 @@ TEST(ContactPlanningConfigValidation, EveryRejectionNamesTheKeyToChange) {
        [](ContactPlanningConfig& c) { c.headingTracking.weight = -1.0; }},
       {"foot_yaw_tracking.weight",
        [](ContactPlanningConfig& c) { c.footYawTracking.weight = -1.0; }},
-      {"yaw_torque_regularization.weight",
+      {"yaw_torque_regularization_parameters.weight",
        [](ContactPlanningConfig& c) {
-         c.yawTorqueRegularization.weight = -1.0;
+         c.yawTorqueRegularizationParameters.weight = -1.0;
        }},
       {"foot_yaw_regularization.weight",
        [](ContactPlanningConfig& c) { c.footYawRegularization.weight = -1.0; }},
@@ -497,8 +548,10 @@ TEST(ContactPlanningConfigValidation, EveryRejectionNamesTheKeyToChange) {
        }},
       {"dcm_step_adjustment.gain",
        [](ContactPlanningConfig& c) { c.dcmStepAdjustment.gain = -1.0; }},
-      {"dcm_step_adjustment.max_offset",
-       [](ContactPlanningConfig& c) { c.dcmStepAdjustment.maxOffset = -1.0; }},
+      {"dcm_step_adjustment.max_norm_err_pos_foot_rt_world_ewrt_world_xy",
+       [](ContactPlanningConfig& c) {
+         c.dcmStepAdjustment.maxNormErrPosFootRtWorldEwrtWorldXy = -1.0;
+       }},
       {"energy_cadence_modulation.gain",
        [](ContactPlanningConfig& c) { c.energyCadenceModulation.gain = -1.0; }},
       {"energy_cadence_modulation.deadband",
@@ -509,34 +562,46 @@ TEST(ContactPlanningConfigValidation, EveryRejectionNamesTheKeyToChange) {
        [](ContactPlanningConfig& c) { c.hlip.sspDuration = 0.0; }},
       {"hlip.dsp_duration",
        [](ContactPlanningConfig& c) { c.hlip.dspDuration = -0.1; }},
-      {"hlip.max_step_length",
-       [](ContactPlanningConfig& c) { c.hlip.maxStepLength = 0.0; }},
-      {"hlip.min_step_width",
-       [](ContactPlanningConfig& c) { c.hlip.minStepWidth = 0.0; }},
-      {"hlip.max_step_width",
-       [](ContactPlanningConfig& c) { c.hlip.maxStepWidth = 0.1; }},
-      {"hlip.step_width",
-       [](ContactPlanningConfig& c) { c.hlip.stepWidth = 0.9; }},
+      {"hlip.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x",
+       [](ContactPlanningConfig& c) {
+         c.hlip.maxNormPosLfootRtRfootEwrtHeadingX = 0.0;
+       }},
+      {"hlip.min_pos_lfoot_rt_rfoot_ewrt_heading_y",
+       [](ContactPlanningConfig& c) {
+         c.hlip.minPosLfootRtRfootEwrtHeadingY = 0.0;
+       }},
+      {"hlip.max_pos_lfoot_rt_rfoot_ewrt_heading_y",
+       [](ContactPlanningConfig& c) {
+         c.hlip.maxPosLfootRtRfootEwrtHeadingY = 0.1;
+       }},
+      {"hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y",
+       [](ContactPlanningConfig& c) {
+         c.hlip.nomPosLfootRtRfootEwrtHeadingY = 0.9;
+       }},
       {"hlip.blend.sharpness",
        [](ContactPlanningConfig& c) { c.hlip.blend.sharpness = 0.0; }},
       {"hlip.blend.threshold",
        [](ContactPlanningConfig& c) { c.hlip.blend.threshold = 0.0; }},
       {"hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_x",
        [](ContactPlanningConfig& c) {
-         c.hlip.blend.maxCommandedVelocityX = 0.0;
+         c.hlip.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingX = 0.0;
        }},
       {"hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_y",
        [](ContactPlanningConfig& c) {
-         c.hlip.blend.maxCommandedVelocityY = 0.0;
+         c.hlip.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingY = 0.0;
        }},
       {"hlip.blend.cmd_max_angvel_base_rt_world_ewrt_world_z",
        [](ContactPlanningConfig& c) {
-         c.hlip.blend.maxCommandedYawRate = 0.0;
+         c.hlip.blend.cmdMaxAngvelBaseRtWorldEwrtWorldZ = 0.0;
        }},
-      {"hlip.blend.max_linvel_com_rt_world_ewrt_heading_x",
-       [](ContactPlanningConfig& c) { c.hlip.blend.maxComVelocityX = 0.0; }},
-      {"hlip.blend.max_linvel_com_rt_world_ewrt_heading_y",
-       [](ContactPlanningConfig& c) { c.hlip.blend.maxComVelocityY = 0.0; }},
+      {"hlip.blend.max_proxy_linvel_com_rt_world_ewrt_heading_x",
+       [](ContactPlanningConfig& c) {
+         c.hlip.blend.maxProxyLinvelComRtWorldEwrtHeadingX = 0.0;
+       }},
+      {"hlip.blend.max_proxy_linvel_com_rt_world_ewrt_heading_y",
+       [](ContactPlanningConfig& c) {
+         c.hlip.blend.maxProxyLinvelComRtWorldEwrtHeadingY = 0.0;
+       }},
   };
   const ContactPlanningConfig valid = modelFreeConfig();
   ASSERT_TRUE(valid.validateStatus().ok())
@@ -557,17 +622,20 @@ TEST(ContactPlanningConfigValidation, EveryRejectionNamesTheKeyToChange) {
 TEST(ContactPlanningConfigValidation, BigMMustCoverTheLateralFootSeparation) {
   // In double support both contact binaries are one, the +-M terms of a
   // single-support ZMP box cancel and the box relaxes to |e_y'(zmp - p_i)| <=
-  // halfWidthY + M, so a big-M below the lateral separation of the feet clips
-  // the double-support region instead of switching off with it. The guard
-  // against maxStepLength alone did not see this.
+  // maxNormPosZmpRtFootEwrtFootY + M, so a big-M below the lateral separation
+  // of the feet clips the double-support region instead of switching off with
+  // it. The guard against maxNormPosLfootRtRfootEwrtHeadingX alone did not see
+  // this.
   ContactPlanningConfig config = modelFreeConfig();
-  config.footSeparation.maxStepLength = 0.30;
-  config.footSeparation.maxStepWidth = 0.45;
-  config.shared.bigM = 0.35;  // above maxStepLength, below maxStepWidth
+  config.footSeparation.maxNormPosLfootRtRfootEwrtHeadingX = 0.30;
+  config.footSeparation.maxPosLfootRtRfootEwrtHeadingY = 0.45;
+  config.shared.bigM = 0.35;  // above maxNormPosLfootRtRfootEwrtHeadingX, below
+                              // maxPosLfootRtRfootEwrtHeadingY
   const absl::Status status = config.validateStatus();
   EXPECT_FALSE(status.ok());
-  EXPECT_TRUE(
-      absl::StrContains(status.message(), "foot_separation.max_step_width"))
+  EXPECT_TRUE(absl::StrContains(
+      status.message(),
+      "foot_separation.max_pos_lfoot_rt_rfoot_ewrt_heading_y"))
       << status.message();
   config.shared.bigM =
       0.45;  // exactly the widest separation the feet may reach is enough
@@ -594,23 +662,25 @@ TEST(ContactPlanningConfigWarnings,
 }
 
 /**
- * The library default pendulum is the model's: shared.comHeight defaults to
- * unset, which ContactPlanningModelParameters fills in from the robot before
- * validation, at start-up and on every hot reload - the one the DCM terminal
- * cost derives too. It used to default to 0.85 m, the height the Atlas was once
- * hand-set to, so a robot file that omitted the key planned on a pendulum that
- * belongs to no robot while its DCM cost used its own. A configuration with no
- * model to fill it from is refused, naming the key, rather than planned on a
- * height nobody chose.
+ * The library default pendulum is the model's:
+ * shared.nomPosComRtFeetmeanEwrtWorldZ defaults to unset, which
+ * ContactPlanningModelParameters fills in from the robot before validation, at
+ * start-up and on every hot reload - the one the DCM terminal cost derives too.
+ * It used to default to 0.85 m, the height the Atlas was once hand-set to, so a
+ * robot file that omitted the key planned on a pendulum that belongs to no
+ * robot while its DCM cost used its own. A configuration with no model to fill
+ * it from is refused, naming the key, rather than planned on a height nobody
+ * chose.
  */
 TEST(ContactPlanningConfigValidation,
      TheDefaultPendulumIsTheModelsAndIsRefusedWhereNoModelFillsItIn) {
   const ContactPlanningConfig defaults;
-  EXPECT_FALSE(defaults.shared.comHeight.has_value())
+  EXPECT_FALSE(defaults.shared.nomPosComRtFeetmeanEwrtWorldZ.has_value())
       << "the library default must be unset, 'derived from the model'";
   const absl::Status refused = defaults.validateStatus();
   ASSERT_EQ(refused.code(), absl::StatusCode::kInvalidArgument) << refused;
-  EXPECT_TRUE(absl::StrContains(refused.message(), "shared.com_height"))
+  EXPECT_TRUE(absl::StrContains(refused.message(),
+                                "shared.nom_pos_com_rt_feetmean_ewrt_world_z"))
       << refused.message();
   // Positive control: the same defaults with a pendulum validate.
   EXPECT_TRUE(modelFreeConfig().validateStatus().ok())
@@ -628,7 +698,7 @@ TEST(ContactPlanningConfigWarnings,
   EXPECT_TRUE(config.warnings().empty()) << joinWarnings(config.warnings());
   HUMANOID_ASSERT_OK_AND_ASSIGN(const scalar_t startUpStep,
                                 HlipContactPlanner::startUpLateralStep(config));
-  EXPECT_LE(startUpStep, config.hlip.maxStepWidth);
+  EXPECT_LE(startUpStep, config.hlip.maxPosLfootRtRfootEwrtHeadingY);
 }
 
 TEST(ContactPlanningConfigWarnings, HlipWithoutPlannedComOverrideIsReported) {
@@ -658,23 +728,24 @@ TEST(ContactPlanningConfigWarnings, HlipWithoutPlannedComOverrideIsReported) {
 TEST(ContactPlanningConfigWarnings,
      AFirstStepThatDoesNotFitTheStepWidthClipIsReported) {
   // Whatever the cadence, the warning appears exactly when the start-up demand
-  // exceeds hlip.maxStepWidth: a clip just above the demand is silent and one
-  // just below it is reported.
+  // exceeds hlip.maxPosLfootRtRfootEwrtHeadingY: a clip just above the demand
+  // is silent and one just below it is reported.
   ContactPlanningConfig config = makeWorkingHlipConfig();
   config.hlip.sspDuration = 0.35;  // README 3b's "cadence that fell"
   HUMANOID_ASSERT_OK_AND_ASSIGN(const scalar_t demand,
                                 HlipContactPlanner::startUpLateralStep(config));
-  ASSERT_GT(demand, config.hlip.stepWidth);
+  ASSERT_GT(demand, config.hlip.nomPosLfootRtRfootEwrtHeadingY);
 
-  config.hlip.maxStepWidth = demand + 0.005;
+  config.hlip.maxPosLfootRtRfootEwrtHeadingY = demand + 0.005;
   EXPECT_FALSE(anyMentions(config.warnings(), "startUpLateralStep"))
       << joinWarnings(config.warnings());
 
-  config.hlip.maxStepWidth = demand - 0.005;
+  config.hlip.maxPosLfootRtRfootEwrtHeadingY = demand - 0.005;
   const std::vector<std::string> warnings = config.warnings();
   EXPECT_TRUE(anyMentions(warnings, "startUpLateralStep"))
       << joinWarnings(warnings);
-  EXPECT_TRUE(anyMentions(warnings, "hlip.max_step_width"))
+  EXPECT_TRUE(
+      anyMentions(warnings, "hlip.max_pos_lfoot_rt_rfoot_ewrt_heading_y"))
       << joinWarnings(warnings);
   EXPECT_TRUE(anyMentions(warnings, "hlip.ssp_duration"))
       << "the message says which key shrinks the demand"
@@ -779,9 +850,10 @@ TEST(ContactPlanningConfigWarnings,
 
 TEST(ContactPlanningConfigWarnings,
      ASustainedSidestepMustFitInsideTheStepWidthClips) {
-  // deadbeatStep plans the period-two orbit at +-hlip.stepWidth + v_y
-  // (sspDuration + dspDuration) and then clips the placed foot into
-  // [minStepWidth, maxStepWidth]. Only the nominal orbit at a zero lateral
+  // deadbeatStep plans the period-two orbit at
+  // +-hlip.nomPosLfootRtRfootEwrtHeadingY + v_y (sspDuration + dspDuration) and
+  // then clips the placed foot into [minPosLfootRtRfootEwrtHeadingY,
+  // maxPosLfootRtRfootEwrtHeadingY]. Only the nominal orbit at a zero lateral
   // command was ever checked against those clips, so a configuration could ask,
   // at full stick, for a step it clips on every occurrence.
   const ContactPlanningConfig config = makeWorkingHlipConfig();
@@ -790,11 +862,15 @@ TEST(ContactPlanningConfigWarnings,
       config.hlip.sspDuration + config.hlip.dspDuration;
 
   ContactPlanningConfig narrow = config;
-  narrow.hlip.blend.maxCommandedVelocityY =
-      (config.hlip.stepWidth - config.hlip.minStepWidth) / stepDuration + 0.01;
+  narrow.hlip.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingY =
+      (config.hlip.nomPosLfootRtRfootEwrtHeadingY -
+       config.hlip.minPosLfootRtRfootEwrtHeadingY) /
+          stepDuration +
+      0.01;
   const std::vector<std::string> narrowWarnings = narrow.warnings();
   ASSERT_EQ(narrowWarnings.size(), 1u) << joinWarnings(narrowWarnings);
-  EXPECT_TRUE(absl::StrContains(narrowWarnings.front(), "hlip.min_step_width"))
+  EXPECT_TRUE(absl::StrContains(narrowWarnings.front(),
+                                "hlip.min_pos_lfoot_rt_rfoot_ewrt_heading_y"))
       << narrowWarnings.front();
   EXPECT_TRUE(absl::StrContains(
       narrowWarnings.front(),
@@ -805,13 +881,16 @@ TEST(ContactPlanningConfigWarnings,
          "this";
 
   ContactPlanningConfig wide = config;
-  wide.hlip.maxStepWidth =
-      config.hlip.stepWidth +
-      config.hlip.blend.maxCommandedVelocityY * stepDuration - 0.01;
-  wide.hlip.maxStepWidth =
-      std::max(wide.hlip.maxStepWidth, config.hlip.stepWidth);
+  wide.hlip.maxPosLfootRtRfootEwrtHeadingY =
+      config.hlip.nomPosLfootRtRfootEwrtHeadingY +
+      config.hlip.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingY * stepDuration -
+      0.01;
+  wide.hlip.maxPosLfootRtRfootEwrtHeadingY =
+      std::max(wide.hlip.maxPosLfootRtRfootEwrtHeadingY,
+               config.hlip.nomPosLfootRtRfootEwrtHeadingY);
   const std::vector<std::string> wideWarnings = wide.warnings();
-  EXPECT_TRUE(anyMentions(wideWarnings, "clipped to hlip.max_step_width"))
+  EXPECT_TRUE(anyMentions(
+      wideWarnings, "clipped to hlip.max_pos_lfoot_rt_rfoot_ewrt_heading_y"))
       << joinWarnings(wideWarnings);
 
   ContactPlanningConfig miqp = narrow;
@@ -856,28 +935,29 @@ TEST(ContactPlanningConfigWarnings,
 TEST(ContactPlanningLayout,
      PerFootHeadingIndicesAreAbsentWithoutTheHeadingBlock) {
   // The well-known indices are documented as -1 when their block is absent, and
-  // the per-foot accessors used to be plain offset arithmetic: footYaw(1) came
-  // out as 0, an in-bounds index that aliases c_x, so a term following the
-  // documented contract would silently read or write the center-of-mass state
-  // on a heading-less formulation.
+  // the per-foot accessors used to be plain offset arithmetic:
+  // eulerzyxFootRtWorldYaw(1) came out as 0, an in-bounds index that aliases
+  // c_x, so a term following the documented contract would silently read or
+  // write the center-of-mass state on a heading-less formulation.
   const Layout none;
   EXPECT_FALSE(none.hasHeading);
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    EXPECT_EQ(none.footYaw(foot), -1) << "foot " << foot;
-    EXPECT_EQ(none.yawTorque(foot), -1) << "foot " << foot;
-    EXPECT_EQ(none.footYawDelta(foot), -1) << "foot " << foot;
+    EXPECT_EQ(none.eulerzyxFootRtWorldYaw(foot), -1) << "foot " << foot;
+    EXPECT_EQ(none.torqueFootEwrtWorldZ(foot), -1) << "foot " << foot;
+    EXPECT_EQ(none.errEulerzyxFootRtWorldYaw(foot), -1) << "foot " << foot;
   }
   Layout heading;
   heading.hasHeading = true;
-  heading.footYaw0 = 8;
-  heading.yawTorque0 = 5;
-  heading.footYawDelta0 = 7;
+  heading.startEulerzyxFeetRtWorldYaw = 8;
+  heading.yawTorqueStart = 5;
+  heading.startErrEulerzyxFeetRtWorldYaw = 7;
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    EXPECT_EQ(heading.footYaw(foot), 8 + static_cast<int>(foot))
+    EXPECT_EQ(heading.eulerzyxFootRtWorldYaw(foot), 8 + static_cast<int>(foot))
         << "foot " << foot;
-    EXPECT_EQ(heading.yawTorque(foot), 5 + static_cast<int>(foot))
+    EXPECT_EQ(heading.torqueFootEwrtWorldZ(foot), 5 + static_cast<int>(foot))
         << "foot " << foot;
-    EXPECT_EQ(heading.footYawDelta(foot), 7 + static_cast<int>(foot))
+    EXPECT_EQ(heading.errEulerzyxFootRtWorldYaw(foot),
+              7 + static_cast<int>(foot))
         << "foot " << foot;
   }
 }

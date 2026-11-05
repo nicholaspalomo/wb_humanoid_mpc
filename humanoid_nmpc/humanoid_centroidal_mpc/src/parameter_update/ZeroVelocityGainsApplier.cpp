@@ -40,8 +40,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/misc/Numerics.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
+#include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h"
+#include "humanoid_common_mpc/parameter_update/HotUpdateTarget.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
 
 namespace ocs2::humanoid {
@@ -100,15 +105,19 @@ void configureZeroVelocityConstraint(
     ZeroVelocityConstraintCppAd& constraint,
     const ModelSettings::FootConstraintConfig& gains,
     const EndEffectorKinematicsTwistConstraint::Config& twistConfig) {
-  EndEffectorKinematicsTwistConstraint& twist = constraint.getTwistConstraint();
+  EndEffectorKinematicsTwistConstraint& twistConstraint =
+      constraint.getTwistConstraint();
   // A point contact has its three translation rows whatever the gains say.
-  const bool pose = gains.constrainAttitude &&
-                    constraint.getContactKind() ==
-                        ZeroVelocityConstraintCppAd::ContactKind::kSurface;
-  twist.setNumConstraints(pose ? kPoseTangentDim : kPositionDim);
-  twist.setConstrainYawRateAboutNormal(
+  const bool constrainsAttitude =
+      gains.constrainAttitude &&
+      constraint.getContactKind() ==
+          ZeroVelocityConstraintCppAd::ContactKind::kSurface;
+  twistConstraint.setNumConstraints(constrainsAttitude ? kPoseTangentDim
+                                                       : kPositionDim);
+  twistConstraint.setConstrainYawRateAboutNormal(
       gains.constrainYawRateAboutContactNormal);
-  twist.configure(EndEffectorKinematicsTwistConstraint::Config(twistConfig));
+  twistConstraint.configure(
+      EndEffectorKinematicsTwistConstraint::Config(twistConfig));
 }
 
 void ZeroVelocityGainsApplier::apply(HotUpdateTarget& target) {

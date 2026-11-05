@@ -29,8 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <functional>
 #include <limits>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <string>
 #include <utility>
@@ -42,17 +45,37 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
+#include "humanoid_common_mpc/contact_planning/execution/DcmStepAdjustmentRule.h"
+#include "humanoid_common_mpc/contact_planning/execution/EnergyCadenceModulationRule.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipContactPlanner.h"
+#include "humanoid_common_mpc/contact_planning/hlip/HlipModel.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 namespace ocs2::humanoid {
 namespace {
 
-constexpr scalar_t kStepWidth = 0.25;
+constexpr scalar_t kNomPosLfootRtRfootEwrtHeadingY = 0.25;
+
+/** The value of `optional`, or a failed expectation and a value-initialized T
+ * (bugprone-unchecked-optional-access does not see googletest's ASSERTs). */
+template <typename T>
+T valueOrFailure(std::optional<T> optional) {
+  if (!optional.has_value()) {
+    ADD_FAILURE() << "the optional has no value";
+    return T();
+  }
+  return *std::move(optional);
+}
 
 ContactPlanningConfig makeConfig() {
   ContactPlanningConfig config;
@@ -60,29 +83,32 @@ ContactPlanningConfig makeConfig() {
   config.planner.dt = 0.025;
   config.planner.numNodes = 56;
   config.planner.commitTime = 0.05;
-  config.shared.comHeight = 0.85;
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ = 0.85;
   config.shared.gaitLimits.minSwingDuration = 0.25;
   config.shared.gaitLimits.maxSwingDuration = 0.35;
   config.shared.gaitLimits.minDoubleSupportDuration = 0.0;
   config.hlip.sspDuration = 0.25;
   config.hlip.dspDuration = 0.05;
-  config.hlip.stepWidth = kStepWidth;
+  config.hlip.nomPosLfootRtRfootEwrtHeadingY = kNomPosLfootRtRfootEwrtHeadingY;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   return config;
 }
 
 /** A robot standing in double support, with the feet symmetric about the
  * origin. */
-ContactPlannerInput makeStandingInput(const vector2_t& velocityCommand) {
+ContactPlannerInput makeStandingInput(
+    const vector2_t& cmdLinvelBaseRtWorldEwrtWorldXy) {
   ContactPlannerInput input;
   input.time = 0.0;
-  input.comPosition = vector2_t(0.0, 0.0);
-  input.comVelocity = vector2_t::Zero();
-  input.footPositions[kContactLeftIndex] = vector2_t(0.0, 0.5 * kStepWidth);
-  input.footPositions[kContactRightIndex] = vector2_t(0.0, -0.5 * kStepWidth);
+  input.posComRtWorldEwrtWorldXy = vector2_t(0.0, 0.0);
+  input.proxyLinvelComRtWorldEwrtWorldXy = vector2_t::Zero();
+  input.posFeetRtWorldEwrtWorldXy[kContactLeftIndex] =
+      vector2_t(0.0, 0.5 * kNomPosLfootRtRfootEwrtHeadingY);
+  input.posFeetRtWorldEwrtWorldXy[kContactRightIndex] =
+      vector2_t(0.0, -0.5 * kNomPosLfootRtRfootEwrtHeadingY);
   input.contacts = makeFeetArray(true);
   input.phaseElapsedTime = makeFeetArray(1.0);
-  input.velocityCommand = velocityCommand;
+  input.cmdLinvelBaseRtWorldEwrtWorldXy = cmdLinvelBaseRtWorldEwrtWorldXy;
   input.committedUntil = input.time;
   return input;
 }
@@ -104,9 +130,11 @@ size_t otherFootOf(size_t foot) {
   return foot == kContactLeftIndex ? kContactRightIndex : kContactLeftIndex;
 }
 
-Eigen::Matrix<scalar_t, 2, 2> rotationOf(scalar_t yaw) {
+Eigen::Matrix<scalar_t, 2, 2> planarRotmatHeadingRtWorld(
+    scalar_t yawHeadingRtWorld) {
   Eigen::Matrix<scalar_t, 2, 2> matrix;
-  matrix << std::cos(yaw), -std::sin(yaw), std::sin(yaw), std::cos(yaw);
+  matrix << std::cos(yawHeadingRtWorld), -std::sin(yawHeadingRtWorld),
+      std::sin(yawHeadingRtWorld), std::cos(yawHeadingRtWorld);
   return matrix;
 }
 
@@ -176,7 +204,8 @@ std::unique_ptr<HlipContactPlanner> createPlanner(
  * allows. The lag is deliberately not zero: a controller that stopped the
  * center of mass instantly would hide the double supports in which the robot is
  * still slowing down from the orbit's sway, and those are the ones the blend
- * has to read as rest (HlipContactPlanner::blendVelocity).
+ * has to read as rest
+ * (HlipContactPlanner::computeBlendLinvelComRtWorldEwrtHeadingXy).
  */
 class ReducedModelLoop {
  public:
@@ -184,15 +213,15 @@ class ReducedModelLoop {
     size_t foot;
     scalar_t time;
     bool touchDown;
-    vector2_t step = vector2_t::Zero();  // at a touch-down: the landed foot
-                                         // minus the stance foot
+    // At a touch-down: the landed foot minus the stance foot.
+    vector2_t errPosFootRtWorldEwrtWorldXy = vector2_t::Zero();
     // At a touch-down: the center of mass relative to the stance foot at the
     // impact, and the blend weight and command of the plan the foot was landed
     // from.
     HlipModel::State preImpactX = HlipModel::State::Zero();
     HlipModel::State preImpactY = HlipModel::State::Zero();
     scalar_t alpha = 0.0;
-    vector2_t command = vector2_t::Zero();
+    vector2_t cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t::Zero();
   };
 
   ReducedModelLoop(const ContactPlanningConfig& config, scalar_t cyclePeriod)
@@ -200,14 +229,19 @@ class ReducedModelLoop {
         planner_(createPlanner(config)),
         cyclePeriod_(cyclePeriod),
         applied_(/*eventTimesInput=*/{}, {ModeNumber::kStance}) {
-    feet_[kContactLeftIndex] = vector2_t(0.0, 0.5 * config.hlip.stepWidth);
-    feet_[kContactRightIndex] = vector2_t(0.0, -0.5 * config.hlip.stepWidth);
-    comPosition_ = vector2_t::Zero();
-    comVelocity_ = vector2_t::Zero();
+    posFeetRtWorldEwrtWorldXy_[kContactLeftIndex] =
+        vector2_t(0.0, 0.5 * config.hlip.nomPosLfootRtRfootEwrtHeadingY);
+    posFeetRtWorldEwrtWorldXy_[kContactRightIndex] =
+        vector2_t(0.0, -0.5 * config.hlip.nomPosLfootRtRfootEwrtHeadingY);
+    posComRtWorldEwrtWorldXy_ = vector2_t::Zero();
+    linvelComRtWorldEwrtWorldXy_ = vector2_t::Zero();
     contacts_ = makeFeetArray(true);
   }
 
-  void setCommand(const vector2_t& command) { command_ = command; }
+  void setCmdLinvelBaseRtWorldEwrtWorldXy(
+      const vector2_t& cmdLinvelBaseRtWorldEwrtWorldXy) {
+    cmdLinvelBaseRtWorldEwrtWorldXy_ = cmdLinvelBaseRtWorldEwrtWorldXy;
+  }
 
   /**
    * Builds the executed schedule from the plans' node grid alone, as it was
@@ -225,7 +259,7 @@ class ReducedModelLoop {
     if (useNodeGridSchedule_) {
       plan.phaseContacts.clear();
       plan.phaseStartTimes.clear();
-      plan.phaseZmp.clear();
+      plan.phasePosZmpRtWorldEwrtWorldXyTraj.clear();
     }
     const bool walking = planner_->isWalking(input);
     activeAlpha_ = planner_->blendWeight(input);
@@ -241,9 +275,12 @@ class ReducedModelLoop {
       const std::optional<size_t> touchDown =
           touchDownEventIndex(applied_, foot, time_);
       if (!touchDown.has_value()) continue;
-      const std::optional<vector2_t> target =
-          plan.footholdAtTime(foot, applied_.eventTimes[*touchDown]);
-      if (target.has_value()) feet_[foot] = *target;
+      const std::optional<vector2_t> desPosFootRtWorldEwrtWorldXy =
+          plan.getDesPosFootRtWorldEwrtWorldXy(foot,
+                                               applied_.eventTimes[*touchDown]);
+      if (desPosFootRtWorldEwrtWorldXy.has_value()) {
+        posFeetRtWorldEwrtWorldXy_[foot] = *desPosFootRtWorldEwrtWorldXy;
+      }
     }
     advanceTo(cycleStart_ + cyclePeriod_ * static_cast<scalar_t>(++numCycles_));
     return walking;
@@ -261,10 +298,10 @@ class ReducedModelLoop {
   ContactPlannerInput makeInput() {
     ContactPlannerInput input;
     input.time = time_;
-    input.comPosition = comPosition_;
-    input.comVelocity = comVelocity_;
-    input.footPositions = feet_;
-    input.velocityCommand = command_;
+    input.posComRtWorldEwrtWorldXy = posComRtWorldEwrtWorldXy_;
+    input.proxyLinvelComRtWorldEwrtWorldXy = linvelComRtWorldEwrtWorldXy_;
+    input.posFeetRtWorldEwrtWorldXy = posFeetRtWorldEwrtWorldXy_;
+    input.cmdLinvelBaseRtWorldEwrtWorldXy = cmdLinvelBaseRtWorldEwrtWorldXy_;
     input.committedUntil =
         commitBoundaryForSchedule(applied_, time_, config_.planner.commitTime,
                                   config_.planner.maxCommitExtension);
@@ -284,18 +321,25 @@ class ReducedModelLoop {
       if (contacts_[foot] == now[foot]) continue;
       Event event{.foot = foot, .time = time_, .touchDown = now[foot]};
       if (now[foot]) {
-        const std::optional<vector2_t> landing =
-            activePlan_.footholdAtTime(foot, time_);
-        EXPECT_TRUE(landing.has_value());
-        if (landing.has_value()) feet_[foot] = *landing;
-        const vector2_t stance = feet_[otherFootOf(foot)];
-        event.step = feet_[foot] - stance;
-        event.preImpactX =
-            HlipModel::State(comPosition_.x() - stance.x(), comVelocity_.x());
-        event.preImpactY =
-            HlipModel::State(comPosition_.y() - stance.y(), comVelocity_.y());
+        const std::optional<vector2_t> desPosFootRtWorldEwrtWorldXy =
+            activePlan_.getDesPosFootRtWorldEwrtWorldXy(foot, time_);
+        EXPECT_TRUE(desPosFootRtWorldEwrtWorldXy.has_value());
+        if (desPosFootRtWorldEwrtWorldXy.has_value()) {
+          posFeetRtWorldEwrtWorldXy_[foot] = *desPosFootRtWorldEwrtWorldXy;
+        }
+        const vector2_t stancePosFootRtWorldEwrtWorldXy =
+            posFeetRtWorldEwrtWorldXy_[otherFootOf(foot)];
+        event.errPosFootRtWorldEwrtWorldXy =
+            posFeetRtWorldEwrtWorldXy_[foot] - stancePosFootRtWorldEwrtWorldXy;
+        event.preImpactX = HlipModel::State(
+            posComRtWorldEwrtWorldXy_.x() - stancePosFootRtWorldEwrtWorldXy.x(),
+            linvelComRtWorldEwrtWorldXy_.x());
+        event.preImpactY = HlipModel::State(
+            posComRtWorldEwrtWorldXy_.y() - stancePosFootRtWorldEwrtWorldXy.y(),
+            linvelComRtWorldEwrtWorldXy_.y());
         event.alpha = activeAlpha_;
-        event.command = command_;
+        event.cmdLinvelBaseRtWorldEwrtWorldXy =
+            cmdLinvelBaseRtWorldEwrtWorldXy_;
       }
       events_.push_back(event);
     }
@@ -324,33 +368,44 @@ class ReducedModelLoop {
     const bool left = contacts_[kContactLeftIndex];
     const bool right = contacts_[kContactRightIndex];
     if (left == right) {
-      const std::optional<vector2_t> reference =
-          activePlanWalks_ ? std::nullopt
-                           : activePlan_.comVelocityAtTime(time_);
-      if (reference.has_value()) {
+      const std::optional<vector2_t> desLinvelComRtWorldEwrtWorldXy =
+          activePlanWalks_
+              ? std::nullopt
+              : activePlan_.evaluateLinvelComRtWorldEwrtWorldXy(time_);
+      if (desLinvelComRtWorldEwrtWorldXy.has_value()) {
         // A first-order approach to the standing reference, integrated exactly
         // over `duration`.
         const scalar_t decay = std::exp(-duration / kStandingTimeConstant);
-        const vector2_t offset = comVelocity_ - *reference;
-        comPosition_ += duration * *reference +
-                        kStandingTimeConstant * (1.0 - decay) * offset;
-        comVelocity_ = *reference + decay * offset;
+        const vector2_t errLinvelComRtWorldEwrtWorldXy =
+            linvelComRtWorldEwrtWorldXy_ - *desLinvelComRtWorldEwrtWorldXy;
+        posComRtWorldEwrtWorldXy_ +=
+            duration * *desLinvelComRtWorldEwrtWorldXy +
+            kStandingTimeConstant * (1.0 - decay) *
+                errLinvelComRtWorldEwrtWorldXy;
+        linvelComRtWorldEwrtWorldXy_ = *desLinvelComRtWorldEwrtWorldXy +
+                                       decay * errLinvelComRtWorldEwrtWorldXy;
         return;
       }
-      comPosition_ += duration * comVelocity_;
+      posComRtWorldEwrtWorldXy_ += duration * linvelComRtWorldEwrtWorldXy_;
       return;
     }
-    const vector2_t stance =
-        feet_[left ? kContactLeftIndex : kContactRightIndex];
+    const vector2_t stancePosFootRtWorldEwrtWorldXy =
+        posFeetRtWorldEwrtWorldXy_[left ? kContactLeftIndex
+                                        : kContactRightIndex];
     const HlipModel& model = planner_->getModel();
     const HlipModel::State x = model.flowSingleSupport(
-        HlipModel::State(comPosition_.x() - stance.x(), comVelocity_.x()),
+        HlipModel::State(
+            posComRtWorldEwrtWorldXy_.x() - stancePosFootRtWorldEwrtWorldXy.x(),
+            linvelComRtWorldEwrtWorldXy_.x()),
         duration);
     const HlipModel::State y = model.flowSingleSupport(
-        HlipModel::State(comPosition_.y() - stance.y(), comVelocity_.y()),
+        HlipModel::State(
+            posComRtWorldEwrtWorldXy_.y() - stancePosFootRtWorldEwrtWorldXy.y(),
+            linvelComRtWorldEwrtWorldXy_.y()),
         duration);
-    comPosition_ = stance + vector2_t(x(0), y(0));
-    comVelocity_ = vector2_t(x(1), y(1));
+    posComRtWorldEwrtWorldXy_ =
+        stancePosFootRtWorldEwrtWorldXy + vector2_t(x(0), y(0));
+    linvelComRtWorldEwrtWorldXy_ = vector2_t(x(1), y(1));
   }
 
   // [s] events this close to the current time have happened: the node times of
@@ -374,10 +429,10 @@ class ReducedModelLoop {
   bool activePlanWalks_ = true;
   scalar_t activeAlpha_ = 0.0;
   scalar_t time_ = 0.0;
-  vector2_t command_ = vector2_t::Zero();
-  vector2_t comPosition_;
-  vector2_t comVelocity_;
-  feet_array_t<vector2_t> feet_;
+  vector2_t cmdLinvelBaseRtWorldEwrtWorldXy_ = vector2_t::Zero();
+  vector2_t posComRtWorldEwrtWorldXy_;
+  vector2_t linvelComRtWorldEwrtWorldXy_;
+  feet_array_t<vector2_t> posFeetRtWorldEwrtWorldXy_;
   contact_flag_t contacts_ = makeFeetArray(true);
   std::vector<Event> events_;
 };
@@ -419,9 +474,12 @@ TEST(HlipContactPlanner, standsAtZeroCommand) {
   }
   // Standing keeps the feet exactly where they are: there is no
   // stepping-in-place at rest.
-  for (const feet_array_t<vector2_t>& footholds : plan.footholds) {
-    EXPECT_NEAR(footholds[kContactLeftIndex].y(), 0.5 * kStepWidth, 1.0e-12);
-    EXPECT_NEAR(footholds[kContactRightIndex].y(), -0.5 * kStepWidth, 1.0e-12);
+  for (const feet_array_t<vector2_t>& desPosFeetRtWorldEwrtWorldXy :
+       plan.desPosFeetRtWorldEwrtWorldXyTraj) {
+    EXPECT_NEAR(desPosFeetRtWorldEwrtWorldXy[kContactLeftIndex].y(),
+                0.5 * kNomPosLfootRtRfootEwrtHeadingY, 1.0e-12);
+    EXPECT_NEAR(desPosFeetRtWorldEwrtWorldXy[kContactRightIndex].y(),
+                -0.5 * kNomPosLfootRtRfootEwrtHeadingY, 1.0e-12);
   }
 }
 
@@ -435,8 +493,8 @@ TEST(HlipContactPlanner, standingAsksForACenterOfMassAtRest) {
       const std::unique_ptr<HlipContactPlanner> planner,
       HlipContactPlanner::Create(makeConfig()));
   ContactPlannerInput input = makeStandingInput(vector2_t::Zero());
-  input.comPosition = vector2_t(0.03, 0.01);
-  input.comVelocity = vector2_t(
+  input.posComRtWorldEwrtWorldXy = vector2_t(0.03, 0.01);
+  input.proxyLinvelComRtWorldEwrtWorldXy = vector2_t(
       0.02, -0.01);  // a small drift, well below the blend's half point
 
   const ContactPlan plan = planner->plan(input);
@@ -449,16 +507,22 @@ TEST(HlipContactPlanner, standingAsksForACenterOfMassAtRest) {
   // more.
   const scalar_t blendWeight = planner->blendWeight(input);
   ASSERT_LT(blendWeight, 0.5);
-  const vector2_t expectedVelocity = blendWeight * input.comVelocity;
-  EXPECT_NEAR(plan.comVelocity.back().x(), expectedVelocity.x(), 1.0e-9)
+  const vector2_t expectedLinvelComRtWorldEwrtWorldXy =
+      blendWeight * input.proxyLinvelComRtWorldEwrtWorldXy;
+  EXPECT_NEAR(plan.linvelComRtWorldEwrtWorldXyTraj.back().x(),
+              expectedLinvelComRtWorldEwrtWorldXy.x(), 1.0e-9)
       << "standing must ask for a stop, not a drift";
-  EXPECT_NEAR(plan.comVelocity.back().y(), expectedVelocity.y(), 1.0e-9)
+  EXPECT_NEAR(plan.linvelComRtWorldEwrtWorldXyTraj.back().y(),
+              expectedLinvelComRtWorldEwrtWorldXy.y(), 1.0e-9)
       << "standing must ask for a stop, not a drift";
 
-  const vector2_t supportCenter =
-      0.5 * (input.footPositions[kContactLeftIndex] +
-             input.footPositions[kContactRightIndex]);
-  EXPECT_LT((plan.comPosition.back() - supportCenter).norm(), 0.02)
+  const vector2_t posFeetmeanRtWorldEwrtWorldXy =
+      0.5 * (input.posFeetRtWorldEwrtWorldXy[kContactLeftIndex] +
+             input.posFeetRtWorldEwrtWorldXy[kContactRightIndex]);
+  EXPECT_LT(
+      (plan.posComRtWorldEwrtWorldXyTraj.back() - posFeetmeanRtWorldEwrtWorldXy)
+          .norm(),
+      0.02)
       << "standing must ask for the center of the support";
 }
 
@@ -550,31 +614,39 @@ TEST(HlipContactPlanner, stepsAdvanceByTheCommandedVelocityOnTheOrbit) {
       const std::unique_ptr<HlipContactPlanner> planner,
       HlipContactPlanner::Create(config));
   const HlipModel& model = planner->getModel();
-  const scalar_t velocity = 0.5;
+  const scalar_t cmdLinvelBaseRtWorldEwrtWorldX = 0.5;
   const scalar_t stepDuration = model.stepDuration();
-  const scalar_t nominalStep = velocity * stepDuration;
-  const HlipModel::State orbit = model.periodOneOrbit(nominalStep);
+  const scalar_t nomErrPosFootRtWorldEwrtLocal =
+      cmdLinvelBaseRtWorldEwrtWorldX * stepDuration;
+  const HlipModel::State orbit =
+      model.periodOneOrbit(nomErrPosFootRtWorldEwrtLocal);
   const HlipModel::PeriodTwoOrbit lateralOrbit =
-      model.periodTwoOrbit(config.hlip.stepWidth, -config.hlip.stepWidth);
+      model.periodTwoOrbit(config.hlip.nomPosLfootRtRfootEwrtHeadingY,
+                           -config.hlip.nomPosLfootRtRfootEwrtHeadingY);
 
   // Place the robot at the post-impact state of that orbit, standing on the
   // right foot with the left about to swing.
-  ContactPlannerInput input = makeStandingInput(vector2_t(velocity, 0.0));
+  ContactPlannerInput input =
+      makeStandingInput(vector2_t(cmdLinvelBaseRtWorldEwrtWorldX, 0.0));
   input.contacts[kContactLeftIndex] = false;
   input.phaseElapsedTime = makeFeetArray(0.0);
   // The state a single support actually begins from is the post-impact state
   // carried through the double support, which the reduced model drifts at
   // constant velocity.
   const HlipModel::State postImpactX = HlipModel::flowDoubleSupport(
-      HlipModel::applyStepTransition(orbit, nominalStep),
+      HlipModel::applyStepTransition(orbit, nomErrPosFootRtWorldEwrtLocal),
       config.hlip.dspDuration);
   const HlipModel::State postImpactY = HlipModel::flowDoubleSupport(
-      HlipModel::applyStepTransition(lateralOrbit.beforeSecondStep,
-                                     -config.hlip.stepWidth),
+      HlipModel::applyStepTransition(
+          lateralOrbit.beforeSecondStep,
+          -config.hlip.nomPosLfootRtRfootEwrtHeadingY),
       config.hlip.dspDuration);
-  const vector2_t stanceFoot = input.footPositions[kContactRightIndex];
-  input.comPosition = stanceFoot + vector2_t(postImpactX(0), postImpactY(0));
-  input.comVelocity = vector2_t(postImpactX(1), postImpactY(1));
+  const vector2_t stancePosFootRtWorldEwrtWorldXy =
+      input.posFeetRtWorldEwrtWorldXy[kContactRightIndex];
+  input.posComRtWorldEwrtWorldXy = stancePosFootRtWorldEwrtWorldXy +
+                                   vector2_t(postImpactX(0), postImpactY(0));
+  input.proxyLinvelComRtWorldEwrtWorldXy =
+      vector2_t(postImpactX(1), postImpactY(1));
   // The blend must not scale the command down, or the step would be shorter
   // than the orbit's.
   ASSERT_GE(planner->blendWeight(input), 0.999);
@@ -582,18 +654,24 @@ TEST(HlipContactPlanner, stepsAdvanceByTheCommandedVelocityOnTheOrbit) {
   const ContactPlan plan = planner->plan(input);
   ASSERT_TRUE(plan.valid);
   EXPECT_EQ(plan.numClippedSteps, 0);
-  const std::optional<vector2_t> landing =
-      plan.footholdAtTime(kContactLeftIndex, config.hlip.sspDuration);
-  if (!landing.has_value()) GTEST_FAIL();
-  EXPECT_NEAR(landing->x() - stanceFoot.x(), nominalStep, 1.0e-6);
-  EXPECT_NEAR(landing->y() - stanceFoot.y(), config.hlip.stepWidth, 1.0e-6);
+  const std::optional<vector2_t> desPosLfootRtWorldEwrtWorldXy =
+      plan.getDesPosFootRtWorldEwrtWorldXy(kContactLeftIndex,
+                                           config.hlip.sspDuration);
+  if (!desPosLfootRtWorldEwrtWorldXy.has_value()) GTEST_FAIL();
+  EXPECT_NEAR(
+      desPosLfootRtWorldEwrtWorldXy->x() - stancePosFootRtWorldEwrtWorldXy.x(),
+      nomErrPosFootRtWorldEwrtLocal, 1.0e-6);
+  EXPECT_NEAR(
+      desPosLfootRtWorldEwrtWorldXy->y() - stancePosFootRtWorldEwrtWorldXy.y(),
+      config.hlip.nomPosLfootRtRfootEwrtHeadingY, 1.0e-6);
 }
 
 TEST(HlipContactPlanner,
      aLateralCommandShiftsBothStepsOfTheLateralOrbitByTheCommandedDrift) {
-  // Laterally the nominal gait is the period-two orbit of u_L = +stepWidth +
-  // v_y T and u_R = -stepWidth + v_y T, so on that orbit the two steps of a
-  // stride sum to exactly 2 v_y T and the robot drifts sideways at the
+  // Laterally the nominal gait is the period-two orbit of u_L =
+  // +nomPosLfootRtRfootEwrtHeadingY + v_y T and u_R =
+  // -nomPosLfootRtRfootEwrtHeadingY + v_y T, so on that orbit the two steps of
+  // a stride sum to exactly 2 v_y T and the robot drifts sideways at the
   // commanded rate, in the direction of the command. Nothing else tested the
   // lateral drift term: every other test commands v_y = 0, or checks only an
   // equivariance that holds whatever its sign.
@@ -603,26 +681,31 @@ TEST(HlipContactPlanner,
       HlipContactPlanner::Create(config));
   const HlipModel& model = planner->getModel();
   const scalar_t stepDuration = model.stepDuration();
-  for (const scalar_t lateralCommand : {0.2, -0.2}) {
-    const scalar_t leftStep =
-        config.hlip.stepWidth + lateralCommand * stepDuration;
-    const scalar_t rightStep =
-        -config.hlip.stepWidth + lateralCommand * stepDuration;
-    const HlipModel::PeriodTwoOrbit orbit =
-        model.periodTwoOrbit(leftStep, rightStep);
+  for (const scalar_t cmdLinvelBaseRtWorldEwrtWorldY : {0.2, -0.2}) {
+    const scalar_t nomErrPosLfootRtWorldEwrtLocal =
+        config.hlip.nomPosLfootRtRfootEwrtHeadingY +
+        cmdLinvelBaseRtWorldEwrtWorldY * stepDuration;
+    const scalar_t nomErrPosRfootRtWorldEwrtLocal =
+        -config.hlip.nomPosLfootRtRfootEwrtHeadingY +
+        cmdLinvelBaseRtWorldEwrtWorldY * stepDuration;
+    const HlipModel::PeriodTwoOrbit orbit = model.periodTwoOrbit(
+        nomErrPosLfootRtWorldEwrtLocal, nomErrPosRfootRtWorldEwrtLocal);
 
     // On the orbit at the lift-off of the left foot: the right step's impact
     // carried through the double support.
     ContactPlannerInput input =
-        makeStandingInput(vector2_t(0.0, lateralCommand));
+        makeStandingInput(vector2_t(0.0, cmdLinvelBaseRtWorldEwrtWorldY));
     input.contacts[kContactLeftIndex] = false;
     input.phaseElapsedTime = makeFeetArray(0.0);
     const HlipModel::State atLiftOff = HlipModel::flowDoubleSupport(
-        HlipModel::applyStepTransition(orbit.beforeSecondStep, rightStep),
+        HlipModel::applyStepTransition(orbit.beforeSecondStep,
+                                       nomErrPosRfootRtWorldEwrtLocal),
         config.hlip.dspDuration);
-    const vector2_t stanceFoot = input.footPositions[kContactRightIndex];
-    input.comPosition = stanceFoot + vector2_t(0.0, atLiftOff(0));
-    input.comVelocity = vector2_t(0.0, atLiftOff(1));
+    const vector2_t stancePosFootRtWorldEwrtWorldXy =
+        input.posFeetRtWorldEwrtWorldXy[kContactRightIndex];
+    input.posComRtWorldEwrtWorldXy =
+        stancePosFootRtWorldEwrtWorldXy + vector2_t(0.0, atLiftOff(0));
+    input.proxyLinvelComRtWorldEwrtWorldXy = vector2_t(0.0, atLiftOff(1));
     ASSERT_DOUBLE_EQ(planner->blendWeight(input), 1.0)
         << "the command must not be scaled down, or this is not the commanded "
            "orbit";
@@ -635,25 +718,35 @@ TEST(HlipContactPlanner,
     ASSERT_GE(swings.size(), 2U);
     // The first swing is the left foot already in flight, so its touch-down is
     // the first left touch-down.
-    const std::optional<vector2_t> left =
-        plan.footholdAtTime(kContactLeftIndex, config.hlip.sspDuration);
-    if (!left.has_value()) GTEST_FAIL();
-    const scalar_t placedLeft = left->y() - stanceFoot.y();
-    EXPECT_NEAR(placedLeft, leftStep, 1.0e-9) << "v_y = " << lateralCommand;
+    const std::optional<vector2_t> desPosLfootRtWorldEwrtWorldXy =
+        plan.getDesPosFootRtWorldEwrtWorldXy(kContactLeftIndex,
+                                             config.hlip.sspDuration);
+    if (!desPosLfootRtWorldEwrtWorldXy.has_value()) GTEST_FAIL();
+    const scalar_t desPosLfootRtRfootEwrtWorldY =
+        desPosLfootRtWorldEwrtWorldXy->y() -
+        stancePosFootRtWorldEwrtWorldXy.y();
+    EXPECT_NEAR(desPosLfootRtRfootEwrtWorldY, nomErrPosLfootRtWorldEwrtLocal,
+                1.0e-9)
+        << "v_y = " << cmdLinvelBaseRtWorldEwrtWorldY;
 
     // The next swing places the right foot from the left one.
     const PlannedSwing& rightSwing =
         swings.front().foot == kContactRightIndex ? swings.front() : swings[1];
     ASSERT_EQ(rightSwing.foot, kContactRightIndex);
-    const vector2_t right =
-        plan.footholds[static_cast<size_t>(rightSwing.touchDownInterval)]
-                      [kContactRightIndex];
-    const scalar_t placedRight = right.y() - left->y();
-    EXPECT_NEAR(placedRight, rightStep, 1.0e-9) << "v_y = " << lateralCommand;
+    const vector2_t desPosRfootRtWorldEwrtWorldXy =
+        plan.desPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(
+            rightSwing.touchDownInterval)][kContactRightIndex];
+    const scalar_t desPosRfootRtLfootEwrtWorldY =
+        desPosRfootRtWorldEwrtWorldXy.y() - desPosLfootRtWorldEwrtWorldXy->y();
+    EXPECT_NEAR(desPosRfootRtLfootEwrtWorldY, nomErrPosRfootRtWorldEwrtLocal,
+                1.0e-9)
+        << "v_y = " << cmdLinvelBaseRtWorldEwrtWorldY;
 
-    EXPECT_NEAR(placedLeft + placedRight, 2.0 * lateralCommand * stepDuration,
-                1.0e-9);
-    EXPECT_GT((placedLeft + placedRight) * lateralCommand, 0.0)
+    EXPECT_NEAR(desPosLfootRtRfootEwrtWorldY + desPosRfootRtLfootEwrtWorldY,
+                2.0 * cmdLinvelBaseRtWorldEwrtWorldY * stepDuration, 1.0e-9);
+    EXPECT_GT((desPosLfootRtRfootEwrtWorldY + desPosRfootRtLfootEwrtWorldY) *
+                  cmdLinvelBaseRtWorldEwrtWorldY,
+              0.0)
         << "the robot must drift the way it is commanded to";
   }
 }
@@ -671,7 +764,7 @@ TEST(HlipContactPlanner, aYawRateTurnsEveryFootholdByTheIntegratedHeading) {
         const std::unique_ptr<HlipContactPlanner> planner,
         HlipContactPlanner::Create(config));
     ContactPlannerInput input = makeStandingInput(vector2_t::Zero());
-    input.headingRateCommand = 0.6;  // [rad/s] in place, no translation
+    input.cmdRateYawBaseRtWorld = 0.6;  // [rad/s] in place, no translation
     const scalar_t alpha = planner->blendWeight(input);
     ASSERT_GE(alpha, 0.5) << "a yaw command alone must start the gait";
     ASSERT_TRUE(planner->isWalking(input));
@@ -681,50 +774,73 @@ TEST(HlipContactPlanner, aYawRateTurnsEveryFootholdByTheIntegratedHeading) {
     const std::vector<PlannedSwing> swings = plannedSwings(plan);
     ASSERT_GE(swings.size(), 3U) << "turning in place is a stepping gait";
 
-    scalar_t previousHeading = input.yaw;
+    scalar_t prevYawHeadingRtWorld = input.yawHeadingRtWorld;
     for (const PlannedSwing& swing : swings) {
       const size_t node = static_cast<size_t>(swing.touchDownInterval);
       const scalar_t touchDown =
           plan.startTime + plan.dt * static_cast<scalar_t>(node);
       // The phase heading the foot was placed in, within the half node the
       // touch-down is rounded by.
-      const scalar_t expectedHeading =
-          input.yaw +
-          alpha * input.headingRateCommand * (touchDown - input.time);
-      const vector2_t step = plan.footholds[node][swing.foot] -
-                             plan.footholds[node][otherFootOf(swing.foot)];
-      const vector2_t stepInHeading =
-          rotationOf(expectedHeading).transpose() * step;
+      const scalar_t expectedYawHeadingRtWorld =
+          input.yawHeadingRtWorld +
+          alpha * input.cmdRateYawBaseRtWorld * (touchDown - input.time);
+      // The placed foot minus the other foot.
+      const vector2_t errPosFootRtWorldEwrtWorldXy =
+          plan.desPosFeetRtWorldEwrtWorldXyTraj[node][swing.foot] -
+          plan.desPosFeetRtWorldEwrtWorldXyTraj[node][otherFootOf(swing.foot)];
+      const vector2_t errPosFootRtWorldEwrtHeadingXy =
+          planarRotmatHeadingRtWorld(expectedYawHeadingRtWorld).transpose() *
+          errPosFootRtWorldEwrtWorldXy;
       const scalar_t side = swing.foot == kContactLeftIndex ? 1.0 : -1.0;
-      const scalar_t tolerance =
-          alpha * input.headingRateCommand * 0.5 * plan.dt * step.norm() +
-          1.0e-9;
+      const scalar_t tolerance = alpha * input.cmdRateYawBaseRtWorld * 0.5 *
+                                     plan.dt *
+                                     errPosFootRtWorldEwrtWorldXy.norm() +
+                                 1.0e-9;
       // In its own heading frame the placed foot is on its own side, at least
-      // minStepWidth out: a foot placed in the frame of the opposite rotation
-      // would be swung round by twice the turn and fail this by a wide margin.
-      EXPECT_GE(side * stepInHeading.y(), config.hlip.minStepWidth - tolerance)
+      // minPosLfootRtRfootEwrtHeadingY out: a foot placed in the frame of the
+      // opposite rotation would be swung round by twice the turn and fail this
+      // by a wide margin.
+      EXPECT_GE(side * errPosFootRtWorldEwrtHeadingXy.y(),
+                config.hlip.minPosLfootRtRfootEwrtHeadingY - tolerance)
           << "foot " << swing.foot << " at " << touchDown;
-      EXPECT_LE(std::abs(stepInHeading.x()),
-                config.hlip.maxStepLength + tolerance)
+      EXPECT_LE(std::abs(errPosFootRtWorldEwrtHeadingXy.x()),
+                config.hlip.maxNormPosLfootRtRfootEwrtHeadingX + tolerance)
           << "foot " << swing.foot << " at " << touchDown;
-      EXPECT_GT(expectedHeading, previousHeading)
+      EXPECT_GT(expectedYawHeadingRtWorld, prevYawHeadingRtWorld)
           << "a positive rate turns the gait counter-clockwise";
-      previousHeading = expectedHeading;
+      prevYawHeadingRtWorld = expectedYawHeadingRtWorld;
     }
-    ASSERT_GT(previousHeading - input.yaw, 0.5)
+    ASSERT_GT(prevYawHeadingRtWorld - input.yawHeadingRtWorld, 0.5)
         << "the horizon must turn far enough for the frame to matter";
+    // With or without the heading model, the plan reports the heading each
+    // node was planned in.
+    EXPECT_NEAR(plan.rateYawHeadingRtWorld, alpha * input.cmdRateYawBaseRtWorld,
+                1.0e-12);
+    for (size_t node = 0; node < plan.desPosFeetRtWorldEwrtWorldXyTraj.size();
+         ++node) {
+      const scalar_t nodeTime =
+          plan.startTime + plan.dt * static_cast<scalar_t>(node);
+      EXPECT_NEAR(plan.getYawHeadingRtWorld(nodeTime),
+                  input.yawHeadingRtWorld + alpha *
+                                                input.cmdRateYawBaseRtWorld *
+                                                (nodeTime - input.time),
+                  1.0e-12)
+          << "node " << node << ", heading model " << headingModel;
+    }
 
     if (headingModel) {
-      ASSERT_EQ(plan.heading.size(), plan.footholds.size());
-      for (size_t node = 0; node < plan.heading.size(); ++node) {
+      ASSERT_EQ(plan.headingModelYawTraj.size(),
+                plan.desPosFeetRtWorldEwrtWorldXyTraj.size());
+      for (size_t node = 0; node < plan.headingModelYawTraj.size(); ++node) {
         const scalar_t nodeTime =
             plan.startTime + plan.dt * static_cast<scalar_t>(node);
-        EXPECT_NEAR(plan.heading[node],
-                    input.yaw + alpha * input.headingRateCommand *
-                                    (nodeTime - input.time),
+        EXPECT_NEAR(plan.headingModelYawTraj[node],
+                    input.yawHeadingRtWorld + alpha *
+                                                  input.cmdRateYawBaseRtWorld *
+                                                  (nodeTime - input.time),
                     1.0e-12);
-        EXPECT_NEAR(plan.headingRate[node], alpha * input.headingRateCommand,
-                    1.0e-12);
+        EXPECT_NEAR(plan.headingModelYawRateTraj[node],
+                    alpha * input.cmdRateYawBaseRtWorld, 1.0e-12);
       }
       // A placed foot is yawed to the heading of its touch-down, so the landing
       // yaws advance with the turn.
@@ -732,14 +848,16 @@ TEST(HlipContactPlanner, aYawRateTurnsEveryFootholdByTheIntegratedHeading) {
         const size_t node = static_cast<size_t>(swing.touchDownInterval);
         const scalar_t touchDown =
             plan.startTime + plan.dt * static_cast<scalar_t>(node);
-        const scalar_t expectedHeading =
-            input.yaw +
-            alpha * input.headingRateCommand * (touchDown - input.time);
-        EXPECT_NEAR(plan.footYaws[node][swing.foot], expectedHeading,
-                    alpha * input.headingRateCommand * 0.5 * plan.dt + 1.0e-12);
+        const scalar_t expectedYawHeadingRtWorld =
+            input.yawHeadingRtWorld +
+            alpha * input.cmdRateYawBaseRtWorld * (touchDown - input.time);
+        EXPECT_NEAR(
+            plan.desEulerzyxFeetRtWorldYawTraj[node][swing.foot],
+            expectedYawHeadingRtWorld,
+            alpha * input.cmdRateYawBaseRtWorld * 0.5 * plan.dt + 1.0e-12);
       }
     } else {
-      EXPECT_TRUE(plan.heading.empty());
+      EXPECT_TRUE(plan.headingModelYawTraj.empty());
     }
   }
 }
@@ -753,37 +871,48 @@ TEST(HlipContactPlanner, theStrideIsScaledByAlpha) {
   ContactPlanningConfig config = makeConfig();
   // Normalize the measured velocity away, so that alpha is set by the command
   // alone and the orbit below is not chased by an alpha that depends on it.
-  config.hlip.blend.maxComVelocityX = 1.0e3;
-  config.hlip.blend.maxComVelocityY = 1.0e3;
+  config.hlip.blend.maxProxyLinvelComRtWorldEwrtHeadingX = 1.0e3;
+  config.hlip.blend.maxProxyLinvelComRtWorldEwrtHeadingY = 1.0e3;
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const std::unique_ptr<HlipContactPlanner> planner,
       HlipContactPlanner::Create(config));
   const HlipModel& model = planner->getModel();
-  const scalar_t command =
+  // makeStandingInput() leaves the base yaw at 0, so the heading frame is the
+  // world here and the same value is the world-axes command below.
+  const scalar_t cmdLinvelBaseRtWorldEwrtHeadingX =
       0.12;  // [m/s] a little above the half point of the 0.7 m/s range
 
-  ContactPlannerInput input = makeStandingInput(vector2_t(command, 0.0));
+  ContactPlannerInput input =
+      makeStandingInput(vector2_t(cmdLinvelBaseRtWorldEwrtHeadingX, 0.0));
   input.contacts[kContactLeftIndex] = false;
   input.phaseElapsedTime = makeFeetArray(0.0);
-  const vector2_t stanceFoot = input.footPositions[kContactRightIndex];
+  const vector2_t stancePosFootRtWorldEwrtWorldXy =
+      input.posFeetRtWorldEwrtWorldXy[kContactRightIndex];
   const HlipModel::PeriodTwoOrbit lateralOrbit =
-      model.periodTwoOrbit(config.hlip.stepWidth, -config.hlip.stepWidth);
+      model.periodTwoOrbit(config.hlip.nomPosLfootRtRfootEwrtHeadingY,
+                           -config.hlip.nomPosLfootRtRfootEwrtHeadingY);
   const HlipModel::State atLiftOffY = HlipModel::flowDoubleSupport(
-      HlipModel::applyStepTransition(lateralOrbit.beforeSecondStep,
-                                     -config.hlip.stepWidth),
+      HlipModel::applyStepTransition(
+          lateralOrbit.beforeSecondStep,
+          -config.hlip.nomPosLfootRtRfootEwrtHeadingY),
       config.hlip.dspDuration);
   scalar_t alpha = planner->getBlend().weight(
-      vector2_t(command, 0.0), /*yawRateCommand=*/0.0, vector2_t::Zero());
+      vector2_t(cmdLinvelBaseRtWorldEwrtHeadingX, 0.0),
+      /*cmdRateYawBaseRtWorld=*/0.0, vector2_t::Zero());
   for (int iteration = 0; iteration < 5;
        ++iteration) {  // the measured velocity still enters alpha, if
                        // negligibly
-    const scalar_t scaledStep = alpha * command * model.stepDuration();
+    const scalar_t nomErrPosFootRtWorldEwrtLocal =
+        alpha * cmdLinvelBaseRtWorldEwrtHeadingX * model.stepDuration();
     const HlipModel::State atLiftOffX = HlipModel::flowDoubleSupport(
-        HlipModel::applyStepTransition(model.periodOneOrbit(scaledStep),
-                                       scaledStep),
+        HlipModel::applyStepTransition(
+            model.periodOneOrbit(nomErrPosFootRtWorldEwrtLocal),
+            nomErrPosFootRtWorldEwrtLocal),
         config.hlip.dspDuration);
-    input.comPosition = stanceFoot + vector2_t(atLiftOffX(0), atLiftOffY(0));
-    input.comVelocity = vector2_t(atLiftOffX(1), atLiftOffY(1));
+    input.posComRtWorldEwrtWorldXy = stancePosFootRtWorldEwrtWorldXy +
+                                     vector2_t(atLiftOffX(0), atLiftOffY(0));
+    input.proxyLinvelComRtWorldEwrtWorldXy =
+        vector2_t(atLiftOffX(1), atLiftOffY(1));
     alpha = planner->blendWeight(input);
   }
   ASSERT_GT(alpha, 0.6)
@@ -792,12 +921,18 @@ TEST(HlipContactPlanner, theStrideIsScaledByAlpha) {
 
   const ContactPlan plan = planner->plan(input);
   ASSERT_TRUE(plan.valid);
-  const std::optional<vector2_t> landing =
-      plan.footholdAtTime(kContactLeftIndex, config.hlip.sspDuration);
-  if (!landing.has_value()) GTEST_FAIL();
-  const scalar_t step = landing->x() - stanceFoot.x();
-  EXPECT_NEAR(step, alpha * command * model.stepDuration(), 1.0e-9);
-  ASSERT_GT(command * model.stepDuration() - step, 0.005)
+  const std::optional<vector2_t> desPosLfootRtWorldEwrtWorldXy =
+      plan.getDesPosFootRtWorldEwrtWorldXy(kContactLeftIndex,
+                                           config.hlip.sspDuration);
+  if (!desPosLfootRtWorldEwrtWorldXy.has_value()) GTEST_FAIL();
+  const scalar_t desPosLfootRtRfootEwrtWorldX =
+      desPosLfootRtWorldEwrtWorldXy->x() - stancePosFootRtWorldEwrtWorldXy.x();
+  EXPECT_NEAR(desPosLfootRtRfootEwrtWorldX,
+              alpha * cmdLinvelBaseRtWorldEwrtHeadingX * model.stepDuration(),
+              1.0e-9);
+  ASSERT_GT(cmdLinvelBaseRtWorldEwrtHeadingX * model.stepDuration() -
+                desPosLfootRtRfootEwrtWorldX,
+            0.005)
       << "the unscaled stride must be distinguishable from the scaled one";
 }
 
@@ -811,7 +946,7 @@ TEST(HlipContactPlanner, aYawCommandAloneStartsTheGait) {
   ContactPlannerInput input = makeStandingInput(vector2_t::Zero());
   ASSERT_FALSE(planner->isWalking(input))
       << "positive control: at rest with no command the robot stands";
-  input.headingRateCommand = 0.3;
+  input.cmdRateYawBaseRtWorld = 0.3;
   EXPECT_TRUE(planner->isWalking(input));
   const ContactPlan plan = planner->plan(input);
   EXPECT_FALSE(swingOrder(plan).empty())
@@ -846,10 +981,11 @@ TEST(HlipContactPlanner, planIsWellFormed) {
 
   ASSERT_TRUE(plan.valid);
   EXPECT_EQ(plan.numIntervals(), config.planner.numNodes);
-  EXPECT_EQ(plan.footholds.size(),
+  EXPECT_EQ(plan.desPosFeetRtWorldEwrtWorldXyTraj.size(),
             static_cast<size_t>(config.planner.numNodes) + 1);
-  EXPECT_EQ(plan.comPosition.size(), plan.footholds.size());
-  EXPECT_EQ(plan.zmp.size(), plan.contacts.size());
+  EXPECT_EQ(plan.posComRtWorldEwrtWorldXyTraj.size(),
+            plan.desPosFeetRtWorldEwrtWorldXyTraj.size());
+  EXPECT_EQ(plan.posZmpRtWorldEwrtWorldXyTraj.size(), plan.contacts.size());
   EXPECT_NEAR(plan.endTime(), config.horizon(), 1.0e-12);
 
   const ModeSchedule schedule = plan.toModeSchedule();
@@ -862,14 +998,14 @@ TEST(HlipContactPlanner, planIsWellFormed) {
  * and a swing in flight under a standing plan. */
 std::vector<ContactPlannerInput> reducedModelInputs() {
   ContactPlannerInput walking = makeStandingInput(vector2_t(0.4, 0.1));
-  walking.comVelocity = vector2_t(0.1, -0.05);
+  walking.proxyLinvelComRtWorldEwrtWorldXy = vector2_t(0.1, -0.05);
   ContactPlannerInput standingInFlight = makeStandingInput(vector2_t::Zero());
   standingInFlight.contacts[kContactLeftIndex] =
       false;  // a swing in flight, its touch-down off the node grid
   standingInFlight.phaseElapsedTime[kContactLeftIndex] = 0.087;
   standingInFlight.phaseElapsedTime[kContactRightIndex] = 0.087;
-  standingInFlight.comPosition = vector2_t(0.02, -0.03);
-  standingInFlight.comVelocity = vector2_t(0.03, 0.02);
+  standingInFlight.posComRtWorldEwrtWorldXy = vector2_t(0.02, -0.03);
+  standingInFlight.proxyLinvelComRtWorldEwrtWorldXy = vector2_t(0.03, 0.02);
   return {walking, standingInFlight};
 }
 
@@ -877,8 +1013,8 @@ std::vector<ContactPlannerInput> reducedModelInputs() {
  * Audit finding CP-1. Between nodes the plan's center of mass is the planner's
  * continuous-time roll-out, not an interpolation of its nodes: a plan on a five
  * times finer grid samples the same roll-out at the coarse plan's off-grid
- * times, and lipReferenceState(), comPositionAtTime() and comVelocityAtTime()
- * must all reproduce those samples.
+ * times, and lipReferenceState(), evaluatePosComRtWorldEwrtWorldXy() and
+ * evaluateLinvelComRtWorldEwrtWorldXy() must all reproduce those samples.
  */
 TEST(HlipContactPlanner, theReducedModelBetweenNodesIsTheRollOutItself) {
   constexpr int kRefinement = 5;
@@ -897,24 +1033,40 @@ TEST(HlipContactPlanner, theReducedModelBetweenNodesIsTheRollOutItself) {
     const ContactPlan coarse = coarsePlanner->plan(input);
     const ContactPlan fine = finePlanner->plan(input);
     ASSERT_TRUE(coarse.valid && fine.valid);
-    ASSERT_EQ(coarse.phaseZmp.size(), coarse.phaseStartTimes.size());
-    for (size_t node = 0; node < fine.comPosition.size(); ++node) {
+    ASSERT_EQ(coarse.phasePosZmpRtWorldEwrtWorldXyTraj.size(),
+              coarse.phaseStartTimes.size());
+    for (size_t node = 0; node < fine.posComRtWorldEwrtWorldXyTraj.size();
+         ++node) {
       const scalar_t time =
           fine.startTime + fine.dt * static_cast<scalar_t>(node);
       const std::optional<LipState> state =
           lipReferenceState(coarse, coarse.omega, time);
-      const std::optional<vector2_t> position = coarse.comPositionAtTime(time);
-      const std::optional<vector2_t> velocity = coarse.comVelocityAtTime(time);
-      if (!(state.has_value() && position.has_value() &&
-            velocity.has_value())) {
+      const std::optional<vector2_t> posComRtWorldEwrtWorldXy =
+          coarse.evaluatePosComRtWorldEwrtWorldXy(time);
+      const std::optional<vector2_t> linvelComRtWorldEwrtWorldXy =
+          coarse.evaluateLinvelComRtWorldEwrtWorldXy(time);
+      if (!(state.has_value() && posComRtWorldEwrtWorldXy.has_value() &&
+            linvelComRtWorldEwrtWorldXy.has_value())) {
         FAIL() << "t=" << time;
       }
-      EXPECT_LT((state->com - fine.comPosition[node]).norm(), 1.0e-9)
+      EXPECT_LT((state->posComRtWorldEwrtWorldXy -
+                 fine.posComRtWorldEwrtWorldXyTraj[node])
+                    .norm(),
+                1.0e-9)
           << "t=" << time;
-      EXPECT_LT((state->comVelocity - fine.comVelocity[node]).norm(), 1.0e-9)
+      EXPECT_LT((state->linvelComRtWorldEwrtWorldXy -
+                 fine.linvelComRtWorldEwrtWorldXyTraj[node])
+                    .norm(),
+                1.0e-9)
           << "t=" << time;
-      EXPECT_LT((*position - state->com).norm(), 1.0e-12) << "t=" << time;
-      EXPECT_LT((*velocity - state->comVelocity).norm(), 1.0e-12)
+      EXPECT_LT(
+          (*posComRtWorldEwrtWorldXy - state->posComRtWorldEwrtWorldXy).norm(),
+          1.0e-12)
+          << "t=" << time;
+      EXPECT_LT(
+          (*linvelComRtWorldEwrtWorldXy - state->linvelComRtWorldEwrtWorldXy)
+              .norm(),
+          1.0e-12)
           << "t=" << time;
     }
   }
@@ -951,8 +1103,9 @@ TEST(HlipContactPlanner,
           fraction * (plan.endTime() - plan.startTime - 2.0 * kDifferenceStep);
       // Keep the difference inside one phase.
       bool nearEvent = false;
-      for (scalar_t start : plan.phaseStartTimes)
+      for (scalar_t start : plan.phaseStartTimes) {
         nearEvent = nearEvent || std::abs(time - start) < 2.0 * kDifferenceStep;
+      }
       if (nearEvent) continue;
       const std::optional<LipState> state =
           lipReferenceState(plan, omega, time);
@@ -961,18 +1114,31 @@ TEST(HlipContactPlanner,
       const std::optional<LipState> after =
           lipReferenceState(plan, omega, time + kDifferenceStep);
       ASSERT_TRUE(state.has_value() && before.has_value() && after.has_value());
-      const vector2_t acceleration =
-          (after->comVelocity - before->comVelocity) / (2.0 * kDifferenceStep);
-      const vector2_t velocity =
-          (after->com - before->com) / (2.0 * kDifferenceStep);
-      EXPECT_LT((velocity - state->comVelocity).norm(), 1.0e-6) << "t=" << time;
+      const vector2_t linaccComRtWorldEwrtWorldXy =
+          (after->linvelComRtWorldEwrtWorldXy -
+           before->linvelComRtWorldEwrtWorldXy) /
+          (2.0 * kDifferenceStep);
+      const vector2_t linvelComRtWorldEwrtWorldXy =
+          (after->posComRtWorldEwrtWorldXy - before->posComRtWorldEwrtWorldXy) /
+          (2.0 * kDifferenceStep);
       EXPECT_LT(
-          (acceleration - omega * omega * (state->com - state->zmp)).norm(),
+          (linvelComRtWorldEwrtWorldXy - state->linvelComRtWorldEwrtWorldXy)
+              .norm(),
+          1.0e-6)
+          << "t=" << time;
+      EXPECT_LT(
+          (linaccComRtWorldEwrtWorldXy - omega * omega *
+                                             (state->posComRtWorldEwrtWorldXy -
+                                              state->posZmpRtWorldEwrtWorldXy))
+              .norm(),
           1.0e-4)
           << "t=" << time;
       const contact_flag_t contacts = plan.contactsAtTime(time);
       if (contacts[kContactLeftIndex] && contacts[kContactRightIndex]) {
-        EXPECT_LT((state->zmp - state->com).norm(), 1.0e-12)
+        EXPECT_LT(
+            (state->posZmpRtWorldEwrtWorldXy - state->posComRtWorldEwrtWorldXy)
+                .norm(),
+            1.0e-12)
             << "a constant-velocity double support has its ZMP at the CoM, t="
             << time;
         ++doubleSupportSamples;
@@ -994,14 +1160,16 @@ TEST(HlipContactPlanner, closedLoopTracksTheCommandedVelocity) {
       const std::unique_ptr<HlipContactPlanner> planner,
       HlipContactPlanner::Create(config));
   const HlipModel& model = planner->getModel();
-  const scalar_t command = 0.5;
+  const scalar_t cmdLinvelBaseRtWorldEwrtWorldX = 0.5;
 
-  ContactPlannerInput input = makeStandingInput(vector2_t(command, 0.0));
+  ContactPlannerInput input =
+      makeStandingInput(vector2_t(cmdLinvelBaseRtWorldEwrtWorldX, 0.0));
   input.contacts[kContactLeftIndex] = false;
   input.phaseElapsedTime = makeFeetArray(0.0);
 
-  scalar_t previousStanceX = input.footPositions[kContactRightIndex].x();
-  scalar_t lastStepLength = 0.0;
+  scalar_t prevStancePosFootRtWorldEwrtWorldX =
+      input.posFeetRtWorldEwrtWorldXy[kContactRightIndex].x();
+  scalar_t prevErrPosFootRtWorldEwrtWorldX = 0.0;
   for (int step = 0; step < 8; ++step) {
     const size_t swingFoot = input.contacts[kContactLeftIndex]
                                  ? kContactRightIndex
@@ -1010,32 +1178,36 @@ TEST(HlipContactPlanner, closedLoopTracksTheCommandedVelocity) {
         swingFoot == kContactLeftIndex ? kContactRightIndex : kContactLeftIndex;
     const ContactPlan plan = planner->plan(input);
     ASSERT_TRUE(plan.valid);
-    const std::optional<vector2_t> landing =
-        plan.footholdAtTime(swingFoot, input.time + config.hlip.sspDuration);
-    if (!landing.has_value()) GTEST_FAIL();
+    const std::optional<vector2_t> desPosFootRtWorldEwrtWorldXy =
+        plan.getDesPosFootRtWorldEwrtWorldXy(
+            swingFoot, input.time + config.hlip.sspDuration);
+    if (!desPosFootRtWorldEwrtWorldXy.has_value()) GTEST_FAIL();
 
     // Advance the reduced model to the touch-down of that step.
-    HlipModel::State stateX(
-        input.comPosition.x() - input.footPositions[stanceFoot].x(),
-        input.comVelocity.x());
-    HlipModel::State stateY(
-        input.comPosition.y() - input.footPositions[stanceFoot].y(),
-        input.comVelocity.y());
+    HlipModel::State stateX(input.posComRtWorldEwrtWorldXy.x() -
+                                input.posFeetRtWorldEwrtWorldXy[stanceFoot].x(),
+                            input.proxyLinvelComRtWorldEwrtWorldXy.x());
+    HlipModel::State stateY(input.posComRtWorldEwrtWorldXy.y() -
+                                input.posFeetRtWorldEwrtWorldXy[stanceFoot].y(),
+                            input.proxyLinvelComRtWorldEwrtWorldXy.y());
     stateX = model.flowSingleSupport(stateX, config.hlip.sspDuration);
     stateY = model.flowSingleSupport(stateY, config.hlip.sspDuration);
 
-    lastStepLength = landing->x() - previousStanceX;
-    previousStanceX = landing->x();
+    prevErrPosFootRtWorldEwrtWorldX =
+        desPosFootRtWorldEwrtWorldXy->x() - prevStancePosFootRtWorldEwrtWorldX;
+    prevStancePosFootRtWorldEwrtWorldX = desPosFootRtWorldEwrtWorldXy->x();
 
     input.time += config.hlip.sspDuration;
-    input.footPositions[swingFoot] = *landing;
-    input.comPosition =
-        input.footPositions[stanceFoot] + vector2_t(stateX(0), stateY(0));
-    input.comVelocity = vector2_t(stateX(1), stateY(1));
+    input.posFeetRtWorldEwrtWorldXy[swingFoot] = *desPosFootRtWorldEwrtWorldXy;
+    input.posComRtWorldEwrtWorldXy =
+        input.posFeetRtWorldEwrtWorldXy[stanceFoot] +
+        vector2_t(stateX(0), stateY(0));
+    input.proxyLinvelComRtWorldEwrtWorldXy = vector2_t(stateX(1), stateY(1));
     // The double support that follows: the reduced model drifts through it at
     // constant velocity. Leaving it out makes the rolled-out step shorter than
     // the one the planner's own step duration is built on.
-    input.comPosition += config.hlip.dspDuration * input.comVelocity;
+    input.posComRtWorldEwrtWorldXy +=
+        config.hlip.dspDuration * input.proxyLinvelComRtWorldEwrtWorldXy;
     input.time += config.hlip.dspDuration;
     input.contacts = makeFeetArray(true);
     input.contacts[stanceFoot] =
@@ -1045,7 +1217,8 @@ TEST(HlipContactPlanner, closedLoopTracksTheCommandedVelocity) {
     input.committedUntil = input.time;
   }
 
-  EXPECT_NEAR(lastStepLength / model.stepDuration(), command, 1.0e-3);
+  EXPECT_NEAR(prevErrPosFootRtWorldEwrtWorldX / model.stepDuration(),
+              cmdLinvelBaseRtWorldEwrtWorldX, 1.0e-3);
 }
 
 /**
@@ -1063,10 +1236,10 @@ StartUpRollOut rollOutTheStartUp(const ContactPlanningConfig& config,
   const std::unique_ptr<HlipContactPlanner> planner = createPlanner(config);
   const HlipModel& model = planner->getModel();
   ContactPlannerInput input = makeStandingInput(vector2_t(0.3, 0.0));
-  input.footPositions[kContactLeftIndex] =
-      vector2_t(0.0, 0.5 * config.hlip.stepWidth);
-  input.footPositions[kContactRightIndex] =
-      vector2_t(0.0, -0.5 * config.hlip.stepWidth);
+  input.posFeetRtWorldEwrtWorldXy[kContactLeftIndex] =
+      vector2_t(0.0, 0.5 * config.hlip.nomPosLfootRtRfootEwrtHeadingY);
+  input.posFeetRtWorldEwrtWorldXy[kContactRightIndex] =
+      vector2_t(0.0, -0.5 * config.hlip.nomPosLfootRtRfootEwrtHeadingY);
   input.contacts[kContactLeftIndex] =
       false;  // standing on the right, the left about to swing
   input.phaseElapsedTime = makeFeetArray(0.0);
@@ -1080,28 +1253,31 @@ StartUpRollOut rollOutTheStartUp(const ContactPlanningConfig& config,
     const ContactPlan plan = planner->plan(input);
     EXPECT_TRUE(plan.valid);
     result.numClippedSteps.push_back(plan.numClippedSteps);
-    const std::optional<vector2_t> landing =
-        plan.footholdAtTime(swingFoot, input.time + config.hlip.sspDuration);
-    EXPECT_TRUE(landing.has_value());
-    if (!landing.has_value()) break;
+    const std::optional<vector2_t> desPosFootRtWorldEwrtWorldXy =
+        plan.getDesPosFootRtWorldEwrtWorldXy(
+            swingFoot, input.time + config.hlip.sspDuration);
+    EXPECT_TRUE(desPosFootRtWorldEwrtWorldXy.has_value());
+    if (!desPosFootRtWorldEwrtWorldXy.has_value()) break;
 
-    HlipModel::State stateX(
-        input.comPosition.x() - input.footPositions[stanceFoot].x(),
-        input.comVelocity.x());
-    HlipModel::State stateY(
-        input.comPosition.y() - input.footPositions[stanceFoot].y(),
-        input.comVelocity.y());
+    HlipModel::State stateX(input.posComRtWorldEwrtWorldXy.x() -
+                                input.posFeetRtWorldEwrtWorldXy[stanceFoot].x(),
+                            input.proxyLinvelComRtWorldEwrtWorldXy.x());
+    HlipModel::State stateY(input.posComRtWorldEwrtWorldXy.y() -
+                                input.posFeetRtWorldEwrtWorldXy[stanceFoot].y(),
+                            input.proxyLinvelComRtWorldEwrtWorldXy.y());
     stateX = model.flowSingleSupport(stateX, config.hlip.sspDuration);
     stateY = model.flowSingleSupport(stateY, config.hlip.sspDuration);
 
     input.time += config.hlip.sspDuration;
-    input.footPositions[swingFoot] = *landing;
-    input.comPosition =
-        input.footPositions[stanceFoot] + vector2_t(stateX(0), stateY(0));
-    input.comVelocity = vector2_t(stateX(1), stateY(1));
+    input.posFeetRtWorldEwrtWorldXy[swingFoot] = *desPosFootRtWorldEwrtWorldXy;
+    input.posComRtWorldEwrtWorldXy =
+        input.posFeetRtWorldEwrtWorldXy[stanceFoot] +
+        vector2_t(stateX(0), stateY(0));
+    input.proxyLinvelComRtWorldEwrtWorldXy = vector2_t(stateX(1), stateY(1));
     // The double support: the reduced model drifts at constant velocity through
     // it.
-    input.comPosition += config.hlip.dspDuration * input.comVelocity;
+    input.posComRtWorldEwrtWorldXy +=
+        config.hlip.dspDuration * input.proxyLinvelComRtWorldEwrtWorldXy;
     input.time += config.hlip.dspDuration;
     input.contacts = makeFeetArray(true);
     input.contacts[stanceFoot] = false;
@@ -1109,8 +1285,9 @@ StartUpRollOut rollOutTheStartUp(const ContactPlanningConfig& config,
     input.lastSwungFoot = static_cast<int>(swingFoot);
     input.committedUntil = input.time;
 
-    result.widths.push_back(input.footPositions[kContactLeftIndex].y() -
-                            input.footPositions[kContactRightIndex].y());
+    result.widths.push_back(
+        input.posFeetRtWorldEwrtWorldXy[kContactLeftIndex].y() -
+        input.posFeetRtWorldEwrtWorldXy[kContactRightIndex].y());
   }
   return result;
 }
@@ -1121,14 +1298,15 @@ TEST(HlipContactPlanner,
   // first lateral step far wider than the nominal one: the center of mass is
   // half a step width from the stance foot with no lateral velocity, so it
   // falls sideways fast once the foot lifts. If that step does not fit inside
-  // maxStepWidth it is clipped, and a clipped step is not the deadbeat step -
-  // at some cadences the widths then lock into an alternating wide / narrow
-  // limit cycle: the feet come together and the robot walks itself sideways.
+  // maxPosLfootRtRfootEwrtHeadingY it is clipped, and a clipped step is not the
+  // deadbeat step - at some cadences the widths then lock into an alternating
+  // wide / narrow limit cycle: the feet come together and the robot walks
+  // itself sideways.
   const ContactPlanningConfig config = makeConfig();
 
   HUMANOID_ASSERT_OK_AND_ASSIGN(const scalar_t startUpStep,
                                 HlipContactPlanner::startUpLateralStep(config));
-  EXPECT_LT(startUpStep, config.hlip.maxStepWidth)
+  EXPECT_LT(startUpStep, config.hlip.maxPosLfootRtRfootEwrtHeadingY)
       << "the first step out of a standstill must fit inside the reach, or the "
          "gait cannot start; shorten sspDuration";
 
@@ -1145,37 +1323,46 @@ TEST(HlipContactPlanner,
 
   // The deadbeat law reaches the nominal width and stays there; the limit cycle
   // would alternate the two clips forever.
-  EXPECT_NEAR(rollOut.widths.back(), config.hlip.stepWidth, 1.0e-3)
-      << "the lateral gait must settle at the nominal step width";
-  EXPECT_NEAR(rollOut.widths[rollOut.widths.size() - 2], config.hlip.stepWidth,
+  EXPECT_NEAR(rollOut.widths.back(), config.hlip.nomPosLfootRtRfootEwrtHeadingY,
               1.0e-3)
+      << "the lateral gait must settle at the nominal step width";
+  EXPECT_NEAR(rollOut.widths[rollOut.widths.size() - 2],
+              config.hlip.nomPosLfootRtRfootEwrtHeadingY, 1.0e-3)
       << "and stay there, rather than alternating";
 }
 
 TEST(HlipContactPlanner, theStartUpWidthsOfTheSummaryAreThePlannersOwn) {
   // formulationSummary decides whether a clipped first step recovers or locks
-  // from startUpLateralWidths(), a lateral roll-out of the reduced model under
-  // the planner's step law and clip. That verdict is only true of the planner
-  // if the roll-out is what the planner itself does, so compare it with the
-  // planner closed around its own model, at a cadence that fits, one that clips
-  // and recovers, and one that clips and locks.
+  // from computeStartUpNormPosLfootRtRfootEwrtHeadingYTraj(), a lateral
+  // roll-out of the reduced model under the planner's step law and clip. That
+  // verdict is only true of the planner if the roll-out is what the planner
+  // itself does, so compare it with the planner closed around its own model, at
+  // a cadence that fits, one that clips and recovers, and one that clips and
+  // locks.
   struct Case {
     scalar_t sspDuration;
     scalar_t dspDuration;
-    scalar_t maxStepWidth;
+    scalar_t maxPosLfootRtRfootEwrtHeadingY;
   };
-  for (const Case& testCase :
-       {Case{.sspDuration = 0.25, .dspDuration = 0.05, .maxStepWidth = 0.45},
-        Case{.sspDuration = 0.35, .dspDuration = 0.0, .maxStepWidth = 0.45},
-        Case{.sspDuration = 0.35, .dspDuration = 0.05, .maxStepWidth = 0.45}}) {
+  for (const Case& testCase : {Case{.sspDuration = 0.25,
+                                    .dspDuration = 0.05,
+                                    .maxPosLfootRtRfootEwrtHeadingY = 0.45},
+                               Case{.sspDuration = 0.35,
+                                    .dspDuration = 0.0,
+                                    .maxPosLfootRtRfootEwrtHeadingY = 0.45},
+                               Case{.sspDuration = 0.35,
+                                    .dspDuration = 0.05,
+                                    .maxPosLfootRtRfootEwrtHeadingY = 0.45}}) {
     ContactPlanningConfig config = makeConfig();
     config.hlip.sspDuration = testCase.sspDuration;
     config.hlip.dspDuration = testCase.dspDuration;
-    config.hlip.maxStepWidth = testCase.maxStepWidth;
+    config.hlip.maxPosLfootRtRfootEwrtHeadingY =
+        testCase.maxPosLfootRtRfootEwrtHeadingY;
     const StartUpRollOut planned = rollOutTheStartUp(config, /*numSteps=*/8);
     HUMANOID_ASSERT_OK_AND_ASSIGN(
         const std::vector<scalar_t> modeled,
-        HlipContactPlanner::startUpLateralWidths(config, /*numSteps=*/8));
+        HlipContactPlanner::computeStartUpNormPosLfootRtRfootEwrtHeadingYTraj(
+            config, /*numSteps=*/8));
     ASSERT_EQ(planned.widths.size(), modeled.size());
     for (size_t step = 0; step < modeled.size(); ++step) {
       EXPECT_NEAR(planned.widths[step], modeled[step], 1.0e-9)
@@ -1187,46 +1374,57 @@ TEST(HlipContactPlanner, theStartUpWidthsOfTheSummaryAreThePlannersOwn) {
 
 TEST(HlipContactPlanner,
      theStartUpBannerSaysWhetherTheFirstStepFitsAndWhatAClipDoes) {
-  // "DOES NOT FIT" exactly when the first-step demand exceeds maxStepWidth, and
-  // "locks" exactly when the planner's own start-up then never settles. The
-  // banner used to say that every clipped first step locks the gait, which the
-  // library defaults themselves contradict: at 0.35 s with no double support
-  // the first step is clipped (0.49 m against 0.45 m) and the gait still
-  // settles within three steps, so an operator reading the banner would retune
-  // a cadence that works.
+  // "DOES NOT FIT" exactly when the first-step demand exceeds
+  // maxPosLfootRtRfootEwrtHeadingY, and "locks" exactly when the planner's own
+  // start-up then never settles. The banner used to say that every clipped
+  // first step locks the gait, which the library defaults themselves
+  // contradict: at 0.35 s with no double support the first step is clipped
+  // (0.49 m against 0.45 m) and the gait still settles within three steps, so
+  // an operator reading the banner would retune a cadence that works.
   struct Case {
     scalar_t sspDuration;
     scalar_t dspDuration;
-    scalar_t maxStepWidth;
+    scalar_t maxPosLfootRtRfootEwrtHeadingY;
   };
   int sawFits = 0;
   int sawRecovers = 0;
   int sawLocks = 0;
-  for (const Case& testCase :
-       {Case{.sspDuration = 0.25, .dspDuration = 0.05, .maxStepWidth = 0.45},
-        Case{.sspDuration = 0.35, .dspDuration = 0.0, .maxStepWidth = 0.45},
-        Case{.sspDuration = 0.35, .dspDuration = 0.05, .maxStepWidth = 0.45},
-        Case{.sspDuration = 0.5, .dspDuration = 0.05, .maxStepWidth = 0.45},
-        Case{.sspDuration = 0.25, .dspDuration = 0.05, .maxStepWidth = 0.35}}) {
+  for (const Case& testCase : {Case{.sspDuration = 0.25,
+                                    .dspDuration = 0.05,
+                                    .maxPosLfootRtRfootEwrtHeadingY = 0.45},
+                               Case{.sspDuration = 0.35,
+                                    .dspDuration = 0.0,
+                                    .maxPosLfootRtRfootEwrtHeadingY = 0.45},
+                               Case{.sspDuration = 0.35,
+                                    .dspDuration = 0.05,
+                                    .maxPosLfootRtRfootEwrtHeadingY = 0.45},
+                               Case{.sspDuration = 0.5,
+                                    .dspDuration = 0.05,
+                                    .maxPosLfootRtRfootEwrtHeadingY = 0.45},
+                               Case{.sspDuration = 0.25,
+                                    .dspDuration = 0.05,
+                                    .maxPosLfootRtRfootEwrtHeadingY = 0.35}}) {
     ContactPlanningConfig config = makeConfig();
     config.hlip.sspDuration = testCase.sspDuration;
     config.hlip.dspDuration = testCase.dspDuration;
-    config.hlip.maxStepWidth = testCase.maxStepWidth;
+    config.hlip.maxPosLfootRtRfootEwrtHeadingY =
+        testCase.maxPosLfootRtRfootEwrtHeadingY;
     HUMANOID_ASSERT_OK_AND_ASSIGN(
         const std::string summary,
         HlipContactPlanner::formulationSummary(config));
     HUMANOID_ASSERT_OK_AND_ASSIGN(
         const scalar_t startUpStep,
         HlipContactPlanner::startUpLateralStep(config));
-    const bool fits = startUpStep <= config.hlip.maxStepWidth;
+    const bool fits = startUpStep <= config.hlip.maxPosLfootRtRfootEwrtHeadingY;
     const StartUpRollOut planned = rollOutTheStartUp(config, /*numSteps=*/12);
     const bool settles =
-        std::abs(planned.widths.back() - config.hlip.stepWidth) < 1.0e-3 &&
+        std::abs(planned.widths.back() -
+                 config.hlip.nomPosLfootRtRfootEwrtHeadingY) < 1.0e-3 &&
         std::abs(planned.widths[planned.widths.size() - 2] -
-                 config.hlip.stepWidth) < 1.0e-3;
-    const std::string label =
-        absl::StrCat("ssp ", testCase.sspDuration, " dsp ",
-                     testCase.dspDuration, " max ", testCase.maxStepWidth);
+                 config.hlip.nomPosLfootRtRfootEwrtHeadingY) < 1.0e-3;
+    const std::string label = absl::StrCat(
+        "ssp ", testCase.sspDuration, " dsp ", testCase.dspDuration, " max ",
+        testCase.maxPosLfootRtRfootEwrtHeadingY);
     EXPECT_EQ(!absl::StrContains(summary, "DOES NOT FIT"), fits)
         << label << "\n"
         << summary;
@@ -1247,7 +1445,7 @@ TEST(HlipContactPlanner,
 
 TEST(HlipContactPlanner, clipsStepsToTheReachableRegion) {
   ContactPlanningConfig config = makeConfig();
-  config.hlip.maxStepLength = 0.2;
+  config.hlip.maxNormPosLfootRtRfootEwrtHeadingX = 0.2;
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const std::unique_ptr<HlipContactPlanner> planner,
       HlipContactPlanner::Create(config));
@@ -1255,21 +1453,27 @@ TEST(HlipContactPlanner, clipsStepsToTheReachableRegion) {
   ContactPlannerInput input = makeStandingInput(
       vector2_t(1.5, 0.0));  // far beyond what one step can deliver
   input.contacts[kContactLeftIndex] = false;
-  input.comVelocity = vector2_t(1.5, 0.0);
+  input.proxyLinvelComRtWorldEwrtWorldXy = vector2_t(1.5, 0.0);
   input.phaseElapsedTime = makeFeetArray(0.0);
 
   const ContactPlan plan = planner->plan(input);
   ASSERT_TRUE(plan.valid);
-  const std::optional<vector2_t> landing =
-      plan.footholdAtTime(kContactLeftIndex, config.hlip.sspDuration);
-  if (!landing.has_value()) GTEST_FAIL();
-  const scalar_t step =
-      landing->x() - input.footPositions[kContactRightIndex].x();
-  EXPECT_LE(step, config.hlip.maxStepLength + 1.0e-9);
-  const scalar_t width =
-      landing->y() - input.footPositions[kContactRightIndex].y();
-  EXPECT_GE(width, config.hlip.minStepWidth - 1.0e-9);
-  EXPECT_LE(width, config.hlip.maxStepWidth + 1.0e-9);
+  const std::optional<vector2_t> desPosLfootRtWorldEwrtWorldXy =
+      plan.getDesPosFootRtWorldEwrtWorldXy(kContactLeftIndex,
+                                           config.hlip.sspDuration);
+  if (!desPosLfootRtWorldEwrtWorldXy.has_value()) GTEST_FAIL();
+  const scalar_t desPosLfootRtRfootEwrtWorldX =
+      desPosLfootRtWorldEwrtWorldXy->x() -
+      input.posFeetRtWorldEwrtWorldXy[kContactRightIndex].x();
+  EXPECT_LE(desPosLfootRtRfootEwrtWorldX,
+            config.hlip.maxNormPosLfootRtRfootEwrtHeadingX + 1.0e-9);
+  const scalar_t desPosLfootRtRfootEwrtWorldY =
+      desPosLfootRtWorldEwrtWorldXy->y() -
+      input.posFeetRtWorldEwrtWorldXy[kContactRightIndex].y();
+  EXPECT_GE(desPosLfootRtRfootEwrtWorldY,
+            config.hlip.minPosLfootRtRfootEwrtHeadingY - 1.0e-9);
+  EXPECT_LE(desPosLfootRtRfootEwrtWorldY,
+            config.hlip.maxPosLfootRtRfootEwrtHeadingY + 1.0e-9);
 
   // And the clip is reported: a clipped step is no longer the deadbeat step,
   // which is what the counter and the log line exist to say.
@@ -1287,15 +1491,18 @@ TEST(HlipContactPlanner, clipsStepsToTheReachableRegion) {
   reachable.contacts[kContactLeftIndex] = false;
   reachable.phaseElapsedTime = makeFeetArray(0.0);
   const HlipModel::PeriodTwoOrbit lateralOrbit =
-      roomyPlanner->getModel().periodTwoOrbit(roomy.hlip.stepWidth,
-                                              -roomy.hlip.stepWidth);
+      roomyPlanner->getModel().periodTwoOrbit(
+          roomy.hlip.nomPosLfootRtRfootEwrtHeadingY,
+          -roomy.hlip.nomPosLfootRtRfootEwrtHeadingY);
   const HlipModel::State atLiftOffY = HlipModel::flowDoubleSupport(
-      HlipModel::applyStepTransition(lateralOrbit.beforeSecondStep,
-                                     -roomy.hlip.stepWidth),
+      HlipModel::applyStepTransition(
+          lateralOrbit.beforeSecondStep,
+          -roomy.hlip.nomPosLfootRtRfootEwrtHeadingY),
       roomy.hlip.dspDuration);
-  reachable.comPosition = reachable.footPositions[kContactRightIndex] +
-                          vector2_t(0.0, atLiftOffY(0));
-  reachable.comVelocity = vector2_t(0.3, atLiftOffY(1));
+  reachable.posComRtWorldEwrtWorldXy =
+      reachable.posFeetRtWorldEwrtWorldXy[kContactRightIndex] +
+      vector2_t(0.0, atLiftOffY(0));
+  reachable.proxyLinvelComRtWorldEwrtWorldXy = vector2_t(0.3, atLiftOffY(1));
   const ContactPlan reachablePlan = roomyPlanner->plan(reachable);
   EXPECT_EQ(reachablePlan.numClippedSteps, 0);
   EXPECT_EQ(reachablePlan.describe().find("CLIPPED-STEPS"), std::string::npos)
@@ -1304,47 +1511,249 @@ TEST(HlipContactPlanner, clipsStepsToTheReachableRegion) {
 
 TEST(HlipContactPlanner, isPlannedInTheHeadingFrame) {
   // Rotating the whole problem must rotate the whole plan: the geometry is
-  // planned in the frame of `yaw`, and that frame has to come from `yaw` even
-  // when the heading model is off and `heading` is therefore never filled.
+  // planned in the frame of `yawHeadingRtWorld`, and that frame has to come
+  // from `yawHeadingRtWorld` even when the heading model is off and
+  // `initYawHeadingRtWorld` is therefore never filled.
   const ContactPlanningConfig config = makeConfig();
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const std::unique_ptr<HlipContactPlanner> planner,
       HlipContactPlanner::Create(config));
   ASSERT_FALSE(config.usesHeadingModel());
 
-  const scalar_t yaw = 0.5 * M_PI;
-  const Eigen::Matrix<scalar_t, 2, 2> world_R_heading = rotationOf(yaw);
+  const scalar_t yawHeadingRtWorld = 0.5 * std::numbers::pi;
+  const Eigen::Matrix<scalar_t, 2, 2> rotmatHeadingRtWorld =
+      planarRotmatHeadingRtWorld(yawHeadingRtWorld);
 
   ContactPlannerInput straight = makeStandingInput(vector2_t(0.5, 0.1));
   straight.contacts[kContactLeftIndex] = false;
   straight.phaseElapsedTime = makeFeetArray(0.0);
-  straight.comVelocity = vector2_t(0.3, -0.05);
+  straight.proxyLinvelComRtWorldEwrtWorldXy = vector2_t(0.3, -0.05);
 
   ContactPlannerInput turned = straight;
-  turned.yaw = yaw;
-  turned.velocityCommand = world_R_heading * straight.velocityCommand;
-  turned.comVelocity = world_R_heading * straight.comVelocity;
-  turned.comPosition = world_R_heading * straight.comPosition;
+  turned.yawHeadingRtWorld = yawHeadingRtWorld;
+  turned.cmdLinvelBaseRtWorldEwrtWorldXy =
+      rotmatHeadingRtWorld * straight.cmdLinvelBaseRtWorldEwrtWorldXy;
+  turned.proxyLinvelComRtWorldEwrtWorldXy =
+      rotmatHeadingRtWorld * straight.proxyLinvelComRtWorldEwrtWorldXy;
+  turned.posComRtWorldEwrtWorldXy =
+      rotmatHeadingRtWorld * straight.posComRtWorldEwrtWorldXy;
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    turned.footPositions[foot] = world_R_heading * straight.footPositions[foot];
+    turned.posFeetRtWorldEwrtWorldXy[foot] =
+        rotmatHeadingRtWorld * straight.posFeetRtWorldEwrtWorldXy[foot];
   }
 
   const ContactPlan straightPlan = planner->plan(straight);
   const ContactPlan turnedPlan = planner->plan(turned);
   ASSERT_TRUE(straightPlan.valid && turnedPlan.valid);
-  ASSERT_EQ(straightPlan.footholds.size(), turnedPlan.footholds.size());
-  for (size_t node = 0; node < straightPlan.footholds.size(); ++node) {
+  ASSERT_EQ(straightPlan.desPosFeetRtWorldEwrtWorldXyTraj.size(),
+            turnedPlan.desPosFeetRtWorldEwrtWorldXyTraj.size());
+  for (size_t node = 0;
+       node < straightPlan.desPosFeetRtWorldEwrtWorldXyTraj.size(); ++node) {
     EXPECT_EQ(
         straightPlan.contacts[std::min(node, straightPlan.contacts.size() - 1)],
         turnedPlan.contacts[std::min(node, turnedPlan.contacts.size() - 1)]);
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
       const vector2_t expected =
-          world_R_heading * straightPlan.footholds[node][foot];
-      EXPECT_NEAR(turnedPlan.footholds[node][foot].x(), expected.x(), 1.0e-9)
+          rotmatHeadingRtWorld *
+          straightPlan.desPosFeetRtWorldEwrtWorldXyTraj[node][foot];
+      EXPECT_NEAR(turnedPlan.desPosFeetRtWorldEwrtWorldXyTraj[node][foot].x(),
+                  expected.x(), 1.0e-9)
           << "node " << node << " foot " << foot;
-      EXPECT_NEAR(turnedPlan.footholds[node][foot].y(), expected.y(), 1.0e-9)
+      EXPECT_NEAR(turnedPlan.desPosFeetRtWorldEwrtWorldXyTraj[node][foot].y(),
+                  expected.y(), 1.0e-9)
           << "node " << node << " foot " << foot;
     }
+  }
+}
+
+/** A walk that turns at kTurnCmdRateYawBaseRtWorld without the heading model,
+ * planned from a snapshot at yaw kTurnYawHeadingRtWorld, and the first swing
+ * of that plan. */
+struct TurningWalk {
+  ContactPlannerInput input;
+  ContactPlan plan;
+  scalar_t alpha = 0.0;
+  size_t foot = 0;
+  SwingWindow swing;
+};
+
+constexpr scalar_t kTurnYawHeadingRtWorld = 0.3;      // [rad]
+constexpr scalar_t kTurnCmdRateYawBaseRtWorld = 1.5;  // [rad/s]
+
+TurningWalk planTurningWalk(const ContactPlanningConfig& config) {
+  const std::unique_ptr<HlipContactPlanner> planner = createPlanner(config);
+  TurningWalk walk;
+  walk.input = makeStandingInput(
+      planarRotmatHeadingRtWorld(kTurnYawHeadingRtWorld) * vector2_t(0.5, 0.0));
+  walk.input.yawHeadingRtWorld = kTurnYawHeadingRtWorld;
+  walk.input.cmdRateYawBaseRtWorld = kTurnCmdRateYawBaseRtWorld;
+  walk.alpha = planner->blendWeight(walk.input);
+  walk.plan = planner->plan(walk.input);
+  const ModeSchedule schedule = walk.plan.toModeSchedule();
+  bool found = false;
+  for (const scalar_t eventTime : schedule.eventTimes) {
+    for (size_t foot = 0; foot < kNumContacts && !found; ++foot) {
+      const std::optional<SwingWindow> swing =
+          swingPhaseAtTime(schedule, foot, eventTime + 1.0e-3);
+      if (!swing.has_value()) continue;
+      walk.foot = foot;
+      walk.swing = *swing;
+      found = true;
+    }
+    if (found) break;
+  }
+  EXPECT_TRUE(found) << "the turning walk must swing a foot";
+  return walk;
+}
+
+/** The heading the H-LIP planned a quantity at `time` in: the snapshot yaw
+ * turned by the blended command. */
+scalar_t plannedYawHeadingRtWorld(const TurningWalk& walk, scalar_t time) {
+  return walk.input.yawHeadingRtWorld + walk.alpha *
+                                            walk.input.cmdRateYawBaseRtWorld *
+                                            (time - walk.input.time);
+}
+
+/** A context of `walk` at `time`: the NMPC predicted the plan's own reduced
+ * model, and the robot measures it pushed by the given offsets. */
+ExecutionContext makePushedContext(
+    const ContactPlanningConfig& config,
+    const TurningWalk& walk,
+    scalar_t time,
+    const vector2_t& errPosComRtWorldEwrtWorldXy,
+    const vector2_t& errLinvelComRtWorldEwrtWorldXy) {
+  ExecutionContext ctx(config);
+  ctx.time = time;
+  ctx.activePlan = &walk.plan;
+  ctx.hasPredictedComState = true;
+  ctx.totalMass = 1.0;
+  const std::optional<LipState> predicted =
+      lipReferenceState(walk.plan, config.omega(), time);
+  EXPECT_TRUE(predicted.has_value());
+  if (!predicted.has_value()) return ctx;
+  ctx.predictedPosComRtWorldEwrtWorldXy = predicted->posComRtWorldEwrtWorldXy;
+  ctx.predictedProxyLinvelComRtWorldEwrtWorldXy =
+      predicted->linvelComRtWorldEwrtWorldXy;
+  ctx.posComRtWorldEwrtWorldXy =
+      predicted->posComRtWorldEwrtWorldXy + errPosComRtWorldEwrtWorldXy;
+  ctx.proxyLinvelComRtWorldEwrtWorldXy =
+      predicted->linvelComRtWorldEwrtWorldXy + errLinvelComRtWorldEwrtWorldXy;
+  return ctx;
+}
+
+TEST(HlipContactPlanner,
+     dcmStepAdjustmentClipsInTheTurnedHeadingTheFootholdWasPlacedIn) {
+  // Without the heading model the H-LIP places every foothold in the snapshot
+  // heading turned by alpha * rate up to its touch-down. The rule clipped the
+  // adjusted foothold in the snapshot heading instead, a box rotated by the
+  // whole turn, and so cut a pushed step along the wrong axes.
+  ContactPlanningConfig config = makeConfig();
+  ASSERT_FALSE(config.usesHeadingModel());
+  config.reachability.maxNormPosFootRtComEwrtHeadingX = 0.05;
+  config.reachability.maxPosFootRtComEwrtHeadingY = 0.15;
+  config.dcmStepAdjustment.gain = 1.0;
+  config.dcmStepAdjustment.maxNormErrPosFootRtWorldEwrtWorldXy = 0.3;
+  const TurningWalk walk = planTurningWalk(config);
+  ASSERT_TRUE(walk.plan.valid);
+  ASSERT_GE(walk.alpha, 0.5);
+  const scalar_t time = walk.swing.liftOff + 0.05;
+  const ExecutionContext ctx = makePushedContext(
+      config, walk, time, vector2_t(0.04, 0.03), vector2_t(0.1, -0.05));
+
+  DcmStepAdjustmentRule rule;
+  rule.configure(config);
+  const feet_array_t<vector2_t> errPosFeetRtWorldEwrtWorldXy =
+      rule.correctFootholds(ctx, walk.plan.toModeSchedule());
+
+  const scalar_t omega = config.omega();
+  const vector2_t plannedDesPosFootRtWorldEwrtWorldXy =
+      valueOrFailure(walk.plan.getDesPosFootRtWorldEwrtWorldXy(
+          walk.foot, walk.swing.touchDown));
+  const vector2_t errPosDcmRtWorldEwrtWorldXy =
+      computePosDcmRtWorldEwrtWorldXy(ctx.posComRtWorldEwrtWorldXy,
+                                      ctx.proxyLinvelComRtWorldEwrtWorldXy,
+                                      omega) -
+      computePosDcmRtWorldEwrtWorldXy(
+          ctx.predictedPosComRtWorldEwrtWorldXy,
+          ctx.predictedProxyLinvelComRtWorldEwrtWorldXy, omega);
+  const vector2_t adjustedDesPosFootRtWorldEwrtWorldXy =
+      plannedDesPosFootRtWorldEwrtWorldXy +
+      computeErrPosFootRtWorldEwrtWorldXy(
+          errPosDcmRtWorldEwrtWorldXy, omega, walk.swing.touchDown - time,
+          config.dcmStepAdjustment.gain,
+          config.dcmStepAdjustment.maxNormErrPosFootRtWorldEwrtWorldXy);
+  const vector2_t touchdownPosComRtWorldEwrtWorldXy =
+      valueOrFailure(lipReferenceState(walk.plan, omega, walk.swing.touchDown))
+          .posComRtWorldEwrtWorldXy;
+  const scalar_t touchdownYawHeadingRtWorld =
+      plannedYawHeadingRtWorld(walk, walk.swing.touchDown);
+  ASSERT_GT(touchdownYawHeadingRtWorld - kTurnYawHeadingRtWorld, 0.3)
+      << "the plan must turn far enough before the touch-down to matter";
+  const vector2_t expected =
+      clipFootholdToReach(adjustedDesPosFootRtWorldEwrtWorldXy, walk.foot,
+                          touchdownPosComRtWorldEwrtWorldXy,
+                          touchdownYawHeadingRtWorld, config) -
+      plannedDesPosFootRtWorldEwrtWorldXy;
+  const vector2_t inSnapshotHeading =
+      clipFootholdToReach(adjustedDesPosFootRtWorldEwrtWorldXy, walk.foot,
+                          touchdownPosComRtWorldEwrtWorldXy,
+                          kTurnYawHeadingRtWorld, config) -
+      plannedDesPosFootRtWorldEwrtWorldXy;
+  ASSERT_GT((expected - inSnapshotHeading).norm(), 1.0e-2)
+      << "the clip must bind differently in the two headings";
+  EXPECT_TRUE(
+      errPosFeetRtWorldEwrtWorldXy[walk.foot].isApprox(expected, 1.0e-9))
+      << "got " << errPosFeetRtWorldEwrtWorldXy[walk.foot].transpose()
+      << ", expected " << expected.transpose() << ", snapshot-heading clip "
+      << inSnapshotHeading.transpose();
+}
+
+TEST(HlipContactPlanner,
+     energyCadenceModulationMeasuresTheEnergyAlongTheTurnedHeading) {
+  // The orbital energy is taken along the heading the plan has at the current
+  // time, which without the heading model is the snapshot heading turned by
+  // alpha * rate over the plan's age, not the snapshot heading itself.
+  ContactPlanningConfig config = makeConfig();
+  ASSERT_FALSE(config.usesHeadingModel());
+  config.energyCadenceModulation.gain = 1.0;
+  config.energyCadenceModulation.deadband = 0.0;
+  const TurningWalk walk = planTurningWalk(config);
+  ASSERT_TRUE(walk.plan.valid);
+  const scalar_t time = walk.swing.liftOff + 0.05;
+  ExecutionContext ctx = makePushedContext(
+      config, walk, time, vector2_t::Zero(), vector2_t(0.0, 0.4));
+
+  EnergyCadenceModulationRule rule;
+  rule.configure(config);
+  rule.beginCycle(ctx);
+
+  const scalar_t omega = config.omega();
+  const LipState reference =
+      valueOrFailure(lipReferenceState(walk.plan, omega, time));
+  const std::function<scalar_t(scalar_t)> shiftAlong =
+      [&](scalar_t yawHeadingRtWorld) {
+        const vector2_t dirHeadingEwrtWorldXy(std::cos(yawHeadingRtWorld),
+                                              std::sin(yawHeadingRtWorld));
+        const scalar_t measured = lipOrbitalEnergy(
+            dirHeadingEwrtWorldXy.dot(ctx.posComRtWorldEwrtWorldXy -
+                                      reference.posZmpRtWorldEwrtWorldXy),
+            dirHeadingEwrtWorldXy.dot(ctx.proxyLinvelComRtWorldEwrtWorldXy),
+            omega, ctx.totalMass);
+        const scalar_t predicted = lipOrbitalEnergy(
+            dirHeadingEwrtWorldXy.dot(ctx.predictedPosComRtWorldEwrtWorldXy -
+                                      reference.posZmpRtWorldEwrtWorldXy),
+            dirHeadingEwrtWorldXy.dot(
+                ctx.predictedProxyLinvelComRtWorldEwrtWorldXy),
+            omega, ctx.totalMass);
+        return -config.energyCadenceModulation.gain * (measured - predicted);
+      };
+  const scalar_t expected = shiftAlong(plannedYawHeadingRtWorld(walk, time));
+  const scalar_t inSnapshotHeading = shiftAlong(kTurnYawHeadingRtWorld);
+  ASSERT_GT(std::abs(expected - inSnapshotHeading), 1.0e-3)
+      << "the two headings must disagree for the test to tell them apart";
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    EXPECT_NEAR(ctx.cadenceTouchDownShift[foot], expected, 1.0e-9)
+        << "foot " << foot << ", snapshot-heading shift " << inSnapshotHeading;
   }
 }
 
@@ -1379,30 +1788,33 @@ TEST(HlipContactPlanner,
 TEST(HlipContactPlanner, aWalkThatIsReleasedComesBackToStanding) {
   // After any walk the robot must be able to stop. At a zero command the
   // deadbeat law regulates the lateral motion onto the period-two orbit at
-  // +-stepWidth, which crosses every touch-down at 0.165 m/s at this cadence -
-  // three times the blend's half point for the lateral center-of-mass velocity.
-  // The blend used to measure that sway raw, so alpha was one through every
-  // double support, the next lift-off was planned and committed at every
-  // touch-down, and a released stick left the robot marching in place for ever.
-  // The start-from-rest tests could not see it. Both phases the blend measures
-  // the sway in are exercised: the last cycles of a swing, whose plan decides
-  // whether the next lift-off is committed at the touch-down, and the standing
-  // double support after it, in which the harness only gradually slows the
-  // center of mass from the orbit's sway (ReducedModelLoop), so a blend that
-  // read that sway as motion would step again. Removing either phase from
-  // HlipContactPlanner::zeroCommandOrbitLateralVelocity fails this test.
+  // +-nomPosLfootRtRfootEwrtHeadingY, which crosses every touch-down at 0.165
+  // m/s at this cadence - three times the blend's half point for the lateral
+  // center-of-mass velocity. The blend used to measure that sway raw, so alpha
+  // was one through every double support, the next lift-off was planned and
+  // committed at every touch-down, and a released stick left the robot marching
+  // in place for ever. The start-from-rest tests could not see it. Both phases
+  // the blend measures the sway in are exercised: the last cycles of a swing,
+  // whose plan decides whether the next lift-off is committed at the
+  // touch-down, and the standing double support after it, in which the harness
+  // only gradually slows the center of mass from the orbit's sway
+  // (ReducedModelLoop), so a blend that read that sway as motion would step
+  // again. Removing either phase from
+  // HlipContactPlanner::computeZeroCommandOrbitLinvelComRtWorldEwrtHeadingY
+  // fails this test.
   const ContactPlanningConfig config = makeConfig();
   ReducedModelLoop loop(config, kMpcCyclePeriod);
-  loop.setCommand(vector2_t(0.3, 0.0));
+  loop.setCmdLinvelBaseRtWorldEwrtWorldXy(vector2_t(0.3, 0.0));
   while (loop.time() < 3.0) loop.cycle();
   int touchDowns = 0;
-  for (const ReducedModelLoop::Event& event : loop.events())
+  for (const ReducedModelLoop::Event& event : loop.events()) {
     touchDowns += event.touchDown ? 1 : 0;
+  }
   ASSERT_GE(touchDowns, 6) << "positive control: the robot must have been "
                               "walking before the release";
 
   const scalar_t releasedAt = loop.time();
-  loop.setCommand(vector2_t::Zero());
+  loop.setCmdLinvelBaseRtWorldEwrtWorldXy(vector2_t::Zero());
   std::optional<scalar_t> standingSince;
   while (loop.time() < releasedAt + 3.0) {
     const bool walking = loop.cycle();
@@ -1412,9 +1824,10 @@ TEST(HlipContactPlanner, aWalkThatIsReleasedComesBackToStanding) {
       standingSince = loop.time();
     }
   }
-  if (!standingSince.has_value())
+  if (!standingSince.has_value()) {
     GTEST_FAIL()
         << "the planner was still stepping 3 s after the stick was released";
+  }
   EXPECT_LT(*standingSince - releasedAt, 1.5)
       << "the robot must stand within a few steps of the release";
 
@@ -1443,11 +1856,12 @@ TEST(HlipContactPlanner,
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const HlipModel model,
       HlipModel::Create(config.hlip.sspDuration, config.hlip.dspDuration,
-                        config.pendulumHeight(), config.shared.gravity));
+                        config.getNomPosComRtFeetmeanEwrtWorldZ(),
+                        config.shared.gravity));
   const scalar_t stepDuration = model.stepDuration();
   for (const scalar_t cyclePeriod : {0.01, 0.0173, 0.02, 0.021, 0.025, 0.033}) {
     ReducedModelLoop loop(config, cyclePeriod);
-    loop.setCommand(vector2_t(0.3, 0.05));
+    loop.setCmdLinvelBaseRtWorldEwrtWorldXy(vector2_t(0.3, 0.05));
     while (loop.time() < 4.0) ASSERT_TRUE(loop.cycle());
 
     int checkedSteps = 0;
@@ -1485,29 +1899,38 @@ TEST(HlipContactPlanner,
       }
       // The deadbeat step of the planner's own law, computed here from the
       // executed pre-impact state.
-      const vector2_t command = event.alpha * event.command;
-      const scalar_t nominalX = command.x() * stepDuration;
+      const vector2_t cmdLinvelBaseRtWorldEwrtWorldXy =
+          event.alpha * event.cmdLinvelBaseRtWorldEwrtWorldXy;
+      const scalar_t nomErrPosFootRtWorldEwrtLocal =
+          cmdLinvelBaseRtWorldEwrtWorldXy.x() * stepDuration;
       const scalar_t expectedX = model.deadbeatStepLength(
-          event.preImpactX, model.periodOneOrbit(nominalX), nominalX);
-      const scalar_t leftStep =
-          config.hlip.stepWidth + command.y() * stepDuration;
-      const scalar_t rightStep =
-          -config.hlip.stepWidth + command.y() * stepDuration;
-      const HlipModel::PeriodTwoOrbit orbitY =
-          model.periodTwoOrbit(leftStep, rightStep);
+          event.preImpactX, model.periodOneOrbit(nomErrPosFootRtWorldEwrtLocal),
+          nomErrPosFootRtWorldEwrtLocal);
+      const scalar_t nomErrPosLfootRtWorldEwrtLocal =
+          config.hlip.nomPosLfootRtRfootEwrtHeadingY +
+          cmdLinvelBaseRtWorldEwrtWorldXy.y() * stepDuration;
+      const scalar_t nomErrPosRfootRtWorldEwrtLocal =
+          -config.hlip.nomPosLfootRtRfootEwrtHeadingY +
+          cmdLinvelBaseRtWorldEwrtWorldXy.y() * stepDuration;
+      const HlipModel::PeriodTwoOrbit orbitY = model.periodTwoOrbit(
+          nomErrPosLfootRtWorldEwrtLocal, nomErrPosRfootRtWorldEwrtLocal);
       const bool left = event.foot == kContactLeftIndex;
       const scalar_t expectedY = model.deadbeatStepLength(
           event.preImpactY,
           left ? orbitY.beforeFirstStep : orbitY.beforeSecondStep,
-          left ? leftStep : rightStep);
-      if (std::abs(expectedX) > config.hlip.maxStepLength ||
-          (left ? expectedY : -expectedY) < config.hlip.minStepWidth ||
-          (left ? expectedY : -expectedY) > config.hlip.maxStepWidth) {
+          left ? nomErrPosLfootRtWorldEwrtLocal
+               : nomErrPosRfootRtWorldEwrtLocal);
+      if (std::abs(expectedX) >
+              config.hlip.maxNormPosLfootRtRfootEwrtHeadingX ||
+          (left ? expectedY : -expectedY) <
+              config.hlip.minPosLfootRtRfootEwrtHeadingY ||
+          (left ? expectedY : -expectedY) >
+              config.hlip.maxPosLfootRtRfootEwrtHeadingY) {
         continue;  // clipped (the start-up): not the deadbeat step by design
       }
-      EXPECT_NEAR(event.step.x(), expectedX, 1.0e-9)
+      EXPECT_NEAR(event.errPosFootRtWorldEwrtWorldXy.x(), expectedX, 1.0e-9)
           << "period " << cyclePeriod << ", touch-down at " << event.time;
-      EXPECT_NEAR(event.step.y(), expectedY, 1.0e-9)
+      EXPECT_NEAR(event.errPosFootRtWorldEwrtWorldXy.y(), expectedY, 1.0e-9)
           << "period " << cyclePeriod << ", touch-down at " << event.time;
       ++checkedSteps;
     }
@@ -1529,7 +1952,7 @@ TEST(HlipContactPlanner,
   const ContactPlanningConfig config = makeConfig();
   ReducedModelLoop loop(config, kMpcCyclePeriod);
   loop.useNodeGridSchedule();
-  loop.setCommand(vector2_t(0.3, 0.05));
+  loop.setCmdLinvelBaseRtWorldEwrtWorldXy(vector2_t(0.3, 0.05));
   while (loop.time() < 4.0) ASSERT_TRUE(loop.cycle());
   scalar_t largestError = 0.0;
   int doubleSupports = 0;
@@ -1564,9 +1987,9 @@ TEST(HlipContactPlanner,
 TEST(HlipContactPlanner, theLastSwungFootOutlivesTheScheduleHistory) {
   const ContactPlanningConfig config = makeConfig();
   ReducedModelLoop loop(config, kMpcCyclePeriod);
-  loop.setCommand(vector2_t(0.3, 0.0));
+  loop.setCmdLinvelBaseRtWorldEwrtWorldXy(vector2_t(0.3, 0.0));
   while (loop.time() < 3.0) loop.cycle();
-  loop.setCommand(vector2_t::Zero());
+  loop.setCmdLinvelBaseRtWorldEwrtWorldXy(vector2_t::Zero());
   while (loop.time() < 9.0) loop.cycle();
 
   int lastLiftOffFoot = -1;
@@ -1591,8 +2014,9 @@ TEST(HlipContactPlanner, theLastSwungFootOutlivesTheScheduleHistory) {
   EXPECT_EQ(input.lastSwungFoot, lastLiftOffFoot);
   // And with it the zero-command orbit the blend reads the lateral velocity
   // against while standing.
-  EXPECT_TRUE(
-      loop.planner().zeroCommandOrbitLateralVelocity(input).has_value());
+  EXPECT_TRUE(loop.planner()
+                  .computeZeroCommandOrbitLinvelComRtWorldEwrtHeadingY(input)
+                  .has_value());
   // The next walk starts with the other foot.
   EXPECT_EQ(static_cast<int>(HlipContactPlanner::nextSwingFoot(input)),
             1 - lastLiftOffFoot);
@@ -1621,15 +2045,15 @@ TEST(HlipContactPlanner, theLiftOffHistoryForgetsTheFutureAfterAReset) {
 /**
  * A plan records the pendulum it was made on (ContactPlan::omega): the terminal
  * DCM cost takes the plan's DCM, and the robot's, with that omega, so that a
- * reload of shared.comHeight cannot re-interpret a plan already made. And a
- * configuration the H-LIP cannot run is refused by its key, keeping the running
- * one: the model CHECK-fails on it, which on the planner's worker thread used
- * to take the controller down.
+ * reload of shared.nomPosComRtFeetmeanEwrtWorldZ cannot re-interpret a plan
+ * already made. And a configuration the H-LIP cannot run is refused by its key,
+ * keeping the running one: the model CHECK-fails on it, which on the planner's
+ * worker thread used to take the controller down.
  */
 TEST(HlipContactPlanner,
      aPlanCarriesItsPendulumAndARefusedReloadKeepsTheRunningConfiguration) {
   ContactPlanningConfig config = makeConfig();
-  config.shared.comHeight = 1.05;
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ = 1.05;
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const std::unique_ptr<HlipContactPlanner> planner,
       HlipContactPlanner::Create(config));
@@ -1641,7 +2065,7 @@ TEST(HlipContactPlanner,
   // A reload that moves the pendulum: the next plan is made, and recorded, on
   // the new one.
   ContactPlanningConfig lower = config;
-  lower.shared.comHeight = 0.8;
+  lower.shared.nomPosComRtFeetmeanEwrtWorldZ = 0.8;
   ASSERT_EQ(planner->setConfig(lower), absl::OkStatus());
   const scalar_t lowerOmega = std::sqrt(lower.shared.gravity / 0.8);
   ASSERT_GT(std::abs(lowerOmega - plan.omega), 0.3)
@@ -1650,12 +2074,13 @@ TEST(HlipContactPlanner,
               lowerOmega, 1.0e-12);
 
   ContactPlanningConfig broken = lower;
-  broken.shared.comHeight = -1.0;
+  broken.shared.nomPosComRtFeetmeanEwrtWorldZ = -1.0;
   const absl::Status refused = planner->setConfig(broken);
   EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(refused.message(), "shared.com_height"))
+  EXPECT_TRUE(absl::StrContains(refused.message(),
+                                "shared.nom_pos_com_rt_feetmean_ewrt_world_z"))
       << refused;
-  EXPECT_DOUBLE_EQ(planner->getConfig().pendulumHeight(), 0.8)
+  EXPECT_DOUBLE_EQ(planner->getConfig().getNomPosComRtFeetmeanEwrtWorldZ(), 0.8)
       << "a refused reload must keep the running configuration";
   EXPECT_NEAR(planner->getModel().naturalFrequency(), lowerOmega, 1.0e-12);
   EXPECT_NEAR(planner->plan(makeStandingInput(vector2_t::Zero())).omega,

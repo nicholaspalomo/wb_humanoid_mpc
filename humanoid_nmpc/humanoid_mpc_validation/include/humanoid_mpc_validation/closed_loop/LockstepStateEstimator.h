@@ -46,9 +46,9 @@ namespace ocs2::humanoid::validation {
 
 /**
  * Returns the context the robot process builds its state estimator from
- * (RobotProcess::Create()): the URDF `urdfFile`, the MPC's contact frames and
- * their parent joints of `modelSettings` (as the robot binaries hand them to
- * the backend options), the robot `description`, which is retained in the
+ * (RobotProcess::Create()): the URDF `urdfFile`, the contact points of
+ * `modelSettings` (stateEstimatorContacts(), as robotProcessConfig() hands them
+ * to the robot process), the robot `description`, which is retained in the
  * result and must outlive every estimator built from it, and the `kalman` noise
  * model of `settings`.
  */

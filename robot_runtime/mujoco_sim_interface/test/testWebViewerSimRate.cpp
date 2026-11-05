@@ -240,9 +240,10 @@ std::vector<int> fourOrMoreAllowedCores() {
 // the 16 the partitions name), the browser on the viewer's.
 TEST(WebViewerSimRate, TheWebViewerOnCoresOfItsOwnDoesNotDelayThePhysics) {
   const std::vector<int> allowed = fourOrMoreAllowedCores();
-  if (allowed.empty())
+  if (allowed.empty()) {
     GTEST_SKIP()
         << "needs 4 allowed cores (physics and viewer on disjoint pairs)";
+  }
   const std::vector<int> viewerCores = {allowed[allowed.size() - 2],
                                         allowed[allowed.size() - 1]};
   expectTheWebViewerDoesNotDelayThePhysics(
@@ -254,9 +255,10 @@ TEST(WebViewerSimRate, TheWebViewerOnCoresOfItsOwnDoesNotDelayThePhysics) {
 // 8 to 16 cores: the viewer on the physics' two (or four) simulation cores.
 TEST(WebViewerSimRate, TheWebViewerOnThePhysicsCoresDoesNotDelayThePhysics) {
   const std::vector<int> allowed = fourOrMoreAllowedCores();
-  if (allowed.empty())
+  if (allowed.empty()) {
     GTEST_SKIP() << "needs 4 allowed cores (physics and viewer on a pair, the "
                     "browser on another)";
+  }
   const std::vector<int> physicsCores = {allowed[0], allowed[1]};
   expectTheWebViewerDoesNotDelayThePhysics(
       {.physicsCores = physicsCores,
@@ -268,9 +270,10 @@ TEST(WebViewerSimRate, TheWebViewerOnThePhysicsCoresDoesNotDelayThePhysics) {
 // 4 to 7 cores: the viewer on the physics' one simulation core.
 TEST(WebViewerSimRate, TheWebViewerOnThePhysicsCoreDoesNotDelayThePhysics) {
   const std::vector<int> allowed = fourOrMoreAllowedCores();
-  if (allowed.empty())
+  if (allowed.empty()) {
     GTEST_SKIP() << "needs 4 allowed cores (physics and viewer on one, the "
                     "browser on two others)";
+  }
   expectTheWebViewerDoesNotDelayThePhysics(
       {.physicsCores = {allowed[0]},
        .viewerCores = {allowed[0]},

@@ -33,9 +33,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 
+#include "humanoid_common_mpc/locomotion_heuristics/BasePoseHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
+#include "humanoid_common_mpc/locomotion_heuristics/WrenchHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/base_pose/HeightCompensationHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/base_pose/OrientationCompensationHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/base_pose/PeriodicOrientationHeuristic.h"
@@ -70,12 +76,15 @@ absl::StatusOr<std::unique_ptr<BasePoseHeuristic>>
 LocomotionHeuristicFactory::makeBasePoseHeuristic(absl::string_view name) {
   const std::string canonical =
       canonicalHeuristicName(HeuristicKind::kBasePose, name);
-  if (canonical == heuristic::kOrientationCompensation)
+  if (canonical == heuristic::kOrientationCompensationName) {
     return std::make_unique<OrientationCompensationHeuristic>();
-  if (canonical == heuristic::kPeriodicOrientation)
+  }
+  if (canonical == heuristic::kPeriodicOrientationName) {
     return std::make_unique<PeriodicOrientationHeuristic>();
-  if (canonical == heuristic::kHeightCompensation)
+  }
+  if (canonical == heuristic::kHeightCompensation) {
     return std::make_unique<HeightCompensationHeuristic>();
+  }
   return unknownHeuristic(HeuristicKind::kBasePose, name);
 }
 
@@ -83,16 +92,21 @@ absl::StatusOr<std::unique_ptr<FootholdHeuristic>>
 LocomotionHeuristicFactory::makeFootholdHeuristic(absl::string_view name) {
   const std::string canonical =
       canonicalHeuristicName(HeuristicKind::kFoothold, name);
-  if (canonical == heuristic::kHipCenteredStepping)
+  if (canonical == heuristic::kHipCenteredStepping) {
     return std::make_unique<HipCenteredSteppingHeuristic>();
-  if (canonical == heuristic::kCapturePoint)
+  }
+  if (canonical == heuristic::kCapturePoint) {
     return std::make_unique<CapturePointHeuristic>();
-  if (canonical == heuristic::kTranslationalStepping)
+  }
+  if (canonical == heuristic::kTranslationalStepping) {
     return std::make_unique<TranslationalSteppingHeuristic>();
-  if (canonical == heuristic::kInPlaceTurning)
+  }
+  if (canonical == heuristic::kInPlaceTurning) {
     return std::make_unique<InPlaceTurningHeuristic>();
-  if (canonical == heuristic::kHighSpeedTurning)
+  }
+  if (canonical == heuristic::kHighSpeedTurning) {
     return std::make_unique<HighSpeedTurningHeuristic>();
+  }
   return unknownHeuristic(HeuristicKind::kFoothold, name);
 }
 
@@ -100,10 +114,12 @@ absl::StatusOr<std::unique_ptr<WrenchHeuristic>>
 LocomotionHeuristicFactory::makeWrenchHeuristic(absl::string_view name) {
   const std::string canonical =
       canonicalHeuristicName(HeuristicKind::kWrench, name);
-  if (canonical == heuristic::kImpulseScaling)
+  if (canonical == heuristic::kImpulseScaling) {
     return std::make_unique<ImpulseScalingHeuristic>();
-  if (canonical == heuristic::kCentripetalAcceleration)
+  }
+  if (canonical == heuristic::kCentripetalAccelerationName) {
     return std::make_unique<CentripetalAccelerationHeuristic>();
+  }
   return unknownHeuristic(HeuristicKind::kWrench, name);
 }
 // clang-format off

@@ -50,8 +50,8 @@ THE THREE GROUPS IT PRINTS.
   * Derived in closed form, no fitting: `capture_point`, `high_speed_turning`, `hip_centered_stepping`,
     `impulse_scaling`, `centripetal_acceleration`, and the clamps. These follow from geometry, from the gait, or from
     a textbook expression, and this script is the authority for them.
-  * Sized from the command limits: `orientation_compensation.pitch_per_forward_velocity`,
-    `height_compensation.height_per_speed`, `translational_stepping`, `in_place_turning`. These depend on a design
+  * Sized from the command limits: `orientation_compensation_parameters.pitch_per_forward_velocity_gain`,
+    `height_compensation.height_per_speed_gain`, `translational_stepping`, `in_place_turning`. These depend on a design
     choice (how much lean, how much crouch), so the script takes it from an explicit, printed assumption.
   * Genuinely fitted, and left at zero: the rest of Table C.2. They are what Bledt's extraction framework produces
     from data (chapter 4), and a number invented here would be a guess wearing a derivation's clothes.
@@ -123,12 +123,12 @@ GAIT_FILE = "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto"
 REQUIRED_COMMAND_LIMITS = (
     "cmd_max_linvel_base_rt_world_ewrt_heading_x",
     "cmd_max_angvel_base_rt_world_ewrt_world_z",
-    "nom_pos_base_rt_world_ewrt_world_z",
+    "nom_pos_base_rt_surface_ewrt_world_z",
 )
 FOOT_SEPARATION_DEFAULTS = {
-    "max_step_length": 0.5,
-    "min_step_width": 0.15,
-    "max_step_width": 0.45,
+    "max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x": 0.5,
+    "min_pos_lfoot_rt_rfoot_ewrt_heading_y": 0.15,
+    "max_pos_lfoot_rt_rfoot_ewrt_heading_y": 0.45,
 }
 HLIP_STEP_WIDTH_DEFAULT = 0.25
 NOMINAL_FOOTHOLD_STEP_WIDTH_DEFAULT = 0.0
@@ -179,25 +179,27 @@ RETIRED_DCM_TERMINAL_COST_KEY = "use_dcm_terminal_cost"
 # first thing anyone should disagree with.
 # ---------------------------------------------------------------------------------------------------------------
 
-#: [rad] How far the base pitches into the command at the maximum forward stick. A few degrees carries the center of
-#: mass towards the leading edge of the support (dissertation section 4.3) and keeps the body close to level, which on
-#: Bledt's model was also what kept its small-roll-and-pitch approximation valid; the control model here carries the
-#: full base rotation as a quaternion and makes no such approximation.
-PITCH_AT_MAX_FORWARD_SPEED = math.radians(2.8)
+#: [rad] How far the base pitches into the command at the maximum forward stick,
+#: cmd_max_linvel_base_rt_world_ewrt_heading_x. A few degrees carries the center of mass towards the leading edge of
+#: the support (dissertation section 4.3) and keeps the body close to level, which on Bledt's model was also what kept
+#: its small-roll-and-pitch approximation valid; the control model here carries the full base rotation as a quaternion
+#: and makes no such approximation.
+DES_ERR_EULERZYX_BASE_RT_WORLD_PITCH = math.radians(2.8)
 
-#: [m] How far the base is lowered at the maximum forward stick. Buys the swing leg vertical room inside the same
-#: joint range, and costs knee torque headroom.
-CROUCH_AT_MAX_FORWARD_SPEED = 0.03
+#: [m] How far the base is lowered at the maximum forward stick, cmd_max_linvel_base_rt_world_ewrt_heading_x: the
+#: nominal minus the desired height, so positive lowers the base (the opposite sign of the pitch lean above, which is
+#: desired minus nominal). Buys the swing leg vertical room inside the same joint range, and costs knee torque headroom.
+DES_ERR_POS_BASE_RT_SURFACE_EWRT_WORLD_Z = 0.03
 
 #: [rad] Pelvic obliquity of the periodic roll: the stance-side hip rises, the swing-side hip drops. Human gait runs
 #: 4-8 degrees; this is deliberately conservative.
-PELVIC_OBLIQUITY = math.radians(1.7)
+AMPLITUDE_EULERZYX_BASE_RT_WORLD_ROLL = math.radians(1.7)
 
-#: [rad] The clamp on each of the roll and pitch the base-pose reference may ask for (orientation_compensation's
-#: maximum_tilt): 8.6 degrees, three times the lean at full stick, so the clamp stays off the derived lean and bounds
+#: [rad] The clamp on each of the roll and pitch the base-pose reference may ask for (orientation_compensation_parameters'
+#: max_offset_eulerzyx_base_rt_world): 8.6 degrees, three times the lean at full stick, so the clamp stays off the derived lean and bounds
 #: only what a stick the operator has not rate limited, or a fitted coefficient, could otherwise ask a walking base to
 #: hold.
-MAXIMUM_TILT = math.radians(8.6)
+MAX_OFFSET_EULERZYX_BASE_RT_WORLD = math.radians(8.6)
 
 #: Fraction of one step along the heading the capture point may consume.
 CAPTURE_POINT_STEP_FRACTION = 0.4
@@ -216,14 +218,17 @@ class RobotGeometry:
     """What the URDF says, evaluated at the nominal standing posture of the task file's `initial_state`."""
 
     total_mass: float  # [kg]
-    com_height: float  # [m] center of mass above the mean foot height
-    hip_offset: list[tuple[float, float]] = dataclasses.field(
-        default_factory=list
-    )  # [m] (x, y) per foot, in the base frame
+    #: [m] center of mass above the mean foot height
+    pos_com_rt_feetmean_ewrt_world_z: float
+    #: [m] (x, y) of each foot's hip relative to the base, in the heading frame
+    pos_hips_rt_base_ewrt_heading_xy: list[tuple[float, float]] = (
+        dataclasses.field(default_factory=list)
+    )
     hip_joint_names: list[str] = dataclasses.field(default_factory=list)
-    #: [m] lateral distance between the CONTACT FRAMES at the nominal posture - the stance the robot actually stands
-    #: in, which is wider than the hip joints are apart wherever the legs splay.
-    nominal_foot_separation: float = 0.0
+    #: [m] lateral distance in the heading frame, the absolute value, between the first two CONTACT FRAMES at the
+    #: nominal posture (left first, as contact_parent_joint_names lists them) - the stance the robot actually stands in,
+    #: which is wider than the hip joints are apart wherever the legs splay.
+    nom_norm_pos_lfoot_rt_rfoot_ewrt_heading_y: float = 0.0
 
     @property
     def total_weight(self) -> float:
@@ -231,10 +236,12 @@ class RobotGeometry:
         return self.total_mass * GRAVITY
 
     @property
-    def hip_half_width(self) -> float:
-        """[m] The largest lateral offset of a hip from the base; 0 without hips."""
+    def max_norm_pos_hips_rt_base_ewrt_heading_y(self) -> float:
+        """[m] The largest lateral offset of a hip from the base, the absolute value; 0 without hips."""
         return (
-            max(abs(y) for _, y in self.hip_offset) if self.hip_offset else 0.0
+            max(abs(y) for _, y in self.pos_hips_rt_base_ewrt_heading_xy)
+            if self.pos_hips_rt_base_ewrt_heading_xy
+            else 0.0
         )
 
 
@@ -341,9 +348,10 @@ def derive_geometry(
 ) -> RobotGeometry:
     """The C++ deriveLocomotionHeuristicModelParameters(), in Python and against the same nominal state.
 
-    `com_height` is the C++ computeComHeightAboveFeet() at `initial_state`: the center of mass above the MEAN height of
-    the contact frames (the sole centers). It is the one pendulum length of this controller - a
-    `dcm_terminal_cost` or a contact_planning.textproto `shared` block without `com_height` resolves to it at start-up - and
+    `pos_com_rt_feetmean_ewrt_world_z` is the C++ computeProxyPosComRtFeetmeanEwrtWorldZ() at `initial_state`: the
+    center of mass above the MEAN height of the contact frames (the sole centers). It is the one pendulum length of this
+    controller - a `dcm_terminal_cost` or a contact_planning.textproto `shared` block without
+    `nom_pos_com_rt_feetmean_ewrt_world_z` resolves to it at start-up - and
     humanoid_centroidal_mpc:testNominalPendulum checks that every derived number a task file ships agrees with the C++
     side of it.
 
@@ -381,27 +389,47 @@ def derive_geometry(
     # names[0] is "universe" and names[1] the floating base, so the MPC joints start at 2.
     mpc_joints: list[str] = list(model.names[2:])
     initial_state = task.get("initial_state", {}) or {}
-    position = initial_state.get("pos_base_rt_world_ewrt_world", {}) or {}
-    orientation = initial_state.get("eulerzyx_base_rt_world", {}) or {}
+    pos_base_rt_world_ewrt_world = (
+        initial_state.get("pos_base_rt_world_ewrt_world", {}) or {}
+    )
+    eulerzyx_base_rt_world = (
+        initial_state.get("eulerzyx_base_rt_world", {}) or {}
+    )
     joint_positions = {
         str(entry.get("joint", "")): float(entry.get("value", 0.0))
         for entry in as_list(initial_state.get("joint_positions"))
     }
-    base_xy = np.array(
-        [float(position.get("x", 0.0)), float(position.get("y", 0.0))]
+    pos_base_rt_world_ewrt_world_xy = np.array(
+        [
+            float(pos_base_rt_world_ewrt_world.get("x", 0.0)),
+            float(pos_base_rt_world_ewrt_world.get("y", 0.0)),
+        ]
     )
-    yaw = float(orientation.get("yaw", 0.0))
+    eulerzyx_base_rt_world_yaw = float(eulerzyx_base_rt_world.get("yaw", 0.0))
 
     q = pin.neutral(model)
-    q[0:3] = np.array([base_xy[0], base_xy[1], float(position.get("z", 0.0))])
-    quaternion = pin.Quaternion(
+    q[0:3] = np.array(
+        [
+            pos_base_rt_world_ewrt_world_xy[0],
+            pos_base_rt_world_ewrt_world_xy[1],
+            float(pos_base_rt_world_ewrt_world.get("z", 0.0)),
+        ]
+    )
+    quat_base_rt_world = pin.Quaternion(
         pin.rpy.rpyToMatrix(
-            float(orientation.get("roll", 0.0)),
-            float(orientation.get("pitch", 0.0)),
-            yaw,
+            float(eulerzyx_base_rt_world.get("roll", 0.0)),
+            float(eulerzyx_base_rt_world.get("pitch", 0.0)),
+            eulerzyx_base_rt_world_yaw,
         )
     )
-    q[3:7] = np.array([quaternion.x, quaternion.y, quaternion.z, quaternion.w])
+    q[3:7] = np.array(
+        [
+            quat_base_rt_world.x,
+            quat_base_rt_world.y,
+            quat_base_rt_world.z,
+            quat_base_rt_world.w,
+        ]
+    )
     for name in mpc_joints:
         joint = model.getJointId(name)
         if model.joints[joint].nq == 1:
@@ -414,51 +442,86 @@ def derive_geometry(
     # The contact frames are NOT in the URDF: createPinocchioModel() adds them at run time, one per entry of
     # `contact_parent_joint_names`, offset from that joint by `contacts.pos_contact_rt_link_ewrt_link`. So the foot position
     # is computed here the same way rather than looked up by name.
-    translation = (
-        task.get("contacts", {}).get("pos_contact_rt_link_ewrt_link", {}) or {}
-    )
-    contact_offset = np.array(
+    pos_contact_rt_link_ewrt_link = np.array(
         [
-            float(translation.get("x", 0.0)),
-            float(translation.get("y", 0.0)),
-            float(translation.get("z", 0.0)),
+            float(
+                (
+                    task.get("contacts", {}).get(
+                        "pos_contact_rt_link_ewrt_link", {}
+                    )
+                    or {}
+                ).get(axis, 0.0)
+            )
+            for axis in ("x", "y", "z")
         ]
     )
     parent_joints = as_list(model_settings.get("contact_parent_joint_names"))
-    foot_heights = [
-        float((data.oMi[model.getJointId(name)] * contact_offset)[2])
+    pos_feet_rt_world_ewrt_world_z = [
+        float(
+            (data.oMi[model.getJointId(name)] * pos_contact_rt_link_ewrt_link)[
+                2
+            ]
+        )
         for name in parent_joints
         if model.existJointName(name)
     ]
-    if not foot_heights:
+    if not pos_feet_rt_world_ewrt_world_z:
         raise SystemExit(
             "none of model_settings.contact_parent_joint_names %s exist in %s"
             % (parent_joints, os.path.basename(urdf_path))
         )
-    mean_foot_height = float(np.mean(foot_heights))
+    pos_feetmean_rt_world_ewrt_world_z = float(
+        np.mean(pos_feet_rt_world_ewrt_world_z)
+    )
 
-    foot_positions = [
-        np.array(data.oMi[model.getJointId(name)] * contact_offset)
+    pos_feet_rt_world_ewrt_world = [
+        np.array(
+            data.oMi[model.getJointId(name)] * pos_contact_rt_link_ewrt_link
+        )
         for name in parent_joints
         if model.existJointName(name)
     ]
+    # The heading frame is the base's twist heading (MpcRobotModelBase::getYawBaseRtWorld(), the C++
+    # deriveLocomotionHeuristicModelParameters' rotation), 2 atan2(q_z, q_w) wrapped; it equals the ZYX yaw only while
+    # the base is level.
+    yaw_base_rt_world = 2.0 * math.atan2(
+        quat_base_rt_world.z, quat_base_rt_world.w
+    )
+    yaw_base_rt_world = math.atan2(
+        math.sin(yaw_base_rt_world), math.cos(yaw_base_rt_world)
+    )
+    rotmat_world_rt_heading = np.array(
+        [
+            [
+                math.cos(yaw_base_rt_world),
+                math.sin(yaw_base_rt_world),
+            ],
+            [
+                -math.sin(yaw_base_rt_world),
+                math.cos(yaw_base_rt_world),
+            ],
+        ]
+    )
+    nom_norm_pos_lfoot_rt_rfoot_ewrt_heading_y = 0.0
+    if len(pos_feet_rt_world_ewrt_world) > 1:
+        nom_pos_lfoot_rt_rfoot_ewrt_heading_xy = rotmat_world_rt_heading @ (
+            pos_feet_rt_world_ewrt_world[0][0:2]
+            - pos_feet_rt_world_ewrt_world[1][0:2]
+        )
+        nom_norm_pos_lfoot_rt_rfoot_ewrt_heading_y = float(
+            abs(nom_pos_lfoot_rt_rfoot_ewrt_heading_xy[1])
+        )
     geometry = RobotGeometry(
         total_mass=float(pin.computeTotalMass(model)),
-        com_height=float(data.com[0][2] - mean_foot_height),
-        nominal_foot_separation=(
-            float(abs(foot_positions[0][1] - foot_positions[1][1]))
-            if len(foot_positions) > 1
-            else 0.0
+        pos_com_rt_feetmean_ewrt_world_z=float(
+            data.com[0][2] - pos_feetmean_rt_world_ewrt_world_z
         ),
+        nom_norm_pos_lfoot_rt_rfoot_ewrt_heading_y=nom_norm_pos_lfoot_rt_rfoot_ewrt_heading_y,
     )
 
-    base_position = base_xy
-    rotation = np.array(
-        [[math.cos(yaw), math.sin(yaw)], [-math.sin(yaw), math.cos(yaw)]]
-    )
     for name in parent_joints:
         if not model.existJointName(name):
-            geometry.hip_offset.append((0.0, 0.0))
+            geometry.pos_hips_rt_base_ewrt_heading_xy.append((0.0, 0.0))
             geometry.hip_joint_names.append("(not found: %s)" % name)
             continue
         joint = model.getJointId(name)
@@ -466,10 +529,16 @@ def derive_geometry(
             model.parents[joint] > 1
         ):  # stop at the first child of the floating base: the hip
             joint = model.parents[joint]
-        offset = rotation @ (
-            np.array(data.oMi[joint].translation[0:2]) - base_position
+        pos_hip_rt_base_ewrt_heading_xy = rotmat_world_rt_heading @ (
+            np.array(data.oMi[joint].translation[0:2])
+            - pos_base_rt_world_ewrt_world_xy
         )
-        geometry.hip_offset.append((float(offset[0]), float(offset[1])))
+        geometry.pos_hips_rt_base_ewrt_heading_xy.append(
+            (
+                float(pos_hip_rt_base_ewrt_heading_xy[0]),
+                float(pos_hip_rt_base_ewrt_heading_xy[1]),
+            )
+        )
         geometry.hip_joint_names.append(model.names[joint])
     return geometry
 
@@ -536,7 +605,7 @@ def smallest_duty_factor(gaits: dict) -> tuple[str, float]:
     return worst_name, worst
 
 
-def largest_force_ratio(gaits: dict) -> tuple[str, float]:
+def largest_weight_compensation_ratio(gaits: dict) -> tuple[str, float]:
     """The largest W/(F beta) that any shipped gait asks for, as a multiple of instantaneous weight compensation.
 
     With n feet down the reference is W/(F beta) per foot against a baseline of W/n, a ratio of n/(F beta) with F = 2,
@@ -573,25 +642,27 @@ def largest_force_ratio(gaits: dict) -> tuple[str, float]:
 # ---------------------------------------------------------------------------------------------------------------
 
 
-def nominal_stance_width(step_width: float, geometry: RobotGeometry) -> float:
+def nominal_stance_width(
+    nom_pos_lfoot_rt_rfoot_ewrt_heading_y: float, geometry: RobotGeometry
+) -> float:
     """[m] The lateral distance between the feet that the robot walks with, which the stance-sized coefficients keep.
 
-    The task file's nominal_foothold.step_width where it sets one; otherwise the stance of the nominal posture, the
-    contact frames' lateral distance, because a robot with no nominal step stands and walks in that one; otherwise the
-    hips' own width.
+    The task file's nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y where it sets one; otherwise the stance of
+    the nominal posture, the contact frames' lateral distance, because a robot with no nominal step stands and walks in
+    that one; otherwise the hips' own width.
 
     Args:
-      step_width: nominal_foothold.step_width [m], 0 when the file sets none.
+      nom_pos_lfoot_rt_rfoot_ewrt_heading_y: nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y [m], 0 when the file sets none.
       geometry: The robot's geometry at the nominal posture.
 
     Returns:
       The stance width, positive for any robot with hips or a stance.
     """
-    if step_width > 0.0:
-        return step_width
-    if geometry.nominal_foot_separation > 0.0:
-        return geometry.nominal_foot_separation
-    return 2.0 * geometry.hip_half_width
+    if nom_pos_lfoot_rt_rfoot_ewrt_heading_y > 0.0:
+        return nom_pos_lfoot_rt_rfoot_ewrt_heading_y
+    if geometry.nom_norm_pos_lfoot_rt_rfoot_ewrt_heading_y > 0.0:
+        return geometry.nom_norm_pos_lfoot_rt_rfoot_ewrt_heading_y
+    return 2.0 * geometry.max_norm_pos_hips_rt_base_ewrt_heading_y
 
 
 def friction_coefficient(task: dict) -> tuple[float, str | None]:
@@ -641,14 +712,17 @@ def derive_parameters(
                 "WARNING the reference file has no %s, which the MPC requires"
                 " (it refuses the file); a stand-in is assumed below" % field
             )
-    max_forward = float(
+    cmd_max_linvel_base_rt_world_ewrt_heading_x = float(
         limits.get("cmd_max_linvel_base_rt_world_ewrt_heading_x", 1.0)
     )
-    max_yaw_rate = float(
+    cmd_max_angvel_base_rt_world_ewrt_world_z = float(
         limits.get("cmd_max_angvel_base_rt_world_ewrt_world_z", 1.0)
     )
-    base_height = float(
-        limits.get("nom_pos_base_rt_world_ewrt_world_z", geometry.com_height)
+    # None when the reference file sets no nominal base height.
+    nom_pos_base_rt_surface_ewrt_world_z: float | None = (
+        float(limits["nom_pos_base_rt_surface_ewrt_world_z"])
+        if "nom_pos_base_rt_surface_ewrt_world_z" in limits
+        else None
     )
     friction, friction_source = friction_coefficient(task)
     if friction_source is None:
@@ -658,9 +732,10 @@ def derive_parameters(
             " coefficient to size the centripetal clamp against; %.2f is"
             " assumed." % friction
         )
-    step_width = float(
+    nom_pos_lfoot_rt_rfoot_ewrt_heading_y = float(
         task.get("nominal_foothold", {}).get(
-            "step_width", NOMINAL_FOOTHOLD_STEP_WIDTH_DEFAULT
+            "nom_pos_lfoot_rt_rfoot_ewrt_heading_y",
+            NOMINAL_FOOTHOLD_STEP_WIDTH_DEFAULT,
         )
     )
     foot_separation = planning.get("foot_separation", {}) or {}
@@ -671,58 +746,79 @@ def derive_parameters(
         if planning
         else dict.fromkeys(FOOT_SEPARATION_DEFAULTS, 0.0)
     )
-    # foot_separation.max_step_length, i.e. the REACHABILITY bound, not hlip.max_step_length which is the
-    # closed-form planner's own clip on the step it emits. With no planner running it is the reach that bounds
-    # how far a landing target may be pushed.
-    max_step_length = float(
+    # foot_separation.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x, i.e. the REACHABILITY bound, not the hlip block's
+    # field of that name, which is the closed-form planner's own clip on the step it emits. With no planner running it
+    # is the reach that bounds how far a landing target may be pushed.
+    max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x = float(
         foot_separation.get(
-            "max_step_length", separation_defaults["max_step_length"]
+            "max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x",
+            separation_defaults["max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x"],
         )
     )
-    max_step_width = float(
+    max_pos_lfoot_rt_rfoot_ewrt_heading_y = float(
         foot_separation.get(
-            "max_step_width", separation_defaults["max_step_width"]
+            "max_pos_lfoot_rt_rfoot_ewrt_heading_y",
+            separation_defaults["max_pos_lfoot_rt_rfoot_ewrt_heading_y"],
         )
     )
-    min_step_width = float(
+    min_pos_lfoot_rt_rfoot_ewrt_heading_y = float(
         foot_separation.get(
-            "min_step_width", separation_defaults["min_step_width"]
+            "min_pos_lfoot_rt_rfoot_ewrt_heading_y",
+            separation_defaults["min_pos_lfoot_rt_rfoot_ewrt_heading_y"],
         )
     )
-    planner_step_width = float(
+    hlip_nom_pos_lfoot_rt_rfoot_ewrt_heading_y = float(
         (planning.get("hlip", {}) or {}).get(
-            "step_width", HLIP_STEP_WIDTH_DEFAULT if planning else 0.0
+            "nom_pos_lfoot_rt_rfoot_ewrt_heading_y",
+            HLIP_STEP_WIDTH_DEFAULT if planning else 0.0,
         )
     )
 
     # THE PENDULUM LENGTH. Every linear-inverted-pendulum expression in this controller - the DCM terminal cost, the
     # contact planner, and the two heuristics below - uses ONE length, or they disagree about where the robot is
-    # heading. A com_height left out of either file (both shipped robots that have the blocks) is the model's, computed
-    # above the way the C++ computeComHeightAboveFeet() computes it; a positive value is an explicit override, and wins, and a
+    # heading. A nom_pos_com_rt_feetmean_ewrt_world_z left out of either file (both shipped robots that have the blocks)
+    # is the model's, computed
+    # above the way the C++ computeProxyPosComRtFeetmeanEwrtWorldZ() computes it; a positive value is an explicit override, and wins, and a
     # disagreement between it and the model is reported rather than silently resolved: it means the controller is
     # reasoning about a pendulum the robot does not have.
-    configured_lip = float(
-        task.get("dcm_terminal_cost", {}).get("com_height", 0.0)
-    ) or float((planning.get("shared", {}) or {}).get("com_height", 0.0))
-    lip_height = configured_lip if configured_lip > 0 else geometry.com_height
+    cfg_pos_com_rt_feetmean_ewrt_world_z = float(
+        task.get("dcm_terminal_cost", {}).get(
+            "nom_pos_com_rt_feetmean_ewrt_world_z", 0.0
+        )
+    ) or float(
+        (planning.get("shared", {}) or {}).get(
+            "nom_pos_com_rt_feetmean_ewrt_world_z", 0.0
+        )
+    )
+    lip_pos_com_rt_feetmean_ewrt_world_z = (
+        cfg_pos_com_rt_feetmean_ewrt_world_z
+        if cfg_pos_com_rt_feetmean_ewrt_world_z > 0
+        else geometry.pos_com_rt_feetmean_ewrt_world_z
+    )
     if (
-        configured_lip > 0
-        and abs(configured_lip - geometry.com_height)
-        > 0.05 * geometry.com_height
+        cfg_pos_com_rt_feetmean_ewrt_world_z > 0
+        and abs(
+            cfg_pos_com_rt_feetmean_ewrt_world_z
+            - geometry.pos_com_rt_feetmean_ewrt_world_z
+        )
+        > 0.05 * geometry.pos_com_rt_feetmean_ewrt_world_z
     ):
         notes.append(
             "WARNING the configured LIP height (%.4f m,"
-            " dcm_terminal_cost.com_height) and the model's center of mass"
+            " dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z) and the model's center of mass"
             " above the feet (%.4f m at initial_state) differ by %.0f%%. The"
             " configured one is used below so that the capture point, the DCM"
             " terminal cost and the contact planner agree, but one of the two"
             " is wrong."
             % (
-                configured_lip,
-                geometry.com_height,
+                cfg_pos_com_rt_feetmean_ewrt_world_z,
+                geometry.pos_com_rt_feetmean_ewrt_world_z,
                 100.0
-                * abs(configured_lip - geometry.com_height)
-                / geometry.com_height,
+                * abs(
+                    cfg_pos_com_rt_feetmean_ewrt_world_z
+                    - geometry.pos_com_rt_feetmean_ewrt_world_z
+                )
+                / geometry.pos_com_rt_feetmean_ewrt_world_z,
             )
         )
 
@@ -730,77 +826,105 @@ def derive_parameters(
     # a key this prints that the schema does not have would be refused when pasted into the task file.
     # LINT.IfChange(derived_heuristic_keys)
     # ---- base pose ----
-    pitch_per_speed = (
-        PITCH_AT_MAX_FORWARD_SPEED / max_forward if max_forward > 0 else 0.0
-    )
-    out["orientation_compensation"] = {
+    pitch_per_forward_velocity_gain = 0.0
+    if cmd_max_linvel_base_rt_world_ewrt_heading_x > 0:
+        pitch_per_forward_velocity_gain = (
+            DES_ERR_EULERZYX_BASE_RT_WORLD_PITCH
+            / cmd_max_linvel_base_rt_world_ewrt_heading_x
+        )
+    out["orientation_compensation_parameters"] = {
         # 0, and deliberately: at a CONSTANT sidestep velocity there is no net lateral force to lean against, and
         # what a biped's roll really does in single support is oscillate, which is periodic_orientation's job.
-        "roll_per_lateral_velocity": 0.0,
-        "roll_offset": 0.0,
-        "pitch_per_forward_velocity": round(pitch_per_speed, 4),
-        "pitch_offset": 0.0,
-        "maximum_tilt": round(MAXIMUM_TILT, 3),
+        "roll_per_lateral_velocity_gain": 0.0,
+        "offset_eulerzyx_base_rt_world_roll": 0.0,
+        "pitch_per_forward_velocity_gain": round(
+            pitch_per_forward_velocity_gain, 4
+        ),
+        "offset_eulerzyx_base_rt_world_pitch": 0.0,
+        "max_offset_eulerzyx_base_rt_world": round(
+            MAX_OFFSET_EULERZYX_BASE_RT_WORLD, 3
+        ),
     }
     notes.append(
-        "orientation_compensation.pitch_per_forward_velocity = %.1f deg / %.2f"
+        "orientation_compensation_parameters.pitch_per_forward_velocity_gain = %.1f deg / %.2f"
         " m/s = %.4f rad s/m  (POSITIVE is nose-down in this Euler-ZYX layout)"
         % (
-            math.degrees(PITCH_AT_MAX_FORWARD_SPEED),
-            max_forward,
-            pitch_per_speed,
+            math.degrees(DES_ERR_EULERZYX_BASE_RT_WORLD_PITCH),
+            cmd_max_linvel_base_rt_world_ewrt_heading_x,
+            pitch_per_forward_velocity_gain,
         )
     )
     notes.append(
-        "orientation_compensation.roll_per_lateral_velocity left at 0: no"
+        "orientation_compensation_parameters.roll_per_lateral_velocity_gain left at 0: no"
         " steady lateral lean to fit"
     )
 
-    out["periodic_orientation"] = {
-        "roll_amplitude": round(PELVIC_OBLIQUITY, 3),
+    out["periodic_orientation_parameters"] = {
+        "amplitude_eulerzyx_base_rt_world_roll": round(
+            AMPLITUDE_EULERZYX_BASE_RT_WORLD_ROLL, 3
+        ),
         "roll_phase_rate": round(2.0 * math.pi, 7),
         # Phase [0, 0.5) is LF = LEFT STANCE, so its midpoint is 0.25; a positive roll raises the left (stance) side;
         # and sin(2*pi*0.25 + 0) is its maximum. So offset 0 already drops the hip on the SWING side. Nothing to fit.
         "roll_phase_offset": 0.0,
         # 0: pitch oscillates once per STEP and where its extremum falls is a property of this robot's mass
         # distribution, not of the gait's geometry. A sinusoid at the wrong phase is worse than none.
-        "pitch_amplitude": 0.0,
+        "amplitude_eulerzyx_base_rt_world_pitch": 0.0,
         "pitch_phase_rate": round(4.0 * math.pi, 7),
         "pitch_phase_offset": 0.0,
     }
     notes.append(
-        "periodic_orientation.roll_amplitude = %.1f deg of pelvic obliquity;"
-        " phase 0 peaks at mid LEFT stance" % math.degrees(PELVIC_OBLIQUITY)
+        "periodic_orientation_parameters.amplitude_eulerzyx_base_rt_world_roll = %.1f deg of pelvic obliquity;"
+        " phase 0 peaks at mid LEFT stance"
+        % math.degrees(AMPLITUDE_EULERZYX_BASE_RT_WORLD_ROLL)
     )
     notes.append(
-        "periodic_orientation.pitch_amplitude left at 0: its phase needs data,"
+        "periodic_orientation_parameters.amplitude_eulerzyx_base_rt_world_pitch left at 0: its phase needs data,"
         " not arithmetic"
     )
 
-    crouch_per_speed = (
-        -CROUCH_AT_MAX_FORWARD_SPEED / max_forward if max_forward > 0 else 0.0
-    )
+    height_per_speed_gain = 0.0
+    if cmd_max_linvel_base_rt_world_ewrt_heading_x > 0:
+        height_per_speed_gain = (
+            -DES_ERR_POS_BASE_RT_SURFACE_EWRT_WORLD_Z
+            / cmd_max_linvel_base_rt_world_ewrt_heading_x
+        )
+    # The height the crouch percentage is reported against: the reference file's nominal base height, or without one
+    # the CoM's height above the feet, a different quantity (the CoM, not the base, and above the feet rather than the
+    # ground) that is close enough for a percentage that is only reported.
+    if nom_pos_base_rt_surface_ewrt_world_z is not None:
+        crouch_percent_denominator = nom_pos_base_rt_surface_ewrt_world_z
+        crouch_percent_denominator_name = "nominal base height"
+    else:
+        crouch_percent_denominator = geometry.pos_com_rt_feetmean_ewrt_world_z
+        crouch_percent_denominator_name = (
+            "CoM height above the feet (no nominal base height)"
+        )
+    crouch_percent = 0.0
+    if crouch_percent_denominator > 0:
+        crouch_percent = (
+            100.0
+            * DES_ERR_POS_BASE_RT_SURFACE_EWRT_WORLD_Z
+            / crouch_percent_denominator
+        )
     out["height_compensation"] = {
-        "height_per_speed_squared": 0.0,
-        "height_per_speed": round(crouch_per_speed, 4),
-        "height_offset": 0.0,
-        "maximum_height_offset": round(
-            max(0.05, 1.5 * CROUCH_AT_MAX_FORWARD_SPEED), 3
+        "height_per_speed_squared_gain": 0.0,
+        "height_per_speed_gain": round(height_per_speed_gain, 4),
+        "offset_pos_base_rt_world_ewrt_world_z": 0.0,
+        "max_offset_pos_base_rt_world_ewrt_world_z": round(
+            max(0.05, 1.5 * DES_ERR_POS_BASE_RT_SURFACE_EWRT_WORLD_Z), 3
         ),
     }
     notes.append(
-        "height_compensation.height_per_speed = -%.3f m / %.2f m/s = %.4f "
-        " (%.1f%% of the %.4f m base height)"
+        "height_compensation.height_per_speed_gain = -%.3f m / %.2f m/s = %.4f "
+        " (%.1f%% of the %.4f m %s)"
         % (
-            CROUCH_AT_MAX_FORWARD_SPEED,
-            max_forward,
-            crouch_per_speed,
-            (
-                100.0 * CROUCH_AT_MAX_FORWARD_SPEED / base_height
-                if base_height > 0
-                else 0.0
-            ),
-            base_height,
+            DES_ERR_POS_BASE_RT_SURFACE_EWRT_WORLD_Z,
+            cmd_max_linvel_base_rt_world_ewrt_heading_x,
+            height_per_speed_gain,
+            crouch_percent,
+            crouch_percent_denominator,
+            crouch_percent_denominator_name,
         )
     )
 
@@ -808,121 +932,169 @@ def derive_parameters(
     # This heuristic REPLACES the step-width anchor, so the scale that changes nothing about the nominal geometry is
     # the one reproducing the stance the robot already walks with. Listing it at 1.0 would resize the stance the
     # moment it is switched on, which is a different gait rather than a correction.
-    hip_width = 2.0 * geometry.hip_half_width
-    stance_width = nominal_stance_width(step_width, geometry)
-    lateral_scale = (stance_width / hip_width) if hip_width > 0 else 1.0
+    # Twice the largest lateral hip offset from the base: the hips' lateral distance of a symmetric robot.
+    nom_norm_pos_lhip_rt_rhip_ewrt_heading_y = (
+        2.0 * geometry.max_norm_pos_hips_rt_base_ewrt_heading_y
+    )
+    stance_nom_pos_lfoot_rt_rfoot_ewrt_heading_y = nominal_stance_width(
+        nom_pos_lfoot_rt_rfoot_ewrt_heading_y, geometry
+    )
+    lateral_scale = 1.0
+    if nom_norm_pos_lhip_rt_rhip_ewrt_heading_y > 0:
+        lateral_scale = (
+            stance_nom_pos_lfoot_rt_rfoot_ewrt_heading_y
+            / nom_norm_pos_lhip_rt_rhip_ewrt_heading_y
+        )
     out["hip_centered_stepping"] = {
         "lateral_scale": round(lateral_scale, 3),
         "longitudinal_scale": 1.0,
     }
-    if step_width > 0:
+    if nom_pos_lfoot_rt_rfoot_ewrt_heading_y > 0:
         lateral_scale_note = (
-            "hip_centered_stepping.lateral_scale = nominal_foothold.step_width"
+            "hip_centered_stepping.lateral_scale = nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y"
             " %.3f / hip width %.3f = %.3f%s"
         )
     else:
         lateral_scale_note = (
             "hip_centered_stepping.lateral_scale = nominal stance %.3f / hip"
-            " width %.3f = %.3f: nominal_foothold.step_width is 0, so the"
+            " width %.3f = %.3f: nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y is 0, so the"
             " stance to reproduce is the one the robot stands in%s"
         )
     planner_comparison = ""
-    if planner_step_width > 0 and hip_width > 0:
+    if (
+        hlip_nom_pos_lfoot_rt_rfoot_ewrt_heading_y > 0
+        and nom_norm_pos_lhip_rt_rhip_ewrt_heading_y > 0
+    ):
         planner_comparison = (
             "  (%.2f matches the %.3f m stance of the nominal posture, %.2f the"
             " planner's %.2f m orbit)"
             % (
-                geometry.nominal_foot_separation / hip_width,
-                geometry.nominal_foot_separation,
-                planner_step_width / hip_width,
-                planner_step_width,
+                geometry.nom_norm_pos_lfoot_rt_rfoot_ewrt_heading_y
+                / nom_norm_pos_lhip_rt_rhip_ewrt_heading_y,
+                geometry.nom_norm_pos_lfoot_rt_rfoot_ewrt_heading_y,
+                hlip_nom_pos_lfoot_rt_rfoot_ewrt_heading_y
+                / nom_norm_pos_lhip_rt_rhip_ewrt_heading_y,
+                hlip_nom_pos_lfoot_rt_rfoot_ewrt_heading_y,
             )
         )
     notes.append(
         lateral_scale_note
-        % (stance_width, hip_width, lateral_scale, planner_comparison)
+        % (
+            stance_nom_pos_lfoot_rt_rfoot_ewrt_heading_y,
+            nom_norm_pos_lhip_rt_rhip_ewrt_heading_y,
+            lateral_scale,
+            planner_comparison,
+        )
     )
-    if abs(geometry.hip_offset[0][0] if geometry.hip_offset else 0.0) < 1e-6:
+    if (
+        abs(
+            geometry.pos_hips_rt_base_ewrt_heading_xy[0][0]
+            if geometry.pos_hips_rt_base_ewrt_heading_xy
+            else 0.0
+        )
+        < 1e-6
+    ):
         notes.append(
             "hip_centered_stepping.longitudinal_scale is inert here: the hip"
             " joints sit at x = 0"
         )
 
-    # The lateral room is asymmetric: the shipped stance may already be AT max_step_width, in which case the only room
-    # is inward. Take the tighter of the two bounds so the clamp fits whichever way the step is pushed.
-    inward_room = (
-        max(step_width - min_step_width, 0.0) if step_width > 0 else 0.0
-    )
-    outward_room = (
-        max(max_step_width - step_width, 0.0) if step_width > 0 else 0.0
-    )
-    capture_clamp = (
-        CAPTURE_POINT_STEP_FRACTION * max_step_length
-        if max_step_length > 0
-        else 0.25
-    )
+    # The lateral room is asymmetric: the shipped stance may already be AT
+    # foot_separation.max_pos_lfoot_rt_rfoot_ewrt_heading_y, in which case the only room is inward. Take the tighter of
+    # the two bounds so the clamp fits whichever way the step is pushed. The inward room is the nominal stance width
+    # minus its lower bound, the outward room its upper bound minus the nominal width [m].
+    inward_err_pos_lfoot_rt_rfoot_ewrt_heading_y = 0.0
+    outward_err_pos_lfoot_rt_rfoot_ewrt_heading_y = 0.0
+    if nom_pos_lfoot_rt_rfoot_ewrt_heading_y > 0:
+        inward_err_pos_lfoot_rt_rfoot_ewrt_heading_y = max(
+            nom_pos_lfoot_rt_rfoot_ewrt_heading_y
+            - min_pos_lfoot_rt_rfoot_ewrt_heading_y,
+            0.0,
+        )
+        outward_err_pos_lfoot_rt_rfoot_ewrt_heading_y = max(
+            max_pos_lfoot_rt_rfoot_ewrt_heading_y
+            - nom_pos_lfoot_rt_rfoot_ewrt_heading_y,
+            0.0,
+        )
+    max_norm_offset_pos_foot_rt_world_ewrt_world_xy = 0.25
+    if max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x > 0:
+        max_norm_offset_pos_foot_rt_world_ewrt_world_xy = (
+            CAPTURE_POINT_STEP_FRACTION
+            * max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x
+        )
     out["capture_point"] = {
         "gain": 1.0,
-        "com_height_override": round(lip_height, 4),
-        "maximum_offset": round(capture_clamp, 3),
+        "override_pos_com_rt_feetmean_ewrt_world_z": round(
+            lip_pos_com_rt_feetmean_ewrt_world_z, 4
+        ),
+        "max_norm_offset_pos_foot_rt_world_ewrt_world_xy": round(
+            max_norm_offset_pos_foot_rt_world_ewrt_world_xy, 3
+        ),
     }
     notes.append(
         "capture_point: omega = sqrt(%.2f / %.4f) = %.3f rad/s, so the offset"
         " is %.4f s per m/s of velocity error"
         % (
             GRAVITY,
-            lip_height,
-            math.sqrt(GRAVITY / lip_height),
-            math.sqrt(lip_height / GRAVITY),
+            lip_pos_com_rt_feetmean_ewrt_world_z,
+            math.sqrt(GRAVITY / lip_pos_com_rt_feetmean_ewrt_world_z),
+            math.sqrt(lip_pos_com_rt_feetmean_ewrt_world_z / GRAVITY),
         )
     )
-    if max_step_length > 0:
+    if max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x > 0:
         notes.append(
-            "capture_point.maximum_offset = %.0f%% of"
-            " foot_separation.max_step_length %.2f = %.3f m"
+            "capture_point.max_norm_offset_pos_foot_rt_world_ewrt_world_xy = %.0f%% of"
+            " foot_separation.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x %.2f = %.3f m"
             % (
                 100 * CAPTURE_POINT_STEP_FRACTION,
-                max_step_length,
-                capture_clamp,
+                max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x,
+                max_norm_offset_pos_foot_rt_world_ewrt_world_xy,
             )
         )
     else:
         notes.append(
-            "capture_point.maximum_offset = %.3f m, the fallback: there is no"
-            " contact_planning.textproto with a foot_separation.max_step_length"
+            "capture_point.max_norm_offset_pos_foot_rt_world_ewrt_world_xy = %.3f m, the fallback: there is no"
+            " contact_planning.textproto with a foot_separation.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x"
             " to take %.0f%% of"
-            % (capture_clamp, 100 * CAPTURE_POINT_STEP_FRACTION)
+            % (
+                max_norm_offset_pos_foot_rt_world_ewrt_world_xy,
+                100 * CAPTURE_POINT_STEP_FRACTION,
+            )
         )
-    if step_width > 0 and outward_room < capture_clamp:
+    if (
+        nom_pos_lfoot_rt_rfoot_ewrt_heading_y > 0
+        and outward_err_pos_lfoot_rt_rfoot_ewrt_heading_y
+        < max_norm_offset_pos_foot_rt_world_ewrt_world_xy
+    ):
         notes.append(
             "WARNING the lateral room is asymmetric: the %.2f m nominal stance"
-            " leaves %.3f m outward to max_step_width %.2f but %.3f m inward to"
-            " min_step_width %.2f, so a capture step pushed OUTWARD can exceed"
-            " the planner's own bound. Narrow nominal_foothold.step_width, or"
+            " leaves %.3f m outward to foot_separation.max_pos_lfoot_rt_rfoot_ewrt_heading_y %.2f but %.3f m"
+            " inward to foot_separation.min_pos_lfoot_rt_rfoot_ewrt_heading_y %.2f, so a capture step pushed OUTWARD can exceed"
+            " the planner's own bound. Narrow nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y, or"
             " accept that this clamp only fits inward."
             % (
-                step_width,
-                outward_room,
-                max_step_width,
-                inward_room,
-                min_step_width,
+                nom_pos_lfoot_rt_rfoot_ewrt_heading_y,
+                outward_err_pos_lfoot_rt_rfoot_ewrt_heading_y,
+                max_pos_lfoot_rt_rfoot_ewrt_heading_y,
+                inward_err_pos_lfoot_rt_rfoot_ewrt_heading_y,
+                min_pos_lfoot_rt_rfoot_ewrt_heading_y,
             )
         )
 
     # Raibert's rule: the foot lands half a stance of travel ahead of the hip it lands under. The foothold anchor is the
-    # base PREDICTED at touch-down (SwitchedModelReferenceManager::nominalFoothold), i.e. the hip at the moment of
+    # base PREDICTED at touch-down (SwitchedModelReferenceManager::getNomPosFootRtWorldEwrtWorldXy), i.e. the hip at the moment of
     # landing, so the lead is a1 = T_stance / 2. Expressed per unit of the stance the foot is about to begin - the
     # stance fraction, 1/2 - rather than as a constant, because the gait scheduler changes the stance duration with the
     # commanded speed (slow_walk ... run) and one constant is right in only one of those bands. Bledt's constant a1 is
     # left at zero.
     stance = cadence.duty_factor * cadence.stride_duration
     out["translational_stepping"] = {
-        "forward_per_forward_velocity": 0.0,
+        "forward_per_forward_velocity_gain": 0.0,
         "forward_stance_fraction": 0.5,
-        "forward_offset": 0.0,
-        "lateral_per_lateral_velocity": 0.0,
+        "offset_pos_foot_rt_world_ewrt_heading_x": 0.0,
+        "lateral_per_lateral_velocity_gain": 0.0,
         "lateral_stance_fraction": 0.5,
-        "lateral_offset": 0.0,
+        "offset_pos_foot_rt_world_ewrt_heading_y": 0.0,
     }
     notes.append(
         "translational_stepping stance fraction = 1/2 (Raibert): a1 = T_stance"
@@ -934,23 +1106,30 @@ def derive_parameters(
     # The same half-stance rule applied to the speed the HIP travels at rather than the body: a foot at lever arm r
     # from the center moves at r * psidot under a body yaw rate, so the lead is r * psidot * T_stance / 2, i.e. a
     # stance lever of r / 2 per unit of stance duration.
-    turn_radius = stance_width / 2.0
+    pos_lfoot_rt_feetmean_ewrt_heading_y = (
+        stance_nom_pos_lfoot_rt_rfoot_ewrt_heading_y / 2.0
+    )
     out["in_place_turning"] = {
         "forward_per_yaw_rate": 0.0,
-        "forward_stance_lever": round(turn_radius / 2.0, 4),
-        "forward_offset": 0.0,
+        "forward_stance_lever": round(
+            pos_lfoot_rt_feetmean_ewrt_heading_y / 2.0, 4
+        ),
+        "offset_pos_foot_rt_world_ewrt_heading_x": 0.0,
         "lateral_per_yaw_rate": 0.0,
-        "lateral_offset": 0.0,
+        "offset_pos_foot_rt_world_ewrt_heading_y": 0.0,
     }
     notes.append(
         "in_place_turning.forward_stance_lever = (lever r = %.3f m) / 2 = %.4f"
         " m/rad per second of stance, i.e. %.3f m per foot at the %.2f rad/s"
         " stick on `%s`"
         % (
-            turn_radius,
-            turn_radius / 2.0,
-            turn_radius / 2.0 * stance * max_yaw_rate,
-            max_yaw_rate,
+            pos_lfoot_rt_feetmean_ewrt_heading_y,
+            pos_lfoot_rt_feetmean_ewrt_heading_y / 2.0,
+            pos_lfoot_rt_feetmean_ewrt_heading_y
+            / 2.0
+            * stance
+            * cmd_max_angvel_base_rt_world_ewrt_world_z,
+            cmd_max_angvel_base_rt_world_ewrt_world_z,
             cadence.name,
         )
     )
@@ -958,35 +1137,37 @@ def derive_parameters(
     # Closed form, not fitted: Bledt equation 4.31 places the foot along the resultant of gravity and the centripetal
     # acceleration, which displaces it by (z_com / g) * (pdot x omega). The SAME coefficient on both axes, because
     # the two entries are components of one vector.
-    lean_coefficient = lip_height / GRAVITY
+    lean_coefficient = lip_pos_com_rt_feetmean_ewrt_world_z / GRAVITY
     out["high_speed_turning"] = {
         "forward_per_cross_term": round(lean_coefficient, 4),
-        "forward_offset": 0.0,
+        "offset_pos_foot_rt_world_ewrt_heading_x": 0.0,
         "lateral_per_cross_term": round(lean_coefficient, 4),
-        "lateral_offset": 0.0,
+        "offset_pos_foot_rt_world_ewrt_heading_y": 0.0,
     }
     notes.append(
         "high_speed_turning = z_com / g = %.4f / %.2f = %.4f s^2 (Bledt eq."
         " 4.31); throws the foot %.3f m outwards at the (%.2f m/s, %.2f rad/s)"
         " stick"
         % (
-            lip_height,
+            lip_pos_com_rt_feetmean_ewrt_world_z,
             GRAVITY,
             lean_coefficient,
-            lean_coefficient * max_forward * max_yaw_rate,
-            max_forward,
-            max_yaw_rate,
+            lean_coefficient
+            * cmd_max_linvel_base_rt_world_ewrt_heading_x
+            * cmd_max_angvel_base_rt_world_ewrt_world_z,
+            cmd_max_linvel_base_rt_world_ewrt_heading_x,
+            cmd_max_angvel_base_rt_world_ewrt_world_z,
         )
     )
 
     # ---- wrench ----
     worst_gait, worst_duty = smallest_duty_factor(gaits)
     duty_clamp = max(0.05, round(worst_duty - DUTY_FACTOR_MARGIN, 2))
-    ratio_gait, ratio = largest_force_ratio(gaits)
+    ratio_gait, ratio = largest_weight_compensation_ratio(gaits)
     out["impulse_scaling"] = {
         "scale": 1.0,
         "minimum_duty_factor": duty_clamp,
-        "maximum_force_ratio": round(
+        "maximum_weight_compensation_ratio": round(
             max(2.0, math.ceil(ratio * 10.0) / 10.0), 2
         ),
     }
@@ -996,25 +1177,29 @@ def derive_parameters(
         % (duty_clamp, worst_gait, worst_duty)
     )
     notes.append(
-        "impulse_scaling.maximum_force_ratio covers the binding gait `%s`,"
+        "impulse_scaling.maximum_weight_compensation_ratio covers the binding gait `%s`,"
         " which asks for %.2f x weight compensation" % (ratio_gait, ratio)
     )
 
     # The stance feet together carry the whole weight, so their friction budget is mu * W in total and mu * W / n each;
     # the clamp is on the total and is shared like the weight, so a fraction of mu * W is the same fraction of every
     # foot's budget, and the reference stays inside the cone the wrench-cone barrier enforces rather than fighting it.
-    needed = (
-        geometry.total_mass * max_forward * max_yaw_rate / geometry.total_weight
+    # The largest centripetal force the command can ask for, m v psidot at the largest speed and yaw rate, per weight.
+    cmd_max_wnorm_force_com_ewrt_world_xy = (
+        geometry.total_mass
+        * cmd_max_linvel_base_rt_world_ewrt_heading_x
+        * cmd_max_angvel_base_rt_world_ewrt_world_z
+        / geometry.total_weight
     )
     # max_force_com_ewrt_world_xy is left out (it has no 0 "off"): the ratio of weight below is the clamp.
-    out["centripetal_acceleration"] = {
+    out["centripetal_acceleration_parameters"] = {
         "scale": 1.0,
-        "maximum_force_ratio_of_weight": round(
+        "max_wnorm_force_com_ewrt_world_xy": round(
             CENTRIPETAL_FRICTION_FRACTION * friction, 3
         ),
     }
     notes.append(
-        "centripetal_acceleration.maximum_force_ratio_of_weight = %.0f%% of the"
+        "centripetal_acceleration_parameters.max_wnorm_force_com_ewrt_world_xy = %.0f%% of the"
         " mu = %.2f friction budget (%s) = %.3f W (%.0f N); the largest"
         " legitimate demand is m*v*psidot = %.0f N = %.3f W"
         % (
@@ -1023,8 +1208,8 @@ def derive_parameters(
             friction_source or "assumed",
             CENTRIPETAL_FRICTION_FRACTION * friction,
             CENTRIPETAL_FRICTION_FRACTION * friction * geometry.total_weight,
-            needed * geometry.total_weight,
-            needed,
+            cmd_max_wnorm_force_com_ewrt_world_xy * geometry.total_weight,
+            cmd_max_wnorm_force_com_ewrt_world_xy,
         )
     )
     # LINT.ThenChange(//tools/locomotion_heuristics/test_derive_parameters.py:expected_heuristic_names, //humanoid_nmpc/humanoid_mpc_config/locomotion_heuristics_config.proto:locomotion_heuristic_keys)
@@ -1177,13 +1362,43 @@ def formulation_warnings(task: dict) -> list[str]:
     return lines
 
 
+# LINT.IfChange(parameter_block_names)
+#: The heuristics whose parameter block is not named after them alone: their names hold a frame-dependent quantity
+#: word (humanoid_nmpc/docs/frame_naming/README.md), so their blocks take `_parameters`.
+_SUFFIXED_PARAMETER_BLOCKS = frozenset(
+    {
+        "orientation_compensation",
+        "periodic_orientation",
+        "centripetal_acceleration",
+    }
+)
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicFormulation.cpp:parameter_block_names)
+
+
+def parameter_block_name(name: str) -> str:
+    """The `locomotion_heuristics` field that holds the parameters of the heuristic `name`, as parameterBlockName() in C++.
+
+    Args:
+      name: A heuristic's registry name.
+
+    Returns:
+      The name, with `_parameters` where it holds a quantity word.
+    """
+    return f"{name}_parameters" if name in _SUFFIXED_PARAMETER_BLOCKS else name
+
+
 def shipped_parameters(task: dict) -> dict[str, dict[str, float]]:
-    """The heuristic blocks of the task file's `locomotion_heuristics`, by heuristic name, as floats."""
+    """The heuristic blocks of the task file's `locomotion_heuristics`, by block name, as floats."""
     block = task.get("locomotion_heuristics", {}) or {}
     return {
         name: {key: float(value) for key, value in (values or {}).items()}
         for name, values in block.items()
-        if name not in ("base_pose", "foothold", "wrench")
+        if name
+        not in (
+            "base_pose_heuristics",
+            "foothold_heuristics",
+            "wrench_heuristics",
+        )
         and isinstance(values, dict)
     }
 
@@ -1326,9 +1541,12 @@ def main() -> int:
         "#   total mass            %.3f kg  (weight %.1f N)"
         % (geometry.total_mass, geometry.total_weight)
     )
-    print("#   CoM above the feet    %.4f m" % geometry.com_height)
+    print(
+        "#   CoM above the feet    %.4f m"
+        % geometry.pos_com_rt_feetmean_ewrt_world_z
+    )
     for index, ((x, y), name) in enumerate(
-        zip(geometry.hip_offset, geometry.hip_joint_names)
+        zip(geometry.pos_hips_rt_base_ewrt_heading_xy, geometry.hip_joint_names)
     ):
         print(
             "#   hip %d (%-12s) (%+.4f, %+.4f) m in the base frame"
@@ -1336,7 +1554,7 @@ def main() -> int:
         )
     print(
         "#   nominal stance        %.4f m between the contact frames"
-        % geometry.nominal_foot_separation
+        % geometry.nom_norm_pos_lfoot_rt_rfoot_ewrt_heading_y
     )
     print("#")
     print(

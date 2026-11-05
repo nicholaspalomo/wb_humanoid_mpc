@@ -32,19 +32,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/reference_manager/ArmSwing.h"
 
 #include <cmath>
+#include <cstddef>
 #include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/jacobian.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/spatial/fwd.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_mpc_config/arm_swing_config.nproto.h"
 
 namespace ocs2::humanoid {
 
@@ -68,7 +79,7 @@ struct ArmJoint {
   vector3_t posLinkRtWorldEwrtWorld =
       vector3_t::Zero();                             // [m] the joint's origin
   vector3_t axisJointEwrtWorld = vector3_t::Zero();  // the unit rotation axis
-  vector3_t carriedCom =
+  vector3_t posSubtreecomRtWorldEwrtWorld =
       vector3_t::Zero();  // [m] the center of mass of everything the joint
                           // carries, in the world
 };
@@ -101,7 +112,7 @@ absl::StatusOr<ArmJoint> armJointAt(const pinocchio::Model& model,
   for (const pinocchio::JointIndex carried : model.subtrees[joint]) {
     const pinocchio::Inertia& inertia = model.inertias[carried];
     mass += inertia.mass();
-    result.carriedCom +=
+    result.posSubtreecomRtWorldEwrtWorld +=
         inertia.mass() * data.oMi[carried].act(inertia.lever());
   }
   if (!(mass > 0.0)) {
@@ -109,26 +120,28 @@ absl::StatusOr<ArmJoint> armJointAt(const pinocchio::Model& model,
         absl::StrCat("[deriveArmSwingDirections] the arm joint '", jointName,
                      "' carries no mass."));
   }
-  result.carriedCom /= mass;
+  result.posSubtreecomRtWorldEwrtWorld /= mass;
   return result;
 }
 
 /** +1 when a positive rate of `shoulder` swings what it carries forward along
- * the base's x axis `forward`, else -1. */
+ * the base's x axis `xAxisBaseEwrtWorld`, else -1. */
 absl::StatusOr<scalar_t> shoulderDirection(const ArmJoint& shoulder,
-                                           const vector3_t& forward,
+                                           const vector3_t& xAxisBaseEwrtWorld,
                                            absl::string_view jointName) {
-  const vector3_t lever =
-      shoulder.carriedCom - shoulder.posLinkRtWorldEwrtWorld;
-  const scalar_t forwardSpeed =
-      forward.dot(shoulder.axisJointEwrtWorld.cross(lever));
-  if (!(std::abs(forwardSpeed) >= kMinimumDirectionShare * lever.norm())) {
+  const vector3_t posSubtreecomRtLinkEwrtWorld =
+      shoulder.posSubtreecomRtWorldEwrtWorld - shoulder.posLinkRtWorldEwrtWorld;
+  const scalar_t linjacSubtreecomRtWorldEwrtBaseX = xAxisBaseEwrtWorld.dot(
+      shoulder.axisJointEwrtWorld.cross(posSubtreecomRtLinkEwrtWorld));
+  if (!(std::abs(linjacSubtreecomRtWorldEwrtBaseX) >=
+        kMinimumDirectionShare * posSubtreecomRtLinkEwrtWorld.norm())) {
     return absl::InvalidArgumentError(absl::StrCat(
         "[deriveArmSwingDirections] the shoulder joint '", jointName,
         "' hardly swings the arm forward at the nominal posture (",
-        forwardSpeed, " m/s per rad/s on a ", lever.norm(), " m lever)."));
+        linjacSubtreecomRtWorldEwrtBaseX, " m/s per rad/s on a ",
+        posSubtreecomRtLinkEwrtWorld.norm(), " m lever)."));
   }
-  return forwardSpeed > 0.0 ? 1.0 : -1.0;
+  return linjacSubtreecomRtWorldEwrtBaseX > 0.0 ? 1.0 : -1.0;
 }
 
 /**
@@ -140,14 +153,18 @@ absl::StatusOr<scalar_t> shoulderDirection(const ArmJoint& shoulder,
 absl::StatusOr<scalar_t> elbowDirection(const ArmJoint& elbow,
                                         const ArmJoint& shoulder,
                                         absl::string_view jointName) {
-  const vector3_t forearm = elbow.carriedCom - elbow.posLinkRtWorldEwrtWorld;
-  const vector3_t upperArm =
+  const vector3_t posSubtreecomRtLinkEwrtWorld =
+      elbow.posSubtreecomRtWorldEwrtWorld - elbow.posLinkRtWorldEwrtWorld;
+  // u: the shoulder joint's origin minus the elbow joint's.
+  const vector3_t humerusErrPosLinkRtWorldEwrtWorld =
       shoulder.posLinkRtWorldEwrtWorld - elbow.posLinkRtWorldEwrtWorld;
-  const vector3_t normal = forearm.cross(upperArm);
-  const scalar_t normalNorm = normal.norm();
+  // w x u, normal to the plane of the forearm and the upper arm (not unit).
+  const vector3_t wCrossU =
+      posSubtreecomRtLinkEwrtWorld.cross(humerusErrPosLinkRtWorldEwrtWorld);
+  const scalar_t wCrossUNorm = wCrossU.norm();
   const scalar_t across =
-      (normalNorm > 0.0) ? elbow.axisJointEwrtWorld.dot(normal) / normalNorm
-                         : 0.0;
+      (wCrossUNorm > 0.0) ? elbow.axisJointEwrtWorld.dot(wCrossU) / wCrossUNorm
+                          : 0.0;
   if (!(std::abs(across) >= kMinimumDirectionShare)) {
     return absl::InvalidArgumentError(absl::StrCat(
         "[deriveArmSwingDirections] the elbow joint '", jointName,
@@ -214,8 +231,8 @@ absl::StatusOr<ArmSwingDirections> deriveArmSwingDirections(
   const vector_t q = mpcRobotModel.getGeneralizedCoordinates(nominalState);
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::computeJointJacobians(model, data, q);
-  // The base's forward axis at the nominal posture, in the world.
-  const vector3_t forward =
+  // The base's forward (x) axis at the nominal posture, in the world.
+  const vector3_t xAxisBaseEwrtWorld =
       quaternionRotationMatrix<scalar_t>(
           mpcRobotModel.getQuatBaseRtWorldXyzw(nominalState))
           .col(0);
@@ -246,8 +263,9 @@ absl::StatusOr<ArmSwingDirections> deriveArmSwingDirections(
     ASSIGN_OR_RETURN(const ArmJoint shoulder,
                      armJointAt(model, data, shoulderName));
     ASSIGN_OR_RETURN(const ArmJoint elbow, armJointAt(model, data, elbowName));
-    ASSIGN_OR_RETURN(*arm.shoulderDirectionOut,
-                     shoulderDirection(shoulder, forward, shoulderName));
+    ASSIGN_OR_RETURN(
+        *arm.shoulderDirectionOut,
+        shoulderDirection(shoulder, xAxisBaseEwrtWorld, shoulderName));
     ASSIGN_OR_RETURN(*arm.elbowDirectionOut,
                      elbowDirection(elbow, shoulder, elbowName));
   }

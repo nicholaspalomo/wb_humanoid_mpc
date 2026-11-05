@@ -49,6 +49,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Dimensions.h"
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/MujocoUtils.h"
+#include "mujoco_sim_interface/viewer/WebViewerOptions.h"
+#include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 #include "mujoco_sim_interface/visualization/VisualizationRegistry.h"
 #include "web_viewer/JpegEncoder.h"
 
@@ -63,12 +66,12 @@ constexpr int kMaxSceneGeoms = 2000;  // the objects the scene has space for
 constexpr double kScrollZoomPerNotch = 0.05;
 // The view resetCamera() starts from, of the robot's left side: MuJoCo's camera
 // azimuth and elevation [deg], its distance [m] and the point it looks at [m].
-constexpr double kLeftSideViewAzimuth = 89.608063;
-constexpr double kLeftSideViewElevation = -5.588379;
-constexpr double kLeftSideViewDistance = 3.0;
-constexpr double kLeftSideViewLookatX = 0.0;
-constexpr double kLeftSideViewLookatY = 0.0;
-constexpr double kLeftSideViewLookatZ = 0.5;
+constexpr double kLeftSideViewAzimuthCamfocusRtCamEwrtWorld = 89.608063;
+constexpr double kLeftSideViewElevationCamfocusRtCamEwrtWorld = -5.588379;
+constexpr double kLeftSideViewDistCamRtCamfocus = 3.0;
+constexpr double kLeftSideViewPosCamfocusRtWorldEwrtWorldX = 0.0;
+constexpr double kLeftSideViewPosCamfocusRtWorldEwrtWorldY = 0.0;
+constexpr double kLeftSideViewPosCamfocusRtWorldEwrtWorldZ = 0.5;
 }  // namespace
 
 absl::StatusOr<std::unique_ptr<MujocoFrameRenderer>>
@@ -156,8 +159,9 @@ void MujocoFrameRenderer::drawFrame(const mjrRect& viewport,
   // Options and model tweaks, for every visualization so that a disabled one
   // can undo its effect.
   for (const std::unique_ptr<MujocoVisualization>& visualization :
-       visualizations_)
+       visualizations_) {
     visualization->beforeSceneUpdate(frame);
+  }
 
   mjv_updateScene(model, state_.data, &options_, /*pert=*/nullptr, &camera_,
                   mjCAT_ALL, &scene_);
@@ -275,12 +279,12 @@ void MujocoFrameRenderer::resetCamera() {
   camera_.trackbodyid = trackbodyid;
   camera_.fixedcamid = -1;
 
-  camera_.azimuth = kLeftSideViewAzimuth;
-  camera_.elevation = kLeftSideViewElevation;
-  camera_.distance = kLeftSideViewDistance;
-  camera_.lookat[0] = kLeftSideViewLookatX;
-  camera_.lookat[1] = kLeftSideViewLookatY;
-  camera_.lookat[kZAxisIndex] = kLeftSideViewLookatZ;
+  camera_.azimuth = kLeftSideViewAzimuthCamfocusRtCamEwrtWorld;
+  camera_.elevation = kLeftSideViewElevationCamfocusRtCamEwrtWorld;
+  camera_.distance = kLeftSideViewDistCamRtCamfocus;
+  camera_.lookat[0] = kLeftSideViewPosCamfocusRtWorldEwrtWorldX;
+  camera_.lookat[1] = kLeftSideViewPosCamfocusRtWorldEwrtWorldY;
+  camera_.lookat[kZAxisIndex] = kLeftSideViewPosCamfocusRtWorldEwrtWorldZ;
 }
 
 void MujocoFrameRenderer::printHotkeys() const {
@@ -308,8 +312,9 @@ void MujocoFrameRenderer::printHotkeys() const {
   for (const VisualizationInfo& info : availableVisualizations()) {
     bool listed = false;
     for (const std::unique_ptr<MujocoVisualization>& visualization :
-         visualizations_)
+         visualizations_) {
       listed = listed || visualization->name() == info.name;
+    }
     if (!listed) LOG(INFO) << " " << info.name;
   }
   LOG(INFO)
@@ -365,9 +370,10 @@ double MujocoFrameRenderer::snapshotTime() const {
 absl::StatusOr<MjModelPtr> copyModelForOffscreenRendering(
     const mjModel* absl_nonnull model, const WebViewerOptions& options) {
   MjModelPtr privateModel(mj_copyModel(/*dest=*/nullptr, model));
-  if (privateModel == nullptr)
+  if (privateModel == nullptr) {
     return absl::InternalError(
         "MuJoCo could not copy the model for the viewer's render thread");
+  }
   privateModel->vis.global.offwidth = options.maxWidth;
   privateModel->vis.global.offheight = options.maxHeight;
   privateModel->vis.quality.offsamples = options.msaaSamples;

@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <random>
 #include <stdexcept>
@@ -40,11 +39,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerType.h"
 #include "ocs2_core/control/FeedforwardController.h"
 #include "ocs2_core/control/LinearController.h"
 #include "ocs2_core/manifold/ProductStateManifold.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/manifold/StateManifoldSegment.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_oc/multiple_shooting/Helpers.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/oc_data/TimeDiscretization.h"
 
 namespace ocs2::humanoid::ipc::test_data {

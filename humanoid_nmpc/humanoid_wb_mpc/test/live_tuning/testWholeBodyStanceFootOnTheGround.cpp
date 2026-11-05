@@ -48,16 +48,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*
  * The whole-body MPC's stance foot stands on the ground the task file puts it
- * on (terrain_height), as its swing foot lands there: the stance constraint of
- * a robot raised with its ground is the one of the robot on flat ground, from a
- * fresh start on the raised file and one solve after a live update to it alike.
- * The constraint used to hold every stance foot at z = 0 whatever the ground.
+ * on (pos_surface_rt_world_ewrt_world_z), as its swing foot lands there: the
+ * stance constraint of a robot raised with its ground is the one of the robot
+ * on flat ground, from a fresh start on the raised file and one solve after a
+ * live update to it alike. The constraint used to hold every stance foot at z =
+ * 0 whatever the ground.
  */
 namespace ocs2::humanoid::live_tuning_test {
 namespace {
 
 // [m] How far the raised ground is above the flat one.
-constexpr scalar_t kGround = 0.05;
+constexpr scalar_t kPosSurfaceRtWorldEwrtWorldZ = 0.05;
 // [s] A time at which both feet stand (WholeBodySolverStack's schedule stands
 // until 0.1 s).
 constexpr scalar_t kStanceTime = 0.05;
@@ -100,10 +101,10 @@ scalar_t relativeDifference(const vector_t& a, const vector_t& b) {
 TEST(WholeBodyStanceFoot,
      AStanceFootIsHeldOnTheGroundFromAFreshStartAndAfterALiveUpdate) {
   const mpc_config::TaskFile flatFile = shippedTaskFile();
-  ASSERT_EQ(flatFile.terrain_height, 0.0)
+  ASSERT_EQ(flatFile.pos_surface_rt_world_ewrt_world_z, 0.0)
       << "the shipped file raises the ground; this test sets it";
   mpc_config::TaskFile raisedFile = flatFile;
-  raisedFile.terrain_height = kGround;
+  raisedFile.pos_surface_rt_world_ewrt_world_z = kPosSurfaceRtWorldEwrtWorldZ;
 
   WholeBodySolverStack flat(flatFile, Updater::kRegistered);
   WholeBodySolverStack fresh(raisedFile, Updater::kRegistered);
@@ -128,7 +129,7 @@ TEST(WholeBodyStanceFoot,
        evaluationPoints(flat.interface(), /*count=*/3)) {
     vector_t raisedState = point.state;
     flat.interface().getMpcRobotModel().adaptPosBaseRtWorldEwrtWorldZ(
-        raisedState, kGround);
+        raisedState, kPosSurfaceRtWorldEwrtWorldZ);
     for (const std::string& foot :
          flat.interface().modelSettings().contactNames) {
       SCOPED_TRACE(foot);
@@ -145,7 +146,7 @@ TEST(WholeBodyStanceFoot,
       // Positive control: the robot left where it was is the ground's height
       // below the raised ground.
       vector_t expected = onFlatGround;
-      expected(2) -= heightGain * kGround;
+      expected(2) -= heightGain * kPosSurfaceRtWorldEwrtWorldZ;
       EXPECT_LE(
           relativeDifference(
               stanceResidual(fresh, foot, point.state, point.input), expected),

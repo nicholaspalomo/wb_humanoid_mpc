@@ -51,8 +51,9 @@ HttpReply replyOf(const httplib::Result& result) {
   reply.status = result->status;
   reply.body = result->body;
   if (!absl::SimpleAtoi(result->get_header_value("X-Frame-Sequence"),
-                        &reply.frameSequence))
+                        &reply.frameSequence)) {
     reply.frameSequence = 0;
+  }
   return reply;
 }
 
@@ -94,16 +95,18 @@ std::optional<double> jsonNumberField(absl::string_view json,
   const absl::string_view number =
       value->substr(0, value->find_first_of(",}]"));
   double parsed = 0.0;
-  if (!absl::SimpleAtod(absl::StripAsciiWhitespace(number), &parsed))
+  if (!absl::SimpleAtod(absl::StripAsciiWhitespace(number), &parsed)) {
     return std::nullopt;
+  }
   return parsed;
 }
 
 std::optional<std::string> jsonStringField(absl::string_view json,
                                            absl::string_view key) {
   const std::optional<absl::string_view> value = fieldValue(json, key);
-  if (!value.has_value() || value->empty() || value->front() != '"')
+  if (!value.has_value() || value->empty() || value->front() != '"') {
     return std::nullopt;
+  }
   const size_t end = value->find('"', 1);
   if (end == absl::string_view::npos) return std::nullopt;
   return std::string(value->substr(1, end - 1));

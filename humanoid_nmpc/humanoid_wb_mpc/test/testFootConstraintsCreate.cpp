@@ -134,26 +134,27 @@ TEST(FootConstraintsCreate,
       (vector_t(test_support::kAffineInputDim) << -0.5, 0.9, 0.2, -1.1, 0.6)
           .finished();
 
-  vector6_t pose;
-  pose << dynamics.position(state), dynamics.orientationErrorWrtPlane(state);
-  const vector6_t rate = dynamics.poseWrtPlaneRate(state, input);
-  const vector6_t acceleration =
-      dynamics.poseWrtPlaneAcceleration(state, input);
+  vector6_t xee;
+  xee << dynamics.posEeRtWorldEwrtWorld(state),
+      dynamics.tiltEeRtSurfaceEwrtWorld(state);
+  const vector6_t xeeRate = dynamics.xeeRate(state, input);
+  const vector6_t xeeSecondRate = dynamics.xeeSecondRate(state, input);
   vector6_t expected;
   for (Eigen::Index i = 0; i < 2; ++i) {
-    expected(i) = gains.linearVelocityErrorGain_xy * rate(i) +
-                  gains.linearAccelerationErrorGain_xy * acceleration(i);
+    expected(i) = gains.linearVelocityErrorGain_xy * xeeRate(i) +
+                  gains.linearAccelerationErrorGain_xy * xeeSecondRate(i);
   }
-  const scalar_t groundHeight =
+  const scalar_t desPosFootRtWorldEwrtWorldZ =
       referenceManager.getSwingTrajectoryPlanner()
           ->getDesPosFootRtWorldEwrtWorldZ(kContactIndex, /*time=*/0.0);
-  expected(2) = gains.positionErrorGain_z * (pose(2) - groundHeight) +
-                gains.linearVelocityErrorGain_z * rate(2) +
-                gains.linearAccelerationErrorGain_z * acceleration(2);
+  expected(2) =
+      gains.positionErrorGain_z * (xee(2) - desPosFootRtWorldEwrtWorldZ) +
+      gains.linearVelocityErrorGain_z * xeeRate(2) +
+      gains.linearAccelerationErrorGain_z * xeeSecondRate(2);
   for (Eigen::Index i = 3; i < 6; ++i) {
-    expected(i) = gains.orientationErrorGain * pose(i) +
-                  gains.angularVelocityErrorGain * rate(i) +
-                  gains.angularAccelerationErrorGain * acceleration(i);
+    expected(i) = gains.orientationErrorGain * xee(i) +
+                  gains.angularVelocityErrorGain * xeeRate(i) +
+                  gains.angularAccelerationErrorGain * xeeSecondRate(i);
   }
   const vector_t value =
       (*created)->getValue(/*time=*/0.0, state, input, PreComputation());
@@ -167,20 +168,21 @@ TEST(FootConstraintsCreate,
 
   // Positive control: on the stand-in's linear velocity and acceleration, which
   // the swing foot's constraint reads, the linear rows would be other values.
-  const vector3_t velocity = dynamics.velocity(state, input);
-  const vector3_t linearAcceleration =
-      dynamics.linearAcceleration(state, input);
-  vector3_t onTheVelocity;
+  const vector3_t linvelEeRtWorldEwrtWorld =
+      dynamics.linvelEeRtWorldEwrtWorld(state, input);
+  const vector3_t linaccEeRtWorldEwrtWorld =
+      dynamics.linaccEeRtWorldEwrtWorld(state, input);
+  vector3_t onThePlainRates;
   for (Eigen::Index i = 0; i < 2; ++i) {
-    onTheVelocity(i) =
-        gains.linearVelocityErrorGain_xy * velocity(i) +
-        gains.linearAccelerationErrorGain_xy * linearAcceleration(i);
+    onThePlainRates(i) =
+        gains.linearVelocityErrorGain_xy * linvelEeRtWorldEwrtWorld(i) +
+        gains.linearAccelerationErrorGain_xy * linaccEeRtWorldEwrtWorld(i);
   }
-  onTheVelocity(2) =
-      gains.positionErrorGain_z * (pose(2) - groundHeight) +
-      gains.linearVelocityErrorGain_z * velocity(2) +
-      gains.linearAccelerationErrorGain_z * linearAcceleration(2);
-  EXPECT_GT((value.head<3>() - onTheVelocity).cwiseAbs().maxCoeff(), 1.0)
+  onThePlainRates(2) =
+      gains.positionErrorGain_z * (xee(2) - desPosFootRtWorldEwrtWorldZ) +
+      gains.linearVelocityErrorGain_z * linvelEeRtWorldEwrtWorld(2) +
+      gains.linearAccelerationErrorGain_z * linaccEeRtWorldEwrtWorld(2);
+  EXPECT_GT((value.head<3>() - onThePlainRates).cwiseAbs().maxCoeff(), 1.0)
       << "the case under test: rates other than the velocity";
 }
 

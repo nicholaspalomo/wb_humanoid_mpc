@@ -36,42 +36,56 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::visualization {
 
-std::optional<scalar_t> pendulumFrequency(scalar_t gravity,
-                                          scalar_t pendulumHeight) {
-  if (!std::isfinite(gravity) || !std::isfinite(pendulumHeight) ||
-      !(gravity > 0.0) || !(pendulumHeight > 0.0)) {
+std::optional<scalar_t> pendulumFrequency(
+    scalar_t gravityMagnitude, scalar_t proxyPosComRtFeetmeanEwrtWorldZ) {
+  if (!std::isfinite(gravityMagnitude) ||
+      !std::isfinite(proxyPosComRtFeetmeanEwrtWorldZ) ||
+      !(gravityMagnitude > 0.0) || !(proxyPosComRtFeetmeanEwrtWorldZ > 0.0)) {
     return std::nullopt;
   }
-  return std::sqrt(gravity / pendulumHeight);
+  return std::sqrt(gravityMagnitude / proxyPosComRtFeetmeanEwrtWorldZ);
 }
 
-vector2_t divergentComponentOfMotion(const vector3_t& com,
-                                     const vector3_t& comVelocity,
-                                     scalar_t omega) {
-  return com.head<kHorizontalPositionDim>() +
-         comVelocity.head<kHorizontalPositionDim>() / omega;
+vector2_t computePosDcmRtWorldEwrtWorldXy(
+    const vector3_t& posComRtWorldEwrtWorld,
+    const vector3_t& linvelComRtWorldEwrtWorld,
+    scalar_t omega) {
+  return posComRtWorldEwrtWorld.head<kHorizontalPositionDim>() +
+         linvelComRtWorldEwrtWorld.head<kHorizontalPositionDim>() / omega;
 }
 
-std::optional<vector3_t> zeroMomentPoint(
-    const feet_array_t<vector3_t>& positions,
-    const feet_array_t<vector6_t>& wrenches,
-    scalar_t minNormalForce) {
-  vector3_t force = vector3_t::Zero();
-  vector3_t moment = vector3_t::Zero();
-  scalar_t weightedHeight = 0.0;
-  for (size_t contact = 0; contact < positions.size(); ++contact) {
-    const vector3_t contactForce = wrenches[contact].head<kForceDim>();
-    force += contactForce;
-    moment += positions[contact].cross(contactForce) +
-              wrenches[contact].tail<kTorqueDim>();
-    weightedHeight += contactForce.z() * positions[contact].z();
+std::optional<vector3_t> computePosZmpRtWorldEwrtWorld(
+    const feet_array_t<vector3_t>& posFeetRtWorldEwrtWorld,
+    const feet_array_t<vector6_t>& wrenchFeetEwrtWorld,
+    scalar_t minForceWorldEwrtWorldZ) {
+  // The net force, and the net moment about the world origin.
+  vector3_t forceWorldEwrtWorld = vector3_t::Zero();
+  vector3_t torqueWorldEwrtWorld = vector3_t::Zero();
+  // The sum of the feet's heights, each weighted by its normal force.
+  scalar_t weightedSumPosFeetRtWorldEwrtWorldZ = 0.0;
+  for (size_t contact = 0; contact < posFeetRtWorldEwrtWorld.size();
+       ++contact) {
+    const vector3_t forceFootEwrtWorld =
+        wrenchFeetEwrtWorld[contact].head<kForceDim>();
+    forceWorldEwrtWorld += forceFootEwrtWorld;
+    torqueWorldEwrtWorld +=
+        posFeetRtWorldEwrtWorld[contact].cross(forceFootEwrtWorld) +
+        wrenchFeetEwrtWorld[contact].tail<kTorqueDim>();
+    weightedSumPosFeetRtWorldEwrtWorldZ +=
+        forceFootEwrtWorld.z() * posFeetRtWorldEwrtWorld[contact].z();
   }
-  if (!(force.z() > minNormalForce)) {
+  if (!(forceWorldEwrtWorld.z() > minForceWorldEwrtWorldZ)) {
     return std::nullopt;
   }
-  const scalar_t height = weightedHeight / force.z();
-  return vector3_t((height * force.x() - moment.y()) / force.z(),
-                   (height * force.y() + moment.x()) / force.z(), height);
+  const scalar_t posZmpRtWorldEwrtWorldZ =
+      weightedSumPosFeetRtWorldEwrtWorldZ / forceWorldEwrtWorld.z();
+  return vector3_t((posZmpRtWorldEwrtWorldZ * forceWorldEwrtWorld.x() -
+                    torqueWorldEwrtWorld.y()) /
+                       forceWorldEwrtWorld.z(),
+                   (posZmpRtWorldEwrtWorldZ * forceWorldEwrtWorld.y() +
+                    torqueWorldEwrtWorld.x()) /
+                       forceWorldEwrtWorld.z(),
+                   posZmpRtWorldEwrtWorldZ);
 }
 
 }  // namespace ocs2::humanoid::visualization

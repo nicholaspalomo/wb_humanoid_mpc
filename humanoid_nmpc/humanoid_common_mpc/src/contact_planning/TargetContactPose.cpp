@@ -29,33 +29,45 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
 
-#include "ocs2_core/Dimensions.h"
+#include <cstddef>
+#include <optional>
 
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 
 namespace ocs2::humanoid {
 
 namespace {
-TargetContactPose stancePose(size_t foot,
-                             const TargetContactPoseInputs& inputs) {
-  TargetContactPose pose;
-  pose.valid = true;
-  pose.kind = TargetContactPose::Kind::kStance;
-  pose.position = inputs.footPositions[foot].head<kHorizontalPositionDim>();
-  pose.height = inputs.footPositions[foot](kZAxisIndex);
-  pose.yaw = inputs.footYaws[foot];
-  pose.yawPlanned = false;
-  pose.touchDownTime = inputs.time;
-  return pose;
+TargetContactPose makeStanceDesPoseFootRtWorld(
+    size_t foot, const TargetContactPoseInputs& inputs) {
+  TargetContactPose desPoseFootRtWorld;
+  desPoseFootRtWorld.valid = true;
+  desPoseFootRtWorld.kind = TargetContactPose::Kind::kStance;
+  desPoseFootRtWorld.posFootRtWorldEwrtWorldXy =
+      inputs.posFeetRtWorldEwrtWorld[foot].head<kHorizontalPositionDim>();
+  desPoseFootRtWorld.posFootRtWorldEwrtWorldZ =
+      inputs.posFeetRtWorldEwrtWorld[foot](kZAxisIndex);
+  desPoseFootRtWorld.eulerzyxFootRtWorldYaw =
+      inputs.eulerzyxFeetRtWorldYaw[foot];
+  desPoseFootRtWorld.yawPlanned = false;
+  desPoseFootRtWorld.touchDownTime = inputs.time;
+  return desPoseFootRtWorld;
 }
 }  // namespace
 
-feet_array_t<TargetContactPose> computeTargetContactPoses(
+feet_array_t<TargetContactPose> computeDesPoseFeetRtWorld(
     const ContactPlan& plan,
     const ModeSchedule& schedule,
     const TargetContactPoseInputs& inputs) {
-  feet_array_t<TargetContactPose> poses = makeFeetArray(TargetContactPose{});
-  if (!plan.valid) return poses;
+  feet_array_t<TargetContactPose> desPoseFeetRtWorld =
+      makeFeetArray(TargetContactPose{});
+  if (!plan.valid) return desPoseFeetRtWorld;
 
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     // The swing in flight, or else the foot's next swing: an event at the query
@@ -67,30 +79,39 @@ feet_array_t<TargetContactPose> computeTargetContactPoses(
     if (!inFlight) {
       const std::optional<scalar_t> liftOff =
           currentOrNextLiftOffTime(schedule, foot, inputs.time);
-      if (liftOff.has_value())
+      if (liftOff.has_value()) {
         swing = swingPhaseAtTime(schedule, foot, *liftOff);
+      }
     }
-    const std::optional<vector2_t> landing =
-        swing.has_value() ? plan.footholdAtTime(foot, swing->touchDown)
-                          : std::nullopt;
-    if (!swing.has_value() || !landing.has_value()) {
-      poses[foot] = stancePose(foot, inputs);
+    const std::optional<vector2_t> touchdownDesPosFootRtWorldEwrtWorldXy =
+        swing.has_value()
+            ? plan.getDesPosFootRtWorldEwrtWorldXy(foot, swing->touchDown)
+            : std::nullopt;
+    if (!swing.has_value() ||
+        !touchdownDesPosFootRtWorldEwrtWorldXy.has_value()) {
+      desPoseFeetRtWorld[foot] = makeStanceDesPoseFootRtWorld(foot, inputs);
       continue;
     }
 
-    TargetContactPose& pose = poses[foot];
-    pose.valid = true;
-    pose.kind = inFlight ? TargetContactPose::Kind::kSwingInFlight
-                         : TargetContactPose::Kind::kNextSwing;
-    pose.position = *landing + inputs.dcmStepAdjustment[foot];
-    pose.height = inputs.terrainHeight;
-    pose.touchDownTime = swing->touchDown;
-    const std::optional<scalar_t> plannedYaw =
-        plan.footYawAtTime(foot, swing->touchDown);
-    pose.yawPlanned = plannedYaw.has_value();
-    pose.yaw = plannedYaw.value_or(inputs.footYaws[foot]);
+    TargetContactPose& desPoseFootRtWorld = desPoseFeetRtWorld[foot];
+    desPoseFootRtWorld.valid = true;
+    desPoseFootRtWorld.kind = inFlight ? TargetContactPose::Kind::kSwingInFlight
+                                       : TargetContactPose::Kind::kNextSwing;
+    desPoseFootRtWorld.posFootRtWorldEwrtWorldXy =
+        *touchdownDesPosFootRtWorldEwrtWorldXy +
+        inputs.errPosFeetRtWorldEwrtWorldXy[foot];
+    desPoseFootRtWorld.posFootRtWorldEwrtWorldZ =
+        inputs.posSurfaceRtWorldEwrtWorldZ;
+    desPoseFootRtWorld.touchDownTime = swing->touchDown;
+    const std::optional<scalar_t> plannedDesEulerzyxFootRtWorldYaw =
+        plan.getDesEulerzyxFootRtWorldYaw(foot, swing->touchDown);
+    desPoseFootRtWorld.yawPlanned =
+        plannedDesEulerzyxFootRtWorldYaw.has_value();
+    desPoseFootRtWorld.eulerzyxFootRtWorldYaw =
+        plannedDesEulerzyxFootRtWorldYaw.value_or(
+            inputs.eulerzyxFeetRtWorldYaw[foot]);
   }
-  return poses;
+  return desPoseFeetRtWorld;
 }
 
 }  // namespace ocs2::humanoid

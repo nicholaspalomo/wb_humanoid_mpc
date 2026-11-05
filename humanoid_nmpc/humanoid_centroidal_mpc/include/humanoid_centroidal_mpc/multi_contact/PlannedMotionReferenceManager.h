@@ -38,20 +38,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
 #include "humanoid_centroidal_mpc/multi_contact/PlanClock.h"
 #include "humanoid_centroidal_mpc/multi_contact/PlannedMotion.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactPatchFrame.h"
 #include "humanoid_common_mpc/contact_swing/ContactSwingPlanner.h"
+#include "humanoid_common_mpc/contact_swing/ContactSwingTrajectory.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "humanoid_multi_contact/scenarios/Scenario.h"
 
 namespace ocs2::humanoid {
 
@@ -124,10 +129,10 @@ class PlannedMotionReferenceManager final
                                          scalar_t time) const override;
 
   /**
-   * The base's weight share, or under multi_contact_plan.force_reference
+   * The base's weight share, or under multi_contact_plan.force_reference_mode
    * "planned_wrenches" the plan's wrench of every contact in contact at
    * `time`, at the plan time of the last solve's offset
-   * (PlannedMotion::plannedWrenchesAt()); the joint velocities' entries are
+   * (PlannedMotion::plannedInputAt()); the joint velocities' entries are
    * the base's. Thread-safe during a solve.
    */
   vector_t getDesiredInput(const TargetTrajectories& targetTrajectories,
@@ -153,10 +158,10 @@ class PlannedMotionReferenceManager final
   std::optional<multi_contact::ContactCandidate> candidateOf(
       size_t contactIndex) const;
 
-  /** [m] The world positions of the MPC's contact frames and the center of
-   * mass at the last solve's state. */
-  const std::vector<vector3_t>& measuredContactPositions() const {
-    return measuredContactPositions_;
+  /** [m] The world positions of the MPC's contact frames at the last solve's
+   * state. */
+  const std::vector<vector3_t>& measPosContactsRtWorldEwrtWorld() const {
+    return measPosContactsRtWorldEwrtWorld_;
   }
 
  protected:
@@ -182,7 +187,7 @@ class PlannedMotionReferenceManager final
   /** Measures the contact frames and the center of mass at `state`. */
   void measure(const vector_t& state);
   /** [m] The center of mass of the MPC state `state`. */
-  vector3_t centerOfMassOf(const vector_t& state);
+  vector3_t computePosComRtWorldEwrtWorld(const vector_t& state);
   /** Whether the stance before the plan's change `event` is reached at the
    * measured state, against the plan at `holdTime`. */
   bool stanceReached(size_t event, scalar_t holdTime);
@@ -203,7 +208,8 @@ class PlannedMotionReferenceManager final
                                                scalar_t finalTime);
   /** [m] Where the plan has MPC contact `contactIndex`'s frame at plan time
    * `planTime`; uses the Pinocchio data. */
-  vector3_t plannedContactPosition(size_t contactIndex, scalar_t planTime);
+  vector3_t computePlannedPosContactRtWorldEwrtWorld(size_t contactIndex,
+                                                     scalar_t planTime);
   /** Appends to `swings` the straight segments of MPC contact `contactIndex`'s
    * pad, where the plan has it, between the plan's knots in its swing `window`
    * (plan times, the clock at `offset`) that overlap [from, to] (MPC
@@ -223,12 +229,12 @@ class PlannedMotionReferenceManager final
   // The frames of the MPC's contacts in the Pinocchio model.
   std::vector<pinocchio::FrameIndex> contactFrames_;
   // At the last solve's state: the contact frames' and the CoM's positions.
-  std::vector<vector3_t> measuredContactPositions_;
-  vector3_t measuredCenterOfMass_ = vector3_t::Zero();
+  std::vector<vector3_t> measPosContactsRtWorldEwrtWorld_;
+  vector3_t measPosComRtWorldEwrtWorld_ = vector3_t::Zero();
   // Where each contact was the last time it was in contact (or, for one that
   // starts the plan in the air, where it was at the first solve); empty
   // before.
-  std::vector<std::optional<vector3_t>> liftOffPositions_;
+  std::vector<std::optional<vector3_t>> liftoffPosContactsRtWorldEwrtWorld_;
 };
 
 }  // namespace ocs2::humanoid

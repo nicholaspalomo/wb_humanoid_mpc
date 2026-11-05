@@ -49,20 +49,21 @@ struct LipIndices {
       std::array<int, kHorizontalPositionDim>;  // the (x, y) entries of a
                                                 // planar quantity
 
-  PlanarIndices com{-1, -1};  // c_x, c_y
-  PlanarIndices vel{-1, -1};  // v_x, v_y
-  PlanarIndices zmp{-1, -1};  // zmp_x, zmp_y (input)
-  feet_array_t<PlanarIndices> foot =
+  PlanarIndices posComRtWorldEwrtWorld{-1, -1};     // c_x, c_y
+  PlanarIndices linvelComRtWorldEwrtWorld{-1, -1};  // v_x, v_y
+  PlanarIndices posZmpRtWorldEwrtWorld{-1, -1};     // zmp_x, zmp_y (input)
+  feet_array_t<PlanarIndices> posFeetRtWorldEwrtWorld =
       makeFeetArray(PlanarIndices{-1, -1});  // p_i (x, y)
-  feet_array_t<PlanarIndices> footDelta =
-      makeFeetArray(PlanarIndices{-1, -1});       // dp_i (input)
+  feet_array_t<PlanarIndices> errPosFeetRtWorldEwrtWorld =
+      makeFeetArray(PlanarIndices{
+          -1, -1});  // dp_i (input): the foothold change, new minus old
   feet_array_t<int> contact = makeFeetArray(-1);  // c_i (binary input)
   bool hasHeading = false;
-  int heading = -1;
-  int headingRate = -1;
-  feet_array_t<int> footYaw = makeFeetArray(-1);
-  feet_array_t<int> yawTorque = makeFeetArray(-1);     // input
-  feet_array_t<int> footYawDelta = makeFeetArray(-1);  // input
+  int headingModelYaw = -1;
+  int headingModelYawRate = -1;
+  feet_array_t<int> eulerzyxFeetRtWorldYaw = makeFeetArray(-1);
+  feet_array_t<int> torqueFeetEwrtWorldZ = makeFeetArray(-1);       // input
+  feet_array_t<int> errEulerzyxFeetRtWorldYaw = makeFeetArray(-1);  // input
 
   void bind(const Layout& layout);
 };

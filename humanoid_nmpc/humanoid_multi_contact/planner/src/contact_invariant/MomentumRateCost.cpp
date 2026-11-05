@@ -40,7 +40,7 @@ namespace ocs2::humanoid::multi_contact {
 MomentumRateCost::MomentumRateCost(const ContactInvariantLayout& layout,
                                    scalar_t linearWeight,
                                    scalar_t angularWeight)
-    : layout_(layout), weights_(kMomentumRateFeatures) {
+    : layout_(layout), weights_(kMomentumRateFeatureCount) {
   weights_.head<kForceDim>().setConstant(linearWeight);
   weights_.tail<kTorqueDim>().setConstant(angularWeight);
 }
@@ -53,9 +53,10 @@ scalar_t MomentumRateCost::getValue(
     const PreComputation& preComp) const {
   const vector_t& features =
       cast<AugmentedPreComputation>(preComp).features().f;
-  const vector_t rate = features.segment(
-      momentumRateRow(layout_.numCandidates()), kMomentumRateFeatures);
-  return rate.dot(weights_.cwiseProduct(rate));
+  const vector_t mnormRateCmomComRtWorldEwrtWorld = features.segment(
+      momentumRateRowIndex(layout_.numCandidates()), kMomentumRateFeatureCount);
+  return mnormRateCmomComRtWorldEwrtWorld.dot(
+      weights_.cwiseProduct(mnormRateCmomComRtWorldEwrtWorld));
 }
 
 ScalarFunctionQuadraticApproximation
@@ -67,15 +68,18 @@ MomentumRateCost::getQuadraticApproximation(
     const PreComputation& preComp) const {
   const VectorFunctionLinearApproximation& features =
       cast<AugmentedPreComputation>(preComp).features();
-  const int row = momentumRateRow(layout_.numCandidates());
-  const vector_t rate = features.f.segment(row, kMomentumRateFeatures);
-  const matrix_t jx = features.dfdx.middleRows(row, kMomentumRateFeatures);
-  const matrix_t ju = features.dfdu.middleRows(row, kMomentumRateFeatures);
-  const vector_t weightedRate = weights_.cwiseProduct(rate);
+  const int row = momentumRateRowIndex(layout_.numCandidates());
+  const vector_t mnormRateCmomComRtWorldEwrtWorld =
+      features.f.segment(row, kMomentumRateFeatureCount);
+  const matrix_t jx = features.dfdx.middleRows(row, kMomentumRateFeatureCount);
+  const matrix_t ju = features.dfdu.middleRows(row, kMomentumRateFeatureCount);
+  const vector_t weightedMnormRateCmomComRtWorldEwrtWorld =
+      weights_.cwiseProduct(mnormRateCmomComRtWorldEwrtWorld);
   ScalarFunctionQuadraticApproximation result;
-  result.f = rate.dot(weightedRate);
-  result.dfdx = 2.0 * jx.transpose() * weightedRate;
-  result.dfdu = 2.0 * ju.transpose() * weightedRate;
+  result.f = mnormRateCmomComRtWorldEwrtWorld.dot(
+      weightedMnormRateCmomComRtWorldEwrtWorld);
+  result.dfdx = 2.0 * jx.transpose() * weightedMnormRateCmomComRtWorldEwrtWorld;
+  result.dfdu = 2.0 * ju.transpose() * weightedMnormRateCmomComRtWorldEwrtWorld;
   const matrix_t wjx = weights_.asDiagonal() * jx;
   result.dfdxx = 2.0 * jx.transpose() * wjx;
   result.dfdux = 2.0 * ju.transpose() * wjx;

@@ -51,39 +51,38 @@ inline constexpr int kEulerAnglesZyxYIndex = 1;
 inline constexpr int kEulerAnglesZyxXIndex = 2;
 
 /**
- * Compute the quaternion distance measure
+ * Computes the quaternion distance of a frame `local` from its reference orientation.
  *
- * @param [in] q: measured end effector quaternion.
- * @param [in] qRef: desired end effector quaternion.
- * @return A 3x1 vector representing the quaternion distance.
- * In particular, if Qd and Qe are the desired and the measured end-effector
- * quaternions, the measured and desired frames are aligned if this vector is 0.
+ * @param [in] quatLocalRtWorld: the orientation of a frame `local` in the world.
+ * @param [in] refQuatLocalRtWorld: its reference orientation.
+ * @return The vector part of refQuatLocalRtWorld (x) quatLocalRtWorld^-1, in world axes; zero when the two agree.
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1> quaternionDistance(const Eigen::Quaternion<SCALAR_T>& q,
-                                                                   const Eigen::Quaternion<SCALAR_T>& qRef) {
-  return q.w() * qRef.vec() - qRef.w() * q.vec() + q.vec().cross(qRef.vec());
+Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1> quaternionDistance(const Eigen::Quaternion<SCALAR_T>& quatLocalRtWorld,
+                                                                   const Eigen::Quaternion<SCALAR_T>& refQuatLocalRtWorld) {
+  return quatLocalRtWorld.w() * refQuatLocalRtWorld.vec() - refQuatLocalRtWorld.w() * quatLocalRtWorld.vec() +
+         quatLocalRtWorld.vec().cross(refQuatLocalRtWorld.vec());
 }
 
 /**
  * Compute the quaternion corresponding to euler angles zyx
  *
- * @param [in] eulerAnglesZyx
+ * @param [in] eulerzyxLocalRtWorld
  * @return The corresponding quaternion
  */
 template <typename SCALAR_T>
-Eigen::Quaternion<SCALAR_T> getQuaternionFromEulerAnglesZyx(const Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1>& eulerAnglesZyx) {
+Eigen::Quaternion<SCALAR_T> getQuaternionFromEulerAnglesZyx(const Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1>& eulerzyxLocalRtWorld) {
   // clang-format off
-  return Eigen::AngleAxis<SCALAR_T>(eulerAnglesZyx(kEulerAnglesZyxZIndex), Eigen::Matrix<SCALAR_T, kPositionDim, 1>::UnitZ()) *
-         Eigen::AngleAxis<SCALAR_T>(eulerAnglesZyx(kEulerAnglesZyxYIndex), Eigen::Matrix<SCALAR_T, kPositionDim, 1>::UnitY()) *
-         Eigen::AngleAxis<SCALAR_T>(eulerAnglesZyx(kEulerAnglesZyxXIndex), Eigen::Matrix<SCALAR_T, kPositionDim, 1>::UnitX());
+  return Eigen::AngleAxis<SCALAR_T>(eulerzyxLocalRtWorld(kEulerAnglesZyxZIndex), Eigen::Matrix<SCALAR_T, kPositionDim, 1>::UnitZ()) *
+         Eigen::AngleAxis<SCALAR_T>(eulerzyxLocalRtWorld(kEulerAnglesZyxYIndex), Eigen::Matrix<SCALAR_T, kPositionDim, 1>::UnitY()) *
+         Eigen::AngleAxis<SCALAR_T>(eulerzyxLocalRtWorld(kEulerAnglesZyxXIndex), Eigen::Matrix<SCALAR_T, kPositionDim, 1>::UnitX());
   // clang-format on
 }
 
 /**
  * The floor of the squared norm |a x b|^2 + (1 + a.b)^2 = 2 (1 + a.b) that getQuaternionFromUnitVectors() normalizes by:
- * twice the anti-parallel threshold 1 + a.b < 1e-6 of the humanoid MPC's orientation error with respect to a plane
- * (kPlaneNormalAntiParallelThreshold), below which the shortest arc is not differentiable.
+ * twice the anti-parallel threshold 1 + a.b < 1e-6 of the humanoid MPC's end-effector tilt relative to a surface
+ * (tiltEesRtSurfaceEwrtWorld, kPlaneNormalAntiParallelThreshold), below which the shortest arc is not differentiable.
  */
 inline constexpr scalar_t kShortestArcSquaredNormFloor = 2.0e-6;
 
@@ -126,15 +125,15 @@ Eigen::Quaternion<SCALAR_T> getQuaternionFromUnitVectors(const Eigen::Matrix<SCA
 /**
  * Compute the rotation matrix corresponding to euler angles zyx
  *
- * @param [in] eulerAnglesZyx
+ * @param [in] eulerzyxLocalRtWorld
  * @return The corresponding rotation matrix
  */
 template <typename SCALAR_T>
 Eigen::Matrix<SCALAR_T, kPositionDim, kPositionDim> getRotationMatrixFromZyxEulerAngles(
-    const Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1>& eulerAngles) {
-  const SCALAR_T z = eulerAngles(kEulerAnglesZyxZIndex);
-  const SCALAR_T y = eulerAngles(kEulerAnglesZyxYIndex);
-  const SCALAR_T x = eulerAngles(kEulerAnglesZyxXIndex);
+    const Eigen::Matrix<SCALAR_T, kEulerAnglesZyxDim, 1>& eulerzyxLocalRtWorld) {
+  const SCALAR_T z = eulerzyxLocalRtWorld(kEulerAnglesZyxZIndex);
+  const SCALAR_T y = eulerzyxLocalRtWorld(kEulerAnglesZyxYIndex);
+  const SCALAR_T x = eulerzyxLocalRtWorld(kEulerAnglesZyxXIndex);
 
   const SCALAR_T c1 = cos(z);
   const SCALAR_T c2 = cos(y);
@@ -230,18 +229,18 @@ scalar_t moduloAngleWithReference(scalar_t x, scalar_t reference);
  * e = -(v x n) / sqrt(2 (1 + v.n)), v = q e_z the end-effector normal and n the plane normal. Finite, with finite
  * derivatives, where v = -n (getQuaternionFromUnitVectors()).
  *
- * @param [in] q: measured end effector quaternion.
- * @param [in] planeNormal: Unit normal of the plane the orientation should be aligned with.
+ * @param [in] quatLocalRtWorld: measured end effector quaternion.
+ * @param [in] normalSurfaceEwrtWorld: Unit normal of the plane the orientation should be aligned with.
  *
  */
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1> quaternionDistanceToPlane(const Eigen::Quaternion<SCALAR_T>& q,
-                                                                          const Eigen::Matrix<SCALAR_T, kPositionDim, 1>& planeNormal) {
-  const Eigen::Matrix<SCALAR_T, kPositionDim, 1> z_axis(SCALAR_T(0.0), SCALAR_T(0.0), SCALAR_T(1.0));
+Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1> quaternionDistanceToPlane(const Eigen::Quaternion<SCALAR_T>& quatLocalRtWorld,
+                                                                          const Eigen::Matrix<SCALAR_T, kPositionDim, 1>& normalSurfaceEwrtWorld) {
+  const Eigen::Matrix<SCALAR_T, kPositionDim, 1> unitZ(SCALAR_T(0.0), SCALAR_T(0.0), SCALAR_T(1.0));
 
   // Passive rotation projecting from end effector frame to the closest frame in plane.
   // Computed through the shortest arc rotation  from the end effector z axis to the plane normal (both expressed in world frame).
-  const Eigen::Quaternion<SCALAR_T> shortestArc = getQuaternionFromUnitVectors<SCALAR_T>(q * z_axis, planeNormal);
+  const Eigen::Quaternion<SCALAR_T> shortestArc = getQuaternionFromUnitVectors<SCALAR_T>(quatLocalRtWorld * unitZ, normalSurfaceEwrtWorld);
 
   return quaternionDistance<SCALAR_T>(shortestArc, Eigen::Quaternion<SCALAR_T>::Identity());
 }
@@ -251,19 +250,19 @@ Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1> quaternionDistanceToPlane(const 
  * e = -(v x n) / sqrt(2 (1 + v.n)), v = R e_z the end-effector normal and n the plane normal. Finite, with finite
  * derivatives, where v = -n (getQuaternionFromUnitVectors()).
  *
- * @param [in] R: measured rotation matrix end effector to world.
- * @param [in] planeNormal: Unit normal of the plane the orientation should be aligned with.
+ * @param [in] rotmatLocalRtWorld: measured rotation matrix end effector to world.
+ * @param [in] normalSurfaceEwrtWorld: Unit normal of the plane the orientation should be aligned with.
  *
  */
 
 template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1> rotationMatrixDistanceToPlane(const Eigen::Matrix<SCALAR_T, kPositionDim, kPositionDim>& R,
-                                                                              const Eigen::Matrix<SCALAR_T, kPositionDim, 1>& planeNormal) {
-  const Eigen::Matrix<SCALAR_T, kPositionDim, 1> z_axis(SCALAR_T(0.0), SCALAR_T(0.0), SCALAR_T(1.0));
+Eigen::Matrix<SCALAR_T, kRotationTangentDim, 1> rotationMatrixDistanceToPlane(const Eigen::Matrix<SCALAR_T, kPositionDim, kPositionDim>& rotmatLocalRtWorld,
+                                                                              const Eigen::Matrix<SCALAR_T, kPositionDim, 1>& normalSurfaceEwrtWorld) {
+  const Eigen::Matrix<SCALAR_T, kPositionDim, 1> unitZ(SCALAR_T(0.0), SCALAR_T(0.0), SCALAR_T(1.0));
 
   // Passive rotation projecting from end effector frame to the closest frame in plane.
   // Computed through the shortest arc rotation  from the end effector z axis to the plane normal (both expressed in world frame).
-  const Eigen::Quaternion<SCALAR_T> shortestArc = getQuaternionFromUnitVectors<SCALAR_T>(R * z_axis, planeNormal);
+  const Eigen::Quaternion<SCALAR_T> shortestArc = getQuaternionFromUnitVectors<SCALAR_T>(rotmatLocalRtWorld * unitZ, normalSurfaceEwrtWorld);
 
   return quaternionDistance<SCALAR_T>(shortestArc, Eigen::Quaternion<SCALAR_T>::Identity());
 }

@@ -61,27 +61,28 @@ namespace ocs2::humanoid {
  * for a lock only between two reads inside one cycle, which it almost never
  * fell between, so these resets went unnoticed;
  *  - the gantry locked since the previous cycle (the operator's LOCK_GANTRY);
- *  - the base tilted past `maxBaseTiltAngle` with the gantry unlocked: update()
- * catches the robot by locking the gantry. State is compared with the PREVIOUS
- * CYCLE, so an event on the simulation thread cannot fall between two reads. On
- * a discontinuity the robot is put in JOINT_PD (torques enabled), and the loop
- * resets the controller and counts the reset in the FSM state it publishes
- * (SimFsmBridge::publishControllerReset()), which is what makes the remote
- * control re-center its joysticks - also after a reset that changes neither the
- * mode nor the gantry.
+ *  - the base tilted past `maxTiltangleBaseRtWorld` with the gantry unlocked:
+ * update() catches the robot by locking the gantry. State is compared with the
+ * PREVIOUS CYCLE, so an event on the simulation thread cannot fall between two
+ * reads. On a discontinuity the robot is put in JOINT_PD (torques enabled), and
+ * the loop resets the controller and counts the reset in the FSM state it
+ * publishes (SimFsmBridge::publishControllerReset()), which is what makes the
+ * remote control re-center its joysticks - also after a reset that changes
+ * neither the mode nor the gantry.
  *
  * SETTLING. A robot caught after a fall hangs at the gantry height, which is
  * its standing height: its feet stay loaded where they landed, JOINT_PD cannot
  * bring its legs back to the nominal posture, and the weld holds its base
  * pitched. An MPC entered from there plans against a posture it cannot move,
  * and the robot fell again within two seconds of the unlock in every headless
- * trial. With a `catchLift` the catch runs a settle sequence: the gantry lifts
- * the robot by that much so that its feet clear the ground, waits until
- * JOINT_PD has brought it to rest at the nominal posture, lowers it back to the
- * height it was caught at and waits for it to rest again on its feet. Until the
- * sequence is over, WB_MPC is refused (the mode stays JOINT_PD and one report
- * says why). The operator unlocking the gantry ends the sequence. An operator's
- * LOCK_GANTRY of a robot that did not fall runs no sequence.
+ * trial. With a `catchErrPosBaseRtWorldEwrtWorldZ` the catch runs a settle
+ * sequence: the gantry lifts the robot by that much so that its feet clear the
+ * ground, waits until JOINT_PD has brought it to rest at the nominal posture,
+ * lowers it back to the height it was caught at and waits for it to rest again
+ * on its feet. Until the sequence is over, WB_MPC is refused (the mode stays
+ * JOINT_PD and one report says why). The operator unlocking the gantry ends the
+ * sequence. An operator's LOCK_GANTRY of a robot that did not fall runs no
+ * sequence.
  *
  * REALTIME. update() runs on the realtime thread every cycle: it allocates
  * nothing (the mode is a short string, which stays in its small-string buffer),
@@ -91,24 +92,26 @@ class SimFallRecovery final : public FallRecovery {
  public:
   struct Config {
     /// [rad] Tilt of the base past which the robot is caught (task.textproto
-    /// `sim_max_base_tilt_angle`); <= 0 disables the catch.
-    scalar_t maxBaseTiltAngle = 0.0;
-    /// [m] How far the gantry lifts a caught robot to let it settle
-    /// (task.textproto `sim_gantry_catch_lift`); <= 0: no sequence.
-    scalar_t catchLift = 0.0;
+    /// `sim_max_tiltangle_base_rt_world`); <= 0 disables the catch.
+    scalar_t maxTiltangleBaseRtWorld = 0.0;
+    /// [m] How far the gantry lifts a caught robot to let it settle, the lifted
+    /// minus the standing gantry height
+    /// (task.textproto `sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z`);
+    /// <= 0: no sequence.
+    scalar_t catchErrPosBaseRtWorldEwrtWorldZ = 0.0;
     // LINT.IfChange(settle_defaults)
     /// The defaults of the settle sequence's fields below, in their units.
-    static constexpr scalar_t kDefaultGantryHeightRate = 0.25;
-    static constexpr scalar_t kDefaultSettleTilt = 0.05;
-    static constexpr scalar_t kDefaultSettleLinearSpeed = 0.05;
-    static constexpr scalar_t kDefaultSettleAngularSpeed = 0.2;
+    static constexpr scalar_t kNomGantrySpeedBaseRtWorld = 0.25;
+    static constexpr scalar_t kNomSettleMaxTiltangleBaseRtWorld = 0.05;
+    static constexpr scalar_t kNomSettleMaxSpeedBaseRtWorld = 0.05;
+    static constexpr scalar_t kNomSettleMaxNormAngvelBaseRtWorldEwrtBase = 0.2;
     static constexpr scalar_t kDefaultSettleJointError = 0.15;
     static constexpr scalar_t kDefaultSettleHoldTime = 0.5;
     static constexpr scalar_t kDefaultSettleTimeout = 5.0;
 
     /// [m/s] Rate the gantry height is moved at during the sequence, up and
     /// down.
-    scalar_t gantryHeightRate = kDefaultGantryHeightRate;
+    scalar_t gantrySpeedBaseRtWorld = kNomGantrySpeedBaseRtWorld;
     /// At rest: base tilt [rad], base linear [m/s] and angular [rad/s] speed
     /// and joint error to nominal [rad] all below these, without a break, for
     /// settleHoldTime [s]. The joint velocities are deliberately not read: the
@@ -116,9 +119,10 @@ class SimFallRecovery final : public FallRecovery {
     /// the step rate reads as a large constant velocity while it holds its
     /// position (see the Atlas ankles under JOINT_PD with an unloaded foot); a
     /// joint that really moves leaves the position band within the hold time.
-    scalar_t settleTilt = kDefaultSettleTilt;
-    scalar_t settleLinearSpeed = kDefaultSettleLinearSpeed;
-    scalar_t settleAngularSpeed = kDefaultSettleAngularSpeed;
+    scalar_t settleMaxTiltangleBaseRtWorld = kNomSettleMaxTiltangleBaseRtWorld;
+    scalar_t settleMaxSpeedBaseRtWorld = kNomSettleMaxSpeedBaseRtWorld;
+    scalar_t settleMaxNormAngvelBaseRtWorldEwrtBase =
+        kNomSettleMaxNormAngvelBaseRtWorldEwrtBase;
     scalar_t settleJointError = kDefaultSettleJointError;
     scalar_t settleHoldTime = kDefaultSettleHoldTime;
     /// [s] A settle phase that does not come to rest within this moves on
@@ -172,7 +176,8 @@ class SimFallRecovery final : public FallRecovery {
 
   /** The angle between the base's vertical and the world vertical, in radians
    * (0 upright, pi upside down). */
-  static scalar_t baseTiltAngle(const quaternion_t& baseRotationLocalToWorld);
+  static scalar_t computeTiltangleBaseRtWorld(
+      const quaternion_t& quatBaseRtWorld);
 
   /**
    * Whether `robotState` is at rest at the nominal posture by the thresholds of
@@ -208,10 +213,10 @@ class SimFallRecovery final : public FallRecovery {
 
   Phase phase_ = Phase::kIdle;
   scalar_t phaseStartTime_ = 0.0;
-  scalar_t standingGantryHeight_ =
+  scalar_t standingGantryPosBaseRtWorldEwrtWorldZ_ =
       0.0;  ///< [m] gantry height at the catch, returned to at the end of the
             ///< sequence
-  scalar_t rampStartHeight_ =
+  scalar_t rampStartGantryPosBaseRtWorldEwrtWorldZ_ =
       0.0;  ///< [m] gantry height the current lift or descent started from
   std::optional<scalar_t> restingSince_;
   bool refusalReported_ = false;

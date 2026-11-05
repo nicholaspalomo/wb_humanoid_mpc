@@ -92,22 +92,22 @@ void FakeRobotBackend::stop() {
 }
 
 void FakeRobotBackend::enableTorques() {
-  if (!torquesEnabled_.exchange(true)) {
+  if (!jointTorquesEnabled_.exchange(true)) {
     // No action applied while the torques were off is executed
     // (RobotHWInterfaceBase::discardAppliedJointAction()).
     hardware_.discardApplied();
-    torqueEnables_.fetch_add(1);
+    jointTorqueEnables_.fetch_add(1);
   }
 }
 
 void FakeRobotBackend::enterSafeState() {
-  torquesEnabled_.store(false);
+  jointTorquesEnabled_.store(false);
   safeStates_.fetch_add(1);
 }
 
-void FakeRobotBackend::readMeasuredContactForces(
-    std::array<vector3_t, kNumContacts>& forces) {
-  forces.fill(vector3_t::Zero());
+void FakeRobotBackend::readMeasForceFeetEwrtWorld(
+    std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld) {
+  measForceFeetEwrtWorld.fill(vector3_t::Zero());
 }
 
 absl::string_view FakeRobotBackend::supervisorName() const {
@@ -125,7 +125,7 @@ void FakeRobotBackend::runDriver() {
     trajectory_(static_cast<double>(step) * periodSeconds, driverState_);
     hardware_.publish(driverState_);
     statesPublished_.fetch_add(1);
-    if (hardware_.take(driverAction_) && torquesEnabled_.load())
+    if (hardware_.take(driverAction_) && jointTorquesEnabled_.load())
       actionsExecuted_.fetch_add(1);
   }
 }

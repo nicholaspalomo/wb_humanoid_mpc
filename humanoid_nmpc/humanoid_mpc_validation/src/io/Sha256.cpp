@@ -71,17 +71,17 @@ constexpr int kPaddingLeadByte = 0x80;
 
 // The rotations and shifts of the functions of FIPS 180-4, section 4.1.2, (4.4)
 // to (4.7).
-constexpr int kBigSigma0FirstRotation = 2;
-constexpr int kBigSigma0SecondRotation = 13;
-constexpr int kBigSigma0ThirdRotation = 22;
-constexpr int kBigSigma1FirstRotation = 6;
-constexpr int kBigSigma1SecondRotation = 11;
-constexpr int kBigSigma1ThirdRotation = 25;
-constexpr int kSmallSigma0FirstRotation = 7;
-constexpr int kSmallSigma0SecondRotation = 18;
+constexpr int kBigSigma0FirstRotateCount = 2;
+constexpr int kBigSigma0SecondRotateCount = 13;
+constexpr int kBigSigma0ThirdRotateCount = 22;
+constexpr int kBigSigma1FirstRotateCount = 6;
+constexpr int kBigSigma1SecondRotateCount = 11;
+constexpr int kBigSigma1ThirdRotateCount = 25;
+constexpr int kSmallSigma0FirstRotateCount = 7;
+constexpr int kSmallSigma0SecondRotateCount = 18;
 constexpr int kSmallSigma0Shift = 3;
-constexpr int kSmallSigma1FirstRotation = 17;
-constexpr int kSmallSigma1SecondRotation = 19;
+constexpr int kSmallSigma1FirstRotateCount = 17;
+constexpr int kSmallSigma1SecondRotateCount = 19;
 constexpr int kSmallSigma1Shift = 10;
 
 // How far back the message schedule reaches (FIPS 180-4, section 6.2.2, step
@@ -144,28 +144,30 @@ void compressBlock(const uint8_t* absl_nonnull block,
         static_cast<uint32_t>(block[kWordBytes * i + kWordFourthByte]);
   }
   for (size_t i = kBlockWords; i < kRounds; ++i) {
-    const uint32_t s0 =
-        rotateRight<kSmallSigma0FirstRotation>(schedule[i - kSmallSigma0Lag]) ^
-        rotateRight<kSmallSigma0SecondRotation>(schedule[i - kSmallSigma0Lag]) ^
-        (schedule[i - kSmallSigma0Lag] >> kSmallSigma0Shift);
-    const uint32_t s1 =
-        rotateRight<kSmallSigma1FirstRotation>(schedule[i - kSmallSigma1Lag]) ^
-        rotateRight<kSmallSigma1SecondRotation>(schedule[i - kSmallSigma1Lag]) ^
-        (schedule[i - kSmallSigma1Lag] >> kSmallSigma1Shift);
+    const uint32_t s0 = rotateRight<kSmallSigma0FirstRotateCount>(
+                            schedule[i - kSmallSigma0Lag]) ^
+                        rotateRight<kSmallSigma0SecondRotateCount>(
+                            schedule[i - kSmallSigma0Lag]) ^
+                        (schedule[i - kSmallSigma0Lag] >> kSmallSigma0Shift);
+    const uint32_t s1 = rotateRight<kSmallSigma1FirstRotateCount>(
+                            schedule[i - kSmallSigma1Lag]) ^
+                        rotateRight<kSmallSigma1SecondRotateCount>(
+                            schedule[i - kSmallSigma1Lag]) ^
+                        (schedule[i - kSmallSigma1Lag] >> kSmallSigma1Shift);
     schedule[i] =
         schedule[i - kOldestTermLag] + s0 + schedule[i - kPlainTermLag] + s1;
   }
   std::array<uint32_t, kHashWords> v = hash;
   for (size_t i = 0; i < kRounds; ++i) {
-    const uint32_t s1 = rotateRight<kBigSigma1FirstRotation>(v[kE]) ^
-                        rotateRight<kBigSigma1SecondRotation>(v[kE]) ^
-                        rotateRight<kBigSigma1ThirdRotation>(v[kE]);
+    const uint32_t s1 = rotateRight<kBigSigma1FirstRotateCount>(v[kE]) ^
+                        rotateRight<kBigSigma1SecondRotateCount>(v[kE]) ^
+                        rotateRight<kBigSigma1ThirdRotateCount>(v[kE]);
     const uint32_t choice = (v[kE] & v[kF]) ^ (~v[kE] & v[kG]);
     const uint32_t temp1 =
         v[kH] + s1 + choice + kRoundConstants[i] + schedule[i];
-    const uint32_t s0 = rotateRight<kBigSigma0FirstRotation>(v[kA]) ^
-                        rotateRight<kBigSigma0SecondRotation>(v[kA]) ^
-                        rotateRight<kBigSigma0ThirdRotation>(v[kA]);
+    const uint32_t s0 = rotateRight<kBigSigma0FirstRotateCount>(v[kA]) ^
+                        rotateRight<kBigSigma0SecondRotateCount>(v[kA]) ^
+                        rotateRight<kBigSigma0ThirdRotateCount>(v[kA]);
     const uint32_t majority =
         (v[kA] & v[kB]) ^ (v[kA] & v[kC]) ^ (v[kB] & v[kC]);
     const uint32_t temp2 = s0 + majority;

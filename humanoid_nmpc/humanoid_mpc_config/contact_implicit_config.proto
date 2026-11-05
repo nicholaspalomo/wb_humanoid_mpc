@@ -15,10 +15,10 @@ import "nproto/retired_field_options.proto";
 // Next ID: 8
 message ContactImplicitConfig {
   option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::ContactImplicitConfig";
-  // Before the top-level terrain_height, the contact-implicit terms had a ground height of their own.
+  // Before the top-level pos_surface_rt_world_ewrt_world_z, the contact-implicit terms had a ground height of their own.
   option (nproto.retired_field) = {
     name: "terrain_height"
-    replacement: "the ground is the top-level terrain_height of the task file, which the swing trajectories share"
+    replacement: "the ground is the top-level pos_surface_rt_world_ewrt_world_z of the task file, which the swing trajectories share"
   };
 
   reserved 8 to max;
@@ -29,9 +29,10 @@ message ContactImplicitConfig {
   double slip_weight = 2 [default = 100.0];
   // The weight of the one-sided quadratic hinge on h >= 0: penetration_weight * h^2 / 2 below the ground, 0 above it.
   double penetration_weight = 3 [default = 50000.0];
-  // [m] The height at which a fully loaded foot is as wrong as the complementarity term can describe; normally the swing
-  // apex, swing_trajectory_config's swing height.
-  double height_reference = 4 [default = 0.08, (humanoid_mpc_config.tuning) = { unit: "m" }];
+  // [m] The height of a contact above the ground at which a fully loaded foot is as wrong as the complementarity term can
+  // describe: the scale of the gap h. Normally the swing apex, swing_trajectory_config's
+  // apex_pos_foot_rt_swingend_ewrt_world_z.
+  double scale_pos_contact_rt_surface_ewrt_world_z = 4 [default = 0.08, (humanoid_mpc_config.tuning) = { unit: "m" }];
   // [m/s] A sliding speed that would already be a failure: the scale of each horizontal component of the contact's
   // velocity in the world frame.
   double scale_linvel_contact_rt_world_ewrt_world_xy = 5 [default = 0.3, (humanoid_mpc_config.tuning) = { unit: "m/s" }];

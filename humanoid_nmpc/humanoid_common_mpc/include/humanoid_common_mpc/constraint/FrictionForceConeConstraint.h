@@ -30,11 +30,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
+
+#include <cstddef>
+#include <memory>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -47,11 +57,22 @@ namespace ocs2::humanoid {
  * forms chosen by `scheduleGated`.
  *
  * The force F below is the contact's world-frame force written in the frame of
- * the patch the contact touches, p_R_w F, with the rotation of
- * SwitchedModelReferenceManager::getContactPatchFrame(): a parameter of the
- * contact phase, so the state Jacobian stays zero. On the world-aligned patch
- * of flat ground the rotation is the identity and the cone is the world-z cone
- * it has always been.
+ * the patch the contact touches, p_R_w F_w, with the rotation p_R_w of
+ * SwitchedModelReferenceManager::getContactPatchFrame(), a parameter of the
+ * contact phase. On the world-aligned patch of flat ground p_R_w is the
+ * identity and the cone is the world-z cone it has always been.
+ *
+ * F_w is the model's getForceContactEwrtParam() rotated out of the frame
+ * getContactInputFrame() reports. A wrench-space model stores F_w in the input,
+ * so F = p_R_w F_param and the state Jacobian is zero. Under
+ * BasisInputsModelDecorator the input stores scalings of a basis fixed to the
+ * foot, F_param is the force in contact axes, and F = p_R_w w_R_c(q) F_param
+ * with the contact frame's orientation w_R_c read off the state through
+ * Pinocchio; the cone then has a state Jacobian through w_R_c, taken with the
+ * contact frame's LOCAL Jacobian as ContactWrenchConeConstraint does. Rotating
+ * F_param by p_R_w alone, as this term once did, checked the cone in axes that
+ * turn with the foot: a vertical world force on a foot pitched by 0.3 rad read
+ * as 177 N of friction.
  *
  * SCHEDULE GATED (the historical form, one row, active only while the mode
  * schedule calls the foot a stance foot):
@@ -107,7 +128,10 @@ namespace ocs2::humanoid {
  * positive semi-definite whatever the penalty; getQuadraticApproximation()
  * still returns the exact second derivatives, minus the Hessian shift, for
  * anyone who asks. The gated term keeps ConstraintOrder::Quadratic: its row is
- * concave, so its Hessian can only add curvature to the penalty.
+ * concave, so its Hessian can only add curvature to the penalty. With a
+ * contact-frame input the input Hessian and the input-state cross term are
+ * exact, and the state Hessian keeps the cone's curvature in F, J_x^T
+ * d2Cone_dF2 J_x, but drops the second derivative of w_R_c(q) F_param.
  *
  * Not thread-safe; the solver gives each worker thread its own clone().
  */
@@ -164,7 +188,13 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
    * @param [in] referenceManager : Switched model ReferenceManager.
    * @param [in] config : Friction model settings.
    * @param [in] contactPointIndex : The 3 DoF contact index.
-   * @param [in] info : The centroidal model information.
+   * @param [in] mpcRobotModel : The robot model whose input the term reads;
+   * retained, it must outlive the term.
+   * @param [in] pinocchioInterface : The Pinocchio model the contact frame's
+   * orientation and Jacobian are taken from when the model's input is in
+   * contact axes; retained, it must outlive the term. Its velocity dimension
+   * must equal the model's then, which the constructor checks and Create()
+   * returns as a Status.
    * @param [in] scheduleGated : When true (the historical behavior) the term
    * switches itself off while the mode schedule calls this foot a swing foot,
    * which is only sound because the hard `zero_wrench` constraint has already
@@ -180,6 +210,18 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
       Config config,
       size_t contactPointIndex,
       const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+      const PinocchioInterface& pinocchioInterface,
+      bool scheduleGated = true);
+
+  /** Returns the term of the constructor, or InvalidArgument where the
+   * constructor would abort: a contact-frame input with a Pinocchio model
+   * whose velocity dimension differs from the robot model's. */
+  static absl::StatusOr<std::unique_ptr<FrictionForceConeConstraint>> Create(
+      const SwitchedModelReferenceManager& referenceManager,
+      Config config,
+      size_t contactPointIndex,
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+      const PinocchioInterface& pinocchioInterface,
       bool scheduleGated = true);
 
   /** Whether this term is gated on the mode schedule's contact flag; see the
@@ -205,6 +247,10 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
   const matrix_t& getInputJacobianForceContactEwrtParam() const {
     return inputJacobianForceContactEwrtParam_;
   }
+
+  /** The axes of the model's input force: under ContactInputFrame::kWorld the
+   * term reads only the input, and its state Hessian is the shift alone. */
+  ContactInputFrame getContactInputFrame() const { return contactInputFrame_; }
 
   ~FrictionForceConeConstraint() override = default;
   FrictionForceConeConstraint& operator=(const FrictionForceConeConstraint&) =
@@ -267,13 +313,49 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
         d2Cone_du2;  // one contactInputDim_ x contactInputDim_ per row
   };
 
+  /**
+   * The force in surface axes at one (state, input), and how it moves with the
+   * state. Under a world-frame input `rotmatParamRtSurface` is p_R_w and the
+   * two Jacobians are empty. Under a contact-frame input it is p_R_w
+   * w_R_c(q), `angjacContactRtWorldEwrtContact` is the contact frame's LOCAL
+   * angular Jacobian taken to the state by getPinocchioTangentJacobian(), and
+   * `stateJacobian` = -rotmatParamRtSurface [F_param]x
+   * angjacContactRtWorldEwrtContact.
+   */
+  struct ForceContactEwrtSurface {
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    vector3_t value = vector3_t::Zero();
+    matrix3_t rotmatParamRtSurface = matrix3_t::Identity();
+    matrix_t angjacContactRtWorldEwrtContact;  // 3 x stateDim, or empty
+    matrix_t stateJacobian;                    // 3 x stateDim, or empty
+  };
+
   FrictionForceConeConstraint(const FrictionForceConeConstraint& rhs);
+  /** Returns InvalidArgument when the contact-frame path cannot take the
+   * Pinocchio Jacobian to the state; OK for a world-frame input. */
+  static absl::Status checkPinocchioVelocityDim(
+      const PinocchioInterface& pinocchioInterface,
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+      size_t contactPointIndex);
+  /** Evaluates F at (time, state, input), with its state Jacobians when
+   * `withStateJacobian` and the input is in contact axes. */
+  ForceContactEwrtSurface computeForceContactEwrtSurface(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      bool withStateJacobian) const;
+  /** Returns the part of d(dCone_du)/d(state) of one row, contactInputDim_ x
+   * stateDim, that comes from the input Jacobian p_R_w w_R_c(q) B turning
+   * with the state; `dCone_dF` is that row's 1 x 3 force gradient. */
+  matrix_t computeInputJacobianStateDerivative(
+      const matrix_t& dCone_dF,
+      const ForceContactEwrtSurface& forceContactEwrtSurface) const;
   vector_t coneConstraint(const vector3_t& forceContactEwrtSurface) const;
   /** The rotation p_R_w of the patch the contact touches at `time`
    * (SwitchedModelReferenceManager::getContactPatchFrame()). */
   matrix3_t getRotmatWorldRtSurface(scalar_t time) const;
   LocalForceDerivatives computeInputJacobianForceContactEwrtSurface(
-      const matrix3_t& t_R_w) const;
+      const matrix3_t& rotmatParamRtSurface) const;
   ConeLocalDerivatives computeConeLocalDerivatives(
       const vector3_t& forceContactEwrtSurface) const;
   ConeDerivatives computeConeConstraintDerivatives(
@@ -288,6 +370,7 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
 
   const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
   const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
+  const PinocchioInterface* absl_nonnull pinocchioInterfacePtr_;
 
   const Config config_;
   const size_t contactPointIndex_;
@@ -297,15 +380,21 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
   // CentroidalMpcRobotModel stores the three force components directly in the
   // input, so d(force)/d(input) over the block is an identity and the
   // derivative could be written as a 3x3 at the force start index. Under
-  // BasisInputsModelDecorator - which the shipped DRC Atlas runs - the same
+  // BasisInputsModelDecorator - the parameterization the shipped DRC Atlas
+  // runs - the same
   // contact occupies a wider block of basis scalings and the force is `B_local
   // * lambda`, so that 3x3 write lands on the first three scalings and is wrong
   // in every entry: getValue() evaluated the cone on `B_local * lambda` while
   // the solver was handed the Jacobian of a different function. See
-  // inputJacobianForceContactEwrtParam().
+  // inputJacobianForceContactEwrtParam(). That force is also in contact axes,
+  // which contactInputFrame_ records.
   const size_t contactInputStart_;
   const size_t contactInputDim_;
   const matrix_t inputJacobianForceContactEwrtParam_;  // 3 x contactInputDim_
+  // The axes of getForceContactEwrtParam(), read off the model once.
+  const ContactInputFrame contactInputFrame_;
+  // The contact's Pinocchio frame, read only under ContactInputFrame::kContact.
+  const pinocchio::FrameIndex contactFrameIndex_;
 
   bool isActive_ = true;
   // Fixed by the formulation at load time rather than tuned, so it is const and

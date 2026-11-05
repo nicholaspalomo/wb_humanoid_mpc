@@ -92,7 +92,8 @@ estimation::KalmanBaseEstimator::Config kalmanBaseEstimatorConfigFromConfig(
       .kinematicPositionNoise = config.kinematic_position_noise,
       .kinematicVelocityNoise = config.kinematic_velocity_noise,
       .contactHeightNoise = config.contact_height_noise,
-      .contactHeight = config.contact_height,
+      .nomPosContactRtWorldEwrtWorldZ =
+          config.nom_pos_contact_rt_world_ewrt_world_z,
   };
   // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/kalman_state_estimator_config.proto:kalman_state_estimator_defaults)
 }
@@ -110,23 +111,25 @@ absl::StatusOr<RobotProcessSettings> robotProcessSettingsFromConfig(
   }
   settings.contactEstimator = std::move(controllerSide.contactEstimator);
   settings.contactWrenchGate = controllerSide.contactWrenchGate;
-  settings.simulator.contactForceThreshold =
+  settings.simulator.minForceMjcontactEwrtMjcontactX =
       task.sim_min_force_mjcontact_ewrt_mjcontact_x;
   settings.simulator.contactTimelineWindow = task.sim_contact_timeline_window;
   settings.simulator.visualizations = task.sim_visualizations;
   settings.simulator.gantryHold = task.gantry_hold;
   settings.simulator.projectile = task.sim_projectile;
   settings.simulator.ragdollJointDamping = task.sim_ragdoll_joint_damping;
-  settings.simulator.autoResetBaseHeight =
+  settings.simulator.autoResetMinPosBaseRtWorldEwrtWorldZ =
       task.sim_auto_reset_min_pos_base_rt_world_ewrt_world_z;
   // The schema has no sentinel: an absent field is off, which the fall
   // recovery's config spells 0.
-  ASSIGN_OR_RETURN(settings.fallRecovery.maxBaseTiltAngle,
-                   absentOrPositive("sim_max_base_tilt_angle",
-                                    task.sim_max_base_tilt_angle));
+  ASSIGN_OR_RETURN(settings.fallRecovery.maxTiltangleBaseRtWorld,
+                   absentOrPositive("sim_max_tiltangle_base_rt_world",
+                                    task.sim_max_tiltangle_base_rt_world));
   ASSIGN_OR_RETURN(
-      settings.fallRecovery.catchLift,
-      absentOrPositive("sim_gantry_catch_lift", task.sim_gantry_catch_lift));
+      settings.fallRecovery.catchErrPosBaseRtWorldEwrtWorldZ,
+      absentOrPositive(
+          "sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z",
+          task.sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z));
   settings.mpcEntryBlendTime = task.mpc_entry_blend_time;
   settings.safetyDecayTimeConstant = task.safety_decay_time_constant;
   const absl::StatusOr<WbMpcFeedforward> feedforward =

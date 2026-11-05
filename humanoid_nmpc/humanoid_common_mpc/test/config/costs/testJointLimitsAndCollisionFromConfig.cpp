@@ -48,7 +48,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody.hpp"
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
+#include "pinocchio/spatial/fwd.hpp"
 
 #include "humanoid_common_mpc/config/costs/CollisionConstraintFromConfig.h"
 #include "humanoid_common_mpc/config/costs/JointLimitsFromConfig.h"

@@ -47,17 +47,17 @@ namespace ocs2::humanoid {
  * of RobotSupervisorRegistry). Nothing catches a falling robot and nothing
  * teleports it, so update() reports no discontinuity and never relocates the
  * base; what it does is the last line of defense against a fall under torque:
- * once the base tilts past `maxBaseTiltAngle` (task file
- * `sim_max_base_tilt_angle`; <= 0 disables it) while the torques are on, it
- * puts the backend in its safe state (enterSafeState(): its damping) and the
- * mode in ZERO_TORQUE, and reports it once. An FSM command switches the torques
- * on again. Realtime thread: no lock, no log line, no allocation.
+ * once the base tilts past `maxTiltangleBaseRtWorld` (task file
+ * `sim_max_tiltangle_base_rt_world`; <= 0 disables it) while the torques are
+ * on, it puts the backend in its safe state (enterSafeState(): its damping) and
+ * the mode in ZERO_TORQUE, and reports it once. An FSM command switches the
+ * torques on again. Realtime thread: no lock, no log line, no allocation.
  */
 class HardwareFallRecovery final : public FallRecovery {
  public:
   /** `backend` and `eventLog` must outlive the recovery; `eventLog` may be
    * nullptr. */
-  HardwareFallRecovery(scalar_t maxBaseTiltAngle,
+  HardwareFallRecovery(scalar_t maxTiltangleBaseRtWorld,
                        RobotBackend* absl_nonnull backend,
                        RealtimeEventLog* absl_nullable eventLog = nullptr);
 
@@ -70,7 +70,7 @@ class HardwareFallRecovery final : public FallRecovery {
                std::string& currentModeName) override;
 
  private:
-  const scalar_t maxBaseTiltAngle_;
+  const scalar_t maxTiltangleBaseRtWorld_;
   RobotBackend* absl_nonnull backend_;
   RealtimeEventLog* absl_nullable const eventLog_;
 };

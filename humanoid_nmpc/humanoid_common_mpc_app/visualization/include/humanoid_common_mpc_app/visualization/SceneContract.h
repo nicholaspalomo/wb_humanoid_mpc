@@ -55,10 +55,12 @@ inline constexpr absl::string_view kTerminalTargetInstance = "terminal_target";
 // clang-format on
 
 // LINT.IfChange(markers)
-inline constexpr absl::string_view kContactForces = "markers/contact_forces";
+inline constexpr absl::string_view kContactForceMarkers =
+    "markers/contact_forces";
 inline constexpr absl::string_view kCenterOfPressure =
     "markers/center_of_pressure";
-inline constexpr absl::string_view kCornerForces = "markers/corner_forces";
+inline constexpr absl::string_view kCornerForceMarkers =
+    "markers/corner_forces";
 inline constexpr absl::string_view kPlanEndEffectors = "plan/end_effectors";
 inline constexpr absl::string_view kPlanBase = "plan/base";
 inline constexpr absl::string_view kPlanCom = "plan/com";
@@ -97,7 +99,7 @@ inline constexpr std::array<Rgba, 5> kContactColors = {kPurple, kOrange, kBlue,
 // LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/palette.py:marker_palette)
 // clang-format on
 
-/** [N/m] Force per meter of arrow of a contact force. */
-inline constexpr double kForceScale = 200.0;
+/** [N/m] Newtons of a contact force per meter of its arrow. */
+inline constexpr double kNewtonsPerArrowMeter = 200.0;
 
 }  // namespace ocs2::humanoid::visualization::scene

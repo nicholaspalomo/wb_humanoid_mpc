@@ -53,7 +53,7 @@ namespace ocs2::humanoid {
  * both read: `<modelName>_position`, `_velocity`, `_linear_acceleration`,
  * `_orientation_wrt_plane` (the plane normals its parameters),
  * `_pose_wrt_plane_rate` and `_pose_wrt_plane_acceleration` (the same). The
- * swing foot's normal-motion constraint reads the first three, the stance
+ * swing foot's vertical-motion constraint reads the first three, the stance
  * foot's constraint the position and the last three.
  *
  * The taped functions hold copies of what they read - the end-effector frames,
@@ -97,44 +97,46 @@ class PinocchioEndEffectorDynamicsCppAd final
 
   const std::vector<std::string>& getIds() const override;
 
-  std::vector<vector3_t> getPosition(const vector_t& state) const override;
-  std::vector<vector3_t> getVelocity(const vector_t& state,
-                                     const vector_t& input) const override;
-  std::vector<vector3_t> getLinearAcceleration(
-      const vector_t& state, const vector_t& input) const override;
-  std::vector<vector3_t> getOrientationErrorWrtPlane(
-      const vector_t& state,
-      const std::vector<vector3_t>& planeNormals) const override;
-  std::vector<vector6_t> getPoseWrtPlaneRate(
-      const vector_t& state,
-      const vector_t& input,
-      const std::vector<vector3_t>& planeNormals) const override;
-  std::vector<vector6_t> getPoseWrtPlaneAcceleration(
-      const vector_t& state,
-      const vector_t& input,
-      const std::vector<vector3_t>& planeNormals) const override;
-
-  std::vector<VectorFunctionLinearApproximation> getPositionLinearApproximation(
+  std::vector<vector3_t> getPosEesRtWorldEwrtWorld(
       const vector_t& state) const override;
-  std::vector<VectorFunctionLinearApproximation> getVelocityLinearApproximation(
+  std::vector<vector3_t> getLinvelEesRtWorldEwrtWorld(
       const vector_t& state, const vector_t& input) const override;
-  std::vector<VectorFunctionLinearApproximation>
-  getLinearAccelerationLinearApproximation(
+  std::vector<vector3_t> getLinaccEesRtWorldEwrtWorld(
       const vector_t& state, const vector_t& input) const override;
-  std::vector<VectorFunctionLinearApproximation>
-  getOrientationErrorWrtPlaneLinearApproximation(
+  std::vector<vector3_t> getTiltEesRtSurfaceEwrtWorld(
       const vector_t& state,
-      const std::vector<vector3_t>& planeNormals) const override;
-  std::vector<VectorFunctionLinearApproximation>
-  getPoseWrtPlaneRateLinearApproximation(
+      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const override;
+  std::vector<vector6_t> getXeeRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& planeNormals) const override;
-  std::vector<VectorFunctionLinearApproximation>
-  getPoseWrtPlaneAccelerationLinearApproximation(
+      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const override;
+  std::vector<vector6_t> getXeeSecondRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& planeNormals) const override;
+      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const override;
+
+  std::vector<VectorFunctionLinearApproximation>
+  getLinearApproximationPosEesRtWorldEwrtWorld(
+      const vector_t& state) const override;
+  std::vector<VectorFunctionLinearApproximation>
+  getLinearApproximationLinvelEesRtWorldEwrtWorld(
+      const vector_t& state, const vector_t& input) const override;
+  std::vector<VectorFunctionLinearApproximation>
+  getLinearApproximationLinaccEesRtWorldEwrtWorld(
+      const vector_t& state, const vector_t& input) const override;
+  std::vector<VectorFunctionLinearApproximation>
+  getLinearApproximationTiltEesRtSurfaceEwrtWorld(
+      const vector_t& state,
+      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const override;
+  std::vector<VectorFunctionLinearApproximation> getLinearApproximationXeeRate(
+      const vector_t& state,
+      const vector_t& input,
+      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const override;
+  std::vector<VectorFunctionLinearApproximation>
+  getLinearApproximationXeeSecondRate(
+      const vector_t& state,
+      const vector_t& input,
+      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const override;
 
  private:
   PinocchioEndEffectorDynamicsCppAd(
@@ -143,9 +145,9 @@ class PinocchioEndEffectorDynamicsCppAd final
   std::unique_ptr<CppAdInterface> positionCppAdInterfacePtr_;
   std::unique_ptr<CppAdInterface> velocityCppAdInterfacePtr_;
   std::unique_ptr<CppAdInterface> linearAccelerationCppAdInterfacePtr_;
-  std::unique_ptr<CppAdInterface> orientationErrorWrtPlaneCppAdInterfacePtr_;
-  std::unique_ptr<CppAdInterface> poseWrtPlaneRateCppAdInterfacePtr_;
-  std::unique_ptr<CppAdInterface> poseWrtPlaneAccelerationCppAdInterfacePtr_;
+  std::unique_ptr<CppAdInterface> tiltEesCppAdInterfacePtr_;
+  std::unique_ptr<CppAdInterface> xeeRateCppAdInterfacePtr_;
+  std::unique_ptr<CppAdInterface> xeeSecondRateCppAdInterfacePtr_;
 
   const std::vector<std::string> endEffectorIds_;
 };

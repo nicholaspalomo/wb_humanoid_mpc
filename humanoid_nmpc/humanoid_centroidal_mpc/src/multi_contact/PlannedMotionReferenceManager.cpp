@@ -33,20 +33,41 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
+#include "absl/status/statusor.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
+#include "humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
+#include "humanoid_centroidal_mpc/multi_contact/PlanContactOrder.h"
+#include "humanoid_centroidal_mpc/multi_contact/PlanPlayback.h"
+#include "humanoid_centroidal_mpc/multi_contact/PlannedMotion.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact/ContactPatchFrame.h"
+#include "humanoid_common_mpc/contact_swing/ContactSwingTrajectory.h"
+#include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "humanoid_multi_contact/terrain/TerrainModel.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -111,8 +132,8 @@ PlannedMotionReferenceManager::PlannedMotionReferenceManager(
              motion_.startTime(),
              motion_.period()),
       swingPlanner_(numContacts_),
-      measuredContactPositions_(numContacts_, vector3_t::Zero()),
-      liftOffPositions_(numContacts_) {
+      measPosContactsRtWorldEwrtWorld_(numContacts_, vector3_t::Zero()),
+      liftoffPosContactsRtWorldEwrtWorld_(numContacts_) {
   const pinocchio::Model& model = pinocchioInterface_.getModel();
   for (const std::string& name : mpcRobotModel.modelSettings.contactNames) {
     contactFrames_.push_back(model.getFrameId(name));
@@ -129,7 +150,8 @@ PlannedMotionReferenceManager::candidateOf(size_t contactIndex) const {
 
 void PlannedMotionReferenceManager::resetRuntimeState() {
   SwitchedModelReferenceManager::resetRuntimeState();
-  std::fill(liftOffPositions_.begin(), liftOffPositions_.end(), std::nullopt);
+  std::fill(liftoffPosContactsRtWorldEwrtWorld_.begin(),
+            liftoffPosContactsRtWorldEwrtWorld_.end(), std::nullopt);
   swingPlanner_.clear();
 }
 
@@ -153,14 +175,15 @@ void PlannedMotionReferenceManager::measure(const vector_t& state) {
   const vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(state);
   pinocchio::forwardKinematics(model, data, q);
   for (size_t i = 0; i < contactFrames_.size(); ++i) {
-    measuredContactPositions_[i] =
+    measPosContactsRtWorldEwrtWorld_[i] =
         pinocchio::updateFramePlacement(model, data, contactFrames_[i])
             .translation();
   }
-  measuredCenterOfMass_ = pinocchio::centerOfMass(model, data, q);
+  measPosComRtWorldEwrtWorld_ = pinocchio::centerOfMass(model, data, q);
 }
 
-vector3_t PlannedMotionReferenceManager::centerOfMassOf(const vector_t& state) {
+vector3_t PlannedMotionReferenceManager::computePosComRtWorldEwrtWorld(
+    const vector_t& state) {
   return pinocchio::centerOfMass(
       pinocchioInterface_.getModel(), pinocchioInterface_.getData(),
       vector_t(mpcRobotModelPtr_->getGeneralizedCoordinates(state)));
@@ -174,18 +197,25 @@ bool PlannedMotionReferenceManager::stanceReached(size_t event,
     const std::optional<PlannedContactPhase> phase =
         motion_.phaseAt(i, holdTime);
     if (!phase.has_value()) continue;
-    const scalar_t distance =
-        std::abs(phase->normal.dot(measuredContactPositions_[i]) -
-                 phase->patch.normalOffset);
-    if (distance > settings_.contactTolerance) return false;
+    // The measured contact origin's height above its planned patch, unsigned.
+    const scalar_t normMeasPosContactRtSurfaceEwrtSurfaceZ =
+        std::abs(phase->desNormalSurfaceEwrtWorld.dot(
+                     measPosContactsRtWorldEwrtWorld_[i]) -
+                 phase->patch.posSurfaceRtWorldEwrtSurfaceZ);
+    if (normMeasPosContactRtSurfaceEwrtSurfaceZ >
+        settings_.maxNormPosContactRtSurfaceEwrtSurfaceZ) {
+      return false;
+    }
   }
-  const vector3_t plannedCom =
-      centerOfMassOf(mpcRobotModelPtr_->getDesiredState(
+  const vector3_t plannedPosComRtWorldEwrtWorld =
+      computePosComRtWorldEwrtWorld(mpcRobotModelPtr_->getDesiredState(
           motion_.targets(), motion_.cycleTime(holdTime)));
-  const scalar_t comError = (plannedCom - measuredCenterOfMass_)
-                                .head<kHorizontalPositionDim>()
-                                .norm();
-  return comError <= settings_.comTolerance;
+  const scalar_t normErrPosComRtWorldEwrtWorldXy =
+      (plannedPosComRtWorldEwrtWorld - measPosComRtWorldEwrtWorld_)
+          .head<kHorizontalPositionDim>()
+          .norm();
+  return normErrPosComRtWorldEwrtWorldXy <=
+         settings_.maxNormErrPosComRtWorldEwrtWorldXy;
 }
 
 ModeSchedule PlannedMotionReferenceManager::modeScheduleAtOffset(
@@ -221,7 +251,8 @@ TargetTrajectories PlannedMotionReferenceManager::targetsAtOffset(
   return targets;
 }
 
-vector3_t PlannedMotionReferenceManager::plannedContactPosition(
+vector3_t
+PlannedMotionReferenceManager::computePlannedPosContactRtWorldEwrtWorld(
     size_t contactIndex, scalar_t planTime) {
   const pinocchio::Model& model = pinocchioInterface_.getModel();
   pinocchio::Data& data = pinocchioInterface_.getData();
@@ -247,7 +278,8 @@ void PlannedMotionReferenceManager::plannedPathSwings(
   constexpr scalar_t kSegmentControlDistance = 1.0e-3;
   constexpr scalar_t kStill = 1.0e-6;  // [m]
   const ContactSwingSettings segmentSettings{
-      .liftHeight = kSegmentControlDistance, .clearance = 0.0};
+      .minDistControlpointRtContact = kSegmentControlDistance,
+      .clearance = 0.0};
   // The plan's knots inside the window, at the window's period.
   const scalar_t shift =
       window.touchDownTime - motion_.cycleTime(window.touchDownTime);
@@ -262,22 +294,33 @@ void PlannedMotionReferenceManager::plannedPathSwings(
   const multi_contact::TerrainModel& terrain = scenario_.terrain;
   for (size_t k = 0; k + 1 < times.size(); ++k) {
     if (times[k + 1] + offset < from || times[k] + offset > to) continue;
-    const vector3_t start = plannedContactPosition(contactIndex, times[k]);
-    const vector3_t end = plannedContactPosition(contactIndex, times[k + 1]);
-    const vector3_t way = end - start;
-    const vector3_t direction =
-        way.norm() > kStill ? vector3_t(way.normalized()) : vector3_t::UnitZ();
+    const vector3_t segmentStartPosContactRtWorldEwrtWorld =
+        computePlannedPosContactRtWorldEwrtWorld(contactIndex, times[k]);
+    const vector3_t segmentEndPosContactRtWorldEwrtWorld =
+        computePlannedPosContactRtWorldEwrtWorld(contactIndex, times[k + 1]);
+    const vector3_t errPosContactRtWorldEwrtWorld =
+        segmentEndPosContactRtWorldEwrtWorld -
+        segmentStartPosContactRtWorldEwrtWorld;
+    const vector3_t dirContactEwrtWorld =
+        errPosContactRtWorldEwrtWorld.norm() > kStill
+            ? vector3_t(errPosContactRtWorldEwrtWorld.normalized())
+            : vector3_t::UnitZ();
     absl::StatusOr<ContactSwingTrajectory> segment =
         ContactSwingTrajectory::Create(
             times[k] + offset, times[k + 1] + offset,
-            ContactSwingEndpoint{.posContactRtWorldEwrtWorld = start,
-                                 .normal = direction},
-            ContactSwingEndpoint{.posContactRtWorldEwrtWorld = end,
-                                 .normal = way.norm() > kStill
-                                               ? vector3_t(-direction)
-                                               : direction},
-            segmentSettings, [&terrain](const vector3_t& point) {
-              return terrain.signedDistance<scalar_t>(point);
+            ContactSwingEndpoint{.posContactRtWorldEwrtWorld =
+                                     segmentStartPosContactRtWorldEwrtWorld,
+                                 .normalSurfaceEwrtWorld = dirContactEwrtWorld},
+            ContactSwingEndpoint{
+                .posContactRtWorldEwrtWorld =
+                    segmentEndPosContactRtWorldEwrtWorld,
+                .normalSurfaceEwrtWorld =
+                    errPosContactRtWorldEwrtWorld.norm() > kStill
+                        ? vector3_t(-dirContactEwrtWorld)
+                        : dirContactEwrtWorld},
+            segmentSettings,
+            [&terrain](const vector3_t& posQueryRtWorldEwrtWorld) {
+              return terrain.signedDistance<scalar_t>(posQueryRtWorldEwrtWorld);
             });
     if (!segment.ok()) {
       LOG(WARNING)
@@ -326,9 +369,12 @@ std::vector<ContactSwingTrajectory> PlannedMotionReferenceManager::swingsOf(
     if (window.fromStart) {
       // In the air from the plan's start: from where it was at the first
       // solve, departing along its target's normal.
-      if (!liftOffPositions_[contactIndex].has_value()) continue;
-      liftOff.posContactRtWorldEwrtWorld = *liftOffPositions_[contactIndex];
-      liftOff.normal = target->normal;
+      if (!liftoffPosContactsRtWorldEwrtWorld_[contactIndex].has_value()) {
+        continue;
+      }
+      liftOff.posContactRtWorldEwrtWorld =
+          *liftoffPosContactsRtWorldEwrtWorld_[contactIndex];
+      liftOff.normalSurfaceEwrtWorld = target->desNormalSurfaceEwrtWorld;
     } else {
       std::optional<PlannedContactPhase> leaving =
           motion_.phaseAt(contactIndex, window.liftOffTime);
@@ -341,26 +387,28 @@ std::vector<ContactSwingTrajectory> PlannedMotionReferenceManager::swingsOf(
       // will lift off from.
       if (liftOffTime <= initTime) {
         liftOff.posContactRtWorldEwrtWorld =
-            liftOffPositions_[contactIndex].value_or(leaving->targetPosition);
+            liftoffPosContactsRtWorldEwrtWorld_[contactIndex].value_or(
+                leaving->desPosContactRtWorldEwrtWorld);
       } else if (inContactNow && leaving->startTime <=
                                      initTime - offset + kPhaseTimeTolerance) {
         // The phase it rests in now: a later one, after a touch-down within
         // the horizon, starts at its own pad.
         liftOff.posContactRtWorldEwrtWorld =
-            measuredContactPositions_[contactIndex];
+            measPosContactsRtWorldEwrtWorld_[contactIndex];
       } else {
-        liftOff.posContactRtWorldEwrtWorld = leaving->targetPosition;
+        liftOff.posContactRtWorldEwrtWorld =
+            leaving->desPosContactRtWorldEwrtWorld;
       }
-      liftOff.normal = leaving->normal;
+      liftOff.normalSurfaceEwrtWorld = leaving->desNormalSurfaceEwrtWorld;
     }
     const ContactSwingEndpoint touchDown{
-        .posContactRtWorldEwrtWorld = target->targetPosition,
-        .normal = target->normal};
+        .posContactRtWorldEwrtWorld = target->desPosContactRtWorldEwrtWorld,
+        .normalSurfaceEwrtWorld = target->desNormalSurfaceEwrtWorld};
     absl::StatusOr<ContactSwingTrajectory> swing =
         ContactSwingTrajectory::Create(
             liftOffTime, touchDownTime, liftOff, touchDown, settings_.swing,
-            [&terrain](const vector3_t& point) {
-              return terrain.signedDistance<scalar_t>(point);
+            [&terrain](const vector3_t& posQueryRtWorldEwrtWorld) {
+              return terrain.signedDistance<scalar_t>(posQueryRtWorldEwrtWorld);
             });
     const std::string& name =
         mpcRobotModelPtr_->modelSettings.contactNames[contactIndex];
@@ -411,8 +459,9 @@ void PlannedMotionReferenceManager::modifyReferences(
   for (size_t i = 0; i < numContacts_; ++i) {
     if (contactIsActiveInMode(modeSchedule.modeAtTime(initTime), i,
                               numContacts_) ||
-        !liftOffPositions_[i].has_value()) {
-      liftOffPositions_[i] = measuredContactPositions_[i];
+        !liftoffPosContactsRtWorldEwrtWorld_[i].has_value()) {
+      liftoffPosContactsRtWorldEwrtWorld_[i] =
+          measPosContactsRtWorldEwrtWorld_[i];
     }
   }
   targetTrajectories = targetsAtOffset(initTime, finalTime);
@@ -425,10 +474,10 @@ vector_t PlannedMotionReferenceManager::getDesiredInput(
     scalar_t time) const {
   vector_t input = SwitchedModelReferenceManager::getDesiredInput(
       targetTrajectories, state, time);
-  if (settings_.forceReference != ForceReference::kPlannedWrenches) {
+  if (settings_.forceReferenceMode != ForceReference::kPlannedWrenches) {
     return input;
   }
-  const vector_t& planned = motion_.plannedWrenchesAt(planTimeAt(time));
+  const vector_t& planned = motion_.plannedInputAt(planTimeAt(time));
   for (size_t i = 0; i < numContacts_; ++i) {
     const size_t start = mpcRobotModelPtr_->getContactWrenchStartIndices(i);
     const size_t dim = mpcRobotModelPtr_->getContactInputDim(i);

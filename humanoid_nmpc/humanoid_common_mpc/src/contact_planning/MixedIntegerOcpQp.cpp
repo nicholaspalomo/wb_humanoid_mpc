@@ -32,10 +32,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <optional>
 #include <queue>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -44,8 +45,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
 
 namespace ocs2::humanoid {
 
@@ -464,8 +467,9 @@ class MixedIntegerOcpQp::Search {
     scalar_t fractionalValue = 0.0;
     const int fractional = owner_->firstFractional(relaxation, binaries,
                                                    assignment, fractionalValue);
-    if (fractional >= 0)
+    if (fractional >= 0) {
       return Branch{.index = fractional, .fractionalValue = fractionalValue};
+    }
 
     // Every binary is integral. The free ones took integral values by
     // themselves, but only the propagation rules (which the QP does not know)

@@ -35,9 +35,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
 
@@ -80,8 +87,9 @@ absl::StatusOr<LoadedCentroidalRobot> loadShippedCentroidalRobot(
   loaded.name = shippedCentroidalRobotName(robot);
   loaded.files = shippedCentroidalRobotFiles(robot);
   ASSIGN_OR_RETURN(loaded.config, loadConfigOf(loaded.files));
-  if (!centroidalModel.empty())
+  if (!centroidalModel.empty()) {
     loaded.config.task.centroidal_model = std::string(centroidalModel);
+  }
   ASSIGN_OR_RETURN(
       ModelSettings modelSettings,
       ModelSettings::Create(loaded.config.task, loaded.files.urdfFile,

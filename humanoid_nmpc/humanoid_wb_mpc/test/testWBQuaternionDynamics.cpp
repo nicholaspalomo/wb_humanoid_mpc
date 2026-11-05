@@ -210,7 +210,7 @@ StateInput randomPoint(const WBAccelMpcRobotModel<scalar_t>& model,
     jointVelocities(j) = unit(generator);
   }
   model.setJointAngles(point.state, jointAngles);
-  model.setBaseLinearVelocity(
+  model.setLinvelBaseRtWorldEwrtWorld(
       point.state,
       vector3_t(unit(generator), unit(generator), 0.3 * unit(generator)));
   model.setAngvelBaseRtWorldEwrtBase(
@@ -219,12 +219,13 @@ StateInput randomPoint(const WBAccelMpcRobotModel<scalar_t>& model,
   vector_t input = point.input;
   model.setJointVelocities(point.state, input, jointVelocities);
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    const vector6_t wrench =
+    const vector6_t wrenchContactEwrtParam =
         (vector6_t() << 40.0 * unit(generator), 40.0 * unit(generator),
          200.0 + 100.0 * unit(generator), 5.0 * unit(generator),
          5.0 * unit(generator), 2.0 * unit(generator))
             .finished();
-    model.setWrenchContactEwrtParam(point.input, wrench, contact);
+    model.setWrenchContactEwrtParam(point.input, wrenchContactEwrtParam,
+                                    contact);
   }
   for (Eigen::Index j = 0; j < joints; ++j)
     point.input(point.input.size() - joints + j) = 3.0 * unit(generator);
@@ -238,8 +239,8 @@ scalar_t relativeDifference(const vector_t& a, const vector_t& b) {
 }
 
 /** The rows of a state derivative that are not the quaternion's rate. */
-vector_t withoutQuaternionRate(const WBAccelMpcRobotModel<scalar_t>& model,
-                               const vector_t& derivative) {
+vector_t withoutRateQuatBaseRtWorldXyzw(
+    const WBAccelMpcRobotModel<scalar_t>& model, const vector_t& derivative) {
   vector_t rest = derivative;
   rest.segment<4>(
           static_cast<Eigen::Index>(model.getBaseOrientationStartIndex()))
@@ -248,8 +249,8 @@ vector_t withoutQuaternionRate(const WBAccelMpcRobotModel<scalar_t>& model,
 }
 
 /** The quaternion rate of a state derivative. */
-vector4_t quaternionRate(const WBAccelMpcRobotModel<scalar_t>& model,
-                         const vector_t& derivative) {
+vector4_t getRateQuatBaseRtWorldXyzw(
+    const WBAccelMpcRobotModel<scalar_t>& model, const vector_t& derivative) {
   return derivative.segment<4>(
       static_cast<Eigen::Index>(model.getBaseOrientationStartIndex()));
 }
@@ -317,9 +318,11 @@ TEST(WBQuaternionDynamics,
     // the quaternion rate by itself (degree 1) and nothing else (degree 0).
     const vector4_t xi = point.state.segment<4>(orientationStart);
     const vector_t radial = linear.dfdx.middleCols<4>(orientationStart) * xi;
-    EXPECT_LE(withoutQuaternionRate(model, radial).cwiseAbs().maxCoeff(),
-              1.0e-9 * stateScale);
-    EXPECT_LE((quaternionRate(model, radial) - quaternionRate(model, f))
+    EXPECT_LE(
+        withoutRateQuatBaseRtWorldXyzw(model, radial).cwiseAbs().maxCoeff(),
+        1.0e-9 * stateScale);
+    EXPECT_LE((getRateQuatBaseRtWorldXyzw(model, radial) -
+               getRateQuatBaseRtWorldXyzw(model, f))
                   .cwiseAbs()
                   .maxCoeff(),
               1.0e-12);
@@ -350,11 +353,12 @@ TEST(WBQuaternionDynamics, TheFlowMapIsHomogeneousInTheQuaternion) {
            {flowMap(*g1, scaled, point.input),
             g1->dynamics->computeFlowMap(/*t=*/0.0, scaled, point.input,
                                          preComputation)}) {
-        EXPECT_LE(relativeDifference(withoutQuaternionRate(model, f),
-                                     withoutQuaternionRate(model, scaledFlow)),
+        EXPECT_LE(relativeDifference(
+                      withoutRateQuatBaseRtWorldXyzw(model, f),
+                      withoutRateQuatBaseRtWorldXyzw(model, scaledFlow)),
                   1.0e-12);
-        EXPECT_LE((quaternionRate(model, scaledFlow) -
-                   lambda * quaternionRate(model, f))
+        EXPECT_LE((getRateQuatBaseRtWorldXyzw(model, scaledFlow) -
+                   lambda * getRateQuatBaseRtWorldXyzw(model, f))
                       .cwiseAbs()
                       .maxCoeff(),
                   1.0e-14);
@@ -381,22 +385,23 @@ TEST(WBQuaternionDynamics, ANegatedQuaternionFlipsTheQuaternionRateAlone) {
     // opposite quaternion rate.
     const vector_t f = flowMap(*g1, point.state, point.input);
     const vector_t fNegated = flowMap(*g1, negated, point.input);
-    EXPECT_EQ(withoutQuaternionRate(model, fNegated),
-              withoutQuaternionRate(model, f));
-    EXPECT_EQ(quaternionRate(model, fNegated),
-              vector4_t(-quaternionRate(model, f)));
+    EXPECT_EQ(withoutRateQuatBaseRtWorldXyzw(model, fNegated),
+              withoutRateQuatBaseRtWorldXyzw(model, f));
+    EXPECT_EQ(getRateQuatBaseRtWorldXyzw(model, fNegated),
+              vector4_t(-getRateQuatBaseRtWorldXyzw(model, f)));
     const vector_t taped = g1->dynamics->computeFlowMap(
         /*t=*/0.0, point.state, point.input, preComputation);
     const vector_t tapedNegated = g1->dynamics->computeFlowMap(
         /*t=*/0.0, negated, point.input, preComputation);
-    EXPECT_LE(relativeDifference(withoutQuaternionRate(model, taped),
-                                 withoutQuaternionRate(model, tapedNegated)),
-              1.0e-12);
     EXPECT_LE(
-        (quaternionRate(model, tapedNegated) + quaternionRate(model, taped))
-            .cwiseAbs()
-            .maxCoeff(),
-        1.0e-15);
+        relativeDifference(withoutRateQuatBaseRtWorldXyzw(model, taped),
+                           withoutRateQuatBaseRtWorldXyzw(model, tapedNegated)),
+        1.0e-12);
+    EXPECT_LE((getRateQuatBaseRtWorldXyzw(model, tapedNegated) +
+               getRateQuatBaseRtWorldXyzw(model, taped))
+                  .cwiseAbs()
+                  .maxCoeff(),
+              1.0e-15);
   }
 }
 
@@ -408,11 +413,11 @@ TEST(WBQuaternionDynamics, AtAPitchOf90DegreesTheDynamicsIsRegular) {
   std::mt19937 generator(54);
   const PreComputation preComputation;
   int attitude = 0;
-  for (const vector3_t& eulerZyx :
+  for (const vector3_t& eulerzyxBaseRtWorld :
        {vector3_t(0.0, M_PI / 2.0, 0.0), vector3_t(1.2, M_PI / 2.0, -0.4),
         vector3_t(-2.5, -M_PI / 2.0, 0.3)}) {
-    SCOPED_TRACE(eulerZyx.transpose());
-    const vector4_t xi = quaternionFromEulerZyx(eulerZyx);
+    SCOPED_TRACE(eulerzyxBaseRtWorld.transpose());
+    const vector4_t xi = quaternionFromEulerZyx(eulerzyxBaseRtWorld);
     const StateInput point = randomPoint(model, xi, generator);
     const vector_t f = flowMap(*g1, point.state, point.input);
     EXPECT_TRUE(f.allFinite()) << f.transpose();
@@ -485,8 +490,8 @@ TEST(WBQuaternionDynamics,
     const vector4_t xi = (0.5 + static_cast<scalar_t>(sample) / 8.0) *
                          randomUnitQuaternion(generator);
     const StateInput point = randomPoint(model, xi, generator);
-    const vector4_t rate =
-        quaternionRate(model, flowMap(*g1, point.state, point.input));
+    const vector4_t rate = getRateQuatBaseRtWorldXyzw(
+        model, flowMap(*g1, point.state, point.input));
     EXPECT_LE(std::abs(xi.dot(rate)), 1.0e-15 * xi.norm() * rate.norm())
         << "sample " << sample;
   }

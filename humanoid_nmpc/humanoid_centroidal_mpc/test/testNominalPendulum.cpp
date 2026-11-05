@@ -45,9 +45,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody.hpp"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
@@ -57,6 +61,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_mpc_config/locomotion_heuristics_config.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/TypedConfigFiles.h"
 
@@ -173,38 +178,41 @@ class NominalPendulum : public ::testing::TestWithParam<CentroidalRobot> {
         initialState_, initialStateOnModel(config_.task, *robotModel_));
   }
 
-  /** [m] The planner's shared.com_height; absent (the model's pendulum) for a
-   * robot that ships no planner's file. */
-  std::optional<scalar_t> plannerComHeight() const {
+  /** [m] The planner's shared.nom_pos_com_rt_feetmean_ewrt_world_z; absent (the
+   * model's pendulum) for a robot that ships no planner's file. */
+  std::optional<scalar_t> getPlannerNomPosComRtFeetmeanEwrtWorldZ() const {
     return config_.contactPlanning.has_value()
-               ? config_.contactPlanning->shared.com_height
+               ? config_.contactPlanning->shared
+                     .nom_pos_com_rt_feetmean_ewrt_world_z
                : std::nullopt;
   }
 
   /**
    * The oracle, computed here from Pinocchio directly - forward kinematics, the
    * frames looked up by name, the center of mass of the whole model - rather
-   * than through computeComHeightAboveFeet().
+   * than through computeProxyPosComRtFeetmeanEwrtWorldZ().
    */
-  scalar_t independentComHeight() const {
+  scalar_t computeIndependentPosComRtFeetmeanEwrtWorldZ() const {
     PinocchioInterface pinocchio(*pinocchioInterface_);
     const pinocchio::ModelTpl<scalar_t>& model = pinocchio.getModel();
     pinocchio::DataTpl<scalar_t>& data = pinocchio.getData();
     const vector_t q = robotModel_->getGeneralizedCoordinates(initialState_);
     pinocchio::forwardKinematics(model, data, q);
     pinocchio::updateFramePlacements(model, data);
-    const scalar_t comZ = pinocchio::centerOfMass(model, data, q)(2);
-    scalar_t footZ = 0.0;
+    const scalar_t posComRtWorldEwrtWorldZ =
+        pinocchio::centerOfMass(model, data, q)(2);
+    scalar_t posFeetmeanRtWorldEwrtWorldZ = 0.0;
     for (const std::string& frame : modelSettings_->contactNames) {
-      footZ += data.oMf[model.getFrameId(frame)].translation()(2) /
-               static_cast<scalar_t>(modelSettings_->contactNames.size());
+      posFeetmeanRtWorldEwrtWorldZ +=
+          data.oMf[model.getFrameId(frame)].translation()(2) /
+          static_cast<scalar_t>(modelSettings_->contactNames.size());
     }
-    return comZ - footZ;
+    return posComRtWorldEwrtWorldZ - posFeetmeanRtWorldEwrtWorldZ;
   }
 
-  scalar_t sharedComHeight() const {
+  scalar_t computeSharedPosComRtFeetmeanEwrtWorldZ() const {
     PinocchioInterface pinocchio(*pinocchioInterface_);
-    return computeComHeightAboveFeet(
+    return computeProxyPosComRtFeetmeanEwrtWorldZ(
         robotModel_->getGeneralizedCoordinates(initialState_), pinocchio,
         *robotModel_);
   }
@@ -223,30 +231,33 @@ class NominalPendulum : public ::testing::TestWithParam<CentroidalRobot> {
 }  // namespace
 
 /**
- * The one pendulum length: computeComHeightAboveFeet() is the model's center of
- * mass above the mean height of its soles, and every consumer of a nominal
- * pendulum - the contact planner's model parameters, the locomotion heuristics'
- * nominal CoM height, and the DCM terminal cost through
- * CentroidalMpcInterface::getNominalComHeight() - derives exactly that number,
- * so a shared.com_height and a dcm_terminal_cost.com_height left out cannot
+ * The one pendulum length: computeProxyPosComRtFeetmeanEwrtWorldZ() is the
+ * model's center of mass above the mean height of its soles, and every consumer
+ * of a nominal pendulum - the contact planner's model parameters, the
+ * locomotion heuristics' nominal CoM height, and the DCM terminal cost through
+ * CentroidalMpcInterface::getNomPosComRtFeetmeanEwrtWorldZ() - derives exactly
+ * that number, so a shared.nom_pos_com_rt_feetmean_ewrt_world_z and a
+ * dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z left out cannot
  * resolve to two different pendulums.
  */
 TEST_P(NominalPendulum, EveryConsumerDerivesTheModelsCenterOfMassAboveItsFeet) {
-  const scalar_t oracle = independentComHeight();
+  const scalar_t oracle = computeIndependentPosComRtFeetmeanEwrtWorldZ();
   // A humanoid standing on its feet has its center of mass between half a meter
   // and a meter and a half above them; outside that, initial_state or the
   // contact frames are wrong and nothing below means anything.
   ASSERT_GT(oracle, 0.4) << GetParam().name;
   ASSERT_LT(oracle, 1.5) << GetParam().name;
-  const scalar_t shared = sharedComHeight();
+  const scalar_t shared = computeSharedPosComRtFeetmeanEwrtWorldZ();
   EXPECT_NEAR(shared, oracle, 1.0e-12)
-      << "computeComHeightAboveFeet() is not the center of mass above the mean "
+      << "computeProxyPosComRtFeetmeanEwrtWorldZ() is not the center of mass "
+         "above "
+         "the mean "
          "sole height";
   // Positive control for the oracle: the pendulum is measured from the soles,
   // not from the base.
-  const scalar_t baseHeight =
+  const scalar_t posBaseRtWorldEwrtWorldZ =
       robotModel_->getPosBaseRtWorldEwrtWorld(initialState_)(2);
-  EXPECT_GT(std::abs(shared - baseHeight), 1.0e-3)
+  EXPECT_GT(std::abs(shared - posBaseRtWorldEwrtWorldZ), 1.0e-3)
       << "the check above cannot tell the pendulum from the base height";
   // And not from the world origin: the robot standing on a 0.25 m box has the
   // same pendulum, while its center of mass stands 0.25 m higher in the world.
@@ -257,13 +268,13 @@ TEST_P(NominalPendulum, EveryConsumerDerivesTheModelsCenterOfMassAboveItsFeet) {
       6 + 2);  // [momentum (6), base position (3), ...]
   onABox(baseZ) += 0.25;
   ASSERT_NEAR(robotModel_->getPosBaseRtWorldEwrtWorld(onABox)(2),
-              baseHeight + 0.25, 1.0e-12)
+              posBaseRtWorldEwrtWorldZ + 0.25, 1.0e-12)
       << "the state layout assumed above is wrong";
   PinocchioInterface onABoxPinocchio(*pinocchioInterface_);
-  EXPECT_NEAR(
-      computeComHeightAboveFeet(robotModel_->getGeneralizedCoordinates(onABox),
-                                onABoxPinocchio, *robotModel_),
-      shared, 1.0e-9)
+  EXPECT_NEAR(computeProxyPosComRtFeetmeanEwrtWorldZ(
+                  robotModel_->getGeneralizedCoordinates(onABox),
+                  onABoxPinocchio, *robotModel_),
+              shared, 1.0e-9)
       << "the pendulum is not measured from the soles";
 
   PinocchioInterface forPlanner(*pinocchioInterface_);
@@ -272,8 +283,9 @@ TEST_P(NominalPendulum, EveryConsumerDerivesTheModelsCenterOfMassAboveItsFeet) {
           forPlanner, *robotModel_, initialState_,
           modelSettings_->contactParentJointNames,
           ContactPlanningGroundParameters());
-  EXPECT_NEAR(planner.comHeight, shared, 1.0e-12)
-      << "a contact planner's file without shared.com_height would resolve to "
+  EXPECT_NEAR(planner.nomPosComRtFeetmeanEwrtWorldZ, shared, 1.0e-12)
+      << "a contact planner's file without "
+         "shared.nom_pos_com_rt_feetmean_ewrt_world_z would resolve to "
          "another pendulum";
 
   PinocchioInterface forHeuristics(*pinocchioInterface_);
@@ -281,44 +293,48 @@ TEST_P(NominalPendulum, EveryConsumerDerivesTheModelsCenterOfMassAboveItsFeet) {
       deriveLocomotionHeuristicModelParameters(forHeuristics, *robotModel_,
                                                initialState_);
   ASSERT_TRUE(heuristics.ok()) << heuristics.status();
-  EXPECT_NEAR(heuristics->nominalComHeight, shared, 1.0e-12)
+  EXPECT_NEAR(heuristics->nomPosComRtFeetmeanEwrtWorldZ, shared, 1.0e-12)
       << "the locomotion heuristics measure another pendulum";
 
-  // And the 0 a planner's file without shared.com_height converts to means that
+  // And the 0 a planner's file without
+  // shared.nom_pos_com_rt_feetmean_ewrt_world_z converts to means that
   // pendulum; a positive value is kept as given.
   ContactPlanningConfig derived;
-  derived.shared.comHeight.reset();
+  derived.shared.nomPosComRtFeetmeanEwrtWorldZ.reset();
   planner.applyTo(derived);
-  EXPECT_THAT(derived.shared.comHeight,
+  EXPECT_THAT(derived.shared.nomPosComRtFeetmeanEwrtWorldZ,
               ::testing::Optional(
                   ::testing::DoubleNear(shared, /*max_abs_error=*/1.0e-12)));
   ContactPlanningConfig explicitHeight;
-  explicitHeight.shared.comHeight = shared + 0.1;
+  explicitHeight.shared.nomPosComRtFeetmeanEwrtWorldZ = shared + 0.1;
   planner.applyTo(explicitHeight);
-  EXPECT_THAT(explicitHeight.shared.comHeight,
+  EXPECT_THAT(explicitHeight.shared.nomPosComRtFeetmeanEwrtWorldZ,
               ::testing::Optional(::testing::DoubleNear(
                   shared + 0.1, /*max_abs_error=*/1.0e-12)));
 }
 
 /**
  * Every pendulum number a robot's files SHIP is the model's. A LIP height left
- * out (dcm_terminal_cost.com_height, the planner's shared.com_height) is
- * resolved from the model at start-up; a given one is an override and must stay
- * within a few percent of the model. The two heuristic numbers
- * derive_parameters.py writes out from the pendulum -
- * capture_point.com_height_override and high_speed_turning's z / g - must equal
- * this C++ derivation within the rounding the script prints them with;
+ * out (dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z, the planner's
+ * shared.nom_pos_com_rt_feetmean_ewrt_world_z) is resolved from the model at
+ * start-up; a given one is an override and must stay within a few percent of
+ * the model. The two heuristic numbers derive_parameters.py writes out from the
+ * pendulum - capture_point.override_pos_com_rt_feetmean_ewrt_world_z and
+ * high_speed_turning's z / g - must equal this C++ derivation within the
+ * rounding the script prints them with;
  * tools/locomotion_heuristics/test_derive_parameters.py pins the same numbers
  * against the Python derivation, so where a robot ships a derived number the
  * two derivations agree.
  */
 TEST_P(NominalPendulum, EveryShippedPendulumNumberIsTheModels) {
-  const scalar_t model = sharedComHeight();
+  const scalar_t model = computeSharedPosComRtFeetmeanEwrtWorldZ();
   const ShippedLipHeight lipHeights[] = {
-      {.field = "dcm_terminal_cost.com_height",
-       .value = config_.task.dcm_terminal_cost.com_height},
-      {.field = "contact_planning.textproto shared.com_height",
-       .value = plannerComHeight()},
+      {.field = "dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z",
+       .value =
+           config_.task.dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z},
+      {.field = "contact_planning.textproto "
+                "shared.nom_pos_com_rt_feetmean_ewrt_world_z",
+       .value = getPlannerNomPosComRtFeetmeanEwrtWorldZ()},
   };
   for (const ShippedLipHeight& height : lipHeights) {
     if (height.value.has_value()) {
@@ -333,11 +349,12 @@ TEST_P(NominalPendulum, EveryShippedPendulumNumberIsTheModels) {
   // Absent: the measured height; present: an override, which must be the
   // model's pendulum.
   if (const std::optional<double> override =
-          heuristics.capture_point.com_height_override;
+          heuristics.capture_point.override_pos_com_rt_feetmean_ewrt_world_z;
       override.has_value()) {
     EXPECT_NEAR(*override, model, kRounding4)
         << GetParam().name
-        << ": capture_point.com_height_override is not the model's pendulum";
+        << ": capture_point.override_pos_com_rt_feetmean_ewrt_world_z is not "
+           "the model's pendulum";
   }
   const absl::StatusOr<scalar_t> gravity =
       modelGravity(pinocchioInterface_->getModel());

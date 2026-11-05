@@ -91,13 +91,13 @@ std::string readFile(const std::string& path) {
 std::string replacedOnce(const std::string& content,
                          absl::string_view from,
                          absl::string_view to) {
-  const std::string::size_type position = content.find(from);
-  EXPECT_NE(position, std::string::npos) << "'" << from << "' not found";
-  if (position == std::string::npos) return content;
-  EXPECT_EQ(content.find(from, position + 1), std::string::npos)
+  const std::string::size_type offset = content.find(from);
+  EXPECT_NE(offset, std::string::npos) << "'" << from << "' not found";
+  if (offset == std::string::npos) return content;
+  EXPECT_EQ(content.find(from, offset + 1), std::string::npos)
       << "'" << from << "' occurs more than once";
   std::string result = content;
-  result.replace(position, from.size(), std::string(to));
+  result.replace(offset, from.size(), std::string(to));
   return result;
 }
 

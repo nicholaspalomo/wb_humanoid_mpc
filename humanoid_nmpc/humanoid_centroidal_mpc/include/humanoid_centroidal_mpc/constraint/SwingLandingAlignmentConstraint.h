@@ -36,12 +36,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/constraint/StateConstraintCppAd.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
@@ -54,7 +57,8 @@ namespace ocs2::humanoid {
  *   g(x) = z_c(q) x n,
  *
  * three rows (of rank two) with z_c the world z axis of the contact's frame -
- * a 6-DoF contact frame's z axis is its pad normal - and n the outward normal
+ * a 6-DoF contact frame's z axis is the outward normal of the patch it lands
+ * on (-normalPadEwrtLink) - and n the outward normal
  * of the patch of its next touch-down (getContactPatchFrame()), a parameter of
  * the tape. |g| is the sine of the angle between the pad and the patch, so a
  * quadratic penalty of weight w costs (w / 2) sin^2 of it. contact_swing's

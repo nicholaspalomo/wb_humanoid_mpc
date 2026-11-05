@@ -34,26 +34,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
 
+#include "absl/functional/function_ref.h"
 #include "absl/log/absl_check.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/centroidal.hpp"
 #include "pinocchio/algorithm/crba.hpp"
 #include "pinocchio/algorithm/frames.hpp"
-#include "pinocchio/algorithm/jacobian.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/joint/joint-composite.hpp"
-#include "pinocchio/multibody/joint/joint-spherical-ZYX.hpp"
-#include "pinocchio/multibody/joint/joint-translation.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/data.hpp"  // IWYU pragma: keep
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/joint/fwd.hpp"
+#include "pinocchio/multibody/joint/joint-composite.hpp"  // IWYU pragma: keep
+#include "pinocchio/multibody/joint/joint-spherical-ZYX.hpp"  // IWYU pragma: keep
+#include "pinocchio/multibody/joint/joint-translation.hpp"  // IWYU pragma: keep
+#include "pinocchio/multibody/model.hpp"                    // IWYU pragma: keep
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -101,10 +108,11 @@ absl::StatusOr<pinocchio::Model> eulerRootTwinOf(
                             quaternionRootModel.joints[joint],
                             quaternionRootModel.jointPlacements[joint],
                             quaternionRootModel.names[joint]);
-    if (added != joint)
+    if (added != joint) {
       return absl::InternalError(
           "[eulerRootTwinOf] the twin's joints are not numbered as the "
           "model's");
+    }
     twin.inertias[joint] = quaternionRootModel.inertias[joint];
   }
   // Frame 0 is the universe of both; every other frame keeps its index, so its
@@ -124,10 +132,12 @@ absl::StatusOr<pinocchio::Model> eulerRootTwinOf(
         quaternionRootModel.nv, ", ", quaternionRootModel.nframes, " frames"));
   }
   const Eigen::Index joints = twin.nv - 6;
+  // NOLINTBEGIN(frame-naming): Pinocchio's joint limits (joint space)
   twin.lowerPositionLimit.tail(joints) =
       quaternionRootModel.lowerPositionLimit.tail(joints);
   twin.upperPositionLimit.tail(joints) =
       quaternionRootModel.upperPositionLimit.tail(joints);
+  // NOLINTEND(frame-naming)
   twin.armature = quaternionRootModel.armature;
   return twin;
 }
@@ -162,7 +172,7 @@ absl::StatusOr<std::unique_ptr<EulerMpcOracle>> EulerMpcOracle::Create(
       }
     }
   }
-  twin->gravity.linear(options.gravity);
+  twin->gravity.linear(options.gravityEwrtWorld);
   // Not std::make_unique: the constructor is private (ToTW #134).
   return absl::WrapUnique(
       new EulerMpcOracle(*twin, std::move(options), contactFrames));
@@ -194,35 +204,39 @@ vector_t EulerMpcOracle::configurationOf(const vector_t& eulerState) const {
              : vector_t(eulerState.head(model_.nq));
 }
 
-std::array<vector6_t, kNumContacts> EulerMpcOracle::worldWrenches(
-    const vector_t& eulerState, const vector_t& input) const {
+std::array<vector6_t, kNumContacts>
+EulerMpcOracle::computeWrenchContactsEwrtWorld(const vector_t& eulerState,
+                                               const vector_t& input) const {
   ABSL_CHECK_EQ(eulerState.size(), stateDim());
   ABSL_CHECK_EQ(input.size(), inputDim());
-  std::array<vector6_t, kNumContacts> wrenches{};
+  std::array<vector6_t, kNumContacts> wrenchContactsEwrtWorld{};
   if (options_.contactInput == OracleContactInput::kWorldWrench) {
     for (size_t contact = 0; contact < kNumContacts; ++contact) {
-      wrenches[contact] =
+      wrenchContactsEwrtWorld[contact] =
           input.segment<6>(6 * static_cast<Eigen::Index>(contact));
     }
-    return wrenches;
+    return wrenchContactsEwrtWorld;
   }
   pinocchio::Data data(model_);
   pinocchio::framesForwardKinematics(model_, data, configurationOf(eulerState));
   const Eigen::Index basisDim = contactInputDim(options_);
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    const vector6_t local =
+    const vector6_t wrenchContactEwrtContact =
         options_.localBasisMatrices[contact] *
         input.segment(basisDim * static_cast<Eigen::Index>(contact), basisDim);
-    const matrix3_t rotation = data.oMf[contactFrames_[contact]].rotation();
-    wrenches[contact] << rotation * local.head<3>(), rotation * local.tail<3>();
+    const matrix3_t rotmatContactRtWorld =
+        data.oMf[contactFrames_[contact]].rotation();
+    wrenchContactsEwrtWorld[contact]
+        << rotmatContactRtWorld * wrenchContactEwrtContact.head<3>(),
+        rotmatContactRtWorld * wrenchContactEwrtContact.tail<3>();
   }
-  return wrenches;
+  return wrenchContactsEwrtWorld;
 }
 
 vector_t EulerMpcOracle::flowMap(const vector_t& eulerState,
                                  const vector_t& input) const {
-  const std::array<vector6_t, kNumContacts> wrenches =
-      worldWrenches(eulerState, input);
+  const std::array<vector6_t, kNumContacts> wrenchContactsEwrtWorld =
+      computeWrenchContactsEwrtWorld(eulerState, input);
   const Eigen::Index nj = jointDim();
   const Eigen::Index nv = model_.nv;
   const vector_t jointRates = input.tail(nj);
@@ -236,23 +250,31 @@ vector_t EulerMpcOracle::flowMap(const vector_t& eulerState,
     const matrix_t centroidalMap =
         pinocchio::computeCentroidalMap(model_, data, q);
     pinocchio::updateFramePlacements(model_, data);
-    const vector3_t com = data.com[0];
-    vector6_t momentumRate;
-    momentumRate << totalMass_ * options_.gravity, vector3_t::Zero();
+    const vector3_t posComRtWorldEwrtWorld = data.com[0];
+    vector6_t rateCmomComRtWorldEwrtWorld;
+    rateCmomComRtWorldEwrtWorld << totalMass_ * options_.gravityEwrtWorld,
+        vector3_t::Zero();
     for (size_t contact = 0; contact < kNumContacts; ++contact) {
-      const vector3_t force = wrenches[contact].head<3>();
-      const vector3_t arm =
-          data.oMf[contactFrames_[contact]].translation() - com;
-      momentumRate.head<3>() += force;
-      momentumRate.tail<3>() += arm.cross(force) + wrenches[contact].tail<3>();
+      const vector3_t forceContactEwrtWorld =
+          wrenchContactsEwrtWorld[contact].head<3>();
+      const vector3_t posContactRtComEwrtWorld =
+          data.oMf[contactFrames_[contact]].translation() -
+          posComRtWorldEwrtWorld;
+      rateCmomComRtWorldEwrtWorld.head<3>() += forceContactEwrtWorld;
+      rateCmomComRtWorldEwrtWorld.tail<3>() +=
+          posContactRtComEwrtWorld.cross(forceContactEwrtWorld) +
+          wrenchContactsEwrtWorld[contact].tail<3>();
     }
     // (O2): the base velocity of the momentum m hbar with the input's joint
     // rates.
-    const vector6_t baseMomentum = totalMass_ * eulerState.head<6>() -
-                                   centroidalMap.rightCols(nj) * jointRates;
-    const vector6_t baseVelocity =
-        centroidalMap.leftCols<6>().partialPivLu().solve(baseMomentum);
-    derivative << momentumRate / totalMass_, baseVelocity, jointRates;
+    const vector6_t baseMotionCmomComRtWorldEwrtWorld =
+        totalMass_ * eulerState.head<6>() -
+        centroidalMap.rightCols(nj) * jointRates;
+    const vector6_t baseGeneralizedVelocity =
+        centroidalMap.leftCols<6>().partialPivLu().solve(
+            baseMotionCmomComRtWorldEwrtWorld);
+    derivative << rateCmomComRtWorldEwrtWorld / totalMass_,
+        baseGeneralizedVelocity, jointRates;
     return derivative;
   }
 
@@ -265,18 +287,20 @@ vector_t EulerMpcOracle::flowMap(const vector_t& eulerState,
       massMatrixUpper.transpose();
   const vector_t nonlinearEffects =
       pinocchio::nonLinearEffects(model_, data, q, v);
-  vector6_t baseForce = -nonlinearEffects.head<6>() -
-                        massMatrix.topRightCorner(6, nj) * jointRates;
+  vector6_t baseGeneralizedForce =
+      -nonlinearEffects.head<6>() -
+      massMatrix.topRightCorner(6, nj) * jointRates;
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
     matrix_t jacobian = matrix_t::Zero(6, nv);
     pinocchio::computeFrameJacobian(model_, data, q, contactFrames_[contact],
                                     pinocchio::LOCAL_WORLD_ALIGNED, jacobian);
-    baseForce += jacobian.leftCols<6>().transpose() * wrenches[contact];
+    baseGeneralizedForce +=
+        jacobian.leftCols<6>().transpose() * wrenchContactsEwrtWorld[contact];
   }
-  const vector6_t baseAcceleration =
-      massMatrix.topLeftCorner<6, 6>().llt().solve(baseForce);
+  const vector6_t baseGeneralizedAcceleration =
+      massMatrix.topLeftCorner<6, 6>().llt().solve(baseGeneralizedForce);
   // (O4): here `jointRates` are the input's joint accelerations.
-  derivative << v, baseAcceleration, jointRates;
+  derivative << v, baseGeneralizedAcceleration, jointRates;
   return derivative;
 }
 

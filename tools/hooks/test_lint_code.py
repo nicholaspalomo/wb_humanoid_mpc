@@ -135,7 +135,7 @@ class StepsTest(unittest.TestCase):
 class OnlyTest(unittest.TestCase):
     def test_by_default_every_check_and_step(self):
         selected, steps = lint_code._parse_only(None)
-        self.assertEqual(selected, checks.default_names())
+        self.assertEqual(selected, checks.names())
         self.assertEqual(steps, lint_code.STEP_NAMES)
         self.assertIn("token-checks", steps)
         self.assertIn("cpplint", steps)
@@ -158,7 +158,7 @@ class OnlyTest(unittest.TestCase):
 
     def test_the_token_checks_step_alone_runs_every_check(self):
         selected, steps = lint_code._parse_only("token-checks")
-        self.assertEqual(selected, checks.default_names())
+        self.assertEqual(selected, checks.names())
         self.assertEqual(steps, frozenset({"token-checks"}))
 
     def test_an_unknown_name(self):

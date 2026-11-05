@@ -55,8 +55,8 @@ absl::string_view settlePhaseDescription(SettlePhase phase) {
 
 std::string discontinuityReason(DiscontinuityCause cause,
                                 uint64_t resetEpoch,
-                                double tilt,
-                                double maxTilt) {
+                                double tiltangleBaseRtWorld,
+                                double maxTiltangleBaseRtWorld) {
   switch (cause) {
     case DiscontinuityCause::kSimulatorReset:
       return absl::StrCat(
@@ -65,9 +65,9 @@ std::string discontinuityReason(DiscontinuityCause cause,
     case DiscontinuityCause::kGantryLocked:
       return "the gantry was locked";
     case DiscontinuityCause::kTiltCaught:
-      return absl::StrCat("the base tilted ", tilt,
-                          " rad, past sim_max_base_tilt_angle ", maxTilt,
-                          " rad");
+      return absl::StrCat("the base tilted ", tiltangleBaseRtWorld,
+                          " rad, past sim_max_tiltangle_base_rt_world ",
+                          maxTiltangleBaseRtWorld, " rad");
     case DiscontinuityCause::kNone:
       return "no discontinuity";
   }

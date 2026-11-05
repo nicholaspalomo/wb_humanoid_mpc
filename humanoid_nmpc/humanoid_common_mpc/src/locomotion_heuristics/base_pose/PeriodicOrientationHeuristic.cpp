@@ -32,8 +32,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/locomotion_heuristics/BasePoseHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 
 namespace ocs2::humanoid {
@@ -41,7 +45,7 @@ namespace ocs2::humanoid {
 absl::Status PeriodicOrientationHeuristic::configure(
     const LocomotionHeuristicConfig& config,
     const LocomotionHeuristicModelParameters& /*model*/) {
-  parameters_ = config.periodicOrientation;
+  parameters_ = config.periodicOrientationParameters;
   return absl::OkStatus();
 }
 
@@ -56,25 +60,30 @@ BasePoseOffset PeriodicOrientationHeuristic::offset(
                              parameters_.rollPhaseOffset;
   const scalar_t pitchAngle = parameters_.pitchPhaseRate * context.gaitPhase +
                               parameters_.pitchPhaseOffset;
-  result.roll = parameters_.rollAmplitude * std::sin(rollAngle);
-  result.pitch = parameters_.pitchAmplitude * std::sin(pitchAngle);
+  result.offsetEulerzyxBaseRtWorldRoll =
+      parameters_.amplitudeEulerzyxBaseRtWorldRoll * std::sin(rollAngle);
+  result.offsetEulerzyxBaseRtWorldPitch =
+      parameters_.amplitudeEulerzyxBaseRtWorldPitch * std::sin(pitchAngle);
   // d/dt = b1 c1 cos(c1 Phi + d1) dPhi/dt: the limit cycle's own rate, so that
   // the reference's angular velocity is the derivative of the attitude it
   // describes. Zero through double support, where Phi is frozen.
-  result.rollRate = parameters_.rollAmplitude * parameters_.rollPhaseRate *
-                    std::cos(rollAngle) * context.gaitPhaseRate;
-  result.pitchRate = parameters_.pitchAmplitude * parameters_.pitchPhaseRate *
-                     std::cos(pitchAngle) * context.gaitPhaseRate;
+  result.offsetRateEulerzyxBaseRtWorldRoll =
+      parameters_.amplitudeEulerzyxBaseRtWorldRoll * parameters_.rollPhaseRate *
+      std::cos(rollAngle) * context.gaitPhaseRate;
+  result.offsetRateEulerzyxBaseRtWorldPitch =
+      parameters_.amplitudeEulerzyxBaseRtWorldPitch *
+      parameters_.pitchPhaseRate * std::cos(pitchAngle) * context.gaitPhaseRate;
   return result;
 }
 
 std::string PeriodicOrientationHeuristic::describe() const {
   return absl::StrCat(
-      "periodic_orientation: roll = ", parameters_.rollAmplitude, " * sin(",
+      "periodic_orientation: roll = ",
+      parameters_.amplitudeEulerzyxBaseRtWorldRoll, " * sin(",
       parameters_.rollPhaseRate, " * phi + ", parameters_.rollPhaseOffset,
-      ") [rad], pitch = ", parameters_.pitchAmplitude, " * sin(",
-      parameters_.pitchPhaseRate, " * phi + ", parameters_.pitchPhaseOffset,
-      ") [rad]");
+      ") [rad], pitch = ", parameters_.amplitudeEulerzyxBaseRtWorldPitch,
+      " * sin(", parameters_.pitchPhaseRate, " * phi + ",
+      parameters_.pitchPhaseOffset, ") [rad]");
 }
 
 }  // namespace ocs2::humanoid

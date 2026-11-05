@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/statusor.h"
 #include "ocs2_core/PhysicalConstants.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -60,20 +61,21 @@ struct LocomotionHeuristicModelParameters {
                                // every wrench heuristic divides by it
   /** [m] center of mass above the mean foot height in the nominal standing
    * posture: the pendulum length. */
-  scalar_t nominalComHeight = 0.0;
+  scalar_t nomPosComRtFeetmeanEwrtWorldZ = 0.0;
   /**
-   * [m] position of each leg's hip in the BASE frame, at the nominal posture,
-   * with the vertical component dropped.
+   * [m] position of each leg's hip relative to the base, in the heading frame
+   * (rotated by the nominal base yaw only), at the nominal posture, with the
+   * vertical component dropped.
    *
    * The landmark `hip_centered_stepping` places the foot under. Found by
    * walking up the kinematic tree from the joint that carries the contact frame
    * to the last joint before the floating base, which is the hip however the
    * URDF happens to name it, and falling back to the contact frame's own
-   * horizontal position in the base frame when that walk finds nothing - a
-   * fallback that is exact for a leg standing vertically, which is the posture
-   * this is evaluated in.
+   * horizontal position relative to the base, in the heading frame, when that
+   * walk finds nothing - a fallback that is exact for a leg standing
+   * vertically, which is the posture this is evaluated in.
    */
-  feet_array_t<vector2_t> hipPositionInBaseFrame =
+  feet_array_t<vector2_t> posHipsRtBaseEwrtHeadingXy =
       makeFeetArray(vector2_t(vector2_t::Zero()));
 
   /** One line per derived quantity, for the start-up banner. */

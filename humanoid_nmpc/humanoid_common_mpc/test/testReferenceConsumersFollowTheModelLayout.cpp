@@ -47,11 +47,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/centroidal.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -67,7 +73,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
+#include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/locomotion_heuristics/BasePoseHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
@@ -112,12 +122,14 @@ constexpr Eigen::Index kGeneralizedCoordinatesStart = kBasePositionStart;
 struct ProbeAnswers {
   /** [rad] getYawBaseRtWorld() is the ZYX yaw of the stored orientation plus
    * this, not its twist heading. */
-  scalar_t headingOffset = 0.0;
+  scalar_t offsetYawBaseRtWorld = 0.0;
   /** getPinocchioTangentJacobian() is CentroidalMpcRobotModel's (the selection
    * of the slots, E^+ of the quaternion) times this. */
   scalar_t tangentScale = 1.0;
   /** getVelocityDim() is the configuration's dimension plus this. */
   size_t extraGeneralizedVelocityEntries = 0;
+  /** [rad/s] The yaw rate getRefPlanarMotion() reads off every knot. */
+  scalar_t cmdRateYawBaseRtWorld = 0.0;
 };
 
 /**
@@ -178,14 +190,17 @@ class ProbeRobotModel final : public MpcRobotModelBase<scalar_t> {
   vector3_t getPosBaseRtWorldEwrtWorld(const vector_t& state) const override {
     return state.segment<3>(kBasePositionStart);
   }
-  // NOLINTBEGIN(frame-naming): the model-dependent accessors of MpcRobotModelBase
-  vector3_t getBaseComLinearVelocity(const vector_t& state) const override {
+  StoredLinvelPoint getStoredLinvelPoint() const override {
+    return StoredLinvelPoint::kCenterOfMass;
+  }
+  vector3_t getLinvelComRtWorldEwrtWorld(const vector_t& state) const override {
     return state.head<3>();
   }
-  vector6_t getBaseComVelocity(const vector_t& state) const override {
-    return state.head<6>();
+  vector3_t getLinvelBaseRtWorldEwrtWorld(
+      const vector_t& /*state*/) const override {
+    ADD_FAILURE() << "the probe's state stores the CoM velocity";
+    return vector3_t::Zero();
   }
-  // NOLINTEND(frame-naming)
   vector_t getJointAngles(const vector_t& state) const override {
     return state.segment(kJointStart, jointDim());
   }
@@ -213,12 +228,16 @@ class ProbeRobotModel final : public MpcRobotModelBase<scalar_t> {
       const vector3_t& posBaseRtWorldEwrtWorld) const override {
     state.segment<3>(kBasePositionStart) = posBaseRtWorldEwrtWorld;
   }
-  // NOLINTBEGIN(frame-naming): the model-dependent accessor of MpcRobotModelBase
-  void setBaseComLinearVelocity(vector_t& state,
-                                const vector3_t& velocity) const override {
-    state.head<3>() = velocity;
+  void setLinvelComRtWorldEwrtWorld(
+      vector_t& state,
+      const vector3_t& linvelComRtWorldEwrtWorld) const override {
+    state.head<3>() = linvelComRtWorldEwrtWorld;
   }
-  // NOLINTEND(frame-naming)
+  void setLinvelBaseRtWorldEwrtWorld(
+      vector_t& /*state*/,
+      const vector3_t& /*linvelBaseRtWorldEwrtWorld*/) const override {
+    ADD_FAILURE() << "the probe's state stores the CoM velocity";
+  }
   void setJointAngles(vector_t& state,
                       const vector_t& jointAngles) const override {
     state.segment(kJointStart, jointDim()) = jointAngles;
@@ -229,9 +248,9 @@ class ProbeRobotModel final : public MpcRobotModelBase<scalar_t> {
     input.segment(static_cast<Eigen::Index>(getJointVelocitiesStartindex()),
                   jointDim()) = jointVelocities;
   }
-  void adaptPosBaseRtWorldEwrtWorldZ(vector_t& state,
-                                     scalar_t heightChange) const override {
-    state(kBasePositionStart + 2) += heightChange;
+  void adaptPosBaseRtWorldEwrtWorldZ(
+      vector_t& state, scalar_t errPosBaseRtWorldEwrtWorldZ) const override {
+    state(kBasePositionStart + 2) += errPosBaseRtWorldEwrtWorldZ;
   }
 
   vector4_t getQuatBaseRtWorldXyzw(const vector_t& state) const override {
@@ -244,7 +263,7 @@ class ProbeRobotModel final : public MpcRobotModelBase<scalar_t> {
         safelyNormalizedQuaternion(quatBaseRtWorldXyzw);
   }
   scalar_t getYawBaseRtWorld(const vector_t& state) const override {
-    return getEulerzyxBaseRtWorld(state)(0) + answers_.headingOffset;
+    return getEulerzyxBaseRtWorld(state)(0) + answers_.offsetYawBaseRtWorld;
   }
   vector6_t getPoseeulerzyxBaseRtWorld(const vector_t& state) const override {
     vector6_t poseeulerzyxBaseRtWorld;
@@ -261,9 +280,10 @@ class ProbeRobotModel final : public MpcRobotModelBase<scalar_t> {
   vector3_t getEulerzyxBaseRtWorld(const vector_t& state) const override {
     return eulerZyxFromQuaternion(getQuatBaseRtWorldXyzw(state));
   }
-  void setEulerzyxBaseRtWorld(vector_t& state,
-                              const vector3_t& eulerZyx) const override {
-    state.segment<4>(kBaseOrientationStart) = quaternionFromEulerZyx(eulerZyx);
+  void setEulerzyxBaseRtWorld(
+      vector_t& state, const vector3_t& eulerzyxBaseRtWorld) const override {
+    state.segment<4>(kBaseOrientationStart) =
+        quaternionFromEulerZyx(eulerzyxBaseRtWorld);
   }
 
   // The centroidal state holds no base velocity (MpcRobotModelBase); nothing
@@ -275,26 +295,28 @@ class ProbeRobotModel final : public MpcRobotModelBase<scalar_t> {
   void setAngvelBaseRtWorldEwrtBase(
       vector_t& /*state*/,
       const vector3_t& /*angvelBaseRtWorldEwrtBase*/) const override {}
-  void setTurnAngvelBaseRtWorldEwrtBase(vector_t& /*state*/,
-                                        scalar_t /*yawRate*/) const override {}
+  void setTurnAngvelBaseRtWorldEwrtBase(
+      vector_t& /*state*/,
+      scalar_t /*angvelBaseRtWorldEwrtWorldZ*/) const override {}
   BaseAngularVelocityJacobian getJacobianAngvelBaseRtWorldEwrtBase(
       const vector_t& /*state*/) const override {
     return BaseAngularVelocityJacobian{
         .orientationSlots = matrix_t::Zero(3, kQuaternionOrientationStateDim),
         .angularVelocitySlots = matrix3_t::Zero()};
   }
-  // Nothing tested here reads the base twist, or a knot's yaw rate; the
-  // commanded velocity is the knot's CoM velocity, as CentroidalMpcRobotModel
-  // reads it.
+  // Nothing tested here reads the base twist. The commanded velocity is the
+  // knot's CoM velocity, as CentroidalMpcRobotModel reads it, and the commanded
+  // yaw rate the probe's answer.
   vector6_t getTwistBaseRtWorldEwrtWorld(
       const vector_t& /*state*/,
       const vector_t& /*jointVelocities*/) const override {
     return vector6_t::Zero();
   }
-  vector3_t getTargetPlanarCommand(
+  vector3_t getRefPlanarMotion(
       const vector_t& targetState,
-      scalar_t /*compositeYawInertia*/) const override {
-    return vector3_t(targetState(0), targetState(1), 0.0);
+      scalar_t /*inertiaComEwrtWorldZz*/) const override {
+    return vector3_t(targetState(0), targetState(1),
+                     answers_.cmdRateYawBaseRtWorld);
   }
 
   absl::StatusOr<vector_t> stateFromTuning(
@@ -426,7 +448,7 @@ class LevelPoseCalculator final : public TargetTrajectoriesCalculatorBase {
     return TargetTrajectories();
   }
 
-  using TargetTrajectoriesCalculatorBase::getLevelPoseeulerzyxBaseRtWorld;
+  using TargetTrajectoriesCalculatorBase::getPoseeulerzyxHeadingRtWorld;
   using TargetTrajectoriesCalculatorBase::VelocityCommandKnot;
   using TargetTrajectoriesCalculatorBase::velocityCommandKnots;
 };
@@ -447,11 +469,11 @@ ContactPlan standingPlan(scalar_t startTime, scalar_t dt, size_t numNodes) {
   plan.dt = dt;
   plan.committedUntil = startTime + dt;
   plan.contacts.assign(numNodes, makeFeetArray(true));
-  plan.footholds.assign(numNodes + 1,
-                        makeFeetArray(vector2_t(vector2_t::Zero())));
-  plan.comPosition.assign(numNodes + 1, vector2_t::Zero());
-  plan.comVelocity.assign(numNodes + 1, vector2_t::Zero());
-  plan.zmp.assign(numNodes, vector2_t::Zero());
+  plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
+      numNodes + 1, makeFeetArray(vector2_t(vector2_t::Zero())));
+  plan.posComRtWorldEwrtWorldXyTraj.assign(numNodes + 1, vector2_t::Zero());
+  plan.linvelComRtWorldEwrtWorldXyTraj.assign(numNodes + 1, vector2_t::Zero());
+  plan.posZmpRtWorldEwrtWorldXyTraj.assign(numNodes, vector2_t::Zero());
   return plan;
 }
 
@@ -488,18 +510,19 @@ class ReferenceConsumersTest : public ::testing::Test {
     const Eigen::Index jointDim =
         static_cast<Eigen::Index>(layout.getJointDim());
     state_ = layout.getNeutralState();
-    layout.setBaseComLinearVelocity(state_, vector3_t(0.3, -0.1, 0.0));
+    layout.setLinvelComRtWorldEwrtWorld(state_, vector3_t(0.3, -0.1, 0.0));
     layout.setPosBaseRtWorldEwrtWorld(state_, vector3_t(1.0, 2.0, 0.9));
     layout.setEulerzyxBaseRtWorld(state_, vector3_t(0.4, 0.1, -0.2));
     vector_t joints(jointDim);
-    for (Eigen::Index joint = 0; joint < jointDim; ++joint)
+    for (Eigen::Index joint = 0; joint < jointDim; ++joint) {
       joints(joint) = 0.05 * std::sin(static_cast<scalar_t>(joint + 1));
+    }
     layout.setJointAngles(state_, joints);
 
     firstKnot_ = state_;
-    layout.setBaseComLinearVelocity(firstKnot_, vector3_t(0.2, 0.1, 0.0));
+    layout.setLinvelComRtWorldEwrtWorld(firstKnot_, vector3_t(0.2, 0.1, 0.0));
     lastKnot_ = state_;
-    layout.setBaseComLinearVelocity(lastKnot_, vector3_t(0.6, 0.5, 0.0));
+    layout.setLinvelComRtWorldEwrtWorld(lastKnot_, vector3_t(0.6, 0.5, 0.0));
     layout.setPosBaseRtWorldEwrtWorld(lastKnot_, vector3_t(3.0, 1.0, 0.8));
     layout.setEulerzyxBaseRtWorld(lastKnot_, vector3_t(1.4, 0.0, 0.0));
     layout.setJointAngles(lastKnot_,
@@ -586,29 +609,86 @@ TEST_F(ReferenceConsumersTest,
   referenceManager->setTargetTrajectories(twoKnotTarget());
   referenceManager->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, state_,
                                  ModeNumber::kStance);
-  const vector2_t commanded =
+  const vector2_t cmdLinvelBaseRtWorldEwrtWorldXy =
       referenceManager->getCmdLinvelBaseRtWorldEwrtWorldXy(/*time=*/0.5);
-  EXPECT_EQ(commanded, vector2_t(0.2, 0.1))
+  EXPECT_EQ(cmdLinvelBaseRtWorldEwrtWorldXy, vector2_t(0.2, 0.1))
       << "the linear interpolation would answer (0.4, 0.3)";
+}
+
+/**
+ * Under the contact planner the commanded velocity at `time` turns with the
+ * commanded yaw rate from the instant it was latched, as the planner's own
+ * nodes turn it (ContactPlanningContext::getCmdLinvelBaseRtWorldEwrtWorldXy())
+ * and as the target's knots turn it for the base class. The base-pose and
+ * wrench heuristics and the swing velocity fallback ask through this virtual;
+ * a command frozen in world axes at the start heading reads, 0.5 s into a
+ * 1 rad/s turn, as a lateral command the operator never gave.
+ */
+TEST_F(ReferenceConsumersTest,
+       TheContactPlannersCommandedVelocityTurnsWithTheCommandedYawRate) {
+  constexpr scalar_t kCmdRateYawBaseRtWorld = 1.0;  // [rad/s]
+  constexpr scalar_t kInitTime = 0.2;
+  constexpr scalar_t kQueryTime = 0.7;
+  const ProbeRobotModel model(
+      *settings_,
+      ProbeAnswers{.cmdRateYawBaseRtWorld = kCmdRateYawBaseRtWorld});
+  ContactPlanningConfig config;
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ =
+      0.85;  // no model derives the pendulum here (unset
+             // means "from the model")
+  ASSERT_EQ(config.validateStatus(), absl::OkStatus());
+  const std::shared_ptr<ContactPlanningReferenceManager> referenceManager =
+      contactPlanningReferenceManagerOf(model, config);
+  ASSERT_NE(referenceManager, nullptr);
+  referenceManager->setTargetTrajectories(twoKnotTarget());
+  referenceManager->preSolverRun(kInitTime, /*finalTime=*/kInitTime + 1.0,
+                                 state_, ModeNumber::kStance);
+  ASSERT_EQ(referenceManager->getCmdRateYawBaseRtWorld(kQueryTime),
+            kCmdRateYawBaseRtWorld);
+  const vector2_t initCmdLinvelBaseRtWorldEwrtWorldXy(0.2, 0.1);
+  ASSERT_EQ(referenceManager->cmdLinvelBaseRtWorldEwrtWorldXy(),
+            initCmdLinvelBaseRtWorldEwrtWorldXy);
+
+  EXPECT_EQ(referenceManager->getCmdLinvelBaseRtWorldEwrtWorldXy(kInitTime),
+            initCmdLinvelBaseRtWorldEwrtWorldXy);
+  const scalar_t cmdErrYawBaseRtWorld =
+      kCmdRateYawBaseRtWorld * (kQueryTime - kInitTime);
+  const vector2_t expected(
+      std::cos(cmdErrYawBaseRtWorld) * initCmdLinvelBaseRtWorldEwrtWorldXy.x() -
+          std::sin(cmdErrYawBaseRtWorld) *
+              initCmdLinvelBaseRtWorldEwrtWorldXy.y(),
+      std::sin(cmdErrYawBaseRtWorld) * initCmdLinvelBaseRtWorldEwrtWorldXy.x() +
+          std::cos(cmdErrYawBaseRtWorld) *
+              initCmdLinvelBaseRtWorldEwrtWorldXy.y());
+  const vector2_t cmdLinvelBaseRtWorldEwrtWorldXy =
+      referenceManager->getCmdLinvelBaseRtWorldEwrtWorldXy(kQueryTime);
+  EXPECT_LT((cmdLinvelBaseRtWorldEwrtWorldXy - expected).norm(), 1.0e-12)
+      << "answered (" << cmdLinvelBaseRtWorldEwrtWorldXy.transpose()
+      << "), expected (" << expected.transpose() << ")";
+  // Before the latch the command has not started turning, as the target's
+  // first knot holds it.
+  EXPECT_EQ(referenceManager->getCmdLinvelBaseRtWorldEwrtWorldXy(
+                /*time=*/kInitTime - 0.1),
+            initCmdLinvelBaseRtWorldEwrtWorldXy);
 }
 
 TEST_F(ReferenceConsumersTest,
        ATargetStartsFromTheModelsHeadingWithTheBaseLevel) {
-  constexpr scalar_t kHeadingOffset = 0.25;
-  const ProbeRobotModel model(*settings_,
-                              ProbeAnswers{.headingOffset = kHeadingOffset});
+  constexpr scalar_t kOffsetYawBaseRtWorld = 0.25;
+  const ProbeRobotModel model(
+      *settings_, ProbeAnswers{.offsetYawBaseRtWorld = kOffsetYawBaseRtWorld});
   const LevelPoseCalculator calculator(model);
   // The probe's heading: the stored attitude's ZYX yaw, 0.4 to round-off, plus
   // the offset - not its twist heading.
-  const scalar_t heading = model.getYawBaseRtWorld(state_);
-  ASSERT_NEAR(heading, 0.4 + kHeadingOffset, 1.0e-12);
-  ASSERT_GT(std::abs(heading - kHeadingOffset -
+  const scalar_t yawBaseRtWorld = model.getYawBaseRtWorld(state_);
+  ASSERT_NEAR(yawBaseRtWorld, 0.4 + kOffsetYawBaseRtWorld, 1.0e-12);
+  ASSERT_GT(std::abs(yawBaseRtWorld - kOffsetYawBaseRtWorld -
                      yawOf(model.getQuatBaseRtWorldXyzw(state_))),
             1.0e-3)
       << "at this mixed tilt the twist heading would answer differently";
   vector6_t expected;
-  expected << 1.0, 2.0, 0.9, heading, 0.0, 0.0;
-  EXPECT_EQ(calculator.getLevelPoseeulerzyxBaseRtWorld(state_), expected)
+  expected << 1.0, 2.0, 0.9, yawBaseRtWorld, 0.0, 0.0;
+  EXPECT_EQ(calculator.getPoseeulerzyxHeadingRtWorld(state_), expected)
       << "the base position, the heading and no roll or pitch";
 }
 
@@ -663,11 +743,12 @@ TEST_F(ReferenceConsumersTest,
   }
   // And the knot's command is the step itself, turned into the world at the
   // start heading.
-  const scalar_t heading = model.getYawBaseRtWorld(state_);
-  const vector2_t expectedWorld(
-      std::cos(heading) * step(0) - std::sin(heading) * step(1),
-      std::sin(heading) * step(0) + std::cos(heading) * step(1));
-  EXPECT_LT((answers[0].front().cmdLinvelBaseRtWorldEwrtWorldXy - expectedWorld)
+  const scalar_t yawBaseRtWorld = model.getYawBaseRtWorld(state_);
+  const vector2_t expectedCmdLinvelBaseRtWorldEwrtWorldXy(
+      std::cos(yawBaseRtWorld) * step(0) - std::sin(yawBaseRtWorld) * step(1),
+      std::sin(yawBaseRtWorld) * step(0) + std::cos(yawBaseRtWorld) * step(1));
+  EXPECT_LT((answers[0].front().cmdLinvelBaseRtWorldEwrtWorldXy -
+             expectedCmdLinvelBaseRtWorldEwrtWorldXy)
                 .norm(),
             1.0e-12);
   EXPECT_EQ(answers[0].front().cmdRateYawBaseRtWorld, step(3));
@@ -675,34 +756,37 @@ TEST_F(ReferenceConsumersTest,
 
 TEST_F(ReferenceConsumersTest,
        ThePlannersHeadingIsTheModelsHeadingWithoutAnAcom) {
-  constexpr scalar_t kHeadingOffset = 0.25;
-  const ProbeRobotModel model(*settings_,
-                              ProbeAnswers{.headingOffset = kHeadingOffset});
+  constexpr scalar_t kOffsetYawBaseRtWorld = 0.25;
+  const ProbeRobotModel model(
+      *settings_, ProbeAnswers{.offsetYawBaseRtWorld = kOffsetYawBaseRtWorld});
   ContactPlanningConfig config;
-  config.shared.comHeight = 0.85;  // no model derives the pendulum here (unset
-                                   // means "from the model")
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ =
+      0.85;  // no model derives the pendulum here (unset
+             // means "from the model")
   ASSERT_EQ(config.validateStatus(), absl::OkStatus());
   const std::shared_ptr<ContactPlanningReferenceManager> referenceManager =
       contactPlanningReferenceManagerOf(model, config);
   ASSERT_NE(referenceManager, nullptr);
-  const scalar_t heading = model.getYawBaseRtWorld(state_);
-  ASSERT_NEAR(heading, 0.4 + kHeadingOffset, 1.0e-12);
-  EXPECT_EQ(referenceManager->computeHeading(state_), heading);
+  const scalar_t yawBaseRtWorld = model.getYawBaseRtWorld(state_);
+  ASSERT_NEAR(yawBaseRtWorld, 0.4 + kOffsetYawBaseRtWorld, 1.0e-12);
+  EXPECT_FALSE(referenceManager->computeYawAcomRtWorld(state_).has_value())
+      << "without an ACoM evaluator the heading model starts from the base yaw";
   referenceManager->setTargetTrajectories(twoKnotTarget());
   referenceManager->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, state_,
                                  ModeNumber::kStance);
   EXPECT_EQ(referenceManager
                 ->makePlannerInput(/*initTime=*/0.0, state_, vector2_t::Zero())
-                .yaw,
-            heading);
+                .yawHeadingRtWorld,
+            yawBaseRtWorld);
 }
 
 TEST_F(ReferenceConsumersTest,
        ThePlannersResampledTargetIsTheModelsInterpolation) {
   const ProbeRobotModel model(*settings_, ProbeAnswers());
   ContactPlanningConfig config;
-  config.shared.comHeight = 0.85;  // no model derives the pendulum here (unset
-                                   // means "from the model")
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ =
+      0.85;  // no model derives the pendulum here (unset
+             // means "from the model")
   config.formulation.setExecutionRule(term::kPlannedComOverride, /*on=*/true);
   ASSERT_EQ(config.validateStatus(), absl::OkStatus());
   const std::shared_ptr<ContactPlanningReferenceManager> referenceManager =
@@ -735,10 +819,10 @@ TEST_F(ReferenceConsumersTest,
 }
 
 TEST_F(ReferenceConsumersTest, TheHipLandmarksAreTurnedIntoTheModelsHeading) {
-  constexpr scalar_t kHeadingOffset = 0.25;
+  constexpr scalar_t kOffsetYawBaseRtWorld = 0.25;
   const ProbeRobotModel unturned(*settings_, ProbeAnswers());
-  const ProbeRobotModel turned(*settings_,
-                               ProbeAnswers{.headingOffset = kHeadingOffset});
+  const ProbeRobotModel turned(
+      *settings_, ProbeAnswers{.offsetYawBaseRtWorld = kOffsetYawBaseRtWorld});
   const absl::StatusOr<LocomotionHeuristicModelParameters> reference =
       deriveLocomotionHeuristicModelParameters(*pinocchioInterface_, unturned,
                                                state_);
@@ -748,13 +832,17 @@ TEST_F(ReferenceConsumersTest, TheHipLandmarksAreTurnedIntoTheModelsHeading) {
   ASSERT_TRUE(reference.ok()) << reference.status();
   ASSERT_TRUE(probed.ok()) << probed.status();
   // The same hips in the world, read in a base frame turned by the offset.
-  const scalar_t cosOffset = std::cos(kHeadingOffset);
-  const scalar_t sinOffset = std::sin(kHeadingOffset);
+  const scalar_t cosOffset = std::cos(kOffsetYawBaseRtWorld);
+  const scalar_t sinOffset = std::sin(kOffsetYawBaseRtWorld);
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    const vector2_t& hip = reference->hipPositionInBaseFrame[foot];
-    const vector2_t expected(cosOffset * hip.x() + sinOffset * hip.y(),
-                             -sinOffset * hip.x() + cosOffset * hip.y());
-    EXPECT_LT((probed->hipPositionInBaseFrame[foot] - expected).norm(), 1.0e-12)
+    const vector2_t& posHipRtBaseEwrtHeadingXy =
+        reference->posHipsRtBaseEwrtHeadingXy[foot];
+    const vector2_t expected(cosOffset * posHipRtBaseEwrtHeadingXy.x() +
+                                 sinOffset * posHipRtBaseEwrtHeadingXy.y(),
+                             -sinOffset * posHipRtBaseEwrtHeadingXy.x() +
+                                 cosOffset * posHipRtBaseEwrtHeadingXy.y());
+    EXPECT_LT((probed->posHipsRtBaseEwrtHeadingXy[foot] - expected).norm(),
+              1.0e-12)
         << "foot " << foot;
   }
 }
@@ -774,8 +862,9 @@ TEST_F(ReferenceConsumersTest,
   const test::QuaternionLayoutRobotModel model(
       *settings_, StateInputLayout::Mpc::kCentroidal);
   ContactPlanningConfig config;
-  config.shared.comHeight = 0.85;  // no model derives the pendulum here (unset
-                                   // means "from the model")
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ =
+      0.85;  // no model derives the pendulum here (unset
+             // means "from the model")
   config.formulation.setExecutionRule(term::kPlannedComOverride, /*on=*/true);
   ASSERT_EQ(config.validateStatus(), absl::OkStatus());
   constexpr size_t kPlanNodes = 5;
@@ -833,13 +922,13 @@ TEST_F(ReferenceConsumersTest,
   ASSERT_EQ(fast.timeTrajectory.size(), 4 * kPlanNodes + 1)
       << "the plan's nodes and the operator's knots between them";
   for (size_t knot = 0; knot < fast.timeTrajectory.size(); ++knot) {
-    const scalar_t expectedYaw =
+    const scalar_t expectedYawBaseRtWorld =
         kFastYawPerKnot * fast.timeTrajectory[knot] / knotSpacing;
-    EXPECT_LT(
-        std::abs(std::remainder(
-            model.getYawBaseRtWorld(fast.stateTrajectory[knot]) - expectedYaw,
-            2.0 * std::numbers::pi)),
-        1.0e-9)
+    EXPECT_LT(std::abs(std::remainder(
+                  model.getYawBaseRtWorld(fast.stateTrajectory[knot]) -
+                      expectedYawBaseRtWorld,
+                  2.0 * std::numbers::pi)),
+              1.0e-9)
         << "knot " << knot << " at " << fast.timeTrajectory[knot] << " s";
     if (knot == 0) continue;
     const vector4_t relative = quaternionProduct<scalar_t>(
@@ -863,6 +952,140 @@ TEST_F(ReferenceConsumersTest,
   }
 }
 
+/** A walk that alternates single support every 0.35 s from t = 0, so that the
+ * gait phase moves at 0.5 / 0.35 per second at every time after it. */
+std::shared_ptr<GaitSchedule> walkingSchedule() {
+  return std::make_shared<GaitSchedule>(
+      ModeSchedule({0.0, 0.35, 0.7}, {ModeNumber::kStance, ModeNumber::kLf,
+                                      ModeNumber::kRf, ModeNumber::kLf}),
+      ModeSequenceTemplate({0.0, 0.35, 0.7},
+                           {ModeNumber::kRf, ModeNumber::kLf}),
+      /*phaseTransitionStanceTime=*/0.0);
+}
+
+/** The normalized angular momentum L / m that `state` of `model` stores. */
+vector3_t getMnormAngmomComRtWorldEwrtWorld(
+    const MpcRobotModelBase<scalar_t>& model, const vector_t& state) {
+  for (const TuningSegment& segment : model.getTuningLayout().segments) {
+    if (segment.name == "mnorm_angmom_com_rt_world_ewrt_world") {
+      return state.segment<3>(static_cast<Eigen::Index>(segment.stateStart));
+    }
+  }
+  ADD_FAILURE() << "the centroidal layout stores no angular momentum";
+  return vector3_t::Zero();
+}
+
+/**
+ * A base-pose heuristic's tilt rate reaches the angular-momentum reference of a
+ * centroidal state under the contact planner as it does without it: the shaped
+ * reference adds I_G w / m, with I_G the composite inertia about the CoM in
+ * world axes at the measured state and w the world angular velocity of the
+ * roll rate at the shaped attitude. ContactPlanningReferenceManager overrides
+ * modifyReferences() without the base class's captureMeasuredState(), which
+ * alone latched I_G, so the planner's reference added 0 instead.
+ */
+TEST_F(ReferenceConsumersTest,
+       ATiltRateReachesTheMomentumReferenceUnderTheContactPlanner) {
+  const ProbeRobotModel model(*settings_, ProbeAnswers());
+  LocomotionHeuristicConfig heuristicConfig;
+  heuristicConfig.formulation.basePoseHeuristics = {"periodic_orientation"};
+  heuristicConfig.periodicOrientationParameters
+      .amplitudeEulerzyxBaseRtWorldRoll = 0.05;
+  LocomotionHeuristicModelParameters heuristicModel;
+  heuristicModel.totalMass = 150.0;
+  heuristicModel.totalWeight =
+      heuristicModel.totalMass * heuristicModel.gravity;
+  heuristicModel.nomPosComRtFeetmeanEwrtWorldZ = 0.85;
+  LocomotionHeuristicEnvironment environment;
+  environment.nomPosLfootRtRfootEwrtHeadingY = 0.2;
+  environment.usesContactPlanning = true;
+  absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
+      LocomotionHeuristicLayer::Create(heuristicConfig, heuristicModel,
+                                       environment);
+  ASSERT_TRUE(layer.ok()) << layer.status();
+  const std::shared_ptr<LocomotionHeuristicLayer> sharedLayer =
+      *std::move(layer);
+
+  ContactPlanningConfig config;
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ =
+      0.85;  // no model derives the pendulum here (unset
+             // means "from the model")
+  ASSERT_EQ(config.validateStatus(), absl::OkStatus());
+  absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> planning =
+      ContactPlanningReferenceManager::Create(
+          walkingSchedule(),
+          std::make_unique<SwingTrajectoryPlanner>(
+              SwingTrajectoryPlanner::Config(), /*numFeet=*/2),
+          *pinocchioInterface_, model, config);
+  ASSERT_TRUE(planning.ok()) << planning.status();
+  SwitchedModelReferenceManager unplanned(
+      walkingSchedule(),
+      std::make_unique<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(),
+                                               /*numFeet=*/2),
+      *pinocchioInterface_, model);
+
+  // Solved in the right stance of [0.35, 0.7), queried inside it.
+  constexpr scalar_t kInitTime = 0.4;
+  constexpr scalar_t kQueryTime = 0.5;
+  const std::vector<SwitchedModelReferenceManager* absl_nonnull> managers = {
+      planning->get(), &unplanned};
+  for (SwitchedModelReferenceManager* absl_nonnull manager : managers) {
+    manager->setLocomotionHeuristicLayer(sharedLayer);
+    manager->setTargetTrajectories(twoKnotTarget());
+    manager->preSolverRun(kInitTime, /*finalTime=*/kInitTime + 1.0, state_,
+                          ModeNumber::kRf);
+  }
+  const scalar_t phaseRate = (*planning)->getPhaseVariableRate(kQueryTime);
+  ASSERT_NEAR(phaseRate, 0.5 / 0.35, 1.0e-12) << "not in single support";
+  ASSERT_EQ(unplanned.getPhaseVariableRate(kQueryTime), phaseRate);
+  ASSERT_EQ(unplanned.getPhaseVariable(kQueryTime),
+            (*planning)->getPhaseVariable(kQueryTime));
+
+  // The expectation from first principles: the roll rate of the heuristic at
+  // this phase, about the roll axis of the shaped attitude, R_z(yaw) R_y(pitch)
+  // e_x, in world axes; the composite inertia of the measured state.
+  BasePoseHeuristicContext context;
+  context.gaitPhase = (*planning)->getPhaseVariable(kQueryTime);
+  context.gaitPhaseRate = phaseRate;
+  const scalar_t offsetRateEulerzyxBaseRtWorldRoll =
+      sharedLayer->basePoseHeuristicOffset(context)
+          .offsetRateEulerzyxBaseRtWorldRoll;
+  ASSERT_GT(std::abs(offsetRateEulerzyxBaseRtWorldRoll), 0.01);
+  const vector3_t refEulerzyxBaseRtWorld =
+      model.getEulerzyxBaseRtWorld(firstKnot_);
+  const vector3_t offsetAngvelBaseRtWorldEwrtWorld =
+      offsetRateEulerzyxBaseRtWorldRoll *
+      (Eigen::AngleAxis<scalar_t>(refEulerzyxBaseRtWorld(0),
+                                  vector3_t::UnitZ()) *
+       Eigen::AngleAxis<scalar_t>(refEulerzyxBaseRtWorld(1),
+                                  vector3_t::UnitY()) *
+       vector3_t::UnitX());
+  PinocchioInterface pinocchioInterface(*pinocchioInterface_);
+  const pinocchio::Model& pinocchioModel = pinocchioInterface.getModel();
+  pinocchio::Data& data = pinocchioInterface.getData();
+  pinocchio::ccrba(pinocchioModel, data,
+                   model.getGeneralizedCoordinates(state_),
+                   vector_t::Zero(pinocchioModel.nv));
+  const matrix3_t inertiaComEwrtWorld = data.Ig.inertia().matrix();
+  const vector3_t expected = inertiaComEwrtWorld *
+                             offsetAngvelBaseRtWorldEwrtWorld /
+                             pinocchio::computeTotalMass(pinocchioModel);
+  ASSERT_GT(expected.norm(), 1.0e-4);
+
+  const vector3_t knotMnormAngmomComRtWorldEwrtWorld =
+      getMnormAngmomComRtWorldEwrtWorld(model, firstKnot_);
+  for (SwitchedModelReferenceManager* absl_nonnull manager : managers) {
+    const vector3_t shaped = getMnormAngmomComRtWorldEwrtWorld(
+        model, manager->shapePoseBaseRtWorld(kQueryTime, firstKnot_));
+    EXPECT_LT((shaped - knotMnormAngmomComRtWorldEwrtWorld - expected).norm(),
+              1.0e-9 * expected.norm())
+        << (manager == &unplanned ? "without" : "with")
+        << " the contact planner: added "
+        << (shaped - knotMnormAngmomComRtWorldEwrtWorld).transpose()
+        << ", expected " << expected.transpose();
+  }
+}
+
 /** The left foot's wrench cone of `model`, on `referenceManager`, or null after
  * a failed expectation. */
 std::unique_ptr<ContactWrenchConeConstraint> leftFootCone(
@@ -870,8 +1093,10 @@ std::unique_ptr<ContactWrenchConeConstraint> leftFootCone(
     const PinocchioInterface& pinocchioInterface,
     const MpcRobotModelBase<scalar_t>& model) {
   const ContactRectangle rectangle(
-      PolygonBounds(/*x_min=*/-0.1, /*x_max=*/0.15, /*y_min=*/-0.05,
-                    /*y_max=*/0.05),
+      PolygonBounds(/*min_pos_corners_rt_contact_ewrt_contact_x=*/-0.1,
+                    /*max_pos_corners_rt_contact_ewrt_contact_x=*/0.15,
+                    /*min_pos_corners_rt_contact_ewrt_contact_y=*/-0.05,
+                    /*max_pos_corners_rt_contact_ewrt_contact_y=*/0.05),
       ContactCenterPoint("foot_l_contact", "l_leg_akx", vector3_t::Zero()));
   absl::StatusOr<std::unique_ptr<ContactWrenchConeConstraint>> cone =
       ContactWrenchConeConstraint::Create(referenceManager, rectangle,
@@ -926,8 +1151,10 @@ TEST_F(ReferenceConsumersTest,
       referenceManagerOf(model);
   ASSERT_NE(referenceManager, nullptr);
   const ContactRectangle rectangle(
-      PolygonBounds(/*x_min=*/-0.1, /*x_max=*/0.15, /*y_min=*/-0.05,
-                    /*y_max=*/0.05),
+      PolygonBounds(/*min_pos_corners_rt_contact_ewrt_contact_x=*/-0.1,
+                    /*max_pos_corners_rt_contact_ewrt_contact_x=*/0.15,
+                    /*min_pos_corners_rt_contact_ewrt_contact_y=*/-0.05,
+                    /*max_pos_corners_rt_contact_ewrt_contact_y=*/0.05),
       ContactCenterPoint("foot_l_contact", "l_leg_akx", vector3_t::Zero()));
   const absl::StatusOr<std::unique_ptr<ContactWrenchConeConstraint>> cone =
       ContactWrenchConeConstraint::Create(*referenceManager, rectangle,

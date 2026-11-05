@@ -27,8 +27,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
+
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
@@ -41,6 +44,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/cost/StateInputGaussNewtonCostAd.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/multibody/data.hpp"  // IWYU pragma: keep
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
+
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 
@@ -198,19 +215,19 @@ ad_vector_t ExternalTorqueQuadraticCostAD::costVectorFunction(
   PinocchioInterfaceCppAd::Data& data = pinocchioInterfaceCppAd_.getData();
 
   const ad_vector_t q = mpcRobotModelADPtr_->getGeneralizedCoordinates(state);
-  ad_matrix_t J_ee = ad_matrix_t::Zero(
+  ad_matrix_t jacContactRtWorldEwrtWorld = ad_matrix_t::Zero(
       kTwistDim,
       static_cast<Eigen::Index>(mpcRobotModelADPtr_->getVelocityDim()));
   pinocchio::computeFrameJacobian(
       model, data, q, frameID_, pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED,
-      J_ee);
+      jacContactRtWorldEwrtWorld);
 
   // The Jacobian is LOCAL_WORLD_ALIGNED, so the wrench must be expressed in the
   // world frame. The state-aware accessor is frame-correct for both
   // wrench-space and basis-vector (local-frame) input parameterizations.
-  ad_vector_t tauExt =
-      J_ee.transpose() * mpcRobotModelADPtr_->getWrenchContactEwrtWorld(
-                             state, input, contactPointIndex_);
+  ad_vector_t tauExt = jacContactRtWorldEwrtWorld.transpose() *
+                       mpcRobotModelADPtr_->getWrenchContactEwrtWorld(
+                           state, input, contactPointIndex_);
 
   // tau_ext has the Pinocchio velocity's entries: the floating base's, then one
   // per joint.

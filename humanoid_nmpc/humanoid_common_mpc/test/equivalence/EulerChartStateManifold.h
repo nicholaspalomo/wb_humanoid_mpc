@@ -29,12 +29,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 
 #include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_mpc_validation/chart/EulerChart.h"
 
 namespace ocs2::humanoid {
@@ -86,10 +86,10 @@ namespace ocs2::humanoid {
  */
 class EulerChartStateManifold final : public StateManifold {
  public:
-  /** The chart of `layout` on `quaternionManifold`, the MPC's own state
+  /** The chart of `layout` on `quaternionModelManifold`, the MPC's own state
    * manifold (its E and E+ are the chart's). */
   EulerChartStateManifold(
-      std::shared_ptr<const StateManifold> quaternionManifold,
+      std::shared_ptr<const StateManifold> quaternionModelManifold,
       validation::EulerStateLayout layout);
 
   EulerChartStateManifold(const EulerChartStateManifold&) = delete;
@@ -99,10 +99,10 @@ class EulerChartStateManifold final : public StateManifold {
   ~EulerChartStateManifold() override = default;
 
   size_t getAmbientDim() const override {
-    return quaternionManifold_->getAmbientDim();
+    return quaternionModelManifold_->getAmbientDim();
   }
   size_t getTangentDim() const override {
-    return quaternionManifold_->getTangentDim();
+    return quaternionModelManifold_->getTangentDim();
   }
   void retract(const vector_t& x,
                const vector_t& dx,
@@ -119,24 +119,26 @@ class EulerChartStateManifold final : public StateManifold {
                        const vector_t& x1,
                        scalar_t alpha,
                        vector_t& x) const override;
-  void project(vector_t& x) const override { quaternionManifold_->project(x); }
+  void project(vector_t& x) const override {
+    quaternionModelManifold_->project(x);
+  }
   scalar_t getMaximumTangentAngle(const vector_t& dx) const override {
-    return quaternionManifold_->getMaximumTangentAngle(dx);
+    return quaternionModelManifold_->getMaximumTangentAngle(dx);
   }
   bool hasRepresentableAttitudes(const vector_t& x) const override {
-    return quaternionManifold_->hasRepresentableAttitudes(x);
+    return quaternionModelManifold_->hasRepresentableAttitudes(x);
   }
   void pullBackStateColumns(const vector_t& x, matrix_t& J) const override {
-    quaternionManifold_->pullBackStateColumns(x, J);
+    quaternionModelManifold_->pullBackStateColumns(x, J);
   }
   void pullBackStateRows(const vector_t& x, matrix_t& M) const override {
-    quaternionManifold_->pullBackStateRows(x, M);
+    quaternionModelManifold_->pullBackStateRows(x, M);
   }
   void pullBackGradient(const vector_t& x, vector_t& g) const override {
-    quaternionManifold_->pullBackGradient(x, g);
+    quaternionModelManifold_->pullBackGradient(x, g);
   }
   void liftStateColumns(const vector_t& x, matrix_t& J) const override {
-    quaternionManifold_->liftStateColumns(x, J);
+    quaternionModelManifold_->liftStateColumns(x, J);
   }
   void pushForwardDynamics(
       const vector_t& x,
@@ -154,7 +156,7 @@ class EulerChartStateManifold final : public StateManifold {
  private:
   // Shared because OCS2 shares a state manifold
   // (OptimalControlProblem::stateManifoldPtr).
-  std::shared_ptr<const StateManifold> quaternionManifold_;
+  std::shared_ptr<const StateManifold> quaternionModelManifold_;
   validation::EulerStateLayout layout_;
 };
 

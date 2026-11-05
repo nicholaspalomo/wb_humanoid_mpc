@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -40,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "EGL/egl.h"
 #include "EGL/eglext.h"
+#include "EGL/eglplatform.h"
 #include "absl/base/nullability.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
@@ -209,12 +211,15 @@ absl::StatusOr<std::optional<InitializedDisplay>> deviceDisplay(
   }
   EGLint count = 0;
   if (egl.queryDevices(/*max_devices=*/0, /*devices=*/nullptr, &count) !=
-      EGL_TRUE)
+      EGL_TRUE) {
     count = 0;
+  }
   std::vector<EGLDeviceEXT> devices(
       static_cast<size_t>(std::max<EGLint>(count, 0)));
-  if (count > 0 && egl.queryDevices(count, devices.data(), &count) != EGL_TRUE)
+  if (count > 0 &&
+      egl.queryDevices(count, devices.data(), &count) != EGL_TRUE) {
     count = 0;
+  }
   devices.resize(static_cast<size_t>(std::max<EGLint>(count, 0)));
   if (deviceId.has_value() && *deviceId >= static_cast<int>(devices.size())) {
     return absl::InvalidArgumentError(absl::StrCat(
@@ -227,8 +232,9 @@ absl::StatusOr<std::optional<InitializedDisplay>> deviceDisplay(
        !chosen.has_value() && index < static_cast<int>(devices.size());
        ++index) {
     if (!hasExtension(egl.queryDeviceString(devices[index], EGL_EXTENSIONS),
-                      "EGL_MESA_device_software"))
+                      "EGL_MESA_device_software")) {
       chosen = index;
+    }
   }
   if (!chosen.has_value()) {
     failures.push_back(absl::StrCat("device platform: ", devices.size(),
@@ -281,8 +287,9 @@ absl::StatusOr<std::unique_ptr<EglContext>> EglContext::Create(
   std::optional<InitializedDisplay> display = *std::move(device);
   // An explicit device is that device or nothing; without one, llvmpipe is the
   // fallback.
-  if (!display.has_value() && !options.deviceId.has_value())
+  if (!display.has_value() && !options.deviceId.has_value()) {
     display = surfacelessDisplay(egl, failures);
+  }
   if (!display.has_value()) {
     return absl::UnavailableError(absl::StrCat(
         "EGL offers no display to render on (", absl::StrJoin(failures, "; "),

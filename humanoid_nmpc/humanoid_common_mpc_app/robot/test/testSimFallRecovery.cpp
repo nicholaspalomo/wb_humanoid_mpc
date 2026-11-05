@@ -106,16 +106,17 @@ std::vector<size_t> mpcJoints(const MujocoSimInterface& sim) {
       modelSettings.mpcModelJointNames);
 }
 
-SimFallRecovery::Config recoveryConfig(scalar_t catchLift) {
+SimFallRecovery::Config recoveryConfig(
+    scalar_t catchErrPosBaseRtWorldEwrtWorldZ) {
   SimFallRecovery::Config config;
-  config.maxBaseTiltAngle = 1.0;
-  config.catchLift = catchLift;
+  config.maxTiltangleBaseRtWorld = 1.0;
+  config.catchErrPosBaseRtWorldEwrtWorldZ = catchErrPosBaseRtWorldEwrtWorldZ;
   return config;
 }
 
-/** A base pose at (x, y, z), rolled by `roll` about x, as
+/** The free joint's qpos of a base at (x, y, z), rolled by `roll` about x, as
  * setBaseStateForTesting takes it. */
-std::array<double, 7> basePose(double x, double y, double z, double roll) {
+std::array<double, 7> baseQpos(double x, double y, double z, double roll) {
   return {x, y, z, std::cos(0.5 * roll), std::sin(0.5 * roll), 0.0, 0.0};
 }
 
@@ -241,7 +242,8 @@ std::string describeRest(const robot::model::RobotState& state,
     }
   }
   return absl::StrCat(
-      "tilt ", SimFallRecovery::baseTiltAngle(state.getQuatBaseRtWorld()),
+      "tilt ",
+      SimFallRecovery::computeTiltangleBaseRtWorld(state.getQuatBaseRtWorld()),
       " rad, base speed ", state.getLinvelBaseRtWorldEwrtBase().norm(),
       " m/s and ", state.getAngvelBaseRtWorldEwrtBase().norm(),
       " rad/s, joint error ", maxJointError, " rad (joint ", worstJoint,
@@ -259,7 +261,7 @@ TEST(SimFallRecovery,
 
   // The base drops below the floor limit: the simulator resets the robot and
   // locks the gantry itself, inside its step, i.e. between two control cycles.
-  sim->setBaseStateForTesting(basePose(2.0, 0.0, 0.1, 0.0), kAtRest);
+  sim->setBaseStateForTesting(baseQpos(2.0, 0.0, 0.1, 0.0), kAtRest);
   const robot::model::RobotState& state = advance(*sim);
   ASSERT_EQ(sim->resetEpoch(), 1u);
   // The simulator locked the gantry itself, inside its step: the loops' old
@@ -296,13 +298,13 @@ TEST(SimFallRecovery, ATiltIsCaughtOnceAndAnOperatorLockAndUnlockAreSeen) {
       makeSim(/*gantryLocked=*/false);
   SimFallRecovery recovery(recoveryConfig(0.0), sim.get(), mpcJoints(*sim));
   const std::vector<scalar_t> nominal = currentPosture(*sim);
-  const double height = sim->getGantryHeight();
+  const double height = sim->getGantryPosBaseRtWorldEwrtWorldZ();
   std::string mode = "WB_MPC";
   advance(*sim);
 
   // Tipped past the limit: caught on the gantry, once.
   sim->setBaseStateForTesting(
-      basePose(/*x=*/1.0, /*y=*/0.5, height, /*roll=*/1.2), kAtRest);
+      baseQpos(/*x=*/1.0, /*y=*/0.5, height, /*roll=*/1.2), kAtRest);
   const SimFallRecovery::Cycle caught =
       recovery.update(advance(*sim), nominal, mode);
   EXPECT_TRUE(caught.discontinuity);
@@ -314,9 +316,9 @@ TEST(SimFallRecovery, ATiltIsCaughtOnceAndAnOperatorLockAndUnlockAreSeen) {
   // and not a discontinuity.
   for (int cycle = 0; cycle < 200; ++cycle)
     recovery.update(advance(*sim), nominal, mode);
-  ASSERT_LT(
-      SimFallRecovery::baseTiltAngle(sim->getRobotState().getQuatBaseRtWorld()),
-      0.2);
+  ASSERT_LT(SimFallRecovery::computeTiltangleBaseRtWorld(
+                sim->getRobotState().getQuatBaseRtWorld()),
+            0.2);
   sim->unlockGantry();
   const SimFallRecovery::Cycle released =
       recovery.update(advance(*sim), nominal, mode);
@@ -326,7 +328,7 @@ TEST(SimFallRecovery, ATiltIsCaughtOnceAndAnOperatorLockAndUnlockAreSeen) {
   // The operator's LOCK_GANTRY: one discontinuity, and no settle sequence for a
   // robot that did not fall.
   sim->setBaseStateForTesting(
-      basePose(/*x=*/0.0, /*y=*/0.0, height, /*roll=*/0.0), kAtRest);
+      baseQpos(/*x=*/0.0, /*y=*/0.0, height, /*roll=*/0.0), kAtRest);
   advance(*sim);
   recovery.update(sim->getRobotState(), nominal, mode);
   sim->lockGantry();
@@ -345,7 +347,7 @@ TEST(SimFallRecovery,
   const SimFallRecovery::Config config = recoveryConfig(0.15);
   SimFallRecovery recovery(config, sim.get(), mpcJoints(*sim));
   const std::vector<scalar_t> nominal = currentPosture(*sim);
-  const double standingHeight = sim->getGantryHeight();
+  const double standingHeight = sim->getGantryPosBaseRtWorldEwrtWorldZ();
   AtlasJointPd jointPd(*sim);
   sim->enableTorques();
   std::string mode = "WB_MPC";
@@ -354,7 +356,7 @@ TEST(SimFallRecovery,
   jointPd.command(*sim, nominal);
   advance(*sim);
   sim->setBaseStateForTesting(
-      basePose(/*x=*/0.5, /*y=*/0.0, standingHeight - 0.1, /*roll=*/1.2),
+      baseQpos(/*x=*/0.5, /*y=*/0.0, standingHeight - 0.1, /*roll=*/1.2),
       {0.0, 1.0, -0.5, 2.0, 0.0, 0.0});
 
   const std::vector<size_t> joints = mpcJoints(*sim);
@@ -362,7 +364,7 @@ TEST(SimFallRecovery,
   std::vector<scalar_t> phaseStartTimes;
   std::vector<std::string> phaseEndStates;  // the robot when each phase began,
                                             // for the failure messages
-  double maxGantryHeight = 0.0;
+  double maxGantryPosBaseRtWorldEwrtWorldZ = 0.0;
   bool wbMpcLetThroughWhileSettling = false;
   bool caught = false;
   for (int cycle = 0; cycle < 3000; ++cycle) {
@@ -375,7 +377,9 @@ TEST(SimFallRecovery,
       phaseStartTimes.push_back(state.getTime());
       phaseEndStates.push_back(describeRest(state, nominal, joints));
     }
-    maxGantryHeight = std::max(maxGantryHeight, sim->getGantryHeight());
+    maxGantryPosBaseRtWorldEwrtWorldZ =
+        std::max(maxGantryPosBaseRtWorldEwrtWorldZ,
+                 sim->getGantryPosBaseRtWorldEwrtWorldZ());
     if (recovery.isSettling() && mode == "WB_MPC")
       wbMpcLetThroughWhileSettling = true;
     jointPd.command(*sim, nominal);
@@ -397,9 +401,10 @@ TEST(SimFallRecovery,
         << "phase " << phase - 1
         << " timed out; when it ended: " << phaseEndStates[phase];
   }
-  EXPECT_NEAR(maxGantryHeight, standingHeight + config.catchLift, 1.0e-6)
+  EXPECT_NEAR(maxGantryPosBaseRtWorldEwrtWorldZ,
+              standingHeight + config.catchErrPosBaseRtWorldEwrtWorldZ, 1.0e-6)
       << "the gantry did not lift the robot clear of the ground";
-  EXPECT_NEAR(sim->getGantryHeight(), standingHeight, 1.0e-6)
+  EXPECT_NEAR(sim->getGantryPosBaseRtWorldEwrtWorldZ(), standingHeight, 1.0e-6)
       << "the gantry was not lowered back to the height of the catch";
   EXPECT_EQ(mode, "WB_MPC") << "WB_MPC is accepted once the robot has settled";
   EXPECT_TRUE(
@@ -454,16 +459,16 @@ TEST(SimFallRecovery, ReportsTheCatchToTheEventLogInsteadOfLogging) {
   SimFallRecovery recovery(recoveryConfig(0.15), sim.get(), mpcJoints(*sim),
                            &log);
   const std::vector<scalar_t> nominal = currentPosture(*sim);
-  const double height = sim->getGantryHeight();
+  const double height = sim->getGantryPosBaseRtWorldEwrtWorldZ();
   std::string mode = "WB_MPC";
   advance(*sim);
   sim->setBaseStateForTesting(
-      basePose(/*x=*/0.0, /*y=*/0.0, height, /*roll=*/1.2), kAtRest);
+      baseQpos(/*x=*/0.0, /*y=*/0.0, height, /*roll=*/1.2), kAtRest);
   const SimFallRecovery::Cycle caught =
       recovery.update(advance(*sim), nominal, mode);
   ASSERT_TRUE(caught.discontinuity);
   EXPECT_EQ(caught.cause, DiscontinuityCause::kTiltCaught);
-  EXPECT_GT(caught.tilt, 1.0);
+  EXPECT_GT(caught.tiltangleBaseRtWorld, 1.0);
   mode = "WB_MPC";
   recovery.update(advance(*sim), nominal, mode);
   EXPECT_EQ(mode, "JOINT_PD") << "refused while settling";
@@ -477,10 +482,11 @@ TEST(SimFallRecovery, ReportsTheCatchToTheEventLogInsteadOfLogging) {
   EXPECT_EQ(codes, (std::vector<RealtimeEventCode>{
                        RealtimeEventCode::kCaughtAndSettling,
                        RealtimeEventCode::kMpcModeRefusedWhileSettling}));
-  EXPECT_NE(caughtLine.find("past sim_max_base_tilt_angle 1 rad"),
+  EXPECT_NE(caughtLine.find("past sim_max_tiltangle_base_rt_world 1 rad"),
             std::string::npos)
       << caughtLine;
-  EXPECT_NE(caughtLine.find("0.15 m (sim_gantry_catch_lift)"),
+  EXPECT_NE(caughtLine.find(
+                "0.15 m (sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z)"),
             std::string::npos)
       << caughtLine;
 }

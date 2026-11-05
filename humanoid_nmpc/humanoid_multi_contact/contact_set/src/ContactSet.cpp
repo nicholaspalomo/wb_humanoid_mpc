@@ -88,25 +88,31 @@ absl::StatusOr<Eigen::Vector3d> unitVector3(const Eigen::VectorXd& values,
 }
 
 /** parent_R_pad from the outward normal and, when given, the pad's x axis. */
-absl::StatusOr<Eigen::Matrix3d> padRotation(const Candidate& candidate,
-                                            const Eigen::Vector3d& padNormal,
-                                            absl::string_view robot) {
-  const Eigen::Vector3d zAxis = -padNormal;
-  Eigen::Vector3d xAxis = zAxis.unitOrthogonal();
-  if (candidate.pad_x_axis.size() != 0) {
-    ASSIGN_OR_RETURN(xAxis, unitVector3(candidate.pad_x_axis, robot,
-                                        candidate.name, "pad_x_axis"));
-    if (!(std::abs(xAxis.dot(zAxis)) <= kUnitTolerance)) {
-      return candidateError(robot, candidate.name,
-                            "pad_x_axis must be orthogonal to pad_normal");
+absl::StatusOr<Eigen::Matrix3d> computeRotmatPadRtLink(
+    const Candidate& candidate,
+    const Eigen::Vector3d& normalPadEwrtLink,
+    absl::string_view robot) {
+  const Eigen::Vector3d zAxisPadEwrtLink = -normalPadEwrtLink;
+  Eigen::Vector3d xAxisPadEwrtLink = zAxisPadEwrtLink.unitOrthogonal();
+  if (candidate.x_axis_pad_ewrt_link.size() != 0) {
+    ASSIGN_OR_RETURN(xAxisPadEwrtLink,
+                     unitVector3(candidate.x_axis_pad_ewrt_link, robot,
+                                 candidate.name, "x_axis_pad_ewrt_link"));
+    if (!(std::abs(xAxisPadEwrtLink.dot(zAxisPadEwrtLink)) <= kUnitTolerance)) {
+      return candidateError(
+          robot, candidate.name,
+          "x_axis_pad_ewrt_link must be orthogonal to normal_pad_ewrt_link");
     }
-    xAxis = (xAxis - xAxis.dot(zAxis) * zAxis).normalized();
+    xAxisPadEwrtLink =
+        (xAxisPadEwrtLink -
+         xAxisPadEwrtLink.dot(zAxisPadEwrtLink) * zAxisPadEwrtLink)
+            .normalized();
   }
-  Eigen::Matrix3d rotation;
-  rotation.col(kXAxisIndex) = xAxis;
-  rotation.col(kYAxisIndex) = zAxis.cross(xAxis);
-  rotation.col(kZAxisIndex) = zAxis;
-  return rotation;
+  Eigen::Matrix3d rotmatPadRtLink;
+  rotmatPadRtLink.col(kXAxisIndex) = xAxisPadEwrtLink;
+  rotmatPadRtLink.col(kYAxisIndex) = zAxisPadEwrtLink.cross(xAxisPadEwrtLink);
+  rotmatPadRtLink.col(kZAxisIndex) = zAxisPadEwrtLink;
+  return rotmatPadRtLink;
 }
 
 absl::StatusOr<ContactKind> contactKind(const Candidate& candidate,
@@ -134,22 +140,28 @@ absl::StatusOr<std::optional<ContactRectangle>> contactRectangle(
     return candidateError(robot, candidate.name,
                           "a surface candidate needs a rectangle");
   }
-  if (candidate.pad_x_axis.size() == 0) {
+  if (candidate.x_axis_pad_ewrt_link.size() == 0) {
     return candidateError(robot, candidate.name,
-                          "a surface candidate needs a pad_x_axis");
+                          "a surface candidate needs a x_axis_pad_ewrt_link");
   }
   const config::ContactSet::Rectangle& rectangle = *candidate.rectangle;
-  if (!(rectangle.x_min < rectangle.x_max) ||
-      !(rectangle.y_min < rectangle.y_max)) {
+  if (!(rectangle.min_pos_corners_rt_pad_ewrt_pad_x <
+        rectangle.max_pos_corners_rt_pad_ewrt_pad_x) ||
+      !(rectangle.min_pos_corners_rt_pad_ewrt_pad_y <
+        rectangle.max_pos_corners_rt_pad_ewrt_pad_y)) {
     return candidateError(
         robot, candidate.name,
-        "the rectangle needs x_min < x_max and y_min < y_max");
+        "the rectangle needs min_pos_corners_rt_pad_ewrt_pad_x < "
+        "max_pos_corners_rt_pad_ewrt_pad_x and "
+        "min_pos_corners_rt_pad_ewrt_pad_y < "
+        "max_pos_corners_rt_pad_ewrt_pad_y");
   }
-  return std::optional<ContactRectangle>(
-      ContactRectangle{.xMin = rectangle.x_min,
-                       .xMax = rectangle.x_max,
-                       .yMin = rectangle.y_min,
-                       .yMax = rectangle.y_max});
+  return std::optional<ContactRectangle>(ContactRectangle{
+      .minPosCornersRtPadEwrtPadX = rectangle.min_pos_corners_rt_pad_ewrt_pad_x,
+      .maxPosCornersRtPadEwrtPadX = rectangle.max_pos_corners_rt_pad_ewrt_pad_x,
+      .minPosCornersRtPadEwrtPadY = rectangle.min_pos_corners_rt_pad_ewrt_pad_y,
+      .maxPosCornersRtPadEwrtPadY =
+          rectangle.max_pos_corners_rt_pad_ewrt_pad_y});
 }
 
 absl::StatusOr<ContactCandidate> contactCandidate(const Candidate& candidate,
@@ -165,12 +177,15 @@ absl::StatusOr<ContactCandidate> contactCandidate(const Candidate& candidate,
     return candidateError(robot, candidate.name, "has no parent_joint");
   }
   result.parentJoint = candidate.parent_joint;
-  ASSIGN_OR_RETURN(result.offset,
-                   vector3(candidate.offset, robot, candidate.name, "offset"));
-  ASSIGN_OR_RETURN(result.padNormal, unitVector3(candidate.pad_normal, robot,
-                                                 candidate.name, "pad_normal"));
-  ASSIGN_OR_RETURN(result.padRotation,
-                   padRotation(candidate, result.padNormal, robot));
+  ASSIGN_OR_RETURN(result.posPadRtLinkEwrtLink,
+                   vector3(candidate.pos_pad_rt_link_ewrt_link, robot,
+                           candidate.name, "pos_pad_rt_link_ewrt_link"));
+  ASSIGN_OR_RETURN(result.normalPadEwrtLink,
+                   unitVector3(candidate.normal_pad_ewrt_link, robot,
+                               candidate.name, "normal_pad_ewrt_link"));
+  ASSIGN_OR_RETURN(
+      result.rotmatPadRtLink,
+      computeRotmatPadRtLink(candidate, result.normalPadEwrtLink, robot));
   if (!(candidate.geom_radius >= 0.0) ||
       !std::isfinite(candidate.geom_radius)) {
     return candidateError(robot, candidate.name,

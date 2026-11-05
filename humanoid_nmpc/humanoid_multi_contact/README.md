@@ -69,13 +69,13 @@ the CoM over the static equilibrium polygon and the margins; it takes the Rerun 
 
 ## Architecture notes
 
-- On a CppAD tape, **`TerrainModel`** records `signedDistance`, `normal`, `nearestPoint` and `sphereDistance` with the tape's
+- On a CppAD tape, **`TerrainModel`** records `signedDistance`, `getNormalTerrainEwrtWorld`, `computeNearestPosSurfaceRtWorldEwrtWorld` and `sphereDistance` with the tape's
   scalar (`ad_scalar_t`): every branch is a conditional expression, so one tape is valid everywhere, and the scene
   enters it as constants. A tape belongs to the scene it was recorded with. A scene of one primitive gives that
   primitive's exact distance (the flat-ground parity of design section 9).
 - **The contact set** numbers the bits of a contact mode (`ContactMask`, `contactBit`, `ContactSet::maskOf` /
   `namesOf`); a surface candidate's rectangle is in its pad frame, whose z axis is the terrain normal when the pad
-  rests on a surface (`ContactCandidate::padRotation`).
+  rests on a surface (`ContactCandidate::rotmatPadRtLink`).
 - **The certifier** takes a `MultiContactPlan` (`certify`) or knots built in code (`certifyKnots`). The static
   conditions (1 and 3) are judged only with a static margin (`CertifierOptions::staticMargin`).
 - For plan tracking in the MPC, `humanoid_centroidal_mpc/multi_contact/` reads a scenario and a plan

@@ -63,6 +63,7 @@ class GrammarTest(unittest.TestCase):
             "quat_base_rt_world",
             "quat_base_rt_world_xyzw",
             "eulerzyx_base_rt_world_pitch",
+            "rpyBaseRtWorld",
             "wrench_lfoot_ewrt_world",
             "force_contacts_ewrt_world",
             "normal_terrain_ewrt_world",
@@ -83,9 +84,75 @@ class GrammarTest(unittest.TestCase):
             "_quat_base_rt_world",
             "mutable_pos_base_rt_world_ewrt_world",
             "wrench_contacts_ewrt_world_size",
+            "getTiltEesRtSurfaceEwrtWorld",
+            "classicalaccFootRtWorldEwrtWorld",
+            "measPosComRtFeetmeanEwrtWorldZ",
+            "getPosCornerRtContactEwrtContact",
+            "posFootprintRtContactEwrtContactXy",
+            "getProxyLinvelComRtWorldEwrtWorld",
+            "impact_norm_linmom_ball_rt_world_ewrt_world",
+            "nomInertiaComEwrtBase",
+            "inertiaComEwrtWorldZz",
+            "computeInertiaComEwrtWorldZz",
+            "posGeomRtWorldEwrtWorld",
+            "pose_geom_rt_link",
+            "posPatchpointRtContactEwrtContact",
+            "minPosMjcontactsRtWorldEwrtWorldXy",
+            "computePosComRtLowcontactEwrtWorldZ",
+            "apexPosFootRtSwingendEwrtWorldZ",
+            "kNomApexPosFootRtSwingendEwrtWorldZ",
+            "posGeneratorsRtWorldEwrtWorld",
+            "forceGeneratorsEwrtWorld",
+            "pos_capsulestart_rt_link_ewrt_link",
+            "posCapsuleendRtCapsulestartEwrtWorld",
+            "quat_capsulestart_rt_world_xyzw",
+            "posQueryRtBoxEwrtBox",
+            "pos_arrows_rt_world_ewrt_world",
+            "pos_arrowheads_rt_arrow_ewrt_world",
+            "pos_strippoints_rt_world_ewrt_world",
+            "pos_link_rt_mjbody_ewrt_mjbody",
+            "rotmat_link_rt_mjbody",
+            "_INIT_POS_CAMFOCUS_RT_WORLD_EWRT_WORLD",
+            "_INIT_DIST_CAM_RT_CAMFOCUS",
+            "posSegmentpointRtWorldEwrtWorld",
+            "supportPosComRtWorldEwrtWorldXySamples",
+            "posQueryRtSegmentpointEwrtWorld",
+            "maxPosPadRtChordmidEwrtWorldZ",
+            "maxTiltanglePadRtSurface",
+            "kNomMaxTiltanglePadRtSurface",
+            "posSupportcenterRtWorldEwrtWorldXy",
+            "posReachcenterRtWorldEwrtWorld",
+            "cmd_azimuth_ball_rt_base_ewrt_heading",
+            "cmd_elevation_ball_rt_base_ewrt_heading",
+            "minDistControlpointRtContact",
+            "kNomMinDistControlpointRtContact",
+            "cmd_lnorm_linvel_base_rt_world_ewrt_heading_x",
+            "cmd_max_lnorm_angvel_base_rt_world_ewrt_world_z",
         ):
             with self.subTest(name=name):
                 self.assertEqual(frame_naming.grammar_problems(name), [])
+
+    def test_a_momentum_may_be_taken_about_the_origin_of_its_observer(self):
+        # frame1 of angmom and cmom is the point the moment is taken about, so the world origin relative to the world is
+        # a quantity; a position of the world relative to itself is not.
+        for name in (
+            "angmomWorldRtWorldEwrtWorld",
+            "computeCmomWorldRtWorldEwrtWorld",
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(frame_naming.grammar_problems(name), [])
+        self.assertIn(
+            "both `world`",
+            " ".join(frame_naming.grammar_problems("posWorldRtWorldEwrtWorld")),
+        )
+
+    def test_the_model_dependent_anchor_frame_is_gone(self):
+        self.assertIn(
+            "frame1 `anchor`",
+            " ".join(
+                frame_naming.grammar_problems("linvelAnchorRtWorldEwrtWorld")
+            ),
+        )
 
     def test_the_form_of_each_quantity(self):
         cases = {
@@ -110,9 +177,14 @@ class GrammarTest(unittest.TestCase):
             "pos_base_rt_base_ewrt_world": "both `base`",
             "pos_base_rt_world_ewrt_world_w": "not a suffix",
             "quat_base_rt_world_x": "not a suffix",
+            "pos_base_rt_world_ewrt_world_zz": "not a suffix",
+            "rotmat_base_rt_world_zz": "not a suffix",
             "desired_pos_base_rt_world_ewrt_world": "as `des`",
             "des_ref_pos_base_rt_world_ewrt_world": "out of order",
+            "lnorm_cmd_linvel_base_rt_world_ewrt_heading_x": "out of order",
             "pos_a_rt_world_ewrt_world_minus_pos_b_rt_world": "one quantity",
+            "vector_ewrt_world": "`vector` is not a quantity",
+            "vectorEwrtLocal": "`vector` is not a quantity",
         }
         for name, message in cases.items():
             with self.subTest(name=name):
@@ -141,6 +213,14 @@ class GrammarTest(unittest.TestCase):
         ):
             with self.subTest(name=name):
                 self.assertEqual(frame_naming.split_words(name), words)
+
+    def test_a_digit_run_is_a_word(self):
+        for name in ("yawTorque0", "yaw_torque0", "kYawTorque0"):
+            with self.subTest(name=name):
+                self.assertEqual(
+                    frame_naming.split_words(name), ["yaw", "torque", "0"]
+                )
+        self.assertTrue(frame_naming.is_legacy("yawTorque0"))
 
 
 class LegacyTest(unittest.TestCase):
@@ -208,7 +288,13 @@ class LegacyTest(unittest.TestCase):
             "// basePosition in a comment\n"
             'const char kName[] = "base_position";\n'
             "vector3_t posBaseRtWorldEwrtWorld;\n"
+            "TEST(Suite, theVelocityIsTheDerivativeOfThePosition) {}\n"
+            "TEST_F(Fixture,\n       aWrenchTest) {}\n"
         )
+        self.assertEqual(_names(source), [])
+
+    def test_a_random_walk_intensity_is_a_noise_knob(self):
+        source = "double baseVelocityRandomWalk;\n" "double basePositionWalk;\n"
         self.assertEqual(_names(source), [])
 
     def test_python_imports_modules_and_tests_are_not_flagged(self):
@@ -222,6 +308,108 @@ class LegacyTest(unittest.TestCase):
             "s = 'base_position'  # base_position\n"
         )
         self.assertEqual(_names(source, _PY), [])
+
+    def test_a_sensor_is_not_a_force(self):
+        self.assertEqual(
+            _names(
+                "bool isFootForceSensor(int id);\nint rightFootForceSensor_ = -1;\n"
+            ),
+            [],
+        )
+
+    def test_python_enumerators_and_class_constants_are_not_read(self):
+        source = (
+            "import enum\n"
+            "class ControlMode(enum.Enum):\n"
+            "    ZERO_TORQUE = 'ZERO_TORQUE'\n"
+            "\n"
+            "    def describe(self):\n"
+            "        base_position = 1\n"
+            "        return base_position\n"
+            "\n"
+            "BASE_POSITION = 2\n"
+            "mode = ControlMode.ZERO_TORQUE.value\n"
+        )
+        # The enumerator and its access are a mode's name; a local in its method and a module constant are values.
+        self.assertEqual(
+            _names(source, _PY),
+            ["base_position", "base_position", "BASE_POSITION"],
+        )
+
+    def test_gtest_names_across_lines_are_not_read(self):
+        source = (
+            "TEST(\n    Suite,\n    thePositionIsTheIntegralOfTheVelocity) {}\n"
+            "TEST(Suite,  // a comment between the arguments\n"
+            "     theWrenchBalancesTheForce) {}\n"
+            "TEST_P(Fixture,\n       /* a block comment */ theTorqueIsSmall) {}\n"
+            "TYPED_TEST(TypedFixture,\n           theRotationIsUnit) {}\n"
+        )
+        self.assertEqual(_names(source), [])
+
+    def test_a_todo_marker_is_flagged(self):
+        for path, source in (
+            (_CPP, "int x = 1;  // TODO(frame-naming): decide the frame\n"),
+            (_PY, "x = 1  # TODO(frame-naming): decide the frame\n"),
+            (_PROTO, "message A {\n  // TODO(frame-naming): rename\n}\n"),
+        ):
+            with self.subTest(path=path):
+                found = check_test_support.findings(
+                    frame_naming.NAME, source, path
+                )
+                self.assertEqual(len(found), 1)
+                self.assertIn("TODO(frame-naming)", found[0].message)
+        self.assertEqual(
+            check_test_support.findings(
+                frame_naming.NAME,
+                "// TODO(frame-naming)\n",
+                "tools/hooks/a.cpp",
+            ),
+            [],
+        )
+
+    def test_a_vector_named_only_by_its_point_is_flagged(self):
+        source = (
+            "const vector3_t center = a;\n"
+            "std::vector<Eigen::Vector3d> centers;\n"
+            "const vector2_t& stanceFoot = b;\n"
+            "VECTOR3_T<SCALAR_T> com(x);\n"
+            "feet_array_t<vector2_t> feet;\n"
+            "void f(const Eigen::Vector3d& center);\n"
+            "const vector2_t measuredCenter = c;\n"
+        )
+        self.assertEqual(
+            _names(source),
+            [
+                "center",
+                "centers",
+                "stanceFoot",
+                "com",
+                "feet",
+                "center",
+                "measuredCenter",
+            ],
+        )
+        clean = (
+            "vector3_t normal;\n"
+            "vector3_t posBaseRtWorldEwrtWorld;\n"
+            "int com = 1;\n"
+            "const ContactCenterPoint& center = polygon.getContactCenterPoint();\n"
+            "const vector2_t footAxes = d;\n"
+            "const vector6_t base = e;\n"
+            "x = center.y();\n"
+        )
+        self.assertEqual(_names(clean), [])
+        self.assertEqual(
+            _names("message A {\n  repeated Vector3 centers = 1;\n}\n", _PROTO),
+            ["centers"],
+        )
+
+    def test_a_declared_rotation_is_flagged_but_a_member_rotation_is_not(self):
+        source = (
+            "const matrix3_t rotation = transform.rotation();\n"
+            "matrix3_t r = data->oMf[id].rotation();\n"
+        )
+        self.assertEqual(_names(source), ["rotation"])
 
     def test_one_finding_per_name_and_line(self):
         self.assertEqual(
@@ -396,10 +584,10 @@ class ScopeTest(unittest.TestCase):
         )
 
 
-class OptInTest(unittest.TestCase):
-    def test_make_lint_leaves_it_out_and_only_runs_it(self):
+class DefaultRunTest(unittest.TestCase):
+    def test_make_lint_runs_it_and_only_runs_it_alone(self):
         selected, _ = lint_code._parse_only(None)
-        self.assertNotIn(frame_naming.NAME, selected)
+        self.assertIn(frame_naming.NAME, selected)
         selected, steps = lint_code._parse_only(frame_naming.NAME)
         self.assertEqual(selected, frozenset({frame_naming.NAME}))
         self.assertEqual(steps, frozenset({"token-checks"}))

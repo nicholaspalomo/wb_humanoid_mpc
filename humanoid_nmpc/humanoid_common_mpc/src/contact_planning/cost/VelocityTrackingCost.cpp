@@ -29,16 +29,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/cost/VelocityTrackingCost.h"
 
-#include <algorithm>
-#include <cmath>
 #include <string>
 
 #include "ocs2_core/Dimensions.h"
 
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/StageAccumulator.h"
+
 namespace ocs2::humanoid {
 
 std::string VelocityTrackingCost::describe() const {
-  return weightLine("w ||v_k - v_cmd||^2 at every node");
+  return weightLine(
+      "w ||v_k - v_cmd,k||^2 at every node, v_cmd,k = R_z(omega_cmd k dt) "
+      "v_cmd");
 }
 
 void VelocityTrackingCost::configure(const ContactPlanningConfig& config) {
@@ -46,11 +51,16 @@ void VelocityTrackingCost::configure(const ContactPlanningConfig& config) {
 }
 
 void VelocityTrackingCost::addToStage(const ContactPlanningContext& ctx,
-                                      int /*node*/,
+                                      int node,
                                       StageAccumulator& stage) const {
+  // The reference turns with the commanded heading over the horizon, as the
+  // operator's target and heading_tracking do.
+  const vector2_t cmdLinvelBaseRtWorldEwrtWorldXy =
+      ctx.getCmdLinvelBaseRtWorldEwrtWorldXy(node);
   for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
-    stage.addQuadraticResidual({{idx_.vel[axis], 1.0}}, /*uCoefficients=*/{},
-                               -ctx.input->velocityCommand(axis), weight_);
+    stage.addQuadraticResidual({{idx_.linvelComRtWorldEwrtWorld[axis], 1.0}},
+                               /*uCoefficients=*/{},
+                               -cmdLinvelBaseRtWorldEwrtWorldXy(axis), weight_);
   }
 }
 

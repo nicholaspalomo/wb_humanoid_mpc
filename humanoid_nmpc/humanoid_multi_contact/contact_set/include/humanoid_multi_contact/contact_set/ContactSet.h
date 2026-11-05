@@ -57,13 +57,14 @@ enum class ContactKind {
   kSurface,  // a wrench of a rectangular pad, in its contact wrench cone
 };
 
-/** [m] The pad of a surface candidate in its pad frame, with xMin < xMax and
- * yMin < yMax. */
+/** [m] The pad of a surface candidate in its pad frame, with
+ * minPosCornersRtPadEwrtPadX < maxPosCornersRtPadEwrtPadX and
+ * minPosCornersRtPadEwrtPadY < maxPosCornersRtPadEwrtPadY. */
 struct ContactRectangle {
-  double xMin = 0.0;
-  double xMax = 0.0;
-  double yMin = 0.0;
-  double yMax = 0.0;
+  double minPosCornersRtPadEwrtPadX = 0.0;
+  double maxPosCornersRtPadEwrtPadX = 0.0;
+  double minPosCornersRtPadEwrtPadY = 0.0;
+  double maxPosCornersRtPadEwrtPadY = 0.0;
 };
 
 /** One validated candidate. Passive data. */
@@ -72,12 +73,12 @@ struct ContactCandidate {
   ContactKind kind = ContactKind::kPoint;
   std::string parentJoint;
   // [m] The pad's center in the parent joint's frame.
-  Eigen::Vector3d offset = Eigen::Vector3d::Zero();
+  Eigen::Vector3d posPadRtLinkEwrtLink = Eigen::Vector3d::Zero();
   // The outward unit normal of the pad in the parent joint's frame.
-  Eigen::Vector3d padNormal = -Eigen::Vector3d::UnitZ();
-  // parent_R_pad: z = -padNormal (the terrain normal when the pad rests on a
-  // surface), x = the pad's x axis, y = z x x.
-  Eigen::Matrix3d padRotation = Eigen::Matrix3d::Identity();
+  Eigen::Vector3d normalPadEwrtLink = -Eigen::Vector3d::UnitZ();
+  // parent_R_pad: z = -normalPadEwrtLink (the terrain normal when the pad rests
+  // on a surface), x = the pad's x axis, y = z x x.
+  Eigen::Matrix3d rotmatPadRtLink = Eigen::Matrix3d::Identity();
   // [m] The radius of the collision geometry the pad sits on; 0 when flat.
   double geomRadius = 0.0;
   // Set exactly for a surface candidate.

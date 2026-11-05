@@ -44,9 +44,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigValueChecks.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 #include "humanoid_common_mpc/reference_manager/BreakFrequencyAlphaFilter.h"
@@ -107,12 +107,12 @@ constexpr absl::string_view kHotReferenceFileFields[] = {
     "ref_rate_yaw_base_rt_world",
     "cmd_max_linvel_base_rt_world_ewrt_heading_x",
     "cmd_max_linvel_base_rt_world_ewrt_heading_y",
-    "cmd_max_err_pos_base_rt_world_ewrt_world_z",
+    "cmd_max_err_pos_base_rt_surface_ewrt_world_z",
     "cmd_max_angvel_base_rt_world_ewrt_world_z",
     "cmd_max_linacc_base_rt_world_ewrt_heading_xy",
     "cmd_max_angacc_base_rt_world_ewrt_world_z",
     "velocity_command_filter_break_frequency",
-    "nom_pos_base_rt_world_ewrt_world_z",
+    "nom_pos_base_rt_surface_ewrt_world_z",
 };
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/command/TargetTrajectoriesCalculatorBase.cpp:apply_command_limits, //humanoid_nmpc/humanoid_common_mpc/src/reference_manager/ProceduralMpcMotionManager.cpp:apply_command_limits, //humanoid_nmpc/humanoid_mpc_config/reference_file.proto)
@@ -141,9 +141,9 @@ absl::StatusOr<ReferenceSettings> referenceSettingsFromConfig(
                    required("cmd_max_linvel_base_rt_world_ewrt_heading_y",
                             file.cmd_max_linvel_base_rt_world_ewrt_heading_y,
                             Range::kPositive));
-  ASSIGN_OR_RETURN(settings.cmdMaxErrPosBaseRtWorldEwrtWorldZ,
-                   required("cmd_max_err_pos_base_rt_world_ewrt_world_z",
-                            file.cmd_max_err_pos_base_rt_world_ewrt_world_z,
+  ASSIGN_OR_RETURN(settings.cmdMaxErrPosBaseRtSurfaceEwrtWorldZ,
+                   required("cmd_max_err_pos_base_rt_surface_ewrt_world_z",
+                            file.cmd_max_err_pos_base_rt_surface_ewrt_world_z,
                             Range::kNonNegative));
   ASSIGN_OR_RETURN(settings.cmdMaxAngvelBaseRtWorldEwrtWorldZ,
                    required("cmd_max_angvel_base_rt_world_ewrt_world_z",
@@ -176,9 +176,9 @@ absl::StatusOr<ReferenceSettings> referenceSettingsFromConfig(
                 Range::kPositive));
   }
   ASSIGN_OR_RETURN(
-      settings.nomPosBaseRtWorldEwrtWorldZ,
-      required("nom_pos_base_rt_world_ewrt_world_z",
-               file.nom_pos_base_rt_world_ewrt_world_z, Range::kPositive));
+      settings.nomPosBaseRtSurfaceEwrtWorldZ,
+      required("nom_pos_base_rt_surface_ewrt_world_z",
+               file.nom_pos_base_rt_surface_ewrt_world_z, Range::kPositive));
   return settings;
 }
 
@@ -225,20 +225,23 @@ absl::StatusOr<vector_t> defaultJointStateFromConfig(
   }
 
   std::vector<std::string> problems;
-  if (!missing.empty())
+  if (!missing.empty()) {
     problems.push_back(
         absl::StrCat("misses the MPC joints ", absl::StrJoin(missing, ", ")));
-  if (!twice.empty())
+  }
+  if (!twice.empty()) {
     problems.push_back(
         absl::StrCat("names more than once ", absl::StrJoin(twice, ", ")));
+  }
   if (!fixedNamed.empty()) {
     problems.push_back(absl::StrCat("names the joints ",
                                     absl::StrJoin(fixedNamed, ", "),
                                     ", which the task file fixes"));
   }
-  if (!unknown.empty())
+  if (!unknown.empty()) {
     problems.push_back(absl::StrCat("names ", absl::StrJoin(unknown, ", "),
                                     ", which the MPC model does not have"));
+  }
   if (!problems.empty()) {
     return absl::InvalidArgumentError(
         absl::StrCat("default_joint_state ", absl::StrJoin(problems, "; "),

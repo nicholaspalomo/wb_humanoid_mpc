@@ -37,9 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <numbers>
 #include <random>
 #include <string>
 #include <utility>
@@ -52,6 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/CppAdInterface.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
@@ -64,11 +67,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/joint/fwd.hpp"
 #include "pinocchio/parsers/urdf.hpp"
+#include "urdf_model/joint.h"
 #include "urdf_parser/urdf_parser.h"
+#include "urdf_world/types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -752,7 +759,7 @@ std::vector<Attitude> testAttitudes() {
                  .coefficients = coefficients.normalized()});
   }
   for (const scalar_t pitchDegrees : {89.9, 90.0, 90.1, -90.0}) {
-    const scalar_t pitch = pitchDegrees * M_PI / 180.0;
+    const scalar_t pitch = pitchDegrees * std::numbers::pi / 180.0;
     attitudes.push_back(Attitude{
         .label = absl::StrCat("pitch ", pitchDegrees, " deg"),
         .coefficients =
@@ -1033,8 +1040,9 @@ TEST(QuaternionRootJointModel, RootVelocityIsWorldLinearAndBodyAngular) {
     q.segment<4>(kQuaternionStart) = attitude.coefficients;
     const vector_t v = uniformVector(model.nv, /*halfWidth=*/1.0, generator);
     pinocchio::forwardKinematics(model, data, q, v);
-    const matrix3_t rotation = data.oMi[kRootJoint].rotation();
-    EXPECT_LE((data.v[kRootJoint].linear() - rotation.transpose() * v.head<3>())
+    const matrix3_t rotmatBaseRtWorld = data.oMi[kRootJoint].rotation();
+    EXPECT_LE((data.v[kRootJoint].linear() -
+               rotmatBaseRtWorld.transpose() * v.head<3>())
                   .norm(),
               1.0e-12)
         << attitude.label;
@@ -1382,25 +1390,26 @@ enum class ProbeOutput {
  * generated with its Jacobian. */
 std::unique_ptr<CppAdInterface> generateNormalization(NormGuard guard,
                                                       ProbeOutput output) {
-  const CppAdInterface::ad_function_t taped =
-      [guard, output](const ad_vector_t& x, ad_vector_t& y) {
-        const ad_vector4_t normalized =
-            safelyNormalizedQuaternion(ad_vector4_t(x.head<4>()), guard);
-        const ad_matrix3_t rotation =
-            ad_quaternion_t(normalized).toRotationMatrix();
-        ad_vector_t entries(13);
-        entries << normalized,
-            Eigen::Map<const ad_vector_t>(rotation.data(), /*size=*/9);
-        if (output == ProbeOutput::kWide) {
-          y = entries;
-          return;
-        }
-        y.resize(1);
-        y(0) = ad_scalar_t(0.0);
-        for (Eigen::Index i = 0; i < entries.size(); ++i)
-          y(0) +=
-              ad_scalar_t(1.0 + 0.1 * static_cast<scalar_t>(i)) * entries(i);
-      };
+  const CppAdInterface::ad_function_t taped = [guard, output](
+                                                  const ad_vector_t& x,
+                                                  ad_vector_t& y) {
+    const ad_vector4_t normalized =
+        safelyNormalizedQuaternion(ad_vector4_t(x.head<4>()), guard);
+    const ad_matrix3_t rotmatLocalRtWorld =
+        ad_quaternion_t(normalized).toRotationMatrix();
+    ad_vector_t entries(13);
+    entries << normalized,
+        Eigen::Map<const ad_vector_t>(rotmatLocalRtWorld.data(), /*size=*/9);
+    if (output == ProbeOutput::kWide) {
+      y = entries;
+      return;
+    }
+    y.resize(1);
+    y(0) = ad_scalar_t(0.0);
+    for (Eigen::Index i = 0; i < entries.size(); ++i) {
+      y(0) += ad_scalar_t(1.0 + 0.1 * static_cast<scalar_t>(i)) * entries(i);
+    }
+  };
   const PinocchioFunction function{
       .name = absl::StrCat("normalization_", guardName(guard),
                            output == ProbeOutput::kWide ? "_wide" : "_scalar"),
@@ -1426,9 +1435,10 @@ TEST(QuaternionRootJointCppAd,
       const vector4_t xiHat = xi / norm;
       const vector_t value = library->getFunctionValue(xi);
       EXPECT_LE((value.head<4>() - xiHat).norm(), 1.0e-12) << guardName(guard);
-      const matrix3_t rotation = quaternion_t(xiHat).toRotationMatrix();
-      EXPECT_LE((value.tail<9>() -
-                 Eigen::Map<const vector_t>(rotation.data(), /*size=*/9))
+      const matrix3_t rotmatLocalRtWorld =
+          quaternion_t(xiHat).toRotationMatrix();
+      EXPECT_LE((value.tail<9>() - Eigen::Map<const vector_t>(
+                                       rotmatLocalRtWorld.data(), /*size=*/9))
                     .norm(),
                 1.0e-12)
           << guardName(guard);

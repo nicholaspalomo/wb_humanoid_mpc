@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_centroidal_mpc/multi_contact/PlanClock.h"
 

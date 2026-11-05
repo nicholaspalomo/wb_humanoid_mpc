@@ -102,7 +102,9 @@ class TestReadKey(unittest.TestCase):
 class TestKeyboardCommand(unittest.TestCase):
     def test_each_key_commands_its_axis(self):
         state = keyboard_walking_command_publisher.KeyboardCommand(
-            max_vel_x=1.0, max_vel_y=0.5, max_vel_yaw=0.8
+            cmd_max_lnorm_linvel_base_rt_world_ewrt_heading_x=1.0,
+            cmd_max_lnorm_linvel_base_rt_world_ewrt_heading_y=0.5,
+            cmd_max_lnorm_angvel_base_rt_world_ewrt_world_z=0.8,
         )
         for key, expected in (
             (keyboard_walking_command_publisher.KEY_UP, (1.0, 0.0, 0.0)),
@@ -116,9 +118,9 @@ class TestKeyboardCommand(unittest.TestCase):
                 command = state.apply(key)
                 self.assertEqual(
                     (
-                        command.cmd_linvel_base_rt_world_ewrt_heading_x,
-                        command.cmd_linvel_base_rt_world_ewrt_heading_y,
-                        command.cmd_angvel_base_rt_world_ewrt_world_z,
+                        command.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x,
+                        command.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y,
+                        command.cmd_lnorm_angvel_base_rt_world_ewrt_world_z,
                     ),
                     expected,
                 )
@@ -131,46 +133,51 @@ class TestKeyboardCommand(unittest.TestCase):
                 state.apply(keyboard_walking_command_publisher.KEY_UP)
                 command = state.apply(key)
                 self.assertEqual(
-                    command.cmd_linvel_base_rt_world_ewrt_heading_x, 0.0
+                    command.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x, 0.0
                 )
                 self.assertEqual(
-                    command.cmd_angvel_base_rt_world_ewrt_world_z, 0.0
+                    command.cmd_lnorm_angvel_base_rt_world_ewrt_world_z, 0.0
                 )
 
     def test_the_height_moves_one_step_per_tick_held_and_stays_when_released(
         self,
     ):
         state = keyboard_walking_command_publisher.KeyboardCommand(
-            pelvis_height=0.8, pelvis_height_step=0.01
+            cmd_pos_base_rt_surface_ewrt_world_z=0.8,
+            cmd_step_pos_base_rt_surface_ewrt_world_z=0.01,
         )
         self.assertAlmostEqual(
-            state.apply("w").cmd_pos_base_rt_world_ewrt_world_z, 0.81
+            state.apply("w").cmd_pos_base_rt_surface_ewrt_world_z, 0.81
         )
         self.assertAlmostEqual(
-            state.apply("w").cmd_pos_base_rt_world_ewrt_world_z, 0.82
+            state.apply("w").cmd_pos_base_rt_surface_ewrt_world_z, 0.82
         )
         # Released: it stays where it was raised to, and stops rising.
         self.assertAlmostEqual(
-            state.apply(None).cmd_pos_base_rt_world_ewrt_world_z, 0.82
+            state.apply(None).cmd_pos_base_rt_surface_ewrt_world_z, 0.82
         )
         self.assertAlmostEqual(
-            state.apply(None).cmd_pos_base_rt_world_ewrt_world_z, 0.82
+            state.apply(None).cmd_pos_base_rt_surface_ewrt_world_z, 0.82
         )
         self.assertAlmostEqual(
-            state.apply("s").cmd_pos_base_rt_world_ewrt_world_z, 0.81
+            state.apply("s").cmd_pos_base_rt_surface_ewrt_world_z, 0.81
         )
 
     def test_the_height_stays_in_its_range(self):
         state = keyboard_walking_command_publisher.KeyboardCommand(
-            pelvis_height=0.99, max_pelvis_height=1.0
+            cmd_pos_base_rt_surface_ewrt_world_z=0.99,
+            cmd_max_pos_base_rt_surface_ewrt_world_z=1.0,
         )
         for _ in range(5):
             command = state.apply("w")
-        self.assertEqual(command.cmd_pos_base_rt_world_ewrt_world_z, 1.0)
+        self.assertEqual(command.cmd_pos_base_rt_surface_ewrt_world_z, 1.0)
         low = keyboard_walking_command_publisher.KeyboardCommand(
-            pelvis_height=0.0, min_pelvis_height=0.2
+            cmd_pos_base_rt_surface_ewrt_world_z=0.0,
+            cmd_min_pos_base_rt_surface_ewrt_world_z=0.2,
         )
-        self.assertEqual(low.command().cmd_pos_base_rt_world_ewrt_world_z, 0.2)
+        self.assertEqual(
+            low.command().cmd_pos_base_rt_surface_ewrt_world_z, 0.2
+        )
 
     def test_the_status_line_shows_the_command(self):
         state = keyboard_walking_command_publisher.KeyboardCommand()
@@ -208,9 +215,13 @@ class TestKeyboardWalkingCommandPublisher(unittest.TestCase):
         self.assertIsInstance(
             first, walking_velocity_command_pb2.WalkingVelocityCommand
         )
-        self.assertEqual(first.cmd_linvel_base_rt_world_ewrt_heading_x, 1.0)
+        self.assertEqual(
+            first.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x, 1.0
+        )
         # No key on the second tick: the robot stops.
-        self.assertEqual(second.cmd_linvel_base_rt_world_ewrt_heading_x, 0.0)
+        self.assertEqual(
+            second.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x, 0.0
+        )
 
     def test_a_key_discards_its_auto_repeat_backlog(self):
         node = self._node(["a"])

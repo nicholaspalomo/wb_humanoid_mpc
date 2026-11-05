@@ -203,16 +203,18 @@ TEST(ContactInvariantTerms, TheContactInvariantCostIsCOfTheResidual) {
 
 TEST(ContactInvariantTerms, TheForceGateMatchesFiniteDifferences) {
   checkCost(ContactForceGateCost(
-      ballLayout(),
-      ForceGateWeights{
-          .k0 = 3.0, .k1 = 0.05, .forceScale = 9.81, .momentArm = 0.1}));
+      ballLayout(), ForceGateWeights{.k0 = 3.0,
+                                     .k1 = 0.05,
+                                     .scaleForceContactEwrtWorld = 9.81,
+                                     .leverArm = 0.1}));
 }
 
 TEST(ContactInvariantTerms, TheForceGateIsTheScaledForceOverTheGate) {
   const ContactForceGateCost cost(
-      ballLayout(),
-      ForceGateWeights{
-          .k0 = 2.0, .k1 = 0.5, .forceScale = 2.0, .momentArm = 1.0});
+      ballLayout(), ForceGateWeights{.k0 = 2.0,
+                                     .k1 = 0.5,
+                                     .scaleForceContactEwrtWorld = 2.0,
+                                     .leverArm = 1.0});
   const PreComputation pre;
   const vector_t x = ballState(/*height=*/0.35, /*activation=*/0.5);
   const vector_t u = ballInput();
@@ -272,7 +274,7 @@ TEST(ContactInvariantTerms, TheFeaturesJacobianMatchesFiniteDifferences) {
               0.1, 1.0e-9);
   EXPECT_NEAR(approximation.f(featureRow(/*candidate=*/0, kSlipFeature) + 2),
               0.0, 1.0e-12);
-  EXPECT_NEAR(approximation.f(momentumRateRow(1) + 2), 8.0 - 9.81, 1.0e-9);
+  EXPECT_NEAR(approximation.f(momentumRateRowIndex(1) + 2), 8.0 - 9.81, 1.0e-9);
 }
 
 TEST(ContactInvariantTerms, TheFeatureConstraintIsItsRows) {

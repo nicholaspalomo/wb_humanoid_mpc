@@ -73,7 +73,9 @@ class Origin:
     """A pose relative to the link frame: translation [m] and unit quaternion (x, y, z, w)."""
 
     translation: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    # NOLINTBEGIN(frame-naming): a component of a frame-generic URDF <origin>; its user names the frames
     quaternion_xyzw: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
+    # NOLINTEND(frame-naming)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -121,14 +123,14 @@ class Visual:
     Attributes:
         link: the link's name.
         index: the visual's position among the link's <visual> elements that the bridge draws.
-        origin: of the geometry in the link frame.
+        pose_geom_rt_link: the visual's <origin>, the pose of its geometry frame in the link frame.
         geometry: what is drawn.
         color: the material color, RGBA in [0, 1]; None when the URDF gives none.
     """
 
     link: str
     index: int
-    origin: Origin
+    pose_geom_rt_link: Origin
     geometry: Geometry
     color: palette.Rgba | None
 
@@ -414,6 +416,7 @@ class _Parser:
             return Origin()
         xyz = self.floats(origin, "xyz", 3, where) or (0.0, 0.0, 0.0)
         rpy = self.floats(origin, "rpy", 3, where) or (0.0, 0.0, 0.0)
+        # NOLINTNEXTLINE(frame-naming): a component of a frame-generic URDF <origin>; its user names the frames
         return Origin(translation=xyz, quaternion_xyzw=quaternion_from_rpy(*rpy))  # type: ignore[arg-type]  # floats() returned three.
 
     def mesh(self, mesh: ElementTree.Element, where: str) -> Mesh | None:
@@ -462,8 +465,8 @@ class _Parser:
     def visuals(self, link: ElementTree.Element, name: str) -> list[Visual]:
         """The drawn <visual> elements of the link `name`, indexed among the drawn ones."""
         visuals: list[Visual] = []
-        for position, visual in enumerate(link.findall("visual")):
-            where = f"link '{name}', visual {position}"
+        for index, visual in enumerate(link.findall("visual")):
+            where = f"link '{name}', visual {index}"
             geometry_element = visual.find("geometry")
             if geometry_element is None:
                 raise self.error(where, "<visual> has no <geometry>")
@@ -474,7 +477,7 @@ class _Parser:
                 Visual(
                     link=name,
                     index=len(visuals),
-                    origin=self.origin(visual, where),
+                    pose_geom_rt_link=self.origin(visual, where),
                     geometry=geometry,
                     color=self.color(visual.find("material"), where),
                 )

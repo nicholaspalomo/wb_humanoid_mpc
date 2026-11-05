@@ -75,8 +75,8 @@ namespace {
 
 // The barriers by default: the torque rows in fractions of the effort limit,
 // the sphere and polygon rows in meters.
-constexpr double kTorqueBarrierMu = 0.05;
-constexpr double kTorqueBarrierDelta = 0.02;
+constexpr double kJointTorqueBarrierMu = 0.05;
+constexpr double kJointTorqueBarrierDelta = 0.02;
 constexpr double kClearanceBarrierMu = 0.1;
 constexpr double kClearanceBarrierDelta = 5.0e-4;
 constexpr double kPolygonBarrierMu = 0.05;
@@ -89,7 +89,7 @@ constexpr double kTimeTolerance = 1.0e-9;
 constexpr int kNamedFailures = 3;
 
 // The names of the terms solve 3 adds to the MPC's problem.
-constexpr char kQuasiStaticTorqueTerm[] = "quasiStaticTorque";
+constexpr char kQuasiStaticTorqueTermName[] = "quasiStaticTorque";
 constexpr char kTerrainClearanceTerm[] = "terrainClearance";
 constexpr char kSupportPolygonTerm[] = "supportPolygon";
 constexpr char kLiftOffUnloadingTerm[] = "liftOffUnloading";
@@ -136,7 +136,7 @@ absl::StatusOr<std::unique_ptr<LandingAlignmentCost>> landingAlignmentOf(
         RobotFeatureCandidate{.frameName = candidate.name,
                               .mpcContactIndex = i,
                               .kind = candidate.kind,
-                              .padRotation = candidate.padRotation,
+                              .rotmatPadRtLink = candidate.rotmatPadRtLink,
                               .geomRadius = candidate.geomRadius});
     names.push_back(candidate.name);
   }
@@ -145,7 +145,7 @@ absl::StatusOr<std::unique_ptr<LandingAlignmentCost>> landingAlignmentOf(
   const RobotFeatureSettings featureSettings{
       .friction = kLandingFeatureFriction,
       .coneSmoothing = kLandingFeatureSmoothing,
-      .maxPointTilt = 0.0};
+      .pointMaxTiltanglePadRtSurface = 0.0};
   ASSIGN_OR_RETURN(
       std::unique_ptr<ContactFeatureFunction> features,
       robotContactFeatures(
@@ -181,7 +181,7 @@ std::vector<UnloadingWindow> unloadingWindowsOf(
       if (isContactActive(trajectory.masks[k - 1], candidates[i]) &&
           !isContactActive(trajectory.masks[k], candidates[i])) {
         windows.push_back(UnloadingWindow{
-            .forceOffset =
+            .wrenchStartIndex =
                 static_cast<int>(model.getContactWrenchStartIndices(i)),
             .wrenchDim = static_cast<int>(model.getContactInputDim(i)),
             .startTime = trajectory.times[k] - window,
@@ -196,9 +196,10 @@ std::vector<UnloadingWindow> unloadingWindowsOf(
 RobotConfiguration configurationOf(const MpcRobotModelBase<scalar_t>& model,
                                    const vector_t& state) {
   RobotConfiguration configuration;
-  configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
-  configuration.baseOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(state);
-  configuration.baseOrientation.normalize();
+  configuration.posBaseRtWorldEwrtWorld =
+      model.getPosBaseRtWorldEwrtWorld(state);
+  configuration.quatBaseRtWorld.coeffs() = model.getQuatBaseRtWorldXyzw(state);
+  configuration.quatBaseRtWorld.normalize();
   configuration.jointNames = model.modelSettings.mpcModelJointNames;
   configuration.jointPositions = model.getJointAngles(state);
   return configuration;
@@ -246,7 +247,7 @@ std::vector<JointEffortLimit> constrainedEffortLimits(
 }
 
 RefinementOptions::RefinementOptions()
-    : torqueBarrier(kTorqueBarrierMu, kTorqueBarrierDelta),
+    : jointTorqueBarrier(kJointTorqueBarrierMu, kJointTorqueBarrierDelta),
       clearanceBarrier(kClearanceBarrierMu, kClearanceBarrierDelta),
       polygonBarrier(kPolygonBarrierMu, kPolygonBarrierDelta),
       wrenchConeBarrier(kWrenchConeBarrierMu, kWrenchConeBarrierDelta) {}
@@ -299,7 +300,7 @@ HardContactRefinement::Create(const LoadedScenario& loaded,
   if (!(options.dt > 0.0) || !(options.knotSpacing >= options.dt) ||
       options.sqpIterations < 1 || options.numThreads < 1 ||
       options.maxPolygonUpdates < 0 || !(options.staticMarginBuffer >= 0.0) ||
-      !(options.torqueMarginBuffer >= 0.0)) {
+      !(options.jointTorqueMarginBuffer >= 0.0)) {
     return absl::InvalidArgumentError(
         "solve 3: the time step, the iterations, the threads, the buffers and "
         "the polygon updates must be positive");
@@ -371,10 +372,14 @@ absl::StatusOr<RefinementResult> HardContactRefinement::solve(
       options_.wrenchConeBarrier.mu;
   config.task.contacts.contact_wrench_cone_soft_constraint.delta =
       options_.wrenchConeBarrier.delta;
-  config.task.contacts.contact_rectangle.x_min += options_.copMargin;
-  config.task.contacts.contact_rectangle.x_max -= options_.copMargin;
-  config.task.contacts.contact_rectangle.y_min += options_.copMargin;
-  config.task.contacts.contact_rectangle.y_max -= options_.copMargin;
+  config.task.contacts.contact_rectangle
+      .min_pos_corners_rt_contact_ewrt_contact_x += options_.copMargin;
+  config.task.contacts.contact_rectangle
+      .max_pos_corners_rt_contact_ewrt_contact_x -= options_.copMargin;
+  config.task.contacts.contact_rectangle
+      .min_pos_corners_rt_contact_ewrt_contact_y += options_.copMargin;
+  config.task.contacts.contact_rectangle
+      .max_pos_corners_rt_contact_ewrt_contact_y -= options_.copMargin;
   config.task.model_settings.foot_constraint.position_error_gain_z =
       options_.stanceNormalGain;
   config.task.multi_contact_plan.contact_swing.weight = options_.swingWeight;
@@ -403,21 +408,22 @@ absl::StatusOr<RefinementResult> HardContactRefinement::solve(
   std::vector<JointEffortLimit> effortLimits =
       constrainedEffortLimits(jointLimits, pinocchio.getModel(), settings);
   if (!effortLimits.empty()) {
-    const double torqueMargin =
-        loaded_.scenario.torque_margin - options_.torqueMarginBuffer;
+    const double jointTorqueMargin =
+        loaded_.scenario.joint_torque_margin - options_.jointTorqueMarginBuffer;
     problem.softConstraintPtr->add(
-        kQuasiStaticTorqueTerm,
+        kQuasiStaticTorqueTermName,
         std::make_unique<StateInputSoftConstraint>(
             std::make_unique<QuasiStaticTorqueConstraint>(
                 pinocchio, info, settings.contactNames, std::move(effortLimits),
-                torqueMargin,
+                jointTorqueMargin,
                 hashedLibraryName(
                     "cio_quasi_static_torque",
-                    absl::StrCat("margin ", torqueMargin, " contacts ",
+                    absl::StrCat("margin ", jointTorqueMargin, " contacts ",
                                  absl::StrJoin(settings.contactNames, " "))),
                 settings.modelFolderCppAd, settings.recompileLibrariesCppAd,
                 settings.verboseCppAd),
-            std::make_unique<RelaxedBarrierPenalty>(options_.torqueBarrier)));
+            std::make_unique<RelaxedBarrierPenalty>(
+                options_.jointTorqueBarrier)));
   }
   ASSIGN_OR_RETURN(std::vector<ClearanceSphere> spheres,
                    clearanceSpheresOf(collision_, *stanceModel_, pinocchio));

@@ -30,12 +30,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
+#include <numbers>
 #include <string>
 
 #include "gtest/gtest.h"
-#include "pinocchio/multibody/joint/joint-generic.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/joint/fwd.hpp"
+#include "pinocchio/multibody/joint/joint-generic.hpp"  // IWYU pragma: keep
+#include "pinocchio/multibody/model.hpp"                // IWYU pragma: keep
+#include "pinocchio/spatial/fwd.hpp"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
 
@@ -77,8 +84,10 @@ PinocchioInterface::Model makeLeg(
       kUniverse, hipYaw, pinocchio::SE3::Identity(), kHipYawJoint);
   const int idxQ = model.joints[hipYawIndex].idx_q();
   const int nq = model.joints[hipYawIndex].nq();
+  // NOLINTBEGIN(frame-naming): Pinocchio's joint limits (joint space)
   model.lowerPositionLimit.segment(idxQ, nq).setConstant(kLowerLimit);
   model.upperPositionLimit.segment(idxQ, nq).setConstant(kUpperLimit);
+  // NOLINTEND(frame-naming)
   const pinocchio::JointIndex hipRollIndex =
       model.addJoint(hipYawIndex, pinocchio::JointModelRX(),
                      pinocchio::SE3::Identity(), kHipRollJoint);
@@ -93,16 +102,16 @@ void expectFallback(const HipYawRange& range) {
   EXPECT_TRUE(range.joint.empty())
       << "found '" << range.joint
       << "' where the leg has no vertical revolute joint";
-  EXPECT_EQ(range.lower, fallback.lower);
-  EXPECT_EQ(range.upper, fallback.upper);
+  EXPECT_EQ(range.minYawFootRtBase, fallback.minYawFootRtBase);
+  EXPECT_EQ(range.maxYawFootRtBase, fallback.maxYawFootRtBase);
 }
 
 TEST(DeriveHipYawRange, AnAlignedUpwardHipYawContributesItsLimits) {
   const HipYawRange range =
       deriveHipYawRange(makeLeg(pinocchio::JointModelRZ()), kKneeJoint);
   EXPECT_EQ(range.joint, kHipYawJoint);
-  EXPECT_EQ(range.lower, kLowerLimit);
-  EXPECT_EQ(range.upper, kUpperLimit);
+  EXPECT_EQ(range.minYawFootRtBase, kLowerLimit);
+  EXPECT_EQ(range.maxYawFootRtBase, kUpperLimit);
 }
 
 TEST(DeriveHipYawRange, AnUnalignedUpwardHipYawIsFoundAndReadLikeAnAlignedOne) {
@@ -114,8 +123,8 @@ TEST(DeriveHipYawRange, AnUnalignedUpwardHipYawIsFoundAndReadLikeAnAlignedOne) {
   EXPECT_EQ(unaligned.joint, kHipYawJoint)
       << "the axis of an unaligned joint is data of the joint model and must "
          "be read from it";
-  EXPECT_EQ(unaligned.lower, aligned.lower);
-  EXPECT_EQ(unaligned.upper, aligned.upper);
+  EXPECT_EQ(unaligned.minYawFootRtBase, aligned.minYawFootRtBase);
+  EXPECT_EQ(unaligned.maxYawFootRtBase, aligned.maxYawFootRtBase);
 }
 
 TEST(DeriveHipYawRange, AnUnalignedDownwardHipYawMirrorsItsLimits) {
@@ -126,8 +135,8 @@ TEST(DeriveHipYawRange, AnUnalignedDownwardHipYawMirrorsItsLimits) {
       makeLeg(pinocchio::JointModelRevoluteUnaligned(-vector3_t::UnitZ())),
       kKneeJoint);
   EXPECT_EQ(range.joint, kHipYawJoint);
-  EXPECT_EQ(range.lower, -kUpperLimit);
-  EXPECT_EQ(range.upper, -kLowerLimit);
+  EXPECT_EQ(range.minYawFootRtBase, -kUpperLimit);
+  EXPECT_EQ(range.maxYawFootRtBase, -kLowerLimit);
 }
 
 TEST(DeriveHipYawRange,
@@ -141,8 +150,10 @@ TEST(DeriveHipYawRange,
         makeLeg(pinocchio::JointModelRevoluteUnboundedUnaligned(axis)),
         kKneeJoint);
     EXPECT_EQ(range.joint, kHipYawJoint) << "axis " << axis.transpose();
-    EXPECT_EQ(range.lower, -M_PI) << "axis " << axis.transpose();
-    EXPECT_EQ(range.upper, M_PI) << "axis " << axis.transpose();
+    EXPECT_EQ(range.minYawFootRtBase, -std::numbers::pi)
+        << "axis " << axis.transpose();
+    EXPECT_EQ(range.maxYawFootRtBase, std::numbers::pi)
+        << "axis " << axis.transpose();
   }
 }
 
@@ -150,8 +161,8 @@ TEST(DeriveHipYawRange, AnUnboundedAlignedHipYawTurnsAllTheWayRound) {
   const HipYawRange range =
       deriveHipYawRange(makeLeg(pinocchio::JointModelRUBZ()), kKneeJoint);
   EXPECT_EQ(range.joint, kHipYawJoint);
-  EXPECT_EQ(range.lower, -M_PI);
-  EXPECT_EQ(range.upper, M_PI);
+  EXPECT_EQ(range.minYawFootRtBase, -std::numbers::pi);
+  EXPECT_EQ(range.maxYawFootRtBase, std::numbers::pi);
 }
 
 TEST(DeriveHipYawRange, AnUnalignedHorizontalJointIsNotAHipYaw) {
@@ -176,14 +187,17 @@ TEST(ContactPlanningModelParameters,
      TheDoubleSupportCoupleFollowsTheStepWidthOfTheConfigurationItIsAppliedTo) {
   // The couple of two stance feet is mu * (W / 2) * w for a separation w:
   // applyTo() takes w from the configuration, so that a reload that moves
-  // stepWidth.nominalStepWidth moves the couple as a fresh start with it would.
+  // stepWidth.nomPosLfootRtRfootEwrtHeadingY moves the couple as a fresh start
+  // with it would.
   ContactPlanningModelParameters parameters;
-  parameters.doubleSupportYawCouplePerStepWidth = 120.0;  // [N]
+  parameters.perStepWidthDoubleSupportMaxTorqueFeetmeanEwrtWorldZ =
+      120.0;  // [N]
   for (const scalar_t width : {0.18, 0.25, 0.4}) {
     ContactPlanningConfig config;
-    config.stepWidth.nominalStepWidth = width;
+    config.stepWidth.nomPosLfootRtRfootEwrtHeadingY = width;
     parameters.applyTo(config);
-    EXPECT_DOUBLE_EQ(config.yawTorqueBudget.doubleSupportYawCouple,
+    EXPECT_DOUBLE_EQ(config.yawTorqueBudgetParameters
+                         .doubleSupportMaxTorqueFeetmeanEwrtWorldZ,
                      120.0 * width)
         << width;
   }

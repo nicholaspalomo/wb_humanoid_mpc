@@ -36,15 +36,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_pinocchio_interface/urdf.h"
-#include "pinocchio/algorithm/center-of-mass.hpp"
-#include "pinocchio/algorithm/centroidal.hpp"
-#include "pinocchio/multibody/model.hpp"
-#include "pinocchio/parsers/urdf.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_common_mpc/contact/ContactPolygon.h"
-#include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 
 namespace ocs2::humanoid {

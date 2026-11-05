@@ -37,6 +37,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/mrt/ControlMode.h"
 
 namespace ocs2::humanoid {
+namespace {
+
+// [m] The height of the simulator's ground: MuJoCo's floor plane is the world's
+// z = 0, so a height above it is a world height.
+constexpr double kSimPosSurfaceRtWorldEwrtWorldZ = 0.0;
+
+}  // namespace
 
 SimFsmBridge::SimFsmBridge(
     const robot::model::RobotDescription& robotDescription,
@@ -68,8 +75,13 @@ bool SimFsmBridge::processCommands(std::string& currentModeName) {
     // No FSM command pending, but the gantry still follows the height slider
     // while it is locked - once the GUI has sent a height at all.
     if (simulator_->isGantryLocked()) {
-      const std::optional<double> height = commands.desiredGantryHeight();
-      if (height.has_value()) simulator_->setGantryHeight(*height);
+      const std::optional<double> desGantryPosBaseRtSurfaceEwrtWorldZ =
+          commands.desGantryPosBaseRtSurfaceEwrtWorldZ();
+      if (desGantryPosBaseRtSurfaceEwrtWorldZ.has_value()) {
+        simulator_->setGantryPosBaseRtWorldEwrtWorldZ(
+            *desGantryPosBaseRtSurfaceEwrtWorldZ +
+            kSimPosSurfaceRtWorldEwrtWorldZ);
+      }
     }
     return false;
   }

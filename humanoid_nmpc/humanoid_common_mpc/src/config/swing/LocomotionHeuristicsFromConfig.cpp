@@ -39,9 +39,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 #include "humanoid_mpc_config/locomotion_heuristics_config.nproto.h"
@@ -73,9 +73,10 @@ absl::StatusOr<Parameters> convertBlock(
   for (const Coefficient<Block, Parameters>& coefficient : coefficients) {
     const double value = block.*coefficient.field;
     if (!std::isfinite(value)) {
-      return absl::InvalidArgumentError(absl::StrCat(
-          "locomotion_heuristics.", heuristic, ".", coefficient.name, " is ",
-          value, ", but every parameter of the block must be finite."));
+      return absl::InvalidArgumentError(
+          absl::StrCat("locomotion_heuristics.", parameterBlockName(heuristic),
+                       ".", coefficient.name, " is ", value,
+                       ", but every parameter of the block must be finite."));
     }
     parameters.*coefficient.parameter = value;
   }
@@ -99,41 +100,52 @@ constexpr std::array<Coefficient<OrientationCompensationBlock,
                                  OrientationCompensationParameters>,
                      5>
     kOrientationCompensationCoefficients = {{
-        {.name = "roll_per_lateral_velocity",
-         .field = &OrientationCompensationBlock::roll_per_lateral_velocity,
+        {.name = "roll_per_lateral_velocity_gain",
+         .field = &OrientationCompensationBlock::roll_per_lateral_velocity_gain,
          .parameter =
-             &OrientationCompensationParameters::rollPerLateralVelocity},
-        {.name = "roll_offset",
-         .field = &OrientationCompensationBlock::roll_offset,
-         .parameter = &OrientationCompensationParameters::rollOffset},
-        {.name = "pitch_per_forward_velocity",
-         .field = &OrientationCompensationBlock::pitch_per_forward_velocity,
+             &OrientationCompensationParameters::rollPerLateralVelocityGain},
+        {.name = "offset_eulerzyx_base_rt_world_roll",
+         .field =
+             &OrientationCompensationBlock::offset_eulerzyx_base_rt_world_roll,
          .parameter =
-             &OrientationCompensationParameters::pitchPerForwardVelocity},
-        {.name = "pitch_offset",
-         .field = &OrientationCompensationBlock::pitch_offset,
-         .parameter = &OrientationCompensationParameters::pitchOffset},
-        {.name = "maximum_tilt",
-         .field = &OrientationCompensationBlock::maximum_tilt,
-         .parameter = &OrientationCompensationParameters::maximumTilt},
+             &OrientationCompensationParameters::offsetEulerzyxBaseRtWorldRoll},
+        {.name = "pitch_per_forward_velocity_gain",
+         .field =
+             &OrientationCompensationBlock::pitch_per_forward_velocity_gain,
+         .parameter =
+             &OrientationCompensationParameters::pitchPerForwardVelocityGain},
+        {.name = "offset_eulerzyx_base_rt_world_pitch",
+         .field =
+             &OrientationCompensationBlock::offset_eulerzyx_base_rt_world_pitch,
+         .parameter = &OrientationCompensationParameters::
+                          offsetEulerzyxBaseRtWorldPitch},
+        {.name = "max_offset_eulerzyx_base_rt_world",
+         .field =
+             &OrientationCompensationBlock::max_offset_eulerzyx_base_rt_world,
+         .parameter =
+             &OrientationCompensationParameters::maxOffsetEulerzyxBaseRtWorld},
     }};
 
 constexpr std::array<
     Coefficient<PeriodicOrientationBlock, PeriodicOrientationParameters>,
     6>
     kPeriodicOrientationCoefficients = {{
-        {.name = "roll_amplitude",
-         .field = &PeriodicOrientationBlock::roll_amplitude,
-         .parameter = &PeriodicOrientationParameters::rollAmplitude},
+        {.name = "amplitude_eulerzyx_base_rt_world_roll",
+         .field =
+             &PeriodicOrientationBlock::amplitude_eulerzyx_base_rt_world_roll,
+         .parameter =
+             &PeriodicOrientationParameters::amplitudeEulerzyxBaseRtWorldRoll},
         {.name = "roll_phase_rate",
          .field = &PeriodicOrientationBlock::roll_phase_rate,
          .parameter = &PeriodicOrientationParameters::rollPhaseRate},
         {.name = "roll_phase_offset",
          .field = &PeriodicOrientationBlock::roll_phase_offset,
          .parameter = &PeriodicOrientationParameters::rollPhaseOffset},
-        {.name = "pitch_amplitude",
-         .field = &PeriodicOrientationBlock::pitch_amplitude,
-         .parameter = &PeriodicOrientationParameters::pitchAmplitude},
+        {.name = "amplitude_eulerzyx_base_rt_world_pitch",
+         .field =
+             &PeriodicOrientationBlock::amplitude_eulerzyx_base_rt_world_pitch,
+         .parameter =
+             &PeriodicOrientationParameters::amplitudeEulerzyxBaseRtWorldPitch},
         {.name = "pitch_phase_rate",
          .field = &PeriodicOrientationBlock::pitch_phase_rate,
          .parameter = &PeriodicOrientationParameters::pitchPhaseRate},
@@ -142,22 +154,27 @@ constexpr std::array<
          .parameter = &PeriodicOrientationParameters::pitchPhaseOffset},
     }};
 
-constexpr std::
-    array<Coefficient<HeightCompensationBlock, HeightCompensationParameters>, 4>
-        kHeightCompensationCoefficients = {{
-            {.name = "height_per_speed_squared",
-             .field = &HeightCompensationBlock::height_per_speed_squared,
-             .parameter = &HeightCompensationParameters::heightPerSpeedSquared},
-            {.name = "height_per_speed",
-             .field = &HeightCompensationBlock::height_per_speed,
-             .parameter = &HeightCompensationParameters::heightPerSpeed},
-            {.name = "height_offset",
-             .field = &HeightCompensationBlock::height_offset,
-             .parameter = &HeightCompensationParameters::heightOffset},
-            {.name = "maximum_height_offset",
-             .field = &HeightCompensationBlock::maximum_height_offset,
-             .parameter = &HeightCompensationParameters::maximumHeightOffset},
-        }};
+constexpr std::array<
+    Coefficient<HeightCompensationBlock, HeightCompensationParameters>,
+    4>
+    kHeightCompensationCoefficients = {{
+        {.name = "height_per_speed_squared_gain",
+         .field = &HeightCompensationBlock::height_per_speed_squared_gain,
+         .parameter = &HeightCompensationParameters::heightPerSpeedSquaredGain},
+        {.name = "height_per_speed_gain",
+         .field = &HeightCompensationBlock::height_per_speed_gain,
+         .parameter = &HeightCompensationParameters::heightPerSpeedGain},
+        {.name = "offset_pos_base_rt_world_ewrt_world_z",
+         .field =
+             &HeightCompensationBlock::offset_pos_base_rt_world_ewrt_world_z,
+         .parameter =
+             &HeightCompensationParameters::offsetPosBaseRtWorldEwrtWorldZ},
+        {.name = "max_offset_pos_base_rt_world_ewrt_world_z",
+         .field = &HeightCompensationBlock::
+                      max_offset_pos_base_rt_world_ewrt_world_z,
+         .parameter =
+             &HeightCompensationParameters::maxOffsetPosBaseRtWorldEwrtWorldZ},
+    }};
 
 constexpr std::array<
     Coefficient<HipCenteredSteppingBlock, HipCenteredSteppingParameters>,
@@ -171,41 +188,49 @@ constexpr std::array<
          .parameter = &HipCenteredSteppingParameters::longitudinalScale},
     }};
 
-// com_height_override is optional (optionalPositive()).
+// override_pos_com_rt_feetmean_ewrt_world_z is optional (optionalPositive()).
 constexpr std::array<Coefficient<CapturePointBlock, CapturePointParameters>, 2>
     kCapturePointCoefficients = {{
         {.name = "gain",
          .field = &CapturePointBlock::gain,
          .parameter = &CapturePointParameters::gain},
-        {.name = "maximum_offset",
-         .field = &CapturePointBlock::maximum_offset,
-         .parameter = &CapturePointParameters::maximumOffset},
+        {.name = "max_norm_offset_pos_foot_rt_world_ewrt_world_xy",
+         .field = &CapturePointBlock::
+                      max_norm_offset_pos_foot_rt_world_ewrt_world_xy,
+         .parameter =
+             &CapturePointParameters::maxNormOffsetPosFootRtWorldEwrtWorldXy},
     }};
 
 constexpr std::array<
     Coefficient<TranslationalSteppingBlock, TranslationalSteppingParameters>,
     6>
     kTranslationalSteppingCoefficients = {{
-        {.name = "forward_per_forward_velocity",
-         .field = &TranslationalSteppingBlock::forward_per_forward_velocity,
+        {.name = "forward_per_forward_velocity_gain",
+         .field =
+             &TranslationalSteppingBlock::forward_per_forward_velocity_gain,
          .parameter =
-             &TranslationalSteppingParameters::forwardPerForwardVelocity},
+             &TranslationalSteppingParameters::forwardPerForwardVelocityGain},
         {.name = "forward_stance_fraction",
          .field = &TranslationalSteppingBlock::forward_stance_fraction,
          .parameter = &TranslationalSteppingParameters::forwardStanceFraction},
-        {.name = "forward_offset",
-         .field = &TranslationalSteppingBlock::forward_offset,
-         .parameter = &TranslationalSteppingParameters::forwardOffset},
-        {.name = "lateral_per_lateral_velocity",
-         .field = &TranslationalSteppingBlock::lateral_per_lateral_velocity,
+        {.name = "offset_pos_foot_rt_world_ewrt_heading_x",
+         .field = &TranslationalSteppingBlock::
+                      offset_pos_foot_rt_world_ewrt_heading_x,
+         .parameter = &TranslationalSteppingParameters::
+                          offsetPosFootRtWorldEwrtHeadingX},
+        {.name = "lateral_per_lateral_velocity_gain",
+         .field =
+             &TranslationalSteppingBlock::lateral_per_lateral_velocity_gain,
          .parameter =
-             &TranslationalSteppingParameters::lateralPerLateralVelocity},
+             &TranslationalSteppingParameters::lateralPerLateralVelocityGain},
         {.name = "lateral_stance_fraction",
          .field = &TranslationalSteppingBlock::lateral_stance_fraction,
          .parameter = &TranslationalSteppingParameters::lateralStanceFraction},
-        {.name = "lateral_offset",
-         .field = &TranslationalSteppingBlock::lateral_offset,
-         .parameter = &TranslationalSteppingParameters::lateralOffset},
+        {.name = "offset_pos_foot_rt_world_ewrt_heading_y",
+         .field = &TranslationalSteppingBlock::
+                      offset_pos_foot_rt_world_ewrt_heading_y,
+         .parameter = &TranslationalSteppingParameters::
+                          offsetPosFootRtWorldEwrtHeadingY},
     }};
 
 constexpr std::array<Coefficient<InPlaceTurningBlock, InPlaceTurningParameters>,
@@ -217,33 +242,40 @@ constexpr std::array<Coefficient<InPlaceTurningBlock, InPlaceTurningParameters>,
         {.name = "forward_stance_lever",
          .field = &InPlaceTurningBlock::forward_stance_lever,
          .parameter = &InPlaceTurningParameters::forwardStanceLever},
-        {.name = "forward_offset",
-         .field = &InPlaceTurningBlock::forward_offset,
-         .parameter = &InPlaceTurningParameters::forwardOffset},
+        {.name = "offset_pos_foot_rt_world_ewrt_heading_x",
+         .field = &InPlaceTurningBlock::offset_pos_foot_rt_world_ewrt_heading_x,
+         .parameter =
+             &InPlaceTurningParameters::offsetPosFootRtWorldEwrtHeadingX},
         {.name = "lateral_per_yaw_rate",
          .field = &InPlaceTurningBlock::lateral_per_yaw_rate,
          .parameter = &InPlaceTurningParameters::lateralPerYawRate},
-        {.name = "lateral_offset",
-         .field = &InPlaceTurningBlock::lateral_offset,
-         .parameter = &InPlaceTurningParameters::lateralOffset},
+        {.name = "offset_pos_foot_rt_world_ewrt_heading_y",
+         .field = &InPlaceTurningBlock::offset_pos_foot_rt_world_ewrt_heading_y,
+         .parameter =
+             &InPlaceTurningParameters::offsetPosFootRtWorldEwrtHeadingY},
     }};
 
-constexpr std::
-    array<Coefficient<HighSpeedTurningBlock, HighSpeedTurningParameters>, 4>
-        kHighSpeedTurningCoefficients = {{
-            {.name = "forward_per_cross_term",
-             .field = &HighSpeedTurningBlock::forward_per_cross_term,
-             .parameter = &HighSpeedTurningParameters::forwardPerCrossTerm},
-            {.name = "forward_offset",
-             .field = &HighSpeedTurningBlock::forward_offset,
-             .parameter = &HighSpeedTurningParameters::forwardOffset},
-            {.name = "lateral_per_cross_term",
-             .field = &HighSpeedTurningBlock::lateral_per_cross_term,
-             .parameter = &HighSpeedTurningParameters::lateralPerCrossTerm},
-            {.name = "lateral_offset",
-             .field = &HighSpeedTurningBlock::lateral_offset,
-             .parameter = &HighSpeedTurningParameters::lateralOffset},
-        }};
+constexpr std::array<
+    Coefficient<HighSpeedTurningBlock, HighSpeedTurningParameters>,
+    4>
+    kHighSpeedTurningCoefficients = {{
+        {.name = "forward_per_cross_term",
+         .field = &HighSpeedTurningBlock::forward_per_cross_term,
+         .parameter = &HighSpeedTurningParameters::forwardPerCrossTerm},
+        {.name = "offset_pos_foot_rt_world_ewrt_heading_x",
+         .field =
+             &HighSpeedTurningBlock::offset_pos_foot_rt_world_ewrt_heading_x,
+         .parameter =
+             &HighSpeedTurningParameters::offsetPosFootRtWorldEwrtHeadingX},
+        {.name = "lateral_per_cross_term",
+         .field = &HighSpeedTurningBlock::lateral_per_cross_term,
+         .parameter = &HighSpeedTurningParameters::lateralPerCrossTerm},
+        {.name = "offset_pos_foot_rt_world_ewrt_heading_y",
+         .field =
+             &HighSpeedTurningBlock::offset_pos_foot_rt_world_ewrt_heading_y,
+         .parameter =
+             &HighSpeedTurningParameters::offsetPosFootRtWorldEwrtHeadingY},
+    }};
 
 constexpr std::array<Coefficient<ImpulseScalingBlock, ImpulseScalingParameters>,
                      3>
@@ -254,9 +286,10 @@ constexpr std::array<Coefficient<ImpulseScalingBlock, ImpulseScalingParameters>,
         {.name = "minimum_duty_factor",
          .field = &ImpulseScalingBlock::minimum_duty_factor,
          .parameter = &ImpulseScalingParameters::minimumDutyFactor},
-        {.name = "maximum_force_ratio",
-         .field = &ImpulseScalingBlock::maximum_force_ratio,
-         .parameter = &ImpulseScalingParameters::maximumForceRatio},
+        {.name = "maximum_weight_compensation_ratio",
+         .field = &ImpulseScalingBlock::maximum_weight_compensation_ratio,
+         .parameter =
+             &ImpulseScalingParameters::maximumWeightCompensationRatio},
     }};
 
 // max_force_com_ewrt_world_xy is optional (optionalPositive()).
@@ -267,10 +300,11 @@ constexpr std::array<Coefficient<CentripetalAccelerationBlock,
         {.name = "scale",
          .field = &CentripetalAccelerationBlock::scale,
          .parameter = &CentripetalAccelerationParameters::scale},
-        {.name = "maximum_force_ratio_of_weight",
-         .field = &CentripetalAccelerationBlock::maximum_force_ratio_of_weight,
+        {.name = "max_wnorm_force_com_ewrt_world_xy",
+         .field =
+             &CentripetalAccelerationBlock::max_wnorm_force_com_ewrt_world_xy,
          .parameter =
-             &CentripetalAccelerationParameters::maximumForceRatioOfWeight},
+             &CentripetalAccelerationParameters::maxWnormForceComEwrtWorldXy},
     }};
 /**
  * The parameter of the optional field `name` of the block `heuristic`:
@@ -286,7 +320,8 @@ absl::StatusOr<scalar_t> optionalPositive(absl::string_view heuristic,
   // Negated, so that NaN is refused too.
   if (!std::isfinite(*value) || !(*value > 0.0)) {
     return absl::InvalidArgumentError(absl::StrCat(
-        "locomotion_heuristics.", heuristic, ".", name, " is ", *value,
+        "locomotion_heuristics.", parameterBlockName(heuristic), ".", name,
+        " is ", *value,
         ", but it must be finite and positive; leave it out for the default."));
   }
   return *value;
@@ -297,17 +332,17 @@ absl::StatusOr<scalar_t> optionalPositive(absl::string_view heuristic,
 absl::StatusOr<LocomotionHeuristicConfig> locomotionHeuristicConfigFromConfig(
     const mpc_config::LocomotionHeuristicsConfig& config) {
   LocomotionHeuristicConfig heuristics;
-  heuristics.formulation.basePose = config.base_pose;
-  heuristics.formulation.foothold = config.foothold;
-  heuristics.formulation.wrench = config.wrench;
-  ASSIGN_OR_RETURN(heuristics.orientationCompensation,
-                   convertBlock(heuristic::kOrientationCompensation,
-                                config.orientation_compensation,
+  heuristics.formulation.basePoseHeuristics = config.base_pose_heuristics;
+  heuristics.formulation.footholdHeuristics = config.foothold_heuristics;
+  heuristics.formulation.wrenchHeuristics = config.wrench_heuristics;
+  ASSIGN_OR_RETURN(heuristics.orientationCompensationParameters,
+                   convertBlock(heuristic::kOrientationCompensationName,
+                                config.orientation_compensation_parameters,
                                 kOrientationCompensationCoefficients));
-  ASSIGN_OR_RETURN(
-      heuristics.periodicOrientation,
-      convertBlock(heuristic::kPeriodicOrientation, config.periodic_orientation,
-                   kPeriodicOrientationCoefficients));
+  ASSIGN_OR_RETURN(heuristics.periodicOrientationParameters,
+                   convertBlock(heuristic::kPeriodicOrientationName,
+                                config.periodic_orientation_parameters,
+                                kPeriodicOrientationCoefficients));
   ASSIGN_OR_RETURN(
       heuristics.heightCompensation,
       convertBlock(heuristic::kHeightCompensation, config.height_compensation,
@@ -320,12 +355,13 @@ absl::StatusOr<LocomotionHeuristicConfig> locomotionHeuristicConfigFromConfig(
                    convertBlock(heuristic::kCapturePoint, config.capture_point,
                                 kCapturePointCoefficients));
   // Absent: the center-of-mass height measured at each solve
-  // (CapturePointParameters::comHeightOverride 0).
+  // (CapturePointParameters::overridePosComRtFeetmeanEwrtWorldZ 0).
   ASSIGN_OR_RETURN(
-      heuristics.capturePoint.comHeightOverride,
-      optionalPositive(heuristic::kCapturePoint, "com_height_override",
-                       config.capture_point.com_height_override,
-                       /*absent=*/0.0));
+      heuristics.capturePoint.overridePosComRtFeetmeanEwrtWorldZ,
+      optionalPositive(
+          heuristic::kCapturePoint, "override_pos_com_rt_feetmean_ewrt_world_z",
+          config.capture_point.override_pos_com_rt_feetmean_ewrt_world_z,
+          /*absent=*/0.0));
   ASSIGN_OR_RETURN(heuristics.translationalStepping,
                    convertBlock(heuristic::kTranslationalStepping,
                                 config.translational_stepping,
@@ -342,18 +378,19 @@ absl::StatusOr<LocomotionHeuristicConfig> locomotionHeuristicConfigFromConfig(
       heuristics.impulseScaling,
       convertBlock(heuristic::kImpulseScaling, config.impulse_scaling,
                    kImpulseScalingCoefficients));
-  ASSIGN_OR_RETURN(heuristics.centripetalAcceleration,
-                   convertBlock(heuristic::kCentripetalAcceleration,
-                                config.centripetal_acceleration,
+  ASSIGN_OR_RETURN(heuristics.centripetalAccelerationParameters,
+                   convertBlock(heuristic::kCentripetalAccelerationName,
+                                config.centripetal_acceleration_parameters,
                                 kCentripetalAccelerationCoefficients));
-  // Absent: the clamp is maximum_force_ratio_of_weight
-  // (CentripetalAccelerationParameters::maximumForce 0).
+  // Absent: the clamp is max_wnorm_force_com_ewrt_world_xy
+  // (CentripetalAccelerationParameters::maxForceComEwrtWorldXy 0).
   ASSIGN_OR_RETURN(
-      heuristics.centripetalAcceleration.maximumForce,
-      optionalPositive(
-          heuristic::kCentripetalAcceleration, "max_force_com_ewrt_world_xy",
-          config.centripetal_acceleration.max_force_com_ewrt_world_xy,
-          /*absent=*/0.0));
+      heuristics.centripetalAccelerationParameters.maxForceComEwrtWorldXy,
+      optionalPositive(heuristic::kCentripetalAccelerationName,
+                       "max_force_com_ewrt_world_xy",
+                       config.centripetal_acceleration_parameters
+                           .max_force_com_ewrt_world_xy,
+                       /*absent=*/0.0));
   RETURN_IF_ERROR(heuristics.validate());
   return heuristics;
 }

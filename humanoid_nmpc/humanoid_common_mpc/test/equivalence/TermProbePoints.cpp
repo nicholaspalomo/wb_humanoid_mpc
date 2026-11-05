@@ -33,7 +33,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <random>
 #include <string>
@@ -48,20 +50,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/types/span.h"
 #include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/constraint/StateConstraint.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 #include "ocs2_core/penalties/penalties/QuadraticPenalty.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 #include "humanoid_common_mpc/common/CostTermNames.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
 #include "humanoid_mpc_validation/chart/EulerChart.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/equivalence/MpcEquivalenceFixture.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -77,12 +84,12 @@ constexpr scalar_t kInputPerturbation = 0.1;
 constexpr scalar_t kMaxAbsEulerRate = 0.5;
 /** [m/s] The forward velocity of the mid-swing points (the normalized linear
  * momentum on the centroidal state). */
-constexpr scalar_t kMidSwingForwardVelocity = 0.5;
+constexpr scalar_t kProxyLinvelComRtWorldEwrtWorldX = 0.5;
 
 /** A point's name and base attitude (yaw, pitch, roll). Passive data. */
 struct NamedAttitude {
   std::string name;
-  vector3_t angles;
+  vector3_t eulerzyxBaseRtWorld;
 };
 
 /** A point's name and time. Passive data. */
@@ -104,21 +111,23 @@ scalar_t uniform(scalar_t low, scalar_t high, std::mt19937& generator) {
   return distribution(generator);
 }
 
-/** `eulerState` with its base angles (yaw, pitch, roll) set to `angles` and, on
- * the whole body, Euler rates drawn. */
+/** `eulerState` with its base angles (yaw, pitch, roll) set to
+ * `eulerzyxBaseRtWorld` and, on the whole body, Euler rates drawn. */
 vector_t withAttitude(const MpcEquivalenceFixture& mpc,
                       vector_t eulerState,
-                      const vector3_t& angles,
+                      const vector3_t& eulerzyxBaseRtWorld,
                       std::mt19937& generator) {
   Eigen::Index row = 0;
   for (const validation::EulerStateSegment& segment :
        mpc.eulerLayout().segments) {
-    if (segment.kind == validation::EulerStateSegmentKind::kEulerZyxAngles)
-      eulerState.segment<3>(row) = angles;
+    if (segment.kind == validation::EulerStateSegmentKind::kEulerZyxAngles) {
+      eulerState.segment<3>(row) = eulerzyxBaseRtWorld;
+    }
     if (segment.kind == validation::EulerStateSegmentKind::kEulerZyxRates) {
-      for (Eigen::Index i = 0; i < 3; ++i)
+      for (Eigen::Index i = 0; i < 3; ++i) {
         eulerState(row + i) =
             uniform(-kMaxAbsEulerRate, kMaxAbsEulerRate, generator);
+      }
     }
     row += static_cast<Eigen::Index>(segment.dim);
   }
@@ -139,35 +148,38 @@ vector_t randomlyPerturbed(const MpcEquivalenceFixture& mpc,
        mpc.eulerLayout().segments) {
     const Eigen::Index dim = static_cast<Eigen::Index>(segment.dim);
     if (segment.kind == validation::EulerStateSegmentKind::kEulerZyxAngles) {
-      eulerState.segment<3>(row) << uniform(-M_PI, M_PI, generator),
+      eulerState.segment<3>(row)
+          << uniform(-std::numbers::pi, std::numbers::pi, generator),
           uniform(/*low=*/-0.2, /*high=*/0.2, generator),
           uniform(/*low=*/-0.2, /*high=*/0.2, generator);
     } else if (segment.kind ==
                validation::EulerStateSegmentKind::kEulerZyxRates) {
-      for (Eigen::Index i = 0; i < dim; ++i)
+      for (Eigen::Index i = 0; i < dim; ++i) {
         eulerState(row + i) =
             uniform(-kMaxAbsEulerRate, kMaxAbsEulerRate, generator);
+      }
     } else {
       scalar_t halfWidth = 0.2;
       if (segment.name == "pos_base_rt_world_ewrt_world") halfWidth = 0.02;
       if (segment.name == "joint_positions") halfWidth = 0.05;
-      for (Eigen::Index i = 0; i < dim; ++i)
+      for (Eigen::Index i = 0; i < dim; ++i) {
         eulerState(row + i) += uniform(-halfWidth, halfWidth, generator);
+      }
     }
     row += dim;
   }
   return eulerState;
 }
 
-/** `eulerState` moving forward along its base's x axis at
- * kMidSwingForwardVelocity. */
+/** `eulerState` moving forward along world x at
+ * kProxyLinvelComRtWorldEwrtWorldX. */
 vector_t walkingForward(const MpcEquivalenceFixture& mpc, vector_t eulerState) {
   Eigen::Index row = 0;
   for (const validation::EulerStateSegment& segment :
        mpc.eulerLayout().segments) {
     if (segment.name == "mnorm_linmom_com_rt_world_ewrt_world" ||
         segment.name == "linvel_base_rt_world_ewrt_world") {
-      eulerState(row) = kMidSwingForwardVelocity;
+      eulerState(row) = kProxyLinvelComRtWorldEwrtWorldX;
     }
     row += static_cast<Eigen::Index>(segment.dim);
   }
@@ -187,15 +199,16 @@ TermProbePoint probePoint(const MpcEquivalenceFixture& mpc,
                           std::mt19937& generator) {
   TermProbePoint point{.name = std::move(name),
                        .time = time,
-                       .state = mpc.quaternionStateOf(eulerState),
+                       .state = mpc.quaternionModelStateOf(eulerState),
                        .input = vector_t(),
                        .atRest = false};
   point.input = mpc.weightCompensatingInput(
       point.state,
       modeNumber2StanceLeg(reference.modeSchedule.modeAtTime(time)));
-  for (Eigen::Index i = 0; i < point.input.size(); ++i)
+  for (Eigen::Index i = 0; i < point.input.size(); ++i) {
     point.input(i) +=
         uniform(-kInputPerturbation, kInputPerturbation, generator);
+  }
   return point;
 }
 
@@ -211,13 +224,16 @@ void appendRestingPoints(const MpcEquivalenceFixture& mpc,
   mpc.model().setJointVelocities(restState, restInput, zeroJointVelocities);
   const std::vector<RestAttitude> restAttitudes = {
       {.name = "initial_at_rest", .pitch = std::nullopt},
-      {.name = "gimbal_lock_pitch_p90deg_at_rest", .pitch = 0.5 * M_PI},
-      {.name = "gimbal_lock_pitch_m90deg_at_rest", .pitch = -0.5 * M_PI}};
+      {.name = "gimbal_lock_pitch_p90deg_at_rest",
+       .pitch = 0.5 * std::numbers::pi},
+      {.name = "gimbal_lock_pitch_m90deg_at_rest",
+       .pitch = -0.5 * std::numbers::pi}};
   for (const RestAttitude& attitude : restAttitudes) {
     vector_t state = restState;
-    if (attitude.pitch.has_value())
+    if (attitude.pitch.has_value()) {
       mpc.model().setQuatBaseRtWorldXyzw(
           state, quaternionFromEulerZyx(vector3_t(0.7, *attitude.pitch, 0.0)));
+    }
     probes.push_back(TermProbePoint{.name = attitude.name,
                                     .time = restTime,
                                     .state = std::move(state),
@@ -231,8 +247,9 @@ template <typename CollectionT>
 std::vector<std::string> collectionTermLabels(absl::string_view name,
                                               const CollectionT& collection) {
   std::vector<std::string> labels;
-  for (const std::string& term : sortedTermNames(collection))
+  for (const std::string& term : sortedTermNames(collection)) {
     labels.push_back(absl::StrCat(name, ".", term));
+  }
   return labels;
 }
 
@@ -243,8 +260,9 @@ std::vector<std::string> labelsOfClass(absl::string_view name,
                                        CollectionT& collection) {
   std::vector<std::string> labels;
   for (const std::string& term : sortedTermNames(collection)) {
-    if (dynamic_cast<const TermT*>(&collection.get(term)) != nullptr)
+    if (dynamic_cast<const TermT*>(&collection.get(term)) != nullptr) {
       labels.push_back(absl::StrCat(name, ".", term));
+    }
   }
   return labels;
 }
@@ -272,8 +290,9 @@ TargetedProbePoint barrierBandPoint(OptimalControlProblem& problem,
       const scalar_t lower = bounds.lower(joint);
       const scalar_t upper = bounds.upper(joint);
       if (!std::isfinite(lower) || !std::isfinite(upper) ||
-          upper - lower < 2.0 * delta)
+          upper - lower < 2.0 * delta) {
         continue;
+      }
       joints(joint) = joints(joint) - lower < upper - joints(joint)
                           ? lower + 0.5 * delta
                           : upper - 0.5 * delta;
@@ -290,8 +309,9 @@ TargetedProbePoint barrierBandPoint(OptimalControlProblem& problem,
         dynamic_cast<const BasisScalingNonNegativityConstraint*>(
             &problem.costPtr->get(name));
     if (barrier == nullptr || !barrier->isScheduleGated() ||
-        !barrier->isActive(point.time))
+        !barrier->isActive(point.time)) {
       continue;
+    }
     point.input
         .segment(static_cast<Eigen::Index>(
                      model.getContactWrenchStartIndices(contact)),
@@ -307,8 +327,9 @@ TargetedProbePoint barrierBandPoint(OptimalControlProblem& problem,
                                                          *problem.costPtr),
       labelsOfClass<BasisScalingNonNegativityConstraint>(
           "softConstraint", *problem.softConstraintPtr)};
-  for (const std::vector<std::string>& group : groups)
+  for (const std::vector<std::string>& group : groups) {
     band.labels.insert(group.begin(), group.end());
+  }
   return band;
 }
 
@@ -348,8 +369,9 @@ std::optional<TargetedProbePoint> collisionBandPoint(
   if (!collection.getTermIndex(term, index)) return std::nullopt;
   SoftConstraint* absl_nullable soft =
       dynamic_cast<SoftConstraint*>(&collection.get(term));
-  if (soft == nullptr || soft->getPenalty().getPenaltyPtrArray().empty())
+  if (soft == nullptr || soft->getPenalty().getPenaltyPtrArray().empty()) {
     return std::nullopt;
+  }
   const PieceWisePolynomialBarrierPenalty* absl_nullable barrier =
       dynamic_cast<const PieceWisePolynomialBarrierPenalty*>(
           soft->getPenalty().getPenaltyPtrArray().front().get());
@@ -441,8 +463,9 @@ std::vector<std::string> staleExemptionFindings(
 absl::flat_hash_set<std::string> exemptedLabels(
     absl::Span<const TermExemption> exemptions) {
   absl::flat_hash_set<std::string> labels;
-  for (const TermExemption& exemption : exemptions)
+  for (const TermExemption& exemption : exemptions) {
     labels.insert(exemption.label);
+  }
   return labels;
 }
 
@@ -456,18 +479,24 @@ std::vector<TermProbePoint> termProbePoints(
   probes.push_back(probePoint(mpc, reference, "initial", kDoubleSupportTime,
                               initial, generator));
   const std::vector<NamedAttitude> attitudes = {
-      {.name = "pitch_p0.2", .angles = vector3_t(0.0, 0.2, 0.0)},
-      {.name = "roll_pitch_0.05_m0.03", .angles = vector3_t(0.0, -0.03, 0.05)},
-      {.name = "roll_pitch_0.2_0.1", .angles = vector3_t(0.0, 0.1, 0.2)},
-      {.name = "yaw_2.5_tilt_0.05", .angles = vector3_t(2.5, 0.04, 0.03)},
-      {.name = "yaw_m3.0_tilt_0.05", .angles = vector3_t(-3.0, 0.04, 0.03)},
+      {.name = "pitch_p0.2", .eulerzyxBaseRtWorld = vector3_t(0.0, 0.2, 0.0)},
+      {.name = "roll_pitch_0.05_m0.03",
+       .eulerzyxBaseRtWorld = vector3_t(0.0, -0.03, 0.05)},
+      {.name = "roll_pitch_0.2_0.1",
+       .eulerzyxBaseRtWorld = vector3_t(0.0, 0.1, 0.2)},
+      {.name = "yaw_2.5_tilt_0.05",
+       .eulerzyxBaseRtWorld = vector3_t(2.5, 0.04, 0.03)},
+      {.name = "yaw_m3.0_tilt_0.05",
+       .eulerzyxBaseRtWorld = vector3_t(-3.0, 0.04, 0.03)},
       {.name = "pitch_80deg",
-       .angles = vector3_t(0.0, 80.0 * M_PI / 180.0, 0.0)},
+       .eulerzyxBaseRtWorld =
+           vector3_t(0.0, 80.0 * std::numbers::pi / 180.0, 0.0)},
   };
   for (const NamedAttitude& attitude : attitudes) {
     probes.push_back(probePoint(
         mpc, reference, attitude.name, kDoubleSupportTime,
-        withAttitude(mpc, initial, attitude.angles, generator), generator));
+        withAttitude(mpc, initial, attitude.eulerzyxBaseRtWorld, generator),
+        generator));
   }
   probes.push_back(probePoint(mpc, reference, "random_0", kDoubleSupportTime,
                               randomlyPerturbed(mpc, initial, generator),
@@ -532,8 +561,9 @@ Differenced extrapolate(
   const vector_t coarse = (4.0 * middleDifference - coarseDifference) / 3.0;
   vector_t fine = (4.0 * fineDifference - middleDifference) / 3.0;
   vector_t magnitude = vector_t::Zero(fine.size());
-  for (const vector_t& sample : samples)
+  for (const vector_t& sample : samples) {
     magnitude = magnitude.cwiseMax(sample.cwiseAbs());
+  }
   const vector_t evaluationScale =
       (magnitude.array() > 0.0)
           .select(magnitude.cwiseMax(1.0), vector_t::Zero(fine.size()));
@@ -605,8 +635,9 @@ std::vector<std::string> termLabels(const OptimalControlProblem& problem,
         "finalInequalityConstraint", *problem.finalInequalityConstraintPtr));
   }
   std::vector<std::string> labels;
-  for (const std::vector<std::string>& group : groups)
+  for (const std::vector<std::string>& group : groups) {
     labels.insert(labels.end(), group.begin(), group.end());
+  }
   return labels;
 }
 
@@ -662,8 +693,9 @@ std::optional<std::string> addSoftStanceFootConstraint(
     const std::string name = zeroVelocityTermName(contact);
     size_t index = 0;
     if (!problem.equalityConstraintPtr->getTermIndex(name, index)) continue;
-    if (problem.softConstraintPtr->getTermIndex(name, index))
+    if (problem.softConstraintPtr->getTermIndex(name, index)) {
       return std::nullopt;
+    }
     const StateInputConstraint& hard = problem.equalityConstraintPtr->get(name);
     problem.softConstraintPtr->add(
         name, std::make_unique<StateInputSoftConstraint>(

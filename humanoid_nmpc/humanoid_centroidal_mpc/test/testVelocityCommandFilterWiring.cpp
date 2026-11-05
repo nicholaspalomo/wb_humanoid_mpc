@@ -30,13 +30,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
+#include <cstddef>
 #include <functional>
+#include <numbers>
 #include <vector>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
@@ -124,14 +127,15 @@ TEST_F(VelocityCommandFilterWiringTest,
       }).ok());
   ASSERT_EQ(stack_.motionManager().getVelocityCommandFilterBreakFrequency(),
             0.0);
-  for (const scalar_t reference : forwardReferences(/*numSolves=*/5))
+  for (const scalar_t reference : forwardReferences(/*numSolves=*/5)) {
     EXPECT_EQ(reference, scaledCommand());
+  }
 }
 
 TEST_F(VelocityCommandFilterWiringTest,
        aReloadedBreakFrequencyLagsTheReferenceOnTheSolverClock) {
   const scalar_t breakFrequency = 2.0;
-  const scalar_t tau = 1.0 / (2.0 * M_PI * breakFrequency);
+  const scalar_t tau = 1.0 / (2.0 * std::numbers::pi * breakFrequency);
   ASSERT_TRUE(
       reloadShippedReferenceWith([breakFrequency](
                                      mpc_config::ReferenceFile& reference) {

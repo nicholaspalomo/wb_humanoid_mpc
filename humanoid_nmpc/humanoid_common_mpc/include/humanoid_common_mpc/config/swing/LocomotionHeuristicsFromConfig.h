@@ -42,11 +42,11 @@ namespace ocs2::humanoid {
  *
  * The three lists are copied as written, and each parameter block becomes the
  * parameter struct of its heuristic, field by field
- * (capture_point.com_height_override is capturePoint.comHeightOverride). The
- * schema's defaults are the layer's own, so an absent block gives
- * LocomotionHeuristicConfig{}, whose lists are empty: an exact no-op. Nothing
- * is logged: a verbose start-up prints the file, and formulation.summary() the
- * lists.
+ * (capture_point.override_pos_com_rt_feetmean_ewrt_world_z is
+ * capturePoint.overridePosComRtFeetmeanEwrtWorldZ). The schema's defaults are
+ * the layer's own, so an absent block gives LocomotionHeuristicConfig{}, whose
+ * lists are empty: an exact no-op. Nothing is logged: a verbose start-up prints
+ * the file, and formulation.summary() the lists.
  *
  * @param config The locomotion_heuristics block.
  * @return The configuration; InvalidArgument when a value is not finite (inf or

@@ -62,10 +62,10 @@ inline constexpr int kDefaultSamplesPerCandidate = 6;
 inline constexpr int kDefaultSamplesPerFace = 3;
 inline constexpr double kDefaultSampleSpacing = 0.1;
 inline constexpr double kDefaultPadSeparation = 0.03;
-inline constexpr double kDefaultTrunkContactReach = 0.4;
+inline constexpr double kNomTrunkMaxDistPadRtReachcenter = 0.4;
 inline constexpr double kDefaultLimbRootTravel = 0.4;
 inline constexpr double kDefaultAnchorGoalFraction = 0.5;
-inline constexpr double kDefaultInitialChangeDisplacement = 0.3;
+inline constexpr double kInitNomNormErrPosBaseRtWorldEwrtWorld = 0.3;
 inline constexpr double kDefaultGoalPostureBlend = 0.25;
 inline constexpr double kDefaultRetimingSlowdown = 1.5;
 inline constexpr int kDefaultMaxRetimings = 4;
@@ -121,7 +121,7 @@ struct StanceGraphPlannerOptions {
   double padSeparation = kDefaultPadSeparation;
   // [m] How far a contact of the trunk (the seat, the torso) may move in one
   // change: its "limb's" reach.
-  double trunkContactReach = kDefaultTrunkContactReach;
+  double trunkMaxDistPadRtReachcenter = kNomTrunkMaxDistPadRtReachcenter;
   // [m] How far a limb's root (a hip, a shoulder) may move with the trunk in
   // one change, added to the limb's length for the reach of its samples: a
   // standing robot reaches the floor with its hands by bending over.
@@ -142,7 +142,8 @@ struct StanceGraphPlannerOptions {
   double basePathWeight = 1.0;
   // [m] The base displacement of one change the heuristic assumes until a
   // larger one is seen (design section 5.1).
-  double initialChangeDisplacement = kDefaultInitialChangeDisplacement;
+  double initNormErrPosBaseRtWorldEwrtWorld =
+      kInitNomNormErrPosBaseRtWorldEwrtWorld;
   // The fraction of the way from a node's configuration to the goal pose of
   // the first posture reference of a transition.
   double goalPostureBlend = kDefaultGoalPostureBlend;

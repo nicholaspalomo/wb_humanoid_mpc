@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <utility>
@@ -42,9 +43,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/equivalence/EulerMpcOracle.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/equivalence/MpcEquivalenceFixture.h"
 
@@ -201,8 +202,9 @@ template <typename CollectionT>
 std::vector<std::string> sortedTermNames(const CollectionT& collection) {
   std::vector<std::string> names;
   for (const std::pair<const std::string, size_t>& entry :
-       collection.getTermNameMap())
+       collection.getTermNameMap()) {
     names.push_back(entry.first);
+  }
   std::sort(names.begin(), names.end());
   return names;
 }

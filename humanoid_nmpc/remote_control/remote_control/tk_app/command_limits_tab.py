@@ -78,7 +78,7 @@ class CommandLimitsTab(ttk.Frame):
         robot_saver: the GUI's saver of the robot's copies (robot_config_save.RobotConfigSaver); None: Save writes
             the laptop's file only, and says so.
         on_saved: called after the laptop's file was saved, before it is sent to the robot (the GUI follows the file's
-            nom_pos_base_rt_world_ewrt_world_z with it); None: nothing is.
+            nom_pos_base_rt_surface_ewrt_world_z with it); None: nothing is.
         **kwargs: the options of the tab's ttk.Frame.
     """
 

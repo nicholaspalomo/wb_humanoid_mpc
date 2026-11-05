@@ -38,6 +38,7 @@ cc_test(
     srcs = ["test/testRobotDescription.cpp"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "//robot_runtime/robot_core",
         ":robot_model",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
@@ -55,6 +56,7 @@ cc_test(
     srcs = ["test/testRobotState.cpp"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "//robot_runtime/robot_core",
         ":robot_model",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/status:statusor",

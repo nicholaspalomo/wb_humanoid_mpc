@@ -31,16 +31,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
-#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/cost/LipWeightedCost.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningTerm.h"
+#include "humanoid_common_mpc/contact_planning/problem/StageAccumulator.h"
 
 namespace ocs2::humanoid {
 
 /**
  * `terminal_dcm`: terminal capturability, w ||xi_N - zmp_{N-1} - r||^2 with xi
  * = c + v / omega the divergent component of motion, r = 0 (come to rest) or,
- * with trackCommandedVelocity, r = v_cmd / omega (keep walking). It is written
- * on the last running node, whose ZMP is a variable, as w e^{2 omega dt}
+ * with trackVelocityCommand, r = R_z(omega_cmd N dt) v_cmd / omega (keep
+ * walking), the command turned with the commanded heading to node N where xi_N
+ * is (ContactPlanningContext::getCmdLinvelBaseRtWorldEwrtWorldXy). It is
+ * written on the last running node, whose ZMP is a variable, as w e^{2 omega
+ * dt}
  * ||xi_{N-1} - zmp_{N-1} - e^{-omega dt} r||^2, which is the same function
  * because xi_N - zmp_{N-1} = e^{omega dt} (xi_{N-1} - zmp_{N-1}).
  *
@@ -55,10 +61,10 @@ class TerminalDcmCost final : public LipWeightedCost {
   void addToStage(const ContactPlanningContext& ctx,
                   int node,
                   StageAccumulator& stage) const override;
-  bool tracksCommandedVelocity() const { return trackCommandedVelocity_; }
+  bool tracksVelocityCommand() const { return trackVelocityCommand_; }
 
  private:
-  bool trackCommandedVelocity_ = false;
+  bool trackVelocityCommand_ = false;
 };
 
 }  // namespace ocs2::humanoid

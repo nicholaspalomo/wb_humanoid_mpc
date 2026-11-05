@@ -103,9 +103,9 @@ absl::Status WholeBodyClosedLoopDriver::initialize(
       WBMpcTargetTrajectoriesCalculator::Create(
           configuration.referenceFile, interface.getMpcRobotModel(),
           interface.mpcSettings().timeHorizon_));
-  calculator->setTerrainHeightSource(
+  calculator->setSourcePosSurfaceRtWorldEwrtWorldZ(
       [referenceManager = interface.getSwitchedModelReferenceManagerPtr()]() {
-        return referenceManager->getAppliedTerrainHeight();
+        return referenceManager->getAppliedPosSurfaceRtWorldEwrtWorldZ();
       });
   RETURN_IF_ERROR(initializeCommandPath(
       std::move(calculator), interface.getSwitchedModelReferenceManagerPtr(),

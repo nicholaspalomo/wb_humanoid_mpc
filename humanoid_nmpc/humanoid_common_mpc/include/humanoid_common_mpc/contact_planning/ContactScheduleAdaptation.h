@@ -29,12 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <deque>
 #include <limits>
 #include <optional>
-#include <utility>
 #include <vector>
 
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/common/Types.h"
@@ -288,10 +289,10 @@ std::vector<feet_array_t<scalar_t>> committedPhaseStartsForPlanner(
  * lift-off at all. The last swung foot used to be read off that schedule alone,
  * and it then became -1 (unknown): the H-LIP blend lost the zero-command orbit
  * it measures the lateral velocity against in double support
- * (HlipContactPlanner::zeroCommandOrbitLateralVelocity), so the sway of
- * settling counted in full towards walking, and the first step out of the stand
- * was chosen from the phase timing instead of alternating. The history is kept
- * by whoever builds planner inputs, independent of that window.
+ * (HlipContactPlanner::computeZeroCommandOrbitLinvelComRtWorldEwrtHeadingY), so
+ * the sway of settling counted in full towards walking, and the first step out
+ * of the stand was chosen from the phase timing instead of alternating. The
+ * history is kept by whoever builds planner inputs, independent of that window.
  */
 struct LiftOffHistory {
   /** [s] the latest lift-off seen of each foot; -infinity until one has been
@@ -454,17 +455,18 @@ feet_array_t<ContactEventReport> adaptScheduleToContactEvents(
 /** The state of the linear inverted pendulum at one instant: CoM position and
  * velocity, and the ZMP. Passive data. */
 struct LipState {
-  vector2_t com = vector2_t::Zero();
-  vector2_t comVelocity = vector2_t::Zero();
-  vector2_t zmp = vector2_t::Zero();
+  vector2_t posComRtWorldEwrtWorldXy = vector2_t::Zero();
+  vector2_t linvelComRtWorldEwrtWorldXy = vector2_t::Zero();
+  vector2_t posZmpRtWorldEwrtWorldXy = vector2_t::Zero();
 };
 
 /** Divergent component of motion (instantaneous capture point) of a LIP with
  * natural frequency `omega`. */
-inline vector2_t computeDcm(const vector2_t& com,
-                            const vector2_t& comVelocity,
-                            scalar_t omega) {
-  return com + comVelocity / omega;
+inline vector2_t computePosDcmRtWorldEwrtWorldXy(
+    const vector2_t& posComRtWorldEwrtWorldXy,
+    const vector2_t& linvelComRtWorldEwrtWorldXy,
+    scalar_t omega) {
+  return posComRtWorldEwrtWorldXy + linvelComRtWorldEwrtWorldXy / omega;
 }
 
 /**
@@ -482,37 +484,43 @@ std::optional<LipState> lipReferenceState(const ContactPlan& plan,
  * touch-down: on the LIP the error grows by exp(omega * timeToTouchDown) until
  * touch-down, and moving the foothold by that amount restores the planned DCM
  * offset with respect to the new support. `gain` scales the correction (1 =
- * exact LIP compensation), the result is limited to `maxOffset` in norm.
+ * exact LIP compensation), the result is limited to
+ * `maxNormErrPosFootRtWorldEwrtWorldXy` in norm.
  */
-vector2_t dcmStepAdjustment(const vector2_t& dcmError,
-                            scalar_t omega,
-                            scalar_t timeToTouchDown,
-                            scalar_t gain,
-                            scalar_t maxOffset);
+vector2_t computeErrPosFootRtWorldEwrtWorldXy(
+    const vector2_t& errPosDcmRtWorldEwrtWorldXy,
+    scalar_t omega,
+    scalar_t timeToTouchDown,
+    scalar_t gain,
+    scalar_t maxNormErrPosFootRtWorldEwrtWorldXy);
 
 /**
- * Clips `foothold` to the planner's reachable region of foot `contactIndex`
- * around `comAtTouchDown` in the yaw frame: |x| <= reachX and reachYInner <=
- * side * y <= reachYOuter (the `reachability` term's block of the
- * configuration), with side +1 for the left foot (index 0) and -1 for the right
- * foot, as in the planner's reachability rows, so that the clipping never moves
- * a foot across the body. `yaw` is the planned heading at touch-down (the frame
- * those rows were written in).
+ * Clips `desPosFootRtWorldEwrtWorldXy` to the planner's reachable region of
+ * foot `contactIndex` around `touchdownPosComRtWorldEwrtWorldXy` in the yaw
+ * frame: |x| <= maxNormPosFootRtComEwrtHeadingX and minPosFootRtComEwrtHeadingY
+ * <= side * y <= maxPosFootRtComEwrtHeadingY (the `reachability` term's block
+ * of the configuration), with side +1 for the left foot (index 0) and -1 for
+ * the right foot, as in the planner's reachability rows, so that the clipping
+ * never moves a foot across the body. `touchdownYawHeadingRtWorld` is the
+ * planning heading at touch-down, the frame those rows were written in
+ * (ContactPlan::getYawHeadingRtWorld()).
  */
-vector2_t clipFootholdToReach(const vector2_t& foothold,
-                              size_t contactIndex,
-                              const vector2_t& comAtTouchDown,
-                              scalar_t yaw,
-                              const ContactPlanningConfig& config);
+vector2_t clipFootholdToReach(
+    const vector2_t& desPosFootRtWorldEwrtWorldXy,
+    size_t contactIndex,
+    const vector2_t& touchdownPosComRtWorldEwrtWorldXy,
+    scalar_t touchdownYawHeadingRtWorld,
+    const ContactPlanningConfig& config);
 
 /** Orbital energy of a 1D LIP, E = m (v^2 - omega^2 x^2) / 2, with x the CoM
  * position relative to the ZMP. */
-inline scalar_t lipOrbitalEnergy(scalar_t position,
-                                 scalar_t velocity,
+inline scalar_t lipOrbitalEnergy(scalar_t posComRtZmpEwrtLocal,
+                                 scalar_t linvelComRtWorldEwrtLocal,
                                  scalar_t omega,
                                  scalar_t mass) {
   return 0.5 * mass *
-         (velocity * velocity - omega * omega * position * position);
+         (linvelComRtWorldEwrtLocal * linvelComRtWorldEwrtLocal -
+          omega * omega * posComRtZmpEwrtLocal * posComRtZmpEwrtLocal);
 }
 
 }  // namespace ocs2::humanoid

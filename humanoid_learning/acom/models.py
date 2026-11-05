@@ -282,35 +282,42 @@ class SirenACOM:
 
     # The C++ evaluator the MPC runs computes the same composition and tangent Jacobian.
     # LINT.IfChange(acom_attitude)
-    def acom_attitude(
-        self, params: SirenParams, xi: jnp.ndarray, q_j: jnp.ndarray
+    def compute_quat_acom_rt_world_xyzw(
+        self,
+        params: SirenParams,
+        quat_base_rt_world_xyzw: jnp.ndarray,
+        q_j: jnp.ndarray,
     ) -> jnp.ndarray:
         """Computes the ACoM attitude xi_a = xi_hat (x) Exp(Delta_theta(q_j)).
 
         The base orientation composed with the network's rotation, as
-        AngularCenterOfMass::acomAttitude does in C++ (design section 2.8.3 of
+        AngularCenterOfMass::computeQuatAcomRtWorldXyzw does in C++ (design section 2.8.3 of
         humanoid_nmpc/docs/quaternion_base_orientation/README.md). Delta_theta
         is the rotation vector, in the base frame, the network emits: its
         components are about the base's x, y and z axes.
 
         Args:
             params: The network parameters.
-            xi: The base orientation, quaternion coefficients (x, y, z, w) of a
-                nonzero quaternion; it is normalized here.
+            quat_base_rt_world_xyzw: The base orientation xi, quaternion
+                coefficients (x, y, z, w) of a nonzero quaternion; it is
+                normalized here.
             q_j: The joint positions, in the network's joint order.
 
         Returns:
             The ACoM attitude, unit quaternion coefficients (x, y, z, w).
         """
-        xi_hat = xi / jnp.linalg.norm(xi)
+        unit_quat_base_rt_world_xyzw = (
+            quat_base_rt_world_xyzw / jnp.linalg.norm(quat_base_rt_world_xyzw)
+        )
         return quaternion_product(
-            xi_hat, quaternion_exp(self.forward(params, q_j))
+            unit_quat_base_rt_world_xyzw,
+            quaternion_exp(self.forward(params, q_j)),
         )
 
     def acom_attitude_tangent_jacobian(
         self, params: SirenParams, q_j: jnp.ndarray
     ) -> jnp.ndarray:
-        """Computes the body tangent Jacobian of acom_attitude.
+        """Computes the body tangent Jacobian of compute_quat_acom_rt_world_xyzw.
 
         When the base orientation moves to xi_hat (x) Exp(dphi) and the joints
         to q_j + dq_j, the attitude moves to xi_a (x) Exp(dphi_a) with, to first
@@ -327,10 +334,13 @@ class SirenACOM:
         Returns:
             The (3, 3 + n_j) Jacobian, columns (dphi of the base, dq_j).
         """
-        delta_theta = self.forward(params, q_j)
-        base_block = quaternion_rotation_matrix(quaternion_exp(delta_theta)).T
+        rotvec_acom_rt_base = self.forward(params, q_j)
+        base_block = quaternion_rotation_matrix(
+            quaternion_exp(rotvec_acom_rt_base)
+        ).T
         joint_block = jnp.dot(
-            so3_right_jacobian(delta_theta), self.jacobian_qj(params, q_j)
+            so3_right_jacobian(rotvec_acom_rt_base),
+            self.jacobian_qj(params, q_j),
         )
         return jnp.concatenate([base_block, joint_block], axis=1)
 
@@ -341,7 +351,7 @@ class SirenACOM:
     ) -> jnp.ndarray:
         """Computes the map from joint velocities to the ACoM's angular velocity, in base axes.
 
-        The world angular velocity of acom_attitude is R(xi) (omega_B +
+        The world angular velocity of compute_quat_acom_rt_world_xyzw is R(xi) (omega_B +
         J_l(Delta_theta) J_Delta_theta qdot_j), with omega_B the base's body
         angular velocity: the joint block of acom_attitude_tangent_jacobian,
         J_r(Delta_theta) J_Delta_theta in the attitude's own axes, carried into

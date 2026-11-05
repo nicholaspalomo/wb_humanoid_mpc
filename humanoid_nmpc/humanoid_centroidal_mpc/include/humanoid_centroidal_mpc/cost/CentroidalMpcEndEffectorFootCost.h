@@ -31,23 +31,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <string>
 
 #include "absl/base/nullability.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/cost/StateInputGaussNewtonCostAd.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
-#include "ocs2_pinocchio_interface/PinocchioStateInputMapping.h"
-#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
-#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h"
-#include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
@@ -69,14 +72,14 @@ namespace ocs2::humanoid {
  * it has a landing target (getSwingFootReference()). Without one the xy
  * position weights are 0, and the xy velocity tracks the commanded base
  *    velocity (getSwingRefLinvelFootRtWorldEwrtWorldXy()) with
- * swing_velocity_reference_weight in place of lin_velocity_x / _y;
+ * swing_velocity_reference_weight in place of linvel_x / _y;
  *  - the orientation residual is in radians, so its weights are per rad^2 like
  * those of the end-effector costs (computeTaskSpaceErrors()): the tilt of the
  * foot from the reference plane as a rotation vector in world axes
  *    (tiltAngleToPlane()), whose third entry the planned foot yaw replaces when
  * there is one (footYawError(), the wrapped yaw error). Only the contact
  * planner's heading model plans a foot yaw. Without one the third entry is the
- *    tilt's, 0 on flat ground, and weights.orientation_z weighs next to
+ *    tilt's, 0 on flat ground, and weights.rotvec_z weighs next to
  * nothing: CentroidalMpcInterface warns at start-up.
  *
  * Not thread-safe; the solver clones it per worker.
@@ -173,8 +176,8 @@ class CentroidalMpcEndEffectorFootCost final
   }
 
   /**
-   * The yaw error of a foot whose orientation is `orientation` against the
-   * planned foot yaw `yawReference`, wrapped to
+   * The yaw error of a foot whose orientation is `rotmatFootRtWorld` against
+   * the planned foot yaw `desYawFootRtWorld`, wrapped to
    * (-pi, pi): the third orientation residual when `hasYawReference` is 1. When
    * it is 0 the reference is replaced by the foot's own heading, and the error
    * is exactly zero.
@@ -198,24 +201,30 @@ class CentroidalMpcEndEffectorFootCost final
    */
   template <typename SCALAR>
   static SCALAR footYawError(
-      const Eigen::Matrix<SCALAR, kPositionDim, kPositionDim>& orientation,
-      const SCALAR& yawReference,
+      const Eigen::Matrix<SCALAR, kPositionDim, kPositionDim>&
+          rotmatFootRtWorld,
+      const SCALAR& desYawFootRtWorld,
       const SCALAR& hasYawReference) {
     using std::atan;
     using std::cos;
     using std::sin;
     using std::sqrt;
     const SCALAR one(1.0);
-    const SCALAR headingNorm = sqrt(orientation(0, 0) * orientation(0, 0) +
-                                    orientation(1, 0) * orientation(1, 0));
-    const SCALAR headingX = orientation(0, 0) / headingNorm;
-    const SCALAR headingY = orientation(1, 0) / headingNorm;
-    const SCALAR referenceX = hasYawReference * cos(yawReference) +
-                              (one - hasYawReference) * headingX;
-    const SCALAR referenceY = hasYawReference * sin(yawReference) +
-                              (one - hasYawReference) * headingY;
-    const SCALAR sine = headingY * referenceX - headingX * referenceY;
-    const SCALAR cosine = headingX * referenceX + headingY * referenceY;
+    const SCALAR planarNorm =
+        sqrt(rotmatFootRtWorld(0, 0) * rotmatFootRtWorld(0, 0) +
+             rotmatFootRtWorld(1, 0) * rotmatFootRtWorld(1, 0));
+    const SCALAR dirFootEwrtWorldX = rotmatFootRtWorld(0, 0) / planarNorm;
+    const SCALAR dirFootEwrtWorldY = rotmatFootRtWorld(1, 0) / planarNorm;
+    const SCALAR desDirFootEwrtWorldX =
+        hasYawReference * cos(desYawFootRtWorld) +
+        (one - hasYawReference) * dirFootEwrtWorldX;
+    const SCALAR desDirFootEwrtWorldY =
+        hasYawReference * sin(desYawFootRtWorld) +
+        (one - hasYawReference) * dirFootEwrtWorldY;
+    const SCALAR sine = dirFootEwrtWorldY * desDirFootEwrtWorldX -
+                        dirFootEwrtWorldX * desDirFootEwrtWorldY;
+    const SCALAR cosine = dirFootEwrtWorldX * desDirFootEwrtWorldX +
+                          dirFootEwrtWorldY * desDirFootEwrtWorldY;
     return SCALAR(kDoubleAngleFactor) * atan(sine / (one + cosine));
   }
 

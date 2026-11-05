@@ -32,8 +32,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/locomotion_heuristics/BasePoseHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 
 namespace ocs2::humanoid {
@@ -53,25 +57,30 @@ BasePoseOffset HeightCompensationHeuristic::offset(
   // crouching to walk forwards and rising to walk backwards is not a thing any
   // legged system does, and an odd polynomial in a signed speed would do
   // exactly that.
-  const scalar_t speed = context.commandedVelocityInBaseFrame.norm();
-  const scalar_t height = parameters_.heightPerSpeedSquared * speed * speed +
-                          parameters_.heightPerSpeed * speed +
-                          parameters_.heightOffset;
+  const scalar_t cmdSpeedBaseRtWorld =
+      context.cmdLinvelBaseRtWorldEwrtHeadingXy.norm();
+  const scalar_t unclampedOffsetPosBaseRtWorldEwrtWorldZ =
+      parameters_.heightPerSpeedSquaredGain * cmdSpeedBaseRtWorld *
+          cmdSpeedBaseRtWorld +
+      parameters_.heightPerSpeedGain * cmdSpeedBaseRtWorld +
+      parameters_.offsetPosBaseRtWorldEwrtWorldZ;
   // Clamped for the same reason as the orientation tilt, and with a sharper
-  // consequence: this channel is also where adaptToCurrentGroundHeight() writes
-  // the terrain, and a runaway offset added on top of it would look like the
-  // ground moving rather than like a bad coefficient.
-  result.height = std::clamp(height, -parameters_.maximumHeightOffset,
-                             parameters_.maximumHeightOffset);
+  // consequence: this channel is also where applyPosSurfaceRtWorldEwrtWorldZ()
+  // writes the terrain, and a runaway offset added on top of it would look like
+  // the ground moving rather than like a bad coefficient.
+  result.offsetPosBaseRtWorldEwrtWorldZ =
+      std::clamp(unclampedOffsetPosBaseRtWorldEwrtWorldZ,
+                 -parameters_.maxOffsetPosBaseRtWorldEwrtWorldZ,
+                 parameters_.maxOffsetPosBaseRtWorldEwrtWorldZ);
   return result;
 }
 
 std::string HeightCompensationHeuristic::describe() const {
   return absl::StrCat(
-      "height_compensation: dz = ", parameters_.heightPerSpeedSquared,
-      " * |v|^2 + ", parameters_.heightPerSpeed, " * |v| + ",
-      parameters_.heightOffset, " [m], clamped to +/- ",
-      parameters_.maximumHeightOffset, " m");
+      "height_compensation: dz = ", parameters_.heightPerSpeedSquaredGain,
+      " * |v|^2 + ", parameters_.heightPerSpeedGain, " * |v| + ",
+      parameters_.offsetPosBaseRtWorldEwrtWorldZ, " [m], clamped to +/- ",
+      parameters_.maxOffsetPosBaseRtWorldEwrtWorldZ, " m");
 }
 
 }  // namespace ocs2::humanoid

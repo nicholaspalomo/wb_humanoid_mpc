@@ -158,9 +158,9 @@ TEST_P(EulerChartLayouts, BlocksAreWhereTheInitialStatePutsThem) {
   EXPECT_EQ(static_cast<size_t>(state->size()), tuningDimension(layout));
   EXPECT_EQ(getPhysicalStateDim(eulerLayout),
             getEulerStateDim(eulerLayout) + 1);
-  const Eigen::Index orientation = static_cast<Eigen::Index>(
+  const Eigen::Index orientationStart = static_cast<Eigen::Index>(
       blockStart(eulerLayout, "eulerzyx_base_rt_world"));
-  EXPECT_EQ(state->segment<3>(orientation), vector3_t(0.4, 0.5, 0.6));
+  EXPECT_EQ(state->segment<3>(orientationStart), vector3_t(0.4, 0.5, 0.6));
   EXPECT_EQ(state->segment<3>(static_cast<Eigen::Index>(
                 blockStart(eulerLayout, "pos_base_rt_world_ewrt_world"))),
             vector3_t(1.0, 2.0, 3.0));
@@ -204,9 +204,8 @@ TEST_P(EulerChartLayouts, PhiIsTheEulerBoundaryConversion) {
   if (GetParam() == StateInputLayout::Mpc::kWholeBody) {
     const Eigen::Index rates = static_cast<Eigen::Index>(
         blockStart(layout, "angvel_base_rt_world_ewrt_base"));
-    EXPECT_EQ(
-        physical->segment<3>(rates + 1),
-        localAngularVelocityFromEulerZyxRates(theta, euler.segment<3>(rates)));
+    EXPECT_EQ(physical->segment<3>(rates + 1),
+              bodyRatesFromEulerZyxRates(theta, euler.segment<3>(rates)));
   }
   EXPECT_EQ(physical->tail(3), euler.tail(3));
 }
@@ -328,8 +327,7 @@ TEST(EulerChart, RateCouplingIsTheDerivativeOfTheBodyRate) {
   for (int trial = 0; trial < 10; ++trial) {
     const vector3_t angles(uniform(engine), uniform(engine), uniform(engine));
     const vector3_t rates(uniform(engine), uniform(engine), uniform(engine));
-    const matrix3_t derivative =
-        localAngularVelocityEulerAngleDerivative(angles, rates);
+    const matrix3_t derivative = bodyRateEulerZyxAngleDerivative(angles, rates);
     // The chart's coupling block comes from the one Euler boundary.
     EXPECT_EQ(derivative, bodyRateEulerZyxJacobian(angles, rates));
     for (Eigen::Index j = 0; j < 3; ++j) {
@@ -337,10 +335,9 @@ TEST(EulerChart, RateCouplingIsTheDerivativeOfTheBodyRate) {
       vector3_t minus = angles;
       plus(j) += kStep;
       minus(j) -= kStep;
-      const vector3_t column =
-          (localAngularVelocityFromEulerZyxRates(plus, rates) -
-           localAngularVelocityFromEulerZyxRates(minus, rates)) /
-          (2.0 * kStep);
+      const vector3_t column = (bodyRatesFromEulerZyxRates(plus, rates) -
+                                bodyRatesFromEulerZyxRates(minus, rates)) /
+                               (2.0 * kStep);
       EXPECT_LT((derivative.col(j) - column).cwiseAbs().maxCoeff(),
                 kDerivativeTolerance);
     }

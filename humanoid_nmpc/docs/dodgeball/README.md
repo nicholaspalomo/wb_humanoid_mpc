@@ -16,13 +16,13 @@ walking controllers.
   │  remote_control (Python, Tkinter)                                                        │
   │                                                                                          │
   │   DodgeballTab                    dodgeball.py                                           │
-  │   ├─ azimuth      slider  ──┐     ├─ spawn_offset(throw)       where it starts, in the   │
-  │   ├─ elevation    slider  ──┤     │                            robot's own yaw frame     │
-  │   ├─ distance     slider  ──┼──►  ├─ launch_speed(throw)       slider's, or the minimum  │
-  │   ├─ speed        slider  ──┤     ├─ flight_time(throw)        direct root of |v| = s    │
-  │   ├─ mass         slider  ──┤     ├─ launch_velocity(throw)    aimed, lifted by g t / 2  │
-  │   ├─ randomize    checkbox──┘     ├─ impact_momentum(throw)    m |v_arrival|             │
-  │   └─ THROW button ────────────►   └─ throw_message(throw)      the message below         │
+  │   ├─ azimuth      slider  ──┐     ├─ compute_spawn_pos_ball_rt_base_ewrt_heading         │
+  │   ├─ elevation    slider  ──┤     ├─ compute_launch_speed_ball_rt_world                  │
+  │   ├─ distance     slider  ──┼──►  ├─ flight_time                                         │
+  │   ├─ speed        slider  ──┤     ├─ compute_launch_linvel_ball_rt_world_ewrt_heading    │
+  │   ├─ mass         slider  ──┤     ├─ compute_impact_norm_linmom_ball_rt_world_ewrt_world │
+  │   ├─ randomize    checkbox──┘     └─ throw_message                                       │
+  │   └─ THROW button ────────────►      (each a function of the throw)                      │
   │   (every slider holds its range: SliderRow(clamp_to_range=True))                         │
   └───────────────────────────────────────────┬──────────────────────────────────────────────┘
                                               │  DodgeballThrow on operator/dodgeball_throw (IPC bus;
@@ -181,7 +181,7 @@ $$\tfrac{1}{4} g^{2} t^{4} \;+\; \left(g \Delta_z - s^{2}\right) t^{2} \;+\; d^{
 
 whose smaller root is the direct throw and the larger a lob; `flight_time` takes the direct one, in the form that
 reduces to $d / s$ as $g \to 0$. It has a real root only for $s^{2} \ge g\,(d + \Delta_z)$: slower than that, no aim
-reaches the base, so `launch_speed` raises the slider's speed to that minimum and the preview says so. From 3 m level
+reaches the base, so `compute_launch_speed_ball_rt_world` raises the slider's speed to that minimum and the preview says so. From 3 m level
 with the base the minimum is 5.4 m/s; from 8 m it is 8.9 m/s, with a flight of $\sqrt{2d/g} \approx 1.3$ s.
 
 The ball arrives with $\mathbf{v}_{\text{launch}} - (0, 0, g t)$, whose speed follows from energy conservation,

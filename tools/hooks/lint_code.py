@@ -871,9 +871,9 @@ def _select_files(root: str, staged: bool, paths: Sequence[str]) -> list[str]:
 
 
 def _parse_only(only: str | None) -> tuple[frozenset[str], frozenset[str]]:
-    """The registry checks and steps --only names; with no --only, every check but the opt-in ones, and every step."""
+    """The registry checks and steps --only names; with no --only, every check and every step."""
     if not only:
-        return checks.default_names(), STEP_NAMES
+        return checks.names(), STEP_NAMES
     requested = frozenset(
         name.strip() for name in only.split(",") if name.strip()
     )
@@ -889,7 +889,7 @@ def _parse_only(only: str | None) -> tuple[frozenset[str], frozenset[str]]:
     if selected:
         steps |= {"token-checks"}
     if "token-checks" in requested and not selected:
-        selected = checks.default_names()
+        selected = checks.names()
     return selected, steps
 
 

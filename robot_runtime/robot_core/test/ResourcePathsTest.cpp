@@ -27,12 +27,15 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <stdlib.h>
+
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <optional>
 #include <string>
+#include <system_error>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
@@ -65,8 +68,9 @@ class ScopedEnvironmentVariable {
   ScopedEnvironmentVariable(const char* absl_nonnull name,
                             const char* absl_nullable value)
       : name_(name) {
-    if (const char* absl_nullable previous = std::getenv(name))
+    if (const char* absl_nullable previous = std::getenv(name)) {
       previous_ = std::string(previous);
+    }
     set(value);
   }
   ~ScopedEnvironmentVariable() {

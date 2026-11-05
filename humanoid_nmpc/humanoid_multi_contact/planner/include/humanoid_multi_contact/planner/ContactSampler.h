@@ -48,19 +48,21 @@ struct ContactSample {
   int primitive = 0;
   std::optional<BoxFace> face;
   // [m] The pad's center in the world, on the surface.
-  Eigen::Vector3d position = Eigen::Vector3d::Zero();
+  Eigen::Vector3d posPadRtWorldEwrtWorld = Eigen::Vector3d::Zero();
   // The surface's outward unit normal there.
-  Eigen::Vector3d normal = Eigen::Vector3d::UnitZ();
-  // A surface pad's x axis on the face (its yaw), orthogonal to `normal`.
-  Eigen::Vector3d xAxis = Eigen::Vector3d::UnitX();
+  Eigen::Vector3d normalSurfaceEwrtWorld = Eigen::Vector3d::UnitZ();
+  // A surface pad's x axis on the face (its yaw), orthogonal to
+  // `normalSurfaceEwrtWorld`.
+  Eigen::Vector3d xAxisPadEwrtWorld = Eigen::Vector3d::UnitX();
 };
 
 /** The defaults of ContactSamplerOptions; its fields say what each is. */
-inline constexpr double kDefaultMinPointNormalZ = -0.2;
+inline constexpr double kNomPointMinNormalSurfaceEwrtWorldZ = -0.2;
 inline constexpr double kDefaultGridSpacing = 0.05;
 inline constexpr double kDefaultEdgeMargin = 0.015;
 inline constexpr double kDefaultPenetrationTolerance = 0.004;
-inline constexpr double kDefaultMinSurfaceNormalZ = 0.7071067811865476;
+inline constexpr double kNomRectangleMinNormalSurfaceEwrtWorldZ =
+    0.7071067811865476;
 
 /** The settings of sampleContacts(). */
 struct ContactSamplerOptions {
@@ -74,36 +76,42 @@ struct ContactSamplerOptions {
   // the 3.5 mm by which the smooth minimum lowers the distance at an inside
   // corner (TerrainModel).
   double penetrationTolerance = kDefaultPenetrationTolerance;
-  // The smallest z component of the normal of a face a point pad may rest on
-  // (no ceilings), and of one a surface pad may rest on (no walls: a foot,
-  // the seat or the torso rests on a surface within 45 degrees of level).
-  double minPointNormalZ = kDefaultMinPointNormalZ;
-  double minSurfaceNormalZ = kDefaultMinSurfaceNormalZ;
+  // The smallest world z component of the outward normal of a face a point
+  // pad may rest on (no ceilings), and of one a surface pad, whose contact is a
+  // rectangle, may rest on (no walls: a foot, the seat or the torso rests on a
+  // surface within 45 degrees of level).
+  double pointMinNormalSurfaceEwrtWorldZ = kNomPointMinNormalSurfaceEwrtWorldZ;
+  double rectangleMinNormalSurfaceEwrtWorldZ =
+      kNomRectangleMinNormalSurfaceEwrtWorldZ;
 };
 
 /**
- * The samples of `candidate` on the faces of `terrain` within `reach` of
- * `center` (design section 5.1): on each box face whose normal the candidate's
- * kind accepts, the points of a grid of the face's frame, `gridSpacing` apart,
- * whose pad lies inside the face, `edgeMargin` from its edges (a point pad's
- * disc of its geom radius, a surface pad's rectangle at the yaw of `xAxisHint`
+ * The samples of `candidate` on the faces of `terrain` within
+ * `maxDistPadRtReachcenter` of `posReachcenterRtWorldEwrtWorld` (design
+ * section 5.1): on each box face whose normal the candidate's kind accepts, the
+ * points of a grid of the face's frame, `gridSpacing` apart, whose pad lies
+ * inside the face, `edgeMargin` from its edges (a point pad's disc of its geom
+ * radius, a surface pad's rectangle at the yaw of `hintXAxisPadEwrtWorld`
  * projected on the face); on each capsule, the points along its axis at the
- * same spacing, on its top and on its side facing `center`, for point pads
- * only. A sample whose pad would lie inside another primitive (a point under a
- * stair, a sole against a riser) is dropped. The order is deterministic: by
- * primitive, face, then grid.
+ * same spacing, on its top and on its side facing
+ * `posReachcenterRtWorldEwrtWorld`, for point pads only. A sample whose pad
+ * would lie inside another primitive (a point under a stair, a sole against a
+ * riser) is dropped. The order is deterministic: by primitive, face, then grid.
  */
-std::vector<ContactSample> sampleContacts(const TerrainModel& terrain,
-                                          const ContactCandidate& candidate,
-                                          int candidateIndex,
-                                          const Eigen::Vector3d& center,
-                                          double reach,
-                                          const Eigen::Vector3d& xAxisHint,
-                                          const ContactSamplerOptions& options);
+std::vector<ContactSample> sampleContacts(
+    const TerrainModel& terrain,
+    const ContactCandidate& candidate,
+    int candidateIndex,
+    const Eigen::Vector3d& posReachcenterRtWorldEwrtWorld,
+    double maxDistPadRtReachcenter,
+    const Eigen::Vector3d& hintXAxisPadEwrtWorld,
+    const ContactSamplerOptions& options);
 
-/** `hint` projected on the plane of `normal` and normalized, or a tangent of
- * the plane when it is nearly the normal. */
-Eigen::Vector3d tangentAxis(const Eigen::Vector3d& hint,
-                            const Eigen::Vector3d& normal);
+/** Returns `hintXAxisPadEwrtWorld` projected on the plane of
+ * `normalSurfaceEwrtWorld` and normalized, the pad's x axis on that surface, or
+ * a tangent of the plane when the hint is nearly the normal. */
+Eigen::Vector3d computeXAxisPadEwrtWorld(
+    const Eigen::Vector3d& hintXAxisPadEwrtWorld,
+    const Eigen::Vector3d& normalSurfaceEwrtWorld);
 
 }  // namespace ocs2::humanoid::multi_contact

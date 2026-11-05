@@ -33,12 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <concepts>
 #include <cstddef>
 #include <iterator>
-#include <limits>
-#include <memory>
 #include <optional>
 #include <ranges>
-#include <span>
-#include <stdexcept>
 #include <vector>
 
 #include "Eigen/Dense"
@@ -204,8 +200,9 @@ class IDMapBase {
     // Dereference to get underlying data. The iterator stops at engaged slots
     // only (skipNullopt()).
     T& operator*() {
+      // NOLINTNEXTLINE(bugprone-unchecked-optional-access): engaged, see above
       return *this->map_->map_elements_[this->it_];
-    }  // NOLINT(bugprone-unchecked-optional-access): see above
+    }
   };
 
   // NOLINTNEXTLINE(readability-identifier-naming): the STL container interface (G: Exceptions to Naming Rules)
@@ -223,8 +220,8 @@ class IDMapBase {
     // Dereference to get underlying data. The iterator stops at engaged slots
     // only (skipNullopt()).
     const T& operator*() const {
-      return *this->map_->map_elements_
-                  [this->it_];  // NOLINT(bugprone-unchecked-optional-access): see above
+      // NOLINTNEXTLINE(bugprone-unchecked-optional-access): engaged, see above
+      return *this->map_->map_elements_[this->it_];
     }
   };
 

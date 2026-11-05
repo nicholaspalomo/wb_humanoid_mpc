@@ -30,10 +30,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 
+#include <cstddef>
 #include <memory>
 #include <utility>
 
-#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 

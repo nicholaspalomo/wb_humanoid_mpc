@@ -491,7 +491,7 @@ robot-runtime's default) on the robot's computer: a true two-machine simulation.
 (`RobotBackendRegistry`) and is selected with `WB_ROBOT_BACKEND` (`make deploy-robot BACKEND=`). It names the `hardware`
 supervisor (`RobotBackend::supervisorName()`, `RobotSupervisorRegistry`): its FSM bridge switches the backend's torques
 (`enableTorques()`, `enterSafeState()`) and ignores the gantry commands, and its fall recovery switches the torques off
-when the base tilts past `sim_max_base_tilt_angle`, where the simulator's (`sim`) drive the gantry, the dodgeballs and
+when the base tilts past `sim_max_tiltangle_base_rt_world`, where the simulator's (`sim`) drive the gantry, the dodgeballs and
 the simulator's resets. The backend publishes the IMU's specific force with the state, and the task file's
 `state_estimator: "kalman"` estimates the base's position and velocity a robot cannot measure. The steps are in
 [`humanoid_common_mpc_app/robot`](../../humanoid_common_mpc_app/robot/README.md#a-hardware-backend); its

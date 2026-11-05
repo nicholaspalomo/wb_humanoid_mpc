@@ -75,10 +75,10 @@ def _initial_joint_state(
     task: task_file_pb2.TaskFile, joint_names: list[str]
 ) -> np.ndarray:
     """The joints of the task file's initial_state, i.e. the MPC's nominal posture, in the order of `joint_names`."""
-    positions = {
+    joint_positions = {
         entry.joint: entry.value for entry in task.initial_state.joint_positions
     }
-    return np.array([float(positions[name]) for name in joint_names])
+    return np.array([float(joint_positions[name]) for name in joint_names])
 
 
 def _urdf_joint_limits(urdf_path: str) -> dict:
@@ -224,17 +224,23 @@ class TestAcomPipeline(unittest.TestCase):
     def test_forward_and_jacobian_shapes(self):
         """Verifies forward pass and Jacobian output dimensions."""
         q_j = jnp.zeros((self.in_dim,))
-        delta_theta = self.model.forward(self.params, q_j)
-        self.assertEqual(delta_theta.shape, (3,))
+        rotvec_acom_rt_base = self.model.forward(self.params, q_j)
+        self.assertEqual(rotvec_acom_rt_base.shape, (3,))
 
         jac = self.model.jacobian_qj(self.params, q_j)
         self.assertEqual(jac.shape, (3, self.in_dim))
 
         # The ACoM attitude: a unit quaternion (x, y, z, w).
-        xi = models.quaternion_exp(jnp.array([0.2, -0.4, 1.1]))
-        attitude = self.model.acom_attitude(self.params, xi, q_j)
-        self.assertEqual(attitude.shape, (4,))
-        np.testing.assert_allclose(jnp.linalg.norm(attitude), 1.0, atol=1e-6)
+        quat_base_rt_world_xyzw = models.quaternion_exp(
+            jnp.array([0.2, -0.4, 1.1])
+        )
+        quat_acom_rt_world_xyzw = self.model.compute_quat_acom_rt_world_xyzw(
+            self.params, quat_base_rt_world_xyzw, q_j
+        )
+        self.assertEqual(quat_acom_rt_world_xyzw.shape, (4,))
+        np.testing.assert_allclose(
+            jnp.linalg.norm(quat_acom_rt_world_xyzw), 1.0, atol=1e-6
+        )
 
         # Its tangent Jacobian: columns (body rotation of the base, joints).
         tangent = self.model.acom_attitude_tangent_jacobian(self.params, q_j)
@@ -243,28 +249,41 @@ class TestAcomPipeline(unittest.TestCase):
     def test_acom_attitude_composes_the_base_with_the_joint_rotation(self):
         """xi_a = xi_hat (x) Exp(Delta_theta), so a rotation of the whole robot rotates the ACoM one for one."""
         q_j = jnp.linspace(-0.8, 0.9, self.in_dim)
-        delta_theta = self.model.forward(self.params, q_j)
+        rotvec_acom_rt_base = self.model.forward(self.params, q_j)
         identity = jnp.array([0.0, 0.0, 0.0, 1.0])
         np.testing.assert_allclose(
-            self.model.acom_attitude(self.params, identity, q_j),
-            models.quaternion_exp(delta_theta),
+            self.model.compute_quat_acom_rt_world_xyzw(
+                self.params, identity, q_j
+            ),
+            models.quaternion_exp(rotvec_acom_rt_base),
             atol=1e-6,
         )
-        xi = models.quaternion_exp(jnp.array([0.3, 0.1, -0.7]))
+        quat_base_rt_world_xyzw = models.quaternion_exp(
+            jnp.array([0.3, 0.1, -0.7])
+        )
         turn = models.quaternion_exp(jnp.array([-0.5, 0.2, 2.4]))
         np.testing.assert_allclose(
-            self.model.acom_attitude(
-                self.params, models.quaternion_product(turn, xi), q_j
+            self.model.compute_quat_acom_rt_world_xyzw(
+                self.params,
+                models.quaternion_product(turn, quat_base_rt_world_xyzw),
+                q_j,
             ),
             models.quaternion_product(
-                turn, self.model.acom_attitude(self.params, xi, q_j)
+                turn,
+                self.model.compute_quat_acom_rt_world_xyzw(
+                    self.params, quat_base_rt_world_xyzw, q_j
+                ),
             ),
             atol=1e-6,
         )
         # The scale of xi does not matter.
         np.testing.assert_allclose(
-            self.model.acom_attitude(self.params, 3.0 * xi, q_j),
-            self.model.acom_attitude(self.params, xi, q_j),
+            self.model.compute_quat_acom_rt_world_xyzw(
+                self.params, 3.0 * quat_base_rt_world_xyzw, q_j
+            ),
+            self.model.compute_quat_acom_rt_world_xyzw(
+                self.params, quat_base_rt_world_xyzw, q_j
+            ),
             atol=1e-6,
         )
 
@@ -280,14 +299,22 @@ class TestAcomPipeline(unittest.TestCase):
         identity of the additive Euler rule.
         """
         q_j = jnp.linspace(-0.8, 0.9, self.in_dim)
-        xi = models.quaternion_exp(jnp.array([0.3, 0.1, -0.7]))
-        attitude = self.model.acom_attitude(self.params, xi, q_j)
+        quat_base_rt_world_xyzw = models.quaternion_exp(
+            jnp.array([0.3, 0.1, -0.7])
+        )
+        quat_acom_rt_world_xyzw = self.model.compute_quat_acom_rt_world_xyzw(
+            self.params, quat_base_rt_world_xyzw, q_j
+        )
         tangent = self.model.acom_attitude_tangent_jacobian(self.params, q_j)
-        rate_matrix = 0.5 * _quaternion_rate_matrix(attitude)
+        rate_matrix = 0.5 * _quaternion_rate_matrix(quat_acom_rt_world_xyzw)
 
         def attitude_of_rotated_base(dphi: jnp.ndarray) -> jnp.ndarray:
-            rotated = models.quaternion_product(xi, models.quaternion_exp(dphi))
-            return self.model.acom_attitude(self.params, rotated, q_j)
+            rotated = models.quaternion_product(
+                quat_base_rt_world_xyzw, models.quaternion_exp(dphi)
+            )
+            return self.model.compute_quat_acom_rt_world_xyzw(
+                self.params, rotated, q_j
+            )
 
         base_derivative = jax.jacobian(attitude_of_rotated_base)(
             jnp.zeros((3,))
@@ -295,18 +322,22 @@ class TestAcomPipeline(unittest.TestCase):
         np.testing.assert_allclose(
             base_derivative, jnp.dot(rate_matrix, tangent[:, :3]), atol=1e-5
         )
-        joint_derivative = jax.jacobian(
-            lambda joints: self.model.acom_attitude(self.params, xi, joints)
-        )(q_j)
+
+        def attitude_of_joints(joints: jnp.ndarray) -> jnp.ndarray:
+            return self.model.compute_quat_acom_rt_world_xyzw(
+                self.params, quat_base_rt_world_xyzw, joints
+            )
+
+        joint_derivative = jax.jacobian(attitude_of_joints)(q_j)
         np.testing.assert_allclose(
             joint_derivative, jnp.dot(rate_matrix, tangent[:, 3:]), atol=1e-4
         )
 
-        delta_theta = self.model.forward(self.params, q_j)
+        rotvec_acom_rt_base = self.model.forward(self.params, q_j)
         np.testing.assert_allclose(
             tangent[:, :3],
             models.quaternion_rotation_matrix(
-                models.quaternion_exp(delta_theta)
+                models.quaternion_exp(rotvec_acom_rt_base)
             ).T,
             atol=1e-6,
         )
@@ -374,25 +405,38 @@ class TestAcomPipeline(unittest.TestCase):
         """
         params = _with_large_offsets(self.params)
         q_j = jnp.linspace(-0.8, 0.9, self.in_dim)
-        xi = models.quaternion_exp(jnp.array([0.3, 0.1, -0.7]))
-        attitude = self.model.acom_attitude(params, xi, q_j)
-        attitude_derivative = jax.jacobian(
-            lambda joints: self.model.acom_attitude(params, xi, joints)
-        )(q_j)
-        world_rate = _world_rate_map(attitude_derivative, attitude)
+        quat_base_rt_world_xyzw = models.quaternion_exp(
+            jnp.array([0.3, 0.1, -0.7])
+        )
+        quat_acom_rt_world_xyzw = self.model.compute_quat_acom_rt_world_xyzw(
+            params, quat_base_rt_world_xyzw, q_j
+        )
+
+        def attitude_of_joints(joints: jnp.ndarray) -> jnp.ndarray:
+            return self.model.compute_quat_acom_rt_world_xyzw(
+                params, quat_base_rt_world_xyzw, joints
+            )
+
+        attitude_derivative = jax.jacobian(attitude_of_joints)(q_j)
+        world_rate = _world_rate_map(
+            attitude_derivative, quat_acom_rt_world_xyzw
+        )
 
         rate_jacobian = self.model.acom_joint_rate_jacobian(params, q_j)
-        base_rotation = models.quaternion_rotation_matrix(xi)
+        rotmat_base_rt_world = models.quaternion_rotation_matrix(
+            quat_base_rt_world_xyzw
+        )
         np.testing.assert_allclose(
-            world_rate, jnp.dot(base_rotation, rate_jacobian), atol=1e-4
+            world_rate, jnp.dot(rotmat_base_rt_world, rate_jacobian), atol=1e-4
         )
         # The tangent Jacobian's joint block, carried from the attitude's axes into the world's, is the same map.
         tangent = self.model.acom_attitude_tangent_jacobian(params, q_j)
         np.testing.assert_allclose(
             jnp.dot(
-                models.quaternion_rotation_matrix(attitude), tangent[:, 3:]
+                models.quaternion_rotation_matrix(quat_acom_rt_world_xyzw),
+                tangent[:, 3:],
             ),
-            jnp.dot(base_rotation, rate_jacobian),
+            jnp.dot(rotmat_base_rt_world, rate_jacobian),
             atol=1e-4,
         )
         # Not vacuous: at these offsets J_Delta_theta alone is a different map.
@@ -1473,7 +1517,7 @@ class TestTrainMainExport(unittest.TestCase):
             # Same width, or an explicit override, installs.
             self.assertEqual(
                 train_main.install_header(
-                    cpp_path, "sa01", 8, workspace, force_architecture=True
+                    cpp_path, "sa01", 8, workspace, replace_architecture=True
                 ),
                 installed,
             )

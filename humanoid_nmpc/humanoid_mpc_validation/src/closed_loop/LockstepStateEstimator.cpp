@@ -36,6 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 
+#include "humanoid_common_mpc_app/robot/RobotSetUpSteps.h"
+
 namespace ocs2::humanoid::validation {
 
 // LINT.IfChange(robot_process_state_estimator)
@@ -46,8 +48,7 @@ estimation::StateEstimatorContext robotProcessStateEstimatorContext(
     const robot::model::RobotDescription* absl_nonnull description) {
   return estimation::StateEstimatorContext{
       .urdfFile = urdfFile,
-      .contactFrameNames = modelSettings.contactNames,
-      .contactParentJointNames = modelSettings.contactParentJointNames,
+      .contacts = stateEstimatorContacts(modelSettings),
       .description = description,
       .kalman = settings.kalmanStateEstimator};
 }

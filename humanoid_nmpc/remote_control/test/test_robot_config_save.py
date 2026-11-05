@@ -304,7 +304,7 @@ class TestRobotConfigSaver(unittest.TestCase):
         return (saver or self.saver).send(
             robot_config_save.KIND_TASK,
             os.path.join("/c", ATLAS_IDENTITY),
-            "terrain_height: 0.0\n",
+            "pos_surface_rt_world_ewrt_world_z: 0.0\n",
             "atlas",
         )
 
@@ -321,7 +321,9 @@ class TestRobotConfigSaver(unittest.TestCase):
         self.assertEqual(
             [message.sequence for message in published], [first, second]
         )
-        self.assertEqual(published[0].text, "terrain_height: 0.0\n")
+        self.assertEqual(
+            published[0].text, "pos_surface_rt_world_ewrt_world_z: 0.0\n"
+        )
         self.assertEqual(published[0].config_path, ATLAS_IDENTITY)
         self.assertEqual(self._state(first), SaveState.SAVING)
 
@@ -594,7 +596,7 @@ class TestPushRobotConfig(unittest.TestCase):
             saver,
             robot_config_save.KIND_TASK,
             operator_test_support.ATLAS_TASK_FILE,
-            "terrain_height: 0.0\n",
+            "pos_surface_rt_world_ewrt_world_z: 0.0\n",
             "atlas",
             clock=clock,
             sleep=clock.sleep,
@@ -665,7 +667,7 @@ class TestPushRobotConfig(unittest.TestCase):
         broken = os.path.join(directory, "task.textproto")
         with open(broken, "w", encoding="utf-8") as file:
             file.write(
-                "# proto-message: humanoid_mpc_config.TaskFile\nterrainHeight:"
+                "# proto-message: humanoid_mpc_config.TaskFile\nno_such_field:"
                 " 0.1\n"
             )
         with self.assertRaisesRegex(

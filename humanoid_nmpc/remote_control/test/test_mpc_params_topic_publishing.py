@@ -331,7 +331,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
 
     def test_a_file_that_does_not_parse_is_reported_and_shows_nothing(self):
         with open(self.task_file, "a", encoding="utf-8") as handle:
-            handle.write("terrainHeight: 0.1\n")
+            handle.write("posSurfaceRtWorldEwrtWorldZ: 0.1\n")
         tab = self._tab()
         self.assertIsNone(tab.task)
         self.assertEqual(tab.categories, [])

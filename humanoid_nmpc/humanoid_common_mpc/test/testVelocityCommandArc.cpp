@@ -31,8 +31,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <numbers>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -59,12 +61,13 @@ vector2_t rotated(scalar_t angle, const vector2_t& vector) {
 }
 
 /** p(T) - p(0) of dp/dt = R_z(omega t) v0, by RK4 with 10000 steps. */
-vector2_t integratedArc(const vector2_t& initLinvelBaseRtWorldEwrtWorldXy,
-                        scalar_t rateYawBaseRtWorld,
-                        scalar_t duration) {
+vector2_t integrateErrPosBaseRtWorldEwrtWorldXy(
+    const vector2_t& initLinvelBaseRtWorldEwrtWorldXy,
+    scalar_t rateYawBaseRtWorld,
+    scalar_t duration) {
   constexpr int kSteps = 10000;
   const scalar_t step = duration / kSteps;
-  vector2_t posBaseRtWorldEwrtWorldXy = vector2_t::Zero();
+  vector2_t errPosBaseRtWorldEwrtWorldXy = vector2_t::Zero();
   for (int i = 0; i < kSteps; ++i) {
     const scalar_t t = i * step;
     const vector2_t k1 =
@@ -73,9 +76,9 @@ vector2_t integratedArc(const vector2_t& initLinvelBaseRtWorldEwrtWorldXy,
                                   initLinvelBaseRtWorldEwrtWorldXy);
     const vector2_t k4 = rotated(rateYawBaseRtWorld * (t + step),
                                  initLinvelBaseRtWorldEwrtWorldXy);
-    posBaseRtWorldEwrtWorldXy += step / 6.0 * (k1 + 4.0 * k23 + k4);
+    errPosBaseRtWorldEwrtWorldXy += step / 6.0 * (k1 + 4.0 * k23 + k4);
   }
-  return posBaseRtWorldEwrtWorldXy;
+  return errPosBaseRtWorldEwrtWorldXy;
 }
 
 TEST(VelocityCommandArc, TheDisplacementIsTheArcOfTheTwist) {
@@ -84,13 +87,15 @@ TEST(VelocityCommandArc, TheDisplacementIsTheArcOfTheTwist) {
       SCOPED_TRACE(rateYawBaseRtWorld);
       SCOPED_TRACE(duration);
       const vector2_t initLinvelBaseRtWorldEwrtWorldXy(0.3, -0.12);
-      const vector2_t displacement =
-          TargetTrajectoriesCalculatorBase::planarArcDisplacement(
+      const vector2_t errPosBaseRtWorldEwrtWorldXy =
+          TargetTrajectoriesCalculatorBase::computeErrPosBaseRtWorldEwrtWorldXy(
               initLinvelBaseRtWorldEwrtWorldXy, rateYawBaseRtWorld, duration);
-      EXPECT_LT((displacement - integratedArc(initLinvelBaseRtWorldEwrtWorldXy,
-                                              rateYawBaseRtWorld, duration))
-                    .norm(),
-                1.0e-12);
+      EXPECT_LT(
+          (errPosBaseRtWorldEwrtWorldXy -
+           integrateErrPosBaseRtWorldEwrtWorldXy(
+               initLinvelBaseRtWorldEwrtWorldXy, rateYawBaseRtWorld, duration))
+              .norm(),
+          1.0e-12);
       const scalar_t theta = rateYawBaseRtWorld * duration;
       if (std::abs(theta) > 1.0e-3) {
         // (1 / omega) [[sin(theta), cos(theta) - 1], [1 - cos(theta),
@@ -100,8 +105,10 @@ TEST(VelocityCommandArc, TheDisplacementIsTheArcOfTheTwist) {
                 (std::cos(theta) - 1.0) * initLinvelBaseRtWorldEwrtWorldXy(1),
             (1.0 - std::cos(theta)) * initLinvelBaseRtWorldEwrtWorldXy(0) +
                 std::sin(theta) * initLinvelBaseRtWorldEwrtWorldXy(1));
-        EXPECT_LT((displacement - closedForm / rateYawBaseRtWorld).norm(),
-                  1.0e-14);
+        EXPECT_LT(
+            (errPosBaseRtWorldEwrtWorldXy - closedForm / rateYawBaseRtWorld)
+                .norm(),
+            1.0e-14);
       }
     }
   }
@@ -109,90 +116,105 @@ TEST(VelocityCommandArc, TheDisplacementIsTheArcOfTheTwist) {
 
 TEST(VelocityCommandArc, WithoutATurnItIsTheStraightLineBitForBit) {
   const vector2_t initLinvelBaseRtWorldEwrtWorldXy(0.37, -0.11);
-  const vector2_t displacement =
-      TargetTrajectoriesCalculatorBase::planarArcDisplacement(
+  const vector2_t errPosBaseRtWorldEwrtWorldXy =
+      TargetTrajectoriesCalculatorBase::computeErrPosBaseRtWorldEwrtWorldXy(
           initLinvelBaseRtWorldEwrtWorldXy, /*rateYawBaseRtWorld=*/0.0,
           /*duration=*/0.7);
-  EXPECT_EQ(displacement(0), initLinvelBaseRtWorldEwrtWorldXy(0) * 0.7);
-  EXPECT_EQ(displacement(1), initLinvelBaseRtWorldEwrtWorldXy(1) * 0.7);
+  EXPECT_EQ(errPosBaseRtWorldEwrtWorldXy(0),
+            initLinvelBaseRtWorldEwrtWorldXy(0) * 0.7);
+  EXPECT_EQ(errPosBaseRtWorldEwrtWorldXy(1),
+            initLinvelBaseRtWorldEwrtWorldXy(1) * 0.7);
 }
 
 TEST(VelocityCommandArc, TheDesignReadmesArcIsReproduced) {
   // Design README section 2.9: at 0.3 m/s forward and 0.3 rad/s over 1.2 s the
   // end of the horizon lies (v / omega)(sin, 1 - cos) from the start, 0.065 m
   // off the straight chord (0.36, 0) the knots used to take.
-  const vector2_t displacement =
-      TargetTrajectoriesCalculatorBase::planarArcDisplacement(
+  const vector2_t errPosBaseRtWorldEwrtWorldXy =
+      TargetTrajectoriesCalculatorBase::computeErrPosBaseRtWorldEwrtWorldXy(
           vector2_t(0.3, 0.0), /*rateYawBaseRtWorld=*/0.3, /*duration=*/1.2);
-  EXPECT_NEAR(displacement(0), std::sin(0.36), 1.0e-15);
-  EXPECT_NEAR(displacement(1), 1.0 - std::cos(0.36), 1.0e-15);
-  EXPECT_NEAR((displacement - vector2_t(0.36, 0.0)).norm(), 0.0646, 1.0e-4);
+  EXPECT_NEAR(errPosBaseRtWorldEwrtWorldXy(0), std::sin(0.36), 1.0e-15);
+  EXPECT_NEAR(errPosBaseRtWorldEwrtWorldXy(1), 1.0 - std::cos(0.36), 1.0e-15);
+  EXPECT_NEAR((errPosBaseRtWorldEwrtWorldXy - vector2_t(0.36, 0.0)).norm(),
+              0.0646, 1.0e-4);
 }
 
 using Extent = TargetTrajectoriesCalculatorBase::KnotSegmentExtent;
 
-/** knotSubdivisionCount() of a segment that only turns, by `yawChange`. */
-size_t turnParts(scalar_t yawChange) {
+/** knotSubdivisionCount() of a segment that only turns, by `errYawBaseRtWorld`.
+ */
+size_t turnParts(scalar_t errYawBaseRtWorld) {
   return TargetTrajectoriesCalculatorBase::knotSubdivisionCount(
-      Extent{.yawChange = yawChange, .arcLength = 0.0, .targetSpeed = 0.0});
+      Extent{.errYawBaseRtWorld = errYawBaseRtWorld,
+             .arcLength = 0.0,
+             .cmdSpeedBaseRtWorld = 0.0});
 }
 
 TEST(VelocityCommandArc, ASegmentIsCutIntoPartsAtMostAQuarterTurnApart) {
   EXPECT_EQ(turnParts(0.0), 1);
   EXPECT_EQ(turnParts(0.84), 1);
-  EXPECT_EQ(turnParts(0.5 * M_PI), 1);
-  EXPECT_EQ(turnParts(0.5 * M_PI + 1.0e-9), 2);
+  EXPECT_EQ(turnParts(0.5 * std::numbers::pi), 1);
+  EXPECT_EQ(turnParts(0.5 * std::numbers::pi + 1.0e-9), 2);
   EXPECT_EQ(turnParts(-3.15), 3);
-  EXPECT_EQ(turnParts(-2.5 * M_PI), 5);
+  EXPECT_EQ(turnParts(-2.5 * std::numbers::pi), 5);
   for (const scalar_t change : {0.3, 2.0, 3.15, 7.0, -11.0}) {
     SCOPED_TRACE(change);
     const size_t parts = turnParts(change);
     EXPECT_LE(std::abs(change) / static_cast<scalar_t>(parts),
-              TargetTrajectoriesCalculatorBase::kMaxKnotYawSpacing);
+              TargetTrajectoriesCalculatorBase::kKnotMaxErrYawBaseRtWorld);
     if (parts > 1) {
-      EXPECT_GT(std::abs(change) / static_cast<scalar_t>(parts - 1), 0.5 * M_PI)
+      EXPECT_GT(std::abs(change) / static_cast<scalar_t>(parts - 1),
+                0.5 * std::numbers::pi)
           << "the fewest parts";
     }
   }
   // A segment that only translates is not cut.
   EXPECT_EQ(TargetTrajectoriesCalculatorBase::knotSubdivisionCount(
-                Extent{.yawChange = 0.0, .arcLength = 5.0, .targetSpeed = 3.0}),
+                Extent{.errYawBaseRtWorld = 0.0,
+                       .arcLength = 5.0,
+                       .cmdSpeedBaseRtWorld = 3.0}),
             1);
   EXPECT_EQ(turnParts(1.0e9),
             TargetTrajectoriesCalculatorBase::kMaxKnotSubdivisions);
   // The cap's turn is the largest a segment makes (velocityCommandKnots()
   // clamps the yaw rate there): exactly pi / 2 apart.
-  EXPECT_EQ(turnParts(TargetTrajectoriesCalculatorBase::kMaxSegmentYawChange),
-            TargetTrajectoriesCalculatorBase::kMaxKnotSubdivisions);
-  EXPECT_NEAR(TargetTrajectoriesCalculatorBase::kMaxSegmentYawChange /
+  EXPECT_EQ(
+      turnParts(TargetTrajectoriesCalculatorBase::kSegmentMaxErrYawBaseRtWorld),
+      TargetTrajectoriesCalculatorBase::kMaxKnotSubdivisions);
+  EXPECT_NEAR(TargetTrajectoriesCalculatorBase::kSegmentMaxErrYawBaseRtWorld /
                   static_cast<scalar_t>(
                       TargetTrajectoriesCalculatorBase::kMaxKnotSubdivisions),
-              0.5 * M_PI, 1.0e-15);
+              0.5 * std::numbers::pi, 1.0e-15);
   const scalar_t nan = std::numeric_limits<scalar_t>::quiet_NaN();
   const scalar_t infinity = std::numeric_limits<scalar_t>::infinity();
   EXPECT_EQ(turnParts(nan), 1);
   EXPECT_EQ(turnParts(infinity), 1);
   EXPECT_EQ(TargetTrajectoriesCalculatorBase::knotSubdivisionCount(
-                Extent{.yawChange = 1.0, .arcLength = nan, .targetSpeed = 1.0}),
+                Extent{.errYawBaseRtWorld = 1.0,
+                       .arcLength = nan,
+                       .cmdSpeedBaseRtWorld = 1.0}),
             1);
-  EXPECT_EQ(TargetTrajectoriesCalculatorBase::knotSubdivisionCount(Extent{
-                .yawChange = 1.0, .arcLength = 1.0, .targetSpeed = infinity}),
+  EXPECT_EQ(TargetTrajectoriesCalculatorBase::knotSubdivisionCount(
+                Extent{.errYawBaseRtWorld = 1.0,
+                       .arcLength = 1.0,
+                       .cmdSpeedBaseRtWorld = infinity}),
             1);
 }
 
 /** Largest distances, over a dense grid, of the linear interpolation of n knots
  * on an arc from the arc. Passive data. */
 struct ChordDeviation {
-  scalar_t maxErrPosBaseRtWorldEwrtWorld = 0.0;
-  scalar_t maxErrLinvelBaseRtWorldEwrtWorld = 0.0;
+  scalar_t maxNormErrPosBaseRtWorldEwrtWorldXy = 0.0;
+  scalar_t maxNormErrLinvelBaseRtWorldEwrtWorldXy = 0.0;
 };
 
 /**
  * The deviation from the arc of a segment cut into `parts`: the base starts
- * with the world velocity `startVelocity` and turns at `yawRate` for
- * `duration`, the knots carry the velocity target R_z(psi_k) `targetVelocity`,
- * and between them the positions and targets are interpolated linearly, as OCS2
- * interpolates a TargetTrajectories.
+ * with the world velocity `initLinvelBaseRtWorldEwrtWorldXy` and turns at
+ * `rateYawBaseRtWorld` for `duration`, the knots carry the velocity target
+ * R_z(psi_k) `cmdLinvelBaseRtWorldEwrtHeadingXy`, and between them the
+ * positions and targets are interpolated linearly, as OCS2 interpolates a
+ * TargetTrajectories.
  */
 ChordDeviation chordDeviation(
     const vector2_t& initLinvelBaseRtWorldEwrtWorldXy,
@@ -204,30 +226,35 @@ ChordDeviation chordDeviation(
   const scalar_t interval = duration / static_cast<scalar_t>(parts);
   for (size_t part = 0; part < parts; ++part) {
     const scalar_t start = interval * static_cast<scalar_t>(part);
-    const vector2_t from =
-        TargetTrajectoriesCalculatorBase::planarArcDisplacement(
+    const vector2_t initErrPosBaseRtWorldEwrtWorldXy =
+        TargetTrajectoriesCalculatorBase::computeErrPosBaseRtWorldEwrtWorldXy(
             initLinvelBaseRtWorldEwrtWorldXy, rateYawBaseRtWorld, start);
-    const vector2_t to =
-        TargetTrajectoriesCalculatorBase::planarArcDisplacement(
+    const vector2_t finalErrPosBaseRtWorldEwrtWorldXy =
+        TargetTrajectoriesCalculatorBase::computeErrPosBaseRtWorldEwrtWorldXy(
             initLinvelBaseRtWorldEwrtWorldXy, rateYawBaseRtWorld,
             start + interval);
-    const vector2_t fromTarget =
+    const vector2_t initCmdLinvelBaseRtWorldEwrtWorldXy =
         rotated(rateYawBaseRtWorld * start, cmdLinvelBaseRtWorldEwrtHeadingXy);
-    const vector2_t toTarget = rotated(rateYawBaseRtWorld * (start + interval),
-                                       cmdLinvelBaseRtWorldEwrtHeadingXy);
+    const vector2_t finalCmdLinvelBaseRtWorldEwrtWorldXy =
+        rotated(rateYawBaseRtWorld * (start + interval),
+                cmdLinvelBaseRtWorldEwrtHeadingXy);
     constexpr int kSamples = 400;
     for (int sample = 0; sample <= kSamples; ++sample) {
       const scalar_t fraction = static_cast<scalar_t>(sample) / kSamples;
       const scalar_t time = start + fraction * interval;
-      const vector2_t onTheArc =
-          TargetTrajectoriesCalculatorBase::planarArcDisplacement(
+      const vector2_t errPosBaseRtWorldEwrtWorldXy =
+          TargetTrajectoriesCalculatorBase::computeErrPosBaseRtWorldEwrtWorldXy(
               initLinvelBaseRtWorldEwrtWorldXy, rateYawBaseRtWorld, time);
-      deviation.maxErrPosBaseRtWorldEwrtWorld =
-          std::max(deviation.maxErrPosBaseRtWorldEwrtWorld,
-                   ((1.0 - fraction) * from + fraction * to - onTheArc).norm());
-      deviation.maxErrLinvelBaseRtWorldEwrtWorld =
-          std::max(deviation.maxErrLinvelBaseRtWorldEwrtWorld,
-                   ((1.0 - fraction) * fromTarget + fraction * toTarget -
+      deviation.maxNormErrPosBaseRtWorldEwrtWorldXy =
+          std::max(deviation.maxNormErrPosBaseRtWorldEwrtWorldXy,
+                   ((1.0 - fraction) * initErrPosBaseRtWorldEwrtWorldXy +
+                    fraction * finalErrPosBaseRtWorldEwrtWorldXy -
+                    errPosBaseRtWorldEwrtWorldXy)
+                       .norm());
+      deviation.maxNormErrLinvelBaseRtWorldEwrtWorldXy =
+          std::max(deviation.maxNormErrLinvelBaseRtWorldEwrtWorldXy,
+                   ((1.0 - fraction) * initCmdLinvelBaseRtWorldEwrtWorldXy +
+                    fraction * finalCmdLinvelBaseRtWorldEwrtWorldXy -
                     rotated(rateYawBaseRtWorld * time,
                             cmdLinvelBaseRtWorldEwrtHeadingXy))
                        .norm());
@@ -265,10 +292,10 @@ TEST(VelocityCommandArc,
              .duration = 0.84}}) {
     SCOPED_TRACE(segment.initLinvelBaseRtWorldEwrtWorldXy.transpose());
     const Extent extent{
-        .yawChange = segment.rateYawBaseRtWorld * segment.duration,
+        .errYawBaseRtWorld = segment.rateYawBaseRtWorld * segment.duration,
         .arcLength =
             segment.initLinvelBaseRtWorldEwrtWorldXy.norm() * segment.duration,
-        .targetSpeed = segment.initLinvelBaseRtWorldEwrtWorldXy.norm()};
+        .cmdSpeedBaseRtWorld = segment.initLinvelBaseRtWorldEwrtWorldXy.norm()};
     const size_t parts =
         TargetTrajectoriesCalculatorBase::knotSubdivisionCount(extent);
     const ChordDeviation cut =
@@ -276,22 +303,22 @@ TEST(VelocityCommandArc,
                        segment.initLinvelBaseRtWorldEwrtWorldXy,
                        segment.rateYawBaseRtWorld, segment.duration, parts);
     EXPECT_LE(
-        cut.maxErrPosBaseRtWorldEwrtWorld,
+        cut.maxNormErrPosBaseRtWorldEwrtWorldXy,
         TargetTrajectoriesCalculatorBase::kKnotMaxErrPosBaseRtWorldEwrtWorld +
             1.0e-12);
-    EXPECT_LE(cut.maxErrLinvelBaseRtWorldEwrtWorld,
+    EXPECT_LE(cut.maxNormErrLinvelBaseRtWorldEwrtWorldXy,
               TargetTrajectoriesCalculatorBase::
                       kKnotMaxErrLinvelBaseRtWorldEwrtWorld +
                   1.0e-12);
     // The deviation is the documented one, at the middle of an interval.
     const scalar_t halfSpacing =
-        0.5 * std::abs(extent.yawChange) / static_cast<scalar_t>(parts);
-    EXPECT_NEAR(cut.maxErrPosBaseRtWorldEwrtWorld,
+        0.5 * std::abs(extent.errYawBaseRtWorld) / static_cast<scalar_t>(parts);
+    EXPECT_NEAR(cut.maxNormErrPosBaseRtWorldEwrtWorldXy,
                 segment.initLinvelBaseRtWorldEwrtWorldXy.norm() /
                     std::abs(segment.rateYawBaseRtWorld) *
                     (1.0 - std::cos(halfSpacing)),
                 1.0e-9);
-    EXPECT_NEAR(cut.maxErrLinvelBaseRtWorldEwrtWorld,
+    EXPECT_NEAR(cut.maxNormErrLinvelBaseRtWorldEwrtWorldXy,
                 segment.initLinvelBaseRtWorldEwrtWorldXy.norm() *
                     (1.0 - std::cos(halfSpacing)),
                 1.0e-9);
@@ -299,16 +326,17 @@ TEST(VelocityCommandArc,
       // The fewest parts for the bounds: with one less, one of them is
       // exceeded.
       const scalar_t fewer = static_cast<scalar_t>(parts - 1);
-      EXPECT_TRUE(extent.arcLength * std::abs(extent.yawChange) /
-                          (8.0 * fewer * fewer) >
-                      TargetTrajectoriesCalculatorBase::
-                          kKnotMaxErrPosBaseRtWorldEwrtWorld ||
-                  extent.targetSpeed * extent.yawChange * extent.yawChange /
-                          (8.0 * fewer * fewer) >
-                      TargetTrajectoriesCalculatorBase::
-                          kKnotMaxErrLinvelBaseRtWorldEwrtWorld ||
-                  std::abs(extent.yawChange) / fewer >
-                      TargetTrajectoriesCalculatorBase::kMaxKnotYawSpacing);
+      EXPECT_TRUE(
+          extent.arcLength * std::abs(extent.errYawBaseRtWorld) /
+                  (8.0 * fewer * fewer) >
+              TargetTrajectoriesCalculatorBase::
+                  kKnotMaxErrPosBaseRtWorldEwrtWorld ||
+          extent.cmdSpeedBaseRtWorld * extent.errYawBaseRtWorld *
+                  extent.errYawBaseRtWorld / (8.0 * fewer * fewer) >
+              TargetTrajectoriesCalculatorBase::
+                  kKnotMaxErrLinvelBaseRtWorldEwrtWorld ||
+          std::abs(extent.errYawBaseRtWorld) / fewer >
+              TargetTrajectoriesCalculatorBase::kKnotMaxErrYawBaseRtWorld);
     }
   }
   // Uncut, the G1's first segment at its limits is 0.21 m off the arc between
@@ -316,9 +344,9 @@ TEST(VelocityCommandArc,
   const ChordDeviation uncut = chordDeviation(
       vector2_t(2.4, 0.0), vector2_t(2.4, 0.0), /*rateYawBaseRtWorld=*/1.0,
       /*duration=*/0.84, /*parts=*/1);
-  EXPECT_NEAR(uncut.maxErrPosBaseRtWorldEwrtWorld, 2.4 * (1.0 - std::cos(0.42)),
-              1.0e-9);
-  EXPECT_GT(uncut.maxErrPosBaseRtWorldEwrtWorld, 0.2);
+  EXPECT_NEAR(uncut.maxNormErrPosBaseRtWorldEwrtWorldXy,
+              2.4 * (1.0 - std::cos(0.42)), 1.0e-9);
+  EXPECT_GT(uncut.maxNormErrPosBaseRtWorldEwrtWorldXy, 0.2);
 }
 
 /** A body planar twist ramping linearly over `duration` from the measured to
@@ -349,20 +377,20 @@ vector2_t computeRampLinvelBaseRtWorldEwrtWorldXy(const TwistRamp& ramp,
 }
 
 /** p(tau) - p(0) of the ramp, by RK4 with 20000 steps. */
-vector2_t rampedDisplacement(const TwistRamp& ramp) {
+vector2_t integrateRampErrPosBaseRtWorldEwrtWorldXy(const TwistRamp& ramp) {
   constexpr int kSteps = 20000;
   const scalar_t step = ramp.duration / kSteps;
-  vector2_t posBaseRtWorldEwrtWorldXy = vector2_t::Zero();
+  vector2_t errPosBaseRtWorldEwrtWorldXy = vector2_t::Zero();
   for (int i = 0; i < kSteps; ++i) {
     const scalar_t time = i * step;
-    posBaseRtWorldEwrtWorldXy +=
+    errPosBaseRtWorldEwrtWorldXy +=
         step / 6.0 *
         (computeRampLinvelBaseRtWorldEwrtWorldXy(ramp, time) +
          4.0 *
              computeRampLinvelBaseRtWorldEwrtWorldXy(ramp, time + 0.5 * step) +
          computeRampLinvelBaseRtWorldEwrtWorldXy(ramp, time + step));
   }
-  return posBaseRtWorldEwrtWorldXy;
+  return errPosBaseRtWorldEwrtWorldXy;
 }
 
 TEST(VelocityCommandArc,
@@ -395,8 +423,8 @@ TEST(VelocityCommandArc,
       TwistRamp ramp = motion;
       ramp.measRateYawBaseRtWorld *= scale;
       ramp.cmdRateYawBaseRtWorld *= scale;
-      const vector2_t held =
-          TargetTrajectoriesCalculatorBase::planarArcDisplacement(
+      const vector2_t heldErrPosBaseRtWorldEwrtWorldXy =
+          TargetTrajectoriesCalculatorBase::computeErrPosBaseRtWorldEwrtWorldXy(
               rotated(ramp.initYawBaseRtWorld,
                       0.5 * (ramp.measLinvelBaseRtWorldEwrtHeadingXy +
                              ramp.cmdLinvelBaseRtWorldEwrtHeadingXy)),
@@ -404,13 +432,15 @@ TEST(VelocityCommandArc,
               ramp.duration);
       const vector2_t leadingTerm =
           ramp.duration * ramp.duration / 12.0 *
-          rotated(ramp.initYawBaseRtWorld + 0.5 * M_PI,
+          rotated(ramp.initYawBaseRtWorld + 0.5 * std::numbers::pi,
                   vector2_t(ramp.measRateYawBaseRtWorld *
                                 ramp.cmdLinvelBaseRtWorldEwrtHeadingXy -
                             ramp.cmdRateYawBaseRtWorld *
                                 ramp.measLinvelBaseRtWorldEwrtHeadingXy));
       const scalar_t remainder =
-          (rampedDisplacement(ramp) - held - leadingTerm).norm();
+          (integrateRampErrPosBaseRtWorldEwrtWorldXy(ramp) -
+           heldErrPosBaseRtWorldEwrtWorldXy - leadingTerm)
+              .norm();
       EXPECT_GT(leadingTerm.norm(), 1.0e-4);
       EXPECT_LT(remainder, 0.3 * leadingTerm.norm());
       if (previousRemainder > 0.0) {
@@ -421,11 +451,14 @@ TEST(VelocityCommandArc,
   }
   // The class comment's steady turn, 0.5 rad/s from 0.15 to 0.3 m/s over 0.84
   // s: 4.4 mm.
-  const vector2_t held =
-      TargetTrajectoriesCalculatorBase::planarArcDisplacement(
+  const vector2_t heldErrPosBaseRtWorldEwrtWorldXy =
+      TargetTrajectoriesCalculatorBase::computeErrPosBaseRtWorldEwrtWorldXy(
           rotated(steadyTurn.initYawBaseRtWorld, vector2_t(0.225, 0.0)),
           steadyTurn.measRateYawBaseRtWorld, steadyTurn.duration);
-  EXPECT_NEAR((rampedDisplacement(steadyTurn) - held).norm(), 4.39e-3, 1.0e-5);
+  EXPECT_NEAR((integrateRampErrPosBaseRtWorldEwrtWorldXy(steadyTurn) -
+               heldErrPosBaseRtWorldEwrtWorldXy)
+                  .norm(),
+              4.39e-3, 1.0e-5);
 }
 
 }  // namespace

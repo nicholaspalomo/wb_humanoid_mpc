@@ -29,8 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <optional>
 #include <string>
 #include <vector>
@@ -236,8 +238,9 @@ TEST(JointPdGains, AControllerRequiresAGainsFileThatSetsEveryDefaultGain) {
        {"kp", "kd", "max_joint_torque"}) {
     std::string defaults = "default_gains {";
     for (const char* absl_nonnull gain : {"kp", "kd", "max_joint_torque"}) {
-      if (absl::string_view(gain) != missingGain)
+      if (absl::string_view(gain) != missingGain) {
         absl::StrAppend(&defaults, " ", gain, ": 1.0");
+      }
     }
     const std::string file = writeTemporaryFile(
         absl::StrCat("partial_", missingGain, "_joint_pd_gains.textproto"),
@@ -296,14 +299,16 @@ TEST(JointPdGains, EveryShippedGainsFileParses) {
     // on the MPC side here.
     std::vector<std::string> joints;
     for (const mpc_config::JointPdGainsFile::JointGains& entry :
-         typed->joint_gains)
+         typed->joint_gains) {
       joints.push_back(entry.joint);
+    }
     const std::vector<std::string> noOtherJoints;
     const absl::StatusOr<std::optional<JointPdGains>> loaded =
         loadJointPdGains(*file, joints, noOtherJoints);
     ASSERT_TRUE(loaded.ok()) << relativePath << ": " << loaded.status();
-    if (!loaded->has_value())
+    if (!loaded->has_value()) {
       GTEST_FAIL() << relativePath << ": the gains file was not found";
+    }
     const absl::StatusOr<JointPdGains> converted =
         jointPdGainsFromConfig(*typed, joints, noOtherJoints);
     ASSERT_TRUE(converted.ok()) << converted.status();

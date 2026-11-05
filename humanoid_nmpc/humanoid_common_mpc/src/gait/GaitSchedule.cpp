@@ -31,20 +31,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <memory>
 #include <stdexcept>
-#include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/log/log.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
-#include "ocs2_core/misc/Lookup.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/reference/GaitFromConfig.h"
+#include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
 
 namespace ocs2::humanoid {

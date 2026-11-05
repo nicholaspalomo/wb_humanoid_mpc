@@ -35,7 +35,7 @@ each group's description says what its values are:
   and "measured"). The blueprint plots each panel from its group alone. The values also appear in the complete groups;
   the duplication costs a few doubles per message and keeps every panel independent of the robot's joint names.
 - The complete groups: every joint (JOINT_GROUPS), every generalized coordinate, velocity and force (DOF_GROUPS), both
-  contact wrenches (CONTACT_WRENCH_GROUPS), every tracked frame (frame_groups(), one set per frame of the task file's
+  contact wrenches (SERIES_GROUPS_WRENCH_FEET_EWRT_WORLD), every tracked frame (frame_groups(), one set per frame of the task file's
   telemetry_frames), the MPC observation (MPC_OBSERVATION_GROUPS), the optimized plan's included, and the latest MPC
   solution's performance index and cost and constraint terms (MPC_SOLUTION_GROUPS). The orientation quaternions are not
   plotted: the Euler angles next to them (and the 3D scene) show them.
@@ -234,18 +234,18 @@ def _triple(path: str, unit: str, description: str) -> SeriesGroup:
     )
 
 
-_COM_POSITION = (
+_POS_COM_RT_WORLD_EWRT_WORLD = (
     "the whole-body center of mass (Pinocchio's, of the source's q), world"
     " frame, at its height. measured: of the sample; reference: of the target"
     " trajectory; plan: of the MPC policy"
 )
-_DCM = (
+_POS_DCM_RT_WORLD_EWRT_WORLD = (
     "the divergent component of motion (instantaneous capture point) xi = c +"
     " c_dot / omega, omega = sqrt(g / z0), g the Pinocchio model's gravity, z0"
     " the nominal state's CoM height above its feet"
-    " (computeComHeightAboveFeet); NaN without a nominal state. Sources as com/"
+    " (computeProxyPosComRtFeetmeanEwrtWorldZ); NaN without a nominal state. Sources as com/"
 )
-_ZMP = (
+_POS_ZMP_RT_WORLD_EWRT_WORLD = (
     "the zero moment point of the source's contact wrenches at its contact"
     " frames, on the plane of their normal-force-weighted height; NaN below 1 N"
     " of net normal force. measured: the force sensors' forces, which carry no"
@@ -253,45 +253,46 @@ _ZMP = (
     " reference: of the target trajectory's input; plan: of the MPC policy's"
     " input"
 )
-_ACOM = (
+_EULERZYX_ACOM_RT_WORLD = (
     "the attitude of the angular center of mass"
-    " (AngularCenterOfMass::acomAttitude() of the base quaternion and the"
+    " (AngularCenterOfMass::computeQuatAcomRtWorldXyzw() of the base quaternion and the"
     " joints) as ZYX Euler angles, for display; NaN for a robot without an ACoM"
     " network. Sources as com/"
 )
 
-_BASE_POSITION = (
+_POS_BASE_RT_WORLD_EWRT_WORLD = (
     "measured: root position; reference: base position of the target trajectory"
 )
-_BASE_EULER = (
+_EULERZYX_BASE_RT_WORLD = (
     "measured: root orientation as roll, pitch, yaw; reference: the target"
     " trajectory's"
 )
-_BASE_LINEAR_VELOCITY = (
-    "measured: root linear velocity; reference: base CoM velocity of the target"
-    " trajectory"
+_LINVEL_BASE_RT_WORLD_EWRT_WORLD = (
+    "measured: root linear velocity; reference: the target trajectory's"
+    " getProxyLinvelComRtWorldEwrtWorld() (the CoM's on the centroidal model,"
+    " the base's on the whole-body model)"
 )
-_BASE_EULER_RATE = (
+_RATE_EULERZYX_BASE_RT_WORLD = (
     "the ZYX Euler angle rates of the body angular velocity, T_B(Theta)^-1 w_B,"
     " for display; NaN within about 1e-6 rad of a pitch of +-90 degrees."
     " measured: of the sample; reference: of the target trajectory, 0 where it"
     " carries no velocity"
 )
-_BASE_BODY_ANGULAR_VELOCITY = (
+_ANGVEL_BASE_RT_WORLD_EWRT_BASE = (
     "the body angular velocity w_B, in the base frame. measured: the sample's"
     " angvel_base_rt_world_ewrt_base; reference: the target trajectory's,"
     " Pinocchio's v[3:6], 0 where it carries no velocity"
 )
-_BASE_ANGULAR_VELOCITY = (
+_ANGVEL_BASE_RT_WORLD_EWRT_WORLD = (
     "the root's angular velocity in the world frame, R(xi) w_B. measured: of"
     " the sample; reference: of the target trajectory, 0 where it carries no"
     " velocity"
 )
-_NORMAL_FORCE = (
+_FORCE_FEET_EWRT_WORLD_Z = (
     "mpc: force z of the plan's contact wrench, the MPC policy's at the"
     " sample's time; measured: the force sensor's"
 )
-_TANGENTIAL_FORCE = (
+_FORCE_FEET_EWRT_WORLD_XY = (
     "mpc_x, mpc_y: the policy's; measured_x, measured_y: the force sensor's"
 )
 _GENERALIZED_COORDINATE = (
@@ -302,11 +303,11 @@ _GENERALIZED_VELOCITY = (
     "generalized velocity, for an angle the Euler angle rate, as"
     " base_pose/<angle>_rate; reference: of the target trajectory"
 )
-_FOOT_ACCELERATION = (
+_LINACC_FEET_RT_WORLD_EWRT_WORLD_Z = (
     "linear z of the classical acceleration of the contact frame,"
     " LOCAL_WORLD_ALIGNED; reference: of the target trajectory"
 )
-_FOOT_VELOCITY = (
+_LINVEL_FEET_RT_WORLD_EWRT_WORLD_Z = (
     "linear z of the contact frame's velocity, LOCAL_WORLD_ALIGNED; reference:"
     " of the target trajectory"
 )
@@ -314,64 +315,112 @@ _FOOT_VELOCITY = (
 # LINT.IfChange(panel_groups)
 PANEL_GROUPS: tuple[SeriesGroup, ...] = (
     # Base Pose & Euler
-    _pair("base_pose/position_x", "m", _BASE_POSITION, _POSITION_COLORS),
-    _pair("base_pose/position_y", "m", _BASE_POSITION, _POSITION_COLORS),
-    _pair("base_pose/position_z", "m", _BASE_POSITION, _POSITION_COLORS),
-    _pair("base_pose/roll", "rad", _BASE_EULER, _ANGLE_COLORS),
-    _pair("base_pose/pitch", "rad", _BASE_EULER, _ANGLE_COLORS),
-    _pair("base_pose/yaw", "rad", _BASE_EULER, _ANGLE_COLORS),
-    _pair("base_pose/roll_rate", "rad/s", _BASE_EULER_RATE, _ANGLE_COLORS),
-    _pair("base_pose/pitch_rate", "rad/s", _BASE_EULER_RATE, _ANGLE_COLORS),
-    _pair("base_pose/yaw_rate", "rad/s", _BASE_EULER_RATE, _ANGLE_COLORS),
+    _pair(
+        "base_pose/position_x",
+        "m",
+        _POS_BASE_RT_WORLD_EWRT_WORLD,
+        _POSITION_COLORS,
+    ),
+    _pair(
+        "base_pose/position_y",
+        "m",
+        _POS_BASE_RT_WORLD_EWRT_WORLD,
+        _POSITION_COLORS,
+    ),
+    _pair(
+        "base_pose/position_z",
+        "m",
+        _POS_BASE_RT_WORLD_EWRT_WORLD,
+        _POSITION_COLORS,
+    ),
+    _pair("base_pose/roll", "rad", _EULERZYX_BASE_RT_WORLD, _ANGLE_COLORS),
+    _pair("base_pose/pitch", "rad", _EULERZYX_BASE_RT_WORLD, _ANGLE_COLORS),
+    _pair("base_pose/yaw", "rad", _EULERZYX_BASE_RT_WORLD, _ANGLE_COLORS),
+    _pair(
+        "base_pose/roll_rate",
+        "rad/s",
+        _RATE_EULERZYX_BASE_RT_WORLD,
+        _ANGLE_COLORS,
+    ),
+    _pair(
+        "base_pose/pitch_rate",
+        "rad/s",
+        _RATE_EULERZYX_BASE_RT_WORLD,
+        _ANGLE_COLORS,
+    ),
+    _pair(
+        "base_pose/yaw_rate",
+        "rad/s",
+        _RATE_EULERZYX_BASE_RT_WORLD,
+        _ANGLE_COLORS,
+    ),
     _pair(
         "base_pose/angular_velocity_x",
         "rad/s",
-        _BASE_BODY_ANGULAR_VELOCITY,
+        _ANGVEL_BASE_RT_WORLD_EWRT_BASE,
         _ANGLE_COLORS,
     ),
     _pair(
         "base_pose/angular_velocity_y",
         "rad/s",
-        _BASE_BODY_ANGULAR_VELOCITY,
+        _ANGVEL_BASE_RT_WORLD_EWRT_BASE,
         _ANGLE_COLORS,
     ),
     _pair(
         "base_pose/angular_velocity_z",
         "rad/s",
-        _BASE_BODY_ANGULAR_VELOCITY,
+        _ANGVEL_BASE_RT_WORLD_EWRT_BASE,
         _ANGLE_COLORS,
     ),
     # Base Twist
     _pair(
-        "base_twist/linear_x", "m/s", _BASE_LINEAR_VELOCITY, _POSITION_COLORS
+        "base_twist/linear_x",
+        "m/s",
+        _LINVEL_BASE_RT_WORLD_EWRT_WORLD,
+        _POSITION_COLORS,
     ),
     _pair(
-        "base_twist/linear_y", "m/s", _BASE_LINEAR_VELOCITY, _POSITION_COLORS
+        "base_twist/linear_y",
+        "m/s",
+        _LINVEL_BASE_RT_WORLD_EWRT_WORLD,
+        _POSITION_COLORS,
     ),
     _pair(
-        "base_twist/linear_z", "m/s", _BASE_LINEAR_VELOCITY, _POSITION_COLORS
+        "base_twist/linear_z",
+        "m/s",
+        _LINVEL_BASE_RT_WORLD_EWRT_WORLD,
+        _POSITION_COLORS,
     ),
     _pair(
-        "base_twist/angular_x", "rad/s", _BASE_ANGULAR_VELOCITY, _ANGLE_COLORS
+        "base_twist/angular_x",
+        "rad/s",
+        _ANGVEL_BASE_RT_WORLD_EWRT_WORLD,
+        _ANGLE_COLORS,
     ),
     _pair(
-        "base_twist/angular_y", "rad/s", _BASE_ANGULAR_VELOCITY, _ANGLE_COLORS
+        "base_twist/angular_y",
+        "rad/s",
+        _ANGVEL_BASE_RT_WORLD_EWRT_WORLD,
+        _ANGLE_COLORS,
     ),
     _pair(
-        "base_twist/angular_z", "rad/s", _BASE_ANGULAR_VELOCITY, _ANGLE_COLORS
+        "base_twist/angular_z",
+        "rad/s",
+        _ANGVEL_BASE_RT_WORLD_EWRT_WORLD,
+        _ANGLE_COLORS,
     ),
     # Contact Forces
     _pair(
         "contact_forces/left_normal",
         "N",
-        _NORMAL_FORCE,
+        _FORCE_FEET_EWRT_WORLD_Z,
         (palette.PLOT_RED, palette.PLOT_BLUE),
         names=(MPC, MEASURED),
     ),
     _pair(
         "contact_forces/right_normal",
         "N",
-        _NORMAL_FORCE,
+        _FORCE_FEET_EWRT_WORLD_Z,
         (palette.PLOT_RED, palette.PLOT_BLUE),
         names=(MPC, MEASURED),
     ),
@@ -379,7 +428,7 @@ PANEL_GROUPS: tuple[SeriesGroup, ...] = (
         path="contact_forces/left_tangential",
         names=("mpc_x", "measured_x", "mpc_y", "measured_y"),
         unit="N",
-        description=_TANGENTIAL_FORCE,
+        description=_FORCE_FEET_EWRT_WORLD_XY,
         colors=(
             palette.PLOT_ORANGE,
             palette.PLOT_GREEN,
@@ -391,7 +440,7 @@ PANEL_GROUPS: tuple[SeriesGroup, ...] = (
         path="contact_forces/right_tangential",
         names=("mpc_x", "measured_x", "mpc_y", "measured_y"),
         unit="N",
-        description=_TANGENTIAL_FORCE,
+        description=_FORCE_FEET_EWRT_WORLD_XY,
         colors=(
             palette.PLOT_ORANGE,
             palette.PLOT_GREEN,
@@ -434,32 +483,38 @@ PANEL_GROUPS: tuple[SeriesGroup, ...] = (
     _pair(
         "foot_kinematics/left_acceleration_z",
         "m/s^2",
-        _FOOT_ACCELERATION,
+        _LINACC_FEET_RT_WORLD_EWRT_WORLD_Z,
         _POSITION_COLORS,
     ),
     _pair(
         "foot_kinematics/right_acceleration_z",
         "m/s^2",
-        _FOOT_ACCELERATION,
+        _LINACC_FEET_RT_WORLD_EWRT_WORLD_Z,
         _POSITION_COLORS,
     ),
     _pair(
-        "foot_kinematics/left_velocity_z", "m/s", _FOOT_VELOCITY, _ANGLE_COLORS
+        "foot_kinematics/left_velocity_z",
+        "m/s",
+        _LINVEL_FEET_RT_WORLD_EWRT_WORLD_Z,
+        _ANGLE_COLORS,
     ),
     _pair(
-        "foot_kinematics/right_velocity_z", "m/s", _FOOT_VELOCITY, _ANGLE_COLORS
+        "foot_kinematics/right_velocity_z",
+        "m/s",
+        _LINVEL_FEET_RT_WORLD_EWRT_WORLD_Z,
+        _ANGLE_COLORS,
     ),
     # Balance (CoM, DCM, ZMP, ACoM)
-    _triple("com/position_x", "m", _COM_POSITION),
-    _triple("com/position_y", "m", _COM_POSITION),
-    _triple("com/position_z", "m", _COM_POSITION),
-    _triple("dcm/x", "m", _DCM),
-    _triple("dcm/y", "m", _DCM),
-    _triple("zmp/x", "m", _ZMP),
-    _triple("zmp/y", "m", _ZMP),
-    _triple("acom/roll", "rad", _ACOM),
-    _triple("acom/pitch", "rad", _ACOM),
-    _triple("acom/yaw", "rad", _ACOM),
+    _triple("com/position_x", "m", _POS_COM_RT_WORLD_EWRT_WORLD),
+    _triple("com/position_y", "m", _POS_COM_RT_WORLD_EWRT_WORLD),
+    _triple("com/position_z", "m", _POS_COM_RT_WORLD_EWRT_WORLD),
+    _triple("dcm/x", "m", _POS_DCM_RT_WORLD_EWRT_WORLD),
+    _triple("dcm/y", "m", _POS_DCM_RT_WORLD_EWRT_WORLD),
+    _triple("zmp/x", "m", _POS_ZMP_RT_WORLD_EWRT_WORLD),
+    _triple("zmp/y", "m", _POS_ZMP_RT_WORLD_EWRT_WORLD),
+    _triple("acom/roll", "rad", _EULERZYX_ACOM_RT_WORLD),
+    _triple("acom/pitch", "rad", _EULERZYX_ACOM_RT_WORLD),
+    _triple("acom/yaw", "rad", _EULERZYX_ACOM_RT_WORLD),
 )
 # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/README.md:panel_groups, //humanoid_nmpc/humanoid_common_mpc_app/visualization/src/TelemetryBuilder.cpp:telemetry_groups)
 
@@ -574,7 +629,9 @@ DOF_GROUPS: tuple[SeriesGroup, ...] = (
 )
 
 
-def _contact_wrench_groups(side: str) -> tuple[SeriesGroup, SeriesGroup]:
+def _series_groups_wrench_foot_ewrt_world(
+    side: str,
+) -> tuple[SeriesGroup, SeriesGroup]:
     """The groups of one foot's contact wrench: the plan's, and the force sensor's."""
     return (
         SeriesGroup(
@@ -595,9 +652,10 @@ def _contact_wrench_groups(side: str) -> tuple[SeriesGroup, SeriesGroup]:
     )
 
 
-CONTACT_WRENCH_GROUPS: tuple[SeriesGroup, ...] = _contact_wrench_groups(
-    LEFT
-) + _contact_wrench_groups(RIGHT)
+SERIES_GROUPS_WRENCH_FEET_EWRT_WORLD: tuple[SeriesGroup, ...] = (
+    _series_groups_wrench_foot_ewrt_world(LEFT)
+    + _series_groups_wrench_foot_ewrt_world(RIGHT)
+)
 
 MPC_OBSERVATION_GROUPS: tuple[SeriesGroup, ...] = (
     _robot_dependent(
@@ -715,7 +773,7 @@ STATIC_GROUPS: tuple[SeriesGroup, ...] = (
     PANEL_GROUPS
     + JOINT_GROUPS
     + DOF_GROUPS
-    + CONTACT_WRENCH_GROUPS
+    + SERIES_GROUPS_WRENCH_FEET_EWRT_WORLD
     + MPC_OBSERVATION_GROUPS
     + MPC_SOLUTION_GROUPS
 )

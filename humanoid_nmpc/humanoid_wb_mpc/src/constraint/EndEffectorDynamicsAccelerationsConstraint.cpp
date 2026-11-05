@@ -109,7 +109,7 @@ EndEffectorDynamicsAccelerationsConstraint::
         size_t numConstraints,
         Config config)
     : StateInputConstraint(ConstraintOrder::Linear),
-      ground_plane_normal_(0.0, 0.0, 1.0),
+      normalTerrainEwrtWorld_(0.0, 0.0, 1.0),
       endEffectorDynamicsPtr_(endEffectorDynamics.clone()),
       numConstraints_(numConstraints),
       config_(std::move(config)) {}
@@ -122,7 +122,7 @@ EndEffectorDynamicsAccelerationsConstraint::
     EndEffectorDynamicsAccelerationsConstraint(
         const EndEffectorDynamicsAccelerationsConstraint& rhs)
     : StateInputConstraint(rhs),
-      ground_plane_normal_(rhs.ground_plane_normal_),
+      normalTerrainEwrtWorld_(rhs.normalTerrainEwrtWorld_),
       endEffectorDynamicsPtr_(rhs.endEffectorDynamicsPtr_->clone()),
       numConstraints_(rhs.numConstraints_),
       config_(rhs.config_) {}
@@ -148,12 +148,12 @@ vector_t EndEffectorDynamicsAccelerationsConstraint::getValue(
   if (config_.Ax.size() > 0) {
     // foot pose is a 6D vector containing the foot position and orientation
     // error wrt. to the ground normal
-    vector6_t footPose;
-    footPose << endEffectorDynamicsPtr_->getPosition(state).front(),
+    vector6_t xee;
+    xee << endEffectorDynamicsPtr_->getPosEesRtWorldEwrtWorld(state).front(),
         endEffectorDynamicsPtr_
-            ->getOrientationErrorWrtPlane(state, {ground_plane_normal_})
+            ->getTiltEesRtSurfaceEwrtWorld(state, {normalTerrainEwrtWorld_})
             .front();
-    f.noalias() += config_.Ax * footPose;
+    f.noalias() += config_.Ax * xee;
   }
   // The velocity and acceleration gains act on the time derivatives of that
   // pose: the linear velocity and acceleration, and the rate and acceleration
@@ -161,15 +161,15 @@ vector_t EndEffectorDynamicsAccelerationsConstraint::getValue(
   // rotation rate about the foot normal), so that the orientation rows are the
   // PD law on the error, Kp e + Kd de/dt + Ka d2e/dt2.
   if (config_.Av.size() > 0) {
-    f.noalias() += config_.Av * endEffectorDynamicsPtr_
-                                    ->getPoseWrtPlaneRate(
-                                        state, input, {ground_plane_normal_})
-                                    .front();
+    f.noalias() +=
+        config_.Av * endEffectorDynamicsPtr_
+                         ->getXeeRate(state, input, {normalTerrainEwrtWorld_})
+                         .front();
   }
   if (config_.Aa.size() > 0) {
     f.noalias() += config_.Aa * endEffectorDynamicsPtr_
-                                    ->getPoseWrtPlaneAcceleration(
-                                        state, input, {ground_plane_normal_})
+                                    ->getXeeSecondRate(
+                                        state, input, {normalTerrainEwrtWorld_})
                                     .front();
   }
   return f;
@@ -195,19 +195,22 @@ EndEffectorDynamicsAccelerationsConstraint::getLinearApproximation(
   // through all of Ax: the linearization of getValue() for any Ax and any
   // number of rows. The pose depends on the state alone.
   if (config_.Ax.size() > 0) {
-    const VectorFunctionLinearApproximation positionApprox =
-        endEffectorDynamicsPtr_->getPositionLinearApproximation(state).front();
-    const VectorFunctionLinearApproximation orientationApprox =
+    const VectorFunctionLinearApproximation approxPosEeRtWorldEwrtWorld =
         endEffectorDynamicsPtr_
-            ->getOrientationErrorWrtPlaneLinearApproximation(
-                state, {ground_plane_normal_})
+            ->getLinearApproximationPosEesRtWorldEwrtWorld(state)
             .front();
-    vector6_t footPose;
-    footPose << positionApprox.f, orientationApprox.f;
-    matrix_t footPoseJacobian(kPoseTangentDim, state.size());
-    footPoseJacobian << positionApprox.dfdx, orientationApprox.dfdx;
-    linearApproximation.f.noalias() += config_.Ax * footPose;
-    linearApproximation.dfdx.noalias() += config_.Ax * footPoseJacobian;
+    const VectorFunctionLinearApproximation approxTiltEeRtSurfaceEwrtWorld =
+        endEffectorDynamicsPtr_
+            ->getLinearApproximationTiltEesRtSurfaceEwrtWorld(
+                state, {normalTerrainEwrtWorld_})
+            .front();
+    vector6_t xee;
+    xee << approxPosEeRtWorldEwrtWorld.f, approxTiltEeRtSurfaceEwrtWorld.f;
+    matrix_t xeeJacobian(kPoseTangentDim, state.size());
+    xeeJacobian << approxPosEeRtWorldEwrtWorld.dfdx,
+        approxTiltEeRtSurfaceEwrtWorld.dfdx;
+    linearApproximation.f.noalias() += config_.Ax * xee;
+    linearApproximation.dfdx.noalias() += config_.Ax * xeeJacobian;
   }
 
   // The rates of getValue(), from the libraries that give their values: the
@@ -216,8 +219,8 @@ EndEffectorDynamicsAccelerationsConstraint::getLinearApproximation(
   if (config_.Av.size() > 0) {
     const VectorFunctionLinearApproximation rateApprox =
         endEffectorDynamicsPtr_
-            ->getPoseWrtPlaneRateLinearApproximation(state, input,
-                                                     {ground_plane_normal_})
+            ->getLinearApproximationXeeRate(state, input,
+                                            {normalTerrainEwrtWorld_})
             .front();
     linearApproximation.f.noalias() += config_.Av * rateApprox.f;
     linearApproximation.dfdx.noalias() += config_.Av * rateApprox.dfdx;
@@ -225,14 +228,14 @@ EndEffectorDynamicsAccelerationsConstraint::getLinearApproximation(
   }
 
   if (config_.Aa.size() > 0) {
-    const VectorFunctionLinearApproximation accelerationApprox =
+    const VectorFunctionLinearApproximation secondRateApprox =
         endEffectorDynamicsPtr_
-            ->getPoseWrtPlaneAccelerationLinearApproximation(
-                state, input, {ground_plane_normal_})
+            ->getLinearApproximationXeeSecondRate(state, input,
+                                                  {normalTerrainEwrtWorld_})
             .front();
-    linearApproximation.f.noalias() += config_.Aa * accelerationApprox.f;
-    linearApproximation.dfdx.noalias() += config_.Aa * accelerationApprox.dfdx;
-    linearApproximation.dfdu.noalias() += config_.Aa * accelerationApprox.dfdu;
+    linearApproximation.f.noalias() += config_.Aa * secondRateApprox.f;
+    linearApproximation.dfdx.noalias() += config_.Aa * secondRateApprox.dfdx;
+    linearApproximation.dfdu.noalias() += config_.Aa * secondRateApprox.dfdu;
   }
 
   return linearApproximation;

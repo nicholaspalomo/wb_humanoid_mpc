@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -45,13 +46,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/CommandData.h"
 #include "ocs2_mpc/MPC_BASE.h"
 #include "ocs2_mpc/MPC_MRT_Interface.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
-#include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_common_mpc/mrt/ContactEstimateIntake.h"
+#include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
 #include "humanoid_common_mpc/mrt/JointPdGainsMailbox.h"
@@ -60,12 +70,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 #include "humanoid_common_mpc/mrt/SafetyDecay.h"
 #include "humanoid_common_mpc/pinocchio_model/RealtimeRigidBodyDynamics.h"
-#include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
-#include "humanoid_mpc_ipc/RealtimePolicyEvaluator.h"
 #include "robot_model/ContactEstimator.h"
 #include "robot_model/ControllerBase.h"
 #include "robot_model/RobotDescription.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid {
 
@@ -279,8 +289,8 @@ class CentroidalMpcMrtJointController final
   /**
    * @brief Set nominal joint positions for JOINT_PD mode.
    */
-  void setNominalJointPositions(const std::vector<scalar_t>& positions) {
-    nominalJointPositions_ = positions;
+  void setNominalJointPositions(const std::vector<scalar_t>& jointPositions) {
+    nominalJointPositions_ = jointPositions;
   }
 
   const ocs2::SystemObservation& getCurrentObservation() const {
@@ -518,8 +528,9 @@ class CentroidalMpcMrtJointController final
                            ::robot::model::RobotJointAction& robotJointAction);
   /** ZERO_TORQUE action: no gain and no feedforward on any joint. The simulator
    * does not apply it; hardware would get nothing. */
-  void fillZeroTorqueAction(const ::robot::model::RobotState& robotState,
-                            ::robot::model::RobotJointAction& robotJointAction);
+  void fillZeroJointTorqueAction(
+      const ::robot::model::RobotState& robotState,
+      ::robot::model::RobotJointAction& robotJointAction);
 
   void fillSafetyAction(const ::robot::model::RobotState& robotState,
                         ::robot::model::RobotJointAction& robotJointAction);
@@ -534,9 +545,10 @@ class CentroidalMpcMrtJointController final
       scalar_t a,
       ::robot::model::RobotJointAction& robotJointAction) const;
 
-  /** `torque` clamped to the torque limit of MPC joint `mpcJoint` (|ff| <=
+  /** `jointTorque` clamped to the torque limit of MPC joint `mpcJoint` (|ff| <=
    * max_joint_torque). Control thread. */
-  scalar_t clampedMpcJointFeedforward(size_t mpcJoint, scalar_t torque) const;
+  scalar_t clampedMpcJointFeedforward(size_t mpcJoint,
+                                      scalar_t jointTorque) const;
 
   /**
    * Posts kPolicyUpdateLockContended once per run of failed try-locks of the
@@ -583,9 +595,10 @@ class CentroidalMpcMrtJointController final
   std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> mpcRobotModelPtr_;
   /// Owned clone of the model matching the OCP input layout (basis-vector
   /// decorator or wrench model). Every input read or write goes through it;
-  /// contact wrenches must be read with the state-aware ...InWorldFrame
-  /// accessors because the input-only accessors return the LOCAL contact-frame
-  /// wrench in basis-vector mode.
+  /// contact wrenches must be read with the state-aware
+  /// get...ContactEwrtWorld(state, input, i) accessors because the input-only
+  /// get...ContactEwrtParam accessors return the contact-frame wrench in
+  /// basis-vector mode.
   std::unique_ptr<MpcRobotModelBase<scalar_t>> effectiveModelPtr_;
   std::vector<size_t> mpcJointIndices_;
   std::vector<size_t> otherJointIndices_;

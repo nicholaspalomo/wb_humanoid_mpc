@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
@@ -105,18 +106,26 @@ struct G1 {
 TEST(LockstepStateEstimator, TheContextIsTheRobotProcesss) {
   const G1 g1;
   RobotProcessSettings settings;
-  settings.kalmanStateEstimator.contactHeight = 0.0123;
+  settings.kalmanStateEstimator.nomPosContactRtWorldEwrtWorldZ = 0.0123;
   const estimation::StateEstimatorContext context =
       robotProcessStateEstimatorContext(settings, g1.modelSettings, g1.urdfFile,
                                         &g1.description);
   // RobotProcess::Create() takes them from the robot binary's backend options,
   // which take them from the model settings.
   EXPECT_EQ(context.urdfFile, g1.urdfFile);
-  EXPECT_EQ(context.contactFrameNames, g1.modelSettings.contactNames);
-  EXPECT_EQ(context.contactParentJointNames,
-            g1.modelSettings.contactParentJointNames);
+  ASSERT_EQ(context.contacts.size(), g1.modelSettings.contactNames.size());
+  for (size_t contact = 0; contact < context.contacts.size(); ++contact) {
+    EXPECT_EQ(context.contacts[contact].frameNames,
+              (std::vector<std::string>{
+                  g1.modelSettings.contactNames[contact],
+                  g1.modelSettings.contactParentJointNames[contact]}))
+        << "contact " << contact;
+    EXPECT_EQ(context.contacts[contact].posContactRtLinkEwrtLink,
+              vector3_t::Zero())
+        << "contact " << contact;
+  }
   EXPECT_EQ(context.description, &g1.description);
-  EXPECT_EQ(context.kalman.contactHeight, 0.0123);
+  EXPECT_EQ(context.kalman.nomPosContactRtWorldEwrtWorldZ, 0.0123);
 }
 
 TEST(LockstepStateEstimator, GroundTruthHandsOnTheMeasuredStateItself) {
@@ -154,6 +163,61 @@ TEST(LockstepStateEstimator, KalmanEstimatesTheBaseAndKeepsTheJoints) {
               g1.state.getJointVelocity(joint))
         << "joint " << joint;
   }
+}
+
+/**
+ * Adds a 3-DoF contact at the left knee to `modelSettings`, first in the
+ * contact order as a multi-contact task's contacts_3dof come. Its frame, like
+ * the feet's, is not in the URDF: the MPC adds it to its own model.
+ */
+void addKneePointContact(ModelSettings& modelSettings) {
+  const ModelSettings::PointContact knee{
+      .name = "knee_l_contact",
+      .parentJointName = "left_knee_joint",
+      .posContactRtLinkEwrtLink = vector3_t(0.05, 0.0, -0.06)};
+  modelSettings.contactNames3DoF = {knee.name};
+  modelSettings.pointContacts = {knee};
+  modelSettings.contactNames = modelSettings.contactNames3DoF;
+  modelSettings.contactNames.insert(modelSettings.contactNames.end(),
+                                    modelSettings.contactNames6DoF.begin(),
+                                    modelSettings.contactNames6DoF.end());
+}
+
+TEST(LockstepStateEstimator, KalmanBuildsTheLegKinematicsOfPointContacts) {
+  G1 g1;
+  addKneePointContact(g1.modelSettings);
+  RobotProcessSettings settings;
+  settings.stateEstimator = std::string(estimation::kKalmanStateEstimatorName);
+  // contact_parent_joint_names has one entry per 6-DoF contact, which follow
+  // the 3-DoF ones: each contact must be paired with its own parent joint.
+  const absl::StatusOr<std::unique_ptr<estimation::StateEstimator>> estimator =
+      createRobotProcessStateEstimator(settings, g1.modelSettings, g1.urdfFile,
+                                       g1.taskFile, &g1.description);
+  ASSERT_TRUE(estimator.ok()) << estimator.status();
+  EXPECT_EQ((*estimator)->name(), estimation::kKalmanStateEstimatorName);
+}
+
+TEST(LockstepStateEstimator, APointContactIsAtItsOffsetFromItsOwnParentJoint) {
+  G1 g1;
+  addKneePointContact(g1.modelSettings);
+  const estimation::StateEstimatorContext context =
+      robotProcessStateEstimatorContext(RobotProcessSettings(),
+                                        g1.modelSettings, g1.urdfFile,
+                                        &g1.description);
+  ASSERT_EQ(context.contacts.size(), 3u);
+  EXPECT_EQ(context.contacts[0].frameNames,
+            (std::vector<std::string>{"left_knee_joint"}));
+  EXPECT_EQ(context.contacts[0].posContactRtLinkEwrtLink,
+            g1.modelSettings.pointContacts[0].posContactRtLinkEwrtLink);
+  // The feet keep their own parents, contact_parent_joint_names[0] and [1].
+  EXPECT_EQ(
+      context.contacts[1].frameNames,
+      (std::vector<std::string>{"foot_l_contact", "left_ankle_roll_joint"}));
+  EXPECT_EQ(
+      context.contacts[2].frameNames,
+      (std::vector<std::string>{"foot_r_contact", "right_ankle_roll_joint"}));
+  EXPECT_EQ(context.contacts[1].posContactRtLinkEwrtLink, vector3_t::Zero());
+  EXPECT_EQ(context.contacts[2].posContactRtLinkEwrtLink, vector3_t::Zero());
 }
 
 TEST(LockstepStateEstimator, AnUnknownNameIsRefusedNamingTheTaskFileField) {

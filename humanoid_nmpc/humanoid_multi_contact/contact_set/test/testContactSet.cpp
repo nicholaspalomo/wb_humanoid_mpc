@@ -57,8 +57,8 @@ config::ContactSet::Candidate pointCandidate(const std::string& name) {
   candidate.name = name;
   candidate.kind = config::ContactSet::Kind::kPoint;
   candidate.parent_joint = "joint";
-  candidate.offset = Eigen::Vector3d(0.1, 0.0, 0.0);
-  candidate.pad_normal = Eigen::Vector3d::UnitX();
+  candidate.pos_pad_rt_link_ewrt_link = Eigen::Vector3d(0.1, 0.0, 0.0);
+  candidate.normal_pad_ewrt_link = Eigen::Vector3d::UnitX();
   candidate.geom_radius = 0.05;
   return candidate;
 }
@@ -66,10 +66,13 @@ config::ContactSet::Candidate pointCandidate(const std::string& name) {
 config::ContactSet::Candidate surfaceCandidate(const std::string& name) {
   config::ContactSet::Candidate candidate = pointCandidate(name);
   candidate.kind = config::ContactSet::Kind::kSurface;
-  candidate.pad_normal = -Eigen::Vector3d::UnitZ();
-  candidate.pad_x_axis = Eigen::Vector3d::UnitX();
-  candidate.rectangle = config::ContactSet::Rectangle{
-      .x_min = -0.1, .x_max = 0.1, .y_min = -0.05, .y_max = 0.05};
+  candidate.normal_pad_ewrt_link = -Eigen::Vector3d::UnitZ();
+  candidate.x_axis_pad_ewrt_link = Eigen::Vector3d::UnitX();
+  candidate.rectangle =
+      config::ContactSet::Rectangle{.min_pos_corners_rt_pad_ewrt_pad_x = -0.1,
+                                    .max_pos_corners_rt_pad_ewrt_pad_x = 0.1,
+                                    .min_pos_corners_rt_pad_ewrt_pad_y = -0.05,
+                                    .max_pos_corners_rt_pad_ewrt_pad_y = 0.05};
   return candidate;
 }
 
@@ -96,15 +99,16 @@ TEST(ContactSetTest, PadFrames) {
   ASSERT_TRUE(set.ok()) << set.status();
   ASSERT_EQ(set->size(), 2);
   for (const ContactCandidate& candidate : set->candidates()) {
-    EXPECT_NEAR(candidate.padRotation.determinant(), 1.0, 1.0e-12);
-    EXPECT_LT((candidate.padRotation.col(2) + candidate.padNormal).norm(),
-              1.0e-12);
+    EXPECT_NEAR(candidate.rotmatPadRtLink.determinant(), 1.0, 1.0e-12);
+    EXPECT_LT(
+        (candidate.rotmatPadRtLink.col(2) + candidate.normalPadEwrtLink).norm(),
+        1.0e-12);
   }
   const ContactCandidate& foot = set->candidate(1);
   EXPECT_EQ(foot.kind, ContactKind::kSurface);
-  EXPECT_TRUE(foot.padRotation.isIdentity(1.0e-12));
+  EXPECT_TRUE(foot.rotmatPadRtLink.isIdentity(1.0e-12));
   ASSERT_TRUE(foot.rectangle.has_value());
-  EXPECT_DOUBLE_EQ(foot.rectangle->xMax, 0.1);
+  EXPECT_DOUBLE_EQ(foot.rectangle->maxPosCornersRtPadEwrtPadX, 0.1);
   EXPECT_FALSE(set->candidate(0).rectangle.has_value());
 }
 
@@ -136,13 +140,13 @@ TEST(ContactSetTest, RefusesInvalidCandidates) {
   orphan.parent_joint = "";
   expectRefused({orphan}, "has no parent_joint");
   config::ContactSet::Candidate shortOffset = pointCandidate("a");
-  shortOffset.offset = Eigen::Vector2d(0.1, 0.0);
-  expectRefused({shortOffset}, "offset must hold 3");
+  shortOffset.pos_pad_rt_link_ewrt_link = Eigen::Vector2d(0.1, 0.0);
+  expectRefused({shortOffset}, "pos_pad_rt_link_ewrt_link must hold 3");
   config::ContactSet::Candidate longNormal = pointCandidate("a");
-  longNormal.pad_normal = Eigen::Vector3d(2.0, 0.0, 0.0);
-  expectRefused({longNormal}, "pad_normal must be a unit vector");
+  longNormal.normal_pad_ewrt_link = Eigen::Vector3d(2.0, 0.0, 0.0);
+  expectRefused({longNormal}, "normal_pad_ewrt_link must be a unit vector");
   config::ContactSet::Candidate skewAxis = surfaceCandidate("a");
-  skewAxis.pad_x_axis = Eigen::Vector3d::UnitZ();
+  skewAxis.x_axis_pad_ewrt_link = Eigen::Vector3d::UnitZ();
   expectRefused({skewAxis}, "orthogonal");
   config::ContactSet::Candidate noRectangle = surfaceCandidate("a");
   noRectangle.rectangle.reset();
@@ -151,8 +155,10 @@ TEST(ContactSetTest, RefusesInvalidCandidates) {
   pointRectangle.kind = config::ContactSet::Kind::kPoint;
   expectRefused({pointRectangle}, "has no rectangle");
   config::ContactSet::Candidate emptyRectangle = surfaceCandidate("a");
-  emptyRectangle.rectangle->x_max = -0.2;
-  expectRefused({emptyRectangle}, "x_min < x_max");
+  emptyRectangle.rectangle->max_pos_corners_rt_pad_ewrt_pad_x = -0.2;
+  expectRefused(
+      {emptyRectangle},
+      "min_pos_corners_rt_pad_ewrt_pad_x < max_pos_corners_rt_pad_ewrt_pad_x");
   config::ContactSet::Candidate negativeRadius = pointCandidate("a");
   negativeRadius.geom_radius = -0.01;
   expectRefused({negativeRadius}, "geom_radius");
@@ -195,23 +201,32 @@ TEST(ContactSetTest, AtlasContactSet) {
   EXPECT_EQ(surfaces, 5);
   // A sole is 0.24 x 0.11 m, the torso pads 0.36 x 0.30 m.
   const ContactCandidate& foot = set->candidate(0);
-  EXPECT_NEAR(foot.rectangle->xMax - foot.rectangle->xMin, 0.24, 1.0e-12);
-  EXPECT_NEAR(foot.rectangle->yMax - foot.rectangle->yMin, 0.11, 1.0e-12);
+  EXPECT_NEAR(foot.rectangle->maxPosCornersRtPadEwrtPadX -
+                  foot.rectangle->minPosCornersRtPadEwrtPadX,
+              0.24, 1.0e-12);
+  EXPECT_NEAR(foot.rectangle->maxPosCornersRtPadEwrtPadY -
+                  foot.rectangle->minPosCornersRtPadEwrtPadY,
+              0.11, 1.0e-12);
   const ContactCandidate& back = set->candidate(11);
-  EXPECT_NEAR(back.rectangle->xMax - back.rectangle->xMin, 0.36, 1.0e-12);
-  EXPECT_NEAR(back.rectangle->yMax - back.rectangle->yMin, 0.30, 1.0e-12);
+  EXPECT_NEAR(back.rectangle->maxPosCornersRtPadEwrtPadX -
+                  back.rectangle->minPosCornersRtPadEwrtPadX,
+              0.36, 1.0e-12);
+  EXPECT_NEAR(back.rectangle->maxPosCornersRtPadEwrtPadY -
+                  back.rectangle->minPosCornersRtPadEwrtPadY,
+              0.30, 1.0e-12);
   // The torso pad's x axis runs up the torso, and its z axis into the body.
-  EXPECT_LT((back.padRotation.col(0) - Eigen::Vector3d::UnitZ()).norm(),
+  EXPECT_LT((back.rotmatPadRtLink.col(0) - Eigen::Vector3d::UnitZ()).norm(),
             1.0e-12);
-  EXPECT_LT((back.padRotation.col(2) - Eigen::Vector3d::UnitX()).norm(),
+  EXPECT_LT((back.rotmatPadRtLink.col(2) - Eigen::Vector3d::UnitX()).norm(),
             1.0e-12);
   // A round pad lies at its radius from the geometry: the thigh's from the
   // capsule axis from (0, 0, 0) to (-0.05, 0, -0.37).
   const ContactCandidate& thigh = set->candidate(9);
   const Eigen::Vector3d axis = Eigen::Vector3d(-0.05, 0.0, -0.37).normalized();
-  const Eigen::Vector3d fromAxis = thigh.offset - thigh.offset.dot(axis) * axis;
+  const Eigen::Vector3d fromAxis =
+      thigh.posPadRtLinkEwrtLink - thigh.posPadRtLinkEwrtLink.dot(axis) * axis;
   EXPECT_NEAR(fromAxis.norm(), thigh.geomRadius, 1.0e-3);
-  EXPECT_LT((fromAxis.normalized() - thigh.padNormal).norm(), 1.0e-3);
+  EXPECT_LT((fromAxis.normalized() - thigh.normalPadEwrtLink).norm(), 1.0e-3);
 }
 
 }  // namespace

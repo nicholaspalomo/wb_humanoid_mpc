@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/GaitScheduleUpdater.h"
@@ -135,8 +137,9 @@ TEST(UpdateGaitSchedule,
   EXPECT_EQ(after.modeAtTime(5.0 + 0.1), ModeNumber::kLf)
       << "the trot begins after the first event";
   EXPECT_EQ(after.modeAtTime(5.0 + 0.35 + 0.1), ModeNumber::kRf);
-  for (const scalar_t eventTime : after.eventTimes)
+  for (const scalar_t eventTime : after.eventTimes) {
     EXPECT_TRUE(std::isfinite(eventTime));
+  }
 }
 
 }  // namespace

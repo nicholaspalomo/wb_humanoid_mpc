@@ -82,7 +82,7 @@ namespace {
 
 constexpr scalar_t kControlPeriod = 0.01;  // [s]
 // [rad/s] the turn of the scripted plan and of the measured stream.
-constexpr scalar_t kTurnRate = 1.0;
+constexpr scalar_t kRateYawBaseRtWorld = 1.0;
 
 /** The action of joint `index`, which every joint of the description holds: a
  * test failure and a zero action if not. */
@@ -115,14 +115,15 @@ void expectSameCommands(const robot::model::RobotDescription& description,
 }
 
 /** The unit quaternion of a turn by `angle` about the world z axis. */
-vector4_t headingRotation(scalar_t angle) {
+vector4_t unitQuaternionOfYaw(scalar_t angle) {
   return vector4_t(0.0, 0.0, std::sin(0.5 * angle), std::cos(0.5 * angle));
 }
 
 /**
- * A scripted plan that turns the base about the world z axis at kTurnRate from
- * the observed attitude, xi(t) = q_z(kTurnRate (t - t0)) (x) xi_0, the product
- * negating with xi_0 bit for bit, and moves every joint at 0.05 rad/s.
+ * A scripted plan that turns the base about the world z axis at
+ * kRateYawBaseRtWorld from the observed attitude, xi(t) =
+ * q_z(kRateYawBaseRtWorld (t - t0)) (x) xi_0, the product negating with xi_0
+ * bit for bit, and moves every joint at 0.05 rad/s.
  */
 mpc_test::ScriptedSolver::PlanFunction turningPlan(
     const WBAccelMpcRobotModel<scalar_t>& model) {
@@ -134,9 +135,11 @@ mpc_test::ScriptedSolver::PlanFunction turningPlan(
   return [orientationStart, jointStart, jointDim](
              scalar_t time, scalar_t initTime, const vector_t& initState) {
     vector_t planned = initState;
-    const vector4_t initialOrientation = initState.segment<4>(orientationStart);
+    const vector4_t initQuatBaseRtWorldXyzw =
+        initState.segment<4>(orientationStart);
     planned.segment<4>(orientationStart) = quaternionProduct<scalar_t>(
-        headingRotation(kTurnRate * (time - initTime)), initialOrientation);
+        unitQuaternionOfYaw(kRateYawBaseRtWorld * (time - initTime)),
+        initQuatBaseRtWorldXyzw);
     planned.segment(jointStart, jointDim).array() += 0.05 * (time - initTime);
     return planned;
   };
@@ -192,19 +195,20 @@ class WholeBodyController {
   mpc_test::ScriptedMpc& mpc() { return mpc_; }
 
   /**
-   * Measures the robot at the base orientation `orientation` (x, y, z, w, as
-   * the estimator hands it), standing at a fixed position, turning at kTurnRate
-   * about the world z axis and moving every joint, both feet on the ground.
+   * Measures the robot at the base orientation `quatBaseRtWorldXyzw` (x, y, z,
+   * w, as the estimator hands it), standing at a fixed position, turning at
+   * kRateYawBaseRtWorld about the world z axis and moving every joint, both
+   * feet on the ground.
    */
-  void measure(const vector4_t& orientation) {
+  void measure(const vector4_t& quatBaseRtWorldXyzw) {
     robotState_.setConfigurationToZero();
     robotState_.setPosBaseRtWorldEwrtWorld(vector3_t(0.1, -0.05, 0.76));
-    const quaternion_t rotation(orientation);
-    robotState_.setQuatBaseRtWorld(rotation);
-    robotState_.setLinvelBaseRtWorldEwrtBase(rotation.conjugate() *
+    const quaternion_t quatBaseRtWorld(quatBaseRtWorldXyzw);
+    robotState_.setQuatBaseRtWorld(quatBaseRtWorld);
+    robotState_.setLinvelBaseRtWorldEwrtBase(quatBaseRtWorld.conjugate() *
                                              vector3_t(0.2, 0.05, 0.0));
-    robotState_.setAngvelBaseRtWorldEwrtBase(rotation.conjugate() *
-                                             vector3_t(0.0, 0.0, kTurnRate));
+    robotState_.setAngvelBaseRtWorldEwrtBase(
+        quatBaseRtWorld.conjugate() * vector3_t(0.0, 0.0, kRateYawBaseRtWorld));
     for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
       robotState_.setJointPosition(
           mpcJointIndices_[i], 0.1 * std::sin(0.7 * static_cast<scalar_t>(i)));
@@ -257,14 +261,16 @@ class WholeBodyController {
 
 /**
  * The measured orientation of the stream at control cycle `cycle`: q_z(psi) (x)
- * `tilt`, the heading psi turning at kTurnRate through pi from pi - 0.25.
+ * `unturnedQuatBaseRtWorldXyzw`, the base's attitude before the turn, with psi
+ * turning at kRateYawBaseRtWorld through pi from pi - 0.25.
  */
-vector4_t streamOrientation(const vector4_t& tilt, int cycle) {
+vector4_t streamQuatBaseRtWorldXyzw(
+    const vector4_t& unturnedQuatBaseRtWorldXyzw, int cycle) {
   return quaternionProduct<scalar_t>(
-      headingRotation(M_PI - 0.25 +
-                      kTurnRate * kControlPeriod *
-                          static_cast<scalar_t>(cycle)),
-      tilt);
+      unitQuaternionOfYaw(M_PI - 0.25 +
+                          kRateYawBaseRtWorld * kControlPeriod *
+                              static_cast<scalar_t>(cycle)),
+      unturnedQuatBaseRtWorldXyzw);
 }
 
 /**
@@ -272,7 +278,7 @@ vector4_t streamOrientation(const vector4_t& tilt, int cycle) {
  * bit for bit: the same state of the robot with the other sign of the
  * quaternion for -1.
  */
-void expectSameStateUpToTheQuaternionSign(
+void expectSameStateUpToTheUnitQuaternionSign(
     const WBAccelMpcRobotModel<scalar_t>& model,
     const vector_t& expected,
     const vector_t& actual,
@@ -295,19 +301,19 @@ void expectSameObservation(WholeBodyController& expected,
   EXPECT_EQ(a.time, b.time);
   EXPECT_EQ(a.mode, b.mode);
   EXPECT_EQ(a.input, b.input);
-  expectSameStateUpToTheQuaternionSign(expected.model(), a.state, b.state,
-                                       sign);
+  expectSameStateUpToTheUnitQuaternionSign(expected.model(), a.state, b.state,
+                                           sign);
 }
 
 TEST(WBMrtObservationDoubleCover,
      ANegatedMeasuredQuaternionIsTheSameRobotToTheSolverAndToEveryJoint) {
   // A level attitude, one turned near a heading of pi and one at a pitch of 90
   // degrees.
-  for (const vector3_t& eulerZyx :
+  for (const vector3_t& eulerzyxBaseRtWorld :
        {vector3_t(0.3, 0.1, -0.05), vector3_t(3.1, -0.2, 0.15),
         vector3_t(-2.0, M_PI / 2.0, 0.3)}) {
-    SCOPED_TRACE(eulerZyx.transpose());
-    const vector4_t xi = quaternionFromEulerZyx(eulerZyx);
+    SCOPED_TRACE(eulerzyxBaseRtWorld.transpose());
+    const vector4_t xi = quaternionFromEulerZyx(eulerzyxBaseRtWorld);
     WholeBodyController positive;
     WholeBodyController negative;
     ASSERT_TRUE(positive.ok() && negative.ok());
@@ -337,7 +343,7 @@ TEST(WBMrtObservationDoubleCover,
       negative.solve();
       ASSERT_EQ(positive.mpc().solver().numSolves(),
                 negative.mpc().solver().numSolves());
-      expectSameStateUpToTheQuaternionSign(
+      expectSameStateUpToTheUnitQuaternionSign(
           positive.model(), positive.mpc().solver().lastInitState(),
           negative.mpc().solver().lastInitState(), /*sign=*/-1.0);
       for (int cycle = 0; cycle < 3; ++cycle) {
@@ -360,24 +366,28 @@ TEST(WBMrtObservationDoubleCover,
   ASSERT_TRUE(continuous.ok() && canonical.ok());
   const robot::model::RobotDescription& description = continuous.description();
   const WBAccelMpcRobotModel<scalar_t>& model = continuous.model();
-  // Tilted, turning through a heading of pi at kTurnRate: xi(psi) = q_z(psi)
-  // (x) q_tilt is continuous, and its w changes sign there; the canonical
-  // stream is -xi wherever w < 0.
-  const vector4_t tilt = quaternionFromEulerZyx(vector3_t(0.0, 0.05, 0.1));
+  // Tilted, turning through a heading of pi at kRateYawBaseRtWorld: xi(psi) =
+  // q_z(psi) (x) q_tilt is continuous, and its w changes sign there; the
+  // canonical stream is -xi wherever w < 0.
+  const vector4_t unturnedQuatBaseRtWorldXyzw =
+      quaternionFromEulerZyx(vector3_t(0.0, 0.05, 0.1));
   constexpr int kCycles = 50;
 
-  continuous.measure(streamOrientation(tilt, /*cycle=*/0));
-  canonical.measure(streamOrientation(tilt, /*cycle=*/0));
+  continuous.measure(
+      streamQuatBaseRtWorldXyzw(unturnedQuatBaseRtWorldXyzw, /*cycle=*/0));
+  canonical.measure(
+      streamQuatBaseRtWorldXyzw(unturnedQuatBaseRtWorldXyzw, /*cycle=*/0));
   continuous.start();
   canonical.start();
   continuous.solve();
   canonical.solve();
   int flips = 0;
   scalar_t previousSign = 1.0;
-  scalar_t previousHeading = 0.0;
+  scalar_t prevMeasYawBaseRtWorld = 0.0;
   for (int cycle = 0; cycle < kCycles; ++cycle) {
     SCOPED_TRACE(cycle);
-    const vector4_t xi = streamOrientation(tilt, cycle);
+    const vector4_t xi =
+        streamQuatBaseRtWorldXyzw(unturnedQuatBaseRtWorldXyzw, cycle);
     const scalar_t sign = xi(3) < 0.0 ? -1.0 : 1.0;
     if (cycle > 0 && sign != previousSign) ++flips;
     previousSign = sign;
@@ -389,16 +399,17 @@ TEST(WBMrtObservationDoubleCover,
               canonical.controller().getLatestPolicyInput());
     // The heading the canonical stream reads is continuous across the flip: a
     // step of the turn, never a jump.
-    const scalar_t heading = model.getYawBaseRtWorld(
+    const scalar_t measYawBaseRtWorld = model.getYawBaseRtWorld(
         canonical.controller().getCurrentObservation().state);
     if (cycle > 0) {
-      EXPECT_NEAR(std::remainder(heading - previousHeading, 2.0 * M_PI),
-                  kTurnRate * kControlPeriod, 1.0e-3);
+      EXPECT_NEAR(std::remainder(measYawBaseRtWorld - prevMeasYawBaseRtWorld,
+                                 2.0 * M_PI),
+                  kRateYawBaseRtWorld * kControlPeriod, 1.0e-3);
     }
-    previousHeading = heading;
+    prevMeasYawBaseRtWorld = measYawBaseRtWorld;
     continuous.solve();
     canonical.solve();
-    expectSameStateUpToTheQuaternionSign(
+    expectSameStateUpToTheUnitQuaternionSign(
         model, continuous.mpc().solver().lastInitState(),
         canonical.mpc().solver().lastInitState(), sign);
   }

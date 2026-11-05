@@ -64,7 +64,7 @@ CentroidalModelInfoCppAd CentroidalModelInfo::toCppAd() const {
   cppAdInfo.inputDim = this->inputDim;
   cppAdInfo.robotMass = ad_scalar_t(this->robotMass);
   cppAdInfo.qPinocchioNominal = this->qPinocchioNominal.cast<ad_scalar_t>();
-  cppAdInfo.centroidalInertiaNominal = this->centroidalInertiaNominal.cast<ad_scalar_t>();
+  cppAdInfo.nomInertiaComEwrtBase = this->nomInertiaComEwrtBase.cast<ad_scalar_t>();
   cppAdInfo.nomPosBaseRtComEwrtBase = this->nomPosBaseRtComEwrtBase.cast<ad_scalar_t>();
 
   return cppAdInfo;

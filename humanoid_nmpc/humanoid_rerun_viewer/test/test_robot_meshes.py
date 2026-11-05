@@ -168,7 +168,7 @@ class VisualColorTest(unittest.TestCase):
         return urdf_model.Visual(
             link="a",
             index=0,
-            origin=urdf_model.Origin(),
+            pose_geom_rt_link=urdf_model.Origin(),
             geometry=geometry,
             color=color,
         )

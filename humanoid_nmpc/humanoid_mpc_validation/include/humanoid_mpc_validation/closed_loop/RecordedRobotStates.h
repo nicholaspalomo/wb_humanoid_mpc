@@ -55,13 +55,14 @@ struct RobotStateRecord {
    * the RobotState's contact order. */
   static constexpr int kNumRecordedContacts = static_cast<int>(kNumContacts);
 
-  double time = 0.0;                                       ///< [s]
-  Eigen::Vector3d basePosition = Eigen::Vector3d::Zero();  ///< [m] world frame
-  Eigen::Vector4d baseQuaternion =
+  double time = 0.0;  ///< [s]
+  Eigen::Vector3d posBaseRtWorldEwrtWorld =
+      Eigen::Vector3d::Zero();  ///< [m] world frame
+  Eigen::Vector4d quatBaseRtWorldXyzw =
       Eigen::Vector4d::UnitW();  ///< base to world, coefficients (x, y, z, w)
-  Eigen::Vector3d baseLinearVelocityLocal =
+  Eigen::Vector3d linvelBaseRtWorldEwrtBase =
       Eigen::Vector3d::Zero();  ///< [m/s] base frame
-  Eigen::Vector3d baseAngularVelocityLocal =
+  Eigen::Vector3d angvelBaseRtWorldEwrtBase =
       Eigen::Vector3d::Zero();  ///< [rad/s] base frame
   Eigen::VectorXd
       jointPositions;  ///< every joint of the description, in its order

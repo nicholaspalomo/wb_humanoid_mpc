@@ -143,17 +143,20 @@ class StaticEquilibrium {
   const StaticEquilibriumOptions& options() const { return options_; }
 
   /** The required normalized contact wrench, about the generators' reference
-   * point, that holds the robot still with its CoM above `comXy`. */
-  Wrench staticWrench(const Eigen::Vector2d& comXy) const;
+   * point, that holds the robot still with its CoM above
+   * `posComRtWorldEwrtWorldXy`. */
+  Wrench computeStaticWnormWrenchStanceEwrtWorld(
+      const Eigen::Vector2d& posComRtWorldEwrtWorldXy) const;
 
   /** The L1 norm of the smallest mismatch between the stance's wrenches and
-   * `wrench` (normalized, about the reference point): 0 exactly when the
-   * stance can apply it. One LP. */
-  absl::StatusOr<double> wrenchResidual(const Wrench& wrench) const;
+   * `wnormWrenchStanceEwrtWorld` (normalized, about the reference point): 0
+   * exactly when the stance can apply it. One LP. */
+  absl::StatusOr<double> computeResidualWnormWrenchStanceEwrtWorld(
+      const Wrench& wnormWrenchStanceEwrtWorld) const;
 
-  /** wrenchResidual(staticWrench(comXy)). */
+  /** computeResidualWnormWrenchStanceEwrtWorld(computeStaticWnormWrenchStanceEwrtWorld(posComRtWorldEwrtWorldXy)). */
   absl::StatusOr<double> equilibriumResidual(
-      const Eigen::Vector2d& comXy) const;
+      const Eigen::Vector2d& posComRtWorldEwrtWorldXy) const;
 
   /**
    * The inner approximation of the static equilibrium polygon, counterclockwise
@@ -166,15 +169,16 @@ class StaticEquilibrium {
   absl::StatusOr<std::vector<Eigen::Vector2d>> supportPolygon() const;
 
   /**
-   * Scalings lambda >= 0 of the generators that apply `wrench` exactly, with
+   * Scalings lambda >= 0 of the generators that apply
+   * `wnormWrenchStanceEwrtWorld` exactly, with
    * the dependent rows of the generator matrix removed, minimizing
    * cost' lambda; the program's other rows are added by the caller: `rows` and
-   * `lower` <= rows * [lambda; extra] <= `upper` over `extraVariables` more
+   * `lower` <= rows * [lambda; extra] <= `upper` over extraCost.size() more
    * variables with cost `extraCost`. Shared by the torque LP; InvalidArgument
    * for inconsistent sizes.
    */
   absl::StatusOr<Eigen::VectorXd> solveWithExtraVariables(
-      const Wrench& wrench,
+      const Wrench& wnormWrenchStanceEwrtWorld,
       const Eigen::VectorXd& extraCost,
       const Eigen::MatrixXd& rows,
       const Eigen::VectorXd& lower,
@@ -185,15 +189,17 @@ class StaticEquilibrium {
                     WrenchGenerators generators,
                     const StaticEquilibriumOptions& options);
 
-  /** The CoM position farthest along `direction` among those in equilibrium,
-   * relative to the reference point. */
-  absl::StatusOr<Eigen::Vector2d> supportPoint(
-      const Eigen::Vector2d& direction) const;
+  /** The CoM position farthest along `searchDirEwrtWorldXy` among those in
+   * equilibrium, relative to the reference point. */
+  absl::StatusOr<Eigen::Vector2d> computeSupportPosComRtStanceEwrtWorldXy(
+      const Eigen::Vector2d& searchDirEwrtWorldXy) const;
 
-  /** The hull of `points` (support points, world frame) grown along the
-   * outward normals of its edges (SupportPolygon::kRefined). */
+  /** The hull of `supportPosComRtWorldEwrtWorldXySamples` (support points,
+   * world frame) grown along the outward normals of its edges
+   * (SupportPolygon::kRefined). */
   absl::StatusOr<std::vector<Eigen::Vector2d>> refinedHull(
-      std::vector<Eigen::Vector2d> points) const;
+      std::vector<Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples)
+      const;
 
   Stance stance_;
   WrenchGenerators generators_;
@@ -201,12 +207,13 @@ class StaticEquilibrium {
 };
 
 /**
- * [m] The signed distance of `comXy` to the boundary of `polygon`
- * (supportPolygon()), positive inside; std::nullopt for an empty polygon, when
- * no CoM position is in equilibrium. A polygon of one or two vertices has no
- * inside, so its margin is at most 0.
+ * [m] The signed distance of `posComRtWorldEwrtWorldXy` to the boundary of
+ * `supportPosComRtWorldEwrtWorldXySamples` (supportPolygon()), positive inside;
+ * std::nullopt for an empty polygon, when no CoM position is in equilibrium. A
+ * polygon of one or two vertices has no inside, so its margin is at most 0.
  */
-std::optional<double> staticMargin(absl::Span<const Eigen::Vector2d> polygon,
-                                   const Eigen::Vector2d& comXy);
+std::optional<double> staticMargin(
+    absl::Span<const Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples,
+    const Eigen::Vector2d& posComRtWorldEwrtWorldXy);
 
 }  // namespace ocs2::humanoid::multi_contact

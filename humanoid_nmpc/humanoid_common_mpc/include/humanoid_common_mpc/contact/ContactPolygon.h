@@ -30,9 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactCenterPoint.h"
 
 namespace ocs2::humanoid {
@@ -40,36 +44,42 @@ namespace ocs2::humanoid {
 /// \brief the maximum extension of the polygon with respect to the specified
 /// frame
 struct PolygonBounds {
-  PolygonBounds(scalar_t x_min,
-                scalar_t x_max,
-                scalar_t y_min,
-                scalar_t y_max,
+  PolygonBounds(scalar_t min_pos_corners_rt_contact_ewrt_contact_x,
+                scalar_t max_pos_corners_rt_contact_ewrt_contact_x,
+                scalar_t min_pos_corners_rt_contact_ewrt_contact_y,
+                scalar_t max_pos_corners_rt_contact_ewrt_contact_y,
                 scalar_t scaleFactor = 1.0)
-      : x_min(x_min * scaleFactor),
-        x_max(x_max * scaleFactor),
-        y_min(y_min * scaleFactor),
-        y_max(y_max * scaleFactor) {}
+      : min_pos_corners_rt_contact_ewrt_contact_x(
+            min_pos_corners_rt_contact_ewrt_contact_x * scaleFactor),
+        max_pos_corners_rt_contact_ewrt_contact_x(
+            max_pos_corners_rt_contact_ewrt_contact_x * scaleFactor),
+        min_pos_corners_rt_contact_ewrt_contact_y(
+            min_pos_corners_rt_contact_ewrt_contact_y * scaleFactor),
+        max_pos_corners_rt_contact_ewrt_contact_y(
+            max_pos_corners_rt_contact_ewrt_contact_y * scaleFactor) {}
 
-  scalar_t x_min;
-  scalar_t x_max;
-  scalar_t y_min;
-  scalar_t y_max;
+  scalar_t min_pos_corners_rt_contact_ewrt_contact_x;
+  scalar_t max_pos_corners_rt_contact_ewrt_contact_x;
+  scalar_t min_pos_corners_rt_contact_ewrt_contact_y;
+  scalar_t max_pos_corners_rt_contact_ewrt_contact_y;
 };
 
 ///
 /// \brief A planar contact polygon defined by the convex hull spanned up by a
 /// set of corner points expressed in the frame name specified
 ///
-/// \param[in] polygonPoints A vector of 3D points on the xy plane (z = 0)
-/// \param[in] frameName name of pinocchio frame the polygon is specified in
-/// \param[in] scaleFactor A factor to shrink or extent the polygon
+/// \param[in] posCornersRtContactEwrtContact A vector of 3D points on the xy
+/// plane (z = 0)
+/// \param[in] contactCenterPoint the contact center point whose frame the
+/// corners are given in
+/// \param[in] scaleFactor A factor to shrink or extend the polygon
 ///
 /// An immutable value once constructed, so concurrent reads are safe.
 class ContactPolygon {
  public:
-  /** The polygon of `polygonPoints` scaled by `scaleFactor`, with the bounds of
-   * the scaled points. */
-  ContactPolygon(const std::vector<vector3_t>& polygonPoints,
+  /** The polygon of `posCornersRtContactEwrtContact` scaled by `scaleFactor`,
+   * with the bounds of the scaled points. */
+  ContactPolygon(const std::vector<vector3_t>& posCornersRtContactEwrtContact,
                  const ContactCenterPoint& contactCenterPoint,
                  scalar_t scaleFactor = 1.0);
 
@@ -82,11 +92,14 @@ class ContactPolygon {
   ContactPolygon& operator=(ContactPolygon&&) = delete;
   ~ContactPolygon() = default;
 
-  size_t getNumberOfContactPoints() const { return polygonPoints_.size(); }
-  vector3_t getContactPointTranslation(int index) const {
-    return vector3_t(polygonPoints_[index][0], polygonPoints_[index][1], 0.0);
+  size_t getNumberOfContactPoints() const {
+    return posCornersRtContactEwrtContact_.size();
   }
-  matrix3_t getContactPointTranslationCrossProductMatrix(int index) const;
+  vector3_t getPosCornerRtContactEwrtContact(int index) const {
+    return vector3_t(posCornersRtContactEwrtContact_[index][0],
+                     posCornersRtContactEwrtContact_[index][1], 0.0);
+  }
+  matrix3_t getCrossProductMatrixPosCornerRtContactEwrtContact(int index) const;
   const std::string& getParentJointName() const {
     return contactCenterPoint_.parentJointName;
   }
@@ -101,14 +114,14 @@ class ContactPolygon {
  protected:
   // constructor can be used by child class. Child class has to ensure that the
   // polygonLimits are correct
-  ContactPolygon(const std::vector<vector3_t>& polygonPoints,
+  ContactPolygon(const std::vector<vector3_t>& posCornersRtContactEwrtContact,
                  const PolygonBounds& polygonBounds,
                  const ContactCenterPoint& contactCenterPoint);
 
  private:
   // contact dimensions relative to frame attached at contact surface
   PolygonBounds polygonLimits_;
-  std::vector<vector3_t> polygonPoints_;
+  std::vector<vector3_t> posCornersRtContactEwrtContact_;
   std::vector<std::string> polygonPointFrameNames_;
   const ContactCenterPoint contactCenterPoint_;
 };  // namespace ContactPolygon

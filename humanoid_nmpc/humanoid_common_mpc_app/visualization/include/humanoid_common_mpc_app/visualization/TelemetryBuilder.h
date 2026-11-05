@@ -79,7 +79,7 @@ namespace ocs2::humanoid::visualization {
  * velocities (none for the first sample, after reset(), when the robot's clock
  * went back, or across a gap of a second or more); the reference's and the
  * plan's are central differences along their own trajectories over
- * kAccelerationHalfInterval, so that they do not jump when a new policy
+ * kCentralDifferenceHalfInterval, so that they do not jump when a new policy
  * arrives.
  *
  * Orientation: the MPC's q holds the base quaternion and v the body angular
@@ -97,11 +97,12 @@ namespace ocs2::humanoid::visualization {
  * c_dot_xy / omega, omega = sqrt(g / z0) with g the Pinocchio model's gravity
  * and z0 the pendulum height of the nominal state
  * (VisualizationModel::nominalState; NaN without one); the ZMP of the source's
- * contact wrenches at its contact frames (NaN below kMinNormalForceForZmp; the
- * measured wrenches carry no torque, so the measured ZMP is the
- * normal-force-weighted mean of the contact frames); and the ACoM attitude
- * (AngularCenterOfMass::acomAttitude() of the source's base quaternion and
- * joints) as roll, pitch, yaw (NaN for a robot without an ACoM network).
+ * contact wrenches at its contact frames (NaN below
+ * kZmpMinForceWorldEwrtWorldZ; the measured wrenches carry no torque, so the
+ * measured ZMP is the normal-force-weighted mean of the contact frames); and
+ * the ACoM attitude (AngularCenterOfMass::computeQuatAcomRtWorldXyzw() of the
+ * source's base quaternion and joints) as roll, pitch, yaw (NaN for a robot
+ * without an ACoM network).
  *
  * The MPC solution: the solver's performance index and the cost and constraint
  * terms of the latest solution (SolutionTerms, computed on the solver thread by
@@ -114,14 +115,14 @@ class TelemetryBuilder {
  public:
   /** [s] Half the interval of the central differences of the reference's and
    * the plan's velocities. */
-  static constexpr scalar_t kAccelerationHalfInterval = 2.5e-3;
+  static constexpr scalar_t kCentralDifferenceHalfInterval = 2.5e-3;
   /** [s] Consecutive samples closer than the first or further apart than the
    * second give no measured acceleration. */
   static constexpr scalar_t kMinDifferenceInterval = 1.0e-5;
   static constexpr scalar_t kMaxDifferenceInterval = 1.0;
   /** [N] Below this net normal force a source has no ZMP (NaN): a flight phase.
    */
-  static constexpr scalar_t kMinNormalForceForZmp = 1.0;
+  static constexpr scalar_t kZmpMinForceWorldEwrtWorldZ = 1.0;
 
   /** The series of the mpc_solution/costs and mpc_solution/constraints groups
    * (SolutionTermEvaluator's names). */
@@ -202,18 +203,18 @@ class TelemetryBuilder {
      * the angles in place of the quaternion, [p_W, (yaw, pitch, roll), q_j],
      * sized at construction.
      */
-    vector3_t eulerAnglesZyx = vector3_t::Zero();
-    vector3_t eulerZyxRates = vector3_t::Zero();
+    vector3_t eulerzyxBaseRtWorld = vector3_t::Zero();
+    vector3_t rateEulerzyxBaseRtWorld = vector3_t::Zero();
     vector_t displayCoordinates;
-    feet_array_t<vector6_t> contactWrenches =
+    feet_array_t<vector6_t> wrenchFeetEwrtWorld =
         makeFeetArray<vector6_t>(vector6_t::Zero());
     std::unique_ptr<PinocchioInterface::Data> data;
     // The balance quantities (updateBalance()); NaN where they are undefined.
-    vector3_t com = vector3_t::Zero();
-    vector2_t dcm = vector2_t::Zero();
-    vector2_t zmp = vector2_t::Zero();
-    /** The ACoM attitude as roll, pitch, yaw. */
-    vector3_t acomRollPitchYaw = vector3_t::Zero();
+    vector3_t posComRtWorldEwrtWorld = vector3_t::Zero();
+    vector2_t posDcmRtWorldEwrtWorldXy = vector2_t::Zero();
+    vector2_t posZmpRtWorldEwrtWorldXy = vector2_t::Zero();
+    /** The ACoM attitude's ZYX Euler angles (yaw, pitch, roll). */
+    vector3_t eulerzyxAcomRtWorld = vector3_t::Zero();
     /** The joints of q, the ACoM network's input, sized at construction. */
     vector_t jointPositions;
   };
@@ -300,30 +301,32 @@ class TelemetryBuilder {
   std::vector<google::protobuf::RepeatedField<double>* absl_nonnull>
       groupValues_;
 
-  // The groups, by what they plot. Panel groups:
-  std::array<int, kPositionDim> basePosition_{};
-  std::array<int, kEulerAnglesZyxDim> baseRollPitchYaw_{};
-  std::array<int, kEulerAnglesZyxDim> baseRollPitchYawRates_{};
-  std::array<int, kRotationTangentDim> baseAngularVelocityLocal_{};
-  std::array<int, kPositionDim> baseLinearVelocity_{};
-  std::array<int, kRotationTangentDim> baseAngularVelocity_{};
-  feet_array_t<int> normalForce_{};
-  feet_array_t<int> tangentialForce_{};
+  // The groups, by what they plot: a `group<quantity>_` member holds the
+  // indices of the groups that plot that quantity, per axis, foot or source.
+  // Panel groups:
+  std::array<int, kPositionDim> groupPosBaseRtWorldEwrtWorld_{};
+  std::array<int, kEulerAnglesZyxDim> groupEulerzyxBaseRtWorld_{};
+  std::array<int, kEulerAnglesZyxDim> groupRateEulerzyxBaseRtWorld_{};
+  std::array<int, kRotationTangentDim> groupAngvelBaseRtWorldEwrtBase_{};
+  std::array<int, kPositionDim> groupLinvelBaseRtWorldEwrtWorld_{};
+  std::array<int, kRotationTangentDim> groupAngvelBaseRtWorldEwrtWorld_{};
+  feet_array_t<int> groupForceFeetEwrtWorldZ_{};
+  feet_array_t<int> groupForceFeetEwrtWorldXy_{};
   std::array<int, kNumGeneralizedBasePanels> generalizedBaseCoordinate_{};
   std::array<int, kNumGeneralizedBasePanels> generalizedBaseVelocity_{};
-  feet_array_t<int> footAcceleration_{};
-  feet_array_t<int> footVelocity_{};
-  std::array<int, kPositionDim> comPosition_{};
-  std::array<int, kHorizontalPositionDim> dcm_{};
-  std::array<int, kHorizontalPositionDim> zmp_{};
-  std::array<int, kEulerAnglesZyxDim> acomAngles_{};
+  feet_array_t<int> groupLinaccFeetRtWorldEwrtWorldZ_{};
+  feet_array_t<int> groupLinvelFeetRtWorldEwrtWorldZ_{};
+  std::array<int, kPositionDim> groupPosComRtWorldEwrtWorld_{};
+  std::array<int, kHorizontalPositionDim> groupPosDcmRtWorldEwrtWorldXy_{};
+  std::array<int, kHorizontalPositionDim> groupPosZmpRtWorldEwrtWorldXy_{};
+  std::array<int, kEulerAnglesZyxDim> groupEulerzyxAcomRtWorld_{};
   // Complete groups:
   std::array<int, kNumJointGroups> joints_{};
-  std::array<int, kNumSources> dofPositions_{};
-  std::array<int, kNumSources> dofVelocities_{};
-  std::array<int, kNumForceSources> dofForces_{};
-  feet_array_t<int> contactWrenchMpc_{};
-  feet_array_t<int> contactWrenchMeasured_{};
+  std::array<int, kNumSources> generalizedCoordinateGroups_{};
+  std::array<int, kNumSources> generalizedVelocityGroups_{};
+  std::array<int, kNumForceSources> generalizedForceGroups_{};
+  feet_array_t<int> groupPlanWrenchFeetEwrtWorld_{};
+  feet_array_t<int> groupMeasForceFeetEwrtWorld_{};
   int observationState_ = 0;
   int observationInput_ = 0;
   int observationMode_ = 0;
@@ -338,12 +341,15 @@ class TelemetryBuilder {
   std::array<Source, kNumSources> sources_;
   // The reference's base, as the base panels plot it; its orientation is the
   // reference source's.
-  vector3_t referenceBasePosition_ = vector3_t::Zero();
-  vector3_t referenceBaseLinearVelocity_ = vector3_t::Zero();
+  vector3_t refPosBaseRtWorldEwrtWorld_ = vector3_t::Zero();
+  // getProxyLinvelComRtWorldEwrtWorld() of the reference, the velocity its
+  // state stores: the CoM's in the centroidal model, the base's in the
+  // whole-body model. The base velocity panel plots it as the reference.
+  vector3_t refProxyLinvelComRtWorldEwrtWorld_ = vector3_t::Zero();
 
   bool hasPreviousSample_ = false;
   scalar_t previousTime_ = 0.0;
-  vector_t previousVelocities_;
+  vector_t prevGeneralizedVelocities_;
 };
 
 }  // namespace ocs2::humanoid::visualization

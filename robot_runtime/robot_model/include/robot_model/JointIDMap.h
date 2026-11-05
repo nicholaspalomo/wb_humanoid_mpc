@@ -29,10 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <functional>
 #include <limits>
 #include <vector>
 
+#include "robot_core/Types.h"
 #include "robot_model/IDMapBase.h"
 #include "robot_model/RobotDescription.h"
 

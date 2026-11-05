@@ -45,14 +45,14 @@ struct MarkerColor {
 
 /**
  * Decor geoms shared by the centroidal markers of the viewer (center of mass,
- * ZMP, DCM): a flat disc on the ground plane at (x, y), a sphere in space, and
- * a thin vertical line between a point and its projection on the ground. Each
- * call appends one geom to the scene and returns false when the scene is full
- * or null.
+ * ZMP, DCM): a flat disc on the ground plane at (posLocalRtWorldEwrtWorldX,
+ * posLocalRtWorldEwrtWorldY), a sphere in space, and a thin vertical line
+ * between a point and its projection on the ground. Each call appends one geom
+ * to the scene and returns false when the scene is full or null.
  */
 bool addGroundDiscGeom(mjvScene* absl_nullable scene,
-                       double x,
-                       double y,
+                       double posLocalRtWorldEwrtWorldX,
+                       double posLocalRtWorldEwrtWorldY,
                        double radius,
                        const MarkerColor& color);
 bool addSphereGeom(
@@ -63,7 +63,7 @@ bool addSphereGeom(
 bool addVerticalLineGeom(
     mjvScene* absl_nullable scene,
     const double posLocalRtWorldEwrtWorld[absl_nonnull ocs2::kPositionDim],
-    double groundHeight,
+    double posSurfaceRtWorldEwrtWorldZ,
     double width,
     const MarkerColor& color);
 

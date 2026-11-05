@@ -104,13 +104,19 @@ void setColor(const scene::Rgba& color,
   message->set_a(color.a);
 }
 
-/** An arrow of `force` ending at `tip`: kForceScale newtons per meter. */
-void addForceArrow(const vector3_t& tip,
-                   const vector3_t& force,
-                   humanoid_mpc_msgs::Arrows* absl_nonnull arrows) {
-  const vector3_t vector = force / scene::kForceScale;
-  setVector3(tip - vector, arrows->add_origins());
-  setVector3(vector, arrows->add_vectors());
+/** Appends to `arrows` an arrow of the force `forceLocalEwrtWorld` ending at
+ * the point it acts at, `posLocalRtWorldEwrtWorld` (a contact frame, a center
+ * of pressure or a polygon corner, as the caller passes):
+ * kNewtonsPerArrowMeter newtons per meter. */
+void addContactArrow(const vector3_t& posLocalRtWorldEwrtWorld,
+                     const vector3_t& forceLocalEwrtWorld,
+                     humanoid_mpc_msgs::Arrows* absl_nonnull arrows) {
+  const vector3_t posArrowheadRtArrowEwrtWorld =
+      forceLocalEwrtWorld / scene::kNewtonsPerArrowMeter;
+  setVector3(posLocalRtWorldEwrtWorld - posArrowheadRtArrowEwrtWorld,
+             arrows->add_pos_arrows_rt_world_ewrt_world());
+  setVector3(posArrowheadRtArrowEwrtWorld,
+             arrows->add_pos_arrowheads_rt_arrow_ewrt_world());
 }
 
 /** The BODY frames of `model` (one per URDF link), without the universe. */
@@ -130,7 +136,7 @@ void collectLinkFrames(const Model& model,
 
 /** The world pose of every link of `frames` (frame placements must be up to
  * date) as the instance `name`. */
-void writeLinkPoses(
+void writePoseLinksRtWorld(
     const Data& data,
     const std::vector<pinocchio::FrameIndex>& frames,
     const std::vector<std::string>& names,
@@ -140,17 +146,20 @@ void writeLinkPoses(
   instance->set_name(std::string(name));
   for (size_t link = 0; link < frames.size(); ++link) {
     instance->add_link_names(names[link]);
-    const pinocchio::SE3Tpl<scalar_t>& placement = data.oMf[frames[link]];
-    humanoid_mpc_msgs::Pose* absl_nonnull pose =
+    const pinocchio::SE3Tpl<scalar_t>& poseLinkRtWorld = data.oMf[frames[link]];
+    humanoid_mpc_msgs::Pose* absl_nonnull msgPoseLinkRtWorld =
         instance->add_pose_links_rt_world();
-    setVector3(placement.translation(), pose->mutable_position());
-    const quaternion_t orientation(placement.rotation());
-    humanoid_mpc_msgs::Quaternion* absl_nonnull quaternion =
-        pose->mutable_orientation();
-    quaternion->set_w(orientation.w());
-    quaternion->set_x(orientation.x());
-    quaternion->set_y(orientation.y());
-    quaternion->set_z(orientation.z());
+    const quaternion_t quatLinkRtWorld(poseLinkRtWorld.rotation());
+    // NOLINTBEGIN(frame-naming): the components of a Pose message, whose frames its field names
+    setVector3(poseLinkRtWorld.translation(),
+               msgPoseLinkRtWorld->mutable_position());
+    humanoid_mpc_msgs::Quaternion* absl_nonnull msgQuatLinkRtWorld =
+        msgPoseLinkRtWorld->mutable_orientation();
+    // NOLINTEND(frame-naming)
+    msgQuatLinkRtWorld->set_w(quatLinkRtWorld.w());
+    msgQuatLinkRtWorld->set_x(quatLinkRtWorld.x());
+    msgQuatLinkRtWorld->set_y(quatLinkRtWorld.y());
+    msgQuatLinkRtWorld->set_z(quatLinkRtWorld.z());
   }
 }
 
@@ -226,7 +235,7 @@ absl::Status SceneBuilder::initialize(const VisualizationModel& model,
   const size_t numContacts = modelSettings().contactNames.size();
   contactFrames_.assign(numContacts, 0);
   cornerFrames_.assign(numContacts, {});
-  cornerForceMappers_.assign(numContacts, std::nullopt);
+  cornerMappers_.assign(numContacts, std::nullopt);
   for (size_t contact = 0; contact < numContacts; ++contact) {
     ASSIGN_OR_RETURN(contactFrames_[contact],
                      findFrame(mpcModel, modelSettings().contactNames[contact],
@@ -255,7 +264,7 @@ absl::Status SceneBuilder::initialize(const VisualizationModel& model,
                                      static_cast<int>(corner)),
                                  "the contact polygon"));
     }
-    cornerForceMappers_[contact].emplace(*rectangle);
+    cornerMappers_[contact].emplace(*rectangle);
   }
 
   for (const std::string& frame : config.planFrames) {
@@ -321,51 +330,51 @@ void SceneBuilder::writeMeasuredFromSample(
 
   // The free flyer's configuration is the position and the quaternion (x, y, z,
   // w).
-  quaternion_t orientation(
+  quaternion_t quatBaseRtWorld(
       vector4_t(sample.quat_base_rt_world.x, sample.quat_base_rt_world.y,
                 sample.quat_base_rt_world.z, sample.quat_base_rt_world.w));
-  if (orientation.norm() > 0.0) {
-    orientation.normalize();
+  if (quatBaseRtWorld.norm() > 0.0) {
+    quatBaseRtWorld.normalize();
   } else {
-    orientation = quaternion_t::Identity();
+    quatBaseRtWorld = quaternion_t::Identity();
   }
   fullConfiguration_.head<kPositionDim>() =
       vector3_t(sample.pos_base_rt_world_ewrt_world.x,
                 sample.pos_base_rt_world_ewrt_world.y,
                 sample.pos_base_rt_world_ewrt_world.z);
   fullConfiguration_.segment<kQuaternionCoefficients>(kPositionDim) =
-      orientation.coeffs();
+      quatBaseRtWorld.coeffs();
   for (const FullModelJoint& joint : fullJoints_) {
     if (joint.sampleIndex < 0 ||
         joint.sampleIndex >= sample.joint_positions.size()) {
       continue;
     }
-    const scalar_t position = sample.joint_positions[joint.sampleIndex];
+    const scalar_t jointPosition = sample.joint_positions[joint.sampleIndex];
     if (joint.nq == 1) {
-      fullConfiguration_[joint.idxQ] = position;
+      fullConfiguration_[joint.idxQ] = jointPosition;
     } else {
       // An unbounded revolute joint: (cos, sin) of its angle.
-      fullConfiguration_[joint.idxQ] = std::cos(position);
-      fullConfiguration_[joint.idxQ + 1] = std::sin(position);
+      fullConfiguration_[joint.idxQ] = std::cos(jointPosition);
+      fullConfiguration_[joint.idxQ + 1] = std::sin(jointPosition);
     }
   }
   pinocchio::forwardKinematics(fullModel_, *fullData_, fullConfiguration_);
   pinocchio::updateFramePlacements(fullModel_, *fullData_);
-  writeLinkPoses(*fullData_, fullLinkFrames_, fullLinkNames_,
-                 scene::kMeasuredInstance, instance);
+  writePoseLinksRtWorld(*fullData_, fullLinkFrames_, fullLinkNames_,
+                        scene::kMeasuredInstance, instance);
 }
 
 void SceneBuilder::writeObservationMarkers(
     const SystemObservation& observation,
     const PolicySnapshot* absl_nullable policy,
     humanoid_mpc_msgs::VisualizationScene* absl_nonnull scene) {
-  humanoid_mpc_msgs::Arrows* absl_nonnull contactForces = scene->add_arrows();
-  contactForces->set_path(std::string(scene::kContactForces));
+  humanoid_mpc_msgs::Arrows* absl_nonnull contactArrows = scene->add_arrows();
+  contactArrows->set_path(std::string(scene::kContactForceMarkers));
   humanoid_mpc_msgs::Spheres* absl_nonnull centerOfPressure =
       scene->add_spheres();
   centerOfPressure->set_path(std::string(scene::kCenterOfPressure));
-  humanoid_mpc_msgs::Arrows* absl_nonnull cornerForces = scene->add_arrows();
-  cornerForces->set_path(std::string(scene::kCornerForces));
+  humanoid_mpc_msgs::Arrows* absl_nonnull cornerArrows = scene->add_arrows();
+  cornerArrows->set_path(std::string(scene::kCornerForceMarkers));
   humanoid_mpc_msgs::Spheres* absl_nonnull collisionSpheres =
       scene->add_spheres();
   collisionSpheres->set_path(std::string(scene::kCollisionSpheres));
@@ -375,7 +384,7 @@ void SceneBuilder::writeObservationMarkers(
   const Data& data = pinocchioInterface_.getData();
   for (const CollisionSphere& sphere : collisionSpheres_) {
     setVector3(data.oMf[sphere.frame].translation(),
-               collisionSpheres->add_centers());
+               collisionSpheres->add_pos_spheres_rt_world_ewrt_world());
     collisionSpheres->add_radii(static_cast<float>(sphere.radius));
   }
 
@@ -385,8 +394,10 @@ void SceneBuilder::writeObservationMarkers(
   vector_t planState;
   vector_t planInput;
   samplePlan(*policy, stateManifold_, observation.time, &planState, &planInput);
-  vector3_t weightedCop = vector3_t::Zero();
-  scalar_t normalForceSum = 0.0;
+  // The sums of f_z c and f_z over the 6-DoF stance contacts, c the center of
+  // pressure and f_z the normal force in the world frame.
+  vector3_t weightedSumPosCopRtWorldEwrtWorld = vector3_t::Zero();
+  scalar_t sumForceContactsEwrtWorldZ = 0.0;
   const size_t numContacts = contactFrames_.size();
   for (size_t contact = 0; contact < numContacts; ++contact) {
     // For the biped's two feet, modeNumber2StanceLeg()'s reading.
@@ -394,39 +405,47 @@ void SceneBuilder::writeObservationMarkers(
       continue;
     }
     const pinocchio::FrameIndex frame = contactFrames_[contact];
-    const vector6_t worldWrench = robotModel_->getWrenchContactEwrtWorld(
-        observation.state, planInput, contact);
-    if (!cornerForceMappers_[contact].has_value()) {
-      addForceArrow(data.oMf[frame].translation(),
-                    worldWrench.head<kForceDim>(), contactForces);
+    const vector6_t wrenchContactEwrtWorld =
+        robotModel_->getWrenchContactEwrtWorld(observation.state, planInput,
+                                               contact);
+    if (!cornerMappers_[contact].has_value()) {
+      addContactArrow(data.oMf[frame].translation(),
+                      wrenchContactEwrtWorld.head<kForceDim>(), contactArrows);
       continue;
     }
-    const vector6_t localWrench =
-        rotateVectorWorldToLocal<scalar_t>(worldWrench, data, frame);
-    vector3_t cop = data.oMf[frame].translation();
-    if (localWrench[kWrenchForceZIndex] > kMinNormalForceForCop) {
-      const vector3_t localCop(
-          -localWrench[kWrenchTorqueYIndex] / localWrench[kWrenchForceZIndex],
-          localWrench[kWrenchTorqueXIndex] / localWrench[kWrenchForceZIndex],
+    const vector6_t wrenchContactEwrtContact =
+        rotateVectorWorldToLocal<scalar_t>(wrenchContactEwrtWorld, data, frame);
+    vector3_t posCopRtWorldEwrtWorld = data.oMf[frame].translation();
+    if (wrenchContactEwrtContact[kWrenchForceZIndex] >
+        kCopMinForceContactEwrtContactZ) {
+      const vector3_t posCopRtContactEwrtContact(
+          -wrenchContactEwrtContact[kWrenchTorqueYIndex] /
+              wrenchContactEwrtContact[kWrenchForceZIndex],
+          wrenchContactEwrtContact[kWrenchTorqueXIndex] /
+              wrenchContactEwrtContact[kWrenchForceZIndex],
           0.0);
-      cop = data.oMf[frame].act(localCop);
-      weightedCop += worldWrench[kWrenchForceZIndex] * cop;
-      normalForceSum += worldWrench[kWrenchForceZIndex];
+      posCopRtWorldEwrtWorld = data.oMf[frame].act(posCopRtContactEwrtContact);
+      weightedSumPosCopRtWorldEwrtWorld +=
+          wrenchContactEwrtWorld[kWrenchForceZIndex] * posCopRtWorldEwrtWorld;
+      sumForceContactsEwrtWorldZ += wrenchContactEwrtWorld[kWrenchForceZIndex];
     }
-    addForceArrow(cop, worldWrench.head<kForceDim>(), contactForces);
+    addContactArrow(posCopRtWorldEwrtWorld,
+                    wrenchContactEwrtWorld.head<kForceDim>(), contactArrows);
 
-    const std::array<vector3_t, kFootCorners> cornerForcesLocal =
-        cornerForceMappers_[contact]->computeVisualizationForceArray(
-            localWrench);
+    // The force at each corner, indexed by corner.
+    const std::array<vector3_t, kFootCorners> forceCornersEwrtContact =
+        cornerMappers_[contact]->computeForceCornersEwrtContact(
+            wrenchContactEwrtContact);
     for (size_t corner = 0; corner < kFootCorners; ++corner) {
-      addForceArrow(data.oMf[cornerFrames_[contact][corner]].translation(),
-                    rotateVectorLocalToWorld<scalar_t>(
-                        cornerForcesLocal[corner], data, frame),
-                    cornerForces);
+      addContactArrow(data.oMf[cornerFrames_[contact][corner]].translation(),
+                      rotateVectorLocalToWorld<scalar_t>(
+                          forceCornersEwrtContact[corner], data, frame),
+                      cornerArrows);
     }
   }
-  if (normalForceSum > kMinNormalForceForCop) {
-    setVector3(weightedCop / normalForceSum, centerOfPressure->add_centers());
+  if (sumForceContactsEwrtWorldZ > kCopMinSumForceContactsEwrtWorldZ) {
+    setVector3(weightedSumPosCopRtWorldEwrtWorld / sumForceContactsEwrtWorldZ,
+               centerOfPressure->add_pos_spheres_rt_world_ewrt_world());
   }
 }
 
@@ -458,15 +477,15 @@ void SceneBuilder::computePlan(const PolicySnapshot& policy) {
     // hide.
     setVector3(
         pinocchio::centerOfMass(model, data, q, /*computeSubtreeComs=*/false),
-        comStrip->add_points());
+        comStrip->add_pos_strippoints_rt_world_ewrt_world());
     setVector3(robotModel_->getPosBaseRtWorldEwrtWorld(state),
-               baseStrip->add_points());
+               baseStrip->add_pos_strippoints_rt_world_ewrt_world());
     for (size_t frame = 0; frame < planFrames_.size(); ++frame) {
       setVector3(
           pinocchio::updateFramePlacement(model, data, planFrames_[frame])
               .translation(),
           planEndEffectors_.mutable_strips(static_cast<int>(frame))
-              ->add_points());
+              ->add_pos_strippoints_rt_world_ewrt_world());
     }
   }
 
@@ -503,7 +522,7 @@ void SceneBuilder::computePlan(const PolicySnapshot& policy) {
       setVector3(
           pinocchio::updateFramePlacement(model, data, contactFrames_[contact])
               .translation(),
-          planFootholds_.add_centers());
+          planFootholds_.add_pos_spheres_rt_world_ewrt_world());
       setColor(scene::kContactColors[contact % scene::kContactColors.size()],
                planFootholds_.add_colors());
     }
@@ -512,8 +531,8 @@ void SceneBuilder::computePlan(const PolicySnapshot& policy) {
   pinocchio::forwardKinematics(
       model, data, robotModel_->getGeneralizedCoordinates(policy.state.back()));
   pinocchio::updateFramePlacements(model, data);
-  writeLinkPoses(data, mpcLinkFrames_, mpcLinkNames_,
-                 scene::kTerminalStateInstance, &terminalState_);
+  writePoseLinksRtWorld(data, mpcLinkFrames_, mpcLinkNames_,
+                        scene::kTerminalStateInstance, &terminalState_);
   hasTerminalState_ = true;
 
   vector_t targetState;
@@ -524,8 +543,8 @@ void SceneBuilder::computePlan(const PolicySnapshot& policy) {
     pinocchio::forwardKinematics(
         model, data, robotModel_->getGeneralizedCoordinates(targetState));
     pinocchio::updateFramePlacements(model, data);
-    writeLinkPoses(data, mpcLinkFrames_, mpcLinkNames_,
-                   scene::kTerminalTargetInstance, &terminalTarget_);
+    writePoseLinksRtWorld(data, mpcLinkFrames_, mpcLinkNames_,
+                          scene::kTerminalTargetInstance, &terminalTarget_);
     hasTerminalTarget_ = true;
   }
   hasPlan_ = true;
@@ -561,14 +580,14 @@ absl::Status SceneBuilder::build(
         robotModel_->getGeneralizedCoordinates(inputs.observation->state));
     pinocchio::updateFramePlacements(model, data);
     if (inputs.robotState == nullptr) {
-      writeLinkPoses(data, mpcLinkFrames_, mpcLinkNames_,
-                     scene::kMeasuredInstance, scene->add_robots());
+      writePoseLinksRtWorld(data, mpcLinkFrames_, mpcLinkNames_,
+                            scene::kMeasuredInstance, scene->add_robots());
     }
     writeObservationMarkers(*inputs.observation,
                             hasPolicy ? inputs.policy : nullptr, scene);
   } else {
     for (const absl::string_view path :
-         {scene::kContactForces, scene::kCornerForces}) {
+         {scene::kContactForceMarkers, scene::kCornerForceMarkers}) {
       scene->add_arrows()->set_path(std::string(path));
     }
     for (const absl::string_view path :

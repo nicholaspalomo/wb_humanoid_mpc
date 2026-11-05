@@ -168,7 +168,7 @@ int run() {
   for (absl::Time now = start; now < end; now = absl::Now()) {
     const scalar_t time = absl::ToDoubleSeconds(now - start);
     if (now >= nextPolicy) {
-      robot->makePolicy(time, /*nodes=*/21, /*normalForce=*/300.0,
+      robot->makePolicy(time, /*nodes=*/21, /*forceFootEwrtWorldZ=*/300.0,
                         vector2_t(0.02, 0.0), &command, &solution);
       performance.merit = time;
       CHECK_OK(observer(command, solution, performance));

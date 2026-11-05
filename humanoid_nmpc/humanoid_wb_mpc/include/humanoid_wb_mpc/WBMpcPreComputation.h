@@ -44,7 +44,7 @@ namespace ocs2::humanoid {
 /**
  * The pre-computation of the whole-body MPC: on a constraint request it updates
  * the Pinocchio kinematics at the node and derives, per foot, the coefficients
- * of the swing foot's normal-motion constraint
+ * of the swing foot's vertical-motion constraint
  * (SwingLegVerticalConstraintCppAd) from the swing trajectory planner and its
  * own gains. The gains start as the model settings' and are retuned per copy
  * (setSwingFootGains(), setNormalVelocityPositionErrorGain()), because the
@@ -54,8 +54,8 @@ namespace ocs2::humanoid {
 class WBMpcPreComputation : public HumanoidPreComputation {
  public:
   /**
-   * The gains of the swing foot's normal-motion constraint besides the position
-   * gain (the base's getNormalVelocityPositionErrorGain()):
+   * The gains of the swing foot's vertical-motion constraint besides the
+   * position gain (the base's getNormalVelocityPositionErrorGain()):
    * model_settings.foot_constraint.linear_velocity_error_gain_z and
    * linear_acceleration_error_gain_z.
    */
@@ -95,8 +95,8 @@ class WBMpcPreComputation : public HumanoidPreComputation {
  private:
   WBMpcPreComputation(const WBMpcPreComputation& rhs);
 
-  /** Returns the coefficients of the normal-motion constraint of the swing foot
-   * `footIndex` at time `t`. */
+  /** Returns the coefficients of the vertical-motion constraint of the swing
+   * foot `footIndex` at time `t`. */
   EndEffectorDynamicsLinearAccConstraint::Config
   normalAccelerationConstraintConfig(size_t footIndex, scalar_t t) const;
 

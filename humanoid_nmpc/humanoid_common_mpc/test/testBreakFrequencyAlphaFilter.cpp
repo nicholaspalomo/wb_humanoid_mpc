@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <numbers>
 #include <string>
 #include <thread>
 #include <vector>
@@ -44,7 +45,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
@@ -73,7 +76,7 @@ vector_t constant(scalar_t value) {
 }
 
 scalar_t timeConstant(scalar_t breakFrequency) {
-  return 1.0 / (2.0 * M_PI * breakFrequency);
+  return 1.0 / (2.0 * std::numbers::pi * breakFrequency);
 }
 
 BreakFrequencyAlphaFilter filterAt(scalar_t breakFrequency,
@@ -139,8 +142,9 @@ TEST(BreakFrequencyAlphaFilter,
     BreakFrequencyAlphaFilter manySamples =
         filterAt(breakFrequency, /*initialOutput=*/0.4);
     manySamples.update(start, constant(2.4));
-    for (int k = 1; k < 100; ++k)
+    for (int k = 1; k < 100; ++k) {
       manySamples.update(start + tau * k / 100.0, constant(2.4));
+    }
     EXPECT_NEAR(manySamples.update(start + tau, constant(2.4))(0), expected,
                 1.0e-12);
   }
@@ -154,8 +158,9 @@ TEST(BreakFrequencyAlphaFilter, itRunsOnTheTimeItIsGivenAndKeepsItsState) {
   // filter this replaces grew with the wall clock here, to 0.39 of the input
   // after the 20 ms below.
   std::this_thread::sleep_for(std::chrono::milliseconds(20));
-  for (int k = 0; k < 100; ++k)
+  for (int k = 0; k < 100; ++k) {
     EXPECT_EQ(filter.update(kStart, constant(1.0))(0), 0.0);
+  }
 
   // The state carries over: after ten time constants at 1, a step back to 0
   // decays from there, not from the seed.
@@ -238,8 +243,9 @@ TEST(BreakFrequencyAlphaFilter,
 
 std::string runfilePath(absl::string_view relativePath) {
   std::vector<std::filesystem::path> roots;
-  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR"))
+  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR")) {
     roots.emplace_back(std::filesystem::path(srcDir) / "_main");
+  }
   roots.emplace_back(std::filesystem::current_path());
   for (const std::filesystem::path& root : roots) {
     const std::filesystem::path candidate = root / std::string(relativePath);
@@ -308,9 +314,9 @@ class VelocityCommandFilterFieldFileTest : public ::testing::Test {
         << "ref_rate_yaw_base_rt_world: 0.5\n"
         << "cmd_max_linvel_base_rt_world_ewrt_heading_x: 1.0\n"
         << "cmd_max_linvel_base_rt_world_ewrt_heading_y: 0.5\n"
-        << "cmd_max_err_pos_base_rt_world_ewrt_world_z: 0.1\n"
+        << "cmd_max_err_pos_base_rt_surface_ewrt_world_z: 0.1\n"
         << "cmd_max_angvel_base_rt_world_ewrt_world_z: 1.0\n"
-        << "nom_pos_base_rt_world_ewrt_world_z: 0.9\n"
+        << "nom_pos_base_rt_surface_ewrt_world_z: 0.9\n"
         << line << "\n";
     files_.push_back(file);
     return file;

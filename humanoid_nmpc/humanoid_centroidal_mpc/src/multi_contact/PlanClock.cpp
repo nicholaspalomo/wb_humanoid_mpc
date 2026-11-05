@@ -30,8 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/multi_contact/PlanClock.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <optional>
 #include <utility>
+#include <vector>
+
+#include "absl/functional/function_ref.h"
+#include "ocs2_core/Types.h"
 
 namespace ocs2::humanoid {
 

@@ -67,7 +67,7 @@ bool TelemetrySampler::sample(
     const robot::model::RobotJointAction& jointAction,
     absl::string_view controlMode,
     const contact_flag_t& measuredContactFlags,
-    const std::array<vector3_t, kNumContacts>& measuredContactForces) {
+    const std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld) {
   if (++cycle_ < decimation_) {
     return false;
   }
@@ -78,22 +78,26 @@ bool TelemetrySampler::sample(
     // Every control mode name fits std::string's small-string buffer, so this
     // copies without allocating.
     slot.control_mode.assign(controlMode.data(), controlMode.size());
-    const vector3_t position = robotState.getPosBaseRtWorldEwrtWorld();
-    slot.pos_base_rt_world_ewrt_world = {
-        .x = position.x(), .y = position.y(), .z = position.z()};
-    const quaternion_t orientation = robotState.getQuatBaseRtWorld();
-    slot.quat_base_rt_world = {.w = orientation.w(),
-                               .x = orientation.x(),
-                               .y = orientation.y(),
-                               .z = orientation.z()};
-    const vector3_t linearVelocity = robotState.getLinvelBaseRtWorldEwrtBase();
-    slot.linvel_base_rt_world_ewrt_base = {.x = linearVelocity.x(),
-                                           .y = linearVelocity.y(),
-                                           .z = linearVelocity.z()};
-    const vector3_t angularVelocity = robotState.getAngvelBaseRtWorldEwrtBase();
-    slot.angvel_base_rt_world_ewrt_base = {.x = angularVelocity.x(),
-                                           .y = angularVelocity.y(),
-                                           .z = angularVelocity.z()};
+    const vector3_t posBaseRtWorldEwrtWorld =
+        robotState.getPosBaseRtWorldEwrtWorld();
+    slot.pos_base_rt_world_ewrt_world = {.x = posBaseRtWorldEwrtWorld.x(),
+                                         .y = posBaseRtWorldEwrtWorld.y(),
+                                         .z = posBaseRtWorldEwrtWorld.z()};
+    const quaternion_t quatBaseRtWorld = robotState.getQuatBaseRtWorld();
+    slot.quat_base_rt_world = {.w = quatBaseRtWorld.w(),
+                               .x = quatBaseRtWorld.x(),
+                               .y = quatBaseRtWorld.y(),
+                               .z = quatBaseRtWorld.z()};
+    const vector3_t linvelBaseRtWorldEwrtBase =
+        robotState.getLinvelBaseRtWorldEwrtBase();
+    slot.linvel_base_rt_world_ewrt_base = {.x = linvelBaseRtWorldEwrtBase.x(),
+                                           .y = linvelBaseRtWorldEwrtBase.y(),
+                                           .z = linvelBaseRtWorldEwrtBase.z()};
+    const vector3_t angvelBaseRtWorldEwrtBase =
+        robotState.getAngvelBaseRtWorldEwrtBase();
+    slot.angvel_base_rt_world_ewrt_base = {.x = angvelBaseRtWorldEwrtBase.x(),
+                                           .y = angvelBaseRtWorldEwrtBase.y(),
+                                           .z = angvelBaseRtWorldEwrtBase.z()};
     for (size_t joint = 0; joint < numJoints_; ++joint) {
       const Eigen::Index row = static_cast<Eigen::Index>(joint);
       const std::optional<robot::model::JointAction>& action =
@@ -119,11 +123,15 @@ bool TelemetrySampler::sample(
     }
     for (size_t contact = 0; contact < kNumContacts; ++contact) {
       slot.contact_flags[contact] = measuredContactFlags[contact];
-      msgs::Wrench& wrench = slot.meas_wrench_contacts_ewrt_world[contact];
-      wrench.force = {.x = measuredContactForces[contact].x(),
-                      .y = measuredContactForces[contact].y(),
-                      .z = measuredContactForces[contact].z()};
-      wrench.torque = msgs::Vector3();
+      msgs::Wrench& measWrenchContactEwrtWorld =
+          slot.meas_wrench_contacts_ewrt_world[contact];
+      // NOLINTBEGIN(frame-naming): the components of a Wrench message, whose frames its field names
+      measWrenchContactEwrtWorld.force = {
+          .x = measForceFeetEwrtWorld[contact].x(),
+          .y = measForceFeetEwrtWorld[contact].y(),
+          .z = measForceFeetEwrtWorld[contact].z()};
+      measWrenchContactEwrtWorld.torque = msgs::Vector3();
+      // NOLINTEND(frame-naming)
     }
   });
   return true;

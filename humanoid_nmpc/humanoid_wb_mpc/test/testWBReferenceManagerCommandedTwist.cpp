@@ -70,7 +70,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * back from the target (design defect D3): getCmdLinvelBaseRtWorldEwrtWorldXy()
  * is the planar base velocity of the target's knots and
  * getCmdRateYawBaseRtWorld() their turn about the world z axis, read through
- * the model (MpcRobotModelBase::getTargetPlanarCommand()). Both used to read
+ * the model (MpcRobotModelBase::getRefPlanarMotion()). Both used to read
  * the centroidal slots of the target state on every model: the first two
  * entries, which on the whole-body state are the base POSITION, and the
  * momentum channel's entry 5, a ZYX roll rate here, through the composite yaw
@@ -172,17 +172,26 @@ TEST(WBReferenceManagerCommandedTwist,
   // (design README section 2.9); the reference manager reads the interpolated
   // target, so between knots it answers the linear interpolation of the knots'
   // commands.
-  const vector2_t commandVelocity(0.08, -0.04);
-  const scalar_t commandYawRate = 0.1;
-  std::vector<vector2_t> knotVelocities;
+  const vector2_t cmdLinvelBaseRtWorldEwrtHeadingXy(0.08, -0.04);
+  const scalar_t cmdRateYawBaseRtWorld = 0.1;
+  std::vector<vector2_t> knotCmdLinvelBaseRtWorldEwrtWorldXy;
   for (const vector_t& knot : target.stateTrajectory) {
-    const scalar_t yaw = model.getPoseeulerzyxBaseRtWorld(knot)(3);
-    knotVelocities.emplace_back(
-        std::cos(yaw) * commandVelocity(0) - std::sin(yaw) * commandVelocity(1),
-        std::sin(yaw) * commandVelocity(0) +
-            std::cos(yaw) * commandVelocity(1));
+    const scalar_t eulerzyxBaseRtWorldYaw =
+        model.getPoseeulerzyxBaseRtWorld(knot)(3);
+    knotCmdLinvelBaseRtWorldEwrtWorldXy.emplace_back(
+        std::cos(eulerzyxBaseRtWorldYaw) *
+                cmdLinvelBaseRtWorldEwrtHeadingXy(0) -
+            std::sin(eulerzyxBaseRtWorldYaw) *
+                cmdLinvelBaseRtWorldEwrtHeadingXy(1),
+        std::sin(eulerzyxBaseRtWorldYaw) *
+                cmdLinvelBaseRtWorldEwrtHeadingXy(0) +
+            std::cos(eulerzyxBaseRtWorldYaw) *
+                cmdLinvelBaseRtWorldEwrtHeadingXy(1));
   }
-  ASSERT_GT((knotVelocities[2] - knotVelocities[0]).norm(), 1.0e-3)
+  ASSERT_GT((knotCmdLinvelBaseRtWorldEwrtWorldXy[2] -
+             knotCmdLinvelBaseRtWorldEwrtWorldXy[0])
+                .norm(),
+            1.0e-3)
       << "the command must turn the base";
   for (const scalar_t time :
        {kInitTime, kInitTime + 0.3, kInitTime + 0.7, kInitTime + 0.9}) {
@@ -191,15 +200,16 @@ TEST(WBReferenceManagerCommandedTwist,
     const scalar_t fraction =
         (time - target.timeTrajectory[segment]) /
         (target.timeTrajectory[segment + 1] - target.timeTrajectory[segment]);
-    const vector2_t expected = (1.0 - fraction) * knotVelocities[segment] +
-                               fraction * knotVelocities[segment + 1];
+    const vector2_t expected =
+        (1.0 - fraction) * knotCmdLinvelBaseRtWorldEwrtWorldXy[segment] +
+        fraction * knotCmdLinvelBaseRtWorldEwrtWorldXy[segment + 1];
     EXPECT_LT((g1->referenceManager->getCmdLinvelBaseRtWorldEwrtWorldXy(time) -
                expected)
                   .cwiseAbs()
                   .maxCoeff(),
               1.0e-12);
     EXPECT_NEAR(g1->referenceManager->getCmdRateYawBaseRtWorld(time),
-                commandYawRate, 1.0e-12);
+                cmdRateYawBaseRtWorld, 1.0e-12);
   }
 }
 
@@ -212,7 +222,7 @@ TEST(WBReferenceManagerCommandedTwist, NoTargetCommandsNothing) {
 }
 
 /** R_z(angle). */
-matrix3_t yawRotation(scalar_t angle) {
+matrix3_t rotmatOfYaw(scalar_t angle) {
   return quaternionRotationMatrix<scalar_t>(
       quaternionFromEulerZyx(vector3_t(angle, 0.0, 0.0)));
 }
@@ -227,15 +237,16 @@ vector_t turnedAboutWorldZ(const WBAccelMpcRobotModel<scalar_t>& model,
                            scalar_t angle) {
   vector_t turned = state;
   model.setPosBaseRtWorldEwrtWorld(
-      turned, yawRotation(angle) * model.getPosBaseRtWorldEwrtWorld(state));
+      turned, rotmatOfYaw(angle) * model.getPosBaseRtWorldEwrtWorld(state));
   model.setQuatBaseRtWorldXyzw(
       turned,
       quaternionProduct(quaternionFromEulerZyx(vector3_t(angle, 0.0, 0.0)),
                         model.getQuatBaseRtWorldXyzw(state)));
   // The base linear velocity follows the configuration [p_W, xi, q_j].
-  const Eigen::Index velocity =
+  const Eigen::Index linearVelocityStart =
       static_cast<Eigen::Index>(model.getConfigurationDim());
-  turned.segment<3>(velocity) = yawRotation(angle) * state.segment<3>(velocity);
+  turned.segment<3>(linearVelocityStart) =
+      rotmatOfYaw(angle) * state.segment<3>(linearVelocityStart);
   return turned;
 }
 
@@ -247,20 +258,22 @@ void expectTurned(const WBAccelMpcRobotModel<scalar_t>& model,
                   scalar_t angle) {
   constexpr scalar_t kTolerance = 1.0e-12;
   const vector_t expected = turnedAboutWorldZ(model, state, angle);
-  const Eigen::Index orientation =
+  const Eigen::Index orientationStart =
       static_cast<Eigen::Index>(model.getBaseOrientationStartIndex());
   const scalar_t scale = std::max(1.0, state.cwiseAbs().maxCoeff());
   for (Eigen::Index i = 0; i < state.size(); ++i) {
-    if (i >= orientation && i < orientation + 4) continue;
+    if (i >= orientationStart && i < orientationStart + 4) continue;
     EXPECT_NEAR(turned(i), expected(i), kTolerance * scale)
         << "state entry " << i;
   }
-  const matrix3_t rotation =
+  const matrix3_t rotmatBaseRtWorld =
       quaternionRotationMatrix<scalar_t>(model.getQuatBaseRtWorldXyzw(turned));
-  const matrix3_t expectedRotation =
-      yawRotation(angle) *
+  const matrix3_t expectedRotmatBaseRtWorld =
+      rotmatOfYaw(angle) *
       quaternionRotationMatrix<scalar_t>(model.getQuatBaseRtWorldXyzw(state));
-  EXPECT_LE((rotation - expectedRotation).cwiseAbs().maxCoeff(), kTolerance)
+  EXPECT_LE(
+      (rotmatBaseRtWorld - expectedRotmatBaseRtWorld).cwiseAbs().maxCoeff(),
+      kTolerance)
       << "the orientation, as a rotation";
 }
 
@@ -341,7 +354,7 @@ TEST(WBReferenceManagerCommandedTwist,
 
 TEST(WBReferenceManagerCommandedTwist,
      TheBasePoseSeamKeepsTheReferencesTurnInTheWorld) {
-  // The whole body ships no heuristic layer (basePoseEmpty()), so
+  // The whole body ships no heuristic layer (basePoseHeuristicsEmpty()), so
   // shapePoseBaseRtWorld() is the identity there; with one, the seam tilts the
   // reference's attitude, and its stored body angular velocity is carried along
   // so that the reference still turns about the world z axis at the command's
@@ -349,8 +362,8 @@ TEST(WBReferenceManagerCommandedTwist,
   absl::StatusOr<WholeBodyReferences> g1 = loadG1();
   ASSERT_TRUE(g1.ok()) << g1.status();
   const WBAccelMpcRobotModel<scalar_t>& model = *g1->model;
-  ASSERT_TRUE(
-      g1->referenceManager->getLocomotionHeuristicLayer()->basePoseEmpty())
+  ASSERT_TRUE(g1->referenceManager->getLocomotionHeuristicLayer()
+                  ->basePoseHeuristicsEmpty())
       << "the shipped whole body lists no heuristic";
   vector_t state = g1->initialState;
   model.setPoseeulerzyxBaseRtWorld(
@@ -370,13 +383,14 @@ TEST(WBReferenceManagerCommandedTwist,
       << "no layer: the identity, bit for bit";
 
   LocomotionHeuristicConfig config;
-  config.formulation.basePose = {"orientation_compensation"};
-  config.orientationCompensation.pitchOffset = 0.05;
-  config.orientationCompensation.rollOffset = 0.03;
+  config.formulation.basePoseHeuristics = {"orientation_compensation"};
+  config.orientationCompensationParameters.offsetEulerzyxBaseRtWorldPitch =
+      0.05;
+  config.orientationCompensationParameters.offsetEulerzyxBaseRtWorldRoll = 0.03;
   LocomotionHeuristicModelParameters parameters;
   parameters.totalMass = 35.0;
   parameters.totalWeight = parameters.totalMass * parameters.gravity;
-  parameters.nominalComHeight = 0.7;
+  parameters.nomPosComRtFeetmeanEwrtWorldZ = 0.7;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, parameters,
                                        LocomotionHeuristicEnvironment{});
@@ -385,23 +399,34 @@ TEST(WBReferenceManagerCommandedTwist,
       std::shared_ptr<LocomotionHeuristicLayer>(*std::move(layer)));
   const vector_t shaped =
       g1->referenceManager->shapePoseBaseRtWorld(kInitTime + 0.5, knot);
-  const vector3_t knotAngles = model.getEulerzyxBaseRtWorld(knot);
-  const vector3_t shapedAngles = model.getEulerzyxBaseRtWorld(shaped);
-  ASSERT_GT((shapedAngles - knotAngles).cwiseAbs().maxCoeff(), 0.01)
+  const vector3_t refEulerzyxBaseRtWorld = model.getEulerzyxBaseRtWorld(knot);
+  const vector3_t shapedEulerzyxBaseRtWorld =
+      model.getEulerzyxBaseRtWorld(shaped);
+  ASSERT_GT((shapedEulerzyxBaseRtWorld - refEulerzyxBaseRtWorld)
+                .cwiseAbs()
+                .maxCoeff(),
+            0.01)
       << "the layer tilts the reference";
   // The world angular velocity R(xi) w_B: the knot's turn about the world z
   // axis, before and after.
-  const vector3_t knotTurn =
+  const vector3_t refAngvelBaseRtWorldEwrtWorld =
       quaternionRotationMatrix<scalar_t>(model.getQuatBaseRtWorldXyzw(knot)) *
       model.getAngvelBaseRtWorldEwrtBase(knot);
-  const vector3_t shapedTurn =
+  const vector3_t shapedAngvelBaseRtWorldEwrtWorld =
       quaternionRotationMatrix<scalar_t>(model.getQuatBaseRtWorldXyzw(shaped)) *
       model.getAngvelBaseRtWorldEwrtBase(shaped);
-  ASSERT_GT(std::abs(knotTurn(2)), 0.05) << "the knot turns";
-  EXPECT_LE((knotTurn - vector3_t(0.0, 0.0, knotTurn(2))).cwiseAbs().maxCoeff(),
+  ASSERT_GT(std::abs(refAngvelBaseRtWorldEwrtWorld(2)), 0.05)
+      << "the knot turns";
+  EXPECT_LE((refAngvelBaseRtWorldEwrtWorld -
+             vector3_t(0.0, 0.0, refAngvelBaseRtWorldEwrtWorld(2)))
+                .cwiseAbs()
+                .maxCoeff(),
             1.0e-12)
       << "a world yaw rate";
-  EXPECT_LE((shapedTurn - knotTurn).cwiseAbs().maxCoeff(), 1.0e-12)
+  EXPECT_LE((shapedAngvelBaseRtWorldEwrtWorld - refAngvelBaseRtWorldEwrtWorld)
+                .cwiseAbs()
+                .maxCoeff(),
+            1.0e-12)
       << "the shaped reference turns as the knot does";
   // Not the knot's body rate kept as it was, which would turn about the tilted
   // body z axis.

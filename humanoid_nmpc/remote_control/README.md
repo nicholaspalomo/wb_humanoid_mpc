@@ -37,7 +37,7 @@ hand the topic over:
 | `keyboard_velocity_publisher` | `teleop` | `--reference_file`, `--network_config`, `--ipc_node` |
 | `push_robot_config` | `config_push` | the file; `--network_config`, `--ipc_node` |
 
-The teleoperation publishers start the pelvis height at `--reference_file`'s `nom_pos_base_rt_world_ewrt_world_z`, as the GUI's height
+The teleoperation publishers start the pelvis height at `--reference_file`'s `nom_pos_base_rt_surface_ewrt_world_z`, as the GUI's height
 slider does; without one they start at 0.8 m, whatever the robot, and say so.
 
 `--network_config` defaults to `config/ipc/network.textproto`. A relative path is looked up in the directory the
@@ -230,7 +230,7 @@ contact_input_parameterization is ...", "default" (the file leaves the field out
 field, and the comments of the file are not shown.
 
 An "unset" parameter (an optional field without a default, whose absence means something of its own, such as a
-`com_height` left to the robot model) shows no value: its box is empty, a check box shows its third state, a drop-down
+`nom_pos_com_rt_feetmean_ewrt_world_z` left to the robot model) shows no value: its box is empty, a check box shows its third state, a drop-down
 no name. Nothing but the operator gives it one - leaving an untouched box changes nothing, for any row: the box shows the
 value rounded, and only a typed text is taken - and its reset button makes it unset again.
 

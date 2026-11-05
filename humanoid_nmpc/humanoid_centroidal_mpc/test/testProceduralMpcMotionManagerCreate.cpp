@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <limits>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <utility>
 #include <vector>
@@ -45,11 +46,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_replace.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/centroidal.hpp"
 
-#include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
+#include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
+#include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
@@ -72,7 +77,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * frame, which the gait's sway does not move; and they read it only once its
  * window is measured throughout, not from a restarted history, which starts
  * from the exact base twist of the observation handed over before the solve.
- * They used to read entry 3 of getBaseComVelocity(), which on the centroidal
+ * They used to read entry 3 of getMnormCmomComRtWorldEwrtWorld() (formerly
+ * getBaseComVelocity()), which on the centroidal
  * state is the normalized angular momentum about the world x axis, then the
  * joints-locked twist of the momentum, which reads the joints' angular momentum
  * as a turn, and the instantaneous CoM velocity, whose sway dips below and
@@ -100,11 +106,11 @@ absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> create(
       &stack.targetCalculator();
   return ProceduralMpcMotionManager::Create(
       gaitFile, referenceFile, stack.referenceManagerPtr(), stack.model(),
-      [calculator](const vector4_t& velocityTarget, scalar_t initTime,
+      [calculator](const vector4_t& velocityCommand, scalar_t initTime,
                    scalar_t /*finalTime*/, const vector_t& initState,
                    const BasePlanarMotion& measuredMotion) {
         return calculator->velocityCommandToTargetTrajectories(
-            velocityTarget, initTime, initState, measuredMotion);
+            velocityCommand, initTime, initState, measuredMotion);
       });
 }
 
@@ -133,31 +139,35 @@ std::unique_ptr<ProceduralMpcMotionManager> unfilteredManager(
 }
 
 /**
- * The initial state of `stack` with its base at `position` in the ground plane
- * and at the heading `heading`, its normalized momentum h = A(q) v / m that of
- * the Pinocchio velocity `velocity` ([dp_W, w_B, dq_j]): the momentum a
- * measurement of that motion carries, as the MRT computes it.
+ * The initial state of `stack` with its base at `posBaseRtWorldEwrtWorldXy` in
+ * the ground plane and at the heading `yawBaseRtWorld`, its normalized momentum
+ * h = A(q) v / m that of the Pinocchio velocity `generalizedVelocity` ([dp_W,
+ * w_B, dq_j]): the momentum a measurement of that motion carries, as the MRT
+ * computes it.
  */
 vector_t movingAt(const AtlasReferenceStack& stack,
-                  const vector2_t& position,
-                  scalar_t heading,
-                  const vector_t& velocity) {
+                  const vector2_t& posBaseRtWorldEwrtWorldXy,
+                  scalar_t yawBaseRtWorld,
+                  const vector_t& generalizedVelocity) {
   const PinocchioInterface::Model& pinocchioModel =
       stack.pinocchioInterface().getModel();
   PinocchioInterface::Data data(pinocchioModel);
   vector_t state =
-      stack.standingAt(stack.initialState(), position(0), position(1), heading);
+      stack.standingAt(stack.initialState(), posBaseRtWorldEwrtWorldXy(0),
+                       posBaseRtWorldEwrtWorldXy(1), yawBaseRtWorld);
   pinocchio::computeCentroidalMap(
       pinocchioModel, data, stack.model().getGeneralizedCoordinates(state));
-  state.head<6>() = data.Ag * velocity / stack.centroidalModelInfo().robotMass;
+  state.head<6>() =
+      data.Ag * generalizedVelocity / stack.centroidalModelInfo().robotMass;
   return state;
 }
 
 /** movingAt() with the base over the origin. */
 vector_t movingAt(const AtlasReferenceStack& stack,
-                  scalar_t heading,
-                  const vector_t& velocity) {
-  return movingAt(stack, vector2_t::Zero(), heading, velocity);
+                  scalar_t yawBaseRtWorld,
+                  const vector_t& generalizedVelocity) {
+  return movingAt(stack, vector2_t::Zero(), yawBaseRtWorld,
+                  generalizedVelocity);
 }
 
 /** The input of an observation whose joints move at `jointVelocities`, as the
@@ -173,17 +183,19 @@ vector_t measuredInput(const AtlasReferenceStack& stack,
 
 /**
  * One solve of `manager` at `time`, as the MPC node runs it: the operator
- * turning at `commandedYawRate`, and the robot measured at `state` with the
- * joint velocities of `input`, handed over before the solve (observe()).
+ * turning at `cmdRateYawBaseRtWorld`, and the robot measured at `state` with
+ * the joint velocities of `input`, handed over before the solve (observe()).
  */
 void solveAt(ProceduralMpcMotionManager& manager,
              AtlasReferenceStack& stack,
              scalar_t time,
-             scalar_t commandedYawRate,
+             scalar_t cmdRateYawBaseRtWorld,
              const vector_t& state,
              const vector_t& input) {
-  manager.setAndScaleVelocityCommand(WalkingVelocityCommand(
-      /*v_x=*/0.0, /*v_y=*/0.0, /*desired_pelvis_h=*/0.0, commandedYawRate));
+  manager.setAndScaleVelocityCommand(NormalizedWalkingVelocityCommand(
+      /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_x=*/0.0,
+      /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_y=*/0.0,
+      /*cmd_pos_base_rt_surface_ewrt_world_z=*/0.0, cmdRateYawBaseRtWorld));
   SystemObservation observation;
   observation.time = time;
   observation.state = state;
@@ -195,13 +207,15 @@ void solveAt(ProceduralMpcMotionManager& manager,
 
 /**
  * A Pinocchio velocity [dp_W, w_B, dq_j] of the base turning about the world z
- * axis at `yawRate`, the joints still: a level base's body z axis is the
- * world's, so the rate is w_B,z (entry 5).
+ * axis at `rateYawBaseRtWorld`, the joints still: a level base's body z axis is
+ * the world's, so the rate is w_B,z (entry 5).
  */
-vector_t turningBase(const AtlasReferenceStack& stack, scalar_t yawRate) {
-  vector_t velocity = vector_t::Zero(stack.pinocchioInterface().getModel().nv);
-  velocity(5) = yawRate;
-  return velocity;
+vector_t turningBase(const AtlasReferenceStack& stack,
+                     scalar_t rateYawBaseRtWorld) {
+  vector_t generalizedVelocity =
+      vector_t::Zero(stack.pinocchioInterface().getModel().nv);
+  generalizedVelocity(5) = rateYawBaseRtWorld;
+  return generalizedVelocity;
 }
 
 /** A measured robot: its state and the joint velocities of its observation.
@@ -212,23 +226,25 @@ struct MeasuredRobot {
 };
 
 /**
- * The robot at `heading` with its base turning at `baseYawRate` and its joints
- * swinging so that, locked, the body would turn `lockedYawRateOffset` faster
- * than the base: the joint velocities along the gradient of the yaw momentum,
- * cut to the null space of the linear momentum so that the CoM does not move
- * with them (no linear gait clause fires).
+ * The robot at `yawBaseRtWorld` with its base turning at `rateYawBaseRtWorld`
+ * and its joints swinging so that, locked, the body would turn
+ * `offsetAngvelBaseRtWorldEwrtWorldZ` faster than the base: the joint
+ * velocities along the gradient of the yaw momentum, cut to the null space of
+ * the linear momentum so that the CoM does not move with them (no linear gait
+ * clause fires).
  */
 MeasuredRobot swingingJoints(const AtlasReferenceStack& stack,
-                             scalar_t heading,
-                             scalar_t baseYawRate,
-                             scalar_t lockedYawRateOffset) {
+                             scalar_t yawBaseRtWorld,
+                             scalar_t rateYawBaseRtWorld,
+                             scalar_t offsetAngvelBaseRtWorldEwrtWorldZ) {
   const PinocchioInterface::Model& pinocchioModel =
       stack.pinocchioInterface().getModel();
   PinocchioInterface::Data data(pinocchioModel);
   const Eigen::Index joints =
       static_cast<Eigen::Index>(stack.model().getJointDim());
   const vector_t standing =
-      stack.standingAt(stack.initialState(), /*x=*/0.0, /*y=*/0.0, heading);
+      stack.standingAt(stack.initialState(), /*posBaseRtWorldEwrtWorldX=*/0.0,
+                       /*posBaseRtWorldEwrtWorldY=*/0.0, yawBaseRtWorld);
   pinocchio::computeCentroidalMap(
       pinocchioModel, data, stack.model().getGeneralizedCoordinates(standing));
   const matrix_t linearJoints = data.Ag.topRows<3>().rightCols(joints);
@@ -239,36 +255,41 @@ MeasuredRobot swingingJoints(const AtlasReferenceStack& stack,
           (linearJoints * yawGradient);
   // The locked body's extra yaw rate is linear in the joint velocities: scale
   // the direction to the offset asked for.
-  vector_t velocity = turningBase(stack, baseYawRate);
-  velocity.tail(joints) = direction;
-  const scalar_t unitOffset =
+  vector_t generalizedVelocity = turningBase(stack, rateYawBaseRtWorld);
+  generalizedVelocity.tail(joints) = direction;
+  const scalar_t unitOffsetAngvelBaseRtWorldEwrtWorldZ =
       stack.model().getTwistBaseRtWorldEwrtWorld(
-          movingAt(stack, heading, velocity), vector_t::Zero(joints))(5) -
-      baseYawRate;
-  velocity.tail(joints) = direction * (lockedYawRateOffset / unitOffset);
-  return MeasuredRobot{.state = movingAt(stack, heading, velocity),
-                       .jointVelocities = velocity.tail(joints)};
+          movingAt(stack, yawBaseRtWorld, generalizedVelocity),
+          vector_t::Zero(joints))(5) -
+      rateYawBaseRtWorld;
+  generalizedVelocity.tail(joints) =
+      direction * (offsetAngvelBaseRtWorldEwrtWorldZ /
+                   unitOffsetAngvelBaseRtWorldEwrtWorldZ);
+  return MeasuredRobot{
+      .state = movingAt(stack, yawBaseRtWorld, generalizedVelocity),
+      .jointVelocities = generalizedVelocity.tail(joints)};
 }
 
 /**
- * Solves every 10 ms over (from, to] with the robot's base turning at `yawRate`
- * from `heading` (updated), its joints still, and the operator turning at
- * `commandedYawRate`.
+ * Solves every 10 ms over (from, to] with the robot's base turning at
+ * `rateYawBaseRtWorld` from `yawBaseRtWorld` (updated), its joints still, and
+ * the operator turning at `cmdRateYawBaseRtWorld`.
  */
 void turnFor(ProceduralMpcMotionManager& manager,
              AtlasReferenceStack& stack,
              scalar_t from,
              scalar_t to,
-             scalar_t yawRate,
-             scalar_t commandedYawRate,
-             scalar_t& heading) {
+             scalar_t rateYawBaseRtWorld,
+             scalar_t cmdRateYawBaseRtWorld,
+             scalar_t& yawBaseRtWorld) {
   const vector_t stillJoints =
       vector_t::Zero(static_cast<Eigen::Index>(stack.model().getJointDim()));
   for (scalar_t time = from + 0.01; time <= to + 1.0e-9; time += 0.01) {
-    heading += 0.01 * yawRate;
-    solveAt(manager, stack, time, commandedYawRate,
-            movingAt(stack, heading, turningBase(stack, yawRate)),
-            measuredInput(stack, stillJoints));
+    yawBaseRtWorld += 0.01 * rateYawBaseRtWorld;
+    solveAt(
+        manager, stack, time, cmdRateYawBaseRtWorld,
+        movingAt(stack, yawBaseRtWorld, turningBase(stack, rateYawBaseRtWorld)),
+        measuredInput(stack, stillJoints));
   }
 }
 
@@ -278,51 +299,59 @@ constexpr scalar_t kSlowWalkCycle = 1.7;
 
 /**
  * A robot walking straight along the world x axis from `start` on, from
- * (startX, startY): forward at `meanSpeed` plus a sway `forwardSway` sin(w t),
- * and sideways at `lateralSway` sin(w t), w = 2 pi / kSlowWalkCycle; its base
- * at the integral of that, its momentum that of the motion with the joints
+ * (initPosBaseRtWorldEwrtWorldX, initPosBaseRtWorldEwrtWorldY): forward at
+ * `meanLinvelBaseRtWorldEwrtWorldX` plus a sway
+ * `swayLinvelBaseRtWorldEwrtWorldX` sin(w t), and sideways at
+ * `swayLinvelBaseRtWorldEwrtWorldY` sin(w t), w = 2 pi / kSlowWalkCycle; its
+ * base at the integral of that, its momentum that of the motion with the joints
  * still. Passive data.
  */
 struct StraightWalk {
   scalar_t start = 0.0;
-  scalar_t startX = 0.0;
-  scalar_t startY = 0.0;
-  scalar_t meanSpeed = 0.0;
-  scalar_t forwardSway = 0.0;
-  scalar_t lateralSway = 0.0;
+  scalar_t initPosBaseRtWorldEwrtWorldX = 0.0;
+  scalar_t initPosBaseRtWorldEwrtWorldY = 0.0;
+  scalar_t meanLinvelBaseRtWorldEwrtWorldX = 0.0;
+  scalar_t swayLinvelBaseRtWorldEwrtWorldX = 0.0;
+  scalar_t swayLinvelBaseRtWorldEwrtWorldY = 0.0;
 };
 
 /** The base of `walk` at `time`: its position (x, y) and its instantaneous
  * velocity (v_x, v_y). Passive data. */
 struct WalkingBase {
-  vector2_t position = vector2_t::Zero();
-  vector2_t velocity = vector2_t::Zero();
+  vector2_t posBaseRtWorldEwrtWorldXy = vector2_t::Zero();
+  vector2_t linvelBaseRtWorldEwrtWorldXy = vector2_t::Zero();
 };
 
 WalkingBase walkingBaseAt(const StraightWalk& walk, scalar_t time) {
-  const scalar_t frequency = 2.0 * M_PI / kSlowWalkCycle;
+  const scalar_t frequency = 2.0 * std::numbers::pi / kSlowWalkCycle;
   const scalar_t swayIntegral =
       (std::cos(frequency * walk.start) - std::cos(frequency * time)) /
       frequency;
   return WalkingBase{
-      .position = vector2_t(walk.startX + walk.meanSpeed * (time - walk.start) +
-                                walk.forwardSway * swayIntegral,
-                            walk.startY + walk.lateralSway * swayIntegral),
-      .velocity = vector2_t(
-          walk.meanSpeed + walk.forwardSway * std::sin(frequency * time),
-          walk.lateralSway * std::sin(frequency * time))};
+      .posBaseRtWorldEwrtWorldXy = vector2_t(
+          walk.initPosBaseRtWorldEwrtWorldX +
+              walk.meanLinvelBaseRtWorldEwrtWorldX * (time - walk.start) +
+              walk.swayLinvelBaseRtWorldEwrtWorldX * swayIntegral,
+          walk.initPosBaseRtWorldEwrtWorldY +
+              walk.swayLinvelBaseRtWorldEwrtWorldY * swayIntegral),
+      .linvelBaseRtWorldEwrtWorldXy = vector2_t(
+          walk.meanLinvelBaseRtWorldEwrtWorldX +
+              walk.swayLinvelBaseRtWorldEwrtWorldX * std::sin(frequency * time),
+          walk.swayLinvelBaseRtWorldEwrtWorldY * std::sin(frequency * time))};
 }
 
-/** `walk` continued from `time` on at the mean speed `meanSpeed` without sway.
+/** `walk` continued from `time` on at the mean speed
+ * `meanLinvelBaseRtWorldEwrtWorldX` without sway.
  */
 StraightWalk continuedAt(const StraightWalk& walk,
                          scalar_t time,
-                         scalar_t meanSpeed) {
+                         scalar_t meanLinvelBaseRtWorldEwrtWorldX) {
   const WalkingBase base = walkingBaseAt(walk, time);
-  return StraightWalk{.start = time,
-                      .startX = base.position(0),
-                      .startY = base.position(1),
-                      .meanSpeed = meanSpeed};
+  return StraightWalk{
+      .start = time,
+      .initPosBaseRtWorldEwrtWorldX = base.posBaseRtWorldEwrtWorldXy(0),
+      .initPosBaseRtWorldEwrtWorldY = base.posBaseRtWorldEwrtWorldXy(1),
+      .meanLinvelBaseRtWorldEwrtWorldX = meanLinvelBaseRtWorldEwrtWorldX};
 }
 
 /**
@@ -338,16 +367,17 @@ std::vector<std::string> walkFor(ProceduralMpcMotionManager& manager,
                                  const StraightWalk& walk) {
   const vector_t stillJoints =
       vector_t::Zero(static_cast<Eigen::Index>(stack.model().getJointDim()));
-  manager.setAndScaleVelocityCommand(
-      WalkingVelocityCommand(command(0), command(1), command(2), command(3)));
+  manager.setAndScaleVelocityCommand(NormalizedWalkingVelocityCommand(
+      command(0), command(1), command(2), command(3)));
   std::vector<std::string> gaits;
   for (scalar_t time = from + 0.01; time <= to + 1.0e-9; time += 0.01) {
     const WalkingBase base = walkingBaseAt(walk, time);
-    vector_t velocity =
+    vector_t generalizedVelocity =
         vector_t::Zero(stack.pinocchioInterface().getModel().nv);
-    velocity.head<2>() = base.velocity;
+    generalizedVelocity.head<2>() = base.linvelBaseRtWorldEwrtWorldXy;
     const vector_t state =
-        movingAt(stack, base.position, /*heading=*/0.0, velocity);
+        movingAt(stack, base.posBaseRtWorldEwrtWorldXy,
+                 /*yawBaseRtWorld=*/0.0, generalizedVelocity);
     SystemObservation observation;
     observation.time = time;
     observation.state = state;
@@ -454,21 +484,22 @@ TEST(ProceduralMpcMotionManagerGaits,
   // Out of stance on a turn command alone, then asked to turn faster than
   // slow_walk allows (0.2 rad/s): the next gait once the robot's mean turn over
   // a stride exceeds 0.2 - 0.05 rad/s, and not before.
-  scalar_t heading = 0.0;
+  scalar_t yawBaseRtWorld = 0.0;
   const vector_t stillJoints =
       vector_t::Zero(static_cast<Eigen::Index>(stack.model().getJointDim()));
-  solveAt(*manager, stack, /*time=*/1.0, /*commandedYawRate=*/0.15,
+  solveAt(*manager, stack, /*time=*/1.0, /*cmdRateYawBaseRtWorld=*/0.15,
           stack.initialState(), measuredInput(stack, stillJoints));
   ASSERT_EQ(manager->getCurrentGaitCommand(), "slow_walk");
-  turnFor(*manager, stack, /*from=*/1.0, /*to=*/4.0, /*yawRate=*/0.1,
-          /*commandedYawRate=*/0.3, heading);
+  turnFor(*manager, stack, /*from=*/1.0, /*to=*/4.0, /*rateYawBaseRtWorld=*/0.1,
+          /*cmdRateYawBaseRtWorld=*/0.3, yawBaseRtWorld);
   EXPECT_EQ(manager->getCurrentGaitCommand(), "slow_walk");
   EXPECT_NEAR(manager->getMeasuredPlanarMotion().rateYawBaseRtWorld, 0.1,
               1.0e-9);
   EXPECT_EQ(manager->getMeasuredMotionWindow(), 1.7)
       << "slow_walk's cycle, which the schedule runs by now";
-  turnFor(*manager, stack, /*from=*/4.0, /*to=*/7.0, /*yawRate=*/0.18,
-          /*commandedYawRate=*/0.3, heading);
+  turnFor(*manager, stack, /*from=*/4.0, /*to=*/7.0,
+          /*rateYawBaseRtWorld=*/0.18,
+          /*cmdRateYawBaseRtWorld=*/0.3, yawBaseRtWorld);
   EXPECT_EQ(manager->getCurrentGaitCommand(), "walk");
 }
 
@@ -483,11 +514,12 @@ TEST(ProceduralMpcMotionManagerGaits, TheJointsMomentumIsNotATurn) {
   ASSERT_NE(manager, nullptr);
   const Eigen::Index joints =
       static_cast<Eigen::Index>(stack.model().getJointDim());
-  solveAt(*manager, stack, /*time=*/1.0, /*commandedYawRate=*/0.15,
+  solveAt(*manager, stack, /*time=*/1.0, /*cmdRateYawBaseRtWorld=*/0.15,
           stack.initialState(), measuredInput(stack, vector_t::Zero(joints)));
   ASSERT_EQ(manager->getCurrentGaitCommand(), "slow_walk");
-  const MeasuredRobot swinging = swingingJoints(
-      stack, /*heading=*/0.0, /*baseYawRate=*/0.0, /*lockedYawRateOffset=*/0.5);
+  const MeasuredRobot swinging =
+      swingingJoints(stack, /*yawBaseRtWorld=*/0.0, /*rateYawBaseRtWorld=*/0.0,
+                     /*offsetAngvelBaseRtWorldEwrtWorldZ=*/0.5);
   ASSERT_NEAR(stack.model().getTwistBaseRtWorldEwrtWorld(
                   swinging.state, vector_t::Zero(joints))(5),
               0.5, 1.0e-9)
@@ -501,8 +533,8 @@ TEST(ProceduralMpcMotionManagerGaits, TheJointsMomentumIsNotATurn) {
       << "the base stands still";
   ASSERT_LT(swinging.state.head<3>().norm(), 1.0e-9) << "the CoM stands still";
   for (scalar_t time = 1.01; time <= 5.0; time += 0.01) {
-    solveAt(*manager, stack, time, /*commandedYawRate=*/0.3, swinging.state,
-            measuredInput(stack, swinging.jointVelocities));
+    solveAt(*manager, stack, time, /*cmdRateYawBaseRtWorld=*/0.3,
+            swinging.state, measuredInput(stack, swinging.jointVelocities));
   }
   EXPECT_EQ(manager->getCurrentGaitCommand(), "slow_walk");
   EXPECT_LT(std::abs(manager->getMeasuredPlanarMotion().rateYawBaseRtWorld),
@@ -519,9 +551,10 @@ TEST(ProceduralMpcMotionManagerGaits,
   const std::unique_ptr<ProceduralMpcMotionManager> manager =
       unfilteredManager(stack);
   ASSERT_NE(manager, nullptr);
-  const MeasuredRobot swinging = swingingJoints(
-      stack, /*heading=*/0.7, /*baseYawRate=*/0.4, /*lockedYawRateOffset=*/0.5);
-  solveAt(*manager, stack, /*time=*/3.0, /*commandedYawRate=*/0.0,
+  const MeasuredRobot swinging =
+      swingingJoints(stack, /*yawBaseRtWorld=*/0.7, /*rateYawBaseRtWorld=*/0.4,
+                     /*offsetAngvelBaseRtWorldEwrtWorldZ=*/0.5);
+  solveAt(*manager, stack, /*time=*/3.0, /*cmdRateYawBaseRtWorld=*/0.0,
           swinging.state, measuredInput(stack, swinging.jointVelocities));
   EXPECT_NEAR(manager->getMeasuredPlanarMotion().rateYawBaseRtWorld, 0.4,
               1.0e-9);
@@ -535,8 +568,11 @@ TEST(ProceduralMpcMotionManagerGaits,
   // Without the observation of the solve the history starts at rest (and
   // warns).
   manager->reset();
-  manager->setAndScaleVelocityCommand(WalkingVelocityCommand(
-      /*v_x=*/0.0, /*v_y=*/0.0, /*desired_pelvis_h=*/0.0, /*v_yaw=*/0.0));
+  manager->setAndScaleVelocityCommand(NormalizedWalkingVelocityCommand(
+      /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_x=*/0.0,
+      /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_y=*/0.0,
+      /*cmd_pos_base_rt_surface_ewrt_world_z=*/0.0,
+      /*cmd_lnorm_angvel_base_rt_world_ewrt_world_z=*/0.0));
   manager->preSolverRun(/*initTime=*/3.0, /*finalTime=*/3.0 + stack.horizon(),
                         swinging.state, stack.referenceManager());
   EXPECT_EQ(manager->getMeasuredPlanarMotion().rateYawBaseRtWorld, 0.0);
@@ -556,14 +592,15 @@ TEST(ProceduralMpcMotionManagerGaits,
   ASSERT_NE(manager, nullptr);
   const vector_t stillJoints =
       vector_t::Zero(static_cast<Eigen::Index>(stack.model().getJointDim()));
-  solveAt(*manager, stack, /*time=*/1.0, /*commandedYawRate=*/0.3,
-          movingAt(stack, /*heading=*/0.0, turningBase(stack, /*yawRate=*/0.5)),
+  solveAt(*manager, stack, /*time=*/1.0, /*cmdRateYawBaseRtWorld=*/0.3,
+          movingAt(stack, /*yawBaseRtWorld=*/0.0,
+                   turningBase(stack, /*rateYawBaseRtWorld=*/0.5)),
           measuredInput(stack, stillJoints));
   ASSERT_EQ(manager->getCurrentGaitCommand(), "slow_walk");
-  scalar_t largestUnmeasuredTurn = 0.0;
+  scalar_t unmeasuredMaxRateYawBaseRtWorld = 0.0;
   scalar_t firstMeasured = -1.0;
   for (scalar_t time = 1.01; time <= 6.0 + 1.0e-9; time += 0.01) {
-    solveAt(*manager, stack, time, /*commandedYawRate=*/0.3,
+    solveAt(*manager, stack, time, /*cmdRateYawBaseRtWorld=*/0.3,
             stack.initialState(), measuredInput(stack, stillJoints));
     EXPECT_EQ(manager->getCurrentGaitCommand(), "slow_walk") << "t = " << time;
     if (manager->measuredOverTheWholeWindow()) {
@@ -574,12 +611,12 @@ TEST(ProceduralMpcMotionManagerGaits,
     } else if (time > 1.0 + 0.2) {
       // After the gait-change hold-off, where the seed alone would have
       // decided.
-      largestUnmeasuredTurn =
-          std::max(largestUnmeasuredTurn,
+      unmeasuredMaxRateYawBaseRtWorld =
+          std::max(unmeasuredMaxRateYawBaseRtWorld,
                    manager->getMeasuredPlanarMotion().rateYawBaseRtWorld);
     }
   }
-  EXPECT_GT(largestUnmeasuredTurn, 0.15)
+  EXPECT_GT(unmeasuredMaxRateYawBaseRtWorld, 0.15)
       << "the seed must read as a turn that would have raised slow_walk";
   // stance runs until slow_walk starts: its 0.5 s window is measured from t
   // = 1.5 on.
@@ -606,15 +643,18 @@ TEST(ProceduralMpcMotionManagerGaits,
   walkFor(*manager, stack, /*from=*/0.99, kWalkStart, walkSlowly,
           StraightWalk{});
   ASSERT_EQ(manager->getCurrentGaitCommand(), "slow_walk");
-  const StraightWalk walking{
-      .start = kWalkStart, .meanSpeed = 0.2, .forwardSway = 0.18};
-  scalar_t slowestSpeed = walking.meanSpeed;
+  const StraightWalk walking{.start = kWalkStart,
+                             .meanLinvelBaseRtWorldEwrtWorldX = 0.2,
+                             .swayLinvelBaseRtWorldEwrtWorldX = 0.18};
+  scalar_t minLinvelBaseRtWorldEwrtWorldX =
+      walking.meanLinvelBaseRtWorldEwrtWorldX;
   for (scalar_t time = kWalkStart; time <= kWalkStart + kSlowWalkCycle;
        time += 0.01) {
-    slowestSpeed =
-        std::min(slowestSpeed, walkingBaseAt(walking, time).velocity(0));
+    minLinvelBaseRtWorldEwrtWorldX =
+        std::min(minLinvelBaseRtWorldEwrtWorldX,
+                 walkingBaseAt(walking, time).linvelBaseRtWorldEwrtWorldXy(0));
   }
-  ASSERT_LT(slowestSpeed, 0.1)
+  ASSERT_LT(minLinvelBaseRtWorldEwrtWorldX, 0.1)
       << "the instantaneous speed must dip below slow_walk's threshold";
   walkFor(*manager, stack, kWalkStart, /*to=*/6.0, walkSlowly, walking);
   ASSERT_EQ(manager->getCurrentGaitCommand(), "slow_walk");
@@ -631,7 +671,8 @@ TEST(ProceduralMpcMotionManagerGaits,
   // mean is still above 0.2 (1.7 - 0.3) / 1.7 - 0.057 > 0.1.
   const std::vector<std::string> stopping =
       walkFor(*manager, stack, /*from=*/8.0, /*to=*/10.0, vector4_t::Zero(),
-              continuedAt(walking, /*time=*/8.0, /*meanSpeed=*/0.0));
+              continuedAt(walking, /*time=*/8.0,
+                          /*meanLinvelBaseRtWorldEwrtWorldX=*/0.0));
   EXPECT_EQ(stopping.back(), "stance");
   const std::vector<std::string>::const_iterator firstStance =
       std::find(stopping.begin(), stopping.end(), "stance");
@@ -654,8 +695,9 @@ TEST(ProceduralMpcMotionManagerGaits,
                              StraightWalk{}),
                      "slow_walk"))
       << "out of stance on the command alone, and no further at rest";
-  const StraightWalk swaying{
-      .start = kWalkStart, .meanSpeed = 0.2, .lateralSway = 0.3};
+  const StraightWalk swaying{.start = kWalkStart,
+                             .meanLinvelBaseRtWorldEwrtWorldX = 0.2,
+                             .swayLinvelBaseRtWorldEwrtWorldY = 0.3};
   EXPECT_TRUE(
       allAre(walkFor(*manager, stack, kWalkStart, /*to=*/6.0, faster, swaying),
              "slow_walk"))
@@ -665,7 +707,8 @@ TEST(ProceduralMpcMotionManagerGaits,
       1.0e-6);
   const std::vector<std::string> speedingUp =
       walkFor(*manager, stack, /*from=*/6.0, /*to=*/9.0, faster,
-              continuedAt(swaying, /*time=*/6.0, /*meanSpeed=*/0.3));
+              continuedAt(swaying, /*time=*/6.0,
+                          /*meanLinvelBaseRtWorldEwrtWorldX=*/0.3));
   EXPECT_EQ(speedingUp.back(), "walk");
 }
 
@@ -676,7 +719,7 @@ TEST(ProceduralMpcMotionManagerGaits, ARollIsNotATurn) {
   ASSERT_NE(manager, nullptr);
   const vector_t stillJoints =
       vector_t::Zero(static_cast<Eigen::Index>(stack.model().getJointDim()));
-  solveAt(*manager, stack, /*time=*/1.0, /*commandedYawRate=*/0.15,
+  solveAt(*manager, stack, /*time=*/1.0, /*cmdRateYawBaseRtWorld=*/0.15,
           stack.initialState(), measuredInput(stack, stillJoints));
   ASSERT_EQ(manager->getCurrentGaitCommand(), "slow_walk");
   // Rolling back and forth by 0.1 rad at level heading: the twist heading of a
@@ -685,7 +728,7 @@ TEST(ProceduralMpcMotionManagerGaits, ARollIsNotATurn) {
     vector_t rolling = stack.initialState();
     stack.model().setEulerzyxBaseRtWorld(
         rolling, vector3_t(0.0, 0.0, 0.1 * std::sin(6.0 * time)));
-    solveAt(*manager, stack, time, /*commandedYawRate=*/0.3, rolling,
+    solveAt(*manager, stack, time, /*cmdRateYawBaseRtWorld=*/0.3, rolling,
             measuredInput(stack, stillJoints));
   }
   EXPECT_EQ(manager->getCurrentGaitCommand(), "slow_walk");
@@ -698,24 +741,24 @@ TEST(ProceduralMpcMotionManagerGaits, ASlowerGaitWaitsForTheMeanTurnToStop) {
   const std::unique_ptr<ProceduralMpcMotionManager> manager =
       unfilteredManager(stack);
   ASSERT_NE(manager, nullptr);
-  scalar_t heading = 0.0;
+  scalar_t yawBaseRtWorld = 0.0;
   const vector_t stillJoints =
       vector_t::Zero(static_cast<Eigen::Index>(stack.model().getJointDim()));
-  solveAt(*manager, stack, /*time=*/1.0, /*commandedYawRate=*/0.15,
+  solveAt(*manager, stack, /*time=*/1.0, /*cmdRateYawBaseRtWorld=*/0.15,
           stack.initialState(), measuredInput(stack, stillJoints));
   ASSERT_EQ(manager->getCurrentGaitCommand(), "slow_walk");
   // Told to stop while still turning at 0.3 rad/s: the gait holds until the
   // mean turn over the stride drops below 0.05 + 0.05 rad/s, which takes most
   // of a stride after the turn stops.
-  turnFor(*manager, stack, /*from=*/1.0, /*to=*/4.0, /*yawRate=*/0.3,
-          /*commandedYawRate=*/0.0, heading);
+  turnFor(*manager, stack, /*from=*/1.0, /*to=*/4.0, /*rateYawBaseRtWorld=*/0.3,
+          /*cmdRateYawBaseRtWorld=*/0.0, yawBaseRtWorld);
   EXPECT_EQ(manager->getCurrentGaitCommand(), "slow_walk");
-  turnFor(*manager, stack, /*from=*/4.0, /*to=*/4.5, /*yawRate=*/0.0,
-          /*commandedYawRate=*/0.0, heading);
+  turnFor(*manager, stack, /*from=*/4.0, /*to=*/4.5, /*rateYawBaseRtWorld=*/0.0,
+          /*cmdRateYawBaseRtWorld=*/0.0, yawBaseRtWorld);
   EXPECT_EQ(manager->getCurrentGaitCommand(), "slow_walk")
       << "half a stride after the turn stopped its mean is still above";
-  turnFor(*manager, stack, /*from=*/4.5, /*to=*/6.5, /*yawRate=*/0.0,
-          /*commandedYawRate=*/0.0, heading);
+  turnFor(*manager, stack, /*from=*/4.5, /*to=*/6.5, /*rateYawBaseRtWorld=*/0.0,
+          /*cmdRateYawBaseRtWorld=*/0.0, yawBaseRtWorld);
   EXPECT_EQ(manager->getCurrentGaitCommand(), "stance");
 }
 

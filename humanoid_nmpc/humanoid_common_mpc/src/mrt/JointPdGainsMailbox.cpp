@@ -29,9 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/mrt/JointPdGainsMailbox.h"
 
+#include <cstddef>
+#include <cstdint>
+
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
+
+#include "humanoid_common_mpc/mrt/JointPdGains.h"
 
 namespace ocs2::humanoid {
 

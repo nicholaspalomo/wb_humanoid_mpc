@@ -72,11 +72,12 @@ vector_t makeState(const CentroidalModelInfo& info) {
   centroidal_model::getMnormCmomComRtWorldEwrtWorld(state, info) << 0.4, -0.1,
       0.05, 0.03, -0.02, 0.08;
   centroidal_model::getPosBaseRtWorldEwrtWorld(state, info) << 0.1, -0.2, 0.75;
-  const Eigen::Quaterniond orientation =
+  const Eigen::Quaterniond quatBaseRtWorld =
       Eigen::AngleAxisd(0.4, vector3_t::UnitZ()) *
       Eigen::AngleAxisd(0.1, vector3_t::UnitY()) *
       Eigen::AngleAxisd(-0.05, vector3_t::UnitX());
-  centroidal_model::getQuatBaseRtWorldXyzw(state, info) = orientation.coeffs();
+  centroidal_model::getQuatBaseRtWorldXyzw(state, info) =
+      quatBaseRtWorld.coeffs();
   for (size_t i = 0; i < info.actuatedDofNum; ++i) {
     centroidal_model::getJointAngles(state, info)(
         static_cast<Eigen::Index>(i)) = 0.3 * spread(i, /*phase=*/0.7);
@@ -152,27 +153,31 @@ TEST(TestCentroidalConversions,
 
   // Pinocchio's centroidal momentum of the whole body at (q, v) is the momentum
   // the state carries.
-  const vector6_t momentum =
+  const vector6_t cmomComRtWorldEwrtWorld =
       info.robotMass *
       centroidal_model::getMnormCmomComRtWorldEwrtWorld(state, info);
   pinocchio::Data data(model);
-  const vector6_t wholeBodyMomentum =
+  const vector6_t pinocchioCmomComRtWorldEwrtWorld =
       pinocchio::computeCentroidalMomentum(model, data, q, v).toVector();
-  EXPECT_LT((wholeBodyMomentum - momentum).norm(), 1.0e-9 * momentum.norm())
-      << "state: " << momentum.transpose()
-      << "\nwhole body: " << wholeBodyMomentum.transpose();
+  EXPECT_LT((pinocchioCmomComRtWorldEwrtWorld - cmomComRtWorldEwrtWorld).norm(),
+            1.0e-9 * cmomComRtWorldEwrtWorld.norm())
+      << "state: " << cmomComRtWorldEwrtWorld.transpose()
+      << "\nwhole body: " << pinocchioCmomComRtWorldEwrtWorld.transpose();
   EXPECT_TRUE(v.tail(info.actuatedDofNum) ==
               centroidal_model::getJointVelocities(input, info))
       << "the joints move as the input says";
 
   // Positive control: the base twist is what reconciles the joint motion with
   // the momentum.
-  vector_t withoutBaseTwist = v;
-  withoutBaseTwist.head<6>().setZero();
-  const vector6_t jointsOnly =
-      pinocchio::computeCentroidalMomentum(model, data, q, withoutBaseTwist)
+  vector_t jointsOnlyGeneralizedVelocity = v;
+  jointsOnlyGeneralizedVelocity.head<6>().setZero();
+  const vector6_t jointMotionCmomComRtWorldEwrtWorld =
+      pinocchio::computeCentroidalMomentum(model, data, q,
+                                           jointsOnlyGeneralizedVelocity)
           .toVector();
-  EXPECT_GT((jointsOnly - momentum).norm(), 1.0e-2 * momentum.norm());
+  EXPECT_GT(
+      (jointMotionCmomComRtWorldEwrtWorld - cmomComRtWorldEwrtWorld).norm(),
+      1.0e-2 * cmomComRtWorldEwrtWorld.norm());
 }
 
 TEST(TestCentroidalConversions,
@@ -233,33 +238,39 @@ TEST(TestCentroidalConversions,
 
   // The center of mass and the contact points from a separate Pinocchio data.
   pinocchio::Data data(model);
-  const vector3_t com = pinocchio::centerOfMass(model, data, q);
+  const vector3_t posComRtWorldEwrtWorld =
+      pinocchio::centerOfMass(model, data, q);
   pinocchio::framesForwardKinematics(model, data, q);
-  const std::function<vector6_t(const vector_t&)> expectedRate =
-      [&](const vector_t& input) {
-        vector6_t rate;
-        rate << vector3_t(0.0, 0.0, -9.81 * info.robotMass), vector3_t::Zero();
+  const std::function<vector6_t(const vector_t&)>
+      computeExpectedRateCmomComRtWorldEwrtWorld = [&](const vector_t& input) {
+        vector6_t rateCmomComRtWorldEwrtWorld;
+        rateCmomComRtWorldEwrtWorld
+            << vector3_t(0.0, 0.0, -9.81 * info.robotMass),
+            vector3_t::Zero();
         for (size_t i = 0;
              i < info.numThreeDofContacts + info.numSixDofContacts; ++i) {
-          const vector3_t force =
+          const vector3_t forceContactEwrtWorld =
               centroidal_model::getForceContactEwrtWorld(input, i, info);
-          rate.head<3>() += force;
-          rate.tail<3>() +=
-              (data.oMf[info.endEffectorFrameIndices[i]].translation() - com)
-                  .cross(force);
+          rateCmomComRtWorldEwrtWorld.head<3>() += forceContactEwrtWorld;
+          rateCmomComRtWorldEwrtWorld.tail<3>() +=
+              (data.oMf[info.endEffectorFrameIndices[i]].translation() -
+               posComRtWorldEwrtWorld)
+                  .cross(forceContactEwrtWorld);
           if (i >= info.numThreeDofContacts)
-            rate.tail<3>() +=
+            rateCmomComRtWorldEwrtWorld.tail<3>() +=
                 centroidal_model::getTorqueContactEwrtWorld(input, i, info);
         }
-        return rate;
+        return rateCmomComRtWorldEwrtWorld;
       };
 
   const vector_t input = makeInput(info);
-  const vector6_t rate = info.robotMass * getMnormRateCmomComRtWorldEwrtWorld(
-                                              pinocchioInterface, info, input);
-  const vector6_t expected = expectedRate(input);
-  EXPECT_LT((rate - expected).norm(), 1.0e-9 * expected.norm())
-      << "rate: " << rate.transpose()
+  const vector6_t rateCmomComRtWorldEwrtWorld =
+      info.robotMass *
+      getMnormRateCmomComRtWorldEwrtWorld(pinocchioInterface, info, input);
+  const vector6_t expected = computeExpectedRateCmomComRtWorldEwrtWorld(input);
+  EXPECT_LT((rateCmomComRtWorldEwrtWorld - expected).norm(),
+            1.0e-9 * expected.norm())
+      << "rate: " << rateCmomComRtWorldEwrtWorld.transpose()
       << "\nNewton-Euler: " << expected.transpose();
 
   // Positive control: the moments depend on where each foot is, so exchanging
@@ -275,7 +286,7 @@ TEST(TestCentroidalConversions,
                                                  info);
   EXPECT_GT((info.robotMass * getMnormRateCmomComRtWorldEwrtWorld(
                                   pinocchioInterface, info, exchanged) -
-             rate)
+             rateCmomComRtWorldEwrtWorld)
                 .norm(),
             1.0);
 }

@@ -129,11 +129,6 @@ per-module section in `mypy.ini` and no second clang-tidy configuration. A justi
 (above), and a rule that is wrong for the repository is switched off in its configuration with a comment that says why.
 `test_lint_enforcement.py` keeps it that way.
 
-The one exception while it lasts is `frame-naming`, which measures a repository-wide rename: its `Check` sets
-`opt_in=True`, so `make lint`, the pre-commit hook and CI leave it out and `--only frame-naming` runs it.
-`test_lint_enforcement.py` allows no other opt-in check, and the rename's Verify phase deletes `opt_in=True`
-(humanoid_nmpc/docs/frame_naming/README.md, section 9).
-
 While you fix the findings of a new check, narrow the runs:
 
 ```bash

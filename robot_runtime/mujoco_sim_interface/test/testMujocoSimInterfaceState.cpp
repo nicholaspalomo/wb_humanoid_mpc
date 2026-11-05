@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/Projectile.h"
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
+#include "robot_model/RobotDescription.h"
 #include "robot_model/RobotJointAction.h"
 #include "robot_model/RobotState.h"
 
@@ -218,11 +219,12 @@ TEST(SimFreeJoint, TheReportedBaseVelocitiesAreTheOnesMujocoIntegrates) {
         (fdLinvelBaseRtWorldEwrtWorld - linvelBaseRtWorldEwrtWorld).norm(),
         1.0e-9)
         << "sample " << sample << ": MuJoCo integrates qpos with the new qvel";
-    const Eigen::Quaterniond relative =
+    // The attitude after the step relative to the attitude before it.
+    const Eigen::Quaterniond errQuatBaseRtWorld =
         start.getQuatBaseRtWorld().conjugate() * stepped.getQuatBaseRtWorld();
-    const Eigen::AngleAxisd rotation(relative);
+    const Eigen::AngleAxisd angleAxis(errQuatBaseRtWorld);
     const vector3_t fdAngvelBaseRtWorldEwrtBase =
-        rotation.angle() * rotation.axis() / kTimestep;
+        angleAxis.angle() * angleAxis.axis() / kTimestep;
     EXPECT_LT(
         (fdAngvelBaseRtWorldEwrtBase - stepped.getAngvelBaseRtWorldEwrtBase())
             .norm(),
@@ -243,7 +245,7 @@ TEST(SimFreeJoint, TheAccelerometerReadsTheSpecificForceOfTheBase) {
   const std::string zeroGravity = R"(<option gravity="0 0 0"/>)";
   fallingScene.replace(fallingScene.find(zeroGravity), zeroGravity.size(),
                        R"(<option gravity="0 0 -9.81"/>)");
-  const vector3_t gravity(0.0, 0.0, -9.81);
+  const vector3_t gravityEwrtWorld(0.0, 0.0, -9.81);
   std::mt19937 generator(/*seed=*/5);
   std::normal_distribution<double> normal(/*mean=*/0.0, /*stddev=*/1.0);
   for (int sample = 0; sample < 3; ++sample) {
@@ -291,15 +293,19 @@ TEST(SimFreeJoint, TheAccelerometerReadsTheSpecificForceOfTheBase) {
         before.getQuatBaseRtWorld() * before.getLinvelBaseRtWorldEwrtBase();
     const vector3_t linvelBaseRtWorldEwrtWorld =
         after.getQuatBaseRtWorld() * after.getLinvelBaseRtWorldEwrtBase();
-    const vector3_t expected =
+    const vector3_t fdSpecforceBaseRtWorldEwrtBase =
         after.getQuatBaseRtWorld().inverse() *
         ((linvelBaseRtWorldEwrtWorld - prevLinvelBaseRtWorldEwrtWorld) /
              kTimestep -
-         gravity);
-    const vector3_t reading = after.getSpecforceBaseRtWorldEwrtBase();
-    EXPECT_GT((reading).norm(), 1.0e-3)
+         gravityEwrtWorld);
+    const vector3_t measSpecforceBaseRtWorldEwrtBase =
+        after.getSpecforceBaseRtWorldEwrtBase();
+    EXPECT_GT((measSpecforceBaseRtWorldEwrtBase).norm(), 1.0e-3)
         << "sample " << sample << ": the torque moves the base";
-    EXPECT_LT((reading - expected).norm(), 1.0e-6 * (1.0 + expected.norm()))
+    EXPECT_LT(
+        (measSpecforceBaseRtWorldEwrtBase - fdSpecforceBaseRtWorldEwrtBase)
+            .norm(),
+        1.0e-6 * (1.0 + fdSpecforceBaseRtWorldEwrtBase.norm()))
         << "sample " << sample;
   }
 }
@@ -372,29 +378,31 @@ TEST(SimJointMap,
 // ------------------------------- the dodgeball without a ball
 // ------------------------------------------
 
-/** The robot's linear momentum and its angular momentum about the world origin.
- */
+/** The robot's linear momentum and its angular momentum about the world origin
+ * (computeCmomWorldRtWorldEwrtWorld()). */
 struct Momentum {
-  Eigen::Vector3d linear = Eigen::Vector3d::Zero();
-  Eigen::Vector3d angular = Eigen::Vector3d::Zero();
+  Eigen::Vector3d linmomComRtWorldEwrtWorld = Eigen::Vector3d::Zero();
+  Eigen::Vector3d angmomWorldRtWorldEwrtWorld = Eigen::Vector3d::Zero();
 };
 
-// NOLINTNEXTLINE(frame-naming): angular momentum about the world origin, which the grammar cannot name (frame1 = frame2)
-Momentum robotMomentum(const mjModel* absl_nonnull model, const mjData& data) {
+Momentum computeCmomWorldRtWorldEwrtWorld(const mjModel* absl_nonnull model,
+                                          const mjData& data) {
   constexpr int kRoot = 1;
   const double mass = model->body_subtreemass[kRoot];
-  const Eigen::Vector3d com(data.subtree_com[3 * kRoot],
-                            data.subtree_com[3 * kRoot + 1],
-                            data.subtree_com[3 * kRoot + 2]);
+  const Eigen::Vector3d posComRtWorldEwrtWorld(data.subtree_com[3 * kRoot],
+                                               data.subtree_com[3 * kRoot + 1],
+                                               data.subtree_com[3 * kRoot + 2]);
   const Eigen::Vector3d linvelComRtWorldEwrtWorld(
       data.subtree_linvel[3 * kRoot], data.subtree_linvel[3 * kRoot + 1],
       data.subtree_linvel[3 * kRoot + 2]);
-  const Eigen::Vector3d spin(data.subtree_angmom[3 * kRoot],
-                             data.subtree_angmom[3 * kRoot + 1],
-                             data.subtree_angmom[3 * kRoot + 2]);
+  const Eigen::Vector3d angmomComRtWorldEwrtWorld(
+      data.subtree_angmom[3 * kRoot], data.subtree_angmom[3 * kRoot + 1],
+      data.subtree_angmom[3 * kRoot + 2]);
   Momentum result;
-  result.linear = mass * linvelComRtWorldEwrtWorld;
-  result.angular = spin + com.cross(result.linear);
+  result.linmomComRtWorldEwrtWorld = mass * linvelComRtWorldEwrtWorld;
+  result.angmomWorldRtWorldEwrtWorld =
+      angmomComRtWorldEwrtWorld +
+      posComRtWorldEwrtWorld.cross(result.linmomComRtWorldEwrtWorld);
   return result;
 }
 
@@ -414,18 +422,20 @@ TEST(SimFallbackImpulse,
   sim->simulationStep();  // the robot at rest, its derived quantities computed
 
   const ForwardState before = forwardSnapshot(*sim);
-  const Eigen::Vector3d point(before.data->xpos[3], before.data->xpos[4],
-                              before.data->xpos[5]);
-  // NOLINTNEXTLINE(frame-naming): angular momentum about the world origin, which the grammar cannot name (frame1 = frame2)
-  const Momentum initial = robotMomentum(model, *before.data);
-  ASSERT_LT(initial.linear.norm(), 1.0e-12);
+  const Eigen::Vector3d posBaseRtWorldEwrtWorld(
+      before.data->xpos[3], before.data->xpos[4], before.data->xpos[5]);
+  const Momentum initCmomWorldRtWorldEwrtWorld =
+      computeCmomWorldRtWorldEwrtWorld(model, *before.data);
+  ASSERT_LT(initCmomWorldRtWorldEwrtWorld.linmomComRtWorldEwrtWorld.norm(),
+            1.0e-12);
 
   MujocoSimInterface::DodgeballThrow throwCommand;
   const Eigen::Vector3d launchLinvelBallRtWorldEwrtWorld(
       -3.0, 1.5, 1.0);  // in the yaw frame of an unyawed base: the world frame
-  for (int axis = 0; axis < 3; ++axis)
+  for (int axis = 0; axis < 3; ++axis) {
     throwCommand.launchLinvelBallRtWorldEwrtHeading[axis] =
         launchLinvelBallRtWorldEwrtWorld[axis];
+  }
   throwCommand.flightTime =
       0.0;  // arrives on this step, so gravity takes nothing off on the way
   throwCommand.mass = 1.2;
@@ -435,40 +445,55 @@ TEST(SimFallbackImpulse,
   const ForwardState after = forwardSnapshot(*sim);
   MjState snapshot(model);
   sim->readLatestMjState(snapshot);
-  const Eigen::Vector3d impulse(snapshot.push.impulseWorld[0],
-                                snapshot.push.impulseWorld[1],
-                                snapshot.push.impulseWorld[2]);
-  const Eigen::Vector3d normal = launchLinvelBallRtWorldEwrtWorld.normalized();
-  ASSERT_GT(impulse.norm(), 0.0);
-  EXPECT_LT((impulse.normalized() - normal).norm(), 1.0e-12)
+  const Eigen::Vector3d impulseBaseEwrtWorld(
+      snapshot.push.impulseLinkEwrtWorld[0],
+      snapshot.push.impulseLinkEwrtWorld[1],
+      snapshot.push.impulseLinkEwrtWorld[2]);
+  const Eigen::Vector3d dirBallEwrtWorld =
+      launchLinvelBallRtWorldEwrtWorld.normalized();
+  ASSERT_GT(impulseBaseEwrtWorld.norm(), 0.0);
+  EXPECT_LT((impulseBaseEwrtWorld.normalized() - dirBallEwrtWorld).norm(),
+            1.0e-12)
       << "a head-on impact pushes along the ball's velocity";
 
   // (1) The restitution law on the measured velocity of the struck point.
   const model::RobotState state = publishedState(*sim);
-  const double pointSpeed =
+  const double projectedLinvelBaseRtWorldEwrtWorld =
       (state.getQuatBaseRtWorld() * state.getLinvelBaseRtWorldEwrtBase())
-          .dot(normal);
-  const double ballSpeed = launchLinvelBallRtWorldEwrtWorld.norm() -
-                           impulse.norm() / throwCommand.mass;
-  EXPECT_NEAR(pointSpeed - ballSpeed,
+          .dot(dirBallEwrtWorld);
+  const double finalProjectedLinvelBallRtWorldEwrtWorld =
+      launchLinvelBallRtWorldEwrtWorld.norm() -
+      impulseBaseEwrtWorld.norm() / throwCommand.mass;
+  EXPECT_NEAR(projectedLinvelBaseRtWorldEwrtWorld -
+                  finalProjectedLinvelBallRtWorldEwrtWorld,
               dodgeball.restitution * launchLinvelBallRtWorldEwrtWorld.norm(),
               1.0e-3 * launchLinvelBallRtWorldEwrtWorld.norm());
   // (2) and (3) The robot's momenta.
-  // NOLINTNEXTLINE(frame-naming): angular momentum about the world origin, which the grammar cannot name (frame1 = frame2)
-  const Momentum final = robotMomentum(model, *after.data);
+  const Momentum finalCmomWorldRtWorldEwrtWorld =
+      computeCmomWorldRtWorldEwrtWorld(model, *after.data);
   // To first order in the step: the momenta are read at the configuration after
   // it, the impulse acted at the one before.
-  EXPECT_LT((final.linear - impulse).norm(), 1.0e-3 * impulse.norm());
-  const Eigen::Vector3d angularImpulse = point.cross(impulse);
-  EXPECT_LT((final.angular - angularImpulse).norm(),
-            1.0e-3 * angularImpulse.norm())
+  EXPECT_LT((finalCmomWorldRtWorldEwrtWorld.linmomComRtWorldEwrtWorld -
+             impulseBaseEwrtWorld)
+                .norm(),
+            1.0e-3 * impulseBaseEwrtWorld.norm());
+  // The expected final minus initial angular momentum (the initial one is
+  // zero): the moment of the impulse about the world origin.
+  const Eigen::Vector3d errAngmomWorldRtWorldEwrtWorld =
+      posBaseRtWorldEwrtWorld.cross(impulseBaseEwrtWorld);
+  EXPECT_LT((finalCmomWorldRtWorldEwrtWorld.angmomWorldRtWorldEwrtWorld -
+             errAngmomWorldRtWorldEwrtWorld)
+                .norm(),
+            1.0e-3 * errAngmomWorldRtWorldEwrtWorld.norm())
       << "the moment of the push at the base's origin";
   // The base's center of mass is off its origin, so the moment is not that of a
   // push at the center of mass.
-  const Eigen::Vector3d baseCom(before.data->xipos[3], before.data->xipos[4],
-                                before.data->xipos[5]);
-  EXPECT_GT((angularImpulse - baseCom.cross(impulse)).norm(),
-            0.01 * angularImpulse.norm());
+  const Eigen::Vector3d posLinkcomRtWorldEwrtWorld(
+      before.data->xipos[3], before.data->xipos[4], before.data->xipos[5]);
+  EXPECT_GT((errAngmomWorldRtWorldEwrtWorld -
+             posLinkcomRtWorldEwrtWorld.cross(impulseBaseEwrtWorld))
+                .norm(),
+            0.01 * errAngmomWorldRtWorldEwrtWorld.norm());
 }
 
 TEST(ProjectileImpactImpulse,
@@ -492,13 +517,13 @@ TEST(ProjectileImpactImpulse,
   const double infinite = std::numeric_limits<double>::infinity();
   EXPECT_DOUBLE_EQ(
       projectileImpactImpulse(/*ballMass=*/0.45, infinite, /*restitution=*/0.8,
-                              /*approachSpeed=*/4.0),
+                              /*approachSpeedBallRtLink=*/4.0),
       1.8 * 0.45 * 4.0)
       << "a rigid wall takes (1 + e) m v";
-  EXPECT_EQ(
-      projectileImpactImpulse(/*ballMass=*/0.45, /*effectiveMass=*/30.0,
-                              /*restitution=*/0.8, /*approachSpeed=*/-1.0),
-      0.0)
+  EXPECT_EQ(projectileImpactImpulse(/*ballMass=*/0.45, /*effectiveMass=*/30.0,
+                                    /*restitution=*/0.8,
+                                    /*approachSpeedBallRtLink=*/-1.0),
+            0.0)
       << "nothing when the two separate";
 }
 

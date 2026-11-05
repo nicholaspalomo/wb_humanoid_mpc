@@ -29,16 +29,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/locomotion_heuristics/BasePoseHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 #include "humanoid_common_mpc/locomotion_heuristics/WrenchHeuristic.h"
 
@@ -58,15 +62,15 @@ struct LocomotionHeuristicEnvironment {
   /// `contactInputParameterization: basis_vectors`: a horizontal force has to
   /// be rotated into the local contact frame.
   bool usesContactBasisVectorInputs = false;
-  /// [m] `nominal_foothold.step_width`: the lateral separation the foothold
-  /// anchor keeps.
-  scalar_t nominalStepWidth = 0.0;
+  /// [m] `nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y`: the lateral
+  /// separation the foothold anchor keeps.
+  scalar_t nomPosLfootRtRfootEwrtHeadingY = 0.0;
   /// `com_and_acom_tracking_cost` listed in `costs`: the cost factory zeroes
   /// Q's and Q_final's base-pose blocks.
   bool listsComAndAcomTrackingCost = false;
   /// `task_space_foot_cost.weights.pos_x` and `pos_y` both zero, or the foot
   /// cost not listed: nothing tracks a foothold.
-  bool footPositionIsUntracked = false;
+  bool footholdIsUntracked = false;
 };
 
 /**
@@ -126,11 +130,12 @@ class LocomotionHeuristicLayer {
   /** True when no heuristic at all is listed, which is the shipped state of
    * every robot. */
   bool empty() const {
-    return basePose_.empty() && foothold_.empty() && wrench_.empty();
+    return basePoseHeuristics_.empty() && foothold_.empty() &&
+           wrenchHeuristics_.empty();
   }
-  bool basePoseEmpty() const { return basePose_.empty(); }
+  bool basePoseHeuristicsEmpty() const { return basePoseHeuristics_.empty(); }
   bool footholdEmpty() const { return foothold_.empty(); }
-  bool wrenchEmpty() const { return wrench_.empty(); }
+  bool wrenchHeuristicsEmpty() const { return wrenchHeuristics_.empty(); }
 
   /**
    * True when a listed foothold heuristic re-anchors the landing target rather
@@ -147,20 +152,24 @@ class LocomotionHeuristicLayer {
    * therefore when the whole contact-force reference has to be written through
    * the state-aware, forward-kinematics path.
    */
-  bool wrenchNeedsWorldFrame() const { return wrenchNeedsWorldFrame_; }
+  bool wrenchHeuristicsNeedWorldFrame() const {
+    return wrenchHeuristicsNeedWorldFrame_;
+  }
 
   /** The summed base-pose offset of every listed base-pose heuristic. Returns
    * zero, cheaply, when none is listed. */
-  BasePoseOffset basePoseOffset(const BasePoseHeuristicContext& context) const;
+  BasePoseOffset basePoseHeuristicOffset(
+      const BasePoseHeuristicContext& context) const;
 
   /** The summed world-frame ground-plane foothold offset. Returns zero,
    * cheaply, when none is listed. */
-  vector2_t footholdOffset(const FootholdHeuristicContext& context) const;
+  vector2_t computeOffsetPosFootRtWorldEwrtWorldXy(
+      const FootholdHeuristicContext& context) const;
 
   /** The summed world-frame contact-force offset for one stance foot. Returns
    * zero, cheaply, when none is listed. */
-  vector3_t wrenchOffset(const WrenchHeuristicContext& context,
-                         size_t contactIndex) const;
+  vector3_t computeOffsetForceFootEwrtWorld(
+      const WrenchHeuristicContext& context, size_t contactIndex) const;
 
   /**
    * Re-reads every listed heuristic's coefficients from a freshly loaded
@@ -190,11 +199,11 @@ class LocomotionHeuristicLayer {
  private:
   LocomotionHeuristicFormulation formulation_;
   LocomotionHeuristicModelParameters model_;
-  std::vector<std::unique_ptr<BasePoseHeuristic>> basePose_;
+  std::vector<std::unique_ptr<BasePoseHeuristic>> basePoseHeuristics_;
   std::vector<std::unique_ptr<FootholdHeuristic>> foothold_;
-  std::vector<std::unique_ptr<WrenchHeuristic>> wrench_;
+  std::vector<std::unique_ptr<WrenchHeuristic>> wrenchHeuristics_;
   bool footholdMovesAnchor_ = false;
-  bool wrenchNeedsWorldFrame_ = false;
+  bool wrenchHeuristicsNeedWorldFrame_ = false;
   /// The on-disk lists the last "list has changed" warning was about, so the
   /// same edit is reported once.
   LocomotionHeuristicFormulation reportedFormulation_;

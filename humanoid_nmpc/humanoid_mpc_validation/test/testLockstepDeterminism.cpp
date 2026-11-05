@@ -264,7 +264,7 @@ TEST(LockstepDeterminism, TwoRunsWithOneSolverThreadAgree) {
   // The time series' per-solve rotation gaps locate where the gap peaked: their
   // largest is the document's.
   const golden_matrix_t* absl_nullable gaps =
-      first->timeSeries.find(time_series::kSolveRotationGap);
+      first->timeSeries.find(time_series::kSolveInitialGapAngle);
   ASSERT_NE(gaps, nullptr);
   ASSERT_EQ(gaps->cols(), 2);
   ASSERT_GT(gaps->rows(), 0);
@@ -283,8 +283,8 @@ TEST(LockstepDeterminism, TwoRunsWithOneSolverThreadAgree) {
   EXPECT_EQ(
       steps->col(time_series::kSolveSqpStepColumns - 1).maxCoeff(),
       first->metrics.findPath("sqp_step.constraint_violation.max")->asNumber());
-  const golden_matrix_t* absl_nullable residuals =
-      first->timeSeries.find(time_series::kSolveSwingNormalVelocityResidual);
+  const golden_matrix_t* absl_nullable residuals = first->timeSeries.find(
+      time_series::kSolveSwingNormalVelocityConstraintResidual);
   ASSERT_NE(residuals, nullptr);
   ASSERT_EQ(residuals->cols(), time_series::kSolveSwingResidualColumns);
   ASSERT_GT(residuals->rows(), 0)

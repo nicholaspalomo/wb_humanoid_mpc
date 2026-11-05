@@ -32,13 +32,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -53,10 +57,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PhysicalConstants.h"
 
+#include "mujoco_sim_interface/MujocoContactPatch.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
+#include "mujoco_sim_interface/Projectile.h"
+#include "mujoco_sim_interface/viewer/MujocoViewer.h"
 #include "mujoco_sim_interface/viewer/MujocoViewerRegistry.h"
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
 #include "mujoco_sim_interface/viewer/ViewerSettings.h"
+#include "robot_core/TripleBuffer.h"
+#include "robot_core/Types.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotHWInterfaceBase.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -71,7 +84,7 @@ namespace {
 constexpr int kInitialStateContactPoints = 2;
 /// [m] The height of the base in the initial state when the configuration gives
 /// none.
-constexpr double kDefaultInitialBaseHeight = 1.0;
+constexpr double kInitPosBaseRtWorldEwrtWorldZ = 1.0;
 /// The projectile whose restitution the no-ball fallback impulse models: the
 /// ball the GUI's Dodgeball tab throws.
 constexpr char kFallbackImpactProjectile[] = "dodgeball";
@@ -139,8 +152,10 @@ std::string mujocoName(const mjModel* absl_nonnull model, mjtObj type, int id) {
 /// are not a free joint.
 std::optional<int> robotBaseBody(const mjModel* absl_nonnull model) {
   for (int joint = 0; joint < model->njnt; ++joint) {
-    if (model->jnt_type[joint] == mjJNT_FREE && model->jnt_qposadr[joint] == 0)
+    if (model->jnt_type[joint] == mjJNT_FREE &&
+        model->jnt_qposadr[joint] == 0) {
       return model->jnt_bodyid[joint];
+    }
   }
   return std::nullopt;
 }
@@ -162,9 +177,10 @@ std::string gantryWeldDeclaration(absl::string_view baseBody) {
  */
 absl::Status checkGantryWeld(const mjModel* absl_nonnull model) {
   const std::optional<int> base = robotBaseBody(model);
-  if (!base.has_value())
+  if (!base.has_value()) {
     return absl::FailedPreconditionError(
         "the scene has no free joint at qpos 0 for the gantry weld to hold");
+  }
   const std::string declaration =
       gantryWeldDeclaration(mujocoName(model, mjOBJ_BODY, *base));
   const int weld =
@@ -198,8 +214,9 @@ std::vector<std::string> gantryHoldNames() {
 
 absl::StatusOr<GantryHold> gantryHoldFromName(absl::string_view name) {
   if (name == kWeldConstraintGantryHoldName) return GantryHold::kWeldConstraint;
-  if (name == kKinematicTeleportGantryHoldName)
+  if (name == kKinematicTeleportGantryHoldName) {
     return GantryHold::kKinematicTeleport;
+  }
   return absl::InvalidArgumentError(
       absl::StrCat("Unknown gantry_hold '", name,
                    "'. Set gantry_hold in the robot task file to one of: ",
@@ -245,9 +262,10 @@ absl::StatusOr<MjModelPtr> compileScene(const MujocoSimConfig& config,
   projectile = *std::move(named);
   const MjSpecPtr spec(mj_parseXML(config.scenePath.c_str(), /*vfs=*/nullptr,
                                    error, kErrorSize));
-  if (spec == nullptr)
+  if (spec == nullptr) {
     return absl::InvalidArgumentError(absl::StrCat(
         "Could not parse the MuJoCo scene ", config.scenePath, ": ", error));
+  }
   if (absl::Status added =
           addProjectileToSpec(spec.get(), projectile, projectileBodyName);
       !added.ok()) {
@@ -346,8 +364,9 @@ absl::StatusOr<MujocoSimInterface::JointMap> MujocoSimInterface::buildJointMap(
   }
   JointMap map;
   for (int joint = 1; joint < model->njnt; ++joint) {
-    if (projectileBodyId >= 0 && model->jnt_bodyid[joint] == projectileBodyId)
+    if (projectileBodyId >= 0 && model->jnt_bodyid[joint] == projectileBodyId) {
       continue;
+    }
     const std::string name = mujocoName(model, mjOBJ_JOINT, joint);
     if (!description.containsJoint(name)) {
       LOG(WARNING)
@@ -422,11 +441,11 @@ absl::Status MujocoSimInterface::checkConfigNumbers(
         "sim_ragdoll_joint_damping must be non-negative and finite, got ",
         config.ragdollJointDamping, " N m s/rad"));
   }
-  if (!std::isfinite(config.autoResetBaseHeight)) {
+  if (!std::isfinite(config.autoResetMinPosBaseRtWorldEwrtWorldZ)) {
     return absl::InvalidArgumentError(
         absl::StrCat("sim_auto_reset_min_pos_base_rt_world_ewrt_world_z must "
                      "be finite, got ",
-                     config.autoResetBaseHeight, " m"));
+                     config.autoResetMinPosBaseRtWorldEwrtWorldZ, " m"));
   }
   return absl::OkStatus();
 }
@@ -475,7 +494,8 @@ MujocoSimInterface::MujocoSimInterface(
       sceneDofDamping_(mujocoModel_->dof_damping,
                        mujocoModel_->dof_damping + mujocoModel_->nv),
       fallbackRestitution_(scene.fallbackRestitution),
-      impactJacobian_(static_cast<size_t>(kPositionDim) * mujocoModel_->nv),
+      impactLinjacBaseRtWorldEwrtWorld_(static_cast<size_t>(kPositionDim) *
+                                        mujocoModel_->nv),
       impactGeneralizedDirection_(mujocoModel_->nv),
       impactMobility_(mujocoModel_->nv),
       projectile_(std::move(scene.projectile)),
@@ -536,7 +556,7 @@ void MujocoSimInterface::setInitialState() {
                                  /*contactSize=*/kInitialStateContactPoints);
   initialState.setConfigurationToZero();
   initialState.setPosBaseRtWorldEwrtWorld(
-      vector3_t(0.0, 0.0, kDefaultInitialBaseHeight));
+      vector3_t(0.0, 0.0, kInitPosBaseRtWorldEwrtWorldZ));
   setSimState(initialState);
 }
 
@@ -544,14 +564,16 @@ void MujocoSimInterface::findFootSensors() {
   for (int i = 0; i < mujocoModel_->nsensor; ++i) {
     const std::string sensorName =
         mujocoName(mujocoModel_.get(), mjOBJ_SENSOR, i);
-    if (sensorName == "right_foot_touch_sensor")
+    if (sensorName == "right_foot_touch_sensor") {
       rightFootTouchSensorAddress_ = mujocoModel_->sensor_adr[i];
-    if (sensorName == "left_foot_touch_sensor")
+    }
+    if (sensorName == "left_foot_touch_sensor") {
       leftFootTouchSensorAddress_ = mujocoModel_->sensor_adr[i];
+    }
     if (sensorName != "right_foot_force_sensor" &&
-        sensorName != "left_foot_force_sensor")
+        sensorName != "left_foot_force_sensor") {
       continue;
-    // NOLINTBEGIN(frame-naming): the ids of the feet's force sensors, not forces
+    }
     if (!isFootForceSensor(mujocoModel_.get(), i)) {
       LOG(WARNING) << "[MujocoSimInterface] '" << sensorName
                    << "' is not a <force> sensor on a site; the foot's "
@@ -561,16 +583,15 @@ void MujocoSimInterface::findFootSensors() {
     } else {
       leftFootForceSensor_ = i;
     }
-    // NOLINTEND(frame-naming)
   }
 }
 
 void MujocoSimInterface::setupGantry() {
-  if (config_.gantryHeight > 0.0) {
-    gantryHeight_ = config_.gantryHeight;
+  if (config_.gantryPosBaseRtWorldEwrtWorldZ > 0.0) {
+    gantryPosBaseRtWorldEwrtWorldZ_ = config_.gantryPosBaseRtWorldEwrtWorldZ;
   } else {
     // The height of the initial state, which setInitialState() has written.
-    gantryHeight_ = mujocoData_->qpos[kZAxisIndex];
+    gantryPosBaseRtWorldEwrtWorldZ_ = mujocoData_->qpos[kZAxisIndex];
   }
   isGantryLocked_ = config_.isGantryLocked;
   gantryWeldEqId_ = mj_name2id(mujocoModel_.get(), mjOBJ_EQUALITY,
@@ -716,8 +737,9 @@ bool MujocoSimInterface::stepWentUnstable() {
 void MujocoSimInterface::setBaseStateForTesting(
     const std::array<double, kMjFreeJointQposSize>& baseQpos,
     const std::array<double, kMjFreeJointDofs>& baseQvel) {
-  for (int i = 0; i < kMjFreeJointQposSize; ++i)
+  for (int i = 0; i < kMjFreeJointQposSize; ++i) {
     mujocoData_->qpos[i] = baseQpos[i];
+  }
   for (int i = 0; i < kMjFreeJointDofs; ++i) mujocoData_->qvel[i] = baseQvel[i];
   mj_forward(mujocoModel_.get(), mujocoData_.get());
 }
@@ -790,11 +812,11 @@ void MujocoSimInterface::printModelInfo() {
       << "Velocity: " << mujocoData_->qvel[kXAxisIndex] << " "
       << mujocoData_->qvel[kYAxisIndex] << " " << mujocoData_->qvel[kZAxisIndex]
       << " "
-      << mujocoData_->qvel[kMjFreeJointAngularVelocityOffset + kXAxisIndex]
+      << mujocoData_->qvel[kMjFreeJointAngularVelocityStartIndex + kXAxisIndex]
       << " "
-      << mujocoData_->qvel[kMjFreeJointAngularVelocityOffset + kYAxisIndex]
+      << mujocoData_->qvel[kMjFreeJointAngularVelocityStartIndex + kYAxisIndex]
       << " "
-      << mujocoData_->qvel[kMjFreeJointAngularVelocityOffset + kZAxisIndex];
+      << mujocoData_->qvel[kMjFreeJointAngularVelocityStartIndex + kZAxisIndex];
 
   // The first coordinate and velocity of every other joint, at its own address.
   for (int i = 1; i < mujocoModel_->njnt; ++i) {
@@ -844,11 +866,11 @@ void MujocoSimInterface::setSimState(const model::RobotState& robotState) {
   mujocoData_->qvel[kXAxisIndex] = linvel_base_rt_world_ewrt_world[kXAxisIndex];
   mujocoData_->qvel[kYAxisIndex] = linvel_base_rt_world_ewrt_world[kYAxisIndex];
   mujocoData_->qvel[kZAxisIndex] = linvel_base_rt_world_ewrt_world[kZAxisIndex];
-  mujocoData_->qvel[kMjFreeJointAngularVelocityOffset + kXAxisIndex] =
+  mujocoData_->qvel[kMjFreeJointAngularVelocityStartIndex + kXAxisIndex] =
       angvel_base_rt_world_ewrt_base[kXAxisIndex];
-  mujocoData_->qvel[kMjFreeJointAngularVelocityOffset + kYAxisIndex] =
+  mujocoData_->qvel[kMjFreeJointAngularVelocityStartIndex + kYAxisIndex] =
       angvel_base_rt_world_ewrt_base[kYAxisIndex];
-  mujocoData_->qvel[kMjFreeJointAngularVelocityOffset + kZAxisIndex] =
+  mujocoData_->qvel[kMjFreeJointAngularVelocityStartIndex + kZAxisIndex] =
       angvel_base_rt_world_ewrt_base[kZAxisIndex];
 
   // Joint State
@@ -883,9 +905,9 @@ void MujocoSimInterface::updateThreadSafeRobotState() {
                    mujocoData_->qpos[kMjFreeJointQuaternionYIndex],
                    mujocoData_->qpos[kMjFreeJointQuaternionZIndex]);
   vector3_t angvelBaseRtWorldEwrtBase = vector3_t(
-      mujocoData_->qvel[kMjFreeJointAngularVelocityOffset + kXAxisIndex],
-      mujocoData_->qvel[kMjFreeJointAngularVelocityOffset + kYAxisIndex],
-      mujocoData_->qvel[kMjFreeJointAngularVelocityOffset + kZAxisIndex]);
+      mujocoData_->qvel[kMjFreeJointAngularVelocityStartIndex + kXAxisIndex],
+      mujocoData_->qvel[kMjFreeJointAngularVelocityStartIndex + kYAxisIndex],
+      mujocoData_->qvel[kMjFreeJointAngularVelocityStartIndex + kZAxisIndex]);
 
   // Contact flags handed to the controller: the ground truth of the physics,
   // see updateGroundTruthContacts(). Without contact detection (no contact
@@ -916,11 +938,12 @@ void MujocoSimInterface::updateThreadSafeRobotState() {
   const vector3_t linaccBaseRtWorldEwrtWorld(mujocoData_->qacc[kXAxisIndex],
                                              mujocoData_->qacc[kYAxisIndex],
                                              mujocoData_->qacc[kZAxisIndex]);
-  const vector3_t gravity(mujocoModel_->opt.gravity[kXAxisIndex],
-                          mujocoModel_->opt.gravity[kYAxisIndex],
-                          mujocoModel_->opt.gravity[kZAxisIndex]);
+  const vector3_t gravityEwrtWorld(mujocoModel_->opt.gravity[kXAxisIndex],
+                                   mujocoModel_->opt.gravity[kYAxisIndex],
+                                   mujocoModel_->opt.gravity[kZAxisIndex]);
   robotStateInternal_.setSpecforceBaseRtWorldEwrtBase(
-      quat_base_rt_world.inverse() * (linaccBaseRtWorldEwrtWorld - gravity));
+      quat_base_rt_world.inverse() *
+      (linaccBaseRtWorldEwrtWorld - gravityEwrtWorld));
   const size_t numFlags = robotStateInternal_.getContactFlags().size();
   for (size_t i = 0; i < numFlags; ++i) {
     const bool flag = !useGroundTruth || i >= contactBodyIds_.size() ||
@@ -936,17 +959,15 @@ void MujocoSimInterface::updateThreadSafeRobotState() {
   // The foot sensors of the same step, for takeMeasForceFeetEwrtWorld().
   MeasuredFootForces& measForceFeetEwrtWorld =
       bufferedMeasForceFeetEwrtWorld_.writeSlot();
-  // NOLINTBEGIN(frame-naming): the ids of the feet's force sensors, not forces
-  measForceFeetEwrtWorld.left = getMeasForceFootEwrtWorld(leftFootForceSensor_);
-  measForceFeetEwrtWorld.right =
+  measForceFeetEwrtWorld.measForceLfootEwrtWorld =
+      getMeasForceFootEwrtWorld(leftFootForceSensor_);
+  measForceFeetEwrtWorld.measForceRfootEwrtWorld =
       getMeasForceFootEwrtWorld(rightFootForceSensor_);
-  // NOLINTEND(frame-naming)
   bufferedMeasForceFeetEwrtWorld_.publishWrite();
 }
 
 vector3_t MujocoSimInterface::getMeasForceFootEwrtWorld(int sensorId) const {
-  if (sensorId == kNoFootForceSensor)  // NOLINT(frame-naming): a sensor id
-    return vector3_t::Zero();
+  if (sensorId == kNoFootForceSensor) return vector3_t::Zero();
   const std::array<mjtNum, kPositionDim> measForceFootEwrtWorld =
       computeMeasForceFootEwrtWorld(mujocoModel_.get(), mujocoData_.get(),
                                     sensorId);
@@ -1082,10 +1103,12 @@ void MujocoSimInterface::simulationStep() {
   }
 
   // Auto reset logic.
-  if (mujocoData_->qpos[kZAxisIndex] < config_.autoResetBaseHeight) {
+  if (mujocoData_->qpos[kZAxisIndex] <
+      config_.autoResetMinPosBaseRtWorldEwrtWorldZ) {
     resetAndCatch(absl::StrCat("the base dropped to ",
                                mujocoData_->qpos[kZAxisIndex], " m, below the ",
-                               config_.autoResetBaseHeight, " m floor limit"));
+                               config_.autoResetMinPosBaseRtWorldEwrtWorldZ,
+                               " m floor limit"));
     // resetAndCatch() has zeroed every actuator command.
     mj_step(mujocoModel_.get(), mujocoData_.get());
     updateThreadSafeRobotState();
@@ -1288,12 +1311,12 @@ void MujocoSimInterface::applyGantryHold() {
       // turning it to face +x. The ZYX yaw would turn a robot with a mixed tilt
       // about the vertical as well. The height stays the operator's gantry
       // height below.
-      const mjtNum* absl_nonnull base = mujocoData_->qpos;
+      const mjtNum* absl_nonnull baseQpos = mujocoData_->qpos;
       const VerticalTwist quatHeadingRtWorld =
-          verticalTwistFromQuaternion(base[kMjFreeJointQuaternionWIndex],
-                                      base[kMjFreeJointQuaternionZIndex]);
-      weld[kWeldRelposeXIndex] = base[0];
-      weld[kWeldRelposeYIndex] = base[1];
+          verticalTwistFromQuaternion(baseQpos[kMjFreeJointQuaternionWIndex],
+                                      baseQpos[kMjFreeJointQuaternionZIndex]);
+      weld[kWeldRelposeXIndex] = baseQpos[kXAxisIndex];
+      weld[kWeldRelposeYIndex] = baseQpos[kYAxisIndex];
       weld[kWeldRelposeQuaternionWIndex] = quatHeadingRtWorld.w;
       weld[kWeldRelposeQuaternionXIndex] = 0.0;
       weld[kWeldRelposeQuaternionYIndex] = 0.0;
@@ -1301,7 +1324,7 @@ void MujocoSimInterface::applyGantryHold() {
       gantryWeldAnchored_ = true;
     }
     mujocoData_->eq_active[gantryWeldEqId_] = static_cast<mjtByte>(locked);
-    weld[kWeldRelposeZIndex] = gantryHeight_.load();
+    weld[kWeldRelposeZIndex] = gantryPosBaseRtWorldEwrtWorldZ_.load();
     return;
   }
 
@@ -1310,7 +1333,7 @@ void MujocoSimInterface::applyGantryHold() {
   if (!locked) return;
   mujocoData_->qpos[kXAxisIndex] = 0.0;
   mujocoData_->qpos[kYAxisIndex] = 0.0;
-  mujocoData_->qpos[kZAxisIndex] = gantryHeight_.load();
+  mujocoData_->qpos[kZAxisIndex] = gantryPosBaseRtWorldEwrtWorldZ_.load();
   mujocoData_->qpos[kMjFreeJointQuaternionWIndex] = 1.0;
   mujocoData_->qpos[kMjFreeJointQuaternionXIndex] = 0.0;
   mujocoData_->qpos[kMjFreeJointQuaternionYIndex] = 0.0;
@@ -1319,9 +1342,9 @@ void MujocoSimInterface::applyGantryHold() {
   mujocoData_->qvel[kXAxisIndex] = 0.0;
   mujocoData_->qvel[kYAxisIndex] = 0.0;
   mujocoData_->qvel[kZAxisIndex] = 0.0;
-  mujocoData_->qvel[kMjFreeJointAngularVelocityOffset + kXAxisIndex] = 0.0;
-  mujocoData_->qvel[kMjFreeJointAngularVelocityOffset + kYAxisIndex] = 0.0;
-  mujocoData_->qvel[kMjFreeJointAngularVelocityOffset + kZAxisIndex] = 0.0;
+  mujocoData_->qvel[kMjFreeJointAngularVelocityStartIndex + kXAxisIndex] = 0.0;
+  mujocoData_->qvel[kMjFreeJointAngularVelocityStartIndex + kYAxisIndex] = 0.0;
+  mujocoData_->qvel[kMjFreeJointAngularVelocityStartIndex + kZAxisIndex] = 0.0;
 }
 
 void MujocoSimInterface::updateGroundTruthContacts() {
@@ -1343,8 +1366,9 @@ void MujocoSimInterface::updateGroundTruthContacts() {
   // (droppedContactTimelineSamples()).
   std::unique_lock<std::mutex> lock(contactTimelineMutex_, std::try_to_lock);
   if (!lock.owns_lock()) {
-    if (pendingTimelineSample_.has_value())
+    if (pendingTimelineSample_.has_value()) {
       droppedTimelineSamples_.fetch_add(1, std::memory_order_relaxed);
+    }
     pendingTimelineSample_ = sample;
     return;
   }
@@ -1442,18 +1466,20 @@ void MujocoSimInterface::applyDodgeball() {
   // the robot can trip over and the next throw starts from a clean state rather
   // than from wherever the last one rolled to.
   if (projectileArmed_ && hasProjectile()) {
-    const double speed =
+    const double speedBallRtWorld =
         std::hypot(mujocoData_->qvel[dodgeballDofAdr_ + 0],
                    mujocoData_->qvel[dodgeballDofAdr_ + 1],
                    mujocoData_->qvel[dodgeballDofAdr_ + kZAxisIndex]);
-    if (projectileRestMonitor_.update(speed, mujocoModel_->opt.timestep)) {
+    if (projectileRestMonitor_.update(speedBallRtWorld,
+                                      mujocoModel_->opt.timestep)) {
       parkProjectile();
       return;
     }
   }
 
-  if (scheduledImpactTime_ < 0.0 || mujocoData_->time < scheduledImpactTime_)
+  if (scheduledImpactTime_ < 0.0 || mujocoData_->time < scheduledImpactTime_) {
     return;
+  }
   const int baseBody = robotRootBodyId();
   if (baseBody < 0) {
     scheduledImpactTime_ = -1.0;
@@ -1478,31 +1504,31 @@ bool MujocoSimInterface::throwStagedDodgeball(const DodgeballThrow& staged) {
   // the next mj_step recomputes from anyway.
   mj_kinematics(mujocoModel_.get(), mujocoData_.get());
   const int baseBody = robotRootBodyId();
-  const double yaw = baseYaw();
-  const double cosYaw = std::cos(yaw);
-  const double sinYaw = std::sin(yaw);
+  const double yawBaseRtWorld = getYawBaseRtWorld();
+  const double cosYawBaseRtWorld = std::cos(yawBaseRtWorld);
+  const double sinYawBaseRtWorld = std::sin(yawBaseRtWorld);
   const double flight = std::max(staged.flightTime, 0.0);
   // [m/s^2] The gravity MuJoCo flies the ball under, the scene's, so that the
   // spawn search and the scheduled impact follow the path the ball actually
   // takes. The GUI aims with its own constant
   // (remote_control/tk_app/dodgeball.py GRAVITY), which every shipped scene
   // matches (humanoid_common_mpc_app/robot testShippedRobotGravity).
-  const double gravity = -mujocoModel_->opt.gravity[kZAxisIndex];
+  const double gravityMagnitude = -mujocoModel_->opt.gravity[kZAxisIndex];
 
   // The GUI computed the whole throw in the robot's own yaw frame, so rotating
   // it into the world is all that is left to do here - see
   // remote_control/tk_app/dodgeball.py, which owns the geometry.
   const std::array<double, kPositionDim> spawnPosBallRtBaseEwrtWorld{
-      {cosYaw * staged.spawnPosBallRtBaseEwrtHeading[0] -
-           sinYaw * staged.spawnPosBallRtBaseEwrtHeading[1],
-       sinYaw * staged.spawnPosBallRtBaseEwrtHeading[0] +
-           cosYaw * staged.spawnPosBallRtBaseEwrtHeading[1],
+      {cosYawBaseRtWorld * staged.spawnPosBallRtBaseEwrtHeading[0] -
+           sinYawBaseRtWorld * staged.spawnPosBallRtBaseEwrtHeading[1],
+       sinYawBaseRtWorld * staged.spawnPosBallRtBaseEwrtHeading[0] +
+           cosYawBaseRtWorld * staged.spawnPosBallRtBaseEwrtHeading[1],
        staged.spawnPosBallRtBaseEwrtHeading[kZAxisIndex]}};
   const std::array<double, kPositionDim> launchLinvelBallRtWorldEwrtWorld{
-      {cosYaw * staged.launchLinvelBallRtWorldEwrtHeading[0] -
-           sinYaw * staged.launchLinvelBallRtWorldEwrtHeading[1],
-       sinYaw * staged.launchLinvelBallRtWorldEwrtHeading[0] +
-           cosYaw * staged.launchLinvelBallRtWorldEwrtHeading[1],
+      {cosYawBaseRtWorld * staged.launchLinvelBallRtWorldEwrtHeading[0] -
+           sinYawBaseRtWorld * staged.launchLinvelBallRtWorldEwrtHeading[1],
+       sinYawBaseRtWorld * staged.launchLinvelBallRtWorldEwrtHeading[0] +
+           cosYawBaseRtWorld * staged.launchLinvelBallRtWorldEwrtHeading[1],
        staged.launchLinvelBallRtWorldEwrtHeading[kZAxisIndex]}};
 
   if (hasProjectile() && baseBody >= 0) {
@@ -1537,7 +1563,7 @@ bool MujocoSimInterface::throwStagedDodgeball(const DodgeballThrow& staged) {
     // hit it.
     const absl::StatusOr<ProjectileLaunch> launch =
         clearProjectileLaunch(mujocoModel_.get(), mujocoData_.get(),
-                              dodgeballBodyId_, requested, gravity);
+                              dodgeballBodyId_, requested, gravityMagnitude);
     if (!launch.ok()) {
       LOG(WARNING) << "Dodgeball not thrown: " << launch.status().message();
       return true;
@@ -1556,8 +1582,8 @@ bool MujocoSimInterface::throwStagedDodgeball(const DodgeballThrow& staged) {
           launch->posBallRtWorldEwrtWorld[axis];
       mujocoData_->qvel[dodgeballDofAdr_ + axis] =
           launch->linvelBallRtWorldEwrtWorld[axis];
-      mujocoData_
-          ->qvel[dodgeballDofAdr_ + kMjFreeJointAngularVelocityOffset + axis] =
+      mujocoData_->qvel[dodgeballDofAdr_ +
+                        kMjFreeJointAngularVelocityStartIndex + axis] =
           0.0;  // no spin: the GUI does not aim one
     }
     // Identity orientation. A sphere has no preferred one, and leaving whatever
@@ -1577,7 +1603,7 @@ bool MujocoSimInterface::throwStagedDodgeball(const DodgeballThrow& staged) {
                          launch->linvelBallRtWorldEwrtWorld[kXAxisIndex],
                          launch->linvelBallRtWorldEwrtWorld[kYAxisIndex],
                          launch->linvelBallRtWorldEwrtWorld[kZAxisIndex] -
-                             gravity * launch->flightTime)
+                             gravityMagnitude * launch->flightTime)
               << " N s of momentum.";
     return true;
   }
@@ -1587,7 +1613,7 @@ bool MujocoSimInterface::throwStagedDodgeball(const DodgeballThrow& staged) {
   // and its impact is applied to the base as a one-step push then.
   scheduledArrivalLinvelBallRtWorldEwrtWorld_ =
       computeArrivalLinvelBallRtWorldEwrtWorld(launchLinvelBallRtWorldEwrtWorld,
-                                               flight, gravity);
+                                               flight, gravityMagnitude);
   scheduledBallMass_ = mass;
   scheduledImpactTime_ = mujocoData_->time + flight;
   LOG(INFO) << "Dodgeball thrown (no projectile compiled into this scene, so "
@@ -1610,41 +1636,48 @@ void MujocoSimInterface::applyFallbackImpulse(int baseBody) {
   // first.
   const std::array<double, kPositionDim>& arrivalLinvelBallRtWorldEwrtWorld =
       scheduledArrivalLinvelBallRtWorldEwrtWorld_;
-  const double speed =
+  const double speedBallRtWorld =
       std::hypot(arrivalLinvelBallRtWorldEwrtWorld[kXAxisIndex],
                  arrivalLinvelBallRtWorldEwrtWorld[kYAxisIndex],
                  arrivalLinvelBallRtWorldEwrtWorld[kZAxisIndex]);
-  if (!(speed > 0.0)) return;
-  const std::array<double, kPositionDim> direction{
-      {arrivalLinvelBallRtWorldEwrtWorld[kXAxisIndex] / speed,
-       arrivalLinvelBallRtWorldEwrtWorld[kYAxisIndex] / speed,
-       arrivalLinvelBallRtWorldEwrtWorld[kZAxisIndex] / speed}};
+  if (!(speedBallRtWorld > 0.0)) return;
+  const std::array<double, kPositionDim> dirBallEwrtWorld{
+      {arrivalLinvelBallRtWorldEwrtWorld[kXAxisIndex] / speedBallRtWorld,
+       arrivalLinvelBallRtWorldEwrtWorld[kYAxisIndex] / speedBallRtWorld,
+       arrivalLinvelBallRtWorldEwrtWorld[kZAxisIndex] / speedBallRtWorld}};
   mj_fwdPosition(mujocoModel_.get(), mujocoData_.get());
-  const mjtNum* absl_nonnull point =
+  const mjtNum* absl_nonnull posBaseRtWorldEwrtWorld =
       &mujocoData_->xpos[kPositionDim * baseBody];
-  mj_jac(mujocoModel_.get(), mujocoData_.get(), impactJacobian_.data(),
-         /*jacr=*/nullptr, point, baseBody);
+  mj_jac(mujocoModel_.get(), mujocoData_.get(),
+         impactLinjacBaseRtWorldEwrtWorld_.data(),
+         /*jacr=*/nullptr, posBaseRtWorldEwrtWorld, baseBody);
   const int nv = mujocoModel_->nv;
-  double baseSpeedAlongNormal = 0.0;
+  // linvel_base_rt_world_ewrt_world projected onto dirBallEwrtWorld: the struck
+  // point's velocity along the ball's path, signed (positive away from the
+  // ball).
+  double projectedLinvelBaseRtWorldEwrtWorld = 0.0;
   for (int dof = 0; dof < nv; ++dof) {
     double projected = 0.0;
-    for (int axis = 0; axis < kPositionDim; ++axis)
-      projected += direction[axis] * impactJacobian_[axis * nv + dof];
+    for (int axis = 0; axis < kPositionDim; ++axis) {
+      projected += dirBallEwrtWorld[axis] *
+                   impactLinjacBaseRtWorldEwrtWorld_[axis * nv + dof];
+    }
     impactGeneralizedDirection_[dof] = projected;
-    baseSpeedAlongNormal += projected * mujocoData_->qvel[dof];
+    projectedLinvelBaseRtWorldEwrtWorld += projected * mujocoData_->qvel[dof];
   }
   mj_solveM(mujocoModel_.get(), mujocoData_.get(), impactMobility_.data(),
             impactGeneralizedDirection_.data(), /*n=*/1);
   double inverseEffectiveMass = 0.0;
-  for (int dof = 0; dof < nv; ++dof)
+  for (int dof = 0; dof < nv; ++dof) {
     inverseEffectiveMass +=
         impactGeneralizedDirection_[dof] * impactMobility_[dof];
+  }
   const double effectiveMass = inverseEffectiveMass > 0.0
                                    ? 1.0 / inverseEffectiveMass
                                    : std::numeric_limits<double>::infinity();
-  const double impulse = projectileImpactImpulse(
+  const double normImpulseBaseEwrtWorld = projectileImpactImpulse(
       scheduledBallMass_, effectiveMass, fallbackRestitution_,
-      speed - baseSpeedAlongNormal);
+      speedBallRtWorld - projectedLinvelBaseRtWorldEwrtWorld);
 
   // xfrc_applied is a FORCE and a moment about the body's center of mass held
   // over the step, so the impulse is divided by the step it is spread across,
@@ -1655,27 +1688,32 @@ void MujocoSimInterface::applyFallbackImpulse(int baseBody) {
   const double timestep = mujocoModel_->opt.timestep > 0.0
                               ? mujocoModel_->opt.timestep
                               : kFallbackImpulseTimestep;
-  const mjtNum* absl_nonnull centerOfMass =
+  const mjtNum* absl_nonnull posLinkcomRtWorldEwrtWorld =
       &mujocoData_->xipos[kPositionDim * baseBody];
   std::array<mjtNum, kPositionDim> pushForceBaseEwrtWorld{};
-  std::array<mjtNum, kPositionDim> lever{};
+  std::array<mjtNum, kPositionDim> posBaseRtLinkcomEwrtWorld{};
   for (int axis = 0; axis < kPositionDim; ++axis) {
-    pushForceBaseEwrtWorld[axis] = impulse * direction[axis] / timestep;
-    lever[axis] = point[axis] - centerOfMass[axis];
+    pushForceBaseEwrtWorld[axis] =
+        normImpulseBaseEwrtWorld * dirBallEwrtWorld[axis] / timestep;
+    posBaseRtLinkcomEwrtWorld[axis] =
+        posBaseRtWorldEwrtWorld[axis] - posLinkcomRtWorldEwrtWorld[axis];
   }
-  mjtNum* absl_nonnull applied =
+  mjtNum* absl_nonnull pushWrenchLinkcomEwrtWorld =
       &mujocoData_->xfrc_applied[kMjSpatialVectorSize * baseBody];
-  mju_cross(applied + kPositionDim, lever.data(),
-            pushForceBaseEwrtWorld.data());
-  for (int axis = 0; axis < kPositionDim; ++axis)
-    applied[axis] = pushForceBaseEwrtWorld[axis];
-  lastPush_ = AppliedPush{.bodyId = baseBody,
-                          .impulseWorld = {impulse * direction[kXAxisIndex],
-                                           impulse * direction[kYAxisIndex],
-                                           impulse * direction[kZAxisIndex]},
-                          .simTimeApplied = mujocoData_->time};
+  mju_cross(pushWrenchLinkcomEwrtWorld + kPositionDim,
+            posBaseRtLinkcomEwrtWorld.data(), pushForceBaseEwrtWorld.data());
+  for (int axis = 0; axis < kPositionDim; ++axis) {
+    pushWrenchLinkcomEwrtWorld[axis] = pushForceBaseEwrtWorld[axis];
+  }
+  lastPush_ = AppliedPush{
+      .bodyId = baseBody,
+      .impulseLinkEwrtWorld =
+          {normImpulseBaseEwrtWorld * dirBallEwrtWorld[kXAxisIndex],
+           normImpulseBaseEwrtWorld * dirBallEwrtWorld[kYAxisIndex],
+           normImpulseBaseEwrtWorld * dirBallEwrtWorld[kZAxisIndex]},
+      .simTimeApplied = mujocoData_->time};
   dodgeballImpulseApplied_ = true;
-  LOG(INFO) << "Dodgeball impact: " << impulse
+  LOG(INFO) << "Dodgeball impact: " << normImpulseBaseEwrtWorld
             << " N s on an effective mass of " << effectiveMass << " kg.";
 }
 
@@ -1706,10 +1744,12 @@ void MujocoSimInterface::parkProjectile() {
   }
   mujocoData_->qpos[dodgeballQposAdr_ + kMjFreeJointQuaternionWIndex] = 1.0;
   for (int index = kMjFreeJointQuaternionXIndex; index < kMjFreeJointQposSize;
-       ++index)
+       ++index) {
     mujocoData_->qpos[dodgeballQposAdr_ + index] = 0.0;
-  for (int dof = 0; dof < kMjFreeJointDofs; ++dof)
+  }
+  for (int dof = 0; dof < kMjFreeJointDofs; ++dof) {
     mujocoData_->qvel[dodgeballDofAdr_ + dof] = 0.0;
+  }
 }
 
 int MujocoSimInterface::robotRootBodyId() const {
@@ -1725,7 +1765,7 @@ int MujocoSimInterface::robotRootBodyId() const {
   return -1;
 }
 
-double MujocoSimInterface::baseYaw() const {
+double MujocoSimInterface::getYawBaseRtWorld() const {
   // qpos[3..6] is the base free joint's quaternion (w, x, y, z), the same slice
   // setSimState writes. The twist heading (design D9), the gantry anchor's: the
   // angle of the twist about the vertical, in (-pi, pi].
@@ -1750,8 +1790,8 @@ void MujocoSimInterface::takeMeasForceFeetEwrtWorld(
   bufferedMeasForceFeetEwrtWorld_.acquireRead();
   const MeasuredFootForces& measForceFeetEwrtWorld =
       bufferedMeasForceFeetEwrtWorld_.readSlot();
-  measForceLfootEwrtWorld = measForceFeetEwrtWorld.left;
-  measForceRfootEwrtWorld = measForceFeetEwrtWorld.right;
+  measForceLfootEwrtWorld = measForceFeetEwrtWorld.measForceLfootEwrtWorld;
+  measForceRfootEwrtWorld = measForceFeetEwrtWorld.measForceRfootEwrtWorld;
 }
 
 std::vector<double> MujocoSimInterface::actuatorControlsForTesting() const {

@@ -39,7 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::multi_contact {
 
-/** What minimumTorqueUtilization() returns. Passive data. */
+/** What minimumJointTorqueUtilization() returns. Passive data. */
 struct TorqueFeasibilityResult {
   // min over the contact forces that hold the stance of max_j |tau_j| /
   // effortLimit_j, over the joints with an effort limit.
@@ -60,7 +60,7 @@ struct TorqueFeasibilityResult {
  * finds the forces that minimize the largest |tau_j| / effortLimit_j, with
  * one LP on the static equilibrium rows of `equilibrium` plus two rows per
  * joint (|tau_j| <= u effortLimit_j, minimize u). The stance is torque-feasible
- * within a margin when utilization <= that margin (isTorqueFeasible()).
+ * within a margin when utilization <= that margin (isJointTorqueFeasible()).
  *
  * Requires that `equilibrium`'s stance is the model's at q: its contacts'
  * candidateIndex name the model's candidates, and the robot's CoM at q is in
@@ -68,13 +68,13 @@ struct TorqueFeasibilityResult {
  * tolerance); otherwise the LP has no solution and HPIPM's failure is an
  * Internal error. Reads `model` only.
  */
-absl::StatusOr<TorqueFeasibilityResult> minimumTorqueUtilization(
+absl::StatusOr<TorqueFeasibilityResult> minimumJointTorqueUtilization(
     const RobotStanceModel& model, const StaticEquilibrium& equilibrium);
 
-/** Whether the torques use at most `torqueMargin` of the effort limits. */
-inline bool isTorqueFeasible(const TorqueFeasibilityResult& result,
-                             double torqueMargin) {
-  return result.utilization <= torqueMargin;
+/** Whether the torques use at most `jointTorqueMargin` of the effort limits. */
+inline bool isJointTorqueFeasible(const TorqueFeasibilityResult& result,
+                                  double jointTorqueMargin) {
+  return result.utilization <= jointTorqueMargin;
 }
 
 }  // namespace ocs2::humanoid::multi_contact

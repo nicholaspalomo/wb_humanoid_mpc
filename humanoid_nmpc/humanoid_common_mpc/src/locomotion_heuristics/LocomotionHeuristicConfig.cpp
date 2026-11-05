@@ -30,13 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 
 #include <cmath>
-#include <string>
-#include <utility>
-#include <vector>
 
-#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 
@@ -77,18 +75,21 @@ absl::Status LocomotionHeuristicConfig::validate() const {
   // is deliberately absent from this list: a fitted number has no admissible
   // range at all and is as legitimately negative as positive, which is the
   // whole point of fitting it rather than designing it.
-  RETURN_IF_ERROR(requirePositive(orientationCompensation.maximumTilt,
-                                  "orientation_compensation.maximum_tilt"));
-  RETURN_IF_ERROR(
-      requireNonNegative(heightCompensation.maximumHeightOffset,
-                         "height_compensation.maximum_height_offset"));
-  RETURN_IF_ERROR(requireNonNegative(capturePoint.comHeightOverride,
-                                     "capture_point.com_height_override"));
+  RETURN_IF_ERROR(requirePositive(
+      orientationCompensationParameters.maxOffsetEulerzyxBaseRtWorld,
+      "orientation_compensation_parameters.max_offset_eulerzyx_base_rt_world"));
+  RETURN_IF_ERROR(requireNonNegative(
+      heightCompensation.maxOffsetPosBaseRtWorldEwrtWorldZ,
+      "height_compensation.max_offset_pos_base_rt_world_ewrt_world_z"));
+  RETURN_IF_ERROR(requireNonNegative(
+      capturePoint.overridePosComRtFeetmeanEwrtWorldZ,
+      "capture_point.override_pos_com_rt_feetmean_ewrt_world_z"));
   // Positive, not merely non-negative: this is the clamp that stops a bad
   // velocity estimate throwing the landing target out of the leg's reach, and a
   // value of zero would remove it rather than tighten it.
-  RETURN_IF_ERROR(requirePositive(capturePoint.maximumOffset,
-                                  "capture_point.maximum_offset"));
+  RETURN_IF_ERROR(requirePositive(
+      capturePoint.maxNormOffsetPosFootRtWorldEwrtWorldXy,
+      "capture_point.max_norm_offset_pos_foot_rt_world_ewrt_world_xy"));
   // A negative scale or gain INVERTS the heuristic rather than reducing it: the
   // hip landmark mirrored through the base, or the foot stepped against the
   // velocity error, which accelerates the fall the capture point exists to
@@ -104,14 +105,15 @@ absl::Status LocomotionHeuristicConfig::validate() const {
   // Both scales are therefore floors at zero.
   RETURN_IF_ERROR(
       requireNonNegative(impulseScaling.scale, "impulse_scaling.scale"));
-  RETURN_IF_ERROR(requireNonNegative(centripetalAcceleration.scale,
-                                     "centripetal_acceleration.scale"));
+  RETURN_IF_ERROR(
+      requireNonNegative(centripetalAccelerationParameters.scale,
+                         "centripetal_acceleration_parameters.scale"));
   RETURN_IF_ERROR(requireNonNegative(
-      centripetalAcceleration.maximumForce,
-      "centripetal_acceleration.max_force_com_ewrt_world_xy"));
+      centripetalAccelerationParameters.maxForceComEwrtWorldXy,
+      "centripetal_acceleration_parameters.max_force_com_ewrt_world_xy"));
   RETURN_IF_ERROR(requireNonNegative(
-      centripetalAcceleration.maximumForceRatioOfWeight,
-      "centripetal_acceleration.maximum_force_ratio_of_weight"));
+      centripetalAccelerationParameters.maxWnormForceComEwrtWorldXy,
+      "centripetal_acceleration_parameters.max_wnorm_force_com_ewrt_world_xy"));
 
   // beta is a fraction of a gait cycle, so a clamp outside (0, 1] cannot be
   // reached, and one at 0 lets 1/beta run away at the onset of a flight phase -
@@ -127,12 +129,12 @@ absl::Status LocomotionHeuristicConfig::validate() const {
                      "before W / (F beta) is formed, and that is unbounded "
                      "as a flight phase opens."));
   }
-  if (!(impulseScaling.maximumForceRatio >= 1.0)) {
+  if (!(impulseScaling.maximumWeightCompensationRatio >= 1.0)) {
     return absl::InvalidArgumentError(
         absl::StrCat("[LocomotionHeuristicConfig] "
-                     "locomotion_heuristics.impulse_scaling.maximum_force_"
-                     "ratio must be at least 1, got ",
-                     impulseScaling.maximumForceRatio,
+                     "locomotion_heuristics.impulse_scaling.maximum_weight_"
+                     "compensation_ratio must be at least 1, got ",
+                     impulseScaling.maximumWeightCompensationRatio,
                      ". It clamps the scaled reference as a multiple of weight "
                      "compensation, and a value below 1 would ask the "
                      "stance feet to carry less than the robot weighs even "
@@ -141,15 +143,16 @@ absl::Status LocomotionHeuristicConfig::validate() const {
   // `max_force_com_ewrt_world_xy: 0` is the documented way to say "use the
   // ratio instead", so exactly one of the two has to be positive; both at zero
   // would remove the clamp entirely rather than select a default.
-  if (!(centripetalAcceleration.maximumForce > 0.0) &&
-      !(centripetalAcceleration.maximumForceRatioOfWeight > 0.0)) {
+  if (!(centripetalAccelerationParameters.maxForceComEwrtWorldXy > 0.0) &&
+      !(centripetalAccelerationParameters.maxWnormForceComEwrtWorldXy > 0.0)) {
     return absl::InvalidArgumentError(
         "[LocomotionHeuristicConfig] "
-        "locomotion_heuristics.centripetal_acceleration needs a force clamp: "
+        "locomotion_heuristics.centripetal_acceleration_parameters needs a "
+        "force clamp: "
         "set "
         "max_force_com_ewrt_world_xy to a positive value in newtons, or leave "
         "it at 0 and "
-        "set maximum_force_ratio_of_weight to a "
+        "set max_wnorm_force_com_ewrt_world_xy to a "
         "positive fraction of body weight. With both at zero nothing bounds a "
         "horizontal force reference that no "
         "friction cone would admit.");

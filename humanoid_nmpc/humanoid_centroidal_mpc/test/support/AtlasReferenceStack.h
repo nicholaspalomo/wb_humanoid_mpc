@@ -35,6 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_mpc_test/ScriptedMpc.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
@@ -125,22 +127,24 @@ class AtlasReferenceStack {
   }
   mpc_test::ScriptedMpc& mpc() { return *mpc_; }
 
-  /** The velocity command of the operator: [v_x, v_y] in m/s and the yaw rate
-   * in rad/s, before the command limits. */
-  void command(scalar_t forward,
-               scalar_t lateral = 0.0,
-               scalar_t yawRate = 0.0);
+  /** The velocity command of the operator as the bus carries it: the base
+   * velocity in the heading frame and the yaw rate, each a fraction of its
+   * command limit in reference.textproto. */
+  void command(scalar_t cmdLnormLinvelBaseRtWorldEwrtHeadingX,
+               scalar_t cmdLnormLinvelBaseRtWorldEwrtHeadingY = 0.0,
+               scalar_t cmdLnormAngvelBaseRtWorldEwrtWorldZ = 0.0);
 
   /** The target the controllers reset the MPC to: `state` held still and
    * upright, weight on both feet. */
   TargetTrajectories resetTarget(scalar_t time, const vector_t& state) const;
 
-  /** `state` moved to base position (x, y) and heading `yaw`, standing still.
-   */
+  /** `state` moved to the base position (posBaseRtWorldEwrtWorldX,
+   * posBaseRtWorldEwrtWorldY) with the ZYX yaw `eulerzyxBaseRtWorldYaw` (its
+   * pitch and roll kept), standing still. */
   vector_t standingAt(const vector_t& state,
-                      scalar_t x,
-                      scalar_t y,
-                      scalar_t yaw) const;
+                      scalar_t posBaseRtWorldEwrtWorldX,
+                      scalar_t posBaseRtWorldEwrtWorldY,
+                      scalar_t eulerzyxBaseRtWorldYaw) const;
 
   /** The paths of the DRC Atlas files in the runfiles: the task, reference and
    * gait textprotos and the URDF. */

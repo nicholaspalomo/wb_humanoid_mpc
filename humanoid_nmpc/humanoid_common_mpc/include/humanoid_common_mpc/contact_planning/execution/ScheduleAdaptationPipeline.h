@@ -29,6 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "ocs2_core/reference/ModeSchedule.h"
+
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
 #include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
 

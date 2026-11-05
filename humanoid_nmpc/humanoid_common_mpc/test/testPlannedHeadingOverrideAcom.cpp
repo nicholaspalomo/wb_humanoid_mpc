@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
@@ -49,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
@@ -69,7 +71,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The two readers of the Angular Center of Mass heading, on the shipped DRC
  * Atlas (the one robot whose contact planner runs the ACoM as its heading
  * model): the planner's input heading
- * (ContactPlanningReferenceManager::computeHeading), the twist heading
+ * (ContactPlanningReferenceManager::computeYawAcomRtWorld), the twist heading
  * psi_h(xi_a) of the ACoM attitude xi_a = xi (x) Exp(Delta_theta(q_j)); and
  * planned_heading_override, which sets a target knot's yaw so that the knot's
  * ACoM heading is the planned one. The ACoM cost compares those attitudes, so
@@ -79,6 +81,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 namespace ocs2::humanoid {
 namespace {
+
+/** The yaw `manager`'s heading model starts from at `state`: the ACoM's with
+ * the evaluator, the base's without (ContactPlanningReferenceManager::
+ * makePlannerInput()). */
+scalar_t computeInitYawHeadingRtWorld(
+    const ContactPlanningReferenceManager& manager,
+    const MpcRobotModelBase<scalar_t>& model,
+    const vector_t& state) {
+  return manager.computeYawAcomRtWorld(state).value_or(
+      model.getYawBaseRtWorld(state));
+}
 
 constexpr char kTaskFile[] =
     "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto";
@@ -94,8 +107,9 @@ scalar_t wrapped(scalar_t angle) {
 }
 
 /** A plan over [0, 1] s in ten nodes whose heading goes linearly from
- * `startHeading` to `endHeading`. */
-ContactPlan headingPlan(scalar_t startHeading, scalar_t endHeading) {
+ * `initHeadingModelYaw` to `finalHeadingModelYaw`. */
+ContactPlan headingPlan(scalar_t initHeadingModelYaw,
+                        scalar_t finalHeadingModelYaw) {
   constexpr size_t kNodes = 10;
   ContactPlan plan;
   plan.valid = true;
@@ -103,16 +117,17 @@ ContactPlan headingPlan(scalar_t startHeading, scalar_t endHeading) {
   plan.dt = 0.1;
   plan.committedUntil = plan.dt;
   plan.contacts.assign(kNodes, makeFeetArray(true));
-  plan.footholds.assign(kNodes + 1,
-                        makeFeetArray(vector2_t(vector2_t::Zero())));
-  plan.comPosition.assign(kNodes + 1, vector2_t::Zero());
-  plan.comVelocity.assign(kNodes + 1, vector2_t::Zero());
-  plan.zmp.assign(kNodes, vector2_t::Zero());
-  plan.heading.resize(kNodes + 1);
+  plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
+      kNodes + 1, makeFeetArray(vector2_t(vector2_t::Zero())));
+  plan.posComRtWorldEwrtWorldXyTraj.assign(kNodes + 1, vector2_t::Zero());
+  plan.linvelComRtWorldEwrtWorldXyTraj.assign(kNodes + 1, vector2_t::Zero());
+  plan.posZmpRtWorldEwrtWorldXyTraj.assign(kNodes, vector2_t::Zero());
+  plan.headingModelYawTraj.resize(kNodes + 1);
   for (size_t node = 0; node <= kNodes; ++node) {
-    plan.heading[node] = startHeading + (endHeading - startHeading) *
-                                            static_cast<scalar_t>(node) /
-                                            static_cast<scalar_t>(kNodes);
+    plan.headingModelYawTraj[node] =
+        initHeadingModelYaw + (finalHeadingModelYaw - initHeadingModelYaw) *
+                                  static_cast<scalar_t>(node) /
+                                  static_cast<scalar_t>(kNodes);
   }
   return plan;
 }
@@ -154,26 +169,27 @@ class PlannedHeadingOverrideAcomTest : public ::testing::Test {
     const Eigen::Index jointDim =
         static_cast<Eigen::Index>(model_->getJointDim());
     joints_ = vector_t(jointDim);
-    for (Eigen::Index joint = 0; joint < jointDim; ++joint)
+    for (Eigen::Index joint = 0; joint < jointDim; ++joint) {
       joints_(joint) = 0.3 * std::sin(1.7 * static_cast<scalar_t>(joint + 1));
-    ASSERT_GT(acom_->computeJointOrientationOffset(joints_).norm(), 0.02)
+    }
+    ASSERT_GT(acom_->computeRotvecAcomRtBase(joints_).norm(), 0.02)
         << "the joints must rotate the ACoM for these tests to mean anything";
   }
 
   /** A state of the fixture's robot with the base at the ZYX Euler angles
-   * `eulerZyx` and the fixture's bent joints. */
-  vector_t stateAt(const vector3_t& eulerZyx) const {
+   * `eulerzyxBaseRtWorld` and the fixture's bent joints. */
+  vector_t stateAt(const vector3_t& eulerzyxBaseRtWorld) const {
     vector_t state = model_->getNeutralState();
     model_->setPosBaseRtWorldEwrtWorld(state, vector3_t(0.2, -0.1, 0.85));
-    model_->setEulerzyxBaseRtWorld(state, eulerZyx);
+    model_->setEulerzyxBaseRtWorld(state, eulerzyxBaseRtWorld);
     model_->setJointAngles(state, joints_);
     return state;
   }
 
   /** The twist heading of the ACoM attitude of `state`. */
-  scalar_t acomHeadingOf(const vector_t& state) const {
-    return yawOf(acom_->acomAttitude(model_->getQuatBaseRtWorldXyzw(state),
-                                     model_->getJointAngles(state)));
+  scalar_t computeYawAcomRtWorld(const vector_t& state) const {
+    return yawOf(acom_->computeQuatAcomRtWorldXyzw(
+        model_->getQuatBaseRtWorldXyzw(state), model_->getJointAngles(state)));
   }
 
   /** A fresh ACoM evaluator of the fixture's robot, for a manager to own; null
@@ -191,8 +207,9 @@ class PlannedHeadingOverrideAcomTest : public ::testing::Test {
   std::shared_ptr<ContactPlanningReferenceManager> headingReferenceManager()
       const {
     ContactPlanningConfig config;
-    config.shared.comHeight = 0.85;  // no model derives the pendulum here
-                                     // (unset means "from the model")
+    config.shared.nomPosComRtFeetmeanEwrtWorldZ =
+        0.85;  // no model derives the pendulum here
+               // (unset means "from the model")
     config.setHeadingModel(true);
     EXPECT_EQ(config.validateStatus(), absl::OkStatus());
     absl::StatusOr<std::shared_ptr<GaitSchedule>> gaitSchedule =
@@ -225,20 +242,21 @@ class PlannedHeadingOverrideAcomTest : public ::testing::Test {
  */
 TEST_F(PlannedHeadingOverrideAcomTest,
        TheOffsetIsTheTwistOfTheJointRotationAndAddsToALevelBasesYaw) {
-  const scalar_t offset = acomHeadingOffset(*acom_, joints_);
+  const scalar_t yawAcomRtBase = computeYawAcomRtBase(*acom_, joints_);
   const vector4_t identity(0.0, 0.0, 0.0, 1.0);
-  EXPECT_NEAR(offset, yawOf(acom_->acomAttitude(identity, joints_)), 1.0e-15);
-  EXPECT_GT(std::abs(offset), 1.0e-3)
+  EXPECT_NEAR(yawAcomRtBase,
+              yawOf(acom_->computeQuatAcomRtWorldXyzw(identity, joints_)),
+              1.0e-15);
+  EXPECT_GT(std::abs(yawAcomRtBase), 1.0e-3)
       << "the joints must turn the ACoM for this to tell the ACoM heading from "
          "the base's";
 
-  const std::array<scalar_t, 5> yaws = {0.0, 0.7, -2.0, 3.1, -3.1};
-  for (const scalar_t yaw : yaws) {
-    EXPECT_LT(
-        std::abs(wrapped(acomHeadingOf(stateAt(vector3_t(yaw, 0.0, 0.0))) -
-                         (yaw + offset))),
-        1.0e-12)
-        << "yaw " << yaw;
+  for (const scalar_t yawBaseRtWorld : {0.0, 0.7, -2.0, 3.1, -3.1}) {
+    EXPECT_LT(std::abs(wrapped(computeYawAcomRtWorld(stateAt(
+                                   vector3_t(yawBaseRtWorld, 0.0, 0.0))) -
+                               (yawBaseRtWorld + yawAcomRtBase))),
+              1.0e-12)
+        << "yaw " << yawBaseRtWorld;
   }
 }
 
@@ -256,7 +274,7 @@ TEST_F(PlannedHeadingOverrideAcomTest,
 TEST_F(PlannedHeadingOverrideAcomTest,
        OverriddenLevelKnotsCarryThePlannedAcomHeading) {
   const ContactPlan plan =
-      headingPlan(/*startHeading=*/2.8, /*endHeading=*/3.6);
+      headingPlan(/*initHeadingModelYaw=*/2.8, /*finalHeadingModelYaw=*/3.6);
   ContactPlanningConfig config;
   ExecutionContext context(config);
   context.activePlan = &plan;
@@ -278,19 +296,24 @@ TEST_F(PlannedHeadingOverrideAcomTest,
     rule.overrideTarget(context, target);
     for (size_t knot = 0; knot + 1 < times.size(); ++knot) {
       const vector_t& rewritten = target.stateTrajectory[knot];
-      const std::optional<scalar_t> planned = plan.headingAtTime(times[knot]);
+      const std::optional<scalar_t> planned =
+          plan.headingModelYawAtTime(times[knot]);
       // An if, not ASSERT_TRUE: bugprone-unchecked-optional-access sees the
       // check only through an if.
-      if (!planned.has_value())
+      if (!planned.has_value()) {
         FAIL() << "the plan has no heading at knot " << knot;
-      const scalar_t heading =
-          (*slot != nullptr) ? acomHeadingOf(rewritten)
+      }
+      const scalar_t rewrittenHeadingModelYaw =
+          (*slot != nullptr) ? computeYawAcomRtWorld(rewritten)
                              : model_->getEulerzyxBaseRtWorld(rewritten)(0);
-      EXPECT_LT(std::abs(wrapped(heading - *planned)), 1.0e-12)
+      EXPECT_LT(std::abs(wrapped(rewrittenHeadingModelYaw - *planned)), 1.0e-12)
           << "knot " << knot << (*slot != nullptr ? " (ACoM)" : " (base)");
-      const vector3_t before = model_->getEulerzyxBaseRtWorld(knots[knot]);
-      const vector3_t after = model_->getEulerzyxBaseRtWorld(rewritten);
-      EXPECT_LT((vector2_t(after.tail<2>()) - vector2_t(before.tail<2>()))
+      const vector3_t refEulerzyxBaseRtWorld =
+          model_->getEulerzyxBaseRtWorld(knots[knot]);
+      const vector3_t overriddenRefEulerzyxBaseRtWorld =
+          model_->getEulerzyxBaseRtWorld(rewritten);
+      EXPECT_LT((vector2_t(overriddenRefEulerzyxBaseRtWorld.tail<2>()) -
+                 vector2_t(refEulerzyxBaseRtWorld.tail<2>()))
                     .cwiseAbs()
                     .maxCoeff(),
                 1.0e-12)
@@ -311,7 +334,7 @@ TEST_F(PlannedHeadingOverrideAcomTest,
  * whatever the evaluator. */
 TEST_F(PlannedHeadingOverrideAcomTest, ATiltedKnotKeepsItsPitchAndRoll) {
   const ContactPlan plan =
-      headingPlan(/*startHeading=*/0.5, /*endHeading=*/0.5);
+      headingPlan(/*initHeadingModelYaw=*/0.5, /*finalHeadingModelYaw=*/0.5);
   ContactPlanningConfig config;
   ExecutionContext context(config);
   context.activePlan = &plan;
@@ -320,14 +343,16 @@ TEST_F(PlannedHeadingOverrideAcomTest, ATiltedKnotKeepsItsPitchAndRoll) {
       {0.5}, {knot},
       {vector_t::Zero(static_cast<Eigen::Index>(model_->getInputDim()))});
   PlannedHeadingOverride(*model_, &acom_).overrideTarget(context, target);
-  const vector3_t after =
+  const vector3_t overriddenRefEulerzyxBaseRtWorld =
       model_->getEulerzyxBaseRtWorld(target.stateTrajectory.front());
-  EXPECT_LT((vector2_t(after.tail<2>()) - vector2_t(0.12, -0.07))
+  EXPECT_LT((vector2_t(overriddenRefEulerzyxBaseRtWorld.tail<2>()) -
+             vector2_t(0.12, -0.07))
                 .cwiseAbs()
                 .maxCoeff(),
             1.0e-12)
-      << after.transpose();
-  EXPECT_NEAR(after(0), 0.5 - acomHeadingOffset(*acom_, joints_), 1.0e-12);
+      << overriddenRefEulerzyxBaseRtWorld.transpose();
+  EXPECT_NEAR(overriddenRefEulerzyxBaseRtWorld(0),
+              0.5 - computeYawAcomRtBase(*acom_, joints_), 1.0e-12);
 }
 
 /**
@@ -342,21 +367,28 @@ TEST_F(PlannedHeadingOverrideAcomTest,
       headingReferenceManager();
   ASSERT_NE(manager, nullptr);
   const vector_t state = stateAt(vector3_t(3.5, 0.15, -0.1));
-  EXPECT_EQ(manager->computeHeading(state), model_->getYawBaseRtWorld(state))
+  EXPECT_FALSE(manager->computeYawAcomRtWorld(state).has_value())
       << "without an evaluator";
 
   manager->setAngularCenterOfMass(makeAcom());
-  const scalar_t heading = manager->computeHeading(state);
-  EXPECT_EQ(heading, acomHeadingOf(state));
-  EXPECT_GT(heading, -std::numbers::pi);
-  EXPECT_LE(heading, std::numbers::pi);
-  EXPECT_GT(std::abs(wrapped(heading - model_->getYawBaseRtWorld(state))),
-            1.0e-3)
+  const std::optional<scalar_t> yawAcomRtWorld =
+      manager->computeYawAcomRtWorld(state);
+  // An if, not ASSERT_TRUE: bugprone-unchecked-optional-access sees the check
+  // only through an if.
+  if (!yawAcomRtWorld.has_value()) {
+    FAIL() << "with an evaluator";
+  }
+  EXPECT_EQ(*yawAcomRtWorld, computeYawAcomRtWorld(state));
+  EXPECT_GT(*yawAcomRtWorld, -std::numbers::pi);
+  EXPECT_LE(*yawAcomRtWorld, std::numbers::pi);
+  EXPECT_GT(
+      std::abs(wrapped(*yawAcomRtWorld - model_->getYawBaseRtWorld(state))),
+      1.0e-3)
       << "the ACoM heading must differ from the base's here";
   EXPECT_EQ(
       manager->makePlannerInput(/*initTime=*/0.0, state, vector2_t::Zero())
-          .heading,
-      heading);
+          .initYawHeadingRtWorld,
+      *yawAcomRtWorld);
 }
 
 /**
@@ -373,16 +405,19 @@ TEST_F(
   const std::shared_ptr<ContactPlanningReferenceManager> manager =
       headingReferenceManager();
   ASSERT_NE(manager, nullptr);
-  const Eigen::Index orientation =
+  const Eigen::Index orientationStartIndex =
       static_cast<Eigen::Index>(model_->getBaseOrientationStartIndex());
   const vector_t state = stateAt(vector3_t(2.4, 0.2, -0.3));
   for (const bool withAcom : {false, true}) {
     manager->setAngularCenterOfMass(withAcom ? makeAcom() : nullptr);
-    const scalar_t heading = manager->computeHeading(state);
+    const scalar_t initYawHeadingRtWorld =
+        computeInitYawHeadingRtWorld(*manager, *model_, state);
     for (const scalar_t scale : {-1.0, 0.25, -3.0}) {
       vector_t scaled = state;
-      scaled.segment<4>(orientation) *= scale;
-      EXPECT_LT(std::abs(wrapped(manager->computeHeading(scaled) - heading)),
+      scaled.segment<4>(orientationStartIndex) *= scale;
+      EXPECT_LT(std::abs(wrapped(
+                    computeInitYawHeadingRtWorld(*manager, *model_, scaled) -
+                    initYawHeadingRtWorld)),
                 1.0e-12)
           << "scale " << scale << (withAcom ? " (ACoM)" : " (base)");
     }
@@ -394,22 +429,26 @@ TEST_F(
         vertical, quaternionProduct(model_->getQuatBaseRtWorldXyzw(vertical),
                                     quaternionExp(vector3_t(
                                         0.0, 0.5 * std::numbers::pi, 0.0))));
-    const scalar_t verticalHeading = manager->computeHeading(vertical);
-    EXPECT_TRUE(std::isfinite(verticalHeading)) << (withAcom ? "ACoM" : "base");
-    EXPECT_GT(verticalHeading, -std::numbers::pi);
-    EXPECT_LE(verticalHeading, std::numbers::pi);
+    const scalar_t verticalHeadingModelInitYaw =
+        computeInitYawHeadingRtWorld(*manager, *model_, vertical);
+    EXPECT_TRUE(std::isfinite(verticalHeadingModelInitYaw))
+        << (withAcom ? "ACoM" : "base");
+    EXPECT_GT(verticalHeadingModelInitYaw, -std::numbers::pi);
+    EXPECT_LE(verticalHeadingModelInitYaw, std::numbers::pi);
 
     // Across the seam: the yaw of a level base 1e-6 on either side of pi.
-    const scalar_t below = manager->computeHeading(
+    const scalar_t below = computeInitYawHeadingRtWorld(
+        *manager, *model_,
         stateAt(vector3_t(std::numbers::pi - 1.0e-6, 0.0, 0.0)));
-    const scalar_t above = manager->computeHeading(
+    const scalar_t above = computeInitYawHeadingRtWorld(
+        *manager, *model_,
         stateAt(vector3_t(std::numbers::pi + 1.0e-6, 0.0, 0.0)));
     EXPECT_LT(std::abs(wrapped(above - below)), 3.0e-6)
         << (withAcom ? "ACoM" : "base");
   }
   manager->setAngularCenterOfMass(nullptr);
-  EXPECT_EQ(manager->computeHeading(stateAt(vector3_t(0.8, 0.0, 0.0))),
-            model_->getYawBaseRtWorld(stateAt(vector3_t(0.8, 0.0, 0.0))));
+  EXPECT_FALSE(manager->computeYawAcomRtWorld(stateAt(vector3_t(0.8, 0.0, 0.0)))
+                   .has_value());
   EXPECT_NEAR(model_->getYawBaseRtWorld(stateAt(vector3_t(0.8, 0.0, 0.0))), 0.8,
               1.0e-12);
 }

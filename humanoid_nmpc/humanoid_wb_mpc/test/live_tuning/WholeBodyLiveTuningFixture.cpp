@@ -171,8 +171,8 @@ mpc_config::TaskFile variantTaskFile() {
   task.collision_cbf_constraint.delta = 0.05;
   // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/RunningProblemFingerprint.cpp:cbf_band_margin)
   // [rad] A toe-up swing: the swing foot's cost holds its tilt to a tilted
-  // plane, which orientation_z then weighs.
-  task.swing_trajectory_config.swing_pitch_angle = 0.2;
+  // plane, which rotvec_z then weighs.
+  task.swing_trajectory_config.swing_max_tiltangle_foot_rt_surface = 0.2;
 
   mpc_config::ContactsConfig::WrenchCone& cone =
       task.contacts.contact_wrench_cone_soft_constraint;

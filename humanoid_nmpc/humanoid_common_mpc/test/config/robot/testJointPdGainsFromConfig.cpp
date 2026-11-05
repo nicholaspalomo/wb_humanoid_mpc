@@ -46,7 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/robot/JointPdGainsFromConfig.h"
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
-#include "humanoid_mpc_config/joint_pd_gains_file.nproto.pb.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.pb.h"
 #include "nproto/Textproto.h"
 
 namespace ocs2::humanoid {

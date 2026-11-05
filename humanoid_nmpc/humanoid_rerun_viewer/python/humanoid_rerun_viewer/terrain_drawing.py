@@ -120,13 +120,16 @@ def log_terrain(
         path = f"{TERRAIN_ROOT}/{primitive.name}"
         if primitive.HasField("box"):
             box = primitive.box
-            orientation = list(box.orientation_xyzw) or list(_IDENTITY_XYZW)
+            quat_box_rt_world_xyzw = list(box.quat_box_rt_world_xyzw) or list(
+                _IDENTITY_XYZW
+            )
             recording.log(
                 path,
                 rr.Boxes3D(
-                    centers=[list(box.center)],
+                    centers=[list(box.pos_box_rt_world_ewrt_world)],
                     half_sizes=[list(box.half_extents)],
-                    quaternions=[rr.Quaternion(xyzw=orientation)],
+                    # NOLINTNEXTLINE(frame-naming): a Rerun keyword argument
+                    quaternions=[rr.Quaternion(xyzw=quat_box_rt_world_xyzw)],
                     colors=[_TERRAIN_COLOR],
                     fill_mode=rr.components.FillMode.Solid,
                 ),
@@ -134,19 +137,35 @@ def log_terrain(
             )
         else:
             capsule = primitive.capsule
-            start = np.asarray(capsule.start, dtype=float)
-            axis = np.asarray(capsule.end, dtype=float) - start
-            length = float(np.linalg.norm(axis))
-            orientation = list(_IDENTITY_XYZW)
-            if length > 0.0:
-                orientation = quaternion_between([0.0, 0.0, 1.0], axis)
+            pos_capsulestart_rt_world_ewrt_world = np.asarray(
+                capsule.pos_capsulestart_rt_world_ewrt_world, dtype=float
+            )
+            pos_capsuleend_rt_capsulestart_ewrt_world = (
+                np.asarray(
+                    capsule.pos_capsuleend_rt_world_ewrt_world, dtype=float
+                )
+                - pos_capsulestart_rt_world_ewrt_world
+            )
+            dist_capsuleend_rt_capsulestart = float(
+                np.linalg.norm(pos_capsuleend_rt_capsulestart_ewrt_world)
+            )
+            quat_capsulestart_rt_world_xyzw = list(_IDENTITY_XYZW)
+            if dist_capsuleend_rt_capsulestart > 0.0:
+                quat_capsulestart_rt_world_xyzw = quaternion_between(
+                    [0.0, 0.0, 1.0], pos_capsuleend_rt_capsulestart_ewrt_world
+                )
             recording.log(
                 path,
                 rr.Capsules3D(
-                    lengths=[length],
+                    lengths=[dist_capsuleend_rt_capsulestart],
                     radii=[capsule.radius],
-                    translations=[start.tolist()],
-                    quaternions=[rr.Quaternion(xyzw=orientation)],
+                    translations=[
+                        pos_capsulestart_rt_world_ewrt_world.tolist()
+                    ],
+                    # NOLINTNEXTLINE(frame-naming): a Rerun keyword argument
+                    quaternions=[
+                        rr.Quaternion(xyzw=quat_capsulestart_rt_world_xyzw)
+                    ],
                     colors=[_TERRAIN_COLOR],
                 ),
                 static=True,

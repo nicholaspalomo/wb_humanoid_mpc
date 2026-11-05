@@ -43,22 +43,23 @@ namespace ocs2::humanoid {
  * The layout of the vectors of EndEffectorDynamicsFootCost - its reference
  * (PlanarEndEffectorDynamicsReference), its errors and its weights
  * (EndEffectorDynamicsWeights::toVector()): six blocks of three entries, the
- * foot's position, the ground plane's normal (the weights: the orientation
- * error to it), and the foot's linear and angular velocities and accelerations.
- * Each offset is the first entry of its block; the position starts at 0.
+ * foot's position, the swing reference's surface normal (tilted toe-up during
+ * a swing; the ground normal in contact; the weights: the tilt to it), and the
+ * foot's linear and angular velocities and accelerations. Each offset is the
+ * first entry of its block; the position starts at 0.
  */
-inline constexpr int kFootReferencePlaneNormalOffset = kPositionDim;
-inline constexpr int kFootReferenceLinearVelocityOffset =
-    kFootReferencePlaneNormalOffset + kPositionDim;
-inline constexpr int kFootReferenceAngularVelocityOffset =
-    kFootReferenceLinearVelocityOffset + kPositionDim;
-inline constexpr int kFootReferenceLinearAccelerationOffset =
-    kFootReferenceAngularVelocityOffset + kRotationTangentDim;
-inline constexpr int kFootReferenceAngularAccelerationOffset =
-    kFootReferenceLinearAccelerationOffset + kPositionDim;
+inline constexpr int kFootReferencePlaneNormalStartIndex = kPositionDim;
+inline constexpr int kFootReferenceLinearVelocityStartIndex =
+    kFootReferencePlaneNormalStartIndex + kPositionDim;
+inline constexpr int kFootReferenceAngularVelocityStartIndex =
+    kFootReferenceLinearVelocityStartIndex + kPositionDim;
+inline constexpr int kFootReferenceLinearAccelerationStartIndex =
+    kFootReferenceAngularVelocityStartIndex + kRotationTangentDim;
+inline constexpr int kFootReferenceAngularAccelerationStartIndex =
+    kFootReferenceLinearAccelerationStartIndex + kPositionDim;
 /** The entries of each of the vectors above. */
 inline constexpr int kFootCostDim =
-    kFootReferenceAngularAccelerationOffset + kRotationTangentDim;
+    kFootReferenceAngularAccelerationStartIndex + kRotationTangentDim;
 
 template <typename SCALAR_T>
 using VECTOR18_T = Eigen::Matrix<SCALAR_T, kFootCostDim, 1>;
@@ -104,7 +105,8 @@ struct EndEffectorDynamicsWeights {
 
 /**
  * The reference of EndEffectorDynamicsFootCost packed in its 18 parameters: the
- * foot position, the normal of the ground plane, and the linear and angular
+ * foot position, the swing reference's surface normal (tilted toe-up during a
+ * swing; the ground normal in contact), and the linear and angular
  * velocities and accelerations, three entries each.
  */
 template <typename SCALAR_T>
@@ -118,40 +120,44 @@ struct PlanarEndEffectorDynamicsReference {
 
   VECTOR18_T<SCALAR_T> getValues() { return costElementVector; }
 
-  VECTOR3_T<SCALAR_T> getPosition() const {
+  VECTOR3_T<SCALAR_T> getRefPosFootRtWorldEwrtWorld() const {
     return costElementVector.head(kPositionDim);
   }
-  VECTOR3_T<SCALAR_T> getPlaneNormal() const {
-    return costElementVector.segment(kFootReferencePlaneNormalOffset,
+  VECTOR3_T<SCALAR_T> getSwingRefNormalSurfaceEwrtWorld() const {
+    return costElementVector.segment(kFootReferencePlaneNormalStartIndex,
                                      kPositionDim);
   }
-  VECTOR3_T<SCALAR_T> getLinearVelocity() const {
-    return costElementVector.segment(kFootReferenceLinearVelocityOffset,
+  VECTOR3_T<SCALAR_T> getRefLinvelFootRtWorldEwrtWorld() const {
+    return costElementVector.segment(kFootReferenceLinearVelocityStartIndex,
                                      kPositionDim);
   }
-  VECTOR3_T<SCALAR_T> getAngularVelocity() const {
-    return costElementVector.segment(kFootReferenceAngularVelocityOffset,
+  VECTOR3_T<SCALAR_T> getRefAngvelFootRtWorldEwrtWorld() const {
+    return costElementVector.segment(kFootReferenceAngularVelocityStartIndex,
                                      kRotationTangentDim);
   }
-  VECTOR3_T<SCALAR_T> getLinearAcceleration() const {
-    return costElementVector.segment(kFootReferenceLinearAccelerationOffset,
+  VECTOR3_T<SCALAR_T> getRefLinaccFootRtWorldEwrtWorld() const {
+    return costElementVector.segment(kFootReferenceLinearAccelerationStartIndex,
                                      kPositionDim);
   }
-  VECTOR3_T<SCALAR_T> getAngularAcceleration() const {
-    return costElementVector.segment(kFootReferenceAngularAccelerationOffset,
-                                     kRotationTangentDim);
+  VECTOR3_T<SCALAR_T> getRefAngaccFootRtWorldEwrtWorld() const {
+    return costElementVector.segment(
+        kFootReferenceAngularAccelerationStartIndex, kRotationTangentDim);
   }
 
-  void setPosition(const VECTOR3_T<SCALAR_T>& position) {
-    costElementVector.head(kPositionDim) = position;
+  void setRefPosFootRtWorldEwrtWorld(
+      const VECTOR3_T<SCALAR_T>& refPosFootRtWorldEwrtWorld) {
+    costElementVector.head(kPositionDim) = refPosFootRtWorldEwrtWorld;
   }
-  void setLinearVelocity(const VECTOR3_T<SCALAR_T>& linearVelocity) {
-    costElementVector.segment(kFootReferenceLinearVelocityOffset,
-                              kPositionDim) = linearVelocity;
+  void setRefLinvelFootRtWorldEwrtWorld(
+      const VECTOR3_T<SCALAR_T>& refLinvelFootRtWorldEwrtWorld) {
+    costElementVector.segment(kFootReferenceLinearVelocityStartIndex,
+                              kPositionDim) = refLinvelFootRtWorldEwrtWorld;
   }
-  void setAngularVelocity(const VECTOR3_T<SCALAR_T>& angularVelocity) {
-    costElementVector.segment(kFootReferenceAngularVelocityOffset,
-                              kRotationTangentDim) = angularVelocity;
+  void setRefAngvelFootRtWorldEwrtWorld(
+      const VECTOR3_T<SCALAR_T>& refAngvelFootRtWorldEwrtWorld) {
+    costElementVector.segment(kFootReferenceAngularVelocityStartIndex,
+                              kRotationTangentDim) =
+        refAngvelFootRtWorldEwrtWorld;
   }
 };
 

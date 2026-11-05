@@ -100,7 +100,7 @@ void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
   lastTime_ = sample.time;
   ++numCycles_;
 
-  const double height = sample.basePosition.z();
+  const double height = sample.posBaseRtWorldEwrtWorld.z();
   heightSum_ += height;
   const double deviationFromPreviousMean = height - heightRunningMean_;
   heightRunningMean_ +=
@@ -110,7 +110,7 @@ void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
   const double heightError = height - sample.referenceBaseHeight;
   heightErrorSquaredSum_ += heightError * heightError;
 
-  const vector4_t xi = sample.baseQuaternion;
+  const vector4_t xi = sample.quatBaseRtWorldXyzw;
   const double tilt = tiltVector(xi).norm();
   tiltSquaredSum_ += tilt * tilt;
   tiltMax_ = std::max(tiltMax_, tilt);
@@ -120,21 +120,24 @@ void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
   const double heading = yawOf(xi);
   const double cosHeading = std::cos(heading);
   const double sinHeading = std::sin(heading);
-  const Eigen::Vector3d& velocity = sample.baseLinearVelocityWorld;
-  const Eigen::Vector2d headingVelocity(
-      cosHeading * velocity.x() + sinHeading * velocity.y(),
-      -sinHeading * velocity.x() + cosHeading * velocity.y());
-  velocityErrorSquaredSum_ +=
-      (headingVelocity -
-       sample.referenceVelocity.head<kCommandPlanarVelocityDim>())
+  const Eigen::Vector3d& linvelBaseRtWorldEwrtWorld =
+      sample.linvelBaseRtWorldEwrtWorld;
+  const Eigen::Vector2d linvelBaseRtWorldEwrtHeadingXy(
+      cosHeading * linvelBaseRtWorldEwrtWorld.x() +
+          sinHeading * linvelBaseRtWorldEwrtWorld.y(),
+      -sinHeading * linvelBaseRtWorldEwrtWorld.x() +
+          cosHeading * linvelBaseRtWorldEwrtWorld.y());
+  squaredSumErrLinvelBaseRtWorldEwrtHeadingXy_ +=
+      (linvelBaseRtWorldEwrtHeadingXy -
+       sample.refVelocityCommand.head<kCommandPlanarVelocityDim>())
           .squaredNorm();
-  Eigen::Quaterniond rotation;
-  rotation.coeffs() = sample.baseQuaternion;
-  const double yawRate = (rotation.normalized().toRotationMatrix() *
-                          sample.baseAngularVelocityLocal)
+  Eigen::Quaterniond quatBaseRtWorld;
+  quatBaseRtWorld.coeffs() = sample.quatBaseRtWorldXyzw;
+  const double yawRate = (quatBaseRtWorld.normalized().toRotationMatrix() *
+                          sample.angvelBaseRtWorldEwrtBase)
                              .z();
   const double yawRateError =
-      yawRate - sample.referenceVelocity(kCommandYawRateIndex);
+      yawRate - sample.refVelocityCommand(kCommandYawRateIndex);
   yawRateErrorSquaredSum_ += yawRateError * yawRateError;
 
   // Heading unwrapped from the first sample on.
@@ -149,36 +152,42 @@ void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
   // Stance-foot slip: the horizontal drift of a contact point from where it
   // touched down, while it stays in contact.
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    const Eigen::Vector2d position =
-        sample.contactPositions[contact].head<kHorizontalPositionDim>();
+    const Eigen::Vector2d posContactRtWorldEwrtWorldXy =
+        sample.posContactsRtWorldEwrtWorld[contact]
+            .head<kHorizontalPositionDim>();
     StancePhase& phase = stance_[contact];
     if (sample.contactFlags[contact]) {
       if (!phase.active) {
         phase.active = true;
-        phase.touchDownPosition = position;
+        phase.touchdownPosContactRtWorldEwrtWorldXy =
+            posContactRtWorldEwrtWorldXy;
         phase.maxDrift = 0.0;
       }
       phase.maxDrift =
-          std::max(phase.maxDrift, (position - phase.touchDownPosition).norm());
+          std::max(phase.maxDrift, (posContactRtWorldEwrtWorldXy -
+                                    phase.touchdownPosContactRtWorldEwrtWorldXy)
+                                       .norm());
     } else if (phase.active) {
-      closeStancePhase(contact, lastContactPosition_[contact]);
+      closeStancePhase(contact, prevPosContactsRtWorldEwrtWorldXy_[contact]);
     }
-    lastContactPosition_[contact] = position;
+    prevPosContactsRtWorldEwrtWorldXy_[contact] = posContactRtWorldEwrtWorldXy;
   }
 
   for (Eigen::Index joint = 0; joint < sample.jointTorques.size(); ++joint) {
-    torqueSquaredSum_ +=
+    jointTorqueSquaredSum_ +=
         sample.jointTorques(joint) * sample.jointTorques(joint);
   }
-  torqueCount_ += static_cast<size_t>(sample.jointTorques.size());
+  jointTorqueCount_ += static_cast<size_t>(sample.jointTorques.size());
   nonFiniteValues_ += sample.nonFiniteValues;
   if (!sample.mpcHealthy) ++unhealthyCycles_;
 }
 
-void ClosedLoopMetrics::closeStancePhase(size_t contact,
-                                         const Eigen::Vector2d& position) {
+void ClosedLoopMetrics::closeStancePhase(
+    size_t contact, const Eigen::Vector2d& posContactRtWorldEwrtWorldXy) {
   StancePhase& phase = stance_[contact];
-  stanceFinalDrifts_.push_back((position - phase.touchDownPosition).norm());
+  stanceFinalDrifts_.push_back((posContactRtWorldEwrtWorldXy -
+                                phase.touchdownPosContactRtWorldEwrtWorldXy)
+                                   .norm());
   slipMax_ = std::max(slipMax_, phase.maxDrift);
   phase.active = false;
 }
@@ -197,17 +206,17 @@ void ClosedLoopMetrics::addSolve(const SolveSample& sample) {
     lastConstraintViolation_.reset();
     violationGrowthRun_ = 0;
   }
-  if (sample.initialStateRotationGap.has_value()) {
-    if (!maxRotationGap_.has_value()) {
-      maxRotationGap_ = sample.initialStateRotationGap;
-      maxRotationGapTime_ = sample.time;
-    } else if (std::isnan(*sample.initialStateRotationGap)) {
-      maxRotationGap_ = sample.initialStateRotationGap;
-      maxRotationGapTime_ = sample.time;
-    } else if (!std::isnan(*maxRotationGap_) &&
-               *sample.initialStateRotationGap > *maxRotationGap_) {
-      maxRotationGap_ = sample.initialStateRotationGap;
-      maxRotationGapTime_ = sample.time;
+  if (sample.initialStateGapAngle.has_value()) {
+    if (!maxGapAngle_.has_value()) {
+      maxGapAngle_ = sample.initialStateGapAngle;
+      maxGapAngleTime_ = sample.time;
+    } else if (std::isnan(*sample.initialStateGapAngle)) {
+      maxGapAngle_ = sample.initialStateGapAngle;
+      maxGapAngleTime_ = sample.time;
+    } else if (!std::isnan(*maxGapAngle_) &&
+               *sample.initialStateGapAngle > *maxGapAngle_) {
+      maxGapAngle_ = sample.initialStateGapAngle;
+      maxGapAngleTime_ = sample.time;
     }
   }
   if (sample.initialStateGapNorm.has_value()) {
@@ -220,17 +229,18 @@ void ClosedLoopMetrics::addSolve(const SolveSample& sample) {
       maxGapNorm_ = sample.initialStateGapNorm;
     }
   }
-  if (sample.quaternionNormDeviation.has_value()) {
-    if (!std::isfinite(*sample.quaternionNormDeviation)) {
-      ++nonFiniteQuaternionSolves_;
+  if (sample.unitQuaternionNormDeviation.has_value()) {
+    if (!std::isfinite(*sample.unitQuaternionNormDeviation)) {
+      ++nonFiniteUnitQuaternionSolves_;
     }
-    if (!maxQuaternionNormDeviation_.has_value()) {
-      maxQuaternionNormDeviation_ = sample.quaternionNormDeviation;
-    } else if (std::isnan(*sample.quaternionNormDeviation)) {
-      maxQuaternionNormDeviation_ = sample.quaternionNormDeviation;
-    } else if (!std::isnan(*maxQuaternionNormDeviation_) &&
-               *sample.quaternionNormDeviation > *maxQuaternionNormDeviation_) {
-      maxQuaternionNormDeviation_ = sample.quaternionNormDeviation;
+    if (!maxUnitQuaternionNormDeviation_.has_value()) {
+      maxUnitQuaternionNormDeviation_ = sample.unitQuaternionNormDeviation;
+    } else if (std::isnan(*sample.unitQuaternionNormDeviation)) {
+      maxUnitQuaternionNormDeviation_ = sample.unitQuaternionNormDeviation;
+    } else if (!std::isnan(*maxUnitQuaternionNormDeviation_) &&
+               *sample.unitQuaternionNormDeviation >
+                   *maxUnitQuaternionNormDeviation_) {
+      maxUnitQuaternionNormDeviation_ = sample.unitQuaternionNormDeviation;
     }
   }
 }
@@ -269,8 +279,9 @@ void ClosedLoopMetrics::addSqpStep(const SqpStepSample& step) {
       std::max(longestViolationGrowthRun_, violationGrowthRun_);
   lastConstraintViolation_ = step.constraintViolation;
   constraintViolations_.push_back(step.constraintViolation);
-  if (step.swingNormalVelocityResidual.has_value())
-    swingNormalVelocityResiduals_.push_back(*step.swingNormalVelocityResidual);
+  if (step.swingNormalVelocityConstraintResidual.has_value())
+    swingNormalVelocityConstraintResiduals_.push_back(
+        *step.swingNormalVelocityConstraintResidual);
 }
 
 void ClosedLoopMetrics::setFall(double time, std::string reason) {
@@ -285,7 +296,8 @@ JsonValue ClosedLoopMetrics::report(const ClosedLoopRunInfo& info) const {
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
     if (!stance_[contact].active) continue;
     finalDrifts.push_back(
-        (lastContactPosition_[contact] - stance_[contact].touchDownPosition)
+        (prevPosContactsRtWorldEwrtWorldXy_[contact] -
+         stance_[contact].touchdownPosContactRtWorldEwrtWorldXy)
             .norm());
     slipMax = std::max(slipMax, stance_[contact].maxDrift);
   }
@@ -342,8 +354,9 @@ JsonValue ClosedLoopMetrics::report(const ClosedLoopRunInfo& info) const {
                                              : std::nullopt));
 
   document.set("velocity", JsonValue::object())
-      .set("rms_error_mps", JsonValue::optionalNumber(
-                                rmsOf(velocityErrorSquaredSum_, numCycles_)));
+      .set("rms_error_mps",
+           JsonValue::optionalNumber(rmsOf(
+               squaredSumErrLinvelBaseRtWorldEwrtHeadingXy_, numCycles_)));
   document.set("yaw_rate", JsonValue::object())
       .set("rms_error_radps", JsonValue::optionalNumber(
                                   rmsOf(yawRateErrorSquaredSum_, numCycles_)));
@@ -372,25 +385,24 @@ JsonValue ClosedLoopMetrics::report(const ClosedLoopRunInfo& info) const {
            JsonValue::number(static_cast<double>(finalDrifts.size())));
 
   document.set("joint_torque", JsonValue::object())
-      .set("rms_nm",
-           JsonValue::optionalNumber(rmsOf(torqueSquaredSum_, torqueCount_)));
+      .set("rms_nm", JsonValue::optionalNumber(
+                         rmsOf(jointTorqueSquaredSum_, jointTorqueCount_)));
 
   JsonValue& gap = document.set("initial_state_gap", JsonValue::object());
-  gap.set("max_rotation_rad", JsonValue::optionalNumber(maxRotationGap_));
-  gap.set(
-      "max_rotation_time_s",
-      JsonValue::optionalNumber(maxRotationGap_.has_value()
-                                    ? std::optional<double>(maxRotationGapTime_)
-                                    : std::nullopt));
+  gap.set("max_rotation_rad", JsonValue::optionalNumber(maxGapAngle_));
+  gap.set("max_rotation_time_s",
+          JsonValue::optionalNumber(
+              maxGapAngle_.has_value() ? std::optional<double>(maxGapAngleTime_)
+                                       : std::nullopt));
   gap.set("max_norm", JsonValue::optionalNumber(maxGapNorm_));
 
-  JsonValue& quaternionNorm =
+  JsonValue& unitQuaternionNorm =
       document.set("quaternion_norm", JsonValue::object());
-  quaternionNorm.set("max_deviation",
-                     JsonValue::optionalNumber(maxQuaternionNormDeviation_));
-  quaternionNorm.set(
+  unitQuaternionNorm.set("max_deviation", JsonValue::optionalNumber(
+                                              maxUnitQuaternionNormDeviation_));
+  unitQuaternionNorm.set(
       "non_finite_solves",
-      JsonValue::number(static_cast<double>(nonFiniteQuaternionSolves_)));
+      JsonValue::number(static_cast<double>(nonFiniteUnitQuaternionSolves_)));
   document.set("non_finite_values",
                JsonValue::number(static_cast<double>(nonFiniteValues_)));
 
@@ -422,7 +434,7 @@ JsonValue ClosedLoopMetrics::report(const ClosedLoopRunInfo& info) const {
       JsonValue::number(static_cast<double>(longestViolationGrowthRun_)));
   sqpStep.set("constraint_violation", summarizeSample(constraintViolations_));
   sqpStep.set("swing_normal_velocity_residual",
-              summarizeSample(swingNormalVelocityResiduals_));
+              summarizeSample(swingNormalVelocityConstraintResiduals_));
 
   JsonValue& failures = document.set("failures", JsonValue::object());
   failures.set("failed_solves",

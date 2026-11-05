@@ -106,7 +106,7 @@ a reason to restyle unrelated code in the same change.
   literals need no name) needs none.
 - **Magic numbers** are named constants, in production C++ and lib/ocs2: a literal is a
   `static constexpr T kName = ...;` in its class, a `constexpr` in the .cpp's unnamed namespace or an `inline constexpr`
-  in a shared header, named for what it is (`kPositionDim`, `kDefaultSwingHeight`, never `kThree`) and of the
+  in a shared header, named for what it is (`kPositionDim`, `kNomPosBaseRtSurfaceEwrtWorldZ`, never `kThree`) and of the
   literal's type, so the arithmetic is unchanged, with a short comment when its meaning or unit is not obvious. Exempt:
   0 and 1, a floating 0.5 or 2.0 as a factor of `*` or `/` (the integer 2 never is), and literals in a constant's
   definition or an enumerator; tests, test support and test-only libraries, benchmarks, the generated ACoM weight
@@ -138,7 +138,9 @@ a reason to restyle unrelated code in the same change.
 - **Includes.** Only C and C++ standard library headers and POSIX/Linux system headers use angle brackets. Everything
   else, third-party libraries included, uses quotes and its full path. clang-format orders the include blocks,
   `"pinocchio/fwd.hpp"` first. A first-party `cc_library` exports its headers with `includes = [...]`, never
-  `strip_include_prefix` / `include_prefix`, so that the tools see each header at its source path.
+  `strip_include_prefix` / `include_prefix`, so that the tools see each header at its source path. A file includes the
+  header of each symbol it uses, not a header that happens to include it, and no header it does not use; a library
+  whose public headers are umbrellas (`Eigen/Core`, `cppad/cg.hpp`, `mujoco/mujoco.h`) is included through them.
 - **Switch fallthrough** is written `[[fallthrough]];` (`-Werror=implicit-fallthrough`).
 - **Warnings.** Every first-party C++ target compiles with `FIRST_PARTY_COPTS` from `bazel/copts.bzl` instead of a
   package-local flag list. A target may add `-Werror`, and a `-Wno-...` with a reason on its line, and no other warning
@@ -152,8 +154,10 @@ Enforced by:
 - clang-format (layout, include order);
 - cpplint (`CPPLINT.cfg`);
 - clang-tidy (`.clang-tidy`, run by `make lint-tidy`), which also checks that move constructors are `noexcept`
-  (`performance-noexcept-move-constructor`) and that default arguments go only on non-virtual functions
-  (`google-default-arguments`);
+  (`performance-noexcept-move-constructor`), that default arguments go only on non-virtual functions
+  (`google-default-arguments`) and that a file includes the header of every symbol it uses and no header it does not
+  use (`misc-include-cleaner`, clangd's unused-includes; umbrella headers such as `Eigen/Core` stay, see
+  `IgnoreHeaders`);
 - the checks in `tools/hooks`, which cover:
   - floating-point literals with a radix point (`float-literal`);
   - named constants instead of magic numbers (`magic-number`);
@@ -492,9 +496,9 @@ Enforced by the checks in `tools/hooks`:
   (never mixed; snake_case in Python and `.proto`, UPPER_SNAKE for a Python constant), and a C++, Python or `.proto`
   identifier with a legacy quantity word (`position`, `velocity`, `orientation`, `quaternion`, `rotation`,
   `acceleration`, `force`, `torque`, `wrench`, `twist`, `momentum`, `pose`, their abbreviations and plurals) and no
-  exemption is a legacy name (`frame-naming`). While the rename runs, the check is opt-in: only
-  `python3 -m tools.hooks.lint_code --only frame-naming --paths <dir>` runs it, and `make lint` does not until the
-  rename's Verify phase deletes its `opt_in=True` (README section 9).
+  exemption is a legacy name (`frame-naming`);
+- a fixed-size vector declared with a name of frame and point words only (`center`, `com`, `stanceFoot`) names no
+  quantity, and a `TODO(frame-naming)` is never left in the code (`frame-naming`).
 <!-- LINT.ThenChange(//tools/hooks/checks.py:registry, //tools/hooks/frame_naming.py:quantities) -->
 
 #### Running the style checks

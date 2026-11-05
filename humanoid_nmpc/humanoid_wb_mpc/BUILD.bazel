@@ -51,6 +51,7 @@ cc_library(
         "@abseil-cpp//absl/container:flat_hash_map",
         "@abseil-cpp//absl/functional:function_ref",
         "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/log:absl_log",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/log:log",
         "@abseil-cpp//absl/memory",
@@ -273,7 +274,7 @@ cc_test(
 )
 
 # The contact planner's reference manager reads the commanded and the measured yaw rate of a whole-body knot, which
-# stores w_B, through getTargetPlanarCommand(). Builds no CppAD model.
+# stores w_B, through getRefPlanarMotion(). Builds no CppAD model.
 cc_test(
     name = "testContactPlannerYawRateOnTheWholeBody",
     size = "small",

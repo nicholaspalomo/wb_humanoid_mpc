@@ -123,19 +123,19 @@ vector_t JointMimicDynamicsConstraint::getValue(
       wbAccelMpcRobotModelPtr_->getJointVelocities(state, input);
   vector_t jointAccelerations =
       wbAccelMpcRobotModelPtr_->getJointAccelerations(input);
-  scalar_t posError =
+  scalar_t jointAngleError =
       config_.multiplier * jointAngles[config_.parentJointIndex] -
       jointAngles[config_.childJointIndex];
-  scalar_t velError =
+  scalar_t jointVelocityError =
       config_.multiplier * jointVelocities[config_.parentJointIndex] -
       jointVelocities[config_.childJointIndex];
-  scalar_t accError =
+  scalar_t jointAccelerationError =
       config_.multiplier * jointAccelerations[config_.parentJointIndex] -
       jointAccelerations[config_.childJointIndex];
 
   vector_t value(1);
-  value << (config_.positionGain * posError + config_.velocityGain * velError +
-            accError);
+  value << (config_.positionGain * jointAngleError +
+            config_.velocityGain * jointVelocityError + jointAccelerationError);
 
   return value;
 }

@@ -168,11 +168,13 @@ class TerrainTest(BridgeTestCase):
         # axes and logged again when the static data is resent.
         scene = terrain_scene_pb2.TerrainScene(name="step")
         floor = scene.primitives.add(name="floor", friction=0.8)
-        floor.box.center.extend([0.0, 0.0, -0.5])
+        floor.box.pos_box_rt_world_ewrt_world.extend([0.0, 0.0, -0.5])
         floor.box.half_extents.extend([5.0, 5.0, 0.5])
         rail = scene.primitives.add(name="rail", friction=0.8)
-        rail.capsule.start.extend([0.0, 0.5, 1.0])
-        rail.capsule.end.extend([1.0, 0.5, 1.5])
+        rail.capsule.pos_capsulestart_rt_world_ewrt_world.extend(
+            [0.0, 0.5, 1.0]
+        )
+        rail.capsule.pos_capsuleend_rt_world_ewrt_world.extend([1.0, 0.5, 1.5])
         rail.capsule.radius = 0.025
         logged: list[int] = []
 
@@ -260,24 +262,33 @@ class SceneTest(BridgeTestCase):
             len({round(component, 3) for component in expected}), 4
         )
         self.assertTrue(all(abs(component) > 0.05 for component in expected))
-        pose = scene.robots[0].pose_links_rt_world[1]
+        pose_link_rt_world = scene.robots[0].pose_links_rt_world[1]
         scale = 2.0
+        # NOLINTBEGIN(frame-naming): the components of a frame-generic Pose; the enclosing field names the frames
         (
-            pose.orientation.x,
-            pose.orientation.y,
-            pose.orientation.z,
-            pose.orientation.w,
+            pose_link_rt_world.orientation.x,
+            pose_link_rt_world.orientation.y,
+            pose_link_rt_world.orientation.z,
+            pose_link_rt_world.orientation.w,
         ) = (component * scale for component in expected)
+        # NOLINTEND(frame-naming)
         self.bridge.handle_scene(scene)
         entity = self.contents().entities[
             scene_contract.link_path(scene_contract.MEASURED, LINKS[1])
         ]
-        ((quaternion,),) = entity.values("Transform3D:quaternion")
-        self.assertEqual(len(quaternion), 4)
-        for actual, wanted in zip(quaternion, expected):
+        ((quat_link_rt_world_xyzw,),) = entity.values("Transform3D:quaternion")
+        self.assertEqual(len(quat_link_rt_world_xyzw), 4)
+        for actual, wanted in zip(quat_link_rt_world_xyzw, expected):
             self.assertAlmostEqual(actual, wanted, places=6)
-        ((translation,),) = entity.values("Transform3D:translation")
-        self.assertAlmostEqual(translation[0], pose.position.x, places=6)
+        ((pos_link_rt_world_ewrt_world,),) = entity.values(
+            "Transform3D:translation"
+        )
+        self.assertAlmostEqual(
+            pos_link_rt_world_ewrt_world[0],
+            # NOLINTNEXTLINE(frame-naming): a component of a frame-generic Pose; the enclosing field names the frames
+            pose_link_rt_world.position.x,
+            places=6,
+        )
 
     def test_every_marker_kind_with_its_defaults(self) -> None:
         self.bridge.handle_scene(synthetic_messages.full_scene(1.0, LINKS))
@@ -318,8 +329,8 @@ class SceneTest(BridgeTestCase):
     def test_the_message_radius_and_colors_win(self) -> None:
         scene = visualization_scene_pb2.VisualizationScene(time=1.0)
         arrows = scene.arrows.add(path="markers/contact_forces", radius=0.03)
-        arrows.origins.add()
-        arrows.vectors.add(z=1.0)
+        arrows.pos_arrows_rt_world_ewrt_world.add()
+        arrows.pos_arrowheads_rt_arrow_ewrt_world.add(z=1.0)
         arrows.colors.add(r=1.0, g=0.0, b=0.0, a=1.0)
         self.bridge.handle_scene(scene)
         entity = self.contents().entities["world/markers/contact_forces"]
@@ -374,13 +385,13 @@ class SceneTest(BridgeTestCase):
         scene.time = 1.1
         self.bridge.handle_scene(scene)
         statistics = self.bridge.statistics
-        self.assertEqual(statistics.link_poses_logged, links_logged)
-        self.assertEqual(statistics.link_poses_unchanged, links_logged)
+        self.assertEqual(statistics.logged_link_pose_count, links_logged)
+        self.assertEqual(statistics.unchanged_link_pose_count, links_logged)
         # The clock went back (by less than a new run's NEW_RUN_REWIND_S): the same poses at an earlier time are all
         # logged again.
         scene.time = 0.5
         self.bridge.handle_scene(scene)
-        self.assertEqual(statistics.link_poses_logged, 2 * links_logged)
+        self.assertEqual(statistics.logged_link_pose_count, 2 * links_logged)
 
     def test_scenes_throttled_by_wall_clock(self) -> None:
         clock = FakeClock()
@@ -558,7 +569,7 @@ class SceneTest(BridgeTestCase):
         )
         filtered_bridge.handle_scene(scene)
         self.assertEqual(
-            filtered_bridge.statistics.link_poses_logged, len(LINKS)
+            filtered_bridge.statistics.logged_link_pose_count, len(LINKS)
         )
 
     def test_an_unknown_instance_is_drawn_with_the_default_style(self) -> None:
@@ -581,14 +592,17 @@ class SceneTest(BridgeTestCase):
         scene.robots[0].link_names.append(
             "extra"
         )  # names and poses differ in length
+        # A zero quaternion.
+        # NOLINTBEGIN(frame-naming): the components of a frame-generic Pose; the enclosing field names the frames
         scene.robots[1].pose_links_rt_world[0].orientation.w = 0.0
-        scene.robots[1].pose_links_rt_world[
-            0
-        ].orientation.z = 0.0  # a zero quaternion
-        scene.arrows.add(path="../escape").vectors.add(z=1.0)
+        scene.robots[1].pose_links_rt_world[0].orientation.z = 0.0
+        # NOLINTEND(frame-naming)
+        scene.arrows.add(
+            path="../escape"
+        ).pos_arrowheads_rt_arrow_ewrt_world.add(z=1.0)
         scene.arrows.add(path="markers/contact_forces")  # the same path twice
         bad = scene.spheres.add(path="markers/odd")
-        bad.centers.add()
+        bad.pos_spheres_rt_world_ewrt_world.add()
         bad.radii.extend([0.1, 0.2])  # two radii for one sphere
         self.bridge.handle_scene(scene)
         self.assertEqual(self.malformed(topics.VIZ_SCENE), 5)
@@ -622,10 +636,10 @@ class SceneTest(BridgeTestCase):
         )
         scene = visualization_scene_pb2.VisualizationScene(time=1.0)
         arrows = scene.arrows.add(path="markers/contact_forces")
-        arrows.origins.add(x=math.inf)
-        arrows.vectors.add()
+        arrows.pos_arrows_rt_world_ewrt_world.add(x=math.inf)
+        arrows.pos_arrowheads_rt_arrow_ewrt_world.add()
         spheres = scene.spheres.add(path="markers/center_of_pressure")
-        spheres.centers.add()
+        spheres.pos_spheres_rt_world_ewrt_world.add()
         spheres.colors.add(r=1.0)
         spheres.colors.add(r=1.0)  # two colors for one sphere
         self.bridge.handle_scene(scene)
@@ -1505,8 +1519,8 @@ class MarkerHelpersTest(unittest.TestCase):
 
     def test_spheres_take_one_radius_or_one_each(self) -> None:
         spheres = spheres_pb2.Spheres(path="plan/footholds")
-        spheres.centers.add()
-        spheres.centers.add()
+        spheres.pos_spheres_rt_world_ewrt_world.add()
+        spheres.pos_spheres_rt_world_ewrt_world.add()
         spheres.radii.append(0.1)
         directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, directory)

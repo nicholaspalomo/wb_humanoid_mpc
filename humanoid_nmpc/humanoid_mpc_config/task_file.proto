@@ -195,15 +195,16 @@ message TaskFile {
   // LINT.IfChange(sim_fall_recovery_keys)
   // [rad] The tilt past which the simulator catches the robot on the gantry (and the hardware supervisor turns the
   // torques off), positive; absent: no catch.
-  double sim_max_base_tilt_angle = 5 [
+  double sim_max_tiltangle_base_rt_world = 5 [
     (humanoid_mpc_config.tuning) = {
       reload: RELOAD_START_UP
       unit: "rad"
       consumer: "robot"
     }
   ];
-  // [m] How far the gantry lifts a caught robot, positive; absent: no settle sequence.
-  double sim_gantry_catch_lift = 6 [
+  // [m] How far the gantry lifts a caught robot (the lifted gantry height minus the standing one), positive; absent: no
+  // settle sequence.
+  double sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z = 6 [
     (humanoid_mpc_config.tuning) = {
       reload: RELOAD_START_UP
       unit: "m"
@@ -338,7 +339,7 @@ message TaskFile {
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp:mpc_cost_registry)
   NominalFootholdConfig nominal_foothold = 23 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
   // [m] The height of the ground, shared by the swing trajectories and the contact-implicit terms.
-  double terrain_height = 24 [default = 0.0, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m" }];
+  double pos_surface_rt_world_ewrt_world_z = 24 [default = 0.0, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m" }];
   // The contact-implicit terms and the locomotion heuristics: the centroidal MPC's (the whole-body MPC refuses the
   // first and reads no locomotion_heuristics block).
   ContactImplicitConfig contact_implicit = 25 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT formulations: "centroidal" }];

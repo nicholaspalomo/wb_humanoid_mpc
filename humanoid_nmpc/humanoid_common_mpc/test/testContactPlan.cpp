@@ -29,19 +29,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
-#include <iostream>
-#include <limits>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "absl/log/absl_check.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipContactPlanner.h"
@@ -58,7 +62,7 @@ ContactPlanningConfig makeConfig() {
   config.planner.dt = 0.1;
   config.planner.numNodes = 12;
   config.planner.commitTime = 0.25;
-  config.shared.comHeight = 0.85;
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ = 0.85;
   config.shared.gaitLimits.minSwingDuration = 0.3;
   config.shared.gaitLimits.maxSwingDuration = 0.5;
   config.shared.gaitLimits.minContactDuration = 0.15;
@@ -92,9 +96,9 @@ ContactPlannerInput makeInput(const ModeSchedule& schedule,
                               const ContactPlanningConfig& config) {
   ContactPlannerInput input;
   input.time = time;
-  input.velocityCommand = vector2_t(0.3, 0.0);
-  input.footPositions[0] = vector2_t(0.0, 0.125);
-  input.footPositions[1] = vector2_t(0.05, -0.125);
+  input.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.3, 0.0);
+  input.posFeetRtWorldEwrtWorldXy[0] = vector2_t(0.0, 0.125);
+  input.posFeetRtWorldEwrtWorldXy[1] = vector2_t(0.05, -0.125);
   input.committedUntil =
       commitBoundaryForSchedule(schedule, time, config.planner.commitTime,
                                 config.planner.maxCommitExtension);
@@ -128,8 +132,9 @@ std::vector<Phase> phasesInside(const ModeSchedule& schedule,
       if (before == after) continue;
       if (current.has_value()) {
         current->end = t;
-        if (current->start >= from - kTol && current->end <= to + kTol)
+        if (current->start >= from - kTol && current->end <= to + kTol) {
           phases.push_back(*current);
+        }
       }
       current = Phase{.foot = foot, .inContact = after, .start = t, .end = t};
     }
@@ -144,12 +149,14 @@ std::vector<std::pair<scalar_t, scalar_t>> doubleSupportsInside(
   std::vector<std::pair<scalar_t, scalar_t>> supports;
   for (size_t i = 0; i + 1 < schedule.modeSequence.size(); ++i) {
     if (schedule.modeSequence[i + 1] != ModeNumber::kStance ||
-        i + 1 >= schedule.eventTimes.size())
+        i + 1 >= schedule.eventTimes.size()) {
       continue;
+    }
     const scalar_t start = schedule.eventTimes[i];
     const scalar_t end = schedule.eventTimes[i + 1];
-    if (start >= from - kTol && end <= to + kTol)
+    if (start >= from - kTol && end <= to + kTol) {
       supports.emplace_back(start, end);
+    }
   }
   return supports;
 }
@@ -214,11 +221,12 @@ ModeSchedule expectMergedScheduleHonorsMinimumDurations(
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------------------
-// footholdBeforeTime / footYawBeforeTime: the stance a foot leaves at a
-// lift-off.
+// getPrevDesPosFootRtWorldEwrtWorldXy / getPrevDesEulerzyxFootRtWorldYaw: the
+// stance a foot leaves at a lift-off.
 //
 // These exist because "the node before the lift-off" cannot be expressed by
-// nudging footholdAtTime()'s argument. The caller used `liftOffTime - 0.5 * dt
+// nudging getDesPosFootRtWorldEwrtWorldXy()'s argument. The caller used
+// `liftOffTime - 0.5 * dt
 // + 1e-6`, and lround(k - 0.5 + eps) == k, so it read the LIFT-OFF node. Under
 // the shipped `hlip` planner that node already holds the swing's landing
 // position, which collapsed the whole swing reference to a constant at its own
@@ -234,15 +242,17 @@ ContactPlan makeCountingPlan(scalar_t startTime, scalar_t dt, int numNodes) {
   plan.valid = true;
   plan.startTime = startTime;
   plan.dt = dt;
-  plan.footholds.resize(static_cast<size_t>(numNodes) + 1);
-  plan.footYaws.resize(static_cast<size_t>(numNodes) + 1);
-  plan.heading.assign(static_cast<size_t>(numNodes) + 1, 0.0);
+  plan.desPosFeetRtWorldEwrtWorldXyTraj.resize(static_cast<size_t>(numNodes) +
+                                               1);
+  plan.desEulerzyxFeetRtWorldYawTraj.resize(static_cast<size_t>(numNodes) + 1);
+  plan.headingModelYawTraj.assign(static_cast<size_t>(numNodes) + 1, 0.0);
   plan.contacts.assign(static_cast<size_t>(numNodes), makeFeetArray(true));
   for (int k = 0; k <= numNodes; ++k) {
     const scalar_t value = static_cast<scalar_t>(k);
-    plan.footholds[static_cast<size_t>(k)] =
+    plan.desPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(k)] =
         makeFeetArray(vector2_t(value, -value));
-    plan.footYaws[static_cast<size_t>(k)] = makeFeetArray(value);
+    plan.desEulerzyxFeetRtWorldYawTraj[static_cast<size_t>(k)] =
+        makeFeetArray(value);
   }
   return plan;
 }
@@ -256,17 +266,20 @@ TEST(ContactPlanNodeLookup,
   for (int k = 1; k <= 20; ++k) {
     const scalar_t liftOff =
         plan.startTime + plan.dt * static_cast<scalar_t>(k);
-    const std::optional<vector2_t> before =
-        plan.footholdBeforeTime(kContactLeftIndex, liftOff);
-    if (!before.has_value()) GTEST_FAIL();
-    EXPECT_NEAR(before->x(), static_cast<scalar_t>(k - 1), kTol)
+    const std::optional<vector2_t> prevDesPosLfootRtWorldEwrtWorldXy =
+        plan.getPrevDesPosFootRtWorldEwrtWorldXy(kContactLeftIndex, liftOff);
+    if (!prevDesPosLfootRtWorldEwrtWorldXy.has_value()) GTEST_FAIL();
+    EXPECT_NEAR(prevDesPosLfootRtWorldEwrtWorldXy->x(),
+                static_cast<scalar_t>(k - 1), kTol)
         << "lift-off node " << k;
     // The trap this replaced: the nearest node to liftOff - dt/2 is the
     // lift-off node itself, not the one before it.
-    const std::optional<vector2_t> halfStepBack = plan.footholdAtTime(
-        kContactLeftIndex, liftOff - 0.5 * plan.dt + 1.0e-6);
-    if (!halfStepBack.has_value()) GTEST_FAIL();
-    EXPECT_NEAR(halfStepBack->x(), static_cast<scalar_t>(k), kTol)
+    const std::optional<vector2_t> halfStepBackDesPosLfootRtWorldEwrtWorldXy =
+        plan.getDesPosFootRtWorldEwrtWorldXy(kContactLeftIndex,
+                                             liftOff - 0.5 * plan.dt + 1.0e-6);
+    if (!halfStepBackDesPosLfootRtWorldEwrtWorldXy.has_value()) GTEST_FAIL();
+    EXPECT_NEAR(halfStepBackDesPosLfootRtWorldEwrtWorldXy->x(),
+                static_cast<scalar_t>(k), kTol)
         << "the half-step nudge must still round up, node " << k;
   }
 }
@@ -286,10 +299,10 @@ TEST(ContactPlanNodeLookup,
       {0.0, 4.0}, {0.4, 4.0}, {0.5, 5.0}, {0.6, 5.0}, {0.9, 5.0}};
   for (const Case& testCase : cases) {
     const scalar_t liftOff = plan.dt * (5.0 + testCase.fraction);
-    const std::optional<vector2_t> before =
-        plan.footholdBeforeTime(kContactLeftIndex, liftOff);
-    if (!before.has_value()) GTEST_FAIL();
-    EXPECT_NEAR(before->x(), testCase.expected, kTol)
+    const std::optional<vector2_t> prevDesPosLfootRtWorldEwrtWorldXy =
+        plan.getPrevDesPosFootRtWorldEwrtWorldXy(kContactLeftIndex, liftOff);
+    if (!prevDesPosLfootRtWorldEwrtWorldXy.has_value()) GTEST_FAIL();
+    EXPECT_NEAR(prevDesPosLfootRtWorldEwrtWorldXy->x(), testCase.expected, kTol)
         << "lift-off at node 5 + " << testCase.fraction;
   }
 }
@@ -298,21 +311,24 @@ TEST(ContactPlanNodeLookup, footholdBeforeTimeClampsAtBothEnds) {
   const ContactPlan plan =
       makeCountingPlan(/*startTime=*/0.0, /*dt=*/0.1, /*numNodes=*/6);
   // A lift-off at node 0 has no earlier node; clamping keeps it in range rather
-  // than reading footholds[-1].
-  const std::optional<vector2_t> atStart =
-      plan.footholdBeforeTime(kContactLeftIndex, plan.startTime);
-  if (!atStart.has_value()) GTEST_FAIL();
-  EXPECT_NEAR(atStart->x(), 0.0, kTol);
-  const std::optional<vector2_t> beforeStart =
-      plan.footholdBeforeTime(kContactLeftIndex, plan.startTime - 10.0);
-  if (!beforeStart.has_value()) GTEST_FAIL();
-  EXPECT_NEAR(beforeStart->x(), 0.0, kTol);
-  // Past the end it clamps to the last node, one short of what footholdAtTime
-  // returns there.
-  const std::optional<vector2_t> pastEnd =
-      plan.footholdBeforeTime(kContactLeftIndex, plan.startTime + 100.0);
-  if (!pastEnd.has_value()) GTEST_FAIL();
-  EXPECT_NEAR(pastEnd->x(), 6.0, kTol);
+  // than reading desPosFeetRtWorldEwrtWorldXyTraj[-1].
+  const std::optional<vector2_t> startPrevDesPosLfootRtWorldEwrtWorldXy =
+      plan.getPrevDesPosFootRtWorldEwrtWorldXy(kContactLeftIndex,
+                                               plan.startTime);
+  if (!startPrevDesPosLfootRtWorldEwrtWorldXy.has_value()) GTEST_FAIL();
+  EXPECT_NEAR(startPrevDesPosLfootRtWorldEwrtWorldXy->x(), 0.0, kTol);
+  const std::optional<vector2_t> beforeStartPrevDesPosLfootRtWorldEwrtWorldXy =
+      plan.getPrevDesPosFootRtWorldEwrtWorldXy(kContactLeftIndex,
+                                               plan.startTime - 10.0);
+  if (!beforeStartPrevDesPosLfootRtWorldEwrtWorldXy.has_value()) GTEST_FAIL();
+  EXPECT_NEAR(beforeStartPrevDesPosLfootRtWorldEwrtWorldXy->x(), 0.0, kTol);
+  // Past the end it clamps to the last node, one short of what
+  // getDesPosFootRtWorldEwrtWorldXy returns there.
+  const std::optional<vector2_t> pastEndPrevDesPosLfootRtWorldEwrtWorldXy =
+      plan.getPrevDesPosFootRtWorldEwrtWorldXy(kContactLeftIndex,
+                                               plan.startTime + 100.0);
+  if (!pastEndPrevDesPosLfootRtWorldEwrtWorldXy.has_value()) GTEST_FAIL();
+  EXPECT_NEAR(pastEndPrevDesPosLfootRtWorldEwrtWorldXy->x(), 6.0, kTol);
 }
 
 TEST(ContactPlanNodeLookup,
@@ -321,15 +337,16 @@ TEST(ContactPlanNodeLookup,
       makeCountingPlan(/*startTime=*/0.0, /*dt=*/0.1, /*numNodes=*/8);
   ASSERT_TRUE(plan.hasHeading());
   const std::optional<scalar_t> yaw =
-      plan.footYawBeforeTime(kContactRightIndex, plan.dt * 3.0);
+      plan.getPrevDesEulerzyxFootRtWorldYaw(kContactRightIndex, plan.dt * 3.0);
   if (!yaw.has_value()) GTEST_FAIL();
   EXPECT_NEAR(*yaw, 2.0, kTol);
 
   ContactPlan withoutHeading = plan;
-  withoutHeading.heading.clear();
+  withoutHeading.headingModelYawTraj.clear();
   ASSERT_FALSE(withoutHeading.hasHeading());
   EXPECT_FALSE(
-      withoutHeading.footYawBeforeTime(kContactRightIndex, plan.dt * 3.0)
+      withoutHeading
+          .getPrevDesEulerzyxFootRtWorldYaw(kContactRightIndex, plan.dt * 3.0)
           .has_value());
 }
 
@@ -338,44 +355,51 @@ TEST(ContactPlanNodeLookup, theBeforeLookupsAreEmptyOnAnInvalidPlan) {
       makeCountingPlan(/*startTime=*/0.0, /*dt=*/0.1, /*numNodes=*/4);
   invalid.valid = false;
   EXPECT_FALSE(
-      invalid.footholdBeforeTime(kContactLeftIndex, /*time=*/0.2).has_value());
+      invalid
+          .getPrevDesPosFootRtWorldEwrtWorldXy(kContactLeftIndex, /*time=*/0.2)
+          .has_value());
   EXPECT_FALSE(
-      invalid.footYawBeforeTime(kContactLeftIndex, /*time=*/0.2).has_value());
+      invalid.getPrevDesEulerzyxFootRtWorldYaw(kContactLeftIndex, /*time=*/0.2)
+          .has_value());
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // describe(): the length of every step, the line planner.logPlans writes.
 //
-// The step used to be measured from the LIFT-OFF node - footholds[end] -
-// footholds[k] - which is the same off-by-one footholdBeforeTime() exists to
-// keep callers out of. Under the shipped `hlip` planner the lift-off node
-// already carries the swing's LANDING position, and so does the touch-down
-// node, so the difference was identically zero and every stepping swing of
-// every H-LIP plan logged a (0.000,0.000) displacement. It is now measured from
-// node k - 1, the last node the foot was still standing on, which is a contact
-// node under both planners.
+// The step used to be measured from the LIFT-OFF node -
+// desPosFeetRtWorldEwrtWorldXyTraj[end] - desPosFeetRtWorldEwrtWorldXyTraj[k] -
+// which is the same off-by-one
+// getPrevDesPosFootRtWorldEwrtWorldXy() exists to keep callers out of. Under
+// the shipped `hlip` planner the lift-off node already carries the swing's
+// LANDING position, and so does the touch-down node, so the difference was
+// identically zero and every stepping swing of every H-LIP plan logged a
+// (0.000,0.000) displacement. It is now measured from node k - 1, the last node
+// the foot was still standing on, which is a contact node under both planners.
 // ---------------------------------------------------------------------------------------------------------------
 
 namespace {
 
 /** Every "(dx,dy)" foothold displacement in a describe() line, in the order it
  * printed them. */
-std::vector<vector2_t> stepsInDescription(const std::string& line) {
-  std::vector<vector2_t> steps;
-  size_t position = 0;
+std::vector<vector2_t> parseDesErrPosFootRtWorldEwrtWorldXySamples(
+    const std::string& line) {
+  std::vector<vector2_t> desErrPosFootRtWorldEwrtWorldXySamples;
+  size_t offset = 0;
   while (true) {
-    const size_t open = line.find('(', position);
+    const size_t open = line.find('(', offset);
     if (open == std::string::npos) break;
     const size_t comma = line.find(',', open);
     const size_t close = line.find(')', open);
     if (comma == std::string::npos || close == std::string::npos ||
-        comma > close)
+        comma > close) {
       break;
-    steps.emplace_back(std::stod(line.substr(open + 1, comma - open - 1)),
-                       std::stod(line.substr(comma + 1, close - comma - 1)));
-    position = close + 1;
+    }
+    desErrPosFootRtWorldEwrtWorldXySamples.emplace_back(
+        std::stod(line.substr(open + 1, comma - open - 1)),
+        std::stod(line.substr(comma + 1, close - comma - 1)));
+    offset = close + 1;
   }
-  return steps;
+  return desErrPosFootRtWorldEwrtWorldXySamples;
 }
 
 /** The shipped H-LIP cadence: a 0.25 s single support and a 0.05 s double
@@ -387,13 +411,13 @@ ContactPlanningConfig makeHlipConfig() {
   config.planner.numNodes =
       56;  // 1.4 s, four and a half steps of the 0.3 s cadence
   config.planner.commitTime = 0.05;
-  config.shared.comHeight = 0.85;
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ = 0.85;
   config.shared.gaitLimits.minSwingDuration = 0.25;
   config.shared.gaitLimits.maxSwingDuration = 0.35;
   config.shared.gaitLimits.minDoubleSupportDuration = 0.0;
   config.hlip.sspDuration = 0.25;
   config.hlip.dspDuration = 0.05;
-  config.hlip.stepWidth = 0.25;
+  config.hlip.nomPosLfootRtRfootEwrtHeadingY = 0.25;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   return config;
 }
@@ -417,15 +441,20 @@ TEST(ContactPlanDescribe,
   // node 5 holds it too. Only nodes 0 and 1 hold the stance the foot leaves.
   // Measuring the step between nodes 2 and 5 therefore returned zero; measuring
   // it between node 1 and node 5 returns the step the planner chose.
-  plan.footholds.assign(7, {vector2_t(0.0, 0.1), vector2_t(0.0, -0.1)});
-  for (size_t k = 2; k < 7; ++k)
-    plan.footholds[k][kContactLeftIndex] = vector2_t(0.4, 0.14);
+  plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
+      7, {vector2_t(0.0, 0.1), vector2_t(0.0, -0.1)});
+  for (size_t k = 2; k < 7; ++k) {
+    plan.desPosFeetRtWorldEwrtWorldXyTraj[k][kContactLeftIndex] =
+        vector2_t(0.4, 0.14);
+  }
 
   const std::string line = plan.describe();
-  const std::vector<vector2_t> steps = stepsInDescription(line);
-  ASSERT_EQ(steps.size(), 1u) << line;
-  EXPECT_NEAR(steps[0].x(), 0.4, kTol) << line;
-  EXPECT_NEAR(steps[0].y(), 0.04, kTol) << line;
+  const std::vector<vector2_t> desErrPosFootRtWorldEwrtWorldXySamples =
+      parseDesErrPosFootRtWorldEwrtWorldXySamples(line);
+  ASSERT_EQ(desErrPosFootRtWorldEwrtWorldXySamples.size(), 1u) << line;
+  EXPECT_NEAR(desErrPosFootRtWorldEwrtWorldXySamples[0].x(), 0.4, kTol) << line;
+  EXPECT_NEAR(desErrPosFootRtWorldEwrtWorldXySamples[0].y(), 0.04, kTol)
+      << line;
   EXPECT_NE(line.find("| L: C0.200 S0.300(0.400,0.040) C0.100"),
             std::string::npos)
       << line;
@@ -445,12 +474,15 @@ TEST(ContactPlanDescribe,
   plan.startTime = 0.0;
   plan.dt = 0.1;
   plan.contacts = {{false, true}, {false, true}, {true, true}};
-  plan.footholds.assign(4, {vector2_t(0.0, 0.1), vector2_t(0.0, -0.1)});
-  for (size_t k = 0; k < 4; ++k)
-    plan.footholds[k][kContactLeftIndex] = vector2_t(0.4, 0.1);
+  plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
+      4, {vector2_t(0.0, 0.1), vector2_t(0.0, -0.1)});
+  for (size_t k = 0; k < 4; ++k) {
+    plan.desPosFeetRtWorldEwrtWorldXyTraj[k][kContactLeftIndex] =
+        vector2_t(0.4, 0.1);
+  }
 
   const std::string line = plan.describe();
-  EXPECT_TRUE(stepsInDescription(line).empty())
+  EXPECT_TRUE(parseDesErrPosFootRtWorldEwrtWorldXySamples(line).empty())
       << "no node precedes the lift-off, so no step may be printed: " << line;
   EXPECT_NE(line.find("| L: S0.200 C0.100"), std::string::npos) << line;
 }
@@ -465,12 +497,12 @@ TEST(ContactPlanDescribe,
 
   ContactPlannerInput input;
   input.time = 0.0;
-  input.comPosition = vector2_t::Zero();
-  input.comVelocity = vector2_t::Zero();
-  input.footPositions[kContactLeftIndex] =
-      vector2_t(0.0, 0.5 * config.hlip.stepWidth);
-  input.footPositions[kContactRightIndex] =
-      vector2_t(0.0, -0.5 * config.hlip.stepWidth);
+  input.posComRtWorldEwrtWorldXy = vector2_t::Zero();
+  input.proxyLinvelComRtWorldEwrtWorldXy = vector2_t::Zero();
+  input.posFeetRtWorldEwrtWorldXy[kContactLeftIndex] =
+      vector2_t(0.0, 0.5 * config.hlip.nomPosLfootRtRfootEwrtHeadingY);
+  input.posFeetRtWorldEwrtWorldXy[kContactRightIndex] =
+      vector2_t(0.0, -0.5 * config.hlip.nomPosLfootRtRfootEwrtHeadingY);
   input.contacts = makeFeetArray(true);
   // A double support that has only just begun, so the nominal cadence serves
   // out its remaining 0.05 s before the first foot leaves the ground. Every
@@ -478,19 +510,20 @@ TEST(ContactPlanDescribe,
   // makes this a test of the measurement rather than of the mid-swing case
   // above.
   input.phaseElapsedTime = makeFeetArray(0.0);
-  input.velocityCommand = vector2_t(0.4, 0.0);
+  input.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.4, 0.0);
   input.committedUntil = input.time;
   ASSERT_TRUE(planner->isWalking(input));
 
   const ContactPlan plan = planner->plan(input);
   ASSERT_TRUE(plan.valid);
   const std::string line = plan.describe();
-  const std::vector<vector2_t> steps = stepsInDescription(line);
+  const std::vector<vector2_t> desErrPosFootRtWorldEwrtWorldXySamples =
+      parseDesErrPosFootRtWorldEwrtWorldXySamples(line);
   // 1.4 s of horizon at the 0.3 s cadence lands at least two swings of each
   // foot.
-  ASSERT_GE(steps.size(), 4u) << line;
-  for (size_t i = 0; i < steps.size(); ++i) {
-    EXPECT_GT(steps[i].norm(), 0.05)
+  ASSERT_GE(desErrPosFootRtWorldEwrtWorldXySamples.size(), 4u) << line;
+  for (size_t i = 0; i < desErrPosFootRtWorldEwrtWorldXySamples.size(); ++i) {
+    EXPECT_GT(desErrPosFootRtWorldEwrtWorldXySamples[i].norm(), 0.05)
         << "swing " << i
         << " of an H-LIP plan reported no displacement: " << line;
   }
@@ -498,12 +531,16 @@ TEST(ContactPlanDescribe,
   // these was (0.000,0.000).
   EXPECT_EQ(line.find("(0.000,0.000)"), std::string::npos) << line;
 
-  // Walking forward at 0.4 m/s the plan must advance: the steps of a foot sum
-  // to the distance its foothold covers over the horizon, which the log is read
-  // to check against the command.
-  scalar_t forwardTravel = 0.0;
-  for (const vector2_t& step : steps) forwardTravel += step.x();
-  EXPECT_GT(forwardTravel, 0.5) << line;
+  // Walking forward at 0.4 m/s the plan must advance: the
+  // desErrPosFootRtWorldEwrtWorldXySamples of a foot sum to the distance its
+  // foothold covers over the horizon, which the log is read to check against
+  // the command.
+  scalar_t sumDesErrPosFootRtWorldEwrtWorldX = 0.0;
+  for (const vector2_t& desErrPosFootRtWorldEwrtWorldXy :
+       desErrPosFootRtWorldEwrtWorldXySamples) {
+    sumDesErrPosFootRtWorldEwrtWorldX += desErrPosFootRtWorldEwrtWorldXy.x();
+  }
+  EXPECT_GT(sumDesErrPosFootRtWorldEwrtWorldX, 0.5) << line;
 }
 
 TEST(ContactPlanMerge,
@@ -584,8 +621,9 @@ TEST(ContactPlanMerge,
         if (before[foot] && !after[foot]) nextSwing = foot;
       }
     }
-    if (!nextSwing.has_value())
+    if (!nextSwing.has_value()) {
       GTEST_FAIL() << "the plan must step after the touch-down at 0.97 s";
+    }
     EXPECT_NE(*nextSwing, swungFoot)
         << "the first lift-off after foot " << swungFoot
         << " landed must be the other foot";
@@ -677,8 +715,9 @@ TEST(ContactPlanMerge, PhaseStartingExactlyAtTheLowerBoundSurvivesTheMerge) {
       << "the swing that began at the lower bound is kept";
   EXPECT_TRUE(contactFlagsAtTime(merged, lowerBound + 0.5)[0]);
   bool touchDownKept = false;
-  for (const scalar_t t : merged.eventTimes)
+  for (const scalar_t t : merged.eventTimes) {
     touchDownKept = touchDownKept || std::abs(t - (lowerBound + 0.4)) < kTol;
+  }
   EXPECT_TRUE(touchDownKept);
   // An event strictly before the lower bound is history that is not carried.
   const ModeSchedule earlier(
@@ -709,9 +748,11 @@ TEST(ContactPlanContinuousPhases, theModeScheduleTakesTheContinuousEventTimes) {
   // Intervals [1.0, 2.0): the left foot swings from 1.137 to 1.387, sampled
   // onto the grid as [1.1, 1.4).
   plan.contacts.assign(10, stance);
-  for (size_t interval = 1; interval < 4; ++interval)
+  for (size_t interval = 1; interval < 4; ++interval) {
     plan.contacts[interval] = leftSwings;
-  plan.footholds.assign(11, makeFeetArray(vector2_t(vector2_t::Zero())));
+  }
+  plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
+      11, makeFeetArray(vector2_t(vector2_t::Zero())));
 
   // Positive control: without continuous phases the events are the node times.
   const ModeSchedule onTheGrid = plan.toModeSchedule();

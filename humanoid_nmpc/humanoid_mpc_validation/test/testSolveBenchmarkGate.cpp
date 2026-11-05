@@ -65,7 +65,7 @@ constexpr char kSmallLibrary[] =
     "foot_l_contact_TaskSpaceKinematicsCost_yawRefHalfAngle";
 constexpr char kFlowMapLibrary[] =
     "cppad_centroidal_mpc_g1/wrench_inputs/dynamics_systemFlowMap";
-constexpr char kTwistLibrary[] =
+constexpr char kTwistConstraintLibrary[] =
     "cppad_centroidal_mpc_g1/wrench_inputs/foot_l_contact_twist";
 
 /** An object with `members`, in their order. */
@@ -104,7 +104,7 @@ JsonValue benchmarkDocument() {
   const std::vector<std::pair<std::string, double>> counts = {
       {kSmallLibrary, 611.0},
       {kFlowMapLibrary, 4136.0},
-      {kTwistLibrary, 4324.0}};
+      {kTwistConstraintLibrary, 4324.0}};
   JsonValue libraries = JsonValue::object();
   double total = 0.0;
   for (const std::pair<std::string, double>& count : counts) {
@@ -242,7 +242,7 @@ TEST(SolveBenchmarkGate, EachCriterionFailsOnItsOwn) {
   // Every library 6 % larger: each of them, and the total.
   JsonValue allGrown = baseline;
   for (const char* absl_nonnull library :
-       {kSmallLibrary, kFlowMapLibrary, kTwistLibrary}) {
+       {kSmallLibrary, kFlowMapLibrary, kTwistConstraintLibrary}) {
     allGrown =
         scaled(allGrown, {"tape_operation_counts", library}, /*factor=*/1.06);
   }

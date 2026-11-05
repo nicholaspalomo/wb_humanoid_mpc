@@ -31,10 +31,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
+#include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
 
 namespace ocs2::humanoid {
 
@@ -112,8 +120,9 @@ scalar_t ContactLogicState::switchTime(int k, size_t foot) const {
     // grid, and the node times are sums of dt that land a few ulp off the event
     // time.
     if (std::isfinite(start) && start > nodeStart - dt &&
-        start <= nodeStart + dt + kSwitchTimeTolerance)
+        start <= nodeStart + dt + kSwitchTimeTolerance) {
       return start;
+    }
   }
   return nodeStart;
 }
@@ -181,8 +190,9 @@ scalar_t ContactLogicState::latestTouchDownNode(const MiqpAssignment& a,
     for (int k = 0; k <= node && k < numNodes; ++k) {
       const int8_t value = a[static_cast<size_t>(contactBinaryIndex(k, foot))];
       if (value == kMiqpFree) break;
-      if (kappa == 0 && value == 1)
+      if (kappa == 0 && value == 1) {
         latest = std::max(latest, switchNode(k, foot));
+      }
       kappa = value;
     }
   }

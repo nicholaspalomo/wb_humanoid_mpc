@@ -36,8 +36,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/statusor.h"
 #include "ocs2_core/Types.h"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
 
 #include "humanoid_common_mpc/common/Types.h"
 

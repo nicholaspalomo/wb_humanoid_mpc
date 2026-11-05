@@ -32,9 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/initialization/Initializer.h"
 
-#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
@@ -51,14 +52,14 @@ class CentroidalWeightCompInitializer final : public Initializer {
    * Constructor
    * @param [in] info : The centroidal model information.
    * @param [in] referenceManager : Switched system reference manager.
-   * @param [in] extendNormalizedMomentum: If true, it extrapolates the
-   * normalized momenta; otherwise sets them to zero.
+   * @param [in] extendMnormCmomComRtWorldEwrtWorld: If true, it extrapolates
+   * the normalized momenta; otherwise sets them to zero.
    */
   CentroidalWeightCompInitializer(
       CentroidalModelInfo info,
       const SwitchedModelReferenceManager& referenceManager,
       const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-      bool extendNormalizedMomentum);
+      bool extendMnormCmomComRtWorldEwrtWorld);
 
   ~CentroidalWeightCompInitializer() override = default;
   CentroidalWeightCompInitializer* absl_nonnull clone() const override;
@@ -82,7 +83,7 @@ class CentroidalWeightCompInitializer final : public Initializer {
   const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
   const CentroidalModelInfo info_;
   const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
-  const bool extendNormalizedMomentum_;
+  const bool extendMnormCmomComRtWorldEwrtWorld_;
 };
 
 }  // namespace ocs2::humanoid

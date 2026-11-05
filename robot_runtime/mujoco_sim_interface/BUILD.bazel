@@ -85,6 +85,7 @@ cc_library(
     includes = ["include"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "@abseil-cpp//absl/strings:string_view",
         ":egl_headers",
         ":viewer_settings",
         "//lib/mujoco_vendor",
@@ -123,6 +124,7 @@ cc_test(
     srcs = ["test/testMujocoContactUtils.cpp"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "//lib/ocs2:ocs2_dimensions",
         ":mujoco_sim_interface",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status:statusor",
@@ -155,6 +157,8 @@ cc_test(
     srcs = ["test/testProjectile.cpp"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         ":mujoco_sim_interface",
         "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
@@ -186,6 +190,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     data = ["//robot_models/drc_atlas/drc_atlas_description"],
     deps = [
+        "//robot_runtime/robot_core",
         ":mujoco_sim_interface",
         ":viewer_settings",
         "@abseil-cpp//absl/base:nullability",

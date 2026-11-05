@@ -58,10 +58,13 @@ struct TargetContactPatch {
   };
   bool valid = false;
   Kind kind{Kind::kStance};
-  double x = 0.0;
-  double y = 0.0;
-  double z = 0.0;           // [m] contact frame origin
-  double yaw = 0.0;         // [rad] contact frame yaw about the world z axis
+  // [m] The foot contact frame's origin in the world: the message's
+  // des_pose_foot_rt_world (for kStance, the foot's current placement).
+  double desPosFootRtWorldEwrtWorldX = 0.0;
+  double desPosFootRtWorldEwrtWorldY = 0.0;
+  double desPosFootRtWorldEwrtWorldZ = 0.0;
+  // [rad] The ZYX yaw of the foot contact frame about the world z axis.
+  double desEulerzyxFootRtWorldYaw = 0.0;
   bool yawPlanned = false;  // the yaw is planned (heading model); otherwise it
                             // holds the measured foot yaw
 };
@@ -79,13 +82,15 @@ using ContactPatchCorners =
 ContactPatchCorners defaultContactPatchCorners();
 
 /**
- * World-frame corners of `corners` placed at `patch`: rotated by its yaw about
- * z, translated to its origin and lifted by `heightOffset` above its z.
+ * Computes the world positions of the corners `posCornersRtFootEwrtFootXy`
+ * placed at `patch`: rotated by its yaw about z, translated to its origin and
+ * lifted by `offsetPosCornersRtFootEwrtWorldZ` above its z.
  */
-std::vector<std::array<double, ocs2::kPositionDim>> contactPatchWorldCorners(
+std::vector<std::array<double, ocs2::kPositionDim>>
+computePosCornersRtWorldEwrtWorld(
     const TargetContactPatch& patch,
-    const ContactPatchCorners& corners,
-    double heightOffset = 0.0);
+    const ContactPatchCorners& posCornersRtFootEwrtFootXy,
+    double offsetPosCornersRtFootEwrtWorldZ = 0.0);
 
 /** How a patch is drawn. */
 struct ContactPatchStyle {
@@ -110,7 +115,7 @@ struct ContactPatchStyle {
  */
 int addContactPatchGeoms(mjvScene* absl_nullable scene,
                          const TargetContactPatch& patch,
-                         const ContactPatchCorners& corners,
+                         const ContactPatchCorners& posCornersRtFootEwrtFootXy,
                          const ContactPatchStyle& style);
 
 }  // namespace robot::mujoco_sim_interface

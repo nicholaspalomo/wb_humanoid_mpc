@@ -28,15 +28,36 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
+
 #include "humanoid_common_mpc/constraint/FrictionForceConeConstraint.h"
 
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <utility>
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactInputJacobian.h"
+#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_common_mpc/pinocchio_model/PinocchioFrameConversions.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 
@@ -50,6 +71,13 @@ constexpr scalar_t kOutsideBlockTolerance = 1.0e-12;
  * form's Fz >= 0. */
 constexpr int kFrictionRow = 0;
 constexpr int kNormalForceRowIndex = 1;
+
+/** [v]x, with [v]x w = v x w. */
+matrix3_t skewSymmetric(const vector3_t& v) {
+  matrix3_t skew;
+  skew << 0.0, -v.z(), v.y(), v.z(), 0.0, -v.x(), -v.y(), v.x(), 0.0;
+  return skew;
+}
 
 /**
  * This contact's columns of the force Jacobian, with the contract they rest on
@@ -91,6 +119,7 @@ FrictionForceConeConstraint::FrictionForceConeConstraint(
     Config config,
     size_t contactPointIndex,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    const PinocchioInterface& pinocchioInterface,
     bool scheduleGated)
     // The un-gated friction row is convex in Fz, so it is linearized rather
     // than handed to the penalty with its indefinite Hessian; see the class
@@ -99,6 +128,7 @@ FrictionForceConeConstraint::FrictionForceConeConstraint(
                                          : ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
       mpcRobotModelPtr_(&mpcRobotModel),
+      pinocchioInterfacePtr_(&pinocchioInterface),
       config_(scheduleGated ? config : withoutAdhesion(config)),
       contactPointIndex_(contactPointIndex),
       contactInputStart_(
@@ -107,7 +137,54 @@ FrictionForceConeConstraint::FrictionForceConeConstraint(
       inputJacobianForceContactEwrtParam_(
           computeBlockInputJacobianForceContactEwrtParam(mpcRobotModel,
                                                          contactPointIndex)),
-      scheduleGated_(scheduleGated) {}
+      contactInputFrame_(mpcRobotModel.getContactInputFrame(contactPointIndex)),
+      contactFrameIndex_(getContactFrameIndex(
+          pinocchioInterface, mpcRobotModel, contactPointIndex)),
+      scheduleGated_(scheduleGated) {
+  // The documented guard for the callers that construct directly; Create()
+  // returns the same refusal as a Status.
+  const absl::Status velocityDim = checkPinocchioVelocityDim(
+      pinocchioInterface, mpcRobotModel, contactPointIndex);
+  CHECK(velocityDim.ok()) << velocityDim.message();
+}
+
+absl::StatusOr<std::unique_ptr<FrictionForceConeConstraint>>
+FrictionForceConeConstraint::Create(
+    const SwitchedModelReferenceManager& referenceManager,
+    Config config,
+    size_t contactPointIndex,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    const PinocchioInterface& pinocchioInterface,
+    bool scheduleGated) {
+  RETURN_IF_ERROR(checkPinocchioVelocityDim(pinocchioInterface, mpcRobotModel,
+                                            contactPointIndex));
+  return std::make_unique<FrictionForceConeConstraint>(
+      referenceManager, config, contactPointIndex, mpcRobotModel,
+      pinocchioInterface, scheduleGated);
+}
+
+absl::Status FrictionForceConeConstraint::checkPinocchioVelocityDim(
+    const PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    size_t contactPointIndex) {
+  // A world-frame input never reads the Pinocchio model.
+  if (mpcRobotModel.getContactInputFrame(contactPointIndex) ==
+      ContactInputFrame::kWorld) {
+    return absl::OkStatus();
+  }
+  const int pinocchioVelocityDim = pinocchioInterface.getModel().nv;
+  if (static_cast<int64_t>(mpcRobotModel.getVelocityDim()) !=
+      static_cast<int64_t>(pinocchioVelocityDim)) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[FrictionForceConeConstraint] contact ", contactPointIndex,
+        " has its input force in contact axes, whose orientation depends on "
+        "the state, but the robot model's Pinocchio velocity has ",
+        mpcRobotModel.getVelocityDim(), " entries and the Pinocchio model's ",
+        pinocchioVelocityDim,
+        ": the contact frame's Jacobian cannot be taken to the state."));
+  }
+  return absl::OkStatus();
+}
 
 FrictionForceConeConstraint::Config
 FrictionForceConeConstraint::withoutAdhesion(Config config) {
@@ -127,21 +204,11 @@ FrictionForceConeConstraint::withoutAdhesion(Config config) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+// Copies every member, isActive_ included: a hand-written copy that dropped it
+// made every per-thread copy the SQP solver makes of the problem revert a
+// deactivated cone to active.
 FrictionForceConeConstraint::FrictionForceConeConstraint(
-    const FrictionForceConeConstraint& rhs)
-    : StateInputConstraint(rhs),
-      referenceManagerPtr_(rhs.referenceManagerPtr_),
-      mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
-      config_(rhs.config_),
-      contactPointIndex_(rhs.contactPointIndex_),
-      contactInputStart_(rhs.contactInputStart_),
-      contactInputDim_(rhs.contactInputDim_),
-      inputJacobianForceContactEwrtParam_(
-          rhs.inputJacobianForceContactEwrtParam_),
-      // isActive_ was dropped here, so every per-thread copy the SQP solver
-      // makes of the problem silently reverted a deactivated cone to active.
-      isActive_(rhs.isActive_),
-      scheduleGated_(rhs.scheduleGated_) {}
+    const FrictionForceConeConstraint& rhs) = default;
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -164,16 +231,68 @@ matrix3_t FrictionForceConeConstraint::getRotmatWorldRtSurface(
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t FrictionForceConeConstraint::getValue(
+FrictionForceConeConstraint::ForceContactEwrtSurface
+FrictionForceConeConstraint::computeForceContactEwrtSurface(
     scalar_t time,
-    const vector_t& /*state*/,
+    const vector_t& state,
     const vector_t& input,
-    const PreComputation& /*preComp*/) const {
+    bool withStateJacobian) const {
+  ForceContactEwrtSurface forceContactEwrtSurface;
   const vector3_t forceContactEwrtParam =
       mpcRobotModelPtr_->getForceContactEwrtParam(input, contactPointIndex_);
-  const matrix3_t t_R_w = getRotmatWorldRtSurface(time);
-  const vector3_t forceContactEwrtSurface = t_R_w * forceContactEwrtParam;
-  return coneConstraint(forceContactEwrtSurface);
+  const matrix3_t rotmatWorldRtSurface = getRotmatWorldRtSurface(time);
+  if (contactInputFrame_ == ContactInputFrame::kWorld) {
+    // The input stores the world-frame force: F = p_R_w F_param, and nothing
+    // depends on the state.
+    forceContactEwrtSurface.rotmatParamRtSurface = rotmatWorldRtSurface;
+    forceContactEwrtSurface.value =
+        rotmatWorldRtSurface * forceContactEwrtParam;
+    return forceContactEwrtSurface;
+  }
+
+  // The input stores the force in contact axes: F = p_R_w w_R_c(q) F_param.
+  const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
+  pinocchio::Data data = pinocchioInterfacePtr_->getData();
+  const vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(state);
+  updateFramePlacements(q, model, data);
+  const matrix3_t rotmatContactRtWorld =
+      getRotmatLinkRtWorld(data, contactFrameIndex_);
+  forceContactEwrtSurface.rotmatParamRtSurface =
+      rotmatWorldRtSurface * rotmatContactRtWorld;
+  forceContactEwrtSurface.value =
+      forceContactEwrtSurface.rotmatParamRtSurface * forceContactEwrtParam;
+  if (!withStateJacobian) return forceContactEwrtSurface;
+
+  // THE STATE DERIVATIVE, through w_R_c. With w_R_c' = w_R_c [omega_c]x, a
+  // fixed contact-axes vector moves in world axes as w_R_c [omega_c]x F_param
+  // = -w_R_c [F_param]x omega_c, and omega_c is the angular half of the contact
+  // frame's LOCAL Jacobian times the Pinocchio velocity, which
+  // getPinocchioTangentJacobian() takes to the state.
+  matrix_t jacContactRtWorldEwrtContact = matrix_t::Zero(kTwistDim, model.nv);
+  pinocchio::computeFrameJacobian(model, data, q, contactFrameIndex_,
+                                  pinocchio::LOCAL,
+                                  jacContactRtWorldEwrtContact);
+  forceContactEwrtSurface.angjacContactRtWorldEwrtContact =
+      jacContactRtWorldEwrtContact.bottomRows<kRotationTangentDim>() *
+      mpcRobotModelPtr_->getPinocchioTangentJacobian(state);
+  forceContactEwrtSurface.stateJacobian =
+      -forceContactEwrtSurface.rotmatParamRtSurface *
+      skewSymmetric(forceContactEwrtParam) *
+      forceContactEwrtSurface.angjacContactRtWorldEwrtContact;
+  return forceContactEwrtSurface;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+vector_t FrictionForceConeConstraint::getValue(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& /*preComp*/) const {
+  return coneConstraint(computeForceContactEwrtSurface(
+                            time, state, input, /*withStateJacobian=*/false)
+                            .value);
 }
 
 /******************************************************************************************************/
@@ -185,22 +304,27 @@ FrictionForceConeConstraint::getLinearApproximation(
     const vector_t& state,
     const vector_t& input,
     const PreComputation& /*preComp*/) const {
-  const vector3_t forceContactEwrtParam =
-      mpcRobotModelPtr_->getForceContactEwrtParam(input, contactPointIndex_);
-  const matrix3_t t_R_w = getRotmatWorldRtSurface(time);
-  const vector3_t forceContactEwrtSurface = t_R_w * forceContactEwrtParam;
+  const ForceContactEwrtSurface forceContactEwrtSurface =
+      computeForceContactEwrtSurface(time, state, input,
+                                     /*withStateJacobian=*/true);
 
   const LocalForceDerivatives inputJacobianForceContactEwrtSurface =
-      computeInputJacobianForceContactEwrtSurface(t_R_w);
+      computeInputJacobianForceContactEwrtSurface(
+          forceContactEwrtSurface.rotmatParamRtSurface);
   const ConeLocalDerivatives coneLocalDerivatives =
-      computeConeLocalDerivatives(forceContactEwrtSurface);
+      computeConeLocalDerivatives(forceContactEwrtSurface.value);
   const ConeDerivatives coneDerivatives = computeConeConstraintDerivatives(
       coneLocalDerivatives, inputJacobianForceContactEwrtSurface);
 
   VectorFunctionLinearApproximation linearApproximation;
-  linearApproximation.f = coneConstraint(forceContactEwrtSurface);
-  linearApproximation.dfdx =
-      matrix_t::Zero(linearApproximation.f.size(), state.size());
+  linearApproximation.f = coneConstraint(forceContactEwrtSurface.value);
+  if (contactInputFrame_ == ContactInputFrame::kWorld) {
+    linearApproximation.dfdx =
+        matrix_t::Zero(linearApproximation.f.size(), state.size());
+  } else {
+    linearApproximation.dfdx =
+        coneLocalDerivatives.dCone_dF * forceContactEwrtSurface.stateJacobian;
+  }
   linearApproximation.dfdu =
       frictionConeInputDerivative(input.size(), coneDerivatives);
   return linearApproximation;
@@ -215,31 +339,58 @@ FrictionForceConeConstraint::getQuadraticApproximation(
     const vector_t& state,
     const vector_t& input,
     const PreComputation& /*preComp*/) const {
-  const vector3_t forceContactEwrtParam =
-      mpcRobotModelPtr_->getForceContactEwrtParam(input, contactPointIndex_);
-  const matrix3_t t_R_w = getRotmatWorldRtSurface(time);
-  const vector3_t forceContactEwrtSurface = t_R_w * forceContactEwrtParam;
+  const ForceContactEwrtSurface forceContactEwrtSurface =
+      computeForceContactEwrtSurface(time, state, input,
+                                     /*withStateJacobian=*/true);
 
   const LocalForceDerivatives inputJacobianForceContactEwrtSurface =
-      computeInputJacobianForceContactEwrtSurface(t_R_w);
+      computeInputJacobianForceContactEwrtSurface(
+          forceContactEwrtSurface.rotmatParamRtSurface);
   const ConeLocalDerivatives coneLocalDerivatives =
-      computeConeLocalDerivatives(forceContactEwrtSurface);
+      computeConeLocalDerivatives(forceContactEwrtSurface.value);
   const ConeDerivatives coneDerivatives = computeConeConstraintDerivatives(
       coneLocalDerivatives, inputJacobianForceContactEwrtSurface);
 
   VectorFunctionQuadraticApproximation quadraticApproximation;
-  quadraticApproximation.f = coneConstraint(forceContactEwrtSurface);
-  quadraticApproximation.dfdx =
-      matrix_t::Zero(quadraticApproximation.f.size(), state.size());
+  quadraticApproximation.f = coneConstraint(forceContactEwrtSurface.value);
   quadraticApproximation.dfdu =
       frictionConeInputDerivative(input.size(), coneDerivatives);
-  for (const matrix_t& d2Cone_du2 : coneDerivatives.d2Cone_du2) {
-    quadraticApproximation.dfdxx.emplace_back(
-        frictionConeSecondDerivativeState(state.size()));
-    quadraticApproximation.dfduu.emplace_back(
-        frictionConeSecondDerivativeInput(input.size(), d2Cone_du2));
-    quadraticApproximation.dfdux.emplace_back(
-        matrix_t::Zero(input.size(), state.size()));
+  if (contactInputFrame_ == ContactInputFrame::kWorld) {
+    quadraticApproximation.dfdx =
+        matrix_t::Zero(quadraticApproximation.f.size(), state.size());
+    for (const matrix_t& d2Cone_du2 : coneDerivatives.d2Cone_du2) {
+      quadraticApproximation.dfdxx.emplace_back(
+          frictionConeSecondDerivativeState(state.size()));
+      quadraticApproximation.dfduu.emplace_back(
+          frictionConeSecondDerivativeInput(input.size(), d2Cone_du2));
+      quadraticApproximation.dfdux.emplace_back(
+          matrix_t::Zero(input.size(), state.size()));
+    }
+    return quadraticApproximation;
+  }
+
+  const matrix_t& stateJacobian = forceContactEwrtSurface.stateJacobian;
+  const matrix_t& inputJacobian = inputJacobianForceContactEwrtSurface.dF_du;
+  quadraticApproximation.dfdx = coneLocalDerivatives.dCone_dF * stateJacobian;
+  for (size_t row = 0; row < coneDerivatives.d2Cone_du2.size(); ++row) {
+    const matrix3_t& d2Cone_dF2 = coneLocalDerivatives.d2Cone_dF2[row];
+    // The state Hessian keeps the cone's curvature in F and drops that of
+    // w_R_c(q) F_param; see the class comment.
+    matrix_t dfdxx = frictionConeSecondDerivativeState(state.size());
+    dfdxx.noalias() += stateJacobian.transpose() * d2Cone_dF2 * stateJacobian;
+    quadraticApproximation.dfdxx.emplace_back(std::move(dfdxx));
+    quadraticApproximation.dfduu.emplace_back(frictionConeSecondDerivativeInput(
+        input.size(), coneDerivatives.d2Cone_du2[row]));
+    // Exact: the cone's curvature in F, and the input Jacobian turning with
+    // w_R_c(q).
+    matrix_t dfdux = matrix_t::Zero(input.size(), state.size());
+    dfdux.middleRows(static_cast<Eigen::Index>(contactInputStart_),
+                     static_cast<Eigen::Index>(contactInputDim_)) =
+        inputJacobian.transpose() * d2Cone_dF2 * stateJacobian +
+        computeInputJacobianStateDerivative(
+            coneLocalDerivatives.dCone_dF.row(static_cast<Eigen::Index>(row)),
+            forceContactEwrtSurface);
+    quadraticApproximation.dfdux.emplace_back(std::move(dfdux));
   }
   return quadraticApproximation;
 }
@@ -247,16 +398,42 @@ FrictionForceConeConstraint::getQuadraticApproximation(
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
+matrix_t FrictionForceConeConstraint::computeInputJacobianStateDerivative(
+    const matrix_t& dCone_dF,
+    const ForceContactEwrtSurface& forceContactEwrtSurface) const {
+  // Column j of the input Jacobian is p_R_w w_R_c(q) b_j, with b_j column j of
+  // inputJacobianForceContactEwrtParam_, and it moves with the state as
+  // -p_R_w w_R_c [b_j]x angjac, exactly as the force does.
+  const matrix_t coneRowGradientInParamAxes =
+      dCone_dF * forceContactEwrtSurface.rotmatParamRtSurface;  // 1 x 3
+  matrix_t derivative = matrix_t::Zero(
+      static_cast<Eigen::Index>(contactInputDim_),
+      forceContactEwrtSurface.angjacContactRtWorldEwrtContact.cols());
+  for (Eigen::Index column = 0;
+       column < inputJacobianForceContactEwrtParam_.cols(); ++column) {
+    const vector3_t inputJacobianColumn =
+        inputJacobianForceContactEwrtParam_.col(column);
+    derivative.row(column).noalias() =
+        -coneRowGradientInParamAxes * skewSymmetric(inputJacobianColumn) *
+        forceContactEwrtSurface.angjacContactRtWorldEwrtContact;
+  }
+  return derivative;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
 FrictionForceConeConstraint::LocalForceDerivatives
 FrictionForceConeConstraint::computeInputJacobianForceContactEwrtSurface(
-    const matrix3_t& t_R_w) const {
+    const matrix3_t& rotmatParamRtSurface) const {
   LocalForceDerivatives inputJacobianForceContactEwrtSurface{};
-  // The cone is evaluated on `t_R_w * getForceContactEwrtParam(input)`, so its
-  // derivative is that same rotation applied to the model's own force Jacobian
+  // The cone is evaluated on `rotmatParamRtSurface *
+  // getForceContactEwrtParam(input)`, so its derivative is that same rotation
+  // applied to the model's own force Jacobian
   // - NOT the rotation on its own, which is only the answer when the input
   // happens to store the force directly.
   inputJacobianForceContactEwrtSurface.dF_du.noalias() =
-      t_R_w * inputJacobianForceContactEwrtParam_;
+      rotmatParamRtSurface * inputJacobianForceContactEwrtParam_;
   return inputJacobianForceContactEwrtSurface;
 }
 
@@ -310,14 +487,15 @@ FrictionForceConeConstraint::computeConeLocalDerivatives(
     // + regularization)^(3/2) is positive - the reason this form is linearized.
     const scalar_t muSquare =
         config_.frictionCoefficient * config_.frictionCoefficient;
-    const scalar_t F_normal_square =
+    const scalar_t F_friction_bound_square =
         muSquare * forceContactEwrtSurface.z() * forceContactEwrtSurface.z() +
         config_.regularization;
-    const scalar_t F_normal_norm = std::sqrt(F_normal_square);
+    const scalar_t F_friction_bound = std::sqrt(F_friction_bound_square);
     coneDerivatives.dCone_dF(kFrictionRow, kZAxisIndex) =
-        muSquare * forceContactEwrtSurface.z() / F_normal_norm;
+        muSquare * forceContactEwrtSurface.z() / F_friction_bound;
     frictionHessian(kZAxisIndex, kZAxisIndex) =
-        muSquare * config_.regularization / (F_normal_norm * F_normal_square);
+        muSquare * config_.regularization /
+        (F_friction_bound * F_friction_bound_square);
     // Row 1, Fz >= 0: linear.
     coneDerivatives.dCone_dF(kNormalForceRowIndex, kZAxisIndex) = 1.0;
   }
@@ -347,9 +525,9 @@ vector_t FrictionForceConeConstraint::coneConstraint(
   // back - which this term used to evaluate - admitted more friction than mu.
   const scalar_t muFz =
       config_.frictionCoefficient * forceContactEwrtSurface.z();
-  const scalar_t F_normal_norm =
+  const scalar_t F_friction_bound =
       std::sqrt(muFz * muFz + config_.regularization);
-  return (vector_t(kNumUngatedConstraints) << F_normal_norm - F_tangent_norm,
+  return (vector_t(kNumUngatedConstraints) << F_friction_bound - F_tangent_norm,
           forceContactEwrtSurface.z())
       .finished();
 }

@@ -42,10 +42,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
+#include "ocs2_mpc/MPC_BASE.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/parameter_update/BasisInputsCostApplier.h"
 #include "humanoid_centroidal_mpc/parameter_update/CentroidalCostWeightsApplier.h"
 #include "humanoid_centroidal_mpc/parameter_update/ZeroVelocityGainsApplier.h"
@@ -56,8 +57,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/parameter_update/ConstraintPenaltiesApplier.h"
 #include "humanoid_common_mpc/parameter_update/ContactImplicitApplier.h"
 #include "humanoid_common_mpc/parameter_update/FootConstraintSoftWeightsApplier.h"
+#include "humanoid_common_mpc/parameter_update/HotFieldApplier.h"
 #include "humanoid_common_mpc/parameter_update/HotFieldApplierList.h"
 #include "humanoid_common_mpc/parameter_update/LocomotionHeuristicsApplier.h"
+#include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
 #include "humanoid_common_mpc/parameter_update/QuadraticCostWeightsApplier.h"
 #include "humanoid_common_mpc/parameter_update/ReferenceManagerApplier.h"
 #include "humanoid_common_mpc/parameter_update/SqpSettingsApplier.h"

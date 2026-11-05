@@ -33,7 +33,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <memory>
+#include <numbers>
 #include <random>
 #include <string>
 #include <utility>
@@ -47,16 +49,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "gtest/gtest.h"
-#include "pinocchio/multibody/joint/joint-composite.hpp"
-#include "pinocchio/multibody/joint/joint-spherical-ZYX.hpp"
-#include "pinocchio/multibody/joint/joint-spherical.hpp"
-#include "pinocchio/multibody/joint/joint-translation.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "ocs2_core/Types.h"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/joint/fwd.hpp"
+#include "pinocchio/multibody/joint/joint-composite.hpp"  // IWYU pragma: keep
+#include "pinocchio/multibody/joint/joint-spherical-ZYX.hpp"  // IWYU pragma: keep
+#include "pinocchio/multibody/joint/joint-spherical.hpp"    // IWYU pragma: keep
+#include "pinocchio/multibody/joint/joint-translation.hpp"  // IWYU pragma: keep
+#include "pinocchio/multibody/model.hpp"                    // IWYU pragma: keep
 #include "pinocchio/parsers/urdf.hpp"
+#include "urdf_model/joint.h"
 #include "urdf_parser/urdf_parser.h"
+#include "urdf_world/types.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_mpc_validation/chart/EulerChart.h"
@@ -96,7 +104,7 @@ constexpr EquivalenceRobot kEquivalenceRobots[] = {
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/equivalence/BUILD.bazel:equivalence_robot_data)
 
 /** The root joint of the quaternion formulation (design decision D1). */
-pinocchio::JointModelComposite quaternionRoot() {
+pinocchio::JointModelComposite quaternionRootJoint() {
   pinocchio::JointModelComposite root(2);
   root.addJoint(pinocchio::JointModelTranslation());
   root.addJoint(pinocchio::JointModelSpherical());
@@ -218,8 +226,9 @@ scalar_t uniformScalar(scalar_t low, scalar_t high, std::mt19937& generator) {
   Eigen::Index column = 0;
   const scalar_t difference =
       (actual - expected).cwiseAbs().maxCoeff(&row, &column);
-  if (difference <= bound)
+  if (difference <= bound) {
     return ::testing::AssertionSuccess();  // A NaN difference fails.
+  }
   return ::testing::AssertionFailure() << absl::StrFormat(
              "max |difference| %.3e at (%d, %d) above the %s bound %.3e: %.17g "
              "vs %.17g",
@@ -260,14 +269,15 @@ absl::StatusOr<std::unique_ptr<RootJointModelPair>> RootJointModelPair::Create(
                                          /*verbose=*/false));
 
   const urdf::ModelInterfaceSharedPtr urdfTree = urdf::parseURDFFile(urdfFile);
-  if (urdfTree == nullptr)
+  if (urdfTree == nullptr) {
     return absl::InvalidArgumentError(
         absl::StrCat("the URDF ", urdfFile, " does not parse"));
+  }
   const urdf::ModelInterfaceSharedPtr reduced =
       reducedUrdf(*urdfTree, settings.mpcModelJointNames);
 
   pinocchio::Model quaternionModel;
-  pinocchio::urdf::buildModel(reduced, quaternionRoot(), quaternionModel);
+  pinocchio::urdf::buildModel(reduced, quaternionRootJoint(), quaternionModel);
   pinocchio::Model eulerModel;
   pinocchio::urdf::buildModel(reduced, eulerRoot(), eulerModel);
   RETURN_IF_ERROR(checkSameRobot(quaternionModel, eulerModel, settings));
@@ -285,7 +295,7 @@ absl::StatusOr<std::unique_ptr<RootJointModelPair>> RootJointModelPair::Create(
       std::move(centroidalStateLayout)));
 }
 
-absl::StatusOr<PinocchioMotion> quaternionMotionOf(
+absl::StatusOr<PinocchioMotion> quaternionModelMotionOf(
     const PinocchioMotion& eulerMotion,
     const validation::EulerStateLayout& layout) {
   const vector_t eulerState = stacked(eulerMotion.q, eulerMotion.v);
@@ -305,7 +315,7 @@ absl::StatusOr<PinocchioMotion> quaternionMotionOf(
   return motion;
 }
 
-absl::StatusOr<ChartVelocityMaps> chartVelocityMapsAt(
+absl::StatusOr<ChartVelocityMaps> chartGeneralizedVelocityMapsAt(
     const PinocchioMotion& eulerMotion,
     const validation::EulerStateLayout& layout) {
   ASSIGN_OR_RETURN(const matrix_t tangentJacobian,
@@ -313,15 +323,18 @@ absl::StatusOr<ChartVelocityMaps> chartVelocityMapsAt(
                        stacked(eulerMotion.q, eulerMotion.v), layout));
   const Eigen::Index nv = eulerMotion.v.size();
   ChartVelocityMaps maps;
-  maps.velocityMap = tangentJacobian.topLeftCorner(nv, nv);
-  maps.velocityMapRate = matrix_t::Zero(nv, nv);
-  const vector3_t angles = eulerMotion.q.segment<3>(kRootRotationStart);
-  const vector3_t rates = eulerMotion.v.segment<3>(kRootRotationStart);
+  maps.generalizedVelocityMap = tangentJacobian.topLeftCorner(nv, nv);
+  maps.generalizedVelocityMapRate = matrix_t::Zero(nv, nv);
+  const vector3_t eulerzyxBaseRtWorld =
+      eulerMotion.q.segment<3>(kRootRotationStart);
+  const vector3_t rateEulerzyxBaseRtWorld =
+      eulerMotion.v.segment<3>(kRootRotationStart);
   for (Eigen::Index column = 0; column < 3; ++column) {
     // (C3): column i of dT_B/dt is d(T_B(Theta) e_i)/dTheta times dTheta/dt.
-    maps.velocityMapRate.block<3, 1>(kRootRotationStart,
-                                     kRootRotationStart + column) =
-        bodyRateEulerZyxJacobian(angles, vector3_t::Unit(column)) * rates;
+    maps.generalizedVelocityMapRate.block<3, 1>(kRootRotationStart,
+                                                kRootRotationStart + column) =
+        bodyRateEulerZyxJacobian(eulerzyxBaseRtWorld, vector3_t::Unit(column)) *
+        rateEulerzyxBaseRtWorld;
   }
   return maps;
 }
@@ -332,37 +345,42 @@ PinocchioMotion randomEulerMotion(const pinocchio::Model& eulerModel,
   const Eigen::Index nj = eulerModel.nv - 6;
   PinocchioMotion motion;
   motion.q.resize(eulerModel.nq);
-  motion.q(0) = uniformScalar(-bounds.maxAbsBasePosition,
-                              bounds.maxAbsBasePosition, generator);
-  motion.q(1) = uniformScalar(-bounds.maxAbsBasePosition,
-                              bounds.maxAbsBasePosition, generator);
+  motion.q(0) = uniformScalar(-bounds.maxAbsPosBaseRtWorldEwrtWorld,
+                              bounds.maxAbsPosBaseRtWorldEwrtWorld, generator);
+  motion.q(1) = uniformScalar(-bounds.maxAbsPosBaseRtWorldEwrtWorld,
+                              bounds.maxAbsPosBaseRtWorldEwrtWorld, generator);
   motion.q(2) = uniformScalar(
-      /*low=*/0.3, /*high=*/0.3 + 2.0 * bounds.maxAbsBasePosition, generator);
-  motion.q(3) = uniformScalar(-M_PI, M_PI, generator);
-  motion.q(4) =
-      uniformScalar(-bounds.maxAbsPitch, bounds.maxAbsPitch, generator);
-  motion.q(5) = uniformScalar(-M_PI, M_PI, generator);
+      /*low=*/0.3, /*high=*/0.3 + 2.0 * bounds.maxAbsPosBaseRtWorldEwrtWorld,
+      generator);
+  motion.q(3) = uniformScalar(-std::numbers::pi, std::numbers::pi, generator);
+  motion.q(4) = uniformScalar(-bounds.maxAbsEulerzyxBaseRtWorldPitch,
+                              bounds.maxAbsEulerzyxBaseRtWorldPitch, generator);
+  motion.q(5) = uniformScalar(-std::numbers::pi, std::numbers::pi, generator);
   for (Eigen::Index joint = 0; joint < nj; ++joint) {
     const Eigen::Index index = 6 + joint;
+    // NOLINTBEGIN(frame-naming): Pinocchio's joint limits (joint space)
     scalar_t lower = eulerModel.lowerPositionLimit(index);
     scalar_t upper = eulerModel.upperPositionLimit(index);
+    // NOLINTEND(frame-naming)
     if (!std::isfinite(lower) || !std::isfinite(upper) ||
-        upper - lower > 2.0 * M_PI) {
-      lower = -M_PI;
-      upper = M_PI;
+        upper - lower > 2.0 * std::numbers::pi) {
+      lower = -std::numbers::pi;
+      upper = std::numbers::pi;
     }
     motion.q(index) = uniformScalar(lower, upper, generator);
   }
 
   motion.v.resize(eulerModel.nv);
-  motion.v << uniformVector(/*size=*/3, bounds.maxAbsBaseLinearVelocity,
+  motion.v << uniformVector(/*size=*/3, bounds.maxAbsLinvelBaseRtWorldEwrtWorld,
                             generator),
-      uniformVector(/*size=*/3, bounds.maxAbsEulerRate, generator),
+      uniformVector(/*size=*/3, bounds.maxAbsRateEulerzyxBaseRtWorld,
+                    generator),
       uniformVector(nj, bounds.maxAbsJointVelocity, generator);
   motion.a.resize(eulerModel.nv);
-  motion.a << uniformVector(/*size=*/3, bounds.maxAbsBaseLinearAcceleration,
+  motion.a << uniformVector(/*size=*/3, bounds.maxAbsLinaccBaseRtWorldEwrtWorld,
                             generator),
-      uniformVector(/*size=*/3, bounds.maxAbsEulerAcceleration, generator),
+      uniformVector(/*size=*/3, bounds.maxAbsSecondRateEulerzyxBaseRtWorld,
+                    generator),
       uniformVector(nj, bounds.maxAbsJointAcceleration, generator);
   return motion;
 }
@@ -371,8 +389,9 @@ vector_t uniformVector(Eigen::Index size,
                        scalar_t halfWidth,
                        std::mt19937& generator) {
   vector_t vector(size);
-  for (Eigen::Index i = 0; i < size; ++i)
+  for (Eigen::Index i = 0; i < size; ++i) {
     vector(i) = uniformScalar(-halfWidth, halfWidth, generator);
+  }
   return vector;
 }
 

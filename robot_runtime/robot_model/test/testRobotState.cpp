@@ -27,10 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <optional>
-#include <string>
 #include <system_error>
 #include <utility>
 #include <vector>
@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include "robot_core/Types.h"
 #include "robot_model/IDMapBase.h"
 #include "robot_model/RobotDescription.h"
 #include "robot_model/RobotJointAction.h"
@@ -86,6 +87,7 @@ RobotDescription bipedDescription() {
       "robot_model_robot_state_test.urdf";
   std::ofstream(urdfPath) << kUrdf;
   absl::StatusOr<RobotDescription> description =
+      // NOLINTNEXTLINE(build/include_what_you_use): path::string()
       RobotDescription::Create(urdfPath.string());
   CHECK_OK(description.status());
   std::error_code ec;
@@ -154,11 +156,12 @@ TEST_F(RobotStateTest,
        TheImuAccelerationStartsAtZeroIsCopiedAndIsZeroedWithTheConfiguration) {
   RobotState source(description_);
   EXPECT_EQ(source.getSpecforceBaseRtWorldEwrtBase(), vector3_t::Zero());
-  const vector3_t atRest(0.1, -0.2, 9.81);
-  source.setSpecforceBaseRtWorldEwrtBase(atRest);
+  const vector3_t restSpecforceBaseRtWorldEwrtBase(0.1, -0.2, 9.81);
+  source.setSpecforceBaseRtWorldEwrtBase(restSpecforceBaseRtWorldEwrtBase);
   RobotState target(description_);
   target = source;
-  EXPECT_EQ(target.getSpecforceBaseRtWorldEwrtBase(), atRest);
+  EXPECT_EQ(target.getSpecforceBaseRtWorldEwrtBase(),
+            restSpecforceBaseRtWorldEwrtBase);
   target.setConfigurationToZero();
   EXPECT_EQ(target.getSpecforceBaseRtWorldEwrtBase(), vector3_t::Zero());
 }

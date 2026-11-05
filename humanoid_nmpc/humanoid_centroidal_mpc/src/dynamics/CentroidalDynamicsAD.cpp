@@ -32,6 +32,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+
+#include "humanoid_common_mpc/common/ModelSettings.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/

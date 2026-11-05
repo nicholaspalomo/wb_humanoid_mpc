@@ -34,9 +34,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/log/absl_check.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/manifold/StateManifold.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
+#include "humanoid_mpc_validation/chart/EulerChart.h"
 
 namespace ocs2::humanoid {
 
@@ -44,14 +48,14 @@ using validation::EulerStateSegment;
 using validation::EulerStateSegmentKind;
 
 EulerChartStateManifold::EulerChartStateManifold(
-    std::shared_ptr<const StateManifold> quaternionManifold,
+    std::shared_ptr<const StateManifold> quaternionModelManifold,
     validation::EulerStateLayout layout)
-    : quaternionManifold_(std::move(quaternionManifold)),
+    : quaternionModelManifold_(std::move(quaternionModelManifold)),
       layout_(std::move(layout)) {
-  ABSL_CHECK(quaternionManifold_ != nullptr);
-  ABSL_CHECK_EQ(quaternionManifold_->getAmbientDim(),
+  ABSL_CHECK(quaternionModelManifold_ != nullptr);
+  ABSL_CHECK_EQ(quaternionModelManifold_->getAmbientDim(),
                 validation::getPhysicalStateDim(layout_));
-  ABSL_CHECK_EQ(quaternionManifold_->getTangentDim(),
+  ABSL_CHECK_EQ(quaternionModelManifold_->getTangentDim(),
                 validation::getEulerStateDim(layout_));
 }
 
@@ -140,10 +144,10 @@ void EulerChartStateManifold::pushForwardDynamics(
     const vector_t& xNext,
     VectorFunctionLinearApproximation& dynamics) const {
   vector_t end = dynamics.f;
-  quaternionManifold_->project(end);
+  quaternionModelManifold_->project(end);
   // The quaternion manifold's sensitivities of a gap at its own end: E+(Pi(F))
   // Pi'(F) dF/dx E(x) (Jr^-1(0) = I).
-  quaternionManifold_->pushForwardDynamics(x, end, dynamics);
+  quaternionModelManifold_->pushForwardDynamics(x, end, dynamics);
   const vector_t endEuler = eulerStateOf(end);
   const vector_t nextEuler = eulerStateOf(xNext);
   const matrix_t nextMap = physicalTangentJacobian(nextEuler);

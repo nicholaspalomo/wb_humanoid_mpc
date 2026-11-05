@@ -154,6 +154,15 @@ const Eigen::Block<const Derived, -1, 1> getGeneralizedCoordinates(const Eigen::
                                                                    const CentroidalModelInfoTpl<SCALAR>& info);
 
 /**
+ * Provides read/write access to the rows of a state derivative that hold the time derivative of the mass-normalized
+ * centroidal momentum: d/dt (h / m) (kCentroidalMomentumDim entries at 0). ocs2::getMnormRateCmomComRtWorldEwrtWorld()
+ * (ModelHelperFunctions.h) computes the value written there.
+ */
+template <typename Derived, typename SCALAR>
+Eigen::Block<Derived, kCentroidalMomentumDim, 1> getMnormRateCmomComRtWorldEwrtWorld(Eigen::MatrixBase<Derived>& stateDerivative,
+                                                                                    const CentroidalModelInfoTpl<SCALAR>& info);
+
+/**
  * Provides read/write access to the rows of a state derivative that hold the time derivative of the generalized
  * coordinates: d/dt [p_W, xi, q_j] (nq entries at 6), which computeConfigurationDerivative() computes from the pinocchio
  * velocity v (nv entries).

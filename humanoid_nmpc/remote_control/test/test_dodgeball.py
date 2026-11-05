@@ -90,42 +90,74 @@ class TestSpawnOffset(unittest.TestCase):
                         azimuth, elevation, distance, 10.0
                     )
                     self.assertAlmostEqual(
-                        _norm(dodgeball.spawn_offset(throw)), distance, places=9
+                        _norm(
+                            dodgeball.compute_spawn_pos_ball_rt_base_ewrt_heading(
+                                throw
+                            )
+                        ),
+                        distance,
+                        places=9,
                     )
 
     def test_azimuth_zero_is_in_front_of_the_robot(self):
         # 0 deg must be the robot's +x, or "throw it at the front" means something different on every robot.
-        offset = dodgeball.spawn_offset(
-            dodgeball.DodgeballThrow(0.0, 0.0, 2.0, 10.0)
+        spawn_pos_ball_rt_base_ewrt_heading = (
+            dodgeball.compute_spawn_pos_ball_rt_base_ewrt_heading(
+                dodgeball.DodgeballThrow(0.0, 0.0, 2.0, 10.0)
+            )
         )
-        self.assertAlmostEqual(offset[0], 2.0, places=9)
-        self.assertAlmostEqual(offset[1], 0.0, places=9)
-        self.assertAlmostEqual(offset[2], 0.0, places=9)
+        self.assertAlmostEqual(
+            spawn_pos_ball_rt_base_ewrt_heading[0], 2.0, places=9
+        )
+        self.assertAlmostEqual(
+            spawn_pos_ball_rt_base_ewrt_heading[1], 0.0, places=9
+        )
+        self.assertAlmostEqual(
+            spawn_pos_ball_rt_base_ewrt_heading[2], 0.0, places=9
+        )
 
     def test_azimuth_ninety_is_to_the_robots_left(self):
-        offset = dodgeball.spawn_offset(
-            dodgeball.DodgeballThrow(90.0, 0.0, 2.0, 10.0)
+        spawn_pos_ball_rt_base_ewrt_heading = (
+            dodgeball.compute_spawn_pos_ball_rt_base_ewrt_heading(
+                dodgeball.DodgeballThrow(90.0, 0.0, 2.0, 10.0)
+            )
         )
-        self.assertAlmostEqual(offset[0], 0.0, places=9)
-        self.assertAlmostEqual(offset[1], 2.0, places=9)
+        self.assertAlmostEqual(
+            spawn_pos_ball_rt_base_ewrt_heading[0], 0.0, places=9
+        )
+        self.assertAlmostEqual(
+            spawn_pos_ball_rt_base_ewrt_heading[1], 2.0, places=9
+        )
 
     def test_azimuth_one_eighty_is_behind(self):
-        offset = dodgeball.spawn_offset(
-            dodgeball.DodgeballThrow(180.0, 0.0, 2.0, 10.0)
+        spawn_pos_ball_rt_base_ewrt_heading = (
+            dodgeball.compute_spawn_pos_ball_rt_base_ewrt_heading(
+                dodgeball.DodgeballThrow(180.0, 0.0, 2.0, 10.0)
+            )
         )
-        self.assertAlmostEqual(offset[0], -2.0, places=9)
+        self.assertAlmostEqual(
+            spawn_pos_ball_rt_base_ewrt_heading[0], -2.0, places=9
+        )
 
     def test_positive_elevation_spawns_above_the_base(self):
         # And therefore throws DOWNWARDS, which is the half of the convention most easily inverted.
-        above = dodgeball.spawn_offset(
-            dodgeball.DodgeballThrow(0.0, 30.0, 2.0, 10.0)
+        high_spawn_pos_ball_rt_base_ewrt_heading = (
+            dodgeball.compute_spawn_pos_ball_rt_base_ewrt_heading(
+                dodgeball.DodgeballThrow(0.0, 30.0, 2.0, 10.0)
+            )
         )
-        below = dodgeball.spawn_offset(
-            dodgeball.DodgeballThrow(0.0, -30.0, 2.0, 10.0)
+        low_spawn_pos_ball_rt_base_ewrt_heading = (
+            dodgeball.compute_spawn_pos_ball_rt_base_ewrt_heading(
+                dodgeball.DodgeballThrow(0.0, -30.0, 2.0, 10.0)
+            )
         )
-        self.assertGreater(above[2], 0.0)
-        self.assertLess(below[2], 0.0)
-        self.assertAlmostEqual(above[2], -below[2], places=9)
+        self.assertGreater(high_spawn_pos_ball_rt_base_ewrt_heading[2], 0.0)
+        self.assertLess(low_spawn_pos_ball_rt_base_ewrt_heading[2], 0.0)
+        self.assertAlmostEqual(
+            high_spawn_pos_ball_rt_base_ewrt_heading[2],
+            -low_spawn_pos_ball_rt_base_ewrt_heading[2],
+            places=9,
+        )
 
 
 class TestLaunchVelocity(unittest.TestCase):
@@ -133,16 +165,27 @@ class TestLaunchVelocity(unittest.TestCase):
 
     def test_without_gravity_it_points_straight_back_at_the_base(self):
         throw = dodgeball.DodgeballThrow(53.0, 21.0, 4.0, 9.0)
-        offset = dodgeball.spawn_offset(throw)
-        velocity = dodgeball.launch_velocity(throw, gravity=0.0)
+        spawn_pos_ball_rt_base_ewrt_heading = (
+            dodgeball.compute_spawn_pos_ball_rt_base_ewrt_heading(throw)
+        )
+        launch_linvel_ball_rt_world_ewrt_heading = (
+            dodgeball.compute_launch_linvel_ball_rt_world_ewrt_heading(
+                throw, gravity=0.0
+            )
+        )
         # Anti-parallel to the offset: the ball travels from the spawn point to the base along the straight line.
         for axis in range(3):
             self.assertAlmostEqual(
-                velocity[axis],
-                -offset[axis] / dodgeball.flight_time(throw, gravity=0.0),
+                launch_linvel_ball_rt_world_ewrt_heading[axis],
+                -spawn_pos_ball_rt_base_ewrt_heading[axis]
+                / dodgeball.flight_time(throw, gravity=0.0),
                 places=9,
             )
-        self.assertAlmostEqual(_norm(velocity), throw.speed_mps, places=9)
+        self.assertAlmostEqual(
+            _norm(launch_linvel_ball_rt_world_ewrt_heading),
+            throw.cmd_speed_ball_rt_world,
+            places=9,
+        )
 
     def test_the_ballistic_path_passes_through_the_base(self):
         # With the gravity term, integrating the flight lands on the base, not below it. Includes a
@@ -153,19 +196,27 @@ class TestLaunchVelocity(unittest.TestCase):
             dodgeball.DodgeballThrow(90.0, -20.0, 1.5, 3.0),
             dodgeball.DodgeballThrow(0.0, 0.0, 8.0, 1.0),
         ):
-            spawn = dodgeball.spawn_offset(throw)
-            velocity = dodgeball.launch_velocity(throw)
+            spawn_pos_ball_rt_base_ewrt_heading = (
+                dodgeball.compute_spawn_pos_ball_rt_base_ewrt_heading(throw)
+            )
+            launch_linvel_ball_rt_world_ewrt_heading = (
+                dodgeball.compute_launch_linvel_ball_rt_world_ewrt_heading(
+                    throw
+                )
+            )
             time_of_flight = dodgeball.flight_time(throw)
-            arrival = [
-                spawn[0] + velocity[0] * time_of_flight,
-                spawn[1] + velocity[1] * time_of_flight,
-                spawn[2]
-                + velocity[2] * time_of_flight
+            arrival_pos_ball_rt_base_ewrt_heading = [
+                spawn_pos_ball_rt_base_ewrt_heading[0]
+                + launch_linvel_ball_rt_world_ewrt_heading[0] * time_of_flight,
+                spawn_pos_ball_rt_base_ewrt_heading[1]
+                + launch_linvel_ball_rt_world_ewrt_heading[1] * time_of_flight,
+                spawn_pos_ball_rt_base_ewrt_heading[2]
+                + launch_linvel_ball_rt_world_ewrt_heading[2] * time_of_flight
                 - 0.5 * dodgeball.GRAVITY * time_of_flight * time_of_flight,
             ]
             for axis in range(3):
                 self.assertAlmostEqual(
-                    arrival[axis],
+                    arrival_pos_ball_rt_base_ewrt_heading[axis],
                     0.0,
                     places=9,
                     msg=f"{throw} missed on axis {axis}",
@@ -181,25 +232,41 @@ class TestLaunchVelocity(unittest.TestCase):
             dodgeball.DodgeballThrow(0.0, 0.0, 8.0, 25.0),
         ):
             self.assertGreater(
-                throw.speed_mps, dodgeball.minimum_launch_speed(throw), throw
+                throw.cmd_speed_ball_rt_world,
+                dodgeball.compute_min_launch_speed_ball_rt_world(throw),
+                throw,
             )
             self.assertAlmostEqual(
-                _norm(dodgeball.launch_velocity(throw)),
-                throw.speed_mps,
+                _norm(
+                    dodgeball.compute_launch_linvel_ball_rt_world_ewrt_heading(
+                        throw
+                    )
+                ),
+                throw.cmd_speed_ball_rt_world,
                 places=9,
                 msg=throw,
             )
 
     def test_a_throw_too_slow_to_reach_is_raised_to_the_minimum_that_does(self):
         throw = dodgeball.DodgeballThrow(0.0, 0.0, 8.0, 1.0)
-        minimum = dodgeball.minimum_launch_speed(throw)
+        minimum = dodgeball.compute_min_launch_speed_ball_rt_world(throw)
         # sqrt(g (d + rise)); level with the base the rise is zero.
         self.assertAlmostEqual(
             minimum, math.sqrt(dodgeball.GRAVITY * 8.0), places=9
         )
-        self.assertAlmostEqual(dodgeball.launch_speed(throw), minimum, places=9)
         self.assertAlmostEqual(
-            _norm(dodgeball.launch_velocity(throw)), minimum, places=6
+            dodgeball.compute_launch_speed_ball_rt_world(throw),
+            minimum,
+            places=9,
+        )
+        self.assertAlmostEqual(
+            _norm(
+                dodgeball.compute_launch_linvel_ball_rt_world_ewrt_heading(
+                    throw
+                )
+            ),
+            minimum,
+            places=6,
         )
         # The slowest throw is the 45-degree-ish one whose flight is sqrt(2 d / g), about 1.3 s rather than 8.
         self.assertAlmostEqual(
@@ -214,8 +281,8 @@ class TestLaunchVelocity(unittest.TestCase):
         above = dodgeball.DodgeballThrow(0.0, 45.0, 4.0, 1.0)
         below = dodgeball.DodgeballThrow(0.0, -20.0, 4.0, 1.0)
         self.assertLess(
-            dodgeball.minimum_launch_speed(above),
-            dodgeball.minimum_launch_speed(below),
+            dodgeball.compute_min_launch_speed_ball_rt_world(above),
+            dodgeball.compute_min_launch_speed_ball_rt_world(below),
         )
 
     def test_the_direct_throw_is_chosen_not_the_lob(self):
@@ -237,8 +304,12 @@ class TestLaunchVelocity(unittest.TestCase):
         # The horizontal components stay parallel to the straight-line aim, so the ball still comes from the direction
         # the azimuth slider says. (Their magnitude changes: the flight is shorter or longer under gravity.)
         throw = dodgeball.DodgeballThrow(37.0, 10.0, 4.0, 8.0)
-        straight = dodgeball.launch_velocity(throw, gravity=0.0)
-        lifted = dodgeball.launch_velocity(throw)
+        straight = dodgeball.compute_launch_linvel_ball_rt_world_ewrt_heading(
+            throw, gravity=0.0
+        )
+        lifted = dodgeball.compute_launch_linvel_ball_rt_world_ewrt_heading(
+            throw
+        )
         self.assertAlmostEqual(
             math.atan2(lifted[1], lifted[0]),
             math.atan2(straight[1], straight[0]),
@@ -246,10 +317,10 @@ class TestLaunchVelocity(unittest.TestCase):
         )
 
     def test_a_slow_long_throw_needs_more_lift_than_a_fast_short_one(self):
-        slow = dodgeball.launch_velocity(
+        slow = dodgeball.compute_launch_linvel_ball_rt_world_ewrt_heading(
             dodgeball.DodgeballThrow(0.0, 0.0, 6.0, 9.0)
         )
-        fast = dodgeball.launch_velocity(
+        fast = dodgeball.compute_launch_linvel_ball_rt_world_ewrt_heading(
             dodgeball.DodgeballThrow(0.0, 0.0, 6.0, 20.0)
         )
         self.assertGreater(slow[2], fast[2])
@@ -263,13 +334,21 @@ class TestFlightAndImpact(unittest.TestCase):
             dodgeball.DodgeballThrow(120.0, -15.0, 3.0, 12.0),
             dodgeball.DodgeballThrow(0.0, 0.0, 8.0, 1.0),
         ):
-            height = dodgeball.spawn_offset(throw)[2]
+            spawn_pos_ball_rt_base_ewrt_heading_z = (
+                dodgeball.compute_spawn_pos_ball_rt_base_ewrt_heading(throw)[2]
+            )
             expected = math.sqrt(
-                dodgeball.launch_speed(throw) ** 2
-                + 2.0 * dodgeball.GRAVITY * height
+                dodgeball.compute_launch_speed_ball_rt_world(throw) ** 2
+                + 2.0
+                * dodgeball.GRAVITY
+                * spawn_pos_ball_rt_base_ewrt_heading_z
             )
             self.assertAlmostEqual(
-                _norm(dodgeball.arrival_velocity(throw)),
+                _norm(
+                    dodgeball.compute_arrival_linvel_ball_rt_world_ewrt_heading(
+                        throw
+                    )
+                ),
                 expected,
                 places=6,
                 msg=throw,
@@ -278,20 +357,37 @@ class TestFlightAndImpact(unittest.TestCase):
     def test_impact_momentum_is_mass_times_the_arrival_speed(self):
         throw = dodgeball.DodgeballThrow(0.0, 30.0, 4.0, 10.0, mass_kg=0.5)
         self.assertAlmostEqual(
-            dodgeball.impact_momentum(throw),
-            0.5 * _norm(dodgeball.arrival_velocity(throw)),
+            dodgeball.compute_impact_norm_linmom_ball_rt_world_ewrt_world(
+                throw
+            ),
+            0.5
+            * _norm(
+                dodgeball.compute_arrival_linvel_ball_rt_world_ewrt_heading(
+                    throw
+                )
+            ),
             places=9,
         )
         # And it is linear in the mass and grows with the speed.
         heavy = dodgeball.DodgeballThrow(0.0, 30.0, 4.0, 10.0, mass_kg=2.0)
         faster = dodgeball.DodgeballThrow(0.0, 30.0, 4.0, 20.0, mass_kg=0.5)
         self.assertAlmostEqual(
-            dodgeball.impact_momentum(heavy),
-            4.0 * dodgeball.impact_momentum(throw),
+            dodgeball.compute_impact_norm_linmom_ball_rt_world_ewrt_world(
+                heavy
+            ),
+            4.0
+            * dodgeball.compute_impact_norm_linmom_ball_rt_world_ewrt_world(
+                throw
+            ),
             places=9,
         )
         self.assertGreater(
-            dodgeball.impact_momentum(faster), dodgeball.impact_momentum(throw)
+            dodgeball.compute_impact_norm_linmom_ball_rt_world_ewrt_world(
+                faster
+            ),
+            dodgeball.compute_impact_norm_linmom_ball_rt_world_ewrt_world(
+                throw
+            ),
         )
 
     def test_a_ball_dropped_from_above_arrives_faster_than_the_slider_says(
@@ -300,8 +396,10 @@ class TestFlightAndImpact(unittest.TestCase):
         # Which is exactly what mass x slider speed used to hide.
         throw = dodgeball.DodgeballThrow(0.0, 60.0, 8.0, 3.0, mass_kg=5.0)
         self.assertGreater(
-            dodgeball.impact_momentum(throw),
-            5.0 * dodgeball.launch_speed(throw),
+            dodgeball.compute_impact_norm_linmom_ball_rt_world_ewrt_world(
+                throw
+            ),
+            5.0 * dodgeball.compute_launch_speed_ball_rt_world(throw),
         )
 
 
@@ -312,10 +410,20 @@ class TestClamping(unittest.TestCase):
         throw = dodgeball.DodgeballThrow(
             1e6, -1e6, 1e6, -1e6, mass_kg=1e6
         ).clamped()
-        self.assertEqual(throw.azimuth_deg, dodgeball.AZIMUTH_RANGE_DEG[1])
-        self.assertEqual(throw.elevation_deg, dodgeball.ELEVATION_RANGE_DEG[0])
-        self.assertEqual(throw.distance_m, dodgeball.DISTANCE_RANGE_M[1])
-        self.assertEqual(throw.speed_mps, dodgeball.SPEED_RANGE_MPS[0])
+        self.assertEqual(
+            throw.cmd_azimuth_ball_rt_base_ewrt_heading,
+            dodgeball.AZIMUTH_RANGE_DEG[1],
+        )
+        self.assertEqual(
+            throw.cmd_elevation_ball_rt_base_ewrt_heading,
+            dodgeball.ELEVATION_RANGE_DEG[0],
+        )
+        self.assertEqual(
+            throw.cmd_dist_ball_rt_base, dodgeball.DISTANCE_RANGE_M[1]
+        )
+        self.assertEqual(
+            throw.cmd_speed_ball_rt_world, dodgeball.SPEED_RANGE_MPS[0]
+        )
         self.assertEqual(throw.mass_kg, dodgeball.MASS_RANGE_KG[1])
         self.assertEqual(
             dodgeball.DodgeballThrow(0.0, 0.0, 3.0, 5.0, mass_kg=-2.0)
@@ -331,7 +439,9 @@ class TestClamping(unittest.TestCase):
         self.assertTrue(
             all(
                 math.isfinite(component)
-                for component in dodgeball.launch_velocity(throw)
+                for component in dodgeball.compute_launch_linvel_ball_rt_world_ewrt_heading(
+                    throw
+                )
             )
         )
 
@@ -353,10 +463,20 @@ class TestClamping(unittest.TestCase):
         throw = dodgeball.DodgeballThrow(
             nan, nan, nan, nan, mass_kg=nan
         ).clamped()
-        self.assertEqual(throw.azimuth_deg, dodgeball.AZIMUTH_RANGE_DEG[0])
-        self.assertEqual(throw.elevation_deg, dodgeball.ELEVATION_RANGE_DEG[0])
-        self.assertEqual(throw.distance_m, dodgeball.DISTANCE_RANGE_M[0])
-        self.assertEqual(throw.speed_mps, dodgeball.SPEED_RANGE_MPS[0])
+        self.assertEqual(
+            throw.cmd_azimuth_ball_rt_base_ewrt_heading,
+            dodgeball.AZIMUTH_RANGE_DEG[0],
+        )
+        self.assertEqual(
+            throw.cmd_elevation_ball_rt_base_ewrt_heading,
+            dodgeball.ELEVATION_RANGE_DEG[0],
+        )
+        self.assertEqual(
+            throw.cmd_dist_ball_rt_base, dodgeball.DISTANCE_RANGE_M[0]
+        )
+        self.assertEqual(
+            throw.cmd_speed_ball_rt_world, dodgeball.SPEED_RANGE_MPS[0]
+        )
         self.assertEqual(throw.mass_kg, dodgeball.MASS_RANGE_KG[0])
         payload = dodgeball.throw_message(
             dodgeball.DodgeballThrow(0.0, 0.0, nan, nan, mass_kg=nan)
@@ -414,15 +534,15 @@ class TestThrowMessage(unittest.TestCase):
         throw = dodgeball.DodgeballThrow(45.0, 15.0, 3.0, 8.0)
         ball = _ball(dodgeball.throw_message(throw))
         for key in (
-            "azimuth_deg",
-            "elevation_deg",
+            "cmd_azimuth_ball_rt_base_ewrt_heading",
+            "cmd_elevation_ball_rt_base_ewrt_heading",
             "cmd_dist_ball_rt_base",
             "cmd_speed_ball_rt_world",
             "mass",
             "spawn_pos_ball_rt_base_ewrt_heading",
             "launch_linvel_ball_rt_world_ewrt_heading",
             "flight_time",
-            "impact_momentum",
+            "impact_norm_linmom_ball_rt_world_ewrt_world",
         ):
             self.assertIn(key, ball)
         self.assertEqual(len(ball["spawn_pos_ball_rt_base_ewrt_heading"]), 3)
@@ -451,13 +571,17 @@ class TestThrowMessage(unittest.TestCase):
     def test_the_derived_vectors_agree_with_the_functions(self):
         throw = dodgeball.DodgeballThrow(120.0, -10.0, 2.5, 6.0)
         ball = _ball(dodgeball.throw_message(throw))
-        for axis, value in enumerate(dodgeball.spawn_offset(throw)):
+        for axis, value in enumerate(
+            dodgeball.compute_spawn_pos_ball_rt_base_ewrt_heading(throw)
+        ):
             self.assertAlmostEqual(
                 ball["spawn_pos_ball_rt_base_ewrt_heading"][axis],
                 value,
                 places=5,
             )
-        for axis, value in enumerate(dodgeball.launch_velocity(throw)):
+        for axis, value in enumerate(
+            dodgeball.compute_launch_linvel_ball_rt_world_ewrt_heading(throw)
+        ):
             self.assertAlmostEqual(
                 ball["launch_linvel_ball_rt_world_ewrt_heading"][axis],
                 value,
@@ -472,7 +596,10 @@ class TestThrowMessage(unittest.TestCase):
                 dodgeball.DodgeballThrow(1e9, 1e9, 1e9, 1e9, mass_kg=1e9)
             )
         )
-        self.assertEqual(ball["azimuth_deg"], dodgeball.AZIMUTH_RANGE_DEG[1])
+        self.assertEqual(
+            ball["cmd_azimuth_ball_rt_base_ewrt_heading"],
+            dodgeball.AZIMUTH_RANGE_DEG[1],
+        )
         self.assertEqual(
             ball["cmd_dist_ball_rt_base"], dodgeball.DISTANCE_RANGE_M[1]
         )
@@ -482,14 +609,20 @@ class TestThrowMessage(unittest.TestCase):
             1e9, 1e9, 1e9, 1e9, mass_kg=1e9
         ).clamped()
         self.assertAlmostEqual(
-            ball["impact_momentum"],
-            dodgeball.impact_momentum(clamped),
+            ball["impact_norm_linmom_ball_rt_world_ewrt_world"],
+            dodgeball.compute_impact_norm_linmom_ball_rt_world_ewrt_world(
+                clamped
+            ),
             places=4,
         )
         self.assertAlmostEqual(
-            ball["impact_momentum"],
+            ball["impact_norm_linmom_ball_rt_world_ewrt_world"],
             dodgeball.MASS_RANGE_KG[1]
-            * _norm(dodgeball.arrival_velocity(clamped)),
+            * _norm(
+                dodgeball.compute_arrival_linvel_ball_rt_world_ewrt_heading(
+                    clamped
+                )
+            ),
             places=4,
         )
 
@@ -515,7 +648,10 @@ class TestThrowMessage(unittest.TestCase):
             self.assertEqual(light[key], heavy[key], key)
         # Rounded to 6 places on the wire, so the ratio is exact only to about that.
         self.assertAlmostEqual(
-            heavy["impact_momentum"] / light["impact_momentum"], 20.0, places=4
+            heavy["impact_norm_linmom_ball_rt_world_ewrt_world"]
+            / light["impact_norm_linmom_ball_rt_world_ewrt_world"],
+            20.0,
+            places=4,
         )
 
     def test_the_message_is_the_golden_one_the_simulators_test_reads(self):
@@ -575,7 +711,9 @@ class TestDodgeballTab(unittest.TestCase):
             self.publisher.last_message, dodgeball_throw_pb2.DodgeballThrow
         )
         ball = _ball(self.publisher.last_message)
-        self.assertAlmostEqual(ball["azimuth_deg"], 90.0, places=3)
+        self.assertAlmostEqual(
+            ball["cmd_azimuth_ball_rt_base_ewrt_heading"], 90.0, places=3
+        )
         self.assertAlmostEqual(ball["cmd_dist_ball_rt_base"], 4.0, places=3)
         self.assertAlmostEqual(
             ball["flight_time"],
@@ -610,7 +748,9 @@ class TestDodgeballTab(unittest.TestCase):
         azimuths = set()
         for _ in range(25):
             ball = _ball(self.tab.throw())
-            azimuths.add(round(ball["azimuth_deg"], 6))
+            azimuths.add(
+                round(ball["cmd_azimuth_ball_rt_base_ewrt_heading"], 6)
+            )
             # The three the operator owns must survive every throw untouched.
             self.assertAlmostEqual(ball["cmd_dist_ball_rt_base"], 5.0, places=6)
             self.assertAlmostEqual(
@@ -627,10 +767,14 @@ class TestDodgeballTab(unittest.TestCase):
         self.tab._on_randomize_toggle()
         ball = _ball(self.tab.throw())
         self.assertAlmostEqual(
-            self.tab.azimuth_row.get_value(), ball["azimuth_deg"], places=3
+            self.tab.azimuth_row.get_value(),
+            ball["cmd_azimuth_ball_rt_base_ewrt_heading"],
+            places=3,
         )
         self.assertAlmostEqual(
-            self.tab.elevation_row.get_value(), ball["elevation_deg"], places=3
+            self.tab.elevation_row.get_value(),
+            ball["cmd_elevation_ball_rt_base_ewrt_heading"],
+            places=3,
         )
 
     def test_the_angle_sliders_are_disabled_while_randomizing(self):
@@ -713,8 +857,10 @@ class TestDodgeballTab(unittest.TestCase):
         ball = _ball(self.publisher.last_message)
         self.assertAlmostEqual(ball["mass"], 2.25, places=4)
         self.assertAlmostEqual(
-            ball["impact_momentum"],
-            dodgeball.impact_momentum(self.tab.current_throw()),
+            ball["impact_norm_linmom_ball_rt_world_ewrt_world"],
+            dodgeball.compute_impact_norm_linmom_ball_rt_world_ewrt_world(
+                self.tab.current_throw()
+            ),
             places=4,
         )
 
@@ -767,9 +913,17 @@ class TestDodgeballTab(unittest.TestCase):
         preview = self.tab.preview_var.get()
         throw = self.tab.current_throw()
         self.assertIn("3.00 kg", preview)
-        self.assertIn("%.2f N s" % dodgeball.impact_momentum(throw), preview)
         self.assertIn(
-            "%.1f m/s launch" % dodgeball.launch_speed(throw), preview
+            "%.2f N s"
+            % dodgeball.compute_impact_norm_linmom_ball_rt_world_ewrt_world(
+                throw
+            ),
+            preview,
+        )
+        self.assertIn(
+            "%.1f m/s launch"
+            % dodgeball.compute_launch_speed_ball_rt_world(throw),
+            preview,
         )
         self.assertNotIn("raised", preview)
 

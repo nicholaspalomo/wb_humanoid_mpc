@@ -169,7 +169,7 @@ class TestWidgets(unittest.TestCase):
 
     def test_a_joystick_without_auto_center_stays_where_it_was_released(self):
         joystick = joystick_gui.JoystickGui(self.root)
-        joystick.set_position(0.5, 0.0)
+        joystick.set_deflection(0.5, 0.0)
         joystick.stop_drag(cast(tk.Event, None))
         self.assertEqual(joystick.x_norm, 0.5)
 
@@ -177,7 +177,7 @@ class TestWidgets(unittest.TestCase):
         joystick = joystick_gui.JoystickGui(
             self.root, auto_center_var=tk.BooleanVar(self.root, value=True)
         )
-        joystick.set_position(0.5, 0.0)
+        joystick.set_deflection(0.5, 0.0)
         joystick.stop_drag(cast(tk.Event, None))
         self.assertEqual(joystick.x_norm, 0.0)
 

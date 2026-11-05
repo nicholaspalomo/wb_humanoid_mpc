@@ -120,8 +120,9 @@ TEST(PlanTiming, SegmentDurationFollowsTheLimits) {
   // The CoM and the base move 0.3 m: the speed limits need 1.875 * 0.3 /
   // min(0.15, 0.2) s, the acceleration limit sqrt(5.774 * 0.3 / 0.15) s.
   const double expected =
-      std::max(1.875 * 0.3 / options.maxComSpeed,
-               std::sqrt(5.773502691896258 * 0.3 / options.maxComAcceleration));
+      std::max(1.875 * 0.3 / options.maxSpeedComRtWorld,
+               std::sqrt(5.773502691896258 * 0.3 /
+                         options.maxNormLinaccComRtWorldEwrtWorld));
   EXPECT_NEAR(times->back(), expected, 1.0e-6);
   // Twice as slow: twice as long.
   const absl::StatusOr<std::vector<double>> slower =
@@ -147,14 +148,16 @@ TEST(PlanTiming, PlanKnotsRestAndDwell) {
   // The second segment starts a dwell after the first ends, at rest.
   EXPECT_NEAR((*knots)[5].time - (*knots)[4].time, options.dwell, 1.0e-9);
   for (const int rest : {0, 4, 5, 9, 10}) {
-    EXPECT_EQ((*knots)[rest].linear_momentum.norm(), 0.0) << rest;
+    EXPECT_EQ((*knots)[rest].linmom_com_rt_world_ewrt_world.norm(), 0.0)
+        << rest;
     EXPECT_EQ((*knots)[rest].joint_velocities.norm(), 0.0) << rest;
   }
   // In the middle of the descent, the momentum is m times the base's speed
   // (the joints are still), downward.
   const config::MultiContactPlan::Knot& middle = (*knots)[2];
   const double speed = 0.1 / ((*knots)[3].time - (*knots)[1].time);
-  EXPECT_NEAR(middle.linear_momentum.z(), -model->mass() * speed, 1.0e-6);
+  EXPECT_NEAR(middle.linmom_com_rt_world_ewrt_world.z(), -model->mass() * speed,
+              1.0e-6);
   EXPECT_EQ(middle.joint_positions.size(),
             static_cast<Eigen::Index>(model->actuatedJoints().size()));
 }

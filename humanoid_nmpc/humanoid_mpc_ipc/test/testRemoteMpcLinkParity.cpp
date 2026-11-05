@@ -43,13 +43,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
-#include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -57,13 +57,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/time.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
-#include "ocs2_core/control/ControllerType.h"
 #include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/MPC_BASE.h"
 #include "ocs2_mpc/MPC_MRT_Interface.h"
 #include "ocs2_mpc/MRT_BASE.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
 
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
+#include "humanoid_mpc_ipc/MpcMessageConversions.h"
 #include "humanoid_mpc_ipc/MpcServer.h"
 #include "humanoid_mpc_ipc/RealtimePolicyEvaluator.h"
 #include "humanoid_mpc_ipc/RemoteMpcLink.h"
@@ -362,8 +365,9 @@ TEST(RemoteMpcLinkParityTest,
   const size_t remoteResets = remoteMpc->solver().numResets();
   ASSERT_EQ(inProcess.size(), steps.size());
   ASSERT_EQ(remote.size(), steps.size());
-  for (size_t step = 0; step < steps.size(); ++step)
+  for (size_t step = 0; step < steps.size(); ++step) {
     expectSame(inProcess[step], remote[step], step);
+  }
   EXPECT_EQ(remoteResets, inProcessResets)
       << "the solver was reset a different number of times";
 
@@ -397,8 +401,9 @@ TEST(RemoteMpcLinkParityTest,
       runRemote(steps, model, *remoteMpc, neverFails);
   ASSERT_EQ(inProcess.size(), steps.size());
   ASSERT_EQ(remote.size(), steps.size());
-  for (size_t step = 0; step < steps.size(); ++step)
+  for (size_t step = 0; step < steps.size(); ++step) {
     expectSame(inProcess[step], remote[step], step);
+  }
   EXPECT_EQ(remoteMpc->solver().numResets(), inProcessMpc->solver().numResets())
       << "the solver was reset a different number of times";
 

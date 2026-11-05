@@ -31,8 +31,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
-#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/cost/LipWeightedCost.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningTerm.h"
+#include "humanoid_common_mpc/contact_planning/problem/StageAccumulator.h"
 
 namespace ocs2::humanoid {
 
@@ -53,7 +58,7 @@ class StepWidthCost final : public LipWeightedCost {
                   StageAccumulator& stage) const override;
 
  private:
-  scalar_t nominalStepWidth_ = 0.0;
+  scalar_t nomPosLfootRtRfootEwrtHeadingY_ = 0.0;
 };
 
 }  // namespace ocs2::humanoid

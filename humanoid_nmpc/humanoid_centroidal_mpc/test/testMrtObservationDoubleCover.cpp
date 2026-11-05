@@ -30,8 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <string>
 #include <utility>
@@ -39,10 +41,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/strings/str_format.h"
-#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
@@ -72,16 +76,16 @@ constexpr scalar_t kControlPeriod =
 
 /** The measured base of one control cycle. Passive data. */
 struct MeasuredBase {
-  vector3_t position = vector3_t::Zero();
-  quaternion_t orientation = quaternion_t::Identity();
-  vector3_t linearVelocityLocal = vector3_t::Zero();
-  vector3_t angularVelocityLocal = vector3_t::Zero();
+  vector3_t posBaseRtWorldEwrtWorld = vector3_t::Zero();
+  quaternion_t quatBaseRtWorld = quaternion_t::Identity();
+  vector3_t linvelBaseRtWorldEwrtBase = vector3_t::Zero();
+  vector3_t angvelBaseRtWorldEwrtBase = vector3_t::Zero();
 };
 
-/** `orientation` with its coefficients negated: the same rotation, the other
- * quaternion of the double cover. */
-quaternion_t negated(const quaternion_t& orientation) {
-  return quaternion_t(vector4_t(-orientation.coeffs()));
+/** `quatBaseRtWorld` with its coefficients negated: the same rotation, the
+ * other quaternion of the double cover. */
+quaternion_t negated(const quaternion_t& quatBaseRtWorld) {
+  return quaternion_t(vector4_t(-quatBaseRtWorld.coeffs()));
 }
 
 /** The controller on the lockstep link, its robot, and the record of the joint
@@ -125,10 +129,10 @@ class Harness {
         stack_.model().getJointAngles(stack_.initialState());
     robotState_.setConfigurationToZero();
     robotState_.setTime(time_);
-    robotState_.setPosBaseRtWorldEwrtWorld(base.position);
-    robotState_.setQuatBaseRtWorld(base.orientation);
-    robotState_.setLinvelBaseRtWorldEwrtBase(base.linearVelocityLocal);
-    robotState_.setAngvelBaseRtWorldEwrtBase(base.angularVelocityLocal);
+    robotState_.setPosBaseRtWorldEwrtWorld(base.posBaseRtWorldEwrtWorld);
+    robotState_.setQuatBaseRtWorld(base.quatBaseRtWorld);
+    robotState_.setLinvelBaseRtWorldEwrtBase(base.linvelBaseRtWorldEwrtBase);
+    robotState_.setAngvelBaseRtWorldEwrtBase(base.angvelBaseRtWorldEwrtBase);
     for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
       const scalar_t jointPhase = phase + static_cast<scalar_t>(i);
       robotState_.setJointPosition(mpcJointIndices_[i],
@@ -185,42 +189,42 @@ class Harness {
 MeasuredBase swayingBase(int cycle) {
   const scalar_t phase = 0.3 * static_cast<scalar_t>(cycle);
   MeasuredBase base;
-  base.position = vector3_t(0.2 + 0.01 * std::sin(phase),
-                            -0.1 + 0.005 * std::cos(phase), 0.9);
-  base.orientation = quaternion_t(quaternionFromEulerZyx(
+  base.posBaseRtWorldEwrtWorld = vector3_t(0.2 + 0.01 * std::sin(phase),
+                                           -0.1 + 0.005 * std::cos(phase), 0.9);
+  base.quatBaseRtWorld = quaternion_t(quaternionFromEulerZyx(
       vector3_t(2.5 + 0.02 * std::sin(phase), 0.08, -0.05 * std::cos(phase))));
-  base.linearVelocityLocal = vector3_t(0.1 * std::cos(phase), -0.05, 0.02);
-  base.angularVelocityLocal = vector3_t(0.03, -0.02 * std::sin(phase), 0.4);
+  base.linvelBaseRtWorldEwrtBase =
+      vector3_t(0.1 * std::cos(phase), -0.05, 0.02);
+  base.angvelBaseRtWorldEwrtBase =
+      vector3_t(0.03, -0.02 * std::sin(phase), 0.4);
   return base;
 }
 
 /**
  * Expects the solver states `a` and `b` of the same measurement to be one
  * state: every entry bit for bit but the base quaternion's, which are the same
- * or exactly negated, as `negatedQuaternion` says.
+ * or exactly negated, as `signFlipped` says.
  */
 void expectTheSameSolverState(const MpcRobotModelBase<scalar_t>& model,
                               const vector_t& a,
                               const vector_t& b,
-                              bool negatedQuaternion) {
+                              bool signFlipped) {
   ASSERT_EQ(a.size(), b.size());
   const Eigen::Index orientationStart =
       static_cast<Eigen::Index>(model.getBaseOrientationStartIndex());
   for (Eigen::Index i = 0; i < a.size(); ++i) {
-    const bool isQuaternion = i >= orientationStart && i < orientationStart + 4;
-    EXPECT_EQ(a(i), isQuaternion && negatedQuaternion ? -b(i) : b(i))
+    const bool isQuatSlot = i >= orientationStart && i < orientationStart + 4;
+    EXPECT_EQ(a(i), isQuatSlot && signFlipped ? -b(i) : b(i))
         << "state entry " << i;
   }
 }
 
 /** Measures cycle `cycle`'s swaying base on `positive` with its quaternion, and
  * on `negative` with its negation. */
-void measureWithBothQuaternions(Harness& positive,
-                                Harness& negative,
-                                int cycle) {
+void measureWithBothSigns(Harness& positive, Harness& negative, int cycle) {
   const MeasuredBase base = swayingBase(cycle);
   MeasuredBase other = base;
-  other.orientation = negated(base.orientation);
+  other.quatBaseRtWorld = negated(base.quatBaseRtWorld);
   positive.measure(base, /*phase=*/0.3 * static_cast<scalar_t>(cycle));
   negative.measure(other, /*phase=*/0.3 * static_cast<scalar_t>(cycle));
 }
@@ -231,20 +235,20 @@ TEST(MrtObservationDoubleCover,
   Harness negative;
   const MpcRobotModelBase<scalar_t>& model = positive.stack().model();
   int cycle = 0;
-  measureWithBothQuaternions(positive, negative, cycle);
+  measureWithBothSigns(positive, negative, cycle);
   positive.start();
   negative.start();
   for (int solve = 0; solve < 4; ++solve) {
     SCOPED_TRACE(solve);
     for (int k = 0; k < 3; ++k, ++cycle) {
-      measureWithBothQuaternions(positive, negative, cycle);
+      measureWithBothSigns(positive, negative, cycle);
       EXPECT_EQ(positive.cycle(), negative.cycle())
           << "cycle " << cycle << ": the joint commands differ";
     }
     const vector_t positiveState = positive.solve();
     const vector_t negativeState = negative.solve();
     expectTheSameSolverState(model, positiveState, negativeState,
-                             /*negatedQuaternion=*/true);
+                             /*signFlipped=*/true);
     // Positive control: the two observations do carry opposite quaternions.
     EXPECT_GT(model.getQuatBaseRtWorldXyzw(positiveState)
                   .dot(model.getQuatBaseRtWorldXyzw(negativeState)),
@@ -256,7 +260,7 @@ TEST(MrtObservationDoubleCover,
 }
 
 /** [rad/s] The turn in place of the stream across pi. */
-constexpr scalar_t kYawRate = 2.0;
+constexpr scalar_t kAngvelBaseRtWorldEwrtBaseZ = 2.0;
 
 /**
  * Measures cycle `cycle` of the turn in place through a heading of pi on
@@ -266,15 +270,17 @@ constexpr scalar_t kYawRate = 2.0;
  */
 bool measureAcrossPi(Harness& continuous, Harness& canonicalized, int cycle) {
   MeasuredBase base;
-  base.position = vector3_t(0.0, 0.0, 0.9);
-  const scalar_t heading =
-      M_PI - 0.1 + kYawRate * kControlPeriod * static_cast<scalar_t>(cycle);
-  base.orientation =
-      quaternion_t(Eigen::AngleAxis<scalar_t>(heading, vector3_t::UnitZ()));
-  base.angularVelocityLocal = vector3_t(0.0, 0.0, kYawRate);
+  base.posBaseRtWorldEwrtWorld = vector3_t(0.0, 0.0, 0.9);
+  const scalar_t yawBaseRtWorld = std::numbers::pi - 0.1 +
+                                  kAngvelBaseRtWorldEwrtBaseZ * kControlPeriod *
+                                      static_cast<scalar_t>(cycle);
+  base.quatBaseRtWorld = quaternion_t(
+      Eigen::AngleAxis<scalar_t>(yawBaseRtWorld, vector3_t::UnitZ()));
+  base.angvelBaseRtWorldEwrtBase =
+      vector3_t(0.0, 0.0, kAngvelBaseRtWorldEwrtBaseZ);
   MeasuredBase canonical = base;
-  const bool flipped = canonical.orientation.w() < 0.0;
-  if (flipped) canonical.orientation = negated(canonical.orientation);
+  const bool flipped = canonical.quatBaseRtWorld.w() < 0.0;
+  if (flipped) canonical.quatBaseRtWorld = negated(canonical.quatBaseRtWorld);
   continuous.measure(base, /*phase=*/0.3 * static_cast<scalar_t>(cycle));
   canonicalized.measure(canonical,
                         /*phase=*/0.3 * static_cast<scalar_t>(cycle));
@@ -295,7 +301,7 @@ TEST(
   measureAcrossPi(continuous, canonicalized, cycle);
   continuous.start();
   canonicalized.start();
-  scalar_t previousHeading = std::numeric_limits<scalar_t>::quiet_NaN();
+  scalar_t prevYawBaseRtWorld = std::numeric_limits<scalar_t>::quiet_NaN();
   for (int solve = 0; solve < 6; ++solve) {
     SCOPED_TRACE(solve);
     bool flipped = false;
@@ -311,12 +317,13 @@ TEST(
                              flipped);
     // The heading the solver reads moves on continuously across pi, by the turn
     // of two cycles.
-    const scalar_t heading = model.getYawBaseRtWorld(canonicalizedState);
-    if (!std::isnan(previousHeading)) {
-      EXPECT_NEAR(std::remainder(heading - previousHeading, 2.0 * M_PI),
-                  2.0 * kYawRate * kControlPeriod, 1.0e-12);
+    const scalar_t yawBaseRtWorld = model.getYawBaseRtWorld(canonicalizedState);
+    if (!std::isnan(prevYawBaseRtWorld)) {
+      EXPECT_NEAR(std::remainder(yawBaseRtWorld - prevYawBaseRtWorld,
+                                 2.0 * std::numbers::pi),
+                  2.0 * kAngvelBaseRtWorldEwrtBaseZ * kControlPeriod, 1.0e-12);
     }
-    previousHeading = heading;
+    prevYawBaseRtWorld = yawBaseRtWorld;
   }
   EXPECT_GT(flips, 0)
       << "the stream must cross pi, or the canonicalization changes nothing";

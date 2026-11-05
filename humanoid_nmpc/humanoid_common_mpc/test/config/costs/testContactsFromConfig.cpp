@@ -91,10 +91,10 @@ mpc_config::ContactsConfig completeCone() {
   contacts.contact_wrench_cone_soft_constraint
       .grip_force_contact_ewrt_contact_z = 0.0;
   contacts.contact_wrench_cone_soft_constraint.num_basis_vectors = 4;
-  contacts.contact_rectangle.x_min = -0.12;
-  contacts.contact_rectangle.x_max = 0.12;
-  contacts.contact_rectangle.y_min = -0.055;
-  contacts.contact_rectangle.y_max = 0.055;
+  contacts.contact_rectangle.min_pos_corners_rt_contact_ewrt_contact_x = -0.12;
+  contacts.contact_rectangle.max_pos_corners_rt_contact_ewrt_contact_x = 0.12;
+  contacts.contact_rectangle.min_pos_corners_rt_contact_ewrt_contact_y = -0.055;
+  contacts.contact_rectangle.max_pos_corners_rt_contact_ewrt_contact_y = 0.055;
   return contacts;
 }
 
@@ -132,16 +132,20 @@ TEST(ContactsFromConfigTest, TheRectangleIsScaledAroundTheCenterPoint) {
   const absl::StatusOr<ContactRectangle> rectangle =
       contactRectangleFromConfig(contacts, centerPoint());
   ASSERT_TRUE(rectangle.ok()) << rectangle.status();
-  EXPECT_EQ(rectangle->getBounds().x_max, 0.06);
-  EXPECT_EQ(rectangle->getBounds().y_min, -0.0275);
+  EXPECT_EQ(rectangle->getBounds().max_pos_corners_rt_contact_ewrt_contact_x,
+            0.06);
+  EXPECT_EQ(rectangle->getBounds().min_pos_corners_rt_contact_ewrt_contact_y,
+            -0.0275);
   EXPECT_EQ(rectangle->getContactCenterPoint().parentJointName, "l_leg_akx");
   EXPECT_EQ(rectangle->getNumberOfContactPoints(), 4U);
 
-  contacts.contact_rectangle.y_max = std::numeric_limits<double>::infinity();
+  contacts.contact_rectangle.max_pos_corners_rt_contact_ewrt_contact_y =
+      std::numeric_limits<double>::infinity();
   const absl::StatusOr<ContactRectangle> refused =
       contactRectangleFromConfig(contacts, centerPoint());
-  EXPECT_TRUE(absl::StrContains(refused.status().message(),
-                                "contacts.contact_rectangle.y_max"))
+  EXPECT_TRUE(absl::StrContains(
+      refused.status().message(),
+      "contacts.contact_rectangle.max_pos_corners_rt_contact_ewrt_contact_y"))
       << refused.status();
 }
 
@@ -149,10 +153,22 @@ TEST(ContactsFromConfigTest,
      AnEmptyOrInvertedRectangleOrANonPositiveScaleIsRefused) {
   using Rectangle = mpc_config::ContactsConfig::Rectangle;
   const std::vector<std::function<void(Rectangle&)>> refusedRectangles = {
-      [](Rectangle& r) { r.x_max = r.x_min; },
-      [](Rectangle& r) { std::swap(r.x_min, r.x_max); },
-      [](Rectangle& r) { r.y_min = r.y_max; },
-      [](Rectangle& r) { std::swap(r.y_min, r.y_max); },
+      [](Rectangle& r) {
+        r.max_pos_corners_rt_contact_ewrt_contact_x =
+            r.min_pos_corners_rt_contact_ewrt_contact_x;
+      },
+      [](Rectangle& r) {
+        std::swap(r.min_pos_corners_rt_contact_ewrt_contact_x,
+                  r.max_pos_corners_rt_contact_ewrt_contact_x);
+      },
+      [](Rectangle& r) {
+        r.min_pos_corners_rt_contact_ewrt_contact_y =
+            r.max_pos_corners_rt_contact_ewrt_contact_y;
+      },
+      [](Rectangle& r) {
+        std::swap(r.min_pos_corners_rt_contact_ewrt_contact_y,
+                  r.max_pos_corners_rt_contact_ewrt_contact_y);
+      },
       [](Rectangle& r) { r.scale_factor = 0.0; },
       [](Rectangle& r) { r.scale_factor = -1.0; },
       [](Rectangle& r) {
@@ -195,7 +211,7 @@ TEST(ContactsFromConfigTest, TheWrenchConeNeedsEveryGroundField) {
   ASSERT_TRUE(config.ok()) << config.status();
   EXPECT_EQ(config->numBasisVectors, 4U);
   EXPECT_EQ(config->frictionCoefficient, 0.5);
-  EXPECT_TRUE(config->patchOffset.isZero());
+  EXPECT_TRUE(config->posPatchpointRtContactEwrtContact.isZero());
 
   for (const absl::string_view field :
        {"friction_coefficient", "torsional_friction_coefficient",
@@ -204,12 +220,15 @@ TEST(ContactsFromConfigTest, TheWrenchConeNeedsEveryGroundField) {
     mpc_config::ContactsConfig contacts = completeCone();
     Cone& cone = contacts.contact_wrench_cone_soft_constraint;
     if (field == "friction_coefficient") cone.friction_coefficient.reset();
-    if (field == "torsional_friction_coefficient")
+    if (field == "torsional_friction_coefficient") {
       cone.torsional_friction_coefficient.reset();
-    if (field == "min_force_contact_ewrt_contact_z")
+    }
+    if (field == "min_force_contact_ewrt_contact_z") {
       cone.min_force_contact_ewrt_contact_z.reset();
-    if (field == "grip_force_contact_ewrt_contact_z")
+    }
+    if (field == "grip_force_contact_ewrt_contact_z") {
       cone.grip_force_contact_ewrt_contact_z.reset();
+    }
     if (field == "num_basis_vectors") cone.num_basis_vectors.reset();
     const absl::StatusOr<ContactWrenchConeConstraint::Config> refused =
         contactWrenchConeConfigFromConfig(contacts);

@@ -28,9 +28,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <fcntl.h>
-#include <poll.h>
 #include <signal.h>
 #include <spawn.h>
+#include <stdlib.h>
+#include <sys/poll.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -62,6 +63,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/viewer/GlfwMujocoViewer.h"
+#include "mujoco_sim_interface/viewer/MujocoFrameRenderer.h"
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
 #include "mujoco_sim_interface/viewer/WebViewerOptions.h"
 #include "robot_runtime/mujoco_sim_interface/test/ViewerTestSupport.h"
@@ -127,8 +129,9 @@ bool hasDisplay() {
 }
 
 TEST(GlfwMujocoViewer, WithoutADisplayTheViewerStopsAndSaysSo) {
-  if (hasDisplay())
+  if (hasDisplay()) {
     GTEST_SKIP() << "a display is available, so the viewer would start";
+  }
   absl::StatusOr<std::unique_ptr<MujocoSimInterface>> sim =
       MujocoSimInterface::Create(hingeSimConfig({kNoViewerName}),
                                  hingeUrdfPath());
@@ -150,8 +153,9 @@ TEST(GlfwMujocoViewer, WithoutADisplayTheViewerStopsAndSaysSo) {
 }
 
 TEST(GlfwMujocoViewer, ASimulatorWithAViewerButNoDisplayRunsOn) {
-  if (hasDisplay())
+  if (hasDisplay()) {
     GTEST_SKIP() << "a display is available, so the viewer would start";
+  }
   absl::StatusOr<std::unique_ptr<MujocoSimInterface>> sim =
       MujocoSimInterface::Create(hingeSimConfig({kGlfwViewerName}),
                                  hingeUrdfPath());
@@ -229,11 +233,13 @@ class XvfbProcess {
   static absl::StatusOr<std::unique_ptr<XvfbProcess>> Start(int width,
                                                             int height) {
     const char* absl_nonnull binary = "/usr/bin/Xvfb";
-    if (access(binary, X_OK) != 0)
+    if (access(binary, X_OK) != 0) {
       return absl::NotFoundError("there is no Xvfb (the xvfb package)");
+    }
     std::array<int, 2> pipe = {-1, -1};
-    if (pipe2(pipe.data(), O_CLOEXEC) != 0)
+    if (pipe2(pipe.data(), O_CLOEXEC) != 0) {
       return absl::InternalError("pipe2 failed");
+    }
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
     posix_spawn_file_actions_adddup2(
@@ -372,8 +378,9 @@ TEST(GlfwMujocoViewer, TheWindowShowsWhatTheOffscreenBufferShows) {
   ASSERT_TRUE(offscreen.ok()) << offscreen.status();
   absl::StatusOr<std::vector<uint8_t>> frame =
       absl::UnknownError("not rendered");
-  for (int warmUp = 0; warmUp < 60; ++warmUp)
+  for (int warmUp = 0; warmUp < 60; ++warmUp) {
     frame = (*offscreen)->render(window.width, window.height);
+  }
   ASSERT_TRUE(frame.ok()) << frame.status();
 
   // Both are llvmpipe, so the pixels agree but for a few on depth-sensitive

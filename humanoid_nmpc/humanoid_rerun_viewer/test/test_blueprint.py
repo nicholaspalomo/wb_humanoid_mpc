@@ -156,7 +156,7 @@ class BlueprintStructureTest(unittest.TestCase):
     def test_the_eye_starts_above_the_ground_looking_at_the_origin(
         self,
     ) -> None:
-        x, y, z = blueprint.initial_eye_position()
+        x, y, z = blueprint.init_pos_cam_rt_world_ewrt_world()
         # About 2.45 m from a focal point near the origin, above the ground.
         self.assertGreater(z, 0.5)
         self.assertAlmostEqual(

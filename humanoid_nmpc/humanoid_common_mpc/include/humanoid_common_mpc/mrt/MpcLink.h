@@ -33,13 +33,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <functional>
 #include <memory>
 
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/CommandData.h"
 #include "ocs2_mpc/MRT_BASE.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 
 namespace ocs2::humanoid {

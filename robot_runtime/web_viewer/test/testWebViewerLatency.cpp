@@ -27,9 +27,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -105,14 +105,17 @@ class ThrottledRelay {
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     address.sin_port = 0;
     if (bind(listener, reinterpret_cast<const sockaddr*>(&address),
-             sizeof(address)) != 0)
+             sizeof(address)) != 0) {
       return absl::ErrnoToStatus(errno, "bind");
-    if (listen(listener, /*n=*/1) != 0)
+    }
+    if (listen(listener, /*n=*/1) != 0) {
       return absl::ErrnoToStatus(errno, "listen");
+    }
     socklen_t length = sizeof(address);
     if (getsockname(listener, reinterpret_cast<sockaddr*>(&address), &length) !=
-        0)
+        0) {
       return absl::ErrnoToStatus(errno, "getsockname");
+    }
     relay->port_ = ntohs(address.sin_port);
     relay->acceptThread_ =
         std::thread([relay = relay.get()] { relay->acceptAndRelay(); });
@@ -155,8 +158,9 @@ class ThrottledRelay {
     address.sin_port = htons(static_cast<uint16_t>(serverPort_));
     if (server < 0 ||
         connect(server, reinterpret_cast<const sockaddr*>(&address),
-                sizeof(address)) != 0)
+                sizeof(address)) != 0) {
       return;
+    }
     server_.store(server);
     pumps_.emplace_back(
         [this, client, server] { forwardAtOnce(client, server); });
@@ -171,8 +175,9 @@ class ThrottledRelay {
           recv(from, buffer.data(), buffer.size(), /*flags=*/0);
       if (received <= 0) return;
       if (send(to, buffer.data(), static_cast<size_t>(received),
-               MSG_NOSIGNAL) != received)
+               MSG_NOSIGNAL) != received) {
         return;
+      }
     }
   }
 
@@ -218,8 +223,9 @@ class ThrottledRelay {
       }
       if (!chunk.empty() &&
           send(client, chunk.data(), chunk.size(), MSG_NOSIGNAL) !=
-              static_cast<ssize_t>(chunk.size()))
+              static_cast<ssize_t>(chunk.size())) {
         return;
+      }
     }
   }
 
@@ -331,10 +337,11 @@ TEST(WebViewerLatencyTest,
           reply->header("X-Frame-Sequence").value_or(""), &after));
       ++frames;
       // The first answer also carries the connection's start.
-      if (frames > 1)
+      if (frames > 1) {
         worstLag = std::max(
             worstLag, lagBeyondTransfer(received, publisher.publishTime(after),
                                         kFrameBytes));
+      }
     }
     LOG(INFO) << "pull: " << frames
               << " frames, the worst lag beyond the transfer " << worstLag;

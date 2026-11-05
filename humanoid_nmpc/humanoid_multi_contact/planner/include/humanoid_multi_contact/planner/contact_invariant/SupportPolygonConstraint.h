@@ -59,7 +59,7 @@ struct TimedPolygon {
   double startTime = 0.0;  // [s]
   double endTime = 0.0;    // [s], >= startTime
   // One row per edge, the outward unit normals; at most kMaxPolygonEdges.
-  Eigen::MatrixX2d normals;
+  Eigen::MatrixX2d outwardDirEwrtWorldXySamples;
   // [m] One per edge.
   Eigen::VectorXd offsets;
 };

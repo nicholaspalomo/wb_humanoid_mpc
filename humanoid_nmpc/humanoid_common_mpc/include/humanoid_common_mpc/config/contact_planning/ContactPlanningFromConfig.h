@@ -58,13 +58,13 @@ inline constexpr absl::string_view kPreSolveHookPlannerThreading =
 std::vector<std::string> plannerThreadingNames();
 
 // The names of terminal_dcm.target: what the planner's terminal DCM is drawn to
-// (TerminalDcmParameters::trackCommandedVelocity).
+// (TerminalDcmParameters::trackVelocityCommand).
 // LINT.IfChange(terminal_dcm_target_names)
-/** Onto the last ZMP, so that the plan comes to rest (trackCommandedVelocity
+/** Onto the last ZMP, so that the plan comes to rest (trackVelocityCommand
  * false). */
 inline constexpr absl::string_view kRestTerminalDcmTargetName = "rest";
 /** The last ZMP plus v_cmd / omega, so that the plan keeps walking
- * (trackCommandedVelocity true). */
+ * (trackVelocityCommand true). */
 inline constexpr absl::string_view kCommandedVelocityTerminalDcmTargetName =
     "commanded_velocity";
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/contact_planning_file.proto:terminal_dcm_target)
@@ -79,9 +79,10 @@ enum class ContactPlanningValidation {
      configuration. */
   kValidate,
   /**
-   * Not yet: the values that come from the model (shared.com_height when the
-   * file leaves it out, ZMP half widths of 0) are filled in afterwards, as the
-   * MPC's start-up and its parameter updater do, which validate after
+   * Not yet: the values that come from the model
+   * (shared.nom_pos_com_rt_feetmean_ewrt_world_z when the file leaves it out,
+   * ZMP half widths of 0) are filled in afterwards, as the MPC's start-up and
+   * its parameter updater do, which validate after
    * ContactPlanningModelParameters::applyTo().
    */
   kDeferUntilModelParametersApplied,
@@ -106,20 +107,22 @@ enum class ContactPlanningValidation {
  * file.
  *  - planner.threading and terminal_dcm.target are names
  * (plannerThreadingNames(), terminalDcmTargetNames()) of the two settings
- * runInBackgroundThread and trackCommandedVelocity; their booleans of the old
+ * runInBackgroundThread and trackVelocityCommand; their booleans of the old
  * file are retired fields.
- *  - shared.com_height is optional: absent, it is the model's pendulum, which
- * the configuration leaves unset for ContactPlanningModelParameters::applyTo()
- * to fill in; a height the file gives must be positive. The model-derived
- * parameters (hip_yaw_range bounds, yaw_torque_budget) are no file keys and
- * stay unset, for ContactPlanningModelParameters::applyTo().
+ *  - shared.nom_pos_com_rt_feetmean_ewrt_world_z is optional: absent, it is the
+ * model's pendulum, which the configuration leaves unset for
+ * ContactPlanningModelParameters::applyTo() to fill in; a height the file gives
+ * must be positive. The model-derived parameters (hip_yaw_range bounds,
+ * yaw_torque_budget) are no file keys and stay unset, for
+ * ContactPlanningModelParameters::applyTo().
  *
  * @param file The parsed file (nproto::LoadTextprotoFile()).
  * @param validation Whether to run ContactPlanningConfig::validateStatus().
  * @return The configuration, or InvalidArgument for an empty name in a term
  * list (naming the list and the index), for a threading or a target that is
- * none of its names, for a shared.com_height that is given but not positive
- *         and, with kValidate, every rejection of validateStatus().
+ * none of its names, for a shared.nom_pos_com_rt_feetmean_ewrt_world_z that is
+ * given but not positive and, with kValidate, every rejection of
+ * validateStatus().
  */
 absl::StatusOr<ContactPlanningConfig> contactPlanningConfigFromConfig(
     const mpc_config::ContactPlanningFile& file,

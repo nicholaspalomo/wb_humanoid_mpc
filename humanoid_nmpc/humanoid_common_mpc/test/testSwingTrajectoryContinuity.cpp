@@ -39,8 +39,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/reference/GaitFromConfig.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
@@ -70,7 +73,7 @@ constexpr scalar_t kTol = 1.0e-9;
  * is continuous at lift-off and touch-down too. */
 SwingTrajectoryPlanner::Config continuousConfig() {
   SwingTrajectoryPlanner::Config config;
-  config.swingHeight = 0.1;
+  config.apexPosFootRtSwingendEwrtWorldZ = 0.1;
   config.swingTimeScale = 0.3;
   config.impactProximityFactorMidPointValue = 0.2;
   return config;
@@ -90,13 +93,15 @@ std::vector<Swing> swingsOf(const ModeSchedule& schedule, size_t foot) {
     const bool inStance = modeNumber2StanceLeg(schedule.modeSequence[p])[foot];
     const bool stanceBefore =
         modeNumber2StanceLeg(schedule.modeSequence[p - 1])[foot];
-    if (!inStance && stanceBefore)
+    if (!inStance && stanceBefore) {
       swings.push_back(
           Swing{.liftOff = schedule.eventTimes[p - 1], .touchDown = 0.0});
+    }
     const bool stanceAfter =
         modeNumber2StanceLeg(schedule.modeSequence[p + 1])[foot];
-    if (!inStance && stanceAfter)
+    if (!inStance && stanceAfter) {
       swings.back().touchDown = schedule.eventTimes[p];
+    }
   }
   return swings;
 }
@@ -158,8 +163,9 @@ void expectContinuousAtEveryEvent(const SwingTrajectoryPlanner& planner,
                   planner.getImpactProximityFactor(foot, after),
                   kContinuityTolerance)
           << "foot " << foot << " at " << event;
-      EXPECT_NEAR(planner.getSwingPitchAngle(foot, before),
-                  planner.getSwingPitchAngle(foot, after), kContinuityTolerance)
+      EXPECT_NEAR(planner.getSwingRefTiltangleFootRtSurface(foot, before),
+                  planner.getSwingRefTiltangleFootRtSurface(foot, after),
+                  kContinuityTolerance)
           << "foot " << foot << " at " << event;
     }
   }
@@ -170,14 +176,16 @@ void expectContinuousAtEveryEvent(const SwingTrajectoryPlanner& planner,
 void expectOneApexPerSwing(const SwingTrajectoryPlanner& planner,
                            const ModeSchedule& schedule,
                            const SwingTrajectoryPlanner::Config& config,
-                           scalar_t terrainHeight) {
+                           scalar_t posSurfaceRtWorldEwrtWorldZ) {
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     for (const Swing& swing : swingsOf(schedule, foot)) {
       const scalar_t middle = 0.5 * (swing.liftOff + swing.touchDown);
       const scalar_t scaling = std::min(
           1.0, (swing.touchDown - swing.liftOff) / config.swingTimeScale);
       EXPECT_NEAR(planner.getDesPosFootRtWorldEwrtWorldZ(foot, middle),
-                  terrainHeight + scaling * config.swingHeight, kTol)
+                  posSurfaceRtWorldEwrtWorldZ +
+                      scaling * config.apexPosFootRtSwingendEwrtWorldZ,
+                  kTol)
           << "foot " << foot << " swing from " << swing.liftOff;
       EXPECT_NEAR(planner.getDesLinvelFootRtWorldEwrtWorldZ(foot, middle), 0.0,
                   kTol);
@@ -211,22 +219,23 @@ TEST(SwingTrajectoryContinuity, RandomMultiPhaseSchedules) {
   const SwingTrajectoryPlanner::Config config = continuousConfig();
   for (int trial = 0; trial < 300; ++trial) {
     const ModeSchedule schedule = randomSchedule(generator);
-    const scalar_t terrainHeight = terrain(generator);
+    const scalar_t posSurfaceRtWorldEwrtWorldZ = terrain(generator);
     SwingTrajectoryPlanner planner(config, kNumContacts);
-    planner.update(schedule, terrainHeight);
+    planner.update(schedule, posSurfaceRtWorldEwrtWorldZ);
     expectContinuousAtEveryEvent(planner, schedule);
-    expectOneApexPerSwing(planner, schedule, config, terrainHeight);
+    expectOneApexPerSwing(planner, schedule, config,
+                          posSurfaceRtWorldEwrtWorldZ);
   }
 }
 
 TEST(SwingTrajectoryContinuity, PitchedSwingsAreContinuous) {
   std::mt19937 generator(11);
   SwingTrajectoryPlanner::Config config = continuousConfig();
-  config.swingPitchAngle = 0.2;
+  config.swingMaxTiltangleFootRtSurface = 0.2;
   for (int trial = 0; trial < 100; ++trial) {
     const ModeSchedule schedule = randomSchedule(generator);
     SwingTrajectoryPlanner planner(config, kNumContacts);
-    planner.update(schedule, /*terrainHeight=*/0.0);
+    planner.update(schedule, /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
     expectContinuousAtEveryEvent(planner, schedule);
   }
 }
@@ -248,17 +257,19 @@ TEST(SwingTrajectoryContinuity, ShippedRunGaits) {
     // checks nothing beyond the single-phase case.
     bool multiPhaseSwing = false;
     for (const Swing& swing : swingsOf(schedule, /*foot=*/0)) {
-      for (const scalar_t event : schedule.eventTimes)
+      for (const scalar_t event : schedule.eventTimes) {
         multiPhaseSwing |=
             event > swing.liftOff + kTol && event < swing.touchDown - kTol;
+      }
     }
     ASSERT_TRUE(multiPhaseSwing) << name;
 
     const SwingTrajectoryPlanner::Config config = continuousConfig();
     SwingTrajectoryPlanner planner(config, kNumContacts);
-    planner.update(schedule, /*terrainHeight=*/0.05);
+    planner.update(schedule, /*posSurfaceRtWorldEwrtWorldZ=*/0.05);
     expectContinuousAtEveryEvent(planner, schedule);
-    expectOneApexPerSwing(planner, schedule, config, /*terrainHeight=*/0.05);
+    expectOneApexPerSwing(planner, schedule, config,
+                          /*posSurfaceRtWorldEwrtWorldZ=*/0.05);
   }
 }
 
@@ -274,7 +285,7 @@ TEST(SwingTrajectoryContinuity, InnerEventsAreContinuousWithEndVelocities) {
   for (int trial = 0; trial < 300; ++trial) {
     const ModeSchedule schedule = randomSchedule(generator);
     SwingTrajectoryPlanner planner(config, kNumContacts);
-    planner.update(schedule, /*terrainHeight=*/0.0);
+    planner.update(schedule, /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
       for (const Swing& swing : swingsOf(schedule, foot)) {
         const scalar_t scaling = std::min(
@@ -288,8 +299,10 @@ TEST(SwingTrajectoryContinuity, InnerEventsAreContinuousWithEndVelocities) {
                     scaling * config.touchdownLinvelFootRtWorldEwrtWorldZ,
                     kContinuityTolerance);
         for (const scalar_t event : schedule.eventTimes) {
-          if (event <= swing.liftOff + kTol || event >= swing.touchDown - kTol)
+          if (event <= swing.liftOff + kTol ||
+              event >= swing.touchDown - kTol) {
             continue;
+          }
           const scalar_t before = event - kEventEpsilon;
           const scalar_t after = event + kEventEpsilon;
           EXPECT_NEAR(planner.getDesPosFootRtWorldEwrtWorldZ(foot, before),
@@ -322,16 +335,21 @@ TEST(SwingTrajectoryContinuity, StepUpApproachesFromAbove) {
     planner.update(schedule, liftOff, touchDown);
     // Foot 0 (left) swings in RF. Its height must stay at or above the
     // touch-down height over the second half.
-    scalar_t peak = -1.0;
+    scalar_t desMaxPosFootRtWorldEwrtWorldZ = -1.0;
     for (int i = 0; i <= 400; ++i) {
       const scalar_t time = 1.0 + 0.4 * i / 400.0;
-      const scalar_t height =
+      const scalar_t desPosFootRtWorldEwrtWorldZ =
           planner.getDesPosFootRtWorldEwrtWorldZ(/*leg=*/0, time);
-      peak = std::max(peak, height);
-      if (time >= 1.2)
-        EXPECT_GE(height, step - kTol) << "step " << step << " at " << time;
+      desMaxPosFootRtWorldEwrtWorldZ =
+          std::max(desMaxPosFootRtWorldEwrtWorldZ, desPosFootRtWorldEwrtWorldZ);
+      if (time >= 1.2) {
+        EXPECT_GE(desPosFootRtWorldEwrtWorldZ, step - kTol)
+            << "step " << step << " at " << time;
+      }
     }
-    EXPECT_NEAR(peak, std::max(0.0, step) + config.swingHeight, kTol)
+    EXPECT_NEAR(desMaxPosFootRtWorldEwrtWorldZ,
+                std::max(0.0, step) + config.apexPosFootRtSwingendEwrtWorldZ,
+                kTol)
         << "step " << step;
   }
 }

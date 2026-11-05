@@ -29,10 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
 #include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
 
@@ -77,9 +80,10 @@ namespace ocs2::humanoid {
  *
  * The FRAME is the world's, and that is correct rather than an oversight. The
  * contact whose slip this prices is between the foot and the GROUND, and every
- * layer of this stack assumes the ground is flat - `terrainHeight` is a single
- * configured scalar, and the reduced-order planner assumes it most of all. So
- * the contact normal is the world vertical no matter how the foot is oriented,
+ * layer of this stack assumes the ground is flat -
+ * `posSurfaceRtWorldEwrtWorldZ` is a single configured scalar, and the
+ * reduced-order planner assumes it most of all. So the contact normal is the
+ * world vertical no matter how the foot is oriented,
  * `linvelContactRtWorldEwrtWorld.head<2>()` really is the tangential velocity
  * in the contact plane, and `angvelContactRtWorldEwrtWorld(2)` really is the
  * spin about the contact normal. Rotating the twist into the FOOT's frame, as

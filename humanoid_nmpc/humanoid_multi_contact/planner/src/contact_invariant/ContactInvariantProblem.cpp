@@ -192,7 +192,7 @@ absl::StatusOr<OptimalControlProblem> augmentProblem(
   problem.costPtr->add(kActivationRateTerm,
                        std::make_unique<ActivationRateCost>(
                            layout, weights.activationRateWeight));
-  problem.costPtr->add(kMomentumRateTerm,
+  problem.costPtr->add(kMomentumRateTermName,
                        std::make_unique<MomentumRateCost>(
                            layout, weights.linearMomentumRateWeight,
                            weights.angularMomentumRateWeight));

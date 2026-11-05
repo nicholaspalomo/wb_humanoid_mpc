@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "mujoco/mujoco.h"
+#include "ocs2_core/Dimensions.h"
 
 #include "mujoco_sim_interface/MujocoUtils.h"
 
@@ -131,8 +132,9 @@ struct Scene {
     char error[1000] = "";
     model = mj_loadXML(writeTempFile("contact_scene.xml", kScene).c_str(),
                        /*vfs=*/nullptr, error, sizeof(error));
-    if (model == nullptr)
+    if (model == nullptr) {
       throw std::runtime_error(std::string("mj_loadXML: ") + error);
+    }
     data = mj_makeData(model);
     mj_forward(model, data);
   }
@@ -384,8 +386,8 @@ TEST(MujocoContactUtils, GroundReactionZmpSitsUnderTheOnlyGroundContact) {
       << "the floor pushes the robot up";
   // The center of pressure lies in the convex hull of the ground contact points
   // (the corners of the toe box).
-  double lo[2] = {1.0e9, 1.0e9};
-  double hi[2] = {-1.0e9, -1.0e9};
+  double minPosMjcontactsRtWorldEwrtWorldXy[2] = {1.0e9, 1.0e9};
+  double maxPosMjcontactsRtWorldEwrtWorldXy[2] = {-1.0e9, -1.0e9};
   int groundContacts = 0;
   for (int c = 0; c < scene.data->ncon; ++c) {
     const mjContact& contact = scene.data->contact[c];
@@ -395,15 +397,19 @@ TEST(MujocoContactUtils, GroundReactionZmpSitsUnderTheOnlyGroundContact) {
     ++groundContacts;
     for (int axis = 0; axis < 2; ++axis) {
       // NOLINTBEGIN(frame-naming): MuJoCo's mjContact::pos
-      lo[axis] = std::min(lo[axis], contact.pos[axis]);
-      hi[axis] = std::max(hi[axis], contact.pos[axis]);
+      minPosMjcontactsRtWorldEwrtWorldXy[axis] =
+          std::min(minPosMjcontactsRtWorldEwrtWorldXy[axis], contact.pos[axis]);
+      maxPosMjcontactsRtWorldEwrtWorldXy[axis] =
+          std::max(maxPosMjcontactsRtWorldEwrtWorldXy[axis], contact.pos[axis]);
       // NOLINTEND(frame-naming)
     }
   }
   ASSERT_GT(groundContacts, 0);
   for (int axis = 0; axis < 2; ++axis) {
-    EXPECT_GE(reaction.posZmpRtWorldEwrtWorldXy[axis], lo[axis] - 1.0e-6);
-    EXPECT_LE(reaction.posZmpRtWorldEwrtWorldXy[axis], hi[axis] + 1.0e-6);
+    EXPECT_GE(reaction.posZmpRtWorldEwrtWorldXy[axis],
+              minPosMjcontactsRtWorldEwrtWorldXy[axis] - 1.0e-6);
+    EXPECT_LE(reaction.posZmpRtWorldEwrtWorldXy[axis],
+              maxPosMjcontactsRtWorldEwrtWorldXy[axis] + 1.0e-6);
   }
   EXPECT_NEAR(reaction.posZmpRtWorldEwrtWorldXy[0], 0.14, 0.05)
       << "under the toe";
@@ -420,18 +426,23 @@ TEST(MujocoContactUtils, GroundReactionZmpSitsUnderTheOnlyGroundContact) {
 
 TEST(MujocoContactUtils,
      DivergentComponentOfMotionIsTheComPlusVelocityOverOmega) {
-  const double com[3] = {1.0, 2.0, 0.85};
+  const double posComRtWorldEwrtWorld[3] = {1.0, 2.0, 0.85};
   const double linvelComRtWorldEwrtWorld[3] = {0.34, -0.17, 0.5};
-  double dcm[2];
-  divergentComponentOfMotion(com, linvelComRtWorldEwrtWorld, com[2],
-                             /*gravity=*/9.81, dcm);
+  double posDcmRtWorldEwrtWorldXy[2];
+  divergentComponentOfMotion(posComRtWorldEwrtWorld, linvelComRtWorldEwrtWorld,
+                             posComRtWorldEwrtWorld[2],
+                             /*gravityMagnitude=*/9.81,
+                             posDcmRtWorldEwrtWorldXy);
   const double omega = std::sqrt(9.81 / 0.85);
-  EXPECT_NEAR(dcm[0], 1.0 + 0.34 / omega, 1.0e-12);
-  EXPECT_NEAR(dcm[1], 2.0 - 0.17 / omega, 1.0e-12);
+  EXPECT_NEAR(posDcmRtWorldEwrtWorldXy[0], 1.0 + 0.34 / omega, 1.0e-12);
+  EXPECT_NEAR(posDcmRtWorldEwrtWorldXy[1], 2.0 - 0.17 / omega, 1.0e-12);
   // The height is clamped so that a CoM on the ground does not blow the DCM up.
-  divergentComponentOfMotion(com, linvelComRtWorldEwrtWorld, /*height=*/0.0,
-                             /*gravity=*/9.81, dcm);
-  EXPECT_NEAR(dcm[0], 1.0 + 0.34 / std::sqrt(9.81 / 0.05), 1.0e-12);
+  divergentComponentOfMotion(posComRtWorldEwrtWorld, linvelComRtWorldEwrtWorld,
+                             /*posComRtWorldEwrtWorldZ=*/0.0,
+                             /*gravityMagnitude=*/9.81,
+                             posDcmRtWorldEwrtWorldXy);
+  EXPECT_NEAR(posDcmRtWorldEwrtWorldXy[0], 1.0 + 0.34 / std::sqrt(9.81 / 0.05),
+              1.0e-12);
 }
 
 /** One free-floating ball: a model with a joint, whose references a test can
@@ -451,8 +462,9 @@ MjModelPtr compileBallScene() {
   char error[1000] = "";
   const MjSpecPtr spec(
       mj_parseXMLString(kBallScene, /*vfs=*/nullptr, error, sizeof(error)));
-  if (spec == nullptr)
+  if (spec == nullptr) {
     throw std::runtime_error(std::string("mj_parseXMLString: ") + error);
+  }
   return MjModelPtr(mj_compile(spec.get(), /*vfs=*/nullptr));
 }
 
@@ -497,12 +509,10 @@ TEST(MujocoUtils, MjStateCopiesAreDeepAndMovesHandTheDataOver) {
   const MjState moved(std::move(copy));
   EXPECT_EQ(moved.data, handedOver);
   EXPECT_EQ(moved.data->qpos[0], 2.5);
-  EXPECT_EQ(
-      copy.data,
-      nullptr);  // NOLINT(bugprone-use-after-move): the moved-from state is what is tested.
-  EXPECT_EQ(
-      copy.model,
-      nullptr);  // NOLINT(bugprone-use-after-move): the moved-from state is what is tested.
+  // NOLINTBEGIN(bugprone-use-after-move): the moved-from state is tested.
+  EXPECT_EQ(copy.data, nullptr);
+  EXPECT_EQ(copy.model, nullptr);
+  // NOLINTEND(bugprone-use-after-move)
 }
 
 /**
@@ -535,8 +545,9 @@ MjModelPtr compileFootSensorScene(absl::string_view yawDegrees) {
   char error[1000] = "";
   const MjSpecPtr spec(
       mj_parseXMLString(xml.c_str(), /*vfs=*/nullptr, error, sizeof(error)));
-  if (spec == nullptr)
+  if (spec == nullptr) {
     throw std::runtime_error(std::string("mj_parseXMLString: ") + error);
+  }
   return MjModelPtr(mj_compile(spec.get(), /*vfs=*/nullptr));
 }
 
@@ -554,9 +565,7 @@ TEST(MujocoUtils, TheFootForceIsTheWorldFrameForceTheFootCarries) {
     for (int step = 0; step < 3000; ++step) mj_step(model.get(), data->get());
     const int sensor =
         mj_name2id(model.get(), mjOBJ_SENSOR, "left_foot_force_sensor");
-    // NOLINTBEGIN(frame-naming): a sensor's type, not a force
     ASSERT_TRUE(isFootForceSensor(model.get(), sensor));
-    // NOLINTEND(frame-naming)
     const std::array<mjtNum, ocs2::kPositionDim> measForceFootEwrtWorld =
         computeMeasForceFootEwrtWorld(model.get(), data->get(), sensor);
     EXPECT_NEAR(measForceFootEwrtWorld[0], -trunkMass * model->opt.gravity[0],
@@ -571,14 +580,12 @@ TEST(MujocoUtils, TheFootForceIsTheWorldFrameForceTheFootCarries) {
 TEST(MujocoUtils, OnlyAForceSensorOnASiteIsAFootForceSensor) {
   const MjModelPtr model = compileFootSensorScene("0");
   ASSERT_NE(model, nullptr);
-  // NOLINTBEGIN(frame-naming): a sensor's type, not a force
   EXPECT_TRUE(isFootForceSensor(
       model.get(),
       mj_name2id(model.get(), mjOBJ_SENSOR, "left_foot_force_sensor")));
   EXPECT_FALSE(isFootForceSensor(model.get(), /*sensorId=*/-1))
       << "a sensor the scene does not have";
   EXPECT_FALSE(isFootForceSensor(model.get(), model->nsensor));
-  // NOLINTEND(frame-naming)
 }
 
 // The twist about the vertical of a MuJoCo quaternion, against the defining
@@ -600,15 +607,15 @@ TEST(VerticalTwist, LeavesASwingAboutAHorizontalAxisForRandomAttitudes) {
     EXPECT_GE(quatHeadingRtWorld.w, 0.0);
     const mjtNum quatWorldRtHeadingWxyz[4] = {quatHeadingRtWorld.w, 0.0, 0.0,
                                               -quatHeadingRtWorld.z};
-    mjtNum swing[4];
-    mju_mulQuat(swing, quatWorldRtHeadingWxyz, q);
-    EXPECT_NEAR(swing[3], 0.0, 1.0e-12) << "sample " << sample;
-    // The heading is the twist's angle, in (-pi, pi].
-    const double heading = yawOf(q[0], q[3]);
-    EXPECT_GT(heading, -std::numbers::pi);
-    EXPECT_LE(heading, std::numbers::pi);
-    EXPECT_NEAR(std::cos(heading / 2.0), quatHeadingRtWorld.w, 1.0e-12);
-    EXPECT_NEAR(std::sin(heading / 2.0), quatHeadingRtWorld.z, 1.0e-12);
+    mjtNum quatLocalRtHeadingWxyz[4];
+    mju_mulQuat(quatLocalRtHeadingWxyz, quatWorldRtHeadingWxyz, q);
+    EXPECT_NEAR(quatLocalRtHeadingWxyz[3], 0.0, 1.0e-12) << "sample " << sample;
+    // The yaw is the twist's angle, in (-pi, pi].
+    const double yawLocalRtWorld = yawOf(q[0], q[3]);
+    EXPECT_GT(yawLocalRtWorld, -std::numbers::pi);
+    EXPECT_LE(yawLocalRtWorld, std::numbers::pi);
+    EXPECT_NEAR(std::cos(yawLocalRtWorld / 2.0), quatHeadingRtWorld.w, 1.0e-12);
+    EXPECT_NEAR(std::sin(yawLocalRtWorld / 2.0), quatHeadingRtWorld.z, 1.0e-12);
   }
 }
 

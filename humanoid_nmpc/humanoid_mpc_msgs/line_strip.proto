@@ -12,6 +12,6 @@ message LineStrip {
 
   reserved 3 to max;
 
-  repeated Vector3 points = 1;
+  repeated Vector3 pos_strippoints_rt_world_ewrt_world = 1;
   Color color = 2;
 }

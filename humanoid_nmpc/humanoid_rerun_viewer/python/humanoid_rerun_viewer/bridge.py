@@ -94,7 +94,7 @@ _LOGGER = logging.getLogger("humanoid_rerun_viewer")
 # A recurring problem is logged at most this often [s].
 LOG_PERIOD_S = 5.0
 # The smallest norm of a link's quaternion that is still a rotation (proto3 sends an unset one as zeros).
-_MIN_QUATERNION_NORM = 1e-6
+_MIN_UNIT_QUATERNION_NORM = 1e-6
 # A robot clock that goes back by more than this is a new run of the robot [s]. Smaller steps back happen within a run:
 # the scene falls back from the robot/state sample's time to the older observation's when the samples stop (the
 # visualization publisher's robotStateTimeout, 0.5 s), and an MpcStatus's observation time trails by a solve.
@@ -153,8 +153,8 @@ class BridgeStatistics:
     # Unexpected exceptions in a handler, by topic.
     handler_errors: dict[str, int] = dataclasses.field(default_factory=dict)
     # Link poses logged, and skipped because they had not changed.
-    link_poses_logged: int = 0
-    link_poses_unchanged: int = 0
+    logged_link_pose_count: int = 0
+    unchanged_link_pose_count: int = 0
     # Scalar groups of viz/telemetry buffered.
     telemetry_groups: int = 0
     # Scenes throttled due to max_scene_frequency; the last one of a stream is drawn by flush() once the interval passed.
@@ -412,7 +412,7 @@ class RerunBridge:
         # The robot instances whose link names were checked against the URDF's.
         self._link_names_checked: set[str] = set()
         self._logged_instances: set[str] = set()
-        self._last_link_poses: dict[str, tuple[float, ...]] = {}
+        self._prev_pose_links_rt_world: dict[str, tuple[float, ...]] = {}
         self._last_scene_time = -math.inf
         # The latest scene the throttle held back, drawn by flush() once the interval passed; None: there is none.
         self._pending_scene: (
@@ -472,7 +472,7 @@ class RerunBridge:
     def _forget_sent(self) -> None:
         """Forgets every entity logged so far, as for a recording that holds none of them."""
         self._logged_instances.clear()
-        self._last_link_poses.clear()
+        self._prev_pose_links_rt_world.clear()
         self._last_scene_time = -math.inf
         self._last_scene_wall_time = None
         self._pending_scene = None
@@ -746,7 +746,7 @@ class RerunBridge:
             return
         if scene.time < self._last_scene_time:
             # The robot's clock went back (a restarted simulation): poses at the new times must all be logged.
-            self._last_link_poses.clear()
+            self._prev_pose_links_rt_world.clear()
             self._last_scene_wall_time = None
             self._pending_scene = None
         self._last_scene_time = scene.time
@@ -848,50 +848,61 @@ class RerunBridge:
             self._log_instance_meshes(style)
         self._check_link_names(robot)
 
-        for link, pose in zip(robot.link_names, robot.pose_links_rt_world):
+        for link, msg_pose_link_rt_world in zip(
+            robot.link_names, robot.pose_links_rt_world
+        ):
             if link not in self._links_with_visuals:
                 continue
-            position = pose.position
-            orientation = pose.orientation
-            values = (
-                position.x,
-                position.y,
-                position.z,
-                orientation.x,
-                orientation.y,
-                orientation.z,
-                orientation.w,
+            # NOLINTBEGIN(frame-naming): the components of a frame-generic Pose; the enclosing field names the frames
+            pos_link_rt_world_ewrt_world = msg_pose_link_rt_world.position
+            quat_link_rt_world = msg_pose_link_rt_world.orientation
+            # NOLINTEND(frame-naming)
+            # pos_link_rt_world_ewrt_world (x, y, z), then quat_link_rt_world (x, y, z, w).
+            pose_link_rt_world = (
+                pos_link_rt_world_ewrt_world.x,
+                pos_link_rt_world_ewrt_world.y,
+                pos_link_rt_world_ewrt_world.z,
+                quat_link_rt_world.x,
+                quat_link_rt_world.y,
+                quat_link_rt_world.z,
+                quat_link_rt_world.w,
             )
-            if not all(math.isfinite(value) for value in values):
+            if not all(math.isfinite(value) for value in pose_link_rt_world):
                 raise MalformedMessageError(
                     f"robot '{name}' link '{link}' has a pose that is not"
                     " finite"
                 )
-            norm = math.sqrt(sum(value * value for value in values[3:]))
-            if norm < _MIN_QUATERNION_NORM:
+            norm = math.sqrt(
+                sum(value * value for value in pose_link_rt_world[3:])
+            )
+            if norm < _MIN_UNIT_QUATERNION_NORM:
                 raise MalformedMessageError(
                     f"robot '{name}' link '{link}' has a zero quaternion"
                 )
             path = scene_contract.link_path(name, link)
-            if self._last_link_poses.get(path) == values:
-                self.statistics.link_poses_unchanged += 1
+            if self._prev_pose_links_rt_world.get(path) == pose_link_rt_world:
+                self.statistics.unchanged_link_pose_count += 1
                 continue
-            self._last_link_poses[path] = values
+            self._prev_pose_links_rt_world[path] = pose_link_rt_world
             self.recording.log(
                 path,
                 rr.Transform3D(
-                    translation=[values[0], values[1], values[2]],
-                    quaternion=rr.Quaternion(
+                    translation=[
+                        pose_link_rt_world[0],
+                        pose_link_rt_world[1],
+                        pose_link_rt_world[2],
+                    ],
+                    quaternion=rr.Quaternion(  # NOLINT(frame-naming): a Rerun keyword argument
                         xyzw=[
-                            values[3] / norm,
-                            values[4] / norm,
-                            values[5] / norm,
-                            values[6] / norm,
+                            pose_link_rt_world[3] / norm,
+                            pose_link_rt_world[4] / norm,
+                            pose_link_rt_world[5] / norm,
+                            pose_link_rt_world[6] / norm,
                         ]
                     ),
                 ),
             )
-            self.statistics.link_poses_logged += 1
+            self.statistics.logged_link_pose_count += 1
 
     def _check_link_names(
         self, robot: robot_model_instance_pb2.RobotModelInstance
@@ -975,14 +986,23 @@ class RerunBridge:
         radius_default, color_defaults = self._marker_style(
             arrows.path, MarkerKind.ARROWS
         )
-        origins = _vector3_array(arrows.origins)
-        vectors = _vector3_array(arrows.vectors)
-        if len(origins) != len(vectors):
+        pos_arrows_rt_world_ewrt_world = _vector3_array(
+            arrows.pos_arrows_rt_world_ewrt_world
+        )
+        pos_arrowheads_rt_arrow_ewrt_world = _vector3_array(
+            arrows.pos_arrowheads_rt_arrow_ewrt_world
+        )
+        if len(pos_arrows_rt_world_ewrt_world) != len(
+            pos_arrowheads_rt_arrow_ewrt_world
+        ):
             raise MalformedMessageError(
-                f"'{arrows.path}' has {len(origins)} origins but"
-                f" {len(vectors)} vectors"
+                f"'{arrows.path}' has {len(pos_arrows_rt_world_ewrt_world)}"
+                f" origins but {len(pos_arrowheads_rt_arrow_ewrt_world)} vectors"
             )
-        if not (np.isfinite(origins).all() and np.isfinite(vectors).all()):
+        if not (
+            np.isfinite(pos_arrows_rt_world_ewrt_world).all()
+            and np.isfinite(pos_arrowheads_rt_arrow_ewrt_world).all()
+        ):
             raise MalformedMessageError(
                 f"'{arrows.path}' has coordinates that are not finite"
             )
@@ -990,11 +1010,14 @@ class RerunBridge:
         self.recording.log(
             scene_contract.entity_path(scene_contract.WORLD_ROOT, arrows.path),
             rr.Arrows3D(
-                origins=origins,
-                vectors=vectors,
+                origins=pos_arrows_rt_world_ewrt_world,
+                vectors=pos_arrowheads_rt_arrow_ewrt_world,
                 radii=[radius],
                 colors=self._element_colors(
-                    arrows.path, arrows.colors, len(vectors), color_defaults
+                    arrows.path,
+                    arrows.colors,
+                    len(pos_arrowheads_rt_arrow_ewrt_world),
+                    color_defaults,
                 ),
             ),
         )
@@ -1004,9 +1027,11 @@ class RerunBridge:
         radius_default, color_defaults = self._marker_style(
             spheres.path, MarkerKind.SPHERES
         )
-        centers = _vector3_array(spheres.centers)
-        count = len(centers)
-        if not np.isfinite(centers).all():
+        pos_spheres_rt_world_ewrt_world = _vector3_array(
+            spheres.pos_spheres_rt_world_ewrt_world
+        )
+        count = len(pos_spheres_rt_world_ewrt_world)
+        if not np.isfinite(pos_spheres_rt_world_ewrt_world).all():
             raise MalformedMessageError(
                 f"'{spheres.path}' has centers that are not finite"
             )
@@ -1022,7 +1047,7 @@ class RerunBridge:
         self.recording.log(
             scene_contract.entity_path(scene_contract.WORLD_ROOT, spheres.path),
             rr.Points3D(
-                positions=centers,
+                positions=pos_spheres_rt_world_ewrt_world,  # NOLINT(frame-naming): a Rerun keyword argument
                 radii=radii,
                 colors=self._element_colors(
                     spheres.path, spheres.colors, count, color_defaults
@@ -1039,13 +1064,15 @@ class RerunBridge:
         defaults = _defaults_rgba8(color_defaults, len(line_strips.strips))
         colors = np.empty((len(line_strips.strips), 4), dtype=np.uint8)
         for index, strip in enumerate(line_strips.strips):
-            points = _vector3_array(strip.points)
-            if not np.isfinite(points).all():
+            pos_strippoints_rt_world_ewrt_world = _vector3_array(
+                strip.pos_strippoints_rt_world_ewrt_world
+            )
+            if not np.isfinite(pos_strippoints_rt_world_ewrt_world).all():
                 raise MalformedMessageError(
                     f"'{line_strips.path}' strip {index} has points that are"
                     " not finite"
                 )
-            strips.append(points)
+            strips.append(pos_strippoints_rt_world_ewrt_world)
             if strip.HasField("color"):
                 colors[index] = _colors_rgba8([strip.color])[0]
             else:
@@ -1069,7 +1096,9 @@ class RerunBridge:
                 entity, rr.Arrows3D(origins=empty, vectors=empty)
             )
         elif kind is MarkerKind.SPHERES:
+            # NOLINTBEGIN(frame-naming): Rerun's keyword arguments
             self.recording.log(entity, rr.Points3D(positions=empty))
+            # NOLINTEND(frame-naming)
         else:
             self.recording.log(entity, rr.LineStrips3D([]))
 

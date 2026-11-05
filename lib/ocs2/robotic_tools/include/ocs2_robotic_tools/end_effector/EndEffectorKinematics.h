@@ -39,7 +39,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2 {
 
-/** The Kinematics function which maps state-input pair to the end-effector (position, velocity, orientation error) */
+/**
+ * The kinematics function that maps a state-input pair to the end effectors' position, velocity, orientation, tilt relative
+ * to a surface, angular velocity and twist, in the world frame
+ */
 template <typename SCALAR_T>
 class EndEffectorKinematics {
  public:
@@ -84,26 +87,21 @@ class EndEffectorKinematics {
   virtual std::vector<quaternion_t> getQuatEesRtWorld(const vector_t& state) const = 0;
 
   /**
-   * Get orientation error in world frame
+   * Get each end effector's tilt relative to its surface, in world axes
    *
-   * @note: To calculate the orientation error with respect to a plane using quaternionDistance() from
-   * ocs2_robotic_tools/common/RotationTransforms.h
+   * @note: computed with rotationMatrixDistanceToPlane() from ocs2_robotic_tools/common/RotationTransforms.h
    *
    * @param [in] state vector
-   * @param [in] planeNormals: reference plane normals in world frame
-   * @return array of orientation errors
+   * @param [in] normalSurfacesEwrtWorld: one per end effector, the unit normal (world frame) of the surface it aligns to
+   * @return array of tilts tiltEesRtSurfaceEwrtWorld
    */
-  // TODO(frame-naming): name the plane orientation error, the vector part of the shortest-arc rotation from each end
-  // effector's z axis to its plane normal (axis * sin(angle / 2), in the world frame's axes). Its frames are decided
-  // (ees relative to the plane-aligned frame, ewrt world), but no quantity of the vocabulary is that vector: `rotvec`
-  // is axis * angle.
-  // NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
-  virtual std::vector<vector3_t> getOrientationErrorWrtPlane(const vector_t& state, const std::vector<vector3_t>& planeNormals) const = 0;
+  // The plane orientation error is the tilt of each end effector relative to its plane (the quantity `tilt` of
+  // humanoid_nmpc/docs/frame_naming/README.md): rotationMatrixDistanceToPlane(), the vector part, axis * sin(angle / 2),
+  // of the shortest-arc rotation from the plane normal to the end effector's z axis, in the world frame's axes.
+  virtual std::vector<vector3_t> getTiltEesRtSurfaceEwrtWorld(const vector_t& state, const std::vector<vector3_t>& normalSurfacesEwrtWorld) const = 0;
 
   /**
    * Get end-effector angular velocity vectors in world frame
-   *
-   * @note: To calculate the error use quaternionDistance() from ocs2_robotic_tools/common/RotationTransforms.h
    *
    * @param [in] state vector
    * @param [in] input: input vector
@@ -113,8 +111,6 @@ class EndEffectorKinematics {
 
   /**
    * Get end-effector twist (linear & angular velocity) vectors in world frame
-   *
-   * @note: To calculate the error use quaternionDistance() from ocs2_robotic_tools/common/RotationTransforms.h
    *
    * @param [in] state vector
    * @param [in] input: input vector
@@ -161,18 +157,17 @@ class EndEffectorKinematics {
                                                                                      const vector_t& input) const = 0;
 
   /**
-   * Get end-effector orintation error with respect to plane linear approximation in world frame
+   * Get the linear approximation of each end effector's tilt relative to its surface, in world axes
    *
    * @note: To calculate the error use rotationMatrixDistanceToPlane() from ocs2_robotic_tools/common/RotationTransforms.h
    *
    * @param [in] state: state vector
-   * @param [in] planeNormals: plane normals in world frame
-   * @return array of orientation error linear approximations
+   * @param [in] normalSurfacesEwrtWorld: one per end effector, the unit normal (world frame) of the surface it aligns to
+   * @return array of tilt linear approximations
    */
 
-  // NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
-  virtual std::vector<VectorFunctionLinearApproximation> getOrientationErrorWrtPlaneLinearApproximation(
-      const vector_t& state, const std::vector<vector3_t>& planeNormals) const = 0;
+  virtual std::vector<VectorFunctionLinearApproximation> getLinearApproximationTiltEesRtSurfaceEwrtWorld(
+      const vector_t& state, const std::vector<vector3_t>& normalSurfacesEwrtWorld) const = 0;
 
  protected:
   EndEffectorKinematics(const EndEffectorKinematics&) = default;

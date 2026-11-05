@@ -84,17 +84,17 @@ absl::StatusOr<PlanSummary> summarizePlan(const config::MultiContactPlan& plan,
   ASSIGN_OR_RETURN(summary.contactsUsed, contactSet.namesOf(used));
   if (!plan.report.has_value()) return summary;
   summary.certified = plan.report->passed;
-  summary.torquesJudged = plan.report->torque_margin.has_value();
+  summary.jointTorquesJudged = plan.report->joint_torque_margin.has_value();
   for (const config::CertifierReport::Knot& knot : plan.report->knots) {
     if (knot.static_margin.has_value()) {
       summary.minStaticMargin =
           std::min(summary.minStaticMargin.value_or(*knot.static_margin),
                    *knot.static_margin);
     }
-    if (knot.torque_utilization.has_value() &&
-        (!summary.maxTorqueUtilization.has_value() ||
-         *knot.torque_utilization > *summary.maxTorqueUtilization)) {
-      summary.maxTorqueUtilization = knot.torque_utilization;
+    if (knot.joint_torque_utilization.has_value() &&
+        (!summary.maxJointTorqueUtilization.has_value() ||
+         *knot.joint_torque_utilization > *summary.maxJointTorqueUtilization)) {
+      summary.maxJointTorqueUtilization = knot.joint_torque_utilization;
       summary.maxTorqueJoint = knot.max_torque_joint;
     }
     if (knot.min_sphere_clearance.has_value()) {
@@ -114,9 +114,9 @@ std::string formatPlanSummary(const PlanSummary& summary) {
       summary.knots, summary.duration,
       absl::StrJoin(summary.contactsUsed, ", "),
       optionalValue(summary.minStaticMargin, " m"),
-      optionalValue(summary.maxTorqueUtilization, /*unit=*/""),
+      optionalValue(summary.maxJointTorqueUtilization, /*unit=*/""),
       summary.maxTorqueJoint,
-      summary.torquesJudged ? "" : ", not judged: position limits only",
+      summary.jointTorquesJudged ? "" : ", not judged: position limits only",
       optionalValue(summary.minSphereClearance, " m"));
 }
 

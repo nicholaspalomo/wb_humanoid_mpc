@@ -50,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
 #include "humanoid_common_mpc_app/robot/RobotProcess.h"
+#include "humanoid_common_mpc_app/robot/RobotSetUpSteps.h"
 #include "humanoid_common_mpc_app/robot/RobotSupervisorRegistry.h"
 #include "humanoid_mpc_ipc/Topics.h"
 #include "humanoid_mpc_msgs/fsm_command.pb.h"
@@ -80,16 +81,17 @@ using robot_test::FakeRobotBackend;
 using robot_test::waitFor;
 
 /** [m] The base height the Atlas stands at. */
-constexpr double kStandingHeight = 0.95;
-/** [rad] The tilt limit of the tests (sim_max_base_tilt_angle), and a tilt past
- * it. */
-constexpr double kMaxTilt = 0.5;
-constexpr double kFallenTilt = 1.0;
+constexpr double kStandingPosBaseRtWorldEwrtWorldZ = 0.95;
+/** [rad] The tilt limit of the tests (sim_max_tiltangle_base_rt_world), and a
+ * tilt past it. */
+constexpr double kMaxTiltangleBaseRtWorld = 0.5;
+constexpr double kFallenTiltangleBaseRtWorld = 1.0;
 
 robot::model::RobotState standingAtlas(
     const robot::model::RobotDescription& description) {
   robot::model::RobotState state(description);
-  state.setPosBaseRtWorldEwrtWorld(vector3_t(0.0, 0.0, kStandingHeight));
+  state.setPosBaseRtWorldEwrtWorld(
+      vector3_t(0.0, 0.0, kStandingPosBaseRtWorldEwrtWorldZ));
   return state;
 }
 
@@ -98,7 +100,7 @@ std::unique_ptr<OperatorCommandMailbox> makeMailbox(
     const robot::model::ContactEstimatorRegistry& registry) {
   OperatorCommandMailbox::Config config;
   config.jointNames = jointNamesByIndex(description);
-  config.initialNominalPositions.assign(description.getNumJoints(), 0.0);
+  config.initialNominalJointPositions.assign(description.getNumJoints(), 0.0);
   absl::StatusOr<std::unique_ptr<OperatorCommandMailbox>> mailbox =
       OperatorCommandMailbox::Create(config, &registry);
   EXPECT_TRUE(mailbox.ok()) << mailbox.status();
@@ -147,7 +149,7 @@ TEST(HardwareFsmBridge,
   EXPECT_TRUE(bridge.processCommands(mode));
   EXPECT_EQ(mode, "JOINT_PD");
   EXPECT_TRUE(backend.acceptsJointAction());
-  EXPECT_EQ(backend.torqueEnables(), 1u);
+  EXPECT_EQ(backend.jointTorqueEnables(), 1u);
 
   // The gantry is not the process's here: the command is reported and changes
   // nothing.
@@ -158,7 +160,7 @@ TEST(HardwareFsmBridge,
 
   send(*mailbox, "WB_MPC", /*sequence=*/3);
   EXPECT_TRUE(bridge.processCommands(mode));
-  EXPECT_EQ(backend.torqueEnables(), 1u) << "on already: switched on once";
+  EXPECT_EQ(backend.jointTorqueEnables(), 1u) << "on already: switched on once";
   send(*mailbox, "ZERO_TORQUE", /*sequence=*/4);
   EXPECT_TRUE(bridge.processCommands(mode));
   EXPECT_EQ(mode, "ZERO_TORQUE");
@@ -189,11 +191,11 @@ TEST(HardwareFallRecovery,
   const robot::model::RobotState upright = standingAtlas(description);
   FakeRobotBackend backend(robot_test::atlasDescription(), upright);
   RealtimeEventLog log(/*capacity=*/16);
-  HardwareFallRecovery recovery(kMaxTilt, &backend, &log);
+  HardwareFallRecovery recovery(kMaxTiltangleBaseRtWorld, &backend, &log);
   const std::vector<scalar_t> nominal(description.getNumJoints(), 0.0);
   robot::model::RobotState fallen = upright;
-  fallen.setQuatBaseRtWorld(quaternion_t(
-      Eigen::AngleAxis<scalar_t>(kFallenTilt, vector3_t::UnitY())));
+  fallen.setQuatBaseRtWorld(quaternion_t(Eigen::AngleAxis<scalar_t>(
+      kFallenTiltangleBaseRtWorld, vector3_t::UnitY())));
 
   std::string mode = "WB_MPC";
   EXPECT_FALSE(recovery.update(fallen, nominal, mode).modeChanged)
@@ -208,7 +210,7 @@ TEST(HardwareFallRecovery,
   EXPECT_FALSE(fell.discontinuity)
       << "nothing caught the robot: the plant did not jump";
   EXPECT_FALSE(fell.baseRelocated);
-  EXPECT_NEAR(fell.tilt, kFallenTilt, 1.0e-9);
+  EXPECT_NEAR(fell.tiltangleBaseRtWorld, kFallenTiltangleBaseRtWorld, 1.0e-9);
   EXPECT_EQ(mode, "ZERO_TORQUE");
   EXPECT_FALSE(backend.acceptsJointAction());
   EXPECT_FALSE(recovery.update(fallen, nominal, mode).modeChanged)
@@ -218,7 +220,8 @@ TEST(HardwareFallRecovery,
       (std::vector<RealtimeEventCode>{RealtimeEventCode::kFallTorquesOff}));
 
   // A limit <= 0 disables the cut-off.
-  HardwareFallRecovery disabled(/*maxBaseTiltAngle=*/0.0, &backend, &log);
+  HardwareFallRecovery disabled(/*maxTiltangleBaseRtWorld=*/0.0, &backend,
+                                &log);
   backend.enableTorques();
   mode = "JOINT_PD";
   EXPECT_FALSE(disabled.update(fallen, nominal, mode).modeChanged);
@@ -319,35 +322,31 @@ class RobotProcessOnHardwareTest
     config.settings.contactEstimator = "robot_state";
     config.settings.telemetrySinks.clear();
     config.settings.stateEstimator = stateEstimator;
-    config.settings.fallRecovery.maxBaseTiltAngle = kMaxTilt;
+    config.settings.fallRecovery.maxTiltangleBaseRtWorld =
+        kMaxTiltangleBaseRtWorld;
     const ModelSettings modelSettings =
         ModelSettings::Create(robot_test::kAtlasTask, robot_test::kAtlasUrdf,
                               "centroidal_mpc_", /*verbose=*/false)
             .value();
     config.urdfFile = robot_test::kAtlasUrdf;
-    config.contactFrameNames = modelSettings.contactNames;
-    config.contactParentJointNames = modelSettings.contactParentJointNames;
+    config.stateEstimatorContacts = stateEstimatorContacts(modelSettings);
     // The height the contact frames stand at in the world (kalman's
-    // contact_height): the Atlas stands at kStandingHeight with every joint at
-    // zero, so it is that height plus the frames' height below the base at zero
-    // joints, by the same leg kinematics the estimator runs.
-    std::vector<estimation::ContactPointSpec> contacts;
-    for (size_t contact = 0; contact < config.contactFrameNames.size();
-         ++contact) {
-      contacts.push_back(estimation::ContactPointSpec{
-          .frameNames = {config.contactFrameNames[contact],
-                         config.contactParentJointNames[contact]}});
-    }
+    // nom_pos_contact_rt_world_ewrt_world_z): the Atlas stands at
+    // kStandingPosBaseRtWorldEwrtWorldZ with every joint at zero, so it is that
+    // height plus the frames' height below the base at zero joints, by the same
+    // leg kinematics the estimator runs.
     absl::StatusOr<std::unique_ptr<estimation::ContactKinematics>> kinematics =
-        estimation::ContactKinematics::Create(robot_test::kAtlasUrdf, contacts,
+        estimation::ContactKinematics::Create(robot_test::kAtlasUrdf,
+                                              config.stateEstimatorContacts,
                                               description_->getJointNames());
     EXPECT_TRUE(kinematics.ok()) << kinematics.status();
     if (kinematics.ok()) {
       const vector_t zero = vector_t::Zero(
           static_cast<Eigen::Index>(description_->getNumJoints()));
       (*kinematics)->update(zero, zero);
-      config.settings.kalmanStateEstimator.contactHeight =
-          kStandingHeight + (*kinematics)->posContactRtBaseEwrtBase(0).z();
+      config.settings.kalmanStateEstimator.nomPosContactRtWorldEwrtWorldZ =
+          kStandingPosBaseRtWorldEwrtWorldZ +
+          (*kinematics)->posContactRtBaseEwrtBase(0).z();
       EXPECT_NEAR((*kinematics)->posContactRtBaseEwrtBase(0).z(),
                   (*kinematics)->posContactRtBaseEwrtBase(1).z(), 1.0e-9)
           << "a symmetric stance";
@@ -409,18 +408,19 @@ TEST_P(RobotProcessOnHardwareTest, RunsItsCyclesOnABackendThatIsNoSimulator) {
   EXPECT_FALSE(lastState->gantry_locked());
 
   // A standing robot stays where it stands, measured or estimated: with its
-  // contact_height where the feet stand, the estimate of a robot at rest is the
-  // state it was reset to, and a centimeter is far above its noise model's
-  // drift.
+  // nom_pos_contact_rt_world_ewrt_world_z where the feet stand, the estimate of
+  // a robot at rest is the state it was reset to, and a centimeter is far above
+  // its noise model's drift.
   constexpr double kStandingTolerance = 0.01;
   if (!initialState_.has_value()) {
     FAIL() << "SetUp() builds the initial state";
   }
-  EXPECT_LT(
-      (controller_.rootPosition() - initialState_->getPosBaseRtWorldEwrtWorld())
-          .norm(),
-      kStandingTolerance);
-  EXPECT_LT(controller_.rootLinearVelocity().norm(), kStandingTolerance);
+  EXPECT_LT((controller_.getPosBaseRtWorldEwrtWorld() -
+             initialState_->getPosBaseRtWorldEwrtWorld())
+                .norm(),
+            kStandingTolerance);
+  EXPECT_LT(controller_.getLinvelBaseRtWorldEwrtBase().norm(),
+            kStandingTolerance);
 
   ASSERT_TRUE(command("ZERO_TORQUE",
                       [&]() { return controller_.mode() == "ZERO_TORQUE"; }));

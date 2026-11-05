@@ -35,69 +35,105 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact/ContactCenterPoint.h"
 
 namespace ocs2::humanoid {
 
 namespace {
 
-/** `points` scaled by `scaleFactor` about the frame's origin. */
-std::vector<vector3_t> scaledPoints(const std::vector<vector3_t>& points,
-                                    scalar_t scaleFactor) {
-  std::vector<vector3_t> scaled;
-  scaled.reserve(points.size());
-  for (const vector3_t& point : points) scaled.push_back(scaleFactor * point);
-  return scaled;
+/** `posCornersRtContactEwrtContact` scaled by `scaleFactor` about the contact
+ * frame's origin. */
+std::vector<vector3_t> computeScaledPosCornersRtContactEwrtContact(
+    const std::vector<vector3_t>& posCornersRtContactEwrtContact,
+    scalar_t scaleFactor) {
+  std::vector<vector3_t> scaledPosCornersRtContactEwrtContact;
+  scaledPosCornersRtContactEwrtContact.reserve(
+      posCornersRtContactEwrtContact.size());
+  for (const vector3_t& posCornerRtContactEwrtContact :
+       posCornersRtContactEwrtContact) {
+    scaledPosCornersRtContactEwrtContact.push_back(
+        scaleFactor * posCornerRtContactEwrtContact);
+  }
+  return scaledPosCornersRtContactEwrtContact;
 }
 
-/** The x and y extent of `points`; all zero for no points. */
-PolygonBounds boundsOf(const std::vector<vector3_t>& points) {
-  if (points.empty())
-    return PolygonBounds(/*x_min=*/0.0, /*x_max=*/0.0, /*y_min=*/0.0,
-                         /*y_max=*/0.0);
-  PolygonBounds bounds(points.front()(kXAxisIndex), points.front()(kXAxisIndex),
-                       points.front()(kYAxisIndex),
-                       points.front()(kYAxisIndex));
-  for (const vector3_t& point : points) {
-    bounds.x_min = std::min(bounds.x_min, point(kXAxisIndex));
-    bounds.x_max = std::max(bounds.x_max, point(kXAxisIndex));
-    bounds.y_min = std::min(bounds.y_min, point(kYAxisIndex));
-    bounds.y_max = std::max(bounds.y_max, point(kYAxisIndex));
+/** The x and y extent of `posCornersRtContactEwrtContact`; all zero for no
+ * corners. */
+PolygonBounds boundsOf(
+    const std::vector<vector3_t>& posCornersRtContactEwrtContact) {
+  if (posCornersRtContactEwrtContact.empty()) {
+    return PolygonBounds(/*min_pos_corners_rt_contact_ewrt_contact_x=*/0.0,
+                         /*max_pos_corners_rt_contact_ewrt_contact_x=*/0.0,
+                         /*min_pos_corners_rt_contact_ewrt_contact_y=*/0.0,
+                         /*max_pos_corners_rt_contact_ewrt_contact_y=*/0.0);
+  }
+  PolygonBounds bounds(posCornersRtContactEwrtContact.front()(kXAxisIndex),
+                       posCornersRtContactEwrtContact.front()(kXAxisIndex),
+                       posCornersRtContactEwrtContact.front()(kYAxisIndex),
+                       posCornersRtContactEwrtContact.front()(kYAxisIndex));
+  for (const vector3_t& posCornerRtContactEwrtContact :
+       posCornersRtContactEwrtContact) {
+    bounds.min_pos_corners_rt_contact_ewrt_contact_x =
+        std::min(bounds.min_pos_corners_rt_contact_ewrt_contact_x,
+                 posCornerRtContactEwrtContact(kXAxisIndex));
+    bounds.max_pos_corners_rt_contact_ewrt_contact_x =
+        std::max(bounds.max_pos_corners_rt_contact_ewrt_contact_x,
+                 posCornerRtContactEwrtContact(kXAxisIndex));
+    bounds.min_pos_corners_rt_contact_ewrt_contact_y =
+        std::min(bounds.min_pos_corners_rt_contact_ewrt_contact_y,
+                 posCornerRtContactEwrtContact(kYAxisIndex));
+    bounds.max_pos_corners_rt_contact_ewrt_contact_y =
+        std::max(bounds.max_pos_corners_rt_contact_ewrt_contact_y,
+                 posCornerRtContactEwrtContact(kYAxisIndex));
   }
   return bounds;
 }
 
 }  // namespace
 
-ContactPolygon::ContactPolygon(const std::vector<vector3_t>& polygonPoints,
-                               const ContactCenterPoint& contactCenterPoint,
-                               scalar_t scaleFactor)
-    : ContactPolygon(scaledPoints(polygonPoints, scaleFactor),
-                     boundsOf(scaledPoints(polygonPoints, scaleFactor)),
+ContactPolygon::ContactPolygon(
+    const std::vector<vector3_t>& posCornersRtContactEwrtContact,
+    const ContactCenterPoint& contactCenterPoint,
+    scalar_t scaleFactor)
+    : ContactPolygon(computeScaledPosCornersRtContactEwrtContact(
+                         posCornersRtContactEwrtContact, scaleFactor),
+                     boundsOf(computeScaledPosCornersRtContactEwrtContact(
+                         posCornersRtContactEwrtContact, scaleFactor)),
                      contactCenterPoint) {}
 
-ContactPolygon::ContactPolygon(const std::vector<vector3_t>& polygonPoints,
-                               const PolygonBounds& polygonBounds,
-                               const ContactCenterPoint& contactCenterPoint)
+ContactPolygon::ContactPolygon(
+    const std::vector<vector3_t>& posCornersRtContactEwrtContact,
+    const PolygonBounds& polygonBounds,
+    const ContactCenterPoint& contactCenterPoint)
     : polygonLimits_(polygonBounds),
-      polygonPoints_(polygonPoints),
+      posCornersRtContactEwrtContact_(posCornersRtContactEwrtContact),
       contactCenterPoint_(contactCenterPoint) {
-  polygonPointFrameNames_.reserve(polygonPoints_.size());
+  polygonPointFrameNames_.reserve(posCornersRtContactEwrtContact_.size());
 
-  for (int i = 0; i < static_cast<int>(polygonPoints_.size()); ++i) {
+  for (int i = 0; i < static_cast<int>(posCornersRtContactEwrtContact_.size());
+       ++i) {
     polygonPointFrameNames_.emplace_back(contactCenterPoint.frameName + "_p_" +
                                          std::to_string(i));
   }
 }
 
-matrix3_t ContactPolygon::getContactPointTranslationCrossProductMatrix(
+matrix3_t ContactPolygon::getCrossProductMatrixPosCornerRtContactEwrtContact(
     int index) const {
-  vector3_t current_point = polygonPoints_[index];
+  vector3_t posCornerRtContactEwrtContact =
+      posCornersRtContactEwrtContact_[index];
   matrix3_t crossprodMat = matrix3_t::Zero();
   // [p]x of the point's projection (x, y, 0) on the sole's plane.
-  crossprodMat(kXAxisIndex, kZAxisIndex) = current_point[kYAxisIndex];
-  crossprodMat(kYAxisIndex, kZAxisIndex) = -current_point[kXAxisIndex];
-  crossprodMat(kZAxisIndex, kXAxisIndex) = -current_point[kYAxisIndex];
-  crossprodMat(kZAxisIndex, kYAxisIndex) = current_point[kXAxisIndex];
+  crossprodMat(kXAxisIndex, kZAxisIndex) =
+      posCornerRtContactEwrtContact[kYAxisIndex];
+  crossprodMat(kYAxisIndex, kZAxisIndex) =
+      -posCornerRtContactEwrtContact[kXAxisIndex];
+  crossprodMat(kZAxisIndex, kXAxisIndex) =
+      -posCornerRtContactEwrtContact[kYAxisIndex];
+  crossprodMat(kZAxisIndex, kYAxisIndex) =
+      posCornerRtContactEwrtContact[kXAxisIndex];
   return crossprodMat;
 }
 

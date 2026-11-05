@@ -204,6 +204,17 @@ const Eigen::Block<const Derived, -1, 1> getGeneralizedCoordinates(const Eigen::
 /******************************************************************************************************/
 /******************************************************************************************************/
 template <typename Derived, typename SCALAR>
+Eigen::Block<Derived, kCentroidalMomentumDim, 1> getMnormRateCmomComRtWorldEwrtWorld(Eigen::MatrixBase<Derived>& stateDerivative,
+                                                                                    const CentroidalModelInfoTpl<SCALAR>& info) {
+  assert(stateDerivative.rows() == info.stateDim);
+  assert(stateDerivative.cols() == 1);
+  return Eigen::Block<Derived, kCentroidalMomentumDim, 1>(stateDerivative.derived(), 0, 0);
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+template <typename Derived, typename SCALAR>
 Eigen::Block<Derived, -1, 1> configurationDerivative(Eigen::MatrixBase<Derived>& stateDerivative, const CentroidalModelInfoTpl<SCALAR>& info) {
   assert(stateDerivative.rows() == info.stateDim);
   assert(stateDerivative.cols() == 1);

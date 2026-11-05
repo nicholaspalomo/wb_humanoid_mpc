@@ -50,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_sqp/SqpMpc.h"
 #include "ocs2_sqp/SqpSettings.h"
 
+#include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -79,13 +80,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The base-height reference against the ground, end to end: the whole-body
  * MPC's reference manager, its target calculator and the procedural motion
  * manager that publishes a target every solve, run in the order the solver runs
- * them. `nom_pos_base_rt_world_ewrt_world_z` and the commanded pelvis height
- * are heights above the ground, and the ground is the reference manager's
- * (`terrain_height`, moved on a hot reload). The targets used to be written at
- * an absolute nom_pos_base_rt_world_ewrt_world_z, so the base reference ignored
- * the ground at launch and snapped back to it one solve after a reload, while
- * the reference manager lifted the initial target - a measured, absolute pose -
- * by the whole terrain height.
+ * them. `nom_pos_base_rt_surface_ewrt_world_z` and
+ * `cmd_pos_base_rt_surface_ewrt_world_z` are heights above the ground, and the
+ * ground is the reference manager's
+ * (`pos_surface_rt_world_ewrt_world_z`, moved on a hot reload). The targets
+ * used to be written at an absolute nom_pos_base_rt_surface_ewrt_world_z, so
+ * the base reference ignored the ground at launch and snapped back to it one
+ * solve after a reload, while the reference manager lifted the initial target -
+ * a measured, absolute pose - by the whole terrain height.
  *
  * Every property is a difference against the same run on flat ground, or
  * against the height the target was published at, so none of them depends on
@@ -101,9 +103,9 @@ constexpr scalar_t kHorizon = 1.0;
 constexpr scalar_t kCyclePeriod = 0.01;
 // Cycles run on each ground.
 constexpr int kSettlingCycles = 10;
-// [m] how far below nom_pos_base_rt_world_ewrt_world_z the robot's measured
+// [m] how far below nom_pos_base_rt_surface_ewrt_world_z the robot's measured
 // base starts.
-constexpr scalar_t kCrouch = 0.05;
+constexpr scalar_t kOffsetPosBaseRtSurfaceEwrtWorldZ = 0.05;
 
 constexpr char kTaskFile[] =
     "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto";
@@ -136,12 +138,13 @@ mpc_config::TaskFile shippedTaskFile() {
   return task.ok() ? *std::move(task) : mpc_config::TaskFile{};
 }
 
-/** The shipped G1 whole-body task file on a ground at `terrainHeight`. */
-mpc_config::TaskFile taskFileOnGround(scalar_t terrainHeight) {
+/** The shipped G1 whole-body task file on a ground at
+ * `posSurfaceRtWorldEwrtWorldZ`. */
+mpc_config::TaskFile taskFileOnGround(scalar_t posSurfaceRtWorldEwrtWorldZ) {
   mpc_config::TaskFile task = shippedTaskFile();
-  EXPECT_EQ(task.terrain_height, 0.0)
+  EXPECT_EQ(task.pos_surface_rt_world_ewrt_world_z, 0.0)
       << "the shipped file raises the ground; this test sets it";
-  task.terrain_height = terrainHeight;
+  task.pos_surface_rt_world_ewrt_world_z = posSurfaceRtWorldEwrtWorldZ;
   return task;
 }
 
@@ -184,32 +187,33 @@ ContactPlan standingPlan(scalar_t startTime, scalar_t dt, size_t numNodes) {
   plan.dt = dt;
   plan.committedUntil = startTime + dt;
   plan.contacts.assign(numNodes, makeFeetArray(true));
-  plan.footholds.assign(numNodes + 1,
-                        makeFeetArray(vector2_t(vector2_t::Zero())));
-  plan.comPosition.assign(numNodes + 1, vector2_t::Zero());
-  plan.comVelocity.assign(numNodes + 1, vector2_t::Zero());
-  plan.zmp.assign(numNodes, vector2_t::Zero());
+  plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
+      numNodes + 1, makeFeetArray(vector2_t(vector2_t::Zero())));
+  plan.posComRtWorldEwrtWorldXyTraj.assign(numNodes + 1, vector2_t::Zero());
+  plan.linvelComRtWorldEwrtWorldXyTraj.assign(numNodes + 1, vector2_t::Zero());
+  plan.posZmpRtWorldEwrtWorldXyTraj.assign(numNodes, vector2_t::Zero());
   return plan;
 }
 
 /** [m] the base height of every knot of the target `referenceManager` holds. */
-std::vector<scalar_t> targetBaseHeights(
+std::vector<scalar_t> getRefPosBaseRtWorldEwrtWorldZTraj(
     const ReferenceManagerInterface& referenceManager,
     const MpcRobotModelBase<scalar_t>& model) {
-  std::vector<scalar_t> heights;
+  std::vector<scalar_t> refPosBaseRtWorldEwrtWorldZTraj;
   for (const vector_t& state :
        referenceManager.getTargetTrajectories().stateTrajectory) {
-    heights.push_back(model.getPosBaseRtWorldEwrtWorld(state)(2));
+    refPosBaseRtWorldEwrtWorldZTraj.push_back(
+        model.getPosBaseRtWorldEwrtWorld(state)(2));
   }
-  return heights;
+  return refPosBaseRtWorldEwrtWorldZTraj;
 }
 
 /** Where the target calculator takes the ground from. */
 enum class CalculatorGround {
   kReferenceManager,  // the ground the reference manager applied in this solve,
                       // as the MPC nodes wire it
-  kTaskFile,  // unwired: the task file's `terrain_height`, all a command node
-              // outside the MPC knows
+  kTaskFile,  // unwired: the task file's `pos_surface_rt_world_ewrt_world_z`,
+              // all a command node outside the MPC knows
 };
 
 /** The whole-body MPC's references, wired as the MPC node wires them, on the
@@ -217,9 +221,10 @@ enum class CalculatorGround {
 class WholeBodyReferences {
  public:
   explicit WholeBodyReferences(
-      scalar_t terrainHeight,
+      scalar_t posSurfaceRtWorldEwrtWorldZ,
       CalculatorGround calculatorGround = CalculatorGround::kReferenceManager) {
-    const mpc_config::TaskFile task = taskFileOnGround(terrainHeight);
+    const mpc_config::TaskFile task =
+        taskFileOnGround(posSurfaceRtWorldEwrtWorldZ);
     const std::string urdfFile = runfilePath(kUrdfFile);
     const std::string referenceFile = runfilePath(kReferenceFile);
     const std::string gaitFile = runfilePath(kGaitFile);
@@ -242,31 +247,35 @@ class WholeBodyReferences {
     if (calculatorGround == CalculatorGround::kReferenceManager) {
       // What the MPC node wires: the calculator builds on the ground the
       // reference manager applied in this solve.
-      calculator_->setTerrainHeightSource(
+      calculator_->setSourcePosSurfaceRtWorldEwrtWorldZ(
           [referenceManager = referenceManager_]() {
-            return referenceManager->getAppliedTerrainHeight();
+            return referenceManager->getAppliedPosSurfaceRtWorldEwrtWorldZ();
           });
     }
     motionManager_ = checkedValue(ProceduralMpcMotionManager::Create(
         gaitFile, referenceFile, referenceManager_, *model_,
         [calculator = calculator_.get()](
-            const vector4_t& velocityTarget, scalar_t initTime,
+            const vector4_t& velocityCommand, scalar_t initTime,
             scalar_t /*finalTime*/, const vector_t& initState,
             const BasePlanarMotion& measuredMotion) {
           return calculator->velocityCommandToTargetTrajectories(
-              velocityTarget, initTime, initState, measuredMotion);
+              velocityCommand, initTime, initState, measuredMotion);
         }));
     initialState_ = initialStateOf(task, *model_);
     // The robot stands on this ground, a little crouched, so that the measured
     // base is not the commanded one.
-    model_->adaptPosBaseRtWorldEwrtWorldZ(initialState_,
-                                          terrainHeight - kCrouch);
-    // No pelvis height in the command: every target stands
-    // nom_pos_base_rt_world_ewrt_world_z above the ground. (The motion
+    model_->adaptPosBaseRtWorldEwrtWorldZ(
+        initialState_,
+        posSurfaceRtWorldEwrtWorldZ - kOffsetPosBaseRtSurfaceEwrtWorldZ);
+    // No base height in the command: every target stands
+    // nom_pos_base_rt_surface_ewrt_world_z above the ground. (The motion
     // manager's command filter ramps against the wall clock, so a commanded
     // height would differ between two runs.)
-    motionManager_->setAndScaleVelocityCommand(WalkingVelocityCommand(
-        /*v_x=*/0.0, /*v_y=*/0.0, /*desired_pelvis_h=*/0.0, /*v_yaw=*/0.0));
+    motionManager_->setAndScaleVelocityCommand(NormalizedWalkingVelocityCommand(
+        /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_x=*/0.0,
+        /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_y=*/0.0,
+        /*cmd_pos_base_rt_surface_ewrt_world_z=*/0.0,
+        /*cmd_lnorm_angvel_base_rt_world_ewrt_world_z=*/0.0));
     // What the MPC node does on its reset: a target at the measured initial
     // state, a world pose already.
     referenceManager_->setTargetTrajectories(TargetTrajectories(
@@ -297,8 +306,9 @@ class WholeBodyReferences {
 
   /** [m] the base height of every knot of the target the solver tracks in this
    * cycle. */
-  std::vector<scalar_t> targetBaseHeights() const {
-    return ocs2::humanoid::targetBaseHeights(*referenceManager_, *model_);
+  std::vector<scalar_t> getRefPosBaseRtWorldEwrtWorldZTraj() const {
+    return ocs2::humanoid::getRefPosBaseRtWorldEwrtWorldZTraj(
+        *referenceManager_, *model_);
   }
 
   SwitchedModelReferenceManager& referenceManager() {
@@ -367,12 +377,12 @@ class GroundUpdater {
 
 void expectRaisedBy(const std::vector<scalar_t>& raised,
                     const std::vector<scalar_t>& flat,
-                    scalar_t height,
+                    scalar_t posSurfaceRtWorldEwrtWorldZ,
                     absl::string_view when) {
   ASSERT_EQ(raised.size(), flat.size()) << when;
   ASSERT_FALSE(raised.empty()) << when;
   for (size_t knot = 0; knot < raised.size(); ++knot) {
-    EXPECT_NEAR(raised[knot] - flat[knot], height, 1.0e-12)
+    EXPECT_NEAR(raised[knot] - flat[knot], posSurfaceRtWorldEwrtWorldZ, 1.0e-12)
         << when << ", knot " << knot;
   }
 }
@@ -381,26 +391,27 @@ void expectRaisedBy(const std::vector<scalar_t>& raised,
 
 TEST(BaseHeightFollowsTerrainTest,
      aTerrainHeightRaisesTheWholeBaseReferenceByItAndAReloadMovesItOnce) {
-  constexpr scalar_t kGround = 0.3;
-  constexpr scalar_t kReloadedGround = -0.12;
+  constexpr scalar_t kPosSurfaceRtWorldEwrtWorldZ = 0.3;
+  constexpr scalar_t kReloadedPosSurfaceRtWorldEwrtWorldZ = -0.12;
   WholeBodyReferences flat(0.0);
-  WholeBodyReferences raised(kGround);
+  WholeBodyReferences raised(kPosSurfaceRtWorldEwrtWorldZ);
   // Unwired, a calculator builds on the task file's ground - all a command node
   // outside the MPC can know.
   EXPECT_EQ(
       checkedValue(WBMpcTargetTrajectoriesCalculator::Create(
                        runfilePath(kReferenceFile), raised.model(), kHorizon))
-          ->getTerrainHeight(),
-      kGround);
+          ->getPosSurfaceRtWorldEwrtWorldZ(),
+      kPosSurfaceRtWorldEwrtWorldZ);
 
   // The first solve tracks the reset target, which is the measured state: a
   // world pose, which the ground must not lift a second time.
   flat.cycle();
   raised.cycle();
-  expectRaisedBy(raised.targetBaseHeights(), flat.targetBaseHeights(), kGround,
-                 "the reset target");
+  expectRaisedBy(raised.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                 flat.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                 kPosSurfaceRtWorldEwrtWorldZ, "the reset target");
   EXPECT_EQ(
-      raised.targetBaseHeights().front(),
+      raised.getRefPosBaseRtWorldEwrtWorldZTraj().front(),
       raised.model().getPosBaseRtWorldEwrtWorld(raised.initialState())(2));
 
   // Every target the motion manager publishes stands the commanded height above
@@ -408,30 +419,35 @@ TEST(BaseHeightFollowsTerrainTest,
   for (int i = 0; i < kSettlingCycles; ++i) {
     flat.cycle();
     raised.cycle();
-    expectRaisedBy(raised.targetBaseHeights(), flat.targetBaseHeights(),
-                   kGround, absl::StrCat("published target ", i));
+    expectRaisedBy(raised.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                   flat.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                   kPosSurfaceRtWorldEwrtWorldZ,
+                   absl::StrCat("published target ", i));
   }
   // Positive control: the published base reference is the commanded height, not
   // the measured one, so the difference above is not the measured state's.
   EXPECT_NEAR(
-      flat.targetBaseHeights().back() -
+      flat.getRefPosBaseRtWorldEwrtWorldZTraj().back() -
           flat.model().getPosBaseRtWorldEwrtWorld(flat.initialState())(2),
-      kCrouch, 1.0e-12);
+      kOffsetPosBaseRtSurfaceEwrtWorldZ, 1.0e-12);
 
   // A hot reload of the ground moves the target in use once, and every target
   // published after it stands on the new ground; nothing is moved a second time
   // in the cycles that follow.
-  raised.referenceManager().setTerrainHeight(kReloadedGround);
+  raised.referenceManager().setPosSurfaceRtWorldEwrtWorldZ(
+      kReloadedPosSurfaceRtWorldEwrtWorldZ);
   for (int i = 0; i < kSettlingCycles; ++i) {
     flat.cycle();
     raised.cycle();
-    expectRaisedBy(raised.targetBaseHeights(), flat.targetBaseHeights(),
-                   kReloadedGround,
+    expectRaisedBy(raised.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                   flat.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                   kReloadedPosSurfaceRtWorldEwrtWorldZ,
                    absl::StrCat("after the reload, cycle ", i));
   }
-  EXPECT_EQ(raised.referenceManager().getAppliedTerrainHeight(),
-            kReloadedGround);
-  EXPECT_EQ(raised.calculator().getTerrainHeight(), kReloadedGround);
+  EXPECT_EQ(raised.referenceManager().getAppliedPosSurfaceRtWorldEwrtWorldZ(),
+            kReloadedPosSurfaceRtWorldEwrtWorldZ);
+  EXPECT_EQ(raised.calculator().getPosSurfaceRtWorldEwrtWorldZ(),
+            kReloadedPosSurfaceRtWorldEwrtWorldZ);
 }
 
 /**
@@ -445,11 +461,12 @@ TEST(BaseHeightFollowsTerrainTest,
 TEST(
     BaseHeightFollowsTerrainTest,
     aLiveGroundChangeThroughTheUpdaterTakesEffectAtTheNextSolveAndMovesTheTargetOnce) {
-  constexpr scalar_t kGround = 0.3;
-  constexpr scalar_t kReloadedGround = -0.12;
+  constexpr scalar_t kPosSurfaceRtWorldEwrtWorldZ = 0.3;
+  constexpr scalar_t kReloadedPosSurfaceRtWorldEwrtWorldZ = -0.12;
   WholeBodyReferences flat(0.0);
-  WholeBodyReferences raised(kGround);
-  GroundUpdater groundUpdater(raised, taskFileOnGround(kGround));
+  WholeBodyReferences raised(kPosSurfaceRtWorldEwrtWorldZ);
+  GroundUpdater groundUpdater(raised,
+                              taskFileOnGround(kPosSurfaceRtWorldEwrtWorldZ));
   MpcParameterUpdaterModule* absl_nullable const updater =
       groundUpdater.updater();
   ASSERT_NE(updater, nullptr);
@@ -457,32 +474,40 @@ TEST(
   for (int i = 0; i <= kSettlingCycles; ++i) {
     flat.cycle();
     raised.cycle();
-    expectRaisedBy(raised.targetBaseHeights(), flat.targetBaseHeights(),
-                   kGround, absl::StrCat("launch, cycle ", i));
+    expectRaisedBy(raised.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                   flat.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                   kPosSurfaceRtWorldEwrtWorldZ,
+                   absl::StrCat("launch, cycle ", i));
   }
 
   mpc_config::MpcParameterUpdate update;
-  update.task = taskFileOnGround(kReloadedGround);
+  update.task = taskFileOnGround(kReloadedPosSurfaceRtWorldEwrtWorldZ);
   updater->enqueueParameterUpdate(update);
   flat.cycle();
   raised.cycle();
-  expectRaisedBy(raised.targetBaseHeights(), flat.targetBaseHeights(), kGround,
+  expectRaisedBy(raised.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                 flat.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                 kPosSurfaceRtWorldEwrtWorldZ,
                  "the solve the update arrived before");
-  EXPECT_EQ(raised.referenceManager().getTerrainHeight(), kReloadedGround)
+  EXPECT_EQ(raised.referenceManager().getPosSurfaceRtWorldEwrtWorldZ(),
+            kReloadedPosSurfaceRtWorldEwrtWorldZ)
       << "the updater handed the reference manager the ground";
-  EXPECT_EQ(raised.referenceManager().getAppliedTerrainHeight(), kGround)
+  EXPECT_EQ(raised.referenceManager().getAppliedPosSurfaceRtWorldEwrtWorldZ(),
+            kPosSurfaceRtWorldEwrtWorldZ)
       << "the references of that solve were built before";
 
   for (int i = 0; i < kSettlingCycles; ++i) {
     flat.cycle();
     raised.cycle();
-    expectRaisedBy(raised.targetBaseHeights(), flat.targetBaseHeights(),
-                   kReloadedGround,
+    expectRaisedBy(raised.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                   flat.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                   kReloadedPosSurfaceRtWorldEwrtWorldZ,
                    absl::StrCat("after the update, cycle ", i));
   }
-  EXPECT_EQ(raised.referenceManager().getAppliedTerrainHeight(),
-            kReloadedGround);
-  EXPECT_EQ(raised.calculator().getTerrainHeight(), kReloadedGround);
+  EXPECT_EQ(raised.referenceManager().getAppliedPosSurfaceRtWorldEwrtWorldZ(),
+            kReloadedPosSurfaceRtWorldEwrtWorldZ);
+  EXPECT_EQ(raised.calculator().getPosSurfaceRtWorldEwrtWorldZ(),
+            kReloadedPosSurfaceRtWorldEwrtWorldZ);
 }
 
 /**
@@ -490,30 +515,38 @@ TEST(
  * reference manager's ground builds on the task file's. The target in use at
  * the reload still moves once, but every target published after it stands on
  * the launch ground again - which is why the MPC nodes wire the calculator
- * (setTerrainHeightSource).
+ * (setSourcePosSurfaceRtWorldEwrtWorldZ).
  */
 TEST(BaseHeightFollowsTerrainTest,
      anUnwiredCalculatorStaysOnTheTaskFilesGround) {
-  constexpr scalar_t kGround = 0.3;
-  constexpr scalar_t kReloadedGround = -0.12;
-  WholeBodyReferences flat(/*terrainHeight=*/0.0, CalculatorGround::kTaskFile);
-  WholeBodyReferences unwired(kGround, CalculatorGround::kTaskFile);
+  constexpr scalar_t kPosSurfaceRtWorldEwrtWorldZ = 0.3;
+  constexpr scalar_t kReloadedPosSurfaceRtWorldEwrtWorldZ = -0.12;
+  WholeBodyReferences flat(/*posSurfaceRtWorldEwrtWorldZ=*/0.0,
+                           CalculatorGround::kTaskFile);
+  WholeBodyReferences unwired(kPosSurfaceRtWorldEwrtWorldZ,
+                              CalculatorGround::kTaskFile);
   for (int i = 0; i <= kSettlingCycles; ++i) {
     flat.cycle();
     unwired.cycle();
-    expectRaisedBy(unwired.targetBaseHeights(), flat.targetBaseHeights(),
-                   kGround, absl::StrCat("launch, cycle ", i));
+    expectRaisedBy(unwired.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                   flat.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                   kPosSurfaceRtWorldEwrtWorldZ,
+                   absl::StrCat("launch, cycle ", i));
   }
-  unwired.referenceManager().setTerrainHeight(kReloadedGround);
+  unwired.referenceManager().setPosSurfaceRtWorldEwrtWorldZ(
+      kReloadedPosSurfaceRtWorldEwrtWorldZ);
   flat.cycle();
   unwired.cycle();
-  expectRaisedBy(unwired.targetBaseHeights(), flat.targetBaseHeights(),
-                 kReloadedGround, "the target in use at the reload");
+  expectRaisedBy(unwired.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                 flat.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                 kReloadedPosSurfaceRtWorldEwrtWorldZ,
+                 "the target in use at the reload");
   for (int i = 0; i < kSettlingCycles; ++i) {
     flat.cycle();
     unwired.cycle();
-    expectRaisedBy(unwired.targetBaseHeights(), flat.targetBaseHeights(),
-                   kGround,
+    expectRaisedBy(unwired.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                   flat.getRefPosBaseRtWorldEwrtWorldZTraj(),
+                   kPosSurfaceRtWorldEwrtWorldZ,
                    absl::StrCat("published after the reload, cycle ", i));
   }
 }
@@ -530,7 +563,7 @@ TEST(BaseHeightFollowsTerrainTest,
  */
 TEST(BaseHeightFollowsTerrainTest,
      theContactPlannersCopyOfThePublishedTargetFollowsAReload) {
-  constexpr scalar_t kReloadedGround = 0.2;
+  constexpr scalar_t kReloadedPosSurfaceRtWorldEwrtWorldZ = 0.2;
   const mpc_config::TaskFile task = shippedTaskFile();
   const std::string urdfFile = runfilePath(kUrdfFile);
   const std::string referenceFile = runfilePath(kReferenceFile);
@@ -544,8 +577,9 @@ TEST(BaseHeightFollowsTerrainTest,
   ASSERT_TRUE(pinocchioInterface.ok()) << pinocchioInterface.status();
   const WBAccelMpcRobotModel<scalar_t> model(modelSettings);
   ContactPlanningConfig config;
-  config.shared.comHeight = 0.85;  // no model derives the pendulum here (the
-                                   // library default 0 means "from the model")
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ =
+      0.85;  // no model derives the pendulum here (the
+             // library default 0 means "from the model")
   config.formulation.setExecutionRule(term::kPlannedComOverride, /*on=*/true);
   ASSERT_EQ(config.validateStatus(), absl::OkStatus());
   const absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>>
@@ -557,7 +591,8 @@ TEST(BaseHeightFollowsTerrainTest,
   ContactPlanningReferenceManager& referenceManager = **created;
 
   vector_t state = initialStateOf(task, model);
-  const scalar_t publishedHeight = model.getPosBaseRtWorldEwrtWorld(state)(2);
+  const scalar_t publishedPosBaseRtWorldEwrtWorldZ =
+      model.getPosBaseRtWorldEwrtWorld(state)(2);
   const vector_t zeroInput = vector_t::Zero(model.getInputDim());
   // The operator publishes once: a standing target that reaches past every
   // horizon below.
@@ -583,16 +618,21 @@ TEST(BaseHeightFollowsTerrainTest,
     // the tail below is read from the operator's copy.
     const TargetTrajectories& target = referenceManager.getTargetTrajectories();
     ASSERT_TRUE(referenceManager.planReferencesUsableAt(time));
-    ASSERT_EQ(target.timeTrajectory.size(), plan.comPosition.size() + 1);
+    ASSERT_EQ(target.timeTrajectory.size(),
+              plan.posComRtWorldEwrtWorldXyTraj.size() + 1);
     ASSERT_EQ(target.timeTrajectory.back(), kPublishedUntil);
-    for (const scalar_t height : targetBaseHeights(referenceManager, model)) {
-      EXPECT_NEAR(height, publishedHeight, 1.0e-12) << "launch, cycle " << i;
+    for (const scalar_t refPosBaseRtWorldEwrtWorldZ :
+         getRefPosBaseRtWorldEwrtWorldZTraj(referenceManager, model)) {
+      EXPECT_NEAR(refPosBaseRtWorldEwrtWorldZ,
+                  publishedPosBaseRtWorldEwrtWorldZ, 1.0e-12)
+          << "launch, cycle " << i;
     }
   }
 
   // The reload moves the whole reference, the tail from the operator's copy
   // included, and it stays moved.
-  referenceManager.setTerrainHeight(kReloadedGround);
+  referenceManager.setPosSurfaceRtWorldEwrtWorldZ(
+      kReloadedPosSurfaceRtWorldEwrtWorldZ);
   for (int i = 0; i < kSettlingCycles; ++i, ++cycle) {
     const scalar_t time = kCyclePeriod * static_cast<scalar_t>(cycle);
     referenceManager.preSolverRun(time, time + kHorizon, state,
@@ -600,10 +640,14 @@ TEST(BaseHeightFollowsTerrainTest,
     ASSERT_TRUE(referenceManager.planReferencesUsableAt(time));
     ASSERT_EQ(referenceManager.getTargetTrajectories().timeTrajectory.back(),
               kPublishedUntil);
-    const std::vector<scalar_t> heights =
-        targetBaseHeights(referenceManager, model);
-    for (size_t knot = 0; knot < heights.size(); ++knot) {
-      EXPECT_NEAR(heights[knot], publishedHeight + kReloadedGround, 1.0e-12)
+    const std::vector<scalar_t> refPosBaseRtWorldEwrtWorldZTraj =
+        getRefPosBaseRtWorldEwrtWorldZTraj(referenceManager, model);
+    for (size_t knot = 0; knot < refPosBaseRtWorldEwrtWorldZTraj.size();
+         ++knot) {
+      EXPECT_NEAR(refPosBaseRtWorldEwrtWorldZTraj[knot],
+                  publishedPosBaseRtWorldEwrtWorldZ +
+                      kReloadedPosSurfaceRtWorldEwrtWorldZ,
+                  1.0e-12)
           << "after the reload, cycle " << i << ", knot " << knot;
     }
   }

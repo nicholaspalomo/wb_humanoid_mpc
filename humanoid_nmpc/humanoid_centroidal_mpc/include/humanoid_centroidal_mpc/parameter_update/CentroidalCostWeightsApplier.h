@@ -41,11 +41,11 @@ namespace ocs2::humanoid {
  * Applies the weights of the centroidal MPC's own costs: task_space_foot_cost
  * to every foot's CentroidalMpcEndEffectorFootCost (weights, active_phases and
  * swing_velocity_reference_weight) and dcm_terminal_cost to the
- * DcmTerminalCost, as the file writes it: a com_height left out is resolved to
- * the model's pendulum by each running cost's setConfig(), exactly as at
- * start-up, and a block the cost refuses is logged once per reload. The terms
- * the running problem does not carry are skipped. Not thread-safe
- * (HotFieldApplier).
+ * DcmTerminalCost, as the file writes it: a
+ * nom_pos_com_rt_feetmean_ewrt_world_z left out is resolved to the model's
+ * pendulum by each running cost's setConfig(), exactly as at start-up, and a
+ * block the cost refuses is logged once per reload. The terms the running
+ * problem does not carry are skipped. Not thread-safe (HotFieldApplier).
  */
 class CentroidalCostWeightsApplier final : public HotFieldApplier {
  public:

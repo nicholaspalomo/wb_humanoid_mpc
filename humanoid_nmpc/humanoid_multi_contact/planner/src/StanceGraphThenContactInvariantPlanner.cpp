@@ -60,7 +60,7 @@ StanceGraphThenContactInvariantOptions::
   // The stairs' seed: the certifier's tolerances, which solve 3 re-solves.
   stanceGraph.contactBreak = ContactBreak::kAtSecondKnot;
   stanceGraph.staticMarginBuffer = kSeedStaticMarginBuffer;
-  stanceGraph.ik.penetrationTolerance = kDefaultReachTolerance;
+  stanceGraph.ik.penetrationTolerance = kDefaultIkPenetrationTolerance;
   stanceGraph.motion.sphereTolerance = kDefaultContactDistanceTolerance;
   // Solve 3 re-solves the motion between the knots too.
   stanceGraph.motion.sweep = std::nullopt;

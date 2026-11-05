@@ -33,10 +33,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/FootCollisionCbfConstraint.h"
 #include "humanoid_common_mpc/constraint/FootCollisionConstraint.h"
 #include "humanoid_mpc_config/collision_cbf_constraint_config.nproto.h"

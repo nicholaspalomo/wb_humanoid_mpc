@@ -42,24 +42,25 @@ namespace ocs2::humanoid::validation::time_series {
 /** [s] Simulation time of the sample (1 column). */
 inline constexpr char kTime[] = "time";
 /** [m] World position of the base (3 columns). */
-inline constexpr char kBasePosition[] = "base_position";
+inline constexpr char kPosBaseRtWorldEwrtWorld[] = "base_position";
 /** Base to world, coefficients (x, y, z, w) (4 columns). */
-inline constexpr char kBaseQuaternion[] = "base_quaternion_xyzw";
+inline constexpr char kQuatBaseRtWorldXyzw[] = "base_quaternion_xyzw";
 /** World velocity of the base (x, y) [m/s] and its world yaw rate [rad/s] (3
  * columns). */
-inline constexpr char kBaseVelocity[] = "base_velocity_world_xy_yaw_rate";
+inline constexpr char kBasePlanarMotion[] = "base_velocity_world_xy_yaw_rate";
 /** The reference velocity: (forward, lateral) in the heading frame [m/s] and
  * the yaw rate [rad/s] (3 columns). */
-inline constexpr char kReferenceVelocity[] =
+inline constexpr char kRefVelocityCommand[] =
     "reference_velocity_heading_xy_yaw_rate";
 /**
  * One row per solve of the commands that recorded an initial-state gap, with
  * rows of its own: the observation time of the solve [s] and the rotation part
- * of its gap [rad] (SolveSample::initialStateRotationGap) (2 columns). Its
+ * of its gap [rad] (SolveSample::initialStateGapAngle) (2 columns). Its
  * largest value is the metrics document's initial_state_gap.max_rotation_rad
  * (test_lockstep_determinism checks it), which keeps only the largest.
  */
-inline constexpr char kSolveRotationGap[] = "solve_initial_state_rotation_gap";
+inline constexpr char kSolveInitialGapAngle[] =
+    "solve_initial_state_rotation_gap";
 /**
  * One row per solve of the commands that recorded an SQP step
  * (SolveSample::sqpStep), with rows of its own: the observation time of the
@@ -78,10 +79,10 @@ inline constexpr int kSolveSqpStepColumns = 6;
  * normal-velocity row, with rows of its own: the observation time [s] and the
  * largest residual of those rows over the new solution's nodes, [m/s] on the
  * centroidal MPCs and [m/s^2] on the whole-body MPC
- * (SqpStepSample::swingNormalVelocityResidual) (kSolveSwingResidualColumns
- * columns).
+ * (SqpStepSample::swingNormalVelocityConstraintResidual)
+ * (kSolveSwingResidualColumns columns).
  */
-inline constexpr char kSolveSwingNormalVelocityResidual[] =
+inline constexpr char kSolveSwingNormalVelocityConstraintResidual[] =
     "solve_swing_normal_velocity_residual";
 inline constexpr int kSolveSwingResidualColumns = 2;
 

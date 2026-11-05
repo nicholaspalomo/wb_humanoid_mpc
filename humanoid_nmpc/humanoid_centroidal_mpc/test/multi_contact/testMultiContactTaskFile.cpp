@@ -31,25 +31,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "Eigen/Geometry"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/spatial/fwd.hpp"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
+#include "humanoid_common_mpc/contact/ContactCenterPoint.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
 #include "humanoid_multi_contact/stability/RobotStanceModel.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/MultiContactTestFiles.h"
+#include "support/TypedConfigFiles.h"
 
 /*
  * The DRC Atlas's multi-contact task file
@@ -113,8 +121,9 @@ TEST(MultiContactTaskFile, everyCandidateIsAContactWithItsGeometry) {
     if (point) {
       const ModelSettings::PointContact& contact = settings.pointContacts[i];
       EXPECT_EQ(contact.parentJointName, candidate.parentJoint);
-      EXPECT_TRUE(contact.translation.isApprox(candidate.offset, kTolerance))
-          << contact.translation.transpose();
+      EXPECT_TRUE(contact.posContactRtLinkEwrtLink.isApprox(
+          candidate.posPadRtLinkEwrtLink, kTolerance))
+          << contact.posContactRtLinkEwrtLink.transpose();
       continue;
     }
     HUMANOID_ASSERT_OK_AND_ASSIGN(
@@ -123,17 +132,25 @@ TEST(MultiContactTaskFile, everyCandidateIsAContactWithItsGeometry) {
                                    static_cast<int>(i)));
     const ContactCenterPoint& center = rectangle.getContactCenterPoint();
     EXPECT_EQ(center.parentJointName, candidate.parentJoint);
-    EXPECT_TRUE(
-        center.posContactRtLinkEwrtLink.isApprox(candidate.offset, kTolerance))
+    EXPECT_TRUE(center.posContactRtLinkEwrtLink.isApprox(
+        candidate.posPadRtLinkEwrtLink, kTolerance))
         << center.posContactRtLinkEwrtLink.transpose();
-    EXPECT_TRUE(
-        center.rotmatContactRtLink.isApprox(candidate.padRotation, kTolerance))
+    EXPECT_TRUE(center.rotmatContactRtLink.isApprox(candidate.rotmatPadRtLink,
+                                                    kTolerance))
         << center.rotmatContactRtLink;
-    ASSERT_TRUE(candidate.rectangle.has_value());
-    EXPECT_DOUBLE_EQ(rectangle.getBounds().x_min, candidate.rectangle->xMin);
-    EXPECT_DOUBLE_EQ(rectangle.getBounds().x_max, candidate.rectangle->xMax);
-    EXPECT_DOUBLE_EQ(rectangle.getBounds().y_min, candidate.rectangle->yMin);
-    EXPECT_DOUBLE_EQ(rectangle.getBounds().y_max, candidate.rectangle->yMax);
+    if (!candidate.rectangle.has_value()) GTEST_FAIL();
+    EXPECT_DOUBLE_EQ(
+        rectangle.getBounds().min_pos_corners_rt_contact_ewrt_contact_x,
+        candidate.rectangle->minPosCornersRtPadEwrtPadX);
+    EXPECT_DOUBLE_EQ(
+        rectangle.getBounds().max_pos_corners_rt_contact_ewrt_contact_x,
+        candidate.rectangle->maxPosCornersRtPadEwrtPadX);
+    EXPECT_DOUBLE_EQ(
+        rectangle.getBounds().min_pos_corners_rt_contact_ewrt_contact_y,
+        candidate.rectangle->minPosCornersRtPadEwrtPadY);
+    EXPECT_DOUBLE_EQ(
+        rectangle.getBounds().max_pos_corners_rt_contact_ewrt_contact_y,
+        candidate.rectangle->maxPosCornersRtPadEwrtPadY);
   }
 }
 
@@ -175,12 +192,12 @@ TEST(MultiContactTaskFile, theModelsContactFramesAreTheStanceModelsPads) {
       multi_contact::RobotStanceModel::Create(loaded.files.urdfFile,
                                               contactSet));
   // A pose of the base and of every joint away from zero.
-  const Eigen::Quaterniond orientation(
+  const Eigen::Quaterniond quatBaseRtWorld(
       Eigen::AngleAxisd(0.7, Eigen::Vector3d(0.3, -1.0, 0.4).normalized()));
-  const vector3_t basePosition(0.2, -0.3, 0.9);
+  const vector3_t posBaseRtWorldEwrtWorld(0.2, -0.3, 0.9);
   multi_contact::RobotConfiguration configuration;
-  configuration.basePosition = basePosition;
-  configuration.baseOrientation = orientation;
+  configuration.posBaseRtWorldEwrtWorld = posBaseRtWorldEwrtWorld;
+  configuration.quatBaseRtWorld = quatBaseRtWorld;
   configuration.jointNames = settings.mpcModelJointNames;
   configuration.jointPositions.resize(
       static_cast<Eigen::Index>(settings.mpcModelJointNames.size()));
@@ -191,22 +208,24 @@ TEST(MultiContactTaskFile, theModelsContactFramesAreTheStanceModelsPads) {
   HUMANOID_ASSERT_OK(stance->setConfiguration(configuration));
   // The MPC model's q = [p_W, xi (x, y, z, w), q_j] in its joint order.
   vector_t q(mpc.getModel().nq);
-  q << basePosition, orientation.coeffs(), configuration.jointPositions;
+  q << posBaseRtWorldEwrtWorld, quatBaseRtWorld.coeffs(),
+      configuration.jointPositions;
   pinocchio::forwardKinematics(mpc.getModel(), mpc.getData(), q);
   pinocchio::updateFramePlacements(mpc.getModel(), mpc.getData());
   for (int k = 0; k < contactSet.size(); ++k) {
     const multi_contact::ContactCandidate& candidate = contactSet.candidate(k);
     SCOPED_TRACE(candidate.name);
-    const pinocchio::SE3& frame =
+    const pinocchio::SE3& posePadRtWorld =
         mpc.getData().oMf[mpc.getModel().getFrameId(candidate.name)];
-    EXPECT_TRUE(
-        frame.translation().isApprox(stance->padPosition(k), kTolerance))
-        << frame.translation().transpose() << " against "
-        << stance->padPosition(k).transpose();
+    EXPECT_TRUE(posePadRtWorld.translation().isApprox(
+        stance->getPosPadRtWorldEwrtWorld(k), kTolerance))
+        << posePadRtWorld.translation().transpose() << " against "
+        << stance->getPosPadRtWorldEwrtWorld(k).transpose();
     if (candidate.kind == multi_contact::ContactKind::kSurface) {
-      EXPECT_TRUE(frame.rotation().isApprox(stance->padRotation(k), kTolerance))
-          << frame.rotation() << "\nagainst\n"
-          << stance->padRotation(k);
+      EXPECT_TRUE(posePadRtWorld.rotation().isApprox(
+          stance->getRotmatPadRtWorld(k), kTolerance))
+          << posePadRtWorld.rotation() << "\nagainst\n"
+          << stance->getRotmatPadRtWorld(k);
     }
   }
 }

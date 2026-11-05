@@ -30,13 +30,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 
+#include <cstddef>
 #include <memory>
 #include <utility>
 
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
 
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
+#include "humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h"
 #include "humanoid_common_mpc/contact/ContactPatchFrame.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 
@@ -96,12 +104,12 @@ void ZeroVelocityConstraintCppAd::configureForEvaluation(
   EndEffectorKinematicsTwistConstraint::Config& config =
       eeTwistConstraintPtr_->getConfig();
   if (isWorldAligned(patch) &&
-      humanoidPreComp.hasFootReferenceHeight(contactPointIndex_)) {
+      humanoidPreComp.hasDesPosFootRtWorldEwrtWorldZ(contactPointIndex_)) {
     // Modify to actual ground height
     eeTwistConstraintPtr_->clearRotmatWorldRtSurface();
     config.b[kZAxisIndex] =
         -config.Ax(kZAxisIndex, kZAxisIndex) *
-        humanoidPreComp.getFootReferenceHeight(contactPointIndex_);
+        humanoidPreComp.getDesPosFootRtWorldEwrtWorldZ(contactPointIndex_);
     return;
   }
   if (isWorldAligned(patch)) {
@@ -109,8 +117,8 @@ void ZeroVelocityConstraintCppAd::configureForEvaluation(
   } else {
     eeTwistConstraintPtr_->setRotmatWorldRtSurface(patch.rotmatWorldRtSurface);
   }
-  config.b[kZAxisIndex] =
-      -config.Ax(kZAxisIndex, kZAxisIndex) * patch.normalOffset;
+  config.b[kZAxisIndex] = -config.Ax(kZAxisIndex, kZAxisIndex) *
+                          patch.posSurfaceRtWorldEwrtSurfaceZ;
 }
 
 /******************************************************************************************************/

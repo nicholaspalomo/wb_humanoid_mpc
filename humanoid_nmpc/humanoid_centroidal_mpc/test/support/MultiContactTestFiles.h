@@ -29,8 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <string>
-
 #include "absl/status/statusor.h"
 
 #include "humanoid_multi_contact/contact_set/ContactSet.h"

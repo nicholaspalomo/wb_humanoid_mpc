@@ -87,7 +87,7 @@ struct CollisionSphere {
   int link = 0;
   pinocchio::JointIndex joint = 0;
   // [m] The center in the joint's frame.
-  Eigen::Vector3d center = Eigen::Vector3d::Zero();
+  Eigen::Vector3d posSphereRtLinkEwrtLink = Eigen::Vector3d::Zero();
   // [m] Positive.
   double radius = 0.0;
 };
@@ -101,9 +101,9 @@ struct SpherePair {
 /** The region of an active pad: its center, frame and, for a surface
  * candidate, its rectangle. Passive data. */
 struct PadRegion {
-  Eigen::Vector3d center = Eigen::Vector3d::Zero();
-  // world_R_pad (ContactCandidate::padRotation).
-  Eigen::Matrix3d rotation = Eigen::Matrix3d::Identity();
+  Eigen::Vector3d posPadRtWorldEwrtWorld = Eigen::Vector3d::Zero();
+  // world_R_pad (ContactCandidate::rotmatPadRtLink).
+  Eigen::Matrix3d rotmatPadRtWorld = Eigen::Matrix3d::Identity();
   std::optional<ContactRectangle> rectangle;
   // The joints whose links' spheres the pad exempts: of a point pad, its
   // link's joint, every joint below it and, under LinkAbove::kExempt, the
@@ -121,9 +121,11 @@ struct PadRegion {
   std::vector<pinocchio::JointIndex> restingJoints;
 };
 
-/** [m] The distance of `point` to the pad region: to its center for a point
- * pad, to its rectangle (in the pad's plane) for a surface pad. */
-double distanceToPad(const PadRegion& pad, const Eigen::Vector3d& point);
+/** [m] The distance of `posQueryRtWorldEwrtWorld` to the pad region: to its
+ * center for a point pad, to its rectangle (in the pad's plane) for a surface
+ * pad. */
+double distanceToPad(const PadRegion& pad,
+                     const Eigen::Vector3d& posQueryRtWorldEwrtWorld);
 
 /** Whether `pad` exempts the spheres of the link of `joint` (PadRegion::
  * joints). */
@@ -196,7 +198,8 @@ class CollisionModel {
 
   /** [m] The world center of sphere `index` at `model`'s configuration;
    * requires 0 <= index < spheres().size(). */
-  Eigen::Vector3d worldCenter(const RobotStanceModel& model, int index) const;
+  Eigen::Vector3d getPosSphereRtWorldEwrtWorld(const RobotStanceModel& model,
+                                               int index) const;
 
   /** What the point pads do to the link above them; kExempt unless set. */
   LinkAbove linkAbove() const { return linkAbove_; }
@@ -208,23 +211,25 @@ class CollisionModel {
                                                  ContactMask mask,
                                                  LinkAbove linkAbove);
 
-  /** Whether a sphere on the link of `joint` at `worldCenter` of `radius`
-   * lies within `neighborhood` of one of `pads` that exempts that link. */
+  /** Whether a sphere on the link of `joint` at `posSphereRtWorldEwrtWorld` of
+   * `radius` lies within `neighborhood` of one of `pads` that exempts that
+   * link. */
   static bool isExempt(const std::vector<PadRegion>& pads,
                        pinocchio::JointIndex joint,
-                       const Eigen::Vector3d& worldCenter,
+                       const Eigen::Vector3d& posSphereRtWorldEwrtWorld,
                        double radius,
                        double neighborhood);
 
-  /** [m] What `pads` allow a sphere of the link of `joint` at `worldCenter`
-   * of `radius` to rest in the terrain: kRestingLinkDepth when one of them
-   * lists the joint among its restingJoints and the sphere is within
-   * `neighborhood` of it, else 0. */
-  static double restingAllowance(const std::vector<PadRegion>& pads,
-                                 pinocchio::JointIndex joint,
-                                 const Eigen::Vector3d& worldCenter,
-                                 double radius,
-                                 double neighborhood);
+  /** [m] What `pads` allow a sphere of the link of `joint` at
+   * `posSphereRtWorldEwrtWorld` of `radius` to rest in the terrain:
+   * kRestingLinkDepth when one of them lists the joint among its restingJoints
+   * and the sphere is within `neighborhood` of it, else 0. */
+  static double restingAllowance(
+      const std::vector<PadRegion>& pads,
+      pinocchio::JointIndex joint,
+      const Eigen::Vector3d& posSphereRtWorldEwrtWorld,
+      double radius,
+      double neighborhood);
 
   /** The smallest terrain clearance (TerrainModel::sphereDistance()) of the
    * spheres that are not exempt for the active pads of `mask`, at `model`'s

@@ -29,11 +29,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/cost/FootholdRegularizationCost.h"
 
-#include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <string>
 
 #include "ocs2_core/Dimensions.h"
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/StageAccumulator.h"
 
 namespace ocs2::humanoid {
 
@@ -52,9 +57,10 @@ void FootholdRegularizationCost::addToStage(
     StageAccumulator& stage) const {
   for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      stage.addQuadraticResidual(/*xCoefficients=*/{},
-                                 {{idx_.footDelta[foot][axis], 1.0}},
-                                 /*offset=*/0.0, weight_);
+      stage.addQuadraticResidual(
+          /*xCoefficients=*/{},
+          {{idx_.errPosFeetRtWorldEwrtWorld[foot][axis], 1.0}},
+          /*offset=*/0.0, weight_);
     }
   }
 }

@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <memory>
 
@@ -37,7 +38,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
 #include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
 #include "humanoid_common_mpc/constraint/GroundPenetrationConstraint.h"
@@ -51,11 +56,11 @@ namespace ocs2::humanoid {
 namespace {
 
 constexpr size_t kFoot = kContactLeftIndex;
-constexpr scalar_t kForceReference =
-    1600.0;                                  // [N] about the DRC Atlas's weight
-constexpr scalar_t kHeightReference = 0.08;  // [m]
-constexpr scalar_t kVelocityReference = 0.3;  // [m/s]
-constexpr scalar_t kAngularReference = 1.0;   // [rad/s]
+constexpr scalar_t kScaleForceContactEwrtParamZ =
+    1600.0;  // [N] about the DRC Atlas's weight
+constexpr scalar_t kScalePosContactRtSurfaceEwrtWorldZ = 0.08;   // [m]
+constexpr scalar_t kScaleLinvelContactRtWorldEwrtWorldXy = 0.3;  // [m/s]
+constexpr scalar_t kScaleAngvelContactRtWorldEwrtWorldZ = 1.0;   // [rad/s]
 
 /**
  * The contact-implicit terms against the BASIS-VECTOR input parameterization -
@@ -88,8 +93,8 @@ class ContactImplicitTermsOnBasisInputsTest : public ::testing::Test {
     // A plausible working point: the foot carries about half the body weight
     // through its basis scalings, and the joints are moving so the slip term's
     // velocity rows are non-trivial.
-    input_ =
-        model_->makeInput(model_->basisModel(), kFoot, /*normalForce=*/800.0);
+    input_ = model_->makeInput(model_->basisModel(), kFoot,
+                               /*forceFootEwrtParamZ=*/800.0);
   }
 
   std::unique_ptr<DrcAtlasContactTestModel> model_;
@@ -179,9 +184,9 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   ASSERT_EQ(jacobian.rows(), 3);
   EXPECT_TRUE(jacobian.middleCols(start, 3).isIdentity(1.0e-12))
       << jacobian.middleCols(start, 3);
-  matrix_t outsideTheForce = jacobian;
-  outsideTheForce.middleCols(start, 3).setZero();
-  EXPECT_TRUE(outsideTheForce.isZero(1.0e-12))
+  matrix_t jacobianOffTheContactBlock = jacobian;
+  jacobianOffTheContactBlock.middleCols(start, 3).setZero();
+  EXPECT_TRUE(jacobianOffTheContactBlock.isZero(1.0e-12))
       << "the moment and the joint velocities cannot move the force";
 }
 
@@ -213,7 +218,7 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   vector_t otherFootLoaded = model_->makeInput(
       model_->basisModel(),
       kFoot == kContactLeftIndex ? kContactRightIndex : kContactLeftIndex,
-      /*normalForce=*/800.0);
+      /*forceFootEwrtParamZ=*/800.0);
   EXPECT_NEAR(row.dot(otherFootLoaded), 0.0, 1.0e-9);
 }
 
@@ -225,22 +230,25 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
 
 TEST_F(ContactImplicitTermsOnBasisInputsTest,
        complementarityIsTheNormalizedProductOnTheBasisModel) {
-  const scalar_t lowestCorner = cornerHeights_->getHeights(state_).minCoeff();
-  const scalar_t terrainHeight =
-      lowestCorner -
+  const scalar_t minPosLinksRtWorldEwrtWorldZ =
+      cornerHeights_->getPosLinksRtWorldEwrtWorldZ(state_).minCoeff();
+  const scalar_t posSurfaceRtWorldEwrtWorldZ =
+      minPosLinksRtWorldEwrtWorldZ -
       0.03;  // the lowest corner of the foot is 3 cm above the ground
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const std::unique_ptr<ContactComplementarityConstraint> termPtr,
       ContactComplementarityConstraint::Create(
-          *cornerHeights_, model_->basisModel(), kFoot, terrainHeight,
-          kForceReference, kHeightReference));
+          *cornerHeights_, model_->basisModel(), kFoot,
+          posSurfaceRtWorldEwrtWorldZ, kScaleForceContactEwrtParamZ,
+          kScalePosContactRtSurfaceEwrtWorldZ));
   const ContactComplementarityConstraint& term = *termPtr;
   const PreComputation preComp;
 
   const vector_t row =
       inputRowForceContactEwrtParamZ(model_->basisModel(), kFoot);
-  const scalar_t expected = (row.dot(input_) / kForceReference) *
-                            (term.getGap(state_) / kHeightReference);
+  const scalar_t expected =
+      (row.dot(input_) / kScaleForceContactEwrtParamZ) *
+      (term.getGap(state_) / kScalePosContactRtSurfaceEwrtWorldZ);
   EXPECT_NEAR(term.getValue(/*time=*/0.0, state_, input_, preComp)(0), expected,
               1.0e-9);
   // The gap the term reports is the clearance of the lowest corner, up to the
@@ -253,8 +261,9 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const std::unique_ptr<ContactComplementarityConstraint> onGroundPtr,
       ContactComplementarityConstraint::Create(
-          *cornerHeights_, model_->basisModel(), kFoot, lowestCorner,
-          kForceReference, kHeightReference));
+          *cornerHeights_, model_->basisModel(), kFoot,
+          minPosLinksRtWorldEwrtWorldZ, kScaleForceContactEwrtParamZ,
+          kScalePosContactRtSurfaceEwrtWorldZ));
   const ContactComplementarityConstraint& onGround = *onGroundPtr;
   EXPECT_NEAR(onGround.getValue(/*time=*/0.0, state_, input_, preComp)(0), 0.0,
               1.0e-2);
@@ -266,13 +275,14 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
 
 TEST_F(ContactImplicitTermsOnBasisInputsTest,
        complementarityDerivativesMatchFiniteDifferencesOnTheBasisModel) {
-  const scalar_t terrainHeight =
-      cornerHeights_->getHeights(state_).minCoeff() - 0.03;
+  const scalar_t posSurfaceRtWorldEwrtWorldZ =
+      cornerHeights_->getPosLinksRtWorldEwrtWorldZ(state_).minCoeff() - 0.03;
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const std::unique_ptr<ContactComplementarityConstraint> termPtr,
       ContactComplementarityConstraint::Create(
-          *cornerHeights_, model_->basisModel(), kFoot, terrainHeight,
-          kForceReference, kHeightReference));
+          *cornerHeights_, model_->basisModel(), kFoot,
+          posSurfaceRtWorldEwrtWorldZ, kScaleForceContactEwrtParamZ,
+          kScalePosContactRtSurfaceEwrtWorldZ));
   const ContactComplementarityConstraint& term = *termPtr;
   expectStateInputDerivativesMatchFiniteDifferences(term, state_, input_);
 
@@ -284,8 +294,10 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
       const std::unique_ptr<ContactComplementarityConstraint> pitchedTermPtr,
       ContactComplementarityConstraint::Create(
           *cornerHeights_, model_->basisModel(), kFoot,
-          cornerHeights_->getHeights(pitchedState).minCoeff() - 0.03,
-          kForceReference, kHeightReference));
+          cornerHeights_->getPosLinksRtWorldEwrtWorldZ(pitchedState)
+                  .minCoeff() -
+              0.03,
+          kScaleForceContactEwrtParamZ, kScalePosContactRtSurfaceEwrtWorldZ));
   const ContactComplementarityConstraint& pitchedTerm = *pitchedTermPtr;
   expectStateInputDerivativesMatchFiniteDifferences(pitchedTerm, pitchedState,
                                                     input_);
@@ -296,23 +308,33 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const std::unique_ptr<ForceWeightedSlipConstraint> termPtr,
       ForceWeightedSlipConstraint::Create(
-          *basisKinematics_, model_->basisModel(), kFoot, kForceReference,
-          kVelocityReference, kAngularReference));
+          *basisKinematics_, model_->basisModel(), kFoot,
+          kScaleForceContactEwrtParamZ, kScaleLinvelContactRtWorldEwrtWorldXy,
+          kScaleAngvelContactRtWorldEwrtWorldZ));
   const ForceWeightedSlipConstraint& term = *termPtr;
   const PreComputation preComp;
   const vector_t value = term.getValue(/*time=*/0.0, state_, input_, preComp);
   ASSERT_EQ(value.size(), 3);
 
-  const vector3_t velocity =
+  const vector3_t linvelContactRtWorldEwrtWorld =
       basisKinematics_->getLinvelEesRtWorldEwrtWorld(state_, input_).front();
-  const vector3_t angularVelocity =
+  const vector3_t angvelContactRtWorldEwrtWorld =
       basisKinematics_->getAngvelEesRtWorldEwrtWorld(state_, input_).front();
   const scalar_t load =
       inputRowForceContactEwrtParamZ(model_->basisModel(), kFoot).dot(input_) /
-      kForceReference;
-  EXPECT_NEAR(value(0), load * velocity(0) / kVelocityReference, 1.0e-9);
-  EXPECT_NEAR(value(1), load * velocity(1) / kVelocityReference, 1.0e-9);
-  EXPECT_NEAR(value(2), load * angularVelocity(2) / kAngularReference, 1.0e-9);
+      kScaleForceContactEwrtParamZ;
+  EXPECT_NEAR(value(0),
+              load * linvelContactRtWorldEwrtWorld(0) /
+                  kScaleLinvelContactRtWorldEwrtWorldXy,
+              1.0e-9);
+  EXPECT_NEAR(value(1),
+              load * linvelContactRtWorldEwrtWorld(1) /
+                  kScaleLinvelContactRtWorldEwrtWorldXy,
+              1.0e-9);
+  EXPECT_NEAR(value(2),
+              load * angvelContactRtWorldEwrtWorld(2) /
+                  kScaleAngvelContactRtWorldEwrtWorldZ,
+              1.0e-9);
 
   // A foot carrying nothing is free to move however it likes.
   const vector_t noLoad = vector_t::Zero(model_->basisModel().getInputDim());
@@ -325,8 +347,9 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const std::unique_ptr<ForceWeightedSlipConstraint> termPtr,
       ForceWeightedSlipConstraint::Create(
-          *basisKinematics_, model_->basisModel(), kFoot, kForceReference,
-          kVelocityReference, kAngularReference));
+          *basisKinematics_, model_->basisModel(), kFoot,
+          kScaleForceContactEwrtParamZ, kScaleLinvelContactRtWorldEwrtWorldXy,
+          kScaleAngvelContactRtWorldEwrtWorldZ));
   const ForceWeightedSlipConstraint& term = *termPtr;
   expectStateInputDerivativesMatchFiniteDifferences(term, state_, input_);
 }
@@ -341,7 +364,7 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const std::unique_ptr<GroundPenetrationConstraint> termPtr,
       GroundPenetrationConstraint::Create(*cornerHeights_,
-                                          /*terrainHeight=*/0.0));
+                                          /*posSurfaceRtWorldEwrtWorldZ=*/0.0));
   const GroundPenetrationConstraint& term = *termPtr;
   ASSERT_EQ(cornerHeights_->numCorners(), 4U);
   EXPECT_EQ(term.getNumPoints(), 4U);
@@ -350,9 +373,10 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   const PreComputation preComp;
   const vector_t value = term.getValue(/*time=*/0.0, state_, preComp);
   ASSERT_EQ(value.size(), 4);
-  const vector_t heights = cornerHeights_->getHeights(state_);
+  const vector_t posCornersRtWorldEwrtWorldZ =
+      cornerHeights_->getPosLinksRtWorldEwrtWorldZ(state_);
   for (Eigen::Index corner = 0; corner < 4; ++corner) {
-    EXPECT_NEAR(value(corner), heights(corner), 1.0e-12);
+    EXPECT_NEAR(value(corner), posCornersRtWorldEwrtWorldZ(corner), 1.0e-12);
   }
 
   // At the nominal state the foot is flat, so every corner sits at the sole
@@ -369,14 +393,17 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
 
   vector_t pitchedState = state_;
   pitchedState(model_->anklePitchStateIndex(kFoot)) += 0.15;
-  const vector_t pitchedHeights =
+  const vector_t pitchedPosCornersRtWorldEwrtWorldZ =
       term.getValue(/*time=*/0.0, pitchedState, preComp);
-  const scalar_t pitchedCenterHeight =
+  const scalar_t pitchedPosFootRtWorldEwrtWorldZ =
       soleCenter->getPosEesRtWorldEwrtWorld(pitchedState).front()(2);
-  EXPECT_GT(pitchedHeights.maxCoeff() - pitchedHeights.minCoeff(), 0.01)
+  EXPECT_GT(pitchedPosCornersRtWorldEwrtWorldZ.maxCoeff() -
+                pitchedPosCornersRtWorldEwrtWorldZ.minCoeff(),
+            0.01)
       << "pitching the foot must separate the corner heights, or the corners "
          "are not being read";
-  EXPECT_LT(pitchedHeights.minCoeff(), pitchedCenterHeight - 0.005)
+  EXPECT_LT(pitchedPosCornersRtWorldEwrtWorldZ.minCoeff(),
+            pitchedPosFootRtWorldEwrtWorldZ - 0.005)
       << "the lowest corner must sit below the sole center: that gap is "
          "exactly what a center-only term missed";
 
@@ -391,7 +418,8 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   // was moved to the corners and the product was left on the sole center.
   vector_t pitchedState = state_;
   pitchedState(model_->anklePitchStateIndex(kFoot)) += 0.15;
-  const vector_t heights = cornerHeights_->getHeights(pitchedState);
+  const vector_t heights =
+      cornerHeights_->getPosLinksRtWorldEwrtWorldZ(pitchedState);
 
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const std::unique_ptr<GroundPenetrationConstraint> penetrationPtr,
@@ -402,7 +430,7 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
           complementarityPtr,
       ContactComplementarityConstraint::Create(
           *cornerHeights_, model_->basisModel(), kFoot, heights.minCoeff(),
-          kForceReference, kHeightReference));
+          kScaleForceContactEwrtParamZ, kScalePosContactRtSurfaceEwrtWorldZ));
   const ContactComplementarityConstraint& complementarity = *complementarityPtr;
   const PreComputation preComp;
 
@@ -437,26 +465,29 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
        complementarityCreateRefusesANonPositiveReferenceOrSmoothing) {
   const scalar_t nan = std::numeric_limits<scalar_t>::quiet_NaN();
   for (const scalar_t bad : {0.0, -1.0, nan}) {
-    EXPECT_EQ(
-        ContactComplementarityConstraint::Create(
-            *cornerHeights_, model_->basisModel(), kFoot, /*terrainHeight=*/0.0,
-            /*scaleForceContactEwrtParamZ=*/bad, kHeightReference)
-            .status()
-            .code(),
-        absl::StatusCode::kInvalidArgument)
-        << "force reference " << bad;
     EXPECT_EQ(ContactComplementarityConstraint::Create(
                   *cornerHeights_, model_->basisModel(), kFoot,
-                  /*terrainHeight=*/0.0, kForceReference,
-                  /*heightReference=*/bad)
+                  /*posSurfaceRtWorldEwrtWorldZ=*/0.0,
+                  /*scaleForceContactEwrtParamZ=*/bad,
+                  kScalePosContactRtSurfaceEwrtWorldZ)
                   .status()
                   .code(),
               absl::StatusCode::kInvalidArgument)
+        << "force reference " << bad;
+    EXPECT_EQ(
+        ContactComplementarityConstraint::Create(
+            *cornerHeights_, model_->basisModel(), kFoot,
+            /*posSurfaceRtWorldEwrtWorldZ=*/0.0, kScaleForceContactEwrtParamZ,
+            /*scalePosContactRtSurfaceEwrtWorldZ=*/bad)
+            .status()
+            .code(),
+        absl::StatusCode::kInvalidArgument)
         << "height reference " << bad;
     EXPECT_EQ(
         ContactComplementarityConstraint::Create(
-            *cornerHeights_, model_->basisModel(), kFoot, /*terrainHeight=*/0.0,
-            kForceReference, kHeightReference, /*gapSmoothing=*/bad)
+            *cornerHeights_, model_->basisModel(), kFoot,
+            /*posSurfaceRtWorldEwrtWorldZ=*/0.0, kScaleForceContactEwrtParamZ,
+            kScalePosContactRtSurfaceEwrtWorldZ, /*gapSmoothing=*/bad)
             .status()
             .code(),
         absl::StatusCode::kInvalidArgument)
@@ -464,7 +495,9 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   }
   EXPECT_TRUE(ContactComplementarityConstraint::Create(
                   *cornerHeights_, model_->basisModel(), kFoot,
-                  /*terrainHeight=*/0.0, kForceReference, kHeightReference)
+                  /*posSurfaceRtWorldEwrtWorldZ=*/0.0,
+                  kScaleForceContactEwrtParamZ,
+                  kScalePosContactRtSurfaceEwrtWorldZ)
                   .ok());
 }
 
@@ -474,32 +507,37 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest,
   for (const scalar_t bad : {0.0, -1.0, nan}) {
     EXPECT_EQ(ForceWeightedSlipConstraint::Create(
                   *basisKinematics_, model_->basisModel(), kFoot,
-                  /*scaleForceContactEwrtParamZ=*/bad, kVelocityReference,
-                  kAngularReference)
+                  /*scaleForceContactEwrtParamZ=*/bad,
+                  kScaleLinvelContactRtWorldEwrtWorldXy,
+                  kScaleAngvelContactRtWorldEwrtWorldZ)
                   .status()
                   .code(),
               absl::StatusCode::kInvalidArgument)
         << "force reference " << bad;
-    EXPECT_EQ(
-        ForceWeightedSlipConstraint::Create(
-            *basisKinematics_, model_->basisModel(), kFoot, kForceReference,
-            /*scaleLinvelContactRtWorldEwrtWorldXy=*/bad, kAngularReference)
-            .status()
-            .code(),
-        absl::StatusCode::kInvalidArgument)
-        << "velocity reference " << bad;
     EXPECT_EQ(ForceWeightedSlipConstraint::Create(
                   *basisKinematics_, model_->basisModel(), kFoot,
-                  kForceReference, kVelocityReference,
-                  /*scaleAngvelContactRtWorldEwrtWorldZ=*/bad)
+                  kScaleForceContactEwrtParamZ,
+                  /*scaleLinvelContactRtWorldEwrtWorldXy=*/bad,
+                  kScaleAngvelContactRtWorldEwrtWorldZ)
                   .status()
                   .code(),
               absl::StatusCode::kInvalidArgument)
+        << "velocity reference " << bad;
+    EXPECT_EQ(
+        ForceWeightedSlipConstraint::Create(
+            *basisKinematics_, model_->basisModel(), kFoot,
+            kScaleForceContactEwrtParamZ, kScaleLinvelContactRtWorldEwrtWorldXy,
+            /*scaleAngvelContactRtWorldEwrtWorldZ=*/bad)
+            .status()
+            .code(),
+        absl::StatusCode::kInvalidArgument)
         << "angular velocity reference " << bad;
   }
   EXPECT_TRUE(ForceWeightedSlipConstraint::Create(
                   *basisKinematics_, model_->basisModel(), kFoot,
-                  kForceReference, kVelocityReference, kAngularReference)
+                  kScaleForceContactEwrtParamZ,
+                  kScaleLinvelContactRtWorldEwrtWorldXy,
+                  kScaleAngvelContactRtWorldEwrtWorldZ)
                   .ok());
 }
 

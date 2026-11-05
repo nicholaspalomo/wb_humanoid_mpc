@@ -21,42 +21,42 @@ terrain_scene {
   primitives {
     name: "ground"
     friction: 0.8
-    box { center: [0, 0, -0.5] half_extents: [20, 20, 0.5] }
+    box { pos_box_rt_world_ewrt_world: [0, 0, -0.5] half_extents: [20, 20, 0.5] }
   }
 }
 
-initial_pose {
+initial_posture {
   name: "hands_and_knees"
-  base_position: [-0.1594, 0.0004, 0.5091]
-  base_orientation_xyzw: [0.000232718, 0.235208725, -0.000496276, 0.971944729]
-  joint_positions { joint: "back_bkz" position: -0.0004 }
-  joint_positions { joint: "back_bky" position: 0.5188 }
-  joint_positions { joint: "back_bkx" position: 0.0003 }
-  joint_positions { joint: "l_arm_shz" position: -1.3853 }
-  joint_positions { joint: "l_arm_shx" position: -0.3900 }
-  joint_positions { joint: "l_arm_ely" position: 0.0868 }
-  joint_positions { joint: "l_arm_elx" position: 0.1919 }
-  joint_positions { joint: "l_arm_wry" position: 0.0645 }
-  joint_positions { joint: "l_arm_wrx" position: -0.1492 }
-  joint_positions { joint: "neck_ry" position: -0.0293 }
-  joint_positions { joint: "r_arm_shz" position: 1.3873 }
-  joint_positions { joint: "r_arm_shx" position: 0.3886 }
-  joint_positions { joint: "r_arm_ely" position: 0.0870 }
-  joint_positions { joint: "r_arm_elx" position: -0.1924 }
-  joint_positions { joint: "r_arm_wry" position: 0.0645 }
-  joint_positions { joint: "r_arm_wrx" position: 0.1501 }
-  joint_positions { joint: "l_leg_hpz" position: -0.1387 }
-  joint_positions { joint: "l_leg_hpx" position: 0.0637 }
-  joint_positions { joint: "l_leg_hpy" position: -0.6824 }
-  joint_positions { joint: "l_leg_kny" position: 1.8783 }
-  joint_positions { joint: "l_leg_aky" position: 0.6800 }
-  joint_positions { joint: "l_leg_akx" position: -0.0089 }
-  joint_positions { joint: "r_leg_hpz" position: 0.1390 }
-  joint_positions { joint: "r_leg_hpx" position: -0.0658 }
-  joint_positions { joint: "r_leg_hpy" position: -0.6827 }
-  joint_positions { joint: "r_leg_kny" position: 1.8787 }
-  joint_positions { joint: "r_leg_aky" position: 0.6800 }
-  joint_positions { joint: "r_leg_akx" position: 0.0071 }
+  pos_base_rt_world_ewrt_world: [-0.1594, 0.0004, 0.5091]
+  quat_base_rt_world_xyzw: [0.000232718, 0.235208725, -0.000496276, 0.971944729]
+  joint_positions { joint: "back_bkz" joint_position: -0.0004 }
+  joint_positions { joint: "back_bky" joint_position: 0.5188 }
+  joint_positions { joint: "back_bkx" joint_position: 0.0003 }
+  joint_positions { joint: "l_arm_shz" joint_position: -1.3853 }
+  joint_positions { joint: "l_arm_shx" joint_position: -0.3900 }
+  joint_positions { joint: "l_arm_ely" joint_position: 0.0868 }
+  joint_positions { joint: "l_arm_elx" joint_position: 0.1919 }
+  joint_positions { joint: "l_arm_wry" joint_position: 0.0645 }
+  joint_positions { joint: "l_arm_wrx" joint_position: -0.1492 }
+  joint_positions { joint: "neck_ry" joint_position: -0.0293 }
+  joint_positions { joint: "r_arm_shz" joint_position: 1.3873 }
+  joint_positions { joint: "r_arm_shx" joint_position: 0.3886 }
+  joint_positions { joint: "r_arm_ely" joint_position: 0.0870 }
+  joint_positions { joint: "r_arm_elx" joint_position: -0.1924 }
+  joint_positions { joint: "r_arm_wry" joint_position: 0.0645 }
+  joint_positions { joint: "r_arm_wrx" joint_position: 0.1501 }
+  joint_positions { joint: "l_leg_hpz" joint_position: -0.1387 }
+  joint_positions { joint: "l_leg_hpx" joint_position: 0.0637 }
+  joint_positions { joint: "l_leg_hpy" joint_position: -0.6824 }
+  joint_positions { joint: "l_leg_kny" joint_position: 1.8783 }
+  joint_positions { joint: "l_leg_aky" joint_position: 0.6800 }
+  joint_positions { joint: "l_leg_akx" joint_position: -0.0089 }
+  joint_positions { joint: "r_leg_hpz" joint_position: 0.1390 }
+  joint_positions { joint: "r_leg_hpx" joint_position: -0.0658 }
+  joint_positions { joint: "r_leg_hpy" joint_position: -0.6827 }
+  joint_positions { joint: "r_leg_kny" joint_position: 1.8787 }
+  joint_positions { joint: "r_leg_aky" joint_position: 0.6800 }
+  joint_positions { joint: "r_leg_akx" joint_position: 0.0071 }
   active_contacts: "knee_l_contact"
   active_contacts: "knee_r_contact"
   active_contacts: "hand_l_contact"
@@ -66,19 +66,19 @@ initial_pose {
 goal {
   contacts { contact: "foot_l_contact" primitive: "ground" }
   contacts { contact: "foot_r_contact" primitive: "ground" }
-  base_region { center: [0, 0, 0.9232] half_extents: [0.6, 0.4, 0.15] }
-  pose {
+  base_region { pos_box_rt_world_ewrt_world: [0, 0, 0.9232] half_extents: [0.6, 0.4, 0.15] }
+  posture {
     name: "standing"
-    base_position: [0, 0, 0.9232]
-    base_orientation_xyzw: [0, 0, 0, 1]
-    joint_positions { joint: "l_leg_hpy" position: -0.3 }
-    joint_positions { joint: "r_leg_hpy" position: -0.3 }
-    joint_positions { joint: "l_leg_kny" position: 0.6 }
-    joint_positions { joint: "r_leg_kny" position: 0.6 }
-    joint_positions { joint: "l_leg_aky" position: -0.3 }
-    joint_positions { joint: "r_leg_aky" position: -0.3 }
-    joint_positions { joint: "l_arm_shx" position: -1.3 }
-    joint_positions { joint: "r_arm_shx" position: 1.3 }
+    pos_base_rt_world_ewrt_world: [0, 0, 0.9232]
+    quat_base_rt_world_xyzw: [0, 0, 0, 1]
+    joint_positions { joint: "l_leg_hpy" joint_position: -0.3 }
+    joint_positions { joint: "r_leg_hpy" joint_position: -0.3 }
+    joint_positions { joint: "l_leg_kny" joint_position: 0.6 }
+    joint_positions { joint: "r_leg_kny" joint_position: 0.6 }
+    joint_positions { joint: "l_leg_aky" joint_position: -0.3 }
+    joint_positions { joint: "r_leg_aky" joint_position: -0.3 }
+    joint_positions { joint: "l_arm_shx" joint_position: -1.3 }
+    joint_positions { joint: "r_arm_shx" joint_position: 1.3 }
     active_contacts: "foot_l_contact"
     active_contacts: "foot_r_contact"
   }
@@ -94,38 +94,38 @@ waypoints {
   contacts { contact: "knee_r_contact" primitive: "ground" }
   contacts { contact: "hand_l_contact" primitive: "ground" }
   contacts { contact: "hand_r_contact" primitive: "ground" }
-  pose {
+  posture {
     name: "left_foot_forward"
-    base_position: [-0.1109, -0.1403, 0.5208]
-    base_orientation_xyzw: [0.109532080, 0.210447425, -0.124405353, 0.963451043]
-    joint_positions { joint: "back_bkz" position: -0.1562 }
-    joint_positions { joint: "back_bky" position: 0.6388 }
-    joint_positions { joint: "back_bkx" position: -0.5123 }
-    joint_positions { joint: "l_arm_shz" position: -0.9948 }
-    joint_positions { joint: "l_arm_shx" position: -0.2028 }
-    joint_positions { joint: "l_arm_ely" position: -0.0088 }
-    joint_positions { joint: "l_arm_elx" position: 0.2101 }
-    joint_positions { joint: "l_arm_wry" position: -0.0332 }
-    joint_positions { joint: "l_arm_wrx" position: -0.2503 }
-    joint_positions { joint: "neck_ry" position: -0.0483 }
-    joint_positions { joint: "r_arm_shz" position: 1.6708 }
-    joint_positions { joint: "r_arm_shx" position: 0.4740 }
-    joint_positions { joint: "r_arm_ely" position: 0.4615 }
-    joint_positions { joint: "r_arm_elx" position: -0.6005 }
-    joint_positions { joint: "r_arm_wry" position: 0.0586 }
-    joint_positions { joint: "r_arm_wrx" position: 0.1739 }
-    joint_positions { joint: "l_leg_hpz" position: -0.0771 }
-    joint_positions { joint: "l_leg_hpx" position: 0.4263 }
-    joint_positions { joint: "l_leg_hpy" position: -1.7123 }
-    joint_positions { joint: "l_leg_kny" position: 2.0932 }
-    joint_positions { joint: "l_leg_aky" position: -0.9115 }
-    joint_positions { joint: "l_leg_akx" position: -0.5014 }
-    joint_positions { joint: "r_leg_hpz" position: -0.1066 }
-    joint_positions { joint: "r_leg_hpx" position: 0.1121 }
-    joint_positions { joint: "r_leg_hpy" position: -0.5127 }
-    joint_positions { joint: "r_leg_kny" position: 1.6558 }
-    joint_positions { joint: "r_leg_aky" position: 0.8000 }
-    joint_positions { joint: "r_leg_akx" position: 0.2626 }
+    pos_base_rt_world_ewrt_world: [-0.1109, -0.1403, 0.5208]
+    quat_base_rt_world_xyzw: [0.109532080, 0.210447425, -0.124405353, 0.963451043]
+    joint_positions { joint: "back_bkz" joint_position: -0.1562 }
+    joint_positions { joint: "back_bky" joint_position: 0.6388 }
+    joint_positions { joint: "back_bkx" joint_position: -0.5123 }
+    joint_positions { joint: "l_arm_shz" joint_position: -0.9948 }
+    joint_positions { joint: "l_arm_shx" joint_position: -0.2028 }
+    joint_positions { joint: "l_arm_ely" joint_position: -0.0088 }
+    joint_positions { joint: "l_arm_elx" joint_position: 0.2101 }
+    joint_positions { joint: "l_arm_wry" joint_position: -0.0332 }
+    joint_positions { joint: "l_arm_wrx" joint_position: -0.2503 }
+    joint_positions { joint: "neck_ry" joint_position: -0.0483 }
+    joint_positions { joint: "r_arm_shz" joint_position: 1.6708 }
+    joint_positions { joint: "r_arm_shx" joint_position: 0.4740 }
+    joint_positions { joint: "r_arm_ely" joint_position: 0.4615 }
+    joint_positions { joint: "r_arm_elx" joint_position: -0.6005 }
+    joint_positions { joint: "r_arm_wry" joint_position: 0.0586 }
+    joint_positions { joint: "r_arm_wrx" joint_position: 0.1739 }
+    joint_positions { joint: "l_leg_hpz" joint_position: -0.0771 }
+    joint_positions { joint: "l_leg_hpx" joint_position: 0.4263 }
+    joint_positions { joint: "l_leg_hpy" joint_position: -1.7123 }
+    joint_positions { joint: "l_leg_kny" joint_position: 2.0932 }
+    joint_positions { joint: "l_leg_aky" joint_position: -0.9115 }
+    joint_positions { joint: "l_leg_akx" joint_position: -0.5014 }
+    joint_positions { joint: "r_leg_hpz" joint_position: -0.1066 }
+    joint_positions { joint: "r_leg_hpx" joint_position: 0.1121 }
+    joint_positions { joint: "r_leg_hpy" joint_position: -0.5127 }
+    joint_positions { joint: "r_leg_kny" joint_position: 1.6558 }
+    joint_positions { joint: "r_leg_aky" joint_position: 0.8000 }
+    joint_positions { joint: "r_leg_akx" joint_position: 0.2626 }
     active_contacts: "foot_l_contact"
     active_contacts: "knee_r_contact"
     active_contacts: "hand_l_contact"
@@ -137,38 +137,38 @@ waypoints {
   contacts { contact: "foot_r_contact" primitive: "ground" }
   contacts { contact: "hand_l_contact" primitive: "ground" }
   contacts { contact: "hand_r_contact" primitive: "ground" }
-  pose {
+  posture {
     name: "squatting_on_the_hands"
-    base_position: [0.0257, 0.2625, 0.4769]
-    base_orientation_xyzw: [-0.166335392, 0.126372889, -0.259824991, 0.942790223]
-    joint_positions { joint: "back_bkz" position: 0.7115 }
-    joint_positions { joint: "back_bky" position: 0.6388 }
-    joint_positions { joint: "back_bkx" position: 0.6236 }
-    joint_positions { joint: "l_arm_shz" position: -1.6708 }
-    joint_positions { joint: "l_arm_shx" position: -0.9104 }
-    joint_positions { joint: "l_arm_ely" position: 0.5273 }
-    joint_positions { joint: "l_arm_elx" position: 0.8297 }
-    joint_positions { joint: "l_arm_wry" position: -0.1000 }
-    joint_positions { joint: "l_arm_wrx" position: -0.6516 }
-    joint_positions { joint: "neck_ry" position: -0.0482 }
-    joint_positions { joint: "r_arm_shz" position: 0.9938 }
-    joint_positions { joint: "r_arm_shx" position: 0.2371 }
-    joint_positions { joint: "r_arm_ely" position: 0.1408 }
-    joint_positions { joint: "r_arm_elx" position: -0.1895 }
-    joint_positions { joint: "r_arm_wry" position: -0.1000 }
-    joint_positions { joint: "r_arm_wrx" position: 0.2442 }
-    joint_positions { joint: "l_leg_hpz" position: 0.1345 }
-    joint_positions { joint: "l_leg_hpx" position: -0.1205 }
-    joint_positions { joint: "l_leg_hpy" position: -1.7123 }
-    joint_positions { joint: "l_leg_kny" position: 2.4564 }
-    joint_positions { joint: "l_leg_aky" position: -0.9732 }
-    joint_positions { joint: "l_leg_akx" position: 0.4810 }
-    joint_positions { joint: "r_leg_hpz" position: -0.6154 }
-    joint_positions { joint: "r_leg_hpx" position: 0.3707 }
-    joint_positions { joint: "r_leg_hpy" position: -1.7123 }
-    joint_positions { joint: "r_leg_kny" position: 2.0821 }
-    joint_positions { joint: "r_leg_aky" position: -0.2746 }
-    joint_positions { joint: "r_leg_akx" position: 0.0397 }
+    pos_base_rt_world_ewrt_world: [0.0257, 0.2625, 0.4769]
+    quat_base_rt_world_xyzw: [-0.166335392, 0.126372889, -0.259824991, 0.942790223]
+    joint_positions { joint: "back_bkz" joint_position: 0.7115 }
+    joint_positions { joint: "back_bky" joint_position: 0.6388 }
+    joint_positions { joint: "back_bkx" joint_position: 0.6236 }
+    joint_positions { joint: "l_arm_shz" joint_position: -1.6708 }
+    joint_positions { joint: "l_arm_shx" joint_position: -0.9104 }
+    joint_positions { joint: "l_arm_ely" joint_position: 0.5273 }
+    joint_positions { joint: "l_arm_elx" joint_position: 0.8297 }
+    joint_positions { joint: "l_arm_wry" joint_position: -0.1000 }
+    joint_positions { joint: "l_arm_wrx" joint_position: -0.6516 }
+    joint_positions { joint: "neck_ry" joint_position: -0.0482 }
+    joint_positions { joint: "r_arm_shz" joint_position: 0.9938 }
+    joint_positions { joint: "r_arm_shx" joint_position: 0.2371 }
+    joint_positions { joint: "r_arm_ely" joint_position: 0.1408 }
+    joint_positions { joint: "r_arm_elx" joint_position: -0.1895 }
+    joint_positions { joint: "r_arm_wry" joint_position: -0.1000 }
+    joint_positions { joint: "r_arm_wrx" joint_position: 0.2442 }
+    joint_positions { joint: "l_leg_hpz" joint_position: 0.1345 }
+    joint_positions { joint: "l_leg_hpx" joint_position: -0.1205 }
+    joint_positions { joint: "l_leg_hpy" joint_position: -1.7123 }
+    joint_positions { joint: "l_leg_kny" joint_position: 2.4564 }
+    joint_positions { joint: "l_leg_aky" joint_position: -0.9732 }
+    joint_positions { joint: "l_leg_akx" joint_position: 0.4810 }
+    joint_positions { joint: "r_leg_hpz" joint_position: -0.6154 }
+    joint_positions { joint: "r_leg_hpx" joint_position: 0.3707 }
+    joint_positions { joint: "r_leg_hpy" joint_position: -1.7123 }
+    joint_positions { joint: "r_leg_kny" joint_position: 2.0821 }
+    joint_positions { joint: "r_leg_aky" joint_position: -0.2746 }
+    joint_positions { joint: "r_leg_akx" joint_position: 0.0397 }
     active_contacts: "foot_l_contact"
     active_contacts: "foot_r_contact"
     active_contacts: "hand_l_contact"
@@ -179,38 +179,38 @@ waypoints {
   contacts { contact: "foot_l_contact" primitive: "ground" }
   contacts { contact: "foot_r_contact" primitive: "ground" }
   contacts { contact: "hand_r_contact" primitive: "ground" }
-  pose {
+  posture {
     name: "squatting_on_the_right_hand"
-    base_position: [-0.1046, 0.1129, 0.4884]
-    base_orientation_xyzw: [-0.186017973, 0.107330526, -0.167689549, 0.962163025]
-    joint_positions { joint: "back_bkz" position: 0.6932 }
-    joint_positions { joint: "back_bky" position: 0.6388 }
-    joint_positions { joint: "back_bkx" position: 0.6236 }
-    joint_positions { joint: "l_arm_shz" position: -1.5691 }
-    joint_positions { joint: "l_arm_shx" position: -0.5770 }
-    joint_positions { joint: "l_arm_ely" position: 0.5566 }
-    joint_positions { joint: "l_arm_elx" position: 0.5510 }
-    joint_positions { joint: "l_arm_wry" position: 0.1511 }
-    joint_positions { joint: "l_arm_wrx" position: -0.6888 }
-    joint_positions { joint: "neck_ry" position: -0.1286 }
-    joint_positions { joint: "r_arm_shz" position: 1.1054 }
-    joint_positions { joint: "r_arm_shx" position: 0.2350 }
-    joint_positions { joint: "r_arm_ely" position: 0.1449 }
-    joint_positions { joint: "r_arm_elx" position: -0.1646 }
-    joint_positions { joint: "r_arm_wry" position: 0.0061 }
-    joint_positions { joint: "r_arm_wrx" position: 0.1707 }
-    joint_positions { joint: "l_leg_hpz" position: -0.2726 }
-    joint_positions { joint: "l_leg_hpx" position: 0.5656 }
-    joint_positions { joint: "l_leg_hpy" position: -1.7123 }
-    joint_positions { joint: "l_leg_kny" position: 2.4564 }
-    joint_positions { joint: "l_leg_aky" position: -0.7771 }
-    joint_positions { joint: "l_leg_akx" position: -0.1338 }
-    joint_positions { joint: "r_leg_hpz" position: -0.3859 }
-    joint_positions { joint: "r_leg_hpx" position: 0.5160 }
-    joint_positions { joint: "r_leg_hpy" position: -1.7123 }
-    joint_positions { joint: "r_leg_kny" position: 2.1508 }
-    joint_positions { joint: "r_leg_aky" position: -0.4236 }
-    joint_positions { joint: "r_leg_akx" position: -0.0834 }
+    pos_base_rt_world_ewrt_world: [-0.1046, 0.1129, 0.4884]
+    quat_base_rt_world_xyzw: [-0.186017973, 0.107330526, -0.167689549, 0.962163025]
+    joint_positions { joint: "back_bkz" joint_position: 0.6932 }
+    joint_positions { joint: "back_bky" joint_position: 0.6388 }
+    joint_positions { joint: "back_bkx" joint_position: 0.6236 }
+    joint_positions { joint: "l_arm_shz" joint_position: -1.5691 }
+    joint_positions { joint: "l_arm_shx" joint_position: -0.5770 }
+    joint_positions { joint: "l_arm_ely" joint_position: 0.5566 }
+    joint_positions { joint: "l_arm_elx" joint_position: 0.5510 }
+    joint_positions { joint: "l_arm_wry" joint_position: 0.1511 }
+    joint_positions { joint: "l_arm_wrx" joint_position: -0.6888 }
+    joint_positions { joint: "neck_ry" joint_position: -0.1286 }
+    joint_positions { joint: "r_arm_shz" joint_position: 1.1054 }
+    joint_positions { joint: "r_arm_shx" joint_position: 0.2350 }
+    joint_positions { joint: "r_arm_ely" joint_position: 0.1449 }
+    joint_positions { joint: "r_arm_elx" joint_position: -0.1646 }
+    joint_positions { joint: "r_arm_wry" joint_position: 0.0061 }
+    joint_positions { joint: "r_arm_wrx" joint_position: 0.1707 }
+    joint_positions { joint: "l_leg_hpz" joint_position: -0.2726 }
+    joint_positions { joint: "l_leg_hpx" joint_position: 0.5656 }
+    joint_positions { joint: "l_leg_hpy" joint_position: -1.7123 }
+    joint_positions { joint: "l_leg_kny" joint_position: 2.4564 }
+    joint_positions { joint: "l_leg_aky" joint_position: -0.7771 }
+    joint_positions { joint: "l_leg_akx" joint_position: -0.1338 }
+    joint_positions { joint: "r_leg_hpz" joint_position: -0.3859 }
+    joint_positions { joint: "r_leg_hpx" joint_position: 0.5160 }
+    joint_positions { joint: "r_leg_hpy" joint_position: -1.7123 }
+    joint_positions { joint: "r_leg_kny" joint_position: 2.1508 }
+    joint_positions { joint: "r_leg_aky" joint_position: -0.4236 }
+    joint_positions { joint: "r_leg_akx" joint_position: -0.0834 }
     active_contacts: "foot_l_contact"
     active_contacts: "foot_r_contact"
     active_contacts: "hand_r_contact"
@@ -219,38 +219,38 @@ waypoints {
 waypoints {
   contacts { contact: "foot_l_contact" primitive: "ground" }
   contacts { contact: "foot_r_contact" primitive: "ground" }
-  pose {
+  posture {
     name: "squatting"
-    base_position: [-0.1099, 0.0603, 0.4871]
-    base_orientation_xyzw: [-0.175127314, 0.076296466, -0.100384224, 0.976438570]
-    joint_positions { joint: "back_bkz" position: 0.7479 }
-    joint_positions { joint: "back_bky" position: 0.6388 }
-    joint_positions { joint: "back_bkx" position: 0.6133 }
-    joint_positions { joint: "l_arm_shz" position: -1.4478 }
-    joint_positions { joint: "l_arm_shx" position: -0.7266 }
-    joint_positions { joint: "l_arm_ely" position: 0.5088 }
-    joint_positions { joint: "l_arm_elx" position: 0.5676 }
-    joint_positions { joint: "l_arm_wry" position: 0.3503 }
-    joint_positions { joint: "l_arm_wrx" position: -0.7727 }
-    joint_positions { joint: "neck_ry" position: -0.2494 }
-    joint_positions { joint: "r_arm_shz" position: 0.9698 }
-    joint_positions { joint: "r_arm_shx" position: 0.2993 }
-    joint_positions { joint: "r_arm_ely" position: 0.2211 }
-    joint_positions { joint: "r_arm_elx" position: -0.1076 }
-    joint_positions { joint: "r_arm_wry" position: 0.1311 }
-    joint_positions { joint: "r_arm_wrx" position: 0.3222 }
-    joint_positions { joint: "l_leg_hpz" position: -0.2156 }
-    joint_positions { joint: "l_leg_hpx" position: 0.5584 }
-    joint_positions { joint: "l_leg_hpy" position: -1.7123 }
-    joint_positions { joint: "l_leg_kny" position: 2.4389 }
-    joint_positions { joint: "l_leg_aky" position: -0.7619 }
-    joint_positions { joint: "l_leg_akx" position: -0.1754 }
-    joint_positions { joint: "r_leg_hpz" position: -0.2905 }
-    joint_positions { joint: "r_leg_hpx" position: 0.4227 }
-    joint_positions { joint: "r_leg_hpy" position: -1.7032 }
-    joint_positions { joint: "r_leg_kny" position: 2.2112 }
-    joint_positions { joint: "r_leg_aky" position: -0.5148 }
-    joint_positions { joint: "r_leg_akx" position: -0.0383 }
+    pos_base_rt_world_ewrt_world: [-0.1099, 0.0603, 0.4871]
+    quat_base_rt_world_xyzw: [-0.175127314, 0.076296466, -0.100384224, 0.976438570]
+    joint_positions { joint: "back_bkz" joint_position: 0.7479 }
+    joint_positions { joint: "back_bky" joint_position: 0.6388 }
+    joint_positions { joint: "back_bkx" joint_position: 0.6133 }
+    joint_positions { joint: "l_arm_shz" joint_position: -1.4478 }
+    joint_positions { joint: "l_arm_shx" joint_position: -0.7266 }
+    joint_positions { joint: "l_arm_ely" joint_position: 0.5088 }
+    joint_positions { joint: "l_arm_elx" joint_position: 0.5676 }
+    joint_positions { joint: "l_arm_wry" joint_position: 0.3503 }
+    joint_positions { joint: "l_arm_wrx" joint_position: -0.7727 }
+    joint_positions { joint: "neck_ry" joint_position: -0.2494 }
+    joint_positions { joint: "r_arm_shz" joint_position: 0.9698 }
+    joint_positions { joint: "r_arm_shx" joint_position: 0.2993 }
+    joint_positions { joint: "r_arm_ely" joint_position: 0.2211 }
+    joint_positions { joint: "r_arm_elx" joint_position: -0.1076 }
+    joint_positions { joint: "r_arm_wry" joint_position: 0.1311 }
+    joint_positions { joint: "r_arm_wrx" joint_position: 0.3222 }
+    joint_positions { joint: "l_leg_hpz" joint_position: -0.2156 }
+    joint_positions { joint: "l_leg_hpx" joint_position: 0.5584 }
+    joint_positions { joint: "l_leg_hpy" joint_position: -1.7123 }
+    joint_positions { joint: "l_leg_kny" joint_position: 2.4389 }
+    joint_positions { joint: "l_leg_aky" joint_position: -0.7619 }
+    joint_positions { joint: "l_leg_akx" joint_position: -0.1754 }
+    joint_positions { joint: "r_leg_hpz" joint_position: -0.2905 }
+    joint_positions { joint: "r_leg_hpx" joint_position: 0.4227 }
+    joint_positions { joint: "r_leg_hpy" joint_position: -1.7032 }
+    joint_positions { joint: "r_leg_kny" joint_position: 2.2112 }
+    joint_positions { joint: "r_leg_aky" joint_position: -0.5148 }
+    joint_positions { joint: "r_leg_akx" joint_position: -0.0383 }
     active_contacts: "foot_l_contact"
     active_contacts: "foot_r_contact"
   }
@@ -289,5 +289,5 @@ duration: 12
 simulation_start {
   tilt_catch_arming: "when_standing"
   gantry_arming: "when_standing"
-  standing_base_height: 0.85
+  standing_min_pos_base_rt_world_ewrt_world_z: 0.85
 }

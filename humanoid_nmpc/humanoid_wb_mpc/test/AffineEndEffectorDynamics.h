@@ -62,44 +62,44 @@ class AffineEndEffectorDynamics final : public EndEffectorDynamics<scalar_t> {
       : ids_(std::move(ids)) {
     // Fixed, dense and of no particular structure, so that every row and column
     // of every block is exercised.
-    positionDx_ = matrix_t::Zero(3, kAffineStateDim);
-    positionDx_ << 1.0, 0.2, -0.3, 0.4, -0.5, 1.1, 0.6, -0.2, 0.3, -0.7, 0.9,
-        0.5;
-    positionOffset_ = vector3_t(0.1, -0.2, 0.05);
-    orientationDx_ = matrix_t::Zero(3, kAffineStateDim);
-    orientationDx_ << 0.3, -0.1, 0.8, 0.2, 0.6, 0.4, -0.5, 0.1, -0.2, 0.7, 0.3,
-        -0.9;
-    velocityDx_ = matrix_t::Zero(3, kAffineStateDim);
-    velocityDu_ = matrix_t::Zero(3, kAffineInputDim);
-    linearAccelerationDx_ = matrix_t::Zero(3, kAffineStateDim);
-    linearAccelerationDu_ = matrix_t::Zero(3, kAffineInputDim);
-    poseRateDx_ = matrix_t::Zero(6, kAffineStateDim);
-    poseRateDu_ = matrix_t::Zero(6, kAffineInputDim);
-    poseAccelerationDx_ = matrix_t::Zero(6, kAffineStateDim);
-    poseAccelerationDu_ = matrix_t::Zero(6, kAffineInputDim);
+    dxPosEeRtWorldEwrtWorld_ = matrix_t::Zero(3, kAffineStateDim);
+    dxPosEeRtWorldEwrtWorld_ << 1.0, 0.2, -0.3, 0.4, -0.5, 1.1, 0.6, -0.2, 0.3,
+        -0.7, 0.9, 0.5;
+    offsetPosEeRtWorldEwrtWorld_ = vector3_t(0.1, -0.2, 0.05);
+    dxTiltEeRtSurfaceEwrtWorld_ = matrix_t::Zero(3, kAffineStateDim);
+    dxTiltEeRtSurfaceEwrtWorld_ << 0.3, -0.1, 0.8, 0.2, 0.6, 0.4, -0.5, 0.1,
+        -0.2, 0.7, 0.3, -0.9;
+    dxLinvelEeRtWorldEwrtWorld_ = matrix_t::Zero(3, kAffineStateDim);
+    duLinvelEeRtWorldEwrtWorld_ = matrix_t::Zero(3, kAffineInputDim);
+    dxLinaccEeRtWorldEwrtWorld_ = matrix_t::Zero(3, kAffineStateDim);
+    duLinaccEeRtWorldEwrtWorld_ = matrix_t::Zero(3, kAffineInputDim);
+    dxXeeRate_ = matrix_t::Zero(6, kAffineStateDim);
+    duXeeRate_ = matrix_t::Zero(6, kAffineInputDim);
+    dxXeeSecondRate_ = matrix_t::Zero(6, kAffineStateDim);
+    duXeeSecondRate_ = matrix_t::Zero(6, kAffineInputDim);
     for (Eigen::Index row = 0; row < 6; ++row) {
       for (Eigen::Index col = 0; col < kAffineStateDim; ++col) {
         if (row < 3) {
-          velocityDx_(row, col) =
+          dxLinvelEeRtWorldEwrtWorld_(row, col) =
               0.1 * static_cast<scalar_t>((row + 2 * col) % 5) - 0.2;
-          linearAccelerationDx_(row, col) =
+          dxLinaccEeRtWorldEwrtWorld_(row, col) =
               0.05 * static_cast<scalar_t>((3 * row + col) % 7) - 0.15;
         }
-        poseRateDx_(row, col) =
+        dxXeeRate_(row, col) =
             0.07 * static_cast<scalar_t>((2 * row + 3 * col) % 6) - 0.13;
-        poseAccelerationDx_(row, col) =
+        dxXeeSecondRate_(row, col) =
             0.11 * static_cast<scalar_t>((row + 5 * col) % 4) - 0.17;
       }
       for (Eigen::Index col = 0; col < kAffineInputDim; ++col) {
         if (row < 3) {
-          velocityDu_(row, col) =
+          duLinvelEeRtWorldEwrtWorld_(row, col) =
               0.2 * static_cast<scalar_t>((2 * row + col) % 3) - 0.1;
-          linearAccelerationDu_(row, col) =
+          duLinaccEeRtWorldEwrtWorld_(row, col) =
               0.3 * static_cast<scalar_t>((row + 3 * col) % 4) - 0.4;
         }
-        poseRateDu_(row, col) =
+        duXeeRate_(row, col) =
             0.15 * static_cast<scalar_t>((3 * row + 2 * col) % 5) - 0.25;
-        poseAccelerationDu_(row, col) =
+        duXeeSecondRate_(row, col) =
             0.09 * static_cast<scalar_t>((4 * row + col) % 7) - 0.3;
       }
     }
@@ -114,97 +114,107 @@ class AffineEndEffectorDynamics final : public EndEffectorDynamics<scalar_t> {
   }
   const std::vector<std::string>& getIds() const override { return ids_; }
 
-  vector3_t position(const vector_t& state) const {
-    return positionDx_ * state + positionOffset_;
+  vector3_t posEeRtWorldEwrtWorld(const vector_t& state) const {
+    return dxPosEeRtWorldEwrtWorld_ * state + offsetPosEeRtWorldEwrtWorld_;
   }
-  vector3_t velocity(const vector_t& state, const vector_t& input) const {
-    return velocityDx_ * state + velocityDu_ * input;
-  }
-  vector3_t linearAcceleration(const vector_t& state,
-                               const vector_t& input) const {
-    return linearAccelerationDx_ * state + linearAccelerationDu_ * input;
-  }
-  vector3_t orientationErrorWrtPlane(const vector_t& state) const {
-    return orientationDx_ * state;
-  }
-  vector6_t poseWrtPlaneRate(const vector_t& state,
-                             const vector_t& input) const {
-    return poseRateDx_ * state + poseRateDu_ * input;
-  }
-  vector6_t poseWrtPlaneAcceleration(const vector_t& state,
+  vector3_t linvelEeRtWorldEwrtWorld(const vector_t& state,
                                      const vector_t& input) const {
-    return poseAccelerationDx_ * state + poseAccelerationDu_ * input;
+    return dxLinvelEeRtWorldEwrtWorld_ * state +
+           duLinvelEeRtWorldEwrtWorld_ * input;
+  }
+  vector3_t linaccEeRtWorldEwrtWorld(const vector_t& state,
+                                     const vector_t& input) const {
+    return dxLinaccEeRtWorldEwrtWorld_ * state +
+           duLinaccEeRtWorldEwrtWorld_ * input;
+  }
+  vector3_t tiltEeRtSurfaceEwrtWorld(const vector_t& state) const {
+    return dxTiltEeRtSurfaceEwrtWorld_ * state;
+  }
+  vector6_t xeeRate(const vector_t& state, const vector_t& input) const {
+    return dxXeeRate_ * state + duXeeRate_ * input;
+  }
+  vector6_t xeeSecondRate(const vector_t& state, const vector_t& input) const {
+    return dxXeeSecondRate_ * state + duXeeSecondRate_ * input;
   }
 
-  std::vector<vector3_t> getPosition(const vector_t& state) const override {
-    return {position(state)};
+  std::vector<vector3_t> getPosEesRtWorldEwrtWorld(
+      const vector_t& state) const override {
+    return {posEeRtWorldEwrtWorld(state)};
   }
-  std::vector<vector3_t> getVelocity(const vector_t& state,
-                                     const vector_t& input) const override {
-    return {velocity(state, input)};
-  }
-  std::vector<vector3_t> getLinearAcceleration(
+  std::vector<vector3_t> getLinvelEesRtWorldEwrtWorld(
       const vector_t& state, const vector_t& input) const override {
-    return {linearAcceleration(state, input)};
+    return {linvelEeRtWorldEwrtWorld(state, input)};
   }
-  std::vector<vector3_t> getOrientationErrorWrtPlane(
+  std::vector<vector3_t> getLinaccEesRtWorldEwrtWorld(
+      const vector_t& state, const vector_t& input) const override {
+    return {linaccEeRtWorldEwrtWorld(state, input)};
+  }
+  std::vector<vector3_t> getTiltEesRtSurfaceEwrtWorld(
       const vector_t& state,
-      const std::vector<vector3_t>& /*planeNormals*/) const override {
-    return {orientationErrorWrtPlane(state)};
+      const std::vector<vector3_t>& /*normalSurfacesEwrtWorld*/)
+      const override {
+    return {tiltEeRtSurfaceEwrtWorld(state)};
   }
-  std::vector<vector6_t> getPoseWrtPlaneRate(
+  std::vector<vector6_t> getXeeRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& /*planeNormals*/) const override {
-    return {poseWrtPlaneRate(state, input)};
+      const std::vector<vector3_t>& /*normalSurfacesEwrtWorld*/)
+      const override {
+    return {xeeRate(state, input)};
   }
-  std::vector<vector6_t> getPoseWrtPlaneAcceleration(
+  std::vector<vector6_t> getXeeSecondRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& /*planeNormals*/) const override {
-    return {poseWrtPlaneAcceleration(state, input)};
+      const std::vector<vector3_t>& /*normalSurfacesEwrtWorld*/)
+      const override {
+    return {xeeSecondRate(state, input)};
   }
 
-  std::vector<VectorFunctionLinearApproximation> getPositionLinearApproximation(
+  std::vector<VectorFunctionLinearApproximation>
+  getLinearApproximationPosEesRtWorldEwrtWorld(
       const vector_t& state) const override {
     VectorFunctionLinearApproximation approximation;
-    approximation.f = position(state);
-    approximation.dfdx = positionDx_;
+    approximation.f = posEeRtWorldEwrtWorld(state);
+    approximation.dfdx = dxPosEeRtWorldEwrtWorld_;
     return {approximation};
   }
-  std::vector<VectorFunctionLinearApproximation> getVelocityLinearApproximation(
+  std::vector<VectorFunctionLinearApproximation>
+  getLinearApproximationLinvelEesRtWorldEwrtWorld(
       const vector_t& state, const vector_t& input) const override {
-    return {affine(velocity(state, input), velocityDx_, velocityDu_)};
+    return {affine(linvelEeRtWorldEwrtWorld(state, input),
+                   dxLinvelEeRtWorldEwrtWorld_, duLinvelEeRtWorldEwrtWorld_)};
   }
   std::vector<VectorFunctionLinearApproximation>
-  getLinearAccelerationLinearApproximation(
+  getLinearApproximationLinaccEesRtWorldEwrtWorld(
       const vector_t& state, const vector_t& input) const override {
-    return {affine(linearAcceleration(state, input), linearAccelerationDx_,
-                   linearAccelerationDu_)};
+    return {affine(linaccEeRtWorldEwrtWorld(state, input),
+                   dxLinaccEeRtWorldEwrtWorld_, duLinaccEeRtWorldEwrtWorld_)};
   }
   std::vector<VectorFunctionLinearApproximation>
-  getOrientationErrorWrtPlaneLinearApproximation(
+  getLinearApproximationTiltEesRtSurfaceEwrtWorld(
       const vector_t& state,
-      const std::vector<vector3_t>& /*planeNormals*/) const override {
+      const std::vector<vector3_t>& /*normalSurfacesEwrtWorld*/)
+      const override {
     VectorFunctionLinearApproximation approximation;
-    approximation.f = orientationErrorWrtPlane(state);
-    approximation.dfdx = orientationDx_;
+    approximation.f = tiltEeRtSurfaceEwrtWorld(state);
+    approximation.dfdx = dxTiltEeRtSurfaceEwrtWorld_;
     return {approximation};
   }
-  std::vector<VectorFunctionLinearApproximation>
-  getPoseWrtPlaneRateLinearApproximation(
+  std::vector<VectorFunctionLinearApproximation> getLinearApproximationXeeRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& /*planeNormals*/) const override {
-    return {affine(poseWrtPlaneRate(state, input), poseRateDx_, poseRateDu_)};
+      const std::vector<vector3_t>& /*normalSurfacesEwrtWorld*/)
+      const override {
+    return {affine(xeeRate(state, input), dxXeeRate_, duXeeRate_)};
   }
   std::vector<VectorFunctionLinearApproximation>
-  getPoseWrtPlaneAccelerationLinearApproximation(
+  getLinearApproximationXeeSecondRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& /*planeNormals*/) const override {
-    return {affine(poseWrtPlaneAcceleration(state, input), poseAccelerationDx_,
-                   poseAccelerationDu_)};
+      const std::vector<vector3_t>& /*normalSurfacesEwrtWorld*/)
+      const override {
+    return {affine(xeeSecondRate(state, input), dxXeeSecondRate_,
+                   duXeeSecondRate_)};
   }
 
  private:
@@ -221,17 +231,17 @@ class AffineEndEffectorDynamics final : public EndEffectorDynamics<scalar_t> {
   }
 
   std::vector<std::string> ids_;
-  matrix_t positionDx_;
-  vector3_t positionOffset_;
-  matrix_t orientationDx_;
-  matrix_t velocityDx_;
-  matrix_t velocityDu_;
-  matrix_t linearAccelerationDx_;
-  matrix_t linearAccelerationDu_;
-  matrix_t poseRateDx_;
-  matrix_t poseRateDu_;
-  matrix_t poseAccelerationDx_;
-  matrix_t poseAccelerationDu_;
+  matrix_t dxPosEeRtWorldEwrtWorld_;
+  vector3_t offsetPosEeRtWorldEwrtWorld_;
+  matrix_t dxTiltEeRtSurfaceEwrtWorld_;
+  matrix_t dxLinvelEeRtWorldEwrtWorld_;
+  matrix_t duLinvelEeRtWorldEwrtWorld_;
+  matrix_t dxLinaccEeRtWorldEwrtWorld_;
+  matrix_t duLinaccEeRtWorldEwrtWorld_;
+  matrix_t dxXeeRate_;
+  matrix_t duXeeRate_;
+  matrix_t dxXeeSecondRate_;
+  matrix_t duXeeSecondRate_;
 };
 
 }  // namespace ocs2::humanoid::test_support

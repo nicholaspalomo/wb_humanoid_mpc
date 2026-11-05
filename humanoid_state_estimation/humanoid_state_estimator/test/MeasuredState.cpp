@@ -29,6 +29,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_state_estimation/humanoid_state_estimator/test/MeasuredState.h"
 
+#include <cstddef>
+
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_state_estimation/humanoid_state_estimator/test/WalkingTrajectory.h"
+#include "robot_model/RobotState.h"
+
 namespace ocs2::humanoid::estimation::test_support {
 
 void writeMeasuredState(const WalkingSample& sample,
@@ -45,8 +51,9 @@ void writeMeasuredState(const WalkingSample& sample,
     state.setJointVelocity(
         joint, sample.jointVelocities[static_cast<Eigen::Index>(joint)]);
   }
-  for (size_t foot = 0; foot < kNumFeet; ++foot)
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     state.setContactFlag(foot, sample.contactFlags[foot]);
+  }
 }
 
 }  // namespace ocs2::humanoid::estimation::test_support

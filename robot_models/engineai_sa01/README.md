@@ -59,12 +59,12 @@ model, which is the check that the URDF and the MJCF still agree.
 | Leg length, hip pitch to sole | 0.725 m | step and swing scaling |
 | Base above sole, legs straight | 0.8561 m | the ground offset of a URDF viewer |
 | Nominal crouch | hip −0.30, knee 0.70, ankle −0.40 | `reference.textproto` `default_joint_state`, `task.textproto` `initial_state` |
-| Base above sole at that crouch | 0.8135 m | `nom_pos_base_rt_world_ewrt_world_z`, `initial_state.pos_base_rt_world_ewrt_world.z`, MJCF spawn height |
-| CoM above sole at that crouch | 0.6124 m | the pendulum of the DCM terminal cost and the contact planner, both derived from the model (`com_height` left out of `dcm_terminal_cost` and of the planner's `shared`); `locomotion_heuristics.capture_point.com_height_override` |
+| Base above sole at that crouch | 0.8135 m | `nom_pos_base_rt_surface_ewrt_world_z`, `initial_state.pos_base_rt_world_ewrt_world.z`, MJCF spawn height |
+| CoM above sole at that crouch | 0.6124 m | the pendulum of the DCM terminal cost and the contact planner, both derived from the model (`nom_pos_com_rt_feetmean_ewrt_world_z` left out of `dcm_terminal_cost` and of the planner's `shared`); `locomotion_heuristics.capture_point.override_pos_com_rt_feetmean_ewrt_world_z` |
 | Sole | 0.27 × 0.10 m, 0.055 m below the ankle | `contacts.pos_contact_rt_link_ewrt_link` |
 | Contact frame, from the ankle | `x 0.060, y 0, z −0.055` | `contacts.pos_contact_rt_link_ewrt_link` |
 | Hip-to-hip spacing | 0.150 m | step widths, collision radii |
-| Natural stance (legs vertical) | 0.160 m sole center to sole center | `step_width.nominal_step_width`, `hlip.step_width` (contact planner) |
+| Natural stance (legs vertical) | 0.160 m sole center to sole center | `step_width.nom_pos_lfoot_rt_rfoot_ewrt_heading_y`, `hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y` (contact planner) |
 
 The crouch is a 5.0% reduction from the straight-leg height, matching the 5.2% Atlas stands at. The three sagittal
 angles sum to zero so the sole stays flat, but they are **not** the usual symmetric `−θ / 2θ / −θ`: the thigh (0.30 m)
@@ -79,7 +79,7 @@ rather than a box, which keeps the contact set small and the normals clean. Thei
 the sole rectangle and sit 45 mm below the ankle, so the contact plane is at exactly −0.055 m and the support polygon
 is `x ∈ [−0.125, 0.125]`, `y ∈ [±0.035]` in the contact frame.
 
-The MPC's `contacts.contact_rectangle` matches that polygon except for `x_max`, which is capped - see below.
+The MPC's `contacts.contact_rectangle` matches that polygon except for `max_pos_corners_rt_contact_ewrt_contact_x`, which is capped - see below.
 
 ## Known issues to watch in the first bring-up
 
@@ -88,10 +88,10 @@ against 324.8 N of body weight, so in single support the ankle can only hold the
 itself; in double support, carrying half the weight each, within 148 mm. The sole is 270 mm long and its toe is
 185 mm ahead of the ankle. Nothing in the formulation bounds ankle torque - the wrench cone bounds the center of
 pressure geometrically only - so the solver would happily plan a forward CoP the ankle cannot hold and the robot
-would pitch over its toes. `contact_rectangle.x_max` is therefore set to the double-support budget of 0.09 m rather
+would pitch over its toes. `contact_rectangle.max_pos_corners_rt_contact_ewrt_contact_x` is therefore set to the double-support budget of 0.09 m rather
 than the geometric 0.125 m, and `task.textproto`'s external-torque cost weights the ankle joints five times higher than
 R1's. Turn the `zmp` viewer marker on (`z`) and watch whether the ZMP runs to the toe. If the 24 N·m in the URDF
-turns out to be a motor-side figure ahead of a gear reduction, raise `x_max` to 0.125 and drop the extra weighting.
+turns out to be a motor-side figure ahead of a gear reduction, raise `max_pos_corners_rt_contact_ewrt_contact_x` to 0.125 and drop the extra weighting.
 
 For the same reason `joint_pd_gains.textproto` carries an explicit `max_joint_torque` on every joint, which G1 and R1 both
 omit. `CentroidalMpcMrtJointController` clamps the commanded joint torque against that field and falls back to a
@@ -101,8 +101,8 @@ at start-up (a mistyped, negative or non-finite entry) stops it from starting, w
 than leaving every joint on that fallback; a refused edit while it runs leaves the gains in use as they are.
 
 **SA01 has proportionally the longest foot here** - 0.27 m of sole on a 0.725 m leg, where Atlas manages 0.24 m on
-0.878 m. A degree of foot droop drops the toe 2.2 mm, so `task_space_foot_cost.weights.orientation_x / _y` are at
-1000 and `swing_trajectory_config.swing_pitch_angle` is available (at 0.0) if the toe still catches.
+0.878 m. A degree of foot droop drops the toe 2.2 mm, so `task_space_foot_cost.weights.rotvec_x / _y` are at
+1000 and `swing_trajectory_config.swing_max_tiltangle_foot_rt_surface` is available (at 0.0) if the toe still catches.
 
 **SA01 has the narrowest hips here** - 0.150 m, about two thirds of the other three robots. Lateral base motion runs
 out sooner, which is why `state_weights.eulerzyx_base_rt_world.roll` is the largest base-pose weight and why every lateral

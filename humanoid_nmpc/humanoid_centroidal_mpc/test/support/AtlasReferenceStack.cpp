@@ -41,9 +41,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
+#include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
@@ -53,12 +67,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
-#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_mpc_config/contact_planning_file.nproto.h"
 #include "humanoid_mpc_config/gait_file.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/TypedConfigFiles.h"
@@ -67,8 +85,9 @@ namespace ocs2::humanoid {
 
 std::string atlasRunfilePath(absl::string_view relativePath) {
   std::vector<std::filesystem::path> roots;
-  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR"))
+  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR")) {
     roots.emplace_back(std::filesystem::path(srcDir) / "_main");
+  }
   roots.emplace_back(std::filesystem::current_path());
   for (const std::filesystem::path& root : roots) {
     const std::filesystem::path candidate = root / std::string(relativePath);
@@ -112,8 +131,9 @@ void AtlasReferenceStack::build(
       loadCentroidalMpcConfig(taskFile_, referenceFile_);
   CHECK(config.ok()) << config.status();
   config_ = *std::move(config);
-  if (contactPlanningFile != nullptr)
+  if (contactPlanningFile != nullptr) {
     config_.contactPlanning = *contactPlanningFile;
+  }
   const absl::StatusOr<mpc_config::GaitFile> gaits = loadGaitFile(gaitFile_);
   CHECK(gaits.ok()) << gaits.status();
   const absl::StatusOr<ReferenceSettings> referenceSettings =
@@ -173,10 +193,12 @@ void AtlasReferenceStack::build(
         coneConfig->torsionalFrictionCoefficient;
     const ContactRectangle footprint = checkedValue(contactRectangleFromConfig(
         config_.task.contacts, *modelSettings_, /*contactIndex=*/0));
-    ground.footprintHalfLengthX =
-        0.5 * (footprint.getBounds().x_max - footprint.getBounds().x_min);
-    ground.footprintHalfWidthY =
-        0.5 * (footprint.getBounds().y_max - footprint.getBounds().y_min);
+    ground.maxPosCornersRtFootprintEwrtContactX =
+        0.5 * (footprint.getBounds().max_pos_corners_rt_contact_ewrt_contact_x -
+               footprint.getBounds().min_pos_corners_rt_contact_ewrt_contact_x);
+    ground.maxPosCornersRtFootprintEwrtContactY =
+        0.5 * (footprint.getBounds().max_pos_corners_rt_contact_ewrt_contact_y -
+               footprint.getBounds().min_pos_corners_rt_contact_ewrt_contact_y);
     const ContactPlanningModelParameters modelParameters =
         deriveContactPlanningModelParameters(
             *pinocchioInterface_, *model_, initialState_,
@@ -204,19 +226,19 @@ void AtlasReferenceStack::build(
       checkedValue(CentroidalMpcTargetTrajectoriesCalculator::Create(
           config_.reference, *model_, *pinocchioInterface_,
           mpcSettings_.timeHorizon_));
-  targetCalculator_->setTerrainHeightSource(
+  targetCalculator_->setSourcePosSurfaceRtWorldEwrtWorldZ(
       [referenceManager = referenceManager_]() {
-        return referenceManager->getAppliedTerrainHeight();
+        return referenceManager->getAppliedPosSurfaceRtWorldEwrtWorldZ();
       });
   CentroidalMpcTargetTrajectoriesCalculator* absl_nonnull calculator =
       targetCalculator_.get();
   motionManager_ = checkedValue(ProceduralMpcMotionManager::Create(
       *gaits, *referenceSettings, referenceManager_, *model_,
-      [calculator](const vector4_t& velocityTarget, scalar_t initTime,
+      [calculator](const vector4_t& velocityCommand, scalar_t initTime,
                    scalar_t /*finalTime*/, const vector_t& initState,
                    const BasePlanarMotion& measuredMotion) {
         return calculator->velocityCommandToTargetTrajectories(
-            velocityTarget, initTime, initState, measuredMotion);
+            velocityCommand, initTime, initState, measuredMotion);
       }));
   motionManager_->setResetHook([calculator]() { calculator->reset(); });
 
@@ -224,18 +246,23 @@ void AtlasReferenceStack::build(
                                                  model_->getInputDim());
   mpc_->getSolverPtr()->setReferenceManager(referenceManager_);
   mpc_->getSolverPtr()->addSynchronizedModule(motionManager_);
-  if (contactPlannerModule_ != nullptr)
+  if (contactPlannerModule_ != nullptr) {
     mpc_->getSolverPtr()->addSynchronizedModule(contactPlannerModule_);
+  }
   command(0.0);
 }
 
-void AtlasReferenceStack::command(scalar_t forward,
-                                  scalar_t lateral,
-                                  scalar_t yawRate) {
+void AtlasReferenceStack::command(
+    scalar_t cmdLnormLinvelBaseRtWorldEwrtHeadingX,
+    scalar_t cmdLnormLinvelBaseRtWorldEwrtHeadingY,
+    scalar_t cmdLnormAngvelBaseRtWorldEwrtWorldZ) {
   // No pelvis height in the command: every target stands
-  // nomPosBaseRtWorldEwrtWorldZ above the ground.
-  motionManager_->setAndScaleVelocityCommand(WalkingVelocityCommand(
-      forward, lateral, /*desired_pelvis_h=*/0.0, yawRate));
+  // nomPosBaseRtSurfaceEwrtWorldZ above the ground.
+  motionManager_->setAndScaleVelocityCommand(NormalizedWalkingVelocityCommand(
+      cmdLnormLinvelBaseRtWorldEwrtHeadingX,
+      cmdLnormLinvelBaseRtWorldEwrtHeadingY,
+      /*cmd_pos_base_rt_surface_ewrt_world_z=*/0.0,
+      cmdLnormAngvelBaseRtWorldEwrtWorldZ));
 }
 
 TargetTrajectories AtlasReferenceStack::resetTarget(
@@ -247,17 +274,19 @@ TargetTrajectories AtlasReferenceStack::resetTarget(
                                               *pinocchioInterface_);
 }
 
-vector_t AtlasReferenceStack::standingAt(const vector_t& state,
-                                         scalar_t x,
-                                         scalar_t y,
-                                         scalar_t yaw) const {
+vector_t AtlasReferenceStack::standingAt(
+    const vector_t& state,
+    scalar_t posBaseRtWorldEwrtWorldX,
+    scalar_t posBaseRtWorldEwrtWorldY,
+    scalar_t eulerzyxBaseRtWorldYaw) const {
   vector_t moved = state;
   centroidal_model::getMnormCmomComRtWorldEwrtWorld(moved, info_).setZero();
   model_->setPosBaseRtWorldEwrtWorld(
-      moved, vector3_t(x, y, model_->getPosBaseRtWorldEwrtWorld(state)(2)));
-  vector3_t eulerZyx = model_->getEulerzyxBaseRtWorld(state);
-  eulerZyx(0) = yaw;
-  model_->setEulerzyxBaseRtWorld(moved, eulerZyx);
+      moved, vector3_t(posBaseRtWorldEwrtWorldX, posBaseRtWorldEwrtWorldY,
+                       model_->getPosBaseRtWorldEwrtWorld(state)(2)));
+  vector3_t eulerzyxBaseRtWorld = model_->getEulerzyxBaseRtWorld(state);
+  eulerzyxBaseRtWorld(0) = eulerzyxBaseRtWorldYaw;
+  model_->setEulerzyxBaseRtWorld(moved, eulerzyxBaseRtWorld);
   return moved;
 }
 

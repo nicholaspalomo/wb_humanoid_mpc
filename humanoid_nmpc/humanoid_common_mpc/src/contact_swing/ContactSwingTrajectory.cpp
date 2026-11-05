@@ -34,9 +34,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <limits>
 
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -67,14 +72,16 @@ bool isFinite(const vector3_t& vector) {
 absl::Status checkEndpoint(const ContactSwingEndpoint& endpoint,
                            absl::string_view what) {
   if (!isFinite(endpoint.posContactRtWorldEwrtWorld) ||
-      !isFinite(endpoint.normal)) {
+      !isFinite(endpoint.normalSurfaceEwrtWorld)) {
     return absl::InvalidArgumentError(absl::StrCat(
         "[ContactSwingTrajectory] the ", what, " point is not finite."));
   }
-  if (std::abs(endpoint.normal.norm() - 1.0) > kUnitNormalTolerance) {
+  if (std::abs(endpoint.normalSurfaceEwrtWorld.norm() - 1.0) >
+      kUnitNormalTolerance) {
     return absl::InvalidArgumentError(absl::StrCat(
         "[ContactSwingTrajectory] the ", what, " normal has length ",
-        endpoint.normal.norm(), ", but it must be a unit vector."));
+        endpoint.normalSurfaceEwrtWorld.norm(),
+        ", but it must be a unit vector."));
   }
   return absl::OkStatus();
 }
@@ -113,10 +120,11 @@ absl::StatusOr<ContactSwingTrajectory> ContactSwingTrajectory::Create(
       !status.ok()) {
     return status;
   }
-  if (!std::isfinite(settings.liftHeight) || !(settings.liftHeight > 0.0)) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("[ContactSwingTrajectory] the lift height is ",
-                     settings.liftHeight, " m, but it must be positive."));
+  if (!std::isfinite(settings.minDistControlpointRtContact) ||
+      !(settings.minDistControlpointRtContact > 0.0)) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[ContactSwingTrajectory] the least control distance is ",
+        settings.minDistControlpointRtContact, " m, but it must be positive."));
   }
   if (!std::isfinite(settings.clearance) || settings.clearance < 0.0) {
     return absl::InvalidArgumentError(
@@ -127,23 +135,27 @@ absl::StatusOr<ContactSwingTrajectory> ContactSwingTrajectory::Create(
   ContactSwingTrajectory trajectory;
   trajectory.liftOffTime_ = liftOffTime;
   trajectory.touchDownTime_ = touchDownTime;
-  const scalar_t largestControlDistance =
-      kMaxControlDistanceGrowth * settings.liftHeight;
-  for (scalar_t controlDistance = settings.liftHeight;;
-       controlDistance *= kControlDistanceGrowth) {
-    controlDistance = std::min(controlDistance, largestControlDistance);
-    trajectory.setControlPoints(liftOff, touchDown, controlDistance);
+  const scalar_t maxDistControlpointRtContact =
+      kMaxControlDistanceGrowth * settings.minDistControlpointRtContact;
+  for (scalar_t distControlpointRtContact =
+           settings.minDistControlpointRtContact;
+       ; distControlpointRtContact *= kControlDistanceGrowth) {
+    distControlpointRtContact =
+        std::min(distControlpointRtContact, maxDistControlpointRtContact);
+    trajectory.setControlPoints(liftOff, touchDown, distControlpointRtContact);
     scalar_t margin = std::numeric_limits<scalar_t>::infinity();
     for (int sample = 1; sample < kClearanceSamples; ++sample) {
       const scalar_t s = static_cast<scalar_t>(sample) /
                          static_cast<scalar_t>(kClearanceSamples);
-      margin = std::min(margin, signedDistance(trajectory.pointAt(s)) -
-                                    requiredClearance(s, settings.clearance));
+      margin = std::min(
+          margin,
+          signedDistance(trajectory.evaluatePosContactRtWorldEwrtWorld(s)) -
+              requiredClearance(s, settings.clearance));
     }
     trajectory.clearanceMargin_ = margin;
     trajectory.clearanceSatisfied_ = margin >= 0.0;
     if (trajectory.clearanceSatisfied_ ||
-        controlDistance >= largestControlDistance) {
+        distControlpointRtContact >= maxDistControlpointRtContact) {
       break;
     }
   }
@@ -153,17 +165,20 @@ absl::StatusOr<ContactSwingTrajectory> ContactSwingTrajectory::Create(
 void ContactSwingTrajectory::setControlPoints(
     const ContactSwingEndpoint& liftOff,
     const ContactSwingEndpoint& touchDown,
-    scalar_t controlDistance) {
-  controlDistance_ = controlDistance;
+    scalar_t distControlpointRtContact) {
+  distControlpointRtContact_ = distControlpointRtContact;
   controlPoints_[kLiftOffPoint] = liftOff.posContactRtWorldEwrtWorld;
   controlPoints_[kLiftControlPoint] =
-      liftOff.posContactRtWorldEwrtWorld + controlDistance * liftOff.normal;
+      liftOff.posContactRtWorldEwrtWorld +
+      distControlpointRtContact * liftOff.normalSurfaceEwrtWorld;
   controlPoints_[kTouchDownControlPoint] =
-      touchDown.posContactRtWorldEwrtWorld + controlDistance * touchDown.normal;
+      touchDown.posContactRtWorldEwrtWorld +
+      distControlpointRtContact * touchDown.normalSurfaceEwrtWorld;
   controlPoints_[kTouchDownPoint] = touchDown.posContactRtWorldEwrtWorld;
 }
 
-vector3_t ContactSwingTrajectory::pointAt(scalar_t s) const {
+vector3_t ContactSwingTrajectory::evaluatePosContactRtWorldEwrtWorld(
+    scalar_t s) const {
   const scalar_t r = 1.0 - s;
   return r * r * r * controlPoints_[kLiftOffPoint] +
          kBezierDegree * r * r * s * controlPoints_[kLiftControlPoint] +
@@ -192,7 +207,7 @@ ContactSwingReference ContactSwingTrajectory::reference(scalar_t time) const {
   const scalar_t sRate =
       kSmoothstepRateFactor * sigma * (1.0 - sigma) / duration;
   return ContactSwingReference{
-      .posContactRtWorldEwrtWorld = pointAt(s),
+      .posContactRtWorldEwrtWorld = evaluatePosContactRtWorldEwrtWorld(s),
       .linvelContactRtWorldEwrtWorld = sRate * tangentAt(s)};
 }
 

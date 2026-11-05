@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -54,9 +55,9 @@ struct SirenLayerWeights {
 
 /**
  * The body tangent Jacobian of the ACoM attitude xi_a = xi_hat (x)
- * Exp(Delta_theta(q_j)) (AngularCenterOfMass:: acomAttitude()): when the base
- * orientation moves to xi_hat (x) Exp(dphi) and the joints to q_j + dq_j, the
- * attitude moves to xi_a (x) Exp(dphi_a) with, to first order,
+ * Exp(Delta_theta(q_j)) (AngularCenterOfMass:: computeQuatAcomRtWorldXyzw()):
+ * when the base orientation moves to xi_hat (x) Exp(dphi) and the joints to q_j
+ * + dq_j, the attitude moves to xi_a (x) Exp(dphi_a) with, to first order,
  *
  *   dphi_a = baseTangent * dphi + jointAngles * dq_j.
  *
@@ -160,20 +161,21 @@ class AngularCenterOfMass {
    * rotation vector, in the base frame, of the ACoM relative to the base,
    * components about the base's x, y and z axes (the network's native order).
    */
-  vector3_t computeJointOrientationOffset(const vector_t& qJoints) const;
+  vector3_t computeRotvecAcomRtBase(const vector_t& qJoints) const;
 
   /**
    * Computes the exact analytical Jacobian d(Delta_theta)/d(q_j) in R^(3 x
-   * n_j), rows as computeJointOrientationOffset().
+   * n_j), rows as computeRotvecAcomRtBase().
    */
-  matrix_t computeJointOffsetJacobian(const vector_t& qJoints) const;
+  matrix_t computeJacobianRotvecAcomRtBase(const vector_t& qJoints) const;
 
   /**
    * Computes the ACoM attitude xi_a = xi_hat (x) Exp(Delta_theta(q_j)), the
    * quaternion coefficients (x, y, z, w) of the rotation from the ACoM frame to
    * the world.
    *
-   * @param xi       The base orientation, quaternion coefficients (x, y, z, w),
+   * @param quatBaseRtWorldXyzw  The base orientation xi, quaternion
+   * coefficients (x, y, z, w),
    * read through safelyNormalizedQuaternion() (orientation/BaseOrientation.h):
    * any nonzero scale gives the same attitude.
    * @param qJoints  The network's joints, getInputDim() of them, in the order
@@ -181,14 +183,15 @@ class AngularCenterOfMass {
    * @return A unit quaternion for every |xi| above kUnitQuaternionNormGuard, in
    * the hemisphere of xi_hat: -xi gives -xi_a.
    */
-  vector4_t acomAttitude(const vector4_t& xi, const vector_t& qJoints) const;
+  vector4_t computeQuatAcomRtWorldXyzw(const vector4_t& quatBaseRtWorldXyzw,
+                                       const vector_t& qJoints) const;
 
   /**
-   * Computes the body tangent Jacobian of acomAttitude()
+   * Computes the body tangent Jacobian of computeQuatAcomRtWorldXyzw()
    * (AcomAttitudeTangentJacobian): R(Delta_theta)^T for the base orientation
    * and J_r(Delta_theta) J_Delta_theta(q_j) for the joints. `qJoints` as for
-   * acomAttitude(). One forward and one chain-rule pass of the network, as
-   * computeJointOffsetJacobian().
+   * computeQuatAcomRtWorldXyzw(). One forward and one chain-rule pass of the
+   * network, as computeJacobianRotvecAcomRtBase().
    */
   AcomAttitudeTangentJacobian acomAttitudeTangentJacobian(
       const vector_t& qJoints) const;
@@ -198,17 +201,17 @@ class AngularCenterOfMass {
  private:
   /** Delta_theta(q_j) and d(Delta_theta)/d(q_j) of one forward and chain-rule
    * pass. */
-  struct JointOffsetAndJacobian {
-    vector3_t offset;
+  struct RotvecAndJacobian {
+    vector3_t rotvecAcomRtBase;
     matrix_t jacobian;
   };
 
   /**
    * Computes Delta_theta(q_j) and its Jacobian in one pass: the offset is
-   * computeJointOrientationOffset()'s, bit for bit (the same operations in the
-   * same order), the Jacobian computeJointOffsetJacobian()'s.
+   * computeRotvecAcomRtBase()'s, bit for bit (the same operations in the
+   * same order), the Jacobian computeJacobianRotvecAcomRtBase()'s.
    */
-  JointOffsetAndJacobian computeJointOffsetAndJacobian(
+  RotvecAndJacobian computeValueAndJacobianRotvecAcomRtBase(
       const vector_t& qJoints) const;
 
   // The two checks below guard the evaluation hot path against PROGRAMMING

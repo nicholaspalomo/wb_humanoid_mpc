@@ -71,10 +71,10 @@ constexpr size_t kReference = 1;
 constexpr size_t kPlan = 2;
 
 // The kinds of the frame groups, in the contract's order.
-constexpr size_t kPose = 0;
-constexpr size_t kTwist = 1;
-constexpr size_t kAcceleration = 2;
-constexpr size_t kWrench = 3;
+constexpr size_t kPoseSlot = 0;
+constexpr size_t kTwistSlot = 1;
+constexpr size_t kAccelerationSlot = 2;
+constexpr size_t kWrenchSlot = 3;
 
 // joints_, in the contract's order.
 constexpr size_t kJointPositionMeasured = 0;
@@ -124,25 +124,23 @@ constexpr std::array<size_t, 3> kGeneralizedBaseDofs = {
     kBasePosZIndex, kBaseTranslationDim + kBaseRotPitchIndex,
     kBaseTranslationDim + kBaseRotRollIndex};
 
-/** The (roll, pitch, yaw) order of the plots of ZYX Euler angles or rates (yaw,
- * pitch, roll). */
-vector3_t rollPitchYawOf(const vector3_t& eulerZyx) {
-  return vector3_t(eulerZyx(kBaseRotRollIndex), eulerZyx(kBaseRotPitchIndex),
-                   eulerZyx(kBaseRotYawIndex));
-}
+// The entry of a ZYX Euler vector (yaw, pitch, roll) that each axis of the
+// Euler angle and rate plots shows: they run roll, pitch, yaw.
+constexpr std::array<size_t, kEulerAnglesZyxDim> kPlotEulerzyxIndices = {
+    kBaseRotRollIndex, kBaseRotPitchIndex, kBaseRotYawIndex};
 
-/** The base orientation of the Pinocchio configuration `q`, as quaternion
+/** The base's quaternion of the Pinocchio configuration `q`, as
  * coefficients (x, y, z, w), normalized. */
-vector4_t baseOrientationOf(const vector_t& q) {
+vector4_t computeQuatBaseRtWorldXyzw(const vector_t& q) {
   return safelyNormalizedQuaternion(
       vector4_t(q.segment<kQuaternionCoefficients>(kBaseTranslationDim)));
 }
 
 /** The ZYX Euler angles (yaw, pitch, roll) of a rotation matrix, through its
  * quaternion (orientation/EulerBoundary.h). */
-vector3_t eulerZyxOfRotation(const matrix3_t& rotation) {
+vector3_t eulerZyxOfRotmat(const matrix3_t& rotmatLocalRtWorld) {
   return eulerZyxFromQuaternion(
-      safelyNormalizedQuaternion(quaternion_t(rotation).coeffs()));
+      safelyNormalizedQuaternion(quaternion_t(rotmatLocalRtWorld).coeffs()));
 }
 
 /** "<prefix>0", "<prefix>1", ...: one name per component of a vector of `size`.
@@ -169,15 +167,18 @@ TelemetryBuilder::TelemetryBuilder(const VisualizationModel& model,
   if (model.nominalState.size() > 0) {
     // The pendulum of the DCM: the repository's one pendulum height, at the
     // nominal state, and the model's gravity.
-    const scalar_t gravity =
+    const scalar_t gravityMagnitude =
         pinocchioInterface_.getModel().gravity.linear().norm();
-    const scalar_t height = computeComHeightAboveFeet(
-        robotModel_->getGeneralizedCoordinates(model.nominalState),
-        pinocchioInterface_, *robotModel_);
-    pendulumFrequency_ = pendulumFrequency(gravity, height);
-    LOG(INFO) << "[TelemetryBuilder] the DCM's pendulum: height " << height
+    const scalar_t nomProxyPosComRtFeetmeanEwrtWorldZ =
+        computeProxyPosComRtFeetmeanEwrtWorldZ(
+            robotModel_->getGeneralizedCoordinates(model.nominalState),
+            pinocchioInterface_, *robotModel_);
+    pendulumFrequency_ =
+        pendulumFrequency(gravityMagnitude, nomProxyPosComRtFeetmeanEwrtWorldZ);
+    LOG(INFO) << "[TelemetryBuilder] the DCM's pendulum: height "
+              << nomProxyPosComRtFeetmeanEwrtWorldZ
               << " m (the nominal state's CoM above its feet), gravity "
-              << gravity << " m/s^2 (the Pinocchio model's), omega "
+              << gravityMagnitude << " m/s^2 (the Pinocchio model's), omega "
               << pendulumFrequency_.value_or(kNotANumber) << " 1/s.";
   }
 }
@@ -222,7 +223,7 @@ void TelemetryBuilder::setValues(int group, const vector_t& vector) {
 absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config,
                                           const SolutionTermNames& termNames) {
   static_assert(kPlan + 1 == kNumSources, "one source of the plots per index");
-  static_assert(kWrench + 1 == kNumFrameKinds,
+  static_assert(kWrenchSlot + 1 == kNumFrameKinds,
                 "one kind of a frame's groups per index");
   static_assert(kJointEffortTarget + 1 == kNumJointGroups,
                 "one joint group per index");
@@ -284,37 +285,37 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config,
       horizontalAxes = {"x", "y"};
 
   for (size_t axis = 0; axis < kPositionDim; ++axis) {
-    basePosition_[axis] = addGroup(
+    groupPosBaseRtWorldEwrtWorld_[axis] = addGroup(
         absl::StrCat("base_pose/position_", axes[axis]), measuredReference);
   }
   for (size_t angle = 0; angle < kEulerAnglesZyxDim; ++angle) {
-    baseRollPitchYaw_[angle] =
+    groupEulerzyxBaseRtWorld_[angle] =
         addGroup(absl::StrCat("base_pose/", angles[angle]), measuredReference);
   }
   for (size_t angle = 0; angle < kEulerAnglesZyxDim; ++angle) {
-    baseRollPitchYawRates_[angle] = addGroup(
+    groupRateEulerzyxBaseRtWorld_[angle] = addGroup(
         absl::StrCat("base_pose/", angles[angle], "_rate"), measuredReference);
   }
   for (size_t axis = 0; axis < kRotationTangentDim; ++axis) {
-    baseAngularVelocityLocal_[axis] =
+    groupAngvelBaseRtWorldEwrtBase_[axis] =
         addGroup(absl::StrCat("base_pose/angular_velocity_", axes[axis]),
                  measuredReference);
   }
   for (size_t axis = 0; axis < kPositionDim; ++axis) {
-    baseLinearVelocity_[axis] = addGroup(
+    groupLinvelBaseRtWorldEwrtWorld_[axis] = addGroup(
         absl::StrCat("base_twist/linear_", axes[axis]), measuredReference);
   }
   for (size_t axis = 0; axis < kRotationTangentDim; ++axis) {
-    baseAngularVelocity_[axis] = addGroup(
+    groupAngvelBaseRtWorldEwrtWorld_[axis] = addGroup(
         absl::StrCat("base_twist/angular_", axes[axis]), measuredReference);
   }
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    normalForce_[contact] =
+    groupForceFeetEwrtWorldZ_[contact] =
         addGroup(absl::StrCat("contact_forces/", sides[contact], "_normal"),
                  mpcMeasured);
   }
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    tangentialForce_[contact] =
+    groupForceFeetEwrtWorldXy_[contact] =
         addGroup(absl::StrCat("contact_forces/", sides[contact], "_tangential"),
                  tangential);
   }
@@ -327,29 +328,29 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config,
       addGroup("generalized_base/pitch_rate", measuredReference),
       addGroup("generalized_base/roll_rate", measuredReference)};
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    footAcceleration_[contact] = addGroup(
+    groupLinaccFeetRtWorldEwrtWorldZ_[contact] = addGroup(
         absl::StrCat("foot_kinematics/", sides[contact], "_acceleration_z"),
         measuredReference);
   }
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    footVelocity_[contact] = addGroup(
+    groupLinvelFeetRtWorldEwrtWorldZ_[contact] = addGroup(
         absl::StrCat("foot_kinematics/", sides[contact], "_velocity_z"),
         measuredReference);
   }
   for (size_t axis = 0; axis < kPositionDim; ++axis) {
-    comPosition_[axis] =
+    groupPosComRtWorldEwrtWorld_[axis] =
         addGroup(absl::StrCat("com/position_", axes[axis]), sourceNames);
   }
   for (size_t axis = 0; axis < kHorizontalPositionDim; ++axis) {
-    dcm_[axis] =
+    groupPosDcmRtWorldEwrtWorldXy_[axis] =
         addGroup(absl::StrCat("dcm/", horizontalAxes[axis]), sourceNames);
   }
   for (size_t axis = 0; axis < kHorizontalPositionDim; ++axis) {
-    zmp_[axis] =
+    groupPosZmpRtWorldEwrtWorldXy_[axis] =
         addGroup(absl::StrCat("zmp/", horizontalAxes[axis]), sourceNames);
   }
   for (size_t angle = 0; angle < kEulerAnglesZyxDim; ++angle) {
-    acomAngles_[angle] =
+    groupEulerzyxAcomRtWorld_[angle] =
         addGroup(absl::StrCat("acom/", angles[angle]), sourceNames);
   }
 
@@ -370,21 +371,21 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config,
                           modelSettings().mpcModelJointNames.begin(),
                           modelSettings().mpcModelJointNames.end());
   for (size_t source = 0; source < kNumSources; ++source) {
-    dofPositions_[source] =
+    generalizedCoordinateGroups_[source] =
         addGroup(absl::StrCat("dofs/position/", sources[source]), dofNames);
   }
   for (size_t source = 0; source < kNumSources; ++source) {
-    dofVelocities_[source] = addGroup(
+    generalizedVelocityGroups_[source] = addGroup(
         absl::StrCat("dofs/velocity/", sources[source]), velocityDofNames);
   }
   for (size_t source = 0; source < kNumForceSources; ++source) {
-    dofForces_[source] = addGroup(absl::StrCat("dofs/force/", sources[source]),
-                                  velocityDofNames);
+    generalizedForceGroups_[source] = addGroup(
+        absl::StrCat("dofs/force/", sources[source]), velocityDofNames);
   }
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    contactWrenchMpc_[contact] = addGroup(
+    groupPlanWrenchFeetEwrtWorld_[contact] = addGroup(
         absl::StrCat("contact_wrenches/", sides[contact], "/mpc"), wrenchNames);
-    contactWrenchMeasured_[contact] =
+    groupMeasForceFeetEwrtWorld_[contact] =
         addGroup(absl::StrCat("contact_wrenches/", sides[contact], "/measured"),
                  forceNames);
   }
@@ -461,15 +462,15 @@ vector_t TelemetryBuilder::generalizedVelocities(const vector_t& state,
 }
 
 void TelemetryBuilder::updateDisplayValues(Source* absl_nonnull source) {
-  source->eulerZyxRates = eulerZyxRatesForDisplay(
-      source->eulerAnglesZyx,
+  source->rateEulerzyxBaseRtWorld = eulerZyxRatesForDisplay(
+      source->eulerzyxBaseRtWorld,
       source->v.segment<kRotationTangentDim>(kBaseTranslationDim));
   const Eigen::Index jointDim = source->displayCoordinates.size() -
                                 static_cast<Eigen::Index>(kDisplayBaseDim);
   source->displayCoordinates.head<kBaseTranslationDim>() =
       source->q.head<kBaseTranslationDim>();
   source->displayCoordinates.segment<kBaseRotationDim>(kBaseTranslationDim) =
-      source->eulerAnglesZyx;
+      source->eulerzyxBaseRtWorld;
   source->displayCoordinates.tail(jointDim) = source->q.tail(jointDim);
 }
 
@@ -480,27 +481,33 @@ void TelemetryBuilder::updateBalance(Source* absl_nonnull source) {
   // (world frame, data.com[0] and data.vcom[0]).
   pinocchio::centerOfMass(model, data, pinocchio::VELOCITY,
                           /*computeSubtreeComs=*/false);
-  source->com = data.com[0];
-  source->dcm = pendulumFrequency_.has_value()
-                    ? divergentComponentOfMotion(data.com[0], data.vcom[0],
-                                                 *pendulumFrequency_)
-                    : vector2_t(vector2_t::Constant(kNotANumber));
-  feet_array_t<vector3_t> contactPositions;
+  source->posComRtWorldEwrtWorld = data.com[0];
+  source->posDcmRtWorldEwrtWorldXy =
+      pendulumFrequency_.has_value()
+          ? computePosDcmRtWorldEwrtWorldXy(data.com[0], data.vcom[0],
+                                            *pendulumFrequency_)
+          : vector2_t(vector2_t::Constant(kNotANumber));
+  feet_array_t<vector3_t> posFeetRtWorldEwrtWorld;
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    contactPositions[contact] = data.oMf[contactFrames_[contact]].translation();
+    posFeetRtWorldEwrtWorld[contact] =
+        data.oMf[contactFrames_[contact]].translation();
   }
-  const std::optional<vector3_t> zmp = zeroMomentPoint(
-      contactPositions, source->contactWrenches, kMinNormalForceForZmp);
-  source->zmp = zmp.has_value() ? vector2_t(zmp->head<kHorizontalPositionDim>())
-                                : vector2_t(vector2_t::Constant(kNotANumber));
+  const std::optional<vector3_t> posZmpRtWorldEwrtWorld =
+      computePosZmpRtWorldEwrtWorld(posFeetRtWorldEwrtWorld,
+                                    source->wrenchFeetEwrtWorld,
+                                    kZmpMinForceWorldEwrtWorldZ);
+  source->posZmpRtWorldEwrtWorldXy =
+      posZmpRtWorldEwrtWorld.has_value()
+          ? vector2_t(posZmpRtWorldEwrtWorld->head<kHorizontalPositionDim>())
+          : vector2_t(vector2_t::Constant(kNotANumber));
   if (acom_ == nullptr) {
-    source->acomRollPitchYaw.setConstant(kNotANumber);
+    source->eulerzyxAcomRtWorld.setConstant(kNotANumber);
     return;
   }
   source->jointPositions = source->q.tail(source->jointPositions.size());
-  source->acomRollPitchYaw =
-      rollPitchYawOf(eulerZyxFromQuaternion(acom_->acomAttitude(
-          baseOrientationOf(source->q), source->jointPositions)));
+  source->eulerzyxAcomRtWorld =
+      eulerZyxFromQuaternion(acom_->computeQuatAcomRtWorldXyzw(
+          computeQuatBaseRtWorldXyzw(source->q), source->jointPositions));
 }
 
 void TelemetryBuilder::writeSolutionTerms(
@@ -562,7 +569,7 @@ void TelemetryBuilder::computeReference(
   const size_t stateDim = robotModel_->getStateDim();
   const size_t inputDim = robotModel_->getInputDim();
   const scalar_t time = measured.time;
-  reference.contactWrenches = makeFeetArray<vector6_t>(vector6_t::Zero());
+  reference.wrenchFeetEwrtWorld = makeFeetArray<vector6_t>(vector6_t::Zero());
   reference.v.setZero();
   reference.a.setZero();
 
@@ -576,28 +583,30 @@ void TelemetryBuilder::computeReference(
     // No reference: the measured robot at rest, as PinocchioTelemetryPublisher
     // fell back.
     reference.q = measured.generalizedCoordinates;
-    reference.eulerAnglesZyx = measured.baseEulerAnglesZyx;
-    referenceBasePosition_ = measured.basePosition;
-    referenceBaseLinearVelocity_.setZero();
+    reference.eulerzyxBaseRtWorld = measured.eulerzyxBaseRtWorld;
+    refPosBaseRtWorldEwrtWorld_ = measured.posBaseRtWorldEwrtWorld;
+    refProxyLinvelComRtWorldEwrtWorld_.setZero();
     return;
   }
   reference.q = robotModel_->getGeneralizedCoordinates(state);
-  reference.eulerAnglesZyx = robotModel_->getEulerzyxBaseRtWorld(state);
-  referenceBasePosition_ = robotModel_->getPosBaseRtWorldEwrtWorld(state);
-  referenceBaseLinearVelocity_ = robotModel_->getBaseComLinearVelocity(state);
+  reference.eulerzyxBaseRtWorld = robotModel_->getEulerzyxBaseRtWorld(state);
+  refPosBaseRtWorldEwrtWorld_ = robotModel_->getPosBaseRtWorldEwrtWorld(state);
+  refProxyLinvelComRtWorldEwrtWorld_ =
+      getProxyLinvelComRtWorldEwrtWorld(*robotModel_, state);
   if (sample != TargetSample::kStateAndInput) {
     return;
   }
   reference.v = generalizedVelocities(state, input);
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    reference.contactWrenches[contact] = robotModel_->getWrenchContactEwrtWorld(
-        state, input, footContact(contact));
+    reference.wrenchFeetEwrtWorld[contact] =
+        robotModel_->getWrenchContactEwrtWorld(state, input,
+                                               footContact(contact));
   }
   const scalar_array_t& times = policy->target.timeTrajectory;
   const scalar_t earlier =
-      std::max(time - kAccelerationHalfInterval, times.front());
+      std::max(time - kCentralDifferenceHalfInterval, times.front());
   const scalar_t later =
-      std::min(time + kAccelerationHalfInterval, times.back());
+      std::min(time + kCentralDifferenceHalfInterval, times.back());
   if (later > earlier) {
     vector_t earlierState;
     vector_t earlierInput;
@@ -616,12 +625,12 @@ void TelemetryBuilder::computeReference(
 void TelemetryBuilder::computePlan(const DecodedRobotState& measured,
                                    const PolicySnapshot* absl_nullable policy) {
   Source& plan = sources_[kPlan];
-  plan.contactWrenches = makeFeetArray<vector6_t>(vector6_t::Zero());
+  plan.wrenchFeetEwrtWorld = makeFeetArray<vector6_t>(vector6_t::Zero());
   plan.v.setZero();
   plan.a.setZero();
   if (policy == nullptr) {
     plan.q = measured.generalizedCoordinates;
-    plan.eulerAnglesZyx = measured.baseEulerAnglesZyx;
+    plan.eulerzyxBaseRtWorld = measured.eulerzyxBaseRtWorld;
     return;
   }
   const scalar_t time = measured.time;
@@ -629,16 +638,16 @@ void TelemetryBuilder::computePlan(const DecodedRobotState& measured,
   vector_t input;
   samplePlan(*policy, stateManifold_, time, &state, &input);
   plan.q = robotModel_->getGeneralizedCoordinates(state);
-  plan.eulerAnglesZyx = robotModel_->getEulerzyxBaseRtWorld(state);
+  plan.eulerzyxBaseRtWorld = robotModel_->getEulerzyxBaseRtWorld(state);
   plan.v = generalizedVelocities(state, input);
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    plan.contactWrenches[contact] = robotModel_->getWrenchContactEwrtWorld(
+    plan.wrenchFeetEwrtWorld[contact] = robotModel_->getWrenchContactEwrtWorld(
         state, input, footContact(contact));
   }
   const scalar_t earlier =
-      std::max(time - kAccelerationHalfInterval, policy->time.front());
+      std::max(time - kCentralDifferenceHalfInterval, policy->time.front());
   const scalar_t later =
-      std::min(time + kAccelerationHalfInterval, policy->time.back());
+      std::min(time + kCentralDifferenceHalfInterval, policy->time.back());
   if (later > earlier) {
     vector_t earlierState;
     vector_t earlierInput;
@@ -659,18 +668,19 @@ void TelemetryBuilder::updateMeasuredSource(const DecodedRobotState& measured) {
   measuredSource.v = measured.generalizedVelocities;
   measuredSource.a.setZero(measuredSource.v.size());
   if (hasPreviousSample_ &&
-      previousVelocities_.size() == measuredSource.v.size()) {
+      prevGeneralizedVelocities_.size() == measuredSource.v.size()) {
     const scalar_t interval = time - previousTime_;
     if (interval > kMinDifferenceInterval &&
         interval < kMaxDifferenceInterval) {
-      measuredSource.a = (measuredSource.v - previousVelocities_) / interval;
+      measuredSource.a =
+          (measuredSource.v - prevGeneralizedVelocities_) / interval;
     }
   }
   hasPreviousSample_ = true;
   previousTime_ = time;
-  previousVelocities_ = measuredSource.v;
-  measuredSource.contactWrenches = measured.measuredContactWrenches;
-  measuredSource.eulerAnglesZyx = measured.baseEulerAnglesZyx;
+  prevGeneralizedVelocities_ = measuredSource.v;
+  measuredSource.wrenchFeetEwrtWorld = measured.measWrenchContactsEwrtWorld;
+  measuredSource.eulerzyxBaseRtWorld = measured.eulerzyxBaseRtWorld;
 }
 
 void TelemetryBuilder::writeBasePanels(const DecodedRobotState& measured) {
@@ -682,50 +692,61 @@ void TelemetryBuilder::writeBasePanels(const DecodedRobotState& measured) {
   // Panel groups. The base's angular velocity: w_B is v's, the world-frame one
   // R(xi) w_B with xi the orientation of q; the reference's is zero unless the
   // target trajectory carries inputs too (TargetSample::kStateAndInput).
-  const vector3_t measuredRollPitchYaw =
-      rollPitchYawOf(measuredSource.eulerAnglesZyx);
-  const vector3_t referenceRollPitchYaw =
-      rollPitchYawOf(referenceSource.eulerAnglesZyx);
-  const vector3_t measuredRollPitchYawRates =
-      rollPitchYawOf(measuredSource.eulerZyxRates);
-  const vector3_t referenceRollPitchYawRates =
-      rollPitchYawOf(referenceSource.eulerZyxRates);
-  const vector3_t referenceAngularVelocityLocal =
+  const vector3_t refAngvelBaseRtWorldEwrtBase =
       referenceSource.v.segment<kRotationTangentDim>(kBaseTranslationDim);
-  const vector3_t referenceAngularVelocityWorld =
-      quaternion_t(baseOrientationOf(referenceSource.q)).toRotationMatrix() *
-      referenceAngularVelocityLocal;
+  const vector3_t refAngvelBaseRtWorldEwrtWorld =
+      quaternion_t(computeQuatBaseRtWorldXyzw(referenceSource.q))
+          .toRotationMatrix() *
+      refAngvelBaseRtWorldEwrtBase;
   for (size_t axis = 0; axis < kPositionDim; ++axis) {
-    double* absl_nonnull position = values(basePosition_[axis]);
-    position[0] = measured.basePosition[axis];
-    position[1] = referenceBasePosition_[axis];
-    double* absl_nonnull angle = values(baseRollPitchYaw_[axis]);
-    angle[0] = measuredRollPitchYaw[axis];
-    angle[1] = referenceRollPitchYaw[axis];
-    double* absl_nonnull angleRate = values(baseRollPitchYawRates_[axis]);
-    angleRate[0] = measuredRollPitchYawRates[axis];
-    angleRate[1] = referenceRollPitchYawRates[axis];
-    double* absl_nonnull angularLocal = values(baseAngularVelocityLocal_[axis]);
-    angularLocal[0] = measured.baseAngularVelocityLocal[axis];
-    angularLocal[1] = referenceAngularVelocityLocal[axis];
-    double* absl_nonnull linear = values(baseLinearVelocity_[axis]);
-    linear[0] = measured.baseLinearVelocity[axis];
-    linear[1] = referenceBaseLinearVelocity_[axis];
-    double* absl_nonnull angular = values(baseAngularVelocity_[axis]);
-    angular[0] = measured.baseAngularVelocity[axis];
-    angular[1] = referenceAngularVelocityWorld[axis];
+    double* absl_nonnull posBaseRtWorldEwrtWorld =
+        values(groupPosBaseRtWorldEwrtWorld_[axis]);
+    posBaseRtWorldEwrtWorld[0] = measured.posBaseRtWorldEwrtWorld[axis];
+    posBaseRtWorldEwrtWorld[1] = refPosBaseRtWorldEwrtWorld_[axis];
+    const Eigen::Index eulerzyxIndex =
+        static_cast<Eigen::Index>(kPlotEulerzyxIndices[axis]);
+    double* absl_nonnull eulerzyxBaseRtWorld =
+        values(groupEulerzyxBaseRtWorld_[axis]);
+    eulerzyxBaseRtWorld[0] = measuredSource.eulerzyxBaseRtWorld[eulerzyxIndex];
+    eulerzyxBaseRtWorld[1] = referenceSource.eulerzyxBaseRtWorld[eulerzyxIndex];
+    double* absl_nonnull rateEulerzyxBaseRtWorld =
+        values(groupRateEulerzyxBaseRtWorld_[axis]);
+    rateEulerzyxBaseRtWorld[0] =
+        measuredSource.rateEulerzyxBaseRtWorld[eulerzyxIndex];
+    rateEulerzyxBaseRtWorld[1] =
+        referenceSource.rateEulerzyxBaseRtWorld[eulerzyxIndex];
+    double* absl_nonnull angvelBaseRtWorldEwrtBase =
+        values(groupAngvelBaseRtWorldEwrtBase_[axis]);
+    angvelBaseRtWorldEwrtBase[0] = measured.angvelBaseRtWorldEwrtBase[axis];
+    angvelBaseRtWorldEwrtBase[1] = refAngvelBaseRtWorldEwrtBase[axis];
+    double* absl_nonnull linvelBaseRtWorldEwrtWorld =
+        values(groupLinvelBaseRtWorldEwrtWorld_[axis]);
+    linvelBaseRtWorldEwrtWorld[0] = measured.linvelBaseRtWorldEwrtWorld[axis];
+    linvelBaseRtWorldEwrtWorld[1] = refProxyLinvelComRtWorldEwrtWorld_[axis];
+    double* absl_nonnull angvelBaseRtWorldEwrtWorld =
+        values(groupAngvelBaseRtWorldEwrtWorld_[axis]);
+    angvelBaseRtWorldEwrtWorld[0] = measured.angvelBaseRtWorldEwrtWorld[axis];
+    angvelBaseRtWorldEwrtWorld[1] = refAngvelBaseRtWorldEwrtWorld[axis];
   }
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    const vector6_t& mpc = planSource.contactWrenches[contact];
-    const vector6_t& sensor = measured.measuredContactWrenches[contact];
-    double* absl_nonnull normal = values(normalForce_[contact]);
-    normal[0] = mpc[kWrenchForceZIndex];
-    normal[1] = sensor[kWrenchForceZIndex];
-    double* absl_nonnull tangentialForce = values(tangentialForce_[contact]);
-    tangentialForce[kTangentialMpcX] = mpc[kWrenchForceXIndex];
-    tangentialForce[kTangentialMeasuredX] = sensor[kWrenchForceXIndex];
-    tangentialForce[kTangentialMpcY] = mpc[kWrenchForceYIndex];
-    tangentialForce[kTangentialMeasuredY] = sensor[kWrenchForceYIndex];
+    const vector6_t& plannedWrenchFootEwrtWorld =
+        planSource.wrenchFeetEwrtWorld[contact];
+    const vector6_t& measWrenchFootEwrtWorld =
+        measured.measWrenchContactsEwrtWorld[contact];
+    double* absl_nonnull forceFootEwrtWorldZ =
+        values(groupForceFeetEwrtWorldZ_[contact]);
+    forceFootEwrtWorldZ[0] = plannedWrenchFootEwrtWorld[kWrenchForceZIndex];
+    forceFootEwrtWorldZ[1] = measWrenchFootEwrtWorld[kWrenchForceZIndex];
+    double* absl_nonnull forceFootEwrtWorldXy =
+        values(groupForceFeetEwrtWorldXy_[contact]);
+    forceFootEwrtWorldXy[kTangentialMpcX] =
+        plannedWrenchFootEwrtWorld[kWrenchForceXIndex];
+    forceFootEwrtWorldXy[kTangentialMeasuredX] =
+        measWrenchFootEwrtWorld[kWrenchForceXIndex];
+    forceFootEwrtWorldXy[kTangentialMpcY] =
+        plannedWrenchFootEwrtWorld[kWrenchForceYIndex];
+    forceFootEwrtWorldXy[kTangentialMeasuredY] =
+        measWrenchFootEwrtWorld[kWrenchForceYIndex];
   }
   // The coordinates of the display buffers; the vertical velocity of v, and the
   // Euler rates of the angles.
@@ -737,34 +758,37 @@ void TelemetryBuilder::writeBasePanels(const DecodedRobotState& measured) {
         measuredSource.displayCoordinates[kGeneralizedBaseDofs[dof]];
     coordinate[1] =
         referenceSource.displayCoordinates[kGeneralizedBaseDofs[dof]];
-    double* absl_nonnull velocity = values(generalizedBaseVelocity_[dof]);
+    double* absl_nonnull coordinateRate = values(generalizedBaseVelocity_[dof]);
     if (kGeneralizedBaseDofs[dof] < kBaseTranslationDim) {
-      velocity[0] = measuredSource.v[kGeneralizedBaseDofs[dof]];
-      velocity[1] = referenceSource.v[kGeneralizedBaseDofs[dof]];
+      coordinateRate[0] = measuredSource.v[kGeneralizedBaseDofs[dof]];
+      coordinateRate[1] = referenceSource.v[kGeneralizedBaseDofs[dof]];
     } else {
-      velocity[0] =
-          measuredSource
-              .eulerZyxRates[kGeneralizedBaseDofs[dof] - kBaseTranslationDim];
-      velocity[1] =
-          referenceSource
-              .eulerZyxRates[kGeneralizedBaseDofs[dof] - kBaseTranslationDim];
+      coordinateRate[0] =
+          measuredSource.rateEulerzyxBaseRtWorld[kGeneralizedBaseDofs[dof] -
+                                                 kBaseTranslationDim];
+      coordinateRate[1] =
+          referenceSource.rateEulerzyxBaseRtWorld[kGeneralizedBaseDofs[dof] -
+                                                  kBaseTranslationDim];
     }
   }
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
     const pinocchio::FrameIndex frame = contactFrames_[contact];
-    double* absl_nonnull acceleration = values(footAcceleration_[contact]);
-    double* absl_nonnull velocity = values(footVelocity_[contact]);
+    double* absl_nonnull linaccFootRtWorldEwrtWorldZ =
+        values(groupLinaccFeetRtWorldEwrtWorldZ_[contact]);
+    double* absl_nonnull linvelFootRtWorldEwrtWorldZ =
+        values(groupLinvelFeetRtWorldEwrtWorldZ_[contact]);
     for (const size_t source : {kMeasured, kReference}) {
       const Data& data = *sources_[source].data;
-      acceleration[source] =
+      linaccFootRtWorldEwrtWorldZ[source] =
           pinocchio::getFrameClassicalAcceleration(
               model, data, frame, pinocchio::LOCAL_WORLD_ALIGNED)
               .linear()
               .z();
-      velocity[source] = pinocchio::getFrameVelocity(
-                             model, data, frame, pinocchio::LOCAL_WORLD_ALIGNED)
-                             .linear()
-                             .z();
+      linvelFootRtWorldEwrtWorldZ[source] =
+          pinocchio::getFrameVelocity(model, data, frame,
+                                      pinocchio::LOCAL_WORLD_ALIGNED)
+              .linear()
+              .z();
     }
   }
 }
@@ -773,16 +797,20 @@ void TelemetryBuilder::writeBalancePanels() {
   // The balance panels: measured, reference, plan.
   for (size_t source = 0; source < kNumSources; ++source) {
     for (size_t axis = 0; axis < kPositionDim; ++axis) {
-      values(comPosition_[axis])[source] =
-          sources_[source].com[static_cast<Eigen::Index>(axis)];
-      values(acomAngles_[axis])[source] =
-          sources_[source].acomRollPitchYaw[static_cast<Eigen::Index>(axis)];
+      values(groupPosComRtWorldEwrtWorld_[axis])[source] =
+          sources_[source]
+              .posComRtWorldEwrtWorld[static_cast<Eigen::Index>(axis)];
+      values(groupEulerzyxAcomRtWorld_[axis])[source] =
+          sources_[source].eulerzyxAcomRtWorld[static_cast<Eigen::Index>(
+              kPlotEulerzyxIndices[axis])];
     }
     for (size_t axis = 0; axis < kHorizontalPositionDim; ++axis) {
-      values(dcm_[axis])[source] =
-          sources_[source].dcm[static_cast<Eigen::Index>(axis)];
-      values(zmp_[axis])[source] =
-          sources_[source].zmp[static_cast<Eigen::Index>(axis)];
+      values(groupPosDcmRtWorldEwrtWorldXy_[axis])[source] =
+          sources_[source]
+              .posDcmRtWorldEwrtWorldXy[static_cast<Eigen::Index>(axis)];
+      values(groupPosZmpRtWorldEwrtWorldXy_[axis])[source] =
+          sources_[source]
+              .posZmpRtWorldEwrtWorldXy[static_cast<Eigen::Index>(axis)];
     }
   }
 }
@@ -797,25 +825,28 @@ void TelemetryBuilder::writeCompleteGroups(const DecodedRobotState& measured) {
   setValues(joints_[kJointEffortMeasured], measured.jointEfforts);
   setValues(joints_[kJointEffortTarget], measured.jointFeedForwardEfforts);
   for (size_t source = 0; source < sources_.size(); ++source) {
-    setValues(dofPositions_[source], sources_[source].displayCoordinates);
-    setValues(dofVelocities_[source], sources_[source].v);
+    setValues(generalizedCoordinateGroups_[source],
+              sources_[source].displayCoordinates);
+    setValues(generalizedVelocityGroups_[source], sources_[source].v);
   }
-  setValues(dofForces_[kMeasured], measured.generalizedForces);
+  setValues(generalizedForceGroups_[kMeasured], measured.generalizedForces);
   // The reference force of a joint is the feed-forward effort of the action
   // applied; the base's is zero. A force is dual to the velocity v.
-  double* absl_nonnull referenceForce = values(dofForces_[kReference]);
-  std::fill(referenceForce, referenceForce + kBaseVelocityDim, 0.0);
+  double* absl_nonnull refGeneralizedForce =
+      values(generalizedForceGroups_[kReference]);
+  std::fill(refGeneralizedForce, refGeneralizedForce + kBaseVelocityDim, 0.0);
   for (size_t joint = 0; joint < modelSettings().mpc_joint_dim; ++joint) {
     const size_t fullJoint = modelSettings().mpcModelToFullJointsIndices[joint];
-    referenceForce[kJointVelocityOffset + joint] =
+    refGeneralizedForce[kJointVelocityOffset + joint] =
         fullJoint < static_cast<size_t>(measured.jointFeedForwardEfforts.size())
             ? measured.jointFeedForwardEfforts[fullJoint]
             : 0.0;
   }
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    setValues(contactWrenchMpc_[contact], planSource.contactWrenches[contact]);
-    setValues(contactWrenchMeasured_[contact],
-              measured.measuredContactWrenches[contact].head<kForceDim>());
+    setValues(groupPlanWrenchFeetEwrtWorld_[contact],
+              planSource.wrenchFeetEwrtWorld[contact]);
+    setValues(groupMeasForceFeetEwrtWorld_[contact],
+              measured.measWrenchContactsEwrtWorld[contact].head<kForceDim>());
   }
 }
 
@@ -850,26 +881,34 @@ void TelemetryBuilder::writeFramePanels() {
   for (const FrameGroups& frame : frames_) {
     for (size_t source = 0; source < sources_.size(); ++source) {
       const Data& data = *sources_[source].data;
-      const pinocchio::SE3Tpl<scalar_t>& placement = data.oMf[frame.frame];
-      const vector3_t rollPitchYaw =
-          rollPitchYawOf(eulerZyxOfRotation(placement.rotation()));
-      double* absl_nonnull pose = values(frame.groups[kPose][source]);
+      const pinocchio::SE3Tpl<scalar_t>& poseLinkRtWorld =
+          data.oMf[frame.frame];
+      const vector3_t eulerzyxLinkRtWorld =
+          eulerZyxOfRotmat(poseLinkRtWorld.rotation());
+      // [x, y, z, roll, pitch, yaw]: the angles in plot order.
+      double* absl_nonnull poseSlotValues =
+          values(frame.groups[kPoseSlot][source]);
       for (size_t axis = 0; axis < kPositionDim; ++axis) {
-        pose[axis] = placement.translation()[axis];
-        pose[kPositionDim + axis] = rollPitchYaw[axis];
+        poseSlotValues[axis] = poseLinkRtWorld.translation()[axis];
+        poseSlotValues[kPositionDim + axis] =
+            eulerzyxLinkRtWorld[static_cast<Eigen::Index>(
+                kPlotEulerzyxIndices[axis])];
       }
-      const Motion twist = pinocchio::getFrameVelocity(
+      const Motion twistLinkRtWorldEwrtWorld = pinocchio::getFrameVelocity(
           model, data, frame.frame, pinocchio::LOCAL_WORLD_ALIGNED);
-      setValues(frame.groups[kTwist][source], twist.toVector());
-      const Motion acceleration = pinocchio::getFrameClassicalAcceleration(
-          model, data, frame.frame, pinocchio::LOCAL_WORLD_ALIGNED);
-      setValues(frame.groups[kAcceleration][source], acceleration.toVector());
-      const vector6_t wrench =
+      setValues(frame.groups[kTwistSlot][source],
+                twistLinkRtWorldEwrtWorld.toVector());
+      const Motion classicalaccLinkRtWorldEwrtWorld =
+          pinocchio::getFrameClassicalAcceleration(
+              model, data, frame.frame, pinocchio::LOCAL_WORLD_ALIGNED);
+      setValues(frame.groups[kAccelerationSlot][source],
+                classicalaccLinkRtWorldEwrtWorld.toVector());
+      const vector6_t wrenchLinkEwrtWorld =
           frame.contact >= 0
               ? sources_[source]
-                    .contactWrenches[static_cast<size_t>(frame.contact)]
+                    .wrenchFeetEwrtWorld[static_cast<size_t>(frame.contact)]
               : vector6_t(vector6_t::Zero());
-      setValues(frame.groups[kWrench][source], wrench);
+      setValues(frame.groups[kWrenchSlot][source], wrenchLinkEwrtWorld);
     }
   }
 }

@@ -29,7 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
 
-#include <algorithm>
+#include <atomic>
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -47,17 +48,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_mpc/MPC_BASE.h"
+#include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
 #include "ocs2_sqp/SqpSolver.h"
 
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/ConfigReload.h"
 #include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
+#include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
+#include "humanoid_common_mpc/config/weights/StateInputLayout.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/parameter_update/HotFieldApplier.h"
 #include "humanoid_common_mpc/parameter_update/HotFieldApplierList.h"
 #include "humanoid_common_mpc/parameter_update/HotUpdateTarget.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
+#include "humanoid_mpc_config/contact_planning_file.nproto.h"
+#include "humanoid_mpc_config/mpc_parameter_update.nproto.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.pb.h"
 #include "humanoid_mpc_config/task_file.pb.h"
 
@@ -180,8 +193,9 @@ MpcParameterUpdaterModule::MpcParameterUpdaterModule(
 std::vector<std::string> MpcParameterUpdaterModule::appliedFields() const {
   std::vector<absl::Span<const absl::string_view>> fieldLists;
   fieldLists.reserve(appliers_.size());
-  for (const std::unique_ptr<HotFieldApplier>& applier : appliers_)
+  for (const std::unique_ptr<HotFieldApplier>& applier : appliers_) {
     fieldLists.push_back(applier->fields());
+  }
   return sortedFieldUnion(fieldLists);
 }
 
@@ -336,9 +350,10 @@ void MpcParameterUpdaterModule::reloadReferenceFile() {
       refused = true;
     }
   }
-  if (!refused)
+  if (!refused) {
     LOG(INFO) << "[MpcParameterUpdaterModule] Reloaded command limits from "
               << referenceFile_;
+  }
 }
 
 void MpcParameterUpdaterModule::enqueueParameterUpdate(
@@ -349,8 +364,9 @@ void MpcParameterUpdaterModule::enqueueParameterUpdate(
       std::filesystem::file_time_type::clock::now();
   absl::MutexLock lock(&pendingMutex_);
   taskFileUpdateArrival_ = arrival;
-  if (update.contact_planning.has_value())
+  if (update.contact_planning.has_value()) {
     contactPlanningFileUpdateArrival_ = arrival;
+  }
   pendingUpdate_ = update;
   hasPendingUpdate_.store(true, std::memory_order_release);
 }
@@ -374,8 +390,9 @@ void MpcParameterUpdaterModule::reportStartUpChanges(
   for (const ConfigChange& change : changedStartUpFields(running, reloaded)) {
     if (change.reload != ConfigReload::kStartUp) continue;
     if (isReadByTheMpc(change.consumer)) {
-      if (isReadByFormulation(change.formulations, formulation))
+      if (isReadByFormulation(change.formulations, formulation)) {
         mpcFields.push_back(change.path);
+      }
     } else if (change.consumer == kRobotConsumer) {
       robotFields.push_back(change.path);
     }
@@ -433,9 +450,10 @@ void MpcParameterUpdaterModule::applyTaskFile(const mpc_config::TaskFile& task,
       stopped = true;
     }
   }
-  if (!stopped)
+  if (!stopped) {
     LOG(INFO) << "[MpcParameterUpdaterModule] Successfully applied in-place "
                  "parameter updates to SqpSolver.";
+  }
 }
 
 void MpcParameterUpdaterModule::applyContactPlanningFile(
@@ -443,8 +461,9 @@ void MpcParameterUpdaterModule::applyContactPlanningFile(
   if (contactPlannerModulePtr_ == nullptr) return;
   // Converted WITHOUT the validation of ContactPlanningConfig, exactly as the
   // MPC interface does at start-up: the parameters a robot may leave out of its
-  // file, or at 0, to mean "derive this one from the model" - shared.com_height
-  // and the two zmp_support_region half widths - are only filled in by
+  // file, or at 0, to mean "derive this one from the model" -
+  // shared.nom_pos_com_rt_feetmean_ewrt_world_z and the two zmp_support_region
+  // half widths - are only filled in by
   // ContactPlanningModelParameters::applyTo(), which
   // ContactPlannerModule::setConfig() runs before it validates. Validating
   // first would refuse every reload of a robot that takes the documented

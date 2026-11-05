@@ -35,7 +35,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // provider holds a solved policy in flight; a relay between the robot and the
 // MPC loses observations.
 
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>

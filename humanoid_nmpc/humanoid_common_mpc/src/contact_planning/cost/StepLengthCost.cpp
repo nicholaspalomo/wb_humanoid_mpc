@@ -30,17 +30,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/cost/StepLengthCost.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <string>
 
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/StageAccumulator.h"
 
 namespace ocs2::humanoid {
 
 std::string StepLengthCost::describe() const {
   return absl::StrCat(
-      weightLine("w sum_i ||dp_{i,k} - d_nom (1 - c_{i,k})||^2 on the running "
-                 "nodes, d_nom = v_cmd dt T_stride / T_swing"),
+      weightLine("w sum_i ||dp_{i,k} - d_nom,k (1 - c_{i,k})||^2 on the "
+                 "running nodes, d_nom = v_cmd dt T_stride / T_swing, d_nom,k "
+                 "= R_z(omega_cmd k dt) d_nom"),
       ", T_stride / T_swing = ", strideToSwingRatio_);
 }
 
@@ -52,23 +61,30 @@ void StepLengthCost::configure(const ContactPlanningConfig& config) {
       2.0 * (limits.minSwingDuration + doubleSupport) / limits.minSwingDuration;
 }
 
-vector2_t StepLengthCost::nominalDisplacementPerNode(
-    const vector2_t& velocityCommand, scalar_t dt) const {
-  return velocityCommand * (dt * strideToSwingRatio_);
+vector2_t StepLengthCost::computeNomErrPosFootRtWorldEwrtWorldXy(
+    const vector2_t& cmdLinvelBaseRtWorldEwrtWorldXy, scalar_t dt) const {
+  return cmdLinvelBaseRtWorldEwrtWorldXy * (dt * strideToSwingRatio_);
 }
 
 void StepLengthCost::addToStage(const ContactPlanningContext& ctx,
-                                int /*node*/,
+                                int node,
                                 StageAccumulator& stage) const {
-  const vector2_t dNominal =
-      nominalDisplacementPerNode(ctx.input->velocityCommand, ctx.dt);
+  // The input's command is the heading-frame command rotated by the commanded
+  // heading at the planning instant; at node k the commanded heading has
+  // turned by omega_cmd k dt (the ramp heading_tracking follows).
+  const vector2_t cmdLinvelBaseRtWorldEwrtWorldXy =
+      ctx.getCmdLinvelBaseRtWorldEwrtWorldXy(node);
+  const vector2_t nomErrPosFootRtWorldEwrtWorldXy =
+      computeNomErrPosFootRtWorldEwrtWorldXy(cmdLinvelBaseRtWorldEwrtWorldXy,
+                                             ctx.dt);
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       // dp - d_nom (1 - c) = dp + d_nom c - d_nom
-      stage.addQuadraticResidual(/*xCoefficients=*/{},
-                                 {{idx_.footDelta[foot][axis], 1.0},
-                                  {idx_.contact[foot], dNominal(axis)}},
-                                 -dNominal(axis), weight_);
+      stage.addQuadraticResidual(
+          /*xCoefficients=*/{},
+          {{idx_.errPosFeetRtWorldEwrtWorld[foot][axis], 1.0},
+           {idx_.contact[foot], nomErrPosFootRtWorldEwrtWorldXy(axis)}},
+          -nomErrPosFootRtWorldEwrtWorldXy(axis), weight_);
     }
   }
 }

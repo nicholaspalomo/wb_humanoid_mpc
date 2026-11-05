@@ -31,8 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 
 namespace ocs2::humanoid {
 
@@ -40,9 +46,9 @@ namespace ocs2::humanoid {
  * `hip_centered_stepping`: H_r(Theta) = PTP(R(Theta) r_hip) (Bledt, Appendix C,
  * Table C.1).
  *
- * The foot placed under its own hip: the hip's position in the base frame,
- * rotated into the world by the measured base yaw and projected onto the
- * ground.
+ * The foot placed under its own hip: the hip's position relative to the base in
+ * the heading frame, rotated into the world by the measured base yaw and
+ * projected onto the ground.
  *
  * This is the base case of the dissertation's whole foot-placement story, the
  * "no heuristics" panel of figure 4-13 against which every later addition is
@@ -75,12 +81,13 @@ class HipCenteredSteppingHeuristic final : public FootholdHeuristic {
       const LocomotionHeuristicModelParameters& model) override;
   std::string describe() const override;
 
-  vector2_t offset(const FootholdHeuristicContext& context) const override;
+  vector2_t computeOffsetPosFootRtWorldEwrtWorldXy(
+      const FootholdHeuristicContext& context) const override;
   bool movesAnchor() const override { return true; }
 
  private:
   HipCenteredSteppingParameters parameters_;
-  feet_array_t<vector2_t> hipPositionInBaseFrame_ =
+  feet_array_t<vector2_t> posHipsRtBaseEwrtHeadingXy_ =
       makeFeetArray(vector2_t(vector2_t::Zero()));
 };
 

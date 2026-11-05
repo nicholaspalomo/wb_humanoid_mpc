@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <memory>
+#include <numbers>
 #include <random>
 #include <string>
 #include <utility>
@@ -46,13 +47,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/dynamics/SystemDynamicsBase.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "pinocchio/algorithm/centroidal.hpp"
-#include "pinocchio/algorithm/crba.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsAD.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
@@ -160,8 +164,9 @@ vector_t stateAt(const LoadedCentroidalRobot& robot,
   state.segment<4>(
       static_cast<Eigen::Index>(model.getBaseOrientationStartIndex())) = xi;
   vector_t joints = model.getJointAngles(robot.info->qPinocchioNominal);
-  for (Eigen::Index i = 0; i < joints.size(); ++i)
+  for (Eigen::Index i = 0; i < joints.size(); ++i) {
     joints(i) += 0.2 * uniform(generator);
+  }
   model.setJointAngles(state, joints);
   return state;
 }
@@ -188,8 +193,9 @@ vector_t inputOf(const LoadedDynamics& loaded, std::mt19937& generator) {
                  (1.0 + 0.5 * uniform(generator));
     }
   }
-  for (Eigen::Index i = 0; i < joints; ++i)
+  for (Eigen::Index i = 0; i < joints; ++i) {
     input(input.size() - joints + i) = 0.5 * uniform(generator);
+  }
   return input;
 }
 
@@ -295,12 +301,11 @@ TEST_P(
       scaled.segment<4>(orientationStart()) *= c;
       const vector_t moved = flow(scaled, input);
       for (Eigen::Index i = 0; i < moved.size(); ++i) {
-        const bool isQuaternionRate =
+        const bool isQuatSlot =
             i >= orientationStart() && i < orientationStart() + 4;
         // Every row but the quaternion's reads xi_hat; the quaternion rate
         // G(xi) w_B / 2 is linear in the raw xi.
-        EXPECT_NEAR(moved(i),
-                    isQuaternionRate ? c * reference(i) : reference(i),
+        EXPECT_NEAR(moved(i), isQuatSlot ? c * reference(i) : reference(i),
                     1.0e-12 * scale)
             << "row " << i;
       }
@@ -310,8 +315,9 @@ TEST_P(
 
 TEST_P(CentroidalQuaternionDynamics,
        TheQuaternionRateIsTheBaseBodyAngularVelocity) {
-  if (GetParam() == DynamicsCase::kAtlasBasisVectors)
+  if (GetParam() == DynamicsCase::kAtlasBasisVectors) {
     GTEST_SKIP() << "the wrench and basis inputs move the joints alike";
+  }
   std::mt19937 generator(13);
   for (const vector4_t& xi : sampleAttitudes()) {
     SCOPED_TRACE(xi.transpose());
@@ -322,19 +328,23 @@ TEST_P(CentroidalQuaternionDynamics,
     const vector_t rate = flow(state, input);
     // E^+(xi) dxi = 2 G(xi)' G(xi) w_B / 2 = w_B on the unit sphere; the base
     // twist of the momentum in the world, R w_B.
-    const vector3_t bodyRate = quaternionTangentMapPseudoInverse<scalar_t>(xi) *
-                               rate.segment<4>(orientationStart());
-    const vector6_t twist =
+    const vector3_t angvelBaseRtWorldEwrtBase =
+        quaternionTangentMapPseudoInverse<scalar_t>(xi) *
+        rate.segment<4>(orientationStart());
+    const vector6_t twistBaseRtWorldEwrtWorld =
         model().getTwistBaseRtWorldEwrtWorld(state, input.tail(joints));
-    const matrix3_t rotation = quaternion_t(xi).toRotationMatrix();
-    EXPECT_LT((rotation * bodyRate - twist.tail<3>()).cwiseAbs().maxCoeff(),
-              1.0e-9 * std::max(1.0, twist.norm()));
-    EXPECT_LT((vector3_t(rate.segment<3>(
-                   static_cast<Eigen::Index>(model().getBaseStartindex()))) -
-               twist.head<3>())
+    const matrix3_t rotmatBaseRtWorld = quaternion_t(xi).toRotationMatrix();
+    EXPECT_LT((rotmatBaseRtWorld * angvelBaseRtWorldEwrtBase -
+               twistBaseRtWorldEwrtWorld.tail<3>())
                   .cwiseAbs()
                   .maxCoeff(),
-              1.0e-9 * std::max(1.0, twist.norm()));
+              1.0e-9 * std::max(1.0, twistBaseRtWorldEwrtWorld.norm()));
+    EXPECT_LT((vector3_t(rate.segment<3>(
+                   static_cast<Eigen::Index>(model().getBaseStartindex()))) -
+               twistBaseRtWorldEwrtWorld.head<3>())
+                  .cwiseAbs()
+                  .maxCoeff(),
+              1.0e-9 * std::max(1.0, twistBaseRtWorldEwrtWorld.norm()));
     EXPECT_EQ(rate.tail(joints), input.tail(joints))
         << "the joints move at their commanded velocities";
   }
@@ -347,8 +357,8 @@ TEST_P(CentroidalQuaternionDynamics,
       loaded_->robot.pinocchioInterface->getModel();
   pinocchio::Data data(pinocchioModel);
   for (const vector4_t& xi :
-       {quaternionFromEulerZyx(vector3_t(0.3, M_PI / 2.0, 0.2)),
-        quaternionFromEulerZyx(vector3_t(-1.0, -M_PI / 2.0, 0.0)),
+       {quaternionFromEulerZyx(vector3_t(0.3, std::numbers::pi / 2.0, 0.2)),
+        quaternionFromEulerZyx(vector3_t(-1.0, -std::numbers::pi / 2.0, 0.0)),
         quaternionFromEulerZyx(vector3_t(0.7, 0.35, -0.2))}) {
     SCOPED_TRACE(xi.transpose());
     const vector_t state = stateAt(loaded_->robot, xi, generator);
@@ -366,14 +376,14 @@ TEST_P(CentroidalQuaternionDynamics,
     const matrix3_t angularBlock = data.Ag.block<3, 3>(3, 3);
     pinocchio::ccrba(pinocchioModel, data, q,
                      vector_t::Zero(pinocchioModel.nv));
-    const matrix3_t compositeInertia = data.Ig.inertia().matrix();
-    EXPECT_LT(
-        (angularBlock - compositeInertia * quaternion_t(xi).toRotationMatrix())
-            .cwiseAbs()
-            .maxCoeff(),
-        1.0e-12 * compositeInertia.cwiseAbs().maxCoeff());
+    const matrix3_t inertiaComEwrtWorld = data.Ig.inertia().matrix();
+    EXPECT_LT((angularBlock -
+               inertiaComEwrtWorld * quaternion_t(xi).toRotationMatrix())
+                  .cwiseAbs()
+                  .maxCoeff(),
+              1.0e-12 * inertiaComEwrtWorld.cwiseAbs().maxCoeff());
     const Eigen::JacobiSVD<matrix3_t> block(angularBlock);
-    const Eigen::JacobiSVD<matrix3_t> inertia(compositeInertia);
+    const Eigen::JacobiSVD<matrix3_t> inertia(inertiaComEwrtWorld);
     const scalar_t blockCondition =
         block.singularValues()(0) / block.singularValues()(2);
     const scalar_t inertiaCondition =
@@ -383,8 +393,8 @@ TEST_P(CentroidalQuaternionDynamics,
 }
 
 /** The composite inertia I_G of `robot` at `state`. */
-matrix3_t compositeInertiaAt(const LoadedCentroidalRobot& robot,
-                             const vector_t& state) {
+matrix3_t computeInertiaComEwrtWorld(const LoadedCentroidalRobot& robot,
+                                     const vector_t& state) {
   const pinocchio::Model& pinocchioModel = robot.pinocchioInterface->getModel();
   pinocchio::Data data(pinocchioModel);
   pinocchio::ccrba(pinocchioModel, data,
@@ -395,15 +405,15 @@ matrix3_t compositeInertiaAt(const LoadedCentroidalRobot& robot,
 
 /**
  * The free spin of the tests below: `state` with its CoM still and its base
- * turning at `angularVelocityWorld` with the joints still, L = I_G w; no
+ * turning at `angvelBaseRtWorldEwrtWorld` with the joints still, L = I_G w; no
  * contact force acts on it.
  */
 vector_t spinningState(const LoadedCentroidalRobot& robot,
                        vector_t state,
-                       const vector3_t& angularVelocityWorld) {
+                       const vector3_t& angvelBaseRtWorldEwrtWorld) {
   state.head<3>().setZero();
-  state.segment<3>(3) = compositeInertiaAt(robot, state) *
-                        angularVelocityWorld / robot.info->robotMass;
+  state.segment<3>(3) = computeInertiaComEwrtWorld(robot, state) *
+                        angvelBaseRtWorldEwrtWorld / robot.info->robotMass;
   return state;
 }
 
@@ -423,7 +433,8 @@ class CentroidalQuaternionDynamicsIntegration
    * still, as the solver discretizes a node. */
   RungeKuttaRun integrate(vector_t state, scalar_t step, int steps) const {
     const vector_t input = vector_t::Zero(loaded_->inputDim);
-    const vector4_t start = model().getQuatBaseRtWorldXyzw(state);
+    const vector4_t initQuatBaseRtWorldXyzw =
+        model().getQuatBaseRtWorldXyzw(state);
     RungeKuttaRun run;
     for (int k = 0; k < steps; ++k) {
       const vector_t k1 = flow(state, input);
@@ -435,11 +446,13 @@ class CentroidalQuaternionDynamicsIntegration
           std::max(run.largestNormError,
                    std::abs(state.segment<4>(orientationStart()).norm() - 1.0));
     }
-    const vector4_t end = model().getQuatBaseRtWorldXyzw(state);
-    run.turned =
-        quaternionLog<scalar_t>(quaternionProduct<scalar_t>(
-                                    quaternionConjugate<scalar_t>(start), end))
-            .norm();
+    const vector4_t finalQuatBaseRtWorldXyzw =
+        model().getQuatBaseRtWorldXyzw(state);
+    run.turned = quaternionLog<scalar_t>(
+                     quaternionProduct<scalar_t>(
+                         quaternionConjugate<scalar_t>(initQuatBaseRtWorldXyzw),
+                         finalQuatBaseRtWorldXyzw))
+                     .norm();
     return run;
   }
 };
@@ -459,7 +472,7 @@ TEST_P(CentroidalQuaternionDynamicsIntegration,
       stateAt(loaded_->robot, quaternionFromEulerZyx(vector3_t(0.4, 0.2, -0.1)),
               generator);
   const Eigen::SelfAdjointEigenSolver<matrix3_t> principal(
-      compositeInertiaAt(loaded_->robot, posture));
+      computeInertiaComEwrtWorld(loaded_->robot, posture));
   const vector_t state =
       spinningState(loaded_->robot, posture,
                     5.0 * vector3_t(principal.eigenvectors().col(2)));
@@ -473,7 +486,7 @@ TEST_P(CentroidalQuaternionDynamicsIntegration,
   EXPECT_LT(run.largestNormError, 1.0e-8);
   EXPECT_NEAR(run.largestNormError, expected, 0.02 * expected)
       << "the stability function's loss, " << expected;
-  EXPECT_NEAR(run.turned, 2.0 * M_PI - 5.0 * kStep * kSteps, 1.0e-6)
+  EXPECT_NEAR(run.turned, 2.0 * std::numbers::pi - 5.0 * kStep * kSteps, 1.0e-6)
       << "turned at 5 rad/s for 1.2 s, 6 rad: read on the shorter arc";
   ::testing::Test::RecordProperty("largest_quaternion_norm_error",
                                   absl::StrCat(run.largestNormError));

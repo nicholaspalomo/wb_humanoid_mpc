@@ -167,15 +167,17 @@ absl::Status checkSqpRanges(const mpc_config::SqpSettingsConfig& config) {
 
 std::vector<std::string> sensitivityIntegratorNames() {
   std::vector<std::string> names;
-  for (const SensitivityIntegratorType type : kSensitivityIntegrators)
+  for (const SensitivityIntegratorType type : kSensitivityIntegrators) {
     names.push_back(sensitivity_integrator::toString(type));
+  }
   return names;
 }
 
 std::vector<std::string> rolloutIntegratorNames() {
   std::vector<std::string> names;
-  for (const IntegratorType type : kRolloutIntegrators)
+  for (const IntegratorType type : kRolloutIntegrators) {
     names.push_back(integrator_type::toString(type));
+  }
   return names;
 }
 

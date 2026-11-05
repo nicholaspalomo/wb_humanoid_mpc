@@ -46,24 +46,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::multi_contact {
 
 /** [rad] How far a point pad's normal may tilt from the surface normal by
- * default (design section 3.1, max_pad_tilt). */
-inline constexpr double kDefaultMaxPadTilt = 0.5235987755982988;  // 30 deg
+ * default (design section 3.1, StanceIkOptions::maxTiltanglePadRtSurface). */
+inline constexpr double kNomMaxTiltanglePadRtSurface =
+    0.5235987755982988;  // 30 deg
 
 /** [m] How far a held pad may be from its target (design section 5.1). */
-inline constexpr double kDefaultReachTolerance = 0.005;
+inline constexpr double kNomMaxNormErrPosPadRtWorldEwrtWorld = 0.005;
+/** [m] How deep a collision sphere may be in the terrain: the certifier's
+ * contact tolerance. */
+inline constexpr double kDefaultIkPenetrationTolerance = 0.005;
 
 /** A contact the inverse kinematics holds on the terrain. Passive data. */
 struct ContactTarget {
   // The candidate of the contact set.
   int candidate = 0;
   // [m] The pad's center in the world.
-  Eigen::Vector3d position = Eigen::Vector3d::Zero();
+  Eigen::Vector3d posPadRtWorldEwrtWorld = Eigen::Vector3d::Zero();
   // The surface's outward unit normal: the pad's z axis (ContactCandidate).
-  Eigen::Vector3d normal = Eigen::Vector3d::UnitZ();
-  // A surface pad's x axis, a unit vector orthogonal to `normal`: its yaw on
-  // the surface. Unused for a point pad, whose normal only stays in the cone
-  // of the maximal tilt.
-  Eigen::Vector3d xAxis = Eigen::Vector3d::UnitX();
+  Eigen::Vector3d normalSurfaceEwrtWorld = Eigen::Vector3d::UnitZ();
+  // A surface pad's x axis, a unit vector orthogonal to
+  // `normalSurfaceEwrtWorld`: its yaw on the surface. Unused for a point pad,
+  // whose normal only stays in the cone of the maximal tilt.
+  Eigen::Vector3d xAxisPadEwrtWorld = Eigen::Vector3d::UnitX();
 };
 
 /** A pad the inverse kinematics pulls toward a point, softly: a swinging
@@ -71,12 +75,12 @@ struct ContactTarget {
 struct PadTarget {
   int candidate = 0;
   // [m]
-  Eigen::Vector3d position = Eigen::Vector3d::Zero();
+  Eigen::Vector3d posPadRtWorldEwrtWorld = Eigen::Vector3d::Zero();
   // A unit vector the pad's z axis (its outward surface normal, the opposite
-  // of ContactCandidate::padNormal) is pulled toward, softly, at the
+  // of ContactCandidate::normalPadEwrtLink) is pulled toward, softly, at the
   // orientation weight: a sole that lifts off stays level. std::nullopt: the
   // pad turns freely.
-  std::optional<Eigen::Vector3d> normal;
+  std::optional<Eigen::Vector3d> desZAxisPadEwrtWorld;
 };
 
 /** One inverse kinematics problem (design section 5.1). Passive data. */
@@ -86,11 +90,11 @@ struct StanceIkProblem {
   // The polygon the CoM's horizontal position must stay in, `comMargin` from
   // its edges (counterclockwise, StaticEquilibrium::supportPolygon()); empty:
   // no CoM constraint.
-  std::vector<Eigen::Vector2d> comPolygon;
+  std::vector<Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples;
   // [m]
   double comMargin = 0.0;
   // A point the CoM is pulled toward, softly.
-  std::optional<Eigen::Vector3d> comTarget;
+  std::optional<Eigen::Vector3d> desPosComRtWorldEwrtWorld;
   // Swinging pads pulled toward points, softly.
   std::vector<PadTarget> padTargets;
   // The pose the redundancy is pulled toward (a generalized position), and
@@ -105,7 +109,7 @@ struct StanceIkProblem {
 
 /** The defaults of StanceIkOptions; its fields say what each is. */
 inline constexpr int kDefaultMaxIterations = 100;
-inline constexpr double kDefaultSurfaceTiltTolerance = 0.02;
+inline constexpr double kNomSurfaceMaxTiltanglePadRtSurface = 0.02;
 inline constexpr double kDefaultTerrainClearance = 0.01;
 inline constexpr double kDefaultSelfClearance = 0.01;
 inline constexpr double kDefaultActivationDistance = 0.08;
@@ -126,14 +130,15 @@ inline constexpr double kDefaultConvergedStep = 1.0e-4;
 /** The weights and limits of StanceInverseKinematics. */
 struct StanceIkOptions {
   int maxIterations = kDefaultMaxIterations;
-  double reachTolerance = kDefaultReachTolerance;
+  double maxNormErrPosPadRtWorldEwrtWorld =
+      kNomMaxNormErrPosPadRtWorldEwrtWorld;
   // [m] How deep a collision sphere that is not exempt may be in the terrain
   // for the result to be feasible: the certifier's contact tolerance by
   // default.
-  double penetrationTolerance = kDefaultReachTolerance;
+  double penetrationTolerance = kDefaultIkPenetrationTolerance;
   // [rad] Of a surface pad's normal from the surface normal.
-  double surfaceTiltTolerance = kDefaultSurfaceTiltTolerance;
-  double maxPadTilt = kDefaultMaxPadTilt;
+  double surfaceMaxTiltanglePadRtSurface = kNomSurfaceMaxTiltanglePadRtSurface;
+  double maxTiltanglePadRtSurface = kNomMaxTiltanglePadRtSurface;
   // [m] The clearance the spheres keep from the terrain and from each other.
   double terrainClearance = kDefaultTerrainClearance;
   double selfClearance = kDefaultSelfClearance;
@@ -181,10 +186,10 @@ struct StanceIkResult {
   // What fails, for messages; empty when feasible.
   std::string failure;
   // [m] The largest distance of a held pad to its target.
-  double maxReachError = 0.0;
+  double maxNormErrPosPadRtWorldEwrtWorld = 0.0;
   // [rad] The largest tilt of a held pad's normal from its surface's.
-  double maxPointTilt = 0.0;
-  double maxSurfaceTilt = 0.0;
+  double pointMaxTiltanglePadRtSurface = 0.0;
+  double surfaceMaxTiltanglePadRtSurface = 0.0;
   // [m] The CoM's signed distance to the polygon's boundary; std::nullopt
   // without a polygon.
   std::optional<double> comMargin;

@@ -82,11 +82,11 @@ InitialStateGap initialStateGapOf(const vector_t& delta,
                                   const StateManifold& stateManifold) {
   // A tangent vector on the manifold, whose rotation blocks the manifold
   // measures.
-  return {.rotation = stateManifold.getMaximumTangentAngle(delta),
+  return {.angle = stateManifold.getMaximumTangentAngle(delta),
           .norm = delta.norm()};
 }
 
-std::optional<double> maxQuaternionNormDeviationOf(
+std::optional<double> maxUnitQuaternionNormDeviationOf(
     const vector_array_t& states, size_t orientationStartIndex) {
   if (states.empty()) return std::nullopt;
   const Eigen::Index start = static_cast<Eigen::Index>(orientationStartIndex);
@@ -110,7 +110,8 @@ ClosedLoopDriver::simulatorConfig() const {
   options.mjcfFile = configuration_.sceneFile;
   options.initialState.emplace(*initialRobotState_);
   options.contactFrameNames = modelSettings_->contactNames;
-  options.contactParentJointNames = modelSettings_->contactParentJointNames;
+  options.contactParentJointNames =
+      modelSettings_->contactParentJointNamesInContactOrder();
   options.simulator = settings_.simulator;
   options.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
   // clang-format off
@@ -126,10 +127,10 @@ void ClosedLoopDriver::setGuiVelocityCommand(const Eigen::Vector4d& message) {
   // The message the GUI publishes, applied as the MPC node applies a received
   // one.
   humanoid_mpc_msgs::WalkingVelocityCommand proto;
-  proto.set_cmd_linvel_base_rt_world_ewrt_heading_x(message(0));
-  proto.set_cmd_linvel_base_rt_world_ewrt_heading_y(message(1));
-  proto.set_cmd_pos_base_rt_world_ewrt_world_z(message(2));
-  proto.set_cmd_angvel_base_rt_world_ewrt_world_z(message(3));
+  proto.set_cmd_lnorm_linvel_base_rt_world_ewrt_heading_x(message(0));
+  proto.set_cmd_lnorm_linvel_base_rt_world_ewrt_heading_y(message(1));
+  proto.set_cmd_pos_base_rt_surface_ewrt_world_z(message(2));
+  proto.set_cmd_lnorm_angvel_base_rt_world_ewrt_world_z(message(3));
   const absl::Status applied =
       node::applyWalkingVelocityCommand(proto, *motionManager_);
   if (!applied.ok())
@@ -137,13 +138,13 @@ void ClosedLoopDriver::setGuiVelocityCommand(const Eigen::Vector4d& message) {
                << applied;
 }
 
-Eigen::Vector3d ClosedLoopDriver::referenceVelocity() const {
+Eigen::Vector3d ClosedLoopDriver::refVelocityCommand() const {
   const vector4_t& ramped = motionManager_->getRampedVelocityCommand();
   return Eigen::Vector3d(ramped(0), ramped(1), ramped(3));
 }
 
 double ClosedLoopDriver::referenceBaseHeight(double pelvisHeight) const {
-  return calculator_->commandedBaseHeight(pelvisHeight);
+  return calculator_->computeRefPosBaseRtWorldEwrtWorldZ(pelvisHeight);
 }
 
 DriverSolveOutcome ClosedLoopDriver::solve() {
@@ -171,9 +172,9 @@ DriverSolveOutcome ClosedLoopDriver::solve() {
     outcome.computeControllerMs = benchmarks.computeControllerTime;
     const SqpSolver& solver = *mpc_->getSolverPtr();
     if (!solver.getIterationRecords().empty()) {
-      outcome.sqpStep =
-          sqpStepSampleOf(solver.getIterationRecords().back(),
-                          solver.getSolutionMetrics(), normalVelocityTerms_);
+      outcome.sqpStep = sqpStepSampleOf(solver.getIterationRecords().back(),
+                                        solver.getSolutionMetrics(),
+                                        normalVelocityConstraintTerms_);
     }
   }
   return outcome;
@@ -193,7 +194,7 @@ std::optional<InitialStateGap> ClosedLoopDriver::lastSolveInitialStateGap()
       *mpc_->getSolverPtr()->getOptimalControlProblem().stateManifoldPtr);
 }
 
-std::optional<double> ClosedLoopDriver::maxQuaternionNormDeviation() const {
+std::optional<double> ClosedLoopDriver::maxUnitQuaternionNormDeviation() const {
   // The SQP's whole solution, every node's stored state; empty before the first
   // solve. The final time asks for the whole horizon (SqpSolver hands its
   // solution out whole anyway).
@@ -201,12 +202,13 @@ std::optional<double> ClosedLoopDriver::maxQuaternionNormDeviation() const {
   PrimalSolution solution;
   solver.getPrimalSolution(/*finalTime=*/std::numeric_limits<scalar_t>::max(),
                            &solution);
-  return maxQuaternionNormDeviationOf(
+  return maxUnitQuaternionNormDeviationOf(
       solution.stateTrajectory_,
       measurementModel_->getBaseOrientationStartIndex());
 }
 
-std::array<Eigen::Vector3d, 2> ClosedLoopDriver::contactPositions(
+std::array<Eigen::Vector3d, 2>
+ClosedLoopDriver::computePosContactsRtWorldEwrtWorld(
     const SystemObservation& observation) {
   const vector_t q =
       measurementModel_->getGeneralizedCoordinates(observation.state);
@@ -370,7 +372,7 @@ absl::Status ClosedLoopDriver::initializeShared(
   solverThreads_ = settings.nThreads;
   mpc_ = std::make_unique<SqpMpc>(mpcSettings, settings, problem, initializer);
   mpc_->getSolverPtr()->setReferenceManager(std::move(referenceManager));
-  normalVelocityTerms_ = normalVelocityTermIndices(
+  normalVelocityConstraintTerms_ = normalVelocityTermIndices(
       *problem.equalityConstraintPtr, modelSettings.contactNames);
 
   // The configuration the observation describes, for the contact positions.
@@ -435,11 +437,11 @@ absl::Status ClosedLoopDriver::initializeCommandPath(
       calculator_.get();
   ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories
       targetTrajectories =
-          [calculatorPtr](const vector4_t& velocityTarget, scalar_t initTime,
+          [calculatorPtr](const vector4_t& velocityCommand, scalar_t initTime,
                           scalar_t /*finalTime*/, const vector_t& initState,
                           const BasePlanarMotion& measuredMotion) {
             return calculatorPtr->velocityCommandToTargetTrajectories(
-                velocityTarget, initTime, initState, measuredMotion);
+                velocityCommand, initTime, initState, measuredMotion);
           };
   ASSIGN_OR_RETURN(
       motionManager_,

@@ -30,10 +30,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/RobotState.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <optional>
 
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
+
+#include "robot_core/Types.h"
+#include "robot_model/RobotDescription.h"
 
 namespace robot::model {
 

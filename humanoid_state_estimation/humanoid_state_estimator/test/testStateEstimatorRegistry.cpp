@@ -39,12 +39,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_state_estimation/humanoid_state_estimator/test/MeasuredState.h"
 #include "humanoid_state_estimation/humanoid_state_estimator/test/WalkingTrajectory.h"
+#include "humanoid_state_estimator/ContactKinematics.h"
+#include "humanoid_state_estimator/KalmanBaseEstimator.h"
 #include "humanoid_state_estimator/StateEstimator.h"
 #include "humanoid_state_estimator/StateEstimatorRegistry.h"
 #include "robot_model/RobotDescription.h"
@@ -58,6 +63,15 @@ using test_support::walkingSample;
 
 constexpr scalar_t kDt = 0.002;
 
+/** The prismatic biped's feet, as contact points at their own frames. */
+std::vector<ContactPointSpec> footContacts() {
+  std::vector<ContactPointSpec> contacts;
+  for (const std::string& frame : test_support::prismaticBipedFootFrames()) {
+    contacts.push_back(ContactPointSpec{.frameNames = {frame}});
+  }
+  return contacts;
+}
+
 robot::model::RobotDescription bipedDescription() {
   absl::StatusOr<robot::model::RobotDescription> description =
       robot::model::RobotDescription::Create(test_support::kPrismaticBipedUrdf);
@@ -67,12 +81,10 @@ robot::model::RobotDescription bipedDescription() {
 
 StateEstimatorContext contextOf(
     const robot::model::RobotDescription& description) {
-  return StateEstimatorContext{
-      .urdfFile = test_support::kPrismaticBipedUrdf,
-      .contactFrameNames = test_support::prismaticBipedFootFrames(),
-      .contactParentJointNames = {},
-      .description = &description,
-      .kalman = KalmanBaseEstimator::Config()};
+  return StateEstimatorContext{.urdfFile = test_support::kPrismaticBipedUrdf,
+                               .contacts = footContacts(),
+                               .description = &description,
+                               .kalman = KalmanBaseEstimator::Config()};
 }
 
 TEST(StateEstimatorRegistryTest, NamesItsEstimatorsAndRefusesAnUnknownOne) {
@@ -108,10 +120,12 @@ TEST(StateEstimatorRegistryTest,
      KalmanRefusesAUrdfWithoutTheContactFramesAndFallsBackToTheParentJoint) {
   const robot::model::RobotDescription description = bipedDescription();
   StateEstimatorContext context = contextOf(description);
-  context.contactFrameNames = {"foot_l_contact", "foot_r_contact"};
+  context.contacts = {ContactPointSpec{.frameNames = {"foot_l_contact"}},
+                      ContactPointSpec{.frameNames = {"foot_r_contact"}}};
   EXPECT_EQ(StateEstimatorRegistry().create("kalman", context).status().code(),
             absl::StatusCode::kInvalidArgument);
-  context.contactParentJointNames = {"left_z", "right_z"};
+  context.contacts[0].frameNames.emplace_back("left_z");
+  context.contacts[1].frameNames.emplace_back("right_z");
   EXPECT_TRUE(StateEstimatorRegistry().create("kalman", context).ok());
   context.kalman.imuAccelerationNoise = 0.0;
   const absl::StatusOr<std::unique_ptr<StateEstimator>> refused =

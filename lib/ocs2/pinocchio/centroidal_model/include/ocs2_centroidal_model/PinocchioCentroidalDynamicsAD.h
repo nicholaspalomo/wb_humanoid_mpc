@@ -44,13 +44,14 @@ namespace ocs2 {
 /**
  * Centroidal Dynamics:
  *
- * State: x = [ linear_momentum / mass, angular_momentum / mass, base_position, base_orientation_quaternion, joint_positions ]'
+ * State: x = [ mnorm_cmom_com_rt_world_ewrt_world (linear and angular momentum / mass), pos_base_rt_world_ewrt_world,
+ *              quat_base_rt_world_xyzw, joint_positions ]'
  * @remark: The base orientation is the quaternion (x, y, z, w) from the base frame to the inertial frame, as the state stores
  * it (not normalized); the state has one entry more than its tangent [h, dp, dphi_body, dq_j].
  * @remark: The linear and angular momenta are expressed with respect to the centroidal frame (a frame centered at
  * the CoM and aligned with the inertial frame).
  *
- * Input: u = [ contact_forces, contact_wrenches, joint_velocities ]'
+ * Input: u = [ force_contacts_ewrt_world (3-DoF contacts), wrench_contacts_ewrt_world (6-DoF contacts), joint_velocities ]'
  * @remark: Contact forces and wrenches are expressed with respect to the inertial frame.
  */
 class PinocchioCentroidalDynamicsAD final {

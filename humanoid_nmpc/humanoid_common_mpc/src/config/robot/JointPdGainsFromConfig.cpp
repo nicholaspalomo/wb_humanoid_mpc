@@ -42,9 +42,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
 
@@ -183,8 +183,9 @@ absl::StatusOr<JointPdGains> jointPdGainsFromConfig(
           absl::StrCat("[JointPdGains] joint_gains names the joint ",
                        entry.joint, " twice; a joint is named at most once."));
     }
-    if (!robotJoints.contains(entry.joint))
+    if (!robotJoints.contains(entry.joint)) {
       notThisRobots.push_back(entry.joint);
+    }
   }
   if (!notThisRobots.empty()) {
     return absl::InvalidArgumentError(absl::StrCat(

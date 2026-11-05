@@ -35,11 +35,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Core"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/data.hpp"  // IWYU pragma: keep
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
@@ -170,8 +171,9 @@ class RealtimeRigidBodyDynamics {
   vector_t configuration_;            ///< nq
   vector_t generalizedVelocity_;      ///< nv, the twin's
   vector_t generalizedAcceleration_;  ///< nv, the twin's
-  matrix_t soleJacobian_;  ///< 6 x nv, the twin's LOCAL_WORLD_ALIGNED Jacobian
-                           ///< of one sole frame
+  matrix_t
+      jacFootRtWorldEwrtWorld_;  ///< 6 x nv, the twin's LOCAL_WORLD_ALIGNED
+                                 ///< Jacobian of one sole frame
   vector_t generalizedContactForce_;  ///< nv, J^T W; its joint rows are those
                                       ///< of the MPC model
   vector_t jointTorques_;             ///< nv - 6

@@ -284,8 +284,9 @@ TEST_F(VisualizationPublisherTest,
   // sample being published).
   CommandData command;
   PrimalSolution solution;
-  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0,
-                     vector2_t::Zero(), &command, &solution);
+  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11,
+                     /*forceFootEwrtWorldZ=*/300.0, vector2_t::Zero(), &command,
+                     &solution);
   const SystemObservation observation =
       robot_->observation(/*time=*/0.0, ModeNumber::kStance);
   const std::chrono::steady_clock::time_point start =
@@ -369,8 +370,9 @@ TEST_F(VisualizationPublisherTest, TheSceneDrawsTheLatestPolicyAndSample) {
   ASSERT_TRUE(publisher->start().ok());
   CommandData command;
   PrimalSolution solution;
-  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0,
-                     vector2_t::Zero(), &command, &solution);
+  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11,
+                     /*forceFootEwrtWorldZ=*/300.0, vector2_t::Zero(), &command,
+                     &solution);
   // As MpcServer calls it after publishing a policy.
   EXPECT_TRUE(
       publisher->postSolveObserver()(command, solution, PerformanceIndex())
@@ -415,8 +417,9 @@ TEST_F(VisualizationPublisherTest, AStaleSampleGivesWayToTheObservation) {
   ASSERT_TRUE(publisher->start().ok());
   CommandData command;
   PrimalSolution solution;
-  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0,
-                     vector2_t::Zero(), &command, &solution);
+  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11,
+                     /*forceFootEwrtWorldZ=*/300.0, vector2_t::Zero(), &command,
+                     &solution);
   EXPECT_TRUE(
       publisher->postSolveObserver()(command, solution, PerformanceIndex())
           .ok());
@@ -656,8 +659,9 @@ TEST_F(VisualizationPublisherTest,
 
   CommandData command;
   PrimalSolution solution;
-  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0,
-                     vector2_t::Zero(), &command, &solution);
+  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11,
+                     /*forceFootEwrtWorldZ=*/300.0, vector2_t::Zero(), &command,
+                     &solution);
   double time = 0.0;
   ASSERT_TRUE(waitFor([&] {
     time += 0.01;
@@ -725,8 +729,9 @@ TEST_F(VisualizationPublisherTest,
 
   CommandData command;
   PrimalSolution solution;
-  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0,
-                     vector2_t::Zero(), &command, &solution);
+  robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11,
+                     /*forceFootEwrtWorldZ=*/300.0, vector2_t::Zero(), &command,
+                     &solution);
   PerformanceIndex performance;
   performance.merit = 7.0;
   ASSERT_TRUE(

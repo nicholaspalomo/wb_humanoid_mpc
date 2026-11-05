@@ -41,14 +41,15 @@ namespace ocs2::humanoid::multi_contact {
 struct SwingEnds {
   // [m] The pad's position when the swing starts, and the outward normal of the
   // surface it rests on, if `lifts`.
-  Eigen::Vector3d start = Eigen::Vector3d::Zero();
-  Eigen::Vector3d startNormal = Eigen::Vector3d::UnitZ();
+  Eigen::Vector3d initPosPadRtWorldEwrtWorld = Eigen::Vector3d::Zero();
+  Eigen::Vector3d initNormalSurfaceEwrtWorld = Eigen::Vector3d::UnitZ();
   // Whether the pad starts on a surface, so that it lifts off along its
   // normal first.
   bool lifts = false;
-  // [m] Its target on the surface of outward normal `targetNormal`.
-  Eigen::Vector3d target = Eigen::Vector3d::Zero();
-  Eigen::Vector3d targetNormal = Eigen::Vector3d::UnitZ();
+  // [m] Its target on the surface of outward normal
+  // `desNormalSurfaceEwrtWorld`.
+  Eigen::Vector3d desPosPadRtWorldEwrtWorld = Eigen::Vector3d::Zero();
+  Eigen::Vector3d desNormalSurfaceEwrtWorld = Eigen::Vector3d::UnitZ();
   // [m] How far the pad's geometry reaches from its center (a sole's half
   // diagonal), which the traverse keeps off the terrain too.
   double extent = 0.0;
@@ -75,19 +76,22 @@ class SwingPath {
                           const TerrainModel& terrain);
 
   /** [m] The point at fraction `s` of the length, s clamped into [0, 1]. */
-  Eigen::Vector3d pointAt(double s) const;
+  Eigen::Vector3d getDesPosPadRtWorldEwrtWorld(double s) const;
   /** [m] */
   double length() const { return cumulative_.back(); }
   /** The fraction at which the lift-off ends (0 without one) and the one at
    * which the touch-down starts. */
   double liftEnd() const { return liftEnd_; }
   double approachStart() const { return approachStart_; }
-  const std::vector<Eigen::Vector3d>& waypoints() const { return waypoints_; }
+  const std::vector<Eigen::Vector3d>& getDesPosPadRtWorldEwrtWorldSamples()
+      const {
+    return desPosPadRtWorldEwrtWorldSamples_;
+  }
 
  private:
   SwingPath() = default;
 
-  std::vector<Eigen::Vector3d> waypoints_;
+  std::vector<Eigen::Vector3d> desPosPadRtWorldEwrtWorldSamples_;
   // [m] The arc length at each waypoint; the first is 0.
   std::vector<double> cumulative_;
   double liftEnd_ = 0.0;

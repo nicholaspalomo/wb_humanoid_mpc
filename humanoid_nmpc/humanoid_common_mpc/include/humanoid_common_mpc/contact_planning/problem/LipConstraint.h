@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningTerm.h"
 #include "humanoid_common_mpc/contact_planning/problem/RowBuilder.h"

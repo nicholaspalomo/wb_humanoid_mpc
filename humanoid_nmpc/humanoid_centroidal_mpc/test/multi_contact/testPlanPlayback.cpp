@@ -31,12 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
@@ -46,22 +46,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
 #include "humanoid_centroidal_mpc/multi_contact/PlanContactOrder.h"
 #include "humanoid_centroidal_mpc/multi_contact/PlanPlayback.h"
 #include "humanoid_centroidal_mpc/multi_contact/PlannedMotion.h"
 #include "humanoid_centroidal_mpc/multi_contact/PlannedMotionReferenceManager.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_swing/ContactSwingPlanner.h"
+#include "humanoid_common_mpc/contact_swing/ContactSwingTrajectory.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_mpc_config/multi_contact_plan_config.nproto.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 #include "humanoid_multi_contact/scenarios/Scenario.h"
 #include "humanoid_multi_contact/stability/StabilityCertifier.h"
+#include "humanoid_multi_contact/stability/certifier_report.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/MultiContactTestFiles.h"
 #include "support/TypedConfigFiles.h"
@@ -186,40 +197,50 @@ TEST(ForwardAndReverseCycle, mirrorsEveryKnotInTimeWithItsVelocitiesNegated) {
     EXPECT_EQ(cycle.knots[i].time, forward.time);
     const Plan::Knot& reversed = cycle.knots[2 * n - i];
     EXPECT_NEAR(reversed.time, mirror - forward.time, kTolerance);
-    EXPECT_EQ(reversed.base_position, forward.base_position);
-    EXPECT_EQ(reversed.base_orientation_xyzw, forward.base_orientation_xyzw);
+    EXPECT_EQ(reversed.pos_base_rt_world_ewrt_world,
+              forward.pos_base_rt_world_ewrt_world);
+    EXPECT_EQ(reversed.quat_base_rt_world_xyzw,
+              forward.quat_base_rt_world_xyzw);
     EXPECT_EQ(reversed.joint_positions, forward.joint_positions);
     // The stance and wrenches that held over [t_(i-1), t_i] hold over its
     // mirror: those of the knot before.
     const Plan::Knot& before = ascent.knots[i == 0 ? 0 : i - 1];
     EXPECT_EQ(reversed.active_contacts, before.active_contacts);
     EXPECT_EQ(reversed.joint_velocities, -forward.joint_velocities);
-    EXPECT_EQ(reversed.linear_momentum, -forward.linear_momentum);
-    EXPECT_EQ(reversed.angular_momentum, -forward.angular_momentum);
-    ASSERT_EQ(reversed.contact_wrenches.size(), before.contact_wrenches.size());
-    for (size_t w = 0; w < before.contact_wrenches.size(); ++w) {
-      EXPECT_EQ(reversed.contact_wrenches[w].force,
-                before.contact_wrenches[w].force);
-      EXPECT_EQ(reversed.contact_wrenches[w].torque,
-                before.contact_wrenches[w].torque);
+    EXPECT_EQ(reversed.linmom_com_rt_world_ewrt_world,
+              -forward.linmom_com_rt_world_ewrt_world);
+    EXPECT_EQ(reversed.angmom_com_rt_world_ewrt_world,
+              -forward.angmom_com_rt_world_ewrt_world);
+    ASSERT_EQ(reversed.wrench_contacts_ewrt_world.size(),
+              before.wrench_contacts_ewrt_world.size());
+    for (size_t w = 0; w < before.wrench_contacts_ewrt_world.size(); ++w) {
+      // NOLINTBEGIN(frame-naming): the components of a ContactWrench, whose frames its field names
+      EXPECT_EQ(reversed.wrench_contacts_ewrt_world[w].force,
+                before.wrench_contacts_ewrt_world[w].force);
+      EXPECT_EQ(reversed.wrench_contacts_ewrt_world[w].torque,
+                before.wrench_contacts_ewrt_world[w].torque);
+      // NOLINTEND(frame-naming)
     }
   }
   // The dwells stand at rest in their middles.
   for (const size_t resting : {n, 2 * n + 1}) {
-    EXPECT_TRUE(cycle.knots[resting].linear_momentum.isZero()) << resting;
-    EXPECT_TRUE(cycle.knots[resting].angular_momentum.isZero()) << resting;
+    EXPECT_TRUE(cycle.knots[resting].linmom_com_rt_world_ewrt_world.isZero())
+        << resting;
+    EXPECT_TRUE(cycle.knots[resting].angmom_com_rt_world_ewrt_world.isZero())
+        << resting;
   }
   EXPECT_NEAR(cycle.knots[n].time, end + 0.5 * kDwell, kTolerance);
-  EXPECT_EQ(cycle.knots[n].base_position, ascent.knots.back().base_position);
-  EXPECT_EQ(cycle.knots[2 * n + 1].base_position,
-            ascent.knots.front().base_position);
+  EXPECT_EQ(cycle.knots[n].pos_base_rt_world_ewrt_world,
+            ascent.knots.back().pos_base_rt_world_ewrt_world);
+  EXPECT_EQ(cycle.knots[2 * n + 1].pos_base_rt_world_ewrt_world,
+            ascent.knots.front().pos_base_rt_world_ewrt_world);
   // The plan starts at rest (its first knot's momenta are zero), so the seam
   // of the period is continuous in the momenta too; it does not end at rest,
   // which the top dwell's resting knot takes up.
-  EXPECT_TRUE(ascent.knots.front().linear_momentum.isZero());
-  EXPECT_TRUE(ascent.knots.front().angular_momentum.isZero());
-  EXPECT_EQ(cycle.knots.back().base_position,
-            ascent.knots.front().base_position);
+  EXPECT_TRUE(ascent.knots.front().linmom_com_rt_world_ewrt_world.isZero());
+  EXPECT_TRUE(ascent.knots.front().angmom_com_rt_world_ewrt_world.isZero());
+  EXPECT_EQ(cycle.knots.back().pos_base_rt_world_ewrt_world,
+            ascent.knots.front().pos_base_rt_world_ewrt_world);
   EXPECT_EQ(cycle.knots.back().joint_positions,
             ascent.knots.front().joint_positions);
 
@@ -242,7 +263,7 @@ TEST(ForwardAndReverseCycle, mirrorsEveryKnotInTimeWithItsVelocitiesNegated) {
                  candidate.primitive == phase.primitive &&
                  std::abs(candidate.start_time - mirroredStart) < kTolerance &&
                  std::abs(candidate.end_time - mirroredEnd) < kTolerance &&
-                 candidate.target_pad_pose == phase.target_pad_pose;
+                 candidate.des_pose_pad_rt_world == phase.des_pose_pad_rt_world;
         });
     EXPECT_TRUE(found) << phase.contact << " on " << phase.primitive << " ["
                        << phase.start_time << ", " << phase.end_time << "]";
@@ -278,16 +299,19 @@ TEST(ForwardAndReverseCycle, theReversedStairsCertifyWithTheAscentsRates) {
   size_t changes = 0;
   for (size_t i = 1; i + 1 < n; ++i) {
     const multi_contact::CertifierKnot& reversed = cycled[2 * n - i];
-    const scalar_t scale = 1.0 + forward[i].momentumRate.linear.norm() +
-                           forward[i].momentumRate.angular.norm();
-    worstRateMismatch = std::max(
-        {worstRateMismatch,
-         (reversed.momentumRate.linear - forward[i].momentumRate.linear)
-                 .norm() /
-             scale,
-         (reversed.momentumRate.angular - forward[i].momentumRate.angular)
-                 .norm() /
-             scale});
+    const scalar_t scale =
+        1.0 + forward[i].rateCmomComRtWorldEwrtWorld.linear.norm() +
+        forward[i].rateCmomComRtWorldEwrtWorld.angular.norm();
+    worstRateMismatch =
+        std::max({worstRateMismatch,
+                  (reversed.rateCmomComRtWorldEwrtWorld.linear -
+                   forward[i].rateCmomComRtWorldEwrtWorld.linear)
+                          .norm() /
+                      scale,
+                  (reversed.rateCmomComRtWorldEwrtWorld.angular -
+                   forward[i].rateCmomComRtWorldEwrtWorld.angular)
+                          .norm() /
+                      scale});
     // The same stance at the same configuration with the same rate: the same
     // measures.
     const multi_contact::config::CertifierReport::Knot& mirrored =
@@ -302,20 +326,22 @@ TEST(ForwardAndReverseCycle, theReversedStairsCertifyWithTheAscentsRates) {
       continue;
     }
     EXPECT_EQ(mirrored.active_contact_mask, original.active_contact_mask);
-    EXPECT_NEAR(mirrored.momentum_rate_residual,
-                original.momentum_rate_residual, 1.0e-7)
+    EXPECT_NEAR(mirrored.wrench_cone_residual, original.wrench_cone_residual,
+                1.0e-7)
         << "knot " << i;
     EXPECT_NEAR(mirrored.max_active_contact_distance,
                 original.max_active_contact_distance, kTolerance);
     ASSERT_EQ(mirrored.min_sphere_clearance.has_value(),
               original.min_sphere_clearance.has_value());
-    if (original.min_sphere_clearance.has_value()) {
+    if (original.min_sphere_clearance.has_value() &&
+        mirrored.min_sphere_clearance.has_value()) {
       EXPECT_NEAR(*mirrored.min_sphere_clearance,
                   *original.min_sphere_clearance, kTolerance);
     }
     ASSERT_EQ(mirrored.static_margin.has_value(),
               original.static_margin.has_value());
-    if (original.static_margin.has_value()) {
+    if (original.static_margin.has_value() &&
+        mirrored.static_margin.has_value()) {
       EXPECT_NEAR(*mirrored.static_margin, *original.static_margin, kTolerance);
     }
   }
@@ -344,36 +370,41 @@ TEST(PlannedMotion, everyContactInContactRestsOnAPhaseThroughTheCycle) {
   PinocchioInterface pinocchio = models->getPinocchioInterface();
   constexpr scalar_t kStep = 1.0e-3;  // [s]
   size_t inContact = 0;
-  scalar_t worstDistance = 0.0;
+  scalar_t maxNormPosContactRtSurfaceEwrtSurfaceZ = 0.0;
   for (scalar_t time = 0.0; time < 2.0 * period; time += kStep) {
     const size_t mode = motion.modeAt(time);
     for (size_t i = 0; i < n; ++i) {
       if (!contactIsActiveInMode(mode, i, n)) continue;
       ++inContact;
       const std::optional<PlannedContactPhase> phase = motion.phaseAt(i, time);
-      ASSERT_TRUE(phase.has_value())
-          << models->modelSettings().contactNames[i] << " is in contact at "
-          << time << " s with no phase";
+      if (!phase.has_value()) {
+        GTEST_FAIL() << models->modelSettings().contactNames[i]
+                     << " is in contact at " << time << " s with no phase";
+      }
       // The planned pad rests on that phase's patch.
       const vector_t q = model.getGeneralizedCoordinates(
           model.getDesiredState(motion.targets(), motion.cycleTime(time)));
       pinocchio::forwardKinematics(pinocchio.getModel(), pinocchio.getData(),
                                    q);
-      const vector3_t pad = pinocchio::updateFramePlacement(
-                                pinocchio.getModel(), pinocchio.getData(),
-                                pinocchio.getModel().getFrameId(
-                                    models->modelSettings().contactNames[i]))
-                                .translation();
-      worstDistance = std::max(
-          worstDistance,
-          std::abs(phase->normal.dot(pad) - phase->patch.normalOffset));
+      const vector3_t posContactRtWorldEwrtWorld =
+          pinocchio::updateFramePlacement(
+              pinocchio.getModel(), pinocchio.getData(),
+              pinocchio.getModel().getFrameId(
+                  models->modelSettings().contactNames[i]))
+              .translation();
+      maxNormPosContactRtSurfaceEwrtSurfaceZ = std::max(
+          maxNormPosContactRtSurfaceEwrtSurfaceZ,
+          std::abs(
+              phase->desNormalSurfaceEwrtWorld.dot(posContactRtWorldEwrtWorld) -
+              phase->patch.posSurfaceRtWorldEwrtSurfaceZ));
     }
   }
   EXPECT_GT(inContact, 0U);
   // Within the clock hold's contact tolerance.
-  EXPECT_LT(worstDistance, 0.01);
-  ::testing::Test::RecordProperty("worst_planned_pad_distance_m",
-                                  absl::StrCat(worstDistance));
+  EXPECT_LT(maxNormPosContactRtSurfaceEwrtSurfaceZ, 0.01);
+  ::testing::Test::RecordProperty(
+      "worst_planned_pad_distance_m",
+      absl::StrCat(maxNormPosContactRtSurfaceEwrtSurfaceZ));
 }
 
 TEST(PlannedMotion, aPeriodicMotionLooksUpEveryPeriodAlike) {
@@ -382,8 +413,9 @@ TEST(PlannedMotion, aPeriodicMotionLooksUpEveryPeriodAlike) {
   const Plan cycle = checkedValue(forwardAndReverseCycle(source.plan, kDwell));
   const PlannedMotion motion =
       motionOf(*models, source, cycle, PlanRepetition::kPeriodic);
-  ASSERT_TRUE(motion.period().has_value());
-  const scalar_t period = *motion.period();
+  const std::optional<scalar_t> optionalPeriod = motion.period();
+  if (!optionalPeriod.has_value()) GTEST_FAIL();
+  const scalar_t period = *optionalPeriod;
   EXPECT_NEAR(period, cycle.knots.back().time - cycle.knots.front().time,
               kTolerance);
   const size_t foot = contactIndex(*models, "foot_l_contact");
@@ -396,25 +428,26 @@ TEST(PlannedMotion, aPeriodicMotionLooksUpEveryPeriodAlike) {
       EXPECT_EQ(motion.cycleIndex(later), cycles) << time;
       EXPECT_NEAR(motion.cycleTime(later), time, 1.0e-9) << time;
       EXPECT_EQ(motion.modeAt(later), motion.modeAt(time)) << time;
-      EXPECT_EQ(motion.plannedWrenchesAt(later), motion.plannedWrenchesAt(time))
+      EXPECT_EQ(motion.plannedInputAt(later), motion.plannedInputAt(time))
           << time;
       const std::optional<PlannedContactPhase> phase =
           motion.phaseAt(foot, time);
       const std::optional<PlannedContactPhase> shifted =
           motion.phaseAt(foot, later);
       ASSERT_EQ(phase.has_value(), shifted.has_value()) << time;
-      if (phase.has_value()) {
+      if (phase.has_value() && shifted.has_value()) {
         EXPECT_NEAR(shifted->startTime - phase->startTime,
                     static_cast<scalar_t>(cycles) * period, 1.0e-9);
-        EXPECT_TRUE(shifted->targetPosition.isApprox(phase->targetPosition));
+        EXPECT_TRUE(shifted->desPosContactRtWorldEwrtWorld.isApprox(
+            phase->desPosContactRtWorldEwrtWorld));
       }
       const std::optional<PlannedContactPhase> next =
           motion.nextPhase(foot, later);
-      ASSERT_TRUE(next.has_value()) << "a periodic contact lands again";
+      if (!next.has_value()) GTEST_FAIL() << "a periodic contact lands again";
       EXPECT_GT(next->startTime, later);
       const std::optional<PlannedContactPhase> previous =
           motion.previousPhase(foot, later);
-      ASSERT_TRUE(previous.has_value());
+      if (!previous.has_value()) GTEST_FAIL();
       EXPECT_LE(previous->endTime, later);
     }
   }
@@ -505,8 +538,7 @@ TEST(PlannedMotion, theReversedHalfRetracesTheAscentWithNegatedMomenta) {
     const scalar_t time =
         0.5 * (source.plan.knots[k].time + source.plan.knots[k + 1].time);
     EXPECT_EQ(motion.modeAt(mirror - time), motion.modeAt(time)) << time;
-    EXPECT_EQ(motion.plannedWrenchesAt(mirror - time),
-              motion.plannedWrenchesAt(time))
+    EXPECT_EQ(motion.plannedInputAt(mirror - time), motion.plannedInputAt(time))
         << time;
   }
   // Every change of stance mirrored: at tau(t) of the ascent's change at t.
@@ -553,9 +585,11 @@ TEST(PlannedMotion, theReversedSwingsStepDownTheStairs) {
           motion.previousPhase(foot, window.liftOffTime);
       const std::optional<PlannedContactPhase> landing =
           motion.phaseAt(foot, window.touchDownTime);
-      ASSERT_TRUE(leaving.has_value() && landing.has_value()) << name;
-      const scalar_t rise =
-          landing->targetPosition.z() - leaving->targetPosition.z();
+      if (!leaving.has_value() || !landing.has_value()) {
+        GTEST_FAIL() << name;
+      }
+      const scalar_t rise = landing->desPosContactRtWorldEwrtWorld.z() -
+                            leaving->desPosContactRtWorldEwrtWorld.z();
       if (window.touchDownTime <= end) {
         EXPECT_GT(rise, 0.1)
             << name << ": a step up at " << window.touchDownTime << " s";
@@ -644,8 +678,9 @@ TEST(PlannedMotionReferenceManager, runsTheClockAndTheScheduleAcrossTheWrap) {
       forwardAndReverseManagerOf(*models);
   const PlannedMotion& motion = manager->plannedMotion();
   const MpcRobotModelBase<scalar_t>& model = models->getMpcRobotModel();
-  ASSERT_TRUE(motion.period().has_value());
-  const scalar_t period = *motion.period();
+  const std::optional<scalar_t> optionalPeriod = motion.period();
+  if (!optionalPeriod.has_value()) GTEST_FAIL();
+  const scalar_t period = *optionalPeriod;
   const size_t events = motion.eventTimes().size();
   ASSERT_GT(events, 0U);
   const scalar_t firstEvent = motion.eventTimes().front();

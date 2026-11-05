@@ -104,23 +104,28 @@ TEST_F(AngularCenterOfMassTest, FloatingBaseEquivariance) {
   // turned and tilted base: the joint rotation composes on the right of the
   // base, so rotating the whole robot rotates the ACoM one for one.
   const vector4_t identity(0.0, 0.0, 0.0, 1.0);
-  const vector4_t baseRotation = quaternionExp(vector3_t(0.2, -0.3, 0.5));
-  const vector4_t atIdentity = acom_->acomAttitude(identity, qJoints);
-  const vector4_t rotated = acom_->acomAttitude(baseRotation, qJoints);
+  const vector4_t quatBaseRtWorldXyzw =
+      quaternionExp(vector3_t(0.2, -0.3, 0.5));
+  const vector4_t quatAcomRtBaseXyzw =
+      acom_->computeQuatAcomRtWorldXyzw(identity, qJoints);
+  const vector4_t rotatedQuatAcomRtWorldXyzw =
+      acom_->computeQuatAcomRtWorldXyzw(quatBaseRtWorldXyzw, qJoints);
 
-  EXPECT_LT((atIdentity -
-             quaternionExp(acom_->computeJointOrientationOffset(qJoints)))
+  EXPECT_LT((quatAcomRtBaseXyzw -
+             quaternionExp(acom_->computeRotvecAcomRtBase(qJoints)))
                 .norm(),
             1.0e-15);
-  EXPECT_LT((rotated - quaternionProduct(baseRotation, atIdentity)).norm(),
+  EXPECT_LT((rotatedQuatAcomRtWorldXyzw -
+             quaternionProduct(quatBaseRtWorldXyzw, quatAcomRtBaseXyzw))
+                .norm(),
             1.0e-15);
-  EXPECT_NEAR(rotated.norm(), 1.0, 1.0e-15);
+  EXPECT_NEAR(rotatedQuatAcomRtWorldXyzw.norm(), 1.0, 1.0e-15);
 }
 
 TEST_F(AngularCenterOfMassTest, AnalyticalJacobianVsFiniteDifference) {
   vector_t qJoints = vector_t::Random(inputDim_);
 
-  matrix_t J_ana = acom_->computeJointOffsetJacobian(qJoints);
+  matrix_t J_ana = acom_->computeJacobianRotvecAcomRtBase(qJoints);
 
   // Finite-difference numerical Jacobian
   const double eps = 1.0e-7;
@@ -132,8 +137,8 @@ TEST_F(AngularCenterOfMassTest, AnalyticalJacobianVsFiniteDifference) {
     q_plus(col) += eps;
     q_minus(col) -= eps;
 
-    vector3_t f_plus = acom_->computeJointOrientationOffset(q_plus);
-    vector3_t f_minus = acom_->computeJointOrientationOffset(q_minus);
+    vector3_t f_plus = acom_->computeRotvecAcomRtBase(q_plus);
+    vector3_t f_minus = acom_->computeRotvecAcomRtBase(q_minus);
 
     J_num.col(col) = (f_plus - f_minus) / (2.0 * eps);
   }
@@ -145,16 +150,17 @@ TEST_F(AngularCenterOfMassTest, AnalyticalJacobianVsFiniteDifference) {
 TEST_F(AngularCenterOfMassTest, AttitudeTangentJacobianStructure) {
   const vector_t qJoints =
       vector_t::Random(static_cast<Eigen::Index>(inputDim_));
-  const vector3_t offset = acom_->computeJointOrientationOffset(qJoints);
+  const vector3_t rotvecAcomRtBase = acom_->computeRotvecAcomRtBase(qJoints);
   const AcomAttitudeTangentJacobian jacobian =
       acom_->acomAttitudeTangentJacobian(qJoints);
 
   // The base block is the adjoint R(Delta_theta)^T, a rotation: a base
   // perturbation is carried into the ACoM frame.
-  EXPECT_LT((jacobian.baseTangent -
-             quaternionRotationMatrix(quaternionExp(offset)).transpose())
-                .norm(),
-            1.0e-12);
+  EXPECT_LT(
+      (jacobian.baseTangent -
+       quaternionRotationMatrix(quaternionExp(rotvecAcomRtBase)).transpose())
+          .norm(),
+      1.0e-12);
   EXPECT_LT((jacobian.baseTangent.transpose() * jacobian.baseTangent -
              matrix3_t::Identity())
                 .norm(),
@@ -163,16 +169,18 @@ TEST_F(AngularCenterOfMassTest, AttitudeTangentJacobianStructure) {
   // The joint block is the right Jacobian of SO(3) at Delta_theta times the
   // network's joint Jacobian.
   ASSERT_EQ(jacobian.jointAngles.cols(), static_cast<Eigen::Index>(inputDim_));
-  EXPECT_LT(
-      (jacobian.jointAngles -
-       so3RightJacobian(offset) * acom_->computeJointOffsetJacobian(qJoints))
-          .norm(),
-      1.0e-12);
+  EXPECT_LT((jacobian.jointAngles -
+             so3RightJacobian(rotvecAcomRtBase) *
+                 acom_->computeJacobianRotvecAcomRtBase(qJoints))
+                .norm(),
+            1.0e-12);
 
   // And it is the derivative of the attitude: central differences of the body
   // rotation a joint step makes.
-  const vector4_t base = quaternionExp(vector3_t(-0.4, 0.1, 1.2));
-  const vector4_t attitude = acom_->acomAttitude(base, qJoints);
+  const vector4_t quatBaseRtWorldXyzw =
+      quaternionExp(vector3_t(-0.4, 0.1, 1.2));
+  const vector4_t quatAcomRtWorldXyzw =
+      acom_->computeQuatAcomRtWorldXyzw(quatBaseRtWorldXyzw, qJoints);
   const double eps = 1.0e-7;
   for (Eigen::Index joint = 0; joint < static_cast<Eigen::Index>(inputDim_);
        ++joint) {
@@ -181,9 +189,11 @@ TEST_F(AngularCenterOfMassTest, AttitudeTangentJacobianStructure) {
     plus(joint) += eps;
     minus(joint) -= eps;
     const vector3_t forward = quaternionLog(quaternionProduct(
-        quaternionConjugate(attitude), acom_->acomAttitude(base, plus)));
+        quaternionConjugate(quatAcomRtWorldXyzw),
+        acom_->computeQuatAcomRtWorldXyzw(quatBaseRtWorldXyzw, plus)));
     const vector3_t backward = quaternionLog(quaternionProduct(
-        quaternionConjugate(attitude), acom_->acomAttitude(base, minus)));
+        quaternionConjugate(quatAcomRtWorldXyzw),
+        acom_->computeQuatAcomRtWorldXyzw(quatBaseRtWorldXyzw, minus)));
     EXPECT_LT(
         ((forward - backward) / (2.0 * eps) - jacobian.jointAngles.col(joint))
             .norm(),

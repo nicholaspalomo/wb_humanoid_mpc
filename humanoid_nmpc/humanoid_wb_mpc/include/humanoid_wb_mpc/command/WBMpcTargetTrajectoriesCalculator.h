@@ -51,7 +51,7 @@ namespace ocs2::humanoid {
 
 /**
  * The target trajectories of the whole-body MPC for a commanded pose or
- * velocity in the pelvis frame: the base pose of the whole-body state moved
+ * velocity in the heading frame: the base pose of the whole-body state moved
  * over the horizon, the joints held at the reference file's default posture.
  * Not thread-safe.
  */
@@ -92,12 +92,14 @@ class WBMpcTargetTrajectoriesCalculator
 
   /**
    * Converts command line to TargetTrajectories.
-   * @param [in] commadLineTarget : [deltaX, deltaY, deltaZ, deltaYaw] defined
-   * in pelvis frame
-   * @param [in] observation : the current observation
+   * @param [in] poseCommand : [deltaX, deltaY, deltaZ, deltaYaw] defined
+   * in the heading frame
+   * @param [in] initTime : [s] the time of the first knot
+   * @param [in] initState : the current state, whose heading pose
+   * (getPoseeulerzyxHeadingRtWorld()) the command is relative to
    */
   TargetTrajectories poseCommandToTargetTrajectories(
-      const vector4_t& commadLinePoseTarget,
+      const vector4_t& poseCommand,
       scalar_t initTime,
       const vector_t& initState) override;
 
@@ -108,7 +110,7 @@ class WBMpcTargetTrajectoriesCalculator
    * joints at the default posture and still.
    */
   TargetTrajectories velocityCommandToTargetTrajectories(
-      const vector4_t& commandedVelocities,
+      const vector4_t& velocityCommand,
       scalar_t initTime,
       const vector_t& initState,
       const BasePlanarMotion& measuredMotion) override;

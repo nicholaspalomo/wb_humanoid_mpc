@@ -32,8 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"
 
-#include <array>
-#include <memory>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -42,12 +41,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/types/span.h"
 #include "cppad/cg.hpp"
-#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PhysicalConstants.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
-#include "ocs2_robotic_tools/common/RotationTransforms.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/multibody.hpp"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -151,11 +151,12 @@ std::vector<VECTOR3_T<SCALAR_T>> getPosLinksRtWorldEwrtWorld(
 ///
 /// The one definition of the linear inverted pendulum's height in this
 /// repository. Every consumer that needs a nominal pendulum length evaluates it
-/// at the task file's `initialState` - the contact planner's `shared.comHeight`
-/// and the DCM terminal cost's `dcm_terminal_cost.comHeight` when they are 0
-/// (CentroidalMpcInterface::getNominalComHeight), and the locomotion
-/// heuristics' nominal CoM height - so that they cannot disagree; the
-/// capture-point heuristic also measures it at every solve.
+/// at the task file's `initialState` - the contact planner's
+/// `shared.nomPosComRtFeetmeanEwrtWorldZ` and the DCM terminal cost's
+/// `dcm_terminal_cost.nomPosComRtFeetmeanEwrtWorldZ` when they are 0
+/// (CentroidalMpcInterface::getNomPosComRtFeetmeanEwrtWorldZ), and the
+/// locomotion heuristics' nominal CoM height - so that they cannot disagree;
+/// the capture-point heuristic also measures it at every solve.
 /// tools/locomotion_heuristics/derive_parameters.py computes the same quantity
 /// the same way.
 ///
@@ -173,10 +174,38 @@ std::vector<VECTOR3_T<SCALAR_T>> getPosLinksRtWorldEwrtWorld(
 /// @param pinocchioInterface Pinocchio interface of the MPC model.
 /// @param mpcRobotModel The MPC robot model, which names the contact frames.
 ///
-/// @return [m] the center of mass height above the mean height of the contact
-/// frames (of the lowest one on a contact set other than the biped's).
+/// @return [m] computePosComRtFeetmeanEwrtWorldZ() on the biped contact set,
+/// computePosComRtLowcontactEwrtWorldZ() on any other, where it stands in for
+/// the height above the feet (the `proxy` of the frame naming convention).
 
-scalar_t computeComHeightAboveFeet(
+scalar_t computeProxyPosComRtFeetmeanEwrtWorldZ(
+    const vector_t& q,
+    PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel);
+
+///
+/// @brief Computes the center of mass height above the mean of the contact
+/// frames' origins (the soles), for the biped contact set
+/// (ModelSettings::isBipedContactSet()). Updates the center of mass and the
+/// frame placements of `pinocchioInterface`'s data.
+///
+/// @return [m] the center of mass height above the mean height of the contact
+/// frames.
+
+scalar_t computePosComRtFeetmeanEwrtWorldZ(
+    const vector_t& q,
+    PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel);
+
+///
+/// @brief Computes the center of mass height above the lowest contact frame of
+/// the contact set: the support of a robot standing, sitting or lying on a
+/// contact set whose first two contacts need not be feet. Updates the center of
+/// mass and the frame placements of `pinocchioInterface`'s data.
+///
+/// @return [m] the center of mass height above the lowest contact frame.
+
+scalar_t computePosComRtLowcontactEwrtWorldZ(
     const vector_t& q,
     PinocchioInterface& pinocchioInterface,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel);
@@ -383,44 +412,10 @@ absl::Status checkContactFramesExist(
 /******************************************************************************************************/
 
 ///
-/// @brief Computes the center of pressure (CoP) in the inertial frame.
-///
-/// @warning Assumes that the frame placements are up to date. Does not work
-/// when frame is not in contact -> f_z = 0 results in NaN.
-///
-/// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
-/// @param input Current input.
-/// @param pinocchioInterface Pinocchio interface.
-///
-/// @return Location of center of pressure in the inertial frame.
-
-template <typename SCALAR_T>
-inline VECTOR3_T<SCALAR_T> computeContactCoP(
-    const VECTOR_T<SCALAR_T>& input,
-    const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
-    size_t contactIndex,
-    const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
-  const VECTOR6_T<SCALAR_T> wrenchContactEwrtContact =
-      rotateVectorWorldToLocal<SCALAR_T>(
-          mpcRobotModel.getWrenchContactEwrtParam(input, contactIndex),
-          pinocchioInterface.getData(),
-          getContactFrameIndex(pinocchioInterface, mpcRobotModel,
-                               contactIndex));
-  // The wrench is [force, torque]: the CoP is (-tau_y, tau_x) / f_z.
-  SCALAR_T copX = -wrenchContactEwrtContact[kWrenchTorqueYIndex] /
-                  wrenchContactEwrtContact[kWrenchForceZIndex];
-  SCALAR_T copY = wrenchContactEwrtContact[kWrenchTorqueXIndex] /
-                  wrenchContactEwrtContact[kWrenchForceZIndex];
-  VECTOR3_T<SCALAR_T> copInLocalFrame(copX, copY, /*z=*/0.0);
-  return transformPointLocalToWorld(
-      copInLocalFrame, pinocchioInterface.getData(),
-      getContactFrameIndex(pinocchioInterface, mpcRobotModel, contactIndex));
-}
-
-///
-/// @brief Computes the center of pressure (CoP) in the inertial frame using the
-/// state-aware world-frame wrench accessor, which is frame-correct for every
-/// input parameterization (wrench-space and basis-vector inputs).
+/// @brief Computes the position of a contact's center of pressure (CoP) in the
+/// world, from the state-aware world-frame wrench accessor, which is
+/// frame-correct for every input parameterization (wrench-space and
+/// basis-vector inputs).
 ///
 /// @warning Assumes that the frame placements are up to date. Does not work
 /// when frame is not in contact -> f_z = 0 results in NaN.
@@ -433,7 +428,7 @@ inline VECTOR3_T<SCALAR_T> computeContactCoP(
 /// @return Location of center of pressure in the inertial frame.
 
 template <typename SCALAR_T>
-inline VECTOR3_T<SCALAR_T> computeContactCoP(
+inline VECTOR3_T<SCALAR_T> computePosCopRtWorldEwrtWorld(
     const VECTOR_T<SCALAR_T>& state,
     const VECTOR_T<SCALAR_T>& input,
     const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
@@ -446,12 +441,15 @@ inline VECTOR3_T<SCALAR_T> computeContactCoP(
           mpcRobotModel.getWrenchContactEwrtWorld(state, input, contactIndex),
           pinocchioInterface.getData(), frameIndex);
   // The wrench is [force, torque]: the CoP is (-tau_y, tau_x) / f_z.
-  SCALAR_T copX = -wrenchContactEwrtContact[kWrenchTorqueYIndex] /
-                  wrenchContactEwrtContact[kWrenchForceZIndex];
-  SCALAR_T copY = wrenchContactEwrtContact[kWrenchTorqueXIndex] /
-                  wrenchContactEwrtContact[kWrenchForceZIndex];
-  VECTOR3_T<SCALAR_T> copInLocalFrame(copX, copY, /*z=*/0.0);
-  return transformPointLocalToWorld(copInLocalFrame,
+  SCALAR_T posCopRtContactEwrtContactX =
+      -wrenchContactEwrtContact[kWrenchTorqueYIndex] /
+      wrenchContactEwrtContact[kWrenchForceZIndex];
+  SCALAR_T posCopRtContactEwrtContactY =
+      wrenchContactEwrtContact[kWrenchTorqueXIndex] /
+      wrenchContactEwrtContact[kWrenchForceZIndex];
+  VECTOR3_T<SCALAR_T> posCopRtContactEwrtContact(
+      posCopRtContactEwrtContactX, posCopRtContactEwrtContactY, /*z=*/0.0);
+  return transformPointLocalToWorld(posCopRtContactEwrtContact,
                                     pinocchioInterface.getData(), frameIndex);
 }
 
@@ -466,7 +464,7 @@ inline VECTOR3_T<SCALAR_T> computeContactCoP(
 /// @param nle nonlinear effects in joint space inlcuding gravity comp,
 /// centrifugal, corriolis
 /// @param qdd_joints Generalized accelerations
-/// @param externalForcesInJointSpace Sum of J^T F_ext
+/// @param generalizedExternalForce Sum of J^T F_ext
 ///
 /// @return linear and angular base acceleration.
 
@@ -475,7 +473,7 @@ VECTOR6_T<SCALAR_T> computeBaseGeneralizedAcceleration(
     const MATRIX_T<SCALAR_T>& M,
     const VECTOR_T<SCALAR_T>& nle,
     const VECTOR_T<SCALAR_T>& qdd_joints,
-    const VECTOR_T<SCALAR_T>& externalForcesInJointSpace);
+    const VECTOR_T<SCALAR_T>& generalizedExternalForce);
 
 ///
 /// @brief Floating-base inverse dynamics: the joint torques that produce the

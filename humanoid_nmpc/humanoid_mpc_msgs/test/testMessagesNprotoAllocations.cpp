@@ -35,13 +35,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "gtest/gtest.h"
 
+#include "humanoid_mpc_msgs/fsm_state.nproto.h"
+#include "humanoid_mpc_msgs/fsm_state.pb.h"
+#include "humanoid_mpc_msgs/loop_timing.nproto.h"
+#include "humanoid_mpc_msgs/loop_timing.pb.h"
+#include "humanoid_mpc_msgs/mpc_observation.nproto.h"
+#include "humanoid_mpc_msgs/mpc_observation.pb.h"
+#include "humanoid_mpc_msgs/mpc_policy.nproto.h"
+#include "humanoid_mpc_msgs/mpc_policy.pb.h"
+#include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
+#include "humanoid_mpc_msgs/robot_state_sample.pb.h"
+#include "humanoid_mpc_msgs/system_observation.nproto.h"
+#include "humanoid_mpc_msgs/system_observation.pb.h"
+#include "tools/nproto/test/ProtoAllocations.h"
+
+// The conversions, which ExpectConversionsIntoSizedObjectsDoNotAllocate() finds
+// by argument-dependent lookup.
+// NOLINTBEGIN(misc-include-cleaner): used from the templates of ProtoAllocations.h, which include-cleaner does not follow
 #include "humanoid_mpc_msgs/fsm_state.nproto.pb.h"
 #include "humanoid_mpc_msgs/loop_timing.nproto.pb.h"
 #include "humanoid_mpc_msgs/mpc_observation.nproto.pb.h"
 #include "humanoid_mpc_msgs/mpc_policy.nproto.pb.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.pb.h"
 #include "humanoid_mpc_msgs/system_observation.nproto.pb.h"
-#include "tools/nproto/test/ProtoAllocations.h"
+// NOLINTEND(misc-include-cleaner)
 
 namespace ocs2::humanoid::msgs {
 namespace {

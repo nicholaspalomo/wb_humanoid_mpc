@@ -19,22 +19,23 @@ message TerrainScene {
     reserved 4 to max;
 
     // [m] The center in the world frame: x, y, z.
-    repeated double center = 1;
+    repeated double pos_box_rt_world_ewrt_world = 1;
     // The orientation of the box's frame in the world frame, a unit quaternion in the order x, y, z, w (Eigen's
     // coeffs()). Empty: the identity.
-    repeated double orientation_xyzw = 2;
+    repeated double quat_box_rt_world_xyzw = 2;
     // [m] The half extents along the box's own x, y and z axes, all positive.
     repeated double half_extents = 3;
   }
 
-  // A capsule: the points within `radius` of the segment from `start` to `end`.
+  // A capsule: the points within `radius` of the segment from `pos_capsulestart_rt_world_ewrt_world` to
+  // `pos_capsuleend_rt_world_ewrt_world`.
   // Next ID: 4
   message Capsule {
     reserved 4 to max;
 
     // [m] The ends of the axis in the world frame: x, y, z each. They may coincide (a sphere).
-    repeated double start = 1;
-    repeated double end = 2;
+    repeated double pos_capsulestart_rt_world_ewrt_world = 1;
+    repeated double pos_capsuleend_rt_world_ewrt_world = 2;
     // [m] Positive.
     double radius = 3 [default = 0.0];
   }

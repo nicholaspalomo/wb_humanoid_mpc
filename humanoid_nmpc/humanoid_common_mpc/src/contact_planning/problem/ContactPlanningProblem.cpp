@@ -29,10 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningProblem.h"
 
-#include <algorithm>
+#include <cstddef>
 #include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
@@ -40,13 +39,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
+#include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
+#include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
+#include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
+#include "humanoid_common_mpc/contact_planning/problem/AssignmentCost.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactLogicRule.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningTerm.h"
 #include "humanoid_common_mpc/contact_planning/problem/InputBoundsBuilder.h"
+#include "humanoid_common_mpc/contact_planning/problem/Layout.h"
 #include "humanoid_common_mpc/contact_planning/problem/LayoutBuilder.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipConstraint.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipCost.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipModelBlock.h"
 #include "humanoid_common_mpc/contact_planning/problem/RowBuilder.h"
 #include "humanoid_common_mpc/contact_planning/problem/StageAccumulator.h"
+#include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
 
 namespace ocs2::humanoid {
 
@@ -120,8 +134,9 @@ absl::Status ContactPlanningProblem::finalize(
         term::kLipCom, "' and '", term::kFootholdIntegrator, "' blocks"));
   }
   LayoutBuilder builder;
-  for (const std::unique_ptr<LipModelBlock>& block : model)
+  for (const std::unique_ptr<LipModelBlock>& block : model) {
     block->declareVariables(builder);
+  }
   layout_ = builder.build();
 
   RETURN_IF_ERROR(checkRequiredBlocks(costs, model, "cost"));
@@ -164,8 +179,9 @@ absl::StatusOr<OcpQpProblem> ContactPlanningProblem::assemble(
 
   OcpQpProblem problem;
   problem.x0 = vector_t::Zero(nx);
-  for (const std::unique_ptr<LipModelBlock>& block : model)
+  for (const std::unique_ptr<LipModelBlock>& block : model) {
     block->setInitialState(ctx, problem.x0);
+  }
 
   problem.stages.resize(static_cast<size_t>(N) + 1);
   for (int k = 0; k <= N; ++k) {
@@ -179,17 +195,20 @@ absl::StatusOr<OcpQpProblem> ContactPlanningProblem::assemble(
     // matrices).
     StageAccumulator accumulator(&s);
     for (const std::unique_ptr<LipCost>& cost : costs) {
-      if (nodeSetContains(cost->nodeSet(), k, N))
+      if (nodeSetContains(cost->nodeSet(), k, N)) {
         cost->addToStage(ctx, k, accumulator);
+      }
     }
 
     // Dynamics and input bounds of the running nodes, block by block.
     if (!terminal) {
-      for (const std::unique_ptr<LipModelBlock>& block : model)
+      for (const std::unique_ptr<LipModelBlock>& block : model) {
         block->addDynamics(ctx, k, s);
+      }
       InputBoundsBuilder bounds;
-      for (const std::unique_ptr<LipModelBlock>& block : model)
+      for (const std::unique_ptr<LipModelBlock>& block : model) {
         block->addInputBounds(ctx, k, bounds);
+      }
       bounds.writeTo(s);
     }
 
@@ -197,12 +216,14 @@ absl::StatusOr<OcpQpProblem> ContactPlanningProblem::assemble(
     // penalties.
     RowBuilder rows(nx, terminal ? 0 : nu);
     for (const std::unique_ptr<LipConstraint>& constraint : hardConstraints) {
-      if (nodeSetContains(constraint->nodeSet(), k, N))
+      if (nodeSetContains(constraint->nodeSet(), k, N)) {
         constraint->addRows(ctx, k, rows);
+      }
     }
     for (const std::unique_ptr<LipConstraint>& constraint : softConstraints) {
-      if (nodeSetContains(constraint->nodeSet(), k, N))
+      if (nodeSetContains(constraint->nodeSet(), k, N)) {
         constraint->addRows(ctx, k, rows);
+      }
     }
     rows.writeTo(s);
   }
@@ -214,8 +235,9 @@ std::vector<MiqpBinaryVariable> ContactPlanningProblem::binaryVariables(
   std::vector<MiqpBinaryVariable> binaries;
   for (int k = 0; k < numNodes; ++k) {
     for (const std::unique_ptr<LipModelBlock>& block : model) {
-      for (const int index : block->binaryInputs())
+      for (const int index : block->binaryInputs()) {
         binaries.push_back({k, index});
+      }
     }
   }
   return binaries;
@@ -240,16 +262,18 @@ bool ContactPlanningProblem::propagate(const ContactLogicState& state,
 scalar_t ContactPlanningProblem::assignmentCost(const ContactLogicState& state,
                                                 const MiqpAssignment& a) const {
   scalar_t total = 0.0;
-  for (const std::unique_ptr<AssignmentCost>& cost : assignmentCosts)
+  for (const std::unique_ptr<AssignmentCost>& cost : assignmentCosts) {
     total += cost->cost(state, a);
+  }
   return total;
 }
 
 void ContactPlanningProblem::decode(const ContactPlanningContext& ctx,
                                     const MiqpResult& result,
                                     ContactPlan& plan) const {
-  for (const std::unique_ptr<LipModelBlock>& block : model)
+  for (const std::unique_ptr<LipModelBlock>& block : model) {
     block->decode(ctx, result, plan);
+  }
 }
 
 absl::StatusOr<ContactPlanningProblem::GeneralRowCounts>

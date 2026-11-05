@@ -29,8 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <cstddef>
 #include <optional>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -44,13 +44,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "google/protobuf/message.h"
 #include "google/protobuf/text_format.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigReload.h"
 #include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.pb.h"
 #include "humanoid_mpc_config/contact_planning_file.pb.h"
@@ -87,7 +93,7 @@ using ContactPlanningProto = humanoid_mpc_config::ContactPlanningFile;
 constexpr scalar_t kSolvePeriod = 0.01;  // [s]
 constexpr int kStandingSolves = 20;
 constexpr int kWalkingSolves = 150;
-constexpr scalar_t kWalkingSpeed = 0.6;  // [m/s]
+constexpr scalar_t kCmdLinvelBaseRtWorldEwrtHeadingX = 0.6;  // [m/s]
 constexpr scalar_t kCommandLimitX =
     1.2;  // [m/s] the shipped reference file's
           // cmd_max_linvel_base_rt_world_ewrt_heading_x
@@ -105,8 +111,9 @@ ContactPlanningProto baseFile() {
   ContactPlanningProto proto;
   EXPECT_TRUE(shipped.config().contactPlanning.has_value())
       << "the DRC Atlas ships a contact planner's file";
-  if (shipped.config().contactPlanning.has_value())
+  if (shipped.config().contactPlanning.has_value()) {
     mpc_config::ToProto(*shipped.config().contactPlanning, &proto);
+  }
   const bool merged = google::protobuf::TextFormat::MergeFromString(
       R"pb(
         planner {
@@ -237,12 +244,14 @@ void expectSameReferences(AtlasReferenceStack& reloaded,
   EXPECT_EQ(reloaded.planningReferenceManager()->hasActivePlan(),
             fresh.planningReferenceManager()->hasActivePlan())
       << when;
-  const feet_array_t<TargetContactPose> posesA =
-      reloaded.planningReferenceManager()->getTargetContactPoses();
-  const feet_array_t<TargetContactPose> posesB =
-      fresh.planningReferenceManager()->getTargetContactPoses();
+  const feet_array_t<TargetContactPose> firstDesPoseFeetRtWorld =
+      reloaded.planningReferenceManager()->getDesPoseFeetRtWorld();
+  const feet_array_t<TargetContactPose> secondDesPoseFeetRtWorld =
+      fresh.planningReferenceManager()->getDesPoseFeetRtWorld();
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    EXPECT_LT((posesA[foot].position - posesB[foot].position).norm(),
+    EXPECT_LT((firstDesPoseFeetRtWorld[foot].posFootRtWorldEwrtWorldXy -
+               secondDesPoseFeetRtWorld[foot].posFootRtWorldEwrtWorldXy)
+                  .norm(),
               kTolerance)
         << when << ", foot " << foot;
   }
@@ -285,8 +294,8 @@ TEST(ContactPlanningReloadEqualsFreshStart,
   }
   for (int solve = 0; solve < kStandingSolves + kWalkingSolves; ++solve) {
     if (solve == kStandingSolves) {
-      reloaded.command(kWalkingSpeed / kCommandLimitX);
-      fresh.command(kWalkingSpeed / kCommandLimitX);
+      reloaded.command(kCmdLinvelBaseRtWorldEwrtHeadingX / kCommandLimitX);
+      fresh.command(kCmdLinvelBaseRtWorldEwrtHeadingX / kCommandLimitX);
     }
     reloaded.mpc().run(time, state, ModeNumber::kStance);
     fresh.mpc().run(time, state, ModeNumber::kStance);

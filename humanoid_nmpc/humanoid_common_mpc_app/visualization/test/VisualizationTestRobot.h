@@ -121,30 +121,30 @@ class TestRobot {
   /**
    * A policy from `startTime` over one second in `nodes` nodes: the nominal
    * state moving forward and bending its joints, each stance foot carrying
-   * `normalForce` with its center of pressure `copOffset` (in the contact
-   * frame) away from the contact frame, written through the model's world-frame
-   * setter. The mode schedule is STANCE, then RF (left foot in swing) from
-   * startTime + 0.3 s, then STANCE from startTime + 0.6 s; the target
-   * trajectories run from the nominal state to the policy's last state, with
-   * zero inputs.
+   * the normal force `forceFootEwrtWorldZ` (and 5 % of it forward) with its
+   * center of pressure at `posCopRtContactEwrtContactXy` from the contact
+   * frame, written through the model's world-frame setter. The mode schedule is
+   * STANCE, then RF (left foot in swing) from startTime + 0.3 s, then STANCE
+   * from startTime + 0.6 s; the target trajectories run from the nominal state
+   * to the policy's last state, with zero inputs.
    */
   void makePolicy(scalar_t startTime,
                   size_t nodes,
-                  scalar_t normalForce,
-                  const vector2_t& copOffset,
+                  scalar_t forceFootEwrtWorldZ,
+                  const vector2_t& posCopRtContactEwrtContactXy,
                   CommandData* absl_nonnull command,
                   PrimalSolution* absl_nonnull solution) const;
 
   /**
    * A robot/state sample of every joint of fullJointNames (named, in reverse
    * order, so that the order of the names is exercised): joint i at 0.01 * (i +
-   * 1) rad, moving at 0.1 rad/s, the base at `position` with roll, pitch, yaw
-   * `rollPitchYaw`, no joint action.
+   * 1) rad, moving at 0.1 rad/s, the base at `posBaseRtWorldEwrtWorld` with
+   * roll, pitch, yaw `rpyBaseRtWorld`, no joint action.
    */
   humanoid_mpc_msgs::RobotStateSample robotState(
       scalar_t time,
-      const vector3_t& position,
-      const vector3_t& rollPitchYaw) const;
+      const vector3_t& posBaseRtWorldEwrtWorld,
+      const vector3_t& rpyBaseRtWorld) const;
 
  private:
   TestRobot() = default;
@@ -165,6 +165,6 @@ class TestRobot {
 };
 
 /** The quaternion of roll, pitch, yaw: Rz(yaw) Ry(pitch) Rx(roll). */
-quaternion_t quaternionFromRollPitchYaw(const vector3_t& rollPitchYaw);
+quaternion_t unitQuaternionOfRollPitchYaw(const vector3_t& rollPitchYaw);
 
 }  // namespace ocs2::humanoid::visualization::test

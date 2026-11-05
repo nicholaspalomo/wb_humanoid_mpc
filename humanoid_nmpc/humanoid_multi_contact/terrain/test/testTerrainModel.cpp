@@ -61,17 +61,17 @@ using Primitive = config::TerrainScene::Primitive;
 constexpr double kTolerance = 1.0e-12;
 
 Primitive boxPrimitive(const std::string& name,
-                       const Eigen::Vector3d& center,
+                       const Eigen::Vector3d& posBoxRtWorldEwrtWorld,
                        const Eigen::Vector3d& halfExtents,
-                       const Eigen::Vector4d& orientationXyzw =
+                       const Eigen::Vector4d& quatBoxRtWorldXyzw =
                            Eigen::Vector4d(0.0, 0.0, 0.0, 1.0)) {
   Primitive primitive;
   primitive.name = name;
   primitive.friction = 0.8;
   config::TerrainScene::Box box;
-  box.center = center;
+  box.pos_box_rt_world_ewrt_world = posBoxRtWorldEwrtWorld;
   box.half_extents = halfExtents;
-  box.orientation_xyzw = orientationXyzw;
+  box.quat_box_rt_world_xyzw = quatBoxRtWorldXyzw;
   primitive.shape = box;
   return primitive;
 }
@@ -84,8 +84,8 @@ Primitive capsulePrimitive(const std::string& name,
   primitive.name = name;
   primitive.friction = 0.5;
   config::TerrainScene::Capsule capsule;
-  capsule.start = start;
-  capsule.end = end;
+  capsule.pos_capsulestart_rt_world_ewrt_world = start;
+  capsule.pos_capsuleend_rt_world_ewrt_world = end;
   capsule.radius = radius;
   primitive.shape = capsule;
   return primitive;
@@ -105,10 +105,11 @@ void expectQuery(const PrimitiveQuery<double>& query,
                  const Eigen::Vector3d& nearest,
                  const Eigen::Vector3d& normal) {
   EXPECT_NEAR(query.distance, distance, kTolerance);
-  EXPECT_LT((query.nearestPoint - nearest).norm(), kTolerance)
-      << query.nearestPoint.transpose();
-  EXPECT_LT((query.normal - normal).norm(), kTolerance)
-      << query.normal.transpose();
+  EXPECT_LT((query.nearestPosSurfaceRtWorldEwrtWorld - nearest).norm(),
+            kTolerance)
+      << query.nearestPosSurfaceRtWorldEwrtWorld.transpose();
+  EXPECT_LT((query.normalSurfaceEwrtWorld - normal).norm(), kTolerance)
+      << query.normalSurfaceEwrtWorld.transpose();
 }
 
 TEST(TerrainModelTest, BoxFacesEdgesCornersAndInside) {
@@ -139,22 +140,27 @@ TEST(TerrainModelTest, BoxFacesEdgesCornersAndInside) {
 }
 
 TEST(TerrainModelTest, RotatedBoxIsTheRotatedQuery) {
-  const Eigen::Quaterniond rotation(
+  const Eigen::Quaterniond quatBoxRtWorld(
       Eigen::AngleAxisd(0.4, Eigen::Vector3d(1.0, 2.0, -0.5).normalized()));
-  const Eigen::Vector3d center(0.3, -0.2, 1.0);
+  const Eigen::Vector3d posBoxRtWorldEwrtWorld(0.3, -0.2, 1.0);
   const TerrainModel rotated = modelOf({boxPrimitive(
-      "box", center, Eigen::Vector3d(0.5, 0.25, 0.75), rotation.coeffs())});
+      "box", posBoxRtWorldEwrtWorld, Eigen::Vector3d(0.5, 0.25, 0.75),
+      quatBoxRtWorld.coeffs())});
   const TerrainModel aligned = modelOf({boxPrimitive(
       "box", Eigen::Vector3d::Zero(), Eigen::Vector3d(0.5, 0.25, 0.75))});
-  for (const Eigen::Vector3d& local :
+  for (const Eigen::Vector3d& posQueryRtBoxEwrtBox :
        {Eigen::Vector3d(0.9, 0.1, 0.0), Eigen::Vector3d(0.7, 0.4, -1.0),
         Eigen::Vector3d(0.1, 0.05, 0.2)}) {
     const PrimitiveQuery<double> expected =
-        aligned.primitiveQuery(/*index=*/0, local);
+        aligned.primitiveQuery(/*index=*/0, posQueryRtBoxEwrtBox);
     expectQuery(rotated.primitiveQuery(
-                    /*index=*/0, Eigen::Vector3d(center + rotation * local)),
-                expected.distance, center + rotation * expected.nearestPoint,
-                rotation * expected.normal);
+                    /*index=*/0,
+                    Eigen::Vector3d(posBoxRtWorldEwrtWorld +
+                                    quatBoxRtWorld * posQueryRtBoxEwrtBox)),
+                expected.distance,
+                posBoxRtWorldEwrtWorld +
+                    quatBoxRtWorld * expected.nearestPosSurfaceRtWorldEwrtWorld,
+                quatBoxRtWorld * expected.normalSurfaceEwrtWorld);
   }
 }
 
@@ -175,8 +181,8 @@ TEST(TerrainModelTest, CapsuleSideCapInsideAndAxis) {
   const PrimitiveQuery<double> onAxis =
       model.primitiveQuery(/*index=*/0, Eigen::Vector3d(0.0, 0.0, 1.0));
   EXPECT_NEAR(onAxis.distance, -0.5, 1.0e-8);
-  EXPECT_NEAR(onAxis.normal.norm(), 1.0, kTolerance);
-  EXPECT_NEAR(onAxis.normal.z(), 0.0, kTolerance);
+  EXPECT_NEAR(onAxis.normalSurfaceEwrtWorld.norm(), 1.0, kTolerance);
+  EXPECT_NEAR(onAxis.normalSurfaceEwrtWorld.z(), 0.0, kTolerance);
   // Coinciding ends: a sphere.
   const TerrainModel sphere = modelOf(
       {capsulePrimitive("ball", Eigen::Vector3d(1.0, 0.0, 0.0),
@@ -195,19 +201,24 @@ TerrainModel stairCorner() {
 TEST(TerrainModelTest, SmoothMinimumAtAnInsideStairCorner) {
   const TerrainModel model = stairCorner();
   // 1 cm from the floor and 1 cm from the riser at x = 0.5.
-  const Eigen::Vector3d corner(0.49, 0.0, 0.01);
-  EXPECT_NEAR(model.signedDistance(corner),
+  const Eigen::Vector3d posCornerRtWorldEwrtWorld(0.49, 0.0, 0.01);
+  EXPECT_NEAR(model.signedDistance(posCornerRtWorldEwrtWorld),
               0.01 - kSmoothMinimumScale * std::log(2.0), kTolerance);
-  EXPECT_LT(
-      (model.normal(corner) - Eigen::Vector3d(-1.0, 0.0, 1.0).normalized())
-          .norm(),
-      1.0e-9);
+  EXPECT_LT((model.getNormalTerrainEwrtWorld(posCornerRtWorldEwrtWorld) -
+             Eigen::Vector3d(-1.0, 0.0, 1.0).normalized())
+                .norm(),
+            1.0e-9);
   // Far from the riser, the floor alone.
-  const Eigen::Vector3d open(-1.0, 0.0, 0.2);
-  EXPECT_NEAR(model.signedDistance(open), 0.2, 1.0e-12);
-  EXPECT_LT((model.nearestPoint(open) - Eigen::Vector3d(-1.0, 0.0, 0.0)).norm(),
+  const Eigen::Vector3d openPosQueryRtWorldEwrtWorld(-1.0, 0.0, 0.2);
+  EXPECT_NEAR(model.signedDistance(openPosQueryRtWorldEwrtWorld), 0.2, 1.0e-12);
+  EXPECT_LT((model.computeNearestPosSurfaceRtWorldEwrtWorld(
+                 openPosQueryRtWorldEwrtWorld) -
+             Eigen::Vector3d(-1.0, 0.0, 0.0))
+                .norm(),
             1.0e-12);
-  EXPECT_NEAR(model.sphereDistance(open, /*radius=*/0.05), 0.15, 1.0e-12);
+  EXPECT_NEAR(
+      model.sphereDistance(openPosQueryRtWorldEwrtWorld, /*radius=*/0.05), 0.15,
+      1.0e-12);
 }
 
 TEST(TerrainModelTest, OnePrimitiveIsExact) {
@@ -221,39 +232,49 @@ TEST(TerrainModelTest, OnePrimitiveIsExact) {
 }
 
 TEST(TerrainModelTest, BoxFaceFrames) {
-  const Eigen::Quaterniond rotation(
+  const Eigen::Quaterniond quatBoxRtWorld(
       Eigen::AngleAxisd(0.3, Eigen::Vector3d::UnitZ()));
   const TerrainModel model = modelOf(
       {boxPrimitive("box", Eigen::Vector3d(1.0, 0.0, 0.3),
-                    Eigen::Vector3d(0.5, 0.4, 0.3), rotation.coeffs()),
+                    Eigen::Vector3d(0.5, 0.4, 0.3), quatBoxRtWorld.coeffs()),
        capsulePrimitive("rail", Eigen::Vector3d(0.0, 2.0, 1.0),
                         Eigen::Vector3d(1.0, 2.0, 1.0), /*radius=*/0.05)});
   for (int face = 0; face < kBoxFaceCount; ++face) {
     const absl::StatusOr<PatchFrame> frame =
         model.boxFaceFrame(/*index=*/0, static_cast<BoxFace>(face));
     ASSERT_TRUE(frame.ok()) << frame.status();
-    EXPECT_NEAR(frame->rotation.determinant(), 1.0, kTolerance);
-    EXPECT_LT((frame->rotation.transpose() * frame->rotation -
-               Eigen::Matrix3d::Identity())
-                  .norm(),
-              kTolerance);
+    EXPECT_NEAR(frame->rotmatSurfaceRtWorld.determinant(), 1.0, kTolerance);
+    EXPECT_LT(
+        (frame->rotmatSurfaceRtWorld.transpose() * frame->rotmatSurfaceRtWorld -
+         Eigen::Matrix3d::Identity())
+            .norm(),
+        kTolerance);
     // The face center is on the surface, and the normal is the gradient there.
     const PrimitiveQuery<double> query = model.primitiveQuery(
-        /*index=*/0, Eigen::Vector3d(frame->origin + 0.01 * frame->normal()));
+        /*index=*/0,
+        Eigen::Vector3d(frame->posSurfaceRtWorldEwrtWorld +
+                        0.01 * frame->getNormalSurfaceEwrtWorld()));
     EXPECT_NEAR(query.distance, 0.01, kTolerance);
-    EXPECT_LT((query.normal - frame->normal()).norm(), kTolerance);
+    EXPECT_LT(
+        (query.normalSurfaceEwrtWorld - frame->getNormalSurfaceEwrtWorld())
+            .norm(),
+        kTolerance);
     // Its polygon's corners are box corners, counterclockwise about the normal.
-    ASSERT_EQ(frame->polygon.size(), 4u);
+    ASSERT_EQ(frame->posCornersRtSurfaceEwrtSurfaceXy.size(), 4u);
     double area = 0.0;
-    for (size_t i = 0; i < frame->polygon.size(); ++i) {
-      const Eigen::Vector2d& a = frame->polygon[i];
+    for (size_t i = 0; i < frame->posCornersRtSurfaceEwrtSurfaceXy.size();
+         ++i) {
+      const Eigen::Vector2d& a = frame->posCornersRtSurfaceEwrtSurfaceXy[i];
       const Eigen::Vector2d& b =
-          frame->polygon[(i + 1) % frame->polygon.size()];
+          frame->posCornersRtSurfaceEwrtSurfaceXy
+              [(i + 1) % frame->posCornersRtSurfaceEwrtSurfaceXy.size()];
       area += 0.5 * (a.x() * b.y() - a.y() * b.x());
-      const Eigen::Vector3d corner =
-          frame->origin + frame->rotation.leftCols<2>() * a;
-      EXPECT_NEAR(model.primitiveQuery(/*index=*/0, corner).distance, 0.0,
-                  kTolerance);
+      const Eigen::Vector3d posCornerRtWorldEwrtWorld =
+          frame->posSurfaceRtWorldEwrtWorld +
+          frame->rotmatSurfaceRtWorld.leftCols<2>() * a;
+      EXPECT_NEAR(
+          model.primitiveQuery(/*index=*/0, posCornerRtWorldEwrtWorld).distance,
+          0.0, kTolerance);
     }
     EXPECT_GT(area, 0.0);
     EXPECT_DOUBLE_EQ(frame->friction, 0.8);
@@ -262,9 +283,10 @@ TEST(TerrainModelTest, BoxFaceFrames) {
   EXPECT_FALSE(model.boxFaceFrame(/*index=*/2, BoxFace::kPositiveZ).ok());
 
   // A point above the top face, just past an edge, rests on the top face.
-  const Eigen::Vector3d top = Eigen::Vector3d(1.0, 0.0, 0.3) +
-                              rotation * Eigen::Vector3d(0.501, 0.1, 0.31);
-  const PatchFrame topFrame = model.patchFrameAt(top);
+  const Eigen::Vector3d topPosQueryRtWorldEwrtWorld =
+      Eigen::Vector3d(1.0, 0.0, 0.3) +
+      quatBoxRtWorld * Eigen::Vector3d(0.501, 0.1, 0.31);
+  const PatchFrame topFrame = model.patchFrameAt(topPosQueryRtWorldEwrtWorld);
   EXPECT_EQ(topFrame.face, BoxFace::kPositiveZ);
   EXPECT_EQ(topFrame.primitiveIndex, 0);
   // A point beside the rail rests on its tangent plane.
@@ -272,10 +294,14 @@ TEST(TerrainModelTest, BoxFaceFrames) {
       model.patchFrameAt(Eigen::Vector3d(0.5, 2.0, 1.2));
   EXPECT_FALSE(railFrame.face.has_value());
   EXPECT_EQ(railFrame.primitiveIndex, 1);
-  EXPECT_LT((railFrame.normal() - Eigen::Vector3d::UnitZ()).norm(), kTolerance);
-  EXPECT_LT((railFrame.origin - Eigen::Vector3d(0.5, 2.0, 1.05)).norm(),
-            kTolerance);
-  EXPECT_NEAR(railFrame.rotation.determinant(), 1.0, kTolerance);
+  EXPECT_LT(
+      (railFrame.getNormalSurfaceEwrtWorld() - Eigen::Vector3d::UnitZ()).norm(),
+      kTolerance);
+  EXPECT_LT(
+      (railFrame.posSurfaceRtWorldEwrtWorld - Eigen::Vector3d(0.5, 2.0, 1.05))
+          .norm(),
+      kTolerance);
+  EXPECT_NEAR(railFrame.rotmatSurfaceRtWorld.determinant(), 1.0, kTolerance);
   EXPECT_DOUBLE_EQ(railFrame.friction, 0.5);
 }
 
@@ -320,7 +346,7 @@ TEST(TerrainModelTest, RefusesInvalidScenes) {
 /** A scene with every kind of region: a floor, a stair, a rotated box and a
  * capsule. */
 TerrainModel mixedScene() {
-  const Eigen::Quaterniond rotation(
+  const Eigen::Quaterniond quatBoxRtWorld(
       Eigen::AngleAxisd(0.5, Eigen::Vector3d(0.2, 1.0, 0.3).normalized()));
   return modelOf(
       {boxPrimitive("floor", Eigen::Vector3d(0.0, 0.0, -0.5),
@@ -328,7 +354,7 @@ TerrainModel mixedScene() {
        boxPrimitive("step", Eigen::Vector3d(0.64, 0.0, 0.09),
                     Eigen::Vector3d(0.14, 0.6, 0.09)),
        boxPrimitive("crate", Eigen::Vector3d(-1.0, 1.0, 0.6),
-                    Eigen::Vector3d(0.3, 0.2, 0.25), rotation.coeffs()),
+                    Eigen::Vector3d(0.3, 0.2, 0.25), quatBoxRtWorld.coeffs()),
        capsulePrimitive("rail", Eigen::Vector3d(0.5, 0.7, 0.9),
                         Eigen::Vector3d(1.4, 0.7, 1.6), /*radius=*/0.025)});
 }
@@ -390,7 +416,8 @@ TEST(TerrainModelTest, GradientIsTheNormalWhereOnePrimitiveIsNearest) {
     const std::vector<double> jacobian =
         tape.Jacobian(std::vector<double>{probe.x(), probe.y(), probe.z()});
     const Eigen::Vector3d gradient(jacobian[0], jacobian[1], jacobian[2]);
-    EXPECT_LT((gradient - model.normal(probe)).norm(), 1.0e-9)
+    EXPECT_LT((gradient - model.getNormalTerrainEwrtWorld(probe)).norm(),
+              1.0e-9)
         << probe.transpose();
   }
 }

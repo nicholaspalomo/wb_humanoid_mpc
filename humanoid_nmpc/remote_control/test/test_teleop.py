@@ -155,23 +155,33 @@ class TestStopCommand(unittest.TestCase):
         publisher = _walking_publisher()
         self.assertTrue(
             teleop.close_after_stop(
-                publisher, pelvis_height=0.74, grace_period=0.0
+                publisher,
+                cmd_pos_base_rt_surface_ewrt_world_z=0.74,
+                grace_period=0.0,
             )
         )
         self.assertEqual(publisher.publish_count, 1)
         stop = publisher.last_message
         assert stop is not None
-        self.assertEqual(stop.cmd_linvel_base_rt_world_ewrt_heading_x, 0.0)
-        self.assertEqual(stop.cmd_linvel_base_rt_world_ewrt_heading_y, 0.0)
-        self.assertEqual(stop.cmd_angvel_base_rt_world_ewrt_world_z, 0.0)
-        self.assertAlmostEqual(stop.cmd_pos_base_rt_world_ewrt_world_z, 0.74)
+        self.assertEqual(
+            stop.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x, 0.0
+        )
+        self.assertEqual(
+            stop.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y, 0.0
+        )
+        self.assertEqual(stop.cmd_lnorm_angvel_base_rt_world_ewrt_world_z, 0.0)
+        self.assertAlmostEqual(stop.cmd_pos_base_rt_surface_ewrt_world_z, 0.74)
         self.assertTrue(publisher.bus.closed)
         # The stop command went out before the bus closed.
         self.assertEqual(publisher.bus.published_at_close, 1)
 
     def test_close_after_stop_without_a_height_sends_nothing_and_closes(self):
         publisher = _walking_publisher()
-        self.assertFalse(teleop.close_after_stop(publisher, pelvis_height=None))
+        self.assertFalse(
+            teleop.close_after_stop(
+                publisher, cmd_pos_base_rt_surface_ewrt_world_z=None
+            )
+        )
         self.assertEqual(publisher.publish_count, 0)
         self.assertTrue(publisher.bus.closed)
 
@@ -193,8 +203,10 @@ class TestStopCommand(unittest.TestCase):
         self.assertEqual(publisher.publish_count, 3)
         stop = publisher.last_message
         assert stop is not None
-        self.assertEqual(stop.cmd_linvel_base_rt_world_ewrt_heading_x, 0.0)
-        self.assertAlmostEqual(stop.cmd_pos_base_rt_world_ewrt_world_z, 0.81)
+        self.assertEqual(
+            stop.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x, 0.0
+        )
+        self.assertAlmostEqual(stop.cmd_pos_base_rt_surface_ewrt_world_z, 0.81)
         self.assertEqual(publisher.bus.published_at_close, 3)
 
     def test_a_tick_that_raises_still_sends_the_stop_command(self):
@@ -219,15 +231,19 @@ class TestInitialPelvisHeight(unittest.TestCase):
                 handle.write(
                     nproto_textproto.file_text(
                         reference_file_pb2.ReferenceFile(
-                            nom_pos_base_rt_world_ewrt_world_z=0.7405
+                            nom_pos_base_rt_surface_ewrt_world_z=0.7405
                         )
                     )
                 )
-            self.assertAlmostEqual(teleop.initial_pelvis_height(path), 0.7405)
+            self.assertAlmostEqual(
+                teleop.read_init_cmd_pos_base_rt_surface_ewrt_world_z(path),
+                0.7405,
+            )
 
     def test_without_a_reference_file_it_is_the_fallback(self):
         self.assertEqual(
-            teleop.initial_pelvis_height(""), config_files.DEFAULT_PELVIS_HEIGHT
+            teleop.read_init_cmd_pos_base_rt_surface_ewrt_world_z(""),
+            config_files.NOM_POS_BASE_RT_SURFACE_EWRT_WORLD_Z,
         )
 
     def test_the_flag_defaults_to_no_file(self):

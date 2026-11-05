@@ -30,10 +30,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <thread>
 
+#include "absl/functional/function_ref.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "ocs2_core/Types.h"
 
 namespace ocs2::humanoid {
 
@@ -74,9 +81,10 @@ MpcResetSupervisor::takeResetRequest() const {
 }
 
 void MpcResetSupervisor::completeReset(const ResetTicket& ticket) {
-  if (ticket.full)
+  if (ticket.full) {
     fullResetsServed_.store(
         std::max(ticket.fullRequest, fullResetsServed_.load()));
+  }
   resetsServed_.store(std::max(ticket.request, resetsServed_.load()));
 }
 

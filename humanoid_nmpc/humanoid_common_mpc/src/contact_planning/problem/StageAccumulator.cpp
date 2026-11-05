@@ -31,6 +31,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <utility>
 
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/contact_planning/problem/LipCoefficients.h"
+
 namespace ocs2::humanoid {
 
 void StageAccumulator::addQuadraticResidual(const Coefficients& xCoefficients,
@@ -40,10 +44,12 @@ void StageAccumulator::addQuadraticResidual(const Coefficients& xCoefficients,
   if (weight <= 0.0) return;
   vector_t lx = vector_t::Zero(stage_->numStates());
   vector_t lu = vector_t::Zero(stage_->numInputs());
-  for (const std::pair<int, scalar_t>& coefficient : xCoefficients)
+  for (const std::pair<int, scalar_t>& coefficient : xCoefficients) {
     lx(coefficient.first) += coefficient.second;
-  for (const std::pair<int, scalar_t>& coefficient : uCoefficients)
+  }
+  for (const std::pair<int, scalar_t>& coefficient : uCoefficients) {
     lu(coefficient.first) += coefficient.second;
+  }
   stage_->Q.noalias() += 2.0 * weight * lx * lx.transpose();
   stage_->q.noalias() += 2.0 * weight * offset * lx;
   if (stage_->numInputs() > 0) {

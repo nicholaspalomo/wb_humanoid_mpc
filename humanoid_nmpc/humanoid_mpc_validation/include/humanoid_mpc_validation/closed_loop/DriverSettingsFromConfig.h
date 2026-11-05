@@ -52,7 +52,7 @@ struct GuiCommandScaling {
    * forward, sideways and yaw velocity of a full stick deflection. Positive.
    */
   Eigen::Vector3d commandLimits = Eigen::Vector3d::Ones();
-  /** [m] nom_pos_base_rt_world_ewrt_world_z of the reference file: the pelvis
+  /** [m] nom_pos_base_rt_surface_ewrt_world_z of the reference file: the pelvis
    * height the GUI's slider sends. */
   double defaultPelvisHeight = 0.0;
 };

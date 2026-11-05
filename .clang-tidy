@@ -78,6 +78,7 @@ Checks:
   - google-upgrade-googletest-case                            # G: Naming (gtest TestSuite API)
   # misc
   - misc-definitions-in-headers                               # G: Defining functions in header files; ToTW #140, #168
+  - misc-include-cleaner                                      # G: Include what you use (clangd's unused-includes; see CheckOptions)
   - misc-misplaced-const                                      # G: Use of const
   - misc-throw-by-value-catch-by-reference                    # G: Exceptions (at the remaining boundaries)
   - misc-unconventional-assign-operator                       # G: Operator overloading
@@ -143,8 +144,6 @@ Checks:
   #   style. readability-magic-numbers: tools/hooks magic-number, which applies the repository's exemptions (0 and 1, a
   #   floating 0.5 or 2.0 as a factor, constant definitions, enumerators) and skips tests. readability-identifier-length,
   #   bugprone-easily-swappable-parameters, modernize-avoid-c-arrays, misc-const-correctness: not Google style.
-  # Not enabled: misc-include-cleaner (G: Include what you use) had 5,621 findings after its IgnoreHeaders, more
-  #   than the rollout takes on (about 3,000), so cpplint's build/include_what_you_use is the include-what-you-use check.
 # LINT.ThenChange(//tools/clang_tidy/clang_tidy.bzl:clang_diagnostics, //AGENTS.md:cpp_style, //AGENTS.md:totw_rules)
 WarningsAsErrors: "*"
 # No HeaderFilterRegex: tools/clang_tidy/clang_tidy.bzl passes --header-filter per action (header_filter).
@@ -160,6 +159,22 @@ CheckOptions:
   cppcoreguidelines-special-member-functions.AllowMissingMoveFunctionsWhenCopyIsDeleted: true
   google-readability-braces-around-statements.ShortStatementLines: 1   # 2 would allow `if (x)\n  return;`
   google-runtime-int.TypeSuffix: _t
+  # misc-include-cleaner neither inserts nor removes a header whose real path ends in one of these regexes. They are
+  # the libraries whose public headers are umbrellas without IWYU pragmas, so that the header declaring a symbol is an
+  # internal one and the umbrella itself provides nothing: Eigen (Eigen/Core, Eigen/Geometry over Eigen/src/), CppAD
+  # (cppad/cppad.hpp, cppad/cg.hpp), MuJoCo (mujoco/mujoco.h over mjdata.h, mjmodel.h, ...), the OCS2 thirdparty
+  # copies (CppAD, iit) and Boost, Coal and hpp-fcl, which reach first-party code only through Pinocchio. Libraries
+  # with IWYU pragmas map their private headers to the public ones themselves (Pinocchio, googletest, Abseil,
+  # protobuf); their internal directories are listed in case a pragma is missing. "pinocchio/fwd.hpp" is the first
+  # include of every file that includes Pinocchio (AGENTS.md "Includes") and provides no symbol of its own. bits/ and asm/
+  # hold the internal headers of libstdc++, glibc and the kernel, behind <thread>, <pthread.h>, <sys/socket.h> and the
+  # rest.
+  # LINT.IfChange(include_cleaner_ignore)
+  misc-include-cleaner.IgnoreHeaders: "Eigen/.*;cppad/.*;mujoco/.*;lib/ocs2/thirdparty/.*;boost/.*;coal/.*;\
+    hpp/fcl/.*;pinocchio/fwd[.]hpp;pinocchio/src/.*;gtest/internal/.*;gmock/internal/.*;absl/.*/internal/.*;\
+    google/protobuf/.*internal.*;google/protobuf/port_(un)?def[.]inc;dds/dds[a-z]+/.*;bits/.*;\
+    asm(-generic)?/.*"
+  # LINT.ThenChange(//.clangd:include_cleaner_ignore)
   modernize-type-traits.IgnoreMacros: true            # googletest's INSTANTIATE_TEST_SUITE_P and EXPECT_THROW expand to C++11 traits
   modernize-use-default-member-init.UseAssignment: true
   modernize-use-emplace.IgnoreImplicitConstructors: true

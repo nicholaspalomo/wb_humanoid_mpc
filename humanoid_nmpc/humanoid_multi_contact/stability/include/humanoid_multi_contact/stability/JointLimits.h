@@ -79,7 +79,7 @@ bool enforcesEffortLimits(JointLimits limits);
 
 /** Whether `limits` widen the joint position limits by the scenario's
  * relaxation. */
-bool relaxesPositionLimits(JointLimits limits);
+bool relaxesJointPositionLimits(JointLimits limits);
 
 /** [rad] The largest relaxation of the position limits a scenario may ask
  * for. */

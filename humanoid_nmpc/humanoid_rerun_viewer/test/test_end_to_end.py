@@ -153,7 +153,7 @@ def heavy_scene() -> visualization_scene_pb2.VisualizationScene:
     scene = visualization_scene_pb2.VisualizationScene()
     strip = scene.line_strips.add(path="plan/base").strips.add()
     for index in range(HEAVY_SCENE_POINTS):
-        strip.points.add(x=1e-4 * index)
+        strip.pos_strippoints_rt_world_ewrt_world.add(x=1e-4 * index)
     return scene
 
 

@@ -30,19 +30,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <array>
+#include <cstddef>
 #include <cstdint>
-#include <memory>
 #include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
-#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 
@@ -84,7 +84,7 @@ class ModelSettings {
      *     r = v_z - zdot_ref(t) - positionErrorGain_z * (z_ref(t) - z),
      * so this one weight buys the swing-foot vertical servo as a cost. That
      * matters because the two channels the hard row combined are otherwise
-     * split across task_space_foot_cost.weights.pos_z and .lin_velocity_z,
+     * split across task_space_foot_cost.weights.pos_z and .linvel_z,
      * which are faded differently (only the velocity rows of the foot cost are
      * scaled by the impact-proximity factor) and so cannot reproduce the servo
      * at any pair of values.
@@ -93,9 +93,9 @@ class ModelSettings {
      * the input, because the joint velocities ARE inputs of the centroidal
      * model - so a large Gauss-Newton weight here is well conditioned. A foot
      * stuck on the ground at mid-swing has r = -positionErrorGain_z *
-     * swingHeight = -0.16 m/s, and the term must outbid the leg-joint
-     * regularization that holds the swing leg in its standing crouch. Sweep it;
-     * the shipped value is a starting point, not a tuned one.
+     * apexPosFootRtSwingendEwrtWorldZ = -0.16 m/s, and the term must outbid the
+     * leg-joint regularization that holds the swing leg in its standing crouch.
+     * Sweep it; the shipped value is a starting point, not a tuned one.
      */
     scalar_t normalVelocitySoftConstraintWeight =
         kDefaultNormalVelocitySoftConstraintWeight;
@@ -129,8 +129,9 @@ class ModelSettings {
    * with both off nothing in the problem has an opinion about where the feet go
    * sideways and they drift together until the robot falls.
    *
-   * A positive `stepWidth` here restores a horizontal target: the foot is
-   * placed that far to its own side of the reference base pose, and follows
+   * A positive `nomPosLfootRtRfootEwrtHeadingY` here restores a horizontal
+   * target: the foot is placed that far to its own side of the reference base
+   * pose, and follows
    * that pose as it advances, so forward placement still comes from the
    * commanded motion rather than from a second heuristic. It is a foot
    * placement heuristic, which is exactly what the reduced-order planner exists
@@ -139,8 +140,9 @@ class ModelSettings {
    * top of it.
    */
   struct NominalFootholdConfig {
-    scalar_t stepWidth = 0.0;  // [m] lateral distance between the feet; 0
-                               // disables the nominal reference
+    // [m] The lateral distance between the feet along the heading's y axis;
+    // 0 disables the nominal reference.
+    scalar_t nomPosLfootRtRfootEwrtHeadingY = 0.0;
   };
 
   /**
@@ -155,7 +157,8 @@ class ModelSettings {
     /** The defaults of the fields below, by field. */
     static constexpr scalar_t kDefaultComplementarityWeight = 100.0;
     static constexpr scalar_t kDefaultSlipWeight = 100.0;
-    static constexpr scalar_t kDefaultHeightReference = 0.08;  // [m]
+    static constexpr scalar_t kNomScalePosContactRtSurfaceEwrtWorldZ =
+        0.08;  // [m]
     static constexpr scalar_t kNomScaleLinvelContactRtWorldEwrtWorldXy =
         0.3;  // [m/s]
     static constexpr scalar_t kDefaultPenetrationWeight = 5.0e4;
@@ -166,14 +169,14 @@ class ModelSettings {
     // dimensionless and comparable with each other - but NOT with
     // task_space_foot_cost, whose residuals are in meters
     // (humanoid_nmpc/docs/contact_implicit_mpc/README.md, section 4: pos_z is
-    // priced at 0.5 * pos_z * heightReference^2 against 0.5 *
-    // complementarityWeight, and the two break even at a swing-foot load of f_n
-    // / f_ref = heightReference * sqrt(pos_z / complementarityWeight)). Each is
-    // the cost of the worst configuration its term can describe: a foot at the
-    // reference height, or sliding at the reference speed, while carrying the
-    // reference force. See the class comment on
-    // ContactComplementarityConstraint for why the un-normalized products could
-    // not be weighted sensibly at all.
+    // priced at 0.5 * pos_z * scalePosContactRtSurfaceEwrtWorldZ^2 against 0.5
+    // * complementarityWeight, and the two break even at a swing-foot load of
+    // f_n / f_ref = scalePosContactRtSurfaceEwrtWorldZ * sqrt(pos_z /
+    // complementarityWeight)). Each is the cost of the worst configuration its
+    // term can describe: a foot at the reference height, or sliding at the
+    // reference speed, while carrying the reference force. See the class
+    // comment on ContactComplementarityConstraint for why the un-normalized
+    // products could not be weighted sensibly at all.
     scalar_t complementarityWeight = kDefaultComplementarityWeight;
     // What holds a loaded foot still, in place of the mode-scheduled stance
     // constraint.
@@ -181,9 +184,9 @@ class ModelSettings {
     // The references the two residuals are measured in. The force reference is
     // not here: it is the robot's own weight, taken from the model, because a
     // value that has to agree with the URDF should not be maintained by hand.
-    scalar_t heightReference =
-        kDefaultHeightReference;  // [m] normally the swing apex,
-                                  // swing_trajectory_config.swingHeight
+    scalar_t scalePosContactRtSurfaceEwrtWorldZ =
+        kNomScalePosContactRtSurfaceEwrtWorldZ;  // [m] normally the swing apex,
+                                                 // swing_trajectory_config.apex_pos_foot_rt_swingend_ewrt_world_z
     scalar_t scaleLinvelContactRtWorldEwrtWorldXy =
         kNomScaleLinvelContactRtWorldEwrtWorldXy;  // [m/s] a sliding speed that
                                                    // would already be a failure
@@ -201,14 +204,14 @@ class ModelSettings {
      * 0, and upward at every height - so every foot was pushed off the ground
      * and the only term pulling it back was the complementarity penalty, whose
      * gradient in h is `complementarityWeight * (f_n/f_ref)^2 * h /
-     * heightReference^2`. Balancing the two put a fully loaded foot 2.3 mm
-     * above the ground and a foot at half body weight - i.e. BOTH feet,
-     * throughout double support - 6.8 mm above it (h = (2*mu/delta) / (C*f^2 +
-     * mu/delta^2), C = complementarityWeight / heightReference^2), with a
-     * permanent complementarity residual that no weight could tune away. The
-     * hinge is zero in value and in gradient at h = 0, so it has no such
-     * equilibrium: it does nothing at all until the foot is actually below
-     * ground.
+     * scalePosContactRtSurfaceEwrtWorldZ^2`. Balancing the two put a fully
+     * loaded foot 2.3 mm above the ground and a foot at half body weight - i.e.
+     * BOTH feet, throughout double support - 6.8 mm above it (h = (2*mu/delta)
+     * / (C*f^2 + mu/delta^2), C = complementarityWeight /
+     * scalePosContactRtSurfaceEwrtWorldZ^2), with a permanent complementarity
+     * residual that no weight could tune away. The hinge is zero in value and
+     * in gradient at h = 0, so it has no such equilibrium: it does nothing at
+     * all until the foot is actually below ground.
      */
     scalar_t penetrationWeight = kDefaultPenetrationWeight;
     /**
@@ -231,10 +234,11 @@ class ModelSettings {
      * residual the SQP solver can linearize consistently.
      */
     scalar_t gapSmoothing = kDefaultGapSmoothing;
-    // Where the ground is, is NOT here: it is ModelSettings::terrainHeight, so
-    // that the complementarity conditions and the swing trajectories cannot
-    // disagree about it. Every field above is a field of the task file's
-    // `contact_implicit` block, listed in contactImplicitKeys().
+    // Where the ground is, is NOT here: it is
+    // ModelSettings::posSurfaceRtWorldEwrtWorldZ, so that the complementarity
+    // conditions and the swing trajectories cannot disagree about it. Every
+    // field above is a field of the task file's `contact_implicit` block,
+    // listed in contactImplicitKeys().
   };
 
   /** The task-file block ContactImplicitConfig is read from. */
@@ -279,8 +283,8 @@ class ModelSettings {
 
   /**
    * The settings of the typed task file `taskFile` (its model_settings,
-   * nominal_foothold, terrain_height and contact_implicit) and the URDF
-   * `urdfFile`; `mpcName` keys the CppAD model folder.
+   * nominal_foothold, pos_surface_rt_world_ewrt_world_z and contact_implicit)
+   * and the URDF `urdfFile`; `mpcName` keys the CppAD model folder.
    *
    * Defined in humanoid_common_mpc/config/model/ModelSettingsFromConfig.cpp,
    * with the other conversions of the typed task file's model and formulation.
@@ -326,13 +330,14 @@ class ModelSettings {
 
   /**
    * A 3-DoF (point) contact of model_settings.contacts_3dof: the frame
-   * loadCustomPinocchioInterface() adds to the model at `translation` [m] from
-   * `parentJointName`, a joint of the MPC model or one it fixes.
+   * * loadCustomPinocchioInterface() adds to the model at
+   * `posContactRtLinkEwrtLink` [m] from `parentJointName`, a joint of the MPC
+   * model or one it fixes.
    */
   struct PointContact {
     std::string name;
     std::string parentJointName;
-    vector3_t translation = vector3_t::Zero();
+    vector3_t posContactRtLinkEwrtLink = vector3_t::Zero();
   };
 
   // The 6-DoF contacts, and the joints they hang from, one per contact in its
@@ -352,6 +357,14 @@ class ModelSettings {
   // contact set, in the order of the centroidal MPC's input and of a mode
   // number's bits (gait/MotionPhaseDefinition.h, contactIsActiveInMode()).
   std::vector<std::string> contactNames;
+
+  /**
+   * Returns the joint each contact of contactNames hangs from, in that order:
+   * a 3-DoF contact's pointContacts parent joint, then a 6-DoF contact's
+   * contactParentJointNames entry, or an empty string where
+   * contactParentJointNames is shorter than contactNames6DoF.
+   */
+  std::vector<std::string> contactParentJointNamesInContactOrder() const;
 
   /** Whether contact `contactIndex` of contactNames is a 3-DoF one. */
   bool isPointContact(size_t contactIndex) const {
@@ -412,28 +425,29 @@ class ModelSettings {
    * know.
    *
    * There used to be two answers.
-   * SwitchedModelReferenceManager::adaptToCurrentGroundHeight() computed an
-   * estimate from the stance feet and then threw it away on the next line,
+   * SwitchedModelReferenceManager::applyPosSurfaceRtWorldEwrtWorldZ() computed
+   * an estimate from the stance feet and then threw it away on the next line,
    * silently returning 0 to the swing trajectory planner and the landing
    * targets; the contact-implicit terms took their own
-   * `contact_implicit.terrainHeight`, also 0. They agreed only because both
+   * `contact_implicit.terrain_height`, also 0. They agreed only because both
    * were pinned to the same constant, and nothing said they had to.
    *
    * This key is now the single source. It is the value the ground STARTS at:
    * the reference manager owns it from then on
-   * (SwitchedModelReferenceManager::setTerrainHeight) and builds the swing
-   * trajectories and the landing targets on it, and the complementarity and
-   * ground-penetration terms are built with it and then follow the height the
-   * reference manager last built its references on (MpcParameterUpdaterModule),
-   * so that the two never disagree, not even for one solve after a hot reload
-   * moves it. (The base-height reference does not follow it; see
-   * SwitchedModelReferenceManager::adaptToCurrentGroundHeight().) It is a flat
-   * ground because every part of this stack assumes one - the reduced-order
-   * contact planner most of all. If a measured estimator is ever wanted, it
-   * belongs here as a named selection (a registry resolving e.g. `fixed` /
-   * `from_contacts`), not as a second constant somewhere else.
+   * (SwitchedModelReferenceManager::setPosSurfaceRtWorldEwrtWorldZ) and builds
+   * the swing trajectories and the landing targets on it, and the
+   * complementarity and ground-penetration terms are built with it and then
+   * follow the height the reference manager last built its references on
+   * (MpcParameterUpdaterModule), so that the two never disagree, not even for
+   * one solve after a hot reload moves it. (The base-height reference does not
+   * follow it; see
+   * SwitchedModelReferenceManager::applyPosSurfaceRtWorldEwrtWorldZ().) It is a
+   * flat ground because every part of this stack assumes one - the
+   * reduced-order contact planner most of all. If a measured estimator is ever
+   * wanted, it belongs here as a named selection (a registry resolving e.g.
+   * `fixed` / `from_contacts`), not as a second constant somewhere else.
    */
-  scalar_t terrainHeight = 0.0;
+  scalar_t posSurfaceRtWorldEwrtWorldZ = 0.0;
 
  private:
   ModelSettings() = default;

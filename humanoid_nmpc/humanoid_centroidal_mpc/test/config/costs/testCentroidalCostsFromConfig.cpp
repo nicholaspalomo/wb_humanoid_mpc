@@ -54,54 +54,59 @@ TEST(DcmTerminalCostFromConfigTest, AnEmptyBlockIsTheCostsDefaultConfig) {
       dcmTerminalCostConfigFromConfig(mpc_config::DcmTerminalCostConfig{});
   ASSERT_TRUE(config.ok()) << config.status();
   const DcmTerminalCost::Config defaults;
-  EXPECT_EQ(config->comHeight, defaults.comHeight);
-  EXPECT_EQ(config->gravity, defaults.gravity);
+  EXPECT_EQ(config->nomPosComRtFeetmeanEwrtWorldZ,
+            defaults.nomPosComRtFeetmeanEwrtWorldZ);
+  EXPECT_EQ(config->gravityMagnitude, defaults.gravityMagnitude);
   EXPECT_EQ(config->weights, defaults.weights);
-  EXPECT_EQ(config->velocityOffsetFactor, defaults.velocityOffsetFactor);
+  EXPECT_EQ(config->velocityCommandOffsetFactor,
+            defaults.velocityCommandOffsetFactor);
   EXPECT_EQ(config->supportBlendTime, defaults.supportBlendTime);
 }
 
 TEST(DcmTerminalCostFromConfigTest, AComHeightIsPositiveOrLeftOutForTheModels) {
-  // Left out, it is the model's pendulum: the unset comHeight that
-  // DcmTerminalCost::resolveConfig() resolves.
+  // Left out, it is the model's pendulum: the unset
+  // nomPosComRtFeetmeanEwrtWorldZ that DcmTerminalCost::resolveConfig()
+  // resolves.
   const absl::StatusOr<DcmTerminalCost::Config> absent =
       dcmTerminalCostConfigFromConfig(mpc_config::DcmTerminalCostConfig{});
   ASSERT_TRUE(absent.ok()) << absent.status();
-  EXPECT_FALSE(absent->comHeight.has_value());
+  EXPECT_FALSE(absent->nomPosComRtFeetmeanEwrtWorldZ.has_value());
   // 0, which stood for the model's before the field was optional, is refused
   // like any other height that is no height.
   for (const double height :
        {0.0, -0.9, std::numeric_limits<double>::quiet_NaN(),
         std::numeric_limits<double>::infinity()}) {
     mpc_config::DcmTerminalCostConfig block;
-    block.com_height = height;
+    block.nom_pos_com_rt_feetmean_ewrt_world_z = height;
     const absl::StatusOr<DcmTerminalCost::Config> refused =
         dcmTerminalCostConfigFromConfig(block);
     EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument)
         << height;
-    EXPECT_TRUE(absl::StrContains(refused.status().message(),
-                                  "dcm_terminal_cost.com_height is"))
+    EXPECT_TRUE(absl::StrContains(
+        refused.status().message(),
+        "dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z is"))
         << refused.status();
     EXPECT_TRUE(absl::StrContains(
         refused.status().message(),
-        "leave dcm_terminal_cost.com_height out for the model's"))
+        "leave dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z out for "
+        "the model's"))
         << refused.status();
   }
 }
 
 TEST(DcmTerminalCostFromConfigTest, EachFieldLandsInItsMember) {
   mpc_config::DcmTerminalCostConfig block;
-  block.com_height = 0.9;
+  block.nom_pos_com_rt_feetmean_ewrt_world_z = 0.9;
   block.weight_x = 400.0;
   block.weight_y = 250.0;
-  block.velocity_offset_factor = 0.5;
+  block.velocity_command_offset_factor = 0.5;
   block.support_blend_time = 0.2;
   const absl::StatusOr<DcmTerminalCost::Config> config =
       dcmTerminalCostConfigFromConfig(block);
   ASSERT_TRUE(config.ok()) << config.status();
-  EXPECT_EQ(config->comHeight, 0.9);
+  EXPECT_EQ(config->nomPosComRtFeetmeanEwrtWorldZ, 0.9);
   EXPECT_EQ(config->weights, vector2_t(400.0, 250.0));
-  EXPECT_EQ(config->velocityOffsetFactor, 0.5);
+  EXPECT_EQ(config->velocityCommandOffsetFactor, 0.5);
   EXPECT_EQ(config->supportBlendTime, 0.2);
 }
 
@@ -111,10 +116,11 @@ TEST(DcmTerminalCostFromConfigTest, RefusesWhatTheCostRefuses) {
   EXPECT_TRUE(absl::StrContains(
       dcmTerminalCostConfigFromConfig(block).status().message(), "weight_y"));
   block = mpc_config::DcmTerminalCostConfig{};
-  block.velocity_offset_factor = std::numeric_limits<double>::quiet_NaN();
+  block.velocity_command_offset_factor =
+      std::numeric_limits<double>::quiet_NaN();
   EXPECT_TRUE(absl::StrContains(
       dcmTerminalCostConfigFromConfig(block).status().message(),
-      "dcm_terminal_cost.velocity_offset_factor"));
+      "dcm_terminal_cost.velocity_command_offset_factor"));
 }
 
 }  // namespace

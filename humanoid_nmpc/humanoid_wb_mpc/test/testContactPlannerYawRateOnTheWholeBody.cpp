@@ -63,9 +63,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The contact planner's reference manager on the whole-body model, which stores
  * the base velocity (v, w_B) where the centroidal model stores the normalized
  * momentum. The commanded and the measured yaw rate are read through the
- * layout-agnostic getTargetPlanarCommand(). They used to be read from entry
- * kTwistYawRateIndex of getBaseComVelocity(), which is L_z / m on the
- * centroidal layout but the body roll rate w_x on the whole body, so a
+ * layout-agnostic getRefPlanarMotion(). They used to be read from entry
+ * kTwistYawRateIndex of the old getBaseComVelocity() (now
+ * getTuningLayoutBaseRates() on the whole body and
+ * getMnormCmomComRtWorldEwrtWorld() on the centroidal model), which is L_z / m
+ * on the centroidal layout but the body roll rate w_x on the whole body, so a
  * commanded turn of a level whole-body knot read as zero.
  */
 namespace ocs2::humanoid {
@@ -73,7 +75,7 @@ namespace {
 
 constexpr scalar_t kHorizon = 1.0;
 // [rad/s] The commanded and measured turn about the world z axis.
-constexpr scalar_t kYawRate = 0.5;
+constexpr scalar_t kCmdRateYawBaseRtWorld = 0.5;
 
 constexpr char kTaskFile[] =
     "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto";
@@ -115,8 +117,9 @@ TEST(ContactPlannerYawRateOnTheWholeBody,
       swingTrajectorySettingsFromConfig(task->swing_trajectory_config);
   ASSERT_TRUE(swingConfig.ok()) << swingConfig.status();
   ContactPlanningConfig config;
-  config.shared.comHeight = 0.85;  // no model derives the pendulum here (the
-                                   // library default 0 means "from the model")
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ =
+      0.85;  // no model derives the pendulum here (the
+             // library default 0 means "from the model")
   config.setHeadingModel(/*on=*/true);
   ASSERT_EQ(config.validateStatus(), absl::OkStatus());
   const absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>>
@@ -129,8 +132,8 @@ TEST(ContactPlannerYawRateOnTheWholeBody,
   ASSERT_TRUE(created.ok()) << created.status();
   ContactPlanningReferenceManager& referenceManager = **created;
 
-  // A level knot turning at kYawRate about the world z axis, w_B = (0, 0,
-  // kYawRate): its roll rate is zero.
+  // A level knot turning at kCmdRateYawBaseRtWorld about the world z axis, w_B
+  // = (0, 0, kCmdRateYawBaseRtWorld): its roll rate is zero.
   const absl::StatusOr<vector_t> tuningState = stateValuesFromConfig(
       task->initial_state,
       stateInputLayout(*modelSettings, StateInputLayout::Mpc::kWholeBody),
@@ -139,26 +142,27 @@ TEST(ContactPlannerYawRateOnTheWholeBody,
   absl::StatusOr<vector_t> initialState = model.stateFromTuning(*tuningState);
   ASSERT_TRUE(initialState.ok()) << initialState.status();
   vector_t turning = *std::move(initialState);
-  model.setTurnAngvelBaseRtWorldEwrtBase(turning, /*yawRate=*/kYawRate);
-  ASSERT_NEAR(
-      model.getTargetPlanarCommand(turning, /*compositeYawInertia=*/0.0)(
-          MpcRobotModelBase<scalar_t>::kPlanarCommandYawRateIndex),
-      kYawRate, 1.0e-12);
+  model.setTurnAngvelBaseRtWorldEwrtBase(
+      turning, /*angvelBaseRtWorldEwrtWorldZ=*/kCmdRateYawBaseRtWorld);
+  ASSERT_NEAR(model.getRefPlanarMotion(turning, /*inertiaComEwrtWorldZz=*/0.0)(
+                  MpcRobotModelBase<scalar_t>::kRefPlanarMotionYawRateIndex),
+              kCmdRateYawBaseRtWorld, 1.0e-12);
 
   const vector_t zeroInput = vector_t::Zero(model.getInputDim());
   referenceManager.setTargetTrajectories(TargetTrajectories(
       {0.0, 2.0 * kHorizon}, {turning, turning}, {zeroInput, zeroInput}));
   referenceManager.preSolverRun(/*initTime=*/0.0, /*finalTime=*/kHorizon,
                                 turning, ModeNumber::kStance);
-  EXPECT_NEAR(referenceManager.commandedYawRate(), kYawRate, 1.0e-12);
-  EXPECT_NEAR(referenceManager.getCmdRateYawBaseRtWorld(/*time=*/0.0), kYawRate,
+  EXPECT_NEAR(referenceManager.cmdRateYawBaseRtWorld(), kCmdRateYawBaseRtWorld,
               1.0e-12);
+  EXPECT_NEAR(referenceManager.getCmdRateYawBaseRtWorld(/*time=*/0.0),
+              kCmdRateYawBaseRtWorld, 1.0e-12);
 
   // The heading model's measured rate: the base's turn about the world z axis.
   const ContactPlannerInput input = referenceManager.makePlannerInput(
       /*initTime=*/0.0, turning, vector2_t::Zero());
-  EXPECT_NEAR(input.headingRate, kYawRate, 1.0e-12);
-  EXPECT_NEAR(input.headingRateCommand, kYawRate, 1.0e-12);
+  EXPECT_NEAR(input.initRateYawHeadingRtWorld, kCmdRateYawBaseRtWorld, 1.0e-12);
+  EXPECT_NEAR(input.cmdRateYawBaseRtWorld, kCmdRateYawBaseRtWorld, 1.0e-12);
 }
 
 }  // namespace

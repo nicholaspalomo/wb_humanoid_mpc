@@ -157,137 +157,137 @@ walking.lip.stage0.b 0 14650fb0739d0383
 walking.lip.stage0.bounds 6 7604294eb2d1152a
 walking.lip.stage0.rows ea990614451de789
 walking.lip.stage1.dims 8 8 27 18
-walking.lip.stage1.Q 20 758de64473c5a2c7
+walking.lip.stage1.Q 20 e16696c7a478e62f
 walking.lip.stage1.R 8 781f436d17a08643
 walking.lip.stage1.S 2 286dbf979c64fa53
-walking.lip.stage1.q 6 25ec49ab459c7c55
+walking.lip.stage1.q 6 26c03f32ef37167c
 walking.lip.stage1.r 0 14650fb0739d0383
 walking.lip.stage1.A 12 127dce9f9365f357
 walking.lip.stage1.B 8 da1b8446484a5ef
 walking.lip.stage1.b 0 14650fb0739d0383
 walking.lip.stage1.bounds 6 7604294eb2d1152a
-walking.lip.stage1.rows ea990614451de789
+walking.lip.stage1.rows 9a1b2a687d539d31
 walking.lip.stage2.dims 8 8 27 18
-walking.lip.stage2.Q 20 758de64473c5a2c7
+walking.lip.stage2.Q 20 b751d6c28e103fab
 walking.lip.stage2.R 8 781f436d17a08643
 walking.lip.stage2.S 2 286dbf979c64fa53
-walking.lip.stage2.q 6 25ec49ab459c7c55
+walking.lip.stage2.q 6 4b5b40c447c2153c
 walking.lip.stage2.r 0 14650fb0739d0383
 walking.lip.stage2.A 12 127dce9f9365f357
 walking.lip.stage2.B 8 da1b8446484a5ef
 walking.lip.stage2.b 0 14650fb0739d0383
 walking.lip.stage2.bounds 6 7604294eb2d1152a
-walking.lip.stage2.rows ea990614451de789
+walking.lip.stage2.rows e19900925f1a4b9b
 walking.lip.stage3.dims 8 8 27 18
-walking.lip.stage3.Q 20 758de64473c5a2c7
+walking.lip.stage3.Q 20 107195f5f77a383f
 walking.lip.stage3.R 8 781f436d17a08643
 walking.lip.stage3.S 2 286dbf979c64fa53
-walking.lip.stage3.q 6 25ec49ab459c7c55
+walking.lip.stage3.q 6 520e0dacaddb56b4
 walking.lip.stage3.r 0 14650fb0739d0383
 walking.lip.stage3.A 12 127dce9f9365f357
 walking.lip.stage3.B 8 da1b8446484a5ef
 walking.lip.stage3.b 0 14650fb0739d0383
 walking.lip.stage3.bounds 6 7604294eb2d1152a
-walking.lip.stage3.rows ea990614451de789
+walking.lip.stage3.rows 46a130561e0b8d37
 walking.lip.stage4.dims 8 8 27 18
-walking.lip.stage4.Q 20 758de64473c5a2c7
+walking.lip.stage4.Q 20 f3204806c508407f
 walking.lip.stage4.R 8 781f436d17a08643
 walking.lip.stage4.S 2 286dbf979c64fa53
-walking.lip.stage4.q 6 25ec49ab459c7c55
+walking.lip.stage4.q 6 941fbd6b3dcd668a
 walking.lip.stage4.r 0 14650fb0739d0383
 walking.lip.stage4.A 12 127dce9f9365f357
 walking.lip.stage4.B 8 da1b8446484a5ef
 walking.lip.stage4.b 0 14650fb0739d0383
 walking.lip.stage4.bounds 6 7604294eb2d1152a
-walking.lip.stage4.rows ea990614451de789
+walking.lip.stage4.rows cb413092ce8520f
 walking.lip.stage5.dims 8 8 27 18
-walking.lip.stage5.Q 20 758de64473c5a2c7
+walking.lip.stage5.Q 20 9e14c55485f9400f
 walking.lip.stage5.R 8 781f436d17a08643
 walking.lip.stage5.S 2 286dbf979c64fa53
-walking.lip.stage5.q 6 25ec49ab459c7c55
+walking.lip.stage5.q 6 c7e9876dcf6cbd00
 walking.lip.stage5.r 0 14650fb0739d0383
 walking.lip.stage5.A 12 127dce9f9365f357
 walking.lip.stage5.B 8 da1b8446484a5ef
 walking.lip.stage5.b 0 14650fb0739d0383
 walking.lip.stage5.bounds 6 7604294eb2d1152a
-walking.lip.stage5.rows ea990614451de789
+walking.lip.stage5.rows 750fe3ce1da1819b
 walking.lip.stage6.dims 8 8 27 18
-walking.lip.stage6.Q 20 758de64473c5a2c7
+walking.lip.stage6.Q 20 7f36151282bef8ff
 walking.lip.stage6.R 8 781f436d17a08643
 walking.lip.stage6.S 2 286dbf979c64fa53
-walking.lip.stage6.q 6 25ec49ab459c7c55
+walking.lip.stage6.q 6 fa95134431ea2636
 walking.lip.stage6.r 0 14650fb0739d0383
 walking.lip.stage6.A 12 127dce9f9365f357
 walking.lip.stage6.B 8 da1b8446484a5ef
 walking.lip.stage6.b 0 14650fb0739d0383
 walking.lip.stage6.bounds 6 7604294eb2d1152a
-walking.lip.stage6.rows ea990614451de789
+walking.lip.stage6.rows fe57c26ef5fc7b1b
 walking.lip.stage7.dims 8 8 27 18
-walking.lip.stage7.Q 20 758de64473c5a2c7
+walking.lip.stage7.Q 20 69f055b820d4ebc3
 walking.lip.stage7.R 8 781f436d17a08643
 walking.lip.stage7.S 2 286dbf979c64fa53
-walking.lip.stage7.q 6 25ec49ab459c7c55
+walking.lip.stage7.q 6 df4613da36d95e3f
 walking.lip.stage7.r 0 14650fb0739d0383
 walking.lip.stage7.A 12 127dce9f9365f357
 walking.lip.stage7.B 8 da1b8446484a5ef
 walking.lip.stage7.b 0 14650fb0739d0383
 walking.lip.stage7.bounds 6 7604294eb2d1152a
-walking.lip.stage7.rows ea990614451de789
+walking.lip.stage7.rows f7b5b632302175ab
 walking.lip.stage8.dims 8 8 27 18
-walking.lip.stage8.Q 20 758de64473c5a2c7
+walking.lip.stage8.Q 20 fc5147bb82e228f7
 walking.lip.stage8.R 8 781f436d17a08643
 walking.lip.stage8.S 2 286dbf979c64fa53
-walking.lip.stage8.q 6 25ec49ab459c7c55
+walking.lip.stage8.q 6 964064f141e8959e
 walking.lip.stage8.r 0 14650fb0739d0383
 walking.lip.stage8.A 12 127dce9f9365f357
 walking.lip.stage8.B 8 da1b8446484a5ef
 walking.lip.stage8.b 0 14650fb0739d0383
 walking.lip.stage8.bounds 6 7604294eb2d1152a
-walking.lip.stage8.rows ea990614451de789
+walking.lip.stage8.rows 49cbb34a41ce0b25
 walking.lip.stage9.dims 8 8 27 18
-walking.lip.stage9.Q 20 758de64473c5a2c7
+walking.lip.stage9.Q 20 811d578b03bfe3ff
 walking.lip.stage9.R 8 781f436d17a08643
 walking.lip.stage9.S 2 286dbf979c64fa53
-walking.lip.stage9.q 6 25ec49ab459c7c55
+walking.lip.stage9.q 6 2f535d97b73c348a
 walking.lip.stage9.r 0 14650fb0739d0383
 walking.lip.stage9.A 12 127dce9f9365f357
 walking.lip.stage9.B 8 da1b8446484a5ef
 walking.lip.stage9.b 0 14650fb0739d0383
 walking.lip.stage9.bounds 6 7604294eb2d1152a
-walking.lip.stage9.rows ea990614451de789
+walking.lip.stage9.rows fee0b75eb009131f
 walking.lip.stage10.dims 8 8 27 18
-walking.lip.stage10.Q 20 758de64473c5a2c7
+walking.lip.stage10.Q 20 10d0b5800b306087
 walking.lip.stage10.R 8 781f436d17a08643
 walking.lip.stage10.S 2 286dbf979c64fa53
-walking.lip.stage10.q 6 25ec49ab459c7c55
+walking.lip.stage10.q 6 3be0556c4e6742db
 walking.lip.stage10.r 0 14650fb0739d0383
 walking.lip.stage10.A 12 127dce9f9365f357
 walking.lip.stage10.B 8 da1b8446484a5ef
 walking.lip.stage10.b 0 14650fb0739d0383
 walking.lip.stage10.bounds 6 7604294eb2d1152a
-walking.lip.stage10.rows ea990614451de789
+walking.lip.stage10.rows 4292ff50bed9251
 walking.lip.stage11.dims 8 8 27 18
-walking.lip.stage11.Q 24 95e61706283cfd6f
+walking.lip.stage11.Q 24 d764beb4053c3a9b
 walking.lip.stage11.R 8 7c7beb8de731284b
 walking.lip.stage11.S 4 b947a4eebe89fb37
-walking.lip.stage11.q 6 25ec49ab459c7c55
+walking.lip.stage11.q 6 218f28987aaea34f
 walking.lip.stage11.r 0 14650fb0739d0383
 walking.lip.stage11.A 12 127dce9f9365f357
 walking.lip.stage11.B 8 da1b8446484a5ef
 walking.lip.stage11.b 0 14650fb0739d0383
 walking.lip.stage11.bounds 6 7604294eb2d1152a
-walking.lip.stage11.rows ea990614451de789
+walking.lip.stage11.rows a2b81e9ff9e79827
 walking.lip.stage12.dims 8 0 6 6
-walking.lip.stage12.Q 20 2542273ea9ddaa3
+walking.lip.stage12.Q 20 d91a16b897fd592b
 walking.lip.stage12.R 0 14650fb0739d0383
 walking.lip.stage12.S 0 14650fb0739d0383
-walking.lip.stage12.q 6 25ec49ab459c7c55
+walking.lip.stage12.q 6 913fb539271bd875
 walking.lip.stage12.r 0 14650fb0739d0383
 walking.lip.stage12.A 0 14650fb0739d0383
 walking.lip.stage12.B 0 14650fb0739d0383
 walking.lip.stage12.b 0 14650fb0739d0383
 walking.lip.stage12.bounds 0 14650fb0739d0383
-walking.lip.stage12.rows 1251787da306640
+walking.lip.stage12.rows a5afbe17f0b42a20
 pushed.lip.x0 0.05 0.02 0.6 -0.2 0 0.125 0 -0.125
 pushed.lip.stage0.dims 8 8 27 18
 pushed.lip.stage0.Q 10 97392bfc6f0b3127
@@ -445,137 +445,137 @@ mid_swing.lip.stage0.b 0 14650fb0739d0383
 mid_swing.lip.stage0.bounds 6 7604294eb2d1152a
 mid_swing.lip.stage0.rows ea990614451de789
 mid_swing.lip.stage1.dims 8 8 27 18
-mid_swing.lip.stage1.Q 20 758de64473c5a2c7
+mid_swing.lip.stage1.Q 20 e16696c7a478e62f
 mid_swing.lip.stage1.R 8 781f436d17a08643
 mid_swing.lip.stage1.S 2 286dbf979c64fa53
-mid_swing.lip.stage1.q 6 25ec49ab459c7c55
+mid_swing.lip.stage1.q 6 26c03f32ef37167c
 mid_swing.lip.stage1.r 0 14650fb0739d0383
 mid_swing.lip.stage1.A 12 127dce9f9365f357
 mid_swing.lip.stage1.B 8 da1b8446484a5ef
 mid_swing.lip.stage1.b 0 14650fb0739d0383
 mid_swing.lip.stage1.bounds 6 7604294eb2d1152a
-mid_swing.lip.stage1.rows ea990614451de789
+mid_swing.lip.stage1.rows 9a1b2a687d539d31
 mid_swing.lip.stage2.dims 8 8 27 18
-mid_swing.lip.stage2.Q 20 758de64473c5a2c7
+mid_swing.lip.stage2.Q 20 b751d6c28e103fab
 mid_swing.lip.stage2.R 8 781f436d17a08643
 mid_swing.lip.stage2.S 2 286dbf979c64fa53
-mid_swing.lip.stage2.q 6 25ec49ab459c7c55
+mid_swing.lip.stage2.q 6 4b5b40c447c2153c
 mid_swing.lip.stage2.r 0 14650fb0739d0383
 mid_swing.lip.stage2.A 12 127dce9f9365f357
 mid_swing.lip.stage2.B 8 da1b8446484a5ef
 mid_swing.lip.stage2.b 0 14650fb0739d0383
 mid_swing.lip.stage2.bounds 6 7604294eb2d1152a
-mid_swing.lip.stage2.rows ea990614451de789
+mid_swing.lip.stage2.rows e19900925f1a4b9b
 mid_swing.lip.stage3.dims 8 8 27 18
-mid_swing.lip.stage3.Q 20 758de64473c5a2c7
+mid_swing.lip.stage3.Q 20 107195f5f77a383f
 mid_swing.lip.stage3.R 8 781f436d17a08643
 mid_swing.lip.stage3.S 2 286dbf979c64fa53
-mid_swing.lip.stage3.q 6 25ec49ab459c7c55
+mid_swing.lip.stage3.q 6 520e0dacaddb56b4
 mid_swing.lip.stage3.r 0 14650fb0739d0383
 mid_swing.lip.stage3.A 12 127dce9f9365f357
 mid_swing.lip.stage3.B 8 da1b8446484a5ef
 mid_swing.lip.stage3.b 0 14650fb0739d0383
 mid_swing.lip.stage3.bounds 6 7604294eb2d1152a
-mid_swing.lip.stage3.rows ea990614451de789
+mid_swing.lip.stage3.rows 46a130561e0b8d37
 mid_swing.lip.stage4.dims 8 8 27 18
-mid_swing.lip.stage4.Q 20 758de64473c5a2c7
+mid_swing.lip.stage4.Q 20 f3204806c508407f
 mid_swing.lip.stage4.R 8 781f436d17a08643
 mid_swing.lip.stage4.S 2 286dbf979c64fa53
-mid_swing.lip.stage4.q 6 25ec49ab459c7c55
+mid_swing.lip.stage4.q 6 941fbd6b3dcd668a
 mid_swing.lip.stage4.r 0 14650fb0739d0383
 mid_swing.lip.stage4.A 12 127dce9f9365f357
 mid_swing.lip.stage4.B 8 da1b8446484a5ef
 mid_swing.lip.stage4.b 0 14650fb0739d0383
 mid_swing.lip.stage4.bounds 6 7604294eb2d1152a
-mid_swing.lip.stage4.rows ea990614451de789
+mid_swing.lip.stage4.rows cb413092ce8520f
 mid_swing.lip.stage5.dims 8 8 27 18
-mid_swing.lip.stage5.Q 20 758de64473c5a2c7
+mid_swing.lip.stage5.Q 20 9e14c55485f9400f
 mid_swing.lip.stage5.R 8 781f436d17a08643
 mid_swing.lip.stage5.S 2 286dbf979c64fa53
-mid_swing.lip.stage5.q 6 25ec49ab459c7c55
+mid_swing.lip.stage5.q 6 c7e9876dcf6cbd00
 mid_swing.lip.stage5.r 0 14650fb0739d0383
 mid_swing.lip.stage5.A 12 127dce9f9365f357
 mid_swing.lip.stage5.B 8 da1b8446484a5ef
 mid_swing.lip.stage5.b 0 14650fb0739d0383
 mid_swing.lip.stage5.bounds 6 7604294eb2d1152a
-mid_swing.lip.stage5.rows ea990614451de789
+mid_swing.lip.stage5.rows 750fe3ce1da1819b
 mid_swing.lip.stage6.dims 8 8 27 18
-mid_swing.lip.stage6.Q 20 758de64473c5a2c7
+mid_swing.lip.stage6.Q 20 7f36151282bef8ff
 mid_swing.lip.stage6.R 8 781f436d17a08643
 mid_swing.lip.stage6.S 2 286dbf979c64fa53
-mid_swing.lip.stage6.q 6 25ec49ab459c7c55
+mid_swing.lip.stage6.q 6 fa95134431ea2636
 mid_swing.lip.stage6.r 0 14650fb0739d0383
 mid_swing.lip.stage6.A 12 127dce9f9365f357
 mid_swing.lip.stage6.B 8 da1b8446484a5ef
 mid_swing.lip.stage6.b 0 14650fb0739d0383
 mid_swing.lip.stage6.bounds 6 7604294eb2d1152a
-mid_swing.lip.stage6.rows ea990614451de789
+mid_swing.lip.stage6.rows fe57c26ef5fc7b1b
 mid_swing.lip.stage7.dims 8 8 27 18
-mid_swing.lip.stage7.Q 20 758de64473c5a2c7
+mid_swing.lip.stage7.Q 20 69f055b820d4ebc3
 mid_swing.lip.stage7.R 8 781f436d17a08643
 mid_swing.lip.stage7.S 2 286dbf979c64fa53
-mid_swing.lip.stage7.q 6 25ec49ab459c7c55
+mid_swing.lip.stage7.q 6 df4613da36d95e3f
 mid_swing.lip.stage7.r 0 14650fb0739d0383
 mid_swing.lip.stage7.A 12 127dce9f9365f357
 mid_swing.lip.stage7.B 8 da1b8446484a5ef
 mid_swing.lip.stage7.b 0 14650fb0739d0383
 mid_swing.lip.stage7.bounds 6 7604294eb2d1152a
-mid_swing.lip.stage7.rows ea990614451de789
+mid_swing.lip.stage7.rows f7b5b632302175ab
 mid_swing.lip.stage8.dims 8 8 27 18
-mid_swing.lip.stage8.Q 20 758de64473c5a2c7
+mid_swing.lip.stage8.Q 20 fc5147bb82e228f7
 mid_swing.lip.stage8.R 8 781f436d17a08643
 mid_swing.lip.stage8.S 2 286dbf979c64fa53
-mid_swing.lip.stage8.q 6 25ec49ab459c7c55
+mid_swing.lip.stage8.q 6 964064f141e8959e
 mid_swing.lip.stage8.r 0 14650fb0739d0383
 mid_swing.lip.stage8.A 12 127dce9f9365f357
 mid_swing.lip.stage8.B 8 da1b8446484a5ef
 mid_swing.lip.stage8.b 0 14650fb0739d0383
 mid_swing.lip.stage8.bounds 6 7604294eb2d1152a
-mid_swing.lip.stage8.rows ea990614451de789
+mid_swing.lip.stage8.rows 49cbb34a41ce0b25
 mid_swing.lip.stage9.dims 8 8 27 18
-mid_swing.lip.stage9.Q 20 758de64473c5a2c7
+mid_swing.lip.stage9.Q 20 811d578b03bfe3ff
 mid_swing.lip.stage9.R 8 781f436d17a08643
 mid_swing.lip.stage9.S 2 286dbf979c64fa53
-mid_swing.lip.stage9.q 6 25ec49ab459c7c55
+mid_swing.lip.stage9.q 6 2f535d97b73c348a
 mid_swing.lip.stage9.r 0 14650fb0739d0383
 mid_swing.lip.stage9.A 12 127dce9f9365f357
 mid_swing.lip.stage9.B 8 da1b8446484a5ef
 mid_swing.lip.stage9.b 0 14650fb0739d0383
 mid_swing.lip.stage9.bounds 6 7604294eb2d1152a
-mid_swing.lip.stage9.rows ea990614451de789
+mid_swing.lip.stage9.rows fee0b75eb009131f
 mid_swing.lip.stage10.dims 8 8 27 18
-mid_swing.lip.stage10.Q 20 758de64473c5a2c7
+mid_swing.lip.stage10.Q 20 10d0b5800b306087
 mid_swing.lip.stage10.R 8 781f436d17a08643
 mid_swing.lip.stage10.S 2 286dbf979c64fa53
-mid_swing.lip.stage10.q 6 25ec49ab459c7c55
+mid_swing.lip.stage10.q 6 3be0556c4e6742db
 mid_swing.lip.stage10.r 0 14650fb0739d0383
 mid_swing.lip.stage10.A 12 127dce9f9365f357
 mid_swing.lip.stage10.B 8 da1b8446484a5ef
 mid_swing.lip.stage10.b 0 14650fb0739d0383
 mid_swing.lip.stage10.bounds 6 7604294eb2d1152a
-mid_swing.lip.stage10.rows ea990614451de789
+mid_swing.lip.stage10.rows 4292ff50bed9251
 mid_swing.lip.stage11.dims 8 8 27 18
-mid_swing.lip.stage11.Q 24 95e61706283cfd6f
+mid_swing.lip.stage11.Q 24 d764beb4053c3a9b
 mid_swing.lip.stage11.R 8 7c7beb8de731284b
 mid_swing.lip.stage11.S 4 b947a4eebe89fb37
-mid_swing.lip.stage11.q 6 25ec49ab459c7c55
+mid_swing.lip.stage11.q 6 218f28987aaea34f
 mid_swing.lip.stage11.r 0 14650fb0739d0383
 mid_swing.lip.stage11.A 12 127dce9f9365f357
 mid_swing.lip.stage11.B 8 da1b8446484a5ef
 mid_swing.lip.stage11.b 0 14650fb0739d0383
 mid_swing.lip.stage11.bounds 6 7604294eb2d1152a
-mid_swing.lip.stage11.rows ea990614451de789
+mid_swing.lip.stage11.rows a2b81e9ff9e79827
 mid_swing.lip.stage12.dims 8 0 6 6
-mid_swing.lip.stage12.Q 20 2542273ea9ddaa3
+mid_swing.lip.stage12.Q 20 d91a16b897fd592b
 mid_swing.lip.stage12.R 0 14650fb0739d0383
 mid_swing.lip.stage12.S 0 14650fb0739d0383
-mid_swing.lip.stage12.q 6 25ec49ab459c7c55
+mid_swing.lip.stage12.q 6 913fb539271bd875
 mid_swing.lip.stage12.r 0 14650fb0739d0383
 mid_swing.lip.stage12.A 0 14650fb0739d0383
 mid_swing.lip.stage12.B 0 14650fb0739d0383
 mid_swing.lip.stage12.b 0 14650fb0739d0383
 mid_swing.lip.stage12.bounds 0 14650fb0739d0383
-mid_swing.lip.stage12.rows 1251787da306640
+mid_swing.lip.stage12.rows a5afbe17f0b42a20
 standing.heading.x0 0 0 0 0 0 0.125 0 -0.125 0 0 0 0
 standing.heading.stage0.dims 12 12 41 20
 standing.heading.stage0.Q 14 f0114b47bb674200
@@ -736,7 +736,7 @@ walking.heading.stage1.dims 12 12 41 20
 walking.heading.stage1.Q 32 1cbf3c0bf044bf4c
 walking.heading.stage1.R 12 6c6891c4c7e6ed3
 walking.heading.stage1.S 2 286dbf979c64fa53
-walking.heading.stage1.q 10 51f95d3fd8569e7d
+walking.heading.stage1.q 10 5bce851a06ba47f4
 walking.heading.stage1.r 0 14650fb0739d0383
 walking.heading.stage1.A 17 542b6468daf9aec3
 walking.heading.stage1.B 14 f2f6933f911f8e5f
@@ -747,7 +747,7 @@ walking.heading.stage2.dims 12 12 41 20
 walking.heading.stage2.Q 32 75c68cb76043ab5d
 walking.heading.stage2.R 12 6c6891c4c7e6ed3
 walking.heading.stage2.S 2 286dbf979c64fa53
-walking.heading.stage2.q 10 16bc7230691adfad
+walking.heading.stage2.q 10 35169e98bebc3c1c
 walking.heading.stage2.r 0 14650fb0739d0383
 walking.heading.stage2.A 17 542b6468daf9aec3
 walking.heading.stage2.B 14 f2f6933f911f8e5f
@@ -758,7 +758,7 @@ walking.heading.stage3.dims 12 12 41 20
 walking.heading.stage3.Q 32 1b7493d0106ae2d0
 walking.heading.stage3.R 12 6c6891c4c7e6ed3
 walking.heading.stage3.S 2 286dbf979c64fa53
-walking.heading.stage3.q 10 87ebf579070dab32
+walking.heading.stage3.q 10 9c73763bacd83c97
 walking.heading.stage3.r 0 14650fb0739d0383
 walking.heading.stage3.A 17 542b6468daf9aec3
 walking.heading.stage3.B 14 f2f6933f911f8e5f
@@ -769,7 +769,7 @@ walking.heading.stage4.dims 12 12 41 20
 walking.heading.stage4.Q 32 34e8e38e761272c3
 walking.heading.stage4.R 12 6c6891c4c7e6ed3
 walking.heading.stage4.S 2 286dbf979c64fa53
-walking.heading.stage4.q 10 8108c1553af7c891
+walking.heading.stage4.q 10 ff8c023fae5e73aa
 walking.heading.stage4.r 0 14650fb0739d0383
 walking.heading.stage4.A 17 542b6468daf9aec3
 walking.heading.stage4.B 14 f2f6933f911f8e5f
@@ -780,7 +780,7 @@ walking.heading.stage5.dims 12 12 41 20
 walking.heading.stage5.Q 32 22d119a949612cc4
 walking.heading.stage5.R 12 6c6891c4c7e6ed3
 walking.heading.stage5.S 2 286dbf979c64fa53
-walking.heading.stage5.q 10 4f48ab0b5a3cbac5
+walking.heading.stage5.q 10 cae0bebd102a0c42
 walking.heading.stage5.r 0 14650fb0739d0383
 walking.heading.stage5.A 17 542b6468daf9aec3
 walking.heading.stage5.B 14 f2f6933f911f8e5f
@@ -791,7 +791,7 @@ walking.heading.stage6.dims 12 12 41 20
 walking.heading.stage6.Q 32 393b96c5c0112f49
 walking.heading.stage6.R 12 6c6891c4c7e6ed3
 walking.heading.stage6.S 2 286dbf979c64fa53
-walking.heading.stage6.q 10 7d24ccc7fe52c365
+walking.heading.stage6.q 10 2d2bab55ce373382
 walking.heading.stage6.r 0 14650fb0739d0383
 walking.heading.stage6.A 17 542b6468daf9aec3
 walking.heading.stage6.B 14 f2f6933f911f8e5f
@@ -802,7 +802,7 @@ walking.heading.stage7.dims 12 12 41 20
 walking.heading.stage7.Q 32 4fc2b79bd62fb35b
 walking.heading.stage7.R 12 6c6891c4c7e6ed3
 walking.heading.stage7.S 2 286dbf979c64fa53
-walking.heading.stage7.q 10 13c6bd4f9c3def82
+walking.heading.stage7.q 10 74b183b9b5c94d7e
 walking.heading.stage7.r 0 14650fb0739d0383
 walking.heading.stage7.A 17 542b6468daf9aec3
 walking.heading.stage7.B 14 f2f6933f911f8e5f
@@ -813,7 +813,7 @@ walking.heading.stage8.dims 12 12 41 20
 walking.heading.stage8.Q 32 50fe6a0e38293f8f
 walking.heading.stage8.R 12 6c6891c4c7e6ed3
 walking.heading.stage8.S 2 286dbf979c64fa53
-walking.heading.stage8.q 10 8a8d7638157df93e
+walking.heading.stage8.q 10 ded0209573d4de1f
 walking.heading.stage8.r 0 14650fb0739d0383
 walking.heading.stage8.A 17 542b6468daf9aec3
 walking.heading.stage8.B 14 f2f6933f911f8e5f
@@ -824,7 +824,7 @@ walking.heading.stage9.dims 12 12 41 20
 walking.heading.stage9.Q 32 52479144ad94d4aa
 walking.heading.stage9.R 12 6c6891c4c7e6ed3
 walking.heading.stage9.S 2 286dbf979c64fa53
-walking.heading.stage9.q 10 b87e3619b565048c
+walking.heading.stage9.q 10 61f4eda7d92bf627
 walking.heading.stage9.r 0 14650fb0739d0383
 walking.heading.stage9.A 17 542b6468daf9aec3
 walking.heading.stage9.B 14 f2f6933f911f8e5f
@@ -835,7 +835,7 @@ walking.heading.stage10.dims 12 12 41 20
 walking.heading.stage10.Q 32 df25befcbf49324f
 walking.heading.stage10.R 12 6c6891c4c7e6ed3
 walking.heading.stage10.S 2 286dbf979c64fa53
-walking.heading.stage10.q 10 81b1c342e786aa1f
+walking.heading.stage10.q 10 77f133f39e58e233
 walking.heading.stage10.r 0 14650fb0739d0383
 walking.heading.stage10.A 17 542b6468daf9aec3
 walking.heading.stage10.B 14 f2f6933f911f8e5f
@@ -846,7 +846,7 @@ walking.heading.stage11.dims 12 12 41 20
 walking.heading.stage11.Q 36 9283ef52dd84a55c
 walking.heading.stage11.R 12 78d063fb5508a23b
 walking.heading.stage11.S 4 b947a4eebe89fb37
-walking.heading.stage11.q 10 17788cf74b69216f
+walking.heading.stage11.q 10 3710ef527c6050e3
 walking.heading.stage11.r 0 14650fb0739d0383
 walking.heading.stage11.A 17 542b6468daf9aec3
 walking.heading.stage11.B 14 f2f6933f911f8e5f
@@ -857,7 +857,7 @@ walking.heading.stage12.dims 12 0 8 8
 walking.heading.stage12.Q 32 22d5af31ac86d0e9
 walking.heading.stage12.R 0 14650fb0739d0383
 walking.heading.stage12.S 0 14650fb0739d0383
-walking.heading.stage12.q 10 e4a39d7357c587f1
+walking.heading.stage12.q 10 846b75616786b6c7
 walking.heading.stage12.r 0 14650fb0739d0383
 walking.heading.stage12.A 0 14650fb0739d0383
 walking.heading.stage12.B 0 14650fb0739d0383
@@ -1024,7 +1024,7 @@ mid_swing.heading.stage1.dims 12 12 41 20
 mid_swing.heading.stage1.Q 32 abf4adbf6e515d8e
 mid_swing.heading.stage1.R 12 6c6891c4c7e6ed3
 mid_swing.heading.stage1.S 2 286dbf979c64fa53
-mid_swing.heading.stage1.q 10 c588c3b1d17ada7e
+mid_swing.heading.stage1.q 10 68b2bd96360bf20f
 mid_swing.heading.stage1.r 0 14650fb0739d0383
 mid_swing.heading.stage1.A 17 542b6468daf9aec3
 mid_swing.heading.stage1.B 14 f2f6933f911f8e5f
@@ -1035,7 +1035,7 @@ mid_swing.heading.stage2.dims 12 12 41 20
 mid_swing.heading.stage2.Q 32 375feaed932818e5
 mid_swing.heading.stage2.R 12 6c6891c4c7e6ed3
 mid_swing.heading.stage2.S 2 286dbf979c64fa53
-mid_swing.heading.stage2.q 10 5090a460aaa7f085
+mid_swing.heading.stage2.q 10 fafedd059bdd7d08
 mid_swing.heading.stage2.r 0 14650fb0739d0383
 mid_swing.heading.stage2.A 17 542b6468daf9aec3
 mid_swing.heading.stage2.B 14 f2f6933f911f8e5f
@@ -1046,7 +1046,7 @@ mid_swing.heading.stage3.dims 12 12 41 20
 mid_swing.heading.stage3.Q 32 5dd9eceb1ea50677
 mid_swing.heading.stage3.R 12 6c6891c4c7e6ed3
 mid_swing.heading.stage3.S 2 286dbf979c64fa53
-mid_swing.heading.stage3.q 10 3eae86f4430c6764
+mid_swing.heading.stage3.q 10 341d7f625ec74685
 mid_swing.heading.stage3.r 0 14650fb0739d0383
 mid_swing.heading.stage3.A 17 542b6468daf9aec3
 mid_swing.heading.stage3.B 14 f2f6933f911f8e5f
@@ -1057,7 +1057,7 @@ mid_swing.heading.stage4.dims 12 12 41 20
 mid_swing.heading.stage4.Q 32 d16851249b07f9ba
 mid_swing.heading.stage4.R 12 6c6891c4c7e6ed3
 mid_swing.heading.stage4.S 2 286dbf979c64fa53
-mid_swing.heading.stage4.q 10 bc4147ed13c156db
+mid_swing.heading.stage4.q 10 dbebf6c1102edb4c
 mid_swing.heading.stage4.r 0 14650fb0739d0383
 mid_swing.heading.stage4.A 17 542b6468daf9aec3
 mid_swing.heading.stage4.B 14 f2f6933f911f8e5f
@@ -1068,7 +1068,7 @@ mid_swing.heading.stage5.dims 12 12 41 20
 mid_swing.heading.stage5.Q 32 2ffb81a3758ea0c
 mid_swing.heading.stage5.R 12 6c6891c4c7e6ed3
 mid_swing.heading.stage5.S 2 286dbf979c64fa53
-mid_swing.heading.stage5.q 10 5d46a58a4798f16
+mid_swing.heading.stage5.q 10 509ea6e6c7d9dd9d
 mid_swing.heading.stage5.r 0 14650fb0739d0383
 mid_swing.heading.stage5.A 17 542b6468daf9aec3
 mid_swing.heading.stage5.B 14 f2f6933f911f8e5f
@@ -1079,7 +1079,7 @@ mid_swing.heading.stage6.dims 12 12 41 20
 mid_swing.heading.stage6.Q 32 142efed8fcabc9a4
 mid_swing.heading.stage6.R 12 6c6891c4c7e6ed3
 mid_swing.heading.stage6.S 2 286dbf979c64fa53
-mid_swing.heading.stage6.q 10 72bcf64722d2c708
+mid_swing.heading.stage6.q 10 94dcd50e424855a3
 mid_swing.heading.stage6.r 0 14650fb0739d0383
 mid_swing.heading.stage6.A 17 542b6468daf9aec3
 mid_swing.heading.stage6.B 14 f2f6933f911f8e5f
@@ -1090,7 +1090,7 @@ mid_swing.heading.stage7.dims 12 12 41 20
 mid_swing.heading.stage7.Q 32 9e1f32feeae4b1d1
 mid_swing.heading.stage7.R 12 6c6891c4c7e6ed3
 mid_swing.heading.stage7.S 2 286dbf979c64fa53
-mid_swing.heading.stage7.q 10 844fe271be188b8c
+mid_swing.heading.stage7.q 10 15b54c1226b3440
 mid_swing.heading.stage7.r 0 14650fb0739d0383
 mid_swing.heading.stage7.A 17 542b6468daf9aec3
 mid_swing.heading.stage7.B 14 f2f6933f911f8e5f
@@ -1101,7 +1101,7 @@ mid_swing.heading.stage8.dims 12 12 41 20
 mid_swing.heading.stage8.Q 32 5fbe79a67077bb8e
 mid_swing.heading.stage8.R 12 6c6891c4c7e6ed3
 mid_swing.heading.stage8.S 2 286dbf979c64fa53
-mid_swing.heading.stage8.q 10 cf1b3c66ac789543
+mid_swing.heading.stage8.q 10 7e354e8cf4b590d2
 mid_swing.heading.stage8.r 0 14650fb0739d0383
 mid_swing.heading.stage8.A 17 542b6468daf9aec3
 mid_swing.heading.stage8.B 14 f2f6933f911f8e5f
@@ -1112,7 +1112,7 @@ mid_swing.heading.stage9.dims 12 12 41 20
 mid_swing.heading.stage9.Q 32 b3dfde78c0e9d44e
 mid_swing.heading.stage9.R 12 6c6891c4c7e6ed3
 mid_swing.heading.stage9.S 2 286dbf979c64fa53
-mid_swing.heading.stage9.q 10 f27902e3a3a5a3b5
+mid_swing.heading.stage9.q 10 b009ec1a12fee55a
 mid_swing.heading.stage9.r 0 14650fb0739d0383
 mid_swing.heading.stage9.A 17 542b6468daf9aec3
 mid_swing.heading.stage9.B 14 f2f6933f911f8e5f
@@ -1123,7 +1123,7 @@ mid_swing.heading.stage10.dims 12 12 41 20
 mid_swing.heading.stage10.Q 32 9f8d4a15de23ed85
 mid_swing.heading.stage10.R 12 6c6891c4c7e6ed3
 mid_swing.heading.stage10.S 2 286dbf979c64fa53
-mid_swing.heading.stage10.q 10 f94fb2c25b21216a
+mid_swing.heading.stage10.q 10 d7b490cdf38a4ae6
 mid_swing.heading.stage10.r 0 14650fb0739d0383
 mid_swing.heading.stage10.A 17 542b6468daf9aec3
 mid_swing.heading.stage10.B 14 f2f6933f911f8e5f
@@ -1134,7 +1134,7 @@ mid_swing.heading.stage11.dims 12 12 41 20
 mid_swing.heading.stage11.Q 36 9dfee5050ca69548
 mid_swing.heading.stage11.R 12 78d063fb5508a23b
 mid_swing.heading.stage11.S 4 b947a4eebe89fb37
-mid_swing.heading.stage11.q 10 7213c14dac756f6d
+mid_swing.heading.stage11.q 10 f4e6f49bc6975c89
 mid_swing.heading.stage11.r 0 14650fb0739d0383
 mid_swing.heading.stage11.A 17 542b6468daf9aec3
 mid_swing.heading.stage11.B 14 f2f6933f911f8e5f
@@ -1145,7 +1145,7 @@ mid_swing.heading.stage12.dims 12 0 8 8
 mid_swing.heading.stage12.Q 32 c2d33fc603721dd7
 mid_swing.heading.stage12.R 0 14650fb0739d0383
 mid_swing.heading.stage12.S 0 14650fb0739d0383
-mid_swing.heading.stage12.q 10 690bea4cf29f23ee
+mid_swing.heading.stage12.q 10 3cab7ad122bea58
 mid_swing.heading.stage12.r 0 14650fb0739d0383
 mid_swing.heading.stage12.A 0 14650fb0739d0383
 mid_swing.heading.stage12.B 0 14650fb0739d0383

@@ -29,15 +29,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <atomic>
 #include <chrono>
-#include <cstdint>
 #include <optional>
 #include <thread>
 #include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 
@@ -234,16 +235,18 @@ TEST(MpcResetSupervisor, APersistentFailureLogsOneErrorNotOnePerAttempt) {
   EXPECT_CALL(log, Log(absl::LogSeverity::kInfo, _, HasSubstr("recovered")))
       .Times(1);
   log.StartCapturingLogs();
-  for (int failure = 0; failure < 200; ++failure)
+  for (int failure = 0; failure < 200; ++failure) {
     supervisor.onSolveResult(solverFailure());
+  }
   supervisor.onSolveResult(absl::OkStatus());
   log.StopCapturingLogs();
 }
 
 TEST(MpcResetSupervisor, TheBackOffEndsEarlyWhenAResetIsRequestedFromOutside) {
   MpcResetSupervisor supervisor(testConfig());
-  for (int failure = 0; failure < 3; ++failure)
+  for (int failure = 0; failure < 3; ++failure) {
     supervisor.onSolveResult(solverFailure());
+  }
   serve(supervisor);
 
   // Nothing requested: the whole wait.
@@ -284,8 +287,9 @@ TEST(MpcResetSupervisor, AResetRequestedSinceTheLastFailureIsWhatEndsABackOff) {
   // What a caller that waits out the back-off on its own clock polls
   // (InProcessMpcLink::Execution::kCaller).
   MpcResetSupervisor supervisor(testConfig());
-  for (int failure = 0; failure < 3; ++failure)
+  for (int failure = 0; failure < 3; ++failure) {
     supervisor.onSolveResult(solverFailure());
+  }
   EXPECT_FALSE(supervisor.resetRequestedSinceLastFailure())
       << "the failure's own request does not count";
   serve(supervisor);
@@ -384,9 +388,10 @@ TEST(MpcResetSupervisor, SettingTheRemoteHealthLogsNothing) {
   absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
   EXPECT_CALL(log, Log(_, _, _)).Times(0);
   log.StartCapturingLogs();
-  for (int update = 0; update < 100; ++update)
+  for (int update = 0; update < 100; ++update) {
     supervisor.setRemoteHealth(/*healthy=*/update % 2 == 0,
                                /*consecutiveFailures=*/update);
+  }
   log.StopCapturingLogs();
 }
 

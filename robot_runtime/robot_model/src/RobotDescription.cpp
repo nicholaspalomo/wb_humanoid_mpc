@@ -33,17 +33,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <fstream>
 #include <iterator>
-#include <map>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "urdf_model/types.h"
+#include "urdf_world/types.h"
 #include "urdfdom/urdf_parser/urdf_parser.h"
+
+#include "robot_core/Types.h"
 
 namespace robot::model {
 namespace {

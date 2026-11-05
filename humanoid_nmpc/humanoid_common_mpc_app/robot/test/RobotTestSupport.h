@@ -176,16 +176,18 @@ class ScriptedRobotController final : public RobotController {
   std::vector<scalar_t> nominal() const;
   /** The base position [m, world] and linear velocity [m/s, base frame] of the
    * state of the newest cycle. */
-  vector3_t rootPosition() const;
-  vector3_t rootLinearVelocity() const;
+  vector3_t getPosBaseRtWorldEwrtWorld() const;
+  vector3_t getLinvelBaseRtWorldEwrtBase() const;
 
  private:
   mutable absl::Mutex mutex_;
   std::string mode_ ABSL_GUARDED_BY(mutex_);
   std::string contactEstimatorName_ ABSL_GUARDED_BY(mutex_);
   std::vector<scalar_t> nominal_ ABSL_GUARDED_BY(mutex_);
-  vector3_t rootPosition_ ABSL_GUARDED_BY(mutex_) = vector3_t::Zero();
-  vector3_t rootLinearVelocity_ ABSL_GUARDED_BY(mutex_) = vector3_t::Zero();
+  vector3_t posBaseRtWorldEwrtWorld_ ABSL_GUARDED_BY(mutex_) =
+      vector3_t::Zero();
+  vector3_t linvelBaseRtWorldEwrtBase_ ABSL_GUARDED_BY(mutex_) =
+      vector3_t::Zero();
   ContactWrenchGate::Config gate_;
   std::shared_ptr<robot::model::ContactEstimator> contactEstimator_;
   contact_flag_t measuredContactFlags_{};

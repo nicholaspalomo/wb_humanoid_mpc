@@ -28,10 +28,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <cmath>
+#include <cstddef>
 #include <optional>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
@@ -43,7 +48,7 @@ constexpr scalar_t kTol = 1.0e-9;
 constexpr scalar_t kLiftOff = 1.0;
 constexpr scalar_t kTouchDown =
     1.5;  // a 0.5 s swing, longer than swingTimeScale so nothing is scaled down
-constexpr scalar_t kTerrainHeight = 0.0;
+constexpr scalar_t kPosSurfaceRtWorldEwrtWorldZ = 0.0;
 
 ModeSchedule singleSwingSchedule() {
   contact_flag_t swinging = makeFeetArray(true);
@@ -61,8 +66,8 @@ SwingTrajectoryPlanner::Config atlasConfig(
   config.liftoffLinvelFootRtWorldEwrtWorldZ = 0.05;
   config.touchdownLinvelFootRtWorldEwrtWorldZ =
       touchdownLinvelFootRtWorldEwrtWorldZ;
-  config.swingHeight = 0.08;
-  config.touchDownHeightOffset = -0.001;
+  config.apexPosFootRtSwingendEwrtWorldZ = 0.08;
+  config.touchdownPosFootRtSurfaceEwrtWorldZ = -0.001;
   config.swingTimeScale = 0.4;
   return config;
 }
@@ -71,22 +76,24 @@ SwingTrajectoryPlanner plannerWith(
     scalar_t touchdownLinvelFootRtWorldEwrtWorldZ) {
   SwingTrajectoryPlanner planner(
       atlasConfig(touchdownLinvelFootRtWorldEwrtWorldZ), kNumContacts);
-  planner.update(singleSwingSchedule(), kTerrainHeight);
+  planner.update(singleSwingSchedule(), kPosSurfaceRtWorldEwrtWorldZ);
   return planner;
 }
 
 /**
  * The swing foot's vertical velocity is imposed by the hard normal-velocity
  * constraint that HumanoidPreComputation builds from the planner: v_z =
- * zdot_ref + gain * (z_ref - z). Evaluates that for a foot at height `z`.
+ * zdot_ref + gain * (z_ref - z). Evaluates that for a foot at height
+ * `posFootRtWorldEwrtWorldZ`.
  */
 scalar_t computeConstrainedLinvelFootRtWorldEwrtWorldZ(
     const SwingTrajectoryPlanner& planner,
     scalar_t time,
     scalar_t gain,
-    scalar_t z) {
+    scalar_t posFootRtWorldEwrtWorldZ) {
   return planner.getDesLinvelFootRtWorldEwrtWorldZ(/*leg=*/0, time) +
-         gain * (planner.getDesPosFootRtWorldEwrtWorldZ(/*leg=*/0, time) - z);
+         gain * (planner.getDesPosFootRtWorldEwrtWorldZ(/*leg=*/0, time) -
+                 posFootRtWorldEwrtWorldZ);
 }
 
 }  // namespace
@@ -105,12 +112,13 @@ TEST(SwingLandingVelocity, ReferenceArrivesAtTheConfiguredDescentRate) {
     EXPECT_NEAR(
         planner.getDesLinvelFootRtWorldEwrtWorldZ(/*leg=*/0, kTouchDown),
         touchdownLinvelFootRtWorldEwrtWorldZ, kTol)
-        << "touchDownVelocity " << touchdownLinvelFootRtWorldEwrtWorldZ;
-    EXPECT_NEAR(
-        planner.getDesPosFootRtWorldEwrtWorldZ(/*leg=*/0, kTouchDown),
-        kTerrainHeight + atlasConfig(touchdownLinvelFootRtWorldEwrtWorldZ)
-                             .touchDownHeightOffset,
-        kTol);
+        << "touchdownLinvelFootRtWorldEwrtWorldZ "
+        << touchdownLinvelFootRtWorldEwrtWorldZ;
+    EXPECT_NEAR(planner.getDesPosFootRtWorldEwrtWorldZ(/*leg=*/0, kTouchDown),
+                kPosSurfaceRtWorldEwrtWorldZ +
+                    atlasConfig(touchdownLinvelFootRtWorldEwrtWorldZ)
+                        .touchdownPosFootRtSurfaceEwrtWorldZ,
+                kTol);
   }
 }
 
@@ -126,31 +134,34 @@ TEST(SwingLandingVelocity,
   const SwingTrajectoryPlanner descending = plannerWith(-0.05);
   const SwingTrajectoryPlanner flat = plannerWith(0.0);
 
-  const scalar_t zRef =
+  const scalar_t desPosFootRtWorldEwrtWorldZ =
       descending.getDesPosFootRtWorldEwrtWorldZ(/*leg=*/0, kTouchDown);
   // A foot exactly on its reference lands at the configured rate, not at zero.
   EXPECT_NEAR(computeConstrainedLinvelFootRtWorldEwrtWorldZ(
-                  descending, kTouchDown, gain, zRef),
+                  descending, kTouchDown, gain, desPosFootRtWorldEwrtWorldZ),
               -0.05, kTol);
-  EXPECT_NEAR(computeConstrainedLinvelFootRtWorldEwrtWorldZ(flat, kTouchDown,
-                                                            gain, zRef),
+  EXPECT_NEAR(computeConstrainedLinvelFootRtWorldEwrtWorldZ(
+                  flat, kTouchDown, gain, desPosFootRtWorldEwrtWorldZ),
               0.0, kTol);
 
   // A foot lagging 2 cm above its reference: the descending reference
   // contributes most of the landing speed, the flat one contributes nothing and
   // the whole landing speed is feedback.
-  const scalar_t lag = 0.02;
+  const scalar_t errPosFootRtWorldEwrtWorldZ = 0.02;
   EXPECT_NEAR(computeConstrainedLinvelFootRtWorldEwrtWorldZ(
-                  descending, kTouchDown, gain, zRef + lag),
-              -0.05 - gain * lag, kTol);
-  EXPECT_NEAR(computeConstrainedLinvelFootRtWorldEwrtWorldZ(flat, kTouchDown,
-                                                            gain, zRef + lag),
-              -gain * lag, kTol);
+                  descending, kTouchDown, gain,
+                  desPosFootRtWorldEwrtWorldZ + errPosFootRtWorldEwrtWorldZ),
+              -0.05 - gain * errPosFootRtWorldEwrtWorldZ, kTol);
+  EXPECT_NEAR(computeConstrainedLinvelFootRtWorldEwrtWorldZ(
+                  flat, kTouchDown, gain,
+                  desPosFootRtWorldEwrtWorldZ + errPosFootRtWorldEwrtWorldZ),
+              -gain * errPosFootRtWorldEwrtWorldZ, kTol);
 
   // The gain that shipped with the stomping robot, five, turned the same lag
   // into a 0.1 m/s kick with a flat reference.
   EXPECT_NEAR(computeConstrainedLinvelFootRtWorldEwrtWorldZ(
-                  flat, kTouchDown, /*gain=*/5.0, zRef + lag),
+                  flat, kTouchDown, /*gain=*/5.0,
+                  desPosFootRtWorldEwrtWorldZ + errPosFootRtWorldEwrtWorldZ),
               -0.1, kTol);
 }
 
@@ -201,7 +212,7 @@ TEST(SwingLandingVelocity, LiftOffIsUnaffectedByTheDescentRate) {
                 0.05, 1.0e-7);
     EXPECT_NEAR(planner.getDesPosFootRtWorldEwrtWorldZ(/*leg=*/0,
                                                        kLiftOff + kJustAfter),
-                kTerrainHeight, 1.0e-7);
+                kPosSurfaceRtWorldEwrtWorldZ, 1.0e-7);
     // Still standing at the instant of lift-off.
     EXPECT_NEAR(planner.getDesLinvelFootRtWorldEwrtWorldZ(/*leg=*/0, kLiftOff),
                 0.0, kTol);
@@ -230,9 +241,11 @@ TEST(SwingLandingVelocity, AnExtendedSwingContinuesDownAtTheSearchVelocity) {
   const ModeSchedule extendedSchedule(
       {kLiftOff, kTouchDown + kExtension},
       {stance, stanceLeg2ModeNumber(swinging), stance});
-  const scalar_array_t liftOffHeights(3, kTerrainHeight);
-  const scalar_array_t touchDownHeights(
-      3, kTerrainHeight + config.touchDownHeightOffset);
+  const scalar_array_t liftoffPosFootRtWorldEwrtWorldZTraj(
+      3, kPosSurfaceRtWorldEwrtWorldZ);
+  const scalar_array_t touchdownPosFootRtWorldEwrtWorldZTraj(
+      3, kPosSurfaceRtWorldEwrtWorldZ +
+             config.touchdownPosFootRtSurfaceEwrtWorldZ);
   feet_array_t<std::optional<SwingTrajectoryPlanner::GroundSearch>> searches =
       makeFeetArray(std::optional<SwingTrajectoryPlanner::GroundSearch>{});
   searches[0] = SwingTrajectoryPlanner::GroundSearch{
@@ -240,8 +253,9 @@ TEST(SwingLandingVelocity, AnExtendedSwingContinuesDownAtTheSearchVelocity) {
       .plannedTouchDownTime = kTouchDown,
       .descentSpeedFootRtWorld = kSearchSpeedFootRtWorld};
   SwingTrajectoryPlanner extended(config, kNumContacts);
-  extended.update(extendedSchedule, makeFeetArray(liftOffHeights),
-                  makeFeetArray(touchDownHeights), searches);
+  extended.update(
+      extendedSchedule, makeFeetArray(liftoffPosFootRtWorldEwrtWorldZTraj),
+      makeFeetArray(touchdownPosFootRtWorldEwrtWorldZTraj), searches);
 
   // Up to the planned touch-down nothing changes.
   for (scalar_t t = kLiftOff + 1.0e-6; t <= kTouchDown; t += 0.01) {
@@ -254,11 +268,13 @@ TEST(SwingLandingVelocity, AnExtendedSwingContinuesDownAtTheSearchVelocity) {
   }
   // Past it the reference descends at the search velocity from the planned
   // touch-down height, flat, never rising.
-  const scalar_t landingHeight = kTerrainHeight + config.touchDownHeightOffset;
+  const scalar_t touchdownDesPosFootRtWorldEwrtWorldZ =
+      kPosSurfaceRtWorldEwrtWorldZ + config.touchdownPosFootRtSurfaceEwrtWorldZ;
   for (scalar_t t = kTouchDown + 0.001; t < kTouchDown + kExtension;
        t += 0.005) {
     EXPECT_NEAR(extended.getDesPosFootRtWorldEwrtWorldZ(/*leg=*/0, t),
-                landingHeight - kSearchSpeedFootRtWorld * (t - kTouchDown),
+                touchdownDesPosFootRtWorldEwrtWorldZ -
+                    kSearchSpeedFootRtWorld * (t - kTouchDown),
                 kTol)
         << "t=" << t;
     EXPECT_NEAR(extended.getDesLinvelFootRtWorldEwrtWorldZ(/*leg=*/0, t),
@@ -267,7 +283,8 @@ TEST(SwingLandingVelocity, AnExtendedSwingContinuesDownAtTheSearchVelocity) {
     EXPECT_NEAR(extended.getDesLinaccFootRtWorldEwrtWorldZ(/*leg=*/0, t), 0.0,
                 kTol)
         << "t=" << t;
-    EXPECT_NEAR(extended.getSwingPitchAngle(/*leg=*/0, t), 0.0, kTol)
+    EXPECT_NEAR(extended.getSwingRefTiltangleFootRtSurface(/*leg=*/0, t), 0.0,
+                kTol)
         << "flat while searching, t=" << t;
     EXPECT_NEAR(extended.getImpactProximityFactor(/*leg=*/0, t), 1.0, kTol)
         << "the touch-down proximity is held, t=" << t;
@@ -281,7 +298,7 @@ TEST(SwingLandingVelocity, AnExtendedSwingContinuesDownAtTheSearchVelocity) {
   // the planned touch-down the reference sits higher and descends much faster
   // than the search velocity.
   SwingTrajectoryPlanner refitted(config, kNumContacts);
-  refitted.update(extendedSchedule, kTerrainHeight);
+  refitted.update(extendedSchedule, kPosSurfaceRtWorldEwrtWorldZ);
   const scalar_t probe = kTouchDown + 0.005;
   EXPECT_GT(refitted.getDesPosFootRtWorldEwrtWorldZ(/*leg=*/0, probe),
             extended.getDesPosFootRtWorldEwrtWorldZ(/*leg=*/0, probe) + 2.0e-3);
@@ -294,11 +311,12 @@ TEST(SwingLandingVelocity, AnExtendedSwingContinuesDownAtTheSearchVelocity) {
       SwingTrajectoryPlanner::GroundSearch{.liftOffTime = kLiftOff,
                                            .plannedTouchDownTime = kTouchDown,
                                            .descentSpeedFootRtWorld = 0.0};
-  extended.update(extendedSchedule, makeFeetArray(liftOffHeights),
-                  makeFeetArray(touchDownHeights), searches);
+  extended.update(
+      extendedSchedule, makeFeetArray(liftoffPosFootRtWorldEwrtWorldZTraj),
+      makeFeetArray(touchdownPosFootRtWorldEwrtWorldZTraj), searches);
   EXPECT_NEAR(
       extended.getDesPosFootRtWorldEwrtWorldZ(/*leg=*/0, kTouchDown + 0.03),
-      landingHeight, kTol);
+      touchdownDesPosFootRtWorldEwrtWorldZ, kTol);
   EXPECT_NEAR(
       extended.getDesLinvelFootRtWorldEwrtWorldZ(/*leg=*/0, kTouchDown + 0.03),
       0.0, kTol);

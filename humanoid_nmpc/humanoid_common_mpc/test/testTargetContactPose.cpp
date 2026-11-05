@@ -28,10 +28,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <cmath>
+#include <cstddef>
 #include <initializer_list>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
@@ -74,28 +80,30 @@ ContactPlan makePlan(bool heading) {
   plan.valid = true;
   plan.startTime = 0.0;
   plan.dt = 0.1;
-  plan.yaw = 0.3;
+  plan.yawHeadingRtWorld = 0.3;
   plan.contacts.assign(numIntervals, makeFeetArray(true));
-  plan.footholds.resize(numIntervals + 1);
+  plan.desPosFeetRtWorldEwrtWorldXyTraj.resize(numIntervals + 1);
   for (int k = 0; k <= numIntervals; ++k) {
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      plan.footholds[k][foot] =
+      plan.desPosFeetRtWorldEwrtWorldXyTraj[k][foot] =
           vector2_t(0.1 * k, 0.1 - 0.2 * static_cast<scalar_t>(foot));
     }
   }
   if (heading) {
-    plan.heading.assign(numIntervals + 1, 0.3);
-    plan.headingRate.assign(numIntervals + 1, 0.0);
-    plan.footYaws.resize(numIntervals + 1);
+    plan.headingModelYawTraj.assign(numIntervals + 1, 0.3);
+    plan.headingModelYawRateTraj.assign(numIntervals + 1, 0.0);
+    plan.desEulerzyxFeetRtWorldYawTraj.resize(numIntervals + 1);
     for (int k = 0; k <= numIntervals; ++k) {
-      for (size_t foot = 0; foot < kNumContacts; ++foot)
-        plan.footYaws[k][foot] = 0.05 * k + 0.01 * static_cast<scalar_t>(foot);
+      for (size_t foot = 0; foot < kNumContacts; ++foot) {
+        plan.desEulerzyxFeetRtWorldYawTraj[k][foot] =
+            0.05 * k + 0.01 * static_cast<scalar_t>(foot);
+      }
     }
   }
   return plan;
 }
 
-scalar_t plannedYaw(int node, size_t foot) {
+scalar_t computePlannedYawFootRtWorld(int node, size_t foot) {
   return 0.05 * node + 0.01 * static_cast<scalar_t>(foot);
 }
 
@@ -105,27 +113,32 @@ TargetContactPoseInputs makeInputs(scalar_t time) {
   TargetContactPoseInputs inputs;
   inputs.time = time;
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    inputs.footPositions[foot] =
+    inputs.posFeetRtWorldEwrtWorld[foot] =
         vector3_t(-1.0, 0.5 - static_cast<scalar_t>(foot),
                   0.02 * static_cast<scalar_t>(foot + 1));
-    inputs.footYaws[foot] = -0.7 + 0.1 * static_cast<scalar_t>(foot);
+    inputs.eulerzyxFeetRtWorldYaw[foot] =
+        -0.7 + 0.1 * static_cast<scalar_t>(foot);
   }
-  inputs.terrainHeight = 0.15;
+  inputs.posSurfaceRtWorldEwrtWorldZ = 0.15;
   return inputs;
 }
 
-void expectStancePlacement(const TargetContactPose& pose,
+void expectStancePlacement(const TargetContactPose& desPoseFootRtWorld,
                            size_t foot,
                            const TargetContactPoseInputs& inputs) {
-  EXPECT_TRUE(pose.valid);
-  EXPECT_EQ(pose.kind, TargetContactPose::Kind::kStance);
-  EXPECT_NEAR(pose.position(0), inputs.footPositions[foot](0), kTol);
-  EXPECT_NEAR(pose.position(1), inputs.footPositions[foot](1), kTol);
-  EXPECT_NEAR(pose.height, inputs.footPositions[foot](2), kTol)
+  EXPECT_TRUE(desPoseFootRtWorld.valid);
+  EXPECT_EQ(desPoseFootRtWorld.kind, TargetContactPose::Kind::kStance);
+  EXPECT_NEAR(desPoseFootRtWorld.posFootRtWorldEwrtWorldXy(0),
+              inputs.posFeetRtWorldEwrtWorld[foot](0), kTol);
+  EXPECT_NEAR(desPoseFootRtWorld.posFootRtWorldEwrtWorldXy(1),
+              inputs.posFeetRtWorldEwrtWorld[foot](1), kTol);
+  EXPECT_NEAR(desPoseFootRtWorld.posFootRtWorldEwrtWorldZ,
+              inputs.posFeetRtWorldEwrtWorld[foot](2), kTol)
       << "a stance foot sits at its measured height";
-  EXPECT_NEAR(pose.yaw, inputs.footYaws[foot], kTol);
-  EXPECT_FALSE(pose.yawPlanned);
-  EXPECT_NEAR(pose.touchDownTime, inputs.time, kTol);
+  EXPECT_NEAR(desPoseFootRtWorld.eulerzyxFootRtWorldYaw,
+              inputs.eulerzyxFeetRtWorldYaw[foot], kTol);
+  EXPECT_FALSE(desPoseFootRtWorld.yawPlanned);
+  EXPECT_NEAR(desPoseFootRtWorld.touchDownTime, inputs.time, kTol);
 }
 
 }  // namespace
@@ -134,14 +147,19 @@ TEST(TargetContactPose, InvalidPlanGivesNoTargets) {
   ContactPlan plan = makePlan(/*heading=*/true);
   plan.valid = false;
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    const feet_array_t<TargetContactPose> poses = computeTargetContactPoses(
-        plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4),
-        makeInputs(1.2));
-    for (const TargetContactPose& pose : poses) EXPECT_FALSE(pose.valid);
+    const feet_array_t<TargetContactPose> desPoseFeetRtWorld =
+        computeDesPoseFeetRtWorld(
+            plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4),
+            makeInputs(1.2));
+    for (const TargetContactPose& desPoseFootRtWorld : desPoseFeetRtWorld) {
+      EXPECT_FALSE(desPoseFootRtWorld.valid);
+    }
   }
-  const feet_array_t<TargetContactPose> poses =
-      computeTargetContactPoses(ContactPlan{}, ModeSchedule(), makeInputs(0.0));
-  for (const TargetContactPose& pose : poses) EXPECT_FALSE(pose.valid);
+  const feet_array_t<TargetContactPose> desPoseFeetRtWorld =
+      computeDesPoseFeetRtWorld(ContactPlan{}, ModeSchedule(), makeInputs(0.0));
+  for (const TargetContactPose& desPoseFootRtWorld : desPoseFeetRtWorld) {
+    EXPECT_FALSE(desPoseFootRtWorld.valid);
+  }
 }
 
 TEST(TargetContactPose,
@@ -149,27 +167,33 @@ TEST(TargetContactPose,
   const ContactPlan plan = makePlan(/*heading=*/true);
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     TargetContactPoseInputs inputs = makeInputs(1.2);
-    inputs.dcmStepAdjustment[foot] = vector2_t(0.02, -0.01);
-    const feet_array_t<TargetContactPose> poses = computeTargetContactPoses(
-        plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4),
-        inputs);
+    inputs.errPosFeetRtWorldEwrtWorldXy[foot] = vector2_t(0.02, -0.01);
+    const feet_array_t<TargetContactPose> desPoseFeetRtWorld =
+        computeDesPoseFeetRtWorld(
+            plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4),
+            inputs);
 
-    const TargetContactPose& pose = poses[foot];
-    EXPECT_TRUE(pose.valid);
-    EXPECT_EQ(pose.kind, TargetContactPose::Kind::kSwingInFlight);
-    EXPECT_NEAR(pose.touchDownTime, 1.4, kTol);
+    const TargetContactPose& desPoseFootRtWorld = desPoseFeetRtWorld[foot];
+    EXPECT_TRUE(desPoseFootRtWorld.valid);
+    EXPECT_EQ(desPoseFootRtWorld.kind, TargetContactPose::Kind::kSwingInFlight);
+    EXPECT_NEAR(desPoseFootRtWorld.touchDownTime, 1.4, kTol);
     // Foothold at the touch-down node (1.4 s -> node 14) plus the step
     // adjustment.
-    EXPECT_NEAR(pose.position(0), 1.4 + 0.02, kTol);
-    EXPECT_NEAR(pose.position(1),
+    EXPECT_NEAR(desPoseFootRtWorld.posFootRtWorldEwrtWorldXy(0), 1.4 + 0.02,
+                kTol);
+    EXPECT_NEAR(desPoseFootRtWorld.posFootRtWorldEwrtWorldXy(1),
                 0.1 - 0.2 * static_cast<scalar_t>(foot) - 0.01, kTol);
-    EXPECT_NEAR(pose.height, inputs.terrainHeight, kTol)
+    EXPECT_NEAR(desPoseFootRtWorld.posFootRtWorldEwrtWorldZ,
+                inputs.posSurfaceRtWorldEwrtWorldZ, kTol)
         << "a landing target sits on the ground";
-    EXPECT_TRUE(pose.yawPlanned);
-    EXPECT_NEAR(pose.yaw, plannedYaw(/*node=*/14, foot), kTol);
+    EXPECT_TRUE(desPoseFootRtWorld.yawPlanned);
+    EXPECT_NEAR(desPoseFootRtWorld.eulerzyxFootRtWorldYaw,
+                computePlannedYawFootRtWorld(/*node=*/14, foot), kTol);
 
     for (size_t other = 0; other < kNumContacts; ++other) {
-      if (other != foot) expectStancePlacement(poses[other], other, inputs);
+      if (other != foot) {
+        expectStancePlacement(desPoseFeetRtWorld[other], other, inputs);
+      }
     }
   }
 }
@@ -182,29 +206,31 @@ TEST(TargetContactPose, StanceFootWithAnUpcomingSwingTargetsItsNextLanding) {
     const TargetContactPoseInputs inputs = makeInputs(0.5);
     // A copy: a reference into the returned array dangled at the end of the
     // statement.
-    const TargetContactPose pose =
-        computeTargetContactPoses(plan, schedule, inputs)[foot];
-    EXPECT_TRUE(pose.valid);
-    EXPECT_EQ(pose.kind, TargetContactPose::Kind::kNextSwing);
-    EXPECT_NEAR(pose.touchDownTime, 1.4, kTol);
-    EXPECT_NEAR(pose.position(0), 1.4, kTol);
-    EXPECT_NEAR(pose.position(1), 0.1 - 0.2 * static_cast<scalar_t>(foot),
-                kTol);
-    EXPECT_NEAR(pose.height, inputs.terrainHeight, kTol);
-    EXPECT_TRUE(pose.yawPlanned);
-    EXPECT_NEAR(pose.yaw, plannedYaw(/*node=*/14, foot), kTol);
+    const TargetContactPose desPoseFootRtWorld =
+        computeDesPoseFeetRtWorld(plan, schedule, inputs)[foot];
+    EXPECT_TRUE(desPoseFootRtWorld.valid);
+    EXPECT_EQ(desPoseFootRtWorld.kind, TargetContactPose::Kind::kNextSwing);
+    EXPECT_NEAR(desPoseFootRtWorld.touchDownTime, 1.4, kTol);
+    EXPECT_NEAR(desPoseFootRtWorld.posFootRtWorldEwrtWorldXy(0), 1.4, kTol);
+    EXPECT_NEAR(desPoseFootRtWorld.posFootRtWorldEwrtWorldXy(1),
+                0.1 - 0.2 * static_cast<scalar_t>(foot), kTol);
+    EXPECT_NEAR(desPoseFootRtWorld.posFootRtWorldEwrtWorldZ,
+                inputs.posSurfaceRtWorldEwrtWorldZ, kTol);
+    EXPECT_TRUE(desPoseFootRtWorld.yawPlanned);
+    EXPECT_NEAR(desPoseFootRtWorld.eulerzyxFootRtWorldYaw,
+                computePlannedYawFootRtWorld(/*node=*/14, foot), kTol);
 
     // At the lift-off instant the event has passed: the same landing, now as
     // the swing in flight.
     const TargetContactPose atLiftOff =
-        computeTargetContactPoses(plan, schedule, makeInputs(1.0))[foot];
+        computeDesPoseFeetRtWorld(plan, schedule, makeInputs(1.0))[foot];
     EXPECT_EQ(atLiftOff.kind, TargetContactPose::Kind::kSwingInFlight);
-    EXPECT_NEAR(atLiftOff.position(0), 1.4, kTol);
+    EXPECT_NEAR(atLiftOff.posFootRtWorldEwrtWorldXy(0), 1.4, kTol);
 
     // After the touch-down there is no further swing: the foot's placement.
     const TargetContactPoseInputs later = makeInputs(2.0);
     expectStancePlacement(
-        computeTargetContactPoses(plan, schedule, later)[foot], foot, later);
+        computeDesPoseFeetRtWorld(plan, schedule, later)[foot], foot, later);
   }
 }
 
@@ -213,13 +239,14 @@ TEST(TargetContactPose, WithoutTheHeadingModelTheYawIsTheMeasuredFootYaw) {
   ASSERT_FALSE(plan.hasHeading());
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     const TargetContactPoseInputs inputs = makeInputs(1.2);
-    const TargetContactPose pose = computeTargetContactPoses(
+    const TargetContactPose desPoseFootRtWorld = computeDesPoseFeetRtWorld(
         plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4),
         inputs)[foot];
-    EXPECT_EQ(pose.kind, TargetContactPose::Kind::kSwingInFlight);
-    EXPECT_NEAR(pose.position(0), 1.4, kTol);
-    EXPECT_FALSE(pose.yawPlanned);
-    EXPECT_NEAR(pose.yaw, inputs.footYaws[foot], kTol);
+    EXPECT_EQ(desPoseFootRtWorld.kind, TargetContactPose::Kind::kSwingInFlight);
+    EXPECT_NEAR(desPoseFootRtWorld.posFootRtWorldEwrtWorldXy(0), 1.4, kTol);
+    EXPECT_FALSE(desPoseFootRtWorld.yawPlanned);
+    EXPECT_NEAR(desPoseFootRtWorld.eulerzyxFootRtWorldYaw,
+                inputs.eulerzyxFeetRtWorldYaw[foot], kTol);
   }
 }
 
@@ -232,7 +259,7 @@ TEST(TargetContactPose,
     for (scalar_t time : {0.5, 1.2}) {
       const TargetContactPoseInputs inputs = makeInputs(time);
       expectStancePlacement(
-          computeTargetContactPoses(plan, noTouchDown, inputs)[foot], foot,
+          computeDesPoseFeetRtWorld(plan, noTouchDown, inputs)[foot], foot,
           inputs);
     }
   }
@@ -246,17 +273,20 @@ TEST(TargetContactPose, TwoStepSequenceGivesEachFootItsOwnLanding) {
       {1.0, 1.4, 1.5, 1.9},
       {kAllInContact, modeWithSwinging({0}), kAllInContact,
        modeWithSwinging({1}), kAllInContact});
-  const feet_array_t<TargetContactPose> poses =
-      computeTargetContactPoses(plan, schedule, makeInputs(1.2));
-  EXPECT_EQ(poses[0].kind, TargetContactPose::Kind::kSwingInFlight);
-  EXPECT_NEAR(poses[0].touchDownTime, 1.4, kTol);
-  EXPECT_NEAR(poses[0].position(0), 1.4, kTol);
-  EXPECT_NEAR(poses[0].yaw, plannedYaw(14, 0), kTol);
-  EXPECT_EQ(poses[1].kind, TargetContactPose::Kind::kNextSwing);
-  EXPECT_NEAR(poses[1].touchDownTime, 1.9, kTol);
-  EXPECT_NEAR(poses[1].position(0), 1.9, kTol);
-  EXPECT_NEAR(poses[1].position(1), -0.1, kTol);
-  EXPECT_NEAR(poses[1].yaw, plannedYaw(19, 1), kTol);
+  const feet_array_t<TargetContactPose> desPoseFeetRtWorld =
+      computeDesPoseFeetRtWorld(plan, schedule, makeInputs(1.2));
+  EXPECT_EQ(desPoseFeetRtWorld[0].kind,
+            TargetContactPose::Kind::kSwingInFlight);
+  EXPECT_NEAR(desPoseFeetRtWorld[0].touchDownTime, 1.4, kTol);
+  EXPECT_NEAR(desPoseFeetRtWorld[0].posFootRtWorldEwrtWorldXy(0), 1.4, kTol);
+  EXPECT_NEAR(desPoseFeetRtWorld[0].eulerzyxFootRtWorldYaw,
+              computePlannedYawFootRtWorld(14, 0), kTol);
+  EXPECT_EQ(desPoseFeetRtWorld[1].kind, TargetContactPose::Kind::kNextSwing);
+  EXPECT_NEAR(desPoseFeetRtWorld[1].touchDownTime, 1.9, kTol);
+  EXPECT_NEAR(desPoseFeetRtWorld[1].posFootRtWorldEwrtWorldXy(0), 1.9, kTol);
+  EXPECT_NEAR(desPoseFeetRtWorld[1].posFootRtWorldEwrtWorldXy(1), -0.1, kTol);
+  EXPECT_NEAR(desPoseFeetRtWorld[1].eulerzyxFootRtWorldYaw,
+              computePlannedYawFootRtWorld(19, 1), kTol);
 }
 
 }  // namespace ocs2::humanoid

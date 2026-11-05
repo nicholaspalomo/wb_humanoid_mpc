@@ -166,27 +166,28 @@ class XBoxControllerInterface:
     Args:
         publisher_rate: how often get_walking_command_msg() is called [Hz]; it scales the pelvis height rate.
         backend: the joysticks (default: pygame's).
-        initial_pelvis_height: the pelvis height target the triggers start from [m]: the robot's nom_pos_base_rt_world_ewrt_world_z
-            (teleop.initial_pelvis_height()), clamped to the target's range.
+        init_cmd_pos_base_rt_surface_ewrt_world_z: the pelvis height target the triggers start from [m]: the robot's
+            nom_pos_base_rt_surface_ewrt_world_z (teleop.read_init_cmd_pos_base_rt_surface_ewrt_world_z()), clamped to the
+            target's range.
     """
 
     def __init__(
         self,
         publisher_rate: float,
         backend: JoystickBackend | None = None,
-        initial_pelvis_height: float = config_files.DEFAULT_PELVIS_HEIGHT,
+        init_cmd_pos_base_rt_surface_ewrt_world_z: float = config_files.NOM_POS_BASE_RT_SURFACE_EWRT_WORLD_Z,
     ) -> None:
         self._backend = (
             backend if backend is not None else PygameJoystickBackend()
         )
         self._backend.init()
         self.publisher_rate = publisher_rate
-        self.min_pelvis_height = 0.2
-        self.max_pelvis_height = 1.0
-        self.current_pelvis_height_target = clamp(
-            initial_pelvis_height,
-            self.min_pelvis_height,
-            self.max_pelvis_height,
+        self.cmd_min_pos_base_rt_surface_ewrt_world_z = 0.2
+        self.cmd_max_pos_base_rt_surface_ewrt_world_z = 1.0
+        self.cmd_pos_base_rt_surface_ewrt_world_z = clamp(
+            init_cmd_pos_base_rt_surface_ewrt_world_z,
+            self.cmd_min_pos_base_rt_surface_ewrt_world_z,
+            self.cmd_max_pos_base_rt_surface_ewrt_world_z,
         )
         self.joystick: Joystick | None = None
         self.joystick_connected = False
@@ -248,18 +249,20 @@ class XBoxControllerInterface:
             self.joystick_connected = False
             return False, None
         # The triggers move the target by up to 1 m/s at the publisher's rate.
-        pelvis_height_rate = controller_input.rt - controller_input.lt
-        self.current_pelvis_height_target = clamp(
-            self.current_pelvis_height_target
-            + pelvis_height_rate / self.publisher_rate,
-            self.min_pelvis_height,
-            self.max_pelvis_height,
+        cmd_linvel_base_rt_surface_ewrt_world_z = (
+            controller_input.rt - controller_input.lt
+        )
+        self.cmd_pos_base_rt_surface_ewrt_world_z = clamp(
+            self.cmd_pos_base_rt_surface_ewrt_world_z
+            + cmd_linvel_base_rt_surface_ewrt_world_z / self.publisher_rate,
+            self.cmd_min_pos_base_rt_surface_ewrt_world_z,
+            self.cmd_max_pos_base_rt_surface_ewrt_world_z,
         )
         return True, operator_bus.walking_velocity_command(
-            cmd_linvel_base_rt_world_ewrt_heading_x=controller_input.x_left,
-            cmd_linvel_base_rt_world_ewrt_heading_y=controller_input.y_left,
-            cmd_angvel_base_rt_world_ewrt_world_z=controller_input.y_right,
-            cmd_pos_base_rt_world_ewrt_world_z=self.current_pelvis_height_target,
+            cmd_lnorm_linvel_base_rt_world_ewrt_heading_x=controller_input.x_left,
+            cmd_lnorm_linvel_base_rt_world_ewrt_heading_y=controller_input.y_left,
+            cmd_lnorm_angvel_base_rt_world_ewrt_world_z=controller_input.y_right,
+            cmd_pos_base_rt_surface_ewrt_world_z=self.cmd_pos_base_rt_surface_ewrt_world_z,
         )
 
 
@@ -292,11 +295,11 @@ class GamepadPoller:
         return bool(self._controller.joystick_connected)
 
     @property
-    def pelvis_height_target(self) -> float:
+    def cmd_pos_base_rt_surface_ewrt_world_z(self) -> float:
         """The pelvis height target the controller's triggers move [m]."""
-        return float(self._controller.current_pelvis_height_target)
+        return float(self._controller.cmd_pos_base_rt_surface_ewrt_world_z)
 
-    def set_pelvis_height_target(self, height: float) -> None:
+    def set_cmd_pos_base_rt_surface_ewrt_world_z(self, height: float) -> None:
         """Moves the pelvis height target the triggers move from to `height` [m], clamped to its range.
 
         The GUI calls it when a controller connects and when the default pelvis height moves, so that the controller
@@ -305,10 +308,10 @@ class GamepadPoller:
         Args:
             height: the new target [m].
         """
-        self._controller.current_pelvis_height_target = clamp(
+        self._controller.cmd_pos_base_rt_surface_ewrt_world_z = clamp(
             height,
-            self._controller.min_pelvis_height,
-            self._controller.max_pelvis_height,
+            self._controller.cmd_min_pos_base_rt_surface_ewrt_world_z,
+            self._controller.cmd_max_pos_base_rt_surface_ewrt_world_z,
         )
 
     def tick(

@@ -32,8 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <numbers>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
@@ -63,171 +65,194 @@ constexpr scalar_t kGridStep = 0.01;
 
 /** `angle` wrapped into [-pi, pi]. */
 scalar_t wrapped(scalar_t angle) {
-  return std::remainder(angle, 2.0 * M_PI);
+  return std::remainder(angle, 2.0 * std::numbers::pi);
 }
 
 /** The pose command's two end poses [x, y, z, yaw, pitch, roll], the yaw
  * unbounded, and the times they are reached at. */
 struct EndPoses {
   scalar_t startTime = 0.0;
-  vector6_t start = vector6_t::Zero();
+  vector6_t initPoseeulerzyxBaseRtWorld = vector6_t::Zero();
   scalar_t targetTime = 0.0;
-  vector6_t target = vector6_t::Zero();
+  vector6_t finalPoseeulerzyxBaseRtWorld = vector6_t::Zero();
 };
 
 /** The linear interpolation of `ends` in every coordinate at `time`, held
  * before and after them: the Euler layout's reference. */
-vector6_t linearEulerPoseAt(const EndPoses& ends, scalar_t time) {
+vector6_t interpolateLinearPoseeulerzyxBaseRtWorld(const EndPoses& ends,
+                                                   scalar_t time) {
   const scalar_t share = std::clamp(
       (time - ends.startTime) / (ends.targetTime - ends.startTime), 0.0, 1.0);
-  return ends.start + share * (ends.target - ends.start);
+  return ends.initPoseeulerzyxBaseRtWorld +
+         share * (ends.finalPoseeulerzyxBaseRtWorld -
+                  ends.initPoseeulerzyxBaseRtWorld);
 }
 
 /**
  * The pose command (dx, dy, dz in the heading frame [m], dyaw [deg]) from the
- * robot standing at (0.3, -0.2) with heading `heading`, its target, and the end
- * poses it moves between: from the robot's position and heading, level, to the
- * commanded displacement turned into the world, at the height of the last knot,
- * turned by the commanded yaw.
+ * robot standing at (0.3, -0.2) with ZYX yaw `eulerzyxBaseRtWorldYaw`, its
+ * target, and the end poses it moves between: from the robot's position and
+ * heading, level, to the commanded displacement turned into the world, at the
+ * height of the last knot, turned by the commanded yaw.
  */
 struct PoseCommand {
   TargetTrajectories targets;
   EndPoses ends;
 };
 
-PoseCommand poseCommand(AtlasReferenceStack& stack,
-                        scalar_t heading,
-                        const vector4_t& command) {
+PoseCommand makePoseCommand(AtlasReferenceStack& stack,
+                            scalar_t eulerzyxBaseRtWorldYaw,
+                            const vector4_t& command) {
   const CentroidalMpcRobotModel<scalar_t>& model = stack.model();
-  const vector_t initState =
-      stack.standingAt(stack.initialState(), /*x=*/0.3, /*y=*/-0.2, heading);
-  PoseCommand pose;
-  pose.targets = stack.targetCalculator().poseCommandToTargetTrajectories(
-      command, kInitTime, initState);
-  pose.ends.startTime = pose.targets.timeTrajectory.front();
-  pose.ends.targetTime = pose.targets.timeTrajectory.back();
-  const vector3_t position = model.getPosBaseRtWorldEwrtWorld(initState);
-  pose.ends.start << position, model.getYawBaseRtWorld(initState), 0.0, 0.0;
-  const vector2_t displacement(
-      std::cos(heading) * command(0) - std::sin(heading) * command(1),
-      std::sin(heading) * command(0) + std::cos(heading) * command(1));
-  pose.ends.target << position.head<2>() + displacement,
-      model.getPosBaseRtWorldEwrtWorld(pose.targets.stateTrajectory.back())(2),
-      pose.ends.start(3) + command(3) * M_PI / 180.0, 0.0, 0.0;
-  return pose;
+  const vector_t initState = stack.standingAt(
+      stack.initialState(), /*posBaseRtWorldEwrtWorldX=*/0.3,
+      /*posBaseRtWorldEwrtWorldY=*/-0.2, eulerzyxBaseRtWorldYaw);
+  PoseCommand poseCommand;
+  poseCommand.targets =
+      stack.targetCalculator().poseCommandToTargetTrajectories(
+          command, kInitTime, initState);
+  poseCommand.ends.startTime = poseCommand.targets.timeTrajectory.front();
+  poseCommand.ends.targetTime = poseCommand.targets.timeTrajectory.back();
+  const vector3_t posBaseRtWorldEwrtWorld =
+      model.getPosBaseRtWorldEwrtWorld(initState);
+  poseCommand.ends.initPoseeulerzyxBaseRtWorld << posBaseRtWorldEwrtWorld,
+      model.getYawBaseRtWorld(initState), 0.0, 0.0;
+  const vector2_t errPosBaseRtWorldEwrtWorldXy(
+      std::cos(eulerzyxBaseRtWorldYaw) * command(0) -
+          std::sin(eulerzyxBaseRtWorldYaw) * command(1),
+      std::sin(eulerzyxBaseRtWorldYaw) * command(0) +
+          std::cos(eulerzyxBaseRtWorldYaw) * command(1));
+  poseCommand.ends.finalPoseeulerzyxBaseRtWorld
+      << posBaseRtWorldEwrtWorld.head<2>() + errPosBaseRtWorldEwrtWorldXy,
+      model.getPosBaseRtWorldEwrtWorld(
+          poseCommand.targets.stateTrajectory.back())(2),
+      poseCommand.ends.initPoseeulerzyxBaseRtWorld(3) +
+          command(3) * std::numbers::pi / 180.0,
+      0.0, 0.0;
+  return poseCommand;
 }
 
 /**
- * Expects the knots of `pose` to be at most a quarter turn apart and to turn by
- * the commanded yaw in total, and the reference at every time of the grid to be
- * the linear Euler interpolation of its end poses.
+ * Expects the knots of `poseCommand` to be at most a quarter turn apart and to
+ * turn by the commanded yaw in total, and the reference at every time of the
+ * grid to be the linear Euler interpolation of its end poses.
  */
 void expectTheCommandedTurnOnTheLinearEulerReference(
     const AtlasReferenceStack& stack,
-    const PoseCommand& pose,
-    scalar_t commandedTurn) {
+    const PoseCommand& poseCommand,
+    scalar_t cmdErrYawBaseRtWorld) {
   const CentroidalMpcRobotModel<scalar_t>& model = stack.model();
-  const TargetTrajectories& targets = pose.targets;
+  const TargetTrajectories& targets = poseCommand.targets;
   ASSERT_GE(targets.size(), 2U);
   EXPECT_EQ(targets.timeTrajectory.front(), kInitTime);
   // The parts of subdivideYawKnots(): ceil(|turn| / (pi / 2)) of them, one more
   // where the round-off of the turn the calculator adds to the heading puts a
   // turn of exactly k quarter turns an ulp above k.
-  const size_t parts = static_cast<size_t>(
-      std::ceil(std::abs(commandedTurn) /
-                    TargetTrajectoriesCalculatorBase::kMaxKnotYawSpacing -
-                1.0e-12));
+  const size_t parts = static_cast<size_t>(std::ceil(
+      std::abs(cmdErrYawBaseRtWorld) /
+          TargetTrajectoriesCalculatorBase::kKnotMaxErrYawBaseRtWorld -
+      1.0e-12));
   EXPECT_GE(targets.size(), parts + 1);
   EXPECT_LE(targets.size(), parts + 2);
 
   // Read back from the knots' quaternions, whose headings wrap: the steps
   // between knots at most a quarter turn apart unwrap without ambiguity, and
   // they add up to the commanded turn, in its direction.
-  scalar_t turned = 0.0;
+  scalar_t errYawBaseRtWorld = 0.0;
   for (size_t i = 1; i < targets.size(); ++i) {
     SCOPED_TRACE(i);
     EXPECT_GT(targets.timeTrajectory[i], targets.timeTrajectory[i - 1]);
     const scalar_t step =
         wrapped(model.getYawBaseRtWorld(targets.stateTrajectory[i]) -
                 model.getYawBaseRtWorld(targets.stateTrajectory[i - 1]));
-    EXPECT_LE(std::abs(step),
-              TargetTrajectoriesCalculatorBase::kMaxKnotYawSpacing + 1.0e-12);
-    EXPECT_GT(step * commandedTurn, 0.0)
+    EXPECT_LE(
+        std::abs(step),
+        TargetTrajectoriesCalculatorBase::kKnotMaxErrYawBaseRtWorld + 1.0e-12);
+    EXPECT_GT(step * cmdErrYawBaseRtWorld, 0.0)
         << "every knot turns the commanded way";
-    turned += step;
+    errYawBaseRtWorld += step;
   }
-  EXPECT_NEAR(turned, commandedTurn, 1.0e-12);
+  EXPECT_NEAR(errYawBaseRtWorld, cmdErrYawBaseRtWorld, 1.0e-12);
 
   // The reference the solver reads, on the node grid and between, before the
   // start and after the target is reached.
-  scalar_t largestHeadingError = 0.0;
-  scalar_t largestPositionError = 0.0;
-  scalar_t largestTilt = 0.0;
+  scalar_t maxNormErrYawBaseRtWorld = 0.0;
+  scalar_t maxErrPosBaseRtWorldEwrtWorld = 0.0;
+  // Of the pitch and roll; the yaw is maxNormErrYawBaseRtWorld's.
+  scalar_t maxNormEulerzyxBaseRtWorld = 0.0;
   for (scalar_t time = kInitTime - 0.1;
-       time <= pose.ends.targetTime + 0.1 + 1.0e-9; time += kGridStep) {
+       time <= poseCommand.ends.targetTime + 0.1 + 1.0e-9; time += kGridStep) {
     const vector_t reference = model.getDesiredState(targets, time);
-    const vector6_t expected = linearEulerPoseAt(pose.ends, time);
+    const vector6_t expected =
+        interpolateLinearPoseeulerzyxBaseRtWorld(poseCommand.ends, time);
     const vector6_t read = model.getPoseeulerzyxBaseRtWorld(reference);
-    largestHeadingError = std::max(
-        largestHeadingError,
+    maxNormErrYawBaseRtWorld = std::max(
+        maxNormErrYawBaseRtWorld,
         std::abs(wrapped(model.getYawBaseRtWorld(reference) - expected(3))));
-    largestPositionError =
-        std::max(largestPositionError,
+    maxErrPosBaseRtWorldEwrtWorld =
+        std::max(maxErrPosBaseRtWorldEwrtWorld,
                  (read.head<3>() - expected.head<3>()).cwiseAbs().maxCoeff());
-    largestTilt = std::max(largestTilt, read.tail<2>().cwiseAbs().maxCoeff());
+    maxNormEulerzyxBaseRtWorld = std::max(maxNormEulerzyxBaseRtWorld,
+                                          read.tail<2>().cwiseAbs().maxCoeff());
     EXPECT_NEAR(model.getQuatBaseRtWorldXyzw(reference).norm(), 1.0, 1.0e-15)
         << "t = " << time;
   }
-  EXPECT_LE(largestHeadingError, 1.0e-12);
-  EXPECT_LE(largestPositionError, 1.0e-12);
-  EXPECT_LE(largestTilt, 1.0e-12);
+  EXPECT_LE(maxNormErrYawBaseRtWorld, 1.0e-12);
+  EXPECT_LE(maxErrPosBaseRtWorldEwrtWorld, 1.0e-12);
+  EXPECT_LE(maxNormEulerzyxBaseRtWorld, 1.0e-12);
 }
 
 TEST(PoseCommandSubdivision, ATurnOf270DegreesTurnsPlus270Degrees) {
   AtlasReferenceStack stack;
-  const PoseCommand pose =
-      poseCommand(stack, /*heading=*/2.8, vector4_t(0.4, 0.1, 0.0, 270.0));
-  expectTheCommandedTurnOnTheLinearEulerReference(stack, pose,
-                                                  /*commandedTurn=*/1.5 * M_PI);
+  const PoseCommand poseCommand = makePoseCommand(
+      stack, /*eulerzyxBaseRtWorldYaw=*/2.8, vector4_t(0.4, 0.1, 0.0, 270.0));
+  expectTheCommandedTurnOnTheLinearEulerReference(
+      stack, poseCommand,
+      /*cmdErrYawBaseRtWorld=*/1.5 * std::numbers::pi);
   // Positive control: the two end knots alone are a quarter turn apart the
   // other way round, which their slerp would take.
   const CentroidalMpcRobotModel<scalar_t>& model = stack.model();
   EXPECT_NEAR(
-      wrapped(model.getYawBaseRtWorld(pose.targets.stateTrajectory.back()) -
-              model.getYawBaseRtWorld(pose.targets.stateTrajectory.front())),
-      -0.5 * M_PI, 1.0e-12);
+      wrapped(
+          model.getYawBaseRtWorld(poseCommand.targets.stateTrajectory.back()) -
+          model.getYawBaseRtWorld(poseCommand.targets.stateTrajectory.front())),
+      -0.5 * std::numbers::pi, 1.0e-12);
 }
 
 TEST(PoseCommandSubdivision, ATurnOfMinus270DegreesTurnsMinus270Degrees) {
   AtlasReferenceStack stack;
-  const PoseCommand pose =
-      poseCommand(stack, /*heading=*/-3.0, vector4_t(-0.2, 0.3, 0.0, -270.0));
+  const PoseCommand poseCommand =
+      makePoseCommand(stack, /*eulerzyxBaseRtWorldYaw=*/-3.0,
+                      vector4_t(-0.2, 0.3, 0.0, -270.0));
   expectTheCommandedTurnOnTheLinearEulerReference(
-      stack, pose, /*commandedTurn=*/-1.5 * M_PI);
+      stack, poseCommand, /*cmdErrYawBaseRtWorld=*/-1.5 * std::numbers::pi);
 }
 
 TEST(PoseCommandSubdivision, ATurnOf720DegreesTurnsTwiceAround) {
   // Whose end knots are the same attitude: without the knots between them the
   // reference would not turn at all.
   AtlasReferenceStack stack;
-  const PoseCommand pose =
-      poseCommand(stack, /*heading=*/0.4, vector4_t(0.0, 0.0, 0.0, 720.0));
-  expectTheCommandedTurnOnTheLinearEulerReference(stack, pose,
-                                                  /*commandedTurn=*/4.0 * M_PI);
+  const PoseCommand poseCommand = makePoseCommand(
+      stack, /*eulerzyxBaseRtWorldYaw=*/0.4, vector4_t(0.0, 0.0, 0.0, 720.0));
+  expectTheCommandedTurnOnTheLinearEulerReference(
+      stack, poseCommand,
+      /*cmdErrYawBaseRtWorld=*/4.0 * std::numbers::pi);
   const CentroidalMpcRobotModel<scalar_t>& model = stack.model();
   EXPECT_NEAR(
-      wrapped(model.getYawBaseRtWorld(pose.targets.stateTrajectory.back()) -
-              model.getYawBaseRtWorld(pose.targets.stateTrajectory.front())),
+      wrapped(
+          model.getYawBaseRtWorld(poseCommand.targets.stateTrajectory.back()) -
+          model.getYawBaseRtWorld(poseCommand.targets.stateTrajectory.front())),
       0.0, 1.0e-12);
 }
 
 TEST(PoseCommandSubdivision, ATurnOfAQuarterTurnOrLessIsTheTwoEndKnots) {
   AtlasReferenceStack stack;
-  const PoseCommand pose =
-      poseCommand(stack, /*heading=*/1.0, vector4_t(0.5, 0.0, 0.0, 60.0));
-  EXPECT_EQ(pose.targets.size(), 2U);
-  expectTheCommandedTurnOnTheLinearEulerReference(stack, pose,
-                                                  /*commandedTurn=*/M_PI / 3.0);
+  const PoseCommand poseCommand = makePoseCommand(
+      stack, /*eulerzyxBaseRtWorldYaw=*/1.0, vector4_t(0.5, 0.0, 0.0, 60.0));
+  EXPECT_EQ(poseCommand.targets.size(), 2U);
+  expectTheCommandedTurnOnTheLinearEulerReference(
+      stack, poseCommand,
+      /*cmdErrYawBaseRtWorld=*/std::numbers::pi / 3.0);
 }
 
 }  // namespace

@@ -30,8 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <utility>
 #include <vector>
@@ -42,13 +44,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -181,9 +186,10 @@ absl::StatusOr<LoadedRobot> load(const ShippedRobot& robot) {
 
 /** [m] The center of mass of everything joint `jointName` carries, in the
  * world, at the configuration `q`. */
-vector3_t carriedCenterOfMass(const PinocchioInterface& pinocchioInterface,
-                              const vector_t& q,
-                              const std::string& jointName) {
+vector3_t computePosSubtreecomRtWorldEwrtWorld(
+    const PinocchioInterface& pinocchioInterface,
+    const vector_t& q,
+    const std::string& jointName) {
   const pinocchio::Model& model = pinocchioInterface.getModel();
   pinocchio::Data data(model);
   pinocchio::forwardKinematics(model, data, q);
@@ -205,9 +211,10 @@ vector3_t carriedCenterOfMass(const PinocchioInterface& pinocchioInterface,
 }
 
 /** [m] The origin of joint `jointName` in the world at `q`. */
-vector3_t jointOrigin(const PinocchioInterface& pinocchioInterface,
-                      const vector_t& q,
-                      const std::string& jointName) {
+vector3_t computePosLinkRtWorldEwrtWorld(
+    const PinocchioInterface& pinocchioInterface,
+    const vector_t& q,
+    const std::string& jointName) {
   const pinocchio::Model& model = pinocchioInterface.getModel();
   pinocchio::Data data(model);
   pinocchio::forwardKinematics(model, data, q);
@@ -220,12 +227,18 @@ scalar_t elbowAngle(const PinocchioInterface& pinocchioInterface,
                     const vector_t& q,
                     const std::string& shoulder,
                     const std::string& elbow) {
-  const vector3_t origin = jointOrigin(pinocchioInterface, q, elbow);
-  const vector3_t upperArm =
-      jointOrigin(pinocchioInterface, q, shoulder) - origin;
-  const vector3_t forearm =
-      carriedCenterOfMass(pinocchioInterface, q, elbow) - origin;
-  return std::atan2(upperArm.cross(forearm).norm(), upperArm.dot(forearm));
+  const vector3_t posLinkRtWorldEwrtWorld =
+      computePosLinkRtWorldEwrtWorld(pinocchioInterface, q, elbow);
+  // The shoulder minus the elbow.
+  const vector3_t errPosLinkRtWorldEwrtWorld =
+      computePosLinkRtWorldEwrtWorld(pinocchioInterface, q, shoulder) -
+      posLinkRtWorldEwrtWorld;
+  const vector3_t posSubtreecomRtLinkEwrtWorld =
+      computePosSubtreecomRtWorldEwrtWorld(pinocchioInterface, q, elbow) -
+      posLinkRtWorldEwrtWorld;
+  return std::atan2(
+      errPosLinkRtWorldEwrtWorld.cross(posSubtreecomRtLinkEwrtWorld).norm(),
+      errPosLinkRtWorldEwrtWorld.dot(posSubtreecomRtLinkEwrtWorld));
 }
 
 /** `q` with the MPC joint `mpcJointIndex` moved by `delta`. */
@@ -253,7 +266,7 @@ TEST(ArmSwing, EachJointTurnsTheWayThatSwingsItsArmForwardOrFlexesIt) {
                                  robot->initialState);
     ASSERT_TRUE(directions.ok()) << directions.status();
 
-    const vector3_t forward =
+    const vector3_t xAxisBaseEwrtWorld =
         quaternionRotationMatrix<scalar_t>(
             robot->model->getQuatBaseRtWorldXyzw(robot->initialState))
             .col(0);
@@ -284,10 +297,11 @@ TEST(ArmSwing, EachJointTurnsTheWayThatSwingsItsArmForwardOrFlexesIt) {
           withJointMoved(*robot, robot->initialState, arm.shoulder,
                          -arm.shoulderDirection * step);
       const scalar_t forwardRate =
-          forward.dot(carriedCenterOfMass(*robot->pinocchioInterface, ahead,
-                                          shoulderName) -
-                      carriedCenterOfMass(*robot->pinocchioInterface, behind,
-                                          shoulderName)) /
+          xAxisBaseEwrtWorld.dot(
+              computePosSubtreecomRtWorldEwrtWorld(*robot->pinocchioInterface,
+                                                   ahead, shoulderName) -
+              computePosSubtreecomRtWorldEwrtWorld(*robot->pinocchioInterface,
+                                                   behind, shoulderName)) /
           (2.0 * step);
       EXPECT_GT(forwardRate, 0.01)
           << shoulderName << " must swing its arm forward";
@@ -341,8 +355,9 @@ ModeSchedule walkSchedule() {
   std::vector<size_t> modeSequence{static_cast<size_t>(ModeNumber::kRf)};
   for (int k = -3; k <= 8; ++k) {
     const scalar_t start = static_cast<scalar_t>(k);
-    for (const scalar_t offset : {0.0, 0.1, 0.5, 0.6})
+    for (const scalar_t offset : {0.0, 0.1, 0.5, 0.6}) {
       eventTimes.push_back(start + offset);
+    }
     for (const ModeNumber mode : {ModeNumber::kStance, ModeNumber::kLf,
                                   ModeNumber::kStance, ModeNumber::kRf}) {
       modeSequence.push_back(static_cast<size_t>(mode));
@@ -372,18 +387,21 @@ std::unique_ptr<SwitchedModelReferenceManager> walkingReferenceManager(
   return referenceManager;
 }
 
-/** `robot`'s initial state turned to `heading` and moving forward along it at
- * `speed`. */
+/** `robot`'s initial state turned to `eulerzyxBaseRtWorldYaw` and moving
+ * forward along it at `proxyLinvelComRtWorldEwrtHeadingX`. */
 vector_t walkingState(const LoadedRobot& robot,
-                      scalar_t heading,
-                      scalar_t speed) {
+                      scalar_t eulerzyxBaseRtWorldYaw,
+                      scalar_t proxyLinvelComRtWorldEwrtHeadingX) {
   vector_t state = robot.initialState;
-  vector3_t euler = robot.model->getEulerzyxBaseRtWorld(state);
-  euler(0) = heading;
-  robot.model->setEulerzyxBaseRtWorld(state, euler);
-  robot.model->setBaseComLinearVelocity(
-      state,
-      vector3_t(speed * std::cos(heading), speed * std::sin(heading), 0.0));
+  vector3_t eulerzyxBaseRtWorld = robot.model->getEulerzyxBaseRtWorld(state);
+  eulerzyxBaseRtWorld(0) = eulerzyxBaseRtWorldYaw;
+  robot.model->setEulerzyxBaseRtWorld(state, eulerzyxBaseRtWorld);
+  setProxyLinvelComRtWorldEwrtWorld(
+      *robot.model, state,
+      vector3_t(
+          proxyLinvelComRtWorldEwrtHeadingX * std::cos(eulerzyxBaseRtWorldYaw),
+          proxyLinvelComRtWorldEwrtHeadingX * std::sin(eulerzyxBaseRtWorldYaw),
+          0.0));
   return state;
 }
 
@@ -400,8 +418,10 @@ TEST(ArmSwing, InLeftStanceTheLeftArmSwingsForwardAndFlexesAndTheRightOneBack) {
         walkingReferenceManager(*robot);
     ASSERT_NE(referenceManager, nullptr);
     const ModelSettings& settings = *robot->settings;
-    for (const scalar_t heading : {0.0, 1.1}) {
-      const vector_t knot = walkingState(*robot, heading, /*speed=*/0.6);
+    for (const scalar_t eulerzyxBaseRtWorldYaw : {0.0, 1.1}) {
+      const vector_t knot =
+          walkingState(*robot, eulerzyxBaseRtWorldYaw,
+                       /*proxyLinvelComRtWorldEwrtHeadingX=*/0.6);
       const TargetTrajectories target(
           {-100.0, 100.0}, {knot, knot},
           {vector_t::Zero(robot->model->getInputDim()),
@@ -415,7 +435,9 @@ TEST(ArmSwing, InLeftStanceTheLeftArmSwingsForwardAndFlexesAndTheRightOneBack) {
       const vector_t qKnot = robot->model->getGeneralizedCoordinates(knot);
       const vector_t qDesired =
           robot->model->getGeneralizedCoordinates(desired);
-      const vector3_t forward(std::cos(heading), std::sin(heading), 0.0);
+      const vector3_t forwardDirHeadingEwrtWorld(
+          std::cos(eulerzyxBaseRtWorldYaw), std::sin(eulerzyxBaseRtWorldYaw),
+          0.0);
       const std::string& leftShoulder =
           settings.mpcModelJointNames[settings.j_l_shoulder_y_index];
       const std::string& rightShoulder =
@@ -425,31 +447,39 @@ TEST(ArmSwing, InLeftStanceTheLeftArmSwingsForwardAndFlexesAndTheRightOneBack) {
       const std::string& rightElbow =
           settings.mpcModelJointNames[settings.j_r_elbow_y_index];
       const PinocchioInterface& pinocchio = *robot->pinocchioInterface;
-      EXPECT_GT(
-          forward.dot(carriedCenterOfMass(pinocchio, qDesired, leftShoulder) -
-                      carriedCenterOfMass(pinocchio, qKnot, leftShoulder)),
-          0.0)
-          << "heading " << heading << ": the left arm swings forward";
-      EXPECT_LT(
-          forward.dot(carriedCenterOfMass(pinocchio, qDesired, rightShoulder) -
-                      carriedCenterOfMass(pinocchio, qKnot, rightShoulder)),
-          0.0)
-          << "heading " << heading << ": the right arm swings back";
+      EXPECT_GT(forwardDirHeadingEwrtWorld.dot(
+                    computePosSubtreecomRtWorldEwrtWorld(pinocchio, qDesired,
+                                                         leftShoulder) -
+                    computePosSubtreecomRtWorldEwrtWorld(pinocchio, qKnot,
+                                                         leftShoulder)),
+                0.0)
+          << "heading " << eulerzyxBaseRtWorldYaw
+          << ": the left arm swings forward";
+      EXPECT_LT(forwardDirHeadingEwrtWorld.dot(
+                    computePosSubtreecomRtWorldEwrtWorld(pinocchio, qDesired,
+                                                         rightShoulder) -
+                    computePosSubtreecomRtWorldEwrtWorld(pinocchio, qKnot,
+                                                         rightShoulder)),
+                0.0)
+          << "heading " << eulerzyxBaseRtWorldYaw
+          << ": the right arm swings back";
       EXPECT_LT(elbowAngle(pinocchio, qDesired, leftShoulder, leftElbow),
                 elbowAngle(pinocchio, qKnot, leftShoulder, leftElbow))
-          << "heading " << heading << ": the left elbow flexes";
+          << "heading " << eulerzyxBaseRtWorldYaw << ": the left elbow flexes";
       EXPECT_GT(elbowAngle(pinocchio, qDesired, rightShoulder, rightElbow),
                 elbowAngle(pinocchio, qKnot, rightShoulder, rightElbow))
-          << "heading " << heading << ": the right elbow extends";
+          << "heading " << eulerzyxBaseRtWorldYaw
+          << ": the right elbow extends";
 
       // The reference is the target's and the gait's alone: at a node state
       // turned elsewhere and moving otherwise it is the same, bit for bit, so
       // the Gauss-Newton step that holds it constant has the exact gradient.
       const vector_t elsewhere =
-          walkingState(*robot, heading + 2.3, /*speed=*/-0.4);
+          walkingState(*robot, eulerzyxBaseRtWorldYaw + 2.3,
+                       /*proxyLinvelComRtWorldEwrtHeadingX=*/-0.4);
       EXPECT_TRUE(referenceManager->getDesiredState(target, elsewhere, time) ==
                   desired)
-          << "heading " << heading;
+          << "heading " << eulerzyxBaseRtWorldYaw;
     }
   }
 }
@@ -470,9 +500,10 @@ TEST(ArmSwing,
         walkingReferenceManager(*robot);
     ASSERT_NE(referenceManager, nullptr);
     const ModelSettings& settings = *robot->settings;
-    const scalar_t heading = 0.7;
-    const scalar_t speed = 0.5;
-    const vector_t knot = walkingState(*robot, heading, speed);
+    const scalar_t eulerzyxBaseRtWorldYaw = 0.7;
+    const scalar_t proxyLinvelComRtWorldEwrtHeadingX = 0.5;
+    const vector_t knot = walkingState(*robot, eulerzyxBaseRtWorldYaw,
+                                       proxyLinvelComRtWorldEwrtHeadingX);
     const TargetTrajectories target(
         {-100.0, 100.0}, {knot, knot},
         {vector_t::Zero(robot->model->getInputDim()),
@@ -485,15 +516,16 @@ TEST(ArmSwing,
     // Read off the interpolated target exactly as the reference manager reads
     // it, so that the comparison can be exact.
     const vector_t nominal = robot->model->getDesiredState(target, time);
-    const scalar_t nominalHeading = robot->model->getYawBaseRtWorld(nominal);
-    const vector3_t velocityCommand =
-        robot->model->getBaseComLinearVelocity(nominal);
-    const scalar_t forwardSpeed =
-        std::cos(nominalHeading) * velocityCommand[0] +
-        std::sin(nominalHeading) * velocityCommand[1];
+    const scalar_t refYawBaseRtWorld = robot->model->getYawBaseRtWorld(nominal);
+    const vector3_t refProxyLinvelComRtWorldEwrtWorld =
+        getProxyLinvelComRtWorldEwrtWorld(*robot->model, nominal);
+    const scalar_t refProxyLinvelComRtWorldEwrtHeadingX =
+        std::cos(refYawBaseRtWorld) * refProxyLinvelComRtWorldEwrtWorld[0] +
+        std::sin(refYawBaseRtWorld) * refProxyLinvelComRtWorldEwrtWorld[1];
     const scalar_t swing =
-        std::sin(2 * M_PI * (referenceManager->getPhaseVariable(time) - 0.15)) *
-        forwardSpeed;
+        std::sin(2 * std::numbers::pi *
+                 (referenceManager->getPhaseVariable(time) - 0.15)) *
+        refProxyLinvelComRtWorldEwrtHeadingX;
     vector_t expected = robot->model->getJointAngles(nominal);
     expected[settings.j_l_shoulder_y_index] += -0.15 * swing;
     expected[settings.j_r_shoulder_y_index] += 0.15 * swing;
@@ -514,7 +546,8 @@ TEST(ArmSwing, NoneHoldsTheTargetsPosture) {
   ArmSwingSettings none;
   none.generator = ArmSwingGenerator::kNone;
   referenceManager->setArmSwingSettings(none);
-  const vector_t knot = walkingState(*robot, /*heading=*/0.3, /*speed=*/0.6);
+  const vector_t knot = walkingState(*robot, /*eulerzyxBaseRtWorldYaw=*/0.3,
+                                     /*proxyLinvelComRtWorldEwrtHeadingX=*/0.6);
   const TargetTrajectories target(
       {-100.0, 100.0}, {knot, knot},
       {vector_t::Zero(robot->model->getInputDim()),

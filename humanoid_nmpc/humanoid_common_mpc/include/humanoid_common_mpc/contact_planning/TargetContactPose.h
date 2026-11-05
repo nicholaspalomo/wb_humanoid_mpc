@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/common/Types.h"
@@ -54,9 +55,14 @@ struct TargetContactPose {
   };
   bool valid = false;
   Kind kind = Kind::kStance;
-  vector2_t position = vector2_t::Zero();  // [m] contact frame origin, xy
-  scalar_t height = 0.0;                   // [m] contact surface height
-  scalar_t yaw = 0.0;       // [rad] contact frame yaw about the world z axis
+  vector2_t posFootRtWorldEwrtWorldXy =
+      vector2_t::Zero();  // [m] contact frame origin, xy
+  // [m] contact frame origin, z: measured in stance, the surface height at a
+  // landing.
+  scalar_t posFootRtWorldEwrtWorldZ = 0.0;
+  // [rad] the contact frame's ZYX yaw: measured in stance, the plan's landing
+  // yaw otherwise.
+  scalar_t eulerzyxFootRtWorldYaw = 0.0;
   bool yawPlanned = false;  // the yaw comes from the heading model; otherwise
                             // it is the measured foot yaw
   scalar_t touchDownTime = 0.0;  // [s] when the foot is expected in contact
@@ -67,13 +73,14 @@ struct TargetContactPose {
  * plan and the schedule. */
 struct TargetContactPoseInputs {
   scalar_t time = 0.0;
-  feet_array_t<vector3_t> footPositions = makeFeetArray(
+  feet_array_t<vector3_t> posFeetRtWorldEwrtWorld = makeFeetArray(
       vector3_t(vector3_t::Zero()));  // measured contact frame origins
-  feet_array_t<scalar_t> footYaws =
-      makeFeetArray(0.0);  // measured contact frame yaws
-  feet_array_t<vector2_t> dcmStepAdjustment = makeFeetArray(
+  feet_array_t<scalar_t> eulerzyxFeetRtWorldYaw =
+      makeFeetArray(0.0);  // measured contact frame ZYX yaws
+  feet_array_t<vector2_t> errPosFeetRtWorldEwrtWorldXy = makeFeetArray(
       vector2_t(vector2_t::Zero()));  // landing offset (zero when off)
-  scalar_t terrainHeight = 0.0;  // [m] ground height the swing targets land on
+  scalar_t posSurfaceRtWorldEwrtWorldZ =
+      0.0;  // [m] ground height the swing targets land on
 };
 
 /**
@@ -85,7 +92,7 @@ struct TargetContactPoseInputs {
  * heading model and the measured foot yaw without it. Every pose is invalid
  * when the plan is not valid.
  */
-feet_array_t<TargetContactPose> computeTargetContactPoses(
+feet_array_t<TargetContactPose> computeDesPoseFeetRtWorld(
     const ContactPlan& plan,
     const ModeSchedule& schedule,
     const TargetContactPoseInputs& inputs);

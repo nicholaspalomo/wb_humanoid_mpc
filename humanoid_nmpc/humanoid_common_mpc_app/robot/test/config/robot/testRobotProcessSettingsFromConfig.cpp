@@ -73,16 +73,17 @@ TEST(RobotProcessSettingsFromConfigTest,
   ASSERT_TRUE(settings.ok()) << settings.status();
   const RobotProcessSettings defaults;
   EXPECT_EQ(settings->contactEstimator, defaults.contactEstimator);
-  EXPECT_EQ(settings->simulator.contactForceThreshold,
-            defaults.simulator.contactForceThreshold);
+  EXPECT_EQ(settings->simulator.minForceMjcontactEwrtMjcontactX,
+            defaults.simulator.minForceMjcontactEwrtMjcontactX);
   EXPECT_EQ(settings->simulator.contactTimelineWindow,
             defaults.simulator.contactTimelineWindow);
   EXPECT_EQ(settings->simulator.gantryHold, defaults.simulator.gantryHold);
   EXPECT_EQ(settings->simulator.projectile, defaults.simulator.projectile);
-  EXPECT_EQ(settings->fallRecovery.maxBaseTiltAngle,
-            defaults.fallRecovery.maxBaseTiltAngle)
+  EXPECT_EQ(settings->fallRecovery.maxTiltangleBaseRtWorld,
+            defaults.fallRecovery.maxTiltangleBaseRtWorld)
       << "the catch stays off";
-  EXPECT_EQ(settings->fallRecovery.catchLift, defaults.fallRecovery.catchLift);
+  EXPECT_EQ(settings->fallRecovery.catchErrPosBaseRtWorldEwrtWorldZ,
+            defaults.fallRecovery.catchErrPosBaseRtWorldEwrtWorldZ);
   EXPECT_EQ(settings->mpcEntryBlendTime, defaults.mpcEntryBlendTime);
   EXPECT_EQ(settings->safetyDecayTimeConstant,
             defaults.safetyDecayTimeConstant);
@@ -106,8 +107,8 @@ TEST(RobotProcessSettingsFromConfigTest, EveryFieldIsRead) {
   task.sim_visualizations = {"metrics", "zmp"};
   task.gantry_hold = "kinematic_teleport";
   task.sim_projectile = "dodgeball";
-  task.sim_max_base_tilt_angle = 1.0;
-  task.sim_gantry_catch_lift = 0.15;
+  task.sim_max_tiltangle_base_rt_world = 1.0;
+  task.sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z = 0.15;
   task.mpc_entry_blend_time = 0.4;
   task.safety_decay_time_constant = 0.5;
   mpc_config::ContactWrenchGateConfig gate;
@@ -123,14 +124,14 @@ TEST(RobotProcessSettingsFromConfigTest, EveryFieldIsRead) {
       robotProcessSettingsFromConfig(task);
   ASSERT_TRUE(settings.ok()) << settings.status();
   EXPECT_EQ(settings->contactEstimator, "robot_state");
-  EXPECT_EQ(settings->simulator.contactForceThreshold, 7.5);
+  EXPECT_EQ(settings->simulator.minForceMjcontactEwrtMjcontactX, 7.5);
   EXPECT_EQ(settings->simulator.contactTimelineWindow, 3.0);
   EXPECT_THAT(settings->simulator.visualizations,
               Optional(ElementsAre("metrics", "zmp")));
   EXPECT_EQ(settings->simulator.gantryHold, "kinematic_teleport");
   EXPECT_EQ(settings->simulator.projectile, "dodgeball");
-  EXPECT_EQ(settings->fallRecovery.maxBaseTiltAngle, 1.0);
-  EXPECT_EQ(settings->fallRecovery.catchLift, 0.15);
+  EXPECT_EQ(settings->fallRecovery.maxTiltangleBaseRtWorld, 1.0);
+  EXPECT_EQ(settings->fallRecovery.catchErrPosBaseRtWorldEwrtWorldZ, 0.15);
   EXPECT_THAT(settings->mpcEntryBlendTime, Optional(0.4));
   EXPECT_THAT(settings->safetyDecayTimeConstant, Optional(0.5));
   EXPECT_THAT(
@@ -192,14 +193,15 @@ TEST(RobotProcessSettingsFromConfigTest,
   for (const double bad :
        {0.0, -1.0, std::numeric_limits<double>::quiet_NaN()}) {
     mpc_config::TaskFile tilt;
-    tilt.sim_max_base_tilt_angle = bad;
+    tilt.sim_max_tiltangle_base_rt_world = bad;
     EXPECT_THAT(robotProcessSettingsFromConfig(tilt).status().message(),
-                HasSubstr("sim_max_base_tilt_angle is "))
+                HasSubstr("sim_max_tiltangle_base_rt_world is "))
         << bad;
     mpc_config::TaskFile lift;
-    lift.sim_gantry_catch_lift = bad;
-    EXPECT_THAT(robotProcessSettingsFromConfig(lift).status().message(),
-                HasSubstr("sim_gantry_catch_lift is "))
+    lift.sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z = bad;
+    EXPECT_THAT(
+        robotProcessSettingsFromConfig(lift).status().message(),
+        HasSubstr("sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z is "))
         << bad;
   }
 }

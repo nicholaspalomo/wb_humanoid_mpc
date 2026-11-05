@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "ocs2_core/Types.h"
+
 #include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningTerm.h"

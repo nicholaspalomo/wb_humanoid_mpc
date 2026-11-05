@@ -51,17 +51,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/cost/StateCost.h"
 #include "ocs2_core/cost/StateInputCost.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
+#include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -79,6 +83,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.h"
 #include "humanoid_mpc_config/gait_file.nproto.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/LayoutRobotModel.h"
@@ -173,13 +178,13 @@ class CommandLimitsProbe final : public TargetTrajectoriesCalculatorBase {
   using TargetTrajectoriesCalculatorBase::TargetTrajectoriesCalculatorBase;
 
   TargetTrajectories poseCommandToTargetTrajectories(
-      const vector4_t& /*commandedVelocities*/,
+      const vector4_t& /*poseCommand*/,
       scalar_t /*initTime*/,
       const vector_t& /*initState*/) override {
     return TargetTrajectories();
   }
   TargetTrajectories velocityCommandToTargetTrajectories(
-      const vector4_t& /*commandedVelocities*/,
+      const vector4_t& /*velocityCommand*/,
       scalar_t /*initTime*/,
       const vector_t& /*initState*/,
       const BasePlanarMotion& /*measuredMotion*/) override {
@@ -285,9 +290,10 @@ TEST_P(ShippedRobotRootsTest, EveryFileLoadsAndBuildsEveryRoot) {
                                 *(*stack)->model, /*mpcHorizon=*/1.0);
   EXPECT_EQ(calculator.cmdMaxLinvelBaseRtWorldEwrtHeadingX(),
             referenceSettings->cmdMaxLinvelBaseRtWorldEwrtHeadingX);
-  EXPECT_EQ(
-      calculator.commandedBaseHeight(/*commandedPelvisHeight=*/0.0),
-      settings.terrainHeight + referenceSettings->nomPosBaseRtWorldEwrtWorldZ);
+  EXPECT_EQ(calculator.computeRefPosBaseRtWorldEwrtWorldZ(
+                /*cmdPosBaseRtSurfaceEwrtWorldZ=*/0.0),
+            settings.posSurfaceRtWorldEwrtWorldZ +
+                referenceSettings->nomPosBaseRtSurfaceEwrtWorldZ);
   EXPECT_EQ(calculator.targetJointState(), *defaultJointState);
   // A hot reload of the reference file replaces every limit it sets, the yaw
   // rate a command reset included.
@@ -301,15 +307,18 @@ TEST_P(ShippedRobotRootsTest, EveryFileLoadsAndBuildsEveryRoot) {
       ProceduralMpcMotionManager::Create(
           (*stack)->gait, *referenceSettings, (*stack)->referenceManager,
           *(*stack)->model,
-          [](const vector4_t& /*velocityTarget*/, scalar_t /*initTime*/,
+          [](const vector4_t& /*velocityCommand*/, scalar_t /*initTime*/,
              scalar_t /*finalTime*/, const vector_t& /*initState*/,
              const BasePlanarMotion& /*measuredMotion*/) {
             return TargetTrajectories();
           });
   ASSERT_TRUE(manager.ok()) << manager.status();
   EXPECT_FALSE((*manager)->gaitMap().empty());
-  (*manager)->setAndScaleVelocityCommand(WalkingVelocityCommand(
-      /*v_x=*/1.0, /*v_y=*/1.0, /*desired_pelvis_h=*/0.0, /*v_yaw=*/1.0));
+  (*manager)->setAndScaleVelocityCommand(NormalizedWalkingVelocityCommand(
+      /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_x=*/1.0,
+      /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_y=*/1.0,
+      /*cmd_pos_base_rt_surface_ewrt_world_z=*/0.0,
+      /*cmd_lnorm_angvel_base_rt_world_ewrt_world_z=*/1.0));
   const WalkingVelocityCommand fullStick =
       (*manager)->getScaledWalkingVelocityCommand();
   EXPECT_EQ(fullStick.cmd_linvel_base_rt_world_ewrt_heading_x,

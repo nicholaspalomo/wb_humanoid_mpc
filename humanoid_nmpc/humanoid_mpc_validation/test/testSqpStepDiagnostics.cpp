@@ -217,10 +217,11 @@ TEST(SqpStepDiagnostics, TheSampleIsTheIterationsStepAndTheResidualOfItsNodes) {
   EXPECT_EQ(sample.fullStepKind, SqpStepKind::kConstraint);
   EXPECT_EQ(sample.fullStepConstraintViolation, 1.1e-2);
   EXPECT_EQ(sample.constraintViolation, 3.0e-3);
-  ASSERT_TRUE(sample.swingNormalVelocityResidual.has_value());
-  EXPECT_EQ(sample.swingNormalVelocityResidual, std::optional<double>(0.03));
+  ASSERT_TRUE(sample.swingNormalVelocityConstraintResidual.has_value());
+  EXPECT_EQ(sample.swingNormalVelocityConstraintResidual,
+            std::optional<double>(0.03));
   EXPECT_FALSE(sqpStepSampleOf(iteration, metrics, std::vector<size_t>{})
-                   .swingNormalVelocityResidual.has_value())
+                   .swingNormalVelocityConstraintResidual.has_value())
       << "no swing row";
 }
 

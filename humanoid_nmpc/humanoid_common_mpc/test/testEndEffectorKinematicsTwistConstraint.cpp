@@ -28,14 +28,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <cmath>
-#include <memory>
+#include <cstddef>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsLinearVelConstraint.h"
@@ -110,11 +112,11 @@ class AnalyticEndEffectorKinematics final
     return {vector6_t(input)};
   }
 
-  std::vector<vector3_t> getOrientationErrorWrtPlane(
+  std::vector<vector3_t> getTiltEesRtSurfaceEwrtWorld(
       const vector_t& state,
-      const std::vector<vector3_t>& planeNormals) const override {
-    return {rotationMatrixDistanceToPlane<scalar_t>(getRotmatEeRtWorld(state),
-                                                    planeNormals.front())};
+      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const override {
+    return {rotationMatrixDistanceToPlane<scalar_t>(
+        getRotmatEeRtWorld(state), normalSurfacesEwrtWorld.front())};
   }
 
   std::vector<VectorFunctionLinearApproximation>
@@ -160,11 +162,12 @@ class AnalyticEndEffectorKinematics final
   }
 
   std::vector<VectorFunctionLinearApproximation>
-  getOrientationErrorWrtPlaneLinearApproximation(
+  getLinearApproximationTiltEesRtSurfaceEwrtWorld(
       const vector_t& state,
-      const std::vector<vector3_t>& planeNormals) const override {
+      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const override {
     VectorFunctionLinearApproximation approx;
-    approx.f = getOrientationErrorWrtPlane(state, planeNormals).front();
+    approx.f =
+        getTiltEesRtSurfaceEwrtWorld(state, normalSurfacesEwrtWorld).front();
     approx.dfdx = matrix_t::Zero(3, state.size());
     const scalar_t eps = 1.0e-6;
     for (Eigen::Index i = 0; i < state.size(); ++i) {
@@ -173,8 +176,9 @@ class AnalyticEndEffectorKinematics final
       plus(i) += eps;
       minus(i) -= eps;
       approx.dfdx.col(i) =
-          (getOrientationErrorWrtPlane(plus, planeNormals).front() -
-           getOrientationErrorWrtPlane(minus, planeNormals).front()) /
+          (getTiltEesRtSurfaceEwrtWorld(plus, normalSurfacesEwrtWorld).front() -
+           getTiltEesRtSurfaceEwrtWorld(minus, normalSurfacesEwrtWorld)
+               .front()) /
           (2.0 * eps);
     }
     return {approx};
@@ -237,14 +241,14 @@ TEST_F(TwistConstraintTest, YawRateRowIsInactiveByDefault) {
 
   const vector_t state =
       makeState(vector3_t::Zero(), vector3_t(0.15, -0.2, 0.5));
-  const vector3_t footNormal =
+  const vector3_t zAxisEeEwrtWorld =
       AnalyticEndEffectorKinematics::getRotmatEeRtWorld(state) *
       vector3_t::UnitZ();
   const vector_t atRest = constraint.getValue(
       /*time=*/0.0, state, makeInput(vector3_t::Zero(), vector3_t::Zero()),
       PreComputation());
   const vector_t spinning = constraint.getValue(
-      /*time=*/0.0, state, makeInput(vector3_t::Zero(), 0.5 * footNormal),
+      /*time=*/0.0, state, makeInput(vector3_t::Zero(), 0.5 * zAxisEeEwrtWorld),
       PreComputation());
   EXPECT_TRUE((spinning - atRest).isZero(kTol))
       << "the default must not react to a spin about the contact normal";
@@ -275,14 +279,14 @@ TEST_F(TwistConstraintTest, YawRateAboutTheContactNormalIsConstrained) {
     const vector_t state = makeState(vector3_t::Zero(), rotvecEeRtWorld);
     const matrix3_t rotmatEeRtWorld =
         AnalyticEndEffectorKinematics::getRotmatEeRtWorld(state);
-    const vector3_t footNormal = rotmatEeRtWorld * vector3_t::UnitZ();
+    const vector3_t zAxisEeEwrtWorld = rotmatEeRtWorld * vector3_t::UnitZ();
 
     const vector_t atRest = constraint.getValue(
         /*time=*/0.0, state, makeInput(vector3_t::Zero(), vector3_t::Zero()),
         PreComputation());
     const vector_t spinning = constraint.getValue(
-        /*time=*/0.0, state, makeInput(vector3_t::Zero(), 0.5 * footNormal),
-        PreComputation());
+        /*time=*/0.0, state,
+        makeInput(vector3_t::Zero(), 0.5 * zAxisEeEwrtWorld), PreComputation());
 
     EXPECT_GT((spinning - atRest).norm(), 1.0e-4)
         << "spinning about the contact normal must violate the constraint";
@@ -341,8 +345,8 @@ TEST_F(TwistConstraintTest, TiltRowsStillActAsAProportionalDerivativeLaw) {
 
   const vector_t state =
       makeState(vector3_t::Zero(), vector3_t(0.12, -0.09, 0.4));
-  const vector3_t error =
-      kinematics_.getOrientationErrorWrtPlane(state, {vector3_t::UnitZ()})
+  const vector3_t tiltEeRtSurfaceEwrtWorld =
+      kinematics_.getTiltEesRtSurfaceEwrtWorld(state, {vector3_t::UnitZ()})
           .front();
 
   // Numerically find the angular velocity whose residual is zero by solving the
@@ -353,18 +357,20 @@ TEST_F(TwistConstraintTest, TiltRowsStillActAsAProportionalDerivativeLaw) {
           PreComputation());
   const matrix_t angularBlock = approx.dfdu.bottomRightCorner(3, 3);
   const vector3_t residualAtRest = approx.f.tail(3);
-  const vector3_t omega = angularBlock.fullPivLu().solve(-residualAtRest);
+  const vector3_t angvelEeRtWorldEwrtWorld =
+      angularBlock.fullPivLu().solve(-residualAtRest);
 
   const vector_t value = constraint.getValue(
-      /*time=*/0.0, state, makeInput(vector3_t::Zero(), omega),
-      PreComputation());
+      /*time=*/0.0, state,
+      makeInput(vector3_t::Zero(), angvelEeRtWorldEwrtWorld), PreComputation());
   EXPECT_TRUE(value.tail(3).isZero(1.0e-9))
       << "orientation rows should vanish at the PD solution: "
       << value.tail(3).transpose();
-  EXPECT_GT(error.norm(), 1.0e-3) << "the test state should actually be tilted";
+  EXPECT_GT(tiltEeRtSurfaceEwrtWorld.norm(), 1.0e-3)
+      << "the test state should actually be tilted";
   // Removing the tilt requires rotating about an axis perpendicular to the
   // plane normal.
-  EXPECT_GT(omega.head<2>().norm(), 1.0e-3);
+  EXPECT_GT(angvelEeRtWorldEwrtWorld.head<2>().norm(), 1.0e-3);
 }
 
 // ==================== Value and linearization agree ====================
@@ -496,21 +502,22 @@ TEST_F(TwistConstraintTest, HeightOffsetEntersThroughTheConstantTerm) {
   // ZeroVelocityConstraintCppAd writes the terrain height into b[2]; the foot
   // has to sit at that height.
   EndEffectorKinematicsTwistConstraint::Config config = makeFootConfig();
-  const scalar_t referenceHeight = 0.07;
-  config.b(2) = -config.Ax(2, 2) * referenceHeight;
+  const scalar_t refPosEeRtWorldEwrtWorldZ = 0.07;
+  config.b(2) = -config.Ax(2, 2) * refPosEeRtWorldEwrtWorldZ;
   EndEffectorKinematicsTwistConstraint constraint(kinematics_,
                                                   /*numConstraints=*/6, config);
 
   const vector_t atHeight = constraint.getValue(
       /*time=*/0.0,
-      makeState(vector3_t(0.0, 0.0, referenceHeight), vector3_t::Zero()),
+      makeState(vector3_t(0.0, 0.0, refPosEeRtWorldEwrtWorldZ),
+                vector3_t::Zero()),
       makeInput(vector3_t::Zero(), vector3_t::Zero()), PreComputation());
   EXPECT_TRUE(atHeight.isZero(kTol)) << atHeight.transpose();
 
   const vector_t tooLow = constraint.getValue(
       /*time=*/0.0, makeState(vector3_t::Zero(), vector3_t::Zero()),
       makeInput(vector3_t::Zero(), vector3_t::Zero()), PreComputation());
-  EXPECT_NEAR(tooLow(2), -config.Ax(2, 2) * referenceHeight, kTol);
+  EXPECT_NEAR(tooLow(2), -config.Ax(2, 2) * refPosEeRtWorldEwrtWorldZ, kTol);
 }
 
 // ==================== Non-flat ground ====================
@@ -519,12 +526,14 @@ TEST_F(TwistConstraintTest, GroundPlaneNormalIsRespected) {
   EndEffectorKinematicsTwistConstraint constraint(
       kinematics_, /*numConstraints=*/6, makeFootConfig());
   constraint.setConstrainYawRateAboutNormal(true);
-  const vector3_t slopeNormal = vector3_t(0.2, 0.0, 1.0).normalized();
-  constraint.setGroundPlaneNormal(slopeNormal);
-  EXPECT_TRUE(constraint.getGroundPlaneNormal().isApprox(slopeNormal, kTol));
+  const vector3_t normalSurfaceEwrtWorld =
+      vector3_t(0.2, 0.0, 1.0).normalized();
+  constraint.setNormalTerrainEwrtWorld(normalSurfaceEwrtWorld);
+  EXPECT_TRUE(constraint.getNormalTerrainEwrtWorld().isApprox(
+      normalSurfaceEwrtWorld, kTol));
 
   // A foot aligned with the slope and at rest satisfies the orientation rows.
-  const vector3_t axis = vector3_t::UnitZ().cross(slopeNormal);
+  const vector3_t axis = vector3_t::UnitZ().cross(normalSurfaceEwrtWorld);
   const scalar_t angle = std::asin(axis.norm());
   const vector_t alignedState =
       makeState(vector3_t::Zero(), axis.normalized() * angle);
@@ -536,20 +545,20 @@ TEST_F(TwistConstraintTest, GroundPlaneNormalIsRespected) {
       << value.tail(3).transpose();
 
   // Spinning about the slope normal is still detected.
-  const vector3_t footNormal =
+  const vector3_t zAxisEeEwrtWorld =
       AnalyticEndEffectorKinematics::getRotmatEeRtWorld(alignedState) *
       vector3_t::UnitZ();
   const vector_t spinning = constraint.getValue(
       /*time=*/0.0, alignedState,
-      makeInput(vector3_t::Zero(), 0.4 * footNormal), PreComputation());
+      makeInput(vector3_t::Zero(), 0.4 * zAxisEeEwrtWorld), PreComputation());
   EXPECT_GT(std::abs(spinning(5)), 1.0e-6);
 }
 
 // ==================== The patch frame ====================
 
-/** The rotation vector of `rotation`. */
-vector3_t rotationVectorFromMatrix(const matrix3_t& rotation) {
-  const Eigen::AngleAxis<scalar_t> angleAxis(rotation);
+/** The rotation vector of `rotmat`. */
+vector3_t rotationVectorFromMatrix(const matrix3_t& rotmat) {
+  const Eigen::AngleAxis<scalar_t> angleAxis(rotmat);
   return angleAxis.angle() * angleAxis.axis();
 }
 

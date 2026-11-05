@@ -30,18 +30,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/search/EventShiftLocalSearchStage.h"
 
 #include <chrono>
+#include <cstddef>
 #include <functional>
 #include <set>
 #include <string>
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
+#include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 #include "humanoid_common_mpc/contact_planning/search/CadenceStretchStage.h"
+#include "humanoid_common_mpc/contact_planning/search/SearchStage.h"
 
 namespace ocs2::humanoid {
 
@@ -75,8 +81,9 @@ absl::Status EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
   MiqpResult& result = *run.result;
   SearchStatistics& statistics = *run.statistics;
   const scalar_t timeBudget = params_.maxTime;
-  if (!result.hasIncumbent || params_.iterations <= 0 || timeBudget <= 0.0)
+  if (!result.hasIncumbent || params_.iterations <= 0 || timeBudget <= 0.0) {
     return absl::OkStatus();
+  }
   const int N = run.config->planner.numNodes;
   const MiqpAssignment& initial = *run.initialAssignment;
   // The grid the incumbent is on: planner.dt unless a stage listed before this

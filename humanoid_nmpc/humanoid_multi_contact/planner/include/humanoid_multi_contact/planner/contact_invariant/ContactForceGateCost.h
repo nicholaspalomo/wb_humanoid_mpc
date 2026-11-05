@@ -45,8 +45,8 @@ struct ForceGateWeights {
   scalar_t k1 = 0.0;
   // [N] The force the forces are measured in (the robot's weight), and [m]
   // the length a surface candidate's moment is divided by on top of it.
-  scalar_t forceScale = 1.0;
-  scalar_t momentArm = 1.0;
+  scalar_t scaleForceContactEwrtWorld = 1.0;
+  scalar_t leverArm = 1.0;
 };
 
 /**
@@ -55,10 +55,11 @@ struct ForceGateWeights {
  *
  *   L = sum_i k0 |w_i|^2 / (c_i^2 + k1),
  *
- * with w_i candidate i's force over forceScale (and a surface candidate's
- * moment over forceScale times momentArm) and c_i its contact variable,
- * clamped into [0, 1]: a candidate that does not claim contact cannot push,
- * and a c beyond 1 buys nothing. Smooth and bounded; stiff when k1 is small.
+ * with w_i candidate i's force over scaleForceContactEwrtWorld (and a surface
+ * candidate's moment over scaleForceContactEwrtWorld times leverArm) and c_i
+ * its contact variable, clamped into [0, 1]: a candidate that does not claim
+ * contact cannot push, and a c beyond 1 buys nothing. Smooth and bounded; stiff
+ * when k1 is small.
  *
  * Its exact Hessian in (c_i, w_i) is projected onto the positive
  * semidefinite cone (projectToPositiveSemidefinite()). Cloned per solver
@@ -93,9 +94,10 @@ class ContactForceGateCost final : public StateInputCost {
   ContactForceGateCost(const ContactForceGateCost& other) = default;
 
   /** The scaled wrench w_i of candidate `candidate` in `input`. */
-  vector_t scaledWrench(const vector_t& input, int candidate) const;
+  vector_t computeScaledWrenchContactEwrtWorld(const vector_t& input,
+                                               int candidate) const;
   /** The scale of each entry of candidate `candidate`'s wrench. */
-  vector_t wrenchScales(int candidate) const;
+  vector_t computeScaleWrenchContactEwrtWorld(int candidate) const;
 
   ContactInvariantLayout layout_;
   ForceGateWeights weights_;

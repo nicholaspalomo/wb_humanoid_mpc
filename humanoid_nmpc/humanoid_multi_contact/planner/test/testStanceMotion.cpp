@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // takes it: shift onto the right foot, swing the left foot forward, put it
 // down; and the overlap of pads on one surface.
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -74,14 +75,14 @@ TerrainModel terrainOf(bool wall) {
   floor.name = "ground";
   floor.friction = 0.8;
   config::TerrainScene::Box box;
-  box.center = Eigen::Vector3d(0.0, 0.0, -0.5);
+  box.pos_box_rt_world_ewrt_world = Eigen::Vector3d(0.0, 0.0, -0.5);
   box.half_extents = Eigen::Vector3d(20.0, 20.0, 0.5);
   floor.shape = box;
   scene.primitives.push_back(floor);
   if (wall) {
     config::TerrainScene::Primitive panel = floor;
     panel.name = "wall";
-    box.center = Eigen::Vector3d(0.0, 0.0, 1.5);
+    box.pos_box_rt_world_ewrt_world = Eigen::Vector3d(0.0, 0.0, 1.5);
     box.half_extents = Eigen::Vector3d(0.05, 20.0, 1.5);
     panel.shape = box;
     scene.primitives.push_back(panel);
@@ -100,7 +101,7 @@ TerrainModel floorTerrain() {
 StanceMotionOptions defaultOptions() {
   StanceMotionOptions options;
   options.comMargin = 0.03;
-  options.torqueMargin = 0.9;
+  options.jointTorqueMargin = 0.9;
   return options;
 }
 
@@ -156,7 +157,7 @@ std::unique_ptr<StanceMotion> atlasMotion() {
 
 Eigen::VectorXd standing(const RobotStanceModel& model) {
   RobotConfiguration configuration;
-  configuration.basePosition = Eigen::Vector3d(0.0, 0.0, 0.9232);
+  configuration.posBaseRtWorldEwrtWorld = Eigen::Vector3d(0.0, 0.0, 0.9232);
   configuration.jointNames = {"l_leg_hpy", "r_leg_hpy", "l_leg_kny",
                               "r_leg_kny", "l_leg_aky", "r_leg_aky",
                               "l_arm_shx", "r_arm_shx"};
@@ -168,13 +169,14 @@ Eigen::VectorXd standing(const RobotStanceModel& model) {
   return *q;
 }
 
-ContactPlacement onFloor(int candidate, const Eigen::Vector3d& position) {
+ContactPlacement onFloor(int candidate,
+                         const Eigen::Vector3d& posPadRtWorldEwrtWorld) {
   return ContactPlacement{.candidate = candidate,
                           .primitive = 0,
                           .face = BoxFace::kPositiveZ,
-                          .position = position,
-                          .normal = Eigen::Vector3d::UnitZ(),
-                          .xAxis = Eigen::Vector3d::UnitX()};
+                          .posPadRtWorldEwrtWorld = posPadRtWorldEwrtWorld,
+                          .normalSurfaceEwrtWorld = Eigen::Vector3d::UnitZ(),
+                          .xAxisPadEwrtWorld = Eigen::Vector3d::UnitX()};
 }
 
 TEST(StanceMotion, StepsForwardOnTheFloor) {
@@ -184,8 +186,9 @@ TEST(StanceMotion, StepsForwardOnTheFloor) {
   ASSERT_TRUE(model.setGeneralizedPosition(q0).ok());
   const int left = *model.contactSet().indexOf("foot_l_contact");
   const int right = *model.contactSet().indexOf("foot_r_contact");
-  const StancePlacements both = {onFloor(left, model.padPosition(left)),
-                                 onFloor(right, model.padPosition(right))};
+  const StancePlacements both = {
+      onFloor(left, model.getPosPadRtWorldEwrtWorld(left)),
+      onFloor(right, model.getPosPadRtWorldEwrtWorld(right))};
   const StancePlacements rightOnly = withoutCandidate(both, left);
 
   // Shift onto the right foot.
@@ -200,7 +203,8 @@ TEST(StanceMotion, StepsForwardOnTheFloor) {
 
   // Put the left foot down 0.3 m ahead, with the CoM still over the right.
   const ContactPlacement ahead =
-      onFloor(left, both.front().position + Eigen::Vector3d(0.3, 0.0, 0.0));
+      onFloor(left, both.front().posPadRtWorldEwrtWorld +
+                        Eigen::Vector3d(0.3, 0.0, 0.0));
   const StancePlacements stepped = withPlacement(rightOnly, ahead);
   const absl::StatusOr<MotionCheck> landing =
       motion->transition(stepped, rightOnly, shifted->q, {shifted->q});
@@ -225,14 +229,60 @@ TEST(StanceMotion, StepsForwardOnTheFloor) {
   // The swinging foot clears the floor in the middle of the swing.
   ASSERT_TRUE(
       model.setGeneralizedPosition(swing->knots[swing->knots.size() / 2]).ok());
-  EXPECT_GT(model.padPosition(left).z(), 0.02);
+  EXPECT_GT(model.getPosPadRtWorldEwrtWorld(left).z(), 0.02);
+}
+
+TEST(StanceMotion, ThePolygonOfAStanceFollowsItsSoleYawUnderOneStanceKey) {
+  // Two stances on the same pad positions, one with the left sole turned a
+  // quarter turn: one stance key, two support polygons. A motion that has
+  // computed the first must still return the second's own polygon.
+  std::unique_ptr<StanceMotion> motion = atlasMotion();
+  std::unique_ptr<StanceMotion> freshMotion = atlasMotion();
+  RobotStanceModel& model = motion->model();
+  ASSERT_TRUE(model.setGeneralizedPosition(standing(model)).ok());
+  const int left = *model.contactSet().indexOf("foot_l_contact");
+  const int right = *model.contactSet().indexOf("foot_r_contact");
+  const StancePlacements straight = {
+      onFloor(left, model.getPosPadRtWorldEwrtWorld(left)),
+      onFloor(right, model.getPosPadRtWorldEwrtWorld(right))};
+  StancePlacements turned = straight;
+  turned.front().xAxisPadEwrtWorld = Eigen::Vector3d::UnitY();
+  ASSERT_EQ(stanceKey(straight), stanceKey(turned));
+
+  const absl::StatusOr<std::vector<Eigen::Vector2d>> straightPolygon =
+      motion->polygonOf(straight);
+  ASSERT_TRUE(straightPolygon.ok()) << straightPolygon.status();
+  const absl::StatusOr<std::vector<Eigen::Vector2d>> turnedPolygon =
+      motion->polygonOf(turned);
+  ASSERT_TRUE(turnedPolygon.ok()) << turnedPolygon.status();
+  const absl::StatusOr<std::vector<Eigen::Vector2d>> expectedPolygon =
+      freshMotion->polygonOf(turned);
+  ASSERT_TRUE(expectedPolygon.ok()) << expectedPolygon.status();
+
+  ASSERT_GE(expectedPolygon->size(), 3U);
+  ASSERT_EQ(turnedPolygon->size(), expectedPolygon->size());
+  for (size_t i = 0; i < expectedPolygon->size(); ++i) {
+    EXPECT_TRUE((*turnedPolygon)[i].isApprox((*expectedPolygon)[i], 1.0e-9))
+        << "vertex " << i;
+  }
+  // The turned sole's polygon differs from the straight one's.
+  bool differs = straightPolygon->size() != expectedPolygon->size();
+  for (size_t i = 0; !differs && i < expectedPolygon->size(); ++i) {
+    differs = !(*straightPolygon)[i].isApprox((*expectedPolygon)[i], 1.0e-6);
+  }
+  EXPECT_TRUE(differs);
+  // The same stance again is answered from the cache, unchanged.
+  const absl::StatusOr<std::vector<Eigen::Vector2d>> straightAgain =
+      motion->polygonOf(straight);
+  ASSERT_TRUE(straightAgain.ok()) << straightAgain.status();
+  EXPECT_EQ(*straightAgain, *straightPolygon);
 }
 
 TEST(StanceMotion, TheStaticsCheckJudgesTheTorquesOnlyUnderPositionAndEffort) {
   // A torque margin no stance keeps: standing takes more than 1 % of some
   // joint's effort limit.
   StanceMotionOptions options = defaultOptions();
-  options.torqueMargin = 0.01;
+  options.jointTorqueMargin = 0.01;
   for (const JointLimits limits :
        {JointLimits::kPositionAndEffort, JointLimits::kPositionOnly}) {
     options.jointLimits = limits;
@@ -242,8 +292,9 @@ TEST(StanceMotion, TheStaticsCheckJudgesTheTorquesOnlyUnderPositionAndEffort) {
     ASSERT_TRUE(model.setGeneralizedPosition(q0).ok());
     const int left = *model.contactSet().indexOf("foot_l_contact");
     const int right = *model.contactSet().indexOf("foot_r_contact");
-    const StancePlacements both = {onFloor(left, model.padPosition(left)),
-                                   onFloor(right, model.padPosition(right))};
+    const StancePlacements both = {
+        onFloor(left, model.getPosPadRtWorldEwrtWorld(left)),
+        onFloor(right, model.getPosPadRtWorldEwrtWorld(right))};
     const absl::StatusOr<std::optional<std::string>> failure =
         motion->checkStatics(q0, both);
     ASSERT_TRUE(failure.ok()) << failure.status();
@@ -270,8 +321,9 @@ TEST(StanceMotion, ASphereInTheTerrainCountsOutsideTheStancesPadsOnly) {
   ASSERT_TRUE(model.setGeneralizedPosition(q0).ok());
   const int left = *model.contactSet().indexOf("foot_l_contact");
   const int right = *model.contactSet().indexOf("foot_r_contact");
-  const StancePlacements both = {onFloor(left, model.padPosition(left)),
-                                 onFloor(right, model.padPosition(right))};
+  const StancePlacements both = {
+      onFloor(left, model.getPosPadRtWorldEwrtWorld(left)),
+      onFloor(right, model.getPosPadRtWorldEwrtWorld(right))};
   const StancePlacements rightOnly = withoutCandidate(both, left);
   // Standing: the soles rest on the floor, within the tolerance.
   const absl::StatusOr<std::optional<std::string>> standingClear =
@@ -303,7 +355,8 @@ TEST(StanceMotion, CreateRefusesABadSweepOrPostureLead) {
         << lead;
   }
   for (const SweepResolution& sweep :
-       {SweepResolution{.joint = 0.0}, SweepResolution{.position = -0.01},
+       {SweepResolution{.joint = 0.0},
+        SweepResolution{.baseTranslation = -0.01},
         SweepResolution{.minIntervals = 0},
         SweepResolution{.tolerance = -0.001}}) {
     StanceMotionOptions options = defaultOptions();
@@ -320,9 +373,9 @@ TEST(StanceMotion, KnotsInterpolateAsTheMpcsReference) {
   Eigen::VectorXd to = from;
   to.head<3>() += Eigen::Vector3d(0.4, -0.2, 0.1);
   // A turn of 1 rad about z; the base's quaternion is (x, y, z, w).
-  const Eigen::Quaterniond turned(
+  const Eigen::Quaterniond finalQuatBaseRtWorld(
       Eigen::AngleAxisd(1.0, Eigen::Vector3d::UnitZ()));
-  to.segment<4>(3) = turned.coeffs();
+  to.segment<4>(3) = finalQuatBaseRtWorld.coeffs();
   to.tail(3) += Eigen::Vector3d(0.3, -0.6, 0.9);
   EXPECT_TRUE(knotInterpolation(from, to, /*fraction=*/0.0).isApprox(from));
   EXPECT_TRUE(knotInterpolation(from, to, /*fraction=*/1.0).isApprox(to));
@@ -333,9 +386,9 @@ TEST(StanceMotion, KnotsInterpolateAsTheMpcsReference) {
   EXPECT_TRUE(middle.tail(3).isApprox(from.tail(3) +
                                       0.25 * (to.tail(3) - from.tail(3))));
   // ... and the orientation a quarter of the way along the turn.
-  const Eigen::Quaterniond quarter(
+  const Eigen::Quaterniond expectedQuatBaseRtWorld(
       Eigen::AngleAxisd(0.25, Eigen::Vector3d::UnitZ()));
-  EXPECT_TRUE(middle.segment<4>(3).isApprox(quarter.coeffs()));
+  EXPECT_TRUE(middle.segment<4>(3).isApprox(expectedQuatBaseRtWorld.coeffs()));
 }
 
 TEST(StanceMotion, ASweepThroughTheTerrainBetweenClearKnotsIsFound) {
@@ -405,15 +458,17 @@ TEST(StanceMotion, ASegmentsStepsClearTheTerrainBetweenItsKnots) {
   ASSERT_TRUE(model.setGeneralizedPosition(q0).ok());
   const int left = *model.contactSet().indexOf("foot_l_contact");
   const int right = *model.contactSet().indexOf("foot_r_contact");
-  const StancePlacements both = {onFloor(left, model.padPosition(left)),
-                                 onFloor(right, model.padPosition(right))};
+  const StancePlacements both = {
+      onFloor(left, model.getPosPadRtWorldEwrtWorld(left)),
+      onFloor(right, model.getPosPadRtWorldEwrtWorld(right))};
   const StancePlacements rightOnly = withoutCandidate(both, left);
   const absl::StatusOr<MotionCheck> shifted =
       motion->transition(both, rightOnly, q0, {q0});
   ASSERT_TRUE(shifted.ok()) << shifted.status();
   ASSERT_TRUE(shifted->feasible) << shifted->failure;
   const ContactPlacement ahead =
-      onFloor(left, both.front().position + Eigen::Vector3d(0.3, 0.0, 0.0));
+      onFloor(left, both.front().posPadRtWorldEwrtWorld +
+                        Eigen::Vector3d(0.3, 0.0, 0.0));
   const absl::StatusOr<MotionCheck> landing = motion->transition(
       withPlacement(rightOnly, ahead), rightOnly, shifted->q, {shifted->q});
   ASSERT_TRUE(landing.ok()) << landing.status();
@@ -445,8 +500,9 @@ TEST(StanceMotion, AJumpThatTakesTheCoMIntoTheMarginIsFound) {
   ASSERT_TRUE(model.setGeneralizedPosition(q0).ok());
   const int left = *model.contactSet().indexOf("foot_l_contact");
   const int right = *model.contactSet().indexOf("foot_r_contact");
-  const StancePlacements both = {onFloor(left, model.padPosition(left)),
-                                 onFloor(right, model.padPosition(right))};
+  const StancePlacements both = {
+      onFloor(left, model.getPosPadRtWorldEwrtWorld(left)),
+      onFloor(right, model.getPosPadRtWorldEwrtWorld(right))};
   const StancePlacements rightOnly = withoutCandidate(both, left);
   const absl::StatusOr<MotionCheck> shifted =
       motion->transition(both, rightOnly, q0, {q0});

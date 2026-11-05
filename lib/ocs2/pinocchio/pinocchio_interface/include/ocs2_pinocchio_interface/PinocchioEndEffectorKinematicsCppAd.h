@@ -99,19 +99,17 @@ class PinocchioEndEffectorKinematicsCppAd final : public EndEffectorKinematics<s
   std::vector<vector3_t> getLinvelEesRtWorldEwrtWorld(const vector_t& state, const vector_t& input) const override;
 
   // This function contains no linear approximation due to the non-minimal quaternion representation of SO(3)
-  // Use getOrientationErrorWrtPlaneLinearApproximation if a linear approximation is needed.
+  // Use getLinearApproximationTiltEesRtSurfaceEwrtWorld if a linear approximation is needed.
   std::vector<quaternion_t> getQuatEesRtWorld(const vector_t& state) const override;
-  // NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
-  std::vector<vector3_t> getOrientationErrorWrtPlane(const vector_t& state, const std::vector<vector3_t>& planeNormals) const override;
+  std::vector<vector3_t> getTiltEesRtSurfaceEwrtWorld(const vector_t& state, const std::vector<vector3_t>& normalSurfacesEwrtWorld) const override;
   std::vector<vector3_t> getAngvelEesRtWorldEwrtWorld(const vector_t& state, const vector_t& input) const override;
   std::vector<vector6_t> getTwistEesRtWorldEwrtWorld(const vector_t& state, const vector_t& input) const override;
 
   std::vector<VectorFunctionLinearApproximation> getLinearApproximationPosEesRtWorldEwrtWorld(const vector_t& state) const override;
   std::vector<VectorFunctionLinearApproximation> getLinearApproximationLinvelEesRtWorldEwrtWorld(const vector_t& state,
                                                                                 const vector_t& input) const override;
-  // NOLINTNEXTLINE(frame-naming): the plane orientation error has no quantity word yet (TODO in EndEffectorKinematics.h)
-  std::vector<VectorFunctionLinearApproximation> getOrientationErrorWrtPlaneLinearApproximation(
-      const vector_t& state, const std::vector<vector3_t>& planeNormals) const override;
+  std::vector<VectorFunctionLinearApproximation> getLinearApproximationTiltEesRtSurfaceEwrtWorld(
+      const vector_t& state, const std::vector<vector3_t>& normalSurfacesEwrtWorld) const override;
   std::vector<VectorFunctionLinearApproximation> getLinearApproximationAngvelEesRtWorldEwrtWorld(const vector_t& state,
                                                                                        const vector_t& input) const override;
   std::vector<VectorFunctionLinearApproximation> getLinearApproximationTwistEesRtWorldEwrtWorld(const vector_t& state, const vector_t& input) const override;
@@ -122,7 +120,7 @@ class PinocchioEndEffectorKinematicsCppAd final : public EndEffectorKinematics<s
   std::unique_ptr<CppAdInterface> positionCppAdInterfacePtr_;
   std::unique_ptr<CppAdInterface> velocityCppAdInterfacePtr_;
   std::unique_ptr<CppAdInterface> orientationCppAdInterfacePtr_;
-  std::unique_ptr<CppAdInterface> orientationErrorWrtPlaneCppAdInterfacePtr_;
+  std::unique_ptr<CppAdInterface> tiltEesCppAdInterfacePtr_;
   std::unique_ptr<CppAdInterface> angularVelocityCppAdInterfacePtr_;
   std::unique_ptr<CppAdInterface> twistCppAdInterfacePtr_;
 

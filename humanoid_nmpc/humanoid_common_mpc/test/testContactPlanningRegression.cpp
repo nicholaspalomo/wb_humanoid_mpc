@@ -54,6 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <fstream>
 #include <functional>
+#include <ios>
 #include <map>
 #include <memory>
 #include <set>
@@ -63,14 +64,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
-#include "absl/log/absl_check.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
+#include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
+#include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 namespace ocs2::humanoid {
@@ -87,7 +96,7 @@ ContactPlanningConfig makeConfig(bool heading) {
   config.planner.commitTime = 0.0;
   config.planner.maxBranchAndBoundNodes = 3000;
   config.planner.maxSolveTime = 10.0;
-  config.shared.comHeight = 0.85;
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ = 0.85;
   config.shared.gaitLimits.minSwingDuration = 0.3;
   config.shared.gaitLimits.maxSwingDuration = 0.5;
   config.shared.gaitLimits.minContactDuration = 0.15;
@@ -95,10 +104,11 @@ ContactPlanningConfig makeConfig(bool heading) {
   config.eventShiftLocalSearch.maxTime = 2.0;
   if (heading) {
     config.setHeadingModel(true);
-    config.yawTorqueBudget.torsionalFrictionTorque = 20.0;
-    config.yawTorqueBudget.doubleSupportYawCouple = 40.0;
-    config.hipYawRange.lower = {-0.4, -0.6};
-    config.hipYawRange.upper = {0.6, 0.4};
+    config.yawTorqueBudgetParameters.maxTorqueFootEwrtFootZ = 20.0;
+    config.yawTorqueBudgetParameters.doubleSupportMaxTorqueFeetmeanEwrtWorldZ =
+        40.0;
+    config.hipYawRange.minYawFeetRtBase = {-0.4, -0.6};
+    config.hipYawRange.maxYawFeetRtBase = {0.6, 0.4};
   }
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   return config;
@@ -107,29 +117,29 @@ ContactPlanningConfig makeConfig(bool heading) {
 ContactPlannerInput standing() {
   ContactPlannerInput input;
   input.time = 3.0;
-  input.footPositions[0] = vector2_t(0.0, 0.125);
-  input.footPositions[1] = vector2_t(0.0, -0.125);
+  input.posFeetRtWorldEwrtWorldXy[0] = vector2_t(0.0, 0.125);
+  input.posFeetRtWorldEwrtWorldXy[1] = vector2_t(0.0, -0.125);
   input.contacts = {true, true};
   input.phaseElapsedTime = {5.0, 5.0};
-  input.yawInertia = 10.0;
+  input.inertiaComEwrtWorldZz = 10.0;
   return input;
 }
 
 ContactPlannerInput walking() {
   ContactPlannerInput input = standing();
-  input.velocityCommand = vector2_t(0.4, 0.1);
-  input.comVelocity = vector2_t(0.2, 0.0);
-  input.yaw = 0.3;
-  input.heading = 0.3;
-  input.headingRateCommand = 0.4;
-  input.footYaws = {0.25, 0.35};
+  input.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.4, 0.1);
+  input.proxyLinvelComRtWorldEwrtWorldXy = vector2_t(0.2, 0.0);
+  input.yawHeadingRtWorld = 0.3;
+  input.initYawHeadingRtWorld = 0.3;
+  input.cmdRateYawBaseRtWorld = 0.4;
+  input.eulerzyxFeetRtWorldYaw = {0.25, 0.35};
   return input;
 }
 
 ContactPlannerInput pushed() {
   ContactPlannerInput input = standing();
-  input.comVelocity = vector2_t(0.6, -0.2);
-  input.comPosition = vector2_t(0.05, 0.02);
+  input.proxyLinvelComRtWorldEwrtWorldXy = vector2_t(0.6, -0.2);
+  input.posComRtWorldEwrtWorldXy = vector2_t(0.05, 0.02);
   return input;
 }
 
@@ -138,7 +148,7 @@ ContactPlannerInput midSwing() {
   input.contacts = {false, true};
   input.phaseElapsedTime = {0.16, 0.7};
   input.lastSwungFoot = 0;
-  input.footPositions[0] = vector2_t(0.1, 0.13);
+  input.posFeetRtWorldEwrtWorldXy[0] = vector2_t(0.1, 0.13);
   input.committedUntil = input.time + 0.25;
   input.committedContacts = {{false, true}, {false, true}, {true, true}};
   input.committedPhaseStartTimes = {makeFeetArray(input.time - 0.16),
@@ -249,8 +259,9 @@ using Fixture = std::vector<std::pair<std::string, std::string>>;
 
 std::string fixtureText(const Fixture& fixture) {
   std::ostringstream out;
-  for (const std::pair<std::string, std::string>& entry : fixture)
+  for (const std::pair<std::string, std::string>& entry : fixture) {
     out << entry.first << " " << entry.second << "\n";
+  }
   return out.str();
 }
 
@@ -314,8 +325,9 @@ void checkOrRecord(const char* absl_nonnull name,
 std::string formatNumbers(const std::vector<scalar_t>& values, int precision) {
   std::ostringstream out;
   out.precision(precision);
-  for (size_t i = 0; i < values.size(); ++i)
+  for (size_t i = 0; i < values.size(); ++i) {
     out << (i > 0 ? " " : "") << values[i];
+  }
   return out.str();
 }
 
@@ -456,8 +468,9 @@ TEST(ContactPlanningRegression, FeasibleAssignmentsMatchTheRecordedRules) {
       unsigned digit = 0;
       for (int code = 0; code < (1 << numBinaries); ++code) {
         MiqpAssignment a(static_cast<size_t>(numBinaries));
-        for (int i = 0; i < numBinaries; ++i)
+        for (int i = 0; i < numBinaries; ++i) {
           a[static_cast<size_t>(i)] = static_cast<int8_t>((code >> i) & 1);
+        }
         const bool ok = planner->propagate(input, a);
         if (ok) {
           ++numFeasible;
@@ -614,8 +627,9 @@ std::string describeAssignment(const MiqpAssignment& a) {
 bool agrees(const MiqpAssignment& partial, int code) {
   for (size_t i = 0; i < partial.size(); ++i) {
     if (partial[i] != kMiqpFree &&
-        partial[i] != static_cast<int8_t>((code >> i) & 1))
+        partial[i] != static_cast<int8_t>((code >> i) & 1)) {
       return false;
+    }
   }
   return true;
 }
@@ -672,8 +686,9 @@ SearchTreeAudit auditSearchTree(const LipContactPlanner& planner,
   for (int code = 0; code < (1 << numBinaries); ++code) {
     if (!agrees(initial, code)) continue;
     MiqpAssignment complete(static_cast<size_t>(numBinaries));
-    for (int i = 0; i < numBinaries; ++i)
+    for (int i = 0; i < numBinaries; ++i) {
       complete[static_cast<size_t>(i)] = static_cast<int8_t>((code >> i) & 1);
+    }
     if (planner.propagate(input, complete)) feasible.push_back(code);
   }
   audit.numFeasibleCompletions = static_cast<int>(feasible.size());
@@ -701,8 +716,9 @@ SearchTreeAudit auditSearchTree(const LipContactPlanner& planner,
                                       "] fixing binary ", i, " to ",
                                       static_cast<int>(value)),
                          child, childFeasible, propagated, feasible, audit);
-        if (childFeasible && seen.insert(propagated).second)
+        if (childFeasible && seen.insert(propagated).second) {
           open.push_back(propagated);
+        }
       }
     }
   }
@@ -761,8 +777,9 @@ TEST(ContactPlanningRegression, PartialPropagationNeverPrunesAFeasibleSubtree) {
         << ": every case has to have a plan, or it proves nothing";
     numPruned += audit.numPrunedChildren;
     numPartials += audit.numPartialAssignments;
-    for (const std::string& violation : audit.pruningViolations)
+    for (const std::string& violation : audit.pruningViolations) {
       ADD_FAILURE() << named.first << ": " << violation;
+    }
   }
   // Positive controls: the walk reaches a real search tree, and propagation
   // does prune in it - a propagation that never returned false would pass the
@@ -777,8 +794,9 @@ TEST(ContactPlanningRegression,
   for (const std::pair<std::string, SearchTreeAudit>& named :
        searchTreeAudits()) {
     numFixings += named.second.numFixingsChecked;
-    for (const std::string& violation : named.second.fixingViolations)
+    for (const std::string& violation : named.second.fixingViolations) {
       ADD_FAILURE() << named.first << ": " << violation;
+    }
   }
   // Positive control: propagation fixes binaries along the way (the rules are
   // not idle), so the check above has something to check.
@@ -809,13 +827,16 @@ TEST(ContactPlanningRegression, RecedingHorizonPlansMatchTheRecordedWalks) {
       fixture.emplace_back(prefix + ".contacts", contacts);
       std::vector<scalar_t> trajectory;
       for (int k = 0; k <= plan.numIntervals(); ++k) {
-        for (int axis = 0; axis < 2; ++axis)
-          trajectory.push_back(plan.comPosition[k](axis));
-        for (size_t foot = 0; foot < kNumContacts; ++foot) {
-          for (int axis = 0; axis < 2; ++axis)
-            trajectory.push_back(plan.footholds[k][foot](axis));
+        for (int axis = 0; axis < 2; ++axis) {
+          trajectory.push_back(plan.posComRtWorldEwrtWorldXyTraj[k](axis));
         }
-        if (heading) trajectory.push_back(plan.heading[k]);
+        for (size_t foot = 0; foot < kNumContacts; ++foot) {
+          for (int axis = 0; axis < 2; ++axis) {
+            trajectory.push_back(
+                plan.desPosFeetRtWorldEwrtWorldXyTraj[k][foot](axis));
+          }
+        }
+        if (heading) trajectory.push_back(plan.headingModelYawTraj[k]);
       }
       fixture.emplace_back(prefix + ".trajectory",
                            formatNumbers(trajectory, /*precision=*/9));
@@ -829,18 +850,24 @@ TEST(ContactPlanningRegression, RecedingHorizonPlansMatchTheRecordedWalks) {
             (contactsNext[foot] == input.contacts[foot])
                 ? input.phaseElapsedTime[foot] + config.planner.dt
                 : 0.0;
-        if (input.contacts[foot] && !contactsNext[foot])
+        if (input.contacts[foot] && !contactsNext[foot]) {
           input.lastSwungFoot = static_cast<int>(foot);
-        input.footPositions[foot] = plan.footholds[1][foot];
-        if (heading) input.footYaws[foot] = plan.footYaws[1][foot];
+        }
+        input.posFeetRtWorldEwrtWorldXy[foot] =
+            plan.desPosFeetRtWorldEwrtWorldXyTraj[1][foot];
+        if (heading) {
+          input.eulerzyxFeetRtWorldYaw[foot] =
+              plan.desEulerzyxFeetRtWorldYawTraj[1][foot];
+        }
       }
       input.contacts = contactsNext;
-      input.comPosition = plan.comPosition[1];
-      input.comVelocity = plan.comVelocity[1];
+      input.posComRtWorldEwrtWorldXy = plan.posComRtWorldEwrtWorldXyTraj[1];
+      input.proxyLinvelComRtWorldEwrtWorldXy =
+          plan.linvelComRtWorldEwrtWorldXyTraj[1];
       if (heading) {
-        input.heading = plan.heading[1];
-        input.headingRate = plan.headingRate[1];
-        input.yaw = input.heading;
+        input.initYawHeadingRtWorld = plan.headingModelYawTraj[1];
+        input.initRateYawHeadingRtWorld = plan.headingModelYawRateTraj[1];
+        input.yawHeadingRtWorld = input.initYawHeadingRtWorld;
       }
       input.time = nextTime;
     }

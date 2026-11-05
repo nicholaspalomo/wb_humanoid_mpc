@@ -31,12 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <cstddef>
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
@@ -44,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
@@ -178,13 +181,13 @@ class DrcAtlasContactTestModel {
 
   /**
    * A plausible working point for the given model: the named foot carries
-   * `normalForce` newtons, the other carries none, and the joints are moving.
-   * Written through the model's own setter, so it is correct for both
+   * `forceFootEwrtParamZ` newtons, the other carries none, and the joints are
+   * moving. Written through the model's own setter, so it is correct for both
    * parameterizations.
    */
   vector_t makeInput(const MpcRobotModelBase<scalar_t>& model,
                      size_t loadedFoot,
-                     scalar_t normalForce) const;
+                     scalar_t forceFootEwrtParamZ) const;
 
   /** The paths of the DRC Atlas task and reference textprotos in the runfiles.
    */

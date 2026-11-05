@@ -73,16 +73,16 @@ TEST(JointFeedbackTorques, AreTheCommandedTorquesOfTheJointsInTheirOrder) {
     state.setJointVelocity(joint, /*jointVelocity=*/0.3);
   }
   const std::vector<robot::joint_index_t> joints = {4, 0, 2};
-  const absl::StatusOr<Eigen::VectorXd> torques =
+  const absl::StatusOr<Eigen::VectorXd> jointTorques =
       jointFeedbackTorques(action, state, joints);
-  ASSERT_TRUE(torques.ok()) << torques.status();
-  ASSERT_EQ(torques->size(), 3);
-  for (Eigen::Index i = 0; i < torques->size(); ++i) {
+  ASSERT_TRUE(jointTorques.ok()) << jointTorques.status();
+  ASSERT_EQ(jointTorques->size(), 3);
+  for (Eigen::Index i = 0; i < jointTorques->size(); ++i) {
     const robot::joint_index_t joint = joints[static_cast<size_t>(i)];
     // kp (q_des - q) + kd (qd_des - qd) + feedforward.
     const double expected =
         10.0 * (0.05 * static_cast<double>(joint)) + 2.0 * (-0.2 - 0.3) + 0.5;
-    EXPECT_DOUBLE_EQ((*torques)(i), expected) << "joint " << joint;
+    EXPECT_DOUBLE_EQ((*jointTorques)(i), expected) << "joint " << joint;
   }
   const absl::StatusOr<Eigen::VectorXd> none =
       jointFeedbackTorques(action, state, /*joints=*/{});
@@ -99,12 +99,12 @@ TEST(JointFeedbackTorques, AJointWithoutAnActionIsAnInternalErrorNamingIt) {
   const robot::model::RobotState state(description, /*contactSize=*/2);
   action[3].reset();
   const std::vector<robot::joint_index_t> joints = {0, 3};
-  const absl::StatusOr<Eigen::VectorXd> torques =
+  const absl::StatusOr<Eigen::VectorXd> jointTorques =
       jointFeedbackTorques(action, state, joints);
-  ASSERT_FALSE(torques.ok());
-  EXPECT_EQ(torques.status().code(), absl::StatusCode::kInternal);
-  EXPECT_TRUE(absl::StrContains(torques.status().message(), "joint 3"))
-      << torques.status();
+  ASSERT_FALSE(jointTorques.ok());
+  EXPECT_EQ(jointTorques.status().code(), absl::StatusCode::kInternal);
+  EXPECT_TRUE(absl::StrContains(jointTorques.status().message(), "joint 3"))
+      << jointTorques.status();
 }
 
 }  // namespace

@@ -162,8 +162,8 @@ bool VelocityCommandRepeater::publishStopCommand(absl::Duration timeout,
     absl::MutexLock lock(state_->mutex);
     if (!state_->command.has_value()) return false;
     vector4_t stop = vector4_t::Zero();
-    stop(KeyboardCommandLimits::kPelvisHeightChangeIndex) =
-        (*state_->command)(KeyboardCommandLimits::kPelvisHeightChangeIndex);
+    stop(KeyboardCommandLimits::kBaseHeightChangeIndex) =
+        (*state_->command)(KeyboardCommandLimits::kBaseHeightChangeIndex);
     state_->command = stop;
     stopGeneration = ++state_->commandGeneration;
   }

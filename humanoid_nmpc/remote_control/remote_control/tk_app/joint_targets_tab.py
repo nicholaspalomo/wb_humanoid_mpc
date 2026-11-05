@@ -110,7 +110,7 @@ class JointTargetsTab(ttk.Frame):
         self.param_publisher = param_publisher
 
         self.joint_names: list[str] = []
-        self.default_positions: dict[str, float] = {}
+        self.default_joint_positions: dict[str, float] = {}
         self.slider_rows: dict[str, slider_row.SliderRow] = {}
         self.section_frames: dict[str, ttk.LabelFrame] = {}
         self._debounce_publish_id: str | None = None
@@ -206,7 +206,7 @@ class JointTargetsTab(ttk.Frame):
         self.joint_names = config_files.read_pd_gains_joint_names(
             self.pd_gains_file
         )
-        self.default_positions = config_files.read_default_joint_state(
+        self.default_joint_positions = config_files.read_default_joint_state(
             self.reference_file
         )
 
@@ -251,7 +251,7 @@ class JointTargetsTab(ttk.Frame):
                 sec_name, self.section_frames["Other Joints"]
             )
 
-            default_val = self.default_positions.get(jname, 0.0)
+            default_val = self.default_joint_positions.get(jname, 0.0)
 
             row = slider_row.SliderRow(
                 parent_frame,
@@ -297,7 +297,7 @@ class JointTargetsTab(ttk.Frame):
     def reset_all_defaults(self) -> None:
         """Reset all sliders to their default positions (the reference file's default_joint_state)."""
         for jname, row in self.slider_rows.items():
-            default_val = self.default_positions.get(jname, 0.0)
+            default_val = self.default_joint_positions.get(jname, 0.0)
             row.set_value(default_val)
         self._show_status("All targets reset to default joint state")
 

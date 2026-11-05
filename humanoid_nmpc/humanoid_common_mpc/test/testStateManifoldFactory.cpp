@@ -27,8 +27,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <cstddef>
 #include <memory>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/ProductStateManifold.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/manifold/StateManifoldSegment.h"
@@ -76,8 +77,9 @@ vector_t stateWithAttitude(const TuningLayout& layout,
       static_cast<Eigen::Index>(getTuningLayoutStateDim(layout)), first,
       first + 2.2);
   for (const TuningSegment& segment : layout.segments) {
-    if (segment.kind == TuningSegmentKind::kEulerZyxOrientation)
+    if (segment.kind == TuningSegmentKind::kEulerZyxOrientation) {
       state.segment<4>(static_cast<Eigen::Index>(segment.stateStart)) = xi;
+    }
   }
   return state;
 }
@@ -160,8 +162,9 @@ TEST(StateManifoldFactory, ALayoutThatDoesNotDescribeTheStateIsRefused) {
     size_t stateStart = 0;
     for (TuningSegment& segment : malformed.segments) {
       segment.stateStart = stateStart;
-      if (segment.kind == TuningSegmentKind::kEulerZyxOrientation)
+      if (segment.kind == TuningSegmentKind::kEulerZyxOrientation) {
         segment.stateDim = orientationSlotCount;
+      }
       stateStart += segment.stateDim;
     }
     const absl::StatusOr<std::shared_ptr<const StateManifold>>

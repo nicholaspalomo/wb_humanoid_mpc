@@ -1059,7 +1059,7 @@ def display_label(spec: ParameterSpec, message: Any) -> str:
       message: The file it is of.
 
     Returns:
-      e.g. "mnorm_linmom_com_rt_world_ewrt_world.x", "terrain_height (m) (default)".
+      e.g. "mnorm_linmom_com_rt_world_ewrt_world.x", "pos_surface_rt_world_ewrt_world_z (m) (default)".
     """
     parts = [spec.label]
     if spec.tuning.unit:

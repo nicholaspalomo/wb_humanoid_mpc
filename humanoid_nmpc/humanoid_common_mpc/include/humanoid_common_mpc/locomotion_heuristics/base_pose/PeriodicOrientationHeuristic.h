@@ -31,8 +31,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+
 #include "humanoid_common_mpc/locomotion_heuristics/BasePoseHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 
 namespace ocs2::humanoid {
 
@@ -68,7 +73,7 @@ class PeriodicOrientationHeuristic final : public BasePoseHeuristic {
   ~PeriodicOrientationHeuristic() override = default;
 
   absl::string_view name() const override {
-    return heuristic::kPeriodicOrientation;
+    return heuristic::kPeriodicOrientationName;
   }
   absl::Status configure(
       const LocomotionHeuristicConfig& config,

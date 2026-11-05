@@ -135,17 +135,19 @@ class RobotMeshes:
             scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
             if isinstance(geometry, urdf_model.Mesh):
                 scale = geometry.scale
+            # NOLINTBEGIN(frame-naming): a Rerun keyword argument, and a component of a frame-generic URDF <origin>
             recording.log(
                 path,
                 rr.Transform3D(
-                    translation=list(visual.origin.translation),
+                    translation=list(visual.pose_geom_rt_link.translation),
                     quaternion=rr.Quaternion(
-                        xyzw=list(visual.origin.quaternion_xyzw)
+                        xyzw=list(visual.pose_geom_rt_link.quaternion_xyzw)
                     ),
                     scale=list(scale),
                 ),
                 static=True,
             )
+            # NOLINTEND(frame-naming)
             if isinstance(geometry, urdf_model.Mesh):
                 recording.log(
                     path,

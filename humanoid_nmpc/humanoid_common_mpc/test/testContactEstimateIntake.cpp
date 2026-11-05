@@ -27,6 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -37,9 +38,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/ContactEstimateIntake.h"
+#include "humanoid_common_mpc/mrt/ControllerEvent.h"
+#include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "robot_model/ContactEstimator.h"
 #include "robot_model/RobotDescription.h"
 #include "robot_model/RobotState.h"

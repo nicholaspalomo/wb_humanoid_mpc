@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -178,8 +179,9 @@ TEST(ViewerFrameMailboxTest, ViewersAreThePageIdsSeenWithinTheLease) {
   EXPECT_EQ(mailbox.viewerCount(), 0);
   // Ids beyond the cap replace the oldest.
   for (int viewer = 0; viewer < ViewerFrameMailbox::kMaxTrackedViewers + 5;
-       ++viewer)
+       ++viewer) {
     mailbox.noteViewer(absl::StrCat(viewer));
+  }
   EXPECT_EQ(mailbox.viewerCount(), ViewerFrameMailbox::kMaxTrackedViewers);
 }
 
@@ -232,8 +234,9 @@ TEST(ViewerFrameMailboxTest, ReadersAlwaysCopyWholeFrames) {
         const char expected = static_cast<char>('a' + frame->sequence % 26);
         if (frame->jpeg !=
             std::string(static_cast<size_t>(1000 + frame->sequence % 7),
-                        expected))
+                        expected)) {
           torn.fetch_add(1);
+        }
         last = frame->sequence;
       }
     });

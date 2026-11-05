@@ -97,14 +97,16 @@ def create_train_step(
         params: models.SirenParams, q_batch: jax.Array, target_A_bar: jax.Array
     ) -> tuple[jax.Array, dict[str, jax.Array]]:
         # Delta_theta: (B, 3) and J_Delta_theta: (B, 3, n_j).
-        offsets = v_forward(params, q_batch)
+        batch_rotvec_acom_rt_base = v_forward(params, q_batch)
         jacobians = v_jacobian(params, q_batch)
 
         # What the runtime's composition xi (x) Exp(Delta_theta) turns joint velocities into, in base axes:
         # J_l(Delta_theta) J_Delta_theta (models.SirenACOM.acom_joint_rate_jacobian). Fitting J_Delta_theta alone
         # would be right only at Delta_theta = 0, and the shipped networks' offsets average 20 to 35 degrees.
         rate_jacobians = jnp.einsum(
-            "bij,bjk->bik", v_left_jacobian(offsets), jacobians
+            "bij,bjk->bik",
+            v_left_jacobian(batch_rotvec_acom_rt_base),
+            jacobians,
         )
         frob_loss = jnp.mean(
             jnp.sum(jnp.square(rate_jacobians - target_A_bar), axis=(-2, -1))
@@ -115,7 +117,9 @@ def create_train_step(
         )
 
         # Regularization on offset magnitude (keep Delta_theta centered near zero)
-        reg_loss = reg_weight * jnp.mean(jnp.sum(jnp.square(offsets), axis=-1))
+        reg_loss = reg_weight * jnp.mean(
+            jnp.sum(jnp.square(batch_rotvec_acom_rt_base), axis=-1)
+        )
 
         # The relative error the C++ acceptance test grades, ||J_l J - Abar||_F / ||Abar||_F, per sample.
         relative_errors = jnp.linalg.norm(
@@ -130,7 +134,7 @@ def create_train_step(
             "relative_errors": relative_errors,
             "rate_jacobians": rate_jacobians,
             "jacobians": jacobians,
-            "offsets": offsets,
+            "batch_rotvec_acom_rt_base": batch_rotvec_acom_rt_base,
         }
 
     @jax.jit
@@ -376,19 +380,28 @@ def train_acom(
         val_jacobians = np.array(val_aux["rate_jacobians"])
         val_targets = np.array(A_val)
         axis_diff = val_jacobians - val_targets
-        roll_err = float(
+        rate_map_err_x = float(
             np.mean(np.sum(np.square(axis_diff[:, 0, :]), axis=-1))
         )
-        pitch_err = float(
+        rate_map_err_y = float(
             np.mean(np.sum(np.square(axis_diff[:, 1, :]), axis=-1))
         )
-        yaw_err = float(np.mean(np.sum(np.square(axis_diff[:, 2, :]), axis=-1)))
+        rate_map_err_z = float(
+            np.mean(np.sum(np.square(axis_diff[:, 2, :]), axis=-1))
+        )
 
         # aCOM offset statistics
-        val_offsets = np.array(val_aux["offsets"])
-        offset_norms_deg = np.rad2deg(np.linalg.norm(val_offsets, axis=-1))
-        mean_offset_deg = float(np.mean(offset_norms_deg))
-        max_offset_deg = float(np.max(offset_norms_deg))
+        val_rotvec_acom_rt_base = np.array(val_aux["batch_rotvec_acom_rt_base"])
+        # [deg] The rotation angle of the aCOM frame from the base, per validation sample.
+        norm_rotvec_acom_rt_base_samples = np.rad2deg(
+            np.linalg.norm(val_rotvec_acom_rt_base, axis=-1)
+        )
+        mean_norm_rotvec_acom_rt_base = float(
+            np.mean(norm_rotvec_acom_rt_base_samples)
+        )
+        max_norm_rotvec_acom_rt_base = float(
+            np.max(norm_rotvec_acom_rt_base_samples)
+        )
 
         # Learning rate and execution time. The schedule is sampled at the step
         # count reached by the end of this epoch, which is what the weights the
@@ -448,17 +461,25 @@ def train_acom(
                     )
 
             # Per-axis error metrics
-            writer.add_scalar("error_axes/roll_x_frob_loss", roll_err, epoch)
-            writer.add_scalar("error_axes/pitch_y_frob_loss", pitch_err, epoch)
-            writer.add_scalar("error_axes/yaw_z_frob_loss", yaw_err, epoch)
+            writer.add_scalar(
+                "error_axes/roll_x_frob_loss", rate_map_err_x, epoch
+            )
+            writer.add_scalar(
+                "error_axes/pitch_y_frob_loss", rate_map_err_y, epoch
+            )
+            writer.add_scalar(
+                "error_axes/yaw_z_frob_loss", rate_map_err_z, epoch
+            )
 
             # Optimization and performance
             writer.add_scalar("optim/learning_rate", current_lr, epoch)
             writer.add_scalar(
-                "stats/mean_acom_offset_deg", mean_offset_deg, epoch
+                "stats/mean_acom_offset_deg",
+                mean_norm_rotvec_acom_rt_base,
+                epoch,
             )
             writer.add_scalar(
-                "stats/max_acom_offset_deg", max_offset_deg, epoch
+                "stats/max_acom_offset_deg", max_norm_rotvec_acom_rt_base, epoch
             )
             writer.add_scalar("perf/epoch_time_ms", epoch_time_ms, epoch)
             writer.add_scalar(
@@ -492,17 +513,17 @@ def train_acom(
 
                 writer.add_histogram(
                     "activations/val_offset_roll_deg",
-                    np.rad2deg(val_offsets[:, 0]),
+                    np.rad2deg(val_rotvec_acom_rt_base[:, 0]),
                     epoch,
                 )
                 writer.add_histogram(
                     "activations/val_offset_pitch_deg",
-                    np.rad2deg(val_offsets[:, 1]),
+                    np.rad2deg(val_rotvec_acom_rt_base[:, 1]),
                     epoch,
                 )
                 writer.add_histogram(
                     "activations/val_offset_yaw_deg",
-                    np.rad2deg(val_offsets[:, 2]),
+                    np.rad2deg(val_rotvec_acom_rt_base[:, 2]),
                     epoch,
                 )
 

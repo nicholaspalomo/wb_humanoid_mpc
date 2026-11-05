@@ -48,48 +48,64 @@ constexpr int kArcPoints = 12;
 // [m] The highest an arc rises above its straight line.
 constexpr double kHighestArc = 0.6;
 
-/** Whether the segment from `from` to `to` keeps `clearance` from the
- * terrain. */
-bool keepsClear(const Eigen::Vector3d& from,
-                const Eigen::Vector3d& to,
+/** Whether the segment from `liftoffDesPosPadRtWorldEwrtWorld` to
+ * `touchdownDesPosPadRtWorldEwrtWorld` keeps `clearance` from the terrain. */
+bool keepsClear(const Eigen::Vector3d& liftoffDesPosPadRtWorldEwrtWorld,
+                const Eigen::Vector3d& touchdownDesPosPadRtWorldEwrtWorld,
                 double clearance,
                 const TerrainModel& terrain) {
   const int steps = std::max(
-      1,
-      static_cast<int>(std::ceil((to - from).norm() / kTraverseCheckSpacing)));
+      1, static_cast<int>(std::ceil((touchdownDesPosPadRtWorldEwrtWorld -
+                                     liftoffDesPosPadRtWorldEwrtWorld)
+                                        .norm() /
+                                    kTraverseCheckSpacing)));
   for (int k = 0; k <= steps; ++k) {
-    const Eigen::Vector3d point =
-        from + (to - from) * static_cast<double>(k) / steps;
-    if (terrain.signedDistance(point) < clearance) return false;
+    const Eigen::Vector3d desPosPadRtWorldEwrtWorld =
+        liftoffDesPosPadRtWorldEwrtWorld + (touchdownDesPosPadRtWorldEwrtWorld -
+                                            liftoffDesPosPadRtWorldEwrtWorld) *
+                                               static_cast<double>(k) / steps;
+    if (terrain.signedDistance(desPosPadRtWorldEwrtWorld) < clearance)
+      return false;
   }
   return true;
 }
 
-/** The point at `u` of the arc from `from` to `to` raised by `height` in its
- * middle. */
-Eigen::Vector3d arcPoint(const Eigen::Vector3d& from,
-                         const Eigen::Vector3d& to,
-                         double height,
-                         double u) {
+/** The point at `u` of the arc from `liftoffDesPosPadRtWorldEwrtWorld` to
+ * `touchdownDesPosPadRtWorldEwrtWorld` raised by
+ * `maxPosPadRtChordmidEwrtWorldZ` in its middle. */
+Eigen::Vector3d computeArcDesPosPadRtWorldEwrtWorld(
+    const Eigen::Vector3d& liftoffDesPosPadRtWorldEwrtWorld,
+    const Eigen::Vector3d& touchdownDesPosPadRtWorldEwrtWorld,
+    double maxPosPadRtChordmidEwrtWorldZ,
+    double u) {
   // The arc's bump 4 u (1 - u) is 1 in its middle.
   constexpr double kBumpScale = 4.0;
-  return from + u * (to - from) +
-         kBumpScale * u * (1.0 - u) * height * Eigen::Vector3d::UnitZ();
+  return liftoffDesPosPadRtWorldEwrtWorld +
+         u * (touchdownDesPosPadRtWorldEwrtWorld -
+              liftoffDesPosPadRtWorldEwrtWorld) +
+         kBumpScale * u * (1.0 - u) * maxPosPadRtChordmidEwrtWorldZ *
+             Eigen::Vector3d::UnitZ();
 }
 
-/** Whether the arc from `from` to `to` raised by `height` keeps `clearance`
- * from the terrain. */
-bool arcKeepsClear(const Eigen::Vector3d& from,
-                   const Eigen::Vector3d& to,
-                   double height,
+/** Whether the arc from `liftoffDesPosPadRtWorldEwrtWorld` to
+ * `touchdownDesPosPadRtWorldEwrtWorld` raised by
+ * `maxPosPadRtChordmidEwrtWorldZ` keeps `clearance` from the terrain. */
+bool arcKeepsClear(const Eigen::Vector3d& liftoffDesPosPadRtWorldEwrtWorld,
+                   const Eigen::Vector3d& touchdownDesPosPadRtWorldEwrtWorld,
+                   double maxPosPadRtChordmidEwrtWorldZ,
                    double clearance,
                    const TerrainModel& terrain) {
-  const int steps = std::max(
-      kArcPoints,
-      static_cast<int>(std::ceil((to - from).norm() / kTraverseCheckSpacing)));
+  const int steps =
+      std::max(kArcPoints,
+               static_cast<int>(std::ceil((touchdownDesPosPadRtWorldEwrtWorld -
+                                           liftoffDesPosPadRtWorldEwrtWorld)
+                                              .norm() /
+                                          kTraverseCheckSpacing)));
   for (int k = 0; k <= steps; ++k) {
-    if (terrain.signedDistance(arcPoint(
-            from, to, height, static_cast<double>(k) / steps)) < clearance) {
+    if (terrain.signedDistance(computeArcDesPosPadRtWorldEwrtWorld(
+            liftoffDesPosPadRtWorldEwrtWorld,
+            touchdownDesPosPadRtWorldEwrtWorld, maxPosPadRtChordmidEwrtWorldZ,
+            static_cast<double>(k) / steps)) < clearance) {
       return false;
     }
   }
@@ -101,59 +117,86 @@ bool arcKeepsClear(const Eigen::Vector3d& from,
 SwingPath SwingPath::Create(const SwingEnds& ends,
                             double clearance,
                             const TerrainModel& terrain) {
-  const Eigen::Vector3d lifted =
-      ends.lifts ? Eigen::Vector3d(ends.start + clearance * ends.startNormal)
-                 : ends.start;
-  const Eigen::Vector3d above = ends.target + clearance * ends.targetNormal;
-  std::vector<Eigen::Vector3d> points = {ends.start, lifted};
+  const Eigen::Vector3d liftoffDesPosPadRtWorldEwrtWorld =
+      ends.lifts ? Eigen::Vector3d(ends.initPosPadRtWorldEwrtWorld +
+                                   clearance * ends.initNormalSurfaceEwrtWorld)
+                 : ends.initPosPadRtWorldEwrtWorld;
+  const Eigen::Vector3d touchdownDesPosPadRtWorldEwrtWorld =
+      ends.desPosPadRtWorldEwrtWorld +
+      clearance * ends.desNormalSurfaceEwrtWorld;
+  std::vector<Eigen::Vector3d> desPosPadRtWorldEwrtWorldSamples = {
+      ends.initPosPadRtWorldEwrtWorld, liftoffDesPosPadRtWorldEwrtWorld};
   const double keep = 0.5 * clearance + ends.extent;
-  if (!keepsClear(lifted, above, keep, terrain)) {
-    // The lowest arc lerp(lifted, above, u) + 4 u (1 - u) H e_z that keeps
-    // the clearance, H rising by the clearance at a time.
-    double height = clearance;
-    for (; height < kHighestArc; height += clearance) {
-      if (arcKeepsClear(lifted, above, height, keep, terrain)) {
+  if (!keepsClear(liftoffDesPosPadRtWorldEwrtWorld,
+                  touchdownDesPosPadRtWorldEwrtWorld, keep, terrain)) {
+    // The lowest arc lerp(lift-off end, touch-down start, u)
+    // + 4 u (1 - u) H e_z that keeps the clearance, H rising by the clearance
+    // at a time.
+    double maxPosPadRtChordmidEwrtWorldZ = clearance;
+    for (; maxPosPadRtChordmidEwrtWorldZ < kHighestArc;
+         maxPosPadRtChordmidEwrtWorldZ += clearance) {
+      if (arcKeepsClear(liftoffDesPosPadRtWorldEwrtWorld,
+                        touchdownDesPosPadRtWorldEwrtWorld,
+                        maxPosPadRtChordmidEwrtWorldZ, keep, terrain)) {
         break;
       }
     }
     for (int k = 1; k < kArcPoints; ++k) {
-      points.push_back(
-          arcPoint(lifted, above, height, static_cast<double>(k) / kArcPoints));
+      desPosPadRtWorldEwrtWorldSamples.push_back(
+          computeArcDesPosPadRtWorldEwrtWorld(
+              liftoffDesPosPadRtWorldEwrtWorld,
+              touchdownDesPosPadRtWorldEwrtWorld, maxPosPadRtChordmidEwrtWorldZ,
+              static_cast<double>(k) / kArcPoints));
     }
   }
-  points.push_back(above);
-  points.push_back(ends.target);
+  desPosPadRtWorldEwrtWorldSamples.push_back(
+      touchdownDesPosPadRtWorldEwrtWorld);
+  desPosPadRtWorldEwrtWorldSamples.push_back(ends.desPosPadRtWorldEwrtWorld);
 
   SwingPath path;
-  for (const Eigen::Vector3d& point : points) {
-    if (!path.waypoints_.empty() &&
-        (point - path.waypoints_.back()).norm() < kSamePoint) {
+  for (const Eigen::Vector3d& desPosPadRtWorldEwrtWorld :
+       desPosPadRtWorldEwrtWorldSamples) {
+    if (!path.desPosPadRtWorldEwrtWorldSamples_.empty() &&
+        (desPosPadRtWorldEwrtWorld -
+         path.desPosPadRtWorldEwrtWorldSamples_.back())
+                .norm() < kSamePoint) {
       continue;
     }
     path.cumulative_.push_back(
-        path.waypoints_.empty() ? 0.0
-                                : path.cumulative_.back() +
-                                      (point - path.waypoints_.back()).norm());
-    path.waypoints_.push_back(point);
+        path.desPosPadRtWorldEwrtWorldSamples_.empty()
+            ? 0.0
+            : path.cumulative_.back() +
+                  (desPosPadRtWorldEwrtWorld -
+                   path.desPosPadRtWorldEwrtWorldSamples_.back())
+                      .norm());
+    path.desPosPadRtWorldEwrtWorldSamples_.push_back(desPosPadRtWorldEwrtWorld);
   }
   const double length = path.cumulative_.back();
   if (length < kSamePoint) return path;
-  path.liftEnd_ = (lifted - ends.start).norm() / length;
-  path.approachStart_ = 1.0 - (ends.target - above).norm() / length;
+  path.liftEnd_ =
+      (liftoffDesPosPadRtWorldEwrtWorld - ends.initPosPadRtWorldEwrtWorld)
+          .norm() /
+      length;
+  path.approachStart_ = 1.0 - (ends.desPosPadRtWorldEwrtWorld -
+                               touchdownDesPosPadRtWorldEwrtWorld)
+                                      .norm() /
+                                  length;
   return path;
 }
 
-Eigen::Vector3d SwingPath::pointAt(double s) const {
+Eigen::Vector3d SwingPath::getDesPosPadRtWorldEwrtWorld(double s) const {
   const double distance = std::clamp(s, 0.0, 1.0) * length();
-  for (size_t i = 1; i < waypoints_.size(); ++i) {
+  for (size_t i = 1; i < desPosPadRtWorldEwrtWorldSamples_.size(); ++i) {
     if (distance <= cumulative_[i]) {
       const double span = cumulative_[i] - cumulative_[i - 1];
       const double fraction =
           span < kSamePoint ? 1.0 : (distance - cumulative_[i - 1]) / span;
-      return waypoints_[i - 1] + fraction * (waypoints_[i] - waypoints_[i - 1]);
+      return desPosPadRtWorldEwrtWorldSamples_[i - 1] +
+             fraction * (desPosPadRtWorldEwrtWorldSamples_[i] -
+                         desPosPadRtWorldEwrtWorldSamples_[i - 1]);
     }
   }
-  return waypoints_.back();
+  return desPosPadRtWorldEwrtWorldSamples_.back();
 }
 
 }  // namespace ocs2::humanoid::multi_contact

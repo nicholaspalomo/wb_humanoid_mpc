@@ -232,8 +232,8 @@ def _resolve_path(msg: message.Message, path: str) -> _ResolvedPath:
     parent: message.Message = msg
     field: descriptor.FieldDescriptor | None = None
     indexable = False
-    for position, component in enumerate(components):
-        prefix = ".".join(components[:position]) or "<message>"
+    for depth, component in enumerate(components):
+        prefix = ".".join(components[:depth]) or "<message>"
         if indexable:
             try:
                 index = int(component)
@@ -329,10 +329,10 @@ def selection_of(msg: message.Message, paths: Sequence[str]) -> Selection:
     for path in paths:
         steps = _resolve_path(msg, path).steps
         node = selection
-        for position, step in enumerate(steps):
+        for depth, step in enumerate(steps):
             if step in node and node[step] is None:
                 break
-            if position == len(steps) - 1:
+            if depth == len(steps) - 1:
                 node[step] = None
                 continue
             # Not None: a step selected whole ended the walk above.

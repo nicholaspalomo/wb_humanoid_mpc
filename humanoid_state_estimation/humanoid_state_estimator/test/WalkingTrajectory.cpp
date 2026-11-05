@@ -31,39 +31,44 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <string>
 #include <vector>
 
 #include "Eigen/Geometry"
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid::estimation::test_support {
 namespace {
 
 constexpr scalar_t kPi = 3.14159265358979323846;
-constexpr scalar_t kForwardSpeed = 0.4;
-constexpr scalar_t kSwayAmplitude = 0.03;
+constexpr scalar_t kNomLinvelBaseRtWorldEwrtWorldX = 0.4;
+constexpr scalar_t kAmplitudePosBaseRtWorldEwrtWorldY = 0.03;
 constexpr scalar_t kSwayFrequency = 2.0 * kPi / 0.8;
-constexpr scalar_t kHeight = 0.8;
-constexpr scalar_t kBobAmplitude = 0.02;
+constexpr scalar_t kNomPosBaseRtWorldEwrtWorldZ = 0.8;
+constexpr scalar_t kAmplitudePosBaseRtWorldEwrtWorldZ = 0.02;
 constexpr scalar_t kBobFrequency = 2.0 * kPi / 0.4;
-constexpr scalar_t kYawAmplitude = 0.2;
+constexpr scalar_t kAmplitudeEulerzyxBaseRtWorldYaw = 0.2;
 constexpr scalar_t kYawFrequency = 0.5;
-constexpr scalar_t kPitchAmplitude = 0.05;
+constexpr scalar_t kAmplitudeEulerzyxBaseRtWorldPitch = 0.05;
 constexpr scalar_t kPitchFrequency = 1.3;
-constexpr scalar_t kRollAmplitude = 0.04;
+constexpr scalar_t kAmplitudeEulerzyxBaseRtWorldRoll = 0.04;
 constexpr scalar_t kRollFrequency = 1.7;
 constexpr scalar_t kGaitPeriod = 0.8;
 constexpr scalar_t kSwingDuration = 0.3 * kGaitPeriod;
-constexpr scalar_t kSwingHeight = 0.08;
-constexpr scalar_t kFootLead = 0.15;
+constexpr scalar_t kMaxSwingPosFootRtWorldEwrtWorldZ = 0.08;
+constexpr scalar_t kTouchdownPosFootRtBaseEwrtWorldX = 0.15;
 /** Where in the gait period each foot lifts off: the right at 0.1, the left at
  * 0.6. */
 constexpr std::array<scalar_t, kNumFeet> kLiftOffPhase = {0.6 * kGaitPeriod,
                                                           0.1 * kGaitPeriod};
-constexpr std::array<scalar_t, kNumFeet> kFootSide = {0.1, -0.1};
+constexpr std::array<scalar_t, kNumFeet> kNomPosFeetRtWorldEwrtWorldY = {0.1,
+                                                                         -0.1};
 /** The legs' origins in the base frame (the URDF's first joint of each leg). */
-const std::array<vector3_t, kNumFeet> kLegOrigin = {vector3_t(0.0, 0.1, -0.8),
-                                                    vector3_t(0.0, -0.1, -0.8)};
+const std::array<vector3_t, kNumFeet> kPosHipsRtBaseEwrtBase = {
+    vector3_t(0.0, 0.1, -0.8), vector3_t(0.0, -0.1, -0.8)};
 
 /** A sinusoid a sin(w t) and its first two derivatives. */
 struct Wave {
@@ -79,13 +84,17 @@ Wave wave(scalar_t amplitude, scalar_t frequency, scalar_t time) {
                             std::sin(frequency * time)};
 }
 
-/** The foothold a foot stands on after its `swings`-th swing (0: where it
- * starts). */
-vector3_t foothold(size_t foot, int swings) {
+/** The foothold a foot stands on after its
+ * `swings`-th swing (0: where it starts). */
+vector3_t computeFootholdPosFootRtWorldEwrtWorld(size_t foot, int swings) {
   const scalar_t touchDown =
       kLiftOffPhase[foot] + (swings - 1) * kGaitPeriod + kSwingDuration;
-  const scalar_t x = swings == 0 ? 0.0 : kForwardSpeed * touchDown + kFootLead;
-  return vector3_t(x, kFootSide[foot], 0.0);
+  const scalar_t posFootRtWorldEwrtWorldX =
+      swings == 0 ? 0.0
+                  : kNomLinvelBaseRtWorldEwrtWorldX * touchDown +
+                        kTouchdownPosFootRtBaseEwrtWorldX;
+  return vector3_t(posFootRtWorldEwrtWorldX, kNomPosFeetRtWorldEwrtWorldY[foot],
+                   0.0);
 }
 
 void footState(size_t foot,
@@ -103,21 +112,28 @@ void footState(size_t foot,
       begun == 0 ? -1.0 : sinceFirst - (begun - 1) * kGaitPeriod;
   if (begun == 0 || intoSwing >= kSwingDuration) {
     stance = true;
-    posFootRtWorldEwrtWorld = foothold(foot, begun);
+    posFootRtWorldEwrtWorld =
+        computeFootholdPosFootRtWorldEwrtWorld(foot, begun);
     linvelFootRtWorldEwrtWorld.setZero();
     return;
   }
   stance = false;
-  const vector3_t from = foothold(foot, begun - 1);
-  const vector3_t to = foothold(foot, begun);
+  const vector3_t liftoffPosFootRtWorldEwrtWorld =
+      computeFootholdPosFootRtWorldEwrtWorld(foot, begun - 1);
+  const vector3_t touchdownPosFootRtWorldEwrtWorld =
+      computeFootholdPosFootRtWorldEwrtWorld(foot, begun);
   const scalar_t phase = intoSwing / kSwingDuration;
   const scalar_t blend = 0.5 * (1.0 - std::cos(kPi * phase));
   const scalar_t blendRate = 0.5 * kPi * std::sin(kPi * phase) / kSwingDuration;
-  posFootRtWorldEwrtWorld = from + blend * (to - from);
-  linvelFootRtWorldEwrtWorld = blendRate * (to - from);
-  posFootRtWorldEwrtWorld.z() = kSwingHeight * std::sin(kPi * phase);
-  linvelFootRtWorldEwrtWorld.z() =
-      kSwingHeight * kPi * std::cos(kPi * phase) / kSwingDuration;
+  posFootRtWorldEwrtWorld = liftoffPosFootRtWorldEwrtWorld +
+                            blend * (touchdownPosFootRtWorldEwrtWorld -
+                                     liftoffPosFootRtWorldEwrtWorld);
+  linvelFootRtWorldEwrtWorld = blendRate * (touchdownPosFootRtWorldEwrtWorld -
+                                            liftoffPosFootRtWorldEwrtWorld);
+  posFootRtWorldEwrtWorld.z() =
+      kMaxSwingPosFootRtWorldEwrtWorldZ * std::sin(kPi * phase);
+  linvelFootRtWorldEwrtWorld.z() = kMaxSwingPosFootRtWorldEwrtWorldZ * kPi *
+                                   std::cos(kPi * phase) / kSwingDuration;
 }
 
 }  // namespace
@@ -133,31 +149,41 @@ std::vector<std::string> prismaticBipedFootFrames() {
 WalkingSample walkingSample(scalar_t time) {
   WalkingSample sample;
   sample.time = time;
-  const Wave sway = wave(kSwayAmplitude, kSwayFrequency, time);
-  const Wave bob = wave(kBobAmplitude, kBobFrequency, time);
+  const Wave sway =
+      wave(kAmplitudePosBaseRtWorldEwrtWorldY, kSwayFrequency, time);
+  const Wave bob =
+      wave(kAmplitudePosBaseRtWorldEwrtWorldZ, kBobFrequency, time);
   sample.posBaseRtWorldEwrtWorld =
-      vector3_t(kForwardSpeed * time, sway.value, kHeight + bob.value);
+      vector3_t(kNomLinvelBaseRtWorldEwrtWorldX * time, sway.value,
+                kNomPosBaseRtWorldEwrtWorldZ + bob.value);
   sample.linvelBaseRtWorldEwrtWorld =
-      vector3_t(kForwardSpeed, sway.rate, bob.rate);
+      vector3_t(kNomLinvelBaseRtWorldEwrtWorldX, sway.rate, bob.rate);
   sample.linaccBaseRtWorldEwrtWorld =
       vector3_t(0.0, sway.secondRate, bob.secondRate);
 
   // R = Rz(yaw) Ry(pitch) Rx(roll); omega_world = yaw' e_z + pitch' Rz e_y +
   // roll' Rz Ry e_x.
-  const Wave yaw = wave(kYawAmplitude, kYawFrequency, time);
-  const Wave pitch = wave(kPitchAmplitude, kPitchFrequency, time);
-  const Wave roll = wave(kRollAmplitude, kRollFrequency, time);
+  const Wave eulerzyxBaseRtWorldYaw =
+      wave(kAmplitudeEulerzyxBaseRtWorldYaw, kYawFrequency, time);
+  const Wave eulerzyxBaseRtWorldPitch =
+      wave(kAmplitudeEulerzyxBaseRtWorldPitch, kPitchFrequency, time);
+  const Wave eulerzyxBaseRtWorldRoll =
+      wave(kAmplitudeEulerzyxBaseRtWorldRoll, kRollFrequency, time);
   const matrix3_t rz =
-      Eigen::AngleAxisd(yaw.value, vector3_t::UnitZ()).toRotationMatrix();
+      Eigen::AngleAxisd(eulerzyxBaseRtWorldYaw.value, vector3_t::UnitZ())
+          .toRotationMatrix();
   const matrix3_t ry =
-      Eigen::AngleAxisd(pitch.value, vector3_t::UnitY()).toRotationMatrix();
+      Eigen::AngleAxisd(eulerzyxBaseRtWorldPitch.value, vector3_t::UnitY())
+          .toRotationMatrix();
   const matrix3_t rx =
-      Eigen::AngleAxisd(roll.value, vector3_t::UnitX()).toRotationMatrix();
+      Eigen::AngleAxisd(eulerzyxBaseRtWorldRoll.value, vector3_t::UnitX())
+          .toRotationMatrix();
   const matrix3_t rotmatBaseRtWorld = rz * ry * rx;
   sample.quatBaseRtWorld = quaternion_t(rotmatBaseRtWorld);
   const vector3_t angvelBaseRtWorldEwrtWorld =
-      yaw.rate * vector3_t::UnitZ() + pitch.rate * (rz * vector3_t::UnitY()) +
-      roll.rate * (rz * ry * vector3_t::UnitX());
+      eulerzyxBaseRtWorldYaw.rate * vector3_t::UnitZ() +
+      eulerzyxBaseRtWorldPitch.rate * (rz * vector3_t::UnitY()) +
+      eulerzyxBaseRtWorldRoll.rate * (rz * ry * vector3_t::UnitX());
   sample.angvelBaseRtWorldEwrtBase =
       rotmatBaseRtWorld.transpose() * angvelBaseRtWorldEwrtWorld;
   sample.specforceBaseRtWorldEwrtBase =
@@ -178,7 +204,7 @@ WalkingSample walkingSample(scalar_t time) {
             (sample.linvelFeetRtWorldEwrtWorld[foot] -
              sample.linvelBaseRtWorldEwrtWorld);
     sample.jointPositions.segment<3>(static_cast<Eigen::Index>(3 * foot)) =
-        posFootRtBaseEwrtBase - kLegOrigin[foot];
+        posFootRtBaseEwrtBase - kPosHipsRtBaseEwrtBase[foot];
     sample.jointVelocities.segment<3>(static_cast<Eigen::Index>(3 * foot)) =
         linvelFootRtBaseEwrtBase;
   }

@@ -51,8 +51,9 @@ std::vector<ViewerInfo> availableViewers() {
 
 std::string availableViewerNames() {
   std::vector<std::string> names;
-  for (const ViewerInfo& viewer : availableViewers())
+  for (const ViewerInfo& viewer : availableViewers()) {
     names.push_back(viewer.name);
+  }
   return absl::StrJoin(names, ", ");
 }
 

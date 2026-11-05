@@ -125,8 +125,9 @@ void changeAsTheSimulatorDoes(mjModel* absl_nonnull model) {
   model->body_contype[ball] = 0;
   model->body_conaffinity[ball] = 0;
   model->body_mass[ball] = 1.5;
-  for (int axis = 0; axis < 3; ++axis)
+  for (int axis = 0; axis < 3; ++axis) {
     model->body_inertia[3 * ball + axis] = 0.006;
+  }
   model->body_invweight0[2 * ball] = 1.0 / 1.5;
   model->body_invweight0[2 * ball + 1] = 1.0 / 0.006;
   model->body_subtreemass[ball] = 1.5;
@@ -241,15 +242,13 @@ TEST(MjRuntimeModelFields, AnMjStateCarriesItsFieldsThroughCopiesAndMoves) {
 
   MjState moved(std::move(original));
   EXPECT_TRUE(moved.modelFields.fits(model.get()));
-  EXPECT_FALSE(original.modelFields.fits(
-      model
-          .get()));  // NOLINT(bugprone-use-after-move): the moved-from state is what is tested.
+  // NOLINTNEXTLINE(bugprone-use-after-move): the moved-from state is tested.
+  EXPECT_FALSE(original.modelFields.fits(model.get()));
   MjState moveAssigned(model.get());
   moveAssigned = std::move(moved);
   EXPECT_TRUE(moveAssigned.modelFields.fits(model.get()));
-  EXPECT_FALSE(moved.modelFields.fits(
-      model
-          .get()));  // NOLINT(bugprone-use-after-move): the moved-from state is what is tested.
+  // NOLINTNEXTLINE(bugprone-use-after-move): the moved-from state is tested.
+  EXPECT_FALSE(moved.modelFields.fits(model.get()));
 }
 
 }  // namespace

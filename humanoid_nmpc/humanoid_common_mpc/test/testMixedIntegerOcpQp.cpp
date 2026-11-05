@@ -41,7 +41,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -308,7 +310,7 @@ ContactPlanningConfig makePlannerConfig() {
   config.planner.dt = 0.1;
   config.planner.numNodes = 12;
   config.planner.commitTime = 0.0;
-  config.shared.comHeight = 0.85;
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ = 0.85;
   config.shared.gaitLimits.minSwingDuration = 0.3;
   config.shared.gaitLimits.maxSwingDuration = 0.5;
   config.shared.gaitLimits.minContactDuration = 0.15;
@@ -331,9 +333,10 @@ ContactPlanningConfig makePlannerConfig() {
 ContactPlanningConfig makeHeadingPlannerConfig() {
   ContactPlanningConfig config = makePlannerConfig();
   config.setHeadingModel(true);
-  config.yawTorqueBudget.torsionalFrictionTorque = 20.0;
-  config.yawTorqueBudget.doubleSupportYawCouple = 40.0;
-  config.setSymmetricFootYawOffset(0.5);
+  config.yawTorqueBudgetParameters.maxTorqueFootEwrtFootZ = 20.0;
+  config.yawTorqueBudgetParameters.doubleSupportMaxTorqueFeetmeanEwrtWorldZ =
+      40.0;
+  config.setSymmetricMaxYawFootRtBase(0.5);
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   return config;
 }
@@ -341,11 +344,11 @@ ContactPlanningConfig makeHeadingPlannerConfig() {
 ContactPlannerInput makeStandingInput() {
   ContactPlannerInput input;
   input.time = 3.0;
-  input.footPositions[0] = vector2_t(0.0, 0.125);
-  input.footPositions[1] = vector2_t(0.0, -0.125);
+  input.posFeetRtWorldEwrtWorldXy[0] = vector2_t(0.0, 0.125);
+  input.posFeetRtWorldEwrtWorldXy[1] = vector2_t(0.0, -0.125);
   input.contacts = {true, true};
   input.phaseElapsedTime = {5.0, 5.0};
-  input.yawInertia = 10.0;
+  input.inertiaComEwrtWorldZz = 10.0;
   return input;
 }
 

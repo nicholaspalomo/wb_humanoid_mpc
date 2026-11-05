@@ -64,7 +64,7 @@ struct TapedCandidate {
   pinocchio::JointIndex joint = 0;
   size_t mpcContactIndex = 0;
   bool surface = false;
-  Eigen::Matrix3d padRotation = Eigen::Matrix3d::Identity();
+  Eigen::Matrix3d rotmatPadRtLink = Eigen::Matrix3d::Identity();
   double geomRadius = 0.0;
 };
 
@@ -72,7 +72,7 @@ struct TapedCandidate {
 struct TapeConstants {
   double friction = 0.0;
   double coneSmoothing = 0.0;
-  double cosineOfMaxTilt = 1.0;
+  double cosPointMaxTiltanglePadRtSurface = 1.0;
   // [N] The robot's weight, the unit of the cones.
   double weight = 1.0;
 };
@@ -87,20 +87,24 @@ void candidateFeatures(const PinocchioInterfaceCppAd::Model& model,
                        const ad_vector_t& input,
                        int candidate,
                        ad_vector_t& features) {
-  const AdVector3 pad = data.oMf[entry.frame].translation();
-  const AdMatrix3 rotation =
-      data.oMi[entry.joint].rotation() * entry.padRotation.cast<ad_scalar_t>();
-  const AdVector3 padAxis = rotation.col(kZAxisIndex);
-  const AdVector3 velocity =
+  const AdVector3 posPadRtWorldEwrtWorld = data.oMf[entry.frame].translation();
+  const AdMatrix3 rotmatPadRtWorld = data.oMi[entry.joint].rotation() *
+                                     entry.rotmatPadRtLink.cast<ad_scalar_t>();
+  const AdVector3 zAxisPadEwrtWorld = rotmatPadRtWorld.col(kZAxisIndex);
+  const AdVector3 linvelPadRtWorldEwrtWorld =
       pinocchio::getFrameVelocity(model, data, entry.frame,
                                   pinocchio::LOCAL_WORLD_ALIGNED)
           .linear();
-  const AdVector3 normal = terrain.normal<ad_scalar_t>(pad);
-  const ad_scalar_t distance = terrain.signedDistance<ad_scalar_t>(pad);
+  const AdVector3 normalSurfaceEwrtWorld =
+      terrain.getNormalTerrainEwrtWorld<ad_scalar_t>(posPadRtWorldEwrtWorld);
+  const ad_scalar_t distance =
+      terrain.signedDistance<ad_scalar_t>(posPadRtWorldEwrtWorld);
   features(featureRow(candidate, kDistanceFeature)) = distance;
   features.segment<kPositionDim>(featureRow(candidate, kSlipFeature)) =
-      velocity - velocity.dot(normal) * normal;
-  const ad_scalar_t alignment = padAxis.dot(normal);
+      linvelPadRtWorldEwrtWorld -
+      linvelPadRtWorldEwrtWorld.dot(normalSurfaceEwrtWorld) *
+          normalSurfaceEwrtWorld;
+  const ad_scalar_t alignment = zAxisPadEwrtWorld.dot(normalSurfaceEwrtWorld);
   if (entry.surface) {
     features(featureRow(candidate, kTiltFeature)) =
         ad_scalar_t(1.0) - alignment;
@@ -108,24 +112,30 @@ void candidateFeatures(const PinocchioInterfaceCppAd::Model& model,
     features(featureRow(candidate, kClearanceFeature)) = distance;
     return;
   }
-  const ad_scalar_t excess = ad_scalar_t(constants.cosineOfMaxTilt) - alignment;
+  const ad_scalar_t excess =
+      ad_scalar_t(constants.cosPointMaxTiltanglePadRtSurface) - alignment;
   features(featureRow(candidate, kTiltFeature)) =
       CppAD::CondExpGt(excess, ad_scalar_t(0.0), excess, ad_scalar_t(0.0));
-  const AdVector3 force = centroidal_model::getForceContactEwrtWorld(
-                              input, entry.mpcContactIndex, info) /
-                          ad_scalar_t(constants.weight);
-  const ad_scalar_t normalForce = force.dot(normal);
-  const AdVector3 tangential = force - normalForce * normal;
+  const AdVector3 wnormForcePadEwrtWorld =
+      centroidal_model::getForceContactEwrtWorld(input, entry.mpcContactIndex,
+                                                 info) /
+      ad_scalar_t(constants.weight);
+  const ad_scalar_t wnormForcePadEwrtSurfaceZ =
+      wnormForcePadEwrtWorld.dot(normalSurfaceEwrtWorld);
+  const AdVector3 tangentWnormForcePadEwrtWorld =
+      wnormForcePadEwrtWorld -
+      wnormForcePadEwrtSurfaceZ * normalSurfaceEwrtWorld;
   features(featureRow(candidate, kConeFeature)) =
-      ad_scalar_t(constants.friction) * normalForce -
+      ad_scalar_t(constants.friction) * wnormForcePadEwrtSurfaceZ -
       CppAD::sqrt(
-          tangential.squaredNorm() +
+          tangentWnormForcePadEwrtWorld.squaredNorm() +
           ad_scalar_t(constants.coneSmoothing * constants.coneSmoothing));
   // The collision sphere's center is the geom radius inside the pad, along
   // the pad's z axis (the certifier's inactive-pad clearance).
   const ad_scalar_t radius(entry.geomRadius);
   features(featureRow(candidate, kClearanceFeature)) =
-      terrain.sphereDistance<ad_scalar_t>(pad + radius * padAxis, radius);
+      terrain.sphereDistance<ad_scalar_t>(
+          posPadRtWorldEwrtWorld + radius * zAxisPadEwrtWorld, radius);
 }
 
 }  // namespace
@@ -157,14 +167,14 @@ absl::StatusOr<std::unique_ptr<ContactFeatureFunction>> robotContactFeatures(
                        .joint = model.frames[frame].parentJoint,
                        .mpcContactIndex = candidate.mpcContactIndex,
                        .surface = candidate.kind == ContactKind::kSurface,
-                       .padRotation = candidate.padRotation,
+                       .rotmatPadRtLink = candidate.rotmatPadRtLink,
                        .geomRadius = candidate.geomRadius});
   }
-  const TapeConstants constants{
-      .friction = settings.friction,
-      .coneSmoothing = settings.coneSmoothing,
-      .cosineOfMaxTilt = std::cos(settings.maxPointTilt),
-      .weight = info.robotMass * kGravityMagnitude};
+  const TapeConstants constants{.friction = settings.friction,
+                                .coneSmoothing = settings.coneSmoothing,
+                                .cosPointMaxTiltanglePadRtSurface = std::cos(
+                                    settings.pointMaxTiltanglePadRtSurface),
+                                .weight = info.robotMass * kGravityMagnitude};
   const int numCandidates = static_cast<int>(candidates.size());
   const ContactFeatureFunction::Function function =
       [pinocchioAd = pinocchio.toCppAd(), infoAd = info.toCppAd(), taped,
@@ -185,7 +195,8 @@ absl::StatusOr<std::unique_ptr<ContactFeatureFunction>> robotContactFeatures(
       candidateFeatures(adModel, data, infoAd, terrain, taped[i], constants,
                         input, i, features);
     }
-    features.segment<kMomentumRateFeatures>(momentumRateRow(numCandidates)) =
+    features.segment<kMomentumRateFeatureCount>(
+        momentumRateRowIndex(numCandidates)) =
         getMnormRateCmomComRtWorldEwrtWorld(interface, infoAd, input);
     return features;
   };

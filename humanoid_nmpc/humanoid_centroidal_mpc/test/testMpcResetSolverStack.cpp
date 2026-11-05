@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <memory>
 #include <string>
@@ -42,12 +43,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/MPC_MRT_Interface.h"
 #include "ocs2_sqp/SqpMpc.h"
+#include "ocs2_sqp/SqpSettings.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -107,10 +113,10 @@ class SolverStack {
             referenceFile, interface_->getEffectiveMpcRobotModel(),
             interface_->getPinocchioInterface(),
             interface_->mpcSettings().timeHorizon_));
-    calculator_->setTerrainHeightSource(
+    calculator_->setSourcePosSurfaceRtWorldEwrtWorldZ(
         [referenceManager =
              interface_->getSwitchedModelReferenceManagerPtr()]() {
-          return referenceManager->getAppliedTerrainHeight();
+          return referenceManager->getAppliedPosSurfaceRtWorldEwrtWorldZ();
         });
     CentroidalMpcTargetTrajectoriesCalculator* absl_nonnull calculator =
         calculator_.get();
@@ -118,11 +124,11 @@ class SolverStack {
         gaitFile, referenceFile,
         interface_->getSwitchedModelReferenceManagerPtr(),
         interface_->getEffectiveMpcRobotModel(),
-        [calculator](const vector4_t& velocity, scalar_t initTime,
+        [calculator](const vector4_t& velocityCommand, scalar_t initTime,
                      scalar_t /*finalTime*/, const vector_t& initState,
                      const BasePlanarMotion& measuredMotion) {
           return calculator->velocityCommandToTargetTrajectories(
-              velocity, initTime, initState, measuredMotion);
+              velocityCommand, initTime, initState, measuredMotion);
         }));
     motionManager_->setResetHook([calculator]() { calculator->reset(); });
     mpc_->getSolverPtr()->setReferenceManager(
@@ -146,8 +152,10 @@ class SolverStack {
 
   /** The operator's command, raw: 1 is the command limit along x. */
   void command(scalar_t forward) {
-    motionManager_->setAndScaleVelocityCommand(WalkingVelocityCommand(
-        forward, /*v_y=*/0.0, /*desired_pelvis_h=*/0.0, /*v_yaw=*/0.0));
+    motionManager_->setAndScaleVelocityCommand(NormalizedWalkingVelocityCommand(
+        forward, /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_y=*/0.0,
+        /*cmd_pos_base_rt_surface_ewrt_world_z=*/0.0,
+        /*cmd_lnorm_angvel_base_rt_world_ewrt_world_z=*/0.0));
   }
 
   /** The target the controller resets the MPC to: the observation held still
@@ -172,9 +180,10 @@ class SolverStack {
       const absl::Status status = mrt_->advanceMpc();
       if (!status.ok()) {
         ++failures;
-        if (failures <= 3)
+        if (failures <= 3) {
           LOG(WARNING) << "failed solve at t = " << observation_.time << ": "
                        << status.message();
+        }
       }
       mrt_->updatePolicy();
       if (followPlan && status.ok() && mrt_->initialPolicyReceived()) {
@@ -196,8 +205,9 @@ class SolverStack {
   bool schedulesASwingIn(scalar_t from, scalar_t to) const {
     for (scalar_t time = from; time <= to + 1.0e-9; time += 0.005) {
       if (!interface_->getSwitchedModelReferenceManagerPtr()->isInStancePhase(
-              time))
+              time)) {
         return true;
+      }
     }
     return false;
   }
@@ -233,7 +243,7 @@ void trot(SolverStack& stack) {
 
 /** The simulator puts the robot back at its initial pose - every foot at a yaw
  * of exactly zero - with its clock 0.3 s back. */
-void putBackAtTheInitialPose(SolverStack& stack) {
+void putBackAtTheInitialState(SolverStack& stack) {
   SystemObservation& observation = stack.observation();
   observation.state = stack.interface().getInitialState();
   observation.mode = ModeNumber::kStance;
@@ -246,7 +256,7 @@ TEST(
     AfterTheFullResetEverySolveSucceedsAndTheFirstPolicyStandsWhereTheRobotIs) {
   SolverStack stack;
   trot(stack);
-  putBackAtTheInitialPose(stack);
+  putBackAtTheInitialState(stack);
   const SystemObservation held = stack.observation();
   stack.mrt().setCurrentObservation(held);
   stack.mrt().resetMpcNode(stack.resetTarget());
@@ -362,8 +372,9 @@ TEST(MpcResetSolverStack, AFullResetSolvesAndWalksExactlyAsAFreshStack) {
     if (solve == static_cast<int>(std::round(1.0 / kSolvePeriod))) {
       for (SolverStack* absl_nonnull stack : stacks) stack->command(1.0);
     }
-    for (SolverStack* absl_nonnull stack : stacks)
+    for (SolverStack* absl_nonnull stack : stacks) {
       ASSERT_EQ(stack->run(kSolvePeriod, /*followPlan=*/true), 0);
+    }
     controlDrift = std::max(
         controlDrift, (fresh.observation().state - control.observation().state)
                           .cwiseAbs()

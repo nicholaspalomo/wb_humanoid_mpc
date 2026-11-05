@@ -63,9 +63,14 @@ ScriptedOperator::ScriptedOperator(const robot::ipc::NetworkConfig& network)
       [this](const humanoid_mpc_msgs::RobotStateSample& sample) {
         absl::MutexLock lock(mutex_);
         sample_ = sample;
-        const double height = sample.pos_base_rt_world_ewrt_world().z();
-        baseHeightRange_.min = std::min(baseHeightRange_.min, height);
-        baseHeightRange_.max = std::max(baseHeightRange_.max, height);
+        const double posBaseRtWorldEwrtWorldZ =
+            sample.pos_base_rt_world_ewrt_world().z();
+        baseHeightRange_.minPosBaseRtWorldEwrtWorldZ =
+            std::min(baseHeightRange_.minPosBaseRtWorldEwrtWorldZ,
+                     posBaseRtWorldEwrtWorldZ);
+        baseHeightRange_.maxPosBaseRtWorldEwrtWorldZ =
+            std::max(baseHeightRange_.maxPosBaseRtWorldEwrtWorldZ,
+                     posBaseRtWorldEwrtWorldZ);
         ++baseHeightRange_.samples;
       }));
   CHECK_OK(bus_->subscribe<humanoid_mpc_msgs::LoopTiming>(

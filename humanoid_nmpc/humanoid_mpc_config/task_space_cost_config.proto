@@ -49,9 +49,9 @@ message TaskSpaceCostConfig {
   ];
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h:foot_cost_phases_names)
   // task_space_foot_cost only, centroidal MPC only: the weight of the x and y linear velocity errors of a swing foot
-  // that has no landing target (no contact planner, and nominal_foothold.step_width 0 with no foothold heuristic). Such a
+  // that has no landing target (no contact planner, and nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y 0 with no foothold heuristic). Such a
   // foot tracks the commanded base velocity, so that it does not drag behind the moving body, with this weight in place
-  // of weights.lin_velocity_x / lin_velocity_y, which weigh it against its swing trajectory when it has a target, and in
+  // of weights.linvel_x / linvel_y, which weigh it against its swing trajectory when it has a target, and in
   // stance under active_phases "swing_and_stance". The swing planner's impact proximity ramps it to 0 at touch-down.
   // Absent, 2.25 (a sqrt weight of 1.5): the value the cost hard-coded before it was a field
   // (kDefaultSwingVelocityReferenceWeight). A task_space_costs entry that sets it is refused.

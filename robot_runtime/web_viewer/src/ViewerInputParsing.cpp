@@ -105,9 +105,10 @@ absl::StatusOr<absl::string_view> requiredParameter(
     absl::string_view name,
     absl::string_view request) {
   const Parameters::const_iterator found = parameters.find(name);
-  if (found == parameters.end())
+  if (found == parameters.end()) {
     return absl::InvalidArgumentError(
         absl::StrCat(request, " needs the parameter '", name, "'"));
+  }
   return absl::string_view(found->second);
 }
 
@@ -240,8 +241,9 @@ absl::StatusOr<ViewerInput> parseKnownType(
     return ViewerInput{.type = ViewerInputType::kScroll, .notches = *notches};
   }
   if (type == "key") return parseKey(parameters);
-  if (type == "reset_camera")
+  if (type == "reset_camera") {
     return ViewerInput{.type = ViewerInputType::kResetCamera};
+  }
   if (type == "camera") return parseCamera(parameters);
   return parseVisualization(parameters, visualizationNames);
 }

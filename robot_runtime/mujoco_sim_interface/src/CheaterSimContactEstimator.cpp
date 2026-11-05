@@ -39,6 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
+#include "robot_model/ContactEstimatorRegistry.h"
+#include "robot_model/RobotState.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -93,7 +95,7 @@ void registerCheaterSimContactEstimator(
   registry.add(
       kCheaterSimContactEstimatorName,
       "the ground truth of the MuJoCo physics (normal force above "
-      "contactForceThreshold)",
+      "sim_min_force_mjcontact_ewrt_mjcontact_x)",
       [sim] { return std::make_shared<CheaterSimContactEstimator>(sim); });
 }
 // clang-format off

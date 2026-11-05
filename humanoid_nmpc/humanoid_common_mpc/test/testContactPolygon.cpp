@@ -28,10 +28,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <algorithm>
+#include <cstddef>
 #include <random>
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/contact/ContactCenterPoint.h"
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
@@ -50,36 +52,62 @@ TEST(ContactPolygon, BoundsAreTheExtentOfTheScaledPoints) {
   const ContactCenterPoint center("sole", "ankle", vector3_t::Zero());
   for (int trial = 0; trial < 200; ++trial) {
     // An offset polygon, often entirely on one side of the origin.
-    const vector3_t shift(offset(generator), offset(generator), 0.0);
-    std::vector<vector3_t> points;
-    for (int i = 0; i < 3 + trial % 4; ++i)
-      points.push_back(
-          shift + vector3_t(coordinate(generator), coordinate(generator), 0.0));
+    const vector3_t offsetPosCornersRtContactEwrtContact(
+        offset(generator), offset(generator), 0.0);
+    std::vector<vector3_t> posCornersRtContactEwrtContact;
+    for (int i = 0; i < 3 + trial % 4; ++i) {
+      posCornersRtContactEwrtContact.push_back(
+          offsetPosCornersRtContactEwrtContact +
+          vector3_t(coordinate(generator), coordinate(generator), 0.0));
+    }
     for (const scalar_t scale : {1.0, 0.8, 1.3}) {
-      const ContactPolygon polygon(points, center, scale);
-      scalar_t xMin = scale * points.front()(0);
-      scalar_t xMax = xMin;
-      scalar_t yMin = scale * points.front()(1);
-      scalar_t yMax = yMin;
-      for (const vector3_t& point : points) {
-        xMin = std::min(xMin, scale * point(0));
-        xMax = std::max(xMax, scale * point(0));
-        yMin = std::min(yMin, scale * point(1));
-        yMax = std::max(yMax, scale * point(1));
+      const ContactPolygon polygon(posCornersRtContactEwrtContact, center,
+                                   scale);
+      scalar_t minPosCornersRtContactEwrtContactX =
+          scale * posCornersRtContactEwrtContact.front()(0);
+      scalar_t maxPosCornersRtContactEwrtContactX =
+          minPosCornersRtContactEwrtContactX;
+      scalar_t minPosCornersRtContactEwrtContactY =
+          scale * posCornersRtContactEwrtContact.front()(1);
+      scalar_t maxPosCornersRtContactEwrtContactY =
+          minPosCornersRtContactEwrtContactY;
+      for (const vector3_t& posCornerRtContactEwrtContact :
+           posCornersRtContactEwrtContact) {
+        minPosCornersRtContactEwrtContactX =
+            std::min(minPosCornersRtContactEwrtContactX,
+                     scale * posCornerRtContactEwrtContact(0));
+        maxPosCornersRtContactEwrtContactX =
+            std::max(maxPosCornersRtContactEwrtContactX,
+                     scale * posCornerRtContactEwrtContact(0));
+        minPosCornersRtContactEwrtContactY =
+            std::min(minPosCornersRtContactEwrtContactY,
+                     scale * posCornerRtContactEwrtContact(1));
+        maxPosCornersRtContactEwrtContactY =
+            std::max(maxPosCornersRtContactEwrtContactY,
+                     scale * posCornerRtContactEwrtContact(1));
       }
-      EXPECT_DOUBLE_EQ(polygon.getBounds().x_min, xMin)
+      EXPECT_DOUBLE_EQ(
+          polygon.getBounds().min_pos_corners_rt_contact_ewrt_contact_x,
+          minPosCornersRtContactEwrtContactX)
           << "trial " << trial << " scale " << scale;
-      EXPECT_DOUBLE_EQ(polygon.getBounds().x_max, xMax);
-      EXPECT_DOUBLE_EQ(polygon.getBounds().y_min, yMin);
-      EXPECT_DOUBLE_EQ(polygon.getBounds().y_max, yMax);
-      ASSERT_EQ(polygon.getNumberOfContactPoints(), points.size());
-      for (size_t i = 0; i < points.size(); ++i) {
+      EXPECT_DOUBLE_EQ(
+          polygon.getBounds().max_pos_corners_rt_contact_ewrt_contact_x,
+          maxPosCornersRtContactEwrtContactX);
+      EXPECT_DOUBLE_EQ(
+          polygon.getBounds().min_pos_corners_rt_contact_ewrt_contact_y,
+          minPosCornersRtContactEwrtContactY);
+      EXPECT_DOUBLE_EQ(
+          polygon.getBounds().max_pos_corners_rt_contact_ewrt_contact_y,
+          maxPosCornersRtContactEwrtContactY);
+      ASSERT_EQ(polygon.getNumberOfContactPoints(),
+                posCornersRtContactEwrtContact.size());
+      for (size_t i = 0; i < posCornersRtContactEwrtContact.size(); ++i) {
         EXPECT_DOUBLE_EQ(
-            polygon.getContactPointTranslation(static_cast<int>(i))(0),
-            scale * points[i](0));
+            polygon.getPosCornerRtContactEwrtContact(static_cast<int>(i))(0),
+            scale * posCornersRtContactEwrtContact[i](0));
         EXPECT_DOUBLE_EQ(
-            polygon.getContactPointTranslation(static_cast<int>(i))(1),
-            scale * points[i](1));
+            polygon.getPosCornerRtContactEwrtContact(static_cast<int>(i))(1),
+            scale * posCornersRtContactEwrtContact[i](1));
       }
     }
   }

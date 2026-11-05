@@ -30,8 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <string>
 #include <utility>
@@ -42,23 +44,34 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/centroidal.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
 #include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
@@ -143,8 +156,8 @@ class YawCommandDynamicsTest : public ::testing::Test {
   }
 
   /** Normalized momentum of that settled target. */
-  vector6_t settledMomentumTarget(const vector4_t& command,
-                                  const vector_t& state) {
+  vector6_t getSettledRefMnormCmomComRtWorldEwrtWorld(const vector4_t& command,
+                                                      const vector_t& state) {
     return settledTarget(command, state).stateTrajectory.front().head<6>();
   }
 
@@ -186,14 +199,15 @@ class YawCommandDynamicsTest : public ::testing::Test {
         AngularCenterOfMass::Create(modelSettings_->robotName,
                                     modelSettings_->mpcModelJointNames);
     EXPECT_TRUE(acom.ok()) << acom.status();
-    if (acom.ok())
+    if (acom.ok()) {
       (*referenceManager)->setAngularCenterOfMass(*std::move(acom));
+    }
     return *referenceManager;
   }
 
   /** Whole-body (locked) inertia about the CoM in the world frame, from
    * Pinocchio's composite rigid body algorithm. */
-  matrix3_t lockedInertia(const vector_t& state) {
+  matrix3_t computeInertiaComEwrtWorld(const vector_t& state) {
     PinocchioInterface pinocchio(*pinocchioInterface_);
     const vector_t q = robotModel_->getGeneralizedCoordinates(state);
     pinocchio::ccrba(pinocchio.getModel(), pinocchio.getData(), q,
@@ -202,12 +216,12 @@ class YawCommandDynamicsTest : public ::testing::Test {
   }
 
   /** Whole-body inertia about the vertical through the CoM. */
-  scalar_t yawInertia(const vector_t& state) {
-    return lockedInertia(state)(2, 2);
+  scalar_t computeInertiaComEwrtWorldZz(const vector_t& state) {
+    return computeInertiaComEwrtWorld(state)(2, 2);
   }
 
   /** Position of the CoM relative to the base origin, in the world frame. */
-  vector3_t comFromBase(const vector_t& state) {
+  vector3_t getPosComRtBaseEwrtWorld(const vector_t& state) {
     PinocchioInterface pinocchio(*pinocchioInterface_);
     const vector_t q = robotModel_->getGeneralizedCoordinates(state);
     pinocchio::centerOfMass(pinocchio.getModel(), pinocchio.getData(), q,
@@ -215,9 +229,11 @@ class YawCommandDynamicsTest : public ::testing::Test {
     return vector3_t(pinocchio.getData().com[0] - q.head<3>());
   }
 
-  /** Base twist [v_base, euler_zyx_rate] that produces the normalized momentum
-   * `h` with the joints at rest. */
-  vector6_t baseTwistFromMomentum(const vector6_t& h, const vector_t& state) {
+  /** The base rows [linvelBaseRtWorldEwrtWorld; angvelBaseRtWorldEwrtBase] of
+   * Pinocchio's v that produce the normalized momentum `h` with the joints at
+   * rest. */
+  vector6_t baseGeneralizedVelocityOf(const vector6_t& h,
+                                      const vector_t& state) {
     PinocchioInterface pinocchio(*pinocchioInterface_);
     const vector_t q = robotModel_->getGeneralizedCoordinates(state);
     updateCentroidalDynamics(pinocchio, info_, q);
@@ -244,23 +260,27 @@ class YawCommandDynamicsTest : public ::testing::Test {
  * used to be yaw_rate / m, which dropped the inertia altogether.
  */
 TEST_F(YawCommandDynamicsTest, YawRateCommandMapsToWholeBodyAngularMomentum) {
-  const scalar_t yawRate = 0.4;
-  const vector6_t h =
-      settledMomentumTarget(vector4_t(0.0, 0.0, 0.0, yawRate), initialState_);
+  const scalar_t cmdRateYawBaseRtWorld = 0.4;
+  const vector6_t h = getSettledRefMnormCmomComRtWorldEwrtWorld(
+      vector4_t(0.0, 0.0, 0.0, cmdRateYawBaseRtWorld), initialState_);
 
-  const matrix3_t Ig = lockedInertia(initialState_);
-  ASSERT_GT(Ig(2, 2), 1.0) << "Atlas has several kg m^2 of yaw inertia; a tiny "
-                              "value means the model or the state is wrong.";
+  const matrix3_t inertiaComEwrtWorld =
+      computeInertiaComEwrtWorld(initialState_);
+  ASSERT_GT(inertiaComEwrtWorld(2, 2), 1.0)
+      << "Atlas has several kg m^2 of yaw inertia; a tiny "
+         "value means the model or the state is wrong.";
   ASSERT_GT(mass_, 100.0);
 
   // L = I_G * (0, 0, yaw_rate): the yaw column of the locked inertia, products
   // of inertia included.
-  const vector3_t expected = Ig.col(2) * yawRate / mass_;
+  const vector3_t expected =
+      inertiaComEwrtWorld.col(2) * cmdRateYawBaseRtWorld / mass_;
   EXPECT_NEAR((h.tail<3>() - expected).norm(), 0.0, 1.0e-9);
-  EXPECT_NEAR(h(5), Ig(2, 2) * yawRate / mass_, 1.0e-9);
+  EXPECT_NEAR(h(5), inertiaComEwrtWorld(2, 2) * cmdRateYawBaseRtWorld / mass_,
+              1.0e-9);
   // The old mapping is a factor of I_zz away from the right one; make sure the
   // test would have caught it.
-  EXPECT_GT(std::abs(h(5) - yawRate / mass_), 1.0e-3);
+  EXPECT_GT(std::abs(h(5) - cmdRateYawBaseRtWorld / mass_), 1.0e-3);
   // A pure turn commands no linear momentum.
   EXPECT_NEAR(h.head<3>().norm(), 0.0, 1.0e-9);
 }
@@ -277,20 +297,25 @@ TEST_F(YawCommandDynamicsTest, YawRateCommandMapsToWholeBodyAngularMomentum) {
  * are computed from Pinocchio, not from the code under test.
  */
 TEST_F(YawCommandDynamicsTest, MomentumTargetIsARigidSpinAboutTheCenterOfMass) {
-  const scalar_t yawRate = 0.3;
-  const scalar_t forwardVelocity = 0.5;
-  const vector6_t h = settledMomentumTarget(
-      vector4_t(forwardVelocity, 0.0, 0.0, yawRate), initialState_);
+  const scalar_t cmdRateYawBaseRtWorld = 0.3;
+  const scalar_t cmdLinvelBaseRtWorldEwrtHeadingX = 0.5;
+  const vector6_t h = getSettledRefMnormCmomComRtWorldEwrtWorld(
+      vector4_t(cmdLinvelBaseRtWorldEwrtHeadingX, 0.0, 0.0,
+                cmdRateYawBaseRtWorld),
+      initialState_);
 
   // Angular velocity from the angular momentum.
-  const matrix3_t Ig = lockedInertia(initialState_);
-  const vector3_t omega = Ig.ldlt().solve(vector3_t(mass_ * h.tail<3>()));
-  EXPECT_NEAR(omega(0), 0.0, 1.0e-9) << "no roll rate";
-  EXPECT_NEAR(omega(1), 0.0, 1.0e-9) << "no pitch rate";
-  EXPECT_NEAR(omega(2), yawRate, 1.0e-9) << "the commanded yaw rate";
+  const matrix3_t inertiaComEwrtWorld =
+      computeInertiaComEwrtWorld(initialState_);
+  const vector3_t angvelCrbRtWorldEwrtWorld =
+      inertiaComEwrtWorld.ldlt().solve(vector3_t(mass_ * h.tail<3>()));
+  EXPECT_NEAR(angvelCrbRtWorldEwrtWorld(0), 0.0, 1.0e-9) << "no roll rate";
+  EXPECT_NEAR(angvelCrbRtWorldEwrtWorld(1), 0.0, 1.0e-9) << "no pitch rate";
+  EXPECT_NEAR(angvelCrbRtWorldEwrtWorld(2), cmdRateYawBaseRtWorld, 1.0e-9)
+      << "the commanded yaw rate";
 
   // CoM velocity from the linear momentum.
-  EXPECT_NEAR(h(0), forwardVelocity, 1.0e-9);
+  EXPECT_NEAR(h(0), cmdLinvelBaseRtWorldEwrtHeadingX, 1.0e-9);
   EXPECT_NEAR(h(1), 0.0, 1.0e-9);
   EXPECT_NEAR(h(2), 0.0, 1.0e-9);
 
@@ -298,20 +323,27 @@ TEST_F(YawCommandDynamicsTest, MomentumTargetIsARigidSpinAboutTheCenterOfMass) {
   // is not at the CoM, so a spin about the CoM moves it sideways by omega x r;
   // with the base level the body z rate is the angular velocity about the
   // vertical.
-  const vector6_t twist = baseTwistFromMomentum(h, initialState_);
-  const vector3_t r = -comFromBase(initialState_);  // p_base - p_com
-  const vector3_t expectedBaseVelocity = vector3_t(forwardVelocity, 0.0, 0.0) +
-                                         vector3_t(0.0, 0.0, yawRate).cross(r);
-  EXPECT_NEAR((twist.head<3>() - expectedBaseVelocity).norm(), 0.0, 1.0e-6)
-      << "recovered " << twist.head<3>().transpose() << " expected "
-      << expectedBaseVelocity.transpose();
-  EXPECT_NEAR(twist(kBaseYawRateIndex), yawRate, 1.0e-6)
+  const vector6_t baseGeneralizedVelocity =
+      baseGeneralizedVelocityOf(h, initialState_);
+  const vector3_t posBaseRtComEwrtWorld =
+      -getPosComRtBaseEwrtWorld(initialState_);  // p_base - p_com
+  const vector3_t expectedLinvelBaseRtWorldEwrtWorld =
+      vector3_t(cmdLinvelBaseRtWorldEwrtHeadingX, 0.0, 0.0) +
+      vector3_t(0.0, 0.0, cmdRateYawBaseRtWorld).cross(posBaseRtComEwrtWorld);
+  EXPECT_NEAR(
+      (baseGeneralizedVelocity.head<3>() - expectedLinvelBaseRtWorldEwrtWorld)
+          .norm(),
+      0.0, 1.0e-6)
+      << "recovered " << baseGeneralizedVelocity.head<3>().transpose()
+      << " expected " << expectedLinvelBaseRtWorldEwrtWorld.transpose();
+  EXPECT_NEAR(baseGeneralizedVelocity(kBaseYawRateIndex), cmdRateYawBaseRtWorld,
+              1.0e-6)
       << "recovered yaw rate";
-  EXPECT_NEAR(twist(3), 0.0, 1.0e-6) << "roll rate, body x";
-  EXPECT_NEAR(twist(4), 0.0, 1.0e-6) << "pitch rate, body y";
+  EXPECT_NEAR(baseGeneralizedVelocity(3), 0.0, 1.0e-6) << "roll rate, body x";
+  EXPECT_NEAR(baseGeneralizedVelocity(4), 0.0, 1.0e-6) << "pitch rate, body y";
   // And the sideways component is not a rounding artifact: the pelvis really is
   // offset from the CoM.
-  EXPECT_GT(r.norm(), 1.0e-3);
+  EXPECT_GT(posBaseRtComEwrtWorld.norm(), 1.0e-3);
 }
 
 /**
@@ -320,8 +352,8 @@ TEST_F(YawCommandDynamicsTest, MomentumTargetIsARigidSpinAboutTheCenterOfMass) {
  * entries.
  */
 TEST_F(YawCommandDynamicsTest, LinearVelocityCommandIsCenterOfMassVelocity) {
-  const vector6_t h =
-      settledMomentumTarget(vector4_t(0.7, -0.2, 0.0, 0.0), initialState_);
+  const vector6_t h = getSettledRefMnormCmomComRtWorldEwrtWorld(
+      vector4_t(0.7, -0.2, 0.0, 0.0), initialState_);
   EXPECT_NEAR(h(0), 0.7, 1.0e-6);
   EXPECT_NEAR(h(1), -0.2, 1.0e-6);
   EXPECT_NEAR(h.tail<4>().norm(), 0.0, 1.0e-9);
@@ -334,21 +366,24 @@ TEST_F(YawCommandDynamicsTest, LinearVelocityCommandIsCenterOfMassVelocity) {
  * the base yaw.
  */
 TEST_F(YawCommandDynamicsTest, YawMomentumTargetIsInvariantToBaseYaw) {
-  const scalar_t yawRate = 0.25;
-  const vector6_t reference =
-      settledMomentumTarget(vector4_t(0.0, 0.0, 0.0, yawRate), initialState_);
+  const scalar_t cmdRateYawBaseRtWorld = 0.25;
+  const vector6_t reference = getSettledRefMnormCmomComRtWorldEwrtWorld(
+      vector4_t(0.0, 0.0, 0.0, cmdRateYawBaseRtWorld), initialState_);
 
-  for (const scalar_t baseYaw : {0.7, -1.9, 2.8}) {
+  for (const scalar_t eulerzyxBaseRtWorldYaw : {0.7, -1.9, 2.8}) {
     vector_t turned = initialState_;
-    robotModel_->setEulerzyxBaseRtWorld(turned, vector3_t(baseYaw, 0.0, 0.0));
-    const vector6_t h =
-        settledMomentumTarget(vector4_t(0.0, 0.0, 0.0, yawRate), turned);
-    EXPECT_NEAR(h(5), reference(5), 1.0e-9) << "base yaw " << baseYaw;
+    robotModel_->setEulerzyxBaseRtWorld(
+        turned, vector3_t(eulerzyxBaseRtWorldYaw, 0.0, 0.0));
+    const vector6_t h = getSettledRefMnormCmomComRtWorldEwrtWorld(
+        vector4_t(0.0, 0.0, 0.0, cmdRateYawBaseRtWorld), turned);
+    EXPECT_NEAR(h(5), reference(5), 1.0e-9)
+        << "base yaw " << eulerzyxBaseRtWorldYaw;
     // The products of inertia I_xz, I_yz rotate with the body; only their
     // magnitude is invariant.
     EXPECT_NEAR(h.segment<2>(3).norm(), reference.segment<2>(3).norm(), 1.0e-9)
-        << "base yaw " << baseYaw;
-    EXPECT_NEAR(yawInertia(turned), yawInertia(initialState_), 1.0e-9)
+        << "base yaw " << eulerzyxBaseRtWorldYaw;
+    EXPECT_NEAR(computeInertiaComEwrtWorldZz(turned),
+                computeInertiaComEwrtWorldZz(initialState_), 1.0e-9)
         << "I_zz must not change under a rotation about z";
   }
 }
@@ -369,7 +404,7 @@ TEST_F(YawCommandDynamicsTest, YawInertiaMatchesTheCentroidalMomentumMatrix) {
   // component is I_zz.
   const scalar_t fromCmm =
       getCentroidalMomentumMatrix(pinocchio)(5, kBaseYawRateIndex);
-  EXPECT_NEAR(fromCmm, yawInertia(initialState_), 1.0e-9);
+  EXPECT_NEAR(fromCmm, computeInertiaComEwrtWorldZz(initialState_), 1.0e-9);
   EXPECT_GT(fromCmm, 1.0);
 }
 
@@ -394,13 +429,13 @@ TEST_F(YawCommandDynamicsTest,
 
   // A turned base spinning about the vertical at a known rate, expressed as the
   // normalized angular momentum the state carries.
-  const scalar_t yawRate = 0.3;
+  const scalar_t cmdRateYawBaseRtWorld = 0.3;
   vector_t state = initialState_;
   robotModel_->setEulerzyxBaseRtWorld(state, vector3_t(0.7, 0.0, 0.0));
-  const matrix3_t Ig = lockedInertia(state);
-  state.segment<3>(3) =
-      Ig.col(2) *
-      (yawRate / mass_);  // L / m for a rigid spin about the vertical
+  const matrix3_t inertiaComEwrtWorld = computeInertiaComEwrtWorld(state);
+  state.segment<3>(3) = inertiaComEwrtWorld.col(2) *
+                        (cmdRateYawBaseRtWorld /
+                         mass_);  // L / m for a rigid spin about the vertical
 
   const ContactPlannerInput input = referenceManager->makePlannerInput(
       /*initTime=*/0.0, state, vector2_t::Zero());
@@ -409,19 +444,19 @@ TEST_F(YawCommandDynamicsTest,
   // orientation composed with the learned joint rotation - and the planning
   // frame is the heading.
   const vector_t q = robotModel_->getGeneralizedCoordinates(state);
-  const scalar_t acomYaw =
-      yawOf(acom->acomAttitude(robotModel_->getQuatBaseRtWorldXyzw(state),
-                               robotModel_->getJointAngles(state)));
-  EXPECT_NEAR(input.heading, acomYaw, 1.0e-12);
-  EXPECT_NEAR(input.yaw, input.heading, 1.0e-12);
-  EXPECT_GT(std::abs(acomYaw - 0.7), 1.0e-4)
+  const scalar_t yawAcomRtWorld = yawOf(acom->computeQuatAcomRtWorldXyzw(
+      robotModel_->getQuatBaseRtWorldXyzw(state),
+      robotModel_->getJointAngles(state)));
+  EXPECT_NEAR(input.initYawHeadingRtWorld, yawAcomRtWorld, 1.0e-12);
+  EXPECT_NEAR(input.yawHeadingRtWorld, input.initYawHeadingRtWorld, 1.0e-12);
+  EXPECT_GT(std::abs(yawAcomRtWorld - 0.7), 1.0e-4)
       << "the joint offset must actually contribute, or this test would not "
          "tell the ACoM yaw from the base yaw";
 
   // Heading rate: L_z / I_zz recovers the spin the momentum was built from,
   // with the inertia the manager derives itself.
-  EXPECT_NEAR(input.yawInertia, Ig(2, 2), 1.0e-9);
-  EXPECT_NEAR(input.headingRate, yawRate, 1.0e-9);
+  EXPECT_NEAR(input.inertiaComEwrtWorldZz, inertiaComEwrtWorld(2, 2), 1.0e-9);
+  EXPECT_NEAR(input.initRateYawHeadingRtWorld, cmdRateYawBaseRtWorld, 1.0e-9);
 
   // Foot yaws: the contact frames' yaws from forward kinematics, unwrapped to
   // within pi of the heading.
@@ -431,12 +466,18 @@ TEST_F(YawCommandDynamicsTest,
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     const pinocchio::FrameIndex frameId =
         pinocchio.getModel().getFrameId(modelSettings_->contactNames6DoF[foot]);
-    const matrix3_t R = pinocchio.getData().oMf[frameId].rotation();
-    const scalar_t frameYaw = std::atan2(R(1, 0), R(0, 0));
-    EXPECT_NEAR(std::remainder(input.footYaws[foot] - frameYaw, 2.0 * M_PI),
+    const matrix3_t rotmatFootRtWorld =
+        pinocchio.getData().oMf[frameId].rotation();
+    const scalar_t eulerzyxFootRtWorldYaw =
+        std::atan2(rotmatFootRtWorld(1, 0), rotmatFootRtWorld(0, 0));
+    EXPECT_NEAR(std::remainder(
+                    input.eulerzyxFeetRtWorldYaw[foot] - eulerzyxFootRtWorldYaw,
+                    2.0 * std::numbers::pi),
                 0.0, 1.0e-9)
         << "foot " << foot;
-    EXPECT_LE(std::abs(input.footYaws[foot] - input.heading), M_PI + 1.0e-9)
+    EXPECT_LE(std::abs(input.eulerzyxFeetRtWorldYaw[foot] -
+                       input.initYawHeadingRtWorld),
+              std::numbers::pi + 1.0e-9)
         << "unwrapped near the heading, foot " << foot;
   }
 }
@@ -454,10 +495,10 @@ TEST_F(YawCommandDynamicsTest,
   const std::shared_ptr<ContactPlanningReferenceManager> referenceManager =
       makeHeadingReferenceManager();
   ASSERT_NE(referenceManager, nullptr);
-  const scalar_t yawRate = 0.5;
+  const scalar_t cmdRateYawBaseRtWorld = 0.5;
   const scalar_t horizon = 1.0;
-  const TargetTrajectories target =
-      settledTarget(vector4_t(0.0, 0.0, 0.0, yawRate), initialState_);
+  const TargetTrajectories target = settledTarget(
+      vector4_t(0.0, 0.0, 0.0, cmdRateYawBaseRtWorld), initialState_);
 
   // What differentiating the target's base yaw over its first stretch gives for
   // a robot at rest: half the command.
@@ -465,28 +506,31 @@ TEST_F(YawCommandDynamicsTest,
       robotModel_->getDesiredState(target, /*time=*/0.0))(0);
   const scalar_t yaw1 = robotModel_->getEulerzyxBaseRtWorld(
       robotModel_->getDesiredState(target, /*time=*/0.2))(0);
-  EXPECT_NEAR((yaw1 - yaw0) / 0.2, 0.5 * yawRate, 1.0e-6)
+  EXPECT_NEAR((yaw1 - yaw0) / 0.2, 0.5 * cmdRateYawBaseRtWorld, 1.0e-6)
       << "the blended ramp is why the base yaw is not the command source";
 
   referenceManager->setTargetTrajectories(target);
   referenceManager->preSolverRun(/*initTime=*/0.0, horizon, initialState_,
                                  ModeNumber::kStance);
-  EXPECT_NEAR(referenceManager->commandedYawRate(), yawRate, 1.0e-6);
+  EXPECT_NEAR(referenceManager->cmdRateYawBaseRtWorld(), cmdRateYawBaseRtWorld,
+              1.0e-6);
   const ContactPlannerInput input = referenceManager->makePlannerInput(
       /*initTime=*/0.0, initialState_, vector2_t::Zero());
-  EXPECT_NEAR(input.headingRateCommand, yawRate, 1.0e-6);
+  EXPECT_NEAR(input.cmdRateYawBaseRtWorld, cmdRateYawBaseRtWorld, 1.0e-6);
 
   // The same command read with the robot already turning at the commanded rate,
   // and with a turned base: the momentum channel is a base-frame-invariant
   // quantity and the inertia the manager derives matches the calculator's.
   vector_t turning = initialState_;
   robotModel_->setEulerzyxBaseRtWorld(turning, vector3_t(1.1, 0.0, 0.0));
-  turning.segment<3>(3) = lockedInertia(turning).col(2) * (yawRate / mass_);
+  turning.segment<3>(3) = computeInertiaComEwrtWorld(turning).col(2) *
+                          (cmdRateYawBaseRtWorld / mass_);
   referenceManager->setTargetTrajectories(
-      settledTarget(vector4_t(0.0, 0.0, 0.0, yawRate), turning));
+      settledTarget(vector4_t(0.0, 0.0, 0.0, cmdRateYawBaseRtWorld), turning));
   referenceManager->preSolverRun(/*initTime=*/0.02, 0.02 + horizon, turning,
                                  ModeNumber::kStance);
-  EXPECT_NEAR(referenceManager->commandedYawRate(), yawRate, 1.0e-6);
+  EXPECT_NEAR(referenceManager->cmdRateYawBaseRtWorld(), cmdRateYawBaseRtWorld,
+              1.0e-6);
 
   // No yaw command, or a linear command only: no yaw rate is asked of the
   // planner.
@@ -494,12 +538,12 @@ TEST_F(YawCommandDynamicsTest,
       settledTarget(vector4_t(0.5, 0.1, 0.0, 0.0), initialState_));
   referenceManager->preSolverRun(/*initTime=*/0.04, 0.04 + horizon,
                                  initialState_, ModeNumber::kStance);
-  EXPECT_NEAR(referenceManager->commandedYawRate(), 0.0, 1.0e-9);
+  EXPECT_NEAR(referenceManager->cmdRateYawBaseRtWorld(), 0.0, 1.0e-9);
   // An empty target leaves nothing to command.
   referenceManager->setTargetTrajectories(TargetTrajectories());
   referenceManager->preSolverRun(/*initTime=*/0.06, 0.06 + horizon,
                                  initialState_, ModeNumber::kStance);
-  EXPECT_NEAR(referenceManager->commandedYawRate(), 0.0, 1.0e-9);
+  EXPECT_NEAR(referenceManager->cmdRateYawBaseRtWorld(), 0.0, 1.0e-9);
 }
 
 namespace {

@@ -32,8 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <memory>
 #include <string>
 #include <system_error>
@@ -47,14 +45,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
-#include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/model_data/ModelData.h"
 #include "ocs2_oc/approximate_model/LinearQuadraticApproximator.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
 #include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
@@ -66,10 +69,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/cost/TuningQuadraticStateCost.h"
 #include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_mpc_config/state_weights.nproto.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_mpc_config/xyz.nproto.h"
+#include "humanoid_mpc_config/yaw_pitch_roll.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/ProblemFingerprint.h"
 #include "support/TypedConfigFiles.h"
@@ -91,10 +97,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-// The base pose in the centroidal state x = [h_norm(6), p_base(3),
-// euler_zyx(3), q_j], written out here rather than taken from
-// ComAndAcomTrackingCost, so that a drift of the one definition shows up as a
-// failure instead of moving the expectation with it.
+// The base pose in the tuning layout of the state weights Q,
+// [mnorm_cmom_com_rt_world_ewrt_world(6), pos_base_rt_world_ewrt_world(3),
+// eulerzyx_base_rt_world(3), q_j] (getTuningLayout()), written out here rather
+// than taken from ComAndAcomTrackingCost, so that a drift of the one definition
+// shows up as a failure instead of moving the expectation with it. The state
+// stores quat_base_rt_world_xyzw(4) at 9 instead: there kBasePositionZIndex is
+// still the base z, and kBasePitchIndex is the quaternion's y coefficient,
+// which about the initial orientation tilts the base in pitch.
 constexpr Eigen::Index kBasePoseIndex = 6;
 constexpr Eigen::Index kBasePoseDim = 6;
 constexpr Eigen::Index kBasePositionZIndex = 8;
@@ -366,8 +376,9 @@ TEST_F(
           .isZero(0.0));
   // ...and the terminal instance is weighted like Q_final: by
   // terminalCostScaling.
-  if (!task.terminal_cost_scaling.has_value())
+  if (!task.terminal_cost_scaling.has_value()) {
     GTEST_FAIL() << "the shipped task file has no terminal_cost_scaling";
+  }
   const scalar_t terminalCostScaling = *task.terminal_cost_scaling;
   ASSERT_NE(terminalCostScaling, 1.0)
       << "a scaling of 1 would not tell the running weights from the terminal "
@@ -544,8 +555,9 @@ class HeadingModelReloadTest : public ::testing::Test {
    * and the base yaw differ. */
   vector_t bentState() const {
     vector_t state = initialState_;
-    for (Eigen::Index i = 12; i < state.size(); ++i)
+    for (Eigen::Index i = 12; i < state.size(); ++i) {
       state(i) += 0.3 * std::sin(1.7 * static_cast<scalar_t>(i));
+    }
     return state;
   }
 
@@ -570,25 +582,26 @@ TEST_F(HeadingModelReloadTest,
       << "nothing needs the network while the heading model is off";
 
   const vector_t state = bentState();
-  const scalar_t baseYaw = robotModel_->getYawBaseRtWorld(state);
+  const scalar_t yawBaseRtWorld = robotModel_->getYawBaseRtWorld(state);
   absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom =
       AngularCenterOfMass::Create(modelSettings_->robotName,
                                   modelSettings_->mpcModelJointNames);
   ASSERT_TRUE(acom.ok()) << acom.status();
   // The twist heading of the ACoM attitude, xi (x) Exp(Delta_theta(q_j)).
-  const scalar_t acomYaw =
-      yawOf((*acom)->acomAttitude(robotModel_->getQuatBaseRtWorldXyzw(state),
-                                  robotModel_->getJointAngles(state)));
+  const scalar_t yawAcomRtWorld = yawOf((*acom)->computeQuatAcomRtWorldXyzw(
+      robotModel_->getQuatBaseRtWorldXyzw(state),
+      robotModel_->getJointAngles(state)));
   // Positive control: at this state the two headings are different quantities,
   // so the check below can fail.
-  ASSERT_GT(std::abs(acomYaw - baseYaw), 1.0e-3);
-  EXPECT_EQ(manager->computeHeading(state), baseYaw);
+  ASSERT_GT(std::abs(yawAcomRtWorld - yawBaseRtWorld), 1.0e-3);
+  EXPECT_FALSE(manager->computeYawAcomRtWorld(state).has_value());
 
   ASSERT_TRUE(manager->setConfigStatus(headingOn_).ok());
   ASSERT_TRUE(manager->getConfig().usesHeadingModel());
   ASSERT_TRUE(manager->hasAngularCenterOfMass())
       << "the reload switched the heading model on without its evaluator";
-  EXPECT_NEAR(manager->computeHeading(state), acomYaw, 1.0e-12);
+  EXPECT_NEAR(manager->computeYawAcomRtWorld(state).value_or(yawBaseRtWorld),
+              yawAcomRtWorld, 1.0e-12);
 
   // Switching it off again keeps the evaluator, which only the heading model
   // reads.
@@ -660,7 +673,7 @@ TEST_F(HeadingModelReloadTest,
   EXPECT_TRUE(manager->getConfig().usesHeadingModel());
   EXPECT_FALSE(manager->hasAngularCenterOfMass());
   const vector_t state = bentState();
-  EXPECT_EQ(manager->computeHeading(state), model.getYawBaseRtWorld(state));
+  EXPECT_FALSE(manager->computeYawAcomRtWorld(state).has_value());
 }
 
 }  // namespace ocs2::humanoid

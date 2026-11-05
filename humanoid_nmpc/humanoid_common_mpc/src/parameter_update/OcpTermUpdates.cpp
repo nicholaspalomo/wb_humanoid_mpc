@@ -38,7 +38,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 namespace ocs2::humanoid {
 

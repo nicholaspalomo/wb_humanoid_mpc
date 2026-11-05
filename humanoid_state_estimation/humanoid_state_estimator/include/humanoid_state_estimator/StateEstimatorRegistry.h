@@ -37,9 +37,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 
+#include "humanoid_state_estimator/ContactKinematics.h"
 #include "humanoid_state_estimator/KalmanBaseEstimator.h"
 #include "humanoid_state_estimator/StateEstimator.h"
-#include "humanoid_state_estimator/StateEstimatorNames.h"
 #include "robot_model/RobotDescription.h"
 
 namespace ocs2::humanoid::estimation {
@@ -49,16 +49,17 @@ struct StateEstimatorContext {
   /** The robot's URDF: the leg kinematics. */
   std::string urdfFile;
   /**
-   * The contact points, in contact order: the MPC's contact frames
-   * (model_settings), and the joints they hang from. A contact frame the URDF
-   * does not have (the MPC adds its contact frames from the contact rectangles
-   * of the task file) is replaced by its parent joint's frame, whose origin is
-   * the contact point then: kalman_state_estimator's contact_height is that
-   * joint's height while its foot stands. Empty parent names: the contact
-   * frames only.
+   * The contact points, one per contact of the MPC in its contact order
+   * (model_settings' contact_names: the 3-DoF contacts, then the 6-DoF ones),
+   * each with its URDF frames in order of preference and its position in the
+   * frame chosen. The MPC adds its contact frames to its own model, so a URDF
+   * usually has only their parent joints' frames: a 6-DoF contact is then at
+   * its parent joint's origin (kalman_state_estimator's
+   * nom_pos_contact_rt_world_ewrt_world_z is that joint's height while its foot
+   * stands), and a 3-DoF contact at its pos_contact_rt_link_ewrt_link from its
+   * parent joint.
    */
-  std::vector<std::string> contactFrameNames;
-  std::vector<std::string> contactParentJointNames;
+  std::vector<ContactPointSpec> contacts;
   /** The robot whose states are estimated; it must outlive the estimator. */
   const robot::model::RobotDescription* absl_nonnull description;
   /** The `kalman` estimator's noise model. */

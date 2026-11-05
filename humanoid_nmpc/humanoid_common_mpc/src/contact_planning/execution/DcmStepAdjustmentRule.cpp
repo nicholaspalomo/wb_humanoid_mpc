@@ -29,16 +29,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/execution/DcmStepAdjustmentRule.h"
 
+#include <cstddef>
+#include <optional>
 #include <string>
 
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
 
 namespace ocs2::humanoid {
 
 std::string DcmStepAdjustmentRule::describe() const {
   return absl::StrCat("landing target += ", params_.gain,
                       " * DCM error propagated to touch-down, |offset| <= ",
-                      params_.maxOffset, " m, clipped to the reachable region");
+                      params_.maxNormErrPosFootRtWorldEwrtWorldXy,
+                      " m, clipped to the reachable region");
 }
 
 void DcmStepAdjustmentRule::configure(const ContactPlanningConfig& config) {
@@ -47,45 +59,59 @@ void DcmStepAdjustmentRule::configure(const ContactPlanningConfig& config) {
 
 feet_array_t<vector2_t> DcmStepAdjustmentRule::correctFootholds(
     const ExecutionContext& ctx, const ModeSchedule& schedule) const {
-  feet_array_t<vector2_t> adjustments =
+  feet_array_t<vector2_t> errPosFeetRtWorldEwrtWorldXy =
       makeFeetArray(vector2_t(vector2_t::Zero()));
-  if (!ctx.hasPlan() || !ctx.hasPredictedComState) return adjustments;
+  if (!ctx.hasPlan() || !ctx.hasPredictedComState) {
+    return errPosFeetRtWorldEwrtWorldXy;
+  }
   const scalar_t omega = ctx.omega();
   const ContactPlan& plan = *ctx.activePlan;
-  // Deviation from what the whole-body controller itself predicted for now. It
-  // is zero while the robot does what the NMPC expects, however far the
-  // planner's reduced model has drifted, and non-zero only under a real
-  // disturbance.
-  const vector2_t dcmError =
-      computeDcm(ctx.com, ctx.comVelocity, omega) -
-      computeDcm(ctx.predictedCom, ctx.predictedComVelocity, omega);
+  // Deviation from what the whole-body controller itself predicted for now,
+  // measured minus predicted; the anchor velocity stands in for the CoM's, as
+  // in the planner's LIP
+  // (ContactPlannerInput::proxyLinvelComRtWorldEwrtWorldXy). It is zero while
+  // the robot does what the NMPC expects, however far the planner's reduced
+  // model has drifted, and non-zero only under a real disturbance.
+  const vector2_t errPosDcmRtWorldEwrtWorldXy =
+      computePosDcmRtWorldEwrtWorldXy(ctx.posComRtWorldEwrtWorldXy,
+                                      ctx.proxyLinvelComRtWorldEwrtWorldXy,
+                                      omega) -
+      computePosDcmRtWorldEwrtWorldXy(
+          ctx.predictedPosComRtWorldEwrtWorldXy,
+          ctx.predictedProxyLinvelComRtWorldEwrtWorldXy, omega);
 
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     const std::optional<SwingWindow> phase =
         swingPhaseAtTime(schedule, foot, ctx.time);
     if (!phase.has_value()) continue;
     const scalar_t touchDownTime = phase->touchDown;
-    const std::optional<vector2_t> landing =
-        plan.footholdAtTime(foot, touchDownTime);
-    if (!landing.has_value()) continue;
-    const vector2_t adjustment =
-        dcmStepAdjustment(dcmError, omega, touchDownTime - ctx.time,
-                          params_.gain, params_.maxOffset);
+    const std::optional<vector2_t> plannedDesPosFootRtWorldEwrtWorldXy =
+        plan.getDesPosFootRtWorldEwrtWorldXy(foot, touchDownTime);
+    if (!plannedDesPosFootRtWorldEwrtWorldXy.has_value()) continue;
+    const vector2_t errPosFootRtWorldEwrtWorldXy =
+        computeErrPosFootRtWorldEwrtWorldXy(
+            errPosDcmRtWorldEwrtWorldXy, omega, touchDownTime - ctx.time,
+            params_.gain, params_.maxNormErrPosFootRtWorldEwrtWorldXy);
     const std::optional<LipState> atTouchDown =
         lipReferenceState(plan, omega, touchDownTime);
-    const vector2_t comAtTouchDown =
-        atTouchDown.has_value() ? atTouchDown->com : plan.comPosition.back();
-    // The reachable region is the planner's, in the frame the planner wrote it
-    // in for that node: the planned heading at touch-down (the heading at the
-    // snapshot, plan.yaw, is the same thing without the heading model).
-    const scalar_t yawAtTouchDown =
-        plan.headingAtTime(touchDownTime).value_or(plan.yaw);
-    const vector2_t clipped =
-        clipFootholdToReach(*landing + adjustment, foot, comAtTouchDown,
-                            yawAtTouchDown, *ctx.config);
-    adjustments[foot] = clipped - *landing;
+    const vector2_t touchdownPosComRtWorldEwrtWorldXy =
+        atTouchDown.has_value() ? atTouchDown->posComRtWorldEwrtWorldXy
+                                : plan.posComRtWorldEwrtWorldXyTraj.back();
+    // The reachable region is the planner's, in the frame the planner placed
+    // that foothold in: the planning heading at touch-down. Without the heading
+    // model that is the snapshot heading turned by the plan's rate up to the
+    // touch-down, not the snapshot heading itself.
+    const scalar_t touchdownYawHeadingRtWorld =
+        plan.getYawHeadingRtWorld(touchDownTime);
+    const vector2_t desPosFootRtWorldEwrtWorldXy = clipFootholdToReach(
+        *plannedDesPosFootRtWorldEwrtWorldXy + errPosFootRtWorldEwrtWorldXy,
+        foot, touchdownPosComRtWorldEwrtWorldXy, touchdownYawHeadingRtWorld,
+        *ctx.config);
+    // The adjusted foothold minus the planned one.
+    errPosFeetRtWorldEwrtWorldXy[foot] =
+        desPosFootRtWorldEwrtWorldXy - *plannedDesPosFootRtWorldEwrtWorldXy;
   }
-  return adjustments;
+  return errPosFeetRtWorldEwrtWorldXy;
 }
 
 }  // namespace ocs2::humanoid

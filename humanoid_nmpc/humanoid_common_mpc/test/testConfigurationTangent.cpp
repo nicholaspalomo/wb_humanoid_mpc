@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <numbers>
 #include <random>
@@ -46,14 +47,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/FactoryFunctions.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/jacobian.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
-#include "pinocchio/algorithm/kinematics.hpp"
-#include "pinocchio/spatial/explog.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/spatial.hpp"
+#include "pinocchio/spatial/fwd.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
@@ -204,9 +207,10 @@ class ConfigurationTangentTest : public ::testing::TestWithParam<ShippedRobot> {
    * each rotation. */
   std::vector<vector4_t> attitudes(std::mt19937& generator) const {
     std::vector<vector4_t> result;
-    for (size_t i = 0; i < 4; ++i)
+    for (size_t i = 0; i < 4; ++i) {
       result.emplace_back(
           uniformVector(/*size=*/4, /*halfWidth=*/1.0, generator).normalized());
+    }
     result.push_back(
         quaternionFromEulerZyx(vector3_t(0.7, 0.5 * std::numbers::pi, -0.4)));
     const size_t count = result.size();
@@ -292,16 +296,18 @@ TEST_P(
       for (size_t contact = 0; contact < frameJacobians.size(); ++contact) {
         const pinocchio::FrameIndex frame =
             model.getFrameId(settings_->contactNames[contact]);
-        const pinocchio::SE3& plusPlacement = plusData.oMf[frame];
-        const pinocchio::SE3& minusPlacement = minusData.oMf[frame];
+        const pinocchio::SE3& plusPoseContactRtWorld = plusData.oMf[frame];
+        const pinocchio::SE3& minusPoseContactRtWorld = minusData.oMf[frame];
         frameFiniteDifferences[contact].col(column).head<3>() =
-            (plusPlacement.translation() - minusPlacement.translation()) /
+            (plusPoseContactRtWorld.translation() -
+             minusPoseContactRtWorld.translation()) /
             (2.0 * kFiniteDifferenceStep);
         // The world-frame rotation between the two placements, as
         // LOCAL_WORLD_ALIGNED's angular rows read it.
         frameFiniteDifferences[contact].col(column).tail<3>() =
-            pinocchio::log3(matrix3_t(plusPlacement.rotation() *
-                                      minusPlacement.rotation().transpose())) /
+            pinocchio::log3(
+                matrix3_t(plusPoseContactRtWorld.rotation() *
+                          minusPoseContactRtWorld.rotation().transpose())) /
             (2.0 * kFiniteDifferenceStep);
       }
     }

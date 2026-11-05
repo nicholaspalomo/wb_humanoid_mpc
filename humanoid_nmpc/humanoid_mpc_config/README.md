@@ -40,7 +40,7 @@ Every `.proto` file holds one message, named after the file. The task file's blo
 | `input_weights` | `InputWeights` | the input weights: each contact's wrench, then the joint velocities (centroidal) or accelerations (whole body) |
 | `com_weights`, `acom_weights` | `ComWeights`, `AcomWeights` | the center-of-mass and angular-center-of-mass tracking of `com_and_acom_tracking_cost` |
 | `left_leg_torque_cost`, `right_leg_torque_cost`, `joint_torque_weights` | `JointWeights` | joint torque costs: the legs' (centroidal), every joint's (whole body) |
-| `task_space_foot_cost`, `task_space_costs` | `TaskSpaceCostConfig` with `TaskSpaceWeights` | the swing-foot cost and the named link costs; the whole-body foot cost refuses a non-zero `pos_x`, `pos_y` or `pos_z`, weights of a position error it does not have. The `orientation_*` weights are per rad² in both: the link costs' rotation vector and the foot costs' tilt angle (and planned yaw error) |
+| `task_space_foot_cost`, `task_space_costs` | `TaskSpaceCostConfig` with `TaskSpaceWeights` | the swing-foot cost and the named link costs; the whole-body foot cost refuses a non-zero `pos_x`, `pos_y` or `pos_z`, weights of a position error it does not have. The `rotvec_*` weights are per rad² in both: the link costs' rotation vector and the foot costs' tilt angle (and planned yaw error) |
 | `contacts` | `ContactsConfig` | the contact geometry, the wrench cone, the basis-vector inputs, the friction cone |
 | `joint_limits`, `collision_constraint`, `collision_cbf_constraint`, `mimic_joints` | `JointLimitsConfig`, `CollisionConstraintConfig`, `CollisionCbfConstraintConfig`, `MimicJointsConfig` | soft and hard constraints |
 | `dcm_terminal_cost` | `DcmTerminalCostConfig` | the centroidal MPC's capture-point cost |
@@ -51,7 +51,7 @@ Every `.proto` file holds one message, named after the file. The task file's blo
 
 The task file's scalars and lists set the formulation (`costs`, `soft_constraints`, `hard_constraints`,
 `contact_input_parameterization`, `contact_schedule_source`, `centroidal_model`, `terminal_cost_scaling`,
-`terrain_height`), the robot process and the simulator (`contact_estimator`, `telemetry_sinks`, `telemetry_frequency`,
+`pos_surface_rt_world_ewrt_world_z`), the robot process and the simulator (`contact_estimator`, `telemetry_sinks`, `telemetry_frequency`,
 `gantry_hold`, `sim_*`, `wb_mpc_feedforward`, ...), the visualization's frames and rate, and the GUI's
 `enable_online_tuning`. The other files:
 
@@ -76,7 +76,7 @@ The task file's scalars and lists set the formulation (`costs`, `soft_constraint
 - **Names** are snake_case (`state_weights`, `abs_tol_ode`, `ssp_duration`); a control of the GUI is labeled by them.
 - For **defaults**, a scalar whose absence means "the default" carries `[default = X]`, the default of the domain struct it
   converts to, and is a plain struct member. A scalar whose absence has its own meaning (unset, the controller's
-  default, derived from the robot model as a `com_height` left out is, or required by the formulation that reads it)
+  default, derived from the robot model as a `nom_pos_com_rt_feetmean_ewrt_world_z` left out is, or required by the formulation that reads it)
   has no default and is a `std::optional`, never a sentinel value such as 0; so is a message field
   marked `[(nproto.optional_message) = true]`. Strings carry `[default = ""]` unless absence means something.
 - For **ranges**, a field's comment states its range, and its conversion refuses a value outside it (NaN included) with an
@@ -146,7 +146,7 @@ taped into their CppAD library the same way: a reload maps the weights by joint 
 added, removed or renamed joint takes effect at the next start. A field the schema marks for one formulation only
 (`formulations`, [GUI metadata](#gui-metadata)) is not applied by the other one, which never read it.
 
-**One solve late.** `terrain_height` and `swing_trajectory_config` reach the reference manager, whose references of a
+**One solve late.** `pos_surface_rt_world_ewrt_world_z` and `swing_trajectory_config` reach the reference manager, whose references of a
 solve are built before the updater runs (`SolverBase::preRun`). An update of either takes effect at the solve after the
 one it arrived before; the first run on a new ground then lifts the target in use by the change, once.
 

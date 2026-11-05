@@ -29,9 +29,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/logic/DoubleSupportPenaltyCost.h"
 
+#include <cstddef>
 #include <string>
 
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
+#include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 
 namespace ocs2::humanoid {
 

@@ -32,23 +32,26 @@ message CertifierReport {
     double time = 1 [default = 0.0];
     // The active contacts, in contact-set order.
     repeated string active_contacts = 2;
-    // [m] The center of mass of the knot's configuration.
-    repeated double com = 3;
+    // [m] The center of mass of the knot's configuration, in the world frame.
+    repeated double pos_com_rt_world_ewrt_world = 3;
     // The static equilibrium polygon (design section 2), an inner approximation of the set of horizontal CoM positions
     // in static equilibrium on the stance, counterclockwise; empty when no CoM position is.
-    repeated Point2 support_polygon = 4;
-    // [m] The signed distance of the CoM's horizontal projection to the boundary of support_polygon, positive inside: a
+    repeated Point2 support_pos_com_rt_world_ewrt_world_xy_samples = 4;
+    // [m] The signed distance of the CoM's horizontal projection to the boundary of support_pos_com_rt_world_ewrt_world_xy_samples, positive inside: a
     // lower bound on the true static margin rho_s. Absent when no CoM position is in static equilibrium.
     double static_margin = 5;
     // The smallest max_j |tau_j| / effort_limit_j over the contact forces that hold the stance statically at the
     // knot's configuration, and the joint that has it. Absent when the knot's CoM is not in static equilibrium, and,
     // under joint limits "position_only", where it is information only, when HPIPM cannot solve the torque LP.
-    double torque_utilization = 6;
+    double joint_torque_utilization = 6;
     string max_torque_joint = 7 [default = ""];
-    // Whether the planned centroidal momentum rate lies in the contact wrench cone of the stance, and the L1 norm of
-    // the smallest mismatch of the normalized wrench (force over the weight, moment over the weight in meters).
-    bool momentum_rate_feasible = 8 [default = false];
-    double momentum_rate_residual = 9 [default = 0.0];
+    // The contact wrench cone check (checkContactWrenchCone()): whether the gravito-inertial wrench of the planned
+    // centroidal momentum rate, the contact wrench the stance must apply for it, lies in the linearized contact wrench
+    // cone CWC(S) of the stance, and the L1 norm of the smallest mismatch of that normalized wrench to the cone (force
+    // over the weight, moment over the weight in meters). In flight the cone holds only the zero wrench, and the norm is
+    // that of the wrench itself.
+    bool wrench_cone_feasible = 8 [default = false];
+    double wrench_cone_residual = 9 [default = 0.0];
     // [m] The largest |signed distance| of an active contact's pad to the terrain.
     double max_active_contact_distance = 10 [default = 0.0];
     // [m] The smallest signed distance of an inactive candidate's pad geometry (a sphere of its geom radius) to the
@@ -56,9 +59,9 @@ message CertifierReport {
     double min_inactive_clearance = 11;
     string min_inactive_clearance_contact = 12 [default = ""];
     // Condition 1: static_margin >= the scenario's margin and, under joint limits "position_and_effort",
-    // torque_utilization <= its torque margin. Absent when the scenario sets no static margin.
+    // joint_torque_utilization <= its torque margin. Absent when the scenario sets no static margin.
     bool static_condition = 13;
-    // Condition 2: momentum_rate_feasible, with every active contact on the terrain.
+    // Condition 2: wrench_cone_feasible, with every active contact on the terrain.
     bool dynamic_condition = 14 [default = false];
     // Condition 3, at a knot whose stance differs from the previous knot's: the stances differ by one contact, and
     // their common stance satisfies condition 1 at both knots. Absent at the first knot, where the stance does not
@@ -83,12 +86,12 @@ message CertifierReport {
   // [m] The static margin the knots were judged with; absent when condition 1 was not judged.
   double static_margin = 2;
   // The scenario's joint limits, by name: under "position_and_effort" condition 1 judges the torques against
-  // torque_margin; under "position_only" the knots' torque_utilization is information only.
+  // joint_torque_margin; under "position_only" the knots' joint_torque_utilization is information only.
   // LINT.IfChange(joint_limits_names)
   string joint_limits = 6 [default = "position_and_effort"];
   // LINT.ThenChange(//humanoid_nmpc/humanoid_multi_contact/stability/include/humanoid_multi_contact/stability/JointLimits.h:joint_limits_names)
   // The fraction of the effort limits the torques may use; absent when the torques are not judged ("position_only").
-  double torque_margin = 3;
+  double joint_torque_margin = 3;
   repeated Knot knots = 4;
   // The number of knots that failed.
   int32 failed_knots = 5 [default = 0];

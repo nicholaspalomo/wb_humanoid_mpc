@@ -210,17 +210,19 @@ ad_vector_t EndEffectorDynamicsFootCost::costVectorFunction(
       state, input, pinocchioInterfaceCppAd_, *mpcRobotModelPtr_);
 
   pinocchio::forwardKinematics(model, data, q, v, a);
-  const pinocchio::SE3Tpl<ad_scalar_t> frameData =
+  const pinocchio::SE3Tpl<ad_scalar_t> poseFootRtWorld =
       pinocchio::updateFramePlacement(model, data, frameID_);
 
-  ad_vector3_t linearVelocity =
+  ad_vector3_t linvelFootRtWorldEwrtWorld =
       pinocchio::getFrameVelocity(model, data, frameID_, rf).linear();
-  ad_vector3_t angularVelocity =
+  ad_vector3_t angvelFootRtWorldEwrtWorld =
       pinocchio::getFrameVelocity(model, data, frameID_, rf).angular();
-  const pinocchio::MotionTpl<ad_scalar_t> accel =
+  const pinocchio::MotionTpl<ad_scalar_t> classicalaccFootRtWorldEwrtWorld =
       pinocchio::getFrameClassicalAcceleration(model, data, frameID_, rf);
-  ad_vector3_t linearAccel = accel.linear();
-  ad_vector3_t angularAccel = accel.angular();
+  ad_vector3_t linaccFootRtWorldEwrtWorld =
+      classicalaccFootRtWorldEwrtWorld.linear();
+  ad_vector3_t angaccFootRtWorldEwrtWorld =
+      classicalaccFootRtWorldEwrtWorld.angular();
 
   const PlanarEndEffectorDynamicsReference<ad_scalar_t> reference(
       parameters.head(kFootCostDim));
@@ -236,12 +238,17 @@ ad_vector_t EndEffectorDynamicsFootCost::costVectorFunction(
   // LINT.IfChange(foot_cost_errors)
   ad_vector_t errors(kFootCostDim);
   errors << ad_vector3_t::Zero(),
-      tiltAngleToPlane<ad_scalar_t>(frameData.rotation(),
-                                    reference.getPlaneNormal()),
-      (linearVelocity - reference.getLinearVelocity()),
-      (angularVelocity - reference.getAngularVelocity()),
-      (linearAccel - reference.getLinearAcceleration()),
-      (angularAccel - reference.getAngularAcceleration());
+      tiltAngleToPlane<ad_scalar_t>(
+          poseFootRtWorld.rotation(),
+          reference.getSwingRefNormalSurfaceEwrtWorld()),
+      (linvelFootRtWorldEwrtWorld -
+       reference.getRefLinvelFootRtWorldEwrtWorld()),
+      (angvelFootRtWorldEwrtWorld -
+       reference.getRefAngvelFootRtWorldEwrtWorld()),
+      (linaccFootRtWorldEwrtWorld -
+       reference.getRefLinaccFootRtWorldEwrtWorld()),
+      (angaccFootRtWorldEwrtWorld -
+       reference.getRefAngaccFootRtWorldEwrtWorld());
   // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/src/config/costs/EndEffectorDynamicsWeightsFromConfig.cpp:inert_foot_cost_weights)
 
   return errors.cwiseProduct(sqrtWeightParams) * impactProximityScaler;
@@ -267,20 +274,22 @@ vector_t EndEffectorDynamicsFootCost::getParameters(
   parameters.head(kPositionDim) =
       vector3_t(0.0, 0.0, 0.0);  // Reference position
   // The ground's normal, tilted toe-up during a swing by
-  // swing_trajectory_config.swing_pitch_angle (exactly (0, 0, 1) in contact and
-  // with the default pitch of 0), as the centroidal foot cost tracks it.
+  // swing_trajectory_config.swing_max_tiltangle_foot_rt_surface (exactly (0, 0,
+  // 1) in contact and with the default pitch of 0), as the centroidal foot cost
+  // tracks it.
   // LINT.IfChange(foot_cost_ground_normal)
-  parameters.segment(kFootReferencePlaneNormalOffset, kPositionDim) =
-      referenceManagerPtr_->getSwingFootPlaneNormal(contactIndex_, time);
+  parameters.segment(kFootReferencePlaneNormalStartIndex, kPositionDim) =
+      referenceManagerPtr_->getSwingRefNormalSurfaceEwrtWorld(contactIndex_,
+                                                              time);
   // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/src/config/costs/EndEffectorDynamicsWeightsFromConfig.cpp:inert_foot_cost_weights)
   // Reference linear and angular velocities and accelerations.
-  parameters.segment(kFootReferenceLinearVelocityOffset, kPositionDim) =
+  parameters.segment(kFootReferenceLinearVelocityStartIndex, kPositionDim) =
       vector3_t(0.0, 0.0, 0.0);
-  parameters.segment(kFootReferenceAngularVelocityOffset, kRotationTangentDim) =
+  parameters.segment(kFootReferenceAngularVelocityStartIndex,
+                     kRotationTangentDim) = vector3_t(0.0, 0.0, 0.0);
+  parameters.segment(kFootReferenceLinearAccelerationStartIndex, kPositionDim) =
       vector3_t(0.0, 0.0, 0.0);
-  parameters.segment(kFootReferenceLinearAccelerationOffset, kPositionDim) =
-      vector3_t(0.0, 0.0, 0.0);
-  parameters.segment(kFootReferenceAngularAccelerationOffset,
+  parameters.segment(kFootReferenceAngularAccelerationStartIndex,
                      kRotationTangentDim) = vector3_t(0.0, 0.0, 0.0);
   parameters.segment(kSqrtWeightsOffset, kFootCostDim) =
       sqrtWeights_;  // EndEffectorDynamicsWeights vector element

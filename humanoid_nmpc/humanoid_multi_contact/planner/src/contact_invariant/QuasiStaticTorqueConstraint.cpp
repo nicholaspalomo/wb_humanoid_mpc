@@ -52,7 +52,7 @@ constexpr size_t kRowsPerJoint = 2;
 
 /** tau = g(q) - sum_i J_i' w_i of the limited joints. */
 template <typename Scalar>
-Eigen::Matrix<Scalar, Eigen::Dynamic, 1> quasiStaticTorques(
+Eigen::Matrix<Scalar, Eigen::Dynamic, 1> quasiStaticJointTorques(
     PinocchioInterfaceTpl<Scalar> interface,
     const CentroidalModelInfoTpl<Scalar>& info,
     const std::vector<pinocchio::FrameIndex>& frames,
@@ -73,15 +73,15 @@ Eigen::Matrix<Scalar, Eigen::Dynamic, 1> quasiStaticTorques(
     Matrix jacobian = Matrix::Zero(kPoseTangentDim, model.nv);
     pinocchio::getFrameJacobian(model, data, frames[i],
                                 pinocchio::LOCAL_WORLD_ALIGNED, jacobian);
-    Eigen::Matrix<Scalar, kWrenchDim, 1> wrench =
+    Eigen::Matrix<Scalar, kWrenchDim, 1> wrenchContactEwrtWorld =
         Eigen::Matrix<Scalar, kWrenchDim, 1>::Zero();
-    wrench.template head<kForceDim>() =
+    wrenchContactEwrtWorld.template head<kForceDim>() =
         centroidal_model::getForceContactEwrtWorld(input, i, info);
     if (i >= info.numThreeDofContacts) {
-      wrench.template tail<kTorqueDim>() =
+      wrenchContactEwrtWorld.template tail<kTorqueDim>() =
           centroidal_model::getTorqueContactEwrtWorld(input, i, info);
     }
-    tau -= jacobian.transpose() * wrench;
+    tau -= jacobian.transpose() * wrenchContactEwrtWorld;
   }
   Vector result(limits.size());
   for (size_t j = 0; j < limits.size(); ++j) {
@@ -123,16 +123,16 @@ size_t QuasiStaticTorqueConstraint::getNumConstraints(scalar_t /*time*/) const {
   return kRowsPerJoint * limits_.size();
 }
 
-vector_t QuasiStaticTorqueConstraint::torques(const vector_t& state,
-                                              const vector_t& input) const {
-  return quasiStaticTorques<scalar_t>(pinocchio_, info_, contactFrames_,
-                                      limits_, state, input);
+vector_t QuasiStaticTorqueConstraint::jointTorques(
+    const vector_t& state, const vector_t& input) const {
+  return quasiStaticJointTorques<scalar_t>(pinocchio_, info_, contactFrames_,
+                                           limits_, state, input);
 }
 
-ad_vector_t QuasiStaticTorqueConstraint::tapedTorques(
+ad_vector_t QuasiStaticTorqueConstraint::tapedJointTorques(
     const ad_vector_t& state, const ad_vector_t& input) const {
-  return quasiStaticTorques<ad_scalar_t>(pinocchioCppAd_, infoCppAd_,
-                                         contactFrames_, limits_, state, input);
+  return quasiStaticJointTorques<ad_scalar_t>(
+      pinocchioCppAd_, infoCppAd_, contactFrames_, limits_, state, input);
 }
 
 ad_vector_t QuasiStaticTorqueConstraint::constraintFunction(
@@ -140,7 +140,7 @@ ad_vector_t QuasiStaticTorqueConstraint::constraintFunction(
     const ad_vector_t& state,
     const ad_vector_t& input,
     const ad_vector_t& /*parameters*/) const {
-  const ad_vector_t tau = tapedTorques(state, input);
+  const ad_vector_t tau = tapedJointTorques(state, input);
   const size_t n = limits_.size();
   ad_vector_t value(kRowsPerJoint * n);
   for (size_t j = 0; j < n; ++j) {

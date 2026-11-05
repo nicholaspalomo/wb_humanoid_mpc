@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/cost/QuadraticStateCost.h"
 #include "ocs2_core/cost/QuadraticStateInputCost.h"
 #include "ocs2_core/manifold/StateManifold.h"
@@ -62,7 +63,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/cost/TuningGaussNewton.h"
 #include "humanoid_common_mpc/cost/TuningQuadraticStateCost.h"
 #include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
-#include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/orientation/TuningLayoutDeviation.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/QuaternionLayoutRobotModel.h"
@@ -144,8 +144,9 @@ vector_t randomVector(Eigen::Index size, std::mt19937& generator) {
 /** A dense symmetric positive definite `size` x `size` matrix: A A' + I. */
 matrix_t randomWeights(Eigen::Index size, std::mt19937& generator) {
   matrix_t a(size, size);
-  for (Eigen::Index col = 0; col < size; ++col)
+  for (Eigen::Index col = 0; col < size; ++col) {
     a.col(col) = randomVector(size, generator);
+  }
   matrix_t weights = a * a.transpose() + matrix_t::Identity(size, size);
   // Symmetric bit for bit, as the converted task-file weights are.
   return 0.5 * (weights + weights.transpose());
@@ -188,9 +189,10 @@ matrix_t levelTangentJacobian(const TuningLayout& layout) {
   matrix_t jacobian = matrix_t::Identity(tuningDim, tuningDim);
   Eigen::Index row = 0;
   for (const TuningSegment& segment : layout.segments) {
-    if (segment.kind != TuningSegmentKind::kEuclidean)
+    if (segment.kind != TuningSegmentKind::kEuclidean) {
       jacobian.block<3, 3>(row, row) =
           matrix3_t::Identity().rowwise().reverse();
+    }
     row += static_cast<Eigen::Index>(segment.tuningDim);
   }
   return jacobian;
@@ -363,13 +365,14 @@ class TuningQuadraticCostTest : public ::testing::TestWithParam<ShippedRobot> {
     state_ = randomVector(stateDim_, generator);
     input_ = randomVector(inputDim_, generator);
     // A yaw error within 2.5 rad, away from +-pi, where the heading row jumps.
-    const vector3_t eulerZyx = randomEulerZyx(generator);
+    const vector3_t eulerzyxBaseRtWorld = randomEulerZyx(generator);
     std::uniform_real_distribution<scalar_t> yawError(-2.5, 2.5);
-    model_->setEulerzyxBaseRtWorld(state_, eulerZyx);
-    const vector3_t referenceTilt = randomEulerZyx(generator);
+    model_->setEulerzyxBaseRtWorld(state_, eulerzyxBaseRtWorld);
+    const vector3_t refEulerzyxBaseRtWorld = randomEulerZyx(generator);
     model_->setEulerzyxBaseRtWorld(
-        reference_.state, vector3_t(eulerZyx(0) + yawError(generator),
-                                    referenceTilt(1), referenceTilt(2)));
+        reference_.state,
+        vector3_t(eulerzyxBaseRtWorld(0) + yawError(generator),
+                  refEulerzyxBaseRtWorld(1), refEulerzyxBaseRtWorld(2)));
   }
 
   /** `state` (+) step e_i on the fixture's state manifold. */
@@ -570,15 +573,19 @@ TEST_P(TuningQuadraticCostTest,
   for (size_t trial = 0; trial < 12; ++trial) {
     vector_t state = state_;
     vector_t referenceState = reference_.state;
-    const scalar_t yaw = randomEulerZyx(generator)(0);
-    const scalar_t referenceYaw = yaw + yawError(generator);
-    const std::array<vector3_t, 3> referenceAttitudes = {
-        vector3_t(referenceYaw, 0.0, 0.0),
-        vector3_t(referenceYaw, tilt(generator), 0.0),
-        vector3_t(referenceYaw, 0.0, tilt(generator))};
-    model_->setEulerzyxBaseRtWorld(state, vector3_t(yaw, 0.0, 0.0));
+    const scalar_t eulerzyxBaseRtWorldYaw = randomEulerZyx(generator)(0);
+    const scalar_t refEulerzyxBaseRtWorldYaw =
+        eulerzyxBaseRtWorldYaw + yawError(generator);
+    const std::array<vector3_t, 3> trialRefEulerzyxBaseRtWorld = {
+        vector3_t(refEulerzyxBaseRtWorldYaw, 0.0, 0.0),
+        vector3_t(refEulerzyxBaseRtWorldYaw, tilt(generator), 0.0),
+        vector3_t(refEulerzyxBaseRtWorldYaw, 0.0, tilt(generator))};
+    model_->setEulerzyxBaseRtWorld(state,
+                                   vector3_t(eulerzyxBaseRtWorldYaw, 0.0, 0.0));
     model_->setEulerzyxBaseRtWorld(
-        referenceState, referenceAttitudes[trial % referenceAttitudes.size()]);
+        referenceState,
+        trialRefEulerzyxBaseRtWorld[trial %
+                                    trialRefEulerzyxBaseRtWorld.size()]);
     if (angularVelocityStart.has_value()) {
       state.segment<3>(static_cast<Eigen::Index>(*angularVelocityStart))
           .setZero();
@@ -876,8 +883,9 @@ matrix_t randomBlock(Eigen::Index rows,
                      Eigen::Index cols,
                      std::mt19937& generator) {
   matrix_t block(rows, cols);
-  for (Eigen::Index col = 0; col < cols; ++col)
+  for (Eigen::Index col = 0; col < cols; ++col) {
     block.col(col) = randomVector(rows, generator);
+  }
   return block;
 }
 

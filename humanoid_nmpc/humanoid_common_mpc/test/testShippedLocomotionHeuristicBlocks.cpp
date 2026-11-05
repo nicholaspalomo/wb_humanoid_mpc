@@ -130,9 +130,9 @@ struct ListKey {
   HeuristicKind kind;
 };
 constexpr ListKey kListKeys[] = {
-    {.key = "base_pose", .kind = HeuristicKind::kBasePose},
-    {.key = "foothold", .kind = HeuristicKind::kFoothold},
-    {.key = "wrench", .kind = HeuristicKind::kWrench},
+    {.key = "base_pose_heuristics", .kind = HeuristicKind::kBasePose},
+    {.key = "foothold_heuristics", .kind = HeuristicKind::kFoothold},
+    {.key = "wrench_heuristics", .kind = HeuristicKind::kWrench},
 };
 
 const ListKey* absl_nullable findListKey(absl::string_view key) {
@@ -187,16 +187,18 @@ std::vector<std::string> taskFilesInRunfiles(absl::string_view packageSuffix) {
            std::filesystem::directory_iterator(robot.path())) {
         const std::string packageName = package.path().filename().string();
         if (!package.is_directory() ||
-            !absl::EndsWith(packageName, packageSuffix))
+            !absl::EndsWith(packageName, packageSuffix)) {
           continue;
+        }
         // Built by hand rather than with std::filesystem::relative, which
         // resolves the runfiles' symlinks into the source tree and would then
         // no longer be relative to the runfiles root.
         const std::string relativePath =
             absl::StrCat("robot_models/", robotName, "/", packageName,
                          "/config/mpc/task.textproto");
-        if (std::filesystem::exists(root / relativePath))
+        if (std::filesystem::exists(root / relativePath)) {
           found.push_back(relativePath);
+        }
       }
     }
     break;
@@ -259,10 +261,12 @@ LineRange blockLineRange(const std::vector<std::string>& lines) {
       absl::StrCat("^", kBlockKey, R"(\s*\{\s*(#.*)?$)"));
   const std::regex blockEnd("^\\}");
   size_t begin = 0;
-  while (begin < lines.size() && !std::regex_search(lines[begin], blockStart))
+  while (begin < lines.size() && !std::regex_search(lines[begin], blockStart)) {
     ++begin;
-  if (begin == lines.size())
+  }
+  if (begin == lines.size()) {
     return LineRange{.begin = lines.size(), .end = lines.size()};
+  }
   ++begin;
   size_t end = begin;
   while (end < lines.size() && !std::regex_search(lines[end], blockEnd)) ++end;
@@ -281,9 +285,10 @@ std::vector<CommentedCandidate> commentedListCandidates(
     std::smatch match;
     if (!std::regex_search(lines[i], match, commentedEntry)) continue;
     const ListKey* absl_nullable list = findListKey(match[1].str());
-    if (list != nullptr)
+    if (list != nullptr) {
       candidates.push_back(CommentedCandidate{
           .list = list, .name = match[2].str(), .lineIndex = i});
+    }
   }
   return candidates;
 }
@@ -451,8 +456,9 @@ TEST_P(ShippedLocomotionHeuristicBlockTest,
   for (int i = 0; i < descriptor->field_count(); ++i) {
     const google::protobuf::FieldDescriptor* absl_nonnull heuristic =
         descriptor->field(i);
-    if (heuristic->message_type() == nullptr)
+    if (heuristic->message_type() == nullptr) {
       continue;  // a name list, which ships empty
+    }
     if (!reflection->HasField(block, heuristic)) {
       ADD_FAILURE() << kBlockKey << "." << heuristic->name()
                     << " is not written in " << taskFile_;
@@ -463,12 +469,14 @@ TEST_P(ShippedLocomotionHeuristicBlockTest,
     for (int j = 0; j < parameterBlock.GetDescriptor()->field_count(); ++j) {
       const google::protobuf::FieldDescriptor* absl_nonnull parameter =
           parameterBlock.GetDescriptor()->field(j);
-      // A parameter without a default (capture_point.com_height_override,
-      // centripetal_acceleration.max_force_com_ewrt_world_xy) may be left out:
-      // its absence is a setting of its own, and the file says which in a
-      // comment.
-      if (parameter->has_presence() && !parameter->has_default_value())
+      // A parameter without a default
+      // (capture_point.override_pos_com_rt_feetmean_ewrt_world_z,
+      // centripetal_acceleration_parameters.max_force_com_ewrt_world_xy) may be
+      // left out: its absence is a setting of its own, and the file says which
+      // in a comment.
+      if (parameter->has_presence() && !parameter->has_default_value()) {
         continue;
+      }
       EXPECT_TRUE(
           parameterBlock.GetReflection()->HasField(parameterBlock, parameter))
           << kBlockKey << "." << heuristic->name() << "." << parameter->name()
@@ -494,18 +502,19 @@ TEST(ShippedTaskFileScanTest,
   // top-level block is never mistaken for one of the block's own.
   const std::vector<std::string> lines = {
       "model_settings {",
-      "  # foothold: \"capture_point\"",
+      "  # foothold_heuristics: \"capture_point\"",
       "}",
       "locomotion_heuristics {",
-      "  # base_pose: \"orientation_compensation\"   # the base-pose family",
-      "  # foothold: \"capture_point\"",
-      "  # wrench: \"impulse_scaling\"",
+      "  # base_pose_heuristics: \"orientation_compensation\"   # the "
+      "base-pose family",
+      "  # foothold_heuristics: \"capture_point\"",
+      "  # wrench_heuristics: \"impulse_scaling\"",
       "  capture_point {",
       "    # gain: 1.0",
       "  }",
       "}",
       "other_block {",
-      "  # wrench: \"impulse_scaling\"",
+      "  # wrench_heuristics: \"impulse_scaling\"",
       "}",
   };
   const std::vector<CommentedCandidate> candidates =
@@ -521,9 +530,9 @@ TEST(ShippedTaskFileScanTest,
   const std::vector<std::string> uncommented =
       splitLines(withLineUncommented(lines, candidates[0].lineIndex));
   ASSERT_EQ(uncommented.size(), lines.size());
-  EXPECT_EQ(
-      uncommented[4],
-      "  base_pose: \"orientation_compensation\"   # the base-pose family");
+  EXPECT_EQ(uncommented[4],
+            "  base_pose_heuristics: \"orientation_compensation\"   # the "
+            "base-pose family");
 }
 
 TEST(ShippedTaskFileScanTest,
@@ -544,8 +553,9 @@ TEST(ShippedTaskFileScanTest,
       << "the runfiles walk found only: " << describe(found);
 
   std::vector<std::string> listed;
-  for (const ShippedTaskFile& file : kShippedTaskFiles)
+  for (const ShippedTaskFile& file : kShippedTaskFiles) {
     listed.emplace_back(file.relativePath);
+  }
   EXPECT_EQ(found, sorted(listed))
       << "the centroidal task files in this test's runfiles (its BUILD `data`) "
          "are not the ones "

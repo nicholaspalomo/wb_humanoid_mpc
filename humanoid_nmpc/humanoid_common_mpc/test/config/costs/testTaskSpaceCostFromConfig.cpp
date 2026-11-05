@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h"
@@ -72,15 +73,15 @@ mpc_config::TaskSpaceWeights distinctKinematicsWeights() {
   weights.pos_x = 1.0;
   weights.pos_y = 2.0;
   weights.pos_z = 3.0;
-  weights.orientation_x = 4.0;
-  weights.orientation_y = 5.0;
-  weights.orientation_z = 6.0;
-  weights.lin_velocity_x = 7.0;
-  weights.lin_velocity_y = 8.0;
-  weights.lin_velocity_z = 9.0;
-  weights.ang_velocity_x = 10.0;
-  weights.ang_velocity_y = 11.0;
-  weights.ang_velocity_z = 12.0;
+  weights.rotvec_x = 4.0;
+  weights.rotvec_y = 5.0;
+  weights.rotvec_z = 6.0;
+  weights.linvel_x = 7.0;
+  weights.linvel_y = 8.0;
+  weights.linvel_z = 9.0;
+  weights.angvel_x = 10.0;
+  weights.angvel_y = 11.0;
+  weights.angvel_z = 12.0;
   return weights;
 }
 
@@ -106,14 +107,14 @@ TEST(EndEffectorKinematicsWeightsFromConfigTest, EachWeightLandsInItsOwnEntry) {
 TEST(EndEffectorKinematicsWeightsFromConfigTest,
      ANonFiniteWeightIsRefusedByItsPath) {
   mpc_config::TaskSpaceWeights weights;
-  weights.orientation_y = std::numeric_limits<double>::quiet_NaN();
+  weights.rotvec_y = std::numeric_limits<double>::quiet_NaN();
   const absl::StatusOr<EndEffectorKinematicsWeights> refused =
       endEffectorKinematicsWeightsFromConfig(
           weights, "task_space_costs[name=torso].weights");
   EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(
       absl::StrContains(refused.status().message(),
-                        "task_space_costs[name=torso].weights.orientation_y"))
+                        "task_space_costs[name=torso].weights.rotvec_y"))
       << refused.status();
 }
 
@@ -124,15 +125,15 @@ TEST(EndEffectorKinematicsWeightsFromConfigTest,
        {&mpc_config::TaskSpaceWeights::pos_x,
         &mpc_config::TaskSpaceWeights::pos_y,
         &mpc_config::TaskSpaceWeights::pos_z,
-        &mpc_config::TaskSpaceWeights::orientation_x,
-        &mpc_config::TaskSpaceWeights::orientation_y,
-        &mpc_config::TaskSpaceWeights::orientation_z,
-        &mpc_config::TaskSpaceWeights::lin_velocity_x,
-        &mpc_config::TaskSpaceWeights::lin_velocity_y,
-        &mpc_config::TaskSpaceWeights::lin_velocity_z,
-        &mpc_config::TaskSpaceWeights::ang_velocity_x,
-        &mpc_config::TaskSpaceWeights::ang_velocity_y,
-        &mpc_config::TaskSpaceWeights::ang_velocity_z}) {
+        &mpc_config::TaskSpaceWeights::rotvec_x,
+        &mpc_config::TaskSpaceWeights::rotvec_y,
+        &mpc_config::TaskSpaceWeights::rotvec_z,
+        &mpc_config::TaskSpaceWeights::linvel_x,
+        &mpc_config::TaskSpaceWeights::linvel_y,
+        &mpc_config::TaskSpaceWeights::linvel_z,
+        &mpc_config::TaskSpaceWeights::angvel_x,
+        &mpc_config::TaskSpaceWeights::angvel_y,
+        &mpc_config::TaskSpaceWeights::angvel_z}) {
     mpc_config::TaskSpaceWeights weights;
     weights.*field = -1.0;
     const absl::StatusOr<EndEffectorKinematicsWeights> refused =
@@ -150,16 +151,15 @@ TEST(EndEffectorKinematicsWeightsFromConfigTest,
 TEST(EndEffectorKinematicsWeightsFromConfigTest,
      AnAccelerationWeightIsRefusedAsUnused) {
   mpc_config::TaskSpaceWeights weights;
-  weights.ang_acceleration_z = 0.5;
+  weights.angacc_z = 0.5;
   const absl::StatusOr<EndEffectorKinematicsWeights> refused =
       endEffectorKinematicsWeightsFromConfig(weights,
                                              "task_space_foot_cost.weights");
   EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(
-      absl::StrContains(refused.status().message(),
-                        "task_space_foot_cost.weights.ang_acceleration_z"))
+  EXPECT_TRUE(absl::StrContains(refused.status().message(),
+                                "task_space_foot_cost.weights.angacc_z"))
       << refused.status();
-  weights.ang_acceleration_z = -0.0;
+  weights.angacc_z = -0.0;
   EXPECT_TRUE(endEffectorKinematicsWeightsFromConfig(
                   weights, "task_space_foot_cost.weights")
                   .ok());
@@ -272,8 +272,7 @@ mpc_config::TaskSpaceCostConfig linkCost(const std::string& name,
 TEST(TaskSpaceLinkCostsFromConfigTest, KeepsTheFileOrder) {
   std::vector<mpc_config::TaskSpaceCostConfig> costs = {
       linkCost("torso", "utorso"), linkCost("pelvis", "pelvis")};
-  costs[1].weights.lin_velocity_z =  // NOLINT(frame-naming): a weight field
-      2.0;
+  costs[1].weights.linvel_z = 2.0;
   const absl::StatusOr<std::vector<TaskSpaceLinkCostSettings>> settings =
       taskSpaceLinkCostsFromConfig(costs);
   ASSERT_TRUE(settings.ok()) << settings.status();

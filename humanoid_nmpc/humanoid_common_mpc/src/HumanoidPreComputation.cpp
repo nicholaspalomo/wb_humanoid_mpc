@@ -32,16 +32,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
 
+#include <cstddef>
 #include <functional>
 #include <optional>
 #include <utility>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/misc/Numerics.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/frames.hpp"
-#include "pinocchio/algorithm/jacobian.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/constraint/EndEffectorKinematicsLinearVelConstraint.h"
+#include "humanoid_common_mpc/contact_swing/ContactSwingPlanner.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
 
@@ -63,9 +73,9 @@ HumanoidPreComputation::HumanoidPreComputation(
   const size_t numPlannedFeet =
       mpcRobotModel.modelSettings.isBipedContactSet() ? kNumContacts : 0;
   eeNormalVelConConfigs_.resize(numPlannedFeet);
-  footHeightReferences_.resize(numPlannedFeet);
+  desPosFeetRtWorldEwrtWorldZ_.resize(numPlannedFeet);
   for (size_t i = 0; i < numPlannedFeet; ++i) {
-    footHeightReferences_[i] = 0.0;
+    desPosFeetRtWorldEwrtWorldZ_[i] = 0.0;
   }
 }
 
@@ -79,7 +89,7 @@ HumanoidPreComputation::HumanoidPreComputation(
       swingTrajectoryPlannerPtr_(rhs.swingTrajectoryPlannerPtr_),
       mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
       eeNormalVelConConfigs_(rhs.eeNormalVelConConfigs_),
-      footHeightReferences_(rhs.footHeightReferences_),
+      desPosFeetRtWorldEwrtWorldZ_(rhs.desPosFeetRtWorldEwrtWorldZ_),
       contactSwingPlannerPtr_(rhs.contactSwingPlannerPtr_),
       contactSwingReferences_(rhs.contactSwingReferences_),
       // Carried across the clone the SQP solver makes per worker thread;
@@ -172,9 +182,9 @@ void HumanoidPreComputation::request(RequestSet request,
   // reference rather than fail. One extra flag in the guard removes that trap
   // for the cost of two swing references on a cost-only request.
   if (request.containsAny(Request::Constraint + Request::SoftConstraint)) {
-    for (size_t i = 0; i < footHeightReferences_.size(); ++i) {
+    for (size_t i = 0; i < desPosFeetRtWorldEwrtWorldZ_.size(); ++i) {
       eeNormalVelConConfigs_[i] = eeNormalVelConConfig(i);
-      footHeightReferences_[i] =
+      desPosFeetRtWorldEwrtWorldZ_[i] =
           swingTrajectoryPlannerPtr_->getDesPosFootRtWorldEwrtWorldZ(i, t);
     }
     // The generalized swing planner's references of every contact, read by

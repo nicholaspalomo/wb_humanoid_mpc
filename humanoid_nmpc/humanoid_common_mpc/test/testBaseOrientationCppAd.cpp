@@ -27,18 +27,22 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <cstddef>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <random>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/CppAdInterface.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 
 /*
@@ -98,13 +102,16 @@ vector4_t rateWeights() {
 template <typename SCALAR_T>
 VECTOR_T<SCALAR_T> wideFunction(const VECTOR_T<SCALAR_T>& x) {
   const VECTOR4_T<SCALAR_T> xi = x.template head<kQuaternionDim>();
-  const VECTOR3_T<SCALAR_T> omega = x.template tail<kAngularVelocityDim>();
+  const VECTOR3_T<SCALAR_T> angvelBaseRtWorldEwrtBase =
+      x.template tail<kAngularVelocityDim>();
   const VECTOR4_T<SCALAR_T> normalized = safelyNormalizedQuaternion(xi);
   VECTOR_T<SCALAR_T> y(13);
   y.template head<4>() = normalized;
   y(4) = safeQuaternionNorm(xi);
-  y.template segment<4>(5) = quaternionRateMatrix<SCALAR_T>(xi) * omega;
-  y.template tail<4>() = quaternionRateMatrix<SCALAR_T>(normalized) * omega;
+  y.template segment<4>(5) =
+      quaternionRateMatrix<SCALAR_T>(xi) * angvelBaseRtWorldEwrtBase;
+  y.template tail<4>() =
+      quaternionRateMatrix<SCALAR_T>(normalized) * angvelBaseRtWorldEwrtBase;
   return y;
 }
 
@@ -113,11 +120,12 @@ VECTOR_T<SCALAR_T> wideFunction(const VECTOR_T<SCALAR_T>& x) {
 template <typename SCALAR_T>
 VECTOR_T<SCALAR_T> narrowFunctionOf(const VECTOR4_T<SCALAR_T>& normalized,
                                     const VECTOR_T<SCALAR_T>& x) {
-  const VECTOR3_T<SCALAR_T> omega = x.template tail<kAngularVelocityDim>();
+  const VECTOR3_T<SCALAR_T> angvelBaseRtWorldEwrtBase =
+      x.template tail<kAngularVelocityDim>();
   VECTOR_T<SCALAR_T> y(2);
   y(0) = normalizedWeights().cast<SCALAR_T>().dot(normalized);
   y(1) = rateWeights().cast<SCALAR_T>().dot(
-      quaternionRateMatrix<SCALAR_T>(normalized) * omega);
+      quaternionRateMatrix<SCALAR_T>(normalized) * angvelBaseRtWorldEwrtBase);
   return y;
 }
 
@@ -225,18 +233,20 @@ matrix_t finiteDifferenceJacobian(const ReferenceFunction& function,
   const vector_t value = function(x);
   matrix_t jacobian(value.size(), x.size());
   for (Eigen::Index i = 0; i < x.size(); ++i) {
-    vector_t forward = x;
-    vector_t backward = x;
-    forward(i) += step;
-    backward(i) -= step;
-    jacobian.col(i) = (function(forward) - function(backward)) / (2.0 * step);
+    vector_t stateForward = x;
+    vector_t stateBackward = x;
+    stateForward(i) += step;
+    stateBackward(i) -= step;
+    jacobian.col(i) =
+        (function(stateForward) - function(stateBackward)) / (2.0 * step);
   }
   return jacobian;
 }
 
-vector_t variables(const vector4_t& xi, const vector3_t& omega) {
+vector_t variables(const vector4_t& xi,
+                   const vector3_t& angvelBaseRtWorldEwrtBase) {
   vector_t x(kVariableDim);
-  x << xi, omega;
+  x << xi, angvelBaseRtWorldEwrtBase;
   return x;
 }
 

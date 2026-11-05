@@ -29,16 +29,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/CppAdInterface.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
-#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
@@ -110,7 +112,7 @@ class FootprintCornerHeights {
   FootprintCornerHeights(const FootprintCornerHeights& rhs);
   ~FootprintCornerHeights() = default;
   FootprintCornerHeights& operator=(const FootprintCornerHeights&) = delete;
-  // Not movable: the taped height function captures `this`
+  // Not movable: the taped computePosLinksRtWorldEwrtWorldZ() captures `this`
   // (createAdInterface()).
   FootprintCornerHeights(FootprintCornerHeights&&) = delete;
   FootprintCornerHeights& operator=(FootprintCornerHeights&&) = delete;
@@ -119,8 +121,9 @@ class FootprintCornerHeights {
     return std::make_unique<FootprintCornerHeights>(*this);
   }
 
-  /** Number of points, i.e. the number of rows of getHeights() and
-   * getHeightsJacobian(). */
+  /** Number of points, i.e. the number of rows of
+   * getPosLinksRtWorldEwrtWorldZ() and getJacobianPosLinksRtWorldEwrtWorldZ().
+   */
   size_t numCorners() const { return frameNames_.size(); }
 
   const std::vector<std::string>& frameNames() const { return frameNames_; }
@@ -130,10 +133,10 @@ class FootprintCornerHeights {
   const std::string& modelName() const { return modelName_; }
 
   /** World-frame z of every point, in the order the frame names were given. */
-  vector_t getHeights(const vector_t& state) const;
+  vector_t getPosLinksRtWorldEwrtWorldZ(const vector_t& state) const;
 
-  /** d(heights) / d(state), numCorners() x stateDim. */
-  matrix_t getHeightsJacobian(const vector_t& state) const;
+  /** d(getPosLinksRtWorldEwrtWorldZ()) / d(state), numCorners() x stateDim. */
+  matrix_t getJacobianPosLinksRtWorldEwrtWorldZ(const vector_t& state) const;
 
  private:
   /** How createAdInterface() obtains the generated library. */
@@ -142,10 +145,11 @@ class FootprintCornerHeights {
     kLoadIfAvailable,
   };
 
-  ad_vector_t heightsFunction(const ad_vector_t& state) const;
+  ad_vector_t computePosLinksRtWorldEwrtWorldZ(const ad_vector_t& state) const;
 
   /**
-   * Tapes the height function and either generates or loads its library.
+   * Tapes computePosLinksRtWorldEwrtWorldZ() and either generates or loads its
+   * library.
    *
    * Each instance builds its OWN CppAdInterface rather than copying the one it
    * was cloned from, because the taped function is a lambda over `this`:
@@ -233,10 +237,10 @@ struct SmoothMinimumHeight {
  * Against the shipped penetration hinge those settle at about 0.050 mm and
  * 0.187 mm of equilibrium penetration under full body weight, which is below
  * the compliance of any real sole. The equilibrium balances the complementarity
- * curvature C = complementarityWeight / heightReference^2 = 7812 at full body
- * weight against the hinge of EVERY corner that is down, so the bias is
- * attenuated by C / (C + k * penetrationWeight): 13.8x for an edge, whose two
- * corners both resist, and 7.4x for a single corner.
+ * curvature C = complementarityWeight / scalePosContactRtSurfaceEwrtWorldZ^2 =
+ * 7812 at full body weight against the hinge of EVERY corner that is down, so
+ * the bias is attenuated by C / (C + k * penetrationWeight): 13.8x for an edge,
+ * whose two corners both resist, and 7.4x for a single corner.
  *
  * @param heights  [m] the corner heights; must be non-empty.
  * @param smoothing [m] the length scale s over which the minimum is blended;

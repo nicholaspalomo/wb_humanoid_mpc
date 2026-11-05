@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mujoco_sim_interface/visualization/BaseVelocityVisualization.h"
 
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <functional>
@@ -38,9 +39,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
+#include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 
 namespace robot::mujoco_sim_interface {
 
+using ::ocs2::kHorizontalPositionDim;
 using ::ocs2::kPositionDim;
 using ::ocs2::kXAxisIndex;
 using ::ocs2::kYAxisIndex;
@@ -58,27 +61,30 @@ constexpr int kBaseBodyId = 1;
 constexpr int kCvelAngularVelocityZIndex = kZAxisIndex;
 
 constexpr double kArrowWidth = 0.02;  // [m]
-constexpr double kMinDrawnSpeed =
+constexpr double kMinDrawnSpeedLocalRtWorld =
     1.0e-3;  // [m/s] a slower horizontal velocity draws no arrow
-constexpr double kMinDrawnYawRate =
+constexpr double kMinDrawnAngvelBaseRtWorldEwrtWorldZ =
     1.0e-3;  // [rad/s] a slower yaw rate draws no arrow
 constexpr double kYawArrowLengthPerRate = 0.2;  // [m / (rad/s)]
 // [m] The offset of the yaw arrows along x and y from the center of mass: + for
 // the measured rate, - for the commanded.
-constexpr double kYawArrowOffset = 0.05;
+constexpr std::array<double, kHorizontalPositionDim> kPosArrowRtComEwrtWorldXy =
+    {0.05, 0.05};
 }  // namespace
 
 void BaseVelocityVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   if (frame.sim == nullptr || frame.model == nullptr ||
-      frame.state == nullptr || frame.scene == nullptr)
+      frame.state == nullptr || frame.scene == nullptr) {
     return;
+  }
   if (frame.state->data == nullptr) return;
   const BaseVelocityCommand command{
       .cmdLinvelBaseRtWorldEwrtHeadingX =
           frame.sim->getCmdLinvelBaseRtWorldEwrtHeadingX(),
       .cmdLinvelBaseRtWorldEwrtHeadingY =
           frame.sim->getCmdLinvelBaseRtWorldEwrtHeadingY(),
-      .cmdRateYawBaseRtWorld = frame.sim->getCmdRateYawBaseRtWorld()};
+      .cmdAngvelBaseRtWorldEwrtWorldZ =
+          frame.sim->getCmdAngvelBaseRtWorldEwrtWorldZ()};
   addArrows(frame.model, frame.state->data, command, *frame.scene);
 }
 
@@ -104,13 +110,15 @@ void BaseVelocityVisualization::addArrows(const mjModel* absl_nonnull model,
   const VerticalTwist quatHeadingRtWorld =
       verticalTwistFromQuaternion(data->qpos[kMjFreeJointQuaternionWIndex],
                                   data->qpos[kMjFreeJointQuaternionZIndex]);
-  const double cosHeading = quatHeadingRtWorld.w * quatHeadingRtWorld.w -
-                            quatHeadingRtWorld.z * quatHeadingRtWorld.z;
-  const double sinHeading = 2.0 * quatHeadingRtWorld.w * quatHeadingRtWorld.z;
+  const double cosYawBaseRtWorld = quatHeadingRtWorld.w * quatHeadingRtWorld.w -
+                                   quatHeadingRtWorld.z * quatHeadingRtWorld.z;
+  const double sinYawBaseRtWorld =
+      2.0 * quatHeadingRtWorld.w * quatHeadingRtWorld.z;
 
   // The measured velocity is the robot's center-of-mass velocity, already in
   // the world frame (mj_objectVelocity with flg_local = 0): it is drawn as it
-  // is, horizontally. Only the command, in the base frame, is rotated.
+  // is, horizontally. Only the command, in the heading frame, is rotated (by
+  // the heading).
   const mjtNum planar_meas_linvel_com_rt_world_ewrt_world[kPositionDim] = {
       robot.linvelComRtWorldEwrtWorld[kXAxisIndex],
       robot.linvelComRtWorldEwrtWorld[kYAxisIndex], 0.0};
@@ -120,39 +128,52 @@ void BaseVelocityVisualization::addArrows(const mjModel* absl_nonnull model,
                  kCvelAngularVelocityZIndex];
 
   const mjtNum planar_cmd_linvel_base_rt_world_ewrt_world[kPositionDim] = {
-      cosHeading * command.cmdLinvelBaseRtWorldEwrtHeadingX -
-          sinHeading * command.cmdLinvelBaseRtWorldEwrtHeadingY,
-      sinHeading * command.cmdLinvelBaseRtWorldEwrtHeadingX +
-          cosHeading * command.cmdLinvelBaseRtWorldEwrtHeadingY,
+      cosYawBaseRtWorld * command.cmdLinvelBaseRtWorldEwrtHeadingX -
+          sinYawBaseRtWorld * command.cmdLinvelBaseRtWorldEwrtHeadingY,
+      sinYawBaseRtWorld * command.cmdLinvelBaseRtWorldEwrtHeadingX +
+          cosYawBaseRtWorld * command.cmdLinvelBaseRtWorldEwrtHeadingY,
       0.0};
 
   const std::function<void(const mjtNum* absl_nonnull,
                            const float* absl_nonnull, double)>
-      draw_arrow = [&](const mjtNum* absl_nonnull dir_world,
-                       const float rgba[absl_nonnull kMjRgbaChannels],
-                       double scale_factor) {
-        if (scene.ngeom >= scene.maxgeom) return;
-        const double mag = std::sqrt(
-            dir_world[0] * dir_world[0] + dir_world[1] * dir_world[1] +
-            dir_world[kZAxisIndex] * dir_world[kZAxisIndex]);
-        if (mag < kMinDrawnSpeed) return;
+      draw_arrow =
+          [&](const mjtNum* absl_nonnull linvel_local_rt_world_ewrt_world,
+              const float rgba[absl_nonnull kMjRgbaChannels],
+              double scale_factor) {
+            if (scene.ngeom >= scene.maxgeom) return;
+            const double speed_local_rt_world =
+                std::sqrt(linvel_local_rt_world_ewrt_world[0] *
+                              linvel_local_rt_world_ewrt_world[0] +
+                          linvel_local_rt_world_ewrt_world[1] *
+                              linvel_local_rt_world_ewrt_world[1] +
+                          linvel_local_rt_world_ewrt_world[kZAxisIndex] *
+                              linvel_local_rt_world_ewrt_world[kZAxisIndex]);
+            if (speed_local_rt_world < kMinDrawnSpeedLocalRtWorld) return;
 
-        mjvGeom* absl_nonnull arrow = &scene.geoms[scene.ngeom++];
-        std::memset(arrow, 0, sizeof(mjvGeom));
-        const double length = mag * scale_factor;
-        const mjtNum from[kPositionDim] = {posComRtWorldEwrtWorld[kXAxisIndex],
-                                           posComRtWorldEwrtWorld[kYAxisIndex],
-                                           posComRtWorldEwrtWorld[kZAxisIndex]};
-        const mjtNum to[kPositionDim] = {
-            posComRtWorldEwrtWorld[0] + length * (dir_world[0] / mag),
-            posComRtWorldEwrtWorld[1] + length * (dir_world[1] / mag),
-            posComRtWorldEwrtWorld[kZAxisIndex] +
-                length * (dir_world[kZAxisIndex] / mag)};
-        mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth, from, to);
-        for (int i = 0; i < kMjRgbaChannels; ++i) arrow->rgba[i] = rgba[i];
-        arrow->category = mjCAT_DECOR;
-        arrow->emission = 1.0f;
-      };
+            mjvGeom* absl_nonnull arrow = &scene.geoms[scene.ngeom++];
+            std::memset(arrow, 0, sizeof(mjvGeom));
+            const double length = speed_local_rt_world * scale_factor;
+            const mjtNum posArrowRtWorldEwrtWorld[kPositionDim] = {
+                posComRtWorldEwrtWorld[kXAxisIndex],
+                posComRtWorldEwrtWorld[kYAxisIndex],
+                posComRtWorldEwrtWorld[kZAxisIndex]};
+            const mjtNum posArrowheadRtWorldEwrtWorld[kPositionDim] = {
+                posComRtWorldEwrtWorld[0] +
+                    length * (linvel_local_rt_world_ewrt_world[0] /
+                              speed_local_rt_world),
+                posComRtWorldEwrtWorld[1] +
+                    length * (linvel_local_rt_world_ewrt_world[1] /
+                              speed_local_rt_world),
+                posComRtWorldEwrtWorld[kZAxisIndex] +
+                    length * (linvel_local_rt_world_ewrt_world[kZAxisIndex] /
+                              speed_local_rt_world)};
+            mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth,
+                          posArrowRtWorldEwrtWorld,
+                          posArrowheadRtWorldEwrtWorld);
+            for (int i = 0; i < kMjRgbaChannels; ++i) arrow->rgba[i] = rgba[i];
+            arrow->category = mjCAT_DECOR;
+            arrow->emission = 1.0f;
+          };
 
   const float red[kMjRgbaChannels] = {1.0f, 0.0f, 0.0f, 1.0f};
   draw_arrow(planar_meas_linvel_com_rt_world_ewrt_world, red,
@@ -164,28 +185,38 @@ void BaseVelocityVisualization::addArrows(const mjModel* absl_nonnull model,
   // The yaw rates are rates about the world's vertical, the measured one and
   // the commanded heading rate alike, so they are drawn along the world's z
   // axis, up for a positive rate, offset so the two arrows do not overlap.
-  const mjtNum yaw_axis_world[kPositionDim] = {0.0, 0.0, 1.0};
+  const mjtNum up_axis_ewrt_world[kPositionDim] = {0.0, 0.0, 1.0};
 
-  const std::function<void(double, const float* absl_nonnull, double)>
-      draw_yaw_arrow = [&](double yaw_rate,
+  const std::function<void(double, const float* absl_nonnull,
+                           const std::array<double, kHorizontalPositionDim>&)>
+      draw_yaw_arrow = [&](double angvel_base_rt_world_ewrt_world_z,
                            const float rgba[absl_nonnull kMjRgbaChannels],
-                           double offset) {
+                           const std::array<double, kHorizontalPositionDim>&
+                               pos_arrow_rt_com_ewrt_world_xy) {
         if (scene.ngeom >= scene.maxgeom ||
-            std::abs(yaw_rate) < kMinDrawnYawRate)
+            std::abs(angvel_base_rt_world_ewrt_world_z) <
+                kMinDrawnAngvelBaseRtWorldEwrtWorldZ) {
           return;
+        }
         mjvGeom* absl_nonnull arrow = &scene.geoms[scene.ngeom++];
         std::memset(arrow, 0, sizeof(mjvGeom));
-        const double length = std::abs(yaw_rate) * kYawArrowLengthPerRate;
-        const double sign = (yaw_rate > 0) ? 1.0 : -1.0;
-        const mjtNum from[kPositionDim] = {
-            posComRtWorldEwrtWorld[kXAxisIndex] + offset,
-            posComRtWorldEwrtWorld[kYAxisIndex] + offset,
+        const double length = std::abs(angvel_base_rt_world_ewrt_world_z) *
+                              kYawArrowLengthPerRate;
+        const double sign =
+            (angvel_base_rt_world_ewrt_world_z > 0) ? 1.0 : -1.0;
+        const mjtNum posArrowRtWorldEwrtWorld[kPositionDim] = {
+            posComRtWorldEwrtWorld[kXAxisIndex] +
+                pos_arrow_rt_com_ewrt_world_xy[kXAxisIndex],
+            posComRtWorldEwrtWorld[kYAxisIndex] +
+                pos_arrow_rt_com_ewrt_world_xy[kYAxisIndex],
             posComRtWorldEwrtWorld[kZAxisIndex]};
-        const mjtNum to[kPositionDim] = {
-            from[0] + sign * length * yaw_axis_world[0],
-            from[1] + sign * length * yaw_axis_world[1],
-            from[kZAxisIndex] + sign * length * yaw_axis_world[kZAxisIndex]};
-        mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth, from, to);
+        const mjtNum posArrowheadRtWorldEwrtWorld[kPositionDim] = {
+            posArrowRtWorldEwrtWorld[0] + sign * length * up_axis_ewrt_world[0],
+            posArrowRtWorldEwrtWorld[1] + sign * length * up_axis_ewrt_world[1],
+            posArrowRtWorldEwrtWorld[kZAxisIndex] +
+                sign * length * up_axis_ewrt_world[kZAxisIndex]};
+        mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth,
+                      posArrowRtWorldEwrtWorld, posArrowheadRtWorldEwrtWorld);
         for (int i = 0; i < kMjRgbaChannels; ++i) arrow->rgba[i] = rgba[i];
         arrow->category = mjCAT_DECOR;
         arrow->emission = 1.0f;
@@ -193,10 +224,12 @@ void BaseVelocityVisualization::addArrows(const mjModel* absl_nonnull model,
 
   const float blue[kMjRgbaChannels] = {0.0f, 0.0f, 1.0f, 1.0f};
   draw_yaw_arrow(meas_angvel_base_rt_world_ewrt_world_z, blue,
-                 /*offset=*/kYawArrowOffset);
+                 /*pos_arrow_rt_com_ewrt_world_xy=*/kPosArrowRtComEwrtWorldXy);
   const float yellow[kMjRgbaChannels] = {1.0f, 1.0f, 0.0f, 1.0f};
-  draw_yaw_arrow(command.cmdRateYawBaseRtWorld, yellow,
-                 /*offset=*/-kYawArrowOffset);
+  draw_yaw_arrow(command.cmdAngvelBaseRtWorldEwrtWorldZ, yellow,
+                 /*pos_arrow_rt_com_ewrt_world_xy=*/
+                 {-kPosArrowRtComEwrtWorldXy[kXAxisIndex],
+                  -kPosArrowRtComEwrtWorldXy[kYAxisIndex]});
 }
 
 }  // namespace robot::mujoco_sim_interface

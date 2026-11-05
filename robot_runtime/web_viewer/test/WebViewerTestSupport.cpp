@@ -29,11 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "robot_runtime/web_viewer/test/WebViewerTestSupport.h"
 
-#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <poll.h>
+#include <sys/poll.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -47,7 +47,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include "absl/base/nullability.h"
 #include "absl/functional/function_ref.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
@@ -165,8 +164,9 @@ absl::StatusOr<std::unique_ptr<TestConnection>> TestConnection::Connect(
   if (receiveBufferBytes.has_value()) {
     const int bytes = *receiveBufferBytes;
     if (setsockopt(descriptor, SOL_SOCKET, SO_RCVBUF, &bytes, sizeof(bytes)) !=
-        0)
+        0) {
       return absl::ErrnoToStatus(errno, "SO_RCVBUF");
+    }
   }
   const int noDelay = 1;
   setsockopt(descriptor, IPPROTO_TCP, TCP_NODELAY, &noDelay, sizeof(noDelay));
@@ -204,15 +204,17 @@ absl::StatusOr<std::string> TestConnection::receive(absl::Duration timeout) {
   const int ready = poll(&descriptor, /*nfds=*/1,
                          static_cast<int>(absl::ToInt64Milliseconds(timeout)));
   if (ready < 0) return absl::ErrnoToStatus(errno, "poll");
-  if (ready == 0)
+  if (ready == 0) {
     return absl::DeadlineExceededError(
         absl::StrCat("nothing arrived within ", absl::FormatDuration(timeout)));
+  }
   std::array<char, 65536> buffer = {};
   const ssize_t received =
       recv(socket_, buffer.data(), buffer.size(), /*flags=*/0);
   if (received < 0) return absl::ErrnoToStatus(errno, "recv");
-  if (received == 0)
+  if (received == 0) {
     return absl::OutOfRangeError("the peer closed the connection");
+  }
   return std::string(buffer.data(), static_cast<size_t>(received));
 }
 
@@ -232,8 +234,9 @@ std::string formatRequest(int port, const HttpRequest& request) {
     absl::StrAppend(&text, header.first, ": ", header.second, "\r\n");
   }
   if (!request.keepAlive) text += "Connection: close\r\n";
-  if (!request.body.empty() || request.method == "POST")
+  if (!request.body.empty() || request.method == "POST") {
     absl::StrAppend(&text, "Content-Length: ", request.body.size(), "\r\n");
+  }
   absl::StrAppend(&text, "\r\n", request.body);
   return text;
 }
@@ -279,9 +282,10 @@ absl::StatusOr<HttpReply> HttpResponseReader::readHead(absl::Duration timeout,
     mode_ = BodyMode::kChunked;
   } else if (length.has_value()) {
     mode_ = BodyMode::kLength;
-    if (!absl::SimpleAtoi(*length, &remaining_))
+    if (!absl::SimpleAtoi(*length, &remaining_)) {
       return absl::InternalError(
           absl::StrCat("bad Content-Length '", *length, "'"));
+    }
     ended_ = remaining_ == 0;
   } else {
     mode_ = BodyMode::kUntilClose;
@@ -352,8 +356,9 @@ absl::StatusOr<std::string> HttpResponseReader::readBody(
         std::max(deadline - absl::Now(), absl::ZeroDuration()));
     if (!received.ok()) {
       if (absl::IsOutOfRange(received.status()) &&
-          mode_ == BodyMode::kUntilClose)
+          mode_ == BodyMode::kUntilClose) {
         ended_ = true;
+      }
       return received.status();
     }
     buffered_ += *received;
@@ -385,15 +390,17 @@ absl::StatusOr<HttpReply> fetch(int port, const HttpRequest& request) {
   absl::Status sent = (*connection)->send(formatRequest(port, request));
   if (!sent.ok()) return sent;
   HttpResponseReader reader(connection->get());
-  if (request.method == "HEAD")
+  if (request.method == "HEAD") {
     return reader.readHead(absl::Seconds(10), /*headRequest=*/true);
+  }
   return reader.readResponse(absl::Seconds(10));
 }
 
 absl::StatusOr<std::optional<MjpegPart>> MjpegPartParser::nextPart() {
   if (buffered_.size() < kPartStart.size()) return std::optional<MjpegPart>();
-  if (!absl::StartsWith(buffered_, kPartStart))
+  if (!absl::StartsWith(buffered_, kPartStart)) {
     return absl::InternalError("a part does not start with --mujocoframe");
+  }
   const size_t headEnd = buffered_.find(kHeadEnd);
   if (headEnd == std::string::npos) return std::optional<MjpegPart>();
   const std::vector<std::string> lines = absl::StrSplit(
@@ -408,8 +415,9 @@ absl::StatusOr<std::optional<MjpegPart>> MjpegPartParser::nextPart() {
     const absl::string_view value =
         absl::StripAsciiWhitespace(absl::string_view(line).substr(colon + 1));
     if (absl::EqualsIgnoreCase(name, "Content-Length") &&
-        !absl::SimpleAtoi(value, &length))
+        !absl::SimpleAtoi(value, &length)) {
       return absl::InternalError("bad part length");
+    }
     if (absl::EqualsIgnoreCase(name, "X-Frame-Sequence") &&
         !absl::SimpleAtoi(value, &part.sequence)) {
       return absl::InternalError("bad part sequence");

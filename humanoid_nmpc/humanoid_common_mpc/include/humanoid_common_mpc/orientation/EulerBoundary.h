@@ -35,6 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -64,7 +66,7 @@ namespace ocs2::humanoid {
  * ocs2::getQuaternionFromEulerAnglesZyx, which the human-facing code calls
  * today.
  */
-vector4_t quaternionFromEulerZyx(const vector3_t& eulerZyx);
+vector4_t quaternionFromEulerZyx(const vector3_t& eulerzyxLocalRtWorld);
 
 /**
  * Below this cos(theta), within 0.06 degrees of a pitch of +-90 degrees,
@@ -98,35 +100,36 @@ vector3_t eulerZyxFromQuaternion(const vector4_t& xi);
 /**
  * T_B(Theta), the 3 x 3 matrix with w_B = T_B(Theta) dTheta/dt that maps ZYX
  * Euler rates to the body angular velocity (design section 2.1),
- * ocs2::getMappingFromEulerAnglesZyxDerivativeToLocalAngularVelocity. T_B(0) =
+ * ocs2::getMappingFromEulerAnglesZyxDerivativesToBodyRates. T_B(0) =
  * P_3 = antidiag(1, 1, 1); it is singular at cos(theta) = 0. With the
  * quaternion rate matrix G = ocs2::quaternionRateMatrix, d
  * quaternionFromEulerZyx(Theta) / d Theta = 1/2 G(xi) T_B(Theta) (design
  * section 2.12).
  */
-matrix3_t eulerZyxRateToBodyRateMatrix(const vector3_t& eulerZyx);
+matrix3_t eulerZyxRateToBodyRateMatrix(const vector3_t& eulerzyxLocalRtWorld);
 
 /** w_B = T_B(Theta) dTheta/dt,
- * ocs2::getLocalAngularVelocityFromEulerAnglesZyxDerivatives. */
-vector3_t localAngularVelocityFromEulerZyxRates(const vector3_t& eulerZyx,
-                                                const vector3_t& eulerZyxRates);
+ * ocs2::getBodyRatesFromEulerAnglesZyxDerivatives. */
+vector3_t bodyRatesFromEulerZyxRates(const vector3_t& eulerzyxLocalRtWorld,
+                                     const vector3_t& rateEulerzyxLocalRtWorld);
 
 /**
  * dTheta/dt = T_B(Theta)^-1 w_B, the inverse of
- * localAngularVelocityFromEulerZyxRates, bit for bit
- * ocs2::getEulerAnglesZyxDerivativesFromLocalAngularVelocity. It divides by
+ * bodyRatesFromEulerZyxRates, bit for bit
+ * ocs2::getEulerAnglesZyxDerivativesFromBodyRates. It divides by
  * cos(theta): the rates are not finite at a pitch of +-90 degrees.
  */
 vector3_t eulerZyxRatesFromBodyRates(
-    const vector3_t& eulerZyx, const vector3_t& angvelLocalRtWorldEwrtLocal);
+    const vector3_t& eulerzyxLocalRtWorld,
+    const vector3_t& angvelLocalRtWorldEwrtLocal);
 
 /**
  * d w_B / d Theta of w_B = T_B(Theta) dTheta/dt at fixed rates dTheta/dt: the 3
  * x 3 matrix whose columns are the derivatives along yaw (zero: T_B does not
  * depend on the yaw), pitch and roll.
  */
-matrix3_t bodyRateEulerZyxJacobian(const vector3_t& eulerZyx,
-                                   const vector3_t& eulerZyxRates);
+matrix3_t bodyRateEulerZyxJacobian(const vector3_t& eulerzyxLocalRtWorld,
+                                   const vector3_t& rateEulerzyxLocalRtWorld);
 
 /******************************************************************************************************/
 /* The Euler tuning layout (design sections 2.3 and 2.10) */

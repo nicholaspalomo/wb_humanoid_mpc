@@ -54,8 +54,9 @@ TEST(StepLatenessHistogram, IsEmptyAtFirst) {
 TEST(StepLatenessHistogram, ReportsPercentilesToTheBinAndTheMaximumExactly) {
   StepLatenessHistogram histogram;
   // 98 steps in time, one 12 us late and one 3.2 ms late.
-  for (int step = 0; step < 98; ++step)
+  for (int step = 0; step < 98; ++step) {
     histogram.record(std::chrono::microseconds(-40));
+  }
   histogram.record(std::chrono::microseconds(12));
   histogram.record(std::chrono::microseconds(3200));
   EXPECT_EQ(histogram.count(), 100);

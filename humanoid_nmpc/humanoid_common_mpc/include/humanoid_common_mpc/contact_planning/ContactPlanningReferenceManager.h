@@ -30,21 +30,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <string>
 #include <utility>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_core/thread_support/BufferedValue.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
@@ -52,7 +58,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
 #include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
+#include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
 
@@ -118,7 +126,8 @@ class ContactPlanningReferenceManager final
    * planner's own output one cycle later: at rest it reads as zero however far
    * the operator pushes the stick, the standing blend never crosses its half
    * point, and the robot never starts walking. These overrides keep an
-   * untouched copy for commandedVelocity() / commandedYawRate().
+   * untouched copy for cmdLinvelBaseRtWorldEwrtWorldXy() /
+   * cmdRateYawBaseRtWorld().
    */
   void setTargetTrajectories(
       const TargetTrajectories& targetTrajectories) override;
@@ -215,9 +224,10 @@ class ContactPlanningReferenceManager final
    * commit window, and the last swung foot, which the manager remembers past
    * the schedule's history window. Solver thread only.
    */
-  ContactPlannerInput makePlannerInput(scalar_t initTime,
-                                       const vector_t& initState,
-                                       const vector2_t& velocityCommand);
+  ContactPlannerInput makePlannerInput(
+      scalar_t initTime,
+      const vector_t& initState,
+      const vector2_t& cmdLinvelBaseRtWorldEwrtWorldXy);
   /**
    * Heading model: the whole-body heading handed to the planner is the angular
    * center of mass yaw when an evaluator is given here, the base yaw otherwise.
@@ -249,9 +259,10 @@ class ContactPlanningReferenceManager final
    * Solver thread only, or before it runs.
    */
   absl::Status loadHeadingModelEvaluator();
-  /** Whole-body heading at `state`: the ACoM yaw with an evaluator, the base
-   * heading (getYawBaseRtWorld()) otherwise. */
-  scalar_t computeHeading(const vector_t& state) const;
+  /** Returns the ACoM's twist heading at `state`, in (-pi, pi], with the
+   * heading model's ACoM evaluator; empty without one (the heading model then
+   * starts from the base's yaw, getYawBaseRtWorld()). */
+  std::optional<scalar_t> computeYawAcomRtWorld(const vector_t& state) const;
   /**
    * The operator's commanded yaw rate as of the last modifyReferences(), read
    * off the momentum channel of the target trajectory: the target carries the
@@ -267,24 +278,30 @@ class ContactPlanningReferenceManager final
    * command was re-issued as the next command and the turn decayed. Solver
    * thread only.
    */
-  scalar_t commandedYawRate() const { return commandedYawRate_; }
+  scalar_t cmdRateYawBaseRtWorld() const { return cmdRateYawBaseRtWorld_; }
 
   /**
-   * The operator's commanded CoM velocity as of the last modifyReferences(),
-   * read off the same momentum channel before the execution rules run. The
+   * The operator's commanded CoM velocity at the initTime of the last
+   * modifyReferences(), in world axes at that instant's heading, read off the
+   * same momentum channel before the execution rules run. The
    * planner module must use this and not the target trajectory it could read
    * itself: planned_com_override replaces that channel with the plan's own CoM
    * velocity, so reading it afterwards feeds the planner its own output, which
    * at rest reads as a zero command and stops the robot ever starting to walk.
    * Solver thread only.
    */
-  const vector2_t& commandedVelocity() const { return commandedVelocity_; }
-  /** The same command, for the terms that ask through the base class. Solver
-   * thread only. */
-  vector2_t getCmdLinvelBaseRtWorldEwrtWorldXy(
-      scalar_t /*time*/) const override {
-    return commandedVelocity_;
+  const vector2_t& cmdLinvelBaseRtWorldEwrtWorldXy() const {
+    return cmdLinvelBaseRtWorldEwrtWorldXy_;
   }
+  /**
+   * The same command at `time`, for the terms that ask through the base class:
+   * the latched command turned about the vertical by the commanded yaw rate
+   * over the time since it was latched (none before it), as
+   * ContactPlanningContext::getCmdLinvelBaseRtWorldEwrtWorldXy() turns it over
+   * the planner's nodes and as the target's knots turn it for the base class.
+   * Solver thread only.
+   */
+  vector2_t getCmdLinvelBaseRtWorldEwrtWorldXy(scalar_t time) const override;
 
   /**
    * The operator's commanded yaw rate, from the same latched copy as
@@ -299,7 +316,7 @@ class ContactPlanningReferenceManager final
    * tunable in the GUI, and silently contribute nothing.
    */
   scalar_t getCmdRateYawBaseRtWorld(scalar_t /*time*/) const override {
-    return commandedYawRate_;
+    return cmdRateYawBaseRtWorld_;
   }
   /**
    * The plan's own DCM, so that the terminal capturability cost aims where the
@@ -378,7 +395,7 @@ class ContactPlanningReferenceManager final
    * foot's swing in flight or of its next swing, or its placement. Every pose
    * is invalid while no plan is active.
    */
-  feet_array_t<TargetContactPose> getTargetContactPoses() const;
+  feet_array_t<TargetContactPose> getDesPoseFeetRtWorld() const;
 
   // Introspection of the adaptive execution (solver thread only; for tests and
   // telemetry).
@@ -388,8 +405,8 @@ class ContactPlanningReferenceManager final
   const feet_array_t<SwingTimingLatch>& getSwingTimingLatches() const {
     return swingLatches_;
   }
-  const feet_array_t<vector2_t>& getDcmStepAdjustment() const {
-    return dcmStepAdjustment_;
+  const feet_array_t<vector2_t>& getErrPosFeetRtWorldEwrtWorldXy() const {
+    return errPosFeetRtWorldEwrtWorldXy_;
   }
   const feet_array_t<scalar_t>& getCadenceTouchDownShift() const {
     return cadenceTouchDownShift_;
@@ -407,10 +424,12 @@ class ContactPlanningReferenceManager final
   void resetRuntimeState() override;
 
  private:
-  /** The horizontal center of mass of the full model, in the world frame. */
+  /** The horizontal center of mass of the full model and its velocity
+   * (getProxyLinvelComRtWorldEwrtWorld(): on the whole body the base velocity
+   * stands in for it), in the world frame. */
   struct HorizontalComState {
-    vector2_t position = vector2_t::Zero();  // [m]
-    vector2_t velocity = vector2_t::Zero();  // [m/s]
+    vector2_t posComRtWorldEwrtWorldXy = vector2_t::Zero();          // [m]
+    vector2_t proxyLinvelComRtWorldEwrtWorldXy = vector2_t::Zero();  // [m/s]
   };
 
   /** Private: Create() builds the execution rules, which point into the
@@ -444,18 +463,22 @@ class ContactPlanningReferenceManager final
   /** Foot positions from the state; latches the lift-off position of every foot
    * while it is in contact. */
   void updateFootBookkeeping(scalar_t initTime, const vector_t& initState);
-  feet_array_t<vector3_t> computeFootPositions(const vector_t& state);
-  /** Foot yaws from the frame placements computed by the last
-   * computeFootPositions() call. */
-  feet_array_t<scalar_t> readFootYaws() const;
+  feet_array_t<vector3_t> computePosFeetRtWorldEwrtWorld(const vector_t& state);
+  /** Foot ZYX yaws from the frame placements computed by the last
+   * computePosFeetRtWorldEwrtWorld() call. */
+  feet_array_t<scalar_t> readEulerzyxFeetRtWorldYaw() const;
+  /** [kg m^2] The composite rotational inertia about the center of mass at
+   * `state`, in world axes. Overwrites the Pinocchio data's composite terms. */
+  matrix3_t computeInertiaComEwrtWorld(const vector_t& state);
   /** Whole-body inertia about the vertical through the center of mass at
-   * `state`. */
-  scalar_t computeYawInertia(const vector_t& state);
+   * `state`: the (z, z) entry of computeInertiaComEwrtWorld(). */
+  scalar_t computeInertiaComEwrtWorldZz(const vector_t& state);
   /**
-   * Refreshes commandedVelocity_ and commandedYawRate_ from the momentum
-   * channel of the target at `initTime` (the yaw rate with the yaw inertia at
-   * `initState`), before the execution rules are allowed to rewrite that
-   * channel.
+   * Refreshes cmdLinvelBaseRtWorldEwrtWorldXy_, cmdRateYawBaseRtWorld_ and
+   * cmdLatchTime_ from
+   * the momentum channel of the target at `initTime` (the yaw rate with the yaw
+   * inertia at `initState`), before the execution rules are allowed to rewrite
+   * that channel.
    */
   void captureOperatorCommand(scalar_t initTime, const vector_t& initState);
 
@@ -507,24 +530,27 @@ class ContactPlanningReferenceManager final
   /**
    * Updates the swing trajectory planner; a foot searching for the ground (a
    * rule's ground search) gets a descending target. Every swing lifts off from
-   * `terrainHeight` and touches down at it plus touchDownHeightOffset: the
-   * ground adaptToCurrentGroundHeight() applied this run, i.e. the one
-   * SwitchedModelReferenceManager::setTerrainHeight() owns.
+   * `posSurfaceRtWorldEwrtWorldZ` and touches down at it plus
+   * touchdownPosFootRtSurfaceEwrtWorldZ: the ground
+   * applyPosSurfaceRtWorldEwrtWorldZ() applied this run, i.e. the one
+   * SwitchedModelReferenceManager::setPosSurfaceRtWorldEwrtWorldZ() owns.
    */
   void updateSwingTrajectories(const ModeSchedule& schedule,
                                const ExecutionContext& ctx,
-                               scalar_t terrainHeight);
+                               scalar_t posSurfaceRtWorldEwrtWorldZ);
 
   /** Landing target offsets of the swings in flight from the foothold rules
    * (zero without them). */
   void updateDcmStepAdjustment(const ExecutionContext& ctx);
 
   /**
-   * Snapshot of the target contact poses for getTargetContactPoses(), from the
-   * state of the current solver run. The landings stand at `terrainHeight`, the
-   * same applied ground the swing trajectories were built on.
+   * Snapshot of the target contact poses for getDesPoseFeetRtWorld(), from the
+   * state of the current solver run. The landings stand at
+   * `posSurfaceRtWorldEwrtWorldZ`, the same applied ground the swing
+   * trajectories were built on.
    */
-  void updateTargetContactPoses(scalar_t initTime, scalar_t terrainHeight);
+  void updateDesPoseFeetRtWorld(scalar_t initTime,
+                                scalar_t posSurfaceRtWorldEwrtWorldZ);
 
   mutable std::mutex configMutex_;
   ContactPlanningConfig config_;
@@ -565,20 +591,23 @@ class ContactPlanningReferenceManager final
   /// installs the evaluator a configuration needs.
   bool loadsHeadingModelEvaluator_ = false;
   scalar_t totalMass_ = 0.0;
-  scalar_t commandedYawRate_ =
+  scalar_t cmdRateYawBaseRtWorld_ =
       0.0;  // [rad/s] operator command, from the target's momentum channel
-  vector2_t commandedVelocity_ =
+  vector2_t cmdLinvelBaseRtWorldEwrtWorldXy_ =
       vector2_t::Zero();  // [m/s] operator command, from the same channel
+  // [s] The initTime at which the two commands above were latched; 0 while
+  // they are the zero of "no command yet".
+  scalar_t cmdLatchTime_ = 0.0;
   // The target as published, before any rule rewrote it. BufferedValue has no
   // default constructor: it is seeded with an empty target, which
   // captureOperatorCommand() reads as "no command yet".
   BufferedValue<TargetTrajectories> operatorTarget_{TargetTrajectories()};
-  feet_array_t<scalar_t> footYaws_ = makeFeetArray(0.0);
-  feet_array_t<scalar_t> liftOffYaws_ = makeFeetArray(0.0);
+  feet_array_t<scalar_t> eulerzyxFeetRtWorldYaw_ = makeFeetArray(0.0);
+  feet_array_t<scalar_t> liftoffEulerzyxFeetRtWorldYaw_ = makeFeetArray(0.0);
 
-  feet_array_t<vector3_t> footPositions_ =
+  feet_array_t<vector3_t> posFeetRtWorldEwrtWorld_ =
       makeFeetArray(vector3_t(vector3_t::Zero()));
-  feet_array_t<vector3_t> liftOffPositions_ =
+  feet_array_t<vector3_t> liftoffPosFeetRtWorldEwrtWorld_ =
       makeFeetArray(vector3_t(vector3_t::Zero()));
   bool footBookkeepingInitialized_ = false;
 
@@ -588,7 +617,7 @@ class ContactPlanningReferenceManager final
   feet_array_t<ContactEventReport> lastContactEvents_ =
       makeFeetArray(ContactEventReport{});
   feet_array_t<scalar_t> cadenceTouchDownShift_ = makeFeetArray(0.0);
-  feet_array_t<vector2_t> dcmStepAdjustment_ =
+  feet_array_t<vector2_t> errPosFeetRtWorldEwrtWorldXy_ =
       makeFeetArray(vector2_t(vector2_t::Zero()));
   HorizontalComState comState_;  // at the current solver run
   std::mutex predictionMutex_;
@@ -602,8 +631,8 @@ class ContactPlanningReferenceManager final
       scheduleShiftLog_;  // every re-timing of later events
   std::atomic<bool> replanRequested_{false};
 
-  mutable std::mutex targetPoseMutex_;
-  feet_array_t<TargetContactPose> targetContactPoses_ =
+  mutable std::mutex targetContactMutex_;
+  feet_array_t<TargetContactPose> desPoseFeetRtWorld_ =
       makeFeetArray(TargetContactPose{});  // read by the control thread
 };
 

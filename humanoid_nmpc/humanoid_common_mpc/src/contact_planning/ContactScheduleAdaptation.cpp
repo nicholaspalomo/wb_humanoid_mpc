@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <deque>
 #include <limits>
 #include <memory>
@@ -42,10 +43,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
 #include "humanoid_common_mpc/contact_planning/execution/ScheduleAdaptationPipeline.h"
+#include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 namespace ocs2::humanoid {
@@ -70,8 +80,9 @@ size_t firstSwingPhase(const ModeSchedule& schedule,
 /** Last phase of the swing of `foot` that contains phase `index`. */
 size_t lastSwingPhase(const ModeSchedule& schedule, size_t foot, size_t index) {
   while (index + 1 < schedule.modeSequence.size() &&
-         !footInContact(schedule, index + 1, foot))
+         !footInContact(schedule, index + 1, foot)) {
     ++index;
+  }
   return index;
 }
 }  // namespace
@@ -84,8 +95,9 @@ size_t modeIndexAtTime(const ModeSchedule& schedule, scalar_t time) {
   size_t index = static_cast<size_t>(
       std::upper_bound(eventTimes.begin(), eventTimes.end(), time) -
       eventTimes.begin());
-  if (!schedule.modeSequence.empty() && index >= schedule.modeSequence.size())
+  if (!schedule.modeSequence.empty() && index >= schedule.modeSequence.size()) {
     index = schedule.modeSequence.size() - 1;
+  }
   return index;
 }
 
@@ -112,8 +124,9 @@ std::optional<SwingWindow> swingPhaseAtTime(const ModeSchedule& schedule,
   if (!range.has_value()) return std::nullopt;
   const size_t first = range->first;
   const size_t last = range->last;
-  if (first == 0 || last + 1 >= schedule.modeSequence.size())
+  if (first == 0 || last + 1 >= schedule.modeSequence.size()) {
     return std::nullopt;  // no lift-off or no touch-down event
+  }
   return SwingWindow{.liftOff = schedule.eventTimes[first - 1],
                      .touchDown = schedule.eventTimes[last]};
 }
@@ -123,8 +136,9 @@ std::optional<size_t> touchDownEventIndex(const ModeSchedule& schedule,
                                           scalar_t time) {
   const std::optional<PhaseIndexRange> range =
       swingPhaseIndexRange(schedule, foot, time);
-  if (!range.has_value() || range->last + 1 >= schedule.modeSequence.size())
+  if (!range.has_value() || range->last + 1 >= schedule.modeSequence.size()) {
     return std::nullopt;
+  }
   return range->last;
 }
 
@@ -148,8 +162,9 @@ FootEvents footEvents(const ModeSchedule& schedule, size_t foot) {
     const bool before = footInContact(schedule, phase, foot);
     const bool after = footInContact(schedule, phase + 1, foot);
     if (before && !after) events.liftOffs.push_back(schedule.eventTimes[phase]);
-    if (!before && after)
+    if (!before && after) {
       events.touchDowns.push_back(schedule.eventTimes[phase]);
+    }
   }
   return events;
 }
@@ -172,10 +187,11 @@ std::vector<Stride> completeStrides(const FootEvents& events) {
     const scalar_t nextLiftOff = events.liftOffs[i + 1];
     for (const scalar_t touchDown : events.touchDowns) {
       if (touchDown > liftOff && touchDown < nextLiftOff) {
-        if (nextLiftOff - liftOff > 0.0)
+        if (nextLiftOff - liftOff > 0.0) {
           strides.push_back(Stride{.liftOff = liftOff,
                                    .touchDown = touchDown,
                                    .nextLiftOff = nextLiftOff});
+        }
         break;
       }
     }
@@ -196,8 +212,9 @@ scalar_t stanceDutyFactor(const ModeSchedule& schedule,
   // Events at exactly `time` count as passed, as everywhere in this file: a
   // stride begins at its lift-off.
   for (const Stride& stride : strides) {
-    if (time >= stride.liftOff && time < stride.nextLiftOff)
+    if (time >= stride.liftOff && time < stride.nextLiftOff) {
       return std::clamp(stride.dutyFactor(), 0.0, 1.0);
+    }
   }
 
   // Outside this foot's complete strides. Standing - before the first lift-off
@@ -210,9 +227,10 @@ scalar_t stanceDutyFactor(const ModeSchedule& schedule,
   scalar_t firstLiftOffOfAnyFoot = std::numeric_limits<scalar_t>::infinity();
   for (size_t other = 0; other < kNumContacts; ++other) {
     const FootEvents events = footEvents(schedule, other);
-    if (!events.liftOffs.empty())
+    if (!events.liftOffs.empty()) {
       firstLiftOffOfAnyFoot =
           std::min(firstLiftOffOfAnyFoot, events.liftOffs.front());
+    }
   }
   if (time < strides.front().liftOff) {
     return time < firstLiftOffOfAnyFoot
@@ -236,8 +254,9 @@ scalar_t upcomingStanceDuration(const ModeSchedule& schedule,
   // before it stands in.
   const std::vector<Stride> strides = completeStrides(events);
   for (size_t i = strides.size(); i > 0; --i) {
-    if (strides[i - 1].nextLiftOff <= touchDownTime)
+    if (strides[i - 1].nextLiftOff <= touchDownTime) {
       return strides[i - 1].nextLiftOff - strides[i - 1].touchDown;
+    }
   }
   return 0.0;
 }
@@ -300,17 +319,20 @@ scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule,
     // period equal to the plan's age the lift-off receded by one period per
     // plan and the robot never stepped.
     if (phaseStart > boundary + kEventTimeTolerance) break;
-    if (i >= eventTimes.size())
+    if (i >= eventTimes.size()) {
       break;  // the last phase has no touch-down to extend to
+    }
     const contact_flag_t contacts = modeNumber2StanceLeg(modeSequence[i]);
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      if (!contacts[foot])
+      if (!contacts[foot]) {
         boundary =
             std::max(boundary, eventTimes[i]);  // touch-down of this swing
+      }
     }
-    if (boundary >= limit)
+    if (boundary >= limit) {
       break;  // capped: stop chaining into the swings the extension has just
-              // reached
+    }
+    // reached
   }
   // Clamping can leave the boundary inside a swing that is already in flight,
   // which hands a later plan the authority to re-time it. That is the price of
@@ -380,8 +402,9 @@ feet_array_t<scalar_t> contactPhaseStartTimes(const ModeSchedule& schedule,
     // Walk back through the events while the foot keeps the same contact state.
     size_t index = modeIndex;
     while (index > 0 &&
-           footInContact(schedule, index - 1, foot) == contacts[foot])
+           footInContact(schedule, index - 1, foot) == contacts[foot]) {
       --index;
+    }
     if (index > 0) starts[foot] = schedule.eventTimes[index - 1];
   }
   return starts;
@@ -403,8 +426,9 @@ std::vector<feet_array_t<scalar_t>> committedPhaseStartsForPlanner(
 
 void LiftOffHistory::record(const ModeSchedule& schedule, scalar_t time) {
   for (scalar_t& liftOffTime : lastLiftOffTimes) {
-    if (liftOffTime > time)
+    if (liftOffTime > time) {
       liftOffTime = -std::numeric_limits<scalar_t>::infinity();
+    }
   }
   const std::vector<scalar_t>& eventTimes = schedule.eventTimes;
   const std::vector<size_t>& modeSequence = schedule.modeSequence;
@@ -414,9 +438,10 @@ void LiftOffHistory::record(const ModeSchedule& schedule, scalar_t time) {
     const contact_flag_t before = modeNumber2StanceLeg(modeSequence[event]);
     const contact_flag_t after = modeNumber2StanceLeg(modeSequence[event + 1]);
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      if (before[foot] && !after[foot])
+      if (before[foot] && !after[foot]) {
         lastLiftOffTimes[foot] =
             std::max(lastLiftOffTimes[foot], eventTimes[event]);
+      }
     }
   }
 }
@@ -505,8 +530,9 @@ std::optional<scalar_t> truncateSwingPhase(ModeSchedule& schedule,
   if (!range.has_value()) return std::nullopt;
   size_t index = modeIndexAtTime(schedule, time);
   size_t last = range->last;
-  if (last + 1 >= modeSequence.size())
+  if (last + 1 >= modeSequence.size()) {
     return std::nullopt;  // the swing never touches down within the schedule
+  }
   const scalar_t touchDown = eventTimes[last];
 
   // Split the phase containing `time` unless `time` already is the start of
@@ -534,8 +560,9 @@ bool shiftEventsFrom(ModeSchedule& schedule,
   std::vector<scalar_t>& eventTimes = schedule.eventTimes;
   if (firstEventIndex >= eventTimes.size()) return false;
   if (firstEventIndex > 0 &&
-      eventTimes[firstEventIndex] + shift <= eventTimes[firstEventIndex - 1])
+      eventTimes[firstEventIndex] + shift <= eventTimes[firstEventIndex - 1]) {
     return false;
+  }
   for (size_t j = firstEventIndex; j < eventTimes.size(); ++j) {
     eventTimes[j] += shift;
   }
@@ -585,35 +612,43 @@ feet_array_t<ContactEventReport> adaptScheduleToContactEvents(
 
 namespace {
 
-// The LIP state after `duration` from (com, velocity): about the fixed ZMP
-// `zmp`, or at constant velocity when there is none (c'' = 0, whose ZMP c - c''
-// / omega^2 is the CoM itself).
-LipState flowReducedModel(const vector2_t& com,
-                          const vector2_t& velocity,
-                          const vector2_t* absl_nullable zmp,
-                          scalar_t omega,
-                          scalar_t duration) {
+// The LIP state after `duration` from (posComRtWorldEwrtWorldXy,
+// linvelComRtWorldEwrtWorldXy): about the fixed ZMP `posZmpRtWorldEwrtWorldXy`,
+// or at constant velocity when there is none (c'' = 0, whose ZMP c - c'' /
+// omega^2 is the CoM itself).
+LipState flowReducedModel(
+    const vector2_t& posComRtWorldEwrtWorldXy,
+    const vector2_t& linvelComRtWorldEwrtWorldXy,
+    const vector2_t* absl_nullable posZmpRtWorldEwrtWorldXy,
+    scalar_t omega,
+    scalar_t duration) {
   LipState state;
-  if (zmp == nullptr) {
-    state.com = com + duration * velocity;
-    state.comVelocity = velocity;
-    state.zmp = state.com;
+  if (posZmpRtWorldEwrtWorldXy == nullptr) {
+    state.posComRtWorldEwrtWorldXy =
+        posComRtWorldEwrtWorldXy + duration * linvelComRtWorldEwrtWorldXy;
+    state.linvelComRtWorldEwrtWorldXy = linvelComRtWorldEwrtWorldXy;
+    state.posZmpRtWorldEwrtWorldXy = state.posComRtWorldEwrtWorldXy;
     return state;
   }
   const scalar_t ch = std::cosh(omega * duration);
   const scalar_t sh = std::sinh(omega * duration);
-  const vector2_t offset = com - *zmp;
-  state.zmp = *zmp;
-  state.com = *zmp + offset * ch + velocity * (sh / omega);
-  state.comVelocity = offset * (omega * sh) + velocity * ch;
+  const vector2_t posComRtZmpEwrtWorldXy =
+      posComRtWorldEwrtWorldXy - *posZmpRtWorldEwrtWorldXy;
+  state.posZmpRtWorldEwrtWorldXy = *posZmpRtWorldEwrtWorldXy;
+  state.posComRtWorldEwrtWorldXy = *posZmpRtWorldEwrtWorldXy +
+                                   posComRtZmpEwrtWorldXy * ch +
+                                   linvelComRtWorldEwrtWorldXy * (sh / omega);
+  state.linvelComRtWorldEwrtWorldXy =
+      posComRtZmpEwrtWorldXy * (omega * sh) + linvelComRtWorldEwrtWorldXy * ch;
   return state;
 }
 
 // Whether the plan carries the reduced model of each continuous phase
-// (ContactPlan::phaseZmp).
+// (ContactPlan::phasePosZmpRtWorldEwrtWorldXyTraj).
 bool hasPhaseReducedModel(const ContactPlan& plan) {
   return plan.hasContinuousPhases() &&
-         plan.phaseZmp.size() == plan.phaseStartTimes.size();
+         plan.phasePosZmpRtWorldEwrtWorldXyTraj.size() ==
+             plan.phaseStartTimes.size();
 }
 
 // The node state at `nodeTime` propagated to `time` (>= nodeTime) through the
@@ -628,15 +663,19 @@ LipState flowThroughPhases(const ContactPlan& plan,
   size_t phase = 0;
   while (phase + 1 < starts.size() && starts[phase + 1] <= nodeTime) ++phase;
   LipState state;
-  state.com = plan.comPosition[static_cast<size_t>(node)];
-  state.comVelocity = plan.comVelocity[static_cast<size_t>(node)];
+  state.posComRtWorldEwrtWorldXy =
+      plan.posComRtWorldEwrtWorldXyTraj[static_cast<size_t>(node)];
+  state.linvelComRtWorldEwrtWorldXy =
+      plan.linvelComRtWorldEwrtWorldXyTraj[static_cast<size_t>(node)];
   scalar_t segmentStart = nodeTime;
   while (true) {
     const bool lastSegment =
         phase + 1 >= starts.size() || starts[phase + 1] >= time;
     const scalar_t segmentEnd = lastSegment ? time : starts[phase + 1];
-    const std::optional<vector2_t>& zmp = plan.phaseZmp[phase];
-    state = flowReducedModel(state.com, state.comVelocity,
+    const std::optional<vector2_t>& zmp =
+        plan.phasePosZmpRtWorldEwrtWorldXyTraj[phase];
+    state = flowReducedModel(state.posComRtWorldEwrtWorldXy,
+                             state.linvelComRtWorldEwrtWorldXy,
                              zmp.has_value() ? &*zmp : nullptr, omega,
                              std::max(0.0, segmentEnd - segmentStart));
     if (lastSegment) return state;
@@ -651,46 +690,59 @@ std::optional<LipState> lipReferenceState(const ContactPlan& plan,
                                           scalar_t omega,
                                           scalar_t time) {
   const size_t numIntervals = plan.contacts.size();
-  const bool consistent = plan.valid && numIntervals > 0 &&
-                          plan.zmp.size() == numIntervals &&
-                          plan.comPosition.size() == numIntervals + 1 &&
-                          plan.comVelocity.size() == numIntervals + 1;
+  const bool consistent =
+      plan.valid && numIntervals > 0 &&
+      plan.posZmpRtWorldEwrtWorldXyTraj.size() == numIntervals &&
+      plan.posComRtWorldEwrtWorldXyTraj.size() == numIntervals + 1 &&
+      plan.linvelComRtWorldEwrtWorldXyTraj.size() == numIntervals + 1;
   if (!consistent || omega <= 0.0 || plan.dt <= 0.0) return std::nullopt;
   if (time < plan.startTime - kEventTimeTolerance ||
-      time > plan.endTime() + kEventTimeTolerance)
+      time > plan.endTime() + kEventTimeTolerance) {
     return std::nullopt;
+  }
 
   const int k = plan.intervalIndex(time);
   const scalar_t nodeTime = plan.startTime + plan.dt * static_cast<scalar_t>(k);
   const scalar_t tau = std::clamp(time - nodeTime, 0.0, plan.dt);
-  if (hasPhaseReducedModel(plan))
+  if (hasPhaseReducedModel(plan)) {
     return flowThroughPhases(plan, k, nodeTime, nodeTime + tau, omega);
-  return flowReducedModel(plan.comPosition[k], plan.comVelocity[k],
-                          &plan.zmp[k], omega, tau);
-}
-
-vector2_t dcmStepAdjustment(const vector2_t& dcmError,
-                            scalar_t omega,
-                            scalar_t timeToTouchDown,
-                            scalar_t gain,
-                            scalar_t maxOffset) {
-  vector2_t adjustment =
-      gain * std::exp(omega * std::max(timeToTouchDown, 0.0)) * dcmError;
-  const scalar_t norm = adjustment.norm();
-  if (maxOffset >= 0.0 && norm > maxOffset) {
-    adjustment *= (norm > 0.0) ? maxOffset / norm : 0.0;
   }
-  return adjustment;
+  return flowReducedModel(plan.posComRtWorldEwrtWorldXyTraj[k],
+                          plan.linvelComRtWorldEwrtWorldXyTraj[k],
+                          &plan.posZmpRtWorldEwrtWorldXyTraj[k], omega, tau);
 }
 
-vector2_t clipFootholdToReach(const vector2_t& foothold,
-                              size_t contactIndex,
-                              const vector2_t& comAtTouchDown,
-                              scalar_t yaw,
-                              const ContactPlanningConfig& config) {
-  const vector2_t ex(std::cos(yaw), std::sin(yaw));
-  const vector2_t ey(-std::sin(yaw), std::cos(yaw));
-  const vector2_t relative = foothold - comAtTouchDown;
+vector2_t computeErrPosFootRtWorldEwrtWorldXy(
+    const vector2_t& errPosDcmRtWorldEwrtWorldXy,
+    scalar_t omega,
+    scalar_t timeToTouchDown,
+    scalar_t gain,
+    scalar_t maxNormErrPosFootRtWorldEwrtWorldXy) {
+  vector2_t errPosFootRtWorldEwrtWorldXy =
+      gain * std::exp(omega * std::max(timeToTouchDown, 0.0)) *
+      errPosDcmRtWorldEwrtWorldXy;
+  const scalar_t norm = errPosFootRtWorldEwrtWorldXy.norm();
+  if (maxNormErrPosFootRtWorldEwrtWorldXy >= 0.0 &&
+      norm > maxNormErrPosFootRtWorldEwrtWorldXy) {
+    errPosFootRtWorldEwrtWorldXy *=
+        (norm > 0.0) ? maxNormErrPosFootRtWorldEwrtWorldXy / norm : 0.0;
+  }
+  return errPosFootRtWorldEwrtWorldXy;
+}
+
+vector2_t clipFootholdToReach(
+    const vector2_t& desPosFootRtWorldEwrtWorldXy,
+    size_t contactIndex,
+    const vector2_t& touchdownPosComRtWorldEwrtWorldXy,
+    scalar_t touchdownYawHeadingRtWorld,
+    const ContactPlanningConfig& config) {
+  const vector2_t dirHeadingEwrtWorldXy(std::cos(touchdownYawHeadingRtWorld),
+                                        std::sin(touchdownYawHeadingRtWorld));
+  const vector2_t leftDirHeadingEwrtWorldXy(
+      -std::sin(touchdownYawHeadingRtWorld),
+      std::cos(touchdownYawHeadingRtWorld));
+  const vector2_t posFootRtComEwrtWorldXy =
+      desPosFootRtWorldEwrtWorldXy - touchdownPosComRtWorldEwrtWorldXy;
   // The planner's reachability rows put the left foot (index 0) on the +y side
   // of the CoM and the right foot on the -y side. Reading the side off the
   // nominal foothold instead flipped it whenever the planned foothold sat on
@@ -699,10 +751,18 @@ vector2_t clipFootholdToReach(const vector2_t& foothold,
   // region.
   const scalar_t side = (contactIndex == 0) ? 1.0 : -1.0;
   const ReachabilityParameters& reach = config.reachability;
-  const scalar_t x = std::clamp(ex.dot(relative), -reach.reachX, reach.reachX);
-  const scalar_t y = side * std::clamp(side * ey.dot(relative),
-                                       reach.reachYInner, reach.reachYOuter);
-  return comAtTouchDown + x * ex + y * ey;
+  const scalar_t clippedPosFootRtComEwrtHeadingX =
+      std::clamp(dirHeadingEwrtWorldXy.dot(posFootRtComEwrtWorldXy),
+                 -reach.maxNormPosFootRtComEwrtHeadingX,
+                 reach.maxNormPosFootRtComEwrtHeadingX);
+  const scalar_t clippedPosFootRtComEwrtHeadingY =
+      side *
+      std::clamp(side * leftDirHeadingEwrtWorldXy.dot(posFootRtComEwrtWorldXy),
+                 reach.minPosFootRtComEwrtHeadingY,
+                 reach.maxPosFootRtComEwrtHeadingY);
+  return touchdownPosComRtWorldEwrtWorldXy +
+         clippedPosFootRtComEwrtHeadingX * dirHeadingEwrtWorldXy +
+         clippedPosFootRtComEwrtHeadingY * leftDirHeadingEwrtWorldXy;
 }
 
 }  // namespace ocs2::humanoid

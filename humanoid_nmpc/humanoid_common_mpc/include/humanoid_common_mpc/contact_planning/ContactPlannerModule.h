@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -40,8 +42,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
 #include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
 
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerInterface.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
@@ -56,8 +62,9 @@ namespace ocs2::humanoid {
  *
  * Before every MPC solve the module snapshots the planner input (CoM state,
  * feet, applied contact phases, and the operator's command as the reference
- * manager recorded it - ContactPlanningReferenceManager::commandedVelocity(),
- * not the live target, which planned_com_override rewrites). With
+ * manager recorded it -
+ * ContactPlanningReferenceManager::cmdLinvelBaseRtWorldEwrtWorldXy(), not the
+ * live target, which planned_com_override rewrites). With
  * `runInBackgroundThread` the snapshot is posted to a worker thread that plans
  * at most at `planningFrequency`; otherwise the plan is computed synchronously
  * inside the pre-solve hook. Either way a finished plan is handed to the
@@ -127,11 +134,11 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
    * Builds the module and the planner `config.planner.type` names, and hands
    * the configuration to the reference manager. `modelParameters` - the planner
    * parameters derived from the robot model (torque limits, foot yaw bounds,
-   * comHeight where the file leaves it out, the ZMP box where it leaves it at
-   * 0) - are applied to `config` first and to every configuration set later,
-   * including the hot reloads, which do not carry them. A null reference
-   * manager, an unknown planner or a configuration that does not validate is an
-   * InvalidArgument naming the key to change.
+   * nomPosComRtFeetmeanEwrtWorldZ where the file leaves it out, the ZMP box
+   * where it leaves it at 0) - are applied to `config` first and to every
+   * configuration set later, including the hot reloads, which do not carry
+   * them. A null reference manager, an unknown planner or a configuration that
+   * does not validate is an InvalidArgument naming the key to change.
    */
   static absl::StatusOr<std::shared_ptr<ContactPlannerModule>> Create(
       std::shared_ptr<ContactPlanningReferenceManager> referenceManagerPtr,
@@ -184,7 +191,8 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
    * The summary is not only a record: for the H-LIP planner it carries the
    * start-up check of whether the first step out of a standstill fits the reach
    * (HlipContactPlanner::formulationSummary), and every key that check depends
-   * on - hlip.sspDuration, hlip.dspDuration, hlip.stepWidth, hlip.maxStepWidth
+   * on - hlip.sspDuration, hlip.dspDuration,
+   * hlip.nomPosLfootRtRfootEwrtHeadingY, hlip.maxPosLfootRtRfootEwrtHeadingY
    * - is a hot-reloadable slider. Re-printing only when the formulation, the
    * grid or the planner type changed meant a cadence tuned from the GUI was
    * never checked at all. Comparing the summaries themselves re-runs every

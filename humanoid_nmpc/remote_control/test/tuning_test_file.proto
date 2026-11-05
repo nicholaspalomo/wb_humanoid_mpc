@@ -34,8 +34,10 @@ message TuningTestFile {
     reserved 5 to max;
 
     double scaling = 1 [default = 1.0, (humanoid_mpc_config.tuning) = { log_scale: true }];
-    humanoid_mpc_config.Xyz position = 2 [(humanoid_mpc_config.tuning) = { unit: "m" slider_min: 0.0 slider_max: 10.0 }];
-    humanoid_mpc_config.YawPitchRoll orientation = 3
+    // A weights block is named for the state quantity it weighs.
+    humanoid_mpc_config.Xyz pos_base_rt_world_ewrt_world = 2
+        [(humanoid_mpc_config.tuning) = { unit: "m" slider_min: 0.0 slider_max: 10.0 }];
+    humanoid_mpc_config.YawPitchRoll eulerzyx_base_rt_world = 3
         [(humanoid_mpc_config.tuning) = { unit: "rad" reload: RELOAD_START_UP }];
     // Keyed by joint, labeled by the joint alone.
     repeated humanoid_mpc_config.JointValue joints = 4;
@@ -57,7 +59,7 @@ message TuningTestFile {
     reserved 3 to max;
 
     double time = 1 [default = 0.0];
-    double height = 2 [default = 0.0];
+    double value = 2 [default = 0.0];
   }
 
   // A feature its absence switches off.
@@ -85,7 +87,7 @@ message TuningTestFile {
   repeated Point points = 12;
   Gate gate = 13 [(nproto.optional_message) = true];
   // Applies in one mode only.
-  double stand_height = 14 [
+  double stand_value = 14 [
     default = 1.0,
     (humanoid_mpc_config.tuning) = {
       active_when { field_path: "mode" values: "MODE_STAND" }

@@ -29,15 +29,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <optional>
-#include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
@@ -45,12 +47,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_mpc/MPC_MRT_Interface.h"
 #include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
 
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
@@ -140,8 +144,9 @@ class ControllerHarness {
     // The nominal posture of JOINT_PD is the posture the robot starts in, as
     // SimFsmBridge captures it.
     nominal_.assign(description_.getNumJoints(), 0.0);
-    for (size_t joint = 0; joint < description_.getNumJoints(); ++joint)
+    for (size_t joint = 0; joint < description_.getNumJoints(); ++joint) {
       nominal_[joint] = robotState_.getJointPosition(joint);
+    }
     controller_->setNominalJointPositions(nominal_);
   }
 
@@ -154,21 +159,24 @@ class ControllerHarness {
   void setTime(scalar_t time) { time_ = time; }
 
   /** The robot at the centroidal state `state`, moving with base velocity
-   * `baseVelocity` (world frame). */
-  void setState(const vector_t& state,
-                const vector3_t& baseVelocity = vector3_t::Zero()) {
+   * `linvelBaseRtWorldEwrtWorld` (world frame). */
+  void setState(
+      const vector_t& state,
+      const vector3_t& linvelBaseRtWorldEwrtWorld = vector3_t::Zero()) {
     const CentroidalMpcRobotModel<scalar_t>& model = stack_.model();
     robotState_.setConfigurationToZero();
     robotState_.setPosBaseRtWorldEwrtWorld(
         model.getPosBaseRtWorldEwrtWorld(state));
-    const quaternion_t orientation(model.getQuatBaseRtWorldXyzw(state));
-    robotState_.setQuatBaseRtWorld(orientation);
+    const quaternion_t quatBaseRtWorld(model.getQuatBaseRtWorldXyzw(state));
+    robotState_.setQuatBaseRtWorld(quatBaseRtWorld);
     robotState_.setLinvelBaseRtWorldEwrtBase(
-        orientation.toRotationMatrix().transpose() * baseVelocity);
+        quatBaseRtWorld.toRotationMatrix().transpose() *
+        linvelBaseRtWorldEwrtWorld);
     robotState_.setAngvelBaseRtWorldEwrtBase(vector3_t::Zero());
     const vector_t joints = model.getJointAngles(state);
-    for (size_t i = 0; i < mpcJointIndices_.size(); ++i)
+    for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
       robotState_.setJointPosition(mpcJointIndices_[i], joints[i]);
+    }
     robotState_.setContactFlag(/*index=*/0, /*contactFlag=*/true);
     robotState_.setContactFlag(/*index=*/1, /*contactFlag=*/true);
   }
@@ -178,8 +186,10 @@ class ControllerHarness {
     controller_->startMpcThread(robotState_);
     const std::chrono::steady_clock::time_point deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(20);
-    while (!controller_->ready() && std::chrono::steady_clock::now() < deadline)
+    while (!controller_->ready() &&
+           std::chrono::steady_clock::now() < deadline) {
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     ASSERT_TRUE(controller_->ready()) << "the solver thread produced no policy";
   }
 
@@ -464,8 +474,9 @@ TEST(MrtJointControllerReset,
 
   // Three seconds of observation time, every policy diverged.
   const scalar_t duration = 3.0;
-  for (int k = 0; k < static_cast<int>(duration / kControlPeriod); ++k)
+  for (int k = 0; k < static_cast<int>(duration / kControlPeriod); ++k) {
     harness.cycle(std::chrono::microseconds(1000));
+  }
   const uint64_t resets =
       harness.controller().getResetSupervisor().numResetsServed() -
       resetsBefore;
@@ -508,8 +519,9 @@ TEST(MrtJointControllerReset,
       std::chrono::steady_clock::now();
   robot::model::RobotJointAction held = mpcAction;
   while (std::chrono::steady_clock::now() - start <
-         std::chrono::milliseconds(1500))
+         std::chrono::milliseconds(1500)) {
     held = harness.cycle(std::chrono::milliseconds(5));
+  }
 
   EXPECT_FALSE(harness.controller().isMpcHealthy());
   EXPECT_GT(harness.controller().getResetSupervisor().numFullResetsServed(),
@@ -591,13 +603,13 @@ TEST(MrtJointControllerReset,
   // Walking forward, as far as the references are concerned: the scripted
   // solver plans the robot where it is, on the reference manager's schedule, so
   // a swing in the policy is the gait the references walk in.
-  const scalar_t speed = 1.2;
-  stack.command(speed / 1.2);
+  const scalar_t linvelBaseRtWorldEwrtWorldX = 1.2;
+  stack.command(linvelBaseRtWorldEwrtWorldX / 1.2);
   vector_t state = stack.initialState();
   bool walked = false;
   for (int k = 0; k < 400; ++k) {
-    state(6) += speed * kControlPeriod;
-    harness.setState(state, vector3_t(speed, 0.0, 0.0));
+    state(6) += linvelBaseRtWorldEwrtWorldX * kControlPeriod;
+    harness.setState(state, vector3_t(linvelBaseRtWorldEwrtWorldX, 0.0, 0.0));
     harness.cycle();
     const std::optional<contact_flag_t> planned =
         harness.controller().getPlannedContactFlags(harness.time() + 0.3);
@@ -610,9 +622,9 @@ TEST(MrtJointControllerReset,
   // JOINT_PD and holds the controller; the remote control re-centers its
   // sticks.
   vector_t fallen = state;
-  vector3_t fallenEulerZyx = model.getEulerzyxBaseRtWorld(state);
-  fallenEulerZyx(2) = 1.2;  // rolled over by 1.2 rad
-  model.setEulerzyxBaseRtWorld(fallen, fallenEulerZyx);
+  vector3_t fallenEulerzyxBaseRtWorld = model.getEulerzyxBaseRtWorld(state);
+  fallenEulerzyxBaseRtWorld(2) = 1.2;  // rolled over by 1.2 rad
+  model.setEulerzyxBaseRtWorld(fallen, fallenEulerzyxBaseRtWorld);
   harness.setState(fallen, vector3_t(0.0, -1.0, -0.5));
   harness.controller().requestMpcResetAndHold();
   harness.controller().setControlMode("JOINT_PD");
@@ -620,8 +632,9 @@ TEST(MrtJointControllerReset,
   harness.cycle();
 
   // Hanging still on the gantry, where it was caught.
-  const vector_t held = stack.standingAt(stack.initialState(), /*x=*/3.0,
-                                         /*y=*/-1.0, /*yaw=*/0.3);
+  const vector_t held = stack.standingAt(
+      stack.initialState(), /*posBaseRtWorldEwrtWorldX=*/3.0,
+      /*posBaseRtWorldEwrtWorldY=*/-1.0, /*eulerzyxBaseRtWorldYaw=*/0.3);
   harness.setState(held);
   for (int k = 0; k < 100; ++k) harness.cycle();
 

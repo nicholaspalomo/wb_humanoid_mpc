@@ -78,7 +78,7 @@ namespace {
 constexpr double kSlipWeight = 1.0;
 constexpr double kTiltWeight = 1.0;
 constexpr double kGateStiffness = 1.0e-2;  // k1
-constexpr double kGateMomentArm = 0.1;     // [m]
+constexpr double kGateLeverArm = 0.1;      // [m]
 constexpr double kActivationRateWeight = 0.1;
 constexpr double kMomentumRateWeight = 1.0e-2;
 // The robot always claims nearly one full contact: no flight phase.
@@ -89,9 +89,9 @@ constexpr double kMinimumStance = 0.25;
 // (0.02 s on the Atlas), the plan's knots (0.025 s) and solves 1 and 2's nodes
 // (0.05 s).
 constexpr double kChangeQuantum = 0.1;
-constexpr double kFreeForceGate = 1.0e-3;     // k0 of solve 1
-constexpr double kFreeForceInvariance = 1.0;  // the CI weight of solve 1
-constexpr int kFreeForceIterations = 40;
+constexpr double kFreeSolveGate = 1.0e-3;     // k0 of solve 1
+constexpr double kFreeSolveInvariance = 1.0;  // the CI weight of solve 1
+constexpr int kFreeSolveIterations = 40;
 // Solve 2 raises k0 and the CI weight by these factors kContactSteps times.
 constexpr int kContactSteps = 3;
 constexpr double kGateGrowth = 10.0;
@@ -120,7 +120,7 @@ constexpr char kTerrainClearanceTerm[] = "terrainClearance";
 // The hard and soft constraints and the costs of solves 1 and 2, of the task
 // file's names (MpcFormulationConfig.h): every allowed candidate is in
 // contact, so the stance and swing terms are not built.
-constexpr char kZeroWrench[] = "zero_wrench";
+constexpr char kZeroWrenchName[] = "zero_wrench";
 constexpr char kJointLimits[] = "joint_limits";
 constexpr char kContactWrenchCone[] = "contact_wrench_cone";
 constexpr char kWeightShareReference[] = "weight_share";
@@ -132,21 +132,21 @@ std::vector<ContinuationStage> defaultStages() {
   ContinuationStage free;
   free.name = "solve 1: free forces";
   free.weights.contactInvariant =
-      ContactInvariantWeights{.weight = kFreeForceInvariance,
+      ContactInvariantWeights{.weight = kFreeSolveInvariance,
                               .slipWeight = kSlipWeight,
                               .tiltWeight = kTiltWeight};
-  free.weights.forceGate = ForceGateWeights{.k0 = kFreeForceGate,
+  free.weights.forceGate = ForceGateWeights{.k0 = kFreeSolveGate,
                                             .k1 = kGateStiffness,
-                                            .forceScale = 1.0,
-                                            .momentArm = kGateMomentArm};
+                                            .scaleForceContactEwrtWorld = 1.0,
+                                            .leverArm = kGateLeverArm};
   free.weights.activationRateWeight = kActivationRateWeight;
   free.weights.linearMomentumRateWeight = kMomentumRateWeight;
   free.weights.angularMomentumRateWeight = kMomentumRateWeight;
   free.weights.minimumSupport = kMinimumSupport;
-  free.sqpIterations = kFreeForceIterations;
+  free.sqpIterations = kFreeSolveIterations;
   std::vector<ContinuationStage> stages = {free};
-  double invariance = kFreeForceInvariance;
-  double gate = kFreeForceGate;
+  double invariance = kFreeSolveInvariance;
+  double gate = kFreeSolveGate;
   for (int step = 1; step <= kContactSteps; ++step) {
     invariance *= kInvarianceGrowth;
     gate *= kGateGrowth;
@@ -213,8 +213,9 @@ absl::StatusOr<PlannerRobot> robotOf(const LoadedScenario& loaded) {
         static_cast<size_t>(found - contactNames.begin()));
     robot.allowedMask |= contactBit(index);
   }
-  ASSIGN_OR_RETURN(robot.initialMask,
-                   contactsOf(loaded.scenario.initial_pose, loaded.contactSet));
+  ASSIGN_OR_RETURN(
+      robot.initialMask,
+      contactsOf(loaded.scenario.initial_posture, loaded.contactSet));
   std::vector<std::string> goalNames;
   for (const config::Scenario::GoalContact& contact :
        loaded.scenario.goal.contacts) {
@@ -236,7 +237,7 @@ ContactInvariantLayout layoutOf(const PlannerRobot& robot,
         loaded.contactSet.candidate(robot.allowed[k]);
     layout.candidates.push_back(ActivationCandidate{
         .name = candidate.name,
-        .forceOffset = static_cast<int>(
+        .wrenchStartIndex = static_cast<int>(
             model.getContactForceStartIndices(robot.mpcContacts[k])),
         .wrenchDim =
             candidate.kind == ContactKind::kSurface ? kWrenchDim : kForceDim});
@@ -249,11 +250,12 @@ ContactInvariantLayout layoutOf(const PlannerRobot& robot,
 absl::StatusOr<RobotConfiguration> goalConfigurationOf(
     const LoadedScenario& loaded) {
   const config::Scenario::Goal& goal = loaded.scenario.goal;
-  if (goal.pose.has_value()) return configurationOf(*goal.pose);
+  if (goal.posture.has_value()) return configurationOf(*goal.posture);
   ASSIGN_OR_RETURN(RobotConfiguration configuration,
-                   configurationOf(loaded.scenario.initial_pose));
+                   configurationOf(loaded.scenario.initial_posture));
   if (goal.base_region.has_value()) {
-    configuration.basePosition = Eigen::Vector3d(goal.base_region->center);
+    configuration.posBaseRtWorldEwrtWorld =
+        Eigen::Vector3d(goal.base_region->pos_box_rt_world_ewrt_world);
   }
   return configuration;
 }
@@ -270,20 +272,20 @@ absl::StatusOr<MpcTrajectory> guessOf(const PlannerRobot& robot,
                                       const std::vector<double>& times) {
   const MpcRobotModelBase<scalar_t>& model = robot.models->getMpcRobotModel();
   ASSIGN_OR_RETURN(const RobotConfiguration initial,
-                   configurationOf(loaded.scenario.initial_pose));
+                   configurationOf(loaded.scenario.initial_posture));
   ASSIGN_OR_RETURN(const RobotConfiguration goal, goalConfigurationOf(loaded));
   const vector_t start = mpcStateOf(model, initial);
   const vector_t end = mpcStateOf(model, goal);
   const double duration = times.back() - times.front();
   const vector_t jointVelocity =
       (model.getJointAngles(end) - model.getJointAngles(start)) / duration;
-  const Eigen::Vector3d baseVelocity =
+  const Eigen::Vector3d linvelBaseRtWorldEwrtWorld =
       (model.getPosBaseRtWorldEwrtWorld(end) -
        model.getPosBaseRtWorldEwrtWorld(start)) /
       duration;
-  const Eigen::Quaterniond startOrientation(
+  const Eigen::Quaterniond initQuatBaseRtWorld(
       Eigen::Vector4d(model.getQuatBaseRtWorldXyzw(start)));
-  const Eigen::Quaterniond endOrientation(
+  const Eigen::Quaterniond finalQuatBaseRtWorld(
       Eigen::Vector4d(model.getQuatBaseRtWorldXyzw(end)));
   // The weight shared by the initial stance's allowed contacts.
   std::vector<size_t> supports;
@@ -292,7 +294,7 @@ absl::StatusOr<MpcTrajectory> guessOf(const PlannerRobot& robot,
       supports.push_back(robot.mpcContacts[k]);
     }
   }
-  const double share =
+  const double forceContactEwrtWorldZ =
       supports.empty() ? 0.0 : robot.mass * kGravityMagnitude / supports.size();
   MpcTrajectory guess;
   guess.times = times;
@@ -303,15 +305,21 @@ absl::StatusOr<MpcTrajectory> guessOf(const PlannerRobot& robot,
         state, (1.0 - alpha) * model.getPosBaseRtWorldEwrtWorld(start) +
                    alpha * model.getPosBaseRtWorldEwrtWorld(end));
     model.setQuatBaseRtWorldXyzw(
-        state, startOrientation.slerp(alpha, endOrientation).coeffs());
+        state, initQuatBaseRtWorld.slerp(alpha, finalQuatBaseRtWorld).coeffs());
     model.setJointAngles(state, (1.0 - alpha) * model.getJointAngles(start) +
                                     alpha * model.getJointAngles(end));
-    if (k > 0) model.setBaseComLinearVelocity(state, baseVelocity);
+    if (k > 0) {
+      // The guess moves the center of mass with the base: on a centroidal
+      // state the base's mean velocity is the CoM's.
+      setProxyLinvelComRtWorldEwrtWorld(model, state,
+                                        linvelBaseRtWorldEwrtWorld);
+    }
     vector_t input =
         vector_t::Zero(static_cast<Eigen::Index>(model.getInputDim()));
     for (const size_t contact : supports) {
-      model.setForceContactEwrtParam(input, Eigen::Vector3d(0.0, 0.0, share),
-                                     contact);
+      model.setForceContactEwrtWorld(
+          state, input, Eigen::Vector3d(0.0, 0.0, forceContactEwrtWorldZ),
+          contact);
     }
     model.setJointVelocities(state, input, jointVelocity);
     guess.states.push_back(std::move(state));
@@ -325,7 +333,7 @@ absl::StatusOr<MpcTrajectory> guessOf(const PlannerRobot& robot,
  * wrench free in its cone, the posture weights scaled. */
 CentroidalMpcConfig continuationConfigOf(
     CentroidalMpcConfig config, const ContactInvariantPlannerOptions& options) {
-  config.task.hard_constraints = {kZeroWrench};
+  config.task.hard_constraints = {kZeroWrenchName};
   config.task.soft_constraints = {kJointLimits, kContactWrenchCone};
   config.task.contacts.contact_wrench_cone_soft_constraint.mu =
       kWrenchConeBarrierMu;
@@ -333,7 +341,7 @@ CentroidalMpcConfig continuationConfigOf(
       kWrenchConeBarrierDelta;
   config.task.state_weights.scaling *= options.guessTrackingScale;
   // The forces are the force gate's: no reference pulls them to the guess's.
-  config.task.multi_contact_plan.force_reference = kWeightShareReference;
+  config.task.multi_contact_plan.force_reference_mode = kWeightShareReference;
   config.task.interface.verbose = false;
   return config;
 }
@@ -355,13 +363,13 @@ sqp::Settings offlineSettings(sqp::Settings settings,
 /** The manifold of the MPC's state with `numCandidates` contact variables. */
 absl::StatusOr<std::shared_ptr<const StateManifold>> augmentedManifoldOf(
     const MpcRobotModelBase<scalar_t>& model, int numCandidates) {
-  const size_t orientation = model.getBaseOrientationStartIndex();
-  const size_t tail = model.getStateDim() - orientation -
+  const size_t orientationStartIndex = model.getBaseOrientationStartIndex();
+  const size_t tail = model.getStateDim() - orientationStartIndex -
                       static_cast<size_t>(kQuaternionCoefficients) +
                       static_cast<size_t>(numCandidates);
   ASSIGN_OR_RETURN(std::shared_ptr<const ProductStateManifold> manifold,
                    ProductStateManifold::create(
-                       {StateManifoldSegment::euclidean(orientation),
+                       {StateManifoldSegment::euclidean(orientationStartIndex),
                         StateManifoldSegment::unitQuaternion(),
                         StateManifoldSegment::euclidean(tail)}));
   return std::shared_ptr<const StateManifold>(std::move(manifold));
@@ -382,15 +390,15 @@ absl::StatusOr<std::unique_ptr<ContactFeatureFunction>> featuresOf(
         RobotFeatureCandidate{.frameName = candidate.name,
                               .mpcContactIndex = robot.mpcContacts[k],
                               .kind = candidate.kind,
-                              .padRotation = candidate.padRotation,
+                              .rotmatPadRtLink = candidate.rotmatPadRtLink,
                               .geomRadius = candidate.geomRadius});
     names.push_back(candidate.name);
   }
-  const RobotFeatureSettings settings{.friction = options.frictionShare *
-                                                  kInscribedFriction *
-                                                  leastFriction(loaded.terrain),
-                                      .coneSmoothing = options.coneSmoothing,
-                                      .maxPointTilt = options.maxPointTilt};
+  const RobotFeatureSettings settings{
+      .friction = options.frictionShare * kInscribedFriction *
+                  leastFriction(loaded.terrain),
+      .coneSmoothing = options.coneSmoothing,
+      .pointMaxTiltanglePadRtSurface = options.pointMaxTiltanglePadRtSurface};
   const ModelSettings& modelSettings = interface.modelSettings();
   const FeatureLibrarySettings library{
       .name = hashedLibraryName(
@@ -400,7 +408,7 @@ absl::StatusOr<std::unique_ptr<ContactFeatureFunction>> featuresOf(
                        " contact set ", contactSetHash(loaded.contactSetConfig),
                        " candidates ", absl::StrJoin(names, " "), " friction ",
                        settings.friction, " smoothing ", settings.coneSmoothing,
-                       " tilt ", settings.maxPointTilt)),
+                       " tilt ", settings.pointMaxTiltanglePadRtSurface)),
       .folder = modelSettings.modelFolderCppAd,
       .recompile = modelSettings.recompileLibrariesCppAd,
       .verbose = modelSettings.verboseCppAd};
@@ -520,7 +528,8 @@ absl::StatusOr<std::vector<StageSolution>> continuationOf(
                       .front()};
   std::vector<ContinuationStage> stages = options.stages;
   for (ContinuationStage& stage : stages) {
-    stage.weights.forceGate.forceScale = robot.mass * kGravityMagnitude;
+    stage.weights.forceGate.scaleForceContactEwrtWorld =
+        robot.mass * kGravityMagnitude;
   }
   return solveContinuation(
       problem, augmentedGuessOf(guess, robot, options.guessActivation), stages);
@@ -542,17 +551,18 @@ absl::StatusOr<MpcTrajectory> thresholdedGuessOf(
   for (const vector_t& augmented : trajectory.states) {
     const vector_t state = augmented.head(n);
     RobotConfiguration configuration;
-    configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
-    configuration.baseOrientation.coeffs() =
+    configuration.posBaseRtWorldEwrtWorld =
+        model.getPosBaseRtWorldEwrtWorld(state);
+    configuration.quatBaseRtWorld.coeffs() =
         model.getQuatBaseRtWorldXyzw(state);
-    configuration.baseOrientation.normalize();
+    configuration.quatBaseRtWorld.normalize();
     configuration.jointNames = model.modelSettings.mpcModelJointNames;
     configuration.jointPositions = model.getJointAngles(state);
     RETURN_IF_ERROR(robot.stanceModel->setConfiguration(configuration));
     std::vector<double> node;
     for (size_t i = 0; i < k; ++i) {
       const double distance = loaded.terrain.signedDistance<double>(
-          robot.stanceModel->padPosition(robot.allowed[i]));
+          robot.stanceModel->getPosPadRtWorldEwrtWorld(robot.allowed[i]));
       node.push_back(std::abs(distance) <= options.contactDistance
                          ? augmented(n + i)
                          : 0.0);
@@ -609,27 +619,33 @@ void logStage(const StageSolution& solution,
     const vector_t input =
         solution.trajectory.inputs[node].head(model.getInputDim());
     RobotConfiguration configuration;
-    configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
-    configuration.baseOrientation.coeffs() =
+    configuration.posBaseRtWorldEwrtWorld =
+        model.getPosBaseRtWorldEwrtWorld(state);
+    configuration.quatBaseRtWorld.coeffs() =
         model.getQuatBaseRtWorldXyzw(state);
-    configuration.baseOrientation.normalize();
+    configuration.quatBaseRtWorld.normalize();
     configuration.jointNames = model.modelSettings.mpcModelJointNames;
     configuration.jointPositions = model.getJointAngles(state);
     if (!robot.stanceModel->setConfiguration(configuration).ok()) continue;
-    std::string line = absl::StrFormat(
-        "%s t=%.2f base=(%.3f %.3f %.3f) com=(%.3f %.3f %.3f)", solution.stage,
-        solution.trajectory.times[node], configuration.basePosition.x(),
-        configuration.basePosition.y(), configuration.basePosition.z(),
-        robot.stanceModel->centerOfMass().x(),
-        robot.stanceModel->centerOfMass().y(),
-        robot.stanceModel->centerOfMass().z());
+    std::string line =
+        absl::StrFormat("%s t=%.2f base=(%.3f %.3f %.3f) com=(%.3f %.3f %.3f)",
+                        solution.stage, solution.trajectory.times[node],
+                        configuration.posBaseRtWorldEwrtWorld.x(),
+                        configuration.posBaseRtWorldEwrtWorld.y(),
+                        configuration.posBaseRtWorldEwrtWorld.z(),
+                        robot.stanceModel->getPosComRtWorldEwrtWorld().x(),
+                        robot.stanceModel->getPosComRtWorldEwrtWorld().y(),
+                        robot.stanceModel->getPosComRtWorldEwrtWorld().z());
     for (size_t k = 0; k < robot.allowed.size(); ++k) {
-      const Eigen::Vector3d pad =
-          robot.stanceModel->padPosition(robot.allowed[k]);
+      const Eigen::Vector3d posPadRtWorldEwrtWorld =
+          robot.stanceModel->getPosPadRtWorldEwrtWorld(robot.allowed[k]);
       absl::StrAppendFormat(
           &line, " | %s p=(%.3f %.3f %.3f) d=%.3f c=%.2f f=%.2f",
-          loaded.contactSet.candidate(robot.allowed[k]).name, pad.x(), pad.y(),
-          pad.z(), loaded.terrain.signedDistance<double>(pad), augmented(n + k),
+          loaded.contactSet.candidate(robot.allowed[k]).name,
+          posPadRtWorldEwrtWorld.x(), posPadRtWorldEwrtWorld.y(),
+          posPadRtWorldEwrtWorld.z(),
+          loaded.terrain.signedDistance<double>(posPadRtWorldEwrtWorld),
+          augmented(n + k),
           model.getForceContactEwrtParam(input, robot.mpcContacts[k]).norm() /
               weight);
     }
@@ -682,8 +698,8 @@ absl::StatusOr<std::unique_ptr<ContactInvariantPlanner>>
 ContactInvariantPlanner::Create(const ContactInvariantPlannerOptions& options) {
   if (options.stages.empty() || !(options.frictionShare > 0.0) ||
       !(options.frictionShare <= 1.0) || !(options.coneSmoothing > 0.0) ||
-      !(options.maxPointTilt >= 0.0) || !(options.guessActivation >= 0.0) ||
-      !(options.guessActivation <= 1.0) ||
+      !(options.pointMaxTiltanglePadRtSurface >= 0.0) ||
+      !(options.guessActivation >= 0.0) || !(options.guessActivation <= 1.0) ||
       !(options.guessTrackingScale >= 0.0) || !(options.continuationDt > 0.0) ||
       !(options.refinement.dt > 0.0)) {
     return absl::InvalidArgumentError(
@@ -722,11 +738,11 @@ absl::StatusOr<config::MultiContactPlan> refinedPlan(
           knot.static_margin.has_value()
               ? absl::StrFormat("%.3f", *knot.static_margin)
               : "-",
-          knot.torque_utilization.has_value()
-              ? absl::StrFormat("%.2f(%s)", *knot.torque_utilization,
+          knot.joint_torque_utilization.has_value()
+              ? absl::StrFormat("%.2f(%s)", *knot.joint_torque_utilization,
                                 knot.max_torque_joint)
               : "-",
-          knot.momentum_rate_residual, knot.max_active_contact_distance,
+          knot.wrench_cone_residual, knot.max_active_contact_distance,
           knot.min_sphere_clearance.has_value()
               ? absl::StrFormat("%.4f(%s)", *knot.min_sphere_clearance,
                                 knot.min_sphere_clearance_link)
@@ -784,14 +800,18 @@ absl::StatusOr<config::MultiContactPlan> ContactInvariantPlanner::plan(
               .stanceModel = robot.stanceModel.get(),
               .planner = std::string(kContactInvariantPlannerName)}));
   for (const config::MultiContactPlan::ContactPhase& phase : seed.phases) {
-    const Eigen::Vector3d target = phase.target_pad_pose.head<kPositionDim>();
-    const Eigen::Vector3d normal = phase.target_pad_pose.tail<kPositionDim>();
+    const Eigen::Vector3d desPosPadRtWorldEwrtWorld =
+        phase.des_pose_pad_rt_world.head<kPositionDim>();
+    const Eigen::Vector3d desNormalSurfaceEwrtWorld =
+        phase.des_pose_pad_rt_world.tail<kPositionDim>();
     VLOG(1) << absl::StrFormat(
         "seed phase %s [%.3f, %.3f] on %s face %d at (%.3f %.3f %.3f) n (%.2f "
         "%.2f %.2f)",
         phase.contact, phase.start_time, phase.end_time, phase.primitive,
-        phase.face, target.x(), target.y(), target.z(), normal.x(), normal.y(),
-        normal.z());
+        phase.face, desPosPadRtWorldEwrtWorld.x(),
+        desPosPadRtWorldEwrtWorld.y(), desPosPadRtWorldEwrtWorld.z(),
+        desNormalSurfaceEwrtWorld.x(), desNormalSurfaceEwrtWorld.y(),
+        desNormalSurfaceEwrtWorld.z());
   }
   LOG(INFO) << "contact_invariant: '" << loaded.scenario.name
             << "' thresholded stances: " << stancesOf(seed, loaded.contactSet);

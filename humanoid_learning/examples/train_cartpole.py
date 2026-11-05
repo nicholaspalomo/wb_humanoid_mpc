@@ -173,8 +173,8 @@ class CartpoleBraxEnv(brax_base.PipelineEnv):
 
     def reset(self, rng: jax.Array) -> brax_base.State:
         """Resets the cartpole state with initial tilt perturbation."""
-        rng_pos, rng_pole = jax.random.split(rng)
-        init_x = jax.random.uniform(rng_pos, (), minval=-0.2, maxval=0.2)
+        rng_cart, rng_pole = jax.random.split(rng)
+        init_x = jax.random.uniform(rng_cart, (), minval=-0.2, maxval=0.2)
         init_theta = jax.random.uniform(rng_pole, (), minval=-0.4, maxval=0.4)
 
         qpos = jnp.array([init_x, init_theta])
@@ -240,11 +240,11 @@ class PolicyRollout:
     Attributes:
         score: The episode's return as training scores it: the sum of the environment's reward over the steps, up to
             and including the one that ends the episode (cartpole_done()).
-        positions: The joint positions (x, theta) at the start of every step, one per step.
+        joint_positions: The joint positions (x, theta) at the start of every step, one per step.
     """
 
     score: float
-    positions: list[np.ndarray]
+    joint_positions: list[np.ndarray]
 
 
 def rollout_policy(
@@ -258,7 +258,7 @@ def rollout_policy(
         num_steps: The episode's length in control steps, as training's --episode_length.
 
     Returns:
-        The episode's score and the positions it passed through.
+        The episode's score and the joint positions it passed through.
     """
     data = mujoco.MjData(mj_model)
     data.qpos[0] = 0.0
@@ -266,10 +266,10 @@ def rollout_policy(
     data.qvel[:] = 0.0
     mujoco.mj_forward(mj_model, data)
 
-    rollout = PolicyRollout(score=0.0, positions=[])
+    rollout = PolicyRollout(score=0.0, joint_positions=[])
     rng = jax.random.PRNGKey(0)
     for _ in range(num_steps):
-        rollout.positions.append(np.array(data.qpos))
+        rollout.joint_positions.append(np.array(data.qpos))
         obs = np.asarray(
             cartpole_observation(data.qpos, data.qvel), dtype=np.float32
         )
@@ -319,10 +319,10 @@ def render_policy_rollout(
         renderer = None
 
     data = mujoco.MjData(mj_model)
-    for positions in rollout.positions[::_FRAME_STRIDE]:
+    for joint_positions in rollout.joint_positions[::_FRAME_STRIDE]:
         if renderer is None:
             break
-        data.qpos[:] = positions
+        data.qpos[:] = joint_positions
         mujoco.mj_forward(mj_model, data)
         try:
             renderer.update_scene(data, camera="track_cam")
@@ -333,8 +333,12 @@ def render_policy_rollout(
             renderer = None
             frames = []
 
-    cart_xs = [float(positions[0]) for positions in rollout.positions]
-    thetas = [float(positions[1]) for positions in rollout.positions]
+    cart_xs = [
+        float(joint_positions[0]) for joint_positions in rollout.joint_positions
+    ]
+    thetas = [
+        float(joint_positions[1]) for joint_positions in rollout.joint_positions
+    ]
     # Fallback to high-contrast 2D Matplotlib vector renderer if 3D OpenGL is unavailable
     if not frames and cart_xs:
         pole_length = 0.6

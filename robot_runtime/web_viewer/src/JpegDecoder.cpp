@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "web_viewer/JpegDecoder.h"
 
 #include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -62,8 +61,9 @@ JpegDecoder::~JpegDecoder() {
 }
 
 absl::StatusOr<JpegDecoder::Image> JpegDecoder::decode(absl::string_view jpeg) {
-  if (jpeg.empty())
+  if (jpeg.empty()) {
     return absl::InvalidArgumentError("not a JPEG image: no bytes");
+  }
   const unsigned char* absl_nonnull data =
       reinterpret_cast<const unsigned char*>(jpeg.data());
   if (tj3DecompressHeader(decompressor_, data, jpeg.size()) != 0) {

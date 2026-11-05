@@ -42,12 +42,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/model_data/Metrics.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/oc_data/ProblemMetrics.h"
 #include "ocs2_oc/search_strategy/FilterLinesearch.h"
 #include "ocs2_sqp/SqpSolverStatus.h"
 
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetrics.h"
 #include "humanoid_mpc_validation/closed_loop/SqpStepDiagnostics.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/equivalence/MpcEquivalenceFixture.h"
@@ -217,7 +218,8 @@ SqpRun iteratedRun(const MpcEquivalenceFixture& mpc,
 
 /** The problem's hard swing-foot normal-velocity terms, which every shipped
  * configuration lists (a test checks it). */
-std::vector<size_t> normalVelocityTerms(const MpcEquivalenceFixture& mpc) {
+std::vector<size_t> normalVelocityTermIndices(
+    const MpcEquivalenceFixture& mpc) {
   return validation::normalVelocityTermIndices(
       *mpc.problem().equalityConstraintPtr, mpc.modelSettings().contactNames);
 }
@@ -246,8 +248,9 @@ LargestResidual largestEqualityResidual(const ProblemMetrics& metrics) {
       const vector_t& value = node.stateInputEqConstraint[term];
       if (value.size() == 0) continue;
       const scalar_t residual = value.cwiseAbs().maxCoeff();
-      if (residual > largest.value)
+      if (residual > largest.value) {
         largest = LargestResidual{.value = residual, .term = term};
+      }
     }
   }
   return largest;
@@ -324,7 +327,7 @@ std::string solveRecord(const std::vector<RealTimeSolve>& solves,
         solve.iteration.baselineConstraintViolation, sample.stepSize,
         static_cast<int>(sample.fullStepKind),
         sample.fullStepConstraintViolation, sample.constraintViolation,
-        sample.swingNormalVelocityResidual.value_or(0.0)));
+        sample.swingNormalVelocityConstraintResidual.value_or(0.0)));
   }
   return absl::StrJoin(record, " ");
 }
@@ -364,7 +367,7 @@ TEST_P(MpcSqpConvergence,
   EXPECT_GT(last.stepInfo.performanceAfterStep.equalityConstraintsSSE,
             last.stepInfo.performanceAfterStep.dynamicsViolationSSE)
       << "the equality constraints carry the violation, not the shooting gaps";
-  const std::vector<size_t> swingRows = normalVelocityTerms(mpc);
+  const std::vector<size_t> swingRows = normalVelocityTermIndices(mpc);
   const LargestResidual largest = largestEqualityResidual(run.metrics);
   RecordProperty("largest_equality_residual", absl::StrCat(largest.value));
   EXPECT_NE(std::find(swingRows.begin(), swingRows.end(), largest.term),
@@ -378,8 +381,8 @@ TEST_P(MpcSqpConvergence,
  * quaternion SQP of (C1): of the step from the resting warm start to the
  * iterate after one iteration, at any node.
  */
-scalar_t largestFirstStepRotation(const MpcEquivalenceFixture& mpc,
-                                  const EquivalenceReference& reference) {
+scalar_t largestFirstStepAngle(const MpcEquivalenceFixture& mpc,
+                               const EquivalenceReference& reference) {
   const SqpCase resting = mpc.restingWarmStart();
   const SqpRun first = mpc.sqpRun(
       mpc.manifoldPtr(), reference, resting.initState,
@@ -400,8 +403,8 @@ scalar_t largestFirstStepRotation(const MpcEquivalenceFixture& mpc,
  * terms) cycles as the quaternion manifold's does, and the two runs' merits
  * agree per iteration over the first kChartMeritIterations iterations to second
  * order in the steps: relative to the merit, to
- * kChartMeritAgreementPerSquaredRotation times phi_1^2, phi_1 the largest base
- * rotation of the first step (largestFirstStepRotation()). Their violations
+ * kChartMeritAgreementPerSquaredAngle times phi_1^2, phi_1 the largest base
+ * rotation of the first step (largestFirstStepAngle()). Their violations
  * agree only to about 1 %, so they are not compared. Run on Atlas only, the
  * configuration whose cycle the design README states in both charts (section 6,
  * risk 12); the others are not iterated twice.
@@ -428,9 +431,9 @@ scalar_t largestFirstStepRotation(const MpcEquivalenceFixture& mpc,
  * phi_1^2: 1.25e-4 for phi_1 = 0.111 rad, K = 0.010; with the swing apex above
  * the lower end of the swing instead of the higher one
  * (SwingTrajectoryPlanner::makeSwingSplines(), 0.04 m lower with Atlas's
- * touch_down_height_offset), phi_1 = 0.079 rad and 8.1e-5, K = 0.013. The
- * higher apex doubled the violation after the first step (0.11 to 0.22) and
- * with it the first step; the inscribed friction pyramid of the basis
+ * touchdown_pos_foot_rt_surface_ewrt_world_z), phi_1 = 0.079 rad and 8.1e-5, K
+ * = 0.013. The higher apex doubled the violation after the first step (0.11 to
+ * 0.22) and with it the first step; the inscribed friction pyramid of the basis
  * generators added the rest (1.06e-4 with the former, circumscribed one), so a
  * fixed relative bound (1e-4, against 6.7e-5 measured before both) stopped
  * holding while K stayed. A disagreement of first order in the step, such as a
@@ -441,12 +444,12 @@ TEST_P(MpcSqpConvergence,
        OnAtlasTheEulerChartCyclesAsTheQuaternionManifoldDoes) {
   constexpr size_t kChartMeritIterations = 20;
   // Four times the largest K measured (0.013, the comment above).
-  constexpr scalar_t kChartMeritAgreementPerSquaredRotation = 0.05;
+  constexpr scalar_t kChartMeritAgreementPerSquaredAngle = 0.05;
   if (GetParam() != "drc_atlas") return;
   MpcEquivalenceFixture& mpc = this->mpc();
   const scalar_t gMax = mpc.sqpSettings().g_max;
   const EquivalenceReference reference = mpc.walkingReference();
-  const SqpRun quaternion = iteratedRun(mpc, reference);
+  const SqpRun quaternionLayoutRun = iteratedRun(mpc, reference);
   const SqpCase resting = mpc.restingWarmStart();
   const SqpRun chart =
       mpc.sqpRun(mpc.eulerChartPtr(), reference, resting.initState,
@@ -457,35 +460,33 @@ TEST_P(MpcSqpConvergence,
   EXPECT_EQ(chart.iterations.back().convergence, sqp::Convergence::ITERATIONS)
       << "the chart's SQP does not converge either";
   expectCycle(chart.iterations, gMax);
-  ASSERT_GE(quaternion.iterations.size(), kChartMeritIterations);
+  ASSERT_GE(quaternionLayoutRun.iterations.size(), kChartMeritIterations);
   ASSERT_GE(chart.iterations.size(), kChartMeritIterations);
-  const scalar_t firstStepRotation = largestFirstStepRotation(mpc, reference);
-  RecordProperty("largest_first_step_rotation",
-                 absl::StrCat(firstStepRotation));
-  const scalar_t meritAgreement = kChartMeritAgreementPerSquaredRotation *
-                                  firstStepRotation * firstStepRotation;
+  const scalar_t firstStepAngle = largestFirstStepAngle(mpc, reference);
+  RecordProperty("largest_first_step_rotation", absl::StrCat(firstStepAngle));
+  const scalar_t meritAgreement =
+      kChartMeritAgreementPerSquaredAngle * firstStepAngle * firstStepAngle;
   scalar_t largestMeritDifference = 0.0;
   std::vector<std::string> meritDifferences;
   for (size_t k = 0; k < kChartMeritIterations; ++k) {
     SCOPED_TRACE(absl::StrCat("iteration ", k));
-    const scalar_t onQuaternions =
-        quaternion.iterations[k].stepInfo.performanceAfterStep.merit;
+    const scalar_t onQuaternionLayout =
+        quaternionLayoutRun.iterations[k].stepInfo.performanceAfterStep.merit;
     const scalar_t onTheChart =
         chart.iterations[k].stepInfo.performanceAfterStep.merit;
-    const scalar_t relative = std::abs(onTheChart - onQuaternions) /
-                              std::max(std::abs(onQuaternions), 1.0);
+    const scalar_t relative = std::abs(onTheChart - onQuaternionLayout) /
+                              std::max(std::abs(onQuaternionLayout), 1.0);
     largestMeritDifference = std::max(largestMeritDifference, relative);
     meritDifferences.push_back(absl::StrFormat("%.3g", relative));
     EXPECT_LE(relative, meritAgreement)
-        << onQuaternions << " on the quaternions, " << onTheChart
-        << " on the chart, a first step of " << firstStepRotation << " rad";
+        << onQuaternionLayout << " on the quaternions, " << onTheChart
+        << " on the chart, a first step of " << firstStepAngle << " rad";
   }
   RecordProperty("largest_relative_merit_difference",
                  absl::StrCat(largestMeritDifference));
   RecordProperty(
       "largest_relative_merit_difference_per_squared_first_step_rotation",
-      absl::StrCat(largestMeritDifference /
-                   (firstStepRotation * firstStepRotation)));
+      absl::StrCat(largestMeritDifference / (firstStepAngle * firstStepAngle)));
   RecordProperty("relative_merit_differences",
                  absl::StrJoin(meritDifferences, " "));
 }
@@ -496,7 +497,7 @@ TEST_P(
   MpcEquivalenceFixture& mpc = this->mpc();
   const scalar_t gMax = mpc.sqpSettings().g_max;
   const EquivalenceReference reference = mpc.walkingReference();
-  const std::vector<size_t> swingRows = normalVelocityTerms(mpc);
+  const std::vector<size_t> swingRows = normalVelocityTermIndices(mpc);
   ASSERT_FALSE(swingRows.empty()) << "every shipped configuration lists the "
                                      "hard normal_velocity constraint";
   const std::vector<RealTimeSolve> solves = mpc.realTimeSolves(
@@ -515,11 +516,13 @@ TEST_P(
         solves[n].iteration, solves[n].metrics, swingRows);
     violations.push_back(sample.constraintViolation);
     if (sample.stepSize == 1.0) ++fullSteps;
-    if (sample.fullStepKind == validation::SqpStepKind::kConstraint)
+    if (sample.fullStepKind == validation::SqpStepKind::kConstraint) {
       ++constraintVerdicts;
+    }
     if (isReset(solves[n].iteration, gMax)) ++resets;
     // No residual where no swing row is active in the horizon.
-    swingResiduals.push_back(sample.swingNormalVelocityResidual.value_or(0.0));
+    swingResiduals.push_back(
+        sample.swingNormalVelocityConstraintResidual.value_or(0.0));
   }
   std::sort(violations.begin(), violations.end());
   std::sort(swingResiduals.begin(), swingResiduals.end());

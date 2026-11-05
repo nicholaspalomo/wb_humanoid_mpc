@@ -42,7 +42,7 @@ namespace ocs2 {
 /**
  * The end-effector quantities the whole-body MPC's foot constraints read, as
  * functions of the state and the input, all in the world frame: the position
- * and its first two time derivatives (the swing foot's normal-motion
+ * and its first two time derivatives (the swing foot's vertical-motion
  * constraint, EndEffectorDynamicsLinearAccConstraint), and the pose with
  * respect to a plane - the position and the orientation error to the plane -
  * with its first two time derivatives (the stance foot's constraint,
@@ -74,105 +74,106 @@ class EndEffectorDynamics {
   virtual const std::vector<std::string>& getIds() const = 0;
 
   /** Returns the position of every end effector. */
-  virtual std::vector<vector3_t> getPosition(const vector_t& state) const = 0;
+  virtual std::vector<vector3_t> getPosEesRtWorldEwrtWorld(
+      const vector_t& state) const = 0;
 
   /** Returns the linear velocity of every end effector: the time derivative of
-   * getPosition(). */
-  virtual std::vector<vector3_t> getVelocity(const vector_t& state,
-                                             const vector_t& input) const = 0;
+   * getPosEesRtWorldEwrtWorld(). */
+  virtual std::vector<vector3_t> getLinvelEesRtWorldEwrtWorld(
+      const vector_t& state, const vector_t& input) const = 0;
 
   /** Returns the linear (classical) acceleration of every end effector: the
-   * time derivative of getVelocity(). */
-  virtual std::vector<vector3_t> getLinearAcceleration(
+   * time derivative of getLinvelEesRtWorldEwrtWorld(). */
+  virtual std::vector<vector3_t> getLinaccEesRtWorldEwrtWorld(
       const vector_t& state, const vector_t& input) const = 0;
 
   /**
    * Returns the orientation error of every end effector with respect to the
-   * plane of the unit normal (world frame) of the same index in `planeNormals`:
-   * rotationMatrixDistanceToPlane() of
+   * plane of the unit normal (world frame) of the same index in
+   * `normalSurfacesEwrtWorld`: rotationMatrixDistanceToPlane() of
    * ocs2_robotic_tools/common/RotationTransforms.h.
    */
-  virtual std::vector<vector3_t> getOrientationErrorWrtPlane(
+  virtual std::vector<vector3_t> getTiltEesRtSurfaceEwrtWorld(
       const vector_t& state,
-      const std::vector<vector3_t>& planeNormals) const = 0;
+      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const = 0;
 
   /**
    * Returns, per end effector, the rate of its pose with respect to the plane
-   * of the unit normal (world frame) of the same index in `planeNormals`:
-   * [dp/dt; de/dt + 1/2 n (v.w)], p the position (getPosition()) and e the
-   * orientation error with respect to the plane
-   * (getOrientationErrorWrtPlane()), v the end-effector normal and w the
-   * world-frame angular velocity. dp/dt is getVelocity(). e has no component
-   * along n, whose row carries half the rotation rate about the end-effector
-   * normal instead; where the normal points away from the plane the orientation
-   * rows are w / 2 (orientationErrorWrtPlaneRate() of
+   * of the unit normal (world frame) of the same index in
+   * `normalSurfacesEwrtWorld`: [dp/dt; de/dt + 1/2 n (v.w)], p the position
+   * (getPosEesRtWorldEwrtWorld()) and e the orientation error with respect to
+   * the plane (getTiltEesRtSurfaceEwrtWorld()), v the end-effector normal and w
+   * the world-frame angular velocity. dp/dt is getLinvelEesRtWorldEwrtWorld().
+   * e has no component along n, whose row carries half the rotation rate about
+   * the end-effector normal instead; where the normal points away from the
+   * plane the orientation rows are w / 2 (planeTiltRate() of
    * end_effector/OrientationErrorWrtPlaneRates.h has the formulas).
    *
    * @param [in] state: state vector
    * @param [in] input: input vector
-   * @param [in] planeNormals: one unit plane normal per end effector, in the
-   * world frame
+   * @param [in] normalSurfacesEwrtWorld: one unit plane normal per end
+   * effector, in the world frame
    * @return array of 6D rates
    */
-  virtual std::vector<vector6_t> getPoseWrtPlaneRate(
+  virtual std::vector<vector6_t> getXeeRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& planeNormals) const = 0;
+      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const = 0;
 
   /**
-   * Returns, per end effector, the time derivative of getPoseWrtPlaneRate()
+   * Returns, per end effector, the time derivative of getXeeRate()
    * along the motion: [d2p/dt2; d2e/dt2 + 1/2 n (v.alpha)], alpha = dw/dt;
-   * d2p/dt2 is getLinearAcceleration(). Where the normal points away from the
-   * plane the orientation rows are alpha / 2
-   * (orientationErrorWrtPlaneAcceleration()).
+   * d2p/dt2 is getLinaccEesRtWorldEwrtWorld(). Where the normal points away
+   * from the plane the orientation rows are alpha / 2 (planeTiltSecondRate()).
    *
    * @param [in] state: state vector
    * @param [in] input: input vector
-   * @param [in] planeNormals: one unit plane normal per end effector, in the
-   * world frame
+   * @param [in] normalSurfacesEwrtWorld: one unit plane normal per end
+   * effector, in the world frame
    * @return array of 6D accelerations
    */
-  virtual std::vector<vector6_t> getPoseWrtPlaneAcceleration(
+  virtual std::vector<vector6_t> getXeeSecondRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& planeNormals) const = 0;
+      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const = 0;
 
-  /** Returns the linear approximations of getPosition() in the state. */
-  virtual std::vector<VectorFunctionLinearApproximation>
-  getPositionLinearApproximation(const vector_t& state) const = 0;
-
-  /** Returns the linear approximations of getVelocity(). */
-  virtual std::vector<VectorFunctionLinearApproximation>
-  getVelocityLinearApproximation(const vector_t& state,
-                                 const vector_t& input) const = 0;
-
-  /** Returns the linear approximations of getLinearAcceleration(). */
-  virtual std::vector<VectorFunctionLinearApproximation>
-  getLinearAccelerationLinearApproximation(const vector_t& state,
-                                           const vector_t& input) const = 0;
-
-  /** Returns the linear approximations of getOrientationErrorWrtPlane() in the
+  /** Returns the linear approximations of getPosEesRtWorldEwrtWorld() in the
    * state. */
   virtual std::vector<VectorFunctionLinearApproximation>
-  getOrientationErrorWrtPlaneLinearApproximation(
-      const vector_t& state,
-      const std::vector<vector3_t>& planeNormals) const = 0;
+  getLinearApproximationPosEesRtWorldEwrtWorld(const vector_t& state) const = 0;
 
-  /** Returns the linear approximations of getPoseWrtPlaneRate(), whose values
+  /** Returns the linear approximations of getLinvelEesRtWorldEwrtWorld(). */
+  virtual std::vector<VectorFunctionLinearApproximation>
+  getLinearApproximationLinvelEesRtWorldEwrtWorld(
+      const vector_t& state, const vector_t& input) const = 0;
+
+  /** Returns the linear approximations of getLinaccEesRtWorldEwrtWorld(). */
+  virtual std::vector<VectorFunctionLinearApproximation>
+  getLinearApproximationLinaccEesRtWorldEwrtWorld(
+      const vector_t& state, const vector_t& input) const = 0;
+
+  /** Returns the linear approximations of getTiltEesRtSurfaceEwrtWorld() in the
+   * state. */
+  virtual std::vector<VectorFunctionLinearApproximation>
+  getLinearApproximationTiltEesRtSurfaceEwrtWorld(
+      const vector_t& state,
+      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const = 0;
+
+  /** Returns the linear approximations of getXeeRate(), whose values
    * they hold. */
   virtual std::vector<VectorFunctionLinearApproximation>
-  getPoseWrtPlaneRateLinearApproximation(
+  getLinearApproximationXeeRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& planeNormals) const = 0;
+      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const = 0;
 
-  /** Returns the linear approximations of getPoseWrtPlaneAcceleration(), whose
+  /** Returns the linear approximations of getXeeSecondRate(), whose
    * values they hold. */
   virtual std::vector<VectorFunctionLinearApproximation>
-  getPoseWrtPlaneAccelerationLinearApproximation(
+  getLinearApproximationXeeSecondRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& planeNormals) const = 0;
+      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const = 0;
 
  protected:
   // For the clone() of a derived class.

@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 
+#include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
 #include "humanoid_common_mpc_app/node/WalkingVelocityCommandConversions.h"
 
@@ -51,20 +52,20 @@ constexpr double kStopDuration = 2.0;
 // velocities [m/s] and yaw rates [rad/s].
 constexpr double kStandingDuration = 10.0;
 constexpr double kWalkDuration = 15.0;
-constexpr double kWalkVelocity = 0.5;
-constexpr double kSlowWalkVelocity =
+constexpr double kWalkCmdLinvelBaseRtWorldEwrtHeadingX = 0.5;
+constexpr double kSlowWalkCmdLinvelBaseRtWorldEwrtHeadingX =
     0.3;  // the slower walking variant of the design's section 4.5
 constexpr double kLateralWalkDuration = 10.0;
-constexpr double kLateralVelocity = 0.2;
+constexpr double kLateralWalkCmdLinvelBaseRtWorldEwrtHeadingY = 0.2;
 constexpr double kTurnInPlaceAngle = 4.0 * M_PI;  // [rad] 720 degrees
 constexpr double kTurnInPlaceYawRate = 0.5;
 constexpr double kTurnDuration = 12.6;
 constexpr double kTurnYawRate = 1.0;
 constexpr double kArcDuration = 15.0;
-constexpr double kArcVelocity = 0.3;
+constexpr double kArcCmdLinvelBaseRtWorldEwrtHeadingX = 0.3;
 constexpr double kArcYawRate = 0.3;
 constexpr double kSmokeDuration = 1.5;
-constexpr double kSmokeVelocity = 0.3;
+constexpr double kSmokeCmdLinvelBaseRtWorldEwrtHeadingX = 0.3;
 constexpr double kSmokeYawRate = 0.2;
 constexpr double kSmokeStandingTime = 0.5;
 
@@ -80,25 +81,32 @@ std::vector<ClosedLoopScenario> makeScenarios() {
   scenarios.push_back({"standing",
                        absl::StrCat("at rest for ", kStandingDuration, " s"),
                        {rest(kStandingDuration)}});
-  scenarios.push_back({"walk_0p5",
-                       absl::StrCat(kWalkVelocity, " m/s forward for ",
-                                    kWalkDuration, " s, then at rest"),
-                       {CommandSegment{.duration = kWalkDuration,
-                                       .forwardVelocity = kWalkVelocity},
-                        rest(kStopDuration)}});
+  scenarios.push_back(
+      {"walk_0p5",
+       absl::StrCat(kWalkCmdLinvelBaseRtWorldEwrtHeadingX, " m/s forward for ",
+                    kWalkDuration, " s, then at rest"),
+       {CommandSegment{.duration = kWalkDuration,
+                       .cmdLinvelBaseRtWorldEwrtHeadingX =
+                           kWalkCmdLinvelBaseRtWorldEwrtHeadingX},
+        rest(kStopDuration)}});
   scenarios.push_back(
       {"walk_0p3",
-       absl::StrCat(kSlowWalkVelocity, " m/s forward for ", kWalkDuration,
+       absl::StrCat(kSlowWalkCmdLinvelBaseRtWorldEwrtHeadingX,
+                    " m/s forward for ", kWalkDuration,
                     " s, then at rest (the slower walking variant)"),
        {CommandSegment{.duration = kWalkDuration,
-                       .forwardVelocity = kSlowWalkVelocity},
+                       .cmdLinvelBaseRtWorldEwrtHeadingX =
+                           kSlowWalkCmdLinvelBaseRtWorldEwrtHeadingX},
         rest(kStopDuration)}});
-  scenarios.push_back({"lateral_0p2",
-                       absl::StrCat(kLateralVelocity, " m/s to the left for ",
-                                    kLateralWalkDuration, " s, then at rest"),
-                       {CommandSegment{.duration = kLateralWalkDuration,
-                                       .lateralVelocity = kLateralVelocity},
-                        rest(kStopDuration)}});
+  scenarios.push_back(
+      {"lateral_0p2",
+       absl::StrCat(kLateralWalkCmdLinvelBaseRtWorldEwrtHeadingY,
+                    " m/s to the left for ", kLateralWalkDuration,
+                    " s, then at rest"),
+       {CommandSegment{.duration = kLateralWalkDuration,
+                       .cmdLinvelBaseRtWorldEwrtHeadingY =
+                           kLateralWalkCmdLinvelBaseRtWorldEwrtHeadingY},
+        rest(kStopDuration)}});
   scenarios.push_back(
       {"turn_in_place_720",
        absl::StrCat("+", kTurnInPlaceYawRate,
@@ -117,20 +125,24 @@ std::vector<ClosedLoopScenario> makeScenarios() {
         rest(kStopDuration)}});
   scenarios.push_back(
       {"arc",
-       absl::StrCat(kArcVelocity, " m/s forward while turning at ", kArcYawRate,
+       absl::StrCat(kArcCmdLinvelBaseRtWorldEwrtHeadingX,
+                    " m/s forward while turning at ", kArcYawRate,
                     " rad/s for ", kArcDuration, " s, then at rest"),
        {CommandSegment{.duration = kArcDuration,
-                       .forwardVelocity = kArcVelocity,
+                       .cmdLinvelBaseRtWorldEwrtHeadingX =
+                           kArcCmdLinvelBaseRtWorldEwrtHeadingX,
                        .yawRate = kArcYawRate},
         rest(kStopDuration)}});
   ClosedLoopScenario smoke{
       .name = "smoke",
-      .description = absl::StrCat(
-          kSmokeVelocity, " m/s forward while turning at ", kSmokeYawRate,
-          " rad/s for ", kSmokeDuration, " s after ", kSmokeStandingTime,
-          " s of standing (the determinism test)"),
+      .description = absl::StrCat(kSmokeCmdLinvelBaseRtWorldEwrtHeadingX,
+                                  " m/s forward while turning at ",
+                                  kSmokeYawRate, " rad/s for ", kSmokeDuration,
+                                  " s after ", kSmokeStandingTime,
+                                  " s of standing (the determinism test)"),
       .segments = {CommandSegment{.duration = kSmokeDuration,
-                                  .forwardVelocity = kSmokeVelocity,
+                                  .cmdLinvelBaseRtWorldEwrtHeadingX =
+                                      kSmokeCmdLinvelBaseRtWorldEwrtHeadingX,
                                   .yawRate = kSmokeYawRate}}};
   smoke.standingTime = kSmokeStandingTime;
   scenarios.push_back(smoke);
@@ -170,7 +182,8 @@ Eigen::Vector3d commandAt(const ClosedLoopScenario& scenario,
   double start = 0.0;
   for (const CommandSegment& piece : scenario.segments) {
     if (timeSinceStart < start + piece.duration)
-      return Eigen::Vector3d(piece.forwardVelocity, piece.lateralVelocity,
+      return Eigen::Vector3d(piece.cmdLinvelBaseRtWorldEwrtHeadingX,
+                             piece.cmdLinvelBaseRtWorldEwrtHeadingY,
                              piece.yawRate);
     start += piece.duration;
   }
@@ -178,7 +191,8 @@ Eigen::Vector3d commandAt(const ClosedLoopScenario& scenario,
 }
 
 Eigen::Vector4d clampGuiVelocityMessage(const Eigen::Vector4d& message) {
-  return node::clampWalkingVelocityCommand(WalkingVelocityCommand(message))
+  return node::clampWalkingVelocityCommand(
+             NormalizedWalkingVelocityCommand(message))
       .toVector();
 }
 

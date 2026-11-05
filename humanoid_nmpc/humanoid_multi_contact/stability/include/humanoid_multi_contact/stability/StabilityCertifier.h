@@ -60,7 +60,7 @@ struct CertifierOptions {
   JointLimits jointLimits = JointLimits::kPositionAndEffort;
   // The fraction of the effort limits the torques may use, under
   // JointLimits::kPositionAndEffort.
-  double torqueMargin = 1.0;
+  double jointTorqueMargin = 1.0;
   StaticEquilibriumOptions equilibrium;
   double contactDistanceTolerance = kDefaultContactDistanceTolerance;
   // [m] The neighborhood of an active pad whose collision spheres are exempt
@@ -87,10 +87,11 @@ absl::StatusOr<StanceOnTerrain> stanceOnTerrain(const RobotStanceModel& model,
                                                 const TerrainModel& terrain,
                                                 ContactMask mask);
 
-/** world_R_cone of a pad of rotation `padRotation` resting on a surface of
- * outward normal `normal` (stanceOnTerrain()). */
-Eigen::Matrix3d coneRotationOnSurface(const Eigen::Matrix3d& padRotation,
-                                      const Eigen::Vector3d& normal);
+/** world_R_surface of a pad `rotmatPadRtWorld` resting on a surface of
+ * outward normal `normalSurfaceEwrtWorld` (stanceOnTerrain()). */
+Eigen::Matrix3d computeRotmatSurfaceRtWorld(
+    const Eigen::Matrix3d& rotmatPadRtWorld,
+    const Eigen::Vector3d& normalSurfaceEwrtWorld);
 
 /** One knot to certify: a configuration, its contact mode and its momentum
  * rate. Passive data. */
@@ -98,7 +99,7 @@ struct CertifierKnot {
   double time = 0.0;
   RobotConfiguration configuration;
   ContactMask activeContacts = 0;
-  CentroidalMomentumRate momentumRate;
+  CentroidalMomentumRate rateCmomComRtWorldEwrtWorld;
 };
 
 /**
@@ -113,7 +114,7 @@ struct CertifierKnot {
  * to 3 of section 2:
  *
  *  1. rho_s >= staticMargin and, under JointLimits::kPositionAndEffort, the
- *     torques within torqueMargin of the effort limits;
+ *     torques within jointTorqueMargin of the effort limits;
  *  2. the momentum rate in CWC(S), with every active pad on the terrain;
  *  3. where the stance changes, by one contact, the common stance satisfies
  *     condition 1 at both knots.
@@ -186,7 +187,7 @@ class StabilityCertifier {
    * 1: always under JointLimits::kPositionOnly, where an LP failure leaves the
    * utilization absent; within the torque margin otherwise, where an LP
    * failure is the error. */
-  absl::StatusOr<bool> reportTorques(
+  absl::StatusOr<bool> reportJointTorques(
       const StaticEquilibrium& equilibrium,
       config::CertifierReport::Knot& report) const;
 

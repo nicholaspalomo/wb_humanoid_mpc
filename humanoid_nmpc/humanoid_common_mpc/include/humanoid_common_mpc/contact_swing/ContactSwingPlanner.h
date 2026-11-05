@@ -34,7 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include "humanoid_common_mpc/common/Types.h"
+#include "ocs2_core/Types.h"
+
 #include "humanoid_common_mpc/contact_swing/ContactSwingTrajectory.h"
 
 namespace ocs2::humanoid {

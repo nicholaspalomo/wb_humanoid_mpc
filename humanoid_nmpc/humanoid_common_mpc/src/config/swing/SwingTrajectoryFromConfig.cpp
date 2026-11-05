@@ -37,9 +37,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigValueChecks.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/swing_trajectory_config.nproto.h"
@@ -67,15 +67,15 @@ constexpr std::array<SwingField, 11> kSwingFields = {{
     {.name = "touchdown_linvel_foot_rt_world_ewrt_world_z",
      .field = &SwingConfig::touchdown_linvel_foot_rt_world_ewrt_world_z,
      .setting = &SwingSettings::touchdownLinvelFootRtWorldEwrtWorldZ},
-    {.name = "swing_height",
-     .field = &SwingConfig::swing_height,
-     .setting = &SwingSettings::swingHeight},
+    {.name = "apex_pos_foot_rt_swingend_ewrt_world_z",
+     .field = &SwingConfig::apex_pos_foot_rt_swingend_ewrt_world_z,
+     .setting = &SwingSettings::apexPosFootRtSwingendEwrtWorldZ},
     {.name = "swing_time_scale",
      .field = &SwingConfig::swing_time_scale,
      .setting = &SwingSettings::swingTimeScale},
-    {.name = "touch_down_height_offset",
-     .field = &SwingConfig::touch_down_height_offset,
-     .setting = &SwingSettings::touchDownHeightOffset},
+    {.name = "touchdown_pos_foot_rt_surface_ewrt_world_z",
+     .field = &SwingConfig::touchdown_pos_foot_rt_surface_ewrt_world_z,
+     .setting = &SwingSettings::touchdownPosFootRtSurfaceEwrtWorldZ},
     {.name = "impact_proximity_factor_liftoff_slope",
      .field = &SwingConfig::impact_proximity_factor_liftoff_slope,
      .setting = &SwingSettings::impactProximityFactorLiftoffSlope},
@@ -85,9 +85,9 @@ constexpr std::array<SwingField, 11> kSwingFields = {{
     {.name = "impact_proximity_factor_mid_point_value",
      .field = &SwingConfig::impact_proximity_factor_mid_point_value,
      .setting = &SwingSettings::impactProximityFactorMidPointValue},
-    {.name = "swing_pitch_angle",
-     .field = &SwingConfig::swing_pitch_angle,
-     .setting = &SwingSettings::swingPitchAngle},
+    {.name = "swing_max_tiltangle_foot_rt_surface",
+     .field = &SwingConfig::swing_max_tiltangle_foot_rt_surface,
+     .setting = &SwingSettings::swingMaxTiltangleFootRtSurface},
     {.name = "swing_pitch_rise_fraction",
      .field = &SwingConfig::swing_pitch_rise_fraction,
      .setting = &SwingSettings::swingPitchRiseFraction},
@@ -99,17 +99,19 @@ constexpr std::array<SwingField, 11> kSwingFields = {{
 /**
  * OK when the finite fields of `config` lie in the ranges the schema documents:
  * swing_time_scale > 0 (the planner divides a swing's duration by it, and a
- * negative one flips the scaling of the swing height), swing_height >= 0 (a
- * negative apex sends the foot below the ground), the lift-off slope of the
- * impact-proximity factor <= 0 and its touch-down slope >= 0, its mid-swing
- * value and the pitch ramp fractions in [0, 1].
+ * negative one flips the scaling of the swing height),
+ * apex_pos_foot_rt_swingend_ewrt_world_z >= 0 (a negative apex sends the foot
+ * below the ground), the lift-off slope of the impact-proximity factor <= 0 and
+ * its touch-down slope >= 0, its mid-swing value and the pitch ramp fractions
+ * in [0, 1].
  */
 absl::Status checkSwingRanges(const SwingConfig& config) {
   constexpr absl::string_view kBlock = "swing_trajectory_config.";
   RETURN_IF_ERROR(requirePositive(absl::StrCat(kBlock, "swing_time_scale"),
                                   config.swing_time_scale));
-  RETURN_IF_ERROR(requireNonNegative(absl::StrCat(kBlock, "swing_height"),
-                                     config.swing_height));
+  RETURN_IF_ERROR(requireNonNegative(
+      absl::StrCat(kBlock, "apex_pos_foot_rt_swingend_ewrt_world_z"),
+      config.apex_pos_foot_rt_swingend_ewrt_world_z));
   if (!(config.impact_proximity_factor_liftoff_slope <= 0.0)) {
     return absl::InvalidArgumentError(absl::StrCat(
         kBlock, "impact_proximity_factor_liftoff_slope: ",

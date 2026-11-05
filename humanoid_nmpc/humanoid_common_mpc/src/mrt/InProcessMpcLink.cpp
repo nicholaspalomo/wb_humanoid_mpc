@@ -32,9 +32,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pthread.h>
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <thread>
 #include <utility>
 
 #include "absl/base/nullability.h"
@@ -43,8 +45,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/PhysicalConstants.h"
+#include "ocs2_mpc/MPC_BASE.h"
+#include "ocs2_mpc/SystemObservation.h"
 
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
+#include "humanoid_common_mpc/mrt/MpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 
 namespace ocs2::humanoid {

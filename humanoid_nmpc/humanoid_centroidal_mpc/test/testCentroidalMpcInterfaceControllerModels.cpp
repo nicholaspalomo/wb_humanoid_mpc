@@ -32,10 +32,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 
 /*
  * CentroidalMpcInterface::CreateControllerModels(): what the robot process of a
@@ -95,7 +99,7 @@ TEST(CentroidalMpcInterfaceControllerModels,
   }
   EXPECT_GT(interface.mpcSettings().mrtDesiredFrequency_, 0.0)
       << "the solver settings are read: the control rate";
-  EXPECT_GT(interface.getNominalComHeight(), 0.0);
+  EXPECT_GT(interface.getNomPosComRtFeetmeanEwrtWorldZ(), 0.0);
 }
 
 TEST(CentroidalMpcInterfaceControllerModels, RefusesAMissingFileByName) {

@@ -91,20 +91,20 @@ struct Phase {
 
 struct Names {
   std::vector<std::string> contact;
-  std::vector<std::string> pos_contact_rt_base_ewrt_world;
-  std::vector<std::string> linvel_base_rt_world_ewrt_world;
-  std::vector<std::string> height;
+  std::vector<std::string> relative_position_names;
+  std::vector<std::string> velocity_names;
+  std::vector<std::string> height_names;
 };
 
 Names makeNames(int num_contacts) {
   Names names;
   for (int contact = 0; contact < num_contacts; ++contact) {
     names.contact.push_back(absl::StrCat("contact_", contact, "_position"));
-    names.pos_contact_rt_base_ewrt_world.push_back(
+    names.relative_position_names.push_back(
         absl::StrCat("contact_", contact, "_relative_position"));
-    names.linvel_base_rt_world_ewrt_world.push_back(
+    names.velocity_names.push_back(
         absl::StrCat("contact_", contact, "_velocity"));
-    names.height.push_back(absl::StrCat("contact_", contact, "_height"));
+    names.height_names.push_back(absl::StrCat("contact_", contact, "_height"));
   }
   return names;
 }
@@ -143,19 +143,19 @@ std::vector<KalmanFilterMeasurement> makeMeasurements(
   std::vector<KalmanFilterMeasurement> measurements;
   for (size_t contact = 0; contact < names.contact.size(); ++contact) {
     measurements.push_back(
-        {.name = names.pos_contact_rt_base_ewrt_world[contact],
+        {.name = names.relative_position_names[contact],
          .measurement = pos_contacts_rt_world_ewrt_world[contact] -
                         pos_base_rt_world_ewrt_world,
          .measurementModel = {{names.contact[contact], identity(3)},
                               {"base_position", -identity(3)}},
          .measurementNoiseCovariance = 1.0e-6 * identity(3)});
     measurements.push_back(
-        {.name = names.linvel_base_rt_world_ewrt_world[contact],
+        {.name = names.velocity_names[contact],
          .measurement = linvel_base_rt_world_ewrt_world,
          .measurementModel = {{"base_velocity", identity(3)}},
          .measurementNoiseCovariance = 1.0e-4 * identity(3)});
     measurements.push_back(
-        {.name = names.height[contact],
+        {.name = names.height_names[contact],
          .measurement = pos_contacts_rt_world_ewrt_world[contact].tail(1),
          .measurementModel = {{names.contact[contact], e_z}},
          .measurementNoiseCovariance = 1.0e-6 * identity(1)});
@@ -226,8 +226,8 @@ void run(int num_contacts, bool real_time_caller, int iterations) {
   std::vector<KalmanFilterMeasurement> measurements = makeMeasurements(
       names, pos_contacts_rt_world_ewrt_world, pos_base_rt_world_ewrt_world,
       linvel_base_rt_world_ewrt_world);
-  KalmanFilterState est_pos_base_rt_world_ewrt_world;
-  KalmanFilterState est_linvel_base_rt_world_ewrt_world;
+  KalmanFilterState filter_state_pos_base_rt_world_ewrt_world;
+  KalmanFilterState filter_state_linvel_base_rt_world_ewrt_world;
 
   Phase build;
   Phase predict;
@@ -276,24 +276,28 @@ void run(int num_contacts, bool real_time_caller, int iterations) {
     allocations = heapAllocationCount();
     bool read_ok = true;
     if (real_time_caller) {
-      read_ok =
-          filter->getState("base_position", est_pos_base_rt_world_ewrt_world)
-              .ok() &&
-          filter->getState("base_velocity", est_linvel_base_rt_world_ewrt_world)
-              .ok();
+      read_ok = filter
+                    ->getState("base_position",
+                               filter_state_pos_base_rt_world_ewrt_world)
+                    .ok() &&
+                filter
+                    ->getState("base_velocity",
+                               filter_state_linvel_base_rt_world_ewrt_world)
+                    .ok();
     } else {
       const absl::StatusOr<KalmanFilterState>
-          read_pos_base_rt_world_ewrt_world = filter->getState("base_position");
+          read_filter_state_pos_base_rt_world_ewrt_world =
+              filter->getState("base_position");
       const absl::StatusOr<KalmanFilterState>
-          read_linvel_base_rt_world_ewrt_world =
+          read_filter_state_linvel_base_rt_world_ewrt_world =
               filter->getState("base_velocity");
-      read_ok = read_pos_base_rt_world_ewrt_world.ok() &&
-                read_linvel_base_rt_world_ewrt_world.ok();
+      read_ok = read_filter_state_pos_base_rt_world_ewrt_world.ok() &&
+                read_filter_state_linvel_base_rt_world_ewrt_world.ok();
       if (read_ok) {
-        est_pos_base_rt_world_ewrt_world.state =
-            read_pos_base_rt_world_ewrt_world->state;
-        est_linvel_base_rt_world_ewrt_world.state =
-            read_linvel_base_rt_world_ewrt_world->state;
+        filter_state_pos_base_rt_world_ewrt_world.state =
+            read_filter_state_pos_base_rt_world_ewrt_world->state;
+        filter_state_linvel_base_rt_world_ewrt_world.state =
+            read_filter_state_linvel_base_rt_world_ewrt_world->state;
       }
     }
     const Clock::time_point after_read = Clock::now();
@@ -304,8 +308,8 @@ void run(int num_contacts, bool real_time_caller, int iterations) {
                    corrected.message());
       return;
     }
-    checksum += est_pos_base_rt_world_ewrt_world.state(0) +
-                est_linvel_base_rt_world_ewrt_world.state(0);
+    checksum += filter_state_pos_base_rt_world_ewrt_world.state(0) +
+                filter_state_linvel_base_rt_world_ewrt_world.state(0);
     if (iteration >= 0) {
       build.microseconds.push_back(elapsedMicroseconds(start, built));
       predict.microseconds.push_back(elapsedMicroseconds(built, after_predict));
@@ -334,7 +338,7 @@ void run(int num_contacts, bool real_time_caller, int iterations) {
   printPhase("TOTAL", total, iterations);
   absl::PrintF(
       "    (checksum %.6f; base velocity estimate x %.4f, truth 0.3000)\n\n",
-      checksum, est_linvel_base_rt_world_ewrt_world.state(0));
+      checksum, filter_state_linvel_base_rt_world_ewrt_world.state(0));
 }
 
 }  // namespace

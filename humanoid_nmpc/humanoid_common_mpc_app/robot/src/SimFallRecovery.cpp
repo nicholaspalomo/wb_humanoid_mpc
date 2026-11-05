@@ -54,8 +54,8 @@ SimFallRecovery::SimFallRecovery(
       lastResetEpoch_(simulator->resetEpoch()),
       lastGantryLocked_(simulator->isGantryLocked()) {}
 
-scalar_t SimFallRecovery::baseTiltAngle(
-    const quaternion_t& baseRotationLocalToWorld) {
+scalar_t SimFallRecovery::computeTiltangleBaseRtWorld(
+    const quaternion_t& quatBaseRtWorld) {
   // The base's own vertical, expressed in the world: the third column of its
   // rotation matrix. Its angle to the world vertical is the arccosine of that
   // column's z component, which is heading independent, so a robot that has
@@ -63,9 +63,9 @@ scalar_t SimFallRecovery::baseTiltAngle(
   // keeps a matrix entry that rounds just past one from producing a NaN, which
   // would compare false against the threshold and silently disable the
   // recovery.
-  const matrix3_t baseRotation = baseRotationLocalToWorld.toRotationMatrix();
-  return std::acos(
-      std::clamp<scalar_t>(baseRotation(kZAxisIndex, kZAxisIndex), -1.0, 1.0));
+  const matrix3_t rotmatBaseRtWorld = quatBaseRtWorld.toRotationMatrix();
+  return std::acos(std::clamp<scalar_t>(
+      rotmatBaseRtWorld(kZAxisIndex, kZAxisIndex), -1.0, 1.0));
 }
 
 bool SimFallRecovery::isAtRest(
@@ -73,13 +73,14 @@ bool SimFallRecovery::isAtRest(
     const std::vector<scalar_t>& nominalJointPositions,
     const std::vector<size_t>& jointIndices,
     const Config& config) {
-  if (baseTiltAngle(robotState.getQuatBaseRtWorld()) > config.settleTilt)
+  if (computeTiltangleBaseRtWorld(robotState.getQuatBaseRtWorld()) >
+      config.settleMaxTiltangleBaseRtWorld)
     return false;
   if (robotState.getLinvelBaseRtWorldEwrtBase().norm() >
-      config.settleLinearSpeed)
+      config.settleMaxSpeedBaseRtWorld)
     return false;
   if (robotState.getAngvelBaseRtWorldEwrtBase().norm() >
-      config.settleAngularSpeed)
+      config.settleMaxNormAngvelBaseRtWorldEwrtBase)
     return false;
   for (size_t joint : jointIndices) {
     if (joint >= nominalJointPositions.size()) continue;
@@ -94,8 +95,9 @@ bool SimFallRecovery::isAtRest(
 }
 
 std::string SimFallRecovery::describeDiscontinuity(const Cycle& cycle) const {
-  return discontinuityReason(cycle.cause, cycle.resetEpoch, cycle.tilt,
-                             config_.maxBaseTiltAngle);
+  return discontinuityReason(cycle.cause, cycle.resetEpoch,
+                             cycle.tiltangleBaseRtWorld,
+                             config_.maxTiltangleBaseRtWorld);
 }
 
 void SimFallRecovery::report(RealtimeEventCode code,
@@ -154,13 +156,14 @@ SimFallRecovery::Cycle SimFallRecovery::update(
   } else if (gantryLocked && !lastGantryLocked_) {
     cycle.discontinuity = true;
     cycle.cause = DiscontinuityCause::kGantryLocked;
-  } else if (!gantryLocked && config_.maxBaseTiltAngle > 0.0) {
-    const scalar_t tilt = baseTiltAngle(robotState.getQuatBaseRtWorld());
-    if (tilt > config_.maxBaseTiltAngle) {
+  } else if (!gantryLocked && config_.maxTiltangleBaseRtWorld > 0.0) {
+    const scalar_t measTiltangleBaseRtWorld =
+        computeTiltangleBaseRtWorld(robotState.getQuatBaseRtWorld());
+    if (measTiltangleBaseRtWorld > config_.maxTiltangleBaseRtWorld) {
       robotInterface.lockGantry();
       cycle.discontinuity = true;
       cycle.cause = DiscontinuityCause::kTiltCaught;
-      cycle.tilt = tilt;
+      cycle.tiltangleBaseRtWorld = measTiltangleBaseRtWorld;
       caughtAfterFall = true;
     }
   }
@@ -184,25 +187,29 @@ SimFallRecovery::Cycle SimFallRecovery::update(
                            control_mode::kJointPd.size());
     cycle.modeChanged = true;
     refusalReported_ = false;
-    if (caughtAfterFall && config_.catchLift > 0.0) {
+    if (caughtAfterFall && config_.catchErrPosBaseRtWorldEwrtWorldZ > 0.0) {
       // A catch during a sequence (the simulator reset the robot while it hung
       // lifted) keeps the height the sequence returns to: the gantry is not at
       // the standing height then.
       if (phase_ == Phase::kIdle)
-        standingGantryHeight_ = robotInterface.getGantryHeight();
-      rampStartHeight_ =
-          std::max(standingGantryHeight_, robotInterface.getGantryHeight());
+        standingGantryPosBaseRtWorldEwrtWorldZ_ =
+            robotInterface.getGantryPosBaseRtWorldEwrtWorldZ();
+      rampStartGantryPosBaseRtWorldEwrtWorldZ_ =
+          std::max(standingGantryPosBaseRtWorldEwrtWorldZ_,
+                   robotInterface.getGantryPosBaseRtWorldEwrtWorldZ());
       enterPhase(Phase::kLifting, robotState.getTime());
       report(RealtimeEventCode::kCaughtAndSettling,
-             static_cast<int32_t>(cycle.cause), /*text=*/{}, cycle.tilt,
-             config_.maxBaseTiltAngle, config_.catchLift, cycle.resetEpoch);
+             static_cast<int32_t>(cycle.cause), /*text=*/{},
+             cycle.tiltangleBaseRtWorld, config_.maxTiltangleBaseRtWorld,
+             config_.catchErrPosBaseRtWorldEwrtWorldZ, cycle.resetEpoch);
     } else {
       // A new discontinuity ends a sequence that was running: the robot is
       // where the new event left it.
       if (!caughtAfterFall) enterPhase(Phase::kIdle, robotState.getTime());
       report(RealtimeEventCode::kDiscontinuity,
-             static_cast<int32_t>(cycle.cause), /*text=*/{}, cycle.tilt,
-             config_.maxBaseTiltAngle, config_.catchLift, cycle.resetEpoch);
+             static_cast<int32_t>(cycle.cause), /*text=*/{},
+             cycle.tiltangleBaseRtWorld, config_.maxTiltangleBaseRtWorld,
+             config_.catchErrPosBaseRtWorldEwrtWorldZ, cycle.resetEpoch);
     }
   }
 
@@ -231,38 +238,51 @@ void SimFallRecovery::stepSettleSequence(
   robot::mujoco_sim_interface::MujocoSimInterface& robotInterface = *simulator_;
   const scalar_t time = robotState.getTime();
   const scalar_t elapsed = std::max<scalar_t>(0.0, time - phaseStartTime_);
-  const scalar_t liftedHeight = standingGantryHeight_ + config_.catchLift;
+  const scalar_t liftedGantryPosBaseRtWorldEwrtWorldZ =
+      standingGantryPosBaseRtWorldEwrtWorldZ_ +
+      config_.catchErrPosBaseRtWorldEwrtWorldZ;
   const bool timedOut = elapsed > config_.settleTimeout;
   switch (phase_) {
     case Phase::kLifting: {
-      const scalar_t height = std::min(
-          liftedHeight, rampStartHeight_ + config_.gantryHeightRate * elapsed);
-      robotInterface.setGantryHeight(height);
-      if (height >= liftedHeight) enterPhase(Phase::kSettlingLifted, time);
+      const scalar_t gantryPosBaseRtWorldEwrtWorldZ =
+          std::min(liftedGantryPosBaseRtWorldEwrtWorldZ,
+                   rampStartGantryPosBaseRtWorldEwrtWorldZ_ +
+                       config_.gantrySpeedBaseRtWorld * elapsed);
+      robotInterface.setGantryPosBaseRtWorldEwrtWorldZ(
+          gantryPosBaseRtWorldEwrtWorldZ);
+      if (gantryPosBaseRtWorldEwrtWorldZ >=
+          liftedGantryPosBaseRtWorldEwrtWorldZ)
+        enterPhase(Phase::kSettlingLifted, time);
       break;
     }
     case Phase::kSettlingLifted:
-      robotInterface.setGantryHeight(liftedHeight);
+      robotInterface.setGantryPosBaseRtWorldEwrtWorldZ(
+          liftedGantryPosBaseRtWorldEwrtWorldZ);
       if (restedFor(robotState, nominalJointPositions) || timedOut) {
         if (timedOut) {
           report(RealtimeEventCode::kLiftedSettleTimedOut, /*detail=*/0,
                  /*text=*/{}, config_.settleTimeout);
         }
-        rampStartHeight_ = liftedHeight;
+        rampStartGantryPosBaseRtWorldEwrtWorldZ_ =
+            liftedGantryPosBaseRtWorldEwrtWorldZ;
         enterPhase(Phase::kLowering, time);
       }
       break;
     case Phase::kLowering: {
-      const scalar_t height =
-          std::max(standingGantryHeight_,
-                   rampStartHeight_ - config_.gantryHeightRate * elapsed);
-      robotInterface.setGantryHeight(height);
-      if (height <= standingGantryHeight_)
+      const scalar_t gantryPosBaseRtWorldEwrtWorldZ =
+          std::max(standingGantryPosBaseRtWorldEwrtWorldZ_,
+                   rampStartGantryPosBaseRtWorldEwrtWorldZ_ -
+                       config_.gantrySpeedBaseRtWorld * elapsed);
+      robotInterface.setGantryPosBaseRtWorldEwrtWorldZ(
+          gantryPosBaseRtWorldEwrtWorldZ);
+      if (gantryPosBaseRtWorldEwrtWorldZ <=
+          standingGantryPosBaseRtWorldEwrtWorldZ_)
         enterPhase(Phase::kSettlingOnFeet, time);
       break;
     }
     case Phase::kSettlingOnFeet:
-      robotInterface.setGantryHeight(standingGantryHeight_);
+      robotInterface.setGantryPosBaseRtWorldEwrtWorldZ(
+          standingGantryPosBaseRtWorldEwrtWorldZ_);
       if (restedFor(robotState, nominalJointPositions) || timedOut) {
         if (timedOut) {
           report(RealtimeEventCode::kOnFeetSettleTimedOut, /*detail=*/0,

@@ -65,11 +65,11 @@ struct PlanSummary {
   // [m] The smallest static margin of a knot; std::nullopt when none has one.
   std::optional<double> minStaticMargin;
   // The largest torque utilization of a knot, and its joint.
-  std::optional<double> maxTorqueUtilization;
+  std::optional<double> maxJointTorqueUtilization;
   std::string maxTorqueJoint;
   // Whether the certifier judged the torques (joint limits
   // "position_and_effort"), or reported them for information only.
-  bool torquesJudged = true;
+  bool jointTorquesJudged = true;
   // [m] The smallest collision-sphere clearance of a knot.
   std::optional<double> minSphereClearance;
   bool certified = false;

@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/orientation/TuningLayoutDeviation.h"
 
@@ -44,8 +45,9 @@ namespace ocs2::humanoid {
 bool isIdentityTuningJacobian(const TuningDeviationApproximation& approximation,
                               size_t stateDim) {
   if (!approximation.denseBlocks.empty() ||
-      approximation.identityRuns.size() != 1)
+      approximation.identityRuns.size() != 1) {
     return false;
+  }
   const TuningJacobianIdentityRun& run = approximation.identityRuns.front();
   return run.tuningRow == 0 && run.stateColumn == 0 && run.size == stateDim &&
          static_cast<size_t>(approximation.residual.size()) == stateDim;

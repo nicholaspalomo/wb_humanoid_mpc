@@ -51,7 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*
  * The knots of the whole-body target calculator, written through the robot
  * model's layout-agnostic accessors (setPoseeulerzyxBaseRtWorld(),
- * setBaseComLinearVelocity(), setTurnAngvelBaseRtWorldEwrtBase()) and
+ * setLinvelBaseRtWorldEwrtWorld(), setTurnAngvelBaseRtWorldEwrtBase()) and
  * read back through them: a velocity command's knots move the base at the
  * command in each knot's own heading frame and turn it about the world z axis
  * at the commanded yaw rate, consistently with how their poses advance along
@@ -104,11 +104,11 @@ class G1Calculator {
   WBMpcTargetTrajectoriesCalculator& calculator() { return *calculator_; }
   const vector_t& defaultJointState() const { return defaultJointState_; }
 
-  /** The robot at rest, level, at the base pose `basePoseEulerZyx` ([x, y, z,
-   * yaw, pitch, roll]), the joints at zero. */
-  vector_t restingState(const vector6_t& basePoseEulerZyx) const {
+  /** The robot at rest, level, at the base pose `poseeulerzyxBaseRtWorld` ([x,
+   * y, z, yaw, pitch, roll]), the joints at zero. */
+  vector_t restingState(const vector6_t& poseeulerzyxBaseRtWorld) const {
     vector_t state = model_->getNeutralState();
-    model_->setPoseeulerzyxBaseRtWorld(state, basePoseEulerZyx);
+    model_->setPoseeulerzyxBaseRtWorld(state, poseeulerzyxBaseRtWorld);
     return state;
   }
 
@@ -134,15 +134,17 @@ TEST(
     AVelocityCommandsKnotsMoveAndTurnTheBaseAtTheFilteredCommandWithTheJointsStill) {
   G1Calculator g1;
   const WBAccelMpcRobotModel<scalar_t>& model = g1.model();
-  // Turned past the heading of +-pi/2, so that the pelvis-frame command and the
-  // world frame differ in sign.
-  const scalar_t heading = 2.5;
+  // Turned past the heading of +-pi/2, so that the heading-frame command and
+  // the world frame differ in sign.
+  const scalar_t initYawBaseRtWorld = 2.5;
   const vector_t initState = g1.restingState(
-      (vector6_t() << 0.3, -0.2, 0.75, heading, 0.0, 0.0).finished());
+      (vector6_t() << 0.3, -0.2, 0.75, initYawBaseRtWorld, 0.0, 0.0)
+          .finished());
   // The command the calculator used to see after its per-call filter (1 - 0.8
   // of it), so that the knots stay unsubdivided.
-  const vector4_t command(0.08, 0.02, 0.0,
-                          0.1);  // [v_x, v_y in the pelvis frame, dz, yaw rate]
+  const vector4_t command(
+      0.08, 0.02, 0.0,
+      0.1);  // [v_x, v_y in the heading frame, dz, yaw rate]
   const TargetTrajectories targets =
       g1.calculator().velocityCommandToTargetTrajectories(
           command, kInitTime, initState, /*measuredMotion=*/BasePlanarMotion{});
@@ -153,93 +155,114 @@ TEST(
                    kInitTime + kIntermediateShare * kHorizon);
   EXPECT_DOUBLE_EQ(targets.timeTrajectory[2], kInitTime + kHorizon);
 
-  const scalar_t forward = kFirstCommandFactor * command(0);
-  const scalar_t left = kFirstCommandFactor * command(1);
-  const scalar_t yawRate = kFirstCommandFactor * command(3);
+  const scalar_t cmdLinvelBaseRtWorldEwrtHeadingX =
+      kFirstCommandFactor * command(0);
+  const scalar_t cmdLinvelBaseRtWorldEwrtHeadingY =
+      kFirstCommandFactor * command(1);
+  const scalar_t cmdRateYawBaseRtWorld = kFirstCommandFactor * command(3);
   for (size_t i = 0; i < targets.stateTrajectory.size(); ++i) {
     SCOPED_TRACE(i);
     const vector_t& knot = targets.stateTrajectory[i];
     ASSERT_EQ(static_cast<size_t>(knot.size()), model.getStateDim());
     // The command in the knot's own heading frame (design README section 2.9):
-    // (forward, left) turned by the knot's yaw.
-    const scalar_t knotYaw = model.getEulerzyxBaseRtWorld(knot)(0);
-    const vector3_t linearVelocityWorld(
-        std::cos(knotYaw) * forward - std::sin(knotYaw) * left,
-        std::sin(knotYaw) * forward + std::cos(knotYaw) * left, 0.0);
-    EXPECT_LT(
-        (model.getBaseComLinearVelocity(knot) - linearVelocityWorld).norm(),
-        kTolerance);
-    EXPECT_EQ(model.getBaseComLinearVelocity(knot)(2), 0.0)
+    // the commanded velocity turned by the knot's yaw.
+    const scalar_t refEulerzyxBaseRtWorldYaw =
+        model.getEulerzyxBaseRtWorld(knot)(0);
+    const vector3_t cmdLinvelBaseRtWorldEwrtWorld(
+        std::cos(refEulerzyxBaseRtWorldYaw) * cmdLinvelBaseRtWorldEwrtHeadingX -
+            std::sin(refEulerzyxBaseRtWorldYaw) *
+                cmdLinvelBaseRtWorldEwrtHeadingY,
+        std::sin(refEulerzyxBaseRtWorldYaw) * cmdLinvelBaseRtWorldEwrtHeadingX +
+            std::cos(refEulerzyxBaseRtWorldYaw) *
+                cmdLinvelBaseRtWorldEwrtHeadingY,
+        0.0);
+    EXPECT_LT((model.getLinvelBaseRtWorldEwrtWorld(knot) -
+               cmdLinvelBaseRtWorldEwrtWorld)
+                  .norm(),
+              kTolerance);
+    EXPECT_EQ(model.getLinvelBaseRtWorldEwrtWorld(knot)(2), 0.0)
         << "the base moves in the plane";
     // Level knots: a turn about the world z axis is one about the base's own z
     // axis.
-    const vector3_t eulerZyx = model.getEulerzyxBaseRtWorld(knot);
-    EXPECT_EQ(eulerZyx(1), 0.0) << "pitch";
-    EXPECT_EQ(eulerZyx(2), 0.0) << "roll";
+    const vector3_t eulerzyxBaseRtWorld = model.getEulerzyxBaseRtWorld(knot);
+    EXPECT_EQ(eulerzyxBaseRtWorld(1), 0.0) << "pitch";
+    EXPECT_EQ(eulerzyxBaseRtWorld(2), 0.0) << "roll";
     EXPECT_LT((model.getAngvelBaseRtWorldEwrtBase(knot) -
-               vector3_t(0.0, 0.0, yawRate))
+               vector3_t(0.0, 0.0, cmdRateYawBaseRtWorld))
                   .norm(),
               kTolerance);
     // The base velocity in the tuning order of state_weights (x, y, z; then
     // about z, y, x).
-    const vector6_t tuningOrderVelocity = model.getBaseComVelocity(knot);
-    EXPECT_LT(std::abs(tuningOrderVelocity(3) - yawRate), kTolerance);
-    EXPECT_EQ(tuningOrderVelocity(4), 0.0);
-    EXPECT_EQ(tuningOrderVelocity(5), 0.0);
+    const vector6_t tuningOrderBaseRates = model.getTuningLayoutBaseRates(knot);
+    EXPECT_LT(std::abs(tuningOrderBaseRates(3) - cmdRateYawBaseRtWorld),
+              kTolerance);
+    EXPECT_EQ(tuningOrderBaseRates(4), 0.0);
+    EXPECT_EQ(tuningOrderBaseRates(5), 0.0);
     expectJointsStillAt(model, knot, g1.defaultJointState());
   }
 
   // From the intermediate knot on, the base moves along the arc of the knots'
-  // twist: its chord is T sinc(theta / 2) R_z(psi_1 + theta / 2) v, theta =
-  // omega T, the velocity v of the intermediate knot.
+  // twist: its chord, the last knot's planar base position minus the
+  // intermediate one's (errPosBaseRtWorldEwrtWorldXy), is
+  // T sinc(theta / 2) R_z(psi_1 + theta / 2) v, theta = omega T, the velocity v
+  // of the intermediate knot.
   const scalar_t finalStretch =
       targets.timeTrajectory[2] - targets.timeTrajectory[1];
-  const vector6_t intermediate =
+  const vector6_t refPoseeulerzyxBaseRtWorld =
       model.getPoseeulerzyxBaseRtWorld(targets.stateTrajectory[1]);
-  const vector6_t last =
+  const vector6_t finalRefPoseeulerzyxBaseRtWorld =
       model.getPoseeulerzyxBaseRtWorld(targets.stateTrajectory[2]);
-  const scalar_t theta = yawRate * finalStretch;
-  const scalar_t chordHeading = intermediate(3) + 0.5 * theta;
+  const scalar_t theta = cmdRateYawBaseRtWorld * finalStretch;
+  const scalar_t chordYawBaseRtWorld =
+      refPoseeulerzyxBaseRtWorld(3) + 0.5 * theta;
   const scalar_t chordLength =
       finalStretch * std::sin(0.5 * theta) / (0.5 * theta);
-  const vector2_t chord(chordLength * (std::cos(chordHeading) * forward -
-                                       std::sin(chordHeading) * left),
-                        chordLength * (std::sin(chordHeading) * forward +
-                                       std::cos(chordHeading) * left));
-  EXPECT_LT((last.head<2>() - intermediate.head<2>() - chord).norm(),
-            kTolerance);
-  EXPECT_LT(std::abs(last(3) - intermediate(3) - finalStretch * yawRate),
+  const vector2_t errPosBaseRtWorldEwrtWorldXy(
+      chordLength *
+          (std::cos(chordYawBaseRtWorld) * cmdLinvelBaseRtWorldEwrtHeadingX -
+           std::sin(chordYawBaseRtWorld) * cmdLinvelBaseRtWorldEwrtHeadingY),
+      chordLength *
+          (std::sin(chordYawBaseRtWorld) * cmdLinvelBaseRtWorldEwrtHeadingX +
+           std::cos(chordYawBaseRtWorld) * cmdLinvelBaseRtWorldEwrtHeadingY));
+  EXPECT_LT(
+      (finalRefPoseeulerzyxBaseRtWorld.head<2>() -
+       refPoseeulerzyxBaseRtWorld.head<2>() - errPosBaseRtWorldEwrtWorldXy)
+          .norm(),
+      kTolerance);
+  EXPECT_LT(std::abs(finalRefPoseeulerzyxBaseRtWorld(3) -
+                     refPoseeulerzyxBaseRtWorld(3) -
+                     finalStretch * cmdRateYawBaseRtWorld),
             kTolerance);
 }
 
 TEST(WBMpcTargetKnots, APoseCommandsKnotsHoldTheBaseAndTheJointsStill) {
   G1Calculator g1;
   const WBAccelMpcRobotModel<scalar_t>& model = g1.model();
-  const vector6_t startPose =
+  const vector6_t initPoseeulerzyxBaseRtWorld =
       (vector6_t() << 0.3, -0.2, 0.75, 2.5, 0.0, 0.0).finished();
-  const vector_t initState = g1.restingState(startPose);
+  const vector_t initState = g1.restingState(initPoseeulerzyxBaseRtWorld);
   const vector4_t command(
       0.5, 0.2, 0.0,
-      -45.0);  // [dx, dy in the pelvis frame, dz, dyaw in degrees]
+      -45.0);  // [dx, dy in the heading frame, dz, dyaw in degrees]
   const TargetTrajectories targets =
       g1.calculator().poseCommandToTargetTrajectories(command, kInitTime,
                                                       initState);
 
   ASSERT_EQ(targets.stateTrajectory.size(), 2);
   // The first knot is where the robot stands, level.
-  EXPECT_LT(
-      (model.getPoseeulerzyxBaseRtWorld(targets.stateTrajectory[0]) - startPose)
-          .norm(),
-      kTolerance);
+  EXPECT_LT((model.getPoseeulerzyxBaseRtWorld(targets.stateTrajectory[0]) -
+             initPoseeulerzyxBaseRtWorld)
+                .norm(),
+            kTolerance);
   EXPECT_LT(
       std::abs(model.getEulerzyxBaseRtWorld(targets.stateTrajectory[1])(0) -
-               (startPose(3) - M_PI / 4.0)),
+               (initPoseeulerzyxBaseRtWorld(3) - M_PI / 4.0)),
       kTolerance);
   for (size_t i = 0; i < targets.stateTrajectory.size(); ++i) {
     SCOPED_TRACE(i);
     const vector_t& knot = targets.stateTrajectory[i];
     ASSERT_EQ(static_cast<size_t>(knot.size()), model.getStateDim());
-    EXPECT_TRUE(model.getBaseComLinearVelocity(knot).isZero(0.0));
+    EXPECT_TRUE(model.getLinvelBaseRtWorldEwrtWorld(knot).isZero(0.0));
     EXPECT_TRUE(model.getAngvelBaseRtWorldEwrtBase(knot).isZero(0.0));
     expectJointsStillAt(model, knot, g1.defaultJointState());
   }

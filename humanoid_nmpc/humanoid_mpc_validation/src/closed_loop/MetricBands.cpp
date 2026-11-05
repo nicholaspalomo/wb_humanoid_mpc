@@ -54,7 +54,7 @@ namespace {
  * under BandOptions::compareSolveTime. */
 constexpr double kMaxSolveTimeRatio = 1.10;
 /** The bound max | |xi| - 1 | of a candidate's solutions stays below. */
-constexpr double kMaxQuaternionNormDeviation = 1.0e-9;
+constexpr double kMaxUnitQuaternionNormDeviation = 1.0e-9;
 
 std::optional<double> numberAt(const JsonValue& document,
                                const std::string& path) {
@@ -283,7 +283,7 @@ ClosedLoopComparison compareClosedLoopMetrics(const JsonValue& candidate,
                           comparison);
   if (normDeviation.has_value() &&
       (!std::isfinite(*normDeviation) ||
-       *normDeviation >= kMaxQuaternionNormDeviation)) {
+       *normDeviation >= kMaxUnitQuaternionNormDeviation)) {
     comparison.violations.push_back(absl::StrCat(
         "quaternion_norm.max_deviation: ", *normDeviation, ", not below 1e-9"));
   }

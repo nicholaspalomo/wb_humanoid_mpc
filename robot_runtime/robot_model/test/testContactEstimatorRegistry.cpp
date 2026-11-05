@@ -38,8 +38,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "robot_model/AlwaysInContactEstimator.h"
+#include "robot_model/ContactEstimator.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 #include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 
 namespace robot::model {
 namespace {

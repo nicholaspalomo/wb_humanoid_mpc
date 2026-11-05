@@ -46,6 +46,82 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "gtest/gtest.h"
 
+#include "humanoid_mpc_msgs/arrows.nproto.h"
+#include "humanoid_mpc_msgs/arrows.pb.h"
+#include "humanoid_mpc_msgs/color.nproto.h"
+#include "humanoid_mpc_msgs/color.pb.h"
+#include "humanoid_mpc_msgs/config_file_kind.nproto.h"
+#include "humanoid_mpc_msgs/config_file_kind.pb.h"
+#include "humanoid_mpc_msgs/config_file_save.nproto.h"
+#include "humanoid_mpc_msgs/config_file_save.pb.h"
+#include "humanoid_mpc_msgs/config_file_save_status.nproto.h"
+#include "humanoid_mpc_msgs/config_file_save_status.pb.h"
+#include "humanoid_mpc_msgs/controller_type.nproto.h"
+#include "humanoid_mpc_msgs/controller_type.pb.h"
+#include "humanoid_mpc_msgs/dodgeball_throw.nproto.h"
+#include "humanoid_mpc_msgs/dodgeball_throw.pb.h"
+#include "humanoid_mpc_msgs/fsm_command.nproto.h"
+#include "humanoid_mpc_msgs/fsm_command.pb.h"
+#include "humanoid_mpc_msgs/fsm_state.nproto.h"
+#include "humanoid_mpc_msgs/fsm_state.pb.h"
+#include "humanoid_mpc_msgs/joint_targets.nproto.h"
+#include "humanoid_mpc_msgs/joint_targets.pb.h"
+#include "humanoid_mpc_msgs/line_strip.nproto.h"
+#include "humanoid_mpc_msgs/line_strip.pb.h"
+#include "humanoid_mpc_msgs/line_strips.nproto.h"
+#include "humanoid_mpc_msgs/line_strips.pb.h"
+#include "humanoid_mpc_msgs/loop_timing.nproto.h"
+#include "humanoid_mpc_msgs/loop_timing.pb.h"
+#include "humanoid_mpc_msgs/mode_schedule.nproto.h"
+#include "humanoid_mpc_msgs/mode_schedule.pb.h"
+#include "humanoid_mpc_msgs/mpc_observation.nproto.h"
+#include "humanoid_mpc_msgs/mpc_observation.pb.h"
+#include "humanoid_mpc_msgs/mpc_policy.nproto.h"
+#include "humanoid_mpc_msgs/mpc_policy.pb.h"
+#include "humanoid_mpc_msgs/mpc_solver_status.nproto.h"
+#include "humanoid_mpc_msgs/mpc_solver_status.pb.h"
+#include "humanoid_mpc_msgs/mpc_status.nproto.h"
+#include "humanoid_mpc_msgs/mpc_status.pb.h"
+#include "humanoid_mpc_msgs/performance_index.nproto.h"
+#include "humanoid_mpc_msgs/performance_index.pb.h"
+#include "humanoid_mpc_msgs/pose.nproto.h"
+#include "humanoid_mpc_msgs/pose.pb.h"
+#include "humanoid_mpc_msgs/quaternion.nproto.h"
+#include "humanoid_mpc_msgs/quaternion.pb.h"
+#include "humanoid_mpc_msgs/reset_requests.nproto.h"
+#include "humanoid_mpc_msgs/reset_requests.pb.h"
+#include "humanoid_mpc_msgs/robot_model_instance.nproto.h"
+#include "humanoid_mpc_msgs/robot_model_instance.pb.h"
+#include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
+#include "humanoid_mpc_msgs/robot_state_sample.pb.h"
+#include "humanoid_mpc_msgs/scalar_group.nproto.h"
+#include "humanoid_mpc_msgs/scalar_group.pb.h"
+#include "humanoid_mpc_msgs/spheres.nproto.h"
+#include "humanoid_mpc_msgs/spheres.pb.h"
+#include "humanoid_mpc_msgs/system_observation.nproto.h"
+#include "humanoid_mpc_msgs/system_observation.pb.h"
+#include "humanoid_mpc_msgs/target_contact_patch.nproto.h"
+#include "humanoid_mpc_msgs/target_contact_patch.pb.h"
+#include "humanoid_mpc_msgs/target_trajectories.nproto.h"
+#include "humanoid_mpc_msgs/target_trajectories.pb.h"
+#include "humanoid_mpc_msgs/telemetry_series.nproto.h"
+#include "humanoid_mpc_msgs/telemetry_series.pb.h"
+#include "humanoid_mpc_msgs/vector.nproto.h"
+#include "humanoid_mpc_msgs/vector.pb.h"
+#include "humanoid_mpc_msgs/vector3.nproto.h"
+#include "humanoid_mpc_msgs/vector3.pb.h"
+#include "humanoid_mpc_msgs/viewer_annotations.nproto.h"
+#include "humanoid_mpc_msgs/viewer_annotations.pb.h"
+#include "humanoid_mpc_msgs/visualization_scene.nproto.h"
+#include "humanoid_mpc_msgs/visualization_scene.pb.h"
+#include "humanoid_mpc_msgs/walking_velocity_command.nproto.h"
+#include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
+#include "humanoid_mpc_msgs/wrench.nproto.h"
+#include "humanoid_mpc_msgs/wrench.pb.h"
+#include "tools/nproto/test/ProtoTestValues.h"
+
+// The conversions, which ExpectRoundTrips() finds by argument-dependent lookup.
+// NOLINTBEGIN(misc-include-cleaner): used from the templates of ProtoTestValues.h, which include-cleaner does not follow
 #include "humanoid_mpc_msgs/arrows.nproto.pb.h"
 #include "humanoid_mpc_msgs/color.nproto.pb.h"
 #include "humanoid_mpc_msgs/config_file_kind.nproto.pb.h"
@@ -82,7 +158,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/visualization_scene.nproto.pb.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.nproto.pb.h"
 #include "humanoid_mpc_msgs/wrench.nproto.pb.h"
-#include "tools/nproto/test/ProtoTestValues.h"
+// NOLINTEND(misc-include-cleaner)
 
 namespace ocs2::humanoid::msgs {
 namespace {
@@ -326,8 +402,12 @@ TEST(MpcPolicyTest, AHandWrittenPolicyLandsInTheMessageFields) {
   policy.controller_type = ControllerType::kLinear;
   TargetContactPatch patch;
   patch.kind = TargetContactPatch::Kind::kNextSwing;
-  patch.des_pose_foot_rt_world = TargetContactPatch::Pose{
-      .x = 0.25, .y = -0.1, .z = 0.0, .yaw = 0.5, .yaw_planned = true};
+  patch.des_pose_foot_rt_world =
+      TargetContactPatch::Pose{.x = 0.25,
+                               .y = -0.1,
+                               .z = 0.0,
+                               .eulerzyx_foot_rt_world_yaw = 0.5,
+                               .yaw_planned = true};
   policy.annotations.target_contact_patches.push_back(patch);
   // A foot without a target: no pose.
   policy.annotations.target_contact_patches.push_back(

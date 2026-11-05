@@ -104,7 +104,7 @@ and `RobotSupervisorRegistry` builds it:
 | Supervisor | FSM bridge | Fall recovery | Backends |
 |---|---|---|---|
 | `sim` | `SimFsmBridge`: the simulator's torque switch, its virtual gantry and height slider, the dodgeballs | `SimFallRecovery`: the catch on the gantry, the simulator's own resets, the settle sequence ([`docs/mpc_reset`](../../docs/mpc_reset/README.md)) | `mujoco` |
-| `hardware` | `HardwareFsmBridge`: the backend's `enableTorques()` / `enterSafeState()`; the gantry commands are reported and ignored, the FSM state says the gantry is unlocked | `HardwareFallRecovery`: past `sim_max_base_tilt_angle` under torque, the safe state and ZERO_TORQUE, once; no discontinuity, no relocated base | a robot's own; `test/FakeRobotBackend.h` in the tests |
+| `hardware` | `HardwareFsmBridge`: the backend's `enableTorques()` / `enterSafeState()`; the gantry commands are reported and ignored, the FSM state says the gantry is unlocked | `HardwareFallRecovery`: past `sim_max_tiltangle_base_rt_world` under torque, the safe state and ZERO_TORQUE, once; no discontinuity, no relocated base | a robot's own; `test/FakeRobotBackend.h` in the tests |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotSupervisorRegistry.h:supervisor_names) -->
 
 The `sim` supervisor of a backend that is no simulator is refused at `RobotProcess::Create()`, naming `hardware`.
@@ -121,7 +121,7 @@ test-only `FakeRobotBackend`, which does exactly it with a thread in place of th
    its lever arm), and for the base's position and linear velocity its best guess (the initial pose, a motion capture).
    It executes an action only while `takeJointAction()` says it is fresh.
 2. A `RobotBackend` around it: `acceptsJointAction()` / `enableTorques()` / `enterSafeState()` are the drives' torque
-   switch (the safe state is the drives' damping), `readMeasuredContactForces()` its foot force sensors (zero without),
+   switch (the safe state is the drives' damping), `readMeasForceFeetEwrtWorld()` its foot force sensors (zero without),
    `registerContactEstimators()` any estimator only it provides, `supervisorName()` `kHardwareSupervisorName`, and
    `simulator()` stays nullptr. Everything the realtime thread calls is lock-free and allocates nothing.
 3. One `RobotBackendRegistry::add()` under the robot's name, with an `OptionsCheck` of its options, and the name in the
@@ -247,7 +247,7 @@ files](#the-configuration-files)).
 | `operator/fsm_command` | all | `parseFsmCommand()`; a repeat (the sequence of the command accepted last) and an unknown name are dropped |
 | `operator/joint_targets` | latest | merged into the JOINT_PD posture; a joint of another robot is skipped, a value that is not finite refused |
 | `operator/dodgeball_throw` | all | `DodgeballThrow`, `dodgeballThrowFromMessage()`; the newest throw is handed over |
-| `operator/walking_velocity_command` | latest | `cmd_pos_base_rt_world_ewrt_world_z`, clamped to 0.2-1.5 m: the gantry height while it is locked |
+| `operator/walking_velocity_command` | latest | `cmd_pos_base_rt_surface_ewrt_world_z`, clamped to 0.2-1.5 m: the gantry height while it is locked |
 | `operator/mpc_parameters` | latest | `MpcParameterUpdate`: the task file's `contact_estimator` and `contact_wrench_gate` (`controllerSideSettingsFromConfig()`, as the robot's task-file watcher reads them), as a whole file: no gate block is the instantaneous gate |
 | `operator/pd_gains` | latest | `JointPdGainsUpdate`, the controller's `setPdGains()` |
 | `operator/config_save` | all | `ConfigFileSave`, the configuration store (`ConfigFileStore`): checked and written on its writer thread, answered on `robot/config_save_status` |
@@ -350,7 +350,7 @@ GUI then reports in sync; a file the save did not change otherwise, which it rep
 | `kalman_state_estimator` | its defaults | the noise model of `"kalman"` (`kalman_state_estimator_config.proto`): the IMU's noise, the random walks of the base and of the stance and swing feet, the kinematics' noise, the stance feet's height |
 | `sim_min_force_mjcontact_ewrt_mjcontact_x`, `sim_contact_timeline_window`, `sim_visualizations`, `gantry_hold`, `sim_projectile` | the simulator's; no viewer marker | the MuJoCo backend |
 | `sim_ragdoll_joint_damping`, `sim_auto_reset_min_pos_base_rt_world_ewrt_world_z` | 20 N m s/rad, 0.2 m | the MuJoCo backend: the robot joints' damping while the torques are off (on, they have the MJCF's own), and the base height below which the robot is reset |
-| `sim_max_base_tilt_angle`, `sim_gantry_catch_lift` | absent (off) | the fall recovery ([`docs/mpc_reset`](../../docs/mpc_reset/README.md)) |
+| `sim_max_tiltangle_base_rt_world`, `sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z` | absent (off) | the fall recovery ([`docs/mpc_reset`](../../docs/mpc_reset/README.md)) |
 | `mpc_entry_blend_time` | the controller's | [s] the ramp into WB_MPC (centroidal) |
 | `safety_decay_time_constant` | the controller's | [s] the SAFETY decay |
 | `wb_mpc_feedforward` | `"inverse_dynamics"` | the feedforward of WB_MPC: `"inverse_dynamics"` or `"gravity_compensation"` (centroidal only; a debugging aid) |

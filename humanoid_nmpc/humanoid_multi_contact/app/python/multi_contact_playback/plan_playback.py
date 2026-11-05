@@ -85,8 +85,8 @@ PLAN_BINARY_SUFFIX = ".binpb"
 # LINT.ThenChange(//humanoid_nmpc/humanoid_multi_contact/plan/include/humanoid_multi_contact/plan/PlanFile.h:plan_binary_suffix)
 # Pinocchio's name of the floating base's joint, which a contact candidate may name as its parent.
 ROOT_JOINT = "root_joint"
-# [m/N] The length of a force arrow per newton: a body weight of Atlas is about 1.6 m.
-FORCE_ARROW_SCALE = 0.001
+# [m/N] The length of a contact force's arrow per newton: a body weight of Atlas is about 1.6 m.
+ARROW_LENGTH_PER_NEWTON = 0.001
 _PAD_RADIUS = 0.02
 _COM_RADIUS = 0.03
 _LINE_RADIUS = 0.005
@@ -165,10 +165,10 @@ def load_inputs(scenario_path: str, plan_path: str) -> PlaybackInputs:
     plan = load_plan(cli.resolve_input_path(plan_path))
     names = {candidate.name for candidate in contact_set.candidates}
     for knot in plan.knots:
-        for wrench in knot.contact_wrenches:
-            if wrench.contact not in names:
+        for wrench_msg in knot.wrench_contacts_ewrt_world:
+            if wrench_msg.contact not in names:
                 raise ValueError(
-                    f"plan knot at t={knot.time}: '{wrench.contact}' is no"
+                    f"plan knot at t={knot.time}: '{wrench_msg.contact}' is no"
                     " candidate of the contact set"
                 )
     return PlaybackInputs(
@@ -180,17 +180,17 @@ def load_inputs(scenario_path: str, plan_path: str) -> PlaybackInputs:
     )
 
 
-def rotation_from_xyzw(quaternion: Sequence[float]) -> np.ndarray:
+def rotation_from_xyzw(coefficients: Sequence[float]) -> np.ndarray:
     """The rotation matrix of a quaternion (x, y, z, w), normalized first.
 
     Args:
-        quaternion: Four coefficients, not all zero.
+        coefficients: The quaternion's four coefficients (x, y, z, w), not all zero.
 
     Returns:
         A 3 x 3 rotation matrix.
     """
-    x, y, z, w = np.asarray(quaternion, dtype=float) / np.linalg.norm(
-        quaternion
+    x, y, z, w = np.asarray(coefficients, dtype=float) / np.linalg.norm(
+        coefficients
     )
     return np.array(
         [
@@ -213,27 +213,32 @@ def _joint_children(tree: urdf_kinematics.KinematicTree) -> dict[str, str]:
     return children
 
 
-def _world_link_poses(
+def _pose_links_rt_world(
     inputs: PlaybackInputs, knot: multi_contact_plan_pb2.MultiContactPlan.Knot
 ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-    """The (translation, rotation) of every link in the world at `knot`."""
-    positions: Mapping[str, float] = dict(
+    """The (translation, rotation matrix) of every link in the world at `knot`."""
+    joint_positions: Mapping[str, float] = dict(
         zip(inputs.plan.joint_names, knot.joint_positions)
     )
-    base_rotation = rotation_from_xyzw(knot.base_orientation_xyzw)
-    base_position = np.asarray(knot.base_position, dtype=float)
-    poses = {}
-    for link, (translation, quaternion) in inputs.tree.link_poses(
-        positions
-    ).items():
-        poses[link] = (
-            base_position + base_rotation @ np.asarray(translation),
-            base_rotation @ rotation_from_xyzw(quaternion),
+    rotmat_base_rt_world = rotation_from_xyzw(knot.quat_base_rt_world_xyzw)
+    pos_base_rt_world_ewrt_world = np.asarray(
+        knot.pos_base_rt_world_ewrt_world, dtype=float
+    )
+    pose_links_rt_world = {}
+    # The tree's link poses are relative to the root link, the base.
+    for link, (
+        pos_link_rt_base_ewrt_base,
+        quat_link_rt_base_xyzw,
+    ) in inputs.tree.compute_pose_links_rt_base(joint_positions).items():
+        pose_links_rt_world[link] = (
+            pos_base_rt_world_ewrt_world
+            + rotmat_base_rt_world @ np.asarray(pos_link_rt_base_ewrt_base),
+            rotmat_base_rt_world @ rotation_from_xyzw(quat_link_rt_base_xyzw),
         )
-    return poses
+    return pose_links_rt_world
 
 
-def pad_positions(
+def compute_pos_pads_rt_world_ewrt_world(
     inputs: PlaybackInputs, knot: multi_contact_plan_pb2.MultiContactPlan.Knot
 ) -> dict[str, np.ndarray]:
     """The world position of every candidate's pad at `knot`.
@@ -249,8 +254,8 @@ def pad_positions(
         ValueError: a candidate's parent joint is not a joint of the URDF.
     """
     children = _joint_children(inputs.tree)
-    poses = _world_link_poses(inputs, knot)
-    pads = {}
+    pose_links_rt_world = _pose_links_rt_world(inputs, knot)
+    pos_pads_rt_world_ewrt_world = {}
     for candidate in inputs.contact_set.candidates:
         link = children.get(candidate.parent_joint)
         if link is None:
@@ -258,11 +263,15 @@ def pad_positions(
                 f"contact candidate '{candidate.name}': the URDF has no joint"
                 f" '{candidate.parent_joint}'"
             )
-        translation, rotation = poses[link]
-        pads[candidate.name] = translation + rotation @ np.asarray(
-            candidate.offset, dtype=float
+        pos_link_rt_world_ewrt_world, rotmat_link_rt_world = (
+            pose_links_rt_world[link]
         )
-    return pads
+        pos_pads_rt_world_ewrt_world[candidate.name] = (
+            pos_link_rt_world_ewrt_world
+            + rotmat_link_rt_world
+            @ np.asarray(candidate.pos_pad_rt_link_ewrt_link, dtype=float)
+        )
+    return pos_pads_rt_world_ewrt_world
 
 
 def _log_knot(
@@ -273,17 +282,20 @@ def _log_knot(
     """Logs knot `index` of the plan at its time."""
     knot = inputs.plan.knots[index]
     recording.set_time(PLAN_TIMELINE, duration=knot.time)
-    for link, (translation, rotation) in _world_link_poses(
-        inputs, knot
-    ).items():
+    for link, (
+        pos_link_rt_world_ewrt_world,
+        rotmat_link_rt_world,
+    ) in _pose_links_rt_world(inputs, knot).items():
         recording.log(
             scene_contract.link_path(ROBOT_INSTANCE, link),
             rr.Transform3D(
-                translation=translation.tolist(),
-                mat3x3=rotation.tolist(),
+                translation=pos_link_rt_world_ewrt_world.tolist(),
+                mat3x3=rotmat_link_rt_world.tolist(),
             ),
         )
-    pads = pad_positions(inputs, knot)
+    pos_pads_rt_world_ewrt_world = compute_pos_pads_rt_world_ewrt_world(
+        inputs, knot
+    )
     active = [
         candidate.name
         for bit, candidate in enumerate(inputs.contact_set.candidates)
@@ -292,7 +304,10 @@ def _log_knot(
     recording.log(
         f"{PLAN_ROOT}/active_pads",
         rr.Points3D(
-            positions=[pads[name].tolist() for name in active],
+            # NOLINTNEXTLINE(frame-naming): Rerun's argument
+            positions=[
+                pos_pads_rt_world_ewrt_world[name].tolist() for name in active
+            ],
             radii=[_PAD_RADIUS],
             labels=active,
             colors=[palette.to_rgba8(palette.with_alpha(palette.GREEN, 1.0))],
@@ -301,41 +316,76 @@ def _log_knot(
     recording.log(
         f"{PLAN_ROOT}/contact_forces",
         rr.Arrows3D(
-            origins=[pads[w.contact].tolist() for w in knot.contact_wrenches],
+            origins=[
+                pos_pads_rt_world_ewrt_world[w.contact].tolist()
+                for w in knot.wrench_contacts_ewrt_world
+            ],
             vectors=[
-                (FORCE_ARROW_SCALE * np.asarray(w.force, dtype=float)).tolist()
-                for w in knot.contact_wrenches
+                (
+                    ARROW_LENGTH_PER_NEWTON
+                    * np.asarray(
+                        w.force,  # NOLINT(frame-naming): a component of a ContactWrench, whose frames its field names
+                        dtype=float,
+                    )
+                ).tolist()
+                for w in knot.wrench_contacts_ewrt_world
             ],
             radii=[scene_contract.ARROW_RADIUS],
             colors=[palette.to_rgba8(palette.with_alpha(palette.ORANGE, 1.0))],
         ),
     )
     if inputs.plan.HasField("report") and index < len(inputs.plan.report.knots):
-        floor = min((pads[name][2] for name in active), default=0.0)
-        _log_report_knot(recording, inputs.plan.report.knots[index], floor)
+        min_pos_pads_rt_world_ewrt_world_z = min(
+            (pos_pads_rt_world_ewrt_world[name][2] for name in active),
+            default=0.0,
+        )
+        _log_report_knot(
+            recording,
+            inputs.plan.report.knots[index],
+            min_pos_pads_rt_world_ewrt_world_z,
+        )
 
 
 def _log_report_knot(
     recording: rr.RecordingStream,
     report: certifier_report_pb2.CertifierReport.Knot,
-    floor: float,
+    min_pos_pads_rt_world_ewrt_world_z: float,
 ) -> None:
     """Logs the certifier's view of one knot: CoM, polygon, margins and failures."""
-    com = list(report.com)
-    if len(com) == 3:
+    pos_com_rt_world_ewrt_world = list(report.pos_com_rt_world_ewrt_world)
+    if len(pos_com_rt_world_ewrt_world) == 3:
         recording.log(
             f"{PLAN_ROOT}/com",
             rr.Points3D(
-                positions=[com, [com[0], com[1], floor]],
+                # NOLINTNEXTLINE(frame-naming): Rerun's argument
+                positions=[
+                    pos_com_rt_world_ewrt_world,
+                    [
+                        pos_com_rt_world_ewrt_world[0],
+                        pos_com_rt_world_ewrt_world[1],
+                        min_pos_pads_rt_world_ewrt_world_z,
+                    ],
+                ],
                 radii=[_COM_RADIUS],
                 colors=[palette.to_rgba8(palette.with_alpha(palette.RED, 1.0))],
             ),
         )
-    polygon = [[p.x, p.y, floor] for p in report.support_polygon]
+    # The polygon's vertices, lifted to the lowest pad for drawing.
+    support_pos_com_rt_world_ewrt_world_samples = [
+        [p.x, p.y, min_pos_pads_rt_world_ewrt_world_z]
+        for p in report.support_pos_com_rt_world_ewrt_world_xy_samples
+    ]
+    # The polygon as one closed line strip, none without vertices.
+    closed_strips: list[list[list[float]]] = []
+    if support_pos_com_rt_world_ewrt_world_samples:
+        closed_strips = [
+            support_pos_com_rt_world_ewrt_world_samples
+            + support_pos_com_rt_world_ewrt_world_samples[:1]
+        ]
     recording.log(
         f"{PLAN_ROOT}/support_polygon",
         rr.LineStrips3D(
-            [polygon + polygon[:1]] if polygon else [],
+            closed_strips,
             radii=[_LINE_RADIUS],
             colors=[palette.to_rgba8(palette.with_alpha(palette.BLUE, 1.0))],
         ),
@@ -344,14 +394,14 @@ def _log_report_knot(
         recording.log(
             f"{MARGINS_ROOT}/static_margin", rr.Scalars(report.static_margin)
         )
-    if report.HasField("torque_utilization"):
+    if report.HasField("joint_torque_utilization"):
         recording.log(
-            f"{MARGINS_ROOT}/torque_utilization",
-            rr.Scalars(report.torque_utilization),
+            f"{MARGINS_ROOT}/joint_torque_utilization",
+            rr.Scalars(report.joint_torque_utilization),
         )
     recording.log(
-        f"{MARGINS_ROOT}/momentum_rate_residual",
-        rr.Scalars(report.momentum_rate_residual),
+        f"{MARGINS_ROOT}/wrench_cone_residual",
+        rr.Scalars(report.wrench_cone_residual),
     )
     if report.failures:
         recording.log(

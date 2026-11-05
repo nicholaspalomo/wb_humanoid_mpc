@@ -30,10 +30,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/constraint/FootMotionInSwingOnlyConstraint.h"
 
 #include <cmath>
+#include <cstddef>
 #include <string>
 
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipCoefficients.h"
+#include "humanoid_common_mpc/contact_planning/problem/RowBuilder.h"
 
 namespace ocs2::humanoid {
 
@@ -58,7 +66,8 @@ void FootMotionInSwingOnlyConstraint::addRows(const ContactPlanningContext& ctx,
       for (const scalar_t sign : {1.0, -1.0}) {
         rows.addHard(
             /*xCoefficients=*/{},
-            {{idx_.footDelta[foot][axis], sign}, {idx_.contact[foot], M}},
+            {{idx_.errPosFeetRtWorldEwrtWorld[foot][axis], sign},
+             {idx_.contact[foot], M}},
             -kLipLooseBound, M);
       }
     }

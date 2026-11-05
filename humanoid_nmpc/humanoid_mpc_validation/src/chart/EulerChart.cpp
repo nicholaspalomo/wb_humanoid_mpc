@@ -187,7 +187,7 @@ absl::StatusOr<matrix_t> chartJacobian(const vector_t& eulerState,
             offsets->eulerStart[offsets->anglesSegment[i]]);
         jacobian.block<kRotationTangentDim, kEulerAnglesZyxDim>(rowIndex,
                                                                 anglesColumn) =
-            localAngularVelocityEulerAngleDerivative(
+            bodyRateEulerZyxAngleDerivative(
                 angles, eulerState.segment<kEulerAnglesZyxDim>(column));
         jacobian.block<kRotationTangentDim, kEulerAnglesZyxDim>(
             rowIndex, column) = eulerZyxRateToBodyRateMatrix(angles);
@@ -251,10 +251,9 @@ absl::StatusOr<vector_t> physicalStateFromEulerState(
             eulerState.segment<kEulerAnglesZyxDim>(from));
         break;
       case EulerStateSegmentKind::kEulerZyxRates:
-        physical.segment<kRotationTangentDim>(to) =
-            localAngularVelocityFromEulerZyxRates(
-                anglesOf(eulerState, *offsets, i),
-                eulerState.segment<kEulerAnglesZyxDim>(from));
+        physical.segment<kRotationTangentDim>(to) = bodyRatesFromEulerZyxRates(
+            anglesOf(eulerState, *offsets, i),
+            eulerState.segment<kEulerAnglesZyxDim>(from));
         break;
     }
   }
@@ -317,8 +316,8 @@ absl::StatusOr<matrix_t> physicalTangentJacobian(
   return chartJacobian(eulerState, layout, ChartCoordinates::kTangent);
 }
 
-matrix3_t localAngularVelocityEulerAngleDerivative(
-    const vector3_t& eulerZyx, const vector3_t& eulerZyxRates) {
+matrix3_t bodyRateEulerZyxAngleDerivative(const vector3_t& eulerZyx,
+                                          const vector3_t& eulerZyxRates) {
   // The chart is built through orientation/EulerBoundary.h only (design README
   // section 4.2).
   return bodyRateEulerZyxJacobian(eulerZyx, eulerZyxRates);

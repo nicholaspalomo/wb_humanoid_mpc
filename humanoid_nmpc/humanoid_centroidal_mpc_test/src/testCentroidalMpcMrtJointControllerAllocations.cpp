@@ -339,20 +339,21 @@ TEST_P(
     const vector_t v = effectiveCopy->getGeneralizedVelocities(
         observation.state, observation.input);
     updateCentroidalDynamics(reference, info, q);
-    const vector6_t momentum =
+    const vector6_t mnormCmomComRtWorldEwrtWorld =
         getCentroidalMomentumMatrix(reference) * v / info.robotMass;
     EXPECT_LT((centroidal_model::getMnormCmomComRtWorldEwrtWorld(
                    observation.state, info) -
-               momentum)
+               mnormCmomComRtWorldEwrtWorld)
                   .cwiseAbs()
                   .maxCoeff(),
               1.0e-10);
     // The base velocity it gives back is the measured one, [dp_W, w_B]: the
     // momentum is A(q) of the measurement.
-    const vector3_t measuredLinearVelocity =
+    const vector3_t measLinvelBaseRtWorldEwrtWorld =
         state_->getQuatBaseRtWorld() * state_->getLinvelBaseRtWorldEwrtBase();
-    EXPECT_LT((v.head<3>() - measuredLinearVelocity).cwiseAbs().maxCoeff(),
-              1.0e-9)
+    EXPECT_LT(
+        (v.head<3>() - measLinvelBaseRtWorldEwrtWorld).cwiseAbs().maxCoeff(),
+        1.0e-9)
         << "the observation's base velocity is the measured one";
     EXPECT_LT((v.segment<3>(3) - state_->getAngvelBaseRtWorldEwrtBase())
                   .cwiseAbs()
@@ -371,23 +372,23 @@ TEST_P(
     const vector_t input = weightCompensatingInput(
         reference, contacts, effective, observation.state);
     const size_t numStanceLegs = numberOfLegsInContacts(contacts);
-    feet_array_t<vector6_t> wrenches;
+    feet_array_t<vector6_t> wrenchFeetEwrtWorld;
     for (size_t i = 0; i < kNumContacts; ++i) {
-      wrenches[i].setZero();
+      wrenchFeetEwrtWorld[i].setZero();
       if (contacts[i])
-        wrenches[i](2) = computeRobotWeight(reference) /
-                         static_cast<scalar_t>(numStanceLegs);
+        wrenchFeetEwrtWorld[i](2) = computeRobotWeight(reference) /
+                                    static_cast<scalar_t>(numStanceLegs);
       if (effective.getContactInputDim(i) == kContactWrenchDim) {
         EXPECT_LT(
             (effective.getWrenchContactEwrtWorld(observation.state, input, i) -
-             wrenches[i])
+             wrenchFeetEwrtWorld[i])
                 .cwiseAbs()
                 .maxCoeff(),
             1.0e-9);
       }
     }
-    const vector_t torques = computeBaseHeldJointTorques<scalar_t>(
-        q, v, vector_t::Zero(model.getJointDim()), wrenches,
+    const vector_t jointTorques = computeBaseHeldJointTorques<scalar_t>(
+        q, v, vector_t::Zero(model.getJointDim()), wrenchFeetEwrtWorld,
         getContactFrameIndexArray<scalar_t>(reference, model), reference);
     const std::vector<size_t> mpcJoints = description_->getJointIndices(
         interface_->modelSettings().mpcModelJointNames);
@@ -402,7 +403,7 @@ TEST_P(
       }
       EXPECT_NEAR(
           jointAction->feed_forward_effort,
-          std::clamp(torques[static_cast<Eigen::Index>(i)], -limit, limit),
+          std::clamp(jointTorques[static_cast<Eigen::Index>(i)], -limit, limit),
           1.0e-8)
           << interface_->modelSettings().mpcModelJointNames[i];
     }

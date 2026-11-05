@@ -27,8 +27,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <fstream>
+#include <numbers>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -61,8 +64,9 @@ struct SceneFixture {
     std::ofstream(path) << kScene;
     char error[1000] = "";
     model = mj_loadXML(path.c_str(), /*vfs=*/nullptr, error, sizeof(error));
-    if (model == nullptr)
+    if (model == nullptr) {
       throw std::runtime_error(std::string("mj_loadXML: ") + error);
+    }
     mjv_defaultScene(&scene);
     mjv_makeScene(model, &scene, maxgeom);
   }
@@ -80,37 +84,46 @@ TargetContactPatch makePatch() {
   TargetContactPatch patch;
   patch.valid = true;
   patch.kind = TargetContactPatch::Kind::kSwingInFlight;
-  patch.x = 1.0;
-  patch.y = 2.0;
-  patch.z = 0.1;
-  patch.yaw = M_PI / 2.0;
+  patch.desPosFootRtWorldEwrtWorldX = 1.0;
+  patch.desPosFootRtWorldEwrtWorldY = 2.0;
+  patch.desPosFootRtWorldEwrtWorldZ = 0.1;
+  patch.desEulerzyxFootRtWorldYaw = std::numbers::pi / 2.0;
   return patch;
 }
 
 // The DRC Atlas sole: an asymmetric order is used on purpose so that the
 // outline follows the given order.
-const ContactPatchCorners kRectangle = {
+const ContactPatchCorners kPosCornersRtFootEwrtFootXy = {
     {-0.12, -0.05}, {0.12, -0.05}, {0.12, 0.05}, {-0.12, 0.05}};
 
 TEST(MujocoContactPatch, WorldCornersFollowTheYawAndTheOrigin) {
-  const std::vector<std::array<double, 3>> world =
-      contactPatchWorldCorners(makePatch(), kRectangle, /*heightOffset=*/0.01);
-  ASSERT_EQ(world.size(), kRectangle.size());
-  for (size_t i = 0; i < world.size(); ++i) {
+  const std::vector<std::array<double, 3>> posCornersRtWorldEwrtWorld =
+      computePosCornersRtWorldEwrtWorld(
+          makePatch(), kPosCornersRtFootEwrtFootXy,
+          /*offsetPosCornersRtFootEwrtWorldZ=*/0.01);
+  ASSERT_EQ(posCornersRtWorldEwrtWorld.size(),
+            kPosCornersRtFootEwrtFootXy.size());
+  for (size_t i = 0; i < posCornersRtWorldEwrtWorld.size(); ++i) {
     // A rotation by +90 degrees maps a local (x, y) to (-y, x).
-    EXPECT_NEAR(world[i][0], 1.0 - kRectangle[i][1], kTol) << "corner " << i;
-    EXPECT_NEAR(world[i][1], 2.0 + kRectangle[i][0], kTol) << "corner " << i;
-    EXPECT_NEAR(world[i][2], 0.11, kTol) << "corner " << i;
+    EXPECT_NEAR(posCornersRtWorldEwrtWorld[i][0],
+                1.0 - kPosCornersRtFootEwrtFootXy[i][1], kTol)
+        << "corner " << i;
+    EXPECT_NEAR(posCornersRtWorldEwrtWorld[i][1],
+                2.0 + kPosCornersRtFootEwrtFootXy[i][0], kTol)
+        << "corner " << i;
+    EXPECT_NEAR(posCornersRtWorldEwrtWorld[i][2], 0.11, kTol) << "corner " << i;
   }
   // No yaw, no offset: a pure translation.
   TargetContactPatch flat = makePatch();
-  flat.yaw = 0.0;
-  const std::vector<std::array<double, 3>> translated =
-      contactPatchWorldCorners(flat, kRectangle);
-  EXPECT_NEAR(translated[1][0], 1.12, kTol);
-  EXPECT_NEAR(translated[1][1], 1.95, kTol);
-  EXPECT_NEAR(translated[1][2], 0.1, kTol);
-  EXPECT_TRUE(contactPatchWorldCorners(flat, /*corners=*/{}).empty());
+  flat.desEulerzyxFootRtWorldYaw = 0.0;
+  const std::vector<std::array<double, 3>> flatPosCornersRtWorldEwrtWorld =
+      computePosCornersRtWorldEwrtWorld(flat, kPosCornersRtFootEwrtFootXy);
+  EXPECT_NEAR(flatPosCornersRtWorldEwrtWorld[1][0], 1.12, kTol);
+  EXPECT_NEAR(flatPosCornersRtWorldEwrtWorld[1][1], 1.95, kTol);
+  EXPECT_NEAR(flatPosCornersRtWorldEwrtWorld[1][2], 0.1, kTol);
+  EXPECT_TRUE(
+      computePosCornersRtWorldEwrtWorld(flat, /*posCornersRtFootEwrtFootXy=*/{})
+          .empty());
 }
 
 TEST(MujocoContactPatch, DrawsSlabOutlineAndArrowAsDecorGeoms) {
@@ -120,7 +133,9 @@ TEST(MujocoContactPatch, DrawsSlabOutlineAndArrowAsDecorGeoms) {
   style.rgba = {0.1f, 0.2f, 0.3f, 0.4f};
   style.emission = 0.7f;
 
-  ASSERT_EQ(addContactPatchGeoms(&fixture.scene, patch, kRectangle, style), 6);
+  ASSERT_EQ(addContactPatchGeoms(&fixture.scene, patch,
+                                 kPosCornersRtFootEwrtFootXy, style),
+            6);
   ASSERT_EQ(fixture.scene.ngeom, 6);
 
   // The slab: a thin box centered on the patch, its x axis (first column)
@@ -145,13 +160,14 @@ TEST(MujocoContactPatch, DrawsSlabOutlineAndArrowAsDecorGeoms) {
 
   // The outline: one capsule per edge, centered on the edge midpoint, above the
   // slab.
-  const std::vector<std::array<double, 3>> world =
-      contactPatchWorldCorners(patch, kRectangle);
-  for (size_t i = 0; i < kRectangle.size(); ++i) {
+  const std::vector<std::array<double, 3>> posCornersRtWorldEwrtWorld =
+      computePosCornersRtWorldEwrtWorld(patch, kPosCornersRtFootEwrtFootXy);
+  for (size_t i = 0; i < kPosCornersRtFootEwrtFootXy.size(); ++i) {
     const mjvGeom& edge = fixture.scene.geoms[1 + i];
     EXPECT_EQ(edge.type, mjGEOM_CAPSULE) << "edge " << i;
-    const std::array<double, 3>& a = world[i];
-    const std::array<double, 3>& b = world[(i + 1) % world.size()];
+    const std::array<double, 3>& a = posCornersRtWorldEwrtWorld[i];
+    const std::array<double, 3>& b =
+        posCornersRtWorldEwrtWorld[(i + 1) % posCornersRtWorldEwrtWorld.size()];
     // NOLINTBEGIN(frame-naming): MuJoCo's mjvGeom::pos
     EXPECT_NEAR(edge.pos[0], 0.5 * (a[0] + b[0]), kTol) << "edge " << i;
     EXPECT_NEAR(edge.pos[1], 0.5 * (a[1] + b[1]), kTol) << "edge " << i;
@@ -186,12 +202,13 @@ TEST(MujocoContactPatch, StyleSelectsSlabAndArrow) {
   ContactPatchStyle outlineOnly;
   outlineOnly.fill = false;
   outlineOnly.arrow = false;
-  EXPECT_EQ(addContactPatchGeoms(&fixture.scene, makePatch(), kRectangle,
-                                 outlineOnly),
+  EXPECT_EQ(addContactPatchGeoms(&fixture.scene, makePatch(),
+                                 kPosCornersRtFootEwrtFootXy, outlineOnly),
             4);
   EXPECT_EQ(fixture.scene.ngeom, 4);
-  for (int i = 0; i < 4; ++i)
+  for (int i = 0; i < 4; ++i) {
     EXPECT_EQ(fixture.scene.geoms[i].type, mjGEOM_CAPSULE);
+  }
 
   // A triangle is a polygon too; its slab covers the bounds.
   const ContactPatchCorners triangle = {{0.0, 0.0}, {0.2, 0.0}, {0.0, 0.1}};
@@ -210,28 +227,30 @@ TEST(MujocoContactPatch, NothingIsDrawnWithoutAValidPatchOrRoom) {
   const ContactPatchStyle style;
   TargetContactPatch invalid = makePatch();
   invalid.valid = false;
-  EXPECT_EQ(addContactPatchGeoms(&fixture.scene, invalid, kRectangle, style),
+  EXPECT_EQ(addContactPatchGeoms(&fixture.scene, invalid,
+                                 kPosCornersRtFootEwrtFootXy, style),
             0);
   EXPECT_EQ(addContactPatchGeoms(&fixture.scene, makePatch(),
                                  {{0.0, 0.0}, {0.1, 0.0}}, style),
             0)
       << "two corners are no polygon";
-  EXPECT_EQ(
-      addContactPatchGeoms(&fixture.scene, makePatch(), kRectangle, style), 0)
+  EXPECT_EQ(addContactPatchGeoms(&fixture.scene, makePatch(),
+                                 kPosCornersRtFootEwrtFootXy, style),
+            0)
       << "no room for the whole patch";
   EXPECT_EQ(fixture.scene.ngeom, 0) << "a patch is drawn whole or not at all";
-  EXPECT_EQ(
-      addContactPatchGeoms(/*scene=*/nullptr, makePatch(), kRectangle, style),
-      0);
+  EXPECT_EQ(addContactPatchGeoms(/*scene=*/nullptr, makePatch(),
+                                 kPosCornersRtFootEwrtFootXy, style),
+            0);
 
   ContactPatchStyle outlineOnly;
   outlineOnly.fill = false;
   outlineOnly.arrow = false;
-  EXPECT_EQ(addContactPatchGeoms(&fixture.scene, makePatch(), kRectangle,
-                                 outlineOnly),
+  EXPECT_EQ(addContactPatchGeoms(&fixture.scene, makePatch(),
+                                 kPosCornersRtFootEwrtFootXy, outlineOnly),
             4);
-  EXPECT_EQ(addContactPatchGeoms(&fixture.scene, makePatch(), kRectangle,
-                                 outlineOnly),
+  EXPECT_EQ(addContactPatchGeoms(&fixture.scene, makePatch(),
+                                 kPosCornersRtFootEwrtFootXy, outlineOnly),
             0)
       << "one geom of room left";
   EXPECT_EQ(fixture.scene.ngeom, 4);

@@ -56,24 +56,26 @@ namespace {
  * EndEffectorDynamicsWeights::toVector(). */
 mpc_config::TaskSpaceWeights distinctWeights() {
   mpc_config::TaskSpaceWeights weights;
+  // NOLINTBEGIN(frame-naming): TaskSpaceWeights' per-component weight fields
   weights.pos_x = 1.0;
   weights.pos_y = 2.0;
   weights.pos_z = 3.0;
-  weights.orientation_x = 4.0;
-  weights.orientation_y = 5.0;
-  weights.orientation_z = 6.0;
-  weights.lin_velocity_x = 7.0;
-  weights.lin_velocity_y = 8.0;
-  weights.lin_velocity_z = 9.0;
-  weights.ang_velocity_x = 10.0;
-  weights.ang_velocity_y = 11.0;
-  weights.ang_velocity_z = 12.0;
-  weights.lin_acceleration_x = 13.0;
-  weights.lin_acceleration_y = 14.0;
-  weights.lin_acceleration_z = 15.0;
-  weights.ang_acceleration_x = 16.0;
-  weights.ang_acceleration_y = 17.0;
-  weights.ang_acceleration_z = 18.0;
+  weights.rotvec_x = 4.0;
+  weights.rotvec_y = 5.0;
+  weights.rotvec_z = 6.0;
+  weights.linvel_x = 7.0;
+  weights.linvel_y = 8.0;
+  weights.linvel_z = 9.0;
+  weights.angvel_x = 10.0;
+  weights.angvel_y = 11.0;
+  weights.angvel_z = 12.0;
+  weights.linacc_x = 13.0;
+  weights.linacc_y = 14.0;
+  weights.linacc_z = 15.0;
+  weights.angacc_x = 16.0;
+  weights.angacc_y = 17.0;
+  weights.angacc_z = 18.0;
+  // NOLINTEND(frame-naming)
   return weights;
 }
 
@@ -98,14 +100,13 @@ TEST(EndEffectorDynamicsWeightsFromConfigTest, EachWeightLandsInItsOwnEntry) {
 TEST(EndEffectorDynamicsWeightsFromConfigTest,
      ANonFiniteWeightIsRefusedByItsPath) {
   mpc_config::TaskSpaceWeights weights = distinctWeights();
-  weights.lin_acceleration_z = std::numeric_limits<double>::infinity();
+  weights.linacc_z = std::numeric_limits<double>::infinity();
   const absl::StatusOr<EndEffectorDynamicsWeights> refused =
       endEffectorDynamicsWeightsFromConfig(weights,
                                            "task_space_foot_cost.weights");
   EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(
-      absl::StrContains(refused.status().message(),
-                        "task_space_foot_cost.weights.lin_acceleration_z"))
+  EXPECT_TRUE(absl::StrContains(refused.status().message(),
+                                "task_space_foot_cost.weights.linacc_z"))
       << refused.status();
 }
 
@@ -114,24 +115,23 @@ TEST(EndEffectorDynamicsWeightsFromConfigTest,
   // The foot cost weighs each error by the square root of its weight: a
   // negative one is a NaN in the cost.
   mpc_config::TaskSpaceWeights negative = distinctWeights();
-  negative.orientation_y = -5.0;
+  negative.rotvec_y = -5.0;
   const absl::StatusOr<EndEffectorDynamicsWeights> refused =
       endEffectorDynamicsWeightsFromConfig(negative,
                                            "task_space_foot_cost.weights");
   EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(
-      absl::StrContains(refused.status().message(),
-                        "task_space_foot_cost.weights.orientation_y is -5"))
+  EXPECT_TRUE(absl::StrContains(refused.status().message(),
+                                "task_space_foot_cost.weights.rotvec_y is -5"))
       << refused.status();
   EXPECT_TRUE(absl::StrContains(refused.status().message(), "non-negative"))
       << refused.status();
   mpc_config::TaskSpaceWeights nan = distinctWeights();
-  nan.ang_velocity_x = std::numeric_limits<double>::quiet_NaN();
+  nan.angvel_x = std::numeric_limits<double>::quiet_NaN();
   const absl::StatusOr<EndEffectorDynamicsWeights> nanRefused =
       endEffectorDynamicsWeightsFromConfig(nan, "task_space_foot_cost.weights");
   EXPECT_EQ(nanRefused.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(absl::StrContains(nanRefused.status().message(),
-                                "task_space_foot_cost.weights.ang_velocity_x"))
+                                "task_space_foot_cost.weights.angvel_x"))
       << nanRefused.status();
 }
 
@@ -139,9 +139,11 @@ TEST(EndEffectorDynamicsWeightsFromConfigTest,
  * zero error at 0. */
 mpc_config::TaskSpaceWeights distinctLiveWeights() {
   mpc_config::TaskSpaceWeights weights = distinctWeights();
+  // NOLINTBEGIN(frame-naming): TaskSpaceWeights' per-component weight fields
   weights.pos_x = 0.0;
   weights.pos_y = 0.0;
   weights.pos_z = 0.0;
+  // NOLINTEND(frame-naming)
   return weights;
 }
 
@@ -152,9 +154,11 @@ TEST(WholeBodyFootCostWeightsFromConfigTest,
     double mpc_config::TaskSpaceWeights::*absl_nonnull field;
   };
   const std::vector<Inert> inert = {
+      // NOLINTBEGIN(frame-naming): TaskSpaceWeights' per-component weight fields
       {.name = "pos_x", .field = &mpc_config::TaskSpaceWeights::pos_x},
       {.name = "pos_y", .field = &mpc_config::TaskSpaceWeights::pos_y},
       {.name = "pos_z", .field = &mpc_config::TaskSpaceWeights::pos_z}};
+  // NOLINTEND(frame-naming)
   mpc_config::TaskSpaceCostConfig footCost;
   footCost.weights = distinctLiveWeights();
   ASSERT_TRUE(wholeBodyFootCostWeightsFromConfig(footCost).ok())

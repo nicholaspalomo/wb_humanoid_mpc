@@ -33,9 +33,9 @@ message TargetContactPatch {
     double x = 1;
     double y = 2;
     double z = 3;
-    // [rad] The heading of the contact frame about the vertical.
-    double yaw = 4;
-    // Whether the yaw is planned (the heading model); otherwise it is the measured yaw of the foot.
+    // [rad] The contact frame's ZYX yaw.
+    double eulerzyx_foot_rt_world_yaw = 4;
+    // Whether eulerzyx_foot_rt_world_yaw is planned (the heading model); otherwise it is the measured yaw of the foot.
     bool yaw_planned = 5;
   }
 

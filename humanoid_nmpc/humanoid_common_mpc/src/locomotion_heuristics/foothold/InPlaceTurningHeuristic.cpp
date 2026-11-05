@@ -32,20 +32,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 
 namespace ocs2::humanoid {
 
 namespace {
 
-/** Rotates a (forward, left) offset of the base's yaw frame into the world. */
-vector2_t toWorld(const vector2_t& inBaseFrame, scalar_t yaw) {
-  const scalar_t cosYaw = std::cos(yaw);
-  const scalar_t sinYaw = std::sin(yaw);
-  return vector2_t(cosYaw * inBaseFrame.x() - sinYaw * inBaseFrame.y(),
-                   sinYaw * inBaseFrame.x() + cosYaw * inBaseFrame.y());
+/** Rotates `planarVector` by `angle` [rad] about the vertical: the components
+ * in the heading frame into the world's for angle = yaw_base_rt_world, and back
+ * for -yaw_base_rt_world. */
+vector2_t rotateAboutVertical(const vector2_t& planarVector, scalar_t angle) {
+  const scalar_t cosAngle = std::cos(angle);
+  const scalar_t sinAngle = std::sin(angle);
+  return vector2_t(cosAngle * planarVector.x() - sinAngle * planarVector.y(),
+                   sinAngle * planarVector.x() + cosAngle * planarVector.y());
 }
 
 }  // namespace
@@ -57,7 +64,7 @@ absl::Status InPlaceTurningHeuristic::configure(
   return absl::OkStatus();
 }
 
-vector2_t InPlaceTurningHeuristic::offset(
+vector2_t InPlaceTurningHeuristic::computeOffsetPosFootRtWorldEwrtWorldXy(
     const FootholdHeuristicContext& context) const {
   // H_r(psidot) = a1 psidot + a0, Bledt Table C.2, in the base's yaw frame.
   //
@@ -92,21 +99,23 @@ vector2_t InPlaceTurningHeuristic::offset(
   const scalar_t forwardGain =
       parameters_.forwardPerYawRate +
       parameters_.forwardStanceLever * context.stanceDuration;
-  const vector2_t offsetInBaseFrame(
-      -context.side * forwardGain * context.commandedYawRate +
-          parameters_.forwardOffset,
-      parameters_.lateralPerYawRate * context.commandedYawRate +
-          context.side * parameters_.lateralOffset);
-  return toWorld(offsetInBaseFrame, context.baseYaw);
+  const vector2_t offsetPosFootRtWorldEwrtHeadingXy(
+      -context.side * forwardGain * context.cmdRateYawBaseRtWorld +
+          parameters_.offsetPosFootRtWorldEwrtHeadingX,
+      parameters_.lateralPerYawRate * context.cmdRateYawBaseRtWorld +
+          context.side * parameters_.offsetPosFootRtWorldEwrtHeadingY);
+  return rotateAboutVertical(offsetPosFootRtWorldEwrtHeadingXy,
+                             context.yawBaseRtWorld);
 }
 
 std::string InPlaceTurningHeuristic::describe() const {
-  return absl::StrCat("in_place_turning: d_forward = -side * (",
-                      parameters_.forwardPerYawRate, " + ",
-                      parameters_.forwardStanceLever,
-                      " * T_stance) * psidot + ", parameters_.forwardOffset,
-                      " [m], d_lateral = ", parameters_.lateralPerYawRate,
-                      " * psidot + side * ", parameters_.lateralOffset, " [m]");
+  return absl::StrCat(
+      "in_place_turning: d_forward = -side * (", parameters_.forwardPerYawRate,
+      " + ", parameters_.forwardStanceLever, " * T_stance) * psidot + ",
+      parameters_.offsetPosFootRtWorldEwrtHeadingX,
+      " [m], d_lateral = ", parameters_.lateralPerYawRate,
+      " * psidot + side * ", parameters_.offsetPosFootRtWorldEwrtHeadingY,
+      " [m]");
 }
 
 }  // namespace ocs2::humanoid

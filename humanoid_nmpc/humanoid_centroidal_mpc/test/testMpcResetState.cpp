@@ -28,6 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -37,10 +38,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
+#include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "support/AtlasReferenceStack.h"
 
 /*
@@ -71,15 +79,15 @@ constexpr scalar_t kSolvePeriod = 0.01;  // [s]
  * center of mass also carries. */
 vector_t walkingState(const AtlasReferenceStack& stack,
                       const vector_t& state,
-                      scalar_t speed,
+                      scalar_t linvelComRtWorldEwrtWorldX,
                       scalar_t dt) {
   vector_t moved = state;
   centroidal_model::getMnormCmomComRtWorldEwrtWorld(moved,
                                                     stack.centroidalModelInfo())
       .setZero();
   centroidal_model::getMnormCmomComRtWorldEwrtWorld(
-      moved, stack.centroidalModelInfo())(0) = speed;
-  moved(6) += speed * dt;
+      moved, stack.centroidalModelInfo())(0) = linvelComRtWorldEwrtWorldX;
+  moved(6) += linvelComRtWorldEwrtWorldX * dt;
   return moved;
 }
 
@@ -88,12 +96,13 @@ vector_t walkingState(const AtlasReferenceStack& stack,
 void walk(AtlasReferenceStack& stack,
           scalar_t& time,
           vector_t& state,
-          scalar_t speed,
+          scalar_t linvelComRtWorldEwrtWorldX,
           scalar_t duration) {
   const scalar_t end = time + duration;
   while (time < end - 1.0e-9) {
     stack.mpc().run(time, state, ModeNumber::kStance);
-    state = walkingState(stack, state, speed, kSolvePeriod);
+    state =
+        walkingState(stack, state, linvelComRtWorldEwrtWorldX, kSolvePeriod);
     time += kSolvePeriod;
   }
 }
@@ -112,10 +121,11 @@ bool scheduleSwingsIn(const AtlasReferenceStack& stack,
 }
 
 /** [m/s] The Atlas command limit along x: the raw command that asks for
- * `speed`. */
-scalar_t rawCommandFor(scalar_t speed) {
-  return speed / 1.2;  // the reference file's
-                       // cmd_max_linvel_base_rt_world_ewrt_heading_x
+ * `cmdLinvelBaseRtWorldEwrtHeadingX`. */
+scalar_t rawCommandFor(scalar_t cmdLinvelBaseRtWorldEwrtHeadingX) {
+  return cmdLinvelBaseRtWorldEwrtHeadingX /
+         1.2;  // the reference file's
+               // cmd_max_linvel_base_rt_world_ewrt_heading_x
 }
 
 /** Everything the solver would read from the two stacks, compared. */
@@ -172,15 +182,19 @@ void expectSameReferences(AtlasReferenceStack& used,
     EXPECT_EQ(used.planningReferenceManager()->hasActivePlan(),
               fresh.planningReferenceManager()->hasActivePlan())
         << when;
-    const feet_array_t<TargetContactPose> posesA =
-        used.planningReferenceManager()->getTargetContactPoses();
-    const feet_array_t<TargetContactPose> posesB =
-        fresh.planningReferenceManager()->getTargetContactPoses();
+    const feet_array_t<TargetContactPose> firstDesPoseFeetRtWorld =
+        used.planningReferenceManager()->getDesPoseFeetRtWorld();
+    const feet_array_t<TargetContactPose> secondDesPoseFeetRtWorld =
+        fresh.planningReferenceManager()->getDesPoseFeetRtWorld();
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      EXPECT_EQ(posesA[foot].valid, posesB[foot].valid)
+      EXPECT_EQ(firstDesPoseFeetRtWorld[foot].valid,
+                secondDesPoseFeetRtWorld[foot].valid)
           << when << ", foot " << foot;
-      if (posesA[foot].valid && posesB[foot].valid) {
-        EXPECT_LT((posesA[foot].position - posesB[foot].position).norm(),
+      if (firstDesPoseFeetRtWorld[foot].valid &&
+          secondDesPoseFeetRtWorld[foot].valid) {
+        EXPECT_LT((firstDesPoseFeetRtWorld[foot].posFootRtWorldEwrtWorldXy -
+                   secondDesPoseFeetRtWorld[foot].posFootRtWorldEwrtWorldXy)
+                      .norm(),
                   1.0e-9)
             << when << ", foot " << foot;
       }
@@ -215,15 +229,16 @@ void resetStackBehavesAsAFreshOne(ScheduleSource source,
   vector_t state = used.initialState();
   used.referenceManager().setTargetTrajectories(used.resetTarget(time, state));
   used.command(rawCommandFor(1.0));
-  walk(used, time, state, /*speed=*/1.0, /*duration=*/6.0);
+  walk(used, time, state, /*linvelComRtWorldEwrtWorldX=*/1.0, /*duration=*/6.0);
   ASSERT_TRUE(scheduleSwingsIn(used, used.referenceManager(), time,
                                time + used.horizon()))
       << "positive control: the stack is walking before the reset";
 
   // The robot is caught and put back elsewhere, standing; the controller resets
   // the MPC from there, as it does at start-up.
-  const vector_t held =
-      used.standingAt(used.initialState(), /*x=*/3.0, /*y=*/-1.0, /*yaw=*/0.4);
+  const vector_t held = used.standingAt(
+      used.initialState(), /*posBaseRtWorldEwrtWorldX=*/3.0,
+      /*posBaseRtWorldEwrtWorldY=*/-1.0, /*eulerzyxBaseRtWorldYaw=*/0.4);
   reset(used);
   used.referenceManager().setTargetTrajectories(used.resetTarget(time, held));
   fresh.referenceManager().setTargetTrajectories(fresh.resetTarget(time, held));
@@ -297,7 +312,8 @@ TEST(MpcResetState,
   stack.referenceManager().setTargetTrajectories(
       stack.resetTarget(time, state));
   stack.command(rawCommandFor(1.0));
-  walk(stack, time, state, /*speed=*/1.0, /*duration=*/13.0);
+  walk(stack, time, state, /*linvelComRtWorldEwrtWorldX=*/1.0,
+       /*duration=*/13.0);
   ASSERT_TRUE(scheduleSwingsIn(stack, stack.referenceManager(), time,
                                time + stack.horizon()));
 
@@ -309,7 +325,8 @@ TEST(MpcResetState,
   bool swungWithinASecond = false;
   for (const scalar_t end = time + 1.0; time < end; time += kSolvePeriod) {
     stack.mpc().run(time, state, ModeNumber::kStance);
-    state = walkingState(stack, state, /*speed=*/1.0, kSolvePeriod);
+    state = walkingState(stack, state, /*linvelComRtWorldEwrtWorldX=*/1.0,
+                         kSolvePeriod);
     swungWithinASecond =
         swungWithinASecond || scheduleSwingsIn(stack, stack.referenceManager(),
                                                time, time + stack.horizon());
@@ -328,7 +345,8 @@ TEST(MpcResetState,
   bool freshSwungWithinASecond = false;
   for (const scalar_t end = time + 1.0; time < end; time += kSolvePeriod) {
     fresh.mpc().run(time, state, ModeNumber::kStance);
-    state = walkingState(fresh, state, /*speed=*/1.0, kSolvePeriod);
+    state = walkingState(fresh, state, /*linvelComRtWorldEwrtWorldX=*/1.0,
+                         kSolvePeriod);
     freshSwungWithinASecond = freshSwungWithinASecond ||
                               scheduleSwingsIn(fresh, fresh.referenceManager(),
                                                time, time + fresh.horizon());
@@ -347,7 +365,8 @@ TEST(MpcResetState, AfterAResetTheSwingFootStartsWhereTheFootIsNotWhereItWas) {
   stack.referenceManager().setTargetTrajectories(
       stack.resetTarget(time, state));
   stack.command(rawCommandFor(1.2));
-  walk(stack, time, state, /*speed=*/1.2, /*duration=*/12.0);
+  walk(stack, time, state, /*linvelComRtWorldEwrtWorldX=*/1.2,
+       /*duration=*/12.0);
   ASSERT_GT(state(6), 10.0);
 
   // The operator's sticks are centered when the robot is caught; the first
@@ -365,7 +384,7 @@ TEST(MpcResetState, AfterAResetTheSwingFootStartsWhereTheFootIsNotWhereItWas) {
 
   // Walking again from the origin.
   stack.command(rawCommandFor(1.2));
-  scalar_t maxSwingSpeed = 0.0;
+  scalar_t desMaxNormLinvelFootRtWorldEwrtWorldXy = 0.0;
   size_t swingReferences = 0;
   for (const scalar_t end = time + 4.0; time < end; time += kSolvePeriod) {
     stack.mpc().run(time, state, ModeNumber::kStance);
@@ -374,16 +393,18 @@ TEST(MpcResetState, AfterAResetTheSwingFootStartsWhereTheFootIsNotWhereItWas) {
           stack.referenceManager().getSwingFootReference(foot, time + 0.05);
       if (!reference.has_value()) continue;
       ++swingReferences;
-      maxSwingSpeed =
-          std::max(maxSwingSpeed,
+      desMaxNormLinvelFootRtWorldEwrtWorldXy =
+          std::max(desMaxNormLinvelFootRtWorldEwrtWorldXy,
                    reference->desLinvelFootRtWorldEwrtWorld.head<2>().norm());
     }
-    state = walkingState(stack, state, /*speed=*/1.2, kSolvePeriod);
+    state = walkingState(stack, state, /*linvelComRtWorldEwrtWorldX=*/1.2,
+                         kSolvePeriod);
   }
   ASSERT_GT(swingReferences, 0u)
       << "the robot never swung a foot after the reset, so nothing was checked";
-  EXPECT_LT(maxSwingSpeed, 5.0)
-      << "a swing reference asked for " << maxSwingSpeed << " m/s";
+  EXPECT_LT(desMaxNormLinvelFootRtWorldEwrtWorldXy, 5.0)
+      << "a swing reference asked for "
+      << desMaxNormLinvelFootRtWorldEwrtWorldXy << " m/s";
 }
 
 TEST(MpcResetState, EachMotionManagerSwitchesGaitsOnItsOwnThresholds) {
@@ -398,7 +419,8 @@ TEST(MpcResetState, EachMotionManagerSwitchesGaitsOnItsOwnThresholds) {
   trotting.referenceManager().setTargetTrajectories(
       trotting.resetTarget(time, state));
   trotting.command(rawCommandFor(1.2));
-  walk(trotting, time, state, /*speed=*/1.2, /*duration=*/3.0);
+  walk(trotting, time, state, /*linvelComRtWorldEwrtWorldX=*/1.2,
+       /*duration=*/3.0);
   ASSERT_EQ(trotting.motionManager().getCurrentGaitCommand(), "trot")
       << "positive control: the first manager trots";
 
@@ -408,7 +430,8 @@ TEST(MpcResetState, EachMotionManagerSwitchesGaitsOnItsOwnThresholds) {
   standing.referenceManager().setTargetTrajectories(
       standing.resetTarget(standingTime, standingState));
   standing.command(rawCommandFor(0.2));
-  walk(standing, standingTime, standingState, /*speed=*/0.2, /*duration=*/0.5);
+  walk(standing, standingTime, standingState,
+       /*linvelComRtWorldEwrtWorldX=*/0.2, /*duration=*/0.5);
   EXPECT_EQ(standing.motionManager().getCurrentGaitCommand(), "slow_walk")
       << "a slow command from stance starts the slow walk";
 
@@ -417,8 +440,9 @@ TEST(MpcResetState, EachMotionManagerSwitchesGaitsOnItsOwnThresholds) {
   standing.mpc().reset();
   standing.command(0.0);
   vector_t still = standing.initialState();
-  for (int solve = 0; solve < 100; ++solve, standingTime += kSolvePeriod)
+  for (int solve = 0; solve < 100; ++solve, standingTime += kSolvePeriod) {
     standing.mpc().run(standingTime, still, ModeNumber::kStance);
+  }
   EXPECT_EQ(standing.motionManager().getCurrentGaitCommand(), "stance");
 }
 
@@ -431,11 +455,11 @@ ContactPlan standingPlan(scalar_t startTime, scalar_t dt, size_t numNodes) {
   plan.dt = dt;
   plan.committedUntil = startTime + dt;
   plan.contacts.assign(numNodes, makeFeetArray(true));
-  plan.footholds.assign(numNodes + 1,
-                        makeFeetArray(vector2_t(vector2_t::Zero())));
-  plan.comPosition.assign(numNodes + 1, vector2_t::Zero());
-  plan.comVelocity.assign(numNodes + 1, vector2_t::Zero());
-  plan.zmp.assign(numNodes, vector2_t::Zero());
+  plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
+      numNodes + 1, makeFeetArray(vector2_t(vector2_t::Zero())));
+  plan.posComRtWorldEwrtWorldXyTraj.assign(numNodes + 1, vector2_t::Zero());
+  plan.linvelComRtWorldEwrtWorldXyTraj.assign(numNodes + 1, vector2_t::Zero());
+  plan.posZmpRtWorldEwrtWorldXyTraj.assign(numNodes, vector2_t::Zero());
   return plan;
 }
 

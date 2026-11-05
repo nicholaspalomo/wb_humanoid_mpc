@@ -29,9 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/cost/HeadingTrackingCost.h"
 
-#include <algorithm>
 #include <cmath>
 #include <string>
+
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/StageAccumulator.h"
 
 namespace ocs2::humanoid {
 
@@ -46,11 +51,12 @@ void HeadingTrackingCost::configure(const ContactPlanningConfig& config) {
 void HeadingTrackingCost::addToStage(const ContactPlanningContext& ctx,
                                      int node,
                                      StageAccumulator& stage) const {
-  const scalar_t commandedHeading =
-      ctx.input->heading +
-      ctx.input->headingRateCommand * static_cast<scalar_t>(node) * ctx.dt;
-  stage.addQuadraticResidual({{idx_.heading, 1.0}}, /*uCoefficients=*/{},
-                             -commandedHeading, weight_);
+  const scalar_t cmdHeadingModelYaw =
+      ctx.input->initYawHeadingRtWorld +
+      ctx.input->cmdRateYawBaseRtWorld * static_cast<scalar_t>(node) * ctx.dt;
+  stage.addQuadraticResidual({{idx_.headingModelYaw, 1.0}},
+                             /*uCoefficients=*/{}, -cmdHeadingModelYaw,
+                             weight_);
 }
 
 }  // namespace ocs2::humanoid

@@ -31,7 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/MRT_BASE.h"
+#include "ocs2_mpc/SystemObservation.h"
 
 #include "humanoid_common_mpc/mrt/MpcLink.h"
 

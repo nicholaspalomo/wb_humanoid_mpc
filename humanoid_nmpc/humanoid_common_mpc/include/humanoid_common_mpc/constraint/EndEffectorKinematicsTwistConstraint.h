@@ -31,13 +31,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 
 #include "absl/base/nullability.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
-#include "ocs2_robotic_tools/common/RotationTransforms.h"
 #include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
 
 #include "humanoid_common_mpc/common/Types.h"
@@ -49,7 +51,7 @@ namespace ocs2::humanoid {
  * the plane normal n, where the orientation error with respect to the plane is
  * not differentiable, and its rates fall back to half the angular velocity and
  * acceleration (kUnitQuaternionHalfAngleFactor):
- * getTiltRateMapAngvelEeRtWorldEwrtWorld() here, and the whole-body MPC's
+ * getTiltRateMap() here, and the whole-body MPC's
  * stance rates (humanoid_wb_mpc/end_effector/OrientationErrorWrtPlaneRates.h).
  */
 inline constexpr scalar_t kPlaneNormalAntiParallelThreshold = 1.0e-6;
@@ -68,17 +70,16 @@ inline constexpr int kTwistConstraintOrientationRowsStartIndex = kPositionDim;
  * - For defining constraint of type g(vee), set Ax to matrix_t(0, 0)
  *
  * When the orientation columns of Av are active, the angular velocity is mapped
- * through the kinematic Jacobian of the orientation error so that the
- * constraint expresses a proper PD law: Kp * orientationError + Kd *
- * d(orientationError)/dt = 0 rather than mixing quaternion distance with raw
- * angular velocity.
+ * through getTiltRateMap() so that the constraint expresses a proper PD law:
+ * Kp * tiltEesRtSurfaceEwrtWorld + Kd * d(tiltEesRtSurfaceEwrtWorld)/dt = 0
+ * rather than mixing the tilt with raw angular velocity.
  *
- * The orientation error with respect to a plane only measures the tilt of the
- * end-effector normal, so it has two degrees of freedom and its rate alone
+ * The tilt relative to a surface only measures the tilt of the end-effector
+ * normal, so it has two degrees of freedom and its rate alone
  * leaves the rotation about the contact normal unconstrained. The mapping
  * therefore also carries the rotation rate about the end-effector normal in the
  * plane-normal direction, which for a stance foot is what stops it from
- * pivoting on the spot. See getTiltRateMapAngvelEeRtWorldEwrtWorld().
+ * pivoting on the spot. See getTiltRateMap().
  *
  * Not thread-safe: its end-effector kinematics evaluate on the Pinocchio data
  * of one worker's PreComputation, so the solver gives each worker thread its
@@ -143,7 +144,7 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
    * row of the orientation block. Off by default: it makes a 6D constraint pin
    * all six degrees of freedom, which is correct but removes one input degree
    * of freedom per stance foot from a controller tuned without it. See
-   * getTiltRateMapAngvelEeRtWorldEwrtWorld().
+   * getTiltRateMap().
    */
   void setConstrainYawRateAboutNormal(bool constrain) {
     constrainYawRateAboutNormal_ = constrain;
@@ -154,12 +155,14 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
 
   /** Sets the ground contact plane normal (default: {0, 0, 1} for flat ground).
    */
-  void setGroundPlaneNormal(const vector3_t& normal) {
-    ground_plane_normal_ = normal.normalized();
+  void setNormalTerrainEwrtWorld(const vector3_t& normalTerrainEwrtWorld) {
+    normalTerrainEwrtWorld_ = normalTerrainEwrtWorld.normalized();
   }
 
   /** Gets the current ground contact plane normal. */
-  const vector3_t& getGroundPlaneNormal() const { return ground_plane_normal_; }
+  const vector3_t& getNormalTerrainEwrtWorld() const {
+    return normalTerrainEwrtWorld_;
+  }
 
   /**
    * Writes the rows in the frame of a contact patch, p_R_w =
@@ -229,7 +232,7 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
    * term is the whole difference from the derivative, and that the tilt rows of
    * M omega are the rate of the residual along the flow map.
    */
-  matrix3_t getTiltRateMapAngvelEeRtWorldEwrtWorld(const vector_t& state) const;
+  matrix3_t getTiltRateMap(const vector_t& state) const;
 
  private:
   EndEffectorKinematicsTwistConstraint(
@@ -237,7 +240,7 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
 
   /** The normal the orientation error is taken about: the patch's when a
    * patch rotation is set, the ground plane's otherwise. */
-  vector3_t planeNormal() const;
+  vector3_t getNormalSurfaceEwrtWorld() const;
 
   /**
    * `gains` (rows of Ax or Av over the pose or twist [linear, angular]) times
@@ -246,7 +249,7 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
    */
   matrix_t inPatchFrame(const matrix_t& gains) const;
 
-  vector3_t ground_plane_normal_;
+  vector3_t normalTerrainEwrtWorld_;
   // p_R_w of the patch the rows are written in; empty: the world frame.
   std::optional<matrix3_t> rotmatWorldRtSurface_;
   bool constrainYawRateAboutNormal_ = false;

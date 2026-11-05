@@ -31,8 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
-#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/constraint/LipConstraintBase.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningTerm.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipConstraint.h"
+#include "humanoid_common_mpc/contact_planning/problem/RowBuilder.h"
 
 namespace ocs2::humanoid {
 
@@ -46,9 +52,10 @@ namespace ocs2::humanoid {
  *
  * Under the heading model a single-support box is the stance foot's footprint
  * and is written in that foot's frame, at its nominal yaw
- * (ContactPlanningContext::footAxes), not in the heading frame; the
- * double-support rows stay in the heading frame. ZmpSupportRegionConstraint.cpp
- * states the linearization and what it leaves out.
+ * (ContactPlanningContext::rotmatFeetRtWorldTraj), not in the heading frame;
+ * the double-support rows stay in the heading frame.
+ * ZmpSupportRegionConstraint.cpp states the linearization and what it leaves
+ * out.
  *
  * WHAT THE DOUBLE-SUPPORT REGION ACTUALLY IS, because this used to claim the
  * opposite. The two rows above are each a valid PROJECTION of the support hull
@@ -94,8 +101,17 @@ class ZmpSupportRegionConstraint final : public LipConstraintBase {
                RowBuilder& rows) const override;
 
  private:
-  scalar_t halfWidthX_ = 0.0;
-  scalar_t halfWidthY_ = 0.0;
+  // [m] Single support: the box around the stance foot, in its nominal-yaw
+  // axes. Both from zmp_support_region's max_norm_pos_zmp_rt_foot_ewrt_foot_x /
+  // max_norm_pos_zmp_rt_foot_ewrt_foot_y.
+  scalar_t maxNormPosZmpRtFootEwrtFootX_ = 0.0;
+  scalar_t maxNormPosZmpRtFootEwrtFootY_ = 0.0;
+  // [m] Double support, in the heading axes: along the heading around the
+  // midpoint of the feet (max_norm_pos_zmp_rt_foot_ewrt_foot_x), and laterally
+  // outward of each foot, +y of the left and -y of the right
+  // (max_norm_pos_zmp_rt_foot_ewrt_foot_y).
+  scalar_t maxNormPosZmpRtFeetmeanEwrtHeadingX_ = 0.0;
+  scalar_t maxOutwardPosZmpRtFootEwrtHeadingY_ = 0.0;
 };
 
 }  // namespace ocs2::humanoid

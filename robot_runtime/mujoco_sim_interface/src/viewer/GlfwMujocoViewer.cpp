@@ -31,9 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/viewer/GlfwMujocoViewer.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <optional>
 #include <thread>
@@ -53,6 +53,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/PhysicalConstants.h"
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/MujocoUtils.h"
+#include "mujoco_sim_interface/viewer/MujocoFrameRenderer.h"
 #include "web_viewer/JpegEncoder.h"
 
 namespace robot::mujoco_sim_interface {
@@ -63,11 +65,13 @@ constexpr int kInitPollPeriodMilliseconds =
 }  // namespace
 
 std::optional<char> viewerKeyFromGlfwKey(int glfwKey) {
-  if (glfwKey >= GLFW_KEY_0 && glfwKey < GLFW_KEY_0 + kNumToggledGeomGroups)
+  if (glfwKey >= GLFW_KEY_0 && glfwKey < GLFW_KEY_0 + kNumToggledGeomGroups) {
     return static_cast<char>('0' + (glfwKey - GLFW_KEY_0));
+  }
   // GLFW letter keys equal the upper-case ASCII code.
-  if (glfwKey >= GLFW_KEY_A && glfwKey <= GLFW_KEY_Z)
+  if (glfwKey >= GLFW_KEY_A && glfwKey <= GLFW_KEY_Z) {
     return static_cast<char>('a' + (glfwKey - GLFW_KEY_A));
+  }
   return std::nullopt;
 }
 
@@ -118,8 +122,9 @@ void GlfwMujocoViewer::mouseMove(GLFWwindow* absl_nonnull window,
   GlfwMujocoViewer* absl_nonnull viewer =
       static_cast<GlfwMujocoViewer*>(glfwGetWindowUserPointer(window));
   // no buttons down: nothing to do
-  if (!viewer->buttonLeft_ && !viewer->buttonMiddle_ && !viewer->buttonRight_)
+  if (!viewer->buttonLeft_ && !viewer->buttonMiddle_ && !viewer->buttonRight_) {
     return;
+  }
 
   // compute mouse displacement, save
   const double dx = xpos - viewer->lastX_;
@@ -162,9 +167,10 @@ void GlfwMujocoViewer::scroll(GLFWwindow* absl_nonnull window,
 absl::StatusOr<std::unique_ptr<GlfwMujocoViewer>> GlfwMujocoViewer::Create(
     const MujocoSimInterface* absl_nonnull sim) {
   MjModelPtr model(mj_copyModel(/*dest=*/nullptr, sim->getModel()));
-  if (model == nullptr)
+  if (model == nullptr) {
     return absl::InternalError(
         "the GLFW viewer could not copy the simulator's model (mj_copyModel)");
+  }
   return absl::WrapUnique(new GlfwMujocoViewer(sim, std::move(model)));
 }
 
@@ -258,9 +264,10 @@ void GlfwMujocoViewer::serveCapture() {
 
 absl::Status GlfwMujocoViewer::initialize() {
   // init GLFW
-  if (glfwInit() != GLFW_TRUE)
+  if (glfwInit() != GLFW_TRUE) {
     return absl::UnavailableError(
         "GLFW could not initialize (is there a display?)");
+  }
 
   // create window, make OpenGL context current, request v-sync
   window_ =

@@ -37,10 +37,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlannerInterface.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipContactPlanner.h"
 
@@ -115,8 +119,9 @@ absl::StatusOr<std::string> contactPlannerSummary(
   // assembles a planner through LipContactPlanner::Create(), which validates it
   // too).
   RETURN_IF_ERROR(config.validateStatus());
-  if (name == planner::kHlip)
+  if (name == planner::kHlip) {
     return HlipContactPlanner::formulationSummary(config);
+  }
   return LipContactPlanner::formulationSummary(config);
 }
 

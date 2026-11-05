@@ -39,7 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_runtime/web_viewer/test/PthreadCreateInterposer.h"
 
 #include <dlfcn.h>
-#include <sys/types.h>
+#include <sys/types.h>  // NOLINT(misc-include-cleaner): pthread_t, from an ignored bits/ header
 
 #include <cerrno>
 

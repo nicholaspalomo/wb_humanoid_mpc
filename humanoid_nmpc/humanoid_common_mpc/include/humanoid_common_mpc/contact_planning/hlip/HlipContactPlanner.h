@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -37,7 +38,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerInterface.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -159,10 +163,10 @@ class HlipContactPlanner final : public ContactPlannerInterface {
   /**
    * The same summary for a configuration, without building a planner. It ends
    * with the start-up check below: whether the first step out of a standstill
-   * fits `hlip.maxStepWidth` and, when it does not, whether the reduced model
-   * recovers from the clipped step or locks (startUpLateralWidths).
-   * InvalidArgument when the configuration's H-LIP model cannot be built
-   * (HlipModel::Create()).
+   * fits `hlip.maxPosLfootRtRfootEwrtHeadingY` and, when it does not, whether
+   * the reduced model recovers from the clipped step or locks
+   * (computeStartUpNormPosLfootRtRfootEwrtHeadingYTraj). InvalidArgument when
+   * the configuration's H-LIP model cannot be built (HlipModel::Create()).
    */
   static absl::StatusOr<std::string> formulationSummary(
       const ContactPlanningConfig& config);
@@ -177,24 +181,25 @@ class HlipContactPlanner final : public ContactPlannerInterface {
    * once the first foot leaves the ground it falls sideways fast: at the
    * shipped height it reaches the pre-impact instant far outside the orbit, and
    * catching it takes a step much wider than the nominal one. If that step does
-   * not fit inside `hlip.maxStepWidth` it is clipped, and a clipped step is no
-   * longer the deadbeat step. What happens next depends on how much was cut:
-   * the lateral pendulum amplifies the residual by cosh(omega * sspDuration)
-   * every step, and the gait either recovers within a few steps or locks into
-   * an alternating wide and narrow limit cycle it can never leave (the feet
-   * come together, the robot walks itself sideways and falls).
-   * startUpLateralWidths() rolls the reduced model forward to tell the two
-   * apart.
+   * not fit inside `hlip.maxPosLfootRtRfootEwrtHeadingY` it is clipped, and a
+   * clipped step is no longer the deadbeat step. What happens next depends on
+   * how much was cut: the lateral pendulum amplifies the residual by cosh(omega
+   * * sspDuration) every step, and the gait either recovers within a few steps
+   * or locks into an alternating wide and narrow limit cycle it can never leave
+   * (the feet come together, the robot walks itself sideways and falls).
+   * computeStartUpNormPosLfootRtRfootEwrtHeadingYTraj() rolls the reduced model
+   * forward to tell the two apart.
    *
    * Shortening the single support is what shrinks the demand: less time falling
    * before the foot lands. At the shipped `hlip.dspDuration` of 0.05 s and the
-   * Atlas's 1.0805 m pendulum (its model's, which an unset shared.comHeight
-   * resolves to) it drops from 0.47 m at a 0.35 s single support to 0.39 m at
-   * 0.25 s, which against a 0.45 m reach is the difference between not fitting
-   * and fitting. The double support and the pendulum have to be named with the
-   * figures because both enter the deadbeat gain: at 0.35 s the demand is 0.45
-   * m with dspDuration 0 and 0.49 m with 0.1, and on the 0.85 m pendulum the
-   * Atlas was once hand-set to it was 0.52 m at 0.35 s / 0.05 s.
+   * Atlas's 1.0805 m pendulum (its model's, which an unset
+   * shared.nomPosComRtFeetmeanEwrtWorldZ resolves to) it drops from 0.47 m at a
+   * 0.35 s single support to 0.39 m at 0.25 s, which against a 0.45 m reach is
+   * the difference between not fitting and fitting. The double support and the
+   * pendulum have to be named with the figures because both enter the deadbeat
+   * gain: at 0.35 s the demand is 0.45 m with dspDuration 0 and 0.49 m with
+   * 0.1, and on the 0.85 m pendulum the Atlas was once hand-set to it was 0.52
+   * m at 0.35 s / 0.05 s.
    */
   static absl::StatusOr<scalar_t> startUpLateralStep(
       const ContactPlanningConfig& config);
@@ -204,11 +209,13 @@ class HlipContactPlanner final : public ContactPlannerInterface {
    * `numSteps` steps out of a standstill, in the reduced model under the
    * planner's own step law and step clip: the start-up startUpLateralStep()
    * describes the first step of, rolled forward. The width settles at
-   * `hlip.stepWidth` when the gait recovers, and alternates between two values
-   * when a clipped first step has locked it. Both return InvalidArgument when
-   * the configuration's H-LIP model cannot be built (HlipModel::Create()).
+   * `hlip.nomPosLfootRtRfootEwrtHeadingY` when the gait recovers, and
+   * alternates between two values when a clipped first step has locked it. Both
+   * return InvalidArgument when the configuration's H-LIP model cannot be built
+   * (HlipModel::Create()).
    */
-  static absl::StatusOr<std::vector<scalar_t>> startUpLateralWidths(
+  static absl::StatusOr<std::vector<scalar_t>>
+  computeStartUpNormPosLfootRtRfootEwrtHeadingYTraj(
       const ContactPlanningConfig& config, int numSteps);
 
   const ContactPlanningConfig& getConfig() const { return config_; }
@@ -230,20 +237,22 @@ class HlipContactPlanner final : public ContactPlannerInterface {
    * lateral sway of stepping in place.
    *
    * Laterally a biped cannot walk without swaying: the deadbeat law regulates a
-   * zero command onto the period-two orbit at +-hlip.stepWidth, which crosses
-   * every touch-down at 0.132 m/s at the shipped Atlas cadence on its
-   * model's 1.0805 m pendulum (0.165 m/s on the 0.85 m pendulum of the
-   * planner's unit tests) - several times the blend's half point. Measured raw,
-   * that sway alone held alpha at one through every double support, the next
-   * lift-off was committed every step, and a robot that had walked never came
-   * back to standing at a zero command. So the lateral velocity counts only by
-   * how far it lies outside the range between rest and the zero-command orbit
-   * at the phase the robot is in (zeroCommandOrbitLateralVelocity): stepping in
-   * place and slowing down from it read as zero, a push beyond the orbit's own
-   * sway or against it reads in full. Along the heading the zero-command orbit
-   * is rest, so the sagittal velocity is taken as measured.
+   * zero command onto the period-two orbit at
+   * +-hlip.nomPosLfootRtRfootEwrtHeadingY, which crosses every touch-down at
+   * 0.132 m/s at the shipped Atlas cadence on its model's 1.0805 m pendulum
+   * (0.165 m/s on the 0.85 m pendulum of the planner's unit tests) - several
+   * times the blend's half point. Measured raw, that sway alone held alpha at
+   * one through every double support, the next lift-off was committed every
+   * step, and a robot that had walked never came back to standing at a zero
+   * command. So the lateral velocity counts only by how far it lies outside the
+   * range between rest and the zero-command orbit at the phase the robot is in
+   * (computeZeroCommandOrbitLinvelComRtWorldEwrtHeadingY): stepping in place
+   * and slowing down from it read as zero, a push beyond the orbit's own sway
+   * or against it reads in full. Along the heading the zero-command orbit is
+   * rest, so the sagittal velocity is taken as measured.
    */
-  vector2_t blendVelocity(const ContactPlannerInput& input) const;
+  vector2_t computeBlendLinvelComRtWorldEwrtHeadingXy(
+      const ContactPlannerInput& input) const;
 
   /**
    * [m/s] the lateral velocity (heading frame) of the zero-command period-two
@@ -253,7 +262,7 @@ class HlipContactPlanner final : public ContactPlannerInterface {
    * Empty when the robot has not stepped yet (double support with no known last
    * swing), and in flight.
    */
-  std::optional<scalar_t> zeroCommandOrbitLateralVelocity(
+  std::optional<scalar_t> computeZeroCommandOrbitLinvelComRtWorldEwrtHeadingY(
       const ContactPlannerInput& input) const;
 
   /**
@@ -280,33 +289,39 @@ class HlipContactPlanner final : public ContactPlannerInterface {
   static absl::StatusOr<HlipModel> makeModel(
       const ContactPlanningConfig& config);
 
-  /** formulationSummary(), startUpLateralStep() and startUpLateralWidths() on
-   * `model`, the H-LIP of `config`. */
+  /** formulationSummary(), startUpLateralStep() and
+   * computeStartUpNormPosLfootRtRfootEwrtHeadingYTraj() on `model`, the H-LIP
+   * of `config`. */
   static std::string summaryOf(const ContactPlanningConfig& config,
                                const HlipModel& model);
   static scalar_t startUpLateralStepOf(const ContactPlanningConfig& config,
                                        const HlipModel& model);
-  static std::vector<scalar_t> startUpLateralWidthsOf(
+  static std::vector<scalar_t>
+  rollOutStartUpNormPosLfootRtRfootEwrtHeadingYTraj(
       const ContactPlanningConfig& config,
       const HlipModel& model,
       int numSteps);
 
   /** The lateral step clipped to the reachable side of the stance foot:
-   * [minStepWidth, maxStepWidth] for the left. */
-  static scalar_t clipLateralStep(const HlipParameters& params,
-                                  scalar_t lateralStep,
-                                  bool placesLeftFoot);
+   * [minPosLfootRtRfootEwrtHeadingY, maxPosLfootRtRfootEwrtHeadingY] for the
+   * left. */
+  static scalar_t clipDesErrPosFootRtWorldEwrtHeadingY(
+      const HlipParameters& params,
+      scalar_t errPosFootRtWorldEwrtHeadingY,
+      bool placesLeftFoot);
 
-  /** The heading at `time`: the commanded yaw rate, scaled by the blend weight
-   * `alpha`, integrated from the planning instant. */
-  scalar_t headingAt(const ContactPlannerInput& input,
-                     scalar_t time,
-                     scalar_t alpha) const;
+  /** The yaw of the heading frame at `time`: the commanded yaw rate, scaled by
+   * the blend weight `alpha`, integrated from the planning instant. */
+  scalar_t computeYawHeadingRtWorld(const ContactPlannerInput& input,
+                                    scalar_t time,
+                                    scalar_t alpha) const;
 
   /** A deadbeat step and whether the reachable region cut it, which costs the
    * deadbeat property. */
   struct DeadbeatStep {
-    vector2_t step = vector2_t::Zero();  // [m] in the heading frame
+    // [m] The swing foot's landing position minus the stance foot's, in the
+    // heading frame.
+    vector2_t desErrPosFootRtWorldEwrtHeadingXy = vector2_t::Zero();
     bool clipped = false;
   };
 
@@ -317,27 +332,29 @@ class HlipContactPlanner final : public ContactPlannerInterface {
    */
   DeadbeatStep deadbeatStep(const HlipModel::State& preImpactX,
                             const HlipModel::State& preImpactY,
-                            const vector2_t& commandedVelocity,
+                            const vector2_t& cmdLinvelBaseRtWorldEwrtHeadingXy,
                             size_t swingFoot) const;
 
   /** The reduced model at the start of one phase of the gait, and the feet
    * during it (plan()). */
   struct PhaseRollOut {
-    vector2_t comPosition =
-        vector2_t::Zero();  // world, at the start of the phase
-    vector2_t comVelocity = vector2_t::Zero();
+    vector2_t posComRtWorldEwrtWorldXy =
+        vector2_t::Zero();  // at the start of the phase
+    vector2_t linvelComRtWorldEwrtWorldXy = vector2_t::Zero();
     size_t stanceFoot = kContactLeftIndex;  // single support only
     Eigen::Matrix<scalar_t, kHorizontalPositionDim, kHorizontalPositionDim>
-        world_R_phase = Eigen::Matrix<scalar_t,
-                                      kHorizontalPositionDim,
-                                      kHorizontalPositionDim>::Identity();
+        rotmatHeadingRtWorld =
+            Eigen::Matrix<scalar_t,
+                          kHorizontalPositionDim,
+                          kHorizontalPositionDim>::Identity();
     HlipModel::State stateX =
         HlipModel::State::Zero();  // relative to the stance foot, in the
                                    // phase's heading frame
     HlipModel::State stateY = HlipModel::State::Zero();
-    feet_array_t<vector2_t>
-        feet{};  // during the phase: a swinging foot at its landing spot
-    feet_array_t<scalar_t> footYaws = makeFeetArray(0.0);
+    // during the phase: a swinging foot at its landing spot
+    feet_array_t<vector2_t> desPosFeetRtWorldEwrtWorldXy{};
+    // the planned ZYX yaw of every foot during the phase
+    feet_array_t<scalar_t> desEulerzyxFeetRtWorldYaw = makeFeetArray(0.0);
   };
 
   /** The roll-out of a whole gait, one entry per phase, and how many of its
@@ -350,8 +367,8 @@ class HlipContactPlanner final : public ContactPlannerInterface {
   /** The center of mass of the reduced model at one instant, in the world
    * frame. */
   struct ComState {
-    vector2_t position = vector2_t::Zero();
-    vector2_t velocity = vector2_t::Zero();
+    vector2_t posComRtWorldEwrtWorldXy = vector2_t::Zero();
+    vector2_t linvelComRtWorldEwrtWorldXy = vector2_t::Zero();
   };
 
   // The steps of plan().
@@ -361,10 +378,11 @@ class HlipContactPlanner final : public ContactPlannerInterface {
   ContactPlan initialPlan(const ContactPlannerInput& input) const;
   /** Rolls the reduced model forward through `gait`, placing every swing at its
    * deadbeat step. */
-  GaitRollOut rollOutGait(const ContactPlannerInput& input,
-                          const std::vector<GaitPhase>& gait,
-                          scalar_t alpha,
-                          const vector2_t& plannedCommand) const;
+  GaitRollOut rollOutGait(
+      const ContactPlannerInput& input,
+      const std::vector<GaitPhase>& gait,
+      scalar_t alpha,
+      const vector2_t& plannedCmdLinvelBaseRtWorldEwrtHeadingXy) const;
   /** The center of mass of the roll-out `entry` of `phase` at `time`. */
   ComState comAt(const GaitPhase& phase,
                  const PhaseRollOut& entry,
@@ -376,16 +394,17 @@ class HlipContactPlanner final : public ContactPlannerInterface {
                  const std::vector<PhaseRollOut>& rollOut,
                  scalar_t alpha,
                  ContactPlan& plan) const;
-  /** Fills `plan.phaseZmp`: the stance foot of every single support, none in
-   * double support. */
+  /** Fills `plan.phasePosZmpRtWorldEwrtWorldXyTraj`: the stance foot of every
+   * single support, none in double support. */
   static void fillPhaseZmps(const std::vector<GaitPhase>& gait,
                             const std::vector<PhaseRollOut>& rollOut,
                             ContactPlan& plan);
   /** Blends the center of mass and the phase ZMPs of a standing plan towards
-   * the center of `standingFeet` by `alpha`. */
-  static void blendTowardsStanding(const feet_array_t<vector2_t>& standingFeet,
-                                   scalar_t alpha,
-                                   ContactPlan& plan);
+   * the center of `posFeetRtWorldEwrtWorldXy` by `alpha`. */
+  static void blendTowardsStanding(
+      const feet_array_t<vector2_t>& posFeetRtWorldEwrtWorldXy,
+      scalar_t alpha,
+      ContactPlan& plan);
   /** Fills the per-interval contacts and ZMP and the continuous-time phases of
    * `plan` from `gait`. */
   void fillContactsAndPhases(const ContactPlannerInput& input,

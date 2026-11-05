@@ -38,7 +38,7 @@ mixed 3-DoF (point) and 6-DoF (surface) contacts (`numThreeDofContacts`, `numSix
 `AccessHelperFunctionsImpl.h`), and OCS2's `ModeSchedule` takes any `size_t` mode.
 
 **Flat ground everywhere.**
-- The terrain is one scalar, `terrain_height`, owned by `SwitchedModelReferenceManager`.
+- The terrain is one scalar, `pos_surface_rt_world_ewrt_world_z`, owned by `SwitchedModelReferenceManager`.
 - The swing planner broadcasts it to every phase.
 - The friction cones and the slip terms are written about the world `z` axis (`ForceWeightedSlipConstraint.h` says so
   and lists what a slope would need).
@@ -183,7 +183,7 @@ Notes:
   (section 11).
 - A point on a round geom is an approximation: the true contact point rolls around the capsule as the limb rotates. The
   pad's offset is placed at the radius along the pad normal, and the slip and orientation terms allow a cone of
-  approach angles (`max_pad_tilt`, default 30 degrees) instead of requiring the pad normal to equal the surface
+  approach angles (`StanceIkOptions::maxTiltanglePadRtSurface`, default 30 degrees) instead of requiring the pad normal to equal the surface
   normal.
 - A forearm resting along a box edge is closer to a line contact. Version 1 uses one point. Two points per forearm,
   which give it a moment, are a later option that needs no new kind.
@@ -214,10 +214,10 @@ seat cushion, seat back and dashboard, and capsules for the roll-cage tubes.
   below the true minimum by at most 5 mm × log(n): 3.5 mm where two primitives are equally near, nothing where one is
   nearer by a few centimeters. The normal is the gradient's direction (the softmin-weighted normals, normalized), and
   the nearest point `p - d(p) n(p)`, exact where one primitive dominates.
-- `patchFrame(contact)`: for a contact assigned to a face, the face's frame, with its normal and its polygon. That is
-  what the friction cones and slip constraints are written in. `patchFrameAt(p)` assigns a point to the face of the
-  nearest primitive whose plane is nearest, or to a capsule's tangent plane.
-- `sphereDistance(center, radius)`: the robot's collision spheres (section 5.4) against the scene.
+- `boxFaceFrame(index, face)`: the frame of a box face, with its normal and its polygon. That is what the friction
+  cones and slip constraints are written in. `patchFrameAt(point)` assigns a point to the face of the nearest
+  primitive whose plane is nearest, or to a capsule's tangent plane.
+- `sphereDistance(posSphereRtWorldEwrtWorld, radius)`: the robot's collision spheres (section 5.4) against the scene.
 
 Every branch of the templated queries is a CppAD conditional expression, and a norm is guarded before its square
 root, so a tape recorded at one point is valid in every region (face, edge, corner, inside) and runs on CppADCodeGen
@@ -227,7 +227,7 @@ The same `TerrainScene` textproto generates the MuJoCo scene (section 8) and the
 MPC, the dummy sim and MuJoCo can never disagree about where the box is.
 
 **Flat ground is the special case.** A scene with only the floor box at height `h` reproduces today's
-`terrain_height = h`. That is the parity test of section 9.
+`pos_surface_rt_world_ewrt_world_z = h`. That is the parity test of section 9.
 
 ## 4. Planner A: contact-invariant optimization
 
@@ -501,7 +501,7 @@ decision 6), by name:
 
 <!-- LINT.IfChange(joint_limits_names) -->
 - `joint_limits: "position_and_effort"` (the default): the joint position limits, and the quasi-static torques within
-  `torque_margin` of the effort limits;
+  `joint_torque_margin` of the effort limits;
 - `joint_limits: "position_only"`: the joint position limits alone;
 - `joint_limits: "relaxed_position"`: as `"position_only"`, with the position limits the stance graph planner keeps to
   widened by the scenario's `joint_limit_relaxation` (in (0, 0.3] rad) on both sides (decision 8).
@@ -762,7 +762,7 @@ holds by IK at the knots only, drift off their patches in between, and those fai
   removed (a rank-revealing QR), after a feasibility test.
 - **The torque LP** minimizes `u` subject to static equilibrium and `|tau_j| <= u effort_j` for every joint with a
   limit: `u` is the smallest fraction of the limits that holds the stance, and the stance is torque-feasible when `u`
-  is at most the scenario's `torque_margin`. Under `joint_limits: "position_only"` the report carries `u` per knot for
+  is at most the scenario's `joint_torque_margin`. Under `joint_limits: "position_only"` the report carries `u` per knot for
   information (absent where HPIPM cannot solve the LP, which then fails nothing), names the joint limits and no torque
   margin, and condition 3 solves no torque LP.
 
@@ -899,8 +899,8 @@ The MPC does not re-plan contacts. If the robot falls behind the plan, the refer
 until the current phase's stance is reached within a tolerance. It never skips a contact change, because skipping one
 breaks condition 3. Precisely (`PlanClock`): the plan starts at the first solve and runs with the solves until it is
 `multi_contact_plan.clock_hold.lead` before its next contact change; there the stance the robot is on is judged, every
-contact of it on its patch within `contact_tolerance` along the patch normal and the center of mass within
-`com_tolerance` horizontally of the plan's at that time. Reached, the change is released; otherwise the clock holds
+contact of it on its patch within `max_norm_pos_contact_rt_surface_ewrt_surface_z` along the patch normal and the center of mass within
+`max_norm_err_pos_com_rt_world_ewrt_world_xy` horizontally of the plan's at that time. Reached, the change is released; otherwise the clock holds
 there, solve after solve, the change `lead` ahead in the horizon. At most one change is released per solve, so a
 stalled solve cannot skip one.
 
@@ -971,12 +971,12 @@ other, and never ends. A seam needs no special case, since the cycle ends in the
 A scenario is a textproto (`scenario.proto`, in `humanoid_multi_contact/scenarios/config/`) with these fields:
 - `robot`, and its `urdf_file` and `contact_set_file`;
 - `terrain_scene`;
-- `initial_pose` (a named pose: the base pose, the joint positions and the active contacts);
+- `initial_posture` (a named posture: the base pose, the joint positions and the active contacts);
 - `goal` (the goal stance, each contact on a named primitive; an optional base-pose region; an optional final pose);
 - `allowed_contacts`;
 - `planner`;
 - `static_margin`, absent for the stairs;
-- `joint_limits` (`"position_only"` in every shipped scenario, section 11, decision 6) and `torque_margin`, read only
+- `joint_limits` (`"position_only"` in every shipped scenario, section 11, decision 6) and `joint_torque_margin`, read only
   under `"position_and_effort"`;
 - `duration`;
 - `simulation_start`: when MuJoCo's tilt catch and gantry catch arm, by name, `at_start` or `when_standing` (with a
@@ -1032,7 +1032,7 @@ grasp on the roll cage can pull, which is a bilateral wrench bounded by a box ra
 addition and changes the static equilibrium test (section 11).
 
 The robot starts sitting, so this scenario also needs the MPC's initial state to be the planned initial state, and the
-MuJoCo gantry and tilt catch (`sim_max_base_tilt_angle`) to be configured for a seated start (section 8.3).
+MuJoCo gantry and tilt catch (`sim_max_tiltangle_base_rt_world`) to be configured for a seated start (section 8.3).
 
 **4. Getting up from the ground** (`get_up_supine.textproto`, `get_up_prone.textproto`).
 - Scene: the floor only.
@@ -1062,7 +1062,7 @@ Three things are new in this scenario:
 - The early phases have the CoM about 0.15 m above the floor. The torque check of section 2 matters most here:
   sitting up from the back takes most of the hip flexors' effort, and the planner must find the hands' push that
   relieves them.
-- MuJoCo's tilt catch fires at once unless disarmed: it catches a robot whose base tilts past `sim_max_base_tilt_angle`, which a
+- MuJoCo's tilt catch fires at once unless disarmed: it catches a robot whose base tilts past `sim_max_tiltangle_base_rt_world`, which a
   lying robot does from the first step. The scenario disarms the tilt catch and the gantry until the robot stands
   (section 8.3).
 
@@ -1136,7 +1136,7 @@ New code ships with tests, and a new formulation ships with parity tests.
   a rotated frame, they equal today's terms written in that frame.
 
 **Parity:** the multi-contact centroidal MPC with only the two feet, a flat `TerrainScene` at height `h`, and a plan of
-standing or of the shipped gait equals today's centroidal MPC with `terrain_height = h`. Every cost, constraint, value
+standing or of the shipped gait equals today's centroidal MPC with `pos_surface_rt_world_ewrt_world_z = h`. Every cost, constraint, value
 and derivative is compared at the probe points of `test/equivalence`, the same pattern as the existing equivalence
 tests.
 
@@ -1262,7 +1262,7 @@ Implementation stages:
    climb, and the dummy sims show contact sequences, not hardware. The certifier still reports the torque utilization
    at every knot. The enforcing policy, `"position_and_effort"`, stays the scenario's default for the hardware work: it
    restores the stance graph's torque check, solve 3's `QuasiStaticTorqueConstraint` and the certifier's torque
-   condition with `torque_margin`. No planner reads the URDF's joint velocity limits (6.3-100 rad/s on the Atlas) under
+   condition with `joint_torque_margin`. No planner reads the URDF's joint velocity limits (6.3-100 rad/s on the Atlas) under
    either policy: the timing law moves every joint at most 0.5 rad/s, and planner A's solves carry no velocity
    limit.
 7. The stairs dummy sim walks up and backward down, over and over (section 7.3). The descent is the ascent's plan

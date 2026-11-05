@@ -6,7 +6,8 @@ import "humanoid_mpc_msgs/color.proto";
 import "humanoid_mpc_msgs/vector3.proto";
 import "nproto/options.proto";
 
-// Arrows from origins along vectors (Rerun Arrows3D). Empty arrays clear what was drawn at the path before.
+// Arrows from their tails, pos_arrows_rt_world_ewrt_world, to their heads, pos_arrowheads_rt_arrow_ewrt_world past the
+// tails (Rerun Arrows3D's origins and vectors). Empty arrays clear what was drawn at the path before.
 // Next ID: 6
 message Arrows {
   option (nproto.generate_struct) = "ocs2::humanoid::msgs::Arrows";
@@ -14,8 +15,8 @@ message Arrows {
   reserved 6 to max;
 
   string path = 1;
-  repeated Vector3 origins = 2;
-  repeated Vector3 vectors = 3;
+  repeated Vector3 pos_arrows_rt_world_ewrt_world = 2;
+  repeated Vector3 pos_arrowheads_rt_arrow_ewrt_world = 3;
   // One color for all, or one per arrow.
   repeated Color colors = 4;
   float radius = 5;

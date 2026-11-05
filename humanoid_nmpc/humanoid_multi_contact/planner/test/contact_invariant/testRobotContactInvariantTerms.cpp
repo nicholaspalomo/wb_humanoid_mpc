@@ -106,7 +106,7 @@ std::string cppAdFolder() {
 vector_t perturbedState(const AtlasModels& atlas) {
   const MpcRobotModelBase<scalar_t>& model = atlas.models->getMpcRobotModel();
   const absl::StatusOr<RobotConfiguration> initial =
-      configurationOf(atlas.scenario.scenario.initial_pose);
+      configurationOf(atlas.scenario.scenario.initial_posture);
   EXPECT_TRUE(initial.ok()) << initial.status();
   vector_t state = mpcStateOf(model, *initial);
   for (Eigen::Index i = 0; i < state.size(); ++i) {
@@ -184,21 +184,24 @@ TEST(RobotContactInvariantTerms, TheInitialStateStandsOnTheFloor) {
   const AtlasModels atlas = atlasModels();
   const MpcRobotModelBase<scalar_t>& model = atlas.models->getMpcRobotModel();
   const absl::StatusOr<RobotConfiguration> initial =
-      configurationOf(atlas.scenario.scenario.initial_pose);
+      configurationOf(atlas.scenario.scenario.initial_posture);
   ASSERT_TRUE(initial.ok()) << initial.status();
   const vector_t state = mpcStateOf(model, *initial);
   RobotConfiguration configuration;
-  configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
-  configuration.baseOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(state);
+  configuration.posBaseRtWorldEwrtWorld =
+      model.getPosBaseRtWorldEwrtWorld(state);
+  configuration.quatBaseRtWorld.coeffs() = model.getQuatBaseRtWorldXyzw(state);
   configuration.jointNames = model.modelSettings.mpcModelJointNames;
   configuration.jointPositions = model.getJointAngles(state);
   ASSERT_TRUE(atlas.stanceModel->setConfiguration(configuration).ok());
   for (const char* absl_nonnull name : {"foot_l_contact", "foot_r_contact"}) {
-    const Eigen::Vector3d pad = atlas.stanceModel->padPosition(
-        *atlas.scenario.contactSet.indexOf(name));
-    EXPECT_NEAR(pad.z(), 0.0, 1.0e-3)
-        << name << " " << pad.transpose() << "\nstate " << state.transpose();
-    EXPECT_LT(std::abs(pad.x()), 0.1) << name;
+    const Eigen::Vector3d posPadRtWorldEwrtWorld =
+        atlas.stanceModel->getPosPadRtWorldEwrtWorld(
+            *atlas.scenario.contactSet.indexOf(name));
+    EXPECT_NEAR(posPadRtWorldEwrtWorld.z(), 0.0, 1.0e-3)
+        << name << " " << posPadRtWorldEwrtWorld.transpose() << "\nstate "
+        << state.transpose();
+    EXPECT_LT(std::abs(posPadRtWorldEwrtWorld.x()), 0.1) << name;
   }
 }
 
@@ -216,7 +219,7 @@ TEST(RobotContactInvariantTerms, TheFeaturesMatchFiniteDifferences) {
         .mpcContactIndex = static_cast<size_t>(
             std::find(names.begin(), names.end(), name) - names.begin()),
         .kind = candidate.kind,
-        .padRotation = candidate.padRotation,
+        .rotmatPadRtLink = candidate.rotmatPadRtLink,
         .geomRadius = candidate.geomRadius});
   }
   absl::StatusOr<std::unique_ptr<ContactFeatureFunction>> features =
@@ -224,8 +227,9 @@ TEST(RobotContactInvariantTerms, TheFeaturesMatchFiniteDifferences) {
           atlas.models->getPinocchioInterface(),
           atlas.models->getCentroidalModelInfo(), candidates,
           atlas.scenario.terrain,
-          RobotFeatureSettings{
-              .friction = 0.6, .coneSmoothing = 0.01, .maxPointTilt = 0.5},
+          RobotFeatureSettings{.friction = 0.6,
+                               .coneSmoothing = 0.01,
+                               .pointMaxTiltanglePadRtSurface = 0.5},
           FeatureLibrarySettings{.name = "test_atlas_features",
                                  .folder = cppAdFolder(),
                                  .recompile = true});
@@ -247,8 +251,9 @@ TEST(RobotContactInvariantTerms, TheFeaturesMatchFiniteDifferences) {
   // Against the stance model: the pads' distance to the floor.
   const MpcRobotModelBase<scalar_t>& model = atlas.models->getMpcRobotModel();
   RobotConfiguration configuration;
-  configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
-  configuration.baseOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(state);
+  configuration.posBaseRtWorldEwrtWorld =
+      model.getPosBaseRtWorldEwrtWorld(state);
+  configuration.quatBaseRtWorld.coeffs() = model.getQuatBaseRtWorldXyzw(state);
   configuration.jointNames = model.modelSettings.mpcModelJointNames;
   configuration.jointPositions = model.getJointAngles(state);
   ASSERT_TRUE(atlas.stanceModel->setConfiguration(configuration).ok());
@@ -257,7 +262,7 @@ TEST(RobotContactInvariantTerms, TheFeaturesMatchFiniteDifferences) {
         *atlas.scenario.contactSet.indexOf(candidates[i].frameName);
     EXPECT_NEAR(linear.f(featureRow(i, kDistanceFeature)),
                 atlas.scenario.terrain.signedDistance<double>(
-                    atlas.stanceModel->padPosition(index)),
+                    atlas.stanceModel->getPosPadRtWorldEwrtWorld(index)),
                 1.0e-6);
   }
 }
@@ -269,8 +274,9 @@ TEST(RobotContactInvariantTerms, TheMomentumRateIsTheForcesOverTheMass) {
           atlas.models->getPinocchioInterface(),
           atlas.models->getCentroidalModelInfo(), /*candidates=*/{},
           atlas.scenario.terrain,
-          RobotFeatureSettings{
-              .friction = 0.6, .coneSmoothing = 0.01, .maxPointTilt = 0.5},
+          RobotFeatureSettings{.friction = 0.6,
+                               .coneSmoothing = 0.01,
+                               .pointMaxTiltanglePadRtSurface = 0.5},
           FeatureLibrarySettings{.name = "test_atlas_momentum_rate",
                                  .folder = cppAdFolder(),
                                  .recompile = true});
@@ -279,11 +285,12 @@ TEST(RobotContactInvariantTerms, TheMomentumRateIsTheForcesOverTheMass) {
   const vector_t input = feetOnlyInput(atlas);
   const vector_t value = (*features)->value(state, input);
   const double mass = atlas.models->getCentroidalModelInfo().robotMass;
-  const Eigen::Vector3d linear = value.segment<3>(momentumRateRow(0));
+  const Eigen::Vector3d mnormRateLinmomComRtWorldEwrtWorld =
+      value.segment<3>(momentumRateRowIndex(0));
   // Two feet of (10, -5, w / 2) each hold the weight: (20, -10, 0) / m.
-  EXPECT_NEAR(linear.x(), 20.0 / mass, 1.0e-9);
-  EXPECT_NEAR(linear.y(), -10.0 / mass, 1.0e-9);
-  EXPECT_NEAR(linear.z(), 0.0, 1.0e-9);
+  EXPECT_NEAR(mnormRateLinmomComRtWorldEwrtWorld.x(), 20.0 / mass, 1.0e-9);
+  EXPECT_NEAR(mnormRateLinmomComRtWorldEwrtWorld.y(), -10.0 / mass, 1.0e-9);
+  EXPECT_NEAR(mnormRateLinmomComRtWorldEwrtWorld.z(), 0.0, 1.0e-9);
 }
 
 TEST(RobotContactInvariantTerms, TheSphereClearanceIsTheStanceModelsSpheres) {
@@ -312,14 +319,16 @@ TEST(RobotContactInvariantTerms, TheSphereClearanceIsTheStanceModelsSpheres) {
                                   state));
   const MpcRobotModelBase<scalar_t>& model = atlas.models->getMpcRobotModel();
   RobotConfiguration configuration;
-  configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
-  configuration.baseOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(state);
+  configuration.posBaseRtWorldEwrtWorld =
+      model.getPosBaseRtWorldEwrtWorld(state);
+  configuration.quatBaseRtWorld.coeffs() = model.getQuatBaseRtWorldXyzw(state);
   configuration.jointNames = model.modelSettings.mpcModelJointNames;
   configuration.jointPositions = model.getJointAngles(state);
   ASSERT_TRUE(atlas.stanceModel->setConfiguration(configuration).ok());
   for (size_t k = 0; k < spheres->size(); ++k) {
     const double expected = atlas.scenario.terrain.sphereDistance<double>(
-        collision->worldCenter(*atlas.stanceModel, static_cast<int>(k)),
+        collision->getPosSphereRtWorldEwrtWorld(*atlas.stanceModel,
+                                                static_cast<int>(k)),
         collision->spheres()[k].radius);
     EXPECT_NEAR(linear.f(k), expected, 1.0e-6) << "sphere " << k;
   }
@@ -367,8 +376,9 @@ TEST(RobotContactInvariantTerms, TheTorquesAreGravityLessTheContactWrenches) {
   // Against the stance model: g(q) - J_p' f - J_w' tau at the feet.
   const MpcRobotModelBase<scalar_t>& model = atlas.models->getMpcRobotModel();
   RobotConfiguration configuration;
-  configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
-  configuration.baseOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(state);
+  configuration.posBaseRtWorldEwrtWorld =
+      model.getPosBaseRtWorldEwrtWorld(state);
+  configuration.quatBaseRtWorld.coeffs() = model.getQuatBaseRtWorldXyzw(state);
   configuration.jointNames = model.modelSettings.mpcModelJointNames;
   configuration.jointPositions = model.getJointAngles(state);
   RobotStanceModel& stance = *atlas.stanceModel;
@@ -377,25 +387,29 @@ TEST(RobotContactInvariantTerms, TheTorquesAreGravityLessTheContactWrenches) {
   for (size_t i = 0; i < settings.contactNames.size(); ++i) {
     const int index =
         *atlas.scenario.contactSet.indexOf(settings.contactNames[i]);
-    const Eigen::Vector3d point = stance.padPosition(index);
-    tau -= stance.pointJacobian(index, point).transpose() *
-           model.getForceContactEwrtParam(input, i);
+    const Eigen::Vector3d posPadRtWorldEwrtWorld =
+        stance.getPosPadRtWorldEwrtWorld(index);
+    tau -=
+        stance.computeLinjacQueryRtWorldEwrtWorld(index, posPadRtWorldEwrtWorld)
+            .transpose() *
+        model.getForceContactEwrtParam(input, i);
     if (atlas.scenario.contactSet.candidate(index).kind ==
         ContactKind::kSurface) {
-      tau -= stance.jointAngularJacobian(stance.padJoint(index)).transpose() *
+      tau -= stance.computeAngjacLinkRtWorldEwrtWorld(stance.padJoint(index))
+                 .transpose() *
              model.getTorqueContactEwrtParam(input, i);
     }
   }
-  const vector_t torques = constraint.torques(state, input);
+  const vector_t jointTorques = constraint.jointTorques(state, input);
   for (size_t j = 0; j < limits.size(); ++j) {
     const int joint = static_cast<int>(*stance.jointIndex(limitedJoints[j]));
-    const int velocity = stance.model().joints[joint].idx_v();
-    EXPECT_NEAR(torques(j), tau(velocity),
-                1.0e-6 * (1.0 + std::abs(tau(velocity))))
+    const int velocityIndex = stance.model().joints[joint].idx_v();
+    EXPECT_NEAR(jointTorques(j), tau(velocityIndex),
+                1.0e-6 * (1.0 + std::abs(tau(velocityIndex))))
         << limitedJoints[j];
-    EXPECT_NEAR(linear.f(j), 0.9 - torques(j) / limits[j].effort, 1.0e-9);
+    EXPECT_NEAR(linear.f(j), 0.9 - jointTorques(j) / limits[j].effort, 1.0e-9);
     EXPECT_NEAR(linear.f(limits.size() + j),
-                0.9 + torques(j) / limits[j].effort, 1.0e-9);
+                0.9 + jointTorques(j) / limits[j].effort, 1.0e-9);
   }
 }
 
@@ -461,17 +475,23 @@ TEST(RobotContactInvariantTerms, ThePolygonRowsAreTheEdgesLessTheMargin) {
                                   state));
   const MpcRobotModelBase<scalar_t>& model = atlas.models->getMpcRobotModel();
   RobotConfiguration configuration;
-  configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
-  configuration.baseOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(state);
+  configuration.posBaseRtWorldEwrtWorld =
+      model.getPosBaseRtWorldEwrtWorld(state);
+  configuration.quatBaseRtWorld.coeffs() = model.getQuatBaseRtWorldXyzw(state);
   configuration.jointNames = model.modelSettings.mpcModelJointNames;
   configuration.jointPositions = model.getJointAngles(state);
   ASSERT_TRUE(atlas.stanceModel->setConfiguration(configuration).ok());
-  const Eigen::Vector3d com = atlas.stanceModel->centerOfMass();
+  const Eigen::Vector3d posComRtWorldEwrtWorld =
+      atlas.stanceModel->getPosComRtWorldEwrtWorld();
   // The edges: +y at y = -1 turned..., each b - margin - a . c.
-  EXPECT_NEAR(linear.f(0), 1.0 - 0.1 + com.y(), 1.0e-6);  // bottom, a = (0, -1)
-  EXPECT_NEAR(linear.f(1), 1.0 - 0.1 - com.x(), 1.0e-6);  // right, a = (1, 0)
-  EXPECT_NEAR(linear.f(2), 1.0 - 0.1 - com.y(), 1.0e-6);  // top, a = (0, 1)
-  EXPECT_NEAR(linear.f(3), 1.0 - 0.1 + com.x(), 1.0e-6);  // left, a = (-1, 0)
+  EXPECT_NEAR(linear.f(0), 1.0 - 0.1 + posComRtWorldEwrtWorld.y(),
+              1.0e-6);  // bottom, a = (0, -1)
+  EXPECT_NEAR(linear.f(1), 1.0 - 0.1 - posComRtWorldEwrtWorld.x(),
+              1.0e-6);  // right, a = (1, 0)
+  EXPECT_NEAR(linear.f(2), 1.0 - 0.1 - posComRtWorldEwrtWorld.y(),
+              1.0e-6);  // top, a = (0, 1)
+  EXPECT_NEAR(linear.f(3), 1.0 - 0.1 + posComRtWorldEwrtWorld.x(),
+              1.0e-6);  // left, a = (-1, 0)
   for (int k = 4; k < kMaxPolygonEdges; ++k) {
     EXPECT_NEAR(linear.f(k), 1.0 - 0.1, 1.0e-12) << "an unused row";
   }

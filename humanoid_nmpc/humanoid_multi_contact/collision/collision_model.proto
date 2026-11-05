@@ -14,14 +14,15 @@ message CollisionModel {
 
   reserved 4 to max;
 
-  // [m] A capsule: the points within `radius` of the segment from `start` to `end`. CollisionModel places spheres of
-  // its radius along the axis at a spacing of at most one radius.
+  // [m] A capsule: the points within `radius` of the segment from `pos_capsulestart_rt_link_ewrt_link` to
+  // `pos_capsuleend_rt_link_ewrt_link`, in the joint frame. CollisionModel places spheres of its radius along the axis
+  // at a spacing of at most one radius.
   // Next ID: 4
   message Capsule {
     reserved 4 to max;
 
-    repeated double start = 1;
-    repeated double end = 2;
+    repeated double pos_capsulestart_rt_link_ewrt_link = 1;
+    repeated double pos_capsuleend_rt_link_ewrt_link = 2;
     // Positive.
     double radius = 3 [default = 0.0];
   }
@@ -32,7 +33,7 @@ message CollisionModel {
   message Box {
     reserved 3 to max;
 
-    repeated double center = 1;
+    repeated double pos_box_rt_link_ewrt_link = 1;
     // Positive.
     repeated double half_extents = 2;
   }
@@ -42,7 +43,7 @@ message CollisionModel {
   message Sphere {
     reserved 3 to max;
 
-    repeated double center = 1;
+    repeated double pos_sphere_rt_link_ewrt_link = 1;
     // Positive.
     double radius = 2 [default = 0.0];
   }

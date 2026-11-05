@@ -114,8 +114,10 @@ std::vector<ContinuationStage> stages() {
   ghost.name = "ghost";
   ghost.weights.contactInvariant = {
       .weight = 1.0e-2, .slipWeight = 0.1, .tiltWeight = 0.0};
-  ghost.weights.forceGate = {
-      .k0 = 1.0e-3, .k1 = 1.0e-2, .forceScale = weight, .momentArm = 1.0};
+  ghost.weights.forceGate = {.k0 = 1.0e-3,
+                             .k1 = 1.0e-2,
+                             .scaleForceContactEwrtWorld = weight,
+                             .leverArm = 1.0};
   ghost.weights.activationRateWeight = 1.0;
   ghost.sqpIterations = 30;
   ContinuationStage gate = ghost;
@@ -133,7 +135,8 @@ std::vector<ContinuationStage> stages() {
 /** The ball's distance to the floor and its force at every node. */
 struct BallTrace {
   std::vector<double> distances;
-  std::vector<double> forces;  // over the ball's weight
+  std::vector<double>
+      normWnormForceBallEwrtWorldTraj;  // over the ball's weight
   std::vector<double> activations;
 };
 
@@ -142,7 +145,8 @@ BallTrace traceOf(const GuessTrajectory& trajectory) {
   const double weight = kBallMass * kGravityMagnitude;
   for (size_t n = 0; n < trajectory.times.size(); ++n) {
     trace.distances.push_back(trajectory.states[n](2) - kBallRadius);
-    trace.forces.push_back(trajectory.inputs[n].head<3>().norm() / weight);
+    trace.normWnormForceBallEwrtWorldTraj.push_back(
+        trajectory.inputs[n].head<3>().norm() / weight);
     trace.activations.push_back(
         trajectory.states[n](ballLayout().activationIndex(0)));
   }
@@ -199,8 +203,9 @@ TEST(ContactInvariantToy, TheBallDiscoversTheFloorToReachItsGoal) {
   double impulse = 0.0;
   double impulseInTheAir = 0.0;
   for (size_t n = 0; n + 1 < trace.distances.size(); ++n) {
-    impulse += trace.forces[n];
-    if (trace.distances[n] > 0.25) impulseInTheAir += trace.forces[n];
+    impulse += trace.normWnormForceBallEwrtWorldTraj[n];
+    if (trace.distances[n] > 0.25)
+      impulseInTheAir += trace.normWnormForceBallEwrtWorldTraj[n];
   }
   EXPECT_LT(impulseInTheAir, 0.1 * impulse);
   const vector_t& end = final.states.back();

@@ -32,20 +32,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 
 namespace ocs2::humanoid {
 
 namespace {
 
-/** Rotates a (forward, left) offset of the base's yaw frame into the world. */
-vector2_t toWorld(const vector2_t& inBaseFrame, scalar_t yaw) {
-  const scalar_t cosYaw = std::cos(yaw);
-  const scalar_t sinYaw = std::sin(yaw);
-  return vector2_t(cosYaw * inBaseFrame.x() - sinYaw * inBaseFrame.y(),
-                   sinYaw * inBaseFrame.x() + cosYaw * inBaseFrame.y());
+/** Rotates `planarVector` by `angle` [rad] about the vertical: the components
+ * in the heading frame into the world's for angle = yaw_base_rt_world, and back
+ * for -yaw_base_rt_world. */
+vector2_t rotateAboutVertical(const vector2_t& planarVector, scalar_t angle) {
+  const scalar_t cosAngle = std::cos(angle);
+  const scalar_t sinAngle = std::sin(angle);
+  return vector2_t(cosAngle * planarVector.x() - sinAngle * planarVector.y(),
+                   sinAngle * planarVector.x() + cosAngle * planarVector.y());
 }
 
 }  // namespace
@@ -57,13 +64,15 @@ absl::Status TranslationalSteppingHeuristic::configure(
   return absl::OkStatus();
 }
 
-vector2_t TranslationalSteppingHeuristic::offset(
+vector2_t
+TranslationalSteppingHeuristic::computeOffsetPosFootRtWorldEwrtWorldXy(
     const FootholdHeuristicContext& context) const {
   // H_r(pdot) = a1 pdot + a0, Bledt Table C.2, in the base's yaw frame. The
-  // commanded velocity is in the world, so it is rotated into the base frame,
-  // the affine law is applied there, and the result is rotated back - which is
-  // not the same as applying the law in the world, because the forward and
-  // lateral coefficients differ and the robot's forward is not the world's x.
+  // commanded velocity is in the world, so it is rotated into the heading
+  // frame, the affine law is applied there, and the result is rotated back -
+  // which is not the same as applying the law in the world, because the forward
+  // and lateral coefficients differ and the robot's forward is not the world's
+  // x.
   //
   // a1 is Bledt's constant plus a term proportional to the stance about to
   // begin. His a1 was regressed at one gait; this robot's gait scheduler
@@ -72,34 +81,36 @@ vector2_t TranslationalSteppingHeuristic::offset(
   // T_stance / 2. With the stance fraction at 0.5 and the constant at 0 the
   // lead is right on every gait the scheduler moves between; with the fraction
   // at 0 it is Bledt's.
-  const vector2_t commandedInBaseFrame =
-      toWorld(context.commandedVelocity, -context.baseYaw);
+  const vector2_t cmdLinvelBaseRtWorldEwrtHeadingXy = rotateAboutVertical(
+      context.cmdLinvelBaseRtWorldEwrtWorldXy, -context.yawBaseRtWorld);
   const scalar_t forwardGain =
-      parameters_.forwardPerForwardVelocity +
+      parameters_.forwardPerForwardVelocityGain +
       parameters_.forwardStanceFraction * context.stanceDuration;
   const scalar_t lateralGain =
-      parameters_.lateralPerLateralVelocity +
+      parameters_.lateralPerLateralVelocityGain +
       parameters_.lateralStanceFraction * context.stanceDuration;
-  const vector2_t offsetInBaseFrame(
-      forwardGain * commandedInBaseFrame.x() + parameters_.forwardOffset,
+  const vector2_t offsetPosFootRtWorldEwrtHeadingXy(
+      forwardGain * cmdLinvelBaseRtWorldEwrtHeadingXy.x() +
+          parameters_.offsetPosFootRtWorldEwrtHeadingX,
       // The lateral constant is signed by the foot's own side, so one number in
       // the task file widens the stance instead of shifting the whole robot to
       // the left. The velocity-proportional part is NOT signed: both feet step
       // the same way when the robot is asked to move sideways.
-      lateralGain * commandedInBaseFrame.y() +
-          context.side * parameters_.lateralOffset);
-  return toWorld(offsetInBaseFrame, context.baseYaw);
+      lateralGain * cmdLinvelBaseRtWorldEwrtHeadingXy.y() +
+          context.side * parameters_.offsetPosFootRtWorldEwrtHeadingY);
+  return rotateAboutVertical(offsetPosFootRtWorldEwrtHeadingXy,
+                             context.yawBaseRtWorld);
 }
 
 std::string TranslationalSteppingHeuristic::describe() const {
   return absl::StrCat(
       "translational_stepping: d_forward = (",
-      parameters_.forwardPerForwardVelocity, " + ",
+      parameters_.forwardPerForwardVelocityGain, " + ",
       parameters_.forwardStanceFraction, " * T_stance) * v_x + ",
-      parameters_.forwardOffset, " [m], d_lateral = (",
-      parameters_.lateralPerLateralVelocity, " + ",
+      parameters_.offsetPosFootRtWorldEwrtHeadingX, " [m], d_lateral = (",
+      parameters_.lateralPerLateralVelocityGain, " + ",
       parameters_.lateralStanceFraction, " * T_stance) * v_y + side * ",
-      parameters_.lateralOffset, " [m]");
+      parameters_.offsetPosFootRtWorldEwrtHeadingY, " [m]");
 }
 
 }  // namespace ocs2::humanoid

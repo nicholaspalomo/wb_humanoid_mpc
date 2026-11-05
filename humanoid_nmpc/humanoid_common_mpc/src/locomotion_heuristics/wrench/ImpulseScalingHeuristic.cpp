@@ -30,11 +30,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/wrench/ImpulseScalingHeuristic.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
+#include "humanoid_common_mpc/locomotion_heuristics/WrenchHeuristic.h"
 
 namespace ocs2::humanoid {
 
@@ -45,7 +51,7 @@ absl::Status ImpulseScalingHeuristic::configure(
   return absl::OkStatus();
 }
 
-vector3_t ImpulseScalingHeuristic::forceOffset(
+vector3_t ImpulseScalingHeuristic::computeOffsetForceFootEwrtWorld(
     const WrenchHeuristicContext& context, size_t contactIndex) const {
   // H_f(Phi) = m g / (F beta), Bledt Table C.1, expressed as the OFFSET from
   // the reference that already exists.
@@ -85,31 +91,36 @@ vector3_t ImpulseScalingHeuristic::forceOffset(
   const scalar_t numFeet = static_cast<scalar_t>(context.contactFlags.size());
   const scalar_t dutyFactor = std::max(context.stanceDutyFactor[contactIndex],
                                        parameters_.minimumDutyFactor);
-  const scalar_t baseline =
+  const scalar_t nomForceFootEwrtWorldZ =
       context.totalWeight / static_cast<scalar_t>(context.numStanceFeet);
-  const scalar_t target = context.totalWeight / (numFeet * dutyFactor);
+  const scalar_t desForceFootEwrtWorldZ =
+      context.totalWeight / (numFeet * dutyFactor);
 
   // `scale` blends between the two rather than switching, so that it can be
   // swept from 0 without a discontinuity.
-  scalar_t reference = baseline + parameters_.scale * (target - baseline);
+  scalar_t refForceFootEwrtWorldZ =
+      nomForceFootEwrtWorldZ +
+      parameters_.scale * (desForceFootEwrtWorldZ - nomForceFootEwrtWorldZ);
   // Clamped ABOVE by what the legs and the friction cone can deliver, and BELOW
   // at zero because a contact force reference that pulls the robot down through
   // the floor is not a reference any foot can track. The lower clamp is what
   // makes a negative `scale` - which validate() also rejects - harmless rather
   // than inverted.
-  reference =
-      std::clamp(reference, 0.0, parameters_.maximumForceRatio * baseline);
-  return vector3_t(0.0, 0.0, reference - baseline);
+  refForceFootEwrtWorldZ = std::clamp(
+      refForceFootEwrtWorldZ, 0.0,
+      parameters_.maximumWeightCompensationRatio * nomForceFootEwrtWorldZ);
+  return vector3_t(0.0, 0.0, refForceFootEwrtWorldZ - nomForceFootEwrtWorldZ);
 }
 
 std::string ImpulseScalingHeuristic::describe() const {
-  // The formula forceOffset() implements. Not "f_z *= scale / beta": that
-  // scales the INSTANTANEOUS weight compensation, puts W / beta on the ground
-  // at every instant, and is the form the comment on forceOffset() rejects.
+  // The formula computeOffsetForceFootEwrtWorld() implements. Not "f_z *= scale
+  // / beta": that scales the INSTANTANEOUS weight compensation, puts W / beta
+  // on the ground at every instant, and is the form the comment on
+  // computeOffsetForceFootEwrtWorld() rejects.
   return absl::StrCat("impulse_scaling: f_z = W/n + ", parameters_.scale,
                       " * (W/(F max(beta, ", parameters_.minimumDutyFactor,
                       ")) - W/n), clamped to [0, ",
-                      parameters_.maximumForceRatio,
+                      parameters_.maximumWeightCompensationRatio,
                       " * W/n]; beta over each foot's own stride");
 }
 

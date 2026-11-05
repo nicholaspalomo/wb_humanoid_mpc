@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -44,21 +45,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_centroidal_mpc/CentroidalContactSet.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/initialization/CentroidalWeightCompInitializer.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactTermNames.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/constraint/FrictionForceConeConstraint.h"
@@ -69,6 +78,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_mpc_config/input_weights.nproto.h"
+#include "humanoid_mpc_config/model_settings_config.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/TypedConfigFiles.h"
@@ -98,11 +109,13 @@ constexpr scalar_t kTolerance = 1.0e-9;
 
 /** A 3-DoF contact of the task file, 0.1 m to the side of a locked wrist. */
 mpc_config::ModelSettingsConfig::PointContact handContact(
-    absl::string_view name, absl::string_view wrist, scalar_t side) {
+    absl::string_view name,
+    absl::string_view wrist,
+    scalar_t posContactRtLinkEwrtLinkY) {
   mpc_config::ModelSettingsConfig::PointContact contact;
   contact.name = std::string(name);
   contact.parent_joint_name = std::string(wrist);
-  contact.translation.y = side;
+  contact.pos_contact_rt_link_ewrt_link.y = posContactRtLinkEwrtLinkY;
   return contact;
 }
 
@@ -110,11 +123,12 @@ mpc_config::ModelSettingsConfig::PointContact handContact(
 mpc_config::InputWeights::ContactWrench handWeight(absl::string_view name) {
   mpc_config::InputWeights::ContactWrench weight;
   weight.contact = std::string(name);
-  mpc_config::Xyz force;
-  force.x = 1.0e-5;
-  force.y = 1.0e-5;
-  force.z = 5.0e-5;
-  weight.force = force;
+  mpc_config::Xyz forceWeights;
+  forceWeights.x = 1.0e-5;
+  forceWeights.y = 1.0e-5;
+  forceWeights.z = 5.0e-5;
+  // NOLINTNEXTLINE(frame-naming): a per-component weight field
+  weight.force = forceWeights;
   return weight;
 }
 
@@ -127,10 +141,12 @@ CentroidalMpcConfig mixedContactSetConfig(const CentroidalMpcConfig& atlas) {
   CentroidalMpcConfig config = atlas;
   mpc_config::TaskFile& task = config.task;
   task.model_settings.contacts_3dof = {
-      handContact(kLeftHand, "l_arm_wrx", /*side=*/0.1),
-      handContact(kRightHand, "r_arm_wrx", /*side=*/-0.1)};
+      handContact(kLeftHand, "l_arm_wrx", /*posContactRtLinkEwrtLinkY=*/0.1),
+      handContact(kRightHand, "r_arm_wrx", /*posContactRtLinkEwrtLinkY=*/-0.1)};
+  // NOLINTBEGIN(frame-naming): a per-component weight field
   task.input_weights.contact_wrenches.push_back(handWeight(kLeftHand));
   task.input_weights.contact_wrenches.push_back(handWeight(kRightHand));
+  // NOLINTEND(frame-naming)
   task.contact_input_parameterization = "wrench";
   task.contact_schedule_source = "gait_schedule";
   task.costs = {"state_quadratic_cost", "input_quadratic_cost"};
@@ -233,12 +249,14 @@ TEST_F(MixedContactSetTest, theInputIsTheForcesThenTheWrenchesThenTheJoints) {
   // A point contact's wrench is its force with no moment; its force is the
   // three entries of its block.
   const vector_t input = probeInput();
-  const vector6_t handWrench =
+  const vector6_t wrenchHandEwrtParam =
       model.getWrenchContactEwrtParam(input, /*contactIndex=*/1);
-  EXPECT_EQ(handWrench.head<kForceDim>(), input.segment<kForceDim>(kForceDim));
-  EXPECT_TRUE(handWrench.tail<kTorqueDim>().isZero(0.0));
+  EXPECT_EQ(wrenchHandEwrtParam.head<kForceDim>(),
+            input.segment<kForceDim>(kForceDim));
+  EXPECT_TRUE(wrenchHandEwrtParam.tail<kTorqueDim>().isZero(0.0));
   vector_t written = vector_t::Zero(model.getInputDim());
-  model.setWrenchContactEwrtParam(written, handWrench, /*contactIndex=*/1);
+  model.setWrenchContactEwrtParam(written, wrenchHandEwrtParam,
+                                  /*contactIndex=*/1);
   EXPECT_EQ(written.segment<kForceDim>(kForceDim),
             input.segment<kForceDim>(kForceDim));
   EXPECT_TRUE(written.segment<kForceDim>(2 * kForceDim).isZero(0.0))
@@ -259,39 +277,44 @@ TEST_F(MixedContactSetTest, theDynamicsAreTheHandDerivedMomentumRate) {
   const vector_t q = model.getGeneralizedCoordinates(state);
   pinocchio::forwardKinematics(pinocchioModel, data, q);
   pinocchio::updateFramePlacements(pinocchioModel, data);
-  const vector3_t com = pinocchio::centerOfMass(pinocchioModel, data, q);
+  const vector3_t posComRtWorldEwrtWorld =
+      pinocchio::centerOfMass(pinocchioModel, data, q);
   const scalar_t mass = mpc.getCentroidalModelInfo().robotMass;
 
-  vector3_t totalForce = vector3_t::Zero();
-  vector3_t totalMoment = vector3_t::Zero();
+  vector3_t forceComEwrtWorld = vector3_t::Zero();
+  vector3_t torqueComEwrtWorld = vector3_t::Zero();
   for (size_t i = 0; i < settings.contactNames.size(); ++i) {
-    const vector3_t point =
+    const vector3_t posContactRtWorldEwrtWorld =
         data.oMf[pinocchioModel.getFrameId(settings.contactNames[i])]
             .translation();
     const Eigen::Index start =
         static_cast<Eigen::Index>(model.getContactWrenchStartIndices(i));
-    const vector3_t force = input.segment<kForceDim>(start);
-    totalForce += force;
-    totalMoment += (point - com).cross(force);
+    const vector3_t forceContactEwrtWorld = input.segment<kForceDim>(start);
+    forceComEwrtWorld += forceContactEwrtWorld;
+    torqueComEwrtWorld += (posContactRtWorldEwrtWorld - posComRtWorldEwrtWorld)
+                              .cross(forceContactEwrtWorld);
     if (!settings.isPointContact(i)) {
-      totalMoment += input.segment<kTorqueDim>(start + kForceDim);
+      torqueComEwrtWorld += input.segment<kTorqueDim>(start + kForceDim);
     }
   }
-  const vector3_t gravity(0.0, 0.0, -kGravityMagnitude);
-  const vector3_t linearRate = totalForce / mass + gravity;
-  const vector3_t angularRate = totalMoment / mass;
+  const vector3_t gravityEwrtWorld(0.0, 0.0, -kGravityMagnitude);
+  const vector3_t linaccComRtWorldEwrtWorld =
+      forceComEwrtWorld / mass + gravityEwrtWorld;
+  const vector3_t mnormRateAngmomComRtWorldEwrtWorld =
+      torqueComEwrtWorld / mass;
 
   const PreComputation preComputation;
   const vector_t flowMap =
       mpc.getOptimalControlProblem().dynamicsPtr->computeFlowMap(
           /*time=*/0.0, state, input, preComputation);
-  EXPECT_TRUE(flowMap.head<kPositionDim>().isApprox(linearRate, kTolerance))
+  EXPECT_TRUE(flowMap.head<kPositionDim>().isApprox(linaccComRtWorldEwrtWorld,
+                                                    kTolerance))
       << flowMap.head<kPositionDim>().transpose() << " against "
-      << linearRate.transpose();
+      << linaccComRtWorldEwrtWorld.transpose();
   EXPECT_TRUE(flowMap.segment<kRotationTangentDim>(kPositionDim)
-                  .isApprox(angularRate, kTolerance))
+                  .isApprox(mnormRateAngmomComRtWorldEwrtWorld, kTolerance))
       << flowMap.segment<kRotationTangentDim>(kPositionDim).transpose()
-      << " against " << angularRate.transpose();
+      << " against " << mnormRateAngmomComRtWorldEwrtWorld.transpose();
   // The joints move with their velocity inputs.
   EXPECT_TRUE(flowMap.tail(model.getJointDim())
                   .isApprox(input.tail(model.getJointDim()), kTolerance));
@@ -300,21 +323,25 @@ TEST_F(MixedContactSetTest, theDynamicsAreTheHandDerivedMomentumRate) {
   const VectorFunctionLinearApproximation linearization =
       mpc.getOptimalControlProblem().dynamicsPtr->linearApproximation(
           /*time=*/0.0, state, input, preComputation);
-  const vector3_t hand =
-      data.oMf[pinocchioModel.getFrameId(kRightHand)].translation() - com;
-  matrix3_t handLever;
-  handLever << 0.0, -hand.z(), hand.y(), hand.z(), 0.0, -hand.x(), -hand.y(),
-      hand.x(), 0.0;
+  const vector3_t posHandRtComEwrtWorld =
+      data.oMf[pinocchioModel.getFrameId(kRightHand)].translation() -
+      posComRtWorldEwrtWorld;
+  matrix3_t skewPosHandRtComEwrtWorld;
+  skewPosHandRtComEwrtWorld << 0.0, -posHandRtComEwrtWorld.z(),
+      posHandRtComEwrtWorld.y(), posHandRtComEwrtWorld.z(), 0.0,
+      -posHandRtComEwrtWorld.x(), -posHandRtComEwrtWorld.y(),
+      posHandRtComEwrtWorld.x(), 0.0;
   const Eigen::Index handStart =
       static_cast<Eigen::Index>(model.getContactWrenchStartIndices(1));
-  const matrix3_t linearRateOfHandForce =
+  const matrix3_t linearRowsOfHandBlock =
       linearization.dfdu.block<kPositionDim, kForceDim>(0, handStart);
-  const matrix3_t angularRateOfHandForce =
+  const matrix3_t angularRowsOfHandBlock =
       linearization.dfdu.block<kRotationTangentDim, kForceDim>(kPositionDim,
                                                                handStart);
   EXPECT_TRUE(
-      linearRateOfHandForce.isApprox(matrix3_t::Identity() / mass, kTolerance));
-  EXPECT_TRUE(angularRateOfHandForce.isApprox(handLever / mass, kTolerance));
+      linearRowsOfHandBlock.isApprox(matrix3_t::Identity() / mass, kTolerance));
+  EXPECT_TRUE(angularRowsOfHandBlock.isApprox(skewPosHandRtComEwrtWorld / mass,
+                                              kTolerance));
 }
 
 TEST_F(MixedContactSetTest, aModeNumberIsTheBitmaskOfTheContactsInOrder) {
@@ -427,11 +454,12 @@ TEST_F(MixedContactSetTest, thePointConeIsTheFrictionRowsOfTheWrenchCone) {
 
   const vector_t state = probeState();
   const vector_t input = probeInput();
-  const vector3_t force = input.segment<kForceDim>(kForceDim);
+  const vector3_t forceHandEwrtParam = input.segment<kForceDim>(kForceDim);
   const PreComputation preComputation;
   const vector_t value =
       cone->getValue(/*time=*/0.0, state, input, preComputation);
-  EXPECT_TRUE(value.isApprox(rows.A_f * force + rows.b, kTolerance));
+  EXPECT_TRUE(
+      value.isApprox(rows.A_f * forceHandEwrtParam + rows.b, kTolerance));
   // The pyramid's rows are the wrench cone's first rows, on any footprint.
   const ContactRectangle footprint = checkedValue(contactRectangleFromConfig(
       mpc.config().task.contacts, mpc.modelSettings(), /*contactIndex=*/2));
@@ -453,18 +481,18 @@ TEST_F(MixedContactSetTest, thePointConeIsTheFrictionRowsOfTheWrenchCone) {
 TEST_F(MixedContactSetTest, aPatchFrameConeIsTheWorldConeOfTheRotatedForce) {
   CentroidalMpcInterface& mpc = interface();
   // A patch tilted about an oblique axis, like a ramp or a box edge.
-  const matrix3_t worldToPatch =
+  const matrix3_t rotmatWorldRtSurface =
       Eigen::AngleAxis<scalar_t>(0.4, vector3_t(1.0, -2.0, 0.5).normalized())
           .toRotationMatrix();
   const OnePatchReferenceManager flat(mpc, ContactPatchFrame());
   const OnePatchReferenceManager tilted(
-      mpc, ContactPatchFrame{.rotmatWorldRtSurface = worldToPatch,
-                             .normalOffset = 0.0});
+      mpc, ContactPatchFrame{.rotmatWorldRtSurface = rotmatWorldRtSurface,
+                             .posSurfaceRtWorldEwrtSurfaceZ = 0.0});
   const vector_t state = probeState();
   const vector_t input = probeInput();
   vector_t rotatedInput = input;
   rotatedInput.segment<kForceDim>(kForceDim) =
-      worldToPatch * input.segment<kForceDim>(kForceDim);
+      rotmatWorldRtSurface * input.segment<kForceDim>(kForceDim);
   const PreComputation preComputation;
 
   const std::unique_ptr<PointFrictionConeConstraint> tiltedCone =
@@ -485,14 +513,17 @@ TEST_F(MixedContactSetTest, aPatchFrameConeIsTheWorldConeOfTheRotatedForce) {
           ->getLinearApproximation(/*time=*/0.0, state, rotatedInput,
                                    preComputation)
           .dfdu.middleCols<kForceDim>(kForceDim);
-  EXPECT_TRUE(tiltedJacobian.isApprox(flatJacobian * worldToPatch, kTolerance));
+  EXPECT_TRUE(
+      tiltedJacobian.isApprox(flatJacobian * rotmatWorldRtSurface, kTolerance));
 
   // The friction cone of the same hand, which the patch rotates the same way.
   const FrictionForceConeConstraint::Config frictionConfig;
   const FrictionForceConeConstraint tiltedFriction(
-      tilted, frictionConfig, /*contactPointIndex=*/1, mpc.getMpcRobotModel());
+      tilted, frictionConfig, /*contactPointIndex=*/1, mpc.getMpcRobotModel(),
+      mpc.getPinocchioInterface());
   const FrictionForceConeConstraint flatFriction(
-      flat, frictionConfig, /*contactPointIndex=*/1, mpc.getMpcRobotModel());
+      flat, frictionConfig, /*contactPointIndex=*/1, mpc.getMpcRobotModel(),
+      mpc.getPinocchioInterface());
   EXPECT_TRUE(
       tiltedFriction.getValue(/*time=*/0.0, state, input, preComputation)
           .isApprox(flatFriction.getValue(/*time=*/0.0, state, rotatedInput,
@@ -506,7 +537,8 @@ TEST_F(MixedContactSetTest, aPatchFrameConeIsTheWorldConeOfTheRotatedForce) {
                                              preComputation);
   const Eigen::Index handStart = kForceDim;
   EXPECT_TRUE(tiltedQuadratic.dfdu.middleCols<kForceDim>(handStart).isApprox(
-      flatQuadratic.dfdu.middleCols<kForceDim>(handStart) * worldToPatch,
+      flatQuadratic.dfdu.middleCols<kForceDim>(handStart) *
+          rotmatWorldRtSurface,
       kTolerance));
   const matrix3_t tiltedHessian =
       tiltedQuadratic.dfduu.front().block<kForceDim, kForceDim>(handStart,
@@ -517,9 +549,9 @@ TEST_F(MixedContactSetTest, aPatchFrameConeIsTheWorldConeOfTheRotatedForce) {
   // The Hessian shift on the diagonal is not rotated.
   const scalar_t shift = frictionConfig.hessianDiagonalShift;
   EXPECT_TRUE((tiltedHessian + shift * matrix3_t::Identity())
-                  .isApprox(worldToPatch.transpose() *
+                  .isApprox(rotmatWorldRtSurface.transpose() *
                                 (flatHessian + shift * matrix3_t::Identity()) *
-                                worldToPatch,
+                                rotmatWorldRtSurface,
                             kTolerance));
 }
 
@@ -669,7 +701,8 @@ TEST(MixedContactSetRefusal, thePlannersTheBasisAndTheHeuristicsAreRefused) {
   expectRefused(checkCentroidalContactSet(settings, basis),
                 "contact_input_parameterization 'basis_vectors'");
   mpc_config::TaskFile heuristics = mixed.task;
-  heuristics.locomotion_heuristics.foothold = {"hip_centered_stepping"};
+  heuristics.locomotion_heuristics.foothold_heuristics = {
+      "hip_centered_stepping"};
   expectRefused(checkCentroidalContactSet(settings, heuristics),
                 "locomotion_heuristics");
 }

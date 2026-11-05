@@ -76,9 +76,9 @@ class TestPinocchioFrameConversions : public ::testing::Test {
    * joint angles. */
   vector_t randomConfiguration() const {
     vector_t state = mpcRobotModel_.getNeutralState();
-    vector3_t position = vector3_t::Random();
-    position.z() = 0.88;
-    mpcRobotModel_.setPosBaseRtWorldEwrtWorld(state, position);
+    vector3_t posBaseRtWorldEwrtWorld = vector3_t::Random();
+    posBaseRtWorldEwrtWorld.z() = 0.88;
+    mpcRobotModel_.setPosBaseRtWorldEwrtWorld(state, posBaseRtWorldEwrtWorld);
     mpcRobotModel_.setQuatBaseRtWorldXyzw(state, vector4_t::Random());
     mpcRobotModel_.setJointAngles(
         state, vector_t::Random(
@@ -101,14 +101,15 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorLocalToWorld3D) {
   scalar_t hipPitchAngle = 0.5;
   q_ = levelConfiguration(hipPitchAngle);
 
-  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(
-      vector3_t(0.0, hipPitchAngle, 0.0));
+  matrix3_t rotmatContactRtWorld =
+      getRotationMatrixFromZyxEulerAngles<scalar_t>(
+          vector3_t(0.0, hipPitchAngle, 0.0));
   updateFramePlacements<scalar_t>(q_, pinocchioInterface_);
 
   for (const pinocchio::FrameIndex& contactIndex :
        getContactFrameIndices(pinocchioInterface_, mpcRobotModel_)) {
     vector3_t testVector = vector3_t::Random();
-    vector3_t testVectorRotated = R_l_w * testVector;
+    vector3_t testVectorRotated = rotmatContactRtWorld * testVector;
     EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorLocalToWorld<scalar_t>(
         testVector, pinocchioInterface_.getData(), contactIndex)));
   }
@@ -128,14 +129,15 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorWorldToLocal3D) {
   scalar_t hipPitchAngle = 0.5;
   q_ = levelConfiguration(hipPitchAngle);
 
-  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(
-      vector3_t(0.0, -hipPitchAngle, 0.0));
+  matrix3_t rotmatWorldRtContact =
+      getRotationMatrixFromZyxEulerAngles<scalar_t>(
+          vector3_t(0.0, -hipPitchAngle, 0.0));
   updateFramePlacements<scalar_t>(q_, pinocchioInterface_);
 
   for (const pinocchio::FrameIndex& contactIndex :
        getContactFrameIndices(pinocchioInterface_, mpcRobotModel_)) {
     vector3_t testVector = vector3_t::Random();
-    vector3_t testVectorRotated = R_l_w * testVector;
+    vector3_t testVectorRotated = rotmatWorldRtContact * testVector;
     EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorWorldToLocal<scalar_t>(
         testVector, pinocchioInterface_.getData(), contactIndex)));
   }
@@ -172,15 +174,17 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorLocalToWorld6D) {
   scalar_t hipPitchAngle = 0.5;
   q_ = levelConfiguration(hipPitchAngle);
 
-  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(
-      vector3_t(0.0, hipPitchAngle, 0.0));
+  matrix3_t rotmatContactRtWorld =
+      getRotationMatrixFromZyxEulerAngles<scalar_t>(
+          vector3_t(0.0, hipPitchAngle, 0.0));
   updateFramePlacements<scalar_t>(q_, pinocchioInterface_);
 
   for (const pinocchio::FrameIndex& contactIndex :
        getContactFrameIndices(pinocchioInterface_, mpcRobotModel_)) {
     vector6_t testVector = vector6_t::Random();
     vector6_t testVectorRotated(6);
-    testVectorRotated << R_l_w * testVector.head(3), R_l_w * testVector.tail(3);
+    testVectorRotated << rotmatContactRtWorld * testVector.head(3),
+        rotmatContactRtWorld * testVector.tail(3);
     EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorLocalToWorld<scalar_t>(
         testVector, pinocchioInterface_.getData(), contactIndex)));
   }
@@ -200,15 +204,17 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorWorldToLocal6D) {
   scalar_t hipPitchAngle = 0.5;
   q_ = levelConfiguration(hipPitchAngle);
 
-  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(
-      vector3_t(0.0, -hipPitchAngle, 0.0));
+  matrix3_t rotmatWorldRtContact =
+      getRotationMatrixFromZyxEulerAngles<scalar_t>(
+          vector3_t(0.0, -hipPitchAngle, 0.0));
   updateFramePlacements<scalar_t>(q_, pinocchioInterface_);
 
   for (const pinocchio::FrameIndex& contactIndex :
        getContactFrameIndices(pinocchioInterface_, mpcRobotModel_)) {
     vector6_t testVector = vector6_t::Random();
     vector6_t testVectorRotated(6);
-    testVectorRotated << R_l_w * testVector.head(3), R_l_w * testVector.tail(3);
+    testVectorRotated << rotmatWorldRtContact * testVector.head(3),
+        rotmatWorldRtContact * testVector.tail(3);
     EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorWorldToLocal<scalar_t>(
         testVector, pinocchioInterface_.getData(), contactIndex)));
   }

@@ -243,8 +243,9 @@ absl::StatusOr<BindAddress> parseBindAddress(absl::string_view address) {
 // may spell one address differently.
 std::string canonicalHostname(std::string name) {
   in6_addr ipv6 = {};
-  if (inet_pton(AF_INET6, name.c_str(), &ipv6) == 1)
+  if (inet_pton(AF_INET6, name.c_str(), &ipv6) == 1) {
     return addressText(AF_INET6, &ipv6);
+  }
   return name;
 }
 
@@ -263,8 +264,9 @@ std::optional<std::string> hostnameOf(absl::string_view host) {
   }
   const size_t colon = host.find(':');
   if (colon == 0 || (colon != absl::string_view::npos &&
-                     host.find(':', colon + 1) != absl::string_view::npos))
+                     host.find(':', colon + 1) != absl::string_view::npos)) {
     return std::nullopt;
+  }
   return absl::AsciiStrToLower(host.substr(0, colon));
 }
 
@@ -285,14 +287,16 @@ absl::Status notAnAllowedHost(absl::string_view entry) {
 // an IPv6 address.
 absl::StatusOr<std::string> allowedHostnameOf(absl::string_view entry) {
   if (entry.empty() || absl::StrContains(entry, '/') ||
-      absl::StrContains(entry, ' '))
+      absl::StrContains(entry, ' ')) {
     return notAnAllowedHost(entry);
+  }
   const bool bracketed = entry.front() == '[';
   if (!bracketed && std::count(entry.begin(), entry.end(), /*value=*/':') > 1) {
     // An IPv6 address without the brackets a Host header puts around it.
     in6_addr ipv6 = {};
-    if (inet_pton(AF_INET6, std::string(entry).c_str(), &ipv6) != 1)
+    if (inet_pton(AF_INET6, std::string(entry).c_str(), &ipv6) != 1) {
       return notAnAllowedHost(entry);
+    }
     return addressText(AF_INET6, &ipv6);
   }
   const std::optional<std::string> hostname = hostnameOf(entry);
@@ -309,8 +313,9 @@ absl::StatusOr<std::string> allowedHostnameOf(absl::string_view entry) {
                      *hostname, "', not '", entry, "'"));
   }
   in6_addr ipv6 = {};
-  if (bracketed && inet_pton(AF_INET6, hostname->c_str(), &ipv6) != 1)
+  if (bracketed && inet_pton(AF_INET6, hostname->c_str(), &ipv6) != 1) {
     return notAnAllowedHost(entry);
+  }
   return *hostname;
 }
 
@@ -624,16 +629,18 @@ void WebViewerServer::Core::installRoutes() {
 void WebViewerServer::Core::runListenThread() {
   const absl::Status placed =
       placeCurrentThread(options_.cores, options_.threadPriority);
-  if (!placed.ok())
+  if (!placed.ok()) {
     LOG(WARNING) << "[WebViewerServer] the server's threads run unplaced: "
                  << placed;
+  }
   bindStatus_ = bind();
   bound_.Notify();
   if (!bindStatus_.ok()) return;
   try {  // NOLINT(exceptions): cpp-httplib's thread pool rethrows the std::system_error of a thread that cannot start
-    if (!server_.listen_after_bind() && !stopping_.load())
+    if (!server_.listen_after_bind() && !stopping_.load()) {
       LOG(ERROR) << "[WebViewerServer] stopped accepting connections at "
                  << url();
+    }
     // NOLINTNEXTLINE(exceptions): converted to a log line, and to Create()'s Internal
   } catch (const std::exception& error) {
     LOG(ERROR) << "[WebViewerServer] could not serve " << url() << ": "
@@ -684,8 +691,9 @@ absl::Status WebViewerServer::Core::bind() {
 
 std::string WebViewerServer::Core::url() const {
   if (address_.isWildcard) return absl::StrCat("http://localhost:", port_, "/");
-  if (address_.isIpv6)
+  if (address_.isIpv6) {
     return absl::StrCat("http://[", address_.canonical, "]:", port_, "/");
+  }
   return absl::StrCat("http://", address_.canonical, ":", port_, "/");
 }
 
@@ -752,8 +760,9 @@ void WebViewerServer::Core::addSecurityHeaders(httplib::Response& response) {
   response.set_header("X-Frame-Options", "DENY");
   response.set_header("Content-Security-Policy", "frame-ancestors 'none'");
   response.set_header("X-Content-Type-Options", "nosniff");
-  if (!response.has_header("Cache-Control"))
+  if (!response.has_header("Cache-Control")) {
     response.set_header("Cache-Control", "no-store");
+  }
 }
 
 void WebViewerServer::Core::servePage(httplib::Response& response) const {

@@ -123,17 +123,19 @@ TEST(PlannerScenario, PlansACertifiedMotionToTheGoal) {
   ASSERT_TRUE(goalMask.ok()) << goalMask.status();
   EXPECT_EQ(plan->knots.back().active_contacts, *goalMask);
   if (loaded->scenario.goal.base_region.has_value()) {
-    const Eigen::Vector3d offset =
-        (Eigen::Vector3d(plan->knots.back().base_position) -
-         Eigen::Vector3d(loaded->scenario.goal.base_region->center))
+    const Eigen::Vector3d posBaseRtBoxEwrtWorld =
+        (Eigen::Vector3d(plan->knots.back().pos_base_rt_world_ewrt_world) -
+         Eigen::Vector3d(
+             loaded->scenario.goal.base_region->pos_box_rt_world_ewrt_world))
             .cwiseAbs();
     EXPECT_TRUE(
-        (offset.array() <=
+        (posBaseRtBoxEwrtWorld.array() <=
          Eigen::Vector3d(loaded->scenario.goal.base_region->half_extents)
              .array())
             .all())
         << "the base ends at "
-        << Eigen::Vector3d(plan->knots.back().base_position).transpose();
+        << Eigen::Vector3d(plan->knots.back().pos_base_rt_world_ewrt_world)
+               .transpose();
   }
 
   const absl::StatusOr<PlanSummary> summary =

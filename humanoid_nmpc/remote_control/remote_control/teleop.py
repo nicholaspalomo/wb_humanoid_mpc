@@ -93,55 +93,57 @@ def add_bus_flags(parser: argparse.ArgumentParser, default_node: str) -> None:
 
 
 def add_reference_file_flag(parser: argparse.ArgumentParser) -> None:
-    """Adds --reference_file, the robot's reference file, whose nom_pos_base_rt_world_ewrt_world_z the pelvis height starts from."""
+    """Adds --reference_file, the robot's reference file, whose nom_pos_base_rt_surface_ewrt_world_z the pelvis height starts from."""
     parser.add_argument(
         "--reference_file",
         default="",
         help=(
             "the robot's config/command/reference.textproto: the pelvis height"
-            " starts at its nom_pos_base_rt_world_ewrt_world_z (default: none,"
-            f" {config_files.DEFAULT_PELVIS_HEIGHT} m)"
+            " starts at its nom_pos_base_rt_surface_ewrt_world_z (default: none,"
+            f" {config_files.NOM_POS_BASE_RT_SURFACE_EWRT_WORLD_Z} m)"
         ),
     )
 
 
-def initial_pelvis_height(reference_file: str) -> float:
-    """The pelvis height a publisher starts from [m]: the nom_pos_base_rt_world_ewrt_world_z of `reference_file`.
+def read_init_cmd_pos_base_rt_surface_ewrt_world_z(
+    reference_file: str,
+) -> float:
+    """The pelvis height a publisher starts from [m]: the nom_pos_base_rt_surface_ewrt_world_z of `reference_file`.
 
     Args:
         reference_file: the --reference_file flag, as the command line gave it (config_files.resolve_input_path).
 
     Returns:
-        The file's nom_pos_base_rt_world_ewrt_world_z; config_files.DEFAULT_PELVIS_HEIGHT, with a warning, when no file is given or it
-        names none.
+        The file's nom_pos_base_rt_surface_ewrt_world_z; config_files.NOM_POS_BASE_RT_SURFACE_EWRT_WORLD_Z, with a warning,
+        when no file is given or it names none.
     """
     if not reference_file:
         _LOGGER.warning(
             "No --reference_file: the pelvis height starts at %.2f m, not at"
-            " the robot's nom_pos_base_rt_world_ewrt_world_z.",
-            config_files.DEFAULT_PELVIS_HEIGHT,
+            " the robot's nom_pos_base_rt_surface_ewrt_world_z.",
+            config_files.NOM_POS_BASE_RT_SURFACE_EWRT_WORLD_Z,
         )
-        return config_files.DEFAULT_PELVIS_HEIGHT
-    return config_files.read_default_pelvis_height(
+        return config_files.NOM_POS_BASE_RT_SURFACE_EWRT_WORLD_Z
+    return config_files.read_nom_pos_base_rt_surface_ewrt_world_z(
         config_files.resolve_input_path(reference_file)
     )
 
 
 def stop_command(
-    pelvis_height: float,
+    cmd_pos_base_rt_surface_ewrt_world_z: float,
 ) -> walking_velocity_command_pb2.WalkingVelocityCommand:
-    """The walking command that stops the robot where it stands: zero velocities at `pelvis_height` [m]."""
+    """The walking command that stops the robot where it stands: zero velocities at `cmd_pos_base_rt_surface_ewrt_world_z` [m]."""
     return operator_bus.walking_velocity_command(
-        cmd_linvel_base_rt_world_ewrt_heading_x=0.0,
-        cmd_linvel_base_rt_world_ewrt_heading_y=0.0,
-        cmd_angvel_base_rt_world_ewrt_world_z=0.0,
-        cmd_pos_base_rt_world_ewrt_world_z=pelvis_height,
+        cmd_lnorm_linvel_base_rt_world_ewrt_heading_x=0.0,
+        cmd_lnorm_linvel_base_rt_world_ewrt_heading_y=0.0,
+        cmd_lnorm_angvel_base_rt_world_ewrt_world_z=0.0,
+        cmd_pos_base_rt_surface_ewrt_world_z=cmd_pos_base_rt_surface_ewrt_world_z,
     )
 
 
 def close_after_stop(
     publisher: operator_bus.TopicPublisher,
-    pelvis_height: float | None,
+    cmd_pos_base_rt_surface_ewrt_world_z: float | None,
     timeout: float = STOP_COMMAND_SEND_TIMEOUT,
     grace_period: float = STOP_COMMAND_GRACE_PERIOD,
 ) -> bool:
@@ -153,7 +155,7 @@ def close_after_stop(
 
     Args:
         publisher: the walking command publisher; its bus is closed in every case.
-        pelvis_height: the stop command's pelvis height [m]; None sends none (a publisher that is not commanding the
+        cmd_pos_base_rt_surface_ewrt_world_z: the stop command's pelvis height [m]; None sends none (a publisher that is not commanding the
             robot, such as the Xbox publisher without a controller).
         timeout: how long to wait for the bus to send it [s].
         grace_period: how long to wait after that before the bus is closed [s].
@@ -163,10 +165,12 @@ def close_after_stop(
     """
     bus = publisher.bus
     try:
-        if pelvis_height is None:
+        if cmd_pos_base_rt_surface_ewrt_world_z is None:
             return False
         before = bus.topic_statistics(publisher.topic).written
-        if not publisher.publish(stop_command(pelvis_height)):
+        if not publisher.publish(
+            stop_command(cmd_pos_base_rt_surface_ewrt_world_z)
+        ):
             _LOGGER.warning(
                 "The stop command was dropped: the bus's queue is full."
             )
@@ -189,7 +193,7 @@ def publish_until_stopped(
     publisher: operator_bus.TopicPublisher,
     tick: Callable[[], None],
     stop: threading.Event,
-    stop_pelvis_height: Callable[[], float | None],
+    stop_cmd_pos_base_rt_surface_ewrt_world_z: Callable[[], float | None],
     max_ticks: int | None = None,
 ) -> int:
     """Runs a publisher's `tick` at the walking command's rate until `stop` is set, then sends the stop command and closes.
@@ -198,7 +202,7 @@ def publish_until_stopped(
         publisher: the walking command publisher; its bus is closed when the loop ends, also by an exception.
         tick: one period of the publisher.
         stop: ends the loop once set.
-        stop_pelvis_height: the pelvis height of the stop command sent at the end [m], read then; None sends none.
+        stop_cmd_pos_base_rt_surface_ewrt_world_z: the pelvis height of the stop command sent at the end [m], read then; None sends none.
         max_ticks: stop after this many ticks (None: never), for the tests.
 
     Returns:
@@ -210,7 +214,7 @@ def publish_until_stopped(
             WALKING_COMMAND_RATE_HZ, tick, stop, max_ticks=max_ticks
         )
     finally:
-        close_after_stop(publisher, stop_pelvis_height())
+        close_after_stop(publisher, stop_cmd_pos_base_rt_surface_ewrt_world_z())
     return ticks
 
 

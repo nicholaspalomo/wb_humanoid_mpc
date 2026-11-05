@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 
+#include "humanoid_mpc_ipc/MpcMessageConversions.h"
 #include "humanoid_mpc_ipc/RealtimePolicyEvaluator.h"
 
 namespace ocs2::humanoid {

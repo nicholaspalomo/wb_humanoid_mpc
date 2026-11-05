@@ -41,15 +41,16 @@ namespace ocs2::humanoid {
  * dcm_terminal_cost block: each field becomes the member of the same name
  * (weight_x and weight_y the two weights), and the schema's defaults are
  * DcmTerminalCost::Config's, so an absent field gives the member's default.
- * com_height is optional: absent, it is the model's pendulum, which the
- * configuration leaves unset (comHeight nullopt) for
- * DcmTerminalCost::resolveConfig() to resolve; a height the file gives must be
- * positive.
+ * nom_pos_com_rt_feetmean_ewrt_world_z is optional: absent, it is the model's
+ * pendulum, which the configuration leaves unset (nomPosComRtFeetmeanEwrtWorldZ
+ * nullopt) for DcmTerminalCost::resolveConfig() to resolve; a height the file
+ * gives must be positive.
  *
- * @return The configuration; InvalidArgument for a com_height that is given but
- * not positive (0 included, which used to stand for the model's) and for every
- * rejection of DcmTerminalCost::Config::validate(), which a value that is not
- * finite is among.
+ * @return The configuration; InvalidArgument for a
+ * nom_pos_com_rt_feetmean_ewrt_world_z that is given but not positive (0
+ * included, which used to stand for the model's) and for every rejection of
+ * DcmTerminalCost::Config::validate(), which a value that is not finite is
+ * among.
  */
 absl::StatusOr<DcmTerminalCost::Config> dcmTerminalCostConfigFromConfig(
     const mpc_config::DcmTerminalCostConfig& dcmTerminalCost);

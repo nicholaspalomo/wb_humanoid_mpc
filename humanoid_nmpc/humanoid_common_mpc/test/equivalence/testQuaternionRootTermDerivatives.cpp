@@ -47,20 +47,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateConstraint.h"
 #include "ocs2_core/constraint/StateConstraintCollection.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
 #include "ocs2_core/constraint/StateInputConstraintCollection.h"
+#include "ocs2_core/cost/StateCost.h"
 #include "ocs2_core/cost/StateCostCollection.h"
 #include "ocs2_core/cost/StateInputCost.h"
 #include "ocs2_core/cost/StateInputCostCollection.h"
 #include "ocs2_core/dynamics/SystemDynamicsBase.h"
 #include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
 
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
-#include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/equivalence/EulerMpcOracle.h"
@@ -114,7 +119,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * for the foot normal v_n and the plane normal n, and M(x) = de/dw (plus 1/2 n
  * v_n' where the yaw rate about the normal is constrained) the map from the
  * angular velocity to the rate of the residual
- * (getTiltRateMapAngvelEeRtWorldEwrtWorld()). getLinearApproximation()
+ * (getTiltRateMap()). getLinearApproximation()
  * holds M at its value at the point, so it reports J = Ax [dp/dx; de/dx] +
  * Av_lin dv/dx + Av_ang M(x) dw/dx,     dfdu = Av_lin dv/du + Av_ang M(x)
  * dw/du, whose input Jacobian is exact (M reads no input) and whose state
@@ -243,7 +248,7 @@ struct DroppedTerm {
   matrix_t truncation;
   /** [rad/s] w, the foot's world-frame angular velocity at the point: the
    * angular part of its twist. */
-  vector3_t footAngularVelocity = vector3_t::Zero();
+  vector3_t angvelFootRtWorldEwrtWorld = vector3_t::Zero();
   /** Whether the active rows read the angular velocity through the map; D and
    * the rate check are empty otherwise. */
   bool mapApplied = false;
@@ -308,10 +313,10 @@ VectorFunctionLinearApproximation linearOfQuadratic(
  */
 EndEffectorKinematicsTwistConstraint* absl_nullable twistConstraintOf(
     StateInputConstraint& constraint) {
-  if (ZeroVelocityConstraintCppAd* absl_nullable zeroVelocity =
+  if (ZeroVelocityConstraintCppAd* absl_nullable zeroVelocityConstraint =
           dynamic_cast<ZeroVelocityConstraintCppAd*>(&constraint);
-      zeroVelocity != nullptr) {
-    return &zeroVelocity->getTwistConstraint();
+      zeroVelocityConstraint != nullptr) {
+    return &zeroVelocityConstraint->getTwistConstraint();
   }
   return dynamic_cast<EndEffectorKinematicsTwistConstraint*>(&constraint);
 }
@@ -338,7 +343,7 @@ DroppedTerm droppedRateMapTerm(EndEffectorKinematicsTwistConstraint& constraint,
       .value = matrix_t::Zero(rows, tangentDim),
       .errorBound = matrix_t::Zero(rows, tangentDim),
       .truncation = matrix_t::Zero(rows, tangentDim),
-      .footAngularVelocity =
+      .angvelFootRtWorldEwrtWorld =
           kinematics.getTwistEesRtWorldEwrtWorld(point.state, point.input)
               .front()
               .tail<3>(),
@@ -351,8 +356,9 @@ DroppedTerm droppedRateMapTerm(EndEffectorKinematicsTwistConstraint& constraint,
   // active rows' angular columns are not zero.
   const matrix_t& velocityGains = constraint.getConfig().Av;
   if (velocityGains.size() == 0 ||
-      velocityGains.topRightCorner(rows, 3).isZero(/*prec=*/0.0))
+      velocityGains.topRightCorner(rows, 3).isZero(/*prec=*/0.0)) {
     return dropped;
+  }
   dropped.mapApplied = true;
   const matrix_t angularGains = velocityGains.topRightCorner(rows, 3);
   for (Eigen::Index i = 0; i < tangentDim; ++i) {
@@ -361,32 +367,34 @@ DroppedTerm droppedRateMapTerm(EndEffectorKinematicsTwistConstraint& constraint,
       vector_t moved;
       manifold.retract(point.state, vector_t::Unit(tangentDim, i),
                        kStepFractions[s] * kBoundedDifferenceStep, moved);
-      samples[s] = angularGains *
-                   (constraint.getTiltRateMapAngvelEeRtWorldEwrtWorld(moved) *
-                    dropped.footAngularVelocity);
+      samples[s] = angularGains * (constraint.getTiltRateMap(moved) *
+                                   dropped.angvelFootRtWorldEwrtWorld);
     }
     Differenced column = extrapolate(samples, kBoundedDifferenceStep);
     dropped.value.col(i) = column.value;
     dropped.errorBound.col(i) = column.errorBound;
     dropped.truncation.col(i) = column.truncation;
   }
-  const vector3_t& normal = constraint.getGroundPlaneNormal();
+  const vector3_t& normalTerrainEwrtWorld =
+      constraint.getNormalTerrainEwrtWorld();
   const matrix3_t projection =
-      matrix3_t::Identity() - normal * normal.transpose();
-  const matrix3_t map =
-      constraint.getTiltRateMapAngvelEeRtWorldEwrtWorld(point.state);
+      matrix3_t::Identity() -
+      normalTerrainEwrtWorld * normalTerrainEwrtWorld.transpose();
+  const matrix3_t map = constraint.getTiltRateMap(point.state);
   const matrix_t tiltJacobian =
       kinematics
-          .getOrientationErrorWrtPlaneLinearApproximation(point.state, {normal})
+          .getLinearApproximationTiltEesRtSurfaceEwrtWorld(
+              point.state, {normalTerrainEwrtWorld})
           .front()
           .dfdx;
   const vector_t flow =
       dynamics.computeFlowMap(point.time, point.state, point.input);
-  dropped.mappedTiltRate = projection * (map * dropped.footAngularVelocity);
+  dropped.mappedTiltRate =
+      projection * (map * dropped.angvelFootRtWorldEwrtWorld);
   dropped.flowTiltRate = tiltJacobian * flow;
   dropped.tiltRateBound = kFunctionEvaluationRelativeError *
                           (projection.cwiseAbs() * map.cwiseAbs() *
-                               dropped.footAngularVelocity.cwiseAbs() +
+                               dropped.angvelFootRtWorldEwrtWorld.cwiseAbs() +
                            tiltJacobian.cwiseAbs() * flow.cwiseAbs());
   return dropped;
 }
@@ -453,11 +461,12 @@ std::vector<ProbedFunction> probedFunctions(OptimalControlProblem& problem,
       if (StateInputSoftConstraint* absl_nullable soft =
               dynamic_cast<StateInputSoftConstraint*>(term);
           soft != nullptr) {
-        if (EndEffectorKinematicsTwistConstraint* absl_nullable twist =
-                twistConstraintOf(soft->get());
-            twist != nullptr) {
+        if (EndEffectorKinematicsTwistConstraint* absl_nullable
+            twistConstraint = twistConstraintOf(soft->get());
+            twistConstraint != nullptr) {
           StateInputSoftConstraint* absl_nonnull softTerm = soft;
-          EndEffectorKinematicsTwistConstraint* absl_nonnull constraint = twist;
+          EndEffectorKinematicsTwistConstraint* absl_nonnull constraint =
+              twistConstraint;
           function.droppedStateTerm =
               [softTerm, constraint, dynamics, &preComputation](
                   const StateManifold& manifold, const TermProbePoint& point) {
@@ -538,10 +547,11 @@ std::vector<ProbedFunction> probedFunctions(OptimalControlProblem& problem,
           return term->getQuadraticApproximation(time, x, u, preComputation);
         };
       }
-      if (EndEffectorKinematicsTwistConstraint* absl_nullable twist =
+      if (EndEffectorKinematicsTwistConstraint* absl_nullable twistConstraint =
               twistConstraintOf(*term);
-          twist != nullptr) {
-        EndEffectorKinematicsTwistConstraint* absl_nonnull constraint = twist;
+          twistConstraint != nullptr) {
+        EndEffectorKinematicsTwistConstraint* absl_nonnull constraint =
+            twistConstraint;
         function.droppedStateTerm = [constraint, dynamics](
                                         const StateManifold& manifold,
                                         const TermProbePoint& point) {
@@ -650,8 +660,9 @@ std::optional<std::string> derivativeMismatch(const std::string& what,
   Eigen::Index col = 0;
   const scalar_t worst =
       (reported - differenced).cwiseAbs().maxCoeff(&row, &col);
-  if (std::isfinite(worst) && worst <= kDerivativeTolerance * scale)
+  if (std::isfinite(worst) && worst <= kDerivativeTolerance * scale) {
     return std::nullopt;
+  }
   return absl::StrFormat(
       "%s: entry (%d, %d) reported %.17g, differenced %.17g: %.3g of the scale "
       "%.3g",
@@ -666,7 +677,7 @@ struct DroppedTermCheck {
    * zero otherwise). */
   bool mapApplied = false;
   /** [rad/s] |w|, the foot's angular speed. */
-  scalar_t footAngularSpeed = 0.0;
+  scalar_t normAngvelFootRtWorldEwrtWorld = 0.0;
   /** max |D| relative to max(1, max |J E + D|), derivativeMismatch()'s scale:
    * how far J E is from the derivative. */
   scalar_t droppedTerm = 0.0;
@@ -747,7 +758,8 @@ DroppedTermCheck checkDroppedTerm(OptimalControlProblem& problem,
                                   std::vector<std::string>& mismatches) {
   const std::string what = absl::StrCat(point.name, " ", function.label);
   DroppedTermCheck check{.mapApplied = dropped.mapApplied,
-                         .footAngularSpeed = dropped.footAngularVelocity.norm(),
+                         .normAngvelFootRtWorldEwrtWorld =
+                             dropped.angvelFootRtWorldEwrtWorld.norm(),
                          .droppedTerm = 0.0,
                          .residual = 0.0,
                          .residualOfDroppedTerm = 0.0,
@@ -769,10 +781,11 @@ DroppedTermCheck checkDroppedTerm(OptimalControlProblem& problem,
   const matrix_t corrected = reportedState + dropped.value;
   // (a): at rest the foot does not turn, so D vanishes and the reported
   // Jacobian is the derivative itself.
-  if (point.atRest && !dropped.footAngularVelocity.isZero(/*prec=*/0.0)) {
+  if (point.atRest &&
+      !dropped.angvelFootRtWorldEwrtWorld.isZero(/*prec=*/0.0)) {
     mismatches.push_back(
         absl::StrFormat("%s: at rest, but the foot turns at %.3g rad/s", what,
-                        check.footAngularSpeed));
+                        check.normAngvelFootRtWorldEwrtWorld));
   }
   if (std::optional<std::string> mismatch =
           point.atRest
@@ -1023,8 +1036,9 @@ void addToStatistics(const DroppedTermCheck& check,
                      DroppedTermStatistics& statistics) {
   ++statistics.points;
   if (check.mapApplied) ++statistics.mapPoints;
-  if (check.mapApplied && check.footAngularSpeed > 0.0)
+  if (check.mapApplied && check.normAngvelFootRtWorldEwrtWorld > 0.0) {
     ++statistics.movingPoints;
+  }
   if (check.mutationRejected) ++statistics.mutationsRejected;
   if (statistics.largestDroppedTermPoint.empty() ||
       check.droppedTerm > statistics.largestDroppedTerm.droppedTerm) {
@@ -1044,9 +1058,10 @@ void addToStatistics(const DroppedTermCheck& check,
   statistics.smallestMutationToBound = std::min(
       statistics.smallestMutationToBound.value_or(check.mutationToBound),
       check.mutationToBound);
-  statistics.perPoint.push_back(absl::StrFormat(
-      "%s %.3g rad/s %.2g (mutation %.3g bounds)", point,
-      check.footAngularSpeed, check.droppedTerm, check.mutationToBound));
+  statistics.perPoint.push_back(
+      absl::StrFormat("%s %.3g rad/s %.2g (mutation %.3g bounds)", point,
+                      check.normAngvelFootRtWorldEwrtWorld, check.droppedTerm,
+                      check.mutationToBound));
 }
 
 /** What the checks of the functions over the points found. Passive data. */
@@ -1079,9 +1094,10 @@ void checkAndTally(OptimalControlProblem& problem,
                           check.mismatches.end());
   tally.checked.insert(function.label);
   if (check.nonZero) tally.nonZero.insert(function.label);
-  if (check.dropped.has_value())
+  if (check.dropped.has_value()) {
     addToStatistics(*check.dropped, point.name,
                     tally.droppedTerms[function.label]);
+  }
 }
 
 /** Prints the twist constraints' dropped-term statistics of `tally` and expects
@@ -1105,7 +1121,7 @@ void summarizeDroppedTerms(absl::string_view configuration,
         configuration, entry.first, statistics.points, statistics.movingPoints,
         statistics.largestDroppedTerm.droppedTerm,
         statistics.largestDroppedTermPoint,
-        statistics.largestDroppedTerm.footAngularSpeed,
+        statistics.largestDroppedTerm.normAngvelFootRtWorldEwrtWorld,
         statistics.largestResidual, statistics.largestResidualOfDroppedTerm,
         statistics.largestResidualToBound, statistics.largestTruncation,
         statistics.largestTiltRateToBound, statistics.mutationsRejected,
@@ -1145,7 +1161,7 @@ TEST_P(QuaternionRootTermDerivatives,
   const std::optional<std::string> softStance = addSoftStanceFootConstraint(
       problem, mpc.modelSettings().contactNames,
       mpc.modelSettings().footConstraintConfig.softConstraintWeight);
-  const std::optional<std::string> softTwist =
+  const std::optional<std::string> softTwistConstraintName =
       softStance.has_value() && !mpc.isWholeBody() ? softStance : std::nullopt;
 
   DerivativeTally tally;
@@ -1160,9 +1176,10 @@ TEST_P(QuaternionRootTermDerivatives,
   for (const TargetedProbePoint& band : bands) {
     for (const ProbedFunction& function :
          probedFunctions(problem, band.point.time, finalTime)) {
-      if (band.labels.contains(function.label))
+      if (band.labels.contains(function.label)) {
         checkAndTally(problem, mpc.manifold(), function, band.point, finalTime,
                       tally);
+      }
     }
   }
   // Every term of every collection, checked at one point at least, and at one
@@ -1197,7 +1214,9 @@ TEST_P(QuaternionRootTermDerivatives,
       GetParam(), checkedTerms, expected.size(), nonZeroTerms,
       softStance.has_value()
           ? absl::StrCat(*softStance, " (the test's wrapper of the hard one",
-                         softTwist.has_value() ? ", a twist constraint)" : ")")
+                         softTwistConstraintName.has_value()
+                             ? ", a twist constraint)"
+                             : ")")
           : std::string("none (no hard stance constraint)"));
   testing::Test::RecordProperty("probed_functions",
                                 static_cast<int>(tally.probed));
@@ -1219,9 +1238,10 @@ TEST_P(QuaternionRootTermDerivatives,
   // Every shipped configuration has a hard stance constraint to wrap; the soft
   // branch of the dropped-term check ran wherever it is a twist constraint.
   EXPECT_TRUE(softStance.has_value()) << "no hard stance constraint to wrap";
-  if (softTwist.has_value()) {
-    EXPECT_TRUE(tally.droppedTerms.contains(*softTwist))
-        << *softTwist << ": the soft twist constraint was checked at no point";
+  if (softTwistConstraintName.has_value()) {
+    EXPECT_TRUE(tally.droppedTerms.contains(*softTwistConstraintName))
+        << *softTwistConstraintName
+        << ": the soft twist constraint was checked at no point";
   }
   EXPECT_TRUE(coverage.empty())
       << coverage.size() << " terms of the problem unchecked, the first:\n"
@@ -1236,8 +1256,9 @@ TEST_P(QuaternionRootTermDerivatives,
       << tally.mismatches.size()
       << " derivatives differ from their differences, the first:\n"
       << (tally.mismatches.empty() ? std::string() : tally.mismatches.front());
-  for (size_t i = 0; i < tally.mismatches.size() && i < 20; ++i)
+  for (size_t i = 0; i < tally.mismatches.size() && i < 20; ++i) {
     ADD_FAILURE() << tally.mismatches[i];
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(

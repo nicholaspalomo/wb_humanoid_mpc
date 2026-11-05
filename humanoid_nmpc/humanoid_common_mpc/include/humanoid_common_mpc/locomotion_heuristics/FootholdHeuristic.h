@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 
+#include "ocs2_core/Types.h"
+
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristic.h"
 
@@ -69,29 +71,31 @@ struct FootholdHeuristicContext {
   scalar_t side = 1.0;
   /** [m] PREDICTED base position in the world at the touch-down: measured at
    * the last solve, carried forward by the command. */
-  vector2_t basePosition = vector2_t::Zero();
+  vector2_t posBaseRtWorldEwrtWorldXy = vector2_t::Zero();
   /** [rad] PREDICTED base yaw at the touch-down; the heading every base-frame
    * offset below is rotated by. */
-  scalar_t baseYaw = 0.0;
-  /** [m/s] MEASURED CoM linear velocity in the world at the last solve. */
-  vector2_t measuredVelocity = vector2_t::Zero();
+  scalar_t yawBaseRtWorld = 0.0;
+  /** [m/s] MEASURED center-of-mass velocity in the world at the last solve;
+   * on the whole body the base velocity stands in for it
+   * (getProxyLinvelComRtWorldEwrtWorld()). */
+  vector2_t measProxyLinvelComRtWorldEwrtWorldXy = vector2_t::Zero();
   /**
-   * [m/s] COMMANDED CoM linear velocity in the world at the last solve: the
-   * command at the instant `measuredVelocity` was measured, which is what a
-   * velocity ERROR has to compare it with. The command at the touch-down below
-   * is a different vector whenever the command turns or ramps: comparing the
-   * measurement with it reads a perfectly tracked turn as an error of |v| times
-   * the angle turned by the touch-down.
+   * [m/s] COMMANDED base linear velocity in the world at the last solve: the
+   * command at the instant `measProxyLinvelComRtWorldEwrtWorldXy` was measured,
+   * which is what a velocity ERROR has to compare it with. The command at the
+   * touch-down below is a different vector whenever the command turns or ramps:
+   * comparing the measurement with it reads a perfectly tracked turn as an
+   * error of |v| times the angle turned by the touch-down.
    */
-  vector2_t commandedVelocityAtMeasurement = vector2_t::Zero();
-  /** [m/s] COMMANDED CoM linear velocity in the world at the touch-down time.
+  vector2_t prevCmdLinvelBaseRtWorldEwrtWorldXy = vector2_t::Zero();
+  /** [m/s] COMMANDED base linear velocity in the world at the touch-down time.
    */
-  vector2_t commandedVelocity = vector2_t::Zero();
+  vector2_t cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t::Zero();
   /** [rad/s] COMMANDED yaw rate at the touch-down time. */
-  scalar_t commandedYawRate = 0.0;
+  scalar_t cmdRateYawBaseRtWorld = 0.0;
   /** [m] MEASURED center-of-mass height above the mean foot height at the last
    * solve; the pendulum length. */
-  scalar_t comHeight = 0.0;
+  scalar_t measPosComRtFeetmeanEwrtWorldZ = 0.0;
   /**
    * [s] Duration of the stance this foot begins by landing, from the mode
    * schedule; 0 when the schedule does not say. Raibert's placement is half of
@@ -107,25 +111,27 @@ struct FootholdHeuristicContext {
  * the r rows of both tables).
  *
  * The contribution is an additive offset, in the WORLD frame and in the ground
- * plane, to the landing target SwitchedModelReferenceManager::nominalFoothold()
- * would otherwise return. Ground-projected because every layer of this stack
- * assumes flat ground and the landing height is owned by the swing trajectory
- * planner, which interpolates it from `terrainHeight`; a heuristic that also
- * had an opinion about height would be a second, conflicting one.
+ * plane, to the landing target
+ * SwitchedModelReferenceManager::getNomPosFootRtWorldEwrtWorldXy() would
+ * otherwise return. Ground-projected because every layer of this stack assumes
+ * flat ground and the landing height is owned by the swing trajectory planner,
+ * which interpolates it from `posSurfaceRtWorldEwrtWorldZ`; a heuristic that
+ * also had an opinion about height would be a second, conflicting one.
  *
  * THREE PRECONDITIONS, all checked by LocomotionHeuristicLayer::Create() at
  * start-up rather than discovered in simulation - two refused, one warned
  * about:
  *
  *  - NOT WITH AN ONLINE CONTACT PLANNER. ContactPlanningReferenceManager
- * overrides getSwingFootReference() and never calls nominalFoothold(), so a
- * foothold heuristic listed alongside `contactScheduleSource: contact_planner`
- * would do nothing at all, silently. Refusing it is also appropriate on the
- * merits: these heuristics ARE the analytic alternative to an
- * optimization-based foothold planner, and running both is two opinions
- * fighting over one variable. The combination is rejected.
+ * overrides getSwingFootReference() and never calls
+ * getNomPosFootRtWorldEwrtWorldXy(), so a foothold heuristic listed alongside
+ * `contactScheduleSource: contact_planner` would do nothing at all, silently.
+ * Refusing it is also appropriate on the merits: these heuristics ARE the
+ * analytic alternative to an optimization-based foothold planner, and running
+ * both is two opinions fighting over one variable. The combination is rejected.
  *  - SOMETHING MUST KEEP THE FEET APART. The anchor takes its lateral
- * separation from half of `nominal_foothold.step_width` to each side of the
+ * separation from half of
+ * `nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y` to each side of the
  * predicted base, or - with `hip_centered_stepping` listed - from the hips.
  * With the step width at 0 and no hip_centered_stepping, every other heuristic
  * would correct a target on the base's own lateral line and both feet would be
@@ -135,7 +141,7 @@ struct FootholdHeuristicContext {
  * are 0 on every robot shipped here, because with `zero_velocity` in
  * `hard_constraints` the stance foot is pinned by the schedule and placement
  * follows from it. A landing target multiplied by a zero weight is dead weight,
- * so Create() warns (LocomotionHeuristicEnvironment::footPositionIsUntracked)
+ * so Create() warns (LocomotionHeuristicEnvironment::footholdIsUntracked)
  * rather than letting the operator tune coefficients that cannot move anything.
  *
  * Like every LocomotionHeuristic, its const methods are safe to call
@@ -152,7 +158,8 @@ class FootholdHeuristic : public LocomotionHeuristic {
    * Must be a pure function of its coefficients and `context`; see
    * LocomotionHeuristic for why.
    */
-  virtual vector2_t offset(const FootholdHeuristicContext& context) const = 0;
+  virtual vector2_t computeOffsetPosFootRtWorldEwrtWorldXy(
+      const FootholdHeuristicContext& context) const = 0;
 
   /**
    * True when this heuristic MOVES THE ANCHOR of the foothold reference rather

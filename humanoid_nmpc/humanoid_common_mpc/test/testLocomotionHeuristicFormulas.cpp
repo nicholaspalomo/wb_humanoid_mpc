@@ -44,8 +44,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <utility>
 #include <vector>
@@ -61,11 +63,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/locomotion_heuristics/BasePoseHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFactory.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
+#include "humanoid_common_mpc/locomotion_heuristics/WrenchHeuristic.h"
 
 namespace ocs2::humanoid {
 
@@ -73,8 +82,8 @@ namespace {
 
 constexpr scalar_t kTol = 1.0e-12;
 constexpr scalar_t kMass = 40.0;
-constexpr scalar_t kGravity = 9.81;
-constexpr scalar_t kWeight = kMass * kGravity;  // 392.4 N
+constexpr scalar_t kGravityMagnitude = 9.81;
+constexpr scalar_t kWeight = kMass * kGravityMagnitude;  // 392.4 N
 
 /**
  * Model constants of a 40 kg robot. The two hips are deliberately NOT mirror
@@ -84,11 +93,11 @@ constexpr scalar_t kWeight = kMass * kGravity;  // 392.4 N
 LocomotionHeuristicModelParameters testModel() {
   LocomotionHeuristicModelParameters model;
   model.totalMass = kMass;
-  model.gravity = kGravity;
+  model.gravity = kGravityMagnitude;
   model.totalWeight = kWeight;
-  model.nominalComHeight = 0.6125;
-  model.hipPositionInBaseFrame[kContactLeftIndex] = vector2_t(0.03, 0.08);
-  model.hipPositionInBaseFrame[kContactRightIndex] = vector2_t(0.01, -0.09);
+  model.nomPosComRtFeetmeanEwrtWorldZ = 0.6125;
+  model.posHipsRtBaseEwrtHeadingXy[kContactLeftIndex] = vector2_t(0.03, 0.08);
+  model.posHipsRtBaseEwrtHeadingXy[kContactRightIndex] = vector2_t(0.01, -0.09);
   return model;
 }
 
@@ -96,7 +105,7 @@ LocomotionHeuristicModelParameters testModel() {
  * width and nothing that makes one inert. */
 LocomotionHeuristicEnvironment steppingEnvironment() {
   LocomotionHeuristicEnvironment environment;
-  environment.nominalStepWidth = 0.2;
+  environment.nomPosLfootRtRfootEwrtHeadingY = 0.2;
   return environment;
 }
 
@@ -104,7 +113,7 @@ FootholdHeuristicContext leftFoot() {
   FootholdHeuristicContext context;
   context.contactIndex = kContactLeftIndex;
   context.side = 1.0;
-  context.comHeight = 0.6125;
+  context.measPosComRtFeetmeanEwrtWorldZ = 0.6125;
   return context;
 }
 
@@ -140,12 +149,14 @@ WrenchHeuristicContext leftSingleSupport(scalar_t leftDutyFactor) {
  * separately. A heuristic that cannot be built or configured is a test failure,
  * and the NaN it returns then fails every comparison made with it.
  */
-BasePoseOffset basePoseOffsetOf(absl::string_view name,
-                                const LocomotionHeuristicConfig& config,
-                                const BasePoseHeuristicContext& context) {
+BasePoseOffset basePoseHeuristicOffsetOf(
+    absl::string_view name,
+    const LocomotionHeuristicConfig& config,
+    const BasePoseHeuristicContext& context) {
   BasePoseOffset nan;
-  nan.roll = nan.pitch = nan.height =
-      std::numeric_limits<scalar_t>::quiet_NaN();
+  nan.offsetEulerzyxBaseRtWorldRoll = nan.offsetEulerzyxBaseRtWorldPitch =
+      nan.offsetPosBaseRtWorldEwrtWorldZ =
+          std::numeric_limits<scalar_t>::quiet_NaN();
   absl::StatusOr<std::unique_ptr<BasePoseHeuristic>> heuristic =
       LocomotionHeuristicFactory::makeBasePoseHeuristic(name);
   if (!heuristic.ok()) {
@@ -160,10 +171,11 @@ BasePoseOffset basePoseOffsetOf(absl::string_view name,
   return (*heuristic)->offset(context);
 }
 
-vector2_t footholdOffsetOf(absl::string_view name,
-                           const LocomotionHeuristicConfig& config,
-                           const LocomotionHeuristicModelParameters& model,
-                           const FootholdHeuristicContext& context) {
+vector2_t computeNamedOffsetPosFootRtWorldEwrtWorldXy(
+    absl::string_view name,
+    const LocomotionHeuristicConfig& config,
+    const LocomotionHeuristicModelParameters& model,
+    const FootholdHeuristicContext& context) {
   vector2_t nan =
       vector2_t::Constant(std::numeric_limits<scalar_t>::quiet_NaN());
   absl::StatusOr<std::unique_ptr<FootholdHeuristic>> heuristic =
@@ -177,19 +189,22 @@ vector2_t footholdOffsetOf(absl::string_view name,
     ADD_FAILURE() << configured.message();
     return nan;
   }
-  return (*heuristic)->offset(context);
+  return (*heuristic)->computeOffsetPosFootRtWorldEwrtWorldXy(context);
 }
 
-vector2_t footholdOffsetOf(absl::string_view name,
-                           const LocomotionHeuristicConfig& config,
-                           const FootholdHeuristicContext& context) {
-  return footholdOffsetOf(name, config, testModel(), context);
+vector2_t computeNamedOffsetPosFootRtWorldEwrtWorldXy(
+    absl::string_view name,
+    const LocomotionHeuristicConfig& config,
+    const FootholdHeuristicContext& context) {
+  return computeNamedOffsetPosFootRtWorldEwrtWorldXy(name, config, testModel(),
+                                                     context);
 }
 
-vector3_t wrenchOffsetOf(absl::string_view name,
-                         const LocomotionHeuristicConfig& config,
-                         const WrenchHeuristicContext& context,
-                         size_t contactIndex) {
+vector3_t computeNamedOffsetForceFootEwrtWorld(
+    absl::string_view name,
+    const LocomotionHeuristicConfig& config,
+    const WrenchHeuristicContext& context,
+    size_t contactIndex) {
   vector3_t nan =
       vector3_t::Constant(std::numeric_limits<scalar_t>::quiet_NaN());
   absl::StatusOr<std::unique_ptr<WrenchHeuristic>> heuristic =
@@ -203,7 +218,7 @@ vector3_t wrenchOffsetOf(absl::string_view name,
     ADD_FAILURE() << configured.message();
     return nan;
   }
-  return (*heuristic)->forceOffset(context, contactIndex);
+  return (*heuristic)->computeOffsetForceFootEwrtWorld(context, contactIndex);
 }
 
 /** Every LOG(WARNING) issued on any thread while it is alive, in order. */
@@ -214,8 +229,9 @@ class WarningLog {
         .WillRepeatedly([this](absl::LogSeverity severity,
                                const std::string& /*filePath*/,
                                const std::string& message) {
-          if (severity == absl::LogSeverity::kWarning)
+          if (severity == absl::LogSeverity::kWarning) {
             warnings_.push_back(message);
+          }
         });
     log_.StartCapturingLogs();
   }
@@ -257,81 +273,91 @@ TEST(LocomotionHeuristicFormulas,
   // contributes to a different mix of channels, and the three totals are each a
   // sum of two non-zero parts.
   LocomotionHeuristicConfig config;
-  config.formulation.basePose = {"orientation_compensation",
-                                 "periodic_orientation", "height_compensation"};
-  config.orientationCompensation.rollPerLateralVelocity = -0.1;
-  config.orientationCompensation.rollOffset = 0.01;
-  config.orientationCompensation.pitchPerForwardVelocity = 0.04;
-  config.orientationCompensation.pitchOffset = 0.005;
-  config.periodicOrientation.rollAmplitude = 0.03;
-  config.periodicOrientation.rollPhaseRate = 2.0 * M_PI;
-  config.periodicOrientation.pitchAmplitude = 0.02;
-  config.periodicOrientation.pitchPhaseRate = 4.0 * M_PI;
-  config.heightCompensation.heightPerSpeedSquared = -0.01;
-  config.heightCompensation.heightPerSpeed = -0.02;
-  config.heightCompensation.heightOffset = 0.005;
+  config.formulation.basePoseHeuristics = {"orientation_compensation",
+                                           "periodic_orientation",
+                                           "height_compensation"};
+  config.orientationCompensationParameters.rollPerLateralVelocityGain = -0.1;
+  config.orientationCompensationParameters.offsetEulerzyxBaseRtWorldRoll = 0.01;
+  config.orientationCompensationParameters.pitchPerForwardVelocityGain = 0.04;
+  config.orientationCompensationParameters.offsetEulerzyxBaseRtWorldPitch =
+      0.005;
+  config.periodicOrientationParameters.amplitudeEulerzyxBaseRtWorldRoll = 0.03;
+  config.periodicOrientationParameters.rollPhaseRate = 2.0 * std::numbers::pi;
+  config.periodicOrientationParameters.amplitudeEulerzyxBaseRtWorldPitch = 0.02;
+  config.periodicOrientationParameters.pitchPhaseRate = 4.0 * std::numbers::pi;
+  config.heightCompensation.heightPerSpeedSquaredGain = -0.01;
+  config.heightCompensation.heightPerSpeedGain = -0.02;
+  config.heightCompensation.offsetPosBaseRtWorldEwrtWorldZ = 0.005;
 
   BasePoseHeuristicContext context;
-  context.commandedVelocityInBaseFrame = vector2_t(1.0, 0.2);
+  context.cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t(1.0, 0.2);
   context.gaitPhase = 0.125;
   // orientation:  roll  = -0.1 * 0.2 + 0.01 = -0.01          pitch = 0.04 * 1.0
   // + 0.005 = 0.045 periodic:     roll  = 0.03 sin(2 pi / 8) = 0.0212132034
   // pitch = 0.02 sin(4 pi / 8) = 0.02 height:       |v| = sqrt(1.04);  dz =
   // -0.01 * 1.04 - 0.02 * sqrt(1.04) + 0.005 = -0.0257960781
-  const scalar_t expectedRoll = -0.01 + 0.03 * std::sqrt(0.5);
-  const scalar_t expectedPitch = 0.065;
-  const scalar_t expectedHeight = -0.025796078054371143;
+  const scalar_t expectedOffsetEulerzyxBaseRtWorldRoll =
+      -0.01 + 0.03 * std::sqrt(0.5);
+  const scalar_t expectedOffsetEulerzyxBaseRtWorldPitch = 0.065;
+  const scalar_t expectedOffsetPosBaseRtWorldEwrtWorldZ = -0.025796078054371143;
 
   // Addition is commutative, which is what makes the order of the task-file
   // list documentary: both orders must agree.
   for (const std::vector<std::string>& order :
-       {config.formulation.basePose,
+       {config.formulation.basePoseHeuristics,
         std::vector<std::string>{"height_compensation", "periodic_orientation",
                                  "orientation_compensation"}}) {
     LocomotionHeuristicConfig ordered = config;
-    ordered.formulation.basePose = order;
+    ordered.formulation.basePoseHeuristics = order;
     absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
         LocomotionHeuristicLayer::Create(ordered, testModel(),
                                          steppingEnvironment());
     ASSERT_TRUE(layer.ok()) << layer.status().message();
-    const BasePoseOffset offset = (*layer)->basePoseOffset(context);
+    const BasePoseOffset offset = (*layer)->basePoseHeuristicOffset(context);
     const std::string listed = absl::StrJoin(order, ", ");
-    EXPECT_NEAR(offset.roll, expectedRoll, 1.0e-12) << listed;
-    EXPECT_NEAR(offset.pitch, expectedPitch, 1.0e-12) << listed;
-    EXPECT_NEAR(offset.height, expectedHeight, 1.0e-12) << listed;
+    EXPECT_NEAR(offset.offsetEulerzyxBaseRtWorldRoll,
+                expectedOffsetEulerzyxBaseRtWorldRoll, 1.0e-12)
+        << listed;
+    EXPECT_NEAR(offset.offsetEulerzyxBaseRtWorldPitch,
+                expectedOffsetEulerzyxBaseRtWorldPitch, 1.0e-12)
+        << listed;
+    EXPECT_NEAR(offset.offsetPosBaseRtWorldEwrtWorldZ,
+                expectedOffsetPosBaseRtWorldEwrtWorldZ, 1.0e-12)
+        << listed;
   }
 }
 
 TEST(LocomotionHeuristicFormulas,
      FootholdOffsetsOfEveryListedHeuristicAreSummed) {
   LocomotionHeuristicConfig config;
-  config.formulation.foothold = {"hip_centered_stepping",
-                                 "translational_stepping", "capture_point"};
-  config.translationalStepping.forwardPerForwardVelocity = 0.2;
+  config.formulation.footholdHeuristics = {
+      "hip_centered_stepping", "translational_stepping", "capture_point"};
+  config.translationalStepping.forwardPerForwardVelocityGain = 0.2;
 
   FootholdHeuristicContext context = leftFoot();
-  context.commandedVelocity = vector2_t(1.0, 0.0);
-  context.commandedVelocityAtMeasurement = vector2_t(1.0, 0.0);
-  context.measuredVelocity = vector2_t(1.1, 0.0);
+  context.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(1.0, 0.0);
+  context.prevCmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(1.0, 0.0);
+  context.measProxyLinvelComRtWorldEwrtWorldXy = vector2_t(1.1, 0.0);
   // hip:            the left hip, (0.03, 0.08), at yaw 0
   // translational:  0.2 * 1.0 = 0.2 forward
   // capture point:  sqrt(0.6125 / 9.81) * (1.1 - 1.0) = 0.0249872547 forward
   const vector2_t expected(0.03 + 0.2 + 0.024987254651223631, 0.08);
 
   for (const std::vector<std::string>& order :
-       {config.formulation.foothold,
+       {config.formulation.footholdHeuristics,
         std::vector<std::string>{"capture_point", "translational_stepping",
                                  "hip_centered_stepping"}}) {
     LocomotionHeuristicConfig ordered = config;
-    ordered.formulation.foothold = order;
+    ordered.formulation.footholdHeuristics = order;
     absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
         LocomotionHeuristicLayer::Create(ordered, testModel(),
                                          steppingEnvironment());
     ASSERT_TRUE(layer.ok()) << layer.status().message();
-    const vector2_t offset = (*layer)->footholdOffset(context);
-    EXPECT_NEAR(offset.x(), expected.x(), 1.0e-12)
+    const vector2_t offsetPosFootRtWorldEwrtWorldXy =
+        (*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(context);
+    EXPECT_NEAR(offsetPosFootRtWorldEwrtWorldXy.x(), expected.x(), 1.0e-12)
         << absl::StrJoin(order, ", ");
-    EXPECT_NEAR(offset.y(), expected.y(), 1.0e-12)
+    EXPECT_NEAR(offsetPosFootRtWorldEwrtWorldXy.y(), expected.y(), 1.0e-12)
         << absl::StrJoin(order, ", ");
   }
 }
@@ -339,28 +365,33 @@ TEST(LocomotionHeuristicFormulas,
 TEST(LocomotionHeuristicFormulas,
      WrenchOffsetsOfEveryListedHeuristicAreSummed) {
   LocomotionHeuristicConfig config;
-  config.formulation.wrench = {"impulse_scaling", "centripetal_acceleration"};
+  config.formulation.wrenchHeuristics = {"impulse_scaling",
+                                         "centripetal_acceleration"};
 
   WrenchHeuristicContext context = doubleSupport(0.6, 0.6);
-  context.commandedVelocity = vector2_t(2.0, 0.0);
-  context.commandedYawRate = 0.5;
+  context.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(2.0, 0.0);
+  context.cmdRateYawBaseRtWorld = 0.5;
   // impulse scaling:  W / (2 * 0.6) - W / 2 = 327 - 196.2 = 130.8 N, vertical
   // centripetal:      m psidot v_x / n = 40 * 0.5 * 2 / 2 = 20 N along +y (the
   // clamp, 0.3 W = 117.72 N, does not bind)
   for (const std::vector<std::string>& order :
-       {config.formulation.wrench,
+       {config.formulation.wrenchHeuristics,
         std::vector<std::string>{"centripetal_acceleration",
                                  "impulse_scaling"}}) {
     LocomotionHeuristicConfig ordered = config;
-    ordered.formulation.wrench = order;
+    ordered.formulation.wrenchHeuristics = order;
     absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
         LocomotionHeuristicLayer::Create(ordered, testModel(),
                                          steppingEnvironment());
     ASSERT_TRUE(layer.ok()) << layer.status().message();
-    const vector3_t offset = (*layer)->wrenchOffset(context, kContactLeftIndex);
-    EXPECT_NEAR(offset.x(), 0.0, 1.0e-9) << absl::StrJoin(order, ", ");
-    EXPECT_NEAR(offset.y(), 20.0, 1.0e-9) << absl::StrJoin(order, ", ");
-    EXPECT_NEAR(offset.z(), 130.8, 1.0e-9) << absl::StrJoin(order, ", ");
+    const vector3_t offsetForceFootEwrtWorld =
+        (*layer)->computeOffsetForceFootEwrtWorld(context, kContactLeftIndex);
+    EXPECT_NEAR(offsetForceFootEwrtWorld.x(), 0.0, 1.0e-9)
+        << absl::StrJoin(order, ", ");
+    EXPECT_NEAR(offsetForceFootEwrtWorld.y(), 20.0, 1.0e-9)
+        << absl::StrJoin(order, ", ");
+    EXPECT_NEAR(offsetForceFootEwrtWorld.z(), 130.8, 1.0e-9)
+        << absl::StrJoin(order, ", ");
   }
 }
 
@@ -376,7 +407,7 @@ TEST(LocomotionHeuristicFormulas,
       {"translational_stepping", "hip_centered_stepping", "capture_point"}};
   for (const std::vector<std::string>& foothold : withHip) {
     LocomotionHeuristicConfig config;
-    config.formulation.foothold = foothold;
+    config.formulation.footholdHeuristics = foothold;
     absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
         LocomotionHeuristicLayer::Create(config, testModel(),
                                          steppingEnvironment());
@@ -387,8 +418,9 @@ TEST(LocomotionHeuristicFormulas,
 
   // And not set by anything else, or the flag would be vacuously true.
   LocomotionHeuristicConfig withoutHip;
-  withoutHip.formulation.foothold = {"capture_point", "translational_stepping",
-                                     "in_place_turning", "high_speed_turning"};
+  withoutHip.formulation.footholdHeuristics = {
+      "capture_point", "translational_stepping", "in_place_turning",
+      "high_speed_turning"};
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(withoutHip, testModel(),
                                        steppingEnvironment());
@@ -398,30 +430,30 @@ TEST(LocomotionHeuristicFormulas,
 
 TEST(LocomotionHeuristicFormulas,
      WorldFrameFlagIsSetWhereverTheCentripetalHeuristicSitsInTheList) {
-  // The same overwrite bug for wrenchNeedsWorldFrame_ would send a horizontal
-  // force down the input-only, vertical-only path and hand it to the
+  // The same overwrite bug for wrenchHeuristicsNeedWorldFrame_ would send a
+  // horizontal force down the input-only, vertical-only path and hand it to the
   // basis-vector parameterization in the wrong frame.
-  for (const std::vector<std::string>& wrench :
+  for (const std::vector<std::string>& wrenchHeuristics :
        {std::vector<std::string>{"centripetal_acceleration", "impulse_scaling"},
         std::vector<std::string>{"impulse_scaling",
                                  "centripetal_acceleration"}}) {
     LocomotionHeuristicConfig config;
-    config.formulation.wrench = wrench;
+    config.formulation.wrenchHeuristics = wrenchHeuristics;
     absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
         LocomotionHeuristicLayer::Create(config, testModel(),
                                          steppingEnvironment());
     ASSERT_TRUE(layer.ok()) << layer.status().message();
-    EXPECT_TRUE((*layer)->wrenchNeedsWorldFrame())
-        << absl::StrJoin(wrench, ", ");
+    EXPECT_TRUE((*layer)->wrenchHeuristicsNeedWorldFrame())
+        << absl::StrJoin(wrenchHeuristics, ", ");
   }
 
   LocomotionHeuristicConfig verticalOnly;
-  verticalOnly.formulation.wrench = {"impulse_scaling"};
+  verticalOnly.formulation.wrenchHeuristics = {"impulse_scaling"};
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(verticalOnly, testModel(),
                                        steppingEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
-  EXPECT_FALSE((*layer)->wrenchNeedsWorldFrame())
+  EXPECT_FALSE((*layer)->wrenchHeuristicsNeedWorldFrame())
       << "a vertical force must keep the cheap path";
 }
 
@@ -432,7 +464,7 @@ TEST(LocomotionHeuristicFormulas,
   // not the sum the dissertation validates, so each is reported - and the full
   // sum is not.
   LocomotionHeuristicFormulation hipAlone;
-  hipAlone.foothold = {"hip_centered_stepping"};
+  hipAlone.footholdHeuristics = {"hip_centered_stepping"};
   const std::vector<std::string> hipAloneWarnings = hipAlone.warnings();
   ASSERT_EQ(hipAloneWarnings.size(), 1u)
       << absl::StrJoin(hipAloneWarnings, "\n");
@@ -444,7 +476,7 @@ TEST(LocomotionHeuristicFormulas,
       << "the warning must say what to add";
 
   LocomotionHeuristicFormulation withoutHip;
-  withoutHip.foothold = {"capture_point"};
+  withoutHip.footholdHeuristics = {"capture_point"};
   const std::vector<std::string> withoutHipWarnings = withoutHip.warnings();
   ASSERT_EQ(withoutHipWarnings.size(), 1u)
       << absl::StrJoin(withoutHipWarnings, "\n");
@@ -453,14 +485,14 @@ TEST(LocomotionHeuristicFormulas,
       << withoutHipWarnings.front();
 
   LocomotionHeuristicFormulation both;
-  both.foothold = {"hip_centered_stepping", "translational_stepping"};
+  both.footholdHeuristics = {"hip_centered_stepping", "translational_stepping"};
   EXPECT_TRUE(both.warnings().empty()) << absl::StrJoin(both.warnings(), "\n");
 
   // The other two channels have no such pairing, and an empty foothold list has
   // nothing to warn about.
   LocomotionHeuristicFormulation noFoothold;
-  noFoothold.basePose = {"orientation_compensation"};
-  noFoothold.wrench = {"impulse_scaling"};
+  noFoothold.basePoseHeuristics = {"orientation_compensation"};
+  noFoothold.wrenchHeuristics = {"impulse_scaling"};
   EXPECT_TRUE(noFoothold.warnings().empty())
       << absl::StrJoin(noFoothold.warnings(), "\n");
 }
@@ -475,10 +507,10 @@ TEST(LocomotionHeuristicFormulas,
   // same answer. Off the axes, with a velocity that is NOT along the heading
   // and different forward and lateral coefficients, it does not.
   LocomotionHeuristicConfig config;
-  config.translationalStepping.forwardPerForwardVelocity = 0.25;
-  config.translationalStepping.forwardOffset = 0.02;
-  config.translationalStepping.lateralPerLateralVelocity = 0.1;
-  config.translationalStepping.lateralOffset = 0.05;
+  config.translationalStepping.forwardPerForwardVelocityGain = 0.25;
+  config.translationalStepping.offsetPosFootRtWorldEwrtHeadingX = 0.02;
+  config.translationalStepping.lateralPerLateralVelocityGain = 0.1;
+  config.translationalStepping.offsetPosFootRtWorldEwrtHeadingY = 0.05;
 
   // Base-frame velocity R(-pi/3) (0.4, 0.9) = (0.9794228634, 0.1035898385).
   //   left:  base offset (0.25 * 0.97942 + 0.02, 0.1 * 0.10359 + 0.05) -> world
@@ -489,20 +521,26 @@ TEST(LocomotionHeuristicFormulas,
   // foot's answer; putting `side` on the velocity term moves the right foot to
   // (0.1847, 0.1992).
   FootholdHeuristicContext left = leftFoot();
-  left.baseYaw = M_PI / 3.0;
-  left.commandedVelocity = vector2_t(0.4, 0.9);
+  left.yawBaseRtWorld = std::numbers::pi / 3.0;
+  left.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.4, 0.9);
   FootholdHeuristicContext right = rightFoot();
-  right.baseYaw = M_PI / 3.0;
-  right.commandedVelocity = vector2_t(0.4, 0.9);
+  right.yawBaseRtWorld = std::numbers::pi / 3.0;
+  right.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.4, 0.9);
 
-  const vector2_t leftOffset =
-      footholdOffsetOf("translational_stepping", config, left);
-  const vector2_t rightOffset =
-      footholdOffsetOf("translational_stepping", config, right);
-  EXPECT_NEAR(leftOffset.x(), 0.080155444566227696, 1.0e-9);
-  EXPECT_NEAR(leftOffset.y(), 0.25955127018922197, 1.0e-9);
-  EXPECT_NEAR(rightOffset.x(), 0.16675798494467156, 1.0e-9);
-  EXPECT_NEAR(rightOffset.y(), 0.20955127018922193, 1.0e-9);
+  const vector2_t offsetPosLfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("translational_stepping",
+                                                  config, left);
+  const vector2_t offsetPosRfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("translational_stepping",
+                                                  config, right);
+  EXPECT_NEAR(offsetPosLfootRtWorldEwrtWorldXy.x(), 0.080155444566227696,
+              1.0e-9);
+  EXPECT_NEAR(offsetPosLfootRtWorldEwrtWorldXy.y(), 0.25955127018922197,
+              1.0e-9);
+  EXPECT_NEAR(offsetPosRfootRtWorldEwrtWorldXy.x(), 0.16675798494467156,
+              1.0e-9);
+  EXPECT_NEAR(offsetPosRfootRtWorldEwrtWorldXy.y(), 0.20955127018922193,
+              1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas,
@@ -511,46 +549,58 @@ TEST(LocomotionHeuristicFormulas,
   // The fractions differ from each other (0.5 forward, 0.25 lateral) so that
   // reading one for the other is visible, and the heading is off the axes.
   LocomotionHeuristicConfig config;
-  config.translationalStepping.forwardPerForwardVelocity = 0.1;
+  config.translationalStepping.forwardPerForwardVelocityGain = 0.1;
   config.translationalStepping.forwardStanceFraction = 0.5;
-  config.translationalStepping.forwardOffset = 0.01;
-  config.translationalStepping.lateralPerLateralVelocity = 0.05;
+  config.translationalStepping.offsetPosFootRtWorldEwrtHeadingX = 0.01;
+  config.translationalStepping.lateralPerLateralVelocityGain = 0.05;
   config.translationalStepping.lateralStanceFraction = 0.25;
-  config.translationalStepping.lateralOffset = 0.03;
+  config.translationalStepping.offsetPosFootRtWorldEwrtHeadingY = 0.03;
 
   FootholdHeuristicContext left = leftFoot();
-  left.baseYaw = M_PI / 6.0;
-  left.commandedVelocity = vector2_t(0.8, 0.3);
+  left.yawBaseRtWorld = std::numbers::pi / 6.0;
+  left.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.8, 0.3);
   FootholdHeuristicContext right = rightFoot();
-  right.baseYaw = M_PI / 6.0;
-  right.commandedVelocity = vector2_t(0.8, 0.3);
+  right.yawBaseRtWorld = std::numbers::pi / 6.0;
+  right.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.8, 0.3);
 
   // T_stance = 0.6 s: forward gain 0.1 + 0.5 * 0.6 = 0.4, lateral gain 0.05 +
   // 0.25 * 0.6 = 0.2, applied to the base-frame velocity R(-pi/6) (0.8, 0.3)
   // and rotated back by pi/6.
   left.stanceDuration = 0.6;
   right.stanceDuration = 0.6;
-  const vector2_t leftLong =
-      footholdOffsetOf("translational_stepping", config, left);
-  const vector2_t rightLong =
-      footholdOffsetOf("translational_stepping", config, right);
-  EXPECT_NEAR(leftLong.x(), 0.29964101615137761, 1.0e-9);
-  EXPECT_NEAR(leftLong.y(), 0.17526279441628825, 1.0e-9);
-  EXPECT_NEAR(rightLong.x(), 0.32964101615137759, 1.0e-9);
-  EXPECT_NEAR(rightLong.y(), 0.12330127018922195, 1.0e-9);
+  const vector2_t longOffsetPosLfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("translational_stepping",
+                                                  config, left);
+  const vector2_t longOffsetPosRfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("translational_stepping",
+                                                  config, right);
+  EXPECT_NEAR(longOffsetPosLfootRtWorldEwrtWorldXy.x(), 0.29964101615137761,
+              1.0e-9);
+  EXPECT_NEAR(longOffsetPosLfootRtWorldEwrtWorldXy.y(), 0.17526279441628825,
+              1.0e-9);
+  EXPECT_NEAR(longOffsetPosRfootRtWorldEwrtWorldXy.x(), 0.32964101615137759,
+              1.0e-9);
+  EXPECT_NEAR(longOffsetPosRfootRtWorldEwrtWorldXy.y(), 0.12330127018922195,
+              1.0e-9);
 
   // T_stance = 0 - what the context carries when the schedule does not say - is
   // exactly Bledt's constant form: gains 0.1 and 0.05.
   left.stanceDuration = 0.0;
   right.stanceDuration = 0.0;
-  const vector2_t leftConstant =
-      footholdOffsetOf("translational_stepping", config, left);
-  const vector2_t rightConstant =
-      footholdOffsetOf("translational_stepping", config, right);
-  EXPECT_NEAR(leftConstant.x(), 0.070155444566227701, 1.0e-9);
-  EXPECT_NEAR(leftConstant.y(), 0.06705127018922194, 1.0e-9);
-  EXPECT_NEAR(rightConstant.x(), 0.10015544456622769, 1.0e-9);
-  EXPECT_NEAR(rightConstant.y(), 0.015089745962155614, 1.0e-9);
+  const vector2_t constantOffsetPosLfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("translational_stepping",
+                                                  config, left);
+  const vector2_t constantOffsetPosRfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("translational_stepping",
+                                                  config, right);
+  EXPECT_NEAR(constantOffsetPosLfootRtWorldEwrtWorldXy.x(),
+              0.070155444566227701, 1.0e-9);
+  EXPECT_NEAR(constantOffsetPosLfootRtWorldEwrtWorldXy.y(), 0.06705127018922194,
+              1.0e-9);
+  EXPECT_NEAR(constantOffsetPosRfootRtWorldEwrtWorldXy.x(), 0.10015544456622769,
+              1.0e-9);
+  EXPECT_NEAR(constantOffsetPosRfootRtWorldEwrtWorldXy.y(),
+              0.015089745962155614, 1.0e-9);
 
   // ...and the stance fractions are the ONLY thing the stance duration reaches:
   // with them at zero, a long stance gives the constant form too.
@@ -558,10 +608,13 @@ TEST(LocomotionHeuristicFormulas,
   bledt.translationalStepping.forwardStanceFraction = 0.0;
   bledt.translationalStepping.lateralStanceFraction = 0.0;
   left.stanceDuration = 0.6;
-  const vector2_t leftBledt =
-      footholdOffsetOf("translational_stepping", bledt, left);
-  EXPECT_NEAR(leftBledt.x(), 0.070155444566227701, 1.0e-9);
-  EXPECT_NEAR(leftBledt.y(), 0.06705127018922194, 1.0e-9);
+  const vector2_t bledtOffsetPosLfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("translational_stepping",
+                                                  bledt, left);
+  EXPECT_NEAR(bledtOffsetPosLfootRtWorldEwrtWorldXy.x(), 0.070155444566227701,
+              1.0e-9);
+  EXPECT_NEAR(bledtOffsetPosLfootRtWorldEwrtWorldXy.y(), 0.06705127018922194,
+              1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas,
@@ -571,14 +624,14 @@ TEST(LocomotionHeuristicFormulas,
   LocomotionHeuristicConfig config;
   config.inPlaceTurning.forwardPerYawRate = 0.05;
   config.inPlaceTurning.lateralPerYawRate = 0.02;
-  config.inPlaceTurning.lateralOffset = 0.03;
+  config.inPlaceTurning.offsetPosFootRtWorldEwrtHeadingY = 0.03;
 
   FootholdHeuristicContext left = leftFoot();
-  left.baseYaw = M_PI / 2.0;
-  left.commandedYawRate = 1.0;
+  left.yawBaseRtWorld = std::numbers::pi / 2.0;
+  left.cmdRateYawBaseRtWorld = 1.0;
   FootholdHeuristicContext right = rightFoot();
-  right.baseYaw = M_PI / 2.0;
-  right.commandedYawRate = 1.0;
+  right.yawBaseRtWorld = std::numbers::pi / 2.0;
+  right.cmdRateYawBaseRtWorld = 1.0;
 
   // left:  base (-0.05 * 1, 0.02 * 1 + 0.03) = (-0.05, 0.05)  -> world R(pi/2)
   // = (-0.05, -0.05) right: base (+0.05 * 1, 0.02 * 1 - 0.03) = (0.05, -0.01)
@@ -586,14 +639,16 @@ TEST(LocomotionHeuristicFormulas,
   // 0.05); an unsigned lateral constant would give the right foot
   // (-0.05, 0.05); a signed lateral RATE would give it (0.05, 0.05) rather than
   // (0.01, 0.05).
-  const vector2_t leftOffset =
-      footholdOffsetOf("in_place_turning", config, left);
-  const vector2_t rightOffset =
-      footholdOffsetOf("in_place_turning", config, right);
-  EXPECT_NEAR(leftOffset.x(), -0.05, 1.0e-9);
-  EXPECT_NEAR(leftOffset.y(), -0.05, 1.0e-9);
-  EXPECT_NEAR(rightOffset.x(), 0.01, 1.0e-9);
-  EXPECT_NEAR(rightOffset.y(), 0.05, 1.0e-9);
+  const vector2_t offsetPosLfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("in_place_turning", config,
+                                                  left);
+  const vector2_t offsetPosRfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("in_place_turning", config,
+                                                  right);
+  EXPECT_NEAR(offsetPosLfootRtWorldEwrtWorldXy.x(), -0.05, 1.0e-9);
+  EXPECT_NEAR(offsetPosLfootRtWorldEwrtWorldXy.y(), -0.05, 1.0e-9);
+  EXPECT_NEAR(offsetPosRfootRtWorldEwrtWorldXy.x(), 0.01, 1.0e-9);
+  EXPECT_NEAR(offsetPosRfootRtWorldEwrtWorldXy.y(), 0.05, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas,
@@ -603,16 +658,16 @@ TEST(LocomotionHeuristicFormulas,
   LocomotionHeuristicConfig config;
   config.inPlaceTurning.forwardPerYawRate = 0.05;
   config.inPlaceTurning.forwardStanceLever = 0.1;
-  config.inPlaceTurning.forwardOffset = 0.01;
+  config.inPlaceTurning.offsetPosFootRtWorldEwrtHeadingX = 0.01;
   config.inPlaceTurning.lateralPerYawRate = 0.02;
-  config.inPlaceTurning.lateralOffset = 0.03;
+  config.inPlaceTurning.offsetPosFootRtWorldEwrtHeadingY = 0.03;
 
   FootholdHeuristicContext left = leftFoot();
-  left.baseYaw = M_PI / 2.0;
-  left.commandedYawRate = 1.0;
+  left.yawBaseRtWorld = std::numbers::pi / 2.0;
+  left.cmdRateYawBaseRtWorld = 1.0;
   FootholdHeuristicContext right = rightFoot();
-  right.baseYaw = M_PI / 2.0;
-  right.commandedYawRate = 1.0;
+  right.yawBaseRtWorld = std::numbers::pi / 2.0;
+  right.cmdRateYawBaseRtWorld = 1.0;
 
   // T_stance = 0.5 s: gain 0.05 + 0.1 * 0.5 = 0.1.
   //   left:  base (-0.1 + 0.01, 0.02 + 0.03) = (-0.09, 0.05) -> world (-0.05,
@@ -620,27 +675,32 @@ TEST(LocomotionHeuristicFormulas,
   //   (0.01, 0.11)
   left.stanceDuration = 0.5;
   right.stanceDuration = 0.5;
-  const vector2_t leftLong = footholdOffsetOf("in_place_turning", config, left);
-  const vector2_t rightLong =
-      footholdOffsetOf("in_place_turning", config, right);
-  EXPECT_NEAR(leftLong.x(), -0.05, 1.0e-9);
-  EXPECT_NEAR(leftLong.y(), -0.09, 1.0e-9);
-  EXPECT_NEAR(rightLong.x(), 0.01, 1.0e-9);
-  EXPECT_NEAR(rightLong.y(), 0.11, 1.0e-9);
+  const vector2_t longOffsetPosLfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("in_place_turning", config,
+                                                  left);
+  const vector2_t longOffsetPosRfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("in_place_turning", config,
+                                                  right);
+  EXPECT_NEAR(longOffsetPosLfootRtWorldEwrtWorldXy.x(), -0.05, 1.0e-9);
+  EXPECT_NEAR(longOffsetPosLfootRtWorldEwrtWorldXy.y(), -0.09, 1.0e-9);
+  EXPECT_NEAR(longOffsetPosRfootRtWorldEwrtWorldXy.x(), 0.01, 1.0e-9);
+  EXPECT_NEAR(longOffsetPosRfootRtWorldEwrtWorldXy.y(), 0.11, 1.0e-9);
 
   // T_stance = 0 is Bledt's constant form, gain 0.05:
   //   left:  base (-0.05 + 0.01, 0.05) = (-0.04, 0.05) -> world (-0.05, -0.04)
   //   right: base ( 0.05 + 0.01, -0.01) = (0.06, -0.01) -> world (0.01, 0.06)
   left.stanceDuration = 0.0;
   right.stanceDuration = 0.0;
-  const vector2_t leftConstant =
-      footholdOffsetOf("in_place_turning", config, left);
-  const vector2_t rightConstant =
-      footholdOffsetOf("in_place_turning", config, right);
-  EXPECT_NEAR(leftConstant.x(), -0.05, 1.0e-9);
-  EXPECT_NEAR(leftConstant.y(), -0.04, 1.0e-9);
-  EXPECT_NEAR(rightConstant.x(), 0.01, 1.0e-9);
-  EXPECT_NEAR(rightConstant.y(), 0.06, 1.0e-9);
+  const vector2_t constantOffsetPosLfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("in_place_turning", config,
+                                                  left);
+  const vector2_t constantOffsetPosRfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("in_place_turning", config,
+                                                  right);
+  EXPECT_NEAR(constantOffsetPosLfootRtWorldEwrtWorldXy.x(), -0.05, 1.0e-9);
+  EXPECT_NEAR(constantOffsetPosLfootRtWorldEwrtWorldXy.y(), -0.04, 1.0e-9);
+  EXPECT_NEAR(constantOffsetPosRfootRtWorldEwrtWorldXy.x(), 0.01, 1.0e-9);
+  EXPECT_NEAR(constantOffsetPosRfootRtWorldEwrtWorldXy.y(), 0.06, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas,
@@ -649,9 +709,9 @@ TEST(LocomotionHeuristicFormulas,
   // hide behind the rotation-equivariance of an isotropic cross product.
   LocomotionHeuristicConfig config;
   config.highSpeedTurning.forwardPerCrossTerm = 0.1;
-  config.highSpeedTurning.forwardOffset = 0.01;
+  config.highSpeedTurning.offsetPosFootRtWorldEwrtHeadingX = 0.01;
   config.highSpeedTurning.lateralPerCrossTerm = 0.2;
-  config.highSpeedTurning.lateralOffset = 0.03;
+  config.highSpeedTurning.offsetPosFootRtWorldEwrtHeadingY = 0.03;
 
   // Facing +y (yaw pi/2), walking +y at 2 m/s and turning left at 1 rad/s. In
   // the base frame v = (2, 0), so v x omega = (0, -2):
@@ -660,51 +720,66 @@ TEST(LocomotionHeuristicFormulas,
   // Both are thrown to world +x: OUTSIDE a counter-clockwise turn centered to
   // the robot's left, i.e. at -x.
   FootholdHeuristicContext left = leftFoot();
-  left.baseYaw = M_PI / 2.0;
-  left.commandedVelocity = vector2_t(0.0, 2.0);
-  left.commandedYawRate = 1.0;
+  left.yawBaseRtWorld = std::numbers::pi / 2.0;
+  left.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.0, 2.0);
+  left.cmdRateYawBaseRtWorld = 1.0;
   FootholdHeuristicContext right = rightFoot();
-  right.baseYaw = M_PI / 2.0;
-  right.commandedVelocity = vector2_t(0.0, 2.0);
-  right.commandedYawRate = 1.0;
-  EXPECT_NEAR(footholdOffsetOf("high_speed_turning", config, left).x(), 0.37,
-              1.0e-9);
-  EXPECT_NEAR(footholdOffsetOf("high_speed_turning", config, left).y(), 0.01,
-              1.0e-9);
-  EXPECT_NEAR(footholdOffsetOf("high_speed_turning", config, right).x(), 0.43,
-              1.0e-9);
-  EXPECT_NEAR(footholdOffsetOf("high_speed_turning", config, right).y(), 0.01,
-              1.0e-9);
+  right.yawBaseRtWorld = std::numbers::pi / 2.0;
+  right.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.0, 2.0);
+  right.cmdRateYawBaseRtWorld = 1.0;
+  EXPECT_NEAR(computeNamedOffsetPosFootRtWorldEwrtWorldXy("high_speed_turning",
+                                                          config, left)
+                  .x(),
+              0.37, 1.0e-9);
+  EXPECT_NEAR(computeNamedOffsetPosFootRtWorldEwrtWorldXy("high_speed_turning",
+                                                          config, left)
+                  .y(),
+              0.01, 1.0e-9);
+  EXPECT_NEAR(computeNamedOffsetPosFootRtWorldEwrtWorldXy("high_speed_turning",
+                                                          config, right)
+                  .x(),
+              0.43, 1.0e-9);
+  EXPECT_NEAR(computeNamedOffsetPosFootRtWorldEwrtWorldXy("high_speed_turning",
+                                                          config, right)
+                  .y(),
+              0.01, 1.0e-9);
 
   // The FORWARD cross term, v_y psidot, is zero whenever the velocity is along
   // the heading. Sidestepping left at 1.5 m/s while turning left at 0.8 rad/s
   // it is +1.2, so forward = 0.1 * 1.2 + 0.01 = 0.13; flipping its sign gives
   // -0.11.
   FootholdHeuristicContext sidestepping = leftFoot();
-  sidestepping.commandedVelocity = vector2_t(0.0, 1.5);
-  sidestepping.commandedYawRate = 0.8;
-  const vector2_t sidestep =
-      footholdOffsetOf("high_speed_turning", config, sidestepping);
-  EXPECT_NEAR(sidestep.x(), 0.13, 1.0e-9);
-  EXPECT_NEAR(sidestep.y(), 0.03, 1.0e-9);
+  sidestepping.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.0, 1.5);
+  sidestepping.cmdRateYawBaseRtWorld = 0.8;
+  const vector2_t sidestepOffsetPosLfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("high_speed_turning", config,
+                                                  sidestepping);
+  EXPECT_NEAR(sidestepOffsetPosLfootRtWorldEwrtWorldXy.x(), 0.13, 1.0e-9);
+  EXPECT_NEAR(sidestepOffsetPosLfootRtWorldEwrtWorldXy.y(), 0.03, 1.0e-9);
 
   // Everything at once, off the axes: yaw 0.4, v = (1.0, 0.5), psidot 0.7.
   FootholdHeuristicContext generalLeft = leftFoot();
-  generalLeft.baseYaw = 0.4;
-  generalLeft.commandedVelocity = vector2_t(1.0, 0.5);
-  generalLeft.commandedYawRate = 0.7;
+  generalLeft.yawBaseRtWorld = 0.4;
+  generalLeft.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(1.0, 0.5);
+  generalLeft.cmdRateYawBaseRtWorld = 0.7;
   FootholdHeuristicContext generalRight = rightFoot();
-  generalRight.baseYaw = 0.4;
-  generalRight.commandedVelocity = vector2_t(1.0, 0.5);
-  generalRight.commandedYawRate = 0.7;
-  const vector2_t generalLeftOffset =
-      footholdOffsetOf("high_speed_turning", config, generalLeft);
-  const vector2_t generalRightOffset =
-      footholdOffsetOf("high_speed_turning", config, generalRight);
-  EXPECT_NEAR(generalLeftOffset.x(), 0.062943155438677234, 1.0e-9);
-  EXPECT_NEAR(generalLeftOffset.y(), -0.11041245317471936, 1.0e-9);
-  EXPECT_NEAR(generalRightOffset.x(), 0.086308255977196269, 1.0e-9);
-  EXPECT_NEAR(generalRightOffset.y(), -0.16567611281489247, 1.0e-9);
+  generalRight.yawBaseRtWorld = 0.4;
+  generalRight.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(1.0, 0.5);
+  generalRight.cmdRateYawBaseRtWorld = 0.7;
+  const vector2_t generalOffsetPosLfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("high_speed_turning", config,
+                                                  generalLeft);
+  const vector2_t generalOffsetPosRfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("high_speed_turning", config,
+                                                  generalRight);
+  EXPECT_NEAR(generalOffsetPosLfootRtWorldEwrtWorldXy.x(), 0.062943155438677234,
+              1.0e-9);
+  EXPECT_NEAR(generalOffsetPosLfootRtWorldEwrtWorldXy.y(), -0.11041245317471936,
+              1.0e-9);
+  EXPECT_NEAR(generalOffsetPosRfootRtWorldEwrtWorldXy.x(), 0.086308255977196269,
+              1.0e-9);
+  EXPECT_NEAR(generalOffsetPosRfootRtWorldEwrtWorldXy.y(), -0.16567611281489247,
+              1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas,
@@ -719,34 +794,42 @@ TEST(LocomotionHeuristicFormulas,
   // left hip (0.03, 0.08) -> (0.5 * 0.03, 2.0 * 0.08) = (0.015, 0.16)
   // right hip (0.01, -0.09) -> (0.005, -0.18); the swapped-scale mutant gives
   // (0.06, 0.04) for the left foot.
-  const vector2_t left =
-      footholdOffsetOf("hip_centered_stepping", config, leftFoot());
-  const vector2_t right =
-      footholdOffsetOf("hip_centered_stepping", config, rightFoot());
-  EXPECT_NEAR(left.x(), 0.015, 1.0e-12);
-  EXPECT_NEAR(left.y(), 0.16, 1.0e-12);
-  EXPECT_NEAR(right.x(), 0.005, 1.0e-12);
-  EXPECT_NEAR(right.y(), -0.18, 1.0e-12);
+  const vector2_t offsetPosLfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("hip_centered_stepping",
+                                                  config, leftFoot());
+  const vector2_t offsetPosRfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("hip_centered_stepping",
+                                                  config, rightFoot());
+  EXPECT_NEAR(offsetPosLfootRtWorldEwrtWorldXy.x(), 0.015, 1.0e-12);
+  EXPECT_NEAR(offsetPosLfootRtWorldEwrtWorldXy.y(), 0.16, 1.0e-12);
+  EXPECT_NEAR(offsetPosRfootRtWorldEwrtWorldXy.x(), 0.005, 1.0e-12);
+  EXPECT_NEAR(offsetPosRfootRtWorldEwrtWorldXy.y(), -0.18, 1.0e-12);
 
   // At yaw pi/3 the scaled hip is rotated into the world, and the predicted
   // base position - which the reference manager adds back as the anchor - must
   // not leak into the offset.
   FootholdHeuristicContext turnedLeft = leftFoot();
-  turnedLeft.baseYaw = M_PI / 3.0;
-  turnedLeft.basePosition = vector2_t(5.0, -3.0);
+  turnedLeft.yawBaseRtWorld = std::numbers::pi / 3.0;
+  turnedLeft.posBaseRtWorldEwrtWorldXy = vector2_t(5.0, -3.0);
   FootholdHeuristicContext turnedRight = rightFoot();
-  turnedRight.baseYaw = M_PI / 3.0;
-  turnedRight.basePosition = vector2_t(5.0, -3.0);
-  const vector2_t turnedLeftOffset =
-      footholdOffsetOf("hip_centered_stepping", config, turnedLeft);
-  const vector2_t turnedRightOffset =
-      footholdOffsetOf("hip_centered_stepping", config, turnedRight);
+  turnedRight.yawBaseRtWorld = std::numbers::pi / 3.0;
+  turnedRight.posBaseRtWorldEwrtWorldXy = vector2_t(5.0, -3.0);
+  const vector2_t turnedOffsetPosLfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("hip_centered_stepping",
+                                                  config, turnedLeft);
+  const vector2_t turnedOffsetPosRfootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("hip_centered_stepping",
+                                                  config, turnedRight);
   // R(pi/3) (0.015, 0.16) = (0.0075 - 0.13856406, 0.01299038 + 0.08)
-  EXPECT_NEAR(turnedLeftOffset.x(), -0.13106406460551018, 1.0e-9);
-  EXPECT_NEAR(turnedLeftOffset.y(), 0.09299038105676659, 1.0e-9);
+  EXPECT_NEAR(turnedOffsetPosLfootRtWorldEwrtWorldXy.x(), -0.13106406460551018,
+              1.0e-9);
+  EXPECT_NEAR(turnedOffsetPosLfootRtWorldEwrtWorldXy.y(), 0.09299038105676659,
+              1.0e-9);
   // R(pi/3) (0.005, -0.18)
-  EXPECT_NEAR(turnedRightOffset.x(), 0.15838457268119893, 1.0e-9);
-  EXPECT_NEAR(turnedRightOffset.y(), -0.08566987298107781, 1.0e-9);
+  EXPECT_NEAR(turnedOffsetPosRfootRtWorldEwrtWorldXy.x(), 0.15838457268119893,
+              1.0e-9);
+  EXPECT_NEAR(turnedOffsetPosRfootRtWorldEwrtWorldXy.y(), -0.08566987298107781,
+              1.0e-9);
 }
 
 /*============================================ capture point (H41)
@@ -760,21 +843,28 @@ TEST(LocomotionHeuristicFormulas,
   // measured 0.9, override 0.4, nominal 0.6125, gain 0.5, gravity 3.
   const scalar_t error = 0.5;  // measured 0.5 m/s forward, commanded 0
   FootholdHeuristicContext pushed = leftFoot();
-  pushed.measuredVelocity = vector2_t(error, 0.0);
-  pushed.commandedVelocity = vector2_t::Zero();
-  pushed.comHeight = 0.9;
+  pushed.measProxyLinvelComRtWorldEwrtWorldXy = vector2_t(error, 0.0);
+  pushed.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t::Zero();
+  pushed.measPosComRtFeetmeanEwrtWorldZ = 0.9;
 
   LocomotionHeuristicConfig config;
   // (a) the measured height: sqrt(0.9 / 9.81) * 0.5 = 0.1514456332
-  EXPECT_NEAR(footholdOffsetOf("capture_point", config, pushed).x(),
+  EXPECT_NEAR(computeNamedOffsetPosFootRtWorldEwrtWorldXy("capture_point",
+                                                          config, pushed)
+                  .x(),
               0.15144563320384566, 1.0e-9);
-  EXPECT_NEAR(footholdOffsetOf("capture_point", config, pushed).y(), 0.0, kTol);
+  EXPECT_NEAR(computeNamedOffsetPosFootRtWorldEwrtWorldXy("capture_point",
+                                                          config, pushed)
+                  .y(),
+              0.0, kTol);
 
   // (b) a positive override wins over the measurement: sqrt(0.4 / 9.81) * 0.5 =
   // 0.1009637555
   LocomotionHeuristicConfig overridden = config;
-  overridden.capturePoint.comHeightOverride = 0.4;
-  EXPECT_NEAR(footholdOffsetOf("capture_point", overridden, pushed).x(),
+  overridden.capturePoint.overridePosComRtFeetmeanEwrtWorldZ = 0.4;
+  EXPECT_NEAR(computeNamedOffsetPosFootRtWorldEwrtWorldXy("capture_point",
+                                                          overridden, pushed)
+                  .x(),
               0.10096375546923045, 1.0e-9);
 
   // (c) a non-positive measurement falls back to the model's nominal:
@@ -784,8 +874,10 @@ TEST(LocomotionHeuristicFormulas,
   // instead of falling back would leave the push unanswered.
   for (const scalar_t measured : {0.0, -0.3}) {
     FootholdHeuristicContext unmeasured = pushed;
-    unmeasured.comHeight = measured;
-    EXPECT_NEAR(footholdOffsetOf("capture_point", config, unmeasured).x(),
+    unmeasured.measPosComRtFeetmeanEwrtWorldZ = measured;
+    EXPECT_NEAR(computeNamedOffsetPosFootRtWorldEwrtWorldXy("capture_point",
+                                                            config, unmeasured)
+                    .x(),
                 0.12493627325611814, 1.0e-9)
         << "measured " << measured;
   }
@@ -793,18 +885,21 @@ TEST(LocomotionHeuristicFormulas,
   // (d) the gain multiplies: 0.5 * 0.1514456332 = 0.0757228166
   LocomotionHeuristicConfig halfGain = config;
   halfGain.capturePoint.gain = 0.5;
-  EXPECT_NEAR(footholdOffsetOf("capture_point", halfGain, pushed).x(),
+  EXPECT_NEAR(computeNamedOffsetPosFootRtWorldEwrtWorldXy("capture_point",
+                                                          halfGain, pushed)
+                  .x(),
               0.07572281660192283, 1.0e-9);
 
   // gravity is the model's: sqrt(0.9 / 3) * 0.5 = 0.2738612788, with the 0.25 m
   // clamp opened so it cannot bind
   LocomotionHeuristicConfig unclamped = config;
-  unclamped.capturePoint.maximumOffset = 1.0;
+  unclamped.capturePoint.maxNormOffsetPosFootRtWorldEwrtWorldXy = 1.0;
   LocomotionHeuristicModelParameters lowGravity = testModel();
   lowGravity.gravity = 3.0;
-  EXPECT_NEAR(
-      footholdOffsetOf("capture_point", unclamped, lowGravity, pushed).x(),
-      0.27386127875258304, 1.0e-9);
+  EXPECT_NEAR(computeNamedOffsetPosFootRtWorldEwrtWorldXy(
+                  "capture_point", unclamped, lowGravity, pushed)
+                  .x(),
+              0.27386127875258304, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas, CapturePointIsSilentOnAPerfectlyTrackedTurn) {
@@ -815,24 +910,32 @@ TEST(LocomotionHeuristicFormulas, CapturePointIsSilentOnAPerfectlyTrackedTurn) {
   // sqrt(z / g) (v_0 - R_z(psidot dt) v_0), which on Atlas at 1 m/s, 1 rad/s
   // and 0.45 s is a spurious 0.15 m step outwards.
   const LocomotionHeuristicConfig config;
-  for (const scalar_t speed : {0.3, 1.0, 1.6}) {
-    for (const scalar_t yawRate : {-1.2, 0.5, 1.0}) {
+  for (const scalar_t cmdSpeedBaseRtWorld : {0.3, 1.0, 1.6}) {
+    for (const scalar_t cmdRateYawBaseRtWorld : {-1.2, 0.5, 1.0}) {
       for (const scalar_t lookAhead : {0.1, 0.45, 0.8}) {
-        for (const scalar_t heading : {0.0, 0.7, -2.4}) {
-          const vector2_t atSolve =
-              speed * vector2_t(std::cos(heading), std::sin(heading));
-          const scalar_t turned = heading + yawRate * lookAhead;
+        for (const scalar_t prevCmdYawHeadingRtWorld : {0.0, 0.7, -2.4}) {
+          const vector2_t prevCmdLinvelBaseRtWorldEwrtWorldXy =
+              cmdSpeedBaseRtWorld *
+              vector2_t(std::cos(prevCmdYawHeadingRtWorld),
+                        std::sin(prevCmdYawHeadingRtWorld));
+          const scalar_t cmdYawHeadingRtWorld =
+              prevCmdYawHeadingRtWorld + cmdRateYawBaseRtWorld * lookAhead;
           FootholdHeuristicContext tracking = leftFoot();
-          tracking.measuredVelocity = atSolve;
-          tracking.commandedVelocityAtMeasurement = atSolve;
-          tracking.commandedVelocity =
-              speed * vector2_t(std::cos(turned), std::sin(turned));
-          tracking.commandedYawRate = yawRate;
-          const vector2_t offset =
-              footholdOffsetOf("capture_point", config, tracking);
-          EXPECT_LT(offset.norm(), 1.0e-12)
-              << "v " << speed << ", psidot " << yawRate << ", dt " << lookAhead
-              << ": " << offset.transpose();
+          tracking.measProxyLinvelComRtWorldEwrtWorldXy =
+              prevCmdLinvelBaseRtWorldEwrtWorldXy;
+          tracking.prevCmdLinvelBaseRtWorldEwrtWorldXy =
+              prevCmdLinvelBaseRtWorldEwrtWorldXy;
+          tracking.cmdLinvelBaseRtWorldEwrtWorldXy =
+              cmdSpeedBaseRtWorld * vector2_t(std::cos(cmdYawHeadingRtWorld),
+                                              std::sin(cmdYawHeadingRtWorld));
+          tracking.cmdRateYawBaseRtWorld = cmdRateYawBaseRtWorld;
+          const vector2_t offsetPosFootRtWorldEwrtWorldXy =
+              computeNamedOffsetPosFootRtWorldEwrtWorldXy("capture_point",
+                                                          config, tracking);
+          EXPECT_LT(offsetPosFootRtWorldEwrtWorldXy.norm(), 1.0e-12)
+              << "v " << cmdSpeedBaseRtWorld << ", psidot "
+              << cmdRateYawBaseRtWorld << ", dt " << lookAhead << ": "
+              << offsetPosFootRtWorldEwrtWorldXy.transpose();
         }
       }
     }
@@ -842,13 +945,15 @@ TEST(LocomotionHeuristicFormulas, CapturePointIsSilentOnAPerfectlyTrackedTurn) {
   // solve does step - into the error, and by the error alone, whatever the
   // command at the touch-down is.
   FootholdHeuristicContext slow = leftFoot();
-  slow.commandedVelocityAtMeasurement = vector2_t(1.0, 0.0);
-  slow.measuredVelocity = vector2_t(0.8, 0.0);
-  slow.commandedVelocity = vector2_t(0.0, 1.0);
-  const scalar_t expected = std::sqrt(0.6125 / kGravity) * (0.8 - 1.0);
-  const vector2_t offset = footholdOffsetOf("capture_point", config, slow);
-  EXPECT_NEAR(offset.x(), expected, 1.0e-12);
-  EXPECT_NEAR(offset.y(), 0.0, 1.0e-12);
+  slow.prevCmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(1.0, 0.0);
+  slow.measProxyLinvelComRtWorldEwrtWorldXy = vector2_t(0.8, 0.0);
+  slow.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.0, 1.0);
+  const scalar_t expected = std::sqrt(0.6125 / kGravityMagnitude) * (0.8 - 1.0);
+  const vector2_t offsetPosFootRtWorldEwrtWorldXy =
+      computeNamedOffsetPosFootRtWorldEwrtWorldXy("capture_point", config,
+                                                  slow);
+  EXPECT_NEAR(offsetPosFootRtWorldEwrtWorldXy.x(), expected, 1.0e-12);
+  EXPECT_NEAR(offsetPosFootRtWorldEwrtWorldXy.y(), 0.0, 1.0e-12);
 }
 
 TEST(LocomotionHeuristicFormulas,
@@ -862,23 +967,27 @@ TEST(LocomotionHeuristicFormulas,
   // the solver, which fails the comparisons below.
   const LocomotionHeuristicConfig config;
   FootholdHeuristicContext pushed = leftFoot();
-  pushed.measuredVelocity = vector2_t(0.5, 0.0);
+  pushed.measProxyLinvelComRtWorldEwrtWorldXy = vector2_t(0.5, 0.0);
   for (const scalar_t nominal :
        {-0.2, std::numeric_limits<scalar_t>::quiet_NaN()}) {
     LocomotionHeuristicModelParameters noNominal = testModel();
-    noNominal.nominalComHeight = nominal;
-    pushed.comHeight = -1.0;
-    const vector2_t offset =
-        footholdOffsetOf("capture_point", config, noNominal, pushed);
-    EXPECT_NEAR(offset.x(), 0.0, kTol) << "nominal " << nominal;
-    EXPECT_NEAR(offset.y(), 0.0, kTol) << "nominal " << nominal;
+    noNominal.nomPosComRtFeetmeanEwrtWorldZ = nominal;
+    pushed.measPosComRtFeetmeanEwrtWorldZ = -1.0;
+    const vector2_t offsetPosFootRtWorldEwrtWorldXy =
+        computeNamedOffsetPosFootRtWorldEwrtWorldXy("capture_point", config,
+                                                    noNominal, pushed);
+    EXPECT_NEAR(offsetPosFootRtWorldEwrtWorldXy.x(), 0.0, kTol)
+        << "nominal " << nominal;
+    EXPECT_NEAR(offsetPosFootRtWorldEwrtWorldXy.y(), 0.0, kTol)
+        << "nominal " << nominal;
 
     // Positive control: the same push with a usable measured height does step,
     // sqrt(0.9 / 9.81) * 0.5.
-    pushed.comHeight = 0.9;
-    EXPECT_NEAR(
-        footholdOffsetOf("capture_point", config, noNominal, pushed).x(),
-        0.15144563320384566, 1.0e-9)
+    pushed.measPosComRtFeetmeanEwrtWorldZ = 0.9;
+    EXPECT_NEAR(computeNamedOffsetPosFootRtWorldEwrtWorldXy(
+                    "capture_point", config, noNominal, pushed)
+                    .x(),
+                0.15144563320384566, 1.0e-9)
         << "nominal " << nominal;
   }
 }
@@ -893,57 +1002,60 @@ TEST(LocomotionHeuristicFormulas,
   // foot COUNT instead of the stance count is invisible.
   const LocomotionHeuristicConfig config;
   WrenchHeuristicContext context = leftSingleSupport(0.5);
-  context.commandedVelocity = vector2_t(0.0, 1.5);
-  context.commandedYawRate = 0.8;
+  context.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.0, 1.5);
+  context.cmdRateYawBaseRtWorld = 0.8;
   // omega x v = (0, 0, 0.8) x (0, 1.5, 0) = (-1.2, 0, 0); times m = 40 over one
   // stance foot: (-48, 0, 0). The center of a left turn taken while moving +y
   // is at -x.
-  const vector3_t force = wrenchOffsetOf("centripetal_acceleration", config,
-                                         context, kContactLeftIndex);
-  EXPECT_NEAR(force.x(), -48.0, 1.0e-9);
-  EXPECT_NEAR(force.y(), 0.0, 1.0e-12);
-  EXPECT_NEAR(force.z(), 0.0, 1.0e-12);
+  const vector3_t offsetForceFootEwrtWorld =
+      computeNamedOffsetForceFootEwrtWorld("centripetal_acceleration", config,
+                                           context, kContactLeftIndex);
+  EXPECT_NEAR(offsetForceFootEwrtWorld.x(), -48.0, 1.0e-9);
+  EXPECT_NEAR(offsetForceFootEwrtWorld.y(), 0.0, 1.0e-12);
+  EXPECT_NEAR(offsetForceFootEwrtWorld.z(), 0.0, 1.0e-12);
 
   // `scale` blends it: 0.5 * -48 = -24.
   LocomotionHeuristicConfig halved = config;
-  halved.centripetalAcceleration.scale = 0.5;
-  EXPECT_NEAR(wrenchOffsetOf("centripetal_acceleration", halved, context,
-                             kContactLeftIndex)
-                  .x(),
-              -24.0, 1.0e-9);
+  halved.centripetalAccelerationParameters.scale = 0.5;
+  EXPECT_NEAR(
+      computeNamedOffsetForceFootEwrtWorld("centripetal_acceleration", halved,
+                                           context, kContactLeftIndex)
+          .x(),
+      -24.0, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas,
      CentripetalAbsoluteClampReplacesTheWeightRatio) {
   WrenchHeuristicContext context = leftSingleSupport(0.5);
-  context.commandedVelocity = vector2_t(0.0, 1.5);
-  context.commandedYawRate = 0.8;
+  context.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.0, 1.5);
+  context.cmdRateYawBaseRtWorld = 0.8;
 
-  // maximumForce 30 N clamps the 48 N demand.
+  // maxForceComEwrtWorldXy 30 N clamps the 48 N demand.
   LocomotionHeuristicConfig absolute;
-  absolute.centripetalAcceleration.maximumForce = 30.0;
-  EXPECT_NEAR(wrenchOffsetOf("centripetal_acceleration", absolute, context,
-                             kContactLeftIndex)
-                  .x(),
-              -30.0, 1.0e-9);
+  absolute.centripetalAccelerationParameters.maxForceComEwrtWorldXy = 30.0;
+  EXPECT_NEAR(
+      computeNamedOffsetForceFootEwrtWorld("centripetal_acceleration", absolute,
+                                           context, kContactLeftIndex)
+          .x(),
+      -30.0, 1.0e-9);
 
   // A demand of m psidot v = 40 * 2.5 * 1.5 = 150 N sits between the ratio
   // clamp (0.3 W = 117.72 N) and a 200 N absolute clamp. With the absolute
   // clamp set, the ratio must play no part...
   WrenchHeuristicContext fast = context;
-  fast.commandedYawRate = 2.5;
+  fast.cmdRateYawBaseRtWorld = 2.5;
   LocomotionHeuristicConfig generous;
-  generous.centripetalAcceleration.maximumForce = 200.0;
-  EXPECT_NEAR(wrenchOffsetOf("centripetal_acceleration", generous, fast,
-                             kContactLeftIndex)
+  generous.centripetalAccelerationParameters.maxForceComEwrtWorldXy = 200.0;
+  EXPECT_NEAR(computeNamedOffsetForceFootEwrtWorld(
+                  "centripetal_acceleration", generous, fast, kContactLeftIndex)
                   .x(),
               -150.0, 1.0e-9);
   // ...and with it at 0 the ratio is the clamp.
   const LocomotionHeuristicConfig ratio;
-  EXPECT_NEAR(
-      wrenchOffsetOf("centripetal_acceleration", ratio, fast, kContactLeftIndex)
-          .x(),
-      -0.3 * kWeight, 1.0e-9);
+  EXPECT_NEAR(computeNamedOffsetForceFootEwrtWorld(
+                  "centripetal_acceleration", ratio, fast, kContactLeftIndex)
+                  .x(),
+              -0.3 * kWeight, 1.0e-9);
 }
 
 TEST(
@@ -958,48 +1070,62 @@ TEST(
   // number.
   const scalar_t mu = 0.5;
   for (const scalar_t ratioOfWeight : {0.05, 0.2, 0.3}) {
-    for (const scalar_t yawRate : {-3.0, 2.0}) {
+    for (const scalar_t cmdRateYawBaseRtWorld : {-3.0, 2.0}) {
       LocomotionHeuristicConfig config;
-      config.centripetalAcceleration.maximumForce = 0.0;
-      config.centripetalAcceleration.maximumForceRatioOfWeight = ratioOfWeight;
+      config.centripetalAccelerationParameters.maxForceComEwrtWorldXy = 0.0;
+      config.centripetalAccelerationParameters.maxWnormForceComEwrtWorldXy =
+          ratioOfWeight;
       WrenchHeuristicContext single = leftSingleSupport(0.5);
-      single.commandedVelocity = vector2_t(4.0, -3.0);
-      single.commandedYawRate = yawRate;
+      single.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(4.0, -3.0);
+      single.cmdRateYawBaseRtWorld = cmdRateYawBaseRtWorld;
       WrenchHeuristicContext both = doubleSupport(0.5, 0.5);
-      both.commandedVelocity = single.commandedVelocity;
-      both.commandedYawRate = yawRate;
-      ASSERT_GT(kMass * std::abs(yawRate) * single.commandedVelocity.norm(),
+      both.cmdLinvelBaseRtWorldEwrtWorldXy =
+          single.cmdLinvelBaseRtWorldEwrtWorldXy;
+      both.cmdRateYawBaseRtWorld = cmdRateYawBaseRtWorld;
+      ASSERT_GT(kMass * std::abs(cmdRateYawBaseRtWorld) *
+                    single.cmdLinvelBaseRtWorldEwrtWorldXy.norm(),
                 2.0 * ratioOfWeight * kWeight)
           << "the demand must bind";
 
       const scalar_t singleShare =
-          wrenchOffsetOf("centripetal_acceleration", config, single,
-                         kContactLeftIndex)
+          computeNamedOffsetForceFootEwrtWorld(
+              "centripetal_acceleration", config, single, kContactLeftIndex)
               .norm() /
           (mu * kWeight / 1.0);
       const scalar_t doubleShare =
-          wrenchOffsetOf("centripetal_acceleration", config, both,
-                         kContactLeftIndex)
+          computeNamedOffsetForceFootEwrtWorld("centripetal_acceleration",
+                                               config, both, kContactLeftIndex)
               .norm() /
           (mu * kWeight / 2.0);
       EXPECT_NEAR(singleShare, ratioOfWeight / mu, 1.0e-12)
-          << "ratio " << ratioOfWeight << ", yaw rate " << yawRate;
+          << "ratio " << ratioOfWeight << ", yaw rate "
+          << cmdRateYawBaseRtWorld;
       EXPECT_NEAR(doubleShare, ratioOfWeight / mu, 1.0e-12)
-          << "ratio " << ratioOfWeight << ", yaw rate " << yawRate;
+          << "ratio " << ratioOfWeight << ", yaw rate "
+          << cmdRateYawBaseRtWorld;
       // The two feet of double support carry the same share, and together
       // exactly the clamped total.
-      const vector3_t left = wrenchOffsetOf("centripetal_acceleration", config,
-                                            both, kContactLeftIndex);
-      const vector3_t right = wrenchOffsetOf("centripetal_acceleration", config,
-                                             both, kContactRightIndex);
-      EXPECT_LT((left - right).norm(), 1.0e-12);
-      EXPECT_NEAR((left + right).norm(), ratioOfWeight * kWeight, 1.0e-9);
+      const vector3_t offsetForceLfootEwrtWorld =
+          computeNamedOffsetForceFootEwrtWorld("centripetal_acceleration",
+                                               config, both, kContactLeftIndex);
+      const vector3_t offsetForceRfootEwrtWorld =
+          computeNamedOffsetForceFootEwrtWorld(
+              "centripetal_acceleration", config, both, kContactRightIndex);
+      EXPECT_LT((offsetForceLfootEwrtWorld - offsetForceRfootEwrtWorld).norm(),
+                1.0e-12);
+      EXPECT_NEAR(
+          (offsetForceLfootEwrtWorld + offsetForceRfootEwrtWorld).norm(),
+          ratioOfWeight * kWeight, 1.0e-9);
       // The direction survives the clamp: still m omega x v, towards the center
       // of the turn.
-      const vector3_t unclamped(-kMass * yawRate * both.commandedVelocity.y(),
-                                kMass * yawRate * both.commandedVelocity.x(),
+      const vector3_t unclamped(-kMass * cmdRateYawBaseRtWorld *
+                                    both.cmdLinvelBaseRtWorldEwrtWorldXy.y(),
+                                kMass * cmdRateYawBaseRtWorld *
+                                    both.cmdLinvelBaseRtWorldEwrtWorldXy.x(),
                                 0.0);
-      EXPECT_NEAR(left.normalized().dot(unclamped.normalized()), 1.0, 1.0e-12);
+      EXPECT_NEAR(
+          offsetForceLfootEwrtWorld.normalized().dot(unclamped.normalized()),
+          1.0, 1.0e-12);
     }
   }
 }
@@ -1011,22 +1137,29 @@ TEST(LocomotionHeuristicFormulas,
   // mean total vertical reference must come back to exactly W. A gait of beta =
   // 0.6 is 20 % double support and 80 % single support.
   LocomotionHeuristicConfig config;
-  config.formulation.wrench = {"impulse_scaling"};
+  config.formulation.wrenchHeuristics = {"impulse_scaling"};
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, testModel(),
                                        steppingEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
-  const scalar_t doubleSupportOffset =
-      (*layer)->wrenchOffset(doubleSupport(0.6, 0.6), kContactLeftIndex).z();
-  const scalar_t singleSupportOffset =
-      (*layer)->wrenchOffset(leftSingleSupport(0.6), kContactLeftIndex).z();
+  const scalar_t doubleSupportOffsetForceLfootEwrtWorldZ =
+      (*layer)
+          ->computeOffsetForceFootEwrtWorld(doubleSupport(0.6, 0.6),
+                                            kContactLeftIndex)
+          .z();
+  const scalar_t singleSupportOffsetForceLfootEwrtWorldZ =
+      (*layer)
+          ->computeOffsetForceFootEwrtWorld(leftSingleSupport(0.6),
+                                            kContactLeftIndex)
+          .z();
   // Both feet are asked for W / (2 * 0.6) = 327 N whatever the stance count:
   // +130.8 on W/2, -65.4 on W.
-  EXPECT_NEAR(doubleSupportOffset, 130.8, 1.0e-9);
-  EXPECT_NEAR(singleSupportOffset, -65.4, 1.0e-9);
-  const scalar_t meanTotal = 0.2 * 2.0 * (kWeight / 2.0 + doubleSupportOffset) +
-                             0.8 * (kWeight + singleSupportOffset);
+  EXPECT_NEAR(doubleSupportOffsetForceLfootEwrtWorldZ, 130.8, 1.0e-9);
+  EXPECT_NEAR(singleSupportOffsetForceLfootEwrtWorldZ, -65.4, 1.0e-9);
+  const scalar_t meanTotal =
+      0.2 * 2.0 * (kWeight / 2.0 + doubleSupportOffsetForceLfootEwrtWorldZ) +
+      0.8 * (kWeight + singleSupportOffsetForceLfootEwrtWorldZ);
   // The rejected form, (W / n) / beta, gives 654 N here: it would regularize
   // the CoM towards accelerating upwards.
   EXPECT_NEAR(meanTotal, kWeight, 1.0e-9)
@@ -1036,10 +1169,11 @@ TEST(LocomotionHeuristicFormulas,
   // of 130.8.
   LocomotionHeuristicConfig halved;
   halved.impulseScaling.scale = 0.5;
-  EXPECT_NEAR(wrenchOffsetOf("impulse_scaling", halved, doubleSupport(0.6, 0.6),
-                             kContactLeftIndex)
-                  .z(),
-              65.4, 1.0e-9);
+  EXPECT_NEAR(
+      computeNamedOffsetForceFootEwrtWorld(
+          "impulse_scaling", halved, doubleSupport(0.6, 0.6), kContactLeftIndex)
+          .z(),
+      65.4, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas,
@@ -1051,12 +1185,13 @@ TEST(LocomotionHeuristicFormulas,
   // both would clamp to the same 196.2, which is why the older test could not
   // tell.
   LocomotionHeuristicConfig config;
-  config.impulseScaling.maximumForceRatio = 10.0;
+  config.impulseScaling.maximumWeightCompensationRatio = 10.0;
   config.impulseScaling.minimumDutyFactor = 0.4;
-  EXPECT_NEAR(wrenchOffsetOf("impulse_scaling", config, doubleSupport(0.1, 0.1),
-                             kContactLeftIndex)
-                  .z(),
-              294.3, 1.0e-9);
+  EXPECT_NEAR(
+      computeNamedOffsetForceFootEwrtWorld(
+          "impulse_scaling", config, doubleSupport(0.1, 0.1), kContactLeftIndex)
+          .z(),
+      294.3, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas, ImpulseScalingNeverAsksAFootToPullDown) {
@@ -1067,10 +1202,11 @@ TEST(LocomotionHeuristicFormulas, ImpulseScalingNeverAsksAFootToPullDown) {
   // -523.2.
   LocomotionHeuristicConfig config;
   config.impulseScaling.scale = 3.0;
-  const vector3_t offset = wrenchOffsetOf(
-      "impulse_scaling", config, leftSingleSupport(0.9), kContactLeftIndex);
-  EXPECT_NEAR(offset.z(), -kWeight, 1.0e-9);
-  EXPECT_NEAR(kWeight + offset.z(), 0.0, 1.0e-9)
+  const vector3_t offsetForceFootEwrtWorld =
+      computeNamedOffsetForceFootEwrtWorld(
+          "impulse_scaling", config, leftSingleSupport(0.9), kContactLeftIndex);
+  EXPECT_NEAR(offsetForceFootEwrtWorld.z(), -kWeight, 1.0e-9);
+  EXPECT_NEAR(kWeight + offsetForceFootEwrtWorld.z(), 0.0, 1.0e-9)
       << "the reference itself is clamped to zero, not below";
 }
 
@@ -1080,13 +1216,14 @@ TEST(LocomotionHeuristicFormulas, ImpulseScalingReadsEachFootsOwnDutyFactor) {
   // / 1.4 - W / 2 = 84.0857 N, right W / 1.1 - W / 2 = 160.5273 N.
   const LocomotionHeuristicConfig config;
   const WrenchHeuristicContext context = doubleSupport(0.7, 0.55);
-  EXPECT_NEAR(
-      wrenchOffsetOf("impulse_scaling", config, context, kContactLeftIndex).z(),
-      84.08571428571432, 1.0e-9);
-  EXPECT_NEAR(
-      wrenchOffsetOf("impulse_scaling", config, context, kContactRightIndex)
-          .z(),
-      160.52727272727273, 1.0e-9);
+  EXPECT_NEAR(computeNamedOffsetForceFootEwrtWorld("impulse_scaling", config,
+                                                   context, kContactLeftIndex)
+                  .z(),
+              84.08571428571432, 1.0e-9);
+  EXPECT_NEAR(computeNamedOffsetForceFootEwrtWorld("impulse_scaling", config,
+                                                   context, kContactRightIndex)
+                  .z(),
+              160.52727272727273, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas,
@@ -1100,7 +1237,7 @@ TEST(LocomotionHeuristicFormulas,
   LocomotionHeuristicConfig config;
   config.impulseScaling.scale = 0.75;
   config.impulseScaling.minimumDutyFactor = 0.3;
-  config.impulseScaling.maximumForceRatio = 1.5;
+  config.impulseScaling.maximumWeightCompensationRatio = 1.5;
   ASSERT_TRUE((*heuristic)->configure(config, testModel()).ok());
 
   const std::string description = (*heuristic)->describe();
@@ -1150,12 +1287,13 @@ TEST(LocomotionHeuristicFormulas,
   // it vanishes where the phase is frozen. Every other base-pose heuristic is a
   // function of the command alone and leaves the rates at 0.
   LocomotionHeuristicConfig config;
-  config.periodicOrientation.rollAmplitude = 0.03;
-  config.periodicOrientation.rollPhaseRate = 2.0 * M_PI;
-  config.periodicOrientation.rollPhaseOffset = 0.4;
-  config.periodicOrientation.pitchAmplitude = -0.02;
-  config.periodicOrientation.pitchPhaseRate = 4.0 * M_PI;
-  config.periodicOrientation.pitchPhaseOffset = -1.1;
+  config.periodicOrientationParameters.amplitudeEulerzyxBaseRtWorldRoll = 0.03;
+  config.periodicOrientationParameters.rollPhaseRate = 2.0 * std::numbers::pi;
+  config.periodicOrientationParameters.rollPhaseOffset = 0.4;
+  config.periodicOrientationParameters.amplitudeEulerzyxBaseRtWorldPitch =
+      -0.02;
+  config.periodicOrientationParameters.pitchPhaseRate = 4.0 * std::numbers::pi;
+  config.periodicOrientationParameters.pitchPhaseOffset = -1.1;
   const scalar_t step = 1.0e-7;
   for (const scalar_t phase : {0.0, 0.13, 0.37, 0.5, 0.81}) {
     for (const scalar_t phaseRate : {0.0, 0.625, 1.25}) {
@@ -1163,40 +1301,45 @@ TEST(LocomotionHeuristicFormulas,
       context.gaitPhase = phase;
       context.gaitPhaseRate = phaseRate;
       const BasePoseOffset offset =
-          basePoseOffsetOf("periodic_orientation", config, context);
+          basePoseHeuristicOffsetOf("periodic_orientation", config, context);
       BasePoseHeuristicContext ahead = context;
       ahead.gaitPhase = phase + step;
       BasePoseHeuristicContext behind = context;
       behind.gaitPhase = phase - step;
       const BasePoseOffset aheadOffset =
-          basePoseOffsetOf("periodic_orientation", config, ahead);
+          basePoseHeuristicOffsetOf("periodic_orientation", config, ahead);
       const BasePoseOffset behindOffset =
-          basePoseOffsetOf("periodic_orientation", config, behind);
-      EXPECT_NEAR(
-          offset.rollRate,
-          (aheadOffset.roll - behindOffset.roll) / (2.0 * step) * phaseRate,
-          1.0e-7)
+          basePoseHeuristicOffsetOf("periodic_orientation", config, behind);
+      EXPECT_NEAR(offset.offsetRateEulerzyxBaseRtWorldRoll,
+                  (aheadOffset.offsetEulerzyxBaseRtWorldRoll -
+                   behindOffset.offsetEulerzyxBaseRtWorldRoll) /
+                      (2.0 * step) * phaseRate,
+                  1.0e-7)
           << "phase " << phase << ", rate " << phaseRate;
-      EXPECT_NEAR(
-          offset.pitchRate,
-          (aheadOffset.pitch - behindOffset.pitch) / (2.0 * step) * phaseRate,
-          1.0e-7)
+      EXPECT_NEAR(offset.offsetRateEulerzyxBaseRtWorldPitch,
+                  (aheadOffset.offsetEulerzyxBaseRtWorldPitch -
+                   behindOffset.offsetEulerzyxBaseRtWorldPitch) /
+                      (2.0 * step) * phaseRate,
+                  1.0e-7)
           << "phase " << phase << ", rate " << phaseRate;
     }
   }
   BasePoseHeuristicContext moving;
-  moving.commandedVelocityInBaseFrame = vector2_t(1.1, -0.4);
+  moving.cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t(1.1, -0.4);
   moving.gaitPhase = 0.3;
   moving.gaitPhaseRate = 1.25;
   LocomotionHeuristicConfig commandOnly;
-  commandOnly.orientationCompensation.pitchPerForwardVelocity = 0.05;
-  commandOnly.orientationCompensation.rollPerLateralVelocity = 0.02;
-  commandOnly.heightCompensation.heightPerSpeed = -0.03;
+  commandOnly.orientationCompensationParameters.pitchPerForwardVelocityGain =
+      0.05;
+  commandOnly.orientationCompensationParameters.rollPerLateralVelocityGain =
+      0.02;
+  commandOnly.heightCompensation.heightPerSpeedGain = -0.03;
   for (const char* absl_nonnull name :
        {"orientation_compensation", "height_compensation"}) {
-    const BasePoseOffset offset = basePoseOffsetOf(name, commandOnly, moving);
-    EXPECT_EQ(offset.rollRate, 0.0) << name;
-    EXPECT_EQ(offset.pitchRate, 0.0) << name;
+    const BasePoseOffset offset =
+        basePoseHeuristicOffsetOf(name, commandOnly, moving);
+    EXPECT_EQ(offset.offsetRateEulerzyxBaseRtWorldRoll, 0.0) << name;
+    EXPECT_EQ(offset.offsetRateEulerzyxBaseRtWorldPitch, 0.0) << name;
   }
 }
 
@@ -1205,25 +1348,26 @@ TEST(LocomotionHeuristicFormulas,
   // At |v| = 1 along x, v, v^2 and |v_x| are all the same number; at v = (1.2,
   // 0.9) they are 1.5, 2.25 and 1.2.
   LocomotionHeuristicConfig config;
-  config.heightCompensation.heightPerSpeedSquared = -0.01;
-  config.heightCompensation.heightPerSpeed = -0.02;
-  config.heightCompensation.heightOffset = 0.005;
-  config.heightCompensation.maximumHeightOffset = 0.05;
+  config.heightCompensation.heightPerSpeedSquaredGain = -0.01;
+  config.heightCompensation.heightPerSpeedGain = -0.02;
+  config.heightCompensation.offsetPosBaseRtWorldEwrtWorldZ = 0.005;
+  config.heightCompensation.maxOffsetPosBaseRtWorldEwrtWorldZ = 0.05;
 
   BasePoseHeuristicContext context;
-  context.commandedVelocityInBaseFrame = vector2_t(1.2, 0.9);
+  context.cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t(1.2, 0.9);
   // -0.01 * 2.25 - 0.02 * 1.5 + 0.005 = -0.0475; linear-in-a2 gives -0.04,
   // |v_x| gives -0.0334.
   const BasePoseOffset offset =
-      basePoseOffsetOf("height_compensation", config, context);
-  EXPECT_NEAR(offset.height, -0.0475, 1.0e-12);
-  EXPECT_NEAR(offset.roll, 0.0, kTol);
-  EXPECT_NEAR(offset.pitch, 0.0, kTol);
+      basePoseHeuristicOffsetOf("height_compensation", config, context);
+  EXPECT_NEAR(offset.offsetPosBaseRtWorldEwrtWorldZ, -0.0475, 1.0e-12);
+  EXPECT_NEAR(offset.offsetEulerzyxBaseRtWorldRoll, 0.0, kTol);
+  EXPECT_NEAR(offset.offsetEulerzyxBaseRtWorldPitch, 0.0, kTol);
 
   // The POSITIVE side of the clamp: 0.2 - 0.0525 = 0.1475 -> 0.05.
   LocomotionHeuristicConfig rising = config;
-  rising.heightCompensation.heightOffset = 0.2;
-  EXPECT_NEAR(basePoseOffsetOf("height_compensation", rising, context).height,
+  rising.heightCompensation.offsetPosBaseRtWorldEwrtWorldZ = 0.2;
+  EXPECT_NEAR(basePoseHeuristicOffsetOf("height_compensation", rising, context)
+                  .offsetPosBaseRtWorldEwrtWorldZ,
               0.05, 1.0e-12);
 }
 
@@ -1231,22 +1375,23 @@ TEST(LocomotionHeuristicFormulas,
      OrientationCompensationClampsPitchAsWellAsRoll) {
   // The older test saturates only roll, so deleting the pitch clamp passes it.
   LocomotionHeuristicConfig config;
-  config.orientationCompensation.pitchPerForwardVelocity = 0.0725;
-  config.orientationCompensation.rollOffset = 0.01;
-  config.orientationCompensation.maximumTilt = 0.1;
+  config.orientationCompensationParameters.pitchPerForwardVelocityGain = 0.0725;
+  config.orientationCompensationParameters.offsetEulerzyxBaseRtWorldRoll = 0.01;
+  config.orientationCompensationParameters.maxOffsetEulerzyxBaseRtWorld = 0.1;
 
   BasePoseHeuristicContext forward;
-  forward.commandedVelocityInBaseFrame = vector2_t(100.0, 0.0);
+  forward.cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t(100.0, 0.0);
   const BasePoseOffset leaning =
-      basePoseOffsetOf("orientation_compensation", config, forward);
-  EXPECT_NEAR(leaning.pitch, 0.1, 1.0e-12);
-  EXPECT_NEAR(leaning.roll, 0.01, 1.0e-12)
+      basePoseHeuristicOffsetOf("orientation_compensation", config, forward);
+  EXPECT_NEAR(leaning.offsetEulerzyxBaseRtWorldPitch, 0.1, 1.0e-12);
+  EXPECT_NEAR(leaning.offsetEulerzyxBaseRtWorldRoll, 0.01, 1.0e-12)
       << "roll follows the lateral command only";
 
   BasePoseHeuristicContext backward;
-  backward.commandedVelocityInBaseFrame = vector2_t(-100.0, 0.0);
+  backward.cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t(-100.0, 0.0);
   EXPECT_NEAR(
-      basePoseOffsetOf("orientation_compensation", config, backward).pitch,
+      basePoseHeuristicOffsetOf("orientation_compensation", config, backward)
+          .offsetEulerzyxBaseRtWorldPitch,
       -0.1, 1.0e-12);
 }
 
@@ -1257,39 +1402,50 @@ TEST(LocomotionHeuristicFormulas,
   // pitch at 4 pi per cycle, so a roll computed with the pitch rate vanishes at
   // phase 0.25 instead of peaking.
   LocomotionHeuristicConfig config;
-  config.periodicOrientation.rollAmplitude = 0.03;
-  config.periodicOrientation.rollPhaseRate = 2.0 * M_PI;
-  config.periodicOrientation.rollPhaseOffset = 0.0;
-  config.periodicOrientation.pitchAmplitude = 0.02;
-  config.periodicOrientation.pitchPhaseRate = 4.0 * M_PI;
+  config.periodicOrientationParameters.amplitudeEulerzyxBaseRtWorldRoll = 0.03;
+  config.periodicOrientationParameters.rollPhaseRate = 2.0 * std::numbers::pi;
+  config.periodicOrientationParameters.rollPhaseOffset = 0.0;
+  config.periodicOrientationParameters.amplitudeEulerzyxBaseRtWorldPitch = 0.02;
+  config.periodicOrientationParameters.pitchPhaseRate = 4.0 * std::numbers::pi;
 
   BasePoseHeuristicContext context;
   context.gaitPhase =
       0.25;  // roll 0.03 sin(pi/2) = 0.03, pitch 0.02 sin(pi) = 0
-  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).roll,
+  EXPECT_NEAR(basePoseHeuristicOffsetOf("periodic_orientation", config, context)
+                  .offsetEulerzyxBaseRtWorldRoll,
               0.03, 1.0e-12);
-  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).pitch,
+  EXPECT_NEAR(basePoseHeuristicOffsetOf("periodic_orientation", config, context)
+                  .offsetEulerzyxBaseRtWorldPitch,
               0.0, 1.0e-12);
   context.gaitPhase = 0.75;  // roll 0.03 sin(3 pi/2) = -0.03
-  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).roll,
+  EXPECT_NEAR(basePoseHeuristicOffsetOf("periodic_orientation", config, context)
+                  .offsetEulerzyxBaseRtWorldRoll,
               -0.03, 1.0e-12);
   context.gaitPhase =
       0.125;  // roll 0.03 sin(pi/4), pitch 0.02 sin(pi/2) = 0.02
-  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).roll,
+  EXPECT_NEAR(basePoseHeuristicOffsetOf("periodic_orientation", config, context)
+                  .offsetEulerzyxBaseRtWorldRoll,
               0.03 * std::sqrt(0.5), 1.0e-12);
-  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).pitch,
+  EXPECT_NEAR(basePoseHeuristicOffsetOf("periodic_orientation", config, context)
+                  .offsetEulerzyxBaseRtWorldPitch,
               0.02, 1.0e-12);
-  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).height,
+  EXPECT_NEAR(basePoseHeuristicOffsetOf("periodic_orientation", config, context)
+                  .offsetPosBaseRtWorldEwrtWorldZ,
               0.0, kTol);
 
   // The roll phase offset is its own: pi/2 at phase 0 is a peak.
   LocomotionHeuristicConfig shifted = config;
-  shifted.periodicOrientation.rollPhaseOffset = M_PI / 2.0;
+  shifted.periodicOrientationParameters.rollPhaseOffset =
+      std::numbers::pi / 2.0;
   context.gaitPhase = 0.0;
-  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", shifted, context).roll,
-              0.03, 1.0e-12);
-  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", shifted, context).pitch,
-              0.0, 1.0e-12);
+  EXPECT_NEAR(
+      basePoseHeuristicOffsetOf("periodic_orientation", shifted, context)
+          .offsetEulerzyxBaseRtWorldRoll,
+      0.03, 1.0e-12);
+  EXPECT_NEAR(
+      basePoseHeuristicOffsetOf("periodic_orientation", shifted, context)
+          .offsetEulerzyxBaseRtWorldPitch,
+      0.0, 1.0e-12);
 }
 
 /*========================================== Create(): refusals and warnings
@@ -1299,19 +1455,23 @@ TEST(LocomotionHeuristicFormulas,
      CreateRefusesAFootholdListThatNothingKeepsApart) {
   // With the step width at zero and no hip_centered_stepping, every other
   // foothold heuristic corrects a target on the base's own lateral line: both
-  // feet are aimed at the same point. SA01, G1 and R1 ship stepWidth 0.
+  // feet are aimed at the same point. SA01, G1 and R1 ship
+  // nom_pos_lfoot_rt_rfoot_ewrt_heading_y 0.
   LocomotionHeuristicConfig config;
-  config.formulation.foothold = {"capture_point", "translational_stepping"};
-  for (const scalar_t stepWidth :
+  config.formulation.footholdHeuristics = {"capture_point",
+                                           "translational_stepping"};
+  for (const scalar_t nomPosLfootRtRfootEwrtHeadingY :
        {0.0, -0.1, std::numeric_limits<scalar_t>::quiet_NaN()}) {
     LocomotionHeuristicEnvironment environment;
-    environment.nominalStepWidth = stepWidth;
+    environment.nomPosLfootRtRfootEwrtHeadingY = nomPosLfootRtRfootEwrtHeadingY;
     const absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
         LocomotionHeuristicLayer::Create(config, testModel(), environment);
-    ASSERT_FALSE(layer.ok()) << "stepWidth " << stepWidth;
+    ASSERT_FALSE(layer.ok())
+        << "nomPosLfootRtRfootEwrtHeadingY " << nomPosLfootRtRfootEwrtHeadingY;
     EXPECT_EQ(layer.status().code(), absl::StatusCode::kInvalidArgument);
     const std::string message(layer.status().message());
-    EXPECT_TRUE(absl::StrContains(message, "nominal_foothold.step_width"))
+    EXPECT_TRUE(absl::StrContains(
+        message, "nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y"))
         << message;
     EXPECT_TRUE(absl::StrContains(message, "hip_centered_stepping")) << message;
   }
@@ -1320,18 +1480,19 @@ TEST(LocomotionHeuristicFormulas,
 TEST(LocomotionHeuristicFormulas,
      CreateAcceptsAFootholdListKeptApartByTheHipsOrByTheStepWidth) {
   LocomotionHeuristicEnvironment zeroWidth;
-  zeroWidth.nominalStepWidth = 0.0;
+  zeroWidth.nomPosLfootRtRfootEwrtHeadingY = 0.0;
 
   // The hips keep the feet apart.
   LocomotionHeuristicConfig anchored;
-  anchored.formulation.foothold = {"capture_point", "hip_centered_stepping"};
+  anchored.formulation.footholdHeuristics = {"capture_point",
+                                             "hip_centered_stepping"};
   const absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> withHips =
       LocomotionHeuristicLayer::Create(anchored, testModel(), zeroWidth);
   EXPECT_TRUE(withHips.ok()) << withHips.status().message();
 
   // The step width keeps the feet apart.
   LocomotionHeuristicConfig unanchored;
-  unanchored.formulation.foothold = {"capture_point"};
+  unanchored.formulation.footholdHeuristics = {"capture_point"};
   const absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> withWidth =
       LocomotionHeuristicLayer::Create(unanchored, testModel(),
                                        steppingEnvironment());
@@ -1340,8 +1501,8 @@ TEST(LocomotionHeuristicFormulas,
   // The check is about the FOOTHOLD channel: the other two do not place feet
   // and load at any step width.
   LocomotionHeuristicConfig noFoothold;
-  noFoothold.formulation.basePose = {"orientation_compensation"};
-  noFoothold.formulation.wrench = {"impulse_scaling"};
+  noFoothold.formulation.basePoseHeuristics = {"orientation_compensation"};
+  noFoothold.formulation.wrenchHeuristics = {"impulse_scaling"};
   const absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>>
       otherChannels =
           LocomotionHeuristicLayer::Create(noFoothold, testModel(), zeroWidth);
@@ -1353,8 +1514,8 @@ TEST(LocomotionHeuristicFormulas,
   // The cost factory zeroes Q's base-pose block under ACoM tracking, so the
   // shaped reference reaches no cost.
   LocomotionHeuristicConfig config;
-  config.formulation.basePose = {"orientation_compensation",
-                                 "height_compensation"};
+  config.formulation.basePoseHeuristics = {"orientation_compensation",
+                                           "height_compensation"};
   LocomotionHeuristicEnvironment environment = steppingEnvironment();
   environment.listsComAndAcomTrackingCost = true;
 
@@ -1362,7 +1523,7 @@ TEST(LocomotionHeuristicFormulas,
   ASSERT_TRUE(
       LocomotionHeuristicLayer::Create(config, testModel(), environment).ok());
   EXPECT_EQ(log.count("com_and_acom_tracking_cost"), 1u) << log.all();
-  EXPECT_EQ(log.count("locomotion_heuristics.base_pose lists "
+  EXPECT_EQ(log.count("locomotion_heuristics.base_pose_heuristics lists "
                       "orientation_compensation, height_compensation"),
             1u)
       << log.all();
@@ -1371,16 +1532,16 @@ TEST(LocomotionHeuristicFormulas,
 TEST(LocomotionHeuristicFormulas,
      CreateWarnsThatFootholdHeuristicsDoNothingWithTheFootPositionUntracked) {
   LocomotionHeuristicConfig config;
-  config.formulation.foothold = {"hip_centered_stepping",
-                                 "translational_stepping"};
+  config.formulation.footholdHeuristics = {"hip_centered_stepping",
+                                           "translational_stepping"};
   LocomotionHeuristicEnvironment environment = steppingEnvironment();
-  environment.footPositionIsUntracked = true;
+  environment.footholdIsUntracked = true;
 
   WarningLog log;
   ASSERT_TRUE(
       LocomotionHeuristicLayer::Create(config, testModel(), environment).ok());
   EXPECT_EQ(log.count("task_space_foot_cost.weights.pos_x"), 1u) << log.all();
-  EXPECT_EQ(log.count("locomotion_heuristics.foothold lists "
+  EXPECT_EQ(log.count("locomotion_heuristics.foothold_heuristics lists "
                       "hip_centered_stepping, translational_stepping"),
             1u)
       << log.all();
@@ -1393,8 +1554,8 @@ TEST(
   environment.usesContactBasisVectorInputs = true;
 
   LocomotionHeuristicConfig horizontal;
-  horizontal.formulation.wrench = {"impulse_scaling",
-                                   "centripetal_acceleration"};
+  horizontal.formulation.wrenchHeuristics = {"impulse_scaling",
+                                             "centripetal_acceleration"};
   {
     WarningLog log;
     ASSERT_TRUE(
@@ -1408,7 +1569,7 @@ TEST(
   // A vertical-only wrench list never takes the forward-kinematics path, so
   // there is nothing to warn about.
   LocomotionHeuristicConfig vertical;
-  vertical.formulation.wrench = {"impulse_scaling"};
+  vertical.formulation.wrenchHeuristics = {"impulse_scaling"};
   {
     WarningLog log;
     ASSERT_TRUE(
@@ -1426,11 +1587,12 @@ TEST(LocomotionHeuristicFormulas,
   // every configuration would be noise the operator learns to ignore. The same
   // lists as above, in an environment where each channel reaches a cost.
   LocomotionHeuristicConfig config;
-  config.formulation.basePose = {"orientation_compensation",
-                                 "height_compensation"};
-  config.formulation.foothold = {"hip_centered_stepping",
-                                 "translational_stepping"};
-  config.formulation.wrench = {"impulse_scaling", "centripetal_acceleration"};
+  config.formulation.basePoseHeuristics = {"orientation_compensation",
+                                           "height_compensation"};
+  config.formulation.footholdHeuristics = {"hip_centered_stepping",
+                                           "translational_stepping"};
+  config.formulation.wrenchHeuristics = {"impulse_scaling",
+                                         "centripetal_acceleration"};
   {
     WarningLog log;
     ASSERT_TRUE(LocomotionHeuristicLayer::Create(config, testModel(),
@@ -1443,7 +1605,7 @@ TEST(LocomotionHeuristicFormulas,
   // that channel lists nothing.
   LocomotionHeuristicEnvironment hostile = steppingEnvironment();
   hostile.listsComAndAcomTrackingCost = true;
-  hostile.footPositionIsUntracked = true;
+  hostile.footholdIsUntracked = true;
   hostile.usesContactBasisVectorInputs = true;
   const LocomotionHeuristicConfig empty;
   {
@@ -1469,7 +1631,7 @@ TEST(LocomotionHeuristicFormulas,
 
 TEST(LocomotionHeuristicFormulas, CreateLogsTheFormulationWarnings) {
   LocomotionHeuristicConfig withoutHip;
-  withoutHip.formulation.foothold = {"capture_point"};
+  withoutHip.formulation.footholdHeuristics = {"capture_point"};
   WarningLog log;
   ASSERT_TRUE(LocomotionHeuristicLayer::Create(withoutHip, testModel(),
                                                steppingEnvironment())
@@ -1483,105 +1645,138 @@ TEST(LocomotionHeuristicFormulas, CreateLogsTheFormulationWarnings) {
 
 TEST(LocomotionHeuristicFormulas, ReconfigureAppliesAllOfAReloadOrNoneOfIt) {
   LocomotionHeuristicConfig config;
-  config.formulation.basePose = {"orientation_compensation"};
-  config.formulation.foothold = {"translational_stepping"};
-  config.formulation.wrench = {"impulse_scaling"};
-  config.orientationCompensation.pitchPerForwardVelocity = 0.05;
-  config.translationalStepping.forwardPerForwardVelocity = 0.2;
+  config.formulation.basePoseHeuristics = {"orientation_compensation"};
+  config.formulation.footholdHeuristics = {"translational_stepping"};
+  config.formulation.wrenchHeuristics = {"impulse_scaling"};
+  config.orientationCompensationParameters.pitchPerForwardVelocityGain = 0.05;
+  config.translationalStepping.forwardPerForwardVelocityGain = 0.2;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, testModel(),
                                        steppingEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
-  BasePoseHeuristicContext basePose;
-  basePose.commandedVelocityInBaseFrame = vector2_t(1.0, 0.0);
+  BasePoseHeuristicContext basePoseHeuristicContext;
+  basePoseHeuristicContext.cmdLinvelBaseRtWorldEwrtHeadingXy =
+      vector2_t(1.0, 0.0);
   FootholdHeuristicContext foothold = leftFoot();
-  foothold.commandedVelocity = vector2_t(1.0, 0.0);
-  const WrenchHeuristicContext wrench = doubleSupport(0.6, 0.6);
-  EXPECT_NEAR((*layer)->basePoseOffset(basePose).pitch, 0.05, 1.0e-12);
-  EXPECT_NEAR((*layer)->footholdOffset(foothold).x(), 0.2, 1.0e-12);
-  EXPECT_NEAR((*layer)->wrenchOffset(wrench, kContactLeftIndex).z(), 130.8,
-              1.0e-9);
+  foothold.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(1.0, 0.0);
+  const WrenchHeuristicContext wrenchHeuristicContext = doubleSupport(0.6, 0.6);
+  EXPECT_NEAR((*layer)
+                  ->basePoseHeuristicOffset(basePoseHeuristicContext)
+                  .offsetEulerzyxBaseRtWorldPitch,
+              0.05, 1.0e-12);
+  EXPECT_NEAR((*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(foothold).x(),
+              0.2, 1.0e-12);
+  EXPECT_NEAR((*layer)
+                  ->computeOffsetForceFootEwrtWorld(wrenchHeuristicContext,
+                                                    kContactLeftIndex)
+                  .z(),
+              130.8, 1.0e-9);
 
   // A reload that changes a coefficient in EVERY channel and is invalid
   // elsewhere must change none of them. Copying the running values into the
   // invalid reload, as the older test did, cannot tell a rejected reload from a
   // half-applied one.
   LocomotionHeuristicConfig invalid = config;
-  invalid.orientationCompensation.pitchPerForwardVelocity = -0.03;
-  invalid.translationalStepping.forwardPerForwardVelocity = 0.3;
+  invalid.orientationCompensationParameters.pitchPerForwardVelocityGain = -0.03;
+  invalid.translationalStepping.forwardPerForwardVelocityGain = 0.3;
   invalid.impulseScaling.scale = 0.5;
-  invalid.capturePoint.maximumOffset =
+  invalid.capturePoint.maxNormOffsetPosFootRtWorldEwrtWorldXy =
       0.0;  // invalid, and in a heuristic that is not even listed
   EXPECT_FALSE((*layer)->reconfigure(invalid).ok());
-  EXPECT_NEAR((*layer)->basePoseOffset(basePose).pitch, 0.05, 1.0e-12);
-  EXPECT_NEAR((*layer)->footholdOffset(foothold).x(), 0.2, 1.0e-12);
-  EXPECT_NEAR((*layer)->wrenchOffset(wrench, kContactLeftIndex).z(), 130.8,
-              1.0e-9);
+  EXPECT_NEAR((*layer)
+                  ->basePoseHeuristicOffset(basePoseHeuristicContext)
+                  .offsetEulerzyxBaseRtWorldPitch,
+              0.05, 1.0e-12);
+  EXPECT_NEAR((*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(foothold).x(),
+              0.2, 1.0e-12);
+  EXPECT_NEAR((*layer)
+                  ->computeOffsetForceFootEwrtWorld(wrenchHeuristicContext,
+                                                    kContactLeftIndex)
+                  .z(),
+              130.8, 1.0e-9);
 
   // Positive control: the same reload made valid applies all three.
   LocomotionHeuristicConfig valid = invalid;
-  valid.capturePoint.maximumOffset = 0.25;
+  valid.capturePoint.maxNormOffsetPosFootRtWorldEwrtWorldXy = 0.25;
   ASSERT_TRUE((*layer)->reconfigure(valid).ok());
-  EXPECT_NEAR((*layer)->basePoseOffset(basePose).pitch, -0.03, 1.0e-12);
-  EXPECT_NEAR((*layer)->footholdOffset(foothold).x(), 0.3, 1.0e-12);
-  EXPECT_NEAR((*layer)->wrenchOffset(wrench, kContactLeftIndex).z(), 65.4,
-              1.0e-9);
+  EXPECT_NEAR((*layer)
+                  ->basePoseHeuristicOffset(basePoseHeuristicContext)
+                  .offsetEulerzyxBaseRtWorldPitch,
+              -0.03, 1.0e-12);
+  EXPECT_NEAR((*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(foothold).x(),
+              0.3, 1.0e-12);
+  EXPECT_NEAR((*layer)
+                  ->computeOffsetForceFootEwrtWorld(wrenchHeuristicContext,
+                                                    kContactLeftIndex)
+                  .z(),
+              65.4, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas,
      ReconfigureIgnoresAListChangedOnDiskAndReportsEachEditOnce) {
   LocomotionHeuristicConfig config;
-  config.formulation.basePose = {"orientation_compensation"};
-  config.orientationCompensation.pitchPerForwardVelocity = 0.05;
+  config.formulation.basePoseHeuristics = {"orientation_compensation"};
+  config.orientationCompensationParameters.pitchPerForwardVelocityGain = 0.05;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, testModel(),
                                        steppingEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
   BasePoseHeuristicContext context;
-  context.commandedVelocityInBaseFrame = vector2_t(1.0, 0.0);
+  context.cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t(1.0, 0.0);
   FootholdHeuristicContext pushed = leftFoot();
-  pushed.measuredVelocity = vector2_t(0.5, 0.0);
+  pushed.measProxyLinvelComRtWorldEwrtWorldXy = vector2_t(0.5, 0.0);
 
   WarningLog log;
   // An edit that adds height_compensation on disk, next to a retuned pitch. The
   // list is structural and is NOT picked up
-  // - the height stays zero although the new heightOffset is 0.02 - while the
-  // coefficient of the running list IS.
+  // - the height stays zero although the new offsetPosBaseRtWorldEwrtWorldZ is
+  // 0.02 - while the coefficient of the running list IS.
   LocomotionHeuristicConfig edited = config;
-  edited.formulation.basePose = {"orientation_compensation",
-                                 "height_compensation"};
-  edited.heightCompensation.heightOffset = 0.02;
-  edited.orientationCompensation.pitchPerForwardVelocity = -0.03;
+  edited.formulation.basePoseHeuristics = {"orientation_compensation",
+                                           "height_compensation"};
+  edited.heightCompensation.offsetPosBaseRtWorldEwrtWorldZ = 0.02;
+  edited.orientationCompensationParameters.pitchPerForwardVelocityGain = -0.03;
   ASSERT_TRUE((*layer)->reconfigure(edited).ok());
-  EXPECT_NEAR((*layer)->basePoseOffset(context).height, 0.0, kTol);
-  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.03, 1.0e-12)
+  EXPECT_NEAR(
+      (*layer)->basePoseHeuristicOffset(context).offsetPosBaseRtWorldEwrtWorldZ,
+      0.0, kTol);
+  EXPECT_NEAR(
+      (*layer)->basePoseHeuristicOffset(context).offsetEulerzyxBaseRtWorldPitch,
+      -0.03, 1.0e-12)
       << "the coefficient must still be applied";
-  EXPECT_EQ(log.count("base_pose list has changed on disk"), 1u) << log.all();
+  EXPECT_EQ(log.count("base_pose_heuristics list has changed on disk"), 1u)
+      << log.all();
 
   // A slider drag re-reads the same file: the same edit is not reported again.
-  edited.orientationCompensation.pitchPerForwardVelocity = -0.04;
+  edited.orientationCompensationParameters.pitchPerForwardVelocityGain = -0.04;
   ASSERT_TRUE((*layer)->reconfigure(edited).ok());
-  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.04, 1.0e-12);
+  EXPECT_NEAR(
+      (*layer)->basePoseHeuristicOffset(context).offsetEulerzyxBaseRtWorldPitch,
+      -0.04, 1.0e-12);
   EXPECT_EQ(log.count("changed on disk"), 1u) << log.all();
 
   // A further, DIFFERENT edit is reported, naming the list it touched - and a
   // foothold heuristic added on disk is not instantiated either (capture_point
   // would answer this push).
   LocomotionHeuristicConfig editedAgain = edited;
-  editedAgain.formulation.foothold = {"capture_point"};
+  editedAgain.formulation.footholdHeuristics = {"capture_point"};
   ASSERT_TRUE((*layer)->reconfigure(editedAgain).ok());
-  EXPECT_EQ(log.count("foothold list has changed on disk"), 1u) << log.all();
+  EXPECT_EQ(log.count("foothold_heuristics list has changed on disk"), 1u)
+      << log.all();
   EXPECT_TRUE((*layer)->footholdEmpty());
-  EXPECT_TRUE((*layer)->footholdOffset(pushed).isZero(kTol));
+  EXPECT_TRUE(
+      (*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(pushed).isZero(kTol));
 
   // Reverting the file to the running lists is not a change at all.
   const size_t reported = log.count("changed on disk");
   LocomotionHeuristicConfig reverted = config;
-  reverted.orientationCompensation.pitchPerForwardVelocity = 0.07;
+  reverted.orientationCompensationParameters.pitchPerForwardVelocityGain = 0.07;
   ASSERT_TRUE((*layer)->reconfigure(reverted).ok());
-  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, 0.07, 1.0e-12);
+  EXPECT_NEAR(
+      (*layer)->basePoseHeuristicOffset(context).offsetEulerzyxBaseRtWorldPitch,
+      0.07, 1.0e-12);
   EXPECT_EQ(log.count("changed on disk"), reported) << log.all();
 
   // ...but it ends the edit it reverted: making that SAME edit again is news.
@@ -1590,18 +1785,20 @@ TEST(LocomotionHeuristicFormulas,
   // would be silent and the operator would believe they were running. It must
   // be the most recently reported edit (editedAgain) that is re-applied, since
   // re-applying an older one differs from what was last reported anyway.
-  const size_t basePoseReported =
-      log.count("base_pose list has changed on disk");
+  const size_t basePoseHeuristicsReported =
+      log.count("base_pose_heuristics list has changed on disk");
   const size_t footholdReported =
-      log.count("foothold list has changed on disk");
+      log.count("foothold_heuristics list has changed on disk");
   ASSERT_TRUE((*layer)->reconfigure(editedAgain).ok());
-  EXPECT_EQ(log.count("base_pose list has changed on disk"),
-            basePoseReported + 1)
+  EXPECT_EQ(log.count("base_pose_heuristics list has changed on disk"),
+            basePoseHeuristicsReported + 1)
       << log.all();
-  EXPECT_EQ(log.count("foothold list has changed on disk"),
+  EXPECT_EQ(log.count("foothold_heuristics list has changed on disk"),
             footholdReported + 1)
       << log.all();
-  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.04, 1.0e-12)
+  EXPECT_NEAR(
+      (*layer)->basePoseHeuristicOffset(context).offsetEulerzyxBaseRtWorldPitch,
+      -0.04, 1.0e-12)
       << "the coefficient must still be applied";
   EXPECT_TRUE((*layer)->footholdEmpty()) << "and the list still must not be";
 }
@@ -1615,35 +1812,42 @@ TEST(LocomotionHeuristicFormulas,
   // operator who disabled the heuristics on disk is never told they are still
   // running.
   LocomotionHeuristicConfig config;
-  config.formulation.basePose = {"orientation_compensation"};
-  config.orientationCompensation.pitchPerForwardVelocity = 0.05;
+  config.formulation.basePoseHeuristics = {"orientation_compensation"};
+  config.orientationCompensationParameters.pitchPerForwardVelocityGain = 0.05;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
       LocomotionHeuristicLayer::Create(config, testModel(),
                                        steppingEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
   BasePoseHeuristicContext context;
-  context.commandedVelocityInBaseFrame = vector2_t(1.0, 0.0);
-  ASSERT_NEAR((*layer)->basePoseOffset(context).pitch, 0.05, 1.0e-12);
+  context.cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t(1.0, 0.0);
+  ASSERT_NEAR(
+      (*layer)->basePoseHeuristicOffset(context).offsetEulerzyxBaseRtWorldPitch,
+      0.05, 1.0e-12);
 
   WarningLog log;
   LocomotionHeuristicConfig
       emptied;  // every list empty, as after commenting out every name
-  emptied.orientationCompensation.pitchPerForwardVelocity = -0.03;
+  emptied.orientationCompensationParameters.pitchPerForwardVelocityGain = -0.03;
   ASSERT_TRUE((*layer)->reconfigure(emptied).ok());
   EXPECT_EQ(log.count("changed on disk"), 1u) << log.all();
-  EXPECT_EQ(log.count("base_pose list has changed on disk"), 1u) << log.all();
+  EXPECT_EQ(log.count("base_pose_heuristics list has changed on disk"), 1u)
+      << log.all();
   // The running list is kept, and its coefficient follows the file: -0.03
   // * 1.0.
   EXPECT_FALSE((*layer)->empty());
-  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.03, 1.0e-12);
+  EXPECT_NEAR(
+      (*layer)->basePoseHeuristicOffset(context).offsetEulerzyxBaseRtWorldPitch,
+      -0.03, 1.0e-12);
 
   // Reported once: the same emptied file re-read by the next slider drag is not
   // reported again.
-  emptied.orientationCompensation.pitchPerForwardVelocity = -0.02;
+  emptied.orientationCompensationParameters.pitchPerForwardVelocityGain = -0.02;
   ASSERT_TRUE((*layer)->reconfigure(emptied).ok());
   EXPECT_EQ(log.count("changed on disk"), 1u) << log.all();
-  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.02, 1.0e-12);
+  EXPECT_NEAR(
+      (*layer)->basePoseHeuristicOffset(context).offsetEulerzyxBaseRtWorldPitch,
+      -0.02, 1.0e-12);
 }
 
 /*======================================================= validation
@@ -1664,33 +1868,39 @@ TEST(LocomotionHeuristicFormulas, ValidateRejectsEveryOutOfRangeKeyByName) {
   // One case per branch of validate(), each asserting the message names the key
   // the operator has to change.
   const std::vector<OutOfRange> cases{
-      {"locomotion_heuristics.base_pose",
+      {"locomotion_heuristics.base_pose_heuristics",
        [](LocomotionHeuristicConfig& c) {
-         c.formulation.basePose = {"no_such_heuristic"};
+         c.formulation.basePoseHeuristics = {"no_such_heuristic"};
        }},
-      {"locomotion_heuristics.foothold",
+      {"locomotion_heuristics.foothold_heuristics",
        [](LocomotionHeuristicConfig& c) {
-         c.formulation.foothold = {"capture_point", "capture_point"};
+         c.formulation.footholdHeuristics = {"capture_point", "capture_point"};
        }},
-      {"locomotion_heuristics.orientation_compensation.maximum_tilt",
+      {"locomotion_heuristics.orientation_compensation_parameters.max_offset_"
+       "eulerzyx_base_rt_world",
        [](LocomotionHeuristicConfig& c) {
-         c.orientationCompensation.maximumTilt = 0.0;
+         c.orientationCompensationParameters.maxOffsetEulerzyxBaseRtWorld = 0.0;
        }},
-      {"locomotion_heuristics.orientation_compensation.maximum_tilt",
+      {"locomotion_heuristics.orientation_compensation_parameters.max_offset_"
+       "eulerzyx_base_rt_world",
        [](LocomotionHeuristicConfig& c) {
-         c.orientationCompensation.maximumTilt = -0.1;
+         c.orientationCompensationParameters.maxOffsetEulerzyxBaseRtWorld =
+             -0.1;
        }},
-      {"locomotion_heuristics.height_compensation.maximum_height_offset",
+      {"locomotion_heuristics.height_compensation.max_offset_pos_base_rt_world_"
+       "ewrt_world_z",
        [](LocomotionHeuristicConfig& c) {
-         c.heightCompensation.maximumHeightOffset = -0.01;
+         c.heightCompensation.maxOffsetPosBaseRtWorldEwrtWorldZ = -0.01;
        }},
-      {"locomotion_heuristics.capture_point.com_height_override",
+      {"locomotion_heuristics.capture_point.override_pos_com_rt_feetmean_ewrt_"
+       "world_z",
        [](LocomotionHeuristicConfig& c) {
-         c.capturePoint.comHeightOverride = -0.5;
+         c.capturePoint.overridePosComRtFeetmeanEwrtWorldZ = -0.5;
        }},
-      {"locomotion_heuristics.capture_point.maximum_offset",
+      {"locomotion_heuristics.capture_point.max_norm_offset_pos_foot_rt_world_"
+       "ewrt_world_xy",
        [](LocomotionHeuristicConfig& c) {
-         c.capturePoint.maximumOffset = 0.0;
+         c.capturePoint.maxNormOffsetPosFootRtWorldEwrtWorldXy = 0.0;
        }},
       {"locomotion_heuristics.capture_point.gain",
        [](LocomotionHeuristicConfig& c) { c.capturePoint.gain = -1.0; }},
@@ -1712,28 +1922,30 @@ TEST(LocomotionHeuristicFormulas, ValidateRejectsEveryOutOfRangeKeyByName) {
        [](LocomotionHeuristicConfig& c) {
          c.impulseScaling.minimumDutyFactor = 1.5;
        }},
-      {"locomotion_heuristics.impulse_scaling.maximum_force_ratio",
+      {"locomotion_heuristics.impulse_scaling.maximum_weight_compensation_"
+       "ratio",
        [](LocomotionHeuristicConfig& c) {
-         c.impulseScaling.maximumForceRatio = 0.99;
+         c.impulseScaling.maximumWeightCompensationRatio = 0.99;
        }},
-      {"locomotion_heuristics.centripetal_acceleration.scale",
+      {"locomotion_heuristics.centripetal_acceleration_parameters.scale",
        [](LocomotionHeuristicConfig& c) {
-         c.centripetalAcceleration.scale = -0.5;
+         c.centripetalAccelerationParameters.scale = -0.5;
        }},
-      {"locomotion_heuristics.centripetal_acceleration.max_force_com_ewrt_"
+      {"locomotion_heuristics.centripetal_acceleration_parameters.max_force_"
+       "com_ewrt_"
        "world_xy",
        [](LocomotionHeuristicConfig& c) {
-         c.centripetalAcceleration.maximumForce = -10.0;
+         c.centripetalAccelerationParameters.maxForceComEwrtWorldXy = -10.0;
        }},
-      {"locomotion_heuristics.centripetal_acceleration.maximum_force_ratio_of_"
-       "weight",
+      {"locomotion_heuristics.centripetal_acceleration_parameters.max_wnorm_"
+       "force_com_ewrt_world_xy",
        [](LocomotionHeuristicConfig& c) {
-         c.centripetalAcceleration.maximumForceRatioOfWeight = -0.3;
+         c.centripetalAccelerationParameters.maxWnormForceComEwrtWorldXy = -0.3;
        }},
-      {"locomotion_heuristics.centripetal_acceleration",
+      {"locomotion_heuristics.centripetal_acceleration_parameters",
        [](LocomotionHeuristicConfig& c) {
-         c.centripetalAcceleration.maximumForce = 0.0;
-         c.centripetalAcceleration.maximumForceRatioOfWeight = 0.0;
+         c.centripetalAccelerationParameters.maxForceComEwrtWorldXy = 0.0;
+         c.centripetalAccelerationParameters.maxWnormForceComEwrtWorldXy = 0.0;
        }},
   };
 
@@ -1756,13 +1968,13 @@ TEST(LocomotionHeuristicFormulas, ValidateAcceptsEachRangeBoundary) {
   // meaning "measured") or the extreme a robot may genuinely want (beta floor
   // 1).
   const std::vector<OutOfRange> boundaries{
-      {"height_compensation.maximum_height_offset = 0",
+      {"height_compensation.max_offset_pos_base_rt_world_ewrt_world_z = 0",
        [](LocomotionHeuristicConfig& c) {
-         c.heightCompensation.maximumHeightOffset = 0.0;
+         c.heightCompensation.maxOffsetPosBaseRtWorldEwrtWorldZ = 0.0;
        }},
-      {"capture_point.com_height_override = 0",
+      {"capture_point.override_pos_com_rt_feetmean_ewrt_world_z = 0",
        [](LocomotionHeuristicConfig& c) {
-         c.capturePoint.comHeightOverride = 0.0;
+         c.capturePoint.overridePosComRtFeetmeanEwrtWorldZ = 0.0;
        }},
       {"capture_point.gain = 0",
        [](LocomotionHeuristicConfig& c) { c.capturePoint.gain = 0.0; }},
@@ -1780,23 +1992,25 @@ TEST(LocomotionHeuristicFormulas, ValidateAcceptsEachRangeBoundary) {
        [](LocomotionHeuristicConfig& c) {
          c.impulseScaling.minimumDutyFactor = 1.0;
        }},
-      {"impulse_scaling.maximum_force_ratio = 1",
+      {"impulse_scaling.maximum_weight_compensation_ratio = 1",
        [](LocomotionHeuristicConfig& c) {
-         c.impulseScaling.maximumForceRatio = 1.0;
+         c.impulseScaling.maximumWeightCompensationRatio = 1.0;
        }},
-      {"centripetal_acceleration.scale = 0",
+      {"centripetal_acceleration_parameters.scale = 0",
        [](LocomotionHeuristicConfig& c) {
-         c.centripetalAcceleration.scale = 0.0;
+         c.centripetalAccelerationParameters.scale = 0.0;
        }},
-      {"centripetal_acceleration.maximum_force_ratio_of_weight = 0 with "
+      {"centripetal_acceleration_parameters.max_wnorm_force_com_ewrt_world_xy "
+       "= 0 "
+       "with "
        "max_force_com_ewrt_world_xy set",
        [](LocomotionHeuristicConfig& c) {
-         c.centripetalAcceleration.maximumForce = 50.0;
-         c.centripetalAcceleration.maximumForceRatioOfWeight = 0.0;
+         c.centripetalAccelerationParameters.maxForceComEwrtWorldXy = 50.0;
+         c.centripetalAccelerationParameters.maxWnormForceComEwrtWorldXy = 0.0;
        }},
       {"fitted coefficients of either sign",
        [](LocomotionHeuristicConfig& c) {
-         c.orientationCompensation.pitchPerForwardVelocity = -0.2;
+         c.orientationCompensationParameters.pitchPerForwardVelocityGain = -0.2;
          c.translationalStepping.forwardStanceFraction = -0.1;
          c.inPlaceTurning.forwardStanceLever = -0.1;
        }},
@@ -1821,21 +2035,21 @@ TEST(LocomotionHeuristicFormulas,
     void (*absl_nonnull setNan)(LocomotionHeuristicConfig&, scalar_t);
   };
   const std::vector<NotANumber> cases{
-      {"orientation_compensation.maximum_tilt",
+      {"orientation_compensation_parameters.max_offset_eulerzyx_base_rt_world",
        [](LocomotionHeuristicConfig& c, scalar_t v) {
-         c.orientationCompensation.maximumTilt = v;
+         c.orientationCompensationParameters.maxOffsetEulerzyxBaseRtWorld = v;
        }},
-      {"height_compensation.maximum_height_offset",
+      {"height_compensation.max_offset_pos_base_rt_world_ewrt_world_z",
        [](LocomotionHeuristicConfig& c, scalar_t v) {
-         c.heightCompensation.maximumHeightOffset = v;
+         c.heightCompensation.maxOffsetPosBaseRtWorldEwrtWorldZ = v;
        }},
-      {"capture_point.com_height_override",
+      {"capture_point.override_pos_com_rt_feetmean_ewrt_world_z",
        [](LocomotionHeuristicConfig& c, scalar_t v) {
-         c.capturePoint.comHeightOverride = v;
+         c.capturePoint.overridePosComRtFeetmeanEwrtWorldZ = v;
        }},
-      {"capture_point.maximum_offset",
+      {"capture_point.max_norm_offset_pos_foot_rt_world_ewrt_world_xy",
        [](LocomotionHeuristicConfig& c, scalar_t v) {
-         c.capturePoint.maximumOffset = v;
+         c.capturePoint.maxNormOffsetPosFootRtWorldEwrtWorldXy = v;
        }},
       {"capture_point.gain", [](LocomotionHeuristicConfig& c,
                                 scalar_t v) { c.capturePoint.gain = v; }},
@@ -1853,21 +2067,21 @@ TEST(LocomotionHeuristicFormulas,
        [](LocomotionHeuristicConfig& c, scalar_t v) {
          c.impulseScaling.minimumDutyFactor = v;
        }},
-      {"impulse_scaling.maximum_force_ratio",
+      {"impulse_scaling.maximum_weight_compensation_ratio",
        [](LocomotionHeuristicConfig& c, scalar_t v) {
-         c.impulseScaling.maximumForceRatio = v;
+         c.impulseScaling.maximumWeightCompensationRatio = v;
        }},
-      {"centripetal_acceleration.scale",
+      {"centripetal_acceleration_parameters.scale",
        [](LocomotionHeuristicConfig& c, scalar_t v) {
-         c.centripetalAcceleration.scale = v;
+         c.centripetalAccelerationParameters.scale = v;
        }},
-      {"centripetal_acceleration.max_force_com_ewrt_world_xy",
+      {"centripetal_acceleration_parameters.max_force_com_ewrt_world_xy",
        [](LocomotionHeuristicConfig& c, scalar_t v) {
-         c.centripetalAcceleration.maximumForce = v;
+         c.centripetalAccelerationParameters.maxForceComEwrtWorldXy = v;
        }},
-      {"centripetal_acceleration.maximum_force_ratio_of_weight",
+      {"centripetal_acceleration_parameters.max_wnorm_force_com_ewrt_world_xy",
        [](LocomotionHeuristicConfig& c, scalar_t v) {
-         c.centripetalAcceleration.maximumForceRatioOfWeight = v;
+         c.centripetalAccelerationParameters.maxWnormForceComEwrtWorldXy = v;
        }},
   };
   ASSERT_TRUE(LocomotionHeuristicConfig().validate().ok());
@@ -1884,8 +2098,8 @@ TEST(LocomotionHeuristicFormulas,
   // refused too (the per-key check names the first one; the point here is that
   // the pair cannot slip through as "a clamp is set").
   LocomotionHeuristicConfig both;
-  both.centripetalAcceleration.maximumForce = nan;
-  both.centripetalAcceleration.maximumForceRatioOfWeight = nan;
+  both.centripetalAccelerationParameters.maxForceComEwrtWorldXy = nan;
+  both.centripetalAccelerationParameters.maxWnormForceComEwrtWorldXy = nan;
   EXPECT_FALSE(both.validate().ok());
 }
 

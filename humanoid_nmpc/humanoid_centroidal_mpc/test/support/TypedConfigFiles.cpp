@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -40,19 +41,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/FactoryFunctions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
+#include "humanoid_mpc_config/contact_planning_file.nproto.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.pb.h"
 #include "humanoid_mpc_config/contact_planning_file.pb.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_mpc_config/reference_file.nproto.pb.h"
 #include "humanoid_mpc_config/reference_file.pb.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.pb.h"
 #include "humanoid_mpc_config/task_file.pb.h"
 #include "nproto/Textproto.h"

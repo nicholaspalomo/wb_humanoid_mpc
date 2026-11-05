@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 
@@ -115,15 +116,15 @@ TEST(SafetyModeDecay, toleratesAZeroTimeConstant) {
 TEST(SafetyModeDecay, dampingOpposesVelocityThroughoutTheDecay) {
   const scalar_t kp = 100.0;
   const scalar_t kd = 5.0;
-  const scalar_t velocity = 2.0;
+  const scalar_t jointVelocity = 2.0;
   for (int i = 0; i <= 40; ++i) {
     const scalar_t alpha =
         Controller::safetyDecayFactor(0.05 * i, kTimeConstant);
     // At the held posture the position error vanishes and only the damping term
     // survives.
-    const scalar_t torque = alpha * (kp * 0.0 - kd * velocity);
-    EXPECT_LE(torque, 0.0) << "damping must oppose a positive velocity";
-    EXPECT_LE(std::abs(torque), kd * velocity);
+    const scalar_t jointTorque = alpha * (kp * 0.0 - kd * jointVelocity);
+    EXPECT_LE(jointTorque, 0.0) << "damping must oppose a positive velocity";
+    EXPECT_LE(std::abs(jointTorque), kd * jointVelocity);
   }
 }
 

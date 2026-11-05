@@ -95,16 +95,17 @@ ScalarFunctionQuadraticApproximation attitudeTrackingApproximation(scalar_t t,
                                                                    const vector_t& x,
                                                                    scalar_t attitudeWeight,
                                                                    scalar_t rateWeight) {
-  const quaternion_t xi = x.head<4>();
-  const rotation_t error = quaternionLog(quaternionProduct(quaternionConjugate(getRefQuatBaseRtWorldXyzw(t)), xi));
-  const rotation_t rateError = x.tail<3>() - getRefAngvelBaseRtWorldEwrtBase(t);
-  const Eigen::Matrix<scalar_t, 3, 4> errorJacobian = so3RightJacobianInverse(error) * quaternionTangentMapPseudoInverse(xi);
+  const quaternion_t quatBaseRtWorldXyzw = x.head<4>();
+  // Log(ref^-1 (x) meas): the attitude error rotation vector.
+  const rotation_t errRotvecBaseRtWorld = quaternionLog(quaternionProduct(quaternionConjugate(getRefQuatBaseRtWorldXyzw(t)), quatBaseRtWorldXyzw));
+  const rotation_t errAngvelBaseRtWorldEwrtBase = x.tail<3>() - getRefAngvelBaseRtWorldEwrtBase(t);
+  const Eigen::Matrix<scalar_t, 3, 4> errorJacobian = so3RightJacobianInverse(errRotvecBaseRtWorld) * quaternionTangentMapPseudoInverse(quatBaseRtWorldXyzw);
 
   ScalarFunctionQuadraticApproximation approximation;
-  approximation.f = 0.5 * attitudeWeight * error.squaredNorm() + 0.5 * rateWeight * rateError.squaredNorm();
+  approximation.f = 0.5 * attitudeWeight * errRotvecBaseRtWorld.squaredNorm() + 0.5 * rateWeight * errAngvelBaseRtWorldEwrtBase.squaredNorm();
   approximation.dfdx.resize(7);
-  approximation.dfdx.head<4>() = attitudeWeight * errorJacobian.transpose() * error;
-  approximation.dfdx.tail<3>() = rateWeight * rateError;
+  approximation.dfdx.head<4>() = attitudeWeight * errorJacobian.transpose() * errRotvecBaseRtWorld;
+  approximation.dfdx.tail<3>() = rateWeight * errAngvelBaseRtWorldEwrtBase;
   approximation.dfdxx.setZero(7, 7);
   approximation.dfdxx.topLeftCorner<4, 4>() = attitudeWeight * errorJacobian.transpose() * errorJacobian;
   approximation.dfdxx.bottomRightCorner<3, 3>() = rateWeight * Eigen::Matrix3d::Identity();

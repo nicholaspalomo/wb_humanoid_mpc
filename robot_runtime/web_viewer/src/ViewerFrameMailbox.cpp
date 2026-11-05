@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/absl_check.h"
 #include "absl/log/log.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -99,8 +100,9 @@ std::optional<EncodedFrame> ViewerFrameMailbox::copyNewer(
   while (!closed_.load() && frame_.sequence <= afterSequence) {
     const absl::Duration remaining = remainingUntil(deadline);
     if (remaining <= absl::ZeroDuration() ||
-        frameCondition_.WaitWithTimeout(&frameMutex_, remaining))
+        frameCondition_.WaitWithTimeout(&frameMutex_, remaining)) {
       break;
+    }
   }
   if (closed_.load() || frame_.sequence <= afterSequence) return std::nullopt;
   return frame_;

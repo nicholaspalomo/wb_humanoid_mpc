@@ -6,7 +6,7 @@
 # joint frames; //humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model_test checks every parent joint
 # against atlas.urdf.
 #
-# A pad's frame has z = -pad_normal (the terrain's normal when the pad rests on it) and x = pad_x_axis; a surface
+# A pad's frame has z = -normal_pad_ewrt_link (the terrain's normal when the pad rests on it) and x = x_axis_pad_ewrt_link; a surface
 # candidate's rectangle is in that frame.
 
 robot: "drc_atlas"
@@ -17,19 +17,19 @@ candidates {
   name: "foot_l_contact"
   kind: KIND_SURFACE
   parent_joint: "l_leg_akx"
-  offset: [0.04, 0, -0.082]
-  pad_normal: [0, 0, -1]
-  pad_x_axis: [1, 0, 0]
-  rectangle { x_min: -0.12 x_max: 0.12 y_min: -0.055 y_max: 0.055 }
+  pos_pad_rt_link_ewrt_link: [0.04, 0, -0.082]
+  normal_pad_ewrt_link: [0, 0, -1]
+  x_axis_pad_ewrt_link: [1, 0, 0]
+  rectangle { min_pos_corners_rt_pad_ewrt_pad_x: -0.12 max_pos_corners_rt_pad_ewrt_pad_x: 0.12 min_pos_corners_rt_pad_ewrt_pad_y: -0.055 max_pos_corners_rt_pad_ewrt_pad_y: 0.055 }
 }
 candidates {
   name: "foot_r_contact"
   kind: KIND_SURFACE
   parent_joint: "r_leg_akx"
-  offset: [0.04, 0, -0.082]
-  pad_normal: [0, 0, -1]
-  pad_x_axis: [1, 0, 0]
-  rectangle { x_min: -0.12 x_max: 0.12 y_min: -0.055 y_max: 0.055 }
+  pos_pad_rt_link_ewrt_link: [0.04, 0, -0.082]
+  normal_pad_ewrt_link: [0, 0, -1]
+  x_axis_pad_ewrt_link: [1, 0, 0]
+  rectangle { min_pos_corners_rt_pad_ewrt_pad_x: -0.12 max_pos_corners_rt_pad_ewrt_pad_x: 0.12 min_pos_corners_rt_pad_ewrt_pad_y: -0.055 max_pos_corners_rt_pad_ewrt_pad_y: 0.055 }
 }
 # LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/task.textproto:multi_contact_candidates)
 
@@ -42,16 +42,16 @@ candidates {
   name: "knee_l_contact"
   kind: KIND_POINT
   parent_joint: "l_leg_kny"
-  offset: [0.055, 0, -0.06]
-  pad_normal: [1, 0, 0]
+  pos_pad_rt_link_ewrt_link: [0.055, 0, -0.06]
+  normal_pad_ewrt_link: [1, 0, 0]
   geom_radius: 0.055
 }
 candidates {
   name: "knee_r_contact"
   kind: KIND_POINT
   parent_joint: "r_leg_kny"
-  offset: [0.055, 0, -0.06]
-  pad_normal: [1, 0, 0]
+  pos_pad_rt_link_ewrt_link: [0.055, 0, -0.06]
+  normal_pad_ewrt_link: [1, 0, 0]
   geom_radius: 0.055
 }
 
@@ -60,16 +60,16 @@ candidates {
   name: "hand_l_contact"
   kind: KIND_POINT
   parent_joint: "l_arm_wrx"
-  offset: [0, 0.04, 0]
-  pad_normal: [0, 1, 0]
+  pos_pad_rt_link_ewrt_link: [0, 0.04, 0]
+  normal_pad_ewrt_link: [0, 1, 0]
   geom_radius: 0.04
 }
 candidates {
   name: "hand_r_contact"
   kind: KIND_POINT
   parent_joint: "r_arm_wrx"
-  offset: [0, -0.04, 0]
-  pad_normal: [0, -1, 0]
+  pos_pad_rt_link_ewrt_link: [0, -0.04, 0]
+  normal_pad_ewrt_link: [0, -1, 0]
   geom_radius: 0.04
 }
 
@@ -79,16 +79,16 @@ candidates {
   name: "forearm_l_contact"
   kind: KIND_POINT
   parent_joint: "l_arm_elx"
-  offset: [0.04, 0.05, 0]
-  pad_normal: [1, 0, 0]
+  pos_pad_rt_link_ewrt_link: [0.04, 0.05, 0]
+  normal_pad_ewrt_link: [1, 0, 0]
   geom_radius: 0.04
 }
 candidates {
   name: "forearm_r_contact"
   kind: KIND_POINT
   parent_joint: "r_arm_elx"
-  offset: [0.04, -0.05, 0]
-  pad_normal: [1, 0, 0]
+  pos_pad_rt_link_ewrt_link: [0.04, -0.05, 0]
+  normal_pad_ewrt_link: [1, 0, 0]
   geom_radius: 0.04
 }
 
@@ -99,10 +99,10 @@ candidates {
   name: "seat_contact"
   kind: KIND_SURFACE
   parent_joint: "root_joint"
-  offset: [-0.02, 0, -0.143]
-  pad_normal: [0, 0, -1]
-  pad_x_axis: [1, 0, 0]
-  rectangle { x_min: -0.12 x_max: 0.12 y_min: -0.10 y_max: 0.10 }
+  pos_pad_rt_link_ewrt_link: [-0.02, 0, -0.143]
+  normal_pad_ewrt_link: [0, 0, -1]
+  x_axis_pad_ewrt_link: [1, 0, 0]
+  rectangle { min_pos_corners_rt_pad_ewrt_pad_x: -0.12 max_pos_corners_rt_pad_ewrt_pad_x: 0.12 min_pos_corners_rt_pad_ewrt_pad_y: -0.10 max_pos_corners_rt_pad_ewrt_pad_y: 0.10 }
 }
 
 # The back of the thigh capsule (l_uleg / r_uleg: radius 0.06, from the hip to (-0.05, 0, -0.37)), at its middle, along
@@ -111,16 +111,16 @@ candidates {
   name: "thigh_l_contact"
   kind: KIND_POINT
   parent_joint: "l_leg_hpy"
-  offset: [-0.0845, 0, -0.177]
-  pad_normal: [-0.99100, 0, 0.13392]
+  pos_pad_rt_link_ewrt_link: [-0.0845, 0, -0.177]
+  normal_pad_ewrt_link: [-0.99100, 0, 0.13392]
   geom_radius: 0.06
 }
 candidates {
   name: "thigh_r_contact"
   kind: KIND_POINT
   parent_joint: "r_leg_hpy"
-  offset: [-0.0845, 0, -0.177]
-  pad_normal: [-0.99100, 0, 0.13392]
+  pos_pad_rt_link_ewrt_link: [-0.0845, 0, -0.177]
+  normal_pad_ewrt_link: [-0.99100, 0, 0.13392]
   geom_radius: 0.06
 }
 
@@ -131,19 +131,19 @@ candidates {
   name: "torso_back_contact"
   kind: KIND_SURFACE
   parent_joint: "back_bkx"
-  offset: [-0.22, 0, 0.30]
-  pad_normal: [-1, 0, 0]
-  pad_x_axis: [0, 0, 1]
-  rectangle { x_min: -0.18 x_max: 0.18 y_min: -0.15 y_max: 0.15 }
+  pos_pad_rt_link_ewrt_link: [-0.22, 0, 0.30]
+  normal_pad_ewrt_link: [-1, 0, 0]
+  x_axis_pad_ewrt_link: [0, 0, 1]
+  rectangle { min_pos_corners_rt_pad_ewrt_pad_x: -0.18 max_pos_corners_rt_pad_ewrt_pad_x: 0.18 min_pos_corners_rt_pad_ewrt_pad_y: -0.15 max_pos_corners_rt_pad_ewrt_pad_y: 0.15 }
 }
 candidates {
   name: "torso_front_contact"
   kind: KIND_SURFACE
   parent_joint: "back_bkx"
-  offset: [0.14, 0, 0.30]
-  pad_normal: [1, 0, 0]
-  pad_x_axis: [0, 0, 1]
-  rectangle { x_min: -0.18 x_max: 0.18 y_min: -0.15 y_max: 0.15 }
+  pos_pad_rt_link_ewrt_link: [0.14, 0, 0.30]
+  normal_pad_ewrt_link: [1, 0, 0]
+  x_axis_pad_ewrt_link: [0, 0, 1]
+  rectangle { min_pos_corners_rt_pad_ewrt_pad_x: -0.18 max_pos_corners_rt_pad_ewrt_pad_x: 0.18 min_pos_corners_rt_pad_ewrt_pad_y: -0.15 max_pos_corners_rt_pad_ewrt_pad_y: 0.15 }
 }
 # The right-side roll of the get-up from the back (design section 8.1, scenario 4; only get_up_supine allows them).
 # Atlas's torso is a box, so it rolls quasi-statically on the back-right edge of the utorso box (x = -0.22, y = -0.22
@@ -158,32 +158,32 @@ candidates {
   name: "torso_edge_r_low_25_contact"
   kind: KIND_POINT
   parent_joint: "back_bkx"
-  offset: [-0.22, -0.22, 0.10]
-  pad_normal: [-0.90631, -0.42262, 0]
+  pos_pad_rt_link_ewrt_link: [-0.22, -0.22, 0.10]
+  normal_pad_ewrt_link: [-0.90631, -0.42262, 0]
   geom_radius: 0.001
 }
 candidates {
   name: "torso_edge_r_high_25_contact"
   kind: KIND_POINT
   parent_joint: "back_bkx"
-  offset: [-0.22, -0.22, 0.50]
-  pad_normal: [-0.90631, -0.42262, 0]
+  pos_pad_rt_link_ewrt_link: [-0.22, -0.22, 0.50]
+  normal_pad_ewrt_link: [-0.90631, -0.42262, 0]
   geom_radius: 0.001
 }
 candidates {
   name: "torso_edge_r_low_65_contact"
   kind: KIND_POINT
   parent_joint: "back_bkx"
-  offset: [-0.22, -0.22, 0.03]
-  pad_normal: [-0.42262, -0.90631, 0]
+  pos_pad_rt_link_ewrt_link: [-0.22, -0.22, 0.03]
+  normal_pad_ewrt_link: [-0.42262, -0.90631, 0]
   geom_radius: 0.001
 }
 candidates {
   name: "torso_edge_r_high_65_contact"
   kind: KIND_POINT
   parent_joint: "back_bkx"
-  offset: [-0.22, -0.22, 0.57]
-  pad_normal: [-0.42262, -0.90631, 0]
+  pos_pad_rt_link_ewrt_link: [-0.22, -0.22, 0.57]
+  normal_pad_ewrt_link: [-0.42262, -0.90631, 0]
   geom_radius: 0.001
 }
 # LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/task.textproto:multi_contact_candidates)

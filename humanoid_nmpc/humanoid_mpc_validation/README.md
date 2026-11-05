@@ -55,7 +55,7 @@ A run is reproducible and independent of the machine's speed:
    robot process releases it (`unlockGantry()`, and the reset of the MPC the fall recovery requests when it sees the
    gantry unlocked); the robot stands for the scenario's `standingTime` (2 s); then the commands, over which the metrics
    are evaluated.
-4. A tilt beyond `sim_max_base_tilt_angle` (1 rad), a base below half its initial height, or a reset by the simulator is a
+4. A tilt beyond `sim_max_tiltangle_base_rt_world` (1 rad), a base below half its initial height, or a reset by the simulator is a
    fall and ends the run; the document says when and why.
 
 Runs are reproducible, with the configured solver threads too: two runs of one configuration give the same documents
@@ -112,7 +112,7 @@ robot process's FSM bridge takes it.
 
 A command is sent as the base-controller GUI sends it: the sticks at `command / limit` (`cmd_max_linvel_base_rt_world_ewrt_heading_x`,
 `cmd_max_linvel_base_rt_world_ewrt_heading_y`, `cmd_max_angvel_base_rt_world_ewrt_world_z` of the reference file, `guiCommandScalingFromConfig()`), clamped
-to [-1, 1], and the pelvis height at `nom_pos_base_rt_world_ewrt_world_z`. A command beyond a robot's limit is cut there and the document says `command_saturated: true`.
+to [-1, 1], and the pelvis height at `nom_pos_base_rt_surface_ewrt_world_z`. A command beyond a robot's limit is cut there and the document says `command_saturated: true`.
 
 ## Metrics
 
@@ -276,7 +276,7 @@ state, so states recorded with one formulation drive another through the same ob
 | `test_stride_motion_of_recorded_walks` | the stride means of the base's planar motion on the recorded straight walks of `data/benchmark/states/` (design section 2.9): neither a turn nor a sideways walk over the cycle of the gait they walk, where the pelvis's own yaw rate and sideways velocity sway past the gait thresholds; an added turn reads exactly as that turn; a stall of the solves of up to 1 s is bridged; a history restarted from the instantaneous twist reads the sway as a turn. Builds no model |
 | `test_joint_feedback_torques` | the joint torques a control cycle records: the PD torque plus the feedforward of each MPC joint, in the order of the MPC's joints; a joint the action leaves out is an internal error naming it |
 | `test_lockstep_determinism` | smoke runs on the Unitree G1 with one solver thread agree to 1e-9, two in one process and one in a process of its own, and a run's per-solve gaps, SQP steps and swing residuals hold its document's largest (exclusive: it compiles CppAD libraries) |
-| `test_initial_state_gap` | the initial-state gap of a solve (`initialStateGapOf`): the state manifold's rotation angle wherever its layout puts the rotation block, zero without a rotation block; and the quaternion norm deviation of a solution (`maxQuaternionNormDeviationOf`), the largest distance of a stored quaternion from the unit sphere, none without a node |
+| `test_initial_state_gap` | the initial-state gap of a solve (`initialStateGapOf`): the state manifold's rotation angle wherever its layout puts the rotation block, zero without a rotation block; and the quaternion norm deviation of a solution (`maxUnitQuaternionNormDeviationOf`), the largest distance of a stored quaternion from the unit sphere, none without a node |
 | `test_driver_settings_from_config` | the GUI's command scaling from its own fields of the reference file, a limit that is absent or not positive refused by name, every configuration's reference file; the contact wrench gate of a whole task file: no block is the instantaneous gate, a refused block keeps the gate in use, every configuration's task file sets its own |
 | `test_robot_scene_gantry_hold` | the gantry hold each configuration's task file names (pinned: a change is a change of its runs), its MuJoCo scene supporting it, the robot process's mujoco backend running on it without falling back to `kinematic_teleport`; each configuration on `weld_constraint` (all five) failing the check with its scene's weld taken out |
 | `test_hot_field_coverage` | the reload classes of the task file's schema against each formulation's parameter updater (T8, `humanoid_mpc_config/README.md`): the centroidal and the whole-body MPC each apply exactly the `RELOAD_HOT` fields they read, neither applies a field only the other formulation, the robot process or the GUI reads, and every applied name is a field of the schema. From the updaters' static field lists: builds no MPC |

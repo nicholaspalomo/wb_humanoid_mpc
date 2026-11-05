@@ -32,28 +32,42 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <vector>
 
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/contact/ContactCenterPoint.h"
+#include "humanoid_common_mpc/contact/ContactPolygon.h"
+
 namespace ocs2::humanoid {
 
 ContactRectangle::ContactRectangle(const PolygonBounds& polygonBounds,
                                    const ContactCenterPoint& contactCenterPoint,
                                    scalar_t scaleFactor)
-    : ContactPolygon({vector3_t(polygonBounds.x_min * scaleFactor,
-                                polygonBounds.y_min * scaleFactor,
-                                0.0),
-                      vector3_t(polygonBounds.x_max * scaleFactor,
-                                polygonBounds.y_min * scaleFactor,
-                                0.0),
-                      vector3_t(polygonBounds.x_max * scaleFactor,
-                                polygonBounds.y_max * scaleFactor,
-                                0.0),
-                      vector3_t(polygonBounds.x_min * scaleFactor,
-                                polygonBounds.y_max * scaleFactor,
-                                0.0)},
-                     PolygonBounds(polygonBounds.x_min,
-                                   polygonBounds.x_max,
-                                   polygonBounds.y_min,
-                                   polygonBounds.y_max,
-                                   scaleFactor),
-                     contactCenterPoint) {}
+    : ContactPolygon(
+          {vector3_t(polygonBounds.min_pos_corners_rt_contact_ewrt_contact_x *
+                         scaleFactor,
+                     polygonBounds.min_pos_corners_rt_contact_ewrt_contact_y *
+                         scaleFactor,
+                     0.0),
+           vector3_t(polygonBounds.max_pos_corners_rt_contact_ewrt_contact_x *
+                         scaleFactor,
+                     polygonBounds.min_pos_corners_rt_contact_ewrt_contact_y *
+                         scaleFactor,
+                     0.0),
+           vector3_t(polygonBounds.max_pos_corners_rt_contact_ewrt_contact_x *
+                         scaleFactor,
+                     polygonBounds.max_pos_corners_rt_contact_ewrt_contact_y *
+                         scaleFactor,
+                     0.0),
+           vector3_t(polygonBounds.min_pos_corners_rt_contact_ewrt_contact_x *
+                         scaleFactor,
+                     polygonBounds.max_pos_corners_rt_contact_ewrt_contact_y *
+                         scaleFactor,
+                     0.0)},
+          PolygonBounds(polygonBounds.min_pos_corners_rt_contact_ewrt_contact_x,
+                        polygonBounds.max_pos_corners_rt_contact_ewrt_contact_x,
+                        polygonBounds.min_pos_corners_rt_contact_ewrt_contact_y,
+                        polygonBounds.max_pos_corners_rt_contact_ewrt_contact_y,
+                        scaleFactor),
+          contactCenterPoint) {}
 
 }  // namespace ocs2::humanoid

@@ -56,6 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -135,8 +136,9 @@ class Fingerprint {
     add(absl::StrCat(name, ".linear"), slack->linear);
   }
   void add(absl::string_view name, const feet_array_t<scalar_t>& values) {
-    for (size_t foot = 0; foot < values.size(); ++foot)
+    for (size_t foot = 0; foot < values.size(); ++foot) {
       add(absl::StrCat(name, "[", foot, "]"), values[foot]);
+    }
   }
 
   const std::string& text() const { return text_; }
@@ -160,7 +162,8 @@ std::string fingerprint(const ContactPlanningConfig& c) {
   f.add("planner.verbose", c.planner.verbose);
   f.add("planner.logPlans", c.planner.logPlans);
   f.add("shared.gravity", c.shared.gravity);
-  f.add("shared.comHeight", c.shared.comHeight.value_or(0.0));
+  f.add("shared.nomPosComRtFeetmeanEwrtWorldZ",
+        c.shared.nomPosComRtFeetmeanEwrtWorldZ.value_or(0.0));
   f.add("shared.bigM", c.shared.bigM);
   f.add("shared.slackPenalty",
         std::optional<SlackPenalty>(c.shared.slackPenalty));
@@ -174,57 +177,76 @@ std::string fingerprint(const ContactPlanningConfig& c) {
         c.shared.gaitLimits.maxContactDuration);
   f.add("shared.gaitLimits.minDoubleSupportDuration",
         c.shared.gaitLimits.minDoubleSupportDuration);
-  for (const TermKind kind : allTermKinds())
+  for (const TermKind kind : allTermKinds()) {
     f.add(termKindName(kind), c.formulation.list(kind));
+  }
   f.add("hlip.sspDuration", c.hlip.sspDuration);
   f.add("hlip.dspDuration", c.hlip.dspDuration);
-  f.add("hlip.stepWidth", c.hlip.stepWidth);
-  f.add("hlip.maxStepLength", c.hlip.maxStepLength);
-  f.add("hlip.maxStepWidth", c.hlip.maxStepWidth);
-  f.add("hlip.minStepWidth", c.hlip.minStepWidth);
+  f.add("hlip.nomPosLfootRtRfootEwrtHeadingY",
+        c.hlip.nomPosLfootRtRfootEwrtHeadingY);
+  f.add("hlip.maxNormPosLfootRtRfootEwrtHeadingX",
+        c.hlip.maxNormPosLfootRtRfootEwrtHeadingX);
+  f.add("hlip.maxPosLfootRtRfootEwrtHeadingY",
+        c.hlip.maxPosLfootRtRfootEwrtHeadingY);
+  f.add("hlip.minPosLfootRtRfootEwrtHeadingY",
+        c.hlip.minPosLfootRtRfootEwrtHeadingY);
   f.add("hlip.blend.sharpness", c.hlip.blend.sharpness);
   f.add("hlip.blend.threshold", c.hlip.blend.threshold);
-  f.add("hlip.blend.maxCommandedVelocityX", c.hlip.blend.maxCommandedVelocityX);
-  f.add("hlip.blend.maxCommandedVelocityY", c.hlip.blend.maxCommandedVelocityY);
-  f.add("hlip.blend.maxCommandedYawRate", c.hlip.blend.maxCommandedYawRate);
-  f.add("hlip.blend.maxComVelocityX", c.hlip.blend.maxComVelocityX);
-  f.add("hlip.blend.maxComVelocityY", c.hlip.blend.maxComVelocityY);
+  f.add("hlip.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingX",
+        c.hlip.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingX);
+  f.add("hlip.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingY",
+        c.hlip.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingY);
+  f.add("hlip.blend.cmdMaxAngvelBaseRtWorldEwrtWorldZ",
+        c.hlip.blend.cmdMaxAngvelBaseRtWorldEwrtWorldZ);
+  f.add("hlip.blend.maxProxyLinvelComRtWorldEwrtHeadingX",
+        c.hlip.blend.maxProxyLinvelComRtWorldEwrtHeadingX);
+  f.add("hlip.blend.maxProxyLinvelComRtWorldEwrtHeadingY",
+        c.hlip.blend.maxProxyLinvelComRtWorldEwrtHeadingY);
   f.add("regularization.state", c.regularization.state);
   f.add("regularization.input", c.regularization.input);
   f.add("previousFootholdConsistency.weight",
         c.previousFootholdConsistency.weight);
   f.add("velocityTracking.weight", c.velocityTracking.weight);
   f.add("stepWidth.weight", c.stepWidth.weight);
-  f.add("stepWidth.nominalStepWidth", c.stepWidth.nominalStepWidth);
+  f.add("stepWidth.nomPosLfootRtRfootEwrtHeadingY",
+        c.stepWidth.nomPosLfootRtRfootEwrtHeadingY);
   f.add("headingRateTracking.weight", c.headingRateTracking.weight);
   f.add("headingTracking.weight", c.headingTracking.weight);
   f.add("footYawTracking.weight", c.footYawTracking.weight);
-  f.add("yawTorqueRegularization.weight", c.yawTorqueRegularization.weight);
+  f.add("yawTorqueRegularizationParameters.weight",
+        c.yawTorqueRegularizationParameters.weight);
   f.add("footYawRegularization.weight", c.footYawRegularization.weight);
   f.add("zmpRegularization.weight", c.zmpRegularization.weight);
   f.add("footholdRegularization.weight", c.footholdRegularization.weight);
   f.add("stepLength.weight", c.stepLength.weight);
   f.add("terminalDcm.weight", c.terminalDcm.weight);
-  f.add("terminalDcm.trackCommandedVelocity",
-        c.terminalDcm.trackCommandedVelocity);
-  f.add("zmpSupportRegion.halfWidthX", c.zmpSupportRegion.halfWidthX);
-  f.add("zmpSupportRegion.halfWidthY", c.zmpSupportRegion.halfWidthY);
+  f.add("terminalDcm.trackVelocityCommand", c.terminalDcm.trackVelocityCommand);
+  f.add("zmpSupportRegion.maxNormPosZmpRtFootEwrtFootX",
+        c.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootX);
+  f.add("zmpSupportRegion.maxNormPosZmpRtFootEwrtFootY",
+        c.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootY);
   f.add("zmpSupportRegion.slack", c.zmpSupportRegion.slack);
-  f.add("reachability.reachX", c.reachability.reachX);
-  f.add("reachability.reachYInner", c.reachability.reachYInner);
-  f.add("reachability.reachYOuter", c.reachability.reachYOuter);
+  f.add("reachability.maxNormPosFootRtComEwrtHeadingX",
+        c.reachability.maxNormPosFootRtComEwrtHeadingX);
+  f.add("reachability.minPosFootRtComEwrtHeadingY",
+        c.reachability.minPosFootRtComEwrtHeadingY);
+  f.add("reachability.maxPosFootRtComEwrtHeadingY",
+        c.reachability.maxPosFootRtComEwrtHeadingY);
   f.add("reachability.slack", c.reachability.slack);
-  f.add("footSeparation.maxStepLength", c.footSeparation.maxStepLength);
-  f.add("footSeparation.minStepWidth", c.footSeparation.minStepWidth);
-  f.add("footSeparation.maxStepWidth", c.footSeparation.maxStepWidth);
+  f.add("footSeparation.maxNormPosLfootRtRfootEwrtHeadingX",
+        c.footSeparation.maxNormPosLfootRtRfootEwrtHeadingX);
+  f.add("footSeparation.minPosLfootRtRfootEwrtHeadingY",
+        c.footSeparation.minPosLfootRtRfootEwrtHeadingY);
+  f.add("footSeparation.maxPosLfootRtRfootEwrtHeadingY",
+        c.footSeparation.maxPosLfootRtRfootEwrtHeadingY);
   f.add("footSeparation.slack", c.footSeparation.slack);
-  f.add("hipYawRange.lower", c.hipYawRange.lower);
-  f.add("hipYawRange.upper", c.hipYawRange.upper);
+  f.add("hipYawRange.minYawFeetRtBase", c.hipYawRange.minYawFeetRtBase);
+  f.add("hipYawRange.maxYawFeetRtBase", c.hipYawRange.maxYawFeetRtBase);
   f.add("hipYawRange.slack", c.hipYawRange.slack);
-  f.add("yawTorqueBudget.torsionalFrictionTorque",
-        c.yawTorqueBudget.torsionalFrictionTorque);
-  f.add("yawTorqueBudget.doubleSupportYawCouple",
-        c.yawTorqueBudget.doubleSupportYawCouple);
+  f.add("yawTorqueBudgetParameters.maxTorqueFootEwrtFootZ",
+        c.yawTorqueBudgetParameters.maxTorqueFootEwrtFootZ);
+  f.add("yawTorqueBudgetParameters.doubleSupportMaxTorqueFeetmeanEwrtWorldZ",
+        c.yawTorqueBudgetParameters.doubleSupportMaxTorqueFeetmeanEwrtWorldZ);
   f.add("contactSwitch.cost", c.contactSwitch.cost);
   f.add("planConsistency.cost", c.planConsistency.cost);
   f.add("doubleSupportPenalty.cost", c.doubleSupportPenalty.cost);
@@ -244,12 +266,13 @@ std::string fingerprint(const ContactPlanningConfig& c) {
         c.phaseResetting.maxLateTouchdownExtension);
   f.add("phaseResetting.lateTouchdownExtensionStep",
         c.phaseResetting.lateTouchdownExtensionStep);
-  f.add("phaseResetting.lateTouchdownSearchVelocity",
-        c.phaseResetting.lateTouchdownSearchVelocity);
+  f.add("phaseResetting.lateTouchdownSearchSpeedFootRtWorld",
+        c.phaseResetting.lateTouchdownSearchSpeedFootRtWorld);
   f.add("energyCadenceModulation.gain", c.energyCadenceModulation.gain);
   f.add("energyCadenceModulation.deadband", c.energyCadenceModulation.deadband);
   f.add("dcmStepAdjustment.gain", c.dcmStepAdjustment.gain);
-  f.add("dcmStepAdjustment.maxOffset", c.dcmStepAdjustment.maxOffset);
+  f.add("dcmStepAdjustment.maxNormErrPosFootRtWorldEwrtWorldXy",
+        c.dcmStepAdjustment.maxNormErrPosFootRtWorldEwrtWorldXy);
   return f.text();
 }
 
@@ -306,8 +329,9 @@ void collectLeaves(const google::protobuf::Descriptor& descriptor,
 std::string pathName(const FieldPath& path) {
   std::vector<std::string> names;
   names.reserve(path.size());
-  for (const FieldDescriptor* absl_nonnull field : path)
+  for (const FieldDescriptor* absl_nonnull field : path) {
     names.emplace_back(field->name());
+  }
   return absl::StrJoin(names, ".");
 }
 
@@ -419,14 +443,14 @@ TEST(ContactPlanningFromConfigTest,
   for (const std::string& name : terminalDcmTargetNames()) {
     File file;
     file.terminal_dcm.target = name;
-    EXPECT_EQ(convertOrDie(file).terminalDcm.trackCommandedVelocity,
+    EXPECT_EQ(convertOrDie(file).terminalDcm.trackVelocityCommand,
               name == "commanded_velocity")
         << name;
   }
   EXPECT_EQ(convertOrDie(File{}).planner.runInBackgroundThread,
             PlannerSettings{}.runInBackgroundThread);
-  EXPECT_EQ(convertOrDie(File{}).terminalDcm.trackCommandedVelocity,
-            TerminalDcmParameters{}.trackCommandedVelocity);
+  EXPECT_EQ(convertOrDie(File{}).terminalDcm.trackVelocityCommand,
+            TerminalDcmParameters{}.trackVelocityCommand);
 
   // Another name is refused, unvalidated too, listing the names.
   File threading;
@@ -460,31 +484,35 @@ TEST(ContactPlanningFromConfigTest,
 TEST(ContactPlanningFromConfigTest, AComHeightIsPositiveOrLeftOutForTheModels) {
   // Left out, it is the model's pendulum: unset, for
   // ContactPlanningModelParameters::applyTo() to fill in.
-  EXPECT_FALSE(convertOrDie(File{}).shared.comHeight.has_value());
-  EXPECT_EQ(convertOrDie(File{}).shared.comHeight,
-            SharedParameters{}.comHeight);
+  EXPECT_FALSE(
+      convertOrDie(File{}).shared.nomPosComRtFeetmeanEwrtWorldZ.has_value());
+  EXPECT_EQ(convertOrDie(File{}).shared.nomPosComRtFeetmeanEwrtWorldZ,
+            SharedParameters{}.nomPosComRtFeetmeanEwrtWorldZ);
   File given;
-  given.shared.com_height = 1.0805;
-  EXPECT_EQ(convertOrDie(given).shared.comHeight, 1.0805);
+  given.shared.nom_pos_com_rt_feetmean_ewrt_world_z = 1.0805;
+  EXPECT_EQ(convertOrDie(given).shared.nomPosComRtFeetmeanEwrtWorldZ, 1.0805);
   // 0, which stood for the model's before the field was optional, is refused
   // like any other height that is no height.
-  for (const double height :
+  for (const double nomPosComRtFeetmeanEwrtWorldZ :
        {0.0, -0.5, std::numeric_limits<double>::quiet_NaN(),
         std::numeric_limits<double>::infinity()}) {
     File refused;
-    refused.shared.com_height = height;
+    refused.shared.nom_pos_com_rt_feetmean_ewrt_world_z =
+        nomPosComRtFeetmeanEwrtWorldZ;
     const absl::StatusOr<ContactPlanningConfig> config =
         contactPlanningConfigFromConfig(
             refused,
             ContactPlanningValidation::kDeferUntilModelParametersApplied);
     EXPECT_EQ(config.status().code(), absl::StatusCode::kInvalidArgument)
-        << height;
+        << nomPosComRtFeetmeanEwrtWorldZ;
     EXPECT_TRUE(
-        absl::StrContains(config.status().message(), "shared.com_height is"))
+        absl::StrContains(config.status().message(),
+                          "shared.nom_pos_com_rt_feetmean_ewrt_world_z is"))
         << config.status();
     EXPECT_TRUE(
         absl::StrContains(config.status().message(),
-                          "leave shared.com_height out for the model's"))
+                          "leave shared.nom_pos_com_rt_feetmean_ewrt_world_z "
+                          "out for the model's"))
         << config.status();
   }
 }
@@ -510,30 +538,38 @@ TEST(ContactPlanningFromConfigTest,
   }
 
   absl::flat_hash_set<std::string> kindNames;
-  for (const TermKind kind : allTermKinds())
+  for (const TermKind kind : allTermKinds()) {
     kindNames.insert(termKindName(kind));
+  }
   EXPECT_EQ(lists, kindNames);
 
   // Every term has its block or a reason not to, and every block is a term's,
   // named exactly as the term.
   absl::flat_hash_set<std::string> termsWithoutBlock;
   for (const std::pair<absl::string_view, absl::string_view>& term :
-       kTermsWithoutBlock)
+       kTermsWithoutBlock) {
     termsWithoutBlock.emplace(term.first);
+  }
   absl::flat_hash_set<std::string> terms;
   for (const TermKind kind : allTermKinds()) {
     for (const std::string& name : knownTermNames(kind)) {
-      terms.insert(name);
-      EXPECT_NE(blocks.contains(name), termsWithoutBlock.contains(name))
+      terms.insert(termBlockName(name));
+      EXPECT_NE(blocks.contains(termBlockName(name)),
+                termsWithoutBlock.contains(name))
           << name
           << " needs exactly one of: a block of ContactPlanningFile, an entry "
              "of kTermsWithoutBlock";
     }
   }
-  for (const std::string& block : blocks)
+  for (const std::string& block : blocks) {
     EXPECT_TRUE(terms.contains(block)) << block << " is the block of no term";
-  for (const std::string& term : termsWithoutBlock)
-    EXPECT_TRUE(terms.contains(term)) << term << " is no term";
+  }
+  for (const std::string& term : termsWithoutBlock) {
+    EXPECT_TRUE(terms.contains(termBlockName(term))) << term << " is no term";
+  }
+  EXPECT_EQ(termBlockName(term::kYawTorqueRegularizationName),
+            "yaw_torque_regularization_parameters");
+  EXPECT_EQ(termBlockName("step_width"), "step_width");
 }
 
 TEST(ContactPlanningFromConfigTest,
@@ -586,7 +622,7 @@ TEST(ContactPlanningFromConfigTest, ValidationIsTheConfigurationsOwn) {
           file, ContactPlanningValidation::kDeferUntilModelParametersApplied)
           .ok());
 
-  file.shared.com_height = 1.0;
+  file.shared.nom_pos_com_rt_feetmean_ewrt_world_z = 1.0;
   const absl::StatusOr<ContactPlanningConfig> validated =
       contactPlanningConfigFromConfig(file,
                                       ContactPlanningValidation::kValidate);
@@ -605,7 +641,7 @@ TEST(ContactPlanningFromConfigTest,
   // configuration in force: the parameter updater applies nothing of a
   // configuration that does not convert.
   File file = defaultFormulationFile();
-  file.shared.com_height = 0.85;
+  file.shared.nom_pos_com_rt_feetmean_ewrt_world_z = 0.85;
   file.planner.type = "hilp";
   const absl::StatusOr<ContactPlanningConfig> planner =
       contactPlanningConfigFromConfig(file,
@@ -615,7 +651,7 @@ TEST(ContactPlanningFromConfigTest,
       << planner.status();
 
   file = defaultFormulationFile();
-  file.shared.com_height = 0.85;
+  file.shared.nom_pos_com_rt_feetmean_ewrt_world_z = 0.85;
   file.costs = {"regularization", "gravity_compensation"};
   const absl::StatusOr<ContactPlanningConfig> term =
       contactPlanningConfigFromConfig(file,

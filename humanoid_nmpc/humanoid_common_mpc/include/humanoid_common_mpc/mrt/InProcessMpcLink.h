@@ -33,20 +33,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cstddef>
 #include <functional>
-#include <memory>
 #include <string>
 #include <thread>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_mpc/MPC_BASE.h"
 #include "ocs2_mpc/MPC_MRT_Interface.h"
 #include "ocs2_mpc/MRT_BASE.h"
 #include "ocs2_mpc/SystemObservation.h"
 
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
+#include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 
 namespace ocs2::humanoid {
 

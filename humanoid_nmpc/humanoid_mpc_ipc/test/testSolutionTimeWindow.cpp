@@ -39,8 +39,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/control/ControllerType.h"
-#include "ocs2_core/control/FeedforwardController.h"
-#include "ocs2_core/control/LinearController.h"
 #include "ocs2_core/control/ManifoldLinearController.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 
@@ -115,11 +113,13 @@ TEST(TrimToSolutionWindowTest,
                 original.inputTrajectory_[node]);
     }
     // Every event whose post-event node is kept, and no other.
-    for (const size_t index : trimmed.postEventIndices_)
+    for (const size_t index : trimmed.postEventIndices_) {
       EXPECT_LT(index, length);
+    }
     size_t keptEvents = 0;
-    for (const size_t index : original.postEventIndices_)
+    for (const size_t index : original.postEventIndices_) {
       keptEvents += index < length ? 1 : 0;
+    }
     EXPECT_EQ(trimmed.postEventIndices_.size(), keptEvents);
     EXPECT_EQ(trimmed.modeSchedule_.eventTimes,
               original.modeSchedule_.eventTimes)

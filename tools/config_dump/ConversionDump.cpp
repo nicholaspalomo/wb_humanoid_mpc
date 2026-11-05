@@ -337,7 +337,10 @@ void dumpContacts(ValueDump& dump,
                    center.posContactRtLinkEwrtLink);
     const PolygonBounds& bounds = rectangle->getBounds();
     dump.addDoubles(joinPath(path, "bounds"),
-                    {bounds.x_min, bounds.x_max, bounds.y_min, bounds.y_max});
+                    {bounds.min_pos_corners_rt_contact_ewrt_contact_x,
+                     bounds.max_pos_corners_rt_contact_ewrt_contact_x,
+                     bounds.min_pos_corners_rt_contact_ewrt_contact_y,
+                     bounds.max_pos_corners_rt_contact_ewrt_contact_y});
   }
   const absl::StatusOr<ContactWrenchConeConstraint::Config> cone =
       contactWrenchConeConfigFromConfig(contacts);
@@ -352,7 +355,8 @@ void dumpContacts(ValueDump& dump,
                    cone->minForceContactEwrtContactZ);
     dump.addDouble("contact_wrench_cone.gripperForce",
                    cone->gripForceContactEwrtContactZ);
-    dump.addMatrix("contact_wrench_cone.patchOffset", cone->patchOffset);
+    dump.addMatrix("contact_wrench_cone.posPatchpointRtContactEwrtContact",
+                   cone->posPatchpointRtContactEwrtContact);
   } else {
     addError(dump, "contact_wrench_cone", cone.status());
   }
@@ -502,10 +506,10 @@ void dumpCentroidalCosts(ValueDump& dump, const mpc_config::TaskFile& task) {
   if (dcm.ok()) {
     // An unset height (the model's pendulum) is dumped as the 0 that used to
     // stand for it.
-    dump.addDoubles(
-        "dcm_terminal_cost",
-        {dcm->comHeight.value_or(0.0), dcm->gravity, dcm->weights.x(),
-         dcm->weights.y(), dcm->velocityOffsetFactor, dcm->supportBlendTime});
+    dump.addDoubles("dcm_terminal_cost",
+                    {dcm->nomPosComRtFeetmeanEwrtWorldZ.value_or(0.0),
+                     dcm->gravityMagnitude, dcm->weights.x(), dcm->weights.y(),
+                     dcm->velocityCommandOffsetFactor, dcm->supportBlendTime});
   } else {
     addError(dump, "dcm_terminal_cost", dcm.status());
   }
@@ -525,8 +529,9 @@ void dumpHeuristics(ValueDump& dump,
                     heuristics->formulation.list(kind));
   }
   addParameters(dump, "orientation_compensation",
-                heuristics->orientationCompensation);
-  addParameters(dump, "periodic_orientation", heuristics->periodicOrientation);
+                heuristics->orientationCompensationParameters);
+  addParameters(dump, "periodic_orientation",
+                heuristics->periodicOrientationParameters);
   addParameters(dump, "height_compensation", heuristics->heightCompensation);
   addParameters(dump, "hip_centered_stepping", heuristics->hipCenteredStepping);
   addParameters(dump, "capture_point", heuristics->capturePoint);
@@ -536,7 +541,7 @@ void dumpHeuristics(ValueDump& dump,
   addParameters(dump, "high_speed_turning", heuristics->highSpeedTurning);
   addParameters(dump, "impulse_scaling", heuristics->impulseScaling);
   addParameters(dump, "centripetal_acceleration",
-                heuristics->centripetalAcceleration);
+                heuristics->centripetalAccelerationParameters);
 }
 
 void dumpReference(ValueDump& dump,
@@ -551,12 +556,12 @@ void dumpReference(ValueDump& dump,
         {reference->refSpeedBaseRtWorld, reference->refRateYawBaseRtWorld,
          reference->cmdMaxLinvelBaseRtWorldEwrtHeadingX,
          reference->cmdMaxLinvelBaseRtWorldEwrtHeadingY,
-         reference->cmdMaxErrPosBaseRtWorldEwrtWorldZ,
+         reference->cmdMaxErrPosBaseRtSurfaceEwrtWorldZ,
          reference->cmdMaxAngvelBaseRtWorldEwrtWorldZ,
          reference->cmdMaxLinaccBaseRtWorldEwrtHeadingXy,
          reference->cmdMaxAngaccBaseRtWorldEwrtWorldZ,
          reference->velocityCommandFilterBreakFrequency,
-         reference->nomPosBaseRtWorldEwrtWorldZ});
+         reference->nomPosBaseRtSurfaceEwrtWorldZ});
     dump.addBool(
         "reference.targetJointStateInterpolationTimeConstant.has_value",
         reference->targetJointStateInterpolationTimeConstant.has_value());

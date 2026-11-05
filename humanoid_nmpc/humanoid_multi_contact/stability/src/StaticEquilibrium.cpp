@@ -59,23 +59,25 @@ constexpr double kRankTolerance = 1.0e-10;
 constexpr double kHullTolerance = 1.0e-7;
 // The rows of a wrench: the moment about x and about y, which a horizontal CoM
 // offset (a, b) changes: (c - r) x e_z = (b, -a, 0).
-constexpr int kMomentXRow = kForceDim + kXAxisIndex;
-constexpr int kMomentYRow = kForceDim + kYAxisIndex;
+constexpr int kMomentXRowIndex = kForceDim + kXAxisIndex;
+constexpr int kMomentYRowIndex = kForceDim + kYAxisIndex;
 
 /** The columns that add a horizontal CoM offset (a, b) to the static wrench
  * equation W lambda + A (a, b) = e_z: A (a, b) = (0, 0, 0, -b, a, 0). */
 Eigen::Matrix<double, kWrenchDim, kHorizontalPositionDim> comColumns() {
   Eigen::Matrix<double, kWrenchDim, kHorizontalPositionDim> columns =
       Eigen::Matrix<double, kWrenchDim, kHorizontalPositionDim>::Zero();
-  columns(kMomentYRow, kXAxisIndex) = 1.0;
-  columns(kMomentXRow, kYAxisIndex) = -1.0;
+  columns(kMomentYRowIndex, kXAxisIndex) = 1.0;
+  columns(kMomentXRowIndex, kYAxisIndex) = -1.0;
   return columns;
 }
 
-Wrench weightSupport() {
-  Wrench wrench = Wrench::Zero();
-  wrench(kZAxisIndex) = 1.0;
-  return wrench;
+/** The normalized wrench (e_z, 0) that holds the weight with the CoM at the
+ * stance point, about the stance point in world axes. */
+Wrench computeWeightWnormWrenchStanceEwrtWorld() {
+  Wrench wnormWrenchStanceEwrtWorld = Wrench::Zero();
+  wnormWrenchStanceEwrtWorld(kZAxisIndex) = 1.0;
+  return wnormWrenchStanceEwrtWorld;
 }
 
 // The bound on every generator's scaling in the retry of an LP HPIPM stops on
@@ -137,14 +139,18 @@ absl::StatusOr<StaticEquilibrium> StaticEquilibrium::Create(
   return StaticEquilibrium(std::move(stance), std::move(generators), options);
 }
 
-Wrench StaticEquilibrium::staticWrench(const Eigen::Vector2d& comXy) const {
-  const Eigen::Vector2d offset =
-      comXy - generators_.reference.head<kHorizontalPositionDim>();
-  return weightSupport() - comColumns() * offset;
+Wrench StaticEquilibrium::computeStaticWnormWrenchStanceEwrtWorld(
+    const Eigen::Vector2d& posComRtWorldEwrtWorldXy) const {
+  const Eigen::Vector2d posComRtStanceEwrtWorldXy =
+      posComRtWorldEwrtWorldXy -
+      generators_.posStanceRtWorldEwrtWorld.head<kHorizontalPositionDim>();
+  return computeWeightWnormWrenchStanceEwrtWorld() -
+         comColumns() * posComRtStanceEwrtWorldXy;
 }
 
-absl::StatusOr<double> StaticEquilibrium::wrenchResidual(
-    const Wrench& wrench) const {
+absl::StatusOr<double>
+StaticEquilibrium::computeResidualWnormWrenchStanceEwrtWorld(
+    const Wrench& wnormWrenchStanceEwrtWorld) const {
   // Variables: lambda >= 0, then the slacks s+ >= 0 and s- >= 0 of the six
   // rows; minimize the L1 mismatch 1'(s+ + s-).
   const int generators = generators_.size();
@@ -153,36 +159,39 @@ absl::StatusOr<double> StaticEquilibrium::wrenchResidual(
   program.cost.tail(kWrenchDim + kWrenchDim).setOnes();
   program.lowerBound.setZero();
   program.equalityMatrix.resize(kWrenchDim, program.cost.size());
-  program.equalityMatrix << generators_.wrenches,
+  program.equalityMatrix << generators_.generatorWrenches,
       Eigen::MatrixXd::Identity(kWrenchDim, kWrenchDim),
       -Eigen::MatrixXd::Identity(kWrenchDim, kWrenchDim);
-  program.equalityVector = wrench;
+  program.equalityVector = wnormWrenchStanceEwrtWorld;
   ASSIGN_OR_RETURN(const LinearProgramSolution solution,
                    solveBoundedOnFailure(std::move(program), generators));
   return solution.x.tail(kWrenchDim + kWrenchDim).sum();
 }
 
 absl::StatusOr<double> StaticEquilibrium::equilibriumResidual(
-    const Eigen::Vector2d& comXy) const {
-  return wrenchResidual(staticWrench(comXy));
+    const Eigen::Vector2d& posComRtWorldEwrtWorldXy) const {
+  return computeResidualWnormWrenchStanceEwrtWorld(
+      computeStaticWnormWrenchStanceEwrtWorld(posComRtWorldEwrtWorldXy));
 }
 
-absl::StatusOr<Eigen::Vector2d> StaticEquilibrium::supportPoint(
-    const Eigen::Vector2d& direction) const {
-  // Variables: lambda >= 0, then the CoM offset (a, b) from the reference
-  // point, within the search radius; maximize direction' (a, b).
+absl::StatusOr<Eigen::Vector2d>
+StaticEquilibrium::computeSupportPosComRtStanceEwrtWorldXy(
+    const Eigen::Vector2d& searchDirEwrtWorldXy) const {
+  // Variables: lambda >= 0, then the CoM offset (a, b) from
+  // posStanceRtWorldEwrtWorld (posComRtStanceEwrtWorldXy), within the search
+  // radius; maximize searchDirEwrtWorldXy' (a, b).
   const int generators = generators_.size();
   LinearProgram program =
       LinearProgram::Unconstrained(generators + kHorizontalPositionDim);
-  program.cost.tail<kHorizontalPositionDim>() = -direction;
+  program.cost.tail<kHorizontalPositionDim>() = -searchDirEwrtWorldXy;
   program.lowerBound.head(generators).setZero();
   program.lowerBound.tail<kHorizontalPositionDim>().setConstant(
       -options_.searchRadius);
   program.upperBound.tail<kHorizontalPositionDim>().setConstant(
       options_.searchRadius);
   program.equalityMatrix.resize(kWrenchDim, program.cost.size());
-  program.equalityMatrix << generators_.wrenches, comColumns();
-  program.equalityVector = weightSupport();
+  program.equalityMatrix << generators_.generatorWrenches, comColumns();
+  program.equalityVector = computeWeightWnormWrenchStanceEwrtWorld();
   keepIndependentEqualities(program);
   ASSIGN_OR_RETURN(const LinearProgramSolution solution,
                    solveBoundedOnFailure(std::move(program), generators));
@@ -203,67 +212,85 @@ absl::StatusOr<std::vector<Eigen::Vector2d>> StaticEquilibrium::supportPolygon()
   existence.upperBound.segment<kHorizontalPositionDim>(generators)
       .setConstant(options_.searchRadius);
   existence.equalityMatrix.resize(kWrenchDim, existence.cost.size());
-  existence.equalityMatrix << generators_.wrenches, comColumns(),
+  existence.equalityMatrix << generators_.generatorWrenches, comColumns(),
       Eigen::MatrixXd::Identity(kWrenchDim, kWrenchDim),
       -Eigen::MatrixXd::Identity(kWrenchDim, kWrenchDim);
-  existence.equalityVector = weightSupport();
+  existence.equalityVector = computeWeightWnormWrenchStanceEwrtWorld();
   ASSIGN_OR_RETURN(const LinearProgramSolution solution,
                    solveBoundedOnFailure(std::move(existence), generators));
   if (!(solution.objective <= options_.feasibilityTolerance)) {
     return std::vector<Eigen::Vector2d>();
   }
 
-  const Eigen::Vector2d reference =
-      generators_.reference.head<kHorizontalPositionDim>();
-  std::vector<Eigen::Vector2d> points;
-  points.reserve(options_.marginDirections);
+  const Eigen::Vector2d posStanceRtWorldEwrtWorldXy =
+      generators_.posStanceRtWorldEwrtWorld.head<kHorizontalPositionDim>();
+  std::vector<Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples;
+  supportPosComRtWorldEwrtWorldXySamples.reserve(options_.marginDirections);
   for (int k = 0; k < options_.marginDirections; ++k) {
     const double angle = 2.0 * std::numbers::pi * k / options_.marginDirections;
-    ASSIGN_OR_RETURN(
-        const Eigen::Vector2d offset,
-        supportPoint(Eigen::Vector2d(std::cos(angle), std::sin(angle))));
-    points.push_back(reference + offset);
+    ASSIGN_OR_RETURN(const Eigen::Vector2d posComRtStanceEwrtWorldXy,
+                     computeSupportPosComRtStanceEwrtWorldXy(
+                         Eigen::Vector2d(std::cos(angle), std::sin(angle))));
+    supportPosComRtWorldEwrtWorldXySamples.push_back(
+        posStanceRtWorldEwrtWorldXy + posComRtStanceEwrtWorldXy);
   }
   switch (options_.supportPolygon) {
     case SupportPolygon::kSampled:
-      return convexHull(points, kHullTolerance);
+      return convexHull(supportPosComRtWorldEwrtWorldXySamples, kHullTolerance);
     case SupportPolygon::kRefined:
-      return refinedHull(std::move(points));
+      return refinedHull(std::move(supportPosComRtWorldEwrtWorldXySamples));
   }
   return absl::InternalError("unknown SupportPolygon");
 }
 
 absl::StatusOr<std::vector<Eigen::Vector2d>> StaticEquilibrium::refinedHull(
-    std::vector<Eigen::Vector2d> points) const {
-  const Eigen::Vector2d reference =
-      generators_.reference.head<kHorizontalPositionDim>();
-  std::vector<Eigen::Vector2d> hull = convexHull(points, kHullTolerance);
+    std::vector<Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples) const {
+  const Eigen::Vector2d posStanceRtWorldEwrtWorldXy =
+      generators_.posStanceRtWorldEwrtWorld.head<kHorizontalPositionDim>();
+  std::vector<Eigen::Vector2d> hullPosComRtWorldEwrtWorldXySamples =
+      convexHull(supportPosComRtWorldEwrtWorldXySamples, kHullTolerance);
   int added = 0;
   bool grew = true;
   while (grew && added < kMaxRefinementPoints) {
     grew = false;
-    for (size_t i = 0; i < hull.size() && added < kMaxRefinementPoints; ++i) {
-      const Eigen::Vector2d& from = hull[i];
-      const Eigen::Vector2d edge = hull[(i + 1) % hull.size()] - from;
-      if (edge.norm() <= kHullTolerance) continue;
+    for (size_t i = 0; i < hullPosComRtWorldEwrtWorldXySamples.size() &&
+                       added < kMaxRefinementPoints;
+         ++i) {
+      const Eigen::Vector2d& fromPosComRtWorldEwrtWorldXy =
+          hullPosComRtWorldEwrtWorldXySamples[i];
+      const Eigen::Vector2d edgeErrPosComRtWorldEwrtWorldXy =
+          hullPosComRtWorldEwrtWorldXySamples
+              [(i + 1) % hullPosComRtWorldEwrtWorldXySamples.size()] -
+          fromPosComRtWorldEwrtWorldXy;
+      if (edgeErrPosComRtWorldEwrtWorldXy.norm() <= kHullTolerance) continue;
       // Counterclockwise: the outside is on the edge's right.
-      const Eigen::Vector2d outward =
-          Eigen::Vector2d(edge.y(), -edge.x()).normalized();
-      ASSIGN_OR_RETURN(const Eigen::Vector2d offset, supportPoint(outward));
-      const Eigen::Vector2d point = reference + offset;
-      if (outward.dot(point - from) > kRefinementTolerance) {
-        points.push_back(point);
+      const Eigen::Vector2d outwardDirEwrtWorldXy =
+          Eigen::Vector2d(edgeErrPosComRtWorldEwrtWorldXy.y(),
+                          -edgeErrPosComRtWorldEwrtWorldXy.x())
+              .normalized();
+      ASSIGN_OR_RETURN(
+          const Eigen::Vector2d posComRtStanceEwrtWorldXy,
+          computeSupportPosComRtStanceEwrtWorldXy(outwardDirEwrtWorldXy));
+      const Eigen::Vector2d supportPosComRtWorldEwrtWorldXy =
+          posStanceRtWorldEwrtWorldXy + posComRtStanceEwrtWorldXy;
+      if (outwardDirEwrtWorldXy.dot(supportPosComRtWorldEwrtWorldXy -
+                                    fromPosComRtWorldEwrtWorldXy) >
+          kRefinementTolerance) {
+        supportPosComRtWorldEwrtWorldXySamples.push_back(
+            supportPosComRtWorldEwrtWorldXy);
         ++added;
         grew = true;
       }
     }
-    if (grew) hull = convexHull(points, kHullTolerance);
+    if (grew)
+      hullPosComRtWorldEwrtWorldXySamples =
+          convexHull(supportPosComRtWorldEwrtWorldXySamples, kHullTolerance);
   }
-  return hull;
+  return hullPosComRtWorldEwrtWorldXySamples;
 }
 
 absl::StatusOr<Eigen::VectorXd> StaticEquilibrium::solveWithExtraVariables(
-    const Wrench& wrench,
+    const Wrench& wnormWrenchStanceEwrtWorld,
     const Eigen::VectorXd& extraCost,
     const Eigen::MatrixXd& rows,
     const Eigen::VectorXd& lower,
@@ -279,9 +306,9 @@ absl::StatusOr<Eigen::VectorXd> StaticEquilibrium::solveWithExtraVariables(
   program.cost.tail(extra) = extraCost;
   program.lowerBound.head(generators).setZero();
   program.equalityMatrix.resize(kWrenchDim, generators + extra);
-  program.equalityMatrix << generators_.wrenches,
+  program.equalityMatrix << generators_.generatorWrenches,
       Eigen::MatrixXd::Zero(kWrenchDim, extra);
-  program.equalityVector = wrench;
+  program.equalityVector = wnormWrenchStanceEwrtWorld;
   keepIndependentEqualities(program);
   program.inequalityMatrix = rows;
   program.inequalityLower = lower;
@@ -300,10 +327,12 @@ absl::StatusOr<SupportPolygon> supportPolygonOf(absl::string_view name) {
       "' (known: ", absl::StrJoin(kSupportPolygonNames, ", "), ")"));
 }
 
-std::optional<double> staticMargin(absl::Span<const Eigen::Vector2d> polygon,
-                                   const Eigen::Vector2d& comXy) {
-  if (polygon.empty()) return std::nullopt;
-  return signedDistanceToConvexPolygon(polygon, comXy);
+std::optional<double> staticMargin(
+    absl::Span<const Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples,
+    const Eigen::Vector2d& posComRtWorldEwrtWorldXy) {
+  if (supportPosComRtWorldEwrtWorldXySamples.empty()) return std::nullopt;
+  return signedDistanceToConvexPolygon(supportPosComRtWorldEwrtWorldXySamples,
+                                       posComRtWorldEwrtWorldXy);
 }
 
 }  // namespace ocs2::humanoid::multi_contact

@@ -78,7 +78,7 @@ MujocoRobotBackend::makeConfig(const RobotBackendOptions& options) {
   config.contactFrameNames = options.contactFrameNames;
   config.contactParentJointNames = options.contactParentJointNames;
   config.minForceMjcontactEwrtMjcontactX =
-      options.simulator.contactForceThreshold;
+      options.simulator.minForceMjcontactEwrtMjcontactX;
   config.contactTimelineWindow = options.simulator.contactTimelineWindow;
   if (options.simulator.visualizations.has_value()) {
     config.visualizations = *options.simulator.visualizations;
@@ -86,7 +86,8 @@ MujocoRobotBackend::makeConfig(const RobotBackendOptions& options) {
   config.gantryHold = options.simulator.gantryHold;
   config.projectile = options.simulator.projectile;
   config.ragdollJointDamping = options.simulator.ragdollJointDamping;
-  config.autoResetBaseHeight = options.simulator.autoResetBaseHeight;
+  config.autoResetMinPosBaseRtWorldEwrtWorldZ =
+      options.simulator.autoResetMinPosBaseRtWorldEwrtWorldZ;
   config.contactPatchCorners = options.contactPatchCorners;
   return config;
 }
@@ -154,12 +155,13 @@ absl::Status MujocoRobotBackend::start(const std::vector<int>& cores) {
   return absl::OkStatus();
 }
 
-void MujocoRobotBackend::readMeasuredContactForces(
-    std::array<vector3_t, kNumContacts>& forces) {
+void MujocoRobotBackend::readMeasForceFeetEwrtWorld(
+    std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld) {
   static_assert(kNumContacts == kBipedFootCount,
                 "the simulator has a force sensor in each of two feet "
                 "(takeMeasForceFeetEwrtWorld())");
-  simulator_->takeMeasForceFeetEwrtWorld(forces[0], forces[1]);
+  simulator_->takeMeasForceFeetEwrtWorld(measForceFeetEwrtWorld[0],
+                                         measForceFeetEwrtWorld[1]);
 }
 
 void MujocoRobotBackend::registerContactEstimators(

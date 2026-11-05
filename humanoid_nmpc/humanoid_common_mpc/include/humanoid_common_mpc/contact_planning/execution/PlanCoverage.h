@@ -29,7 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include "humanoid_common_mpc/common/Types.h"
+#include "ocs2_core/Types.h"
+
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 
 namespace ocs2::humanoid {
@@ -42,14 +43,14 @@ inline constexpr scalar_t kPlanCoverageTolerance = 1.0e-9;
  * Whether `time` lies inside the horizon the plan was computed for, [startTime,
  * endTime()].
  *
- * Every per-node lookup of ContactPlan (comPositionAtTime, comVelocityAtTime,
- * headingAtTime, ...) CLAMPS to the first or the last node rather than
- * reporting that the query left the horizon. A reference written from such a
- * lookup past the plan's end is therefore frozen at the last node - a constant
- * position that still asks for the last node's velocity - so every rule that
- * writes a reference from the plan, and every accessor that hands a planned
- * quantity to a cost, asks this first and leaves the operator's reference alone
- * outside it.
+ * Every per-node lookup of ContactPlan (evaluatePosComRtWorldEwrtWorldXy,
+ * evaluateLinvelComRtWorldEwrtWorldXy, headingModelYawAtTime, ...) CLAMPS to
+ * the first or the last node rather than reporting that the query left the
+ * horizon. A reference written from such a lookup past the plan's end is
+ * therefore frozen at the last node - a constant position that still asks for
+ * the last node's velocity - so every rule that writes a reference from the
+ * plan, and every accessor that hands a planned quantity to a cost, asks this
+ * first and leaves the operator's reference alone outside it.
  */
 inline bool planCoversTime(const ContactPlan& plan, scalar_t time) {
   return time >= plan.startTime - kPlanCoverageTolerance &&

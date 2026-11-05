@@ -113,8 +113,8 @@ TEST_P(ShippedRobotGravity, TheSimulatorTheMpcAndTheGuiRunOneGravity) {
   const robot::mujoco_sim_interface::MjModelPtr scene(
       mj_loadXML(robot.sceneFile, /*vfs=*/nullptr, error, kErrorSize));
   ASSERT_NE(scene, nullptr) << robot.name << ": " << error;
-  const vector3_t simulated(scene->opt.gravity[0], scene->opt.gravity[1],
-                            scene->opt.gravity[2]);
+  const vector3_t simGravityEwrtWorld(
+      scene->opt.gravity[0], scene->opt.gravity[1], scene->opt.gravity[2]);
 
   const absl::StatusOr<ModelSettings> modelSettings =
       ModelSettings::Create(robot.taskFile, robot.urdfFile,
@@ -126,12 +126,13 @@ TEST_P(ShippedRobotGravity, TheSimulatorTheMpcAndTheGuiRunOneGravity) {
                                    *modelSettings);
   ASSERT_TRUE(pinocchioInterface.ok())
       << robot.name << ": " << pinocchioInterface.status();
-  const vector3_t modeled = pinocchioInterface->getModel().gravity.linear();
+  const vector3_t modelGravityEwrtWorld =
+      pinocchioInterface->getModel().gravity.linear();
 
-  EXPECT_EQ(simulated, modeled)
+  EXPECT_EQ(simGravityEwrtWorld, modelGravityEwrtWorld)
       << robot.name
       << ": the simulator and the MPC's model fall under different gravities";
-  EXPECT_EQ(modeled, vector3_t(0.0, 0.0, -kGravityMagnitude))
+  EXPECT_EQ(modelGravityEwrtWorld, vector3_t(0.0, 0.0, -kGravityMagnitude))
       << robot.name
       << ": the Pinocchio model and the centroidal dynamics use different "
          "gravities";

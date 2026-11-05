@@ -51,16 +51,20 @@ constexpr double kSameNormalCosine = 0.866;
 
 /** The bounds of a face's rectangle in its patch coordinates. */
 struct FaceBounds {
-  Eigen::Vector2d lower = Eigen::Vector2d::Zero();
-  Eigen::Vector2d upper = Eigen::Vector2d::Zero();
+  Eigen::Vector2d minPosCornersRtSurfaceEwrtSurfaceXy = Eigen::Vector2d::Zero();
+  Eigen::Vector2d maxPosCornersRtSurfaceEwrtSurfaceXy = Eigen::Vector2d::Zero();
 };
 
 FaceBounds boundsOf(const PatchFrame& patch) {
-  FaceBounds bounds{.lower = patch.polygon.front(),
-                    .upper = patch.polygon.front()};
-  for (const Eigen::Vector2d& vertex : patch.polygon) {
-    bounds.lower = bounds.lower.cwiseMin(vertex);
-    bounds.upper = bounds.upper.cwiseMax(vertex);
+  FaceBounds bounds{.minPosCornersRtSurfaceEwrtSurfaceXy =
+                        patch.posCornersRtSurfaceEwrtSurfaceXy.front(),
+                    .maxPosCornersRtSurfaceEwrtSurfaceXy =
+                        patch.posCornersRtSurfaceEwrtSurfaceXy.front()};
+  for (const Eigen::Vector2d& vertex : patch.posCornersRtSurfaceEwrtSurfaceXy) {
+    bounds.minPosCornersRtSurfaceEwrtSurfaceXy =
+        bounds.minPosCornersRtSurfaceEwrtSurfaceXy.cwiseMin(vertex);
+    bounds.maxPosCornersRtSurfaceEwrtSurfaceXy =
+        bounds.maxPosCornersRtSurfaceEwrtSurfaceXy.cwiseMax(vertex);
   }
   return bounds;
 }
@@ -70,43 +74,56 @@ bool inside(const Eigen::Vector2d& point,
             double margin) {
   // [m] The rounding a grid point exactly at the margin may carry.
   constexpr double kRounding = 1.0e-9;
-  return point.x() >= bounds.lower.x() + margin - kRounding &&
-         point.x() <= bounds.upper.x() - margin + kRounding &&
-         point.y() >= bounds.lower.y() + margin - kRounding &&
-         point.y() <= bounds.upper.y() - margin + kRounding;
+  return point.x() >= bounds.minPosCornersRtSurfaceEwrtSurfaceXy.x() + margin -
+                          kRounding &&
+         point.x() <= bounds.maxPosCornersRtSurfaceEwrtSurfaceXy.x() - margin +
+                          kRounding &&
+         point.y() >= bounds.minPosCornersRtSurfaceEwrtSurfaceXy.y() + margin -
+                          kRounding &&
+         point.y() <= bounds.maxPosCornersRtSurfaceEwrtSurfaceXy.y() - margin +
+                          kRounding;
 }
 
-/** Whether the point `point` of a face of normal `normal`, lifted off the face
- * by a little, is that far from the terrain: no other primitive covers the
- * face there. */
+/** Whether the point `posQueryRtWorldEwrtWorld` of a face of normal
+ * `normalSurfaceEwrtWorld`, lifted off the face by a little, is that far from
+ * the terrain: no other primitive covers the face there. */
 bool clearAbove(const TerrainModel& terrain,
-                const Eigen::Vector3d& point,
-                const Eigen::Vector3d& normal,
+                const Eigen::Vector3d& posQueryRtWorldEwrtWorld,
+                const Eigen::Vector3d& normalSurfaceEwrtWorld,
                 const ContactSamplerOptions& options) {
   // [m] How far the point is lifted.
   constexpr double kLift = 0.02;
-  return terrain.signedDistance(Eigen::Vector3d(point + kLift * normal)) >=
+  return terrain.signedDistance(Eigen::Vector3d(
+             posQueryRtWorldEwrtWorld + kLift * normalSurfaceEwrtWorld)) >=
          kLift - options.penetrationTolerance;
 }
 
-/** Whether the pad at `position` on a surface of normal `normal` is free of
- * the other primitives: its center (and a surface pad's corners) not inside
- * the terrain, and a round pad's geometry not penetrating it. */
+/** Whether the pad at `posPadRtWorldEwrtWorld`, its x axis
+ * `xAxisPadEwrtWorld`, on a surface of outward normal `normalSurfaceEwrtWorld`
+ * is free of the other primitives: its center (and a surface pad's corners) not
+ * inside the terrain, and a round pad's geometry not penetrating it. */
 bool freeOfTerrain(const TerrainModel& terrain,
                    const ContactCandidate& candidate,
-                   const Eigen::Vector3d& position,
-                   const Eigen::Vector3d& normal,
-                   const Eigen::Vector3d& xAxis,
+                   const Eigen::Vector3d& posPadRtWorldEwrtWorld,
+                   const Eigen::Vector3d& normalSurfaceEwrtWorld,
+                   const Eigen::Vector3d& xAxisPadEwrtWorld,
                    const ContactSamplerOptions& options) {
-  if (!clearAbove(terrain, position, normal, options)) return false;
+  if (!clearAbove(terrain, posPadRtWorldEwrtWorld, normalSurfaceEwrtWorld,
+                  options))
+    return false;
   if (candidate.rectangle.has_value()) {
     const ContactRectangle& rectangle = *candidate.rectangle;
-    const Eigen::Vector3d yAxis = normal.cross(xAxis);
-    for (const double x : {rectangle.xMin, rectangle.xMax}) {
-      for (const double y : {rectangle.yMin, rectangle.yMax}) {
-        if (!clearAbove(terrain,
-                        Eigen::Vector3d(position + x * xAxis + y * yAxis),
-                        normal, options)) {
+    const Eigen::Vector3d yAxisPadEwrtWorld =
+        normalSurfaceEwrtWorld.cross(xAxisPadEwrtWorld);
+    for (const double x : {rectangle.minPosCornersRtPadEwrtPadX,
+                           rectangle.maxPosCornersRtPadEwrtPadX}) {
+      for (const double y : {rectangle.minPosCornersRtPadEwrtPadY,
+                             rectangle.maxPosCornersRtPadEwrtPadY}) {
+        if (!clearAbove(
+                terrain,
+                Eigen::Vector3d(posPadRtWorldEwrtWorld + x * xAxisPadEwrtWorld +
+                                y * yAxisPadEwrtWorld),
+                normalSurfaceEwrtWorld, options)) {
           return false;
         }
       }
@@ -114,25 +131,33 @@ bool freeOfTerrain(const TerrainModel& terrain,
     return true;
   }
   return terrain.sphereDistance(
-             Eigen::Vector3d(position + candidate.geomRadius * normal),
+             Eigen::Vector3d(posPadRtWorldEwrtWorld +
+                             candidate.geomRadius * normalSurfaceEwrtWorld),
              candidate.geomRadius) >= -options.penetrationTolerance;
 }
 
-/** Whether the candidate's pad at `point` (face coordinates), its x axis along
- * `axis`, lies inside the face `margin` from its edges. */
+/** Whether the candidate's pad at `posPadRtSurfaceEwrtSurfaceXy` (face
+ * coordinates), its x axis along `xAxisPadEwrtSurfaceXy`, lies inside the face
+ * `margin` from its edges. */
 bool padFits(const ContactCandidate& candidate,
-             const Eigen::Vector2d& point,
-             const Eigen::Vector2d& axis,
+             const Eigen::Vector2d& posPadRtSurfaceEwrtSurfaceXy,
+             const Eigen::Vector2d& xAxisPadEwrtSurfaceXy,
              const FaceBounds& bounds,
              double margin) {
   if (!candidate.rectangle.has_value()) {
-    return inside(point, bounds, candidate.geomRadius + margin);
+    return inside(posPadRtSurfaceEwrtSurfaceXy, bounds,
+                  candidate.geomRadius + margin);
   }
   const ContactRectangle& rectangle = *candidate.rectangle;
-  const Eigen::Vector2d perpendicular(-axis.y(), axis.x());
-  for (const double x : {rectangle.xMin, rectangle.xMax}) {
-    for (const double y : {rectangle.yMin, rectangle.yMax}) {
-      if (!inside(point + x * axis + y * perpendicular, bounds, margin)) {
+  const Eigen::Vector2d yAxisPadEwrtSurfaceXy(-xAxisPadEwrtSurfaceXy.y(),
+                                              xAxisPadEwrtSurfaceXy.x());
+  for (const double x : {rectangle.minPosCornersRtPadEwrtPadX,
+                         rectangle.maxPosCornersRtPadEwrtPadX}) {
+    for (const double y : {rectangle.minPosCornersRtPadEwrtPadY,
+                           rectangle.maxPosCornersRtPadEwrtPadY}) {
+      if (!inside(posPadRtSurfaceEwrtSurfaceXy + x * xAxisPadEwrtSurfaceXy +
+                      y * yAxisPadEwrtSurfaceXy,
+                  bounds, margin)) {
         return false;
       }
     }
@@ -145,140 +170,192 @@ void sampleFace(const TerrainModel& terrain,
                 const PatchFrame& patch,
                 const ContactCandidate& candidate,
                 int candidateIndex,
-                const Eigen::Vector3d& center,
-                double reach,
-                const Eigen::Vector3d& xAxisHint,
+                const Eigen::Vector3d& posReachcenterRtWorldEwrtWorld,
+                double maxDistPadRtReachcenter,
+                const Eigen::Vector3d& hintXAxisPadEwrtWorld,
                 const ContactSamplerOptions& options,
                 std::vector<ContactSample>& samples) {
-  const Eigen::Vector3d local =
-      patch.rotation.transpose() * (center - patch.origin);
-  if (std::abs(local.z()) > reach) return;
-  const double radius =
-      std::sqrt(reach * reach - local.z() * local.z());  // in the face plane
+  const Eigen::Vector3d posReachcenterRtSurfaceEwrtSurface =
+      patch.rotmatSurfaceRtWorld.transpose() *
+      (posReachcenterRtWorldEwrtWorld - patch.posSurfaceRtWorldEwrtWorld);
+  if (std::abs(posReachcenterRtSurfaceEwrtSurface.z()) >
+      maxDistPadRtReachcenter)
+    return;
+  const double radius = std::sqrt(
+      maxDistPadRtReachcenter * maxDistPadRtReachcenter -
+      posReachcenterRtSurfaceEwrtSurface.z() *
+          posReachcenterRtSurfaceEwrtSurface.z());  // in the face plane
   const FaceBounds bounds = boundsOf(patch);
-  const Eigen::Vector3d xAxis = tangentAxis(xAxisHint, patch.normal());
-  const Eigen::Vector2d axis =
-      (patch.rotation.transpose() * xAxis).head<kHorizontalPositionDim>();
+  const Eigen::Vector3d xAxisPadEwrtWorld = computeXAxisPadEwrtWorld(
+      hintXAxisPadEwrtWorld, patch.getNormalSurfaceEwrtWorld());
+  const Eigen::Vector2d xAxisPadEwrtSurfaceXy =
+      (patch.rotmatSurfaceRtWorld.transpose() * xAxisPadEwrtWorld)
+          .head<kHorizontalPositionDim>();
   const double spacing = options.gridSpacing;
   const int iLow = static_cast<int>(
-      std::ceil(std::max(bounds.lower.x(), local.x() - radius) / spacing));
+      std::ceil(std::max(bounds.minPosCornersRtSurfaceEwrtSurfaceXy.x(),
+                         posReachcenterRtSurfaceEwrtSurface.x() - radius) /
+                spacing));
   const int iHigh = static_cast<int>(
-      std::floor(std::min(bounds.upper.x(), local.x() + radius) / spacing));
+      std::floor(std::min(bounds.maxPosCornersRtSurfaceEwrtSurfaceXy.x(),
+                          posReachcenterRtSurfaceEwrtSurface.x() + radius) /
+                 spacing));
   const int jLow = static_cast<int>(
-      std::ceil(std::max(bounds.lower.y(), local.y() - radius) / spacing));
+      std::ceil(std::max(bounds.minPosCornersRtSurfaceEwrtSurfaceXy.y(),
+                         posReachcenterRtSurfaceEwrtSurface.y() - radius) /
+                spacing));
   const int jHigh = static_cast<int>(
-      std::floor(std::min(bounds.upper.y(), local.y() + radius) / spacing));
+      std::floor(std::min(bounds.maxPosCornersRtSurfaceEwrtSurfaceXy.y(),
+                          posReachcenterRtSurfaceEwrtSurface.y() + radius) /
+                 spacing));
   for (int i = iLow; i <= iHigh; ++i) {
     for (int j = jLow; j <= jHigh; ++j) {
-      const Eigen::Vector2d point(i * spacing, j * spacing);
-      if (!padFits(candidate, point, axis, bounds, options.edgeMargin)) {
+      const Eigen::Vector2d posPadRtSurfaceEwrtSurfaceXy(i * spacing,
+                                                         j * spacing);
+      if (!padFits(candidate, posPadRtSurfaceEwrtSurfaceXy,
+                   xAxisPadEwrtSurfaceXy, bounds, options.edgeMargin)) {
         continue;
       }
-      const Eigen::Vector3d position =
-          patch.origin + patch.rotation.col(kXAxisIndex) * point.x() +
-          patch.rotation.col(kYAxisIndex) * point.y();
-      if ((position - center).norm() > reach ||
-          !freeOfTerrain(terrain, candidate, position, patch.normal(), xAxis,
+      const Eigen::Vector3d posPadRtWorldEwrtWorld =
+          patch.posSurfaceRtWorldEwrtWorld +
+          patch.rotmatSurfaceRtWorld.col(kXAxisIndex) *
+              posPadRtSurfaceEwrtSurfaceXy.x() +
+          patch.rotmatSurfaceRtWorld.col(kYAxisIndex) *
+              posPadRtSurfaceEwrtSurfaceXy.y();
+      if ((posPadRtWorldEwrtWorld - posReachcenterRtWorldEwrtWorld).norm() >
+              maxDistPadRtReachcenter ||
+          !freeOfTerrain(terrain, candidate, posPadRtWorldEwrtWorld,
+                         patch.getNormalSurfaceEwrtWorld(), xAxisPadEwrtWorld,
                          options)) {
         continue;
       }
-      samples.push_back(ContactSample{.candidate = candidateIndex,
-                                      .primitive = patch.primitiveIndex,
-                                      .face = patch.face,
-                                      .position = position,
-                                      .normal = patch.normal(),
-                                      .xAxis = xAxis});
+      samples.push_back(ContactSample{
+          .candidate = candidateIndex,
+          .primitive = patch.primitiveIndex,
+          .face = patch.face,
+          .posPadRtWorldEwrtWorld = posPadRtWorldEwrtWorld,
+          .normalSurfaceEwrtWorld = patch.getNormalSurfaceEwrtWorld(),
+          .xAxisPadEwrtWorld = xAxisPadEwrtWorld});
     }
   }
 }
 
 /** Appends the samples of one capsule: on its top and its side facing
- * `center`. */
+ * `posReachcenterRtWorldEwrtWorld`. */
 void sampleCapsule(const TerrainModel& terrain,
                    const CapsuleGeometry& capsule,
                    int primitive,
                    const ContactCandidate& candidate,
                    int candidateIndex,
-                   const Eigen::Vector3d& center,
-                   double reach,
+                   const Eigen::Vector3d& posReachcenterRtWorldEwrtWorld,
+                   double maxDistPadRtReachcenter,
                    const ContactSamplerOptions& options,
                    std::vector<ContactSample>& samples) {
-  const Eigen::Vector3d axis = capsule.end - capsule.start;
-  const double length = axis.norm();
-  if (length < kDegenerateNorm) return;
-  const Eigen::Vector3d direction = axis / length;
-  const int count = static_cast<int>(std::floor(length / options.gridSpacing));
+  const Eigen::Vector3d posCapsuleendRtCapsulestartEwrtWorld =
+      capsule.posCapsuleendRtWorldEwrtWorld -
+      capsule.posCapsulestartRtWorldEwrtWorld;
+  const double distCapsuleendRtCapsulestart =
+      posCapsuleendRtCapsulestartEwrtWorld.norm();
+  if (distCapsuleendRtCapsulestart < kDegenerateNorm) return;
+  const Eigen::Vector3d zAxisCapsulestartEwrtWorld =
+      posCapsuleendRtCapsulestartEwrtWorld / distCapsuleendRtCapsulestart;
+  const int count = static_cast<int>(
+      std::floor(distCapsuleendRtCapsulestart / options.gridSpacing));
   for (int k = 0; k <= count; ++k) {
-    const Eigen::Vector3d onAxis =
-        capsule.start + direction * (k * options.gridSpacing);
-    std::vector<Eigen::Vector3d> normals;
-    for (const Eigen::Vector3d& toward :
+    const Eigen::Vector3d posSegmentpointRtWorldEwrtWorld =
+        capsule.posCapsulestartRtWorldEwrtWorld +
+        zAxisCapsulestartEwrtWorld * (k * options.gridSpacing);
+    std::vector<Eigen::Vector3d> normalSurfacesEwrtWorld;
+    for (const Eigen::Vector3d& towardDirEwrtWorld :
          {Eigen::Vector3d(Eigen::Vector3d::UnitZ()),
-          Eigen::Vector3d(center - onAxis)}) {
-      Eigen::Vector3d normal = toward - toward.dot(direction) * direction;
-      if (normal.norm() < kDegenerateNorm) continue;
-      normal.normalize();
-      if (normal.z() < options.minPointNormalZ) continue;
-      if (!normals.empty() && normals.front().dot(normal) > kSameNormalCosine) {
+          Eigen::Vector3d(posReachcenterRtWorldEwrtWorld -
+                          posSegmentpointRtWorldEwrtWorld)}) {
+      Eigen::Vector3d normalSurfaceEwrtWorld =
+          towardDirEwrtWorld -
+          towardDirEwrtWorld.dot(zAxisCapsulestartEwrtWorld) *
+              zAxisCapsulestartEwrtWorld;
+      if (normalSurfaceEwrtWorld.norm() < kDegenerateNorm) continue;
+      normalSurfaceEwrtWorld.normalize();
+      if (normalSurfaceEwrtWorld.z() < options.pointMinNormalSurfaceEwrtWorldZ)
+        continue;
+      if (!normalSurfacesEwrtWorld.empty() &&
+          normalSurfacesEwrtWorld.front().dot(normalSurfaceEwrtWorld) >
+              kSameNormalCosine) {
         continue;
       }
-      normals.push_back(normal);
+      normalSurfacesEwrtWorld.push_back(normalSurfaceEwrtWorld);
     }
-    for (const Eigen::Vector3d& normal : normals) {
-      const Eigen::Vector3d position = onAxis + capsule.radius * normal;
-      const Eigen::Vector3d xAxis = tangentAxis(direction, normal);
-      if ((position - center).norm() > reach ||
-          !freeOfTerrain(terrain, candidate, position, normal, xAxis,
-                         options)) {
+    for (const Eigen::Vector3d& normalSurfaceEwrtWorld :
+         normalSurfacesEwrtWorld) {
+      const Eigen::Vector3d posPadRtWorldEwrtWorld =
+          posSegmentpointRtWorldEwrtWorld +
+          capsule.radius * normalSurfaceEwrtWorld;
+      const Eigen::Vector3d xAxisPadEwrtWorld = computeXAxisPadEwrtWorld(
+          zAxisCapsulestartEwrtWorld, normalSurfaceEwrtWorld);
+      if ((posPadRtWorldEwrtWorld - posReachcenterRtWorldEwrtWorld).norm() >
+              maxDistPadRtReachcenter ||
+          !freeOfTerrain(terrain, candidate, posPadRtWorldEwrtWorld,
+                         normalSurfaceEwrtWorld, xAxisPadEwrtWorld, options)) {
         continue;
       }
-      samples.push_back(ContactSample{.candidate = candidateIndex,
-                                      .primitive = primitive,
-                                      .face = std::nullopt,
-                                      .position = position,
-                                      .normal = normal,
-                                      .xAxis = xAxis});
+      samples.push_back(
+          ContactSample{.candidate = candidateIndex,
+                        .primitive = primitive,
+                        .face = std::nullopt,
+                        .posPadRtWorldEwrtWorld = posPadRtWorldEwrtWorld,
+                        .normalSurfaceEwrtWorld = normalSurfaceEwrtWorld,
+                        .xAxisPadEwrtWorld = xAxisPadEwrtWorld});
     }
   }
 }
 
 }  // namespace
 
-Eigen::Vector3d tangentAxis(const Eigen::Vector3d& hint,
-                            const Eigen::Vector3d& normal) {
-  Eigen::Vector3d axis = hint - hint.dot(normal) * normal;
-  if (axis.norm() < kDegenerateNorm) return normal.unitOrthogonal();
-  return axis.normalized();
+Eigen::Vector3d computeXAxisPadEwrtWorld(
+    const Eigen::Vector3d& hintXAxisPadEwrtWorld,
+    const Eigen::Vector3d& normalSurfaceEwrtWorld) {
+  Eigen::Vector3d xAxisPadEwrtWorld =
+      hintXAxisPadEwrtWorld -
+      hintXAxisPadEwrtWorld.dot(normalSurfaceEwrtWorld) *
+          normalSurfaceEwrtWorld;
+  if (xAxisPadEwrtWorld.norm() < kDegenerateNorm)
+    return normalSurfaceEwrtWorld.unitOrthogonal();
+  return xAxisPadEwrtWorld.normalized();
 }
 
 std::vector<ContactSample> sampleContacts(
     const TerrainModel& terrain,
     const ContactCandidate& candidate,
     int candidateIndex,
-    const Eigen::Vector3d& center,
-    double reach,
-    const Eigen::Vector3d& xAxisHint,
+    const Eigen::Vector3d& posReachcenterRtWorldEwrtWorld,
+    double maxDistPadRtReachcenter,
+    const Eigen::Vector3d& hintXAxisPadEwrtWorld,
     const ContactSamplerOptions& options) {
   std::vector<ContactSample> samples;
   const bool surface = candidate.kind == ContactKind::kSurface;
-  const double minNormalZ =
-      surface ? options.minSurfaceNormalZ : options.minPointNormalZ;
+  const double minNormalSurfaceEwrtWorldZ =
+      surface ? options.rectangleMinNormalSurfaceEwrtWorldZ
+              : options.pointMinNormalSurfaceEwrtWorldZ;
   for (int primitive = 0; primitive < terrain.numPrimitives(); ++primitive) {
     const TerrainPrimitive& shape = terrain.primitive(primitive);
     if (const CapsuleGeometry* absl_nullable capsule =
             std::get_if<CapsuleGeometry>(&shape.geometry)) {
       if (!surface) {
         sampleCapsule(terrain, *capsule, primitive, candidate, candidateIndex,
-                      center, reach, options, samples);
+                      posReachcenterRtWorldEwrtWorld, maxDistPadRtReachcenter,
+                      options, samples);
       }
       continue;
     }
     for (int face = 0; face < kBoxFaceCount; ++face) {
       const absl::StatusOr<PatchFrame> patch =
           terrain.boxFaceFrame(primitive, static_cast<BoxFace>(face));
-      if (!patch.ok() || patch->normal().z() < minNormalZ) continue;
-      sampleFace(terrain, *patch, candidate, candidateIndex, center, reach,
-                 xAxisHint, options, samples);
+      if (!patch.ok() ||
+          patch->getNormalSurfaceEwrtWorld().z() < minNormalSurfaceEwrtWorldZ)
+        continue;
+      sampleFace(terrain, *patch, candidate, candidateIndex,
+                 posReachcenterRtWorldEwrtWorld, maxDistPadRtReachcenter,
+                 hintXAxisPadEwrtWorld, options, samples);
     }
   }
   return samples;

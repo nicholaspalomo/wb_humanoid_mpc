@@ -46,25 +46,29 @@ namespace {
 
 /** The generalized forces of each generator at unit scaling (one weight along
  * its direction): weight * J_g^T e_g, one column per generator. */
-Eigen::MatrixXd generatorForces(const RobotStanceModel& model,
-                                const StaticEquilibrium& equilibrium) {
+Eigen::MatrixXd computeGeneratorGeneralizedForces(
+    const RobotStanceModel& model, const StaticEquilibrium& equilibrium) {
   const WrenchGenerators& generators = equilibrium.generators();
   const double weight = model.mass() * kGravityMagnitude;
-  Eigen::MatrixXd forces(model.model().nv, generators.size());
+  Eigen::MatrixXd generatorGeneralizedForces(model.model().nv,
+                                             generators.size());
   for (int g = 0; g < generators.size(); ++g) {
     const int candidate =
         equilibrium.stance()[generators.contactIndices[g]].candidateIndex;
-    forces.col(g) =
+    generatorGeneralizedForces.col(g) =
         weight *
-        model.pointJacobian(candidate, generators.points[g]).transpose() *
-        generators.directions[g];
+        model
+            .computeLinjacQueryRtWorldEwrtWorld(
+                candidate, generators.posGeneratorsRtWorldEwrtWorld[g])
+            .transpose() *
+        generators.forceGeneratorsEwrtWorld[g];
   }
-  return forces;
+  return generatorGeneralizedForces;
 }
 
 }  // namespace
 
-absl::StatusOr<TorqueFeasibilityResult> minimumTorqueUtilization(
+absl::StatusOr<TorqueFeasibilityResult> minimumJointTorqueUtilization(
     const RobotStanceModel& model, const StaticEquilibrium& equilibrium) {
   for (const StanceContact& contact : equilibrium.stance()) {
     if (contact.candidateIndex < 0 ||
@@ -74,8 +78,9 @@ absl::StatusOr<TorqueFeasibilityResult> minimumTorqueUtilization(
                        "' names no candidate of the model"));
     }
   }
-  const Eigen::MatrixXd forces = generatorForces(model, equilibrium);
-  const Eigen::VectorXd& gravity = model.generalizedGravity();
+  const Eigen::MatrixXd generatorGeneralizedForces =
+      computeGeneratorGeneralizedForces(model, equilibrium);
+  const Eigen::VectorXd& generalizedGravity = model.generalizedGravity();
   const int generators = equilibrium.generators().size();
 
   // The joints with a limit: tau_j / limit_j = gamma_j - T_j lambda.
@@ -91,8 +96,9 @@ absl::StatusOr<TorqueFeasibilityResult> minimumTorqueUtilization(
   for (int r = 0; r < rows; ++r) {
     const ActuatedJoint& joint = model.actuatedJoints()[checked[r]];
     const Eigen::RowVectorXd scaled =
-        forces.row(joint.velocityIndex) / joint.effortLimit;
-    const double gamma = gravity(joint.velocityIndex) / joint.effortLimit;
+        generatorGeneralizedForces.row(joint.velocityIndex) / joint.effortLimit;
+    const double gamma =
+        generalizedGravity(joint.velocityIndex) / joint.effortLimit;
     constraints.row(r).head(generators) = -scaled;
     constraints(r, generators) = -1.0;
     upper(r) = -gamma;
@@ -102,16 +108,18 @@ absl::StatusOr<TorqueFeasibilityResult> minimumTorqueUtilization(
   }
   const Eigen::VectorXd lower = Eigen::VectorXd::Constant(
       rows + rows, -std::numeric_limits<double>::infinity());
-  const Eigen::Vector2d comXy =
-      model.centerOfMass().head<kHorizontalPositionDim>();
+  const Eigen::Vector2d posComRtWorldEwrtWorldXy =
+      model.getPosComRtWorldEwrtWorld().head<kHorizontalPositionDim>();
   ASSIGN_OR_RETURN(const Eigen::VectorXd solution,
                    equilibrium.solveWithExtraVariables(
-                       equilibrium.staticWrench(comXy),
+                       equilibrium.computeStaticWnormWrenchStanceEwrtWorld(
+                           posComRtWorldEwrtWorldXy),
                        Eigen::VectorXd::Ones(1), constraints, lower, upper));
 
   TorqueFeasibilityResult result;
   result.scalings = solution.head(generators);
-  const Eigen::VectorXd generalized = gravity - forces * result.scalings;
+  const Eigen::VectorXd generalized =
+      generalizedGravity - generatorGeneralizedForces * result.scalings;
   result.jointTorques.resize(model.actuatedJoints().size());
   for (int j = 0; j < static_cast<int>(model.actuatedJoints().size()); ++j) {
     const ActuatedJoint& joint = model.actuatedJoints()[j];

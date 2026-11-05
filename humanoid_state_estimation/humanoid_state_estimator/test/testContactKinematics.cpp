@@ -41,10 +41,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_state_estimation/humanoid_state_estimator/test/WalkingTrajectory.h"
 #include "humanoid_state_estimator/ContactKinematics.h"
 #include "robot_model/RobotDescription.h"
@@ -57,8 +60,9 @@ constexpr char kAtlasUrdf[] =
 
 std::vector<ContactPointSpec> specsOf(const std::vector<std::string>& frames) {
   std::vector<ContactPointSpec> specs;
-  for (const std::string& frame : frames)
+  for (const std::string& frame : frames) {
     specs.push_back(ContactPointSpec{.frameNames = {frame}});
+  }
   return specs;
 }
 
@@ -82,8 +86,8 @@ TEST(ContactKinematicsTest,
       kinematics->gravityEwrtWorld().isApprox(vector3_t(0.0, 0.0, -9.81)));
   std::mt19937 generator(7);
   std::uniform_real_distribution<scalar_t> uniform(-0.5, 0.5);
-  const std::vector<vector3_t> origins = {vector3_t(0.0, 0.1, -0.8),
-                                          vector3_t(0.0, -0.1, -0.8)};
+  const std::vector<vector3_t> posHipsRtBaseEwrtBase = {
+      vector3_t(0.0, 0.1, -0.8), vector3_t(0.0, -0.1, -0.8)};
   for (int trial = 0; trial < 20; ++trial) {
     vector_t q(6);
     vector_t v(6);
@@ -95,7 +99,7 @@ TEST(ContactKinematicsTest,
     for (size_t foot = 0; foot < 2; ++foot) {
       const Eigen::Index first = static_cast<Eigen::Index>(3 * foot);
       EXPECT_TRUE(kinematics->posContactRtBaseEwrtBase(foot).isApprox(
-          origins[foot] + q.segment<3>(first), 1.0e-12))
+          posHipsRtBaseEwrtBase[foot] + q.segment<3>(first), 1.0e-12))
           << trial;
       EXPECT_TRUE(kinematics->linvelContactRtBaseEwrtBase(foot).isApprox(
           v.segment<3>(first), 1.0e-12))
@@ -132,16 +136,22 @@ TEST(ContactKinematicsTest,
   (*kinematics)
       ->update((vector_t(1) << theta).finished(),
                (vector_t(1) << rate).finished());
-  const vector3_t point(1.0, 0.5, 0.0);
+  // The contact is the spec's offset from its link, `tip`, which the fixed
+  // tip_mount holds 1 m along the hinge child's x axis, with the child's axes.
+  const vector3_t posContactRtLinkEwrtLink(0.0, 0.5, 0.0);
   const matrix3_t rotmatLinkRtBase =
       Eigen::AngleAxisd(theta, vector3_t::UnitZ()).toRotationMatrix();
+  const vector3_t posLinkRtBaseEwrtBase =
+      rotmatLinkRtBase * vector3_t(1.0, 0.0, 0.0);
+  const vector3_t posContactRtBaseEwrtBase =
+      posLinkRtBaseEwrtBase + rotmatLinkRtBase * posContactRtLinkEwrtLink;
   EXPECT_TRUE((*kinematics)
                   ->posContactRtBaseEwrtBase(0)
-                  .isApprox(rotmatLinkRtBase * point, 1.0e-12));
+                  .isApprox(posContactRtBaseEwrtBase, 1.0e-12));
   EXPECT_TRUE(
       (*kinematics)
           ->linvelContactRtBaseEwrtBase(0)
-          .isApprox(vector3_t(0.0, 0.0, rate).cross(rotmatLinkRtBase * point),
+          .isApprox(vector3_t(0.0, 0.0, rate).cross(posContactRtBaseEwrtBase),
                     1.0e-12));
 }
 
@@ -189,17 +199,20 @@ TEST(ContactKinematicsTest, TheAtlasFootVelocityIsTheDerivativeOfItsPosition) {
         kinematics.linvelContactRtBaseEwrtBase(0),
         kinematics.linvelContactRtBaseEwrtBase(1)};
     kinematics.update(q + kStep * v, v);
-    const std::vector<vector3_t> ahead = {
+    const std::vector<vector3_t> nextPosFeetRtBaseEwrtBase = {
         kinematics.posContactRtBaseEwrtBase(0),
         kinematics.posContactRtBaseEwrtBase(1)};
     kinematics.update(q - kStep * v, v);
     for (size_t foot = 0; foot < 2; ++foot) {
-      const vector3_t difference =
-          (ahead[foot] - kinematics.posContactRtBaseEwrtBase(foot)) /
+      const vector3_t fdLinvelFootRtBaseEwrtBase =
+          (nextPosFeetRtBaseEwrtBase[foot] -
+           kinematics.posContactRtBaseEwrtBase(foot)) /
           (2.0 * kStep);
       // A central difference errs by O(kStep^2) and the rounding of positions
       // of about 1 m, ~1e-16 / 1e-6.
-      EXPECT_LT((difference - linvelFeetRtBaseEwrtBase[foot]).norm(), 1.0e-7)
+      EXPECT_LT(
+          (fdLinvelFootRtBaseEwrtBase - linvelFeetRtBaseEwrtBase[foot]).norm(),
+          1.0e-7)
           << "trial " << trial << ", foot " << foot;
       EXPECT_GT(linvelFeetRtBaseEwrtBase[foot].norm(), 0.0);
     }

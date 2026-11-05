@@ -31,16 +31,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdlib>
 #include <functional>
+#include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/log/log.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/misc/Lookup.h"
 #include "ocs2_core/misc/Numerics.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/swing_foot_planner/CubicSpline.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -67,7 +75,7 @@ scalar_t SwingTrajectoryPlanner::getDesLinaccFootRtWorldEwrtWorldZ(
   const int index =
       lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
   if (isSearching(swingWindows_[leg][index], time)) return 0.0;
-  return feetHeightTrajectories_[leg][index].secondDerivative(time);
+  return desPosFeetRtWorldEwrtWorldZTraj_[leg][index].secondDerivative(time);
 }
 
 /******************************************************************************************************/
@@ -80,7 +88,7 @@ scalar_t SwingTrajectoryPlanner::getDesLinvelFootRtWorldEwrtWorldZ(
       lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
   const SwingWindow& window = swingWindows_[leg][index];
   if (isSearching(window, time)) return -window.descentSpeedFootRtWorld;
-  return feetHeightTrajectories_[leg][index].derivative(time);
+  return desPosFeetRtWorldEwrtWorldZTraj_[leg][index].derivative(time);
 }
 
 /******************************************************************************************************/
@@ -91,10 +99,11 @@ scalar_t SwingTrajectoryPlanner::getDesPosFootRtWorldEwrtWorldZ(
   const int index =
       lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
   const SwingWindow& window = swingWindows_[leg][index];
-  if (isSearching(window, time))
-    return window.descentStartHeight -
+  if (isSearching(window, time)) {
+    return window.descentStartPosFootRtWorldEwrtWorldZ -
            window.descentSpeedFootRtWorld * (time - window.finalTime);
-  return feetHeightTrajectories_[leg][index].value(time);
+  }
+  return desPosFeetRtWorldEwrtWorldZTraj_[leg][index].value(time);
 }
 
 /******************************************************************************************************/
@@ -107,8 +116,9 @@ scalar_t SwingTrajectoryPlanner::getImpactProximityFactor(size_t leg,
       lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
   const SwingWindow& window = swingWindows_[leg][index];
   // A foot searching for the ground holds the factor of its planned touch-down.
-  if (isSearching(window, time))
+  if (isSearching(window, time)) {
     return impactProximityTrajectories_[leg][index].value(window.finalTime);
+  }
   return impactProximityTrajectories_[leg][index].value(time);
 }
 
@@ -137,11 +147,12 @@ scalar_t SwingTrajectoryPlanner::swingPitchProfile(scalar_t tau) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-scalar_t SwingTrajectoryPlanner::getSwingPitchAngle(size_t leg,
-                                                    scalar_t time) const {
-  if (numerics::almost_eq(config_.swingPitchAngle, /*y=*/0.0) ||
-      swingWindows_[leg].empty())
+scalar_t SwingTrajectoryPlanner::getSwingRefTiltangleFootRtSurface(
+    size_t leg, scalar_t time) const {
+  if (numerics::almost_eq(config_.swingMaxTiltangleFootRtSurface, /*y=*/0.0) ||
+      swingWindows_[leg].empty()) {
     return 0.0;
+  }
 
   const int index =
       lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
@@ -155,7 +166,8 @@ scalar_t SwingTrajectoryPlanner::getSwingPitchAngle(size_t leg,
       std::clamp((time - window.startTime) / duration, 0.0, 1.0);
   // Short swings get proportionally less pitch, for the same reason they get
   // less height.
-  return window.scaling * config_.swingPitchAngle * swingPitchProfile(tau);
+  return window.scaling * config_.swingMaxTiltangleFootRtSurface *
+         swingPitchProfile(tau);
 }
 
 /******************************************************************************************************/
@@ -163,17 +175,20 @@ scalar_t SwingTrajectoryPlanner::getSwingPitchAngle(size_t leg,
 /******************************************************************************************************/
 
 void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
-                                    scalar_t terrainHeight) {
-  const scalar_array_t terrainHeightSequence(modeSchedule.modeSequence.size(),
-                                             terrainHeight);
-  const scalar_array_t touchDownTerrainHeightSequence(
+                                    scalar_t posSurfaceRtWorldEwrtWorldZ) {
+  const scalar_array_t posSurfaceRtWorldEwrtWorldZTraj(
+      modeSchedule.modeSequence.size(), posSurfaceRtWorldEwrtWorldZ);
+  const scalar_array_t touchdownPosFootRtWorldEwrtWorldZTraj(
       modeSchedule.modeSequence.size(),
-      terrainHeight + config_.touchDownHeightOffset);
-  feet_array_t<scalar_array_t> liftOffHeightSequence;
-  liftOffHeightSequence.fill(terrainHeightSequence);
-  feet_array_t<scalar_array_t> touchDownHeightSequence;
-  touchDownHeightSequence.fill(touchDownTerrainHeightSequence);
-  update(modeSchedule, liftOffHeightSequence, touchDownHeightSequence);
+      posSurfaceRtWorldEwrtWorldZ +
+          config_.touchdownPosFootRtSurfaceEwrtWorldZ);
+  feet_array_t<scalar_array_t> liftoffPosFeetRtWorldEwrtWorldZTraj;
+  liftoffPosFeetRtWorldEwrtWorldZTraj.fill(posSurfaceRtWorldEwrtWorldZTraj);
+  feet_array_t<scalar_array_t> touchdownPosFeetRtWorldEwrtWorldZTraj;
+  touchdownPosFeetRtWorldEwrtWorldZTraj.fill(
+      touchdownPosFootRtWorldEwrtWorldZTraj);
+  update(modeSchedule, liftoffPosFeetRtWorldEwrtWorldZTraj,
+         touchdownPosFeetRtWorldEwrtWorldZTraj);
 }
 
 /******************************************************************************************************/
@@ -182,9 +197,10 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
 
 void SwingTrajectoryPlanner::update(
     const ModeSchedule& modeSchedule,
-    const feet_array_t<scalar_array_t>& liftOffHeightSequence,
-    const feet_array_t<scalar_array_t>& touchDownHeightSequence) {
-  update(modeSchedule, liftOffHeightSequence, touchDownHeightSequence,
+    const feet_array_t<scalar_array_t>& liftoffPosFeetRtWorldEwrtWorldZTraj,
+    const feet_array_t<scalar_array_t>& touchdownPosFeetRtWorldEwrtWorldZTraj) {
+  update(modeSchedule, liftoffPosFeetRtWorldEwrtWorldZTraj,
+         touchdownPosFeetRtWorldEwrtWorldZTraj,
          makeFeetArray(std::optional<GroundSearch>{}));
 }
 
@@ -194,8 +210,8 @@ void SwingTrajectoryPlanner::update(
 
 void SwingTrajectoryPlanner::update(
     const ModeSchedule& modeSchedule,
-    const feet_array_t<scalar_array_t>& liftOffHeightSequence,
-    const feet_array_t<scalar_array_t>& touchDownHeightSequence,
+    const feet_array_t<scalar_array_t>& liftoffPosFeetRtWorldEwrtWorldZTraj,
+    const feet_array_t<scalar_array_t>& touchdownPosFeetRtWorldEwrtWorldZTraj,
     const feet_array_t<std::optional<GroundSearch>>& groundSearches) {
   constexpr scalar_t kSwingTimeTolerance =
       1.0e-6;  // [s] event times that identify the same swing
@@ -215,8 +231,8 @@ void SwingTrajectoryPlanner::update(
   }
 
   for (size_t j = 0; j < numFeet_; ++j) {
-    feetHeightTrajectories_[j].clear();
-    feetHeightTrajectories_[j].reserve(modeSequence.size());
+    desPosFeetRtWorldEwrtWorldZTraj_[j].clear();
+    desPosFeetRtWorldEwrtWorldZTraj_[j].reserve(modeSequence.size());
     impactProximityTrajectories_[j].clear();
     impactProximityTrajectories_[j].reserve(modeSequence.size());
     swingWindows_[j].clear();
@@ -254,36 +270,41 @@ void SwingTrajectoryPlanner::update(
         // the same ones.
         const scalar_t scaling = swingTrajectoryScaling(
             swingStartTime, swingFinalTime, config_.swingTimeScale);
-        const scalar_t liftOffHeight =
-            liftOffHeightSequence[j][swingStartIndex + 1];
-        const scalar_t touchDownHeight =
-            touchDownHeightSequence[j][swingFinalIndex];
+        const scalar_t liftoffPosFootRtWorldEwrtWorldZ =
+            liftoffPosFeetRtWorldEwrtWorldZTraj[j][swingStartIndex + 1];
+        const scalar_t touchdownPosFootRtWorldEwrtWorldZ =
+            touchdownPosFeetRtWorldEwrtWorldZTraj[j][swingFinalIndex];
         SwingWindow window;
         window.isSwing = true;
         window.startTime = swingStartTime;
         window.finalTime = swingFinalTime;
         window.scaling = scaling;
         window.searching = searching;
-        window.descentStartHeight = touchDownHeight;
+        window.descentStartPosFootRtWorldEwrtWorldZ =
+            touchdownPosFootRtWorldEwrtWorldZ;
         window.descentSpeedFootRtWorld =
             searching ? std::max(0.0, search->descentSpeedFootRtWorld) : 0.0;
         swingWindows_[j].push_back(window);
         const SwingSplines splines =
-            makeSwingSplines(window, liftOffHeight, touchDownHeight);
-        feetHeightTrajectories_[j].push_back(splines.height);
+            makeSwingSplines(window, liftoffPosFootRtWorldEwrtWorldZ,
+                             touchdownPosFootRtWorldEwrtWorldZ);
+        desPosFeetRtWorldEwrtWorldZTraj_[j].push_back(
+            splines.desPosFootRtWorldEwrtWorldZ);
         impactProximityTrajectories_[j].push_back(splines.impactProximity);
       } else {  // for a stance leg
         swingWindows_[j].push_back(SwingWindow{});
         // Note: setting the time here arbitrarily to 0.0 -> 1.0 makes the
         // assert in CubicSpline fail
-        const CubicSpline::Node liftOff{.time = 0.0,
-                                        .value = liftOffHeightSequence[j][p],
-                                        .derivative = 0.0};
-        const CubicSpline::Node touchDown{.time = 1.0,
-                                          .value = liftOffHeightSequence[j][p],
-                                          .derivative = 0.0};
-        feetHeightTrajectories_[j].emplace_back(
-            liftOff, liftOffHeightSequence[j][p], touchDown);
+        const CubicSpline::Node liftOff{
+            .time = 0.0,
+            .value = liftoffPosFeetRtWorldEwrtWorldZTraj[j][p],
+            .derivative = 0.0};
+        const CubicSpline::Node touchDown{
+            .time = 1.0,
+            .value = liftoffPosFeetRtWorldEwrtWorldZTraj[j][p],
+            .derivative = 0.0};
+        desPosFeetRtWorldEwrtWorldZTraj_[j].emplace_back(
+            liftOff, liftoffPosFeetRtWorldEwrtWorldZTraj[j][p], touchDown);
 
         // If the foot is in contact the impact proximity factor is always 1.
         const CubicSpline::Node impactProximityTouchDown{
@@ -305,21 +326,23 @@ void SwingTrajectoryPlanner::update(
 
 SwingTrajectoryPlanner::SwingSplines SwingTrajectoryPlanner::makeSwingSplines(
     const SwingWindow& window,
-    scalar_t liftOffHeight,
-    scalar_t touchDownHeight) const {
+    scalar_t liftoffPosFootRtWorldEwrtWorldZ,
+    scalar_t touchdownPosFootRtWorldEwrtWorldZ) const {
   const scalar_t scaling = window.scaling;
-  // The apex is swingHeight above the higher end, so that a step up taller than
-  // swingHeight still reaches the touch-down height from above rather than from
-  // below.
-  const scalar_t apexHeight =
-      std::max(liftOffHeight, touchDownHeight) + scaling * config_.swingHeight;
-  const CubicSpline::Node heightLiftOff{
+  // The apex is apexPosFootRtSwingendEwrtWorldZ above the higher end, so that a
+  // step up taller than apexPosFootRtSwingendEwrtWorldZ still reaches the
+  // touch-down height from above rather than from below.
+  const scalar_t apexPosFootRtWorldEwrtWorldZ =
+      std::max(liftoffPosFootRtWorldEwrtWorldZ,
+               touchdownPosFootRtWorldEwrtWorldZ) +
+      scaling * config_.apexPosFootRtSwingendEwrtWorldZ;
+  const CubicSpline::Node liftoffNode{
       .time = window.startTime,
-      .value = liftOffHeight,
+      .value = liftoffPosFootRtWorldEwrtWorldZ,
       .derivative = scaling * config_.liftoffLinvelFootRtWorldEwrtWorldZ};
-  const CubicSpline::Node heightTouchDown{
+  const CubicSpline::Node touchdownNode{
       .time = window.finalTime,
-      .value = touchDownHeight,
+      .value = touchdownPosFootRtWorldEwrtWorldZ,
       .derivative = scaling * config_.touchdownLinvelFootRtWorldEwrtWorldZ};
 
   const CubicSpline::Node impactProximityLiftOff{
@@ -331,7 +354,8 @@ SwingTrajectoryPlanner::SwingSplines SwingTrajectoryPlanner::makeSwingSplines(
       .value = 1.0,
       .derivative = scaling * config_.impactProximityFactorTouchdownSlope};
   return SwingSplines{
-      .height = SplineCpg(heightLiftOff, apexHeight, heightTouchDown),
+      .desPosFootRtWorldEwrtWorldZ =
+          SplineCpg(liftoffNode, apexPosFootRtWorldEwrtWorldZ, touchdownNode),
       .impactProximity = SplineCpg(impactProximityLiftOff,
                                    config_.impactProximityFactorMidPointValue,
                                    impactProximityTouchDown),

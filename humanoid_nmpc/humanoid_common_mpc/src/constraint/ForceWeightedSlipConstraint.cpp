@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
 
+#include <cstddef>
 #include <memory>
 
 #include "absl/memory/memory.h"
@@ -36,7 +37,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
 
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/contact/ContactInputJacobian.h"
 
 namespace ocs2::humanoid {
@@ -140,11 +147,11 @@ ForceWeightedSlipConstraint::getLinearApproximation(
     const vector_t& state,
     const vector_t& input,
     const PreComputation& /*preComp*/) const {
-  const VectorFunctionLinearApproximation linvelContactRtWorldEwrtWorld =
+  const VectorFunctionLinearApproximation approxLinvelContactRtWorldEwrtWorld =
       endEffectorKinematicsPtr_
           ->getLinearApproximationLinvelEesRtWorldEwrtWorld(state, input)
           .front();
-  const VectorFunctionLinearApproximation angvelContactRtWorldEwrtWorld =
+  const VectorFunctionLinearApproximation approxAngvelContactRtWorldEwrtWorld =
       endEffectorKinematicsPtr_
           ->getLinearApproximationAngvelEesRtWorldEwrtWorld(state, input)
           .front();
@@ -156,22 +163,22 @@ ForceWeightedSlipConstraint::getLinearApproximation(
   // velocities and the spin about the normal, each divided by a reference in
   // its own units so that the three rows are comparable dimensionless numbers.
   const vector3_t scaledSlip =
-      (vector3_t()
-           << linvelContactRtWorldEwrtWorld.f.head<kHorizontalPositionDim>(),
-       angvelContactRtWorldEwrtWorld.f(kZAxisIndex))
+      (vector3_t() << approxLinvelContactRtWorldEwrtWorld.f
+                          .head<kHorizontalPositionDim>(),
+       approxAngvelContactRtWorldEwrtWorld.f(kZAxisIndex))
           .finished()
           .cwiseProduct(inverseScaleSlip_);
   matrix_t dScaledSlipdx(kNumConstraints,
-                         linvelContactRtWorldEwrtWorld.dfdx.cols());
-  dScaledSlipdx
-      << linvelContactRtWorldEwrtWorld.dfdx.topRows<kHorizontalPositionDim>(),
-      angvelContactRtWorldEwrtWorld.dfdx.row(kZAxisIndex);
+                         approxLinvelContactRtWorldEwrtWorld.dfdx.cols());
+  dScaledSlipdx << approxLinvelContactRtWorldEwrtWorld.dfdx
+                       .topRows<kHorizontalPositionDim>(),
+      approxAngvelContactRtWorldEwrtWorld.dfdx.row(kZAxisIndex);
   dScaledSlipdx = inverseScaleSlip_.asDiagonal() * dScaledSlipdx;
   matrix_t dScaledSlipdu(kNumConstraints,
-                         linvelContactRtWorldEwrtWorld.dfdu.cols());
-  dScaledSlipdu
-      << linvelContactRtWorldEwrtWorld.dfdu.topRows<kHorizontalPositionDim>(),
-      angvelContactRtWorldEwrtWorld.dfdu.row(kZAxisIndex);
+                         approxLinvelContactRtWorldEwrtWorld.dfdu.cols());
+  dScaledSlipdu << approxLinvelContactRtWorldEwrtWorld.dfdu
+                       .topRows<kHorizontalPositionDim>(),
+      approxAngvelContactRtWorldEwrtWorld.dfdu.row(kZAxisIndex);
   dScaledSlipdu = inverseScaleSlip_.asDiagonal() * dScaledSlipdu;
 
   VectorFunctionLinearApproximation approximation;

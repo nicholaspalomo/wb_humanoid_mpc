@@ -30,10 +30,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/logic/AlternatingFeetRule.h"
 
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicHelpers.h"
+#include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 
 namespace ocs2::humanoid {
 

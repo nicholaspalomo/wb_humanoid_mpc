@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
 
 #include <cmath>
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <vector>
@@ -40,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -129,22 +131,26 @@ absl::StatusOr<bool> terminalDcmTracksCommand(absl::string_view name) {
 }
 
 /**
- * The LIP height of shared.com_height: unset, for the model's pendulum, where
- * the file leaves it out; the height where it gives a positive one;
- * InvalidArgument otherwise, also for the 0 that used to stand for the model's.
+ * The LIP height of shared.nom_pos_com_rt_feetmean_ewrt_world_z: unset, for the
+ * model's pendulum, where the file leaves it out; the height where it gives a
+ * positive one; InvalidArgument otherwise, also for the 0 that used to stand
+ * for the model's.
  */
-absl::StatusOr<std::optional<scalar_t>> comHeightFromConfig(
-    std::optional<double> comHeight) {
-  if (!comHeight.has_value()) return std::nullopt;
-  if (!std::isfinite(*comHeight) || *comHeight <= 0.0) {
+absl::StatusOr<std::optional<scalar_t>> convertNomPosComRtFeetmeanEwrtWorldZ(
+    std::optional<double> nomPosComRtFeetmeanEwrtWorldZ) {
+  if (!nomPosComRtFeetmeanEwrtWorldZ.has_value()) return std::nullopt;
+  if (!std::isfinite(*nomPosComRtFeetmeanEwrtWorldZ) ||
+      *nomPosComRtFeetmeanEwrtWorldZ <= 0.0) {
     return absl::InvalidArgumentError(absl::StrCat(
-        "[ContactPlanningConfig] shared.com_height is ", *comHeight,
+        "[ContactPlanningConfig] shared.nom_pos_com_rt_feetmean_ewrt_world_z "
+        "is ",
+        *nomPosComRtFeetmeanEwrtWorldZ,
         ", which is not a pendulum height: give a positive height, or leave "
-        "shared.com_height ",
+        "shared.nom_pos_com_rt_feetmean_ewrt_world_z ",
         "out for the model's center of mass above its feet at the task file's "
         "initial_state."));
   }
-  return comHeight;
+  return nomPosComRtFeetmeanEwrtWorldZ;
 }
 
 absl::StatusOr<PlannerSettings> plannerFromConfig(
@@ -169,7 +175,9 @@ absl::StatusOr<PlannerSettings> plannerFromConfig(
 absl::StatusOr<SharedParameters> sharedFromConfig(
     const File::SharedConfig& from) {
   SharedParameters to;
-  ASSIGN_OR_RETURN(to.comHeight, comHeightFromConfig(from.com_height));
+  ASSIGN_OR_RETURN(to.nomPosComRtFeetmeanEwrtWorldZ,
+                   convertNomPosComRtFeetmeanEwrtWorldZ(
+                       from.nom_pos_com_rt_feetmean_ewrt_world_z));
   to.bigM = from.big_m;
   to.slackPenalty.quadratic = from.slack_penalty.quadratic;
   to.slackPenalty.linear = from.slack_penalty.linear;
@@ -186,20 +194,26 @@ HlipParameters hlipFromConfig(const File::HlipConfig& from) {
   HlipParameters to;
   to.sspDuration = from.ssp_duration;
   to.dspDuration = from.dsp_duration;
-  to.stepWidth = from.step_width;
-  to.maxStepLength = from.max_step_length;
-  to.maxStepWidth = from.max_step_width;
-  to.minStepWidth = from.min_step_width;
+  to.nomPosLfootRtRfootEwrtHeadingY =
+      from.nom_pos_lfoot_rt_rfoot_ewrt_heading_y;
+  to.maxNormPosLfootRtRfootEwrtHeadingX =
+      from.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x;
+  to.maxPosLfootRtRfootEwrtHeadingY =
+      from.max_pos_lfoot_rt_rfoot_ewrt_heading_y;
+  to.minPosLfootRtRfootEwrtHeadingY =
+      from.min_pos_lfoot_rt_rfoot_ewrt_heading_y;
   to.blend.sharpness = from.blend.sharpness;
   to.blend.threshold = from.blend.threshold;
-  to.blend.maxCommandedVelocityX =
+  to.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingX =
       from.blend.cmd_max_linvel_base_rt_world_ewrt_heading_x;
-  to.blend.maxCommandedVelocityY =
+  to.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingY =
       from.blend.cmd_max_linvel_base_rt_world_ewrt_heading_y;
-  to.blend.maxCommandedYawRate =
+  to.blend.cmdMaxAngvelBaseRtWorldEwrtWorldZ =
       from.blend.cmd_max_angvel_base_rt_world_ewrt_world_z;
-  to.blend.maxComVelocityX = from.blend.max_linvel_com_rt_world_ewrt_heading_x;
-  to.blend.maxComVelocityY = from.blend.max_linvel_com_rt_world_ewrt_heading_y;
+  to.blend.maxProxyLinvelComRtWorldEwrtHeadingX =
+      from.blend.max_proxy_linvel_com_rt_world_ewrt_heading_x;
+  to.blend.maxProxyLinvelComRtWorldEwrtHeadingY =
+      from.blend.max_proxy_linvel_com_rt_world_ewrt_heading_y;
   return to;
 }
 
@@ -212,17 +226,19 @@ absl::Status copyCosts(const File& from, ContactPlanningConfig& to) {
       from.previous_foothold_consistency.weight;
   to.velocityTracking.weight = from.velocity_tracking.weight;
   to.stepWidth.weight = from.step_width.weight;
-  to.stepWidth.nominalStepWidth = from.step_width.nominal_step_width;
+  to.stepWidth.nomPosLfootRtRfootEwrtHeadingY =
+      from.step_width.nom_pos_lfoot_rt_rfoot_ewrt_heading_y;
   to.headingRateTracking.weight = from.heading_rate_tracking.weight;
   to.headingTracking.weight = from.heading_tracking.weight;
   to.footYawTracking.weight = from.foot_yaw_tracking.weight;
-  to.yawTorqueRegularization.weight = from.yaw_torque_regularization.weight;
+  to.yawTorqueRegularizationParameters.weight =
+      from.yaw_torque_regularization_parameters.weight;
   to.footYawRegularization.weight = from.foot_yaw_regularization.weight;
   to.zmpRegularization.weight = from.zmp_regularization.weight;
   to.footholdRegularization.weight = from.foothold_regularization.weight;
   to.stepLength.weight = from.step_length.weight;
   to.terminalDcm.weight = from.terminal_dcm.weight;
-  ASSIGN_OR_RETURN(to.terminalDcm.trackCommandedVelocity,
+  ASSIGN_OR_RETURN(to.terminalDcm.trackVelocityCommand,
                    terminalDcmTracksCommand(from.terminal_dcm.target));
   return absl::OkStatus();
 }
@@ -231,16 +247,24 @@ absl::Status copyCosts(const File& from, ContactPlanningConfig& to) {
  * `to.shared.slackPenalty`, so the shared block comes first. */
 void copySoftConstraints(const File& from, ContactPlanningConfig& to) {
   const SlackPenalty& shared = to.shared.slackPenalty;
-  to.zmpSupportRegion.halfWidthX = from.zmp_support_region.half_width_x;
-  to.zmpSupportRegion.halfWidthY = from.zmp_support_region.half_width_y;
+  to.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootX =
+      from.zmp_support_region.max_norm_pos_zmp_rt_foot_ewrt_foot_x;
+  to.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootY =
+      from.zmp_support_region.max_norm_pos_zmp_rt_foot_ewrt_foot_y;
   to.zmpSupportRegion.slack = termSlack(from.zmp_support_region.slack, shared);
-  to.reachability.reachX = from.reachability.reach_x;
-  to.reachability.reachYInner = from.reachability.reach_y_inner;
-  to.reachability.reachYOuter = from.reachability.reach_y_outer;
+  to.reachability.maxNormPosFootRtComEwrtHeadingX =
+      from.reachability.max_norm_pos_foot_rt_com_ewrt_heading_x;
+  to.reachability.minPosFootRtComEwrtHeadingY =
+      from.reachability.min_pos_foot_rt_com_ewrt_heading_y;
+  to.reachability.maxPosFootRtComEwrtHeadingY =
+      from.reachability.max_pos_foot_rt_com_ewrt_heading_y;
   to.reachability.slack = termSlack(from.reachability.slack, shared);
-  to.footSeparation.maxStepLength = from.foot_separation.max_step_length;
-  to.footSeparation.minStepWidth = from.foot_separation.min_step_width;
-  to.footSeparation.maxStepWidth = from.foot_separation.max_step_width;
+  to.footSeparation.maxNormPosLfootRtRfootEwrtHeadingX =
+      from.foot_separation.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x;
+  to.footSeparation.minPosLfootRtRfootEwrtHeadingY =
+      from.foot_separation.min_pos_lfoot_rt_rfoot_ewrt_heading_y;
+  to.footSeparation.maxPosLfootRtRfootEwrtHeadingY =
+      from.foot_separation.max_pos_lfoot_rt_rfoot_ewrt_heading_y;
   to.footSeparation.slack = termSlack(from.foot_separation.slack, shared);
   to.hipYawRange.slack = termSlack(from.hip_yaw_range.slack, shared);
 }
@@ -268,12 +292,13 @@ void copyBinaryTerms(const File& from, ContactPlanningConfig& to) {
       from.phase_resetting.max_late_touchdown_extension;
   to.phaseResetting.lateTouchdownExtensionStep =
       from.phase_resetting.late_touchdown_extension_step;
-  to.phaseResetting.lateTouchdownSearchVelocity =
+  to.phaseResetting.lateTouchdownSearchSpeedFootRtWorld =
       from.phase_resetting.late_touchdown_search_speed_foot_rt_world;
   to.energyCadenceModulation.gain = from.energy_cadence_modulation.gain;
   to.energyCadenceModulation.deadband = from.energy_cadence_modulation.deadband;
   to.dcmStepAdjustment.gain = from.dcm_step_adjustment.gain;
-  to.dcmStepAdjustment.maxOffset = from.dcm_step_adjustment.max_offset;
+  to.dcmStepAdjustment.maxNormErrPosFootRtWorldEwrtWorldXy =
+      from.dcm_step_adjustment.max_norm_err_pos_foot_rt_world_ewrt_world_xy;
 }
 
 }  // namespace

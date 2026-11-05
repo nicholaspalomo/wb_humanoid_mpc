@@ -33,8 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/TuningLayoutDeviation.h"
 
 // The Gauss-Newton model of the quadratic tuning-layout cost l(x) = 1/2 r(x)' Q

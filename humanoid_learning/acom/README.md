@@ -134,12 +134,12 @@ flowchart TD
 
     subgraph CppInference ["4. C++ Real-Time Inference"]
         Header --> StaticLoad["AngularCenterOfMass::Create()<br/>(joint names checked<br/>against the MPC model)"]
-        StaticLoad --> Forward["computeJointOrientationOffset(q_j)<br/>→ Δθ ∈ ℝ³ (rotation vector, base axes)"]
-        StaticLoad --> ChainRule["computeJointOffsetJacobian(q_j)<br/>→ J_Δθ ∈ ℝ³ˣⁿʲ"]
+        StaticLoad --> Forward["computeRotvecAcomRtBase(q_j)<br/>→ Δθ ∈ ℝ³ (rotation vector, base axes)"]
+        StaticLoad --> ChainRule["computeJacobianRotvecAcomRtBase(q_j)<br/>→ J_Δθ ∈ ℝ³ˣⁿʲ"]
     end
 
     subgraph MPCIntegration ["5. MPC Cost Integration (ComAndAcomTrackingCost.cpp)"]
-        Forward --> Attitude["acomAttitude(ξ, q_j)<br/>ξ_aCOM = ξ̂ ⊗ Exp(Δθ)"]
+        Forward --> Attitude["computeQuatAcomRtWorldXyzw(ξ, q_j)<br/>ξ_aCOM = ξ̂ ⊗ Exp(Δθ)"]
         ChainRule --> Tangent["acomAttitudeTangentJacobian(q_j)<br/>[R(Δθ)ᵀ | J_r(Δθ)·J_Δθ]"]
         Attitude --> ThetaErr["e_aCOM = e_HT(ξ_aCOM(x), ξ_aCOM(x_ref))<br/>(yaw, pitch, roll; yaw wrapped)"]
         Tangent --> JacFull["∂e_aCOM/∂x = J_HT(ξ_aCOM) ·<br/>[R(Δθ)ᵀ·T_rot(x) on the orientation slots |<br/>J_r(Δθ)·J_Δθ on the joints]"]
@@ -578,16 +578,17 @@ if (!acomOr.ok()) return acomOr.status();
 std::unique_ptr<AngularCenterOfMass> acom = *std::move(acomOr);
 
 // Joint rotation and its Jacobian: a rotation vector in the base frame, components about the base's x, y and z axes.
-const vector3_t delta_theta = acom->computeJointOrientationOffset(q_joints);
-const matrix_t J_delta = acom->computeJointOffsetJacobian(q_joints);
+const vector3_t rotvecAcomRtBase = acom->computeRotvecAcomRtBase(jointPositions);
+const matrix_t jacobianRotvecAcomRtBase = acom->computeJacobianRotvecAcomRtBase(jointPositions);
 
 // Whole-body aCOM attitude xi_a = xi_hat (x) Exp(delta_theta), from the base orientation xi (quaternion coefficients
-// x, y, z, w; robotModel.getQuatBaseRtWorldXyzw(state)), and its body tangent Jacobian: R(delta_theta)^T for a body
-// rotation of the base, J_r(delta_theta) J_delta for the joints.
-const vector4_t xi_acom = acom->acomAttitude(xi, q_joints);
-const AcomAttitudeTangentJacobian J_acom = acom->acomAttitudeTangentJacobian(q_joints);
+// x, y, z, w), and its body tangent Jacobian: R(delta_theta)^T for a body rotation of the base, J_r(delta_theta)
+// J_delta for the joints.
+const vector4_t quatBaseRtWorldXyzw = robotModel.getQuatBaseRtWorldXyzw(state);
+const vector4_t quatAcomRtWorldXyzw = acom->computeQuatAcomRtWorldXyzw(quatBaseRtWorldXyzw, jointPositions);
+const AcomAttitudeTangentJacobian acomTangentJacobian = acom->acomAttitudeTangentJacobian(jointPositions);
 // Its heading, as the contact planner's heading model reads it (orientation/BaseOrientation.h).
-const scalar_t heading = yawOf(xi_acom);
+const scalar_t yawAcomRtWorld = yawOf(quatAcomRtWorldXyzw);
 ```
 
 `AngularCenterOfMass::registeredRobotNames()` lists the robots with a network. `Create()` is the only factory: the

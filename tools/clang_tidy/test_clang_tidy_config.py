@@ -42,6 +42,7 @@ from tools.hooks import check_test_support
 from tools.hooks import lint_files
 
 CONFIG = ".clang-tidy"
+CLANGD_CONFIG = ".clangd"
 BZL = "tools/clang_tidy/clang_tidy.bzl"
 
 # Checks that contradict a rule of this repository (the comment block of the configuration says which).
@@ -157,6 +158,35 @@ class ConfigurationTest(unittest.TestCase):
             self.assertNotIn(check, checks)
         self.assertFalse(
             [check for check in checks if check.startswith("llvm-")]
+        )
+
+    def test_the_include_cleaner_is_enforced_and_clangd_ignores_the_same_headers(
+        self,
+    ):
+        config = _load(CONFIG)
+        self.assertIn("misc-include-cleaner", config["Checks"])
+        ignored = config["CheckOptions"][
+            "misc-include-cleaner.IgnoreHeaders"
+        ].split(";")
+        for header in (
+            "Eigen/.*",
+            "cppad/.*",
+            "lib/ocs2/thirdparty/.*",
+            "pinocchio/fwd[.]hpp",
+            "absl/.*/internal/.*",
+        ):
+            self.assertIn(header, ignored)
+        # The include rules are the repository's: a whole first-party tree or a public Abseil header is never ignored.
+        for header in ignored:
+            self.assertNotRegex(header, r"^(humanoid_|robot_|ocs2_|absl/\.\*$)")
+        # clangd's unused-includes diagnostic is the same analysis, so the editor and make lint-tidy agree.
+        clangd = next(
+            yaml.safe_load_all(
+                check_test_support.read_repository_file(CLANGD_CONFIG)
+            )
+        )
+        self.assertEqual(
+            clangd["Diagnostics"]["Includes"]["IgnoreHeader"], ignored
         )
 
     def test_each_clang_diagnostic_check_has_its_warning_flag(self):

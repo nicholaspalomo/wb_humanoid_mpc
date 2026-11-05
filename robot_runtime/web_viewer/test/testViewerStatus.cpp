@@ -41,10 +41,10 @@ namespace {
 TEST(ViewerStatusTest, EncodesEveryField) {
   ViewerStatus status;
   status.camera = {.mode = ViewerCameraMode::kFree,
-                   .azimuth = 90.0,
-                   .elevation = -5.5,
-                   .distance = 3.0,
-                   .lookat = {0.0, 0.25, 0.5}};
+                   .azimuthCamfocusRtCamEwrtWorld = 90.0,
+                   .elevationCamfocusRtCamEwrtWorld = -5.5,
+                   .distCamRtCamfocus = 3.0,
+                   .posCamfocusRtWorldEwrtWorld = {0.0, 0.25, 0.5}};
   status.render = {.width = 1280,
                    .height = 720,
                    .targetFps = 30,
@@ -70,7 +70,8 @@ TEST(ViewerStatusTest, EncodesEveryField) {
 
 TEST(ViewerStatusTest, NumbersJsonCannotSpellAreNull) {
   ViewerStatus status;
-  status.camera.azimuth = std::numeric_limits<double>::quiet_NaN();
+  status.camera.azimuthCamfocusRtCamEwrtWorld =
+      std::numeric_limits<double>::quiet_NaN();
   status.render.measuredFps = std::numeric_limits<double>::infinity();
   const std::string json = viewerStatusJson(status);
   EXPECT_NE(json.find(R"("azimuth":null)"), std::string::npos) << json;

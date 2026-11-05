@@ -197,11 +197,11 @@ class PolicyExecution : public ::testing::Test {
     return values;
   }
 
-  /** How many joints the action sends to `position`. */
-  int jointsCommandedTo(scalar_t position) const {
+  /** How many joints the action sends to `jointPosition`. */
+  int jointsCommandedTo(scalar_t jointPosition) const {
     int count = 0;
     for (size_t joint = 0; joint < description_->getNumJoints(); ++joint) {
-      if (jointActionUnchecked(*action_, joint).q_des == position) ++count;
+      if (jointActionUnchecked(*action_, joint).q_des == jointPosition) ++count;
     }
     return count;
   }
@@ -341,12 +341,12 @@ TEST_F(
   const Eigen::Index nu = static_cast<Eigen::Index>(model_->getInputDim());
   const Eigen::Index ndx =
       static_cast<Eigen::Index>(manifold_->getTangentDim());
-  for (const scalar_t pitch : {0.5 * M_PI, -0.5 * M_PI}) {
-    SCOPED_TRACE(pitch);
+  for (const scalar_t eulerzyxBaseRtWorldPitch : {0.5 * M_PI, -0.5 * M_PI}) {
+    SCOPED_TRACE(eulerzyxBaseRtWorldPitch);
     // R = R_z(pi) R_y(+-pi / 2): the Euler angles' gimbal lock, at the yaw cut.
-    const quaternion_t orientation(
+    const quaternion_t quatBaseRtWorld(
         Eigen::AngleAxisd(M_PI, vector3_t::UnitZ()) *
-        Eigen::AngleAxisd(pitch, vector3_t::UnitY()));
+        Eigen::AngleAxisd(eulerzyxBaseRtWorldPitch, vector3_t::UnitY()));
     std::mt19937 generator(/*sd=*/7);
     std::normal_distribution<scalar_t> normal(0.0, 1.0);
     matrix_t gain(nu, ndx);
@@ -354,13 +354,13 @@ TEST_F(
       gain.data()[i] = 0.1 * normal(generator);
     // The plan's anchor turned a little from the measured attitude, so that the
     // feedback acts on a rotation.
-    const quaternion_t anchorOrientation =
-        orientation *
+    const quaternion_t anchorQuatBaseRtWorld =
+        quatBaseRtWorld *
         quaternion_t(Eigen::AngleAxisd(0.05, vector3_t(0.6, 0.0, 0.8)));
-    const vector_t anchor =
-        mpcState(vector4_t(anchorOrientation.x(), anchorOrientation.y(),
-                           anchorOrientation.z(), anchorOrientation.w()),
-                 /*joints=*/0.12);
+    const vector_t anchor = mpcState(
+        vector4_t(anchorQuatBaseRtWorld.x(), anchorQuatBaseRtWorld.y(),
+                  anchorQuatBaseRtWorld.z(), anchorQuatBaseRtWorld.w()),
+        /*joints=*/0.12);
     const vector_t input = vector_t::Zero(nu);
     const scalar_array_t times = {time_ - 1.0, time_ + 100.0};
     std::vector<std::vector<scalar_t>> actions;
@@ -368,9 +368,9 @@ TEST_F(
     // contact wrench gate's ramp) to settle; the first sign again at the end
     // shows that they did.
     for (const scalar_t sign : {1.0, -1.0, 1.0}) {
-      quaternion_t measured;
-      measured.coeffs() = sign * orientation.coeffs();
-      state_->setQuatBaseRtWorld(measured);
+      quaternion_t measQuatBaseRtWorld;
+      measQuatBaseRtWorld.coeffs() = sign * quatBaseRtWorld.coeffs();
+      state_->setQuatBaseRtWorld(measQuatBaseRtWorld);
       // The policy's own anchors carry the plan's sign; the measured
       // quaternion's sign is the one that changes.
       link_->deliver(policyOf(std::make_unique<ManifoldLinearController>(
@@ -389,10 +389,14 @@ TEST_F(
         ASSERT_TRUE(knot.allFinite());
       // The reset target's heading is the measured base's heading, pi, up to
       // the double cover.
-      const vector4_t targetXi = target.stateTrajectory.front().segment<4>(
-          static_cast<Eigen::Index>(model_->getBaseOrientationStartIndex()));
-      const scalar_t heading = 2.0 * std::atan2(targetXi(2), targetXi(3));
-      EXPECT_NEAR(std::abs(std::remainder(heading, 2.0 * M_PI)), M_PI, 1.0e-9);
+      const vector4_t refQuatBaseRtWorldXyzw =
+          target.stateTrajectory.front().segment<4>(static_cast<Eigen::Index>(
+              model_->getBaseOrientationStartIndex()));
+      const scalar_t refYawBaseRtWorld =
+          2.0 *
+          std::atan2(refQuatBaseRtWorldXyzw(2), refQuatBaseRtWorldXyzw(3));
+      EXPECT_NEAR(std::abs(std::remainder(refYawBaseRtWorld, 2.0 * M_PI)), M_PI,
+                  1.0e-9);
     }
     ASSERT_EQ(actions.size(), 3);
     ASSERT_EQ(actions[1].size(), actions[0].size());

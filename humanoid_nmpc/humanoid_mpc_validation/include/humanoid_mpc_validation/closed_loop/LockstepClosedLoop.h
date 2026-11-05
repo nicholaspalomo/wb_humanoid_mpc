@@ -116,8 +116,8 @@ struct LockstepResult {
  * commands start at the top of the cycle in which the standing time is over:
  * the GUI's message is no FSM command of the robot process, so the operator's
  * sequence does not delay it. A tilt beyond the task file's
- * sim_max_base_tilt_angle (1 rad without one), a base below half its initial
- * height or a reset by the simulator is a fall; the run ends there.
+ * sim_max_tiltangle_base_rt_world (1 rad without one), a base below half its
+ * initial height or a reset by the simulator is a fall; the run ends there.
  */
 class LockstepClosedLoop {
  public:

@@ -31,7 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <optional>
 
-#include "humanoid_common_mpc/common/Types.h"
+#include "ocs2_core/Types.h"
 
 namespace ocs2::humanoid {
 
@@ -60,8 +60,8 @@ struct ReferenceSettings {
   /** [m/s] The sideways velocity of a full stick deflection. */
   scalar_t cmdMaxLinvelBaseRtWorldEwrtHeadingY = 0.0;
   /** [m] The largest change of the base height a command may ask for, either
-   * way of nomPosBaseRtWorldEwrtWorldZ. */
-  scalar_t cmdMaxErrPosBaseRtWorldEwrtWorldZ = 0.0;
+   * way of nomPosBaseRtSurfaceEwrtWorldZ. */
+  scalar_t cmdMaxErrPosBaseRtSurfaceEwrtWorldZ = 0.0;
   /** [rad/s] The yaw rate of a full stick deflection. */
   scalar_t cmdMaxAngvelBaseRtWorldEwrtWorldZ = 0.0;
   /** [m/s^2] The acceleration limit of the velocity reference in the (x, y)
@@ -80,19 +80,20 @@ struct ReferenceSettings {
   std::optional<scalar_t> targetJointStateInterpolationTimeConstant;
   /** [m] The base height above the ground of the default posture: what a
    * command without a pelvis height asks for. */
-  scalar_t nomPosBaseRtWorldEwrtWorldZ = 0.0;
+  scalar_t nomPosBaseRtSurfaceEwrtWorldZ = 0.0;
 };
 
 /**
  * The command limits a TargetTrajectoriesCalculatorBase and a
  * ProceduralMpcMotionManager hold until their applyCommandLimits() applies a
  * ReferenceSettings: cmdMaxLinvelBaseRtWorldEwrtHeadingX and
- * cmdMaxLinvelBaseRtWorldEwrtHeadingY [m/s], cmdMaxErrPosBaseRtWorldEwrtWorldZ
- * [m] and cmdMaxAngvelBaseRtWorldEwrtWorldZ [rad/s].
+ * cmdMaxLinvelBaseRtWorldEwrtHeadingY [m/s],
+ * cmdMaxErrPosBaseRtSurfaceEwrtWorldZ [m] and cmdMaxAngvelBaseRtWorldEwrtWorldZ
+ * [rad/s].
  */
 inline constexpr scalar_t kInitCmdMaxLinvelBaseRtWorldEwrtHeadingX = 0.6;
 inline constexpr scalar_t kInitCmdMaxLinvelBaseRtWorldEwrtHeadingY = 0.3;
-inline constexpr scalar_t kInitCmdMaxErrPosBaseRtWorldEwrtWorldZ = 0.3;
+inline constexpr scalar_t kInitCmdMaxErrPosBaseRtSurfaceEwrtWorldZ = 0.3;
 inline constexpr scalar_t kInitCmdMaxAngvelBaseRtWorldEwrtWorldZ = 0.6;
 
 }  // namespace ocs2::humanoid

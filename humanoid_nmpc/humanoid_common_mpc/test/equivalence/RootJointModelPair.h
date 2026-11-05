@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <memory>
+#include <numbers>
 #include <random>
 #include <string>
 
@@ -41,9 +42,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/types/span.h"
 #include "gtest/gtest.h"
-#include "pinocchio/multibody/model.hpp"
+#include "ocs2_core/Types.h"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_mpc_validation/chart/EulerChart.h"
 
 /*
@@ -218,10 +220,10 @@ struct PinocchioMotion {
  * data. */
 struct ChartVelocityMaps {
   /** J_v(Theta) = blockdiag(I_3, T_B(Theta), I_nj), nv x nv (C2). */
-  matrix_t velocityMap;
+  matrix_t generalizedVelocityMap;
   /** dJ_v/dt = blockdiag(0, dT_B/dt, 0) along the Euler velocity (C3), nv x nv.
    */
-  matrix_t velocityMapRate;
+  matrix_t generalizedVelocityMapRate;
 };
 
 /**
@@ -231,7 +233,7 @@ struct ChartVelocityMaps {
  * validation::physicalStateFromEulerState() when the vectors do not fit
  * `layout`.
  */
-absl::StatusOr<PinocchioMotion> quaternionMotionOf(
+absl::StatusOr<PinocchioMotion> quaternionModelMotionOf(
     const PinocchioMotion& eulerMotion,
     const validation::EulerStateLayout& layout);
 
@@ -241,38 +243,39 @@ absl::StatusOr<PinocchioMotion> quaternionMotionOf(
  * from EulerBoundary's bodyRateEulerZyxJacobian (C3). Fails like
  * validation::physicalTangentJacobian().
  */
-absl::StatusOr<ChartVelocityMaps> chartVelocityMapsAt(
+absl::StatusOr<ChartVelocityMaps> chartGeneralizedVelocityMapsAt(
     const PinocchioMotion& eulerMotion,
     const validation::EulerStateLayout& layout);
 
 /** Where the random motions are drawn. Passive data. */
 struct MotionSamplingBounds {
-  /** |yaw| <= pi and |roll| <= pi always; |pitch| <= maxAbsPitch, away from the
-   * Euler root's singularity at 90 degrees. */
-  scalar_t maxAbsPitch = 80.0 / 180.0 * M_PI;
+  /** |yaw| <= pi and |roll| <= pi always; |pitch| <=
+   * maxAbsEulerzyxBaseRtWorldPitch, away from the Euler root's singularity at
+   * 90 degrees. */
+  scalar_t maxAbsEulerzyxBaseRtWorldPitch = 80.0 / 180.0 * std::numbers::pi;
   /** |base position| per axis (the height is drawn in [0.3, 0.3 + 2
-   * maxAbsBasePosition]). */
-  scalar_t maxAbsBasePosition = 1.5;
+   * maxAbsPosBaseRtWorldEwrtWorld]). */
+  scalar_t maxAbsPosBaseRtWorldEwrtWorld = 1.5;
   /** |base linear velocity| per axis (m/s). */
-  scalar_t maxAbsBaseLinearVelocity = 2.0;
+  scalar_t maxAbsLinvelBaseRtWorldEwrtWorld = 2.0;
   /** |Euler rate| per axis (rad/s). */
-  scalar_t maxAbsEulerRate = 3.0;
+  scalar_t maxAbsRateEulerzyxBaseRtWorld = 3.0;
   /** |joint velocity| per joint (rad/s). */
   scalar_t maxAbsJointVelocity = 5.0;
   /** |base linear acceleration| per axis (m/s^2). */
-  scalar_t maxAbsBaseLinearAcceleration = 10.0;
+  scalar_t maxAbsLinaccBaseRtWorldEwrtWorld = 10.0;
   /** |Euler acceleration| per axis (rad/s^2). */
-  scalar_t maxAbsEulerAcceleration = 20.0;
+  scalar_t maxAbsSecondRateEulerzyxBaseRtWorld = 20.0;
   /** |joint acceleration| per joint (rad/s^2). */
   scalar_t maxAbsJointAcceleration = 50.0;
 };
 
 /**
  * A random motion of the Euler model: yaw and roll uniform in [-pi, pi], pitch
- * uniform in [-maxAbsPitch, maxAbsPitch], joint positions uniform in the
- * model's joint limits (in [-pi, pi] for a joint without finite ones),
- * velocities and accelerations uniform in `bounds`. Deterministic for a given
- * generator state.
+ * uniform in [-maxAbsEulerzyxBaseRtWorldPitch, maxAbsEulerzyxBaseRtWorldPitch],
+ * joint positions uniform in the model's joint limits (in [-pi, pi] for a joint
+ * without finite ones), velocities and accelerations uniform in `bounds`.
+ * Deterministic for a given generator state.
  */
 PinocchioMotion randomEulerMotion(const pinocchio::Model& eulerModel,
                                   const MotionSamplingBounds& bounds,

@@ -30,16 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <map>
-#include <string>
+#include <cstddef>
 #include <utility>
 #include <vector>
 
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
-#include "ocs2_core/reference/ModeSchedule.h"
-
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "ocs2_core/Types.h"
 
 namespace ocs2::humanoid {
 

@@ -36,9 +36,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
-#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid::test {
 

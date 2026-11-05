@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <array>
-#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -54,12 +53,13 @@ struct ViewerStatus {
   struct Camera {
     ViewerCameraMode mode = ViewerCameraMode::kTracking;
     // Degrees.
-    double azimuth = 0.0;
-    double elevation = 0.0;
+    double azimuthCamfocusRtCamEwrtWorld = 0.0;
+    double elevationCamfocusRtCamEwrtWorld = 0.0;
     // Meters from the look-at point.
-    double distance = 0.0;
+    double distCamRtCamfocus = 0.0;
     // The point the camera looks at, in world coordinates (meters).
-    std::array<double, ocs2::kPositionDim> lookat = {0.0, 0.0, 0.0};
+    std::array<double, ocs2::kPositionDim> posCamfocusRtWorldEwrtWorld = {
+        0.0, 0.0, 0.0};
   };
 
   // The render settings and the measured rate.

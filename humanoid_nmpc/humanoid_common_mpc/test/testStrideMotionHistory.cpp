@@ -29,12 +29,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <functional>
+#include <numbers>
 #include <random>
 #include <vector>
 
 #include "Eigen/Geometry"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -73,7 +76,8 @@ struct PlanarTrajectory {
 
   /** [m] p(t1) - p(t0), by composite Simpson with 200 steps: off by far below
    * 1e-15 m on the motions below. */
-  vector2_t displacement(scalar_t t0, scalar_t t1) const {
+  vector2_t computeErrPosBaseRtWorldEwrtWorldXy(scalar_t t0,
+                                                scalar_t t1) const {
     constexpr int kSteps = 200;
     const scalar_t step = (t1 - t0) / kSteps;
     vector2_t sum = vector2_t::Zero();
@@ -91,17 +95,20 @@ struct PlanarTrajectory {
 /** The robot walking at a steady body twist (forward 0.4, sideways 0.05 m/s,
  * turning at 0.3 rad/s) with a sway of period kCycle. */
 PlanarTrajectory swayingWalk(
-    scalar_t headingSway, const vector2_t& swayLinvelBaseRtWorldEwrtHeadingXy) {
+    scalar_t swayYawBaseRtWorld,
+    const vector2_t& swayLinvelBaseRtWorldEwrtHeadingXy) {
   return PlanarTrajectory{
       .yawBaseRtWorld =
-          [headingSway](scalar_t t) {
-            return 0.3 * t + headingSway * std::sin(2.0 * M_PI * t / kCycle);
+          [swayYawBaseRtWorld](scalar_t t) {
+            return 0.3 * t + swayYawBaseRtWorld *
+                                 std::sin(2.0 * std::numbers::pi * t / kCycle);
           },
       .linvelBaseRtWorldEwrtHeadingXy =
           [swayLinvelBaseRtWorldEwrtHeadingXy](scalar_t t) {
-            return vector2_t(vector2_t(0.4, 0.05) +
-                             swayLinvelBaseRtWorldEwrtHeadingXy *
-                                 std::sin(2.0 * M_PI * t / kCycle + 0.7));
+            return vector2_t(
+                vector2_t(0.4, 0.05) +
+                swayLinvelBaseRtWorldEwrtHeadingXy *
+                    std::sin(2.0 * std::numbers::pi * t / kCycle + 0.7));
           }};
 }
 
@@ -118,9 +125,11 @@ void feed(StrideMotionHistory& history,
           const BasePlanarMotion& seed) {
   vector2_t posBaseRtWorldEwrtWorldXy = vector2_t(1.0, -2.0);
   for (size_t i = 0; i < times.size(); ++i) {
-    if (i > 0)
+    if (i > 0) {
       posBaseRtWorldEwrtWorldXy +=
-          trajectory.displacement(times[i - 1], times[i]);
+          trajectory.computeErrPosBaseRtWorldEwrtWorldXy(times[i - 1],
+                                                         times[i]);
+    }
     history.addSample(times[i], posBaseRtWorldEwrtWorldXy,
                       trajectory.yawBaseRtWorld(times[i]),
                       [&seed]() { return seed; });
@@ -130,8 +139,9 @@ void feed(StrideMotionHistory& history,
 /** Sample times from 0 to `end`, `spacing` apart. */
 std::vector<scalar_t> uniformTimes(scalar_t spacing, scalar_t end) {
   std::vector<scalar_t> times;
-  for (int i = 0; i * spacing <= end + 1.0e-12; ++i)
+  for (int i = 0; i * spacing <= end + 1.0e-12; ++i) {
     times.push_back(i * spacing);
+  }
   return times;
 }
 
@@ -158,9 +168,11 @@ MeanDeviation deviationOverTheRun(const PlanarTrajectory& trajectory,
   MeanDeviation deviation;
   vector2_t posBaseRtWorldEwrtWorldXy = vector2_t::Zero();
   for (size_t i = 0; i < times.size(); ++i) {
-    if (i > 0)
+    if (i > 0) {
       posBaseRtWorldEwrtWorldXy +=
-          trajectory.displacement(times[i - 1], times[i]);
+          trajectory.computeErrPosBaseRtWorldEwrtWorldXy(times[i - 1],
+                                                         times[i]);
+    }
     history.addSample(times[i], posBaseRtWorldEwrtWorldXy,
                       trajectory.yawBaseRtWorld(times[i]), atRest);
     if (times[i] < window) continue;
@@ -181,7 +193,7 @@ TEST(StrideMotionHistory, TheMeanOfASteadyTwistIsTheTwistAtAnySampling) {
   // twist, and Psi and D are linear in time between samples: round-off is all
   // that is left, also on irregular samples.
   const PlanarTrajectory steady =
-      swayingWalk(/*headingSway=*/0.0,
+      swayingWalk(/*swayYawBaseRtWorld=*/0.0,
                   /*swayLinvelBaseRtWorldEwrtHeadingXy=*/vector2_t::Zero());
   for (const scalar_t window : {0.5, kCycle, 1.7}) {
     SCOPED_TRACE(window);
@@ -197,7 +209,7 @@ TEST(StrideMotionHistory, AMeanOverOneCycleRemovesTheGaitsSway) {
   // threshold) and sways sideways at 0.2 m/s with the gait cycle; the boxcar
   // over one cycle has a zero at every harmonic of it.
   const PlanarTrajectory walk =
-      swayingWalk(/*headingSway=*/0.08,
+      swayingWalk(/*swayYawBaseRtWorld=*/0.08,
                   /*swayLinvelBaseRtWorldEwrtHeadingXy=*/vector2_t(0.05, 0.2));
   // Samples a whole number to the cycle: the start of the window is a sample,
   // so the heading rate is exact, and the velocity is off by the
@@ -220,14 +232,15 @@ TEST(StrideMotionHistory,
   // A sway a sin(2 pi t / P) of the heading adds a (2 pi / P) cos(...) to its
   // rate; its mean over W is that times sinc(pi W / P) at a phase, so the worst
   // deviation over a run is a (2 pi / P) |sinc(pi W / P)|.
-  constexpr scalar_t kHeadingSway = 0.08;
-  const PlanarTrajectory walk = swayingWalk(
-      kHeadingSway, /*swayLinvelBaseRtWorldEwrtHeadingXy=*/vector2_t::Zero());
+  constexpr scalar_t kSwayYawBaseRtWorld = 0.08;
+  const PlanarTrajectory walk =
+      swayingWalk(kSwayYawBaseRtWorld,
+                  /*swayLinvelBaseRtWorldEwrtHeadingXy=*/vector2_t::Zero());
   for (const scalar_t window : {1.2, 1.7}) {
     SCOPED_TRACE(window);
-    const scalar_t x = M_PI * window / kCycle;
-    const scalar_t predicted =
-        kHeadingSway * 2.0 * M_PI / kCycle * std::abs(std::sin(x) / x);
+    const scalar_t x = std::numbers::pi * window / kCycle;
+    const scalar_t predicted = kSwayYawBaseRtWorld * 2.0 * std::numbers::pi /
+                               kCycle * std::abs(std::sin(x) / x);
     const MeanDeviation deviation = deviationOverTheRun(
         walk, uniformTimes(/*spacing=*/0.001, /*end=*/4.0), window);
     EXPECT_NEAR(deviation.rateYawBaseRtWorld, predicted, 1.0e-3 * predicted);
@@ -264,7 +277,7 @@ TEST(StrideMotionHistory, BeforeTheFirstSampleTheSeedsMotionIsAveragedIn) {
   history.addSample(
       /*time=*/10.04,
       vector2_t(1.0, 1.0) + rotated(/*angle=*/0.202, vector2_t(chord, 0.0)),
-      /*heading=*/0.204, countedSeed);
+      /*yawBaseRtWorld=*/0.204, countedSeed);
   EXPECT_EQ(seedCalls, 1)
       << "a sample that continues the history needs no seed";
   const BasePlanarMotion mean = history.mean(/*window=*/1.0);
@@ -317,13 +330,15 @@ TEST(StrideMotionHistory, AMeanIsMeasuredOnceItsWindowLiesAfterTheFirstSample) {
   // one.
   StrideMotionHistory history(/*retention=*/2.0);
   const PlanarTrajectory steady =
-      swayingWalk(/*headingSway=*/0.0,
+      swayingWalk(/*swayYawBaseRtWorld=*/0.0,
                   /*swayLinvelBaseRtWorldEwrtHeadingXy=*/vector2_t::Zero());
   vector2_t posBaseRtWorldEwrtWorldXy = vector2_t::Zero();
   for (int i = 0; i <= 200; ++i) {
     const scalar_t time = 0.01 * i;
-    if (i > 0)
-      posBaseRtWorldEwrtWorldXy += steady.displacement(time - 0.01, time);
+    if (i > 0) {
+      posBaseRtWorldEwrtWorldXy +=
+          steady.computeErrPosBaseRtWorldEwrtWorldXy(time - 0.01, time);
+    }
     history.addSample(time, posBaseRtWorldEwrtWorldXy,
                       steady.yawBaseRtWorld(time), atRest);
     EXPECT_EQ(history.isMeasuredOver(kCycle), time >= kCycle - 1.0e-12) << time;
@@ -353,7 +368,7 @@ TEST(StrideMotionHistory,
   // on across the gap, no seed is read, and the chord step is exact on the arc
   // of a constant body twist however long the gap.
   const PlanarTrajectory steady =
-      swayingWalk(/*headingSway=*/0.0,
+      swayingWalk(/*swayYawBaseRtWorld=*/0.0,
                   /*swayLinvelBaseRtWorldEwrtHeadingXy=*/vector2_t::Zero());
   // The longest gap a sample short of kMaxBridgedGap, so that the sample times'
   // round-off cannot take it past.
@@ -367,9 +382,10 @@ TEST(StrideMotionHistory,
         timesWithAGap(/*end=*/7.0, kGapStart, gap);
     vector2_t posBaseRtWorldEwrtWorldXy = vector2_t(1.0, -2.0);
     for (size_t i = 0; i < times.size(); ++i) {
-      if (i > 0)
+      if (i > 0) {
         posBaseRtWorldEwrtWorldXy +=
-            steady.displacement(times[i - 1], times[i]);
+            steady.computeErrPosBaseRtWorldEwrtWorldXy(times[i - 1], times[i]);
+      }
       history.addSample(times[i], posBaseRtWorldEwrtWorldXy,
                         steady.yawBaseRtWorld(times[i]), [&seedCalls]() {
                           ++seedCalls;
@@ -406,7 +422,7 @@ TEST(StrideMotionHistory,
   // the gap's two samples, so the mean is off by (Psi_line(s) - Psi(s)) / W at
   // the window's start s.
   const PlanarTrajectory walk =
-      swayingWalk(/*headingSway=*/0.08,
+      swayingWalk(/*swayYawBaseRtWorld=*/0.08,
                   /*swayLinvelBaseRtWorldEwrtHeadingXy=*/vector2_t::Zero());
   for (const scalar_t gap : {0.15, 0.5, 1.0}) {
     SCOPED_TRACE(gap);
@@ -417,8 +433,10 @@ TEST(StrideMotionHistory,
     vector2_t posBaseRtWorldEwrtWorldXy = vector2_t::Zero();
     scalar_t largestStartInsideError = 0.0;
     for (size_t i = 0; i < times.size(); ++i) {
-      if (i > 0)
-        posBaseRtWorldEwrtWorldXy += walk.displacement(times[i - 1], times[i]);
+      if (i > 0) {
+        posBaseRtWorldEwrtWorldXy +=
+            walk.computeErrPosBaseRtWorldEwrtWorldXy(times[i - 1], times[i]);
+      }
       history.addSample(times[i], posBaseRtWorldEwrtWorldXy,
                         walk.yawBaseRtWorld(times[i]), atRest);
       const scalar_t start = times[i] - kCycle;
@@ -453,23 +471,30 @@ TEST(StrideMotionHistory,
   // Across a gap of kMaxBridgedGap the heading takes the branch of |dPsi| <=
   // pi: a steady turn at 1.9 rad/s changes it by 2.85 rad there and is read
   // exactly; at 2.2 rad/s (3.3 rad) the gap is read as a turn the other way.
-  for (const scalar_t yawRate : {1.9, -1.9, 2.2}) {
-    SCOPED_TRACE(yawRate);
+  for (const scalar_t rateYawBaseRtWorld : {1.9, -1.9, 2.2}) {
+    SCOPED_TRACE(rateYawBaseRtWorld);
     StrideMotionHistory history(/*retention=*/2.0);
     for (int i = 0; i <= 100; ++i) {
       const scalar_t time = 0.01 * i;
-      history.addSample(time, vector2_t::Zero(),
-                        std::remainder(yawRate * time, 2.0 * M_PI), atRest);
+      history.addSample(
+          time, vector2_t::Zero(),
+          std::remainder(rateYawBaseRtWorld * time, 2.0 * std::numbers::pi),
+          atRest);
     }
     const scalar_t after = 1.0 + StrideMotionHistory::kMaxBridgedGap;
-    history.addSample(after, vector2_t::Zero(),
-                      std::remainder(yawRate * after, 2.0 * M_PI), atRest);
+    history.addSample(
+        after, vector2_t::Zero(),
+        std::remainder(rateYawBaseRtWorld * after, 2.0 * std::numbers::pi),
+        atRest);
     const scalar_t window = StrideMotionHistory::kMaxBridgedGap + 0.5;
-    if (std::abs(yawRate) * StrideMotionHistory::kMaxBridgedGap < M_PI) {
-      EXPECT_NEAR(history.mean(window).rateYawBaseRtWorld, yawRate, 1.0e-12);
+    if (std::abs(rateYawBaseRtWorld) * StrideMotionHistory::kMaxBridgedGap <
+        std::numbers::pi) {
+      EXPECT_NEAR(history.mean(window).rateYawBaseRtWorld, rateYawBaseRtWorld,
+                  1.0e-12);
     } else {
       EXPECT_NEAR(history.mean(window).rateYawBaseRtWorld,
-                  yawRate - 2.0 * M_PI / window, 1.0e-12);
+                  rateYawBaseRtWorld - 2.0 * std::numbers::pi / window,
+                  1.0e-12);
     }
   }
 }
@@ -481,14 +506,15 @@ TEST(StrideMotionHistory, TheHeadingIsUnwrappedThroughPlusMinusPi) {
   for (int i = 0; i <= 150; ++i) {
     const scalar_t time = 0.01 * i;
     history.addSample(time, vector2_t::Zero(),
-                      std::remainder(2.5 + time, 2.0 * M_PI), atRest);
+                      std::remainder(2.5 + time, 2.0 * std::numbers::pi),
+                      atRest);
   }
   EXPECT_NEAR(history.mean(/*window=*/1.0).rateYawBaseRtWorld, 1.0, 1.0e-12);
 }
 
 TEST(StrideMotionHistory, ALongRunKeepsItsRetentionAndCutsLongerWindows) {
   const PlanarTrajectory steady =
-      swayingWalk(/*headingSway=*/0.0,
+      swayingWalk(/*swayYawBaseRtWorld=*/0.0,
                   /*swayLinvelBaseRtWorldEwrtHeadingXy=*/vector2_t::Zero());
   StrideMotionHistory history(/*retention=*/1.0);
   feed(history, steady, uniformTimes(/*spacing=*/0.01, /*end=*/30.0), atRest());
@@ -509,9 +535,9 @@ TEST(InstantaneousPlanarMotion,
   // body rotation, here by central differences of xi (x) Exp(w_B h).
   std::mt19937 generator(7);
   std::uniform_real_distribution<scalar_t> uniform(-1.0, 1.0);
-  scalar_t largestYawRateGap = 0.0;
+  scalar_t maxErrRateYawBaseRtWorld = 0.0;
   for (int sample = 0; sample < 50; ++sample) {
-    const Eigen::Quaterniond attitude =
+    const Eigen::Quaterniond quatBaseRtWorld =
         Eigen::AngleAxisd(3.0 * uniform(generator), vector3_t::UnitZ()) *
         Eigen::AngleAxisd(0.5 * uniform(generator), vector3_t::UnitY()) *
         Eigen::AngleAxisd(0.5 * uniform(generator), vector3_t::UnitX());
@@ -519,31 +545,35 @@ TEST(InstantaneousPlanarMotion,
         uniform(generator), uniform(generator), uniform(generator));
     vector6_t twistBaseRtWorldEwrtWorld;
     twistBaseRtWorldEwrtWorld << uniform(generator), uniform(generator),
-        uniform(generator), attitude * angvelBaseRtWorldEwrtBase;
-    const BasePlanarMotion motion =
-        instantaneousPlanarMotion(attitude.coeffs(), twistBaseRtWorldEwrtWorld);
+        uniform(generator), quatBaseRtWorld * angvelBaseRtWorldEwrtBase;
+    const BasePlanarMotion motion = instantaneousPlanarMotion(
+        quatBaseRtWorld.coeffs(), twistBaseRtWorldEwrtWorld);
 
     constexpr scalar_t kStep = 1.0e-6;
     const Eigen::Quaterniond increment(
         Eigen::AngleAxisd(angvelBaseRtWorldEwrtBase.norm() * kStep,
                           angvelBaseRtWorldEwrtBase.normalized()));
-    const scalar_t after = yawOf((attitude * increment).coeffs());
-    const scalar_t before = yawOf((attitude * increment.conjugate()).coeffs());
+    const scalar_t nextYawBaseRtWorld =
+        yawOf((quatBaseRtWorld * increment).coeffs());
+    const scalar_t prevYawBaseRtWorld =
+        yawOf((quatBaseRtWorld * increment.conjugate()).coeffs());
     EXPECT_NEAR(motion.rateYawBaseRtWorld,
-                std::remainder(after - before, 2.0 * M_PI) / (2.0 * kStep),
+                std::remainder(nextYawBaseRtWorld - prevYawBaseRtWorld,
+                               2.0 * std::numbers::pi) /
+                    (2.0 * kStep),
                 1.0e-7);
     const vector2_t expectedLinvelBaseRtWorldEwrtHeadingXy =
-        rotated(-yawOf(attitude.coeffs()),
+        rotated(-yawOf(quatBaseRtWorld.coeffs()),
                 vector2_t(twistBaseRtWorldEwrtWorld.head<2>()));
     EXPECT_LT((motion.linvelBaseRtWorldEwrtHeadingXy -
                expectedLinvelBaseRtWorldEwrtHeadingXy)
                   .norm(),
               1.0e-14);
-    largestYawRateGap = std::max(
-        largestYawRateGap,
+    maxErrRateYawBaseRtWorld = std::max(
+        maxErrRateYawBaseRtWorld,
         std::abs(motion.rateYawBaseRtWorld - twistBaseRtWorldEwrtWorld(5)));
   }
-  EXPECT_GT(largestYawRateGap, 1.0e-3)
+  EXPECT_GT(maxErrRateYawBaseRtWorld, 1.0e-3)
       << "the attitudes must tell the heading rate from the world yaw rate";
 }
 

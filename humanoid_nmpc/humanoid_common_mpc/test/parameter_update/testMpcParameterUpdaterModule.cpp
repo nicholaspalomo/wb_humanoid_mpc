@@ -27,12 +27,13 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <array>
-#include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -40,7 +41,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -53,6 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/types/span.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/initialization/DefaultInitializer.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
@@ -134,8 +138,9 @@ class FakeApplier final : public HotFieldApplier {
   void apply(HotUpdateTarget& target) override {
     log_->record(
         absl::StrCat(name_, ":apply ", target.task().state_weights.scaling));
-    if (behavior_ == Behavior::kThrow)
+    if (behavior_ == Behavior::kThrow) {
       throw std::runtime_error("a term of another type");
+    }
   }
   void beforeEverySolve(
       SqpSolver& /*solver*/,
@@ -215,8 +220,8 @@ constexpr char kReferenceFileLimits[] =
     "ref_rate_yaw_base_rt_world: 0.5\n"
     "cmd_max_linvel_base_rt_world_ewrt_heading_x: 1.0\n"
     "cmd_max_linvel_base_rt_world_ewrt_heading_y: 0.5\n"
-    "cmd_max_err_pos_base_rt_world_ewrt_world_z: 0.1\n"
-    "nom_pos_base_rt_world_ewrt_world_z: 0.9\n";
+    "cmd_max_err_pos_base_rt_surface_ewrt_world_z: 0.1\n"
+    "nom_pos_base_rt_surface_ewrt_world_z: 0.9\n";
 
 /** An update whose task file has a state_weights.scaling of `scaling`. */
 mpc_config::MpcParameterUpdate updateWithScaling(scalar_t scaling) {

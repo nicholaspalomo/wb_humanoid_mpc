@@ -175,18 +175,16 @@ TEST(EndEffectorDynamicsAccelerationsConstraint,
       stanceFootConfig();
   withoutOrientationGain.Ax.block(3, 3, 3, 3).setZero();
   const std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint>
-      withoutOrientation =
-          stanceFootConstraint(dynamics, withoutOrientationGain);
-  ASSERT_NE(withoutOrientation, nullptr);
+      withoutTilt = stanceFootConstraint(dynamics, withoutOrientationGain);
+  ASSERT_NE(withoutTilt, nullptr);
   const VectorFunctionLinearApproximation reduced =
-      withoutOrientation->getLinearApproximation(kQueryTime, state, input,
-                                                 PreComputation());
-  const vector3_t orientationTerm =
-      80.0 * dynamics.orientationErrorWrtPlane(state);
+      withoutTilt->getLinearApproximation(kQueryTime, state, input,
+                                          PreComputation());
+  const vector3_t tiltTerm = 80.0 * dynamics.tiltEeRtSurfaceEwrtWorld(state);
   EXPECT_TRUE((approximation.f - reduced.f)
                   .tail<3>()
-                  .isApprox(orientationTerm, /*prec=*/1.0e-12));
-  EXPECT_GT(orientationTerm.norm(), 1.0)
+                  .isApprox(tiltTerm, /*prec=*/1.0e-12));
+  EXPECT_GT(tiltTerm.norm(), 1.0)
       << "the case under test: an orientation error the gain acts on";
 }
 
@@ -201,13 +199,12 @@ TEST(EndEffectorDynamicsAccelerationsConstraint,
   const EndEffectorDynamicsAccelerationsConstraint::Config config =
       stanceFootConfig();
 
-  vector6_t footPose;
-  footPose << dynamics.position(state),
-      dynamics.orientationErrorWrtPlane(state);
-  const vector_t expected =
-      config.b + config.Ax * footPose +
-      config.Av * dynamics.poseWrtPlaneRate(state, input) +
-      config.Aa * dynamics.poseWrtPlaneAcceleration(state, input);
+  vector6_t xee;
+  xee << dynamics.posEeRtWorldEwrtWorld(state),
+      dynamics.tiltEeRtSurfaceEwrtWorld(state);
+  const vector_t expected = config.b + config.Ax * xee +
+                            config.Av * dynamics.xeeRate(state, input) +
+                            config.Aa * dynamics.xeeSecondRate(state, input);
   const vector_t value =
       created->getValue(kQueryTime, state, input, PreComputation());
   EXPECT_TRUE(value.isApprox(expected, /*prec=*/1.0e-12))
@@ -218,36 +215,41 @@ TEST(EndEffectorDynamicsAccelerationsConstraint,
                                       PreComputation());
   // The rate maps of the stand-in, with the block-diagonal Ax the linearization
   // reads.
-  const std::vector<vector3_t> ground = {vector3_t::UnitZ()};
+  const std::vector<vector3_t> normalSurfacesEwrtWorld = {vector3_t::UnitZ()};
   const VectorFunctionLinearApproximation rate =
-      dynamics.getPoseWrtPlaneRateLinearApproximation(state, input, ground)
-          .front();
-  const VectorFunctionLinearApproximation acceleration =
       dynamics
-          .getPoseWrtPlaneAccelerationLinearApproximation(state, input, ground)
+          .getLinearApproximationXeeRate(state, input, normalSurfacesEwrtWorld)
           .front();
-  matrix_t expectedDx = config.Av * rate.dfdx + config.Aa * acceleration.dfdx;
+  const VectorFunctionLinearApproximation secondRate =
+      dynamics
+          .getLinearApproximationXeeSecondRate(state, input,
+                                               normalSurfacesEwrtWorld)
+          .front();
+  matrix_t expectedDx = config.Av * rate.dfdx + config.Aa * secondRate.dfdx;
   expectedDx.topRows(3) +=
       config.Ax.topLeftCorner(3, 3) *
-      dynamics.getPositionLinearApproximation(state).front().dfdx;
+      dynamics.getLinearApproximationPosEesRtWorldEwrtWorld(state).front().dfdx;
   expectedDx.bottomRows(3) +=
       config.Ax.bottomRightCorner(3, 3) *
-      dynamics.getOrientationErrorWrtPlaneLinearApproximation(state, ground)
+      dynamics
+          .getLinearApproximationTiltEesRtSurfaceEwrtWorld(
+              state, normalSurfacesEwrtWorld)
           .front()
           .dfdx;
   const matrix_t expectedDu =
-      config.Av * rate.dfdu + config.Aa * acceleration.dfdu;
+      config.Av * rate.dfdu + config.Aa * secondRate.dfdu;
   EXPECT_TRUE(approximation.dfdx.isApprox(expectedDx, /*prec=*/1.0e-12));
   EXPECT_TRUE(approximation.dfdu.isApprox(expectedDu, /*prec=*/1.0e-12));
 
   // Positive control: on the stand-in's linear velocity and acceleration, which
   // the swing foot's constraint reads, the linear rows would be other values.
-  const vector3_t onTheVelocity =
-      (config.b + config.Ax * footPose).head<3>() +
-      config.Av.topLeftCorner<3, 3>() * dynamics.velocity(state, input) +
+  const vector3_t onThePlainRates =
+      (config.b + config.Ax * xee).head<3>() +
+      config.Av.topLeftCorner<3, 3>() *
+          dynamics.linvelEeRtWorldEwrtWorld(state, input) +
       config.Aa.topLeftCorner<3, 3>() *
-          dynamics.linearAcceleration(state, input);
-  EXPECT_GT((value.head<3>() - onTheVelocity).cwiseAbs().maxCoeff(), 1.0)
+          dynamics.linaccEeRtWorldEwrtWorld(state, input);
+  EXPECT_GT((value.head<3>() - onThePlainRates).cwiseAbs().maxCoeff(), 1.0)
       << "the case under test: rates other than the velocity";
 }
 
@@ -293,13 +295,13 @@ TEST(EndEffectorDynamicsAccelerationsConstraint,
           constraint.getValue(kQueryTime, state, input, PreComputation());
       ASSERT_EQ(value.size(), numRows);
       // The value is the formula of the class comment.
-      vector6_t footPose;
-      footPose << dynamics.position(state),
-          dynamics.orientationErrorWrtPlane(state);
+      vector6_t xee;
+      xee << dynamics.posEeRtWorldEwrtWorld(state),
+          dynamics.tiltEeRtSurfaceEwrtWorld(state);
       const vector_t expected =
-          config.b + config.Ax * footPose +
-          config.Av * dynamics.poseWrtPlaneRate(state, input) +
-          config.Aa * dynamics.poseWrtPlaneAcceleration(state, input);
+          config.b + config.Ax * xee +
+          config.Av * dynamics.xeeRate(state, input) +
+          config.Aa * dynamics.xeeSecondRate(state, input);
       EXPECT_TRUE(value.isApprox(expected, /*prec=*/1.0e-12));
       const VectorFunctionLinearApproximation approximation =
           constraint.getLinearApproximation(kQueryTime, state, input,
@@ -323,16 +325,20 @@ TEST(EndEffectorDynamicsAccelerationsConstraint,
         blockDiagonal.topLeftCorner(3, 3) = config.Ax.topLeftCorner(3, 3);
         blockDiagonal.bottomRightCorner(3, 3) =
             config.Ax.bottomRightCorner(3, 3);
-        const std::vector<vector3_t> ground = {vector3_t::UnitZ()};
-        matrix_t poseJacobian(6, state.size());
-        poseJacobian
-            << dynamics.getPositionLinearApproximation(state).front().dfdx,
+        const std::vector<vector3_t> normalSurfacesEwrtWorld = {
+            vector3_t::UnitZ()};
+        matrix_t xeeJacobian(6, state.size());
+        xeeJacobian << dynamics
+                           .getLinearApproximationPosEesRtWorldEwrtWorld(state)
+                           .front()
+                           .dfdx,
             dynamics
-                .getOrientationErrorWrtPlaneLinearApproximation(state, ground)
+                .getLinearApproximationTiltEesRtSurfaceEwrtWorld(
+                    state, normalSurfacesEwrtWorld)
                 .front()
                 .dfdx;
         EXPECT_GT(
-            ((config.Ax - blockDiagonal) * poseJacobian).cwiseAbs().maxCoeff(),
+            ((config.Ax - blockDiagonal) * xeeJacobian).cwiseAbs().maxCoeff(),
             1.0e-3);
       }
     }

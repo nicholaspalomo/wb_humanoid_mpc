@@ -33,15 +33,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cstddef>
+#include <memory>
 #include <string>
 
 #include "Eigen/Cholesky"
 #include "absl/base/nullability.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/centroidal.hpp"
 #include "pinocchio/algorithm/crba.hpp"
 #include "pinocchio/algorithm/frames.hpp"
@@ -49,9 +53,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
-#include "pinocchio/multibody/joint/joint-free-flyer.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/joint/fwd.hpp"
+#include "pinocchio/multibody/joint/joint-free-flyer.hpp"  // IWYU pragma: keep
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -157,7 +165,7 @@ RealtimeRigidBodyDynamics::RealtimeRigidBodyDynamics(
       configuration_(pinocchio::neutral(model_)),
       generalizedVelocity_(vector_t::Zero(model_.nv)),
       generalizedAcceleration_(vector_t::Zero(model_.nv)),
-      soleJacobian_(matrix_t::Zero(kTwistDim, model_.nv)),
+      jacFootRtWorldEwrtWorld_(matrix_t::Zero(kTwistDim, model_.nv)),
       generalizedContactForce_(vector_t::Zero(model_.nv)),
       jointTorques_(vector_t::Zero(model_.nv - kRootVelocityDim)),
       gravityJointTorques_(vector_t::Zero(model_.nv - kRootVelocityDim)) {
@@ -187,12 +195,12 @@ void RealtimeRigidBodyDynamics::computeGeneralizedContactForce(
   pinocchio::computeJointJacobians(model_, data_, configuration_);
   generalizedContactForce_.setZero();
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    soleJacobian_.setZero();
+    jacFootRtWorldEwrtWorld_.setZero();
     pinocchio::getFrameJacobian(model_, data_, contactFrames_[contact],
                                 pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED,
-                                soleJacobian_);
+                                jacFootRtWorldEwrtWorld_);
     generalizedContactForce_.noalias() +=
-        soleJacobian_.transpose() * wrenchFeetEwrtWorld[contact];
+        jacFootRtWorldEwrtWorld_.transpose() * wrenchFeetEwrtWorld[contact];
   }
 }
 
@@ -242,11 +250,13 @@ const vector_t& RealtimeRigidBodyDynamics::freeBaseJointTorques(
       generalizedVelocity_.head<kPositionDim>();
   const vector3_t angvelBaseRtWorldEwrtBase =
       generalizedVelocity_.segment<kRotationTangentDim>(kPositionDim);
-  const vector3_t rateLinvelBaseRtWorldEwrtBase =
+  // The linear part of the base's spatial acceleration (Pinocchio's FreeFlyer
+  // dv).
+  const vector3_t spatialaccBaseRtWorldEwrtBase =
       generalizedAcceleration_.head<kPositionDim>();
   baseGeneralizedAcceleration_.head<kPositionDim>() =
       rotmatBaseRtWorld() *
-      (rateLinvelBaseRtWorldEwrtBase +
+      (spatialaccBaseRtWorldEwrtBase +
        angvelBaseRtWorldEwrtBase.cross(linvelBaseRtWorldEwrtBase));
   baseGeneralizedAcceleration_.tail<kRotationTangentDim>() =
       generalizedAcceleration_.segment<kRotationTangentDim>(kPositionDim);

@@ -30,9 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include "absl/status/statusor.h"
 #include "ocs2_core/Dimensions.h"
-#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -150,8 +149,8 @@ struct EndEffectorKinematicsCostElement {
  * world axes. The orientation error is the rotation vector theta n of the
  * rotation from the current orientation to the reference one, Log(q_ref (x)
  * q^-1) with |theta| <= pi, in world axes: a weight on its x, y or z entry is
- * per rad^2 of rotation about that world axis, so orientation_z weighs the
- * heading error and orientation_x / orientation_y the tilt. Either quaternion
+ * per rad^2 of rotation about that world axis, so rotvec_z weighs the
+ * heading error and rotvec_x / rotvec_y the tilt. Either quaternion
  * may be of either sign and need not be unit. The orientation error used to be
  * the vector part sin(theta / 2) n of that error quaternion; a weight w on it
  * equals w / 4 on this one at small angles, which is how the shipped
@@ -164,13 +163,13 @@ VECTOR12_T<SCALAR_T> computeTaskSpaceErrors(
 
 /**
  * Returns the tilt of an end effector whose orientation is `rotmatEeRtWorld`
- * (end effector to world) against the plane whose unit normal is `planeNormal`,
- * as a rotation vector in world axes: theta u, with v = R e_z the end-effector
- * normal, theta = atan2(|n x v|, n . v) the angle between v and n and u = (n x
- * v) / |n x v| the axis that turns n into v. A weight on its x, y or z entry is
- * per rad^2 of tilt about that world axis, as on the orientation error of
- * computeTaskSpaceErrors(); the rotation about the plane normal is not part of
- * it (u is orthogonal to n).
+ * (end effector to world) against the plane whose unit normal is
+ * `normalSurfaceEwrtWorld`, as a rotation vector in world axes: theta u, with v
+ * = R e_z the end-effector normal, theta = atan2(|n x v|, n . v) the angle
+ * between v and n and u = (n x v) / |n x v| the axis that turns n into v. A
+ * weight on its x, y or z entry is per rad^2 of tilt about that world axis, as
+ * on the orientation error of computeTaskSpaceErrors(); the rotation about the
+ * plane normal is not part of it (u is orthogonal to n).
  *
  * It is -Log(q_c), q_c the shortest arc from v to n
  * (getQuaternionFromUnitVectors()), whose vector part, the half-angle error -(v
@@ -184,8 +183,9 @@ VECTOR12_T<SCALAR_T> computeTaskSpaceErrors(
  * template so that the tapes of the foot costs and the tests share it.
  */
 template <typename SCALAR_T>
-VECTOR3_T<SCALAR_T> tiltAngleToPlane(const MATRIX3_T<SCALAR_T>& rotmatEeRtWorld,
-                                     const VECTOR3_T<SCALAR_T>& planeNormal);
+VECTOR3_T<SCALAR_T> tiltAngleToPlane(
+    const MATRIX3_T<SCALAR_T>& rotmatEeRtWorld,
+    const VECTOR3_T<SCALAR_T>& normalSurfaceEwrtWorld);
 
 /**
  * The planar reference of an end effector packed in one 12-vector, [position
@@ -218,7 +218,7 @@ struct PlanarEndEffectorKinematicsPlanarReference {
   VECTOR3_T<SCALAR_T> getPosEeRtWorldEwrtWorld() const {
     return costElementVector.head(kPositionDim);
   }
-  VECTOR3_T<SCALAR_T> getPlaneNormal() const {
+  VECTOR3_T<SCALAR_T> getNormalSurfaceEwrtWorld() const {
     return costElementVector.segment(kPlaneNormalStart, kPositionDim);
   }
   VECTOR3_T<SCALAR_T> getLinvelEeRtWorldEwrtWorld() const {

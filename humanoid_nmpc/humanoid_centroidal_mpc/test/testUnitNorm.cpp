@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <random>
 #include <string>
@@ -39,16 +40,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/control/FeedforwardController.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_oc/rollout/RolloutBase.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/dynamics/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "support/AtlasReferenceStack.h"
@@ -97,8 +101,9 @@ TEST(UnitNorm, AfterARetractionTheQuaternionIsUnitToRoundOff) {
   for (int sample = 0; sample < 200; ++sample) {
     vector_t state =
         vector_t::Zero(static_cast<Eigen::Index>(model.getStateDim()));
-    for (Eigen::Index i = 0; i < state.size(); ++i)
+    for (Eigen::Index i = 0; i < state.size(); ++i) {
       state(i) = uniform(generator);
+    }
     // Unit, or off the sphere as a solver's iterate between projections can be.
     const scalar_t scale =
         sample % 3 == 0 ? 1.0 + 0.3 * uniform(generator) : 1.0;
@@ -106,8 +111,9 @@ TEST(UnitNorm, AfterARetractionTheQuaternionIsUnitToRoundOff) {
         scale * state.segment<4>(orientationStart).normalized();
     vector_t step =
         vector_t::Zero(static_cast<Eigen::Index>(model.getStateTangentDim()));
-    for (Eigen::Index i = 0; i < step.size(); ++i)
+    for (Eigen::Index i = 0; i < step.size(); ++i) {
       step(i) = 2.0 * uniform(generator);
+    }
     for (const scalar_t alpha : {1.0, 0.5, 1.0e-3, -0.7}) {
       vector_t retracted;
       (*manifold)->retract(state, step, alpha, retracted);
@@ -123,8 +129,9 @@ TEST(UnitNorm, TheSlerpedTargetsAreUnitToRoundOff) {
   // the robot model's slerp.
   AtlasReferenceStack stack;
   const MpcRobotModelBase<scalar_t>& model = stack.model();
-  const vector_t initState =
-      stack.standingAt(stack.initialState(), /*x=*/0.2, /*y=*/0.1, /*yaw=*/3.0);
+  const vector_t initState = stack.standingAt(
+      stack.initialState(), /*posBaseRtWorldEwrtWorldX=*/0.2,
+      /*posBaseRtWorldEwrtWorldY=*/0.1, /*eulerzyxBaseRtWorldYaw=*/3.0);
   const BasePlanarMotion measured{
       .linvelBaseRtWorldEwrtHeadingXy = vector2_t(0.3, 0.1),
       .rateYawBaseRtWorld = 4.0};
@@ -138,8 +145,9 @@ TEST(UnitNorm, TheSlerpedTargetsAreUnitToRoundOff) {
     largest = std::max(largest,
                        normError(model, model.getDesiredState(targets, time)));
   }
-  for (const vector_t& knot : targets.stateTrajectory)
+  for (const vector_t& knot : targets.stateTrajectory) {
     largest = std::max(largest, normError(model, knot));
+  }
   EXPECT_LE(largest, 1.0e-15);
 }
 
@@ -177,8 +185,9 @@ TEST(UnitNorm, TheRolloutProjectsEveryStateOntoTheUnitSphere) {
                schedule, times, postEventIndices, states, inputs);
   ASSERT_GT(states.size(), 10U);
   scalar_t largest = 0.0;
-  for (size_t i = 1; i < states.size(); ++i)
+  for (size_t i = 1; i < states.size(); ++i) {
     largest = std::max(largest, normError(model, states[i]));
+  }
   EXPECT_LE(largest, 1.0e-15);
   // Positive control: the base did turn.
   EXPECT_GT(std::abs(model.getYawBaseRtWorld(states.back()) -
@@ -196,20 +205,22 @@ TEST(UnitNorm, ASixtySecondLoopKeepsEveryQuaternionUnit) {
   // turning, 15 s of turning in place.
   struct Phase {
     scalar_t until;
-    scalar_t forward;
-    scalar_t yawRate;
+    scalar_t cmdLinvelBaseRtWorldEwrtHeadingX;
+    scalar_t cmdRateYawBaseRtWorld;
   };
   const std::vector<Phase> phases = {
       {5.0, 0.0, 0.0}, {25.0, 0.3, 0.0}, {45.0, 0.2, 0.4}, {60.0, 0.0, -0.6}};
   scalar_t largest = 0.0;
   size_t solves = 0;
   for (const Phase& phase : phases) {
-    loop.command(phase.forward, /*lateral=*/0.0, phase.yawRate);
+    loop.command(phase.cmdLinvelBaseRtWorldEwrtHeadingX,
+                 /*cmdLinvelBaseRtWorldEwrtHeadingY=*/0.0,
+                 phase.cmdRateYawBaseRtWorld);
     while (loop.observation().time < phase.until) {
       const absl::StatusOr<CentroidalMpcLoopStep> step = loop.step();
       ASSERT_TRUE(step.ok())
           << "t = " << loop.observation().time << ": " << step.status();
-      largest = std::max(largest, step->quaternionNormError);
+      largest = std::max(largest, step->unitQuaternionNormError);
       ++solves;
     }
   }

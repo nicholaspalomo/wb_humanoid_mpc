@@ -112,6 +112,7 @@ py_test(
     data = [
         "clang_tidy.bzl",
         "//:.clang-tidy",
+        "//:.clangd",
         "//:MODULE.bazel",
     ],
     deps = [

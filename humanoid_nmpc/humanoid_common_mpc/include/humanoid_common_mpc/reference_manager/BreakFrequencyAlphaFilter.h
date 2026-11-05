@@ -31,13 +31,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <cmath>
+#include <numbers>
 #include <optional>
 #include <utility>
 
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
-
-#include "humanoid_common_mpc/common/Types.h"
+#include "ocs2_core/Types.h"
 
 namespace ocs2::humanoid {
 
@@ -121,8 +121,8 @@ class BreakFrequencyAlphaFilter final {
     } else if (lastTime_.has_value() && time > *lastTime_) {
       // alpha = 1 - exp(-dt / tau), as expm1 so that it keeps its digits for a
       // dt much shorter than tau.
-      const scalar_t alpha =
-          -std::expm1(-2.0 * M_PI * breakFrequency_ * (time - *lastTime_));
+      const scalar_t alpha = -std::expm1(-2.0 * std::numbers::pi *
+                                         breakFrequency_ * (time - *lastTime_));
       output_ += alpha * (input - output_);
     }
     lastTime_ = time;

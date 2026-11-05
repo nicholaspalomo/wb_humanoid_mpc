@@ -29,8 +29,9 @@
 
 The robot's root is a MuJoCo free joint: `qpos[0:3]` is the base position in the world, `qpos[3:7]` the base orientation
 as a unit quaternion (w, x, y, z), `qvel[0:3]` the base's linear velocity in the world frame and `qvel[3:6]` its angular
-velocity in the base frame. The velocity command (vx, vy, wz) is in the heading frame, the world frame turned by the
-base's heading psi about the world z axis, as the MPC's velocity command is; its yaw rate is about the world z axis.
+velocity in the base frame. The velocity command is in the heading frame, the world frame turned by the base's twist
+heading psi about the world z axis (the angle of the twist-swing split, as MpcRobotModelBase::getYawBaseRtWorld()), as the
+MPC's velocity command is; its yaw rate is about the world z axis.
 """
 
 import dataclasses
@@ -44,15 +45,15 @@ import mujoco
 from mujoco import mjx
 
 # The free joint's qpos: the base position, then its quaternion (w, x, y, z), then the joints.
-_BASE_POSITION_END = 3
-_BASE_QUATERNION_END = 7
+_BASE_POSITION_END_INDEX = 3
+_BASE_QUATERNION_END_INDEX = 7
 # The free joint's qvel: the world-frame linear velocity, then the base-frame angular velocity, then the joints.
-_BASE_LINEAR_VELOCITY_END = 3
-_BASE_ANGULAR_VELOCITY_END = 6
+_BASE_LINEAR_VELOCITY_END_INDEX = 3
+_BASE_ANGULAR_VELOCITY_END_INDEX = 6
 # The relative tolerance within which control_dt must be a whole multiple of physics_dt.
 _SUBSTEP_RATIO_TOLERANCE = 1e-9
 # The base height below which the robot has fallen [m].
-_FALLEN_BASE_HEIGHT = 0.2
+_MIN_POS_BASE_RT_WORLD_EWRT_WORLD_Z = 0.2
 
 _DEFAULT_XML = """
 <mujoco model="minimal_humanoid">
@@ -87,9 +88,9 @@ class HumanoidEnvConfig:
         control_dt: The policy's period [s]; a whole multiple of physics_dt.
         physics_dt: The simulation's time step [s].
         action_scale: The control is the action times this; the actuators' ctrlrange bounds it.
-        target_vx: The commanded forward velocity in the heading frame [m/s].
-        target_vy: The commanded lateral velocity in the heading frame [m/s].
-        target_wz: The commanded yaw rate about the world z axis [rad/s].
+        cmd_linvel_base_rt_world_ewrt_heading_x: The commanded forward velocity in the heading frame [m/s].
+        cmd_linvel_base_rt_world_ewrt_heading_y: The commanded lateral velocity in the heading frame [m/s].
+        cmd_angvel_base_rt_world_ewrt_world_z: The commanded yaw rate about the world z axis [rad/s].
         tracking_sigma: The squared error at which a tracking reward has fallen to 1/e [(m/s)^2, (rad/s)^2].
         yaw_rate_weight: The weight of the yaw-rate tracking reward; the two linear ones weigh 1.
         energy_weight: The weight of the squared control.
@@ -103,9 +104,9 @@ class HumanoidEnvConfig:
     control_dt: float = 0.02
     physics_dt: float = 0.002
     action_scale: float = 0.5
-    target_vx: float = 1.0
-    target_vy: float = 0.0
-    target_wz: float = 0.0
+    cmd_linvel_base_rt_world_ewrt_heading_x: float = 1.0
+    cmd_linvel_base_rt_world_ewrt_heading_y: float = 0.0
+    cmd_angvel_base_rt_world_ewrt_world_z: float = 0.0
     tracking_sigma: float = 0.25
     yaw_rate_weight: float = 0.5
     energy_weight: float = 0.001
@@ -143,13 +144,15 @@ def substep_count(control_dt: float, physics_dt: float) -> int:
     return count
 
 
-def _normalized(quaternion_wxyz: jax.Array) -> jax.Array:
-    return quaternion_wxyz / jnp.linalg.norm(quaternion_wxyz)
+def _normalized(coefficients_wxyz: jax.Array) -> jax.Array:
+    return coefficients_wxyz / jnp.linalg.norm(coefficients_wxyz)
 
 
-def rotation_matrix(quaternion_wxyz: jax.Array) -> jax.Array:
+def compute_rotmat_base_rt_world(
+    quat_base_rt_world_wxyz: jax.Array,
+) -> jax.Array:
     """Returns the rotation matrix, base to world, of a quaternion (w, x, y, z); it need not be of unit norm."""
-    w, x, y, z = _normalized(quaternion_wxyz)
+    w, x, y, z = _normalized(quat_base_rt_world_wxyz)
     return jnp.array(
         [
             [
@@ -171,13 +174,18 @@ def rotation_matrix(quaternion_wxyz: jax.Array) -> jax.Array:
     )
 
 
-def heading(quaternion_wxyz: jax.Array) -> jax.Array:
-    """Returns the heading psi [rad]: the angle of the base's x axis, projected on the ground, from the world's x axis."""
-    rotation = rotation_matrix(quaternion_wxyz)
-    return jnp.arctan2(rotation[1, 0], rotation[0, 0])
+def compute_yaw_base_rt_world(quat_base_rt_world_wxyz: jax.Array) -> jax.Array:
+    """Returns the base's twist heading psi [rad] in [-pi, pi]: 2 atan2(q_z, q_w), wrapped.
+
+    The angle of the twist about the world z axis of the twist-swing split; it equals the ZYX yaw only while the base is
+    level.
+    """
+    w, _, _, z = quat_base_rt_world_wxyz
+    yaw_base_rt_world = 2.0 * jnp.arctan2(z, w)
+    return jnp.arctan2(jnp.sin(yaw_base_rt_world), jnp.cos(yaw_base_rt_world))
 
 
-def yaw_quaternion(psi: jax.Array) -> jax.Array:
+def unit_quaternion_of_yaw(psi: jax.Array) -> jax.Array:
     """Returns the quaternion (w, x, y, z) of a rotation by psi [rad] about the world z axis."""
     return jnp.array([jnp.cos(0.5 * psi), 0.0, 0.0, jnp.sin(0.5 * psi)])
 
@@ -198,31 +206,46 @@ def quaternion_product(
     )
 
 
-def heading_frame_linear_velocity(
+def compute_linvel_base_rt_world_ewrt_heading(
     qpos: jax.Array, qvel: jax.Array
 ) -> jax.Array:
     """Returns the base's linear velocity in the heading frame, R_z(-psi) v_world: forward, lateral, vertical [m/s]."""
-    psi = heading(qpos[_BASE_POSITION_END:_BASE_QUATERNION_END])
-    cos_psi = jnp.cos(psi)
-    sin_psi = jnp.sin(psi)
-    vx, vy, vz = qvel[:_BASE_LINEAR_VELOCITY_END]
+    yaw_base_rt_world = compute_yaw_base_rt_world(
+        qpos[_BASE_POSITION_END_INDEX:_BASE_QUATERNION_END_INDEX]
+    )
+    cos_yaw_base_rt_world = jnp.cos(yaw_base_rt_world)
+    sin_yaw_base_rt_world = jnp.sin(yaw_base_rt_world)
+    linvel_base_rt_world_ewrt_world = qvel[:_BASE_LINEAR_VELOCITY_END_INDEX]
     return jnp.array(
-        [cos_psi * vx + sin_psi * vy, -sin_psi * vx + cos_psi * vy, vz]
+        [
+            cos_yaw_base_rt_world * linvel_base_rt_world_ewrt_world[0]
+            + sin_yaw_base_rt_world * linvel_base_rt_world_ewrt_world[1],
+            -sin_yaw_base_rt_world * linvel_base_rt_world_ewrt_world[0]
+            + cos_yaw_base_rt_world * linvel_base_rt_world_ewrt_world[1],
+            linvel_base_rt_world_ewrt_world[2],
+        ]
     )
 
 
-def world_yaw_rate(qpos: jax.Array, qvel: jax.Array) -> jax.Array:
+def compute_angvel_base_rt_world_ewrt_world_z(
+    qpos: jax.Array, qvel: jax.Array
+) -> jax.Array:
     """Returns the base's angular velocity about the world z axis [rad/s]: e_z . R omega_base."""
-    rotation = rotation_matrix(qpos[_BASE_POSITION_END:_BASE_QUATERNION_END])
+    rotmat_base_rt_world = compute_rotmat_base_rt_world(
+        qpos[_BASE_POSITION_END_INDEX:_BASE_QUATERNION_END_INDEX]
+    )
     return jnp.dot(
-        rotation[2], qvel[_BASE_LINEAR_VELOCITY_END:_BASE_ANGULAR_VELOCITY_END]
+        rotmat_base_rt_world[2],
+        qvel[_BASE_LINEAR_VELOCITY_END_INDEX:_BASE_ANGULAR_VELOCITY_END_INDEX],
     )
 
 
-def projected_gravity(qpos: jax.Array) -> jax.Array:
+def compute_unit_gravity_ewrt_base(qpos: jax.Array) -> jax.Array:
     """Returns the unit gravity direction in the base frame, R^T (0, 0, -1): the base's tilt, without its heading."""
-    rotation = rotation_matrix(qpos[_BASE_POSITION_END:_BASE_QUATERNION_END])
-    return -rotation[2]
+    rotmat_base_rt_world = compute_rotmat_base_rt_world(
+        qpos[_BASE_POSITION_END_INDEX:_BASE_QUATERNION_END_INDEX]
+    )
+    return -rotmat_base_rt_world[2]
 
 
 class HumanoidMpxEnv(brax_base.PipelineEnv):
@@ -230,9 +253,9 @@ class HumanoidMpxEnv(brax_base.PipelineEnv):
 
     The observation is translation and heading invariant: the base height, the gravity direction in the base frame, the
     joint positions, the base's linear velocity in the heading frame, its angular velocity in the base frame, the joint
-    velocities and the command. The reward tracks the command in the heading frame (heading_frame_linear_velocity(),
-    world_yaw_rate()), less the control's energy. A reset draws the heading and the noise from its key, so that the same
-    key is the same initial state.
+    velocities and the command. The reward tracks the command in the heading frame
+    (compute_linvel_base_rt_world_ewrt_heading(), compute_angvel_base_rt_world_ewrt_world_z()), less the control's energy.
+    A reset draws the heading and the noise from its key, so that the same key is the same initial state.
     """
 
     def __init__(
@@ -275,38 +298,39 @@ class HumanoidMpxEnv(brax_base.PipelineEnv):
     def _command(self) -> jax.Array:
         return jnp.array(
             [
-                self.config.target_vx,
-                self.config.target_vy,
-                self.config.target_wz,
+                self.config.cmd_linvel_base_rt_world_ewrt_heading_x,
+                self.config.cmd_linvel_base_rt_world_ewrt_heading_y,
+                self.config.cmd_angvel_base_rt_world_ewrt_world_z,
             ]
         )
 
     def reset(self, rng: jax.Array) -> brax_base.State:
         """Resets the environment state to qpos0, turned and perturbed as drawn from `rng`."""
-        rng_heading, rng_joints, rng_velocity = jax.random.split(rng, 3)
+        rng_heading, rng_joints, rng_qvel = jax.random.split(rng, 3)
         qpos = jnp.array(self.sys.qpos0)
         if self.config.randomize_heading:
-            psi = jax.random.uniform(
+            # The initial minus qpos0's heading: a turn about the world z axis adds to the twist heading.
+            init_err_yaw_base_rt_world = jax.random.uniform(
                 rng_heading, (), minval=-jnp.pi, maxval=jnp.pi
             )
-            base_quaternion = quaternion_product(
-                yaw_quaternion(psi),
-                qpos[_BASE_POSITION_END:_BASE_QUATERNION_END],
+            quat_base_rt_world_wxyz = quaternion_product(
+                unit_quaternion_of_yaw(init_err_yaw_base_rt_world),
+                qpos[_BASE_POSITION_END_INDEX:_BASE_QUATERNION_END_INDEX],
             )
-            qpos = qpos.at[_BASE_POSITION_END:_BASE_QUATERNION_END].set(
-                base_quaternion
-            )
+            qpos = qpos.at[
+                _BASE_POSITION_END_INDEX:_BASE_QUATERNION_END_INDEX
+            ].set(quat_base_rt_world_wxyz)
         noise = self.config.reset_joint_position_noise
         joint_noise = jax.random.uniform(
             rng_joints,
-            (self.sys.nq - _BASE_QUATERNION_END,),
+            (self.sys.nq - _BASE_QUATERNION_END_INDEX,),
             minval=-noise,
             maxval=noise,
         )
-        qpos = qpos.at[_BASE_QUATERNION_END:].add(joint_noise)
+        qpos = qpos.at[_BASE_QUATERNION_END_INDEX:].add(joint_noise)
         velocity_noise = self.config.reset_velocity_noise
         qvel = jax.random.uniform(
-            rng_velocity,
+            rng_qvel,
             (self.sys.nv,),
             minval=-velocity_noise,
             maxval=velocity_noise,
@@ -350,11 +374,11 @@ class HumanoidMpxEnv(brax_base.PipelineEnv):
         qvel = pipeline_state.qvel
         return jnp.concatenate(
             [
-                qpos[_BASE_POSITION_END - 1 : _BASE_POSITION_END],
-                projected_gravity(qpos),
-                qpos[_BASE_QUATERNION_END:],
-                heading_frame_linear_velocity(qpos, qvel),
-                qvel[_BASE_LINEAR_VELOCITY_END:],
+                qpos[_BASE_POSITION_END_INDEX - 1 : _BASE_POSITION_END_INDEX],
+                compute_unit_gravity_ewrt_base(qpos),
+                qpos[_BASE_QUATERNION_END_INDEX:],
+                compute_linvel_base_rt_world_ewrt_heading(qpos, qvel),
+                qvel[_BASE_LINEAR_VELOCITY_END_INDEX:],
                 cmd,
             ]
         )
@@ -365,12 +389,21 @@ class HumanoidMpxEnv(brax_base.PipelineEnv):
         """Computes the heading-frame tracking rewards and the energy penalty."""
         qpos = pipeline_state.qpos
         qvel = pipeline_state.qvel
-        velocity = heading_frame_linear_velocity(qpos, qvel)
+        linvel_base_rt_world_ewrt_heading = (
+            compute_linvel_base_rt_world_ewrt_heading(qpos, qvel)
+        )
         sigma = self.config.tracking_sigma
-        forward_reward = jnp.exp(-jnp.square(velocity[0] - cmd[0]) / sigma)
-        lateral_reward = jnp.exp(-jnp.square(velocity[1] - cmd[1]) / sigma)
+        forward_reward = jnp.exp(
+            -jnp.square(linvel_base_rt_world_ewrt_heading[0] - cmd[0]) / sigma
+        )
+        lateral_reward = jnp.exp(
+            -jnp.square(linvel_base_rt_world_ewrt_heading[1] - cmd[1]) / sigma
+        )
         yaw_rate_reward = jnp.exp(
-            -jnp.square(world_yaw_rate(qpos, qvel) - cmd[2]) / sigma
+            -jnp.square(
+                compute_angvel_base_rt_world_ewrt_world_z(qpos, qvel) - cmd[2]
+            )
+            / sigma
         )
         energy_penalty = self.config.energy_weight * jnp.sum(jnp.square(ctrl))
         total_reward = (
@@ -389,6 +422,13 @@ class HumanoidMpxEnv(brax_base.PipelineEnv):
         return total_reward, metrics
 
     def _check_termination(self, pipeline_state: mjx.Data) -> jax.Array:
-        """Checks termination conditions (e.g. fallen torso height)."""
-        torso_z = pipeline_state.qpos[_BASE_POSITION_END - 1]
-        return jnp.where(torso_z < _FALLEN_BASE_HEIGHT, 1.0, 0.0)
+        """Checks termination: the base below _MIN_POS_BASE_RT_WORLD_EWRT_WORLD_Z."""
+        pos_base_rt_world_ewrt_world_z = pipeline_state.qpos[
+            _BASE_POSITION_END_INDEX - 1
+        ]
+        return jnp.where(
+            pos_base_rt_world_ewrt_world_z
+            < _MIN_POS_BASE_RT_WORLD_EWRT_WORLD_Z,
+            1.0,
+            0.0,
+        )

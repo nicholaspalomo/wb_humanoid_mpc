@@ -29,14 +29,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/multi_contact/PlanContactOrder.h"
 
+#include <cstddef>
 #include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
 
 namespace ocs2::humanoid {
 

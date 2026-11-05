@@ -30,7 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_nmpc/humanoid_mpc_ipc/test/MpcLinkTestSupport.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -38,19 +40,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/log/check.h"
-#include "absl/log/log.h"
-#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
+#include "absl/time/time.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerBase.h"
 #include "ocs2_core/control/FeedforwardController.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
 #include "ocs2_oc/multiple_shooting/Helpers.h"
 #include "ocs2_oc/oc_data/PerformanceIndex.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/oc_data/TimeDiscretization.h"
 
+#include "humanoid_mpc_ipc/MpcMessageConversions.h"
+#include "humanoid_mpc_msgs/mpc_policy.pb.h"
 #include "humanoid_nmpc/humanoid_mpc_ipc/test/PolicyTestData.h"
+#include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"
 #include "robot_runtime/robot_ipc/test/TestNetwork.h"
 
@@ -106,9 +119,9 @@ SystemObservation manifoldObservationAt(scalar_t time, scalar_t value) {
   observation.time = time;
   observation.state = vector_t::Constant(
       static_cast<Eigen::Index>(manifoldModelDimensions().stateDim), value);
-  rotation_vector_t<scalar_t> rotation;
-  rotation << 0.6 * value, -0.48 * value, 0.64 * value;
-  observation.state.segment<4>(3) = quaternionExp(rotation);
+  rotation_vector_t<scalar_t> rotvecBaseRtWorld;
+  rotvecBaseRtWorld << 0.6 * value, -0.48 * value, 0.64 * value;
+  observation.state.segment<4>(3) = quaternionExp(rotvecBaseRtWorld);
   observation.input = vector_t::Zero(kInputDim);
   return observation;
 }

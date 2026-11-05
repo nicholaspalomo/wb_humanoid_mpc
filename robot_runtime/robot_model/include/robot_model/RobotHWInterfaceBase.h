@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <atomic>
 #include <cstdint>
-#include <string>
 #include <utility>
 
 #include "robot_core/TripleBuffer.h"

@@ -31,8 +31,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+
 #include "humanoid_common_mpc/locomotion_heuristics/BasePoseHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 
 namespace ocs2::humanoid {
 
@@ -53,11 +58,12 @@ namespace ocs2::humanoid {
  * On a humanoid it also buys something a quadruped needs less of: lowering the
  * base shortens the leg and gives the swing more vertical room within the same
  * joint range, at the cost of knee torque headroom. Which way that trade goes
- * is a question for simulation, which is why `heightPerSpeed` ships at zero.
+ * is a question for simulation, which is why `heightPerSpeedGain` ships at
+ * zero.
  *
  * The result is an OFFSET to the reference height and never an absolute height,
- * because the same channel is what adaptToCurrentGroundHeight() writes the
- * terrain into.
+ * because the same channel is what applyPosSurfaceRtWorldEwrtWorldZ() writes
+ * the terrain into.
  *
  * Like every LocomotionHeuristic, its const methods are safe to call
  * concurrently; configure() is not, and must not run while they do.

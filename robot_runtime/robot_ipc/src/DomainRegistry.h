@@ -38,7 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
-#include "dds/dds.h"
+#include "dds/dds.h"  // NOLINT(misc-include-cleaner): declares dds_entity_t via ignored dds/ddsc/
 
 namespace robot::ipc {
 

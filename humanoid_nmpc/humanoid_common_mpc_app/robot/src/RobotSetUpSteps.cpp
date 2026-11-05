@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
@@ -47,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/TaskFileWatcher.h"
 #include "humanoid_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h"
 #include "humanoid_mpc_ipc/RemoteMpcLink.h"
+#include "humanoid_state_estimator/ContactKinematics.h"
 
 namespace ocs2::humanoid {
 
@@ -106,6 +108,31 @@ RobotProcess::Hooks robotProcessHooks(
   return hooks;
 }
 
+std::vector<estimation::ContactPointSpec> stateEstimatorContacts(
+    const ModelSettings& modelSettings) {
+  std::vector<estimation::ContactPointSpec> contacts;
+  contacts.reserve(modelSettings.contactNames.size());
+  // The 3-DoF contacts come first in contactNames. Their offset is from the
+  // parent joint, so the parent joint's frame is the only one named: the
+  // offset does not apply to a frame of the contact's own name.
+  for (const ModelSettings::PointContact& point : modelSettings.pointContacts) {
+    contacts.push_back(estimation::ContactPointSpec{
+        .frameNames = {point.parentJointName},
+        .posContactRtLinkEwrtLink = point.posContactRtLinkEwrtLink});
+  }
+  // The 6-DoF contacts follow, and contactParentJointNames lists their parents
+  // in their own order.
+  for (size_t contact = 0; contact < modelSettings.contactNames6DoF.size();
+       ++contact) {
+    estimation::ContactPointSpec spec{
+        .frameNames = {modelSettings.contactNames6DoF[contact]}};
+    if (contact < modelSettings.contactParentJointNames.size())
+      spec.frameNames.push_back(modelSettings.contactParentJointNames[contact]);
+    contacts.push_back(std::move(spec));
+  }
+  return contacts;
+}
+
 RobotProcess::Config robotProcessConfig(const RobotAppOptions& options,
                                         const RobotConfigDirectory& directory,
                                         const RobotConfiguration& configuration,
@@ -123,8 +150,7 @@ RobotProcess::Config robotProcessConfig(const RobotAppOptions& options,
   config.configStore =
       configFileStoreConfig(directory, modelSettings.robotName);
   config.urdfFile = options.files.urdfFile;
-  config.contactFrameNames = modelSettings.contactNames;
-  config.contactParentJointNames = modelSettings.contactParentJointNames;
+  config.stateEstimatorContacts = stateEstimatorContacts(modelSettings);
   return config;
 }
 

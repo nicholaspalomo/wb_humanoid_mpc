@@ -29,9 +29,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <string>
 
+#include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 #include "humanoid_common_mpc/locomotion_heuristics/WrenchHeuristic.h"
 
 namespace ocs2::humanoid {
@@ -59,7 +66,7 @@ namespace ocs2::humanoid {
  *
  * Purely vertical, which is what keeps the cheap yaw-invariant input path valid
  * for the whole layer whenever this is the only wrench heuristic listed - see
- * WrenchHeuristic::producesHorizontalForce().
+ * WrenchHeuristic::producesForceFootEwrtWorldXy().
  *
  * Like every LocomotionHeuristic, its const methods are safe to call
  * concurrently; configure() is not, and must not run while they do.
@@ -75,8 +82,9 @@ class ImpulseScalingHeuristic final : public WrenchHeuristic {
       const LocomotionHeuristicModelParameters& model) override;
   std::string describe() const override;
 
-  vector3_t forceOffset(const WrenchHeuristicContext& context,
-                        size_t contactIndex) const override;
+  vector3_t computeOffsetForceFootEwrtWorld(
+      const WrenchHeuristicContext& context,
+      size_t contactIndex) const override;
 
  private:
   ImpulseScalingParameters parameters_;

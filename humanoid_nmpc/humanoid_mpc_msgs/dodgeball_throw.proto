@@ -16,10 +16,10 @@ message DodgeballThrow {
 
   reserved 11 to max;
 
-  // What the operator set: where the ball starts [deg] (its azimuth about the vertical in the robot's yaw frame and its
-  // elevation out of the horizontal plane), its distance from the base [m] and its speed [m/s].
-  double azimuth_deg = 1;
-  double elevation_deg = 2;
+  // What the operator set: where the ball starts, as the azimuth [deg] and elevation [deg] of its position from the base
+  // in the base's yaw (heading) frame, its distance from the base [m] and its speed [m/s].
+  double cmd_azimuth_ball_rt_base_ewrt_heading = 1;
+  double cmd_elevation_ball_rt_base_ewrt_heading = 2;
   double cmd_dist_ball_rt_base = 3;
   double cmd_speed_ball_rt_world = 4;
   // [kg] The ball's mass; required, and positive.
@@ -33,6 +33,5 @@ message DodgeballThrow {
   // Documentation only: the launch speed [m/s], which exceeds `cmd_speed_ball_rt_world` when that was too slow to reach
   // the base, and the momentum the ball arrives with [kg m/s].
   double launch_speed_ball_rt_world = 9;
-  // NOLINTNEXTLINE(frame-naming): the norm of the arriving linear momentum, a scalar that no quantity word names
-  double impact_momentum = 10;
+  double impact_norm_linmom_ball_rt_world_ewrt_world = 10;
 }

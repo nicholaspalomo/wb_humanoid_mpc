@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
@@ -55,6 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/config/costs/DcmTerminalCostFromConfig.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "robot_core/ResourcePaths.h"
 #include "support/ProblemFingerprint.h"
 #include "support/TypedConfigFiles.h"
@@ -233,7 +235,8 @@ TEST_P(FormulationNamesTest,
   absl::StatusOr<std::unique_ptr<DcmTerminalCost>> dcmTerminalCost =
       DcmTerminalCost::Create(
           *interface.getSwitchedModelReferenceManagerPtr(), *config,
-          interface.getNominalComHeight(), interface.getPinocchioInterface(),
+          interface.getNomPosComRtFeetmeanEwrtWorldZ(),
+          interface.getPinocchioInterface(),
           interface.getEffectiveMpcRobotModelAD(), DcmTerminalCost::kTermName,
           interface.modelSettings());
   ASSERT_TRUE(dcmTerminalCost.ok()) << dcmTerminalCost.status();

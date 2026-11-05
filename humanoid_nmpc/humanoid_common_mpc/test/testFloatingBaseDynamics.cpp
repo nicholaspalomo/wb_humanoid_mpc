@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -40,10 +41,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/crba.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -102,17 +106,18 @@ scalar_t spread(size_t i, scalar_t phase) {
  */
 matrix_t coupledBaseMassMatrix(size_t numJoints) {
   const scalar_t mass = 35.0;
-  const vector3_t comOffset(0.04, -0.02, 0.21);
+  const vector3_t posComRtBaseEwrtBase(0.04, -0.02, 0.21);
   matrix3_t skew;
-  skew << 0.0, -comOffset.z(), comOffset.y(), comOffset.z(), 0.0,
-      -comOffset.x(), -comOffset.y(), comOffset.x(), 0.0;
-  matrix3_t inertiaAtCom;
-  inertiaAtCom << 2.1, 0.05, -0.1, 0.05, 1.8, 0.02, -0.1, 0.02, 0.6;
+  skew << 0.0, -posComRtBaseEwrtBase.z(), posComRtBaseEwrtBase.y(),
+      posComRtBaseEwrtBase.z(), 0.0, -posComRtBaseEwrtBase.x(),
+      -posComRtBaseEwrtBase.y(), posComRtBaseEwrtBase.x(), 0.0;
+  matrix3_t inertiaComEwrtBase;
+  inertiaComEwrtBase << 2.1, 0.05, -0.1, 0.05, 1.8, 0.02, -0.1, 0.02, 0.6;
   matrix_t M = matrix_t::Zero(6 + numJoints, 6 + numJoints);
   M.block<3, 3>(0, 0) = mass * matrix3_t::Identity();
   M.block<3, 3>(0, 3) = -mass * skew;
   M.block<3, 3>(3, 0) = mass * skew;
-  M.block<3, 3>(3, 3) = inertiaAtCom - mass * skew * skew;
+  M.block<3, 3>(3, 3) = inertiaComEwrtBase - mass * skew * skew;
   for (size_t j = 0; j < numJoints; ++j) {
     for (Eigen::Index row = 0; row < 6; ++row) {
       M(row, 6 + static_cast<Eigen::Index>(j)) =
@@ -136,8 +141,9 @@ std::string codeGenerationError(size_t numJoints,
   ad_vector_t x(numInputs);
   const matrix_t M = coupledBaseMassMatrix(numJoints);
   for (Eigen::Index i = 0; i < 36; ++i) x(i) = M(i % 6, i / 6);
-  for (Eigen::Index i = 36; i < numInputs; ++i)
+  for (Eigen::Index i = 36; i < numInputs; ++i) {
     x(i) = 0.1 * spread(static_cast<size_t>(i), /*phase=*/0.0);
+  }
   CppAD::Independent(x);
   ad_matrix_t adM = ad_matrix_t::Zero(6 + nj, 6 + nj);
   for (Eigen::Index i = 0; i < 36; ++i) adM(i % 6, i / 6) = x(i);
@@ -192,8 +198,9 @@ TEST(FloatingBaseDynamicsTest,
     generalizedForce(static_cast<Eigen::Index>(i)) =
         30.0 * spread(i, /*phase=*/1.1);
   }
-  for (size_t i = 0; i < kNumJoints; ++i)
+  for (size_t i = 0; i < kNumJoints; ++i) {
     qddJoints(static_cast<Eigen::Index>(i)) = 2.0 * spread(i, /*phase=*/2.3);
+  }
 
   const vector6_t baseGeneralizedAcceleration =
       computeBaseGeneralizedAcceleration<scalar_t>(M, nle, qddJoints,
@@ -240,19 +247,22 @@ class FloatingBaseInverseDynamicsTest : public ::testing::Test {
     ASSERT_EQ(model.nq, model.nv + 1);
     q_ = vector_t(model.nq);
     v_ = vector_t(model.nv);
-    for (Eigen::Index i = 0; i < model.nq; ++i)
+    for (Eigen::Index i = 0; i < model.nq; ++i) {
       q_(i) = 0.3 * spread(static_cast<size_t>(i), /*phase=*/0.7);
+    }
     q_(2) = 0.75;  // the base height does not enter the dynamics, but keep the
                    // robot standing
     // A tilted, turned base: the root quaternion of the spread values,
     // normalized.
     q_.segment<4>(kBaseTranslationDim).normalize();
-    for (Eigen::Index i = 0; i < model.nv; ++i)
+    for (Eigen::Index i = 0; i < model.nv; ++i) {
       v_(i) = 0.5 * spread(static_cast<size_t>(i), /*phase=*/1.9);
+    }
     qddJoints_ =
         vector_t(model.nv - static_cast<Eigen::Index>(kBaseVelocityDim));
-    for (Eigen::Index i = 0; i < qddJoints_.size(); ++i)
+    for (Eigen::Index i = 0; i < qddJoints_.size(); ++i) {
       qddJoints_(i) = 1.5 * spread(static_cast<size_t>(i), /*phase=*/0.4);
+    }
     wrenchFeetEwrtWorld_ = {vector6_t::Zero(), vector6_t::Zero()};
     for (Eigen::Index i = 0; i < 6; ++i) {
       wrenchFeetEwrtWorld_[0](i) =

@@ -75,9 +75,10 @@ LoadedScenario standingInFrontOfTheBox() {
     contact.primitive = "ground";
     scenario.goal.contacts.push_back(contact);
   }
-  scenario.goal.pose = scenario.initial_pose;
+  scenario.goal.posture = scenario.initial_posture;
   config::Scenario::BaseRegion region;
-  region.center = Eigen::Vector3d(scenario.initial_pose.base_position);
+  region.pos_box_rt_world_ewrt_world =
+      Eigen::Vector3d(scenario.initial_posture.pos_base_rt_world_ewrt_world);
   region.half_extents = Eigen::Vector3d::Constant(0.1);
   scenario.goal.base_region = region;
   return *std::move(loaded);

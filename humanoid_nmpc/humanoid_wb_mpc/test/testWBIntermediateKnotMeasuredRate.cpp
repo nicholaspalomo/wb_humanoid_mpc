@@ -132,60 +132,68 @@ vector2_t rotated(scalar_t angle, const vector2_t& vector) {
 /** A planar pose: the position of the base in the ground plane and its heading.
  * Passive data. */
 struct PlanarPose {
-  vector2_t position = vector2_t::Zero();
-  scalar_t heading = 0.0;
+  vector2_t posBaseRtWorldEwrtWorldXy = vector2_t::Zero();
+  scalar_t yawBaseRtWorld = 0.0;
 };
 
 /**
  * `start` moved for `duration` by RK4 (2000 steps) of the unicycle dp/dt =
  * R_z(psi) v, dpsi/dt = omega, at the constant body planar twist
- * (`linvelBaseRtWorldEwrtHeadingXy`, `yawRate`): independent of the
+ * (`linvelBaseRtWorldEwrtHeadingXy`, `rateYawBaseRtWorld`): independent of the
  * calculator's closed form.
  */
 PlanarPose integrated(const PlanarPose& start,
                       const vector2_t& linvelBaseRtWorldEwrtHeadingXy,
-                      scalar_t yawRate,
+                      scalar_t rateYawBaseRtWorld,
                       scalar_t duration) {
   constexpr int kSteps = 2000;
   const scalar_t step = duration / kSteps;
-  PlanarPose pose = start;
+  PlanarPose planarBase = start;
   for (int i = 0; i < kSteps; ++i) {
-    const vector2_t k1 = rotated(pose.heading, linvelBaseRtWorldEwrtHeadingXy);
-    const vector2_t k23 = rotated(pose.heading + 0.5 * step * yawRate,
-                                  linvelBaseRtWorldEwrtHeadingXy);
+    const vector2_t k1 =
+        rotated(planarBase.yawBaseRtWorld, linvelBaseRtWorldEwrtHeadingXy);
+    const vector2_t k23 =
+        rotated(planarBase.yawBaseRtWorld + 0.5 * step * rateYawBaseRtWorld,
+                linvelBaseRtWorldEwrtHeadingXy);
     const vector2_t k4 =
-        rotated(pose.heading + step * yawRate, linvelBaseRtWorldEwrtHeadingXy);
-    pose.position += step / 6.0 * (k1 + 4.0 * k23 + k4);
-    pose.heading += step * yawRate;
+        rotated(planarBase.yawBaseRtWorld + step * rateYawBaseRtWorld,
+                linvelBaseRtWorldEwrtHeadingXy);
+    planarBase.posBaseRtWorldEwrtWorldXy += step / 6.0 * (k1 + 4.0 * k23 + k4);
+    planarBase.yawBaseRtWorld += step * rateYawBaseRtWorld;
   }
-  return pose;
+  return planarBase;
 }
 
 /**
- * `heading` - `reference` wrapped into [-pi, pi]: a knot's heading is read back
- * from its quaternion in (-pi, pi] (getPoseeulerzyxBaseRtWorld()), the
- * integrated one is unbounded.
+ * `yawBaseRtWorld` - `refYawBaseRtWorld` wrapped into [-pi, pi]: a knot's
+ * heading is read back from its quaternion in (-pi, pi]
+ * (getYawBaseRtWorld(), the twist heading), the integrated one is unbounded.
  */
-scalar_t headingDifference(scalar_t heading, scalar_t reference) {
-  return std::remainder(heading - reference, 2.0 * M_PI);
+scalar_t computeErrYawBaseRtWorld(scalar_t yawBaseRtWorld,
+                                  scalar_t refYawBaseRtWorld) {
+  return std::remainder(yawBaseRtWorld - refYawBaseRtWorld, 2.0 * M_PI);
 }
 
 /** The planar pose of a knot. */
-PlanarPose planarPoseOf(const MpcRobotModelBase<scalar_t>& model,
+PlanarPose planarBaseOf(const MpcRobotModelBase<scalar_t>& model,
                         const vector_t& knot) {
-  const vector6_t pose = model.getPoseeulerzyxBaseRtWorld(knot);
-  return PlanarPose{.position = vector2_t(pose(0), pose(1)),
-                    .heading = pose(3)};
+  const vector3_t posBaseRtWorldEwrtWorld =
+      model.getPosBaseRtWorldEwrtWorld(knot);
+  return PlanarPose{.posBaseRtWorldEwrtWorldXy = vector2_t(
+                        posBaseRtWorldEwrtWorld(0), posBaseRtWorldEwrtWorld(1)),
+                    .yawBaseRtWorld = model.getYawBaseRtWorld(knot)};
 }
 
-/** The initial state at the planar pose `pose`, level and still. */
-vector_t standingAt(const WholeBodyCalculator& g1, const PlanarPose& pose) {
+/** The initial state at the planar pose `planarBase`, level and still. */
+vector_t standingAt(const WholeBodyCalculator& g1,
+                    const PlanarPose& planarBase) {
   vector_t state = g1.initialState;
   g1.model->setPoseeulerzyxBaseRtWorld(
-      state,
-      (vector6_t() << pose.position(0), pose.position(1),
-       g1.model->getPosBaseRtWorldEwrtWorld(state)(2), pose.heading, 0.0, 0.0)
-          .finished());
+      state, (vector6_t() << planarBase.posBaseRtWorldEwrtWorldXy(0),
+              planarBase.posBaseRtWorldEwrtWorldXy(1),
+              g1.model->getPosBaseRtWorldEwrtWorld(state)(2),
+              planarBase.yawBaseRtWorld, 0.0, 0.0)
+                 .finished());
   return state;
 }
 
@@ -193,7 +201,8 @@ TEST(WBIntermediateKnotMeasuredRate,
      TheKnotsLieOnTheArcOfTheirTwistAndMoveAtTheCommandInTheirHeadingFrame) {
   absl::StatusOr<WholeBodyCalculator> g1 = loadG1();
   ASSERT_TRUE(g1.ok()) << g1.status();
-  const PlanarPose start{.position = vector2_t(-1.0, 2.0), .heading = 2.5};
+  const PlanarPose start{.posBaseRtWorldEwrtWorldXy = vector2_t(-1.0, 2.0),
+                         .yawBaseRtWorld = 2.5};
   const BasePlanarMotion measured{
       .linvelBaseRtWorldEwrtHeadingXy = vector2_t(0.25, -0.05),
       .rateYawBaseRtWorld = 0.6};
@@ -204,34 +213,41 @@ TEST(WBIntermediateKnotMeasuredRate,
       g1->calculator->velocityCommandToTargetTrajectories(
           command, kInitTime, standingAt(*g1, start), measured);
   ASSERT_EQ(targets.stateTrajectory.size(), 3);
-  const vector2_t commandVelocity =
+  const vector2_t cmdLinvelBaseRtWorldEwrtHeadingXy =
       kFirstCommandFactor * vector2_t(command(0), command(1));
-  const scalar_t commandYawRate = kFirstCommandFactor * command(3);
-  const PlanarPose intermediate = integrated(
-      start, 0.5 * (measured.linvelBaseRtWorldEwrtHeadingXy + commandVelocity),
-      0.5 * (measured.rateYawBaseRtWorld + commandYawRate),
-      kFirstSegmentShare * kHorizon);
+  const scalar_t cmdRateYawBaseRtWorld = kFirstCommandFactor * command(3);
+  const PlanarPose intermediate =
+      integrated(start,
+                 0.5 * (measured.linvelBaseRtWorldEwrtHeadingXy +
+                        cmdLinvelBaseRtWorldEwrtHeadingXy),
+                 0.5 * (measured.rateYawBaseRtWorld + cmdRateYawBaseRtWorld),
+                 kFirstSegmentShare * kHorizon);
   const PlanarPose last =
-      integrated(intermediate, commandVelocity, commandYawRate,
-                 (1.0 - kFirstSegmentShare) * kHorizon);
+      integrated(intermediate, cmdLinvelBaseRtWorldEwrtHeadingXy,
+                 cmdRateYawBaseRtWorld, (1.0 - kFirstSegmentShare) * kHorizon);
   const std::vector<PlanarPose> expected = {start, intermediate, last};
   for (size_t i = 0; i < 3; ++i) {
     SCOPED_TRACE(i);
     const vector_t& knot = targets.stateTrajectory[i];
-    const PlanarPose pose = planarPoseOf(*g1->model, knot);
-    EXPECT_LT((pose.position - expected[i].position).norm(), 1.0e-12)
-        << pose.position.transpose();
-    EXPECT_NEAR(headingDifference(pose.heading, expected[i].heading), 0.0,
-                1.0e-12);
+    const PlanarPose planarBase = planarBaseOf(*g1->model, knot);
+    EXPECT_LT((planarBase.posBaseRtWorldEwrtWorldXy -
+               expected[i].posBaseRtWorldEwrtWorldXy)
+                  .norm(),
+              1.0e-12)
+        << planarBase.posBaseRtWorldEwrtWorldXy.transpose();
+    EXPECT_NEAR(computeErrYawBaseRtWorld(planarBase.yawBaseRtWorld,
+                                         expected[i].yawBaseRtWorld),
+                0.0, 1.0e-12);
     // The base velocity: the command turned into the world at the knot's
     // heading, turning at the commanded yaw rate.
-    const vector3_t command3 =
-        g1->model->getTargetPlanarCommand(knot, /*compositeYawInertia=*/0.0);
+    const vector3_t refPlanarMotion =
+        g1->model->getRefPlanarMotion(knot, /*inertiaComEwrtWorldZz=*/0.0);
     EXPECT_LT(
-        (vector2_t(command3.head<2>()) - rotated(pose.heading, commandVelocity))
+        (vector2_t(refPlanarMotion.head<2>()) -
+         rotated(planarBase.yawBaseRtWorld, cmdLinvelBaseRtWorldEwrtHeadingXy))
             .norm(),
         1.0e-14);
-    EXPECT_NEAR(command3(2), commandYawRate, 1.0e-14);
+    EXPECT_NEAR(refPlanarMotion(2), cmdRateYawBaseRtWorld, 1.0e-14);
   }
 }
 
@@ -240,7 +256,8 @@ TEST(
     OnAStraightLineTheFirstSegmentIsTheTrapezoidOfTheMeasuredAndTheCommandedVelocity) {
   absl::StatusOr<WholeBodyCalculator> g1 = loadG1();
   ASSERT_TRUE(g1.ok()) << g1.status();
-  const PlanarPose start{.position = vector2_t(0.5, -0.3), .heading = 1.0};
+  const PlanarPose start{.posBaseRtWorldEwrtWorldXy = vector2_t(0.5, -0.3),
+                         .yawBaseRtWorld = 1.0};
   const BasePlanarMotion measured{
       .linvelBaseRtWorldEwrtHeadingXy = vector2_t(0.2, -0.1),
       .rateYawBaseRtWorld = 0.0};
@@ -249,14 +266,15 @@ TEST(
       g1->calculator->velocityCommandToTargetTrajectories(
           command, kInitTime, standingAt(*g1, start), measured);
   ASSERT_EQ(targets.stateTrajectory.size(), 3);
-  const vector2_t commandVelocity =
+  const vector2_t cmdLinvelBaseRtWorldEwrtHeadingXy =
       kFirstCommandFactor * vector2_t(command(0), command(1));
   const vector2_t expected =
       kFirstSegmentShare * kHorizon *
       rotated(/*angle=*/1.0, 0.5 * (measured.linvelBaseRtWorldEwrtHeadingXy +
-                                    commandVelocity));
-  EXPECT_LT((planarPoseOf(*g1->model, targets.stateTrajectory[1]).position -
-             start.position - expected)
+                                    cmdLinvelBaseRtWorldEwrtHeadingXy));
+  EXPECT_LT((planarBaseOf(*g1->model, targets.stateTrajectory[1])
+                 .posBaseRtWorldEwrtWorldXy -
+             start.posBaseRtWorldEwrtWorldXy - expected)
                 .norm(),
             1.0e-14);
 }
@@ -268,7 +286,8 @@ TEST(WBIntermediateKnotMeasuredRate,
   // A spin of 9 rad/s: the first segment turns by 0.7 T (9 + 1) / 2 = 3.5 rad,
   // past pi. Cut into at least the three parts of the yaw spacing, more for the
   // chord of the turning velocity target (knotSubdivisionCount()).
-  const PlanarPose start{.position = vector2_t(0.2, 0.1), .heading = 0.3};
+  const PlanarPose start{.posBaseRtWorldEwrtWorldXy = vector2_t(0.2, 0.1),
+                         .yawBaseRtWorld = 0.3};
   const BasePlanarMotion measured{
       .linvelBaseRtWorldEwrtHeadingXy = vector2_t(0.3, 0.1),
       .rateYawBaseRtWorld = 9.0};
@@ -276,25 +295,29 @@ TEST(WBIntermediateKnotMeasuredRate,
   const TargetTrajectories targets =
       g1->calculator->velocityCommandToTargetTrajectories(
           command, kInitTime, standingAt(*g1, start), measured);
-  const vector2_t commandVelocity =
+  const vector2_t cmdLinvelBaseRtWorldEwrtHeadingXy =
       kFirstCommandFactor * vector2_t(command(0), command(1));
-  const scalar_t commandYawRate = kFirstCommandFactor * command(3);
-  const vector2_t meanVelocity =
-      0.5 * (measured.linvelBaseRtWorldEwrtHeadingXy + commandVelocity);
-  const scalar_t meanYawRate =
-      0.5 * (measured.rateYawBaseRtWorld + commandYawRate);
+  const scalar_t cmdRateYawBaseRtWorld = kFirstCommandFactor * command(3);
+  const vector2_t meanLinvelBaseRtWorldEwrtHeadingXy =
+      0.5 * (measured.linvelBaseRtWorldEwrtHeadingXy +
+             cmdLinvelBaseRtWorldEwrtHeadingXy);
+  const scalar_t meanRateYawBaseRtWorld =
+      0.5 * (measured.rateYawBaseRtWorld + cmdRateYawBaseRtWorld);
   using Extent = TargetTrajectoriesCalculatorBase::KnotSegmentExtent;
   const size_t firstParts =
       TargetTrajectoriesCalculatorBase::knotSubdivisionCount(Extent{
-          .yawChange = meanYawRate * kFirstSegmentShare * kHorizon,
-          .arcLength = meanVelocity.norm() * kFirstSegmentShare * kHorizon,
-          .targetSpeed = commandVelocity.norm()});
+          .errYawBaseRtWorld =
+              meanRateYawBaseRtWorld * kFirstSegmentShare * kHorizon,
+          .arcLength = meanLinvelBaseRtWorldEwrtHeadingXy.norm() *
+                       kFirstSegmentShare * kHorizon,
+          .cmdSpeedBaseRtWorld = cmdLinvelBaseRtWorldEwrtHeadingXy.norm()});
   const size_t secondParts =
       TargetTrajectoriesCalculatorBase::knotSubdivisionCount(Extent{
-          .yawChange = commandYawRate * (1.0 - kFirstSegmentShare) * kHorizon,
-          .arcLength =
-              commandVelocity.norm() * (1.0 - kFirstSegmentShare) * kHorizon,
-          .targetSpeed = commandVelocity.norm()});
+          .errYawBaseRtWorld =
+              cmdRateYawBaseRtWorld * (1.0 - kFirstSegmentShare) * kHorizon,
+          .arcLength = cmdLinvelBaseRtWorldEwrtHeadingXy.norm() *
+                       (1.0 - kFirstSegmentShare) * kHorizon,
+          .cmdSpeedBaseRtWorld = cmdLinvelBaseRtWorldEwrtHeadingXy.norm()});
   ASSERT_GE(firstParts, 3);
   ASSERT_EQ(targets.stateTrajectory.size(), 1 + firstParts + secondParts);
   EXPECT_NEAR(targets.timeTrajectory[firstParts],
@@ -304,19 +327,23 @@ TEST(WBIntermediateKnotMeasuredRate,
     SCOPED_TRACE(i);
     EXPECT_GT(targets.timeTrajectory[i], targets.timeTrajectory[i - 1]);
     const PlanarPose knot =
-        planarPoseOf(*g1->model, targets.stateTrajectory[i]);
-    EXPECT_LE(
-        std::abs(headingDifference(
-            knot.heading,
-            planarPoseOf(*g1->model, targets.stateTrajectory[i - 1]).heading)),
-        0.5 * M_PI + 1.0e-12);
+        planarBaseOf(*g1->model, targets.stateTrajectory[i]);
+    EXPECT_LE(std::abs(computeErrYawBaseRtWorld(
+                  knot.yawBaseRtWorld,
+                  planarBaseOf(*g1->model, targets.stateTrajectory[i - 1])
+                      .yawBaseRtWorld)),
+              0.5 * M_PI + 1.0e-12);
     if (i <= firstParts) {
-      const PlanarPose onTheArc =
-          integrated(start, meanVelocity, meanYawRate,
-                     targets.timeTrajectory[i] - kInitTime);
-      EXPECT_LT((knot.position - onTheArc.position).norm(), 1.0e-12);
-      EXPECT_NEAR(headingDifference(knot.heading, onTheArc.heading), 0.0,
-                  1.0e-12);
+      const PlanarPose onTheArc = integrated(
+          start, meanLinvelBaseRtWorldEwrtHeadingXy, meanRateYawBaseRtWorld,
+          targets.timeTrajectory[i] - kInitTime);
+      EXPECT_LT(
+          (knot.posBaseRtWorldEwrtWorldXy - onTheArc.posBaseRtWorldEwrtWorldXy)
+              .norm(),
+          1.0e-12);
+      EXPECT_NEAR(computeErrYawBaseRtWorld(knot.yawBaseRtWorld,
+                                           onTheArc.yawBaseRtWorld),
+                  0.0, 1.0e-12);
     }
   }
 }

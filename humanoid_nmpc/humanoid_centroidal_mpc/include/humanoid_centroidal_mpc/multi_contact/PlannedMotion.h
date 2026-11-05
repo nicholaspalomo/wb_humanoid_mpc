@@ -36,11 +36,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 
 #include "humanoid_centroidal_mpc/multi_contact/PlanContactOrder.h"
-#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactPatchFrame.h"
@@ -54,9 +54,9 @@ struct PlannedContactPhase {
   scalar_t startTime = 0.0;  // [s] plan time
   scalar_t endTime = 0.0;    // [s] plan time, >= startTime
   // [m] The target pad center, in the world frame.
-  vector3_t targetPosition = vector3_t::Zero();
+  vector3_t desPosContactRtWorldEwrtWorld = vector3_t::Zero();
   // The patch's outward unit normal, in the world frame.
-  vector3_t normal = vector3_t::UnitZ();
+  vector3_t desNormalSurfaceEwrtWorld = vector3_t::UnitZ();
   // The patch frame the contact terms are written in (getContactPatchFrame()):
   // world-aligned exactly when the normal is the world z axis.
   ContactPatchFrame patch;
@@ -158,11 +158,13 @@ class PlannedMotion {
   TargetTrajectories targetsOver(scalar_t from, scalar_t to) const;
   /**
    * The plan's contact wrenches at plan time `planTime`, those of the last
-   * knot at or before it, in the MPC's input layout (forces and moments in the
-   * world frame, every other entry zero): the force reference of
-   * multi_contact_plan.force_reference "planned_wrenches".
+   * knot at or before it, in the MPC's input layout (the plan's world-frame
+   * wrenches written through the state-aware world setters, so in the frame of
+   * the input parameterization, `param`, every other entry zero): the force
+   * reference of
+   * multi_contact_plan.force_reference_mode "planned_wrenches".
    */
-  const vector_t& plannedWrenchesAt(scalar_t planTime) const;
+  const vector_t& plannedInputAt(scalar_t planTime) const;
   /** The MPC state of the first knot: the state the MPC and its dummy
    * simulator start from. */
   const vector_t& initialState() const { return targets_.stateTrajectory[0]; }
@@ -216,11 +218,13 @@ class PlannedMotion {
 
   const PlanContactOrder& order() const { return order_; }
 
-  /** The patch frame of the patch with outward unit normal `normal` through
-   * `point`: z the normal, x the world x axis made orthogonal to it (the world
-   * y axis where the normal is near x), and the offset n . point. */
-  static ContactPatchFrame patchFrameOf(const vector3_t& point,
-                                        const vector3_t& normal);
+  /** The patch frame of the patch with outward unit normal
+   * `normalSurfaceEwrtWorld` through `posSurfaceRtWorldEwrtWorld`: z the
+   * normal, x the world x axis made orthogonal to it (the world y axis where
+   * the normal is near x), and the offset n . p. */
+  static ContactPatchFrame patchFrameOf(
+      const vector3_t& posSurfaceRtWorldEwrtWorld,
+      const vector3_t& normalSurfaceEwrtWorld);
 
  private:
   explicit PlannedMotion(PlanContactOrder order) : order_(std::move(order)) {}
@@ -239,7 +243,7 @@ class PlannedMotion {
   std::optional<scalar_t> period_;
   TargetTrajectories targets_;  // at least one knot, times increasing
   // Per knot of targets_, the plan's wrenches in the MPC's input layout.
-  vector_array_t plannedWrenches_;
+  vector_array_t plannedInputs_;
   std::vector<scalar_t> eventTimes_;
   std::vector<size_t> modeSequence_;  // eventTimes_.size() + 1 entries
   // One list per MPC contact, each in time order.

@@ -45,9 +45,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
@@ -548,8 +548,9 @@ absl::StatusOr<matrix_t> trackingStateWeightsFromConfig(
     BasePoseWeights basePoseWeights) {
   ASSIGN_OR_RETURN(matrix_t Q,
                    stateWeightsFromConfig(weights, layout, fieldPath));
-  if (basePoseWeights == BasePoseWeights::kZeroedForComAndAcomTracking)
+  if (basePoseWeights == BasePoseWeights::kZeroedForComAndAcomTracking) {
     ComAndAcomTrackingCost::zeroBasePoseWeights(Q);
+  }
   return Q;
 }
 

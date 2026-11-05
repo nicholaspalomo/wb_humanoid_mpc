@@ -46,12 +46,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "ocs2_core/Types.h"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 #include "pinocchio/parsers/urdf.hpp"
+#include "pinocchio/spatial/fwd.hpp"
+
+#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid::estimation {
 
@@ -101,8 +104,9 @@ constexpr int kContinuousJointCoordinates = 2;
 std::string frameNames(const pinocchio::Model& model) {
   std::vector<std::string> names;
   names.reserve(model.frames.size());
-  for (const pinocchio::Frame& frame : model.frames)
+  for (const pinocchio::Frame& frame : model.frames) {
     names.push_back(frame.name);
+  }
   return absl::StrJoin(names, ", ");
 }
 
@@ -150,8 +154,9 @@ absl::StatusOr<std::unique_ptr<ContactKinematics>> ContactKinematics::Create(
   }
 
   absl::flat_hash_map<std::string, size_t> robotJointByName;
-  for (size_t joint = 0; joint < jointNames.size(); ++joint)
+  for (size_t joint = 0; joint < jointNames.size(); ++joint) {
     robotJointByName.emplace(jointNames[joint], joint);
+  }
   std::vector<Model::Joint> modelJoints;
   // Joint 0 is the universe: the base link of the fixed-base model.
   for (pinocchio::JointIndex joint = 1;
@@ -168,8 +173,9 @@ absl::StatusOr<std::unique_ptr<ContactKinematics>> ContactKinematics::Create(
     }
     const absl::flat_hash_map<std::string, size_t>::const_iterator robotJoint =
         robotJointByName.find(model->names[joint]);
-    if (robotJoint == robotJointByName.end())
+    if (robotJoint == robotJointByName.end()) {
       continue;  // not the robot's: stays neutral
+    }
     modelJoints.push_back(Model::Joint{.robotJoint = robotJoint->second,
                                        .qIndex = model->idx_qs[joint],
                                        .vIndex = model->idx_vs[joint],

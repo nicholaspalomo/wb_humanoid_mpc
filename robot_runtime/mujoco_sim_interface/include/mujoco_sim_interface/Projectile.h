@@ -353,21 +353,21 @@ absl::StatusOr<ProjectileLaunch> clearProjectileLaunch(
     mjData* absl_nullable data,
     int projectileBodyId,
     const ProjectileLaunch& requested,
-    double gravity);
+    double gravityMagnitude);
 
-/** [m/s] The velocity of a ball thrown at `launchVelocity` (world frame, z up)
- * after `flightTime`: v_launch - g t z. */
+/** [m/s] The velocity of a ball thrown at `launchLinvelBallRtWorldEwrtWorld`
+ * (world frame, z up) after `flightTime`: v_launch - g t z. */
 std::array<double, ocs2::kPositionDim> computeArrivalLinvelBallRtWorldEwrtWorld(
     const std::array<double, ocs2::kPositionDim>&
         launchLinvelBallRtWorldEwrtWorld,
     double flightTime,
-    double gravity);
+    double gravityMagnitude);
 
 /**
  * [N s] The normal impulse a ball of mass `ballMass` hands to a body it strikes
- * at the relative normal speed `approachSpeed` (> 0 approaching), where the
- * body has the effective mass `effectiveMass` along the normal, with the
- * coefficient of restitution `restitution`:
+ * at the relative normal speed `approachSpeedBallRtLink` (> 0 approaching),
+ * where the body has the effective mass `effectiveMass` along the normal, with
+ * the coefficient of restitution `restitution`:
  *
  *     J = (1 + e) mu v,    mu = m M / (m + M),
  *
@@ -380,16 +380,17 @@ std::array<double, ocs2::kPositionDim> computeArrivalLinvelBallRtWorldEwrtWorld(
 double projectileImpactImpulse(double ballMass,
                                double effectiveMass,
                                double restitution,
-                               double approachSpeed);
+                               double approachSpeedBallRtLink);
 
 /**
  * Decides when a thrown ball is finished with and should be parked again, so
  * the robot cannot trip over it later and the next throw starts clean.
  *
  * Two conditions, either of which parks it: the ball has been slower than
- * kRestSpeed for kRestDuration, or it has been in play for kLifetime. The
- * second is not a formality. Speed alone is not a reliable signal - a ball that
- * lodges against a moving foot, or rolls on a slope, may never be slow for long
+ * kRestMaxSpeedBallRtWorld for kRestDuration, or it has been in play for
+ * kLifetime. The second is not a formality. Speed alone is not a reliable
+ * signal - a ball that lodges against a moving foot, or rolls on a slope, may
+ * never be slow for long
  * - and a ball left in play forever pulls the world's center of mass around and
  * can trip the robot minutes later.
  *
@@ -397,17 +398,17 @@ double projectileImpactImpulse(double ballMass,
  */
 class ProjectileRestMonitor {
  public:
-  static constexpr double kRestSpeed = 0.15;     // [m/s]
-  static constexpr double kRestDuration = 0.25;  // [s]
+  static constexpr double kRestMaxSpeedBallRtWorld = 0.15;  // [m/s]
+  static constexpr double kRestDuration = 0.25;             // [s]
   static constexpr double kLifetime =
       10.0;  // [s] a few bounces and a roll to rest, with margin
 
   /** Starts timing a newly thrown ball. */
   void start();
 
-  /** Advances by `dt` at linear speed `speed`, and returns true once the ball
-   * should be parked. */
-  bool update(double speed, double dt);
+  /** Advances by `dt` at the ball's speed `speedBallRtWorld`, and returns true
+   * once the ball should be parked. */
+  bool update(double speedBallRtWorld, double dt);
 
  private:
   double slowTime_ = 0.0;

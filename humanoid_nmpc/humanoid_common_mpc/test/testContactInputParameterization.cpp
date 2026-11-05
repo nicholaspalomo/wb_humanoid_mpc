@@ -43,7 +43,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
@@ -55,6 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
+#include "humanoid_mpc_config/contacts_config.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.pb.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
@@ -395,8 +395,9 @@ TEST_F(ContactWrenchConeBasesTest,
   unknown.contacts.basis_generator_set = "exact";
   std::vector<std::string> phrases = {std::string(kBasisGeneratorSetKey),
                                       "'exact'"};
-  for (const std::string& name : basisGeneratorSetNames())
+  for (const std::string& name : basisGeneratorSetNames()) {
     phrases.push_back(name);
+  }
   expectInvalidArgumentNaming(
       contactWrenchConeBasesFromConfig(unknown.contacts, *modelSettings_)
           .status(),

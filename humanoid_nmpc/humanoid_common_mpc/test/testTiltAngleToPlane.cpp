@@ -28,16 +28,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <cmath>
+#include <cstddef>
 #include <functional>
+#include <numbers>
 #include <random>
-#include <vector>
 
 #include "Eigen/Geometry"
 #include "gtest/gtest.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/CppAdInterface.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 
 /*
@@ -85,9 +90,9 @@ matrix3_t randomRotation(std::mt19937& generator) {
 /** exp([phi]x) R0: R0 turned by the world rotation vector phi. */
 template <typename SCALAR_T>
 MATRIX3_T<SCALAR_T> worldRotated(const VECTOR3_T<SCALAR_T>& phi,
-                                 const MATRIX3_T<SCALAR_T>& rotation) {
+                                 const MATRIX3_T<SCALAR_T>& rotmatEeRtWorld) {
   return quaternionRotationMatrix<SCALAR_T>(quaternionExp<SCALAR_T>(phi)) *
-         rotation;
+         rotmatEeRtWorld;
 }
 
 /** The tilt of exp([x]x) R0 against n, with p = [R0 (column-major), n]: the
@@ -96,31 +101,35 @@ template <typename SCALAR_T>
 VECTOR3_T<SCALAR_T> perturbedTilt(
     const Eigen::Matrix<SCALAR_T, Eigen::Dynamic, 1>& x,
     const Eigen::Matrix<SCALAR_T, Eigen::Dynamic, 1>& p) {
-  const MATRIX3_T<SCALAR_T> rotation =
+  const MATRIX3_T<SCALAR_T> rotmatEeRtWorld =
       Eigen::Map<const MATRIX3_T<SCALAR_T>>(p.data());
-  const VECTOR3_T<SCALAR_T> planeNormal =
+  const VECTOR3_T<SCALAR_T> normalSurfaceEwrtWorld =
       p.template segment<kPositionDim>(kRotationMatrixCoefficients);
   return tiltAngleToPlane<SCALAR_T>(
       worldRotated<SCALAR_T>(
           VECTOR3_T<SCALAR_T>(x.template head<kRotationTangentDim>()),
-          rotation),
-      planeNormal);
+          rotmatEeRtWorld),
+      normalSurfaceEwrtWorld);
 }
 
-vector_t parametersOf(const matrix3_t& rotation, const vector3_t& planeNormal) {
+vector_t parametersOf(const matrix3_t& rotmatEeRtWorld,
+                      const vector3_t& normalSurfaceEwrtWorld) {
   vector_t p(kParameterDim);
-  p << Eigen::Map<const vector_t>(rotation.data(), kRotationMatrixCoefficients),
-      planeNormal;
+  p << Eigen::Map<const vector_t>(rotmatEeRtWorld.data(),
+                                  kRotationMatrixCoefficients),
+      normalSurfaceEwrtWorld;
   return p;
 }
 
-/** A rotation whose z axis is `normal`: the foot standing flat on the plane of
- * that normal, at a random heading. */
-matrix3_t standingOn(const vector3_t& normal, std::mt19937& generator) {
-  std::uniform_real_distribution<scalar_t> heading(-M_PI, M_PI);
-  const matrix3_t arc =
-      Eigen::Quaterniond::FromTwoVectors(vector3_t::UnitZ(), normal)
-          .toRotationMatrix();
+/** A rotation whose z axis is `normalSurfaceEwrtWorld`: the foot standing flat
+ * on the plane of that normal, at a random heading. */
+matrix3_t standingOn(const vector3_t& normalSurfaceEwrtWorld,
+                     std::mt19937& generator) {
+  std::uniform_real_distribution<scalar_t> heading(-std::numbers::pi,
+                                                   std::numbers::pi);
+  const matrix3_t arc = Eigen::Quaterniond::FromTwoVectors(
+                            vector3_t::UnitZ(), normalSurfaceEwrtWorld)
+                            .toRotationMatrix();
   return arc * Eigen::AngleAxisd(heading(generator), vector3_t::UnitZ())
                    .toRotationMatrix();
 }
@@ -130,25 +139,30 @@ matrix3_t standingOn(const vector3_t& normal, std::mt19937& generator) {
 TEST(TiltAngleToPlane, IsTheAngleAboutTheAxisThatTurnsTheNormalIntoTheFoot) {
   std::mt19937 generator(29);
   for (int trial = 0; trial < 1000; ++trial) {
-    const matrix3_t rotation = randomRotation(generator);
-    const vector3_t planeNormal = randomUnitVector(generator);
-    const vector3_t footNormal = rotation.col(2);
-    const vector3_t tilt = tiltAngleToPlane<scalar_t>(rotation, planeNormal);
-    const scalar_t angle = std::atan2(planeNormal.cross(footNormal).norm(),
-                                      planeNormal.dot(footNormal));
-    EXPECT_NEAR(tilt.norm(), angle, kTol) << "trial " << trial;
-    EXPECT_NEAR(tilt.dot(planeNormal), 0.0, kTol)
+    const matrix3_t rotmatEeRtWorld = randomRotation(generator);
+    const vector3_t normalSurfaceEwrtWorld = randomUnitVector(generator);
+    const vector3_t zAxisEeEwrtWorld = rotmatEeRtWorld.col(2);
+    const vector3_t errRotvecEeRtWorld =
+        tiltAngleToPlane<scalar_t>(rotmatEeRtWorld, normalSurfaceEwrtWorld);
+    const scalar_t angle =
+        std::atan2(normalSurfaceEwrtWorld.cross(zAxisEeEwrtWorld).norm(),
+                   normalSurfaceEwrtWorld.dot(zAxisEeEwrtWorld));
+    EXPECT_NEAR(errRotvecEeRtWorld.norm(), angle, kTol) << "trial " << trial;
+    EXPECT_NEAR(errRotvecEeRtWorld.dot(normalSurfaceEwrtWorld), 0.0, kTol)
         << "trial " << trial << ": the tilt has no part about the plane normal";
     const vector3_t turned =
-        Eigen::AngleAxisd(tilt.norm(), tilt.normalized()) * planeNormal;
-    EXPECT_LT((turned - footNormal).norm(), 1.0e-11)
+        Eigen::AngleAxisd(errRotvecEeRtWorld.norm(),
+                          errRotvecEeRtWorld.normalized()) *
+        normalSurfaceEwrtWorld;
+    EXPECT_LT((turned - zAxisEeEwrtWorld).norm(), 1.0e-11)
         << "trial " << trial << ": exp([e]x) n is the foot normal";
   }
   // Standing flat on the plane, at any heading, the tilt is zero.
   for (int trial = 0; trial < 100; ++trial) {
-    const vector3_t planeNormal = randomUnitVector(generator);
-    EXPECT_LT(tiltAngleToPlane<scalar_t>(standingOn(planeNormal, generator),
-                                         planeNormal)
+    const vector3_t normalSurfaceEwrtWorld = randomUnitVector(generator);
+    EXPECT_LT(tiltAngleToPlane<scalar_t>(
+                  standingOn(normalSurfaceEwrtWorld, generator),
+                  normalSurfaceEwrtWorld)
                   .norm(),
               kTol);
   }
@@ -157,26 +171,32 @@ TEST(TiltAngleToPlane, IsTheAngleAboutTheAxisThatTurnsTheNormalIntoTheFoot) {
 TEST(TiltAngleToPlane,
      IgnoresTheRotationAboutTheFootNormalAndFollowsAWorldRotation) {
   std::mt19937 generator(31);
-  std::uniform_real_distribution<scalar_t> angle(-M_PI, M_PI);
+  std::uniform_real_distribution<scalar_t> angle(-std::numbers::pi,
+                                                 std::numbers::pi);
   for (int trial = 0; trial < 500; ++trial) {
-    const matrix3_t rotation = randomRotation(generator);
-    const vector3_t planeNormal = randomUnitVector(generator);
-    const vector3_t tilt = tiltAngleToPlane<scalar_t>(rotation, planeNormal);
+    const matrix3_t rotmatEeRtWorld = randomRotation(generator);
+    const vector3_t normalSurfaceEwrtWorld = randomUnitVector(generator);
+    const vector3_t errRotvecEeRtWorld =
+        tiltAngleToPlane<scalar_t>(rotmatEeRtWorld, normalSurfaceEwrtWorld);
     // A yaw of the foot about its own z axis leaves its normal, and so its
     // tilt, where they are.
     const matrix3_t yawed =
-        rotation * Eigen::AngleAxisd(angle(generator), vector3_t::UnitZ())
-                       .toRotationMatrix();
-    EXPECT_LT((tiltAngleToPlane<scalar_t>(yawed, planeNormal) - tilt).norm(),
+        rotmatEeRtWorld *
+        Eigen::AngleAxisd(angle(generator), vector3_t::UnitZ())
+            .toRotationMatrix();
+    EXPECT_LT((tiltAngleToPlane<scalar_t>(yawed, normalSurfaceEwrtWorld) -
+               errRotvecEeRtWorld)
+                  .norm(),
               kTol)
         << "trial " << trial;
     // The foot and the plane turned together by Q: the tilt turns with them.
     const matrix3_t world = randomRotation(generator);
-    EXPECT_LT((tiltAngleToPlane<scalar_t>(matrix3_t(world * rotation),
-                                          vector3_t(world * planeNormal)) -
-               world * tilt)
-                  .norm(),
-              1.0e-11)
+    EXPECT_LT(
+        (tiltAngleToPlane<scalar_t>(matrix3_t(world * rotmatEeRtWorld),
+                                    vector3_t(world * normalSurfaceEwrtWorld)) -
+         world * errRotvecEeRtWorld)
+            .norm(),
+        1.0e-11)
         << "trial " << trial;
   }
 }
@@ -188,18 +208,20 @@ TEST(TiltAngleToPlane, WeighsTheAngleNotItsHalfSine) {
   std::mt19937 generator(37);
   std::uniform_real_distribution<scalar_t> smallAngle(1.0e-6, 1.0e-2);
   for (int trial = 0; trial < 200; ++trial) {
-    const vector3_t planeNormal = randomUnitVector(generator);
+    const vector3_t normalSurfaceEwrtWorld = randomUnitVector(generator);
     const vector3_t axis = randomUnitVector(generator);
-    const matrix3_t rotation =
+    const matrix3_t rotmatEeRtWorld =
         worldRotated<scalar_t>(vector3_t(smallAngle(generator) * axis),
-                               standingOn(planeNormal, generator));
-    const vector3_t tilt = tiltAngleToPlane<scalar_t>(rotation, planeNormal);
-    const vector3_t halfSine =
-        rotationMatrixDistanceToPlane<scalar_t>(rotation, planeNormal);
-    const scalar_t theta = tilt.norm();
+                               standingOn(normalSurfaceEwrtWorld, generator));
+    const vector3_t errRotvecEeRtWorld =
+        tiltAngleToPlane<scalar_t>(rotmatEeRtWorld, normalSurfaceEwrtWorld);
+    const vector3_t tiltEeRtSurfaceEwrtWorld =
+        rotationMatrixDistanceToPlane<scalar_t>(rotmatEeRtWorld,
+                                                normalSurfaceEwrtWorld);
+    const scalar_t theta = errRotvecEeRtWorld.norm();
     // theta - 2 sin(theta / 2) = theta^3 / 24 + O(theta^5), along the same
     // axis.
-    EXPECT_LT((tilt - 2.0 * halfSine).norm(),
+    EXPECT_LT((errRotvecEeRtWorld - 2.0 * tiltEeRtSurfaceEwrtWorld).norm(),
               theta * theta * theta / 12.0 + 1.0e-15)
         << "trial " << trial;
   }
@@ -250,10 +272,10 @@ TEST(TiltAngleToPlane, TheTapeMatchesTheDoubleOverloadAndItsDerivative) {
   std::uniform_real_distribution<scalar_t> perturbation(-0.5, 0.5);
   const vector_t zero = vector_t::Zero(kVariableDim);
   for (int trial = 0; trial < 50; ++trial) {
-    const vector3_t planeNormal = randomUnitVector(generator);
+    const vector3_t normalSurfaceEwrtWorld = randomUnitVector(generator);
     // Anywhere, at the derivative's own point x.
     const vector_t anywhere =
-        parametersOf(randomRotation(generator), planeNormal);
+        parametersOf(randomRotation(generator), normalSurfaceEwrtWorld);
     const vector_t x = (vector_t(kVariableDim) << perturbation(generator),
                         perturbation(generator), perturbation(generator))
                            .finished();
@@ -272,11 +294,12 @@ TEST(TiltAngleToPlane, TheTapeMatchesTheDoubleOverloadAndItsDerivative) {
     // Flat on the plane: the series branch of the logarithm. To first order e =
     // n x (phi x n), the projection of phi onto the plane, so the Jacobian is I
     // - n n^T.
-    const vector_t flat =
-        parametersOf(standingOn(planeNormal, generator), planeNormal);
+    const vector_t flat = parametersOf(
+        standingOn(normalSurfaceEwrtWorld, generator), normalSurfaceEwrtWorld);
     EXPECT_LT(library.getFunctionValue(zero, flat).norm(), kTol);
     const matrix_t projection =
-        matrix3_t::Identity() - planeNormal * planeNormal.transpose();
+        matrix3_t::Identity() -
+        normalSurfaceEwrtWorld * normalSurfaceEwrtWorld.transpose();
     EXPECT_LT(
         (library.getJacobian(zero, flat) - projection).cwiseAbs().maxCoeff(),
         1.0e-10)
@@ -289,15 +312,16 @@ TEST(TiltAngleToPlane, TheTapeMatchesTheDoubleOverloadAndItsDerivative) {
     // derivatives finite (the axis of the half turn is not defined, and the
     // residual is 0 exactly there), and just outside the clamp the tilt is
     // nearly pi.
-    const vector_t upsideDown = parametersOf(
-        standingOn(vector3_t(-planeNormal), generator), planeNormal);
+    const vector_t upsideDown =
+        parametersOf(standingOn(vector3_t(-normalSurfaceEwrtWorld), generator),
+                     normalSurfaceEwrtWorld);
     EXPECT_TRUE(library.getFunctionValue(zero, upsideDown).allFinite());
     EXPECT_TRUE(library.getJacobian(zero, upsideDown).allFinite());
-    const vector3_t nearHalfTurnAxis = planeNormal.unitOrthogonal();
+    const vector3_t nearHalfTurnAxis = normalSurfaceEwrtWorld.unitOrthogonal();
     const vector_t nearHalfTurn =
         (vector_t(kVariableDim) << 1.0e-2 * nearHalfTurnAxis).finished();
     EXPECT_NEAR(library.getFunctionValue(nearHalfTurn, upsideDown).norm(),
-                M_PI - 1.0e-2, 1.0e-9)
+                std::numbers::pi - 1.0e-2, 1.0e-9)
         << trial;
     EXPECT_TRUE(library.getJacobian(nearHalfTurn, upsideDown).allFinite());
   }

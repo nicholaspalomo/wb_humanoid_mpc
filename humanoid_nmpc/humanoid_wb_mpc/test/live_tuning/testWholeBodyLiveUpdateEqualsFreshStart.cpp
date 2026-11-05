@@ -79,9 +79,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * reload of the file the MPC started from reproduces its problem. Every case
  * runs on the quaternion layout of the whole-body state
  * (expectQuaternionLayout()), and the orientation case's solves keep a unit
- * quaternion. The ground (terrain_height) is the one hot field left out: its
- * live change lifts the target in use once, which a fresh start does not
- * (testBaseHeightFollowsTerrain); its stance and swing feet are
+ * quaternion. The ground (pos_surface_rt_world_ewrt_world_z) is the one hot
+ * field left out: its live change lifts the target in use once, which a fresh
+ * start does not (testBaseHeightFollowsTerrain); its stance and swing feet are
  * testWholeBodyStanceFootOnTheGround's.
  */
 namespace ocs2::humanoid::live_tuning_test {
@@ -130,7 +130,7 @@ std::string caseName(const testing::TestParamInfo<BlockCase>& info) {
 
 std::vector<BlockCase> blockCases() {
   // The top-level blocks of the whole-body MPC's applied fields
-  // (wholeBodyHotFieldNames()), terrain_height left out.
+  // (wholeBodyHotFieldNames()), pos_surface_rt_world_ewrt_world_z left out.
   const std::vector<std::string> blocks = {
       "state_weights",        "input_weights",
       "final_state_weights",  "terminal_cost_scaling",
@@ -263,7 +263,7 @@ RunningQuadraticWeights runningQuadraticWeights(WholeBodySolverStack& stack) {
 
 /** Returns the largest |(|xi| - 1)| of the base orientation over the planned
  * states of `policies`. */
-scalar_t largestQuaternionNormDeviation(
+scalar_t largestUnitQuaternionNormDeviation(
     const WBMpcInterface& interface,
     const std::vector<PrimalSolution>& policies) {
   const Eigen::Index start = static_cast<Eigen::Index>(
@@ -365,8 +365,8 @@ TEST(WholeBodyLiveUpdate,
   // The solver stepped on the manifold: every planned orientation is a unit
   // quaternion.
   const scalar_t normDeviation = std::max(
-      largestQuaternionNormDeviation(live.interface(), livePolicies),
-      largestQuaternionNormDeviation(fresh.interface(), freshPolicies));
+      largestUnitQuaternionNormDeviation(live.interface(), livePolicies),
+      largestUnitQuaternionNormDeviation(fresh.interface(), freshPolicies));
   EXPECT_LE(normDeviation, 1.0e-12);
   RecordProperty("quaternion_norm_deviation", absl::StrCat(normDeviation));
 }
@@ -377,7 +377,7 @@ TEST(WholeBodyLiveUpdate, EveryAppliedLeafChangesWhatTheProblemEvaluatesTo) {
   // file carries terms the other does not (the hard or soft foot constraints,
   // the friction or the contact wrench cone, the joint torque cost and the foot
   // collision CBF; the variant's swing pitch, which tilts the plane the swing
-  // foot's orientation_z weighs the tilt from). A weight the whole-body foot
+  // foot's rotvec_z weighs the tilt from). A weight the whole-body foot
   // cost would multiply by a zero error is refused at start-up and on a reload
   // alike (wholeBodyFootCostWeightsFromConfig()), and changes nothing.
   const std::set<std::string> refusedAsInert = {

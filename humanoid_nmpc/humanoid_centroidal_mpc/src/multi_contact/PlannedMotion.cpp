@@ -31,7 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -39,12 +41,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_centroidal_mpc/multi_contact/PlanContactOrder.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact/ContactPatchFrame.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -59,7 +71,7 @@ constexpr scalar_t kFixedJointTolerance = 1.0e-9;
 /** [s] How far outside a phase's interval a knot it covers may lie. */
 constexpr scalar_t kPhaseCoverageTolerance = 1.0e-6;
 /** The entries of a target pad pose: the center, then the normal. */
-constexpr size_t kTargetPadPoseSize = 2 * kPositionDim;
+constexpr size_t kTargetPadPoseDim = 2 * kPositionDim;
 /** Below this |n . x| the world x axis is the patch's x direction, otherwise
  * the world y axis is. */
 constexpr scalar_t kWorldXAxisAlignment = 0.9;
@@ -96,7 +108,7 @@ absl::StatusOr<vector3_t> knotVector(const vector_t& values,
     return knotError(index, absl::StrCat(field, " has ", values.size(),
                                          " entries, not ", kPositionDim, "."));
   }
-  const vector3_t vector = values.head<kPositionDim>();
+  vector3_t vector = values.head<kPositionDim>();
   if (!vector.allFinite()) {
     return knotError(index, absl::StrCat(field, " is not finite."));
   }
@@ -150,20 +162,22 @@ absl::StatusOr<vector_t> knotState(
     scalar_t robotMass) {
   const multi_contact::config::MultiContactPlan::Knot& knot = plan.knots[index];
   vector_t state = model.getNeutralState();
-  ASSIGN_OR_RETURN(const vector3_t basePosition,
-                   knotVector(knot.base_position, index, "base_position",
-                              Presence::kRequired));
-  model.setPosBaseRtWorldEwrtWorld(state, basePosition);
-  if (knot.base_orientation_xyzw.size() != kQuaternionCoefficients) {
-    return knotError(index, "base_orientation_xyzw is not 4 coefficients.");
+  ASSIGN_OR_RETURN(
+      const vector3_t posBaseRtWorldEwrtWorld,
+      knotVector(knot.pos_base_rt_world_ewrt_world, index,
+                 "pos_base_rt_world_ewrt_world", Presence::kRequired));
+  model.setPosBaseRtWorldEwrtWorld(state, posBaseRtWorldEwrtWorld);
+  if (knot.quat_base_rt_world_xyzw.size() != kQuaternionCoefficients) {
+    return knotError(index, "quat_base_rt_world_xyzw is not 4 coefficients.");
   }
-  const vector4_t quaternion =
-      knot.base_orientation_xyzw.head<kQuaternionCoefficients>();
-  if (!quaternion.allFinite() ||
-      std::abs(quaternion.norm() - 1.0) > kUnitQuaternionTolerance) {
-    return knotError(index, "base_orientation_xyzw is not a unit quaternion.");
+  const vector4_t quatBaseRtWorldXyzw =
+      knot.quat_base_rt_world_xyzw.head<kQuaternionCoefficients>();
+  if (!quatBaseRtWorldXyzw.allFinite() ||
+      std::abs(quatBaseRtWorldXyzw.norm() - 1.0) > kUnitQuaternionTolerance) {
+    return knotError(index,
+                     "quat_base_rt_world_xyzw is not a unit quaternion.");
   }
-  model.setQuatBaseRtWorldXyzw(state, quaternion);
+  model.setQuatBaseRtWorldXyzw(state, quatBaseRtWorldXyzw);
 
   if (static_cast<size_t>(knot.joint_positions.size()) !=
       plan.joint_names.size()) {
@@ -175,37 +189,40 @@ absl::StatusOr<vector_t> knotState(
   vector_t joints = vector_t::Zero(
       static_cast<Eigen::Index>(model.modelSettings.mpc_joint_dim));
   for (size_t j = 0; j < plan.joint_names.size(); ++j) {
-    const double position = knot.joint_positions(static_cast<Eigen::Index>(j));
-    if (!std::isfinite(position)) {
+    const double jointPosition =
+        knot.joint_positions(static_cast<Eigen::Index>(j));
+    if (!std::isfinite(jointPosition)) {
       return knotError(
           index, absl::StrCat("the position of joint '", plan.joint_names[j],
                               "' is not finite."));
     }
     const std::optional<size_t> column = columns.mpcJointIndex[j];
     if (column.has_value()) {
-      joints(static_cast<Eigen::Index>(*column)) = position;
-    } else if (std::abs(position) > kFixedJointTolerance) {
+      joints(static_cast<Eigen::Index>(*column)) = jointPosition;
+    } else if (std::abs(jointPosition) > kFixedJointTolerance) {
       return knotError(
           index, absl::StrCat("the MPC fixes the joint '", plan.joint_names[j],
-                              "' at 0, but the plan puts it at ", position,
+                              "' at 0, but the plan puts it at ", jointPosition,
                               " rad: unlock it in model_settings."));
     }
   }
   model.setJointAngles(state, joints);
 
-  ASSIGN_OR_RETURN(const vector3_t linearMomentum,
-                   knotVector(knot.linear_momentum, index, "linear_momentum",
-                              Presence::kOptional));
-  ASSIGN_OR_RETURN(const vector3_t angularMomentum,
-                   knotVector(knot.angular_momentum, index, "angular_momentum",
-                              Presence::kOptional));
+  ASSIGN_OR_RETURN(
+      const vector3_t linmomComRtWorldEwrtWorld,
+      knotVector(knot.linmom_com_rt_world_ewrt_world, index,
+                 "linmom_com_rt_world_ewrt_world", Presence::kOptional));
+  ASSIGN_OR_RETURN(
+      const vector3_t angmomComRtWorldEwrtWorld,
+      knotVector(knot.angmom_com_rt_world_ewrt_world, index,
+                 "angmom_com_rt_world_ewrt_world", Presence::kOptional));
   // The normalized centroidal momentum h = [m c_dot; L] / m at the head of the
   // state.
   state.head<centroidal_model::kLinearMomentumDim>() =
-      linearMomentum / robotMass;
+      linmomComRtWorldEwrtWorld / robotMass;
   state.segment<centroidal_model::kAngularMomentumDim>(
       centroidal_model::kAngularMomentumStartIndex) =
-      angularMomentum / robotMass;
+      angmomComRtWorldEwrtWorld / robotMass;
   return state;
 }
 
@@ -219,82 +236,111 @@ absl::StatusOr<PlannedContactPhase> plannedPhase(
         "[PlannedMotion] phase ", index, " of '", phase.contact, "' ends at ",
         phase.end_time, " s, before its start at ", phase.start_time, " s."));
   }
-  if (static_cast<size_t>(phase.target_pad_pose.size()) != kTargetPadPoseSize) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("[PlannedMotion] phase ", index, " of '", phase.contact,
-                     "' has a target_pad_pose of ",
-                     phase.target_pad_pose.size(), " values, not ",
-                     kTargetPadPoseSize, " (its center, then its normal)."));
+  if (static_cast<size_t>(phase.des_pose_pad_rt_world.size()) !=
+      kTargetPadPoseDim) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[PlannedMotion] phase ", index, " of '", phase.contact,
+        "' has a des_pose_pad_rt_world of ", phase.des_pose_pad_rt_world.size(),
+        " values, not ", kTargetPadPoseDim, " (its center, then its normal)."));
   }
-  const vector3_t center = phase.target_pad_pose.head<kPositionDim>();
-  const vector3_t normal = phase.target_pad_pose.tail<kPositionDim>();
-  if (!center.allFinite() || !normal.allFinite() ||
-      std::abs(normal.norm() - 1.0) > kUnitNormalTolerance) {
+  const vector3_t desPosPadRtWorldEwrtWorld =
+      phase.des_pose_pad_rt_world.head<kPositionDim>();
+  const vector3_t desNormalSurfaceEwrtWorld =
+      phase.des_pose_pad_rt_world.tail<kPositionDim>();
+  if (!desPosPadRtWorldEwrtWorld.allFinite() ||
+      !desNormalSurfaceEwrtWorld.allFinite() ||
+      std::abs(desNormalSurfaceEwrtWorld.norm() - 1.0) > kUnitNormalTolerance) {
     return absl::InvalidArgumentError(
         absl::StrCat("[PlannedMotion] phase ", index, " of '", phase.contact,
                      "' has a target pad normal that is not a unit vector."));
   }
-  const vector3_t unitNormal = normal.normalized();
+  const vector3_t unitDesNormalSurfaceEwrtWorld =
+      desNormalSurfaceEwrtWorld.normalized();
   return PlannedContactPhase{
       .startTime = phase.start_time,
       .endTime = phase.end_time,
-      .targetPosition = center,
-      .normal = unitNormal,
-      .patch = PlannedMotion::patchFrameOf(center, unitNormal)};
+      .desPosContactRtWorldEwrtWorld = desPosPadRtWorldEwrtWorld,
+      .desNormalSurfaceEwrtWorld = unitDesNormalSurfaceEwrtWorld,
+      .patch = PlannedMotion::patchFrameOf(desPosPadRtWorldEwrtWorld,
+                                           unitDesNormalSurfaceEwrtWorld)};
 }
 
 }  // namespace
 
-ContactPatchFrame PlannedMotion::patchFrameOf(const vector3_t& point,
-                                              const vector3_t& normal) {
-  const vector3_t reference = std::abs(normal.x()) < kWorldXAxisAlignment
-                                  ? vector3_t(vector3_t::UnitX())
-                                  : vector3_t(vector3_t::UnitY());
-  const vector3_t x = (reference - reference.dot(normal) * normal).normalized();
-  const vector3_t y = normal.cross(x);
-  // p_R_w: the rows are the patch axes in world coordinates.
-  matrix3_t worldToPatch;
-  worldToPatch.row(0) = x.transpose();
-  worldToPatch.row(1) = y.transpose();
-  worldToPatch.row(kZAxisIndex) = normal.transpose();
-  return ContactPatchFrame{.rotmatWorldRtSurface = worldToPatch,
-                           .normalOffset = normal.dot(point)};
+ContactPatchFrame PlannedMotion::patchFrameOf(
+    const vector3_t& posSurfaceRtWorldEwrtWorld,
+    const vector3_t& normalSurfaceEwrtWorld) {
+  // The world axis the patch's x axis is made from.
+  const vector3_t seedDirEwrtWorld =
+      std::abs(normalSurfaceEwrtWorld.x()) < kWorldXAxisAlignment
+          ? vector3_t(vector3_t::UnitX())
+          : vector3_t(vector3_t::UnitY());
+  // p_R_w: the rows are the patch axes in world coordinates (the columns of
+  // rotmatSurfaceRtWorld).
+  matrix3_t rotmatWorldRtSurface;
+  rotmatWorldRtSurface.row(0) =
+      (seedDirEwrtWorld -
+       seedDirEwrtWorld.dot(normalSurfaceEwrtWorld) * normalSurfaceEwrtWorld)
+          .normalized()
+          .transpose();
+  rotmatWorldRtSurface.row(1) =
+      normalSurfaceEwrtWorld
+          .cross(vector3_t(rotmatWorldRtSurface.row(0).transpose()))
+          .transpose();
+  rotmatWorldRtSurface.row(kZAxisIndex) = normalSurfaceEwrtWorld.transpose();
+  return ContactPatchFrame{
+      .rotmatWorldRtSurface = rotmatWorldRtSurface,
+      .posSurfaceRtWorldEwrtSurfaceZ =
+          normalSurfaceEwrtWorld.dot(posSurfaceRtWorldEwrtWorld)};
 }
 
 namespace {
 
 /** The wrenches of knot `index` of a plan in the MPC's input layout, from
- * `zeroInput`. InvalidArgument for a wrench of an unknown contact or of the
- * wrong size. */
-absl::StatusOr<vector_t> knotWrenches(
+ * `zeroInput`. The plan's wrenches are in world axes, so they go through the
+ * state-aware world setters at the knot's `state`: under basis-vector inputs
+ * the input is in the contact frame, which the state places. InvalidArgument
+ * for a wrench of an unknown contact or of the wrong size. */
+absl::StatusOr<vector_t> plannedInputOfKnot(
     const multi_contact::config::MultiContactPlan::Knot& knot,
     size_t index,
     const PlanContactOrder& order,
     const MpcRobotModelBase<scalar_t>& model,
+    const vector_t& state,
     const vector_t& zeroInput) {
   vector_t input = zeroInput;
-  for (const multi_contact::config::MultiContactPlan::ContactWrench& wrench :
-       knot.contact_wrenches) {
+  for (const multi_contact::config::MultiContactPlan::ContactWrench& wrenchMsg :
+       knot.wrench_contacts_ewrt_world) {
     const std::optional<size_t> planIndex =
-        order.planIndexOfName(wrench.contact);
+        order.planIndexOfName(wrenchMsg.contact);
     const std::optional<size_t> mpcIndex =
         planIndex.has_value() ? order.mpcIndexOf(*planIndex) : std::nullopt;
     if (!mpcIndex.has_value()) {
-      return knotError(index, absl::StrCat("its wrench of '", wrench.contact,
+      return knotError(index, absl::StrCat("its wrench of '", wrenchMsg.contact,
                                            "' is of no contact of the MPC."));
     }
-    if (wrench.force.size() != kForceDim ||
-        (wrench.torque.size() != 0 && wrench.torque.size() != kTorqueDim)) {
-      return knotError(index, absl::StrCat("its wrench of '", wrench.contact,
+    // NOLINTBEGIN(frame-naming): the components of a ContactWrench, whose frames its field names
+    if (wrenchMsg.force.size() != kForceDim ||
+        (wrenchMsg.torque.size() != 0 &&
+         wrenchMsg.torque.size() != kTorqueDim)) {
+      return knotError(index, absl::StrCat("its wrench of '", wrenchMsg.contact,
                                            "' has vectors of the wrong size."));
     }
-    model.setForceContactEwrtParam(input, vector3_t(wrench.force), *mpcIndex);
-    if (wrench.torque.size() == kTorqueDim &&
-        model.getContactInputDim(*mpcIndex) ==
-            static_cast<size_t>(kWrenchDim)) {
-      model.setTorqueContactEwrtParam(input, vector3_t(wrench.torque),
+    // A 6-DoF contact carries the plan's moment; under basis-vector inputs its
+    // input block is wider than a wrench, so the contact is asked, not the
+    // input width.
+    if (wrenchMsg.torque.size() == kTorqueDim &&
+        !model.modelSettings.isPointContact(*mpcIndex)) {
+      vector6_t wrenchContactEwrtWorld;
+      wrenchContactEwrtWorld << vector3_t(wrenchMsg.force),
+          vector3_t(wrenchMsg.torque);
+      model.setWrenchContactEwrtWorld(state, input, wrenchContactEwrtWorld,
                                       *mpcIndex);
+    } else {
+      model.setForceContactEwrtWorld(state, input, vector3_t(wrenchMsg.force),
+                                     *mpcIndex);
     }
+    // NOLINTEND(frame-naming)
   }
   return input;
 }
@@ -328,12 +374,13 @@ absl::StatusOr<PlannedMotion> PlannedMotion::Create(
     }
     ASSIGN_OR_RETURN(vector_t state,
                      knotState(plan, i, columns, model, robotMass));
+    ASSIGN_OR_RETURN(
+        vector_t plannedInput,
+        plannedInputOfKnot(knot, i, order, model, state, zeroInput));
     motion.targets_.timeTrajectory.push_back(knot.time);
     motion.targets_.stateTrajectory.push_back(std::move(state));
     motion.targets_.inputTrajectory.push_back(zeroInput);
-    ASSIGN_OR_RETURN(vector_t wrenches,
-                     knotWrenches(knot, i, order, model, zeroInput));
-    motion.plannedWrenches_.push_back(std::move(wrenches));
+    motion.plannedInputs_.push_back(std::move(plannedInput));
     absl::StatusOr<size_t> mode = order.modeOf(knot.active_contacts);
     if (!mode.ok()) return knotError(i, mode.status().message());
     knotModes.push_back(*mode);
@@ -608,12 +655,12 @@ std::optional<PlannedContactPhase> PlannedMotion::previousPhase(
   return shifted(phases_[mpcIndex].back(), cycle - 1);
 }
 
-const vector_t& PlannedMotion::plannedWrenchesAt(scalar_t planTime) const {
+const vector_t& PlannedMotion::plannedInputAt(scalar_t planTime) const {
   const std::vector<scalar_t>& times = targets_.timeTrajectory;
   const size_t after = static_cast<size_t>(
       std::upper_bound(times.begin(), times.end(), cycleTime(planTime)) -
       times.begin());
-  return plannedWrenches_[after == 0 ? 0 : after - 1];
+  return plannedInputs_[after == 0 ? 0 : after - 1];
 }
 
 }  // namespace ocs2::humanoid

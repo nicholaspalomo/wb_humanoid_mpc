@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -40,6 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_format.h"
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/MujocoUtils.h"
+#include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -130,8 +133,9 @@ void fillRect(int left, int bottom, int width, int height, const Rgba& color) {
 int textWidth(const char* absl_nonnull text,
               const mjrContext* absl_nonnull con) {
   int width = 0;
-  for (; *text != '\0'; ++text)
+  for (; *text != '\0'; ++text) {
     width += con->charWidth[static_cast<unsigned char>(*text) & kAsciiCodeMask];
+  }
   return width;
 }
 
@@ -164,8 +168,9 @@ std::string ContactTimelineVisualization::tickLabel(int secondsAgo) {
 void ContactTimelineVisualization::renderOverlay(
     const VisualizationFrame& frame) {
   if (frame.sim == nullptr || frame.context == nullptr ||
-      !frame.sim->hasContactDetection())
+      !frame.sim->hasContactDetection()) {
     return;
+  }
   const MujocoSimInterface& sim = *frame.sim;
   sim.copyContactTimeline(scratch_);
   const std::vector<ContactTimelineSample>& samples = scratch_;
@@ -192,8 +197,9 @@ void ContactTimelineVisualization::renderOverlay(
   const int tagW = std::max(textWidth("plan", con), textWidth("sim", con)) +
                    kColumnTextPadding;
   int nameTextW = 0;
-  for (const std::string& name : names)
+  for (const std::string& name : names) {
     nameTextW = std::max(nameTextW, textWidth(name.c_str(), con));
+  }
   const int nameW = std::clamp(nameTextW + kColumnTextPadding,
                                kMinNameColumnWidth, kMaxNameColumnWidth);
   const int groupH = kStripsPerGroup * stripH + kStripGap;
@@ -206,8 +212,9 @@ void ContactTimelineVisualization::renderOverlay(
   const int x1 = panelL + panelW - kPanelPadding;
   const int stripW = x1 - x0;
   if (stripW < kMinStripWidth ||
-      panelH > viewport.height / kMinViewportToPanelHeightRatio)
+      panelH > viewport.height / kMinViewportToPanelHeightRatio) {
     return;
+  }
   fillRect(panelL, panelB, panelW, panelH, kPanelBackground);
 
   const std::function<int(double)> xOf = [&](double time) {
@@ -226,8 +233,9 @@ void ContactTimelineVisualization::renderOverlay(
     const std::function<void(const Rgba&, const char* absl_nonnull)> legend =
         [&](const Rgba& color, const char* absl_nonnull text) {
           const int textW = textWidth(text, con) + kLabelTextPadding;
-          if (lx + kLegendSwatchRoom + textW > x1)
+          if (lx + kLegendSwatchRoom + textW > x1) {
             return;  // no room: the rest of the legend is dropped
+          }
           fillRect(lx, headerB + kLegendSwatchInset, fontH - kLegendSwatchInset,
                    headerH - kLegendSwatchHeightInset, color);
           lx += fontH;
@@ -266,8 +274,9 @@ void ContactTimelineVisualization::renderOverlay(
     size_t runStart = 0;
     for (size_t k = 1; k <= samples.size(); ++k) {
       const int code = contactStateCode(samples[runStart], contact);
-      if (k < samples.size() && contactStateCode(samples[k], contact) == code)
+      if (k < samples.size() && contactStateCode(samples[k], contact) == code) {
         continue;
+      }
       const double runEnd = (k < samples.size()) ? samples[k].time : now;
       if (runEnd >= start) {
         const int xa = xOf(samples[runStart].time);

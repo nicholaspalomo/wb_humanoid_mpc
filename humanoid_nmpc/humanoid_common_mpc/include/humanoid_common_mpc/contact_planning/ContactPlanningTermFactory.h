@@ -38,7 +38,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
+#include "humanoid_common_mpc/contact_planning/problem/AssignmentCost.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactLogicRule.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningProblem.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipConstraint.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipCost.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipModelBlock.h"
 #include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
 #include "humanoid_common_mpc/contact_planning/search/SearchStage.h"
 

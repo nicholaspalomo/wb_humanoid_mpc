@@ -30,9 +30,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/constraint/FootYawPinnedInContactConstraint.h"
 
 #include <cmath>
+#include <cstddef>
 #include <string>
 
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/contact_planning/model/HeadingDoubleIntegrator.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipCoefficients.h"
+#include "humanoid_common_mpc/contact_planning/problem/RowBuilder.h"
 
 namespace ocs2::humanoid {
 
@@ -50,7 +57,8 @@ void FootYawPinnedInContactConstraint::addRows(
     for (const scalar_t sign : {1.0, -1.0}) {
       rows.addHard(
           /*xCoefficients=*/{},
-          {{idx_.footYawDelta[foot], sign}, {idx_.contact[foot], kYawBigM}},
+          {{idx_.errEulerzyxFeetRtWorldYaw[foot], sign},
+           {idx_.contact[foot], kYawBigM}},
           -kLipLooseBound, kYawBigM);
     }
   }

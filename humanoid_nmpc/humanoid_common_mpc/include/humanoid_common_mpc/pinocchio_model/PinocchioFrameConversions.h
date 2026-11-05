@@ -33,8 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"
 
 #include "ocs2_core/Dimensions.h"
-#include "ocs2_pinocchio_interface/PinocchioInterface.h"
-#include "ocs2_robotic_tools/common/RotationTransforms.h"
 #include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/common/Types.h"
@@ -70,16 +68,16 @@ inline const MATRIX3_T<SCALAR_T>& getRotmatLinkRtWorld(
 /// @param Pinocchio interface.
 /// @param Local frame index of the local frame.
 ///
-/// @return vector converted into world frame .
+/// @return vector converted into local frame.
 
 template <typename SCALAR_T>
 inline VECTOR3_T<SCALAR_T> rotateVectorWorldToLocal(
-    const VECTOR3_T<SCALAR_T>& vectorInWorldFrame,
+    const VECTOR3_T<SCALAR_T>& worldComponents,
     const pinocchio::DataTpl<SCALAR_T>& data,
     const pinocchio::FrameIndex& localFrameIndex) {
-  const MATRIX3_T<SCALAR_T>& R_WorldToLocal =
+  const MATRIX3_T<SCALAR_T>& rotmatWorldRtLocal =
       getRotmatLinkRtWorld(data, localFrameIndex).transpose();
-  return R_WorldToLocal * vectorInWorldFrame;
+  return rotmatWorldRtLocal * worldComponents;
 }
 
 ///
@@ -88,20 +86,20 @@ inline VECTOR3_T<SCALAR_T> rotateVectorWorldToLocal(
 /// has been called).
 ///
 /// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
-/// @param 3D vector expressed in world frame.
+/// @param 3D vector expressed in local frame.
 /// @param Pinocchio interface.
 /// @param Local frame index of the local frame.
 ///
-/// @return vector converted into local frame .
+/// @return vector converted into world frame.
 
 template <typename SCALAR_T>
 inline VECTOR3_T<SCALAR_T> rotateVectorLocalToWorld(
-    const VECTOR3_T<SCALAR_T>& vectorInLocalFrame,
+    const VECTOR3_T<SCALAR_T>& localComponents,
     const pinocchio::DataTpl<SCALAR_T>& data,
     const pinocchio::FrameIndex& localFrameIndex) {
-  const MATRIX3_T<SCALAR_T>& R_WorldToLocal =
+  const MATRIX3_T<SCALAR_T>& rotmatLocalRtWorld =
       getRotmatLinkRtWorld(data, localFrameIndex);
-  return R_WorldToLocal * vectorInLocalFrame;
+  return rotmatLocalRtWorld * localComponents;
 }
 
 ///
@@ -114,23 +112,23 @@ inline VECTOR3_T<SCALAR_T> rotateVectorLocalToWorld(
 /// @param Pinocchio interface.
 /// @param Local frame index of the local frame.
 ///
-/// @return vector converted into world frame .
+/// @return vector converted into local frame.
 
 template <typename SCALAR_T>
 inline VECTOR6_T<SCALAR_T> rotateVectorWorldToLocal(
-    const VECTOR6_T<SCALAR_T>& vectorInWorldFrame,
+    const VECTOR6_T<SCALAR_T>& worldComponents,
     const pinocchio::DataTpl<SCALAR_T>& data,
     const pinocchio::FrameIndex& localFrameIndex) {
   // A spatial vector - a twist, or a wrench - is two vectors of space, each
   // rotated on its own.
-  VECTOR6_T<SCALAR_T> vectorInLocalFrame(kTwistDim);
-  vectorInLocalFrame.head(kPositionDim) = rotateVectorWorldToLocal(
-      VECTOR3_T<SCALAR_T>(vectorInWorldFrame.head(kPositionDim)), data,
+  VECTOR6_T<SCALAR_T> localComponents(kTwistDim);
+  localComponents.head(kPositionDim) = rotateVectorWorldToLocal(
+      VECTOR3_T<SCALAR_T>(worldComponents.head(kPositionDim)), data,
       localFrameIndex),
-  vectorInLocalFrame.tail(kPositionDim) = rotateVectorWorldToLocal(
-      VECTOR3_T<SCALAR_T>(vectorInWorldFrame.tail(kPositionDim)), data,
+  localComponents.tail(kPositionDim) = rotateVectorWorldToLocal(
+      VECTOR3_T<SCALAR_T>(worldComponents.tail(kPositionDim)), data,
       localFrameIndex);
-  return vectorInLocalFrame;
+  return localComponents;
 }
 
 ///
@@ -139,27 +137,27 @@ inline VECTOR6_T<SCALAR_T> rotateVectorWorldToLocal(
 /// has been called).
 ///
 /// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
-/// @param 6D vector expressed in world frame.
+/// @param 6D vector expressed in local frame.
 /// @param Pinocchio interface.
 /// @param Local frame index of the local frame.
 ///
-/// @return vector converted into local frame .
+/// @return vector converted into world frame.
 
 template <typename SCALAR_T>
 inline VECTOR6_T<SCALAR_T> rotateVectorLocalToWorld(
-    const VECTOR6_T<SCALAR_T>& vectorInLocalFrame,
+    const VECTOR6_T<SCALAR_T>& localComponents,
     const pinocchio::DataTpl<SCALAR_T>& data,
     const pinocchio::FrameIndex& localFrameIndex) {
   // A spatial vector - a twist, or a wrench - is two vectors of space, each
   // rotated on its own.
-  VECTOR6_T<SCALAR_T> vectorInWorldFrame(kTwistDim);
-  vectorInWorldFrame.head(kPositionDim) = rotateVectorLocalToWorld(
-      VECTOR3_T<SCALAR_T>(vectorInLocalFrame.head(kPositionDim)), data,
+  VECTOR6_T<SCALAR_T> worldComponents(kTwistDim);
+  worldComponents.head(kPositionDim) = rotateVectorLocalToWorld(
+      VECTOR3_T<SCALAR_T>(localComponents.head(kPositionDim)), data,
       localFrameIndex),
-  vectorInWorldFrame.tail(kPositionDim) = rotateVectorLocalToWorld(
-      VECTOR3_T<SCALAR_T>(vectorInLocalFrame.tail(kPositionDim)), data,
+  worldComponents.tail(kPositionDim) = rotateVectorLocalToWorld(
+      VECTOR3_T<SCALAR_T>(localComponents.tail(kPositionDim)), data,
       localFrameIndex);
-  return vectorInWorldFrame;
+  return worldComponents;
 }
 
 ///
@@ -182,7 +180,7 @@ inline MATRIX4_T<SCALAR_T> getTransformationMatrixLocalToWorld(
 }
 
 ///
-/// @brief Returns transformation matrix from local to world frame
+/// @brief Returns transformation matrix from world to local frame
 /// Assumes that the frame placements are up to date (e.g. updateFramePlacements
 /// has been called).
 ///
@@ -214,19 +212,19 @@ inline MATRIX4_T<SCALAR_T> getTransformationMatrixWorldToLocal(
 /// has been called).
 ///
 /// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
-/// @param 3D vector expressed in world frame.
+/// @param 3D vector expressed in local frame.
 /// @param Pinocchio interface.
 /// @param Local frame index of the local frame.
 ///
-/// @return vector converted into local frame .
+/// @return vector converted into world frame.
 
 template <typename SCALAR_T>
 inline VECTOR3_T<SCALAR_T> transformPointLocalToWorld(
-    const VECTOR3_T<SCALAR_T>& pointInLocalFrame,
+    const VECTOR3_T<SCALAR_T>& posQueryRtLocalEwrtLocal,
     const pinocchio::DataTpl<SCALAR_T>& data,
     const pinocchio::FrameIndex& localFrameIndex) {
   VECTOR4_T<SCALAR_T> homogeniousPoint;
-  homogeniousPoint << pointInLocalFrame, 1.0;
+  homogeniousPoint << posQueryRtLocalEwrtLocal, 1.0;
   return (getTransformationMatrixLocalToWorld(data, localFrameIndex) *
           homogeniousPoint)
       .head(kPositionDim);
@@ -242,15 +240,15 @@ inline VECTOR3_T<SCALAR_T> transformPointLocalToWorld(
 /// @param Pinocchio interface.
 /// @param Local frame index of the local frame.
 ///
-/// @return vector converted into world frame .
+/// @return vector converted into local frame.
 
 template <typename SCALAR_T>
 inline VECTOR3_T<SCALAR_T> transformPointWorldToLocal(
-    const VECTOR3_T<SCALAR_T>& pointInWorldFrame,
+    const VECTOR3_T<SCALAR_T>& posQueryRtWorldEwrtWorld,
     const pinocchio::DataTpl<SCALAR_T>& data,
     const pinocchio::FrameIndex& localFrameIndex) {
   VECTOR4_T<SCALAR_T> homogeniousPoint;
-  homogeniousPoint << pointInWorldFrame, 1.0;
+  homogeniousPoint << posQueryRtWorldEwrtWorld, 1.0;
   return (getTransformationMatrixWorldToLocal(data, localFrameIndex) *
           homogeniousPoint)
       .head(kPositionDim);

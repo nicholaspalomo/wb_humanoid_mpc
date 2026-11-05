@@ -65,12 +65,12 @@ TEST(InitialSimStateTest, TheSimulatorStartsInTheMpcState) {
     const MpcRobotModelBase<scalar_t>& model = robot->robotModel();
     // A tilted base turned past +pi, its yaw unwrapped as a reference knot may
     // hold it.
-    const vector3_t eulerZyx(3.5, 0.2, -0.1);
+    const vector3_t eulerzyxBaseRtWorld(3.5, 0.2, -0.1);
     vector_t state = robot->nominalState();
-    const vector3_t position =
+    const vector3_t posBaseRtWorldEwrtWorld =
         model.getPosBaseRtWorldEwrtWorld(state) + vector3_t(0.3, -0.2, 0.05);
-    model.setPosBaseRtWorldEwrtWorld(state, position);
-    model.setEulerzyxBaseRtWorld(state, eulerZyx);
+    model.setPosBaseRtWorldEwrtWorld(state, posBaseRtWorldEwrtWorld);
+    model.setEulerzyxBaseRtWorld(state, eulerzyxBaseRtWorld);
     vector_t joints = model.getJointAngles(state);
     for (Eigen::Index joint = 0; joint < joints.size(); ++joint) {
       joints[joint] += 0.01 * static_cast<scalar_t>(joint + 1);
@@ -83,18 +83,19 @@ TEST(InitialSimStateTest, TheSimulatorStartsInTheMpcState) {
     const robot::model::RobotState simState = createInitialSimState(
         *description, robot->modelSettings(), model, state);
 
-    EXPECT_EQ(simState.getPosBaseRtWorldEwrtWorld(), position);
+    EXPECT_EQ(simState.getPosBaseRtWorldEwrtWorld(), posBaseRtWorldEwrtWorld);
     // The orientation is the model's stored quaternion
     // (getQuatBaseRtWorldXyzw), bit for bit, which is the rotation of the Euler
     // angles it was set from up to round-off: the quaternion layout stores the
     // coefficients, not the angles.
-    const quaternion_t rootOrientation = simState.getQuatBaseRtWorld();
-    EXPECT_EQ(rootOrientation.coeffs(), model.getQuatBaseRtWorldXyzw(state));
-    EXPECT_NEAR(rootOrientation.norm(), 1.0, 1.0e-15);
-    EXPECT_TRUE(rootOrientation.toRotationMatrix().isApprox(
-        getRotationMatrixFromZyxEulerAngles<scalar_t>(eulerZyx), 1.0e-14))
-        << rootOrientation.toRotationMatrix() << "\n"
-        << getRotationMatrixFromZyxEulerAngles<scalar_t>(eulerZyx);
+    const quaternion_t quatBaseRtWorld = simState.getQuatBaseRtWorld();
+    EXPECT_EQ(quatBaseRtWorld.coeffs(), model.getQuatBaseRtWorldXyzw(state));
+    EXPECT_NEAR(quatBaseRtWorld.norm(), 1.0, 1.0e-15);
+    EXPECT_TRUE(quatBaseRtWorld.toRotationMatrix().isApprox(
+        getRotationMatrixFromZyxEulerAngles<scalar_t>(eulerzyxBaseRtWorld),
+        1.0e-14))
+        << quatBaseRtWorld.toRotationMatrix() << "\n"
+        << getRotationMatrixFromZyxEulerAngles<scalar_t>(eulerzyxBaseRtWorld);
 
     const std::vector<std::string>& mpcJoints =
         robot->modelSettings().mpcModelJointNames;

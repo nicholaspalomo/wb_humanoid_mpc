@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <string>
 
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/problem/Layout.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipConstraint.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipIndices.h"
 

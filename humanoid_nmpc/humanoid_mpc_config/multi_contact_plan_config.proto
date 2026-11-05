@@ -17,8 +17,8 @@ message MultiContactPlanConfig {
   reserved 11 to max;
 
   // When the plan's clock waits for the robot: it stops lead [s] before the next contact change of the plan until
-  // every contact of the current stance touches its patch within contact_tolerance [m] (along the patch normal) and
-  // the center of mass is within com_tolerance [m] (horizontally) of the plan's there. A contact change is never
+  // every contact of the current stance touches its patch within max_norm_pos_contact_rt_surface_ewrt_surface_z [m] (along the patch normal) and
+  // the center of mass is within max_norm_err_pos_com_rt_world_ewrt_world_xy [m] (horizontally) of the plan's there. A contact change is never
   // skipped.
   // Next ID: 4
   message ClockHold {
@@ -27,21 +27,22 @@ message MultiContactPlanConfig {
     // [s] Positive.
     double lead = 1 [default = 0.1, (humanoid_mpc_config.tuning) = { unit: "s" minimum: 0 }];
     // [m] Positive.
-    double contact_tolerance = 2 [default = 0.01, (humanoid_mpc_config.tuning) = { unit: "m" minimum: 0 }];
+    double max_norm_pos_contact_rt_surface_ewrt_surface_z = 2 [default = 0.01, (humanoid_mpc_config.tuning) = { unit: "m" minimum: 0 }];
     // [m] Positive.
-    double com_tolerance = 3 [default = 0.03, (humanoid_mpc_config.tuning) = { unit: "m" minimum: 0 }];
+    double max_norm_err_pos_com_rt_world_ewrt_world_xy = 3 [default = 0.03, (humanoid_mpc_config.tuning) = { unit: "m" minimum: 0 }];
   }
 
   // The generalized swing planner (ContactSwingPlanner): a contact lifts off along the normal of the patch it leaves,
-  // follows a cubic Bezier arc whose two inner control points lie lift_height [m] along the two patch normals, raised
-  // until every point of the arc away from its ends keeps the terrain's signed distance at least clearance [m], and
-  // touches down along the normal of its target patch.
+  // follows a cubic Bezier arc whose two inner control points start min_dist_controlpoint_rt_contact [m] along the two
+  // patch normals from the lift-off and touch-down points and are raised until every point of the arc away from its
+  // ends keeps the terrain's signed distance at least clearance [m], and touches down along the normal of its target
+  // patch.
   // Next ID: 3
   message Swing {
     reserved 3 to max;
 
     // [m] Positive.
-    double lift_height = 1 [default = 0.1, (humanoid_mpc_config.tuning) = { unit: "m" minimum: 0 }];
+    double min_dist_controlpoint_rt_contact = 1 [default = 0.1, (humanoid_mpc_config.tuning) = { unit: "m" minimum: 0 }];
     // [m] Not negative.
     double clearance = 2 [default = 0.05, (humanoid_mpc_config.tuning) = { unit: "m" minimum: 0 }];
   }
@@ -104,8 +105,7 @@ message MultiContactPlanConfig {
   // active contacts, as without a plan) or "planned_wrenches" (the plan's wrench of every active contact at the plan
   // time, so that the MPC loads and unloads the contacts as the plan does).
   // LINT.IfChange(force_reference_names)
-  // NOLINTNEXTLINE(frame-naming): the registry name of the contact-force reference's source
-  string force_reference = 7 [
+  string force_reference_mode = 7 [
     default = "weight_share",
     (humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP registry: "multi_contact_force_reference" }
   ];

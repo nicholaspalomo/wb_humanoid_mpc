@@ -691,12 +691,12 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
       testingModelInterface_.getPinocchioInterface();
   const vector_t weightInput = weightCompensatingInput(
       pinocchioInterface, {true, true}, basisModel, observation.state);
-  const std::array<vector6_t, 2> worldWrenches{
+  const std::array<vector6_t, 2> wrenchFeetEwrtWorld{
       basisModel.getWrenchContactEwrtWorld(observation.state, weightInput,
                                            /*contactIndex=*/0),
       basisModel.getWrenchContactEwrtWorld(observation.state, weightInput,
                                            /*contactIndex=*/1)};
-  const std::array<vector6_t, 2> localWrenches{
+  const std::array<vector6_t, 2> wrenchFeetEwrtFoot{
       basisModel.getWrenchContactEwrtParam(weightInput, /*contactIndex=*/0),
       basisModel.getWrenchContactEwrtParam(weightInput, /*contactIndex=*/1)};
 
@@ -704,31 +704,31 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
   const vector_t qd =
       basisModel.getGeneralizedVelocities(observation.state, observation.input);
   const vector_t qddZero = vector_t::Zero(basisModel.getJointDim());
-  const vector_t expectedTorques = computeBaseHeldJointTorques<scalar_t>(
-      q, qd, qddZero, worldWrenches,
+  const vector_t expectedJointTorques = computeBaseHeldJointTorques<scalar_t>(
+      q, qd, qddZero, wrenchFeetEwrtWorld,
       getContactFrameIndexArray<scalar_t>(pinocchioInterface, basisModel),
       pinocchioInterface);
-  const vector_t localFrameTorques = computeBaseHeldJointTorques<scalar_t>(
-      q, qd, qddZero, localWrenches,
+  const vector_t localFrameJointTorques = computeBaseHeldJointTorques<scalar_t>(
+      q, qd, qddZero, wrenchFeetEwrtFoot,
       getContactFrameIndexArray<scalar_t>(pinocchioInterface, basisModel),
       pinocchioInterface);
 
   // Sanity: with pitched feet the local- and world-frame wrenches (and hence
   // torques) differ, so the check discriminates.
-  ASSERT_GT((worldWrenches[0] - localWrenches[0]).norm(), 1.0);
-  ASSERT_GT((expectedTorques - localFrameTorques).norm(), 1.0);
+  ASSERT_GT((wrenchFeetEwrtWorld[0] - wrenchFeetEwrtFoot[0]).norm(), 1.0);
+  ASSERT_GT((expectedJointTorques - localFrameJointTorques).norm(), 1.0);
 
   const std::vector<std::string>& mpcJointNames =
       testingModelInterface_.getModelSettings().mpcModelJointNames;
   const std::vector<::robot::joint_index_t> mpcJointIndices =
       robotDesc.getJointIndices(mpcJointNames);
   ASSERT_EQ(static_cast<Eigen::Index>(mpcJointIndices.size()),
-            expectedTorques.size());
+            expectedJointTorques.size());
   for (size_t i = 0; i < mpcJointIndices.size(); ++i) {
     const scalar_t feedforward =
         actionOf(jointAction, mpcJointIndices[i]).feed_forward_effort;
     EXPECT_TRUE(std::isfinite(feedforward)) << "joint " << mpcJointNames[i];
-    EXPECT_NEAR(feedforward, expectedTorques[i], 1.0e-6)
+    EXPECT_NEAR(feedforward, expectedJointTorques[i], 1.0e-6)
         << "joint " << mpcJointNames[i];
   }
 }
@@ -869,16 +869,16 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
   const SystemObservation& observation = controller.getCurrentObservation();
   const vector_t weightInput = weightCompensatingInput(
       pinocchioInterface, {true, false}, model, observation.state);
-  const std::array<vector6_t, 2> wrenches{
+  const std::array<vector6_t, 2> wrenchFeetEwrtWorld{
       model.getWrenchContactEwrtWorld(observation.state, weightInput,
                                       /*contactIndex=*/0),
       model.getWrenchContactEwrtWorld(observation.state, weightInput,
                                       /*contactIndex=*/1)};
-  ASSERT_TRUE(wrenches[1].isZero());
+  ASSERT_TRUE(wrenchFeetEwrtWorld[1].isZero());
   const vector_t expected = computeBaseHeldJointTorques<scalar_t>(
       model.getGeneralizedCoordinates(observation.state),
       model.getGeneralizedVelocities(observation.state, observation.input),
-      vector_t::Zero(model.getJointDim()), wrenches,
+      vector_t::Zero(model.getJointDim()), wrenchFeetEwrtWorld,
       getContactFrameIndexArray<scalar_t>(pinocchioInterface, model),
       pinocchioInterface);
   // Positive control: the floating-base inverse dynamics of the same
@@ -887,7 +887,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
   const vector_t floatingBase = computeJointTorques<scalar_t>(
       model.getGeneralizedCoordinates(observation.state),
       model.getGeneralizedVelocities(observation.state, observation.input),
-      vector_t::Zero(model.getJointDim()), wrenches,
+      vector_t::Zero(model.getJointDim()), wrenchFeetEwrtWorld,
       getContactFrameIndexArray<scalar_t>(pinocchioInterface, model),
       pinocchioInterface);
   ASSERT_GT((floatingBase - expected).cwiseAbs().maxCoeff(), 1.0);

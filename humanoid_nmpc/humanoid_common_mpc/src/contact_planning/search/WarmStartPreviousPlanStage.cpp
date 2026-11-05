@@ -30,10 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/search/WarmStartPreviousPlanStage.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <string>
 #include <utility>
 
+#include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
+#include "humanoid_common_mpc/contact_planning/search/SearchStage.h"
 
 namespace ocs2::humanoid {
 
@@ -44,8 +47,9 @@ std::string WarmStartPreviousPlanStage::describe() const {
 
 void WarmStartPreviousPlanStage::beforeSearch(SearchSetup& setup) const {
   if (!setup.previousPlanShift.has_value() ||
-      setup.previousAssignment == nullptr)
+      setup.previousAssignment == nullptr) {
     return;
+  }
   constexpr int kBinariesPerNode = ContactLogicState::kBinariesPerNode;
   MiqpAssignment warm(static_cast<size_t>(kBinariesPerNode * setup.numNodes),
                       kMiqpFree);

@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 
 #include "absl/log/absl_check.h"
-#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
 
@@ -62,14 +61,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   HUMANOID_ASSERT_OK_AND_ASSIGN_IMPL(              \
       STATUS_MACROS_CONCAT_NAME(_status_or_, __COUNTER__), decl, rexpr)
 
-// `status_var` is a name and `decl` a declaration, which parentheses would
-// break; they are used bare where declared.
-#define HUMANOID_ASSERT_OK_AND_ASSIGN_IMPL(status_var, decl, rexpr)        \
-  auto status_var =                                                        \
-      (rexpr); /* NOLINT(bugprone-macro-parentheses): declares the name */ \
-  ASSERT_TRUE((status_var).ok()) << (status_var).status();                 \
-  decl = std::move(                                                        \
-      *(status_var)) /* NOLINT(bugprone-macro-parentheses): a declaration */
+// NOLINTBEGIN(bugprone-macro-parentheses): `status_var` is declared and `decl`
+// is a declaration, which parentheses would break.
+#define HUMANOID_ASSERT_OK_AND_ASSIGN_IMPL(status_var, decl, rexpr) \
+  auto status_var = (rexpr);                                        \
+  ASSERT_TRUE((status_var).ok()) << (status_var).status();          \
+  decl = std::move(*(status_var))
+// NOLINTEND(bugprone-macro-parentheses)
 
 namespace ocs2::humanoid {
 

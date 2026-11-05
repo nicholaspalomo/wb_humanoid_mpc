@@ -41,7 +41,7 @@ namespace ocs2::humanoid::multi_contact {
  * unloaded. Passive data. */
 struct UnloadingWindow {
   // The wrench's first index in the MPC's input and its size (3 or 6).
-  int forceOffset = 0;
+  int wrenchStartIndex = 0;
   int wrenchDim = 0;
   // [s] [startTime, endTime): the interval before the lift-off at endTime.
   double startTime = 0.0;
@@ -49,8 +49,8 @@ struct UnloadingWindow {
 };
 
 /**
- * weight |w / forceScale|^2 of every contact in its unloading window: a
- * contact is unloaded before it lifts off (planner A's solve 3). The
+ * weight |w / scaleForceContactEwrtWorld|^2 of every contact in its unloading
+ * window: a contact is unloaded before it lifts off (planner A's solve 3). The
  * certifier judges the momentum rate of a knot by the central difference of
  * the plan's momenta, which at the first knot after a lift-off averages the
  * interval before it; unloaded there, the contact that lifts off is not
@@ -60,10 +60,11 @@ struct UnloadingWindow {
  */
 class LiftOffUnloadingCost final : public StateInputCost {
  public:
-  /** `windows` at `weight`, the wrenches over `forceScale` [N]. */
+  /** `windows` at `weight`, the wrenches over `scaleForceContactEwrtWorld` [N].
+   */
   LiftOffUnloadingCost(std::vector<UnloadingWindow> windows,
                        scalar_t weight,
-                       scalar_t forceScale);
+                       scalar_t scaleForceContactEwrtWorld);
   ~LiftOffUnloadingCost() override = default;
   LiftOffUnloadingCost* absl_nonnull clone() const override {
     return new LiftOffUnloadingCost(*this);
@@ -90,7 +91,7 @@ class LiftOffUnloadingCost final : public StateInputCost {
 
   std::vector<UnloadingWindow> windows_;
   scalar_t weight_ = 0.0;
-  scalar_t forceScale_ = 1.0;
+  scalar_t scaleForceContactEwrtWorld_ = 1.0;
 };
 
 }  // namespace ocs2::humanoid::multi_contact

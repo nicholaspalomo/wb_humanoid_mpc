@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <memory>
+#include <numbers>
 #include <random>
 #include <string>
 #include <utility>
@@ -48,17 +49,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_centroidal_model/FactoryFunctions.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
@@ -195,11 +197,12 @@ class ComAndAcomTrackingCostTest : public ::testing::Test {
   }
 
   /**
-   * A state with the base off level at the ZYX Euler angles `eulerZyx` (so a
-   * tangent map left out would matter), stored as the quaternion scaled by
-   * `quaternionCoefficientsScale`, and the joints bent by `jointOffset`.
+   * A state with the base off level at the ZYX Euler angles
+   * `eulerzyxBaseRtWorld` (so a tangent map left out would matter), stored as
+   * the quaternion scaled by `quaternionCoefficientsScale`, and the joints bent
+   * by `jointOffset`.
    */
-  vector_t makeState(const vector3_t& eulerZyx,
+  vector_t makeState(const vector3_t& eulerzyxBaseRtWorld,
                      scalar_t jointOffset,
                      scalar_t quaternionCoefficientsScale = 1.0) const {
     vector_t state = vector_t::Zero(info_.stateDim);
@@ -207,7 +210,8 @@ class ComAndAcomTrackingCostTest : public ::testing::Test {
         0.2;  // must not affect the cost
     state.segment<3>(kBasePositionStateIndex) << 0.05, -0.03, 0.82;
     state.segment<4>(kBaseOrientationStateIndex) =
-        quaternionCoefficientsScale * quaternionFromEulerZyx(eulerZyx);
+        quaternionCoefficientsScale *
+        quaternionFromEulerZyx(eulerzyxBaseRtWorld);
     for (Eigen::Index joint = 0; joint < nJoints_; ++joint) {
       state(kJointStateIndex + joint) =
           jointOffset + 0.01 * static_cast<scalar_t>(joint % 7);
@@ -230,7 +234,7 @@ class ComAndAcomTrackingCostTest : public ::testing::Test {
   }
 
   /** The CoM of `state`, from Pinocchio on a private data object. */
-  vector3_t centerOfMass(const vector_t& state) const {
+  vector3_t computePosComRtWorldEwrtWorld(const vector_t& state) const {
     const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
     pinocchio::Data data(model);
     return pinocchio::centerOfMass(model, data, generalizedCoordinates(state));
@@ -241,19 +245,20 @@ class ComAndAcomTrackingCostTest : public ::testing::Test {
    * its quaternion slots (normalized) and its joint slots, through the
    * independent evaluator's raw network output.
    */
-  vector4_t acomAttitude(const vector_t& state) const {
-    const vector4_t base =
+  vector4_t computeQuatAcomRtWorldXyzw(const vector_t& state) const {
+    const vector4_t quatBaseRtWorldXyzw =
         vector4_t(state.segment<4>(kBaseOrientationStateIndex)).normalized();
     return quaternionProduct(
-        base, quaternionExp(acomPtr_->computeJointOrientationOffset(
-                  state.tail(nJoints_))));
+        quatBaseRtWorldXyzw,
+        quaternionExp(acomPtr_->computeRotvecAcomRtBase(state.tail(nJoints_))));
   }
 
   /** The ACoM heading-tilt residual e_HT(xi_a(state), xi_a(stateRef)), rows
    * (yaw, pitch, roll). */
   vector3_t acomResidual(const vector_t& state,
                          const vector_t& stateRef) const {
-    return headingTiltResidual(acomAttitude(state), acomAttitude(stateRef));
+    return headingTiltResidual(computeQuatAcomRtWorldXyzw(state),
+                               computeQuatAcomRtWorldXyzw(stateRef));
   }
 
   /** Central-difference Jacobian of a 3-vector function of the state. */
@@ -404,9 +409,10 @@ TEST_F(ComAndAcomTrackingCostTest,
       reference(makeState(vector3_t(0.10, -0.05, 0.05), /*jointOffset=*/-0.1));
 
   const vector_t stateRef = target.stateTrajectory.front();
-  const matrix_t J_com = finiteDifferenceJacobian(
-      state,
-      [this](const vector_t& x) -> vector3_t { return centerOfMass(x); });
+  const matrix_t J_com =
+      finiteDifferenceJacobian(state, [this](const vector_t& x) -> vector3_t {
+        return computePosComRtWorldEwrtWorld(x);
+      });
   const matrix_t J_acom = finiteDifferenceJacobian(
       state, [this, &stateRef](const vector_t& x) -> vector3_t {
         return acomResidual(x, stateRef);
@@ -437,7 +443,7 @@ TEST_F(ComAndAcomTrackingCostTest, YawErrorIsWrappedAcrossPi) {
   ASSERT_NE(cost, nullptr);
   const vector_t state =
       makeState(vector3_t(3.1, 0.0, 0.0), /*jointOffset=*/0.2);
-  const scalar_t shortWay = 2.0 * M_PI - 6.2;
+  const scalar_t shortWay = 2.0 * std::numbers::pi - 6.2;
 
   const scalar_t across = cost->getValue(
       /*time=*/0.0, state,
@@ -732,8 +738,8 @@ TEST_F(
   vector_t state = makeState(vector3_t(1.2, 0.0, 0.0), /*jointOffset=*/0.0);
   state.tail(nJoints_).setZero();
   const vector_t stateRef = state;
-  const vector3_t offset =
-      acomPtr_->computeJointOrientationOffset(state.tail(nJoints_));
+  const vector3_t rotvecAcomRtBase =
+      acomPtr_->computeRotvecAcomRtBase(state.tail(nJoints_));
 
   // J along the retraction by finite differences of the residual; the base
   // rotation's tangent columns start at the quaternion's first slot.
@@ -747,8 +753,8 @@ TEST_F(
   headingTiltPermutation(0, 2) = headingTiltPermutation(1, 1) =
       headingTiltPermutation(2, 0) = 1.0;
   EXPECT_LT((baseBlock - headingTiltPermutation).cwiseAbs().maxCoeff(),
-            2.0 * offset.norm() + 1.0e-6)
-      << "|Delta_theta| = " << offset.norm() << "\n"
+            2.0 * rotvecAcomRtBase.norm() + 1.0e-6)
+      << "|Delta_theta| = " << rotvecAcomRtBase.norm() << "\n"
       << baseBlock;
   // The cost's Gauss-Newton Hessian of an identity Q_acom is J^T J, in the
   // stored slots as in the tangent.
@@ -824,8 +830,9 @@ TEST_F(ComAndAcomTrackingCostTest,
                 std::max(1.0, finiteDifference.cwiseAbs().maxCoeff()));
 
   const matrix_t J_com = tangentFiniteDifferenceJacobian(
-      state,
-      [this](const vector_t& x) -> vector3_t { return centerOfMass(x); });
+      state, [this](const vector_t& x) -> vector3_t {
+        return computePosComRtWorldEwrtWorld(x);
+      });
   const matrix_t J_acom = tangentFiniteDifferenceJacobian(
       state, [this, &stateRef](const vector_t& x) -> vector3_t {
         return acomResidual(x, stateRef);
@@ -905,59 +912,63 @@ TEST_F(ComAndAcomTrackingCostTest, CenterOfMassIsPhysicallyPlausible) {
   const vector_t q = mapping.getPinocchioJointPosition(state);
   ASSERT_EQ(static_cast<size_t>(q.size()), info_.getConfigurationDim());
 
-  const vector3_t com = centerOfMass(state);
-  EXPECT_NEAR(com[0], 0.0, 0.5);
-  EXPECT_NEAR(com[1], 0.0, 0.5);
-  EXPECT_GT(com[2], 0.3);
+  const vector3_t posComRtWorldEwrtWorld = computePosComRtWorldEwrtWorld(state);
+  EXPECT_NEAR(posComRtWorldEwrtWorld[0], 0.0, 0.5);
+  EXPECT_NEAR(posComRtWorldEwrtWorld[1], 0.0, 0.5);
+  EXPECT_GT(posComRtWorldEwrtWorld[2], 0.3);
   EXPECT_GT(info_.robotMass, 0.0);
 }
 
 namespace {
 
 /** One draw of a base attitude and an ACoM offset for the E2 bounds: ZYX angles
- * with |tilt| = hypot(pitch, roll). */
+ * with the inclination hypot(pitch, roll). */
 struct AcomDraw {
-  vector3_t eulerZyx = vector3_t::Zero();
-  vector3_t offset = vector3_t::Zero();  // Delta_theta, the joints' rotation of
-                                         // the ACoM in the base frame
-  scalar_t tilt = 0.0;
+  vector3_t eulerzyxBaseRtWorld = vector3_t::Zero();
+  vector3_t rotvecAcomRtBase =
+      vector3_t::Zero();       // Delta_theta, the joints' rotation of
+                               // the ACoM in the base frame
+  scalar_t inclination = 0.0;  // [rad] hypot(pitch, roll)
 };
 
-AcomDraw drawAcom(std::mt19937& engine, scalar_t maxTilt, scalar_t maxOffset) {
+AcomDraw drawAcom(std::mt19937& engine,
+                  scalar_t maxInclination,
+                  scalar_t maxOffset) {
   std::uniform_real_distribution<scalar_t> unit(0.0, 1.0);
   std::normal_distribution<scalar_t> normal(0.0, 1.0);
   AcomDraw draw;
-  const scalar_t direction = 2.0 * M_PI * unit(engine);
-  draw.tilt = maxTilt * unit(engine);
-  draw.eulerZyx = vector3_t(M_PI * (2.0 * unit(engine) - 1.0),
-                            draw.tilt * std::sin(direction),
-                            draw.tilt * std::cos(direction));
+  const scalar_t direction = 2.0 * std::numbers::pi * unit(engine);
+  draw.inclination = maxInclination * unit(engine);
+  draw.eulerzyxBaseRtWorld =
+      vector3_t(std::numbers::pi * (2.0 * unit(engine) - 1.0),
+                draw.inclination * std::sin(direction),
+                draw.inclination * std::cos(direction));
   const vector3_t axis(normal(engine), normal(engine), normal(engine));
-  draw.offset = (maxOffset * unit(engine) / axis.norm()) * axis;
+  draw.rotvecAcomRtBase = (maxOffset * unit(engine) / axis.norm()) * axis;
   return draw;
 }
 
 /** The yaw, pitch, roll rows (P3) of a body rotation vector (x, y, z). */
-vector3_t permutedToHeadingTiltRows(const vector3_t& rotation) {
-  return vector3_t(rotation(2), rotation(1), rotation(0));
+vector3_t permutedToHeadingTiltRows(const vector3_t& rotvec) {
+  return vector3_t(rotvec(2), rotvec(1), rotvec(0));
 }
 
 /** The heading-tilt residual of the ACoM attitudes xi(Theta) (x)
  * Exp(Delta_theta) of a state and a reference. */
-vector3_t acomResidual(const vector3_t& eulerZyx,
-                       const vector3_t& offset,
-                       const vector3_t& referenceEulerZyx,
-                       const vector3_t& referenceOffset) {
+vector3_t acomResidual(const vector3_t& eulerzyxBaseRtWorld,
+                       const vector3_t& rotvecAcomRtBase,
+                       const vector3_t& refEulerzyxBaseRtWorld,
+                       const vector3_t& refRotvecAcomRtBase) {
   return headingTiltResidual(
-      quaternionProduct(quaternionFromEulerZyx(eulerZyx),
-                        quaternionExp(offset)),
-      quaternionProduct(quaternionFromEulerZyx(referenceEulerZyx),
-                        quaternionExp(referenceOffset)));
+      quaternionProduct(quaternionFromEulerZyx(eulerzyxBaseRtWorld),
+                        quaternionExp(rotvecAcomRtBase)),
+      quaternionProduct(quaternionFromEulerZyx(refEulerzyxBaseRtWorld),
+                        quaternionExp(refRotvecAcomRtBase)));
 }
 
 /** `angle` wrapped into [-pi, pi]. */
 scalar_t wrappedAngle(scalar_t angle) {
-  return std::remainder(angle, 2.0 * M_PI);
+  return std::remainder(angle, 2.0 * std::numbers::pi);
 }
 
 /** The ranges the bounds are drawn over: (max |tilt|, max |Delta_theta|), both
@@ -987,29 +998,35 @@ TEST(ComAndAcomEulerTolerance,
     for (int i = 0; i < kAcomDrawsPerRange; ++i) {
       const AcomDraw state = drawAcom(engine, range.first, range.second);
       const AcomDraw reference = drawAcom(engine, range.first, range.second);
-      const scalar_t c =
-          1.0 + std::max(state.offset.norm(), reference.offset.norm()) +
-          std::max(state.tilt, reference.tilt);
+      const scalar_t c = 1.0 +
+                         std::max(state.rotvecAcomRtBase.norm(),
+                                  reference.rotvecAcomRtBase.norm()) +
+                         std::max(state.inclination, reference.inclination);
       const scalar_t slack =
-          c * (state.offset.norm() * state.tilt + state.offset.squaredNorm()) +
-          c * (reference.offset.norm() * reference.tilt +
-               reference.offset.squaredNorm());
-      const vector3_t acom = acomResidual(state.eulerZyx, state.offset,
-                                          reference.eulerZyx, reference.offset);
-      const vector3_t base =
-          headingTiltResidual(quaternionFromEulerZyx(state.eulerZyx),
-                              quaternionFromEulerZyx(reference.eulerZyx));
+          c * (state.rotvecAcomRtBase.norm() * state.inclination +
+               state.rotvecAcomRtBase.squaredNorm()) +
+          c * (reference.rotvecAcomRtBase.norm() * reference.inclination +
+               reference.rotvecAcomRtBase.squaredNorm());
+      const vector3_t acomResidualRows = acomResidual(
+          state.eulerzyxBaseRtWorld, state.rotvecAcomRtBase,
+          reference.eulerzyxBaseRtWorld, reference.rotvecAcomRtBase);
+      const vector3_t baseHeadingTiltRows = headingTiltResidual(
+          quaternionFromEulerZyx(state.eulerzyxBaseRtWorld),
+          quaternionFromEulerZyx(reference.eulerzyxBaseRtWorld));
       vector3_t composition =
-          acom - base -
-          permutedToHeadingTiltRows(state.offset - reference.offset);
+          acomResidualRows - baseHeadingTiltRows -
+          permutedToHeadingTiltRows(state.rotvecAcomRtBase -
+                                    reference.rotvecAcomRtBase);
       composition(0) = wrappedAngle(composition(0));
-      vector3_t eulerDifference = state.eulerZyx - reference.eulerZyx;
-      eulerDifference(0) = wrappedAngle(eulerDifference(0));
+      vector3_t errEulerzyxBaseRtWorld =
+          state.eulerzyxBaseRtWorld - reference.eulerzyxBaseRtWorld;
+      errEulerzyxBaseRtWorld(0) = wrappedAngle(errEulerzyxBaseRtWorld(0));
       vector3_t additive =
-          acom - eulerDifference -
-          permutedToHeadingTiltRows(state.offset - reference.offset);
+          acomResidualRows - errEulerzyxBaseRtWorld -
+          permutedToHeadingTiltRows(state.rotvecAcomRtBase -
+                                    reference.rotvecAcomRtBase);
       additive(0) = wrappedAngle(additive(0));
-      vector3_t own = base - eulerDifference;
+      vector3_t own = baseHeadingTiltRows - errEulerzyxBaseRtWorld;
       own(0) = wrappedAngle(own(0));
       for (Eigen::Index row = 0; row < 3; ++row) {
         EXPECT_LE(std::abs(composition(row)), slack + 1.0e-12)
@@ -1018,9 +1035,10 @@ TEST(ComAndAcomEulerTolerance,
         EXPECT_LE(std::abs(additive(row)), std::abs(own(row)) + slack + 1.0e-12)
             << "row " << row;
       }
-      if (slack > 0.0)
+      if (slack > 0.0) {
         largestRatio =
             std::max(largestRatio, composition.cwiseAbs().maxCoeff() / slack);
+      }
     }
   }
   RecordProperty("largest_ratio_to_the_bound", absl::StrCat(largestRatio));
@@ -1039,7 +1057,9 @@ TEST(ComAndAcomEulerTolerance,
 TEST(ComAndAcomEulerTolerance, TheEulerChartJacobianStaysWithinTheStatedBound) {
   constexpr scalar_t kStep = 1.0e-6;
   std::mt19937 engine(11U);
-  std::uniform_real_distribution<scalar_t> heading(-M_PI, M_PI);
+  std::uniform_real_distribution<scalar_t>
+      distributionRefEulerzyxBaseRtWorldYaw(-std::numbers::pi,
+                                            std::numbers::pi);
   matrix3_t permutation = matrix3_t::Zero();
   permutation(0, 2) = 1.0;
   permutation(1, 1) = 1.0;
@@ -1048,23 +1068,30 @@ TEST(ComAndAcomEulerTolerance, TheEulerChartJacobianStaysWithinTheStatedBound) {
   for (const std::pair<scalar_t, scalar_t>& range : kAcomRanges) {
     for (int i = 0; i < kAcomDrawsPerRange / 4; ++i) {
       const AcomDraw state = drawAcom(engine, range.first, range.second);
-      const vector3_t level(heading(engine), 0.0, 0.0);
-      const scalar_t bound = (1.0 + state.offset.norm() + state.tilt) *
-                             (state.tilt + state.offset.norm());
+      const vector3_t refEulerzyxBaseRtWorld(
+          distributionRefEulerzyxBaseRtWorldYaw(engine), 0.0, 0.0);
+      const scalar_t bound =
+          (1.0 + state.rotvecAcomRtBase.norm() + state.inclination) *
+          (state.inclination + state.rotvecAcomRtBase.norm());
       matrix3_t baseBlock = matrix3_t::Zero();
       matrix3_t jointBlock = matrix3_t::Zero();
       for (Eigen::Index k = 0; k < 3; ++k) {
         const vector3_t step = kStep * vector3_t::Unit(k);
-        vector3_t alongTheta = acomResidual(state.eulerZyx + step, state.offset,
-                                            level, vector3_t::Zero()) -
-                               acomResidual(state.eulerZyx - step, state.offset,
-                                            level, vector3_t::Zero());
+        vector3_t alongTheta =
+            acomResidual(state.eulerzyxBaseRtWorld + step,
+                         state.rotvecAcomRtBase, refEulerzyxBaseRtWorld,
+                         vector3_t::Zero()) -
+            acomResidual(state.eulerzyxBaseRtWorld - step,
+                         state.rotvecAcomRtBase, refEulerzyxBaseRtWorld,
+                         vector3_t::Zero());
         alongTheta(0) = wrappedAngle(alongTheta(0));
         baseBlock.col(k) = alongTheta / (2.0 * kStep);
         vector3_t alongOffset =
-            acomResidual(state.eulerZyx, state.offset + step, level,
+            acomResidual(state.eulerzyxBaseRtWorld,
+                         state.rotvecAcomRtBase + step, refEulerzyxBaseRtWorld,
                          vector3_t::Zero()) -
-            acomResidual(state.eulerZyx, state.offset - step, level,
+            acomResidual(state.eulerzyxBaseRtWorld,
+                         state.rotvecAcomRtBase - step, refEulerzyxBaseRtWorld,
                          vector3_t::Zero());
         alongOffset(0) = wrappedAngle(alongOffset(0));
         jointBlock.col(k) = alongOffset / (2.0 * kStep);
@@ -1100,19 +1127,22 @@ TEST(ComAndAcomEulerTolerance, ThePlannerHeadingStaysWithinTheStatedBound) {
   for (const std::pair<scalar_t, scalar_t>& range : kAcomRanges) {
     for (int i = 0; i < kAcomDrawsPerRange; ++i) {
       const AcomDraw state = drawAcom(engine, range.first, range.second);
-      const scalar_t pitch = state.eulerZyx(1);
-      const scalar_t roll = state.eulerZyx(2);
+      const scalar_t pitch = state.eulerzyxBaseRtWorld(1);
+      const scalar_t roll = state.eulerzyxBaseRtWorld(2);
       const scalar_t headingOffset =
           -2.0 * std::atan(std::tan(0.5 * pitch) * std::tan(0.5 * roll));
-      const scalar_t c = 1.0 + state.offset.norm() + state.tilt;
-      const scalar_t plannerHeading = yawOf(quaternionProduct(
-          quaternionFromEulerZyx(state.eulerZyx), quaternionExp(state.offset)));
-      EXPECT_LE(std::abs(wrappedAngle(plannerHeading -
-                                      (state.eulerZyx(0) + state.offset(2)))),
-                std::abs(headingOffset) +
-                    c * (state.offset.norm() * state.tilt +
-                         state.offset.squaredNorm()) +
-                    1.0e-12);
+      const scalar_t c =
+          1.0 + state.rotvecAcomRtBase.norm() + state.inclination;
+      const scalar_t yawAcomRtWorld = yawOf(
+          quaternionProduct(quaternionFromEulerZyx(state.eulerzyxBaseRtWorld),
+                            quaternionExp(state.rotvecAcomRtBase)));
+      EXPECT_LE(
+          std::abs(wrappedAngle(yawAcomRtWorld - (state.eulerzyxBaseRtWorld(0) +
+                                                  state.rotvecAcomRtBase(2)))),
+          std::abs(headingOffset) +
+              c * (state.rotvecAcomRtBase.norm() * state.inclination +
+                   state.rotvecAcomRtBase.squaredNorm()) +
+              1.0e-12);
     }
   }
 }

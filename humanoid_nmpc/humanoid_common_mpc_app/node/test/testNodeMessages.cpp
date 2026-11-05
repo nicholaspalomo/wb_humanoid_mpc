@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
+#include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
 #include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
 #include "humanoid_common_mpc_app/node/ViewerAnnotations.h"
@@ -53,74 +54,96 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::node {
 namespace {
 
-humanoid_mpc_msgs::WalkingVelocityCommand commandMessage(double vx,
-                                                         double vy,
-                                                         double height,
-                                                         double yawRate) {
+humanoid_mpc_msgs::WalkingVelocityCommand commandMessage(
+    double cmdLnormLinvelBaseRtWorldEwrtHeadingX,
+    double cmdLnormLinvelBaseRtWorldEwrtHeadingY,
+    double cmdPosBaseRtSurfaceEwrtWorldZ,
+    double cmdLnormAngvelBaseRtWorldEwrtWorldZ) {
   humanoid_mpc_msgs::WalkingVelocityCommand message;
-  message.set_cmd_linvel_base_rt_world_ewrt_heading_x(vx);
-  message.set_cmd_linvel_base_rt_world_ewrt_heading_y(vy);
-  message.set_cmd_pos_base_rt_world_ewrt_world_z(height);
-  message.set_cmd_angvel_base_rt_world_ewrt_world_z(yawRate);
+  message.set_cmd_lnorm_linvel_base_rt_world_ewrt_heading_x(
+      cmdLnormLinvelBaseRtWorldEwrtHeadingX);
+  message.set_cmd_lnorm_linvel_base_rt_world_ewrt_heading_y(
+      cmdLnormLinvelBaseRtWorldEwrtHeadingY);
+  message.set_cmd_pos_base_rt_surface_ewrt_world_z(
+      cmdPosBaseRtSurfaceEwrtWorldZ);
+  message.set_cmd_lnorm_angvel_base_rt_world_ewrt_world_z(
+      cmdLnormAngvelBaseRtWorldEwrtWorldZ);
   return message;
 }
 
 TEST(WalkingVelocityCommandFromProto, PassesACommandInsideTheRangesThrough) {
-  const absl::StatusOr<WalkingVelocityCommand> command =
+  const absl::StatusOr<NormalizedWalkingVelocityCommand> command =
       walkingVelocityCommandFromProto(commandMessage(
-          /*vx=*/0.5, /*vy=*/-0.25, /*height=*/0.8, /*yawRate=*/0.125));
+          /*cmdLnormLinvelBaseRtWorldEwrtHeadingX=*/0.5,
+          /*cmdLnormLinvelBaseRtWorldEwrtHeadingY=*/-0.25,
+          /*cmdPosBaseRtSurfaceEwrtWorldZ=*/0.8,
+          /*cmdLnormAngvelBaseRtWorldEwrtWorldZ=*/0.125));
   ASSERT_TRUE(command.ok()) << command.status();
-  EXPECT_EQ(command->cmd_linvel_base_rt_world_ewrt_heading_x, 0.5);
-  EXPECT_EQ(command->cmd_linvel_base_rt_world_ewrt_heading_y, -0.25);
-  EXPECT_EQ(command->cmd_pos_base_rt_world_ewrt_world_z, 0.8);
-  EXPECT_EQ(command->cmd_angvel_base_rt_world_ewrt_world_z, 0.125);
+  EXPECT_EQ(command->cmd_lnorm_linvel_base_rt_world_ewrt_heading_x, 0.5);
+  EXPECT_EQ(command->cmd_lnorm_linvel_base_rt_world_ewrt_heading_y, -0.25);
+  EXPECT_EQ(command->cmd_pos_base_rt_surface_ewrt_world_z, 0.8);
+  EXPECT_EQ(command->cmd_lnorm_angvel_base_rt_world_ewrt_world_z, 0.125);
 }
 
 TEST(WalkingVelocityCommandFromProto, ClampsToTheNormalizedRanges) {
-  const absl::StatusOr<WalkingVelocityCommand> high =
+  const absl::StatusOr<NormalizedWalkingVelocityCommand> high =
       walkingVelocityCommandFromProto(commandMessage(
-          /*vx=*/3.0, /*vy=*/2.0, /*height=*/5.0, /*yawRate=*/7.0));
+          /*cmdLnormLinvelBaseRtWorldEwrtHeadingX=*/3.0,
+          /*cmdLnormLinvelBaseRtWorldEwrtHeadingY=*/2.0,
+          /*cmdPosBaseRtSurfaceEwrtWorldZ=*/5.0,
+          /*cmdLnormAngvelBaseRtWorldEwrtWorldZ=*/7.0));
   ASSERT_TRUE(high.ok()) << high.status();
-  EXPECT_EQ(high->cmd_linvel_base_rt_world_ewrt_heading_x,
-            kMaxNormalizedVelocity);
-  EXPECT_EQ(high->cmd_linvel_base_rt_world_ewrt_heading_y,
-            kMaxNormalizedVelocity);
-  EXPECT_EQ(high->cmd_pos_base_rt_world_ewrt_world_z, kMaxPelvisHeight);
-  EXPECT_EQ(high->cmd_angvel_base_rt_world_ewrt_world_z,
-            kMaxNormalizedVelocity);
+  EXPECT_EQ(high->cmd_lnorm_linvel_base_rt_world_ewrt_heading_x,
+            kCmdMaxLnormLinvelBaseRtWorldEwrtHeadingXy);
+  EXPECT_EQ(high->cmd_lnorm_linvel_base_rt_world_ewrt_heading_y,
+            kCmdMaxLnormLinvelBaseRtWorldEwrtHeadingXy);
+  EXPECT_EQ(high->cmd_pos_base_rt_surface_ewrt_world_z,
+            kCmdMaxPosBaseRtSurfaceEwrtWorldZ);
+  EXPECT_EQ(high->cmd_lnorm_angvel_base_rt_world_ewrt_world_z,
+            kCmdMaxLnormAngvelBaseRtWorldEwrtWorldZ);
 
-  const absl::StatusOr<WalkingVelocityCommand> low =
+  const absl::StatusOr<NormalizedWalkingVelocityCommand> low =
       walkingVelocityCommandFromProto(commandMessage(
-          /*vx=*/-3.0, /*vy=*/-2.0, /*height=*/0.0, /*yawRate=*/-7.0));
+          /*cmdLnormLinvelBaseRtWorldEwrtHeadingX=*/-3.0,
+          /*cmdLnormLinvelBaseRtWorldEwrtHeadingY=*/-2.0,
+          /*cmdPosBaseRtSurfaceEwrtWorldZ=*/0.0,
+          /*cmdLnormAngvelBaseRtWorldEwrtWorldZ=*/-7.0));
   ASSERT_TRUE(low.ok()) << low.status();
-  EXPECT_EQ(low->cmd_linvel_base_rt_world_ewrt_heading_x,
-            -kMaxNormalizedVelocity);
-  EXPECT_EQ(low->cmd_linvel_base_rt_world_ewrt_heading_y,
-            -kMaxNormalizedVelocity);
-  EXPECT_EQ(low->cmd_pos_base_rt_world_ewrt_world_z, kMinPelvisHeight);
-  EXPECT_EQ(low->cmd_angvel_base_rt_world_ewrt_world_z,
-            -kMaxNormalizedVelocity);
+  EXPECT_EQ(low->cmd_lnorm_linvel_base_rt_world_ewrt_heading_x,
+            -kCmdMaxLnormLinvelBaseRtWorldEwrtHeadingXy);
+  EXPECT_EQ(low->cmd_lnorm_linvel_base_rt_world_ewrt_heading_y,
+            -kCmdMaxLnormLinvelBaseRtWorldEwrtHeadingXy);
+  EXPECT_EQ(low->cmd_pos_base_rt_surface_ewrt_world_z,
+            kCmdMinPosBaseRtSurfaceEwrtWorldZ);
+  EXPECT_EQ(low->cmd_lnorm_angvel_base_rt_world_ewrt_world_z,
+            -kCmdMaxLnormAngvelBaseRtWorldEwrtWorldZ);
 }
 
 TEST(WalkingVelocityCommandFromProto,
      RefusesAValueThatIsNotFiniteNamingTheField) {
   const double nan = std::numeric_limits<double>::quiet_NaN();
   const double infinity = std::numeric_limits<double>::infinity();
-  const absl::StatusOr<WalkingVelocityCommand> notANumber =
+  const absl::StatusOr<NormalizedWalkingVelocityCommand> notANumber =
       walkingVelocityCommandFromProto(commandMessage(
-          /*vx=*/nan, /*vy=*/0.0, /*height=*/0.8, /*yawRate=*/0.0));
+          /*cmdLnormLinvelBaseRtWorldEwrtHeadingX=*/nan,
+          /*cmdLnormLinvelBaseRtWorldEwrtHeadingY=*/0.0,
+          /*cmdPosBaseRtSurfaceEwrtWorldZ=*/0.8,
+          /*cmdLnormAngvelBaseRtWorldEwrtWorldZ=*/0.0));
   EXPECT_EQ(notANumber.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(notANumber.status().message().find(
-                "cmd_linvel_base_rt_world_ewrt_heading_x"),
+                "cmd_lnorm_linvel_base_rt_world_ewrt_heading_x"),
             absl::string_view::npos)
       << notANumber.status();
 
-  const absl::StatusOr<WalkingVelocityCommand> infinite =
+  const absl::StatusOr<NormalizedWalkingVelocityCommand> infinite =
       walkingVelocityCommandFromProto(commandMessage(
-          /*vx=*/0.0, /*vy=*/0.0, /*height=*/infinity, /*yawRate=*/0.0));
+          /*cmdLnormLinvelBaseRtWorldEwrtHeadingX=*/0.0,
+          /*cmdLnormLinvelBaseRtWorldEwrtHeadingY=*/0.0,
+          /*cmdPosBaseRtSurfaceEwrtWorldZ=*/infinity,
+          /*cmdLnormAngvelBaseRtWorldEwrtWorldZ=*/0.0));
   EXPECT_EQ(infinite.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(
-      infinite.status().message().find("cmd_pos_base_rt_world_ewrt_world_z"),
+      infinite.status().message().find("cmd_pos_base_rt_surface_ewrt_world_z"),
       absl::string_view::npos)
       << infinite.status();
 }
@@ -128,63 +151,82 @@ TEST(WalkingVelocityCommandFromProto,
 TEST(ClampWalkingVelocityCommand, IsTheClampOfTheConversion) {
   // The clamp the lockstep closed loop applies to the GUI's messages is the one
   // a received message goes through.
-  for (const WalkingVelocityCommand& command :
-       {WalkingVelocityCommand(/*v_x=*/0.3, /*v_y=*/-0.2,
-                               /*desired_pelvis_h=*/0.8, /*v_yaw=*/0.1),
-        WalkingVelocityCommand(/*v_x=*/2.0, /*v_y=*/-3.0,
-                               /*desired_pelvis_h=*/0.05, /*v_yaw=*/1.5),
-        WalkingVelocityCommand(/*v_x=*/-7.0, /*v_y=*/4.0,
-                               /*desired_pelvis_h=*/1.7, /*v_yaw=*/-2.5)}) {
-    const WalkingVelocityCommand clamped = clampWalkingVelocityCommand(command);
-    const absl::StatusOr<WalkingVelocityCommand> converted =
-        walkingVelocityCommandFromProto(
-            commandMessage(command.cmd_linvel_base_rt_world_ewrt_heading_x,
-                           command.cmd_linvel_base_rt_world_ewrt_heading_y,
-                           command.cmd_pos_base_rt_world_ewrt_world_z,
-                           command.cmd_angvel_base_rt_world_ewrt_world_z));
+  for (const NormalizedWalkingVelocityCommand& command :
+       {NormalizedWalkingVelocityCommand(
+            /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_x=*/0.3,
+            /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_y=*/-0.2,
+            /*cmd_pos_base_rt_surface_ewrt_world_z=*/0.8,
+            /*cmd_lnorm_angvel_base_rt_world_ewrt_world_z=*/0.1),
+        NormalizedWalkingVelocityCommand(
+            /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_x=*/2.0,
+            /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_y=*/-3.0,
+            /*cmd_pos_base_rt_surface_ewrt_world_z=*/0.05,
+            /*cmd_lnorm_angvel_base_rt_world_ewrt_world_z=*/1.5),
+        NormalizedWalkingVelocityCommand(
+            /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_x=*/-7.0,
+            /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_y=*/4.0,
+            /*cmd_pos_base_rt_surface_ewrt_world_z=*/1.7,
+            /*cmd_lnorm_angvel_base_rt_world_ewrt_world_z=*/-2.5)}) {
+    const NormalizedWalkingVelocityCommand clamped =
+        clampWalkingVelocityCommand(command);
+    const absl::StatusOr<NormalizedWalkingVelocityCommand> converted =
+        walkingVelocityCommandFromProto(commandMessage(
+            command.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x,
+            command.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y,
+            command.cmd_pos_base_rt_surface_ewrt_world_z,
+            command.cmd_lnorm_angvel_base_rt_world_ewrt_world_z));
     ASSERT_TRUE(converted.ok()) << converted.status();
-    EXPECT_EQ(clamped.cmd_linvel_base_rt_world_ewrt_heading_x,
-              converted->cmd_linvel_base_rt_world_ewrt_heading_x);
-    EXPECT_EQ(clamped.cmd_linvel_base_rt_world_ewrt_heading_y,
-              converted->cmd_linvel_base_rt_world_ewrt_heading_y);
-    EXPECT_EQ(clamped.cmd_pos_base_rt_world_ewrt_world_z,
-              converted->cmd_pos_base_rt_world_ewrt_world_z);
-    EXPECT_EQ(clamped.cmd_angvel_base_rt_world_ewrt_world_z,
-              converted->cmd_angvel_base_rt_world_ewrt_world_z);
-    EXPECT_LE(std::abs(clamped.cmd_linvel_base_rt_world_ewrt_heading_x),
-              kMaxNormalizedVelocity);
-    EXPECT_GE(clamped.cmd_pos_base_rt_world_ewrt_world_z, kMinPelvisHeight);
-    EXPECT_LE(clamped.cmd_pos_base_rt_world_ewrt_world_z, kMaxPelvisHeight);
+    EXPECT_EQ(clamped.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x,
+              converted->cmd_lnorm_linvel_base_rt_world_ewrt_heading_x);
+    EXPECT_EQ(clamped.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y,
+              converted->cmd_lnorm_linvel_base_rt_world_ewrt_heading_y);
+    EXPECT_EQ(clamped.cmd_pos_base_rt_surface_ewrt_world_z,
+              converted->cmd_pos_base_rt_surface_ewrt_world_z);
+    EXPECT_EQ(clamped.cmd_lnorm_angvel_base_rt_world_ewrt_world_z,
+              converted->cmd_lnorm_angvel_base_rt_world_ewrt_world_z);
+    EXPECT_LE(std::abs(clamped.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x),
+              kCmdMaxLnormLinvelBaseRtWorldEwrtHeadingXy);
+    EXPECT_GE(clamped.cmd_pos_base_rt_surface_ewrt_world_z,
+              kCmdMinPosBaseRtSurfaceEwrtWorldZ);
+    EXPECT_LE(clamped.cmd_pos_base_rt_surface_ewrt_world_z,
+              kCmdMaxPosBaseRtSurfaceEwrtWorldZ);
   }
   // A value that is not finite is the conversion's to refuse; the clamp passes
   // it on.
-  const WalkingVelocityCommand notANumber(
-      /*v_x=*/std::numeric_limits<double>::quiet_NaN(), /*v_y=*/0.0,
-      /*desired_pelvis_h=*/0.8,
-      /*v_yaw=*/0.0);
+  const NormalizedWalkingVelocityCommand notANumber(
+      /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_x=*/std::numeric_limits<
+          double>::quiet_NaN(),
+      /*cmd_lnorm_linvel_base_rt_world_ewrt_heading_y=*/0.0,
+      /*cmd_pos_base_rt_surface_ewrt_world_z=*/0.8,
+      /*cmd_lnorm_angvel_base_rt_world_ewrt_world_z=*/0.0);
   EXPECT_TRUE(std::isnan(clampWalkingVelocityCommand(notANumber)
-                             .cmd_linvel_base_rt_world_ewrt_heading_x));
+                             .cmd_lnorm_linvel_base_rt_world_ewrt_heading_x));
 }
 
-TargetContactPose pose(TargetContactPose::Kind kind, scalar_t x) {
+TargetContactPose makeDesPoseFootRtWorld(TargetContactPose::Kind kind,
+                                         scalar_t x) {
   TargetContactPose result;
   result.valid = true;
   result.kind = kind;
-  result.position = vector2_t(x, -x);
-  result.height = 0.02;
-  result.yaw = 0.3;
+  result.posFootRtWorldEwrtWorldXy = vector2_t(x, -x);
+  result.posFootRtWorldEwrtWorldZ = 0.02;
+  result.eulerzyxFootRtWorldYaw = 0.3;
   result.yawPlanned = true;
   return result;
 }
 
 TEST(FillViewerAnnotations, SendsOnePatchPerFootAndTheScaledCommand) {
-  const feet_array_t<TargetContactPose> poses = {
-      pose(TargetContactPose::Kind::kSwingInFlight, /*x=*/0.4),
-      pose(TargetContactPose::Kind::kNextSwing, /*x=*/0.1)};
-  const WalkingVelocityCommand scaled(/*v_x=*/0.3, /*v_y=*/-0.1,
-                                      /*desired_pelvis_h=*/0.8, /*v_yaw=*/0.2);
+  const feet_array_t<TargetContactPose> desPoseFeetRtWorld = {
+      makeDesPoseFootRtWorld(TargetContactPose::Kind::kSwingInFlight,
+                             /*x=*/0.4),
+      makeDesPoseFootRtWorld(TargetContactPose::Kind::kNextSwing, /*x=*/0.1)};
+  const WalkingVelocityCommand scaled(
+      /*cmd_linvel_base_rt_world_ewrt_heading_x=*/0.3,
+      /*cmd_linvel_base_rt_world_ewrt_heading_y=*/-0.1,
+      /*cmd_pos_base_rt_surface_ewrt_world_z=*/0.8,
+      /*cmd_angvel_base_rt_world_ewrt_world_z=*/0.2);
   humanoid_mpc_msgs::ViewerAnnotations annotations;
-  fillViewerAnnotations(&poses, scaled, &annotations);
+  fillViewerAnnotations(&desPoseFeetRtWorld, scaled, &annotations);
 
   ASSERT_EQ(annotations.target_contact_patches_size(),
             static_cast<int>(kNumContacts));
@@ -196,7 +238,7 @@ TEST(FillViewerAnnotations, SendsOnePatchPerFootAndTheScaledCommand) {
   EXPECT_EQ(left.des_pose_foot_rt_world().x(), 0.4);
   EXPECT_EQ(left.des_pose_foot_rt_world().y(), -0.4);
   EXPECT_EQ(left.des_pose_foot_rt_world().z(), 0.02);
-  EXPECT_EQ(left.des_pose_foot_rt_world().yaw(), 0.3);
+  EXPECT_EQ(left.des_pose_foot_rt_world().eulerzyx_foot_rt_world_yaw(), 0.3);
   EXPECT_TRUE(left.des_pose_foot_rt_world().yaw_planned());
   EXPECT_EQ(annotations.target_contact_patches(1).kind(),
             humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING);
@@ -211,15 +253,16 @@ TEST(FillViewerAnnotations,
   annotations.add_target_contact_patches()
       ->mutable_des_pose_foot_rt_world()
       ->set_x(1.0);
-  fillViewerAnnotations(/*targetContactPoses=*/nullptr,
+  fillViewerAnnotations(/*desPoseFeetRtWorld=*/nullptr,
                         WalkingVelocityCommand(), &annotations);
   EXPECT_EQ(annotations.target_contact_patches_size(), 0);
   EXPECT_EQ(annotations.scaled_cmd_linvel_base_rt_world_ewrt_heading_x(), 0.0);
 }
 
 TEST(TargetContactPatchToProto, SendsNoPoseForAPoseThatIsInvalidOrNotFinite) {
-  TargetContactPose broken = pose(TargetContactPose::Kind::kStance, /*x=*/0.0);
-  broken.yaw = std::numeric_limits<scalar_t>::quiet_NaN();
+  TargetContactPose broken =
+      makeDesPoseFootRtWorld(TargetContactPose::Kind::kStance, /*x=*/0.0);
+  broken.eulerzyxFootRtWorldYaw = std::numeric_limits<scalar_t>::quiet_NaN();
   humanoid_mpc_msgs::TargetContactPatch patch;
   targetContactPatchToProto(broken, &patch);
   EXPECT_FALSE(patch.has_des_pose_foot_rt_world());
@@ -227,9 +270,11 @@ TEST(TargetContactPatchToProto, SendsNoPoseForAPoseThatIsInvalidOrNotFinite) {
 
   // A patch that had a pose loses it: the message is replaced, not merged.
   targetContactPatchToProto(
-      pose(TargetContactPose::Kind::kNextSwing, /*x=*/0.2), &patch);
+      makeDesPoseFootRtWorld(TargetContactPose::Kind::kNextSwing, /*x=*/0.2),
+      &patch);
   ASSERT_TRUE(patch.has_des_pose_foot_rt_world());
-  TargetContactPose invalid = pose(TargetContactPose::Kind::kStance, /*x=*/0.0);
+  TargetContactPose invalid =
+      makeDesPoseFootRtWorld(TargetContactPose::Kind::kStance, /*x=*/0.0);
   invalid.valid = false;
   targetContactPatchToProto(invalid, &patch);
   EXPECT_FALSE(patch.has_des_pose_foot_rt_world());
@@ -253,7 +298,8 @@ TEST(TargetContactPatchToProto,
                        humanoid_mpc_msgs::TargetContactPatch::Kind>& kind :
        kinds) {
     humanoid_mpc_msgs::TargetContactPatch patch;
-    targetContactPatchToProto(pose(kind.first, /*x=*/0.1), &patch);
+    targetContactPatchToProto(makeDesPoseFootRtWorld(kind.first, /*x=*/0.1),
+                              &patch);
     EXPECT_EQ(patch.kind(), kind.second);
     EXPECT_NE(patch.kind(),
               humanoid_mpc_msgs::TargetContactPatch::KIND_UNSPECIFIED);

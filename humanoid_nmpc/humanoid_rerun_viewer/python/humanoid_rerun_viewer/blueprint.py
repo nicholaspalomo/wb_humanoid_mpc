@@ -57,25 +57,32 @@ SCENE_VIEW_NAME = "Scene"
 EVENTS_VIEW_NAME = "Events"
 STATUS_TAB_NAME = "Status"
 
-# The initial orbit camera: focal point, distance, pitch and yaw.
-_CAMERA_FOCAL_POINT = (
+# The initial orbit camera: focal point, distance, and the elevation and azimuth [rad] of the direction from the focal
+# point to the camera (the angles of pos_cam_rt_camfocus_ewrt_world, not the camera's own orientation).
+_INIT_POS_CAMFOCUS_RT_WORLD_EWRT_WORLD = (
     0.608772337436676,
     0.09100822359323502,
     0.0074924081563949585,
 )
-_CAMERA_DISTANCE = 2.4502856731414795
-_CAMERA_PITCH = 0.36879807710647583
-_CAMERA_YAW = 6.122678756713867
+_INIT_DIST_CAM_RT_CAMFOCUS = 2.4502856731414795
+_INIT_ELEVATION_CAM_RT_CAMFOCUS_EWRT_WORLD = 0.36879807710647583
+_INIT_AZIMUTH_CAM_RT_CAMFOCUS_EWRT_WORLD = 6.122678756713867
 
 
-def initial_eye_position() -> list[float]:
-    """Where the orbit camera starts: `distance` from the focal point at its pitch and yaw."""
+def init_pos_cam_rt_world_ewrt_world() -> list[float]:
+    """Where the orbit camera starts: _INIT_DIST_CAM_RT_CAMFOCUS from the focal point, at its elevation and azimuth."""
     return [
-        _CAMERA_FOCAL_POINT[0]
-        + _CAMERA_DISTANCE * math.cos(_CAMERA_PITCH) * math.cos(_CAMERA_YAW),
-        _CAMERA_FOCAL_POINT[1]
-        + _CAMERA_DISTANCE * math.cos(_CAMERA_PITCH) * math.sin(_CAMERA_YAW),
-        _CAMERA_FOCAL_POINT[2] + _CAMERA_DISTANCE * math.sin(_CAMERA_PITCH),
+        _INIT_POS_CAMFOCUS_RT_WORLD_EWRT_WORLD[0]
+        + _INIT_DIST_CAM_RT_CAMFOCUS
+        * math.cos(_INIT_ELEVATION_CAM_RT_CAMFOCUS_EWRT_WORLD)
+        * math.cos(_INIT_AZIMUTH_CAM_RT_CAMFOCUS_EWRT_WORLD),
+        _INIT_POS_CAMFOCUS_RT_WORLD_EWRT_WORLD[1]
+        + _INIT_DIST_CAM_RT_CAMFOCUS
+        * math.cos(_INIT_ELEVATION_CAM_RT_CAMFOCUS_EWRT_WORLD)
+        * math.sin(_INIT_AZIMUTH_CAM_RT_CAMFOCUS_EWRT_WORLD),
+        _INIT_POS_CAMFOCUS_RT_WORLD_EWRT_WORLD[2]
+        + _INIT_DIST_CAM_RT_CAMFOCUS
+        * math.sin(_INIT_ELEVATION_CAM_RT_CAMFOCUS_EWRT_WORLD),
     ]
 
 
@@ -112,8 +119,8 @@ def scene_view(
             color=palette.GRID_COLOR,
         ),
         eye_controls=rrb.EyeControls3D(
-            position=initial_eye_position(),
-            look_target=list(_CAMERA_FOCAL_POINT),
+            position=init_pos_cam_rt_world_ewrt_world(),  # NOLINT(frame-naming): a Rerun keyword argument
+            look_target=list(_INIT_POS_CAMFOCUS_RT_WORLD_EWRT_WORLD),
             eye_up=[0.0, 0.0, 1.0],
             tracking_entity=tracking_entity,
         ),

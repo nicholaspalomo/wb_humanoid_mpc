@@ -71,14 +71,20 @@ class _Inertia:
 
     Attributes:
         mass: The mass [kg].
-        com: The center of mass [m], shape (3,).
-        rotational: The rotational inertia about the center of mass [kg m^2], shape (3, 3).
+        pos_linkcom_rt_link_ewrt_link: The center of mass [m] in the body's frame, shape (3,).
+        inertia_linkcom_ewrt_link: The rotational inertia about the center of mass [kg m^2] in the body's axes, shape
+            (3, 3).
     """
 
-    def __init__(self, mass: float, com: np.ndarray, rotational: np.ndarray):
+    def __init__(
+        self,
+        mass: float,
+        pos_linkcom_rt_link_ewrt_link: np.ndarray,
+        inertia_linkcom_ewrt_link: np.ndarray,
+    ):
         self.mass = mass
-        self.com = com
-        self.rotational = rotational
+        self.pos_linkcom_rt_link_ewrt_link = pos_linkcom_rt_link_ewrt_link
+        self.inertia_linkcom_ewrt_link = inertia_linkcom_ewrt_link
 
 
 def _find_model_pairs() -> list[tuple[str, str, str]]:
@@ -162,32 +168,34 @@ def _parse_urdf(path: str) -> tuple[dict[str, _Inertia], dict[str, list]]:
         if inertial is None:
             links[name] = _Inertia(0.0, np.zeros(3), np.zeros((3, 3)))
             continue
-        com, rotation = _origin(inertial)
-        moments = {
+        pos_linkcom_rt_link_ewrt_link, inertial_rotmat = _origin(inertial)
+        inertia_entries = {
             key: float(_attribute(inertial, "inertia", key))
             for key in ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")
         }
         in_inertial_frame = _symmetric(
-            moments["ixx"],
-            moments["iyy"],
-            moments["izz"],
-            moments["ixy"],
-            moments["ixz"],
-            moments["iyz"],
+            inertia_entries["ixx"],
+            inertia_entries["iyy"],
+            inertia_entries["izz"],
+            inertia_entries["ixy"],
+            inertia_entries["ixz"],
+            inertia_entries["iyz"],
         )
         links[name] = _Inertia(
             float(_attribute(inertial, "mass", "value")),
-            com,
-            rotation @ in_inertial_frame @ rotation.T,
+            pos_linkcom_rt_link_ewrt_link,
+            inertial_rotmat @ in_inertial_frame @ inertial_rotmat.T,
         )
     fixed_children: dict[str, list] = {}
     for joint in root.iter("joint"):
         if joint.get("type") != "fixed":
             continue
-        translation, rotation = _origin(joint)
+        translation, origin_rotmat = _origin(joint)
         fixed_children.setdefault(
             _attribute(joint, "parent", "link"), []
-        ).append((_attribute(joint, "child", "link"), translation, rotation))
+        ).append(
+            (_attribute(joint, "child", "link"), translation, origin_rotmat)
+        )
     return links, fixed_children
 
 
@@ -216,14 +224,34 @@ def _combine(parts: list[_Inertia]) -> _Inertia:
     mass = sum(part.mass for part in parts)
     if mass <= 0.0:
         return _Inertia(0.0, np.zeros(3), np.zeros((3, 3)))
-    com = sum(part.mass * part.com for part in parts) / mass
-    rotational = np.zeros((3, 3))
+    pos_subtreecom_rt_link_ewrt_link = (
+        sum(part.mass * part.pos_linkcom_rt_link_ewrt_link for part in parts)
+        / mass
+    )
+    inertia_subtreecom_ewrt_link = np.zeros((3, 3))
     for part in parts:
-        offset = part.com - com
-        rotational += part.rotational + part.mass * (
-            np.dot(offset, offset) * np.eye(3) - np.outer(offset, offset)
+        pos_linkcom_rt_subtreecom_ewrt_link = (
+            part.pos_linkcom_rt_link_ewrt_link
+            - pos_subtreecom_rt_link_ewrt_link
         )
-    return _Inertia(mass, com, rotational)
+        inertia_subtreecom_ewrt_link += (
+            part.inertia_linkcom_ewrt_link
+            + part.mass
+            * (
+                np.dot(
+                    pos_linkcom_rt_subtreecom_ewrt_link,
+                    pos_linkcom_rt_subtreecom_ewrt_link,
+                )
+                * np.eye(3)
+                - np.outer(
+                    pos_linkcom_rt_subtreecom_ewrt_link,
+                    pos_linkcom_rt_subtreecom_ewrt_link,
+                )
+            )
+        )
+    return _Inertia(
+        mass, pos_subtreecom_rt_link_ewrt_link, inertia_subtreecom_ewrt_link
+    )
 
 
 def _lumped_inertia(
@@ -245,25 +273,33 @@ def _lumped_inertia(
     parts = []
     stack = [(link, np.zeros(3), np.eye(3))]
     while stack:
-        name, translation, rotation = stack.pop()
+        name, pos_link_rt_mjbody_ewrt_mjbody, rotmat_link_rt_mjbody = (
+            stack.pop()
+        )
         part = links[name]
         parts.append(
             _Inertia(
                 part.mass,
-                translation + rotation @ part.com,
-                rotation @ part.rotational @ rotation.T,
+                pos_link_rt_mjbody_ewrt_mjbody
+                + rotmat_link_rt_mjbody @ part.pos_linkcom_rt_link_ewrt_link,
+                rotmat_link_rt_mjbody
+                @ part.inertia_linkcom_ewrt_link
+                @ rotmat_link_rt_mjbody.T,
             )
         )
-        for child, child_translation, child_rotation in fixed_children.get(
-            name, []
-        ):
+        for (
+            child,
+            child_origin_translation,
+            child_origin_rotmat,
+        ) in fixed_children.get(name, []):
             if child in modeled_separately or child not in links:
                 continue
             stack.append(
                 (
                     child,
-                    translation + rotation @ child_translation,
-                    rotation @ child_rotation,
+                    pos_link_rt_mjbody_ewrt_mjbody
+                    + rotmat_link_rt_mjbody @ child_origin_translation,
+                    rotmat_link_rt_mjbody @ child_origin_rotmat,
                 )
             )
     return _combine(parts)
@@ -291,10 +327,12 @@ class InertiaAlgebraTest(unittest.TestCase):
             principal_axes @ np.diag(model.body_inertia[1]) @ principal_axes.T
         )
 
-        child_rotation = np.zeros(9)
-        child_quat = np.zeros(4)
-        mujoco.mju_euler2Quat(child_quat, np.array([0.3, -0.5, 0.9]), "xyz")
-        mujoco.mju_quat2Mat(child_rotation, child_quat)
+        child_origin_rotmat = np.zeros(9)
+        child_origin_wxyz = np.zeros(4)
+        mujoco.mju_euler2Quat(
+            child_origin_wxyz, np.array([0.3, -0.5, 0.9]), "xyz"
+        )
+        mujoco.mju_quat2Mat(child_origin_rotmat, child_origin_wxyz)
         links = {
             "parent": _Inertia(
                 2.0,
@@ -312,7 +350,7 @@ class InertiaAlgebraTest(unittest.TestCase):
                 (
                     "child",
                     np.array([0.2, 0.1, -0.3]),
-                    child_rotation.reshape(3, 3),
+                    child_origin_rotmat.reshape(3, 3),
                 )
             ]
         }
@@ -320,17 +358,23 @@ class InertiaAlgebraTest(unittest.TestCase):
         self.assertAlmostEqual(
             lumped.mass, float(model.body_mass[1]), places=12
         )
-        np.testing.assert_allclose(lumped.com, model.body_ipos[1], atol=1e-12)
+        np.testing.assert_allclose(
+            lumped.pos_linkcom_rt_link_ewrt_link, model.body_ipos[1], atol=1e-12
+        )
         # MuJoCo stores the fused inertia as principal moments and axes, which costs it the last few digits.
-        np.testing.assert_allclose(lumped.rotational, fused, atol=1e-7)
+        np.testing.assert_allclose(
+            lumped.inertia_linkcom_ewrt_link, fused, atol=1e-7
+        )
 
     def test_urdf_rpy_is_the_fixed_axis_convention(self):
         # Rz(yaw) Ry(pitch) Rx(roll): a rotation about x by roll applied first, about the fixed axes.
         roll, pitch, yaw = 0.4, -0.7, 1.3
         expected = np.zeros(9)
-        quat = np.zeros(4)
-        mujoco.mju_euler2Quat(quat, np.array([roll, pitch, yaw]), "XYZ")
-        mujoco.mju_quat2Mat(expected, quat)
+        expected_wxyz = np.zeros(4)
+        mujoco.mju_euler2Quat(
+            expected_wxyz, np.array([roll, pitch, yaw]), "XYZ"
+        )
+        mujoco.mju_quat2Mat(expected, expected_wxyz)
         np.testing.assert_allclose(
             _rotation_from_rpy(roll, pitch, yaw),
             expected.reshape(3, 3),
@@ -377,19 +421,29 @@ class UrdfMjcfInertialConsistencyTest(unittest.TestCase):
     ) -> None:
         """Fails, naming both sets of numbers, when one body's two inertias differ."""
         mass_error = abs(urdf.mass - mjcf.mass)
-        com_error = float(np.max(np.abs(urdf.com - mjcf.com)))
+        # [m] The largest component of the URDF's center of mass minus the MJCF's.
+        max_norm_err_pos_linkcom_rt_link_ewrt_link = float(
+            np.max(
+                np.abs(
+                    urdf.pos_linkcom_rt_link_ewrt_link
+                    - mjcf.pos_linkcom_rt_link_ewrt_link
+                )
+            )
+        )
         inertia_error = float(
-            np.linalg.norm(urdf.rotational - mjcf.rotational)
-        ) / max(float(np.linalg.norm(urdf.rotational)), 1e-12)
+            np.linalg.norm(
+                urdf.inertia_linkcom_ewrt_link - mjcf.inertia_linkcom_ewrt_link
+            )
+        ) / max(float(np.linalg.norm(urdf.inertia_linkcom_ewrt_link)), 1e-12)
         self.assertTrue(
             mass_error <= MASS_TOLERANCE_KG
-            and com_error <= COM_TOLERANCE_M
+            and max_norm_err_pos_linkcom_rt_link_ewrt_link <= COM_TOLERANCE_M
             and inertia_error <= RELATIVE_INERTIA_TOLERANCE,
             f"{robot}: body '{body}' differs between the URDF and the MJCF\n "
             f" mass {urdf.mass:.6f} vs {mjcf.mass:.6f} kg (difference"
-            f" {mass_error:.3e})\n  com  {urdf.com} vs {mjcf.com} m (largest"
-            f" difference {com_error:.3e})\n  inertia about the"
-            f" com\n{urdf.rotational}\n  vs\n{mjcf.rotational}\n  (relative"
+            f" {mass_error:.3e})\n  com  {urdf.pos_linkcom_rt_link_ewrt_link} vs {mjcf.pos_linkcom_rt_link_ewrt_link} m (largest"
+            f" difference {max_norm_err_pos_linkcom_rt_link_ewrt_link:.3e})\n  inertia about the"
+            f" com\n{urdf.inertia_linkcom_ewrt_link}\n  vs\n{mjcf.inertia_linkcom_ewrt_link}\n  (relative"
             f" difference {inertia_error:.3e})\n(URDF figures include every"
             " fixed-joint descendant the MJCF does not model separately.)\nThe"
             " MPC computes its dynamics from the URDF and MuJoCo simulates the"

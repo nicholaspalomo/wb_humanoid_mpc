@@ -125,6 +125,7 @@ EvaluationPoint pointInsideTheJointLimitBarrier(WBMpcInterface& interface) {
   const Eigen::Index numJoints =
       static_cast<Eigen::Index>(interface.getMpcRobotModel().getJointDim());
   const pinocchio::Model& model = interface.getPinocchioInterface().getModel();
+  // NOLINTNEXTLINE(frame-naming): Pinocchio's Model field
   const vector_t upper = model.upperPositionLimit.tail(numJoints);
   interface.getMpcRobotModel().setJointAngles(
       point.state, vector_t(upper.array() - kInsideJointLimit));
@@ -322,12 +323,14 @@ void appendPlannerConfig(const SwingTrajectoryPlanner& planner,
   fingerprint.insert(
       fingerprint.end(),
       {config.liftoffLinvelFootRtWorldEwrtWorldZ,
-       config.touchdownLinvelFootRtWorldEwrtWorldZ, config.swingHeight,
-       config.swingTimeScale, config.touchDownHeightOffset,
+       config.touchdownLinvelFootRtWorldEwrtWorldZ,
+       config.apexPosFootRtSwingendEwrtWorldZ, config.swingTimeScale,
+       config.touchdownPosFootRtSurfaceEwrtWorldZ,
        config.impactProximityFactorLiftoffSlope,
        config.impactProximityFactorTouchdownSlope,
-       config.impactProximityFactorMidPointValue, config.swingPitchAngle,
-       config.swingPitchRiseFraction, config.swingPitchFallFraction});
+       config.impactProximityFactorMidPointValue,
+       config.swingMaxTiltangleFootRtSurface, config.swingPitchRiseFraction,
+       config.swingPitchFallFraction});
 }
 
 /**
@@ -342,14 +345,17 @@ void appendWalkingStateReference(const WBMpcInterface& interface,
                                  const TargetTrajectories& target,
                                  const std::vector<EvaluationPoint>& points,
                                  std::vector<scalar_t>& fingerprint) {
-  constexpr scalar_t kForwardSpeed = 0.5;  // [m/s]
+  constexpr scalar_t kRefLinvelBaseRtWorldEwrtHeadingX = 0.5;  // [m/s]
   const WBAccelMpcRobotModel<scalar_t>& model = interface.getMpcRobotModel();
   TargetTrajectories walking = target;
   for (vector_t& knot : walking.stateTrajectory) {
-    const scalar_t heading = model.getYawBaseRtWorld(knot);
-    model.setBaseComLinearVelocity(
-        knot, vector3_t(kForwardSpeed * std::cos(heading),
-                        kForwardSpeed * std::sin(heading), 0.0));
+    const scalar_t refYawBaseRtWorld = model.getYawBaseRtWorld(knot);
+    model.setLinvelBaseRtWorldEwrtWorld(
+        knot,
+        vector3_t(
+            kRefLinvelBaseRtWorldEwrtHeadingX * std::cos(refYawBaseRtWorld),
+            kRefLinvelBaseRtWorldEwrtHeadingX * std::sin(refYawBaseRtWorld),
+            0.0));
   }
   const SwitchedModelReferenceManager& referenceManager =
       *interface.getSwitchedModelReferenceManagerPtr();

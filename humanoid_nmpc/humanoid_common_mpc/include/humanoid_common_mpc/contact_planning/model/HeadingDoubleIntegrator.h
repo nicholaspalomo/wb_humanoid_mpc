@@ -30,8 +30,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <cmath>
+#include <numbers>
 #include <string>
 
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
+#include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/InputBoundsBuilder.h"
+#include "humanoid_common_mpc/contact_planning/problem/Layout.h"
+#include "humanoid_common_mpc/contact_planning/problem/LayoutBuilder.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipIndices.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipModelBlock.h"
 
@@ -70,11 +81,11 @@ class HeadingDoubleIntegrator final : public LipModelBlock {
               ContactPlan& plan) const override;
 
   static constexpr scalar_t kYawBigM =
-      2.0 * M_PI;  // [rad] bound on a foot yaw displacement while the foot is
-                   // in the air
+      2.0 * std::numbers::pi;  // [rad] bound on a foot yaw displacement while
+                               // the foot is in the air
 
  private:
-  scalar_t torqueBound_ = 0.0;
+  scalar_t maxTorqueFootEwrtWorldZ_ = 0.0;
   LipIndices idx_;
 };
 

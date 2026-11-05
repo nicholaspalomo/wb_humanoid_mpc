@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -36,15 +37,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerInterface.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
+#include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 #include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningProblem.h"
+#include "humanoid_common_mpc/contact_planning/problem/Layout.h"
 #include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
 #include "humanoid_common_mpc/contact_planning/search/SearchStage.h"
 
@@ -190,7 +194,8 @@ class LipContactPlanner final : public ContactPlannerInterface {
                                             const OcpQpSolution& solution);
   /** Yaw inertia used by the heading model, from the input (the robot model);
    * an InvalidArgument if it is not positive. */
-  static absl::StatusOr<scalar_t> yawInertia(const ContactPlannerInput& input);
+  static absl::StatusOr<scalar_t> getInertiaComEwrtWorldZz(
+      const ContactPlannerInput& input);
   std::vector<MiqpBinaryVariable> binaryVariables() const;
   MiqpAssignment initialAssignment(const ContactPlannerInput& input) const;
   /** Forward logical propagation of the listed contact logic rules. */

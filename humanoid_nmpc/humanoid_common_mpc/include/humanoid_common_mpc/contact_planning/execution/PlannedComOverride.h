@@ -33,8 +33,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
 
 namespace ocs2::humanoid {
@@ -58,8 +62,8 @@ namespace ocs2::humanoid {
  * straight line with zero lateral velocity. The whole-body MPC then holds the
  * center of mass laterally still, the planner reads that state back at the next
  * cycle, concludes that no lateral step is needed and narrows the step towards
- * `minStepWidth`; the support narrows, the next cycle starts further from the
- * orbit still, and the robot sidesteps and falls.
+ * `minPosLfootRtRfootEwrtHeadingY`; the support narrows, the next cycle starts
+ * further from the orbit still, and the robot sidesteps and falls.
  *
  * The rule writes the plan into the reference the same way the planner produced
  * it: the reference horizontal center of mass becomes the planned one, and the
@@ -67,8 +71,12 @@ namespace ocs2::humanoid {
  * mass velocity - becomes the planned center of mass velocity. The reference is
  * expressed through the base pose, so the planned position is written as the
  * base position that puts the reference center of mass where the plan wants it,
- * using the measured offset between the two at this cycle. Heights,
- * orientations and joints are left alone.
+ * using the measured offset between the two at this cycle turned by the knot's
+ * reference heading minus the measured heading: the offset is fixed in the
+ * base for a fixed posture, not in world axes. The knot's heading is read as
+ * the rule finds it, so planned_heading_override, when listed, comes before
+ * this rule in `execution` (ContactPlanningFormulation::validateStatus()
+ * rejects the other order). Heights, orientations and joints are left alone.
  *
  * Only the knots inside the plan's horizon are rewritten (planCoversTime). Past
  * the plan's end the target keeps the operator's own knots, which the reference

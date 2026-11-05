@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -45,15 +46,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
-#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "robot_model/RobotDescription.h"
 #include "robot_model/RobotJointAction.h"
@@ -163,8 +167,9 @@ class ActionRecorder {
         description_.getJointIndices(stack_.modelSettings().mpcModelJointNames);
     setState(/*cycle=*/0);
     std::vector<scalar_t> nominal(description_.getNumJoints(), 0.0);
-    for (size_t joint = 0; joint < description_.getNumJoints(); ++joint)
+    for (size_t joint = 0; joint < description_.getNumJoints(); ++joint) {
       nominal[joint] = robotState_.getJointPosition(joint);
+    }
     controller_->setNominalJointPositions(nominal);
   }
 
@@ -215,11 +220,12 @@ class ActionRecorder {
     robotState_.setPosBaseRtWorldEwrtWorld(
         model.getPosBaseRtWorldEwrtWorld(state) +
         vector3_t(0.01 * std::sin(phase), 0.005 * std::cos(phase), 0.0));
-    const vector3_t eulerZyx(
+    const vector3_t eulerzyxBaseRtWorld(
         model.getEulerzyxBaseRtWorld(state) +
         vector3_t(0.02 * std::sin(phase), 0.01, -0.01 * std::cos(phase)));
-    const quaternion_t orientation = getQuaternionFromEulerAnglesZyx(eulerZyx);
-    robotState_.setQuatBaseRtWorld(orientation);
+    const quaternion_t quatBaseRtWorld =
+        getQuaternionFromEulerAnglesZyx(eulerzyxBaseRtWorld);
+    robotState_.setQuatBaseRtWorld(quatBaseRtWorld);
     robotState_.setLinvelBaseRtWorldEwrtBase(
         vector3_t(0.1 * std::cos(phase), -0.05, 0.02));
     robotState_.setAngvelBaseRtWorldEwrtBase(
@@ -280,8 +286,9 @@ std::optional<scalar_t> recordedNumber(absl::string_view token) {
       token.data(), token.data() + token.size(), value,
       hexadecimal ? std::chars_format::hex : std::chars_format::general);
   if (token.empty() || parsed.ec != std::errc() ||
-      parsed.ptr != token.data() + token.size() || !std::isfinite(value))
+      parsed.ptr != token.data() + token.size() || !std::isfinite(value)) {
     return std::nullopt;
+  }
   return negative ? -value : value;
 }
 
@@ -375,14 +382,16 @@ TEST(MrtJointControllerActionParity, EveryPathCommandsTheRecordedActions) {
       absl::StrSplit(recorder.record(), '\n');
   if (expected.size() == actual.size()) {
     bool agree = true;
-    for (size_t line = 0; agree && line < expected.size(); ++line)
+    for (size_t line = 0; agree && line < expected.size(); ++line) {
       agree = linesAgree(expected[line], actual[line]);
+    }
     if (agree) return;
   }
   size_t line = 0;
   while (line < expected.size() && line < actual.size() &&
-         linesAgree(expected[line], actual[line]))
+         linesAgree(expected[line], actual[line])) {
     ++line;
+  }
   const absl::string_view expectedLine =
       line < expected.size() ? expected[line]
                              : absl::string_view("(end of file)");

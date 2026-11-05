@@ -34,7 +34,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 
 namespace ocs2::humanoid {
@@ -43,7 +47,7 @@ absl::Status CapturePointHeuristic::configure(
     const LocomotionHeuristicConfig& config,
     const LocomotionHeuristicModelParameters& model) {
   parameters_ = config.capturePoint;
-  nominalComHeight_ = model.nominalComHeight;
+  nomPosComRtFeetmeanEwrtWorldZ_ = model.nomPosComRtFeetmeanEwrtWorldZ;
   if (!(model.gravity > 0.0)) {
     return absl::InvalidArgumentError(
         absl::StrCat("capture_point: the model's gravity ", model.gravity,
@@ -53,7 +57,7 @@ absl::Status CapturePointHeuristic::configure(
   return absl::OkStatus();
 }
 
-vector2_t CapturePointHeuristic::offset(
+vector2_t CapturePointHeuristic::computeOffsetPosFootRtWorldEwrtWorldXy(
     const FootholdHeuristicContext& context) const {
   // H_r(pdot, Phi) = gain sqrt(p_z / g) (pdot - pdot_d), Bledt Table C.1.
   // sqrt(p_z/g) is 1/omega, the time constant of a linear inverted pendulum of
@@ -67,41 +71,51 @@ vector2_t CapturePointHeuristic::offset(
   // a robot recovering from a push is exactly when the measurement is worth
   // having, and exactly when it can also be nonsense, so a non-positive
   // measurement is replaced rather than trusted.
-  scalar_t comHeight = parameters_.comHeightOverride > 0.0
-                           ? parameters_.comHeightOverride
-                           : context.comHeight;
-  if (!(comHeight > 0.0)) comHeight = nominalComHeight_;
-  if (!(comHeight > 0.0)) return vector2_t::Zero();
+  scalar_t posComRtFeetmeanEwrtWorldZ =
+      parameters_.overridePosComRtFeetmeanEwrtWorldZ > 0.0
+          ? parameters_.overridePosComRtFeetmeanEwrtWorldZ
+          : context.measPosComRtFeetmeanEwrtWorldZ;
+  if (!(posComRtFeetmeanEwrtWorldZ > 0.0)) {
+    posComRtFeetmeanEwrtWorldZ = nomPosComRtFeetmeanEwrtWorldZ_;
+  }
+  if (!(posComRtFeetmeanEwrtWorldZ > 0.0)) return vector2_t::Zero();
 
-  const scalar_t timeConstant = std::sqrt(comHeight / gravity_);
+  const scalar_t timeConstant =
+      std::sqrt(posComRtFeetmeanEwrtWorldZ / gravity_);
   // The error at ONE instant, the last solve: the measurement against the
   // command of that same instant. The command at the touch-down is the wrong
   // comparison - on a turning command it has rotated by psidot * (t_td - t_0)
   // since, and a robot tracking the turn perfectly would be read as an error of
   // |v| times that angle and stepped outwards.
-  const vector2_t velocityError =
-      context.measuredVelocity - context.commandedVelocityAtMeasurement;
-  vector2_t result = parameters_.gain * timeConstant * velocityError;
+  const vector2_t errLinvelComRtWorldEwrtWorldXy =
+      context.measProxyLinvelComRtWorldEwrtWorldXy -
+      context.prevCmdLinvelBaseRtWorldEwrtWorldXy;
+  vector2_t offsetPosFootRtWorldEwrtWorldXy =
+      parameters_.gain * timeConstant * errLinvelComRtWorldEwrtWorldXy;
   // Clamped in MAGNITUDE rather than per axis, so that the direction of the
   // step into the error is preserved. A per-axis clamp would rotate the offset
   // towards the diagonal exactly when it is largest, which is when the robot
   // most needs the foot to go where the push came from.
-  const scalar_t magnitude = result.norm();
-  if (parameters_.maximumOffset > 0.0 &&
-      magnitude > parameters_.maximumOffset) {
-    result *= parameters_.maximumOffset / magnitude;
+  const scalar_t magnitude = offsetPosFootRtWorldEwrtWorldXy.norm();
+  if (parameters_.maxNormOffsetPosFootRtWorldEwrtWorldXy > 0.0 &&
+      magnitude > parameters_.maxNormOffsetPosFootRtWorldEwrtWorldXy) {
+    offsetPosFootRtWorldEwrtWorldXy *=
+        parameters_.maxNormOffsetPosFootRtWorldEwrtWorldXy / magnitude;
   }
-  return result;
+  return offsetPosFootRtWorldEwrtWorldXy;
 }
 
 std::string CapturePointHeuristic::describe() const {
   return absl::StrCat(
       "capture_point: dr = ", parameters_.gain, " * sqrt(z/", gravity_,
       ") * (v_measured - v_commanded) [m], z = ",
-      parameters_.comHeightOverride > 0.0
-          ? absl::StrCat(parameters_.comHeightOverride, " m (fixed)")
-          : absl::StrCat("measured, nominally ", nominalComHeight_, " m"),
-      ", clamped to ", parameters_.maximumOffset, " m");
+      parameters_.overridePosComRtFeetmeanEwrtWorldZ > 0.0
+          ? absl::StrCat(parameters_.overridePosComRtFeetmeanEwrtWorldZ,
+                         " m (fixed)")
+          : absl::StrCat("measured, nominally ", nomPosComRtFeetmeanEwrtWorldZ_,
+                         " m"),
+      ", clamped to ", parameters_.maxNormOffsetPosFootRtWorldEwrtWorldXy,
+      " m");
 }
 
 }  // namespace ocs2::humanoid

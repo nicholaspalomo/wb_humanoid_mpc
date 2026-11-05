@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <numbers>
 #include <random>
 #include <string>
 #include <utility>
@@ -41,14 +42,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "pinocchio/algorithm/aba.hpp"
 #include "pinocchio/algorithm/centroidal.hpp"
 #include "pinocchio/algorithm/crba.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
@@ -112,20 +113,22 @@ constexpr scalar_t kBoundaryInverseTolerance = 1.0e-11;
  * label. Passive data. */
 struct TestAttitude {
   std::string label;
-  vector4_t quaternion;
+  vector4_t quatBaseRtWorldXyzw;
 };
 
 /** Pitch exactly and almost +-90 degrees at several yaws and rolls, and random
  * unit quaternions (uniform on S^3). */
 std::vector<TestAttitude> testAttitudes(std::mt19937& generator) {
   std::vector<TestAttitude> attitudes;
-  for (const scalar_t pitch : {M_PI / 2.0, -M_PI / 2.0, M_PI / 2.0 - 1.0e-9,
-                               -M_PI / 2.0 + 1.0e-9, M_PI / 2.0 - 1.0e-4}) {
-    for (const scalar_t yaw : {0.0, 2.5, -M_PI}) {
-      for (const scalar_t roll : {0.0, -1.1, M_PI}) {
+  for (const scalar_t pitch :
+       {std::numbers::pi / 2.0, -std::numbers::pi / 2.0,
+        std::numbers::pi / 2.0 - 1.0e-9, -std::numbers::pi / 2.0 + 1.0e-9,
+        std::numbers::pi / 2.0 - 1.0e-4}) {
+    for (const scalar_t yaw : {0.0, 2.5, -std::numbers::pi}) {
+      for (const scalar_t roll : {0.0, -1.1, std::numbers::pi}) {
         attitudes.push_back({.label = absl::StrCat("yaw ", yaw, " pitch ",
                                                    pitch, " roll ", roll),
-                             .quaternion = quaternionFromEulerZyx(
+                             .quatBaseRtWorldXyzw = quaternionFromEulerZyx(
                                  vector3_t(yaw, pitch, roll))});
       }
     }
@@ -135,23 +138,23 @@ std::vector<TestAttitude> testAttitudes(std::mt19937& generator) {
     const vector4_t coefficients(normal(generator), normal(generator),
                                  normal(generator), normal(generator));
     attitudes.push_back({.label = absl::StrCat("random attitude ", i),
-                         .quaternion = coefficients.normalized()});
+                         .quatBaseRtWorldXyzw = coefficients.normalized()});
   }
   return attitudes;
 }
 
 /** R(xi) of coefficients (x, y, z, w), built from the coefficient vector
  * (design section 2.1's construction trap). */
-matrix3_t rotationOf(const vector4_t& xi) {
-  quaternion_t quaternion;
-  quaternion.coeffs() = xi;
-  return quaternion.toRotationMatrix();
+matrix3_t rotmatFromQuaternion(const vector4_t& xi) {
+  quaternion_t unitQuaternion;
+  unitQuaternion.coeffs() = xi;
+  return unitQuaternion.toRotationMatrix();
 }
 
 /** D = blockdiag(W, I_3, I_nj) of (D). */
-matrix_t covarianceMap(const matrix3_t& worldRotation, Eigen::Index nv) {
+matrix_t covarianceMap(const matrix3_t& worldTurn, Eigen::Index nv) {
   matrix_t map = matrix_t::Identity(nv, nv);
-  map.topLeftCorner<3, 3>() = worldRotation;
+  map.topLeftCorner<3, 3>() = worldTurn;
   return map;
 }
 
@@ -171,14 +174,14 @@ class QuaternionRootOnlyCases
     vector_t q = randomEulerMotion(models_->eulerModel(),
                                    MotionSamplingBounds{}, generator)
                      .q;
-    vector_t quaternionQ(models_->quaternionModel().nq);
-    quaternionQ << q.head<3>(), xi, q.tail(models_->numJoints());
-    return quaternionQ;
+    vector_t quaternionModelQ(models_->quaternionModel().nq);
+    quaternionModelQ << q.head<3>(), xi, q.tail(models_->numJoints());
+    return quaternionModelQ;
   }
 
   /** v = [pd_W, w_B, qd_j] of the sampling bounds (the body rates as large as
    * the Euler rates). */
-  vector_t velocity(std::mt19937& generator) const {
+  vector_t generalizedVelocity(std::mt19937& generator) const {
     return randomEulerMotion(models_->eulerModel(), MotionSamplingBounds{},
                              generator)
         .v;
@@ -199,25 +202,27 @@ TEST_P(QuaternionRootOnlyCases,
   pinocchio::Data data(model);
   std::mt19937 generator(401);
   for (const TestAttitude& attitude : testAttitudes(generator)) {
-    const vector_t q = configurationAt(attitude.quaternion, generator);
-    const vector_t v = velocity(generator);
+    const vector_t q = configurationAt(attitude.quatBaseRtWorldXyzw, generator);
+    const vector_t v = generalizedVelocity(generator);
     const vector_t tau = uniformVector(nv, /*halfWidth=*/50.0, generator);
     const vector_t a = uniformVector(nv, /*halfWidth=*/10.0, generator);
-    const matrix3_t worldRotation = rotationOf(attitude.quaternion).transpose();
-    const matrix_t map = covarianceMap(worldRotation, nv);
+    const matrix3_t worldTurn =
+        rotmatFromQuaternion(attitude.quatBaseRtWorldXyzw).transpose();
+    const matrix_t map = covarianceMap(worldTurn, nv);
 
     pinocchio::Model levelModel = model;
-    levelModel.gravity.linear(worldRotation * model.gravity.linear());
+    levelModel.gravity.linear(worldTurn * model.gravity.linear());
     pinocchio::Data levelData(levelModel);
     vector_t levelQ = q;
-    levelQ.head<3>() = worldRotation * q.head<3>();
+    levelQ.head<3>() = worldTurn * q.head<3>();
     levelQ.segment<4>(3) = vector4_t(0.0, 0.0, 0.0, 1.0);
     const vector_t levelV = map * v;
 
-    const vector_t acceleration = pinocchio::aba(model, data, q, v, tau);
-    const vector_t levelAcceleration =
+    const vector_t generalizedAcceleration =
+        pinocchio::aba(model, data, q, v, tau);
+    const vector_t levelGeneralizedAcceleration =
         pinocchio::aba(levelModel, levelData, levelQ, levelV, map * tau);
-    ASSERT_TRUE(acceleration.allFinite()) << attitude.label;
+    ASSERT_TRUE(generalizedAcceleration.allFinite()) << attitude.label;
     const matrix_t massMatrix =
         symmetricFromUpper(pinocchio::crba(model, data, q));
     const matrix_t levelMassMatrix =
@@ -231,15 +236,16 @@ TEST_P(QuaternionRootOnlyCases,
     // attitudes.
     const scalar_t condition =
         levelEigenvalues.maxCoeff() / levelEigenvalues.minCoeff();
-    ASSERT_TRUE(isCloseRelative(map * acceleration, levelAcceleration,
+    ASSERT_TRUE(isCloseRelative(map * generalizedAcceleration,
+                                levelGeneralizedAcceleration,
                                 kRoundOffTolerance * condition))
         << attitude.label;
 
-    const vector_t torques = pinocchio::rnea(model, data, q, v, a);
-    const vector_t levelTorques =
+    const vector_t generalizedTorques = pinocchio::rnea(model, data, q, v, a);
+    const vector_t levelGeneralizedTorques =
         pinocchio::rnea(levelModel, levelData, levelQ, levelV, map * a);
-    ASSERT_TRUE(
-        isCloseRelative(map * torques, levelTorques, kRoundOffTolerance))
+    ASSERT_TRUE(isCloseRelative(map * generalizedTorques,
+                                levelGeneralizedTorques, kRoundOffTolerance))
         << attitude.label;
 
     ASSERT_TRUE(isCloseRelative(massMatrix,
@@ -255,10 +261,10 @@ TEST_P(QuaternionRootOnlyCases,
 
     pinocchio::ccrba(model, data, q, v);
     pinocchio::ccrba(levelModel, levelData, levelQ, levelV);
-    ASSERT_TRUE(isCloseRelative(worldRotation * data.hg.linear(),
+    ASSERT_TRUE(isCloseRelative(worldTurn * data.hg.linear(),
                                 levelData.hg.linear(), kRoundOffTolerance))
         << attitude.label;
-    ASSERT_TRUE(isCloseRelative(worldRotation * data.hg.angular(),
+    ASSERT_TRUE(isCloseRelative(worldTurn * data.hg.angular(),
                                 levelData.hg.angular(), kRoundOffTolerance))
         << attitude.label;
 
@@ -267,11 +273,11 @@ TEST_P(QuaternionRootOnlyCases,
     for (int frame = 0; frame < model.nframes; ++frame) {
       // A frame of the universe stays where it is: only the robot is rotated.
       if (model.frames[frame].parentJoint == 0) continue;
-      ASSERT_TRUE(isCloseRelative(worldRotation * data.oMf[frame].translation(),
+      ASSERT_TRUE(isCloseRelative(worldTurn * data.oMf[frame].translation(),
                                   levelData.oMf[frame].translation(),
                                   kRoundOffTolerance))
           << model.frames[frame].name << ", " << attitude.label;
-      ASSERT_TRUE(isCloseAbsolute(worldRotation * data.oMf[frame].rotation(),
+      ASSERT_TRUE(isCloseAbsolute(worldTurn * data.oMf[frame].rotation(),
                                   levelData.oMf[frame].rotation(),
                                   kRoundOffTolerance))
           << model.frames[frame].name << ", " << attitude.label;
@@ -287,11 +293,13 @@ TEST_P(QuaternionRootOnlyCases, TheEulerRootLosesRankAtGimbalLockAsCosPitch) {
   // keeps det I_G. Relative round-off of a 3 x 3 determinant: (T1).
   const pinocchio::Model& quaternionModel = models_->quaternionModel();
   const pinocchio::Model& eulerModel = models_->eulerModel();
-  pinocchio::Data quaternionData(quaternionModel);
+  pinocchio::Data quaternionModelData(quaternionModel);
   pinocchio::Data eulerData(eulerModel);
   std::mt19937 generator(403);
-  for (const scalar_t pitch : {0.3, M_PI / 2.0 - 1.0e-1, M_PI / 2.0 - 1.0e-3,
-                               M_PI / 2.0 - 1.0e-6, M_PI / 2.0, -M_PI / 2.0}) {
+  for (const scalar_t pitch :
+       {0.3, std::numbers::pi / 2.0 - 1.0e-1, std::numbers::pi / 2.0 - 1.0e-3,
+        std::numbers::pi / 2.0 - 1.0e-6, std::numbers::pi / 2.0,
+        -std::numbers::pi / 2.0}) {
     PinocchioMotion eulerMotion =
         randomEulerMotion(eulerModel, MotionSamplingBounds{}, generator);
     eulerMotion.q(4) = pitch;
@@ -302,17 +310,17 @@ TEST_P(QuaternionRootOnlyCases, TheEulerRootLosesRankAtGimbalLockAsCosPitch) {
     const matrix3_t eulerBlock =
         pinocchio::ccrba(eulerModel, eulerData, eulerMotion.q, eulerMotion.v)
             .block<3, 3>(3, 3);
-    const matrix3_t quaternionBlock =
-        pinocchio::ccrba(quaternionModel, quaternionData, q, eulerMotion.v)
+    const matrix3_t quaternionModelBlock =
+        pinocchio::ccrba(quaternionModel, quaternionModelData, q, eulerMotion.v)
             .block<3, 3>(3, 3);
     const scalar_t compositeInertiaDeterminant =
-        quaternionData.Ig.inertia().matrix().determinant();
-    EXPECT_LE(
-        std::abs(quaternionBlock.determinant() - compositeInertiaDeterminant),
-        kRoundOffTolerance * compositeInertiaDeterminant)
+        quaternionModelData.Ig.inertia().matrix().determinant();
+    EXPECT_LE(std::abs(quaternionModelBlock.determinant() -
+                       compositeInertiaDeterminant),
+              kRoundOffTolerance * compositeInertiaDeterminant)
         << "pitch " << pitch;
     EXPECT_LE(
-        std::abs(eulerBlock.determinant() / quaternionBlock.determinant() +
+        std::abs(eulerBlock.determinant() / quaternionModelBlock.determinant() +
                  std::cos(pitch)),
         kRoundOffTolerance)
         << "pitch " << pitch;
@@ -331,32 +339,33 @@ TEST_P(QuaternionRootOnlyCases,
   // those angles has the quaternion root's placements (T5).
   const pinocchio::Model& quaternionModel = models_->quaternionModel();
   const pinocchio::Model& eulerModel = models_->eulerModel();
-  pinocchio::Data quaternionData(quaternionModel);
+  pinocchio::Data quaternionModelData(quaternionModel);
   pinocchio::Data eulerData(eulerModel);
   constexpr scalar_t kRate = 1.0;
   constexpr scalar_t kStep = 0.01;
   constexpr int kSteps = 10;
   struct Path {
     std::string label;
-    vector3_t startEulerZyx;
-    vector3_t bodyRate;
+    vector3_t initEulerzyxBaseRtWorld;
+    vector3_t angvelBaseRtWorldEwrtBase;
   };
   const Path paths[] = {
       {.label = "through a pitch of 90 degrees",
-       .startEulerZyx = vector3_t(0.0, M_PI / 2.0 - 0.05, 0.0),
-       .bodyRate = vector3_t(0.0, kRate, 0.0)},
+       .initEulerzyxBaseRtWorld =
+           vector3_t(0.0, std::numbers::pi / 2.0 - 0.05, 0.0),
+       .angvelBaseRtWorldEwrtBase = vector3_t(0.0, kRate, 0.0)},
       {.label = "across a yaw of +-pi",
-       .startEulerZyx = vector3_t(M_PI - 0.05, 0.0, 0.0),
-       .bodyRate = vector3_t(0.0, 0.0, kRate)},
+       .initEulerzyxBaseRtWorld = vector3_t(std::numbers::pi - 0.05, 0.0, 0.0),
+       .angvelBaseRtWorldEwrtBase = vector3_t(0.0, 0.0, kRate)},
   };
   std::mt19937 generator(405);
   for (const Path& path : paths) {
-    vector_t q =
-        configurationAt(quaternionFromEulerZyx(path.startEulerZyx), generator);
+    vector_t q = configurationAt(
+        quaternionFromEulerZyx(path.initEulerzyxBaseRtWorld), generator);
     vector_t v = vector_t::Zero(quaternionModel.nv);
-    v.segment<3>(3) = path.bodyRate;
+    v.segment<3>(3) = path.angvelBaseRtWorldEwrtBase;
     scalar_t largestAngleJump = 0.0;
-    vector3_t previousAngles = path.startEulerZyx;
+    vector3_t prevEulerzyxBaseRtWorld = path.initEulerzyxBaseRtWorld;
     for (int step = 1; step <= kSteps; ++step) {
       const vector_t next = pinocchio::integrate(quaternionModel, q, kStep * v);
       EXPECT_LE((next.segment<4>(3) - q.segment<4>(3)).norm(),
@@ -368,21 +377,25 @@ TEST_P(QuaternionRootOnlyCases,
           << path.label << ", step " << step;
       q = next;
 
-      const vector3_t angles = eulerZyxFromQuaternion(q.segment<4>(3));
+      const vector3_t eulerzyxBaseRtWorld =
+          eulerZyxFromQuaternion(q.segment<4>(3));
       largestAngleJump = std::max(
-          largestAngleJump, (angles - previousAngles).cwiseAbs().maxCoeff());
-      previousAngles = angles;
+          largestAngleJump, (eulerzyxBaseRtWorld - prevEulerzyxBaseRtWorld)
+                                .cwiseAbs()
+                                .maxCoeff());
+      prevEulerzyxBaseRtWorld = eulerzyxBaseRtWorld;
       vector_t eulerQ(eulerModel.nq);
-      eulerQ << q.head<3>(), angles, q.tail(models_->numJoints());
-      pinocchio::framesForwardKinematics(quaternionModel, quaternionData, q);
+      eulerQ << q.head<3>(), eulerzyxBaseRtWorld, q.tail(models_->numJoints());
+      pinocchio::framesForwardKinematics(quaternionModel, quaternionModelData,
+                                         q);
       pinocchio::framesForwardKinematics(eulerModel, eulerData, eulerQ);
       for (int frame = 0; frame < quaternionModel.nframes; ++frame) {
-        ASSERT_TRUE(isCloseRelative(quaternionData.oMf[frame].translation(),
-                                    eulerData.oMf[frame].translation(),
-                                    kBoundaryInverseTolerance))
+        ASSERT_TRUE(isCloseRelative(
+            quaternionModelData.oMf[frame].translation(),
+            eulerData.oMf[frame].translation(), kBoundaryInverseTolerance))
             << quaternionModel.frames[frame].name << ", " << path.label
             << ", step " << step;
-        ASSERT_TRUE(isCloseAbsolute(quaternionData.oMf[frame].rotation(),
+        ASSERT_TRUE(isCloseAbsolute(quaternionModelData.oMf[frame].rotation(),
                                     eulerData.oMf[frame].rotation(),
                                     kBoundaryInverseTolerance))
             << quaternionModel.frames[frame].name << ", " << path.label
@@ -405,10 +418,10 @@ TEST_P(QuaternionRootOnlyCases, TheNegatedQuaternionIsTheSameRobot) {
   pinocchio::Data negatedData(model);
   std::mt19937 generator(407);
   for (const TestAttitude& attitude : testAttitudes(generator)) {
-    const vector_t q = configurationAt(attitude.quaternion, generator);
+    const vector_t q = configurationAt(attitude.quatBaseRtWorldXyzw, generator);
     vector_t negatedQ = q;
     negatedQ.segment<4>(3) = -q.segment<4>(3);
-    const vector_t v = velocity(generator);
+    const vector_t v = generalizedVelocity(generator);
     const vector_t tau = uniformVector(model.nv, /*halfWidth=*/50.0, generator);
     EXPECT_TRUE(isCloseAbsolute(pinocchio::difference(model, q, negatedQ),
                                 vector_t::Zero(model.nv), kRoundOffTolerance))
@@ -445,22 +458,22 @@ TEST_P(QuaternionRootOnlyCases,
   // the quaternion root's placements (T5).
   const pinocchio::Model& quaternionModel = models_->quaternionModel();
   const pinocchio::Model& eulerModel = models_->eulerModel();
-  pinocchio::Data quaternionData(quaternionModel);
+  pinocchio::Data quaternionModelData(quaternionModel);
   pinocchio::Data eulerData(eulerModel);
   std::mt19937 generator(409);
   for (const TestAttitude& attitude : testAttitudes(generator)) {
-    const vector_t q = configurationAt(attitude.quaternion, generator);
+    const vector_t q = configurationAt(attitude.quatBaseRtWorldXyzw, generator);
     vector_t eulerQ(eulerModel.nq);
-    eulerQ << q.head<3>(), eulerZyxFromQuaternion(attitude.quaternion),
+    eulerQ << q.head<3>(), eulerZyxFromQuaternion(attitude.quatBaseRtWorldXyzw),
         q.tail(models_->numJoints());
-    pinocchio::framesForwardKinematics(quaternionModel, quaternionData, q);
+    pinocchio::framesForwardKinematics(quaternionModel, quaternionModelData, q);
     pinocchio::framesForwardKinematics(eulerModel, eulerData, eulerQ);
     for (int frame = 0; frame < quaternionModel.nframes; ++frame) {
-      ASSERT_TRUE(isCloseRelative(quaternionData.oMf[frame].translation(),
+      ASSERT_TRUE(isCloseRelative(quaternionModelData.oMf[frame].translation(),
                                   eulerData.oMf[frame].translation(),
                                   kBoundaryInverseTolerance))
           << quaternionModel.frames[frame].name << ", " << attitude.label;
-      ASSERT_TRUE(isCloseAbsolute(quaternionData.oMf[frame].rotation(),
+      ASSERT_TRUE(isCloseAbsolute(quaternionModelData.oMf[frame].rotation(),
                                   eulerData.oMf[frame].rotation(),
                                   kBoundaryInverseTolerance))
           << quaternionModel.frames[frame].name << ", " << attitude.label;

@@ -29,48 +29,61 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/cost/StepWidthCost.h"
 
-#include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <string>
-#include <utility>
 
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipCoefficients.h"
+#include "humanoid_common_mpc/contact_planning/problem/StageAccumulator.h"
 
 namespace ocs2::humanoid {
 
 std::string StepWidthCost::describe() const {
   return weightLine(
-      absl::StrCat("w (e_y . (p_L - p_R) - ", nominalStepWidth_,
+      absl::StrCat("w (e_y . (p_L - p_R) - ", nomPosLfootRtRfootEwrtHeadingY_,
                    ")^2 at every node (first-order in the heading)"));
 }
 
 void StepWidthCost::configure(const ContactPlanningConfig& config) {
   weight_ = config.stepWidth.weight;
-  nominalStepWidth_ = config.stepWidth.nominalStepWidth;
+  nomPosLfootRtRfootEwrtHeadingY_ =
+      config.stepWidth.nomPosLfootRtRfootEwrtHeadingY;
 }
 
 void StepWidthCost::addToStage(const ContactPlanningContext& ctx,
                                int node,
                                StageAccumulator& stage) const {
-  const vector2_t& ey = ctx.axesAt(node)[1];
+  const vector2_t& ey = ctx.getRotmatHeadingRtWorld(node)[1];
   Coefficients xc;
   for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
-    xc.emplace_back(idx_.foot[0][axis], ey(axis));
-    xc.emplace_back(idx_.foot[1][axis], -ey(axis));
+    xc.emplace_back(idx_.posFeetRtWorldEwrtWorld[0][axis], ey(axis));
+    xc.emplace_back(idx_.posFeetRtWorldEwrtWorld[1][axis], -ey(axis));
   }
-  const vector2_t dNominal =
+  const vector2_t nomPosLfootRtRfootEwrtWorldXy =
       ctx.hasHeading()
-          ? vector2_t(ctx.nominal->feet[static_cast<size_t>(node)][0] -
-                      ctx.nominal->feet[static_cast<size_t>(node)][1])
+          ? vector2_t(
+                ctx.nominal
+                    ->nomPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(
+                        node)][0] -
+                ctx.nominal
+                    ->nomPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(
+                        node)][1])
           : vector2_t(vector2_t::Zero());
   const ContactPlanningContext::HeadingFrameTerm frameTerm =
-      ctx.frameTerm(node, /*axis=*/1, dNominal);
+      ctx.frameTerm(node, /*axis=*/1, nomPosLfootRtRfootEwrtWorldXy);
   const scalar_t g = frameTerm.gain;
   const scalar_t offset = frameTerm.offset;
-  if (ctx.hasHeading()) xc.emplace_back(idx_.heading, g);
+  if (ctx.hasHeading()) xc.emplace_back(idx_.headingModelYaw, g);
   stage.addQuadraticResidual(xc, /*uCoefficients=*/{},
-                             -nominalStepWidth_ + offset, weight_);
+                             -nomPosLfootRtRfootEwrtHeadingY_ + offset,
+                             weight_);
 }
 
 }  // namespace ocs2::humanoid

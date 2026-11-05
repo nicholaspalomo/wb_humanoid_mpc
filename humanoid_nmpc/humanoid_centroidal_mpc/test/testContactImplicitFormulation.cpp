@@ -32,10 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <fstream>
 #include <iterator>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -45,29 +43,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/misc/Collection.h"
-#include "ocs2_core/penalties/penalties/SquaredHingePenalty.h"
+#include "ocs2_core/penalties/penalties/PenaltyBase.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "pinocchio/multibody/data.hpp"  // IWYU pragma: keep
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/constraint/NormalVelocityConstraintCppAd.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
 #include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
 #include "humanoid_common_mpc/constraint/FrictionForceConeConstraint.h"
 #include "humanoid_common_mpc/constraint/GroundPenetrationConstraint.h"
-#include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
-#include "robot_core/ResourcePaths.h"
 #include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
@@ -153,7 +158,7 @@ class ContactImplicitFormulationTest : public ::testing::Test {
 
   /** A ground height away from the shipped default of zero, so a comparison of
    * two terrain heights compares something. */
-  static constexpr scalar_t kTestTerrainHeight = 0.037;
+  static constexpr scalar_t kTestPosSurfaceRtWorldEwrtWorldZ = 0.037;
 
   /**
    * A soft normal_velocity weight that is neither the shipped value nor
@@ -165,12 +170,12 @@ class ContactImplicitFormulationTest : public ::testing::Test {
   /**
    * The whole formulation switched on: no schedule-gated hard constraints; the
    * three contact-implicit terms and the soft normal_velocity in, the latter at
-   * kTestNormalVelocityWeight; the ground at kTestTerrainHeight.
+   * kTestNormalVelocityWeight; the ground at kTestPosSurfaceRtWorldEwrtWorldZ.
    */
   mpc_config::TaskFile contactImplicitTask() const {
     mpc_config::TaskFile task =
         taskWithLists(/*hardConstraints=*/{}, contactImplicitSoftConstraints());
-    task.terrain_height = kTestTerrainHeight;
+    task.pos_surface_rt_world_ewrt_world_z = kTestPosSurfaceRtWorldEwrtWorldZ;
     task.model_settings.foot_constraint.normal_velocity_soft_constraint_weight =
         kTestNormalVelocityWeight;
     return task;
@@ -526,8 +531,8 @@ class ContactImplicitProblemTest : public ContactImplicitFormulationTest {
 
   /** [m] the world height of a frame at a state, from the numeric Pinocchio
    * model the interface was built on. */
-  scalar_t frameHeight(const std::string& frameName,
-                       const vector_t& state) const {
+  scalar_t computePosLinkRtWorldEwrtWorldZ(const std::string& frameName,
+                                           const vector_t& state) const {
     const pinocchio::Model& model =
         interface_->getPinocchioInterface().getModel();
     pinocchio::Data data(model);
@@ -685,12 +690,13 @@ TEST_F(ContactImplicitProblemTest,
     // Positive control: the pitched sole's center is well above its lowest
     // corner, so a gap taken at the contact frame would sit outside the bracket
     // and fail it.
-    const scalar_t soleCenterClearance =
-        frameHeight(footName, state) - complementarity.getTerrainHeight();
-    ASSERT_GT(soleCenterClearance - clearances.minCoeff(), 0.01)
+    const scalar_t posContactRtSurfaceEwrtWorldZ =
+        computePosLinkRtWorldEwrtWorldZ(footName, state) -
+        complementarity.getPosSurfaceRtWorldEwrtWorldZ();
+    ASSERT_GT(posContactRtSurfaceEwrtWorldZ - clearances.minCoeff(), 0.01)
         << footName << ": the ankle pitch must actually tilt the sole";
     EXPECT_LT(complementarity.getGap(state),
-              soleCenterClearance - bound - 0.005)
+              posContactRtSurfaceEwrtWorldZ - bound - 0.005)
         << footName;
   }
 }
@@ -726,8 +732,10 @@ TEST_F(ContactImplicitProblemTest, groundPenetrationIsAHingeAndNotALogBarrier) {
 
 TEST_F(ContactImplicitProblemTest,
        theTerrainHeightIsTheSameEverywhereItIsUsed) {
-  const scalar_t terrainHeight = interface_->modelSettings().terrainHeight;
-  ASSERT_NEAR(terrainHeight, kTestTerrainHeight, 1.0e-12)
+  const scalar_t posSurfaceRtWorldEwrtWorldZ =
+      interface_->modelSettings().posSurfaceRtWorldEwrtWorldZ;
+  ASSERT_NEAR(posSurfaceRtWorldEwrtWorldZ, kTestPosSurfaceRtWorldEwrtWorldZ,
+              1.0e-12)
       << "the test is vacuous unless the configured ground is away from the "
          "default of zero";
   for (const std::string& footName : contactNames()) {
@@ -747,20 +755,23 @@ TEST_F(ContactImplicitProblemTest,
     // may not go below it. Two definitions of where the ground is would make
     // the pair incoherent, and there used to be two: this and the reference
     // manager's, which computed an estimate and discarded it.
-    EXPECT_DOUBLE_EQ(complementarity.getTerrainHeight(), terrainHeight)
+    EXPECT_DOUBLE_EQ(complementarity.getPosSurfaceRtWorldEwrtWorldZ(),
+                     posSurfaceRtWorldEwrtWorldZ)
         << footName;
-    EXPECT_DOUBLE_EQ(penetration.getTerrainHeight(), terrainHeight) << footName;
+    EXPECT_DOUBLE_EQ(penetration.getPosSurfaceRtWorldEwrtWorldZ(),
+                     posSurfaceRtWorldEwrtWorldZ)
+        << footName;
   }
   // And the reference manager, which owns the ground from start-up on and
   // builds the swing trajectories on it, starts from the same one. (That the
   // two keep agreeing after a hot reload is testMpcParameterUpdaterModule's to
   // show.)
-  EXPECT_DOUBLE_EQ(
-      interface_->getSwitchedModelReferenceManagerPtr()->getTerrainHeight(),
-      terrainHeight);
   EXPECT_DOUBLE_EQ(interface_->getSwitchedModelReferenceManagerPtr()
-                       ->getAppliedTerrainHeight(),
-                   terrainHeight);
+                       ->getPosSurfaceRtWorldEwrtWorldZ(),
+                   posSurfaceRtWorldEwrtWorldZ);
+  EXPECT_DOUBLE_EQ(interface_->getSwitchedModelReferenceManagerPtr()
+                       ->getAppliedPosSurfaceRtWorldEwrtWorldZ(),
+                   posSurfaceRtWorldEwrtWorldZ);
 }
 
 TEST_F(ContactImplicitProblemTest,

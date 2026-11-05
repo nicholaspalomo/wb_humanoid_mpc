@@ -72,7 +72,7 @@ namespace {
 
 constexpr double kTimeStep = 0.01;
 
-Eigen::Vector4d yawQuaternion(double yaw) {
+Eigen::Vector4d unitQuaternionOfYaw(double yaw) {
   return Eigen::Quaterniond(Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()))
       .coeffs();
 }
@@ -80,20 +80,22 @@ Eigen::Vector4d yawQuaternion(double yaw) {
 /** A robot at height 0.8 m tracking (vx, 0, yaw rate) perfectly with its feet
  * planted; time step kTimeStep. */
 ControlCycleSample trackingSample(size_t k,
-                                  double forwardVelocity,
+                                  double cmdLinvelBaseRtWorldEwrtHeadingX,
                                   double yawRate) {
   ControlCycleSample sample;
   sample.time = static_cast<double>(k) * kTimeStep;
   const double yaw = yawRate * sample.time;
-  sample.basePosition = Eigen::Vector3d(0.0, 0.0, 0.8);
-  sample.baseQuaternion = yawQuaternion(yaw);
-  sample.baseLinearVelocityWorld = Eigen::Vector3d(
-      forwardVelocity * std::cos(yaw), forwardVelocity * std::sin(yaw), 0.0);
-  sample.baseAngularVelocityLocal = Eigen::Vector3d(0.0, 0.0, yawRate);
-  sample.referenceVelocity = Eigen::Vector3d(forwardVelocity, 0.0, yawRate);
+  sample.posBaseRtWorldEwrtWorld = Eigen::Vector3d(0.0, 0.0, 0.8);
+  sample.quatBaseRtWorldXyzw = unitQuaternionOfYaw(yaw);
+  sample.linvelBaseRtWorldEwrtWorld =
+      Eigen::Vector3d(cmdLinvelBaseRtWorldEwrtHeadingX * std::cos(yaw),
+                      cmdLinvelBaseRtWorldEwrtHeadingX * std::sin(yaw), 0.0);
+  sample.angvelBaseRtWorldEwrtBase = Eigen::Vector3d(0.0, 0.0, yawRate);
+  sample.refVelocityCommand =
+      Eigen::Vector3d(cmdLinvelBaseRtWorldEwrtHeadingX, 0.0, yawRate);
   sample.referenceBaseHeight = 0.8;
-  sample.contactPositions = {Eigen::Vector3d(0.0, 0.1, 0.0),
-                             Eigen::Vector3d(0.0, -0.1, 0.0)};
+  sample.posContactsRtWorldEwrtWorld = {Eigen::Vector3d(0.0, 0.1, 0.0),
+                                        Eigen::Vector3d(0.0, -0.1, 0.0)};
   sample.contactFlags = {true, true};
   sample.jointTorques = Eigen::VectorXd::Constant(/*size=*/3, 2.0);
   return sample;
@@ -119,8 +121,8 @@ JsonValue reportOf(const ClosedLoopMetrics& metrics) {
 TEST(ClosedLoopMetrics, PerfectTrackingHasNoErrorAndAConstantHeightNoSpread) {
   ClosedLoopMetrics metrics;
   for (size_t k = 0; k < 200; ++k)
-    metrics.addControlCycle(
-        trackingSample(k, /*forwardVelocity=*/0.5, /*yawRate=*/0.3));
+    metrics.addControlCycle(trackingSample(
+        k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5, /*yawRate=*/0.3));
   const JsonValue report = reportOf(metrics);
   EXPECT_NEAR(numberAt(report, "velocity.rms_error_mps"), 0.0, 1.0e-12);
   EXPECT_NEAR(numberAt(report, "yaw_rate.rms_error_radps"), 0.0, 1.0e-12);
@@ -139,11 +141,11 @@ TEST(ClosedLoopMetrics, PerfectTrackingHasNoErrorAndAConstantHeightNoSpread) {
 TEST(ClosedLoopMetrics, TheErrorsAreTheRmsOfTheDifferences) {
   ClosedLoopMetrics metrics;
   for (size_t k = 0; k < 100; ++k) {
-    ControlCycleSample sample =
-        trackingSample(k, /*forwardVelocity=*/0.0, /*yawRate=*/0.0);
-    sample.referenceVelocity = Eigen::Vector3d(
+    ControlCycleSample sample = trackingSample(
+        k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/0.0);
+    sample.refVelocityCommand = Eigen::Vector3d(
         0.3, 0.4, (k % 2 == 0) ? 0.2 : -0.2);  // the robot stands still
-    sample.basePosition.z() = (k % 2 == 0) ? 0.81 : 0.79;
+    sample.posBaseRtWorldEwrtWorld.z() = (k % 2 == 0) ? 0.81 : 0.79;
     metrics.addControlCycle(sample);
   }
   const JsonValue report = reportOf(metrics);
@@ -160,10 +162,10 @@ TEST(ClosedLoopMetrics, TheHeightSpreadIsTheTwoPassStandardDeviation) {
     ClosedLoopMetrics metrics;
     std::vector<double> heights;
     for (size_t k = 0; k < 5000; ++k) {
-      ControlCycleSample sample =
-          trackingSample(k, /*forwardVelocity=*/0.0, /*yawRate=*/0.0);
-      sample.basePosition.z() = height(generator);
-      heights.push_back(sample.basePosition.z());
+      ControlCycleSample sample = trackingSample(
+          k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/0.0);
+      sample.posBaseRtWorldEwrtWorld.z() = height(generator);
+      heights.push_back(sample.posBaseRtWorldEwrtWorld.z());
       metrics.addControlCycle(sample);
     }
     double mean = 0.0;
@@ -181,9 +183,9 @@ TEST(ClosedLoopMetrics, TheHeightSpreadIsTheTwoPassStandardDeviation) {
   for (const double constantHeight : {0.79, 0.8, 0.912, 1.05}) {
     ClosedLoopMetrics metrics;
     for (size_t k = 0; k < 10000; ++k) {
-      ControlCycleSample sample =
-          trackingSample(k, /*forwardVelocity=*/0.0, /*yawRate=*/0.0);
-      sample.basePosition.z() = constantHeight;
+      ControlCycleSample sample = trackingSample(
+          k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/0.0);
+      sample.posBaseRtWorldEwrtWorld.z() = constantHeight;
       metrics.addControlCycle(sample);
     }
     EXPECT_EQ(numberAt(reportOf(metrics), "base_height.std_m"), 0.0)
@@ -196,10 +198,10 @@ TEST(ClosedLoopMetrics, TheVelocityErrorIsTakenInTheHeadingFrame) {
   // points at 2 rad, in the heading frame it is straight ahead, as the command
   // is.
   ClosedLoopMetrics metrics;
-  ControlCycleSample sample =
-      trackingSample(/*k=*/0, /*forwardVelocity=*/0.5, /*yawRate=*/0.0);
-  sample.baseQuaternion = yawQuaternion(2.0);
-  sample.baseLinearVelocityWorld =
+  ControlCycleSample sample = trackingSample(
+      /*k=*/0, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5, /*yawRate=*/0.0);
+  sample.quatBaseRtWorldXyzw = unitQuaternionOfYaw(2.0);
+  sample.linvelBaseRtWorldEwrtWorld =
       Eigen::Vector3d(0.5 * std::cos(2.0), 0.5 * std::sin(2.0), 0.0);
   metrics.addControlCycle(sample);
   EXPECT_NEAR(numberAt(reportOf(metrics), "velocity.rms_error_mps"), 0.0,
@@ -211,8 +213,8 @@ TEST(ClosedLoopMetrics, TheHeadingUnwrapsThroughPlusMinusPi) {
   ClosedLoopMetrics metrics;
   const size_t steps = 1260;
   for (size_t k = 0; k <= steps; ++k)
-    metrics.addControlCycle(
-        trackingSample(k, /*forwardVelocity=*/0.0, /*yawRate=*/1.0));
+    metrics.addControlCycle(trackingSample(
+        k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/1.0));
   const JsonValue report = reportOf(metrics);
   EXPECT_NEAR(numberAt(report, "heading.cumulative_final_rad"), 12.6, 1.0e-9);
   EXPECT_NEAR(numberAt(report, "heading.cumulative_max_rad"), 12.6, 1.0e-9);
@@ -221,11 +223,11 @@ TEST(ClosedLoopMetrics, TheHeadingUnwrapsThroughPlusMinusPi) {
 
 TEST(ClosedLoopMetrics, TheTiltIsTheAngleOfTheBaseFromUpright) {
   ClosedLoopMetrics metrics;
-  ControlCycleSample sample =
-      trackingSample(/*k=*/0, /*forwardVelocity=*/0.0, /*yawRate=*/0.0);
+  ControlCycleSample sample = trackingSample(
+      /*k=*/0, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/0.0);
   // Rolled 0.1 rad after a yaw of 2.5 rad: the tilt does not depend on the
   // heading.
-  sample.baseQuaternion =
+  sample.quatBaseRtWorldXyzw =
       (Eigen::Quaterniond(Eigen::AngleAxisd(2.5, Eigen::Vector3d::UnitZ())) *
        Eigen::Quaterniond(Eigen::AngleAxisd(0.1, Eigen::Vector3d::UnitX())))
           .coeffs();
@@ -236,22 +238,22 @@ TEST(ClosedLoopMetrics, TheTiltIsTheAngleOfTheBaseFromUpright) {
 TEST(ClosedLoopMetrics, APlantedFootDoesNotSlipAndASlidingOneDoes) {
   ClosedLoopMetrics metrics;
   for (size_t k = 0; k < 50; ++k) {
-    ControlCycleSample sample =
-        trackingSample(k, /*forwardVelocity=*/0.0, /*yawRate=*/0.0);
-    sample.contactPositions[1].x() =
+    ControlCycleSample sample = trackingSample(
+        k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/0.0);
+    sample.posContactsRtWorldEwrtWorld[1].x() =
         0.001 * static_cast<double>(k);  // the right foot slides 1 mm per cycle
     metrics.addControlCycle(sample);
   }
   // The right foot lifts off and lands again 0.3 m further: a new stance, not
   // slip.
-  ControlCycleSample swing =
-      trackingSample(/*k=*/50, /*forwardVelocity=*/0.0, /*yawRate=*/0.0);
+  ControlCycleSample swing = trackingSample(
+      /*k=*/50, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/0.0);
   swing.contactFlags = {true, false};
   metrics.addControlCycle(swing);
   for (size_t k = 51; k < 60; ++k) {
-    ControlCycleSample sample =
-        trackingSample(k, /*forwardVelocity=*/0.0, /*yawRate=*/0.0);
-    sample.contactPositions[1].x() = 0.3;
+    ControlCycleSample sample = trackingSample(
+        k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/0.0);
+    sample.posContactsRtWorldEwrtWorld[1].x() = 0.3;
     metrics.addControlCycle(sample);
   }
   const JsonValue report = reportOf(metrics);
@@ -269,7 +271,7 @@ TEST(ClosedLoopMetrics, SolveStatisticsAreNearestRankPercentiles) {
     solve.time = 0.01 * k;
     solve.wallTimeMs = static_cast<double>(k);
     solve.succeeded = k != 7;
-    solve.initialStateRotationGap = k == 40 ? 6.28 : 0.01;
+    solve.initialStateGapAngle = k == 40 ? 6.28 : 0.01;
     solve.initialStateGapNorm = 0.1;
     metrics.addSolve(solve);
   }
@@ -295,12 +297,13 @@ SolveSample solveWithStep(double time,
                           std::optional<double> residual) {
   SolveSample solve;
   solve.time = time;
-  solve.sqpStep = SqpStepSample{.stepSize = stepSize,
-                                .stepKind = kind,
-                                .fullStepKind = kind,
-                                .fullStepConstraintViolation = violation,
-                                .constraintViolation = violation,
-                                .swingNormalVelocityResidual = residual};
+  solve.sqpStep =
+      SqpStepSample{.stepSize = stepSize,
+                    .stepKind = kind,
+                    .fullStepKind = kind,
+                    .fullStepConstraintViolation = violation,
+                    .constraintViolation = violation,
+                    .swingNormalVelocityConstraintResidual = residual};
   return solve;
 }
 
@@ -426,8 +429,8 @@ TEST(ClosedLoopMetrics, ANonFiniteSolveSampleIsKeptAndCounted) {
     SolveSample solve;
     solve.time = time;
     const bool isTheNan = time == 0.02;
-    solve.quaternionNormDeviation = isTheNan ? nan : 1.0e-12;
-    solve.initialStateRotationGap = isTheNan ? nan : 0.01;
+    solve.unitQuaternionNormDeviation = isTheNan ? nan : 1.0e-12;
+    solve.initialStateGapAngle = isTheNan ? nan : 0.01;
     solve.initialStateGapNorm = isTheNan ? nan : 0.02;
     metrics.addSolve(solve);  // a finite sample before the NaN and one after it
   }
@@ -462,12 +465,12 @@ TEST(ClosedLoopMetrics, ANonFiniteSolveSampleIsKeptAndCounted) {
 TEST(ClosedLoopMetricsSchema, EveryDocumentTheMetricsWriteValidates) {
   ClosedLoopMetrics metrics;
   for (size_t k = 0; k < 20; ++k)
-    metrics.addControlCycle(
-        trackingSample(k, /*forwardVelocity=*/0.3, /*yawRate=*/0.1));
+    metrics.addControlCycle(trackingSample(
+        k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.3, /*yawRate=*/0.1));
   SolveSample solve =
       solveWithStep(/*time=*/0.0, /*stepSize=*/1.0, SqpStepKind::kDual,
                     /*violation=*/1.0e-4, /*residual=*/1.0e-3);
-  solve.quaternionNormDeviation = 1.0e-12;
+  solve.unitQuaternionNormDeviation = 1.0e-12;
   metrics.addSolve(solve);
   const JsonValue report = reportOf(metrics);
   EXPECT_TRUE(validateClosedLoopMetrics(report).ok())
@@ -724,15 +727,15 @@ TEST(MetricBands, TheDescriptionListsBothKinds) {
 // the offline comparison of two labels
 
 /** A surviving run's metrics document, as ClosedLoopMetrics writes it: a walk
- * at `forwardVelocity`, one solve. */
-JsonValue walkDocument(double forwardVelocity) {
+ * at `cmdLinvelBaseRtWorldEwrtHeadingX`, one solve. */
+JsonValue walkDocument(double cmdLinvelBaseRtWorldEwrtHeadingX) {
   ClosedLoopMetrics metrics;
   for (size_t k = 0; k < 100; ++k)
     metrics.addControlCycle(
-        trackingSample(k, forwardVelocity, /*yawRate=*/0.1));
+        trackingSample(k, cmdLinvelBaseRtWorldEwrtHeadingX, /*yawRate=*/0.1));
   SolveSample solve;
   solve.wallTimeMs = 5.0;
-  solve.quaternionNormDeviation = 1.0e-12;
+  solve.unitQuaternionNormDeviation = 1.0e-12;
   metrics.addSolve(solve);
   return reportOf(metrics);
 }
@@ -787,8 +790,9 @@ struct TwoLabels {
 };
 
 TwoLabels twoLabels() {
-  const JsonValue walk = walkDocument(/*forwardVelocity=*/0.5);
-  const JsonValue standing = walkDocument(/*forwardVelocity=*/0.0);
+  const JsonValue walk = walkDocument(/*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5);
+  const JsonValue standing =
+      walkDocument(/*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0);
   TwoLabels labels;
   labels.baseline = {
       {.robot = "drc_atlas",
@@ -901,7 +905,8 @@ TEST(ArchivedComparison, ComparesOneRobotOrTheSolveTimesOnRequest) {
 
   // A candidate twice as slow passes unless the solve times are compared
   // (labels of one machine).
-  const JsonValue standing = walkDocument(/*forwardVelocity=*/0.0);
+  const JsonValue standing =
+      walkDocument(/*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0);
   JsonValue slowDocument = standing;
   JsonValue times = *standing.find("solve_time_ms");
   JsonValue total = *times.find("total");

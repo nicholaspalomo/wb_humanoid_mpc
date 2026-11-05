@@ -45,21 +45,24 @@ namespace ocs2::humanoid::visualization {
 
 /**
  * Returns the natural frequency omega = sqrt(g / z0) [1/s] of a linear inverted
- * pendulum of height `pendulumHeight` (z0, [m]) under `gravity` (g, [m/s^2]);
- * nullopt unless both are finite and positive.
+ * pendulum of height `proxyPosComRtFeetmeanEwrtWorldZ` (z0, [m]) under
+ * `gravityMagnitude` (g, [m/s^2]); nullopt unless both are finite and positive.
  */
-std::optional<scalar_t> pendulumFrequency(scalar_t gravity,
-                                          scalar_t pendulumHeight);
+std::optional<scalar_t> pendulumFrequency(
+    scalar_t gravityMagnitude, scalar_t proxyPosComRtFeetmeanEwrtWorldZ);
 
 /**
  * Returns the horizontal divergent component of motion xi = c + c_dot / omega
- * [m] (the instantaneous capture point) of the center of mass at `com` moving
- * at `comVelocity`, for the pendulum frequency `omega` (pendulumFrequency(),
- * positive). Only the x and y components of `com` and `comVelocity` are read.
+ * [m] (the instantaneous capture point, posDcmRtWorldEwrtWorldXy) of the
+ * center of mass at `posComRtWorldEwrtWorld` moving at
+ * `linvelComRtWorldEwrtWorld`, for the pendulum frequency `omega`
+ * (pendulumFrequency(), positive). Only the x and y components of both are
+ * read.
  */
-vector2_t divergentComponentOfMotion(const vector3_t& com,
-                                     const vector3_t& comVelocity,
-                                     scalar_t omega);
+vector2_t computePosDcmRtWorldEwrtWorldXy(
+    const vector3_t& posComRtWorldEwrtWorld,
+    const vector3_t& linvelComRtWorldEwrtWorld,
+    scalar_t omega);
 
 /**
  * Returns the zero moment point of the contact wrenches: the point p = (p_x,
@@ -74,17 +77,18 @@ vector2_t divergentComponentOfMotion(const vector3_t& com,
  * contact is at the same height, it is the ground, and p is the net center of
  * pressure.
  *
- * @param positions  per contact, the world position r_i of the point the wrench
- * is about (the contact frame's origin).
- * @param wrenches   per contact, the world-frame wrench [f_i; tau_i], tau_i the
- * torque about r_i.
- * @param minNormalForce [N] below this net normal force F_z there is no ZMP.
- * @return nullopt when F_z is not above `minNormalForce` (a flight phase, or no
- * wrenches).
+ * @param posFeetRtWorldEwrtWorld  per contact, the world position r_i of the
+ * point the wrench is about (the contact frame's origin).
+ * @param wrenchFeetEwrtWorld   per contact, the world-frame wrench [f_i;
+ * tau_i], tau_i the torque about r_i.
+ * @param minForceWorldEwrtWorldZ [N] below this net normal force F_z there is
+ * no ZMP.
+ * @return nullopt when F_z is not above `minForceWorldEwrtWorldZ` (a flight
+ * phase, or no wrenches).
  */
-std::optional<vector3_t> zeroMomentPoint(
-    const feet_array_t<vector3_t>& positions,
-    const feet_array_t<vector6_t>& wrenches,
-    scalar_t minNormalForce);
+std::optional<vector3_t> computePosZmpRtWorldEwrtWorld(
+    const feet_array_t<vector3_t>& posFeetRtWorldEwrtWorld,
+    const feet_array_t<vector6_t>& wrenchFeetEwrtWorld,
+    scalar_t minForceWorldEwrtWorldZ);
 
 }  // namespace ocs2::humanoid::visualization

@@ -108,13 +108,15 @@ TEST(HandWrittenPlanTest, EveryKnotPasses) {
     EXPECT_FALSE(knot.transition_condition.has_value());
     ASSERT_TRUE(knot.static_margin.has_value());
     EXPECT_GE(*knot.static_margin, 0.03);
-    EXPECT_GE(knot.support_polygon.size(), 4u);
+    EXPECT_GE(knot.support_pos_com_rt_world_ewrt_world_xy_samples.size(), 4u);
     EXPECT_EQ(knot.active_contacts.size(), 2u);
-    EXPECT_EQ(knot.com.size(), 3);
+    EXPECT_EQ(knot.pos_com_rt_world_ewrt_world.size(), 3);
   }
   // The sway moves the CoM 6 cm toward the toes; the margin, bounded by the
   // outer edges of the soles at the sides, stays.
-  EXPECT_NEAR(report.knots[2].com(0) - report.knots[0].com(0), 0.06, 1.0e-9);
+  EXPECT_NEAR(report.knots[2].pos_com_rt_world_ewrt_world(0) -
+                  report.knots[0].pos_com_rt_world_ewrt_world(0),
+              0.06, 1.0e-9);
   EXPECT_LE(*report.knots[2].static_margin,
             *report.knots[0].static_margin + 1.0e-9);
   EXPECT_FALSE(formatReport(report).empty());
@@ -139,15 +141,15 @@ TEST(HandWrittenPlanTest, KnotsBetweenKnotsInterpolateTheReference) {
   config::MultiContactPlan plan;
   config::MultiContactPlan::Knot first;
   first.time = 1.0;
-  first.base_position = Eigen::Vector3d(0.0, 0.0, 1.0);
-  first.base_orientation_xyzw = Eigen::Vector4d(0.0, 0.0, 0.0, 1.0);
+  first.pos_base_rt_world_ewrt_world = Eigen::Vector3d(0.0, 0.0, 1.0);
+  first.quat_base_rt_world_xyzw = Eigen::Vector4d(0.0, 0.0, 0.0, 1.0);
   first.joint_positions = Eigen::Vector2d(0.0, 1.0);
   first.active_contacts = 3;
   config::MultiContactPlan::Knot second = first;
   second.time = 2.0;
-  second.base_position = Eigen::Vector3d(0.4, 0.0, 1.0);
+  second.pos_base_rt_world_ewrt_world = Eigen::Vector3d(0.4, 0.0, 1.0);
   // A half turn about z.
-  second.base_orientation_xyzw = Eigen::Vector4d(0.0, 0.0, 1.0, 0.0);
+  second.quat_base_rt_world_xyzw = Eigen::Vector4d(0.0, 0.0, 1.0, 0.0);
   second.joint_positions = Eigen::Vector2d(0.8, -1.0);
   second.active_contacts = 1;
   plan.knots = {first, second};
@@ -157,12 +159,12 @@ TEST(HandWrittenPlanTest, KnotsBetweenKnotsInterpolateTheReference) {
   EXPECT_EQ(dense.knots.back().time, 2.0);
   const config::MultiContactPlan::Knot& middle = dense.knots[2];
   EXPECT_DOUBLE_EQ(middle.time, 1.5);
-  EXPECT_DOUBLE_EQ(middle.base_position[0], 0.2);
+  EXPECT_DOUBLE_EQ(middle.pos_base_rt_world_ewrt_world[0], 0.2);
   EXPECT_DOUBLE_EQ(middle.joint_positions[0], 0.4);
   EXPECT_DOUBLE_EQ(middle.joint_positions[1], 0.0);
   // A quarter turn about z, unit; the first knot's contacts.
-  EXPECT_NEAR(middle.base_orientation_xyzw[2], std::sqrt(0.5), 1.0e-12);
-  EXPECT_NEAR(middle.base_orientation_xyzw[3], std::sqrt(0.5), 1.0e-12);
+  EXPECT_NEAR(middle.quat_base_rt_world_xyzw[2], std::sqrt(0.5), 1.0e-12);
+  EXPECT_NEAR(middle.quat_base_rt_world_xyzw[3], std::sqrt(0.5), 1.0e-12);
   EXPECT_EQ(middle.active_contacts, 3u);
 }
 
@@ -192,14 +194,15 @@ TEST(HandWrittenPlanTest, ALungeLeavesTheContactWrenchCone) {
   absl::StatusOr<Fixture> test = fixture();
   ASSERT_TRUE(test.ok()) << test.status();
   // 1500 kg m/s in 0.25 s: about 6000 N forward, far beyond the friction.
-  test->plan.knots[2].linear_momentum = Eigen::Vector3d(1500.0, 0.0, 0.0);
+  test->plan.knots[2].linmom_com_rt_world_ewrt_world =
+      Eigen::Vector3d(1500.0, 0.0, 0.0);
   const absl::StatusOr<config::CertifierReport> report =
       test->certifier->certify(test->plan);
   ASSERT_TRUE(report.ok()) << report.status();
   EXPECT_FALSE(report->passed);
-  EXPECT_FALSE(report->knots[1].momentum_rate_feasible);
+  EXPECT_FALSE(report->knots[1].wrench_cone_feasible);
   EXPECT_FALSE(report->knots[1].dynamic_condition);
-  EXPECT_GT(report->knots[1].momentum_rate_residual, 1.0e-3);
+  EXPECT_GT(report->knots[1].wrench_cone_residual, 1.0e-3);
   // Knot 2 is a peak of the momentum, whose central difference is zero.
   EXPECT_TRUE(report->knots[2].dynamic_condition);
 }
@@ -266,8 +269,8 @@ TEST(HandWrittenPlanTest, TheTorquesAreJudgedOnlyUnderPositionAndEffort) {
   ASSERT_TRUE(test.ok()) << test.status();
   // A torque margin the sway cannot keep: standing takes more than 1 % of
   // some joint's effort limit.
-  constexpr double kTinyTorqueMargin = 0.01;
-  test->loaded.scenario.torque_margin = kTinyTorqueMargin;
+  constexpr double kTinyJointTorqueMargin = 0.01;
+  test->loaded.scenario.joint_torque_margin = kTinyJointTorqueMargin;
 
   test->loaded.scenario.joint_limits = "position_and_effort";
   const absl::StatusOr<std::unique_ptr<StabilityCertifier>> enforcing =
@@ -278,7 +281,7 @@ TEST(HandWrittenPlanTest, TheTorquesAreJudgedOnlyUnderPositionAndEffort) {
   ASSERT_TRUE(judged.ok()) << judged.status();
   EXPECT_FALSE(judged->passed);
   EXPECT_EQ(judged->joint_limits, "position_and_effort");
-  EXPECT_EQ(judged->torque_margin, kTinyTorqueMargin);
+  EXPECT_EQ(judged->joint_torque_margin, kTinyJointTorqueMargin);
   for (const config::CertifierReport::Knot& knot : judged->knots) {
     EXPECT_EQ(knot.static_condition, false);
     ASSERT_FALSE(knot.failures.empty());
@@ -296,15 +299,16 @@ TEST(HandWrittenPlanTest, TheTorquesAreJudgedOnlyUnderPositionAndEffort) {
   ASSERT_TRUE(reported.ok()) << reported.status();
   EXPECT_TRUE(reported->passed) << formatReport(*reported);
   EXPECT_EQ(reported->joint_limits, "position_only");
-  EXPECT_FALSE(reported->torque_margin.has_value());
+  EXPECT_FALSE(reported->joint_torque_margin.has_value());
   ASSERT_EQ(reported->knots.size(), judged->knots.size());
   for (size_t k = 0; k < reported->knots.size(); ++k) {
     const config::CertifierReport::Knot& knot = reported->knots[k];
     EXPECT_EQ(knot.static_condition, true);
     // The utilization is still reported, the same as when it is judged.
-    ASSERT_TRUE(knot.torque_utilization.has_value());
-    EXPECT_GT(*knot.torque_utilization, kTinyTorqueMargin);
-    EXPECT_EQ(knot.torque_utilization, judged->knots[k].torque_utilization);
+    ASSERT_TRUE(knot.joint_torque_utilization.has_value());
+    EXPECT_GT(*knot.joint_torque_utilization, kTinyJointTorqueMargin);
+    EXPECT_EQ(knot.joint_torque_utilization,
+              judged->knots[k].joint_torque_utilization);
   }
   EXPECT_TRUE(absl::StrContains(formatReport(*reported),
                                 "torques not judged: joint limits "

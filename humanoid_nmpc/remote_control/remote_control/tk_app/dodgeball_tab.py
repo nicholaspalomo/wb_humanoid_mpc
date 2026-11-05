@@ -208,10 +208,10 @@ class DodgeballTab(ttk.Frame):
     def current_throw(self) -> dodgeball.DodgeballThrow:
         """The throw the five sliders currently describe, clamped into range."""
         return dodgeball.DodgeballThrow(
-            azimuth_deg=self.azimuth_row.get_value(),
-            elevation_deg=self.elevation_row.get_value(),
-            distance_m=self.distance_row.get_value(),
-            speed_mps=self.speed_row.get_value(),
+            cmd_azimuth_ball_rt_base_ewrt_heading=self.azimuth_row.get_value(),
+            cmd_elevation_ball_rt_base_ewrt_heading=self.elevation_row.get_value(),
+            cmd_dist_ball_rt_base=self.distance_row.get_value(),
+            cmd_speed_ball_rt_world=self.speed_row.get_value(),
             mass_kg=self.mass_row.get_value(),
         ).clamped()
 
@@ -246,29 +246,37 @@ class DodgeballTab(ttk.Frame):
         Returns:
             One line: the direction (or that it is randomized), the launch speed, the flight time and the momentum.
         """
-        direction = (
-            "direction randomized"
-            if self.randomize_var.get()
-            else "%+.0f / %+.0f deg" % (throw.azimuth_deg, throw.elevation_deg)
+        direction = "direction randomized"
+        if not self.randomize_var.get():
+            direction = "%+.0f / %+.0f deg" % (
+                throw.cmd_azimuth_ball_rt_base_ewrt_heading,
+                throw.cmd_elevation_ball_rt_base_ewrt_heading,
+            )
+        launch_speed_ball_rt_world = (
+            dodgeball.compute_launch_speed_ball_rt_world(throw)
         )
-        speed = dodgeball.launch_speed(throw)
-        raised = (
-            " (raised from %.1f: too slow to reach the base)" % throw.speed_mps
-            if speed > throw.speed_mps + 1e-9
-            else ""
+        raised = ""
+        if launch_speed_ball_rt_world > throw.cmd_speed_ball_rt_world + 1e-9:
+            raised = (
+                " (raised from %.1f: too slow to reach the base)"
+                % throw.cmd_speed_ball_rt_world
+            )
+        arrival_speed_ball_rt_world = math.hypot(
+            *dodgeball.compute_arrival_linvel_ball_rt_world_ewrt_heading(throw)
         )
-        arrival = math.hypot(*dodgeball.arrival_velocity(throw))
         return (
             "%s  |  %.1f m/s launch%s  |  %.2f s  |  %.2f kg x %.1f m/s ="
             " %.2f N s"
             % (
                 direction,
-                speed,
+                launch_speed_ball_rt_world,
                 raised,
                 dodgeball.flight_time(throw),
                 throw.mass_kg,
-                arrival,
-                dodgeball.impact_momentum(throw),
+                arrival_speed_ball_rt_world,
+                dodgeball.compute_impact_norm_linmom_ball_rt_world_ewrt_world(
+                    throw
+                ),
             )
         )
 
@@ -286,11 +294,16 @@ class DodgeballTab(ttk.Frame):
             The message of the throw (dodgeball.throw_message), whether or not it could be published.
         """
         if self.randomize_var.get():
-            azimuth, elevation = dodgeball.sample_random_angles()
-            # Written back to the sliders even while they are disabled, so that the record of what was thrown is on
-            # screen rather than only in the topic.
-            self.azimuth_row.set_value(azimuth)
-            self.elevation_row.set_value(elevation)
+            (
+                cmd_azimuth_ball_rt_base_ewrt_heading,
+                cmd_elevation_ball_rt_base_ewrt_heading,
+            ) = dodgeball.sample_random_angles()
+            # [deg] Written back to the sliders even while they are disabled, so that the record of what was thrown is
+            # on screen rather than only in the topic.
+            self.azimuth_row.set_value(cmd_azimuth_ball_rt_base_ewrt_heading)
+            self.elevation_row.set_value(
+                cmd_elevation_ball_rt_base_ewrt_heading
+            )
 
         throw = self.current_throw()
         payload = dodgeball.throw_message(throw)
@@ -314,10 +327,10 @@ class DodgeballTab(ttk.Frame):
             " m/s - arrives in %.2f s."
             % (
                 throw.mass_kg,
-                throw.azimuth_deg,
-                throw.elevation_deg,
-                throw.distance_m,
-                dodgeball.launch_speed(throw),
+                throw.cmd_azimuth_ball_rt_base_ewrt_heading,
+                throw.cmd_elevation_ball_rt_base_ewrt_heading,
+                throw.cmd_dist_ball_rt_base,
+                dodgeball.compute_launch_speed_ball_rt_world(throw),
                 dodgeball.flight_time(throw),
             )
         )

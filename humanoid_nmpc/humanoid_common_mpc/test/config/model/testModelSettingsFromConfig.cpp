@@ -28,6 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <bit>
+#include <cstddef>
 #include <cstdint>
 #include <fstream>
 #include <limits>
@@ -52,7 +53,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/StateLayout.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/model/ModelSettingsFromConfig.h"
+#include "humanoid_mpc_config/contact_implicit_config.nproto.h"
 #include "humanoid_mpc_config/model_settings_config.nproto.h"
+#include "humanoid_mpc_config/nominal_foothold_config.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.pb.h"
 #include "humanoid_mpc_config/task_file.pb.h"
@@ -144,7 +147,7 @@ std::string describe(const ModelSettings::FootConstraintConfig& config) {
 std::string describe(const ModelSettings::ContactImplicitConfig& config) {
   return absl::StrJoin(
       {text(config.complementarityWeight), text(config.slipWeight),
-       text(config.heightReference),
+       text(config.scalePosContactRtSurfaceEwrtWorldZ),
        text(config.scaleLinvelContactRtWorldEwrtWorldXy),
        text(config.scaleAngvelContactRtWorldEwrtWorldZ),
        text(config.penetrationWeight), text(config.gapSmoothing)},
@@ -154,10 +157,11 @@ std::string describe(const ModelSettings::ContactImplicitConfig& config) {
 std::string describe(const std::vector<ModelSettings::PointContact>& contacts) {
   std::vector<std::string> described;
   for (const ModelSettings::PointContact& contact : contacts) {
-    described.push_back(absl::StrCat(contact.name, "@", contact.parentJointName,
-                                     "+", text(contact.translation.x()), ",",
-                                     text(contact.translation.y()), ",",
-                                     text(contact.translation.z())));
+    described.push_back(
+        absl::StrCat(contact.name, "@", contact.parentJointName, "+",
+                     text(contact.posContactRtLinkEwrtLink.x()), ",",
+                     text(contact.posContactRtLinkEwrtLink.y()), ",",
+                     text(contact.posContactRtLinkEwrtLink.z())));
   }
   return absl::StrJoin(described, ";");
 }
@@ -194,8 +198,8 @@ std::string describe(const absl::StatusOr<ModelSettings>& settings) {
            ",", settings->j_l_elbow_y_index, ",", settings->j_r_elbow_y_index),
        describe(settings->footConstraintConfig),
        describe(settings->contactImplicitConfig),
-       text(settings->nominalFootholdConfig.stepWidth),
-       text(settings->terrainHeight)},
+       text(settings->nominalFootholdConfig.nomPosLfootRtRfootEwrtHeadingY),
+       text(settings->posSurfaceRtWorldEwrtWorldZ)},
       "\n");
 }
 
@@ -313,17 +317,19 @@ TEST(ModelSettingsFromConfig,
                     .message(),
                 HasSubstr("model_settings.phase_transition_stance_time: "));
     mpc_config::NominalFootholdConfig foothold;
-    foothold.step_width = value;
-    EXPECT_THAT(nominalFootholdFromConfig(foothold).status().message(),
-                HasSubstr("nominal_foothold.step_width: "));
+    foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y = value;
+    EXPECT_THAT(
+        nominalFootholdFromConfig(foothold).status().message(),
+        HasSubstr("nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y: "));
   }
   mpc_config::TaskFile terrain = twoJointTask();
-  terrain.terrain_height = std::numeric_limits<double>::quiet_NaN();
+  terrain.pos_surface_rt_world_ewrt_world_z =
+      std::numeric_limits<double>::quiet_NaN();
   EXPECT_THAT(
       ModelSettings::Create(terrain, twoJointUrdf(), "test_", /*verbose=*/false)
           .status()
           .message(),
-      HasSubstr("terrain_height: "));
+      HasSubstr("pos_surface_rt_world_ewrt_world_z: "));
 }
 
 TEST(ModelSettingsFromConfig,
@@ -399,8 +405,9 @@ TEST(ModelSettingsFromConfig, TheSchemaDefaultsAreTheSettingsDefaults) {
   const absl::StatusOr<ModelSettings::NominalFootholdConfig> nominalFoothold =
       nominalFootholdFromConfig(mpc_config::NominalFootholdConfig{});
   ASSERT_TRUE(nominalFoothold.ok()) << nominalFoothold.status();
-  EXPECT_EQ(text(nominalFoothold->stepWidth),
-            text(ModelSettings::NominalFootholdConfig{}.stepWidth));
+  EXPECT_EQ(text(nominalFoothold->nomPosLfootRtRfootEwrtHeadingY),
+            text(ModelSettings::NominalFootholdConfig{}
+                     .nomPosLfootRtRfootEwrtHeadingY));
 }
 
 /** A value of `field` other than its default: a number scaled and shifted, a
@@ -471,7 +478,7 @@ TEST(ModelSettingsFromConfig, EveryFieldOfTheSchemaReachesTheSettings) {
   // leaves the settings as they were.
   const Descriptor* absl_nonnull task =
       humanoid_mpc_config::TaskFile::descriptor();
-  std::vector<std::string> leaves = {"terrain_height"};
+  std::vector<std::string> leaves = {"pos_surface_rt_world_ewrt_world_z"};
   for (const char* absl_nonnull block :
        {"model_settings", "contact_implicit", "nominal_foothold"}) {
     const FieldDescriptor* absl_nullable field = task->FindFieldByName(block);
@@ -621,7 +628,7 @@ TEST(ModelSettingsFromConfig,
   EXPECT_EQ(ground.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(ground.status().message(),
               HasSubstr("'terrain_height' is retired: the ground is the "
-                        "top-level terrain_height"));
+                        "top-level pos_surface_rt_world_ewrt_world_z"));
 }
 
 TEST(ModelSettingsFromConfig, ABlockParsesIntoItsSettings) {
@@ -633,9 +640,9 @@ TEST(ModelSettingsFromConfig, ABlockParsesIntoItsSettings) {
       "  contact_names_6dof: \"foot_l\"\n"
       "  contact_names_6dof: \"foot_r\"\n"
       "}\n"
-      "terrain_height: -0.5\n"
+      "pos_surface_rt_world_ewrt_world_z: -0.5\n"
       "contact_implicit { slip_weight: 7.25 }\n"
-      "nominal_foothold { step_width: 0.45 }\n");
+      "nominal_foothold { nom_pos_lfoot_rt_rfoot_ewrt_heading_y: 0.45 }\n");
   ASSERT_TRUE(task.ok()) << task.status();
   const absl::StatusOr<ModelSettings> settings =
       ModelSettings::Create(*task, twoJointUrdf(), "test_", /*verbose=*/false);
@@ -646,11 +653,12 @@ TEST(ModelSettingsFromConfig, ABlockParsesIntoItsSettings) {
             ModelSettings::FootConstraintConfig{}.positionErrorGain_z);
   EXPECT_THAT(settings->contactNames6DoF,
               ::testing::ElementsAre("foot_l", "foot_r"));
-  EXPECT_EQ(settings->terrainHeight, -0.5);
+  EXPECT_EQ(settings->posSurfaceRtWorldEwrtWorldZ, -0.5);
   EXPECT_EQ(settings->contactImplicitConfig.slipWeight, 7.25);
   EXPECT_EQ(settings->contactImplicitConfig.complementarityWeight,
             ModelSettings::ContactImplicitConfig{}.complementarityWeight);
-  EXPECT_EQ(settings->nominalFootholdConfig.stepWidth, 0.45);
+  EXPECT_EQ(settings->nominalFootholdConfig.nomPosLfootRtRfootEwrtHeadingY,
+            0.45);
 }
 
 TEST(ModelSettingsFromConfig, ThePointContactsComeBeforeTheFeet) {
@@ -661,7 +669,7 @@ TEST(ModelSettingsFromConfig, ThePointContactsComeBeforeTheFeet) {
       "  contacts_3dof {\n"
       "    name: \"hand\"\n"
       "    parent_joint_name: \"joint_a\"\n"
-      "    translation { x: 0.1 z: -0.2 }\n"
+      "    pos_contact_rt_link_ewrt_link { x: 0.1 z: -0.2 }\n"
       "  }\n"
       "}\n");
   ASSERT_TRUE(task.ok()) << task.status();
@@ -673,20 +681,70 @@ TEST(ModelSettingsFromConfig, ThePointContactsComeBeforeTheFeet) {
   EXPECT_THAT(settings->contactNames3DoF, ::testing::ElementsAre("hand"));
   ASSERT_EQ(settings->pointContacts.size(), 1U);
   EXPECT_EQ(settings->pointContacts[0].parentJointName, "joint_a");
-  EXPECT_EQ(settings->pointContacts[0].translation, vector3_t(0.1, 0.0, -0.2));
+  EXPECT_EQ(settings->pointContacts[0].posContactRtLinkEwrtLink,
+            vector3_t(0.1, 0.0, -0.2));
   EXPECT_TRUE(settings->isPointContact(0));
   EXPECT_FALSE(settings->isPointContact(1));
   EXPECT_FALSE(settings->isBipedContactSet());
 }
 
+// contactParentJointNames has one entry per 6-DoF contact, while contactNames
+// puts the 3-DoF contacts first. The MuJoCo backend resolves each contact's
+// body from the parent joint at the contact's own index, so the parents have
+// to be in contact order: paired by index, the hand took foot_l's joint and
+// foot_r got none.
+TEST(ModelSettingsFromConfig, TheParentJointsFollowTheContactOrder) {
+  const absl::StatusOr<mpc_config::TaskFile> task = parseTask(
+      "model_settings {\n"
+      "  contact_names_6dof: \"foot_l\"\n"
+      "  contact_names_6dof: \"foot_r\"\n"
+      "  contact_parent_joint_names: \"hip\"\n"
+      "  contact_parent_joint_names: \"shoulder\"\n"
+      "  contacts_3dof {\n"
+      "    name: \"hand\"\n"
+      "    parent_joint_name: \"shoulder\"\n"
+      "  }\n"
+      "}\n");
+  ASSERT_TRUE(task.ok()) << task.status();
+  const absl::StatusOr<ModelSettings> settings =
+      ModelSettings::Create(*task, twoJointUrdf(), "test_", /*verbose=*/false);
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  ASSERT_THAT(settings->contactNames,
+              ::testing::ElementsAre("hand", "foot_l", "foot_r"));
+  EXPECT_THAT(settings->contactParentJointNamesInContactOrder(),
+              ::testing::ElementsAre("shoulder", "hip", "shoulder"));
+}
+
+// A 6-DoF contact without an entry in contactParentJointNames gets an empty
+// parent, which the MuJoCo backend resolves by the frame name instead.
+TEST(ModelSettingsFromConfig, AMissingParentJointIsEmptyInContactOrder) {
+  const absl::StatusOr<mpc_config::TaskFile> task = parseTask(
+      "model_settings {\n"
+      "  contact_names_6dof: \"foot_l\"\n"
+      "  contact_names_6dof: \"foot_r\"\n"
+      "  contact_parent_joint_names: \"hip\"\n"
+      "  contacts_3dof {\n"
+      "    name: \"hand\"\n"
+      "    parent_joint_name: \"shoulder\"\n"
+      "  }\n"
+      "}\n");
+  ASSERT_TRUE(task.ok()) << task.status();
+  const absl::StatusOr<ModelSettings> settings =
+      ModelSettings::Create(*task, twoJointUrdf(), "test_", /*verbose=*/false);
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  EXPECT_THAT(settings->contactParentJointNamesInContactOrder(),
+              ::testing::ElementsAre("shoulder", "hip", std::string()));
+}
+
 TEST(ModelSettingsFromConfig, APointContactNeedsANameAParentAndAFiniteOffset) {
   const std::vector<std::pair<std::string, std::string>> cases = {
-      {"parent_joint_name: \"joint_a\"", "contacts_3dof[0] needs a name"},
-      {"name: \"hand\"", "contacts_3dof[0] needs a name"},
-      {"name: \"foot_l\" parent_joint_name: \"joint_a\"",
+      {R"(parent_joint_name: "joint_a")", "contacts_3dof[0] needs a name"},
+      {R"(name: "hand")", "contacts_3dof[0] needs a name"},
+      {R"(name: "foot_l" parent_joint_name: "joint_a")",
        "contacts_3dof[0].name is 'foot_l'"},
-      {"name: \"hand\" parent_joint_name: \"joint_a\" translation { y: nan }",
-       "contacts_3dof[0].translation.y"},
+      {"name: \"hand\" parent_joint_name: \"joint_a\" "
+       "pos_contact_rt_link_ewrt_link { y: nan }",
+       "contacts_3dof[0].pos_contact_rt_link_ewrt_link.y"},
   };
   for (const std::pair<std::string, std::string>& entry : cases) {
     const absl::StatusOr<mpc_config::TaskFile> task = parseTask(

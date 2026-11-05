@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/log/check.h"
 
+#include "humanoid_common_mpc/contact_planning/problem/Layout.h"
+
 namespace ocs2::humanoid {
 
 int LayoutBuilder::addState(const std::string& name) {
@@ -53,13 +55,15 @@ int LayoutBuilder::addInput(const std::string& name) {
 
 Layout LayoutBuilder::build() const {
   Layout layout = layout_;
-  layout.hasHeading = layout.hasState(var::kHeading);
+  layout.hasHeading = layout.hasState(var::kHeadingModelYaw);
   if (layout.hasHeading) {
-    layout.heading = layout.state(var::kHeading);
-    layout.headingRate = layout.state(var::kHeadingRate);
-    layout.footYaw0 = layout.state(var::footYaw(0));
-    layout.yawTorque0 = layout.input(var::yawTorque(0));
-    layout.footYawDelta0 = layout.input(var::footYawDelta(0));
+    layout.headingModelYaw = layout.state(var::kHeadingModelYaw);
+    layout.headingModelYawRate = layout.state(var::kHeadingModelYawRate);
+    layout.startEulerzyxFeetRtWorldYaw =
+        layout.state(var::eulerzyxFootRtWorldYaw(0));
+    layout.yawTorqueStart = layout.input(var::torqueFootEwrtWorldZ(0));
+    layout.startErrEulerzyxFeetRtWorldYaw =
+        layout.input(var::errEulerzyxFootRtWorldYaw(0));
   }
   return layout;
 }

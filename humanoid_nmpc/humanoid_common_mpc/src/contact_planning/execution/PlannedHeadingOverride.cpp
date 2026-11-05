@@ -29,20 +29,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/execution/PlannedHeadingOverride.h"
 
+#include <cstddef>
 #include <optional>
 #include <string>
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 
+#include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
 #include "humanoid_common_mpc/contact_planning/execution/PlanCoverage.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 
 namespace ocs2::humanoid {
 
-scalar_t acomHeadingOffset(const AngularCenterOfMass& acom,
-                           const vector_t& jointAngles) {
-  return yawOf(quaternionExp(acom.computeJointOrientationOffset(jointAngles)));
+scalar_t computeYawAcomRtBase(const AngularCenterOfMass& acom,
+                              const vector_t& jointAngles) {
+  return yawOf(quaternionExp(acom.computeRotvecAcomRtBase(jointAngles)));
 }
 
 std::string PlannedHeadingOverride::describe() const {
@@ -63,16 +70,20 @@ void PlannedHeadingOverride::overrideTarget(
     // would get the plan's final heading rather than keep the operator's yaw;
     // see PlannedComOverride, which has the same guard for the same reason.
     if (!planCoversTime(plan, time)) continue;
-    const std::optional<scalar_t> heading = plan.headingAtTime(time);
-    if (!heading.has_value()) continue;
+    const std::optional<scalar_t> yawHeadingRtWorld =
+        plan.headingModelYawAtTime(time);
+    if (!yawHeadingRtWorld.has_value()) continue;
     vector_t& stateRef = targetTrajectories.stateTrajectory[i];
-    vector3_t euler = mpcRobotModel_->getEulerzyxBaseRtWorld(stateRef);
-    scalar_t offset = 0.0;
-    if (acom != nullptr)
-      offset =
-          acomHeadingOffset(*acom, mpcRobotModel_->getJointAngles(stateRef));
-    euler(0) = moduloAngleWithReference(*heading - offset, euler(0));
-    mpcRobotModel_->setEulerzyxBaseRtWorld(stateRef, euler);
+    vector3_t eulerzyxBaseRtWorld =
+        mpcRobotModel_->getEulerzyxBaseRtWorld(stateRef);
+    scalar_t yawAcomRtBase = 0.0;
+    if (acom != nullptr) {
+      yawAcomRtBase =
+          computeYawAcomRtBase(*acom, mpcRobotModel_->getJointAngles(stateRef));
+    }
+    eulerzyxBaseRtWorld(0) = moduloAngleWithReference(
+        *yawHeadingRtWorld - yawAcomRtBase, eulerzyxBaseRtWorld(0));
+    mpcRobotModel_->setEulerzyxBaseRtWorld(stateRef, eulerzyxBaseRtWorld);
   }
 }
 

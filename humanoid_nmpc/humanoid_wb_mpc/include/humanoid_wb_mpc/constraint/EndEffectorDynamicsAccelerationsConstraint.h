@@ -46,10 +46,10 @@ namespace ocs2::humanoid {
  * effector with respect to the ground plane and its first two time derivatives:
  *   g = b + Ax [p; e] + Av d/dt [p; e] + Aa d2/dt2 [p; e],
  * p the end-effector position and e its orientation error with respect to the
- * ground plane, n = e_z (getOrientationErrorWrtPlane(): e = -(v x n) / sqrt(2
+ * ground plane, n = e_z (getTiltEesRtSurfaceEwrtWorld(): e = -(v x n) / sqrt(2
  * (1 + v.n)), v the end-effector normal, the sine of half the tilt). The
- * derivatives are EndEffectorDynamics::getPoseWrtPlaneRate() and
- * getPoseWrtPlaneAcceleration(): the linear velocity and acceleration, and the
+ * derivatives are EndEffectorDynamics::getXeeRate() and
+ * getXeeSecondRate(): the linear velocity and acceleration, and the
  * rate and acceleration of e, whose row along n (where e has no component)
  * carries half the rotation rate about the end-effector normal, v.w, and its
  * derivative v.alpha. With diagonal gains the orientation rows are therefore
@@ -59,8 +59,9 @@ namespace ocs2::humanoid {
  * (end_effector/OrientationErrorWrtPlaneRates.h). Value and linearization read
  * the same CppAD libraries, so the linearization is exact, for any Ax and any
  * number of rows.
- * - For defining constraint of type g(xee), set Av to matrix_t(0, 0)
- * - For defining constraint of type g(vee), set Ax to matrix_t(0, 0)
+ * - For a constraint on the pose alone, g(xee), leave Av and Aa empty
+ *   (matrix_t(0, 0));
+ * - for one on its rates alone, g(d/dt xee, d2/dt2 xee), leave Ax empty.
  *
  * Not thread-safe: its end-effector dynamics evaluate on the Pinocchio data of
  * one worker's PreComputation, so the solver gives each worker thread its own
@@ -146,7 +147,7 @@ class EndEffectorDynamicsAccelerationsConstraint final
   EndEffectorDynamicsAccelerationsConstraint(
       const EndEffectorDynamicsAccelerationsConstraint& rhs);
 
-  vector3_t ground_plane_normal_;
+  vector3_t normalTerrainEwrtWorld_;
   std::unique_ptr<EndEffectorDynamics<scalar_t>> endEffectorDynamicsPtr_;
   const size_t numConstraints_;
   Config config_;

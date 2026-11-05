@@ -29,9 +29,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
+
 #include "Eigen/Core"
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -115,16 +118,17 @@ class LayoutRobotModel final : public MpcRobotModelBase<SCALAR_T> {
       const VECTOR_T<SCALAR_T>& /*state*/) const override {
     return VECTOR3_T<SCALAR_T>::Zero();
   }
-  // NOLINTBEGIN(frame-naming): model-dependent, see MpcRobotModelBase
-  VECTOR3_T<SCALAR_T> getBaseComLinearVelocity(
+  StoredLinvelPoint getStoredLinvelPoint() const override {
+    return StoredLinvelPoint::kCenterOfMass;
+  }
+  VECTOR3_T<SCALAR_T> getLinvelComRtWorldEwrtWorld(
       const VECTOR_T<SCALAR_T>& /*state*/) const override {
     return VECTOR3_T<SCALAR_T>::Zero();
   }
-  VECTOR6_T<SCALAR_T> getBaseComVelocity(
+  VECTOR3_T<SCALAR_T> getLinvelBaseRtWorldEwrtWorld(
       const VECTOR_T<SCALAR_T>& /*state*/) const override {
-    return VECTOR6_T<SCALAR_T>::Zero();
+    return VECTOR3_T<SCALAR_T>::Zero();
   }
-  // NOLINTEND(frame-naming)
   VECTOR_T<SCALAR_T> getJointAngles(
       const VECTOR_T<SCALAR_T>& /*state*/) const override {
     return VECTOR_T<SCALAR_T>::Zero(this->getJointDim());
@@ -145,11 +149,15 @@ class LayoutRobotModel final : public MpcRobotModelBase<SCALAR_T> {
       const VECTOR_T<SCALAR_T>& /*generalizedCorrdinates*/) const override {}
   void setPosBaseRtWorldEwrtWorld(
       VECTOR_T<SCALAR_T>& /*state*/,
-      const VECTOR3_T<SCALAR_T>& /*position*/) const override {}
-  // NOLINTNEXTLINE(frame-naming): model-dependent, see MpcRobotModelBase
-  void setBaseComLinearVelocity(
+      const VECTOR3_T<SCALAR_T>& /*posBaseRtWorldEwrtWorld*/) const override {}
+  void setLinvelComRtWorldEwrtWorld(
       VECTOR_T<SCALAR_T>& /*state*/,
-      const VECTOR3_T<SCALAR_T>& /*velocity*/) const override {}
+      const VECTOR3_T<SCALAR_T>& /*linvelComRtWorldEwrtWorld*/) const override {
+  }
+  void setLinvelBaseRtWorldEwrtWorld(
+      VECTOR_T<SCALAR_T>& /*state*/,
+      const VECTOR3_T<SCALAR_T>& /*linvelBaseRtWorldEwrtWorld*/)
+      const override {}
   void setJointAngles(
       VECTOR_T<SCALAR_T>& /*state*/,
       const VECTOR_T<SCALAR_T>& /*jointAngles*/) const override {}
@@ -157,18 +165,18 @@ class LayoutRobotModel final : public MpcRobotModelBase<SCALAR_T> {
       VECTOR_T<SCALAR_T>& /*state*/,
       VECTOR_T<SCALAR_T>& /*input*/,
       const VECTOR_T<SCALAR_T>& /*jointVelocities*/) const override {}
-  void adaptPosBaseRtWorldEwrtWorldZ(VECTOR_T<SCALAR_T>& /*state*/,
-                                     scalar_t /*heightChange*/) const override {
-  }
+  void adaptPosBaseRtWorldEwrtWorldZ(
+      VECTOR_T<SCALAR_T>& /*state*/,
+      scalar_t /*errPosBaseRtWorldEwrtWorldZ*/) const override {}
 
   VECTOR4_T<SCALAR_T> getQuatBaseRtWorldXyzw(
       const VECTOR_T<SCALAR_T>& /*state*/) const override {
     return VECTOR4_T<SCALAR_T>(SCALAR_T(0.0), SCALAR_T(0.0), SCALAR_T(0.0),
                                SCALAR_T(1.0));
   }
-  void setQuatBaseRtWorldXyzw(vector_t& /*state*/,
-                              const vector4_t& /*orientation*/) const override {
-  }
+  void setQuatBaseRtWorldXyzw(
+      vector_t& /*state*/,
+      const vector4_t& /*quatBaseRtWorldXyzw*/) const override {}
   scalar_t getYawBaseRtWorld(const vector_t& /*state*/) const override {
     return 0.0;
   }
@@ -177,21 +185,24 @@ class LayoutRobotModel final : public MpcRobotModelBase<SCALAR_T> {
     return vector6_t::Zero();
   }
   void setPoseeulerzyxBaseRtWorld(
-      vector_t& /*state*/, const vector6_t& /*basePose*/) const override {}
+      vector_t& /*state*/,
+      const vector6_t& /*poseeulerzyxBaseRtWorld*/) const override {}
   vector3_t getEulerzyxBaseRtWorld(const vector_t& /*state*/) const override {
     return vector3_t::Zero();
   }
-  void setEulerzyxBaseRtWorld(vector_t& /*state*/,
-                              const vector3_t& /*eulerZyx*/) const override {}
+  void setEulerzyxBaseRtWorld(
+      vector_t& /*state*/,
+      const vector3_t& /*eulerzyxBaseRtWorld*/) const override {}
   vector3_t getAngvelBaseRtWorldEwrtBase(
       const vector_t& /*state*/) const override {
     return vector3_t::Zero();
   }
   void setAngvelBaseRtWorldEwrtBase(
       vector_t& /*state*/,
-      const vector3_t& /*angularVelocityLocal*/) const override {}
-  void setTurnAngvelBaseRtWorldEwrtBase(vector_t& /*state*/,
-                                        scalar_t /*yawRate*/) const override {}
+      const vector3_t& /*angvelBaseRtWorldEwrtBase*/) const override {}
+  void setTurnAngvelBaseRtWorldEwrtBase(
+      vector_t& /*state*/,
+      scalar_t /*angvelBaseRtWorldEwrtWorldZ*/) const override {}
   BaseAngularVelocityJacobian getJacobianAngvelBaseRtWorldEwrtBase(
       const vector_t& /*state*/) const override {
     return BaseAngularVelocityJacobian{
@@ -203,9 +214,9 @@ class LayoutRobotModel final : public MpcRobotModelBase<SCALAR_T> {
       const vector_t& /*jointVelocities*/) const override {
     return vector6_t::Zero();
   }
-  vector3_t getTargetPlanarCommand(
+  vector3_t getRefPlanarMotion(
       const vector_t& /*targetState*/,
-      scalar_t /*compositeYawInertia*/) const override {
+      scalar_t /*inertiaComEwrtWorldZz*/) const override {
     return vector3_t::Zero();
   }
   absl::StatusOr<vector_t> stateFromTuning(
@@ -237,17 +248,17 @@ class LayoutRobotModel final : public MpcRobotModelBase<SCALAR_T> {
     return matrix_t::Zero(this->getVelocityDim(), this->getStateDim());
   }
   void fillGeneralizedCoordinatesFromMeasurement(
-      const vector3_t& /*positionWorld*/,
-      const vector4_t& /*orientation*/,
+      const vector3_t& /*posBaseRtWorldEwrtWorld*/,
+      const vector4_t& /*quatBaseRtWorldXyzw*/,
       const vector_t& /*jointPositions*/,
       Eigen::Ref<vector_t> q) const override {
     q.setZero();
     q(6) = 1.0;
   }
   void fillGeneralizedVelocitiesFromMeasurement(
-      const vector4_t& /*orientation*/,
-      const vector3_t& /*linearVelocityLocal*/,
-      const vector3_t& /*angularVelocityLocal*/,
+      const vector4_t& /*quatBaseRtWorldXyzw*/,
+      const vector3_t& /*linvelBaseRtWorldEwrtBase*/,
+      const vector3_t& /*angvelBaseRtWorldEwrtBase*/,
       const vector_t& /*jointVelocities*/,
       Eigen::Ref<vector_t> v) const override {
     v.setZero();
@@ -268,15 +279,18 @@ class LayoutRobotModel final : public MpcRobotModelBase<SCALAR_T> {
       size_t /*contactIndex*/) const override {
     return VECTOR3_T<SCALAR_T>::Zero();
   }
-  void setWrenchContactEwrtParam(VECTOR_T<SCALAR_T>& /*input*/,
-                                 const VECTOR6_T<SCALAR_T>& /*wrench*/,
-                                 size_t /*contactIndex*/) const override {}
-  void setForceContactEwrtParam(VECTOR_T<SCALAR_T>& /*input*/,
-                                const VECTOR3_T<SCALAR_T>& /*force*/,
-                                size_t /*contactIndex*/) const override {}
-  void setTorqueContactEwrtParam(VECTOR_T<SCALAR_T>& /*input*/,
-                                 const VECTOR3_T<SCALAR_T>& /*moment*/,
-                                 size_t /*contactIndex*/) const override {}
+  void setWrenchContactEwrtParam(
+      VECTOR_T<SCALAR_T>& /*input*/,
+      const VECTOR6_T<SCALAR_T>& /*wrenchContactEwrtParam*/,
+      size_t /*contactIndex*/) const override {}
+  void setForceContactEwrtParam(
+      VECTOR_T<SCALAR_T>& /*input*/,
+      const VECTOR3_T<SCALAR_T>& /*forceContactEwrtParam*/,
+      size_t /*contactIndex*/) const override {}
+  void setTorqueContactEwrtParam(
+      VECTOR_T<SCALAR_T>& /*input*/,
+      const VECTOR3_T<SCALAR_T>& /*torqueContactEwrtParam*/,
+      size_t /*contactIndex*/) const override {}
 
  private:
   StateInputLayout::Mpc mpc_;

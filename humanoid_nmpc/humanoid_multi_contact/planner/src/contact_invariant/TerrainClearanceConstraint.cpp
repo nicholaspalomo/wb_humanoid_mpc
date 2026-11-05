@@ -63,9 +63,10 @@ absl::StatusOr<std::vector<ClearanceSphere>> clearanceSpheresOf(
           collision.linkNames()[sphere.link], "' hangs from the joint '", name,
           "', which the MPC's model does not have"));
     }
-    spheres.push_back(ClearanceSphere{.joint = mpcModel.getJointId(name),
-                                      .center = sphere.center,
-                                      .radius = sphere.radius});
+    spheres.push_back(ClearanceSphere{
+        .joint = mpcModel.getJointId(name),
+        .posSphereRtLinkEwrtLink = sphere.posSphereRtLinkEwrtLink,
+        .radius = sphere.radius});
   }
   return spheres;
 }
@@ -101,13 +102,14 @@ ad_vector_t TerrainClearanceConstraint::constraintFunction(
   ad_vector_t value(spheres_.size());
   for (size_t k = 0; k < spheres_.size(); ++k) {
     const ClearanceSphere& sphere = spheres_[k];
-    const pinocchio::SE3Tpl<ad_scalar_t>& placement =
+    const pinocchio::SE3Tpl<ad_scalar_t>& poseLinkRtWorld =
         interface.getData().oMi[sphere.joint];
-    const AdVector3 center =
-        placement.translation() +
-        placement.rotation() * sphere.center.cast<ad_scalar_t>();
+    const AdVector3 posSphereRtWorldEwrtWorld =
+        poseLinkRtWorld.translation() +
+        poseLinkRtWorld.rotation() *
+            sphere.posSphereRtLinkEwrtLink.cast<ad_scalar_t>();
     value(k) = terrain_.sphereDistance<ad_scalar_t>(
-                   center, ad_scalar_t(sphere.radius)) -
+                   posSphereRtWorldEwrtWorld, ad_scalar_t(sphere.radius)) -
                ad_scalar_t(margin_);
   }
   return value;

@@ -111,8 +111,8 @@ class PlanPlaybackTest(unittest.TestCase):
             ),
             _KNOTS,
         )
-        forces = contents.entities[f"{plan_playback.PLAN_ROOT}/contact_forces"]
-        self.assertEqual(len(forces.times(plan_playback.PLAN_TIMELINE)), _KNOTS)
+        arrows = contents.entities[f"{plan_playback.PLAN_ROOT}/contact_forces"]
+        self.assertEqual(len(arrows.times(plan_playback.PLAN_TIMELINE)), _KNOTS)
         self.assertIn(
             f"{plan_playback.PLAN_ROOT}/support_polygon", contents.entities
         )
@@ -142,19 +142,29 @@ class PlanPlaybackTest(unittest.TestCase):
 
     def test_pads_follow_the_kinematics(self) -> None:
         inputs = plan_playback.load_inputs(_SCENARIO, _PLAN)
-        pads = plan_playback.pad_positions(inputs, inputs.plan.knots[0])
+        pos_pads_rt_world_ewrt_world = (
+            plan_playback.compute_pos_pads_rt_world_ewrt_world(
+                inputs, inputs.plan.knots[0]
+            )
+        )
         # The soles are on the floor, 0.1115 m to each side.
-        self.assertAlmostEqual(pads["foot_l_contact"][2], 0.0, places=3)
-        self.assertAlmostEqual(pads["foot_l_contact"][1], 0.1115, places=4)
-        self.assertAlmostEqual(pads["foot_r_contact"][1], -0.1115, places=4)
+        self.assertAlmostEqual(
+            pos_pads_rt_world_ewrt_world["foot_l_contact"][2], 0.0, places=3
+        )
+        self.assertAlmostEqual(
+            pos_pads_rt_world_ewrt_world["foot_l_contact"][1], 0.1115, places=4
+        )
+        self.assertAlmostEqual(
+            pos_pads_rt_world_ewrt_world["foot_r_contact"][1], -0.1115, places=4
+        )
 
     def test_quaternion_between(self) -> None:
         for target in ([0.0, 0.0, 1.0], [0.0, 0.0, -1.0], [1.0, 2.0, -0.5]):
-            quaternion = plan_playback.quaternion_between(
+            coefficients = plan_playback.quaternion_between(
                 np.array([0.0, 0.0, 1.0]),
                 np.array(target),
             )
-            rotated = plan_playback.rotation_from_xyzw(quaternion) @ [
+            rotated = plan_playback.rotation_from_xyzw(coefficients) @ [
                 0.0,
                 0.0,
                 1.0,

@@ -142,7 +142,7 @@ std::vector<std::pair<RobotFiles, Formulation>> shippedConfigurations() {
           {r1Files(), Formulation::kCentroidal}};
 }
 
-quaternion_t quaternionFromRollPitchYaw(const vector3_t& rollPitchYaw) {
+quaternion_t unitQuaternionOfRollPitchYaw(const vector3_t& rollPitchYaw) {
   return quaternion_t(
       Eigen::AngleAxis<scalar_t>(rollPitchYaw.z(), vector3_t::UnitZ()) *
       Eigen::AngleAxis<scalar_t>(rollPitchYaw.y(), vector3_t::UnitY()) *
@@ -250,8 +250,8 @@ SystemObservation TestRobot::observation(scalar_t time, size_t mode) const {
 
 void TestRobot::makePolicy(scalar_t startTime,
                            size_t nodes,
-                           scalar_t normalForce,
-                           const vector2_t& copOffset,
+                           scalar_t forceFootEwrtWorldZ,
+                           const vector2_t& posCopRtContactEwrtContactXy,
                            CommandData* absl_nonnull command,
                            PrimalSolution* absl_nonnull solution) const {
   CHECK_GE(nodes, 2u);
@@ -265,10 +265,11 @@ void TestRobot::makePolicy(scalar_t startTime,
         static_cast<scalar_t>(node) / static_cast<scalar_t>(nodes - 1);
     const scalar_t time = startTime + fraction * duration;
     vector_t state = nominalState_;
-    vector6_t basePose = robotModel_->getPoseeulerzyxBaseRtWorld(state);
-    basePose[0] += 0.3 * fraction;
-    basePose[3] += 0.2 * fraction;
-    robotModel_->setPoseeulerzyxBaseRtWorld(state, basePose);
+    vector6_t poseeulerzyxBaseRtWorld =
+        robotModel_->getPoseeulerzyxBaseRtWorld(state);
+    poseeulerzyxBaseRtWorld[0] += 0.3 * fraction;
+    poseeulerzyxBaseRtWorld[3] += 0.2 * fraction;
+    robotModel_->setPoseeulerzyxBaseRtWorld(state, poseeulerzyxBaseRtWorld);
     vector_t joints = robotModel_->getJointAngles(state);
     for (Eigen::Index joint = 0; joint < joints.size(); ++joint) {
       joints[joint] +=
@@ -283,15 +284,19 @@ void TestRobot::makePolicy(scalar_t startTime,
       if (!stance[contact]) {
         continue;
       }
-      // The world wrench whose center of pressure is copOffset in the contact
-      // frame, for the nominal orientation of the feet, which is close to
-      // level: tau_x = f_z * y, tau_y = -f_z * x.
-      vector6_t wrench = vector6_t::Zero();
-      wrench[kWrenchForceXIndex] = 0.05 * normalForce;
-      wrench[kWrenchForceZIndex] = normalForce;
-      wrench[kWrenchTorqueXIndex] = normalForce * copOffset.y();
-      wrench[kWrenchTorqueYIndex] = -normalForce * copOffset.x();
-      robotModel_->setWrenchContactEwrtWorld(state, input, wrench, contact);
+      // The world wrench whose center of pressure is
+      // posCopRtContactEwrtContactXy in the contact frame, for the nominal
+      // orientation of the feet, which is close to level: tau_x = f_z * y,
+      // tau_y = -f_z * x.
+      vector6_t wrenchFootEwrtWorld = vector6_t::Zero();
+      wrenchFootEwrtWorld[kWrenchForceXIndex] = 0.05 * forceFootEwrtWorldZ;
+      wrenchFootEwrtWorld[kWrenchForceZIndex] = forceFootEwrtWorldZ;
+      wrenchFootEwrtWorld[kWrenchTorqueXIndex] =
+          forceFootEwrtWorldZ * posCopRtContactEwrtContactXy.y();
+      wrenchFootEwrtWorld[kWrenchTorqueYIndex] =
+          -forceFootEwrtWorldZ * posCopRtContactEwrtContactXy.x();
+      robotModel_->setWrenchContactEwrtWorld(state, input, wrenchFootEwrtWorld,
+                                             contact);
     }
     solution->timeTrajectory_.push_back(time);
     solution->stateTrajectory_.push_back(state);
@@ -307,19 +312,21 @@ void TestRobot::makePolicy(scalar_t startTime,
 
 humanoid_mpc_msgs::RobotStateSample TestRobot::robotState(
     scalar_t time,
-    const vector3_t& position,
-    const vector3_t& rollPitchYaw) const {
+    const vector3_t& posBaseRtWorldEwrtWorld,
+    const vector3_t& rpyBaseRtWorld) const {
   humanoid_mpc_msgs::RobotStateSample sample;
   sample.set_time(time);
   sample.set_control_mode("WB_MPC");
-  setVector3(position, sample.mutable_pos_base_rt_world_ewrt_world());
-  const quaternion_t orientation = quaternionFromRollPitchYaw(rollPitchYaw);
-  humanoid_mpc_msgs::Quaternion* absl_nonnull quaternion =
+  setVector3(posBaseRtWorldEwrtWorld,
+             sample.mutable_pos_base_rt_world_ewrt_world());
+  const quaternion_t quatBaseRtWorld =
+      unitQuaternionOfRollPitchYaw(rpyBaseRtWorld);
+  humanoid_mpc_msgs::Quaternion* absl_nonnull msgQuatBaseRtWorld =
       sample.mutable_quat_base_rt_world();
-  quaternion->set_w(orientation.w());
-  quaternion->set_x(orientation.x());
-  quaternion->set_y(orientation.y());
-  quaternion->set_z(orientation.z());
+  msgQuatBaseRtWorld->set_w(quatBaseRtWorld.w());
+  msgQuatBaseRtWorld->set_x(quatBaseRtWorld.x());
+  msgQuatBaseRtWorld->set_y(quatBaseRtWorld.y());
+  msgQuatBaseRtWorld->set_z(quatBaseRtWorld.z());
   sample.mutable_linvel_base_rt_world_ewrt_base();
   sample.mutable_angvel_base_rt_world_ewrt_base();
   const std::vector<std::string>& joints = modelSettings_->fullJointNames;
@@ -332,10 +339,12 @@ humanoid_mpc_msgs::RobotStateSample TestRobot::robotState(
   }
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
     sample.add_contact_flags(true);
-    humanoid_mpc_msgs::Wrench* absl_nonnull wrench =
+    humanoid_mpc_msgs::Wrench* absl_nonnull measWrenchContactEwrtWorld =
         sample.add_meas_wrench_contacts_ewrt_world();
-    wrench->mutable_force();
-    wrench->mutable_torque();
+    // NOLINTBEGIN(frame-naming): the components of a Wrench message, whose frames its field names
+    measWrenchContactEwrtWorld->mutable_force();
+    measWrenchContactEwrtWorld->mutable_torque();
+    // NOLINTEND(frame-naming)
   }
   return sample;
 }

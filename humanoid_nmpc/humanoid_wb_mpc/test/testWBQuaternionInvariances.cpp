@@ -431,16 +431,16 @@ scalar_t relativeDifference(const vector_t& a, const vector_t& b) {
 
 /** `value` of `term` without the dynamics' quaternion rate, the rows at
  * `orientationStart`, which is linear in xi. */
-vector_t withoutQuaternionRate(const TermReference& term,
-                               Eigen::Index orientationStart,
-                               vector_t value) {
+vector_t withoutRateQuatBaseRtWorldXyzw(const TermReference& term,
+                                        Eigen::Index orientationStart,
+                                        vector_t value) {
   if (term.collection == TermCollection::kDynamics)
     value.segment<4>(orientationStart).setZero();
   return value;
 }
 
 /** The unit quaternion of a turn by `angle` about the world z axis. */
-vector4_t headingRotation(scalar_t angle) {
+vector4_t unitQuaternionOfYaw(scalar_t angle) {
   return vector4_t(0.0, 0.0, std::sin(0.5 * angle), std::cos(0.5 * angle));
 }
 
@@ -473,14 +473,15 @@ OptimalControlProblem problemAt(WBMpcInterface& interface,
 
 /**
  * A walking-like state of the G1 at the base pose (x, y, z, yaw, pitch, roll)
- * `basePose`: the joints off the initial posture by a few hundredths of a
- * radian, the base moving and turning slowly, the joints moving.
+ * `poseeulerzyxBaseRtWorld`: the joints off the initial posture by a few
+ * hundredths of a radian, the base moving and turning slowly, the joints
+ * moving.
  */
 vector_t walkingState(const WBMpcInterface& interface,
-                      const vector6_t& basePose) {
+                      const vector6_t& poseeulerzyxBaseRtWorld) {
   const WBAccelMpcRobotModel<scalar_t>& model = interface.getMpcRobotModel();
   vector_t state = interface.getInitialState();
-  model.setPoseeulerzyxBaseRtWorld(state, basePose);
+  model.setPoseeulerzyxBaseRtWorld(state, poseeulerzyxBaseRtWorld);
   const Eigen::Index joints = static_cast<Eigen::Index>(model.getJointDim());
   vector_t jointAngles = model.getJointAngles(state);
   vector_t jointVelocities(joints);
@@ -492,7 +493,7 @@ vector_t walkingState(const WBMpcInterface& interface,
   vector_t input =
       vector_t::Zero(static_cast<Eigen::Index>(model.getInputDim()));
   model.setJointVelocities(state, input, jointVelocities);
-  model.setBaseLinearVelocity(state, vector3_t(0.3, -0.1, 0.02));
+  model.setLinvelBaseRtWorldEwrtWorld(state, vector3_t(0.3, -0.1, 0.02));
   model.setAngvelBaseRtWorldEwrtBase(state, vector3_t(0.05, -0.1, 0.3));
   return state;
 }
@@ -504,10 +505,11 @@ vector_t walkingInput(WBMpcInterface& interface) {
   vector_t input = weightCompensatingInput(interface.getPinocchioInterface(),
                                            makeFeetArray(true), model);
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    vector6_t wrench = model.getWrenchContactEwrtParam(input, contact);
-    wrench.head<2>() += vector2_t(15.0, -8.0);
-    wrench.tail<3>() += vector3_t(2.0, -1.5, 0.5);
-    model.setWrenchContactEwrtParam(input, wrench, contact);
+    vector6_t wrenchContactEwrtParam =
+        model.getWrenchContactEwrtParam(input, contact);
+    wrenchContactEwrtParam.head<2>() += vector2_t(15.0, -8.0);
+    wrenchContactEwrtParam.tail<3>() += vector3_t(2.0, -1.5, 0.5);
+    model.setWrenchContactEwrtParam(input, wrenchContactEwrtParam, contact);
   }
   const Eigen::Index joints = static_cast<Eigen::Index>(model.getJointDim());
   for (Eigen::Index j = 0; j < joints; ++j)
@@ -534,18 +536,18 @@ TargetTrajectories levelTarget(const WBMpcInterface& interface) {
 vector_t turnedState(const WBAccelMpcRobotModel<scalar_t>& model,
                      const vector_t& state,
                      scalar_t angle) {
-  const matrix3_t rotation =
+  const matrix3_t turnRotmat =
       Eigen::AngleAxis<scalar_t>(angle, vector3_t::UnitZ()).toRotationMatrix();
   vector_t turned = state;
   model.setPosBaseRtWorldEwrtWorld(
-      turned, rotation * model.getPosBaseRtWorldEwrtWorld(state));
+      turned, turnRotmat * model.getPosBaseRtWorldEwrtWorld(state));
   const Eigen::Index orientationStart =
       static_cast<Eigen::Index>(model.getBaseOrientationStartIndex());
-  const vector4_t orientation = state.segment<4>(orientationStart);
-  turned.segment<4>(orientationStart) =
-      quaternionProduct<scalar_t>(headingRotation(angle), orientation);
-  model.setBaseLinearVelocity(turned,
-                              rotation * model.getBaseComLinearVelocity(state));
+  const vector4_t quatBaseRtWorldXyzw = state.segment<4>(orientationStart);
+  turned.segment<4>(orientationStart) = quaternionProduct<scalar_t>(
+      unitQuaternionOfYaw(angle), quatBaseRtWorldXyzw);
+  model.setLinvelBaseRtWorldEwrtWorld(
+      turned, turnRotmat * model.getLinvelBaseRtWorldEwrtWorld(state));
   return turned;
 }
 
@@ -554,14 +556,18 @@ vector_t turnedState(const WBAccelMpcRobotModel<scalar_t>& model,
 vector_t turnedInput(const WBAccelMpcRobotModel<scalar_t>& model,
                      const vector_t& input,
                      scalar_t angle) {
-  const matrix3_t rotation =
+  const matrix3_t turnRotmat =
       Eigen::AngleAxis<scalar_t>(angle, vector3_t::UnitZ()).toRotationMatrix();
   vector_t turned = input;
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    const vector6_t wrench = model.getWrenchContactEwrtParam(input, contact);
-    vector6_t turnedWrench;
-    turnedWrench << rotation * wrench.head<3>(), rotation * wrench.tail<3>();
-    model.setWrenchContactEwrtParam(turned, turnedWrench, contact);
+    const vector6_t wrenchContactEwrtParam =
+        model.getWrenchContactEwrtParam(input, contact);
+    vector6_t turnedWrenchContactEwrtParam;
+    turnedWrenchContactEwrtParam
+        << turnRotmat * wrenchContactEwrtParam.head<3>(),
+        turnRotmat * wrenchContactEwrtParam.tail<3>();
+    model.setWrenchContactEwrtParam(turned, turnedWrenchContactEwrtParam,
+                                    contact);
   }
   return turned;
 }
@@ -571,19 +577,20 @@ vector_t turnedInput(const WBAccelMpcRobotModel<scalar_t>& model,
 vector_t turnedStateDerivative(const WBAccelMpcRobotModel<scalar_t>& model,
                                const vector_t& derivative,
                                scalar_t angle) {
-  const matrix3_t rotation =
+  const matrix3_t turnRotmat =
       Eigen::AngleAxis<scalar_t>(angle, vector3_t::UnitZ()).toRotationMatrix();
   vector_t turned = derivative;
-  turned.head<3>() = rotation * derivative.head<3>();
+  turned.head<3>() = turnRotmat * derivative.head<3>();
   const Eigen::Index orientationStart =
       static_cast<Eigen::Index>(model.getBaseOrientationStartIndex());
-  const vector4_t rate = derivative.segment<4>(orientationStart);
-  turned.segment<4>(orientationStart) =
-      quaternionProduct<scalar_t>(headingRotation(angle), rate);
+  const vector4_t rateQuatBaseRtWorldXyzw =
+      derivative.segment<4>(orientationStart);
+  turned.segment<4>(orientationStart) = quaternionProduct<scalar_t>(
+      unitQuaternionOfYaw(angle), rateQuatBaseRtWorldXyzw);
   const Eigen::Index linearVelocityStart =
       static_cast<Eigen::Index>(model.getConfigurationDim());
   turned.segment<3>(linearVelocityStart) =
-      rotation * derivative.segment<3>(linearVelocityStart);
+      turnRotmat * derivative.segment<3>(linearVelocityStart);
   return turned;
 }
 
@@ -591,14 +598,14 @@ vector_t turnedStateDerivative(const WBAccelMpcRobotModel<scalar_t>& model,
  * the swing, at two attitudes. */
 std::vector<EvaluationPoint> evaluationPoints(WBMpcInterface& interface) {
   std::vector<EvaluationPoint> points;
-  for (const vector6_t& basePose :
+  for (const vector6_t& poseeulerzyxBaseRtWorld :
        {(vector6_t() << 0.1, -0.05, 0.75, 1.3, 0.08, -0.05).finished(),
         (vector6_t() << -0.2, 0.1, 0.74, -2.9, -0.15, 0.2).finished()}) {
     for (const scalar_t time : {kStanceTime, kSwingTime}) {
-      points.push_back(
-          EvaluationPoint{.time = time,
-                          .state = walkingState(interface, basePose),
-                          .input = walkingInput(interface)});
+      points.push_back(EvaluationPoint{
+          .time = time,
+          .state = walkingState(interface, poseeulerzyxBaseRtWorld),
+          .input = walkingInput(interface)});
     }
   }
   return points;
@@ -680,7 +687,7 @@ TEST(WBQuaternionInvariances, EveryTermReadsTheBaseOrientationAsARotation) {
           std::max(1.0, evaluation.stateJacobian.cwiseAbs().maxCoeff());
       const vector_t radial =
           evaluation.stateJacobian.middleCols<4>(orientationStart) * xi;
-      EXPECT_LE(withoutQuaternionRate(term, orientationStart, radial)
+      EXPECT_LE(withoutRateQuatBaseRtWorldXyzw(term, orientationStart, radial)
                     .cwiseAbs()
                     .maxCoeff(),
                 1.0e-9 * jacobianScale)
@@ -692,8 +699,9 @@ TEST(WBQuaternionInvariances, EveryTermReadsTheBaseOrientationAsARotation) {
             evaluate(problem, term, scaled, Derivatives::kValue).value;
         EXPECT_LE(
             relativeDifference(
-                withoutQuaternionRate(term, orientationStart, evaluation.value),
-                withoutQuaternionRate(term, orientationStart, value)),
+                withoutRateQuatBaseRtWorldXyzw(term, orientationStart,
+                                               evaluation.value),
+                withoutRateQuatBaseRtWorldXyzw(term, orientationStart, value)),
             1.0e-10)
             << "c = " << scale;
         if (isDynamics) {
@@ -709,9 +717,10 @@ TEST(WBQuaternionInvariances, EveryTermReadsTheBaseOrientationAsARotation) {
       const vector_t negatedValue =
           evaluate(problem, term, negated, Derivatives::kValue).value;
       EXPECT_LE(
-          relativeDifference(
-              withoutQuaternionRate(term, orientationStart, evaluation.value),
-              withoutQuaternionRate(term, orientationStart, negatedValue)),
+          relativeDifference(withoutRateQuatBaseRtWorldXyzw(
+                                 term, orientationStart, evaluation.value),
+                             withoutRateQuatBaseRtWorldXyzw(
+                                 term, orientationStart, negatedValue)),
           1.0e-12)
           << "-xi";
       if (isDynamics) {
@@ -721,8 +730,10 @@ TEST(WBQuaternionInvariances, EveryTermReadsTheBaseOrientationAsARotation) {
                       .maxCoeff(),
                   1.0e-15);
       }
-      if (withoutQuaternionRate(term, orientationStart, evaluation.value) ==
-          withoutQuaternionRate(term, orientationStart, negatedValue)) {
+      if (withoutRateQuatBaseRtWorldXyzw(term, orientationStart,
+                                         evaluation.value) ==
+          withoutRateQuatBaseRtWorldXyzw(term, orientationStart,
+                                         negatedValue)) {
         ++bitwiseUnderNegation;
       }
     }
@@ -738,11 +749,11 @@ TEST(WBQuaternionInvariances,
   ASSERT_NE(interface, nullptr);
   const WBAccelMpcRobotModel<scalar_t>& model = interface->getMpcRobotModel();
   const TargetTrajectories target = levelTarget(*interface);
-  for (const vector6_t& basePose :
+  for (const vector6_t& poseeulerzyxBaseRtWorld :
        {(vector6_t() << 0.0, 0.0, 0.75, 0.4, M_PI / 2.0, 0.2).finished(),
         (vector6_t() << 0.0, 0.0, 0.75, -1.0, -M_PI / 2.0, 0.0).finished()}) {
-    SCOPED_TRACE(basePose.transpose());
-    const vector_t state = walkingState(*interface, basePose);
+    SCOPED_TRACE(poseeulerzyxBaseRtWorld.transpose());
+    const vector_t state = walkingState(*interface, poseeulerzyxBaseRtWorld);
     ASSERT_NEAR(std::abs(model.getEulerzyxBaseRtWorld(state)(1)), M_PI / 2.0,
                 1.0e-6);
     for (const scalar_t time : {kStanceTime, kSwingTime}) {

@@ -30,10 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <algorithm>
+#include <cstddef>
 #include <exception>
 #include <filesystem>
-#include <functional>
-#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -52,19 +51,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Pinocchio forward declarations must be included first
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_centroidal_model/FactoryFunctions.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PhysicalConstants.h"
-#include "ocs2_core/penalties/Penalties.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/constraint/StateConstraint.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_core/cost/StateCost.h"
+#include "ocs2_core/cost/StateInputCost.h"
+#include "ocs2_core/dynamics/SystemDynamicsBase.h"
+#include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
+#include "ocs2_core/penalties/penalties/QuadraticPenalty.h"
+#include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
+#include "ocs2_core/penalties/penalties/SquaredHingePenalty.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
-#include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_oc/rollout/TimeTriggeredRollout.h"
 #include "ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_pinocchio_interface/PinocchioStateInputMapping.h"
+#include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
 
 #include "humanoid_centroidal_mpc/CentroidalContactSet.h"
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/config/costs/DcmTerminalCostFromConfig.h"
 #include "humanoid_centroidal_mpc/constraint/JointMimicKinematicConstraint.h"
 #include "humanoid_centroidal_mpc/constraint/NormalVelocityConstraintCppAd.h"
@@ -75,18 +91,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsAD.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
+#include "humanoid_centroidal_mpc/initialization/CentroidalWeightCompInitializer.h"
 #include "humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
+#include "humanoid_centroidal_mpc/multi_contact/PlannedMotionReferenceManager.h"
 #include "humanoid_centroidal_mpc/parameter_update/ZeroVelocityGainsApplier.h"
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/BasisInputsMappingDecorator.h"
+#include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
 #include "humanoid_common_mpc/common/ContactTermNames.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
 #include "humanoid_common_mpc/config/costs/JointMimicFromConfig.h"
@@ -109,22 +132,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
+#include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.pb.h"
 #include "humanoid_mpc_config/contact_planning_file.pb.h"
+#include "humanoid_mpc_config/contacts_config.nproto.h"
+#include "humanoid_mpc_config/multi_contact_plan_config.nproto.h"
 #include "humanoid_mpc_config/reference_file.nproto.pb.h"
 #include "humanoid_mpc_config/reference_file.pb.h"
 #include "humanoid_mpc_config/task_file.nproto.pb.h"
 #include "humanoid_mpc_config/task_file.pb.h"
+#include "humanoid_multi_contact/contact_set/ContactSet.h"
 #include "humanoid_multi_contact/plan/PlanFile.h"
 #include "nproto/Textproto.h"
 
@@ -285,14 +316,14 @@ absl::Status CentroidalMpcInterface::setupModels() {
 
   // The robot's pendulum length at its nominal posture: what a
   // dcm_terminal_cost or a contact_planning.textproto shared block without
-  // com_height stands for.
-  nominalComHeight_ = computeComHeightAboveFeet(
+  // nom_pos_com_rt_feetmean_ewrt_world_z stands for.
+  nomPosComRtFeetmeanEwrtWorldZ_ = computeProxyPosComRtFeetmeanEwrtWorldZ(
       mpcRobotModelPtr_->getGeneralizedCoordinates(initialState_),
       *pinocchioInterfacePtr_, *mpcRobotModelPtr_);
   LOG(INFO) << "[CentroidalMpcInterface] the model's center of mass is "
-            << nominalComHeight_
+            << nomPosComRtFeetmeanEwrtWorldZ_
             << " m above its feet at initial_state (the pendulum length a "
-               "com_height left out stands for).";
+               "nom_pos_com_rt_feetmean_ewrt_world_z left out stands for).";
   return absl::OkStatus();
 }
 
@@ -407,7 +438,7 @@ namespace {
  * that cost (CentroidalMpcEndEffectorFootCost), which multiplies its xy
  * residual by exactly these two weights.
  */
-absl::StatusOr<bool> footPositionIsTracked(
+absl::StatusOr<bool> footholdIsTracked(
     const mpc_config::TaskFile& task,
     const MpcFormulationTasks& formulationTasks) {
   if (!formulationTasks.hasCost(MpcCostType::kTaskSpaceFootCost)) return false;
@@ -418,7 +449,7 @@ absl::StatusOr<bool> footPositionIsTracked(
 }
 
 /**
- * Warns when task_space_foot_cost.weights.orientation_z weighs nothing: the
+ * Warns when task_space_foot_cost.weights.rotvec_z weighs nothing: the
  * third orientation residual of CentroidalMpcEndEffectorFootCost tracks a
  * planned foot yaw, which only the contact planner's heading model plans, and
  * without one it is identically 0
@@ -436,10 +467,11 @@ void warnIfFootYawIsUnplanned(
       footCost.weights.contactOrientationErrorWeight(kZAxisIndex);
   if (yawWeight == 0.0) return;
   if (planningReferenceManager != nullptr &&
-      planningReferenceManager->getConfig().usesHeadingModel())
+      planningReferenceManager->getConfig().usesHeadingModel()) {
     return;
+  }
   LOG(WARNING) << "[CentroidalMpcInterface] "
-                  "task_space_foot_cost.weights.orientation_z is "
+                  "task_space_foot_cost.weights.rotvec_z is "
                << yawWeight
                << ", but nothing plans a foot yaw for it to weigh: only the "
                   "contact planner's heading model does "
@@ -535,11 +567,11 @@ absl::Status CentroidalMpcInterface::setupContactInputParameterization() {
   // input-cost transform, the online parameter updater and the CppAD
   // end-effector kinematics mapping (which only needs the joint-velocity
   // block).
-  basisToWrenchMap_ = basisDecoratorPtr_->getLocalBasisGeneratorMap();
+  basisGeneratorMap_ = basisDecoratorPtr_->getLocalBasisGeneratorMap();
 
   // An unknown regularization name or a negative weight, named by its key.
   RETURN_IF_ERROR(validateBasisInputsCostTransformConfig(
-      makeBasisInputsCostTransformConfig(*basisToWrenchMap_)));
+      makeBasisInputsCostTransformConfig(*basisGeneratorMap_)));
 
   keyCppAdModelFolder(
       basisInputsLibraryKey(basisDecoratorPtr_->getBasisMatrices()));
@@ -552,8 +584,9 @@ absl::Status CentroidalMpcInterface::setupContactInputParameterization() {
 
 std::string cppAdModelFolderKey(CentroidalModelType centroidalModelType,
                                 absl::string_view inputParameterizationKey) {
-  if (centroidalModelType == CentroidalModelType::FullCentroidalDynamics)
+  if (centroidalModelType == CentroidalModelType::FullCentroidalDynamics) {
     return std::string(inputParameterizationKey);
+  }
   return absl::StrCat(centroidalModelName(centroidalModelType), "/",
                       inputParameterizationKey);
 }
@@ -629,17 +662,18 @@ absl::Status CentroidalMpcInterface::setupReferenceManager() {
           config_.contactPlanning.has_value() ? &*config_.contactPlanning
                                               : nullptr,
           ContactPlanningValidation::kDeferUntilModelParametersApplied));
-  const std::optional<scalar_t> fileComHeight =
-      contactPlanningConfig.shared.comHeight;
+  const std::optional<scalar_t> fileNomPosComRtFeetmeanEwrtWorldZ =
+      contactPlanningConfig.shared.nomPosComRtFeetmeanEwrtWorldZ;
 
-  // Parameters the planner's file leaves out (shared.com_height) or at 0 (the
-  // ZMP box) are derived from the robot model and from the ground parameters of
-  // the wrench cone, so that the planner never assumes more friction, torque or
-  // footprint than the whole-body constraints allow. The initial state of the
-  // task file is the nominal posture for the LIP height, the one every LIP
-  // consumer shares. The same conversion as the wrench cone and the basis
-  // generators: a task file whose cone leaves out a ground field is refused
-  // rather than planned against the library default of mu 0.7.
+  // Parameters the planner's file leaves out
+  // (shared.nom_pos_com_rt_feetmean_ewrt_world_z) or at 0 (the ZMP box) are
+  // derived from the robot model and from the ground parameters of the wrench
+  // cone, so that the planner never assumes more friction, torque or footprint
+  // than the whole-body constraints allow. The initial state of the task file
+  // is the nominal posture for the LIP height, the one every LIP consumer
+  // shares. The same conversion as the wrench cone and the basis generators: a
+  // task file whose cone leaves out a ground field is refused rather than
+  // planned against the library default of mu 0.7.
   ASSIGN_OR_RETURN(const ContactWrenchConeConstraint::Config coneConfig,
                    contactWrenchConeConfigFromConfig(config_.task.contacts));
   ContactPlanningGroundParameters ground;
@@ -651,19 +685,25 @@ absl::Status CentroidalMpcInterface::setupReferenceManager() {
   const absl::StatusOr<ContactRectangle> footprint = contactRectangleFromConfig(
       config_.task.contacts, modelSettings_, /*contactIndex=*/0);
   if (footprint.ok()) {
-    ground.footprintHalfLengthX =
-        0.5 * (footprint->getBounds().x_max - footprint->getBounds().x_min);
-    ground.footprintHalfWidthY =
-        0.5 * (footprint->getBounds().y_max - footprint->getBounds().y_min);
+    ground.maxPosCornersRtFootprintEwrtContactX =
+        0.5 *
+        (footprint->getBounds().max_pos_corners_rt_contact_ewrt_contact_x -
+         footprint->getBounds().min_pos_corners_rt_contact_ewrt_contact_x);
+    ground.maxPosCornersRtFootprintEwrtContactY =
+        0.5 *
+        (footprint->getBounds().max_pos_corners_rt_contact_ewrt_contact_y -
+         footprint->getBounds().min_pos_corners_rt_contact_ewrt_contact_y);
     // The wrench cone's torsion limit follows from the corner friction; the
     // planner's budget must not exceed it.
     if (ContactWrenchConeConstraint::validateFootprint(*footprint).ok()) {
-      const vector3_t footprintCenter = contactPatchReferencePoint(
-          ContactWrenchConeConstraint::Config(), *footprint);
+      const vector3_t posFootprintRtContactEwrtContact =
+          computePosPatchpointRtContactEwrtContact(
+              ContactWrenchConeConstraint::Config(), *footprint);
       const std::optional<TorsionInterval> torsionLimits =
           computeLimitsPerNewtonTorqueContactEwrtContactZ(
               buildLocalWrenchConeRows(coneConfig, *footprint),
-              vector2_t(footprintCenter.x(), footprintCenter.y()));
+              vector2_t(posFootprintRtContactEwrtContact.x(),
+                        posFootprintRtContactEwrtContact.y()));
       if (torsionLimits.has_value()) {
         ground.torsionalFrictionCoefficient =
             std::min({ground.torsionalFrictionCoefficient, torsionLimits->upper,
@@ -687,9 +727,10 @@ absl::Status CentroidalMpcInterface::setupReferenceManager() {
             << contactPlanningModelParameters_->summary();
   RETURN_IF_ERROR(contactPlanningConfig.validateStatus());
   LOG(INFO)
-      << "[CentroidalMpcInterface] contact planner pendulum: shared.com_height "
-      << contactPlanningConfig.pendulumHeight() << " m"
-      << (fileComHeight.has_value()
+      << "[CentroidalMpcInterface] contact planner pendulum: "
+         "shared.nom_pos_com_rt_feetmean_ewrt_world_z "
+      << contactPlanningConfig.getNomPosComRtFeetmeanEwrtWorldZ() << " m"
+      << (fileNomPosComRtFeetmeanEwrtWorldZ.has_value()
               ? " (explicit)"
               : " (the model's center of mass above its feet at initial_state)")
       << ", omega " << contactPlanningConfig.omega() << " rad/s.";
@@ -783,9 +824,9 @@ absl::Status CentroidalMpcInterface::setupLocomotionHeuristics() {
       locomotionHeuristicConfigFromConfig(config_.task.locomotion_heuristics));
   const LocomotionHeuristicFormulation& formulation =
       heuristicConfig.formulation;
-  if (verbose_ &&
-      !(formulation.basePose.empty() && formulation.foothold.empty() &&
-        formulation.wrench.empty())) {
+  if (verbose_ && !(formulation.basePoseHeuristics.empty() &&
+                    formulation.footholdHeuristics.empty() &&
+                    formulation.wrenchHeuristics.empty())) {
     LOG(INFO) << "\n #### Locomotion Heuristics (Bledt RPC, Appendix C) of the "
                  "task file's locomotion_heuristics";
     LOG(INFO) << "\n" << formulation.summary();
@@ -800,15 +841,16 @@ absl::Status CentroidalMpcInterface::setupLocomotionHeuristics() {
   environment.usesContactPlanning =
       contactScheduleSource_ == ContactScheduleSource::kContactPlanner;
   environment.usesContactBasisVectorInputs = usesContactBasisVectorInputs();
-  environment.nominalStepWidth = modelSettings_.nominalFootholdConfig.stepWidth;
+  environment.nomPosLfootRtRfootEwrtHeadingY =
+      modelSettings_.nominalFootholdConfig.nomPosLfootRtRfootEwrtHeadingY;
   ASSIGN_OR_RETURN(
       const MpcFormulationTasks formulationTasks,
       mpcFormulationTasksFromConfig(config_.task, FormulationLogging::kQuiet));
   environment.listsComAndAcomTrackingCost =
       formulationTasks.hasCost(MpcCostType::kComAndAcomTrackingCost);
-  ASSIGN_OR_RETURN(const bool footPositionTracked,
-                   footPositionIsTracked(config_.task, formulationTasks));
-  environment.footPositionIsUntracked = !footPositionTracked;
+  ASSIGN_OR_RETURN(const bool footholdTracked,
+                   footholdIsTracked(config_.task, formulationTasks));
+  environment.footholdIsUntracked = !footholdTracked;
   ASSIGN_OR_RETURN(std::unique_ptr<LocomotionHeuristicLayer> heuristicLayer,
                    LocomotionHeuristicLayer::Create(
                        heuristicConfig, heuristicModel, environment, verbose_));
@@ -975,7 +1017,7 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   // contact block), so the local-frame map is sufficient.
   std::unique_ptr<PinocchioStateInputMapping<ad_scalar_t>> effectiveMappingPtr;
   if (usesContactBasisVectorInputs()) {
-    if (!basisToWrenchMap_.has_value()) {
+    if (!basisGeneratorMap_.has_value()) {
       return absl::InternalError(
           "[CentroidalMpcInterface] basis-vector contact inputs without their "
           "basis: set up the models first");
@@ -984,7 +1026,7 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
         std::make_unique<BasisInputsMappingDecorator<ad_scalar_t>>(
             std::unique_ptr<PinocchioStateInputMapping<ad_scalar_t>>(
                 pinocchioMappingCppAdBase.clone()),
-            *basisToWrenchMap_, getWrenchInputDim(),
+            *basisGeneratorMap_, getWrenchInputDim(),
             modelSettings_.mpc_joint_dim);
   } else {
     effectiveMappingPtr =
@@ -1083,10 +1125,10 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   rolloutPtr_->setStateManifold(stateManifold_);
 
   // Initialization
-  constexpr bool extendNormalizedMomentum = true;
+  constexpr bool extendMnormCmomComRtWorldEwrtWorld = true;
   initializerPtr_ = std::make_unique<CentroidalWeightCompInitializer>(
       centroidalModelInfo_, *referenceManagerPtr_, *effectiveMpcRobotModelPtr_,
-      extendNormalizedMomentum);
+      extendMnormCmomComRtWorldEwrtWorld);
 
   return absl::OkStatus();
 }
@@ -1100,10 +1142,10 @@ absl::Status CentroidalMpcInterface::warnIfPlannedFootholdsCarryNoWeight(
   // formulation and re-times the schedule while the MPC places the swing foot
   // wherever the other costs prefer; say so rather than let it look like a
   // planner that does not work.
-  ASSIGN_OR_RETURN(const bool footPositionTracked,
-                   footPositionIsTracked(task, formulationTasks));
+  ASSIGN_OR_RETURN(const bool footholdTracked,
+                   footholdIsTracked(task, formulationTasks));
   if (contactScheduleSource_ == ContactScheduleSource::kContactPlanner &&
-      !footPositionTracked) {
+      !footholdTracked) {
     LOG(WARNING)
         << "[CentroidalMpcInterface] contact_schedule_source is "
         << kContactPlannerContactScheduleSource
@@ -1221,26 +1263,28 @@ absl::Status CentroidalMpcInterface::addCostTerms(
   // the conversion refuses a list that names both, so the two branches below
   // are exclusive.
   if (formulationTasks.hasCost(MpcCostType::kDcmTerminalCost)) {
-    // A dcm_terminal_cost without com_height has the model's pendulum length,
-    // resolved here and, through the cost's own setConfig(), on every hot
-    // reload of the block.
+    // A dcm_terminal_cost without nom_pos_com_rt_feetmean_ewrt_world_z has the
+    // model's pendulum length, resolved here and, through the cost's own
+    // setConfig(), on every hot reload of the block.
     ASSIGN_OR_RETURN(const DcmTerminalCost::Config dcmConfig,
                      dcmTerminalCostConfigFromConfig(task.dcm_terminal_cost));
-    ASSIGN_OR_RETURN(std::unique_ptr<DcmTerminalCost> dcmTerminalCost,
-                     DcmTerminalCost::Create(
-                         *referenceManagerPtr_, dcmConfig, nominalComHeight_,
-                         *pinocchioInterfacePtr_, *effectiveMpcRobotModelADPtr_,
-                         DcmTerminalCost::kLibraryName, modelSettings_));
-    LOG(INFO) << "[CentroidalMpcInterface] DCM terminal cost pendulum: "
-                 "dcm_terminal_cost.com_height "
-              << dcmTerminalCost->getConfig().comHeight.value_or(
-                     dcmTerminalCost->getModelComHeight())
-              << " m"
-              << (dcmConfig.comHeight.has_value()
-                      ? " (explicit)"
-                      : " (the model's center of mass above its feet at "
-                        "initial_state)")
-              << ", omega " << dcmTerminalCost->omega() << " rad/s.";
+    ASSIGN_OR_RETURN(
+        std::unique_ptr<DcmTerminalCost> dcmTerminalCost,
+        DcmTerminalCost::Create(
+            *referenceManagerPtr_, dcmConfig, nomPosComRtFeetmeanEwrtWorldZ_,
+            *pinocchioInterfacePtr_, *effectiveMpcRobotModelADPtr_,
+            DcmTerminalCost::kLibraryName, modelSettings_));
+    LOG(INFO)
+        << "[CentroidalMpcInterface] DCM terminal cost pendulum: "
+           "dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z "
+        << dcmTerminalCost->getConfig().nomPosComRtFeetmeanEwrtWorldZ.value_or(
+               dcmTerminalCost->getModelNomPosComRtFeetmeanEwrtWorldZ())
+        << " m"
+        << (dcmConfig.nomPosComRtFeetmeanEwrtWorldZ.has_value()
+                ? " (explicit)"
+                : " (the model's center of mass above its feet at "
+                  "initial_state)")
+        << ", omega " << dcmTerminalCost->omega() << " rad/s.";
     problemPtr_->finalCostPtr->add(DcmTerminalCost::kTermName,
                                    std::move(dcmTerminalCost));
   } else if (formulationTasks.hasCost(MpcCostType::kTerminalCost)) {
@@ -1489,12 +1533,13 @@ absl::Status CentroidalMpcInterface::addPlannedContactTerms(
   if (const std::optional<multi_contact::ContactCandidate> candidate =
           plannedReferenceManagerPtr_->candidateOf(i);
       candidate.has_value()) {
-    const matrix3_t parentToContact = modelSettings_.isPointContact(i)
-                                          ? matrix3_t(matrix3_t::Identity())
-                                          : candidate->padRotation;
+    const matrix3_t rotmatContactRtLink = modelSettings_.isPointContact(i)
+                                              ? matrix3_t(matrix3_t::Identity())
+                                              : candidate->rotmatPadRtLink;
     sphere.radius = candidate->geomRadius;
-    sphere.centerOffset = -candidate->geomRadius * parentToContact.transpose() *
-                          candidate->padNormal;
+    sphere.posSphereRtContactEwrtContact = -candidate->geomRadius *
+                                           rotmatContactRtLink.transpose() *
+                                           candidate->normalPadEwrtLink;
   }
   const multi_contact::LoadedScenario& scenario =
       plannedReferenceManagerPtr_->scenario();
@@ -1532,7 +1577,7 @@ absl::Status CentroidalMpcInterface::addContactImplicitTerms(
   // from the model rather than configured, so it cannot fall out of step with
   // the URDF. It is what makes the two weights mean the same thing on a 40 kg
   // robot and a 160 kg one.
-  const scalar_t forceReference =
+  const scalar_t scaleForceContactEwrtParamZ =
       centroidalModelInfo_.robotMass * kGravityMagnitude;
 
   // Where the foot is, as far as contact is concerned: the CORNERS of the
@@ -1548,7 +1593,8 @@ absl::Status CentroidalMpcInterface::addContactImplicitTerms(
   // The ground both terms are built on is the reference manager's, which owns
   // it from here on and builds the swing trajectories on it; the parameter
   // updater (ContactImplicitApplier) keeps the terms on the ground it applies.
-  const scalar_t terrainHeight = referenceManagerPtr_->getTerrainHeight();
+  const scalar_t posSurfaceRtWorldEwrtWorldZ =
+      referenceManagerPtr_->getPosSurfaceRtWorldEwrtWorldZ();
   std::unique_ptr<FootprintCornerHeights> cornerHeightsPtr;
   if (formulationTasks.hasSoftConstraint(
           MpcSoftConstraintType::kContactComplementarity) ||
@@ -1575,8 +1621,9 @@ absl::Status CentroidalMpcInterface::addContactImplicitTerms(
     ASSIGN_OR_RETURN(
         std::unique_ptr<StateInputConstraint> complementarity,
         ContactComplementarityConstraint::Create(
-            *cornerHeightsPtr, *effectiveMpcRobotModelPtr_, i, terrainHeight,
-            forceReference, contactImplicit.heightReference,
+            *cornerHeightsPtr, *effectiveMpcRobotModelPtr_, i,
+            posSurfaceRtWorldEwrtWorldZ, scaleForceContactEwrtParamZ,
+            contactImplicit.scalePosContactRtSurfaceEwrtWorldZ,
             contactImplicit.gapSmoothing));
     auto penalty = std::make_unique<QuadraticPenalty>(
         contactImplicit.complementarityWeight);
@@ -1598,12 +1645,12 @@ absl::Status CentroidalMpcInterface::addContactImplicitTerms(
         << "[CentroidalMpcInterface] 'force_weighted_slip' needs the contact "
            "frame's kinematics; "
            "needsEeKinematics must list it.";
-    ASSIGN_OR_RETURN(
-        std::unique_ptr<StateInputConstraint> slip,
-        ForceWeightedSlipConstraint::Create(
-            *eeKinematicsPtr, *effectiveMpcRobotModelPtr_, i, forceReference,
-            contactImplicit.scaleLinvelContactRtWorldEwrtWorldXy,
-            contactImplicit.scaleAngvelContactRtWorldEwrtWorldZ));
+    ASSIGN_OR_RETURN(std::unique_ptr<StateInputConstraint> slip,
+                     ForceWeightedSlipConstraint::Create(
+                         *eeKinematicsPtr, *effectiveMpcRobotModelPtr_, i,
+                         scaleForceContactEwrtParamZ,
+                         contactImplicit.scaleLinvelContactRtWorldEwrtWorldXy,
+                         contactImplicit.scaleAngvelContactRtWorldEwrtWorldZ));
     auto penalty =
         std::make_unique<QuadraticPenalty>(contactImplicit.slipWeight);
     problemPtr_->softConstraintPtr->add(
@@ -1613,9 +1660,9 @@ absl::Status CentroidalMpcInterface::addContactImplicitTerms(
   }
   if (formulationTasks.hasSoftConstraint(
           MpcSoftConstraintType::kGroundPenetration)) {
-    ASSIGN_OR_RETURN(
-        std::unique_ptr<StateConstraint> penetration,
-        GroundPenetrationConstraint::Create(*cornerHeightsPtr, terrainHeight));
+    ASSIGN_OR_RETURN(std::unique_ptr<StateConstraint> penetration,
+                     GroundPenetrationConstraint::Create(
+                         *cornerHeightsPtr, posSurfaceRtWorldEwrtWorldZ));
     // A one-sided quadratic hinge, NOT a relaxed log barrier: the delta of 0
     // puts its zero exactly on the ground, so the term is silent for a foot
     // resting on the ground and only bites below it. A log barrier here pushed

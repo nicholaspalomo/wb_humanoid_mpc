@@ -118,12 +118,17 @@ targetContactPatchCorners(const CentroidalMpcConfig& config,
                                    static_cast<int>(contact));
     if (rectangle.ok()) {
       const PolygonBounds& bounds = rectangle->getBounds();
-      if (bounds.x_max > bounds.x_min && bounds.y_max > bounds.y_min) {
+      if (bounds.max_pos_corners_rt_contact_ewrt_contact_x >
+              bounds.min_pos_corners_rt_contact_ewrt_contact_x &&
+          bounds.max_pos_corners_rt_contact_ewrt_contact_y >
+              bounds.min_pos_corners_rt_contact_ewrt_contact_y) {
         for (size_t corner = 0; corner < rectangle->getNumberOfContactPoints();
              ++corner) {
-          const vector3_t point =
-              rectangle->getContactPointTranslation(static_cast<int>(corner));
-          corners.push_back({point(0), point(1)});
+          const vector3_t posCornerRtContactEwrtContact =
+              rectangle->getPosCornerRtContactEwrtContact(
+                  static_cast<int>(corner));
+          corners.push_back({posCornerRtContactEwrtContact(0),
+                             posCornerRtContactEwrtContact(1)});
         }
       }
     } else {
@@ -294,7 +299,7 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options,
   backendOptions.initialState.emplace(initState);
   backendOptions.contactFrameNames = modelSettings.contactNames;
   backendOptions.contactParentJointNames =
-      modelSettings.contactParentJointNames;
+      modelSettings.contactParentJointNamesInContactOrder();
   backendOptions.contactPatchCorners =
       targetContactPatchCorners(models.config(), modelSettings);
   backendOptions.simulator = settings.simulator;

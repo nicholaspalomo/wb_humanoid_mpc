@@ -15,12 +15,12 @@ list ships **empty**, so this subsystem is inert until someone opts a robot in o
 ```textproto
 locomotion_heuristics {
   # Each list ships empty, its candidate names commented out beneath it, one line per entry:
-  # base_pose: "orientation_compensation"   uncomment ONE line and that name is in the list
-  # base_pose: "periodic_orientation"
-  # base_pose: "height_compensation"
-  # foothold: ...   hip_centered_stepping, capture_point, translational_stepping, in_place_turning, high_speed_turning
-  # wrench: ...     impulse_scaling, centripetal_acceleration
-  # ... one parameter block per name, named after it: orientation_compensation { ... }
+  # base_pose_heuristics: "orientation_compensation"   uncomment ONE line and that name is in the list
+  # base_pose_heuristics: "periodic_orientation"
+  # base_pose_heuristics: "height_compensation"
+  # foothold_heuristics: ...   hip_centered_stepping, capture_point, translational_stepping, in_place_turning, high_speed_turning
+  # wrench_heuristics: ...     impulse_scaling, centripetal_acceleration
+  # ... one parameter block per name, named after it: orientation_compensation_parameters { ... }
 }
 ```
 
@@ -53,9 +53,9 @@ costs regularize against are, today:
 
 | Channel | Reference before this subsystem |
 | --- | --- |
-| base roll, pitch | **a hard zero at every speed** - `TargetTrajectoriesCalculatorBase::integrateRefPoseeulerzyxBaseRtWorld` writes `targetPose[4] = targetPose[5] = 0.0` on every call |
+| base roll, pitch | **a hard zero at every speed** - `TargetTrajectoriesCalculatorBase::integrateRefPoseeulerzyxBaseRtWorld` writes `finalPoseeulerzyxBaseRtWorld[kPoseTargetPitchIndex] = finalPoseeulerzyxBaseRtWorld[kPoseTargetRollIndex] = 0.0` on every call |
 | base height | the operator's commanded height, adapted to the terrain |
-| swing foot $x, y$ | **nothing at all** without a contact planner - `nominalFoothold()` returns `std::nullopt` and the foot cost zeroes its own `pos_x` / `pos_y` weights |
+| swing foot $x, y$ | **nothing at all** without a contact planner - `getNomPosFootRtWorldEwrtWorldXy()` returns `std::nullopt` and the foot cost zeroes its own `pos_x` / `pos_y` weights |
 | contact wrench | weight compensation: $m g$ split evenly over the scheduled stance feet, purely vertical |
 
 So this is a **reference-shaping layer**, not a new cost family. Nothing here adds a term to the optimal control
@@ -90,13 +90,14 @@ consequences follow:
   |                                    v                                                    |
   |   +---------------------------------------------------------------+                    |
   |   |             LocomotionHeuristicLayer   (immutable)            |                    |
-  |   |   base_pose[]   foothold[]   wrench[]   <- the three lists     |                    |
+  |   |   base_pose_heuristics[]   foothold_heuristics[]               |                    |
+  |   |   wrench_heuristics[]   <- the three lists                     |                    |
   |   |   LocomotionHeuristicFactory resolves each name                |                    |
   |   |   LocomotionHeuristicModelParameters: m, g, z_com, r_hip       |                    |
   |   +---------------------------------------------------------------+                    |
   |         ^  (A)                  ^  (B)                  ^  (C)                          |
   |         |                       |                       |                               |
-  |   shapePoseBaseRtWorld()         nominalFoothold()       getDesiredInput()                     |
+  |   shapePoseBaseRtWorld()  getNomPosFootRtWorldEwrtWorldXy()  getDesiredInput()          |
   |   per shooting node       every solve             per shooting node                     |
   +=========================================================================================+
          |                       |                          |
@@ -119,7 +120,7 @@ consequences follow:
 | Seam | Shapes | Evaluated | Reaches |
 | --- | --- | --- | --- |
 | **(A)** `shapePoseBaseRtWorld()` | base roll, pitch, height of $\mathbf{x}_{nom}$ | per shooting node, per SQP iteration | `state_weights.pos_base_rt_world_ewrt_world.z` (height), `state_weights.eulerzyx_base_rt_world.pitch` and `.roll` (`.yaw` is never shaped), the same entries of `final_state_weights`, and the torso task-space cost's orientation |
-| **(B)** `nominalFoothold()` | the swing foot's landing target | at every solve, a landmark that holds still through the swing | `task_space_foot_cost.weights.pos_x` / `.pos_y` |
+| **(B)** `getNomPosFootRtWorldEwrtWorldXy()` | the swing foot's landing target | at every solve, a landmark that holds still through the swing | `task_space_foot_cost.weights.pos_x` / `.pos_y` |
 | **(C)** `getDesiredInput()` | the contact-force reference $\mathbf{u}_{nom}$ | per shooting node, per SQP iteration | `input_weights.contact_wrenches` |
 
 ### Why these three seams and not others
@@ -153,7 +154,7 @@ exact for a turning velocity command, whose knots lie on that arc, and the trape
 the trapezoid of the two world velocities it was fell short of a turn's arc by
 $|v|\Delta t\,(\mathrm{sinc}(\theta/2) - \cos(\theta/2)) \approx |v|\Delta t\,\theta^2/12$, 5.6 cm at 0.41 m/s and
 0.8 rad/s over 1.38 s. One
-addition inside `nominalFoothold()` therefore reaches the position reference, the velocity reference (the cubic's
+addition inside `getNomPosFootRtWorldEwrtWorldXy()` therefore reaches the position reference, the velocity reference (the cubic's
 analytic rate falls out) and the swing-plane heading query, with no other edit anywhere.
 
 **(C) is new plumbing.** The input channel of `TargetTrajectories` is not a reference at all - it is constructed
@@ -206,7 +207,7 @@ This is the base case of figure 4-8, the panel every later heuristic is measured
 takes a few steps forward" and falls as soon as it has speed, because a foot placed under the hip has no lead on a
 moving body. **It is also the one heuristic here that moves the anchor** of the foothold reference: with it listed the
 landing target is the predicted base plus the hip offset, so the feet's lateral separation comes from the hips rather
-than from half of `nominal_foothold.step_width` to each side of the predicted base. Both anchors are the base
+than from half of `nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y` to each side of the predicted base. Both anchors are the base
 predicted at touch-down plus a lateral offset to the foot's own side, so the velocity leads summed on top mean the
 same thing either way. (The other anchor used to be the *stance foot* plus a whole step width across the heading. The
 stance foot is where the body was when it landed, so under a lateral command $v_y$ the feet fell behind the body by
@@ -214,7 +215,7 @@ $v_y T_{step} - k T_{st} v_y$ at every step, $k T_{st} v_y$ being `translational
 7.5 cm a step at 0.3 m/s on a 0.5 s step. `testLocomotionHeuristicSeams` walks a sustained sidestep and holds the
 midpoint of the feet still relative to the base.) It is registered because
 Bledt never uses it alone: it is the term the Table C.2 velocity-dependent heuristics are summed on top of. The layer
-warns when it is listed alone, and warns again when the others are listed without it. On a robot whose `step_width` is
+warns when it is listed alone, and warns again when the others are listed without it. On a robot whose `nom_pos_lfoot_rt_rfoot_ewrt_heading_y` is
 0 it is **required** by the rest of the foothold family: start-up refuses a foothold list without it, because nothing
 else would keep the feet apart.
 
@@ -360,7 +361,7 @@ Sign note: the seam edits the base pose as Euler ZYX angles about a z-up world (
 accessors; the state holds a unit quaternion, humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.9),
 in which a **positive** pitch rotates the body's $+x$ axis
 towards $-z$ - it puts the nose **down**. Pitching forward into a forward command is therefore a *positive*
-`pitch_per_forward_velocity`, which is also the sign of Bledt's own fitted $+0.0725$ rad per m/s.
+`pitch_per_forward_velocity_gain`, which is also the sign of Bledt's own fitted $+0.0725$ rad per m/s.
 
 #### 3.6 `periodic_orientation` - $\mathcal{H}_{\boldsymbol{\Theta}}(\Phi) = b_1 \sin(c_1 \Phi + d_1)$
 
@@ -395,7 +396,7 @@ stores the body angular velocity, $\omega_B = T_B(\Theta_s)\,(T_B(\Theta_n)^{-1}
 rate of the shaped attitude $\Theta_s = \Theta_n + \delta$ (`computeShapedAngvelBaseRtWorldEwrtBase()`); on the centroidal state,
 which stores the momentum, the angular momentum of that rate with the joints at the reference,
 $I_G\,\omega_{tilt}/m$ with $\omega_{tilt} = R(\Theta_s)\,T_B(\Theta_s)\,\dot\delta$ and the composite inertia $I_G$
-latched at the solve, added to the target's (`computeTiltAngvelBaseRtWorldEwrtWorld()`). The velocity-dependent heuristics are
+latched at the solve, added to the target's (`computeOffsetAngvelBaseRtWorldEwrtWorld()`). The velocity-dependent heuristics are
 constant along a constant command and add no rate. `testLocomotionHeuristicSeams` holds both against a central
 difference of the rotation, and `testLocomotionHeuristicIntegration` the momentum on Atlas.
 
@@ -414,7 +415,7 @@ lowering the base shortens the leg and gives the swing more vertical room within
 knee torque headroom.
 
 Applied as an **offset** and never as an absolute height: the same channel is where
-`adaptToCurrentGroundHeight()` writes the terrain, and an absolute value would silently become a terrain override.
+`applyPosSurfaceRtWorldEwrtWorldZ()` writes the terrain, and an absolute value would silently become a terrain override.
 
 #### 3.8 `translational_stepping` - $\mathcal{H}_{\mathbf{r}}(\dot{\mathbf{p}}) = a_1 \dot{\mathbf{p}} + a_0$
 
@@ -470,7 +471,7 @@ is what a turn with a radius does; the lateral *constant* is signed, and that is
 stance.
 
 $\dot\psi$ is the **commanded** yaw rate, read from the target knot through the robot model
-(`getTargetPlanarCommand()`): on the centroidal model by inverting the angular channel of the target's momentum,
+(`getRefPlanarMotion()`): on the centroidal model by inverting the angular channel of the target's momentum,
 $h_z = I_{zz}\dot\psi / m$, with the composite yaw inertia latched per solve. The target's base *yaw* is not usable:
 it blends the measured heading over its first stretch and the planned-heading override rewrites it, so differentiating
 it would recover the reference's own smoothing rather than the operator's command.
@@ -522,7 +523,7 @@ simulation under hardware-like conditions on these robots, and Bledt's coefficie
 fifth the mass. The dissertation's own procedure is the right one to copy - figure 4-13 adds one heuristic per panel
 and measures the viable operating region after each.
 
-1. Uncomment **one name** (`base_pose: "..."`, `foothold: "..."` or `wrench: "..."`), which adds
+1. Uncomment **one name** (`base_pose_heuristics: "..."`, `foothold_heuristics: "..."` or `wrench_heuristics: "..."`), which adds
    that name to its list. On G1 and R1 its block is at zero, so this on its own is still a no-op: launch and confirm that nothing
    changed and that the start-up banner lists the heuristic. On Atlas and SA01 the block carries derived values, so
    listing the name IS the change; to run the "nothing changed" check first, zero the block before uncommenting.
@@ -569,7 +570,7 @@ floating base, and the contact frames, which are not in the URDF but are added a
 | Group | Coefficients | Status |
 | --- | --- | --- |
 | **Closed form** | `capture_point`, `high_speed_turning`, `hip_centered_stepping`, `impulse_scaling`, `centripetal_acceleration`, every clamp | The script is the authority; there is nothing to fit |
-| **Sized from the command limits** | `orientation_compensation.pitch_per_forward_velocity`, `height_compensation.height_per_speed` | A design choice (how much tilt, how much crouch), taken from an assumption the script prints |
+| **Sized from the command limits** | `orientation_compensation_parameters.pitch_per_forward_velocity_gain`, `height_compensation.height_per_speed_gain` | A design choice (how much tilt, how much crouch), taken from an assumption the script prints |
 | **Raibert's rule, per unit stance** | `translational_stepping` stance fractions (1/2), `in_place_turning.forward_stance_lever` (half the hip's lever) | Closed form in the stance duration, so one number fits every gait the scheduler selects; Bledt's constants are left at 0 |
 | **Genuinely fitted** | the rest of Table C.2 | Left at **zero** - this is what chapter 4's extraction framework produces from data, and a number invented here would be a guess wearing a derivation's clothes |
 
@@ -595,16 +596,16 @@ The **DRC Atlas** and the **EngineAI SA01** ship derived coefficients; the two U
 
 On Atlas, the derivation exposed two facts that affect tuning:
 
-* The **controller's LIP height** used to disagree with the robot's: `dcm_terminal_cost.com_height` and the contact
-  planner's `shared.com_height` were both hand-set to `0.85`, while at `initial_state` the center of mass sits
+* The **controller's LIP height** used to disagree with the robot's: `dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z` and the contact
+  planner's `shared.nom_pos_com_rt_feetmean_ewrt_world_z` were both hand-set to `0.85`, while at `initial_state` the center of mass sits
   **1.0805 m** above the feet (27% higher, which made $\omega$ 13% too large everywhere it was used). Both fields are
-  now left out, which each resolves to the model's height with `computeComHeightAboveFeet` (the same quantity this script
+  now left out, which each resolves to the model's height with `computeProxyPosComRtFeetmeanEwrtWorldZ` (the same quantity this script
   computes), so $\omega = 3.01$ rad/s. The heuristic numbers derived from the pendulum were regenerated with it:
-  `capture_point.com_height_override` is `1.0805` and `high_speed_turning`'s lean is `1.0805 / 9.81 = 0.1101`.
+  `capture_point.override_pos_com_rt_feetmean_ewrt_world_z` is `1.0805` and `high_speed_turning`'s lean is `1.0805 / 9.81 = 0.1101`.
   `humanoid_centroidal_mpc:testNominalPendulum` and `test_derive_parameters.py` hold every shipped pendulum number to
   the model's, in C++ and in Python.
-* **Atlas's nominal stance** has no outward room: `nominal_foothold.step_width` is `0.45 m`, which is
-  `foot_separation.max_step_width`, while the legs naturally splay to `0.223 m`. A capture step pushed outward therefore
+* **Atlas's nominal stance** has no outward room: `nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y` is `0.45 m`, which is
+  `foot_separation.max_pos_lfoot_rt_rfoot_ewrt_heading_y`, while the legs naturally splay to `0.223 m`. A capture step pushed outward therefore
   runs past a bound the planner would have enforced, and `hip_centered_stepping` needs a `lateral_scale` of **2.528**
   just to reproduce the shipped stance.
 
@@ -613,20 +614,20 @@ as shipped** - their values are derived and ready, and they do nothing until bas
 
 SA01 is the easier robot of the two to start on, and the contrast is instructive:
 
-* Its **LIP height was always the model's**: `dcm_terminal_cost.com_height` and the planner's `shared.com_height` wrote
+* Its **LIP height was always the model's**: `dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z` and the planner's `shared.nom_pos_com_rt_feetmean_ewrt_world_z` wrote
   out the model's `0.6124 m` by hand, and are now left out, which resolves to it, so the script emits no warning. It is
   also the *fastest* pendulum of the four robots ($\omega = 4.00$ rad/s), which makes its capture step the smallest
   and this heuristic the gentlest.
-* Switching on **`hip_centered_stepping`** resizes nothing: `nominal_foothold.step_width` is `0`, so the stance to
+* Switching on **`hip_centered_stepping`** resizes nothing: `nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y` is `0`, so the stance to
   reproduce is the one the robot stands in, its contact frames 0.1503 m apart, and the hips at ±0.075 m already give
   0.150 m of it: `lateral_scale: 1.002` - the only robot here where the hips alone are the stance. (On G1, whose hips
   are 0.129 m apart but whose feet stand 0.237 m apart, the derived scale is 1.839; a scale of 1 there would narrow
   the stance by 11 cm the moment the heuristic is listed.)
 * Its **coefficients** are larger where its stick is smaller and smaller where its geometry is:
-  `pitch_per_forward_velocity` is `0.0611` against Atlas's `0.0407` only because the command limit is 0.8 m/s rather than
+  `pitch_per_forward_velocity_gain` is `0.0611` against Atlas's `0.0407` only because the command limit is 0.8 m/s rather than
   1.2 - the lean at full stick is the same 2.8° on both. `in_place_turning.forward_stance_lever`, by contrast, is a third
   of Atlas's, because the stance it pivots about is a third as wide. A narrow robot has little to gain from that one.
-* Its **foothold family needs `hip_centered_stepping`**: with `nominal_foothold.step_width: 0` nothing else keeps the
+* Its **foothold family needs `hip_centered_stepping`**: with `nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y: 0` nothing else keeps the
   feet apart, so start-up refuses a foothold list without it.
 * Try **`periodic_orientation`** first: SA01's stance is the narrowest of the four (G1's hips are
   narrower, but G1 stands wider), so its lateral pendulum has the least margin and roll is the primary channel to shape, and the roll phase is the one
@@ -643,10 +644,10 @@ SA01 is the easier robot of the two to start on, and the contrast is instructive
 | `hip_centered_stepping` listed alone, or omitted while others are listed | **Warning** - neither half of Bledt's sum is a configuration he validates |
 | `centripetal_acceleration` with `contact_input_parameterization: "basis_vectors"` | **Warning** - the reference moves onto the forward-kinematics path; watch the solve time |
 | A list entry that is not a string, a list written as a block, or a value that is not a number | **Error** from the strict parser, naming the file, the line and the column - read as an empty list, such a typo would leave the configuration silently inert |
-| A foothold heuristic without `hip_centered_stepping` on a robot whose `nominal_foothold.step_width` is 0 | **Error** - nothing would keep the feet apart, and the swing foot would be aimed at the stance foot |
+| A foothold heuristic without `hip_centered_stepping` on a robot whose `nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y` is 0 | **Error** - nothing would keep the feet apart, and the swing foot would be aimed at the stance foot |
 | A base-pose heuristic with `com_and_acom_tracking_cost` in `costs` | **Warning** - the factory zeroes the base-pose block of `state_weights` and `final_state_weights`; it would do nothing |
 | A foothold heuristic with `task_space_foot_cost.weights.pos_x` and `pos_y` both 0, or the foot cost unlisted | **Warning** - nothing tracks the landing target; it would not move the feet |
-| A clamp set to zero (`capture_point.maximum_offset`, or both `centripetal_acceleration` limits) | **Error** - every clamp here stops a bad measurement reaching the solver, so removing one is not a way to configure it |
+| A clamp set to zero (`capture_point.max_norm_offset_pos_foot_rt_world_ewrt_world_xy`, or both `centripetal_acceleration` limits) | **Error** - every clamp here stops a bad measurement reaching the solver, so removing one is not a way to configure it |
 | A negative `scale` on either wrench heuristic, a negative `capture_point.gain`, or a negative `hip_centered_stepping` scale | **Error** - it would invert the heuristic rather than reduce it |
 
 ### Two things that will make a heuristic do nothing (both warned about at start-up)
@@ -657,7 +658,7 @@ SA01 is the easier robot of the two to start on, and the contrast is instructive
 * The **foothold family** needs `task_space_foot_cost.weights.pos_x` and `pos_y` to be non-zero: they are `0` on every
   robot shipped here, because with `zero_velocity` in `hard_constraints` the stance foot is pinned by the schedule and
   placement follows from it. A landing target multiplied by a zero weight is dead weight. (This trap is already live
-  on the DRC Atlas, which ships `nominal_foothold.step_width: 0.45` alongside `pos_x: 0`.)
+  on the DRC Atlas, which ships `nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y: 0.45` alongside `pos_x: 0`.)
 
 ### One thing a foothold heuristic changes even with those weights at zero
 
@@ -687,7 +688,7 @@ The layer is built and installed by `CentroidalMpcInterface::setupLocomotionHeur
 counterpart - nothing in the **whole-body** path reads a `locomotion_heuristics` block. The whole-body task file
 therefore carries a comment saying so rather than a block that would be silently inert. The commanded yaw rate and
 velocity the foothold and wrench heuristics read no longer stand in the way: the reference manager reads them through
-the robot model's `getTargetPlanarCommand()`, which a whole-body knot answers from its base twist (the defect fix D3 of
+the robot model's `getRefPlanarMotion()`, which a whole-body knot answers from its base twist (the defect fix D3 of
 humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 4.7). The parameter updater
 that hot-reloads the coefficients is shared by both formulations; only the centroidal one registers the
 `LocomotionHeuristicsApplier` (the schema marks the block `formulations: "centroidal"`, so the tuning GUI labels it not
@@ -726,7 +727,7 @@ humanoid_nmpc/humanoid_common_mpc/{include/humanoid_common_mpc,src}/locomotion_h
   LocomotionHeuristicFactory.{h,cpp}      name -> instance
   LocomotionHeuristicLayer.{h,cpp}        the assembled layer: start-up checks, sums, hot reload, banner
 humanoid_nmpc/humanoid_common_mpc/{include/humanoid_common_mpc,src}/
-  reference_manager/SwitchedModelReferenceManager   the three seams: shapePoseBaseRtWorld(), nominalFoothold(), getDesiredInput()
+  reference_manager/SwitchedModelReferenceManager   the three seams: shapePoseBaseRtWorld(), getNomPosFootRtWorldEwrtWorldXy(), getDesiredInput()
   contact_planning/ContactScheduleAdaptation         stanceDutyFactor(), upcomingStanceDuration(), previousTouchDownTime()
   cost/BasePoseShapedQuadraticStateCost               the terminal cost on the shaped base pose
   base_pose/  OrientationCompensation, PeriodicOrientation, HeightCompensation

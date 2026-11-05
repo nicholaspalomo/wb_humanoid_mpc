@@ -80,14 +80,14 @@ costs: "dcm_terminal_cost"
 times: [0.1, 0.2]
 weights {
   scaling: 10
-  position {
+  pos_base_rt_world_ewrt_world {
     x: 1  # forward
   }
   joints { joint: "back_bkz" value: 5 }  # the back
   joints { joint: "l_leg_aky" value: 25 }
 }
 gains { joint: "l_leg_kny" kp: 100 kd: 2 }
-points { time: 0.5 height: 0.1 }
+points { time: 0.5 value: 0.1 }
 points { time: 1.0 }
 conditional_block { weight: 4 }
 """
@@ -111,7 +111,9 @@ def _task(centroidal: bool) -> task_file_pb2.TaskFile:
 
 def _spec(tuning: config_schema.Tuning) -> config_schema.ParameterSpec:
     """A parameter `weight` of a task file that sets it, with the tuning `tuning`."""
-    field = task_file_pb2.TaskFile.DESCRIPTOR.fields_by_name["terrain_height"]
+    field = task_file_pb2.TaskFile.DESCRIPTOR.fields_by_name[
+        "pos_surface_rt_world_ewrt_world_z"
+    ]
     return config_schema.ParameterSpec(
         path="weight",
         field=field,
@@ -195,11 +197,11 @@ class WalkTest(unittest.TestCase):
             config_schema.ValueSource.DEFAULT,
         )
         self.assertEqual(
-            self.specs["weights.position.y"].source,
+            self.specs["weights.pos_base_rt_world_ewrt_world.y"].source,
             config_schema.ValueSource.DEFAULT,
         )
         self.assertEqual(
-            self.specs["points[1].height"].source,
+            self.specs["points[1].value"].source,
             config_schema.ValueSource.DEFAULT,
         )
 
@@ -227,7 +229,10 @@ class WalkTest(unittest.TestCase):
         self.assertEqual(self.specs["points[1].time"].label, "points[1].time")
         self.assertEqual(self.specs["points[1].time"].row, "points[1]")
         self.assertEqual(self.specs["times[0]"].label, "times[0]")
-        self.assertEqual(self.specs["weights.position.x"].label, "position.x")
+        self.assertEqual(
+            self.specs["weights.pos_base_rt_world_ewrt_world.x"].label,
+            "pos_base_rt_world_ewrt_world.x",
+        )
         self.assertEqual(self.specs["weights.scaling"].label, "scaling")
         duplicate = _specs(f'{TEXT}gains {{ joint: "l_leg_kny" kp: 1 }}\n')
         self.assertIn(
@@ -240,14 +245,22 @@ class WalkTest(unittest.TestCase):
             (gain.unit, gain.reload, gain.consumer),
             ("N", config_schema.RELOAD_HOT, "mpc"),
         )
-        position = self.specs["weights.position.z"].tuning
+        position_weight = self.specs[
+            "weights.pos_base_rt_world_ewrt_world.z"
+        ].tuning
         self.assertEqual(
-            (position.unit, position.slider_min, position.slider_max),
+            (
+                position_weight.unit,
+                position_weight.slider_min,
+                position_weight.slider_max,
+            ),
             ("m", 0.0, 10.0),
         )
-        orientation = self.specs["weights.orientation.roll"].tuning
+        orientation_weight = self.specs[
+            "weights.eulerzyx_base_rt_world.roll"
+        ].tuning
         self.assertEqual(
-            (orientation.unit, orientation.reload),
+            (orientation_weight.unit, orientation_weight.reload),
             ("rad", config_schema.RELOAD_START_UP),
         )
         self.assertTrue(self.specs["weights.scaling"].tuning.log_scale)
@@ -260,8 +273,8 @@ class WalkTest(unittest.TestCase):
         )
         for path in (
             "initial.scaling",
-            "initial.position.x",
-            "initial.orientation.yaw",
+            "initial.pos_base_rt_world_ewrt_world.x",
+            "initial.eulerzyx_base_rt_world.yaw",
         ):
             with self.subTest(path=path):
                 self.assertEqual(
@@ -318,7 +331,7 @@ class WalkTest(unittest.TestCase):
         self.assertEqual(own.base_controller_label, "Contact estimator")
         # A block's label does not reach the fields below it, with or without options of their own.
         parent = config_schema.Tuning(base_controller_label="Block")
-        for name in ("terrain_height", "multiple_shooting"):
+        for name in ("pos_surface_rt_world_ewrt_world_z", "multiple_shooting"):
             with self.subTest(field=name):
                 inherited = config_schema.inherit(
                     parent, task.fields_by_name[name]
@@ -348,7 +361,9 @@ class WalkTest(unittest.TestCase):
 
     def test_lines_of_the_values_the_file_sets(self):
         self.assertEqual(self.specs["gain"].line, 3)
-        self.assertEqual(self.specs["weights.position.x"].line, 14)
+        self.assertEqual(
+            self.specs["weights.pos_base_rt_world_ewrt_world.x"].line, 14
+        )
         self.assertEqual(self.specs["costs"].line, 8)
         self.assertIsNone(self.specs["enabled"].line)
         message, _ = _parse()
@@ -396,7 +411,8 @@ class RangeAndLabelTest(unittest.TestCase):
         self.assertEqual(config_schema.slider_range(2.0, bounded), (-1.0, 8.0))
         specs = _specs()
         self.assertEqual(
-            specs["weights.position.x"].slider_range(), (0.0, 10.0)
+            specs["weights.pos_base_rt_world_ewrt_world.x"].slider_range(),
+            (0.0, 10.0),
         )
         self.assertEqual(specs["count"].slider_range(), (0.0, 8.0))
         self.assertIsNone(specs["mode"].slider_range())
@@ -406,7 +422,7 @@ class RangeAndLabelTest(unittest.TestCase):
         message, _ = _parse()
         specs = _specs()
         self.assertTrue(
-            config_schema.is_active(specs["stand_height"].tuning, message)
+            config_schema.is_active(specs["stand_value"].tuning, message)
         )
         self.assertFalse(
             config_schema.is_active(specs["conditional.rate"].tuning, message)
@@ -421,7 +437,7 @@ class RangeAndLabelTest(unittest.TestCase):
             TEXT.replace("mode: MODE_STAND", "mode: MODE_WALK\nenabled: true")
         )
         self.assertFalse(
-            config_schema.is_active(specs["stand_height"].tuning, walking)
+            config_schema.is_active(specs["stand_value"].tuning, walking)
         )
         self.assertTrue(
             config_schema.is_active(
@@ -434,7 +450,10 @@ class RangeAndLabelTest(unittest.TestCase):
             config_schema.condition_value(message, "enabled"), "false"
         )
         self.assertEqual(
-            config_schema.condition_value(message, "weights.position.x"), "1.0"
+            config_schema.condition_value(
+                message, "weights.pos_base_rt_world_ewrt_world.x"
+            ),
+            "1.0",
         )
         numeric = config_schema.Tuning(
             active_when=(config_schema.Condition("count", ("2.0", "x")),)
@@ -449,13 +468,15 @@ class RangeAndLabelTest(unittest.TestCase):
     def test_annotations_and_display_labels(self):
         message, _ = _parse()
         specs = _specs()
-        # The line of gain, weights.position.x and the back joint ends in a comment, which no label shows.
+        # The line of gain, weights.pos_base_rt_world_ewrt_world.x and the back joint ends in a comment, which no label shows.
         self.assertEqual(
             config_schema.display_label(specs["gain"], message), "gain (N)"
         )
         self.assertEqual(
-            config_schema.display_label(specs["weights.position.x"], message),
-            "position.x (m)",
+            config_schema.display_label(
+                specs["weights.pos_base_rt_world_ewrt_world.x"], message
+            ),
+            "pos_base_rt_world_ewrt_world.x (m)",
         )
         self.assertEqual(
             config_schema.display_label(
@@ -477,9 +498,9 @@ class RangeAndLabelTest(unittest.TestCase):
         )
         self.assertEqual(
             config_schema.display_label(
-                specs["weights.orientation.yaw"], message
+                specs["weights.eulerzyx_base_rt_world.yaw"], message
             ),
-            "orientation.yaw (rad) (restart; default)",
+            "eulerzyx_base_rt_world.yaw (rad) (restart; default)",
         )
         self.assertEqual(
             config_schema.annotations(
@@ -580,12 +601,12 @@ class SchemaFieldsTest(unittest.TestCase):
         for path in (
             "gain",
             "costs",
-            "weights.position.x",
+            "weights.pos_base_rt_world_ewrt_world.x",
             "weights.joints[*].value",
             "gains[*].kp",
-            "points[*].height",
+            "points[*].value",
             "gate.rate",
-            "initial.orientation.roll",
+            "initial.eulerzyx_base_rt_world.roll",
             "conditional_block.weight",
         ):
             self.assertIn(path, fields)
@@ -593,7 +614,9 @@ class SchemaFieldsTest(unittest.TestCase):
         self.assertFalse(fields["initial.scaling"].renders)
         self.assertTrue(fields["gate.rate"].renders)
         self.assertFalse(fields["gains[*].joint"].renders)
-        self.assertEqual(fields["weights.position.x"].tuning.unit, "m")
+        self.assertEqual(
+            fields["weights.pos_base_rt_world_ewrt_world.x"].tuning.unit, "m"
+        )
 
     def test_the_file_schemas_walk(self):
         for message_class in FILE_MESSAGES:
@@ -609,7 +632,7 @@ class SchemaFieldsTest(unittest.TestCase):
                 task_file_pb2.TaskFile.DESCRIPTOR
             )
         }
-        self.assertIn("terrain_height", top_level)
+        self.assertIn("pos_surface_rt_world_ewrt_world_z", top_level)
         self.assertIn("contact_estimator", top_level)
 
 

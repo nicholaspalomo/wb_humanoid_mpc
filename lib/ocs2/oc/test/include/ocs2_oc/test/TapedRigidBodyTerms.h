@@ -51,16 +51,10 @@ namespace manifold_test {
  * they are test fixtures, not terms of a formulation.
  */
 
-inline rotation_vector_t<TapedFunction::ad_t> unitAxis(int axis) {
-  rotation_vector_t<TapedFunction::ad_t> e = rotation_vector_t<TapedFunction::ad_t>::Zero();
-  e(axis) = TapedFunction::ad_t(1.0);
-  return e;
-}
-
-/** The body axis `axis` in the world frame. */
-inline rotation_vector_t<TapedFunction::ad_t> bodyAxisInWorld(const TapedFunction::ad_vector_t& x, int axis) {
-  const quaternion_coeffs_t<TapedFunction::ad_t> xi = x.template segment<4>(3);
-  return quaternionRotationMatrix(quaternionSafeNormalize(xi)) * unitAxis(axis);
+/** The rotation matrix of the body in the world frame; its column k is the body's k axis written in world axes. */
+inline Eigen::Matrix<TapedFunction::ad_t, 3, 3> getRotmatBaseRtWorld(const TapedFunction::ad_vector_t& x) {
+  const quaternion_coeffs_t<TapedFunction::ad_t> quatBaseRtWorldXyzw = x.template segment<4>(3);
+  return quaternionRotationMatrix(quaternionSafeNormalize(quatBaseRtWorldXyzw));
 }
 
 /** l(x, u) = 1/2 |R z - (0.1, 0.2, 0.97)|^2 + (R x)_y p_x + 1/2 |omega - (0.1, 0, 0.3)|^2 + 1/2 u' diag(1..6) u + omega_z u_0. */
@@ -72,13 +66,14 @@ class TapedStateInputCost final : public StateInputCost {
               using ad_t = TapedFunction::ad_t;
               const TapedFunction::ad_vector_t x = z.head(10);
               const TapedFunction::ad_vector_t u = z.tail(6);
-              rotation_vector_t<ad_t> target;
-              target << ad_t(0.1), ad_t(0.2), ad_t(0.97);
-              rotation_vector_t<ad_t> omegaReference;
-              omegaReference << ad_t(0.1), ad_t(0.0), ad_t(0.3);
-              const rotation_vector_t<ad_t> omega = x.template segment<3>(7);
-              ad_t cost = ad_t(0.5) * (bodyAxisInWorld(x, /*axis=*/2) - target).squaredNorm() + bodyAxisInWorld(x, /*axis=*/0)(1) * x(0) +
-                          ad_t(0.5) * (omega - omegaReference).squaredNorm() + omega(2) * u(0);
+              // The reference for column 2 of the base rotation, the base z axis.
+              rotation_vector_t<ad_t> refZAxisBaseEwrtWorld;
+              refZAxisBaseEwrtWorld << ad_t(0.1), ad_t(0.2), ad_t(0.97);
+              rotation_vector_t<ad_t> refAngvelBaseRtWorldEwrtBase;
+              refAngvelBaseRtWorldEwrtBase << ad_t(0.1), ad_t(0.0), ad_t(0.3);
+              const rotation_vector_t<ad_t> angvelBaseRtWorldEwrtBase = x.template segment<3>(7);
+              ad_t cost = ad_t(0.5) * (getRotmatBaseRtWorld(x).col(2) - refZAxisBaseEwrtWorld).squaredNorm() + getRotmatBaseRtWorld(x).col(0)(1) * x(0) +
+                          ad_t(0.5) * (angvelBaseRtWorldEwrtBase - refAngvelBaseRtWorldEwrtBase).squaredNorm() + angvelBaseRtWorldEwrtBase(2) * u(0);
               for (int i = 0; i < 6; ++i) {
                 cost += ad_t(0.5 * (i + 1)) * u(i) * u(i);
               }
@@ -127,10 +122,11 @@ class TapedStateCost final : public StateCost {
       : tape_(std::make_shared<TapedFunction>(
             [](const TapedFunction::ad_vector_t& x) {
               using ad_t = TapedFunction::ad_t;
-              rotation_vector_t<ad_t> target;
-              target << ad_t(0.6), ad_t(0.8), ad_t(0.0);
+              // The reference for column 0 of the base rotation, the base x axis.
+              rotation_vector_t<ad_t> refXAxisBaseEwrtWorld;
+              refXAxisBaseEwrtWorld << ad_t(0.6), ad_t(0.8), ad_t(0.0);
               TapedFunction::ad_vector_t y(1);
-              y << ad_t(0.5) * (bodyAxisInWorld(x, /*axis=*/0) - target).squaredNorm() + x(2) * bodyAxisInWorld(x, /*axis=*/1)(2) +
+              y << ad_t(0.5) * (getRotmatBaseRtWorld(x).col(0) - refXAxisBaseEwrtWorld).squaredNorm() + x(2) * getRotmatBaseRtWorld(x).col(1)(2) +
                        ad_t(0.5) * x.template segment<3>(7).squaredNorm();
               return y;
             },
@@ -169,7 +165,7 @@ class TapedStateInputConstraint final : public StateInputConstraint {
             [](const TapedFunction::ad_vector_t& z) {
               using ad_t = TapedFunction::ad_t;
               TapedFunction::ad_vector_t g(2);
-              g << bodyAxisInWorld(z, /*axis=*/0)(1) + ad_t(0.2) * z(10) - ad_t(0.1), z(2) + z(7) * z(14);
+              g << getRotmatBaseRtWorld(z).col(0)(1) + ad_t(0.2) * z(10) - ad_t(0.1), z(2) + z(7) * z(14);
               return g;
             },
             /*inputDim=*/16)) {}
@@ -207,7 +203,7 @@ class TapedStateConstraint final : public StateConstraint {
         tape_(std::make_shared<TapedFunction>(
             [](const TapedFunction::ad_vector_t& x) {
               TapedFunction::ad_vector_t h(2);
-              h << bodyAxisInWorld(x, /*axis=*/2)(0) + x(1), x(9) * bodyAxisInWorld(x, /*axis=*/1)(0);
+              h << getRotmatBaseRtWorld(x).col(2)(0) + x(1), x(9) * getRotmatBaseRtWorld(x).col(1)(0);
               return h;
             },
             /*inputDim=*/10)) {}

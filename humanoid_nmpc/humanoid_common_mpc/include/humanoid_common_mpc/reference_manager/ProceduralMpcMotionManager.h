@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <functional>
 #include <limits>
 #include <map>
@@ -46,13 +47,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
 #include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
 
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
+#include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
@@ -184,10 +190,10 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    * transforms the commanded velocities to TargetTrajectories. It runs every
    * solve, right after the reference manager's own pre-solve hook, so a target
    * calculator behind it must build on
-   * SwitchedModelReferenceManager::getAppliedTerrainHeight
-   *             (TargetTrajectoriesCalculatorBase::setTerrainHeightSource): the
-   * commanded base height then stands on the ground this solve applied, and
-   * follows a hot reload of `terrain_height`.
+   * SwitchedModelReferenceManager::getAppliedPosSurfaceRtWorldEwrtWorldZ
+   *             (TargetTrajectoriesCalculatorBase::setSourcePosSurfaceRtWorldEwrtWorldZ):
+   * the commanded base height then stands on the ground this solve applied, and
+   * follows a hot reload of `pos_surface_rt_world_ewrt_world_z`.
    * @param [in] switchedModelReferenceManagerPtr: A pointer to the switched
    * model reference manager used to update gait and references
    * @return The errors of the loaders and of the typed Create(), the
@@ -304,7 +310,7 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    * runs preSolverRun().
    */
   virtual void setAndScaleVelocityCommand(
-      const WalkingVelocityCommand& rawVelocityCommand);
+      const NormalizedWalkingVelocityCommand& lnormVelocityCommand);
 
   /**
    * The scaled command the next solve starts from (the last
@@ -442,7 +448,7 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
   size_t currentGaitMode_ = 0;
 
   WalkingVelocityCommand scaleWalkingVelocityCommand(
-      const WalkingVelocityCommand& rawVelocityCommand) const;
+      const NormalizedWalkingVelocityCommand& lnormVelocityCommand) const;
 
   std::shared_ptr<SwitchedModelReferenceManager>
       switchedModelReferenceManagerPtr_;
@@ -459,8 +465,8 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
       kInitCmdMaxLinvelBaseRtWorldEwrtHeadingX};
   std::atomic<scalar_t> cmdMaxLinvelBaseRtWorldEwrtHeadingY_{
       kInitCmdMaxLinvelBaseRtWorldEwrtHeadingY};
-  std::atomic<scalar_t> cmdMaxErrPosBaseRtWorldEwrtWorldZ_{
-      kInitCmdMaxErrPosBaseRtWorldEwrtWorldZ};
+  std::atomic<scalar_t> cmdMaxErrPosBaseRtSurfaceEwrtWorldZ_{
+      kInitCmdMaxErrPosBaseRtSurfaceEwrtWorldZ};
   std::atomic<scalar_t> cmdMaxAngvelBaseRtWorldEwrtWorldZ_{
       kInitCmdMaxAngvelBaseRtWorldEwrtWorldZ};
 

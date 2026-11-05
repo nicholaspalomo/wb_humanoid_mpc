@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <type_traits>
 #include <utility>
@@ -41,10 +42,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/absl_check.h"
 #include "absl/status/statusor.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody.hpp"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
@@ -227,21 +230,29 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
       const VECTOR_T<SCALAR_T>& state) const override {
     return wrappedModel_->getPosBaseRtWorldEwrtWorld(state);
   }
-  // NOLINTBEGIN(frame-naming): model-dependent quantities, see the TODOs of MpcRobotModelBase
-  VECTOR3_T<SCALAR_T> getBaseComLinearVelocity(
-      const VECTOR_T<SCALAR_T>& state) const override {
-    return wrappedModel_->getBaseComLinearVelocity(state);
+  StoredLinvelPoint getStoredLinvelPoint() const override {
+    return wrappedModel_->getStoredLinvelPoint();
   }
-  VECTOR6_T<SCALAR_T> getBaseComVelocity(
+  VECTOR3_T<SCALAR_T> getLinvelComRtWorldEwrtWorld(
       const VECTOR_T<SCALAR_T>& state) const override {
-    return wrappedModel_->getBaseComVelocity(state);
+    return wrappedModel_->getLinvelComRtWorldEwrtWorld(state);
   }
-  void setBaseComLinearVelocity(
+  void setLinvelComRtWorldEwrtWorld(
       VECTOR_T<SCALAR_T>& state,
-      const VECTOR3_T<SCALAR_T>& velocity) const override {
-    wrappedModel_->setBaseComLinearVelocity(state, velocity);
+      const VECTOR3_T<SCALAR_T>& linvelComRtWorldEwrtWorld) const override {
+    wrappedModel_->setLinvelComRtWorldEwrtWorld(state,
+                                                linvelComRtWorldEwrtWorld);
   }
-  // NOLINTEND(frame-naming)
+  VECTOR3_T<SCALAR_T> getLinvelBaseRtWorldEwrtWorld(
+      const VECTOR_T<SCALAR_T>& state) const override {
+    return wrappedModel_->getLinvelBaseRtWorldEwrtWorld(state);
+  }
+  void setLinvelBaseRtWorldEwrtWorld(
+      VECTOR_T<SCALAR_T>& state,
+      const VECTOR3_T<SCALAR_T>& linvelBaseRtWorldEwrtWorld) const override {
+    wrappedModel_->setLinvelBaseRtWorldEwrtWorld(state,
+                                                 linvelBaseRtWorldEwrtWorld);
+  }
   VECTOR_T<SCALAR_T> getJointAngles(
       const VECTOR_T<SCALAR_T>& state) const override {
     return wrappedModel_->getJointAngles(state);
@@ -345,11 +356,10 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
       const vector_t& state, const vector_t& jointVelocities) const override {
     return wrappedModel_->getTwistBaseRtWorldEwrtWorld(state, jointVelocities);
   }
-  vector3_t getTargetPlanarCommand(
-      const vector_t& targetState,
-      scalar_t compositeYawInertia) const override {
-    return wrappedModel_->getTargetPlanarCommand(targetState,
-                                                 compositeYawInertia);
+  vector3_t getRefPlanarMotion(const vector_t& targetState,
+                               scalar_t inertiaComEwrtWorldZz) const override {
+    return wrappedModel_->getRefPlanarMotion(targetState,
+                                             inertiaComEwrtWorldZz);
   }
   absl::StatusOr<vector_t> stateFromTuning(
       const vector_t& tuningVector) const override {
@@ -413,6 +423,13 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
         input.segment(getContactWrenchStartIndices(contactIndex),
                       numBasisPerFoot_);
     return wrenchContactEwrtParam;
+  }
+
+  /** The basis is fixed to the contact frame, so `param` is the contact frame,
+   * whose orientation getRotmatContactRtWorld() reads off the state. */
+  ContactInputFrame getContactInputFrame(
+      size_t /*contactIndex*/) const override {
+    return ContactInputFrame::kContact;
   }
 
   VECTOR3_T<SCALAR_T> getForceContactEwrtParam(

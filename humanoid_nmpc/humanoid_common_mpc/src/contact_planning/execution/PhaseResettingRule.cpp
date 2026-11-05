@@ -31,11 +31,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <optional>
 #include <string>
 
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
 
 namespace ocs2::humanoid {
 
@@ -48,7 +54,7 @@ std::string PhaseResettingRule::describe() const {
       "the swing in steps of ",
       params_.lateTouchdownExtensionStep, " s up to ",
       params_.maxLateTouchdownExtension, " s, descending at ",
-      params_.lateTouchdownSearchVelocity, " m/s");
+      params_.lateTouchdownSearchSpeedFootRtWorld, " m/s");
 }
 
 void PhaseResettingRule::configure(const ContactPlanningConfig& config) {
@@ -125,8 +131,9 @@ bool PhaseResettingRule::adaptContactFoot(const ExecutionContext& ctx,
       plannedTouchDown + params_.maxLateTouchdownExtension;
   const scalar_t target =
       std::min(time + params_.lateTouchdownExtensionStep, latestTouchDown);
-  if (target <= time + kMinTimeShift)
+  if (target <= time + kMinTimeShift) {
     return false;  // budget used up: the contact phase proceeds as scheduled
+  }
   const scalar_t shift = target - touchDown;
   if (shift > kMinTimeShift && shiftEventsFrom(schedule, index - 1, shift)) {
     latch.lateExtension = target - plannedTouchDown;
@@ -153,12 +160,13 @@ std::optional<GroundSearchRequest> PhaseResettingRule::groundSearch(
       swingPhaseIndexRange(schedule, foot, ctx.time);
   if (!range.has_value() || range->first == 0) return std::nullopt;
   if (std::abs(schedule.eventTimes[range->first - 1] - latch.liftOffTime) >
-      kSameSwingTolerance)
+      kSameSwingTolerance) {
     return std::nullopt;
+  }
   return GroundSearchRequest{
       .liftOffTime = latch.liftOffTime,
       .plannedTouchDownTime = latch.plannedTouchDownTime(),
-      .searchVelocity = params_.lateTouchdownSearchVelocity};
+      .searchSpeedFootRtWorld = params_.lateTouchdownSearchSpeedFootRtWorld};
 }
 
 }  // namespace ocs2::humanoid

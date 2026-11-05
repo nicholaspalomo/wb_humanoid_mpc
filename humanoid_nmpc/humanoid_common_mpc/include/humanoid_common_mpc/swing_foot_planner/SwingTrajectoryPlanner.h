@@ -30,12 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <optional>
-#include <string>
-#include <utility>
 #include <vector>
 
-#include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/common/Types.h"
@@ -55,21 +54,22 @@ class SwingTrajectoryPlanner {
  public:
   struct Config {
     /** The defaults of the fields below, by field. */
-    static constexpr scalar_t kDefaultSwingHeight = 0.1;      // [m]
-    static constexpr scalar_t kDefaultSwingTimeScale = 0.15;  // [s]
+    static constexpr scalar_t kNomApexPosFootRtSwingendEwrtWorldZ = 0.1;  // [m]
+    static constexpr scalar_t kDefaultSwingTimeScale = 0.15;              // [s]
     static constexpr scalar_t kDefaultImpactProximityFactorMidPointValue = 0.1;
     static constexpr scalar_t kDefaultSwingPitchRiseFraction = 0.25;
     static constexpr scalar_t kDefaultSwingPitchFallFraction = 0.15;
 
     scalar_t liftoffLinvelFootRtWorldEwrtWorldZ = 0.0;
     scalar_t touchdownLinvelFootRtWorldEwrtWorldZ = 0.0;
-    scalar_t swingHeight =
-        kDefaultSwingHeight;  // [m] apex above the higher of the lift-off and
-                              // touch-down heights
+    scalar_t apexPosFootRtSwingendEwrtWorldZ =
+        kNomApexPosFootRtSwingendEwrtWorldZ;  // [m] apex above the higher of
+                                              // the lift-off and touch-down
+                                              // heights
     scalar_t swingTimeScale =
         kDefaultSwingTimeScale;  // swing phases shorter than this time will be
                                  // scaled down in height and velocity
-    scalar_t touchDownHeightOffset = 0.0;
+    scalar_t touchdownPosFootRtSurfaceEwrtWorldZ = 0.0;
 
     scalar_t impactProximityFactorLiftoffSlope = 0;  // should lesser or equal 0
     scalar_t impactProximityFactorTouchdownSlope =
@@ -86,9 +86,11 @@ class SwingTrajectoryPlanner {
     // pitch ramps up over the first swingPitchRiseFraction of the swing, is
     // held, and is back to flat at touch-down so that the contact is made with
     // the whole sole, as the contact model assumes.
-    scalar_t swingPitchAngle = 0.0;  // [rad] peak toe-up pitch; 0 (the default)
-                                     // reproduces the flat-foot reference
-    // The fraction of the swing spent ramping from flat up to swingPitchAngle.
+    // [rad] The peak toe-up tilt from the ground, a pitch about the foot's
+    // lateral axis; 0 (the default) reproduces the flat-foot reference.
+    scalar_t swingMaxTiltangleFootRtSurface = 0.0;
+    // The fraction of the swing spent ramping from flat up to
+    // swingMaxTiltangleFootRtSurface.
     scalar_t swingPitchRiseFraction = kDefaultSwingPitchRiseFraction;
     // The fraction of the swing spent ramping back down to flat before
     // touch-down.
@@ -125,18 +127,22 @@ class SwingTrajectoryPlanner {
   SwingTrajectoryPlanner& operator=(SwingTrajectoryPlanner&&) = delete;
   ~SwingTrajectoryPlanner() = default;
 
-  void update(const ModeSchedule& modeSchedule, scalar_t terrainHeight);
-
   void update(const ModeSchedule& modeSchedule,
-              const feet_array_t<scalar_array_t>& liftOffHeightSequence,
-              const feet_array_t<scalar_array_t>& touchDownHeightSequence);
+              scalar_t posSurfaceRtWorldEwrtWorldZ);
+
+  void update(
+      const ModeSchedule& modeSchedule,
+      const feet_array_t<scalar_array_t>& liftoffPosFeetRtWorldEwrtWorldZTraj,
+      const feet_array_t<scalar_array_t>&
+          touchdownPosFeetRtWorldEwrtWorldZTraj);
 
   /** As above, with the swings that are searching for the ground (empty
    * entries: none). */
-  void update(const ModeSchedule& modeSchedule,
-              const feet_array_t<scalar_array_t>& liftOffHeightSequence,
-              const feet_array_t<scalar_array_t>& touchDownHeightSequence,
-              const feet_array_t<std::optional<GroundSearch>>& groundSearches);
+  void update(
+      const ModeSchedule& modeSchedule,
+      const feet_array_t<scalar_array_t>& liftoffPosFeetRtWorldEwrtWorldZTraj,
+      const feet_array_t<scalar_array_t>& touchdownPosFeetRtWorldEwrtWorldZTraj,
+      const feet_array_t<std::optional<GroundSearch>>& groundSearches);
 
   scalar_t getDesLinaccFootRtWorldEwrtWorldZ(size_t leg, scalar_t time) const;
 
@@ -151,7 +157,7 @@ class SwingTrajectoryPlanner {
    * positive toe-up (a rotation of -angle about the foot's lateral axis). Zero
    * for a foot in contact, and zero at both ends of a swing.
    */
-  scalar_t getSwingPitchAngle(size_t leg, scalar_t time) const;
+  scalar_t getSwingRefTiltangleFootRtSurface(size_t leg, scalar_t time) const;
 
   /** Update swing trajectory config at runtime (e.g. from online parameter
    * tuning). */
@@ -243,25 +249,26 @@ class SwingTrajectoryPlanner {
     // Ground search past finalTime (GroundSearch): a straight descent from the
     // planned touch-down height.
     bool searching = false;
-    scalar_t descentStartHeight = 0.0;
+    scalar_t descentStartPosFootRtWorldEwrtWorldZ = 0.0;
     scalar_t descentSpeedFootRtWorld = 0.0;
   };
 
   /** The height and impact-proximity references of one swing. */
   struct SwingSplines {
-    SplineCpg height;
+    SplineCpg desPosFootRtWorldEwrtWorldZ;
     SplineCpg impactProximity;
   };
 
   /**
    * Builds the references of the swing `window` (its planned lift-off and
    * touch-down times and short-swing scaling) from the lift-off height to the
-   * touch-down height, through an apex swingHeight (scaled) above the higher of
-   * the two.
+   * touch-down height, through an apex apexPosFootRtSwingendEwrtWorldZ (scaled)
+   * above the higher of the two.
    */
-  SwingSplines makeSwingSplines(const SwingWindow& window,
-                                scalar_t liftOffHeight,
-                                scalar_t touchDownHeight) const;
+  SwingSplines makeSwingSplines(
+      const SwingWindow& window,
+      scalar_t liftoffPosFootRtWorldEwrtWorldZ,
+      scalar_t touchdownPosFootRtWorldEwrtWorldZ) const;
 
   /** True while the foot is searching for the ground past its planned
    * touch-down at `time`. */
@@ -274,7 +281,7 @@ class SwingTrajectoryPlanner {
 
   feet_array_t<std::vector<SwingWindow>> swingWindows_;
   feet_array_t<std::vector<SplineCpg>> impactProximityTrajectories_;
-  feet_array_t<std::vector<SplineCpg>> feetHeightTrajectories_;
+  feet_array_t<std::vector<SplineCpg>> desPosFeetRtWorldEwrtWorldZTraj_;
   feet_array_t<std::vector<scalar_t>> feetHeightTrajectoriesEvents_;
 };
 

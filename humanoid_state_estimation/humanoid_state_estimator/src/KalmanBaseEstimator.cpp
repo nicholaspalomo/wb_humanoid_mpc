@@ -41,8 +41,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_state_estimator/ContactKinematics.h"
+#include "humanoid_state_estimator/KalmanFilter.h"
 
 namespace ocs2::humanoid::estimation {
 namespace {
@@ -106,10 +110,11 @@ absl::Status KalmanBaseEstimator::validateConfig(const Config& config) {
   RETURN_IF_ERROR(
       checkStd(config.kinematicVelocityNoise, "kinematic_velocity_noise"));
   RETURN_IF_ERROR(checkStd(config.contactHeightNoise, "contact_height_noise"));
-  if (!std::isfinite(config.contactHeight)) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "kalman_state_estimator.contact_height must be finite, got ",
-        config.contactHeight));
+  if (!std::isfinite(config.nomPosContactRtWorldEwrtWorldZ)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("kalman_state_estimator.nom_pos_contact_rt_world_ewrt_"
+                     "world_z must be finite, got ",
+                     config.nomPosContactRtWorldEwrtWorldZ));
   }
   return absl::OkStatus();
 }
@@ -161,8 +166,8 @@ absl::Status KalmanBaseEstimator::build() {
        .inputNoiseCovariance =
            config_.imuAccelerationNoise * config_.imuAccelerationNoise * eye});
 
-  matrix_t heightRow = matrix_t::Zero(1, kDim);
-  heightRow.rightCols<1>().setOnes();  // e_z^T
+  matrix_t outputRowPosContactRtWorldEwrtWorldZ = matrix_t::Zero(1, kDim);
+  outputRowPosContactRtWorldEwrtWorldZ.rightCols<1>().setOnes();  // e_z^T
   for (size_t contact = 0; contact < numContacts; ++contact) {
     const std::string state = contactStateName(contact);
     initialStates_.push_back(
@@ -189,8 +194,9 @@ absl::Status KalmanBaseEstimator::build() {
                                        config_.kinematicVelocityNoise * eye});
     measurements.measurements.push_back(
         {.name = absl::StrCat("contact_", contact, "_height"),
-         .measurement = vector_t::Constant(1, config_.contactHeight),
-         .measurementModel = {{state, heightRow}},
+         .measurement =
+             vector_t::Constant(1, config_.nomPosContactRtWorldEwrtWorldZ),
+         .measurementModel = {{state, outputRowPosContactRtWorldEwrtWorldZ}},
          .measurementNoiseCovariance = matrix_t::Constant(
              1, 1, config_.contactHeightNoise * config_.contactHeightNoise)});
     contacts_.push_back(std::move(measurements));
@@ -311,7 +317,7 @@ absl::Status KalmanBaseEstimator::update(
           (angvelBaseRtWorldEwrtBase.cross(posContactRtBaseEwrtBase) +
            linvelContactRtBaseEwrtBase));
     measurements[kSlotMeasPosContactRtWorldEwrtWorldZ].measurement(0) =
-        config_.contactHeight;
+        config_.nomPosContactRtWorldEwrtWorldZ;
     absl::Status corrected = filter_.correct(measurements);
     if (!corrected.ok()) {
       RETURN_IF_ERROR(readEstimate());

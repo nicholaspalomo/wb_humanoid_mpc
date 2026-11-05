@@ -488,9 +488,10 @@ CHECKS = [
         ),
         hint=(
             "Name the literal after what it is (kPositionDim,"
-            " kDefaultSwingHeight), with the literal's type: `static constexpr"
-            " T kName = ...;` in its class, `constexpr` in the .cpp's unnamed"
-            " namespace, `inline constexpr` in a header that shares it (the"
+            " kNomPosBaseRtSurfaceEwrtWorldZ), with the literal's type:"
+            " `static constexpr T kName = ...;` in its class, `constexpr` in"
+            " the .cpp's unnamed namespace, `inline constexpr` in a header that"
+            " shares it (the"
             " generic dimensions are in ocs2_core/Dimensions.h). A literal that"
             " must stay carries `// NOLINT(magic-number): <reason>`."
         ),

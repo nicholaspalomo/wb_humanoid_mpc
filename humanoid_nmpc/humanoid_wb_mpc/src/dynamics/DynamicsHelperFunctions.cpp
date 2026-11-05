@@ -49,15 +49,16 @@ namespace {
 /** Returns the world-frame wrench of each contact that `state` and `input`
  * carry, in the order of the contacts. */
 template <typename SCALAR_T>
-feet_array_t<VECTOR6_T<SCALAR_T>> contactWrenchesInWorldFrame(
+feet_array_t<VECTOR6_T<SCALAR_T>> computeWrenchContactsEwrtWorld(
     const VECTOR_T<SCALAR_T>& state,
     const VECTOR_T<SCALAR_T>& input,
     const WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel) {
-  feet_array_t<VECTOR6_T<SCALAR_T>> wrenches;
+  feet_array_t<VECTOR6_T<SCALAR_T>> wrenchContactsEwrtWorld;
   for (size_t i = 0; i < kNumContacts; ++i)
-    wrenches[i] = mpcRobotModel.getWrenchContactEwrtWorld(state, input,
-                                                          /*contactIndex=*/i);
-  return wrenches;
+    wrenchContactsEwrtWorld[i] =
+        mpcRobotModel.getWrenchContactEwrtWorld(state, input,
+                                                /*contactIndex=*/i);
+  return wrenchContactsEwrtWorld;
 }
 
 }  // namespace
@@ -67,7 +68,7 @@ feet_array_t<VECTOR6_T<SCALAR_T>> contactWrenchesInWorldFrame(
 /******************************************************************************************************/
 
 template <typename SCALAR_T>
-VECTOR6_T<SCALAR_T> computeBaseAcceleration(
+VECTOR6_T<SCALAR_T> computeBaseGeneralizedAcceleration(
     const VECTOR_T<SCALAR_T>& state,
     const VECTOR_T<SCALAR_T>& input,
     const PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
@@ -92,30 +93,33 @@ VECTOR6_T<SCALAR_T> computeBaseAcceleration(
   // take world-frame wrenches. The state-aware accessor is frame-correct for
   // every input parameterization; for the wrench-space WB model it is the input
   // wrench itself.
-  VECTOR6_T<SCALAR_T> baseExternalForces = VECTOR6_T<SCALAR_T>::Zero();
+  VECTOR6_T<SCALAR_T> baseGeneralizedExternalForce =
+      VECTOR6_T<SCALAR_T>::Zero();
   for (size_t i = 0; i < kNumContacts; ++i) {
-    MATRIX_T<SCALAR_T> soleJacobian =
+    MATRIX_T<SCALAR_T> jacContactRtWorldEwrtWorld =
         MATRIX_T<SCALAR_T>::Zero(kTwistDim, mpcRobotModel.getVelocityDim());
     pinocchio::computeFrameJacobian(
         model, data, q,
         getContactFrameIndex<SCALAR_T>(pinInterface, mpcRobotModel, i),
-        pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED, soleJacobian);
-    const MATRIX6_T<SCALAR_T> soleBaseJacobian =
-        soleJacobian.leftCols(kPoseTangentDim);
-    baseExternalForces +=
-        soleBaseJacobian.transpose() * mpcRobotModel.getWrenchContactEwrtWorld(
-                                           state, input, /*contactIndex=*/i);
+        pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED,
+        jacContactRtWorldEwrtWorld);
+    const MATRIX6_T<SCALAR_T> baseColsJacContactRtWorldEwrtWorld =
+        jacContactRtWorldEwrtWorld.leftCols(kPoseTangentDim);
+    baseGeneralizedExternalForce +=
+        baseColsJacContactRtWorldEwrtWorld.transpose() *
+        mpcRobotModel.getWrenchContactEwrtWorld(state, input,
+                                                /*contactIndex=*/i);
   }
 
   return computeBaseGeneralizedAcceleration<SCALAR_T>(
-      data.M, data.nle, qdd_joints, baseExternalForces);
+      data.M, data.nle, qdd_joints, baseGeneralizedExternalForce);
 }
-template ad_vector6_t computeBaseAcceleration(
+template ad_vector6_t computeBaseGeneralizedAcceleration(
     const ad_vector_t& state,
     const ad_vector_t& input,
     const PinocchioInterfaceTpl<ad_scalar_t>& pinInterface,
     const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel);
-template vector6_t computeBaseAcceleration(
+template vector6_t computeBaseGeneralizedAcceleration(
     const vector_t& state,
     const vector_t& input,
     const PinocchioInterfaceTpl<scalar_t>& pinInterface,
@@ -136,8 +140,8 @@ VECTOR_T<SCALAR_T> computeGeneralizedAccelerations(
   VECTOR_T<SCALAR_T> generalizedAccelerations =
       VECTOR_T<SCALAR_T>::Zero(mpcRobotModel.getVelocityDim());
   generalizedAccelerations.head(kPoseTangentDim) =
-      computeBaseAcceleration<SCALAR_T>(state, input, pinInterface,
-                                        mpcRobotModel);
+      computeBaseGeneralizedAcceleration<SCALAR_T>(state, input, pinInterface,
+                                                   mpcRobotModel);
   generalizedAccelerations.tail(mpcRobotModel.getJointDim()) =
       mpcRobotModel.getJointAccelerations(input);
   return generalizedAccelerations;
@@ -175,13 +179,13 @@ VECTOR_T<SCALAR_T> computeStateDerivative(
       VECTOR_T<SCALAR_T>::Zero(mpcRobotModel.getStateDim());
   state_derivative.segment(mpcRobotModel.getBaseStartindex(), kPositionDim) =
       state.segment(velocityStart, kPositionDim);
-  const VECTOR4_T<SCALAR_T> orientation =
+  const VECTOR4_T<SCALAR_T> quatBaseRtWorldXyzw =
       state.template segment<kQuaternionCoefficients>(orientationStart);
-  const VECTOR3_T<SCALAR_T> angularVelocityLocal =
+  const VECTOR3_T<SCALAR_T> angvelBaseRtWorldEwrtBase =
       state.template segment<kRotationTangentDim>(velocityStart + kPositionDim);
   state_derivative.template segment<kQuaternionCoefficients>(orientationStart) =
       SCALAR_T(kUnitQuaternionHalfAngleFactor) *
-      (quaternionRateMatrix(orientation) * angularVelocityLocal);
+      (quaternionRateMatrix(quatBaseRtWorldXyzw) * angvelBaseRtWorldEwrtBase);
   state_derivative.segment(mpcRobotModel.getJointStartindex(),
                            mpcRobotModel.getJointDim()) =
       mpcRobotModel.getJointVelocities(state, input);
@@ -218,11 +222,11 @@ VECTOR_T<SCALAR_T> computeJointTorques(
       mpcRobotModel.getJointAccelerations(input);
 
   // World-frame wrenches for the LOCAL_WORLD_ALIGNED Jacobians of
-  // computeJointTorques (see computeBaseAcceleration).
-  const feet_array_t<VECTOR6_T<SCALAR_T>> footWrenches =
-      contactWrenchesInWorldFrame<SCALAR_T>(state, input, mpcRobotModel);
+  // computeJointTorques (see computeBaseGeneralizedAcceleration).
+  const feet_array_t<VECTOR6_T<SCALAR_T>> wrenchContactsEwrtWorld =
+      computeWrenchContactsEwrtWorld<SCALAR_T>(state, input, mpcRobotModel);
   return computeJointTorques<SCALAR_T>(
-      q, qd, qdd_joints, footWrenches,
+      q, qd, qdd_joints, wrenchContactsEwrtWorld,
       getContactFrameIndexArray<SCALAR_T>(pinInterface, mpcRobotModel),
       pinInterface);
 }
@@ -251,7 +255,7 @@ VECTOR_T<SCALAR_T> computeBaseHeldJointTorques(
       mpcRobotModel.getGeneralizedCoordinates(state),
       mpcRobotModel.getGeneralizedVelocities(state, input),
       mpcRobotModel.getJointAccelerations(input),
-      contactWrenchesInWorldFrame<SCALAR_T>(state, input, mpcRobotModel),
+      computeWrenchContactsEwrtWorld<SCALAR_T>(state, input, mpcRobotModel),
       getContactFrameIndexArray<SCALAR_T>(pinInterface, mpcRobotModel),
       pinInterface);
 }

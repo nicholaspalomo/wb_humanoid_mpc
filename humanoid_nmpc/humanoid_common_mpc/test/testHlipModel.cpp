@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/contact_planning/hlip/HlipModel.h"
 
@@ -64,32 +65,35 @@ HlipModel makeDoubleSupportModel() {
 TEST(HlipModel, createRefusesAnOutOfBoundsCadenceOrPendulum) {
   const scalar_t nan = std::numeric_limits<scalar_t>::quiet_NaN();
   EXPECT_TRUE(HlipModel::Create(/*sspDuration=*/0.3, /*dspDuration=*/0.0,
-                                /*comHeight=*/0.85, /*gravity=*/9.81)
+                                /*nomPosComRtFeetmeanEwrtWorldZ=*/0.85,
+                                /*gravity=*/9.81)
                   .ok());
   for (const scalar_t ssp : {0.0, -0.1, nan}) {
-    EXPECT_EQ(HlipModel::Create(ssp, /*dspDuration=*/0.0, /*comHeight=*/0.85,
+    EXPECT_EQ(HlipModel::Create(ssp, /*dspDuration=*/0.0,
+                                /*nomPosComRtFeetmeanEwrtWorldZ=*/0.85,
                                 /*gravity=*/9.81)
                   .status()
                   .code(),
               absl::StatusCode::kInvalidArgument);
   }
   for (const scalar_t dsp : {-0.01, nan}) {
-    EXPECT_EQ(HlipModel::Create(/*sspDuration=*/0.3, dsp, /*comHeight=*/0.85,
+    EXPECT_EQ(HlipModel::Create(/*sspDuration=*/0.3, dsp,
+                                /*nomPosComRtFeetmeanEwrtWorldZ=*/0.85,
                                 /*gravity=*/9.81)
                   .status()
                   .code(),
               absl::StatusCode::kInvalidArgument);
   }
-  for (const scalar_t height : {0.0, -0.85, nan}) {
+  for (const scalar_t nomPosComRtFeetmeanEwrtWorldZ : {0.0, -0.85, nan}) {
     EXPECT_EQ(HlipModel::Create(/*sspDuration=*/0.3, /*dspDuration=*/0.0,
-                                height, /*gravity=*/9.81)
+                                nomPosComRtFeetmeanEwrtWorldZ, /*gravity=*/9.81)
                   .status()
                   .code(),
               absl::StatusCode::kInvalidArgument);
   }
   for (const scalar_t gravity : {0.0, -9.81, nan}) {
     EXPECT_EQ(HlipModel::Create(/*sspDuration=*/0.3, /*dspDuration=*/0.0,
-                                /*comHeight=*/0.85, gravity)
+                                /*nomPosComRtFeetmeanEwrtWorldZ=*/0.85, gravity)
                   .status()
                   .code(),
               absl::StatusCode::kInvalidArgument);
@@ -105,18 +109,19 @@ TEST(HlipModel, naturalFrequencyAndStepDuration) {
 TEST(HlipModel, stepToStepMapComposesTheFlows) {
   const HlipModel model = makeDoubleSupportModel();
   const HlipModel::State state(0.05, 0.3);
-  const scalar_t stepLength = 0.2;
+  const scalar_t errPosFootRtWorldEwrtLocal = 0.2;
 
   // The map is the impact, then the double support drift, then the single
   // support flow.
   const HlipModel::State afterImpact =
-      HlipModel::applyStepTransition(state, stepLength);
+      HlipModel::applyStepTransition(state, errPosFootRtWorldEwrtLocal);
   const HlipModel::State afterDrift =
       HlipModel::flowDoubleSupport(afterImpact, model.dspDuration());
   const HlipModel::State expected =
       model.flowSingleSupport(afterDrift, model.sspDuration());
 
-  const HlipModel::State actual = model.applyStepToStep(state, stepLength);
+  const HlipModel::State actual =
+      model.applyStepToStep(state, errPosFootRtWorldEwrtLocal);
   EXPECT_NEAR(actual(0), expected(0), kTol);
   EXPECT_NEAR(actual(1), expected(1), kTol);
 }
@@ -136,9 +141,11 @@ TEST(HlipModel, deadbeatGainIsNilpotent) {
 
 TEST(HlipModel, periodOneOrbitIsAFixedPoint) {
   const HlipModel model = makePaperModel();
-  for (const scalar_t stepLength : {0.0, 0.15, -0.2}) {
-    const HlipModel::State orbit = model.periodOneOrbit(stepLength);
-    const HlipModel::State next = model.applyStepToStep(orbit, stepLength);
+  for (const scalar_t errPosFootRtWorldEwrtLocal : {0.0, 0.15, -0.2}) {
+    const HlipModel::State orbit =
+        model.periodOneOrbit(errPosFootRtWorldEwrtLocal);
+    const HlipModel::State next =
+        model.applyStepToStep(orbit, errPosFootRtWorldEwrtLocal);
     EXPECT_NEAR(next(0), orbit(0), 1.0e-9);
     EXPECT_NEAR(next(1), orbit(1), 1.0e-9);
   }
@@ -149,27 +156,31 @@ TEST(HlipModel, periodOneOrbitAdvancesByTheStepEveryStep) {
   // integrating the velocity the continuous flow produces over one whole step
   // must give back the step length the orbit was built for.
   const HlipModel model = makePaperModel();
-  const scalar_t velocity = 0.4;
-  const scalar_t stepLength = velocity * model.stepDuration();
-  const HlipModel::State orbit = model.periodOneOrbit(stepLength);
+  const scalar_t desLinvelComRtWorldEwrtHeadingX = 0.4;
+  const scalar_t errPosFootRtWorldEwrtLocal =
+      desLinvelComRtWorldEwrtHeadingX * model.stepDuration();
+  const HlipModel::State orbit =
+      model.periodOneOrbit(errPosFootRtWorldEwrtLocal);
   const HlipModel::State postImpact =
-      HlipModel::applyStepTransition(orbit, stepLength);
+      HlipModel::applyStepTransition(orbit, errPosFootRtWorldEwrtLocal);
 
   constexpr int kSamples = 20000;
   const scalar_t sampleTime =
       model.sspDuration() / static_cast<scalar_t>(kSamples);
-  scalar_t displacement = model.dspDuration() * postImpact(1);
+  scalar_t errPosComRtWorldEwrtLocal = model.dspDuration() * postImpact(1);
   const HlipModel::State afterDrift =
       HlipModel::flowDoubleSupport(postImpact, model.dspDuration());
   for (int sample = 0; sample < kSamples; ++sample) {
     const scalar_t start = sampleTime * static_cast<scalar_t>(sample);
     const scalar_t end = start + sampleTime;
-    displacement += 0.5 * sampleTime *
-                    (model.flowSingleSupport(afterDrift, start)(1) +
-                     model.flowSingleSupport(afterDrift, end)(1));
+    errPosComRtWorldEwrtLocal +=
+        0.5 * sampleTime *
+        (model.flowSingleSupport(afterDrift, start)(1) +
+         model.flowSingleSupport(afterDrift, end)(1));
   }
-  EXPECT_NEAR(displacement, stepLength, 1.0e-6);
-  EXPECT_NEAR(displacement / model.stepDuration(), velocity, 1.0e-6);
+  EXPECT_NEAR(errPosComRtWorldEwrtLocal, errPosFootRtWorldEwrtLocal, 1.0e-6);
+  EXPECT_NEAR(errPosComRtWorldEwrtLocal / model.stepDuration(),
+              desLinvelComRtWorldEwrtHeadingX, 1.0e-6);
 }
 
 TEST(HlipModel, periodTwoOrbitAlternates) {
@@ -195,13 +206,15 @@ TEST(HlipModel, periodTwoOrbitAlternates) {
 
 TEST(HlipModel, deadbeatControllerRecoversInTwoSteps) {
   const HlipModel model = makeDoubleSupportModel();
-  const scalar_t stepLength = 0.3 * model.stepDuration();
-  const HlipModel::State orbit = model.periodOneOrbit(stepLength);
+  const scalar_t errPosFootRtWorldEwrtLocal = 0.3 * model.stepDuration();
+  const HlipModel::State orbit =
+      model.periodOneOrbit(errPosFootRtWorldEwrtLocal);
 
   HlipModel::State state(orbit(0) + 0.08,
                          orbit(1) - 0.25);  // a shove, well away from the orbit
   for (int step = 0; step < 2; ++step) {
-    const scalar_t command = model.deadbeatStepLength(state, orbit, stepLength);
+    const scalar_t command =
+        model.deadbeatStepLength(state, orbit, errPosFootRtWorldEwrtLocal);
     state = model.applyStepToStep(state, command);
   }
   EXPECT_NEAR(state(0), orbit(0), 1.0e-9);
@@ -210,10 +223,12 @@ TEST(HlipModel, deadbeatControllerRecoversInTwoSteps) {
 
 TEST(HlipModel, deadbeatControllerLeavesTheOrbitAlone) {
   const HlipModel model = makePaperModel();
-  const scalar_t stepLength = 0.18;
-  const HlipModel::State orbit = model.periodOneOrbit(stepLength);
-  EXPECT_NEAR(model.deadbeatStepLength(orbit, orbit, stepLength), stepLength,
-              kTol);
+  const scalar_t errPosFootRtWorldEwrtLocal = 0.18;
+  const HlipModel::State orbit =
+      model.periodOneOrbit(errPosFootRtWorldEwrtLocal);
+  EXPECT_NEAR(
+      model.deadbeatStepLength(orbit, orbit, errPosFootRtWorldEwrtLocal),
+      errPosFootRtWorldEwrtLocal, kTol);
 }
 
 }  // namespace

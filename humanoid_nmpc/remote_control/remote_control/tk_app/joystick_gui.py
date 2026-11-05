@@ -168,9 +168,9 @@ class JoystickGui(tk.Frame):
     def stop_drag(self, event: tk.Event) -> None:
         del event  # Unused.
         if self.auto_center_var is not None and self.auto_center_var.get():
-            self.set_position()
+            self.set_deflection()
 
-    def set_position(self, x_norm: float = 0.0, y_norm: float = 0.0) -> None:
+    def set_deflection(self, x_norm: float = 0.0, y_norm: float = 0.0) -> None:
         """Puts the handle at a normalized position (default: the center) and ends any drag.
 
         Args:

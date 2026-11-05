@@ -69,13 +69,18 @@ TEST(PendulumFrequency, IsTheSquareRootOfGravityOverHeight) {
 TEST(PendulumFrequency, IsUndefinedForANonPositiveOrNonFiniteInput) {
   const scalar_t nan = std::numeric_limits<scalar_t>::quiet_NaN();
   const scalar_t infinity = std::numeric_limits<scalar_t>::infinity();
-  EXPECT_FALSE(pendulumFrequency(kGravity, /*pendulumHeight=*/0.0).has_value());
   EXPECT_FALSE(
-      pendulumFrequency(kGravity, /*pendulumHeight=*/-0.8).has_value());
+      pendulumFrequency(kGravity, /*proxyPosComRtFeetmeanEwrtWorldZ=*/0.0)
+          .has_value());
   EXPECT_FALSE(
-      pendulumFrequency(/*gravity=*/0.0, /*pendulumHeight=*/0.8).has_value());
+      pendulumFrequency(kGravity, /*proxyPosComRtFeetmeanEwrtWorldZ=*/-0.8)
+          .has_value());
+  EXPECT_FALSE(pendulumFrequency(/*gravityMagnitude=*/0.0,
+                                 /*proxyPosComRtFeetmeanEwrtWorldZ=*/0.8)
+                   .has_value());
   EXPECT_FALSE(pendulumFrequency(kGravity, nan).has_value());
-  EXPECT_FALSE(pendulumFrequency(nan, /*pendulumHeight=*/0.8).has_value());
+  EXPECT_FALSE(pendulumFrequency(nan, /*proxyPosComRtFeetmeanEwrtWorldZ=*/0.8)
+                   .has_value());
   EXPECT_FALSE(pendulumFrequency(kGravity, infinity).has_value());
 }
 
@@ -93,54 +98,70 @@ TEST(DivergentComponentOfMotion, IsThePendulumsDivergentMode) {
       FAIL() << "a positive height has a pendulum frequency";
     }
     const scalar_t omega = *frequency;
-    const vector3_t zmp = randomVector(generator, /*scale=*/1.0);
-    const vector3_t divergent = randomVector(generator, /*scale=*/0.1);
-    const vector3_t convergent = randomVector(generator, /*scale=*/0.1);
+    const vector3_t posZmpRtWorldEwrtWorld =
+        randomVector(generator, /*scale=*/1.0);
+    const vector3_t divergentPosComRtZmpEwrtWorld =
+        randomVector(generator, /*scale=*/0.1);
+    const vector3_t convergentPosComRtZmpEwrtWorld =
+        randomVector(generator, /*scale=*/0.1);
     const scalar_t t = time(generator);
-    const vector3_t com = zmp + divergent * std::exp(omega * t) +
-                          convergent * std::exp(-omega * t);
-    const vector3_t comVelocity = omega * (divergent * std::exp(omega * t) -
-                                           convergent * std::exp(-omega * t));
-    const vector2_t expected = (zmp + 2.0 * divergent * std::exp(omega * t))
-                                   .head<kHorizontalPositionDim>();
-    EXPECT_LT(
-        (divergentComponentOfMotion(com, comVelocity, omega) - expected).norm(),
-        kTolerance)
+    const vector3_t posComRtWorldEwrtWorld =
+        posZmpRtWorldEwrtWorld +
+        divergentPosComRtZmpEwrtWorld * std::exp(omega * t) +
+        convergentPosComRtZmpEwrtWorld * std::exp(-omega * t);
+    const vector3_t linvelComRtWorldEwrtWorld =
+        omega * (divergentPosComRtZmpEwrtWorld * std::exp(omega * t) -
+                 convergentPosComRtZmpEwrtWorld * std::exp(-omega * t));
+    const vector2_t expected =
+        (posZmpRtWorldEwrtWorld +
+         2.0 * divergentPosComRtZmpEwrtWorld * std::exp(omega * t))
+            .head<kHorizontalPositionDim>();
+    EXPECT_LT((computePosDcmRtWorldEwrtWorldXy(
+                   posComRtWorldEwrtWorld, linvelComRtWorldEwrtWorld, omega) -
+               expected)
+                  .norm(),
+              kTolerance)
         << trial;
   }
 }
 
 TEST(DivergentComponentOfMotion, IsTheComAtRestAndIgnoresTheVerticalAxis) {
-  const vector3_t com(0.1, -0.2, 0.9);
-  EXPECT_LT((divergentComponentOfMotion(com, vector3_t(0.0, 0.0, 0.7),
-                                        /*omega=*/3.0) -
-             com.head<kHorizontalPositionDim>())
+  const vector3_t posComRtWorldEwrtWorld(0.1, -0.2, 0.9);
+  EXPECT_LT((computePosDcmRtWorldEwrtWorldXy(posComRtWorldEwrtWorld,
+                                             vector3_t(0.0, 0.0, 0.7),
+                                             /*omega=*/3.0) -
+             posComRtWorldEwrtWorld.head<kHorizontalPositionDim>())
                 .norm(),
             kTolerance);
 }
 
-/** The net contact moment about `point`: sum_i (r_i - point) x f_i + tau_i. */
-vector3_t momentAbout(const vector3_t& point,
-                      const feet_array_t<vector3_t>& positions,
-                      const feet_array_t<vector6_t>& wrenches) {
-  vector3_t moment = vector3_t::Zero();
+/** The net contact moment about the point `posLocalRtWorldEwrtWorld`: sum_i
+ * (r_i - point) x f_i + tau_i. */
+vector3_t computeTorqueLocalEwrtWorld(
+    const vector3_t& posLocalRtWorldEwrtWorld,
+    const feet_array_t<vector3_t>& posFeetRtWorldEwrtWorld,
+    const feet_array_t<vector6_t>& wrenchFeetEwrtWorld) {
+  vector3_t torqueLocalEwrtWorld = vector3_t::Zero();
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    moment += (positions[contact] - point)
-                  .cross(vector3_t(wrenches[contact].head<kForceDim>())) +
-              vector3_t(wrenches[contact].tail<kTorqueDim>());
+    torqueLocalEwrtWorld +=
+        (posFeetRtWorldEwrtWorld[contact] - posLocalRtWorldEwrtWorld)
+            .cross(vector3_t(wrenchFeetEwrtWorld[contact].head<kForceDim>())) +
+        vector3_t(wrenchFeetEwrtWorld[contact].tail<kTorqueDim>());
   }
-  return moment;
+  return torqueLocalEwrtWorld;
 }
 
-feet_array_t<vector6_t> randomWrenches(std::mt19937& generator) {
+feet_array_t<vector6_t> randomWrenchFeetEwrtWorld(std::mt19937& generator) {
   std::uniform_real_distribution<scalar_t> normal(50.0, 500.0);
-  feet_array_t<vector6_t> wrenches;
-  for (vector6_t& wrench : wrenches) {
-    wrench.head<kForceDim>() = randomVector(generator, /*scale=*/100.0);
-    wrench[kWrenchForceZIndex] = normal(generator);
-    wrench.tail<kTorqueDim>() = randomVector(generator, /*scale=*/20.0);
+  feet_array_t<vector6_t> wrenchFeetEwrtWorld;
+  for (vector6_t& wrenchFootEwrtWorld : wrenchFeetEwrtWorld) {
+    wrenchFootEwrtWorld.head<kForceDim>() =
+        randomVector(generator, /*scale=*/100.0);
+    wrenchFootEwrtWorld[kWrenchForceZIndex] = normal(generator);
+    wrenchFootEwrtWorld.tail<kTorqueDim>() =
+        randomVector(generator, /*scale=*/20.0);
   }
-  return wrenches;
+  return wrenchFeetEwrtWorld;
 }
 
 // The defining property: the net contact moment about the ZMP has no horizontal
@@ -148,24 +169,30 @@ feet_array_t<vector6_t> randomWrenches(std::mt19937& generator) {
 TEST(ZeroMomentPoint, TheNetMomentAboutItIsVertical) {
   std::mt19937 generator(/*seed=*/3);
   for (int trial = 0; trial < kTrials; ++trial) {
-    const feet_array_t<vector3_t> positions = {
+    const feet_array_t<vector3_t> posFeetRtWorldEwrtWorld = {
         randomVector(generator, /*scale=*/0.5),
         randomVector(generator, /*scale=*/0.5)};
-    const feet_array_t<vector6_t> wrenches = randomWrenches(generator);
-    const std::optional<vector3_t> zmp =
-        zeroMomentPoint(positions, wrenches, /*minNormalForce=*/1.0);
-    if (!zmp.has_value()) {
+    const feet_array_t<vector6_t> wrenchFeetEwrtWorld =
+        randomWrenchFeetEwrtWorld(generator);
+    const std::optional<vector3_t> posZmpRtWorldEwrtWorld =
+        computePosZmpRtWorldEwrtWorld(posFeetRtWorldEwrtWorld,
+                                      wrenchFeetEwrtWorld,
+                                      /*minForceWorldEwrtWorldZ=*/1.0);
+    if (!posZmpRtWorldEwrtWorld.has_value()) {
       FAIL() << "loaded feet have a ZMP";
     }
-    const vector3_t moment = momentAbout(*zmp, positions, wrenches);
-    EXPECT_NEAR(moment.x(), 0.0, 1.0e-8) << trial;
-    EXPECT_NEAR(moment.y(), 0.0, 1.0e-8) << trial;
+    const vector3_t torqueZmpEwrtWorld = computeTorqueLocalEwrtWorld(
+        *posZmpRtWorldEwrtWorld, posFeetRtWorldEwrtWorld, wrenchFeetEwrtWorld);
+    EXPECT_NEAR(torqueZmpEwrtWorld.x(), 0.0, 1.0e-8) << trial;
+    EXPECT_NEAR(torqueZmpEwrtWorld.y(), 0.0, 1.0e-8) << trial;
     // The plane is the normal-force-weighted contact height.
-    const scalar_t height =
-        (wrenches[0][kWrenchForceZIndex] * positions[0].z() +
-         wrenches[1][kWrenchForceZIndex] * positions[1].z()) /
-        (wrenches[0][kWrenchForceZIndex] + wrenches[1][kWrenchForceZIndex]);
-    EXPECT_NEAR(zmp->z(), height, kTolerance) << trial;
+    const scalar_t height = (wrenchFeetEwrtWorld[0][kWrenchForceZIndex] *
+                                 posFeetRtWorldEwrtWorld[0].z() +
+                             wrenchFeetEwrtWorld[1][kWrenchForceZIndex] *
+                                 posFeetRtWorldEwrtWorld[1].z()) /
+                            (wrenchFeetEwrtWorld[0][kWrenchForceZIndex] +
+                             wrenchFeetEwrtWorld[1][kWrenchForceZIndex]);
+    EXPECT_NEAR(posZmpRtWorldEwrtWorld->z(), height, kTolerance) << trial;
   }
 }
 
@@ -174,23 +201,31 @@ TEST(ZeroMomentPoint, TheNetMomentAboutItIsVertical) {
 TEST(ZeroMomentPoint, OfOneFootOnFlatGroundIsItsCenterOfPressure) {
   std::mt19937 generator(/*seed=*/4);
   for (int trial = 0; trial < kTrials; ++trial) {
-    feet_array_t<vector3_t> positions = {
+    feet_array_t<vector3_t> posFeetRtWorldEwrtWorld = {
         randomVector(generator, /*scale=*/0.5),
         randomVector(generator, /*scale=*/0.5)};
-    positions[1].z() = positions[0].z();
-    feet_array_t<vector6_t> wrenches = randomWrenches(generator);
-    wrenches[1].setZero();
-    const std::optional<vector3_t> zmp =
-        zeroMomentPoint(positions, wrenches, /*minNormalForce=*/1.0);
-    if (!zmp.has_value()) {
+    posFeetRtWorldEwrtWorld[1].z() = posFeetRtWorldEwrtWorld[0].z();
+    feet_array_t<vector6_t> wrenchFeetEwrtWorld =
+        randomWrenchFeetEwrtWorld(generator);
+    wrenchFeetEwrtWorld[1].setZero();
+    const std::optional<vector3_t> posZmpRtWorldEwrtWorld =
+        computePosZmpRtWorldEwrtWorld(posFeetRtWorldEwrtWorld,
+                                      wrenchFeetEwrtWorld,
+                                      /*minForceWorldEwrtWorldZ=*/1.0);
+    if (!posZmpRtWorldEwrtWorld.has_value()) {
       FAIL() << "loaded feet have a ZMP";
     }
-    const scalar_t normalForce = wrenches[0][kWrenchForceZIndex];
-    const vector3_t centerOfPressure =
-        positions[0] +
-        vector3_t(-wrenches[0][kWrenchTorqueYIndex] / normalForce,
-                  wrenches[0][kWrenchTorqueXIndex] / normalForce, 0.0);
-    EXPECT_LT((*zmp - centerOfPressure).norm(), kTolerance) << trial;
+    const scalar_t forceFootEwrtWorldZ =
+        wrenchFeetEwrtWorld[0][kWrenchForceZIndex];
+    const vector3_t posCopRtWorldEwrtWorld =
+        posFeetRtWorldEwrtWorld[0] +
+        vector3_t(
+            -wrenchFeetEwrtWorld[0][kWrenchTorqueYIndex] / forceFootEwrtWorldZ,
+            wrenchFeetEwrtWorld[0][kWrenchTorqueXIndex] / forceFootEwrtWorldZ,
+            0.0);
+    EXPECT_LT((*posZmpRtWorldEwrtWorld - posCopRtWorldEwrtWorld).norm(),
+              kTolerance)
+        << trial;
   }
 }
 
@@ -199,38 +234,56 @@ TEST(ZeroMomentPoint, OfOneFootOnFlatGroundIsItsCenterOfPressure) {
 TEST(ZeroMomentPoint, MovesWithTheContacts) {
   std::mt19937 generator(/*seed=*/5);
   for (int trial = 0; trial < kTrials; ++trial) {
-    feet_array_t<vector3_t> positions = {
+    feet_array_t<vector3_t> posFeetRtWorldEwrtWorld = {
         randomVector(generator, /*scale=*/0.5),
         randomVector(generator, /*scale=*/0.5)};
-    const feet_array_t<vector6_t> wrenches = randomWrenches(generator);
-    const vector3_t offset(randomVector(generator, /*scale=*/2.0).x(),
-                           randomVector(generator, /*scale=*/2.0).y(), 0.0);
-    const std::optional<vector3_t> zmp =
-        zeroMomentPoint(positions, wrenches, /*minNormalForce=*/1.0);
-    for (vector3_t& position : positions) {
-      position += offset;
+    const feet_array_t<vector6_t> wrenchFeetEwrtWorld =
+        randomWrenchFeetEwrtWorld(generator);
+    const vector3_t errPosFootRtWorldEwrtWorld(
+        randomVector(generator, /*scale=*/2.0).x(),
+        randomVector(generator, /*scale=*/2.0).y(), 0.0);
+    const std::optional<vector3_t> posZmpRtWorldEwrtWorld =
+        computePosZmpRtWorldEwrtWorld(posFeetRtWorldEwrtWorld,
+                                      wrenchFeetEwrtWorld,
+                                      /*minForceWorldEwrtWorldZ=*/1.0);
+    for (vector3_t& posFootRtWorldEwrtWorld : posFeetRtWorldEwrtWorld) {
+      posFootRtWorldEwrtWorld += errPosFootRtWorldEwrtWorld;
     }
-    const std::optional<vector3_t> moved =
-        zeroMomentPoint(positions, wrenches, /*minNormalForce=*/1.0);
-    if (!(zmp.has_value() && moved.has_value())) {
+    const std::optional<vector3_t> movedPosZmpRtWorldEwrtWorld =
+        computePosZmpRtWorldEwrtWorld(posFeetRtWorldEwrtWorld,
+                                      wrenchFeetEwrtWorld,
+                                      /*minForceWorldEwrtWorldZ=*/1.0);
+    if (!(posZmpRtWorldEwrtWorld.has_value() &&
+          movedPosZmpRtWorldEwrtWorld.has_value())) {
       FAIL() << "loaded feet have a ZMP";
     }
-    EXPECT_LT((*moved - (*zmp + offset)).norm(), 1.0e-8) << trial;
+    EXPECT_LT((*movedPosZmpRtWorldEwrtWorld -
+               (*posZmpRtWorldEwrtWorld + errPosFootRtWorldEwrtWorld))
+                  .norm(),
+              1.0e-8)
+        << trial;
   }
 }
 
 TEST(ZeroMomentPoint, IsUndefinedWithoutNormalForce) {
-  const feet_array_t<vector3_t> positions = {vector3_t(0.0, 0.1, 0.0),
-                                             vector3_t(0.0, -0.1, 0.0)};
-  feet_array_t<vector6_t> wrenches = {vector6_t::Zero(), vector6_t::Zero()};
-  EXPECT_FALSE(
-      zeroMomentPoint(positions, wrenches, /*minNormalForce=*/1.0).has_value());
-  wrenches[0][kWrenchForceZIndex] = 0.5;
-  EXPECT_FALSE(
-      zeroMomentPoint(positions, wrenches, /*minNormalForce=*/1.0).has_value());
-  wrenches[1][kWrenchForceZIndex] = 0.6;
-  EXPECT_TRUE(
-      zeroMomentPoint(positions, wrenches, /*minNormalForce=*/1.0).has_value());
+  const feet_array_t<vector3_t> posFeetRtWorldEwrtWorld = {
+      vector3_t(0.0, 0.1, 0.0), vector3_t(0.0, -0.1, 0.0)};
+  feet_array_t<vector6_t> wrenchFeetEwrtWorld = {vector6_t::Zero(),
+                                                 vector6_t::Zero()};
+  EXPECT_FALSE(computePosZmpRtWorldEwrtWorld(posFeetRtWorldEwrtWorld,
+                                             wrenchFeetEwrtWorld,
+                                             /*minForceWorldEwrtWorldZ=*/1.0)
+                   .has_value());
+  wrenchFeetEwrtWorld[0][kWrenchForceZIndex] = 0.5;
+  EXPECT_FALSE(computePosZmpRtWorldEwrtWorld(posFeetRtWorldEwrtWorld,
+                                             wrenchFeetEwrtWorld,
+                                             /*minForceWorldEwrtWorldZ=*/1.0)
+                   .has_value());
+  wrenchFeetEwrtWorld[1][kWrenchForceZIndex] = 0.6;
+  EXPECT_TRUE(computePosZmpRtWorldEwrtWorld(posFeetRtWorldEwrtWorld,
+                                            wrenchFeetEwrtWorld,
+                                            /*minForceWorldEwrtWorldZ=*/1.0)
+                  .has_value());
 }
 
 }  // namespace

@@ -90,11 +90,12 @@ class TelemetrySampler {
    * one, copies it into a slot. True when a sample was taken (or dropped
    * because the queue was full).
    */
-  bool sample(const robot::model::RobotState& robotState,
-              const robot::model::RobotJointAction& jointAction,
-              absl::string_view controlMode,
-              const contact_flag_t& measuredContactFlags,
-              const std::array<vector3_t, kNumContacts>& measuredContactForces);
+  bool sample(
+      const robot::model::RobotState& robotState,
+      const robot::model::RobotJointAction& jointAction,
+      absl::string_view controlMode,
+      const contact_flag_t& measuredContactFlags,
+      const std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld);
 
   /** Communication thread: hands every sample taken so far to `consumer`,
    * oldest first; returns how many. */

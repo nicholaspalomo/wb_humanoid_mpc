@@ -71,23 +71,24 @@ inline constexpr double kPrimitiveNormGuard = 1.0e-9;
 /** The box of a TerrainScene, validated: a rotation matrix and positive half
  * extents. */
 struct BoxGeometry {
-  Eigen::Vector3d center = Eigen::Vector3d::Zero();
+  Eigen::Vector3d posBoxRtWorldEwrtWorld = Eigen::Vector3d::Zero();
   // world_R_box: the columns are the box's axes in the world frame.
-  Eigen::Matrix3d rotation = Eigen::Matrix3d::Identity();
+  Eigen::Matrix3d rotmatBoxRtWorld = Eigen::Matrix3d::Identity();
   Eigen::Vector3d halfExtents = Eigen::Vector3d::Zero();
 };
 
 /** The capsule of a TerrainScene, validated, with what its queries precompute.
  */
 struct CapsuleGeometry {
-  Eigen::Vector3d start = Eigen::Vector3d::Zero();
-  Eigen::Vector3d end = Eigen::Vector3d::Zero();
+  // [m] The ends of the axis.
+  Eigen::Vector3d posCapsulestartRtWorldEwrtWorld = Eigen::Vector3d::Zero();
+  Eigen::Vector3d posCapsuleendRtWorldEwrtWorld = Eigen::Vector3d::Zero();
   double radius = 0.0;
-  // 1 / |end - start|^2, or 0 when the ends coincide (a sphere at start).
+  // 1 / |end - start|^2, or 0 when the ends coincide (a sphere at the start).
   double inverseSquaredLength = 0.0;
   // A unit vector orthogonal to the axis: the normal on the axis itself, where
   // the outward direction is undefined.
-  Eigen::Vector3d fallbackNormal = Eigen::Vector3d::UnitZ();
+  Eigen::Vector3d fallbackNormalSurfaceEwrtWorld = Eigen::Vector3d::UnitZ();
 };
 
 /** What a query of one primitive returns. Passive data. */
@@ -96,10 +97,11 @@ struct PrimitiveQuery {
   // [m] Negative inside the primitive.
   Scalar distance = Scalar(0.0);
   // The point of the surface nearest to the query point.
-  Vector3<Scalar> nearestPoint = Vector3<Scalar>::Zero();
-  // The unit outward normal of the surface at nearestPoint: the gradient of the
-  // signed distance at the query point.
-  Vector3<Scalar> normal = Vector3<Scalar>::UnitZ();
+  Vector3<Scalar> nearestPosSurfaceRtWorldEwrtWorld = Vector3<Scalar>::Zero();
+  // The unit outward normal of the surface at
+  // nearestPosSurfaceRtWorldEwrtWorld: the gradient of the signed distance at
+  // the query point.
+  Vector3<Scalar> normalSurfaceEwrtWorld = Vector3<Scalar>::UnitZ();
 };
 
 namespace internal {
@@ -166,31 +168,36 @@ Vector3<Scalar> selectVector(const Scalar& left,
 }  // namespace internal
 
 /**
- * Queries a box at `point` (world frame), exactly: outside, the distance to the
- * nearest face, edge or corner; inside, minus the distance to the nearest face.
- * On a tie between faces inside the box, the first axis wins (x, then y, then
- * z), and a coordinate exactly at the center plane counts as negative.
+ * Queries a box at `posQueryRtWorldEwrtWorld` (world frame), exactly: outside,
+ * the distance to the nearest face, edge or corner; inside, minus the distance
+ * to the nearest face. On a tie between faces inside the box, the first axis
+ * wins (x, then y, then z), and a coordinate exactly at the center plane counts
+ * as negative.
  */
 template <typename Scalar>
-PrimitiveQuery<Scalar> boxQuery(const BoxGeometry& box,
-                                const Vector3<Scalar>& point) {
+PrimitiveQuery<Scalar> boxQuery(
+    const BoxGeometry& box, const Vector3<Scalar>& posQueryRtWorldEwrtWorld) {
   using internal::ifGreaterThan;
-  const Matrix3<Scalar> rotation = box.rotation.cast<Scalar>();
-  const Vector3<Scalar> local =
-      rotation.transpose() * (point - box.center.cast<Scalar>());
-  Vector3<Scalar> excess;   // |x_i| - h_i, positive outside slab i
-  Vector3<Scalar> clamped;  // the nearest point of the box when outside
-  Vector3<Scalar> signOf;   // +-1, the side of each center plane
+  const Matrix3<Scalar> rotmatBoxRtWorld = box.rotmatBoxRtWorld.cast<Scalar>();
+  const Vector3<Scalar> posQueryRtBoxEwrtBox =
+      rotmatBoxRtWorld.transpose() *
+      (posQueryRtWorldEwrtWorld - box.posBoxRtWorldEwrtWorld.cast<Scalar>());
+  Vector3<Scalar> excess;  // |x_i| - h_i, positive outside slab i
+  Vector3<Scalar> outsideNearestPosSurfaceRtBoxEwrtBox;  // the nearest point of
+                                                         // the box when outside
+  Vector3<Scalar> signOf;  // +-1, the side of each center plane
   for (int axis = 0; axis < kPositionDim; ++axis) {
     const Scalar halfExtent = Scalar(box.halfExtents(axis));
-    excess(axis) = internal::absOf(local(axis)) - halfExtent;
-    clamped(axis) =
-        internal::clampOf(local(axis), Scalar(-halfExtent), halfExtent);
-    signOf(axis) =
-        ifGreaterThan(local(axis), Scalar(0.0), Scalar(1.0), Scalar(-1.0));
+    excess(axis) = internal::absOf(posQueryRtBoxEwrtBox(axis)) - halfExtent;
+    outsideNearestPosSurfaceRtBoxEwrtBox(axis) = internal::clampOf(
+        posQueryRtBoxEwrtBox(axis), Scalar(-halfExtent), halfExtent);
+    signOf(axis) = ifGreaterThan(posQueryRtBoxEwrtBox(axis), Scalar(0.0),
+                                 Scalar(1.0), Scalar(-1.0));
   }
-  const Vector3<Scalar> outsideOffset = local - clamped;  // zero inside
-  const Scalar outsideSquared = outsideOffset.squaredNorm();
+  const Vector3<Scalar> outsidePosQueryRtSurfaceEwrtBox =
+      posQueryRtBoxEwrtBox -
+      outsideNearestPosSurfaceRtBoxEwrtBox;  // zero inside
+  const Scalar outsideSquared = outsidePosQueryRtSurfaceEwrtBox.squaredNorm();
   const Scalar outsideNorm =
       internal::guardedSqrt(outsideSquared, kPrimitiveNormGuard);
   const Scalar guardSquared = Scalar(kPrimitiveNormGuard * kPrimitiveNormGuard);
@@ -206,14 +213,14 @@ PrimitiveQuery<Scalar> boxQuery(const BoxGeometry& box,
   chosen(kXAxisIndex) = xBeatsY * xBeatsZ;
   chosen(kYAxisIndex) = (Scalar(1.0) - chosen(kXAxisIndex)) * yBeatsZ;
   chosen(kZAxisIndex) = Scalar(1.0) - chosen(kXAxisIndex) - chosen(kYAxisIndex);
-  Vector3<Scalar> insideNormal;
-  Vector3<Scalar> insideNearest;
+  Vector3<Scalar> insideNormalSurfaceEwrtBox;
+  Vector3<Scalar> insideNearestPosSurfaceRtBoxEwrtBox;
   for (int axis = 0; axis < kPositionDim; ++axis) {
-    insideNormal(axis) = chosen(axis) * signOf(axis);
-    insideNearest(axis) =
-        local(axis) +
-        chosen(axis) *
-            (signOf(axis) * Scalar(box.halfExtents(axis)) - local(axis));
+    insideNormalSurfaceEwrtBox(axis) = chosen(axis) * signOf(axis);
+    insideNearestPosSurfaceRtBoxEwrtBox(axis) =
+        posQueryRtBoxEwrtBox(axis) +
+        chosen(axis) * (signOf(axis) * Scalar(box.halfExtents(axis)) -
+                        posQueryRtBoxEwrtBox(axis));
   }
   const Scalar largestExcess =
       internal::maxOf(internal::maxOf(excess(kXAxisIndex), excess(kYAxisIndex)),
@@ -222,41 +229,59 @@ PrimitiveQuery<Scalar> boxQuery(const BoxGeometry& box,
   PrimitiveQuery<Scalar> query;
   query.distance = ifGreaterThan(outsideSquared, guardSquared, outsideNorm,
                                  internal::minOf(largestExcess, Scalar(0.0)));
-  const Vector3<Scalar> outsideNormal = outsideOffset / outsideNorm;
-  query.normal = rotation * internal::selectVector(outsideSquared, guardSquared,
-                                                   outsideNormal, insideNormal);
-  query.nearestPoint =
-      box.center.cast<Scalar>() +
-      rotation * internal::selectVector(outsideSquared, guardSquared, clamped,
-                                        insideNearest);
+  const Vector3<Scalar> outsideNormalSurfaceEwrtBox =
+      outsidePosQueryRtSurfaceEwrtBox / outsideNorm;
+  query.normalSurfaceEwrtWorld =
+      rotmatBoxRtWorld * internal::selectVector(outsideSquared, guardSquared,
+                                                outsideNormalSurfaceEwrtBox,
+                                                insideNormalSurfaceEwrtBox);
+  query.nearestPosSurfaceRtWorldEwrtWorld =
+      box.posBoxRtWorldEwrtWorld.cast<Scalar>() +
+      rotmatBoxRtWorld *
+          internal::selectVector(outsideSquared, guardSquared,
+                                 outsideNearestPosSurfaceRtBoxEwrtBox,
+                                 insideNearestPosSurfaceRtBoxEwrtBox);
   return query;
 }
 
 /**
- * Queries a capsule at `point` (world frame), exactly: the distance to its axis
- * segment minus its radius. On the axis itself, the normal is the capsule's
- * fallbackNormal.
+ * Queries a capsule at `posQueryRtWorldEwrtWorld` (world frame), exactly: the
+ * distance to its axis segment minus its radius. On the axis itself, the normal
+ * is the capsule's fallbackNormalSurfaceEwrtWorld.
  */
 template <typename Scalar>
-PrimitiveQuery<Scalar> capsuleQuery(const CapsuleGeometry& capsule,
-                                    const Vector3<Scalar>& point) {
-  const Vector3<Scalar> start = capsule.start.cast<Scalar>();
-  const Vector3<Scalar> axis = (capsule.end - capsule.start).cast<Scalar>();
+PrimitiveQuery<Scalar> capsuleQuery(
+    const CapsuleGeometry& capsule,
+    const Vector3<Scalar>& posQueryRtWorldEwrtWorld) {
+  const Vector3<Scalar> posCapsulestartRtWorldEwrtWorld =
+      capsule.posCapsulestartRtWorldEwrtWorld.cast<Scalar>();
+  const Vector3<Scalar> posCapsuleendRtCapsulestartEwrtWorld =
+      (capsule.posCapsuleendRtWorldEwrtWorld -
+       capsule.posCapsulestartRtWorldEwrtWorld)
+          .cast<Scalar>();
   const Scalar fraction = internal::clampOf(
-      Scalar((point - start).dot(axis) * Scalar(capsule.inverseSquaredLength)),
+      Scalar((posQueryRtWorldEwrtWorld - posCapsulestartRtWorldEwrtWorld)
+                 .dot(posCapsuleendRtCapsulestartEwrtWorld) *
+             Scalar(capsule.inverseSquaredLength)),
       Scalar(0.0), Scalar(1.0));
-  const Vector3<Scalar> closest = start + fraction * axis;
-  const Vector3<Scalar> offset = point - closest;
-  const Scalar squared = offset.squaredNorm();
+  const Vector3<Scalar> posSegmentpointRtWorldEwrtWorld =
+      posCapsulestartRtWorldEwrtWorld +
+      fraction * posCapsuleendRtCapsulestartEwrtWorld;
+  const Vector3<Scalar> posQueryRtSegmentpointEwrtWorld =
+      posQueryRtWorldEwrtWorld - posSegmentpointRtWorldEwrtWorld;
+  const Scalar squared = posQueryRtSegmentpointEwrtWorld.squaredNorm();
   const Scalar norm = internal::guardedSqrt(squared, kPrimitiveNormGuard);
   const Scalar guardSquared = Scalar(kPrimitiveNormGuard * kPrimitiveNormGuard);
 
   PrimitiveQuery<Scalar> query;
   query.distance = norm - Scalar(capsule.radius);
-  query.normal = internal::selectVector(
-      squared, guardSquared, Vector3<Scalar>(offset / norm),
-      Vector3<Scalar>(capsule.fallbackNormal.cast<Scalar>()));
-  query.nearestPoint = closest + Scalar(capsule.radius) * query.normal;
+  query.normalSurfaceEwrtWorld = internal::selectVector(
+      squared, guardSquared,
+      Vector3<Scalar>(posQueryRtSegmentpointEwrtWorld / norm),
+      Vector3<Scalar>(capsule.fallbackNormalSurfaceEwrtWorld.cast<Scalar>()));
+  query.nearestPosSurfaceRtWorldEwrtWorld =
+      posSegmentpointRtWorldEwrtWorld +
+      Scalar(capsule.radius) * query.normalSurfaceEwrtWorld;
   return query;
 }
 

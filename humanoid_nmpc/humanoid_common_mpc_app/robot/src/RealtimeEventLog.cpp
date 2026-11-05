@@ -39,7 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** kCaughtAndSettling: the index of sim_gantry_catch_lift [m] in
+/** kCaughtAndSettling: the index of
+ * sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z [m] in
  * RealtimeEvent::values (SimFallRecovery's report). */
 constexpr size_t kCatchLiftValueIndex = 2;
 
@@ -76,7 +77,8 @@ std::string formatRealtimeEvent(const RealtimeEvent& event) {
                               event.count, event.values[0], event.values[1]),
           ". The gantry lifts the robot by ",
           event.values[kCatchLiftValueIndex],
-          " m (sim_gantry_catch_lift) until it rests at the nominal posture, "
+          " m (sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z) until it "
+          "rests at the nominal posture, "
           "then lowers it back; WB_MPC is accepted after "
           "that.");
     case RealtimeEventCode::kDiscontinuity:
@@ -119,7 +121,7 @@ std::string formatRealtimeEvent(const RealtimeEvent& event) {
     case RealtimeEventCode::kFallTorquesOff:
       return absl::StrCat(
           "[HardwareFallRecovery] The base tilted ", event.values[0],
-          " rad, past sim_max_base_tilt_angle ", event.values[1],
+          " rad, past sim_max_tiltangle_base_rt_world ", event.values[1],
           " rad: torques off (ZERO_TORQUE). An FSM command switches them on "
           "again.");
     case RealtimeEventCode::kControllerEvent:

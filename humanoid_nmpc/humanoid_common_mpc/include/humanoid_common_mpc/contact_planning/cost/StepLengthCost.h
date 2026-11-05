@@ -31,7 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/cost/LipWeightedCost.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningTerm.h"
+#include "humanoid_common_mpc/contact_planning/problem/StageAccumulator.h"
 
 namespace ocs2::humanoid {
 
@@ -45,9 +52,12 @@ namespace ocs2::humanoid {
  * it during its swing of duration T_swing, so d_nom = v_cmd dt T_stride /
  * T_swing with the nominal cadence of the gait limits, T_swing =
  * minSwingDuration and T_stride = 2 (minSwingDuration +
- * minDoubleSupportDuration). The residual is affine in the QP variables (dp and
- * the relaxed binary c), so the term stays a convex quadratic in every
- * relaxation.
+ * minDoubleSupportDuration). The input's v_cmd is the world-frame command at
+ * the planning instant, and the commanded heading turns at omega_cmd over the
+ * horizon, so node k uses d_nom rotated about z by omega_cmd k dt: the swing
+ * feet follow a turning command, as the heading-frame rows do. The residual is
+ * affine in the QP variables (dp and the relaxed binary c), so the term stays a
+ * convex quadratic in every relaxation.
  *
  * It complements velocity_tracking, which alone is indifferent between a few
  * long steps and many short ones at the same average speed and, from rest,
@@ -68,9 +78,9 @@ class StepLengthCost final : public LipWeightedCost {
                   StageAccumulator& stage) const override;
 
   /** d_nom of a foot in swing: the per-node displacement along each axis for
-   * `velocityCommand` at the nominal cadence. */
-  vector2_t nominalDisplacementPerNode(const vector2_t& velocityCommand,
-                                       scalar_t dt) const;
+   * `cmdLinvelBaseRtWorldEwrtWorldXy` at the nominal cadence. */
+  vector2_t computeNomErrPosFootRtWorldEwrtWorldXy(
+      const vector2_t& cmdLinvelBaseRtWorldEwrtWorldXy, scalar_t dt) const;
 
   /** T_stride / T_swing of the nominal cadence (the factor between the CoM's
    * and a swinging foot's advance per node). */

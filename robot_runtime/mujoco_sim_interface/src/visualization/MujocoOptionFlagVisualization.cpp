@@ -35,6 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mujoco/mujoco.h"
 
+#include "mujoco_sim_interface/visualization/MujocoVisualization.h"
+
 namespace robot::mujoco_sim_interface {
 
 MujocoOptionFlagVisualization::MujocoOptionFlagVisualization(
@@ -53,8 +55,7 @@ MujocoOptionFlagVisualization::contactPoints() {
       /*hotkey=*/'c', mjVIS_CONTACTPOINT);
 }
 std::unique_ptr<MujocoOptionFlagVisualization>
-// NOLINTNEXTLINE(frame-naming): names MuJoCo's mjVIS_CONTACTFORCE flag
-MujocoOptionFlagVisualization::contactForces() {
+MujocoOptionFlagVisualization::contactForceMarkers() {
   return std::make_unique<MujocoOptionFlagVisualization>(
       "mj_contact_forces",
       "MuJoCo's normal and friction force arrows at the contacts",

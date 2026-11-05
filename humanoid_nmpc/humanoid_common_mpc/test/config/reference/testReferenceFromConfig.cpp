@@ -45,8 +45,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 #include "humanoid_mpc_config/joint_value.nproto.h"
@@ -69,12 +69,12 @@ constexpr std::pair<absl::string_view, RequiredField> kRequiredFields[] = {
      &mpc_config::ReferenceFile::cmd_max_linvel_base_rt_world_ewrt_heading_x},
     {"cmd_max_linvel_base_rt_world_ewrt_heading_y",
      &mpc_config::ReferenceFile::cmd_max_linvel_base_rt_world_ewrt_heading_y},
-    {"cmd_max_err_pos_base_rt_world_ewrt_world_z",
-     &mpc_config::ReferenceFile::cmd_max_err_pos_base_rt_world_ewrt_world_z},
+    {"cmd_max_err_pos_base_rt_surface_ewrt_world_z",
+     &mpc_config::ReferenceFile::cmd_max_err_pos_base_rt_surface_ewrt_world_z},
     {"cmd_max_angvel_base_rt_world_ewrt_world_z",
      &mpc_config::ReferenceFile::cmd_max_angvel_base_rt_world_ewrt_world_z},
-    {"nom_pos_base_rt_world_ewrt_world_z",
-     &mpc_config::ReferenceFile::nom_pos_base_rt_world_ewrt_world_z},
+    {"nom_pos_base_rt_surface_ewrt_world_z",
+     &mpc_config::ReferenceFile::nom_pos_base_rt_surface_ewrt_world_z},
 };
 
 // The fields an absent value of which stands for "off".
@@ -94,13 +94,13 @@ mpc_config::ReferenceFile completeFile() {
   file.ref_rate_yaw_base_rt_world = 2.25;
   file.cmd_max_linvel_base_rt_world_ewrt_heading_x = 3.25;
   file.cmd_max_linvel_base_rt_world_ewrt_heading_y = 4.25;
-  file.cmd_max_err_pos_base_rt_world_ewrt_world_z = 5.25;
+  file.cmd_max_err_pos_base_rt_surface_ewrt_world_z = 5.25;
   file.cmd_max_angvel_base_rt_world_ewrt_world_z = 6.25;
   file.cmd_max_linacc_base_rt_world_ewrt_heading_xy = 7.25;
   file.cmd_max_angacc_base_rt_world_ewrt_world_z = 8.25;
   file.velocity_command_filter_break_frequency = 9.25;
   file.target_joint_state_interpolation_time_constant = 10.25;
-  file.nom_pos_base_rt_world_ewrt_world_z = 11.25;
+  file.nom_pos_base_rt_surface_ewrt_world_z = 11.25;
   return file;
 }
 
@@ -122,14 +122,14 @@ TEST(ReferenceSettingsFromConfigTest, EveryFieldReachesItsMember) {
   EXPECT_EQ(settings->refRateYawBaseRtWorld, 2.25);
   EXPECT_EQ(settings->cmdMaxLinvelBaseRtWorldEwrtHeadingX, 3.25);
   EXPECT_EQ(settings->cmdMaxLinvelBaseRtWorldEwrtHeadingY, 4.25);
-  EXPECT_EQ(settings->cmdMaxErrPosBaseRtWorldEwrtWorldZ, 5.25);
+  EXPECT_EQ(settings->cmdMaxErrPosBaseRtSurfaceEwrtWorldZ, 5.25);
   EXPECT_EQ(settings->cmdMaxAngvelBaseRtWorldEwrtWorldZ, 6.25);
   EXPECT_EQ(settings->cmdMaxLinaccBaseRtWorldEwrtHeadingXy, 7.25);
   EXPECT_EQ(settings->cmdMaxAngaccBaseRtWorldEwrtWorldZ, 8.25);
   EXPECT_EQ(settings->velocityCommandFilterBreakFrequency, 9.25);
   EXPECT_EQ(settings->targetJointStateInterpolationTimeConstant,
             std::optional<scalar_t>(10.25));
-  EXPECT_EQ(settings->nomPosBaseRtWorldEwrtWorldZ, 11.25);
+  EXPECT_EQ(settings->nomPosBaseRtSurfaceEwrtWorldZ, 11.25);
 }
 
 TEST(ReferenceSettingsFromConfigTest,
@@ -226,8 +226,8 @@ TEST(ReferenceSettingsFromConfigTest,
        &mpc_config::ReferenceFile::cmd_max_linvel_base_rt_world_ewrt_heading_y},
       {"cmd_max_angvel_base_rt_world_ewrt_world_z",
        &mpc_config::ReferenceFile::cmd_max_angvel_base_rt_world_ewrt_world_z},
-      {"nom_pos_base_rt_world_ewrt_world_z",
-       &mpc_config::ReferenceFile::nom_pos_base_rt_world_ewrt_world_z},
+      {"nom_pos_base_rt_surface_ewrt_world_z",
+       &mpc_config::ReferenceFile::nom_pos_base_rt_surface_ewrt_world_z},
       {"target_joint_state_interpolation_time_constant",
        &mpc_config::ReferenceFile::
            target_joint_state_interpolation_time_constant},
@@ -246,11 +246,11 @@ TEST(ReferenceSettingsFromConfigTest,
     }
   }
   mpc_config::ReferenceFile height = completeFile();
-  height.cmd_max_err_pos_base_rt_world_ewrt_world_z = -0.1;
+  height.cmd_max_err_pos_base_rt_surface_ewrt_world_z = -0.1;
   EXPECT_TRUE(
       absl::StrContains(referenceSettingsFromConfig(height).status().message(),
-                        "cmd_max_err_pos_base_rt_world_ewrt_world_z: -0.1"));
-  height.cmd_max_err_pos_base_rt_world_ewrt_world_z = 0.0;
+                        "cmd_max_err_pos_base_rt_surface_ewrt_world_z: -0.1"));
+  height.cmd_max_err_pos_base_rt_surface_ewrt_world_z = 0.0;
   EXPECT_TRUE(referenceSettingsFromConfig(height).ok())
       << "a pelvis height that may not change";
 }

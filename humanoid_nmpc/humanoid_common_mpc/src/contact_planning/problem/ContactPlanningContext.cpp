@@ -31,21 +31,45 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cmath>
-#include <utility>
+#include <cstddef>
 #include <vector>
 
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/problem/Layout.h"
 
 namespace ocs2::humanoid {
 
 ContactPlanningContext::HeadingFrameTerm ContactPlanningContext::frameTerm(
     int node, int axis, const vector2_t& dNominal) const {
   if (!hasHeading()) return {};
-  const std::array<vector2_t, kHorizontalPositionDim>& a = axesAt(node);
+  const std::array<vector2_t, kHorizontalPositionDim>& a =
+      getRotmatHeadingRtWorld(node);
   const vector2_t de = (axis == 0) ? a[1] : vector2_t(-a[0]);
   const scalar_t g = de.dot(dNominal);
   return {.gain = g,
-          .offset = -g * nominal->heading[static_cast<size_t>(node)]};
+          .offset =
+              -g * nominal->nomHeadingModelYawTraj[static_cast<size_t>(node)]};
+}
+
+scalar_t ContactPlanningContext::getCmdErrYawHeadingRtWorld(int node) const {
+  return input->cmdRateYawBaseRtWorld * static_cast<scalar_t>(node) * dt;
+}
+
+vector2_t ContactPlanningContext::getCmdLinvelBaseRtWorldEwrtWorldXy(
+    int node) const {
+  const scalar_t cmdErrYawHeadingRtWorld = getCmdErrYawHeadingRtWorld(node);
+  const scalar_t cosYaw = std::cos(cmdErrYawHeadingRtWorld);
+  const scalar_t sinYaw = std::sin(cmdErrYawHeadingRtWorld);
+  const vector2_t& initCmdLinvelBaseRtWorldEwrtWorldXy =
+      input->cmdLinvelBaseRtWorldEwrtWorldXy;
+  return vector2_t(cosYaw * initCmdLinvelBaseRtWorldEwrtWorldXy.x() -
+                       sinYaw * initCmdLinvelBaseRtWorldEwrtWorldXy.y(),
+                   sinYaw * initCmdLinvelBaseRtWorldEwrtWorldXy.x() +
+                       cosYaw * initCmdLinvelBaseRtWorldEwrtWorldXy.y());
 }
 
 namespace {
@@ -56,16 +80,25 @@ std::array<vector2_t, kHorizontalPositionDim> frameAxes(scalar_t yaw) {
 }  // namespace
 
 void ContactPlanningContext::computeAxes() {
-  axes.resize(static_cast<size_t>(numNodes) + 1);
-  footAxes.resize(static_cast<size_t>(numNodes) + 1);
+  rotmatHeadingRtWorldTraj.resize(static_cast<size_t>(numNodes) + 1);
+  rotmatFeetRtWorldTraj.resize(static_cast<size_t>(numNodes) + 1);
   const bool withFootYaws =
-      hasHeading() && nominal->footYaws.size() > static_cast<size_t>(numNodes);
+      hasHeading() && nominal->nomEulerzyxFeetRtWorldYawTraj.size() >
+                          static_cast<size_t>(numNodes);
   for (int k = 0; k <= numNodes; ++k) {
     const size_t node = static_cast<size_t>(k);
-    axes[node] = frameAxes(hasHeading() ? nominal->heading[node] : input->yaw);
+    // Without the heading model the frame turns with the command, by the same
+    // angle getCmdLinvelBaseRtWorldEwrtWorldXy() turns the velocity reference,
+    // so the support geometry and the command references of a node share it.
+    rotmatHeadingRtWorldTraj[node] =
+        frameAxes(hasHeading() ? nominal->nomHeadingModelYawTraj[node]
+                               : input->yawHeadingRtWorld +
+                                     getCmdErrYawHeadingRtWorld(k));
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      footAxes[node][foot] =
-          withFootYaws ? frameAxes(nominal->footYaws[node][foot]) : axes[node];
+      rotmatFeetRtWorldTraj[node][foot] =
+          withFootYaws
+              ? frameAxes(nominal->nomEulerzyxFeetRtWorldYawTraj[node][foot])
+              : rotmatHeadingRtWorldTraj[node];
     }
   }
 }
@@ -74,19 +107,24 @@ HeadingNominal nominalFromSolution(const Layout& layout,
                                    const std::vector<vector_t>& x) {
   HeadingNominal nominal;
   const size_t n = x.size();
-  nominal.heading.resize(n);
-  nominal.com.resize(n);
-  nominal.feet.resize(n);
-  if (layout.hasHeading) nominal.footYaws.resize(n);
-  const int cx = layout.state(var::kComX);
+  nominal.nomHeadingModelYawTraj.resize(n);
+  nominal.nomPosComRtWorldEwrtWorldXyTraj.resize(n);
+  nominal.nomPosFeetRtWorldEwrtWorldXyTraj.resize(n);
+  if (layout.hasHeading) nominal.nomEulerzyxFeetRtWorldYawTraj.resize(n);
+  const int cx = layout.state(var::kPosComRtWorldEwrtWorldX);
   for (size_t k = 0; k < n; ++k) {
-    nominal.heading[k] = layout.hasHeading ? x[k](layout.heading) : 0.0;
-    nominal.com[k] = x[k].segment<kHorizontalPositionDim>(cx);
+    nominal.nomHeadingModelYawTraj[k] =
+        layout.hasHeading ? x[k](layout.headingModelYaw) : 0.0;
+    nominal.nomPosComRtWorldEwrtWorldXyTraj[k] =
+        x[k].segment<kHorizontalPositionDim>(cx);
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      nominal.feet[k][foot] =
-          x[k].segment<kHorizontalPositionDim>(layout.state(var::footX(foot)));
-      if (layout.hasHeading)
-        nominal.footYaws[k][foot] = x[k](layout.footYaw(foot));
+      nominal.nomPosFeetRtWorldEwrtWorldXyTraj[k][foot] =
+          x[k].segment<kHorizontalPositionDim>(
+              layout.state(var::posFootRtWorldEwrtWorldX(foot)));
+      if (layout.hasHeading) {
+        nominal.nomEulerzyxFeetRtWorldYawTraj[k][foot] =
+            x[k](layout.eulerzyxFootRtWorldYaw(foot));
+      }
     }
   }
   return nominal;

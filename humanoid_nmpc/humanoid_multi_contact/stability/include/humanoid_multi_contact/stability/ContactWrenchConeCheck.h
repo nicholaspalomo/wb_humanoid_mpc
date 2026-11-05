@@ -54,33 +54,36 @@ struct ContactWrenchConeResult {
 };
 
 /**
- * The contact wrench the stance must apply for the momentum rate `rate` of a
- * robot of `mass` [kg] with its CoM at `com`, gravity along -z, normalized by
- * the weight m g and taken about `reference`:
+ * Computes the contact wrench the stance must apply for the momentum rate
+ * `rate` = rateCmomComRtWorldEwrtWorld of a robot of `mass` [kg] with its CoM
+ * at `com` = posComRtWorldEwrtWorld, gravity along -z, normalized by the
+ * weight m g and taken about `r` = posStanceRtWorldEwrtWorld:
  *
  *   F = (rate.linear + m g e_z) / (m g),
- *   M = rate.angular / (m g) + (com - reference) x F,
+ *   M = rate.angular / (m g) + (com - r) x F,
  *
  * from sum_i f_i + m g_vec = d/dt (m c_dot) and sum_i (p_i - c) x f_i = d/dt L
- * (design section 2). With rate = 0 it is StaticEquilibrium::staticWrench().
+ * (design section 2). With rate = 0 it is
+ * StaticEquilibrium::computeStaticWnormWrenchStanceEwrtWorld().
  */
-Wrench requiredContactWrench(double mass,
-                             const Eigen::Vector3d& com,
-                             const CentroidalMomentumRate& rate,
-                             const Eigen::Vector3d& reference);
+Wrench computeRequiredWnormWrenchStanceEwrtWorld(
+    double mass,
+    const Eigen::Vector3d& posComRtWorldEwrtWorld,
+    const CentroidalMomentumRate& rateCmomComRtWorldEwrtWorld,
+    const Eigen::Vector3d& posStanceRtWorldEwrtWorld);
 
 /**
  * The dynamic stability of a motion at one instant (design section 2, Caron,
  * Pham and Nakamura): whether the gravito-inertial wrench of the planned
  * momentum rate lies in the linearized contact wrench cone CWC(S) of the
  * stance of `equilibrium`, by the feasibility LP of
- * StaticEquilibrium::wrenchResidual(). Feasible when the residual is at most
- * the equilibrium's feasibility tolerance.
+ * StaticEquilibrium::computeResidualWnormWrenchStanceEwrtWorld(). Feasible when
+ * the residual is at most the equilibrium's feasibility tolerance.
  */
 absl::StatusOr<ContactWrenchConeResult> checkContactWrenchCone(
     const StaticEquilibrium& equilibrium,
     double mass,
-    const Eigen::Vector3d& com,
-    const CentroidalMomentumRate& rate);
+    const Eigen::Vector3d& posComRtWorldEwrtWorld,
+    const CentroidalMomentumRate& rateCmomComRtWorldEwrtWorld);
 
 }  // namespace ocs2::humanoid::multi_contact

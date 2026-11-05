@@ -55,7 +55,8 @@ using google::protobuf::Message;
 using google::protobuf::Reflection;
 
 // Moved on its own (appliedNumericLeaves()).
-constexpr char kTerrainHeight[] = "terrain_height";
+constexpr char kPosSurfaceRtWorldEwrtWorldZ[] =
+    "pos_surface_rt_world_ewrt_world_z";
 
 /** Whether the whole-body updater applies the field at `path` (the path without
  * list indices): at or below one of `names`. */
@@ -122,7 +123,7 @@ class LeafWalk {
         continue;
       }
       if (field->is_repeated() || !isNumeric(*field) ||
-          fieldPlainPath == kTerrainHeight ||
+          fieldPlainPath == kPosSurfaceRtWorldEwrtWorldZ ||
           !isApplied(fieldPlainPath, names_))
         continue;
       leaves_.push_back(fieldPath);

@@ -14,7 +14,7 @@ message Spheres {
   reserved 5 to max;
 
   string path = 1;
-  repeated Vector3 centers = 2;
+  repeated Vector3 pos_spheres_rt_world_ewrt_world = 2;
   // One radius for all, or one per sphere.
   repeated float radii = 3;
   repeated Color colors = 4;

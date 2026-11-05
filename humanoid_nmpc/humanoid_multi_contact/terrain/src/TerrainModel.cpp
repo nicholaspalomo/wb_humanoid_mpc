@@ -50,7 +50,7 @@ namespace ocs2::humanoid::multi_contact {
 namespace {
 
 // How far from 1 the norm of a scene quaternion may be; it is normalized.
-constexpr double kQuaternionNormTolerance = 1.0e-6;
+constexpr double kUnitQuaternionNormTolerance = 1.0e-6;
 // Below this squared length a capsule's ends coincide: it is a sphere.
 constexpr double kDegenerateAxisSquaredLength = 1.0e-18;
 
@@ -79,23 +79,25 @@ absl::StatusOr<BoxGeometry> boxGeometry(const config::TerrainScene::Box& box,
                                         absl::string_view scene,
                                         absl::string_view name) {
   BoxGeometry geometry;
-  ASSIGN_OR_RETURN(geometry.center, point3(box.center, scene, name, "center"));
+  ASSIGN_OR_RETURN(geometry.posBoxRtWorldEwrtWorld,
+                   point3(box.pos_box_rt_world_ewrt_world, scene, name,
+                          "pos_box_rt_world_ewrt_world"));
   ASSIGN_OR_RETURN(geometry.halfExtents,
                    point3(box.half_extents, scene, name, "half_extents"));
   if (!(geometry.halfExtents.minCoeff() > 0.0)) {
     return primitiveError(scene, name, "half_extents must be positive");
   }
-  if (box.orientation_xyzw.size() != 0) {
-    if (box.orientation_xyzw.size() != kQuaternionCoefficients ||
-        !box.orientation_xyzw.allFinite() ||
-        !(std::abs(box.orientation_xyzw.norm() - 1.0) <=
-          kQuaternionNormTolerance)) {
-      return primitiveError(
-          scene, name,
-          "orientation_xyzw must be empty or a unit quaternion (x, y, z, w)");
+  if (box.quat_box_rt_world_xyzw.size() != 0) {
+    if (box.quat_box_rt_world_xyzw.size() != kQuaternionCoefficients ||
+        !box.quat_box_rt_world_xyzw.allFinite() ||
+        !(std::abs(box.quat_box_rt_world_xyzw.norm() - 1.0) <=
+          kUnitQuaternionNormTolerance)) {
+      return primitiveError(scene, name,
+                            "quat_box_rt_world_xyzw must be empty or a unit "
+                            "quaternion (x, y, z, w)");
     }
-    const Eigen::Vector4d coefficients(box.orientation_xyzw);
-    geometry.rotation =
+    const Eigen::Vector4d coefficients(box.quat_box_rt_world_xyzw);
+    geometry.rotmatBoxRtWorld =
         Eigen::Quaterniond(coefficients).normalized().toRotationMatrix();
   }
   return geometry;
@@ -106,17 +108,25 @@ absl::StatusOr<CapsuleGeometry> capsuleGeometry(
     absl::string_view scene,
     absl::string_view name) {
   CapsuleGeometry geometry;
-  ASSIGN_OR_RETURN(geometry.start, point3(capsule.start, scene, name, "start"));
-  ASSIGN_OR_RETURN(geometry.end, point3(capsule.end, scene, name, "end"));
+  ASSIGN_OR_RETURN(geometry.posCapsulestartRtWorldEwrtWorld,
+                   point3(capsule.pos_capsulestart_rt_world_ewrt_world, scene,
+                          name, "pos_capsulestart_rt_world_ewrt_world"));
+  ASSIGN_OR_RETURN(geometry.posCapsuleendRtWorldEwrtWorld,
+                   point3(capsule.pos_capsuleend_rt_world_ewrt_world, scene,
+                          name, "pos_capsuleend_rt_world_ewrt_world"));
   if (!(capsule.radius > 0.0) || !std::isfinite(capsule.radius)) {
     return primitiveError(scene, name, "radius must be positive");
   }
   geometry.radius = capsule.radius;
-  const Eigen::Vector3d axis = geometry.end - geometry.start;
-  const double squaredLength = axis.squaredNorm();
+  const Eigen::Vector3d posCapsuleendRtCapsulestartEwrtWorld =
+      geometry.posCapsuleendRtWorldEwrtWorld -
+      geometry.posCapsulestartRtWorldEwrtWorld;
+  const double squaredLength =
+      posCapsuleendRtCapsulestartEwrtWorld.squaredNorm();
   if (squaredLength > kDegenerateAxisSquaredLength) {
     geometry.inverseSquaredLength = 1.0 / squaredLength;
-    geometry.fallbackNormal = axis.unitOrthogonal();
+    geometry.fallbackNormalSurfaceEwrtWorld =
+        posCapsuleendRtCapsulestartEwrtWorld.unitOrthogonal();
   }
   return geometry;
 }
@@ -192,22 +202,25 @@ PatchFrame faceFrame(const BoxGeometry& box, BoxFace face) {
   const int firstTangentAxis = (normalAxis.axis + 1) % kPositionDim;
   const int secondTangentAxis =
       (normalAxis.axis + kPositionDim - 1) % kPositionDim;
-  const Eigen::Vector3d normal =
-      normalAxis.sign * box.rotation.col(normalAxis.axis);
-  const Eigen::Vector3d firstTangent = box.rotation.col(firstTangentAxis);
+  const Eigen::Vector3d normalSurfaceEwrtWorld =
+      normalAxis.sign * box.rotmatBoxRtWorld.col(normalAxis.axis);
+  const Eigen::Vector3d xAxisSurfaceEwrtWorld =
+      box.rotmatBoxRtWorld.col(firstTangentAxis);
   // n x t1 = sign * e_(k+2): the face's second axis, up to its sign.
-  const Eigen::Vector3d secondTangent = normal.cross(firstTangent);
+  const Eigen::Vector3d yAxisSurfaceEwrtWorld =
+      normalSurfaceEwrtWorld.cross(xAxisSurfaceEwrtWorld);
   PatchFrame frame;
   frame.face = face;
-  frame.origin = box.center + normalAxis.sign *
-                                  box.halfExtents(normalAxis.axis) *
-                                  box.rotation.col(normalAxis.axis);
-  frame.rotation.col(kXAxisIndex) = firstTangent;
-  frame.rotation.col(kYAxisIndex) = secondTangent;
-  frame.rotation.col(kZAxisIndex) = normal;
+  frame.posSurfaceRtWorldEwrtWorld =
+      box.posBoxRtWorldEwrtWorld +
+      normalAxis.sign * box.halfExtents(normalAxis.axis) *
+          box.rotmatBoxRtWorld.col(normalAxis.axis);
+  frame.rotmatSurfaceRtWorld.col(kXAxisIndex) = xAxisSurfaceEwrtWorld;
+  frame.rotmatSurfaceRtWorld.col(kYAxisIndex) = yAxisSurfaceEwrtWorld;
+  frame.rotmatSurfaceRtWorld.col(kZAxisIndex) = normalSurfaceEwrtWorld;
   const double halfX = box.halfExtents(firstTangentAxis);
   const double halfY = box.halfExtents(secondTangentAxis);
-  frame.polygon = {
+  frame.posCornersRtSurfaceEwrtSurfaceXy = {
       Eigen::Vector2d(halfX, halfY), Eigen::Vector2d(-halfX, halfY),
       Eigen::Vector2d(-halfX, -halfY), Eigen::Vector2d(halfX, -halfY)};
   return frame;
@@ -215,18 +228,22 @@ PatchFrame faceFrame(const BoxGeometry& box, BoxFace face) {
 
 PatchFrame tangentFrame(const CapsuleGeometry& capsule,
                         const PrimitiveQuery<double>& query) {
-  const Eigen::Vector3d normal = query.normal;
-  Eigen::Vector3d firstTangent = capsule.end - capsule.start;
-  firstTangent -= firstTangent.dot(normal) * normal;
-  if (firstTangent.squaredNorm() <= kDegenerateAxisSquaredLength) {
-    firstTangent = normal.unitOrthogonal();
+  const Eigen::Vector3d normalSurfaceEwrtWorld = query.normalSurfaceEwrtWorld;
+  Eigen::Vector3d xAxisSurfaceEwrtWorld =
+      capsule.posCapsuleendRtWorldEwrtWorld -
+      capsule.posCapsulestartRtWorldEwrtWorld;
+  xAxisSurfaceEwrtWorld -= xAxisSurfaceEwrtWorld.dot(normalSurfaceEwrtWorld) *
+                           normalSurfaceEwrtWorld;
+  if (xAxisSurfaceEwrtWorld.squaredNorm() <= kDegenerateAxisSquaredLength) {
+    xAxisSurfaceEwrtWorld = normalSurfaceEwrtWorld.unitOrthogonal();
   }
-  firstTangent.normalize();
+  xAxisSurfaceEwrtWorld.normalize();
   PatchFrame frame;
-  frame.origin = query.nearestPoint;
-  frame.rotation.col(kXAxisIndex) = firstTangent;
-  frame.rotation.col(kYAxisIndex) = normal.cross(firstTangent);
-  frame.rotation.col(kZAxisIndex) = normal;
+  frame.posSurfaceRtWorldEwrtWorld = query.nearestPosSurfaceRtWorldEwrtWorld;
+  frame.rotmatSurfaceRtWorld.col(kXAxisIndex) = xAxisSurfaceEwrtWorld;
+  frame.rotmatSurfaceRtWorld.col(kYAxisIndex) =
+      normalSurfaceEwrtWorld.cross(xAxisSurfaceEwrtWorld);
+  frame.rotmatSurfaceRtWorld.col(kZAxisIndex) = normalSurfaceEwrtWorld;
   return frame;
 }
 
@@ -263,11 +280,13 @@ absl::StatusOr<int> TerrainModel::primitiveIndex(absl::string_view name) const {
 }
 
 NearestPrimitive TerrainModel::nearestPrimitive(
-    const Eigen::Vector3d& point) const {
-  NearestPrimitive nearest{.index = 0,
-                           .query = primitiveQuery(/*index=*/0, point)};
+    const Eigen::Vector3d& posQueryRtWorldEwrtWorld) const {
+  NearestPrimitive nearest{
+      .index = 0,
+      .query = primitiveQuery(/*index=*/0, posQueryRtWorldEwrtWorld)};
   for (int index = 1; index < numPrimitives(); ++index) {
-    const PrimitiveQuery<double> query = primitiveQuery(index, point);
+    const PrimitiveQuery<double> query =
+        primitiveQuery(index, posQueryRtWorldEwrtWorld);
     if (query.distance < nearest.query.distance) {
       nearest = NearestPrimitive{.index = index, .query = query};
     }
@@ -294,18 +313,21 @@ absl::StatusOr<PatchFrame> TerrainModel::boxFaceFrame(int index,
   return frame;
 }
 
-PatchFrame TerrainModel::patchFrameAt(const Eigen::Vector3d& point) const {
-  const NearestPrimitive nearest = nearestPrimitive(point);
+PatchFrame TerrainModel::patchFrameAt(
+    const Eigen::Vector3d& posQueryRtWorldEwrtWorld) const {
+  const NearestPrimitive nearest = nearestPrimitive(posQueryRtWorldEwrtWorld);
   const TerrainPrimitive& primitive = primitives_[nearest.index];
   PatchFrame frame;
   if (const BoxGeometry* absl_nullable box =
           std::get_if<BoxGeometry>(&primitive.geometry)) {
-    const Eigen::Vector3d local =
-        box->rotation.transpose() * (point - box->center);
-    const Eigen::Vector3d excess = local.cwiseAbs() - box->halfExtents;
+    const Eigen::Vector3d posQueryRtBoxEwrtBox =
+        box->rotmatBoxRtWorld.transpose() *
+        (posQueryRtWorldEwrtWorld - box->posBoxRtWorldEwrtWorld);
+    const Eigen::Vector3d excess =
+        posQueryRtBoxEwrtBox.cwiseAbs() - box->halfExtents;
     Eigen::Index axis = 0;
     excess.maxCoeff(&axis);
-    const double sign = local(axis) > 0.0 ? 1.0 : -1.0;
+    const double sign = posQueryRtBoxEwrtBox(axis) > 0.0 ? 1.0 : -1.0;
     frame = faceFrame(*box, faceOf(static_cast<int>(axis), sign));
   } else {
     frame = tangentFrame(std::get<CapsuleGeometry>(primitive.geometry),

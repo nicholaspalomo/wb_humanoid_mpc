@@ -43,17 +43,17 @@ namespace ocs2::humanoid::multi_contact {
 namespace {
 
 // How far a stance rotation may be from orthonormal.
-constexpr double kRotationTolerance = 1.0e-6;
+constexpr double kOrthonormalTolerance = 1.0e-6;
 
 absl::Status checkContact(const StanceContact& contact) {
   if (!(contact.friction > 0.0) || !std::isfinite(contact.friction)) {
     return absl::InvalidArgumentError(absl::StrCat(
         "stance contact '", contact.name, "': friction must be positive"));
   }
-  if (!contact.position.allFinite() ||
-      !(contact.rotation.transpose() * contact.rotation)
-           .isIdentity(kRotationTolerance) ||
-      !(contact.rotation.determinant() > 0.0)) {
+  if (!contact.posPadRtWorldEwrtWorld.allFinite() ||
+      !(contact.rotmatSurfaceRtWorld.transpose() * contact.rotmatSurfaceRtWorld)
+           .isIdentity(kOrthonormalTolerance) ||
+      !(contact.rotmatSurfaceRtWorld.determinant() > 0.0)) {
     return absl::InvalidArgumentError(
         absl::StrCat("stance contact '", contact.name,
                      "': needs a finite position and a rotation matrix"));
@@ -65,21 +65,32 @@ absl::Status checkContact(const StanceContact& contact) {
   return absl::OkStatus();
 }
 
-/** The points a contact applies its pyramids at, in the world frame. */
-std::vector<Eigen::Vector3d> applicationPoints(const StanceContact& contact) {
-  if (contact.kind == ContactKind::kPoint) return {contact.position};
+/** The points a contact applies its pyramids at, its generators' origins, in
+ * the world frame. */
+std::vector<Eigen::Vector3d> computePosGeneratorsRtWorldEwrtWorld(
+    const StanceContact& contact) {
+  if (contact.kind == ContactKind::kPoint)
+    return {contact.posPadRtWorldEwrtWorld};
   const ContactRectangle& rectangle = *contact.rectangle;
-  const std::array<Eigen::Vector3d, kRectangleCorners> corners = {
-      Eigen::Vector3d(rectangle.xMax, rectangle.yMax, 0.0),
-      Eigen::Vector3d(rectangle.xMin, rectangle.yMax, 0.0),
-      Eigen::Vector3d(rectangle.xMin, rectangle.yMin, 0.0),
-      Eigen::Vector3d(rectangle.xMax, rectangle.yMin, 0.0)};
-  std::vector<Eigen::Vector3d> points;
-  points.reserve(corners.size());
-  for (const Eigen::Vector3d& corner : corners) {
-    points.push_back(contact.position + contact.rotation * corner);
+  const std::array<Eigen::Vector3d, kRectangleCorners>
+      posCornersRtPadEwrtSurface = {
+          Eigen::Vector3d(rectangle.maxPosCornersRtPadEwrtPadX,
+                          rectangle.maxPosCornersRtPadEwrtPadY, 0.0),
+          Eigen::Vector3d(rectangle.minPosCornersRtPadEwrtPadX,
+                          rectangle.maxPosCornersRtPadEwrtPadY, 0.0),
+          Eigen::Vector3d(rectangle.minPosCornersRtPadEwrtPadX,
+                          rectangle.minPosCornersRtPadEwrtPadY, 0.0),
+          Eigen::Vector3d(rectangle.maxPosCornersRtPadEwrtPadX,
+                          rectangle.minPosCornersRtPadEwrtPadY, 0.0)};
+  std::vector<Eigen::Vector3d> posGeneratorsRtWorldEwrtWorld;
+  posGeneratorsRtWorldEwrtWorld.reserve(posCornersRtPadEwrtSurface.size());
+  for (const Eigen::Vector3d& posCornerRtPadEwrtSurface :
+       posCornersRtPadEwrtSurface) {
+    posGeneratorsRtWorldEwrtWorld.push_back(contact.posPadRtWorldEwrtWorld +
+                                            contact.rotmatSurfaceRtWorld *
+                                                posCornerRtPadEwrtSurface);
   }
-  return points;
+  return posGeneratorsRtWorldEwrtWorld;
 }
 
 }  // namespace
@@ -99,35 +110,46 @@ absl::StatusOr<WrenchGenerators> buildWrenchGenerators(const Stance& stance,
     if (absl::Status status = checkContact(contact); !status.ok()) {
       return status;
     }
-    generators.reference += contact.position;
+    generators.posStanceRtWorldEwrtWorld += contact.posPadRtWorldEwrtWorld;
   }
-  generators.reference /= static_cast<double>(stance.size());
+  generators.posStanceRtWorldEwrtWorld /= static_cast<double>(stance.size());
 
   const double halfAngle = std::numbers::pi / edges;
   for (int index = 0; index < static_cast<int>(stance.size()); ++index) {
     const StanceContact& contact = stance[index];
     // The inscribed pyramid's tangential reach per unit normal force.
     const double inscribedFriction = contact.friction * std::cos(halfAngle);
-    const Eigen::Vector3d normal = contact.rotation.col(kZAxisIndex);
-    for (const Eigen::Vector3d& point : applicationPoints(contact)) {
+    const Eigen::Vector3d normalSurfaceEwrtWorld =
+        contact.rotmatSurfaceRtWorld.col(kZAxisIndex);
+    for (const Eigen::Vector3d& posGeneratorRtWorldEwrtWorld :
+         computePosGeneratorsRtWorldEwrtWorld(contact)) {
       for (int edge = 0; edge < edges; ++edge) {
         const double angle = 2.0 * halfAngle * edge;
-        const Eigen::Vector3d direction =
-            normal + inscribedFriction *
-                         (std::cos(angle) * contact.rotation.col(kXAxisIndex) +
-                          std::sin(angle) * contact.rotation.col(kYAxisIndex));
+        const Eigen::Vector3d forceGeneratorEwrtWorld =
+            normalSurfaceEwrtWorld +
+            inscribedFriction *
+                (std::cos(angle) *
+                     contact.rotmatSurfaceRtWorld.col(kXAxisIndex) +
+                 std::sin(angle) *
+                     contact.rotmatSurfaceRtWorld.col(kYAxisIndex));
         generators.contactIndices.push_back(index);
-        generators.points.push_back(point);
-        generators.directions.push_back(direction);
+        generators.posGeneratorsRtWorldEwrtWorld.push_back(
+            posGeneratorRtWorldEwrtWorld);
+        generators.forceGeneratorsEwrtWorld.push_back(forceGeneratorEwrtWorld);
       }
     }
   }
-  generators.wrenches.resize(kWrenchDim, generators.points.size());
+  generators.generatorWrenches.resize(
+      kWrenchDim, generators.posGeneratorsRtWorldEwrtWorld.size());
   for (int column = 0; column < generators.size(); ++column) {
-    const Eigen::Vector3d& direction = generators.directions[column];
-    generators.wrenches.col(column).head<kForceDim>() = direction;
-    generators.wrenches.col(column).tail<kTorqueDim>() =
-        (generators.points[column] - generators.reference).cross(direction);
+    const Eigen::Vector3d& forceGeneratorEwrtWorld =
+        generators.forceGeneratorsEwrtWorld[column];
+    generators.generatorWrenches.col(column).head<kForceDim>() =
+        forceGeneratorEwrtWorld;
+    generators.generatorWrenches.col(column).tail<kTorqueDim>() =
+        (generators.posGeneratorsRtWorldEwrtWorld[column] -
+         generators.posStanceRtWorldEwrtWorld)
+            .cross(forceGeneratorEwrtWorld);
   }
   return generators;
 }

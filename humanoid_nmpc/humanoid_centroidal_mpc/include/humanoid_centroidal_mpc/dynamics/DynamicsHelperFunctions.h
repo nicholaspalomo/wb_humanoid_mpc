@@ -32,16 +32,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"
 
-#include <array>
-#include <memory>
+#include <cstddef>
 
 #include "absl/functional/function_ref.h"
 #include "cppad/cg.hpp"
-#include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/PhysicalConstants.h"
-#include "ocs2_pinocchio_interface/PinocchioInterface.h"
-#include "ocs2_robotic_tools/common/RotationTransforms.h"
-#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -63,15 +60,17 @@ inline vector_t weightCompensatingInput(
     const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
   // The mass of THIS model, read per call: a function-static cache kept the
   // first model's weight for every model in the process.
-  const scalar_t totalGravitationalForce = info.robotMass * kGravityMagnitude;
+  const scalar_t robotWeight = info.robotMass * kGravityMagnitude;
   const size_t numStanceLegs = numberOfLegsInContacts(contactFlags);
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
-    const vector3_t forceInInertialFrame(
-        0.0, 0.0, totalGravitationalForce / numStanceLegs);
+    // Vertical in the parameterization frame, which is the world only for the
+    // wrench-space models; the state-aware overload below writes a world force.
+    const vector3_t forceContactEwrtParam(0.0, 0.0,
+                                          robotWeight / numStanceLegs);
     for (size_t i = 0; i < contactFlags.size(); ++i) {
       if (contactFlags[i]) {
-        mpcRobotModel.setForceContactEwrtParam(input, forceInInertialFrame, i);
+        mpcRobotModel.setForceContactEwrtParam(input, forceContactEwrtParam, i);
       }
     }  // end of i loop
   }
@@ -90,16 +89,16 @@ inline vector_t weightCompensatingInput(
     const vector_t& state) {
   // The mass of THIS model, read per call: a function-static cache kept the
   // first model's weight for every model in the process.
-  const scalar_t totalGravitationalForce = info.robotMass * kGravityMagnitude;
+  const scalar_t robotWeight = info.robotMass * kGravityMagnitude;
   const size_t numStanceLegs = numberOfLegsInContacts(contactFlags);
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
-    const vector3_t forceInInertialFrame(
-        0.0, 0.0, totalGravitationalForce / numStanceLegs);
+    const vector3_t forceContactEwrtWorld(0.0, 0.0,
+                                          robotWeight / numStanceLegs);
     for (size_t i = 0; i < contactFlags.size(); ++i) {
       if (contactFlags[i]) {
         mpcRobotModel.setForceContactEwrtWorld(state, input,
-                                               forceInInertialFrame, i);
+                                               forceContactEwrtWorld, i);
       }
     }  // end of i loop
   }
@@ -118,7 +117,7 @@ inline vector_t weightCompensatingInputOfContacts(
     absl::FunctionRef<bool(size_t)> isContactActive,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     const vector_t& state) {
-  const scalar_t totalGravitationalForce = info.robotMass * kGravityMagnitude;
+  const scalar_t robotWeight = info.robotMass * kGravityMagnitude;
   const size_t numContacts = mpcRobotModel.modelSettings.contactNames.size();
   size_t numActive = 0;
   for (size_t i = 0; i < numContacts; ++i) {
@@ -126,11 +125,12 @@ inline vector_t weightCompensatingInputOfContacts(
   }
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numActive == 0) return input;
-  const vector3_t force(
-      0.0, 0.0, totalGravitationalForce / static_cast<scalar_t>(numActive));
+  const vector3_t forceContactEwrtWorld(
+      0.0, 0.0, robotWeight / static_cast<scalar_t>(numActive));
   for (size_t i = 0; i < numContacts; ++i) {
     if (isContactActive(i)) {
-      mpcRobotModel.setForceContactEwrtWorld(state, input, force, i);
+      mpcRobotModel.setForceContactEwrtWorld(state, input,
+                                             forceContactEwrtWorld, i);
     }
   }
   return input;

@@ -129,8 +129,8 @@ class RobotState {
    * getCheckedJointPosition().
    */
   scalar_t getJointPosition(size_t jointId) const {
-    return jointStateMap_[jointId]
-        ->jointPosition;  // NOLINT(bugprone-unchecked-optional-access): the precondition above.
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access): the precondition above
+    return jointStateMap_[jointId]->jointPosition;
   }
   /** getJointPosition(), checked: an id that is not a joint ends the process.
    * Not for the realtime path. */
@@ -140,8 +140,8 @@ class RobotState {
   /** As getJointPosition(), for the velocity: unchecked, `jointId` must be a
    * joint. */
   scalar_t getJointVelocity(size_t jointId) const {
-    return jointStateMap_[jointId]
-        ->jointVelocity;  // NOLINT(bugprone-unchecked-optional-access): the precondition above.
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access): the precondition above
+    return jointStateMap_[jointId]->jointVelocity;
   }
   /** As getCheckedJointPosition(), for the velocity. */
   scalar_t getCheckedJointVelocity(size_t jointId) const;

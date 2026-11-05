@@ -194,7 +194,7 @@ once the interval passed (and at shutdown), so that the last scene of a stream i
 ## The 3D scene
 
 The 3D view's origin is `world`, the fixed frame. The view coordinates are right-handed with z up, and a line grid
-with 1 m cells lies in the xy plane. The eye starts behind and above the origin (`blueprint.initial_eye_position()`)
+with 1 m cells lies in the xy plane. The eye starts behind and above the origin (`blueprint.init_pos_cam_rt_world_ewrt_world()`)
 and follows the measured robot's root link (`--no-follow_robot` keeps it fixed). The blueprint hides what is clutter
 most of the time (the "Shown" columns below); the blueprint panel shows it again.
 
@@ -307,7 +307,7 @@ duplication costs a few doubles per message, and it keeps every panel independen
 | `base_pose/angular_velocity_x` | measured, reference | rad/s | Base Pose & Euler / Body Angular Vel X [rad/s] | the body angular velocity w_B, in the base frame. measured: the sample's `angvel_base_rt_world_ewrt_base`; reference: the target trajectory's, Pinocchio's `v[3:6]`, 0 where it carries no velocity |
 | `base_pose/angular_velocity_y` | measured, reference | rad/s | Base Pose & Euler / Body Angular Vel Y [rad/s] | as above |
 | `base_pose/angular_velocity_z` | measured, reference | rad/s | Base Pose & Euler / Body Angular Vel Z [rad/s] | as above |
-| `base_twist/linear_x` | measured, reference | m/s | Base Twist (Linear & Angular) / Linear Vel X [m/s] | measured: root linear velocity; reference: base CoM velocity of the target trajectory |
+| `base_twist/linear_x` | measured, reference | m/s | Base Twist (Linear & Angular) / Linear Vel X [m/s] | measured: root linear velocity; reference: the target trajectory's getProxyLinvelComRtWorldEwrtWorld() (the CoM's on the centroidal model, the base's on the whole-body model) |
 | `base_twist/linear_y` | measured, reference | m/s | Base Twist (Linear & Angular) / Linear Vel Y [m/s] | as above |
 | `base_twist/linear_z` | measured, reference | m/s | Base Twist (Linear & Angular) / Linear Vel Z [m/s] | as above |
 | `base_twist/angular_x` | measured, reference | rad/s | Base Twist (Linear & Angular) / Angular Vel X (world) [rad/s] | the root's angular velocity in the world frame, `R(xi) w_B`. measured: of the sample; reference: of the target trajectory, 0 where it carries no velocity |
@@ -330,11 +330,11 @@ duplication costs a few doubles per message, and it keeps every panel independen
 | `com/position_x` | measured, reference, plan | m | Balance (CoM, DCM, ZMP, ACoM) / CoM X [m] | the whole-body center of mass (Pinocchio's, of each source's q), world frame, at its height |
 | `com/position_y` | measured, reference, plan | m | Balance (CoM, DCM, ZMP, ACoM) / CoM Y [m] | as above |
 | `com/position_z` | measured, reference, plan | m | Balance (CoM, DCM, ZMP, ACoM) / CoM Height Z [m] | as above: the CoM height |
-| `dcm/x` | measured, reference, plan | m | Balance (CoM, DCM, ZMP, ACoM) / DCM X [m] | the divergent component of motion (instantaneous capture point) `xi = c + c_dot / omega`, `omega = sqrt(g / z0)`: g the Pinocchio model's gravity, z0 the nominal state's CoM height above its feet (`computeComHeightAboveFeet()`); NaN without a nominal state |
+| `dcm/x` | measured, reference, plan | m | Balance (CoM, DCM, ZMP, ACoM) / DCM X [m] | the divergent component of motion (instantaneous capture point) `xi = c + c_dot / omega`, `omega = sqrt(g / z0)`: g the Pinocchio model's gravity, z0 the nominal state's CoM height above its feet (`computeProxyPosComRtFeetmeanEwrtWorldZ()`); NaN without a nominal state |
 | `dcm/y` | measured, reference, plan | m | Balance (CoM, DCM, ZMP, ACoM) / DCM Y [m] | as above |
 | `zmp/x` | measured, reference, plan | m | Balance (CoM, DCM, ZMP, ACoM) / ZMP X [m] | the zero moment point of each source's contact wrenches at its contact frames, on the plane of their normal-force-weighted height; NaN below 1 N of net normal force. The measured wrenches are the force sensors' forces without torque, so the measured ZMP is the normal-force-weighted mean of the contact frames |
 | `zmp/y` | measured, reference, plan | m | Balance (CoM, DCM, ZMP, ACoM) / ZMP Y [m] | as above |
-| `acom/roll` | measured, reference, plan | rad | Balance (CoM, DCM, ZMP, ACoM) / ACoM Roll [rad] | the angular center of mass's attitude (`AngularCenterOfMass::acomAttitude()` of the base quaternion and the joints) as ZYX Euler angles, for display; NaN for a robot without an ACoM network |
+| `acom/roll` | measured, reference, plan | rad | Balance (CoM, DCM, ZMP, ACoM) / ACoM Roll [rad] | the angular center of mass's attitude (`AngularCenterOfMass::computeQuatAcomRtWorldXyzw()` of the base quaternion and the joints) as ZYX Euler angles, for display; NaN for a robot without an ACoM network |
 | `acom/pitch` | measured, reference, plan | rad | Balance (CoM, DCM, ZMP, ACoM) / ACoM Pitch [rad] | as above |
 | `acom/yaw` | measured, reference, plan | rad | Balance (CoM, DCM, ZMP, ACoM) / ACoM Yaw [rad] | as above |
 

@@ -30,14 +30,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <fstream>
 #include <memory>
-#include <string>
 #include <system_error>
 #include <vector>
 
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
 
+#include "robot_model/ContactEstimator.h"
 #include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 #include "robot_model/RobotStateContactEstimator.h"
 
 namespace robot::model {
@@ -82,6 +83,7 @@ class RobotStateContactEstimatorTest : public ::testing::Test {
 
 TEST_F(RobotStateContactEstimatorTest, reportsTheFlagsOfTheRobotState) {
   const absl::StatusOr<RobotDescription> description =
+      // NOLINTNEXTLINE(build/include_what_you_use): path::string()
       RobotDescription::Create(urdfPath_.string());
   ASSERT_TRUE(description.ok()) << description.status();
   RobotState state(*description, /*contactSize=*/2);

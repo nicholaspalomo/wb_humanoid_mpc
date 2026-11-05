@@ -36,13 +36,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstdint>
 #include <string>
-#include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 
+#include "robot_ipc/NetworkConfig.h"
 #include "robot_ipc/NodeEndpoint.h"
 
 namespace robot::ipc {

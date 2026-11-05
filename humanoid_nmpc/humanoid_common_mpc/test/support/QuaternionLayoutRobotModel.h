@@ -35,8 +35,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Core"
 #include "Eigen/Geometry"
 #include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -167,20 +169,21 @@ class QuaternionLayoutRobotModel final : public MpcRobotModelBase<scalar_t> {
   vector3_t getPosBaseRtWorldEwrtWorld(const vector_t& state) const override {
     return state.segment<3>(baseStart());
   }
-  // NOLINTBEGIN(frame-naming): model-dependent, see MpcRobotModelBase
-  vector3_t getBaseComLinearVelocity(const vector_t& state) const override {
-    return isCentroidal()
-               ? vector3_t(state.head<3>())
-               : vector3_t(state.segment<3>(baseLinearVelocityStart()));
+  StoredLinvelPoint getStoredLinvelPoint() const override {
+    return isCentroidal() ? StoredLinvelPoint::kCenterOfMass
+                          : StoredLinvelPoint::kBaseOrigin;
   }
-  vector6_t getBaseComVelocity(const vector_t& state) const override {
-    if (isCentroidal()) return state.head<6>();
-    vector6_t baseVelocity;
-    baseVelocity << state.segment<3>(baseLinearVelocityStart()),
-        getAngvelBaseRtWorldEwrtBase(state).reverse();
-    return baseVelocity;
+  vector3_t getLinvelComRtWorldEwrtWorld(const vector_t& state) const override {
+    ABSL_CHECK(isCentroidal())
+        << "the whole-body layout stores no CoM velocity";
+    return state.head<3>();
   }
-  // NOLINTEND(frame-naming)
+  vector3_t getLinvelBaseRtWorldEwrtWorld(
+      const vector_t& state) const override {
+    ABSL_CHECK(!isCentroidal())
+        << "the centroidal layout stores no base velocity";
+    return state.segment<3>(baseLinearVelocityStart());
+  }
   vector_t getJointAngles(const vector_t& state) const override {
     return state.segment(jointStart(), jointDim());
   }
@@ -192,8 +195,9 @@ class QuaternionLayoutRobotModel final : public MpcRobotModelBase<scalar_t> {
   }
   vector_t getGeneralizedVelocities(const vector_t& state,
                                     const vector_t& input) override {
-    if (!isCentroidal())
+    if (!isCentroidal()) {
       return state.tail(static_cast<Eigen::Index>(getVelocityDim()));
+    }
     vector_t generalizedVelocities =
         vector_t::Zero(static_cast<Eigen::Index>(getVelocityDim()));
     generalizedVelocities.tail(jointDim()) = getJointVelocities(state, input);
@@ -210,16 +214,20 @@ class QuaternionLayoutRobotModel final : public MpcRobotModelBase<scalar_t> {
       const vector3_t& posBaseRtWorldEwrtWorld) const override {
     state.segment<3>(baseStart()) = posBaseRtWorldEwrtWorld;
   }
-  // NOLINTBEGIN(frame-naming): model-dependent, see MpcRobotModelBase
-  void setBaseComLinearVelocity(vector_t& state,
-                                const vector3_t& velocity) const override {
-    if (isCentroidal()) {
-      state.head<3>() = velocity;
-    } else {
-      state.segment<3>(baseLinearVelocityStart()) = velocity;
-    }
+  void setLinvelComRtWorldEwrtWorld(
+      vector_t& state,
+      const vector3_t& linvelComRtWorldEwrtWorld) const override {
+    ABSL_CHECK(isCentroidal())
+        << "the whole-body layout stores no CoM velocity";
+    state.head<3>() = linvelComRtWorldEwrtWorld;
   }
-  // NOLINTEND(frame-naming)
+  void setLinvelBaseRtWorldEwrtWorld(
+      vector_t& state,
+      const vector3_t& linvelBaseRtWorldEwrtWorld) const override {
+    ABSL_CHECK(!isCentroidal())
+        << "the centroidal layout stores no base velocity";
+    state.segment<3>(baseLinearVelocityStart()) = linvelBaseRtWorldEwrtWorld;
+  }
   void setJointAngles(vector_t& state,
                       const vector_t& jointAngles) const override {
     state.segment(jointStart(), jointDim()) = jointAngles;
@@ -233,9 +241,9 @@ class QuaternionLayoutRobotModel final : public MpcRobotModelBase<scalar_t> {
       state.tail(jointDim()) = jointVelocities;
     }
   }
-  void adaptPosBaseRtWorldEwrtWorldZ(vector_t& state,
-                                     scalar_t heightChange) const override {
-    state(baseStart() + 2) += heightChange;
+  void adaptPosBaseRtWorldEwrtWorldZ(
+      vector_t& state, scalar_t errPosBaseRtWorldEwrtWorldZ) const override {
+    state(baseStart() + 2) += errPosBaseRtWorldEwrtWorldZ;
   }
 
   vector4_t getQuatBaseRtWorldXyzw(const vector_t& state) const override {
@@ -265,14 +273,15 @@ class QuaternionLayoutRobotModel final : public MpcRobotModelBase<scalar_t> {
   vector3_t getEulerzyxBaseRtWorld(const vector_t& state) const override {
     return eulerZyxFromQuaternion(getQuatBaseRtWorldXyzw(state));
   }
-  void setEulerzyxBaseRtWorld(vector_t& state,
-                              const vector3_t& eulerZyx) const override {
-    state.segment<4>(orientationStart()) = quaternionFromEulerZyx(eulerZyx);
+  void setEulerzyxBaseRtWorld(
+      vector_t& state, const vector3_t& eulerzyxBaseRtWorld) const override {
+    state.segment<4>(orientationStart()) =
+        quaternionFromEulerZyx(eulerzyxBaseRtWorld);
   }
 
   vector3_t getAngvelBaseRtWorldEwrtBase(const vector_t& state) const override {
     if (!angularVelocityStart_.has_value()) {
-      failWithoutBaseAngularVelocity("getAngvelBaseRtWorldEwrtBase");
+      failWithoutAngvelBaseRtWorldEwrtBase("getAngvelBaseRtWorldEwrtBase");
       return vector3_t::Zero();
     }
     return state.segment<3>(static_cast<Eigen::Index>(*angularVelocityStart_));
@@ -281,29 +290,31 @@ class QuaternionLayoutRobotModel final : public MpcRobotModelBase<scalar_t> {
       vector_t& state,
       const vector3_t& angvelBaseRtWorldEwrtBase) const override {
     if (!angularVelocityStart_.has_value()) {
-      failWithoutBaseAngularVelocity("setAngvelBaseRtWorldEwrtBase");
+      failWithoutAngvelBaseRtWorldEwrtBase("setAngvelBaseRtWorldEwrtBase");
       return;
     }
     state.segment<3>(static_cast<Eigen::Index>(*angularVelocityStart_)) =
         angvelBaseRtWorldEwrtBase;
   }
-  void setTurnAngvelBaseRtWorldEwrtBase(vector_t& state,
-                                        scalar_t yawRate) const override {
+  void setTurnAngvelBaseRtWorldEwrtBase(
+      vector_t& state, scalar_t angvelBaseRtWorldEwrtWorldZ) const override {
     if (!angularVelocityStart_.has_value()) {
-      failWithoutBaseAngularVelocity("setTurnAngvelBaseRtWorldEwrtBase");
+      failWithoutAngvelBaseRtWorldEwrtBase("setTurnAngvelBaseRtWorldEwrtBase");
       return;
     }
     state.segment<3>(static_cast<Eigen::Index>(*angularVelocityStart_)) =
         quaternionRotationMatrix<scalar_t>(getQuatBaseRtWorldXyzw(state))
             .transpose() *
-        vector3_t(0.0, 0.0, yawRate);
+        vector3_t(0.0, 0.0, angvelBaseRtWorldEwrtWorldZ);
   }
   BaseAngularVelocityJacobian getJacobianAngvelBaseRtWorldEwrtBase(
       const vector_t& /*state*/) const override {
     // The state stores w_B itself.
     const bool holds = angularVelocityStart_.has_value();
-    if (!holds)
-      failWithoutBaseAngularVelocity("getJacobianAngvelBaseRtWorldEwrtBase");
+    if (!holds) {
+      failWithoutAngvelBaseRtWorldEwrtBase(
+          "getJacobianAngvelBaseRtWorldEwrtBase");
+    }
     return BaseAngularVelocityJacobian{
         .orientationSlots = matrix_t::Zero(3, kQuaternionOrientationStateDim),
         .angularVelocitySlots = holds ? matrix3_t(matrix3_t::Identity())
@@ -320,9 +331,9 @@ class QuaternionLayoutRobotModel final : public MpcRobotModelBase<scalar_t> {
             getAngvelBaseRtWorldEwrtBase(state);
     return twistBaseRtWorldEwrtWorld;
   }
-  vector3_t getTargetPlanarCommand(
+  vector3_t getRefPlanarMotion(
       const vector_t& targetState,
-      scalar_t /*compositeYawInertia*/) const override {
+      scalar_t /*inertiaComEwrtWorldZz*/) const override {
     if (isCentroidal()) return vector3_t::Zero();
     const vector6_t twistBaseRtWorldEwrtWorld =
         getTwistBaseRtWorldEwrtWorld(targetState, vector_t::Zero(jointDim()));
@@ -453,7 +464,8 @@ class QuaternionLayoutRobotModel final : public MpcRobotModelBase<scalar_t> {
 
   /** Fails the test, naming `caller`: the state holds no base angular velocity.
    */
-  static void failWithoutBaseAngularVelocity(const char* absl_nonnull caller) {
+  static void failWithoutAngvelBaseRtWorldEwrtBase(
+      const char* absl_nonnull caller) {
     ADD_FAILURE() << caller
                   << " of a state that holds no base angular velocity";
   }

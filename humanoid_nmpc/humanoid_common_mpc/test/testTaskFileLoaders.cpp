@@ -57,7 +57,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_mpc_config/collision_constraint_config.nproto.h"
+#include "humanoid_mpc_config/contacts_config.nproto.h"
+#include "humanoid_mpc_config/joint_weights.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_mpc_config/task_space_weights.nproto.h"
 
 /**
  * The blocks of the task file the MPC interfaces build their terms from, read
@@ -132,13 +136,14 @@ ModelSettings twoContactSettings() {
 TEST(SwingTrajectorySettings, AreReadFromTheirBlock) {
   const mpc_config::TaskFile task =
       taskFileOf("swing.textproto",
-                 "swing_trajectory_config {\n  swing_height: 0.12\n  "
+                 "swing_trajectory_config {\n  "
+                 "apex_pos_foot_rt_swingend_ewrt_world_z: 0.12\n  "
                  "liftoff_linvel_foot_rt_world_ewrt_world_z: 0.2\n  "
                  "touchdown_linvel_foot_rt_world_ewrt_world_z: -0.3\n}\n");
   const absl::StatusOr<SwingTrajectoryPlanner::Config> config =
       swingTrajectorySettingsFromConfig(task.swing_trajectory_config);
   ASSERT_TRUE(config.ok()) << config.status();
-  EXPECT_DOUBLE_EQ(config->swingHeight, 0.12);
+  EXPECT_DOUBLE_EQ(config->apexPosFootRtSwingendEwrtWorldZ, 0.12);
   EXPECT_DOUBLE_EQ(config->liftoffLinvelFootRtWorldEwrtWorldZ, 0.2);
   EXPECT_DOUBLE_EQ(config->touchdownLinvelFootRtWorldEwrtWorldZ, -0.3);
 }
@@ -148,7 +153,8 @@ TEST(TaskFile,
   const std::string file = writeFile(
       "swing_bad.textproto",
       absl::StrCat(kTaskHeader,
-                   "swing_trajectory_config {\n  swing_height: high\n}\n"));
+                   "swing_trajectory_config {\n  "
+                   "apex_pos_foot_rt_swingend_ewrt_world_z: high\n}\n"));
   const absl::StatusOr<mpc_config::TaskFile> badValue = loadTaskFile(file);
   EXPECT_EQ(badValue.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(badValue.status().message(),
@@ -166,7 +172,7 @@ TEST(EndEffectorKinematicsWeights,
   const mpc_config::TaskFile task =
       taskFileOf("weights.textproto",
                  "task_space_foot_cost {\n  weights {\n    pos_x: 1.5\n    "
-                 "ang_velocity_z: 0.25\n  }\n}\n");
+                 "angvel_z: 0.25\n  }\n}\n");
   const absl::StatusOr<EndEffectorKinematicsWeights> weights =
       endEffectorKinematicsWeightsFromConfig(task.task_space_foot_cost.weights,
                                              "task_space_foot_cost.weights");
@@ -189,17 +195,20 @@ TEST(EndEffectorKinematicsWeights,
 
 TEST(ContactRectangle, IsReadAroundTheContactsCenterPoint) {
   const ModelSettings settings = twoContactSettings();
-  const mpc_config::TaskFile task =
-      taskFileOf("rectangle.textproto",
-                 "contacts {\n"
-                 "  contact_rectangle { x_min: -0.1 x_max: 0.15 y_min: -0.05 "
-                 "y_max: 0.05 }\n"
-                 "  pos_contact_rt_link_ewrt_link { z: -0.02 }\n"
-                 "}\n");
+  const mpc_config::TaskFile task = taskFileOf(
+      "rectangle.textproto",
+      "contacts {\n"
+      "  contact_rectangle { min_pos_corners_rt_contact_ewrt_contact_x: -0.1 "
+      "max_pos_corners_rt_contact_ewrt_contact_x: 0.15 "
+      "min_pos_corners_rt_contact_ewrt_contact_y: -0.05 "
+      "max_pos_corners_rt_contact_ewrt_contact_y: 0.05 }\n"
+      "  pos_contact_rt_link_ewrt_link { z: -0.02 }\n"
+      "}\n");
   const absl::StatusOr<ContactRectangle> rectangle =
       contactRectangleFromConfig(task.contacts, settings, /*contactIndex=*/1);
   ASSERT_TRUE(rectangle.ok()) << rectangle.status();
-  EXPECT_DOUBLE_EQ(rectangle->getBounds().x_max, 0.15);
+  EXPECT_DOUBLE_EQ(
+      rectangle->getBounds().max_pos_corners_rt_contact_ewrt_contact_x, 0.15);
   EXPECT_EQ(rectangle->getNumberOfContactPoints(), 4U);
   const absl::StatusOr<ContactCenterPoint> center =
       contactCenterPointFromConfig(task.contacts, settings, /*contactIndex=*/1);
@@ -214,7 +223,8 @@ TEST(ContactRectangle,
   const ModelSettings settings = twoContactSettings();
   const mpc_config::TaskFile task =
       taskFileOf("rectangle_good.textproto",
-                 "contacts {\n  contact_rectangle { x_min: -0.1 }\n}\n");
+                 "contacts {\n  contact_rectangle { "
+                 "min_pos_corners_rt_contact_ewrt_contact_x: -0.1 }\n}\n");
   // The index used to be checked by an assert only, and then indexed the
   // contact names out of range.
   const absl::StatusOr<ContactRectangle> outOfRange =
@@ -223,7 +233,8 @@ TEST(ContactRectangle,
   EXPECT_THAT(outOfRange.status().message(), HasSubstr("contact 2"));
 
   mpc_config::ContactsConfig infinite = task.contacts;
-  infinite.contact_rectangle.x_min = -std::numeric_limits<double>::infinity();
+  infinite.contact_rectangle.min_pos_corners_rt_contact_ewrt_contact_x =
+      -std::numeric_limits<double>::infinity();
   const absl::StatusOr<ContactRectangle> notFinite =
       contactRectangleFromConfig(infinite, settings, /*contactIndex=*/0);
   EXPECT_EQ(notFinite.status().code(), absl::StatusCode::kInvalidArgument);

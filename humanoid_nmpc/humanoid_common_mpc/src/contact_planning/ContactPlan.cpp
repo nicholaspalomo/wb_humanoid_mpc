@@ -31,13 +31,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "ocs2_core/PhysicalConstants.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
@@ -60,12 +67,15 @@ std::string ContactPlan::describe() const {
       nodeLimitHit ? " NODE-LIMIT" : "", timeLimitHit ? " TIME-LIMIT" : "");
   // A step the reach clip had to cut is no longer the deadbeat step, so report
   // it in the log.
-  if (numClippedSteps > 0)
+  if (numClippedSteps > 0) {
     absl::StrAppend(&out, " CLIPPED-STEPS=", numClippedSteps);
-  if (!comVelocity.empty()) {
+  }
+  if (!linvelComRtWorldEwrtWorldXyTraj.empty()) {
     absl::StrAppendFormat(&out, " v0=[%.3f %.3f] vN=[%.3f %.3f]",
-                          comVelocity.front().x(), comVelocity.front().y(),
-                          comVelocity.back().x(), comVelocity.back().y());
+                          linvelComRtWorldEwrtWorldXyTraj.front().x(),
+                          linvelComRtWorldEwrtWorldXyTraj.front().y(),
+                          linvelComRtWorldEwrtWorldXyTraj.back().x(),
+                          linvelComRtWorldEwrtWorldXyTraj.back().y());
   }
   const int N = numIntervals();
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
@@ -74,45 +84,53 @@ std::string ContactPlan::describe() const {
     while (k < N) {
       const bool inContact = contacts[static_cast<size_t>(k)][foot];
       int end = k;
-      while (end < N && contacts[static_cast<size_t>(end)][foot] == inContact)
+      while (end < N && contacts[static_cast<size_t>(end)][foot] == inContact) {
         ++end;
+      }
       absl::StrAppendFormat(&out, " %s%.3f", inContact ? "C" : "S",
                             dt * static_cast<scalar_t>(end - k));
       // The step of a swing: the foothold at its touch-down node measured
       // against the last node the foot was still STANDING on, which is node k -
       // 1, and not against the lift-off node k itself.
       //
-      // This used to read footholds[k], and that printed a fabricated
-      // (0.000,0.000) for every stepping swing of an H-LIP plan - the default
-      // planner in both shipped robots - because the two planners do not agree
-      // about what the lift-off node holds. Under `lip_miqp` the foothold state
-      // has not jumped yet at node k: FootholdIntegrator integrates p_{k+1} =
-      // p_k + dp_k and FootMotionInSwingOnlyConstraint pins dp to zero on
-      // contact intervals, so node k still carries the stance the foot is about
-      // to leave and the old expression was right there. Under `hlip`
-      // HlipContactPlanner computes the landing spot of a swing BEFORE stamping
-      // plan.footholds over every node of that single-support phase, so node k
-      // already carries the LANDING position - and so does node `end`, since
-      // the double support that follows leaves the feet where the swing put
-      // them. The difference was then identically zero and the log said nothing
-      // at all about the step, which defeats the purpose of the line:
-      // numClippedSteps tells the operator that the reach clip had to cut a
-      // step, and this is where they look to see which one and by how much. It
-      // is the same lift-off off-by-one that footholdBeforeTime() exists to
-      // keep callers out of.
+      // This used to read desPosFeetRtWorldEwrtWorldXyTraj[k], and that printed
+      // a fabricated (0.000,0.000) for every stepping swing of an H-LIP plan -
+      // the default planner in both shipped robots - because the two planners
+      // do not agree about what the lift-off node holds. Under `lip_miqp` the
+      // foothold state has not jumped yet at node k: FootholdIntegrator
+      // integrates p_{k+1} = p_k + dp_k and FootMotionInSwingOnlyConstraint
+      // pins dp to zero on contact intervals, so node k still carries the
+      // stance the foot is about to leave and the old expression was right
+      // there. Under `hlip` HlipContactPlanner computes the landing spot of a
+      // swing BEFORE stamping plan.desPosFeetRtWorldEwrtWorldXyTraj over every
+      // node of that single-support phase, so node k already carries the
+      // LANDING position - and so does node `end`, since the double support
+      // that follows leaves the feet where the swing put them. The difference
+      // was then identically zero and the log said nothing at all about the
+      // step, which defeats the purpose of the line: numClippedSteps tells the
+      // operator that the reach clip had to cut a step, and this is where they
+      // look to see which one and by how much. It is the same lift-off
+      // off-by-one that getPrevDesPosFootRtWorldEwrtWorldXy() exists to keep
+      // callers out of.
       //
       // Node k - 1 is a contact node for this foot under BOTH conventions -
-      // under `lip_miqp` footholds[k-1] equals footholds[k] because the foot
-      // was in contact through interval k - 1 - so the one expression serves
-      // both planners and the existing expectation on a hand-built
-      // mixed-integer plan is unchanged. A plan that already begins mid-swing
-      // has no pre-lift-off node to measure against; that swing prints its
-      // duration and no displacement, because printing a zero there would be
-      // exactly the silent lie this is fixing.
-      if (!inContact && k > 0 && static_cast<size_t>(end) < footholds.size()) {
-        const vector2_t step = footholds[static_cast<size_t>(end)][foot] -
-                               footholds[static_cast<size_t>(k - 1)][foot];
-        absl::StrAppendFormat(&out, "(%.3f,%.3f)", step.x(), step.y());
+      // under `lip_miqp` desPosFeetRtWorldEwrtWorldXyTraj[k-1] equals
+      // desPosFeetRtWorldEwrtWorldXyTraj[k] because the foot was in contact
+      // through interval k - 1 - so the one expression serves both planners and
+      // the existing expectation on a hand-built mixed-integer plan is
+      // unchanged. A plan that already begins mid-swing has no pre-lift-off
+      // node to measure against; that swing prints its duration and no
+      // displacement, because printing a zero there would be exactly the silent
+      // lie this is fixing.
+      if (!inContact && k > 0 &&
+          static_cast<size_t>(end) < desPosFeetRtWorldEwrtWorldXyTraj.size()) {
+        // The landing minus the foothold before lift-off.
+        const vector2_t desErrPosFootRtWorldEwrtWorldXy =
+            desPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(end)][foot] -
+            desPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(k - 1)][foot];
+        absl::StrAppendFormat(&out, "(%.3f,%.3f)",
+                              desErrPosFootRtWorldEwrtWorldXy.x(),
+                              desErrPosFootRtWorldEwrtWorldXy.y());
       }
       k = end;
     }
@@ -133,8 +151,9 @@ contact_flag_t ContactPlan::contactsAtTime(scalar_t time) const {
     // passed, as in intervalIndex().
     size_t phase = 0;
     while (phase + 1 < phaseStartTimes.size() &&
-           phaseStartTimes[phase + 1] <= time + kEventTimeTolerance)
+           phaseStartTimes[phase + 1] <= time + kEventTimeTolerance) {
       ++phase;
+    }
     return phaseContacts[phase];
   }
   if (contacts.empty()) return makeFeetArray(true);
@@ -163,32 +182,49 @@ std::optional<VALUE_T> interpolateNodes(const std::vector<VALUE_T>& values,
 }
 }  // namespace
 
-std::optional<scalar_t> ContactPlan::headingAtTime(scalar_t time) const {
+std::optional<scalar_t> ContactPlan::headingModelYawAtTime(
+    scalar_t time) const {
   if (!hasHeading()) return std::nullopt;
-  return interpolateNodes(heading, startTime, dt, time);
+  return interpolateNodes(headingModelYawTraj, startTime, dt, time);
 }
 
-std::optional<scalar_t> ContactPlan::headingRateAtTime(scalar_t time) const {
-  if (!hasHeading() || headingRate.empty()) return std::nullopt;
-  return interpolateNodes(headingRate, startTime, dt, time);
+scalar_t ContactPlan::getYawHeadingRtWorld(scalar_t time) const {
+  if (const std::optional<scalar_t> headingModelYaw =
+          headingModelYawAtTime(time);
+      headingModelYaw.has_value()) {
+    return *headingModelYaw;
+  }
+  const scalar_t clampedTime =
+      std::clamp(time, startTime, std::max(startTime, endTime()));
+  return yawHeadingRtWorld + rateYawHeadingRtWorld * (clampedTime - startTime);
 }
 
-std::optional<scalar_t> ContactPlan::footYawAtTime(size_t contactIndex,
-                                                   scalar_t time) const {
-  if (!hasHeading() || footYaws.empty()) return std::nullopt;
+std::optional<scalar_t> ContactPlan::headingModelYawRateAtTime(
+    scalar_t time) const {
+  if (!hasHeading() || headingModelYawRateTraj.empty()) return std::nullopt;
+  return interpolateNodes(headingModelYawRateTraj, startTime, dt, time);
+}
+
+std::optional<scalar_t> ContactPlan::getDesEulerzyxFootRtWorldYaw(
+    size_t contactIndex, scalar_t time) const {
+  if (!hasHeading() || desEulerzyxFeetRtWorldYawTraj.empty()) {
+    return std::nullopt;
+  }
   const int node = static_cast<int>(std::lround((time - startTime) / dt));
-  const int clamped =
-      std::clamp(node, 0, static_cast<int>(footYaws.size()) - 1);
-  return footYaws[clamped][contactIndex];
+  const int clamped = std::clamp(
+      node, 0, static_cast<int>(desEulerzyxFeetRtWorldYawTraj.size()) - 1);
+  return desEulerzyxFeetRtWorldYawTraj[clamped][contactIndex];
 }
 
-std::optional<scalar_t> ContactPlan::footYawBeforeTime(size_t contactIndex,
-                                                       scalar_t time) const {
-  if (!hasHeading() || footYaws.empty()) return std::nullopt;
+std::optional<scalar_t> ContactPlan::getPrevDesEulerzyxFootRtWorldYaw(
+    size_t contactIndex, scalar_t time) const {
+  if (!hasHeading() || desEulerzyxFeetRtWorldYawTraj.empty()) {
+    return std::nullopt;
+  }
   const int node = static_cast<int>(std::lround((time - startTime) / dt)) - 1;
-  const int clamped =
-      std::clamp(node, 0, static_cast<int>(footYaws.size()) - 1);
-  return footYaws[clamped][contactIndex];
+  const int clamped = std::clamp(
+      node, 0, static_cast<int>(desEulerzyxFeetRtWorldYawTraj.size()) - 1);
+  return desEulerzyxFeetRtWorldYawTraj[clamped][contactIndex];
 }
 
 namespace {
@@ -203,34 +239,38 @@ std::optional<LipState> planReducedModelState(const ContactPlan& plan,
 }
 }  // namespace
 
-std::optional<vector2_t> ContactPlan::comPositionAtTime(scalar_t time) const {
+std::optional<vector2_t> ContactPlan::evaluatePosComRtWorldEwrtWorldXy(
+    scalar_t time) const {
   const std::optional<LipState> state = planReducedModelState(*this, time);
-  if (state.has_value()) return state->com;
-  return interpolateNodes(comPosition, startTime, dt, valid ? time : startTime);
+  if (state.has_value()) return state->posComRtWorldEwrtWorldXy;
+  return interpolateNodes(posComRtWorldEwrtWorldXyTraj, startTime, dt,
+                          valid ? time : startTime);
 }
 
-std::optional<vector2_t> ContactPlan::comVelocityAtTime(scalar_t time) const {
+std::optional<vector2_t> ContactPlan::evaluateLinvelComRtWorldEwrtWorldXy(
+    scalar_t time) const {
   const std::optional<LipState> state = planReducedModelState(*this, time);
-  if (state.has_value()) return state->comVelocity;
-  return interpolateNodes(comVelocity, startTime, dt, valid ? time : startTime);
+  if (state.has_value()) return state->linvelComRtWorldEwrtWorldXy;
+  return interpolateNodes(linvelComRtWorldEwrtWorldXyTraj, startTime, dt,
+                          valid ? time : startTime);
 }
 
-std::optional<vector2_t> ContactPlan::footholdAtTime(size_t contactIndex,
-                                                     scalar_t time) const {
-  if (!valid || footholds.empty()) return std::nullopt;
+std::optional<vector2_t> ContactPlan::getDesPosFootRtWorldEwrtWorldXy(
+    size_t contactIndex, scalar_t time) const {
+  if (!valid || desPosFeetRtWorldEwrtWorldXyTraj.empty()) return std::nullopt;
   const int node = static_cast<int>(std::lround((time - startTime) / dt));
-  const int clamped =
-      std::clamp(node, 0, static_cast<int>(footholds.size()) - 1);
-  return footholds[clamped][contactIndex];
+  const int clamped = std::clamp(
+      node, 0, static_cast<int>(desPosFeetRtWorldEwrtWorldXyTraj.size()) - 1);
+  return desPosFeetRtWorldEwrtWorldXyTraj[clamped][contactIndex];
 }
 
-std::optional<vector2_t> ContactPlan::footholdBeforeTime(size_t contactIndex,
-                                                         scalar_t time) const {
-  if (!valid || footholds.empty()) return std::nullopt;
+std::optional<vector2_t> ContactPlan::getPrevDesPosFootRtWorldEwrtWorldXy(
+    size_t contactIndex, scalar_t time) const {
+  if (!valid || desPosFeetRtWorldEwrtWorldXyTraj.empty()) return std::nullopt;
   const int node = static_cast<int>(std::lround((time - startTime) / dt)) - 1;
-  const int clamped =
-      std::clamp(node, 0, static_cast<int>(footholds.size()) - 1);
-  return footholds[clamped][contactIndex];
+  const int clamped = std::clamp(
+      node, 0, static_cast<int>(desPosFeetRtWorldEwrtWorldXyTraj.size()) - 1);
+  return desPosFeetRtWorldEwrtWorldXyTraj[clamped][contactIndex];
 }
 
 ModeSchedule ContactPlan::toModeSchedule() const {
@@ -246,8 +286,9 @@ ModeSchedule ContactPlan::toModeSchedule() const {
               ? phaseStartTimes[phase + 1]
               : std::max(endTime(), phaseStartTimes[phase]);
       const bool isLast = phase + 1 == phaseContacts.size();
-      if (!isLast && phaseEnd - phaseStartTimes[phase] < kMinModeDuration)
+      if (!isLast && phaseEnd - phaseStartTimes[phase] < kMinModeDuration) {
         continue;
+      }
       const size_t mode = stanceLeg2ModeNumber(phaseContacts[phase]);
       if (modeSequence.empty()) {
         modeSequence.push_back(mode);

@@ -140,7 +140,7 @@ class ContactAnnotationTest(unittest.TestCase):
                         self.assertFalse(_not_applicable(notes))
             for path in (
                 "contacts.friction_force_cone_soft_constraint.friction_coefficient",
-                "contacts.contact_rectangle.x_max",
+                "contacts.contact_rectangle.max_pos_corners_rt_contact_ewrt_contact_x",
                 "contacts.pos_contact_rt_link_ewrt_link.z",
             ):
                 with self.subTest(parameterization=parameterization, path=path):

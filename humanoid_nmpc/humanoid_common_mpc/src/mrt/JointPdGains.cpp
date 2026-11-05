@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
 
+#include <cstddef>
 #include <filesystem>
 #include <optional>
 #include <string>

@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <deque>
 
 #include "absl/functional/function_ref.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -203,11 +204,12 @@ class StrideMotionHistory {
    * time. */
   struct Sample {
     scalar_t time = 0.0;
-    /** [rad] Psi, the unwrapped twist heading. */
-    scalar_t heading = 0.0;
+    /** [rad] Psi, the twist yaw of the base, unwrapped across samples (not
+     * wrapped into (-pi, pi]). */
+    scalar_t unwrappedYawBaseRtWorld = 0.0;
     /** [m] D, the displacement integrated in the heading frame since the first
      * sample. */
-    vector2_t displacement = vector2_t::Zero();
+    vector2_t integralLinvelBaseRtWorldEwrtHeadingXy = vector2_t::Zero();
   };
 
   /** Psi and D at `time`, at most the last sample's: interpolated between

@@ -31,20 +31,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
 
+#include <array>
+#include <cstddef>
 #include <memory>
 #include <string>
-#include <utility>
 
 #include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
 #include "ocs2_core/Dimensions.h"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/dynamics/SystemDynamicsBaseAD.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/multibody/data.hpp"  // IWYU pragma: keep
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 
 namespace ocs2::humanoid {
@@ -183,37 +195,39 @@ std::string CentroidalDynamicsBasisInputsAD::uniqueModelName(
 /******************************************************************************************************/
 /******************************************************************************************************/
 template <typename SCALAR_T>
-VECTOR_T<SCALAR_T> CentroidalDynamicsBasisInputsAD::toWorldFrameWrenchInput(
+VECTOR_T<SCALAR_T> CentroidalDynamicsBasisInputsAD::toWrappedInput(
     const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
     const CentroidalModelInfoTpl<SCALAR_T>& info,
     const VECTOR_T<SCALAR_T>& basisInput) const {
   const pinocchio::DataTpl<SCALAR_T>& data = pinocchioInterface.getData();
 
-  VECTOR_T<SCALAR_T> wrenchInput = VECTOR_T<SCALAR_T>::Zero(info.inputDim);
+  VECTOR_T<SCALAR_T> wrappedInput = VECTOR_T<SCALAR_T>::Zero(info.inputDim);
   for (size_t i = 0; i < kNumContacts; ++i) {
     const VECTOR_T<SCALAR_T> lambda =
         basisInput.segment(numBasisPerFoot_ * i, numBasisPerFoot_);
-    const VECTOR6_T<SCALAR_T> wrenchLocal =
+    const VECTOR6_T<SCALAR_T> wrenchContactEwrtContact =
         B_local_[i].template cast<SCALAR_T>() * lambda;
-    const MATRIX3_T<SCALAR_T> w_R_l =
+    const MATRIX3_T<SCALAR_T> rotmatContactRtWorld =
         data.oMf[contactFrameIndices_[i]].rotation();
     // Contact i is the i-th six-DoF contact (there are no three-DoF contacts,
     // checked in the constructor).
-    centroidal_model::getForceContactEwrtWorld(wrenchInput, i, info) =
-        w_R_l * wrenchLocal.template head<kForceDim>();
-    centroidal_model::getTorqueContactEwrtWorld(wrenchInput, i, info) =
-        w_R_l * wrenchLocal.template tail<kTorqueDim>();
+    centroidal_model::getForceContactEwrtWorld(wrappedInput, i, info) =
+        rotmatContactRtWorld *
+        wrenchContactEwrtContact.template head<kForceDim>();
+    centroidal_model::getTorqueContactEwrtWorld(wrappedInput, i, info) =
+        rotmatContactRtWorld *
+        wrenchContactEwrtContact.template tail<kTorqueDim>();
   }
-  centroidal_model::getJointVelocities(wrenchInput, info) =
+  centroidal_model::getJointVelocities(wrappedInput, info) =
       basisInput.tail(jointDim_);
-  return wrenchInput;
+  return wrappedInput;
 }
 
-template vector_t CentroidalDynamicsBasisInputsAD::toWorldFrameWrenchInput<
-    scalar_t>(const PinocchioInterfaceTpl<scalar_t>&,
-              const CentroidalModelInfoTpl<scalar_t>&,
-              const vector_t&) const;
-template ad_vector_t CentroidalDynamicsBasisInputsAD::toWorldFrameWrenchInput<
+template vector_t CentroidalDynamicsBasisInputsAD::toWrappedInput<scalar_t>(
+    const PinocchioInterfaceTpl<scalar_t>&,
+    const CentroidalModelInfoTpl<scalar_t>&,
+    const vector_t&) const;
+template ad_vector_t CentroidalDynamicsBasisInputsAD::toWrappedInput<
     ad_scalar_t>(const PinocchioInterfaceTpl<ad_scalar_t>&,
                  const CentroidalModelInfoTpl<ad_scalar_t>&,
                  const ad_vector_t&) const;
@@ -238,22 +252,22 @@ ad_vector_t CentroidalDynamicsBasisInputsAD::systemFlowMap(
   updateCentroidalDynamics(pinocchioInterfaceCppAd, info, qPinocchio);
 
   // λ → world-frame wrench input of the underlying centroidal model.
-  const ad_vector_t wrenchInput = toWorldFrameWrenchInput<ad_scalar_t>(
-      pinocchioInterfaceCppAd, info, input);
+  const ad_vector_t wrappedInput =
+      toWrappedInput<ad_scalar_t>(pinocchioInterfaceCppAd, info, input);
 
   ad_vector_t stateDerivative(info.stateDim);
 
   // compute center of mass acceleration and derivative of the normalized
   // angular momentum
-  centroidal_model::getMnormCmomComRtWorldEwrtWorld(stateDerivative, info) =
+  centroidal_model::getMnormRateCmomComRtWorldEwrtWorld(stateDerivative, info) =
       getMnormRateCmomComRtWorldEwrtWorld(pinocchioInterfaceCppAd, info,
-                                          wrenchInput);
+                                          wrappedInput);
 
   // derivatives of the generalized coordinates [p_W, xi, q_j] from the
   // pinocchio velocity [dp_W, w_B, dq_j]: the quaternion row is 1/2 G(xi) w_B
   // of the raw xi of the state (computeConfigurationDerivative())
   const ad_vector_t vPinocchio =
-      mappingCppAd.getPinocchioJointVelocity(state, wrenchInput);
+      mappingCppAd.getPinocchioJointVelocity(state, wrappedInput);
   centroidal_model::configurationDerivative(stateDerivative, info) =
       computeConfigurationDerivative(info, state, vPinocchio);
 

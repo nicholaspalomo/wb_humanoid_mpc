@@ -321,7 +321,7 @@ def install_header(
     robot: str,
     hidden_dim: int,
     workspace_dir: str,
-    force_architecture: bool = False,
+    replace_architecture: bool = False,
 ) -> str:
     """Copies an exported header into the C++ source tree, where the next build compiles it in.
 
@@ -330,18 +330,18 @@ def install_header(
         robot: A key of _ROBOT_CONFIGS.
         hidden_dim: The exported network's hidden width.
         workspace_dir: The workspace root the header is installed below.
-        force_architecture: Whether to replace a header of a different hidden width.
+        replace_architecture: Whether to replace a header of a different hidden width.
 
     Raises:
         ValueError: If the header would replace an installed one of a different
-            hidden width and `force_architecture` is not set. The C++ loader is
+            hidden width and `replace_architecture` is not set. The C++ loader is
             width-agnostic, so such a header would build and run while
             approximating the centroidal connection worse.
 
     Returns:
         The path the header was installed to.
     """
-    if not force_architecture:
+    if not replace_architecture:
         installed_width = _installed_hidden_dim(robot, workspace_dir)
         if installed_width is not None and installed_width != hidden_dim:
             raise ValueError(
@@ -441,6 +441,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--force_architecture",
+        dest="replace_architecture",
         action="store_true",
         help=(
             "Allow --install_header to overwrite a header whose architecture"
@@ -464,7 +465,7 @@ def main() -> None:
     # Eigen::Map'd at runtime from the dimensions the header declares, so a narrower network installs, builds and runs,
     # and is only ever noticed as degraded tracking. Checked here, before training, as well as at install time, so a
     # long run is not wasted on a header that will be refused.
-    if args.install_header and not args.force_architecture:
+    if args.install_header and not args.replace_architecture:
         installed_width = _installed_hidden_dim(args.robot)
         if installed_width is not None and installed_width != args.hidden_dim:
             parser.error(
@@ -567,7 +568,7 @@ def main() -> None:
             args.robot,
             args.hidden_dim,
             ws_dir,
-            force_architecture=args.force_architecture,
+            replace_architecture=args.replace_architecture,
         )
         print(f"  Installed C++ header to: {install_path}")
 

@@ -49,7 +49,7 @@ namespace {
 
 /** A quaternion whose norm is this far from 1 is not a rotation up to rounding.
  */
-constexpr scalar_t kQuaternionNormTolerance = 1.0e-3;
+constexpr scalar_t kUnitQuaternionNormTolerance = 1.0e-3;
 
 /** The optional joint arrays of the action applied: the targets, the gains and
  * the feed-forward efforts. */
@@ -117,14 +117,16 @@ void lookUpJoints(const absl::flat_hash_map<std::string, int>& sampleIndices,
 
 }  // namespace
 
-vector3_t eulerZyxRatesForDisplay(const vector3_t& eulerZyx,
-                                  const vector3_t& angularVelocityLocal) {
+vector3_t eulerZyxRatesForDisplay(
+    const vector3_t& eulerzyxLocalRtWorld,
+    const vector3_t& angvelLocalRtWorldEwrtLocal) {
   // The not-form is also true for a NaN pitch.
-  if (!(std::abs(std::cos(eulerZyx(kBaseRotPitchIndex))) >=
+  if (!(std::abs(std::cos(eulerzyxLocalRtWorld(kBaseRotPitchIndex))) >=
         kDisplayEulerRateMinCosPitch)) {
     return vector3_t::Constant(std::numeric_limits<scalar_t>::quiet_NaN());
   }
-  return eulerZyxRatesFromBodyRates(eulerZyx, angularVelocityLocal);
+  return eulerZyxRatesFromBodyRates(eulerzyxLocalRtWorld,
+                                    angvelLocalRtWorldEwrtLocal);
 }
 
 RobotStateDecoder::RobotStateDecoder(
@@ -186,34 +188,38 @@ absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample,
       return status;
     }
   }
-  const msgs::Quaternion& orientation = sample.quat_base_rt_world;
+  const msgs::Quaternion& sampleQuatBaseRtWorld = sample.quat_base_rt_world;
   // From the coefficients in Eigen's storage order (x, y, z, w), not its
   // scalar-first constructor.
-  quaternion_t quaternion(
-      vector4_t(orientation.x, orientation.y, orientation.z, orientation.w));
-  const scalar_t norm = quaternion.norm();
-  if (!std::isfinite(norm) || std::abs(norm - 1.0) > kQuaternionNormTolerance) {
+  quaternion_t quatBaseRtWorld(
+      vector4_t(sampleQuatBaseRtWorld.x, sampleQuatBaseRtWorld.y,
+                sampleQuatBaseRtWorld.z, sampleQuatBaseRtWorld.w));
+  const scalar_t norm = quatBaseRtWorld.norm();
+  if (!std::isfinite(norm) ||
+      std::abs(norm - 1.0) > kUnitQuaternionNormTolerance) {
     return absl::InvalidArgumentError(
         absl::StrCat("robot/state: quat_base_rt_world has the norm ", norm,
                      "; it must be a unit quaternion."));
   }
-  quaternion.normalize();
+  quatBaseRtWorld.normalize();
   updateJointIndices(sample.joint_names);
 
   state->time = sample.time;
-  state->basePosition = toVector3(sample.pos_base_rt_world_ewrt_world);
-  state->baseOrientation = quaternion;
-  state->baseRotation = quaternion.toRotationMatrix();
-  state->baseLinearVelocity =
-      state->baseRotation * toVector3(sample.linvel_base_rt_world_ewrt_base);
-  state->baseAngularVelocityLocal =
+  state->posBaseRtWorldEwrtWorld =
+      toVector3(sample.pos_base_rt_world_ewrt_world);
+  state->quatBaseRtWorld = quatBaseRtWorld;
+  state->rotmatBaseRtWorld = quatBaseRtWorld.toRotationMatrix();
+  state->linvelBaseRtWorldEwrtWorld =
+      state->rotmatBaseRtWorld *
+      toVector3(sample.linvel_base_rt_world_ewrt_base);
+  state->angvelBaseRtWorldEwrtBase =
       toVector3(sample.angvel_base_rt_world_ewrt_base);
-  state->baseAngularVelocity =
-      state->baseRotation * state->baseAngularVelocityLocal;
+  state->angvelBaseRtWorldEwrtWorld =
+      state->rotmatBaseRtWorld * state->angvelBaseRtWorldEwrtBase;
   // The display values: the MPC's q below keeps the quaternion.
-  state->baseEulerAnglesZyx = eulerZyxFromQuaternion(quaternion.coeffs());
-  state->baseEulerZyxRates = eulerZyxRatesForDisplay(
-      state->baseEulerAnglesZyx, state->baseAngularVelocityLocal);
+  state->eulerzyxBaseRtWorld = eulerZyxFromQuaternion(quatBaseRtWorld.coeffs());
+  state->rateEulerzyxBaseRtWorld = eulerZyxRatesForDisplay(
+      state->eulerzyxBaseRtWorld, state->angvelBaseRtWorldEwrtBase);
 
   const size_t mpcJointCount = mpcJointNames_.size();
   state->generalizedForces.setZero(robotModel_->getVelocityDim());
@@ -231,15 +237,15 @@ absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample,
   }
   // The measured base and joints in the MPC's generalized coordinates, as the
   // MRT controllers convert them.
-  const vector4_t orientationCoefficients = quaternion.coeffs();
+  const vector4_t quatBaseRtWorldXyzw = quatBaseRtWorld.coeffs();
   state->generalizedCoordinates.resize(robotModel_->getConfigurationDim());
   state->generalizedVelocities.resize(robotModel_->getVelocityDim());
   robotModel_->fillGeneralizedCoordinatesFromMeasurement(
-      state->basePosition, orientationCoefficients, mpcJointPositions_,
+      state->posBaseRtWorldEwrtWorld, quatBaseRtWorldXyzw, mpcJointPositions_,
       state->generalizedCoordinates);
   robotModel_->fillGeneralizedVelocitiesFromMeasurement(
-      orientationCoefficients, toVector3(sample.linvel_base_rt_world_ewrt_base),
-      state->baseAngularVelocityLocal, mpcJointVelocities_,
+      quatBaseRtWorldXyzw, toVector3(sample.linvel_base_rt_world_ewrt_base),
+      state->angvelBaseRtWorldEwrtBase, mpcJointVelocities_,
       state->generalizedVelocities);
 
   const size_t fullJointCount = fullJointNames_.size();
@@ -269,13 +275,16 @@ absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample,
   }
 
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    vector6_t& wrench = state->measuredContactWrenches[contact];
-    wrench.setZero();
+    vector6_t& measWrenchContactEwrtWorld =
+        state->measWrenchContactsEwrtWorld[contact];
+    measWrenchContactEwrtWorld.setZero();
     if (contact < sample.meas_wrench_contacts_ewrt_world.size()) {
-      wrench.head<kForceDim>() =
+      // NOLINTBEGIN(frame-naming): the components of a Wrench message, whose frames its field names
+      measWrenchContactEwrtWorld.head<kForceDim>() =
           toVector3(sample.meas_wrench_contacts_ewrt_world[contact].force);
-      wrench.tail<kTorqueDim>() =
+      measWrenchContactEwrtWorld.tail<kTorqueDim>() =
           toVector3(sample.meas_wrench_contacts_ewrt_world[contact].torque);
+      // NOLINTEND(frame-naming)
     }
   }
   return absl::OkStatus();

@@ -81,8 +81,10 @@ class HlipModel {
   /** The pre-impact states of the period-two orbit, one per step of the orbit.
    */
   struct PeriodTwoOrbit {
-    State beforeFirstStep;   // precedes the step of `firstStepLength`
-    State beforeSecondStep;  // precedes the step of `secondStepLength`
+    State beforeFirstStep;   // precedes the step of
+                             // `firstErrPosFootRtWorldEwrtLocal`
+    State beforeSecondStep;  // precedes the step of
+                             // `secondErrPosFootRtWorldEwrtLocal`
   };
 
   /**
@@ -91,16 +93,18 @@ class HlipModel {
    * @param sspDuration  [s] single support duration, must be positive.
    * @param dspDuration  [s] double support duration, must not be negative (the
    * paper uses 0).
-   * @param comHeight    [m] pendulum height z0, must be positive.
+   * @param nomPosComRtFeetmeanEwrtWorldZ    [m] pendulum height z0, must be
+   * positive.
    * @param gravity      [m/s^2] must be positive.
    * @return InvalidArgument when a parameter violates its bound (NaN included);
    * ContactPlanningConfig::validateStatus() rejects such a configuration before
    * a model is built from it.
    */
-  static absl::StatusOr<HlipModel> Create(scalar_t sspDuration,
-                                          scalar_t dspDuration,
-                                          scalar_t comHeight,
-                                          scalar_t gravity);
+  static absl::StatusOr<HlipModel> Create(
+      scalar_t sspDuration,
+      scalar_t dspDuration,
+      scalar_t nomPosComRtFeetmeanEwrtWorldZ,
+      scalar_t gravity);
 
   HlipModel(const HlipModel&) = default;
   HlipModel& operator=(const HlipModel&) = default;
@@ -125,43 +129,47 @@ class HlipModel {
   /** Drifts at constant velocity for `duration` seconds, the model's double
    * support. */
   static State flowDoubleSupport(const State& state, scalar_t duration);
-  /** The impact: the foot placed `stepLength` ahead of the stance foot becomes
-   * the stance foot. */
-  static State applyStepTransition(const State& state, scalar_t stepLength);
+  /** The impact: the foot placed `errPosFootRtWorldEwrtLocal` ahead of the
+   * stance foot becomes the stance foot. */
+  static State applyStepTransition(const State& state,
+                                   scalar_t errPosFootRtWorldEwrtLocal);
 
-  /** The pre-impact state after one whole step of length `stepLength`, i.e. A x
+  /** The pre-impact state after one whole step of length
+   * `errPosFootRtWorldEwrtLocal`, i.e. A x
    * + B u. */
-  State applyStepToStep(const State& state, scalar_t stepLength) const;
+  State applyStepToStep(const State& state,
+                        scalar_t errPosFootRtWorldEwrtLocal) const;
 
   /** The pre-impact fixed point of the period-one orbit walked with a constant
    * step length. */
-  State periodOneOrbit(scalar_t stepLength) const;
+  State periodOneOrbit(scalar_t errPosFootRtWorldEwrtLocal) const;
   /**
    * The two pre-impact states of the period-two orbit that alternates the two
    * step lengths, the lateral orbit of a biped.
    */
-  PeriodTwoOrbit periodTwoOrbit(scalar_t firstStepLength,
-                                scalar_t secondStepLength) const;
+  PeriodTwoOrbit periodTwoOrbit(
+      scalar_t firstErrPosFootRtWorldEwrtLocal,
+      scalar_t secondErrPosFootRtWorldEwrtLocal) const;
 
   /**
-   * The deadbeat step length u = nominalStepLength + K (state - nominalState).
-   * Applied at the pre-impact state of a step, it returns the model to the
-   * nominal orbit within two steps.
+   * The deadbeat step length u = nomErrPosFootRtWorldEwrtLocal + K (state -
+   * nominalState). Applied at the pre-impact state of a step, it returns the
+   * model to the nominal orbit within two steps.
    */
   scalar_t deadbeatStepLength(const State& state,
                               const State& nominalState,
-                              scalar_t nominalStepLength) const;
+                              scalar_t nomErrPosFootRtWorldEwrtLocal) const;
 
  private:
   /** Requires the bounds Create() checks. */
   HlipModel(scalar_t sspDuration,
             scalar_t dspDuration,
-            scalar_t comHeight,
+            scalar_t nomPosComRtFeetmeanEwrtWorldZ,
             scalar_t gravity);
 
   scalar_t sspDuration_;
   scalar_t dspDuration_;
-  scalar_t comHeight_;
+  scalar_t nomPosComRtFeetmeanEwrtWorldZ_;
   scalar_t gravity_;
   scalar_t omega_;
   Matrix2 stepToStepA_;

@@ -238,8 +238,8 @@ class TestAppFollowsTheFsmState(unittest.TestCase):
         self.app.destroy()
 
     def _push_sticks_forward(self):
-        self.app.joystick_left.set_position(0.8, 0.0)
-        self.app.joystick_right.set_position(0.0, 0.5)
+        self.app.joystick_left.set_deflection(0.8, 0.0)
+        self.app.joystick_right.set_deflection(0.0, 0.5)
 
     def _sticks_are_forward(self):
         return (

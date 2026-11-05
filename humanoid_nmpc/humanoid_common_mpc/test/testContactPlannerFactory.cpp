@@ -30,9 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <string>
 
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlannerInterface.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -43,7 +47,7 @@ ContactPlanningConfig makeConfig() {
   config.planner.numNodes = 24;
   // No robot model derives the pendulum here (the library default 0 means "from
   // the model"), so it is set.
-  config.shared.comHeight = 0.85;
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ = 0.85;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   return config;
 }

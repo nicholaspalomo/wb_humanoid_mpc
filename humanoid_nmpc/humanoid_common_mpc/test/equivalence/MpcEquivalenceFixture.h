@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Pinocchio forward declarations must be included first.
 #include "pinocchio/fwd.hpp"
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <random>
@@ -41,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
@@ -195,14 +197,14 @@ struct RealTimeSolve {
 /** Where random Euler states and inputs are drawn. Passive data. */
 struct EulerSamplingBounds {
   /** [rad] |pitch| and |roll|; |yaw| <= pi always. */
-  scalar_t maxAbsPitch = 1.2;
-  scalar_t maxAbsRoll = 1.2;
+  scalar_t maxAbsEulerzyxBaseRtWorldPitch = 1.2;
+  scalar_t maxAbsEulerzyxBaseRtWorldRoll = 1.2;
   /** [m/s] |c_dot| per axis (centroidal) and |pd_W| per axis (whole body). */
-  scalar_t maxAbsLinearVelocity = 0.5;
+  scalar_t maxAbsProxyLinvelComRtWorldEwrtWorld = 0.5;
   /** [m^2/s] |L_G / m| per axis (centroidal). */
-  scalar_t maxAbsNormalizedAngularMomentum = 0.05;
+  scalar_t maxAbsMnormAngmomComRtWorldEwrtWorld = 0.05;
   /** [rad/s] |Euler rate| per axis (whole body). */
-  scalar_t maxAbsEulerRate = 1.0;
+  scalar_t maxAbsRateEulerzyxBaseRtWorld = 1.0;
   /** [rad/s] |joint velocity| per joint (the whole body's state, the centroidal
    * input). */
   scalar_t maxAbsJointVelocity = 1.0;
@@ -262,9 +264,9 @@ class MpcEquivalenceFixture {
   std::shared_ptr<const StateManifold> eulerChartPtr() const;
   /** The oracle under the world's gravity. */
   const EulerMpcOracle& oracle() const { return *oracle_; }
-  /** An oracle of the same model under the gravity `gravity`. */
+  /** An oracle of the same model under the gravity `gravityEwrtWorld`. */
   absl::StatusOr<std::unique_ptr<EulerMpcOracle>> oracleUnderGravity(
-      const vector3_t& gravity) const;
+      const vector3_t& gravityEwrtWorld) const;
   /** [s] The SQP's node spacing: one shooting interval. */
   scalar_t nodeTimeStep() const;
   /** [s] The MPC horizon. */
@@ -274,14 +276,14 @@ class MpcEquivalenceFixture {
 
   /** Phi(x_e), the quaternion state of an Euler state (EulerChart); the sizes
    * are a precondition (ABSL_CHECK). */
-  vector_t quaternionStateOf(const vector_t& eulerState) const;
+  vector_t quaternionModelStateOf(const vector_t& eulerState) const;
   /** dPhi / dx_e at x_e, nx x nx_e. */
   matrix_t chartJacobian(const vector_t& eulerState) const;
   /** P_e(x_e), ndx x nx_e (square). */
   matrix_t physicalTangentJacobian(const vector_t& eulerState) const;
   /** Phi^-1(x), the Euler state of a quaternion state (EulerChart, the angles
    * wrapped); the sizes are a precondition. */
-  vector_t eulerStateOf(const vector_t& quaternionState) const;
+  vector_t eulerStateOf(const vector_t& quaternionModelState) const;
 
   /**
    * How a rotation g of the world acts on the quaternion state (ambient, nx x
@@ -291,13 +293,13 @@ class MpcEquivalenceFixture {
    * the turned state under the turned gravity is the turned dynamics: f(M x, N
    * u; R(g) gravity) = M f(x, u; gravity).
    */
-  matrix_t ambientWorldRotation(const vector4_t& worldRotation) const;
+  matrix_t ambientWorldTurn(const vector4_t& worldTurn) const;
   /** The same on tangent vectors (ndx x ndx): the body rotation perturbation
    * stays, d(g (x) xi Exp(d)) = g (x) d(xi Exp(d)). */
-  matrix_t tangentWorldRotation(const vector4_t& worldRotation) const;
+  matrix_t tangentWorldTurn(const vector4_t& worldTurn) const;
   /** The same on inputs (nu x nu): world-frame wrenches turn, local basis
    * scalings and the joint entries stay. */
-  matrix_t inputWorldRotation(const vector4_t& worldRotation) const;
+  matrix_t inputWorldTurn(const vector4_t& worldTurn) const;
 
   /** A random Euler state within `bounds`; deterministic for a given generator
    * state. */
@@ -320,7 +322,7 @@ class MpcEquivalenceFixture {
    * oracle vanishes, so that a robot at rest under the input does not turn.
    * Linear in the moment removed.
    */
-  vector_t torqueFreeInput(const vector_t& eulerState,
+  vector_t nonTurningInput(const vector_t& eulerState,
                            const vector_t& input) const;
 
   /** The task file's initial_state: the robot standing level at rest, as the
@@ -437,7 +439,7 @@ class MpcEquivalenceFixture {
 
   MpcEquivalenceFixture() = default;
 
-  matrix_t worldAction(const vector4_t& worldRotation,
+  matrix_t worldAction(const vector4_t& worldTurn,
                        WorldActionSpace space) const;
 
   /** The settings of the fixture's solves: the task file's, with `options`, one

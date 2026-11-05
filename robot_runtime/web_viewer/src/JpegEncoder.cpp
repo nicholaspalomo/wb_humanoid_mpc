@@ -92,9 +92,10 @@ absl::StatusOr<std::string> JpegEncoder::encode(absl::Span<const uint8_t> rgb,
       tj3Set(compressor_, TJPARAM_SUBSAMP, TJSAMP_420) == 0 &&
       tj3Set(compressor_, TJPARAM_BOTTOMUP,
              rowOrder == RowOrder::kBottomUp ? 1 : 0) == 0;
-  if (!configured)
+  if (!configured) {
     return absl::InternalError(absl::StrCat(
         "libjpeg-turbo refused the settings: ", tj3GetErrorStr(compressor_)));
+  }
 
   // On input the capacity of the buffer that libjpeg-turbo may grow; on output
   // the size of the image.

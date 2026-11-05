@@ -31,8 +31,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+
 #include "humanoid_common_mpc/locomotion_heuristics/BasePoseHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 
 namespace ocs2::humanoid {
 
@@ -65,7 +70,7 @@ class OrientationCompensationHeuristic final : public BasePoseHeuristic {
   ~OrientationCompensationHeuristic() override = default;
 
   absl::string_view name() const override {
-    return heuristic::kOrientationCompensation;
+    return heuristic::kOrientationCompensationName;
   }
   absl::Status configure(
       const LocomotionHeuristicConfig& config,

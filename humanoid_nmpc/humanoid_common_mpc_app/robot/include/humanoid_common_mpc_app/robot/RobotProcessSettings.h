@@ -92,7 +92,8 @@ struct RobotProcessSettings {
   /** `sim_min_force_mjcontact_ewrt_mjcontact_x`, `sim_contact_timeline_window`,
    * `sim_visualizations`, `gantry_hold`, `sim_projectile`. */
   SimulatorSettings simulator;
-  /** `sim_max_base_tilt_angle`, `sim_gantry_catch_lift`. */
+  /** `sim_max_tiltangle_base_rt_world`,
+   * `sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z`. */
   SimFallRecovery::Config fallRecovery;
   /** `mpc_entry_blend_time` [s] (centroidal controller); nullopt: the
    * controller's default. */

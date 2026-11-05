@@ -83,8 +83,9 @@ std::vector<std::string> hotFieldNames(
     absl::Span<const HotFieldApplierEntry<Interface>> entries) {
   std::vector<absl::Span<const absl::string_view>> fieldLists;
   fieldLists.reserve(entries.size());
-  for (const HotFieldApplierEntry<Interface>& entry : entries)
+  for (const HotFieldApplierEntry<Interface>& entry : entries) {
     fieldLists.push_back(entry.staticFields());
+  }
   return sortedFieldUnion(fieldLists);
 }
 

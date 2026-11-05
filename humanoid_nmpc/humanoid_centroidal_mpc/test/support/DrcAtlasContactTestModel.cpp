@@ -30,7 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "support/DrcAtlasContactTestModel.h"
 
 #include <algorithm>
-#include <array>
+#include <cstddef>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -40,16 +40,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
+#include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
 #include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
-#include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
+#include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
+#include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/TypedConfigFiles.h"
@@ -218,11 +233,11 @@ ContactRectangle DrcAtlasContactTestModel::contactRectangle(
 vector_t DrcAtlasContactTestModel::makeInput(
     const MpcRobotModelBase<scalar_t>& model,
     size_t loadedFoot,
-    scalar_t normalForce) const {
+    scalar_t forceFootEwrtParamZ) const {
   vector_t input = vector_t::Zero(model.getInputDim());
-  vector6_t wrench = vector6_t::Zero();
-  wrench(kWrenchForceZIndex) = normalForce;
-  model.setWrenchContactEwrtParam(input, wrench, loadedFoot);
+  vector6_t wrenchFootEwrtParam = vector6_t::Zero();
+  wrenchFootEwrtParam(kWrenchForceZIndex) = forceFootEwrtParamZ;
+  model.setWrenchContactEwrtParam(input, wrenchFootEwrtParam, loadedFoot);
   for (size_t index = 0; index < model.getJointDim(); ++index) {
     input(model.getJointVelocitiesStartindex() + index) =
         0.05 * static_cast<scalar_t>(index % 5) - 0.1;

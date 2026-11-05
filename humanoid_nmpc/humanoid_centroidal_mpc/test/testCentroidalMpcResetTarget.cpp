@@ -31,7 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <memory>
+#include <numbers>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -39,12 +41,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/MPC_BASE.h"
 #include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_mpc_test/ScriptedMpc.h"
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
@@ -71,9 +78,10 @@ SystemObservation movingObservation(const AtlasReferenceStack& stack,
   SystemObservation observation;
   observation.time = time;
   observation.state = stack.initialState();
-  for (Eigen::Index i = 0; i < 6; ++i)
+  for (Eigen::Index i = 0; i < 6; ++i) {
     observation.state(i) =
         0.1 * static_cast<scalar_t>(i + 1);  // normalized momentum
+  }
   const CentroidalMpcRobotModel<scalar_t>& model = stack.model();
   model.setPosBaseRtWorldEwrtWorld(
       observation.state,
@@ -119,17 +127,18 @@ TEST(CentroidalMpcResetTarget,
   EXPECT_EQ(target.inputTrajectory.front(), target.inputTrajectory.back());
 
   const vector_t& state = target.stateTrajectory.front();
-  vector_t momentum = state;
+  vector_t stateCopy = state;
   EXPECT_TRUE(centroidal_model::getMnormCmomComRtWorldEwrtWorld(
-                  momentum, stack.centroidalModelInfo())
+                  stateCopy, stack.centroidalModelInfo())
                   .isZero(0.0));
   // Upright at the observed heading, the twist of the observed attitude (design
   // decision D9); everything else is observed: the position and the joints.
   const CentroidalMpcRobotModel<scalar_t>& model = stack.model();
-  const vector3_t eulerZyx = model.getEulerzyxBaseRtWorld(state);
-  EXPECT_NEAR(eulerZyx(0), model.getYawBaseRtWorld(observation.state), 1.0e-12);
-  EXPECT_EQ(eulerZyx(1), 0.0);
-  EXPECT_EQ(eulerZyx(2), 0.0);
+  const vector3_t eulerzyxBaseRtWorld = model.getEulerzyxBaseRtWorld(state);
+  EXPECT_NEAR(eulerzyxBaseRtWorld(0),
+              model.getYawBaseRtWorld(observation.state), 1.0e-12);
+  EXPECT_EQ(eulerzyxBaseRtWorld(1), 0.0);
+  EXPECT_EQ(eulerzyxBaseRtWorld(2), 0.0);
   EXPECT_EQ(model.getPosBaseRtWorldEwrtWorld(state),
             model.getPosBaseRtWorldEwrtWorld(observation.state));
   EXPECT_EQ(model.getJointAngles(state),
@@ -137,13 +146,15 @@ TEST(CentroidalMpcResetTarget,
 
   // The robot's weight, carried by both feet in the world frame.
   const vector_t& input = target.inputTrajectory.front();
-  const vector3_t left =
+  const vector3_t forceLfootEwrtWorld =
       stack.model().getForceContactEwrtWorld(state, input, /*contactIndex=*/0);
-  const vector3_t right =
+  const vector3_t forceRfootEwrtWorld =
       stack.model().getForceContactEwrtWorld(state, input, /*contactIndex=*/1);
   const scalar_t weight = computeRobotWeight(stack.pinocchioInterface());
-  EXPECT_NEAR(left.z() + right.z(), weight, 1.0e-9 * weight);
-  EXPECT_NEAR(left.z(), right.z(), 1.0e-9 * weight);
+  EXPECT_NEAR(forceLfootEwrtWorld.z() + forceRfootEwrtWorld.z(), weight,
+              1.0e-9 * weight);
+  EXPECT_NEAR(forceLfootEwrtWorld.z(), forceRfootEwrtWorld.z(),
+              1.0e-9 * weight);
 }
 
 TEST(CentroidalMpcResetTarget,
@@ -154,29 +165,31 @@ TEST(CentroidalMpcResetTarget,
   // target is the twist of the observed attitude, wrapped into (-pi, pi], which
   // differs from the stored yaw by the wrap and by -2 atan(tan(theta / 2)
   // tan(phi / 2)).
-  for (const vector3_t& eulerZyx :
+  for (const vector3_t& eulerzyxBaseRtWorld :
        {vector3_t(3.5, 0.15, 0.15), vector3_t(-3.1, -0.2, 0.1),
         vector3_t(7.0, 0.05, -0.3)}) {
-    SCOPED_TRACE(eulerZyx.transpose());
+    SCOPED_TRACE(eulerzyxBaseRtWorld.transpose());
     SystemObservation observation = movingObservation(stack, /*time=*/1.0);
-    model.setEulerzyxBaseRtWorld(observation.state, eulerZyx);
+    model.setEulerzyxBaseRtWorld(observation.state, eulerzyxBaseRtWorld);
     const vector_t target = centroidalMpcResetTargetTrajectories(
                                 observation, stack.centroidalModelInfo(), model,
                                 stack.pinocchioInterface())
                                 .stateTrajectory.front();
 
-    const scalar_t heading = model.getYawBaseRtWorld(observation.state);
-    const scalar_t expectedHeading = std::remainder(
-        eulerZyx(0) - 2.0 * std::atan(std::tan(eulerZyx(1) / 2.0) *
-                                      std::tan(eulerZyx(2) / 2.0)),
-        2.0 * M_PI);
-    EXPECT_NEAR(heading, expectedHeading, 1.0e-12);
-    const vector3_t targetEulerZyx = model.getEulerzyxBaseRtWorld(target);
-    EXPECT_NEAR(targetEulerZyx(0), heading, 1.0e-12);
-    EXPECT_GT(targetEulerZyx(0), -M_PI);
-    EXPECT_LE(targetEulerZyx(0), M_PI);
-    EXPECT_EQ(targetEulerZyx(1), 0.0);
-    EXPECT_EQ(targetEulerZyx(2), 0.0);
+    const scalar_t yawBaseRtWorld = model.getYawBaseRtWorld(observation.state);
+    const scalar_t expectedYawBaseRtWorld = std::remainder(
+        eulerzyxBaseRtWorld(0) -
+            2.0 * std::atan(std::tan(eulerzyxBaseRtWorld(1) / 2.0) *
+                            std::tan(eulerzyxBaseRtWorld(2) / 2.0)),
+        2.0 * std::numbers::pi);
+    EXPECT_NEAR(yawBaseRtWorld, expectedYawBaseRtWorld, 1.0e-12);
+    const vector3_t refEulerzyxBaseRtWorld =
+        model.getEulerzyxBaseRtWorld(target);
+    EXPECT_NEAR(refEulerzyxBaseRtWorld(0), yawBaseRtWorld, 1.0e-12);
+    EXPECT_GT(refEulerzyxBaseRtWorld(0), -std::numbers::pi);
+    EXPECT_LE(refEulerzyxBaseRtWorld(0), std::numbers::pi);
+    EXPECT_EQ(refEulerzyxBaseRtWorld(1), 0.0);
+    EXPECT_EQ(refEulerzyxBaseRtWorld(2), 0.0);
     // Its attitude is the heading quaternion of the observed one, up to the
     // sign of the quaternion.
     const vector4_t expected = verticalTwistFromQuaternion(
@@ -253,8 +266,9 @@ TEST(CentroidalMpcResetTarget, IsWhatTheInProcessLinkResetsTheMpcTo) {
   const std::vector<size_t> jointIndices =
       description.getJointIndices(stack.modelSettings().mpcModelJointNames);
   const vector_t joints = stack.model().getJointAngles(initialState);
-  for (size_t i = 0; i < jointIndices.size(); ++i)
+  for (size_t i = 0; i < jointIndices.size(); ++i) {
     robotState.setJointPosition(jointIndices[i], joints[i]);
+  }
 
   SystemObservation startObservation;
   {

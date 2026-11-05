@@ -52,11 +52,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
+#include "humanoid_mpc_config/contact_implicit_config.pb.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.pb.h"
 #include "humanoid_mpc_config/task_file.pb.h"
@@ -130,8 +132,9 @@ std::vector<std::string> with(std::vector<std::string> entries,
  * message mentions every one of `phrases`. */
 ::testing::AssertionResult refusedMentioning(
     const absl::Status& status, const std::vector<std::string>& phrases) {
-  if (status.ok())
+  if (status.ok()) {
     return ::testing::AssertionFailure() << "the task file was accepted";
+  }
   if (status.code() != absl::StatusCode::kInvalidArgument) {
     return ::testing::AssertionFailure()
            << "expected InvalidArgument, got " << status;
@@ -380,15 +383,18 @@ TEST(MpcFormulationNames,
 
   // Every offered name resolves, so a name pasted from the message into a task
   // file is accepted.
-  for (const std::string& name : offeredSoft)
+  for (const std::string& name : offeredSoft) {
     EXPECT_TRUE(stringToMpcSoftConstraintType(name).ok()) << name;
-  for (const std::string& name : offeredHard)
+  }
+  for (const std::string& name : offeredHard) {
     EXPECT_TRUE(stringToMpcHardConstraintType(name).ok()) << name;
+  }
   const absl::StatusOr<MpcCostType> cost =
       stringToMpcCostType("invalid_cost_name");
   ASSERT_FALSE(cost.ok());
-  for (const std::string& name : offeredNames(cost.status().message()))
+  for (const std::string& name : offeredNames(cost.status().message())) {
     EXPECT_TRUE(stringToMpcCostType(name).ok()) << name;
+  }
 }
 
 TEST(MpcFormulationNames,
@@ -799,12 +805,14 @@ TEST(ContactImplicitBlockFields,
   const google::protobuf::Descriptor* absl_nonnull block =
       humanoid_mpc_config::ContactImplicitConfig::descriptor();
   std::vector<std::string> schemaFields;
-  for (int i = 0; i < block->field_count(); ++i)
+  for (int i = 0; i < block->field_count(); ++i) {
     schemaFields.emplace_back(block->field(i)->name());
+  }
   std::vector<std::string> keyFields;
   for (const ModelSettings::ContactImplicitKey& key :
-       ModelSettings::contactImplicitKeys())
+       ModelSettings::contactImplicitKeys()) {
     keyFields.emplace_back(key.fieldName);
+  }
   std::sort(schemaFields.begin(), schemaFields.end());
   std::sort(keyFields.begin(), keyFields.end());
   EXPECT_EQ(keyFields, schemaFields);
@@ -824,8 +832,9 @@ TEST(ContactImplicitBlockFields,
      theGroundThatMovedOutOfTheBlockIsRefusedPointingAtWhereItWent) {
   const absl::StatusOr<humanoid_mpc_config::TaskFile> moved =
       parse("contact_implicit {\n  terrain_height: 0.0\n}\n");
-  EXPECT_TRUE(refusedMentioning(moved.status(), {"'terrain_height' is retired",
-                                                 "top-level terrain_height"}));
+  EXPECT_TRUE(refusedMentioning(
+      moved.status(), {"'terrain_height' is retired",
+                       "top-level pos_surface_rt_world_ewrt_world_z"}));
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1011,8 +1020,9 @@ std::vector<std::string> taskFilesInRunfiles() {
         const std::string relativePath = absl::StrCat(
             "robot_models/", robot.path().filename().string(), "/",
             package.path().filename().string(), "/config/mpc/task.textproto");
-        if (std::filesystem::exists(root / relativePath))
+        if (std::filesystem::exists(root / relativePath)) {
           found.push_back(relativePath);
+        }
       }
     }
     break;

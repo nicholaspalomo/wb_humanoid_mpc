@@ -96,7 +96,7 @@ class QuasiStaticTorqueConstraint final : public StateInputConstraintCppAd {
 
   /** [N m] The quasi-static torques of the limited joints at (x, u), in the
    * order of the limits. */
-  vector_t torques(const vector_t& state, const vector_t& input) const;
+  vector_t jointTorques(const vector_t& state, const vector_t& input) const;
 
  private:
   QuasiStaticTorqueConstraint(const QuasiStaticTorqueConstraint& other) =
@@ -107,15 +107,15 @@ class QuasiStaticTorqueConstraint final : public StateInputConstraintCppAd {
                                  const ad_vector_t& input,
                                  const ad_vector_t& parameters) const override;
   /** tau of the limited joints on the tape. */
-  ad_vector_t tapedTorques(const ad_vector_t& state,
-                           const ad_vector_t& input) const;
+  ad_vector_t tapedJointTorques(const ad_vector_t& state,
+                                const ad_vector_t& input) const;
 
   PinocchioInterfaceCppAd pinocchioCppAd_;
   CentroidalModelInfoCppAd infoCppAd_;
   std::vector<pinocchio::FrameIndex> contactFrames_;
   std::vector<JointEffortLimit> limits_;
   scalar_t margin_ = 0.0;
-  // The double model, for torques().
+  // The double model, for jointTorques().
   PinocchioInterface pinocchio_;
   CentroidalModelInfo info_;
 };

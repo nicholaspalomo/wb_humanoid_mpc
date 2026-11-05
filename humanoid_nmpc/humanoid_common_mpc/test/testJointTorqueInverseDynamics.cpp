@@ -47,13 +47,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/crba.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
+#include "pinocchio/multibody.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/spatial/fwd.hpp"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -87,12 +93,13 @@ namespace {
 using ad_fun_t = CppAD::ADFun<ad_base_t>;
 using ForceVector = std::vector<pinocchio::Force>;
 
-constexpr scalar_t kGravity = 9.81;
+constexpr scalar_t kGravityMagnitude = 9.81;
 
 std::string runfilePath(absl::string_view relativePath) {
   std::vector<std::filesystem::path> roots;
-  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR"))
+  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR")) {
     roots.emplace_back(std::filesystem::path(srcDir) / "_main");
+  }
   roots.emplace_back(std::filesystem::current_path());
   for (const std::filesystem::path& root : roots) {
     const std::filesystem::path candidate = root / std::string(relativePath);
@@ -126,8 +133,9 @@ struct Robot {
    * order of the contacts. */
   feet_array_t<pinocchio::FrameIndex> soleFrames() const {
     feet_array_t<pinocchio::FrameIndex> frames{};
-    for (size_t i = 0; i < kNumContacts; ++i)
+    for (size_t i = 0; i < kNumContacts; ++i) {
       frames[i] = model().getFrameId(settings->contactNames[i]);
+    }
     return frames;
   }
 };
@@ -186,14 +194,17 @@ Sample makeSample(const pinocchio::Model& model, size_t seed) {
   sample.v = vector_t(model.nv);
   sample.qddJoints =
       vector_t(model.nv - static_cast<Eigen::Index>(kBaseVelocityDim));
-  for (Eigen::Index i = 0; i < model.nq; ++i)
+  for (Eigen::Index i = 0; i < model.nq; ++i) {
     sample.q(i) = 0.4 * spread(static_cast<size_t>(i), phase + 0.7);
+  }
   sample.q(2) = 0.9;
   sample.q.segment<4>(kBaseTranslationDim).normalize();
-  for (Eigen::Index i = 0; i < model.nv; ++i)
+  for (Eigen::Index i = 0; i < model.nv; ++i) {
     sample.v(i) = 0.8 * spread(static_cast<size_t>(i), phase + 1.9);
-  for (Eigen::Index i = 0; i < sample.qddJoints.size(); ++i)
+  }
+  for (Eigen::Index i = 0; i < sample.qddJoints.size(); ++i) {
     sample.qddJoints(i) = 3.0 * spread(static_cast<size_t>(i), phase + 0.4);
+  }
   for (size_t foot = 0; foot < 2; ++foot) {
     for (Eigen::Index i = 0; i < 6; ++i) {
       const scalar_t magnitude = i == 2 ? 150.0 : (i < 3 ? 40.0 : 15.0);
@@ -209,7 +220,7 @@ Sample makeSample(const pinocchio::Model& model, size_t seed) {
 
 /** Pinocchio external forces - joint frame, about the joint origin - of
  * world-frame wrenches at the sole frames' origins. */
-ForceVector soleWrenchesAsJointForces(
+ForceVector computeWrenchLinksEwrtLink(
     const pinocchio::Model& model,
     pinocchio::Data& data,
     const vector_t& q,
@@ -222,15 +233,16 @@ ForceVector soleWrenchesAsJointForces(
   for (size_t foot = 0; foot < soleFrames.size(); ++foot) {
     const pinocchio::FrameIndex frame = soleFrames[foot];
     const pinocchio::JointIndex joint = model.frames[frame].parentJoint;
-    const matrix3_t rotation = data.oMi[joint].rotation();
-    const vector3_t lever =
+    const matrix3_t rotmatAnkleRtWorld = data.oMi[joint].rotation();
+    const vector3_t posFootRtAnkleEwrtWorld =
         data.oMf[frame].translation() - data.oMi[joint].translation();
     const vector3_t forceFootEwrtWorld = wrenchFeetEwrtWorld[foot].head<3>();
     const vector3_t torqueAnkleEwrtWorld =
-        wrenchFeetEwrtWorld[foot].tail<3>() + lever.cross(forceFootEwrtWorld);
+        wrenchFeetEwrtWorld[foot].tail<3>() +
+        posFootRtAnkleEwrtWorld.cross(forceFootEwrtWorld);
     fext[joint] +=
-        pinocchio::Force(rotation.transpose() * forceFootEwrtWorld,
-                         rotation.transpose() * torqueAnkleEwrtWorld);
+        pinocchio::Force(rotmatAnkleRtWorld.transpose() * forceFootEwrtWorld,
+                         rotmatAnkleRtWorld.transpose() * torqueAnkleEwrtWorld);
   }
   return fext;
 }
@@ -248,7 +260,7 @@ RneaReference floatingBaseRnea(
     const Sample& sample,
     const feet_array_t<pinocchio::FrameIndex>& soleFrames) {
   pinocchio::Data data(model);
-  const ForceVector fext = soleWrenchesAsJointForces(
+  const ForceVector fext = computeWrenchLinksEwrtLink(
       model, data, sample.q, sample.wrenchFeetEwrtWorld, soleFrames);
   vector_t a = vector_t::Zero(model.nv);
   a.tail(sample.qddJoints.size()) = sample.qddJoints;
@@ -273,7 +285,7 @@ vector_t baseHeldRnea(const pinocchio::Model& model,
                       const Sample& sample,
                       const feet_array_t<pinocchio::FrameIndex>& soleFrames) {
   pinocchio::Data data(model);
-  const ForceVector fext = soleWrenchesAsJointForces(
+  const ForceVector fext = computeWrenchLinksEwrtLink(
       model, data, sample.q, sample.wrenchFeetEwrtWorld, soleFrames);
   vector_t a = vector_t::Zero(model.nv);
   a.tail(sample.qddJoints.size()) = sample.qddJoints;
@@ -428,20 +440,20 @@ TEST_F(JointTorqueInverseDynamicsTest,
       sample.wrenchFeetEwrtWorld = {vector6_t::Zero(), vector6_t::Zero()};
       pinocchio::Data data(robot->model());
       pinocchio::nonLinearEffects(robot->model(), data, sample.q, sample.v);
-      const vector_t gravity = data.nle.tail(robot->numJoints());
+      const vector_t gravityJointTorques = data.nle.tail(robot->numJoints());
       EXPECT_LT(maxAbs(computeBaseHeldJointTorques<scalar_t>(
                            sample.q, sample.v, sample.qddJoints,
                            sample.wrenchFeetEwrtWorld, robot->soleFrames(),
                            pinocchioInterface) -
-                       gravity),
-                1.0e-9 * std::max(1.0, maxAbs(gravity)));
+                       gravityJointTorques),
+                1.0e-9 * std::max(1.0, maxAbs(gravityJointTorques)));
       // ...whereas the floating base falls freely without a wrench, and gravity
       // then loads no joint.
       EXPECT_GT(maxAbs(computeJointTorques<scalar_t>(
                            sample.q, sample.v, sample.qddJoints,
                            sample.wrenchFeetEwrtWorld, robot->soleFrames(),
                            pinocchioInterface) -
-                       gravity),
+                       gravityJointTorques),
                 1.0);
     }
   }
@@ -452,9 +464,10 @@ TEST_F(JointTorqueInverseDynamicsTest,
 PinocchioInterface withRenamedContactFrames(
     const Robot& robot, const std::array<std::string, kNumContacts>& newNames) {
   pinocchio::Model model = robot.model();
-  for (size_t i = 0; i < kNumContacts; ++i)
+  for (size_t i = 0; i < kNumContacts; ++i) {
     model.frames[model.getFrameId(robot.settings->contactNames[i])].name =
         newNames[i];
+  }
   return PinocchioInterface(model);
 }
 
@@ -560,13 +573,15 @@ TEST_F(JointTorqueInverseDynamicsTest,
   ad_fun_t fun(x, y);
 
   CppAD::vector<ad_base_t> numericInput(static_cast<size_t>(numInputs));
-  for (Eigen::Index i = 0; i < numInputs; ++i)
+  for (Eigen::Index i = 0; i < numInputs; ++i) {
     numericInput[static_cast<size_t>(i)] = ad_base_t(values(i));
+  }
   const CppAD::vector<ad_base_t> numericOutput =
       fun.Forward(/*q=*/0, numericInput);
   vector_t taped(nj);
-  for (Eigen::Index i = 0; i < nj; ++i)
+  for (Eigen::Index i = 0; i < nj; ++i) {
     taped(i) = numericOutput[static_cast<size_t>(i)].getValue();
+  }
   const RneaReference reference =
       floatingBaseRnea(model, sample, g1_->soleFrames());
   EXPECT_LT(maxAbs(taped - reference.jointTorques),
@@ -603,10 +618,12 @@ TEST_F(JointTorqueInverseDynamicsTest,
   ASSERT_NEAR(standing.q.segment<4>(kBaseTranslationDim).norm(), 1.0, 1.0e-15);
   standing.v = vector_t::Zero(model.nv);
   standing.qddJoints = vector_t::Zero(atlas_->numJoints());
-  const scalar_t weight = kGravity * pinocchio::computeTotalMass(model);
-  vector6_t halfWeight = vector6_t::Zero();
-  halfWeight(2) = 0.5 * weight;
-  standing.wrenchFeetEwrtWorld = {halfWeight, halfWeight};
+  const scalar_t weight =
+      kGravityMagnitude * pinocchio::computeTotalMass(model);
+  vector6_t halfWeightWrenchFootEwrtWorld = vector6_t::Zero();
+  halfWeightWrenchFootEwrtWorld(2) = 0.5 * weight;
+  standing.wrenchFeetEwrtWorld = {halfWeightWrenchFootEwrtWorld,
+                                  halfWeightWrenchFootEwrtWorld};
 
   // Single support on the left foot: the weight straight up, and the weight
   // along the line from the sole to the center of mass as the linear inverted
@@ -616,12 +633,13 @@ TEST_F(JointTorqueInverseDynamicsTest,
   singleSupport.wrenchFeetEwrtWorld[0](2) = weight;
   Sample pendulum = singleSupport;
   pinocchio::Data data(model);
-  const vector3_t com = pinocchio::centerOfMass(model, data, standing.q);
+  const vector3_t posComRtWorldEwrtWorld =
+      pinocchio::centerOfMass(model, data, standing.q);
   pinocchio::framesForwardKinematics(model, data, standing.q);
-  const vector3_t soleToCom =
-      com - data.oMf[atlas_->soleFrames()[0]].translation();
+  const vector3_t posComRtLfootEwrtWorld =
+      posComRtWorldEwrtWorld - data.oMf[atlas_->soleFrames()[0]].translation();
   pendulum.wrenchFeetEwrtWorld[0].head<3>() =
-      weight * soleToCom / soleToCom.z();
+      weight * posComRtLfootEwrtWorld / posComRtLfootEwrtWorld.z();
 
   const std::array<
       std::pair<const char* absl_nonnull, const Sample* absl_nonnull>, 3>

@@ -29,13 +29,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
-#include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/strings/string_view.h"
 
+#include "robot_model/ContactEstimator.h"
 #include "robot_model/ContactEstimatorRegistry.h"
+#include "robot_model/RobotState.h"
 
 namespace robot::mujoco_sim_interface {
 

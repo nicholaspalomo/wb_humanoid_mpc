@@ -28,6 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -75,23 +76,27 @@ ProceduralMpcMotionManager::GaitModeStateConfig stance() {
       .maxErrAngvelBaseRtWorldEwrtWorldZ = 10.0};
 }
 
-/** A command [v_x, v_y, pelvis height, yaw rate] that only turns, at `yawRate`.
+/** A command [v_x, v_y, pelvis height, yaw rate] that only turns, at
+ * `cmdAngvelBaseRtWorldEwrtWorldZ`.
  */
-vector4_t turnCommand(scalar_t yawRate) {
-  return vector4_t(0.0, 0.0, 0.0, yawRate);
+vector4_t turnCommand(scalar_t cmdAngvelBaseRtWorldEwrtWorldZ) {
+  return vector4_t(0.0, 0.0, 0.0, cmdAngvelBaseRtWorldEwrtWorldZ);
 }
 
-/** The stride-mean motion of a robot turning on the spot at `yawRate`. */
-BasePlanarMotion turningOnTheSpot(scalar_t yawRate) {
+/** The stride-mean motion of a robot turning on the spot at
+ * `rateYawBaseRtWorld`. */
+BasePlanarMotion turningOnTheSpot(scalar_t rateYawBaseRtWorld) {
   return BasePlanarMotion{.linvelBaseRtWorldEwrtHeadingXy = vector2_t::Zero(),
-                          .rateYawBaseRtWorld = yawRate};
+                          .rateYawBaseRtWorld = rateYawBaseRtWorld};
 }
 
-/** The stride-mean motion of a robot walking at (forward, lateral) in its
- * heading frame without turning. */
-BasePlanarMotion walking(scalar_t forward, scalar_t lateral) {
+/** The stride-mean motion of a robot walking at (linvelBaseRtWorldEwrtHeadingX,
+ * linvelBaseRtWorldEwrtHeadingY) without turning. */
+BasePlanarMotion walking(scalar_t linvelBaseRtWorldEwrtHeadingX,
+                         scalar_t linvelBaseRtWorldEwrtHeadingY) {
   return BasePlanarMotion{
-      .linvelBaseRtWorldEwrtHeadingXy = vector2_t(forward, lateral),
+      .linvelBaseRtWorldEwrtHeadingXy = vector2_t(
+          linvelBaseRtWorldEwrtHeadingX, linvelBaseRtWorldEwrtHeadingY),
       .rateYawBaseRtWorld = 0.0};
 }
 
@@ -139,20 +144,32 @@ TEST(ProceduralGaitTransitions, TheStrideMeanVelocityGatesBothSwitches) {
   // Walking, not turning: the linear entries of the stride mean, in the heading
   // frame, gate the switches.
   const vector4_t walkFaster(0.4, 0.0, 0.0, 0.0);
-  EXPECT_FALSE(faster(walkFaster, walking(/*forward=*/0.2, /*lateral=*/0.0),
+  EXPECT_FALSE(faster(walkFaster,
+                      walking(/*linvelBaseRtWorldEwrtHeadingX=*/0.2,
+                              /*linvelBaseRtWorldEwrtHeadingY=*/0.0),
                       slowWalk()));
-  EXPECT_TRUE(faster(walkFaster, walking(/*forward=*/0.26, /*lateral=*/0.0),
+  EXPECT_TRUE(faster(walkFaster,
+                     walking(/*linvelBaseRtWorldEwrtHeadingX=*/0.26,
+                             /*linvelBaseRtWorldEwrtHeadingY=*/0.0),
                      slowWalk()));
-  EXPECT_TRUE(faster(walkFaster, walking(/*forward=*/0.0, /*lateral=*/-0.26),
+  EXPECT_TRUE(faster(walkFaster,
+                     walking(/*linvelBaseRtWorldEwrtHeadingX=*/0.0,
+                             /*linvelBaseRtWorldEwrtHeadingY=*/-0.26),
                      slowWalk()))
       << "either axis, either direction";
   const vector4_t stop(0.0, 0.0, 0.0, 0.0);
-  EXPECT_FALSE(
-      slower(stop, walking(/*forward=*/0.2, /*lateral=*/0.0), slowWalk()));
-  EXPECT_FALSE(
-      slower(stop, walking(/*forward=*/0.0, /*lateral=*/0.11), slowWalk()));
-  EXPECT_TRUE(
-      slower(stop, walking(/*forward=*/0.05, /*lateral=*/-0.05), slowWalk()));
+  EXPECT_FALSE(slower(stop,
+                      walking(/*linvelBaseRtWorldEwrtHeadingX=*/0.2,
+                              /*linvelBaseRtWorldEwrtHeadingY=*/0.0),
+                      slowWalk()));
+  EXPECT_FALSE(slower(stop,
+                      walking(/*linvelBaseRtWorldEwrtHeadingX=*/0.0,
+                              /*linvelBaseRtWorldEwrtHeadingY=*/0.11),
+                      slowWalk()));
+  EXPECT_TRUE(slower(stop,
+                     walking(/*linvelBaseRtWorldEwrtHeadingX=*/0.05,
+                             /*linvelBaseRtWorldEwrtHeadingY=*/-0.05),
+                     slowWalk()));
 }
 
 TEST(ProceduralGaitTransitions,
@@ -172,7 +189,8 @@ TEST(ProceduralGaitTransitions,
       << "not without the command";
   for (const BasePlanarMotion& motion :
        {turningOnTheSpot(0.0), turningOnTheSpot(3.0),
-        walking(/*forward=*/-2.0, /*lateral=*/1.0)}) {
+        walking(/*linvelBaseRtWorldEwrtHeadingX=*/-2.0,
+                /*linvelBaseRtWorldEwrtHeadingY=*/1.0)}) {
     EXPECT_TRUE(faster(turnCommand(0.5), motion, stance()))
         << "stance's switch reads no motion";
   }

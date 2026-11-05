@@ -30,9 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <string>
-#include <vector>
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/contact/ContactCenterPoint.h"
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
 
 namespace ocs2::humanoid {
@@ -42,9 +42,12 @@ namespace ocs2::humanoid {
 /// set of corner points expressed in a local planar frame.
 ///
 /// \param[in] polygonBounds the maximum extension of the rectangle aligned with
-/// the specified frame \param[in] frameName name of pinocchio frame the polygon
-/// is specified in \param[in] scaleFactor A factor to shrink or extent the
-/// polygon An immutable value: its const methods are safe to call concurrently.
+/// the frame of the contact center point
+/// \param[in] contactCenterPoint the contact center point whose frame the
+/// corners are given in
+/// \param[in] scaleFactor A factor to shrink or extend the polygon
+///
+/// An immutable value: its const methods are safe to call concurrently.
 ///
 class ContactRectangle : public ContactPolygon {
  public:

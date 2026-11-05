@@ -101,10 +101,12 @@ class FakeRobotBackend final : public RobotBackend {
   absl::Status initialize() override;
   /** Launches the driver thread; the cores are ignored. */
   absl::Status start(const std::vector<int>& cores) override;
-  bool acceptsJointAction() const override { return torquesEnabled_.load(); }
+  bool acceptsJointAction() const override {
+    return jointTorquesEnabled_.load();
+  }
   void enableTorques() override;
-  void readMeasuredContactForces(
-      std::array<vector3_t, kNumContacts>& forces) override;
+  void readMeasForceFeetEwrtWorld(
+      std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld) override;
   void enterSafeState() override;
   void registerContactEstimators(
       robot::model::ContactEstimatorRegistry& /*registry*/) const override {}
@@ -120,7 +122,7 @@ class FakeRobotBackend final : public RobotBackend {
   uint64_t actionsExecuted() const { return actionsExecuted_.load(); }
   /** How often the torques were switched on, and how often the backend was put
    * in its safe state. */
-  uint64_t torqueEnables() const { return torqueEnables_.load(); }
+  uint64_t jointTorqueEnables() const { return jointTorqueEnables_.load(); }
   uint64_t safeStates() const { return safeStates_.load(); }
 
  private:
@@ -147,12 +149,12 @@ class FakeRobotBackend final : public RobotBackend {
   robot::model::RobotState driverState_;
   robot::model::RobotJointAction driverAction_;
 
-  std::atomic<bool> torquesEnabled_{false};
+  std::atomic<bool> jointTorquesEnabled_{false};
   std::atomic<bool> stopRequested_{false};
   std::thread driver_;
   std::atomic<uint64_t> statesPublished_{0};
   std::atomic<uint64_t> actionsExecuted_{0};
-  std::atomic<uint64_t> torqueEnables_{0};
+  std::atomic<uint64_t> jointTorqueEnables_{0};
   std::atomic<uint64_t> safeStates_{0};
 };
 

@@ -46,22 +46,27 @@ namespace ocs2::humanoid {
 absl::StatusOr<DcmTerminalCost::Config> dcmTerminalCostConfigFromConfig(
     const mpc_config::DcmTerminalCostConfig& dcmTerminalCost) {
   DcmTerminalCost::Config config;
-  if (dcmTerminalCost.com_height.has_value()) {
-    const double comHeight = *dcmTerminalCost.com_height;
-    if (!std::isfinite(comHeight) || comHeight <= 0.0) {
+  if (dcmTerminalCost.nom_pos_com_rt_feetmean_ewrt_world_z.has_value()) {
+    const double nomPosComRtFeetmeanEwrtWorldZ =
+        *dcmTerminalCost.nom_pos_com_rt_feetmean_ewrt_world_z;
+    if (!std::isfinite(nomPosComRtFeetmeanEwrtWorldZ) ||
+        nomPosComRtFeetmeanEwrtWorldZ <= 0.0) {
       return absl::InvalidArgumentError(absl::StrCat(
           "[DcmTerminalCost] ", DcmTerminalCost::kConfigPrefix,
-          "com_height is ", comHeight,
+          "nom_pos_com_rt_feetmean_ewrt_world_z is ",
+          nomPosComRtFeetmeanEwrtWorldZ,
           ", which is not a pendulum height: give a positive height, or leave ",
           DcmTerminalCost::kConfigPrefix,
-          "com_height out for the model's center of mass above its feet at "
+          "nom_pos_com_rt_feetmean_ewrt_world_z out for the model's center of "
+          "mass above its feet at "
           "initial_state."));
     }
-    config.comHeight = comHeight;
+    config.nomPosComRtFeetmeanEwrtWorldZ = nomPosComRtFeetmeanEwrtWorldZ;
   }
   config.weights(0) = dcmTerminalCost.weight_x;
   config.weights(1) = dcmTerminalCost.weight_y;
-  config.velocityOffsetFactor = dcmTerminalCost.velocity_offset_factor;
+  config.velocityCommandOffsetFactor =
+      dcmTerminalCost.velocity_command_offset_factor;
   config.supportBlendTime = dcmTerminalCost.support_blend_time;
   RETURN_IF_ERROR(config.validate());
   return config;

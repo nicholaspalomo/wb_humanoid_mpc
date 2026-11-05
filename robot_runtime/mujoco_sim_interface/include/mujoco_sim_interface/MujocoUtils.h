@@ -74,7 +74,7 @@ inline constexpr int kMjSpatialVectorSize = ocs2::kTwistDim;
  * A MuJoCo motion vector (mj_objectVelocity, a row of mjData::cvel) is
  * (angular, linear): its linear velocity starts after the angular one.
  */
-inline constexpr int kMjMotionLinearOffset = ocs2::kRotationTangentDim;
+inline constexpr int kMjMotionLinearStartIndex = ocs2::kRotationTangentDim;
 /**
  * The rows of a contact frame (mjContact::frame, a row-major 3x3 matrix whose
  * rows are the frame's axes in the world frame), and with them the components
@@ -110,12 +110,12 @@ inline constexpr int kMjFreeJointQuaternionZIndex =
     kMjFreeJointQuaternionYIndex + 1;
 /**
  * The degrees of freedom of a free joint in qvel: its linear velocity (world
- * frame), then, from kMjFreeJointAngularVelocityOffset, its angular velocity
- * (body frame). The joints of a robot on a free joint follow them.
+ * frame), then, from kMjFreeJointAngularVelocityStartIndex, its angular
+ * velocity (body frame). The joints of a robot on a free joint follow them.
  */
 inline constexpr int kMjFreeJointDofs =
     ocs2::kPositionDim + ocs2::kRotationTangentDim;
-inline constexpr int kMjFreeJointAngularVelocityOffset = ocs2::kPositionDim;
+inline constexpr int kMjFreeJointAngularVelocityStartIndex = ocs2::kPositionDim;
 /** A body's mean inverse inertias at qpos0 in body_invweight0: the
  * translational one, then the rotational one. */
 inline constexpr int kMjBodyInvweightSize = 2;
@@ -201,7 +201,7 @@ struct Metrics {
  */
 struct AppliedPush {
   int bodyId = -1;  // the pushed body, -1 for none yet
-  std::array<double, ocs2::kPositionDim> impulseWorld = {
+  std::array<double, ocs2::kPositionDim> impulseLinkEwrtWorld = {
       0.0, 0.0, 0.0};           // [N s] world frame
   double simTimeApplied = 0.0;  // [s] simulation time of the push
 };
@@ -376,13 +376,13 @@ GroundReaction groundReaction(const mjModel* absl_nullable model,
 /**
  * Divergent component of motion (capture point) of a linear inverted pendulum
  * of natural frequency sqrt(gravity / height) on the ground plane: com_xy +
- * v_xy / omega. `height` is clamped to at least 0.05 m.
+ * v_xy / omega. `posComRtWorldEwrtWorldZ` is clamped to at least 0.05 m.
  */
 void divergentComponentOfMotion(
     const double posComRtWorldEwrtWorld[absl_nonnull ocs2::kPositionDim],
     const double linvelComRtWorldEwrtWorld[absl_nonnull ocs2::kPositionDim],
-    double height,
-    double gravity,
+    double posComRtWorldEwrtWorldZ,
+    double gravityMagnitude,
     double posDcmRtWorldEwrtWorldXy[absl_nonnull ocs2::kHorizontalPositionDim]);
 
 // LINT.IfChange(foot_force_frame)
@@ -405,9 +405,7 @@ std::array<mjtNum, ocs2::kPositionDim> computeMeasForceFootEwrtWorld(
 
 /** Whether `sensorId` is a `<force>` sensor on a site, as
  * computeMeasForceFootEwrtWorld() needs. */
-bool isFootForceSensor(  // NOLINT(frame-naming): a sensor's type, not a force
-    const mjModel* absl_nonnull model,
-    int sensorId);
+bool isFootForceSensor(const mjModel* absl_nonnull model, int sensorId);
 
 /**
  * The rotation of a base attitude about the world vertical: the twist q_t =
@@ -415,8 +413,8 @@ bool isFootForceSensor(  // NOLINT(frame-naming): a sensor's type, not a force
  * design decision D9), the nearest upright attitude. Passive data.
  */
 struct VerticalTwist {
-  double w = 1.0;  // cos(heading / 2), >= 0
-  double z = 0.0;  // sin(heading / 2)
+  double w = 1.0;  // cos(yaw / 2), >= 0
+  double z = 0.0;  // sin(yaw / 2)
 };
 
 /**

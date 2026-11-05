@@ -41,10 +41,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
 
 #include "humanoid_common_mpc/acom/AcomSirenWeightsAtlas.h"
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
-#include "humanoid_common_mpc/orientation/BaseOrientation.h"
+#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
@@ -92,11 +94,12 @@ TEST_F(AngularCenterOfMassTest, ForwardPassDeterministic) {
   const size_t inputDim = acomPtr_->getInputDim();
   vector_t qJoints = vector_t::Random(inputDim);
 
-  vector3_t offset1 = acomPtr_->computeJointOrientationOffset(qJoints);
-  vector3_t offset2 = acomPtr_->computeJointOrientationOffset(qJoints);
+  vector3_t rotvecAcomRtBase = acomPtr_->computeRotvecAcomRtBase(qJoints);
+  vector3_t repeatedRotvecAcomRtBase =
+      acomPtr_->computeRotvecAcomRtBase(qJoints);
 
-  EXPECT_EQ(offset1.size(), 3);
-  EXPECT_TRUE(offset1.isApprox(offset2, 1.0e-15))
+  EXPECT_EQ(rotvecAcomRtBase.size(), 3);
+  EXPECT_TRUE(rotvecAcomRtBase.isApprox(repeatedRotvecAcomRtBase, 1.0e-15))
       << "Forward pass is not deterministic.";
 }
 
@@ -108,11 +111,11 @@ TEST_F(AngularCenterOfMassTest, ZeroInputProducesFiniteOutput) {
   const size_t inputDim = acomPtr_->getInputDim();
   vector_t qJoints = vector_t::Zero(inputDim);
 
-  vector3_t offset = acomPtr_->computeJointOrientationOffset(qJoints);
-  EXPECT_TRUE(offset.allFinite())
+  vector3_t rotvecAcomRtBase = acomPtr_->computeRotvecAcomRtBase(qJoints);
+  EXPECT_TRUE(rotvecAcomRtBase.allFinite())
       << "Output contains NaN or Inf at zero input.";
 
-  matrix_t jacobian = acomPtr_->computeJointOffsetJacobian(qJoints);
+  matrix_t jacobian = acomPtr_->computeJacobianRotvecAcomRtBase(qJoints);
   EXPECT_TRUE(jacobian.allFinite())
       << "Jacobian contains NaN or Inf at zero input.";
 }
@@ -126,7 +129,8 @@ TEST_F(AngularCenterOfMassTest, AnalyticalJacobianMatchesFiniteDifference) {
   vector_t qJoints = vector_t::Random(inputDim);
 
   // Analytical Jacobian
-  matrix_t jacobian_analytical = acomPtr_->computeJointOffsetJacobian(qJoints);
+  matrix_t jacobian_analytical =
+      acomPtr_->computeJacobianRotvecAcomRtBase(qJoints);
 
   EXPECT_EQ(jacobian_analytical.rows(), 3);
   EXPECT_EQ(jacobian_analytical.cols(), static_cast<int>(inputDim));
@@ -138,13 +142,15 @@ TEST_F(AngularCenterOfMassTest, AnalyticalJacobianMatchesFiniteDifference) {
   for (size_t i = 0; i < inputDim; ++i) {
     vector_t q_plus = qJoints;
     q_plus(i) += eps;
-    vector3_t offset_plus = acomPtr_->computeJointOrientationOffset(q_plus);
+    vector3_t plusRotvecAcomRtBase = acomPtr_->computeRotvecAcomRtBase(q_plus);
 
     vector_t q_minus = qJoints;
     q_minus(i) -= eps;
-    vector3_t offset_minus = acomPtr_->computeJointOrientationOffset(q_minus);
+    vector3_t minusRotvecAcomRtBase =
+        acomPtr_->computeRotvecAcomRtBase(q_minus);
 
-    jacobian_fd.col(i) = (offset_plus - offset_minus) / (2.0 * eps);
+    jacobian_fd.col(i) =
+        (plusRotvecAcomRtBase - minusRotvecAcomRtBase) / (2.0 * eps);
   }
 
   EXPECT_TRUE(jacobian_analytical.isApprox(jacobian_fd, 1.0e-4))
@@ -163,24 +169,33 @@ TEST_F(AngularCenterOfMassTest,
        AcomAttitudeIsTheBaseComposedWithTheJointRotation) {
   const vector_t qJoints =
       vector_t::Random(static_cast<Eigen::Index>(acomPtr_->getInputDim()));
-  const vector4_t xi =
+  const vector4_t quatBaseRtWorldXyzw =
       quaternionFromAxisAngle(vector3_t(0.3, -0.5, 0.8), /*angle=*/1.1);
-  const vector3_t offset = acomPtr_->computeJointOrientationOffset(qJoints);
-  ASSERT_GT(offset.norm(), 1.0e-3)
+  const vector3_t rotvecAcomRtBase = acomPtr_->computeRotvecAcomRtBase(qJoints);
+  ASSERT_GT(rotvecAcomRtBase.norm(), 1.0e-3)
       << "the joints must rotate the ACoM for this to tell it from the base";
 
-  const vector4_t attitude = acomPtr_->acomAttitude(xi, qJoints);
-  EXPECT_LT((attitude - quaternionProduct(xi, quaternionExp(offset))).norm(),
-            1.0e-15);
-  EXPECT_NEAR(attitude.norm(), 1.0, 1.0e-15);
-  EXPECT_LT((acomPtr_->acomAttitude(2.5 * xi, qJoints) - attitude).norm(),
+  const vector4_t quatAcomRtWorldXyzw =
+      acomPtr_->computeQuatAcomRtWorldXyzw(quatBaseRtWorldXyzw, qJoints);
+  EXPECT_LT(
+      (quatAcomRtWorldXyzw -
+       quaternionProduct(quatBaseRtWorldXyzw, quaternionExp(rotvecAcomRtBase)))
+          .norm(),
+      1.0e-15);
+  EXPECT_NEAR(quatAcomRtWorldXyzw.norm(), 1.0, 1.0e-15);
+  EXPECT_LT((acomPtr_->computeQuatAcomRtWorldXyzw(2.5 * quatBaseRtWorldXyzw,
+                                                  qJoints) -
+             quatAcomRtWorldXyzw)
+                .norm(),
             1.0e-15)
       << "the scale of xi must not matter";
-  EXPECT_EQ(acomPtr_->acomAttitude(-xi, qJoints), -attitude)
+  EXPECT_EQ(acomPtr_->computeQuatAcomRtWorldXyzw(-quatBaseRtWorldXyzw, qJoints),
+            -quatAcomRtWorldXyzw)
       << "-xi is the same rotation, in the other hemisphere";
   // At the identity base the ACoM is the network's rotation itself.
-  EXPECT_LT((acomPtr_->acomAttitude(vector4_t(0.0, 0.0, 0.0, 1.0), qJoints) -
-             quaternionExp(offset))
+  EXPECT_LT((acomPtr_->computeQuatAcomRtWorldXyzw(vector4_t(0.0, 0.0, 0.0, 1.0),
+                                                  qJoints) -
+             quaternionExp(rotvecAcomRtBase))
                 .norm(),
             1.0e-15);
 }
@@ -194,15 +209,17 @@ TEST_F(AngularCenterOfMassTest,
 TEST_F(AngularCenterOfMassTest, AWholeBodyRotationRotatesTheAcomOneForOne) {
   const vector_t qJoints =
       vector_t::Random(static_cast<Eigen::Index>(acomPtr_->getInputDim()));
-  const vector4_t xi =
+  const vector4_t quatBaseRtWorldXyzw =
       quaternionFromAxisAngle(vector3_t(0.1, 0.9, -0.2), /*angle=*/0.7);
   const std::array<vector4_t, 2> premultipliers = {
       quaternionFromAxisAngle(vector3_t::UnitZ(), /*angle=*/2.9),
       quaternionFromAxisAngle(vector3_t(1.0, -1.0, 0.5), /*angle=*/1.3)};
   for (const vector4_t& premultiplier : premultipliers) {
     EXPECT_LT(
-        (acomPtr_->acomAttitude(quaternionProduct(premultiplier, xi), qJoints) -
-         quaternionProduct(premultiplier, acomPtr_->acomAttitude(xi, qJoints)))
+        (acomPtr_->computeQuatAcomRtWorldXyzw(
+             quaternionProduct(premultiplier, quatBaseRtWorldXyzw), qJoints) -
+         quaternionProduct(premultiplier, acomPtr_->computeQuatAcomRtWorldXyzw(
+                                              quatBaseRtWorldXyzw, qJoints)))
             .norm(),
         1.0e-14);
   }
@@ -217,22 +234,22 @@ TEST_F(AngularCenterOfMassTest,
        TangentJacobianBlocksAreTheAdjointAndTheRightJacobian) {
   const vector_t qJoints =
       vector_t::Random(static_cast<Eigen::Index>(acomPtr_->getInputDim()));
-  const vector3_t offset = acomPtr_->computeJointOrientationOffset(qJoints);
+  const vector3_t rotvecAcomRtBase = acomPtr_->computeRotvecAcomRtBase(qJoints);
   const AcomAttitudeTangentJacobian jacobian =
       acomPtr_->acomAttitudeTangentJacobian(qJoints);
   // Bit for bit: the one-pass evaluation reproduces
-  // computeJointOrientationOffset()'s operations.
-  EXPECT_EQ(
-      jacobian.baseTangent,
-      matrix3_t(quaternionRotationMatrix(quaternionExp(offset)).transpose()));
+  // computeRotvecAcomRtBase()'s operations.
+  EXPECT_EQ(jacobian.baseTangent,
+            matrix3_t(quaternionRotationMatrix(quaternionExp(rotvecAcomRtBase))
+                          .transpose()));
   ASSERT_EQ(jacobian.jointAngles.rows(), 3);
   ASSERT_EQ(jacobian.jointAngles.cols(),
             static_cast<Eigen::Index>(acomPtr_->getInputDim()));
-  EXPECT_LT(
-      (jacobian.jointAngles -
-       so3RightJacobian(offset) * acomPtr_->computeJointOffsetJacobian(qJoints))
-          .norm(),
-      1.0e-14);
+  EXPECT_LT((jacobian.jointAngles -
+             so3RightJacobian(rotvecAcomRtBase) *
+                 acomPtr_->computeJacobianRotvecAcomRtBase(qJoints))
+                .norm(),
+            1.0e-14);
 }
 
 /**
@@ -247,9 +264,10 @@ TEST_F(AngularCenterOfMassTest,
   const Eigen::Index inputDim =
       static_cast<Eigen::Index>(acomPtr_->getInputDim());
   const vector_t qJoints = vector_t::Random(inputDim);
-  const vector4_t xi =
+  const vector4_t quatBaseRtWorldXyzw =
       quaternionFromAxisAngle(vector3_t(-0.4, 0.2, 0.9), /*angle=*/2.2);
-  const vector4_t attitude = acomPtr_->acomAttitude(xi, qJoints);
+  const vector4_t quatAcomRtWorldXyzw =
+      acomPtr_->computeQuatAcomRtWorldXyzw(quatBaseRtWorldXyzw, qJoints);
   const AcomAttitudeTangentJacobian jacobian =
       acomPtr_->acomAttitudeTangentJacobian(qJoints);
   constexpr scalar_t kStep = 1.0e-6;
@@ -257,12 +275,16 @@ TEST_F(AngularCenterOfMassTest,
   for (Eigen::Index axis = 0; axis < 3; ++axis) {
     const vector3_t step = kStep * vector3_t::Unit(axis);
     const vector3_t plus = bodyRotationBetween(
-        attitude, acomPtr_->acomAttitude(
-                      quaternionProduct(xi, quaternionExp(step)), qJoints));
+        quatAcomRtWorldXyzw,
+        acomPtr_->computeQuatAcomRtWorldXyzw(
+            quaternionProduct(quatBaseRtWorldXyzw, quaternionExp(step)),
+            qJoints));
     const vector3_t minus = bodyRotationBetween(
-        attitude,
-        acomPtr_->acomAttitude(
-            quaternionProduct(xi, quaternionExp(vector3_t(-step))), qJoints));
+        quatAcomRtWorldXyzw,
+        acomPtr_->computeQuatAcomRtWorldXyzw(
+            quaternionProduct(quatBaseRtWorldXyzw,
+                              quaternionExp(vector3_t(-step))),
+            qJoints));
     EXPECT_LT(((plus - minus) / (2.0 * kStep) - jacobian.baseTangent.col(axis))
                   .norm(),
               1.0e-8)
@@ -275,10 +297,12 @@ TEST_F(AngularCenterOfMassTest,
     vector_t minusJoints = qJoints;
     plusJoints(joint) += kStep;
     minusJoints(joint) -= kStep;
-    const vector3_t plus =
-        bodyRotationBetween(attitude, acomPtr_->acomAttitude(xi, plusJoints));
-    const vector3_t minus =
-        bodyRotationBetween(attitude, acomPtr_->acomAttitude(xi, minusJoints));
+    const vector3_t plus = bodyRotationBetween(
+        quatAcomRtWorldXyzw,
+        acomPtr_->computeQuatAcomRtWorldXyzw(quatBaseRtWorldXyzw, plusJoints));
+    const vector3_t minus = bodyRotationBetween(
+        quatAcomRtWorldXyzw,
+        acomPtr_->computeQuatAcomRtWorldXyzw(quatBaseRtWorldXyzw, minusJoints));
     EXPECT_LT(((plus - minus) / (2.0 * kStep) - jacobian.jointAngles.col(joint))
                   .norm(),
               1.0e-5 * scale)
@@ -295,13 +319,14 @@ TEST_F(AngularCenterOfMassTest, LoadWeightsRejectsWrongLayerCount) {
   tooFew.push_back({matrix_t::Zero(kArbitraryWidth, inputDim),
                     vector_t::Zero(kArbitraryWidth)});
   const vector_t qJoints = vector_t::Constant(inputDim, 0.1);
-  const vector3_t before = acomPtr_->computeJointOrientationOffset(qJoints);
+  const vector3_t prevRotvecAcomRtBase =
+      acomPtr_->computeRotvecAcomRtBase(qJoints);
 
   const absl::Status refused = acomPtr_->loadWeights(tooFew);
   EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(refused.message(), ::testing::HasSubstr("layers"));
-  EXPECT_TRUE(
-      acomPtr_->computeJointOrientationOffset(qJoints).isApprox(before, 0.0))
+  EXPECT_TRUE(acomPtr_->computeRotvecAcomRtBase(qJoints).isApprox(
+      prevRotvecAcomRtBase, 0.0))
       << "a refused load changed the network";
 }
 
@@ -320,13 +345,13 @@ TEST_F(AngularCenterOfMassDeathTest, RejectsWrongJointVectorSize) {
   const vector_t tooShort = vector_t::Zero(inputDim - 1);
   const vector_t tooLong = vector_t::Zero(inputDim + 1);
 
-  EXPECT_DEATH(acomPtr_->computeJointOrientationOffset(tooShort),
+  EXPECT_DEATH(acomPtr_->computeRotvecAcomRtBase(tooShort),
                "wrong number of joint positions");
-  EXPECT_DEATH(acomPtr_->computeJointOrientationOffset(tooLong),
+  EXPECT_DEATH(acomPtr_->computeRotvecAcomRtBase(tooLong),
                "wrong number of joint positions");
-  EXPECT_DEATH(acomPtr_->computeJointOffsetJacobian(tooShort),
+  EXPECT_DEATH(acomPtr_->computeJacobianRotvecAcomRtBase(tooShort),
                "wrong number of joint positions");
-  EXPECT_DEATH(acomPtr_->computeJointOffsetJacobian(tooLong),
+  EXPECT_DEATH(acomPtr_->computeJacobianRotvecAcomRtBase(tooLong),
                "wrong number of joint positions");
 }
 
@@ -335,7 +360,8 @@ TEST_F(AngularCenterOfMassDeathTest, RejectsWrongJointVectorSize) {
 TEST_F(AngularCenterOfMassDeathTest, TheAttitudeRejectsAWrongJointVectorSize) {
   const vector_t tooShort =
       vector_t::Zero(static_cast<Eigen::Index>(acomPtr_->getInputDim() - 1));
-  EXPECT_DEATH(acomPtr_->acomAttitude(vector4_t(0.0, 0.0, 0.0, 1.0), tooShort),
+  EXPECT_DEATH(acomPtr_->computeQuatAcomRtWorldXyzw(
+                   vector4_t(0.0, 0.0, 0.0, 1.0), tooShort),
                "wrong number of joint positions");
   EXPECT_DEATH(acomPtr_->acomAttitudeTangentJacobian(tooShort),
                "wrong number of joint positions");
@@ -349,9 +375,9 @@ TEST_F(AngularCenterOfMassDeathTest, TheAttitudeRejectsAWrongJointVectorSize) {
  */
 TEST(AngularCenterOfMassUnloadedDeathTest, EvaluatingWithoutWeightsDies) {
   const AngularCenterOfMass unloaded(/*inputDim=*/6, /*numLayers=*/2);
-  EXPECT_DEATH(unloaded.computeJointOrientationOffset(vector_t::Zero(6)),
+  EXPECT_DEATH(unloaded.computeRotvecAcomRtBase(vector_t::Zero(6)),
                "no weights loaded");
-  EXPECT_DEATH(unloaded.computeJointOffsetJacobian(vector_t::Zero(6)),
+  EXPECT_DEATH(unloaded.computeJacobianRotvecAcomRtBase(vector_t::Zero(6)),
                "no weights loaded");
 }
 

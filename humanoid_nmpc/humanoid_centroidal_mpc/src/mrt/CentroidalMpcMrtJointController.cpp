@@ -34,12 +34,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -48,26 +50,52 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/MPC_BASE.h"
+#include "ocs2_mpc/MPC_MRT_Interface.h"
+#include "ocs2_mpc/MRT_BASE.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/robot/JointPdGainsFromConfig.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/ControlMode.h"
+#include "humanoid_common_mpc/mrt/ControllerEvent.h"
+#include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/JointActionAccess.h"
 #include "humanoid_common_mpc/mrt/JointActionBlend.h"
+#include "humanoid_common_mpc/mrt/JointPdGains.h"
 #include "humanoid_common_mpc/mrt/LoggingControllerEventSink.h"
+#include "humanoid_common_mpc/mrt/LookaheadPolicyEvaluator.h"
+#include "humanoid_common_mpc/mrt/MpcLink.h"
+#include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
+#include "humanoid_common_mpc/mrt/SafetyDecay.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
-#include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
+#include "humanoid_common_mpc/pinocchio_model/RealtimeRigidBodyDynamics.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
+#include "humanoid_mpc_ipc/MpcMessageConversions.h"
+#include "robot_model/ContactEstimator.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 #include "robot_model/RobotStateContactEstimator.h"
 
 namespace ocs2::humanoid {
@@ -373,17 +401,17 @@ void CentroidalMpcMrtJointController::updateMpcState(
   const CentroidalModelInfo& info = mpcRobotModelPtr_->getCentroidalModelInfo();
   // The measured base orientation, whose coefficients (x, y, z, w) the robot
   // model's measurement helpers read.
-  const quaternion_t orientation = robotState.getQuatBaseRtWorld();
+  const quaternion_t quatBaseRtWorld = robotState.getQuatBaseRtWorld();
 
   // Pinocchio's q and v of the measurement, into the workspaces at their sizes:
   // no allocation.
   robotState.getJointPositions(mpcJointIndices_, mpcJointPositions_);
   mpcRobotModelPtr_->fillGeneralizedCoordinatesFromMeasurement(
-      robotState.getPosBaseRtWorldEwrtWorld(), orientation.coeffs(),
+      robotState.getPosBaseRtWorldEwrtWorld(), quatBaseRtWorld.coeffs(),
       mpcJointPositions_, qPinocchio_);
   robotState.getJointVelocities(mpcJointIndices_, mpcJointVelocities_);
   mpcRobotModelPtr_->fillGeneralizedVelocitiesFromMeasurement(
-      orientation.coeffs(), robotState.getLinvelBaseRtWorldEwrtBase(),
+      quatBaseRtWorld.coeffs(), robotState.getLinvelBaseRtWorldEwrtBase(),
       robotState.getAngvelBaseRtWorldEwrtBase(), mpcJointVelocities_,
       vPinocchio_);
 
@@ -510,7 +538,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(
   // anything to protect, and the check used to request a reset at every cycle
   // against a limp robot.
   if (controlMode_ == control_mode::kZeroJointTorque) {
-    fillZeroTorqueAction(robotState, robotJointAction);
+    fillZeroJointTorqueAction(robotState, robotJointAction);
     previousObservationTime_ = currentMpcObservation_.time;
     return;
   }
@@ -698,34 +726,36 @@ void CentroidalMpcMrtJointController::computeJointControlAction(
     // frames' orientations are read off the twin's kinematics at that state's
     // generalized coordinates (getGeneralizedCoordinates(): its quaternion
     // safely normalized), which the measured state's are.
-    const vector_t& wrenchFrameState = mpcPolicyState.allFinite()
-                                           ? mpcPolicyState
-                                           : currentMpcObservation_.state;
-    fillPlannedCoordinates(wrenchFrameState);
-    const feet_array_t<matrix3_t>& contactFrameRotations =
+    const vector_t& contactFrameState = mpcPolicyState.allFinite()
+                                            ? mpcPolicyState
+                                            : currentMpcObservation_.state;
+    fillPlannedCoordinates(contactFrameState);
+    const feet_array_t<matrix3_t>& rotmatContactsRtWorld =
         rigidBodyDynamics_->computeRotmatContactsRtWorld(plannedCoordinates_);
     // The policy carries a wrench wherever its own schedule expects contact.
     // Whether a foot can actually transmit it is decided by the measured
     // contact state of this cycle, not by the plan: the wrench of a foot that
     // is not touching is dropped, and after touch-down it is debounced and
     // ramped in as configured (ContactWrenchGate).
-    const feet_array_t<vector6_t> footWrenches = contactWrenchGate_.apply(
-        {effectiveModelPtr_->getWrenchContactEwrtWorld(
-             mpcPolicyInput, contactFrameRotations[0], /*contactIndex=*/0),
-         effectiveModelPtr_->getWrenchContactEwrtWorld(
-             mpcPolicyInput, contactFrameRotations[1], /*contactIndex=*/1)});
+    const feet_array_t<vector6_t> wrenchFeetEwrtWorld =
+        contactWrenchGate_.apply(
+            {effectiveModelPtr_->getWrenchContactEwrtWorld(
+                 mpcPolicyInput, rotmatContactsRtWorld[0], /*contactIndex=*/0),
+             effectiveModelPtr_->getWrenchContactEwrtWorld(
+                 mpcPolicyInput, rotmatContactsRtWorld[1],
+                 /*contactIndex=*/1)});
 
     // Evaluate inverse dynamics using measured robot state for physical
     // consistency: the measurement's q and v, of which the observation is made
     // (getGeneralizedCoordinates() and getGeneralizedVelocities() of the
     // observation give them back, the latter through the centroidal momentum).
     const vector_t& mpcJointTorques = rigidBodyDynamics_->freeBaseJointTorques(
-        qPinocchio_, vPinocchio_, zeroJointAccelerations_, footWrenches);
+        qPinocchio_, vPinocchio_, zeroJointAccelerations_, wrenchFeetEwrtWorld);
 
     // Gravity-comp fallback: use pure gravity compensation instead of full ID
     // torques (`wb_mpc_feedforward: "gravity_compensation"` in the task file),
     // to isolate ID issues.
-    const vector_t& feedforwardTorques =
+    const vector_t& feedforwardJointTorques =
         useGravityCompFeedforward_ ? computeGravityCompensation(robotState)
                                    : mpcJointTorques;
 
@@ -739,7 +769,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(
       action.kp = pdGains_.mpcJointKp[i];
       action.kd = pdGains_.mpcJointKd[i];
       action.feed_forward_effort =
-          clampedMpcJointFeedforward(i, feedforwardTorques[i]);
+          clampedMpcJointFeedforward(i, feedforwardJointTorques[i]);
     }
     // The torques this decomposes into (the PD and the feedforward of every
     // joint, the planned and measured base) are in the telemetry (robot/state),
@@ -760,17 +790,18 @@ void CentroidalMpcMrtJointController::computeJointControlAction(
     // of the free legs, the base being held (heldBaseJointTorques(); the
     // free-base inverse dynamics would let the base fall freely).
     const size_t numStanceLegs = numberOfLegsInContacts(measuredContactFlags_);
-    feet_array_t<vector6_t> footWrenches;
+    feet_array_t<vector6_t> wrenchFeetEwrtWorld;
     for (size_t i = 0; i < kNumContacts; ++i) {
-      footWrenches[i].setZero();
+      wrenchFeetEwrtWorld[i].setZero();
       if (numStanceLegs > 0 && measuredContactFlags_[i]) {
-        footWrenches[i](kZAxisIndex) =
+        wrenchFeetEwrtWorld[i](kZAxisIndex) =
             robotWeight_ / static_cast<scalar_t>(numStanceLegs);
       }
     }
-    const vector_t& weightCompensatingTorques =
-        rigidBodyDynamics_->heldBaseJointTorques(
-            qPinocchio_, vPinocchio_, zeroJointAccelerations_, footWrenches);
+    const vector_t& weightCompensatingJointTorques =
+        rigidBodyDynamics_->heldBaseJointTorques(qPinocchio_, vPinocchio_,
+                                                 zeroJointAccelerations_,
+                                                 wrenchFeetEwrtWorld);
 
     for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
       const size_t index = mpcJointIndices_[i];
@@ -784,7 +815,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(
       action.kp = pdGains_.mpcJointKp[i];
       action.kd = pdGains_.mpcJointKd[i];
       action.feed_forward_effort =
-          clampedMpcJointFeedforward(i, weightCompensatingTorques[i]);
+          clampedMpcJointFeedforward(i, weightCompensatingJointTorques[i]);
     }
   }
 
@@ -858,8 +889,9 @@ void CentroidalMpcMrtJointController::handleClockRewind(scalar_t rewind) {
   // SAFETY keeps the time it has already decayed for: restarting its clock
   // would put the gains back to full authority. A rewind past the entry shifts
   // the start time below zero, which is a valid start time on the new clock.
-  if (safetyDecayCaptured_.load())
+  if (safetyDecayCaptured_.load()) {
     safetyDecayStartTime_.store(safetyDecayStartTime_.load() - rewind);
+  }
   lastDivergenceResetTime_ = -1.0;
   previousObservationTime_ = currentMpcObservation_.time;
   // MpcResetSupervisor::observeTime() has requested the reset; the hold is all
@@ -870,7 +902,7 @@ void CentroidalMpcMrtJointController::handleClockRewind(scalar_t rewind) {
 void CentroidalMpcMrtJointController::fillJointPdAction(
     const ::robot::model::RobotState& robotState,
     ::robot::model::RobotJointAction& robotJointAction) {
-  const vector_t& gravTorques = computeGravityCompensation(robotState);
+  const vector_t& gravityJointTorques = computeGravityCompensation(robotState);
 
   for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
     const size_t index = mpcJointIndices_[i];
@@ -881,7 +913,8 @@ void CentroidalMpcMrtJointController::fillJointPdAction(
     action.qd_des = 0.0;
     action.kp = pdGains_.mpcJointKp[i];
     action.kd = pdGains_.mpcJointKd[i];
-    action.feed_forward_effort = clampedMpcJointFeedforward(i, gravTorques[i]);
+    action.feed_forward_effort =
+        clampedMpcJointFeedforward(i, gravityJointTorques[i]);
   }
 
   for (size_t i = 0; i < otherJointIndices_.size(); ++i) {
@@ -915,7 +948,7 @@ void CentroidalMpcMrtJointController::fillGravityCompAction(
   // moment unopposed at the knee and the crouch runs away. Do not run this mode
   // with the robot bearing its own weight without adding that term back -
   // testContactConstraintScheduleGating pins the magnitudes.
-  const vector_t& gravTorques = computeGravityCompensation(robotState);
+  const vector_t& gravityJointTorques = computeGravityCompensation(robotState);
 
   for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
     const size_t index = mpcJointIndices_[i];
@@ -925,7 +958,8 @@ void CentroidalMpcMrtJointController::fillGravityCompAction(
     action.qd_des = 0.0;
     action.kp = 0.0;
     action.kd = pdGains_.mpcJointKd[i] * pdGains_.gravityCompDampingFraction;
-    action.feed_forward_effort = clampedMpcJointFeedforward(i, gravTorques[i]);
+    action.feed_forward_effort =
+        clampedMpcJointFeedforward(i, gravityJointTorques[i]);
   }
 
   for (size_t i = 0; i < otherJointIndices_.size(); ++i) {
@@ -941,7 +975,7 @@ void CentroidalMpcMrtJointController::fillGravityCompAction(
   }
 }
 
-void CentroidalMpcMrtJointController::fillZeroTorqueAction(
+void CentroidalMpcMrtJointController::fillZeroJointTorqueAction(
     const ::robot::model::RobotState& robotState,
     ::robot::model::RobotJointAction& robotJointAction) {
   const std::array<const std::vector<size_t>* absl_nonnull, kNumMrtJointGroups>
@@ -968,8 +1002,8 @@ scalar_t CentroidalMpcMrtJointController::currentSafetyDecayFactor(
 }
 
 scalar_t CentroidalMpcMrtJointController::clampedMpcJointFeedforward(
-    size_t mpcJoint, scalar_t torque) const {
-  return std::clamp(torque, -pdGains_.mpcJointTorqueLimit[mpcJoint],
+    size_t mpcJoint, scalar_t jointTorque) const {
+  return std::clamp(jointTorque, -pdGains_.mpcJointTorqueLimit[mpcJoint],
                     pdGains_.mpcJointTorqueLimit[mpcJoint]);
 }
 
@@ -1078,10 +1112,12 @@ void CentroidalMpcMrtJointController::applyEntryBlend(
   holdAction_ = robotJointAction;
   fillEntryHoldAction(robotState, holdAction_);
   const scalar_t a = std::max(alpha, 0.0);
-  for (size_t index : mpcJointIndices_)
+  for (size_t index : mpcJointIndices_) {
     blendJointAction(index, a, robotJointAction);
-  for (size_t index : otherJointIndices_)
+  }
+  for (size_t index : otherJointIndices_) {
     blendJointAction(index, a, robotJointAction);
+  }
 }
 
 void CentroidalMpcMrtJointController::blendJointAction(
@@ -1100,7 +1136,7 @@ CentroidalMpcMrtJointController::currentObservationToResetTrajectory(
     const SystemObservation& currentObservation) {
   // The one definition of the reset target, which the MPC node serves its
   // resets from as well.
-  const TargetTrajectories resetTargetTrajectories =
+  TargetTrajectories resetTargetTrajectories =
       centroidalMpcResetTargetTrajectories(
           currentObservation, mpcRobotModelPtr_->getCentroidalModelInfo(),
           *effectiveModelPtr_, pinocchioInterface_);
@@ -1110,11 +1146,11 @@ CentroidalMpcMrtJointController::currentObservationToResetTrajectory(
         resetTargetTrajectories.stateTrajectory.front();
     const vector_t& targetInput =
         resetTargetTrajectories.inputTrajectory.front();
-    const vector3_t basePosition =
+    const vector3_t refPosBaseRtWorldEwrtWorld =
         effectiveModelPtr_->getPosBaseRtWorldEwrtWorld(targetState);
     LOG(INFO) << "[CentroidalMPC] Resetting MPC target trajectory. Base pos: "
-              << basePosition.transpose()
-              << " Base z: " << basePosition(kZAxisIndex)
+              << refPosBaseRtWorldEwrtWorld.transpose()
+              << " Base z: " << refPosBaseRtWorldEwrtWorld(kZAxisIndex)
               << " Input forces (world): "
               << effectiveModelPtr_
                      ->getForceContactEwrtWorld(targetState, targetInput,
@@ -1154,10 +1190,10 @@ const vector_t& CentroidalMpcMrtJointController::computeGravityCompensation(
     const ::robot::model::RobotState& robotState) {
   // Pinocchio's configuration q of the measurement, in the workspaces (sized by
   // the constructor).
-  const quaternion_t orientation = robotState.getQuatBaseRtWorld();
+  const quaternion_t quatBaseRtWorld = robotState.getQuatBaseRtWorld();
   robotState.getJointPositions(mpcJointIndices_, gravityJointPositions_);
   mpcRobotModelPtr_->fillGeneralizedCoordinatesFromMeasurement(
-      robotState.getPosBaseRtWorldEwrtWorld(), orientation.coeffs(),
+      robotState.getPosBaseRtWorldEwrtWorld(), quatBaseRtWorld.coeffs(),
       gravityJointPositions_, gravityCoordinates_);
 
   // The joint rows of g(q), nle(q, 0) of the model, without its allocations on

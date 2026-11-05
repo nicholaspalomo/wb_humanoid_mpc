@@ -41,8 +41,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Defines a linear constraint on an end-effector position (xee) and linear
- * velocity (vee). g(xee, vee, aee) = Ax * xee + Av * vee + Aa *aee + b
+ * Defines a linear constraint on an end effector's position, linear velocity
+ * and linear acceleration in the world:
+ * g = Ax * posEeRtWorldEwrtWorld + Av * linvelEeRtWorldEwrtWorld
+ *     + Aa * linaccEeRtWorldEwrtWorld + b
  *
  * Not thread-safe: its end-effector dynamics evaluate on the Pinocchio data of
  * one worker's PreComputation, so the solver gives each worker thread its own
@@ -53,7 +55,8 @@ class EndEffectorDynamicsLinearAccConstraint final
  public:
   /**
    * Coefficients of the linear constraints of the form:
-   * g(xee, vee, aee) = Ax * xee + Av * vee + Aa *aee + b
+   * g = Ax * posEeRtWorldEwrtWorld + Av * linvelEeRtWorldEwrtWorld
+   *     + Aa * linaccEeRtWorldEwrtWorld + b
    */
   struct Config {
     vector_t b;
@@ -68,8 +71,9 @@ class EndEffectorDynamicsLinearAccConstraint final
    * @param [in] endEffectorDynamics: The dynamics interface to the target
    * end-effector; it has exactly one end effector.
    * @param [in] numConstraints: The number of constraints {1, 2, 3}
-   * @param [in] config: The constraint coefficients, g(xee, vee, aee) = Ax *
-   * xee + Av * vee + Aa *aee + b
+   * @param [in] config: The constraint coefficients, g = Ax *
+   * posEeRtWorldEwrtWorld + Av * linvelEeRtWorldEwrtWorld + Aa *
+   * linaccEeRtWorldEwrtWorld + b
    * @return InvalidArgument naming the end effectors when `endEffectorDynamics`
    * has other than one.
    */

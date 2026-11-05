@@ -29,9 +29,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/constraint/LipConstraintBase.h"
 
+#include <optional>
 #include <string>
 
 #include "absl/strings/str_cat.h"
+
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 
 namespace ocs2::humanoid {
 

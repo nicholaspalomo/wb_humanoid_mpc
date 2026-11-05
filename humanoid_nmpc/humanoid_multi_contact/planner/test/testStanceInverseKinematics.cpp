@@ -82,8 +82,8 @@ std::unique_ptr<RobotStanceModel> atlasModel() {
   return *std::move(model);
 }
 
-/** The floor and a box of `center` and `halfExtents` on it. */
-TerrainModel floorAndBox(const Eigen::Vector3d& center,
+/** The floor and a box of `posBoxRtWorldEwrtWorld` and `halfExtents` on it. */
+TerrainModel floorAndBox(const Eigen::Vector3d& posBoxRtWorldEwrtWorld,
                          const Eigen::Vector3d& halfExtents) {
   config::TerrainScene scene;
   scene.name = "box";
@@ -92,7 +92,8 @@ TerrainModel floorAndBox(const Eigen::Vector3d& center,
     primitive.name = box ? "box" : "ground";
     primitive.friction = 0.8;
     config::TerrainScene::Box shape;
-    shape.center = box ? center : Eigen::Vector3d(0.0, 0.0, -0.5);
+    shape.pos_box_rt_world_ewrt_world =
+        box ? posBoxRtWorldEwrtWorld : Eigen::Vector3d(0.0, 0.0, -0.5);
     shape.half_extents = box ? halfExtents : Eigen::Vector3d(20.0, 20.0, 0.5);
     primitive.shape = shape;
     scene.primitives.push_back(primitive);
@@ -132,10 +133,11 @@ std::unique_ptr<StanceInverseKinematics> atlasIk(
   return *std::move(ik);
 }
 
-/** The scenarios' nominal standing pose, as a generalized position. */
+/** The scenarios' nominal standing pose, as a generalized
+ * currentPosPadRtWorldEwrtWorld. */
 Eigen::VectorXd standing(const RobotStanceModel& model) {
   RobotConfiguration configuration;
-  configuration.basePosition = Eigen::Vector3d(0.0, 0.0, 0.9232);
+  configuration.posBaseRtWorldEwrtWorld = Eigen::Vector3d(0.0, 0.0, 0.9232);
   configuration.jointNames = {"l_leg_hpy", "r_leg_hpy", "l_leg_kny",
                               "r_leg_kny", "l_leg_aky", "r_leg_aky",
                               "l_arm_shx", "r_arm_shx"};
@@ -155,12 +157,13 @@ int candidateOf(const RobotStanceModel& model, const std::string& name) {
 
 /** The placement of a pad where the model has it, on a horizontal surface. */
 ContactPlacement placed(const RobotStanceModel& model, int candidate) {
-  return ContactPlacement{.candidate = candidate,
-                          .primitive = 0,
-                          .face = BoxFace::kPositiveZ,
-                          .position = model.padPosition(candidate),
-                          .normal = Eigen::Vector3d::UnitZ(),
-                          .xAxis = Eigen::Vector3d::UnitX()};
+  return ContactPlacement{
+      .candidate = candidate,
+      .primitive = 0,
+      .face = BoxFace::kPositiveZ,
+      .posPadRtWorldEwrtWorld = model.getPosPadRtWorldEwrtWorld(candidate),
+      .normalSurfaceEwrtWorld = Eigen::Vector3d::UnitZ(),
+      .xAxisPadEwrtWorld = Eigen::Vector3d::UnitX()};
 }
 
 /** The IK problem of holding `stance` with the CoM in `polygon`. */
@@ -170,20 +173,23 @@ StanceIkProblem holding(const RobotStanceModel& model,
                         double margin) {
   StanceIkProblem problem;
   for (const ContactPlacement& placement : stance) {
-    problem.contacts.push_back(ContactTarget{.candidate = placement.candidate,
-                                             .position = placement.position,
-                                             .normal = placement.normal,
-                                             .xAxis = placement.xAxis});
+    problem.contacts.push_back(ContactTarget{
+        .candidate = placement.candidate,
+        .posPadRtWorldEwrtWorld = placement.posPadRtWorldEwrtWorld,
+        .normalSurfaceEwrtWorld = placement.normalSurfaceEwrtWorld,
+        .xAxisPadEwrtWorld = placement.xAxisPadEwrtWorld});
     problem.exemptPads.push_back(padRegionOf(placement, model.contactSet()));
   }
-  problem.comPolygon = std::move(polygon);
+  problem.supportPosComRtWorldEwrtWorldXySamples = std::move(polygon);
   problem.comMargin = margin;
   return problem;
 }
 
-/** The rectangle of a foot pad at `center`, counterclockwise. */
-std::vector<Eigen::Vector2d> footPolygon(const Eigen::Vector3d& center) {
-  const Eigen::Vector2d c = center.head<2>();
+/** The rectangle of a foot pad at `posPadRtWorldEwrtWorld`, counterclockwise.
+ */
+std::vector<Eigen::Vector2d> footPolygon(
+    const Eigen::Vector3d& posPadRtWorldEwrtWorld) {
+  const Eigen::Vector2d c = posPadRtWorldEwrtWorld.head<2>();
   return {c + Eigen::Vector2d(-0.12, -0.055), c + Eigen::Vector2d(0.12, -0.055),
           c + Eigen::Vector2d(0.12, 0.055), c + Eigen::Vector2d(-0.12, 0.055)};
 }
@@ -202,7 +208,7 @@ TEST(StanceInverseKinematics, HoldsTheStandingStance) {
   const absl::StatusOr<StanceIkResult> result = ik->solve(problem, q);
   ASSERT_TRUE(result.ok()) << result.status();
   EXPECT_TRUE(result->feasible) << result->failure;
-  EXPECT_LT(result->maxReachError, 1.0e-4);
+  EXPECT_LT(result->maxNormErrPosPadRtWorldEwrtWorld, 1.0e-4);
   // The joints at a limit (the elbows and wrists of this pose) move the IK's
   // margin inside it; the rest stays.
   EXPECT_LT(
@@ -222,7 +228,8 @@ TEST(StanceInverseKinematics, ShiftsTheComOntoOneFoot) {
       placed(model, right)};
   constexpr double kMargin = 0.03;
   StanceIkProblem problem =
-      holding(model, feet, footPolygon(model.padPosition(right)), kMargin);
+      holding(model, feet, footPolygon(model.getPosPadRtWorldEwrtWorld(right)),
+              kMargin);
   problem.postureReference = q;
   const absl::StatusOr<StanceIkResult> result = ik->solve(problem, q);
   ASSERT_TRUE(result.ok()) << result.status();
@@ -231,7 +238,8 @@ TEST(StanceInverseKinematics, ShiftsTheComOntoOneFoot) {
       << result->termination << ")";
   ASSERT_TRUE(result->comMargin.has_value());
   EXPECT_GE(*result->comMargin, kMargin - 1.0e-3);
-  EXPECT_LE(result->maxReachError, kDefaultReachTolerance);
+  EXPECT_LE(result->maxNormErrPosPadRtWorldEwrtWorld,
+            kNomMaxNormErrPosPadRtWorldEwrtWorld);
   for (const ActuatedJoint& joint : model.actuatedJoints()) {
     EXPECT_GE(result->q(joint.positionIndex), joint.lowerLimit) << joint.name;
     EXPECT_LE(result->q(joint.positionIndex), joint.upperLimit) << joint.name;
@@ -247,12 +255,13 @@ TEST(StanceInverseKinematics, ReachesAHandOntoTheBox) {
   const int right = candidateOf(model, "foot_r_contact");
   const int hand = candidateOf(model, "hand_r_contact");
   const StancePlacements feet = {placed(model, left), placed(model, right)};
-  const ContactPlacement onBox{.candidate = hand,
-                               .primitive = 1,
-                               .face = BoxFace::kPositiveZ,
-                               .position = Eigen::Vector3d(0.5, -0.25, 0.6),
-                               .normal = Eigen::Vector3d::UnitZ(),
-                               .xAxis = Eigen::Vector3d::UnitX()};
+  const ContactPlacement onBox{
+      .candidate = hand,
+      .primitive = 1,
+      .face = BoxFace::kPositiveZ,
+      .posPadRtWorldEwrtWorld = Eigen::Vector3d(0.5, -0.25, 0.6),
+      .normalSurfaceEwrtWorld = Eigen::Vector3d::UnitZ(),
+      .xAxisPadEwrtWorld = Eigen::Vector3d::UnitX()};
   StanceIkProblem problem =
       holding(model, withPlacement(feet, onBox), /*polygon=*/{},
               /*margin=*/0.0);
@@ -262,8 +271,10 @@ TEST(StanceInverseKinematics, ReachesAHandOntoTheBox) {
   EXPECT_TRUE(result->feasible)
       << result->failure << " after " << result->iterations << " iterations ("
       << result->termination << ")";
-  EXPECT_LE(result->maxReachError, kDefaultReachTolerance);
-  EXPECT_LE(result->maxPointTilt, kDefaultMaxPadTilt);
+  EXPECT_LE(result->maxNormErrPosPadRtWorldEwrtWorld,
+            kNomMaxNormErrPosPadRtWorldEwrtWorld);
+  EXPECT_LE(result->pointMaxTiltanglePadRtSurface,
+            kNomMaxTiltanglePadRtSurface);
   ASSERT_TRUE(result->terrainClearance.has_value());
   EXPECT_GE(*result->terrainClearance, 0.0);
 }
@@ -281,9 +292,9 @@ TEST(StanceInverseKinematics, RefusesAnUnreachableTarget) {
   const ContactPlacement farAway{
       .candidate = candidateOf(model, "hand_l_contact"),
       .primitive = 1,
-      .position = Eigen::Vector3d(2.5, 0.2, 0.6),
-      .normal = Eigen::Vector3d::UnitZ(),
-      .xAxis = Eigen::Vector3d::UnitX()};
+      .posPadRtWorldEwrtWorld = Eigen::Vector3d(2.5, 0.2, 0.6),
+      .normalSurfaceEwrtWorld = Eigen::Vector3d::UnitZ(),
+      .xAxisPadEwrtWorld = Eigen::Vector3d::UnitX()};
   StanceIkProblem problem =
       holding(model, withPlacement(feet, farAway), /*polygon=*/{},
               /*margin=*/0.0);
@@ -291,7 +302,8 @@ TEST(StanceInverseKinematics, RefusesAnUnreachableTarget) {
   const absl::StatusOr<StanceIkResult> result = ik->solve(problem, q);
   ASSERT_TRUE(result.ok()) << result.status();
   EXPECT_FALSE(result->feasible);
-  EXPECT_GT(result->maxReachError, kDefaultReachTolerance);
+  EXPECT_GT(result->maxNormErrPosPadRtWorldEwrtWorld,
+            kNomMaxNormErrPosPadRtWorldEwrtWorld);
 }
 
 TEST(StanceInverseKinematics, KeepsTheShinsOffTheFloorWhenCrouching) {
@@ -308,10 +320,12 @@ TEST(StanceInverseKinematics, KeepsTheShinsOffTheFloorWhenCrouching) {
   // ankle limits and the floor end before the base gets there.
   problem.postureReference = q;
   problem.postureReference.z() -= 0.6;
-  problem.comTarget = model.centerOfMass() - Eigen::Vector3d(0.0, 0.0, 0.6);
+  problem.desPosComRtWorldEwrtWorld =
+      model.getPosComRtWorldEwrtWorld() - Eigen::Vector3d(0.0, 0.0, 0.6);
   const absl::StatusOr<StanceIkResult> result = ik->solve(problem, q);
   ASSERT_TRUE(result.ok()) << result.status();
-  EXPECT_LE(result->maxReachError, kDefaultReachTolerance);
+  EXPECT_LE(result->maxNormErrPosPadRtWorldEwrtWorld,
+            kNomMaxNormErrPosPadRtWorldEwrtWorld);
   ASSERT_TRUE(result->terrainClearance.has_value());
   EXPECT_GE(*result->terrainClearance, 0.0) << result->terrainClearanceLink;
   EXPECT_LT(result->q.z(), q.z() - 0.2);
@@ -327,9 +341,9 @@ TEST(StanceInverseKinematics, ShiftsOntoAFootOnAStep) {
   // The left foot on a 0.18 m step 0.6 m ahead, the right one 0.3 m ahead on
   // the floor (the box of this terrain stands in for the step).
   ContactPlacement onStep = placed(model, left);
-  onStep.position = Eigen::Vector3d(0.64, 0.2, 0.18);
+  onStep.posPadRtWorldEwrtWorld = Eigen::Vector3d(0.64, 0.2, 0.18);
   ContactPlacement onFloor = placed(model, right);
-  onFloor.position = Eigen::Vector3d(0.3, -0.1, 0.0);
+  onFloor.posPadRtWorldEwrtWorld = Eigen::Vector3d(0.3, -0.1, 0.0);
   const StancePlacements feet = {onStep, onFloor};
   StanceIkProblem both = holding(model, feet, /*polygon=*/{}, /*margin=*/0.0);
   both.postureReference = q;
@@ -337,8 +351,8 @@ TEST(StanceInverseKinematics, ShiftsOntoAFootOnAStep) {
   ASSERT_TRUE(placedFeet.ok()) << placedFeet.status();
   std::cerr << "both feet: " << placedFeet->failure << " "
             << placedFeet->iterations << " " << placedFeet->termination << "\n";
-  StanceIkProblem shift =
-      holding(model, feet, footPolygon(onStep.position), /*margin=*/0.02);
+  StanceIkProblem shift = holding(
+      model, feet, footPolygon(onStep.posPadRtWorldEwrtWorld), /*margin=*/0.02);
   shift.postureReference = placedFeet->q;
   const absl::StatusOr<StanceIkResult> shifted =
       ik->solve(shift, placedFeet->q);

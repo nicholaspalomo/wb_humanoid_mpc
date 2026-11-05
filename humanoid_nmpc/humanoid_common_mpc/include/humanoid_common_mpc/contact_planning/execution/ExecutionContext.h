@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
@@ -58,17 +59,23 @@ struct ExecutionContext {
   const ContactPlanningConfig* absl_nonnull
   config;  // the configuration of the cycle (the constructor's)
   bool hasPredictedComState = false;
-  vector2_t com =
-      vector2_t::Zero();  // measured CoM position / velocity at this cycle
-  vector2_t comVelocity = vector2_t::Zero();
+  // Measured at this cycle: the CoM position and velocity (on the whole body
+  // the base velocity stands in for the CoM's,
+  // getProxyLinvelComRtWorldEwrtWorld()).
+  vector2_t posComRtWorldEwrtWorldXy = vector2_t::Zero();
+  vector2_t proxyLinvelComRtWorldEwrtWorldXy = vector2_t::Zero();
   // Measured base position at this cycle. A rule that wants to command a
   // center-of-mass motion has to write it into a reference state that carries
-  // the base pose, and com - basePosition is the horizontal offset between the
-  // two.
-  vector2_t basePosition = vector2_t::Zero();
-  vector2_t predictedCom =
-      vector2_t::Zero();  // the NMPC's own prediction for this cycle
-  vector2_t predictedComVelocity = vector2_t::Zero();
+  // the base pose, and posComRtWorldEwrtWorldXy - posBaseRtWorldEwrtWorldXy is
+  // the horizontal offset between the two, in world axes at the measured
+  // heading below.
+  vector2_t posBaseRtWorldEwrtWorldXy = vector2_t::Zero();
+  // Measured base heading at this cycle [rad]
+  // (MpcRobotModelBase::getYawBaseRtWorld()).
+  scalar_t yawBaseRtWorld = 0.0;
+  // The NMPC's own prediction of the same two for this cycle.
+  vector2_t predictedPosComRtWorldEwrtWorldXy = vector2_t::Zero();
+  vector2_t predictedProxyLinvelComRtWorldEwrtWorldXy = vector2_t::Zero();
   scalar_t totalMass = 0.0;
   feet_array_t<scalar_t> cadenceTouchDownShift =
       makeFeetArray(0.0);  // [s] per foot, set by energy_cadence_modulation
@@ -82,7 +89,7 @@ struct ExecutionContext {
 struct GroundSearchRequest {
   scalar_t liftOffTime = 0.0;
   scalar_t plannedTouchDownTime = 0.0;
-  scalar_t searchVelocity = 0.0;  // [m/s]
+  scalar_t searchSpeedFootRtWorld = 0.0;  // [m/s]
 };
 
 }  // namespace ocs2::humanoid

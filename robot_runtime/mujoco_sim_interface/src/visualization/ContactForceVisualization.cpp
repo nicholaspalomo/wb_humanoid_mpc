@@ -35,8 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "ocs2_core/Dimensions.h"
 
-#include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
+#include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -48,9 +48,10 @@ using ::ocs2::kZAxisIndex;
 namespace {
 // Where each row of mjContact::frame (the contact normal and its two tangents
 // in the world frame) starts; the force of mj_contactForce is along these axes.
-constexpr int kNormalRowOffset = kMjContactNormalRow * kPositionDim;
-constexpr int kFirstTangentRowOffset = kMjContactFirstTangentRow * kPositionDim;
-constexpr int kSecondTangentRowOffset =
+constexpr int kNormalRowStartIndex = kMjContactNormalRow * kPositionDim;
+constexpr int kFirstTangentRowStartIndex =
+    kMjContactFirstTangentRow * kPositionDim;
+constexpr int kSecondTangentRowStartIndex =
     kMjContactSecondTangentRow * kPositionDim;
 // The arrow's length grows with the force.
 constexpr double kMinArrowLength = 0.02;         // [m]
@@ -58,7 +59,7 @@ constexpr double kArrowLengthPerNewton = 0.002;  // [m/N]: 500 N draw 1 m
 constexpr double kArrowWidth = 0.015;            // [m]
 constexpr float kArrowAlpha = 0.8f;
 constexpr float kArrowEmission = 0.8f;
-constexpr double kMinDrawnForceMjcontactEwrtWorld =
+constexpr double kMinDrawnNormForceMjcontactEwrtWorld =
     1.0;  // [N] a weaker contact draws no arrow
 
 // Whether `bodyId` is the robot's: in the subtree of `robotRootBodyId`, or, for
@@ -74,8 +75,9 @@ bool isRobotBody(const mjModel* absl_nonnull model,
 
 void ContactForceVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   if (frame.model == nullptr || frame.state == nullptr ||
-      frame.scene == nullptr)
+      frame.scene == nullptr) {
     return;
+  }
   const mjModel* absl_nonnull model = frame.model;
   const mjData* absl_nullable data = frame.state->data;
   mjvScene& scene = *frame.scene;
@@ -84,8 +86,9 @@ void ContactForceVisualization::addSceneGeoms(const VisualizationFrame& frame) {
 
   for (int i = 0; i < data->ncon; ++i) {
     const mjContact* absl_nonnull contact = &data->contact[i];
-    if (contact->exclude != 0 || contact->efc_address < 0)
+    if (contact->exclude != 0 || contact->efc_address < 0) {
       continue;  // only active contacts
+    }
     // Contacts with the robot on one side only: not the ball on the floor, nor
     // the robot against itself.
     const bool firstIsRobot = isRobotBody(
@@ -97,27 +100,37 @@ void ContactForceVisualization::addSceneGeoms(const VisualizationFrame& frame) {
     mjtNum wrenchMjcontactEwrtMjcontact[kMjSpatialVectorSize];
     mj_contactForce(model, data, i, wrenchMjcontactEwrtMjcontact);
 
-    // Force in the world frame
-    const mjtNum* absl_nonnull normal = &contact->frame[kNormalRowOffset];
-    const mjtNum* absl_nonnull firstTangent =
-        &contact->frame[kFirstTangentRowOffset];
-    const mjtNum* absl_nonnull secondTangent =
-        &contact->frame[kSecondTangentRowOffset];
+    // Force in the world frame. mjContact::frame stores the rotation of
+    // mjcontact relative to the world column-major: each run of three is an
+    // axis of mjcontact in world axes, a column of the rotmat.
+    const mjtNum* absl_nonnull rotmatMjcontactRtWorld = contact->frame;
     const double forceMjcontactEwrtMjcontactX =
         wrenchMjcontactEwrtMjcontact[kMjContactNormalRow];
     const double forceMjcontactEwrtMjcontactY =
         wrenchMjcontactEwrtMjcontact[kMjContactFirstTangentRow];
     const double forceMjcontactEwrtMjcontactZ =
         wrenchMjcontactEwrtMjcontact[kMjContactSecondTangentRow];
-    double fx = forceMjcontactEwrtMjcontactX * normal[kXAxisIndex] +
-                forceMjcontactEwrtMjcontactY * firstTangent[kXAxisIndex] +
-                forceMjcontactEwrtMjcontactZ * secondTangent[kXAxisIndex];
-    double fy = forceMjcontactEwrtMjcontactX * normal[kYAxisIndex] +
-                forceMjcontactEwrtMjcontactY * firstTangent[kYAxisIndex] +
-                forceMjcontactEwrtMjcontactZ * secondTangent[kYAxisIndex];
-    double fz = forceMjcontactEwrtMjcontactX * normal[kZAxisIndex] +
-                forceMjcontactEwrtMjcontactY * firstTangent[kZAxisIndex] +
-                forceMjcontactEwrtMjcontactZ * secondTangent[kZAxisIndex];
+    double forceMjcontactEwrtWorldX =
+        forceMjcontactEwrtMjcontactX *
+            rotmatMjcontactRtWorld[kNormalRowStartIndex + kXAxisIndex] +
+        forceMjcontactEwrtMjcontactY *
+            rotmatMjcontactRtWorld[kFirstTangentRowStartIndex + kXAxisIndex] +
+        forceMjcontactEwrtMjcontactZ *
+            rotmatMjcontactRtWorld[kSecondTangentRowStartIndex + kXAxisIndex];
+    double forceMjcontactEwrtWorldY =
+        forceMjcontactEwrtMjcontactX *
+            rotmatMjcontactRtWorld[kNormalRowStartIndex + kYAxisIndex] +
+        forceMjcontactEwrtMjcontactY *
+            rotmatMjcontactRtWorld[kFirstTangentRowStartIndex + kYAxisIndex] +
+        forceMjcontactEwrtMjcontactZ *
+            rotmatMjcontactRtWorld[kSecondTangentRowStartIndex + kYAxisIndex];
+    double forceMjcontactEwrtWorldZ =
+        forceMjcontactEwrtMjcontactX *
+            rotmatMjcontactRtWorld[kNormalRowStartIndex + kZAxisIndex] +
+        forceMjcontactEwrtMjcontactY *
+            rotmatMjcontactRtWorld[kFirstTangentRowStartIndex + kZAxisIndex] +
+        forceMjcontactEwrtMjcontactZ *
+            rotmatMjcontactRtWorld[kSecondTangentRowStartIndex + kZAxisIndex];
 
     // In the world frame this is the force on geom[1] from geom[0]: the contact
     // normal points from geom[0] to geom[1], and mjData::cfrc_ext adds it to
@@ -127,31 +140,41 @@ void ContactForceVisualization::addSceneGeoms(const VisualizationFrame& frame) {
     // pair by geom type, so a ball, a sphere, comes before the robot's capsules
     // and boxes).
     if (firstIsRobot) {
-      fx = -fx;
-      fy = -fy;
-      fz = -fz;
+      forceMjcontactEwrtWorldX = -forceMjcontactEwrtWorldX;
+      forceMjcontactEwrtWorldY = -forceMjcontactEwrtWorldY;
+      forceMjcontactEwrtWorldZ = -forceMjcontactEwrtWorldZ;
     }
 
-    const double magnitude = std::sqrt(fx * fx + fy * fy + fz * fz);
-    if (magnitude < kMinDrawnForceMjcontactEwrtWorld) continue;
+    const double normForceMjcontactEwrtWorld =
+        std::sqrt(forceMjcontactEwrtWorldX * forceMjcontactEwrtWorldX +
+                  forceMjcontactEwrtWorldY * forceMjcontactEwrtWorldY +
+                  forceMjcontactEwrtWorldZ * forceMjcontactEwrtWorldZ);
+    if (normForceMjcontactEwrtWorld < kMinDrawnNormForceMjcontactEwrtWorld) {
+      continue;
+    }
     if (scene.ngeom >= scene.maxgeom) return;
 
     mjvGeom* absl_nonnull arrow = &scene.geoms[scene.ngeom++];
     std::memset(arrow, 0, sizeof(mjvGeom));
 
-    const double scale = kMinArrowLength + kArrowLengthPerNewton * magnitude;
+    const double scale =
+        kMinArrowLength + kArrowLengthPerNewton * normForceMjcontactEwrtWorld;
 
     const mjtNum* absl_nonnull posMjcontactRtWorldEwrtWorld =
         contact->pos;  // NOLINT(frame-naming): MuJoCo's mjContact::pos
-    const mjtNum from[kPositionDim] = {
+    const mjtNum posArrowRtWorldEwrtWorld[kPositionDim] = {
         posMjcontactRtWorldEwrtWorld[kXAxisIndex],
         posMjcontactRtWorldEwrtWorld[kYAxisIndex],
         posMjcontactRtWorldEwrtWorld[kZAxisIndex]};
-    const mjtNum to[kPositionDim] = {
-        posMjcontactRtWorldEwrtWorld[0] + scale * (fx / magnitude),
-        posMjcontactRtWorldEwrtWorld[1] + scale * (fy / magnitude),
-        posMjcontactRtWorldEwrtWorld[kZAxisIndex] + scale * (fz / magnitude)};
-    mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth, from, to);
+    const mjtNum posArrowheadRtWorldEwrtWorld[kPositionDim] = {
+        posMjcontactRtWorldEwrtWorld[0] +
+            scale * (forceMjcontactEwrtWorldX / normForceMjcontactEwrtWorld),
+        posMjcontactRtWorldEwrtWorld[1] +
+            scale * (forceMjcontactEwrtWorldY / normForceMjcontactEwrtWorld),
+        posMjcontactRtWorldEwrtWorld[kZAxisIndex] +
+            scale * (forceMjcontactEwrtWorldZ / normForceMjcontactEwrtWorld)};
+    mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth, posArrowRtWorldEwrtWorld,
+                  posArrowheadRtWorldEwrtWorld);
 
     arrow->rgba[kRedChannel] = 1.0f;
     arrow->rgba[kGreenChannel] = 0.0f;

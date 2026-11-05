@@ -49,10 +49,11 @@ namespace {
 // LINT.IfChange(recorded_state_labels)
 constexpr char kJointNamesNote[] = "joint_names";
 constexpr char kTime[] = "time";
-constexpr char kBasePosition[] = "base_position";
-constexpr char kBaseQuaternion[] = "base_quaternion_xyzw";
-constexpr char kBaseLinearVelocity[] = "base_linear_velocity_local";
-constexpr char kBaseAngularVelocity[] = "base_angular_velocity_local";
+constexpr char kLabelPosBaseRtWorldEwrtWorld[] = "base_position";
+constexpr char kLabelQuatBaseRtWorldXyzw[] = "base_quaternion_xyzw";
+constexpr char kLabelLinvelBaseRtWorldEwrtBase[] = "base_linear_velocity_local";
+constexpr char kLabelAngvelBaseRtWorldEwrtBase[] =
+    "base_angular_velocity_local";
 constexpr char kJointPositions[] = "joint_positions";
 constexpr char kJointVelocities[] = "joint_velocities";
 constexpr char kContactFlags[] = "contact_flags";
@@ -63,13 +64,13 @@ constexpr char kGuiCommand[] = "gui_command";
 // RobotStateRecord fields they hold. The contact flags have
 // RobotStateRecord::kNumRecordedContacts columns, the joint vectors one per
 // joint.
-constexpr int kPositionColumns = kPositionDim;               // (x, y, z)
-constexpr int kQuaternionColumns = kQuaternionCoefficients;  // (x, y, z, w)
-constexpr int kVelocityColumns =
+constexpr int kPositionColumnCount = kPositionDim;               // (x, y, z)
+constexpr int kQuaternionColumnCount = kQuaternionCoefficients;  // (x, y, z, w)
+constexpr int kVelocityColumnCount =
     kPositionDim;  // a linear velocity, or an angular velocity of as many
-static_assert(kVelocityColumns == kRotationTangentDim,
+static_assert(kVelocityColumnCount == kRotationTangentDim,
               "a linear and an angular velocity have as many columns");
-constexpr int kGuiCommandColumns = 4;  // GuiVelocityCommand::message
+constexpr int kGuiCommandColumnCount = 4;  // GuiVelocityCommand::message
 
 absl::StatusOr<const golden_matrix_t* absl_nonnull> requireMatrix(
     const GoldenFile& golden,
@@ -96,10 +97,10 @@ RobotStateRecord recordRobotState(
     const Eigen::Vector4d& guiCommand) {
   RobotStateRecord record;
   record.time = state.getTime();
-  record.basePosition = state.getPosBaseRtWorldEwrtWorld();
-  record.baseQuaternion = state.getQuatBaseRtWorld().coeffs();
-  record.baseLinearVelocityLocal = state.getLinvelBaseRtWorldEwrtBase();
-  record.baseAngularVelocityLocal = state.getAngvelBaseRtWorldEwrtBase();
+  record.posBaseRtWorldEwrtWorld = state.getPosBaseRtWorldEwrtWorld();
+  record.quatBaseRtWorldXyzw = state.getQuatBaseRtWorld().coeffs();
+  record.linvelBaseRtWorldEwrtBase = state.getLinvelBaseRtWorldEwrtBase();
+  record.angvelBaseRtWorldEwrtBase = state.getAngvelBaseRtWorldEwrtBase();
   const std::vector<robot::joint_index_t>& joints =
       description.getJointIndices();
   record.jointPositions.resize(static_cast<Eigen::Index>(joints.size()));
@@ -154,12 +155,12 @@ absl::StatusOr<robot::model::RobotState> toRobotState(
   robot::model::RobotState state(
       description, /*contactSize=*/RobotStateRecord::kNumRecordedContacts);
   state.setTime(record.time);
-  state.setPosBaseRtWorldEwrtWorld(record.basePosition);
-  Eigen::Quaterniond rotation;
-  rotation.coeffs() = record.baseQuaternion;
-  state.setQuatBaseRtWorld(rotation);
-  state.setLinvelBaseRtWorldEwrtBase(record.baseLinearVelocityLocal);
-  state.setAngvelBaseRtWorldEwrtBase(record.baseAngularVelocityLocal);
+  state.setPosBaseRtWorldEwrtWorld(record.posBaseRtWorldEwrtWorld);
+  Eigen::Quaterniond quatBaseRtWorld;
+  quatBaseRtWorld.coeffs() = record.quatBaseRtWorldXyzw;
+  state.setQuatBaseRtWorld(quatBaseRtWorld);
+  state.setLinvelBaseRtWorldEwrtBase(record.linvelBaseRtWorldEwrtBase);
+  state.setAngvelBaseRtWorldEwrtBase(record.angvelBaseRtWorldEwrtBase);
   for (size_t i = 0; i < jointNames.size(); ++i) {
     const robot::joint_index_t joint = description.getJointIndex(jointNames[i]);
     state.setJointPosition(joint,
@@ -178,21 +179,24 @@ GoldenFile toGoldenFile(const RecordedRobotStates& states,
   const Eigen::Index numJoints =
       static_cast<Eigen::Index>(states.jointNames.size());
   golden_matrix_t time(rows, 1);
-  golden_matrix_t position(rows, kPositionColumns);
-  golden_matrix_t quaternion(rows, kQuaternionColumns);
-  golden_matrix_t linearVelocity(rows, kVelocityColumns);
-  golden_matrix_t angularVelocity(rows, kVelocityColumns);
+  golden_matrix_t posBaseRtWorldEwrtWorldTraj(rows, kPositionColumnCount);
+  golden_matrix_t quatBaseRtWorldXyzwTraj(rows, kQuaternionColumnCount);
+  golden_matrix_t linvelBaseRtWorldEwrtBaseTraj(rows, kVelocityColumnCount);
+  golden_matrix_t angvelBaseRtWorldEwrtBaseTraj(rows, kVelocityColumnCount);
   golden_matrix_t jointPositions(rows, numJoints);
   golden_matrix_t jointVelocities(rows, numJoints);
   golden_matrix_t contactFlags(rows, RobotStateRecord::kNumRecordedContacts);
-  golden_matrix_t guiCommand(rows, kGuiCommandColumns);
+  golden_matrix_t guiCommand(rows, kGuiCommandColumnCount);
   for (Eigen::Index row = 0; row < rows; ++row) {
     const RobotStateRecord& record = states.records[static_cast<size_t>(row)];
     time(row, /*col=*/0) = record.time;
-    position.row(row) = record.basePosition.transpose();
-    quaternion.row(row) = record.baseQuaternion.transpose();
-    linearVelocity.row(row) = record.baseLinearVelocityLocal.transpose();
-    angularVelocity.row(row) = record.baseAngularVelocityLocal.transpose();
+    posBaseRtWorldEwrtWorldTraj.row(row) =
+        record.posBaseRtWorldEwrtWorld.transpose();
+    quatBaseRtWorldXyzwTraj.row(row) = record.quatBaseRtWorldXyzw.transpose();
+    linvelBaseRtWorldEwrtBaseTraj.row(row) =
+        record.linvelBaseRtWorldEwrtBase.transpose();
+    angvelBaseRtWorldEwrtBaseTraj.row(row) =
+        record.angvelBaseRtWorldEwrtBase.transpose();
     jointPositions.row(row) = record.jointPositions.transpose();
     jointVelocities.row(row) = record.jointVelocities.transpose();
     contactFlags(row, /*col=*/0) = record.contactFlags[0] ? 1.0 : 0.0;
@@ -203,15 +207,16 @@ GoldenFile toGoldenFile(const RecordedRobotStates& states,
   golden.provenance = std::move(provenance);
   golden.provenance.notes.emplace_back(kJointNamesNote,
                                        absl::StrJoin(states.jointNames, ","));
-  golden.entries = {{kTime, time},
-                    {kBasePosition, position},
-                    {kBaseQuaternion, quaternion},
-                    {kBaseLinearVelocity, linearVelocity},
-                    {kBaseAngularVelocity, angularVelocity},
-                    {kJointPositions, jointPositions},
-                    {kJointVelocities, jointVelocities},
-                    {kContactFlags, contactFlags},
-                    {kGuiCommand, guiCommand}};
+  golden.entries = {
+      {kTime, time},
+      {kLabelPosBaseRtWorldEwrtWorld, posBaseRtWorldEwrtWorldTraj},
+      {kLabelQuatBaseRtWorldXyzw, quatBaseRtWorldXyzwTraj},
+      {kLabelLinvelBaseRtWorldEwrtBase, linvelBaseRtWorldEwrtBaseTraj},
+      {kLabelAngvelBaseRtWorldEwrtBase, angvelBaseRtWorldEwrtBaseTraj},
+      {kJointPositions, jointPositions},
+      {kJointVelocities, jointVelocities},
+      {kContactFlags, contactFlags},
+      {kGuiCommand, guiCommand}};
   return golden;
 }
 
@@ -236,14 +241,18 @@ absl::StatusOr<RecordedRobotStates> fromGoldenFile(const GoldenFile& golden) {
   const Eigen::Index rows = time->rows();
   const Eigen::Index numJoints =
       static_cast<Eigen::Index>(states.jointNames.size());
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> position =
-      requireMatrix(golden, kBasePosition, rows, kPositionColumns);
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> quaternion =
-      requireMatrix(golden, kBaseQuaternion, rows, kQuaternionColumns);
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> linearVelocity =
-      requireMatrix(golden, kBaseLinearVelocity, rows, kVelocityColumns);
-  absl::StatusOr<const golden_matrix_t* absl_nonnull> angularVelocity =
-      requireMatrix(golden, kBaseAngularVelocity, rows, kVelocityColumns);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull>
+      posBaseRtWorldEwrtWorldTraj = requireMatrix(
+          golden, kLabelPosBaseRtWorldEwrtWorld, rows, kPositionColumnCount);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> quatBaseRtWorldXyzwTraj =
+      requireMatrix(golden, kLabelQuatBaseRtWorldXyzw, rows,
+                    kQuaternionColumnCount);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull>
+      linvelBaseRtWorldEwrtBaseTraj = requireMatrix(
+          golden, kLabelLinvelBaseRtWorldEwrtBase, rows, kVelocityColumnCount);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull>
+      angvelBaseRtWorldEwrtBaseTraj = requireMatrix(
+          golden, kLabelAngvelBaseRtWorldEwrtBase, rows, kVelocityColumnCount);
   absl::StatusOr<const golden_matrix_t* absl_nonnull> jointPositions =
       requireMatrix(golden, kJointPositions, rows, numJoints);
   absl::StatusOr<const golden_matrix_t* absl_nonnull> jointVelocities =
@@ -252,10 +261,11 @@ absl::StatusOr<RecordedRobotStates> fromGoldenFile(const GoldenFile& golden) {
       requireMatrix(golden, kContactFlags, rows,
                     RobotStateRecord::kNumRecordedContacts);
   absl::StatusOr<const golden_matrix_t* absl_nonnull> guiCommand =
-      requireMatrix(golden, kGuiCommand, rows, kGuiCommandColumns);
+      requireMatrix(golden, kGuiCommand, rows, kGuiCommandColumnCount);
   for (const absl::StatusOr<const golden_matrix_t* absl_nonnull>* absl_nonnull
        matrix :
-       {&position, &quaternion, &linearVelocity, &angularVelocity,
+       {&posBaseRtWorldEwrtWorldTraj, &quatBaseRtWorldXyzwTraj,
+        &linvelBaseRtWorldEwrtBaseTraj, &angvelBaseRtWorldEwrtBaseTraj,
         &jointPositions, &jointVelocities, &contactFlags, &guiCommand}) {
     if (!matrix->ok()) return matrix->status();
   }
@@ -263,10 +273,14 @@ absl::StatusOr<RecordedRobotStates> fromGoldenFile(const GoldenFile& golden) {
   for (Eigen::Index row = 0; row < rows; ++row) {
     RobotStateRecord& record = states.records[static_cast<size_t>(row)];
     record.time = (*time)(row, /*col=*/0);
-    record.basePosition = (*position)->row(row).transpose();
-    record.baseQuaternion = (*quaternion)->row(row).transpose();
-    record.baseLinearVelocityLocal = (*linearVelocity)->row(row).transpose();
-    record.baseAngularVelocityLocal = (*angularVelocity)->row(row).transpose();
+    record.posBaseRtWorldEwrtWorld =
+        (*posBaseRtWorldEwrtWorldTraj)->row(row).transpose();
+    record.quatBaseRtWorldXyzw =
+        (*quatBaseRtWorldXyzwTraj)->row(row).transpose();
+    record.linvelBaseRtWorldEwrtBase =
+        (*linvelBaseRtWorldEwrtBaseTraj)->row(row).transpose();
+    record.angvelBaseRtWorldEwrtBase =
+        (*angvelBaseRtWorldEwrtBaseTraj)->row(row).transpose();
     record.jointPositions = (*jointPositions)->row(row).transpose();
     record.jointVelocities = (*jointVelocities)->row(row).transpose();
     record.contactFlags = {(**contactFlags)(row, /*col=*/0) != 0.0,

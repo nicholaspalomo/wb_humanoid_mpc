@@ -50,28 +50,30 @@ constexpr scalar_t kRelativeStep = 4.0e-2;
  * and h / 4. */
 constexpr std::array<scalar_t, 3> kStepFractions = {1.0, 0.5, 0.25};
 
-/** The rotation of the rotation vector `rotationVector`. */
-matrix3_t exponential(const vector3_t& rotationVector) {
-  const scalar_t angle = rotationVector.norm();
+/** The rotation of the rotation vector `phi`. */
+matrix3_t exponential(const vector3_t& phi) {
+  const scalar_t angle = phi.norm();
   if (angle == 0.0) return matrix3_t::Identity();
-  return Eigen::AngleAxisd(angle, rotationVector / angle).toRotationMatrix();
+  return Eigen::AngleAxisd(angle, phi / angle).toRotationMatrix();
 }
 
 /** The orientation error of the production definition and the normal row's
  * integrand along `motion` at `time`. */
 struct ErrorSample {
-  vector3_t error = vector3_t::Zero();
-  scalar_t halfNormalSpinRate = 0.0;
+  vector3_t tiltEeRtSurfaceEwrtWorld = vector3_t::Zero();
+  scalar_t halfAngvelEeRtWorldEwrtEeZ = 0.0;
 };
 
 ErrorSample sampleAt(const AttitudeMotion& motion,
-                     const vector3_t& planeNormal,
+                     const vector3_t& normalSurfaceEwrtWorld,
                      scalar_t time) {
-  const matrix3_t rotation = rotationAlong(motion, time);
+  const matrix3_t rotmatEeRtWorld = computeRotmatEeRtWorld(motion, time);
   return ErrorSample{
-      .error = rotationMatrixDistanceToPlane<scalar_t>(rotation, planeNormal),
-      .halfNormalSpinRate =
-          0.5 * rotation.col(2).dot(angularVelocityAlong(motion, time))};
+      .tiltEeRtSurfaceEwrtWorld = rotationMatrixDistanceToPlane<scalar_t>(
+          rotmatEeRtWorld, normalSurfaceEwrtWorld),
+      .halfAngvelEeRtWorldEwrtEeZ =
+          0.5 * rotmatEeRtWorld.col(2).dot(
+                    computeAngvelEeRtWorldEwrtWorld(motion, time))};
 }
 
 /**
@@ -103,8 +105,8 @@ matrix3_t crossProductMatrix(const vector3_t& vector) {
   return matrix;
 }
 
-matrix3_t leftJacobianSo3(const vector3_t& rotationVector) {
-  const scalar_t angle = rotationVector.norm();
+matrix3_t leftJacobianSo3(const vector3_t& phi) {
+  const scalar_t angle = phi.norm();
   const scalar_t squared = angle * angle;
   scalar_t first = 0.0;   // (1 - cos a) / a^2
   scalar_t second = 0.0;  // (a - sin a) / a^3
@@ -119,61 +121,72 @@ matrix3_t leftJacobianSo3(const vector3_t& rotationVector) {
     first = (1.0 - std::cos(angle)) / squared;
     second = (angle - std::sin(angle)) / (squared * angle);
   }
-  const matrix3_t cross = crossProductMatrix(rotationVector);
+  const matrix3_t cross = crossProductMatrix(phi);
   return matrix3_t::Identity() + first * cross + second * cross * cross;
 }
 
-matrix3_t rotationAlong(const AttitudeMotion& motion, scalar_t time) {
-  const vector3_t rotationVector =
-      motion.angularVelocity * time +
-      0.5 * time * time * motion.angularAcceleration;
-  return exponential(rotationVector) * motion.initialRotation;
+matrix3_t computeRotmatEeRtWorld(const AttitudeMotion& motion, scalar_t time) {
+  const vector3_t phi = motion.angvelEeRtWorldEwrtWorld * time +
+                        0.5 * time * time * motion.angaccEeRtWorldEwrtWorld;
+  return exponential(phi) * motion.initRotmatEeRtWorld;
 }
 
-vector3_t angularVelocityAlong(const AttitudeMotion& motion, scalar_t time) {
-  const vector3_t rotationVector =
-      motion.angularVelocity * time +
-      0.5 * time * time * motion.angularAcceleration;
-  const vector3_t rotationVectorRate =
-      motion.angularVelocity + time * motion.angularAcceleration;
-  return leftJacobianSo3(rotationVector) * rotationVectorRate;
+vector3_t computeAngvelEeRtWorldEwrtWorld(const AttitudeMotion& motion,
+                                          scalar_t time) {
+  const vector3_t phi = motion.angvelEeRtWorldEwrtWorld * time +
+                        0.5 * time * time * motion.angaccEeRtWorldEwrtWorld;
+  const vector3_t phiRate =
+      motion.angvelEeRtWorldEwrtWorld + time * motion.angaccEeRtWorldEwrtWorld;
+  return leftJacobianSo3(phi) * phiRate;
 }
 
-scalar_t orientationErrorRateScale(const AttitudeMotion& motion,
-                                   const vector3_t& planeNormal) {
+scalar_t tiltRateScale(const AttitudeMotion& motion,
+                       const vector3_t& normalSurfaceEwrtWorld) {
   const scalar_t onePlusCosine =
-      1.0 + motion.initialRotation.col(2).dot(planeNormal);
+      1.0 + motion.initRotmatEeRtWorld.col(2).dot(normalSurfaceEwrtWorld);
   const scalar_t turningAngle = std::min(1.0, std::sqrt(2.0 * onePlusCosine));
-  return std::max(motion.angularVelocity.norm(),
-                  std::sqrt(turningAngle * motion.angularAcceleration.norm())) /
+  return std::max(
+             motion.angvelEeRtWorldEwrtWorld.norm(),
+             std::sqrt(turningAngle * motion.angaccEeRtWorldEwrtWorld.norm())) /
          turningAngle;
 }
 
-DifferencedOrientationErrorRates differencedOrientationErrorRates(
-    const AttitudeMotion& motion, const vector3_t& planeNormal) {
+DifferencedOrientationErrorRates differencedTiltRates(
+    const AttitudeMotion& motion, const vector3_t& normalSurfaceEwrtWorld) {
   DifferencedOrientationErrorRates rates;
-  rates.rateScale = orientationErrorRateScale(motion, planeNormal);
+  rates.rateScale = tiltRateScale(motion, normalSurfaceEwrtWorld);
   const scalar_t largestStep = kRelativeStep / std::max(1.0, rates.rateScale);
 
-  const ErrorSample atZero = sampleAt(motion, planeNormal, /*time=*/0.0);
-  std::array<vector3_t, kStepFractions.size()> errorRates;
-  std::array<vector3_t, kStepFractions.size()> errorAccelerations;
-  std::array<scalar_t, kStepFractions.size()> spinAccelerations = {};
+  const ErrorSample atZero =
+      sampleAt(motion, normalSurfaceEwrtWorld, /*time=*/0.0);
+  std::array<vector3_t, kStepFractions.size()>
+      differencedRateTiltEeRtSurfaceEwrtWorld;
+  std::array<vector3_t, kStepFractions.size()>
+      differencedSecondRateTiltEeRtSurfaceEwrtWorld;
+  std::array<scalar_t, kStepFractions.size()>
+      differencedHalfAngaccEeRtWorldEwrtEeZ = {};
   for (size_t i = 0; i < kStepFractions.size(); ++i) {
     const scalar_t step = kStepFractions[i] * largestStep;
-    const ErrorSample plus = sampleAt(motion, planeNormal, step);
-    const ErrorSample minus = sampleAt(motion, planeNormal, -step);
-    errorRates[i] = (plus.error - minus.error) / (2.0 * step);
-    errorAccelerations[i] =
-        (plus.error - 2.0 * atZero.error + minus.error) / (step * step);
-    spinAccelerations[i] =
-        (plus.halfNormalSpinRate - minus.halfNormalSpinRate) / (2.0 * step);
+    const ErrorSample plus = sampleAt(motion, normalSurfaceEwrtWorld, step);
+    const ErrorSample minus = sampleAt(motion, normalSurfaceEwrtWorld, -step);
+    differencedRateTiltEeRtSurfaceEwrtWorld[i] =
+        (plus.tiltEeRtSurfaceEwrtWorld - minus.tiltEeRtSurfaceEwrtWorld) /
+        (2.0 * step);
+    differencedSecondRateTiltEeRtSurfaceEwrtWorld[i] =
+        (plus.tiltEeRtSurfaceEwrtWorld - 2.0 * atZero.tiltEeRtSurfaceEwrtWorld +
+         minus.tiltEeRtSurfaceEwrtWorld) /
+        (step * step);
+    differencedHalfAngaccEeRtWorldEwrtEeZ[i] =
+        (plus.halfAngvelEeRtWorldEwrtEeZ - minus.halfAngvelEeRtWorldEwrtEeZ) /
+        (2.0 * step);
   }
 
-  rates.rate =
-      extrapolated(errorRates) + atZero.halfNormalSpinRate * planeNormal;
-  rates.acceleration = extrapolated(errorAccelerations) +
-                       extrapolated(spinAccelerations) * planeNormal;
+  rates.rate = extrapolated(differencedRateTiltEeRtSurfaceEwrtWorld) +
+               atZero.halfAngvelEeRtWorldEwrtEeZ * normalSurfaceEwrtWorld;
+  rates.secondRate =
+      extrapolated(differencedSecondRateTiltEeRtSurfaceEwrtWorld) +
+      extrapolated(differencedHalfAngaccEeRtWorldEwrtEeZ) *
+          normalSurfaceEwrtWorld;
   return rates;
 }
 

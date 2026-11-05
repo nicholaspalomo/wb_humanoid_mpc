@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -39,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
@@ -46,21 +48,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody.hpp"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/execution/PlannedComOverride.h"
 #include "humanoid_common_mpc/contact_planning/execution/PlannedHeadingOverride.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
@@ -135,8 +147,9 @@ class MessageLog {
     size_t found = 0;
     for (const std::pair<absl::LogSeverity, std::string>& message : messages_) {
       if (message.first == severity &&
-          absl::StrContains(message.second, needle))
+          absl::StrContains(message.second, needle)) {
         ++found;
+      }
     }
     return found;
   }
@@ -156,8 +169,9 @@ class WarningLog {
         .WillRepeatedly([this](absl::LogSeverity severity,
                                const std::string& /*filePath*/,
                                const std::string& message) {
-          if (severity == absl::LogSeverity::kWarning)
+          if (severity == absl::LogSeverity::kWarning) {
             warnings_.push_back(message);
+          }
         });
     log_.StartCapturingLogs();
   }
@@ -204,8 +218,9 @@ class HlipPlanningIntegrationTest : public ::testing::Test {
     // The shipped planner configuration, planned synchronously so the test
     // controls the timing. Nothing else is changed: what is exercised here is
     // the default the robot ships with.
-    if (!config_.contactPlanning.has_value())
+    if (!config_.contactPlanning.has_value()) {
       GTEST_FAIL() << "the shipped planner configuration was not found";
+    }
     ASSERT_EQ(config_.contactPlanning->planner.type, "hlip")
         << "the shipped configuration no longer selects the H-LIP planner";
     config_.contactPlanning->planner.threading = "pre_solve_hook";
@@ -224,13 +239,13 @@ class HlipPlanningIntegrationTest : public ::testing::Test {
 
   /** Runs one planning cycle at `time` with a commanded forward velocity and
    * activates the plan. */
-  void planAt(scalar_t time, scalar_t commandedVelocityX) {
+  void planAt(scalar_t time, scalar_t cmdLinvelBaseRtWorldEwrtHeadingX) {
     const vector_t state = interface_->getInitialState();
     vector_t target = vector_t::Zero(state.size());
     interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
         target,
         interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
-    target(0) = commandedVelocityX;
+    target(0) = cmdLinvelBaseRtWorldEwrtHeadingX;
     planWithTarget(time, target);
   }
 
@@ -252,7 +267,7 @@ class HlipPlanningIntegrationTest : public ::testing::Test {
 
   /** Horizontal center of mass of the full model at the generalized coordinates
    * of `state`. */
-  vector2_t centerOfMass(const vector_t& state) {
+  vector2_t computePosComRtWorldEwrtWorldXy(const vector_t& state) {
     PinocchioInterface& pinocchioInterface =
         interface_->getPinocchioInterface();
     const vector_t q =
@@ -277,7 +292,7 @@ class HlipPlanningIntegrationTest : public ::testing::Test {
    * initial state, computed here from Pinocchio directly - forward kinematics
    * and the contact frames looked up by name - rather than by the interface.
    */
-  scalar_t independentComHeight() const {
+  scalar_t computeIndependentPosComRtFeetmeanEwrtWorldZ() const {
     PinocchioInterface pinocchio(interface_->getPinocchioInterface());
     const pinocchio::ModelTpl<scalar_t>& model = pinocchio.getModel();
     pinocchio::DataTpl<scalar_t>& data = pinocchio.getData();
@@ -286,15 +301,17 @@ class HlipPlanningIntegrationTest : public ::testing::Test {
             interface_->getInitialState());
     pinocchio::forwardKinematics(model, data, q);
     pinocchio::updateFramePlacements(model, data);
-    const scalar_t comZ = pinocchio::centerOfMass(model, data, q)(2);
+    const scalar_t posComRtWorldEwrtWorldZ =
+        pinocchio::centerOfMass(model, data, q)(2);
     const std::vector<std::string>& feet =
         interface_->modelSettings().contactNames;
-    scalar_t footZ = 0.0;
+    scalar_t posFeetmeanRtWorldEwrtWorldZ = 0.0;
     for (const std::string& foot : feet) {
-      footZ += data.oMf[model.getFrameId(foot)].translation()(2) /
-               static_cast<scalar_t>(feet.size());
+      posFeetmeanRtWorldEwrtWorldZ +=
+          data.oMf[model.getFrameId(foot)].translation()(2) /
+          static_cast<scalar_t>(feet.size());
     }
-    return comZ - footZ;
+    return posComRtWorldEwrtWorldZ - posFeetmeanRtWorldEwrtWorldZ;
   }
 
   CentroidalRobotFiles files_;
@@ -324,14 +341,14 @@ TEST_F(HlipPlanningIntegrationTest,
 
   // A pure yaw command: no linear velocity at all, so the blend has nothing but
   // the yaw rate to go on.
-  const scalar_t commandedYawRate =
+  const scalar_t cmdRateYawBaseRtWorld =
       0.5;  // [rad/s], well above the blend's half point on its own
-  const scalar_t yawInertia =
+  const scalar_t inertiaComEwrtWorldZz =
       40.0;  // any positive value; the target carries m * I_zz * omega / m
   vector_t target = vector_t::Zero(state.size());
   interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
       target, interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
-  target(5) = yawInertia * commandedYawRate /
+  target(5) = inertiaComEwrtWorldZz * cmdRateYawBaseRtWorld /
               interface_->getCentroidalModelInfo().robotMass;
 
   // Each iteration plans on a time base of its own, so that a plan left active
@@ -347,11 +364,11 @@ TEST_F(HlipPlanningIntegrationTest,
                                     ModeNumber::kStance);
 
     const ContactPlannerInput input = referenceManager_->makePlannerInput(
-        time, state, referenceManager_->commandedVelocity());
-    EXPECT_NEAR(input.headingRateCommand, referenceManager_->commandedYawRate(),
-                1.0e-9)
+        time, state, referenceManager_->cmdLinvelBaseRtWorldEwrtWorldXy());
+    EXPECT_NEAR(input.cmdRateYawBaseRtWorld,
+                referenceManager_->cmdRateYawBaseRtWorld(), 1.0e-9)
         << "heading model " << (headingModel ? "on" : "off");
-    EXPECT_GT(std::abs(input.headingRateCommand), 1.0e-6)
+    EXPECT_GT(std::abs(input.cmdRateYawBaseRtWorld), 1.0e-6)
         << "the yaw command must reach the planner with the heading model "
         << (headingModel ? "on" : "off");
 
@@ -526,15 +543,16 @@ TEST_F(HlipPlanningIntegrationTest,
 }
 
 TEST_F(HlipPlanningIntegrationTest, TheGaitAdvancesAtTheCommandedVelocity) {
-  const scalar_t commandedVelocityX = 0.5;
-  planAt(/*time=*/0.0, commandedVelocityX);
+  const scalar_t cmdLinvelBaseRtWorldEwrtHeadingX = 0.5;
+  planAt(/*time=*/0.0, cmdLinvelBaseRtWorldEwrtHeadingX);
   ASSERT_TRUE(referenceManager_->hasActivePlan());
   const ContactPlan& plan = activePlanOf(*referenceManager_);
   const ContactPlanningConfig config = referenceManager_->getConfig();
 
   // Both feet end the horizon ahead of where they started.
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    EXPECT_GT(plan.footholds.back()[foot].x(), plan.footholds.front()[foot].x())
+    EXPECT_GT(plan.desPosFeetRtWorldEwrtWorldXyTraj.back()[foot].x(),
+              plan.desPosFeetRtWorldEwrtWorldXyTraj.front()[foot].x())
         << "foot " << foot << " must travel forward";
   }
 
@@ -544,10 +562,14 @@ TEST_F(HlipPlanningIntegrationTest, TheGaitAdvancesAtTheCommandedVelocity) {
   // what matters is that the plan is walking forward at a speed of the
   // commanded order.
   const scalar_t horizon = config.horizon();
-  const scalar_t averageVelocity =
-      (plan.comPosition.back().x() - plan.comPosition.front().x()) / horizon;
-  EXPECT_GT(averageVelocity, 0.3 * commandedVelocityX);
-  EXPECT_LT(averageVelocity, 1.2 * commandedVelocityX);
+  const scalar_t meanLinvelComRtWorldEwrtWorldX =
+      (plan.posComRtWorldEwrtWorldXyTraj.back().x() -
+       plan.posComRtWorldEwrtWorldXyTraj.front().x()) /
+      horizon;
+  EXPECT_GT(meanLinvelComRtWorldEwrtWorldX,
+            0.3 * cmdLinvelBaseRtWorldEwrtHeadingX);
+  EXPECT_LT(meanLinvelComRtWorldEwrtWorldX,
+            1.2 * cmdLinvelBaseRtWorldEwrtHeadingX);
 }
 
 TEST_F(HlipPlanningIntegrationTest,
@@ -575,34 +597,37 @@ TEST_F(HlipPlanningIntegrationTest,
   // position is carried through the base, as the planned CoM minus the CoM-base
   // offset measured at the cycle that wrote it (the initial state here).
   const vector_t state = interface_->getInitialState();
-  const vector2_t comOffsetFromBase =
-      centerOfMass(state) -
+  const vector2_t posComRtBaseEwrtWorldXy =
+      computePosComRtWorldEwrtWorldXy(state) -
       robotModel.getPosBaseRtWorldEwrtWorld(state).head<2>();
   size_t comparedPoints = 0;
   for (size_t i = 0; i < target.timeTrajectory.size(); ++i) {
     const scalar_t time = target.timeTrajectory[i];
     if (time < plan.startTime || time > plan.endTime()) continue;
-    const std::optional<vector2_t> plannedVelocity =
-        plan.comVelocityAtTime(time);
-    const std::optional<vector2_t> plannedPosition =
-        plan.comPositionAtTime(time);
-    if (!(plannedVelocity.has_value() && plannedPosition.has_value())) {
+    const std::optional<vector2_t> plannedLinvelComRtWorldEwrtWorldXy =
+        plan.evaluateLinvelComRtWorldEwrtWorldXy(time);
+    const std::optional<vector2_t> plannedPosComRtWorldEwrtWorldXy =
+        plan.evaluatePosComRtWorldEwrtWorldXy(time);
+    if (!(plannedLinvelComRtWorldEwrtWorldXy.has_value() &&
+          plannedPosComRtWorldEwrtWorldXy.has_value())) {
       GTEST_FAIL();
     }
-    const vector3_t referenceVelocity =
-        robotModel.getBaseComLinearVelocity(target.stateTrajectory[i]);
-    EXPECT_NEAR(referenceVelocity.x(), plannedVelocity->x(), 1.0e-9)
+    const vector3_t refLinvelComRtWorldEwrtWorld =
+        robotModel.getLinvelComRtWorldEwrtWorld(target.stateTrajectory[i]);
+    EXPECT_NEAR(refLinvelComRtWorldEwrtWorld.x(),
+                plannedLinvelComRtWorldEwrtWorldXy->x(), 1.0e-9)
         << "at t=" << time;
-    EXPECT_NEAR(referenceVelocity.y(), plannedVelocity->y(), 1.0e-9)
+    EXPECT_NEAR(refLinvelComRtWorldEwrtWorld.y(),
+                plannedLinvelComRtWorldEwrtWorldXy->y(), 1.0e-9)
         << "at t=" << time;
-    const vector2_t referenceBase =
+    const vector2_t refPosBaseRtWorldEwrtWorldXy =
         robotModel.getPosBaseRtWorldEwrtWorld(target.stateTrajectory[i])
             .head<2>();
-    EXPECT_NEAR(referenceBase.x() + comOffsetFromBase.x(), plannedPosition->x(),
-                1.0e-9)
+    EXPECT_NEAR(refPosBaseRtWorldEwrtWorldXy.x() + posComRtBaseEwrtWorldXy.x(),
+                plannedPosComRtWorldEwrtWorldXy->x(), 1.0e-9)
         << "at t=" << time;
-    EXPECT_NEAR(referenceBase.y() + comOffsetFromBase.y(), plannedPosition->y(),
-                1.0e-9)
+    EXPECT_NEAR(refPosBaseRtWorldEwrtWorldXy.y() + posComRtBaseEwrtWorldXy.y(),
+                plannedPosComRtWorldEwrtWorldXy->y(), 1.0e-9)
         << "at t=" << time;
     ++comparedPoints;
   }
@@ -612,11 +637,14 @@ TEST_F(HlipPlanningIntegrationTest,
   // And what it asks for is genuinely not a straight line: the orbit the
   // footholds were placed for swings the center of mass from side to side,
   // which is the motion the reference has to carry for the two layers to agree.
-  scalar_t largestLateralVelocity = 0.0;
-  for (const vector2_t& velocity : plan.comVelocity)
-    largestLateralVelocity =
-        std::max(largestLateralVelocity, std::abs(velocity.y()));
-  EXPECT_GT(largestLateralVelocity, 0.05)
+  scalar_t maxLinvelComRtWorldEwrtWorldY = 0.0;
+  for (const vector2_t& linvelComRtWorldEwrtWorldXy :
+       plan.linvelComRtWorldEwrtWorldXyTraj) {
+    maxLinvelComRtWorldEwrtWorldY =
+        std::max(maxLinvelComRtWorldEwrtWorldY,
+                 std::abs(linvelComRtWorldEwrtWorldXy.y()));
+  }
+  EXPECT_GT(maxLinvelComRtWorldEwrtWorldY, 0.05)
       << "the H-LIP reference must ask the controller for lateral motion";
 }
 
@@ -630,14 +658,14 @@ TEST_F(HlipPlanningIntegrationTest,
   // the operator pushes the velocity slider. The command is therefore read from
   // the copy the operator published, so it must survive any number of cycles
   // without a new one.
-  const scalar_t commandedVelocityX = 0.5;
+  const scalar_t cmdLinvelBaseRtWorldEwrtHeadingX = 0.5;
   const vector_t state = interface_->getInitialState();
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t target = vector_t::Zero(state.size());
   interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
       target, interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
-  target(0) = commandedVelocityX;
+  target(0) = cmdLinvelBaseRtWorldEwrtHeadingX;
   referenceManager_->setTargetTrajectories(
       TargetTrajectories({0.0}, {target}, {vector_t::Zero(inputDim)}));
 
@@ -646,8 +674,8 @@ TEST_F(HlipPlanningIntegrationTest,
     referenceManager_->preSolverRun(time, time + horizon, state,
                                     ModeNumber::kStance);
     module_->preSolverRun(time, time + horizon, state, *referenceManager_);
-    EXPECT_NEAR(referenceManager_->commandedVelocity().x(), commandedVelocityX,
-                1.0e-9)
+    EXPECT_NEAR(referenceManager_->cmdLinvelBaseRtWorldEwrtWorldXy().x(),
+                cmdLinvelBaseRtWorldEwrtHeadingX, 1.0e-9)
         << "the operator's command was lost at cycle " << cycle;
     time += 0.02;
   }
@@ -667,8 +695,8 @@ TEST_F(HlipPlanningIntegrationTest, TheTerminalDcmReferenceFollowsThePlan) {
   // terminal support - the stance foot itself during single support - and at
   // its weight it wins: the center of mass is held over the foot, the planner
   // reads a state with no lateral velocity and narrows the next step to
-  // minStepWidth, and the robot falls sideways. With a plan active the
-  // reference must be the plan's.
+  // minPosLfootRtRfootEwrtHeadingY, and the robot falls sideways. With a plan
+  // active the reference must be the plan's.
   planAt(0.0, 0.5);
   ASSERT_TRUE(referenceManager_->hasActivePlan());
   const ContactPlan& plan = activePlanOf(*referenceManager_);
@@ -684,14 +712,20 @@ TEST_F(HlipPlanningIntegrationTest, TheTerminalDcmReferenceFollowsThePlan) {
     GTEST_FAIL();
   }
   EXPECT_NEAR(plannedDcm->omega, omega, 1.0e-12);
-  const std::optional<vector2_t> comPosition = plan.comPositionAtTime(time);
-  const std::optional<vector2_t> comVelocity = plan.comVelocityAtTime(time);
-  if (!(comPosition.has_value() && comVelocity.has_value())) {
+  const std::optional<vector2_t> posComRtWorldEwrtWorldXy =
+      plan.evaluatePosComRtWorldEwrtWorldXy(time);
+  const std::optional<vector2_t> linvelComRtWorldEwrtWorldXy =
+      plan.evaluateLinvelComRtWorldEwrtWorldXy(time);
+  if (!(posComRtWorldEwrtWorldXy.has_value() &&
+        linvelComRtWorldEwrtWorldXy.has_value())) {
     GTEST_FAIL();
   }
-  const vector2_t expected = *comPosition + *comVelocity / omega;
-  EXPECT_NEAR(plannedDcm->dcm.x(), expected.x(), 1.0e-12);
-  EXPECT_NEAR(plannedDcm->dcm.y(), expected.y(), 1.0e-12);
+  const vector2_t expected =
+      *posComRtWorldEwrtWorldXy + *linvelComRtWorldEwrtWorldXy / omega;
+  EXPECT_NEAR(plannedDcm->desPosDcmRtWorldEwrtWorldXy.x(), expected.x(),
+              1.0e-12);
+  EXPECT_NEAR(plannedDcm->desPosDcmRtWorldEwrtWorldXy.y(), expected.y(),
+              1.0e-12);
 
   // And the cost carries it: the blend weight is on, and the reference it
   // blends in is that DCM, on its pendulum.
@@ -705,8 +739,10 @@ TEST_F(HlipPlanningIntegrationTest, TheTerminalDcmReferenceFollowsThePlan) {
       << "the robot's DCM is taken on the plan's pendulum";
   EXPECT_NEAR(parameters(8), 1.0, 1.0e-12)
       << "the planned reference must be selected while a plan is active";
-  EXPECT_NEAR(parameters(9), plannedDcm->dcm.x(), 1.0e-12);
-  EXPECT_NEAR(parameters(10), plannedDcm->dcm.y(), 1.0e-12);
+  EXPECT_NEAR(parameters(9), plannedDcm->desPosDcmRtWorldEwrtWorldXy.x(),
+              1.0e-12);
+  EXPECT_NEAR(parameters(10), plannedDcm->desPosDcmRtWorldEwrtWorldXy.y(),
+              1.0e-12);
 }
 
 /**
@@ -735,15 +771,20 @@ TEST_F(HlipPlanningIntegrationTest,
   for (size_t i = 0; i < reference.timeTrajectory.size(); ++i) {
     const scalar_t time = reference.timeTrajectory[i];
     if (time < plan.startTime || time > plan.endTime()) continue;
-    const std::optional<vector2_t> planned = plan.comPositionAtTime(time);
+    const std::optional<vector2_t> planned =
+        plan.evaluatePosComRtWorldEwrtWorldXy(time);
     if (!planned.has_value()) {
       GTEST_FAIL();
     }
-    const vector2_t referenceCom = centerOfMass(reference.stateTrajectory[i]);
-    EXPECT_NEAR(referenceCom.x(), planned->x(), 1.0e-9) << "at t=" << time;
-    EXPECT_NEAR(referenceCom.y(), planned->y(), 1.0e-9) << "at t=" << time;
+    const vector2_t refPosComRtWorldEwrtWorldXy =
+        computePosComRtWorldEwrtWorldXy(reference.stateTrajectory[i]);
+    EXPECT_NEAR(refPosComRtWorldEwrtWorldXy.x(), planned->x(), 1.0e-9)
+        << "at t=" << time;
+    EXPECT_NEAR(refPosComRtWorldEwrtWorldXy.y(), planned->y(), 1.0e-9)
+        << "at t=" << time;
     largestDeparture =
-        std::max(largestDeparture, (*planned - centerOfMass(target)).norm());
+        std::max(largestDeparture,
+                 (*planned - computePosComRtWorldEwrtWorldXy(target)).norm());
     ++comparedPoints;
   }
   EXPECT_GT(comparedPoints, 0U);
@@ -803,19 +844,21 @@ TEST_F(HlipPlanningIntegrationTest,
                   robotModel.getPosBaseRtWorldEwrtWorld(operatorState).y(),
                   1.0e-9)
           << "at t=" << time;
-      EXPECT_NEAR(robotModel.getBaseComLinearVelocity(knot).x(), 0.5, 1.0e-9)
+      EXPECT_NEAR(robotModel.getLinvelComRtWorldEwrtWorld(knot).x(), 0.5,
+                  1.0e-9)
           << "at t=" << time;
-      EXPECT_NEAR(robotModel.getBaseComLinearVelocity(knot).y(), 0.0, 1.0e-9)
+      EXPECT_NEAR(robotModel.getLinvelComRtWorldEwrtWorld(knot).y(), 0.0,
+                  1.0e-9)
           << "at t=" << time;
     } else if (time >= initTime) {
       ++planKnots;
-      const std::optional<vector2_t> plannedVelocity =
-          plan.comVelocityAtTime(time);
-      if (!plannedVelocity.has_value()) {
+      const std::optional<vector2_t> plannedLinvelComRtWorldEwrtWorldXy =
+          plan.evaluateLinvelComRtWorldEwrtWorldXy(time);
+      if (!plannedLinvelComRtWorldEwrtWorldXy.has_value()) {
         GTEST_FAIL();
       }
-      EXPECT_NEAR(robotModel.getBaseComLinearVelocity(knot).y(),
-                  plannedVelocity->y(), 1.0e-9)
+      EXPECT_NEAR(robotModel.getLinvelComRtWorldEwrtWorld(knot).y(),
+                  plannedLinvelComRtWorldEwrtWorldXy->y(), 1.0e-9)
           << "inside the plan it still rules, t=" << time;
     }
   }
@@ -824,9 +867,12 @@ TEST_F(HlipPlanningIntegrationTest,
   EXPECT_GT(planKnots, 0U);
   // Control: what the clamped lookups would have written there is far from the
   // operator's reference.
-  const vector2_t operatorBase =
+  const vector2_t operatorPosBaseRtWorldEwrtWorldXy =
       robotModel.getPosBaseRtWorldEwrtWorld(operatorState).head<2>();
-  EXPECT_GT((plan.comPosition.back() - operatorBase).norm(), 0.1);
+  EXPECT_GT((plan.posComRtWorldEwrtWorldXyTraj.back() -
+             operatorPosBaseRtWorldEwrtWorldXy)
+                .norm(),
+            0.1);
 
   EXPECT_TRUE(referenceManager_->getPlannedDcm(initTime).has_value())
       << "inside the plan the DCM is the plan's";
@@ -904,11 +950,14 @@ TEST_F(HlipPlanningIntegrationTest,
   // Positive control: a configuration that validates is applied, to the module
   // and to its reference manager.
   ContactPlanningConfig wider = running;
-  wider.hlip.stepWidth = running.hlip.stepWidth + 0.02;
+  wider.hlip.nomPosLfootRtRfootEwrtHeadingY =
+      running.hlip.nomPosLfootRtRfootEwrtHeadingY + 0.02;
   ASSERT_EQ(module_->setConfig(wider), absl::OkStatus());
-  EXPECT_DOUBLE_EQ(module_->getConfig().hlip.stepWidth, wider.hlip.stepWidth);
-  EXPECT_DOUBLE_EQ(referenceManager_->getConfig().hlip.stepWidth,
-                   wider.hlip.stepWidth);
+  EXPECT_DOUBLE_EQ(module_->getConfig().hlip.nomPosLfootRtRfootEwrtHeadingY,
+                   wider.hlip.nomPosLfootRtRfootEwrtHeadingY);
+  EXPECT_DOUBLE_EQ(
+      referenceManager_->getConfig().hlip.nomPosLfootRtRfootEwrtHeadingY,
+      wider.hlip.nomPosLfootRtRfootEwrtHeadingY);
 }
 
 TEST_F(HlipPlanningIntegrationTest,
@@ -995,39 +1044,47 @@ TEST_F(HlipPlanningIntegrationTest, TheModelRulesRequireWhatTheRegistrySays) {
 }
 
 /**
- * The pendulum is the model's (AC1): with dcm_terminal_cost.com_height and
- * shared.com_height both left out, as shipped, the DCM terminal cost and the
- * planner both run on omega = sqrt(g / h), h the model's center of mass above
- * its soles at the initial state, computed here independently of the interface
+ * The pendulum is the model's (AC1): with
+ * dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z and
+ * shared.nom_pos_com_rt_feetmean_ewrt_world_z both left out, as shipped, the
+ * DCM terminal cost and the planner both run on omega = sqrt(g / h), h the
+ * model's center of mass above its soles at the initial state, computed here
+ * independently of the interface
  * - and a plan carries that omega. The control: explicit positive heights are
  * used as given, each by its own consumer.
  */
 TEST_F(HlipPlanningIntegrationTest,
        TheDcmCostAndThePlannerRunOnTheModelsPendulum) {
-  const scalar_t height = independentComHeight();
-  ASSERT_GT(height, 0.9)
+  const scalar_t posComRtFeetmeanEwrtWorldZ =
+      computeIndependentPosComRtFeetmeanEwrtWorldZ();
+  ASSERT_GT(posComRtFeetmeanEwrtWorldZ, 0.9)
       << "Atlas's center of mass stands about 1.08 m above its soles";
-  ASSERT_LT(height, 1.2);
-  EXPECT_NEAR(interface_->getNominalComHeight(), height, 1.0e-9);
+  ASSERT_LT(posComRtFeetmeanEwrtWorldZ, 1.2);
+  EXPECT_NEAR(interface_->getNomPosComRtFeetmeanEwrtWorldZ(),
+              posComRtFeetmeanEwrtWorldZ, 1.0e-9);
 
   const DcmTerminalCost& cost =
       interface_->getOptimalControlProblem().finalCostPtr->get<DcmTerminalCost>(
           "dcmTerminalCost");
-  const scalar_t dcmOmega = std::sqrt(cost.getConfig().gravity / height);
-  EXPECT_THAT(cost.getConfig().comHeight,
-              ::testing::Optional(
-                  ::testing::DoubleNear(height, /*max_abs_error=*/1.0e-9)))
-      << "a dcm_terminal_cost without com_height must be the model's pendulum";
+  const scalar_t dcmOmega =
+      std::sqrt(cost.getConfig().gravityMagnitude / posComRtFeetmeanEwrtWorldZ);
+  EXPECT_THAT(cost.getConfig().nomPosComRtFeetmeanEwrtWorldZ,
+              ::testing::Optional(::testing::DoubleNear(
+                  posComRtFeetmeanEwrtWorldZ, /*max_abs_error=*/1.0e-9)))
+      << "a dcm_terminal_cost without nom_pos_com_rt_feetmean_ewrt_world_z "
+         "must be the model's pendulum";
   EXPECT_NEAR(cost.omega(), dcmOmega, 1.0e-9);
   EXPECT_THAT(cost.getConfig().omega(),
               ::testing::Optional(
                   ::testing::DoubleNear(dcmOmega, /*max_abs_error=*/1.0e-9)));
   const ContactPlanningConfig config = referenceManager_->getConfig();
-  const scalar_t plannerOmega = std::sqrt(config.shared.gravity / height);
-  EXPECT_THAT(config.shared.comHeight,
-              ::testing::Optional(
-                  ::testing::DoubleNear(height, /*max_abs_error=*/1.0e-9)))
-      << "a shared block without com_height must be the model's pendulum";
+  const scalar_t plannerOmega =
+      std::sqrt(config.shared.gravity / posComRtFeetmeanEwrtWorldZ);
+  EXPECT_THAT(config.shared.nomPosComRtFeetmeanEwrtWorldZ,
+              ::testing::Optional(::testing::DoubleNear(
+                  posComRtFeetmeanEwrtWorldZ, /*max_abs_error=*/1.0e-9)))
+      << "a shared block without nom_pos_com_rt_feetmean_ewrt_world_z must be "
+         "the model's pendulum";
   EXPECT_NEAR(config.omega(), plannerOmega, 1.0e-9);
   EXPECT_NEAR(module_->getConfig().omega(), plannerOmega, 1.0e-9);
   planAt(0.0, 0.3);
@@ -1043,7 +1100,7 @@ TEST_F(HlipPlanningIntegrationTest,
     GTEST_FAIL();
   }
   ContactPlanningConfig lower = config;
-  lower.shared.comHeight = 0.8;
+  lower.shared.nomPosComRtFeetmeanEwrtWorldZ = 0.8;
   ASSERT_EQ(referenceManager_->setConfigStatus(lower), absl::OkStatus());
   ASSERT_GT(std::abs(referenceManager_->getConfig().omega() - plannerOmega),
             0.3)
@@ -1055,7 +1112,10 @@ TEST_F(HlipPlanningIntegrationTest,
   }
   EXPECT_NEAR(after->omega, plannerOmega, 1.0e-12)
       << "the active plan's DCM was re-taken on the reloaded pendulum";
-  EXPECT_NEAR((after->dcm - before->dcm).norm(), 0.0, 1.0e-12);
+  EXPECT_NEAR(
+      (after->desPosDcmRtWorldEwrtWorldXy - before->desPosDcmRtWorldEwrtWorldXy)
+          .norm(),
+      0.0, 1.0e-12);
   ASSERT_EQ(referenceManager_->setConfigStatus(config), absl::OkStatus());
   // Positive control on the magnitude: the hand-set 0.85 m this robot used to
   // ship gives a clearly different omega.
@@ -1067,10 +1127,14 @@ TEST_F(HlipPlanningIntegrationTest,
   // reported.
   const CentroidalMpcConfig explicitPendulum =
       variant([](CentroidalMpcConfig& config) {
-        config.task.dcm_terminal_cost.com_height = 0.9;
+        config.task.dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z =
+            0.9;
+        // NOLINTBEGIN(frame-naming): a weight field
         config.task.task_space_foot_cost.weights.pos_x = 30.0;
         config.task.task_space_foot_cost.weights.pos_y = 30.0;
-        config.contactPlanning->shared.com_height = 0.95;
+        // NOLINTEND(frame-naming)
+        config.contactPlanning->shared.nom_pos_com_rt_feetmean_ewrt_world_z =
+            0.95;
       });
   MessageLog log;
   absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created =
@@ -1081,13 +1145,13 @@ TEST_F(HlipPlanningIntegrationTest,
   const DcmTerminalCost& explicitCost =
       explicitInterface->getOptimalControlProblem()
           .finalCostPtr->get<DcmTerminalCost>("dcmTerminalCost");
-  EXPECT_THAT(explicitCost.getConfig().comHeight,
+  EXPECT_THAT(explicitCost.getConfig().nomPosComRtFeetmeanEwrtWorldZ,
               ::testing::Optional(
                   ::testing::DoubleNear(0.9, /*max_abs_error=*/1.0e-12)));
   EXPECT_NEAR(explicitCost.omega(), std::sqrt(9.81 / 0.9), 1.0e-12);
   EXPECT_THAT(explicitInterface->getContactPlannerModulePtr()
                   ->getConfig()
-                  .shared.comHeight,
+                  .shared.nomPosComRtFeetmeanEwrtWorldZ,
               ::testing::Optional(
                   ::testing::DoubleNear(0.95, /*max_abs_error=*/1.0e-12)));
   EXPECT_NEAR(

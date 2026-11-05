@@ -66,18 +66,20 @@ vector_t stateAndInput(const vector_t& state, const vector_t& input) {
 
 /** The plane normals one after the other, the parameters of the pose-wrt-plane
  * libraries. */
-vector_t planeNormalParameters(const std::vector<vector3_t>& planeNormals) {
-  vector_t params(kPlaneNormalDim * planeNormals.size());
-  for (size_t i = 0; i < planeNormals.size(); ++i) {
-    params.segment<kPlaneNormalDim>(kPlaneNormalDim * i) = planeNormals[i];
+vector_t planeNormalParameters(
+    const std::vector<vector3_t>& normalSurfacesEwrtWorld) {
+  vector_t params(kPlaneNormalDim * normalSurfacesEwrtWorld.size());
+  for (size_t i = 0; i < normalSurfacesEwrtWorld.size(); ++i) {
+    params.segment<kPlaneNormalDim>(kPlaneNormalDim * i) =
+        normalSurfacesEwrtWorld[i];
   }
   return params;
 }
 
 /** The kPoseTangentDim-row blocks of `values`, a pose's change against the
  * plane, one per end effector of `numEndEffectors`. */
-std::vector<vector6_t> poseWrtPlaneBlocks(const vector_t& values,
-                                          size_t numEndEffectors) {
+std::vector<vector6_t> xeeBlocks(const vector_t& values,
+                                 size_t numEndEffectors) {
   std::vector<vector6_t> blocks;
   blocks.reserve(numEndEffectors);
   for (size_t i = 0; i < numEndEffectors; ++i) {
@@ -92,7 +94,7 @@ std::vector<vector6_t> poseWrtPlaneBlocks(const vector_t& values,
  * `numEndEffectors`: values and Jacobians of the same library, so that they
  * agree.
  */
-std::vector<VectorFunctionLinearApproximation> poseWrtPlaneLinearApproximations(
+std::vector<VectorFunctionLinearApproximation> xeeLinearApproximations(
     const CppAdInterface& library,
     const vector_t& state,
     const vector_t& input,
@@ -124,10 +126,11 @@ std::vector<VectorFunctionLinearApproximation> poseWrtPlaneLinearApproximations(
 
 /** The world positions of the frames: the function of `<modelName>_position`.
  */
-ad_vector_t positionsCppAd(PinocchioInterfaceCppAd& pinocchioInterface,
-                           const RobotModelCppAd& robotModel,
-                           const std::vector<size_t>& frameIds,
-                           const ad_vector_t& state) {
+ad_vector_t computePosEesRtWorldEwrtWorld(
+    PinocchioInterfaceCppAd& pinocchioInterface,
+    const RobotModelCppAd& robotModel,
+    const std::vector<size_t>& frameIds,
+    const ad_vector_t& state) {
   const PinocchioInterfaceCppAd::Model& model = pinocchioInterface.getModel();
   PinocchioInterfaceCppAd::Data& data = pinocchioInterface.getData();
   const ad_vector_t q = robotModel.getGeneralizedCoordinates(state);
@@ -135,22 +138,23 @@ ad_vector_t positionsCppAd(PinocchioInterfaceCppAd& pinocchioInterface,
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
 
-  ad_vector_t positions(kPositionDim * frameIds.size());
+  ad_vector_t posEesRtWorldEwrtWorld(kPositionDim * frameIds.size());
   for (size_t i = 0; i < frameIds.size(); ++i) {
     const size_t frameId = frameIds[i];
-    positions.segment<kPositionDim>(kPositionDim * i) =
+    posEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim * i) =
         data.oMf[frameId].translation();
   }
-  return positions;
+  return posEesRtWorldEwrtWorld;
 }
 
 /** The world linear velocities of the frames' origins: the function of
  * `<modelName>_velocity`. */
-ad_vector_t velocitiesCppAd(PinocchioInterfaceCppAd& pinocchioInterface,
-                            RobotModelCppAd& robotModel,
-                            const std::vector<size_t>& frameIds,
-                            const ad_vector_t& state,
-                            const ad_vector_t& input) {
+ad_vector_t computeLinvelEesRtWorldEwrtWorld(
+    PinocchioInterfaceCppAd& pinocchioInterface,
+    RobotModelCppAd& robotModel,
+    const std::vector<size_t>& frameIds,
+    const ad_vector_t& state,
+    const ad_vector_t& input) {
   const pinocchio::ReferenceFrame rf =
       pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
   const PinocchioInterfaceCppAd::Model& model = pinocchioInterface.getModel();
@@ -160,21 +164,21 @@ ad_vector_t velocitiesCppAd(PinocchioInterfaceCppAd& pinocchioInterface,
 
   pinocchio::forwardKinematics(model, data, q, v);
 
-  ad_vector_t velocities(kPositionDim * frameIds.size());
+  ad_vector_t linvelEesRtWorldEwrtWorld(kPositionDim * frameIds.size());
   for (size_t i = 0; i < frameIds.size(); ++i) {
     const size_t frameId = frameIds[i];
-    velocities.segment<kPositionDim>(kPositionDim * i) =
+    linvelEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim * i) =
         pinocchio::getFrameVelocity(model, data, frameId, rf).linear();
   }
-  return velocities;
+  return linvelEesRtWorldEwrtWorld;
 }
 
 /**
- * The orientation errors of the frames with respect to the planes of the unit
+ * The tilts of the frames relative to the planes of the unit
  * normals `params` (3 entries per frame, rotationMatrixDistanceToPlane()): the
  * function of `<modelName>_orientation_wrt_plane`.
  */
-ad_vector_t orientationErrorsWrtPlaneCppAd(
+ad_vector_t computeTiltEesRtSurfaceEwrtWorld(
     PinocchioInterfaceCppAd& pinocchioInterface,
     const RobotModelCppAd& robotModel,
     const std::vector<size_t>& frameIds,
@@ -187,16 +191,17 @@ ad_vector_t orientationErrorsWrtPlaneCppAd(
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
 
-  ad_vector_t errors(kRotationTangentDim * frameIds.size());
+  ad_vector_t tiltEesRtSurfaceEwrtWorld(kRotationTangentDim * frameIds.size());
   for (size_t i = 0; i < frameIds.size(); ++i) {
     const size_t frameId = frameIds[i];
-    ad_vector_t planeNormal =
+    ad_vector_t normalSurfaceEwrtWorld =
         params.segment<kPlaneNormalDim>(kPlaneNormalDim * i);
-    errors.segment<kRotationTangentDim>(kRotationTangentDim * i) =
+    tiltEesRtSurfaceEwrtWorld.segment<kRotationTangentDim>(kRotationTangentDim *
+                                                           i) =
         rotationMatrixDistanceToPlane<ad_scalar_t>(data.oMf[frameId].rotation(),
-                                                   planeNormal);
+                                                   normalSurfaceEwrtWorld);
   }
-  return errors;
+  return tiltEesRtSurfaceEwrtWorld;
 }
 
 /**
@@ -204,7 +209,7 @@ ad_vector_t orientationErrorsWrtPlaneCppAd(
  * whole-body dynamics' generalized acceleration: the function of
  * `<modelName>_linear_acceleration`.
  */
-ad_vector_t linearAccelerationsCppAd(
+ad_vector_t computeLinaccEesRtWorldEwrtWorld(
     PinocchioInterfaceCppAd& pinocchioInterface,
     RobotModelCppAd& robotModel,
     const std::vector<size_t>& frameIds,
@@ -221,27 +226,27 @@ ad_vector_t linearAccelerationsCppAd(
 
   pinocchio::forwardKinematics(model, data, q, v, a);
 
-  ad_vector_t accelerations(kPositionDim * frameIds.size());
+  ad_vector_t linaccEesRtWorldEwrtWorld(kPositionDim * frameIds.size());
   for (size_t i = 0; i < frameIds.size(); ++i) {
     const size_t frameId = frameIds[i];
-    accelerations.segment<kPositionDim>(kPositionDim * i) =
+    linaccEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim * i) =
         pinocchio::getFrameClassicalAcceleration(model, data, frameId, rf)
             .linear();
   }
-  return accelerations;
+  return linaccEesRtWorldEwrtWorld;
 }
 
 /**
- * [linear velocity; orientationErrorWrtPlaneRate()] of every frame (6 rows
+ * [linear velocity; planeTiltRate()] of every frame (6 rows
  * each), `params` its unit plane normal (3 entries each): the function of
  * `<modelName>_pose_wrt_plane_rate`.
  */
-ad_vector_t poseWrtPlaneRatesCppAd(PinocchioInterfaceCppAd& pinocchioInterface,
-                                   RobotModelCppAd& robotModel,
-                                   const std::vector<size_t>& frameIds,
-                                   const ad_vector_t& state,
-                                   const ad_vector_t& input,
-                                   const ad_vector_t& params) {
+ad_vector_t computeXeeRates(PinocchioInterfaceCppAd& pinocchioInterface,
+                            RobotModelCppAd& robotModel,
+                            const std::vector<size_t>& frameIds,
+                            const ad_vector_t& state,
+                            const ad_vector_t& input,
+                            const ad_vector_t& params) {
   const pinocchio::ReferenceFrame rf =
       pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
   const PinocchioInterfaceCppAd::Model& model = pinocchioInterface.getModel();
@@ -252,38 +257,39 @@ ad_vector_t poseWrtPlaneRatesCppAd(PinocchioInterfaceCppAd& pinocchioInterface,
   pinocchio::forwardKinematics(model, data, q, v);
   pinocchio::updateFramePlacements(model, data);
 
-  ad_vector_t rates(kPoseTangentDim * frameIds.size());
+  ad_vector_t xeeRates(kPoseTangentDim * frameIds.size());
   for (size_t i = 0; i < frameIds.size(); ++i) {
     const size_t frameId = frameIds[i];
     // LOCAL_WORLD_ALIGNED: the velocity of the frame's origin and the angular
     // velocity, both in the world frame.
-    const pinocchio::MotionTpl<ad_scalar_t> velocity =
+    const pinocchio::MotionTpl<ad_scalar_t> twistEeRtWorldEwrtWorld =
         pinocchio::getFrameVelocity(model, data, frameId, rf);
-    const ad_matrix3_t rotation = data.oMf[frameId].rotation();
-    const ad_vector3_t angularVelocity = velocity.angular();
-    const ad_vector3_t planeNormal =
+    const ad_matrix3_t rotmatEeRtWorld = data.oMf[frameId].rotation();
+    const ad_vector3_t angvelEeRtWorldEwrtWorld =
+        twistEeRtWorldEwrtWorld.angular();
+    const ad_vector3_t normalSurfaceEwrtWorld =
         params.segment<kPlaneNormalDim>(kPlaneNormalDim * i);
-    rates.segment<kPositionDim>(kPoseTangentDim * i) = velocity.linear();
-    rates.segment<kRotationTangentDim>(kPoseTangentDim * i + kPositionDim) =
-        orientationErrorWrtPlaneRate<ad_scalar_t>(rotation, angularVelocity,
-                                                  planeNormal);
+    xeeRates.segment<kPositionDim>(kPoseTangentDim * i) =
+        twistEeRtWorldEwrtWorld.linear();
+    xeeRates.segment<kRotationTangentDim>(kPoseTangentDim * i + kPositionDim) =
+        planeTiltRate<ad_scalar_t>(rotmatEeRtWorld, angvelEeRtWorldEwrtWorld,
+                                   normalSurfaceEwrtWorld);
   }
-  return rates;
+  return xeeRates;
 }
 
 /**
- * [classical linear acceleration; orientationErrorWrtPlaneAcceleration()] of
+ * [classical linear acceleration; planeTiltSecondRate()] of
  * every frame (6 rows each), `params` its unit plane normal (3 entries each),
  * at the whole-body dynamics' generalized acceleration: the function of
  * `<modelName>_pose_wrt_plane_acceleration`.
  */
-ad_vector_t poseWrtPlaneAccelerationsCppAd(
-    PinocchioInterfaceCppAd& pinocchioInterface,
-    RobotModelCppAd& robotModel,
-    const std::vector<size_t>& frameIds,
-    const ad_vector_t& state,
-    const ad_vector_t& input,
-    const ad_vector_t& params) {
+ad_vector_t computeXeeSecondRates(PinocchioInterfaceCppAd& pinocchioInterface,
+                                  RobotModelCppAd& robotModel,
+                                  const std::vector<size_t>& frameIds,
+                                  const ad_vector_t& state,
+                                  const ad_vector_t& input,
+                                  const ad_vector_t& params) {
   const pinocchio::ReferenceFrame rf =
       pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
   const PinocchioInterfaceCppAd::Model& model = pinocchioInterface.getModel();
@@ -296,30 +302,33 @@ ad_vector_t poseWrtPlaneAccelerationsCppAd(
   pinocchio::forwardKinematics(model, data, q, v, a);
   pinocchio::updateFramePlacements(model, data);
 
-  ad_vector_t accelerations(kPoseTangentDim * frameIds.size());
+  ad_vector_t xeeSecondRates(kPoseTangentDim * frameIds.size());
   for (size_t i = 0; i < frameIds.size(); ++i) {
     const size_t frameId = frameIds[i];
     // LOCAL_WORLD_ALIGNED: the classical acceleration's linear part is the
     // second derivative of the frame's origin, and its angular part the time
     // derivative of the world-frame angular velocity (getFrameAcceleration's R
     // a_angular).
-    const pinocchio::MotionTpl<ad_scalar_t> velocity =
+    const pinocchio::MotionTpl<ad_scalar_t> twistEeRtWorldEwrtWorld =
         pinocchio::getFrameVelocity(model, data, frameId, rf);
-    const pinocchio::MotionTpl<ad_scalar_t> acceleration =
+    const pinocchio::MotionTpl<ad_scalar_t> classicalaccEeRtWorldEwrtWorld =
         pinocchio::getFrameClassicalAcceleration(model, data, frameId, rf);
-    const ad_matrix3_t rotation = data.oMf[frameId].rotation();
-    const ad_vector3_t angularVelocity = velocity.angular();
-    const ad_vector3_t angularAcceleration = acceleration.angular();
-    const ad_vector3_t planeNormal =
+    const ad_matrix3_t rotmatEeRtWorld = data.oMf[frameId].rotation();
+    const ad_vector3_t angvelEeRtWorldEwrtWorld =
+        twistEeRtWorldEwrtWorld.angular();
+    const ad_vector3_t angaccEeRtWorldEwrtWorld =
+        classicalaccEeRtWorldEwrtWorld.angular();
+    const ad_vector3_t normalSurfaceEwrtWorld =
         params.segment<kPlaneNormalDim>(kPlaneNormalDim * i);
-    accelerations.segment<kPositionDim>(kPoseTangentDim * i) =
-        acceleration.linear();
-    accelerations.segment<kRotationTangentDim>(kPoseTangentDim * i +
-                                               kPositionDim) =
-        orientationErrorWrtPlaneAcceleration<ad_scalar_t>(
-            rotation, angularVelocity, angularAcceleration, planeNormal);
+    xeeSecondRates.segment<kPositionDim>(kPoseTangentDim * i) =
+        classicalaccEeRtWorldEwrtWorld.linear();
+    xeeSecondRates.segment<kRotationTangentDim>(kPoseTangentDim * i +
+                                                kPositionDim) =
+        planeTiltSecondRate<ad_scalar_t>(
+            rotmatEeRtWorld, angvelEeRtWorldEwrtWorld, angaccEeRtWorldEwrtWorld,
+            normalSurfaceEwrtWorld);
   }
-  return accelerations;
+  return xeeSecondRates;
 }
 
 }  // namespace
@@ -355,72 +364,74 @@ PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(
   const size_t inputDim = mpcRobotModel.getInputDim();
   const size_t numPlaneParameters = kPlaneNormalDim * frameIds.size();
 
-  const CppAdInterface::ad_function_t positionFunc =
+  const CppAdInterface::ad_function_t tapePosEesRtWorldEwrtWorld =
       [pinocchioInterfaceCppAd, robotModel, frameIds](const ad_vector_t& x,
                                                       ad_vector_t& y) {
-        y = positionsCppAd(*pinocchioInterfaceCppAd, *robotModel, frameIds, x);
+        y = computePosEesRtWorldEwrtWorld(*pinocchioInterfaceCppAd, *robotModel,
+                                          frameIds, x);
       };
-  positionCppAdInterfacePtr_ = std::make_unique<CppAdInterface>(
-      positionFunc, stateDim, modelName + "_position", modelFolder);
+  positionCppAdInterfacePtr_ =
+      std::make_unique<CppAdInterface>(tapePosEesRtWorldEwrtWorld, stateDim,
+                                       modelName + "_position", modelFolder);
 
-  const CppAdInterface::ad_function_t velocityFunc =
+  const CppAdInterface::ad_function_t tapeLinvelEesRtWorldEwrtWorld =
       [pinocchioInterfaceCppAd, robotModel, frameIds, stateDim, inputDim](
           const ad_vector_t& x, ad_vector_t& y) {
         const ad_vector_t state = x.head(stateDim);
         const ad_vector_t input = x.tail(inputDim);
-        y = velocitiesCppAd(*pinocchioInterfaceCppAd, *robotModel, frameIds,
-                            state, input);
+        y = computeLinvelEesRtWorldEwrtWorld(
+            *pinocchioInterfaceCppAd, *robotModel, frameIds, state, input);
       };
   velocityCppAdInterfacePtr_ = std::make_unique<CppAdInterface>(
-      velocityFunc, stateDim + inputDim, modelName + "_velocity", modelFolder);
+      tapeLinvelEesRtWorldEwrtWorld, stateDim + inputDim,
+      modelName + "_velocity", modelFolder);
 
-  const CppAdInterface::ad_parameterized_function_t orientationWrtPlaneFunc =
-      [pinocchioInterfaceCppAd, robotModel, frameIds](
-          const ad_vector_t& x, const ad_vector_t& params, ad_vector_t& y) {
-        y = orientationErrorsWrtPlaneCppAd(*pinocchioInterfaceCppAd,
-                                           *robotModel, frameIds, x, params);
-      };
-  orientationErrorWrtPlaneCppAdInterfacePtr_ = std::make_unique<CppAdInterface>(
-      orientationWrtPlaneFunc, stateDim, numPlaneParameters,
+  const CppAdInterface::ad_parameterized_function_t
+      tapeTiltEesRtSurfaceEwrtWorld =
+          [pinocchioInterfaceCppAd, robotModel, frameIds](
+              const ad_vector_t& x, const ad_vector_t& params, ad_vector_t& y) {
+            y = computeTiltEesRtSurfaceEwrtWorld(
+                *pinocchioInterfaceCppAd, *robotModel, frameIds, x, params);
+          };
+  tiltEesCppAdInterfacePtr_ = std::make_unique<CppAdInterface>(
+      tapeTiltEesRtSurfaceEwrtWorld, stateDim, numPlaneParameters,
       modelName + "_orientation_wrt_plane", modelFolder);
 
-  const CppAdInterface::ad_function_t linearAccelerationFunc =
+  const CppAdInterface::ad_function_t tapeLinaccEesRtWorldEwrtWorld =
       [pinocchioInterfaceCppAd, robotModel, frameIds, stateDim, inputDim](
           const ad_vector_t& x, ad_vector_t& y) {
         const ad_vector_t state = x.head(stateDim);
         const ad_vector_t input = x.tail(inputDim);
-        y = linearAccelerationsCppAd(*pinocchioInterfaceCppAd, *robotModel,
-                                     frameIds, state, input);
+        y = computeLinaccEesRtWorldEwrtWorld(
+            *pinocchioInterfaceCppAd, *robotModel, frameIds, state, input);
       };
   linearAccelerationCppAdInterfacePtr_ = std::make_unique<CppAdInterface>(
-      linearAccelerationFunc, stateDim + inputDim,
+      tapeLinaccEesRtWorldEwrtWorld, stateDim + inputDim,
       modelName + "_linear_acceleration", modelFolder);
 
   // The pose rates with respect to a plane, parameterized by the plane normals.
-  const CppAdInterface::ad_parameterized_function_t poseWrtPlaneRateFunc =
+  const CppAdInterface::ad_parameterized_function_t tapeXeeRates =
       [pinocchioInterfaceCppAd, robotModel, frameIds, stateDim, inputDim](
           const ad_vector_t& x, const ad_vector_t& params, ad_vector_t& y) {
         const ad_vector_t state = x.head(stateDim);
         const ad_vector_t input = x.tail(inputDim);
-        y = poseWrtPlaneRatesCppAd(*pinocchioInterfaceCppAd, *robotModel,
-                                   frameIds, state, input, params);
+        y = computeXeeRates(*pinocchioInterfaceCppAd, *robotModel, frameIds,
+                            state, input, params);
       };
-  poseWrtPlaneRateCppAdInterfacePtr_ = std::make_unique<CppAdInterface>(
-      poseWrtPlaneRateFunc, stateDim + inputDim, numPlaneParameters,
+  xeeRateCppAdInterfacePtr_ = std::make_unique<CppAdInterface>(
+      tapeXeeRates, stateDim + inputDim, numPlaneParameters,
       modelName + "_pose_wrt_plane_rate", modelFolder);
 
-  const CppAdInterface::ad_parameterized_function_t
-      poseWrtPlaneAccelerationFunc =
-          [pinocchioInterfaceCppAd, robotModel, frameIds, stateDim, inputDim](
-              const ad_vector_t& x, const ad_vector_t& params, ad_vector_t& y) {
-            const ad_vector_t state = x.head(stateDim);
-            const ad_vector_t input = x.tail(inputDim);
-            y = poseWrtPlaneAccelerationsCppAd(*pinocchioInterfaceCppAd,
-                                               *robotModel, frameIds, state,
-                                               input, params);
-          };
-  poseWrtPlaneAccelerationCppAdInterfacePtr_ = std::make_unique<CppAdInterface>(
-      poseWrtPlaneAccelerationFunc, stateDim + inputDim, numPlaneParameters,
+  const CppAdInterface::ad_parameterized_function_t tapeXeeSecondRates =
+      [pinocchioInterfaceCppAd, robotModel, frameIds, stateDim, inputDim](
+          const ad_vector_t& x, const ad_vector_t& params, ad_vector_t& y) {
+        const ad_vector_t state = x.head(stateDim);
+        const ad_vector_t input = x.tail(inputDim);
+        y = computeXeeSecondRates(*pinocchioInterfaceCppAd, *robotModel,
+                                  frameIds, state, input, params);
+      };
+  xeeSecondRateCppAdInterfacePtr_ = std::make_unique<CppAdInterface>(
+      tapeXeeSecondRates, stateDim + inputDim, numPlaneParameters,
       modelName + "_pose_wrt_plane_acceleration", modelFolder);
 
   if (recompileLibraries) {
@@ -428,26 +439,26 @@ PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(
         CppAdInterface::ApproximationOrder::First, verbose);
     velocityCppAdInterfacePtr_->createModels(
         CppAdInterface::ApproximationOrder::First, verbose);
-    orientationErrorWrtPlaneCppAdInterfacePtr_->createModels(
+    tiltEesCppAdInterfacePtr_->createModels(
         CppAdInterface::ApproximationOrder::First, verbose);
     linearAccelerationCppAdInterfacePtr_->createModels(
         CppAdInterface::ApproximationOrder::First, verbose);
-    poseWrtPlaneRateCppAdInterfacePtr_->createModels(
+    xeeRateCppAdInterfacePtr_->createModels(
         CppAdInterface::ApproximationOrder::First, verbose);
-    poseWrtPlaneAccelerationCppAdInterfacePtr_->createModels(
+    xeeSecondRateCppAdInterfacePtr_->createModels(
         CppAdInterface::ApproximationOrder::First, verbose);
   } else {
     positionCppAdInterfacePtr_->loadModelsIfAvailable(
         CppAdInterface::ApproximationOrder::First, verbose);
     velocityCppAdInterfacePtr_->loadModelsIfAvailable(
         CppAdInterface::ApproximationOrder::First, verbose);
-    orientationErrorWrtPlaneCppAdInterfacePtr_->loadModelsIfAvailable(
+    tiltEesCppAdInterfacePtr_->loadModelsIfAvailable(
         CppAdInterface::ApproximationOrder::First, verbose);
     linearAccelerationCppAdInterfacePtr_->loadModelsIfAvailable(
         CppAdInterface::ApproximationOrder::First, verbose);
-    poseWrtPlaneRateCppAdInterfacePtr_->loadModelsIfAvailable(
+    xeeRateCppAdInterfacePtr_->loadModelsIfAvailable(
         CppAdInterface::ApproximationOrder::First, verbose);
-    poseWrtPlaneAccelerationCppAdInterfacePtr_->loadModelsIfAvailable(
+    xeeSecondRateCppAdInterfacePtr_->loadModelsIfAvailable(
         CppAdInterface::ApproximationOrder::First, verbose);
   }
 }
@@ -464,14 +475,12 @@ PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(
           std::make_unique<CppAdInterface>(*rhs.velocityCppAdInterfacePtr_)),
       linearAccelerationCppAdInterfacePtr_(std::make_unique<CppAdInterface>(
           *rhs.linearAccelerationCppAdInterfacePtr_)),
-      orientationErrorWrtPlaneCppAdInterfacePtr_(
-          std::make_unique<CppAdInterface>(
-              *rhs.orientationErrorWrtPlaneCppAdInterfacePtr_)),
-      poseWrtPlaneRateCppAdInterfacePtr_(std::make_unique<CppAdInterface>(
-          *rhs.poseWrtPlaneRateCppAdInterfacePtr_)),
-      poseWrtPlaneAccelerationCppAdInterfacePtr_(
-          std::make_unique<CppAdInterface>(
-              *rhs.poseWrtPlaneAccelerationCppAdInterfacePtr_)),
+      tiltEesCppAdInterfacePtr_(
+          std::make_unique<CppAdInterface>(*rhs.tiltEesCppAdInterfacePtr_)),
+      xeeRateCppAdInterfacePtr_(
+          std::make_unique<CppAdInterface>(*rhs.xeeRateCppAdInterfacePtr_)),
+      xeeSecondRateCppAdInterfacePtr_(std::make_unique<CppAdInterface>(
+          *rhs.xeeSecondRateCppAdInterfacePtr_)),
       endEffectorIds_(rhs.endEffectorIds_) {}
 
 /******************************************************************************************************/
@@ -494,87 +503,99 @@ const std::vector<std::string>& PinocchioEndEffectorDynamicsCppAd::getIds()
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::vector<PinocchioEndEffectorDynamicsCppAd::vector3_t>
-PinocchioEndEffectorDynamicsCppAd::getPosition(const vector_t& state) const {
-  const vector_t positionValues =
+PinocchioEndEffectorDynamicsCppAd::getPosEesRtWorldEwrtWorld(
+    const vector_t& state) const {
+  const vector_t stackedPosEesRtWorldEwrtWorld =
       positionCppAdInterfacePtr_->getFunctionValue(state);
 
-  std::vector<vector3_t> positions;
-  positions.reserve(endEffectorIds_.size());
+  std::vector<vector3_t> posEesRtWorldEwrtWorld;
+  posEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (size_t i = 0; i < endEffectorIds_.size(); ++i) {
-    positions.emplace_back(
-        positionValues.segment<kPositionDim>(kPositionDim * i));
+    posEesRtWorldEwrtWorld.emplace_back(
+        stackedPosEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim * i));
   }
-  return positions;
+  return posEesRtWorldEwrtWorld;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::vector<VectorFunctionLinearApproximation>
-PinocchioEndEffectorDynamicsCppAd::getPositionLinearApproximation(
+PinocchioEndEffectorDynamicsCppAd::getLinearApproximationPosEesRtWorldEwrtWorld(
     const vector_t& state) const {
-  const vector_t positionValues =
+  const vector_t stackedPosEesRtWorldEwrtWorld =
       positionCppAdInterfacePtr_->getFunctionValue(state);
-  const matrix_t positionJacobian =
+  const matrix_t stackedJacobianPosEesRtWorldEwrtWorld =
       positionCppAdInterfacePtr_->getJacobian(state);
 
-  std::vector<VectorFunctionLinearApproximation> positions;
-  positions.reserve(endEffectorIds_.size());
+  std::vector<VectorFunctionLinearApproximation> approxPosEesRtWorldEwrtWorld;
+  approxPosEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (size_t i = 0; i < endEffectorIds_.size(); ++i) {
-    VectorFunctionLinearApproximation pos;
-    pos.f = positionValues.segment<kPositionDim>(kPositionDim * i);
-    pos.dfdx =
-        positionJacobian.block(kPositionDim * i, 0, kPositionDim, state.rows());
-    positions.emplace_back(std::move(pos));
+    VectorFunctionLinearApproximation approxPosEeRtWorldEwrtWorld;
+    approxPosEeRtWorldEwrtWorld.f =
+        stackedPosEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim * i);
+    approxPosEeRtWorldEwrtWorld.dfdx =
+        stackedJacobianPosEesRtWorldEwrtWorld.block(kPositionDim * i, 0,
+                                                    kPositionDim, state.rows());
+    approxPosEesRtWorldEwrtWorld.emplace_back(
+        std::move(approxPosEeRtWorldEwrtWorld));
   }
-  return positions;
+  return approxPosEesRtWorldEwrtWorld;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::vector<PinocchioEndEffectorDynamicsCppAd::vector3_t>
-PinocchioEndEffectorDynamicsCppAd::getVelocity(const vector_t& state,
-                                               const vector_t& input) const {
+PinocchioEndEffectorDynamicsCppAd::getLinvelEesRtWorldEwrtWorld(
+    const vector_t& state, const vector_t& input) const {
   vector_t stateInput(state.rows() + input.rows());
   stateInput << state, input;
-  const vector_t velocityValues =
+  const vector_t stackedLinvelEesRtWorldEwrtWorld =
       velocityCppAdInterfacePtr_->getFunctionValue(stateInput);
 
-  std::vector<vector3_t> velocities;
-  velocities.reserve(endEffectorIds_.size());
+  std::vector<vector3_t> linvelEesRtWorldEwrtWorld;
+  linvelEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (size_t i = 0; i < endEffectorIds_.size(); ++i) {
-    velocities.emplace_back(
-        velocityValues.segment<kPositionDim>(kPositionDim * i));
+    linvelEesRtWorldEwrtWorld.emplace_back(
+        stackedLinvelEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim *
+                                                               i));
   }
-  return velocities;
+  return linvelEesRtWorldEwrtWorld;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::vector<VectorFunctionLinearApproximation>
-PinocchioEndEffectorDynamicsCppAd::getVelocityLinearApproximation(
-    const vector_t& state, const vector_t& input) const {
+PinocchioEndEffectorDynamicsCppAd::
+    getLinearApproximationLinvelEesRtWorldEwrtWorld(
+        const vector_t& state, const vector_t& input) const {
   vector_t stateInput(state.rows() + input.rows());
   stateInput << state, input;
-  const vector_t velocityValues =
+  const vector_t stackedLinvelEesRtWorldEwrtWorld =
       velocityCppAdInterfacePtr_->getFunctionValue(stateInput);
-  const matrix_t velocityJacobian =
+  const matrix_t stackedJacobianLinvelEesRtWorldEwrtWorld =
       velocityCppAdInterfacePtr_->getJacobian(stateInput);
 
-  std::vector<VectorFunctionLinearApproximation> velocities;
-  velocities.reserve(endEffectorIds_.size());
+  std::vector<VectorFunctionLinearApproximation>
+      approxLinvelEesRtWorldEwrtWorld;
+  approxLinvelEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (size_t i = 0; i < endEffectorIds_.size(); ++i) {
-    VectorFunctionLinearApproximation vel;
-    vel.f = velocityValues.segment<kPositionDim>(kPositionDim * i);
-    vel.dfdx =
-        velocityJacobian.block(kPositionDim * i, 0, kPositionDim, state.rows());
-    vel.dfdu = velocityJacobian.block(kPositionDim * i, state.rows(),
-                                      kPositionDim, input.rows());
-    velocities.emplace_back(std::move(vel));
+    VectorFunctionLinearApproximation approxLinvelEeRtWorldEwrtWorld;
+    approxLinvelEeRtWorldEwrtWorld.f =
+        stackedLinvelEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim *
+                                                               i);
+    approxLinvelEeRtWorldEwrtWorld.dfdx =
+        stackedJacobianLinvelEesRtWorldEwrtWorld.block(
+            kPositionDim * i, 0, kPositionDim, state.rows());
+    approxLinvelEeRtWorldEwrtWorld.dfdu =
+        stackedJacobianLinvelEesRtWorldEwrtWorld.block(
+            kPositionDim * i, state.rows(), kPositionDim, input.rows());
+    approxLinvelEesRtWorldEwrtWorld.emplace_back(
+        std::move(approxLinvelEeRtWorldEwrtWorld));
   }
-  return velocities;
+  return approxLinvelEesRtWorldEwrtWorld;
 }
 
 /******************************************************************************************************/
@@ -582,24 +603,26 @@ PinocchioEndEffectorDynamicsCppAd::getVelocityLinearApproximation(
 /******************************************************************************************************/
 
 std::vector<PinocchioEndEffectorDynamicsCppAd::vector3_t>
-PinocchioEndEffectorDynamicsCppAd::getOrientationErrorWrtPlane(
-    const vector_t& state, const std::vector<vector3_t>& planeNormals) const {
+PinocchioEndEffectorDynamicsCppAd::getTiltEesRtSurfaceEwrtWorld(
+    const vector_t& state,
+    const std::vector<vector3_t>& normalSurfacesEwrtWorld) const {
   vector_t params(kPlaneNormalDim * endEffectorIds_.size());
   for (size_t i = 0; i < endEffectorIds_.size(); ++i) {
-    params.segment<kPlaneNormalDim>(kPlaneNormalDim * i) = planeNormals[i];
+    params.segment<kPlaneNormalDim>(kPlaneNormalDim * i) =
+        normalSurfacesEwrtWorld[i];
   }
 
-  const vector_t errorValues =
-      orientationErrorWrtPlaneCppAdInterfacePtr_->getFunctionValue(state,
-                                                                   params);
+  const vector_t stackedTiltEesRtSurfaceEwrtWorld =
+      tiltEesCppAdInterfacePtr_->getFunctionValue(state, params);
 
-  std::vector<vector3_t> errors;
-  errors.reserve(endEffectorIds_.size());
+  std::vector<vector3_t> tiltEesRtSurfaceEwrtWorld;
+  tiltEesRtSurfaceEwrtWorld.reserve(endEffectorIds_.size());
   for (size_t i = 0; i < endEffectorIds_.size(); ++i) {
-    errors.emplace_back(
-        errorValues.segment<kRotationTangentDim>(kRotationTangentDim * i));
+    tiltEesRtSurfaceEwrtWorld.emplace_back(
+        stackedTiltEesRtSurfaceEwrtWorld.segment<kRotationTangentDim>(
+            kRotationTangentDim * i));
   }
-  return errors;
+  return tiltEesRtSurfaceEwrtWorld;
 }
 
 /******************************************************************************************************/
@@ -608,131 +631,143 @@ PinocchioEndEffectorDynamicsCppAd::getOrientationErrorWrtPlane(
 
 std::vector<VectorFunctionLinearApproximation>
 PinocchioEndEffectorDynamicsCppAd::
-    getOrientationErrorWrtPlaneLinearApproximation(
+    getLinearApproximationTiltEesRtSurfaceEwrtWorld(
         const vector_t& state,
-        const std::vector<vector3_t>& planeNormals) const {
+        const std::vector<vector3_t>& normalSurfacesEwrtWorld) const {
   vector_t params(kPlaneNormalDim * endEffectorIds_.size());
   for (size_t i = 0; i < endEffectorIds_.size(); ++i) {
-    params.segment<kPlaneNormalDim>(kPlaneNormalDim * i) = planeNormals[i];
+    params.segment<kPlaneNormalDim>(kPlaneNormalDim * i) =
+        normalSurfacesEwrtWorld[i];
   }
-  const vector_t errorValues =
-      orientationErrorWrtPlaneCppAdInterfacePtr_->getFunctionValue(state,
-                                                                   params);
-  const matrix_t errorJacobian =
-      orientationErrorWrtPlaneCppAdInterfacePtr_->getJacobian(state, params);
+  const vector_t stackedTiltEesRtSurfaceEwrtWorld =
+      tiltEesCppAdInterfacePtr_->getFunctionValue(state, params);
+  const matrix_t stackedJacobianTiltEesRtSurfaceEwrtWorld =
+      tiltEesCppAdInterfacePtr_->getJacobian(state, params);
 
-  std::vector<VectorFunctionLinearApproximation> errors;
-  errors.reserve(endEffectorIds_.size());
+  std::vector<VectorFunctionLinearApproximation>
+      approxTiltEesRtSurfaceEwrtWorld;
+  approxTiltEesRtSurfaceEwrtWorld.reserve(endEffectorIds_.size());
   for (size_t i = 0; i < endEffectorIds_.size(); ++i) {
-    VectorFunctionLinearApproximation err;
-    err.f = errorValues.segment<kRotationTangentDim>(kRotationTangentDim * i);
-    err.dfdx = errorJacobian.block(kRotationTangentDim * i, 0,
-                                   kRotationTangentDim, state.rows());
-    errors.emplace_back(std::move(err));
+    VectorFunctionLinearApproximation approxTiltEeRtSurfaceEwrtWorld;
+    approxTiltEeRtSurfaceEwrtWorld.f =
+        stackedTiltEesRtSurfaceEwrtWorld.segment<kRotationTangentDim>(
+            kRotationTangentDim * i);
+    approxTiltEeRtSurfaceEwrtWorld.dfdx =
+        stackedJacobianTiltEesRtSurfaceEwrtWorld.block(
+            kRotationTangentDim * i, 0, kRotationTangentDim, state.rows());
+    approxTiltEesRtSurfaceEwrtWorld.emplace_back(
+        std::move(approxTiltEeRtSurfaceEwrtWorld));
   }
-  return errors;
+  return approxTiltEesRtSurfaceEwrtWorld;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::vector<PinocchioEndEffectorDynamicsCppAd::vector3_t>
-PinocchioEndEffectorDynamicsCppAd::getLinearAcceleration(
+PinocchioEndEffectorDynamicsCppAd::getLinaccEesRtWorldEwrtWorld(
     const vector_t& state, const vector_t& input) const {
   vector_t stateInput(state.rows() + input.rows());
   stateInput << state, input;
-  const vector_t accelerationValues =
+  const vector_t stackedLinaccEesRtWorldEwrtWorld =
       linearAccelerationCppAdInterfacePtr_->getFunctionValue(stateInput);
 
-  std::vector<vector3_t> accelerations;
-  accelerations.reserve(endEffectorIds_.size());
+  std::vector<vector3_t> linaccEesRtWorldEwrtWorld;
+  linaccEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (size_t i = 0; i < endEffectorIds_.size(); ++i) {
-    accelerations.emplace_back(
-        accelerationValues.segment<kPositionDim>(kPositionDim * i));
+    linaccEesRtWorldEwrtWorld.emplace_back(
+        stackedLinaccEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim *
+                                                               i));
   }
-  return accelerations;
+  return linaccEesRtWorldEwrtWorld;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::vector<VectorFunctionLinearApproximation>
-PinocchioEndEffectorDynamicsCppAd::getLinearAccelerationLinearApproximation(
-    const vector_t& state, const vector_t& input) const {
+PinocchioEndEffectorDynamicsCppAd::
+    getLinearApproximationLinaccEesRtWorldEwrtWorld(
+        const vector_t& state, const vector_t& input) const {
   vector_t stateInput(state.rows() + input.rows());
   stateInput << state, input;
-  const vector_t accelerationValues =
+  const vector_t stackedLinaccEesRtWorldEwrtWorld =
       linearAccelerationCppAdInterfacePtr_->getFunctionValue(stateInput);
-  const matrix_t accelerationJacobian =
+  const matrix_t stackedJacobianLinaccEesRtWorldEwrtWorld =
       linearAccelerationCppAdInterfacePtr_->getJacobian(stateInput);
 
-  std::vector<VectorFunctionLinearApproximation> accelerations;
-  accelerations.reserve(endEffectorIds_.size());
+  std::vector<VectorFunctionLinearApproximation>
+      approxLinaccEesRtWorldEwrtWorld;
+  approxLinaccEesRtWorldEwrtWorld.reserve(endEffectorIds_.size());
   for (size_t i = 0; i < endEffectorIds_.size(); ++i) {
-    VectorFunctionLinearApproximation acc;
-    acc.f = accelerationValues.segment<kPositionDim>(kPositionDim * i);
-    acc.dfdx = accelerationJacobian.block(kPositionDim * i, 0, kPositionDim,
-                                          state.rows());
-    acc.dfdu = accelerationJacobian.block(kPositionDim * i, state.rows(),
-                                          kPositionDim, input.rows());
-    accelerations.emplace_back(std::move(acc));
+    VectorFunctionLinearApproximation approxLinaccEeRtWorldEwrtWorld;
+    approxLinaccEeRtWorldEwrtWorld.f =
+        stackedLinaccEesRtWorldEwrtWorld.segment<kPositionDim>(kPositionDim *
+                                                               i);
+    approxLinaccEeRtWorldEwrtWorld.dfdx =
+        stackedJacobianLinaccEesRtWorldEwrtWorld.block(
+            kPositionDim * i, 0, kPositionDim, state.rows());
+    approxLinaccEeRtWorldEwrtWorld.dfdu =
+        stackedJacobianLinaccEesRtWorldEwrtWorld.block(
+            kPositionDim * i, state.rows(), kPositionDim, input.rows());
+    approxLinaccEesRtWorldEwrtWorld.emplace_back(
+        std::move(approxLinaccEeRtWorldEwrtWorld));
   }
-  return accelerations;
+  return approxLinaccEesRtWorldEwrtWorld;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::vector<PinocchioEndEffectorDynamicsCppAd::vector6_t>
-PinocchioEndEffectorDynamicsCppAd::getPoseWrtPlaneRate(
+PinocchioEndEffectorDynamicsCppAd::getXeeRate(
     const vector_t& state,
     const vector_t& input,
-    const std::vector<vector3_t>& planeNormals) const {
-  return poseWrtPlaneBlocks(
-      poseWrtPlaneRateCppAdInterfacePtr_->getFunctionValue(
-          stateAndInput(state, input), planeNormalParameters(planeNormals)),
-      endEffectorIds_.size());
+    const std::vector<vector3_t>& normalSurfacesEwrtWorld) const {
+  return xeeBlocks(xeeRateCppAdInterfacePtr_->getFunctionValue(
+                       stateAndInput(state, input),
+                       planeNormalParameters(normalSurfacesEwrtWorld)),
+                   endEffectorIds_.size());
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::vector<PinocchioEndEffectorDynamicsCppAd::vector6_t>
-PinocchioEndEffectorDynamicsCppAd::getPoseWrtPlaneAcceleration(
+PinocchioEndEffectorDynamicsCppAd::getXeeSecondRate(
     const vector_t& state,
     const vector_t& input,
-    const std::vector<vector3_t>& planeNormals) const {
-  return poseWrtPlaneBlocks(
-      poseWrtPlaneAccelerationCppAdInterfacePtr_->getFunctionValue(
-          stateAndInput(state, input), planeNormalParameters(planeNormals)),
-      endEffectorIds_.size());
+    const std::vector<vector3_t>& normalSurfacesEwrtWorld) const {
+  return xeeBlocks(xeeSecondRateCppAdInterfacePtr_->getFunctionValue(
+                       stateAndInput(state, input),
+                       planeNormalParameters(normalSurfacesEwrtWorld)),
+                   endEffectorIds_.size());
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::vector<VectorFunctionLinearApproximation>
-PinocchioEndEffectorDynamicsCppAd::getPoseWrtPlaneRateLinearApproximation(
+PinocchioEndEffectorDynamicsCppAd::getLinearApproximationXeeRate(
     const vector_t& state,
     const vector_t& input,
-    const std::vector<vector3_t>& planeNormals) const {
-  return poseWrtPlaneLinearApproximations(
-      *poseWrtPlaneRateCppAdInterfacePtr_, state, input,
-      planeNormalParameters(planeNormals), endEffectorIds_.size());
+    const std::vector<vector3_t>& normalSurfacesEwrtWorld) const {
+  return xeeLinearApproximations(*xeeRateCppAdInterfacePtr_, state, input,
+                                 planeNormalParameters(normalSurfacesEwrtWorld),
+                                 endEffectorIds_.size());
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::vector<VectorFunctionLinearApproximation>
-PinocchioEndEffectorDynamicsCppAd::
-    getPoseWrtPlaneAccelerationLinearApproximation(
-        const vector_t& state,
-        const vector_t& input,
-        const std::vector<vector3_t>& planeNormals) const {
-  return poseWrtPlaneLinearApproximations(
-      *poseWrtPlaneAccelerationCppAdInterfacePtr_, state, input,
-      planeNormalParameters(planeNormals), endEffectorIds_.size());
+PinocchioEndEffectorDynamicsCppAd::getLinearApproximationXeeSecondRate(
+    const vector_t& state,
+    const vector_t& input,
+    const std::vector<vector3_t>& normalSurfacesEwrtWorld) const {
+  return xeeLinearApproximations(*xeeSecondRateCppAdInterfacePtr_, state, input,
+                                 planeNormalParameters(normalSurfacesEwrtWorld),
+                                 endEffectorIds_.size());
 }
 
 }  // namespace ocs2::humanoid

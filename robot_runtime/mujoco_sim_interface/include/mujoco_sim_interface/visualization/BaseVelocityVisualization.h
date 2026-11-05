@@ -46,7 +46,8 @@ namespace robot::mujoco_sim_interface {
 struct BaseVelocityCommand {
   double cmdLinvelBaseRtWorldEwrtHeadingX = 0.0;  // [m/s] forward
   double cmdLinvelBaseRtWorldEwrtHeadingY = 0.0;  // [m/s] lateral
-  double cmdRateYawBaseRtWorld = 0.0;  // [rad/s] about the world vertical
+  double cmdAngvelBaseRtWorldEwrtWorldZ =
+      0.0;  // [rad/s] about the world vertical
 };
 
 /**

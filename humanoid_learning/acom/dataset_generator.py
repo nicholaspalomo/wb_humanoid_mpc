@@ -49,7 +49,7 @@ _ROOT_BODY_ID = 1
 
 # Base height [m] at which configurations are sampled. The centroidal momentum
 # matrix does not depend on it; it only keeps the model clear of the ground plane.
-_NOMINAL_BASE_HEIGHT = 0.8
+_NOM_POS_BASE_RT_WORLD_EWRT_WORLD_Z = 0.8
 
 # Largest locked-inertia condition number that still yields a trustworthy solve.
 # Real humanoids stay below 10; this leaves a wide margin before rejecting.
@@ -427,12 +427,12 @@ class AcomDatasetGenerator:
         # network is fitted to the connection expressed in the BASE frame - the
         # free joint's angular velocity qvel[3:6] is the body angular velocity -
         # and the C++ runtime composes its rotation on the right of the base
-        # orientation on that understanding (AngularCenterOfMass::acomAttitude).
+        # orientation on that understanding (AngularCenterOfMass::computeQuatAcomRtWorldXyzw).
         # Sampling a spread of base orientations here would not enrich the
         # dataset, it would make the target multivalued in q_j and the fit would
         # collapse towards the rotational average.
         self.data.qpos[:] = 0.0
-        self.data.qpos[2] = _NOMINAL_BASE_HEIGHT
+        self.data.qpos[2] = _NOM_POS_BASE_RT_WORLD_EWRT_WORLD_Z
         self.data.qpos[3] = 1.0  # Quaternion w component.
         self.data.qpos[self.base_qpos_dim :] = q_joints_mj
 

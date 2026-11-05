@@ -52,7 +52,7 @@
           solref="0.004 1.0"/>
 
     <!-- EngineAI SA01 - base_link is the floating base body. The spawn height is the nominal standing base height
-         (reference.textproto default_base_height), which is also the height the gantry catches the robot at after a fall
+         (reference.textproto nom_pos_base_rt_surface_ewrt_world_z), which is also the height the gantry catches the robot at after a fall
          (MujocoSimInterface reads qpos[2] at load time). -->
     <body name="base_link" pos="0 0 0.8135">
       <freejoint name="root"/>
@@ -116,7 +116,7 @@
                   <!-- Foot sole contact geoms - 4 corner spheres only (no box) for clean point contacts. Their centres
                        are the corners of the MPC contact rectangle: the sole plane is 0.055 below the ankle, the
                        spheres have radius 0.010, so their centres sit at z = -0.045 and are inset by one radius from
-                       the 0.27 x 0.10 m sole. See task.textproto contacts.contact_frame_translation / contact_rectangle. -->
+                       the 0.27 x 0.10 m sole. See task.textproto contacts.pos_contact_rt_link_ewrt_link / contact_rectangle. -->
                   <geom class="collision" type="sphere" size="0.010" pos="-0.065 0.045 -0.045"/>
                   <geom class="collision" type="sphere" size="0.010" pos="-0.065 -0.035 -0.045"/>
                   <geom class="collision" type="sphere" size="0.010" pos="0.185 0.045 -0.045"/>

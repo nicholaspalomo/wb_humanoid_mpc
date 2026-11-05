@@ -39,28 +39,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerBase.h"
 #include "ocs2_core/control/FeedforwardController.h"
 #include "ocs2_core/manifold/ProductStateManifold.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/manifold/StateManifoldSegment.h"
-#include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_mpc/MPC_BASE.h"
 #include "ocs2_mpc/MPC_MRT_Interface.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_mpc_test/ScriptedMpc.h"
 #include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/oc_data/ProblemMetrics.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 #include "ocs2_oc/oc_solver/SolverBase.h"
+#include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
 #include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
 
@@ -375,8 +380,9 @@ TEST_F(InProcessMpcLinkTest,
   ASSERT_GT(seen.size(), failures);
   EXPECT_EQ(seen.size(), mpc_.solver().numSolves())
       << "an attempt the observer did not see";
-  for (size_t k = 0; k < failures; ++k)
+  for (size_t k = 0; k < failures; ++k) {
     EXPECT_EQ(seen[k].code, absl::StatusCode::kInternal) << "attempt " << k;
+  }
   EXPECT_FALSE(seen[failures - 1].healthy)
       << "the observer ran before the supervisor accounted for the failure";
   EXPECT_EQ(seen[failures].code, absl::StatusCode::kOk);

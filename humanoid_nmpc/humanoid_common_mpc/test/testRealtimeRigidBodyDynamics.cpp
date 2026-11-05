@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <cstddef>
 #include <memory>
 #include <ostream>
 #include <random>
@@ -37,17 +38,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/centroidal.hpp"
 #include "pinocchio/algorithm/crba.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/spatial/fwd.hpp"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/RealtimeRigidBodyDynamics.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
@@ -100,23 +106,24 @@ using ForceVector = std::vector<pinocchio::Force>;
 
 /** The external forces of RNEA for world-frame wrenches at the origins of the
  * sole frames `frames`, after kinematics. */
-ForceVector computeJointExternalForces(
+ForceVector computeWrenchLinksEwrtLink(
     const pinocchio::Model& model,
     const pinocchio::Data& data,
     const feet_array_t<pinocchio::FrameIndex>& frames,
     const feet_array_t<vector6_t>& wrenchFeetEwrtWorld) {
-  ForceVector jointExternalForces(model.njoints, pinocchio::Force::Zero());
+  ForceVector wrenchLinksEwrtLink(model.njoints, pinocchio::Force::Zero());
   for (size_t i = 0; i < kNumContacts; ++i) {
     const pinocchio::Frame& frame = model.frames[frames[i]];
     const matrix3_t rotmatFootRtWorld = data.oMf[frames[i]].rotation();
     // The wrench in the frame's own axes, about its origin, then in the parent
     // joint's frame.
-    const pinocchio::Force local(
+    const pinocchio::Force wrenchFootEwrtFoot(
         rotmatFootRtWorld.transpose() * wrenchFeetEwrtWorld[i].head<3>(),
         rotmatFootRtWorld.transpose() * wrenchFeetEwrtWorld[i].tail<3>());
-    jointExternalForces[frame.parentJoint] += frame.placement.act(local);
+    wrenchLinksEwrtLink[frame.parentJoint] +=
+        frame.placement.act(wrenchFootEwrtFoot);
   }
-  return jointExternalForces;
+  return wrenchLinksEwrtLink;
 }
 
 /** A random state of the MPC model: q with a unit quaternion, v, joint
@@ -132,18 +139,22 @@ Sample randomSample(const pinocchio::Model& model, std::mt19937& generator) {
   std::normal_distribution<scalar_t> normal(0.0, 1.0);
   Sample sample;
   sample.q.resize(model.nq);
-  for (Eigen::Index i = 0; i < sample.q.size(); ++i)
+  for (Eigen::Index i = 0; i < sample.q.size(); ++i) {
     sample.q(i) = 0.5 * normal(generator);
+  }
   sample.q.segment<4>(3).normalize();  // (x, y, z, w)
   sample.v.resize(model.nv);
-  for (Eigen::Index i = 0; i < sample.v.size(); ++i)
+  for (Eigen::Index i = 0; i < sample.v.size(); ++i) {
     sample.v(i) = normal(generator);
+  }
   sample.qddJoints.resize(model.nv - 6);
-  for (Eigen::Index i = 0; i < sample.qddJoints.size(); ++i)
+  for (Eigen::Index i = 0; i < sample.qddJoints.size(); ++i) {
     sample.qddJoints(i) = 3.0 * normal(generator);
+  }
   for (vector6_t& wrenchFootEwrtWorld : sample.wrenchFeetEwrtWorld) {
-    for (Eigen::Index i = 0; i < wrenchFootEwrtWorld.size(); ++i)
+    for (Eigen::Index i = 0; i < wrenchFootEwrtWorld.size(); ++i) {
       wrenchFootEwrtWorld(i) = 100.0 * normal(generator);
+    }
   }
   return sample;
 }
@@ -164,8 +175,9 @@ class RealtimeRigidBodyDynamicsTest
         loadCustomPinocchioInterface(taskFile, urdfFile, modelSettings)
             .value());
     const pinocchio::Model& model = pinocchioInterface_->getModel();
-    for (size_t i = 0; i < kNumContacts; ++i)
+    for (size_t i = 0; i < kNumContacts; ++i) {
       frames_[i] = model.getFrameId(modelSettings.contactNames[i]);
+    }
     absl::StatusOr<std::unique_ptr<RealtimeRigidBodyDynamics>> dynamics =
         RealtimeRigidBodyDynamics::Create(model, frames_);
     ASSERT_TRUE(dynamics.ok()) << dynamics.status();
@@ -237,11 +249,11 @@ TEST_P(RealtimeRigidBodyDynamicsTest, TheGravityAndTheMomentumAreTheMpcModels) {
     const Eigen::Index numJoints = model.nv - 6;
     pinocchio::nonLinearEffects(model, mpc.getData(), sample.q,
                                 vector_t::Zero(model.nv));
-    const vector_t gravity = mpc.getData().nle.tail(numJoints);
-    EXPECT_LT((dynamics_->gravityJointTorques(sample.q) - gravity)
+    const vector_t gravityJointTorques = mpc.getData().nle.tail(numJoints);
+    EXPECT_LT((dynamics_->gravityJointTorques(sample.q) - gravityJointTorques)
                   .cwiseAbs()
                   .maxCoeff(),
-              1.0e-9 * (1.0 + gravity.cwiseAbs().maxCoeff()));
+              1.0e-9 * (1.0 + gravityJointTorques.cwiseAbs().maxCoeff()));
 
     pinocchio::computeCentroidalMap(model, mpc.getData(), sample.q);
     const vector6_t cmomComRtWorldEwrtWorld = mpc.getData().Ag * sample.v;
@@ -268,10 +280,10 @@ TEST_P(RealtimeRigidBodyDynamicsTest,
 
     pinocchio::forwardKinematics(model, reference, sample.q);
     pinocchio::updateFramePlacements(model, reference);
-    const ForceVector jointExternalForces = computeJointExternalForces(
+    const ForceVector wrenchLinksEwrtLink = computeWrenchLinksEwrtLink(
         model, reference, frames_, sample.wrenchFeetEwrtWorld);
     const vector_t rnea = pinocchio::rnea(model, reference, sample.q, sample.v,
-                                          a, jointExternalForces);
+                                          a, wrenchLinksEwrtLink);
     const scalar_t scale = 1.0 + rnea.cwiseAbs().maxCoeff();
     EXPECT_LT(rnea.head<6>().cwiseAbs().maxCoeff(), 1.0e-9 * scale)
         << "trial " << trial << ": the base needs a wrench";
@@ -304,10 +316,10 @@ TEST_P(RealtimeRigidBodyDynamicsTest,
 
     pinocchio::forwardKinematics(model, reference, sample.q);
     pinocchio::updateFramePlacements(model, reference);
-    const ForceVector jointExternalForces = computeJointExternalForces(
+    const ForceVector wrenchLinksEwrtLink = computeWrenchLinksEwrtLink(
         model, reference, frames_, sample.wrenchFeetEwrtWorld);
     const vector_t rnea = pinocchio::rnea(model, reference, sample.q, sample.v,
-                                          a, jointExternalForces);
+                                          a, wrenchLinksEwrtLink);
     const scalar_t scale = 1.0 + rnea.cwiseAbs().maxCoeff();
     EXPECT_LT((rnea.tail(sample.qddJoints.size()) - jointTorques)
                   .cwiseAbs()

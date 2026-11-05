@@ -96,28 +96,34 @@ int intervalsOf(double length, double spacing) {
       1, static_cast<int>(std::ceil(length / spacing - kRoundingSlack)));
 }
 
-/** Spheres of the capsule's radius from start to end, at most one radius
- * apart. */
-absl::StatusOr<std::vector<Eigen::Vector3d>> capsuleCenters(
+/** Computes the centers of spheres of the capsule's radius from its start to
+ * its end, at most one radius apart, in the joint frame. */
+absl::StatusOr<std::vector<Eigen::Vector3d>> computePosSpheresRtLinkEwrtLink(
     const config::CollisionModel::Capsule& capsule,
     const config::CollisionModel& config,
     absl::string_view link) {
   RETURN_IF_ERROR(checkRadius(capsule.radius, config, link));
-  ASSIGN_OR_RETURN(const Eigen::Vector3d start,
-                   point3(capsule.start, config, link, "start"));
-  ASSIGN_OR_RETURN(const Eigen::Vector3d end,
-                   point3(capsule.end, config, link, "end"));
-  const double length = (end - start).norm();
+  ASSIGN_OR_RETURN(const Eigen::Vector3d posCapsulestartRtLinkEwrtLink,
+                   point3(capsule.pos_capsulestart_rt_link_ewrt_link, config,
+                          link, "pos_capsulestart_rt_link_ewrt_link"));
+  ASSIGN_OR_RETURN(const Eigen::Vector3d posCapsuleendRtLinkEwrtLink,
+                   point3(capsule.pos_capsuleend_rt_link_ewrt_link, config,
+                          link, "pos_capsuleend_rt_link_ewrt_link"));
+  const Eigen::Vector3d posCapsuleendRtCapsulestartEwrtLink =
+      posCapsuleendRtLinkEwrtLink - posCapsulestartRtLinkEwrtLink;
+  const double length = posCapsuleendRtCapsulestartEwrtLink.norm();
   if (length < kDegenerateLength) {
-    return std::vector<Eigen::Vector3d>{start};
+    return std::vector<Eigen::Vector3d>{posCapsulestartRtLinkEwrtLink};
   }
   const int intervals = intervalsOf(length, capsule.radius);
-  std::vector<Eigen::Vector3d> centers;
+  std::vector<Eigen::Vector3d> posSpheresRtLinkEwrtLink;
   for (int k = 0; k <= intervals; ++k) {
-    centers.push_back(start + (end - start) * static_cast<double>(k) /
-                                  static_cast<double>(intervals));
+    posSpheresRtLinkEwrtLink.push_back(posCapsulestartRtLinkEwrtLink +
+                                       posCapsuleendRtCapsulestartEwrtLink *
+                                           static_cast<double>(k) /
+                                           static_cast<double>(intervals));
   }
-  return centers;
+  return posSpheresRtLinkEwrtLink;
 }
 
 /** The coordinates along one box axis of half extent `halfExtent`: 0 when the
@@ -137,7 +143,7 @@ std::vector<double> boxAxisCoordinates(double halfExtent, double radius) {
 }
 
 struct BoxSpheres {
-  std::vector<Eigen::Vector3d> centers;
+  std::vector<Eigen::Vector3d> posSpheresRtLinkEwrtLink;
   double radius = 0.0;
 };
 
@@ -145,8 +151,9 @@ struct BoxSpheres {
 absl::StatusOr<BoxSpheres> boxSpheres(const config::CollisionModel::Box& box,
                                       const config::CollisionModel& config,
                                       absl::string_view link) {
-  ASSIGN_OR_RETURN(const Eigen::Vector3d center,
-                   point3(box.center, config, link, "center"));
+  ASSIGN_OR_RETURN(const Eigen::Vector3d posBoxRtLinkEwrtLink,
+                   point3(box.pos_box_rt_link_ewrt_link, config, link,
+                          "pos_box_rt_link_ewrt_link"));
   ASSIGN_OR_RETURN(const Eigen::Vector3d halfExtents,
                    point3(box.half_extents, config, link, "half_extents"));
   if (!(halfExtents.minCoeff() > 0.0)) {
@@ -154,16 +161,19 @@ absl::StatusOr<BoxSpheres> boxSpheres(const config::CollisionModel::Box& box,
   }
   BoxSpheres result;
   result.radius = halfExtents.minCoeff();
-  const std::vector<double> xs =
+  const std::vector<double> posSpheresRtBoxEwrtLinkX =
       boxAxisCoordinates(halfExtents.x(), result.radius);
-  const std::vector<double> ys =
+  const std::vector<double> posSpheresRtBoxEwrtLinkY =
       boxAxisCoordinates(halfExtents.y(), result.radius);
-  const std::vector<double> zs =
+  const std::vector<double> posSpheresRtBoxEwrtLinkZ =
       boxAxisCoordinates(halfExtents.z(), result.radius);
-  for (const double x : xs) {
-    for (const double y : ys) {
-      for (const double z : zs) {
-        result.centers.push_back(center + Eigen::Vector3d(x, y, z));
+  for (const double posSphereRtBoxEwrtLinkX : posSpheresRtBoxEwrtLinkX) {
+    for (const double posSphereRtBoxEwrtLinkY : posSpheresRtBoxEwrtLinkY) {
+      for (const double posSphereRtBoxEwrtLinkZ : posSpheresRtBoxEwrtLinkZ) {
+        result.posSpheresRtLinkEwrtLink.push_back(
+            posBoxRtLinkEwrtLink + Eigen::Vector3d(posSphereRtBoxEwrtLinkX,
+                                                   posSphereRtBoxEwrtLinkY,
+                                                   posSphereRtBoxEwrtLinkZ));
       }
     }
   }
@@ -180,13 +190,16 @@ absl::Status addLinkSpheres(const config::CollisionModel& config,
     case Link::kCapsuleIndex: {
       const config::CollisionModel::Capsule& capsule =
           std::get<Link::kCapsuleIndex>(link.shape);
-      ASSIGN_OR_RETURN(const std::vector<Eigen::Vector3d> centers,
-                       capsuleCenters(capsule, config, link.name));
-      for (const Eigen::Vector3d& center : centers) {
-        spheres.push_back(CollisionSphere{.link = linkIndex,
-                                          .joint = joint,
-                                          .center = center,
-                                          .radius = capsule.radius});
+      ASSIGN_OR_RETURN(
+          const std::vector<Eigen::Vector3d> posSpheresRtLinkEwrtLink,
+          computePosSpheresRtLinkEwrtLink(capsule, config, link.name));
+      for (const Eigen::Vector3d& posSphereRtLinkEwrtLink :
+           posSpheresRtLinkEwrtLink) {
+        spheres.push_back(
+            CollisionSphere{.link = linkIndex,
+                            .joint = joint,
+                            .posSphereRtLinkEwrtLink = posSphereRtLinkEwrtLink,
+                            .radius = capsule.radius});
       }
       return absl::OkStatus();
     }
@@ -194,11 +207,13 @@ absl::Status addLinkSpheres(const config::CollisionModel& config,
       ASSIGN_OR_RETURN(
           const BoxSpheres box,
           boxSpheres(std::get<Link::kBoxIndex>(link.shape), config, link.name));
-      for (const Eigen::Vector3d& center : box.centers) {
-        spheres.push_back(CollisionSphere{.link = linkIndex,
-                                          .joint = joint,
-                                          .center = center,
-                                          .radius = box.radius});
+      for (const Eigen::Vector3d& posSphereRtLinkEwrtLink :
+           box.posSpheresRtLinkEwrtLink) {
+        spheres.push_back(
+            CollisionSphere{.link = linkIndex,
+                            .joint = joint,
+                            .posSphereRtLinkEwrtLink = posSphereRtLinkEwrtLink,
+                            .radius = box.radius});
       }
       return absl::OkStatus();
     }
@@ -210,12 +225,14 @@ absl::Status addLinkSpheres(const config::CollisionModel& config,
       }
       for (const config::CollisionModel::Sphere& sphere : given.spheres) {
         RETURN_IF_ERROR(checkRadius(sphere.radius, config, link.name));
-        ASSIGN_OR_RETURN(const Eigen::Vector3d center,
-                         point3(sphere.center, config, link.name, "center"));
-        spheres.push_back(CollisionSphere{.link = linkIndex,
-                                          .joint = joint,
-                                          .center = center,
-                                          .radius = sphere.radius});
+        ASSIGN_OR_RETURN(const Eigen::Vector3d posSphereRtLinkEwrtLink,
+                         point3(sphere.pos_sphere_rt_link_ewrt_link, config,
+                                link.name, "pos_sphere_rt_link_ewrt_link"));
+        spheres.push_back(
+            CollisionSphere{.link = linkIndex,
+                            .joint = joint,
+                            .posSphereRtLinkEwrtLink = posSphereRtLinkEwrtLink,
+                            .radius = sphere.radius});
       }
       return absl::OkStatus();
     }
@@ -227,14 +244,21 @@ absl::Status addLinkSpheres(const config::CollisionModel& config,
 
 }  // namespace
 
-double distanceToPad(const PadRegion& pad, const Eigen::Vector3d& point) {
-  if (!pad.rectangle.has_value()) return (point - pad.center).norm();
-  const Eigen::Vector3d local = pad.rotation.transpose() * (point - pad.center);
+double distanceToPad(const PadRegion& pad,
+                     const Eigen::Vector3d& posQueryRtWorldEwrtWorld) {
+  if (!pad.rectangle.has_value())
+    return (posQueryRtWorldEwrtWorld - pad.posPadRtWorldEwrtWorld).norm();
+  const Eigen::Vector3d posQueryRtPadEwrtPad =
+      pad.rotmatPadRtWorld.transpose() *
+      (posQueryRtWorldEwrtWorld - pad.posPadRtWorldEwrtWorld);
   const ContactRectangle& rectangle = *pad.rectangle;
-  const Eigen::Vector3d nearest(
-      std::clamp(local.x(), rectangle.xMin, rectangle.xMax),
-      std::clamp(local.y(), rectangle.yMin, rectangle.yMax), 0.0);
-  return (local - nearest).norm();
+  const Eigen::Vector3d clampedPosQueryRtPadEwrtPad(
+      std::clamp(posQueryRtPadEwrtPad.x(), rectangle.minPosCornersRtPadEwrtPadX,
+                 rectangle.maxPosCornersRtPadEwrtPadX),
+      std::clamp(posQueryRtPadEwrtPad.y(), rectangle.minPosCornersRtPadEwrtPadY,
+                 rectangle.maxPosCornersRtPadEwrtPadY),
+      0.0);
+  return (posQueryRtPadEwrtPad - clampedPosQueryRtPadEwrtPad).norm();
 }
 
 bool exemptsJoint(const PadRegion& pad, pinocchio::JointIndex joint) {
@@ -358,10 +382,11 @@ absl::StatusOr<CollisionModel> CollisionModel::Create(
   return result;
 }
 
-Eigen::Vector3d CollisionModel::worldCenter(const RobotStanceModel& model,
-                                            int index) const {
+Eigen::Vector3d CollisionModel::getPosSphereRtWorldEwrtWorld(
+    const RobotStanceModel& model, int index) const {
   const CollisionSphere& sphere = spheres_[index];
-  return model.jointPlacement(sphere.joint).act(sphere.center);
+  return model.getPoseLinkRtWorld(sphere.joint)
+      .act(sphere.posSphereRtLinkEwrtLink);
 }
 
 std::vector<PadRegion> CollisionModel::activePadRegions(
@@ -369,39 +394,40 @@ std::vector<PadRegion> CollisionModel::activePadRegions(
   std::vector<PadRegion> pads;
   for (int index = 0; index < model.contactSet().size(); ++index) {
     if (!isContactActive(mask, index)) continue;
-    pads.push_back(
-        PadRegion{.center = model.padPosition(index),
-                  .rotation = model.padRotation(index),
-                  .rectangle = model.contactSet().candidate(index).rectangle,
-                  .joints = exemptJointsOf(model, index, linkAbove),
-                  .restingJoints = restingJointsOf(model, index, linkAbove)});
+    pads.push_back(PadRegion{
+        .posPadRtWorldEwrtWorld = model.getPosPadRtWorldEwrtWorld(index),
+        .rotmatPadRtWorld = model.getRotmatPadRtWorld(index),
+        .rectangle = model.contactSet().candidate(index).rectangle,
+        .joints = exemptJointsOf(model, index, linkAbove),
+        .restingJoints = restingJointsOf(model, index, linkAbove)});
   }
   return pads;
 }
 
 bool CollisionModel::isExempt(const std::vector<PadRegion>& pads,
                               pinocchio::JointIndex joint,
-                              const Eigen::Vector3d& worldCenter,
+                              const Eigen::Vector3d& posSphereRtWorldEwrtWorld,
                               double radius,
                               double neighborhood) {
   for (const PadRegion& pad : pads) {
     if (exemptsJoint(pad, joint) &&
-        distanceToPad(pad, worldCenter) < radius + neighborhood) {
+        distanceToPad(pad, posSphereRtWorldEwrtWorld) < radius + neighborhood) {
       return true;
     }
   }
   return false;
 }
 
-double CollisionModel::restingAllowance(const std::vector<PadRegion>& pads,
-                                        pinocchio::JointIndex joint,
-                                        const Eigen::Vector3d& worldCenter,
-                                        double radius,
-                                        double neighborhood) {
+double CollisionModel::restingAllowance(
+    const std::vector<PadRegion>& pads,
+    pinocchio::JointIndex joint,
+    const Eigen::Vector3d& posSphereRtWorldEwrtWorld,
+    double radius,
+    double neighborhood) {
   for (const PadRegion& pad : pads) {
     if (std::find(pad.restingJoints.begin(), pad.restingJoints.end(), joint) !=
             pad.restingJoints.end() &&
-        distanceToPad(pad, worldCenter) < radius + neighborhood) {
+        distanceToPad(pad, posSphereRtWorldEwrtWorld) < radius + neighborhood) {
       return kRestingLinkDepth;
     }
   }
@@ -418,16 +444,19 @@ SphereClearance CollisionModel::terrainClearance(
   if (restingTolerance.has_value()) {
     for (int index = 0; index < model.contactSet().size(); ++index) {
       if (isContactActive(mask, index)) continue;
-      const Eigen::Vector3d pad = model.padPosition(index);
-      if (std::abs(terrain.signedDistance(pad)) > *restingTolerance) continue;
+      const Eigen::Vector3d posPadRtWorldEwrtWorld =
+          model.getPosPadRtWorldEwrtWorld(index);
+      if (std::abs(terrain.signedDistance(posPadRtWorldEwrtWorld)) >
+          *restingTolerance)
+        continue;
       // A resting pad exempts its own link and those below, and treats the
       // end of a point pad's link above as an active one does: a knee
       // settling onto a box.
       const bool surface =
           model.contactSet().candidate(index).kind == ContactKind::kSurface;
       pads.push_back(PadRegion{
-          .center = pad,
-          .rotation = model.padRotation(index),
+          .posPadRtWorldEwrtWorld = posPadRtWorldEwrtWorld,
+          .rotmatPadRtWorld = model.getRotmatPadRtWorld(index),
           .rectangle = model.contactSet().candidate(index).rectangle,
           .joints = surface ? ownJointsOf(model, index)
                             : exemptJointsOf(model, index, linkAbove_),
@@ -436,14 +465,17 @@ SphereClearance CollisionModel::terrainClearance(
   }
   SphereClearance result;
   for (int index = 0; index < static_cast<int>(spheres_.size()); ++index) {
-    const Eigen::Vector3d center = worldCenter(model, index);
+    const Eigen::Vector3d posSphereRtWorldEwrtWorld =
+        getPosSphereRtWorldEwrtWorld(model, index);
     const double radius = spheres_[index].radius;
-    if (isExempt(pads, spheres_[index].joint, center, radius, neighborhood)) {
+    if (isExempt(pads, spheres_[index].joint, posSphereRtWorldEwrtWorld, radius,
+                 neighborhood)) {
       continue;
     }
-    const double clearance = terrain.sphereDistance(center, radius) +
-                             restingAllowance(pads, spheres_[index].joint,
-                                              center, radius, neighborhood);
+    const double clearance =
+        terrain.sphereDistance(posSphereRtWorldEwrtWorld, radius) +
+        restingAllowance(pads, spheres_[index].joint, posSphereRtWorldEwrtWorld,
+                         radius, neighborhood);
     if (!result.clearance.has_value() || clearance < *result.clearance) {
       result.clearance = clearance;
       result.sphere = index;
@@ -457,10 +489,11 @@ SphereClearance CollisionModel::selfClearance(
     const RobotStanceModel& model) const {
   SphereClearance result;
   for (const SpherePair& pair : selfCollisionPairs_) {
-    const double clearance =
-        (worldCenter(model, pair.first) - worldCenter(model, pair.second))
-            .norm() -
-        spheres_[pair.first].radius - spheres_[pair.second].radius;
+    const double clearance = (getPosSphereRtWorldEwrtWorld(model, pair.first) -
+                              getPosSphereRtWorldEwrtWorld(model, pair.second))
+                                 .norm() -
+                             spheres_[pair.first].radius -
+                             spheres_[pair.second].radius;
     if (!result.clearance.has_value() || clearance < *result.clearance) {
       result.clearance = clearance;
       result.sphere = pair.first;

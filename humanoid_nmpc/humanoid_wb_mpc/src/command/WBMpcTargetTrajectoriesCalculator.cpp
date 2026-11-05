@@ -54,32 +54,34 @@ namespace {
 
 /**
  * A target knot of the whole-body state of `model`: the base at the pose
- * `basePoseEulerZyx` ([x, y, z, yaw, pitch, roll]) and the joints at
+ * `poseeulerzyxBaseRtWorld` ([x, y, z, yaw, pitch, roll]) and the joints at
  * `jointAngles` (one per joint of the model), every velocity zero.
  */
 vector_t restingTargetKnot(const MpcRobotModelBase<scalar_t>& model,
-                           const vector6_t& basePoseEulerZyx,
+                           const vector6_t& poseeulerzyxBaseRtWorld,
                            const vector_t& jointAngles) {
   vector_t knot = vector_t::Zero(model.getStateDim());
-  model.setPoseeulerzyxBaseRtWorld(knot, basePoseEulerZyx);
+  model.setPoseeulerzyxBaseRtWorld(knot, poseeulerzyxBaseRtWorld);
   model.setJointAngles(knot, jointAngles);
   return knot;
 }
 
 /**
  * restingTargetKnot() with the base moving at the world-frame planar velocity
- * (`planarVelocityWorld`) and turning at `yawRate` [rad/s] about the world z
- * axis, the joints still.
+ * (`cmdLinvelBaseRtWorldEwrtWorldXy`) and turning at `cmdRateYawBaseRtWorld`
+ * [rad/s] about the world z axis, the joints still.
  */
 vector_t movingTargetKnot(const MpcRobotModelBase<scalar_t>& model,
-                          const vector6_t& basePoseEulerZyx,
+                          const vector6_t& poseeulerzyxBaseRtWorld,
                           const vector_t& jointAngles,
-                          const vector2_t& planarVelocityWorld,
-                          scalar_t yawRate) {
-  vector_t knot = restingTargetKnot(model, basePoseEulerZyx, jointAngles);
-  model.setBaseComLinearVelocity(
-      knot, vector3_t(planarVelocityWorld(0), planarVelocityWorld(1), 0.0));
-  model.setTurnAngvelBaseRtWorldEwrtBase(knot, yawRate);
+                          const vector2_t& cmdLinvelBaseRtWorldEwrtWorldXy,
+                          scalar_t cmdRateYawBaseRtWorld) {
+  vector_t knot =
+      restingTargetKnot(model, poseeulerzyxBaseRtWorld, jointAngles);
+  model.setLinvelBaseRtWorldEwrtWorld(
+      knot, vector3_t(cmdLinvelBaseRtWorldEwrtWorldXy(0),
+                      cmdLinvelBaseRtWorldEwrtWorldXy(1), 0.0));
+  model.setTurnAngvelBaseRtWorldEwrtBase(knot, cmdRateYawBaseRtWorld);
   return knot;
 }
 
@@ -133,22 +135,25 @@ WBMpcTargetTrajectoriesCalculator::WBMpcTargetTrajectoriesCalculator(
 
 TargetTrajectories
 WBMpcTargetTrajectoriesCalculator::poseCommandToTargetTrajectories(
-    const vector4_t& commadLinePoseTarget,
+    const vector4_t& poseCommand,
     scalar_t initTime,
     const vector_t& initState) {
-  vector_t currentPose = getLevelPoseeulerzyxBaseRtWorld(initState);
+  vector_t poseeulerzyxHeadingRtWorld =
+      getPoseeulerzyxHeadingRtWorld(initState);
 
-  const vector_t targetPose =
-      getDeltaBaseTarget(commadLinePoseTarget, currentPose);
+  const vector_t finalPoseeulerzyxBaseRtWorld =
+      getFinalPoseeulerzyxBaseRtWorld(poseCommand, poseeulerzyxHeadingRtWorld);
 
   scalar_t targetReachingTime =
-      initTime + estimateTimeToTarget(targetPose - currentPose);
+      initTime + estimateTimeToTarget(finalPoseeulerzyxBaseRtWorld -
+                                      poseeulerzyxHeadingRtWorld);
 
   // desired time and state trajectories: resting knots at most a quarter turn
   // apart in yaw, so that the slerp of the orientation between them turns the
   // commanded way (subdivideYawKnots())
   const std::vector<PoseCommandKnot> knots =
-      subdivideYawKnots(initTime, currentPose, targetReachingTime, targetPose);
+      subdivideYawKnots(initTime, poseeulerzyxHeadingRtWorld,
+                        targetReachingTime, finalPoseeulerzyxBaseRtWorld);
   scalar_array_t timeTrajectory;
   timeTrajectory.reserve(knots.size());
   vector_array_t stateTrajectory;
@@ -175,7 +180,7 @@ WBMpcTargetTrajectoriesCalculator::poseCommandToTargetTrajectories(
 
 TargetTrajectories
 WBMpcTargetTrajectoriesCalculator::velocityCommandToTargetTrajectories(
-    const vector4_t& commandedVelocities,
+    const vector4_t& velocityCommand,
     scalar_t initTime,
     const vector_t& initState,
     const BasePlanarMotion& measuredMotion) {
@@ -185,7 +190,7 @@ WBMpcTargetTrajectoriesCalculator::velocityCommandToTargetTrajectories(
   // own heading frame and turns at the commanded yaw rate about the world z
   // axis.
   const std::vector<VelocityCommandKnot> knots = velocityCommandKnots(
-      commandedVelocities, initTime, initState, measuredMotion);
+      velocityCommand, initTime, initState, measuredMotion);
 
   scalar_array_t timeTrajectory;
   vector_array_t stateTrajectory;

@@ -62,6 +62,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_core/Types.h"
 #include "robot_model/RobotDescription.h"
 #include "robot_model/RobotHWInterfaceBase.h"
+#include "robot_model/RobotJointAction.h"
 #include "robot_model/RobotState.h"
 
 namespace robot::mujoco_sim_interface {
@@ -140,7 +141,7 @@ struct MujocoSimConfig {
   static constexpr double kDefaultRagdollJointDamping = 20.0;
   /** [m] The base height below which the robot counts as fallen and is reset,
    * unless configured otherwise. */
-  static constexpr double kDefaultAutoResetBaseHeight = 0.2;
+  static constexpr double kNomAutoResetMinPosBaseRtWorldEwrtWorldZ = 0.2;
 
   std::string scenePath;
   /// The state the robot starts in and every reset returns it to. Absent: all
@@ -159,7 +160,7 @@ struct MujocoSimConfig {
   std::string projectile{};
   bool enableGantry = true;
   bool isGantryLocked = true;
-  double gantryHeight = 0.0;
+  double gantryPosBaseRtWorldEwrtWorldZ = 0.0;
   // Which base-hold implementation the gantry uses, by name (GantryHold above).
   // An unknown name is rejected at start-up.
   std::string gantryHold = "weld_constraint";
@@ -190,7 +191,8 @@ struct MujocoSimConfig {
   /// [m] The height of the base (its free joint's z) below which the robot has
   /// fallen: it is reset and caught on the gantry. Task file
   /// `sim_auto_reset_min_pos_base_rt_world_ewrt_world_z`; finite.
-  double autoResetBaseHeight = kDefaultAutoResetBaseHeight;
+  double autoResetMinPosBaseRtWorldEwrtWorldZ =
+      kNomAutoResetMinPosBaseRtWorldEwrtWorldZ;
 
   // Contact patch of every contact point (same order) in its contact frame,
   // drawn by the viewer at the target contact pose the controller reports
@@ -339,9 +341,14 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
     if (!isGantryLocked_.exchange(true)) cancelDodgeballRequested_.store(true);
   }
   void unlockGantry() { isGantryLocked_ = false; }
-  void setGantryHeight(double height) { gantryHeight_ = height; }
+  void setGantryPosBaseRtWorldEwrtWorldZ(
+      double gantryPosBaseRtWorldEwrtWorldZ) {
+    gantryPosBaseRtWorldEwrtWorldZ_ = gantryPosBaseRtWorldEwrtWorldZ;
+  }
   bool isGantryLocked() const { return isGantryLocked_.load(); }
-  double getGantryHeight() const { return gantryHeight_.load(); }
+  double getGantryPosBaseRtWorldEwrtWorldZ() const {
+    return gantryPosBaseRtWorldEwrtWorldZ_.load();
+  }
   /**
    * The base hold the gantry uses: the one `MujocoSimConfig::gantryHold` names,
    * or kKinematicTeleport when that is kWeldConstraint and the scene cannot
@@ -504,13 +511,13 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   void setBaseMotionCommand(double cmdLinvelBaseRtWorldEwrtHeadingX,
                             double cmdLinvelBaseRtWorldEwrtHeadingY,
-                            double cmdRateYawBaseRtWorld) {
+                            double cmdAngvelBaseRtWorldEwrtWorldZ) {
     cmdLinvelBaseRtWorldEwrtHeadingX_.store(cmdLinvelBaseRtWorldEwrtHeadingX,
                                             std::memory_order_relaxed);
     cmdLinvelBaseRtWorldEwrtHeadingY_.store(cmdLinvelBaseRtWorldEwrtHeadingY,
                                             std::memory_order_relaxed);
-    cmdRateYawBaseRtWorld_.store(cmdRateYawBaseRtWorld,
-                                 std::memory_order_relaxed);
+    cmdAngvelBaseRtWorldEwrtWorldZ_.store(cmdAngvelBaseRtWorldEwrtWorldZ,
+                                          std::memory_order_relaxed);
   }
   double getCmdLinvelBaseRtWorldEwrtHeadingX() const {
     return cmdLinvelBaseRtWorldEwrtHeadingX_.load(std::memory_order_relaxed);
@@ -518,8 +525,8 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   double getCmdLinvelBaseRtWorldEwrtHeadingY() const {
     return cmdLinvelBaseRtWorldEwrtHeadingY_.load(std::memory_order_relaxed);
   }
-  double getCmdRateYawBaseRtWorld() const {
-    return cmdRateYawBaseRtWorld_.load(std::memory_order_relaxed);
+  double getCmdAngvelBaseRtWorldEwrtWorldZ() const {
+    return cmdAngvelBaseRtWorldEwrtWorldZ_.load(std::memory_order_relaxed);
   }
 
  private:
@@ -659,7 +666,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   /// qpos[3..6]: the twist heading, the angle of its attitude's rotation about
   /// the vertical (design D9), which the gantry anchors at; the ZYX yaw upside
   /// down.
-  double baseYaw() const;
+  double getYawBaseRtWorld() const;
 
   void setSimState(const model::RobotState& robotState);
 
@@ -729,17 +736,15 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   static constexpr size_t kNoSensor = static_cast<size_t>(-1);
   // The feet's force sensors, by sensor id: a <force> sensor on a site of the
   // foot (isFootForceSensor()), or kNoFootForceSensor when the scene has none.
-  // NOLINTBEGIN(frame-naming): the ids of the feet's force sensors, not forces
   static constexpr int kNoFootForceSensor = -1;
   int rightFootForceSensor_ = kNoFootForceSensor;
   int leftFootForceSensor_ = kNoFootForceSensor;
-  // NOLINTEND(frame-naming)
 
   size_t rightFootTouchSensorAddress_{kNoSensor};
   size_t leftFootTouchSensorAddress_{kNoSensor};
 
   std::atomic<bool> isGantryLocked_{true};
-  std::atomic<double> gantryHeight_{0.0};
+  std::atomic<double> gantryPosBaseRtWorldEwrtWorldZ_{0.0};
   GantryHold gantryHold_{GantryHold::kWeldConstraint};
   /// Index of the scene's "gantry" weld equality, or -1 when the scene declares
   /// none.
@@ -771,8 +776,8 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   /// The feet's measured forces of the newest step, from the simulation thread
   /// to takeMeasForceFeetEwrtWorld().
   struct MeasuredFootForces {
-    vector3_t left = vector3_t::Zero();
-    vector3_t right = vector3_t::Zero();
+    vector3_t measForceLfootEwrtWorld = vector3_t::Zero();
+    vector3_t measForceRfootEwrtWorld = vector3_t::Zero();
   };
   TripleBuffer<MeasuredFootForces> bufferedMeasForceFeetEwrtWorld_;
 
@@ -795,7 +800,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
       0.0};  // commanded base velocities, from the control thread (see
              // setBaseMotionCommand)
   std::atomic<double> cmdLinvelBaseRtWorldEwrtHeadingY_{0.0};
-  std::atomic<double> cmdRateYawBaseRtWorld_{0.0};
+  std::atomic<double> cmdAngvelBaseRtWorldEwrtWorldZ_{0.0};
   std::atomic<uint32_t> targetContactMask_{0};
   std::atomic<bool> targetContactKnown_{false};
   std::atomic<uint32_t> groundTruthContactMask_{0};
@@ -833,7 +838,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   /// Preallocated scratch of the fallback impulse, so that the physics thread
   /// does not allocate: the translational Jacobian of the base point (3 x nv),
   /// J^T n and M^-1 J^T n (nv each).
-  std::vector<mjtNum> impactJacobian_;
+  std::vector<mjtNum> impactLinjacBaseRtWorldEwrtWorld_;
   std::vector<mjtNum> impactGeneralizedDirection_;
   std::vector<mjtNum> impactMobility_;
   /// Simulation thread only: applies the scheduled fallback impulse to the base

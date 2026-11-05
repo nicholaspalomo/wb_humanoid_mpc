@@ -57,7 +57,7 @@ DOFS = (
     "base_pitch",
     "base_roll",
 ) + JOINTS
-VELOCITY_DOFS = (
+GENERALIZED_VELOCITY_DOFS = (
     "base_vx",
     "base_vy",
     "base_vz",
@@ -76,7 +76,7 @@ def robot_dependent_names(
     dofs: Sequence[str] = DOFS,
     state_dim: int = STATE_DIM,
     input_dim: int = INPUT_DIM,
-    velocity_dofs: Sequence[str] = VELOCITY_DOFS,
+    generalized_velocity_dofs: Sequence[str] = GENERALIZED_VELOCITY_DOFS,
 ) -> tuple[str, ...]:
     """The names a producer gives a robot-dependent group, by its names rule."""
     if group.names_rule == telemetry_contract.JOINT_NAMES_RULE:
@@ -84,7 +84,7 @@ def robot_dependent_names(
     if group.names_rule == telemetry_contract.DOF_NAMES_RULE:
         return tuple(dofs)
     if group.names_rule == telemetry_contract.DOF_VELOCITY_NAMES_RULE:
-        return tuple(velocity_dofs)
+        return tuple(generalized_velocity_dofs)
     if group.names_rule == telemetry_contract.STATE_NAMES_RULE:
         return tuple(f"x{index}" for index in range(state_dim))
     if group.names_rule == telemetry_contract.INPUT_NAMES_RULE:
@@ -118,13 +118,19 @@ def full_telemetry(
     return series
 
 
-def _pose(
-    robot: robot_model_instance_pb2.RobotModelInstance, x: float, yaw: float
+def _add_pose_link_rt_world(
+    robot: robot_model_instance_pb2.RobotModelInstance,
+    pos_link_rt_world_ewrt_world_x: float,
+    yaw_link_rt_world: float,
 ) -> None:
-    pose = robot.pose_links_rt_world.add()
-    pose.position.x, pose.position.y, pose.position.z = x, 0.1, 0.8
-    pose.orientation.w = math.cos(yaw / 2.0)
-    pose.orientation.z = math.sin(yaw / 2.0)
+    pose_link_rt_world = robot.pose_links_rt_world.add()
+    # NOLINTBEGIN(frame-naming): the components of a frame-generic Pose; the enclosing field names the frames
+    pose_link_rt_world.position.x = pos_link_rt_world_ewrt_world_x
+    pose_link_rt_world.position.y = 0.1
+    pose_link_rt_world.position.z = 0.8
+    pose_link_rt_world.orientation.w = math.cos(yaw_link_rt_world / 2.0)
+    pose_link_rt_world.orientation.z = math.sin(yaw_link_rt_world / 2.0)
+    # NOLINTEND(frame-naming)
 
 
 def robot_instance(
@@ -133,7 +139,11 @@ def robot_instance(
     robot = robot_model_instance_pb2.RobotModelInstance(name=name)
     for index, link in enumerate(links):
         robot.link_names.append(link)
-        _pose(robot, x=0.1 * time + 0.01 * index, yaw=0.05 * index)
+        _add_pose_link_rt_world(
+            robot,
+            pos_link_rt_world_ewrt_world_x=0.1 * time + 0.01 * index,
+            yaw_link_rt_world=0.05 * index,
+        )
     return robot
 
 
@@ -148,24 +158,43 @@ def full_scene(
         if marker.kind is scene_contract.MarkerKind.ARROWS:
             arrows = arrows_pb2.Arrows(path=marker.path)
             for index in range(arrows_count):
-                origin = arrows.origins.add()
-                origin.x, origin.y, origin.z = 0.1 * index, 0.0, 0.0
-                vector = arrows.vectors.add()
-                vector.z = 1.0 + index
+                pos_arrow_rt_world_ewrt_world = (
+                    arrows.pos_arrows_rt_world_ewrt_world.add()
+                )
+                (
+                    pos_arrow_rt_world_ewrt_world.x,
+                    pos_arrow_rt_world_ewrt_world.y,
+                    pos_arrow_rt_world_ewrt_world.z,
+                ) = (0.1 * index, 0.0, 0.0)
+                pos_arrowhead_rt_arrow_ewrt_world = (
+                    arrows.pos_arrowheads_rt_arrow_ewrt_world.add()
+                )
+                pos_arrowhead_rt_arrow_ewrt_world.z = 1.0 + index
             scene.arrows.append(arrows)
         elif marker.kind is scene_contract.MarkerKind.SPHERES:
             spheres = spheres_pb2.Spheres(path=marker.path)
             for index in range(3):
-                center = spheres.centers.add()
-                center.x, center.y = 0.2 * index, 0.1
+                pos_sphere_rt_world_ewrt_world = (
+                    spheres.pos_spheres_rt_world_ewrt_world.add()
+                )
+                (
+                    pos_sphere_rt_world_ewrt_world.x,
+                    pos_sphere_rt_world_ewrt_world.y,
+                ) = (0.2 * index, 0.1)
             scene.spheres.append(spheres)
         else:
             line_strips = line_strips_pb2.LineStrips(path=marker.path)
             for strip_index in range(2):
                 strip = line_strips.strips.add()
                 for index in range(4):
-                    point = strip.points.add()
-                    point.x, point.y, point.z = (
+                    pos_strippoint_rt_world_ewrt_world = (
+                        strip.pos_strippoints_rt_world_ewrt_world.add()
+                    )
+                    (
+                        pos_strippoint_rt_world_ewrt_world.x,
+                        pos_strippoint_rt_world_ewrt_world.y,
+                        pos_strippoint_rt_world_ewrt_world.z,
+                    ) = (
                         0.1 * index,
                         0.1 * strip_index,
                         0.0,

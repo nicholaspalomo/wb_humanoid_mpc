@@ -102,15 +102,16 @@ auto CentroidalModelPinocchioMappingTpl<SCALAR>::getPinocchioJointVelocity(const
 
   const auto jointVelocities = centroidal_model::getJointVelocities(input, info).head(info.actuatedDofNum);
 
-  Eigen::Matrix<SCALAR, centroidal_model::kCentroidalMomentumDim, 1> cmomComRtWorldEwrtWorld =
+  const Eigen::Matrix<SCALAR, centroidal_model::kCentroidalMomentumDim, 1> cmomComRtWorldEwrtWorld =
       info.robotMass * centroidal_model::getMnormCmomComRtWorldEwrtWorld(state, info);
-  // Less the joints' share A_j q_j, it is the base velocity's share A_b v_b of the centroidal momentum.
+  // The base velocity's share A_b v_b of the centroidal momentum: the momentum less the joints' share A_j dq_j.
+  Eigen::Matrix<SCALAR, centroidal_model::kCentroidalMomentumDim, 1> baseMotionCmomComRtWorldEwrtWorld = cmomComRtWorldEwrtWorld;
   if (info.centroidalModelType == CentroidalModelType::FullCentroidalDynamics) {
-    cmomComRtWorldEwrtWorld.noalias() -= A.rightCols(info.actuatedDofNum) * jointVelocities;
+    baseMotionCmomComRtWorldEwrtWorld.noalias() -= A.rightCols(info.actuatedDofNum) * jointVelocities;
   }
 
   vector_t vPinocchio(info.velocityDim);
-  vPinocchio.template head<centroidal_model::kBaseVelocityDim>().noalias() = Ab_inv * cmomComRtWorldEwrtWorld;
+  vPinocchio.template head<centroidal_model::kBaseVelocityDim>().noalias() = Ab_inv * baseMotionCmomComRtWorldEwrtWorld;
   vPinocchio.tail(info.actuatedDofNum) = jointVelocities;
 
   return vPinocchio;

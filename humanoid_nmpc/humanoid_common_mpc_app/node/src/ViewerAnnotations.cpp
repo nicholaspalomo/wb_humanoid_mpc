@@ -36,13 +36,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::node {
 
 void targetContactPatchToProto(
-    const TargetContactPose& pose,
+    const TargetContactPose& desPoseFootRtWorld,
     humanoid_mpc_msgs::TargetContactPatch* absl_nonnull patch) {
   patch->Clear();
   // Every enumerator is listed, so that -Wswitch reports a new one.
   humanoid_mpc_msgs::TargetContactPatch::Kind kind =
       humanoid_mpc_msgs::TargetContactPatch::KIND_UNSPECIFIED;
-  switch (pose.kind) {
+  switch (desPoseFootRtWorld.kind) {
     case TargetContactPose::Kind::kSwingInFlight:
       kind = humanoid_mpc_msgs::TargetContactPatch::KIND_SWING_IN_FLIGHT;
       break;
@@ -56,26 +56,29 @@ void targetContactPatchToProto(
   patch->set_kind(kind);
   // A pose that is not valid or not finite is sent as no pose: the viewer draws
   // nothing for the foot.
-  if (!pose.valid || !pose.position.allFinite() ||
-      !std::isfinite(pose.height) || !std::isfinite(pose.yaw))
+  if (!desPoseFootRtWorld.valid ||
+      !desPoseFootRtWorld.posFootRtWorldEwrtWorldXy.allFinite() ||
+      !std::isfinite(desPoseFootRtWorld.posFootRtWorldEwrtWorldZ) ||
+      !std::isfinite(desPoseFootRtWorld.eulerzyxFootRtWorldYaw))
     return;
   humanoid_mpc_msgs::TargetContactPatch::Pose* absl_nonnull placement =
       patch->mutable_des_pose_foot_rt_world();
-  placement->set_x(pose.position(0));
-  placement->set_y(pose.position(1));
-  placement->set_z(pose.height);
-  placement->set_yaw(pose.yaw);
-  placement->set_yaw_planned(pose.yawPlanned);
+  placement->set_x(desPoseFootRtWorld.posFootRtWorldEwrtWorldXy(0));
+  placement->set_y(desPoseFootRtWorld.posFootRtWorldEwrtWorldXy(1));
+  placement->set_z(desPoseFootRtWorld.posFootRtWorldEwrtWorldZ);
+  placement->set_eulerzyx_foot_rt_world_yaw(
+      desPoseFootRtWorld.eulerzyxFootRtWorldYaw);
+  placement->set_yaw_planned(desPoseFootRtWorld.yawPlanned);
 }
 
 void fillViewerAnnotations(
-    const feet_array_t<TargetContactPose>* absl_nullable targetContactPoses,
+    const feet_array_t<TargetContactPose>* absl_nullable desPoseFeetRtWorld,
     const WalkingVelocityCommand& scaledVelocityCommand,
     humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
   annotations->Clear();
-  if (targetContactPoses != nullptr) {
-    for (const TargetContactPose& pose : *targetContactPoses) {
-      targetContactPatchToProto(pose,
+  if (desPoseFeetRtWorld != nullptr) {
+    for (const TargetContactPose& desPoseFootRtWorld : *desPoseFeetRtWorld) {
+      targetContactPatchToProto(desPoseFootRtWorld,
                                 annotations->add_target_contact_patches());
     }
   }

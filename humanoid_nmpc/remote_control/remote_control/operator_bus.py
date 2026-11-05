@@ -479,24 +479,24 @@ class OperatorBus:
 
 
 def walking_velocity_command(
-    cmd_linvel_base_rt_world_ewrt_heading_x: float,
-    cmd_linvel_base_rt_world_ewrt_heading_y: float,
-    cmd_angvel_base_rt_world_ewrt_world_z: float,
-    cmd_pos_base_rt_world_ewrt_world_z: float,
+    cmd_lnorm_linvel_base_rt_world_ewrt_heading_x: float,
+    cmd_lnorm_linvel_base_rt_world_ewrt_heading_y: float,
+    cmd_lnorm_angvel_base_rt_world_ewrt_world_z: float,
+    cmd_pos_base_rt_surface_ewrt_world_z: float,
 ) -> walking_velocity_command_pb2.WalkingVelocityCommand:
     """The WalkingVelocityCommand of normalized velocities in [-1, 1] and an absolute pelvis height [m]."""
     return walking_velocity_command_pb2.WalkingVelocityCommand(
-        cmd_linvel_base_rt_world_ewrt_heading_x=float(
-            cmd_linvel_base_rt_world_ewrt_heading_x
+        cmd_lnorm_linvel_base_rt_world_ewrt_heading_x=float(
+            cmd_lnorm_linvel_base_rt_world_ewrt_heading_x
         ),
-        cmd_linvel_base_rt_world_ewrt_heading_y=float(
-            cmd_linvel_base_rt_world_ewrt_heading_y
+        cmd_lnorm_linvel_base_rt_world_ewrt_heading_y=float(
+            cmd_lnorm_linvel_base_rt_world_ewrt_heading_y
         ),
-        cmd_angvel_base_rt_world_ewrt_world_z=float(
-            cmd_angvel_base_rt_world_ewrt_world_z
+        cmd_lnorm_angvel_base_rt_world_ewrt_world_z=float(
+            cmd_lnorm_angvel_base_rt_world_ewrt_world_z
         ),
-        cmd_pos_base_rt_world_ewrt_world_z=float(
-            cmd_pos_base_rt_world_ewrt_world_z
+        cmd_pos_base_rt_surface_ewrt_world_z=float(
+            cmd_pos_base_rt_surface_ewrt_world_z
         ),
     )
 
@@ -564,10 +564,10 @@ def joint_pd_gains_update(
 
 
 def joint_targets(
-    positions: Mapping[str, float] | None = None,
+    joint_positions: Mapping[str, float] | None = None,
 ) -> joint_targets_pb2.JointTargets:
-    """The JointTargets of a {joint name: position [rad]} map."""
+    """The JointTargets of a {joint name: angle [rad]} map."""
     message = joint_targets_pb2.JointTargets()
-    for name, position in (positions or {}).items():
-        message.joint_positions[str(name)] = float(position)
+    for name, joint_position in (joint_positions or {}).items():
+        message.joint_positions[str(name)] = float(joint_position)
     return message

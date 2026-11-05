@@ -37,6 +37,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/mrt/ControllerEvent.h"
+#include "humanoid_common_mpc/mrt/ControllerEventSink.h"
+#include "robot_model/ContactEstimator.h"
+#include "robot_model/RobotState.h"
+
 namespace ocs2::humanoid {
 
 ContactEstimateIntake::ContactEstimateIntake(

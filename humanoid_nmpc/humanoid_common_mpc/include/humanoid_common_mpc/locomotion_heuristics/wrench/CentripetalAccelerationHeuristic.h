@@ -29,9 +29,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <string>
 
+#include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 #include "humanoid_common_mpc/locomotion_heuristics/WrenchHeuristic.h"
 
 namespace ocs2::humanoid {
@@ -84,21 +92,22 @@ class CentripetalAccelerationHeuristic final : public WrenchHeuristic {
   ~CentripetalAccelerationHeuristic() override = default;
 
   absl::string_view name() const override {
-    return heuristic::kCentripetalAcceleration;
+    return heuristic::kCentripetalAccelerationName;
   }
   absl::Status configure(
       const LocomotionHeuristicConfig& config,
       const LocomotionHeuristicModelParameters& model) override;
   std::string describe() const override;
 
-  vector3_t forceOffset(const WrenchHeuristicContext& context,
-                        size_t contactIndex) const override;
-  bool producesHorizontalForce() const override { return true; }
+  vector3_t computeOffsetForceFootEwrtWorld(
+      const WrenchHeuristicContext& context,
+      size_t contactIndex) const override;
+  bool producesForceFootEwrtWorldXy() const override { return true; }
 
  private:
   /** [N] The clamp on the magnitude of the total horizontal force, before it is
    * shared over the stance feet. */
-  scalar_t totalForceLimit() const;
+  scalar_t getMaxForceComEwrtWorldXy() const;
 
   CentripetalAccelerationParameters parameters_;
   scalar_t totalMass_ = 0.0;

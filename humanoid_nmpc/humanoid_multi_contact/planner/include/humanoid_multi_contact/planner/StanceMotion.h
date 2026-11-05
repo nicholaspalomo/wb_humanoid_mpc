@@ -57,9 +57,9 @@ struct ContactPlacement {
   std::optional<BoxFace> face;
   // [m] The pad's center; the surface's outward normal; a surface pad's x
   // axis on the surface.
-  Eigen::Vector3d position = Eigen::Vector3d::Zero();
-  Eigen::Vector3d normal = Eigen::Vector3d::UnitZ();
-  Eigen::Vector3d xAxis = Eigen::Vector3d::UnitX();
+  Eigen::Vector3d posPadRtWorldEwrtWorld = Eigen::Vector3d::Zero();
+  Eigen::Vector3d normalSurfaceEwrtWorld = Eigen::Vector3d::UnitZ();
+  Eigen::Vector3d xAxisPadEwrtWorld = Eigen::Vector3d::UnitX();
 };
 
 /** A stance of the stance graph: its placements, ordered by candidate, one per
@@ -86,15 +86,15 @@ std::optional<ContactPlacement> placementOf(const StancePlacements& stance,
 /** The defaults of StanceMotionOptions; its fields say what each is. */
 inline constexpr double kDefaultComMargin = 0.03;
 inline constexpr double kDefaultSwingClearance = 0.06;
-inline constexpr double kDefaultMaxKnotComStep = 0.08;
-inline constexpr double kDefaultMaxKnotBaseStep = 0.08;
-inline constexpr double kDefaultMaxKnotPadStep = 0.08;
+inline constexpr double kNomKnotMaxNormErrPosComRtWorldEwrtWorld = 0.08;
+inline constexpr double kNomKnotMaxNormErrPosBaseRtWorldEwrtWorld = 0.08;
+inline constexpr double kNomKnotMaxNormErrPosPadRtWorldEwrtWorld = 0.08;
 inline constexpr double kDefaultMaxKnotJointStep = 0.25;
 inline constexpr int kDefaultMaxSegmentKnots = 48;
 inline constexpr double kDefaultTouchingDistance = 0.01;
 inline constexpr double kDefaultPadPenetrationTolerance = 0.005;
 inline constexpr double kDefaultSweepJointResolution = 0.02;
-inline constexpr double kDefaultSweepPositionResolution = 0.01;
+inline constexpr double kDefaultSweepBaseTranslationResolution = 0.01;
 inline constexpr int kDefaultSweepMinIntervals = 10;
 inline constexpr double kDefaultSweepComMarginSlack = 0.01;
 inline constexpr double kDefaultSweepTolerance = 0.0025;
@@ -105,7 +105,7 @@ struct SweepResolution {
   // [rad] The largest turn of a joint or of the base between two samples.
   double joint = kDefaultSweepJointResolution;
   // [m] The largest move of the base between two samples.
-  double position = kDefaultSweepPositionResolution;
+  double baseTranslation = kDefaultSweepBaseTranslationResolution;
   // The fewest intervals a step is sampled in: a knee lifting off a box dips
   // the end of its thigh in for a tenth of a step that turns no joint far.
   int minIntervals = kDefaultSweepMinIntervals;
@@ -139,12 +139,12 @@ struct StanceMotionOptions {
   // [m] The CoM's margin inside the static equilibrium polygon of every
   // planned configuration.
   double comMargin = kDefaultComMargin;
-  // Whether a configuration must hold its stance within `torqueMargin` of the
-  // effort limits (condition 1, JointLimits::kPositionAndEffort) or only
+  // Whether a configuration must hold its stance within `jointTorqueMargin` of
+  // the effort limits (condition 1, JointLimits::kPositionAndEffort) or only
   // within the joint position limits (kPositionOnly: no torque LP), and that
   // margin.
   JointLimits jointLimits = JointLimits::kPositionAndEffort;
-  double torqueMargin = 1.0;
+  double jointTorqueMargin = 1.0;
   // Whether to check the exact static margin of a transition configuration's
   // stance (its polygon at the reached pads) against `exactStaticMargin`.
   std::optional<double> exactStaticMargin;
@@ -153,9 +153,12 @@ struct StanceMotionOptions {
   double swingClearance = kDefaultSwingClearance;
   // [m, rad] The largest motion between two knots of a segment: of the CoM,
   // the base, a pad and a joint.
-  double maxKnotComStep = kDefaultMaxKnotComStep;
-  double maxKnotBaseStep = kDefaultMaxKnotBaseStep;
-  double maxKnotPadStep = kDefaultMaxKnotPadStep;
+  double knotMaxNormErrPosComRtWorldEwrtWorld =
+      kNomKnotMaxNormErrPosComRtWorldEwrtWorld;
+  double knotMaxNormErrPosBaseRtWorldEwrtWorld =
+      kNomKnotMaxNormErrPosBaseRtWorldEwrtWorld;
+  double knotMaxNormErrPosPadRtWorldEwrtWorld =
+      kNomKnotMaxNormErrPosPadRtWorldEwrtWorld;
   double maxKnotJointStep = kDefaultMaxKnotJointStep;
   int maxSegmentKnots = kDefaultMaxSegmentKnots;
   // [1/rad^2] The posture weight of a segment's knots, which follow the
@@ -229,7 +232,7 @@ struct SegmentContacts {
   // [m] Where the CoM's horizontal position goes over the segment instead of
   // to `to`'s: the weight shifts there gradually, as before a contact is
   // broken.
-  std::optional<Eigen::Vector2d> comGoal;
+  std::optional<Eigen::Vector2d> desPosComRtWorldEwrtWorldXy;
   // Whether a sole that swings to its touchdown is held level with its target
   // surface the whole way (the free leg of a climb folds far, and a free sole
   // flips its ankle on the way); otherwise it turns freely until it lands.
@@ -259,8 +262,9 @@ class StanceMotion {
   StanceMotion& operator=(const StanceMotion&) = delete;
   ~StanceMotion() = default;
 
-  /** The static equilibrium polygon of `stance` at its placements (empty when
-   * no CoM position is in equilibrium); Internal when an LP fails. */
+  /** The static equilibrium polygon of `stance` at its exact placements
+   * (empty when no CoM position is in equilibrium), cached per exact
+   * placements; Internal when an LP fails. */
   absl::StatusOr<std::vector<Eigen::Vector2d>> polygonOf(
       const StancePlacements& stance);
 
@@ -333,9 +337,12 @@ class StanceMotion {
                                        const Eigen::VectorXd& to,
                                        const SegmentContacts& contacts);
 
-  /** The IK problem of holding `held` with the CoM in `polygon`. */
-  StanceIkProblem holdingProblem(const StancePlacements& held,
-                                 std::vector<Eigen::Vector2d> polygon) const;
+  /** The IK problem of holding `held` with the CoM in
+   * `supportPosComRtWorldEwrtWorldXySamples`. */
+  StanceIkProblem holdingProblem(
+      const StancePlacements& held,
+      std::vector<Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples)
+      const;
 
   /** Why the step from knot `from` to knot `to` is more than twice the
    * intervals' limits allow for the CoM, the joints and the pads of
@@ -384,6 +391,9 @@ class StanceMotion {
 
   std::unique_ptr<StanceInverseKinematics> ik_;
   StanceMotionOptions options_;
+  // The support polygons of the stances seen so far, keyed by every placement
+  // coordinate the polygon depends on (exact pad positions, normals and x
+  // axes), never by the 5 cm stanceKey().
   absl::flat_hash_map<std::string, std::vector<Eigen::Vector2d>> polygons_;
 };
 

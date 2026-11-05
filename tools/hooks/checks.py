@@ -33,9 +33,7 @@ check's name is its NOLINT category (`// NOLINT(<name>): <reason>`) and its name
 themselves wrong (tools/hooks/nolint.py).
 
 Every check is enforced: `make lint`, the pre-commit hook and CI run them all, and there is no list of checks that are
-skipped until their findings are fixed (tools/hooks/test_lint_enforcement.py keeps it that way). The one exception is
-`frame-naming` (Check.opt_in), which measures a repository-wide rename while it runs and is switched on in its Verify
-phase (humanoid_nmpc/docs/frame_naming/README.md, section 9).
+skipped until their findings are fixed (tools/hooks/test_lint_enforcement.py keeps it that way).
 
 To add a check: write its module (`check_source(source, path) -> list[Finding]`, and `fix_source` where a rewrite cannot
 change behavior), list it in the module's CHECKS, add the module to _MODULE_CHECKS below, give it a test_<module>.py,
@@ -270,11 +268,6 @@ def by_name(name: str) -> Check:
 def names() -> frozenset[str]:
     """The names of every registry check: what `--only` and NOLINT markers may name."""
     return frozenset(check.name for check in REGISTRY)
-
-
-def default_names() -> frozenset[str]:
-    """The names of the checks `make lint` runs: every registry check but an opt-in one (Check.opt_in)."""
-    return frozenset(check.name for check in REGISTRY if not check.opt_in)
 
 
 def clang_tidy_checks(root: str) -> frozenset[str]:

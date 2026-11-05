@@ -31,8 +31,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+#include "ocs2_core/PhysicalConstants.h"
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 
 namespace ocs2::humanoid {
 
@@ -71,11 +79,12 @@ class CapturePointHeuristic final : public FootholdHeuristic {
       const LocomotionHeuristicModelParameters& model) override;
   std::string describe() const override;
 
-  vector2_t offset(const FootholdHeuristicContext& context) const override;
+  vector2_t computeOffsetPosFootRtWorldEwrtWorldXy(
+      const FootholdHeuristicContext& context) const override;
 
  private:
   CapturePointParameters parameters_;
-  scalar_t nominalComHeight_ = 0.0;
+  scalar_t nomPosComRtFeetmeanEwrtWorldZ_ = 0.0;
   // [m/s^2] the model's gravity (LocomotionHeuristicModelParameters::gravity),
   // set by configure().
   scalar_t gravity_ = kGravityMagnitude;

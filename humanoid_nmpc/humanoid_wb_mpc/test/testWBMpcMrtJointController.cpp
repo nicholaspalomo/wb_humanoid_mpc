@@ -377,7 +377,7 @@ TEST(WBMpcMrtJointController,
   pinocchio::nonLinearEffects(pinocchioInterface.getModel(),
                               pinocchioInterface.getData(), q,
                               vector_t::Zero(pinocchioInterface.getModel().nv));
-  const vector_t gravity =
+  const vector_t gravityJointTorques =
       pinocchioInterface.getData().nle.tail(harness.model().getJointDim());
 
   for (size_t i = 0; i < harness.mpcJointIndices().size(); ++i) {
@@ -386,7 +386,8 @@ TEST(WBMpcMrtJointController,
         << "joint " << index;
     EXPECT_DOUBLE_EQ(actionOf(action, index).qd_des, 0.0);
     EXPECT_GT(actionOf(action, index).kp, 0.0);
-    EXPECT_NEAR(actionOf(action, index).feed_forward_effort, gravity[i], 1.0e-9)
+    EXPECT_NEAR(actionOf(action, index).feed_forward_effort,
+                gravityJointTorques[i], 1.0e-9)
         << "joint " << index;
   }
 
@@ -409,17 +410,18 @@ TEST(WBMpcMrtJointController,
   // observation holds.
   WholeBodyHarness harness;
   const WBAccelMpcRobotModel<scalar_t>& model = harness.model();
-  const vector3_t position(0.3, -0.2, 0.75);
-  const quaternion_t orientation(Eigen::AngleAxisd(2.5, vector3_t::UnitZ()) *
-                                 Eigen::AngleAxisd(0.2, vector3_t::UnitY()) *
-                                 Eigen::AngleAxisd(-0.1, vector3_t::UnitX()));
-  const vector3_t linearVelocityLocal(0.4, -0.1, 0.05);
-  const vector3_t angularVelocityLocal(0.3, -0.2, 0.6);
+  const vector3_t posBaseRtWorldEwrtWorld(0.3, -0.2, 0.75);
+  const quaternion_t quatBaseRtWorld(
+      Eigen::AngleAxisd(2.5, vector3_t::UnitZ()) *
+      Eigen::AngleAxisd(0.2, vector3_t::UnitY()) *
+      Eigen::AngleAxisd(-0.1, vector3_t::UnitX()));
+  const vector3_t linvelBaseRtWorldEwrtBase(0.4, -0.1, 0.05);
+  const vector3_t angvelBaseRtWorldEwrtBase(0.3, -0.2, 0.6);
   robot::model::RobotState& robotState = harness.robotState();
-  robotState.setPosBaseRtWorldEwrtWorld(position);
-  robotState.setQuatBaseRtWorld(orientation);
-  robotState.setLinvelBaseRtWorldEwrtBase(linearVelocityLocal);
-  robotState.setAngvelBaseRtWorldEwrtBase(angularVelocityLocal);
+  robotState.setPosBaseRtWorldEwrtWorld(posBaseRtWorldEwrtWorld);
+  robotState.setQuatBaseRtWorld(quatBaseRtWorld);
+  robotState.setLinvelBaseRtWorldEwrtBase(linvelBaseRtWorldEwrtBase);
+  robotState.setAngvelBaseRtWorldEwrtBase(angvelBaseRtWorldEwrtBase);
   const std::vector<size_t>& jointIndices = harness.mpcJointIndices();
   vector_t jointPositions(static_cast<Eigen::Index>(jointIndices.size()));
   vector_t jointVelocities(static_cast<Eigen::Index>(jointIndices.size()));
@@ -436,17 +438,19 @@ TEST(WBMpcMrtJointController,
 
   const vector_t& state = harness.controller().getCurrentObservation().state;
   ASSERT_EQ(static_cast<size_t>(state.size()), model.getStateDim());
-  EXPECT_TRUE(model.getPosBaseRtWorldEwrtWorld(state) == position);
+  EXPECT_TRUE(model.getPosBaseRtWorldEwrtWorld(state) ==
+              posBaseRtWorldEwrtWorld);
   EXPECT_LT(quaternion_t(model.getQuatBaseRtWorldXyzw(state))
-                .angularDistance(orientation),
+                .angularDistance(quatBaseRtWorld),
             1.0e-12);
-  EXPECT_LT((model.getBaseComLinearVelocity(state) -
-             orientation * linearVelocityLocal)
+  EXPECT_LT((model.getLinvelBaseRtWorldEwrtWorld(state) -
+             quatBaseRtWorld * linvelBaseRtWorldEwrtBase)
                 .norm(),
             1.0e-12)
       << "in the world frame";
   EXPECT_LT(
-      (model.getAngvelBaseRtWorldEwrtBase(state) - angularVelocityLocal).norm(),
+      (model.getAngvelBaseRtWorldEwrtBase(state) - angvelBaseRtWorldEwrtBase)
+          .norm(),
       1.0e-12)
       << "in the base frame";
   EXPECT_TRUE(model.getJointAngles(state) == jointPositions);
@@ -461,11 +465,11 @@ TEST(WBMpcMrtJointController,
                               pinocchioInterface.getData(),
                               model.getGeneralizedCoordinates(state),
                               vector_t::Zero(pinocchioInterface.getModel().nv));
-  const vector_t gravity =
+  const vector_t gravityJointTorques =
       pinocchioInterface.getData().nle.tail(model.getJointDim());
   for (size_t i = 0; i < jointIndices.size(); ++i) {
     EXPECT_NEAR(actionOf(action, jointIndices[i]).feed_forward_effort,
-                gravity[static_cast<Eigen::Index>(i)], 1.0e-9)
+                gravityJointTorques[static_cast<Eigen::Index>(i)], 1.0e-9)
         << "joint " << i;
   }
 }
@@ -560,12 +564,12 @@ TEST(WBMpcMrtJointController,
                                          .getTargetTrajectories();
   ASSERT_EQ(target.timeTrajectory.size(), 2u);
   EXPECT_GT(target.timeTrajectory[1], target.timeTrajectory[0]);
-  scalar_t verticalForce = 0.0;
+  scalar_t sumForceContactsEwrtParamZ = 0.0;
   for (size_t foot = 0; foot < kNumContacts; ++foot)
-    verticalForce += harness.model().getForceContactEwrtParam(
+    sumForceContactsEwrtParamZ += harness.model().getForceContactEwrtParam(
         target.inputTrajectory[0], foot)(2);
   PinocchioInterface pinocchioInterface = harness.pinocchioInterface();
-  EXPECT_NEAR(verticalForce,
+  EXPECT_NEAR(sumForceContactsEwrtParamZ,
               pinocchio::computeTotalMass(pinocchioInterface.getModel()) * 9.81,
               1.0e-6);
 }
@@ -815,10 +819,11 @@ TEST(WBMpcMrtJointController,
 /** The measured posture of the MPC joints, indexed as the robot description's
  * joints (0 for the others). */
 std::vector<scalar_t> mpcJointPositions(WholeBodyHarness& harness) {
-  std::vector<scalar_t> positions(harness.description().getNumJoints(), 0.0);
+  std::vector<scalar_t> jointPositions(harness.description().getNumJoints(),
+                                       0.0);
   for (size_t index : harness.mpcJointIndices())
-    positions[index] = harness.robotState().getJointPosition(index);
-  return positions;
+    jointPositions[index] = harness.robotState().getJointPosition(index);
+  return jointPositions;
 }
 
 /** Moves every MPC joint of the measured robot by `offset` [rad]. */

@@ -30,12 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <optional>
-#include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
@@ -47,14 +48,14 @@ namespace ocs2::humanoid {
 /** Nominal trajectory the heading frame of the foothold constraints is
  * linearized around (heading model), per node. */
 struct HeadingNominal {
-  std::vector<scalar_t> heading;
-  std::vector<vector2_t> com;
-  std::vector<feet_array_t<vector2_t>> feet;
-  // [rad] per node, the nominal yaw of every foot, which the footprint frames
-  // of the ZMP support region are taken at (ContactPlanningContext::footAxes).
-  // Empty, or not covering every node: every foot is taken at the nominal
-  // heading.
-  std::vector<feet_array_t<scalar_t>> footYaws;
+  std::vector<scalar_t> nomHeadingModelYawTraj;
+  std::vector<vector2_t> nomPosComRtWorldEwrtWorldXyTraj;
+  std::vector<feet_array_t<vector2_t>> nomPosFeetRtWorldEwrtWorldXyTraj;
+  // [rad] per node, the nominal ZYX yaw of every foot, which the footprint
+  // frames of the ZMP support region are taken at
+  // (ContactPlanningContext::rotmatFeetRtWorldTraj). Empty, or not covering
+  // every node: every foot is taken at the nominal heading.
+  std::vector<feet_array_t<scalar_t>> nomEulerzyxFeetRtWorldYawTraj;
 };
 
 /**
@@ -73,31 +74,53 @@ struct ContactPlanningContext {
   std::optional<int>
       previousPlanShift;  // nodes between the previous plan's start and
                           // input.time; empty: no usable previous plan
-  scalar_t yawInertia =
+  scalar_t inertiaComEwrtWorldZz =
       1.0;  // [kg m^2] from the input (heading model), 1 otherwise
   scalar_t dt = PlannerSettings::kDefaultNodeDuration;
   int numNodes = 0;
   scalar_t omega = 0.0;
   scalar_t bigM = 0.0;
-  // Yaw-aligned constraint frame of every node k = 0..N: components of the
-  // world-frame unit vectors of the local x and y axes. With the heading model
-  // the frame of node k is the nominal heading of node k, the base yaw
-  // otherwise.
-  std::vector<std::array<vector2_t, kHorizontalPositionDim>> axes;
-  // Footprint frame of every foot at every node k = 0..N, the same components
-  // at the foot's nominal yaw (HeadingNominal::footYaws); equal to `axes`
-  // without the heading model or without nominal foot yaws.
+  // Yaw-aligned constraint frame of every node k = 0..N, the planar
+  // world_R_heading as its two columns: the world-frame unit vectors of the
+  // heading frame's x and y axes. With the heading model the frame of node k is
+  // the nominal heading of node k. Without it, it is the commanded heading of
+  // node k: the input yaw turned by getCmdErrYawHeadingRtWorld(k), the frame
+  // getCmdLinvelBaseRtWorldEwrtWorldXy() turns the command into.
+  std::vector<std::array<vector2_t, kHorizontalPositionDim>>
+      rotmatHeadingRtWorldTraj;
+  // The yaw-only planar world_R_foot of every foot at every node k = 0..N, the
+  // same columns at the foot's nominal yaw
+  // (HeadingNominal::nomEulerzyxFeetRtWorldYawTraj);
+  // equal to `rotmatHeadingRtWorldTraj` without the heading model or without
+  // nominal foot yaws.
   std::vector<feet_array_t<std::array<vector2_t, kHorizontalPositionDim>>>
-      footAxes;
+      rotmatFeetRtWorldTraj;
 
   bool hasHeading() const { return layout != nullptr && layout->hasHeading; }
-  const std::array<vector2_t, kHorizontalPositionDim>& axesAt(int node) const {
-    return axes[static_cast<size_t>(node)];
+  const std::array<vector2_t, kHorizontalPositionDim>& getRotmatHeadingRtWorld(
+      int node) const {
+    return rotmatHeadingRtWorldTraj[static_cast<size_t>(node)];
   }
-  const std::array<vector2_t, kHorizontalPositionDim>& footAxesAt(
+  const std::array<vector2_t, kHorizontalPositionDim>& getRotmatFootRtWorld(
       int node, size_t foot) const {
-    return footAxes[static_cast<size_t>(node)][foot];
+    return rotmatFeetRtWorldTraj[static_cast<size_t>(node)][foot];
   }
+
+  /**
+   * Returns the turn of the commanded heading by node `node`,
+   * omega_cmd node dt [rad], from the commanded yaw rate captured at the
+   * planning instant. Requires `input`.
+   */
+  scalar_t getCmdErrYawHeadingRtWorld(int node) const;
+
+  /**
+   * Returns the commanded base velocity at node `node`: the command captured at
+   * the planning instant (ContactPlannerInput::cmdLinvelBaseRtWorldEwrtWorldXy)
+   * rotated by R_z(omega_cmd node dt), the turn of the commanded heading by
+   * that node, as the operator's target and heading_tracking turn it. Applies
+   * with or without the heading model. Requires `input`.
+   */
+  vector2_t getCmdLinvelBaseRtWorldEwrtWorldXy(int node) const;
 
   /**
    * First-order heading term of the projection e_axis(theta) . d around the
@@ -114,8 +137,9 @@ struct ContactPlanningContext {
                              int axis,
                              const vector2_t& dNominal) const;
 
-  /** Fills `axes` from the nominal heading (or the input yaw), and `footAxes`
-   * from the nominal foot yaws. */
+  /** Fills `rotmatHeadingRtWorldTraj` from the nominal heading (or, without
+   * the heading model, the commanded heading ramp), and
+   * `rotmatFeetRtWorldTraj` from the nominal foot yaws. */
   void computeAxes();
 };
 

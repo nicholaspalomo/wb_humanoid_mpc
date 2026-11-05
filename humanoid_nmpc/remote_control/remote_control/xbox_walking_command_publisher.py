@@ -33,7 +33,7 @@
 
 Publishes operator/walking_velocity_command as the `teleop` node at the topic's 25 Hz while a controller is connected,
 and scans for one every two seconds while none is. The pelvis height target starts at the reference file's
-nom_pos_base_rt_world_ewrt_world_z. The MPC keeps the last command it received, so when the controller goes away, and when the
+nom_pos_base_rt_surface_ewrt_world_z. The MPC keeps the last command it received, so when the controller goes away, and when the
 publisher ends, it publishes the stop command (zero velocities, the pelvis height kept) for a second; then nothing until
 a controller is found again.
 
@@ -92,12 +92,12 @@ class XBoxWalkingCommandPublisher:
         elif self._last_command is not None and self._stop_ticks_left > 0:
             self._stop_ticks_left -= 1
             command = teleop.stop_command(
-                self._last_command.cmd_pos_base_rt_world_ewrt_world_z
+                self._last_command.cmd_pos_base_rt_surface_ewrt_world_z
             )
         if command is not None:
             self._publisher.publish(command)
 
-    def stop_pelvis_height(self) -> float | None:
+    def stop_cmd_pos_base_rt_surface_ewrt_world_z(self) -> float | None:
         """The pelvis height of the stop command to send when the publisher ends [m].
 
         Returns:
@@ -106,7 +106,7 @@ class XBoxWalkingCommandPublisher:
         """
         if self._last_command is None or self._stop_ticks_left == 0:
             return None
-        return self._last_command.cmd_pos_base_rt_world_ewrt_world_z
+        return self._last_command.cmd_pos_base_rt_surface_ewrt_world_z
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -135,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         controller = xbox_controller_interface.XBoxControllerInterface(
             teleop.WALKING_COMMAND_RATE_HZ,
-            initial_pelvis_height=teleop.initial_pelvis_height(
+            init_cmd_pos_base_rt_surface_ewrt_world_z=teleop.read_init_cmd_pos_base_rt_surface_ewrt_world_z(
                 args.reference_file
             ),
         )
@@ -149,6 +149,9 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     teleop.publish_until_stopped(
-        publisher, node.tick, stop, node.stop_pelvis_height
+        publisher,
+        node.tick,
+        stop,
+        node.stop_cmd_pos_base_rt_surface_ewrt_world_z,
     )
     return 0

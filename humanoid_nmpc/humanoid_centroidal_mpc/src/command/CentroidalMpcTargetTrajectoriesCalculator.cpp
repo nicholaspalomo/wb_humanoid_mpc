@@ -41,14 +41,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/centroidal.hpp"
 
-#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
+#include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
+#include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
 
 namespace ocs2::humanoid {
 
@@ -142,24 +152,26 @@ void CentroidalMpcTargetTrajectoriesCalculator::reset() {
 
 TargetTrajectories
 CentroidalMpcTargetTrajectoriesCalculator::poseCommandToTargetTrajectories(
-    const vector4_t& commandLinePoseTarget,
+    const vector4_t& poseCommand,
     scalar_t initTime,
     const vector_t& initState) {
-  const vector6_t currentPoseTarget =
-      getLevelPoseeulerzyxBaseRtWorld(initState);
+  const vector6_t poseeulerzyxHeadingRtWorld =
+      getPoseeulerzyxHeadingRtWorld(initState);
 
-  const vector6_t targetPose =
-      getDeltaBaseTarget(commandLinePoseTarget, currentPoseTarget);
+  const vector6_t finalPoseeulerzyxBaseRtWorld =
+      getFinalPoseeulerzyxBaseRtWorld(poseCommand, poseeulerzyxHeadingRtWorld);
 
   scalar_t targetReachingTime =
-      initTime + estimateTimeToTarget(targetPose - currentPoseTarget);
+      initTime + estimateTimeToTarget(finalPoseeulerzyxBaseRtWorld -
+                                      poseeulerzyxHeadingRtWorld);
 
   // desired time and state trajectories: at rest (zero momentum), the base
   // poses on knots at most a quarter turn apart in yaw, so that the slerp of
   // the orientation between them turns the commanded way (subdivideYawKnots()),
   // and the target joints
-  const std::vector<PoseCommandKnot> knots = subdivideYawKnots(
-      initTime, currentPoseTarget, targetReachingTime, targetPose);
+  const std::vector<PoseCommandKnot> knots =
+      subdivideYawKnots(initTime, poseeulerzyxHeadingRtWorld,
+                        targetReachingTime, finalPoseeulerzyxBaseRtWorld);
   scalar_array_t timeTrajectory;
   timeTrajectory.reserve(knots.size());
   vector_array_t stateTrajectory;
@@ -189,7 +201,7 @@ CentroidalMpcTargetTrajectoriesCalculator::poseCommandToTargetTrajectories(
 
 TargetTrajectories
 CentroidalMpcTargetTrajectoriesCalculator::velocityCommandToTargetTrajectories(
-    const vector4_t& commandedVelocities,
+    const vector4_t& velocityCommand,
     scalar_t initTime,
     const vector_t& initState,
     const BasePlanarMotion& measuredMotion) {
@@ -198,7 +210,7 @@ CentroidalMpcTargetTrajectoriesCalculator::velocityCommandToTargetTrajectories(
   // comment; design defect D1b). The momentum target of every knot is the
   // command's.
   const std::vector<VelocityCommandKnot> knots = velocityCommandKnots(
-      commandedVelocities, initTime, initState, measuredMotion);
+      velocityCommand, initTime, initState, measuredMotion);
 
   // The state carries the NORMALIZED centroidal momentum h = [p / m, L / m].
   // Its linear part is the CoM velocity, which the target sets to the commanded
@@ -217,7 +229,7 @@ CentroidalMpcTargetTrajectoriesCalculator::velocityCommandToTargetTrajectories(
   // which for the DRC Atlas made the yaw momentum target 8x too small (and
   // dimensionally a rate per kilogram); the MPC then barely turned however hard
   // it was asked.
-  const matrix3_t lockedInertia = [&]() {
+  const matrix3_t inertiaComEwrtWorld = [&]() {
     const PinocchioInterface::Model& model = pinocchioInterface_.getModel();
     PinocchioInterface::Data& data = pinocchioInterface_.getData();
     pinocchio::ccrba(model, data,
@@ -229,15 +241,15 @@ CentroidalMpcTargetTrajectoriesCalculator::velocityCommandToTargetTrajectories(
   // turned about the world z axis by dpsi: its inertia R_z I_G R_z^T, whose yaw
   // column is R_z I_G e_z, so the knot's angular momentum is the first one's
   // turned by dpsi, the yaw component unchanged
-  // (MpcRobotModelBase::getTargetPlanarCommand() reads the same yaw rate back),
+  // (MpcRobotModelBase::getRefPlanarMotion() reads the same yaw rate back),
   // and its linear momentum is the command in the knot's heading frame (design
   // README section 2.9). Between knots dpsi_k apart the solver interpolates
   // both linearly, which shortens the horizontal angular momentum by up to
   // |L_xy| (1 - cos(dpsi_k / 2)); the knots' subdivision bounds the CoM
   // velocity's share of that (TargetTrajectoriesCalculatorBase's class
   // comment).
-  const vector3_t angularMomentum =
-      lockedInertia.col(kZAxisIndex) *
+  const vector3_t refMnormAngmomComRtWorldEwrtWorld =
+      inertiaComEwrtWorld.col(kZAxisIndex) *
       (knots.front().cmdRateYawBaseRtWorld / mass_);
 
   // Extract current joint state from the provided initial state observation
@@ -269,19 +281,21 @@ CentroidalMpcTargetTrajectoriesCalculator::velocityCommandToTargetTrajectories(
   // joints: filtered up to the intermediate knot, then interpolated linearly to
   // the target joints at the end. The normalized centroidal momentum h leads
   // the state of every centroidal layout
-  // (CentroidalMpcRobotModel::getCentroidalMomentum()).
+  // (CentroidalMpcRobotModel::getMnormCmomComRtWorldEwrtWorld()).
   scalar_array_t timeTrajectory;
   vector_array_t stateTrajectory;
   for (const VelocityCommandKnot& knot : knots) {
     vector_t state = vector_t::Zero(mpcRobotModelPtr_->getStateDim());
-    const scalar_t cosine = std::cos(knot.headingChange);
-    const scalar_t sine = std::sin(knot.headingChange);
+    const scalar_t cosine = std::cos(knot.errYawBaseRtWorld);
+    const scalar_t sine = std::sin(knot.errYawBaseRtWorld);
     state.head<centroidal_model::kCentroidalMomentumDim>()
         << knot.cmdLinvelBaseRtWorldEwrtWorldXy(0),
         knot.cmdLinvelBaseRtWorldEwrtWorldXy(1), 0.0,
-        cosine * angularMomentum(0) - sine * angularMomentum(1),
-        sine * angularMomentum(0) + cosine * angularMomentum(1),
-        angularMomentum(kZAxisIndex);
+        cosine * refMnormAngmomComRtWorldEwrtWorld(0) -
+            sine * refMnormAngmomComRtWorldEwrtWorld(1),
+        sine * refMnormAngmomComRtWorldEwrtWorld(0) +
+            cosine * refMnormAngmomComRtWorldEwrtWorld(1),
+        refMnormAngmomComRtWorldEwrtWorld(kZAxisIndex);
     mpcRobotModelPtr_->setPoseeulerzyxBaseRtWorld(state,
                                                   knot.poseeulerzyxBaseRtWorld);
     if (knot.secondSegmentFraction == 0.0) {

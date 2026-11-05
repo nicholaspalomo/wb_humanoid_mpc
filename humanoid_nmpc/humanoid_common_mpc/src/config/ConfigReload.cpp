@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
 
@@ -69,10 +70,12 @@ struct FieldTuning {
 
 ConfigReload reloadOf(humanoid_mpc_config::TuningOptions::Reload reload) {
   // Proto enums are open: a number this code does not know is no reload class.
-  if (reload == humanoid_mpc_config::TuningOptions::RELOAD_HOT)
+  if (reload == humanoid_mpc_config::TuningOptions::RELOAD_HOT) {
     return ConfigReload::kHot;
-  if (reload == humanoid_mpc_config::TuningOptions::RELOAD_START_UP)
+  }
+  if (reload == humanoid_mpc_config::TuningOptions::RELOAD_START_UP) {
     return ConfigReload::kStartUp;
+  }
   return ConfigReload::kUnspecified;
 }
 
@@ -95,9 +98,10 @@ FieldTuning inherit(const FieldTuning& parent, const FieldDescriptor& field) {
   if (own.has_consumer()) tuning.consumer = own.consumer();
   // A field that names formulations replaces its block's; one that names none
   // keeps them (config_schema.inherit()).
-  if (own.formulations_size() > 0)
+  if (own.formulations_size() > 0) {
     tuning.formulations.assign(own.formulations().begin(),
                                own.formulations().end());
+  }
   tuning.registry = own.registry();
   return tuning;
 }
@@ -151,8 +155,9 @@ void walkLeaves(const Descriptor& descriptor,
       continue;
     }
     if (std::find(stack.begin(), stack.end(), block->full_name()) !=
-        stack.end())
+        stack.end()) {
       continue;
+    }
     if (field.is_repeated()) absl::StrAppend(&path, "[*]");
     stack.emplace_back(descriptor.full_name());
     walkLeaves(*block, path, fieldTuning, stack, found);
@@ -168,8 +173,9 @@ void walkLeaves(const Descriptor& descriptor,
  */
 bool presenceMatters(const FieldDescriptor& field) {
   if (field.is_repeated()) return false;
-  if (field.cpp_type() == FieldDescriptor::CPPTYPE_MESSAGE)
+  if (field.cpp_type() == FieldDescriptor::CPPTYPE_MESSAGE) {
     return field.options().GetExtension(nproto::optional_message);
+  }
   return field.has_presence() && !field.has_default_value();
 }
 
@@ -181,11 +187,13 @@ bool sameValues(const Message& running,
   const Reflection& left = *running.GetReflection();
   const Reflection& right = *reloaded.GetReflection();
   if (presenceMatters(field) &&
-      left.HasField(running, &field) != right.HasField(reloaded, &field))
+      left.HasField(running, &field) != right.HasField(reloaded, &field)) {
     return false;
+  }
   const int size = field.is_repeated() ? left.FieldSize(running, &field) : 1;
-  if (field.is_repeated() && size != right.FieldSize(reloaded, &field))
+  if (field.is_repeated() && size != right.FieldSize(reloaded, &field)) {
     return false;
+  }
   for (int index = 0; index < size; ++index) {
     const bool repeated = field.is_repeated();
     bool same = true;
@@ -299,8 +307,9 @@ void walkChanges(const Message& running,
     const FieldTuning fieldTuning = inherit(tuning, field);
     const std::string path = childPath(prefix, field);
     if (field.cpp_type() != FieldDescriptor::CPPTYPE_MESSAGE) {
-      if (!sameValues(running, reloaded, field))
+      if (!sameValues(running, reloaded, field)) {
         recordChange(path, fieldTuning, changed);
+      }
       continue;
     }
     if (field.is_repeated()) {

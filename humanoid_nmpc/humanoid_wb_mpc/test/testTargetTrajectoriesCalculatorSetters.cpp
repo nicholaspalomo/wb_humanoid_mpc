@@ -140,46 +140,48 @@ class TargetTrajectoriesCalculatorSettersTest : public ::testing::Test {
 
 /**
  * Expects the reference of `targets` to turn the base by `turn` [rad] from its
- * first knot: knots at most kMaxKnotYawSpacing apart in heading, as many as
- * subdivideYawKnots() makes, and between them the robot model's slerp of the
+ * first knot: knots at most kKnotMaxErrYawBaseRtWorld apart in heading, as many
+ * as subdivideYawKnots() makes, and between them the robot model's slerp of the
  * orientation turning the commanded way at every step, level, by `turn` in all.
  */
 void expectTheReferenceTurnsBy(const MpcRobotModelBase<scalar_t>& model,
                                const TargetTrajectories& targets,
                                scalar_t turn) {
   const size_t parts = std::max<size_t>(
-      1, static_cast<size_t>(
-             std::ceil(std::abs(turn) /
-                       TargetTrajectoriesCalculatorBase::kMaxKnotYawSpacing)));
+      1, static_cast<size_t>(std::ceil(
+             std::abs(turn) /
+             TargetTrajectoriesCalculatorBase::kKnotMaxErrYawBaseRtWorld)));
   ASSERT_EQ(targets.stateTrajectory.size(), parts + 1);
   for (size_t i = 1; i < targets.stateTrajectory.size(); ++i) {
     const scalar_t step = std::remainder(
         model.getYawBaseRtWorld(targets.stateTrajectory[i]) -
             model.getYawBaseRtWorld(targets.stateTrajectory[i - 1]),
         2.0 * M_PI);
-    EXPECT_LE(std::abs(step),
-              TargetTrajectoriesCalculatorBase::kMaxKnotYawSpacing + 1.0e-12)
+    EXPECT_LE(
+        std::abs(step),
+        TargetTrajectoriesCalculatorBase::kKnotMaxErrYawBaseRtWorld + 1.0e-12)
         << "knot " << i;
   }
   constexpr int kSamples = 400;
   const scalar_t startTime = targets.timeTrajectory.front();
   const scalar_t duration = targets.timeTrajectory.back() - startTime;
   scalar_t turned = 0.0;
-  scalar_t previousHeading =
+  scalar_t prevRefYawBaseRtWorld =
       model.getYawBaseRtWorld(model.getDesiredState(targets, startTime));
   for (int sample = 1; sample <= kSamples; ++sample) {
     const vector_t desired = model.getDesiredState(
         targets,
         startTime + duration * static_cast<scalar_t>(sample) / kSamples);
-    const scalar_t heading = model.getYawBaseRtWorld(desired);
-    const scalar_t step = std::remainder(heading - previousHeading, 2.0 * M_PI);
+    const scalar_t refYawBaseRtWorld = model.getYawBaseRtWorld(desired);
+    const scalar_t step =
+        std::remainder(refYawBaseRtWorld - prevRefYawBaseRtWorld, 2.0 * M_PI);
     EXPECT_GT(step * turn, 0.0)
         << "the reference turns against the command at sample " << sample;
-    const vector3_t eulerZyx = model.getEulerzyxBaseRtWorld(desired);
-    EXPECT_NEAR(eulerZyx(1), 0.0, 1.0e-12) << "sample " << sample;
-    EXPECT_NEAR(eulerZyx(2), 0.0, 1.0e-12) << "sample " << sample;
+    const vector3_t eulerzyxBaseRtWorld = model.getEulerzyxBaseRtWorld(desired);
+    EXPECT_NEAR(eulerzyxBaseRtWorld(1), 0.0, 1.0e-12) << "sample " << sample;
+    EXPECT_NEAR(eulerzyxBaseRtWorld(2), 0.0, 1.0e-12) << "sample " << sample;
     turned += step;
-    previousHeading = heading;
+    prevRefYawBaseRtWorld = refYawBaseRtWorld;
   }
   EXPECT_NEAR(turned, turn, 1.0e-9);
 }
@@ -191,38 +193,41 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
   // (subdivideYawKnots()), so that the slerp of the orientation between them
   // turns the commanded way. Either way the time is the turn at the rotation
   // velocity.
-  const scalar_t fileVelocity =
+  const scalar_t fileRefRateYawBaseRtWorld =
       reference_.ref_rate_yaw_base_rt_world.value_or(0.0);
-  ASSERT_GT(fileVelocity, 0.0);
+  ASSERT_GT(fileRefRateYawBaseRtWorld, 0.0);
   const absl::StatusOr<ReferenceSettings> settings =
       referenceSettingsFromConfig(reference_);
   ASSERT_TRUE(settings.ok()) << settings.status();
   for (const scalar_t turnDegrees : {kTurnDegrees, 270.0, -135.0}) {
     SCOPED_TRACE(turnDegrees);
     const vector4_t turn(0.0, 0.0, 0.0, turnDegrees);
-    const scalar_t yaw = turnDegrees * M_PI / 180.0;
-    EXPECT_DOUBLE_EQ(timeToTarget(turn), std::abs(yaw) / fileVelocity);
+    const scalar_t cmdErrYawBaseRtWorld = turnDegrees * M_PI / 180.0;
+    EXPECT_DOUBLE_EQ(timeToTarget(turn), std::abs(cmdErrYawBaseRtWorld) /
+                                             fileRefRateYawBaseRtWorld);
     expectTheReferenceTurnsBy(*model_,
                               calculator_->poseCommandToTargetTrajectories(
                                   turn, kInitTime, initState_),
-                              yaw);
+                              cmdErrYawBaseRtWorld);
 
     // Speeds other than the file's, so that a setter that sets nothing cannot
     // pass.
     for (const scalar_t factor : {0.5, 2.0, 3.0}) {
-      const scalar_t velocity = factor * fileVelocity;
-      calculator_->setRefRateYawBaseRtWorld(velocity);
-      EXPECT_DOUBLE_EQ(timeToTarget(turn), std::abs(yaw) / velocity)
-          << "rotation velocity " << velocity;
+      const scalar_t refRateYawBaseRtWorld = factor * fileRefRateYawBaseRtWorld;
+      calculator_->setRefRateYawBaseRtWorld(refRateYawBaseRtWorld);
+      EXPECT_DOUBLE_EQ(timeToTarget(turn),
+                       std::abs(cmdErrYawBaseRtWorld) / refRateYawBaseRtWorld)
+          << "rotation velocity " << refRateYawBaseRtWorld;
       expectTheReferenceTurnsBy(*model_,
                                 calculator_->poseCommandToTargetTrajectories(
                                     turn, kInitTime, initState_),
-                                yaw);
+                                cmdErrYawBaseRtWorld);
     }
 
     // A reload of the reference file puts the file's speed back.
     calculator_->applyCommandLimits(*settings);
-    EXPECT_DOUBLE_EQ(timeToTarget(turn), std::abs(yaw) / fileVelocity);
+    EXPECT_DOUBLE_EQ(timeToTarget(turn), std::abs(cmdErrYawBaseRtWorld) /
+                                             fileRefRateYawBaseRtWorld);
   }
 }
 
@@ -233,32 +238,40 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
   // (-pi, pi], with no pitch or roll (design decision D9), and the turn takes
   // its time at the rotation velocity from there. The heading differs from the
   // stored yaw by the wrap and by -2 atan(tan(theta / 2) tan(phi / 2)).
-  constexpr scalar_t kStoredYaw = 3.5;
-  constexpr scalar_t kPitch = 0.1;
-  constexpr scalar_t kRoll = -0.12;
+  constexpr scalar_t kEulerzyxBaseRtWorldYaw = 3.5;
+  constexpr scalar_t kEulerzyxBaseRtWorldPitch = 0.1;
+  constexpr scalar_t kEulerzyxBaseRtWorldRoll = -0.12;
   vector_t state = initState_;
-  model_->setEulerzyxBaseRtWorld(state, vector3_t(kStoredYaw, kPitch, kRoll));
+  model_->setEulerzyxBaseRtWorld(
+      state, vector3_t(kEulerzyxBaseRtWorldYaw, kEulerzyxBaseRtWorldPitch,
+                       kEulerzyxBaseRtWorldRoll));
   const TargetTrajectories targets =
       calculator_->poseCommandToTargetTrajectories(
           vector4_t(0.0, 0.0, 0.0, kTurnDegrees), kInitTime, state);
   ASSERT_EQ(targets.stateTrajectory.size(), 2);
-  const vector6_t first =
+  const vector6_t initRefPoseeulerzyxBaseRtWorld =
       model_->getPoseeulerzyxBaseRtWorld(targets.stateTrajectory.front());
-  const vector6_t last =
+  const vector6_t finalRefPoseeulerzyxBaseRtWorld =
       model_->getPoseeulerzyxBaseRtWorld(targets.stateTrajectory.back());
-  EXPECT_EQ(first(3), model_->getYawBaseRtWorld(state));
+  EXPECT_EQ(initRefPoseeulerzyxBaseRtWorld(3),
+            model_->getYawBaseRtWorld(state));
   EXPECT_NEAR(
-      first(3),
-      std::remainder(kStoredYaw - 2.0 * std::atan(std::tan(kPitch / 2.0) *
-                                                  std::tan(kRoll / 2.0)),
-                     2.0 * M_PI),
+      initRefPoseeulerzyxBaseRtWorld(3),
+      std::remainder(
+          kEulerzyxBaseRtWorldYaw -
+              2.0 * std::atan(std::tan(kEulerzyxBaseRtWorldPitch / 2.0) *
+                              std::tan(kEulerzyxBaseRtWorldRoll / 2.0)),
+          2.0 * M_PI),
       1.0e-12);
-  EXPECT_EQ(first(4), 0.0);
-  EXPECT_EQ(first(5), 0.0);
-  const scalar_t yaw = kTurnDegrees * M_PI / 180.0;
-  EXPECT_NEAR(last(3) - first(3), yaw, 1.0e-12);
+  EXPECT_EQ(initRefPoseeulerzyxBaseRtWorld(4), 0.0);
+  EXPECT_EQ(initRefPoseeulerzyxBaseRtWorld(5), 0.0);
+  const scalar_t cmdErrYawBaseRtWorld = kTurnDegrees * M_PI / 180.0;
+  EXPECT_NEAR(
+      finalRefPoseeulerzyxBaseRtWorld(3) - initRefPoseeulerzyxBaseRtWorld(3),
+      cmdErrYawBaseRtWorld, 1.0e-12);
   EXPECT_NEAR(targets.timeTrajectory.back() - kInitTime,
-              yaw / reference_.ref_rate_yaw_base_rt_world.value_or(0.0),
+              cmdErrYawBaseRtWorld /
+                  reference_.ref_rate_yaw_base_rt_world.value_or(0.0),
               1.0e-12);
 }
 
@@ -267,15 +280,15 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
   // One meter forward, no turn: the time is the distance at the displacement
   // velocity.
   const vector4_t step(1.0, 0.0, 0.0, 0.0);
-  const scalar_t fileVelocity =
+  const scalar_t fileRefSpeedBaseRtWorld =
       reference_.ref_speed_base_rt_world.value_or(0.0);
-  ASSERT_GT(fileVelocity, 0.0);
-  EXPECT_DOUBLE_EQ(timeToTarget(step), 1.0 / fileVelocity);
+  ASSERT_GT(fileRefSpeedBaseRtWorld, 0.0);
+  EXPECT_DOUBLE_EQ(timeToTarget(step), 1.0 / fileRefSpeedBaseRtWorld);
   for (const scalar_t factor : {0.5, 2.0, 3.0}) {
-    const scalar_t velocity = factor * fileVelocity;
-    calculator_->setRefSpeedBaseRtWorld(velocity);
-    EXPECT_DOUBLE_EQ(timeToTarget(step), 1.0 / velocity)
-        << "displacement velocity " << velocity;
+    const scalar_t refSpeedBaseRtWorld = factor * fileRefSpeedBaseRtWorld;
+    calculator_->setRefSpeedBaseRtWorld(refSpeedBaseRtWorld);
+    EXPECT_DOUBLE_EQ(timeToTarget(step), 1.0 / refSpeedBaseRtWorld)
+        << "displacement velocity " << refSpeedBaseRtWorld;
   }
 }
 
@@ -383,11 +396,11 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
   std::ifstream in(referenceFile_);
   std::string reference((std::istreambuf_iterator<char>(in)),
                         std::istreambuf_iterator<char>());
-  const std::string line = "\nnom_pos_base_rt_world_ewrt_world_z: ";
+  const std::string line = "\nnom_pos_base_rt_surface_ewrt_world_z: ";
   const size_t start = reference.find(line);
   ASSERT_NE(start, std::string::npos)
       << "the shipped reference file no longer carries "
-         "nom_pos_base_rt_world_ewrt_world_z";
+         "nom_pos_base_rt_surface_ewrt_world_z";
   reference.erase(start + 1, reference.find('\n', start + 1) - start);
   const std::string withoutHeight =
       (std::filesystem::path(testing::TempDir()) /
@@ -404,7 +417,7 @@ TEST_F(TargetTrajectoriesCalculatorSettersTest,
                                absl::StrCat(withoutHeight, ": ")))
       << created.status();
   EXPECT_TRUE(absl::StrContains(created.status().message(),
-                                "nom_pos_base_rt_world_ewrt_world_z"))
+                                "nom_pos_base_rt_surface_ewrt_world_z"))
       << created.status();
 }
 

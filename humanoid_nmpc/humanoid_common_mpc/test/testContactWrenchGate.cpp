@@ -28,22 +28,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <array>
+#include <cstddef>
 #include <limits>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 namespace ocs2::humanoid {
 
 namespace {
-const vector6_t kLeft = (vector6_t() << 1, 2, 300, 4, 5, 6).finished();
-const vector6_t kRight = (vector6_t() << -1, -2, 400, -4, -5, -6).finished();
-const std::array<vector6_t, 2> kPlanned{kLeft, kRight};
+const vector6_t kPlannedWrenchLfootEwrtWorld =
+    (vector6_t() << 1, 2, 300, 4, 5, 6).finished();
+const vector6_t kPlannedWrenchRfootEwrtWorld =
+    (vector6_t() << -1, -2, 400, -4, -5, -6).finished();
+const std::array<vector6_t, 2> kPlannedWrenchFeetEwrtWorld{
+    kPlannedWrenchLfootEwrtWorld, kPlannedWrenchRfootEwrtWorld};
 }  // namespace
 
 // Default configuration: the instantaneous gate. The planned wrench passes in
@@ -57,9 +63,11 @@ TEST(ContactWrenchGate, defaultConfigurationIsTheInstantaneousGate) {
             (feet_array_t<scalar_t>{1.0, 1.0}));
   EXPECT_EQ(gate.update(/*time=*/0.002, {true, false}),
             (feet_array_t<scalar_t>{1.0, 0.0}));
-  const std::array<vector6_t, 2> gated = gate.apply(kPlanned);
-  EXPECT_TRUE(gated[0].isApprox(kLeft));
-  EXPECT_TRUE(gated[1].isZero());
+  const std::array<vector6_t, 2> gatedWrenchFeetEwrtWorld =
+      gate.apply(kPlannedWrenchFeetEwrtWorld);
+  EXPECT_TRUE(
+      gatedWrenchFeetEwrtWorld[0].isApprox(kPlannedWrenchLfootEwrtWorld));
+  EXPECT_TRUE(gatedWrenchFeetEwrtWorld[1].isZero());
   EXPECT_EQ(gate.update(/*time=*/0.004, {false, true}),
             (feet_array_t<scalar_t>{0.0, 1.0}));  // re-contact is immediate
 }
@@ -91,9 +99,11 @@ TEST(ContactWrenchGate, rampRisesLinearlyAfterTheDebounce) {
               1.0e-12);  // debounce over, ramp starts
   EXPECT_NEAR(gate.update(/*time=*/2.02, {true, false})[0], 0.25, 1.0e-12);
   EXPECT_NEAR(gate.update(/*time=*/2.03, {true, false})[0], 0.5, 1.0e-12);
-  const std::array<vector6_t, 2> half = gate.apply(kPlanned);
-  EXPECT_TRUE(half[0].isApprox(0.5 * kLeft));
-  EXPECT_TRUE(half[1].isZero());
+  const std::array<vector6_t, 2> gatedWrenchFeetEwrtWorld =
+      gate.apply(kPlannedWrenchFeetEwrtWorld);
+  EXPECT_TRUE(
+      gatedWrenchFeetEwrtWorld[0].isApprox(0.5 * kPlannedWrenchLfootEwrtWorld));
+  EXPECT_TRUE(gatedWrenchFeetEwrtWorld[1].isZero());
   EXPECT_NEAR(gate.update(/*time=*/2.05, {true, false})[0], 1.0, 1.0e-12);
   EXPECT_NEAR(gate.update(/*time=*/3.00, {true, false})[0], 1.0,
               1.0e-12);  // saturates

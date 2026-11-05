@@ -54,9 +54,10 @@ enum class LeafStep {
  * Returns the paths of the numeric leaves of `task` that the whole-body updater
  * applies (below a name of wholeBodyHotFieldNames()) and the file sets, in the
  * order of the schema, each element of a list with its index
- * ("state_weights.joint_positions[3].value"), except terrain_height, whose live
- * change is pinned on its own (testBaseHeightFollowsTerrain): a live ground
- * change lifts the target in use once, which a fresh start does not.
+ * ("state_weights.joint_positions[3].value"), except
+ * pos_surface_rt_world_ewrt_world_z, whose live change is pinned on its own
+ * (testBaseHeightFollowsTerrain): a live ground change lifts the target in use
+ * once, which a fresh start does not.
  */
 std::vector<std::string> appliedNumericLeaves(const mpc_config::TaskFile& task);
 

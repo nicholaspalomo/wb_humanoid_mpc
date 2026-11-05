@@ -92,8 +92,9 @@ double redPixelFraction(const std::vector<uint8_t>& rgb) {
   int64_t redPixels = 0;
   for (size_t pixel = 0; pixel + 2 < rgb.size(); pixel += 3) {
     const int red = rgb[pixel];
-    if (red > 60 && red > rgb[pixel + 1] + 40 && red > rgb[pixel + 2] + 40)
+    if (red > 60 && red > rgb[pixel + 1] + 40 && red > rgb[pixel + 2] + 40) {
       ++redPixels;
+    }
   }
   return static_cast<double>(redPixels) / static_cast<double>(rgb.size() / 3);
 }
@@ -146,8 +147,9 @@ TEST(OffscreenRender, AFrameShowsTheRobot) {
   EXPECT_GT(byteVariance(*frame), 100.0) << "a uniform frame";
   EXPECT_GT(redPixelFraction(*frame), 0.001)
       << "the red base of the robot is not in the picture";
-  if (HasFailure())
+  if (HasFailure()) {
     writeTestImage("hinge_robot", *frame, /*width=*/640, /*height=*/480);
+  }
 }
 
 TEST(OffscreenRender, TwoFramesOfOneStateAreByteIdentical) {
@@ -181,10 +183,12 @@ TEST(OffscreenRender, MovingTheCameraChangesTheFrame) {
   const absl::StatusOr<std::vector<uint8_t>> before =
       renderer->render(/*width=*/640, /*height=*/480);
   ASSERT_TRUE(before.ok()) << before.status();
-  const double azimuth = renderer->frameRenderer().camera().azimuth;
+  const double initAzimuthCamfocusRtCamEwrtWorld =
+      renderer->frameRenderer().camera().azimuth;
   renderer->frameRenderer().moveCamera(mjMOUSE_ROTATE_V, /*relativeDx=*/0.2,
                                        /*relativeDy=*/0.0);
-  EXPECT_NE(renderer->frameRenderer().camera().azimuth, azimuth);
+  EXPECT_NE(renderer->frameRenderer().camera().azimuth,
+            initAzimuthCamfocusRtCamEwrtWorld);
   const absl::StatusOr<std::vector<uint8_t>> after =
       renderer->render(/*width=*/640, /*height=*/480);
   ASSERT_TRUE(after.ok()) << after.status();
@@ -204,11 +208,12 @@ TEST(OffscreenRender, PositiveScrollNotchesZoomOut) {
   ASSERT_NE(renderer, nullptr);
   ASSERT_TRUE(renderer->render(/*width=*/320, /*height=*/240).ok());
   renderer->frameRenderer().setCameraType(mjCAMERA_FREE);
-  const double distance = renderer->frameRenderer().camera().distance;
+  const double initDistCamRtCamfocus =
+      renderer->frameRenderer().camera().distance;
   renderer->frameRenderer().scroll(/*notches=*/1.0);
-  EXPECT_GT(renderer->frameRenderer().camera().distance, distance);
+  EXPECT_GT(renderer->frameRenderer().camera().distance, initDistCamRtCamfocus);
   renderer->frameRenderer().scroll(/*notches=*/-2.0);
-  EXPECT_LT(renderer->frameRenderer().camera().distance, distance);
+  EXPECT_LT(renderer->frameRenderer().camera().distance, initDistCamRtCamfocus);
 }
 
 TEST(OffscreenRender, TogglingTheContactTimelineChangesOnlyTheBottomBand) {
@@ -272,7 +277,8 @@ TEST(OffscreenRender,
   ASSERT_TRUE(sameModelArrays(renderer->model(), *sim->getModel()));
 
   sim->enableTorques();
-  sim->setGantryHeight(sim->getGantryHeight() + 0.05);
+  sim->setGantryPosBaseRtWorldEwrtWorldZ(
+      sim->getGantryPosBaseRtWorldEwrtWorldZ() + 0.05);
   MujocoSimInterface::DodgeballThrow command;
   command.spawnPosBallRtBaseEwrtHeading[0] = 3.0;
   command.spawnPosBallRtBaseEwrtHeading[2] = 0.5;

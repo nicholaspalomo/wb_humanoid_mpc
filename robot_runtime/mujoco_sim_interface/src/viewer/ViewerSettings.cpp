@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/viewer/ViewerSettings.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -114,19 +115,21 @@ absl::Status checkRendering(const WebViewerOptions& web) {
 }
 
 absl::Status checkServing(const WebViewerOptions& web) {
-  if (web.address.empty())
+  if (web.address.empty()) {
     return absl::InvalidArgumentError(
         "the web viewer's address is empty; 127.0.0.1 serves this machine "
         "only");
+  }
   if (absl::Status status = checkRange("port", web.port, /*minimum=*/0,
                                        WebViewerOptions::kMaxPort);
       !status.ok()) {
     return status;
   }
   for (const std::string& host : web.allowedHosts) {
-    if (host.empty())
+    if (host.empty()) {
       return absl::InvalidArgumentError(
           "the web viewer's allowed hosts list an empty name");
+    }
   }
   return checkRange("maxClients", web.maxClients, /*minimum=*/1,
                     kMaxWebViewerClients);
@@ -143,9 +146,10 @@ bool isThreadPriority(web_viewer::ViewerThreadPriority priority) {
 
 absl::Status checkPlacementAndEgl(const WebViewerOptions& web) {
   for (const int core : web.cores) {
-    if (core < 0)
+    if (core < 0) {
       return absl::InvalidArgumentError(absl::StrCat(
           "the web viewer's cores list ", core, ", which is no CPU core"));
+    }
   }
   if (!isThreadPriority(web.threadPriority)) {
     return absl::InvalidArgumentError(
@@ -158,10 +162,11 @@ absl::Status checkPlacementAndEgl(const WebViewerOptions& web) {
         absl::StrCat("the web viewer's EGL device id is ", *web.eglDeviceId,
                      "; device ids start at 0"));
   }
-  if (web.eglLibrary.empty())
+  if (web.eglLibrary.empty()) {
     return absl::InvalidArgumentError(
         "the web viewer's EGL library name is empty; the default is "
         "libEGL.so.1");
+  }
   if (web.startTimeout <= absl::ZeroDuration()) {
     return absl::InvalidArgumentError(
         absl::StrCat("the web viewer's start timeout is ",

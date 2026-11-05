@@ -76,8 +76,9 @@ std::string environmentVariable(const char* absl_nonnull name) {
 /** InvalidArgument unless `path` is a normalized relative path that stays
  * inside the repository. */
 absl::Status validateRepositoryRelativePath(absl::string_view path) {
-  if (path.empty())
+  if (path.empty()) {
     return absl::InvalidArgumentError("resolveResourcePath: the path is empty");
+  }
   if (absl::StartsWith(path, "/")) {
     return absl::InvalidArgumentError(absl::StrCat(
         "resolveResourcePath: '", path,
@@ -121,8 +122,9 @@ std::string owningPackageLabel(absl::string_view path) {
 /** Appends `entry` to `searched` unless it is there already: two places can
  * name the same runfiles tree. */
 void recordSearched(std::string entry, std::vector<std::string>& searched) {
-  if (std::find(searched.begin(), searched.end(), entry) == searched.end())
+  if (std::find(searched.begin(), searched.end(), entry) == searched.end()) {
     searched.push_back(std::move(entry));
+  }
 }
 
 /** `path` as an absolute path, unchanged when the working directory is unknown.
@@ -154,8 +156,9 @@ std::optional<std::string> findInRunfiles(const Runfiles& runfiles,
 /** The runfiles the environment names, or nullptr with the reason in `error`.
  */
 std::unique_ptr<Runfiles> environmentRunfiles(std::string& error) {
-  if (!environmentVariable("TEST_SRCDIR").empty())
+  if (!environmentVariable("TEST_SRCDIR").empty()) {
     return std::unique_ptr<Runfiles>(Runfiles::CreateForTest(&error));
+  }
   if (environmentVariable("RUNFILES_DIR").empty() &&
       environmentVariable("RUNFILES_MANIFEST_FILE").empty()) {
     error =

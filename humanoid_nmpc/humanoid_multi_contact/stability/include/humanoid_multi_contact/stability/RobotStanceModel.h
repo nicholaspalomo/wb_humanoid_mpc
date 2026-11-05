@@ -53,8 +53,8 @@ namespace ocs2::humanoid::multi_contact {
 /** A whole-body configuration by name: the floating base's pose and the joint
  * positions; a joint left out is at 0. Passive data. */
 struct RobotConfiguration {
-  Eigen::Vector3d basePosition = Eigen::Vector3d::Zero();
-  Eigen::Quaterniond baseOrientation = Eigen::Quaterniond::Identity();
+  Eigen::Vector3d posBaseRtWorldEwrtWorld = Eigen::Vector3d::Zero();
+  Eigen::Quaterniond quatBaseRtWorld = Eigen::Quaterniond::Identity();
   std::vector<std::string> jointNames;
   // One per name.
   Eigen::VectorXd jointPositions;
@@ -145,7 +145,7 @@ class RobotStanceModel {
    * setGeneralizedPosition(); its errors, and InvalidArgument for a velocity of
    * the wrong size or not finite.
    */
-  absl::StatusOr<CentroidalMomentum> centroidalMomentum(
+  absl::StatusOr<CentroidalMomentum> computeCmomComRtWorldEwrtWorld(
       const Eigen::VectorXd& q, const Eigen::VectorXd& v);
 
   const ContactSet& contactSet() const { return contacts_; }
@@ -159,7 +159,7 @@ class RobotStanceModel {
   /** Widens every actuated joint's position limits (actuatedJoints()) by
    * `relaxation` [rad] on both sides: JointLimits::kRelaxedPosition.
    * InvalidArgument for a relaxation that is negative or not finite. */
-  absl::Status relaxPositionLimits(double relaxation);
+  absl::Status relaxJointPositionLimits(double relaxation);
   /** Whether `name` is a joint of the model ("root_joint" included). */
   bool hasJoint(absl::string_view name) const;
   /** The index of the joint `name` ("root_joint" included); NotFound names
@@ -173,40 +173,46 @@ class RobotStanceModel {
   // At the configuration of the last successful setConfiguration():
 
   /** [m] The center of mass in the world frame. */
-  const Eigen::Vector3d& centerOfMass() const { return centerOfMass_; }
+  const Eigen::Vector3d& getPosComRtWorldEwrtWorld() const {
+    return posComRtWorldEwrtWorld_;
+  }
   /** [m] The center of candidate `index`'s pad in the world frame. */
-  Eigen::Vector3d padPosition(int index) const;
-  /** world_R_pad of candidate `index`: z = -padNormal (ContactCandidate). */
-  Eigen::Matrix3d padRotation(int index) const;
+  Eigen::Vector3d getPosPadRtWorldEwrtWorld(int index) const;
+  /** world_R_pad of candidate `index`: z = -normalPadEwrtLink
+   * (ContactCandidate). */
+  Eigen::Matrix3d getRotmatPadRtWorld(int index) const;
   /** [N m] The generalized gravity forces g(q), of the size of the velocity. */
   const Eigen::VectorXd& generalizedGravity() const { return data_.g; }
   /**
-   * The Jacobian (3 x nv) of the velocity of `point` (world frame) moving with
-   * candidate `index`'s parent link, whose transpose maps a force at the point
-   * to generalized forces.
+   * Computes the Jacobian (3 x nv) of the world-frame velocity of the point
+   * `posQueryRtWorldEwrtWorld` moving with candidate `index`'s parent link,
+   * whose transpose maps a force at the point to generalized forces.
    */
-  Eigen::Matrix<double, kPositionDim, Eigen::Dynamic> pointJacobian(
-      int index, const Eigen::Vector3d& point) const;
+  Eigen::Matrix<double, kPositionDim, Eigen::Dynamic>
+  computeLinjacQueryRtWorldEwrtWorld(
+      int index, const Eigen::Vector3d& posQueryRtWorldEwrtWorld) const;
 
   /** The generalized position of the current configuration. */
   const Eigen::VectorXd& generalizedPosition() const { return q_; }
-  /** The placement of joint `joint`'s frame in the world; requires a joint of
+  /** The pose of joint `joint`'s link frame in the world; requires a joint of
    * the model. */
-  const pinocchio::SE3& jointPlacement(pinocchio::JointIndex joint) const {
+  const pinocchio::SE3& getPoseLinkRtWorld(pinocchio::JointIndex joint) const {
     return data_.oMi[joint];
   }
-  /** The Jacobian (3 x nv) of the velocity of `point` (world frame) moving
-   * with joint `joint`'s link. */
-  Eigen::Matrix<double, kPositionDim, Eigen::Dynamic> jointPointJacobian(
-      pinocchio::JointIndex joint, const Eigen::Vector3d& point) const;
-  /** The Jacobian (3 x nv) of the angular velocity of joint `joint`'s link, in
-   * world axes. */
+  /** Computes the Jacobian (3 x nv) of the world-frame velocity of the point
+   * `posQueryRtWorldEwrtWorld` moving with joint `joint`'s link. */
+  Eigen::Matrix<double, kPositionDim, Eigen::Dynamic>
+  computeJointLinjacQueryRtWorldEwrtWorld(
+      pinocchio::JointIndex joint,
+      const Eigen::Vector3d& posQueryRtWorldEwrtWorld) const;
+  /** Computes the Jacobian (3 x nv) of the angular velocity of joint `joint`'s
+   * link, in world axes. */
   Eigen::Matrix<double, kRotationTangentDim, Eigen::Dynamic>
-  jointAngularJacobian(pinocchio::JointIndex joint) const;
-  /** The Jacobian (3 x nv) of the center of mass. */
+  computeAngjacLinkRtWorldEwrtWorld(pinocchio::JointIndex joint) const;
+  /** The Jacobian (3 x nv) of the center of mass's velocity, in world axes. */
   const Eigen::Matrix<double, kPositionDim, Eigen::Dynamic>&
-  centerOfMassJacobian() const {
-    return centerOfMassJacobian_;
+  getLinjacComRtWorldEwrtWorld() const {
+    return linjacComRtWorldEwrtWorld_;
   }
 
  private:
@@ -221,10 +227,11 @@ class RobotStanceModel {
   std::vector<pinocchio::JointIndex> padJoints_;
   std::vector<ActuatedJoint> actuatedJoints_;
   double mass_ = 0.0;
-  Eigen::Vector3d centerOfMass_ = Eigen::Vector3d::Zero();
+  Eigen::Vector3d posComRtWorldEwrtWorld_ = Eigen::Vector3d::Zero();
   // The generalized position of the last successful configuration.
   Eigen::VectorXd q_;
-  Eigen::Matrix<double, kPositionDim, Eigen::Dynamic> centerOfMassJacobian_;
+  Eigen::Matrix<double, kPositionDim, Eigen::Dynamic>
+      linjacComRtWorldEwrtWorld_;
 };
 
 }  // namespace ocs2::humanoid::multi_contact

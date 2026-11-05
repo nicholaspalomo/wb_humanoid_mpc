@@ -13,6 +13,32 @@ CompileFlags:
     # Abseil's macros use __COUNTER__, which clang 22 reports under the build's -Wpedantic.
     - -Wno-c2y-extensions
 # LINT.ThenChange(//bazel/copts.bzl:first_party_copts)
+# The editor's unused-includes and missing-includes diagnostics are clang-tidy's misc-include-cleaner (make lint-tidy),
+# with the same headers left alone; .clang-tidy says why each is.
+Diagnostics:
+  UnusedIncludes: Strict
+  MissingIncludes: Strict
+  Includes:
+    # LINT.IfChange(include_cleaner_ignore)
+    IgnoreHeader:
+      - Eigen/.*
+      - cppad/.*
+      - mujoco/.*
+      - lib/ocs2/thirdparty/.*
+      - boost/.*
+      - coal/.*
+      - hpp/fcl/.*
+      - pinocchio/fwd[.]hpp
+      - pinocchio/src/.*
+      - gtest/internal/.*
+      - gmock/internal/.*
+      - absl/.*/internal/.*
+      - google/protobuf/.*internal.*
+      - google/protobuf/port_(un)?def[.]inc
+      - dds/dds[a-z]+/.*
+      - bits/.*
+      - asm(-generic)?/.*
+    # LINT.ThenChange(//.clang-tidy:include_cleaner_ignore)
 ---
 # The generated sources (the .pb.cc files, about a fifth of the database), which the execution root's link to this file
 # reaches, stay out of the background index; clangd still indexes one when it is opened, and the generated headers when

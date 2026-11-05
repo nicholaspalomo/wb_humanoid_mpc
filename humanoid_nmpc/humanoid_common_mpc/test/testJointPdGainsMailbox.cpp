@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
 #include "humanoid_common_mpc/mrt/JointPdGainsMailbox.h"
@@ -104,8 +105,9 @@ TEST(JointPdGainsMailbox, TheNewestPostWins) {
   JointPdGainsMailbox mailbox(gainsWithKp(/*kp=*/1.0));
   JointPdGains active = gainsWithKp(/*kp=*/1.0);
   std::thread producer([&mailbox]() {
-    for (int k = 2; k <= 50; ++k)
+    for (int k = 2; k <= 50; ++k) {
       EXPECT_TRUE(mailbox.post(gainsWithKp(static_cast<scalar_t>(k))).ok());
+    }
   });
   // Receives while the producer posts see increasing gains, never a torn set.
   // Bounded, so that a lost final post fails here, naming it, instead of
@@ -171,8 +173,9 @@ TEST(JointPdGainsMailbox, AConcurrentlyTakenTicketIsNeverReused) {
     for (int k = 0; k < kTicketsPerThread; ++k) first[k] = mailbox.takeTicket();
   });
   std::thread b([&]() {
-    for (int k = 0; k < kTicketsPerThread; ++k)
+    for (int k = 0; k < kTicketsPerThread; ++k) {
       second[k] = mailbox.takeTicket();
+    }
   });
   a.join();
   b.join();

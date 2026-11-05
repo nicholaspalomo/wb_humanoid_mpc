@@ -29,11 +29,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 
+#include <cstddef>
 #include <memory>
-#include <utility>
 
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/penalties/penalties/PenaltyBase.h"
+#include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 #include "ocs2_core/penalties/penalties/SquaredHingePenalty.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 

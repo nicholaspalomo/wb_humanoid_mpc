@@ -30,6 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/swing_foot_planner/SplineCpg.h"
 
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/swing_foot_planner/CubicSpline.h"
+
 namespace ocs2::humanoid {
 namespace {
 

@@ -86,12 +86,14 @@ TEST(RealtimeEventLog, ACatchNamesItsCauseAndTheLift) {
   ASSERT_EQ(events.size(), 2u);
   const std::string caught = formatRealtimeEvent(events[0]);
   EXPECT_NE(caught.find("reset epoch 3"), std::string::npos) << caught;
-  EXPECT_NE(caught.find("0.15 m (sim_gantry_catch_lift)"), std::string::npos)
+  EXPECT_NE(caught.find(
+                "0.15 m (sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z)"),
+            std::string::npos)
       << caught;
   EXPECT_TRUE(isWarningEvent(events[0]));
   const std::string tilted = formatRealtimeEvent(events[1]);
-  EXPECT_NE(tilted.find(
-                "the base tilted 1.2 rad, past sim_max_base_tilt_angle 1 rad"),
+  EXPECT_NE(tilted.find("the base tilted 1.2 rad, past "
+                        "sim_max_tiltangle_base_rt_world 1 rad"),
             std::string::npos)
       << tilted;
 }
@@ -174,10 +176,10 @@ TEST(SettlePhaseDescription, EveryPhaseSaysWhatTheRobotWaitsFor) {
             "lifting the robot clear of the ground");
   EXPECT_EQ(settlePhaseDescription(SettlePhase::kSettlingOnFeet),
             "waiting for the robot to come to rest on its feet");
-  EXPECT_EQ(
-      discontinuityReason(DiscontinuityCause::kGantryLocked, /*resetEpoch=*/0,
-                          /*tilt=*/0.0, /*maxTilt=*/0.0),
-      "the gantry was locked");
+  EXPECT_EQ(discontinuityReason(
+                DiscontinuityCause::kGantryLocked, /*resetEpoch=*/0,
+                /*tiltangleBaseRtWorld=*/0.0, /*maxTiltangleBaseRtWorld=*/0.0),
+            "the gantry was locked");
 }
 
 }  // namespace

@@ -30,9 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <optional>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -41,10 +41,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
-#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
@@ -155,13 +156,14 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
             kDefaultTorsionalFrictionCoefficient,
         scalar_t minForceContactEwrtContactZ = kNomMinForceContactEwrtContactZ,
         scalar_t gripForceContactEwrtContactZ = 0.0,
-        vector3_t patchOffsetParam = vector3_t::Zero())
+        vector3_t posPatchpointRtContactEwrtContact = vector3_t::Zero())
         : numBasisVectors(numBasisVectorsParam),
           frictionCoefficient(frictionCoefficientParam),
           torsionalFrictionCoefficient(torsionalFrictionCoefficientParam),
           minForceContactEwrtContactZ(minForceContactEwrtContactZ),
           gripForceContactEwrtContactZ(gripForceContactEwrtContactZ),
-          patchOffset(std::move(patchOffsetParam)) {}
+          posPatchpointRtContactEwrtContact(
+              std::move(posPatchpointRtContactEwrtContact)) {}
     // The ranges are checked by validateConfig(), not here: a constructor
     // cannot report which task-file key is wrong, and the assert()s that stood
     // here were compiled out of every optimized build.
@@ -183,8 +185,8 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
      * force at the footprint center. */
     scalar_t gripForceContactEwrtContactZ;
     /** The point the conservative basis generators are applied at
-     * (contactPatchReferencePoint()); zero: the center. */
-    vector3_t patchOffset;
+     * (computePosPatchpointRtContactEwrtContact()); zero: the center. */
+    vector3_t posPatchpointRtContactEwrtContact;
   };
 
   /**
@@ -267,9 +269,9 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
    * (the facets of the friction pyramid) to Config::kMaxNumBasisVectors,
    * frictionCoefficient finite and positive, torsionalFrictionCoefficient,
    * minForceContactEwrtContactZ and gripForceContactEwrtContactZ finite and
-   * non-negative, and patchOffset finite. Otherwise InvalidArgument naming the
-   * field of kConfigField to change and the value it holds.
-   * contactWrenchConeConfigFromConfig(), Create() and
+   * non-negative, and posPatchpointRtContactEwrtContact finite. Otherwise
+   * InvalidArgument naming the field of kConfigField to change and the value it
+   * holds. contactWrenchConeConfigFromConfig(), Create() and
    * ContactWrenchConeBasisMatrix::Create() all check through this one function;
    * buildLocalWrenchConeRows() and the constructor CHECK it, for the callers
    * that bypass all three.
@@ -420,10 +422,11 @@ struct ContactWrenchConeRows {
 
 /**
  * The point the conservative basis generators are applied at:
- * `config.patchOffset` when it is set, the center of the footprint otherwise.
- * Only the x and y components are used; the z component is returned unchanged.
+ * `config.posPatchpointRtContactEwrtContact` when it is set, the center of the
+ * footprint otherwise. Only the x and y components are used; the z component is
+ * returned unchanged.
  */
-vector3_t contactPatchReferencePoint(
+vector3_t computePosPatchpointRtContactEwrtContact(
     const ContactWrenchConeConstraint::Config& config,
     const ContactRectangle& contactRectangle);
 
@@ -448,7 +451,8 @@ std::vector<vector3_t> frictionPyramidEdges(
  * The footprint corners in the order every generator set uses: (x_max, y_max),
  * (x_max, y_min), (x_min, y_max), (x_min, y_min).
  */
-std::array<vector2_t, ContactRectangle::kNumCorners> footprintCorners(
+std::array<vector2_t, ContactRectangle::kNumCorners>
+computePosCornersRtContactEwrtContactXy(
     const ContactRectangle& contactRectangle);
 
 /**

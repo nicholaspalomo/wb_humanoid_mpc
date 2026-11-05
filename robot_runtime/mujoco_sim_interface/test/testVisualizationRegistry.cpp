@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/visualization/ExternalForceVisualization.h"
 #include "mujoco_sim_interface/visualization/MetricsOverlay.h"
 #include "mujoco_sim_interface/visualization/MujocoOptionFlagVisualization.h"
+#include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 #include "mujoco_sim_interface/visualization/TargetContactPatchVisualization.h"
 #include "mujoco_sim_interface/visualization/VisualizationRegistry.h"
 
@@ -254,7 +255,7 @@ TEST(ExternalForceVisualization, AHeldPushIsDrawnAtTheCenterOfMassAndClamped) {
   mj_forward(model.get(), state.data);
   const int base = 1;
   state.push = AppliedPush{.bodyId = base,
-                           .impulseWorld = {-11.25, 0.0, 0.0},
+                           .impulseLinkEwrtWorld = {-11.25, 0.0, 0.0},
                            .simTimeApplied = 0.0};
   mjvScene scene;
   mjv_defaultScene(&scene);

@@ -74,8 +74,8 @@ planner {  # which planner, grid, commit window, solver budget, threading
 }
 
 shared {  # parameters read by more than one term
-  big_m: 1.5  # [m] big-M of the contact disjunctions: must exceed foot_separation.max_step_length and be at least
-                                     #     foot_separation.max_step_width (validated). A tighter big-M tightens the
+  big_m: 1.5  # [m] big-M of the contact disjunctions: must exceed foot_separation.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x and be at least
+                                     #     foot_separation.max_pos_lfoot_rt_rfoot_ewrt_heading_y (validated). A tighter big-M tightens the
                                      #     relaxations and speeds up the search.
   slack_penalty {  # default penalty of every soft constraint without a `slack` block of its own
     quadratic: 10000  # quadratic penalty on the ZMP / reachability slacks
@@ -83,18 +83,18 @@ shared {  # parameters read by more than one term
   }
 # The file is one configuration split into blocks, because ifttt-lint cannot nest the small cross-file pairs below (the
 # pendulum against task.textproto's DCM cost, the two cadences against task.textproto's swing_time_scale) in a file-wide block.
-  # The pendulum, omega = sqrt(g / com_height), g the robot model's gravity (the one its dynamics use). com_height
+  # The pendulum, omega = sqrt(g / nom_pos_com_rt_feetmean_ewrt_world_z), g the robot model's gravity (the one its dynamics use). nom_pos_com_rt_feetmean_ewrt_world_z
   # left out is the robot's own: the model's center of mass above the mean height of its soles at task.textproto
-  # initial_state (computeComHeightAboveFeet), 1.0805 m for this URDF, so omega = 3.013 rad/s; the planner logs both
-  # at start-up. task.textproto dcm_terminal_cost resolves its own absent com_height with the same function, so the
+  # initial_state (computeProxyPosComRtFeetmeanEwrtWorldZ), 1.0805 m for this URDF, so omega = 3.013 rad/s; the planner logs both
+  # at start-up. task.textproto dcm_terminal_cost resolves its own absent nom_pos_com_rt_feetmean_ewrt_world_z with the same function, so the
   # two pendulums agree by construction, and a plan carries the omega it was made on, which the terminal cost takes
-  # the planned DCM with. A positive com_height is an explicit override of the model; give
-  # dcm_terminal_cost.com_height the same value then. gravity is the robot model's in both.
+  # the planned DCM with. A positive nom_pos_com_rt_feetmean_ewrt_world_z is an explicit override of the model; give
+  # dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z the same value then. gravity is the robot model's in both.
   # (Until the height was derived both keys were hand-set to 0.85 m, 23 cm below the model's center of mass: omega
   # 3.40 rad/s instead of 3.01, and a deadbeat gain K[1] of 0.476 instead of 0.571 at the cadence below, so the step
   # law was not deadbeat for the robot it ran on.)
   # LINT.IfChange(atlas_pendulum)
-  # com_height [m], the LIP height: left out, the model's center of mass above its feet at initial_state (1.0805 m).
+  # nom_pos_com_rt_feetmean_ewrt_world_z [m], the LIP height: left out, the model's center of mass above its feet at initial_state (1.0805 m).
   # LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:atlas_dcm_pendulum)
   # Cadence. The stride period the planner can emit is bounded below by
   # 2 * (min_swing_duration + min_double_support_duration), so these keys, not the reach limits, set the top speed:
@@ -116,7 +116,7 @@ shared {  # parameters read by more than one term
     # swings even at low command, and with min_double_support_duration 0 the whole of that is single support: the lateral
     # LIP diverges as cosh(omega t), so a 0.7 s single support multiplies a lateral offset by cosh(2.11) = 4.2 on the
     # model's 1.0805 m pendulum, with no double support in which to walk the ZMP across. It also caps the lateral
-    # speed, which needs a step of v_y * T_stride to fit inside max_step_width - min_step_width = 0.30 m, so a long stride
+    # speed, which needs a step of v_y * T_stride to fit inside max_pos_lfoot_rt_rfoot_ewrt_heading_y - min_pos_lfoot_rt_rfoot_ewrt_heading_y = 0.30 m, so a long stride
     # halves what the gait can deliver sideways. And a 1.0 s swing is most of the 1.2 s horizon, which leaves the
     # planner nothing to plan with and makes max_commit_extension unusable (the capped boundary would still outrun the
     # plan).
@@ -148,13 +148,13 @@ hlip {
   # Second, and the one that decides whether the gait can start at all: a robot standing still has its center of
   # mass half a step width from either foot with no lateral velocity, so the moment the first foot leaves the ground
   # it falls sideways fast. Catching it takes a first step far wider than the nominal one - at the dsp_duration 0.05
-  # set below, 0.47 m at 0.35 s and 0.39 m at 0.25 s - and if that does not fit inside max_step_width it is clipped.
+  # set below, 0.47 m at 0.35 s and 0.39 m at 0.25 s - and if that does not fit inside max_pos_lfoot_rt_rfoot_ewrt_heading_y it is clipped.
   # The double support enters the deadbeat gain as K = [1, dsp_duration + coth(omega ssp_duration) / omega], and omega
   # is the pendulum's, so this demand cannot be quoted without saying which dsp_duration and which pendulum it was
   # computed at. A clipped step is no longer the deadbeat step, the residual grows by the factor above every step,
   # and depending on how much is cut the gait recovers or locks into an alternating wide and narrow limit cycle it
   # cannot leave: the feet come together, the robot walks itself sideways and falls. That is exactly what happened at
-  # 0.35 s with max_step_width 0.45 on the hand-set 0.85 m pendulum Atlas then used, which demanded 0.52 m and locked;
+  # 0.35 s with max_pos_lfoot_rt_rfoot_ewrt_heading_y 0.45 on the hand-set 0.85 m pendulum Atlas then used, which demanded 0.52 m and locked;
   # on the model's pendulum the same cadence demands 0.47 m, is clipped once and recovers. The start-up print says
   # which of the two a clipped first step does, and ContactPlanningConfig::warnings() reports a step that does not
   # fit.
@@ -169,16 +169,16 @@ hlip {
   # reduced model's double support only drifts at constant velocity and does not represent the transfer itself. It
   # enters the deadbeat gain in closed form, so nothing else has to be retuned with it.
   dsp_duration: 0.05
-  step_width: 0.25  # [m] lateral distance between the feet of the nominal period-two orbit
-  max_step_length: 0.5  # [m] clip on the step along the heading. This and the two below are the only bounds
+  nom_pos_lfoot_rt_rfoot_ewrt_heading_y: 0.25  # [m] lateral distance between the feet of the nominal period-two orbit
+  max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x: 0.5  # [m] clip on the step along the heading. This and the two below are the only bounds
                                       #     the planner applies to the deadbeat step: a foothold outside the leg's reach is
                                       #     clipped rather than handed to the MPC. They are safety limits, not tuning.
-  max_step_width: 0.45  # [m] largest lateral distance between the feet after a step
-  min_step_width: 0.15  # [m] self-collision margin on that distance
+  max_pos_lfoot_rt_rfoot_ewrt_heading_y: 0.45  # [m] largest lateral distance between the feet after a step
+  min_pos_lfoot_rt_rfoot_ewrt_heading_y: 0.15  # [m] self-collision margin on that distance
   # Standing / walking blend, equations (15) - (17) of the paper: alpha = tanh(sharpness (phi - threshold)) / 2 + 1/2
   # with phi the squared norm of the commands and the measured center-of-mass velocity, its lateral part taken
-  # relative to the sway of stepping in place (HlipContactPlanner::blendVelocity), each normalized by its threshold
-  # below.
+  # relative to the sway of stepping in place (HlipContactPlanner::computeBlendLinvelComRtWorldEwrtHeadingXy), each
+  # normalized by its threshold below.
   # Under alpha = 0.5 the planner stands and the feet stay put; above it the commanded velocity is scaled by alpha, so
   # the stride grows out of standing instead of jumping to full length at the first non-zero command.
   blend {
@@ -191,8 +191,8 @@ hlip {
     # actually measures and feeds the blend is the CENTER-OF-MASS velocity, so the keys are named for that.
     # Laterally it is the velocity beyond the zero-command stepping orbit's own sway (0.132 m/s on the model's
     # pendulum) that counts.
-    max_linvel_com_rt_world_ewrt_heading_x: 0.5  # [m/s]
-    max_linvel_com_rt_world_ewrt_heading_y: 0.4  # [m/s]
+    max_proxy_linvel_com_rt_world_ewrt_heading_x: 0.5  # [m/s]
+    max_proxy_linvel_com_rt_world_ewrt_heading_y: 0.4  # [m/s]
   }
   # LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto:lateral_velocity_limit)
 }
@@ -215,7 +215,7 @@ dynamics: "heading_double_integrator"  # heading model (ACoM dynamics): theta, o
                                   # vertical join the reduced model, driven by the yaw torques the stance feet can carry.
                                   # Turning becomes a stepping decision bounded by the ground torques, and the foothold
                                   # frame follows the planned heading (successive linearization). The planned foot yaw
-                                  # reaches the foot cost through task_space_foot_cost.weights.orientation_z (0 = not tracked).
+                                  # reaches the foot cost through task_space_foot_cost.weights.rotvec_z (0 = not tracked).
                                     # in accumulation order of the stage matrices
 costs: "regularization"
 costs: "previous_foothold_consistency"
@@ -261,7 +261,8 @@ search: "heading_relinearization"
 # without it. Every other rule here is a heuristic correction between plans and stays commented out, because the
 # H-LIP replans from the measured state at every MPC solve and the whole-body MPC absorbs what is left, which is the
 # point of the paper's split. Enable a heuristic one at a time and validate it in MuJoCo before hardware;
-# phase_resetting must precede energy_cadence_modulation when both are listed.
+# phase_resetting must precede energy_cadence_modulation, and planned_heading_override must precede
+# planned_com_override, when both of a pair are listed.
 #
 # This block used to claim that "with planner.type: hlip the list is empty on purpose" and that "with none listed
 # the reference manager merges plans exactly as it did before they existed, which is the behavior the gait is tuned
@@ -271,11 +272,11 @@ search: "heading_relinearization"
 # Not a heuristic: this is the reference plumbing of the paper (its equations 11-14). The H-LIP's lateral orbit
 # requires the center of mass to fall towards the swing foot, while the target trajectory built from the operator's
 # command asks for a straight line with no lateral velocity. Without this rule the whole-body MPC holds the center
-# of mass still, the planner reads that back and narrows the step to min_step_width, and the robot sidesteps and
+# of mass still, the planner reads that back and narrows the step to min_pos_lfoot_rt_rfoot_ewrt_heading_y, and the robot sidesteps and
 # falls. The rules below it are the heuristics, and they stay off.
+# execution: "planned_heading_override"      # the plan's heading replaces the commanded yaw in the MPC target trajectory
 execution: "planned_com_override"  # the plan's center of mass replaces the horizontal CoM reference of the target
 # execution: "phase_resetting"               # early touch-down: switch the foot to contact at once; late: extend the swing
-# execution: "planned_heading_override"      # the plan's heading replaces the commanded yaw in the MPC target trajectory
 # execution: "energy_cadence_modulation"     # re-time the touch-down of the swing in flight by the LIP orbital energy error
 # execution: "dcm_step_adjustment"           # move the landing target by the DCM error propagated to touch-down
 
@@ -291,8 +292,8 @@ velocity_tracking {
   weight: 100  # ||v_com - v_cmd||^2 per node
 }
 step_width {
-  weight: 10  # (step width - nominal_step_width)^2 per node
-  nominal_step_width: 0.25  # [m] preferred lateral distance between the feet
+  weight: 10  # (step width - nom_pos_lfoot_rt_rfoot_ewrt_heading_y)^2 per node
+  nom_pos_lfoot_rt_rfoot_ewrt_heading_y: 0.25  # [m] preferred lateral distance between the feet
 }
 heading_rate_tracking {
   weight: 20  # (heading rate - commanded yaw rate)^2 per node
@@ -303,7 +304,7 @@ heading_tracking {
 foot_yaw_tracking {
   weight: 5  # (foot yaw - nominal heading)^2 per node
 }
-yaw_torque_regularization {
+yaw_torque_regularization_parameters {
   weight: 0.001  # yaw torque^2 per node
 }
 foot_yaw_regularization {
@@ -331,25 +332,25 @@ terminal_dcm {
   target: "commanded_velocity"
 }
 zmp_support_region {
-  half_width_x: 0.08  # [m] ZMP box half-width around a supporting foot along the heading (0 = from the footprint)
-  half_width_y: 0.04  # [m] ZMP box half-width laterally
+  max_norm_pos_zmp_rt_foot_ewrt_foot_x: 0.08  # [m] ZMP box half-width around a supporting foot along its x axis (its footprint frame; 0 = from the footprint)
+  max_norm_pos_zmp_rt_foot_ewrt_foot_y: 0.04  # [m] ZMP box half-width along the supporting foot's y axis
 }
 # Reach. These were ~3x the header defaults, which let the planner buy velocity tracking with stride length the leg
 # cannot deliver: the landing target ran away from the foot and the swing never reached it. Tightened to something
 # the leg can actually reach, so the planner has to buy speed with cadence instead.
 reachability {
-  reach_x: 0.6  # [m] foot x offset from the CoM
-  reach_y_inner: 0.05  # [m] left foot y - CoM y >= reach_y_inner (mirrored for the right foot)
-  reach_y_outer: 0.45  # [m]
+  max_norm_pos_foot_rt_com_ewrt_heading_x: 0.6  # [m] foot x offset from the CoM
+  min_pos_foot_rt_com_ewrt_heading_y: 0.05  # [m] left foot y - CoM y >= min_pos_foot_rt_com_ewrt_heading_y (mirrored for the right foot)
+  max_pos_foot_rt_com_ewrt_heading_y: 0.45  # [m]
 }
 foot_separation {
-  max_step_length: 0.7  # [m] |x_left - x_right| bound
-  min_step_width: 0.15  # [m] self-collision margin
-  max_step_width: 0.45  # [m]
+  max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x: 0.7  # [m] |x_left - x_right| bound
+  min_pos_lfoot_rt_rfoot_ewrt_heading_y: 0.15  # [m] self-collision margin
+  max_pos_lfoot_rt_rfoot_ewrt_heading_y: 0.45  # [m]
 }
 # hip_yaw_range and yaw_torque_budget take their values from the robot model: the yaw inertia, the yaw torque limits
 # (torsional friction coefficient, capped at the wrench cone's torsion limit, * weight; the inscribed pyramid's
-# friction coefficient * cos(pi / N) * half the weight * nominal_step_width; both from
+# friction coefficient * cos(pi / N) * half the weight * nom_pos_lfoot_rt_rfoot_ewrt_heading_y; both from
 # contact_wrench_cone_soft_constraint) and the per-leg hip yaw range are not keys here.
 contact_switch {
   cost: 0.02  # per lift-off / touch-down event. A faster cadence puts more events in the horizon,
@@ -401,7 +402,7 @@ phase_resetting {
 # predicted trajectory, so they act only on real disturbances and are zero while the robot does what the controller
 # expects. That prediction is refreshed every solve, so each loop corrects the deviation that appeared over the last
 # solver period, once: they damp impulses and slips and do not integrate a sustained push (the planner re-plans from
-# the measured state for that). dcm_step_adjustment.max_offset is the safety bound; check in simulation that the offset
+# the measured state for that). dcm_step_adjustment.max_norm_err_pos_foot_rt_world_ewrt_world_xy is the safety bound; check in simulation that the offset
 # is not sitting at it.
 energy_cadence_modulation {
   gain: 0.01  # [s/J] touch-down shift = -gain * (E - E_pred), E of the full model mass
@@ -409,5 +410,5 @@ energy_cadence_modulation {
 }
 dcm_step_adjustment {
   gain: 0.5  # 1 = exact LIP compensation of the DCM increment, propagated to touch-down
-  max_offset: 0.05  # [m] bound on the landing target offset (also clipped to the reachable region)
+  max_norm_err_pos_foot_rt_world_ewrt_world_xy: 0.05  # [m] bound on the landing target offset (also clipped to the reachable region)
 }

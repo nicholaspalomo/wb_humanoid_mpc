@@ -56,7 +56,7 @@ struct SimulatorSettings {
    * [N] Normal force above which a contact point counts as touching
    * (`sim_min_force_mjcontact_ewrt_mjcontact_x`); by default the simulator's.
    */
-  double contactForceThreshold = ::robot::mujoco_sim_interface::
+  double minForceMjcontactEwrtMjcontactX = ::robot::mujoco_sim_interface::
       MujocoSimConfig::kNomMinForceMjcontactEwrtMjcontactX;
   /** [s] Window of the viewer's contact timeline
    * (`sim_contact_timeline_window`); by default the simulator's. */
@@ -76,8 +76,8 @@ struct SimulatorSettings {
   /** [m] The base height below which the robot is reset
    * (`sim_auto_reset_min_pos_base_rt_world_ewrt_world_z`); by default the
    * simulator's. */
-  double autoResetBaseHeight = ::robot::mujoco_sim_interface::MujocoSimConfig::
-      kDefaultAutoResetBaseHeight;
+  double autoResetMinPosBaseRtWorldEwrtWorldZ = ::robot::mujoco_sim_interface::
+      MujocoSimConfig::kNomAutoResetMinPosBaseRtWorldEwrtWorldZ;
 };
 
 /** What every backend is built from. */
@@ -89,8 +89,9 @@ struct RobotBackendOptions {
   /** The state the robot starts in: in simulation, where it is put
    * (createInitialSimState()). */
   std::optional<robot::model::RobotState> initialState;
-  /** The MPC's contact frames and their parent joints (model_settings), in
-   * contact order. */
+  /** The MPC's contact frames and their parent joints (model_settings), both
+   * in contact order (ModelSettings::contactNames and
+   * contactParentJointNamesInContactOrder()). */
   std::vector<std::string> contactFrameNames;
   std::vector<std::string> contactParentJointNames;
   /** The target contact patches the viewer draws, per contact; empty: none (no

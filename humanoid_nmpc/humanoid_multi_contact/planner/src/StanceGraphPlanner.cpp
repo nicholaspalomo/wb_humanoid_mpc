@@ -87,7 +87,7 @@ struct Limb {
   // contact of the trunk, which reaches from its own pad.
   std::optional<pinocchio::JointIndex> root;
   // [m]
-  double reach = 0.0;
+  double maxDistPadRtReachcenter = 0.0;
 };
 
 /** What a node changed relative to its parent. */
@@ -124,8 +124,9 @@ std::string describe(const ContactPlacement& placement,
   return absl::StrFormat("%s@%s (%.2f, %.2f, %.2f)",
                          contactSet.candidate(placement.candidate).name,
                          terrain.primitive(placement.primitive).name,
-                         placement.position.x(), placement.position.y(),
-                         placement.position.z());
+                         placement.posPadRtWorldEwrtWorld.x(),
+                         placement.posPadRtWorldEwrtWorld.y(),
+                         placement.posPadRtWorldEwrtWorld.z());
 }
 
 std::string describe(const StancePlacements& stance,
@@ -143,16 +144,18 @@ std::string describe(const StancePlacements& stance,
 ContactPlacement placementAt(const RobotStanceModel& model,
                              const TerrainModel& terrain,
                              int candidate) {
-  const Eigen::Vector3d position = model.padPosition(candidate);
-  const PatchFrame patch = terrain.patchFrameAt(position);
+  const Eigen::Vector3d posPadRtWorldEwrtWorld =
+      model.getPosPadRtWorldEwrtWorld(candidate);
+  const PatchFrame patch = terrain.patchFrameAt(posPadRtWorldEwrtWorld);
   return ContactPlacement{
       .candidate = candidate,
       .primitive = patch.primitiveIndex,
       .face = patch.face,
-      .position = position,
-      .normal = patch.normal(),
-      .xAxis = tangentAxis(model.padRotation(candidate).col(kXAxisIndex),
-                           patch.normal())};
+      .posPadRtWorldEwrtWorld = posPadRtWorldEwrtWorld,
+      .normalSurfaceEwrtWorld = patch.getNormalSurfaceEwrtWorld(),
+      .xAxisPadEwrtWorld = computeXAxisPadEwrtWorld(
+          model.getRotmatPadRtWorld(candidate).col(kXAxisIndex),
+          patch.getNormalSurfaceEwrtWorld())};
 }
 
 /** Whether `joint` is of the trunk: the free flyer (or the universe), or a
@@ -166,7 +169,7 @@ bool isTrunk(pinocchio::JointIndex joint,
 /** The limbs of the candidates: a limb hangs from the first joint below the
  * trunk (isTrunk()). */
 std::vector<Limb> limbsOf(const RobotStanceModel& model,
-                          double trunkContactReach) {
+                          double trunkMaxDistPadRtReachcenter) {
   const pinocchio::Model& pinocchioModel = model.model();
   const int joints = pinocchioModel.njoints;
   // How many children of each joint lead to a candidate's joint.
@@ -184,17 +187,23 @@ std::vector<Limb> limbsOf(const RobotStanceModel& model,
   for (int index = 0; index < model.contactSet().size(); ++index) {
     pinocchio::JointIndex joint = model.padJoint(index);
     if (isTrunk(joint, leadingChildren)) {
-      limbs.push_back(Limb{.root = std::nullopt, .reach = trunkContactReach});
+      limbs.push_back(
+          Limb{.root = std::nullopt,
+               .maxDistPadRtReachcenter = trunkMaxDistPadRtReachcenter});
       continue;
     }
-    double reach =
-        Eigen::Vector3d(model.contactSet().candidate(index).offset).norm();
+    double maxDistPadRtReachcenter =
+        Eigen::Vector3d(
+            model.contactSet().candidate(index).posPadRtLinkEwrtLink)
+            .norm();
     while (!isTrunk(pinocchioModel.parents[joint], leadingChildren)) {
-      reach += pinocchioModel.jointPlacements[joint].translation().norm();
+      maxDistPadRtReachcenter +=
+          pinocchioModel.jointPlacements[joint].translation().norm();
       joint = pinocchioModel.parents[joint];
     }
     // The limb's own first joint.
-    limbs.push_back(Limb{.root = joint, .reach = reach});
+    limbs.push_back(Limb{.root = joint,
+                         .maxDistPadRtReachcenter = maxDistPadRtReachcenter});
   }
   return limbs;
 }
@@ -233,8 +242,10 @@ std::vector<std::vector<double>> padSeparationsOf(
       separations[a][b] =
           depth[model.padJoint(a)] + depth[model.padJoint(b)] - depth[first] -
           depth[first] +
-          Eigen::Vector3d(model.contactSet().candidate(a).offset).norm() +
-          Eigen::Vector3d(model.contactSet().candidate(b).offset).norm();
+          Eigen::Vector3d(model.contactSet().candidate(a).posPadRtLinkEwrtLink)
+              .norm() +
+          Eigen::Vector3d(model.contactSet().candidate(b).posPadRtLinkEwrtLink)
+              .norm();
     }
   }
   return separations;
@@ -266,7 +277,7 @@ absl::StatusOr<std::unique_ptr<StanceGraphPlanner>> StanceGraphPlanner::Create(
     const StanceGraphPlannerOptions& options) {
   if (options.samplesPerCandidate < 1 || !(options.staticMarginBuffer >= 0.0) ||
       !(options.dynamicMargin >= 0.0) ||
-      !(options.initialChangeDisplacement > 0.0) ||
+      !(options.initNormErrPosBaseRtWorldEwrtWorld > 0.0) ||
       !(options.retimingSlowdown > 1.0) || options.maxRetimings < 0 ||
       !(options.sampler.gridSpacing > 0.0)) {
     return absl::InvalidArgumentError(
@@ -287,7 +298,7 @@ struct GoalPlacement {
   // its front). std::nullopt: any face, or a capsule.
   std::optional<BoxFace> face;
   // Of a waypoint with a pose: the pose's pad on that face, tried first.
-  std::optional<ContactSample> poseSample;
+  std::optional<ContactSample> postureSample;
 };
 
 /** What a run of the planner shares: the scenario, the robot and the goal. */
@@ -307,9 +318,9 @@ struct PlanningContext {
   // The goal of the search that runs: the scenario's goal, or a waypoint on
   // the way to it (setLegGoal()).
   Eigen::VectorXd goalQ;
-  Eigen::Vector3d goalBase = Eigen::Vector3d::Zero();
+  Eigen::Vector3d desPosBaseRtWorldEwrtWorld = Eigen::Vector3d::Zero();
   // The pads of the goal pose, per candidate.
-  std::vector<Eigen::Vector3d> goalPads;
+  std::vector<Eigen::Vector3d> desPosPadsRtWorldEwrtWorld;
   // The region the base must reach, if any.
   std::optional<config::Scenario::BaseRegion> goalRegion;
   // Whether the goal is the scenario's: the search then ends with the motion
@@ -317,11 +328,11 @@ struct PlanningContext {
   bool finalLeg = true;
   // Whether the goal is a waypoint with a pose: its changes are then also
   // solved toward that pose itself.
-  bool waypointPose = false;
+  bool waypointPosture = false;
   // The poses of the waypoints the leg runs between (the one it starts at and
   // the one it ends at, where they have poses): the starts a change's
   // transition is solved from when it fails from the node's configuration.
-  std::vector<Eigen::VectorXd> poseSeeds;
+  std::vector<Eigen::VectorXd> postureSeeds;
 };
 
 /** The stance graph of one run, as a LazySearchProblem. */
@@ -365,9 +376,10 @@ class StanceGraphSearch : public LazySearchProblem {
               const GoalPlacement& goal) const {
     if (placement.primitive != goal.primitive) return false;
     if (goal.face.has_value() && placement.face != goal.face) return false;
-    return !goal.poseSample.has_value() ||
-           (placement.position - goal.poseSample->position).norm() <=
-               context_.options->sampleSpacing;
+    return !goal.postureSample.has_value() ||
+           (placement.posPadRtWorldEwrtWorld -
+            goal.postureSample->posPadRtWorldEwrtWorld)
+                   .norm() <= context_.options->sampleSpacing;
   }
   /** Whether `candidate` is a contact of the goal stance. */
   bool isGoalCandidate(int candidate) const {
@@ -380,13 +392,13 @@ class StanceGraphSearch : public LazySearchProblem {
   bool isGoalStance(const StancePlacements& stance) const;
   /** Adds the candidate of `node` that places `candidate` at `sample` (its
    * score the tie-break), unless it is within the sample spacing of one
-   * `picked`, its face has given its samples (`perFace`) or it overlaps a pad
-   * of the stance; whether it was added. */
+   * `pickedPosPadsRtWorldEwrtWorld`, its face has given its samples (`perFace`)
+   * or it overlaps a pad of the stance; whether it was added. */
   bool tryAdd(int node,
               int candidate,
               const ContactSample& sample,
               double score,
-              std::vector<Eigen::Vector3d>& picked,
+              std::vector<Eigen::Vector3d>& pickedPosPadsRtWorldEwrtWorld,
               absl::flat_hash_map<std::pair<int, int>, int>& perFace,
               std::vector<SearchCandidate>& result);
   /** The add candidates of `node` for `candidate`. */
@@ -400,7 +412,7 @@ class StanceGraphSearch : public LazySearchProblem {
 
   PlanningContext& context_;
   std::vector<StanceNode> nodes_;
-  double largestChange_ = 0.0;
+  double maxNormErrPosBaseRtWorldEwrtWorld_ = 0.0;
   int validations_ = 0;
 };
 
@@ -437,11 +449,15 @@ bool StanceGraphSearch::isGoalStance(const StancePlacements& stance) const {
 
 double StanceGraphSearch::heuristic(int node) {
   const StanceNode& entry = nodes_[node];
-  const double displacement =
-      std::max(largestChange_, context_.options->initialChangeDisplacement);
-  const double distance =
-      (entry.q.head<kPositionDim>() - context_.goalBase).norm();
-  return std::max(goalMismatch(entry.stance), distance / displacement);
+  const double normErrPosBaseRtWorldEwrtWorld =
+      std::max(maxNormErrPosBaseRtWorldEwrtWorld_,
+               context_.options->initNormErrPosBaseRtWorldEwrtWorld);
+  const double goalNormErrPosBaseRtWorldEwrtWorld =
+      (entry.q.head<kPositionDim>() - context_.desPosBaseRtWorldEwrtWorld)
+          .norm();
+  return std::max(
+      goalMismatch(entry.stance),
+      goalNormErrPosBaseRtWorldEwrtWorld / normErrPosBaseRtWorldEwrtWorld);
 }
 
 std::vector<Eigen::VectorXd> StanceGraphSearch::referencesFrom(
@@ -451,7 +467,7 @@ std::vector<Eigen::VectorXd> StanceGraphSearch::referencesFrom(
       model, q, context_.goalQ, context_.options->goalPostureBlend)};
   // A waypoint's pose is a posture for its changes, which can be far from the
   // node's (a knee onto a box from standing).
-  if (context_.waypointPose) references.push_back(context_.goalQ);
+  if (context_.waypointPosture) references.push_back(context_.goalQ);
   references.push_back(q);
   return references;
 }
@@ -463,18 +479,23 @@ void StanceGraphSearch::addCandidates(int node,
   const StanceGraphPlannerOptions& options = *context_.options;
   const ContactCandidate& contact = model.contactSet().candidate(candidate);
   const Limb& limb = context_.limbs[candidate];
-  const Eigen::Vector3d center =
-      limb.root.has_value() ? model.jointPlacement(*limb.root).translation()
-                            : model.padPosition(candidate);
-  const Eigen::Vector3d xHint = model.padRotation(candidate).col(kXAxisIndex);
+  // The limb root's link origin, or the trunk pad's own center.
+  const Eigen::Vector3d posReachcenterRtWorldEwrtWorld =
+      limb.root.has_value() ? model.getPoseLinkRtWorld(*limb.root).translation()
+                            : model.getPosPadRtWorldEwrtWorld(candidate);
+  const Eigen::Vector3d xAxisPadEwrtWorld =
+      model.getRotmatPadRtWorld(candidate).col(kXAxisIndex);
   // A limb's root moves with the trunk, which bends, crouches and turns.
-  const double reach =
-      limb.root.has_value() ? limb.reach + options.limbRootTravel : limb.reach;
-  std::vector<ContactSample> samples =
-      sampleContacts(context_.loaded->terrain, contact, candidate, center,
-                     reach, xHint, options.sampler);
+  const double sampleMaxDistPadRtReachcenter =
+      limb.root.has_value()
+          ? limb.maxDistPadRtReachcenter + options.limbRootTravel
+          : limb.maxDistPadRtReachcenter;
+  std::vector<ContactSample> samples = sampleContacts(
+      context_.loaded->terrain, contact, candidate,
+      posReachcenterRtWorldEwrtWorld, sampleMaxDistPadRtReachcenter,
+      xAxisPadEwrtWorld, options.sampler);
   // A waypoint's contact on the face of its pose.
-  std::optional<ContactSample> poseSample;
+  std::optional<ContactSample> postureSample;
   for (const GoalPlacement& goal : context_.goalContacts) {
     if (goal.candidate != candidate || !goal.face.has_value()) continue;
     samples.erase(std::remove_if(samples.begin(), samples.end(),
@@ -483,38 +504,54 @@ void StanceGraphSearch::addCandidates(int node,
                                           sample.face != goal.face;
                                  }),
                   samples.end());
-    poseSample = goal.poseSample;
+    postureSample = goal.postureSample;
   }
   // Two anchors, a part of the way and all the way: the pad toward the goal
   // pose's pad, for a goal contact, or by the base's way to the goal
   // otherwise. Their nearest samples are taken in turn, so that both a short
-  // and a long change are tried.
-  const Eigen::Vector3d pad = model.padPosition(candidate);
-  const Eigen::Vector3d toGoal =
+  // and a long change are tried. The pad's way is the goal pose's pad minus
+  // the pad, or the base's goal minus the base.
+  const Eigen::Vector3d posPadRtWorldEwrtWorld =
+      model.getPosPadRtWorldEwrtWorld(candidate);
+  // Empty for a contact the goal pose does not hold.
+  const std::optional<Eigen::Vector3d> desErrPosPadRtWorldEwrtWorld =
       isGoalCandidate(candidate)
-          ? Eigen::Vector3d(context_.goalPads[candidate] - pad)
-          : Eigen::Vector3d(context_.goalBase -
-                            nodes_[node].q.head<kPositionDim>());
+          ? std::optional<Eigen::Vector3d>(
+                context_.desPosPadsRtWorldEwrtWorld[candidate] -
+                posPadRtWorldEwrtWorld)
+          : std::nullopt;
+  const Eigen::Vector3d desErrPosBaseRtWorldEwrtWorld =
+      context_.desPosBaseRtWorldEwrtWorld - nodes_[node].q.head<kPositionDim>();
   std::vector<std::vector<std::pair<double, ContactSample>>> ranked;
   for (const double fraction : {options.anchorGoalFraction, 1.0}) {
-    const Eigen::Vector3d anchor = pad + fraction * toGoal;
+    const Eigen::Vector3d anchorPosPadRtWorldEwrtWorld =
+        posPadRtWorldEwrtWorld +
+        fraction * desErrPosPadRtWorldEwrtWorld.value_or(
+                       desErrPosBaseRtWorldEwrtWorld);
     // A sample the limb reaches without the trunk's help scores better: the
-    // distance to the anchor, plus twice the distance beyond the limb's
-    // length, plus the wall penalty.
+    // distance to the anchorPosPadRtWorldEwrtWorld, plus twice the distance
+    // beyond the limb's length, plus the wall penalty.
     std::vector<std::pair<double, ContactSample>> scored;
     for (const ContactSample& sample : samples) {
       const bool apart = std::any_of(
           nodes_[node].stance.begin(), nodes_[node].stance.end(),
           [&](const ContactPlacement& other) {
-            return (sample.position - other.position).norm() >
+            return (sample.posPadRtWorldEwrtWorld -
+                    other.posPadRtWorldEwrtWorld)
+                       .norm() >
                    context_.padSeparations[candidate][other.candidate];
           });
       if (apart) continue;
-      const double beyond =
-          std::max(0.0, (sample.position - center).norm() - limb.reach);
-      scored.emplace_back((sample.position - anchor).norm() + 2.0 * beyond +
-                              options.wallPenalty * (1.0 - sample.normal.z()),
-                          sample);
+      const double beyond = std::max(
+          0.0, (sample.posPadRtWorldEwrtWorld - posReachcenterRtWorldEwrtWorld)
+                       .norm() -
+                   limb.maxDistPadRtReachcenter);
+      scored.emplace_back(
+          (sample.posPadRtWorldEwrtWorld - anchorPosPadRtWorldEwrtWorld)
+                  .norm() +
+              2.0 * beyond +
+              options.wallPenalty * (1.0 - sample.normalSurfaceEwrtWorld.z()),
+          sample);
     }
     std::stable_sort(scored.begin(), scored.end(),
                      [](const std::pair<double, ContactSample>& first,
@@ -523,29 +560,30 @@ void StanceGraphSearch::addCandidates(int node,
                      });
     ranked.push_back(std::move(scored));
   }
-  std::vector<Eigen::Vector3d> picked;
+  std::vector<Eigen::Vector3d> pickedPosPadsRtWorldEwrtWorld;
   // How many samples each face gave, by primitive and face.
   absl::flat_hash_map<std::pair<int, int>, int> perFace;
   // The waypoint pose's own pad first: it scores below every sample.
-  constexpr double kPoseSampleScore = -1.0;
-  if (poseSample.has_value()) {
-    tryAdd(node, candidate, *poseSample, kPoseSampleScore, picked, perFace,
-           result);
+  constexpr double kPostureSampleScore = -1.0;
+  if (postureSample.has_value()) {
+    tryAdd(node, candidate, *postureSample, kPostureSampleScore,
+           pickedPosPadsRtWorldEwrtWorld, perFace, result);
   }
   std::vector<size_t> next(ranked.size(), 0);
   bool progress = true;
-  while (progress &&
-         static_cast<int>(picked.size()) < options.samplesPerCandidate) {
+  while (progress && static_cast<int>(pickedPosPadsRtWorldEwrtWorld.size()) <
+                         options.samplesPerCandidate) {
     progress = false;
     for (size_t anchor = 0; anchor < ranked.size(); ++anchor) {
-      if (static_cast<int>(picked.size()) >= options.samplesPerCandidate) {
+      if (static_cast<int>(pickedPosPadsRtWorldEwrtWorld.size()) >=
+          options.samplesPerCandidate) {
         break;
       }
       for (; next[anchor] < ranked[anchor].size(); ++next[anchor]) {
         const std::pair<double, ContactSample>& entry =
             ranked[anchor][next[anchor]];
-        if (tryAdd(node, candidate, entry.second, entry.first, picked, perFace,
-                   result)) {
+        if (tryAdd(node, candidate, entry.second, entry.first,
+                   pickedPosPadsRtWorldEwrtWorld, perFace, result)) {
           ++next[anchor];
           progress = true;
           break;
@@ -560,25 +598,28 @@ bool StanceGraphSearch::tryAdd(
     int candidate,
     const ContactSample& sample,
     double score,
-    std::vector<Eigen::Vector3d>& picked,
+    std::vector<Eigen::Vector3d>& pickedPosPadsRtWorldEwrtWorld,
     absl::flat_hash_map<std::pair<int, int>, int>& perFace,
     std::vector<SearchCandidate>& result) {
   const StanceGraphPlannerOptions& options = *context_.options;
   const bool crowded = std::any_of(
-      picked.begin(), picked.end(), [&](const Eigen::Vector3d& other) {
-        return (other - sample.position).norm() < options.sampleSpacing;
+      pickedPosPadsRtWorldEwrtWorld.begin(),
+      pickedPosPadsRtWorldEwrtWorld.end(), [&](const Eigen::Vector3d& other) {
+        return (other - sample.posPadRtWorldEwrtWorld).norm() <
+               options.sampleSpacing;
       });
   if (crowded) return false;
   const std::pair<int, int> face(
       sample.primitive,
       sample.face.has_value() ? static_cast<int>(*sample.face) : -1);
   if (perFace[face] >= options.samplesPerFace) return false;
-  const ContactPlacement placement{.candidate = candidate,
-                                   .primitive = sample.primitive,
-                                   .face = sample.face,
-                                   .position = sample.position,
-                                   .normal = sample.normal,
-                                   .xAxis = sample.xAxis};
+  const ContactPlacement placement{
+      .candidate = candidate,
+      .primitive = sample.primitive,
+      .face = sample.face,
+      .posPadRtWorldEwrtWorld = sample.posPadRtWorldEwrtWorld,
+      .normalSurfaceEwrtWorld = sample.normalSurfaceEwrtWorld,
+      .xAxisPadEwrtWorld = sample.xAxisPadEwrtWorld};
   const bool overlaps =
       std::any_of(nodes_[node].stance.begin(), nodes_[node].stance.end(),
                   [&](const ContactPlacement& other) {
@@ -587,7 +628,7 @@ bool StanceGraphSearch::tryAdd(
                         options.padSeparation);
                   });
   if (overlaps) return false;
-  picked.push_back(sample.position);
+  pickedPosPadsRtWorldEwrtWorld.push_back(sample.posPadRtWorldEwrtWorld);
   ++perFace[face];
   nodes_.push_back(
       StanceNode{.stance = withPlacement(nodes_[node].stance, placement),
@@ -660,17 +701,17 @@ absl::StatusOr<std::optional<double>> StanceGraphSearch::validate(int node) {
                                                referencesFrom(from.q)));
   // A change far from the node's posture (the weight onto a knee on a box) is
   // solved from a waypoint's pose instead, and the motion goes there.
-  for (const Eigen::VectorXd& seed : context_.poseSeeds) {
+  for (const Eigen::VectorXd& seed : context_.postureSeeds) {
     if (transition.feasible) break;
     ASSIGN_OR_RETURN(
-        const MotionCheck fromPose,
+        const MotionCheck fromPosture,
         context_.motion->transition(held, supporting, seed, {seed, from.q}));
-    if (fromPose.feasible) {
-      transition = fromPose;
+    if (fromPosture.feasible) {
+      transition = fromPosture;
     } else {
       VLOG(kFailureLogLevel)
           << "stance_graph: the transition from a waypoint's pose fails: "
-          << fromPose.failure;
+          << fromPosture.failure;
     }
   }
   // A pad that makes contact may have to go around the terrain (over a box's
@@ -699,7 +740,7 @@ absl::StatusOr<std::optional<double>> StanceGraphSearch::validate(int node) {
   contacts.endMustBeSolved = motionFirst;
   // A climb's legs fold far: on the way to a waypoint's pose, a sole swings
   // level.
-  contacts.levelTouchdownSole = context_.waypointPose;
+  contacts.levelTouchdownSole = context_.waypointPosture;
   if (motionFirst && !adds) {
     ASSIGN_OR_RETURN(const std::vector<Eigen::Vector2d> polygon,
                      context_.motion->polygonOf(supporting));
@@ -708,9 +749,11 @@ absl::StatusOr<std::optional<double>> StanceGraphSearch::validate(int node) {
                     absl::StrCat("transition: ", transition.failure));
       return std::optional<double>();
     }
-    Eigen::Vector2d middle = Eigen::Vector2d::Zero();
-    for (const Eigen::Vector2d& vertex : polygon) middle += vertex;
-    contacts.comGoal = middle / static_cast<double>(polygon.size());
+    Eigen::Vector2d sumPosComRtWorldEwrtWorldXy = Eigen::Vector2d::Zero();
+    for (const Eigen::Vector2d& vertex : polygon)
+      sumPosComRtWorldEwrtWorldXy += vertex;
+    contacts.desPosComRtWorldEwrtWorldXy =
+        sumPosComRtWorldEwrtWorldXy / static_cast<double>(polygon.size());
   }
   ASSIGN_OR_RETURN(
       SegmentCheck segment,
@@ -729,9 +772,10 @@ absl::StatusOr<std::optional<double>> StanceGraphSearch::validate(int node) {
   }
   // The motion's end, solved from its last knot, is the transition.
   const Eigen::VectorXd& reached = segment.knots.back();
-  const double displacement =
+  const double normErrPosBaseRtWorldEwrtWorld =
       (reached.head<kPositionDim>() - from.q.head<kPositionDim>()).norm();
-  largestChange_ = std::max(largestChange_, displacement);
+  maxNormErrPosBaseRtWorldEwrtWorld_ = std::max(
+      maxNormErrPosBaseRtWorldEwrtWorld_, normErrPosBaseRtWorldEwrtWorld);
   nodes_[node].q = reached;
   nodes_[node].motion = std::move(segment.knots);
   nodes_[node].validated = true;
@@ -741,16 +785,21 @@ absl::StatusOr<std::optional<double>> StanceGraphSearch::validate(int node) {
           << describe(nodes_[node].stance,
                       context_.motion->model().contactSet(),
                       context_.loaded->terrain);
-  return std::optional<double>(1.0 +
-                               context_.options->basePathWeight * displacement);
+  return std::optional<double>(1.0 + context_.options->basePathWeight *
+                                         normErrPosBaseRtWorldEwrtWorld);
 }
 
 /** Whether the base of `q` is in `region`. */
 bool baseInRegion(const Eigen::VectorXd& q,
                   const config::Scenario::BaseRegion& region) {
-  const Eigen::Vector3d offset =
-      (q.head<kPositionDim>() - Eigen::Vector3d(region.center)).cwiseAbs();
-  return (offset.array() <= Eigen::Vector3d(region.half_extents).array()).all();
+  // Componentwise absolute.
+  const Eigen::Vector3d posBaseRtBoxEwrtWorld =
+      (q.head<kPositionDim>() -
+       Eigen::Vector3d(region.pos_box_rt_world_ewrt_world))
+          .cwiseAbs();
+  return (posBaseRtBoxEwrtWorld.array() <=
+          Eigen::Vector3d(region.half_extents).array())
+      .all();
 }
 
 absl::StatusOr<bool> StanceGraphSearch::isGoal(int node) {
@@ -768,15 +817,17 @@ absl::StatusOr<bool> StanceGraphSearch::isGoal(int node) {
     return true;
   }
   // The goal pose's reference, shifted with the goal contacts' pads.
-  Eigen::Vector3d reached = Eigen::Vector3d::Zero();
-  Eigen::Vector3d planned = Eigen::Vector3d::Zero();
+  Eigen::Vector3d sumPosPadsRtWorldEwrtWorld = Eigen::Vector3d::Zero();
+  Eigen::Vector3d desSumPosPadsRtWorldEwrtWorld = Eigen::Vector3d::Zero();
   for (const ContactPlacement& placement : entry.stance) {
-    reached += placement.position;
-    planned += context_.goalPads[placement.candidate];
+    sumPosPadsRtWorldEwrtWorld += placement.posPadRtWorldEwrtWorld;
+    desSumPosPadsRtWorldEwrtWorld +=
+        context_.desPosPadsRtWorldEwrtWorld[placement.candidate];
   }
   Eigen::VectorXd reference = context_.goalQ;
   reference.head<kPositionDim>() +=
-      (reached - planned) / static_cast<double>(entry.stance.size());
+      (sumPosPadsRtWorldEwrtWorld - desSumPosPadsRtWorldEwrtWorld) /
+      static_cast<double>(entry.stance.size());
   ASSIGN_OR_RETURN(std::vector<Eigen::Vector2d> polygon,
                    context_.motion->polygonOf(entry.stance));
   StanceIkProblem problem =
@@ -860,20 +911,20 @@ absl::StatusOr<PlanningContext> contextOf(
   collision.setLinkAbove(linkAbove);
   ASSIGN_OR_RETURN(const JointLimits jointLimits,
                    jointLimitsOf(loaded.scenario.joint_limits));
-  if (relaxesPositionLimits(jointLimits)) {
-    RETURN_IF_ERROR(
-        model->relaxPositionLimits(loaded.scenario.joint_limit_relaxation));
+  if (relaxesJointPositionLimits(jointLimits)) {
+    RETURN_IF_ERROR(model->relaxJointPositionLimits(
+        loaded.scenario.joint_limit_relaxation));
   }
   PlanningContext context{.loaded = &loaded, .options = &options};
-  context.limbs = limbsOf(*model, options.trunkContactReach);
+  context.limbs = limbsOf(*model, options.trunkMaxDistPadRtReachcenter);
   context.padSeparations = padSeparationsOf(*model);
   ASSIGN_OR_RETURN(const RobotConfiguration initial,
-                   configurationOf(loaded.scenario.initial_pose));
+                   configurationOf(loaded.scenario.initial_posture));
   ASSIGN_OR_RETURN(context.initialQ, model->generalizedPositionOf(initial));
   context.finalQ = context.initialQ;
-  if (loaded.scenario.goal.pose.has_value()) {
+  if (loaded.scenario.goal.posture.has_value()) {
     ASSIGN_OR_RETURN(const RobotConfiguration goal,
-                     configurationOf(*loaded.scenario.goal.pose));
+                     configurationOf(*loaded.scenario.goal.posture));
     ASSIGN_OR_RETURN(context.finalQ, model->generalizedPositionOf(goal));
   }
   for (const std::string& name : loaded.scenario.allowed_contacts) {
@@ -899,7 +950,7 @@ absl::StatusOr<PlanningContext> contextOf(
     motion.comMargin = options.dynamicMargin;
     motion.exactStaticMargin = std::nullopt;
   }
-  motion.torqueMargin = loaded.scenario.torque_margin;
+  motion.jointTorqueMargin = loaded.scenario.joint_torque_margin;
   ASSIGN_OR_RETURN(motion.equilibrium.supportPolygon,
                    supportPolygonOf(loaded.scenario.support_polygon));
   motion.clearedPads = context.allowed;
@@ -921,29 +972,32 @@ absl::Status setLegGoal(PlanningContext& context,
   const LoadedScenario& loaded = *context.loaded;
   RobotStanceModel& model = context.motion->model();
   context.finalLeg = finalLeg;
-  context.waypointPose = !finalLeg && goal.pose.has_value();
+  context.waypointPosture = !finalLeg && goal.posture.has_value();
   context.goalQ = context.finalQ;
-  if (goal.pose.has_value()) {
-    ASSIGN_OR_RETURN(const RobotConfiguration pose,
-                     configurationOf(*goal.pose));
-    ASSIGN_OR_RETURN(context.goalQ, model.generalizedPositionOf(pose));
+  if (goal.posture.has_value()) {
+    ASSIGN_OR_RETURN(const RobotConfiguration posture,
+                     configurationOf(*goal.posture));
+    ASSIGN_OR_RETURN(context.goalQ, model.generalizedPositionOf(posture));
   }
-  context.poseSeeds.clear();
-  if (context.waypointPose) context.poseSeeds.push_back(context.goalQ);
-  if (previous != nullptr && previous->pose.has_value()) {
-    ASSIGN_OR_RETURN(const RobotConfiguration pose,
-                     configurationOf(*previous->pose));
-    ASSIGN_OR_RETURN(Eigen::VectorXd seed, model.generalizedPositionOf(pose));
-    context.poseSeeds.push_back(std::move(seed));
+  context.postureSeeds.clear();
+  if (context.waypointPosture) context.postureSeeds.push_back(context.goalQ);
+  if (previous != nullptr && previous->posture.has_value()) {
+    ASSIGN_OR_RETURN(const RobotConfiguration posture,
+                     configurationOf(*previous->posture));
+    ASSIGN_OR_RETURN(Eigen::VectorXd seed,
+                     model.generalizedPositionOf(posture));
+    context.postureSeeds.push_back(std::move(seed));
   }
   context.goalRegion = goal.base_region;
-  context.goalBase = goal.base_region.has_value()
-                         ? Eigen::Vector3d(goal.base_region->center)
-                         : Eigen::Vector3d(context.goalQ.head<kPositionDim>());
+  context.desPosBaseRtWorldEwrtWorld =
+      goal.base_region.has_value()
+          ? Eigen::Vector3d(goal.base_region->pos_box_rt_world_ewrt_world)
+          : Eigen::Vector3d(context.goalQ.head<kPositionDim>());
   RETURN_IF_ERROR(model.setGeneralizedPosition(context.goalQ));
-  context.goalPads.clear();
+  context.desPosPadsRtWorldEwrtWorld.clear();
   for (int index = 0; index < loaded.contactSet.size(); ++index) {
-    context.goalPads.push_back(model.padPosition(index));
+    context.desPosPadsRtWorldEwrtWorld.push_back(
+        model.getPosPadRtWorldEwrtWorld(index));
   }
   context.goalContacts.clear();
   for (const config::Scenario::GoalContact& contact : goal.contacts) {
@@ -952,21 +1006,29 @@ absl::Status setLegGoal(PlanningContext& context,
     ASSIGN_OR_RETURN(const int primitive,
                      loaded.terrain.primitiveIndex(contact.primitive));
     GoalPlacement placement{.candidate = candidate, .primitive = primitive};
-    if (context.waypointPose) {
-      const Eigen::Vector3d& pad = context.goalPads[candidate];
-      const PatchFrame patch = loaded.terrain.patchFrameAt(pad);
+    if (context.waypointPosture) {
+      const Eigen::Vector3d& posPadRtWorldEwrtWorld =
+          context.desPosPadsRtWorldEwrtWorld[candidate];
+      const PatchFrame patch =
+          loaded.terrain.patchFrameAt(posPadRtWorldEwrtWorld);
       if (patch.primitiveIndex == primitive) {
         placement.face = patch.face;
         // The pose's pad, on the surface.
-        const Eigen::Vector3d normal = patch.normal();
-        placement.poseSample = ContactSample{
+        const Eigen::Vector3d normalSurfaceEwrtWorld =
+            patch.getNormalSurfaceEwrtWorld();
+        placement.postureSample = ContactSample{
             .candidate = candidate,
             .primitive = primitive,
             .face = patch.face,
-            .position = pad - normal.dot(pad - patch.origin) * normal,
-            .normal = normal,
-            .xAxis = tangentAxis(model.padRotation(candidate).col(kXAxisIndex),
-                                 normal)};
+            .posPadRtWorldEwrtWorld =
+                posPadRtWorldEwrtWorld -
+                normalSurfaceEwrtWorld.dot(posPadRtWorldEwrtWorld -
+                                           patch.posSurfaceRtWorldEwrtWorld) *
+                    normalSurfaceEwrtWorld,
+            .normalSurfaceEwrtWorld = normalSurfaceEwrtWorld,
+            .xAxisPadEwrtWorld = computeXAxisPadEwrtWorld(
+                model.getRotmatPadRtWorld(candidate).col(kXAxisIndex),
+                normalSurfaceEwrtWorld)};
       }
     }
     context.goalContacts.push_back(placement);
@@ -979,7 +1041,7 @@ absl::StatusOr<StancePlacements> initialStance(PlanningContext& context) {
   RobotStanceModel& model = context.motion->model();
   RETURN_IF_ERROR(model.setGeneralizedPosition(context.initialQ));
   ASSIGN_OR_RETURN(const ContactMask mask,
-                   contactsOf(context.loaded->scenario.initial_pose,
+                   contactsOf(context.loaded->scenario.initial_posture,
                               context.loaded->contactSet));
   ASSIGN_OR_RETURN(const std::vector<int> active,
                    context.loaded->contactSet.activeIndices(mask));
@@ -992,47 +1054,53 @@ absl::StatusOr<StancePlacements> initialStance(PlanningContext& context) {
 
 /** The static contact wrenches of a knot, by the torque LP's forces. */
 absl::StatusOr<std::vector<config::MultiContactPlan::ContactWrench>>
-contactWrenches(RobotStanceModel& model,
-                const TerrainModel& terrain,
-                const config::MultiContactPlan::Knot& knot,
-                const Eigen::VectorXd& q,
-                const StaticEquilibriumOptions& equilibriumOptions) {
-  std::vector<config::MultiContactPlan::ContactWrench> wrenches;
+computeStaticWrenchContactsEwrtWorld(
+    RobotStanceModel& model,
+    const TerrainModel& terrain,
+    const config::MultiContactPlan::Knot& knot,
+    const Eigen::VectorXd& q,
+    const StaticEquilibriumOptions& equilibriumOptions) {
+  std::vector<config::MultiContactPlan::ContactWrench> wrenchMsgs;
   RETURN_IF_ERROR(model.setGeneralizedPosition(q));
   ASSIGN_OR_RETURN(const StanceOnTerrain onTerrain,
                    stanceOnTerrain(model, terrain, knot.active_contacts));
-  if (onTerrain.stance.empty()) return wrenches;
+  if (onTerrain.stance.empty()) return wrenchMsgs;
   ASSIGN_OR_RETURN(
       const StaticEquilibrium equilibrium,
       StaticEquilibrium::Create(onTerrain.stance, equilibriumOptions));
-  const absl::StatusOr<TorqueFeasibilityResult> torques =
-      minimumTorqueUtilization(model, equilibrium);
-  if (!torques.ok()) return wrenches;
+  const absl::StatusOr<TorqueFeasibilityResult> jointTorques =
+      minimumJointTorqueUtilization(model, equilibrium);
+  if (!jointTorques.ok()) return wrenchMsgs;
   const WrenchGenerators& generators = equilibrium.generators();
   const double weight = model.mass() * kGravityMagnitude;
-  std::vector<Eigen::Vector3d> forces(onTerrain.stance.size(),
-                                      Eigen::Vector3d::Zero());
-  std::vector<Eigen::Vector3d> torquesAbout(onTerrain.stance.size(),
-                                            Eigen::Vector3d::Zero());
+  // The moments are about each pad's center, the origin of its contact frame.
+  std::vector<Eigen::Vector3d> forceContactsEwrtWorld(onTerrain.stance.size(),
+                                                      Eigen::Vector3d::Zero());
+  std::vector<Eigen::Vector3d> torqueContactsEwrtWorld(onTerrain.stance.size(),
+                                                       Eigen::Vector3d::Zero());
   for (int g = 0; g < generators.size(); ++g) {
     const int contact = generators.contactIndices[g];
-    const Eigen::Vector3d force =
-        torques->scalings(g) * weight * generators.directions[g];
-    forces[contact] += force;
-    torquesAbout[contact] +=
-        (generators.points[g] - onTerrain.stance[contact].position)
-            .cross(force);
+    const Eigen::Vector3d forceGeneratorEwrtWorld =
+        jointTorques->scalings(g) * weight *
+        generators.forceGeneratorsEwrtWorld[g];
+    forceContactsEwrtWorld[contact] += forceGeneratorEwrtWorld;
+    torqueContactsEwrtWorld[contact] +=
+        (generators.posGeneratorsRtWorldEwrtWorld[g] -
+         onTerrain.stance[contact].posPadRtWorldEwrtWorld)
+            .cross(forceGeneratorEwrtWorld);
   }
   for (size_t contact = 0; contact < onTerrain.stance.size(); ++contact) {
-    config::MultiContactPlan::ContactWrench wrench;
-    wrench.contact = onTerrain.stance[contact].name;
-    wrench.force = forces[contact];
+    config::MultiContactPlan::ContactWrench wrenchMsg;
+    wrenchMsg.contact = onTerrain.stance[contact].name;
+    // NOLINTBEGIN(frame-naming): the components of a ContactWrench, whose frames its field names
+    wrenchMsg.force = forceContactsEwrtWorld[contact];
     if (onTerrain.stance[contact].kind == ContactKind::kSurface) {
-      wrench.torque = torquesAbout[contact];
+      wrenchMsg.torque = torqueContactsEwrtWorld[contact];
     }
-    wrenches.push_back(std::move(wrench));
+    // NOLINTEND(frame-naming)
+    wrenchMsgs.push_back(std::move(wrenchMsg));
   }
-  return wrenches;
+  return wrenchMsgs;
 }
 
 /** Whether the motion after `node` breaks its contact at its start
@@ -1143,9 +1211,10 @@ std::vector<config::MultiContactPlan::ContactPhase> phasesOf(
           phase.face = placement->face.has_value()
                            ? static_cast<int>(*placement->face)
                            : 0;
-          Eigen::VectorXd pose(kPoseTangentDim);
-          pose << placement->position, placement->normal;
-          phase.target_pad_pose = pose;
+          Eigen::VectorXd desPosePadRtWorld(kPoseTangentDim);
+          desPosePadRtWorld << placement->posPadRtWorldEwrtWorld,
+              placement->normalSurfaceEwrtWorld;
+          phase.des_pose_pad_rt_world = desPosePadRtWorld;
         }
         open[candidate] = static_cast<int>(phases.size());
         phases.push_back(std::move(phase));
@@ -1187,7 +1256,7 @@ bool onlyDynamicFailures(const config::CertifierReport& report) {
     if (knot.static_condition.value_or(true) == false ||
         knot.transition_condition.value_or(true) == false ||
         knot.collision_free.value_or(true) == false ||
-        knot.momentum_rate_feasible) {
+        knot.wrench_cone_feasible) {
       return false;
     }
   }
@@ -1399,10 +1468,11 @@ absl::StatusOr<config::MultiContactPlan> StanceGraphPlanner::plan(
                                                   options_.timing, slowdowns));
     }
     for (size_t k = 0; k < plan.knots.size(); ++k) {
-      ASSIGN_OR_RETURN(plan.knots[k].contact_wrenches,
-                       contactWrenches(model, loaded.terrain, plan.knots[k],
-                                       configurations[k],
-                                       context.motion->options().equilibrium));
+      ASSIGN_OR_RETURN(
+          plan.knots[k].wrench_contacts_ewrt_world,
+          computeStaticWrenchContactsEwrtWorld(
+              model, loaded.terrain, plan.knots[k], configurations[k],
+              context.motion->options().equilibrium));
     }
     plan.phases = phasesOf(plan.knots, knotStances, contactSet, loaded.terrain);
     ASSIGN_OR_RETURN(plan.report, certifier->certify(plan));

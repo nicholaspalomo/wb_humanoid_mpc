@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
@@ -45,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotConfigurationCheck.h"
 #include "humanoid_common_mpc_app/robot/RobotProcess.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
+#include "humanoid_state_estimator/ContactKinematics.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 
 /**
@@ -100,6 +102,17 @@ RobotProcess::Hooks robotProcessHooks(
     RemoteMpcLinkAdapter* absl_nonnull remoteLink,
     const RobotConfigDirectory::Files& storedFiles,
     RobotConfigurationCheckContext context);
+
+/**
+ * Returns the contact points of `modelSettings` in its contact order
+ * (contactNames), for the leg kinematics of the `kalman` state estimator
+ * (RobotProcess::Config::stateEstimatorContacts): a 3-DoF contact at its
+ * posContactRtLinkEwrtLink from its parent joint's frame, and a 6-DoF contact
+ * at its own frame or, where the URDF does not have it, at the origin of its
+ * parent joint's frame (contactParentJointNames, one per 6-DoF contact).
+ */
+std::vector<estimation::ContactPointSpec> stateEstimatorContacts(
+    const ModelSettings& modelSettings);
 
 /**
  * Returns the robot process's configuration as far as the options, the

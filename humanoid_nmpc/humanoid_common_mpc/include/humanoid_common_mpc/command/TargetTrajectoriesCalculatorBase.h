@@ -36,15 +36,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <string>
+#include <numbers>
 #include <vector>
 
-#include "absl/status/status.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
-#include "ocs2_mpc/SystemObservation.h"
 
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
-#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
@@ -99,16 +97,16 @@ namespace ocs2::humanoid {
  * A constant planar twist (v, omega) moves the base on a circular arc, p(t_s +
  * t) = p(t_s) + t sinc(omega t / 2) R_z(psi_s
  * + omega t / 2) v and psi(t_s + t) = psi_s + omega t
- * (planarArcDisplacement()), and the knots lie on it exactly (they lay on a
- * straight chord at the starting heading, 0.065 m off the arc at the end of
- * a 1.2 s horizon at 0.3 m/s and 0.3 rad/s). The velocity target of every knot
- * is the command in the knot's own heading frame: R_z(psi_k) (v_x, v_y) in the
- * world and the commanded yaw rate (it kept the first knot's heading, 0.36 rad
- * off at the end of that horizon). Each segment is cut into
+ * (computeErrPosBaseRtWorldEwrtWorldXy()), and the knots lie on it exactly
+ * (they lay on a straight chord at the starting heading, 0.065 m off the arc at
+ * the end of a 1.2 s horizon at 0.3 m/s and 0.3 rad/s). The velocity target of
+ * every knot is the command in the knot's own heading frame: R_z(psi_k) (v_x,
+ * v_y) in the world and the commanded yaw rate (it kept the first knot's
+ * heading, 0.36 rad off at the end of that horizon). Each segment is cut into
  * knotSubdivisionCount() equal parts in time, the fewest for which
- *   - consecutive knots are at most kMaxKnotYawSpacing = pi / 2 apart in yaw:
- * the shortest-path slerp of a quaternion layout then turns the way the knots
- * do, which it does not above pi;
+ *   - consecutive knots are at most kKnotMaxErrYawBaseRtWorld = pi / 2 apart in
+ * yaw: the shortest-path slerp of a quaternion layout then turns the way the
+ * knots do, which it does not above pi;
  *   - the linear interpolation the solver applies between knots dpsi apart
  * stays within kKnotMaxErrPosBaseRtWorldEwrtWorld of the arc and within
  * kKnotMaxErrLinvelBaseRtWorldEwrtWorld of the arc's velocity target: the chord
@@ -121,13 +119,13 @@ namespace ocs2::humanoid {
  * / 2 (on the first segment |omega_m + omega_c| <= pi / tau, 3.74 rad/s at the
  * longest shipped horizon, 1.2 s) not at all. On the Euler layout a cut moves
  * no interpolated yaw: it is linear in time within a segment. A segment turns
- * by at most kMaxSegmentYawChange = kMaxKnotSubdivisions pi / 2: a faster yaw
- * rate is clamped to it, which takes a measured spin of |omega_m + omega_c| > 2
- * kMaxSegmentYawChange / tau (239 rad/s at T = 1.2 s), so that the yaw spacing
- * holds for every input. The deviation bounds hold while the cap of
- * kMaxKnotSubdivisions parts does not bind them, for an arc length times turn
- * and a |v_c| times turn squared below 8 kMaxKnotSubdivisions^2 5e-3 = 164 (m
- * rad, m/s rad^2), at most 1.9 at the G1's command limits.
+ * by at most kSegmentMaxErrYawBaseRtWorld = kMaxKnotSubdivisions pi / 2: a
+ * faster yaw rate is clamped to it, which takes a measured spin of |omega_m +
+ * omega_c| > 2 kSegmentMaxErrYawBaseRtWorld / tau (239 rad/s at T = 1.2 s), so
+ * that the yaw spacing holds for every input. The deviation bounds hold while
+ * the cap of kMaxKnotSubdivisions parts does not bind them, for an arc length
+ * times turn and a |v_c| times turn squared below 8 kMaxKnotSubdivisions^2 5e-3
+ * = 164 (m rad, m/s rad^2), at most 1.9 at the G1's command limits.
  */
 class TargetTrajectoriesCalculatorBase {
  public:
@@ -177,48 +175,54 @@ class TargetTrajectoriesCalculatorBase {
 
   /**
    * Where the ground under the commanded base height comes from.
-   * `nomPosBaseRtWorldEwrtWorldZ` and a commanded pelvis height are heights
+   * `nomPosBaseRtSurfaceEwrtWorldZ` and a commanded pelvis height are heights
    * ABOVE THE GROUND
-   * (WalkingVelocityCommand::cmd_pos_base_rt_world_ewrt_world_z says so), while
-   * the target is a world pose, so every base height a command produces is
-   * written at that height above getTerrainHeight() - see
-   * commandedBaseHeight(). A base height taken from the measured state is
-   * already a world height and is left alone.
+   * (WalkingVelocityCommand::cmd_pos_base_rt_surface_ewrt_world_z says so),
+   * while the target is a world pose, so every base height a command produces
+   * is written at that height above getPosSurfaceRtWorldEwrtWorldZ() - see
+   * computeRefPosBaseRtWorldEwrtWorldZ(). A base height taken from the measured
+   * state is already a world height and is left alone.
    *
-   * Without a source the ground is the task file's top-level `terrain_height`
-   * (ModelSettings::terrainHeight of the model this calculator was built with),
-   * which is all a command node running outside the MPC can know. A calculator
-   * that runs inside the MPC - the one ProceduralMpcMotionManager calls every
-   * solve - must be handed
-   * SwitchedModelReferenceManager::getAppliedTerrainHeight: the ground the
-   * reference manager applied in this very solve, so that a target built after
-   * a hot reload of `terrain_height` stands on the new ground while the manager
-   * moves the target already in use by the change, exactly once
-   * (SwitchedModelReferenceManager::adaptToCurrentGroundHeight).
-   * getTerrainHeight() would not do: a reload landing between the manager's run
-   * and the target being built would then be applied twice. Thread-safe.
+   * Without a source the ground is the task file's top-level
+   * `pos_surface_rt_world_ewrt_world_z`
+   * (ModelSettings::posSurfaceRtWorldEwrtWorldZ of the model this calculator
+   * was built with), which is all a command node running outside the MPC can
+   * know. A calculator that runs inside the MPC - the one
+   * ProceduralMpcMotionManager calls every solve - must be handed
+   * SwitchedModelReferenceManager::getAppliedPosSurfaceRtWorldEwrtWorldZ: the
+   * ground the reference manager applied in this very solve, so that a target
+   * built after a hot reload of `pos_surface_rt_world_ewrt_world_z` stands on
+   * the new ground while the manager moves the target already in use by the
+   * change, exactly once
+   * (SwitchedModelReferenceManager::applyPosSurfaceRtWorldEwrtWorldZ).
+   * getPosSurfaceRtWorldEwrtWorldZ() would not do: a reload landing between the
+   * manager's run and the target being built would then be applied twice.
+   * Thread-safe.
    */
-  void setTerrainHeightSource(std::function<scalar_t()> terrainHeightSource);
+  void setSourcePosSurfaceRtWorldEwrtWorldZ(
+      std::function<scalar_t()> sourcePosSurfaceRtWorldEwrtWorldZ);
 
   /** [m] the ground the commanded base heights stand on: the source's, or the
    * task file's without one. Thread-safe. */
-  scalar_t getTerrainHeight() const;
+  scalar_t getPosSurfaceRtWorldEwrtWorldZ() const;
 
   /**
    * [m] The world height of the base a command asks for: the commanded pelvis
-   * height above the ground, or `nomPosBaseRtWorldEwrtWorldZ` above it when the
-   * command carries none (a value at or below kMinCommandedPelvisHeight).
+   * height above the ground, or `nomPosBaseRtSurfaceEwrtWorldZ` above it when
+   * the command carries none (a value at or below
+   * kCmdMinPosBaseRtSurfaceEwrtWorldZ).
    */
-  scalar_t commandedBaseHeight(scalar_t commandedPelvisHeight) const;
+  scalar_t computeRefPosBaseRtWorldEwrtWorldZ(
+      scalar_t cmdPosBaseRtSurfaceEwrtWorldZ) const;
 
   /** [m] a commanded pelvis height at or below this is no command, and
-   * `nomPosBaseRtWorldEwrtWorldZ` is used instead. */
-  static constexpr scalar_t kMinCommandedPelvisHeight = 0.1;
+   * `nomPosBaseRtSurfaceEwrtWorldZ` is used instead. */
+  static constexpr scalar_t kCmdMinPosBaseRtSurfaceEwrtWorldZ = 0.1;
 
   /**
    * The entries of a base pose target [x, y, z, yaw, pitch, roll]
    * (PoseCommandKnot::poseeulerzyxBaseRtWorld,
-   * getLevelPoseeulerzyxBaseRtWorld()) past x and y, and its size.
+   * getPoseeulerzyxHeadingRtWorld()) past x and y, and its size.
    */
   static constexpr int kPoseTargetZIndex = 2;
   static constexpr int kPoseTargetYawIndex = 3;
@@ -227,7 +231,7 @@ class TargetTrajectoriesCalculatorBase {
   static constexpr int kPoseTargetDim = 6;
 
   /** The entries of a pose command [delta x, delta y, delta z, delta yaw] past
-   * delta x and y (getDeltaBaseTarget()). */
+   * delta x and y (getFinalPoseeulerzyxBaseRtWorld()). */
   static constexpr int kPoseCommandHeightIndex = 2;
   static constexpr int kPoseCommandYawIndex = 3;
 
@@ -247,8 +251,10 @@ class TargetTrajectoriesCalculatorBase {
   /**
    * Converts command line to TargetTrajectories.
    * @param [in] poseCommand : [deltaX, deltaY, deltaZ, deltaYaw] defined
-   * in pelvis frame
-   * @param [in] observation : the current observation
+   * in the heading frame
+   * @param [in] initTime : [s] the time of the first knot
+   * @param [in] initState : the current state, whose heading pose
+   * (getPoseeulerzyxHeadingRtWorld()) the command is relative to
    */
   virtual TargetTrajectories poseCommandToTargetTrajectories(
       const vector4_t& poseCommand,
@@ -284,7 +290,7 @@ class TargetTrajectoriesCalculatorBase {
    * (the chord of the arc: its length T |v_0| sinc(theta / 2), its direction
    * halfway through the turn). Exactly T v_0 for omega = 0.
    */
-  static vector2_t planarArcDisplacement(
+  static vector2_t computeErrPosBaseRtWorldEwrtWorldXy(
       const vector2_t& initLinvelBaseRtWorldEwrtWorldXy,
       scalar_t rateYawBaseRtWorld,
       scalar_t duration);
@@ -293,28 +299,30 @@ class TargetTrajectoriesCalculatorBase {
    * knots depends on. Passive data. */
   struct KnotSegmentExtent {
     /** [rad] The segment's turn, omega tau. */
-    scalar_t yawChange = 0.0;
+    scalar_t errYawBaseRtWorld = 0.0;
     /** [m] The length of the arc its base travels, |v| tau. */
     scalar_t arcLength = 0.0;
     /** [m/s] The magnitude |v_c| of the velocity target its knots carry, which
      * turns with them. */
-    scalar_t targetSpeed = 0.0;
+    scalar_t cmdSpeedBaseRtWorld = 0.0;
   };
 
   /**
    * The number n of equal parts in time a constant-twist segment of `extent` is
    * cut into (the class comment; design decision D10): the fewest for which the
-   * knots are at most kMaxKnotYawSpacing apart in yaw, |yawChange| / n <= pi /
-   * 2, and the bounds on the linear interpolation between them hold, arcLength
-   * |yawChange| / (8 n^2) <= kKnotMaxErrPosBaseRtWorldEwrtWorld and targetSpeed
-   * yawChange^2 / (8 n^2) <= kKnotMaxErrLinvelBaseRtWorldEwrtWorld (from 1 -
-   * cos(x) <= x^2 / 2); at most kMaxKnotSubdivisions; 1 for an extent with an
-   * entry that is not finite.
+   * knots are at most kKnotMaxErrYawBaseRtWorld apart in yaw,
+   * |errYawBaseRtWorld| / n
+   * <= pi / 2, and the bounds on the linear interpolation between them hold,
+   * arcLength |errYawBaseRtWorld| / (8 n^2) <=
+   * kKnotMaxErrPosBaseRtWorldEwrtWorld and cmdSpeedBaseRtWorld
+   * errYawBaseRtWorld^2 / (8 n^2) <= kKnotMaxErrLinvelBaseRtWorldEwrtWorld
+   * (from 1 - cos(x) <= x^2 / 2); at most kMaxKnotSubdivisions; 1 for an extent
+   * with an entry that is not finite.
    */
   static size_t knotSubdivisionCount(const KnotSegmentExtent& extent);
 
   /** [rad] The largest yaw between consecutive knots of a velocity command. */
-  static constexpr scalar_t kMaxKnotYawSpacing = 0.5 * M_PI;
+  static constexpr scalar_t kKnotMaxErrYawBaseRtWorld = 0.5 * std::numbers::pi;
   /** [m] The largest distance between the linear interpolation of a velocity
    * command's knots and the arc they lie on. */
   static constexpr scalar_t kKnotMaxErrPosBaseRtWorldEwrtWorld = 0.005;
@@ -325,12 +333,13 @@ class TargetTrajectoriesCalculatorBase {
   static constexpr size_t kMaxKnotSubdivisions = 64;
   /**
    * [rad] The largest turn of a segment, kMaxKnotSubdivisions
-   * kMaxKnotYawSpacing (100.5 rad): velocityCommandKnots() clamps the yaw rate
-   * of a segment that would turn further, and subdivideYawKnots() the turn of a
-   * pose command, so that kMaxKnotYawSpacing holds for every input.
+   * kKnotMaxErrYawBaseRtWorld (100.5 rad): velocityCommandKnots() clamps the
+   * yaw rate of a segment that would turn further, and subdivideYawKnots() the
+   * turn of a pose command, so that kKnotMaxErrYawBaseRtWorld holds for every
+   * input.
    */
-  static constexpr scalar_t kMaxSegmentYawChange =
-      static_cast<scalar_t>(kMaxKnotSubdivisions) * kMaxKnotYawSpacing;
+  static constexpr scalar_t kSegmentMaxErrYawBaseRtWorld =
+      static_cast<scalar_t>(kMaxKnotSubdivisions) * kKnotMaxErrYawBaseRtWorld;
 
   /** A base knot of a pose command's reference (subdivideYawKnots()). Passive
    * data. */
@@ -345,17 +354,18 @@ class TargetTrajectoriesCalculatorBase {
    * The base knots of a pose command that moves the base from
    * `initPoseeulerzyxBaseRtWorld` at `startTime` to
    * `finalPoseeulerzyxBaseRtWorld` at `targetTime` (both [x, y, z, yaw, pitch,
-   * roll], the yaw unbounded, as getDeltaBaseTarget() adds the commanded turn
-   * to it): the n + 1 knots of n = max(1, ceil(|dyaw| / kMaxKnotYawSpacing))
-   * equal parts in time, interpolated linearly between the two poses in every
-   * coordinate, the yaw included (design section 2.9). Consecutive knots are
-   * then at most pi / 2 apart in yaw, so the shortest-path slerp between them
+   * roll], the yaw unbounded, as getFinalPoseeulerzyxBaseRtWorld() adds the
+   * commanded turn to it): the n + 1 knots of n = max(1, ceil(|dyaw| /
+   * kKnotMaxErrYawBaseRtWorld)) equal parts in time, interpolated linearly
+   * between the two poses in every coordinate, the yaw included (design
+   * section 2.9). Consecutive knots are then at most pi / 2 apart in yaw, so
+   * the shortest-path slerp between them
    * (MpcRobotModelBase::interpolateStateTrajectory()) turns the commanded way
    * for a turn of any size, not the short way round; and between level knots a
    * slerp about z is linear in the yaw, so the reference is the linear
-   * interpolation of the two poses. A turn beyond kMaxSegmentYawChange is
-   * clamped to it, which keeps the spacing for every input; n is 1 for a turn
-   * that is not finite.
+   * interpolation of the two poses. A turn beyond kSegmentMaxErrYawBaseRtWorld
+   * is clamped to it, which keeps the spacing for every input; n is 1 for a
+   * turn that is not finite.
    */
   static std::vector<PoseCommandKnot> subdivideYawKnots(
       scalar_t startTime,
@@ -379,7 +389,7 @@ class TargetTrajectoriesCalculatorBase {
     scalar_t cmdRateYawBaseRtWorld = 0.0;
     /** [rad] The knot's yaw less the first knot's: by how much its heading
      * frame, and its target with it, has turned. */
-    scalar_t headingChange = 0.0;
+    scalar_t errYawBaseRtWorld = 0.0;
     /** Where the knot lies in the second segment, (t - t0 - 0.7 T) / (0.3 T): 0
      * up to the intermediate knot, 1 at the end. */
     scalar_t secondSegmentFraction = 0.0;
@@ -398,36 +408,42 @@ class TargetTrajectoriesCalculatorBase {
       const vector_t& initState,
       const BasePlanarMotion& measuredMotion);
 
-  scalar_t estimateTimeToTarget(const vector_t& desiredBaseDisplacement) const;
+  scalar_t estimateTimeToTarget(
+      const vector_t& errPoseeulerzyxBaseRtWorld) const;
 
   /**
    * The level base pose [x, y, z, yaw, pitch, roll] a target starts from at
    * `state`: the base position, the heading
    * (MpcRobotModelBase::getYawBaseRtWorld) as the yaw, and zero roll and pitch.
    */
-  virtual vector6_t getLevelPoseeulerzyxBaseRtWorld(
-      const vector_t& state) const;
+  virtual vector6_t getPoseeulerzyxHeadingRtWorld(const vector_t& state) const;
 
-  vector6_t getDeltaBaseTarget(
+  /**
+   * Returns the absolute target pose [x, y, z, yaw, pitch, roll] in the world
+   * that `poseCommand` asks for from `poseeulerzyxHeadingRtWorld`: its delta x
+   * and y turned out of the heading frame, its height and its turn added.
+   */
+  vector6_t getFinalPoseeulerzyxBaseRtWorld(
       const vector4_t& poseCommand,
-      const vector6_t& levelPoseeulerzyxBaseRtWorld) const;
+      const vector6_t& poseeulerzyxHeadingRtWorld) const;
 
   /**
    * Returns the velocity command `commandHeadingFrame` ([v_x, v_y, pelvis
    * height, yaw rate]) with its linear part rotated from the heading frame of
-   * `heading` into the world frame, R_z(heading) (v_x, v_y); the pelvis height
-   * and the yaw rate, which a rotation about z leaves unchanged, are copied.
+   * `yawBaseRtWorld` into the world frame, R_z(yawBaseRtWorld) (v_x, v_y); the
+   * pelvis height and the yaw rate, which a rotation about z leaves unchanged,
+   * are copied.
    */
   static vector4_t rotateVelocityCommandToWorld(
-      const vector4_t& commandHeadingFrame, scalar_t heading);
+      const vector4_t& commandHeadingFrame, scalar_t yawBaseRtWorld);
 
   /**
    * `initPoseeulerzyxBaseRtWorld` moved on for `deltaT` along the arc of a
    * constant planar twist that starts with the world velocity
    * `initLinvelBaseRtWorldEwrtWorldXy` and turns at `rateYawBaseRtWorld`
-   * (planarArcDisplacement()), at the world base height
-   * `refPosBaseRtWorldEwrtWorldZ` (commandedBaseHeight()), level: pitch and
-   * roll zero.
+   * (computeErrPosBaseRtWorldEwrtWorldXy()), at the world base height
+   * `refPosBaseRtWorldEwrtWorldZ` (computeRefPosBaseRtWorldEwrtWorldZ()),
+   * level: pitch and roll zero.
    */
   vector6_t integrateRefPoseeulerzyxBaseRtWorld(
       const vector6_t& initPoseeulerzyxBaseRtWorld,
@@ -450,17 +466,18 @@ class TargetTrajectoriesCalculatorBase {
       kInitCmdMaxLinvelBaseRtWorldEwrtHeadingX};
   std::atomic<scalar_t> cmdMaxLinvelBaseRtWorldEwrtHeadingY_{
       kInitCmdMaxLinvelBaseRtWorldEwrtHeadingY};
-  std::atomic<scalar_t> cmdMaxErrPosBaseRtWorldEwrtWorldZ_{
-      kInitCmdMaxErrPosBaseRtWorldEwrtWorldZ};
+  std::atomic<scalar_t> cmdMaxErrPosBaseRtSurfaceEwrtWorldZ_{
+      kInitCmdMaxErrPosBaseRtSurfaceEwrtWorldZ};
   std::atomic<scalar_t> cmdMaxAngvelBaseRtWorldEwrtWorldZ_{
       kInitCmdMaxAngvelBaseRtWorldEwrtWorldZ};
 
-  std::atomic<scalar_t> nomPosBaseRtWorldEwrtWorldZ_;
-  // The ground under the commanded base height (setTerrainHeightSource).
-  // Guarded, because the source is replaced from the thread that wires the
-  // calculator while a command thread may be building a target.
-  mutable std::mutex terrainHeightSourceMutex_;
-  std::function<scalar_t()> terrainHeightSource_;
+  std::atomic<scalar_t> nomPosBaseRtSurfaceEwrtWorldZ_;
+  // The ground under the commanded base height
+  // (setSourcePosSurfaceRtWorldEwrtWorldZ). Guarded, because the source is
+  // replaced from the thread that wires the calculator while a command thread
+  // may be building a target.
+  mutable std::mutex surfaceSourceMutex_;
+  std::function<scalar_t()> sourcePosSurfaceRtWorldEwrtWorldZ_;
   vector_t targetJointState_;
   scalar_t mpcHorizon_;
 };

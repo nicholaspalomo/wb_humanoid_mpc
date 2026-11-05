@@ -121,25 +121,23 @@ void printJointNames(const PinocchioInterface& pinocchioInterface) {
 
 /** Prints the orientation and the homogeneous transform of `frameName`, local
  * to world, at `q`. */
-void printFrameRotation(const PinocchioInterface& pinocchioInterface,
-                        const Eigen::VectorXd& q,
-                        const std::string& frameName) {
+void printPoseLinkRtWorld(const PinocchioInterface& pinocchioInterface,
+                          const Eigen::VectorXd& q,
+                          const std::string& frameName) {
   const pinocchio::Model& model = pinocchioInterface.getModel();
   pinocchio::Data data = pinocchioInterface.getData();
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
 
   const pinocchio::FrameIndex frameId = model.getFrameId(frameName);
-  const matrix3_t rotationLocalToWorld = data.oMf[frameId].rotation();
-  const quaternion_t quaternionLocalToWorld =
-      matrixToQuaternion(rotationLocalToWorld);
+  const matrix3_t rotmatLinkRtWorld = data.oMf[frameId].rotation();
+  const quaternion_t quatLinkRtWorld = matrixToQuaternion(rotmatLinkRtWorld);
   const Eigen::Matrix4d transform = data.oMf[frameId].toHomogeneousMatrix();
   LOG(INFO) << "Orientation of frame: R local to world " << frameName << ": ";
-  LOG(INFO) << absl::StrFormat("[%g, %g, %g, %g]", quaternionLocalToWorld.w(),
-                               quaternionLocalToWorld.x(),
-                               quaternionLocalToWorld.y(),
-                               quaternionLocalToWorld.z());
-  LOG(INFO) << rotationLocalToWorld;
+  LOG(INFO) << absl::StrFormat("[%g, %g, %g, %g]", quatLinkRtWorld.w(),
+                               quatLinkRtWorld.x(), quatLinkRtWorld.y(),
+                               quatLinkRtWorld.z());
+  LOG(INFO) << rotmatLinkRtWorld;
   LOG(INFO) << "Translation from local to world frame " << frameName << ": ";
   LOG(INFO) << transform;
 }
@@ -198,8 +196,8 @@ int printModels() {
   const Eigen::VectorXd q = neutralConfigurationAtHeight(
       pinocchioInterface.getModel(), kNominalBaseHeight);
   computeForwardKinematics(pinocchioInterface, q);
-  printFrameRotation(pinocchioInterface, q, /*frameName=*/"foot_l_contact");
-  printFrameRotation(pinocchioInterface, q, /*frameName=*/"foot_r_contact");
+  printPoseLinkRtWorld(pinocchioInterface, q, /*frameName=*/"foot_l_contact");
+  printPoseLinkRtWorld(pinocchioInterface, q, /*frameName=*/"foot_r_contact");
 
   // The model of the MPC, from the task file read once (strictly: an unknown
   // field is an error with its line).

@@ -30,21 +30,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "Eigen/Core"
 #include "absl/base/nullability.h"
+#include "absl/base/optimization.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/absl_check.h"
+#include "absl/log/absl_log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_core/misc/LinearInterpolation.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
@@ -84,12 +85,34 @@ struct BaseAngularVelocityJacobian {
 };
 
 /**
+ * The point of the robot whose linear velocity a formulation's state stores
+ * (MpcRobotModelBase::getStoredLinvelPoint()): the centroidal state stores the
+ * center of mass's (the linear part of the normalized centroidal momentum), the
+ * whole-body state the base origin's (dp_W). A consumer that reads "the robot's
+ * translational velocity" on either model reads the accessor of this point and
+ * says which quantity it takes it for.
+ */
+enum class StoredLinvelPoint { kCenterOfMass, kBaseOrigin };
+
+/**
+ * The axes a contact's input-parameterized wrench is expressed in
+ * (MpcRobotModelBase::getContactInputFrame()), the frame `param` of
+ * getWrenchContactEwrtParam(): world axes for the wrench-space models, whose
+ * input stores the world-frame wrench, and the contact frame for
+ * BasisInputsModelDecorator, whose scalings weight a basis fixed to the foot.
+ * A term that rotates the param-frame wrench itself, rather than calling the
+ * state-aware `...ContactEwrtWorld` accessors, reads it to know whether the
+ * rotation, and with it the wrench, depends on the state.
+ */
+enum class ContactInputFrame { kWorld, kContact };
+
+/**
  * The z component of the angular part of a base velocity whose linear part
  * comes first: the yaw rate of the world twist [dp_W, R(xi) w_B] of
- * getTwistBaseRtWorldEwrtWorld(). In getBaseComVelocity() it is the vertical
- * angular momentum per mass L_z / m only on the centroidal layout; on the whole
- * body that entry is the body roll rate w_x (design defect D18), so a yaw rate
- * is read through getTargetPlanarCommand() instead.
+ * getTwistBaseRtWorldEwrtWorld(). The same entry of the centroidal state is the
+ * vertical angular momentum per mass L_z / m, and of the whole body's
+ * tuning-order base rates the body roll rate w_x (design defect D18), so a yaw
+ * rate is read through getRefPlanarMotion() instead.
  */
 inline constexpr int kTwistYawRateIndex = kPositionDim + kZAxisIndex;
 
@@ -113,10 +136,11 @@ inline constexpr int kTwistYawRateIndex = kPositionDim + kZAxisIndex;
  * tangent, and Pinocchio's configuration q one more than its velocity v. The
  * accessors cannot fail; those the solver and the control thread call stay
  * unchecked, with the sizes documented as preconditions. The Euler boundary
- * accessors (*EulerZyx, and setTurnAngvelBaseRtWorldEwrtBase) are for the
- * human-facing inputs and outputs only - commands and their knots, the
- * locomotion-heuristic seam, telemetry and display - and are in double
- * precision for every SCALAR_T.
+ * accessors (getEulerzyxBaseRtWorld / setEulerzyxBaseRtWorld,
+ * getPoseeulerzyxBaseRtWorld / setPoseeulerzyxBaseRtWorld, and
+ * setTurnAngvelBaseRtWorldEwrtBase) are for the human-facing inputs and
+ * outputs only - commands and their knots, the locomotion-heuristic seam,
+ * telemetry and display - and are in double precision for every SCALAR_T.
  */
 template <typename SCALAR_T>
 class MpcRobotModelBase {
@@ -214,18 +238,24 @@ class MpcRobotModelBase {
   virtual VECTOR3_T<SCALAR_T> getPosBaseRtWorldEwrtWorld(
       const VECTOR_T<SCALAR_T>& state) const = 0;
 
-  // TODO(frame-naming): frame1 is the CoM in the centroidal model and the base
-  // in the whole-body model; split into getLinvelComRtWorldEwrtWorld and
-  // getLinvelBaseRtWorldEwrtWorld.
-  // NOLINTNEXTLINE(frame-naming): model-dependent frame1, split as noted above
-  virtual VECTOR3_T<SCALAR_T> getBaseComLinearVelocity(
+  /** Returns the point whose linear velocity the state stores. */
+  virtual StoredLinvelPoint getStoredLinvelPoint() const = 0;
+
+  /**
+   * Returns the center of mass's linear velocity, which the state stores when
+   * getStoredLinvelPoint() is kCenterOfMass (the linear part of the normalized
+   * centroidal momentum). A model whose state stores another velocity aborts:
+   * calling it there is a programming error.
+   */
+  virtual VECTOR3_T<SCALAR_T> getLinvelComRtWorldEwrtWorld(
       const VECTOR_T<SCALAR_T>& state) const = 0;
 
-  // TODO(frame-naming): the centroidal model returns the normalized centroidal
-  // momentum h, the whole-body model the base velocity [dp_W, w_B]; split into
-  // getMnormCmomComRtWorldEwrtWorld and a base-velocity accessor.
-  // NOLINTNEXTLINE(frame-naming): model-dependent quantity, split as noted above
-  virtual VECTOR6_T<SCALAR_T> getBaseComVelocity(
+  /**
+   * Returns the base origin's linear velocity dp_W, which the state stores when
+   * getStoredLinvelPoint() is kBaseOrigin. A model whose state stores another
+   * velocity aborts: calling it there is a programming error.
+   */
+  virtual VECTOR3_T<SCALAR_T> getLinvelBaseRtWorldEwrtWorld(
       const VECTOR_T<SCALAR_T>& state) const = 0;
 
   virtual VECTOR_T<SCALAR_T> getJointAngles(
@@ -248,12 +278,17 @@ class MpcRobotModelBase {
       VECTOR_T<SCALAR_T>& state,
       const VECTOR3_T<SCALAR_T>& posBaseRtWorldEwrtWorld) const = 0;
 
-  /** The counterpart of getBaseComLinearVelocity(), with the same meaning in
-   * each model's state layout. */
-  // NOLINTBEGIN(frame-naming): model-dependent frame1, see getBaseComLinearVelocity
-  virtual void setBaseComLinearVelocity(
-      VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& velocity) const = 0;
-  // NOLINTEND(frame-naming)
+  /** Sets what getLinvelComRtWorldEwrtWorld() returns; the same models abort.
+   */
+  virtual void setLinvelComRtWorldEwrtWorld(
+      VECTOR_T<SCALAR_T>& state,
+      const VECTOR3_T<SCALAR_T>& linvelComRtWorldEwrtWorld) const = 0;
+
+  /** Sets what getLinvelBaseRtWorldEwrtWorld() returns; the same models abort.
+   */
+  virtual void setLinvelBaseRtWorldEwrtWorld(
+      VECTOR_T<SCALAR_T>& state,
+      const VECTOR3_T<SCALAR_T>& linvelBaseRtWorldEwrtWorld) const = 0;
 
   virtual void setJointAngles(VECTOR_T<SCALAR_T>& state,
                               const VECTOR_T<SCALAR_T>& jointAngles) const = 0;
@@ -416,20 +451,20 @@ class MpcRobotModelBase {
    * normalized momentum of the whole body: its linear part is the CoM velocity,
    * and the turn is the angular momentum h_z = I_zz psidot / m of the body
    * turning about the vertical through its CoM, which comes back out as m h_z /
-   * I_zz with `compositeYawInertia` = I_zz [kg m^2], the composite yaw inertia
-   * the knot was built with. The centroidal target calculator builds its knots
-   * at the measured configuration, whose inertia SwitchedModelReferenceManager
-   * latches every solve; a model whose knots store the base velocity does not
-   * read it, and a centroidal yaw rate reads 0 while it is not positive (none
-   * measured yet). Cheap: the reference code calls it per node. Double
-   * precision only.
+   * I_zz with `inertiaComEwrtWorldZz` = I_zz [kg m^2], the composite yaw
+   * inertia the knot was built with. The centroidal target calculator builds
+   * its knots at the measured configuration, whose inertia
+   * SwitchedModelReferenceManager latches every solve; a model whose knots
+   * store the base velocity does not read it, and a centroidal yaw rate reads 0
+   * while it is not positive (none measured yet). Cheap: the reference code
+   * calls it per node. Double precision only.
    */
-  virtual vector3_t getTargetPlanarCommand(
-      const vector_t& targetState, scalar_t compositeYawInertia) const = 0;
+  virtual vector3_t getRefPlanarMotion(
+      const vector_t& targetState, scalar_t inertiaComEwrtWorldZz) const = 0;
 
-  /** The entry of getTargetPlanarCommand()'s (v_x, v_y, yaw rate) that holds
+  /** The entry of getRefPlanarMotion()'s (v_x, v_y, yaw rate) that holds
    * the yaw rate. */
-  static constexpr int kPlanarCommandYawRateIndex = 2;
+  static constexpr int kRefPlanarMotionYawRateIndex = 2;
 
   /******************************************************************************************************/
   /*                                 Tuning layout and state values */
@@ -571,10 +606,18 @@ class MpcRobotModelBase {
    * wrench in the local contact frame.
    *
    * Whenever a world-frame wrench is required, prefer the state-aware
-   * `...InWorldFrame` accessors below, which are frame-correct for every model.
+   * `...ContactEwrtWorld` accessors below, which are frame-correct for every
+   * model.
    */
   virtual VECTOR6_T<SCALAR_T> getWrenchContactEwrtParam(
       const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const = 0;
+
+  /** Returns the frame getWrenchContactEwrtParam() is expressed in: world axes
+   * unless a model overrides it. */
+  virtual ContactInputFrame getContactInputFrame(
+      size_t /*contactIndex*/) const {
+    return ContactInputFrame::kWorld;
+  }
 
   virtual VECTOR3_T<SCALAR_T> getForceContactEwrtParam(
       const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const = 0;
@@ -710,8 +753,9 @@ class MpcRobotModelBase {
     // LinearInterpolation's alpha weighs the left state: 1 at its time, 0 at
     // the right state's.
     if (left.size() != right.size() || indexAlpha.second >= 1.0 ||
-        indexAlpha.second <= 0.0)
+        indexAlpha.second <= 0.0) {
       return interpolated;
+    }
     const Eigen::Index start =
         static_cast<Eigen::Index>(getBaseOrientationStartIndex());
     const vector4_t leftQuatBaseRtWorldXyzw =
@@ -739,5 +783,54 @@ class MpcRobotModelBase {
   // Placed on the state of state_dim entries (checked by the constructor).
   TuningLayout tuningLayout_;
 };
+
+/**
+ * Returns the center of mass's linear velocity as far as a state of `model`
+ * tells it, for the consumers of a reduced model of the center of mass that run
+ * on either formulation (the contact planners' LIP, the foothold heuristics,
+ * the planned center-of-mass override): the CoM velocity a centroidal state
+ * stores, or, on a state that stores the base origin's velocity instead (the
+ * whole body), that velocity, which stands in for it (the proxy; the two differ
+ * by the joints' share of the linear momentum).
+ */
+template <typename SCALAR_T>
+VECTOR3_T<SCALAR_T> getProxyLinvelComRtWorldEwrtWorld(
+    const MpcRobotModelBase<SCALAR_T>& model, const VECTOR_T<SCALAR_T>& state) {
+  switch (model.getStoredLinvelPoint()) {
+    case StoredLinvelPoint::kCenterOfMass:
+      return model.getLinvelComRtWorldEwrtWorld(state);
+    case StoredLinvelPoint::kBaseOrigin:
+      return model.getLinvelBaseRtWorldEwrtWorld(state);
+  }
+  ABSL_LOG(FATAL) << "getProxyLinvelComRtWorldEwrtWorld: unknown "
+                     "StoredLinvelPoint "
+                  << static_cast<int>(model.getStoredLinvelPoint());
+  ABSL_UNREACHABLE();
+}
+
+/**
+ * Writes `proxyLinvelComRtWorldEwrtWorld` where
+ * getProxyLinvelComRtWorldEwrtWorld() reads it: into the CoM velocity of a
+ * centroidal state, into the base velocity of a state that stores that one
+ * instead.
+ */
+template <typename SCALAR_T>
+void setProxyLinvelComRtWorldEwrtWorld(
+    const MpcRobotModelBase<SCALAR_T>& model,
+    VECTOR_T<SCALAR_T>& state,
+    const VECTOR3_T<SCALAR_T>& proxyLinvelComRtWorldEwrtWorld) {
+  switch (model.getStoredLinvelPoint()) {
+    case StoredLinvelPoint::kCenterOfMass:
+      model.setLinvelComRtWorldEwrtWorld(state, proxyLinvelComRtWorldEwrtWorld);
+      return;
+    case StoredLinvelPoint::kBaseOrigin:
+      model.setLinvelBaseRtWorldEwrtWorld(state,
+                                          proxyLinvelComRtWorldEwrtWorld);
+      return;
+  }
+  ABSL_LOG(FATAL) << "setProxyLinvelComRtWorldEwrtWorld: unknown "
+                     "StoredLinvelPoint "
+                  << static_cast<int>(model.getStoredLinvelPoint());
+}
 
 }  // namespace ocs2::humanoid

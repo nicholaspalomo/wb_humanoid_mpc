@@ -210,9 +210,9 @@ TEST(UnitQuaternionMath, LogKeepsTheInversionAtAnExactHalfTurn) {
       EXPECT_LT((log - kPi * vector.normalized()).norm(), 1e-15) << halfTurn.transpose();
       EXPECT_EQ(quaternionLog((-halfTurn).eval()), (-log).eval()) << halfTurn.transpose();
       EXPECT_EQ(quaternionLog(quaternionConjugate(halfTurn)), (-log).eval()) << halfTurn.transpose();
-      const Eigen::Matrix3d rotation = quaternionRotationMatrix(halfTurn);
-      EXPECT_LT((quaternionRotationMatrix(quaternionExp(log)) - rotation).cwiseAbs().maxCoeff(), 1e-15);
-      EXPECT_LT((quaternionRotationMatrix(quaternionExp((-log).eval())) - rotation).cwiseAbs().maxCoeff(), 1e-15);
+      const Eigen::Matrix3d rotmatLocalRtWorld = quaternionRotationMatrix(halfTurn);
+      EXPECT_LT((quaternionRotationMatrix(quaternionExp(log)) - rotmatLocalRtWorld).cwiseAbs().maxCoeff(), 1e-15);
+      EXPECT_LT((quaternionRotationMatrix(quaternionExp((-log).eval())) - rotmatLocalRtWorld).cwiseAbs().maxCoeff(), 1e-15);
     }
   }
   // Products of exact quaternions reach w = 0: x0^-1 (x) x1 for x1 = x0 (x) (1, 0, 0, 0) is the half turn about x, so the
@@ -346,9 +346,9 @@ TEST(UnitQuaternionMath, SlerpEndpointsAndAntipodes) {
     EXPECT_LE(rotationDistance(xi0, quaternionSlerp(xi0, far, /*alpha=*/0.5)), 0.5 * kPi + 1e-9);
   }
   // Rotations about one axis interpolate linearly in the angle.
-  const quaternion_t yaw0 = quaternionExp(makeRotvec(/*x=*/0.0, /*y=*/0.0, /*z=*/0.2));
-  const quaternion_t yaw1 = quaternionExp(makeRotvec(/*x=*/0.0, /*y=*/0.0, /*z=*/1.0));
-  EXPECT_TRUE(quaternionLog(quaternionSlerp(yaw0, yaw1, /*alpha=*/0.3)).isApprox(makeRotvec(/*x=*/0.0, /*y=*/0.0, /*z=*/0.44), 1e-14));
+  const quaternion_t zTurnStart = quaternionExp(makeRotvec(/*x=*/0.0, /*y=*/0.0, /*z=*/0.2));
+  const quaternion_t zTurnEnd = quaternionExp(makeRotvec(/*x=*/0.0, /*y=*/0.0, /*z=*/1.0));
+  EXPECT_TRUE(quaternionLog(quaternionSlerp(zTurnStart, zTurnEnd, /*alpha=*/0.3)).isApprox(makeRotvec(/*x=*/0.0, /*y=*/0.0, /*z=*/0.44), 1e-14));
 }
 
 TEST(UnitQuaternionMath, SafeNormalization) {

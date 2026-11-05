@@ -32,12 +32,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <deque>
+#include <numbers>
 
 #include "Eigen/Geometry"
 #include "absl/functional/function_ref.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/common/Sinc.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 
 namespace ocs2::humanoid {
@@ -88,9 +92,10 @@ void StrideMotionHistory::addSample(
   if (samples_.empty() || time < samples_.back().time ||
       time - samples_.back().time > kMaxBridgedGap) {
     samples_.clear();
-    samples_.push_back(Sample{.time = time,
-                              .heading = yawBaseRtWorld,
-                              .displacement = vector2_t::Zero()});
+    samples_.push_back(
+        Sample{.time = time,
+               .unwrappedYawBaseRtWorld = yawBaseRtWorld,
+               .integralLinvelBaseRtWorldEwrtHeadingXy = vector2_t::Zero()});
     prevPosBaseRtWorldEwrtWorldXy_ = posBaseRtWorldEwrtWorldXy;
     seed_ = seed();
     firstSampleKept_ = true;
@@ -103,19 +108,24 @@ void StrideMotionHistory::addSample(
   // The heading change since the last sample, the branch of |dPsi| <= pi: the
   // true one below the heading rates the class comment states, kMaxBridgedGap
   // included.
-  const scalar_t headingChange =
-      std::remainder(yawBaseRtWorld - last.heading, 2.0 * M_PI);
-  const scalar_t midHeading = last.heading + 0.5 * headingChange;
+  const scalar_t errYawBaseRtWorld = std::remainder(
+      yawBaseRtWorld - last.unwrappedYawBaseRtWorld, 2.0 * std::numbers::pi);
+  const scalar_t midYawBaseRtWorld =
+      last.unwrappedYawBaseRtWorld + 0.5 * errYawBaseRtWorld;
   // The chord of a constant body twist, dp = dt sinc(dPsi / 2) R_z(Psi_mid)
   // v_h, solved for dD = v_h dt.
-  const vector2_t displacementStep =
-      rotatedBack(midHeading, vector2_t(posBaseRtWorldEwrtWorldXy -
-                                        prevPosBaseRtWorldEwrtWorldXy_)) /
-      sinc(0.5 * headingChange);
+  const vector2_t stepIntegralLinvelBaseRtWorldEwrtHeadingXy =
+      rotatedBack(midYawBaseRtWorld,
+                  vector2_t(posBaseRtWorldEwrtWorldXy -
+                            prevPosBaseRtWorldEwrtWorldXy_)) /
+      sinc(0.5 * errYawBaseRtWorld);
   samples_.push_back(
       Sample{.time = time,
-             .heading = last.heading + headingChange,
-             .displacement = last.displacement + displacementStep});
+             .unwrappedYawBaseRtWorld =
+                 last.unwrappedYawBaseRtWorld + errYawBaseRtWorld,
+             .integralLinvelBaseRtWorldEwrtHeadingXy =
+                 last.integralLinvelBaseRtWorldEwrtHeadingXy +
+                 stepIntegralLinvelBaseRtWorldEwrtHeadingXy});
   prevPosBaseRtWorldEwrtWorldXy_ = posBaseRtWorldEwrtWorldXy;
   // Keep one sample at or before time - retention, for the interpolation at the
   // start of the longest window.
@@ -132,11 +142,12 @@ StrideMotionHistory::Sample StrideMotionHistory::at(scalar_t time) const {
     // pruned history is never asked there (mean() cuts its window to the
     // retention, which the kept samples cover), so its first sample is held.
     const scalar_t before = firstSampleKept_ ? time - first.time : 0.0;
-    return Sample{
-        .time = time,
-        .heading = first.heading + before * seed_.rateYawBaseRtWorld,
-        .displacement =
-            first.displacement + before * seed_.linvelBaseRtWorldEwrtHeadingXy};
+    return Sample{.time = time,
+                  .unwrappedYawBaseRtWorld = first.unwrappedYawBaseRtWorld +
+                                             before * seed_.rateYawBaseRtWorld,
+                  .integralLinvelBaseRtWorldEwrtHeadingXy =
+                      first.integralLinvelBaseRtWorldEwrtHeadingXy +
+                      before * seed_.linvelBaseRtWorldEwrtHeadingXy};
   }
   const std::deque<Sample>::const_iterator after = std::upper_bound(
       samples_.begin(), samples_.end(), time,
@@ -147,10 +158,13 @@ StrideMotionHistory::Sample StrideMotionHistory::at(scalar_t time) const {
       (time - previous.time) / (after->time - previous.time);
   return Sample{
       .time = time,
-      .heading =
-          previous.heading + fraction * (after->heading - previous.heading),
-      .displacement = previous.displacement +
-                      fraction * (after->displacement - previous.displacement)};
+      .unwrappedYawBaseRtWorld = previous.unwrappedYawBaseRtWorld +
+                                 fraction * (after->unwrappedYawBaseRtWorld -
+                                             previous.unwrappedYawBaseRtWorld),
+      .integralLinvelBaseRtWorldEwrtHeadingXy =
+          previous.integralLinvelBaseRtWorldEwrtHeadingXy +
+          fraction * (after->integralLinvelBaseRtWorldEwrtHeadingXy -
+                      previous.integralLinvelBaseRtWorldEwrtHeadingXy)};
 }
 
 bool StrideMotionHistory::isMeasuredOver(scalar_t window) const {
@@ -167,8 +181,12 @@ BasePlanarMotion StrideMotionHistory::mean(scalar_t window) const {
   const Sample start = at(last.time - span);
   return BasePlanarMotion{
       .linvelBaseRtWorldEwrtHeadingXy =
-          (last.displacement - start.displacement) / span,
-      .rateYawBaseRtWorld = (last.heading - start.heading) / span};
+          (last.integralLinvelBaseRtWorldEwrtHeadingXy -
+           start.integralLinvelBaseRtWorldEwrtHeadingXy) /
+          span,
+      .rateYawBaseRtWorld =
+          (last.unwrappedYawBaseRtWorld - start.unwrappedYawBaseRtWorld) /
+          span};
 }
 
 }  // namespace ocs2::humanoid

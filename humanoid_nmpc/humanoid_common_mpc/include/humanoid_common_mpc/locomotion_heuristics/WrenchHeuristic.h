@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 
+#include "ocs2_core/Types.h"
+
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristic.h"
 
@@ -51,9 +53,9 @@ struct WrenchHeuristicContext {
    */
   feet_array_t<scalar_t> stanceDutyFactor = makeFeetArray(1.0);
   /** [m/s] commanded CoM linear velocity in the world at this node. */
-  vector2_t commandedVelocity = vector2_t::Zero();
+  vector2_t cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t::Zero();
   /** [rad/s] commanded yaw rate at this node. */
-  scalar_t commandedYawRate = 0.0;
+  scalar_t cmdRateYawBaseRtWorld = 0.0;
   /** [N] the robot's weight, mass * gravity: the scale every force offset here
    * is naturally measured in. */
   scalar_t totalWeight = 0.0;
@@ -80,7 +82,7 @@ struct WrenchHeuristicContext {
  * the direct-wrench parameterization and a thread-safe forward-kinematics
  * rotation for the basis-vector one.
  *
- * WHY producesHorizontalForce() EXISTS. Both cost terms carry a comment
+ * WHY producesForceFootEwrtWorldXy() EXISTS. Both cost terms carry a comment
  * explaining that they deliberately use the cheap input-only
  * weightCompensatingInput() overload "because the nominal contact force is
  * purely vertical and a stance foot is flat, so it is identical in the world
@@ -104,12 +106,12 @@ class WrenchHeuristic : public LocomotionHeuristic {
    * Called only for feet `context.contactFlags` reports in contact, so an
    * implementation never has to guard against dividing by a zero stance count.
    */
-  virtual vector3_t forceOffset(const WrenchHeuristicContext& context,
-                                size_t contactIndex) const = 0;
+  virtual vector3_t computeOffsetForceFootEwrtWorld(
+      const WrenchHeuristicContext& context, size_t contactIndex) const = 0;
 
   /**
-   * True when forceOffset() can return a force with a non-zero horizontal
-   * component.
+   * True when computeOffsetForceFootEwrtWorld() can return a force with a
+   * non-zero horizontal component.
    *
    * It decides which of the two weightCompensatingInput() overloads the whole
    * layer uses, so it is a property of the FORMULA and not of the current
@@ -118,7 +120,7 @@ class WrenchHeuristic : public LocomotionHeuristic {
    * writing a horizontal force down the vertical-only path and the basis-vector
    * parameterization would receive it in the wrong frame.
    */
-  virtual bool producesHorizontalForce() const { return false; }
+  virtual bool producesForceFootEwrtWorldXy() const { return false; }
 };
 
 }  // namespace ocs2::humanoid

@@ -36,8 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "ocs2_core/Dimensions.h"
 
-#include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
+#include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -47,7 +47,7 @@ using ::ocs2::kYAxisIndex;
 using ::ocs2::kZAxisIndex;
 
 namespace {
-constexpr double kMinDrawnForceLinkEwrtWorld =
+constexpr double kMinDrawnNormForceLinkcomEwrtWorld =
     1.0e-6;  // [N] a smaller applied force draws no arrow
 // The arrow of a force grows with it, up to kMaxArrowLength.
 constexpr double kMinArrowLength = 0.1;         // [m]
@@ -60,9 +60,9 @@ constexpr double kMaxArrowLength =
 constexpr double kArrowWidth = 0.005;  // [m]
 constexpr float kArrowRed = 0.5f;      // the red of the yellow-green arrow
 
-// Appends, while `scene` has room, an arrow of `length` from `origin` along
-// `vector` (of `magnitude`).
-void addArrow(const double* absl_nonnull origin,
+// Appends, while `scene` has room, an arrow of `length` from
+// `posArrowRtWorldEwrtWorld` along `vector` (of `magnitude`).
+void addArrow(const double* absl_nonnull posArrowRtWorldEwrtWorld,
               const double* absl_nonnull vector,
               double magnitude,
               double length,
@@ -70,13 +70,15 @@ void addArrow(const double* absl_nonnull origin,
   if (scene.ngeom >= scene.maxgeom) return;  // out of geom space
   mjvGeom* absl_nonnull arrow = &scene.geoms[scene.ngeom++];
   std::memset(arrow, 0, sizeof(mjvGeom));
-  const mjtNum from[kPositionDim] = {origin[kXAxisIndex], origin[kYAxisIndex],
-                                     origin[kZAxisIndex]};
-  const mjtNum to[kPositionDim] = {
-      origin[kXAxisIndex] + length * (vector[kXAxisIndex] / magnitude),
-      origin[kYAxisIndex] + length * (vector[kYAxisIndex] / magnitude),
-      origin[kZAxisIndex] + length * (vector[kZAxisIndex] / magnitude)};
-  mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth, from, to);
+  const mjtNum posArrowheadRtWorldEwrtWorld[kPositionDim] = {
+      posArrowRtWorldEwrtWorld[kXAxisIndex] +
+          length * (vector[kXAxisIndex] / magnitude),
+      posArrowRtWorldEwrtWorld[kYAxisIndex] +
+          length * (vector[kYAxisIndex] / magnitude),
+      posArrowRtWorldEwrtWorld[kZAxisIndex] +
+          length * (vector[kZAxisIndex] / magnitude)};
+  mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth, posArrowRtWorldEwrtWorld,
+                posArrowheadRtWorldEwrtWorld);
   arrow->rgba[kRedChannel] = kArrowRed;
   arrow->rgba[kGreenChannel] = 1.0f;
   arrow->rgba[kBlueChannel] = 0.0f;
@@ -95,8 +97,9 @@ double norm(const double* absl_nonnull vector) {
 void ExternalForceVisualization::addSceneGeoms(
     const VisualizationFrame& frame) {
   if (frame.model == nullptr || frame.state == nullptr ||
-      frame.scene == nullptr)
+      frame.scene == nullptr) {
     return;
+  }
   addArrows(frame.model, *frame.state, *frame.scene);
 }
 
@@ -106,18 +109,22 @@ void ExternalForceVisualization::addArrows(const mjModel* absl_nonnull model,
   const mjData* absl_nullable data = state.data;
   if (data == nullptr) return;
 
-  // The held push, at the body's center of mass, where MuJoCo applies
+  // The held push. Its impulse acts at the pushed body's origin (the moment
+  // about the center of mass is part of the one-step xfrc_applied), but the
+  // arrow is drawn at the body's center of mass, where MuJoCo applies
   // xfrc_applied (mj_xfrcAccumulate at xipos).
   const AppliedPush& push = state.push;
   const bool pushHeld = push.bodyId >= 0 && push.bodyId < model->nbody &&
                         data->time >= push.simTimeApplied &&
                         data->time - push.simTimeApplied < kPushHoldTime;
   if (pushHeld) {
-    const double impulse = norm(push.impulseWorld.data());
-    if (impulse >= kMinDrawnImpulse) {
+    const double normImpulseLinkEwrtWorld =
+        norm(push.impulseLinkEwrtWorld.data());
+    if (normImpulseLinkEwrtWorld >= kMinDrawnNormImpulseLinkEwrtWorld) {
       addArrow(&data->xipos[kPositionDim * push.bodyId],
-               push.impulseWorld.data(), impulse,
-               std::min(kMinArrowLength + kArrowLengthPerNewtonSecond * impulse,
+               push.impulseLinkEwrtWorld.data(), normImpulseLinkEwrtWorld,
+               std::min(kMinArrowLength + kArrowLengthPerNewtonSecond *
+                                              normImpulseLinkEwrtWorld,
                         kMaxArrowLength),
                scene);
     }
@@ -127,13 +134,16 @@ void ExternalForceVisualization::addArrows(const mjModel* absl_nonnull model,
     // The held push is drawn above; its one-step force would be a second arrow
     // on the same body.
     if (pushHeld && body_id == push.bodyId) continue;
-    const double* absl_nonnull forceLinkEwrtWorld =
+    const double* absl_nonnull forceLinkcomEwrtWorld =
         &data->xfrc_applied[kMjSpatialVectorSize * body_id];
-    const double magnitude = norm(forceLinkEwrtWorld);
-    if (magnitude < kMinDrawnForceLinkEwrtWorld) continue;
-    addArrow(&data->xipos[kPositionDim * body_id], forceLinkEwrtWorld,
-             magnitude,
-             std::min(kMinArrowLength + kArrowLengthPerNewton * magnitude,
+    const double normForceLinkcomEwrtWorld = norm(forceLinkcomEwrtWorld);
+    if (normForceLinkcomEwrtWorld < kMinDrawnNormForceLinkcomEwrtWorld) {
+      continue;
+    }
+    addArrow(&data->xipos[kPositionDim * body_id], forceLinkcomEwrtWorld,
+             normForceLinkcomEwrtWorld,
+             std::min(kMinArrowLength +
+                          kArrowLengthPerNewton * normForceLinkcomEwrtWorld,
                       kMaxArrowLength),
              scene);
   }

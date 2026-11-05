@@ -31,19 +31,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
-#include "absl/strings/strip.h"
+#include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipContactPlanner.h"
 
 namespace ocs2::humanoid {
@@ -82,12 +88,14 @@ absl::Status keyMustBe(absl::string_view key,
 absl::Status checkSlack(std::optional<SlackPenalty> slack,
                         absl::string_view term) {
   if (!slack.has_value()) return absl::OkStatus();
-  if (slack->quadratic < 0.0)
+  if (slack->quadratic < 0.0) {
     return keyMustBe(absl::StrCat(term, ".slack.quadratic"), slack->quadratic,
                      "non-negative");
-  if (slack->linear < 0.0)
+  }
+  if (slack->linear < 0.0) {
     return keyMustBe(absl::StrCat(term, ".slack.linear"), slack->linear,
                      "non-negative");
+  }
   return absl::OkStatus();
 }
 
@@ -192,7 +200,8 @@ void appendHlipWarnings(const ContactPlanningConfig& config,
                      "the rule the whole-body MPC tracks the operator's "
                      "straight-line reference instead, the planner reads back "
                      "a center of mass with no lateral velocity, narrows the "
-                     "step to hlip.min_step_width and the robot sidesteps "
+                     "step to hlip.min_pos_lfoot_rt_rfoot_ewrt_heading_y and "
+                     "the robot sidesteps "
                      "and falls. Add ",
                      term::kPlannedComOverride, " to `execution`."));
   }
@@ -227,80 +236,100 @@ void appendHlipWarnings(const ContactPlanningConfig& config,
   // so an invalid configuration stops here.
   const scalar_t stepDuration = h.sspDuration + h.dspDuration;
   if (h.sspDuration <= 0.0 || h.dspDuration < 0.0 ||
-      !(config.pendulumHeight() > 0.0) || config.shared.gravity <= 0.0)
+      !(config.getNomPosComRtFeetmeanEwrtWorldZ() > 0.0) ||
+      config.shared.gravity <= 0.0) {
     return;
+  }
 
   // A robot standing still has its center of mass half a step width from the
   // stance foot with no lateral velocity, so the first single support ends far
   // outside the orbit and the deadbeat law asks for a wide first step. If that
-  // step does not fit hlip.maxStepWidth it is clipped and the step is no longer
-  // deadbeat: depending on how much is cut the residual either dies out over a
-  // few steps or grows by cosh(omega sspDuration) every step until the gait
-  // locks into a wide/narrow limit cycle that falls (H-LIP README section 3b).
-  // Which of the two happens is what the start-up summary rolls out
-  // (HlipContactPlanner::startUpLateralWidths); a first step without margin is
-  // reported either way, because the summary is the only place that said so and
-  // nothing checked it.
+  // step does not fit hlip.maxPosLfootRtRfootEwrtHeadingY it is clipped and the
+  // step is no longer deadbeat: depending on how much is cut the residual
+  // either dies out over a few steps or grows by cosh(omega sspDuration) every
+  // step until the gait locks into a wide/narrow limit cycle that falls (H-LIP
+  // README section 3b). Which of the two happens is what the start-up summary
+  // rolls out
+  // (HlipContactPlanner::computeStartUpNormPosLfootRtRfootEwrtHeadingYTraj); a
+  // first step without margin is reported either way, because the summary is
+  // the only place that said so and nothing checked it.
   const absl::StatusOr<scalar_t> startUpStep =
       HlipContactPlanner::startUpLateralStep(config);
-  if (startUpStep.ok() && *startUpStep > h.maxStepWidth) {
+  if (startUpStep.ok() && *startUpStep > h.maxPosLfootRtRfootEwrtHeadingY) {
     out.push_back(absl::StrCat(
         "the first step out of a standstill needs ", *startUpStep,
         " m of lateral step (HlipContactPlanner::startUpLateralStep) against "
-        "hlip.max_step_width (",
-        h.maxStepWidth,
+        "hlip.max_pos_lfoot_rt_rfoot_ewrt_heading_y (",
+        h.maxPosLfootRtRfootEwrtHeadingY,
         " m): it is clipped, which costs the deadbeat property, and depending "
         "on how much is cut the gait either "
         "recovers over a few steps or locks into an alternating wide/narrow "
         "limit cycle that falls (the planner's "
         "start-up summary says which). Shorten hlip.ssp_duration (or "
-        "hlip.dsp_duration), or raise hlip.max_step_width."));
+        "hlip.dsp_duration), or raise "
+        "hlip.max_pos_lfoot_rt_rfoot_ewrt_heading_y."));
   }
 
   // The step width bounds are checked by validateStatus() against
-  // hlip.stepWidth alone, which is the nominal orbit at a ZERO lateral command.
-  // That is not the orbit the planner walks: HlipContactPlanner::deadbeatStep
-  // builds the period-two orbit at +-stepWidth + v_y,cmd * (sspDuration +
-  // dspDuration) and then clips the placed foot into [minStepWidth,
-  // maxStepWidth], so a sustained sidestep moves BOTH sides of the orbit by the
-  // drift of one step. The configuration is only self-consistent when the
-  // narrowed side still clears the self-collision margin and the widened side
-  // still fits the reach, at the largest lateral command the blend is
-  // normalized for. Otherwise the narrow step is clipped on every cycle for as
-  // long as the command is held, ContactPlan::describe() prints CLIPPED-STEPS
-  // forever and the one signal documented to mean "the legs cannot deliver this
-  // command at this cadence" becomes a standing false positive that hides
-  // genuine clipping, while the realized lateral rate runs below the
-  // command.
-  const scalar_t lateralDrift = h.blend.maxCommandedVelocityY * stepDuration;
-  if (h.stepWidth - lateralDrift < h.minStepWidth) {
+  // hlip.nomPosLfootRtRfootEwrtHeadingY alone, which is the nominal orbit at a
+  // ZERO lateral command. That is not the orbit the planner walks:
+  // HlipContactPlanner::deadbeatStep builds the period-two orbit at
+  // +-nomPosLfootRtRfootEwrtHeadingY
+  // + v_y,cmd * (sspDuration + dspDuration) and then clips the placed foot into
+  // [minPosLfootRtRfootEwrtHeadingY, maxPosLfootRtRfootEwrtHeadingY], so a
+  // sustained sidestep moves BOTH sides of the orbit by the drift of one step.
+  // The configuration is only self-consistent when the narrowed side still
+  // clears the self-collision margin and the widened side still fits the reach,
+  // at the largest lateral command the blend is normalized for. Otherwise the
+  // narrow step is clipped on every cycle for as long as the command is held,
+  // ContactPlan::describe() prints CLIPPED-STEPS forever and the one signal
+  // documented to mean "the legs cannot deliver this command at this cadence"
+  // becomes a standing false positive that hides genuine clipping, while the
+  // realized lateral rate runs below the command.
+  const scalar_t cmdMaxDriftErrPosFootRtWorldEwrtHeadingY =
+      h.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingY * stepDuration;
+  if (h.nomPosLfootRtRfootEwrtHeadingY -
+          cmdMaxDriftErrPosFootRtWorldEwrtHeadingY <
+      h.minPosLfootRtRfootEwrtHeadingY) {
     out.push_back(absl::StrCat(
         "a sustained sidestep at "
         "hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_y (",
-        h.blend.maxCommandedVelocityY, " m/s) drifts ", lateralDrift,
-        " m over a step of ", stepDuration,
+        h.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingY, " m/s) drifts ",
+        cmdMaxDriftErrPosFootRtWorldEwrtHeadingY, " m over a step of ",
+        stepDuration,
         " s, so the step that places the trailing foot is planned at "
-        "hlip.step_width - drift = ",
-        h.stepWidth - lateralDrift, " m and clipped to hlip.min_step_width (",
-        h.minStepWidth,
-        " m) on every occurrence. Raise hlip.step_width, or lower "
+        "hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y - drift = ",
+        h.nomPosLfootRtRfootEwrtHeadingY -
+            cmdMaxDriftErrPosFootRtWorldEwrtHeadingY,
+        " m and clipped to hlip.min_pos_lfoot_rt_rfoot_ewrt_heading_y (",
+        h.minPosLfootRtRfootEwrtHeadingY,
+        " m) on every occurrence. Raise "
+        "hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y, or lower "
         "hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_y below ",
-        (h.stepWidth - h.minStepWidth) / stepDuration,
+        (h.nomPosLfootRtRfootEwrtHeadingY - h.minPosLfootRtRfootEwrtHeadingY) /
+            stepDuration,
         " m/s, or shorten the step."));
   }
-  if (h.stepWidth + lateralDrift > h.maxStepWidth) {
+  if (h.nomPosLfootRtRfootEwrtHeadingY +
+          cmdMaxDriftErrPosFootRtWorldEwrtHeadingY >
+      h.maxPosLfootRtRfootEwrtHeadingY) {
     out.push_back(absl::StrCat(
         "a sustained sidestep at "
         "hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_y (",
-        h.blend.maxCommandedVelocityY, " m/s) drifts ", lateralDrift,
-        " m over a step of ", stepDuration,
+        h.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingY, " m/s) drifts ",
+        cmdMaxDriftErrPosFootRtWorldEwrtHeadingY, " m over a step of ",
+        stepDuration,
         " s, so the step that places the leading foot is planned at "
-        "hlip.step_width + drift = ",
-        h.stepWidth + lateralDrift, " m and clipped to hlip.max_step_width (",
-        h.maxStepWidth,
-        " m) on every occurrence. Raise hlip.max_step_width, or lower "
+        "hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y + drift = ",
+        h.nomPosLfootRtRfootEwrtHeadingY +
+            cmdMaxDriftErrPosFootRtWorldEwrtHeadingY,
+        " m and clipped to hlip.max_pos_lfoot_rt_rfoot_ewrt_heading_y (",
+        h.maxPosLfootRtRfootEwrtHeadingY,
+        " m) on every occurrence. Raise "
+        "hlip.max_pos_lfoot_rt_rfoot_ewrt_heading_y, or lower "
         "hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_y below ",
-        (h.maxStepWidth - h.stepWidth) / stepDuration,
+        (h.maxPosLfootRtRfootEwrtHeadingY - h.nomPosLfootRtRfootEwrtHeadingY) /
+            stepDuration,
         " m/s, or shorten the step."));
   }
 }
@@ -311,9 +340,10 @@ absl::Status validatePlanner(const ContactPlanningConfig& config) {
   const PlannerSettings& p = config.planner;
   const GaitLimits& g = config.shared.gaitLimits;
   if (p.dt <= 0.0) return keyMustBe("planner.dt", p.dt, "positive");
-  if (p.numNodes < kMinNumNodes)
+  if (p.numNodes < kMinNumNodes) {
     return keyMustBe("planner.num_nodes", p.numNodes,
                      absl::StrCat("at least ", kMinNumNodes));
+  }
   // planner.type selects the implementation ContactPlannerFactory builds, and
   // every consumer of this configuration treats "validation passed" as "this
   // configuration can be applied": loadContactPlanningConfig and
@@ -330,8 +360,9 @@ absl::Status validatePlanner(const ContactPlanningConfig& config) {
         "unknown planner.type '", p.type,
         "'; supported: ", absl::StrJoin(knownPlannerNames(), ", ")));
   }
-  if (p.commitTime < 0.0)
+  if (p.commitTime < 0.0) {
     return keyMustBe("planner.commit_time", p.commitTime, "non-negative");
+  }
   if (config.commitNodes() >= p.numNodes) {
     return invalidConfig(absl::StrCat(
         "planner.commit_time (", p.commitTime,
@@ -345,17 +376,21 @@ absl::Status validatePlanner(const ContactPlanningConfig& config) {
         "shared.gait_limits.max_swing_duration (",
         g.maxSwingDuration, " s), so a whole swing still fits in it"));
   }
-  if (p.maxBranchAndBoundNodes < 1)
+  if (p.maxBranchAndBoundNodes < 1) {
     return keyMustBe("planner.max_branch_and_bound_nodes",
                      p.maxBranchAndBoundNodes, "at least 1");
-  if (p.maxSolveTime <= 0.0)
+  }
+  if (p.maxSolveTime <= 0.0) {
     return keyMustBe("planner.max_solve_time", p.maxSolveTime, "positive");
-  if (p.maxQpIterations < 1)
+  }
+  if (p.maxQpIterations < 1) {
     return keyMustBe("planner.max_qp_iterations", p.maxQpIterations,
                      "at least 1");
-  if (p.planningFrequency <= 0.0)
+  }
+  if (p.planningFrequency <= 0.0) {
     return keyMustBe("planner.planning_frequency", p.planningFrequency,
                      "positive");
+  }
   return absl::OkStatus();
 }
 
@@ -364,29 +399,35 @@ absl::Status validatePlanner(const ContactPlanningConfig& config) {
 absl::Status validateShared(const ContactPlanningConfig& config) {
   const SharedParameters& s = config.shared;
   const GaitLimits& g = s.gaitLimits;
-  if (s.gravity <= 0.0)
+  if (s.gravity <= 0.0) {
     return keyMustBe("shared.gravity", s.gravity, "positive");
-  if (!s.comHeight.has_value()) {
+  }
+  if (!s.nomPosComRtFeetmeanEwrtWorldZ.has_value()) {
     return invalidConfig(
-        "shared.com_height is unset: a file that leaves it out gets the "
+        "shared.nom_pos_com_rt_feetmean_ewrt_world_z is unset: a file that "
+        "leaves it out gets the "
         "model's pendulum (ContactPlanningModelParameters::applyTo()) "
         "before validation, and a configuration without a model sets a "
         "positive height");
   }
-  if (!(*s.comHeight > 0.0))
-    return keyMustBe("shared.com_height", *s.comHeight, "positive");
-  if (g.minSwingDuration <= 0.0)
+  if (!(*s.nomPosComRtFeetmeanEwrtWorldZ > 0.0)) {
+    return keyMustBe("shared.nom_pos_com_rt_feetmean_ewrt_world_z",
+                     *s.nomPosComRtFeetmeanEwrtWorldZ, "positive");
+  }
+  if (g.minSwingDuration <= 0.0) {
     return keyMustBe("shared.gait_limits.min_swing_duration",
                      g.minSwingDuration, "positive");
+  }
   if (g.maxSwingDuration < g.minSwingDuration) {
     return invalidConfig(absl::StrCat(
         "shared.gait_limits.max_swing_duration (", g.maxSwingDuration,
         " s) must be at least shared.gait_limits.min_swing_duration (",
         g.minSwingDuration, " s)"));
   }
-  if (g.minContactDuration <= 0.0)
+  if (g.minContactDuration <= 0.0) {
     return keyMustBe("shared.gait_limits.min_contact_duration",
                      g.minContactDuration, "positive");
+  }
   if (g.maxContactDuration > 0.0 &&
       g.maxContactDuration < g.minContactDuration) {
     return invalidConfig(absl::StrCat(
@@ -399,12 +440,14 @@ absl::Status validateShared(const ContactPlanningConfig& config) {
     return keyMustBe("shared.gait_limits.min_double_support_duration",
                      g.minDoubleSupportDuration, "non-negative");
   }
-  if (s.slackPenalty.quadratic < 0.0)
+  if (s.slackPenalty.quadratic < 0.0) {
     return keyMustBe("shared.slack_penalty.quadratic", s.slackPenalty.quadratic,
                      "non-negative");
-  if (s.slackPenalty.linear < 0.0)
+  }
+  if (s.slackPenalty.linear < 0.0) {
     return keyMustBe("shared.slack_penalty.linear", s.slackPenalty.linear,
                      "non-negative");
+  }
   return absl::OkStatus();
 }
 
@@ -412,70 +455,89 @@ absl::Status validateShared(const ContactPlanningConfig& config) {
  * as an InvalidArgument naming it. */
 absl::Status validateMixedIntegerGeometry(const ContactPlanningConfig& config) {
   const SharedParameters& s = config.shared;
-  if (config.zmpSupportRegion.halfWidthX <= 0.0) {
-    return keyMustBe("zmp_support_region.half_width_x",
-                     config.zmpSupportRegion.halfWidthX, "positive");
-  }
-  if (config.zmpSupportRegion.halfWidthY <= 0.0) {
-    return keyMustBe("zmp_support_region.half_width_y",
-                     config.zmpSupportRegion.halfWidthY, "positive");
-  }
-  if (config.footSeparation.minStepWidth <= 0.0) {
-    return keyMustBe("foot_separation.min_step_width",
-                     config.footSeparation.minStepWidth, "positive");
-  }
-  if (config.footSeparation.maxStepWidth < config.footSeparation.minStepWidth) {
-    return invalidConfig(absl::StrCat(
-        "foot_separation.max_step_width (", config.footSeparation.maxStepWidth,
-        " m) must be at least foot_separation.min_step_width (",
-        config.footSeparation.minStepWidth, " m)"));
-  }
-  if (config.stepWidth.nominalStepWidth < config.footSeparation.minStepWidth ||
-      config.stepWidth.nominalStepWidth > config.footSeparation.maxStepWidth) {
-    return invalidConfig(absl::StrCat(
-        "step_width.nominal_step_width (", config.stepWidth.nominalStepWidth,
-        " m) must lie within [foot_separation.min_step_width, "
-        "foot_separation.max_step_width] = [",
-        config.footSeparation.minStepWidth, ", ",
-        config.footSeparation.maxStepWidth, "] m"));
-  }
-  if (config.footSeparation.maxStepLength <= 0.0) {
-    return keyMustBe("foot_separation.max_step_length",
-                     config.footSeparation.maxStepLength, "positive");
-  }
-  if (config.reachability.reachX <= 0.0)
-    return keyMustBe("reachability.reach_x", config.reachability.reachX,
+  if (config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootX <= 0.0) {
+    return keyMustBe("zmp_support_region.max_norm_pos_zmp_rt_foot_ewrt_foot_x",
+                     config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootX,
                      "positive");
-  if (config.reachability.reachYOuter <= config.reachability.reachYInner) {
-    return invalidConfig(absl::StrCat(
-        "reachability.reach_y_outer (", config.reachability.reachYOuter,
-        " m) must exceed reachability.reach_y_inner (",
-        config.reachability.reachYInner, " m)"));
   }
-  if (s.bigM <= config.footSeparation.maxStepLength) {
-    return invalidConfig(
-        absl::StrCat("shared.big_m (", s.bigM,
-                     " m) must exceed foot_separation.max_step_length (",
-                     config.footSeparation.maxStepLength, " m)"));
+  if (config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootY <= 0.0) {
+    return keyMustBe("zmp_support_region.max_norm_pos_zmp_rt_foot_ewrt_foot_y",
+                     config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootY,
+                     "positive");
+  }
+  if (config.footSeparation.minPosLfootRtRfootEwrtHeadingY <= 0.0) {
+    return keyMustBe("foot_separation.min_pos_lfoot_rt_rfoot_ewrt_heading_y",
+                     config.footSeparation.minPosLfootRtRfootEwrtHeadingY,
+                     "positive");
+  }
+  if (config.footSeparation.maxPosLfootRtRfootEwrtHeadingY <
+      config.footSeparation.minPosLfootRtRfootEwrtHeadingY) {
+    return invalidConfig(absl::StrCat(
+        "foot_separation.max_pos_lfoot_rt_rfoot_ewrt_heading_y (",
+        config.footSeparation.maxPosLfootRtRfootEwrtHeadingY,
+        " m) must be at least "
+        "foot_separation.min_pos_lfoot_rt_rfoot_ewrt_heading_y (",
+        config.footSeparation.minPosLfootRtRfootEwrtHeadingY, " m)"));
+  }
+  if (config.stepWidth.nomPosLfootRtRfootEwrtHeadingY <
+          config.footSeparation.minPosLfootRtRfootEwrtHeadingY ||
+      config.stepWidth.nomPosLfootRtRfootEwrtHeadingY >
+          config.footSeparation.maxPosLfootRtRfootEwrtHeadingY) {
+    return invalidConfig(absl::StrCat(
+        "step_width.nom_pos_lfoot_rt_rfoot_ewrt_heading_y (",
+        config.stepWidth.nomPosLfootRtRfootEwrtHeadingY,
+        " m) must lie within "
+        "[foot_separation.min_pos_lfoot_rt_rfoot_ewrt_heading_y, "
+        "foot_separation.max_pos_lfoot_rt_rfoot_ewrt_heading_y] = [",
+        config.footSeparation.minPosLfootRtRfootEwrtHeadingY, ", ",
+        config.footSeparation.maxPosLfootRtRfootEwrtHeadingY, "] m"));
+  }
+  if (config.footSeparation.maxNormPosLfootRtRfootEwrtHeadingX <= 0.0) {
+    return keyMustBe(
+        "foot_separation.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x",
+        config.footSeparation.maxNormPosLfootRtRfootEwrtHeadingX, "positive");
+  }
+  if (config.reachability.maxNormPosFootRtComEwrtHeadingX <= 0.0) {
+    return keyMustBe("reachability.max_norm_pos_foot_rt_com_ewrt_heading_x",
+                     config.reachability.maxNormPosFootRtComEwrtHeadingX,
+                     "positive");
+  }
+  if (config.reachability.maxPosFootRtComEwrtHeadingY <=
+      config.reachability.minPosFootRtComEwrtHeadingY) {
+    return invalidConfig(absl::StrCat(
+        "reachability.max_pos_foot_rt_com_ewrt_heading_y (",
+        config.reachability.maxPosFootRtComEwrtHeadingY,
+        " m) must exceed reachability.min_pos_foot_rt_com_ewrt_heading_y (",
+        config.reachability.minPosFootRtComEwrtHeadingY, " m)"));
+  }
+  if (s.bigM <= config.footSeparation.maxNormPosLfootRtRfootEwrtHeadingX) {
+    return invalidConfig(absl::StrCat(
+        "shared.big_m (", s.bigM,
+        " m) must exceed "
+        "foot_separation.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x (",
+        config.footSeparation.maxNormPosLfootRtRfootEwrtHeadingX, " m)"));
   }
   // The big-M must also cover the LATERAL separation of the feet, and that, not
   // the heading axis guarded above, is the requirement that actually binds. In
   // double support both contact binaries are one, so the +M c_i - M c_other
   // terms of a single-support ZMP box cancel and that box relaxes to only
-  // |e_y'(zmp - p_i)| <= halfWidthY + M, while the double-support rows open the
-  // whole strip between the feet, e_y'p_R - halfWidthY <= e_y'zmp <= e_y'p_L +
-  // halfWidthY (ZmpSupportRegionConstraint::addRows). Intersecting the two, the
-  // opposite foot's relaxed row binds as soon as M is smaller than the
-  // separation w = e_y'(p_L - p_R), which foot_separation.maxStepWidth bounds
-  // from above; the half-width cancels, so the exact condition is bigM >=
-  // maxStepWidth. Below it the ZMP is pulled towards one foot in double support
-  // and every weight transfer past that point pays slack for a disjunction that
-  // was supposed to be switched off.
-  if (s.bigM < config.footSeparation.maxStepWidth) {
+  // |e_y'(zmp - p_i)| <= maxNormPosZmpRtFootEwrtFootY + M, while the
+  // double-support rows open the whole strip between the feet, e_y'p_R -
+  // maxNormPosZmpRtFootEwrtFootY <= e_y'zmp <= e_y'p_L +
+  // maxNormPosZmpRtFootEwrtFootY (ZmpSupportRegionConstraint::addRows).
+  // Intersecting the two, the opposite foot's relaxed row binds as soon as M is
+  // smaller than the separation w = e_y'(p_L - p_R), which
+  // foot_separation.maxPosLfootRtRfootEwrtHeadingY bounds from above; the
+  // half-width cancels, so the exact condition is bigM >=
+  // maxPosLfootRtRfootEwrtHeadingY. Below it the ZMP is pulled towards one foot
+  // in double support and every weight transfer past that point pays slack for
+  // a disjunction that was supposed to be switched off.
+  if (s.bigM < config.footSeparation.maxPosLfootRtRfootEwrtHeadingY) {
     return invalidConfig(
         absl::StrCat("shared.big_m (", s.bigM,
-                     " m) must be at least foot_separation.max_step_width (",
-                     config.footSeparation.maxStepWidth,
+                     " m) must be at least "
+                     "foot_separation.max_pos_lfoot_rt_rfoot_ewrt_heading_y (",
+                     config.footSeparation.maxPosLfootRtRfootEwrtHeadingY,
                      " m), otherwise the relaxed single-support ZMP box clips "
                      "the double-support region laterally"));
   }
@@ -504,8 +566,8 @@ absl::Status validateWeights(const ContactPlanningConfig& config) {
           {"heading_rate_tracking.weight", config.headingRateTracking.weight},
           {"heading_tracking.weight", config.headingTracking.weight},
           {"foot_yaw_tracking.weight", config.footYawTracking.weight},
-          {"yaw_torque_regularization.weight",
-           config.yawTorqueRegularization.weight},
+          {"yaw_torque_regularization_parameters.weight",
+           config.yawTorqueRegularizationParameters.weight},
           {"foot_yaw_regularization.weight",
            config.footYawRegularization.weight},
           {"zmp_regularization.weight", config.zmpRegularization.weight},
@@ -525,8 +587,9 @@ absl::Status validateWeights(const ContactPlanningConfig& config) {
       }};
   for (const std::pair<const char* absl_nonnull, scalar_t>& entry :
        nonNegative) {
-    if (entry.second < 0.0)
+    if (entry.second < 0.0) {
       return keyMustBe(entry.first, entry.second, "non-negative");
+    }
   }
   return absl::OkStatus();
 }
@@ -538,12 +601,14 @@ absl::Status validateSearchStages(const ContactPlanningConfig& config) {
     return keyMustBe("event_shift_local_search.iterations",
                      config.eventShiftLocalSearch.iterations, "non-negative");
   }
-  if (config.diving.maxDiveIterations < 1)
+  if (config.diving.maxDiveIterations < 1) {
     return keyMustBe("diving.max_dive_iterations",
                      config.diving.maxDiveIterations, "at least 1");
-  if (config.cadenceStretch.samples < 0)
+  }
+  if (config.cadenceStretch.samples < 0) {
     return keyMustBe("cadence_stretch.samples", config.cadenceStretch.samples,
                      "non-negative");
+  }
   if (config.cadenceStretch.samples > 0 &&
       config.cadenceStretch.maxStretch < 1.0) {
     return keyMustBe("cadence_stretch.max_stretch",
@@ -587,17 +652,20 @@ absl::Status validateExecutionRules(const ContactPlanningConfig& config) {
     return keyMustBe("phase_resetting.late_touchdown_extension_step",
                      r.lateTouchdownExtensionStep, "positive");
   }
-  if (r.lateTouchdownSearchVelocity < 0.0) {
+  if (r.lateTouchdownSearchSpeedFootRtWorld < 0.0) {
     return keyMustBe(
         "phase_resetting.late_touchdown_search_speed_foot_rt_world",
-        r.lateTouchdownSearchVelocity, "non-negative");
+        r.lateTouchdownSearchSpeedFootRtWorld, "non-negative");
   }
-  if (config.dcmStepAdjustment.gain < 0.0)
+  if (config.dcmStepAdjustment.gain < 0.0) {
     return keyMustBe("dcm_step_adjustment.gain", config.dcmStepAdjustment.gain,
                      "non-negative");
-  if (config.dcmStepAdjustment.maxOffset < 0.0) {
-    return keyMustBe("dcm_step_adjustment.max_offset",
-                     config.dcmStepAdjustment.maxOffset, "non-negative");
+  }
+  if (config.dcmStepAdjustment.maxNormErrPosFootRtWorldEwrtWorldXy < 0.0) {
+    return keyMustBe(
+        "dcm_step_adjustment.max_norm_err_pos_foot_rt_world_ewrt_world_xy",
+        config.dcmStepAdjustment.maxNormErrPosFootRtWorldEwrtWorldXy,
+        "non-negative");
   }
   return absl::OkStatus();
 }
@@ -606,29 +674,44 @@ absl::Status validateExecutionRules(const ContactPlanningConfig& config) {
  * naming it. */
 absl::Status validateHlip(const ContactPlanningConfig& config) {
   const HlipParameters& h = config.hlip;
-  if (h.sspDuration <= 0.0)
+  if (h.sspDuration <= 0.0) {
     return keyMustBe("hlip.ssp_duration", h.sspDuration, "positive");
-  if (h.dspDuration < 0.0)
+  }
+  if (h.dspDuration < 0.0) {
     return keyMustBe("hlip.dsp_duration", h.dspDuration, "non-negative");
-  if (h.stepWidth <= 0.0)
-    return keyMustBe("hlip.step_width", h.stepWidth, "positive");
-  if (h.maxStepLength <= 0.0)
-    return keyMustBe("hlip.max_step_length", h.maxStepLength, "positive");
-  if (h.minStepWidth <= 0.0)
-    return keyMustBe("hlip.min_step_width", h.minStepWidth, "positive");
-  if (h.maxStepWidth < h.minStepWidth) {
-    return invalidConfig(absl::StrCat(
-        "hlip.max_step_width (", h.maxStepWidth,
-        " m) must be at least hlip.min_step_width (", h.minStepWidth, " m)"));
   }
-  if (h.stepWidth < h.minStepWidth || h.stepWidth > h.maxStepWidth) {
-    return invalidConfig(absl::StrCat(
-        "hlip.step_width (", h.stepWidth,
-        " m) must lie within [hlip.min_step_width, hlip.max_step_width] = [",
-        h.minStepWidth, ", ", h.maxStepWidth, "] m"));
+  if (h.nomPosLfootRtRfootEwrtHeadingY <= 0.0) {
+    return keyMustBe("hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y",
+                     h.nomPosLfootRtRfootEwrtHeadingY, "positive");
   }
-  if (h.blend.sharpness <= 0.0)
+  if (h.maxNormPosLfootRtRfootEwrtHeadingX <= 0.0) {
+    return keyMustBe("hlip.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x",
+                     h.maxNormPosLfootRtRfootEwrtHeadingX, "positive");
+  }
+  if (h.minPosLfootRtRfootEwrtHeadingY <= 0.0) {
+    return keyMustBe("hlip.min_pos_lfoot_rt_rfoot_ewrt_heading_y",
+                     h.minPosLfootRtRfootEwrtHeadingY, "positive");
+  }
+  if (h.maxPosLfootRtRfootEwrtHeadingY < h.minPosLfootRtRfootEwrtHeadingY) {
+    return invalidConfig(absl::StrCat(
+        "hlip.max_pos_lfoot_rt_rfoot_ewrt_heading_y (",
+        h.maxPosLfootRtRfootEwrtHeadingY,
+        " m) must be at least hlip.min_pos_lfoot_rt_rfoot_ewrt_heading_y (",
+        h.minPosLfootRtRfootEwrtHeadingY, " m)"));
+  }
+  if (h.nomPosLfootRtRfootEwrtHeadingY < h.minPosLfootRtRfootEwrtHeadingY ||
+      h.nomPosLfootRtRfootEwrtHeadingY > h.maxPosLfootRtRfootEwrtHeadingY) {
+    return invalidConfig(absl::StrCat(
+        "hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y (",
+        h.nomPosLfootRtRfootEwrtHeadingY,
+        " m) must lie within [hlip.min_pos_lfoot_rt_rfoot_ewrt_heading_y, "
+        "hlip.max_pos_lfoot_rt_rfoot_ewrt_heading_y] = [",
+        h.minPosLfootRtRfootEwrtHeadingY, ", ",
+        h.maxPosLfootRtRfootEwrtHeadingY, "] m"));
+  }
+  if (h.blend.sharpness <= 0.0) {
     return keyMustBe("hlip.blend.sharpness", h.blend.sharpness, "positive");
+  }
   // rho_2. The activity phi is a sum of squared ratios and so is never
   // negative, and isWalking compares it with
   // `>=`, so a threshold of zero declares the robot to be walking at rest:
@@ -641,20 +724,21 @@ absl::Status validateHlip(const ContactPlanningConfig& config) {
                    kBlendRangeKeys>
       blendRanges{{
           {"hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_x",
-           h.blend.maxCommandedVelocityX},
+           h.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingX},
           {"hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_y",
-           h.blend.maxCommandedVelocityY},
+           h.blend.cmdMaxLinvelBaseRtWorldEwrtHeadingY},
           {"hlip.blend.cmd_max_angvel_base_rt_world_ewrt_world_z",
-           h.blend.maxCommandedYawRate},
-          {"hlip.blend.max_linvel_com_rt_world_ewrt_heading_x",
-           h.blend.maxComVelocityX},
-          {"hlip.blend.max_linvel_com_rt_world_ewrt_heading_y",
-           h.blend.maxComVelocityY},
+           h.blend.cmdMaxAngvelBaseRtWorldEwrtWorldZ},
+          {"hlip.blend.max_proxy_linvel_com_rt_world_ewrt_heading_x",
+           h.blend.maxProxyLinvelComRtWorldEwrtHeadingX},
+          {"hlip.blend.max_proxy_linvel_com_rt_world_ewrt_heading_y",
+           h.blend.maxProxyLinvelComRtWorldEwrtHeadingY},
       }};
   for (const std::pair<const char* absl_nonnull, scalar_t>& entry :
        blendRanges) {
-    if (entry.second <= 0.0)
+    if (entry.second <= 0.0) {
       return keyMustBe(entry.first, entry.second, "positive");
+    }
   }
   return absl::OkStatus();
 }
@@ -662,29 +746,33 @@ absl::Status validateHlip(const ContactPlanningConfig& config) {
 /** The values derived from the model, not file keys: the first key that does
  * not hold, as an InvalidArgument naming it. */
 absl::Status validateModelDerived(const ContactPlanningConfig& config) {
-  if (config.yawTorqueBudget.torsionalFrictionTorque < 0.0) {
+  if (config.yawTorqueBudgetParameters.maxTorqueFootEwrtFootZ < 0.0) {
     return keyMustBe(
         "yaw_torque_budget torsional friction torque (derived from "
         "task.textproto contacts.contact_wrench_cone_soft_constraint)",
-        config.yawTorqueBudget.torsionalFrictionTorque, "non-negative");
+        config.yawTorqueBudgetParameters.maxTorqueFootEwrtFootZ,
+        "non-negative");
   }
-  if (config.yawTorqueBudget.doubleSupportYawCouple < 0.0) {
+  if (config.yawTorqueBudgetParameters
+          .doubleSupportMaxTorqueFeetmeanEwrtWorldZ < 0.0) {
     return keyMustBe(
         "yaw_torque_budget double-support yaw couple (derived from "
         "task.textproto contacts.contact_wrench_cone_soft_constraint)",
-        config.yawTorqueBudget.doubleSupportYawCouple, "non-negative");
+        config.yawTorqueBudgetParameters
+            .doubleSupportMaxTorqueFeetmeanEwrtWorldZ,
+        "non-negative");
   }
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    const bool unset = config.hipYawRange.lower[foot] == 0.0 &&
-                       config.hipYawRange.upper[foot] == 0.0;
-    if (!unset && !(config.hipYawRange.lower[foot] < 0.0 &&
-                    config.hipYawRange.upper[foot] > 0.0)) {
-      return invalidConfig(absl::StrCat("hip_yaw_range of foot ", foot,
-                                        " (derived from the URDF's hip yaw "
-                                        "joint limits) must satisfy lower (",
-                                        config.hipYawRange.lower[foot],
-                                        ") < 0 < upper (",
-                                        config.hipYawRange.upper[foot], ")"));
+    const bool unset = config.hipYawRange.minYawFeetRtBase[foot] == 0.0 &&
+                       config.hipYawRange.maxYawFeetRtBase[foot] == 0.0;
+    if (!unset && !(config.hipYawRange.minYawFeetRtBase[foot] < 0.0 &&
+                    config.hipYawRange.maxYawFeetRtBase[foot] > 0.0)) {
+      return invalidConfig(absl::StrCat(
+          "hip_yaw_range of foot ", foot,
+          " (derived from the URDF's hip yaw "
+          "joint limits) must satisfy lower (",
+          config.hipYawRange.minYawFeetRtBase[foot], ") < 0 < upper (",
+          config.hipYawRange.maxYawFeetRtBase[foot], ")"));
     }
   }
   return absl::OkStatus();
@@ -720,16 +808,18 @@ std::vector<std::string> ContactPlanningConfig::warnings() const {
 }
 
 scalar_t ContactPlanningConfig::shortestPlannedSwingDuration() const {
-  if (canonicalPlannerName(planner.type) == planner::kHlip)
+  if (canonicalPlannerName(planner.type) == planner::kHlip) {
     return hlip.sspDuration;
+  }
   return static_cast<scalar_t>(minSwingNodes()) * planner.dt;
 }
 
 std::optional<std::string> ContactPlanningConfig::swingTimeScaleWarning(
     scalar_t swingTimeScale) const {
   const scalar_t shortest = shortestPlannedSwingDuration();
-  if (swingTimeScale <= shortest + kTimeComparisonTolerance)
+  if (swingTimeScale <= shortest + kTimeComparisonTolerance) {
     return std::nullopt;
+  }
   const bool hlipPlanner = canonicalPlannerName(planner.type) == planner::kHlip;
   return absl::StrCat(
       "task.textproto swing_trajectory_config.swing_time_scale (",

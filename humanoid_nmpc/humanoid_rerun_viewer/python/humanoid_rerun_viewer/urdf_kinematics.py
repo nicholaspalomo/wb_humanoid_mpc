@@ -28,7 +28,7 @@
 """The kinematic tree of a URDF and its forward kinematics: the world pose of every link at given joint positions.
 
     tree = load_kinematic_tree("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf")
-    poses = tree.link_poses(tree.nominal_positions())     # link name -> (translation, quaternion x y z w)
+    poses = tree.compute_pose_links_rt_base(tree.nominal_joint_positions())     # link name -> (translation, quaternion x y z w)
 
 The model sandbox (model_sandbox.py) draws a URDF with it where no MPC computes the link poses. It reads what the
 poses need: the joints' type, parent and child link, origin, axis and limits. Mimic joints follow the joint they mimic.
@@ -74,8 +74,9 @@ class Joint:
         name: the joint's name.
         type: revolute, continuous, prismatic, fixed, floating or planar.
         parent, child: the links it connects.
-        origin_translation, origin_rotation: the child's joint frame in the parent link's frame at position 0.
-        axis: the unit axis, in the joint frame.
+        origin_translation, origin_rotmat: the child's joint frame in the parent link's frame at position 0 (URDF's <origin>:
+            its translation and its rotation matrix).
+        axis_joint_ewrt_link: the unit axis, in the joint frame (the child link's).
         lower, upper: the position limits; None for a continuous joint or one without limits.
         mimic: the joint it follows, if any.
     """
@@ -85,8 +86,8 @@ class Joint:
     parent: str
     child: str
     origin_translation: np.ndarray
-    origin_rotation: np.ndarray
-    axis: np.ndarray
+    origin_rotmat: np.ndarray
+    axis_joint_ewrt_link: np.ndarray
     lower: float | None = None
     upper: float | None = None
     mimic: Mimic | None = None
@@ -95,13 +96,13 @@ class Joint:
     def movable(self) -> bool:
         return self.type in MOVABLE_TYPES
 
-    def clamp(self, position: float) -> float:
-        """`position` within the joint's limits."""
+    def clamp(self, joint_position: float) -> float:
+        """`joint_position` within the joint's limits."""
         if self.lower is not None:
-            position = max(position, self.lower)
+            joint_position = max(joint_position, self.lower)
         if self.upper is not None:
-            position = min(position, self.upper)
-        return position
+            joint_position = min(joint_position, self.upper)
+        return joint_position
 
 
 def rotation_from_rpy(roll: float, pitch: float, yaw: float) -> np.ndarray:
@@ -118,7 +119,7 @@ def rotation_from_rpy(roll: float, pitch: float, yaw: float) -> np.ndarray:
     )
 
 
-def rotation_about_axis(axis: np.ndarray, angle: float) -> np.ndarray:
+def matrix_from_axis_angle(axis: np.ndarray, angle: float) -> np.ndarray:
     """Rodrigues' formula: the rotation by `angle` about the unit vector `axis`."""
     x, y, z = axis
     skew = np.array([[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]])
@@ -129,9 +130,9 @@ def rotation_about_axis(axis: np.ndarray, angle: float) -> np.ndarray:
     )
 
 
-def quaternion_from_rotation(rotation: np.ndarray) -> QuaternionXyzw:
-    """The unit quaternion (x, y, z, w) of a rotation matrix, with w >= 0."""
-    m = rotation
+def quaternion_from_rotation(rotmat: np.ndarray) -> QuaternionXyzw:
+    """The unit quaternion (x, y, z, w) of a rotation matrix `rotmat`, with w >= 0."""
+    m = rotmat
     trace = m[0, 0] + m[1, 1] + m[2, 2]
     if trace > 0.0:
         s = 2.0 * math.sqrt(trace + 1.0)
@@ -149,11 +150,11 @@ def quaternion_from_rotation(rotation: np.ndarray) -> QuaternionXyzw:
         s = 2.0 * math.sqrt(1.0 + m[2, 2] - m[0, 0] - m[1, 1])
         w, x = (m[1, 0] - m[0, 1]) / s, (m[0, 2] + m[2, 0]) / s
         y, z = (m[1, 2] + m[2, 1]) / s, 0.25 * s
-    quaternion = np.array([x, y, z, w])
-    quaternion /= np.linalg.norm(quaternion)
-    if quaternion[3] < 0.0:
-        quaternion = -quaternion
-    return tuple(float(value) for value in quaternion)  # type: ignore[return-value]  # A quaternion has four.
+    xyzw = np.array([x, y, z, w])
+    xyzw /= np.linalg.norm(xyzw)
+    if xyzw[3] < 0.0:
+        xyzw = -xyzw
+    return tuple(float(value) for value in xyzw)  # type: ignore[return-value]  # A quaternion has four.
 
 
 class KinematicTree:
@@ -205,7 +206,7 @@ class KinematicTree:
         children: dict[str, list[Joint]] = {link: [] for link in self.links}
         for joint in self.joints:
             children[joint.parent].append(joint)
-        # Parents before children, so that link_poses() is one pass.
+        # Parents before children, so that compute_pose_links_rt_base() is one pass.
         self._order: list[Joint] = []
         stack = [self.root_link]
         while stack:
@@ -233,56 +234,71 @@ class KinematicTree:
             if joint.movable and joint.mimic is None
         )
 
-    def nominal_positions(self) -> dict[str, float]:
+    def nominal_joint_positions(self) -> dict[str, float]:
         """Every settable joint at 0, clamped to its limits."""
         return {joint.name: joint.clamp(0.0) for joint in self.movable_joints()}
 
-    def link_poses(self, positions: Mapping[str, float]) -> dict[str, LinkPose]:
-        """Computes the world pose of every link, the root at the origin.
+    def compute_pose_links_rt_base(
+        self, joint_positions: Mapping[str, float]
+    ) -> dict[str, LinkPose]:
+        """Computes the pose of every link relative to the root link (the base).
 
         Args:
-            positions: the positions of the settable joints, by name; a joint missing from it is at its nominal
+            joint_positions: the positions of the settable joints, by name; a joint missing from it is at its nominal
                 position, and a position outside the limits is clamped.
 
         Returns:
             The pose of every link, by name.
         """
-        nominal = self.nominal_positions()
+        nominal = self.nominal_joint_positions()
         by_name = {joint.name: joint for joint in self.joints}
 
-        def position_of(joint: Joint) -> float:
+        def joint_position_of(joint: Joint) -> float:
             if joint.mimic is not None:
                 followed = by_name[joint.mimic.joint]
                 return (
-                    joint.mimic.multiplier * position_of(followed)
+                    joint.mimic.multiplier * joint_position_of(followed)
                     + joint.mimic.offset
                 )
             return joint.clamp(
-                float(positions.get(joint.name, nominal[joint.name]))
+                float(joint_positions.get(joint.name, nominal[joint.name]))
             )
 
-        rotations: dict[str, np.ndarray] = {self.root_link: np.eye(3)}
-        translations: dict[str, np.ndarray] = {self.root_link: np.zeros(3)}
+        rotmat_links_rt_base: dict[str, np.ndarray] = {
+            self.root_link: np.eye(3)
+        }
+        pos_links_rt_base_ewrt_base: dict[str, np.ndarray] = {
+            self.root_link: np.zeros(3)
+        }
         for joint in self._order:
-            rotation = rotations[joint.parent] @ joint.origin_rotation
-            translation = (
-                translations[joint.parent]
-                + rotations[joint.parent] @ joint.origin_translation
+            rotmat_link_rt_base = (
+                rotmat_links_rt_base[joint.parent] @ joint.origin_rotmat
+            )
+            pos_link_rt_base_ewrt_base = (
+                pos_links_rt_base_ewrt_base[joint.parent]
+                + rotmat_links_rt_base[joint.parent] @ joint.origin_translation
             )
             if joint.type in REVOLUTE_TYPES:
-                rotation = rotation @ rotation_about_axis(
-                    joint.axis, position_of(joint)
+                rotmat_link_rt_base = (
+                    rotmat_link_rt_base
+                    @ matrix_from_axis_angle(
+                        joint.axis_joint_ewrt_link, joint_position_of(joint)
+                    )
                 )
             elif joint.type in PRISMATIC_TYPES:
-                translation = translation + rotation @ (
-                    joint.axis * position_of(joint)
+                pos_link_rt_base_ewrt_base = (
+                    pos_link_rt_base_ewrt_base
+                    + rotmat_link_rt_base
+                    @ (joint.axis_joint_ewrt_link * joint_position_of(joint))
                 )
-            rotations[joint.child] = rotation
-            translations[joint.child] = translation
+            rotmat_links_rt_base[joint.child] = rotmat_link_rt_base
+            pos_links_rt_base_ewrt_base[joint.child] = (
+                pos_link_rt_base_ewrt_base
+            )
         return {
             link: (
-                tuple(float(value) for value in translations[link]),  # type: ignore[misc]  # A translation has three.
-                quaternion_from_rotation(rotations[link]),
+                tuple(float(value) for value in pos_links_rt_base_ewrt_base[link]),  # type: ignore[misc]  # A translation has three.
+                quaternion_from_rotation(rotmat_links_rt_base[link]),
             )
             for link in self.links
         }
@@ -359,10 +375,10 @@ def parse_kinematic_tree(text: str, source: str) -> KinematicTree:
         origin = element.find("origin")
         translation = _floats(origin, "xyz", (0.0, 0.0, 0.0), where, source)
         rpy = _floats(origin, "rpy", (0.0, 0.0, 0.0), where, source)
-        axis = _floats(
+        raw_axis_joint_ewrt_link = _floats(
             element.find("axis"), "xyz", (1.0, 0.0, 0.0), where, source
         )
-        norm = float(np.linalg.norm(axis))
+        norm = float(np.linalg.norm(raw_axis_joint_ewrt_link))
         if joint_type in MOVABLE_TYPES and norm == 0.0:
             raise urdf_model.UrdfError(f"{source}: {where}: the axis is zero")
         limit = element.find("limit")
@@ -389,8 +405,12 @@ def parse_kinematic_tree(text: str, source: str) -> KinematicTree:
                 parent=parent.get("link", ""),
                 child=child.get("link", ""),
                 origin_translation=translation,
-                origin_rotation=rotation_from_rpy(*rpy),
-                axis=axis / norm if norm > 0.0 else axis,
+                origin_rotmat=rotation_from_rpy(*rpy),
+                axis_joint_ewrt_link=(
+                    raw_axis_joint_ewrt_link / norm
+                    if norm > 0.0
+                    else raw_axis_joint_ewrt_link
+                ),
                 lower=lower,
                 upper=upper,
                 mimic=mimic,

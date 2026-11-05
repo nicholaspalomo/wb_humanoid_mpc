@@ -34,8 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <functional>
 #include <limits>
 #include <memory>
+#include <numbers>
 #include <random>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -70,7 +70,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * degrees, where the Euler coordinates are singular, the flow, its
  * linearization and the shooting interval are the oracle's at a level attitude
  * under a gravity turned with the world (the dynamics are equivariant under
- * world rotations, MpcEquivalenceFixture:: ambientWorldRotation()); across a
+ * world rotations, MpcEquivalenceFixture:: ambientWorldTurn()); across a
  * yaw of +-pi, where the Euler yaw jumps by 2 pi, the tangent flow and the
  * shooting interval are the same on both sides of the cut.
  *
@@ -108,7 +108,7 @@ constexpr scalar_t kFlowMapTolerance = 1.0e-9;
  * units of round-off of the largest moment arm times force; 1e-10 is 100 times
  * (T1) (design section 4.4's momentum class).
  */
-constexpr scalar_t kMomentumRateTolerance = 1.0e-10;
+constexpr scalar_t kCmomRateTolerance = 1.0e-10;
 
 /**
  * A Jacobian's agreement beyond the finite-difference error bound, relative to
@@ -163,30 +163,30 @@ struct FlowRowBlock {
  * accelerations reach 64 against 0.6 for the quaternion's rates, which one
  * scale over the whole vector would hold to 1e-7 relative. The momentum blocks
  * (mnorm_linmom_com_rt_world_ewrt_world, mnorm_angmom_com_rt_world_ewrt_world)
- * take kMomentumRateTolerance, the others kFlowMapTolerance.
+ * take kCmomRateTolerance, the others kFlowMapTolerance.
  */
 std::vector<FlowRowBlock> flowRowBlocks(const MpcEquivalenceFixture& mpc,
                                         FlowCoordinates coordinates) {
   std::vector<FlowRowBlock> blocks;
   Eigen::Index start = 0;
-  Eigen::Index momentumRows = 0;
+  Eigen::Index cmomRowCount = 0;
   for (const validation::EulerStateSegment& segment :
        mpc.eulerLayout().segments) {
-    const bool quaternionRows =
+    const bool isUnitQuaternionSegment =
         coordinates == FlowCoordinates::kQuaternion &&
         segment.kind == validation::EulerStateSegmentKind::kEulerZyxAngles;
     const Eigen::Index size =
-        quaternionRows ? 4 : static_cast<Eigen::Index>(segment.dim);
-    const bool momentum = absl::StartsWith(segment.name, "mnorm_");
-    if (momentum) momentumRows += size;
+        isUnitQuaternionSegment ? 4 : static_cast<Eigen::Index>(segment.dim);
+    const bool isCmomSegment = absl::StartsWith(segment.name, "mnorm_");
+    if (isCmomSegment) cmomRowCount += size;
     blocks.push_back(
         FlowRowBlock{.start = start,
                      .size = size,
-                     .relativeTolerance = momentum ? kMomentumRateTolerance
-                                                   : kFlowMapTolerance});
+                     .relativeTolerance = isCmomSegment ? kCmomRateTolerance
+                                                        : kFlowMapTolerance});
     start += size;
   }
-  EXPECT_EQ(momentumRows, mpc.isWholeBody() ? 0 : 6)
+  EXPECT_EQ(cmomRowCount, mpc.isWholeBody() ? 0 : 6)
       << "the centroidal state opens with the normalized momentum";
   return blocks;
 }
@@ -285,8 +285,9 @@ EulerInterval eulerInterval(const MpcEquivalenceFixture& mpc,
   const std::function<vector_t(const vector_t&, const vector_t&)> flow =
       [&oracle, dt, halves](const vector_t& x, const vector_t& u) {
         vector_t end = x;
-        for (int half = 0; half < halves; ++half)
+        for (int half = 0; half < halves; ++half) {
           end = oracle.rk4Step(end, u, dt);
+        }
         return end;
       };
   EulerInterval interval;
@@ -332,7 +333,7 @@ void expectEquivalentIntervals(MpcEquivalenceFixture& mpc,
                                const vector_t& eulerInput,
                                const matrix_t& frame,
                                const matrix_t& inputFrame,
-                               const vector4_t& worldRotation) {
+                               const vector4_t& worldTurn) {
   const ProductionInterval production =
       productionInterval(mpc, state, input, /*halves=*/1);
   const ProductionInterval productionHalves =
@@ -377,10 +378,11 @@ void expectEquivalentIntervals(MpcEquivalenceFixture& mpc,
   // The ends: Pi(F_q(Phi(x_e))) against Phi(F_e(x_e)), turned back into the
   // production's world.
   const matrix_t ambientBack =
-      mpc.ambientWorldRotation(quaternionConjugate(worldRotation));
-  const vector_t eulerEnd = ambientBack * mpc.quaternionStateOf(euler.next);
+      mpc.ambientWorldTurn(quaternionConjugate(worldTurn));
+  const vector_t eulerEnd =
+      ambientBack * mpc.quaternionModelStateOf(euler.next);
   const vector_t eulerEndHalves =
-      ambientBack * mpc.quaternionStateOf(eulerHalves.next);
+      ambientBack * mpc.quaternionModelStateOf(eulerHalves.next);
   const vector_t endDifference =
       mpc.manifold().difference(production.next, eulerEnd);
   const scalar_t endBound =
@@ -415,7 +417,7 @@ TEST_P(MpcDynamicsEquivalence, TheFlowMapIsTheOraclesThroughTheChart) {
         mpc.randomEulerState(EulerSamplingBounds{}, generator);
     const vector_t input = mpc.randomInput(maxAbsJointInput(mpc), generator);
     const vector_t flow = dynamics.computeFlowMap(
-        /*t=*/0.0, mpc.quaternionStateOf(eulerState), input);
+        /*t=*/0.0, mpc.quaternionModelStateOf(eulerState), input);
     // (E1): the ambient flow of the quaternion state is dPhi times the Euler
     // flow.
     const vector_t expected =
@@ -438,7 +440,7 @@ TEST_P(MpcDynamicsEquivalence,
     const vector_t eulerState =
         mpc.randomEulerState(EulerSamplingBounds{}, generator);
     const vector_t input = mpc.randomInput(maxAbsJointInput(mpc), generator);
-    const vector_t state = mpc.quaternionStateOf(eulerState);
+    const vector_t state = mpc.quaternionModelStateOf(eulerState);
     const VectorFunctionLinearApproximation linearization =
         dynamics.linearApproximation(/*t=*/0.0, state, input);
     const matrix_t chart = mpc.chartJacobian(eulerState);
@@ -508,16 +510,16 @@ TEST_P(MpcDynamicsEquivalence,
         mpc.randomEulerState(EulerSamplingBounds{}, generator);
     const vector_t input = mpc.randomInput(maxAbsJointInput(mpc), generator);
     expectEquivalentIntervals(mpc, mpc.oracle(),
-                              mpc.quaternionStateOf(eulerState), input,
+                              mpc.quaternionModelStateOf(eulerState), input,
                               eulerState, input, tangentIdentity, inputIdentity,
-                              /*worldRotation=*/vector4_t(0.0, 0.0, 0.0, 1.0));
+                              /*worldTurn=*/vector4_t(0.0, 0.0, 0.0, 1.0));
   }
 }
 
 /**
  * A state of the MPC's world at a pitch of exactly `pitch` (+-90 degrees:
  * gimbal lock of the Euler coordinates), built as a random Euler state of a
- * world turned by `worldRotation` (g), where the same robot is near level,
+ * world turned by `worldTurn` (g), where the same robot is near level,
  * turned back. Passive data.
  */
 struct TurnedWorldCase {
@@ -527,31 +529,31 @@ struct TurnedWorldCase {
    * and roll within 0.3 rad. */
   vector_t turnedEulerState;
   /** g: the turned state is g . state
-   * (MpcEquivalenceFixture::ambientWorldRotation()). */
-  vector4_t worldRotation;
+   * (MpcEquivalenceFixture::ambientWorldTurn()). */
+  vector4_t worldTurn;
 };
 
 TurnedWorldCase pitchedCase(const MpcEquivalenceFixture& mpc,
                             scalar_t pitch,
                             std::mt19937& generator) {
   EulerSamplingBounds bounds;
-  bounds.maxAbsPitch = 0.3;
-  bounds.maxAbsRoll = 0.3;
+  bounds.maxAbsEulerzyxBaseRtWorldPitch = 0.3;
+  bounds.maxAbsEulerzyxBaseRtWorldRoll = 0.3;
   TurnedWorldCase pitched;
   pitched.turnedEulerState = mpc.randomEulerState(bounds, generator);
-  const vector_t turned = mpc.quaternionStateOf(pitched.turnedEulerState);
-  const vector4_t turnedOrientation =
+  const vector_t turned = mpc.quaternionModelStateOf(pitched.turnedEulerState);
+  const vector4_t turnedQuatBaseRtWorldXyzw =
       mpc.model().getQuatBaseRtWorldXyzw(turned);
-  std::uniform_real_distribution<scalar_t> angle(-M_PI, M_PI);
+  std::uniform_real_distribution<scalar_t> angle(-std::numbers::pi,
+                                                 std::numbers::pi);
   // The orientation in the MPC's world: R_z(yaw) R_y(pitch) R_x(roll), exactly
   // at the requested pitch.
-  const vector4_t orientation = quaternionFromEulerZyx(
+  const vector4_t quatBaseRtWorldXyzw = quaternionFromEulerZyx(
       vector3_t(angle(generator), pitch, angle(generator)));
-  pitched.worldRotation =
-      quaternionProduct(turnedOrientation, quaternionConjugate(orientation));
+  pitched.worldTurn = quaternionProduct(
+      turnedQuatBaseRtWorldXyzw, quaternionConjugate(quatBaseRtWorldXyzw));
   pitched.state =
-      mpc.ambientWorldRotation(quaternionConjugate(pitched.worldRotation)) *
-      turned;
+      mpc.ambientWorldTurn(quaternionConjugate(pitched.worldTurn)) * turned;
   return pitched;
 }
 
@@ -564,7 +566,8 @@ TEST_P(MpcDynamicsEquivalence,
   std::mt19937 generator(/*sd=*/20261012);
   // +-90 degrees exactly, and 1e-4 rad short of it, where the Euler
   // coordinates' T_B is within 1e-4 of singular.
-  for (const scalar_t pitch : {0.5 * M_PI, -0.5 * M_PI, 0.5 * M_PI - 1.0e-4}) {
+  for (const scalar_t pitch : {0.5 * std::numbers::pi, -0.5 * std::numbers::pi,
+                               0.5 * std::numbers::pi - 1.0e-4}) {
     SCOPED_TRACE(pitch);
     const TurnedWorldCase pitched = pitchedCase(mpc, pitch, generator);
     ASSERT_NEAR(
@@ -574,17 +577,17 @@ TEST_P(MpcDynamicsEquivalence,
             -1.0, 1.0))),
         std::abs(pitch), 1.0e-6)
         << "the case is not at the requested pitch";
-    const vector3_t turnedGravity =
-        quaternionRotationMatrix(pitched.worldRotation) *
+    const vector3_t turnedGravityEwrtWorld =
+        quaternionRotationMatrix(pitched.worldTurn) *
         vector3_t(0.0, 0.0, -9.81);
     const absl::StatusOr<std::unique_ptr<EulerMpcOracle>> turnedOracle =
-        mpc.oracleUnderGravity(turnedGravity);
+        mpc.oracleUnderGravity(turnedGravityEwrtWorld);
     ASSERT_TRUE(turnedOracle.ok()) << turnedOracle.status();
     const EulerMpcOracle& oracle = **turnedOracle;
-    const matrix_t ambient = mpc.ambientWorldRotation(pitched.worldRotation);
+    const matrix_t ambient = mpc.ambientWorldTurn(pitched.worldTurn);
     const matrix_t ambientInverse =
-        mpc.ambientWorldRotation(quaternionConjugate(pitched.worldRotation));
-    const matrix_t inputTurn = mpc.inputWorldRotation(pitched.worldRotation);
+        mpc.ambientWorldTurn(quaternionConjugate(pitched.worldTurn));
+    const matrix_t inputTurn = mpc.inputWorldTurn(pitched.worldTurn);
     const vector_t input = mpc.randomInput(maxAbsJointInput(mpc), generator);
     const vector_t turnedInput = inputTurn * input;
     const vector_t& turnedEulerState = pitched.turnedEulerState;
@@ -641,10 +644,9 @@ TEST_P(MpcDynamicsEquivalence,
 
     // The SQP's shooting interval at gimbal lock (E4), in the turned world's
     // tangent.
-    expectEquivalentIntervals(mpc, oracle, pitched.state, input,
-                              turnedEulerState, turnedInput,
-                              mpc.tangentWorldRotation(pitched.worldRotation),
-                              inputTurn, pitched.worldRotation);
+    expectEquivalentIntervals(
+        mpc, oracle, pitched.state, input, turnedEulerState, turnedInput,
+        mpc.tangentWorldTurn(pitched.worldTurn), inputTurn, pitched.worldTurn);
   }
 }
 
@@ -660,10 +662,10 @@ TEST_P(MpcDynamicsEquivalence, AcrossAYawOfPiTheShootingIntervalIsTheSame) {
     const vector_t input = mpc.randomInput(maxAbsJointInput(mpc), generator);
     // The Euler yaw of the state is the row of the base orientation's block
     // (yaw, pitch, roll) at the same start index.
-    eulerState(yaw) = M_PI;
-    const vector_t above = mpc.quaternionStateOf(eulerState);
-    eulerState(yaw) = -M_PI;
-    const vector_t below = mpc.quaternionStateOf(eulerState);
+    eulerState(yaw) = std::numbers::pi;
+    const vector_t above = mpc.quaternionModelStateOf(eulerState);
+    eulerState(yaw) = -std::numbers::pi;
+    const vector_t below = mpc.quaternionModelStateOf(eulerState);
     // The Euler yaw jumps by 2 pi; the two quaternions are each other's
     // negative, the same rotation.
     ASSERT_LE((mpc.model().getQuatBaseRtWorldXyzw(above) +
@@ -715,13 +717,13 @@ TEST_P(MpcDynamicsEquivalence,
   const scalar_t dt = mpc.nodeTimeStep();
   const Eigen::Index tangentDim =
       static_cast<Eigen::Index>(manifold.getTangentDim());
-  const Eigen::Index rotation =
+  const Eigen::Index orientationStart =
       static_cast<Eigen::Index>(mpc.model().getBaseOrientationStartIndex());
   std::mt19937 generator(/*sd=*/20261014);
   std::normal_distribution<scalar_t> normal(0.0, 1.0);
   for (int sample = 0; sample < 3; ++sample) {
     SCOPED_TRACE(sample);
-    const vector_t state = mpc.quaternionStateOf(
+    const vector_t state = mpc.quaternionModelStateOf(
         mpc.randomEulerState(EulerSamplingBounds{}, generator));
     const vector_t input = mpc.randomInput(maxAbsJointInput(mpc), generator);
     const VectorFunctionLinearApproximation interval =
@@ -735,7 +737,7 @@ TEST_P(MpcDynamicsEquivalence,
       const vector3_t axis(normal(generator), normal(generator),
                            normal(generator));
       vector_t offset = vector_t::Zero(tangentDim);
-      offset.segment<3>(rotation) = angle * axis.normalized();
+      offset.segment<3>(orientationStart) = angle * axis.normalized();
       vector_t next;
       manifold.retract(end, offset, /*alpha=*/1.0, next);
       VectorFunctionLinearApproximation production = interval;

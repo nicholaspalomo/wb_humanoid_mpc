@@ -31,7 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 #include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
 
@@ -63,13 +65,14 @@ struct BasisRegularizationSettings {
 
 /**
  * The center point of contact `contactIndex` of `modelSettings`: its entry of
- * contacts.surface_pads (its translation and the rotation of its pad axes)
+ * contacts.surface_pads (its pos_pad_rt_link_ewrt_link and the rotation of its
+ * pad axes)
  * when it has one, otherwise offset by contacts.pos_contact_rt_link_ewrt_link
  * in the parent's orientation.
  *
  * @return InvalidArgument when `contactIndex` is not a contact of
- * `modelSettings`, or naming a translation that is not finite or a pad axis
- * that is not unit or not orthogonal to the other.
+ * `modelSettings`, or naming a pos_pad_rt_link_ewrt_link that is not finite or
+ * a pad axis that is not unit or not orthogonal to the other.
  */
 absl::StatusOr<ContactCenterPoint> contactCenterPointFromConfig(
     const mpc_config::ContactsConfig& contacts,

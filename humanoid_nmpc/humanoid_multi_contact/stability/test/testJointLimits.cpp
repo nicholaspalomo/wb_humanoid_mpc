@@ -63,9 +63,9 @@ TEST(JointLimits, OnlyPositionAndEffortBindsTheTorques) {
 }
 
 TEST(JointLimits, OnlyRelaxedPositionWidensThePositionLimits) {
-  EXPECT_FALSE(relaxesPositionLimits(JointLimits::kPositionAndEffort));
-  EXPECT_FALSE(relaxesPositionLimits(JointLimits::kPositionOnly));
-  EXPECT_TRUE(relaxesPositionLimits(JointLimits::kRelaxedPosition));
+  EXPECT_FALSE(relaxesJointPositionLimits(JointLimits::kPositionAndEffort));
+  EXPECT_FALSE(relaxesJointPositionLimits(JointLimits::kPositionOnly));
+  EXPECT_TRUE(relaxesJointPositionLimits(JointLimits::kRelaxedPosition));
 }
 
 }  // namespace

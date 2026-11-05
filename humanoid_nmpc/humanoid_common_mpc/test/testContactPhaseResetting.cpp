@@ -29,17 +29,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <deque>
 #include <functional>
+#include <initializer_list>
 #include <optional>
-#include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
@@ -106,7 +113,7 @@ ContactPlanningConfig makeConfig() {
   ContactPlanningConfig config;
   // No robot model derives the pendulum here (the library default 0 means "from
   // the model"), so it is set.
-  config.shared.comHeight = 0.85;
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ = 0.85;
   config.planner.dt = 0.1;
   config.shared.gaitLimits.minSwingDuration = 0.3;
   config.shared.gaitLimits.maxSwingDuration = 0.6;
@@ -150,19 +157,20 @@ bool consistentSchedule(const ModeSchedule& schedule) {
 ContactPlan makePlan(scalar_t startTime,
                      scalar_t dt,
                      int numIntervals,
-                     const vector2_t& zmp,
-                     const vector2_t& com,
-                     const vector2_t& comVelocity) {
+                     const vector2_t& posZmpRtWorldEwrtWorldXy,
+                     const vector2_t& posComRtWorldEwrtWorldXy,
+                     const vector2_t& linvelComRtWorldEwrtWorldXy) {
   ContactPlan plan;
   plan.valid = true;
   plan.startTime = startTime;
   plan.dt = dt;
   plan.contacts.assign(numIntervals, makeFeetArray(true));
-  plan.zmp.assign(numIntervals, zmp);
-  plan.comPosition.resize(numIntervals + 1);
-  plan.comVelocity.resize(numIntervals + 1);
-  plan.footholds.assign(numIntervals + 1,
-                        makeFeetArray(vector2_t(vector2_t::Zero())));
+  plan.posZmpRtWorldEwrtWorldXyTraj.assign(numIntervals,
+                                           posZmpRtWorldEwrtWorldXy);
+  plan.posComRtWorldEwrtWorldXyTraj.resize(numIntervals + 1);
+  plan.linvelComRtWorldEwrtWorldXyTraj.resize(numIntervals + 1);
+  plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
+      numIntervals + 1, makeFeetArray(vector2_t(vector2_t::Zero())));
   const scalar_t omega = std::sqrt(9.81 / 0.85);
   for (int k = 0; k <= numIntervals; ++k) {
     // Exact LIP propagation with constant ZMP so that the node states are
@@ -170,11 +178,17 @@ ContactPlan makePlan(scalar_t startTime,
     const scalar_t tau = dt * static_cast<scalar_t>(k);
     const scalar_t ch = std::cosh(omega * tau);
     const scalar_t sh = std::sinh(omega * tau);
-    plan.comPosition[k] = zmp + (com - zmp) * ch + comVelocity * (sh / omega);
-    plan.comVelocity[k] = (com - zmp) * (omega * sh) + comVelocity * ch;
-    for (size_t foot = 0; foot < kNumContacts; ++foot)
-      plan.footholds[k][foot] =
+    plan.posComRtWorldEwrtWorldXyTraj[k] =
+        posZmpRtWorldEwrtWorldXy +
+        (posComRtWorldEwrtWorldXy - posZmpRtWorldEwrtWorldXy) * ch +
+        linvelComRtWorldEwrtWorldXy * (sh / omega);
+    plan.linvelComRtWorldEwrtWorldXyTraj[k] =
+        (posComRtWorldEwrtWorldXy - posZmpRtWorldEwrtWorldXy) * (omega * sh) +
+        linvelComRtWorldEwrtWorldXy * ch;
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      plan.desPosFeetRtWorldEwrtWorldXyTraj[k][foot] =
           vector2_t(0.3, 0.1 - 0.2 * static_cast<scalar_t>(foot));
+    }
   }
   return plan;
 }
@@ -207,8 +221,9 @@ TEST(ContactScheduleQueries, EventAtQueryTimeCountsAsPassed) {
   ModeSchedule empty;
   empty.clear();
   EXPECT_EQ(modeIndexAtTime(empty, /*time=*/3.0), 0u);
-  for (size_t foot = 0; foot < kNumContacts; ++foot)
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     EXPECT_TRUE(contactFlagsAtTime(empty, /*time=*/0.0)[foot]);
+  }
 }
 
 TEST(ContactScheduleQueries, SwingPhaseLookup) {
@@ -378,8 +393,9 @@ TEST(ContactScheduleEdits, TruncateSwingSpanningSeveralPhasesKeepsOtherFeet) {
   ASSERT_TRUE(
       truncateSwingPhase(schedule, /*foot=*/0, /*time=*/1.1).has_value());
   EXPECT_TRUE(consistentSchedule(schedule));
-  for (scalar_t t : {1.1, 1.3, 1.5, 1.7})
+  for (scalar_t t : {1.1, 1.3, 1.5, 1.7}) {
     EXPECT_TRUE(contactFlagsAtTime(schedule, t)[0]) << t;
+  }
   EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.1)[1]);
   EXPECT_FALSE(contactFlagsAtTime(schedule, /*time=*/1.3)[1]);
   EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.5)[1]);
@@ -448,8 +464,9 @@ TEST_F(ContactEventTest, NothingHappensWhenContactMatchesSchedule) {
     for (scalar_t t : {0.5, 1.0, 1.2, 1.39}) {
       const feet_array_t<ContactEventReport> reports =
           step(schedule, t, measured(foot, /*inContact=*/false));
-      for (size_t i = 0; i < kNumContacts; ++i)
+      for (size_t i = 0; i < kNumContacts; ++i) {
         EXPECT_EQ(reports[i].type, ContactEventReport::Type::kNone);
+      }
     }
     EXPECT_TRUE(latches_[foot].active);
     EXPECT_NEAR(latches_[foot].liftOffTime, 1.0, kTol);
@@ -960,8 +977,9 @@ TEST_F(ContactEventTest, EmptyScheduleIsHarmless) {
   empty.clear();
   const feet_array_t<ContactEventReport> reports =
       step(empty, /*time=*/1.0, makeFeetArray(true));
-  for (size_t foot = 0; foot < kNumContacts; ++foot)
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::kNone);
+  }
 }
 
 TEST_F(ContactEventTest, AlternatingGaitSimulationStaysConsistent) {
@@ -1007,10 +1025,12 @@ TEST_F(ContactEventTest, AlternatingGaitSimulationStaysConsistent) {
     const feet_array_t<ContactEventReport> reports =
         step(schedule, time, contact);
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      if (reports[foot].type == ContactEventReport::Type::kEarlyTouchDown)
+      if (reports[foot].type == ContactEventReport::Type::kEarlyTouchDown) {
         ++early;
-      if (reports[foot].type == ContactEventReport::Type::kLateTouchDown)
+      }
+      if (reports[foot].type == ContactEventReport::Type::kLateTouchDown) {
         ++late;
+      }
     }
     ASSERT_TRUE(consistentSchedule(schedule)) << "at t=" << time;
     ASSERT_FALSE(hasFlightPhase(schedule)) << "at t=" << time;
@@ -1046,8 +1066,9 @@ TEST(CommittedContacts, StraddlingNodeTakesTheStateHandedOverAtTheBoundary) {
       << "nodes starting at 0.0 .. 0.4 start before the boundary";
   EXPECT_TRUE(committed[0][1])
       << "node 0 (midpoint 0.05) is before the lift-off";
-  for (size_t k = 1; k < 4; ++k)
+  for (size_t k = 1; k < 4; ++k) {
     EXPECT_FALSE(committed[k][1]) << "node " << k << " is in the swing";
+  }
   // Node 4 straddles the touch-down at 0.47: sampled at its midpoint 0.45 it
   // would read "swinging" and let the plan keep the foot in the air until 0.5;
   // sampled at the boundary it reads the landed state the schedule hands over.
@@ -1070,8 +1091,9 @@ TEST(CommittedContacts, StraddlingNodeTakesTheStateHandedOverAtTheBoundary) {
   EXPECT_FALSE(contactFlagsAtTime(merged, /*time=*/0.469)[1]);
   EXPECT_TRUE(contactFlagsAtTime(merged, /*time=*/0.471)[1])
       << "the in-flight touch-down must not be delayed by the merge";
-  for (scalar_t t = 0.47; t < 2.0; t += 0.01)
+  for (scalar_t t = 0.47; t < 2.0; t += 0.01) {
     EXPECT_TRUE(contactFlagsAtTime(merged, t)[1]) << "phantom re-lift at " << t;
+  }
 }
 
 TEST(CommittedContacts, BoundaryInsideAContactPhaseAndNodeLimit) {
@@ -1160,14 +1182,16 @@ TEST(CommittedContacts,
   plan.dt = 0.1;
   plan.committedUntil = 0.3;
   plan.contacts = committed;
-  while (plan.contacts.size() < 12)
+  while (plan.contacts.size() < 12) {
     plan.contacts.push_back(makeFeetArray(true));
+  }
   const ModeSchedule merged =
       mergeModeSchedules(schedule, plan.toModeSchedule(), /*commitTime=*/0.3,
                          /*lowerBoundTime=*/-1.2, /*upperBoundTime=*/2.4);
   EXPECT_FALSE(contactFlagsAtTime(merged, /*time=*/0.269)[1]);
-  for (scalar_t t = 0.27; t < 2.0; t += 0.01)
+  for (scalar_t t = 0.27; t < 2.0; t += 0.01) {
     EXPECT_TRUE(contactFlagsAtTime(merged, t)[1]) << "phantom re-lift at " << t;
+  }
 }
 
 TEST(CommitBoundary, CoversSwingsOfEveryFootThatStartOnAnExtendedBoundary) {
@@ -1303,14 +1327,16 @@ TEST(CommittedContacts, PhaseStartsAreTheExecutedEventTimes) {
       committedPhaseStartsForPlanner(schedule, /*startTime=*/0.7, /*dt=*/0.1,
                                      /*maxNodes=*/11, /*committedUntil=*/0.97);
   ASSERT_EQ(starts.size(), 3u);
-  for (size_t k = 0; k < 2; ++k)
+  for (size_t k = 0; k < 2; ++k) {
     EXPECT_NEAR(starts[k][1], 0.57, kTol)
         << "node " << k << " is in the swing that began at 0.57";
+  }
   // The straddling node reports the landed state; the landing happened at 0.97,
   // 0.07 s after the node start.
   EXPECT_NEAR(starts[2][1], 0.97, kTol);
-  for (const feet_array_t<scalar_t>& nodeStarts : starts)
+  for (const feet_array_t<scalar_t>& nodeStarts : starts) {
     EXPECT_TRUE(std::isinf(nodeStarts[0]));
+  }
   EXPECT_TRUE(committedPhaseStartsForPlanner(schedule, /*startTime=*/0.7,
                                              /*dt=*/0.1, /*maxNodes=*/11,
                                              /*committedUntil=*/0.7)
@@ -1386,26 +1412,41 @@ TEST(PlanHeading, InterpolatesHeadingAndLooksUpFootYaw) {
       makePlan(/*startTime=*/1.0, /*dt=*/0.1, /*numIntervals=*/4,
                vector2_t::Zero(), vector2_t::Zero(), vector2_t::Zero());
   EXPECT_FALSE(plan.hasHeading());
-  EXPECT_FALSE(plan.headingAtTime(1.0).has_value());
-  EXPECT_FALSE(plan.footYawAtTime(0, 1.0).has_value());
-  plan.heading = {0.0, 0.1, 0.2, 0.3, 0.4};
-  plan.headingRate = {1.0, 1.0, 1.0, 1.0, 1.0};
-  plan.footYaws = {makeFeetArray(0.0), makeFeetArray(0.0), makeFeetArray(0.2),
-                   makeFeetArray(0.2), makeFeetArray(0.4)};
-  ASSERT_TRUE(plan.hasHeading());
-  EXPECT_NEAR(valueOrFailure(plan.headingAtTime(1.0)), 0.0, kTol);
-  EXPECT_NEAR(valueOrFailure(plan.headingAtTime(1.15)), 0.15, kTol)
-      << "linear between nodes";
-  EXPECT_NEAR(valueOrFailure(plan.headingAtTime(0.5)), 0.0, kTol)
+  EXPECT_FALSE(plan.headingModelYawAtTime(1.0).has_value());
+  EXPECT_FALSE(plan.getDesEulerzyxFootRtWorldYaw(0, 1.0).has_value());
+  // Without the heading model the planning heading is the snapshot heading
+  // turned at the plan's rate, clamped to the plan.
+  plan.yawHeadingRtWorld = 0.5;
+  plan.rateYawHeadingRtWorld = 2.0;
+  EXPECT_NEAR(plan.getYawHeadingRtWorld(1.0), 0.5, kTol);
+  EXPECT_NEAR(plan.getYawHeadingRtWorld(1.15), 0.8, kTol);
+  EXPECT_NEAR(plan.getYawHeadingRtWorld(0.5), 0.5, kTol)
       << "clamped before the plan";
-  EXPECT_NEAR(valueOrFailure(plan.headingAtTime(9.0)), 0.4, kTol)
+  EXPECT_NEAR(plan.getYawHeadingRtWorld(9.0), 1.3, kTol)
       << "clamped after the plan";
-  EXPECT_NEAR(valueOrFailure(plan.headingRateAtTime(1.23)), 1.0, kTol);
-  EXPECT_NEAR(valueOrFailure(plan.footYawAtTime(0, 1.24)), 0.2, kTol)
+  plan.headingModelYawTraj = {0.0, 0.1, 0.2, 0.3, 0.4};
+  plan.headingModelYawRateTraj = {1.0, 1.0, 1.0, 1.0, 1.0};
+  plan.desEulerzyxFeetRtWorldYawTraj = {makeFeetArray(0.0), makeFeetArray(0.0),
+                                        makeFeetArray(0.2), makeFeetArray(0.2),
+                                        makeFeetArray(0.4)};
+  ASSERT_TRUE(plan.hasHeading());
+  EXPECT_NEAR(valueOrFailure(plan.headingModelYawAtTime(1.0)), 0.0, kTol);
+  EXPECT_NEAR(plan.getYawHeadingRtWorld(1.15), 0.15, kTol)
+      << "the heading model's heading, not the snapshot's turned at the rate";
+  EXPECT_NEAR(valueOrFailure(plan.headingModelYawAtTime(1.15)), 0.15, kTol)
+      << "linear between nodes";
+  EXPECT_NEAR(valueOrFailure(plan.headingModelYawAtTime(0.5)), 0.0, kTol)
+      << "clamped before the plan";
+  EXPECT_NEAR(valueOrFailure(plan.headingModelYawAtTime(9.0)), 0.4, kTol)
+      << "clamped after the plan";
+  EXPECT_NEAR(valueOrFailure(plan.headingModelYawRateAtTime(1.23)), 1.0, kTol);
+  EXPECT_NEAR(valueOrFailure(plan.getDesEulerzyxFootRtWorldYaw(0, 1.24)), 0.2,
+              kTol)
       << "nearest node";
-  EXPECT_NEAR(valueOrFailure(plan.footYawAtTime(0, 1.36)), 0.4, kTol);
+  EXPECT_NEAR(valueOrFailure(plan.getDesEulerzyxFootRtWorldYaw(0, 1.36)), 0.4,
+              kTol);
   plan.shiftInTime(0.5);
-  EXPECT_NEAR(valueOrFailure(plan.headingAtTime(1.65)), 0.15, kTol)
+  EXPECT_NEAR(valueOrFailure(plan.headingModelYawAtTime(1.65)), 0.15, kTol)
       << "the heading moves with the plan";
 }
 
@@ -1454,9 +1495,14 @@ TEST(LipHelpers, ReferenceStateMatchesClosedFormAndNodes) {
     if (!state.has_value()) {
       FAIL() << "state has no value";
     }
-    EXPECT_TRUE(state->com.isApprox(plan.comPosition[k], 1.0e-9)) << k;
-    EXPECT_TRUE(state->comVelocity.isApprox(plan.comVelocity[k], 1.0e-9)) << k;
-    EXPECT_TRUE(state->zmp.isApprox(plan.zmp[std::min(k, 5)], 1.0e-12));
+    EXPECT_TRUE(state->posComRtWorldEwrtWorldXy.isApprox(
+        plan.posComRtWorldEwrtWorldXyTraj[k], 1.0e-9))
+        << k;
+    EXPECT_TRUE(state->linvelComRtWorldEwrtWorldXy.isApprox(
+        plan.linvelComRtWorldEwrtWorldXyTraj[k], 1.0e-9))
+        << k;
+    EXPECT_TRUE(state->posZmpRtWorldEwrtWorldXy.isApprox(
+        plan.posZmpRtWorldEwrtWorldXyTraj[std::min(k, 5)], 1.0e-12));
   }
   // Between nodes the DCM follows xi(t) = z + (xi_k - z) exp(omega tau), and
   // the CoM lies between the node values.
@@ -1465,19 +1511,25 @@ TEST(LipHelpers, ReferenceStateMatchesClosedFormAndNodes) {
   if (!mid.has_value()) {
     FAIL() << "mid has no value";
   }
-  const vector2_t dcm0 =
-      computeDcm(plan.comPosition[0], plan.comVelocity[0], omega);
+  const vector2_t initPosDcmRtWorldEwrtWorldXy =
+      computePosDcmRtWorldEwrtWorldXy(plan.posComRtWorldEwrtWorldXyTraj[0],
+                                      plan.linvelComRtWorldEwrtWorldXyTraj[0],
+                                      omega);
   const vector2_t expected =
-      plan.zmp[0] + (dcm0 - plan.zmp[0]) * std::exp(omega * 0.05);
-  EXPECT_TRUE(
-      computeDcm(mid->com, mid->comVelocity, omega).isApprox(expected, 1.0e-9));
+      plan.posZmpRtWorldEwrtWorldXyTraj[0] +
+      (initPosDcmRtWorldEwrtWorldXy - plan.posZmpRtWorldEwrtWorldXyTraj[0]) *
+          std::exp(omega * 0.05);
+  EXPECT_TRUE(computePosDcmRtWorldEwrtWorldXy(mid->posComRtWorldEwrtWorldXy,
+                                              mid->linvelComRtWorldEwrtWorldXy,
+                                              omega)
+                  .isApprox(expected, 1.0e-9));
   EXPECT_FALSE(lipReferenceState(plan, omega, /*time=*/1.9).has_value());
   EXPECT_FALSE(lipReferenceState(plan, omega, /*time=*/2.7).has_value());
   ContactPlan invalid = plan;
   invalid.valid = false;
   EXPECT_FALSE(lipReferenceState(invalid, omega, /*time=*/2.1).has_value());
   ContactPlan inconsistent = plan;
-  inconsistent.zmp.pop_back();
+  inconsistent.posZmpRtWorldEwrtWorldXyTraj.pop_back();
   EXPECT_FALSE(
       lipReferenceState(inconsistent, omega, /*time=*/2.1).has_value());
 }
@@ -1487,23 +1539,28 @@ TEST(LipHelpers, OrbitalEnergyIsConservedAlongTheReference) {
   const ContactPlan plan =
       makePlan(/*startTime=*/0.0, /*dt=*/0.1, /*numIntervals=*/8,
                vector2_t(0.0, 0.0), vector2_t(-0.1, 0.0), vector2_t(0.4, 0.0));
-  const scalar_t e0 = lipOrbitalEnergy(/*position=*/-0.1, /*velocity=*/0.4,
-                                       omega, /*mass=*/100.0);
+  const scalar_t e0 = lipOrbitalEnergy(/*posComRtZmpEwrtLocal=*/-0.1,
+                                       /*linvelComRtWorldEwrtLocal=*/0.4, omega,
+                                       /*mass=*/100.0);
   for (scalar_t t = 0.0; t <= 0.8; t += 0.037) {
     const std::optional<LipState> state = lipReferenceState(plan, omega, t);
     if (!state.has_value()) {
       FAIL() << "state has no value";
     }
-    EXPECT_NEAR(lipOrbitalEnergy(state->com(0) - state->zmp(0),
-                                 state->comVelocity(0), omega, /*mass=*/100.0),
+    EXPECT_NEAR(lipOrbitalEnergy(state->posComRtWorldEwrtWorldXy(0) -
+                                     state->posZmpRtWorldEwrtWorldXy(0),
+                                 state->linvelComRtWorldEwrtWorldXy(0), omega,
+                                 /*mass=*/100.0),
                 e0, 1.0e-8)
         << t;
   }
-  EXPECT_GT(lipOrbitalEnergy(/*position=*/-0.1, /*velocity=*/0.5, omega,
+  EXPECT_GT(lipOrbitalEnergy(/*posComRtZmpEwrtLocal=*/-0.1,
+                             /*linvelComRtWorldEwrtLocal=*/0.5, omega,
                              /*mass=*/100.0),
             e0)
       << "more speed, more energy";
-  EXPECT_LT(lipOrbitalEnergy(/*position=*/-0.2, /*velocity=*/0.4, omega,
+  EXPECT_LT(lipOrbitalEnergy(/*posComRtZmpEwrtLocal=*/-0.2,
+                             /*linvelComRtWorldEwrtLocal=*/0.4, omega,
                              /*mass=*/100.0),
             e0)
       << "further from the ZMP, less energy";
@@ -1511,89 +1568,137 @@ TEST(LipHelpers, OrbitalEnergyIsConservedAlongTheReference) {
 
 TEST(LipHelpers, StepAdjustmentPropagatesToTouchDownAndIsBounded) {
   const scalar_t omega = 3.4;
-  const vector2_t error(0.01, -0.02);
-  EXPECT_TRUE(dcmStepAdjustment(vector2_t::Zero(), omega,
-                                /*timeToTouchDown=*/0.3, /*gain=*/1.0,
-                                /*maxOffset=*/0.15)
+  const vector2_t errPosDcmRtWorldEwrtWorldXy(0.01, -0.02);
+  EXPECT_TRUE(computeErrPosFootRtWorldEwrtWorldXy(
+                  vector2_t::Zero(), omega,
+                  /*timeToTouchDown=*/0.3,
+                  /*gain=*/1.0,
+                  /*maxNormErrPosFootRtWorldEwrtWorldXy=*/0.15)
                   .isZero());
-  EXPECT_TRUE(dcmStepAdjustment(error, omega, /*timeToTouchDown=*/0.0,
-                                /*gain=*/1.0, /*maxOffset=*/0.15)
-                  .isApprox(error, 1.0e-12))
+  EXPECT_TRUE(computeErrPosFootRtWorldEwrtWorldXy(
+                  errPosDcmRtWorldEwrtWorldXy, omega, /*timeToTouchDown=*/0.0,
+                  /*gain=*/1.0, /*maxNormErrPosFootRtWorldEwrtWorldXy=*/0.15)
+                  .isApprox(errPosDcmRtWorldEwrtWorldXy, 1.0e-12))
       << "at touch-down the error maps 1:1";
-  EXPECT_TRUE(dcmStepAdjustment(error, omega, /*timeToTouchDown=*/0.3,
-                                /*gain=*/1.0, /*maxOffset=*/0.15)
-                  .isApprox(error * std::exp(omega * 0.3), 1.0e-12));
-  EXPECT_TRUE(dcmStepAdjustment(error, omega, /*timeToTouchDown=*/0.3,
-                                /*gain=*/0.5, /*maxOffset=*/0.15)
-                  .isApprox(0.5 * error * std::exp(omega * 0.3), 1.0e-12));
-  EXPECT_TRUE(dcmStepAdjustment(error, omega, /*timeToTouchDown=*/-0.5,
-                                /*gain=*/1.0, /*maxOffset=*/0.15)
-                  .isApprox(error, 1.0e-12))
+  EXPECT_TRUE(computeErrPosFootRtWorldEwrtWorldXy(
+                  errPosDcmRtWorldEwrtWorldXy, omega, /*timeToTouchDown=*/0.3,
+                  /*gain=*/1.0, /*maxNormErrPosFootRtWorldEwrtWorldXy=*/0.15)
+                  .isApprox(errPosDcmRtWorldEwrtWorldXy * std::exp(omega * 0.3),
+                            1.0e-12));
+  EXPECT_TRUE(
+      computeErrPosFootRtWorldEwrtWorldXy(
+          errPosDcmRtWorldEwrtWorldXy, omega, /*timeToTouchDown=*/0.3,
+          /*gain=*/0.5, /*maxNormErrPosFootRtWorldEwrtWorldXy=*/0.15)
+          .isApprox(0.5 * errPosDcmRtWorldEwrtWorldXy * std::exp(omega * 0.3),
+                    1.0e-12));
+  EXPECT_TRUE(computeErrPosFootRtWorldEwrtWorldXy(
+                  errPosDcmRtWorldEwrtWorldXy, omega, /*timeToTouchDown=*/-0.5,
+                  /*gain=*/1.0, /*maxNormErrPosFootRtWorldEwrtWorldXy=*/0.15)
+                  .isApprox(errPosDcmRtWorldEwrtWorldXy, 1.0e-12))
       << "a past touch-down is not propagated";
-  const vector2_t large =
-      dcmStepAdjustment(vector2_t(0.2, 0.0), omega, /*timeToTouchDown=*/0.5,
-                        /*gain=*/1.0, /*maxOffset=*/0.15);
-  EXPECT_NEAR(large.norm(), 0.15, 1.0e-12);
-  EXPECT_GT(large(0), 0.0);
-  EXPECT_TRUE(dcmStepAdjustment(error, omega, /*timeToTouchDown=*/0.3,
-                                /*gain=*/1.0, /*maxOffset=*/0.0)
+  const vector2_t clippedErrPosFootRtWorldEwrtWorldXy =
+      computeErrPosFootRtWorldEwrtWorldXy(
+          vector2_t(0.2, 0.0), omega, /*timeToTouchDown=*/0.5,
+          /*gain=*/1.0, /*maxNormErrPosFootRtWorldEwrtWorldXy=*/0.15);
+  EXPECT_NEAR(clippedErrPosFootRtWorldEwrtWorldXy.norm(), 0.15, 1.0e-12);
+  EXPECT_GT(clippedErrPosFootRtWorldEwrtWorldXy(0), 0.0);
+  EXPECT_TRUE(computeErrPosFootRtWorldEwrtWorldXy(
+                  errPosDcmRtWorldEwrtWorldXy, omega, /*timeToTouchDown=*/0.3,
+                  /*gain=*/1.0, /*maxNormErrPosFootRtWorldEwrtWorldXy=*/0.0)
                   .isZero())
       << "a zero bound switches the adjustment off";
-  EXPECT_TRUE(dcmStepAdjustment(error, omega, /*timeToTouchDown=*/0.3,
-                                /*gain=*/0.0, /*maxOffset=*/0.15)
+  EXPECT_TRUE(computeErrPosFootRtWorldEwrtWorldXy(
+                  errPosDcmRtWorldEwrtWorldXy, omega, /*timeToTouchDown=*/0.3,
+                  /*gain=*/0.0, /*maxNormErrPosFootRtWorldEwrtWorldXy=*/0.15)
                   .isZero())
       << "a zero gain switches the adjustment off";
 }
 
 TEST(LipHelpers, ReachClippingInYawFrameKeepsSideOfBody) {
   ContactPlanningConfig config = makeConfig();
-  config.reachability.reachX = 0.4;
-  config.reachability.reachYInner = 0.05;
-  config.reachability.reachYOuter = 0.3;
-  const vector2_t com(1.0, 2.0);
+  config.reachability.maxNormPosFootRtComEwrtHeadingX = 0.4;
+  config.reachability.minPosFootRtComEwrtHeadingY = 0.05;
+  config.reachability.maxPosFootRtComEwrtHeadingY = 0.3;
+  const vector2_t posComRtWorldEwrtWorldXy(1.0, 2.0);
   constexpr size_t kLeft = 0;
   constexpr size_t kRight = 1;
-  for (scalar_t yaw : {0.0, 0.7, -2.0}) {
-    const vector2_t ex(std::cos(yaw), std::sin(yaw));
-    const vector2_t ey(-std::sin(yaw), std::cos(yaw));
-    const vector2_t nominalLeft = com + 0.1 * ex + 0.15 * ey;
-    const vector2_t nominalRight = com + 0.1 * ex - 0.15 * ey;
+  for (scalar_t touchdownYawHeadingRtWorld : {0.0, 0.7, -2.0}) {
+    const vector2_t dirHeadingEwrtWorldXy(std::cos(touchdownYawHeadingRtWorld),
+                                          std::sin(touchdownYawHeadingRtWorld));
+    const vector2_t leftDirHeadingEwrtWorldXy(
+        -std::sin(touchdownYawHeadingRtWorld),
+        std::cos(touchdownYawHeadingRtWorld));
+    const vector2_t nomPosLfootRtWorldEwrtWorldXy =
+        posComRtWorldEwrtWorldXy + 0.1 * dirHeadingEwrtWorldXy +
+        0.15 * leftDirHeadingEwrtWorldXy;
+    const vector2_t nomPosRfootRtWorldEwrtWorldXy =
+        posComRtWorldEwrtWorldXy + 0.1 * dirHeadingEwrtWorldXy -
+        0.15 * leftDirHeadingEwrtWorldXy;
     // Inside the region: unchanged.
-    EXPECT_TRUE(clipFootholdToReach(nominalLeft, kLeft, com, yaw, config)
-                    .isApprox(nominalLeft, 1.0e-12));
-    EXPECT_TRUE(clipFootholdToReach(nominalRight, kRight, com, yaw, config)
-                    .isApprox(nominalRight, 1.0e-12));
-    // Too far forward: clipped to reachX along the heading, lateral offset
-    // kept.
-    const vector2_t forward = clipFootholdToReach(com + 0.9 * ex + 0.15 * ey,
-                                                  kLeft, com, yaw, config);
-    EXPECT_NEAR(ex.dot(forward - com), 0.4, 1.0e-12);
-    EXPECT_NEAR(ey.dot(forward - com), 0.15, 1.0e-12);
+    EXPECT_TRUE(clipFootholdToReach(nomPosLfootRtWorldEwrtWorldXy, kLeft,
+                                    posComRtWorldEwrtWorldXy,
+                                    touchdownYawHeadingRtWorld, config)
+                    .isApprox(nomPosLfootRtWorldEwrtWorldXy, 1.0e-12));
+    EXPECT_TRUE(clipFootholdToReach(nomPosRfootRtWorldEwrtWorldXy, kRight,
+                                    posComRtWorldEwrtWorldXy,
+                                    touchdownYawHeadingRtWorld, config)
+                    .isApprox(nomPosRfootRtWorldEwrtWorldXy, 1.0e-12));
+    // Too far forward: clipped to maxNormPosFootRtComEwrtHeadingX along the
+    // heading, lateral offset kept.
+    const vector2_t forwardDesPosLfootRtWorldEwrtWorldXy = clipFootholdToReach(
+        posComRtWorldEwrtWorldXy + 0.9 * dirHeadingEwrtWorldXy +
+            0.15 * leftDirHeadingEwrtWorldXy,
+        kLeft, posComRtWorldEwrtWorldXy, touchdownYawHeadingRtWorld, config);
+    EXPECT_NEAR(dirHeadingEwrtWorldXy.dot(forwardDesPosLfootRtWorldEwrtWorldXy -
+                                          posComRtWorldEwrtWorldXy),
+                0.4, 1.0e-12);
+    EXPECT_NEAR(
+        leftDirHeadingEwrtWorldXy.dot(forwardDesPosLfootRtWorldEwrtWorldXy -
+                                      posComRtWorldEwrtWorldXy),
+        0.15, 1.0e-12);
     // Too far back.
-    EXPECT_NEAR(ex.dot(clipFootholdToReach(com - 0.9 * ex + 0.15 * ey, kLeft,
-                                           com, yaw, config) -
-                       com),
+    EXPECT_NEAR(dirHeadingEwrtWorldXy.dot(
+                    clipFootholdToReach(posComRtWorldEwrtWorldXy -
+                                            0.9 * dirHeadingEwrtWorldXy +
+                                            0.15 * leftDirHeadingEwrtWorldXy,
+                                        kLeft, posComRtWorldEwrtWorldXy,
+                                        touchdownYawHeadingRtWorld, config) -
+                    posComRtWorldEwrtWorldXy),
                 -0.4, 1.0e-12);
     // Across the body: a left foot never crosses to the right of the CoM, a
     // right foot never to the left. The side is the foot's own, not read off
     // where the foothold happens to be, so an adjusted foothold that has
     // already crossed the CoM is pulled back to its own side rather than
     // clipped into the other foot's region.
-    const vector2_t crossedLeft =
-        clipFootholdToReach(com - 0.2 * ey, kLeft, com, yaw, config);
-    EXPECT_NEAR(ey.dot(crossedLeft - com), 0.05, 1.0e-12);
-    const vector2_t crossedRight =
-        clipFootholdToReach(com + 0.2 * ey, kRight, com, yaw, config);
-    EXPECT_NEAR(ey.dot(crossedRight - com), -0.05, 1.0e-12);
+    const vector2_t crossedDesPosLfootRtWorldEwrtWorldXy = clipFootholdToReach(
+        posComRtWorldEwrtWorldXy - 0.2 * leftDirHeadingEwrtWorldXy, kLeft,
+        posComRtWorldEwrtWorldXy, touchdownYawHeadingRtWorld, config);
+    EXPECT_NEAR(
+        leftDirHeadingEwrtWorldXy.dot(crossedDesPosLfootRtWorldEwrtWorldXy -
+                                      posComRtWorldEwrtWorldXy),
+        0.05, 1.0e-12);
+    const vector2_t crossedDesPosRfootRtWorldEwrtWorldXy = clipFootholdToReach(
+        posComRtWorldEwrtWorldXy + 0.2 * leftDirHeadingEwrtWorldXy, kRight,
+        posComRtWorldEwrtWorldXy, touchdownYawHeadingRtWorld, config);
+    EXPECT_NEAR(
+        leftDirHeadingEwrtWorldXy.dot(crossedDesPosRfootRtWorldEwrtWorldXy -
+                                      posComRtWorldEwrtWorldXy),
+        -0.05, 1.0e-12);
     // Too far outward.
-    EXPECT_NEAR(
-        ey.dot(clipFootholdToReach(com + 0.8 * ey, kLeft, com, yaw, config) -
-               com),
-        0.3, 1.0e-12);
-    EXPECT_NEAR(
-        ey.dot(clipFootholdToReach(com - 0.8 * ey, kRight, com, yaw, config) -
-               com),
-        -0.3, 1.0e-12);
+    EXPECT_NEAR(leftDirHeadingEwrtWorldXy.dot(
+                    clipFootholdToReach(posComRtWorldEwrtWorldXy +
+                                            0.8 * leftDirHeadingEwrtWorldXy,
+                                        kLeft, posComRtWorldEwrtWorldXy,
+                                        touchdownYawHeadingRtWorld, config) -
+                    posComRtWorldEwrtWorldXy),
+                0.3, 1.0e-12);
+    EXPECT_NEAR(leftDirHeadingEwrtWorldXy.dot(
+                    clipFootholdToReach(posComRtWorldEwrtWorldXy -
+                                            0.8 * leftDirHeadingEwrtWorldXy,
+                                        kRight, posComRtWorldEwrtWorldXy,
+                                        touchdownYawHeadingRtWorld, config) -
+                    posComRtWorldEwrtWorldXy),
+                -0.3, 1.0e-12);
   }
 }
 
@@ -1605,25 +1710,28 @@ TEST(ContactPlanShift, ShiftInTimeKeepsFootholdLookupRelativeToEvents) {
       makePlan(/*startTime=*/1.0, /*dt=*/0.1, /*numIntervals=*/5,
                vector2_t::Zero(), vector2_t::Zero(), vector2_t::Zero());
   plan.committedUntil = 1.3;
-  for (int k = 0; k <= 5; ++k) plan.footholds[k][0] = vector2_t(0.1 * k, 0.0);
-  const vector2_t before = valueOrFailure(plan.footholdAtTime(0, 1.3));
+  for (int k = 0; k <= 5; ++k) {
+    plan.desPosFeetRtWorldEwrtWorldXyTraj[k][0] = vector2_t(0.1 * k, 0.0);
+  }
+  const vector2_t desPosFootRtWorldEwrtWorldXy =
+      valueOrFailure(plan.getDesPosFootRtWorldEwrtWorldXy(0, 1.3));
   plan.shiftInTime(0.07);
   EXPECT_NEAR(plan.startTime, 1.07, kTol);
   EXPECT_NEAR(plan.committedUntil, 1.37, kTol);
   EXPECT_NEAR(plan.endTime(), 1.57, kTol);
-  EXPECT_TRUE(
-      valueOrFailure(plan.footholdAtTime(0, 1.37)).isApprox(before, 1.0e-12));
+  EXPECT_TRUE(valueOrFailure(plan.getDesPosFootRtWorldEwrtWorldXy(0, 1.37))
+                  .isApprox(desPosFootRtWorldEwrtWorldXy, 1.0e-12));
   EXPECT_EQ(plan.toModeSchedule().eventTimes.size(), 0u);
 }
 
 TEST(ContactPlanningConfigAdaptive, DefaultsAreValidAndTheRulesAreOff) {
   // The defaults, with the pendulum a robot model would derive
   // (ContactPlanningModelParameters::applyTo): the library default, an unset
-  // shared.comHeight, means "from the model", which validation refuses without
-  // one. The file's blocks reach these values through
-  // contactPlanningConfigFromConfig (test/config/contact_planning/).
+  // shared.nomPosComRtFeetmeanEwrtWorldZ, means "from the model", which
+  // validation refuses without one. The file's blocks reach these values
+  // through contactPlanningConfigFromConfig (test/config/contact_planning/).
   ContactPlanningConfig config;
-  config.shared.comHeight = 0.85;
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ = 0.85;
   EXPECT_TRUE(config.validateStatus().ok()) << config.validateStatus();
   EXPECT_NEAR(config.energyCadenceModulation.deadband, 0.0, kTol)
       << "no deadband by default: the shipped behavior is unchanged";
@@ -1636,7 +1744,7 @@ TEST(ContactPlanningConfigAdaptive, ValidationRejectsBadValues) {
   const std::function<void(const std::function<void(ContactPlanningConfig&)>&)>
       rejects = [](const std::function<void(ContactPlanningConfig&)>& mutate) {
         ContactPlanningConfig config;
-        config.shared.comHeight =
+        config.shared.nomPosComRtFeetmeanEwrtWorldZ =
             0.85;  // valid but for the one value `mutate` breaks
         mutate(config);
         EXPECT_EQ(config.validateStatus().code(),
@@ -1658,24 +1766,25 @@ TEST(ContactPlanningConfigAdaptive, ValidationRejectsBadValues) {
     c.phaseResetting.lateTouchdownExtensionStep = 0.0;
   });
   rejects([](ContactPlanningConfig& c) {
-    c.phaseResetting.lateTouchdownSearchVelocity = -1.0;
+    c.phaseResetting.lateTouchdownSearchSpeedFootRtWorld = -1.0;
   });
   rejects([](ContactPlanningConfig& c) {
     c.energyCadenceModulation.deadband = -1.0;
   });
   rejects([](ContactPlanningConfig& c) { c.dcmStepAdjustment.gain = -1.0; });
-  rejects(
-      [](ContactPlanningConfig& c) { c.dcmStepAdjustment.maxOffset = -0.1; });
+  rejects([](ContactPlanningConfig& c) {
+    c.dcmStepAdjustment.maxNormErrPosFootRtWorldEwrtWorldXy = -0.1;
+  });
   rejects(
       [](ContactPlanningConfig& c) { c.energyCadenceModulation.gain = -0.1; });
   ContactPlanningConfig zeros;
-  zeros.shared.comHeight = 0.85;
+  zeros.shared.nomPosComRtFeetmeanEwrtWorldZ = 0.85;
   zeros.phaseResetting.earlyTouchdownMinSwingRatio = 0.0;
   zeros.phaseResetting.earlyTouchdownMinContactDuration = 0.0;
   zeros.phaseResetting.maxLateTouchdownExtension = 0.0;
-  zeros.phaseResetting.lateTouchdownSearchVelocity = 0.0;
+  zeros.phaseResetting.lateTouchdownSearchSpeedFootRtWorld = 0.0;
   zeros.dcmStepAdjustment.gain = 0.0;
-  zeros.dcmStepAdjustment.maxOffset = 0.0;
+  zeros.dcmStepAdjustment.maxNormErrPosFootRtWorldEwrtWorldXy = 0.0;
   zeros.energyCadenceModulation.gain = 0.0;
   EXPECT_TRUE(zeros.validateStatus().ok()) << zeros.validateStatus();
 }

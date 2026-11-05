@@ -393,7 +393,9 @@ class TextFormatTest(unittest.TestCase):
         )
 
     def test_unset_proto3_optional_fields_round_trip_through_json(self) -> None:
-        throw = dodgeball_throw_pb2.DodgeballThrow(azimuth_deg=10.0)
+        throw = dodgeball_throw_pb2.DodgeballThrow(
+            cmd_azimuth_ball_rt_base_ewrt_heading=10.0
+        )
         as_json = message_decoding.format_fields(throw, [], "json")
         self.assertIsNone(json.loads(as_json)["mass"])
         parsed = json_format.ParseDict(

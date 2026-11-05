@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
 #include "humanoid_common_mpc_app/robot/RealtimeLoopRunner.h"
 #include "humanoid_common_mpc_app/robot/RobotProcess.h"
+#include "humanoid_common_mpc_app/robot/RobotSetUpSteps.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySampler.h"
 #include "humanoid_mpc_config/mpc_parameter_update.pb.h"
 #include "humanoid_mpc_config/task_file.pb.h"
@@ -98,7 +99,7 @@ OperatorCommandMailbox::Config mailboxConfig(
     const robot::model::RobotDescription& description) {
   OperatorCommandMailbox::Config config;
   config.jointNames = jointNamesByIndex(description);
-  config.initialNominalPositions.assign(description.getNumJoints(), 0.0);
+  config.initialNominalJointPositions.assign(description.getNumJoints(), 0.0);
   return config;
 }
 
@@ -138,7 +139,7 @@ TEST(RobotRealtimeAllocations,
           0.1 * round;
       mailbox.onJointTargets(targets);
       humanoid_mpc_msgs::WalkingVelocityCommand walk;
-      walk.set_cmd_pos_base_rt_world_ewrt_world_z(0.9);
+      walk.set_cmd_pos_base_rt_surface_ewrt_world_z(0.9);
       mailbox.onWalkingVelocityCommand(walk);
       humanoid_mpc_config::MpcParameterUpdate parameters;
       parameters.mutable_task()->set_contact_estimator(
@@ -159,7 +160,8 @@ TEST(RobotRealtimeAllocations,
     const bool tookCommand = mailbox.takeFsmCommand(command);
     const bool tookPosture = mailbox.takeNominalPosture(nominal);
     const bool tookThrow = mailbox.takeDodgeballThrow(throwCommand);
-    const std::optional<double> height = mailbox.desiredGantryHeight();
+    const std::optional<double> desGantryPosBaseRtSurfaceEwrtWorldZ =
+        mailbox.desGantryPosBaseRtSurfaceEwrtWorldZ();
     bool tookSettings = false;
     mailbox.takeControllerSettings([&](const ControllerSettingsUpdate& update) {
       tookSettings = true;
@@ -169,8 +171,8 @@ TEST(RobotRealtimeAllocations,
     });
     const size_t allocations =
         robot::realtime::heapAllocationCountOnThisThread() - before;
-    EXPECT_TRUE(tookCommand && tookPosture && tookThrow && height.has_value() &&
-                tookSettings)
+    EXPECT_TRUE(tookCommand && tookPosture && tookThrow &&
+                desGantryPosBaseRtSurfaceEwrtWorldZ.has_value() && tookSettings)
         << "round " << round;
     EXPECT_EQ(allocations, 0u) << "round " << round;
   }
@@ -246,15 +248,15 @@ TEST(RobotRealtimeAllocations,
   robot::model::RobotState state(description);
   robot::model::RobotJointAction action(description);
   const contact_flag_t flags{true, false};
-  const std::array<vector3_t, kNumContacts> forces{vector3_t(1.0, 2.0, 3.0),
-                                                   vector3_t::Zero()};
+  const std::array<vector3_t, kNumContacts> measForceFeetEwrtWorld{
+      vector3_t(1.0, 2.0, 3.0), vector3_t::Zero()};
 
   // The first round warms nothing up: the slots are built with their shape at
   // construction.
   for (int round = 0; round < 3; ++round) {
     const size_t before = robot::realtime::heapAllocationCountOnThisThread();
     for (int i = 0; i < 4; ++i)
-      sampler.sample(state, action, "WB_MPC", flags, forces);
+      sampler.sample(state, action, "WB_MPC", flags, measForceFeetEwrtWorld);
     EXPECT_EQ(robot::realtime::heapAllocationCountOnThisThread() - before, 0u)
         << "round " << round;
     onAnotherThread(
@@ -263,7 +265,7 @@ TEST(RobotRealtimeAllocations,
   // A full ring drops and counts, still without allocating.
   const size_t before = robot::realtime::heapAllocationCountOnThisThread();
   for (int i = 0; i < 20; ++i)
-    sampler.sample(state, action, "JOINT_PD", flags, forces);
+    sampler.sample(state, action, "JOINT_PD", flags, measForceFeetEwrtWorld);
   EXPECT_EQ(robot::realtime::heapAllocationCountOnThisThread() - before, 0u);
   EXPECT_EQ(sampler.dropped(), 12u);
 }
@@ -313,8 +315,8 @@ TEST(RobotRealtimeAllocations,
   robot::mujoco_sim_interface::MujocoSimInterface& sim = **created;
   sim.initSim();
   sim.startSim();
-  vector3_t left = vector3_t::Zero();
-  vector3_t right = vector3_t::Zero();
+  vector3_t measForceLfootEwrtWorld = vector3_t::Zero();
+  vector3_t measForceRfootEwrtWorld = vector3_t::Zero();
   robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow throwCommand;
   throwCommand.flightTime = 0.5;
   throwCommand.mass = 0.4;
@@ -322,7 +324,8 @@ TEST(RobotRealtimeAllocations,
     sim.updateInterfaceStateFromRobot();
     sim.getRobotJointAction().at(0)->feed_forward_effort = 0.0;
     sim.applyJointAction();
-    sim.takeMeasForceFeetEwrtWorld(left, right);
+    sim.takeMeasForceFeetEwrtWorld(measForceLfootEwrtWorld,
+                                   measForceRfootEwrtWorld);
     if (index % 10 == 0) sim.enableTorques();
     if (index % 10 == 5) sim.disableTorques();
     if (index == 20) sim.throwDodgeball(throwCommand);
@@ -371,7 +374,7 @@ TEST(
   config.settings.contactEstimator = "robot_state";
   config.settings.stateEstimator =
       std::string(estimation::kKalmanStateEstimatorName);
-  config.settings.fallRecovery.maxBaseTiltAngle = 0.5;
+  config.settings.fallRecovery.maxTiltangleBaseRtWorld = 0.5;
   config.urdfFile = kAtlasUrdf;
   const ModelSettings modelSettings =
       ModelSettings::Create(
@@ -380,8 +383,7 @@ TEST(
           kAtlasUrdf, "centroidal_mpc_",
           /*verbose=*/false)
           .value();
-  config.contactFrameNames = modelSettings.contactNames;
-  config.contactParentJointNames = modelSettings.contactParentJointNames;
+  config.stateEstimatorContacts = stateEstimatorContacts(modelSettings);
   absl::StatusOr<std::unique_ptr<RobotProcess>> created = RobotProcess::Create(
       bus.get(), &backend, &controller, &estimators, config);
   ASSERT_TRUE(created.ok()) << created.status();
@@ -407,7 +409,8 @@ TEST(
   backend.stop();
 
   EXPECT_FALSE(process.faulted()) << process.faultMessage();
-  EXPECT_GT(backend.torqueEnables(), 0u) << "the commands reached the backend";
+  EXPECT_GT(backend.jointTorqueEnables(), 0u)
+      << "the commands reached the backend";
   EXPECT_EQ(atLast.load() - atFirst.load(), 0u)
       << "allocations on the realtime thread between cycles " << kFirstSample
       << " and " << kLastSample;

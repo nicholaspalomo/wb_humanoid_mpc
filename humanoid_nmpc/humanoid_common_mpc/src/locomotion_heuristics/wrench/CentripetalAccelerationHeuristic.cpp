@@ -29,25 +29,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/locomotion_heuristics/wrench/CentripetalAccelerationHeuristic.h"
 
-#include <algorithm>
+#include <cstddef>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
+#include "humanoid_common_mpc/locomotion_heuristics/WrenchHeuristic.h"
 
 namespace ocs2::humanoid {
 
 absl::Status CentripetalAccelerationHeuristic::configure(
     const LocomotionHeuristicConfig& config,
     const LocomotionHeuristicModelParameters& model) {
-  parameters_ = config.centripetalAcceleration;
+  parameters_ = config.centripetalAccelerationParameters;
   totalMass_ = model.totalMass;
   totalWeight_ = model.totalWeight;
   return absl::OkStatus();
 }
 
-vector3_t CentripetalAccelerationHeuristic::forceOffset(
+vector3_t CentripetalAccelerationHeuristic::computeOffsetForceFootEwrtWorld(
     const WrenchHeuristicContext& context, size_t /*contactIndex*/) const {
   // H_f(Theta x pdot) = m omega x pdot, Bledt Table C.1.
   //
@@ -62,11 +67,14 @@ vector3_t CentripetalAccelerationHeuristic::forceOffset(
   // shares the weight.
   if (context.numStanceFeet == 0) return vector3_t::Zero();
 
-  const vector2_t velocity = context.commandedVelocity;
-  const scalar_t yawRate = context.commandedYawRate;
-  vector3_t totalForce(-totalMass_ * yawRate * velocity.y(),
-                       totalMass_ * yawRate * velocity.x(), 0.0);
-  totalForce *= parameters_.scale;
+  const vector2_t cmdLinvelBaseRtWorldEwrtWorldXy =
+      context.cmdLinvelBaseRtWorldEwrtWorldXy;
+  const scalar_t cmdRateYawBaseRtWorld = context.cmdRateYawBaseRtWorld;
+  vector3_t forceComEwrtWorld(
+      -totalMass_ * cmdRateYawBaseRtWorld * cmdLinvelBaseRtWorldEwrtWorldXy.y(),
+      totalMass_ * cmdRateYawBaseRtWorld * cmdLinvelBaseRtWorldEwrtWorldXy.x(),
+      0.0);
+  forceComEwrtWorld *= parameters_.scale;
 
   // A foot cannot pull sideways harder than friction allows, and a reference
   // outside the friction cone is one the wrench-cone barrier will fight at
@@ -79,16 +87,16 @@ vector3_t CentripetalAccelerationHeuristic::forceOffset(
   // allows in single support. The default clamp is a fraction of body weight
   // rather than an absolute force so that it scales across the robots in this
   // repository, whose masses differ by a factor of five.
-  const scalar_t limit = totalForceLimit();
-  const scalar_t magnitude = totalForce.norm();
-  if (limit > 0.0 && magnitude > limit) totalForce *= limit / magnitude;
-  return totalForce / static_cast<scalar_t>(context.numStanceFeet);
+  const scalar_t limit = getMaxForceComEwrtWorldXy();
+  const scalar_t magnitude = forceComEwrtWorld.norm();
+  if (limit > 0.0 && magnitude > limit) forceComEwrtWorld *= limit / magnitude;
+  return forceComEwrtWorld / static_cast<scalar_t>(context.numStanceFeet);
 }
 
-scalar_t CentripetalAccelerationHeuristic::totalForceLimit() const {
-  return parameters_.maximumForce > 0.0
-             ? parameters_.maximumForce
-             : parameters_.maximumForceRatioOfWeight * totalWeight_;
+scalar_t CentripetalAccelerationHeuristic::getMaxForceComEwrtWorldXy() const {
+  return parameters_.maxForceComEwrtWorldXy > 0.0
+             ? parameters_.maxForceComEwrtWorldXy
+             : parameters_.maxWnormForceComEwrtWorldXy * totalWeight_;
 }
 
 std::string CentripetalAccelerationHeuristic::describe() const {
@@ -96,7 +104,7 @@ std::string CentripetalAccelerationHeuristic::describe() const {
                       " * ", totalMass_,
                       " kg * (omega x v) / n_stance [N], the total over the "
                       "stance feet clamped to ",
-                      totalForceLimit(), " N");
+                      getMaxForceComEwrtWorldXy(), " N");
 }
 
 }  // namespace ocs2::humanoid

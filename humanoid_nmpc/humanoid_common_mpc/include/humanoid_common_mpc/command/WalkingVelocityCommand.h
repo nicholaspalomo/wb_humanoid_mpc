@@ -30,55 +30,62 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "ocs2_core/Types.h"
+
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
 /**
- * The operator's walking command: base velocities and the pelvis height. A
- * plain value, free of any transport; the conversion from the bus message lives
- * in humanoid_common_mpc_app/node (WalkingVelocityCommandConversions.h).
+ * The operator's walking command in physical units: the base velocities in m/s
+ * and rad/s and the pelvis height in meters.
+ * ProceduralMpcMotionManager::setAndScaleVelocityCommand() makes it from the
+ * NormalizedWalkingVelocityCommand the operator bus carries. A plain value,
+ * free of any transport.
  */
 struct WalkingVelocityCommand {
  public:
-  /** The entries of the command's vector form, toVector(): [v_x, v_y, pelvis
+  /** The entries of the command's vector form, toVector(): [v_x, v_y, base
    * height, yaw rate]. */
   static constexpr int kLinearVelocityXIndex = 0;
   static constexpr int kLinearVelocityYIndex = 1;
-  static constexpr int kDesiredPelvisHeightIndex = 2;
+  static constexpr int kBaseHeightIndex = 2;
   static constexpr int kAngularVelocityZIndex = 3;
 
   /** [m] The pelvis height above the ground of a command that sets none. */
-  static constexpr scalar_t kNomCmdPosBaseRtWorldEwrtWorldZ = 0.8;
+  static constexpr scalar_t kNomCmdPosBaseRtSurfaceEwrtWorldZ = 0.8;
 
   WalkingVelocityCommand() = default;
-  WalkingVelocityCommand(scalar_t v_x,
-                         scalar_t v_y,
-                         scalar_t desired_pelvis_h,
-                         scalar_t v_yaw)
-      : cmd_linvel_base_rt_world_ewrt_heading_x(v_x),
-        cmd_linvel_base_rt_world_ewrt_heading_y(v_y),
-        cmd_pos_base_rt_world_ewrt_world_z(desired_pelvis_h),
-        cmd_angvel_base_rt_world_ewrt_world_z(v_yaw) {}
+  WalkingVelocityCommand(scalar_t cmd_linvel_base_rt_world_ewrt_heading_x,
+                         scalar_t cmd_linvel_base_rt_world_ewrt_heading_y,
+                         scalar_t cmd_pos_base_rt_surface_ewrt_world_z,
+                         scalar_t cmd_angvel_base_rt_world_ewrt_world_z)
+      : cmd_linvel_base_rt_world_ewrt_heading_x(
+            cmd_linvel_base_rt_world_ewrt_heading_x),
+        cmd_linvel_base_rt_world_ewrt_heading_y(
+            cmd_linvel_base_rt_world_ewrt_heading_y),
+        cmd_pos_base_rt_surface_ewrt_world_z(
+            cmd_pos_base_rt_surface_ewrt_world_z),
+        cmd_angvel_base_rt_world_ewrt_world_z(
+            cmd_angvel_base_rt_world_ewrt_world_z) {}
   explicit WalkingVelocityCommand(const vector4_t& velCommand)
       : cmd_linvel_base_rt_world_ewrt_heading_x(
             velCommand(kLinearVelocityXIndex)),
         cmd_linvel_base_rt_world_ewrt_heading_y(
             velCommand(kLinearVelocityYIndex)),
-        cmd_pos_base_rt_world_ewrt_world_z(
-            velCommand(kDesiredPelvisHeightIndex)),
+        cmd_pos_base_rt_surface_ewrt_world_z(velCommand(kBaseHeightIndex)),
         cmd_angvel_base_rt_world_ewrt_world_z(
             velCommand(kAngularVelocityZIndex)) {}
   scalar_t cmd_linvel_base_rt_world_ewrt_heading_x = 0.0;
   scalar_t cmd_linvel_base_rt_world_ewrt_heading_y = 0.0;
-  scalar_t cmd_pos_base_rt_world_ewrt_world_z =
-      kNomCmdPosBaseRtWorldEwrtWorldZ;  // Above ground
+  scalar_t cmd_pos_base_rt_surface_ewrt_world_z =
+      kNomCmdPosBaseRtSurfaceEwrtWorldZ;  // Above ground
   scalar_t cmd_angvel_base_rt_world_ewrt_world_z = 0.0;
 
   vector4_t toVector() const {
     return vector4_t(cmd_linvel_base_rt_world_ewrt_heading_x,
                      cmd_linvel_base_rt_world_ewrt_heading_y,
-                     cmd_pos_base_rt_world_ewrt_world_z,
+                     cmd_pos_base_rt_surface_ewrt_world_z,
                      cmd_angvel_base_rt_world_ewrt_world_z);
   }
 };

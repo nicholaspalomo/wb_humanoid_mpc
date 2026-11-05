@@ -40,14 +40,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 #include "humanoid_centroidal_mpc/config/costs/DcmTerminalCostFromConfig.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
+#include "humanoid_common_mpc/parameter_update/HotUpdateTarget.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 
 namespace ocs2::humanoid {
 
@@ -64,8 +68,9 @@ constexpr std::array<absl::string_view, 2> kFields = {
 bool carriesFootCost(const OptimalControlProblem& ocp,
                      const std::vector<std::string>& contactNames) {
   for (const std::string& footName : contactNames) {
-    if (carriesTerm(*ocp.costPtr, taskSpaceKinematicsCostName(footName)))
+    if (carriesTerm(*ocp.costPtr, taskSpaceKinematicsCostName(footName))) {
       return true;
+    }
   }
   return false;
 }

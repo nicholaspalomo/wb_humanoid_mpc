@@ -45,14 +45,16 @@ void StepLatenessHistogram::record(std::chrono::nanoseconds lateness) {
       std::min<int64_t>(nanoseconds / kBinWidthNanoseconds, kNumBins - 1);
   bins_[bin].fetch_add(1, std::memory_order_relaxed);
   // One writer, so a plain compare and store keeps the maximum.
-  if (nanoseconds > maxNanoseconds_.load(std::memory_order_relaxed))
+  if (nanoseconds > maxNanoseconds_.load(std::memory_order_relaxed)) {
     maxNanoseconds_.store(nanoseconds, std::memory_order_relaxed);
+  }
   count_.fetch_add(1, std::memory_order_relaxed);
 }
 
 void StepLatenessHistogram::reset() {
-  for (std::atomic<int64_t>& bin : bins_)
+  for (std::atomic<int64_t>& bin : bins_) {
     bin.store(0, std::memory_order_relaxed);
+  }
   maxNanoseconds_.store(0, std::memory_order_relaxed);
   count_.store(0, std::memory_order_relaxed);
 }
@@ -63,8 +65,9 @@ int64_t StepLatenessHistogram::count() const {
 
 absl::Duration StepLatenessHistogram::percentile(double fraction) const {
   int64_t total = 0;
-  for (const std::atomic<int64_t>& bin : bins_)
+  for (const std::atomic<int64_t>& bin : bins_) {
     total += bin.load(std::memory_order_relaxed);
+  }
   if (total == 0) return absl::ZeroDuration();
   if (!(fraction < 1.0)) return max();
   const int64_t wanted = std::max<int64_t>(
@@ -91,8 +94,9 @@ int64_t StepLatenessHistogram::countLaterThan(absl::Duration lateness) const {
       (nanoseconds + kBinWidthNanoseconds - 1) / kBinWidthNanoseconds,
       kNumBins - 1);
   int64_t later = 0;
-  for (int64_t bin = firstBin; bin < kNumBins; ++bin)
+  for (int64_t bin = firstBin; bin < kNumBins; ++bin) {
     later += bins_[bin].load(std::memory_order_relaxed);
+  }
   return later;
 }
 

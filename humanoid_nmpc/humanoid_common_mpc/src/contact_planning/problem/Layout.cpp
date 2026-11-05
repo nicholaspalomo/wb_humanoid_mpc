@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/problem/Layout.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -48,28 +49,28 @@ std::string footLabel(size_t foot) {
   if (kNumContacts == kBipedFootCount) return foot == 0 ? "L" : "R";
   return std::to_string(foot);
 }
-std::string footX(size_t foot) {
+std::string posFootRtWorldEwrtWorldX(size_t foot) {
   return "p_" + footLabel(foot) + "x";
 }
-std::string footY(size_t foot) {
+std::string posFootRtWorldEwrtWorldY(size_t foot) {
   return "p_" + footLabel(foot) + "y";
 }
-std::string footDeltaX(size_t foot) {
+std::string errPosFootRtWorldEwrtWorldX(size_t foot) {
   return "dp_" + footLabel(foot) + "x";
 }
-std::string footDeltaY(size_t foot) {
+std::string errPosFootRtWorldEwrtWorldY(size_t foot) {
   return "dp_" + footLabel(foot) + "y";
 }
 std::string contact(size_t foot) {
   return "c_" + footLabel(foot);
 }
-std::string footYaw(size_t foot) {
+std::string eulerzyxFootRtWorldYaw(size_t foot) {
   return "psi_" + footLabel(foot);
 }
-std::string yawTorque(size_t foot) {
+std::string torqueFootEwrtWorldZ(size_t foot) {
   return "tau_" + footLabel(foot);
 }
-std::string footYawDelta(size_t foot) {
+std::string errEulerzyxFootRtWorldYaw(size_t foot) {
   return "dpsi_" + footLabel(foot);
 }
 }  // namespace var

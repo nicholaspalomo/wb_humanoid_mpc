@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <limits>
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
@@ -41,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 
@@ -112,23 +112,30 @@ absl::Status stageError(int k, absl::string_view what) {
 absl::Status checkStage(const OcpQpStage& stage, int k, int N) {
   const int nx = stage.numStates();
   const int nu = stage.numInputs();
-  if (k == N && nu != 0)
+  if (k == N && nu != 0) {
     return stageError(k, "terminal node must not have inputs");
-  if (stage.Q.rows() != nx || stage.Q.cols() != nx)
+  }
+  if (stage.Q.rows() != nx || stage.Q.cols() != nx) {
     return stageError(k, "Q must be nx x nx");
-  if (stage.R.rows() != nu || stage.R.cols() != nu)
+  }
+  if (stage.R.rows() != nu || stage.R.cols() != nu) {
     return stageError(k, "R must be nu x nu");
-  if (nu > 0 && (stage.S.rows() != nu || stage.S.cols() != nx))
+  }
+  if (nu > 0 && (stage.S.rows() != nu || stage.S.cols() != nx)) {
     return stageError(k, "S must be nu x nx");
+  }
   if (stage.q.size() != nx) return stageError(k, "q must have nx entries");
   if (stage.r.size() != nu) return stageError(k, "r must have nu entries");
   if (k < N) {
-    if (stage.A.rows() == 0 || stage.A.cols() != nx)
+    if (stage.A.rows() == 0 || stage.A.cols() != nx) {
       return stageError(k, "A must be nx_next x nx");
-    if (stage.B.rows() != stage.A.rows() || stage.B.cols() != nu)
+    }
+    if (stage.B.rows() != stage.A.rows() || stage.B.cols() != nu) {
       return stageError(k, "B must be nx_next x nu");
-    if (stage.b.size() != stage.A.rows())
+    }
+    if (stage.b.size() != stage.A.rows()) {
       return stageError(k, "b must have nx_next entries");
+    }
   }
   if (static_cast<int>(stage.idxbu.size()) != stage.lbu.size() ||
       stage.lbu.size() != stage.ubu.size()) {
@@ -139,20 +146,24 @@ absl::Status checkStage(const OcpQpStage& stage, int k, int N) {
     return stageError(k, "inconsistent state box");
   }
   for (int idx : stage.idxbu) {
-    if (idx < 0 || idx >= nu)
+    if (idx < 0 || idx >= nu) {
       return stageError(k, "input box index out of range");
+    }
   }
   for (int idx : stage.idxbx) {
-    if (idx < 0 || idx >= nx)
+    if (idx < 0 || idx >= nx) {
       return stageError(k, "state box index out of range");
+    }
   }
   const int ng = stage.numGeneralConstraints();
   if (ng > 0) {
     if (stage.C.cols() != nx) return stageError(k, "C must be ng x nx");
-    if (stage.D.rows() != ng || stage.D.cols() != nu)
+    if (stage.D.rows() != ng || stage.D.cols() != nu) {
       return stageError(k, "D must be ng x nu");
-    if (stage.lg.size() != ng || stage.ug.size() != ng)
+    }
+    if (stage.lg.size() != ng || stage.ug.size() != ng) {
       return stageError(k, "lg/ug must have ng entries");
+    }
   }
   const int ns = static_cast<int>(stage.softGeneralIndices.size());
   if (ns > 0) {
@@ -162,8 +173,9 @@ absl::Status checkStage(const OcpQpStage& stage, int k, int N) {
                         "Zl/Zu/zl/zu must have one entry per soft constraint");
     }
     for (int idx : stage.softGeneralIndices) {
-      if (idx < 0 || idx >= ng)
+      if (idx < 0 || idx >= ng) {
         return stageError(k, "soft constraint index out of range");
+      }
     }
     if (!std::is_sorted(stage.softGeneralIndices.begin(),
                         stage.softGeneralIndices.end())) {

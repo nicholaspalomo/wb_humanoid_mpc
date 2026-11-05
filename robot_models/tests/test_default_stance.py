@@ -26,7 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """Every robot's default stance stands on flat ground, and its MPC contact rectangle lies on the MuJoCo sole.
 
-The default posture - the reference file's nom_pos_base_rt_world_ewrt_world_z and default_joint_state, which the MPC returns to, and
+The default posture - the reference file's nom_pos_base_rt_surface_ewrt_world_z and default_joint_state, which the MPC returns to, and
 the task file's initial_state, which it starts from - must put each foot's contact frame on the terrain (z = 0) with the
 sole level. A frame above the ground makes every stance a planned free fall of the base by that height onto the real
 ground, a frame below it a penetration the contact constraints fight; a tilted sole a planned contact on one edge. The
@@ -94,7 +94,7 @@ _ROBOTS = {
 _ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
 
-def _rotation_about(axis: np.ndarray, angle: float) -> np.ndarray:
+def _matrix_from_axis_angle(axis: np.ndarray, angle: float) -> np.ndarray:
     """Returns the rotation by `angle` [rad] about the unit vector `axis` (Rodrigues)."""
     cross = np.array(
         [
@@ -113,9 +113,9 @@ def _rotation_about(axis: np.ndarray, angle: float) -> np.ndarray:
 def _rotation_from_rpy(roll: float, pitch: float, yaw: float) -> np.ndarray:
     """Returns Rz(yaw) Ry(pitch) Rx(roll): the URDF's fixed-axis roll-pitch-yaw, and the ZYX Euler angles of a state."""
     return (
-        _rotation_about(np.array([0.0, 0.0, 1.0]), yaw)
-        @ _rotation_about(np.array([0.0, 1.0, 0.0]), pitch)
-        @ _rotation_about(np.array([1.0, 0.0, 0.0]), roll)
+        _matrix_from_axis_angle(np.array([0.0, 0.0, 1.0]), yaw)
+        @ _matrix_from_axis_angle(np.array([0.0, 1.0, 0.0]), pitch)
+        @ _matrix_from_axis_angle(np.array([1.0, 0.0, 0.0]), roll)
     )
 
 
@@ -147,9 +147,9 @@ class _UrdfJoint:
         kind: The URDF type: revolute, continuous, prismatic or fixed.
         parent: The parent link's name.
         child: The child link's name.
-        translation: The origin's translation in the parent link's frame [m].
-        rotation: The origin's rotation in the parent link's frame.
-        axis: The unit axis in the joint's (the child link's) frame.
+        origin_translation: The origin's translation in the parent link's frame [m].
+        origin_rotmat: The origin's rotation matrix in the parent link's frame.
+        axis_joint_ewrt_link: The unit axis in the joint's (the child link's) frame.
     """
 
     def __init__(self, element: ElementTree.Element):
@@ -160,34 +160,36 @@ class _UrdfJoint:
         origin = element.find("origin")
         xyz = origin.get("xyz") if origin is not None else None
         rpy = origin.get("rpy") if origin is not None else None
-        self.translation = (
+        self.origin_translation = (
             np.array([float(v) for v in xyz.split()]) if xyz else np.zeros(3)
         )
-        self.rotation = _rotation_from_rpy(
+        self.origin_rotmat = _rotation_from_rpy(
             *([float(v) for v in rpy.split()] if rpy else [0.0, 0.0, 0.0])
         )
         axis = element.find("axis")
-        direction = (
+        raw_axis_joint_ewrt_link = (
             np.array([float(v) for v in _attribute(axis, "xyz").split()])
             if axis is not None
             else np.array([1.0, 0.0, 0.0])
         )
-        self.axis = direction / np.linalg.norm(direction)
+        self.axis_joint_ewrt_link = raw_axis_joint_ewrt_link / np.linalg.norm(
+            raw_axis_joint_ewrt_link
+        )
 
 
-def _joint_frame(
+def _compute_pose_link_rt_world(
     joints: dict[str, _UrdfJoint],
     joint_name: str,
-    base: tuple[np.ndarray, np.ndarray],
-    positions: dict[str, float],
+    pose_base_rt_world: tuple[np.ndarray, np.ndarray],
+    joint_positions: dict[str, float],
 ) -> tuple[np.ndarray, np.ndarray]:
     """Returns the world (translation, rotation) of joint `joint_name`'s frame, its child link's.
 
     Args:
         joints: The URDF's joints by name.
         joint_name: The joint whose frame to return.
-        base: The world (translation, rotation) of the root link.
-        positions: The joint positions [rad or m] by name; a joint not in it is at zero.
+        pose_base_rt_world: The world (translation, rotation) of the root link.
+        joint_positions: The joint positions [rad or m] by name; a joint not in it is at zero.
 
     Returns:
         The frame's translation [m] and rotation in the world.
@@ -198,16 +200,25 @@ def _joint_frame(
     while link in by_child:
         chain.append(by_child[link])
         link = by_child[link].parent
-    translation, rotation = base
+    pos_link_rt_world_ewrt_world, rotmat_link_rt_world = pose_base_rt_world
     for joint in reversed(chain):
-        translation = translation + rotation @ joint.translation
-        rotation = rotation @ joint.rotation
-        value = positions.get(joint.name, 0.0)
+        pos_link_rt_world_ewrt_world = (
+            pos_link_rt_world_ewrt_world
+            + rotmat_link_rt_world @ joint.origin_translation
+        )
+        rotmat_link_rt_world = rotmat_link_rt_world @ joint.origin_rotmat
+        value = joint_positions.get(joint.name, 0.0)
         if joint.kind in ("revolute", "continuous"):
-            rotation = rotation @ _rotation_about(joint.axis, value)
+            rotmat_link_rt_world = (
+                rotmat_link_rt_world
+                @ _matrix_from_axis_angle(joint.axis_joint_ewrt_link, value)
+            )
         elif joint.kind == "prismatic":
-            translation = translation + rotation @ (value * joint.axis)
-    return translation, rotation
+            pos_link_rt_world_ewrt_world = (
+                pos_link_rt_world_ewrt_world
+                + rotmat_link_rt_world @ (value * joint.axis_joint_ewrt_link)
+            )
+    return pos_link_rt_world_ewrt_world, rotmat_link_rt_world
 
 
 def _paths(robot: str) -> tuple[str, str, str, str]:
@@ -242,10 +253,18 @@ def _load(
     return joints, reference, task
 
 
-def _contact_translation(task: task_file_pb2.TaskFile) -> np.ndarray:
+def _get_pos_contact_rt_link_ewrt_link(
+    task: task_file_pb2.TaskFile,
+) -> np.ndarray:
     """Returns contacts.pos_contact_rt_link_ewrt_link, the contact frame in its parent joint's frame [m]."""
-    translation = task.contacts.pos_contact_rt_link_ewrt_link
-    return np.array([translation.x, translation.y, translation.z])
+    pos_contact_rt_link_ewrt_link = task.contacts.pos_contact_rt_link_ewrt_link
+    return np.array(
+        [
+            pos_contact_rt_link_ewrt_link.x,
+            pos_contact_rt_link_ewrt_link.y,
+            pos_contact_rt_link_ewrt_link.z,
+        ]
+    )
 
 
 class DefaultStanceTest(unittest.TestCase):
@@ -255,61 +274,74 @@ class DefaultStanceTest(unittest.TestCase):
         self,
         robot: str,
         what: str,
-        base: tuple[np.ndarray, np.ndarray],
-        positions: dict[str, float],
+        pose_base_rt_world: tuple[np.ndarray, np.ndarray],
+        joint_positions: dict[str, float],
     ) -> None:
-        """Asserts that both contact frames of `robot` with its base at `base` and its joints at `positions` stand.
+        """Asserts that both contact frames of `robot` at `pose_base_rt_world` with its joints at `joint_positions` stand.
 
         Args:
             robot: The robot configuration, a key of _ROBOTS.
             what: Which stance this is, for the messages.
-            base: The world (translation, rotation) of the root link.
-            positions: The joint positions by name; a joint not in it is at zero.
+            pose_base_rt_world: The world (translation, rotation) of the root link.
+            joint_positions: The joint positions by name; a joint not in it is at zero.
         """
         joints, _, task = _load(robot)
-        translation = _contact_translation(task)
+        pos_contact_rt_link_ewrt_link = _get_pos_contact_rt_link_ewrt_link(task)
         parents = list(task.model_settings.contact_parent_joint_names)
         self.assertEqual(len(parents), 2, f"{robot}: two feet")
         for parent in parents:
-            origin, rotation = _joint_frame(joints, parent, base, positions)
-            contact = origin + rotation @ translation
-            tilt = math.degrees(math.acos(min(1.0, rotation[2, 2])))
+            pos_link_rt_world_ewrt_world, rotmat_link_rt_world = (
+                _compute_pose_link_rt_world(
+                    joints, parent, pose_base_rt_world, joint_positions
+                )
+            )
+            pos_contact_rt_world_ewrt_world = (
+                pos_link_rt_world_ewrt_world
+                + rotmat_link_rt_world @ pos_contact_rt_link_ewrt_link
+            )
+            tiltangle_link_rt_world = math.acos(
+                min(1.0, rotmat_link_rt_world[2, 2])
+            )
             label = f"{robot} {what}, the contact frame on {parent}"
             self.assertLess(
-                abs(contact[2]),
+                abs(pos_contact_rt_world_ewrt_world[2]),
                 HEIGHT_TOLERANCE_M,
-                f"{label} is {contact[2] * 1000:.2f} mm above the ground",
+                f"{label} is {pos_contact_rt_world_ewrt_world[2] * 1000:.2f} mm"
+                " above the ground",
             )
             self.assertLess(
-                tilt,
+                math.degrees(tiltangle_link_rt_world),
                 TILT_TOLERANCE_DEG,
-                f"{label}: the sole is tilted by {tilt:.3f} deg",
+                f"{label}: the sole is tilted by"
+                f" {math.degrees(tiltangle_link_rt_world):.3f} deg",
             )
 
     def test_the_reference_default_stance_stands_on_the_ground(self):
         for robot in _ROBOTS:
             _, reference, _ = _load(robot)
-            positions = {
+            joint_positions = {
                 entry.joint: entry.value
                 for entry in reference.default_joint_state
             }
-            base = (
+            pose_base_rt_world = (
                 np.array(
-                    [0.0, 0.0, reference.nom_pos_base_rt_world_ewrt_world_z]
+                    [0.0, 0.0, reference.nom_pos_base_rt_surface_ewrt_world_z]
                 ),
                 np.eye(3),
             )
-            self._assert_stands(robot, "reference default", base, positions)
+            self._assert_stands(
+                robot, "reference default", pose_base_rt_world, joint_positions
+            )
 
     def test_the_task_initial_state_stands_on_the_ground(self):
         for robot in _ROBOTS:
             _, _, task = _load(robot)
             state = task.initial_state
-            positions = {
+            joint_positions = {
                 entry.joint: entry.value for entry in state.joint_positions
             }
-            orientation = state.eulerzyx_base_rt_world
-            base = (
+            eulerzyx_base_rt_world = state.eulerzyx_base_rt_world
+            pose_base_rt_world = (
                 np.array(
                     [
                         state.pos_base_rt_world_ewrt_world.x,
@@ -318,10 +350,14 @@ class DefaultStanceTest(unittest.TestCase):
                     ]
                 ),
                 _rotation_from_rpy(
-                    orientation.roll, orientation.pitch, orientation.yaw
+                    eulerzyx_base_rt_world.roll,
+                    eulerzyx_base_rt_world.pitch,
+                    eulerzyx_base_rt_world.yaw,
                 ),
             )
-            self._assert_stands(robot, "initial_state", base, positions)
+            self._assert_stands(
+                robot, "initial_state", pose_base_rt_world, joint_positions
+            )
 
     def test_the_initial_state_is_the_reference_default(self):
         # The MPC starts where it returns to: the same base height and joints.
@@ -329,7 +365,7 @@ class DefaultStanceTest(unittest.TestCase):
             _, reference, task = _load(robot)
             self.assertAlmostEqual(
                 task.initial_state.pos_base_rt_world_ewrt_world.z,
-                reference.nom_pos_base_rt_world_ewrt_world_z,
+                reference.nom_pos_base_rt_surface_ewrt_world_z,
                 delta=1e-9,
                 msg=robot,
             )
@@ -410,19 +446,33 @@ class ContactRectangleTest(unittest.TestCase):
             model = mujoco.MjModel.from_xml_path(mjcf)
             data = mujoco.MjData(model)
             mujoco.mj_kinematics(model, data)
-            translation = _contact_translation(task)
+            pos_contact_rt_link_ewrt_link = _get_pos_contact_rt_link_ewrt_link(
+                task
+            )
             rectangle = task.contacts.contact_rectangle
-            corners = np.array(
+            pos_corners_rt_contact_ewrt_contact_xy = np.array(
                 [
-                    [rectangle.x_min, rectangle.y_min],
-                    [rectangle.x_max, rectangle.y_min],
-                    [rectangle.x_max, rectangle.y_max],
-                    [rectangle.x_min, rectangle.y_max],
+                    [
+                        rectangle.min_pos_corners_rt_contact_ewrt_contact_x,
+                        rectangle.min_pos_corners_rt_contact_ewrt_contact_y,
+                    ],
+                    [
+                        rectangle.max_pos_corners_rt_contact_ewrt_contact_x,
+                        rectangle.min_pos_corners_rt_contact_ewrt_contact_y,
+                    ],
+                    [
+                        rectangle.max_pos_corners_rt_contact_ewrt_contact_x,
+                        rectangle.max_pos_corners_rt_contact_ewrt_contact_y,
+                    ],
+                    [
+                        rectangle.min_pos_corners_rt_contact_ewrt_contact_x,
+                        rectangle.max_pos_corners_rt_contact_ewrt_contact_y,
+                    ],
                 ]
             )
             # The MJCF free body sits where the URDF's root link does at qpos0.
             root_body = model.jnt_bodyid[0]
-            base = (
+            pose_base_rt_world = (
                 data.xpos[root_body].copy(),
                 data.xmat[root_body].reshape(3, 3).copy(),
             )
@@ -438,14 +488,22 @@ class ContactRectangleTest(unittest.TestCase):
                     np.allclose(model.jnt_pos[joint], 0.0),
                     f"{robot} {parent}: the joint is at its body's origin",
                 )
-                origin, rotation = _joint_frame(joints, parent, base, {})
+                pos_link_rt_world_ewrt_world, rotmat_link_rt_world = (
+                    _compute_pose_link_rt_world(
+                        joints, parent, pose_base_rt_world, {}
+                    )
+                )
                 self.assertLess(
-                    np.linalg.norm(data.xpos[body] - origin),
+                    np.linalg.norm(
+                        data.xpos[body] - pos_link_rt_world_ewrt_world
+                    ),
                     FRAME_TOLERANCE_M,
                     f"{robot} {parent}: frame position",
                 )
                 self.assertLess(
-                    np.abs(data.xmat[body].reshape(3, 3) - rotation).max(),
+                    np.abs(
+                        data.xmat[body].reshape(3, 3) - rotmat_link_rt_world
+                    ).max(),
                     FRAME_TOLERANCE_M,
                     f"{robot} {parent}: frame rotation",
                 )
@@ -464,24 +522,35 @@ class ContactRectangleTest(unittest.TestCase):
                     3,
                     f"{robot} {parent}: a sole of contact spheres",
                 )
-                centers = np.array(
-                    [model.geom_pos[geom] - translation for geom in spheres]
+                pos_spheres_rt_contact_ewrt_link = np.array(
+                    [
+                        model.geom_pos[geom] - pos_contact_rt_link_ewrt_link
+                        for geom in spheres
+                    ]
                 )
-                for geom, center in zip(spheres, centers):
-                    bottom = center[2] - model.geom_size[geom][0]
+                for geom, pos_sphere_rt_contact_ewrt_link in zip(
+                    spheres, pos_spheres_rt_contact_ewrt_link
+                ):
+                    # The sphere's lowest point: its center's z minus its radius.
+                    min_pos_sphere_rt_contact_ewrt_link_z = (
+                        pos_sphere_rt_contact_ewrt_link[2]
+                        - model.geom_size[geom][0]
+                    )
                     self.assertLess(
-                        abs(bottom),
+                        abs(min_pos_sphere_rt_contact_ewrt_link_z),
                         HEIGHT_TOLERANCE_M,
                         f"{robot} {parent}: a sole sphere's bottom is"
-                        f" {bottom * 1000:.2f} mm off the contact frame's"
+                        f" {min_pos_sphere_rt_contact_ewrt_link_z * 1000:.2f} mm off the contact frame's"
                         " plane",
                     )
-                hull = _convex_hull(centers[:, :2])
-                for corner in corners:
+                hull = _convex_hull(pos_spheres_rt_contact_ewrt_link[:, :2])
+                for (
+                    pos_corner_rt_contact_ewrt_contact_xy
+                ) in pos_corners_rt_contact_ewrt_contact_xy:
                     self.assertTrue(
-                        _inside(corner, hull),
+                        _inside(pos_corner_rt_contact_ewrt_contact_xy, hull),
                         f"{robot} {parent}: the contact rectangle's corner"
-                        f" {corner.tolist()} is outside the sole spheres' hull"
+                        f" {pos_corner_rt_contact_ewrt_contact_xy.tolist()} is outside the sole spheres' hull"
                         f" {np.round(hull, 4).tolist()}",
                     )
 

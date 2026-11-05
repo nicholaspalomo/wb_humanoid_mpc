@@ -38,7 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 template <typename SCALAR_T>
-VECTOR6_T<SCALAR_T> computeBaseAcceleration(
+VECTOR6_T<SCALAR_T> computeBaseGeneralizedAcceleration(
     const VECTOR_T<SCALAR_T>& state,
     const VECTOR_T<SCALAR_T>& input,
     const PinocchioInterfaceTpl<SCALAR_T>& pinInterface,

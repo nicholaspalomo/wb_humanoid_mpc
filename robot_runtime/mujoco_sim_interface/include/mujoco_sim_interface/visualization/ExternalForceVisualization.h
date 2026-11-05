@@ -54,7 +54,7 @@ class ExternalForceVisualization final : public MujocoVisualization {
   // [s] of simulation time: how long a push stays drawn after it was applied.
   static constexpr double kPushHoldTime = 0.5;
   // [N s] a smaller push draws no arrow.
-  static constexpr double kMinDrawnImpulse = 1.0e-6;
+  static constexpr double kMinDrawnNormImpulseLinkEwrtWorld = 1.0e-6;
 
   std::string name() const override { return "external_forces"; }
   std::string description() const override {

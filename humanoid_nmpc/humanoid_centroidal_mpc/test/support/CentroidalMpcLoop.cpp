@@ -31,32 +31,47 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
 
 #include "absl/base/nullability.h"
 #include "absl/memory/memory.h"
-#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
-#include "ocs2_core/misc/LinearInterpolation.h"
+#include "ocs2_mpc/MPC_MRT_Interface.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_sqp/SqpMpc.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
+#include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
-#include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
+#include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
+#include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_mpc_config/state_weights.nproto.h"
 #include "humanoid_mpc_config/yaw_pitch_roll.nproto.h"
 #include "robot_core/ResourcePaths.h"
+#include "support/ShippedCentroidalRobot.h"
+#include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
 namespace {
 
 /** max | |xi| - 1 | of the base quaternion of `state`. */
-scalar_t quaternionNormError(const MpcRobotModelBase<scalar_t>& model,
-                             const vector_t& state) {
+scalar_t unitQuaternionNormError(const MpcRobotModelBase<scalar_t>& model,
+                                 const vector_t& state) {
   return std::abs(state
                       .segment<4>(static_cast<Eigen::Index>(
                           model.getBaseOrientationStartIndex()))
@@ -75,10 +90,10 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcLoop>> CentroidalMpcLoop::Create(
   if (options.baseYawWeight.has_value()) {
     for (mpc_config::StateWeights* absl_nonnull weights :
          {&config.task.state_weights, &config.task.final_state_weights}) {
-      mpc_config::YawPitchRoll orientation =
+      mpc_config::YawPitchRoll orientationWeights =
           weights->eulerzyx_base_rt_world.value_or(mpc_config::YawPitchRoll{});
-      orientation.yaw = *options.baseYawWeight;
-      weights->eulerzyx_base_rt_world = orientation;
+      orientationWeights.yaw = *options.baseYawWeight;
+      weights->eulerzyx_base_rt_world = orientationWeights;
     }
   }
   const mpc_config::ReferenceFile reference = config.reference;
@@ -96,9 +111,9 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcLoop>> CentroidalMpcLoop::Create(
       CentroidalMpcTargetTrajectoriesCalculator::Create(
           reference, effectiveModel, interface.getPinocchioInterface(),
           interface.mpcSettings().timeHorizon_));
-  loop->calculator_->setTerrainHeightSource(
+  loop->calculator_->setSourcePosSurfaceRtWorldEwrtWorldZ(
       [referenceManager = interface.getSwitchedModelReferenceManagerPtr()]() {
-        return referenceManager->getAppliedTerrainHeight();
+        return referenceManager->getAppliedPosSurfaceRtWorldEwrtWorldZ();
       });
   CentroidalMpcTargetTrajectoriesCalculator* absl_nonnull calculator =
       loop->calculator_.get();
@@ -111,11 +126,11 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcLoop>> CentroidalMpcLoop::Create(
       ProceduralMpcMotionManager::Create(
           gaitFile, files.referenceFile,
           interface.getSwitchedModelReferenceManagerPtr(), effectiveModel,
-          [calculator](const vector4_t& velocity, scalar_t initTime,
+          [calculator](const vector4_t& velocityCommand, scalar_t initTime,
                        scalar_t /*finalTime*/, const vector_t& initState,
                        const BasePlanarMotion& measuredMotion) {
             return calculator->velocityCommandToTargetTrajectories(
-                velocity, initTime, initState, measuredMotion);
+                velocityCommand, initTime, initState, measuredMotion);
           }));
   loop->motionManager_->setResetHook([calculator]() { calculator->reset(); });
   // The command as given: no filter, no ramp, limits of 1, so that a command in
@@ -157,11 +172,13 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcLoop>> CentroidalMpcLoop::Create(
   return loop;
 }
 
-void CentroidalMpcLoop::command(scalar_t forward,
-                                scalar_t lateral,
-                                scalar_t yawRate) {
-  motionManager_->setAndScaleVelocityCommand(WalkingVelocityCommand(
-      forward, lateral, /*desired_pelvis_h=*/0.0, yawRate));
+void CentroidalMpcLoop::command(scalar_t cmdLinvelBaseRtWorldEwrtHeadingX,
+                                scalar_t cmdLinvelBaseRtWorldEwrtHeadingY,
+                                scalar_t cmdRateYawBaseRtWorld) {
+  // The command limits are 1 (Create()), so each fraction is the velocity.
+  motionManager_->setAndScaleVelocityCommand(NormalizedWalkingVelocityCommand(
+      cmdLinvelBaseRtWorldEwrtHeadingX, cmdLinvelBaseRtWorldEwrtHeadingY,
+      /*cmd_pos_base_rt_surface_ewrt_world_z=*/0.0, cmdRateYawBaseRtWorld));
 }
 
 absl::StatusOr<CentroidalMpcLoopStep> CentroidalMpcLoop::step() {
@@ -172,7 +189,7 @@ absl::StatusOr<CentroidalMpcLoopStep> CentroidalMpcLoop::step() {
     const PrimalSolution& previous = mrt_->getPolicy();
     const vector_t planned = model.interpolateStateTrajectory(
         observation_.time, previous.timeTrajectory_, previous.stateTrajectory_);
-    record.initialGapRotation = manifold.getMaximumTangentAngle(
+    record.initialGapAngle = manifold.getMaximumTangentAngle(
         manifold.difference(planned, observation_.state));
   }
   mrt_->setCurrentObservation(observation_);
@@ -181,14 +198,14 @@ absl::StatusOr<CentroidalMpcLoopStep> CentroidalMpcLoop::step() {
   record.performance = mpc_->getSolverPtr()->getPerformanceIndeces();
   const PrimalSolution& solution = mrt_->getPolicy();
   for (const vector_t& node : solution.stateTrajectory_) {
-    record.quaternionNormError =
-        std::max(record.quaternionNormError, quaternionNormError(model, node));
+    record.unitQuaternionNormError = std::max(
+        record.unitQuaternionNormError, unitQuaternionNormError(model, node));
   }
   // The period starts from the observation, pushed (push()); the feedback the
   // policy applies there, against its input at the plan.
   vector_t plantState = observation_.state;
-  plantState.head<6>() += pendingPush_;
-  pendingPush_.setZero();
+  plantState.head<6>() += pendingErrMnormCmomComRtWorldEwrtWorld_;
+  pendingErrMnormCmomComRtWorldEwrtWorld_.setZero();
   vector_t plannedState;
   vector_t input;
   size_t mode = 0;
@@ -208,9 +225,9 @@ absl::StatusOr<CentroidalMpcLoopStep> CentroidalMpcLoop::step() {
   observation_.state = std::move(nextState);
   observation_.input = std::move(nextInput);
   observation_.mode = mode;
-  record.quaternionNormError =
-      std::max(record.quaternionNormError,
-               quaternionNormError(model, observation_.state));
+  record.unitQuaternionNormError =
+      std::max(record.unitQuaternionNormError,
+               unitQuaternionNormError(model, observation_.state));
   return record;
 }
 

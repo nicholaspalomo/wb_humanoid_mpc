@@ -49,8 +49,9 @@ std::vector<int> allowedCores() {
   cpu_set_t set;
   CPU_ZERO(&set);
   std::vector<int> cores;
-  if (pthread_getaffinity_np(pthread_self(), sizeof(set), &set) != 0)
+  if (pthread_getaffinity_np(pthread_self(), sizeof(set), &set) != 0) {
     return cores;
+  }
   for (int core = 0; core < CPU_SETSIZE; ++core) {
     if (CPU_ISSET(core, &set)) cores.push_back(core);
   }

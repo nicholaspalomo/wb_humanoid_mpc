@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "web_viewer/ViewerStatus.h"
 
 #include <cmath>
+#include <cstddef>
 #include <string>
 
 #include "absl/strings/str_cat.h"
@@ -61,12 +62,12 @@ absl::string_view jsonBool(bool value) {
 std::string cameraJson(const ViewerStatus::Camera& camera) {
   return absl::StrCat(
       R"({"mode":)", jsonString(viewerCameraModeName(camera.mode)),
-      R"(,"azimuth":)", jsonNumber(camera.azimuth), R"(,"elevation":)",
-      jsonNumber(camera.elevation), R"(,"distance":)",
-      jsonNumber(camera.distance), R"(,"lookat":[)",
-      jsonNumber(camera.lookat[ocs2::kXAxisIndex]), ",",
-      jsonNumber(camera.lookat[ocs2::kYAxisIndex]), ",",
-      jsonNumber(camera.lookat[ocs2::kZAxisIndex]), "]}");
+      R"(,"azimuth":)", jsonNumber(camera.azimuthCamfocusRtCamEwrtWorld),
+      R"(,"elevation":)", jsonNumber(camera.elevationCamfocusRtCamEwrtWorld),
+      R"(,"distance":)", jsonNumber(camera.distCamRtCamfocus), R"(,"lookat":[)",
+      jsonNumber(camera.posCamfocusRtWorldEwrtWorld[ocs2::kXAxisIndex]), ",",
+      jsonNumber(camera.posCamfocusRtWorldEwrtWorld[ocs2::kYAxisIndex]), ",",
+      jsonNumber(camera.posCamfocusRtWorldEwrtWorld[ocs2::kZAxisIndex]), "]}");
 }
 
 std::string renderJson(const ViewerStatus::Render& render) {

@@ -165,13 +165,14 @@ struct KalmanFilterMeasurement {
  *        {.stateName = "base_velocity", .controlInputMatrix =
  * {{"imu_acceleration", dt * I}}},
  *        {.stateName = "foot_position", .processNoiseCovariance = q_foot * I}},
- *       {{.name = "imu_acceleration", .input = a_world, .inputNoiseCovariance =
- * sigma_a * sigma_a * I}})); RETURN_IF_ERROR(filter.correct({{.name =
- * "foot_relative_position", .measurement = R_world_base *
- * foot_position_in_base, .measurementModel = {{"foot_position", I},
+ *       {{.name = "imu_acceleration", .input = linaccBaseRtWorldEwrtWorld,
+ * .inputNoiseCovariance = sigma_a * sigma_a * I}}));
+ * RETURN_IF_ERROR(filter.correct({{.name = "foot_relative_position",
+ * .measurement = rotmatBaseRtWorld * posContactRtBaseEwrtBase,
+ * .measurementModel = {{"foot_position", I},
  * {"base_position", -I}}, .measurementNoiseCovariance = r * I}}));
- *   ASSIGN_OR_RETURN(const KalmanFilterState base_velocity,
- * filter.getState("base_velocity"));
+ *   ASSIGN_OR_RETURN(const KalmanFilterState
+ * filterStateLinvelBaseRtWorldEwrtWorld, filter.getState("base_velocity"));
  *
  * The models are passed to every step, so they may change from one step to the
  * next: a varying time step, a rotation that maps a body-frame quantity into
@@ -186,13 +187,13 @@ struct KalmanFilterMeasurement {
  * once and overwrites their values in place every step, and reads the estimate
  * into a KalmanFilterState it owns:
  *
- *   inputs[0].input = a_world;                                          // same
- * size: no allocation measurements[0].measurement = R_world_base *
- * foot_position_in_base; measurements[0].measurementModel.at("base_position") =
- * -I;      // existing key: no allocation
- *   RETURN_IF_ERROR(filter.predict(processModel, inputs));
+ *   inputs[0].input = linaccBaseRtWorldEwrtWorld; // same size: no allocation
+ * measurements[0].measurement = rotmatBaseRtWorld * posContactRtBaseEwrtBase;
+ * measurements[0].measurementModel.at("base_position") = -I;      // existing
+ * key: no allocation RETURN_IF_ERROR(filter.predict(processModel, inputs));
  *   RETURN_IF_ERROR(filter.correct(measurements));
- *   RETURN_IF_ERROR(filter.getState("base_velocity", base_velocity));
+ *   RETURN_IF_ERROR(filter.getState("base_velocity",
+ * filterStateLinvelBaseRtWorldEwrtWorld));
  *
  * Every call validates its arguments before it changes anything, and a call
  * that fails leaves the estimate exactly as it was, so a sensor glitch that

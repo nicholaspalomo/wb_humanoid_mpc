@@ -31,20 +31,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 
+#include <cmath>
+#include <cstddef>
 #include <string>
 #include <vector>
 
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
-#include "pinocchio/algorithm/frames.hpp"
-#include "pinocchio/algorithm/kinematics.hpp"
-#include "pinocchio/algorithm/model.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
@@ -52,13 +56,13 @@ namespace ocs2::humanoid {
 std::string LocomotionHeuristicModelParameters::summary() const {
   return absl::StrCat(
       "  totalMass: ", totalMass, " kg, weight: ", totalWeight,
-      " N, gravity: ", gravity,
-      " m/s^2\n  nominalComHeight: ", nominalComHeight,
+      " N, gravity: ", gravity, " m/s^2\n  nomPosComRtFeetmeanEwrtWorldZ: ",
+      nomPosComRtFeetmeanEwrtWorldZ,
       " m above the mean foot height\n  hip (base frame): left (",
-      hipPositionInBaseFrame[kContactLeftIndex].x(), ", ",
-      hipPositionInBaseFrame[kContactLeftIndex].y(), ") m, right (",
-      hipPositionInBaseFrame[kContactRightIndex].x(), ", ",
-      hipPositionInBaseFrame[kContactRightIndex].y(), ") m\n");
+      posHipsRtBaseEwrtHeadingXy[kContactLeftIndex].x(), ", ",
+      posHipsRtBaseEwrtHeadingXy[kContactLeftIndex].y(), ") m, right (",
+      posHipsRtBaseEwrtHeadingXy[kContactRightIndex].x(), ", ",
+      posHipsRtBaseEwrtHeadingXy[kContactRightIndex].y(), ") m\n");
 }
 
 absl::StatusOr<LocomotionHeuristicModelParameters>
@@ -80,15 +84,17 @@ deriveLocomotionHeuristicModelParameters(
 
   const vector_t q = mpcRobotModel.getGeneralizedCoordinates(nominalState);
   // The pendulum length of the capture point: the one every LIP consumer shares
-  // (computeComHeightAboveFeet), measured at the nominal posture and used only
-  // as the fallback when the per-solve measurement is unavailable or nonsense.
-  // It also leaves the frame placements of the nominal posture in `data`, which
-  // the hip walk below reads.
-  derived.nominalComHeight =
-      computeComHeightAboveFeet(q, pinocchioInterface, mpcRobotModel);
-  const std::vector<vector3_t> feet = getPosContactsRtWorldEwrtWorld<scalar_t>(
-      pinocchioInterface, mpcRobotModel);
-  if (feet.empty()) {
+  // (computeProxyPosComRtFeetmeanEwrtWorldZ), measured at the nominal posture
+  // and used only as the fallback when the per-solve measurement is unavailable
+  // or nonsense. It also leaves the frame placements of the nominal posture in
+  // `data`, which the hip walk below reads.
+  derived.nomPosComRtFeetmeanEwrtWorldZ =
+      computeProxyPosComRtFeetmeanEwrtWorldZ(q, pinocchioInterface,
+                                             mpcRobotModel);
+  const std::vector<vector3_t> posContactsRtWorldEwrtWorld =
+      getPosContactsRtWorldEwrtWorld<scalar_t>(pinocchioInterface,
+                                               mpcRobotModel);
+  if (posContactsRtWorldEwrtWorld.empty()) {
     return absl::FailedPreconditionError(
         "[LocomotionHeuristicModelParameters] the robot model has no contact "
         "frames.");
@@ -100,12 +106,12 @@ deriveLocomotionHeuristicModelParameters(
   // URDF happens to name it, which is why this does not look for a name. Its
   // placement in the world at the nominal posture, expressed relative to the
   // base and with the vertical dropped, is r_hip.
-  const vector2_t basePosition =
+  const vector2_t posBaseRtWorldEwrtWorldXy =
       mpcRobotModel.getPosBaseRtWorldEwrtWorld(nominalState)
           .head<kHorizontalPositionDim>();
-  const scalar_t baseYaw = mpcRobotModel.getYawBaseRtWorld(nominalState);
-  const scalar_t cosYaw = std::cos(baseYaw);
-  const scalar_t sinYaw = std::sin(baseYaw);
+  const scalar_t yawBaseRtWorld = mpcRobotModel.getYawBaseRtWorld(nominalState);
+  const scalar_t cosYaw = std::cos(yawBaseRtWorld);
+  const scalar_t sinYaw = std::sin(yawBaseRtWorld);
   const std::vector<std::string>& contactParentJointNames =
       mpcRobotModel.modelSettings.contactParentJointNames;
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
@@ -114,28 +120,34 @@ deriveLocomotionHeuristicModelParameters(
     // evaluated in, so a robot whose tree cannot be walked still gets a
     // sensible landmark rather than the base origin - which would put both feet
     // in the same place.
-    vector2_t hipInWorld =
-        foot < feet.size()
-            ? vector2_t(feet[foot].head<kHorizontalPositionDim>())
-            : basePosition;
+    vector2_t posHipRtWorldEwrtWorldXy =
+        foot < posContactsRtWorldEwrtWorld.size()
+            ? vector2_t(posContactsRtWorldEwrtWorld[foot]
+                            .head<kHorizontalPositionDim>())
+            : posBaseRtWorldEwrtWorldXy;
     pinocchio::JointIndex joint = 0;
     if (foot < contactParentJointNames.size() &&
         model.existJointName(contactParentJointNames[foot])) {
       joint = model.getJointId(contactParentJointNames[foot]);
     }
     if (joint > 0) {
-      while (model.parents[joint] > 1)
+      while (model.parents[joint] > 1) {
         joint = model.parents[joint];  // stop at the first child of the
-                                       // floating base
-      hipInWorld = data.oMi[joint].translation().head<kHorizontalPositionDim>();
+      }
+      // floating base
+      posHipRtWorldEwrtWorldXy =
+          data.oMi[joint].translation().head<kHorizontalPositionDim>();
     }
-    const vector2_t relative = hipInWorld - basePosition;
-    // Rotate the world-frame offset back into the base frame, so that the
-    // stored r_hip is a property of the robot rather than of the heading it
-    // happened to be nominally standing at.
-    derived.hipPositionInBaseFrame[foot] =
-        vector2_t(cosYaw * relative.x() + sinYaw * relative.y(),
-                  -sinYaw * relative.x() + cosYaw * relative.y());
+    const vector2_t posHipRtBaseEwrtWorldXy =
+        posHipRtWorldEwrtWorldXy - posBaseRtWorldEwrtWorldXy;
+    // Rotate the world-frame offset back into the heading frame (the base yaw
+    // only), so that the stored r_hip is a property of the robot rather than of
+    // the heading it happened to be nominally standing at.
+    derived.posHipsRtBaseEwrtHeadingXy[foot] =
+        vector2_t(cosYaw * posHipRtBaseEwrtWorldXy.x() +
+                      sinYaw * posHipRtBaseEwrtWorldXy.y(),
+                  -sinYaw * posHipRtBaseEwrtWorldXy.x() +
+                      cosYaw * posHipRtBaseEwrtWorldXy.y());
   }
   return derived;
 }

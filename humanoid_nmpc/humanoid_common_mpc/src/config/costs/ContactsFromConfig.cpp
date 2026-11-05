@@ -46,10 +46,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 #include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
 
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -60,6 +63,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_mpc_config/contacts_config.nproto.h"
+#include "humanoid_mpc_config/xyz.nproto.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -159,29 +163,34 @@ absl::StatusOr<vector3_t> unitVector(absl::string_view block,
 }
 
 /**
- * parent_R_contact of a surface pad: z = -pad_normal, x = pad_x_axis made
+ * parent_R_contact of a surface pad: z = -normal_pad_ewrt_link, x =
+ * x_axis_pad_ewrt_link made
  * orthogonal to z, y = z x x. InvalidArgument naming the field of an axis that
  * is not unit, or of an x axis not orthogonal to the normal.
  */
-absl::StatusOr<matrix3_t> padRotationFromConfig(
+absl::StatusOr<matrix3_t> parseRotmatPadRtLink(
     absl::string_view block,
     const mpc_config::ContactsConfig::SurfacePad& pad) {
-  ASSIGN_OR_RETURN(const vector3_t normal,
-                   unitVector(block, "pad_normal", pad.pad_normal));
-  ASSIGN_OR_RETURN(const vector3_t xAxis,
-                   unitVector(block, "pad_x_axis", pad.pad_x_axis));
-  if (std::abs(normal.dot(xAxis)) > kPadAxisTolerance) {
-    return absl::InvalidArgumentError(
-        absl::StrCat(block, ".pad_x_axis is not orthogonal to pad_normal: ",
-                     "their dot product is ", normal.dot(xAxis), "."));
+  ASSIGN_OR_RETURN(
+      const vector3_t normalPadEwrtLink,
+      unitVector(block, "normal_pad_ewrt_link", pad.normal_pad_ewrt_link));
+  ASSIGN_OR_RETURN(
+      const vector3_t xAxisPadEwrtLink,
+      unitVector(block, "x_axis_pad_ewrt_link", pad.x_axis_pad_ewrt_link));
+  if (std::abs(normalPadEwrtLink.dot(xAxisPadEwrtLink)) > kPadAxisTolerance) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        block,
+        ".x_axis_pad_ewrt_link is not orthogonal to normal_pad_ewrt_link: ",
+        "their dot product is ", normalPadEwrtLink.dot(xAxisPadEwrtLink), "."));
   }
-  const vector3_t z = -normal;
-  const vector3_t x = (xAxis - xAxis.dot(z) * z).normalized();
-  matrix3_t rotation;
-  rotation.col(0) = x;
-  rotation.col(1) = z.cross(x);
-  rotation.col(kZAxisIndex) = z;
-  return rotation;
+  const vector3_t z = -normalPadEwrtLink;
+  const vector3_t x =
+      (xAxisPadEwrtLink - xAxisPadEwrtLink.dot(z) * z).normalized();
+  matrix3_t rotmatPadRtLink;
+  rotmatPadRtLink.col(0) = x;
+  rotmatPadRtLink.col(1) = z.cross(x);
+  rotmatPadRtLink.col(kZAxisIndex) = z;
+  return rotmatPadRtLink;
 }
 
 /** The name of contacts.surface_pads[`index`], for the messages. */
@@ -200,29 +209,48 @@ absl::StatusOr<ContactRectangle> rectangleFromConfig(
     absl::string_view block,
     const mpc_config::ContactsConfig::Rectangle& rectangle,
     const ContactCenterPoint& centerPoint) {
-  RETURN_IF_ERROR(checkFinite(block, "x_min", rectangle.x_min));
-  RETURN_IF_ERROR(checkFinite(block, "x_max", rectangle.x_max));
-  RETURN_IF_ERROR(checkFinite(block, "y_min", rectangle.y_min));
-  RETURN_IF_ERROR(checkFinite(block, "y_max", rectangle.y_max));
+  RETURN_IF_ERROR(
+      checkFinite(block, "min_pos_corners_rt_contact_ewrt_contact_x",
+                  rectangle.min_pos_corners_rt_contact_ewrt_contact_x));
+  RETURN_IF_ERROR(
+      checkFinite(block, "max_pos_corners_rt_contact_ewrt_contact_x",
+                  rectangle.max_pos_corners_rt_contact_ewrt_contact_x));
+  RETURN_IF_ERROR(
+      checkFinite(block, "min_pos_corners_rt_contact_ewrt_contact_y",
+                  rectangle.min_pos_corners_rt_contact_ewrt_contact_y));
+  RETURN_IF_ERROR(
+      checkFinite(block, "max_pos_corners_rt_contact_ewrt_contact_y",
+                  rectangle.max_pos_corners_rt_contact_ewrt_contact_y));
   RETURN_IF_ERROR(checkFinite(block, "scale_factor", rectangle.scale_factor));
   // An empty or inverted rectangle has no interior for the wrench cone and the
   // center of pressure, and a scale factor of 0 or less shrinks it to a point
   // or flips it.
-  if (!(rectangle.x_min < rectangle.x_max) ||
-      !(rectangle.y_min < rectangle.y_max)) {
+  if (!(rectangle.min_pos_corners_rt_contact_ewrt_contact_x <
+        rectangle.max_pos_corners_rt_contact_ewrt_contact_x) ||
+      !(rectangle.min_pos_corners_rt_contact_ewrt_contact_y <
+        rectangle.max_pos_corners_rt_contact_ewrt_contact_y)) {
     return absl::InvalidArgumentError(absl::StrCat(
-        block, " is x in [", rectangle.x_min, ", ", rectangle.x_max,
-        "], y in [", rectangle.y_min, ", ", rectangle.y_max,
-        "], but it must have x_min < x_max and y_min < y_max."));
+        block, " is x in [",
+        rectangle.min_pos_corners_rt_contact_ewrt_contact_x, ", ",
+        rectangle.max_pos_corners_rt_contact_ewrt_contact_x, "], y in [",
+        rectangle.min_pos_corners_rt_contact_ewrt_contact_y, ", ",
+        rectangle.max_pos_corners_rt_contact_ewrt_contact_y,
+        "], but it must have min_pos_corners_rt_contact_ewrt_contact_x < "
+        "max_pos_corners_rt_contact_ewrt_contact_x and "
+        "min_pos_corners_rt_contact_ewrt_contact_y < "
+        "max_pos_corners_rt_contact_ewrt_contact_y."));
   }
   if (!(rectangle.scale_factor > 0.0)) {
     return absl::InvalidArgumentError(
         absl::StrCat(block, ".scale_factor is ", rectangle.scale_factor,
                      ", but it must be positive."));
   }
-  return ContactRectangle(PolygonBounds(rectangle.x_min, rectangle.x_max,
-                                        rectangle.y_min, rectangle.y_max),
-                          centerPoint, rectangle.scale_factor);
+  return ContactRectangle(
+      PolygonBounds(rectangle.min_pos_corners_rt_contact_ewrt_contact_x,
+                    rectangle.max_pos_corners_rt_contact_ewrt_contact_x,
+                    rectangle.min_pos_corners_rt_contact_ewrt_contact_y,
+                    rectangle.max_pos_corners_rt_contact_ewrt_contact_y),
+      centerPoint, rectangle.scale_factor);
 }
 
 /** The relaxed barrier `block` {mu delta}, both finite and positive. */
@@ -267,16 +295,18 @@ absl::StatusOr<ContactCenterPoint> contactCenterPointFromConfig(
           findSurfacePad(contacts, name);
       pad != nullptr) {
     const std::string block = surfacePadBlock(surfacePadIndex(contacts, *pad));
-    ASSIGN_OR_RETURN(const vector3_t translation,
-                     finiteVector(block, "translation", pad->translation));
-    ASSIGN_OR_RETURN(const matrix3_t rotation,
-                     padRotationFromConfig(block, *pad));
-    return ContactCenterPoint(name, parent, translation, rotation);
+    ASSIGN_OR_RETURN(const vector3_t posPadRtLinkEwrtLink,
+                     finiteVector(block, "pos_pad_rt_link_ewrt_link",
+                                  pad->pos_pad_rt_link_ewrt_link));
+    ASSIGN_OR_RETURN(const matrix3_t rotmatPadRtLink,
+                     parseRotmatPadRtLink(block, *pad));
+    return ContactCenterPoint(name, parent, posPadRtLinkEwrtLink,
+                              rotmatPadRtLink);
   }
-  ASSIGN_OR_RETURN(const vector3_t translation,
+  ASSIGN_OR_RETURN(const vector3_t posContactRtLinkEwrtLink,
                    finiteVector("contacts", "pos_contact_rt_link_ewrt_link",
                                 contacts.pos_contact_rt_link_ewrt_link));
-  return ContactCenterPoint(name, parent, translation);
+  return ContactCenterPoint(name, parent, posContactRtLinkEwrtLink);
 }
 
 absl::StatusOr<ContactRectangle> contactRectangleFromConfig(

@@ -64,7 +64,7 @@ constexpr pinocchio::JointIndex kRootJoint = 1;
 // The first index of the base orientation in the configuration (x, y, z, w).
 constexpr int kBaseQuaternionIndex = kPositionDim;
 // How far from 1 the norm of a base quaternion may be.
-constexpr double kQuaternionNormTolerance = 1.0e-6;
+constexpr double kUnitQuaternionNormTolerance = 1.0e-6;
 
 /** [v]x, the cross-product matrix. */
 Eigen::Matrix3d crossMatrix(const Eigen::Vector3d& v) {
@@ -120,8 +120,10 @@ absl::StatusOr<std::unique_ptr<RobotStanceModel>> RobotStanceModel::Create(
         .velocityIndex = velocityIndex,
         .positionIndex = positionIndex,
         .effortLimit = stanceModel->model_.effortLimit(velocityIndex),
+        // NOLINTBEGIN(frame-naming): Pinocchio's joint limits (joint space)
         .lowerLimit = stanceModel->model_.lowerPositionLimit(positionIndex),
         .upperLimit = stanceModel->model_.upperPositionLimit(positionIndex)});
+    // NOLINTEND(frame-naming)
   }
   const RobotConfiguration neutral;
   if (absl::Status status = stanceModel->setConfiguration(neutral);
@@ -144,16 +146,16 @@ absl::StatusOr<Eigen::VectorXd> RobotStanceModel::generalizedPositionOf(
                      " joint names but ", configuration.jointPositions.size(),
                      " positions"));
   }
-  if (!configuration.basePosition.allFinite() ||
+  if (!configuration.posBaseRtWorldEwrtWorld.allFinite() ||
       !configuration.jointPositions.allFinite() ||
-      !configuration.baseOrientation.coeffs().allFinite()) {
+      !configuration.quatBaseRtWorld.coeffs().allFinite()) {
     return absl::InvalidArgumentError(
         "a configuration needs finite values and a unit base quaternion");
   }
   Eigen::VectorXd q = pinocchio::neutral(model_);
-  q.head<kPositionDim>() = configuration.basePosition;
+  q.head<kPositionDim>() = configuration.posBaseRtWorldEwrtWorld;
   q.segment<kQuaternionCoefficients>(kBaseQuaternionIndex) =
-      configuration.baseOrientation.coeffs();
+      configuration.quatBaseRtWorld.coeffs();
   absl::flat_hash_set<std::string> seen;
   for (size_t i = 0; i < configuration.jointNames.size(); ++i) {
     const std::string& name = configuration.jointNames[i];
@@ -175,8 +177,8 @@ absl::StatusOr<Eigen::VectorXd> RobotStanceModel::generalizedPositionOf(
 RobotConfiguration RobotStanceModel::configurationOf(
     const Eigen::VectorXd& q) const {
   RobotConfiguration configuration;
-  configuration.basePosition = q.head<kPositionDim>();
-  configuration.baseOrientation = Eigen::Quaterniond(Eigen::Vector4d(
+  configuration.posBaseRtWorldEwrtWorld = q.head<kPositionDim>();
+  configuration.quatBaseRtWorld = Eigen::Quaterniond(Eigen::Vector4d(
       q.segment<kQuaternionCoefficients>(kBaseQuaternionIndex)));
   configuration.jointPositions.resize(
       static_cast<Eigen::Index>(actuatedJoints_.size()));
@@ -190,8 +192,8 @@ RobotConfiguration RobotStanceModel::configurationOf(
 
 absl::Status RobotStanceModel::setConfiguration(
     const RobotConfiguration& configuration) {
-  if (!(std::abs(configuration.baseOrientation.norm() - 1.0) <=
-        kQuaternionNormTolerance)) {
+  if (!(std::abs(configuration.quatBaseRtWorld.norm() - 1.0) <=
+        kUnitQuaternionNormTolerance)) {
     return absl::InvalidArgumentError(
         "a configuration needs finite values and a unit base quaternion");
   }
@@ -205,7 +207,7 @@ absl::Status RobotStanceModel::setGeneralizedPosition(
   if (q.size() != model_.nq || !q.allFinite() ||
       !(std::abs(
             q.segment<kQuaternionCoefficients>(kBaseQuaternionIndex).norm() -
-            1.0) <= kQuaternionNormTolerance)) {
+            1.0) <= kUnitQuaternionNormTolerance)) {
     return absl::InvalidArgumentError(absl::StrCat(
         "a generalized position needs ", model_.nq,
         " finite values and a unit base quaternion, not ", q.size()));
@@ -213,26 +215,27 @@ absl::Status RobotStanceModel::setGeneralizedPosition(
   q_ = q;
   q_.segment<kQuaternionCoefficients>(kBaseQuaternionIndex).normalize();
   // Also computes the forward kinematics and the center of mass.
-  centerOfMassJacobian_ = pinocchio::jacobianCenterOfMass(
+  linjacComRtWorldEwrtWorld_ = pinocchio::jacobianCenterOfMass(
       model_, data_, q_, /*computeSubtreeComs=*/false);
-  centerOfMass_ = data_.com[0];
+  posComRtWorldEwrtWorld_ = data_.com[0];
   pinocchio::computeJointJacobians(model_, data_, q_);
   pinocchio::computeGeneralizedGravity(model_, data_, q_);
   return absl::OkStatus();
 }
 
-absl::StatusOr<CentroidalMomentum> RobotStanceModel::centroidalMomentum(
-    const Eigen::VectorXd& q, const Eigen::VectorXd& v) {
+absl::StatusOr<CentroidalMomentum>
+RobotStanceModel::computeCmomComRtWorldEwrtWorld(const Eigen::VectorXd& q,
+                                                 const Eigen::VectorXd& v) {
   if (v.size() != model_.nv || !v.allFinite()) {
     return absl::InvalidArgumentError(
         absl::StrCat("a generalized velocity needs ", model_.nv,
                      " finite values, not ", v.size()));
   }
   RETURN_IF_ERROR(setGeneralizedPosition(q));
-  const pinocchio::Force& momentum =
+  const pinocchio::Force& cmomComRtWorldEwrtWorld =
       pinocchio::computeCentroidalMomentum(model_, data_, q_, v);
-  return CentroidalMomentum{.linear = momentum.linear(),
-                            .angular = momentum.angular()};
+  return CentroidalMomentum{.linear = cmomComRtWorldEwrtWorld.linear(),
+                            .angular = cmomComRtWorldEwrtWorld.angular()};
 }
 
 absl::StatusOr<pinocchio::JointIndex> RobotStanceModel::jointIndex(
@@ -244,7 +247,7 @@ absl::StatusOr<pinocchio::JointIndex> RobotStanceModel::jointIndex(
   return model_.getJointId(std::string(name));
 }
 
-absl::Status RobotStanceModel::relaxPositionLimits(double relaxation) {
+absl::Status RobotStanceModel::relaxJointPositionLimits(double relaxation) {
   if (!(relaxation >= 0.0) || !std::isfinite(relaxation)) {
     return absl::InvalidArgumentError(
         "the joint limits' relaxation must be finite and not negative");
@@ -256,42 +259,51 @@ absl::Status RobotStanceModel::relaxPositionLimits(double relaxation) {
   return absl::OkStatus();
 }
 
-Eigen::Vector3d RobotStanceModel::padPosition(int index) const {
-  const pinocchio::SE3& joint = data_.oMi[padJoints_[index]];
-  return joint.act(Eigen::Vector3d(contacts_.candidate(index).offset));
+Eigen::Vector3d RobotStanceModel::getPosPadRtWorldEwrtWorld(int index) const {
+  const pinocchio::SE3& poseLinkRtWorld = data_.oMi[padJoints_[index]];
+  return poseLinkRtWorld.act(
+      Eigen::Vector3d(contacts_.candidate(index).posPadRtLinkEwrtLink));
 }
 
-Eigen::Matrix3d RobotStanceModel::padRotation(int index) const {
+Eigen::Matrix3d RobotStanceModel::getRotmatPadRtWorld(int index) const {
   return data_.oMi[padJoints_[index]].rotation() *
-         contacts_.candidate(index).padRotation;
+         contacts_.candidate(index).rotmatPadRtLink;
 }
 
 Eigen::Matrix<double, kPositionDim, Eigen::Dynamic>
-RobotStanceModel::pointJacobian(int index, const Eigen::Vector3d& point) const {
-  return jointPointJacobian(padJoints_[index], point);
+RobotStanceModel::computeLinjacQueryRtWorldEwrtWorld(
+    int index, const Eigen::Vector3d& posQueryRtWorldEwrtWorld) const {
+  return computeJointLinjacQueryRtWorldEwrtWorld(padJoints_[index],
+                                                 posQueryRtWorldEwrtWorld);
 }
 
 Eigen::Matrix<double, kRotationTangentDim, Eigen::Dynamic>
-RobotStanceModel::jointAngularJacobian(pinocchio::JointIndex joint) const {
-  pinocchio::Data::Matrix6x jacobian =
+RobotStanceModel::computeAngjacLinkRtWorldEwrtWorld(
+    pinocchio::JointIndex joint) const {
+  pinocchio::Data::Matrix6x jacLinkRtWorldEwrtWorld =
       pinocchio::Data::Matrix6x::Zero(kTwistDim, model_.nv);
   pinocchio::getJointJacobian(model_, data_, joint,
-                              pinocchio::LOCAL_WORLD_ALIGNED, jacobian);
-  return jacobian.bottomRows<kRotationTangentDim>();
+                              pinocchio::LOCAL_WORLD_ALIGNED,
+                              jacLinkRtWorldEwrtWorld);
+  return jacLinkRtWorldEwrtWorld.bottomRows<kRotationTangentDim>();
 }
 
 Eigen::Matrix<double, kPositionDim, Eigen::Dynamic>
-RobotStanceModel::jointPointJacobian(pinocchio::JointIndex joint,
-                                     const Eigen::Vector3d& point) const {
-  pinocchio::Data::Matrix6x jacobian =
+RobotStanceModel::computeJointLinjacQueryRtWorldEwrtWorld(
+    pinocchio::JointIndex joint,
+    const Eigen::Vector3d& posQueryRtWorldEwrtWorld) const {
+  pinocchio::Data::Matrix6x jacLinkRtWorldEwrtWorld =
       pinocchio::Data::Matrix6x::Zero(kTwistDim, model_.nv);
   // At the joint's origin, in world-aligned axes: (v_o; omega).
   pinocchio::getJointJacobian(model_, data_, joint,
-                              pinocchio::LOCAL_WORLD_ALIGNED, jacobian);
-  const Eigen::Vector3d lever = point - data_.oMi[joint].translation();
-  // v_point = v_o + omega x lever = v_o - [lever]x omega.
-  return jacobian.topRows<kPositionDim>() -
-         crossMatrix(lever) * jacobian.bottomRows<kRotationTangentDim>();
+                              pinocchio::LOCAL_WORLD_ALIGNED,
+                              jacLinkRtWorldEwrtWorld);
+  const Eigen::Vector3d posQueryRtLinkEwrtWorld =
+      posQueryRtWorldEwrtWorld - data_.oMi[joint].translation();
+  // v_point = v_o + omega x r = v_o - [r]x omega.
+  return jacLinkRtWorldEwrtWorld.topRows<kPositionDim>() -
+         crossMatrix(posQueryRtLinkEwrtWorld) *
+             jacLinkRtWorldEwrtWorld.bottomRows<kRotationTangentDim>();
 }
 
 }  // namespace ocs2::humanoid::multi_contact

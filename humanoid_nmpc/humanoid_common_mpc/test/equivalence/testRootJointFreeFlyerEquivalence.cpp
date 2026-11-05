@@ -29,7 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"
 
+#include <cstddef>
 #include <memory>
+#include <numbers>
 #include <random>
 #include <utility>
 #include <vector>
@@ -38,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/LU"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "pinocchio/algorithm/aba.hpp"
 #include "pinocchio/algorithm/center-of-mass.hpp"
@@ -46,9 +49,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/joint/joint-free-flyer.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/joint/fwd.hpp"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
@@ -124,20 +126,20 @@ pinocchio::Model freeFlyerTwinOf(const pinocchio::Model& model) {
  * Passive data. */
 struct FreeFlyerMap {
   matrix_t map;
-  vector_t mapRateTimesVelocity;
+  vector_t mapRateTimesGeneralizedVelocity;
 };
 
 FreeFlyerMap freeFlyerMapOf(const PinocchioMotion& motion) {
   const Eigen::Index nv = motion.v.size();
-  const matrix3_t rotation =
+  const matrix3_t rotmatBaseRtWorld =
       quaternionRotationMatrix<scalar_t>(vector4_t(motion.q.segment<4>(3)));
   FreeFlyerMap map{.map = matrix_t::Identity(nv, nv),
-                   .mapRateTimesVelocity = vector_t::Zero(nv)};
-  map.map.topLeftCorner<3, 3>() = rotation.transpose();
-  const vector3_t bodyLinearVelocity =
-      rotation.transpose() * motion.v.head<3>();
-  map.mapRateTimesVelocity.head<3>() =
-      -vector3_t(motion.v.segment<3>(3)).cross(bodyLinearVelocity);
+                   .mapRateTimesGeneralizedVelocity = vector_t::Zero(nv)};
+  map.map.topLeftCorner<3, 3>() = rotmatBaseRtWorld.transpose();
+  const vector3_t linvelBaseRtWorldEwrtBase =
+      rotmatBaseRtWorld.transpose() * motion.v.head<3>();
+  map.mapRateTimesGeneralizedVelocity.head<3>() =
+      -vector3_t(motion.v.segment<3>(3)).cross(linvelBaseRtWorldEwrtBase);
   return map;
 }
 
@@ -166,18 +168,22 @@ class RootJointFreeFlyerEquivalence
     std::mt19937 generator(/*sd=*/20261011);
     std::vector<PinocchioMotion> result;
     const std::vector<vector4_t> special = {
-        quaternionFromEulerZyx(vector3_t(M_PI, 0.5 * M_PI, 0.0)),
-        quaternionFromEulerZyx(vector3_t(M_PI, -0.5 * M_PI, 0.3)),
-        quaternionFromEulerZyx(vector3_t(-M_PI, 0.5 * M_PI, -2.0))};
+        quaternionFromEulerZyx(
+            vector3_t(std::numbers::pi, 0.5 * std::numbers::pi, 0.0)),
+        quaternionFromEulerZyx(
+            vector3_t(std::numbers::pi, -0.5 * std::numbers::pi, 0.3)),
+        quaternionFromEulerZyx(
+            vector3_t(-std::numbers::pi, 0.5 * std::numbers::pi, -2.0))};
     for (int sample = 0; sample < kSamples; ++sample) {
       const PinocchioMotion euler = randomEulerMotion(
           models_->eulerModel(), MotionSamplingBounds{}, generator);
       absl::StatusOr<PinocchioMotion> motion =
-          quaternionMotionOf(euler, models_->pinocchioStateLayout());
+          quaternionModelMotionOf(euler, models_->pinocchioStateLayout());
       EXPECT_TRUE(motion.ok()) << motion.status();
       if (!motion.ok()) continue;
-      if (sample < static_cast<int>(special.size()))
+      if (sample < static_cast<int>(special.size())) {
         motion->q.segment<4>(3) = special[static_cast<size_t>(sample)];
+      }
       result.push_back(*motion);
       PinocchioMotion negated = *motion;
       negated.q.segment<4>(3) = -motion->q.segment<4>(3);
@@ -197,13 +203,14 @@ TEST_P(RootJointFreeFlyerEquivalence,
   pinocchio::Data freeFlyerData(*freeFlyer_);
   for (const PinocchioMotion& motion : motions()) {
     const FreeFlyerMap map = freeFlyerMapOf(motion);
-    const vector_t freeFlyerVelocity = map.map * motion.v;
-    const vector_t freeFlyerAcceleration =
-        map.map * motion.a + map.mapRateTimesVelocity;
+    const vector_t freeFlyerGeneralizedVelocity = map.map * motion.v;
+    const vector_t freeFlyerGeneralizedAcceleration =
+        map.map * motion.a + map.mapRateTimesGeneralizedVelocity;
     pinocchio::forwardKinematics(model, data, motion.q, motion.v, motion.a);
     pinocchio::updateFramePlacements(model, data);
     pinocchio::forwardKinematics(*freeFlyer_, freeFlyerData, motion.q,
-                                 freeFlyerVelocity, freeFlyerAcceleration);
+                                 freeFlyerGeneralizedVelocity,
+                                 freeFlyerGeneralizedAcceleration);
     pinocchio::updateFramePlacements(*freeFlyer_, freeFlyerData);
     for (pinocchio::FrameIndex frame = 1;
          frame < static_cast<pinocchio::FrameIndex>(model.nframes); ++frame) {
@@ -247,17 +254,18 @@ TEST_P(RootJointFreeFlyerEquivalence,
   std::mt19937 generator(/*sd=*/7);
   for (const PinocchioMotion& motion : motions()) {
     const FreeFlyerMap map = freeFlyerMapOf(motion);
-    const vector_t freeFlyerVelocity = map.map * motion.v;
-    const vector_t freeFlyerAcceleration =
-        map.map * motion.a + map.mapRateTimesVelocity;
+    const vector_t freeFlyerGeneralizedVelocity = map.map * motion.v;
+    const vector_t freeFlyerGeneralizedAcceleration =
+        map.map * motion.a + map.mapRateTimesGeneralizedVelocity;
     // (F4) rnea: tau = J_m' tau_f.
-    const vector_t torques =
+    const vector_t generalizedTorques =
         pinocchio::rnea(model, data, motion.q, motion.v, motion.a);
-    const vector_t freeFlyerTorques =
-        pinocchio::rnea(*freeFlyer_, freeFlyerData, motion.q, freeFlyerVelocity,
-                        freeFlyerAcceleration);
-    ASSERT_TRUE(isCloseRelative(torques, map.map.transpose() * freeFlyerTorques,
-                                kRoundOffTolerance));
+    const vector_t freeFlyerGeneralizedTorques = pinocchio::rnea(
+        *freeFlyer_, freeFlyerData, motion.q, freeFlyerGeneralizedVelocity,
+        freeFlyerGeneralizedAcceleration);
+    ASSERT_TRUE(isCloseRelative(
+        generalizedTorques, map.map.transpose() * freeFlyerGeneralizedTorques,
+        kRoundOffTolerance));
     // crba: M = J_m' M_f J_m.
     const matrix_t massMatrix =
         symmetricFromUpper(pinocchio::crba(model, data, motion.q));
@@ -270,30 +278,31 @@ TEST_P(RootJointFreeFlyerEquivalence,
     const vector_t effects =
         pinocchio::nonLinearEffects(model, data, motion.q, motion.v);
     const vector_t freeFlyerEffects = pinocchio::nonLinearEffects(
-        *freeFlyer_, freeFlyerData, motion.q, freeFlyerVelocity);
+        *freeFlyer_, freeFlyerData, motion.q, freeFlyerGeneralizedVelocity);
     ASSERT_TRUE(isCloseRelative(
         effects,
         map.map.transpose() *
-            (freeFlyerEffects + freeFlyerMassMatrix * map.mapRateTimesVelocity),
+            (freeFlyerEffects +
+             freeFlyerMassMatrix * map.mapRateTimesGeneralizedVelocity),
         kRoundOffTolerance));
     // aba: the accelerations of a torque, a_f = J_m a + (dJ_m/dt) v with tau_f
     // = J_m^-T tau, within (T4): the round-off of the solve times the condition
     // number of M.
-    const vector_t torque =
+    const vector_t generalizedTorque =
         uniformVector(model.nv, /*halfWidth=*/50.0, generator);
-    const vector_t acceleration =
-        pinocchio::aba(model, data, motion.q, motion.v, torque);
-    const vector_t freeFlyerTorque =
-        map.map.transpose().partialPivLu().solve(torque);
-    const vector_t freeFlyerFromAba =
-        pinocchio::aba(*freeFlyer_, freeFlyerData, motion.q, freeFlyerVelocity,
-                       freeFlyerTorque);
+    const vector_t generalizedAcceleration =
+        pinocchio::aba(model, data, motion.q, motion.v, generalizedTorque);
+    const vector_t freeFlyerGeneralizedTorque =
+        map.map.transpose().partialPivLu().solve(generalizedTorque);
+    const vector_t freeFlyerFromAba = pinocchio::aba(
+        *freeFlyer_, freeFlyerData, motion.q, freeFlyerGeneralizedVelocity,
+        freeFlyerGeneralizedTorque);
     const vector_t eigenvalues =
         Eigen::SelfAdjointEigenSolver<matrix_t>(massMatrix).eigenvalues();
     const scalar_t condition = eigenvalues.maxCoeff() / eigenvalues.minCoeff();
-    ASSERT_TRUE(
-        isCloseRelative(map.map * acceleration + map.mapRateTimesVelocity,
-                        freeFlyerFromAba, kRoundOffTolerance * condition));
+    ASSERT_TRUE(isCloseRelative(
+        map.map * generalizedAcceleration + map.mapRateTimesGeneralizedVelocity,
+        freeFlyerFromAba, kRoundOffTolerance * condition));
   }
 }
 
@@ -323,17 +332,18 @@ TEST_P(
     // composite inertia (world-aligned, about c).
     pinocchio::ccrba(model, data, motion.q, motion.v);
     const matrix_t baseBlock = data.Ag.leftCols<6>();
-    const matrix3_t rotation =
+    const matrix3_t rotmatBaseRtWorld =
         quaternionRotationMatrix<scalar_t>(vector4_t(motion.q.segment<4>(3)));
-    const vector3_t offset = data.com[0] - motion.q.head<3>();
+    const vector3_t posComRtBaseEwrtWorld = data.com[0] - motion.q.head<3>();
     matrix3_t offsetCross;
-    offsetCross << 0.0, -offset.z(), offset.y(), offset.z(), 0.0, -offset.x(),
-        -offset.y(), offset.x(), 0.0;
+    offsetCross << 0.0, -posComRtBaseEwrtWorld.z(), posComRtBaseEwrtWorld.y(),
+        posComRtBaseEwrtWorld.z(), 0.0, -posComRtBaseEwrtWorld.x(),
+        -posComRtBaseEwrtWorld.y(), posComRtBaseEwrtWorld.x(), 0.0;
     matrix_t closedForm = matrix_t::Zero(6, 6);
     closedForm.topLeftCorner<3, 3>() = mass * matrix3_t::Identity();
-    closedForm.topRightCorner<3, 3>() = -mass * offsetCross * rotation;
+    closedForm.topRightCorner<3, 3>() = -mass * offsetCross * rotmatBaseRtWorld;
     closedForm.bottomRightCorner<3, 3>() =
-        data.Ig.inertia().matrix() * rotation;
+        data.Ig.inertia().matrix() * rotmatBaseRtWorld;
     ASSERT_TRUE(isCloseRelative(baseBlock, closedForm, kRoundOffTolerance));
   }
   // The negated quaternion: the same rotation coefficient for coefficient, so

@@ -36,16 +36,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <functional>
 #include <mutex>
-#include <string>
+#include <numbers>
 #include <utility>
 #include <vector>
 
 #include "absl/log/absl_check.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Sinc.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
-#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -89,12 +92,14 @@ struct TwistSegment {
 
 /**
  * [rad/s] `rateYawBaseRtWorld` limited to the rate that turns a segment of
- * `duration` [s] by TargetTrajectoriesCalculatorBase::kMaxSegmentYawChange:
- * unchanged at any rate a robot turns at, and not a number for one that is not.
+ * `duration` [s] by
+ * TargetTrajectoriesCalculatorBase::kSegmentMaxErrYawBaseRtWorld: unchanged at
+ * any rate a robot turns at, and not a number for one that is not.
  */
-scalar_t clampedSegmentYawRate(scalar_t rateYawBaseRtWorld, scalar_t duration) {
+scalar_t computeClampedSegmentRateYawBaseRtWorld(scalar_t rateYawBaseRtWorld,
+                                                 scalar_t duration) {
   const scalar_t limit =
-      TargetTrajectoriesCalculatorBase::kMaxSegmentYawChange / duration;
+      TargetTrajectoriesCalculatorBase::kSegmentMaxErrYawBaseRtWorld / duration;
   return std::clamp(rateYawBaseRtWorld, -limit, limit);
 }
 
@@ -118,16 +123,16 @@ TargetTrajectoriesCalculatorBase::TargetTrajectoriesCalculatorBase(
 void TargetTrajectoriesCalculatorBase::applyCommandLimits(
     const ReferenceSettings& referenceSettings) {
   // LINT.IfChange(apply_command_limits)
-  nomPosBaseRtWorldEwrtWorldZ_.store(
-      referenceSettings.nomPosBaseRtWorldEwrtWorldZ);
+  nomPosBaseRtSurfaceEwrtWorldZ_.store(
+      referenceSettings.nomPosBaseRtSurfaceEwrtWorldZ);
   refRateYawBaseRtWorld_.store(referenceSettings.refRateYawBaseRtWorld);
   refSpeedBaseRtWorld_.store(referenceSettings.refSpeedBaseRtWorld);
   cmdMaxLinvelBaseRtWorldEwrtHeadingX_.store(
       referenceSettings.cmdMaxLinvelBaseRtWorldEwrtHeadingX);
   cmdMaxLinvelBaseRtWorldEwrtHeadingY_.store(
       referenceSettings.cmdMaxLinvelBaseRtWorldEwrtHeadingY);
-  cmdMaxErrPosBaseRtWorldEwrtWorldZ_.store(
-      referenceSettings.cmdMaxErrPosBaseRtWorldEwrtWorldZ);
+  cmdMaxErrPosBaseRtSurfaceEwrtWorldZ_.store(
+      referenceSettings.cmdMaxErrPosBaseRtSurfaceEwrtWorldZ);
   cmdMaxAngvelBaseRtWorldEwrtWorldZ_.store(
       referenceSettings.cmdMaxAngvelBaseRtWorldEwrtWorldZ);
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/reference/ReferenceFromConfig.cpp:hot_reference_file_fields)
@@ -143,81 +148,90 @@ void TargetTrajectoriesCalculatorBase::reset() {}
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void TargetTrajectoriesCalculatorBase::setTerrainHeightSource(
-    std::function<scalar_t()> terrainHeightSource) {
-  std::lock_guard<std::mutex> lock(terrainHeightSourceMutex_);
-  terrainHeightSource_ = std::move(terrainHeightSource);
+void TargetTrajectoriesCalculatorBase::setSourcePosSurfaceRtWorldEwrtWorldZ(
+    std::function<scalar_t()> sourcePosSurfaceRtWorldEwrtWorldZ) {
+  std::lock_guard<std::mutex> lock(surfaceSourceMutex_);
+  sourcePosSurfaceRtWorldEwrtWorldZ_ =
+      std::move(sourcePosSurfaceRtWorldEwrtWorldZ);
 }
 
-scalar_t TargetTrajectoriesCalculatorBase::getTerrainHeight() const {
-  std::lock_guard<std::mutex> lock(terrainHeightSourceMutex_);
-  return terrainHeightSource_ ? terrainHeightSource_()
-                              : mpcRobotModelPtr_->modelSettings.terrainHeight;
+scalar_t TargetTrajectoriesCalculatorBase::getPosSurfaceRtWorldEwrtWorldZ()
+    const {
+  std::lock_guard<std::mutex> lock(surfaceSourceMutex_);
+  return sourcePosSurfaceRtWorldEwrtWorldZ_
+             ? sourcePosSurfaceRtWorldEwrtWorldZ_()
+             : mpcRobotModelPtr_->modelSettings.posSurfaceRtWorldEwrtWorldZ;
 }
 
-scalar_t TargetTrajectoriesCalculatorBase::commandedBaseHeight(
-    scalar_t commandedPelvisHeight) const {
-  const scalar_t heightAboveGround =
-      commandedPelvisHeight > kMinCommandedPelvisHeight
-          ? commandedPelvisHeight
-          : nomPosBaseRtWorldEwrtWorldZ_.load();
-  return getTerrainHeight() + heightAboveGround;
+scalar_t TargetTrajectoriesCalculatorBase::computeRefPosBaseRtWorldEwrtWorldZ(
+    scalar_t cmdPosBaseRtSurfaceEwrtWorldZ) const {
+  const scalar_t refPosBaseRtSurfaceEwrtWorldZ =
+      cmdPosBaseRtSurfaceEwrtWorldZ > kCmdMinPosBaseRtSurfaceEwrtWorldZ
+          ? cmdPosBaseRtSurfaceEwrtWorldZ
+          : nomPosBaseRtSurfaceEwrtWorldZ_.load();
+  return getPosSurfaceRtWorldEwrtWorldZ() + refPosBaseRtSurfaceEwrtWorldZ;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector6_t TargetTrajectoriesCalculatorBase::getDeltaBaseTarget(
+vector6_t TargetTrajectoriesCalculatorBase::getFinalPoseeulerzyxBaseRtWorld(
     const vector4_t& poseCommand,
-    const vector6_t& levelPoseeulerzyxBaseRtWorld) const {
-  vector_t target(kPoseTargetDim);
+    const vector6_t& poseeulerzyxHeadingRtWorld) const {
+  vector_t finalPoseeulerzyxBaseRtWorld(kPoseTargetDim);
 
-  // X facing forward to the robot, Y to the left side in the baseFrame
-  const scalar_t baseFrameDeltaX = poseCommand(0);
-  const scalar_t baseFrameDeltaY = poseCommand(1);
-  const scalar_t currentEulerZ =
-      levelPoseeulerzyxBaseRtWorld(kPoseTargetYawIndex);
+  // X facing forward to the robot, Y to the left side, in the heading frame
+  const scalar_t cmdErrPosBaseRtWorldEwrtHeadingX = poseCommand(0);
+  const scalar_t cmdErrPosBaseRtWorldEwrtHeadingY = poseCommand(1);
+  const scalar_t yawBaseRtWorld =
+      poseeulerzyxHeadingRtWorld(kPoseTargetYawIndex);
 
-  const scalar_t globalFrameDeltaX = std::cos(currentEulerZ) * baseFrameDeltaX -
-                                     std::sin(currentEulerZ) * baseFrameDeltaY;
-  const scalar_t globalFrameDeltaY = std::sin(currentEulerZ) * baseFrameDeltaX +
-                                     std::cos(currentEulerZ) * baseFrameDeltaY;
+  const scalar_t cmdErrPosBaseRtWorldEwrtWorldX =
+      std::cos(yawBaseRtWorld) * cmdErrPosBaseRtWorldEwrtHeadingX -
+      std::sin(yawBaseRtWorld) * cmdErrPosBaseRtWorldEwrtHeadingY;
+  const scalar_t cmdErrPosBaseRtWorldEwrtWorldY =
+      std::sin(yawBaseRtWorld) * cmdErrPosBaseRtWorldEwrtHeadingX +
+      std::cos(yawBaseRtWorld) * cmdErrPosBaseRtWorldEwrtHeadingY;
 
   // base p_x, p_y are relative to current state
-  target(0) = levelPoseeulerzyxBaseRtWorld(0) + globalFrameDeltaX;
-  target(1) = levelPoseeulerzyxBaseRtWorld(1) + globalFrameDeltaY;
+  finalPoseeulerzyxBaseRtWorld(0) =
+      poseeulerzyxHeadingRtWorld(0) + cmdErrPosBaseRtWorldEwrtWorldX;
+  finalPoseeulerzyxBaseRtWorld(1) =
+      poseeulerzyxHeadingRtWorld(1) + cmdErrPosBaseRtWorldEwrtWorldY;
   // base z relative to the default height above the ground
-  const scalar_t cmdMaxErrPosBaseRtWorldEwrtWorldZ =
-      cmdMaxErrPosBaseRtWorldEwrtWorldZ_;
-  const scalar_t deltaPelvisHeight = std::clamp(
-      poseCommand(kPoseCommandHeightIndex), -cmdMaxErrPosBaseRtWorldEwrtWorldZ,
-      cmdMaxErrPosBaseRtWorldEwrtWorldZ);
-  target(kPoseTargetZIndex) =
-      getTerrainHeight() + nomPosBaseRtWorldEwrtWorldZ_ + deltaPelvisHeight;
+  const scalar_t cmdMaxErrPosBaseRtSurfaceEwrtWorldZ =
+      cmdMaxErrPosBaseRtSurfaceEwrtWorldZ_;
+  const scalar_t cmdErrPosBaseRtSurfaceEwrtWorldZ =
+      std::clamp(poseCommand(kPoseCommandHeightIndex),
+                 -cmdMaxErrPosBaseRtSurfaceEwrtWorldZ,
+                 cmdMaxErrPosBaseRtSurfaceEwrtWorldZ);
+  finalPoseeulerzyxBaseRtWorld(kPoseTargetZIndex) =
+      getPosSurfaceRtWorldEwrtWorldZ() + nomPosBaseRtSurfaceEwrtWorldZ_ +
+      cmdErrPosBaseRtSurfaceEwrtWorldZ;
   // theta_z relative to current
-  target(kPoseTargetYawIndex) =
-      levelPoseeulerzyxBaseRtWorld(kPoseTargetYawIndex) +
-      poseCommand(kPoseCommandYawIndex) * M_PI / kHalfTurnDegrees;
-  target(kPoseTargetPitchIndex) = 0.0;
-  target(kPoseTargetRollIndex) = 0.0;
+  finalPoseeulerzyxBaseRtWorld(kPoseTargetYawIndex) =
+      poseeulerzyxHeadingRtWorld(kPoseTargetYawIndex) +
+      poseCommand(kPoseCommandYawIndex) * std::numbers::pi / kHalfTurnDegrees;
+  finalPoseeulerzyxBaseRtWorld(kPoseTargetPitchIndex) = 0.0;
+  finalPoseeulerzyxBaseRtWorld(kPoseTargetRollIndex) = 0.0;
 
-  return target;
+  return finalPoseeulerzyxBaseRtWorld;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector6_t TargetTrajectoriesCalculatorBase::getLevelPoseeulerzyxBaseRtWorld(
+vector6_t TargetTrajectoriesCalculatorBase::getPoseeulerzyxHeadingRtWorld(
     const vector_t& state) const {
   // Level: the target trajectories start from the current position and heading,
   // with the torso's roll and pitch zero.
-  vector6_t levelPoseeulerzyxBaseRtWorld;
-  levelPoseeulerzyxBaseRtWorld
+  vector6_t poseeulerzyxHeadingRtWorld;
+  poseeulerzyxHeadingRtWorld
       << mpcRobotModelPtr_->getPosBaseRtWorldEwrtWorld(state),
       mpcRobotModelPtr_->getYawBaseRtWorld(state), 0.0, 0.0;
-  return levelPoseeulerzyxBaseRtWorld;
+  return poseeulerzyxHeadingRtWorld;
 }
 
 /******************************************************************************************************/
@@ -225,9 +239,9 @@ vector6_t TargetTrajectoriesCalculatorBase::getLevelPoseeulerzyxBaseRtWorld(
 /******************************************************************************************************/
 
 vector4_t TargetTrajectoriesCalculatorBase::rotateVelocityCommandToWorld(
-    const vector4_t& commandHeadingFrame, scalar_t heading) {
+    const vector4_t& commandHeadingFrame, scalar_t yawBaseRtWorld) {
   const vector2_t cmdLinvelBaseRtWorldEwrtWorldXy = rotatedAboutZ(
-      heading,
+      yawBaseRtWorld,
       vector2_t(
           commandHeadingFrame(WalkingVelocityCommand::kLinearVelocityXIndex),
           commandHeadingFrame(WalkingVelocityCommand::kLinearVelocityYIndex)));
@@ -250,14 +264,15 @@ vector6_t TargetTrajectoriesCalculatorBase::integrateRefPoseeulerzyxBaseRtWorld(
     scalar_t refPosBaseRtWorldEwrtWorldZ,
     scalar_t deltaT) const {
   vector6_t finalPoseeulerzyxBaseRtWorld = initPoseeulerzyxBaseRtWorld;
-  const vector2_t displacement = planarArcDisplacement(
-      initLinvelBaseRtWorldEwrtWorldXy, rateYawBaseRtWorld, deltaT);
-  finalPoseeulerzyxBaseRtWorld[0] += displacement(0);
-  finalPoseeulerzyxBaseRtWorld[1] += displacement(1);
-  // A world height already, ground included (commandedBaseHeight()). The
-  // pelvis-height fallback is not applied to it a second time, as it used to
-  // be: on ground below z = 0.1 m a correct world height would read as "no
-  // command".
+  const vector2_t errPosBaseRtWorldEwrtWorldXy =
+      computeErrPosBaseRtWorldEwrtWorldXy(initLinvelBaseRtWorldEwrtWorldXy,
+                                          rateYawBaseRtWorld, deltaT);
+  finalPoseeulerzyxBaseRtWorld[0] += errPosBaseRtWorldEwrtWorldXy(0);
+  finalPoseeulerzyxBaseRtWorld[1] += errPosBaseRtWorldEwrtWorldXy(1);
+  // A world height already, ground included
+  // (computeRefPosBaseRtWorldEwrtWorldZ()). The pelvis-height fallback is not
+  // applied to it a second time, as it used to be: on ground below z = 0.1 m a
+  // correct world height would read as "no command".
   finalPoseeulerzyxBaseRtWorld[kPoseTargetZIndex] = refPosBaseRtWorldEwrtWorldZ;
   finalPoseeulerzyxBaseRtWorld[kPoseTargetYawIndex] +=
       rateYawBaseRtWorld * deltaT;
@@ -266,7 +281,7 @@ vector6_t TargetTrajectoriesCalculatorBase::integrateRefPoseeulerzyxBaseRtWorld(
   return finalPoseeulerzyxBaseRtWorld;
 }
 
-vector2_t TargetTrajectoriesCalculatorBase::planarArcDisplacement(
+vector2_t TargetTrajectoriesCalculatorBase::computeErrPosBaseRtWorldEwrtWorldXy(
     const vector2_t& initLinvelBaseRtWorldEwrtWorldXy,
     scalar_t rateYawBaseRtWorld,
     scalar_t duration) {
@@ -287,21 +302,25 @@ TargetTrajectoriesCalculatorBase::subdivideYawKnots(
     scalar_t targetTime,
     const vector6_t& finalPoseeulerzyxBaseRtWorld) {
   vector6_t clampedFinalPoseeulerzyxBaseRtWorld = finalPoseeulerzyxBaseRtWorld;
-  const scalar_t yawChange = finalPoseeulerzyxBaseRtWorld(kPoseTargetYawIndex) -
-                             initPoseeulerzyxBaseRtWorld(kPoseTargetYawIndex);
+  const scalar_t errYawBaseRtWorld =
+      finalPoseeulerzyxBaseRtWorld(kPoseTargetYawIndex) -
+      initPoseeulerzyxBaseRtWorld(kPoseTargetYawIndex);
   size_t parts = 1;
-  if (std::isfinite(yawChange)) {
+  if (std::isfinite(errYawBaseRtWorld)) {
     clampedFinalPoseeulerzyxBaseRtWorld(kPoseTargetYawIndex) =
         initPoseeulerzyxBaseRtWorld(kPoseTargetYawIndex) +
-        std::clamp(yawChange, -kMaxSegmentYawChange, kMaxSegmentYawChange);
-    const scalar_t clampedYawChange =
+        std::clamp(errYawBaseRtWorld, -kSegmentMaxErrYawBaseRtWorld,
+                   kSegmentMaxErrYawBaseRtWorld);
+    const scalar_t clampedErrYawBaseRtWorld =
         std::abs(clampedFinalPoseeulerzyxBaseRtWorld(kPoseTargetYawIndex) -
                  initPoseeulerzyxBaseRtWorld(kPoseTargetYawIndex));
     // At most kMaxKnotSubdivisions: the clamped turn is at most
-    // kMaxKnotSubdivisions kMaxKnotYawSpacing.
-    const scalar_t yawParts = std::ceil(clampedYawChange / kMaxKnotYawSpacing);
-    if (yawParts > 1.0)
+    // kMaxKnotSubdivisions kKnotMaxErrYawBaseRtWorld.
+    const scalar_t yawParts =
+        std::ceil(clampedErrYawBaseRtWorld / kKnotMaxErrYawBaseRtWorld);
+    if (yawParts > 1.0) {
       parts = std::min(static_cast<size_t>(yawParts), kMaxKnotSubdivisions);
+    }
   }
   std::vector<PoseCommandKnot> knots;
   knots.reserve(parts + 1);
@@ -326,25 +345,28 @@ TargetTrajectoriesCalculatorBase::subdivideYawKnots(
 
 size_t TargetTrajectoriesCalculatorBase::knotSubdivisionCount(
     const KnotSegmentExtent& extent) {
-  const scalar_t yawChange = std::abs(extent.yawChange);
+  const scalar_t errYawBaseRtWorld = std::abs(extent.errYawBaseRtWorld);
   const scalar_t arcLength = std::abs(extent.arcLength);
-  const scalar_t targetSpeed = std::abs(extent.targetSpeed);
-  if (!std::isfinite(yawChange) || !std::isfinite(arcLength) ||
-      !std::isfinite(targetSpeed))
+  const scalar_t cmdSpeedBaseRtWorld = std::abs(extent.cmdSpeedBaseRtWorld);
+  if (!std::isfinite(errYawBaseRtWorld) || !std::isfinite(arcLength) ||
+      !std::isfinite(cmdSpeedBaseRtWorld)) {
     return 1;
-  // Knots dpsi = yawChange / n apart on the arc of radius rho = arcLength /
-  // yawChange: the chord between them is off the arc by at most rho (1 -
-  // cos(dpsi / 2)) <= rho dpsi^2 / 8 = arcLength yawChange / (8 n^2), and the
-  // interpolation of their velocity targets R_z(psi_k) v_c off R_z(psi(t)) v_c
-  // by targetSpeed (1 - cos(dpsi / 2)) <= targetSpeed yawChange^2 / (8 n^2),
-  // each at the middle of the interval.
+  }
+  // Knots dpsi = errYawBaseRtWorld / n apart on the arc of radius rho =
+  // arcLength / errYawBaseRtWorld: the chord between them is off the arc by at
+  // most rho (1 - cos(dpsi / 2)) <= rho dpsi^2 / 8 = arcLength
+  // errYawBaseRtWorld / (8 n^2), and the interpolation of their velocity
+  // targets R_z(psi_k) v_c off R_z(psi(t)) v_c by cmdSpeedBaseRtWorld (1 -
+  // cos(dpsi / 2)) <= cmdSpeedBaseRtWorld errYawBaseRtWorld^2 / (8 n^2), each
+  // at the middle of the interval.
   const scalar_t parts = std::ceil(std::max(
-      {yawChange / kMaxKnotYawSpacing,
-       std::sqrt(arcLength * yawChange /
+      {errYawBaseRtWorld / kKnotMaxErrYawBaseRtWorld,
+       std::sqrt(arcLength * errYawBaseRtWorld /
                  (kSagittaBoundDivisor * kKnotMaxErrPosBaseRtWorldEwrtWorld)),
-       yawChange *
-           std::sqrt(targetSpeed / (kSagittaBoundDivisor *
-                                    kKnotMaxErrLinvelBaseRtWorldEwrtWorld))}));
+       errYawBaseRtWorld *
+           std::sqrt(cmdSpeedBaseRtWorld /
+                     (kSagittaBoundDivisor *
+                      kKnotMaxErrLinvelBaseRtWorldEwrtWorld))}));
   if (parts <= 1.0) return 1;
   return parts >= static_cast<scalar_t>(kMaxKnotSubdivisions)
              ? kMaxKnotSubdivisions
@@ -358,10 +380,10 @@ TargetTrajectoriesCalculatorBase::velocityCommandKnots(
     const vector_t& initState,
     const BasePlanarMotion& measuredMotion) {
   // The level pose the reference starts from, at the commanded pelvis height
-  // (or nom_pos_base_rt_world_ewrt_world_z) above the ground the reference
+  // (or nom_pos_base_rt_surface_ewrt_world_z) above the ground the reference
   // manager stands the robot on.
   vector6_t initPoseeulerzyxBaseRtWorld =
-      getLevelPoseeulerzyxBaseRtWorld(initState);
+      getPoseeulerzyxHeadingRtWorld(initState);
   const scalar_t initYawBaseRtWorld =
       initPoseeulerzyxBaseRtWorld(kPoseTargetYawIndex);
   const vector4_t commandGlobal =
@@ -371,8 +393,9 @@ TargetTrajectoriesCalculatorBase::velocityCommandKnots(
       commandGlobal(WalkingVelocityCommand::kLinearVelocityYIndex));
   const scalar_t cmdRateYawBaseRtWorld =
       commandGlobal(WalkingVelocityCommand::kAngularVelocityZIndex);
-  const scalar_t refPosBaseRtWorldEwrtWorldZ = commandedBaseHeight(
-      commandGlobal(WalkingVelocityCommand::kDesiredPelvisHeightIndex));
+  const scalar_t refPosBaseRtWorldEwrtWorldZ =
+      computeRefPosBaseRtWorldEwrtWorldZ(
+          commandGlobal(WalkingVelocityCommand::kBaseHeightIndex));
   initPoseeulerzyxBaseRtWorld(kPoseTargetZIndex) = refPosBaseRtWorldEwrtWorldZ;
   // The measured motion, in the world frame at the start heading like the
   // command.
@@ -393,17 +416,18 @@ TargetTrajectoriesCalculatorBase::velocityCommandKnots(
                 (measLinvelBaseRtWorldEwrtWorldXy(1) +
                  cmdLinvelBaseRtWorldEwrtWorldXy(1)) /
                     kAveragedMotionCount);
-  // Each segment turns by at most kMaxSegmentYawChange, so that its knots are
-  // at most kMaxKnotYawSpacing apart for any measurement (the class comment).
-  first.rateYawBaseRtWorld = clampedSegmentYawRate(
+  // Each segment turns by at most kSegmentMaxErrYawBaseRtWorld, so that its
+  // knots are at most kKnotMaxErrYawBaseRtWorld apart for any measurement (the
+  // class comment).
+  first.rateYawBaseRtWorld = computeClampedSegmentRateYawBaseRtWorld(
       (measuredMotion.rateYawBaseRtWorld + cmdRateYawBaseRtWorld) /
           kAveragedMotionCount,
       first.duration);
   TwistSegment second;
   second.endOffset = mpcHorizon_;
   second.duration = mpcHorizon_ - intermediateOffset;
-  second.rateYawBaseRtWorld =
-      clampedSegmentYawRate(cmdRateYawBaseRtWorld, second.duration);
+  second.rateYawBaseRtWorld = computeClampedSegmentRateYawBaseRtWorld(
+      cmdRateYawBaseRtWorld, second.duration);
 
   std::vector<VelocityCommandKnot> knots;
   knots.push_back(VelocityCommandKnot{
@@ -411,7 +435,7 @@ TargetTrajectoriesCalculatorBase::velocityCommandKnots(
       .poseeulerzyxBaseRtWorld = initPoseeulerzyxBaseRtWorld,
       .cmdLinvelBaseRtWorldEwrtWorldXy = cmdLinvelBaseRtWorldEwrtWorldXy,
       .cmdRateYawBaseRtWorld = cmdRateYawBaseRtWorld,
-      .headingChange = 0.0,
+      .errYawBaseRtWorld = 0.0,
       .secondSegmentFraction = 0.0});
   const std::array<bool, kTwistSegmentCount> isSecond = {false, true};
   for (const bool inSecond : isSecond) {
@@ -419,14 +443,15 @@ TargetTrajectoriesCalculatorBase::velocityCommandKnots(
     const VelocityCommandKnot segmentStart = knots.back();
     // The command turns with the knots: it is given in the heading frame
     // (design README section 2.9).
-    if (inSecond)
+    if (inSecond) {
       segment.initLinvelBaseRtWorldEwrtWorldXy = rotatedAboutZ(
-          segmentStart.headingChange, cmdLinvelBaseRtWorldEwrtWorldXy);
+          segmentStart.errYawBaseRtWorld, cmdLinvelBaseRtWorldEwrtWorldXy);
+    }
     const size_t parts = knotSubdivisionCount(KnotSegmentExtent{
-        .yawChange = segment.rateYawBaseRtWorld * segment.duration,
+        .errYawBaseRtWorld = segment.rateYawBaseRtWorld * segment.duration,
         .arcLength =
             segment.initLinvelBaseRtWorldEwrtWorldXy.norm() * segment.duration,
-        .targetSpeed = cmdLinvelBaseRtWorldEwrtWorldXy.norm()});
+        .cmdSpeedBaseRtWorld = cmdLinvelBaseRtWorldEwrtWorldXy.norm()});
     for (size_t part = 1; part <= parts; ++part) {
       // Every knot of the segment from its start, on the same arc; the last one
       // at the segment's end, exactly.
@@ -442,10 +467,11 @@ TargetTrajectoriesCalculatorBase::velocityCommandKnots(
           segmentStart.poseeulerzyxBaseRtWorld,
           segment.initLinvelBaseRtWorldEwrtWorldXy, segment.rateYawBaseRtWorld,
           refPosBaseRtWorldEwrtWorldZ, offset);
-      knot.headingChange = knot.poseeulerzyxBaseRtWorld(kPoseTargetYawIndex) -
-                           initYawBaseRtWorld;
-      knot.cmdLinvelBaseRtWorldEwrtWorldXy =
-          rotatedAboutZ(knot.headingChange, cmdLinvelBaseRtWorldEwrtWorldXy);
+      knot.errYawBaseRtWorld =
+          knot.poseeulerzyxBaseRtWorld(kPoseTargetYawIndex) -
+          initYawBaseRtWorld;
+      knot.cmdLinvelBaseRtWorldEwrtWorldXy = rotatedAboutZ(
+          knot.errYawBaseRtWorld, cmdLinvelBaseRtWorldEwrtWorldXy);
       knot.cmdRateYawBaseRtWorld = cmdRateYawBaseRtWorld;
       knot.secondSegmentFraction =
           !inSecond ? 0.0
@@ -463,13 +489,18 @@ TargetTrajectoriesCalculatorBase::velocityCommandKnots(
 /******************************************************************************************************/
 
 scalar_t TargetTrajectoriesCalculatorBase::estimateTimeToTarget(
-    const vector_t& desiredBaseDisplacement) const {
-  const scalar_t& dx = desiredBaseDisplacement(0);
-  const scalar_t& dy = desiredBaseDisplacement(1);
-  const scalar_t& dyaw = desiredBaseDisplacement(kPoseTargetYawIndex);
-  const scalar_t turnTime = std::abs(dyaw) / refRateYawBaseRtWorld_;
-  const scalar_t displacement = std::sqrt(dx * dx + dy * dy);
-  const scalar_t displacementTime = displacement / refSpeedBaseRtWorld_;
+    const vector_t& errPoseeulerzyxBaseRtWorld) const {
+  const scalar_t& errPosBaseRtWorldEwrtWorldX = errPoseeulerzyxBaseRtWorld(0);
+  const scalar_t& errPosBaseRtWorldEwrtWorldY = errPoseeulerzyxBaseRtWorld(1);
+  const scalar_t& errPoseeulerzyxBaseRtWorldYaw =
+      errPoseeulerzyxBaseRtWorld(kPoseTargetYawIndex);
+  const scalar_t turnTime =
+      std::abs(errPoseeulerzyxBaseRtWorldYaw) / refRateYawBaseRtWorld_;
+  const scalar_t normErrPosBaseRtWorldEwrtWorldXy =
+      std::sqrt(errPosBaseRtWorldEwrtWorldX * errPosBaseRtWorldEwrtWorldX +
+                errPosBaseRtWorldEwrtWorldY * errPosBaseRtWorldEwrtWorldY);
+  const scalar_t displacementTime =
+      normErrPosBaseRtWorldEwrtWorldXy / refSpeedBaseRtWorld_;
   return std::max(turnTime, displacementTime);
 }
 

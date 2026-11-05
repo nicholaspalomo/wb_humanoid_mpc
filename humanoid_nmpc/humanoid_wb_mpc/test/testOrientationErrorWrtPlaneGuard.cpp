@@ -78,24 +78,26 @@ matrix3_t tiltedAboutX(scalar_t angle) {
 
 /** Tapes e(R) = rotationMatrixDistanceToPlane(R, n) with the nine entries of R,
  * column by column, the variables. */
-ad_fun_t tapedError(const vector3_t& planeNormal) {
+ad_fun_t tapedError(const vector3_t& normalSurfaceEwrtWorld) {
   const matrix3_t identity = matrix3_t::Identity();
   ad_vector_t x(9);
   for (Eigen::Index i = 0; i < x.size(); ++i) x(i) = ad_scalar_t(identity(i));
   CppAD::Independent(x);
-  ad_matrix_t rotation(3, 3);
-  for (Eigen::Index i = 0; i < x.size(); ++i) rotation(i) = x(i);
-  const ad_vector3_t error = rotationMatrixDistanceToPlane<ad_scalar_t>(
-      ad_matrix3_t(rotation), planeNormal.cast<ad_scalar_t>());
-  ad_vector_t y = error;
+  ad_matrix_t rotmatEeRtWorld(3, 3);
+  for (Eigen::Index i = 0; i < x.size(); ++i) rotmatEeRtWorld(i) = x(i);
+  const ad_vector3_t tiltEeRtSurfaceEwrtWorld =
+      rotationMatrixDistanceToPlane<ad_scalar_t>(
+          ad_matrix3_t(rotmatEeRtWorld),
+          normalSurfaceEwrtWorld.cast<ad_scalar_t>());
+  ad_vector_t y = tiltEeRtSurfaceEwrtWorld;
   return ad_fun_t(x, y);
 }
 
-/** The taped Jacobian of `fun` at the attitude `rotation`, 3 x 9. */
-matrix_t tapedJacobian(ad_fun_t& fun, const matrix3_t& rotation) {
+/** The taped Jacobian of `fun` at the attitude `rotmatEeRtWorld`, 3 x 9. */
+matrix_t tapedJacobian(ad_fun_t& fun, const matrix3_t& rotmatEeRtWorld) {
   CppAD::vector<ad_base_t> at(9);
   for (Eigen::Index i = 0; i < 9; ++i)
-    at[static_cast<size_t>(i)] = ad_base_t(rotation(i));
+    at[static_cast<size_t>(i)] = ad_base_t(rotmatEeRtWorld(i));
   const CppAD::vector<ad_base_t> jacobian = fun.Jacobian(at);
   matrix_t result(3, 9);
   for (Eigen::Index row = 0; row < 3; ++row) {
@@ -110,23 +112,24 @@ TEST(OrientationErrorWrtPlane, IsTheClosedFormOnRandomAttitudesAndPlanes) {
   std::mt19937 generator(/*sd=*/2026);
   int checked = 0;
   for (int sample = 0; sample < 200; ++sample) {
-    const quaternion_t attitude = randomAttitude(generator);
-    const vector3_t planeNormal =
+    const quaternion_t quatEeRtWorld = randomAttitude(generator);
+    const vector3_t normalSurfaceEwrtWorld =
         (randomAttitude(generator) * vector3_t::UnitZ()).normalized();
-    const vector3_t v = attitude.toRotationMatrix().col(2);
-    if (1.0 + v.dot(planeNormal) < 1.0e-3) continue;
+    const vector3_t v = quatEeRtWorld.toRotationMatrix().col(2);
+    if (1.0 + v.dot(normalSurfaceEwrtWorld) < 1.0e-3) continue;
     ++checked;
-    const vector3_t expected = closedForm(v, planeNormal);
+    const vector3_t expected = closedForm(v, normalSurfaceEwrtWorld);
     EXPECT_LT((rotationMatrixDistanceToPlane<scalar_t>(
-                   attitude.toRotationMatrix(), planeNormal) -
+                   quatEeRtWorld.toRotationMatrix(), normalSurfaceEwrtWorld) -
                expected)
                   .norm(),
               1.0e-12)
         << sample;
-    EXPECT_LT(
-        (quaternionDistanceToPlane<scalar_t>(attitude, planeNormal) - expected)
-            .norm(),
-        1.0e-12)
+    EXPECT_LT((quaternionDistanceToPlane<scalar_t>(quatEeRtWorld,
+                                                   normalSurfaceEwrtWorld) -
+               expected)
+                  .norm(),
+              1.0e-12)
         << sample;
   }
   EXPECT_GT(checked, 150);
@@ -134,23 +137,25 @@ TEST(OrientationErrorWrtPlane, IsTheClosedFormOnRandomAttitudesAndPlanes) {
 
 TEST(OrientationErrorWrtPlane,
      IsFiniteWithAFiniteTapedJacobianWhereTheNormalPointsAwayFromThePlane) {
-  const vector3_t planeNormal = vector3_t::UnitZ();
-  ad_fun_t fun = tapedError(planeNormal);
+  const vector3_t normalSurfaceEwrtWorld = vector3_t::UnitZ();
+  ad_fun_t fun = tapedError(normalSurfaceEwrtWorld);
   // Upside down (v = -n exactly), and within the clamp of the shortest arc's
   // norm (1 + v.n = delta^2 / 2 < 1e-6).
   for (const scalar_t offset : {0.0, 1.0e-8, 1.0e-4, 1.0e-3}) {
     SCOPED_TRACE(absl::StrCat("tilt pi - ", offset));
-    const matrix3_t rotation = tiltedAboutX(M_PI - offset);
-    ASSERT_LT(1.0 + rotation.col(2).dot(planeNormal), 1.0e-6);
-    const vector3_t error =
-        rotationMatrixDistanceToPlane<scalar_t>(rotation, planeNormal);
-    EXPECT_TRUE(error.allFinite()) << error.transpose();
-    EXPECT_LE(error.norm(), 1.0 + 1.0e-12)
+    const matrix3_t rotmatEeRtWorld = tiltedAboutX(M_PI - offset);
+    ASSERT_LT(1.0 + rotmatEeRtWorld.col(2).dot(normalSurfaceEwrtWorld), 1.0e-6);
+    const vector3_t tiltEeRtSurfaceEwrtWorld =
+        rotationMatrixDistanceToPlane<scalar_t>(rotmatEeRtWorld,
+                                                normalSurfaceEwrtWorld);
+    EXPECT_TRUE(tiltEeRtSurfaceEwrtWorld.allFinite())
+        << tiltEeRtSurfaceEwrtWorld.transpose();
+    EXPECT_LE(tiltEeRtSurfaceEwrtWorld.norm(), 1.0 + 1.0e-12)
         << "the error is the sine of half the tilt, at most 1";
-    EXPECT_TRUE(
-        quaternionDistanceToPlane<scalar_t>(quaternion_t(rotation), planeNormal)
-            .allFinite());
-    const matrix_t jacobian = tapedJacobian(fun, rotation);
+    EXPECT_TRUE(quaternionDistanceToPlane<scalar_t>(
+                    quaternion_t(rotmatEeRtWorld), normalSurfaceEwrtWorld)
+                    .allFinite());
+    const matrix_t jacobian = tapedJacobian(fun, rotmatEeRtWorld);
     EXPECT_TRUE(jacobian.allFinite()) << jacobian;
   }
 }
@@ -158,36 +163,46 @@ TEST(OrientationErrorWrtPlane,
 TEST(OrientationErrorWrtPlane, IsContinuousAcrossTheClampOfTheShortestArc) {
   // 1 + v.n = 1 - cos(delta) = 1e-6 at the clamp: the error there is (almost)
   // of unit norm on both sides of it.
-  const vector3_t planeNormal = vector3_t::UnitZ();
+  const vector3_t normalSurfaceEwrtWorld = vector3_t::UnitZ();
   const scalar_t clampOffset = std::acos(1.0 - 1.0e-6);
-  const vector3_t outside = rotationMatrixDistanceToPlane<scalar_t>(
-      tiltedAboutX(M_PI - clampOffset * (1.0 + 1.0e-6)), planeNormal);
-  const vector3_t inside = rotationMatrixDistanceToPlane<scalar_t>(
-      tiltedAboutX(M_PI - clampOffset * (1.0 - 1.0e-6)), planeNormal);
-  EXPECT_NEAR(outside.norm(), 1.0, 1.0e-5);
-  EXPECT_LT((outside - inside).norm(), 1.0e-5);
+  const vector3_t outsideTiltEeRtSurfaceEwrtWorld =
+      rotationMatrixDistanceToPlane<scalar_t>(
+          tiltedAboutX(M_PI - clampOffset * (1.0 + 1.0e-6)),
+          normalSurfaceEwrtWorld);
+  const vector3_t insideTiltEeRtSurfaceEwrtWorld =
+      rotationMatrixDistanceToPlane<scalar_t>(
+          tiltedAboutX(M_PI - clampOffset * (1.0 - 1.0e-6)),
+          normalSurfaceEwrtWorld);
+  EXPECT_NEAR(outsideTiltEeRtSurfaceEwrtWorld.norm(), 1.0, 1.0e-5);
+  EXPECT_LT(
+      (outsideTiltEeRtSurfaceEwrtWorld - insideTiltEeRtSurfaceEwrtWorld).norm(),
+      1.0e-5);
 }
 
 TEST(OrientationErrorWrtPlane,
      TheTapedJacobianIsTheCentralDifferenceOutsideTheClamp) {
   std::mt19937 generator(/*sd=*/7);
-  const vector3_t planeNormal = vector3_t(0.2, -0.1, 1.0).normalized();
-  ad_fun_t fun = tapedError(planeNormal);
+  const vector3_t normalSurfaceEwrtWorld =
+      vector3_t(0.2, -0.1, 1.0).normalized();
+  ad_fun_t fun = tapedError(normalSurfaceEwrtWorld);
   constexpr scalar_t kStep = 1.0e-6;
   for (int sample = 0; sample < 20; ++sample) {
-    const matrix3_t rotation = randomAttitude(generator).toRotationMatrix();
-    if (1.0 + rotation.col(2).dot(planeNormal) < 1.0e-2) continue;
-    const matrix_t jacobian = tapedJacobian(fun, rotation);
+    const matrix3_t rotmatEeRtWorld =
+        randomAttitude(generator).toRotationMatrix();
+    if (1.0 + rotmatEeRtWorld.col(2).dot(normalSurfaceEwrtWorld) < 1.0e-2)
+      continue;
+    const matrix_t jacobian = tapedJacobian(fun, rotmatEeRtWorld);
     matrix_t differences(3, 9);
     for (Eigen::Index i = 0; i < 9; ++i) {
-      matrix3_t plus = rotation;
-      matrix3_t minus = rotation;
+      matrix3_t plus = rotmatEeRtWorld;
+      matrix3_t minus = rotmatEeRtWorld;
       plus(i) += kStep;
       minus(i) -= kStep;
-      differences.col(i) =
-          (rotationMatrixDistanceToPlane<scalar_t>(plus, planeNormal) -
-           rotationMatrixDistanceToPlane<scalar_t>(minus, planeNormal)) /
-          (2.0 * kStep);
+      differences.col(i) = (rotationMatrixDistanceToPlane<scalar_t>(
+                                plus, normalSurfaceEwrtWorld) -
+                            rotationMatrixDistanceToPlane<scalar_t>(
+                                minus, normalSurfaceEwrtWorld)) /
+                           (2.0 * kStep);
     }
     EXPECT_LT((jacobian - differences).cwiseAbs().maxCoeff(),
               1.0e-6 * std::max(1.0, differences.cwiseAbs().maxCoeff()))

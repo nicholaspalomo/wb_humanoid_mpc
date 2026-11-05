@@ -53,7 +53,7 @@ namespace ocs2::humanoid::multi_contact {
 struct ClearanceSphere {
   pinocchio::JointIndex joint = 0;
   // [m] Its center in the joint's frame, and its radius.
-  Eigen::Vector3d center = Eigen::Vector3d::Zero();
+  Eigen::Vector3d posSphereRtLinkEwrtLink = Eigen::Vector3d::Zero();
   double radius = 0.0;
 };
 

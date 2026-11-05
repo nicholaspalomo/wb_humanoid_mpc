@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <string>
 
@@ -40,10 +41,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/dynamics/SystemDynamicsBaseAD.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/multibody/fwd.hpp"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -142,7 +146,7 @@ class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
    * updated for the configuration of interest.
    */
   template <typename SCALAR_T>
-  VECTOR_T<SCALAR_T> toWorldFrameWrenchInput(
+  VECTOR_T<SCALAR_T> toWrappedInput(
       const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
       const CentroidalModelInfoTpl<SCALAR_T>& info,
       const VECTOR_T<SCALAR_T>& basisInput) const;

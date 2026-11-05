@@ -29,9 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/cost/FootYawRegularizationCost.h"
 
-#include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <string>
+
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/StageAccumulator.h"
 
 namespace ocs2::humanoid {
 
@@ -49,8 +54,8 @@ void FootYawRegularizationCost::addToStage(
     StageAccumulator& stage) const {
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     stage.addQuadraticResidual(/*xCoefficients=*/{},
-                               {{idx_.footYawDelta[foot], 1.0}}, /*offset=*/0.0,
-                               weight_);
+                               {{idx_.errEulerzyxFeetRtWorldYaw[foot], 1.0}},
+                               /*offset=*/0.0, weight_);
   }
 }
 

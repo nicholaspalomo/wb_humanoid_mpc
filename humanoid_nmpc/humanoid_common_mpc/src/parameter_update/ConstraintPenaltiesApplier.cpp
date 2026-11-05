@@ -36,11 +36,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/penalties/penalties/PenaltyBase.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 #include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 #include "humanoid_common_mpc/common/ContactTermNames.h"
@@ -54,7 +56,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/FrictionForceConeConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 #include "humanoid_common_mpc/constraint/PointFrictionConeConstraint.h"
+#include "humanoid_common_mpc/parameter_update/HotUpdateTarget.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 
 namespace ocs2::humanoid {
 
@@ -85,8 +89,9 @@ bool carriesContactTerm(const OptimalControlProblem& ocp,
                         absl::string_view suffix) {
   for (const std::string& footName : contactNames) {
     if (carriesTerm(*ocp.softConstraintPtr,
-                    contact_term::name(footName, suffix)))
+                    contact_term::name(footName, suffix))) {
       return true;
+    }
   }
   return false;
 }

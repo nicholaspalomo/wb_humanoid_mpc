@@ -71,14 +71,15 @@ void MujocoViewerAnnotator::apply(const msgs::ViewerAnnotations& annotations) {
       patch.kind = viewerKind(source.kind);
       // No pose: nothing is drawn for the foot (the viewer's `valid`).
       patch.valid = source.des_pose_foot_rt_world.has_value();
-      const msgs::TargetContactPatch::Pose pose =
+      const msgs::TargetContactPatch::Pose desPoseFootRtWorld =
           source.des_pose_foot_rt_world.value_or(
               msgs::TargetContactPatch::Pose{});
-      patch.x = pose.x;
-      patch.y = pose.y;
-      patch.z = pose.z;
-      patch.yaw = pose.yaw;
-      patch.yawPlanned = pose.yaw_planned;
+      patch.desPosFootRtWorldEwrtWorldX = desPoseFootRtWorld.x;
+      patch.desPosFootRtWorldEwrtWorldY = desPoseFootRtWorld.y;
+      patch.desPosFootRtWorldEwrtWorldZ = desPoseFootRtWorld.z;
+      patch.desEulerzyxFootRtWorldYaw =
+          desPoseFootRtWorld.eulerzyx_foot_rt_world_yaw;
+      patch.yawPlanned = desPoseFootRtWorld.yaw_planned;
     }
     simulator_->setTargetContactPatches(patches_);
   }

@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <functional>
 #include <limits>
 #include <map>
@@ -48,10 +49,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
 
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
+#include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
+#include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/reference/GaitFromConfig.h"
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
@@ -59,6 +69,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/GaitScheduleUpdater.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
 #include "humanoid_common_mpc/reference_manager/StrideMotionHistory.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_config/gait_file.nproto.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
 
@@ -208,23 +219,31 @@ vector4_t ProceduralMpcMotionManager::rateLimitVelocityCommand(
   vector4_t limited = target;
   if (dt <= 0.0) return current;
   if (cmdMaxLinaccBaseRtWorldEwrtHeadingXy > 0.0) {
-    const vector2_t delta = target.head<kHorizontalPositionDim>() -
-                            current.head<kHorizontalPositionDim>();
-    const scalar_t maxDelta = cmdMaxLinaccBaseRtWorldEwrtHeadingXy * dt;
+    // The target minus the current command.
+    const vector2_t cmdErrLinvelBaseRtWorldEwrtHeadingXy =
+        target.head<kHorizontalPositionDim>() -
+        current.head<kHorizontalPositionDim>();
+    const scalar_t cmdMaxErrLinvelBaseRtWorldEwrtHeadingXy =
+        cmdMaxLinaccBaseRtWorldEwrtHeadingXy * dt;
     limited.head<kHorizontalPositionDim>() =
-        delta.norm() > maxDelta
+        cmdErrLinvelBaseRtWorldEwrtHeadingXy.norm() >
+                cmdMaxErrLinvelBaseRtWorldEwrtHeadingXy
             ? vector2_t(current.head<kHorizontalPositionDim>() +
-                        delta * (maxDelta / delta.norm()))
+                        cmdErrLinvelBaseRtWorldEwrtHeadingXy *
+                            (cmdMaxErrLinvelBaseRtWorldEwrtHeadingXy /
+                             cmdErrLinvelBaseRtWorldEwrtHeadingXy.norm()))
             : target.head<kHorizontalPositionDim>();
   }
   if (cmdMaxAngaccBaseRtWorldEwrtWorldZ > 0.0) {
-    const scalar_t maxDelta = cmdMaxAngaccBaseRtWorldEwrtWorldZ * dt;
+    const scalar_t cmdMaxErrAngvelBaseRtWorldEwrtWorldZ =
+        cmdMaxAngaccBaseRtWorldEwrtWorldZ * dt;
     constexpr int kYawRateIndex =
         WalkingVelocityCommand::kAngularVelocityZIndex;
     limited(kYawRateIndex) =
         current(kYawRateIndex) +
-        std::clamp(target(kYawRateIndex) - current(kYawRateIndex), -maxDelta,
-                   maxDelta);
+        std::clamp(target(kYawRateIndex) - current(kYawRateIndex),
+                   -cmdMaxErrAngvelBaseRtWorldEwrtWorldZ,
+                   cmdMaxErrAngvelBaseRtWorldEwrtWorldZ);
   }
   return limited;
 }
@@ -240,8 +259,8 @@ absl::Status ProceduralMpcMotionManager::applyCommandLimits(
       settings.cmdMaxLinvelBaseRtWorldEwrtHeadingX);
   cmdMaxLinvelBaseRtWorldEwrtHeadingY_.store(
       settings.cmdMaxLinvelBaseRtWorldEwrtHeadingY);
-  cmdMaxErrPosBaseRtWorldEwrtWorldZ_.store(
-      settings.cmdMaxErrPosBaseRtWorldEwrtWorldZ);
+  cmdMaxErrPosBaseRtSurfaceEwrtWorldZ_.store(
+      settings.cmdMaxErrPosBaseRtSurfaceEwrtWorldZ);
   cmdMaxAngvelBaseRtWorldEwrtWorldZ_.store(
       settings.cmdMaxAngvelBaseRtWorldEwrtWorldZ);
   RETURN_IF_ERROR(setVelocityCommandAccelerationLimits(
@@ -285,11 +304,11 @@ void ProceduralMpcMotionManager::observe(const SystemObservation& observation) {
 }
 
 void ProceduralMpcMotionManager::setAndScaleVelocityCommand(
-    const WalkingVelocityCommand& rawVelocityCommand) {
+    const NormalizedWalkingVelocityCommand& lnormVelocityCommand) {
   // The limits are atomics, so the scaling needs no lock; only the command the
   // solver thread reads does.
   const WalkingVelocityCommand scaledCommand =
-      scaleWalkingVelocityCommand(rawVelocityCommand);
+      scaleWalkingVelocityCommand(lnormVelocityCommand);
   absl::MutexLock lock(velocityCommandMutex_);
   velocityCommand_ = scaledCommand;
 }
@@ -305,15 +324,15 @@ ProceduralMpcMotionManager::getScaledWalkingVelocityCommand() {
 /******************************************************************************************************/
 
 WalkingVelocityCommand ProceduralMpcMotionManager::scaleWalkingVelocityCommand(
-    const WalkingVelocityCommand& rawVelocityCommand) const {
-  WalkingVelocityCommand scaledCommand = rawVelocityCommand;
-  scaledCommand.cmd_linvel_base_rt_world_ewrt_heading_x *=
-      cmdMaxLinvelBaseRtWorldEwrtHeadingX_;
-  scaledCommand.cmd_linvel_base_rt_world_ewrt_heading_y *=
-      cmdMaxLinvelBaseRtWorldEwrtHeadingY_;
-  scaledCommand.cmd_angvel_base_rt_world_ewrt_world_z *=
-      cmdMaxAngvelBaseRtWorldEwrtWorldZ_;
-  return scaledCommand;
+    const NormalizedWalkingVelocityCommand& lnormVelocityCommand) const {
+  return WalkingVelocityCommand(
+      lnormVelocityCommand.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x *
+          cmdMaxLinvelBaseRtWorldEwrtHeadingX_,
+      lnormVelocityCommand.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y *
+          cmdMaxLinvelBaseRtWorldEwrtHeadingY_,
+      lnormVelocityCommand.cmd_pos_base_rt_surface_ewrt_world_z,
+      lnormVelocityCommand.cmd_lnorm_angvel_base_rt_world_ewrt_world_z *
+          cmdMaxAngvelBaseRtWorldEwrtWorldZ_);
 }
 
 /******************************************************************************************************/
@@ -329,22 +348,29 @@ bool ProceduralMpcMotionManager::transitionToFasterGait(
        std::abs(velCommandVec(1)) > cfg.cmdMaxLinvelBaseRtWorldEwrtHeadingXy ||
        std::abs(velCommandVec(WalkingVelocityCommand::kAngularVelocityZIndex)) >
            cfg.cmdMaxAngvelBaseRtWorldEwrtWorldZ);
-  const scalar_t linearThreshold = cfg.cmdMaxLinvelBaseRtWorldEwrtHeadingXy -
-                                   cfg.maxErrLinvelBaseRtWorldEwrtHeadingXy;
-  const scalar_t angularThreshold = cfg.cmdMaxAngvelBaseRtWorldEwrtWorldZ -
-                                    cfg.maxErrAngvelBaseRtWorldEwrtWorldZ;
+  const scalar_t measMinLinvelBaseRtWorldEwrtHeadingXy =
+      cfg.cmdMaxLinvelBaseRtWorldEwrtHeadingXy -
+      cfg.maxErrLinvelBaseRtWorldEwrtHeadingXy;
+  const scalar_t measMinAngvelBaseRtWorldEwrtWorldZ =
+      cfg.cmdMaxAngvelBaseRtWorldEwrtWorldZ -
+      cfg.maxErrAngvelBaseRtWorldEwrtWorldZ;
   // Without a measured window the switch reads no motion: it goes only where
   // every motion would pass, i.e. where a threshold is below zero (|m| > c
   // holds for every m exactly when c < 0).
-  if (strideMeanMotion == nullptr)
+  if (strideMeanMotion == nullptr) {
     return fasterGaitRequested &&
-           (linearThreshold < 0.0 || angularThreshold < 0.0);
+           (measMinLinvelBaseRtWorldEwrtHeadingXy < 0.0 ||
+            measMinAngvelBaseRtWorldEwrtWorldZ < 0.0);
+  }
   const vector2_t& measLinvelBaseRtWorldEwrtHeadingXy =
       strideMeanMotion->linvelBaseRtWorldEwrtHeadingXy;
   const bool withinMaxSpeedErrorThreshold =
-      (std::abs(measLinvelBaseRtWorldEwrtHeadingXy(0)) > linearThreshold ||
-       std::abs(measLinvelBaseRtWorldEwrtHeadingXy(1)) > linearThreshold ||
-       std::abs(strideMeanMotion->rateYawBaseRtWorld) > angularThreshold);
+      (std::abs(measLinvelBaseRtWorldEwrtHeadingXy(0)) >
+           measMinLinvelBaseRtWorldEwrtHeadingXy ||
+       std::abs(measLinvelBaseRtWorldEwrtHeadingXy(1)) >
+           measMinLinvelBaseRtWorldEwrtHeadingXy ||
+       std::abs(strideMeanMotion->rateYawBaseRtWorld) >
+           measMinAngvelBaseRtWorldEwrtWorldZ);
   return fasterGaitRequested && withinMaxSpeedErrorThreshold;
 }
 
@@ -373,11 +399,14 @@ bool ProceduralMpcMotionManager::transitionToSlowerGait(
   // section 2.9).
   const vector2_t& measLinvelBaseRtWorldEwrtHeadingXy =
       strideMeanMotion->linvelBaseRtWorldEwrtHeadingXy;
-  const scalar_t linearThreshold = cfg.cmdMinLinvelBaseRtWorldEwrtHeadingXy +
-                                   cfg.maxErrLinvelBaseRtWorldEwrtHeadingXy;
+  const scalar_t measMaxLinvelBaseRtWorldEwrtHeadingXy =
+      cfg.cmdMinLinvelBaseRtWorldEwrtHeadingXy +
+      cfg.maxErrLinvelBaseRtWorldEwrtHeadingXy;
   const bool baseSpeedSlowEnough =
-      (std::abs(measLinvelBaseRtWorldEwrtHeadingXy(0)) < linearThreshold &&
-       std::abs(measLinvelBaseRtWorldEwrtHeadingXy(1)) < linearThreshold &&
+      (std::abs(measLinvelBaseRtWorldEwrtHeadingXy(0)) <
+           measMaxLinvelBaseRtWorldEwrtHeadingXy &&
+       std::abs(measLinvelBaseRtWorldEwrtHeadingXy(1)) <
+           measMaxLinvelBaseRtWorldEwrtHeadingXy &&
        std::abs(strideMeanMotion->rateYawBaseRtWorld) <
            cfg.cmdMinAngvelBaseRtWorldEwrtWorldZ +
                cfg.maxErrAngvelBaseRtWorldEwrtWorldZ);
@@ -423,8 +452,10 @@ BasePlanarMotion ProceduralMpcMotionManager::updateMeasuredMotion(
                             return instantaneousMotionOf(initTime, initState);
                           });
   // The gaits that no longer run: every one before the one running now.
-  while (scheduledGaits_.size() > 1 && scheduledGaits_[1].startTime <= initTime)
+  while (scheduledGaits_.size() > 1 &&
+         scheduledGaits_[1].startTime <= initTime) {
     scheduledGaits_.erase(scheduledGaits_.begin());
+  }
   measuredMotionWindow_ = strideAt(initTime);
   measuredMotion_ = strideMotion_.mean(measuredMotionWindow_);
   // No seed and no stall in the window (the class comment).
@@ -484,8 +515,9 @@ void ProceduralMpcMotionManager::preSolverRun(
   // Do not change the gait pattern for kGaitChangeHoldOff after the last
   // change. A last change later than now was made on a clock that has since run
   // backwards; it must not hold the gait until the clock is back there.
-  if (initTime < lastGaitChangeTime_)
+  if (initTime < lastGaitChangeTime_) {
     lastGaitChangeTime_ = initTime - kGaitChangeHoldOff;
+  }
   if (initTime > lastGaitChangeTime_ + kGaitChangeHoldOff) {
     // The switches read the measured motion once its window is measured
     // throughout (the class comment).
@@ -530,8 +562,9 @@ void ProceduralMpcMotionManager::preSolverRun(
     // The schedule runs the new gait from gaitStart on, in place of whatever it
     // had from there.
     while (scheduledGaits_.size() > 1 &&
-           scheduledGaits_.back().startTime >= gaitStart)
+           scheduledGaits_.back().startTime >= gaitStart) {
       scheduledGaits_.pop_back();
+    }
     scheduledGaits_.push_back(
         ScheduledGait{.startTime = gaitStart,
                       .cycleDuration = cycleDurationOf(currentGaitCommand_)});

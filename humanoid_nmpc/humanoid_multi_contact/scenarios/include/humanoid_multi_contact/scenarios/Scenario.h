@@ -77,19 +77,19 @@ absl::StatusOr<config::Scenario> loadScenarioFile(absl::string_view path);
  * allowed, initial, goal or waypoint contact that is not a candidate of
  * `contactSet` or (initial, goal and waypoint) not allowed, a goal or waypoint
  * primitive that is not in `terrain`, an empty goal or waypoint stance, or a
- * malformed pose or base region.
+ * malformed posture or base region.
  */
 absl::Status validateScenario(const config::Scenario& scenario,
                               const ContactSet& contactSet,
                               const TerrainModel& terrain);
 
-/** The configuration of a scenario pose; InvalidArgument for a base pose of the
- * wrong size. */
+/** The configuration of a scenario posture; InvalidArgument for a base pose of
+ * the wrong size. */
 absl::StatusOr<RobotConfiguration> configurationOf(
-    const config::Scenario::Pose& pose);
+    const config::Scenario::Pose& posture);
 
-/** The contact mode of a scenario pose's active contacts. */
-absl::StatusOr<ContactMask> contactsOf(const config::Scenario::Pose& pose,
+/** The contact mode of a scenario posture's active contacts. */
+absl::StatusOr<ContactMask> contactsOf(const config::Scenario::Pose& posture,
                                        const ContactSet& contactSet);
 
 /** The certifier settings of `scenario`: its static margin, joint limits and

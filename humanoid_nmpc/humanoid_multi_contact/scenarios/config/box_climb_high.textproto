@@ -17,29 +17,29 @@ terrain_scene {
   primitives {
     name: "ground"
     friction: 0.8
-    box { center: [0, 0, -0.5] half_extents: [20, 20, 0.5] }
+    box { pos_box_rt_world_ewrt_world: [0, 0, -0.5] half_extents: [20, 20, 0.5] }
   }
   # 1.0 x 1.0 m, 0.86 m high, its front face 0.4 m in front of the robot.
   primitives {
     name: "box"
     friction: 0.8
-    box { center: [0.9, 0, 0.43] half_extents: [0.5, 0.5, 0.43] }
+    box { pos_box_rt_world_ewrt_world: [0.9, 0, 0.43] half_extents: [0.5, 0.5, 0.43] }
   }
 }
 
 # Standing on the floor at the nominal pose: knees bent, arms down, the soles at z = 0.
-initial_pose {
+initial_posture {
   name: "standing"
-  base_position: [0, 0, 0.9232]
-  base_orientation_xyzw: [0, 0, 0, 1]
-  joint_positions { joint: "l_leg_hpy" position: -0.3 }
-  joint_positions { joint: "r_leg_hpy" position: -0.3 }
-  joint_positions { joint: "l_leg_kny" position: 0.6 }
-  joint_positions { joint: "r_leg_kny" position: 0.6 }
-  joint_positions { joint: "l_leg_aky" position: -0.3 }
-  joint_positions { joint: "r_leg_aky" position: -0.3 }
-  joint_positions { joint: "l_arm_shx" position: -1.3 }
-  joint_positions { joint: "r_arm_shx" position: 1.3 }
+  pos_base_rt_world_ewrt_world: [0, 0, 0.9232]
+  quat_base_rt_world_xyzw: [0, 0, 0, 1]
+  joint_positions { joint: "l_leg_hpy" joint_position: -0.3 }
+  joint_positions { joint: "r_leg_hpy" joint_position: -0.3 }
+  joint_positions { joint: "l_leg_kny" joint_position: 0.6 }
+  joint_positions { joint: "r_leg_kny" joint_position: 0.6 }
+  joint_positions { joint: "l_leg_aky" joint_position: -0.3 }
+  joint_positions { joint: "r_leg_aky" joint_position: -0.3 }
+  joint_positions { joint: "l_arm_shx" joint_position: -1.3 }
+  joint_positions { joint: "r_arm_shx" joint_position: 1.3 }
   active_contacts: "foot_l_contact"
   active_contacts: "foot_r_contact"
 }
@@ -47,19 +47,19 @@ initial_pose {
 goal {
   contacts { contact: "foot_l_contact" primitive: "box" }
   contacts { contact: "foot_r_contact" primitive: "box" }
-  base_region { center: [0.9, 0, 1.7832] half_extents: [0.3, 0.3, 0.15] }
-  pose {
+  base_region { pos_box_rt_world_ewrt_world: [0.9, 0, 1.7832] half_extents: [0.3, 0.3, 0.15] }
+  posture {
     name: "standing"
-    base_position: [0.9, 0, 1.7832]
-    base_orientation_xyzw: [0, 0, 0, 1]
-    joint_positions { joint: "l_leg_hpy" position: -0.3 }
-    joint_positions { joint: "r_leg_hpy" position: -0.3 }
-    joint_positions { joint: "l_leg_kny" position: 0.6 }
-    joint_positions { joint: "r_leg_kny" position: 0.6 }
-    joint_positions { joint: "l_leg_aky" position: -0.3 }
-    joint_positions { joint: "r_leg_aky" position: -0.3 }
-    joint_positions { joint: "l_arm_shx" position: -1.3 }
-    joint_positions { joint: "r_arm_shx" position: 1.3 }
+    pos_base_rt_world_ewrt_world: [0.9, 0, 1.7832]
+    quat_base_rt_world_xyzw: [0, 0, 0, 1]
+    joint_positions { joint: "l_leg_hpy" joint_position: -0.3 }
+    joint_positions { joint: "r_leg_hpy" joint_position: -0.3 }
+    joint_positions { joint: "l_leg_kny" joint_position: 0.6 }
+    joint_positions { joint: "r_leg_kny" joint_position: 0.6 }
+    joint_positions { joint: "l_leg_aky" joint_position: -0.3 }
+    joint_positions { joint: "r_leg_aky" joint_position: -0.3 }
+    joint_positions { joint: "l_arm_shx" joint_position: -1.3 }
+    joint_positions { joint: "r_arm_shx" joint_position: 1.3 }
     active_contacts: "foot_l_contact"
     active_contacts: "foot_r_contact"
   }

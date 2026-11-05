@@ -81,12 +81,13 @@ SqpStepKind sqpStepKindOf(FilterLinesearch::StepType stepType);
  * Returns the sample of the SQP iteration `iteration`: its step size, the rules
  * that accepted its step and judged its full step, the full step's constraint
  * violation and the constraint violation after the step; and the largest
- * residual of the normal-velocity terms `normalVelocityTerms`
+ * residual of the normal-velocity terms `normalVelocityConstraintTerms`
  * (normalVelocityTermIndices()) over `metrics`, the values of the nodes the
  * iteration's step reached.
  */
-SqpStepSample sqpStepSampleOf(const sqp::IterationRecord& iteration,
-                              const ProblemMetrics& metrics,
-                              absl::Span<const size_t> normalVelocityTerms);
+SqpStepSample sqpStepSampleOf(
+    const sqp::IterationRecord& iteration,
+    const ProblemMetrics& metrics,
+    absl::Span<const size_t> normalVelocityConstraintTerms);
 
 }  // namespace ocs2::humanoid::validation

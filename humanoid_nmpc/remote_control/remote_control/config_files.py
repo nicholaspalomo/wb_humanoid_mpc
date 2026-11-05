@@ -87,7 +87,7 @@ CONTACT_PLANNING_FILE_NAME = "contact_planning.textproto"
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/ConfigFiles.h:contact_planning_file_name)
 
 # The pelvis height the walking command starts at when the reference file names none [m].
-DEFAULT_PELVIS_HEIGHT = 0.8
+NOM_POS_BASE_RT_SURFACE_EWRT_WORLD_Z = 0.8
 
 # The names each registry accepts, by registry: the choices of a string field whose (humanoid_mpc_config.tuning)
 # option names a registry. Written by `bazel run //tools/config_registries:print_config_registries`.
@@ -313,10 +313,10 @@ def contact_planning_file(task_file: str) -> str | None:
     return candidate if os.path.isfile(candidate) else None
 
 
-def read_default_pelvis_height(
-    reference_file: str, fallback: float = DEFAULT_PELVIS_HEIGHT
+def read_nom_pos_base_rt_surface_ewrt_world_z(
+    reference_file: str, fallback: float = NOM_POS_BASE_RT_SURFACE_EWRT_WORLD_Z
 ) -> float:
-    """The reference file's nom_pos_base_rt_world_ewrt_world_z [m], or `fallback` when it has none or cannot be read."""
+    """The reference file's nom_pos_base_rt_surface_ewrt_world_z [m], or `fallback` when it has none or cannot be read."""
     if not reference_file or not os.path.exists(reference_file):
         return fallback
     try:
@@ -325,14 +325,14 @@ def read_default_pelvis_height(
         )
     except (OSError, nproto_textproto.TextprotoError) as error:
         _LOGGER.warning(
-            "Could not read nom_pos_base_rt_world_ewrt_world_z from %s: %s",
+            "Could not read nom_pos_base_rt_surface_ewrt_world_z from %s: %s",
             reference_file,
             error,
         )
         return fallback
-    if not reference.HasField("nom_pos_base_rt_world_ewrt_world_z"):
+    if not reference.HasField("nom_pos_base_rt_surface_ewrt_world_z"):
         return fallback
-    return float(reference.nom_pos_base_rt_world_ewrt_world_z)
+    return float(reference.nom_pos_base_rt_surface_ewrt_world_z)
 
 
 @dataclasses.dataclass(frozen=True)

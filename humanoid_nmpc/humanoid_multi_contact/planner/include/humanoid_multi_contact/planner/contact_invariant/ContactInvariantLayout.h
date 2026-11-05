@@ -40,7 +40,7 @@ struct ActivationCandidate {
   std::string name;
   // The index of the candidate's force in the physical input; a surface
   // candidate's moment follows its force.
-  int forceOffset = 0;
+  int wrenchStartIndex = 0;
   // 3 for a point candidate (a force), 6 for a surface candidate (a wrench).
   int wrenchDim = 0;
 };

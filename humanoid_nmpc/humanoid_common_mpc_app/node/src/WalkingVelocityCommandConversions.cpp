@@ -48,42 +48,46 @@ absl::Status checkFinite(absl::string_view field, double value) {
 
 }  // namespace
 
-WalkingVelocityCommand clampWalkingVelocityCommand(
-    const WalkingVelocityCommand& command) {
-  WalkingVelocityCommand clamped;
-  clamped.cmd_linvel_base_rt_world_ewrt_heading_x =
-      std::clamp(command.cmd_linvel_base_rt_world_ewrt_heading_x,
-                 -kMaxNormalizedVelocity, kMaxNormalizedVelocity);
-  clamped.cmd_linvel_base_rt_world_ewrt_heading_y =
-      std::clamp(command.cmd_linvel_base_rt_world_ewrt_heading_y,
-                 -kMaxNormalizedVelocity, kMaxNormalizedVelocity);
-  clamped.cmd_pos_base_rt_world_ewrt_world_z =
-      std::clamp(command.cmd_pos_base_rt_world_ewrt_world_z, kMinPelvisHeight,
-                 kMaxPelvisHeight);
-  clamped.cmd_angvel_base_rt_world_ewrt_world_z =
-      std::clamp(command.cmd_angvel_base_rt_world_ewrt_world_z,
-                 -kMaxNormalizedVelocity, kMaxNormalizedVelocity);
+NormalizedWalkingVelocityCommand clampWalkingVelocityCommand(
+    const NormalizedWalkingVelocityCommand& command) {
+  NormalizedWalkingVelocityCommand clamped;
+  clamped.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x =
+      std::clamp(command.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x,
+                 -kCmdMaxLnormLinvelBaseRtWorldEwrtHeadingXy,
+                 kCmdMaxLnormLinvelBaseRtWorldEwrtHeadingXy);
+  clamped.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y =
+      std::clamp(command.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y,
+                 -kCmdMaxLnormLinvelBaseRtWorldEwrtHeadingXy,
+                 kCmdMaxLnormLinvelBaseRtWorldEwrtHeadingXy);
+  clamped.cmd_pos_base_rt_surface_ewrt_world_z = std::clamp(
+      command.cmd_pos_base_rt_surface_ewrt_world_z,
+      kCmdMinPosBaseRtSurfaceEwrtWorldZ, kCmdMaxPosBaseRtSurfaceEwrtWorldZ);
+  clamped.cmd_lnorm_angvel_base_rt_world_ewrt_world_z =
+      std::clamp(command.cmd_lnorm_angvel_base_rt_world_ewrt_world_z,
+                 -kCmdMaxLnormAngvelBaseRtWorldEwrtWorldZ,
+                 kCmdMaxLnormAngvelBaseRtWorldEwrtWorldZ);
   return clamped;
 }
 
-absl::StatusOr<WalkingVelocityCommand> walkingVelocityCommandFromProto(
+absl::StatusOr<NormalizedWalkingVelocityCommand>
+walkingVelocityCommandFromProto(
     const humanoid_mpc_msgs::WalkingVelocityCommand& message) {
   for (const absl::Status& status :
-       {checkFinite("cmd_linvel_base_rt_world_ewrt_heading_x",
-                    message.cmd_linvel_base_rt_world_ewrt_heading_x()),
-        checkFinite("cmd_linvel_base_rt_world_ewrt_heading_y",
-                    message.cmd_linvel_base_rt_world_ewrt_heading_y()),
-        checkFinite("cmd_pos_base_rt_world_ewrt_world_z",
-                    message.cmd_pos_base_rt_world_ewrt_world_z()),
-        checkFinite("cmd_angvel_base_rt_world_ewrt_world_z",
-                    message.cmd_angvel_base_rt_world_ewrt_world_z())}) {
+       {checkFinite("cmd_lnorm_linvel_base_rt_world_ewrt_heading_x",
+                    message.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x()),
+        checkFinite("cmd_lnorm_linvel_base_rt_world_ewrt_heading_y",
+                    message.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y()),
+        checkFinite("cmd_pos_base_rt_surface_ewrt_world_z",
+                    message.cmd_pos_base_rt_surface_ewrt_world_z()),
+        checkFinite("cmd_lnorm_angvel_base_rt_world_ewrt_world_z",
+                    message.cmd_lnorm_angvel_base_rt_world_ewrt_world_z())}) {
     if (!status.ok()) return status;
   }
-  return clampWalkingVelocityCommand(
-      WalkingVelocityCommand(message.cmd_linvel_base_rt_world_ewrt_heading_x(),
-                             message.cmd_linvel_base_rt_world_ewrt_heading_y(),
-                             message.cmd_pos_base_rt_world_ewrt_world_z(),
-                             message.cmd_angvel_base_rt_world_ewrt_world_z()));
+  return clampWalkingVelocityCommand(NormalizedWalkingVelocityCommand(
+      message.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x(),
+      message.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y(),
+      message.cmd_pos_base_rt_surface_ewrt_world_z(),
+      message.cmd_lnorm_angvel_base_rt_world_ewrt_world_z()));
 }
 
 }  // namespace ocs2::humanoid::node

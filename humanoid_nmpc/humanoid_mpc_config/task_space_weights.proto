@@ -24,20 +24,20 @@ message TaskSpaceWeights {
   // task_space_foot_cost the foot's tilt from the ground as a rotation vector (tiltAngleToPlane()), whose z entry the
   // centroidal foot cost replaces with the wrapped error of a planned foot yaw. Both were half-angle residuals
   // sin(theta / 2) before; a weight w there is w / 4 here at small angles, which is how the shipped weights were rescaled.
-  double orientation_x = 4 [default = 0.0];
-  double orientation_y = 5 [default = 0.0];
-  double orientation_z = 6 [default = 0.0];
-  double lin_velocity_x = 7 [default = 0.0];
-  double lin_velocity_y = 8 [default = 0.0];
-  double lin_velocity_z = 9 [default = 0.0];
-  double ang_velocity_x = 10 [default = 0.0];
-  double ang_velocity_y = 11 [default = 0.0];
-  double ang_velocity_z = 12 [default = 0.0];
-  double lin_acceleration_x = 13 [default = 0.0];
-  double lin_acceleration_y = 14 [default = 0.0];
-  double lin_acceleration_z = 15 [default = 0.0];
-  double ang_acceleration_x = 16 [default = 0.0];
-  double ang_acceleration_y = 17 [default = 0.0];
-  double ang_acceleration_z = 18 [default = 0.0];
+  double rotvec_x = 4 [default = 0.0];
+  double rotvec_y = 5 [default = 0.0];
+  double rotvec_z = 6 [default = 0.0];
+  double linvel_x = 7 [default = 0.0];
+  double linvel_y = 8 [default = 0.0];
+  double linvel_z = 9 [default = 0.0];
+  double angvel_x = 10 [default = 0.0];
+  double angvel_y = 11 [default = 0.0];
+  double angvel_z = 12 [default = 0.0];
+  double linacc_x = 13 [default = 0.0];
+  double linacc_y = 14 [default = 0.0];
+  double linacc_z = 15 [default = 0.0];
+  double angacc_x = 16 [default = 0.0];
+  double angacc_y = 17 [default = 0.0];
+  double angacc_z = 18 [default = 0.0];
   // NOLINTEND(frame-naming)
 }

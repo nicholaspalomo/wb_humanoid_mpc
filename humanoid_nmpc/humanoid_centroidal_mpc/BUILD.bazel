@@ -398,7 +398,7 @@ cc_test(
     ],
 )
 
-# Both shipped contact_planning.textproto files, on the pendulum the planner runs (a com_height left out resolved from the model):
+# Both shipped contact_planning.textproto files, on the pendulum the planner runs (a nom_pos_com_rt_feetmean_ewrt_world_z left out resolved from the model):
 # they validate with no warning, fit their first step, and share the DCM cost's pendulum.
 cc_test(
     name = "testShippedContactPlanningFiles",
@@ -1528,7 +1528,8 @@ cc_test(
 
 # The planned-motion reference manager on the multi-contact models (CreateControllerModels(), no CppAD) and milestone
 # 1's hand-written plan: the mode schedule by name, the targets, the force reference of the plan's wrenches, the refusal
-# of a plan of another scene, the clock hold, the swings and the patches; and the plans PlannedMotion refuses.
+# of a plan of another scene, the clock hold, the swings and the patches; the plan's world wrenches under basis-vector
+# inputs; and the plans PlannedMotion refuses.
 cc_test(
     name = "test_planned_motion_reference_manager",
     size = "medium",

@@ -106,8 +106,8 @@ struct DriverSolveOutcome {
  * observation itself after a reset).
  */
 struct InitialStateGap {
-  double rotation = 0.0;  ///< [rad] of its base orientation part
-  double norm = 0.0;      ///< of the whole state difference
+  double angle = 0.0;  ///< [rad] of its base orientation part
+  double norm = 0.0;   ///< of the whole state difference
 };
 
 /**
@@ -129,7 +129,7 @@ InitialStateGap initialStateGapOf(const vector_t& delta,
  * retraction keeps them on. Empty for no states. Every state has at least
  * orientationStartIndex + 4 entries.
  */
-std::optional<double> maxQuaternionNormDeviationOf(
+std::optional<double> maxUnitQuaternionNormDeviationOf(
     const vector_array_t& states, size_t orientationStartIndex);
 
 /**
@@ -221,7 +221,7 @@ class ClosedLoopDriver {
   /**
    * The GUI publishes `message` (cmd_linvel_base_rt_world_ewrt_heading_x,
    * cmd_linvel_base_rt_world_ewrt_heading_y,
-   * cmd_pos_base_rt_world_ewrt_world_z,
+   * cmd_pos_base_rt_surface_ewrt_world_z,
    * cmd_angvel_base_rt_world_ewrt_world_z): the MPC node's
    * node::applyWalkingVelocityCommand() hands it to the motion manager, clamped
    * and scaled, and the next solve reads it. A message the node refuses (a
@@ -237,14 +237,14 @@ class ClosedLoopDriver {
   const Eigen::Vector3d& commandLimits() const {
     return guiCommandScaling_.commandLimits;
   }
-  /** [m] nom_pos_base_rt_world_ewrt_world_z of the reference file, the pelvis
+  /** [m] nom_pos_base_rt_surface_ewrt_world_z of the reference file, the pelvis
    * height the GUI's slider sends. */
   double defaultPelvisHeight() const {
     return guiCommandScaling_.defaultPelvisHeight;
   }
   /** The velocity reference of the last solve: (forward, lateral, yaw rate)
    * after the command filter and the ramps. */
-  Eigen::Vector3d referenceVelocity() const;
+  Eigen::Vector3d refVelocityCommand() const;
   /** [m] The world height of the base a command with `pelvisHeight` asks for.
    */
   double referenceBaseHeight(double pelvisHeight) const;
@@ -273,14 +273,14 @@ class ClosedLoopDriver {
   /**
    * max | |xi_k| - 1 | over the nodes of the solver's last solution, the stored
    * quaternions of every node before the solution window trims it
-   * (maxQuaternionNormDeviationOf()); empty before the first solve. Copies the
-   * solution.
+   * (maxUnitQuaternionNormDeviationOf()); empty before the first solve. Copies
+   * the solution.
    */
-  std::optional<double> maxQuaternionNormDeviation() const;
+  std::optional<double> maxUnitQuaternionNormDeviation() const;
 
   /** The world positions of the MPC's contact frames at the configuration of
    * `observation`. */
-  std::array<Eigen::Vector3d, 2> contactPositions(
+  std::array<Eigen::Vector3d, 2> computePosContactsRtWorldEwrtWorld(
       const SystemObservation& observation);
 
   // ---------------------------------------------------------------- the robot
@@ -399,7 +399,7 @@ class ClosedLoopDriver {
 
   /// The problem's hard swing-foot normal-velocity terms
   /// (normalVelocityTermIndices()), whose residual solve() samples.
-  std::vector<size_t> normalVelocityTerms_;
+  std::vector<size_t> normalVelocityConstraintTerms_;
 
   std::unique_ptr<MpcRobotModelBase<scalar_t>> measurementModel_;
   std::unique_ptr<PinocchioInterface> measurementPinocchio_;

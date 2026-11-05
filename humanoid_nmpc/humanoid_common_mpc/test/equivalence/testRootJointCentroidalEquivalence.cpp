@@ -37,11 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/SVD"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/centroidal.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_mpc_validation/chart/EulerChart.h"
@@ -93,16 +93,18 @@ class RootJointCentroidalEquivalence
     models_ = *std::move(models);
   }
 
-  PinocchioMotion quaternionMotion(const PinocchioMotion& eulerMotion) const {
+  PinocchioMotion quaternionModelMotion(
+      const PinocchioMotion& eulerMotion) const {
     absl::StatusOr<PinocchioMotion> motion =
-        quaternionMotionOf(eulerMotion, models_->pinocchioStateLayout());
+        quaternionModelMotionOf(eulerMotion, models_->pinocchioStateLayout());
     EXPECT_TRUE(motion.ok()) << motion.status();
     return motion.ok() ? *std::move(motion) : PinocchioMotion{};
   }
 
-  ChartVelocityMaps velocityMaps(const PinocchioMotion& eulerMotion) const {
-    absl::StatusOr<ChartVelocityMaps> maps =
-        chartVelocityMapsAt(eulerMotion, models_->pinocchioStateLayout());
+  ChartVelocityMaps generalizedVelocityMaps(
+      const PinocchioMotion& eulerMotion) const {
+    absl::StatusOr<ChartVelocityMaps> maps = chartGeneralizedVelocityMapsAt(
+        eulerMotion, models_->pinocchioStateLayout());
     EXPECT_TRUE(maps.ok()) << maps.status();
     return maps.ok() ? *std::move(maps) : ChartVelocityMaps{};
   }
@@ -150,32 +152,33 @@ TEST_P(RootJointCentroidalEquivalence,
   // only on the placements (C1).
   const pinocchio::Model& quaternionModel = models_->quaternionModel();
   const pinocchio::Model& eulerModel = models_->eulerModel();
-  pinocchio::Data quaternionData(quaternionModel);
+  pinocchio::Data quaternionModelData(quaternionModel);
   pinocchio::Data eulerData(eulerModel);
   std::mt19937 generator(201);
   for (int sample = 0; sample < kSamples; ++sample) {
     const PinocchioMotion eulerMotion =
         randomEulerMotion(eulerModel, MotionSamplingBounds{}, generator);
-    const PinocchioMotion motion = quaternionMotion(eulerMotion);
+    const PinocchioMotion motion = quaternionModelMotion(eulerMotion);
     const matrix_t eulerMap =
         pinocchio::ccrba(eulerModel, eulerData, eulerMotion.q, eulerMotion.v);
-    const matrix_t quaternionMap =
-        pinocchio::ccrba(quaternionModel, quaternionData, motion.q, motion.v);
-    ASSERT_TRUE(
-        isCloseRelative(quaternionMap * velocityMaps(eulerMotion).velocityMap,
-                        eulerMap, kKinematicsTolerance))
+    const matrix_t quaternionMap = pinocchio::ccrba(
+        quaternionModel, quaternionModelData, motion.q, motion.v);
+    ASSERT_TRUE(isCloseRelative(
+        quaternionMap *
+            generalizedVelocityMaps(eulerMotion).generalizedVelocityMap,
+        eulerMap, kKinematicsTolerance))
         << "sample " << sample;
-    ASSERT_TRUE(isCloseRelative(quaternionData.hg.toVector(),
+    ASSERT_TRUE(isCloseRelative(quaternionModelData.hg.toVector(),
                                 eulerData.hg.toVector(), kKinematicsTolerance))
         << "sample " << sample;
-    ASSERT_TRUE(isCloseRelative(quaternionData.Ig.matrix(),
+    ASSERT_TRUE(isCloseRelative(quaternionModelData.Ig.matrix(),
                                 eulerData.Ig.matrix(), kKinematicsTolerance))
         << "sample " << sample;
-    ASSERT_TRUE(isCloseRelative(quaternionData.com[0], eulerData.com[0],
+    ASSERT_TRUE(isCloseRelative(quaternionModelData.com[0], eulerData.com[0],
                                 kKinematicsTolerance))
         << "sample " << sample;
     for (int joint = 1; joint < eulerModel.njoints; ++joint) {
-      ASSERT_TRUE(isCloseRelative(quaternionData.oYcrb[joint].matrix(),
+      ASSERT_TRUE(isCloseRelative(quaternionModelData.oYcrb[joint].matrix(),
                                   eulerData.oYcrb[joint].matrix(),
                                   kKinematicsTolerance))
           << eulerModel.names[joint] << ", sample " << sample;
@@ -190,25 +193,26 @@ TEST_P(RootJointCentroidalEquivalence, MomentumRateIsTheSame) {
   // v_e.
   const pinocchio::Model& quaternionModel = models_->quaternionModel();
   const pinocchio::Model& eulerModel = models_->eulerModel();
-  pinocchio::Data quaternionData(quaternionModel);
+  pinocchio::Data quaternionModelData(quaternionModel);
   pinocchio::Data eulerData(eulerModel);
   std::mt19937 generator(203);
   for (int sample = 0; sample < kSamples; ++sample) {
     const PinocchioMotion eulerMotion =
         randomEulerMotion(eulerModel, MotionSamplingBounds{}, generator);
-    const PinocchioMotion motion = quaternionMotion(eulerMotion);
-    const vector6_t eulerRate =
+    const PinocchioMotion motion = quaternionModelMotion(eulerMotion);
+    const vector6_t eulerModelRateCmomComRtWorldEwrtWorld =
         pinocchio::computeCentroidalMomentumTimeVariation(
             eulerModel, eulerData, eulerMotion.q, eulerMotion.v, eulerMotion.a)
             .toVector();
-    const vector6_t quaternionRate =
+    const vector6_t sphericalModelRateCmomComRtWorldEwrtWorld =
         pinocchio::computeCentroidalMomentumTimeVariation(
-            quaternionModel, quaternionData, motion.q, motion.v, motion.a)
+            quaternionModel, quaternionModelData, motion.q, motion.v, motion.a)
             .toVector();
-    ASSERT_TRUE(
-        isCloseRelative(quaternionRate, eulerRate, kKinematicsTolerance))
+    ASSERT_TRUE(isCloseRelative(sphericalModelRateCmomComRtWorldEwrtWorld,
+                                eulerModelRateCmomComRtWorldEwrtWorld,
+                                kKinematicsTolerance))
         << "sample " << sample;
-    ASSERT_TRUE(isCloseRelative(quaternionData.hg.toVector(),
+    ASSERT_TRUE(isCloseRelative(quaternionModelData.hg.toVector(),
                                 eulerData.hg.toVector(), kKinematicsTolerance))
         << "sample " << sample;
   }
@@ -226,40 +230,42 @@ TEST_P(RootJointCentroidalEquivalence,
   // angles).
   const pinocchio::Model& quaternionModel = models_->quaternionModel();
   const pinocchio::Model& eulerModel = models_->eulerModel();
-  pinocchio::Data quaternionData(quaternionModel);
+  pinocchio::Data quaternionModelData(quaternionModel);
   pinocchio::Data eulerData(eulerModel);
   std::mt19937 generator(205);
   for (int sample = 0; sample < kSamples / 4; ++sample) {
     const PinocchioMotion eulerMotion =
         randomEulerMotion(eulerModel, MotionSamplingBounds{}, generator);
-    const PinocchioMotion motion = quaternionMotion(eulerMotion);
-    const ChartVelocityMaps maps = velocityMaps(eulerMotion);
+    const PinocchioMotion motion = quaternionModelMotion(eulerMotion);
+    const ChartVelocityMaps maps = generalizedVelocityMaps(eulerMotion);
     const matrix_t eulerRate =
         momentumMatrixRateAlong(eulerModel, eulerMotion.q, eulerMotion.v);
-    const matrix_t quaternionRate =
+    const matrix_t quaternionModelRate =
         momentumMatrixRateAlong(quaternionModel, motion.q, motion.v);
     const matrix_t quaternionMap = momentumMatrixAt(quaternionModel, motion.q);
-    ASSERT_TRUE(isCloseRelative(quaternionRate * maps.velocityMap +
-                                    quaternionMap * maps.velocityMapRate,
-                                eulerRate, kMomentumMatrixRateTolerance))
+    ASSERT_TRUE(
+        isCloseRelative(quaternionModelRate * maps.generalizedVelocityMap +
+                            quaternionMap * maps.generalizedVelocityMapRate,
+                        eulerRate, kMomentumMatrixRateTolerance))
         << "sample " << sample;
 
-    const vector6_t eulerMomentumRate =
+    const vector6_t eulerModelRateCmomComRtWorldEwrtWorld =
         pinocchio::computeCentroidalMomentumTimeVariation(
             eulerModel, eulerData, eulerMotion.q, eulerMotion.v, eulerMotion.a)
             .toVector();
-    const vector6_t quaternionMomentumRate =
+    const vector6_t sphericalModelRateCmomComRtWorldEwrtWorld =
         pinocchio::computeCentroidalMomentumTimeVariation(
-            quaternionModel, quaternionData, motion.q, motion.v, motion.a)
+            quaternionModel, quaternionModelData, motion.q, motion.v, motion.a)
             .toVector();
     const matrix_t eulerMap = momentumMatrixAt(eulerModel, eulerMotion.q);
-    ASSERT_TRUE(
-        isCloseRelative(eulerMap * eulerMotion.a + eulerRate * eulerMotion.v,
-                        eulerMomentumRate, kMomentumMatrixRateTolerance))
+    ASSERT_TRUE(isCloseRelative(
+        eulerMap * eulerMotion.a + eulerRate * eulerMotion.v,
+        eulerModelRateCmomComRtWorldEwrtWorld, kMomentumMatrixRateTolerance))
         << "sample " << sample;
-    ASSERT_TRUE(
-        isCloseRelative(quaternionMap * motion.a + quaternionRate * motion.v,
-                        quaternionMomentumRate, kMomentumMatrixRateTolerance))
+    ASSERT_TRUE(isCloseRelative(
+        quaternionMap * motion.a + quaternionModelRate * motion.v,
+        sphericalModelRateCmomComRtWorldEwrtWorld,
+        kMomentumMatrixRateTolerance))
         << "sample " << sample;
   }
 }
@@ -274,45 +280,53 @@ TEST_P(RootJointCentroidalEquivalence,
   // (T1).
   const pinocchio::Model& quaternionModel = models_->quaternionModel();
   const pinocchio::Model& eulerModel = models_->eulerModel();
-  pinocchio::Data quaternionData(quaternionModel);
+  pinocchio::Data quaternionModelData(quaternionModel);
   pinocchio::Data eulerData(eulerModel);
   const Eigen::Index nj = models_->numJoints();
   std::mt19937 generator(207);
   for (int sample = 0; sample < kSamples; ++sample) {
     const PinocchioMotion eulerMotion =
         randomEulerMotion(eulerModel, MotionSamplingBounds{}, generator);
-    const PinocchioMotion motion = quaternionMotion(eulerMotion);
+    const PinocchioMotion motion = quaternionModelMotion(eulerMotion);
     const matrix_t eulerMap =
         pinocchio::ccrba(eulerModel, eulerData, eulerMotion.q, eulerMotion.v);
-    const matrix_t quaternionMap =
-        pinocchio::ccrba(quaternionModel, quaternionData, motion.q, motion.v);
-    const vector6_t momentum = quaternionData.hg.toVector();
+    const matrix_t quaternionMap = pinocchio::ccrba(
+        quaternionModel, quaternionModelData, motion.q, motion.v);
+    const vector6_t cmomComRtWorldEwrtWorld = quaternionModelData.hg.toVector();
 
     const matrix6_t eulerBaseBlock = eulerMap.leftCols<6>();
-    const matrix6_t quaternionBaseBlock = quaternionMap.leftCols<6>();
-    const vector6_t eulerBaseVelocity = eulerBaseBlock.partialPivLu().solve(
-        momentum - eulerMap.rightCols(nj) * eulerMotion.v.tail(nj));
-    const vector6_t quaternionBaseVelocity =
-        quaternionBaseBlock.partialPivLu().solve(
-            momentum - quaternionMap.rightCols(nj) * motion.v.tail(nj));
+    const matrix6_t quaternionModelBaseBlock = quaternionMap.leftCols<6>();
+    const vector6_t eulerModelBaseGeneralizedVelocity =
+        eulerBaseBlock.partialPivLu().solve(cmomComRtWorldEwrtWorld -
+                                            eulerMap.rightCols(nj) *
+                                                eulerMotion.v.tail(nj));
+    const vector6_t quaternionModelBaseGeneralizedVelocity =
+        quaternionModelBaseBlock.partialPivLu().solve(
+            cmomComRtWorldEwrtWorld -
+            quaternionMap.rightCols(nj) * motion.v.tail(nj));
 
     const Eigen::JacobiSVD<matrix6_t> eulerSvd(eulerBaseBlock);
-    const Eigen::JacobiSVD<matrix6_t> quaternionSvd(quaternionBaseBlock);
+    const Eigen::JacobiSVD<matrix6_t> quaternionModelSvd(
+        quaternionModelBaseBlock);
     const scalar_t eulerCondition =
         eulerSvd.singularValues()(0) / eulerSvd.singularValues()(5);
-    const scalar_t quaternionCondition =
-        quaternionSvd.singularValues()(0) / quaternionSvd.singularValues()(5);
-    ASSERT_TRUE(isCloseRelative(eulerBaseVelocity, eulerMotion.v.head<6>(),
+    const scalar_t quaternionModelCondition =
+        quaternionModelSvd.singularValues()(0) /
+        quaternionModelSvd.singularValues()(5);
+    ASSERT_TRUE(isCloseRelative(eulerModelBaseGeneralizedVelocity,
+                                eulerMotion.v.head<6>(),
                                 kKinematicsTolerance * eulerCondition))
         << "sample " << sample;
-    ASSERT_TRUE(isCloseRelative(quaternionBaseVelocity, motion.v.head<6>(),
-                                kKinematicsTolerance * quaternionCondition))
+    ASSERT_TRUE(isCloseRelative(
+        quaternionModelBaseGeneralizedVelocity, motion.v.head<6>(),
+        kKinematicsTolerance * quaternionModelCondition))
         << "sample " << sample;
     ASSERT_TRUE(isCloseRelative(
-        quaternionBaseVelocity.tail<3>(),
-        velocityMaps(eulerMotion).velocityMap.block<3, 3>(3, 3) *
-            eulerBaseVelocity.tail<3>(),
-        kKinematicsTolerance * (eulerCondition + quaternionCondition)))
+        quaternionModelBaseGeneralizedVelocity.tail<3>(),
+        generalizedVelocityMaps(eulerMotion)
+                .generalizedVelocityMap.block<3, 3>(3, 3) *
+            eulerModelBaseGeneralizedVelocity.tail<3>(),
+        kKinematicsTolerance * (eulerCondition + quaternionModelCondition)))
         << "sample " << sample;
   }
 }
@@ -325,7 +339,7 @@ TEST_P(RootJointCentroidalEquivalence,
   // root's q, the whole-body chart's (C1).
   const pinocchio::Model& quaternionModel = models_->quaternionModel();
   const pinocchio::Model& eulerModel = models_->eulerModel();
-  pinocchio::Data quaternionData(quaternionModel);
+  pinocchio::Data quaternionModelData(quaternionModel);
   pinocchio::Data eulerData(eulerModel);
   const Eigen::Index nq = quaternionModel.nq;
   const scalar_t mass = pinocchio::computeTotalMass(eulerModel);
@@ -333,9 +347,9 @@ TEST_P(RootJointCentroidalEquivalence,
   for (int sample = 0; sample < kSamples; ++sample) {
     const PinocchioMotion eulerMotion =
         randomEulerMotion(eulerModel, MotionSamplingBounds{}, generator);
-    const PinocchioMotion motion = quaternionMotion(eulerMotion);
+    const PinocchioMotion motion = quaternionModelMotion(eulerMotion);
     pinocchio::ccrba(eulerModel, eulerData, eulerMotion.q, eulerMotion.v);
-    pinocchio::ccrba(quaternionModel, quaternionData, motion.q, motion.v);
+    pinocchio::ccrba(quaternionModel, quaternionModelData, motion.q, motion.v);
     vector_t centroidalEulerState(6 + eulerModel.nq);
     centroidalEulerState << eulerData.hg.toVector() / mass, eulerMotion.q;
     absl::StatusOr<vector_t> centroidalState =
@@ -344,7 +358,7 @@ TEST_P(RootJointCentroidalEquivalence,
     ASSERT_TRUE(centroidalState.ok()) << centroidalState.status();
     ASSERT_EQ(centroidalState->size(), 6 + nq);
     ASSERT_TRUE(isCloseRelative(centroidalState->head<6>(),
-                                quaternionData.hg.toVector() / mass,
+                                quaternionModelData.hg.toVector() / mass,
                                 kKinematicsTolerance))
         << "sample " << sample;
     ASSERT_TRUE(isCloseRelative(centroidalState->tail(nq), motion.q,

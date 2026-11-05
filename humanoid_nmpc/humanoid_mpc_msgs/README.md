@@ -140,4 +140,4 @@ and are the contract with the bridge's blueprint.
 ### Shared geometry
 
 `vector.proto` (`Vector`, a dense `vector_t`), `vector3.proto`, `quaternion.proto` (Hamilton, `Eigen::Quaterniond`),
-`pose.proto`, `wrench.proto` (world-frame force and torque).
+`pose.proto`, `wrench.proto` (force and torque, in that order; the field that holds one names its point and frame).

@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StateLayout.h"
@@ -142,12 +143,14 @@ absl::StatusOr<std::vector<std::string>> activeJointNames(
   }
   if (!unknown.empty() || !twice.empty()) {
     std::vector<std::string> problems;
-    if (!unknown.empty())
+    if (!unknown.empty()) {
       problems.push_back(absl::StrCat("names ", absl::StrJoin(unknown, ", "),
                                       ", which the URDF does not have"));
-    if (!twice.empty())
+    }
+    if (!twice.empty()) {
       problems.push_back(absl::StrCat("names ", absl::StrJoin(twice, ", "),
                                       " more than once"));
+    }
     return absl::InvalidArgumentError(
         absl::StrCat("[ModelSettings] model_settings.fixed_joint_names ",
                      absl::StrJoin(problems, " and "),
@@ -265,17 +268,22 @@ pointContactsFromConfig(
           "', which another contact has: every contact of the MPC is a frame "
           "of its own."));
     }
-    RETURN_IF_ERROR(requireFinite(absl::StrCat(entry, ".translation.x"),
-                                  contact.translation.x));
-    RETURN_IF_ERROR(requireFinite(absl::StrCat(entry, ".translation.y"),
-                                  contact.translation.y));
-    RETURN_IF_ERROR(requireFinite(absl::StrCat(entry, ".translation.z"),
-                                  contact.translation.z));
+    RETURN_IF_ERROR(
+        requireFinite(absl::StrCat(entry, ".pos_contact_rt_link_ewrt_link.x"),
+                      contact.pos_contact_rt_link_ewrt_link.x));
+    RETURN_IF_ERROR(
+        requireFinite(absl::StrCat(entry, ".pos_contact_rt_link_ewrt_link.y"),
+                      contact.pos_contact_rt_link_ewrt_link.y));
+    RETURN_IF_ERROR(
+        requireFinite(absl::StrCat(entry, ".pos_contact_rt_link_ewrt_link.z"),
+                      contact.pos_contact_rt_link_ewrt_link.z));
     contacts.push_back(ModelSettings::PointContact{
         .name = contact.name,
         .parentJointName = contact.parent_joint_name,
-        .translation = vector3_t(contact.translation.x, contact.translation.y,
-                                 contact.translation.z)});
+        .posContactRtLinkEwrtLink =
+            vector3_t(contact.pos_contact_rt_link_ewrt_link.x,
+                      contact.pos_contact_rt_link_ewrt_link.y,
+                      contact.pos_contact_rt_link_ewrt_link.z)});
   }
   return contacts;
 }
@@ -286,8 +294,9 @@ pointContactsFromConfig(
 std::vector<std::string> stanceConstraintNames() {
   std::vector<std::string> names;
   names.reserve(kStanceConstraints.size());
-  for (const StanceConstraintEntry& entry : kStanceConstraints)
+  for (const StanceConstraintEntry& entry : kStanceConstraints) {
     names.emplace_back(entry.name);
+  }
   return names;
 }
 
@@ -374,7 +383,8 @@ ModelSettings::ContactImplicitConfig contactImplicitFromConfig(
   return {
       .complementarityWeight = config.complementarity_weight,
       .slipWeight = config.slip_weight,
-      .heightReference = config.height_reference,
+      .scalePosContactRtSurfaceEwrtWorldZ =
+          config.scale_pos_contact_rt_surface_ewrt_world_z,
       .scaleLinvelContactRtWorldEwrtWorldXy =
           config.scale_linvel_contact_rt_world_ewrt_world_xy,
       .scaleAngvelContactRtWorldEwrtWorldZ =
@@ -386,9 +396,12 @@ ModelSettings::ContactImplicitConfig contactImplicitFromConfig(
 
 absl::StatusOr<ModelSettings::NominalFootholdConfig> nominalFootholdFromConfig(
     const mpc_config::NominalFootholdConfig& config) {
-  RETURN_IF_ERROR(
-      requireNonNegative("nominal_foothold.step_width", config.step_width));
-  return ModelSettings::NominalFootholdConfig{.stepWidth = config.step_width};
+  RETURN_IF_ERROR(requireNonNegative(
+      "nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y",
+      config.nom_pos_lfoot_rt_rfoot_ewrt_heading_y));
+  return ModelSettings::NominalFootholdConfig{
+      .nomPosLfootRtRfootEwrtHeadingY =
+          config.nom_pos_lfoot_rt_rfoot_ewrt_heading_y};
 }
 
 absl::StatusOr<ModelSettings> ModelSettings::Create(
@@ -482,8 +495,10 @@ absl::StatusOr<ModelSettings> ModelSettings::Create(
 
   ASSIGN_OR_RETURN(settings.footConstraintConfig,
                    footConstraintFromConfig(config.foot_constraint));
-  RETURN_IF_ERROR(requireFinite("terrain_height", taskFile.terrain_height));
-  settings.terrainHeight = taskFile.terrain_height;
+  RETURN_IF_ERROR(requireFinite("pos_surface_rt_world_ewrt_world_z",
+                                taskFile.pos_surface_rt_world_ewrt_world_z));
+  settings.posSurfaceRtWorldEwrtWorldZ =
+      taskFile.pos_surface_rt_world_ewrt_world_z;
   settings.contactImplicitConfig =
       contactImplicitFromConfig(taskFile.contact_implicit);
   ASSIGN_OR_RETURN(settings.nominalFootholdConfig,

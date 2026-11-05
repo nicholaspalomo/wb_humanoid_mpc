@@ -36,12 +36,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <limits>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <random>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
 #include "absl/log/globals.h"
@@ -51,23 +53,39 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
 #include "ocs2_core/NumericTraits.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/control/ControllerBase.h"
 #include "ocs2_core/control/ControllerType.h"
 #include "ocs2_core/control/ManifoldLinearController.h"
+#include "ocs2_core/initialization/Initializer.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/oc_data/TimeDiscretization.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 #include "ocs2_sqp/SqpSolver.h"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_mpc_validation/chart/EulerChart.h"
+#include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/equivalence/EulerChartStateManifold.h"
+#include "humanoid_nmpc/humanoid_common_mpc/test/equivalence/EulerMpcOracle.h"
+#include "humanoid_wb_mpc/WBMpcInterface.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -78,7 +96,7 @@ using validation::EulerStateSegmentKind;
 
 /** [m] How far ahead along the world x axis the walking reference's target is,
  * and [s] when. */
-constexpr scalar_t kWalkingTargetDistance = 1.0;
+constexpr scalar_t kWalkingRefErrPosBaseRtWorldEwrtWorldX = 1.0;
 constexpr scalar_t kWalkingTargetTime = 2.0;
 /** The walking reference's single supports. */
 constexpr size_t kWalkingSteps = 4;
@@ -165,8 +183,9 @@ std::vector<std::string> mpcEquivalenceConfigurationNames() {
   if (name != nullptr && name[0] != '\0') return {std::string(name)};
   std::vector<std::string> names;
   for (const validation::RobotConfiguration& robot :
-       validation::robotConfigurations())
+       validation::robotConfigurations()) {
     names.push_back(robot.name);
+  }
   return names;
 }
 
@@ -280,9 +299,10 @@ const OptimalControlProblem& MpcEquivalenceFixture::problem() const {
 }
 
 absl::StatusOr<std::unique_ptr<EulerMpcOracle>>
-MpcEquivalenceFixture::oracleUnderGravity(const vector3_t& gravity) const {
+MpcEquivalenceFixture::oracleUnderGravity(
+    const vector3_t& gravityEwrtWorld) const {
   EulerMpcOracleOptions options = oracleOptions_;
-  options.gravity = gravity;
+  options.gravityEwrtWorld = gravityEwrtWorld;
   pinocchio::Model quaternionModel;
   if (centroidal_ != nullptr) {
     quaternionModel = centroidal_->getPinocchioInterface().getModel();
@@ -306,7 +326,7 @@ const sqp::Settings& MpcEquivalenceFixture::sqpSettings() const {
                                 : wholeBody_->sqpSettings();
 }
 
-vector_t MpcEquivalenceFixture::quaternionStateOf(
+vector_t MpcEquivalenceFixture::quaternionModelStateOf(
     const vector_t& eulerState) const {
   absl::StatusOr<vector_t> state =
       validation::physicalStateFromEulerState(eulerState, eulerLayout_);
@@ -331,41 +351,42 @@ matrix_t MpcEquivalenceFixture::physicalTangentJacobian(
 }
 
 vector_t MpcEquivalenceFixture::eulerStateOf(
-    const vector_t& quaternionState) const {
-  absl::StatusOr<vector_t> eulerState =
-      validation::eulerStateFromPhysicalState(quaternionState, eulerLayout_);
+    const vector_t& quaternionModelState) const {
+  absl::StatusOr<vector_t> eulerState = validation::eulerStateFromPhysicalState(
+      quaternionModelState, eulerLayout_);
   ABSL_CHECK(eulerState.ok()) << eulerState.status();
   return *std::move(eulerState);
 }
 
-matrix_t MpcEquivalenceFixture::ambientWorldRotation(
-    const vector4_t& worldRotation) const {
-  return worldAction(worldRotation, WorldActionSpace::kAmbient);
+matrix_t MpcEquivalenceFixture::ambientWorldTurn(
+    const vector4_t& worldTurn) const {
+  return worldAction(worldTurn, WorldActionSpace::kAmbient);
 }
 
-matrix_t MpcEquivalenceFixture::tangentWorldRotation(
-    const vector4_t& worldRotation) const {
-  return worldAction(worldRotation, WorldActionSpace::kTangent);
+matrix_t MpcEquivalenceFixture::tangentWorldTurn(
+    const vector4_t& worldTurn) const {
+  return worldAction(worldTurn, WorldActionSpace::kTangent);
 }
 
-matrix_t MpcEquivalenceFixture::inputWorldRotation(
-    const vector4_t& worldRotation) const {
-  const matrix3_t rotation = quaternionRotationMatrix(worldRotation);
+matrix_t MpcEquivalenceFixture::inputWorldTurn(
+    const vector4_t& worldTurn) const {
+  const matrix3_t worldTurnMatrix = quaternionRotationMatrix(worldTurn);
   matrix_t action =
       matrix_t::Identity(oracle_->inputDim(), oracle_->inputDim());
-  if (oracleOptions_.contactInput == OracleContactInput::kLocalBasis)
+  if (oracleOptions_.contactInput == OracleContactInput::kLocalBasis) {
     return action;
+  }
   for (Eigen::Index contact = 0;
        contact < static_cast<Eigen::Index>(kNumContacts); ++contact) {
-    action.block<3, 3>(6 * contact, 6 * contact) = rotation;
-    action.block<3, 3>(6 * contact + 3, 6 * contact + 3) = rotation;
+    action.block<3, 3>(6 * contact, 6 * contact) = worldTurnMatrix;
+    action.block<3, 3>(6 * contact + 3, 6 * contact + 3) = worldTurnMatrix;
   }
   return action;
 }
 
-matrix_t MpcEquivalenceFixture::worldAction(const vector4_t& worldRotation,
+matrix_t MpcEquivalenceFixture::worldAction(const vector4_t& worldTurn,
                                             WorldActionSpace space) const {
-  const matrix3_t rotation = quaternionRotationMatrix(worldRotation);
+  const matrix3_t worldTurnMatrix = quaternionRotationMatrix(worldTurn);
   const Eigen::Index dim =
       space == WorldActionSpace::kAmbient
           ? static_cast<Eigen::Index>(
@@ -379,15 +400,15 @@ matrix_t MpcEquivalenceFixture::worldAction(const vector4_t& worldRotation,
     if (segment.kind == EulerStateSegmentKind::kEulerZyxAngles &&
         space == WorldActionSpace::kAmbient) {
       for (Eigen::Index column = 0; column < 4; ++column) {
-        action.block<4, 1>(row, row + column) = quaternionProduct(
-            worldRotation, vector4_t(vector4_t::Unit(column)));
+        action.block<4, 1>(row, row + column) =
+            quaternionProduct(worldTurn, vector4_t(vector4_t::Unit(column)));
       }
       row += 4;
       continue;
     }
     const bool worldFrame = segment.kind == EulerStateSegmentKind::kEuclidean &&
                             isWorldFrameSegment(segment.name);
-    if (worldFrame) action.block<3, 3>(row, row) = rotation;
+    if (worldFrame) action.block<3, 3>(row, row) = worldTurnMatrix;
     row += segmentDim;
   }
   return action;
@@ -397,20 +418,27 @@ vector_t MpcEquivalenceFixture::randomEulerState(
     const EulerSamplingBounds& bounds, std::mt19937& generator) const {
   const pinocchio::Model& eulerModel = oracle_->eulerModel();
   const Eigen::Index nj = oracle_->jointDim();
+  // NOLINTBEGIN(frame-naming): Pinocchio's joint limits (joint space)
   const vector_t lower = eulerModel.lowerPositionLimit.tail(nj);
   const vector_t upper = eulerModel.upperPositionLimit.tail(nj);
+  // NOLINTEND(frame-naming)
   vector_t state(oracle_->stateDim());
   Eigen::Index row = 0;
   for (const EulerStateSegment& segment : eulerLayout_.segments) {
     const Eigen::Index dim = static_cast<Eigen::Index>(segment.dim);
     if (segment.kind == EulerStateSegmentKind::kEulerZyxAngles) {
-      state.segment<3>(row) << uniform(-M_PI, M_PI, generator),
-          uniform(-bounds.maxAbsPitch, bounds.maxAbsPitch, generator),
-          uniform(-bounds.maxAbsRoll, bounds.maxAbsRoll, generator);
+      state.segment<3>(row)
+          << uniform(-std::numbers::pi, std::numbers::pi, generator),
+          uniform(-bounds.maxAbsEulerzyxBaseRtWorldPitch,
+                  bounds.maxAbsEulerzyxBaseRtWorldPitch, generator),
+          uniform(-bounds.maxAbsEulerzyxBaseRtWorldRoll,
+                  bounds.maxAbsEulerzyxBaseRtWorldRoll, generator);
     } else if (segment.kind == EulerStateSegmentKind::kEulerZyxRates) {
-      for (Eigen::Index i = 0; i < 3; ++i)
+      for (Eigen::Index i = 0; i < 3; ++i) {
         state(row + i) =
-            uniform(-bounds.maxAbsEulerRate, bounds.maxAbsEulerRate, generator);
+            uniform(-bounds.maxAbsRateEulerzyxBaseRtWorld,
+                    bounds.maxAbsRateEulerzyxBaseRtWorld, generator);
+      }
     } else if (segment.name == "pos_base_rt_world_ewrt_world") {
       state.segment<3>(row) << uniform(/*low=*/-1.0, /*high=*/1.0, generator),
           uniform(/*low=*/-1.0, /*high=*/1.0, generator),
@@ -429,13 +457,16 @@ vector_t MpcEquivalenceFixture::randomEulerState(
         state(row + joint) = middle + uniform(-halfWidth, halfWidth, generator);
       }
     } else {
-      scalar_t halfWidth = bounds.maxAbsLinearVelocity;
-      if (segment.name == "mnorm_angmom_com_rt_world_ewrt_world")
-        halfWidth = bounds.maxAbsNormalizedAngularMomentum;
-      if (segment.name == "joint_velocities")
+      scalar_t halfWidth = bounds.maxAbsProxyLinvelComRtWorldEwrtWorld;
+      if (segment.name == "mnorm_angmom_com_rt_world_ewrt_world") {
+        halfWidth = bounds.maxAbsMnormAngmomComRtWorldEwrtWorld;
+      }
+      if (segment.name == "joint_velocities") {
         halfWidth = bounds.maxAbsJointVelocity;
-      for (Eigen::Index i = 0; i < dim; ++i)
+      }
+      for (Eigen::Index i = 0; i < dim; ++i) {
         state(row + i) = uniform(-halfWidth, halfWidth, generator);
+      }
     }
     row += dim;
   }
@@ -464,13 +495,15 @@ vector_t MpcEquivalenceFixture::randomInput(scalar_t maxAbsJointEntry,
     // The scaling of every generator that carries half the weight on a level
     // foot: row 2 of a local wrench is its normal force.
     const scalar_t nominal = halfWeight / basis.row(2).sum();
-    for (Eigen::Index i = 0; i < basis.cols(); ++i)
+    for (Eigen::Index i = 0; i < basis.cols(); ++i) {
       input(row + i) = uniform(/*low=*/0.0, /*high=*/2.0, generator) * nominal;
+    }
     row += basis.cols();
   }
-  for (Eigen::Index joint = 0; joint < nj; ++joint)
+  for (Eigen::Index joint = 0; joint < nj; ++joint) {
     input(row + joint) =
         uniform(-maxAbsJointEntry, maxAbsJointEntry, generator);
+  }
   return input;
 }
 
@@ -500,8 +533,9 @@ EquivalenceReference MpcEquivalenceFixture::walkingReference() const {
   const vector_t& start = initialState();
   vector_t ahead = start;
   model().setPosBaseRtWorldEwrtWorld(
-      ahead, vector3_t(model().getPosBaseRtWorldEwrtWorld(start) +
-                       kWalkingTargetDistance * vector3_t::UnitX()));
+      ahead,
+      vector3_t(model().getPosBaseRtWorldEwrtWorld(start) +
+                kWalkingRefErrPosBaseRtWorldEwrtWorldX * vector3_t::UnitX()));
   const vector_t zeroInput =
       vector_t::Zero(static_cast<Eigen::Index>(model().getInputDim()));
   return EquivalenceReference{
@@ -749,28 +783,28 @@ RealTimeIteration MpcEquivalenceFixture::realTimeIteration(
   return iteration;
 }
 
-vector_t MpcEquivalenceFixture::torqueFreeInput(const vector_t& eulerState,
+vector_t MpcEquivalenceFixture::nonTurningInput(const vector_t& eulerState,
                                                 const vector_t& input) const {
   // The rows of the flow that the base's moment drives: the normalized angular
   // momentum's rate (centroidal) or the angular base acceleration (whole body).
   // Both are affine in the contact entries, so unit differences give their map
   // exactly. f_e = [hbar_dot (6), ...] (centroidal) or [v_e (6 + n_j), a_b,e
   // (6), qdd_j] (whole body), the rotation's rows last of each block of three.
-  const Eigen::Index rotationRows =
+  const Eigen::Index angularRateStartIndex =
       isWholeBody() ? 6 + oracle_->jointDim() + 3 : 3;
   const Eigen::Index contactEntries = oracle_->inputDim() - oracle_->jointDim();
-  const vector3_t moment =
-      oracle_->flowMap(eulerState, input).segment<3>(rotationRows);
+  const vector3_t angularFlow =
+      oracle_->flowMap(eulerState, input).segment<3>(angularRateStartIndex);
   matrix_t map(3, contactEntries);
   for (Eigen::Index column = 0; column < contactEntries; ++column) {
     const vector_t unit = vector_t::Unit(oracle_->inputDim(), column);
     map.col(column) = 0.5 * (oracle_->flowMap(eulerState, input + unit) -
                              oracle_->flowMap(eulerState, input - unit))
-                                .segment<3>(rotationRows);
+                                .segment<3>(angularRateStartIndex);
   }
   vector_t corrected = input;
   corrected.head(contactEntries) -=
-      map.completeOrthogonalDecomposition().solve(moment);
+      map.completeOrthogonalDecomposition().solve(angularFlow);
   return corrected;
 }
 
@@ -785,10 +819,12 @@ void MpcEquivalenceTest::SetUp() {
 ::testing::AssertionResult isWithinEntrywiseBound(const matrix_t& actual,
                                                   const matrix_t& expected,
                                                   const matrix_t& bound) {
-  if (actual.rows() != expected.rows() || actual.cols() != expected.cols())
+  if (actual.rows() != expected.rows() || actual.cols() != expected.cols()) {
     return shapesDiffer(actual, expected);
-  if (bound.rows() != expected.rows() || bound.cols() != expected.cols())
+  }
+  if (bound.rows() != expected.rows() || bound.cols() != expected.cols()) {
     return shapesDiffer(bound, expected);
+  }
   Eigen::Index worstRow = 0;
   Eigen::Index worstColumn = 0;
   scalar_t worstRatio = 0.0;
@@ -821,8 +857,9 @@ void MpcEquivalenceTest::SetUp() {
                                           const matrix_t& expected,
                                           scalar_t relativeTolerance,
                                           scalar_t floor) {
-  if (actual.rows() != expected.rows() || actual.cols() != expected.cols())
+  if (actual.rows() != expected.rows() || actual.cols() != expected.cols()) {
     return shapesDiffer(actual, expected);
+  }
   if (actual.size() == 0) return ::testing::AssertionSuccess();
   const scalar_t bound =
       relativeTolerance * std::max(floor, expected.cwiseAbs().maxCoeff());

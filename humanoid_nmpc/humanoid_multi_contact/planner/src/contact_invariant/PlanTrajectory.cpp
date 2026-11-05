@@ -65,9 +65,10 @@ constexpr double kMinimumFaceAlignment = 0.7071;
 RobotConfiguration configurationOf(const MpcRobotModelBase<scalar_t>& model,
                                    const vector_t& state) {
   RobotConfiguration configuration;
-  configuration.basePosition = model.getPosBaseRtWorldEwrtWorld(state);
-  configuration.baseOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(state);
-  configuration.baseOrientation.normalize();
+  configuration.posBaseRtWorldEwrtWorld =
+      model.getPosBaseRtWorldEwrtWorld(state);
+  configuration.quatBaseRtWorld.coeffs() = model.getQuatBaseRtWorldXyzw(state);
+  configuration.quatBaseRtWorld.normalize();
   configuration.jointNames = model.modelSettings.mpcModelJointNames;
   configuration.jointPositions = model.getJointAngles(state);
   return configuration;
@@ -83,14 +84,15 @@ PlanKnot knotOf(const MpcTrajectory& trajectory,
   const vector_t& input = trajectory.inputs[k];
   PlanKnot knot;
   knot.time = trajectory.times[k];
-  knot.base_position = model.getPosBaseRtWorldEwrtWorld(state);
-  Eigen::Vector4d orientation = model.getQuatBaseRtWorldXyzw(state);
-  orientation.normalize();
-  knot.base_orientation_xyzw = orientation;
+  knot.pos_base_rt_world_ewrt_world = model.getPosBaseRtWorldEwrtWorld(state);
+  Eigen::Vector4d quatBaseRtWorldXyzw = model.getQuatBaseRtWorldXyzw(state);
+  quatBaseRtWorldXyzw.normalize();
+  knot.quat_base_rt_world_xyzw = quatBaseRtWorldXyzw;
   knot.joint_positions = model.getJointAngles(state);
   knot.joint_velocities = model.getJointVelocities(state, input);
-  knot.linear_momentum = conversion.mass * state.head<kPositionDim>().eval();
-  knot.angular_momentum =
+  knot.linmom_com_rt_world_ewrt_world =
+      conversion.mass * state.head<kPositionDim>().eval();
+  knot.angmom_com_rt_world_ewrt_world =
       conversion.mass * state.segment<kPositionDim>(kPositionDim).eval();
   knot.active_contacts = trajectory.masks[k];
   const ContactSet& contactSet = conversion.scenario->contactSet;
@@ -99,13 +101,16 @@ PlanKnot knotOf(const MpcTrajectory& trajectory,
         !isContactActive(trajectory.masks[k], candidates[i])) {
       continue;
     }
-    config::MultiContactPlan::ContactWrench wrench;
-    wrench.contact = contactSet.candidate(candidates[i]).name;
-    wrench.force = model.getForceContactEwrtParam(input, i);
+    config::MultiContactPlan::ContactWrench wrenchMsg;
+    wrenchMsg.contact = contactSet.candidate(candidates[i]).name;
+    // The world-frame wrench, whatever frame the input parameterizes it in.
+    // NOLINTBEGIN(frame-naming): the components of a ContactWrench, whose frames its field names
+    wrenchMsg.force = model.getForceContactEwrtWorld(state, input, i);
     if (contactSet.candidate(candidates[i]).kind == ContactKind::kSurface) {
-      wrench.torque = model.getTorqueContactEwrtParam(input, i);
+      wrenchMsg.torque = model.getTorqueContactEwrtWorld(state, input, i);
     }
-    knot.contact_wrenches.push_back(std::move(wrench));
+    // NOLINTEND(frame-naming)
+    knot.wrench_contacts_ewrt_world.push_back(std::move(wrenchMsg));
   }
   return knot;
 }
@@ -114,38 +119,46 @@ PlanKnot knotOf(const MpcTrajectory& trajectory,
  * under its mean pad position, found from a point kPatchProbeDepth inside the
  * pad (against its mean z axis), so that a sole near a riser's foot is
  * assigned the tread it stands on rather than the riser. */
-PlanPhase phaseOf(const std::vector<Eigen::Vector3d>& pads,
-                  const std::vector<Eigen::Vector3d>& axes,
-                  const MpcTrajectory& trajectory,
-                  const TerrainModel& terrain,
-                  const std::string& name,
-                  size_t begin,
-                  size_t end) {
-  Eigen::Vector3d mean = Eigen::Vector3d::Zero();
-  Eigen::Vector3d axis = Eigen::Vector3d::Zero();
+PlanPhase phaseOf(
+    const std::vector<Eigen::Vector3d>& posPadRtWorldEwrtWorldTraj,
+    const std::vector<Eigen::Vector3d>& zAxisPadEwrtWorldTraj,
+    const MpcTrajectory& trajectory,
+    const TerrainModel& terrain,
+    const std::string& name,
+    size_t begin,
+    size_t end) {
+  Eigen::Vector3d meanPosPadRtWorldEwrtWorld = Eigen::Vector3d::Zero();
+  Eigen::Vector3d meanZAxisPadEwrtWorld = Eigen::Vector3d::Zero();
   for (size_t k = begin; k < end; ++k) {
-    mean += pads[k];
-    axis += axes[k];
+    meanPosPadRtWorldEwrtWorld += posPadRtWorldEwrtWorldTraj[k];
+    meanZAxisPadEwrtWorld += zAxisPadEwrtWorldTraj[k];
   }
-  mean /= static_cast<double>(end - begin);
-  if (axis.norm() > 0.0) axis.normalize();
-  PatchFrame patch = terrain.patchFrameAt(mean - kPatchProbeDepth * axis);
+  meanPosPadRtWorldEwrtWorld /= static_cast<double>(end - begin);
+  if (meanZAxisPadEwrtWorld.norm() > 0.0) meanZAxisPadEwrtWorld.normalize();
+  PatchFrame patch = terrain.patchFrameAt(
+      meanPosPadRtWorldEwrtWorld - kPatchProbeDepth * meanZAxisPadEwrtWorld);
   // A pad at a box's edge: the face its normal faces, of the box it is on.
   if (patch.face.has_value() &&
-      patch.normal().dot(axis) < kMinimumFaceAlignment) {
-    double best = patch.normal().dot(axis);
+      patch.getNormalSurfaceEwrtWorld().dot(meanZAxisPadEwrtWorld) <
+          kMinimumFaceAlignment) {
+    double best = patch.getNormalSurfaceEwrtWorld().dot(meanZAxisPadEwrtWorld);
     for (int face = 0; face < kBoxFaceCount; ++face) {
       const absl::StatusOr<PatchFrame> frame = terrain.boxFaceFrame(
           patch.primitiveIndex, static_cast<BoxFace>(face));
-      if (frame.ok() && frame->normal().dot(axis) > best) {
-        best = frame->normal().dot(axis);
+      if (frame.ok() && frame->getNormalSurfaceEwrtWorld().dot(
+                            meanZAxisPadEwrtWorld) > best) {
+        best = frame->getNormalSurfaceEwrtWorld().dot(meanZAxisPadEwrtWorld);
         patch = *frame;
       }
     }
   }
-  const Eigen::Vector3d normal = patch.normal();
-  const Eigen::Vector3d target =
-      mean - normal.dot(mean - patch.origin) * normal;
+  const Eigen::Vector3d normalSurfaceEwrtWorld =
+      patch.getNormalSurfaceEwrtWorld();
+  const Eigen::Vector3d desPosPadRtWorldEwrtWorld =
+      meanPosPadRtWorldEwrtWorld -
+      normalSurfaceEwrtWorld.dot(meanPosPadRtWorldEwrtWorld -
+                                 patch.posSurfaceRtWorldEwrtWorld) *
+          normalSurfaceEwrtWorld;
   PlanPhase phase;
   phase.contact = name;
   // The phase lasts until the knot that breaks the contact: the MPC's mode
@@ -155,9 +168,9 @@ PlanPhase phaseOf(const std::vector<Eigen::Vector3d>& pads,
   phase.end_time = trajectory.times[std::min(end, trajectory.times.size() - 1)];
   phase.primitive = terrain.primitive(patch.primitiveIndex).name;
   phase.face = patch.face.has_value() ? static_cast<int>(*patch.face) : 0;
-  Eigen::VectorXd pose(kPoseTangentDim);
-  pose << target, normal;
-  phase.target_pad_pose = pose;
+  Eigen::VectorXd desPosePadRtWorld(kPoseTangentDim);
+  desPosePadRtWorld << desPosPadRtWorldEwrtWorld, normalSurfaceEwrtWorld;
+  phase.des_pose_pad_rt_world = desPosePadRtWorld;
   return phase;
 }
 
@@ -199,9 +212,9 @@ absl::StatusOr<config::MultiContactPlan> planOfTrajectory(
   stampPlanHashes(scenario.contactSetConfig, scenario.scenario.terrain_scene,
                   plan);
   // The pads of every candidate at every knot.
-  std::vector<std::vector<Eigen::Vector3d>> pads(
+  std::vector<std::vector<Eigen::Vector3d>> posPadsRtWorldEwrtWorldTraj(
       contactSet.size(), std::vector<Eigen::Vector3d>(n));
-  std::vector<std::vector<Eigen::Vector3d>> axes(
+  std::vector<std::vector<Eigen::Vector3d>> zAxisPadsEwrtWorldTraj(
       contactSet.size(), std::vector<Eigen::Vector3d>(n));
   for (size_t k = 0; k < n; ++k) {
     if ((trajectory.masks[k] & ~mpcMask) != 0) {
@@ -213,8 +226,10 @@ absl::StatusOr<config::MultiContactPlan> planOfTrajectory(
     RETURN_IF_ERROR(conversion.stanceModel->setConfiguration(
         configurationOf(*conversion.model, trajectory.states[k])));
     for (int c = 0; c < contactSet.size(); ++c) {
-      pads[c][k] = conversion.stanceModel->padPosition(c);
-      axes[c][k] = conversion.stanceModel->padRotation(c).col(kZAxisIndex);
+      posPadsRtWorldEwrtWorldTraj[c][k] =
+          conversion.stanceModel->getPosPadRtWorldEwrtWorld(c);
+      zAxisPadsEwrtWorldTraj[c][k] =
+          conversion.stanceModel->getRotmatPadRtWorld(c).col(kZAxisIndex);
     }
   }
   // One phase per run of active knots, in time order.
@@ -227,9 +242,9 @@ absl::StatusOr<config::MultiContactPlan> planOfTrajectory(
       }
       size_t end = k;
       while (end < n && isContactActive(trajectory.masks[end], c)) ++end;
-      plan.phases.push_back(phaseOf(pads[c], axes[c], trajectory,
-                                    scenario.terrain,
-                                    contactSet.candidate(c).name, k, end));
+      plan.phases.push_back(phaseOf(
+          posPadsRtWorldEwrtWorldTraj[c], zAxisPadsEwrtWorldTraj[c], trajectory,
+          scenario.terrain, contactSet.candidate(c).name, k, end));
       k = end;
     }
   }

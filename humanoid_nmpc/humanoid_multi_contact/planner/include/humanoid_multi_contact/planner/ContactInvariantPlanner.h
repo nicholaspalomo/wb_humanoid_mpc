@@ -58,7 +58,8 @@ inline constexpr double kDefaultGuessActivation = 0.5;
 inline constexpr double kDefaultGuessTrackingScale = 0.01;
 inline constexpr double kDefaultFrictionShare = 0.9;
 inline constexpr double kDefaultConeSmoothing = 0.01;
-inline constexpr double kDefaultMaxPointTilt = 0.5236;  // [rad], 30 degrees
+inline constexpr double kNomPointMaxTiltanglePadRtSurface =
+    0.5236;  // [rad], 30 degrees
 inline constexpr double kDefaultContinuationDt = 0.05;
 inline constexpr double kDefaultContactDistance = 0.02;
 
@@ -77,7 +78,7 @@ struct ContactInvariantPlannerOptions {
   // weight) and the free tilt of a point pad (design section 3.1).
   double frictionShare = kDefaultFrictionShare;
   double coneSmoothing = kDefaultConeSmoothing;
-  double maxPointTilt = kDefaultMaxPointTilt;
+  double pointMaxTiltanglePadRtSurface = kNomPointMaxTiltanglePadRtSurface;
   // The guess of the contact variables between the first and the last node,
   // and the share of the task file's state weights that pull solves 1 and 2
   // toward the guess (the posture regularization; the terminal cost, the

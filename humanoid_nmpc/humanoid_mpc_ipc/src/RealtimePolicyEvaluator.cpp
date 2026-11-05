@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Core"
 #include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
 #include "absl/log/check.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/control/ControllerBase.h"
@@ -44,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/misc/LinearInterpolation.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 
+#include "humanoid_mpc_ipc/MpcMessageConversions.h"
 #include "humanoid_mpc_ipc/PolicyControllers.h"
 
 namespace ocs2::humanoid::ipc {

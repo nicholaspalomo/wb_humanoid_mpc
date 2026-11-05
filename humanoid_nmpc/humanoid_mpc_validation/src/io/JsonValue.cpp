@@ -182,7 +182,7 @@ class Parser {
     absl::StatusOr<JsonValue> value = parseValue(/*depth=*/0);
     if (!value.ok()) return value;
     skipWhitespace();
-    if (position_ != text_.size())
+    if (offset_ != text_.size())
       return error("unexpected text after the document");
     return value;
   }
@@ -192,29 +192,28 @@ class Parser {
 
   absl::Status error(absl::string_view what) const {
     return absl::InvalidArgumentError(
-        absl::StrCat("[JsonValue::parse] ", what, " at byte ", position_));
+        absl::StrCat("[JsonValue::parse] ", what, " at byte ", offset_));
   }
 
   void skipWhitespace() {
-    while (position_ < text_.size() &&
-           (text_[position_] == ' ' || text_[position_] == '\n' ||
-            text_[position_] == '\t' || text_[position_] == '\r')) {
-      ++position_;
+    while (offset_ < text_.size() &&
+           (text_[offset_] == ' ' || text_[offset_] == '\n' ||
+            text_[offset_] == '\t' || text_[offset_] == '\r')) {
+      ++offset_;
     }
   }
 
   bool consumeLiteral(absl::string_view literal) {
-    if (text_.substr(position_, literal.size()) != literal) return false;
-    position_ += literal.size();
+    if (text_.substr(offset_, literal.size()) != literal) return false;
+    offset_ += literal.size();
     return true;
   }
 
   absl::StatusOr<JsonValue> parseValue(int depth) {
     if (depth > kMaxDepth) return error("nesting too deep");
     skipWhitespace();
-    if (position_ >= text_.size())
-      return error("unexpected end of the document");
-    const char c = text_[position_];
+    if (offset_ >= text_.size()) return error("unexpected end of the document");
+    const char c = text_[offset_];
     if (c == '{') return parseObject(depth);
     if (c == '[') return parseArray(depth);
     if (c == '"') {
@@ -231,47 +230,47 @@ class Parser {
   }
 
   absl::StatusOr<JsonValue> parseNumber() {
-    const size_t start = position_;
-    if (text_[position_] == '-') ++position_;
-    const size_t digitsStart = position_;
-    while (position_ < text_.size() && text_[position_] >= '0' &&
-           text_[position_] <= '9')
-      ++position_;
-    if (position_ == digitsStart) return error("a number without digits");
-    if (text_[digitsStart] == '0' && position_ - digitsStart > 1)
+    const size_t start = offset_;
+    if (text_[offset_] == '-') ++offset_;
+    const size_t digitsStart = offset_;
+    while (offset_ < text_.size() && text_[offset_] >= '0' &&
+           text_[offset_] <= '9')
+      ++offset_;
+    if (offset_ == digitsStart) return error("a number without digits");
+    if (text_[digitsStart] == '0' && offset_ - digitsStart > 1)
       return error("a number with a leading zero");
-    if (position_ < text_.size() && text_[position_] == '.') {
-      ++position_;
-      const size_t fractionStart = position_;
-      while (position_ < text_.size() && text_[position_] >= '0' &&
-             text_[position_] <= '9')
-        ++position_;
-      if (position_ == fractionStart)
+    if (offset_ < text_.size() && text_[offset_] == '.') {
+      ++offset_;
+      const size_t fractionStart = offset_;
+      while (offset_ < text_.size() && text_[offset_] >= '0' &&
+             text_[offset_] <= '9')
+        ++offset_;
+      if (offset_ == fractionStart)
         return error("a number without digits after the decimal point");
     }
-    if (position_ < text_.size() &&
-        (text_[position_] == 'e' || text_[position_] == 'E')) {
-      ++position_;
-      if (position_ < text_.size() &&
-          (text_[position_] == '+' || text_[position_] == '-'))
-        ++position_;
-      const size_t exponentStart = position_;
-      while (position_ < text_.size() && text_[position_] >= '0' &&
-             text_[position_] <= '9')
-        ++position_;
-      if (position_ == exponentStart)
+    if (offset_ < text_.size() &&
+        (text_[offset_] == 'e' || text_[offset_] == 'E')) {
+      ++offset_;
+      if (offset_ < text_.size() &&
+          (text_[offset_] == '+' || text_[offset_] == '-'))
+        ++offset_;
+      const size_t exponentStart = offset_;
+      while (offset_ < text_.size() && text_[offset_] >= '0' &&
+             text_[offset_] <= '9')
+        ++offset_;
+      if (offset_ == exponentStart)
         return error("a number without exponent digits");
     }
-    const std::string literal(text_.substr(start, position_ - start));
+    const std::string literal(text_.substr(start, offset_ - start));
     return JsonValue::number(std::strtod(literal.c_str(), /*endptr=*/nullptr));
   }
 
   absl::StatusOr<uint32_t> parseHexQuad() {
-    if (position_ + kHexQuadDigits > text_.size())
+    if (offset_ + kHexQuadDigits > text_.size())
       return error("a truncated \\u escape");
     uint32_t value = 0;
     for (int i = 0; i < kHexQuadDigits; ++i) {
-      const char c = text_[position_++];
+      const char c = text_[offset_++];
       value <<= kBitsPerHexDigit;
       if (c >= '0' && c <= '9') {
         value |= static_cast<uint32_t>(c - '0');
@@ -287,11 +286,11 @@ class Parser {
   }
 
   absl::StatusOr<std::string> parseString() {
-    ++position_;  // the opening quote
+    ++offset_;  // the opening quote
     std::string out;
     while (true) {
-      if (position_ >= text_.size()) return error("an unterminated string");
-      const char c = text_[position_++];
+      if (offset_ >= text_.size()) return error("an unterminated string");
+      const char c = text_[offset_++];
       if (c == '"') return out;
       if (static_cast<unsigned char>(c) < kFirstNonControlCharacter)
         return error("a control character in a string");
@@ -299,8 +298,8 @@ class Parser {
         out.push_back(c);
         continue;
       }
-      if (position_ >= text_.size()) return error("an unterminated escape");
-      const char escape = text_[position_++];
+      if (offset_ >= text_.size()) return error("an unterminated escape");
+      const char escape = text_[offset_++];
       switch (escape) {
         case '"':
         case '\\':
@@ -327,9 +326,9 @@ class Parser {
           if (!codePoint.ok()) return codePoint.status();
           if (*codePoint >= kHighSurrogateBegin &&
               *codePoint < kLowSurrogateBegin &&
-              text_.substr(position_, kUnicodeEscapePrefix.size()) ==
+              text_.substr(offset_, kUnicodeEscapePrefix.size()) ==
                   kUnicodeEscapePrefix) {
-            position_ += kUnicodeEscapePrefix.size();
+            offset_ += kUnicodeEscapePrefix.size();
             const absl::StatusOr<uint32_t> low = parseHexQuad();
             if (!low.ok()) return low.status();
             if (*low < kLowSurrogateBegin || *low >= kLowSurrogateEnd)
@@ -350,11 +349,11 @@ class Parser {
   }
 
   absl::StatusOr<JsonValue> parseArray(int depth) {
-    ++position_;  // [
+    ++offset_;  // [
     JsonValue array = JsonValue::array();
     skipWhitespace();
-    if (position_ < text_.size() && text_[position_] == ']') {
-      ++position_;
+    if (offset_ < text_.size() && text_[offset_] == ']') {
+      ++offset_;
       return array;
     }
     while (true) {
@@ -362,13 +361,13 @@ class Parser {
       if (!element.ok()) return element;
       array.append(*std::move(element));
       skipWhitespace();
-      if (position_ >= text_.size()) return error("an unterminated array");
-      if (text_[position_] == ',') {
-        ++position_;
+      if (offset_ >= text_.size()) return error("an unterminated array");
+      if (text_[offset_] == ',') {
+        ++offset_;
         continue;
       }
-      if (text_[position_] == ']') {
-        ++position_;
+      if (text_[offset_] == ']') {
+        ++offset_;
         return array;
       }
       return error("expected ',' or ']' in an array");
@@ -376,36 +375,36 @@ class Parser {
   }
 
   absl::StatusOr<JsonValue> parseObject(int depth) {
-    ++position_;  // {
+    ++offset_;  // {
     JsonValue object = JsonValue::object();
     skipWhitespace();
-    if (position_ < text_.size() && text_[position_] == '}') {
-      ++position_;
+    if (offset_ < text_.size() && text_[offset_] == '}') {
+      ++offset_;
       return object;
     }
     while (true) {
       skipWhitespace();
-      if (position_ >= text_.size() || text_[position_] != '"')
+      if (offset_ >= text_.size() || text_[offset_] != '"')
         return error("expected a member name");
       absl::StatusOr<std::string> key = parseString();
       if (!key.ok()) return key.status();
       if (object.find(*key) != nullptr)
         return error(absl::StrCat("a duplicate member '", *key, "'"));
       skipWhitespace();
-      if (position_ >= text_.size() || text_[position_] != ':')
+      if (offset_ >= text_.size() || text_[offset_] != ':')
         return error("expected ':' after a member name");
-      ++position_;
+      ++offset_;
       absl::StatusOr<JsonValue> value = parseValue(depth + 1);
       if (!value.ok()) return value;
       object.set(*key, *std::move(value));
       skipWhitespace();
-      if (position_ >= text_.size()) return error("an unterminated object");
-      if (text_[position_] == ',') {
-        ++position_;
+      if (offset_ >= text_.size()) return error("an unterminated object");
+      if (text_[offset_] == ',') {
+        ++offset_;
         continue;
       }
-      if (text_[position_] == '}') {
-        ++position_;
+      if (text_[offset_] == '}') {
+        ++offset_;
         return object;
       }
       return error("expected ',' or '}' in an object");
@@ -414,7 +413,7 @@ class Parser {
 
   // NOLINTNEXTLINE(totw-view-member): a Parser lives only inside JsonValue::parse(), whose argument outlives it.
   absl::string_view text_;
-  size_t position_ = 0;
+  size_t offset_ = 0;
 };
 
 }  // namespace

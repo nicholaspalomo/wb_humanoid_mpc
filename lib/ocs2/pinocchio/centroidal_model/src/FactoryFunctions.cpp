@@ -79,12 +79,12 @@ CentroidalModelInfo createCentroidalModelInfo(const PinocchioInterface& interfac
   // make sure the nominal base frame is aligned with the world frame: the base at the origin, the identity quaternion
   info.qPinocchioNominal.resize(model.nq);
   info.qPinocchioNominal << vector_t::Zero(kPositionDim), 0.0, 0.0, 0.0, 1.0, nominalJointAngles;
-  info.centroidalInertiaNominal.setZero();
+  info.nomInertiaComEwrtBase.setZero();
   info.nomPosBaseRtComEwrtBase.setZero();
   if (info.centroidalModelType == CentroidalModelType::SingleRigidBodyDynamics) {
     const vector_t vPinocchioNominal = vector_t::Zero(info.velocityDim);
     pinocchio::ccrba(model, data, info.qPinocchioNominal, vPinocchioNominal);
-    info.centroidalInertiaNominal = data.Ig.inertia().matrix();
+    info.nomInertiaComEwrtBase = data.Ig.inertia().matrix();
     info.nomPosBaseRtComEwrtBase = info.qPinocchioNominal.template head<kPositionDim>() - data.com[0];
   }
 

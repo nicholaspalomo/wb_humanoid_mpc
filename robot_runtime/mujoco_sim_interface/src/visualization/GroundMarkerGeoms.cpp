@@ -66,8 +66,8 @@ void paint(mjvGeom* absl_nonnull geom, const MarkerColor& color) {
 }  // namespace
 
 bool addGroundDiscGeom(mjvScene* absl_nullable scene,
-                       double x,
-                       double y,
+                       double posLocalRtWorldEwrtWorldX,
+                       double posLocalRtWorldEwrtWorldY,
                        double radius,
                        const MarkerColor& color) {
   mjvGeom* absl_nullable geom = nextGeom(scene);
@@ -76,7 +76,8 @@ bool addGroundDiscGeom(mjvScene* absl_nullable scene,
       0.002;  // a thin cylinder just above the ground plane, so it is not
               // z-fighting the floor
   const mjtNum size[kMjGeomSizeParameters] = {radius, kHalfHeight, 0.0};
-  const mjtNum posLocalRtWorldEwrtWorld[kPositionDim] = {x, y, kHalfHeight};
+  const mjtNum posLocalRtWorldEwrtWorld[kPositionDim] = {
+      posLocalRtWorldEwrtWorldX, posLocalRtWorldEwrtWorldY, kHalfHeight};
   const mjtNum identity[kMjMatrixSize] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
   mjv_initGeom(geom, mjGEOM_CYLINDER, size, posLocalRtWorldEwrtWorld, identity,
                /*rgba=*/nullptr);
@@ -92,11 +93,9 @@ bool addSphereGeom(
   mjvGeom* absl_nullable geom = nextGeom(scene);
   if (geom == nullptr) return false;
   const mjtNum size[kMjGeomSizeParameters] = {radius, 0.0, 0.0};
-  const mjtNum at[kPositionDim] = {posLocalRtWorldEwrtWorld[kXAxisIndex],
-                                   posLocalRtWorldEwrtWorld[kYAxisIndex],
-                                   posLocalRtWorldEwrtWorld[kZAxisIndex]};
   const mjtNum identity[kMjMatrixSize] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-  mjv_initGeom(geom, mjGEOM_SPHERE, size, at, identity, /*rgba=*/nullptr);
+  mjv_initGeom(geom, mjGEOM_SPHERE, size, posLocalRtWorldEwrtWorld, identity,
+               /*rgba=*/nullptr);
   paint(geom, color);
   return true;
 }
@@ -104,17 +103,20 @@ bool addSphereGeom(
 bool addVerticalLineGeom(
     mjvScene* absl_nullable scene,
     const double posLocalRtWorldEwrtWorld[absl_nonnull kPositionDim],
-    double groundHeight,
+    double posSurfaceRtWorldEwrtWorldZ,
     double width,
     const MarkerColor& color) {
   mjvGeom* absl_nullable geom = nextGeom(scene);
   if (geom == nullptr) return false;
-  const mjtNum from[kPositionDim] = {posLocalRtWorldEwrtWorld[kXAxisIndex],
-                                     posLocalRtWorldEwrtWorld[kYAxisIndex],
-                                     posLocalRtWorldEwrtWorld[kZAxisIndex]};
-  const mjtNum to[kPositionDim] = {posLocalRtWorldEwrtWorld[0],
-                                   posLocalRtWorldEwrtWorld[1], groundHeight};
-  mjv_connector(geom, mjGEOM_CAPSULE, width, from, to);
+  const mjtNum posStrippointRtWorldEwrtWorld[kPositionDim] = {
+      posLocalRtWorldEwrtWorld[kXAxisIndex],
+      posLocalRtWorldEwrtWorld[kYAxisIndex],
+      posLocalRtWorldEwrtWorld[kZAxisIndex]};
+  const mjtNum nextPosStrippointRtWorldEwrtWorld[kPositionDim] = {
+      posLocalRtWorldEwrtWorld[0], posLocalRtWorldEwrtWorld[1],
+      posSurfaceRtWorldEwrtWorldZ};
+  mjv_connector(geom, mjGEOM_CAPSULE, width, posStrippointRtWorldEwrtWorld,
+                nextPosStrippointRtWorldEwrtWorld);
   paint(geom, color);
   return true;
 }

@@ -16,7 +16,7 @@ ref_rate_yaw_base_rt_world: 0.5
 # With the default walk of gait.textproto the stride period is 0.7 s, so 0.8 m/s asks for a 0.28 m step out of a 0.67 m
 # leg - about 42% of the leg length, which is already a long step for a first bring-up.
 # These three are the joypad range contact_planning.textproto hlip.blend.max_commanded_* normalizes by, and the sidestep the
-# H-LIP orbit has to absorb (ContactPlanningConfig::warnings() checks it against hlip.step_width / min_step_width).
+# H-LIP orbit has to absorb (ContactPlanningConfig::warnings() checks it against hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y / min_pos_lfoot_rt_rfoot_ewrt_heading_y).
 # LINT.IfChange(sa01_command_ranges)
 cmd_max_linvel_base_rt_world_ewrt_heading_x: 0.8
 # Sideways travel is bounded by geometry rather than by the leg: with an alternating gait each foot must move
@@ -26,7 +26,7 @@ cmd_max_linvel_base_rt_world_ewrt_heading_y: 0.2
 # The crouch has 0.043 m of extension left above it and roughly 0.16 m of travel below it before the knee passes
 # 1.2 rad, so the operator gets a symmetric 0.15 m about the nominal height rather than the 0.3 - 0.4 m the taller
 # robots allow.
-cmd_max_err_pos_base_rt_world_ewrt_world_z: 0.15
+cmd_max_err_pos_base_rt_surface_ewrt_world_z: 0.15
 cmd_max_angvel_base_rt_world_ewrt_world_z: 1.0
 # LINT.ThenChange(//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/contact_planning.textproto:sa01_hlip_step_bounds)
 # Acceleration limits of the velocity reference the MPC target follows (0 = off, an unramped reference). A stick jump
@@ -46,7 +46,7 @@ target_joint_state_interpolation_time_constant: 2.0
 # Base height above the sole in the nominal standing pose below. Measured with MuJoCo on zq_sa01.xml: the sole sits
 # 0.8561 m below base_link with every joint at zero, and the crouch below lowers it by 0.0426 m (5.0%, matching the
 # 5.2% crouch Atlas stands at).
-nom_pos_base_rt_world_ewrt_world_z: 0.8135
+nom_pos_base_rt_surface_ewrt_world_z: 0.8135
 
 # The nominal standing crouch. The three sagittal angles of each leg sum to zero, so the sole stays parallel to the
 # ground, and the split between them is chosen so that the center of mass falls 4 mm behind the center of the support

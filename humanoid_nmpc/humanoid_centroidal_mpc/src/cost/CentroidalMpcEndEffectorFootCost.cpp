@@ -33,21 +33,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 
 #include <cmath>
+#include <cstddef>
 #include <optional>
 #include <string>
 
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
-#include "ocs2_centroidal_model/ModelHelperFunctions.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/cost/StateInputGaussNewtonCostAd.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
-#include "ocs2_pinocchio_interface/PinocchioStateInputMapping.h"
-#include "ocs2_robotic_tools/common/RotationTransforms.h"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/data.hpp"  // IWYU pragma: keep
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
+#include "pinocchio/spatial.hpp"
 
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h"
+#include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
@@ -154,7 +165,10 @@ ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(
       parameters.segment(kSqrtWeightsStartIndex, kEndEffectorTaskSpaceErrorDim);
   const ad_scalar_t& impactProximityScaler =
       parameters[kImpactProximityScalerIndex];
-  const ad_scalar_t& yawReference = parameters[kYawReferenceIndex];
+  // The contact planner's foot yaw
+  // (SwingFootReference::desYawFootRtWorld): the yaw atan2(R10, R00) of
+  // the planned foot orientation.
+  const ad_scalar_t& desYawFootRtWorld = parameters[kYawReferenceIndex];
   const ad_scalar_t& hasYawReference = parameters[kHasYawReferenceIndex];
 
   const PinocchioInterfaceCppAd::Model& model =
@@ -165,14 +179,14 @@ ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(
   const ad_vector_t v =
       mpcRobotModelAdPtr_->getGeneralizedVelocities(state, input);
   pinocchio::forwardKinematics(model, data, q, v);
-  const pinocchio::SE3Tpl<ad_scalar_t>& frameData =
+  const pinocchio::SE3Tpl<ad_scalar_t>& poseFootRtWorld =
       pinocchio::updateFramePlacement(model, data, frameID_);
 
-  ad_vector_t position = frameData.translation();
-  ad_vector_t linearVelocity =
+  ad_vector_t posFootRtWorldEwrtWorld = poseFootRtWorld.translation();
+  ad_vector_t linvelFootRtWorldEwrtWorld =
       pinocchio::getFrameVelocity(model, data, frameID_, rf).linear();
-  ad_matrix3_t orientation = frameData.rotation();
-  ad_vector_t angularVelocity =
+  ad_matrix3_t rotmatFootRtWorld = poseFootRtWorld.rotation();
+  ad_vector_t angvelFootRtWorldEwrtWorld =
       pinocchio::getFrameVelocity(model, data, frameID_, rf).angular();
 
   // Orientation error, in radians as the end-effector costs'
@@ -180,22 +194,23 @@ ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(
   // vector in world axes (tiltAngleToPlane(), roll and pitch on flat ground).
   // With a planned foot yaw (contact planner heading model) the third component
   // tracks it, wrapped so that a crossing of +-pi is not a discontinuity; the
-  // config weight orientation_z selects whether that error costs anything.
+  // config weight rotvec_z selects whether that error costs anything.
   // footYawError() is finite, value and derivatives, at every yaw, a yaw of
   // exactly zero included; see there for why the atan2 it replaces was not.
-  ad_vector_t orientationError =
-      tiltAngleToPlane<ad_scalar_t>(orientation, reference.getPlaneNormal());
-  const ad_scalar_t yawError =
-      footYawError<ad_scalar_t>(orientation, yawReference, hasYawReference);
-  orientationError(kZAxisIndex) =
-      hasYawReference * yawError +
-      (ad_scalar_t(1.0) - hasYawReference) * orientationError(kZAxisIndex);
+  ad_vector_t errRotvecFootRtWorld = tiltAngleToPlane<ad_scalar_t>(
+      rotmatFootRtWorld, reference.getNormalSurfaceEwrtWorld());
+  const ad_scalar_t errYawFootRtWorld = footYawError<ad_scalar_t>(
+      rotmatFootRtWorld, desYawFootRtWorld, hasYawReference);
+  errRotvecFootRtWorld(kZAxisIndex) =
+      hasYawReference * errYawFootRtWorld +
+      (ad_scalar_t(1.0) - hasYawReference) * errRotvecFootRtWorld(kZAxisIndex);
 
   ad_vector_t errors(kEndEffectorTaskSpaceErrorDim);
-  errors << (position - reference.getPosEeRtWorldEwrtWorld()), orientationError,
-      (linearVelocity - reference.getLinvelEeRtWorldEwrtWorld()) *
+  errors << (posFootRtWorldEwrtWorld - reference.getPosEeRtWorldEwrtWorld()),
+      errRotvecFootRtWorld,
+      (linvelFootRtWorldEwrtWorld - reference.getLinvelEeRtWorldEwrtWorld()) *
           impactProximityScaler,
-      (angularVelocity - reference.getAngvelEeRtWorldEwrtWorld());
+      (angvelFootRtWorldEwrtWorld - reference.getAngvelEeRtWorldEwrtWorld());
 
   return errors.cwiseProduct(sqrtWeightParams);
 }
@@ -232,7 +247,8 @@ vector_t CentroidalMpcEndEffectorFootCost::getParameters(
   // the tracked sole center -- clears the ground by more than the height
   // reference alone provides.
   parameters.segment(PlanarReference::kPlaneNormalStart, kPositionDim) =
-      referenceManagerPtr_->getSwingFootPlaneNormal(contactIndex_, time);
+      referenceManagerPtr_->getSwingRefNormalSurfaceEwrtWorld(contactIndex_,
+                                                              time);
   parameters.segment(PlanarReference::kLinearVelocityStart, kPositionDim) =
       vector3_t(0.0, 0.0,
                 swingPlanner.getDesLinvelFootRtWorldEwrtWorldZ(
@@ -259,8 +275,8 @@ vector_t CentroidalMpcEndEffectorFootCost::getParameters(
     parameters.head(kPositionDim) = swingReference->desPosFootRtWorldEwrtWorld;
     parameters.segment(PlanarReference::kLinearVelocityStart, kPositionDim) =
         swingReference->desLinvelFootRtWorldEwrtWorld;
-    if (swingReference->yaw.has_value()) {
-      parameters[kYawReferenceIndex] = *swingReference->yaw;
+    if (swingReference->desYawFootRtWorld.has_value()) {
+      parameters[kYawReferenceIndex] = *swingReference->desYawFootRtWorld;
       parameters[kHasYawReferenceIndex] = 1.0;
     }
   } else {
@@ -271,16 +287,17 @@ vector_t CentroidalMpcEndEffectorFootCost::getParameters(
 
     // A swing without a landing target tracks the commanded base velocity, so
     // that the foot does not drag behind the moving body, weighed by
-    // swing_velocity_reference_weight in place of lin_velocity_x / _y (which
+    // swing_velocity_reference_weight in place of linvel_x / _y (which
     // weigh the swing trajectory's velocity when there is a target, and the
     // foot's in stance). The impact proximity scaler ramps the error to zero
     // near touch-down.
-    const std::optional<vector2_t> velocityReference =
+    const std::optional<vector2_t> swingRefLinvelFootRtWorldEwrtWorldXy =
         referenceManagerPtr_->getSwingRefLinvelFootRtWorldEwrtWorldXy(
             contactIndex_, time);
-    if (velocityReference.has_value()) {
+    if (swingRefLinvelFootRtWorldEwrtWorldXy.has_value()) {
       parameters.segment(PlanarReference::kLinearVelocityStart,
-                         kHorizontalPositionDim) = *velocityReference;
+                         kHorizontalPositionDim) =
+          *swingRefLinvelFootRtWorldEwrtWorldXy;
       parameters[kSqrtWeightsStartIndex + kLinearVelocityResidualStartIndex +
                  kXAxisIndex] = swingVelocityReferenceSqrtWeight_;
       parameters[kSqrtWeightsStartIndex + kLinearVelocityResidualStartIndex +

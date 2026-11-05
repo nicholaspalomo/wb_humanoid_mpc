@@ -30,9 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <numbers>
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -42,8 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * (TargetTrajectoriesCalculatorBase::subdivideYawKnots(), design section 2.9):
  * the fewest equal parts in time for which consecutive knots are at most a
  * quarter turn apart in yaw, every coordinate interpolated linearly, the end
- * knots exactly the commanded poses, a turn past kMaxSegmentYawChange clamped
- * and a turn that is not finite left in one part. Builds no model.
+ * knots exactly the commanded poses, a turn past kSegmentMaxErrYawBaseRtWorld
+ * clamped and a turn that is not finite left in one part. Builds no model.
  */
 
 namespace ocs2::humanoid {
@@ -52,51 +54,62 @@ namespace {
 using Calculator = TargetTrajectoriesCalculatorBase;
 
 /** The level base pose [x, y, z, yaw, 0, 0]. */
-vector6_t makeLevelPoseeulerzyxBaseRtWorld(scalar_t x,
-                                           scalar_t y,
-                                           scalar_t z,
-                                           scalar_t yaw) {
+vector6_t makePoseeulerzyxBaseRtWorld(scalar_t posBaseRtWorldEwrtWorldX,
+                                      scalar_t posBaseRtWorldEwrtWorldY,
+                                      scalar_t posBaseRtWorldEwrtWorldZ,
+                                      scalar_t yawBaseRtWorld) {
   vector6_t poseeulerzyxBaseRtWorld;
-  poseeulerzyxBaseRtWorld << x, y, z, yaw, 0.0, 0.0;
+  poseeulerzyxBaseRtWorld << posBaseRtWorldEwrtWorldX, posBaseRtWorldEwrtWorldY,
+      posBaseRtWorldEwrtWorldZ, yawBaseRtWorld, 0.0, 0.0;
   return poseeulerzyxBaseRtWorld;
 }
 
 TEST(SubdivideYawKnots, AQuarterTurnOrLessKeepsTheTwoKnots) {
-  for (const scalar_t yawChange : {0.0, 0.3, -0.5 * M_PI, 0.5 * M_PI}) {
-    SCOPED_TRACE(yawChange);
-    const vector6_t start =
-        makeLevelPoseeulerzyxBaseRtWorld(0.1, -0.2, 0.9, 3.0);
-    const vector6_t target = makeLevelPoseeulerzyxBaseRtWorld(
-        /*x=*/0.5, /*y=*/0.4, /*z=*/0.95, 3.0 + yawChange);
+  for (const scalar_t errYawBaseRtWorld :
+       {0.0, 0.3, -0.5 * std::numbers::pi, 0.5 * std::numbers::pi}) {
+    SCOPED_TRACE(errYawBaseRtWorld);
+    const vector6_t initPoseeulerzyxBaseRtWorld =
+        makePoseeulerzyxBaseRtWorld(0.1, -0.2, 0.9, 3.0);
+    const vector6_t finalPoseeulerzyxBaseRtWorld = makePoseeulerzyxBaseRtWorld(
+        /*posBaseRtWorldEwrtWorldX=*/0.5, /*posBaseRtWorldEwrtWorldY=*/0.4,
+        /*posBaseRtWorldEwrtWorldZ=*/0.95, 3.0 + errYawBaseRtWorld);
     const std::vector<Calculator::PoseCommandKnot> knots =
-        Calculator::subdivideYawKnots(/*startTime=*/1.0, start,
-                                      /*targetTime=*/3.0, target);
+        Calculator::subdivideYawKnots(
+            /*startTime=*/1.0, initPoseeulerzyxBaseRtWorld,
+            /*targetTime=*/3.0, finalPoseeulerzyxBaseRtWorld);
     ASSERT_EQ(knots.size(), 2u);
     EXPECT_EQ(knots.front().time, 1.0);
     EXPECT_EQ(knots.back().time, 3.0);
-    EXPECT_EQ(knots.front().poseeulerzyxBaseRtWorld, start);
-    EXPECT_EQ(knots.back().poseeulerzyxBaseRtWorld, target);
+    EXPECT_EQ(knots.front().poseeulerzyxBaseRtWorld,
+              initPoseeulerzyxBaseRtWorld);
+    EXPECT_EQ(knots.back().poseeulerzyxBaseRtWorld,
+              finalPoseeulerzyxBaseRtWorld);
   }
 }
 
 TEST(SubdivideYawKnots,
      ALargerTurnIsCutIntoQuarterTurnsOnTheLineBetweenThePoses) {
-  for (const scalar_t yawChange :
-       {0.5 * M_PI + 1.0e-9, M_PI, -1.5 * M_PI, 3.5, -4.0 * M_PI, 20.0}) {
-    SCOPED_TRACE(yawChange);
-    const vector6_t start =
-        makeLevelPoseeulerzyxBaseRtWorld(1.0, 2.0, 0.8, -2.5);
-    const vector6_t target = makeLevelPoseeulerzyxBaseRtWorld(
-        /*x=*/-1.0, /*y=*/0.5, /*z=*/0.85, -2.5 + yawChange);
+  for (const scalar_t errYawBaseRtWorld :
+       {0.5 * std::numbers::pi + 1.0e-9, std::numbers::pi,
+        -1.5 * std::numbers::pi, 3.5, -4.0 * std::numbers::pi, 20.0}) {
+    SCOPED_TRACE(errYawBaseRtWorld);
+    const vector6_t initPoseeulerzyxBaseRtWorld =
+        makePoseeulerzyxBaseRtWorld(1.0, 2.0, 0.8, -2.5);
+    const vector6_t finalPoseeulerzyxBaseRtWorld = makePoseeulerzyxBaseRtWorld(
+        /*posBaseRtWorldEwrtWorldX=*/-1.0, /*posBaseRtWorldEwrtWorldY=*/0.5,
+        /*posBaseRtWorldEwrtWorldZ=*/0.85, -2.5 + errYawBaseRtWorld);
     const scalar_t startTime = 0.25;
     const scalar_t targetTime = 4.25;
     const std::vector<Calculator::PoseCommandKnot> knots =
-        Calculator::subdivideYawKnots(startTime, start, targetTime, target);
-    const size_t parts = static_cast<size_t>(
-        std::ceil(std::abs(yawChange) / Calculator::kMaxKnotYawSpacing));
+        Calculator::subdivideYawKnots(startTime, initPoseeulerzyxBaseRtWorld,
+                                      targetTime, finalPoseeulerzyxBaseRtWorld);
+    const size_t parts = static_cast<size_t>(std::ceil(
+        std::abs(errYawBaseRtWorld) / Calculator::kKnotMaxErrYawBaseRtWorld));
     ASSERT_EQ(knots.size(), parts + 1);
-    EXPECT_EQ(knots.front().poseeulerzyxBaseRtWorld, start);
-    EXPECT_EQ(knots.back().poseeulerzyxBaseRtWorld, target);
+    EXPECT_EQ(knots.front().poseeulerzyxBaseRtWorld,
+              initPoseeulerzyxBaseRtWorld);
+    EXPECT_EQ(knots.back().poseeulerzyxBaseRtWorld,
+              finalPoseeulerzyxBaseRtWorld);
     EXPECT_EQ(knots.back().time, targetTime);
     for (size_t k = 0; k < knots.size(); ++k) {
       const scalar_t fraction =
@@ -104,48 +117,56 @@ TEST(SubdivideYawKnots,
       EXPECT_NEAR(knots[k].time,
                   startTime + fraction * (targetTime - startTime), 1.0e-12);
       EXPECT_LT((knots[k].poseeulerzyxBaseRtWorld -
-                 (start + fraction * (target - start)))
+                 (initPoseeulerzyxBaseRtWorld +
+                  fraction * (finalPoseeulerzyxBaseRtWorld -
+                              initPoseeulerzyxBaseRtWorld)))
                     .norm(),
                 1.0e-12);
       if (k > 0) {
         EXPECT_GT(knots[k].time, knots[k - 1].time);
         EXPECT_LE(std::abs(knots[k].poseeulerzyxBaseRtWorld(3) -
                            knots[k - 1].poseeulerzyxBaseRtWorld(3)),
-                  Calculator::kMaxKnotYawSpacing + 1.0e-12);
+                  Calculator::kKnotMaxErrYawBaseRtWorld + 1.0e-12);
       }
     }
   }
 }
 
 TEST(SubdivideYawKnots, ATurnBeyondTheLargestSegmentTurnIsClampedToIt) {
-  const vector6_t start = makeLevelPoseeulerzyxBaseRtWorld(0.0, 0.0, 0.9, 0.0);
+  const vector6_t initPoseeulerzyxBaseRtWorld =
+      makePoseeulerzyxBaseRtWorld(0.0, 0.0, 0.9, 0.0);
   for (const scalar_t sign : {1.0, -1.0}) {
     SCOPED_TRACE(sign);
     const std::vector<Calculator::PoseCommandKnot> knots =
         Calculator::subdivideYawKnots(
-            /*startTime=*/0.0, start, /*targetTime=*/10.0,
-            makeLevelPoseeulerzyxBaseRtWorld(/*x=*/1.0, /*y=*/0.0, /*z=*/0.9,
-                                             sign * 1.0e3));
+            /*startTime=*/0.0, initPoseeulerzyxBaseRtWorld, /*targetTime=*/10.0,
+            makePoseeulerzyxBaseRtWorld(/*posBaseRtWorldEwrtWorldX=*/1.0,
+                                        /*posBaseRtWorldEwrtWorldY=*/0.0,
+                                        /*posBaseRtWorldEwrtWorldZ=*/0.9,
+                                        sign * 1.0e3));
     ASSERT_EQ(knots.size(), Calculator::kMaxKnotSubdivisions + 1);
     EXPECT_NEAR(knots.back().poseeulerzyxBaseRtWorld(3),
-                sign * Calculator::kMaxSegmentYawChange, 1.0e-12);
+                sign * Calculator::kSegmentMaxErrYawBaseRtWorld, 1.0e-12);
     EXPECT_EQ(knots.back().poseeulerzyxBaseRtWorld(0), 1.0);
     for (size_t k = 1; k < knots.size(); ++k) {
       EXPECT_LE(std::abs(knots[k].poseeulerzyxBaseRtWorld(3) -
                          knots[k - 1].poseeulerzyxBaseRtWorld(3)),
-                Calculator::kMaxKnotYawSpacing + 1.0e-12);
+                Calculator::kKnotMaxErrYawBaseRtWorld + 1.0e-12);
     }
   }
 }
 
 TEST(SubdivideYawKnots, ATurnThatIsNotFiniteStaysInOnePart) {
-  const vector6_t start = makeLevelPoseeulerzyxBaseRtWorld(0.0, 0.0, 0.9, 0.0);
-  const vector6_t target = makeLevelPoseeulerzyxBaseRtWorld(
-      /*x=*/1.0, /*y=*/0.0, /*z=*/0.9,
+  const vector6_t initPoseeulerzyxBaseRtWorld =
+      makePoseeulerzyxBaseRtWorld(0.0, 0.0, 0.9, 0.0);
+  const vector6_t finalPoseeulerzyxBaseRtWorld = makePoseeulerzyxBaseRtWorld(
+      /*posBaseRtWorldEwrtWorldX=*/1.0, /*posBaseRtWorldEwrtWorldY=*/0.0,
+      /*posBaseRtWorldEwrtWorldZ=*/0.9,
       std::numeric_limits<scalar_t>::quiet_NaN());
   const std::vector<Calculator::PoseCommandKnot> knots =
-      Calculator::subdivideYawKnots(/*startTime=*/0.0, start,
-                                    /*targetTime=*/1.0, target);
+      Calculator::subdivideYawKnots(
+          /*startTime=*/0.0, initPoseeulerzyxBaseRtWorld,
+          /*targetTime=*/1.0, finalPoseeulerzyxBaseRtWorld);
   ASSERT_EQ(knots.size(), 2u);
   EXPECT_TRUE(std::isnan(knots.back().poseeulerzyxBaseRtWorld(3)));
 }

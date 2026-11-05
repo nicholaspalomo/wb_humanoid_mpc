@@ -31,12 +31,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicHelpers.h"
+#include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 
 namespace ocs2::humanoid {
 
@@ -92,8 +98,9 @@ bool MinimumDoubleSupportRule::propagate(const ContactLogicState& s,
     for (size_t foot = 0; foot < kNumContacts; ++foot) {
       const int8_t value =
           a[static_cast<size_t>(S::contactBinaryIndex(k, foot))];
-      if (kappa[foot] == 0 && value == 1)
+      if (kappa[foot] == 0 && value == 1) {
         lastTouchDown = std::max(lastTouchDown, s.switchNode(k, foot));
+      }
       kappa[foot] = value;
     }
   }

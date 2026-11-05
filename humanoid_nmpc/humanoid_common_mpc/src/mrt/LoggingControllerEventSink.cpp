@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/log/log.h"
 
+#include "humanoid_common_mpc/mrt/ControllerEvent.h"
+
 namespace ocs2::humanoid {
 
 bool LoggingControllerEventSink::post(const ControllerEvent& event) {

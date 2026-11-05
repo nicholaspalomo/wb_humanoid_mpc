@@ -29,11 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "gtest/gtest.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 
 namespace ocs2::humanoid {
 
-// [v_x, v_y, pelvis height, yaw rate]
+// [cmdLinvelBaseRtWorldEwrtHeadingX, cmdLinvelBaseRtWorldEwrtHeadingY,
+//  cmdPosBaseRtSurfaceEwrtWorldZ, cmdRateYawBaseRtWorld]
 TEST(VelocityCommandRamp, limitsOffPassTheTargetThrough) {
   const vector4_t target(1.6, 0.2, 0.9, 0.8);
   const vector4_t current(0.0, 0.0, 0.8, 0.0);
@@ -60,7 +62,7 @@ TEST(VelocityCommandRamp, linearChangeIsBoundedAsAVectorAndKeepsItsDirection) {
   EXPECT_NEAR(limited.head<2>().norm(), 0.1, 1.0e-12);  // 1 m/s^2 for 0.1 s
   EXPECT_NEAR(limited(0) / limited(1), target(0) / target(1),
               1.0e-12);  // same direction as the requested change
-  EXPECT_DOUBLE_EQ(limited(2), target(2));  // the pelvis height is not ramped
+  EXPECT_DOUBLE_EQ(limited(2), target(2));  // the base height is not ramped
   // A change within the limit is taken whole.
   const vector4_t near(0.05, 0.0, 0.9, 0.0);
   EXPECT_TRUE(ProceduralMpcMotionManager::rateLimitVelocityCommand(

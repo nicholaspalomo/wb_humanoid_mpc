@@ -64,7 +64,7 @@ bool enforcesEffortLimits(JointLimits limits) {
   return limits == JointLimits::kPositionAndEffort;
 }
 
-bool relaxesPositionLimits(JointLimits limits) {
+bool relaxesJointPositionLimits(JointLimits limits) {
   return limits == JointLimits::kRelaxedPosition;
 }
 

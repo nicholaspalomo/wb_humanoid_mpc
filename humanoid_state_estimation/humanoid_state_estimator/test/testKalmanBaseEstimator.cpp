@@ -40,10 +40,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_state_estimation/humanoid_state_estimator/test/WalkingTrajectory.h"
 #include "humanoid_state_estimator/ContactKinematics.h"
 #include "humanoid_state_estimator/KalmanBaseEstimator.h"
@@ -60,8 +63,9 @@ constexpr scalar_t kDuration = 8.0;
 std::unique_ptr<KalmanBaseEstimator> makeEstimator(
     const KalmanBaseEstimator::Config& config = KalmanBaseEstimator::Config()) {
   std::vector<ContactPointSpec> contacts;
-  for (const std::string& frame : test_support::prismaticBipedFootFrames())
+  for (const std::string& frame : test_support::prismaticBipedFootFrames()) {
     contacts.push_back(ContactPointSpec{.frameNames = {frame}});
+  }
   absl::StatusOr<std::unique_ptr<ContactKinematics>> kinematics =
       ContactKinematics::Create(test_support::kPrismaticBipedUrdf, contacts,
                                 test_support::prismaticBipedJointNames());
@@ -76,10 +80,10 @@ std::unique_ptr<KalmanBaseEstimator> makeEstimator(
 /** Gaussian noise on what the sensors read: the IMU, the gyroscope and the
  * joint encoders. */
 struct SensorNoise {
-  scalar_t specforceBaseRtWorldEwrtBase = 0.0;  // [m/s^2]
-  scalar_t angvelBaseRtWorldEwrtBase = 0.0;     // [rad/s]
-  scalar_t jointPosition = 0.0;                 // [m] (prismatic joints)
-  scalar_t jointVelocity = 0.0;                 // [m/s]
+  scalar_t accelerometer = 0.0;  // [m/s^2]
+  scalar_t gyroscope = 0.0;      // [rad/s]
+  scalar_t jointPosition = 0.0;  // [m] (prismatic joints)
+  scalar_t jointVelocity = 0.0;  // [m/s]
 };
 
 /** The largest and the root-mean-square norms of the errors of a run. */
@@ -97,13 +101,14 @@ vector_t addNoise(const vector_t& value,
                   std::mt19937& generator) {
   std::normal_distribution<scalar_t> normal(0.0, 1.0);
   vector_t result = value;
-  for (Eigen::Index i = 0; i < result.size(); ++i)
+  for (Eigen::Index i = 0; i < result.size(); ++i) {
     result[i] += sigma * normal(generator);
+  }
   return result;
 }
 
 /**
- * Runs `estimator` over the walk from `from` to kDuration, after reset() at the
+ * Runs `estimator` over the walk from 0 to kDuration, after reset() at the
  * truth with `initErrLinvelBaseRtWorldEwrtWorld` added to the base velocity,
  * and measures its errors from `settle` [s] on.
  */
@@ -125,12 +130,10 @@ Errors run(KalmanBaseEstimator& estimator,
   const int steps = static_cast<int>(std::round(kDuration / kDt));
   for (int step = 1; step <= steps; ++step) {
     const WalkingSample sample = walkingSample(step * kDt);
-    const vector3_t measSpecforceBaseRtWorldEwrtBase =
-        addNoise(sample.specforceBaseRtWorldEwrtBase,
-                 noise.specforceBaseRtWorldEwrtBase, generator);
+    const vector3_t measSpecforceBaseRtWorldEwrtBase = addNoise(
+        sample.specforceBaseRtWorldEwrtBase, noise.accelerometer, generator);
     const vector3_t measAngvelBaseRtWorldEwrtBase =
-        addNoise(sample.angvelBaseRtWorldEwrtBase,
-                 noise.angvelBaseRtWorldEwrtBase, generator);
+        addNoise(sample.angvelBaseRtWorldEwrtBase, noise.gyroscope, generator);
     const absl::Status updated = estimator.update(
         kDt, sample.quatBaseRtWorld, measAngvelBaseRtWorldEwrtBase,
         measSpecforceBaseRtWorldEwrtBase,
@@ -183,8 +186,8 @@ TEST(KalmanBaseEstimatorTest, TracksTheWalkWithExactSensors) {
 TEST(KalmanBaseEstimatorTest, StaysWithinTheNoiseWithNoisySensors) {
   std::unique_ptr<KalmanBaseEstimator> estimator = makeEstimator();
   ASSERT_NE(estimator, nullptr);
-  const SensorNoise noise{.specforceBaseRtWorldEwrtBase = 0.2,
-                          .angvelBaseRtWorldEwrtBase = 0.01,
+  const SensorNoise noise{.accelerometer = 0.2,
+                          .gyroscope = 0.01,
                           .jointPosition = 0.001,
                           .jointVelocity = 0.02};
   const Errors errors =
@@ -235,10 +238,11 @@ TEST(KalmanBaseEstimatorTest, TheHeightIsObservedThroughTheContactHeight) {
   }
   EXPECT_NEAR(estimator->posBaseRtWorldEwrtWorld().z(),
               walkingSample(1000 * kDt).posBaseRtWorldEwrtWorld.z(), 2.0e-3);
-  const absl::StatusOr<vector3_t> foot =
+  const absl::StatusOr<vector3_t> estPosLfootRtWorldEwrtWorld =
       estimator->posContactRtWorldEwrtWorld(0);
-  ASSERT_TRUE(foot.ok()) << foot.status();
-  EXPECT_NEAR(foot->z(),
+  ASSERT_TRUE(estPosLfootRtWorldEwrtWorld.ok())
+      << estPosLfootRtWorldEwrtWorld.status();
+  EXPECT_NEAR(estPosLfootRtWorldEwrtWorld->z(),
               walkingSample(1000 * kDt).posFeetRtWorldEwrtWorld[0].z(), 2.0e-3);
 }
 
@@ -251,7 +255,7 @@ TEST(KalmanBaseEstimatorTest, RefusesANoiseModelOutOfRangeNamingTheField) {
       refused.message(), "kalman_state_estimator.kinematic_velocity_noise"))
       << refused;
   config = KalmanBaseEstimator::Config();
-  config.contactHeight = std::nan("");
+  config.nomPosContactRtWorldEwrtWorldZ = std::nan("");
   EXPECT_FALSE(KalmanBaseEstimator::validateConfig(config).ok());
   EXPECT_TRUE(
       KalmanBaseEstimator::validateConfig(KalmanBaseEstimator::Config()).ok());

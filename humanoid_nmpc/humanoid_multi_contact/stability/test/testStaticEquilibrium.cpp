@@ -62,29 +62,32 @@ constexpr double kFootY = 0.1115;
 constexpr double kFootX = 0.04;
 
 StanceContact foot(const std::string& name, double y) {
-  return StanceContact{.name = name,
-                       .kind = ContactKind::kSurface,
-                       .position = Eigen::Vector3d(kFootX, y, 0.0),
-                       .rotation = Eigen::Matrix3d::Identity(),
-                       .friction = kFriction,
-                       .rectangle = ContactRectangle{.xMin = -kSoleHalfLength,
-                                                     .xMax = kSoleHalfLength,
-                                                     .yMin = -kSoleHalfWidth,
-                                                     .yMax = kSoleHalfWidth}};
+  return StanceContact{
+      .name = name,
+      .kind = ContactKind::kSurface,
+      .posPadRtWorldEwrtWorld = Eigen::Vector3d(kFootX, y, 0.0),
+      .rotmatSurfaceRtWorld = Eigen::Matrix3d::Identity(),
+      .friction = kFriction,
+      .rectangle =
+          ContactRectangle{.minPosCornersRtPadEwrtPadX = -kSoleHalfLength,
+                           .maxPosCornersRtPadEwrtPadX = kSoleHalfLength,
+                           .minPosCornersRtPadEwrtPadY = -kSoleHalfWidth,
+                           .maxPosCornersRtPadEwrtPadY = kSoleHalfWidth}};
 }
 
 /** A point contact whose cone's z axis is `normal`. */
 StanceContact point(const std::string& name,
-                    const Eigen::Vector3d& position,
+                    const Eigen::Vector3d& posPadRtWorldEwrtWorld,
                     const Eigen::Vector3d& normal) {
-  Eigen::Matrix3d rotation;
-  rotation.col(2) = normal.normalized();
-  rotation.col(0) = rotation.col(2).unitOrthogonal();
-  rotation.col(1) = rotation.col(2).cross(rotation.col(0));
+  Eigen::Matrix3d rotmatSurfaceRtWorld;
+  rotmatSurfaceRtWorld.col(2) = normal.normalized();
+  rotmatSurfaceRtWorld.col(0) = rotmatSurfaceRtWorld.col(2).unitOrthogonal();
+  rotmatSurfaceRtWorld.col(1) =
+      rotmatSurfaceRtWorld.col(2).cross(rotmatSurfaceRtWorld.col(0));
   return StanceContact{.name = name,
                        .kind = ContactKind::kPoint,
-                       .position = position,
-                       .rotation = rotation,
+                       .posPadRtWorldEwrtWorld = posPadRtWorldEwrtWorld,
+                       .rotmatSurfaceRtWorld = rotmatSurfaceRtWorld,
                        .friction = kFriction,
                        .rectangle = std::nullopt};
 }
@@ -255,10 +258,10 @@ TEST(StaticEquilibriumTest, OnePointHoldsOnlyTheCenterOfMassAboveIt) {
   for (const Eigen::Vector3d& normal :
        {Eigen::Vector3d(Eigen::Vector3d::UnitZ()),
         Eigen::Vector3d(std::sin(0.35), 0.0, std::cos(0.35))}) {
-    const Eigen::Vector3d position(0.3, -0.2, 0.5);
-    const Stance stance = {point("knee", position, normal)};
+    const Eigen::Vector3d posPadRtWorldEwrtWorld(0.3, -0.2, 0.5);
+    const Stance stance = {point("knee", posPadRtWorldEwrtWorld, normal)};
     const StaticEquilibrium equilibrium = equilibriumOf(stance);
-    const Eigen::Vector2d above = position.head<2>();
+    const Eigen::Vector2d above = posPadRtWorldEwrtWorld.head<2>();
     EXPECT_LT(*equilibrium.equilibriumResidual(above), 1.0e-6);
     EXPECT_GT(*equilibrium.equilibriumResidual(
                   Eigen::Vector2d(above + Eigen::Vector2d(0.01, 0.0))),
@@ -284,13 +287,16 @@ TEST(StaticEquilibriumTest, TheRefinedPolygonKeepsACornerBetweenTwoDirections) {
   // corner at the inner point lies between two of the sixteen margin
   // directions, so the sampled hull cuts it off; the refined one keeps it.
   constexpr double kYaw = 0.01;
-  const Eigen::Vector3d edge(std::cos(kYaw), std::sin(kYaw), 0.0);
-  const Eigen::Vector3d outer(-0.78, -0.22, 0.0);
-  const Eigen::Vector3d inner = outer + 0.54 * edge;
+  const Eigen::Vector3d edgeDirEwrtWorld(std::cos(kYaw), std::sin(kYaw), 0.0);
+  const Eigen::Vector3d outerPosPadRtWorldEwrtWorld(-0.78, -0.22, 0.0);
+  const Eigen::Vector3d innerPosPadRtWorldEwrtWorld =
+      outerPosPadRtWorldEwrtWorld + 0.54 * edgeDirEwrtWorld;
   StanceContact sole = foot("foot", kFootY);
-  sole.position = Eigen::Vector3d(0.573, 0.111, 0.0);
-  const Stance stance = {point("outer", outer, Eigen::Vector3d::UnitZ()),
-                         point("inner", inner, Eigen::Vector3d::UnitZ()), sole};
+  sole.posPadRtWorldEwrtWorld = Eigen::Vector3d(0.573, 0.111, 0.0);
+  const Stance stance = {
+      point("outer", outerPosPadRtWorldEwrtWorld, Eigen::Vector3d::UnitZ()),
+      point("inner", innerPosPadRtWorldEwrtWorld, Eigen::Vector3d::UnitZ()),
+      sole};
   const std::vector<Eigen::Vector2d> sampled = polygonOf(stance);
   StaticEquilibriumOptions options;
   options.supportPolygon = SupportPolygon::kRefined;
@@ -300,9 +306,11 @@ TEST(StaticEquilibriumTest, TheRefinedPolygonKeepsACornerBetweenTwoDirections) {
   const absl::StatusOr<std::vector<Eigen::Vector2d>> refined =
       equilibrium->supportPolygon();
   ASSERT_TRUE(refined.ok()) << refined.status();
-  const Eigen::Vector2d corner = inner.head<2>();
-  EXPECT_LT(*staticMargin(sampled, corner), -0.01);
-  EXPECT_GT(*staticMargin(*refined, corner), -kRefinementTolerance);
+  const Eigen::Vector2d posCornerRtWorldEwrtWorldXy =
+      innerPosPadRtWorldEwrtWorld.head<2>();
+  EXPECT_LT(*staticMargin(sampled, posCornerRtWorldEwrtWorldXy), -0.01);
+  EXPECT_GT(*staticMargin(*refined, posCornerRtWorldEwrtWorldXy),
+            -kRefinementTolerance);
   EXPECT_GT(polygonArea(*refined), polygonArea(sampled));
   // Every refined vertex is in equilibrium: the hull is still inside.
   for (const Eigen::Vector2d& vertex : *refined) {
@@ -345,37 +353,40 @@ TEST(StaticEquilibriumTest, RefusesInvalidStances) {
   EXPECT_FALSE(StaticEquilibrium::Create(twoFeet(), twoEdges).ok());
 }
 
-/** Whether the stance can accelerate a CoM of `mass` at `com` by
- * `acceleration` without turning it. */
+/** Whether the stance can accelerate a CoM of `mass` at
+ * `posComRtWorldEwrtWorld` by `linaccComRtWorldEwrtWorld` without turning it.
+ */
 bool coneHolds(const StaticEquilibrium& equilibrium,
                double mass,
-               const Eigen::Vector3d& com,
-               const Eigen::Vector3d& acceleration) {
+               const Eigen::Vector3d& posComRtWorldEwrtWorld,
+               const Eigen::Vector3d& linaccComRtWorldEwrtWorld) {
   const absl::StatusOr<ContactWrenchConeResult> result = checkContactWrenchCone(
-      equilibrium, mass, com,
-      CentroidalMomentumRate{.linear = mass * acceleration,
+      equilibrium, mass, posComRtWorldEwrtWorld,
+      CentroidalMomentumRate{.linear = mass * linaccComRtWorldEwrtWorld,
                              .angular = Eigen::Vector3d::Zero()});
   EXPECT_TRUE(result.ok()) << result.status();
   return result.ok() && result->feasible;
 }
 
 /** A contact of a stance HPIPM stalled on, its numbers as printed with 17
- * digits: `rotation` column-major. */
+ * digits: `rotmatSurfaceRtWorld` column-major. */
 StanceContact contactOf(const std::string& name,
                         ContactKind kind,
-                        const Eigen::Vector3d& position,
-                        const std::vector<double>& rotation) {
+                        const Eigen::Vector3d& posPadRtWorldEwrtWorld,
+                        const std::vector<double>& rotmatSurfaceRtWorld) {
   StanceContact contact{
       .name = name,
       .kind = kind,
-      .position = position,
-      .rotation = Eigen::Map<const Eigen::Matrix3d>(rotation.data()),
+      .posPadRtWorldEwrtWorld = posPadRtWorldEwrtWorld,
+      .rotmatSurfaceRtWorld =
+          Eigen::Map<const Eigen::Matrix3d>(rotmatSurfaceRtWorld.data()),
       .friction = 0.80000000000000004};
   if (kind == ContactKind::kSurface) {
-    contact.rectangle = ContactRectangle{.xMin = -kSoleHalfLength,
-                                         .xMax = kSoleHalfLength,
-                                         .yMin = -kSoleHalfWidth,
-                                         .yMax = kSoleHalfWidth};
+    contact.rectangle =
+        ContactRectangle{.minPosCornersRtPadEwrtPadX = -kSoleHalfLength,
+                         .maxPosCornersRtPadEwrtPadX = kSoleHalfLength,
+                         .minPosCornersRtPadEwrtPadY = -kSoleHalfWidth,
+                         .maxPosCornersRtPadEwrtPadY = kSoleHalfWidth};
   }
   return contact;
 }
@@ -401,8 +412,9 @@ TEST(StaticEquilibriumTest, AnLpHpipmStallsOnIsSolvedWithBoundedScalings) {
                                 0.59980264626403712),
                 {-0.99849818425927506, -0.054784815696785602, 0,
                  0.054784815696785602, -0.99849818425927506, 0, 0, 0, 1})};
-  Wrench wrench;
-  wrench << 0, 0, 1, 0.056193997562106593, -0.081064886834193994, 0;
+  Wrench wnormWrenchStanceEwrtWorld;
+  wnormWrenchStanceEwrtWorld << 0, 0, 1, 0.056193997562106593,
+      -0.081064886834193994, 0;
   const StaticEquilibrium equilibrium = equilibriumOf(stance);
   // The residual's LP as it is: HPIPM stalls.
   const int generators = equilibrium.generators().size();
@@ -411,44 +423,49 @@ TEST(StaticEquilibriumTest, AnLpHpipmStallsOnIsSolvedWithBoundedScalings) {
   program.cost.tail(kWrenchDim + kWrenchDim).setOnes();
   program.lowerBound.setZero();
   program.equalityMatrix.resize(kWrenchDim, program.cost.size());
-  program.equalityMatrix << equilibrium.generators().wrenches,
+  program.equalityMatrix << equilibrium.generators().generatorWrenches,
       Eigen::MatrixXd::Identity(kWrenchDim, kWrenchDim),
       -Eigen::MatrixXd::Identity(kWrenchDim, kWrenchDim);
-  program.equalityVector = wrench;
+  program.equalityVector = wnormWrenchStanceEwrtWorld;
   EXPECT_FALSE(solveLinearProgram(program).ok());
   // The residual retries with the scalings bounded, and finds the CoM, 5 cm
   // inside the support polygon, in equilibrium.
-  const absl::StatusOr<double> residual = equilibrium.wrenchResidual(wrench);
+  const absl::StatusOr<double> residual =
+      equilibrium.computeResidualWnormWrenchStanceEwrtWorld(
+          wnormWrenchStanceEwrtWorld);
   ASSERT_TRUE(residual.ok()) << residual.status();
   EXPECT_LE(*residual, StaticEquilibriumOptions().feasibilityTolerance);
 }
 
 TEST(ContactWrenchConeTest, AFastAccelerationFailsAndASlowOnePasses) {
   constexpr double kMass = 100.0;
-  const Eigen::Vector3d com(kFootX, 0.0, 0.9);
+  const Eigen::Vector3d posComRtWorldEwrtWorld(kFootX, 0.0, 0.9);
   const StaticEquilibrium equilibrium = equilibriumOf(twoFeet());
-  EXPECT_TRUE(coneHolds(equilibrium, kMass, com, Eigen::Vector3d::Zero()));
+  EXPECT_TRUE(coneHolds(equilibrium, kMass, posComRtWorldEwrtWorld,
+                        Eigen::Vector3d::Zero()));
   // 8 m/s^2 forward needs the center of pressure 0.9 * 8 / 9.81 = 0.73 m ahead
   // of the CoM; 0.5 m/s^2 only 0.046 m, within the 0.12 m of the soles.
-  EXPECT_FALSE(
-      coneHolds(equilibrium, kMass, com, Eigen::Vector3d(8.0, 0.0, 0.0)));
-  EXPECT_TRUE(
-      coneHolds(equilibrium, kMass, com, Eigen::Vector3d(0.5, 0.0, 0.0)));
+  EXPECT_FALSE(coneHolds(equilibrium, kMass, posComRtWorldEwrtWorld,
+                         Eigen::Vector3d(8.0, 0.0, 0.0)));
+  EXPECT_TRUE(coneHolds(equilibrium, kMass, posComRtWorldEwrtWorld,
+                        Eigen::Vector3d(0.5, 0.0, 0.0)));
   // Falling faster than gravity needs the ground to pull.
-  EXPECT_FALSE(
-      coneHolds(equilibrium, kMass, com, Eigen::Vector3d(0.0, 0.0, -12.0)));
+  EXPECT_FALSE(coneHolds(equilibrium, kMass, posComRtWorldEwrtWorld,
+                         Eigen::Vector3d(0.0, 0.0, -12.0)));
   // A spin about z within the torsional friction of the soles passes, a
   // violent one fails.
   const absl::StatusOr<ContactWrenchConeResult> spin = checkContactWrenchCone(
-      equilibrium, kMass, com,
+      equilibrium, kMass, posComRtWorldEwrtWorld,
       CentroidalMomentumRate{.linear = Eigen::Vector3d::Zero(),
                              .angular = Eigen::Vector3d(0.0, 0.0, 2000.0)});
   ASSERT_TRUE(spin.ok());
   EXPECT_FALSE(spin->feasible);
   // With no rate, the required wrench is the static one.
-  EXPECT_LT((requiredContactWrench(kMass, com, CentroidalMomentumRate(),
-                                   equilibrium.generators().reference) -
-             equilibrium.staticWrench(com.head<2>()))
+  EXPECT_LT((computeRequiredWnormWrenchStanceEwrtWorld(
+                 kMass, posComRtWorldEwrtWorld, CentroidalMomentumRate(),
+                 equilibrium.generators().posStanceRtWorldEwrtWorld) -
+             equilibrium.computeStaticWnormWrenchStanceEwrtWorld(
+                 posComRtWorldEwrtWorld.head<2>()))
                 .norm(),
             1.0e-12);
 }

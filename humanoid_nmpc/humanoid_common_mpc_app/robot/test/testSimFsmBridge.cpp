@@ -71,7 +71,7 @@ class SimFsmBridgeTest : public ::testing::Test {
         sim_->getRobotDescription();
     OperatorCommandMailbox::Config config;
     config.jointNames = jointNamesByIndex(description);
-    config.initialNominalPositions.assign(description.getNumJoints(), 0.0);
+    config.initialNominalJointPositions.assign(description.getNumJoints(), 0.0);
     absl::StatusOr<std::unique_ptr<OperatorCommandMailbox>> mailbox =
         OperatorCommandMailbox::Create(config, &registry_);
     EXPECT_TRUE(mailbox.ok()) << mailbox.status();
@@ -183,29 +183,29 @@ TEST_F(SimFsmBridgeTest, TheGantryMovesOnlyWhenItWouldChange) {
 TEST_F(SimFsmBridgeTest,
        TheGantryFollowsTheSliderWhileLockedAndOnlyOnceItHasMoved) {
   std::string mode = "JOINT_PD";
-  const double spawnHeight = sim_->getGantryHeight();
+  const double spawnHeight = sim_->getGantryPosBaseRtWorldEwrtWorldZ();
   EXPECT_FALSE(bridge_->processCommands(mode));
-  EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), spawnHeight)
+  EXPECT_DOUBLE_EQ(sim_->getGantryPosBaseRtWorldEwrtWorldZ(), spawnHeight)
       << "no walking command yet: the gantry stays where it is";
   humanoid_mpc_msgs::WalkingVelocityCommand command;
-  command.set_cmd_pos_base_rt_world_ewrt_world_z(0.7);
+  command.set_cmd_pos_base_rt_surface_ewrt_world_z(0.7);
   mailbox_->onWalkingVelocityCommand(command);
   bridge_->processCommands(mode);
-  EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), 0.7);
+  EXPECT_DOUBLE_EQ(sim_->getGantryPosBaseRtWorldEwrtWorldZ(), 0.7);
   // A cycle that processes a command leaves the height alone.
-  command.set_cmd_pos_base_rt_world_ewrt_world_z(0.8);
+  command.set_cmd_pos_base_rt_surface_ewrt_world_z(0.8);
   mailbox_->onWalkingVelocityCommand(command);
   send("GRAVITY_COMP");
   bridge_->processCommands(mode);
-  EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), 0.7);
+  EXPECT_DOUBLE_EQ(sim_->getGantryPosBaseRtWorldEwrtWorldZ(), 0.7);
   bridge_->processCommands(mode);
-  EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), 0.8);
+  EXPECT_DOUBLE_EQ(sim_->getGantryPosBaseRtWorldEwrtWorldZ(), 0.8);
   // Unlocked, the slider does not move the gantry.
   sim_->unlockGantry();
-  command.set_cmd_pos_base_rt_world_ewrt_world_z(1.2);
+  command.set_cmd_pos_base_rt_surface_ewrt_world_z(1.2);
   mailbox_->onWalkingVelocityCommand(command);
   bridge_->processCommands(mode);
-  EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), 0.8);
+  EXPECT_DOUBLE_EQ(sim_->getGantryPosBaseRtWorldEwrtWorldZ(), 0.8);
 }
 
 TEST_F(SimFsmBridgeTest,

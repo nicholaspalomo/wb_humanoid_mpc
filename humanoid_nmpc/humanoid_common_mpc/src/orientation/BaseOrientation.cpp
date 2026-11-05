@@ -31,6 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
+
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
+
+#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
@@ -59,8 +67,8 @@ constexpr scalar_t kTiltSeriesSlopeNumerator = 4.0;
 
 /** A difference of two angles in (-pi, pi], wrapped back to (-pi, pi]. */
 scalar_t wrapAngleDifference(scalar_t angle) {
-  if (angle > M_PI) return angle - 2.0 * M_PI;
-  if (angle <= -M_PI) return angle + 2.0 * M_PI;
+  if (angle > std::numbers::pi) return angle - 2.0 * std::numbers::pi;
+  if (angle <= -std::numbers::pi) return angle + 2.0 * std::numbers::pi;
   return angle;
 }
 

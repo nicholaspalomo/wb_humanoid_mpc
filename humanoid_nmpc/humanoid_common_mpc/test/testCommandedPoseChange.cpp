@@ -28,9 +28,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <cmath>
+#include <cstddef>
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -93,30 +95,39 @@ TEST(CommandedPoseChange, IsTheArcOfAConstantBodyTwistInClosedForm) {
                           finalCmdLinvelBaseRtWorldEwrtWorldXy,
                       .cmdRateYawBaseRtWorld = cmdRateYawBaseRtWorld},
                   duration);
-          const scalar_t turn = cmdRateYawBaseRtWorld * duration;
-          const scalar_t versine =
-              2.0 * std::sin(0.5 * turn) * std::sin(0.5 * turn);
-          const vector2_t arc =
-              vector2_t(
-                  std::sin(turn) * initCmdLinvelBaseRtWorldEwrtWorldXy(0) -
-                      versine * initCmdLinvelBaseRtWorldEwrtWorldXy(1),
-                  versine * initCmdLinvelBaseRtWorldEwrtWorldXy(0) +
-                      std::sin(turn) * initCmdLinvelBaseRtWorldEwrtWorldXy(1)) /
+          const scalar_t errYawBaseRtWorld = cmdRateYawBaseRtWorld * duration;
+          const scalar_t versine = 2.0 * std::sin(0.5 * errYawBaseRtWorld) *
+                                   std::sin(0.5 * errYawBaseRtWorld);
+          const vector2_t arcErrPosBaseRtWorldEwrtWorldXy =
+              vector2_t(std::sin(errYawBaseRtWorld) *
+                                initCmdLinvelBaseRtWorldEwrtWorldXy(0) -
+                            versine * initCmdLinvelBaseRtWorldEwrtWorldXy(1),
+                        versine * initCmdLinvelBaseRtWorldEwrtWorldXy(0) +
+                            std::sin(errYawBaseRtWorld) *
+                                initCmdLinvelBaseRtWorldEwrtWorldXy(1)) /
               cmdRateYawBaseRtWorld;
-          EXPECT_LT((change.displacement - arc).cwiseAbs().maxCoeff(), 1.0e-14);
-          EXPECT_NEAR(change.yawChange, turn, 1.0e-15);
+          EXPECT_LT((change.errPosBaseRtWorldEwrtWorldXy -
+                     arcErrPosBaseRtWorldEwrtWorldXy)
+                        .cwiseAbs()
+                        .maxCoeff(),
+                    1.0e-14);
+          EXPECT_NEAR(change.errYawBaseRtWorld, errYawBaseRtWorld, 1.0e-15);
           // The trapezoid of the two world velocities it replaces, dt cos(theta
           // / 2) R_z(theta / 2) v_0, fell short by dt |v| (sinc(theta / 2) -
           // cos(theta / 2)).
-          const vector2_t trapezoid = 0.5 *
-                                      (initCmdLinvelBaseRtWorldEwrtWorldXy +
-                                       finalCmdLinvelBaseRtWorldEwrtWorldXy) *
-                                      duration;
-          const scalar_t half = 0.5 * turn;
+          const vector2_t trapezoidErrPosBaseRtWorldEwrtWorldXy =
+              0.5 *
+              (initCmdLinvelBaseRtWorldEwrtWorldXy +
+               finalCmdLinvelBaseRtWorldEwrtWorldXy) *
+              duration;
+          const scalar_t half = 0.5 * errYawBaseRtWorld;
           const scalar_t shortfall = duration *
                                      cmdLinvelBaseRtWorldEwrtHeadingXy.norm() *
                                      (std::sin(half) / half - std::cos(half));
-          EXPECT_NEAR((arc - trapezoid).norm(), shortfall, 1.0e-12);
+          EXPECT_NEAR((arcErrPosBaseRtWorldEwrtWorldXy -
+                       trapezoidErrPosBaseRtWorldEwrtWorldXy)
+                          .norm(),
+                      shortfall, 1.0e-12);
         }
       }
     }
@@ -138,12 +149,12 @@ TEST(CommandedPoseChange, WithoutATurnIsTheTrapezoidBitForBit) {
                               finalCmdLinvelBaseRtWorldEwrtWorldXy,
                           .cmdRateYawBaseRtWorld = 0.0},
           duration);
-  EXPECT_EQ(change.displacement,
+  EXPECT_EQ(change.errPosBaseRtWorldEwrtWorldXy,
             vector2_t(0.5 *
                       (initCmdLinvelBaseRtWorldEwrtWorldXy +
                        finalCmdLinvelBaseRtWorldEwrtWorldXy) *
                       duration));
-  EXPECT_EQ(change.yawChange, 0.0);
+  EXPECT_EQ(change.errYawBaseRtWorld, 0.0);
   EXPECT_EQ(SwitchedModelReferenceManager::integratePlanarCommand(
                 PlanarCommandAt{.cmdLinvelBaseRtWorldEwrtWorldXy =
                                     initCmdLinvelBaseRtWorldEwrtWorldXy,
@@ -152,7 +163,7 @@ TEST(CommandedPoseChange, WithoutATurnIsTheTrapezoidBitForBit) {
                                     finalCmdLinvelBaseRtWorldEwrtWorldXy,
                                 .cmdRateYawBaseRtWorld = 0.4},
                 /*duration=*/0.0)
-                .displacement,
+                .errPosBaseRtWorldEwrtWorldXy,
             vector2_t::Zero());
 }
 
@@ -162,7 +173,7 @@ TEST(CommandedPoseChange, WithoutATurnIsTheTrapezoidBitForBit) {
  * b(s), psi(s) = psi0 + w0 s + (w1 - w0) s^2 / (2 T); by Simpson's rule, 4000
  * steps.
  */
-vector2_t rampingCommandDisplacement(
+vector2_t computeRampingErrPosBaseRtWorldEwrtWorldXy(
     scalar_t initYawBaseRtWorld,
     const vector2_t& initCmdLinvelBaseRtWorldEwrtHeadingXy,
     const vector2_t& finalCmdLinvelBaseRtWorldEwrtHeadingXy,
@@ -202,7 +213,7 @@ TEST(CommandedPoseChange, ARampingCommandIsOffByTheDocumentedLeadingTerm) {
   std::vector<scalar_t> remainders;
   for (const scalar_t duration : {0.4, 0.2, 0.1}) {
     SCOPED_TRACE(duration);
-    const scalar_t turn =
+    const scalar_t errYawBaseRtWorld =
         0.5 * (kInitCmdRateYawBaseRtWorld + kFinalCmdRateYawBaseRtWorld) *
         duration;
     const PlanarCommandAt start{
@@ -210,37 +221,39 @@ TEST(CommandedPoseChange, ARampingCommandIsOffByTheDocumentedLeadingTerm) {
             rotated(kInitYawBaseRtWorld, initCmdLinvelBaseRtWorldEwrtHeadingXy),
         .cmdRateYawBaseRtWorld = kInitCmdRateYawBaseRtWorld};
     const PlanarCommandAt end{
-        .cmdLinvelBaseRtWorldEwrtWorldXy = rotated(
-            kInitYawBaseRtWorld + turn, finalCmdLinvelBaseRtWorldEwrtHeadingXy),
+        .cmdLinvelBaseRtWorldEwrtWorldXy =
+            rotated(kInitYawBaseRtWorld + errYawBaseRtWorld,
+                    finalCmdLinvelBaseRtWorldEwrtHeadingXy),
         .cmdRateYawBaseRtWorld = kFinalCmdRateYawBaseRtWorld};
     const PlanarPoseChange change =
         SwitchedModelReferenceManager::integratePlanarCommand(start, end,
                                                               duration);
-    EXPECT_NEAR(change.yawChange, turn, 1.0e-15)
+    EXPECT_NEAR(change.errYawBaseRtWorld, errYawBaseRtWorld, 1.0e-15)
         << "the trapezoid of a yaw rate linear in time is exact";
     const vector2_t error =
-        rampingCommandDisplacement(
+        computeRampingErrPosBaseRtWorldEwrtWorldXy(
             kInitYawBaseRtWorld, initCmdLinvelBaseRtWorldEwrtHeadingXy,
             finalCmdLinvelBaseRtWorldEwrtHeadingXy, kInitCmdRateYawBaseRtWorld,
             kFinalCmdRateYawBaseRtWorld, duration) -
-        change.displacement;
+        change.errPosBaseRtWorldEwrtWorldXy;
     const vector2_t endInTurningFrame =
-        rotated(-turn, end.cmdLinvelBaseRtWorldEwrtWorldXy);
+        rotated(-errYawBaseRtWorld, end.cmdLinvelBaseRtWorldEwrtWorldXy);
     const vector2_t commandChange =
         endInTurningFrame - start.cmdLinvelBaseRtWorldEwrtWorldXy;
     const vector2_t meanCommand =
         0.5 * (start.cmdLinvelBaseRtWorldEwrtWorldXy + endInTurningFrame);
     const vector2_t leading =
         (duration * duration / 12.0) *
-        quarterTurn(turn / duration * commandChange -
+        quarterTurn(errYawBaseRtWorld / duration * commandChange -
                     (kFinalCmdRateYawBaseRtWorld - kInitCmdRateYawBaseRtWorld) *
                         meanCommand);
     EXPECT_LT((error - leading).norm(), 0.2 * leading.norm())
         << error.transpose() << " against " << leading.transpose();
     remainders.push_back((error - leading).norm());
   }
-  for (size_t i = 1; i < remainders.size(); ++i)
+  for (size_t i = 1; i < remainders.size(); ++i) {
     EXPECT_NEAR(remainders[i - 1] / remainders[i], 8.0, 0.5) << i;
+  }
 }
 
 }  // namespace

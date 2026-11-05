@@ -28,6 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -48,7 +49,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "robot_runtime/web_viewer/test/WebViewerTestSupport.h"
-#include "web_viewer/EncodedFrame.h"
 #include "web_viewer/JpegDecoder.h"
 #include "web_viewer/ViewerFrameMailbox.h"
 #include "web_viewer/ViewerInput.h"
@@ -939,8 +939,9 @@ TEST(WebViewerServerTest, BindsTheIpv6Loopback) {
   options.address = "::1";
   absl::StatusOr<TestServer> test =
       test_support::startTestServer(std::move(options));
-  if (absl::IsUnavailable(test.status()))
+  if (absl::IsUnavailable(test.status())) {
     GTEST_SKIP() << "no IPv6 loopback here: " << test.status();
+  }
   ASSERT_TRUE(test.ok()) << test.status();
   EXPECT_EQ(test->server->url(),
             absl::StrCat("http://[::1]:", test->server->port(), "/"));

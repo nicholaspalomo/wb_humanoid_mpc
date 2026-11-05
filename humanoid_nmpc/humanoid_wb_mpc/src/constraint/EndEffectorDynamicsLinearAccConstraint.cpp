@@ -101,16 +101,18 @@ vector_t EndEffectorDynamicsLinearAccConstraint::getValue(
   vector_t f = config_.b;
   if (config_.Ax.size() > 0) {
     f.noalias() +=
-        config_.Ax * endEffectorDynamicsPtr_->getPosition(state).front();
+        config_.Ax *
+        endEffectorDynamicsPtr_->getPosEesRtWorldEwrtWorld(state).front();
   }
   if (config_.Av.size() > 0) {
-    f.noalias() +=
-        config_.Av * endEffectorDynamicsPtr_->getVelocity(state, input).front();
+    f.noalias() += config_.Av * endEffectorDynamicsPtr_
+                                    ->getLinvelEesRtWorldEwrtWorld(state, input)
+                                    .front();
   }
   if (config_.Aa.size() > 0) {
-    f.noalias() +=
-        config_.Aa *
-        endEffectorDynamicsPtr_->getLinearAcceleration(state, input).front();
+    f.noalias() += config_.Aa * endEffectorDynamicsPtr_
+                                    ->getLinaccEesRtWorldEwrtWorld(state, input)
+                                    .front();
   }
   return f;
 }
@@ -131,29 +133,40 @@ EndEffectorDynamicsLinearAccConstraint::getLinearApproximation(
   linearApproximation.f = config_.b;
 
   if (config_.Ax.size() > 0) {
-    const VectorFunctionLinearApproximation positionApprox =
-        endEffectorDynamicsPtr_->getPositionLinearApproximation(state).front();
-    linearApproximation.f.noalias() += config_.Ax * positionApprox.f;
-    linearApproximation.dfdx.noalias() += config_.Ax * positionApprox.dfdx;
+    const VectorFunctionLinearApproximation approxPosEeRtWorldEwrtWorld =
+        endEffectorDynamicsPtr_
+            ->getLinearApproximationPosEesRtWorldEwrtWorld(state)
+            .front();
+    linearApproximation.f.noalias() +=
+        config_.Ax * approxPosEeRtWorldEwrtWorld.f;
+    linearApproximation.dfdx.noalias() +=
+        config_.Ax * approxPosEeRtWorldEwrtWorld.dfdx;
   }
 
   if (config_.Av.size() > 0) {
-    const VectorFunctionLinearApproximation velocityApprox =
-        endEffectorDynamicsPtr_->getVelocityLinearApproximation(state, input)
+    const VectorFunctionLinearApproximation approxLinvelEeRtWorldEwrtWorld =
+        endEffectorDynamicsPtr_
+            ->getLinearApproximationLinvelEesRtWorldEwrtWorld(state, input)
             .front();
-    linearApproximation.f.noalias() += config_.Av * velocityApprox.f;
-    linearApproximation.dfdx.noalias() += config_.Av * velocityApprox.dfdx;
-    linearApproximation.dfdu.noalias() += config_.Av * velocityApprox.dfdu;
+    linearApproximation.f.noalias() +=
+        config_.Av * approxLinvelEeRtWorldEwrtWorld.f;
+    linearApproximation.dfdx.noalias() +=
+        config_.Av * approxLinvelEeRtWorldEwrtWorld.dfdx;
+    linearApproximation.dfdu.noalias() +=
+        config_.Av * approxLinvelEeRtWorldEwrtWorld.dfdu;
   }
 
   if (config_.Aa.size() > 0) {
-    const VectorFunctionLinearApproximation accelApprox =
+    const VectorFunctionLinearApproximation approxLinaccEeRtWorldEwrtWorld =
         endEffectorDynamicsPtr_
-            ->getLinearAccelerationLinearApproximation(state, input)
+            ->getLinearApproximationLinaccEesRtWorldEwrtWorld(state, input)
             .front();
-    linearApproximation.f.noalias() += config_.Aa * accelApprox.f;
-    linearApproximation.dfdx.noalias() += config_.Aa * accelApprox.dfdx;
-    linearApproximation.dfdu.noalias() += config_.Aa * accelApprox.dfdu;
+    linearApproximation.f.noalias() +=
+        config_.Aa * approxLinaccEeRtWorldEwrtWorld.f;
+    linearApproximation.dfdx.noalias() +=
+        config_.Aa * approxLinaccEeRtWorldEwrtWorld.dfdx;
+    linearApproximation.dfdu.noalias() +=
+        config_.Aa * approxLinaccEeRtWorldEwrtWorld.dfdu;
   }
 
   return linearApproximation;

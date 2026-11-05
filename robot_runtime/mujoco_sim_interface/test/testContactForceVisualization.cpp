@@ -182,8 +182,9 @@ TEST(ContactForceVisualization,
   for (int contact = 0; contact < state.data->ncon; ++contact) {
     const mjContact& pair = state.data->contact[contact];
     if (model->geom_bodyid[pair.geom[0]] == ball &&
-        model->geom_bodyid[pair.geom[1]] == robot)
+        model->geom_bodyid[pair.geom[1]] == robot) {
       impactFound = true;
+    }
   }
   ASSERT_TRUE(impactFound)
       << "the scene does not order the impact (ball, robot)";

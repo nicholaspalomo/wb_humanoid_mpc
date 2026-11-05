@@ -81,35 +81,35 @@ class FakeClock:
 class SandboxSceneTest(unittest.TestCase):
     def test_the_joints_start_nominal_and_are_clamped(self) -> None:
         scene = two_joint_scene()
-        self.assertEqual(scene.positions(), {"hip": 0.0, "spin": 0.0})
-        self.assertEqual(scene.set_position("hip", 3.0), 1.0)
-        self.assertEqual(scene.set_position("spin", 7.0), 7.0)
-        self.assertEqual(scene.positions(), {"hip": 1.0, "spin": 7.0})
+        self.assertEqual(scene.joint_positions(), {"hip": 0.0, "spin": 0.0})
+        self.assertEqual(scene.set_joint_position("hip", 3.0), 1.0)
+        self.assertEqual(scene.set_joint_position("spin", 7.0), 7.0)
+        self.assertEqual(scene.joint_positions(), {"hip": 1.0, "spin": 7.0})
         scene.reset()
-        self.assertEqual(scene.positions(), {"hip": 0.0, "spin": 0.0})
+        self.assertEqual(scene.joint_positions(), {"hip": 0.0, "spin": 0.0})
 
     def test_what_is_not_a_joint_position_is_refused(self) -> None:
         scene = two_joint_scene()
         with self.assertRaisesRegex(KeyError, "the joints are: hip, spin"):
-            scene.set_position("knee", 0.0)
+            scene.set_joint_position("knee", 0.0)
         with self.assertRaises(ValueError):
-            scene.set_position("hip", math.nan)
+            scene.set_joint_position("hip", math.nan)
 
     def test_the_version_counts_changes_only(self) -> None:
         scene = two_joint_scene()
         start = scene.version
-        scene.set_position("hip", 0.0)
+        scene.set_joint_position("hip", 0.0)
         scene.reset()
         self.assertEqual(scene.version, start)
-        scene.set_position("hip", 0.5)
-        scene.set_position("hip", 0.5)
+        scene.set_joint_position("hip", 0.5)
+        scene.set_joint_position("hip", 0.5)
         self.assertEqual(scene.version, start + 1)
         scene.reset()
         self.assertEqual(scene.version, start + 2)
 
     def test_the_scene_is_the_measured_instance_with_every_link(self) -> None:
         scene = two_joint_scene()
-        scene.set_position("hip", 0.5)
+        scene.set_joint_position("hip", 0.5)
         message = scene.scene(2.5)
         self.assertEqual(message.time, 2.5)
         self.assertEqual(len(message.robots), 1)
@@ -119,6 +119,7 @@ class SandboxSceneTest(unittest.TestCase):
         self.assertEqual(len(robot.pose_links_rt_world), 3)
         lower = robot.pose_links_rt_world[2]
         # The hip pitches the leg about +y: the lower link's origin swings from below the hip toward -x.
+        # NOLINTBEGIN(frame-naming): the components of a frame-generic Pose; the enclosing field names the frames
         self.assertAlmostEqual(lower.position.x, -0.5 * math.sin(0.5))
         self.assertAlmostEqual(lower.position.z, -0.5 * math.cos(0.5))
         norm = math.sqrt(
@@ -127,6 +128,7 @@ class SandboxSceneTest(unittest.TestCase):
             + lower.orientation.z**2
             + lower.orientation.w**2
         )
+        # NOLINTEND(frame-naming)
         self.assertAlmostEqual(norm, 1.0)
         # No markers: the bridge draws the robot alone.
         self.assertEqual(len(message.arrows) + len(message.spheres), 0)
@@ -154,7 +156,7 @@ class ScenePublisherTest(unittest.TestCase):
         self.assertTrue(self.publisher.tick())
         self.assertFalse(self.publisher.tick())
         self.clock.now += 0.5
-        self.scene.set_position("hip", 0.2)
+        self.scene.set_joint_position("hip", 0.2)
         self.assertTrue(self.publisher.tick())
         self.clock.now += 0.9
         self.assertFalse(self.publisher.tick())
@@ -257,11 +259,18 @@ class BinaryTest(unittest.TestCase):
             robot = received[-1].robots[0]
             self.assertEqual(robot.name, scene_contract.MEASURED)
             self.assertEqual(list(robot.link_names), list(tree.links))
-            root = robot.pose_links_rt_world[
+            pose_base_rt_world = robot.pose_links_rt_world[
                 list(tree.links).index(tree.root_link)
             ]
+            # NOLINTNEXTLINE(frame-naming): the components of a frame-generic Pose; the enclosing field names the frames
+            pos_base_rt_world_ewrt_world = pose_base_rt_world.position
             self.assertEqual(
-                (root.position.x, root.position.y, root.position.z), (0, 0, 0)
+                (
+                    pos_base_rt_world_ewrt_world.x,
+                    pos_base_rt_world_ewrt_world.y,
+                    pos_base_rt_world_ewrt_world.z,
+                ),
+                (0, 0, 0),
             )
 
     def test_a_missing_urdf_is_a_usage_error(self) -> None:
@@ -309,10 +318,12 @@ class SliderWindowTest(unittest.TestCase):
             self.assertEqual(window.sliders["hip"].cget("from"), -1.0)
             window.sliders["hip"].set(0.4)
             root.update()
-            self.assertAlmostEqual(scene.positions()["hip"], 0.4, places=2)
+            self.assertAlmostEqual(
+                scene.joint_positions()["hip"], 0.4, places=2
+            )
             window.reset()
             root.update()
-            self.assertEqual(scene.positions()["hip"], 0.0)
+            self.assertEqual(scene.joint_positions()["hip"], 0.0)
             self.assertEqual(float(window.sliders["hip"].get()), 0.0)
         finally:
             root.destroy()

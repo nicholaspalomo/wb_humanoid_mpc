@@ -31,17 +31,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <memory>
-#include <utility>
 #include <vector>
 
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 
 #include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
@@ -69,7 +71,7 @@ constexpr scalar_t kTurn = 0.2;
 constexpr scalar_t kTolerance = 1.0e-12;
 
 /** R_z(angle). */
-matrix3_t yawRotation(scalar_t angle) {
+matrix3_t rotmatOfYaw(scalar_t angle) {
   return quaternionRotationMatrix<scalar_t>(
       quaternionFromEulerZyx(vector3_t(angle, 0.0, 0.0)));
 }
@@ -82,7 +84,7 @@ matrix3_t yawRotation(scalar_t angle) {
 vector_t turnedAboutWorldZ(const CentroidalMpcRobotModel<scalar_t>& model,
                            const vector_t& state,
                            scalar_t angle) {
-  const matrix3_t turn = yawRotation(angle);
+  const matrix3_t turn = rotmatOfYaw(angle);
   vector_t turned = state;
   // [m c_dot; L_G] / m, both in the world frame.
   turned.head<3>() = turn * state.head<3>();
@@ -103,20 +105,22 @@ void expectTurned(const CentroidalMpcRobotModel<scalar_t>& model,
                   const vector_t& turned,
                   scalar_t angle) {
   const vector_t expected = turnedAboutWorldZ(model, state, angle);
-  const Eigen::Index orientation =
+  const Eigen::Index orientationStart =
       static_cast<Eigen::Index>(model.getBaseOrientationStartIndex());
   const scalar_t scale = std::max(1.0, state.cwiseAbs().maxCoeff());
   for (Eigen::Index i = 0; i < state.size(); ++i) {
-    if (i >= orientation && i < orientation + 4) continue;
+    if (i >= orientationStart && i < orientationStart + 4) continue;
     EXPECT_NEAR(turned(i), expected(i), kTolerance * scale)
         << "state entry " << i;
   }
-  const matrix3_t rotation =
+  const matrix3_t rotmatBaseRtWorld =
       quaternionRotationMatrix<scalar_t>(model.getQuatBaseRtWorldXyzw(turned));
-  const matrix3_t expectedRotation =
-      yawRotation(angle) *
+  const matrix3_t expectedRotmatBaseRtWorld =
+      rotmatOfYaw(angle) *
       quaternionRotationMatrix<scalar_t>(model.getQuatBaseRtWorldXyzw(state));
-  EXPECT_LE((rotation - expectedRotation).cwiseAbs().maxCoeff(), kTolerance)
+  EXPECT_LE(
+      (rotmatBaseRtWorld - expectedRotmatBaseRtWorld).cwiseAbs().maxCoeff(),
+      kTolerance)
       << "the orientation, as a rotation";
 }
 

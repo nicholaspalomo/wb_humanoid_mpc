@@ -38,8 +38,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/functional/function_ref.h"
 #include "absl/status/statusor.h"
-#include "pinocchio/multibody/model.hpp"
+#include "ocs2_core/Types.h"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 
 /*
@@ -117,7 +120,7 @@ struct EulerMpcOracleOptions {
   /** For kLocalBasis: each contact's 6 x n basis; ignored otherwise. */
   std::array<matrix_t, kNumContacts> localBasisMatrices;
   /** [m/s^2] in the world frame. */
-  vector3_t gravity = vector3_t(0.0, 0.0, -9.81);
+  vector3_t gravityEwrtWorld = vector3_t(0.0, 0.0, -9.81);
 };
 
 /**
@@ -172,7 +175,7 @@ class EulerMpcOracle {
 
   /** The world-frame contact wrenches [f; tau] of `input` at `eulerState`, left
    * then right. */
-  std::array<vector6_t, kNumContacts> worldWrenches(
+  std::array<vector6_t, kNumContacts> computeWrenchContactsEwrtWorld(
       const vector_t& eulerState, const vector_t& input) const;
 
   /**

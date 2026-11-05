@@ -31,11 +31,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <optional>
 #include <string>
 
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
 
 namespace ocs2::humanoid {
 
@@ -70,14 +78,19 @@ void EnergyCadenceModulationRule::beginCycle(ExecutionContext& ctx) const {
   // Orbital energy along the planned heading at the current time: a CoM that
   // carries more energy than the controller expected passes over the support
   // earlier and the step is brought forward, less energy delays it.
-  const scalar_t yaw = plan.headingAtTime(ctx.time).value_or(plan.yaw);
-  const vector2_t heading(std::cos(yaw), std::sin(yaw));
-  const scalar_t measured =
-      lipOrbitalEnergy(heading.dot(ctx.com - reference->zmp),
-                       heading.dot(ctx.comVelocity), omega, ctx.totalMass);
+  const scalar_t yawHeadingRtWorld = plan.getYawHeadingRtWorld(ctx.time);
+  const vector2_t dirHeadingEwrtWorldXy(std::cos(yawHeadingRtWorld),
+                                        std::sin(yawHeadingRtWorld));
+  const scalar_t measured = lipOrbitalEnergy(
+      dirHeadingEwrtWorldXy.dot(ctx.posComRtWorldEwrtWorldXy -
+                                reference->posZmpRtWorldEwrtWorldXy),
+      dirHeadingEwrtWorldXy.dot(ctx.proxyLinvelComRtWorldEwrtWorldXy), omega,
+      ctx.totalMass);
   const scalar_t predicted = lipOrbitalEnergy(
-      heading.dot(ctx.predictedCom - reference->zmp),
-      heading.dot(ctx.predictedComVelocity), omega, ctx.totalMass);
+      dirHeadingEwrtWorldXy.dot(ctx.predictedPosComRtWorldEwrtWorldXy -
+                                reference->posZmpRtWorldEwrtWorldXy),
+      dirHeadingEwrtWorldXy.dot(ctx.predictedProxyLinvelComRtWorldEwrtWorldXy),
+      omega, ctx.totalMass);
   // Deviations within the deadband re-time nothing; beyond it the shift is
   // measured from the band's edge, so that the touch-down moves continuously
   // with the deviation instead of jumping at the threshold.

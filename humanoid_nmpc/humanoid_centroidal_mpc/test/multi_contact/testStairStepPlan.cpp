@@ -37,14 +37,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_multi_contact/plan/PlanFile.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 #include "humanoid_multi_contact/scenarios/Scenario.h"
 #include "humanoid_multi_contact/stability/StabilityCertifier.h"
+#include "humanoid_multi_contact/stability/certifier_report.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/MultiContactTestFiles.h"
 #include "support/StairStepPlan.h"
+#include "support/TypedConfigFiles.h"
 
 /*
  * The hand-written feet-only stair-step plan of the tracking tests
@@ -59,7 +63,7 @@ constexpr char kStairStepScenario[] =
     "humanoid_nmpc/humanoid_centroidal_mpc/test/testdata/multi_contact/"
     "stair_step_scenario.textproto";
 /** [m] The height of the scenario's step. */
-constexpr scalar_t kStepHeight = 0.10;
+constexpr scalar_t kDesPosPadRtWorldEwrtWorldZ = 0.10;
 
 TEST(StairStepPlan, certifiesAndEndsOnTheStep) {
   const CentroidalRobotFiles files = atlasMultiContactFiles();
@@ -95,7 +99,9 @@ TEST(StairStepPlan, certifiesAndEndsOnTheStep) {
   for (const multi_contact::config::MultiContactPlan::ContactPhase& phase :
        plan.phases) {
     if (phase.primitive != "step_1") continue;
-    EXPECT_NEAR(phase.target_pad_pose(2), kStepHeight, 1.0e-9) << phase.contact;
+    EXPECT_NEAR(phase.des_pose_pad_rt_world(2), kDesPosPadRtWorldEwrtWorldZ,
+                1.0e-9)
+        << phase.contact;
   }
   // A plan file of it loads against the scenario's contact set and terrain.
   const std::string path =

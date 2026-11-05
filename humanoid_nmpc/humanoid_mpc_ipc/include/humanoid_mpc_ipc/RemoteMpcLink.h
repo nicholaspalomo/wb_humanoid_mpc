@@ -30,13 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <atomic>
-#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
@@ -53,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/mpc_solver_status.pb.h"
 #include "humanoid_mpc_msgs/mpc_status.pb.h"
 #include "humanoid_mpc_msgs/viewer_annotations.nproto.h"
+#include "humanoid_mpc_msgs/viewer_annotations.pb.h"
 #include "robot_core/TripleBuffer.h"
 #include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"

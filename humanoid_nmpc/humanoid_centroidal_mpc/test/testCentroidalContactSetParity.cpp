@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -49,9 +50,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "robot_core/ResourcePaths.h"
 #include "support/ProblemFingerprint.h"
 #include "support/ShippedCentroidalRobot.h"
@@ -144,7 +147,7 @@ void applyEdit(TaskEdit edit, mpc_config::TaskFile& task) {
                                "contact_wrench_cone", "friction_force_cone",
                                "normal_velocity",     "contact_complementarity",
                                "force_weighted_slip", "ground_penetration"};
-      task.terrain_height = 0.037;
+      task.pos_surface_rt_world_ewrt_world_z = 0.037;
       return;
     case TaskEdit::kSoftYawHoldingStance:
       task.hard_constraints = {"zero_wrench", "normal_velocity"};
@@ -227,15 +230,16 @@ TEST_P(CentroidalContactSetParityTest, theProblemIsBitForBitTheRecordedOne) {
   ASSERT_TRUE(goldenPath.ok())
       << goldenPath.status() << "; the computed record is in " << output;
   const std::optional<std::string> golden = readFile(*goldenPath);
-  ASSERT_TRUE(golden.has_value()) << "cannot read " << *goldenPath;
+  if (!golden.has_value()) GTEST_FAIL() << "cannot read " << *goldenPath;
   if (*golden == record) return;
 
   const std::vector<absl::string_view> expected = absl::StrSplit(*golden, '\n');
   const std::vector<absl::string_view> actual = absl::StrSplit(record, '\n');
   size_t line = 0;
   while (line < expected.size() && line < actual.size() &&
-         expected[line] == actual[line])
+         expected[line] == actual[line]) {
     ++line;
+  }
   ADD_FAILURE() << variant.name << " differs from the record from line "
                 << line + 1 << " on: expected '"
                 << (line < expected.size() ? expected[line] : "(end)")

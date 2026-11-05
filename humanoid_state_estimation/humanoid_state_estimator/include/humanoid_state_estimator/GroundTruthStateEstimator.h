@@ -58,9 +58,9 @@ class GroundTruthStateEstimator final : public StateEstimator {
   void reset(const robot::model::RobotState& /*measured*/) override {}
   /** `measured` itself, valid as long as `measured` is (the contract of
    * StateEstimator::estimate()). */
-  // NOLINTNEXTLINE(bugprone-return-const-ref-from-parameter): the base contract bounds the reference by `measured`'s life.
   const robot::model::RobotState& estimate(
       const robot::model::RobotState& measured) override {
+    // NOLINTNEXTLINE(bugprone-return-const-ref-from-parameter): the base contract bounds the reference by `measured`'s life.
     return measured;
   }
   uint64_t failedUpdates() const override { return 0; }

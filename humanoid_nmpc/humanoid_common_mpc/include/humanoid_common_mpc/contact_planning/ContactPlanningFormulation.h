@@ -67,7 +67,8 @@ inline constexpr char kStepWidth[] = "step_width";
 inline constexpr char kHeadingRateTracking[] = "heading_rate_tracking";
 inline constexpr char kHeadingTracking[] = "heading_tracking";
 inline constexpr char kFootYawTracking[] = "foot_yaw_tracking";
-inline constexpr char kYawTorqueRegularization[] = "yaw_torque_regularization";
+inline constexpr char kYawTorqueRegularizationName[] =
+    "yaw_torque_regularization";
 inline constexpr char kFootYawRegularization[] = "foot_yaw_regularization";
 inline constexpr char kZmpRegularization[] = "zmp_regularization";
 inline constexpr char kFootholdRegularization[] = "foothold_regularization";
@@ -81,7 +82,7 @@ inline constexpr char kHipYawRange[] = "hip_yaw_range";
 // Hard constraints.
 inline constexpr char kNoFlight[] = "no_flight";
 inline constexpr char kFootMotionInSwingOnly[] = "foot_motion_in_swing_only";
-inline constexpr char kYawTorqueBudget[] = "yaw_torque_budget";
+inline constexpr char kYawTorqueBudgetName[] = "yaw_torque_budget";
 inline constexpr char kFootYawPinnedInContact[] = "foot_yaw_pinned_in_contact";
 // Logic rules on the contact binaries (`no_flight` is both a QP row and a logic
 // rule, under the same name).
@@ -131,6 +132,11 @@ const std::vector<TermKind>& allTermKinds();
 /** The configuration key of the list of a kind (`dynamics`, `costs`, ...,
  * `execution`). */
 std::string termKindName(TermKind kind);
+/** Returns the ContactPlanningFile block that holds the parameters of the term
+ * `name`, a registry name: the name itself, or the name with `_parameters`
+ * where it holds a frame-dependent quantity word (`yaw_torque_regularization`;
+ * humanoid_nmpc/docs/frame_naming). */
+std::string termBlockName(absl::string_view name);
 /** Canonical names of every term of a kind, in the order of the default
  * formulation. */
 const std::vector<std::string>& knownTermNames(TermKind kind);

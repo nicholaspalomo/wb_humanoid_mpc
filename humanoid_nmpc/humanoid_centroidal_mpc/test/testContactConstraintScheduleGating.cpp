@@ -29,8 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"
 
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -41,27 +44,37 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/cost/StateInputCost.h"
 #include "ocs2_core/initialization/DefaultInitializer.h"
+#include "ocs2_core/penalties/penalties/PenaltyBase.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 #include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
 #include "ocs2_core/penalties/penalties/SquaredHingePenalty.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_sqp/SqpMpc.h"
 #include "ocs2_sqp/SqpSettings.h"
 #include "ocs2_sqp/SqpSolver.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/rnea.hpp"  // forward declarations must be included first.
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
+#include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactTermNames.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
-#include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
 #include "humanoid_common_mpc/constraint/ContactMomentXYConstraintCppAd.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/constraint/FrictionForceConeConstraint.h"
@@ -118,7 +131,8 @@ class ContactConstraintScheduleGatingTest : public ::testing::Test {
       bool scheduleGated) const {
     return std::make_unique<FrictionForceConeConstraint>(
         model_->referenceManager(), FrictionForceConeConstraint::Config(),
-        kSwingFoot, model_->wrenchModel(), scheduleGated);
+        kSwingFoot, model_->wrenchModel(), model_->pinocchioInterface(),
+        scheduleGated);
   }
 
   /**
@@ -282,10 +296,10 @@ TEST_F(ContactConstraintScheduleGatingTest,
   // The cone must still bound a real wrench: a purely tangential force is
   // outside it.
   vector_t slidingInput = vector_t::Zero(model_->wrenchModel().getInputDim());
-  vector6_t wrench = vector6_t::Zero();
-  wrench(kWrenchForceXIndex) = 50.0;
-  model_->wrenchModel().setWrenchContactEwrtParam(slidingInput, wrench,
-                                                  kSwingFoot);
+  vector6_t wrenchContactEwrtParam = vector6_t::Zero();
+  wrenchContactEwrtParam(kWrenchForceXIndex) = 50.0;
+  model_->wrenchModel().setWrenchContactEwrtParam(
+      slidingInput, wrenchContactEwrtParam, kSwingFoot);
   EXPECT_LT(
       ungated.getValue(kTime, model_->nominalState(), slidingInput, preComp)
           .minCoeff(),
@@ -303,7 +317,8 @@ TEST_F(ContactConstraintScheduleGatingTest,
   // default regularization of 25.
   const FrictionForceConeConstraint gated(
       model_->referenceManager(), FrictionForceConeConstraint::Config(),
-      kSwingFoot, model_->wrenchModel(), /*scheduleGated=*/true);
+      kSwingFoot, model_->wrenchModel(), model_->pinocchioInterface(),
+      /*scheduleGated=*/true);
   EXPECT_NEAR(
       gated.getValue(kTime, model_->nominalState(), zeroInput, preComp)(0),
       -5.0, 1.0e-9);
@@ -312,7 +327,8 @@ TEST_F(ContactConstraintScheduleGatingTest,
   // is on the boundary and a squared hinge charges it nothing.
   const FrictionForceConeConstraint ungated(
       model_->referenceManager(), FrictionForceConeConstraint::Config(),
-      kSwingFoot, model_->wrenchModel(), /*scheduleGated=*/false);
+      kSwingFoot, model_->wrenchModel(), model_->pinocchioInterface(),
+      /*scheduleGated=*/false);
   const vector_t value =
       ungated.getValue(kTime, model_->nominalState(), zeroInput, preComp);
   ASSERT_EQ(value.size(), 2) << "the friction row and Fz >= 0";
@@ -333,34 +349,37 @@ TEST_F(ContactConstraintScheduleGatingTest,
       config;  // mu = 0.7, regularization = 25
   const FrictionForceConeConstraint ungated(model_->referenceManager(), config,
                                             kSwingFoot, model_->wrenchModel(),
+                                            model_->pinocchioInterface(),
                                             /*scheduleGated=*/false);
   const scalar_t mu = ungated.getConfig().frictionCoefficient;
 
   size_t accepted = 0;
   size_t rejected = 0;
-  for (const scalar_t normalForce :
+  for (const scalar_t forceContactEwrtParamZ :
        {-100.0, -1.0, 0.0, 0.25, 1.0, 2.0, 5.0, 20.0, 100.0, 1000.0}) {
     for (const scalar_t ratio : {0.0, 0.3, 0.9, 0.999, 1.001, 1.1, 2.0, 5.0}) {
       // |F_t| as a multiple of mu |Fz|, pointing along a skewed direction so
       // both tangential components are exercised.
-      const scalar_t tangential = ratio * mu * std::abs(normalForce) +
-                                  (normalForce == 0.0 ? ratio : 0.0);
+      const scalar_t tangential =
+          ratio * mu * std::abs(forceContactEwrtParamZ) +
+          (forceContactEwrtParamZ == 0.0 ? ratio : 0.0);
       vector_t input = vector_t::Zero(model_->wrenchModel().getInputDim());
-      vector6_t wrench = vector6_t::Zero();
-      wrench(kWrenchForceXIndex) = 0.6 * tangential;
-      wrench(kWrenchForceYIndex) = -0.8 * tangential;
-      wrench(kWrenchForceZIndex) = normalForce;
-      model_->wrenchModel().setWrenchContactEwrtParam(input, wrench,
-                                                      kSwingFoot);
+      vector6_t wrenchContactEwrtParam = vector6_t::Zero();
+      wrenchContactEwrtParam(kWrenchForceXIndex) = 0.6 * tangential;
+      wrenchContactEwrtParam(kWrenchForceYIndex) = -0.8 * tangential;
+      wrenchContactEwrtParam(kWrenchForceZIndex) = forceContactEwrtParamZ;
+      model_->wrenchModel().setWrenchContactEwrtParam(
+          input, wrenchContactEwrtParam, kSwingFoot);
 
-      const bool insideCoulomb =
-          normalForce >= 0.0 && tangential <= mu * normalForce;
+      const bool insideCoulomb = forceContactEwrtParamZ >= 0.0 &&
+                                 tangential <= mu * forceContactEwrtParamZ;
       const bool acceptedByTerm =
           (ungated.getValue(kTime, model_->nominalState(), input, preComp)
                .array() >= 0.0)
               .all();
       EXPECT_EQ(acceptedByTerm, insideCoulomb)
-          << "Fz = " << normalForce << " N, |F_t| = " << tangential << " N";
+          << "Fz = " << forceContactEwrtParamZ << " N, |F_t| = " << tangential
+          << " N";
       (insideCoulomb ? accepted : rejected) += 1;
     }
   }
@@ -371,11 +390,11 @@ TEST_F(ContactConstraintScheduleGatingTest,
   // mu = 0.7, and the outer approximation accepted it (0.7 - sqrt(4 + 25) + 5 =
   // 0.31 >= 0).
   vector_t lightlyLoaded = vector_t::Zero(model_->wrenchModel().getInputDim());
-  vector6_t wrench = vector6_t::Zero();
-  wrench(kWrenchForceXIndex) = 2.0;
-  wrench(kWrenchForceZIndex) = 1.0;
-  model_->wrenchModel().setWrenchContactEwrtParam(lightlyLoaded, wrench,
-                                                  kSwingFoot);
+  vector6_t wrenchContactEwrtParam = vector6_t::Zero();
+  wrenchContactEwrtParam(kWrenchForceXIndex) = 2.0;
+  wrenchContactEwrtParam(kWrenchForceZIndex) = 1.0;
+  model_->wrenchModel().setWrenchContactEwrtParam(
+      lightlyLoaded, wrenchContactEwrtParam, kSwingFoot);
   EXPECT_LT(ungated.getValue(kTime, model_->nominalState(), lightlyLoaded,
                              preComp)(0),
             0.0);
@@ -407,25 +426,26 @@ TEST_F(ContactConstraintScheduleGatingTest,
   const PreComputation preComp;
   const FrictionForceConeConstraint ungated(
       model_->referenceManager(), FrictionForceConeConstraint::Config(),
-      kSwingFoot, model_->wrenchModel(), /*scheduleGated=*/false);
+      kSwingFoot, model_->wrenchModel(), model_->pinocchioInterface(),
+      /*scheduleGated=*/false);
   // A foot sliding under load is outside the un-gated cone...
   vector_t slidingInput = model_->makeInput(model_->wrenchModel(), kSwingFoot,
-                                            /*normalForce=*/100.0);
-  vector6_t wrench = vector6_t::Zero();
-  wrench(kWrenchForceZIndex) = 100.0;
-  wrench(kWrenchForceXIndex) = 500.0;
-  model_->wrenchModel().setWrenchContactEwrtParam(slidingInput, wrench,
-                                                  kSwingFoot);
+                                            /*forceFootEwrtParamZ=*/100.0);
+  vector6_t wrenchContactEwrtParam = vector6_t::Zero();
+  wrenchContactEwrtParam(kWrenchForceZIndex) = 100.0;
+  wrenchContactEwrtParam(kWrenchForceXIndex) = 500.0;
+  model_->wrenchModel().setWrenchContactEwrtParam(
+      slidingInput, wrenchContactEwrtParam, kSwingFoot);
   EXPECT_LT(
       ungated.getValue(kTime, model_->nominalState(), slidingInput, preComp)(0),
       0.0);
 
   // ...and a foot pulling on the ground is refused by the second row even with
   // no tangential force at all.
-  wrench.setZero();
-  wrench(kWrenchForceZIndex) = -50.0;
-  model_->wrenchModel().setWrenchContactEwrtParam(slidingInput, wrench,
-                                                  kSwingFoot);
+  wrenchContactEwrtParam.setZero();
+  wrenchContactEwrtParam(kWrenchForceZIndex) = -50.0;
+  model_->wrenchModel().setWrenchContactEwrtParam(
+      slidingInput, wrenchContactEwrtParam, kSwingFoot);
   const vector_t pulling =
       ungated.getValue(kTime, model_->nominalState(), slidingInput, preComp);
   EXPECT_GE(pulling(0), 0.0)
@@ -451,11 +471,12 @@ TEST_F(ContactConstraintScheduleGatingTest,
   // And a center of pressure outside the footprint is still rejected: a moment
   // with no normal force to support it.
   vector_t offFootprint = vector_t::Zero(model_->wrenchModel().getInputDim());
-  vector6_t wrench = vector6_t::Zero();
-  wrench(kWrenchForceZIndex) = 100.0;
-  wrench(kWrenchTorqueYIndex) = 100.0;  // a CoP far ahead of the toe
-  model_->wrenchModel().setWrenchContactEwrtParam(offFootprint, wrench,
-                                                  kSwingFoot);
+  vector6_t wrenchContactEwrtParam = vector6_t::Zero();
+  wrenchContactEwrtParam(kWrenchForceZIndex) = 100.0;
+  wrenchContactEwrtParam(kWrenchTorqueYIndex) =
+      100.0;  // a CoP far ahead of the toe
+  model_->wrenchModel().setWrenchContactEwrtParam(
+      offFootprint, wrenchContactEwrtParam, kSwingFoot);
   EXPECT_LT(
       ungated->getValue(kTime, model_->nominalState(), offFootprint, preComp)
           .minCoeff(),
@@ -758,13 +779,13 @@ TEST_F(ContactConstraintScheduleGatingTest,
   const size_t stanceFoot =
       kSwingFoot == kContactLeftIndex ? kContactRightIndex : kContactLeftIndex;
   const vector_t stanceCarries = model_->makeInput(
-      model_->wrenchModel(), stanceFoot, /*normalForce=*/1600.0);
+      model_->wrenchModel(), stanceFoot, /*forceFootEwrtParamZ=*/1600.0);
   vector_t swingAlsoCarries = model_->makeInput(
-      model_->wrenchModel(), stanceFoot, /*normalForce=*/800.0);
-  vector6_t swingWrench = vector6_t::Zero();
-  swingWrench(kWrenchForceZIndex) = 800.0;
-  model_->wrenchModel().setWrenchContactEwrtParam(swingAlsoCarries, swingWrench,
-                                                  kSwingFoot);
+      model_->wrenchModel(), stanceFoot, /*forceFootEwrtParamZ=*/800.0);
+  vector6_t swingWrenchContactEwrtParam = vector6_t::Zero();
+  swingWrenchContactEwrtParam(kWrenchForceZIndex) = 800.0;
+  model_->wrenchModel().setWrenchContactEwrtParam(
+      swingAlsoCarries, swingWrenchContactEwrtParam, kSwingFoot);
 
   EXPECT_LT(cost.getValue(kTime, model_->nominalState(), stanceCarries, target,
                           preComp),
@@ -792,11 +813,10 @@ TEST_F(ContactConstraintScheduleGatingTest,
 
 /** A working point with a genuinely OBLIQUE contact force, so the tangential
  * rows of dCone_dF do not vanish. */
-vector_t loadedInputWithTangentialForce(
-    const DrcAtlasContactTestModel& model,
-    const MpcRobotModelBase<scalar_t>& robotModel) {
+vector_t obliquelyLoadedInput(const DrcAtlasContactTestModel& model,
+                              const MpcRobotModelBase<scalar_t>& robotModel) {
   vector_t input =
-      model.makeInput(robotModel, kSwingFoot, /*normalForce=*/800.0);
+      model.makeInput(robotModel, kSwingFoot, /*forceFootEwrtParamZ=*/800.0);
   const size_t start = robotModel.getContactWrenchStartIndices(kSwingFoot);
   if (robotModel.getContactInputDim(kSwingFoot) == kContactWrenchDim) {
     // Wrench-space: tilt the force directly.
@@ -809,9 +829,9 @@ vector_t loadedInputWithTangentialForce(
     input(static_cast<Eigen::Index>(start + 0)) += 150.0;
     input(static_cast<Eigen::Index>(start + 1)) += 60.0;
   }
-  const vector3_t force =
+  const vector3_t forceContactEwrtParam =
       robotModel.getForceContactEwrtParam(input, kSwingFoot);
-  EXPECT_GT(force.head<2>().norm(), 10.0)
+  EXPECT_GT(forceContactEwrtParam.head<2>().norm(), 10.0)
       << "the working point must have a tangential force, or the test proves "
          "nothing "
          "about the x and y rows of the force Jacobian";
@@ -838,7 +858,8 @@ TEST_F(ContactConstraintScheduleGatingTest,
        theForceJacobianIsTheBasisGeneratorsOnTheBasisModel) {
   const FrictionForceConeConstraint cone(
       model_->referenceManager(), FrictionForceConeConstraint::Config(),
-      kSwingFoot, model_->basisModel(), /*scheduleGated=*/false);
+      kSwingFoot, model_->basisModel(), model_->pinocchioInterface(),
+      /*scheduleGated=*/false);
   const matrix_t& jacobian = cone.getInputJacobianForceContactEwrtParam();
 
   ASSERT_EQ(jacobian.rows(), 3);
@@ -863,8 +884,7 @@ TEST_F(ContactConstraintScheduleGatingTest,
        theConeDerivativesMatchFiniteDifferencesOnTheWrenchModel) {
   const std::unique_ptr<FrictionForceConeConstraint> cone =
       makeFrictionCone(/*scheduleGated=*/false);
-  const vector_t input =
-      loadedInputWithTangentialForce(*model_, model_->wrenchModel());
+  const vector_t input = obliquelyLoadedInput(*model_, model_->wrenchModel());
   expectStateInputDerivativesMatchFiniteDifferences(
       *cone, model_->nominalState(), input);
 }
@@ -875,11 +895,154 @@ TEST_F(ContactConstraintScheduleGatingTest,
   // scaling block.
   const FrictionForceConeConstraint cone(
       model_->referenceManager(), FrictionForceConeConstraint::Config(),
-      kSwingFoot, model_->basisModel(), /*scheduleGated=*/false);
-  const vector_t input =
-      loadedInputWithTangentialForce(*model_, model_->basisModel());
+      kSwingFoot, model_->basisModel(), model_->pinocchioInterface(),
+      /*scheduleGated=*/false);
+  const vector_t input = obliquelyLoadedInput(*model_, model_->basisModel());
   expectStateInputDerivativesMatchFiniteDifferences(
       cone, model_->nominalState(), input);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The friction cone's FRAME under the basis model.
+//
+// The basis model's getForceContactEwrtParam() is the force in CONTACT axes,
+// and the cone rotated it by the patch's p_R_w as if it were in world axes. The
+// cone was then checked in axes that turn with the foot: on a foot pitched by
+// 0.3 rad a purely vertical world force read as 177 N of friction, and the
+// state Jacobian was zero although the value depends on the foot's
+// orientation. Both tests below fail on that code.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** [rad] The ankle pitch that tilts the swing foot's sole, heel strike or toe
+ * off. */
+constexpr scalar_t kAnklePitch = 0.3;
+/** [N] The purely vertical world force the pitched foot carries. */
+constexpr scalar_t kForceContactEwrtWorldZ = 600.0;
+/** A friction coefficient below tan(kAnklePitch), so that the contact-axes
+ * force on the pitched foot leaves its cone while the world force does not. */
+constexpr scalar_t kLowFrictionCoefficient = 0.2;
+
+/** The nominal state with the swing foot's ankle pitched by kAnklePitch. */
+vector_t pitchedFootState(const DrcAtlasContactTestModel& model) {
+  vector_t state = model.nominalState();
+  state(model.anklePitchStateIndex(kSwingFoot)) += kAnklePitch;
+  return state;
+}
+
+/** The friction row of the class comment at a surface-axes force, gated or
+ * not, without adhesion. */
+scalar_t frictionRowOf(const vector3_t& forceContactEwrtSurface,
+                       const FrictionForceConeConstraint::Config& config,
+                       bool scheduleGated) {
+  const scalar_t mu = config.frictionCoefficient;
+  const scalar_t tangential =
+      std::sqrt(forceContactEwrtSurface.x() * forceContactEwrtSurface.x() +
+                forceContactEwrtSurface.y() * forceContactEwrtSurface.y() +
+                config.regularization);
+  if (scheduleGated) return mu * forceContactEwrtSurface.z() - tangential;
+  return std::sqrt(mu * mu * forceContactEwrtSurface.z() *
+                       forceContactEwrtSurface.z() +
+                   config.regularization) -
+         tangential;
+}
+
+TEST_F(ContactConstraintScheduleGatingTest,
+       theConeOnTheBasisModelBoundsTheWorldForceInSurfaceAxes) {
+  const BasisInputsModelDecorator<scalar_t>& basisModel = model_->basisModel();
+  const vector_t state = pitchedFootState(*model_);
+  const matrix3_t rotmatContactRtWorld =
+      basisModel.getRotmatContactRtWorld(state, kSwingFoot);
+  ASSERT_LT(rotmatContactRtWorld(2, 2), std::cos(0.25))
+      << "the sole must be pitched, or the contact and world axes agree and "
+         "the test proves nothing";
+
+  vector_t input = vector_t::Zero(basisModel.getInputDim());
+  const vector3_t forceContactEwrtWorld(0.0, 0.0, kForceContactEwrtWorldZ);
+  basisModel.setForceContactEwrtWorld(state, input, forceContactEwrtWorld,
+                                      kSwingFoot);
+  ASSERT_TRUE(basisModel.getForceContactEwrtWorld(state, input, kSwingFoot)
+                  .isApprox(forceContactEwrtWorld, 1.0e-6))
+      << "the basis must reproduce the vertical world force on the pitched "
+         "foot";
+
+  const matrix3_t rotmatWorldRtSurface =
+      model_->referenceManager()
+          .getContactPatchFrame(kSwingFoot, kTime)
+          .rotmatWorldRtSurface;
+  const vector3_t forceContactEwrtSurface =
+      rotmatWorldRtSurface *
+      basisModel.getForceContactEwrtWorld(state, input, kSwingFoot);
+  const vector3_t forceContactEwrtParam =
+      basisModel.getForceContactEwrtParam(input, kSwingFoot);
+
+  const FrictionForceConeConstraint::Config config(kLowFrictionCoefficient);
+  const PreComputation preComp;
+  for (const bool scheduleGated : {true, false}) {
+    const FrictionForceConeConstraint cone(
+        model_->referenceManager(), config, kSwingFoot, basisModel,
+        model_->pinocchioInterface(), scheduleGated);
+    // What the cone used to evaluate: the contact-axes force rotated as if it
+    // were in world axes.
+    ASSERT_LT(frictionRowOf(rotmatWorldRtSurface * forceContactEwrtParam,
+                            cone.getConfig(), scheduleGated),
+              0.0)
+        << "gated: " << scheduleGated
+        << ": the scenario must separate the two frames";
+
+    const vector_t value = cone.getValue(kTime, state, input, preComp);
+    EXPECT_NEAR(
+        value(0),
+        frictionRowOf(forceContactEwrtSurface, cone.getConfig(), scheduleGated),
+        1.0e-6)
+        << "gated: " << scheduleGated;
+    EXPECT_GT(value(0), 0.0) << "gated: " << scheduleGated
+                             << ": a vertical world force needs no friction";
+  }
+}
+
+TEST_F(ContactConstraintScheduleGatingTest,
+       theConeDerivativesMatchFiniteDifferencesOnAPitchedBasisFoot) {
+  const BasisInputsModelDecorator<scalar_t>& basisModel = model_->basisModel();
+  const vector_t state = pitchedFootState(*model_);
+  const vector_t input = obliquelyLoadedInput(*model_, basisModel);
+  const PreComputation preComp;
+  for (const bool scheduleGated : {true, false}) {
+    const FrictionForceConeConstraint cone(
+        model_->referenceManager(), FrictionForceConeConstraint::Config(),
+        kSwingFoot, basisModel, model_->pinocchioInterface(), scheduleGated);
+    expectStateInputDerivativesMatchFiniteDifferences(cone, state, input);
+
+    const VectorFunctionLinearApproximation linear =
+        cone.getLinearApproximation(kTime, state, input, preComp);
+    EXPECT_GT(linear.dfdx.cwiseAbs().maxCoeff(), 1.0e-3)
+        << "gated: " << scheduleGated
+        << ": the cone depends on the foot's orientation";
+
+    // The input-state cross term, against central differences of dfdu.
+    const VectorFunctionQuadraticApproximation quadratic =
+        cone.getQuadraticApproximation(kTime, state, input, preComp);
+    ASSERT_EQ(quadratic.dfdux.size(), cone.getNumConstraints(kTime));
+    for (Eigen::Index index = 0; index < state.size(); ++index) {
+      vector_t perturbed = state;
+      perturbed(index) += kFiniteDifferenceStep;
+      const matrix_t forward =
+          cone.getLinearApproximation(kTime, perturbed, input, preComp).dfdu;
+      perturbed(index) -= 2.0 * kFiniteDifferenceStep;
+      const matrix_t backward =
+          cone.getLinearApproximation(kTime, perturbed, input, preComp).dfdu;
+      const matrix_t numerical =
+          (forward - backward) / (2.0 * kFiniteDifferenceStep);
+      for (size_t row = 0; row < quadratic.dfdux.size(); ++row) {
+        const Eigen::Index constraintRow = static_cast<Eigen::Index>(row);
+        for (Eigen::Index column = 0; column < input.size(); ++column) {
+          EXPECT_NEAR(quadratic.dfdux[row](column, index),
+                      numerical(constraintRow, column), kDerivativeTol)
+              << "gated: " << scheduleGated << ", dfdux[" << row << "]("
+              << column << ", " << index << ")";
+        }
+      }
+    }
+  }
 }
 
 TEST_F(ContactConstraintScheduleGatingTest,
@@ -891,15 +1054,14 @@ TEST_F(ContactConstraintScheduleGatingTest,
   // exact, row by row. Differentiating the analytic gradient isolates
   // d2Cone_du2 from dCone_du.
   const FrictionForceConeConstraint::Config config;
-  const vector_t input =
-      loadedInputWithTangentialForce(*model_, model_->basisModel());
+  const vector_t input = obliquelyLoadedInput(*model_, model_->basisModel());
   const vector_t state = model_->nominalState();
   const PreComputation preComp;
 
   for (const bool scheduleGated : {true, false}) {
-    const FrictionForceConeConstraint term(model_->referenceManager(), config,
-                                           kSwingFoot, model_->basisModel(),
-                                           scheduleGated);
+    const FrictionForceConeConstraint term(
+        model_->referenceManager(), config, kSwingFoot, model_->basisModel(),
+        model_->pinocchioInterface(), scheduleGated);
     const VectorFunctionQuadraticApproximation quadratic =
         term.getQuadraticApproximation(kTime, state, input, preComp);
     ASSERT_EQ(quadratic.dfduu.size(), term.getNumConstraints(kTime))
@@ -955,7 +1117,7 @@ TEST_F(ContactConstraintScheduleGatingTest,
     // About 5 N of load and 2 N of friction: mu^2 Fz^2 is of the order of the
     // regularization, where the two halves of the friction row bend the most.
     vector_t input =
-        model_->makeInput(*robotModel, kSwingFoot, /*normalForce=*/5.0);
+        model_->makeInput(*robotModel, kSwingFoot, /*forceFootEwrtParamZ=*/5.0);
     const Eigen::Index start = static_cast<Eigen::Index>(
         robotModel->getContactWrenchStartIndices(kSwingFoot));
     if (onBasis) {
@@ -965,18 +1127,18 @@ TEST_F(ContactConstraintScheduleGatingTest,
       input(start + kWrenchForceXIndex) = 1.6;
       input(start + kWrenchForceYIndex) = -1.2;
     }
-    const vector3_t force =
+    const vector3_t forceContactEwrtParam =
         robotModel->getForceContactEwrtParam(input, kSwingFoot);
-    ASSERT_GT(force.head<2>().norm(), 0.5)
+    ASSERT_GT(forceContactEwrtParam.head<2>().norm(), 0.5)
         << "basis: " << onBasis
         << ": the working point needs a tangential force";
     // Positive control: here the curvature of the normal half of the friction
     // row, mu^2 r / (mu^2 Fz^2 + r)^(3/2), is three orders of magnitude above
     // the tolerance, so a wrong one - or the gated row's zero - fails the loop
     // below.
-    const scalar_t muSquareFz = config.frictionCoefficient *
-                                config.frictionCoefficient * force.z() *
-                                force.z();
+    const scalar_t muSquareFz =
+        config.frictionCoefficient * config.frictionCoefficient *
+        forceContactEwrtParam.z() * forceContactEwrtParam.z();
     const scalar_t normalCurvature =
         config.frictionCoefficient * config.frictionCoefficient *
         config.regularization /
@@ -986,6 +1148,7 @@ TEST_F(ContactConstraintScheduleGatingTest,
 
     const FrictionForceConeConstraint ungated(model_->referenceManager(),
                                               config, kSwingFoot, *robotModel,
+                                              model_->pinocchioInterface(),
                                               /*scheduleGated=*/false);
     expectStateInputDerivativesMatchFiniteDifferences(ungated, state, input);
 
@@ -1027,8 +1190,7 @@ TEST_F(ContactConstraintScheduleGatingTest,
   // orientation is the derivative the solver needs. It used to report dfdx = 0.
   vector_t pitched = model_->nominalState();
   pitched(model_->anklePitchStateIndex(kSwingFoot)) += 0.25;
-  vector_t input =
-      loadedInputWithTangentialForce(*model_, model_->wrenchModel());
+  vector_t input = obliquelyLoadedInput(*model_, model_->wrenchModel());
   // A moment as well, so the moment rows' rotation is differentiated too, not
   // only the force rows'.
   model_->wrenchModel().setTorqueContactEwrtParam(
@@ -1047,9 +1209,9 @@ TEST_F(ContactConstraintScheduleGatingTest,
   // its start is how this would show up in the QP.
   const FrictionForceConeConstraint cone(
       model_->referenceManager(), FrictionForceConeConstraint::Config(),
-      kSwingFoot, model_->basisModel(), /*scheduleGated=*/false);
-  const vector_t input =
-      loadedInputWithTangentialForce(*model_, model_->basisModel());
+      kSwingFoot, model_->basisModel(), model_->pinocchioInterface(),
+      /*scheduleGated=*/false);
+  const vector_t input = obliquelyLoadedInput(*model_, model_->basisModel());
   const PreComputation preComp;
   const matrix_t dfdu =
       cone.getLinearApproximation(kTime, model_->nominalState(), input, preComp)
@@ -1123,10 +1285,11 @@ TEST_F(ContactConstraintScheduleGatingTest,
 
   // Feet loaded: half the robot's weight up through each foot, as
   // weightCompensatingInput produces in double support.
-  const scalar_t weight = 9.81 * pinocchio::computeTotalMass(model);
-  vector6_t halfWeight = vector6_t::Zero();
-  halfWeight(2) = 0.5 * weight;
-  const std::array<vector6_t, 2> standing{halfWeight, halfWeight};
+  const scalar_t robotWeight = 9.81 * pinocchio::computeTotalMass(model);
+  vector6_t wrenchFootEwrtWorld = vector6_t::Zero();
+  wrenchFootEwrtWorld(2) = 0.5 * robotWeight;
+  const std::array<vector6_t, 2> standing{wrenchFootEwrtWorld,
+                                          wrenchFootEwrtWorld};
   const vector_t loaded = computeBaseHeldJointTorques<scalar_t>(
       q, qd, qdd_j, standing,
       getContactFrameIndexArray<scalar_t>(workingInterface,
@@ -1239,15 +1402,16 @@ TEST_F(ContactConstraintScheduleGatingTest,
           contact_term::name(contactNames[foot],
                              contact_term::kFrictionForceCone),
           *std::move(frictionCone));
-      absl::StatusOr<std::unique_ptr<StateInputCost>> contactMoment =
+      absl::StatusOr<std::unique_ptr<StateInputCost>> contactMomentConstraint =
           factory.makeContactMomentXYConstraint(
               foot,
               absl::StrCat("testContactConstraintScheduleGating_cop_", foot));
-      ASSERT_TRUE(contactMoment.ok()) << contactMoment.status();
+      ASSERT_TRUE(contactMomentConstraint.ok())
+          << contactMomentConstraint.status();
       problem.softConstraintPtr->add(
           contact_term::name(contactNames[foot],
                              contact_term::kContactMomentXYName),
-          *std::move(contactMoment));
+          *std::move(contactMomentConstraint));
     }
 
     // Built: an un-gated cone is a hinge whose zero is on the cone, a gated one

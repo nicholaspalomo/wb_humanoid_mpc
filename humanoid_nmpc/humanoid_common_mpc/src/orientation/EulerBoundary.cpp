@@ -31,23 +31,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <numbers>
 #include <string>
 #include <vector>
 
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 
 namespace ocs2::humanoid {
 
 namespace {
+
+// pi / 2, the pitch of the Euler gimbal lock.
+constexpr scalar_t kHalfPi = std::numbers::pi / 2.0;
 
 /** "eulerzyx_base_rt_world 3 (yaw, pitch, roll)" in the tuning layout,
  * "eulerzyx_base_rt_world 4 (quaternion x, y, z, w)" in the state. */
@@ -128,8 +136,9 @@ absl::Status checkUnitQuaternionPlacement(const TuningLayout& layout,
 
 }  // namespace
 
-vector4_t quaternionFromEulerZyx(const vector3_t& eulerZyx) {
-  return getQuaternionFromEulerAnglesZyx<scalar_t>(eulerZyx).coeffs();
+vector4_t quaternionFromEulerZyx(const vector3_t& eulerzyxLocalRtWorld) {
+  return getQuaternionFromEulerAnglesZyx<scalar_t>(eulerzyxLocalRtWorld)
+      .coeffs();
 }
 
 vector3_t eulerZyxFromQuaternion(const vector4_t& xi) {
@@ -161,45 +170,52 @@ vector3_t eulerZyxFromQuaternion(const vector4_t& xi) {
   const scalar_t r12 = 2.0 * (y * z - w * x);
   const scalar_t r20 = 2.0 * (x * z - w * y);
   const scalar_t pitch = std::clamp(
-      std::atan2(-r20, cosYaw * r00 + sinYaw * r10), -M_PI_2, M_PI_2);
+      std::atan2(-r20, cosYaw * r00 + sinYaw * r10), -kHalfPi, kHalfPi);
   const scalar_t roll =
       std::atan2(sinYaw * r02 - cosYaw * r12, cosYaw * r11 - sinYaw * r01);
   return vector3_t(yaw, pitch, roll);
 }
 
-matrix3_t eulerZyxRateToBodyRateMatrix(const vector3_t& eulerZyx) {
-  return getMappingFromEulerAnglesZyxDerivativeToLocalAngularVelocity<scalar_t>(
-      eulerZyx);
+matrix3_t eulerZyxRateToBodyRateMatrix(const vector3_t& eulerzyxLocalRtWorld) {
+  return getMappingFromEulerAnglesZyxDerivativesToBodyRates<scalar_t>(
+      eulerzyxLocalRtWorld);
 }
 
-vector3_t localAngularVelocityFromEulerZyxRates(
-    const vector3_t& eulerZyx, const vector3_t& eulerZyxRates) {
-  return getLocalAngularVelocityFromEulerAnglesZyxDerivatives<scalar_t>(
-      eulerZyx, eulerZyxRates);
+vector3_t bodyRatesFromEulerZyxRates(
+    const vector3_t& eulerzyxLocalRtWorld,
+    const vector3_t& rateEulerzyxLocalRtWorld) {
+  return getBodyRatesFromEulerAnglesZyxDerivatives<scalar_t>(
+      eulerzyxLocalRtWorld, rateEulerzyxLocalRtWorld);
 }
 
 vector3_t eulerZyxRatesFromBodyRates(
-    const vector3_t& eulerZyx, const vector3_t& angvelLocalRtWorldEwrtLocal) {
-  // NOLINTNEXTLINE(frame-naming): a generic Euler conversion
-  return getEulerAnglesZyxDerivativesFromLocalAngularVelocity<scalar_t>(
-      eulerZyx, angvelLocalRtWorldEwrtLocal);
+    const vector3_t& eulerzyxLocalRtWorld,
+    const vector3_t& angvelLocalRtWorldEwrtLocal) {
+  return getEulerAnglesZyxDerivativesFromBodyRates<scalar_t>(
+      eulerzyxLocalRtWorld, angvelLocalRtWorldEwrtLocal);
 }
 
-matrix3_t bodyRateEulerZyxJacobian(const vector3_t& eulerZyx,
-                                   const vector3_t& eulerZyxRates) {
+matrix3_t bodyRateEulerZyxJacobian(const vector3_t& eulerzyxLocalRtWorld,
+                                   const vector3_t& rateEulerzyxLocalRtWorld) {
   // w_B = (-sin(theta) dpsi + dphi, cos(theta) sin(phi) dpsi + cos(phi) dtheta,
   // cos(theta) cos(phi) dpsi - sin(phi) dtheta).
-  const scalar_t sinPitch = std::sin(eulerZyx(kEulerAnglesZyxYIndex));
-  const scalar_t cosPitch = std::cos(eulerZyx(kEulerAnglesZyxYIndex));
-  const scalar_t sinRoll = std::sin(eulerZyx(kEulerAnglesZyxXIndex));
-  const scalar_t cosRoll = std::cos(eulerZyx(kEulerAnglesZyxXIndex));
-  const scalar_t yawRate = eulerZyxRates(kEulerAnglesZyxZIndex);
-  const scalar_t pitchRate = eulerZyxRates(kEulerAnglesZyxYIndex);
+  const scalar_t sinPitch =
+      std::sin(eulerzyxLocalRtWorld(kEulerAnglesZyxYIndex));
+  const scalar_t cosPitch =
+      std::cos(eulerzyxLocalRtWorld(kEulerAnglesZyxYIndex));
+  const scalar_t sinRoll =
+      std::sin(eulerzyxLocalRtWorld(kEulerAnglesZyxXIndex));
+  const scalar_t cosRoll =
+      std::cos(eulerzyxLocalRtWorld(kEulerAnglesZyxXIndex));
+  const scalar_t rateEulerzyxLocalRtWorldYaw =
+      rateEulerzyxLocalRtWorld(kEulerAnglesZyxZIndex);
+  const scalar_t rateEulerzyxLocalRtWorldPitch =
+      rateEulerzyxLocalRtWorld(kEulerAnglesZyxYIndex);
   matrix3_t jacobian;
   // clang-format off
-  jacobian << 0.0, -cosPitch * yawRate,           0.0,
-              0.0, -sinPitch * sinRoll * yawRate,  cosPitch * cosRoll * yawRate - sinRoll * pitchRate,
-              0.0, -sinPitch * cosRoll * yawRate, -cosPitch * sinRoll * yawRate - cosRoll * pitchRate;
+  jacobian << 0.0, -cosPitch * rateEulerzyxLocalRtWorldYaw,           0.0,
+              0.0, -sinPitch * sinRoll * rateEulerzyxLocalRtWorldYaw,  cosPitch * cosRoll * rateEulerzyxLocalRtWorldYaw - sinRoll * rateEulerzyxLocalRtWorldPitch,
+              0.0, -sinPitch * cosRoll * rateEulerzyxLocalRtWorldYaw, -cosPitch * sinRoll * rateEulerzyxLocalRtWorldYaw - cosRoll * rateEulerzyxLocalRtWorldPitch;
   // clang-format on
   return jacobian;
 }

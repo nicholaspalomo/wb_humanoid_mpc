@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 
 #include "robot_model/AlwaysInContactEstimator.h"
+#include "robot_model/ContactEstimator.h"
 #include "robot_model/RobotStateContactEstimator.h"
 
 namespace robot::model {
@@ -103,8 +104,9 @@ std::vector<ContactEstimatorRegistry::Entry>
 ContactEstimatorRegistry::available() const {
   std::vector<Entry> entries;
   entries.reserve(estimators_.size());
-  for (const Registered& registered : estimators_)
+  for (const Registered& registered : estimators_) {
     entries.push_back(registered.entry);
+  }
   return entries;
 }
 

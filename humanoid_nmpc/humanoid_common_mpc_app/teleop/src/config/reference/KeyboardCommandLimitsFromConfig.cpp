@@ -76,8 +76,8 @@ absl::StatusOr<KeyboardCommandLimits> keyboardCommandLimitsFromConfig(
        file.cmd_max_linvel_base_rt_world_ewrt_heading_x},
       {"cmd_max_linvel_base_rt_world_ewrt_heading_y",
        file.cmd_max_linvel_base_rt_world_ewrt_heading_y},
-      {"cmd_max_err_pos_base_rt_world_ewrt_world_z",
-       file.cmd_max_err_pos_base_rt_world_ewrt_world_z},
+      {"cmd_max_err_pos_base_rt_surface_ewrt_world_z",
+       file.cmd_max_err_pos_base_rt_surface_ewrt_world_z},
       {"cmd_max_angvel_base_rt_world_ewrt_world_z",
        file.cmd_max_angvel_base_rt_world_ewrt_world_z},
   };
@@ -96,9 +96,10 @@ absl::StatusOr<KeyboardCommandLimits> keyboardCommandLimitsFromConfig(
                        "normalized by it"));
     }
   }
-  if (absl::Status read = readRequired("nom_pos_base_rt_world_ewrt_world_z",
-                                       file.nom_pos_base_rt_world_ewrt_world_z,
-                                       &limits.defaultBaseHeight);
+  if (absl::Status read =
+          readRequired("nom_pos_base_rt_surface_ewrt_world_z",
+                       file.nom_pos_base_rt_surface_ewrt_world_z,
+                       &limits.nomPosBaseRtSurfaceEwrtWorldZ);
       !read.ok()) {
     return read;
   }

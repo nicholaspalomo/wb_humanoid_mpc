@@ -32,26 +32,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <memory>
+#include <cstddef>
+#include <numbers>
 #include <random>
 #include <string>
-#include <utility>
 
 #include "Eigen/LU"
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/crba.hpp"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/jacobian.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/joint/joint-composite.hpp"
-#include "pinocchio/multibody/joint/joint-spherical-ZYX.hpp"
-#include "pinocchio/multibody/joint/joint-translation.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/joint/fwd.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -88,7 +86,7 @@ namespace ocs2::humanoid {
 namespace {
 
 constexpr int kSamples = 40;
-constexpr scalar_t kTorqueTolerance = 1.0e-9;
+constexpr scalar_t kJointTorqueTolerance = 1.0e-9;
 
 /** `model` with its root joint replaced by Composite(Translation,
  * SphericalZYX): every other joint, inertia and frame kept. */
@@ -124,27 +122,29 @@ struct EquationsOfMotion {
   matrix_t massMatrix;
   vector_t nonlinearEffects;
   /** J' W of the two world-frame wrenches at the sole frames. */
-  vector_t externalForces;
+  vector_t externalGeneralizedForces;
 };
 
-EquationsOfMotion eulerEquationsOf(const pinocchio::Model& model,
-                                   const vector_t& q,
-                                   const vector_t& v,
-                                   const std::array<vector6_t, 2>& wrenches) {
+EquationsOfMotion eulerEquationsOf(
+    const pinocchio::Model& model,
+    const vector_t& q,
+    const vector_t& v,
+    const std::array<vector6_t, 2>& wrenchFeetEwrtWorld) {
   pinocchio::Data data(model);
   EquationsOfMotion equations;
   equations.massMatrix = symmetricFromUpper(pinocchio::crba(model, data, q));
   equations.nonlinearEffects = pinocchio::nonLinearEffects(model, data, q, v);
   pinocchio::computeJointJacobians(model, data, q);
   pinocchio::updateFramePlacements(model, data);
-  equations.externalForces = vector_t::Zero(model.nv);
+  equations.externalGeneralizedForces = vector_t::Zero(model.nv);
   const std::array<const char* absl_nonnull, 2> soles = {"foot_l_contact",
                                                          "foot_r_contact"};
   for (size_t foot = 0; foot < soles.size(); ++foot) {
     matrix_t jacobian = matrix_t::Zero(6, model.nv);
     pinocchio::getFrameJacobian(model, data, model.getFrameId(soles[foot]),
                                 pinocchio::LOCAL_WORLD_ALIGNED, jacobian);
-    equations.externalForces += jacobian.transpose() * wrenches[foot];
+    equations.externalGeneralizedForces +=
+        jacobian.transpose() * wrenchFeetEwrtWorld[foot];
   }
   return equations;
 }
@@ -180,14 +180,17 @@ TEST_P(MrtTorqueChartEquivalence,
   scalar_t largestHoldDifference = 0.0;
   for (int sample = 0; sample < kSamples; ++sample) {
     SCOPED_TRACE(sample);
-    const vector3_t angles(M_PI * unit(generator), 1.2 * unit(generator),
-                           M_PI * unit(generator));
+    const vector3_t angles(std::numbers::pi * unit(generator),
+                           1.2 * unit(generator),
+                           std::numbers::pi * unit(generator));
     const vector3_t eulerRates =
         1.5 * vector3_t(unit(generator), unit(generator), unit(generator));
     vector_t jointPositions(joints);
     for (Eigen::Index j = 0; j < joints; ++j) {
+      // NOLINTBEGIN(frame-naming): Pinocchio's joint limits (joint space)
       const scalar_t low = model.lowerPositionLimit(7 + j);
       const scalar_t high = model.upperPositionLimit(7 + j);
+      // NOLINTEND(frame-naming)
       // Within the middle 40 % of the joint's range, or within 0.5 rad of zero
       // for a joint without finite limits.
       jointPositions(j) =
@@ -195,17 +198,17 @@ TEST_P(MrtTorqueChartEquivalence,
               ? 0.5 * (low + high) + 0.2 * (high - low) * unit(generator)
               : 0.5 * unit(generator);
     }
-    const vector3_t position(unit(generator), unit(generator),
-                             0.8 + 0.1 * unit(generator));
-    const vector3_t linearVelocity =
+    const vector3_t posBaseRtWorldEwrtWorld(unit(generator), unit(generator),
+                                            0.8 + 0.1 * unit(generator));
+    const vector3_t linvelBaseRtWorldEwrtWorld =
         0.5 * vector3_t(unit(generator), unit(generator), unit(generator));
     const vector_t jointVelocities =
         uniformVector(joints, /*halfWidth=*/1.0, generator);
     const vector_t jointAccelerations =
         uniformVector(joints, /*halfWidth=*/5.0, generator);
-    std::array<vector6_t, 2> wrenches;
-    for (vector6_t& wrench : wrenches) {
-      wrench << 50.0 * unit(generator), 50.0 * unit(generator),
+    std::array<vector6_t, 2> wrenchFeetEwrtWorld;
+    for (vector6_t& wrenchFootEwrtWorld : wrenchFeetEwrtWorld) {
+      wrenchFootEwrtWorld << 50.0 * unit(generator), 50.0 * unit(generator),
           200.0 + 100.0 * unit(generator), 10.0 * unit(generator),
           10.0 * unit(generator), 5.0 * unit(generator);
     }
@@ -214,37 +217,40 @@ TEST_P(MrtTorqueChartEquivalence,
     // The quaternion root's motion and the Euler root's, the same physical
     // motion.
     vector_t q(model.nq);
-    q << position, quaternionFromEulerZyx(angles), jointPositions;
+    q << posBaseRtWorldEwrtWorld, quaternionFromEulerZyx(angles),
+        jointPositions;
     vector_t v(model.nv);
-    v << linearVelocity, rateMap * eulerRates, jointVelocities;
+    v << linvelBaseRtWorldEwrtWorld, rateMap * eulerRates, jointVelocities;
     vector_t eulerQ(eulerModel.nq);
-    eulerQ << position, angles, jointPositions;
+    eulerQ << posBaseRtWorldEwrtWorld, angles, jointPositions;
     vector_t eulerV(eulerModel.nv);
-    eulerV << linearVelocity, eulerRates, jointVelocities;
+    eulerV << linvelBaseRtWorldEwrtWorld, eulerRates, jointVelocities;
 
     const EquationsOfMotion euler =
-        eulerEquationsOf(eulerModel, eulerQ, eulerV, wrenches);
+        eulerEquationsOf(eulerModel, eulerQ, eulerV, wrenchFeetEwrtWorld);
     const matrix_t& m = euler.massMatrix;
-    const vector_t residual = euler.externalForces - euler.nonlinearEffects;
+    const vector_t residual =
+        euler.externalGeneralizedForces - euler.nonlinearEffects;
     // Free base: M_bb a_b = (J'W - n)_b - M_bj qdd_j, then tau_j = M_jb a_b +
     // M_jj qdd_j - (J'W - n)_j.
-    const vector_t baseAcceleration =
+    const vector_t baseGeneralizedAcceleration =
         m.topLeftCorner(6, 6).partialPivLu().solve(residual.head<6>() -
                                                    m.topRightCorner(6, joints) *
                                                        jointAccelerations);
-    const vector_t eulerTorques =
-        m.bottomLeftCorner(joints, 6) * baseAcceleration +
+    const vector_t eulerModelJointTorques =
+        m.bottomLeftCorner(joints, 6) * baseGeneralizedAcceleration +
         m.bottomRightCorner(joints, joints) * jointAccelerations -
         residual.tail(joints);
-    const vector_t eulerHeldTorques =
+    const vector_t eulerModelHeldJointTorques =
         m.bottomRightCorner(joints, joints) * jointAccelerations -
         residual.tail(joints);
 
-    const vector_t torques = computeJointTorques<scalar_t>(
-        q, v, jointAccelerations, wrenches, soleFrames, *interface);
-    const vector_t heldTorques = computeBaseHeldJointTorques<scalar_t>(
-        q, v, jointAccelerations, wrenches, soleFrames, *interface);
-    ASSERT_TRUE(isCloseRelative(torques, eulerTorques, kTorqueTolerance))
+    const vector_t jointTorques = computeJointTorques<scalar_t>(
+        q, v, jointAccelerations, wrenchFeetEwrtWorld, soleFrames, *interface);
+    const vector_t heldJointTorques = computeBaseHeldJointTorques<scalar_t>(
+        q, v, jointAccelerations, wrenchFeetEwrtWorld, soleFrames, *interface);
+    ASSERT_TRUE(isCloseRelative(jointTorques, eulerModelJointTorques,
+                                kJointTorqueTolerance))
         << "the free base's torques";
 
     // Base held: tau_e - tau_t = M_jw (dT_B/dt) dTheta, with (dT_B/dt) dTheta =
@@ -268,9 +274,10 @@ TEST_P(MrtTorqueChartEquivalence,
     const vector_t expectedDifference =
         quaternionMassMatrix.block(6, 3, joints, 3) * rateMapRate;
     ASSERT_TRUE(isCloseAbsolute(
-        eulerHeldTorques - heldTorques, expectedDifference,
-        kTorqueTolerance *
-                std::max(1.0, eulerHeldTorques.cwiseAbs().maxCoeff()) +
+        eulerModelHeldJointTorques - heldJointTorques, expectedDifference,
+        kJointTorqueTolerance *
+                std::max(1.0,
+                         eulerModelHeldJointTorques.cwiseAbs().maxCoeff()) +
             1.0e-8))
         << "the base hold: Theta_ddot = 0 against dw_B/dt = 0";
     largestHoldDifference = std::max(largestHoldDifference,

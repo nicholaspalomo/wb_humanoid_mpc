@@ -111,16 +111,16 @@ void ScriptedRobotController::computeJointControlAction(
   }
   {
     absl::MutexLock lock(mutex_);
-    rootPosition_ = robotState.getPosBaseRtWorldEwrtWorld();
-    rootLinearVelocity_ = robotState.getLinvelBaseRtWorldEwrtBase();
-    const bool zeroTorque = mode_ == control_mode::kZeroJointTorque;
+    posBaseRtWorldEwrtWorld_ = robotState.getPosBaseRtWorldEwrtWorld();
+    linvelBaseRtWorldEwrtBase_ = robotState.getLinvelBaseRtWorldEwrtBase();
+    const bool zeroJointTorque = mode_ == control_mode::kZeroJointTorque;
     for (size_t joint = 0; joint < nominal_.size(); ++joint) {
       std::optional<robot::model::JointAction>& action = jointAction.at(joint);
       if (!action.has_value()) continue;
       action->q_des = nominal_[joint];
       action->qd_des = 0.0;
-      action->kp = zeroTorque ? 0.0 : 100.0;
-      action->kd = zeroTorque ? 0.0 : 5.0;
+      action->kp = zeroJointTorque ? 0.0 : 100.0;
+      action->kd = zeroJointTorque ? 0.0 : 5.0;
       action->feed_forward_effort = 0.0;
     }
   }
@@ -177,14 +177,14 @@ ContactWrenchGate::Config ScriptedRobotController::gate() const {
   return gate_;
 }
 
-vector3_t ScriptedRobotController::rootPosition() const {
+vector3_t ScriptedRobotController::getPosBaseRtWorldEwrtWorld() const {
   absl::MutexLock lock(mutex_);
-  return rootPosition_;
+  return posBaseRtWorldEwrtWorld_;
 }
 
-vector3_t ScriptedRobotController::rootLinearVelocity() const {
+vector3_t ScriptedRobotController::getLinvelBaseRtWorldEwrtBase() const {
   absl::MutexLock lock(mutex_);
-  return rootLinearVelocity_;
+  return linvelBaseRtWorldEwrtBase_;
 }
 
 std::vector<scalar_t> ScriptedRobotController::nominal() const {

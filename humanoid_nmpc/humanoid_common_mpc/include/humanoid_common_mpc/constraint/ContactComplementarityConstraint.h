@@ -29,16 +29,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
-#include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/contact/ContactInputJacobian.h"
 #include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
 
 namespace ocs2::humanoid {
@@ -129,8 +130,9 @@ namespace ocs2::humanoid {
  * same thing at every point of the horizon and is comparable with the slip
  * term's weight. It is NOT comparable with the task-space weights it competes
  * against, whose residuals are in meters: in cost, `pos_z` at the swing apex
- * charges 0.5 * pos_z * heightReference^2, a factor heightReference^2 below
- * what its raw number suggests (README section 4).
+ * charges 0.5 * pos_z * scalePosContactRtSurfaceEwrtWorldZ^2, a factor
+ * scalePosContactRtSurfaceEwrtWorldZ^2 below what its raw number suggests
+ * (README section 4).
  *
  * Not thread-safe: the CppAD model of the corner heights keeps evaluation
  * buffers, so even the const methods of one object must not run concurrently.
@@ -151,11 +153,12 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
    * @param [in] mpcRobotModel : the robot model, for the input block that
    * carries this contact's force.
    * @param [in] contactPointIndex : the contact this term belongs to.
-   * @param [in] terrainHeight : [m] height of the ground under the foot.
+   * @param [in] posSurfaceRtWorldEwrtWorldZ : [m] height of the ground under
+   * the foot.
    * @param [in] scaleForceContactEwrtParamZ : [N] the normal force the residual
    * is measured in, normally the robot's weight.
-   * @param [in] heightReference : [m] the height the residual is measured in,
-   * normally the swing apex.
+   * @param [in] scalePosContactRtSurfaceEwrtWorldZ : [m] the height the
+   * residual is measured in, normally the swing apex.
    * @param [in] gapSmoothing : [m] the length scale over which the corners'
    * minimum is smoothed.
    */
@@ -163,9 +166,9 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
   Create(const FootprintCornerHeights& cornerHeights,
          const MpcRobotModelBase<scalar_t>& mpcRobotModel,
          size_t contactPointIndex,
-         scalar_t terrainHeight = 0.0,
+         scalar_t posSurfaceRtWorldEwrtWorldZ = 0.0,
          scalar_t scaleForceContactEwrtParamZ = 1.0,
-         scalar_t heightReference = 1.0,
+         scalar_t scalePosContactRtSurfaceEwrtWorldZ = 1.0,
          scalar_t gapSmoothing =
              ModelSettings::ContactImplicitConfig::kDefaultGapSmoothing);
 
@@ -190,19 +193,25 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
       const vector_t& input,
       const PreComputation& preComp) const override;
 
-  void setTerrainHeight(scalar_t terrainHeight) {
-    terrainHeight_ = terrainHeight;
+  void setPosSurfaceRtWorldEwrtWorldZ(scalar_t posSurfaceRtWorldEwrtWorldZ) {
+    posSurfaceRtWorldEwrtWorldZ_ = posSurfaceRtWorldEwrtWorldZ;
   }
-  scalar_t getTerrainHeight() const { return terrainHeight_; }
+  scalar_t getPosSurfaceRtWorldEwrtWorldZ() const {
+    return posSurfaceRtWorldEwrtWorldZ_;
+  }
   scalar_t getScaleForceContactEwrtParamZ() const {
     return 1.0 / inverseScaleForceContactEwrtParamZ_;
   }
-  scalar_t getHeightReference() const { return 1.0 / inverseHeightReference_; }
+  scalar_t getScalePosContactRtSurfaceEwrtWorldZ() const {
+    return 1.0 / inverseScalePosContactRtSurfaceEwrtWorldZ_;
+  }
   /** Retunes the height the residual is measured in, so that the key is live in
    * the tuning dashboard like the weight beside it. The force reference has no
    * setter on purpose: it is the robot's weight, not a tuning parameter. */
-  void setHeightReference(scalar_t heightReference) {
-    inverseHeightReference_ = 1.0 / heightReference;
+  void setScalePosContactRtSurfaceEwrtWorldZ(
+      scalar_t scalePosContactRtSurfaceEwrtWorldZ) {
+    inverseScalePosContactRtSurfaceEwrtWorldZ_ =
+        1.0 / scalePosContactRtSurfaceEwrtWorldZ;
   }
   scalar_t getGapSmoothing() const { return gapSmoothing_; }
   void setGapSmoothing(scalar_t gapSmoothing);
@@ -215,21 +224,21 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
       const FootprintCornerHeights& cornerHeights,
       const MpcRobotModelBase<scalar_t>& mpcRobotModel,
       size_t contactPointIndex,
-      scalar_t terrainHeight,
+      scalar_t posSurfaceRtWorldEwrtWorldZ,
       scalar_t scaleForceContactEwrtParamZ,
-      scalar_t heightReference,
+      scalar_t scalePosContactRtSurfaceEwrtWorldZ,
       scalar_t gapSmoothing);
   ContactComplementarityConstraint(const ContactComplementarityConstraint& rhs);
 
   std::unique_ptr<FootprintCornerHeights> cornerHeightsPtr_;
   size_t contactPointIndex_;
-  scalar_t terrainHeight_;
+  scalar_t posSurfaceRtWorldEwrtWorldZ_;
   scalar_t gapSmoothing_;
   // Stored as reciprocals: the residual and its two derivative blocks each need
   // the scale, and a multiplication in the solver's inner loop is cheaper than
   // a division.
   scalar_t inverseScaleForceContactEwrtParamZ_;
-  scalar_t inverseHeightReference_;
+  scalar_t inverseScalePosContactRtSurfaceEwrtWorldZ_;
   vector_t inputRowForceContactEwrtParamZ_;
 };
 

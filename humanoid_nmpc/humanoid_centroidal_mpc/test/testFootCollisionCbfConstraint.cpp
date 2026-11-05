@@ -30,19 +30,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <string>
 
 #include "Eigen/Geometry"
-#include "absl/status/statusor.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/costs/CollisionConstraintFromConfig.h"
 #include "humanoid_common_mpc/constraint/FootCollisionCbfConstraint.h"
 #include "humanoid_common_mpc/constraint/FootCollisionConstraint.h"
 #include "humanoid_common_mpc/constraint/FootCollisionSpheres.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/DrcAtlasContactTestModel.h"
 #include "support/FiniteDifferenceChecks.h"
@@ -63,7 +66,7 @@ constexpr scalar_t kTime = DrcAtlasContactTestModel::kQueryTime;
 constexpr scalar_t kMotionStep = 1.0e-5;
 // [rad/s] The angular velocity of the base, in its own frame, of
 // ATurnOfTheBaseDoesNotChangeTheRate.
-constexpr std::array<scalar_t, 3> kBaseAngularVelocity = {0.4, -0.3, 0.8};
+constexpr std::array<scalar_t, 3> kAngvelBaseRtWorldEwrtBase = {0.4, -0.3, 0.8};
 
 class FootCollisionCbfConstraintTest : public ::testing::Test {
  protected:
@@ -84,7 +87,7 @@ class FootCollisionCbfConstraintTest : public ::testing::Test {
         atlas_.adWrenchModel(), cbfConfig, atlas_.modelSettings());
     state_ = atlas_.nominalState();
     input_ = atlas_.makeInput(atlas_.wrenchModel(), /*loadedFoot=*/0,
-                              /*normalForce=*/400.0);
+                              /*forceFootEwrtParamZ=*/400.0);
   }
 
   /** h of every pair at `state`, from the distances of FootCollisionConstraint.
@@ -115,20 +118,22 @@ class FootCollisionCbfConstraintTest : public ::testing::Test {
     return moved;
   }
 
-  /** jointsMoved(), with the base turned for `duration` at kBaseAngularVelocity
-   * as well. */
+  /** jointsMoved(), with the base turned for `duration` at
+   * kAngvelBaseRtWorldEwrtBase as well. */
   vector_t turnedAndMoved(const vector_t& state, scalar_t duration) const {
     const CentroidalMpcRobotModel<scalar_t>& model = atlas_.wrenchModel();
     vector_t moved = jointsMoved(state, duration);
-    const vector3_t angularVelocity(kBaseAngularVelocity.data());
-    const vector4_t coefficients = model.getQuatBaseRtWorldXyzw(state);
-    const Eigen::Quaterniond orientation(
-        Eigen::Map<const Eigen::Quaterniond>(coefficients.data()));
-    const Eigen::Quaterniond turned =
-        orientation *
-        Eigen::Quaterniond(Eigen::AngleAxisd(duration * angularVelocity.norm(),
-                                             angularVelocity.normalized()));
-    model.setQuatBaseRtWorldXyzw(moved, vector4_t(turned.coeffs()));
+    const vector3_t angvelBaseRtWorldEwrtBase(
+        kAngvelBaseRtWorldEwrtBase.data());
+    const vector4_t quatBaseRtWorldXyzw = model.getQuatBaseRtWorldXyzw(state);
+    const Eigen::Quaterniond quatBaseRtWorld(
+        Eigen::Map<const Eigen::Quaterniond>(quatBaseRtWorldXyzw.data()));
+    const Eigen::Quaterniond turnedQuatBaseRtWorld =
+        quatBaseRtWorld * Eigen::Quaterniond(Eigen::AngleAxisd(
+                              duration * angvelBaseRtWorldEwrtBase.norm(),
+                              angvelBaseRtWorldEwrtBase.normalized()));
+    model.setQuatBaseRtWorldXyzw(moved,
+                                 vector4_t(turnedQuatBaseRtWorld.coeffs()));
     return moved;
   }
 

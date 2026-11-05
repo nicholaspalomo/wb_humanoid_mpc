@@ -118,11 +118,11 @@ from the grid (`GaitPhase::endNode`): inside the window the node where the commi
 nearest node, assigned once. The contacts and the footholds follow those integer boundaries, so a foothold changes on
 exactly the node its contact does; the deadbeat step and the center of mass follow the continuous times. Between nodes
 the plan's center of mass is the roll-out itself, not an interpolation of its nodes: the plan carries the reduced model
-of every continuous phase (`ContactPlan::phaseZmp` - the stance foot of a single support, nothing for a double support,
-which moves at constant velocity), and `lipReferenceState()`, `comPositionAtTime()` and `comVelocityAtTime()` flow the
-node at or before a time through the phases up to it. The ZMP they report is the one that motion implies: the stance
+of every continuous phase (`ContactPlan::phasePosZmpRtWorldEwrtWorldXyTraj` - the stance foot of a single support, nothing for a double support,
+which moves at constant velocity), and `lipReferenceState()`, `evaluatePosComRtWorldEwrtWorldXy()` and
+`evaluateLinvelComRtWorldEwrtWorldXy()` flow the node at or before a time through the phases up to it. The ZMP they report is the one that motion implies: the stance
 foot in single support and the center of mass itself in double support (a constant velocity is a LIP whose ZMP is the
-CoM). The per-interval `ContactPlan::zmp` is that ZMP at the interval's midpoint, for display; it used to hold the
+CoM). The per-interval `ContactPlan::posZmpRtWorldEwrtWorldXyTraj` is that ZMP at the interval's midpoint, for display; it used to hold the
 midpoint of the feet in double support, a ZMP inconsistent with the constant-velocity CoM published there.
 The mode schedule is built from the continuous times as well (`ContactPlan::phaseContacts` / `phaseStartTimes`, which
 `ContactPlan::toModeSchedule()` reads), so every executed single support lasts `hlip.ssp_duration` and every executed
@@ -134,7 +134,7 @@ center of mass. That is not a defect: stepping short is how an inverted pendulum
 reaches the commanded orbit within two steps. The commanded velocity is ramped upstream, so the robot is not usually
 asked to accelerate that hard in one step.
 
-**Clipping costs the deadbeat property.** A step cut to `max_step_length` or to the step-width bounds is no longer the
+**Clipping costs the deadbeat property.** A step cut to `max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x` or to the step-width bounds is no longer the
 step the gain asked for, so the part of the error it was meant to cancel survives into the next step, amplified by the
 pendulum on the way - and the next step then asks for more, not less. Depending on how much was cut the gait either
 recovers within a few steps or locks into a wide / narrow cycle it never leaves (section 3b works both cases through).
@@ -145,9 +145,9 @@ asking for more than the legs can deliver at that cadence and command.
 
 The lateral pendulum amplifies an offset by `cosh(w T_ssp)` every single support: **1.30** at the shipped
 `T_ssp = 0.25 s`, **1.61** at `0.35 s`, **2.37** at `0.5 s`, on the Atlas's own pendulum, `z0 = 1.0805 m` (the model's
-center of mass above its soles at `initial_state`, which a `shared` block without `com_height` resolves to; `w = 3.013 rad/s`). The
+center of mass above its soles at `initial_state`, which a `shared` block without `nom_pos_com_rt_feetmean_ewrt_world_z` resolves to; `w = 3.013 rad/s`). The
 deadbeat law cancels that, but only if the step it asks for is reachable. Worked example, starting to walk from a
-standstill with the center of mass still between the feet, computed at **`T_dsp = 0.05 s`** and `step_width = 0.25 m`.
+standstill with the center of mass still between the feet, computed at **`T_dsp = 0.05 s`** and `nom_pos_lfoot_rt_rfoot_ewrt_heading_y = 0.25 m`.
 
 Both `T_dsp` and `z0` enter the deadbeat gain directly (`K = [1, T_dsp + coth(w T_ssp) / w]`),
 so the last column moves with them (at `T_ssp = 0.35 s` the demand is 0.450 m with `T_dsp = 0`, 0.472 m at the
@@ -158,11 +158,11 @@ gain 20 % smaller (`K[1]` 0.476 instead of 0.571 at the shipped cadence). `HlipC
 computes that column, and the planner prints it at start-up and again after every reload that changes it
 (`ContactPlannerModule::reloadSummary`), so it can always be checked against the configuration that is actually
 running rather than against the numbers here. `ContactPlanningConfig::warnings()` also reports a first step that does
-not fit `hlip.max_step_width` whenever the configuration is validated, at start-up and on every reload.
+not fit `hlip.max_pos_lfoot_rt_rfoot_ewrt_heading_y` whenever the configuration is validated, at start-up and on every reload.
 
 Whether a step that does not fit is fatal depends on how much is cut, so the print does not stop at "does not fit": it
 rolls the lateral reduced model forward from the standstill under the planner's own step law and clip
-(`HlipContactPlanner::startUpLateralWidths`) and says whether the gait recovers or locks. At `T_dsp = 0.05 s` and a
+(`HlipContactPlanner::computeStartUpNormPosLfootRtRfootEwrtHeadingYTraj`) and says whether the gait recovers or locks. At `T_dsp = 0.05 s` and a
 0.45 m reach, `T_ssp = 0.5 s` locks into an alternating 0.45 / 0.15 m cycle, while `T_ssp = 0.35 s` is clipped from
 0.47 m to 0.45 m and recovers (0.45, 0.253, 0.228, then 0.25 m); the shipped 0.25 s cadence fits a 0.40 m reach and
 recovers against a 0.35 m one (0.35, 0.205, 0.207, then 0.25 m).
@@ -192,7 +192,7 @@ requires the center of mass to be *falling towards the swing foot* at the pre-im
 `T_ssp = 0.25 s`, `T_dsp = 0.05 s` on the Atlas's 1.0805 m pendulum). A target trajectory built from the operator's
 command asks for the opposite: a straight line with zero lateral velocity. With both in the cost, the whole-body MPC
 holds the center of mass laterally still, the planner reads that state back at the next cycle, concludes no lateral step
-is needed and narrows the step towards `min_step_width` - the support narrows, the next cycle starts further from the
+is needed and narrows the step towards `min_pos_lfoot_rt_rfoot_ewrt_heading_y` - the support narrows, the next cycle starts further from the
 orbit, and the robot sidesteps and falls. The rule is therefore listed in `execution` in both shipped files, and it is
 the only entry there (the library default formulation is lip_miqp's and lists no rules;
 `ContactPlanningConfig::warnings()` reports an hlip configuration without it); everything else in that list is a
@@ -202,10 +202,10 @@ the `execution` list it does **not** give up.
 ### Every capturability reference must come from the plan too
 
 The center-of-mass reference is not the only one. The terminal DCM cost (`dcm_terminal_cost` in `costs`) carries its own: the
-center of the terminal support plus `velocity_offset_factor * v_cmd / omega`, i.e. "end the horizon able to come to rest
+center of the terminal support plus `velocity_command_offset_factor * v_cmd / omega`, i.e. "end the horizon able to come to rest
 over the feet". That is the right reference for a gait whose footholds are decided elsewhere, and the wrong one here.
 The H-LIP's lateral orbit puts the DCM *beyond* the stance foot, towards the foot about to land. At the shipped
-cadence (`T_ssp = 0.25 s`, `T_dsp = 0.05 s`, `z0 = 1.0805 m` from the model so `omega = 3.013`, `step_width = 0.25 m`,
+cadence (`T_ssp = 0.25 s`, `T_dsp = 0.05 s`, `z0 = 1.0805 m` from the model so `omega = 3.013`, `nom_pos_lfoot_rt_rfoot_ewrt_heading_y = 0.25 m`,
 which makes the deadbeat gain `K = [1, T_dsp + coth(w T_ssp) / w] = [1, 0.571]`), the pre-impact orbit is
 `p = 0.122 m`, `v = 0.132 m/s` relative to the stance foot, so
 
@@ -213,7 +213,7 @@ which makes the deadbeat gain `K = [1, T_dsp + coth(w T_ssp) / w] = [1, 0.571]`)
 xi_orbit = p + v / omega = 0.122 + 0.132 / 3.013 = 0.165 m,   xi_support = 0
 ```
 
-a 16.5 cm disagreement, and with `weight_x = weight_y = 400` and `velocity_offset_factor: 0` the cost wins. The center of
+a 16.5 cm disagreement, and with `weight_x = weight_y = 400` and `velocity_command_offset_factor: 0` the cost wins. The center of
 mass is then held over the stance foot with no lateral velocity, the planner reads that state back, and the deadbeat
 law asks for
 
@@ -221,22 +221,22 @@ law asks for
 u_y = 0.25 + (0 - 0.122) + 0.571 (0 - 0.132) = 0.053 m
 ```
 
-which the self-collision floor clips to `min_step_width`. The feet come together, the support narrows, and the robot
+which the self-collision floor clips to `min_pos_lfoot_rt_rfoot_ewrt_heading_y`. The feet come together, the support narrows, and the robot
 falls sideways - at any commanded speed, including walking in place.
 
 Every figure in the two blocks above is `HlipModel` evaluated at the cadence and pendulum named at the top of this
 subsection. They were previously written for the 0.35 s / 0.1 s cadence that was retired when `ssp_duration` was
 shortened, and then for the hand-set 0.85 m pendulum (`K = [1, 0.476]`, a 16.9 cm disagreement, `u_y = 0.051 m`)
 until the height was derived from the model. The conclusion never depended on either (0.053 m is as far below
-`min_step_width: 0.15` as 0.051 m was), but a derivation that cannot be reproduced from the running configuration is not
+`min_pos_lfoot_rt_rfoot_ewrt_heading_y: 0.15` as 0.051 m was), but a derivation that cannot be reproduced from the running configuration is not
 usable, so the cadence and the pendulum are spelled out here and in section 3b instead.
 
 So `SwitchedModelReferenceManager::getPlannedDcm(time)` returns the plan's own DCM, `com(t) + v(t) / omega`, with the
 omega of the pendulum the plan was made on (`ContactPlan::omega`), and `DcmTerminalCost` blends its reference towards it
 whenever a plan is active, taking the robot's own DCM with that same omega so that the residual compares two points
-of one pendulum rather than mixing the plan's center of mass with the cost's own `com_height`. As shipped the two
-pendulums are the same one anyway: `dcm_terminal_cost.com_height` and `shared.com_height` are both left out, which each
-resolves with `computeComHeightAboveFeet` at `initial_state`. Without a
+of one pendulum rather than mixing the plan's center of mass with the cost's own `nom_pos_com_rt_feetmean_ewrt_world_z`. As shipped the two
+pendulums are the same one anyway: `dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z` and `shared.nom_pos_com_rt_feetmean_ewrt_world_z` are both left out, which each
+resolves with `computeProxyPosComRtFeetmeanEwrtWorldZ` at `initial_state`. Without a
 plan the accessor is empty and the support-center reference stands exactly as before. The blend is arithmetic rather
 than a branch, so one compiled model serves both cases; because that changes the term's parameter count, the generated
 library is keyed to it, and the first start-up after this change regenerates that one model.
@@ -255,9 +255,9 @@ at rest the plan's velocity is zero, so the command reads as zero, `alpha` never
 never starts walking however far the operator pushes the slider.
 
 `ContactPlanningReferenceManager` therefore keeps an untouched copy of the target as published
-(`setTargetTrajectories` snapshots it) and answers `commandedVelocity()`, `commandedYawRate()` and the base class's
-`getCmdLinvelBaseRtWorldEwrtWorldXy(time)` from that copy. Anything that means "what did the operator ask for" must go through
-those, not through `getTargetTrajectories()`.
+(`setTargetTrajectories` snapshots it) and answers `cmdLinvelBaseRtWorldEwrtWorldXy()`, `cmdRateYawBaseRtWorld()` and the
+base class's `getCmdLinvelBaseRtWorldEwrtWorldXy(time)` from that copy. Anything that means "what did the operator ask
+for" must go through those, not through `getTargetTrajectories()`.
 
 ## 4. Standing and walking
 
@@ -278,13 +278,13 @@ and the static reference it blends towards is the center of the support the robo
 landing, not the measured position of a foot still in the air.
 
 **The lateral velocity is measured against the sway of stepping in place.** A biped cannot walk without swaying: at a
-zero command the deadbeat law settles on the period-two orbit at `+-step_width`, which crosses every touch-down at 0.132
+zero command the deadbeat law settles on the period-two orbit at `+-nom_pos_lfoot_rt_rfoot_ewrt_heading_y`, which crosses every touch-down at 0.132
 m/s at the shipped Atlas cadence on its 1.0805 m pendulum (0.151 m/s at the SA01's) - two to four times the half point
 of the lateral center-of-mass term. Measured raw, that sway alone held `alpha` at one through every double support, the
 next lift-off was planned and committed at every touch-down, and a robot that had walked never stood again at a zero
-command. So the velocity the blend sees (`HlipContactPlanner::blendVelocity`) takes the lateral component only by how
-far it lies outside the range between rest and the zero-command orbit's velocity at the phase the robot is in: in single
-support the orbit flowed for the time the swing has been in flight, in double support the orbit's drift after the
+command. So the velocity the blend sees (`HlipContactPlanner::computeBlendLinvelComRtWorldEwrtHeadingXy`) takes the
+lateral component only by how far it lies outside the range between rest and the zero-command orbit's velocity at
+the phase the robot is in: in single support the orbit flowed for the time the swing has been in flight, in double support the orbit's drift after the
 touch-down of the last swung foot. The last swung foot is remembered past the schedule's one-horizon history
 (`LiftOffHistory`), so the orbit reference survives a long stand. Stepping in place, and slowing down from it in a double support, read as no motion; a
 push beyond the orbit's own sway, or against it, reads in full; a robot that has not stepped yet has no orbit and its
@@ -330,7 +330,7 @@ it is the paper's equations 11–14 reference plumbing, it is listed in `executi
 the robot sidesteps and falls. See section 3c; do not empty the `execution` list when migrating a robot to `hlip`.
 
 What is left as a heuristic, and is documented as such in the configuration: the clip of the deadbeat step to
-`max_step_length` / `[min_step_width, max_step_width]`, which exists so that a foothold outside the leg's reach is clipped
+`max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x` / `[min_pos_lfoot_rt_rfoot_ewrt_heading_y, max_pos_lfoot_rt_rfoot_ewrt_heading_y]`, which exists so that a foothold outside the leg's reach is clipped
 rather than handed to the whole-body MPC - and, as the row above says, the one execution rule that stays on, which is
 reference plumbing rather than a heuristic.
 
@@ -347,11 +347,11 @@ only the per-node contacts and footholds are rounded to the nearest node.
 | `planner.type` | `hlip` or `lip_miqp`; the names `ContactPlannerFactory` knows |
 | `hlip.ssp_duration` | [s] single support; the cadence and the lateral stability budget (section 3b) |
 | `hlip.dsp_duration` | [s] double support; the time the whole-body MPC has to transfer weight before single support |
-| `hlip.step_width` | [m] lateral distance between the feet of the nominal period-two orbit |
-| `hlip.max_step_length`, `hlip.max_step_width`, `hlip.min_step_width` | [m] the reachability clip, the only bound applied to the deadbeat step |
+| `hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y` | [m] lateral distance between the feet of the nominal period-two orbit |
+| `hlip.max_norm_pos_lfoot_rt_rfoot_ewrt_heading_x`, `hlip.max_pos_lfoot_rt_rfoot_ewrt_heading_y`, `hlip.min_pos_lfoot_rt_rfoot_ewrt_heading_y` | [m] the reachability clip, the only bound applied to the deadbeat step |
 | `hlip.blend.sharpness`, `hlip.blend.threshold` | `rho_1`, `rho_2` of `alpha(phi)` |
-| `hlip.blend.max_commanded_*` | the command ranges that normalize `phi` |
-| `hlip.blend.max_com_velocity_*` | the measured center-of-mass velocity ranges that normalize `phi`. The paper writes `v_b` for the base velocity, but what the planner measures and feeds the blend is the center-of-mass velocity, so the fields are named for that. Its lateral component is taken relative to the sway of stepping in place (section 4, `HlipContactPlanner::blendVelocity`) |
+| `hlip.blend.cmd_max_linvel_base_rt_world_ewrt_heading_*`, `cmd_max_angvel_base_rt_world_ewrt_world_z` | the command ranges that normalize `phi` |
+| `hlip.blend.max_proxy_linvel_com_rt_world_ewrt_heading_*` | the measured center-of-mass velocity ranges that normalize `phi`. The paper writes `v_b` for the base velocity, but what the planner measures and feeds the blend is the center-of-mass velocity, or on the whole-body model the base velocity standing in for it (`getProxyLinvelComRtWorldEwrtWorld()`), so the fields are named for that, with the `proxy` word. Its lateral component is taken relative to the sway of stepping in place (section 4, `HlipContactPlanner::computeBlendLinvelComRtWorldEwrtHeadingXy`) |
 
 `planner.threading` is **`"pre_solve_hook"`** for this planner, and that is not an oversight. A plan solves nothing (a
 fixed cadence and a closed-form step over 56 nodes), so it costs microseconds, and the worker thread buys nothing while
@@ -386,9 +386,9 @@ generic renderer exists to avoid. If the marking is wanted, it belongs in the sc
 `planner.type` in the `tuning` options of the blocks one planner reads, which the tab already renders as
 "not applicable".
 
-`shared.com_height` and the robot model's gravity are the pendulum's (`com_height` left out, as both shipped robots write it,
+`shared.nom_pos_com_rt_feetmean_ewrt_world_z` and the robot model's gravity are the pendulum's (`nom_pos_com_rt_feetmean_ewrt_world_z` left out, as both shipped robots write it,
 is the model's center of mass above its soles at `initial_state`, the same pendulum a `dcm_terminal_cost` without
-`com_height` resolves to; a positive value is an explicit override), and the per-term blocks and the `costs`, `soft_constraints`,
+`nom_pos_com_rt_feetmean_ewrt_world_z` resolves to; a positive value is an explicit override), and the per-term blocks and the `costs`, `soft_constraints`,
 `hard_constraints`, `logic_rules`, `assignment_costs` and `search` lists belong to `lip_miqp` and are ignored. Two
 lists are not ignored: whether the planner publishes a planned heading and planned foot yaws still follows
 `dynamics: "heading_double_integrator"`, because that is what the rest of the pipeline keys off, and `execution` is
@@ -405,6 +405,6 @@ read in full under either planner (section 5).
 | `humanoid_common_mpc:testContactPlannerModule` | the background worker's snapshot throttle; a reload re-prints the formulation summary, start-up check included, exactly when something it reports changed or the formulation, grid or planner type did |
 | `humanoid_common_mpc:testHlipPlanConsistency` | the gait is built FROM the committed window rather than having it stamped over the contacts afterwards; the swing in flight is planned for the touch-down the robot executes, on and off the node grid; the published contacts agree with the gait the roll-out used and a foot's landing target moves on the same node its contact flag says it left the ground, on off-grid inputs as well; a swing already in flight keeps the time it has already spent there; a stepping plan publishes the unblended roll-out and starts at the measured state; a standing plan asks for a center of mass at rest over the support it will stand on, even mid-swing; stepping in place reads as rest to the blend and a push does not |
 | `humanoid_centroidal_mpc:testHlipPlanningIntegration` | the shipped configuration end to end: stands at rest, walks and alternates when commanded, advances at the commanded order of velocity, and a yaw command alone reaches the planner and starts the gait whether or not the heading model is on; the base-position channel and the reference configuration's CoM carry the plan; past the plan's end the reference is the operator's and the planned DCM is absent; the DCM cost and the planner run on the model's pendulum (computed independently in the test) and a plan carries its omega, which the DCM cost takes the planned DCM and the robot's DCM with, while explicit heights are used as given; weightless planned footholds are warned about at start-up and the log names the configured planner; a rejected reload names its field and keeps the running configuration; `swing_time_scale` is warned about on a contact_planning reload and, once per change, after a task.textproto reload |
-| `humanoid_centroidal_mpc:testShippedContactPlanningFiles` | both shipped contact_planning.textproto files, on the pendulum the planner runs (a `com_height` left out, resolved from the model): they validate with no warnings, list planned_com_override, fit their first step and plan synchronously under hlip; no planned swing is shorter than task.textproto `swing_trajectory_config.swing_time_scale` under either planner; the planner pendulum equals the DCM terminal cost's, as each resolves it |
-| `humanoid_centroidal_mpc:testNominalPendulum` | for every centroidal robot, the contact planner, the locomotion heuristics and the DCM cost derive the same pendulum (`computeComHeightAboveFeet`, checked against an independent Pinocchio computation), and every pendulum number a robot ships (a LIP-height override, `capture_point.com_height_override`, `high_speed_turning`'s `z / g`) is the model's |
+| `humanoid_centroidal_mpc:testShippedContactPlanningFiles` | both shipped contact_planning.textproto files, on the pendulum the planner runs (a `nom_pos_com_rt_feetmean_ewrt_world_z` left out, resolved from the model): they validate with no warnings, list planned_com_override, fit their first step and plan synchronously under hlip; no planned swing is shorter than task.textproto `swing_trajectory_config.swing_time_scale` under either planner; the planner pendulum equals the DCM terminal cost's, as each resolves it |
+| `humanoid_centroidal_mpc:testNominalPendulum` | for every centroidal robot, the contact planner, the locomotion heuristics and the DCM cost derive the same pendulum (`computeProxyPosComRtFeetmeanEwrtWorldZ`, checked against an independent Pinocchio computation), and every pendulum number a robot ships (a LIP-height override, `capture_point.override_pos_com_rt_feetmean_ewrt_world_z`, `high_speed_turning`'s `z / g`) is the model's |
 | `humanoid_common_mpc:testContactPlanningFormulation` | every rejection names its field; the library defaults are one warning-free lip_miqp configuration; each warning appears exactly when its condition holds (missing planned_com_override, first step, background thread, synchronous lip_miqp, commit window, uncapped instantaneous exchange, sidestep clips, `swing_time_scale`) |

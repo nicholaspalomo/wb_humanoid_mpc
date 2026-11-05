@@ -28,9 +28,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <cmath>
+#include <cstddef>
 
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
@@ -61,18 +66,18 @@ ModeSchedule singleSwingSchedule() {
 
 SwingTrajectoryPlanner::Config pitchedConfig(scalar_t angle) {
   SwingTrajectoryPlanner::Config config;
-  config.swingHeight = 0.12;
+  config.apexPosFootRtSwingendEwrtWorldZ = 0.12;
   config.touchdownLinvelFootRtWorldEwrtWorldZ = -0.1;
   config.swingTimeScale = 0.4;
-  config.swingPitchAngle = angle;
+  config.swingMaxTiltangleFootRtSurface = angle;
   config.swingPitchRiseFraction = 0.25;
   config.swingPitchFallFraction = 0.15;
   return config;
 }
 
 scalar_t atSwingFraction(const SwingTrajectoryPlanner& planner, scalar_t tau) {
-  return planner.getSwingPitchAngle(/*leg=*/0,
-                                    kLiftOff + tau * (kTouchDown - kLiftOff));
+  return planner.getSwingRefTiltangleFootRtSurface(
+      /*leg=*/0, kLiftOff + tau * (kTouchDown - kLiftOff));
 }
 
 }  // namespace
@@ -82,9 +87,10 @@ scalar_t atSwingFraction(const SwingTrajectoryPlanner& planner, scalar_t tau) {
 TEST(SwingPitchReference, disabledByDefault) {
   SwingTrajectoryPlanner planner(SwingTrajectoryPlanner::Config(),
                                  kNumContacts);
-  planner.update(singleSwingSchedule(), /*terrainHeight=*/0.0);
+  planner.update(singleSwingSchedule(), /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
 
-  EXPECT_DOUBLE_EQ(SwingTrajectoryPlanner::Config().swingPitchAngle, 0.0);
+  EXPECT_DOUBLE_EQ(
+      SwingTrajectoryPlanner::Config().swingMaxTiltangleFootRtSurface, 0.0);
   for (scalar_t tau = 0.0; tau <= 1.0; tau += 0.05) {
     EXPECT_NEAR(atSwingFraction(planner, tau), 0.0, kTol);
   }
@@ -94,7 +100,7 @@ TEST(SwingPitchReference, disabledByDefault) {
  * a flat sole. */
 TEST(SwingPitchReference, flatAtBothEndsOfTheSwing) {
   SwingTrajectoryPlanner planner(pitchedConfig(0.1), kNumContacts);
-  planner.update(singleSwingSchedule(), /*terrainHeight=*/0.0);
+  planner.update(singleSwingSchedule(), /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
 
   EXPECT_NEAR(atSwingFraction(planner, /*tau=*/0.0), 0.0, kTol);
   EXPECT_NEAR(atSwingFraction(planner, /*tau=*/1.0), 0.0, kTol);
@@ -103,14 +109,17 @@ TEST(SwingPitchReference, flatAtBothEndsOfTheSwing) {
 /** A foot in contact is never pitched, on either side of the swing. */
 TEST(SwingPitchReference, zeroInStance) {
   SwingTrajectoryPlanner planner(pitchedConfig(0.1), kNumContacts);
-  planner.update(singleSwingSchedule(), /*terrainHeight=*/0.0);
+  planner.update(singleSwingSchedule(), /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
 
-  EXPECT_NEAR(planner.getSwingPitchAngle(/*leg=*/0, kLiftOff - 0.1), 0.0, kTol);
-  EXPECT_NEAR(planner.getSwingPitchAngle(/*leg=*/0, kTouchDown + 0.1), 0.0,
-              kTol);
+  EXPECT_NEAR(
+      planner.getSwingRefTiltangleFootRtSurface(/*leg=*/0, kLiftOff - 0.1), 0.0,
+      kTol);
+  EXPECT_NEAR(
+      planner.getSwingRefTiltangleFootRtSurface(/*leg=*/0, kTouchDown + 0.1),
+      0.0, kTol);
   // The other foot stands through the whole schedule.
   for (scalar_t tau = 0.0; tau <= 1.0; tau += 0.1) {
-    EXPECT_NEAR(planner.getSwingPitchAngle(
+    EXPECT_NEAR(planner.getSwingRefTiltangleFootRtSurface(
                     /*leg=*/1, kLiftOff + tau * (kTouchDown - kLiftOff)),
                 0.0, kTol);
   }
@@ -121,7 +130,7 @@ TEST(SwingPitchReference, zeroInStance) {
 TEST(SwingPitchReference, reachesTheConfiguredAngleOverTheHeldSection) {
   const scalar_t angle = 0.1;
   SwingTrajectoryPlanner planner(pitchedConfig(angle), kNumContacts);
-  planner.update(singleSwingSchedule(), /*terrainHeight=*/0.0);
+  planner.update(singleSwingSchedule(), /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
 
   for (scalar_t tau = 0.30; tau <= 0.80; tau += 0.05) {
     EXPECT_NEAR(atSwingFraction(planner, tau), angle, kTol);
@@ -138,7 +147,7 @@ TEST(SwingPitchReference, reachesTheConfiguredAngleOverTheHeldSection) {
  * reference is smooth for the solver. */
 TEST(SwingPitchReference, monotoneRampsWithNoPlateauOvershoot) {
   SwingTrajectoryPlanner planner(pitchedConfig(0.1), kNumContacts);
-  planner.update(singleSwingSchedule(), /*terrainHeight=*/0.0);
+  planner.update(singleSwingSchedule(), /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
 
   scalar_t previous = atSwingFraction(planner, /*tau=*/0.0);
   for (scalar_t tau = 0.01; tau <= 0.25; tau += 0.01) {
@@ -163,19 +172,22 @@ TEST(SwingPitchReference, keepsTheToeAboveGroundThroughTheLateDescent) {
   constexpr scalar_t kToeLever = 0.12;
   const scalar_t angle = 0.1;
   SwingTrajectoryPlanner planner(pitchedConfig(angle), kNumContacts);
-  planner.update(singleSwingSchedule(), /*terrainHeight=*/0.0);
+  planner.update(singleSwingSchedule(), /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
 
   bool sawLowSoleCenter = false;
   for (scalar_t tau = 0.5; tau < 1.0; tau += 0.005) {
     const scalar_t time = kLiftOff + tau * (kTouchDown - kLiftOff);
-    const scalar_t soleCenter =
+    const scalar_t desPosFootRtWorldEwrtWorldZ =
         planner.getDesPosFootRtWorldEwrtWorldZ(/*leg=*/0, time);
-    if (soleCenter > 0.01) continue;
+    if (desPosFootRtWorldEwrtWorldZ > 0.01) continue;
     sawLowSoleCenter = true;
-    const scalar_t toe =
-        soleCenter +
-        kToeLever * std::sin(planner.getSwingPitchAngle(/*leg=*/0, time));
-    EXPECT_GE(toe, soleCenter);  // the pitch only ever helps the toe
+    // The toe's height: the sole center's plus the pitch lever. The pitch only
+    // ever helps the toe.
+    EXPECT_GE(
+        desPosFootRtWorldEwrtWorldZ +
+            kToeLever * std::sin(planner.getSwingRefTiltangleFootRtSurface(
+                            /*leg=*/0, time)),
+        desPosFootRtWorldEwrtWorldZ);
   }
   EXPECT_TRUE(sawLowSoleCenter);
 }
@@ -193,11 +205,11 @@ TEST(SwingPitchReference, shortSwingsAreScaledDown) {
   const size_t stance = stanceLeg2ModeNumber(makeFeetArray(true));
   planner.update(ModeSchedule({shortLiftOff, shortTouchDown},
                               {stance, stanceLeg2ModeNumber(swinging), stance}),
-                 /*terrainHeight=*/0.0);
+                 /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
 
   const scalar_t midSwing = 0.5 * (shortLiftOff + shortTouchDown);
-  EXPECT_NEAR(planner.getSwingPitchAngle(/*leg=*/0, midSwing), 0.5 * angle,
-              kTol);
+  EXPECT_NEAR(planner.getSwingRefTiltangleFootRtSurface(/*leg=*/0, midSwing),
+              0.5 * angle, kTol);
 }
 
 }  // namespace ocs2::humanoid

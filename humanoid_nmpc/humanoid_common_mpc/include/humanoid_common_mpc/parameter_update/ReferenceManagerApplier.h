@@ -38,13 +38,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Applies what the reference manager owns: terrain_height, which it takes
- * (setTerrainHeight()) and builds the next solve's swing trajectories and
- * landing targets on, with the contact-implicit terms following in that same
- * solve (ContactImplicitApplier::beforeEverySolve()); and
- * swing_trajectory_config, to its SwingTrajectoryPlanner. Both take effect at
- * the next solve, whose references are built after this reload; and arm_swing,
- * the generator and tuning of the arm-swing reference
+ * Applies what the reference manager owns: pos_surface_rt_world_ewrt_world_z,
+ * which it takes (setPosSurfaceRtWorldEwrtWorldZ()) and builds the next solve's
+ * swing trajectories and landing targets on, with the contact-implicit terms
+ * following in that same solve (ContactImplicitApplier::beforeEverySolve());
+ * and swing_trajectory_config, to its SwingTrajectoryPlanner. Both take effect
+ * at the next solve, whose references are built after this reload; and
+ * arm_swing, the generator and tuning of the arm-swing reference
  * (SwitchedModelReferenceManager::setArmSwingSettings()), which the next
  * evaluation of the state reference reads. Without a reference manager, the
  * swing trajectories and the arm swing are not reloaded and a reloaded ground
@@ -56,8 +56,8 @@ namespace ocs2::humanoid {
  */
 class ReferenceManagerApplier final : public HotFieldApplier {
  public:
-  /** The fields it applies: terrain_height, swing_trajectory_config and
-   * arm_swing. */
+  /** The fields it applies: pos_surface_rt_world_ewrt_world_z,
+   * swing_trajectory_config and arm_swing. */
   static absl::Span<const absl::string_view> staticFields();
 
   ReferenceManagerApplier() = default;

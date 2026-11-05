@@ -65,7 +65,7 @@ namespace ocs2::humanoid {
  * the task file's state_estimator replaces them for the controller (`kalman`).
  *
  * THREADS. initialize() and start() run on the main thread before the realtime
- * loop; hardware(), acceptsJointAction() and readMeasuredContactForces() are
+ * loop; hardware(), acceptsJointAction() and readMeasForceFeetEwrtWorld() are
  * called by the realtime thread every cycle and must be realtime-safe: no lock
  * the backend's own threads hold, no allocation, no I/O. hardware()'s state and
  * action go through the lock-free buffers of RobotHWInterfaceBase.
@@ -125,8 +125,8 @@ class RobotBackend {
    * (robot_state_sample.proto, meas_wrench_contacts_ewrt_world); zero where the
    * robot has no sensor. Realtime thread.
    */
-  virtual void readMeasuredContactForces(
-      std::array<vector3_t, kNumContacts>& forces) = 0;
+  virtual void readMeasForceFeetEwrtWorld(
+      std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld) = 0;
 
   /**
    * Takes the actuators to the backend's safe state, whatever action is

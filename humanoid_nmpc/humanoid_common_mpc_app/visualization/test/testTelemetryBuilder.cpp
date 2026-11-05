@@ -208,15 +208,18 @@ std::vector<std::string> contractPaths(const std::vector<std::string>& frames) {
   return paths;
 }
 
-/** `proto` with each foot's force sensor carrying `normalForce` [N] straight
- * up. */
-humanoid_mpc_msgs::RobotStateSample withFootForces(
-    humanoid_mpc_msgs::RobotStateSample proto, scalar_t normalForce) {
+/** `proto` with each foot's force sensor carrying `measForceFootEwrtWorldZ`
+ * [N] straight up. */
+humanoid_mpc_msgs::RobotStateSample withMeasForceFeetEwrtWorldZ(
+    humanoid_mpc_msgs::RobotStateSample proto,
+    scalar_t measForceFootEwrtWorldZ) {
   for (int contact = 0; contact < proto.meas_wrench_contacts_ewrt_world_size();
        ++contact) {
-    proto.mutable_meas_wrench_contacts_ewrt_world(contact)
+    proto
+        .mutable_meas_wrench_contacts_ewrt_world(contact)
+        // NOLINTNEXTLINE(frame-naming): a component of a Wrench message, whose frames its field names
         ->mutable_force()
-        ->set_z(normalForce);
+        ->set_z(measForceFootEwrtWorldZ);
   }
   return proto;
 }
@@ -229,17 +232,20 @@ bool isNotANumberByContract(const std::string& path, bool hasAcom) {
           (path == "acom/roll" || path == "acom/pitch" || path == "acom/yaw"));
 }
 
-/** The net contact moment about `point` of world wrenches about `positions`. */
-vector3_t momentAbout(const vector3_t& point,
-                      const feet_array_t<vector3_t>& positions,
-                      const feet_array_t<vector6_t>& wrenches) {
-  vector3_t moment = vector3_t::Zero();
+/** The net contact moment about the point `posLocalRtWorldEwrtWorld` of world
+ * wrenches about `posFeetRtWorldEwrtWorld`. */
+vector3_t computeTorqueLocalEwrtWorld(
+    const vector3_t& posLocalRtWorldEwrtWorld,
+    const feet_array_t<vector3_t>& posFeetRtWorldEwrtWorld,
+    const feet_array_t<vector6_t>& wrenchFeetEwrtWorld) {
+  vector3_t torqueLocalEwrtWorld = vector3_t::Zero();
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    moment += (positions[contact] - point)
-                  .cross(vector3_t(wrenches[contact].head<kForceDim>())) +
-              vector3_t(wrenches[contact].tail<kTorqueDim>());
+    torqueLocalEwrtWorld +=
+        (posFeetRtWorldEwrtWorld[contact] - posLocalRtWorldEwrtWorld)
+            .cross(vector3_t(wrenchFeetEwrtWorld[contact].head<kForceDim>())) +
+        vector3_t(wrenchFeetEwrtWorld[contact].tail<kTorqueDim>());
   }
-  return moment;
+  return torqueLocalEwrtWorld;
 }
 
 class TelemetryBuilderTest : public ::testing::Test {
@@ -262,8 +268,9 @@ class TelemetryBuilderTest : public ::testing::Test {
 
     CommandData command;
     PrimalSolution solution;
-    robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/21, /*normalForce=*/300.0,
-                       vector2_t(0.02, -0.01), &command, &solution);
+    robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/21,
+                       /*forceFootEwrtWorldZ=*/300.0, vector2_t(0.02, -0.01),
+                       &command, &solution);
     policy_.assign(command, solution);
     observation_ = robot_->observation(/*time=*/0.0, ModeNumber::kStance);
   }
@@ -290,21 +297,23 @@ class TelemetryBuilderTest : public ::testing::Test {
     PinocchioInterface reference = robot_->makeReferencePinocchioInterface();
     const vector_t q =
         robot_->robotModel().getGeneralizedCoordinates(robot_->nominalState());
-    const vector3_t com =
+    const vector3_t posComRtWorldEwrtWorld =
         pinocchio::centerOfMass(reference.getModel(), reference.getData(), q,
                                 /*computeSubtreeComs=*/false);
     pinocchio::updateFramePlacements(reference.getModel(), reference.getData());
-    scalar_t footHeight = 0.0;
+    scalar_t posFeetmeanRtWorldEwrtWorldZ = 0.0;
     for (size_t contact = 0; contact < kNumContacts; ++contact) {
-      footHeight += reference.getData()
-                        .oMf[reference.getModel().getFrameId(
-                            robot_->modelSettings().contactNames[contact])]
-                        .translation()
-                        .z() /
-                    static_cast<scalar_t>(kNumContacts);
+      posFeetmeanRtWorldEwrtWorldZ +=
+          reference.getData()
+              .oMf[reference.getModel().getFrameId(
+                  robot_->modelSettings().contactNames[contact])]
+              .translation()
+              .z() /
+          static_cast<scalar_t>(kNumContacts);
     }
-    return std::sqrt(reference.getModel().gravity.linear().norm() /
-                     (com.z() - footHeight));
+    return std::sqrt(
+        reference.getModel().gravity.linear().norm() /
+        (posComRtWorldEwrtWorld.z() - posFeetmeanRtWorldEwrtWorldZ));
   }
 
   /**
@@ -327,41 +336,50 @@ class TelemetryBuilderTest : public ::testing::Test {
     const vector_t v = velocityModel->getGeneralizedVelocities(state, input);
     pinocchio::centerOfMass(reference.getModel(), reference.getData(), q, v,
                             /*computeSubtreeComs=*/false);
-    const vector3_t com = reference.getData().com[0];
-    const vector3_t comVelocity = reference.getData().vcom[0];
-    EXPECT_NEAR(valueOf(series, "com/position_x", "plan"), com.x(), kTolerance);
-    EXPECT_NEAR(valueOf(series, "com/position_y", "plan"), com.y(), kTolerance);
-    EXPECT_NEAR(valueOf(series, "com/position_z", "plan"), com.z(), kTolerance);
+    const vector3_t posComRtWorldEwrtWorld = reference.getData().com[0];
+    const vector3_t linvelComRtWorldEwrtWorld = reference.getData().vcom[0];
+    EXPECT_NEAR(valueOf(series, "com/position_x", "plan"),
+                posComRtWorldEwrtWorld.x(), kTolerance);
+    EXPECT_NEAR(valueOf(series, "com/position_y", "plan"),
+                posComRtWorldEwrtWorld.y(), kTolerance);
+    EXPECT_NEAR(valueOf(series, "com/position_z", "plan"),
+                posComRtWorldEwrtWorld.z(), kTolerance);
     const scalar_t omega = nominalPendulumFrequency();
-    EXPECT_NEAR(valueOf(series, "dcm/x", "plan"),
-                com.x() + comVelocity.x() / omega, 1.0e-8);
-    EXPECT_NEAR(valueOf(series, "dcm/y", "plan"),
-                com.y() + comVelocity.y() / omega, 1.0e-8);
+    EXPECT_NEAR(
+        valueOf(series, "dcm/x", "plan"),
+        posComRtWorldEwrtWorld.x() + linvelComRtWorldEwrtWorld.x() / omega,
+        1.0e-8);
+    EXPECT_NEAR(
+        valueOf(series, "dcm/y", "plan"),
+        posComRtWorldEwrtWorld.y() + linvelComRtWorldEwrtWorld.y() / omega,
+        1.0e-8);
 
     pinocchio::forwardKinematics(reference.getModel(), reference.getData(), q);
     pinocchio::updateFramePlacements(reference.getModel(), reference.getData());
-    feet_array_t<vector3_t> positions;
-    feet_array_t<vector6_t> wrenches;
-    scalar_t normalForce = 0.0;
-    scalar_t weightedHeight = 0.0;
+    feet_array_t<vector3_t> posFeetRtWorldEwrtWorld;
+    feet_array_t<vector6_t> wrenchFeetEwrtWorld;
+    scalar_t forceWorldEwrtWorldZ = 0.0;
+    scalar_t weightedSumPosFeetRtWorldEwrtWorldZ = 0.0;
     for (size_t contact = 0; contact < kNumContacts; ++contact) {
-      positions[contact] =
+      posFeetRtWorldEwrtWorld[contact] =
           reference.getData()
               .oMf[reference.getModel().getFrameId(
                   robot_->modelSettings().contactNames[contact])]
               .translation();
-      wrenches[contact] =
+      wrenchFeetEwrtWorld[contact] =
           model.getWrenchContactEwrtWorld(state, input, contact);
-      normalForce += wrenches[contact][kWrenchForceZIndex];
-      weightedHeight +=
-          wrenches[contact][kWrenchForceZIndex] * positions[contact].z();
+      forceWorldEwrtWorldZ += wrenchFeetEwrtWorld[contact][kWrenchForceZIndex];
+      weightedSumPosFeetRtWorldEwrtWorldZ +=
+          wrenchFeetEwrtWorld[contact][kWrenchForceZIndex] *
+          posFeetRtWorldEwrtWorld[contact].z();
     }
-    const vector3_t zmp(valueOf(series, "zmp/x", "plan"),
-                        valueOf(series, "zmp/y", "plan"),
-                        weightedHeight / normalForce);
-    const vector3_t moment = momentAbout(zmp, positions, wrenches);
-    EXPECT_NEAR(moment.x(), 0.0, 1.0e-7);
-    EXPECT_NEAR(moment.y(), 0.0, 1.0e-7);
+    const vector3_t posZmpRtWorldEwrtWorld(
+        valueOf(series, "zmp/x", "plan"), valueOf(series, "zmp/y", "plan"),
+        weightedSumPosFeetRtWorldEwrtWorldZ / forceWorldEwrtWorldZ);
+    const vector3_t torqueZmpEwrtWorld = computeTorqueLocalEwrtWorld(
+        posZmpRtWorldEwrtWorld, posFeetRtWorldEwrtWorld, wrenchFeetEwrtWorld);
+    EXPECT_NEAR(torqueZmpEwrtWorld.x(), 0.0, 1.0e-7);
+    EXPECT_NEAR(torqueZmpEwrtWorld.y(), 0.0, 1.0e-7);
 
     if (!hasAcom()) {
       EXPECT_TRUE(std::isnan(valueOf(series, "acom/yaw", "plan")));
@@ -371,14 +389,15 @@ class TelemetryBuilderTest : public ::testing::Test {
         *AngularCenterOfMass::Create(
             robot_->modelSettings().robotName,
             robot_->modelSettings().mpcModelJointNames);
-    const vector3_t yawPitchRoll = eulerZyxFromQuaternion(acom->acomAttitude(
-        model.getQuatBaseRtWorldXyzw(state), model.getJointAngles(state)));
+    const vector3_t eulerzyxAcomRtWorld =
+        eulerZyxFromQuaternion(acom->computeQuatAcomRtWorldXyzw(
+            model.getQuatBaseRtWorldXyzw(state), model.getJointAngles(state)));
     EXPECT_NEAR(valueOf(series, "acom/yaw", "plan"),
-                yawPitchRoll[kBaseRotYawIndex], kTolerance);
+                eulerzyxAcomRtWorld[kBaseRotYawIndex], kTolerance);
     EXPECT_NEAR(valueOf(series, "acom/pitch", "plan"),
-                yawPitchRoll[kBaseRotPitchIndex], kTolerance);
+                eulerzyxAcomRtWorld[kBaseRotPitchIndex], kTolerance);
     EXPECT_NEAR(valueOf(series, "acom/roll", "plan"),
-                yawPitchRoll[kBaseRotRollIndex], kTolerance);
+                eulerzyxAcomRtWorld[kBaseRotRollIndex], kTolerance);
   }
 
   std::unique_ptr<test::TestRobot> robot_;
@@ -470,11 +489,13 @@ TEST_F(TelemetryBuilderTest, TheBaseIsMeasuredInTheWorldFrameAsRollPitchYaw) {
   proto.mutable_angvel_base_rt_world_ewrt_base()->set_z(0.5);
   const humanoid_mpc_msgs::TelemetrySeries& series = builder_->build(
       decode(proto), /*observation=*/nullptr, /*policy=*/nullptr);
-  const matrix3_t rotation =
-      test::quaternionFromRollPitchYaw(vector3_t(0.1, 0.2, 0.3))
+  const matrix3_t rotmatBaseRtWorld =
+      test::unitQuaternionOfRollPitchYaw(vector3_t(0.1, 0.2, 0.3))
           .toRotationMatrix();
-  const vector3_t linear = rotation * vector3_t(1.0, 0.0, 0.0);
-  const vector3_t angular = rotation * vector3_t(0.0, 0.0, 0.5);
+  const vector3_t linvelBaseRtWorldEwrtWorld =
+      rotmatBaseRtWorld * vector3_t(1.0, 0.0, 0.0);
+  const vector3_t angvelBaseRtWorldEwrtWorld =
+      rotmatBaseRtWorld * vector3_t(0.0, 0.0, 0.5);
   EXPECT_EQ(series.time(), 0.1);
   EXPECT_NEAR(valueOf(series, "base_pose/position_x", "measured"), 1.0,
               kTolerance);
@@ -485,16 +506,16 @@ TEST_F(TelemetryBuilderTest, TheBaseIsMeasuredInTheWorldFrameAsRollPitchYaw) {
   EXPECT_NEAR(valueOf(series, "base_pose/roll", "measured"), 0.1, kTolerance);
   EXPECT_NEAR(valueOf(series, "base_pose/pitch", "measured"), 0.2, kTolerance);
   EXPECT_NEAR(valueOf(series, "base_pose/yaw", "measured"), 0.3, kTolerance);
-  EXPECT_NEAR(valueOf(series, "base_twist/linear_x", "measured"), linear.x(),
-              kTolerance);
-  EXPECT_NEAR(valueOf(series, "base_twist/linear_y", "measured"), linear.y(),
-              kTolerance);
-  EXPECT_NEAR(valueOf(series, "base_twist/linear_z", "measured"), linear.z(),
-              kTolerance);
-  EXPECT_NEAR(valueOf(series, "base_twist/angular_x", "measured"), angular.x(),
-              kTolerance);
-  EXPECT_NEAR(valueOf(series, "base_twist/angular_z", "measured"), angular.z(),
-              kTolerance);
+  EXPECT_NEAR(valueOf(series, "base_twist/linear_x", "measured"),
+              linvelBaseRtWorldEwrtWorld.x(), kTolerance);
+  EXPECT_NEAR(valueOf(series, "base_twist/linear_y", "measured"),
+              linvelBaseRtWorldEwrtWorld.y(), kTolerance);
+  EXPECT_NEAR(valueOf(series, "base_twist/linear_z", "measured"),
+              linvelBaseRtWorldEwrtWorld.z(), kTolerance);
+  EXPECT_NEAR(valueOf(series, "base_twist/angular_x", "measured"),
+              angvelBaseRtWorldEwrtWorld.x(), kTolerance);
+  EXPECT_NEAR(valueOf(series, "base_twist/angular_z", "measured"),
+              angvelBaseRtWorldEwrtWorld.z(), kTolerance);
   // The body angular velocity as sent, and the Euler rates of the decoder,
   // which are the display's.
   const DecodedRobotState decoded = decode(proto);
@@ -502,11 +523,11 @@ TEST_F(TelemetryBuilderTest, TheBaseIsMeasuredInTheWorldFrameAsRollPitchYaw) {
   EXPECT_EQ(valueOf(series, "base_pose/angular_velocity_y", "measured"), 0.0);
   EXPECT_EQ(valueOf(series, "base_pose/angular_velocity_z", "measured"), 0.5);
   EXPECT_EQ(valueOf(series, "base_pose/yaw_rate", "measured"),
-            decoded.baseEulerZyxRates[kBaseRotYawIndex]);
+            decoded.rateEulerzyxBaseRtWorld[kBaseRotYawIndex]);
   EXPECT_EQ(valueOf(series, "base_pose/pitch_rate", "measured"),
-            decoded.baseEulerZyxRates[kBaseRotPitchIndex]);
+            decoded.rateEulerzyxBaseRtWorld[kBaseRotPitchIndex]);
   EXPECT_EQ(valueOf(series, "base_pose/roll_rate", "measured"),
-            decoded.baseEulerZyxRates[kBaseRotRollIndex]);
+            decoded.rateEulerzyxBaseRtWorld[kBaseRotRollIndex]);
   EXPECT_NEAR(valueOf(series, "base_pose/yaw_rate", "measured"),
               0.5 * std::cos(0.1) / std::cos(0.2), kTolerance);
   // The generalized coordinates: z, then the Euler ZYX angles by their names;
@@ -518,7 +539,7 @@ TEST_F(TelemetryBuilderTest, TheBaseIsMeasuredInTheWorldFrameAsRollPitchYaw) {
   EXPECT_NEAR(valueOf(series, "generalized_base/roll", "measured"), 0.1,
               kTolerance);
   EXPECT_NEAR(valueOf(series, "generalized_base/velocity_z", "measured"),
-              linear.z(), kTolerance);
+              linvelBaseRtWorldEwrtWorld.z(), kTolerance);
   EXPECT_EQ(valueOf(series, "generalized_base/pitch_rate", "measured"),
             valueOf(series, "base_pose/pitch_rate", "measured"));
   EXPECT_EQ(valueOf(series, "generalized_base/roll_rate", "measured"),
@@ -537,13 +558,18 @@ TEST_F(TelemetryBuilderTest, TheBaseIsMeasuredInTheWorldFrameAsRollPitchYaw) {
   // The root link's pose is the base's.
   const std::string root = "pelvis";
   ASSERT_NE(findGroup(series, "frames/pose/pelvis/measured"), nullptr);
-  const vector_t pose = valuesOf(series, "frames/pose/" + root + "/measured");
-  EXPECT_TRUE(pose.isApprox(
+  // Its position, then its roll, pitch and yaw.
+  const vector_t poseBaseRtWorld =
+      valuesOf(series, "frames/pose/" + root + "/measured");
+  EXPECT_TRUE(poseBaseRtWorld.isApprox(
       (vector_t(6) << 1.0, 2.0, 3.0, 0.1, 0.2, 0.3).finished(), kTolerance))
-      << pose.transpose();
-  const vector_t twist = valuesOf(series, "frames/twist/" + root + "/measured");
-  EXPECT_TRUE(twist.head<3>().isApprox(linear, kTolerance));
-  EXPECT_TRUE(twist.tail<3>().isApprox(angular, kTolerance));
+      << poseBaseRtWorld.transpose();
+  const vector_t twistBaseRtWorldEwrtWorld =
+      valuesOf(series, "frames/twist/" + root + "/measured");
+  EXPECT_TRUE(twistBaseRtWorldEwrtWorld.head<3>().isApprox(
+      linvelBaseRtWorldEwrtWorld, kTolerance));
+  EXPECT_TRUE(twistBaseRtWorldEwrtWorld.tail<3>().isApprox(
+      angvelBaseRtWorldEwrtWorld, kTolerance));
 }
 
 TEST_F(TelemetryBuilderTest,
@@ -591,7 +617,7 @@ TEST_F(TelemetryBuilderTest, TheReferenceIsTheTargetAtTheSamplesTime) {
   EXPECT_NEAR(valueOf(series, "base_pose/roll", "reference"),
               model.getEulerzyxBaseRtWorld(target)(2), kTolerance);
   EXPECT_NEAR(valueOf(series, "base_twist/linear_x", "reference"),
-              model.getBaseComLinearVelocity(target).x(), kTolerance);
+              getProxyLinvelComRtWorldEwrtWorld(model, target).x(), kTolerance);
   // The display coordinates of the reference: q with the Euler angles of its
   // quaternion.
   const vector_t q = model.getGeneralizedCoordinates(target);
@@ -610,10 +636,10 @@ TEST_F(TelemetryBuilderTest,
        TheReferencesAngularVelocityIsTheTargetsInEveryFrame) {
   load(test::g1WholeBodyFiles(), test::Formulation::kWholeBody);
   const MpcRobotModelBase<scalar_t>& model = robot_->robotModel();
-  const vector3_t angularVelocityLocal(0.2, -0.1, 0.4);
+  const vector3_t refAngvelBaseRtWorldEwrtBase(0.2, -0.1, 0.4);
   for (vector_t& state : policy_.target.stateTrajectory) {
     model.setEulerzyxBaseRtWorld(state, vector3_t(0.5, 0.3, -0.2));
-    model.setAngvelBaseRtWorldEwrtBase(state, angularVelocityLocal);
+    model.setAngvelBaseRtWorldEwrtBase(state, refAngvelBaseRtWorldEwrtBase);
   }
   const humanoid_mpc_msgs::TelemetrySeries& series =
       builder_->build(decode(robot_->robotState(/*time=*/0.5, vector3_t::Zero(),
@@ -622,23 +648,23 @@ TEST_F(TelemetryBuilderTest,
   const vector_t target = model.getDesiredState(policy_.target, /*time=*/0.5);
   const vector3_t eulerZyx = model.getEulerzyxBaseRtWorld(target);
   const vector3_t eulerZyxRates =
-      eulerZyxRatesForDisplay(eulerZyx, angularVelocityLocal);
-  vector3_t angularVelocityWorld = vector3_t::Zero();
+      eulerZyxRatesForDisplay(eulerZyx, refAngvelBaseRtWorldEwrtBase);
+  vector3_t refAngvelBaseRtWorldEwrtWorld = vector3_t::Zero();
   {
-    quaternion_t orientation;
-    orientation.coeffs() = model.getQuatBaseRtWorldXyzw(target);
-    angularVelocityWorld =
-        orientation.toRotationMatrix() * angularVelocityLocal;
+    quaternion_t refQuatBaseRtWorld;
+    refQuatBaseRtWorld.coeffs() = model.getQuatBaseRtWorldXyzw(target);
+    refAngvelBaseRtWorldEwrtWorld =
+        refQuatBaseRtWorld.toRotationMatrix() * refAngvelBaseRtWorldEwrtBase;
   }
   const std::array<const char* absl_nonnull, 3> axes = {"x", "y", "z"};
   for (size_t axis = 0; axis < 3; ++axis) {
     EXPECT_NEAR(
         valueOf(series, absl::StrCat("base_pose/angular_velocity_", axes[axis]),
                 "reference"),
-        angularVelocityLocal[axis], kTolerance);
+        refAngvelBaseRtWorldEwrtBase[axis], kTolerance);
     EXPECT_NEAR(valueOf(series, absl::StrCat("base_twist/angular_", axes[axis]),
                         "reference"),
-                angularVelocityWorld[axis], kTolerance);
+                refAngvelBaseRtWorldEwrtWorld[axis], kTolerance);
   }
   EXPECT_NEAR(valueOf(series, "base_pose/yaw_rate", "reference"),
               eulerZyxRates[kBaseRotYawIndex], kTolerance);
@@ -652,7 +678,7 @@ TEST_F(TelemetryBuilderTest,
             valueOf(series, "base_pose/roll_rate", "reference"));
   EXPECT_NEAR(valueOf(series, "base_pose/roll", "reference"), -0.2, kTolerance);
   EXPECT_NEAR(valueOf(series, "dofs/velocity/reference", "base_wy"),
-              angularVelocityLocal.y(), kTolerance);
+              refAngvelBaseRtWorldEwrtBase.y(), kTolerance);
 }
 
 // The same on the centroidal MPC, whose state holds the centroidal momentum:
@@ -668,7 +694,7 @@ TEST_F(TelemetryBuilderTest,
   PinocchioInterface pinocchioInterface = robot_->pinocchioInterface();
   const scalar_t mass =
       pinocchio::computeTotalMass(pinocchioInterface.getModel());
-  constexpr scalar_t kYawRate = 0.6;
+  constexpr scalar_t kRefAngvelBaseRtWorldEwrtWorldZ = 0.6;
   ASSERT_EQ(policy_.target.inputTrajectory.size(),
             policy_.target.stateTrajectory.size());
   const Eigen::Index joints = static_cast<Eigen::Index>(model.getJointDim());
@@ -677,17 +703,18 @@ TEST_F(TelemetryBuilderTest,
   // another posture's is no posture's turn.
   vector_t knot = policy_.target.stateTrajectory.front();
   model.setEulerzyxBaseRtWorld(knot, vector3_t(0.5, 0.3, -0.2));
-  quaternion_t knotOrientation;
-  knotOrientation.coeffs() = model.getQuatBaseRtWorldXyzw(knot);
-  vector_t velocity =
+  quaternion_t knotQuatBaseRtWorld;
+  knotQuatBaseRtWorld.coeffs() = model.getQuatBaseRtWorldXyzw(knot);
+  vector_t generalizedVelocities =
       vector_t::Zero(static_cast<Eigen::Index>(model.getVelocityDim()));
-  velocity.segment<3>(3) = knotOrientation.toRotationMatrix().transpose() *
-                           vector3_t(0.0, 0.0, kYawRate);
+  generalizedVelocities.segment<3>(3) =
+      knotQuatBaseRtWorld.toRotationMatrix().transpose() *
+      vector3_t(0.0, 0.0, kRefAngvelBaseRtWorldEwrtWorldZ);
   const matrix_t momentumMatrix = pinocchio::computeCentroidalMap(
       pinocchioInterface.getModel(), pinocchioInterface.getData(),
       model.getGeneralizedCoordinates(knot));
   // The centroidal state opens with the normalized momentum [m c_dot; L_G] / m.
-  knot.head<6>() = momentumMatrix * velocity / mass;
+  knot.head<6>() = momentumMatrix * generalizedVelocities / mass;
   for (size_t k = 0; k < policy_.target.stateTrajectory.size(); ++k) {
     policy_.target.stateTrajectory[k] = knot;
     policy_.target.inputTrajectory[k].tail(joints).setZero();
@@ -697,19 +724,20 @@ TEST_F(TelemetryBuilderTest,
                                                 vector3_t::Zero())),
                       &observation_, &policy_);
   const vector_t target = model.getDesiredState(policy_.target, /*time=*/0.5);
-  quaternion_t orientation;
-  orientation.coeffs() = model.getQuatBaseRtWorldXyzw(target);
-  const vector3_t turnLocal = orientation.toRotationMatrix().transpose() *
-                              vector3_t(0.0, 0.0, kYawRate);
+  quaternion_t refQuatBaseRtWorld;
+  refQuatBaseRtWorld.coeffs() = model.getQuatBaseRtWorldXyzw(target);
+  const vector3_t refAngvelBaseRtWorldEwrtBase =
+      refQuatBaseRtWorld.toRotationMatrix().transpose() *
+      vector3_t(0.0, 0.0, kRefAngvelBaseRtWorldEwrtWorldZ);
   const std::array<const char* absl_nonnull, 3> axes = {"x", "y", "z"};
   for (size_t axis = 0; axis < 3; ++axis) {
     EXPECT_NEAR(valueOf(series, absl::StrCat("base_twist/angular_", axes[axis]),
                         "reference"),
-                axis == 2 ? kYawRate : 0.0, 1.0e-9);
+                axis == 2 ? kRefAngvelBaseRtWorldEwrtWorldZ : 0.0, 1.0e-9);
     EXPECT_NEAR(
         valueOf(series, absl::StrCat("base_pose/angular_velocity_", axes[axis]),
                 "reference"),
-        turnLocal[axis], 1.0e-9);
+        refAngvelBaseRtWorldEwrtBase[axis], 1.0e-9);
   }
 }
 
@@ -721,7 +749,8 @@ TEST_F(TelemetryBuilderTest,
       /*time=*/0.1, vector3_t(0.0, 0.0, 0.7), vector3_t(0.2, M_PI / 2.0, 0.3));
   proto.mutable_angvel_base_rt_world_ewrt_base()->set_y(0.4);
   const humanoid_mpc_msgs::TelemetrySeries& series =
-      builder_->build(decode(withFootForces(proto, /*normalForce=*/300.0)),
+      builder_->build(decode(withMeasForceFeetEwrtWorldZ(
+                          proto, /*measForceFootEwrtWorldZ=*/300.0)),
                       &observation_, &policy_, &solutionTerms_);
   for (const humanoid_mpc_msgs::ScalarGroup& group : series.groups()) {
     if (isNotANumberByContract(group.path(), hasAcom())) continue;
@@ -755,10 +784,10 @@ TEST_F(TelemetryBuilderTest, ThePlanIsThePolicyAtTheSamplesTime) {
   const MpcRobotModelBase<scalar_t>& model = robot_->robotModel();
   EXPECT_TRUE(valuesOf(series, "dofs/position/plan")
                   .isApprox(displayCoordinatesOf(model, state), kTolerance));
-  const vector6_t left =
+  const vector6_t wrenchLfootEwrtWorld =
       model.getWrenchContactEwrtWorld(state, input, kContactLeftIndex);
-  EXPECT_TRUE(
-      valuesOf(series, "contact_wrenches/left/mpc").isApprox(left, kTolerance));
+  EXPECT_TRUE(valuesOf(series, "contact_wrenches/left/mpc")
+                  .isApprox(wrenchLfootEwrtWorld, kTolerance));
   // Written as 300 N up and 15 N forward on each stance foot (world-frame
   // wrench inputs).
   EXPECT_NEAR(valueOf(series, "contact_forces/left_normal", "mpc"), 300.0,
@@ -766,7 +795,7 @@ TEST_F(TelemetryBuilderTest, ThePlanIsThePolicyAtTheSamplesTime) {
   EXPECT_NEAR(valueOf(series, "contact_forces/left_tangential", "mpc_x"), 15.0,
               1.0e-9);
   EXPECT_TRUE(valuesOf(series, "frames/wrench/foot_l_contact/plan")
-                  .isApprox(left, kTolerance));
+                  .isApprox(wrenchLfootEwrtWorld, kTolerance));
   EXPECT_TRUE(valuesOf(series, "frames/wrench/pelvis/plan").isZero());
 }
 
@@ -775,10 +804,12 @@ TEST_F(TelemetryBuilderTest, TheMeasuredWrenchesAreTheSensors) {
       robot_->robotState(/*time=*/0.1, vector3_t::Zero(), vector3_t::Zero());
   humanoid_mpc_msgs::Wrench* absl_nonnull left =
       proto.mutable_meas_wrench_contacts_ewrt_world(0);
+  // NOLINTBEGIN(frame-naming): the components of a Wrench message, whose frames its field names
   left->mutable_force()->set_x(5.0);
   left->mutable_force()->set_y(-6.0);
   left->mutable_force()->set_z(310.0);
   left->mutable_torque()->set_y(2.0);
+  // NOLINTEND(frame-naming)
   const humanoid_mpc_msgs::TelemetrySeries& series =
       builder_->build(decode(proto), &observation_, &policy_);
   EXPECT_EQ(valuesOf(series, "contact_wrenches/left/measured"),
@@ -873,13 +904,14 @@ TEST_F(TelemetryBuilderTest, TheJointGroupsAreTheDecodedJoints) {
   EXPECT_EQ(valuesOf(series, "dofs/force/measured"), state.generalizedForces);
   // The forces are dual to the velocity v: the base's entries, then the
   // joints'.
-  const vector_t referenceForces = valuesOf(series, "dofs/force/reference");
+  const vector_t refGeneralizedForces =
+      valuesOf(series, "dofs/force/reference");
   const Eigen::Index baseVelocityDim =
       static_cast<Eigen::Index>(kBaseVelocityDim);
-  EXPECT_TRUE(referenceForces.head(baseVelocityDim).isZero());
+  EXPECT_TRUE(refGeneralizedForces.head(baseVelocityDim).isZero());
   EXPECT_TRUE(
-      (referenceForces.tail(referenceForces.size() - baseVelocityDim).array() ==
-       2.0)
+      (refGeneralizedForces.tail(refGeneralizedForces.size() - baseVelocityDim)
+           .array() == 2.0)
           .all());
 }
 
@@ -897,10 +929,10 @@ TEST_F(TelemetryBuilderTest, TheBalanceOfThePlanIsItsComDcmZmpAndAcom) {
 
 TEST_F(TelemetryBuilderTest,
        TheMeasuredBalanceIsTheSamplesComAndTheSensorsZmp) {
-  const DecodedRobotState measured = decode(withFootForces(
+  const DecodedRobotState measured = decode(withMeasForceFeetEwrtWorldZ(
       robot_->robotState(/*time=*/0.1, vector3_t(0.2, -0.1, 0.75),
                          vector3_t(0.05, -0.02, 0.3)),
-      /*normalForce=*/250.0));
+      /*measForceFootEwrtWorldZ=*/250.0));
   const humanoid_mpc_msgs::TelemetrySeries& series =
       builder_->build(measured, &observation_, &policy_);
   PinocchioInterface reference = robot_->makeReferencePinocchioInterface();
@@ -908,32 +940,40 @@ TEST_F(TelemetryBuilderTest,
                           measured.generalizedCoordinates,
                           measured.generalizedVelocities,
                           /*computeSubtreeComs=*/false);
-  const vector3_t com = reference.getData().com[0];
-  const vector3_t comVelocity = reference.getData().vcom[0];
+  const vector3_t posComRtWorldEwrtWorld = reference.getData().com[0];
+  const vector3_t linvelComRtWorldEwrtWorld = reference.getData().vcom[0];
   // The joints move at 0.1 rad/s, so the CoM moves and the DCM is not the CoM.
-  ASSERT_GT(comVelocity.head<kHorizontalPositionDim>().norm(), 1.0e-4);
-  EXPECT_NEAR(valueOf(series, "com/position_z", "measured"), com.z(),
-              kTolerance);
+  ASSERT_GT(linvelComRtWorldEwrtWorld.head<kHorizontalPositionDim>().norm(),
+            1.0e-4);
+  EXPECT_NEAR(valueOf(series, "com/position_z", "measured"),
+              posComRtWorldEwrtWorld.z(), kTolerance);
   const scalar_t omega = nominalPendulumFrequency();
-  EXPECT_NEAR(valueOf(series, "dcm/x", "measured"),
-              com.x() + comVelocity.x() / omega, 1.0e-8);
-  EXPECT_NEAR(valueOf(series, "dcm/y", "measured"),
-              com.y() + comVelocity.y() / omega, 1.0e-8);
+  EXPECT_NEAR(
+      valueOf(series, "dcm/x", "measured"),
+      posComRtWorldEwrtWorld.x() + linvelComRtWorldEwrtWorld.x() / omega,
+      1.0e-8);
+  EXPECT_NEAR(
+      valueOf(series, "dcm/y", "measured"),
+      posComRtWorldEwrtWorld.y() + linvelComRtWorldEwrtWorld.y() / omega,
+      1.0e-8);
   // Equal forces without torques: the ZMP is the midpoint of the measured
   // contact frames.
   pinocchio::forwardKinematics(reference.getModel(), reference.getData(),
                                measured.generalizedCoordinates);
   pinocchio::updateFramePlacements(reference.getModel(), reference.getData());
-  vector3_t midpoint = vector3_t::Zero();
+  vector3_t posFeetmeanRtWorldEwrtWorld = vector3_t::Zero();
   for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    midpoint += reference.getData()
-                    .oMf[reference.getModel().getFrameId(
-                        robot_->modelSettings().contactNames[contact])]
-                    .translation() /
-                static_cast<scalar_t>(kNumContacts);
+    posFeetmeanRtWorldEwrtWorld +=
+        reference.getData()
+            .oMf[reference.getModel().getFrameId(
+                robot_->modelSettings().contactNames[contact])]
+            .translation() /
+        static_cast<scalar_t>(kNumContacts);
   }
-  EXPECT_NEAR(valueOf(series, "zmp/x", "measured"), midpoint.x(), kTolerance);
-  EXPECT_NEAR(valueOf(series, "zmp/y", "measured"), midpoint.y(), kTolerance);
+  EXPECT_NEAR(valueOf(series, "zmp/x", "measured"),
+              posFeetmeanRtWorldEwrtWorld.x(), kTolerance);
+  EXPECT_NEAR(valueOf(series, "zmp/y", "measured"),
+              posFeetmeanRtWorldEwrtWorld.y(), kTolerance);
   // Without force on the sensors there is no measured ZMP.
   const humanoid_mpc_msgs::TelemetrySeries& unloaded =
       builder_->build(decode(robot_->robotState(/*time=*/0.2, vector3_t::Zero(),
@@ -948,13 +988,14 @@ TEST_F(TelemetryBuilderTest,
 TEST_F(TelemetryBuilderTest, TheMeasuredAcomTurnsWithTheRobot) {
   ASSERT_TRUE(hasAcom()) << "the G1 has an ACoM network";
   constexpr scalar_t kTurn = 0.4;
-  const vector3_t tilt(0.05, -0.08, 0.1);
-  const humanoid_mpc_msgs::TelemetrySeries first = builder_->build(
-      decode(robot_->robotState(/*time=*/0.1, vector3_t::Zero(), tilt)),
-      &observation_, &policy_);
+  const vector3_t rpyBaseRtWorld(0.05, -0.08, 0.1);
+  const humanoid_mpc_msgs::TelemetrySeries first =
+      builder_->build(decode(robot_->robotState(/*time=*/0.1, vector3_t::Zero(),
+                                                rpyBaseRtWorld)),
+                      &observation_, &policy_);
   const humanoid_mpc_msgs::TelemetrySeries turned = builder_->build(
       decode(robot_->robotState(/*time=*/0.2, vector3_t::Zero(),
-                                tilt + vector3_t(0.0, 0.0, kTurn))),
+                                rpyBaseRtWorld + vector3_t(0.0, 0.0, kTurn))),
       &observation_, &policy_);
   EXPECT_NEAR(std::remainder(valueOf(turned, "acom/yaw", "measured") -
                                  valueOf(first, "acom/yaw", "measured") - kTurn,
@@ -1033,10 +1074,10 @@ TEST_F(TelemetryBuilderTest, EveryValueIsFinite) {
         static_cast<const PolicySnapshot*>(&policy_)}) {
     for (const scalar_t time : {-1.0, 0.0, 0.3, 0.6, 2.0}) {
       const humanoid_mpc_msgs::TelemetrySeries& series =
-          builder_->build(decode(withFootForces(
+          builder_->build(decode(withMeasForceFeetEwrtWorldZ(
                               robot_->robotState(time, vector3_t(0.0, 0.0, 0.7),
                                                  vector3_t(0.0, 0.1, 0.0)),
-                              /*normalForce=*/300.0)),
+                              /*measForceFootEwrtWorldZ=*/300.0)),
                           &observation_, policy, &solutionTerms_);
       for (const humanoid_mpc_msgs::ScalarGroup& group : series.groups()) {
         if (isNotANumberByContract(group.path(), hasAcom())) continue;
@@ -1063,10 +1104,10 @@ TEST_F(TelemetryBuilderTest, EveryFormulationGivesTheContractsGroups) {
     load(configuration.first, configuration.second);
     EXPECT_EQ(builder_->groupPaths(), contractPaths(config_.telemetryFrames));
     const humanoid_mpc_msgs::TelemetrySeries& series = builder_->build(
-        decode(withFootForces(
+        decode(withMeasForceFeetEwrtWorldZ(
             robot_->robotState(/*time=*/0.1, vector3_t(0.0, 0.0, 0.8),
                                vector3_t::Zero()),
-            /*normalForce=*/300.0)),
+            /*measForceFootEwrtWorldZ=*/300.0)),
         &observation_, &policy_, &solutionTerms_);
     vector_t state;
     vector_t input;

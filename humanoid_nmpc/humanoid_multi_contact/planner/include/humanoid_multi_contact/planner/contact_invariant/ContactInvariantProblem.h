@@ -49,7 +49,7 @@ namespace ocs2::humanoid::multi_contact {
 inline constexpr char kContactInvariantTerm[] = "contactInvariant";
 inline constexpr char kForceGateTerm[] = "contactForceGate";
 inline constexpr char kActivationRateTerm[] = "contactActivationRate";
-inline constexpr char kMomentumRateTerm[] = "momentumRate";
+inline constexpr char kMomentumRateTermName[] = "momentumRate";
 inline constexpr char kActivationBoundsTerm[] = "contactActivationBounds";
 inline constexpr char kFrictionConeTerm[] = "blendedFrictionCones";
 inline constexpr char kPadClearanceTerm[] = "padClearance";

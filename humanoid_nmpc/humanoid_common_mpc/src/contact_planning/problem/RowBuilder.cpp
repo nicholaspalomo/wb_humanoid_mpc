@@ -31,6 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <utility>
 
+#include "ocs2_core/Types.h"
+
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipCoefficients.h"
+
 namespace ocs2::humanoid {
 
 void RowBuilder::add(const Coefficients& xCoefficients,
@@ -41,10 +47,12 @@ void RowBuilder::add(const Coefficients& xCoefficients,
                      const SlackPenalty& penalty) {
   vector_t cRow = vector_t::Zero(nx_);
   vector_t dRow = vector_t::Zero(nu_);
-  for (const std::pair<int, scalar_t>& coefficient : xCoefficients)
+  for (const std::pair<int, scalar_t>& coefficient : xCoefficients) {
     cRow(coefficient.first) += coefficient.second;
-  for (const std::pair<int, scalar_t>& coefficient : uCoefficients)
+  }
+  for (const std::pair<int, scalar_t>& coefficient : uCoefficients) {
     dRow(coefficient.first) += coefficient.second;
+  }
   cRows_.push_back(std::move(cRow));
   dRows_.push_back(std::move(dRow));
   lower_.push_back(lower);

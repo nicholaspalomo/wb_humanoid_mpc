@@ -34,8 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
 
@@ -49,17 +49,17 @@ namespace ocs2::humanoid {
  * ref_speed_base_rt_world, ref_rate_yaw_base_rt_world,
  * cmd_max_linvel_base_rt_world_ewrt_heading_x,
  * cmd_max_linvel_base_rt_world_ewrt_heading_y,
- * cmd_max_err_pos_base_rt_world_ewrt_world_z,
+ * cmd_max_err_pos_base_rt_surface_ewrt_world_z,
  * cmd_max_angvel_base_rt_world_ewrt_world_z and
- * nom_pos_base_rt_world_ewrt_world_z.
+ * nom_pos_base_rt_surface_ewrt_world_z.
  * target_joint_state_interpolation_time_constant stays absent when the file has
  * none, and the centroidal MPC, which requires it, refuses that. Every value is
  * a finite number (inf and nan are refused); the target velocities, the
- * velocity limits, nom_pos_base_rt_world_ewrt_world_z and a given interpolation
- * time constant are positive (each is divided by, or is a height);
- * cmd_max_err_pos_base_rt_world_ewrt_world_z, the bound of a symmetric clamp,
- * is >= 0 (an acceleration limit at 0 or below turns its ramp off); and the
- * command filter's break frequency is >= 0
+ * velocity limits, nom_pos_base_rt_surface_ewrt_world_z and a given
+ * interpolation time constant are positive (each is divided by, or is a
+ * height); cmd_max_err_pos_base_rt_surface_ewrt_world_z, the bound of a
+ * symmetric clamp, is >= 0 (an acceleration limit at 0 or below turns its ramp
+ * off); and the command filter's break frequency is >= 0
  * (BreakFrequencyAlphaFilter::validateBreakFrequency()). The reloaders apply a
  * reloaded file through this conversion, so a refused reload keeps the running
  * limits.

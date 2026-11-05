@@ -52,10 +52,10 @@ namespace {
 constexpr double kCubic = 10.0;
 constexpr double kQuartic = 15.0;
 constexpr double kQuintic = 6.0;
-// Its peak speed, ds/dtau at tau = 1/2, and its peak acceleration,
-// d2s/dtau2 at tau = 1/2 - sqrt(3)/6.
-constexpr double kPeakSpeed = 1.875;
-constexpr double kPeakAcceleration = 5.773502691896258;
+// Its peak first derivative, ds/dtau at tau = 1/2, and its
+// peak second derivative, d2s/dtau2 at tau = 1/2 - sqrt(3)/6.
+constexpr double kPeakFirstDerivative = 1.875;
+constexpr double kPeakSecondDerivative = 5.773502691896258;
 // Bisections of inverseMinimumJerk(): 2^-50 of the unit interval.
 constexpr int kBisections = 50;
 // [s] Below this, a segment's "time at the speed limits" is none.
@@ -64,30 +64,35 @@ constexpr double kNoMotion = 1.0e-9;
 constexpr double kMinKnotInterval = 1.0e-3;
 
 /** The time one interval needs at the speed limits. */
-double intervalTime(const RobotStanceModel& model,
-                    const Eigen::VectorXd& from,
-                    const Eigen::VectorXd& to,
-                    const Eigen::Vector3d& comFrom,
-                    const Eigen::Vector3d& comTo,
-                    const std::vector<Eigen::Vector3d>& padsFrom,
-                    const std::vector<Eigen::Vector3d>& padsTo,
-                    const TimingOptions& options) {
+double intervalTime(
+    const RobotStanceModel& model,
+    const Eigen::VectorXd& from,
+    const Eigen::VectorXd& to,
+    const Eigen::Vector3d& initPosComRtWorldEwrtWorld,
+    const Eigen::Vector3d& finalPosComRtWorldEwrtWorld,
+    const std::vector<Eigen::Vector3d>& initPosPadsRtWorldEwrtWorld,
+    const std::vector<Eigen::Vector3d>& finalPosPadsRtWorldEwrtWorld,
+    const TimingOptions& options) {
   const Eigen::VectorXd tangent =
       pinocchio::difference(model.model(), from, to);
-  double time = (comTo - comFrom).norm() / options.maxComSpeed;
+  double time =
+      (finalPosComRtWorldEwrtWorld - initPosComRtWorldEwrtWorld).norm() /
+      options.maxSpeedComRtWorld;
   time = std::max(time,
                   (to.head<kPositionDim>() - from.head<kPositionDim>()).norm() /
-                      options.maxBaseSpeed);
+                      options.maxSpeedBaseRtWorld);
   time =
       std::max(time, tangent.segment<kRotationTangentDim>(kPositionDim).norm() /
-                         options.maxAngularSpeed);
+                         options.maxNormAngvelBaseRtWorldEwrtBase);
   time = std::max(
       time,
       tangent.tail(tangent.size() - kPoseTangentDim).lpNorm<Eigen::Infinity>() /
-          options.maxAngularSpeed);
-  for (size_t pad = 0; pad < padsFrom.size(); ++pad) {
-    time = std::max(time,
-                    (padsTo[pad] - padsFrom[pad]).norm() / options.maxPadSpeed);
+          options.maxJointVelocity);
+  for (size_t pad = 0; pad < initPosPadsRtWorldEwrtWorld.size(); ++pad) {
+    time = std::max(time, (finalPosPadsRtWorldEwrtWorld[pad] -
+                           initPosPadsRtWorldEwrtWorld[pad])
+                                  .norm() /
+                              options.maxSpeedPadRtWorld);
   }
   return time;
 }
@@ -128,13 +133,14 @@ absl::StatusOr<std::vector<double>> segmentKnotTimes(
     return absl::InvalidArgumentError("a motion segment has no knot");
   }
   const int count = static_cast<int>(segment.knots.size());
-  std::vector<Eigen::Vector3d> coms(count);
-  std::vector<std::vector<Eigen::Vector3d>> pads(count);
+  std::vector<Eigen::Vector3d> posComRtWorldEwrtWorldTraj(count);
+  std::vector<std::vector<Eigen::Vector3d>> posPadsRtWorldEwrtWorldTraj(count);
   for (int k = 0; k < count; ++k) {
     RETURN_IF_ERROR(model.setGeneralizedPosition(segment.knots[k].q));
-    coms[k] = model.centerOfMass();
+    posComRtWorldEwrtWorldTraj[k] = model.getPosComRtWorldEwrtWorld();
     for (int pad = 0; pad < model.contactSet().size(); ++pad) {
-      pads[k].push_back(model.padPosition(pad));
+      posPadsRtWorldEwrtWorldTraj[k].push_back(
+          model.getPosPadRtWorldEwrtWorld(pad));
     }
   }
   std::vector<double> cumulative = {0.0};
@@ -142,16 +148,21 @@ absl::StatusOr<std::vector<double>> segmentKnotTimes(
   for (int k = 1; k < count; ++k) {
     cumulative.push_back(cumulative.back() +
                          intervalTime(model, segment.knots[k - 1].q,
-                                      segment.knots[k].q, coms[k - 1], coms[k],
-                                      pads[k - 1], pads[k], options));
-    comPath += (coms[k] - coms[k - 1]).norm();
+                                      segment.knots[k].q,
+                                      posComRtWorldEwrtWorldTraj[k - 1],
+                                      posComRtWorldEwrtWorldTraj[k],
+                                      posPadsRtWorldEwrtWorldTraj[k - 1],
+                                      posPadsRtWorldEwrtWorldTraj[k], options));
+    comPath +=
+        (posComRtWorldEwrtWorldTraj[k] - posComRtWorldEwrtWorldTraj[k - 1])
+            .norm();
   }
   const double atLimits = cumulative.back();
   const double duration =
       std::max(slowdown, 1.0) *
-      std::max({options.minSegmentDuration, kPeakSpeed * atLimits,
-                std::sqrt(kPeakAcceleration * comPath /
-                          options.maxComAcceleration)});
+      std::max({options.minSegmentDuration, kPeakFirstDerivative * atLimits,
+                std::sqrt(kPeakSecondDerivative * comPath /
+                          options.maxNormLinaccComRtWorldEwrtWorld)});
   std::vector<double> times;
   for (int k = 0; k < count; ++k) {
     const double u = atLimits < kNoMotion
@@ -173,12 +184,12 @@ absl::Status appendKnot(RobotStanceModel& model,
                         double time,
                         const Eigen::VectorXd& v,
                         std::vector<config::MultiContactPlan::Knot>& knots) {
-  ASSIGN_OR_RETURN(const CentroidalMomentum momentum,
-                   model.centroidalMomentum(knot.q, v));
+  ASSIGN_OR_RETURN(const CentroidalMomentum cmomComRtWorldEwrtWorld,
+                   model.computeCmomComRtWorldEwrtWorld(knot.q, v));
   config::MultiContactPlan::Knot planKnot;
   planKnot.time = time;
-  planKnot.base_position = knot.q.head<kPositionDim>();
-  planKnot.base_orientation_xyzw =
+  planKnot.pos_base_rt_world_ewrt_world = knot.q.head<kPositionDim>();
+  planKnot.quat_base_rt_world_xyzw =
       knot.q.segment<kQuaternionCoefficients>(kPositionDim);
   const std::vector<ActuatedJoint>& joints = model.actuatedJoints();
   planKnot.joint_positions.resize(static_cast<Eigen::Index>(joints.size()));
@@ -189,8 +200,8 @@ absl::Status appendKnot(RobotStanceModel& model,
     planKnot.joint_velocities(static_cast<Eigen::Index>(j)) =
         v(joints[j].velocityIndex);
   }
-  planKnot.linear_momentum = momentum.linear;
-  planKnot.angular_momentum = momentum.angular;
+  planKnot.linmom_com_rt_world_ewrt_world = cmomComRtWorldEwrtWorld.linear;
+  planKnot.angmom_com_rt_world_ewrt_world = cmomComRtWorldEwrtWorld.angular;
   planKnot.active_contacts = knot.mask;
   knots.push_back(std::move(planKnot));
   return absl::OkStatus();

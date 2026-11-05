@@ -34,7 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <fstream>
 #include <string>
-#include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"

@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <numbers>
 #include <random>
 #include <vector>
 
@@ -42,8 +44,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
-#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/multibody/data.hpp"  // IWYU pragma: keep
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
@@ -71,8 +74,8 @@ std::vector<vector4_t> attitudes() {
       vector4_t(0.0, 0.0, 0.0, 1.0),
       quaternionFromEulerZyx(vector3_t(2.0, 0.0, 0.0)),
       quaternionFromEulerZyx(vector3_t(-2.7, 0.3, -0.2)),
-      quaternionFromEulerZyx(vector3_t(0.4, M_PI / 2.0, 0.1)),
-      quaternionFromEulerZyx(vector3_t(1.1, -M_PI / 2.0, -0.6)),
+      quaternionFromEulerZyx(vector3_t(0.4, std::numbers::pi / 2.0, 0.1)),
+      quaternionFromEulerZyx(vector3_t(1.1, -std::numbers::pi / 2.0, -0.6)),
       vector4_t(0.5, -0.5, 0.5, 0.5)};
   xis.push_back(-xis[2]);
   return xis;
@@ -83,19 +86,19 @@ std::vector<vector4_t> attitudes() {
 struct MomentumMap {
   matrix_t baseBlock;
   matrix_t jointColumns;
-  vector3_t com;
+  vector3_t posComRtWorldEwrtWorld;
 };
 
-MomentumMap momentumMapOf(PinocchioInterface& interface,
-                          const CentroidalModelInfo& info,
-                          const vector_t& q) {
+MomentumMap momentumMatrixOf(PinocchioInterface& interface,
+                             const CentroidalModelInfo& info,
+                             const vector_t& q) {
   updateCentroidalDynamics<scalar_t>(interface, info, q);
   const Eigen::Matrix<scalar_t, 6, Eigen::Dynamic>& momentumMatrix =
       getCentroidalMomentumMatrix<scalar_t>(interface);
   return MomentumMap{
       .baseBlock = momentumMatrix.leftCols<6>(),
       .jointColumns = momentumMatrix.rightCols(momentumMatrix.cols() - 6),
-      .com = interface.getData().com[0]};
+      .posComRtWorldEwrtWorld = interface.getData().com[0]};
 }
 
 class SrbdQuaternion : public ::testing::TestWithParam<ShippedCentroidalRobot> {
@@ -130,9 +133,9 @@ TEST_P(
     vector_t q(srbdInfo.configurationDim);
     q << vector3_t(0.3, -1.2, 0.85), xi, nominalJoints;
     const MomentumMap fullMap =
-        momentumMapOf(*full->pinocchioInterface, *full->info, q);
+        momentumMatrixOf(*full->pinocchioInterface, *full->info, q);
     const MomentumMap srbdMap =
-        momentumMapOf(*srbd->pinocchioInterface, srbdInfo, q);
+        momentumMatrixOf(*srbd->pinocchioInterface, srbdInfo, q);
     const scalar_t scale =
         std::max(1.0, fullMap.baseBlock.cwiseAbs().maxCoeff());
     EXPECT_LT((srbdMap.baseBlock - fullMap.baseBlock).cwiseAbs().maxCoeff(),
@@ -142,27 +145,33 @@ TEST_P(
         << fullMap.baseBlock;
     EXPECT_EQ(srbdMap.jointColumns, matrix_t::Zero(6, joints))
         << "the single rigid body has no joint columns";
-    EXPECT_LT((srbdMap.com - fullMap.com).cwiseAbs().maxCoeff(), 1.0e-12);
+    EXPECT_LT((srbdMap.posComRtWorldEwrtWorld - fullMap.posComRtWorldEwrtWorld)
+                  .cwiseAbs()
+                  .maxCoeff(),
+              1.0e-12);
     // The closed form of the port: A_b = [[m I, m [R r_nom]x R], [0, R I_nom]].
-    const matrix3_t rotation = quaternion_t(xi).normalized().toRotationMatrix();
-    const vector3_t offset = rotation * srbdInfo.nomPosBaseRtComEwrtBase;
+    const matrix3_t rotmatBaseRtWorld =
+        quaternion_t(xi).normalized().toRotationMatrix();
+    const vector3_t posBaseRtComEwrtWorld =
+        rotmatBaseRtWorld * srbdInfo.nomPosBaseRtComEwrtBase;
     matrix3_t skew;
-    skew << 0.0, -offset.z(), offset.y(), offset.z(), 0.0, -offset.x(),
-        -offset.y(), offset.x(), 0.0;
+    skew << 0.0, -posBaseRtComEwrtWorld.z(), posBaseRtComEwrtWorld.y(),
+        posBaseRtComEwrtWorld.z(), 0.0, -posBaseRtComEwrtWorld.x(),
+        -posBaseRtComEwrtWorld.y(), posBaseRtComEwrtWorld.x(), 0.0;
     matrix_t closedForm = matrix_t::Zero(6, 6);
     closedForm.topLeftCorner<3, 3>() =
         srbdInfo.robotMass * matrix3_t::Identity();
-    closedForm.topRightCorner<3, 3>() = srbdInfo.robotMass * skew * rotation;
+    closedForm.topRightCorner<3, 3>() =
+        srbdInfo.robotMass * skew * rotmatBaseRtWorld;
     closedForm.bottomRightCorner<3, 3>() =
-        rotation * srbdInfo.centroidalInertiaNominal;
+        rotmatBaseRtWorld * srbdInfo.nomInertiaComEwrtBase;
     EXPECT_LT((srbdMap.baseBlock - closedForm).cwiseAbs().maxCoeff(),
               1.0e-12 * scale);
     // Regular at a pitch of 90 degrees, where the Euler root's I_G T_W(Theta)
     // is singular: R I_nom has I_nom's condition number at every attitude.
     const Eigen::JacobiSVD<matrix3_t> angular(
         srbdMap.baseBlock.bottomRightCorner<3, 3>());
-    const Eigen::JacobiSVD<matrix3_t> nominal(
-        srbdInfo.centroidalInertiaNominal);
+    const Eigen::JacobiSVD<matrix3_t> nominal(srbdInfo.nomInertiaComEwrtBase);
     const scalar_t angularCondition =
         angular.singularValues()(0) / angular.singularValues()(2);
     const scalar_t nominalCondition =
@@ -184,9 +193,9 @@ TEST_P(SrbdQuaternion, AwayFromTheNominalPostureTheFullModelDiffers) {
   vector_t q = srbdInfo.qPinocchioNominal;
   q.tail(joints) += vector_t::Constant(joints, 0.3);
   const MomentumMap fullMap =
-      momentumMapOf(*full->pinocchioInterface, *full->info, q);
+      momentumMatrixOf(*full->pinocchioInterface, *full->info, q);
   const MomentumMap srbdMap =
-      momentumMapOf(*srbd->pinocchioInterface, srbdInfo, q);
+      momentumMatrixOf(*srbd->pinocchioInterface, srbdInfo, q);
   EXPECT_GT((srbdMap.baseBlock - fullMap.baseBlock).cwiseAbs().maxCoeff(),
             1.0e-3)
       << "the bent joints move the full model's inertia";
@@ -208,7 +217,7 @@ vector_t centroidalFlowOf(PinocchioInterface& interface,
   updateCentroidalDynamics<scalar_t>(interface, info,
                                      mapping.getPinocchioJointPosition(state));
   vector_t flow(info.stateDim);
-  centroidal_model::getMnormCmomComRtWorldEwrtWorld(flow, info) =
+  centroidal_model::getMnormRateCmomComRtWorldEwrtWorld(flow, info) =
       getMnormRateCmomComRtWorldEwrtWorld<scalar_t>(interface, info, input);
   centroidal_model::configurationDerivative(flow, info) =
       computeConfigurationDerivative<scalar_t>(
@@ -305,6 +314,29 @@ TEST_P(
               1.0e-6)
         << "the full model's joint columns are its own";
   }
+}
+
+/** The derivative accessor writes the state rows of the normalized momentum,
+ * the first kCentroidalMomentumDim, and no other. */
+TEST_P(SrbdQuaternion, TheMomentumRateAccessorWritesTheMomentumRows) {
+  absl::StatusOr<LoadedCentroidalRobot> srbd = loadShippedCentroidalRobot(
+      GetParam(), /*centroidalModel=*/"single_rigid_body_dynamics");
+  ASSERT_TRUE(srbd.ok()) << srbd.status();
+  const CentroidalModelInfo& info = *srbd->info;
+  vector_t stateDerivative = vector_t::Zero(info.stateDim);
+  centroidal_model::getMnormRateCmomComRtWorldEwrtWorld(stateDerivative, info) =
+      vector6_t::Constant(1.0);
+  EXPECT_EQ(stateDerivative.head<centroidal_model::kCentroidalMomentumDim>(),
+            vector6_t::Constant(1.0));
+  EXPECT_TRUE(
+      stateDerivative
+          .tail(info.stateDim - centroidal_model::kCentroidalMomentumDim)
+          .isZero());
+  EXPECT_EQ(
+      centroidal_model::getMnormRateCmomComRtWorldEwrtWorld(stateDerivative,
+                                                            info),
+      centroidal_model::getMnormCmomComRtWorldEwrtWorld(stateDerivative, info))
+      << "the same rows as the state's normalized momentum";
 }
 
 INSTANTIATE_TEST_SUITE_P(

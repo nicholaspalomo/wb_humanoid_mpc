@@ -34,7 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <string>
 #include <thread>
 
 #include "absl/base/nullability.h"

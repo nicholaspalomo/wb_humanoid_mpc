@@ -83,32 +83,35 @@ class HlipStandingBlend {
    * velocity under the threshold metric P.
    *
    * The paper writes v_b for the base velocity, and the thresholds used to be
-   * named for it, but what the planner actually measures is the center-of-mass
-   * velocity (ContactPlannerInput::comVelocity, filled from
-   * ContactPlanningReferenceManager::computeComState). The names follow the
-   * quantity rather than the paper.
+   * named for it. The planner measures ContactPlannerInput::
+   * proxyLinvelComRtWorldEwrtWorldXy, which ContactPlanningReferenceManager
+   * fills with getProxyLinvelComRtWorldEwrtWorld(): the center-of-mass
+   * velocity on the centroidal model, and on the whole body the base
+   * velocity, which stands in for it (the `proxy` word). The names follow the
+   * LIP's quantity rather than the paper.
    *
    * This class takes whatever velocity it is given. HlipContactPlanner passes
-   * HlipContactPlanner::blendVelocity(): the measured velocity with its lateral
-   * component taken relative to the sway of stepping in place, because the raw
-   * lateral sway of the zero-command gait alone sits far above the shipped half
-   * point and would never let a robot that has walked stand again.
+   * HlipContactPlanner::computeBlendLinvelComRtWorldEwrtHeadingXy(): the
+   * measured velocity with its lateral component taken relative to the sway of
+   * stepping in place, because the raw lateral sway of the zero-command gait
+   * alone sits far above the shipped half point and would never let a robot
+   * that has walked stand again.
    */
-  scalar_t activity(const vector2_t& velocityCommand,
-                    scalar_t yawRateCommand,
-                    const vector2_t& comVelocity) const;
+  scalar_t activity(const vector2_t& cmdLinvelBaseRtWorldEwrtHeadingXy,
+                    scalar_t cmdRateYawBaseRtWorld,
+                    const vector2_t& linvelComRtWorldEwrtHeadingXy) const;
 
   /** alpha in (0, 1): 0 stands still, 1 walks the full H-LIP gait. */
-  scalar_t weight(const vector2_t& velocityCommand,
-                  scalar_t yawRateCommand,
-                  const vector2_t& comVelocity) const;
+  scalar_t weight(const vector2_t& cmdLinvelBaseRtWorldEwrtHeadingXy,
+                  scalar_t cmdRateYawBaseRtWorld,
+                  const vector2_t& linvelComRtWorldEwrtHeadingXy) const;
 
   /** Whether the blend asks for a stepping gait rather than a standing one. */
-  bool isWalking(const vector2_t& velocityCommand,
-                 scalar_t yawRateCommand,
-                 const vector2_t& comVelocity) const {
-    return weight(velocityCommand, yawRateCommand, comVelocity) >=
-           kHalfPointWeight;
+  bool isWalking(const vector2_t& cmdLinvelBaseRtWorldEwrtHeadingXy,
+                 scalar_t cmdRateYawBaseRtWorld,
+                 const vector2_t& linvelComRtWorldEwrtHeadingXy) const {
+    return weight(cmdLinvelBaseRtWorldEwrtHeadingXy, cmdRateYawBaseRtWorld,
+                  linvelComRtWorldEwrtHeadingXy) >= kHalfPointWeight;
   }
 
   const HlipBlendParameters& getParameters() const { return parameters_; }

@@ -40,10 +40,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 HardwareFallRecovery::HardwareFallRecovery(
-    scalar_t maxBaseTiltAngle,
+    scalar_t maxTiltangleBaseRtWorld,
     RobotBackend* absl_nonnull backend,
     RealtimeEventLog* absl_nullable eventLog)
-    : maxBaseTiltAngle_(maxBaseTiltAngle),
+    : maxTiltangleBaseRtWorld_(maxTiltangleBaseRtWorld),
       backend_(backend),
       eventLog_(eventLog) {}
 
@@ -52,22 +52,24 @@ FallRecovery::Cycle HardwareFallRecovery::update(
     const std::vector<scalar_t>& /*nominalJointPositions*/,
     std::string& currentModeName) {
   Cycle cycle;
-  if (!(maxBaseTiltAngle_ > 0.0) || !backend_->acceptsJointAction()) {
+  if (!(maxTiltangleBaseRtWorld_ > 0.0) || !backend_->acceptsJointAction()) {
     return cycle;
   }
-  const scalar_t tilt =
-      SimFallRecovery::baseTiltAngle(robotState.getQuatBaseRtWorld());
-  if (!(tilt > maxBaseTiltAngle_)) {
+  const scalar_t measTiltangleBaseRtWorld =
+      SimFallRecovery::computeTiltangleBaseRtWorld(
+          robotState.getQuatBaseRtWorld());
+  if (!(measTiltangleBaseRtWorld > maxTiltangleBaseRtWorld_)) {
     return cycle;
   }
   backend_->enterSafeState();
   currentModeName.assign(control_mode::kZeroJointTorque.data(),
                          control_mode::kZeroJointTorque.size());
   cycle.modeChanged = true;
-  cycle.tilt = tilt;
+  cycle.tiltangleBaseRtWorld = measTiltangleBaseRtWorld;
   if (eventLog_ != nullptr) {
     eventLog_->post(RealtimeEventCode::kFallTorquesOff, /*detail=*/0,
-                    /*text=*/{}, tilt, maxBaseTiltAngle_);
+                    /*text=*/{}, measTiltangleBaseRtWorld,
+                    maxTiltangleBaseRtWorld_);
   }
   return cycle;
 }

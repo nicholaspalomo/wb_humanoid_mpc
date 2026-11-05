@@ -45,7 +45,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 #include "ocs2_core/control/ControllerBase.h"
 #include "ocs2_core/manifold/StateManifold.h"
-#include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/MPC_BASE.h"
 #include "ocs2_mpc/MPC_Settings.h"
@@ -56,6 +55,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_oc/oc_data/ProblemMetrics.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 #include "ocs2_oc/oc_solver/SolverBase.h"
+#include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
 #include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
 
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"

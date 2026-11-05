@@ -69,7 +69,9 @@ class FakeApp:
         )
         self.reference_file_polls = 0
         self.tuning_files_polls = 0
-        self.default_pelvis_height = config_files.DEFAULT_PELVIS_HEIGHT
+        self.nom_pos_base_rt_surface_ewrt_world_z = (
+            config_files.NOM_POS_BASE_RT_SURFACE_EWRT_WORLD_Z
+        )
         self._publishes_walking_commands = True
 
     def set_fsm_command_callback(self, callback) -> None:
@@ -78,7 +80,7 @@ class FakeApp:
     def update_fsm_state(self, message) -> None:
         self.states.append(message)
 
-    def set_knob_positions(self, message) -> None:
+    def set_knob_deflections(self, message) -> None:
         self.knobs.append(message)
         self.sticks = message
 
@@ -100,13 +102,13 @@ class FakeApp:
     def set_publishes_walking_commands(self, value: bool) -> None:
         self._publishes_walking_commands = value
 
-    def center_velocity_sticks(self) -> None:
+    def center_walking_sticks(self) -> None:
         self.sticks = operator_bus.walking_velocity_command(
-            0.0, 0.0, 0.0, self.sticks.cmd_pos_base_rt_world_ewrt_world_z
+            0.0, 0.0, 0.0, self.sticks.cmd_pos_base_rt_surface_ewrt_world_z
         )
 
     def slider_height(self) -> float:
-        return self.sticks.cmd_pos_base_rt_world_ewrt_world_z
+        return self.sticks.cmd_pos_base_rt_surface_ewrt_world_z
 
 
 def _as_app(app: FakeApp) -> base_velocity_controller_gui.App:
@@ -121,14 +123,14 @@ class FakeGamepad:
         self.connected = connected
         self.command = command
         self.ticks = 0
-        self.pelvis_height_targets: list[float] = []
+        self.requested_heights: list[float] = []
 
     def tick(self):
         self.ticks += 1
         return self.command if self.connected else None
 
-    def set_pelvis_height_target(self, target: float) -> None:
-        self.pelvis_height_targets.append(target)
+    def set_cmd_pos_base_rt_surface_ewrt_world_z(self, target: float) -> None:
+        self.requested_heights.append(target)
 
 
 class TestOperatorGuiTick(unittest.TestCase):
@@ -158,7 +160,8 @@ class TestOperatorGuiTick(unittest.TestCase):
         )
         gui.tick()
         self.assertEqual(
-            self._walking_commands()[-1].cmd_pos_base_rt_world_ewrt_world_z, 0.6
+            self._walking_commands()[-1].cmd_pos_base_rt_surface_ewrt_world_z,
+            0.6,
         )
 
     def test_a_connected_controller_drives_the_command_and_the_sticks(self):
@@ -233,10 +236,14 @@ class TestOperatorGuiTick(unittest.TestCase):
         gui.tick()
         # The deflection must not stay: the on-screen sticks were centered.
         last = self._walking_commands()[-1]
-        self.assertEqual(last.cmd_linvel_base_rt_world_ewrt_heading_x, 0.0)
-        self.assertEqual(last.cmd_linvel_base_rt_world_ewrt_heading_y, 0.0)
-        self.assertEqual(last.cmd_angvel_base_rt_world_ewrt_world_z, 0.0)
-        self.assertAlmostEqual(last.cmd_pos_base_rt_world_ewrt_world_z, 0.8)
+        self.assertEqual(
+            last.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x, 0.0
+        )
+        self.assertEqual(
+            last.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y, 0.0
+        )
+        self.assertEqual(last.cmd_lnorm_angvel_base_rt_world_ewrt_world_z, 0.0)
+        self.assertAlmostEqual(last.cmd_pos_base_rt_surface_ewrt_world_z, 0.8)
 
     def test_a_controller_that_connects_starts_from_the_slider_height(self):
         controller_command = operator_bus.walking_velocity_command(
@@ -248,13 +255,13 @@ class TestOperatorGuiTick(unittest.TestCase):
             0.0, 0.0, 0.0, 0.7405
         )
         gui.tick()
-        self.assertEqual(gamepad.pelvis_height_targets, [])
+        self.assertEqual(gamepad.requested_heights, [])
         gamepad.connected = True
         gui.tick()
         # Seeded once, on the tick it connected, from the slider; not on the next ticks.
-        self.assertEqual(gamepad.pelvis_height_targets, [0.7405])
+        self.assertEqual(gamepad.requested_heights, [0.7405])
         gui.tick()
-        self.assertEqual(gamepad.pelvis_height_targets, [0.7405])
+        self.assertEqual(gamepad.requested_heights, [0.7405])
 
     def test_a_moved_default_moves_the_controllers_target(self):
         controller_command = operator_bus.walking_velocity_command(
@@ -263,13 +270,13 @@ class TestOperatorGuiTick(unittest.TestCase):
         gamepad = FakeGamepad(connected=True, command=controller_command)
         gui = self._gui(gamepad)
         gui.tick()
-        self.assertEqual(len(gamepad.pelvis_height_targets), 1)
-        self.app.default_pelvis_height = 0.85
+        self.assertEqual(len(gamepad.requested_heights), 1)
+        self.app.nom_pos_base_rt_surface_ewrt_world_z = 0.85
         self.app.sticks = operator_bus.walking_velocity_command(
             0.0, 0.0, 0.0, 0.86
         )
         gui.tick()
-        self.assertEqual(gamepad.pelvis_height_targets[-1], 0.86)
+        self.assertEqual(gamepad.requested_heights[-1], 0.86)
 
     def test_unticking_the_walking_commands_checkbox_sends_one_stop_command(
         self,
@@ -281,19 +288,28 @@ class TestOperatorGuiTick(unittest.TestCase):
         gui.tick()
         self.assertEqual(len(self._walking_commands()), 2)
         stop = self._walking_commands()[-1]
-        self.assertEqual(stop.cmd_linvel_base_rt_world_ewrt_heading_x, 0.0)
-        self.assertEqual(stop.cmd_linvel_base_rt_world_ewrt_heading_y, 0.0)
-        self.assertEqual(stop.cmd_angvel_base_rt_world_ewrt_world_z, 0.0)
+        self.assertEqual(
+            stop.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x, 0.0
+        )
+        self.assertEqual(
+            stop.cmd_lnorm_linvel_base_rt_world_ewrt_heading_y, 0.0
+        )
+        self.assertEqual(stop.cmd_lnorm_angvel_base_rt_world_ewrt_world_z, 0.0)
         gui.tick()
         # Nothing more is published while unticked.
         self.assertEqual(len(self._walking_commands()), 2)
 
     def test_a_moved_default_keeps_the_operators_offset(self):
         self.assertEqual(
-            base_velocity_controller_gui.moved_pelvis_height(0.8, 0.8, 0.9), 0.9
+            base_velocity_controller_gui.moved_cmd_pos_base_rt_surface_ewrt_world_z(
+                0.8, 0.8, 0.9
+            ),
+            0.9,
         )
         self.assertAlmostEqual(
-            base_velocity_controller_gui.moved_pelvis_height(0.75, 0.8, 0.9),
+            base_velocity_controller_gui.moved_cmd_pos_base_rt_surface_ewrt_world_z(
+                0.75, 0.8, 0.9
+            ),
             0.85,
         )
 
@@ -371,7 +387,7 @@ class TestCommandLine(unittest.TestCase):
         self.assertEqual(args.network_config, "config/ipc/network.textproto")
         self.assertEqual(args.ipc_node, "operator")
         self.assertEqual(args.task_file, "")
-        self.assertIsNone(args.default_pelvis_height)
+        self.assertIsNone(args.nom_pos_base_rt_surface_ewrt_world_z)
         self.assertEqual(args.urdf_file, "")
         self.assertEqual(args.walking_commands, "publish")
         args = base_velocity_controller_gui.build_parser().parse_args(
@@ -386,7 +402,7 @@ class TestCommandLine(unittest.TestCase):
             (args.task_file, args.reference_file, args.pd_gains_file),
             ("t.textproto", "r.textproto", "p.textproto"),
         )
-        self.assertAlmostEqual(args.default_pelvis_height, 0.7)
+        self.assertAlmostEqual(args.nom_pos_base_rt_surface_ewrt_world_z, 0.7)
 
 
 @operator_test_support.requires_display
@@ -422,17 +438,19 @@ class TestTheWindowOnTheBus(unittest.TestCase):
         )
 
     def test_the_sticks_are_the_walking_command(self):
-        self.app.joystick_left.set_position(0.5, 0.0)
+        self.app.joystick_left.set_deflection(0.5, 0.0)
         self.gui.tick()
         command = self.bus.messages_on(
             topics.OPERATOR_WALKING_VELOCITY_COMMAND
         )[-1]
         self.assertAlmostEqual(
-            command.cmd_linvel_base_rt_world_ewrt_heading_x,
+            command.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x,
             self.app.joystick_left.x_norm,
         )
-        self.assertGreater(command.cmd_linvel_base_rt_world_ewrt_heading_x, 0.0)
-        self.assertGreater(command.cmd_pos_base_rt_world_ewrt_world_z, 0.0)
+        self.assertGreater(
+            command.cmd_lnorm_linvel_base_rt_world_ewrt_heading_x, 0.0
+        )
+        self.assertGreater(command.cmd_pos_base_rt_surface_ewrt_world_z, 0.0)
 
     def test_the_mode_selector_and_the_gantry_checkbox_send_fsm_commands(self):
         self.app.fsm_mode_var.set("JOINT_PD")
@@ -497,7 +515,7 @@ class TestTheWindowOnTheBus(unittest.TestCase):
 
 @operator_test_support.requires_display
 class TestTheDefaultPelvisHeightFollowsTheReferenceFile(unittest.TestCase):
-    """The height slider centers on the reference file's nom_pos_base_rt_world_ewrt_world_z, also after the file changed."""
+    """The height slider centers on the reference file's nom_pos_base_rt_surface_ewrt_world_z, also after the file changed."""
 
     def setUp(self):
         directory = tempfile.mkdtemp()
@@ -515,20 +533,20 @@ class TestTheDefaultPelvisHeightFollowsTheReferenceFile(unittest.TestCase):
         )
         self.app.withdraw()
         self.addCleanup(self.app.destroy)
-        self.shipped = config_files.read_default_pelvis_height(
+        self.shipped = config_files.read_nom_pos_base_rt_surface_ewrt_world_z(
             self.reference_file
         )
-        self.app.set_default_pelvis_height(self.shipped)
+        self.app.set_nom_pos_base_rt_surface_ewrt_world_z(self.shipped)
 
     def _commanded_height(self) -> float:
         return (
-            self.app.get_walking_command_msg().cmd_pos_base_rt_world_ewrt_world_z
+            self.app.get_walking_command_msg().cmd_pos_base_rt_surface_ewrt_world_z
         )
 
     def _save_default(self, height: float) -> None:
         tab = self.app.command_limits_tab
         assert tab.reference is not None
-        tab.reference.set("nom_pos_base_rt_world_ewrt_world_z", height)
+        tab.reference.set("nom_pos_base_rt_surface_ewrt_world_z", height)
         self.assertTrue(tab.save())
 
     def test_a_saved_default_moves_the_next_command(self):
@@ -555,8 +573,8 @@ class TestTheDefaultPelvisHeightFollowsTheReferenceFile(unittest.TestCase):
         with open(self.reference_file, encoding="utf-8") as file:
             text = file.read()
         edited = text.replace(
-            f"nom_pos_base_rt_world_ewrt_world_z: {self.shipped:g}",
-            f"nom_pos_base_rt_world_ewrt_world_z: {self.shipped - 0.05:g}",
+            f"nom_pos_base_rt_surface_ewrt_world_z: {self.shipped:g}",
+            f"nom_pos_base_rt_surface_ewrt_world_z: {self.shipped - 0.05:g}",
         )
         self.assertNotEqual(edited, text, "the edit changed nothing")
         with open(self.reference_file, "w", encoding="utf-8") as file:
@@ -568,7 +586,7 @@ class TestTheDefaultPelvisHeightFollowsTheReferenceFile(unittest.TestCase):
         )
 
     def test_a_default_the_command_line_set_stays(self):
-        self.app.set_default_pelvis_height(0.7)
+        self.app.set_nom_pos_base_rt_surface_ewrt_world_z(0.7)
         self.app.follows_reference_file_default = False
         self._save_default(self.shipped - 0.1)
         self.assertAlmostEqual(self._commanded_height(), 0.7, places=6)

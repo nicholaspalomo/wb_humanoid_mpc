@@ -68,7 +68,7 @@ _TASK_HEADER = (
 TASK = (
     _TASK_HEADER
     + """# The ground.
-terrain_height: 0.0  # [m] flat
+pos_surface_rt_world_ewrt_world_z: 0.0  # [m] flat
 state_weights {
   scaling: 85  # the overall scale
   joint_positions { joint: "back_bkz" value: 5 }  # the back
@@ -113,9 +113,12 @@ class TestTunedFile(TempFileTestCase):
         self.assertIn(
             "state_weights.joint_positions[joint=back_bkz].value", paths
         )
-        self.assertIn("terrain_height", paths)
+        self.assertIn("pos_surface_rt_world_ewrt_world_z", paths)
         # A block the file leaves out is there with its defaults, so that a slider can insert it.
-        self.assertIn("swing_trajectory_config.swing_height", paths)
+        self.assertIn(
+            "swing_trajectory_config.apex_pos_foot_rt_swingend_ewrt_world_z",
+            paths,
+        )
         rendered = {spec.path for spec in self.task.rendered()}
         self.assertNotIn(
             "enable_online_tuning", rendered
@@ -140,7 +143,10 @@ class TestTunedFile(TempFileTestCase):
         self.task.set("state_weights.scaling", 85.0)
         self.assertEqual(self.task.changes(), {})
         # A default left at the default is not written into the file either.
-        self.task.set("swing_trajectory_config.swing_height", 0.1)
+        self.task.set(
+            "swing_trajectory_config.apex_pos_foot_rt_swingend_ewrt_world_z",
+            0.1,
+        )
         self.assertEqual(self.task.changes(), {})
         self.assertFalse(self.task.edited().changed)
 
@@ -160,15 +166,18 @@ class TestTunedFile(TempFileTestCase):
         self.task.set(
             "state_weights.joint_positions[joint=l_leg_kny].value", 2.5
         )
-        self.task.set("terrain_height", 0.02)
+        self.task.set("pos_surface_rt_world_ewrt_world_z", 0.02)
         self.task.set(
-            "swing_trajectory_config.swing_height", 0.12
+            "swing_trajectory_config.apex_pos_foot_rt_swingend_ewrt_world_z",
+            0.12,
         )  # an absent block: inserted
         result = self.task.save()
         text = self.read(self.path)
         self.assertEqual(text, result.text)
         self.assertIn('joint_positions { joint: "l_leg_kny" value: 2.5 }', text)
-        self.assertIn("terrain_height: 0.02  # [m] flat", text)
+        self.assertIn(
+            "pos_surface_rt_world_ewrt_world_z: 0.02  # [m] flat", text
+        )
         for kept in (
             "# The ground.",
             '  joint_positions { joint: "back_bkz" value: 5 }  # the back',
@@ -178,9 +187,14 @@ class TestTunedFile(TempFileTestCase):
             self.assertIn(kept, text)
         # The saved file is the checkpoint now: nothing is changed, and its values are the saved ones.
         self.assertEqual(self.task.changes(), {})
-        self.assertEqual(self.task.saved_value("terrain_height"), 0.02)
         self.assertEqual(
-            self.task.saved_value("swing_trajectory_config.swing_height"), 0.12
+            self.task.saved_value("pos_surface_rt_world_ewrt_world_z"), 0.02
+        )
+        self.assertEqual(
+            self.task.saved_value(
+                "swing_trajectory_config.apex_pos_foot_rt_swingend_ewrt_world_z"
+            ),
+            0.12,
         )
         # The first save keeps the file as it was.
         self.assertEqual(self.read(f"{self.path}.bak"), TASK)
@@ -191,9 +205,11 @@ class TestTunedFile(TempFileTestCase):
         self.assertFalse(os.path.exists(f"{self.path}.bak"))
 
     def test_reset_returns_to_the_checkpoint(self):
-        self.task.set("terrain_height", 0.5)
+        self.task.set("pos_surface_rt_world_ewrt_world_z", 0.5)
         self.task.reset()
-        self.assertEqual(self.task.value("terrain_height"), 0.0)
+        self.assertEqual(
+            self.task.value("pos_surface_rt_world_ewrt_world_z"), 0.0
+        )
         self.assertFalse(self.task.edited().changed)
 
     def test_set_refuses_a_value_below_the_minimum(self):
@@ -231,7 +247,7 @@ class TestTunedFile(TempFileTestCase):
 
     def test_a_file_that_does_not_parse_is_refused_with_its_position(self):
         path = self.write(
-            "bad.textproto", f"{_TASK_HEADER}terrainHeight: 0.1\n"
+            "bad.textproto", f"{_TASK_HEADER}posSurfaceRtWorldEwrtWorldZ: 0.1\n"
         )
         with self.assertRaisesRegex(
             tuned_file.TunedFileError, r"bad.textproto:3:"
@@ -250,7 +266,10 @@ class TestTunedFile(TempFileTestCase):
             "state_weights",
         )
         self.assertEqual(
-            tuned_file.group_of(self.task.spec("terrain_height")), ""
+            tuned_file.group_of(
+                self.task.spec("pos_surface_rt_world_ewrt_world_z")
+            ),
+            "",
         )
 
     def test_refresh_unchanged_file_returns_none(self):
@@ -259,7 +278,7 @@ class TestTunedFile(TempFileTestCase):
     def test_refresh_picks_up_editors_change_and_preserves_operator_change(
         self,
     ):
-        self.task.set("terrain_height", 0.05)
+        self.task.set("pos_surface_rt_world_ewrt_world_z", 0.05)
         edited_text = TASK.replace("scaling: 85", "scaling: 95.0")
         self.write(self.path, edited_text)
 
@@ -267,8 +286,12 @@ class TestTunedFile(TempFileTestCase):
         self.assertEqual(dropped, {})
         self.assertEqual(self.task.saved_value("state_weights.scaling"), 95.0)
         self.assertEqual(self.task.value("state_weights.scaling"), 95.0)
-        self.assertEqual(self.task.value("terrain_height"), 0.05)
-        self.assertEqual(self.task.saved_value("terrain_height"), 0.0)
+        self.assertEqual(
+            self.task.value("pos_surface_rt_world_ewrt_world_z"), 0.05
+        )
+        self.assertEqual(
+            self.task.saved_value("pos_surface_rt_world_ewrt_world_z"), 0.0
+        )
 
     def test_refresh_operator_change_wins_on_conflict_unless_editor_matched_it(
         self,
@@ -288,16 +311,20 @@ class TestTunedFile(TempFileTestCase):
         self.assertEqual(self.task.saved_value("state_weights.scaling"), 100.0)
 
     def test_refresh_unparsable_file_keeps_checkpoint_and_changes(self):
-        self.task.set("terrain_height", 0.05)
+        self.task.set("pos_surface_rt_world_ewrt_world_z", 0.05)
         self.write(self.path, f"{_TASK_HEADER}unrecognizedField: 999\n")
         self.assertIsNone(self.task.refresh())
-        self.assertEqual(self.task.value("terrain_height"), 0.05)
-        self.assertEqual(self.task.saved_value("terrain_height"), 0.0)
+        self.assertEqual(
+            self.task.value("pos_surface_rt_world_ewrt_world_z"), 0.05
+        )
+        self.assertEqual(
+            self.task.saved_value("pos_surface_rt_world_ewrt_world_z"), 0.0
+        )
 
     def test_a_file_with_invalid_utf8_is_refused_with_its_position(self):
         bad_path = os.path.join(self.tmpdir, "invalid_utf8.textproto")
         with open(bad_path, "wb") as handle:
-            handle.write(b"terrain_height: 0.1\n\xff\xfe")
+            handle.write(b"pos_surface_rt_world_ewrt_world_z: 0.1\n\xff\xfe")
         with self.assertRaisesRegex(
             tuned_file.TunedFileError, r":1:1: cannot decode as UTF-8:"
         ):
@@ -401,13 +428,13 @@ class TestEveryFormulationAppliesItsHotFieldsLive(unittest.TestCase):
                     ),
                     [],
                 )
-        torque = [
+        joint_torque_specs = [
             spec
             for spec in whole_body.rendered()
             if spec.path.startswith("joint_torque_weights")
         ]
-        self.assertTrue(torque)
-        for spec in torque:
+        self.assertTrue(joint_torque_specs)
+        for spec in joint_torque_specs:
             with self.subTest(path=spec.path):
                 self.assertNotIn(
                     "not applicable",
@@ -462,7 +489,9 @@ class TestParameterRows(TempFileTestCase):
         return row
 
     def test_each_kind_gets_its_widget(self):
-        self.assertIsInstance(self._row("terrain_height"), slider_row.SliderRow)
+        self.assertIsInstance(
+            self._row("pos_surface_rt_world_ewrt_world_z"), slider_row.SliderRow
+        )
         self.assertIsInstance(
             self._row("mpc.cold_start"), parameter_rows.CheckRow
         )
@@ -516,7 +545,9 @@ class TestParameterRows(TempFileTestCase):
 
     def test_the_label_says_restart_and_the_unit(self):
         self.assertIn("(restart", self._row("costs").name)
-        self.assertIn("(m)", self._row("terrain_height").name)
+        self.assertIn(
+            "(m)", self._row("pos_surface_rt_world_ewrt_world_z").name
+        )
         # The field's name, without the comment its line ends in ("# the overall scale").
         self.assertEqual(self._row("state_weights.scaling").name, "scaling")
 
@@ -664,7 +695,7 @@ class TestSliderRowEntry(unittest.TestCase):
 class TestUnsetParameters(TempFileTestCase):
     """A parameter the file leaves unset (no value, no schema default) stays unset unless the operator gives it one."""
 
-    UNSET = "dcm_terminal_cost.com_height"
+    UNSET = "dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z"
 
     def setUp(self):
         super().setUp()
@@ -709,12 +740,15 @@ class TestUnsetParameters(TempFileTestCase):
         row.set_value(0.9)
         self.assertEqual(self.task.changes(), {self.UNSET: 0.9})
         self.assertEqual(
-            self.task.edited().message.dcm_terminal_cost.com_height, 0.9
+            self.task.edited().message.dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z,
+            0.9,
         )
         row.reset_to_default()
         self.assertEqual(self.task.changes(), {})
         self.assertFalse(
-            self.task.edited().message.dcm_terminal_cost.HasField("com_height")
+            self.task.edited().message.dcm_terminal_cost.HasField(
+                "nom_pos_com_rt_feetmean_ewrt_world_z"
+            )
         )
 
     def test_a_row_built_for_a_change_shows_it(self):
@@ -1071,7 +1105,7 @@ class TestTwoCopySave(TempFileTestCase):
     def test_the_task_files_save_sends_the_laptops_bytes(self):
         tab = self._mpc_tab()
         assert tab.task is not None
-        tab._on_any_change("terrain_height", 0.03)
+        tab._on_any_change("pos_surface_rt_world_ewrt_world_z", 0.03)
         self.assertTrue(tab.save())
         save = self._one_save()
         self._check_sent(
@@ -1080,7 +1114,7 @@ class TestTwoCopySave(TempFileTestCase):
             self._path("mpc", "task.textproto"),
             task_file_pb2.TaskFile,
         )
-        self.assertIn("terrain_height: 0.03", save.text)
+        self.assertIn("pos_surface_rt_world_ewrt_world_z: 0.03", save.text)
         self.assertEqual(
             self._status(tab), "Saved on the laptop · saving on the robot…"
         )
@@ -1095,7 +1129,7 @@ class TestTwoCopySave(TempFileTestCase):
         task_path = self._path("mpc", "task.textproto")
         with open(task_path, "rb") as handle:
             before = handle.read()
-        tab._on_any_change("terrain_height", 0.03)
+        tab._on_any_change("pos_surface_rt_world_ewrt_world_z", 0.03)
         with mock.patch.object(
             tab.contact_planning, "save", side_effect=OSError("disk full")
         ):
@@ -1215,11 +1249,11 @@ class TestTwoCopySave(TempFileTestCase):
 
     def test_a_failed_laptop_save_sends_nothing(self):
         tab = self._mpc_tab()
-        tab._on_any_change("terrain_height", 0.03)
+        tab._on_any_change("pos_surface_rt_world_ewrt_world_z", 0.03)
         task = self._path("mpc", "task.textproto")
         with open(task, "a", encoding="utf-8") as handle:
             handle.write(
-                "terrainHeight: 0.1\n"
+                "posSurfaceRtWorldEwrtWorldZ: 0.1\n"
             )  # an editor's mistake since the tab loaded the file
         self.assertFalse(tab.save())
         self.assertEqual(self._saves(), [])

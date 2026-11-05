@@ -43,12 +43,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/CostTermNames.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
+#include "humanoid_common_mpc/parameter_update/HotUpdateTarget.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
 
 namespace ocs2::humanoid {
@@ -77,16 +80,18 @@ struct TermWeights {
  */
 std::vector<std::string> carriedLinkCostTerms(const HotUpdateTarget& target) {
   std::vector<std::string> footTerms;
-  for (const std::string& footName : target.contactNames())
+  for (const std::string& footName : target.contactNames()) {
     footTerms.push_back(taskSpaceKinematicsCostName(footName));
+  }
   const std::string suffix = taskSpaceKinematicsCostName(/*name=*/"");
   std::vector<std::string> terms;
   for (const std::pair<const std::string, size_t>& term :
        target.runningProblem().costPtr->getTermNameMap()) {
     if (!absl::EndsWith(term.first, suffix)) continue;
     if (std::find(footTerms.begin(), footTerms.end(), term.first) !=
-        footTerms.end())
+        footTerms.end()) {
       continue;
+    }
     terms.push_back(term.first);
   }
   // The collection's map is unordered; the reports follow the names.
@@ -116,8 +121,10 @@ void reportStructuralChanges(const HotUpdateTarget& target,
   const std::vector<std::string> carried = carriedLinkCostTerms(target);
   if (carried.empty()) return;
   for (const TermWeights& entry : reloaded) {
-    if (std::find(carried.begin(), carried.end(), entry.term) != carried.end())
+    if (std::find(carried.begin(), carried.end(), entry.term) !=
+        carried.end()) {
       continue;
+    }
     target.reportNotApplied(
         absl::StrCat("the task_space_costs entry of ", entry.term),
         absl::FailedPreconditionError("the running problem carries no such "

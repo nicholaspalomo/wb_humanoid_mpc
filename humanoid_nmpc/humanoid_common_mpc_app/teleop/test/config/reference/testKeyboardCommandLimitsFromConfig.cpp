@@ -58,21 +58,21 @@ constexpr std::pair<absl::string_view, Field> kFields[] = {
      &mpc_config::ReferenceFile::cmd_max_linvel_base_rt_world_ewrt_heading_x},
     {"cmd_max_linvel_base_rt_world_ewrt_heading_y",
      &mpc_config::ReferenceFile::cmd_max_linvel_base_rt_world_ewrt_heading_y},
-    {"cmd_max_err_pos_base_rt_world_ewrt_world_z",
-     &mpc_config::ReferenceFile::cmd_max_err_pos_base_rt_world_ewrt_world_z},
+    {"cmd_max_err_pos_base_rt_surface_ewrt_world_z",
+     &mpc_config::ReferenceFile::cmd_max_err_pos_base_rt_surface_ewrt_world_z},
     {"cmd_max_angvel_base_rt_world_ewrt_world_z",
      &mpc_config::ReferenceFile::cmd_max_angvel_base_rt_world_ewrt_world_z},
-    {"nom_pos_base_rt_world_ewrt_world_z",
-     &mpc_config::ReferenceFile::nom_pos_base_rt_world_ewrt_world_z},
+    {"nom_pos_base_rt_surface_ewrt_world_z",
+     &mpc_config::ReferenceFile::nom_pos_base_rt_surface_ewrt_world_z},
 };
 
 mpc_config::ReferenceFile limitsFile() {
   mpc_config::ReferenceFile file;
   file.cmd_max_linvel_base_rt_world_ewrt_heading_x = 1.25;
   file.cmd_max_linvel_base_rt_world_ewrt_heading_y = 0.25;
-  file.cmd_max_err_pos_base_rt_world_ewrt_world_z = 0.5;
+  file.cmd_max_err_pos_base_rt_surface_ewrt_world_z = 0.5;
   file.cmd_max_angvel_base_rt_world_ewrt_world_z = 0.75;
-  file.nom_pos_base_rt_world_ewrt_world_z = 0.875;
+  file.nom_pos_base_rt_surface_ewrt_world_z = 0.875;
   return file;
 }
 
@@ -84,7 +84,7 @@ TEST(KeyboardCommandLimitsFromConfigTest, EachFieldReachesItsLimit) {
   EXPECT_EQ(limits->limits(1), 0.25);
   EXPECT_EQ(limits->limits(2), 0.5);
   EXPECT_EQ(limits->limits(3), 0.75);
-  EXPECT_EQ(limits->defaultBaseHeight, 0.875);
+  EXPECT_EQ(limits->nomPosBaseRtSurfaceEwrtWorldZ, 0.875);
 }
 
 TEST(KeyboardCommandLimitsFromConfigTest, EachFieldIsRequiredAndFinite) {
@@ -119,7 +119,7 @@ TEST(KeyboardCommandLimitsFromConfigTest, ALimitThatIsNotPositiveIsRefused) {
   }
   // The base height is a height, not a limit.
   mpc_config::ReferenceFile file = limitsFile();
-  file.nom_pos_base_rt_world_ewrt_world_z = 0.0;
+  file.nom_pos_base_rt_surface_ewrt_world_z = 0.0;
   EXPECT_TRUE(keyboardCommandLimitsFromConfig(file).ok());
 }
 

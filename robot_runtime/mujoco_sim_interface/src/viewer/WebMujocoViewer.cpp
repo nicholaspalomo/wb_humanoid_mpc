@@ -30,8 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/viewer/WebMujocoViewer.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
-#include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <optional>
@@ -54,12 +54,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Dimensions.h"
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/viewer/EglContext.h"
 #include "mujoco_sim_interface/viewer/EglLibrary.h"
 #include "mujoco_sim_interface/viewer/GlCapabilities.h"
 #include "mujoco_sim_interface/viewer/MujocoFrameRenderer.h"
 #include "mujoco_sim_interface/viewer/ViewerSettings.h"
 #include "mujoco_sim_interface/viewer/WebViewerOptions.h"
+#include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 #include "mujoco_sim_interface/visualization/VisualizationRegistry.h"
 #include "web_viewer/EncodedFrame.h"
 #include "web_viewer/JpegEncoder.h"
@@ -412,8 +414,9 @@ bool WebMujocoViewer::applyInputs() {
 }
 
 void WebMujocoViewer::applyInput(const web_viewer::ViewerInput& input) {
-  if (frameRenderer_ == nullptr)
+  if (frameRenderer_ == nullptr) {
     return;  // inputs are applied once the render thread is set up
+  }
   switch (input.type) {
     case web_viewer::ViewerInputType::kDrag:
       frameRenderer_->moveCamera(mouseAction(input.button, input.shift),
@@ -465,9 +468,10 @@ void WebMujocoViewer::applySettings(const web_viewer::ViewerInput& settings) {
 }
 
 absl::Status WebMujocoViewer::renderAndPublish(double elapsedRealTime) {
-  if (failNextFrameForTesting_.exchange(false))
+  if (failNextFrameForTesting_.exchange(false)) {
     return absl::InternalError(
         "the test failed this frame (WebMujocoViewerTestPeer)");
+  }
   const mjrRect viewport = {
       .left = 0, .bottom = 0, .width = width_, .height = height_};
   frameRenderer_->drawFrame(viewport, elapsedRealTime);
@@ -506,20 +510,21 @@ web_viewer::ViewerStatus WebMujocoViewer::currentStatus() const {
   status.camera.mode = camera.type == mjCAMERA_TRACKING
                            ? web_viewer::ViewerCameraMode::kTracking
                            : web_viewer::ViewerCameraMode::kFree;
-  status.camera.azimuth = camera.azimuth;
-  status.camera.elevation = camera.elevation;
-  status.camera.distance = camera.distance;
-  status.camera.lookat = {camera.lookat[kXAxisIndex],
-                          camera.lookat[kYAxisIndex],
-                          camera.lookat[kZAxisIndex]};
+  status.camera.azimuthCamfocusRtCamEwrtWorld = camera.azimuth;
+  status.camera.elevationCamfocusRtCamEwrtWorld = camera.elevation;
+  status.camera.distCamRtCamfocus = camera.distance;
+  status.camera.posCamfocusRtWorldEwrtWorld = {camera.lookat[kXAxisIndex],
+                                               camera.lookat[kYAxisIndex],
+                                               camera.lookat[kZAxisIndex]};
   status.render.width = width_;
   status.render.height = height_;
   status.render.targetFps = fps_;
   status.render.measuredFps = frameRenderer_->fps();
   status.render.quality = quality_;
-  for (int group = 0; group < kNumToggledGeomGroups; ++group)
+  for (int group = 0; group < kNumToggledGeomGroups; ++group) {
     status.geomGroups.push_back(frameRenderer_->options().geomgroup[group] !=
                                 0);
+  }
   for (const std::unique_ptr<MujocoVisualization>& visualization :
        frameRenderer_->visualizations()) {
     status.visualizations.push_back(

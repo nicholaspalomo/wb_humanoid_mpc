@@ -77,7 +77,8 @@ absl::StatusOr<RobotSupervisor> createHardwareSupervisor(
       *context.description, *context.initialState, context.commands,
       context.fsmStates, context.backend, context.eventLog);
   supervisor.fallRecovery = std::make_unique<HardwareFallRecovery>(
-      context.fallRecovery.maxBaseTiltAngle, context.backend, context.eventLog);
+      context.fallRecovery.maxTiltangleBaseRtWorld, context.backend,
+      context.eventLog);
   return supervisor;
 }
 

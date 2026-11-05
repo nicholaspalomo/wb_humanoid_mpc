@@ -150,9 +150,10 @@ TEST(EglContext, TwoContextsAreIndependentAndOneSurvivesTheOther) {
       << "the surviving context drew a uniform frame";
   EXPECT_EQ(differingPixelFraction(*afterwards, *secondFrame), 0.0)
       << "destroying one context changed what the other draws";
-  if (HasFailure())
+  if (HasFailure()) {
     writeTestImage("two_contexts_afterwards", *afterwards, /*width=*/320,
                    /*height=*/240);
+  }
 }
 
 TEST(EglLibrary, AMissingLibraryIsUnavailableAndSaysHowToGetOne) {

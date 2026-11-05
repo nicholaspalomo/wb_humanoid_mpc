@@ -37,8 +37,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/die_if_null.h"
 #include "absl/memory/memory.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 
@@ -84,13 +90,13 @@ StateInputReference StateInputQuadraticCost::getReference(
   // reason to prefer lifting either foot. Worse, spreading the weight over ALL
   // feet makes the nominal force on the foot that should be in the air half the
   // body weight, and the complementarity penalty's curvature on that foot's
-  // height is complementarityWeight * (f_n/f_ref)^2 / heightReference^2 - about
-  // 1950 at half body weight, against the swing height reference's 150. The
-  // foot then rises a few millimeters and stops, which is what was observed on
-  // hardware-like simulation when this was tried. The contact flags it rests on
-  // are now read inside getDesiredInput() rather than here, which is the only
-  // change: the reference is still derived from the mode schedule, node by
-  // node.
+  // height is complementarityWeight * (f_n/f_ref)^2 /
+  // scalePosContactRtSurfaceEwrtWorldZ^2 - about 1950 at half body weight,
+  // against the swing height reference's 150. The foot then rises a few
+  // millimeters and stops, which is what was observed on hardware-like
+  // simulation when this was tried. The contact flags it rests on are now read
+  // inside getDesiredInput() rather than here, which is the only change: the
+  // reference is still derived from the mode schedule, node by node.
   vector_t xNominal =
       referenceManagerPtr_->getDesiredState(targetTrajectories, state, time);
 

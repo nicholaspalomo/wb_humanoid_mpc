@@ -167,11 +167,13 @@ class SliderRow(ttk.Frame):
         self.entry.bind("<FocusOut>", self._on_entry_submit)
 
         # Scale slider
-        self.scale_var = tk.DoubleVar(value=self._position(self.current_value))
+        self.scale_var = tk.DoubleVar(
+            value=self._slider_coordinate(self.current_value)
+        )
         self.scale = ttk.Scale(
             self,
-            from_=self._position(self.min_val),
-            to=self._position(self.max_val),
+            from_=self._slider_coordinate(self.min_val),
+            to=self._slider_coordinate(self.max_val),
             orient="horizontal",
             variable=self.scale_var,
             command=self._on_scale_change,
@@ -181,15 +183,15 @@ class SliderRow(ttk.Frame):
         # Update text entry display
         self._show_current()
 
-    def _position(self, value: float) -> float:
+    def _slider_coordinate(self, value: float) -> float:
         """Where `value` sits on the slider: the value itself, or its decade on a logarithmic slider."""
         if not self.log_scale:
             return value
         return math.log10(max(value, self.min_val))
 
-    def _value_at(self, position: float) -> float:
-        """The value at a position of the slider (the inverse of _position()), whole for an integer row."""
-        value = 10.0**position if self.log_scale else position
+    def _value_at(self, coordinate: float) -> float:
+        """The value at a coordinate of the slider (the inverse of _slider_coordinate()), whole for an integer row."""
+        value = 10.0**coordinate if self.log_scale else coordinate
         return self._whole(value)
 
     def _whole(self, value: float) -> float:
@@ -228,7 +230,7 @@ class SliderRow(ttk.Frame):
         if self._updating:
             return
         try:
-            position = float(val_str)
+            coordinate = float(val_str)
         except ValueError:
             _LOGGER.warning(
                 "Slider %r reported %r, which is not a number; ignored.",
@@ -236,7 +238,7 @@ class SliderRow(ttk.Frame):
                 val_str,
             )
             return
-        val = self._value_at(position)
+        val = self._value_at(coordinate)
         if self.hard_min is not None and val < self.hard_min:
             val = self.hard_min
         self.current_value = val
@@ -282,7 +284,7 @@ class SliderRow(ttk.Frame):
         self._unset = False
         self._updating = True
         try:
-            self.scale_var.set(self._position(val))
+            self.scale_var.set(self._slider_coordinate(val))
             # Shows what was accepted, which differs from what was typed when it was clamped.
             self._format_entry(val)
         finally:
@@ -297,13 +299,13 @@ class SliderRow(ttk.Frame):
         """Widens the slider's range to take `value` (a typed or set value beyond it)."""
         if value > self.max_val:
             self.max_val = value * 1.5
-            self.scale.configure(to=self._position(self.max_val))
+            self.scale.configure(to=self._slider_coordinate(self.max_val))
         if value < self.min_val and not (self.log_scale and value <= 0.0):
             target = value * 1.5 if value < 0 else value
             if self.hard_min is not None and target < self.hard_min:
                 target = self.hard_min
             self.min_val = target
-            self.scale.configure(from_=self._position(self.min_val))
+            self.scale.configure(from_=self._slider_coordinate(self.min_val))
 
     def _update_highlight(self) -> None:
         if self.is_modified():
@@ -320,7 +322,7 @@ class SliderRow(ttk.Frame):
         self.current_value = self.default_value
         self._updating = True
         try:
-            self.scale_var.set(self._position(self.current_value))
+            self.scale_var.set(self._slider_coordinate(self.current_value))
             self._show_current()
         finally:
             self._updating = False
@@ -362,7 +364,7 @@ class SliderRow(ttk.Frame):
 
         self._updating = True
         try:
-            self.scale_var.set(self._position(self.current_value))
+            self.scale_var.set(self._slider_coordinate(self.current_value))
             self._format_entry(self.current_value)
         finally:
             self._updating = False

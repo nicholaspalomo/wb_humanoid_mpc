@@ -114,12 +114,14 @@ class G1Model {
     observation.state = initialState_;
     // Moved along x, turned by 0.4 rad and tilted, through the robot model's
     // accessors: the state stores a quaternion.
-    vector6_t basePose = model_.getPoseeulerzyxBaseRtWorld(initialState_);
-    basePose(0) += 0.3;
-    basePose(3) += 0.4;
-    basePose(4) = 0.05;
-    basePose(5) = -0.03;
-    model_.setPoseeulerzyxBaseRtWorld(observation.state, basePose);
+    vector6_t poseeulerzyxBaseRtWorld =
+        model_.getPoseeulerzyxBaseRtWorld(initialState_);
+    poseeulerzyxBaseRtWorld(0) += 0.3;
+    poseeulerzyxBaseRtWorld(3) += 0.4;
+    poseeulerzyxBaseRtWorld(4) = 0.05;
+    poseeulerzyxBaseRtWorld(5) = -0.03;
+    model_.setPoseeulerzyxBaseRtWorld(observation.state,
+                                      poseeulerzyxBaseRtWorld);
     observation.state.tail(model_.getVelocityDim()).setConstant(0.2);
     observation.input = vector_t::Zero(model_.getInputDim());
     observation.mode = ModeNumber::kStance;
@@ -168,11 +170,12 @@ TEST(WBMpcResetTarget,
   EXPECT_TRUE(state.tail(g1.model().getVelocityDim()).isZero(0.0));
   // Upright at the observed heading, the twist of the observed attitude (design
   // decision D9).
-  const vector3_t eulerZyx = g1.model().getEulerzyxBaseRtWorld(state);
-  EXPECT_NEAR(eulerZyx(0), g1.model().getYawBaseRtWorld(observation.state),
-              1.0e-12);
-  EXPECT_EQ(eulerZyx(1), 0.0);
-  EXPECT_EQ(eulerZyx(2), 0.0);
+  const vector3_t eulerzyxBaseRtWorld =
+      g1.model().getEulerzyxBaseRtWorld(state);
+  EXPECT_NEAR(eulerzyxBaseRtWorld(0),
+              g1.model().getYawBaseRtWorld(observation.state), 1.0e-12);
+  EXPECT_EQ(eulerzyxBaseRtWorld(1), 0.0);
+  EXPECT_EQ(eulerzyxBaseRtWorld(2), 0.0);
   // The rest of the configuration is observed: the position and the joints.
   EXPECT_EQ(g1.model().getPosBaseRtWorldEwrtWorld(state),
             g1.model().getPosBaseRtWorldEwrtWorld(observation.state));
@@ -181,13 +184,15 @@ TEST(WBMpcResetTarget,
 
   // The robot's weight, carried by both feet in the world frame.
   const vector_t& input = target.inputTrajectory.front();
-  const vector3_t left =
+  const vector3_t forceLfootEwrtWorld =
       g1.model().getForceContactEwrtWorld(state, input, /*contactIndex=*/0);
-  const vector3_t right =
+  const vector3_t forceRfootEwrtWorld =
       g1.model().getForceContactEwrtWorld(state, input, /*contactIndex=*/1);
   const scalar_t weight = computeRobotWeight(g1.pinocchioInterface());
-  EXPECT_NEAR(left.z() + right.z(), weight, 1.0e-9 * weight);
-  EXPECT_NEAR(left.z(), right.z(), 1.0e-9 * weight);
+  EXPECT_NEAR(forceLfootEwrtWorld.z() + forceRfootEwrtWorld.z(), weight,
+              1.0e-9 * weight);
+  EXPECT_NEAR(forceLfootEwrtWorld.z(), forceRfootEwrtWorld.z(),
+              1.0e-9 * weight);
 }
 
 TEST(WBMpcResetTarget, IsUprightAtTheTwistHeadingOfTheObservedAttitude) {
@@ -197,28 +202,31 @@ TEST(WBMpcResetTarget, IsUprightAtTheTwistHeadingOfTheObservedAttitude) {
   // target is the twist of the observed attitude, wrapped into (-pi, pi], which
   // differs from the stored yaw by the wrap and by -2 atan(tan(theta / 2)
   // tan(phi / 2)).
-  for (const vector3_t& eulerZyx :
+  for (const vector3_t& eulerzyxBaseRtWorld :
        {vector3_t(3.5, 0.15, 0.15), vector3_t(-3.1, -0.2, 0.1),
         vector3_t(7.0, 0.05, -0.3)}) {
-    SCOPED_TRACE(eulerZyx.transpose());
+    SCOPED_TRACE(eulerzyxBaseRtWorld.transpose());
     SystemObservation observation = g1.movingObservation(/*time=*/1.0);
-    model.setEulerzyxBaseRtWorld(observation.state, eulerZyx);
+    model.setEulerzyxBaseRtWorld(observation.state, eulerzyxBaseRtWorld);
     const vector_t target = wbMpcResetTargetTrajectories(
                                 observation, model, g1.pinocchioInterface())
                                 .stateTrajectory.front();
 
-    const scalar_t heading = model.getYawBaseRtWorld(observation.state);
-    const scalar_t expectedHeading = std::remainder(
-        eulerZyx(0) - 2.0 * std::atan(std::tan(eulerZyx(1) / 2.0) *
-                                      std::tan(eulerZyx(2) / 2.0)),
+    const scalar_t measYawBaseRtWorld =
+        model.getYawBaseRtWorld(observation.state);
+    const scalar_t expectedMeasYawBaseRtWorld = std::remainder(
+        eulerzyxBaseRtWorld(0) -
+            2.0 * std::atan(std::tan(eulerzyxBaseRtWorld(1) / 2.0) *
+                            std::tan(eulerzyxBaseRtWorld(2) / 2.0)),
         2.0 * M_PI);
-    EXPECT_NEAR(heading, expectedHeading, 1.0e-12);
-    const vector3_t targetEulerZyx = model.getEulerzyxBaseRtWorld(target);
-    EXPECT_NEAR(targetEulerZyx(0), heading, 1.0e-12);
-    EXPECT_GT(targetEulerZyx(0), -M_PI);
-    EXPECT_LE(targetEulerZyx(0), M_PI);
-    EXPECT_EQ(targetEulerZyx(1), 0.0);
-    EXPECT_EQ(targetEulerZyx(2), 0.0);
+    EXPECT_NEAR(measYawBaseRtWorld, expectedMeasYawBaseRtWorld, 1.0e-12);
+    const vector3_t refEulerzyxBaseRtWorld =
+        model.getEulerzyxBaseRtWorld(target);
+    EXPECT_NEAR(refEulerzyxBaseRtWorld(0), measYawBaseRtWorld, 1.0e-12);
+    EXPECT_GT(refEulerzyxBaseRtWorld(0), -M_PI);
+    EXPECT_LE(refEulerzyxBaseRtWorld(0), M_PI);
+    EXPECT_EQ(refEulerzyxBaseRtWorld(1), 0.0);
+    EXPECT_EQ(refEulerzyxBaseRtWorld(2), 0.0);
     // Its attitude is the heading quaternion of the observed one, up to the
     // sign of the quaternion.
     const vector4_t expected = verticalTwistFromQuaternion(

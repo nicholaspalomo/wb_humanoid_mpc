@@ -27,10 +27,14 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <algorithm>
+#include <cstddef>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
 
@@ -38,9 +42,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/MultiContactTestFiles.h"
+#include "support/TypedConfigFiles.h"
 
 /*
  * The map between a plan's contact modes, numbered in the contact set's order
@@ -70,7 +76,7 @@ TEST(PlanContactOrder, mapsEveryCandidateByNameNotByBit) {
   ASSERT_EQ(order.numMpcContacts(), names.size());
   for (int k = 0; k < contactSet.size(); ++k) {
     const std::optional<size_t> mpc = order.mpcIndexOf(static_cast<size_t>(k));
-    ASSERT_TRUE(mpc.has_value()) << contactSet.candidate(k).name;
+    if (!mpc.has_value()) GTEST_FAIL() << contactSet.candidate(k).name;
     EXPECT_EQ(names[*mpc], contactSet.candidate(k).name);
     EXPECT_EQ(order.planIndexOf(*mpc), static_cast<size_t>(k));
   }
@@ -122,8 +128,10 @@ TEST(PlanContactOrder, everyModeRoundTrips) {
     ASSERT_EQ(*back, mask);
     // Contact by contact, by name.
     for (int k = 0; k < contactSet.size(); ++k) {
-      const size_t mpc = *order.mpcIndexOf(static_cast<size_t>(k));
-      ASSERT_EQ(contactIsActiveInMode(*mode, mpc, order.numMpcContacts()),
+      const std::optional<size_t> mpc =
+          order.mpcIndexOf(static_cast<size_t>(k));
+      if (!mpc.has_value()) GTEST_FAIL() << k;
+      ASSERT_EQ(contactIsActiveInMode(*mode, *mpc, order.numMpcContacts()),
                 multi_contact::isContactActive(mask, k));
     }
   }

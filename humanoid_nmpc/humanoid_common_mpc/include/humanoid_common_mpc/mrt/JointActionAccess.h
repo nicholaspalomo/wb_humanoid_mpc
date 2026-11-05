@@ -74,13 +74,13 @@ inline void checkJointIndices(
  */
 inline ::robot::model::JointAction& jointActionUnchecked(
     ::robot::model::RobotJointAction& action, size_t index) {
-  return *action
-      [index];  // NOLINT(bugprone-unchecked-optional-access): checked once, by checkJointIndices().
+  // NOLINTNEXTLINE(bugprone-unchecked-optional-access): checked once, by checkJointIndices().
+  return *action[index];
 }
 inline const ::robot::model::JointAction& jointActionUnchecked(
     const ::robot::model::RobotJointAction& action, size_t index) {
-  return *action
-      [index];  // NOLINT(bugprone-unchecked-optional-access): checked once, by checkJointIndices().
+  // NOLINTNEXTLINE(bugprone-unchecked-optional-access): checked once, by checkJointIndices().
+  return *action[index];
 }
 
 }  // namespace ocs2::humanoid

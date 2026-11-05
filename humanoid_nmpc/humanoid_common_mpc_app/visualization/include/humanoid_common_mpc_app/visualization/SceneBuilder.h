@@ -95,8 +95,8 @@ struct SceneInputs {
  * observation's time, taken through the state-aware world-frame accessors, so
  * that they are right for every input parameterization, and not the
  *     observation's input, which the MuJoCo simulations leave zero. A stance
- * foot whose normal force is below kMinNormalForceForCop has its center of
- * pressure at its contact frame rather than NaN;
+ * foot whose normal force is below kCopMinForceContactEwrtContactZ has its
+ * center of pressure at its contact frame rather than NaN;
  *   - the plan: the paths of the task file's rerun_plan_frames, of the base and
  * of the whole-body CoM at its height (pinocchio::centerOfMass() of every
  * node's state, not projected to the ground), and the footholds where a foot
@@ -110,7 +110,10 @@ class SceneBuilder {
  public:
   /** [N] Below this normal force a stance foot's center of pressure is its
    * contact frame's origin. */
-  static constexpr scalar_t kMinNormalForceForCop = 1.0;
+  static constexpr scalar_t kCopMinForceContactEwrtContactZ = 1.0;
+  /** [N] Below this sum of the contacts' world z forces there is no net center
+   * of pressure. */
+  static constexpr scalar_t kCopMinSumForceContactsEwrtWorldZ = 1.0;
 
   /**
    * @return InvalidArgument when the model is not the MPC's
@@ -202,8 +205,7 @@ class SceneBuilder {
   // force is drawn at its frame).
   std::vector<pinocchio::FrameIndex> contactFrames_;
   std::vector<std::array<pinocchio::FrameIndex, kFootCorners>> cornerFrames_;
-  std::vector<std::optional<ContactWrenchMapper<kFootCorners>>>
-      cornerForceMappers_;
+  std::vector<std::optional<ContactWrenchMapper<kFootCorners>>> cornerMappers_;
   std::vector<CollisionSphere> collisionSpheres_;
   std::vector<pinocchio::FrameIndex> planFrames_;
 

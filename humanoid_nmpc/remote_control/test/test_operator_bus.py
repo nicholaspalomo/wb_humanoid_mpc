@@ -140,15 +140,15 @@ class TestMessageBuilders(unittest.TestCase):
         self.assertEqual(
             operator_bus.walking_velocity_command(0.5, -0.25, 0.75, 0.8),
             walking_velocity_command_pb2.WalkingVelocityCommand(
-                cmd_linvel_base_rt_world_ewrt_heading_x=0.5,
-                cmd_linvel_base_rt_world_ewrt_heading_y=-0.25,
-                cmd_angvel_base_rt_world_ewrt_world_z=0.75,
-                cmd_pos_base_rt_world_ewrt_world_z=0.8,
+                cmd_lnorm_linvel_base_rt_world_ewrt_heading_x=0.5,
+                cmd_lnorm_linvel_base_rt_world_ewrt_heading_y=-0.25,
+                cmd_lnorm_angvel_base_rt_world_ewrt_world_z=0.75,
+                cmd_pos_base_rt_surface_ewrt_world_z=0.8,
             ),
         )
 
     def test_the_parameter_update_carries_both_files_whole(self):
-        task = task_file_pb2.TaskFile(terrain_height=0.25)
+        task = task_file_pb2.TaskFile(pos_surface_rt_world_ewrt_world_z=0.25)
         task.state_weights.scaling = 85.0
         planner = contact_planning_file_pb2.ContactPlanningFile()
         planner.planner.dt = 0.05
@@ -553,7 +553,9 @@ class TestOperatorBusOverLoopback(unittest.TestCase):
 
     def test_a_save_reaches_the_robot_and_its_answer_reaches_the_gui(self):
         save = config_file_save_pb2.ConfigFileSave(
-            config_path=CONFIG_PATH, text="terrain_height: 0.0\n", sequence=42
+            config_path=CONFIG_PATH,
+            text="pos_surface_rt_world_ewrt_world_z: 0.0\n",
+            sequence=42,
         )
         received = self._publish_until_received(
             lambda: self.gui_bus.config_save.publish(save),

@@ -31,7 +31,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <vector>
 
+#include "absl/strings/string_view.h"
+
 #include "robot_model/ContactEstimator.h"
+#include "robot_model/RobotState.h"
 
 namespace robot::model {
 

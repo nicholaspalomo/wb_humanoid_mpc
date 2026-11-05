@@ -31,12 +31,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/constraint/TerrainNonPenetrationConstraint.h"
 
+#include <cstddef>
 #include <string>
 
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateConstraintCppAd.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
-#include "pinocchio/multibody/data.hpp"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody/data.hpp"   // IWYU pragma: keep
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
+#include "pinocchio/spatial.hpp"
+
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_multi_contact/terrain/TerrainModel.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -82,7 +97,7 @@ bool TerrainNonPenetrationConstraint::isActive(scalar_t time) const {
 vector_t TerrainNonPenetrationConstraint::getParameters(
     scalar_t /*time*/, const PreComputation& /*preComputation*/) const {
   vector_t parameters(kNumParameters);
-  parameters << sphere_.centerOffset, sphere_.radius, margin_;
+  parameters << sphere_.posSphereRtContactEwrtContact, sphere_.radius, margin_;
   return parameters;
 }
 
@@ -95,13 +110,15 @@ ad_vector_t TerrainNonPenetrationConstraint::constraintFunction(
   PinocchioInterfaceCppAd::Data data = pinocchioInterfaceCppAd_.getData();
   const ad_vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(state);
   pinocchio::forwardKinematics(model, data, q);
-  const pinocchio::SE3Tpl<ad_scalar_t>& frame = pinocchio::updateFramePlacement(
-      model, data, model.getFrameId(frameName_));
-  const ad_vector3_t center =
-      frame.translation() + frame.rotation() * parameters.head<kPositionDim>();
+  const pinocchio::SE3Tpl<ad_scalar_t>& poseContactRtWorld =
+      pinocchio::updateFramePlacement(model, data,
+                                      model.getFrameId(frameName_));
+  const ad_vector3_t posSphereRtWorldEwrtWorld =
+      poseContactRtWorld.translation() +
+      poseContactRtWorld.rotation() * parameters.head<kPositionDim>();
   ad_vector_t value(1);
   value(0) = terrainPtr_->sphereDistance<ad_scalar_t>(
-                 center, parameters(kRadiusParameter)) -
+                 posSphereRtWorldEwrtWorld, parameters(kRadiusParameter)) -
              parameters(kMarginParameter);
   return value;
 }

@@ -84,10 +84,10 @@ struct VisualizationModel {
    * The MPC's nominal state (its interface's getInitialState(): the task file's
    * initial_state). The DCM plots use the pendulum height z0 of this state, the
    * whole-body CoM above the mean height of the contact frames
-   * (computeComHeightAboveFeet(), the repository's one definition of it, which
-   * the MPC's DCM cost and contact planner derive theirs from too), and the
-   * gravity of the Pinocchio model: omega = sqrt(g / z0). Copied. Empty: the
-   * DCM groups are NaN.
+   * (computeProxyPosComRtFeetmeanEwrtWorldZ(), the repository's one definition
+   * of it, which the MPC's DCM cost and contact planner derive theirs from
+   * too), and the gravity of the Pinocchio model: omega = sqrt(g / z0). Copied.
+   * Empty: the DCM groups are NaN.
    */
   vector_t nominalState;
   /**

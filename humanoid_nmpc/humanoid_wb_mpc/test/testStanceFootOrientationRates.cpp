@@ -219,12 +219,12 @@ std::unique_ptr<ZeroAccelerationConstraintCppAd> stanceConstraint(
 /** The left foot's kinematics in double precision, LOCAL_WORLD_ALIGNED. Passive
  * data. */
 struct FootKinematics {
-  vector3_t position = vector3_t::Zero();
-  matrix3_t rotation = matrix3_t::Identity();
-  vector3_t linearVelocity = vector3_t::Zero();
-  vector3_t angularVelocity = vector3_t::Zero();
-  vector3_t linearAcceleration = vector3_t::Zero();
-  vector3_t angularAcceleration = vector3_t::Zero();
+  vector3_t posFootRtWorldEwrtWorld = vector3_t::Zero();
+  matrix3_t rotmatFootRtWorld = matrix3_t::Identity();
+  vector3_t linvelFootRtWorldEwrtWorld = vector3_t::Zero();
+  vector3_t angvelFootRtWorldEwrtWorld = vector3_t::Zero();
+  vector3_t linaccFootRtWorldEwrtWorld = vector3_t::Zero();
+  vector3_t angaccFootRtWorldEwrtWorld = vector3_t::Zero();
 };
 
 /** Pinocchio's configuration q, velocity v and the whole-body dynamics'
@@ -265,21 +265,22 @@ FootKinematics footKinematicsAt(const StanceFootModels& models,
   const pinocchio::FrameIndex frame = footFrameOf(models);
   const pinocchio::ReferenceFrame rf =
       pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
-  const pinocchio::Motion velocity =
+  const pinocchio::Motion twistFootRtWorldEwrtWorld =
       pinocchio::getFrameVelocity(model, data, frame, rf);
-  const pinocchio::Motion acceleration =
+  const pinocchio::Motion classicalaccFootRtWorldEwrtWorld =
       pinocchio::getFrameClassicalAcceleration(model, data, frame, rf);
-  return FootKinematics{.position = data.oMf[frame].translation(),
-                        .rotation = data.oMf[frame].rotation(),
-                        .linearVelocity = velocity.linear(),
-                        .angularVelocity = velocity.angular(),
-                        .linearAcceleration = acceleration.linear(),
-                        .angularAcceleration = acceleration.angular()};
+  return FootKinematics{
+      .posFootRtWorldEwrtWorld = data.oMf[frame].translation(),
+      .rotmatFootRtWorld = data.oMf[frame].rotation(),
+      .linvelFootRtWorldEwrtWorld = twistFootRtWorldEwrtWorld.linear(),
+      .angvelFootRtWorldEwrtWorld = twistFootRtWorldEwrtWorld.angular(),
+      .linaccFootRtWorldEwrtWorld = classicalaccFootRtWorldEwrtWorld.linear(),
+      .angaccFootRtWorldEwrtWorld = classicalaccFootRtWorldEwrtWorld.angular()};
 }
 
 /** The left foot's world placement at the configuration `q`. */
-pinocchio::SE3 footPlacementAt(const StanceFootModels& models,
-                               const vector_t& q) {
+pinocchio::SE3 computePoseFootRtWorld(const StanceFootModels& models,
+                                      const vector_t& q) {
   PinocchioInterface pinocchio = models.interface->getPinocchioInterface();
   pinocchio::forwardKinematics(pinocchio.getModel(), pinocchio.getData(), q);
   pinocchio::updateFramePlacements(pinocchio.getModel(), pinocchio.getData());
@@ -299,16 +300,16 @@ struct StancePoint {
 
 /**
  * A state of the shipped initial state, its joint angles moved within 0.1 rad,
- * with the base turned so that the left foot's attitude is `footAttitude`; its
- * velocities random within `speed` (rad/s for the base's angular velocity and
- * the joints, a third of it in m/s for the base) and a random input: wrenches
- * of 100 to 300 N up and up to 30 N and 5 N m otherwise, joint accelerations
- * within 5 rad/s^2.
+ * with the base turned so that the left foot's attitude is `rotmatFootRtWorld`;
+ * its velocities random within `randomRateBound` (rad/s for the base's angular
+ * velocity and the joints, a third of it in m/s for the base) and a random
+ * input: wrenches of 100 to 300 N up and up to 30 N and 5 N m otherwise, joint
+ * accelerations within 5 rad/s^2.
  */
 StancePoint stancePoint(const StanceFootModels& models,
                         const std::string& name,
-                        const matrix3_t& footAttitude,
-                        scalar_t speed,
+                        const matrix3_t& rotmatFootRtWorld,
+                        scalar_t randomRateBound,
                         std::mt19937& generator) {
   std::uniform_real_distribution<scalar_t> unit(-1.0, 1.0);
   const WBAccelMpcRobotModel<scalar_t>& robotModel =
@@ -327,12 +328,14 @@ StancePoint stancePoint(const StanceFootModels& models,
   // The foot's attitude relative to the base, at a base of identity attitude.
   vector_t q = point.state.head(nq);
   q.segment<4>(3) = Eigen::Quaterniond::Identity().coeffs();
-  const matrix3_t footInBase = footPlacementAt(models, q).rotation();
-  const Eigen::Quaterniond baseAttitude(
-      matrix3_t(footAttitude * footInBase.transpose()));
-  point.state.segment<4>(3) = baseAttitude.normalized().coeffs();
+  const matrix3_t rotmatFootRtBase =
+      computePoseFootRtWorld(models, q).rotation();
+  const Eigen::Quaterniond quatBaseRtWorld(
+      matrix3_t(rotmatFootRtWorld * rotmatFootRtBase.transpose()));
+  point.state.segment<4>(3) = quatBaseRtWorld.normalized().coeffs();
   for (Eigen::Index i = 0; i < nv; ++i)
-    point.state(nq + i) = speed * unit(generator) * (i < 3 ? 1.0 / 3.0 : 1.0);
+    point.state(nq + i) =
+        randomRateBound * unit(generator) * (i < 3 ? 1.0 / 3.0 : 1.0);
   for (size_t foot = 0; foot < kNumContacts; ++foot) {
     const Eigen::Index start = static_cast<Eigen::Index>(6 * foot);
     point.input.segment<3>(start) =
@@ -353,21 +356,23 @@ std::vector<StancePoint> stancePoints(const StanceFootModels& models) {
                                                  std::numbers::pi);
   std::vector<StancePoint> points;
   for (size_t i = 0; i < 2; ++i) {
-    const matrix3_t level =
+    const matrix3_t rotmatFootRtWorld =
         Eigen::AngleAxisd(angle(generator), vector3_t::UnitZ())
             .toRotationMatrix();
-    StancePoint point = stancePoint(models, absl::StrCat("level_at_rest_", i),
-                                    level, /*speed=*/0.0, generator);
+    StancePoint point =
+        stancePoint(models, absl::StrCat("level_at_rest_", i),
+                    rotmatFootRtWorld, /*randomRateBound=*/0.0, generator);
     point.level = true;
     point.atRest = true;
     points.push_back(std::move(point));
   }
   for (size_t i = 0; i < 4; ++i) {
-    const matrix3_t level =
+    const matrix3_t rotmatFootRtWorld =
         Eigen::AngleAxisd(angle(generator), vector3_t::UnitZ())
             .toRotationMatrix();
-    StancePoint point = stancePoint(models, absl::StrCat("level_turning_", i),
-                                    level, /*speed=*/1.5, generator);
+    StancePoint point =
+        stancePoint(models, absl::StrCat("level_turning_", i),
+                    rotmatFootRtWorld, /*randomRateBound=*/1.5, generator);
     point.level = true;
     points.push_back(std::move(point));
   }
@@ -375,14 +380,14 @@ std::vector<StancePoint> stancePoints(const StanceFootModels& models) {
     for (size_t i = 0; i < 2; ++i) {
       const scalar_t direction = angle(generator);
       const vector3_t axis(std::cos(direction), std::sin(direction), 0.0);
-      const matrix3_t tilted =
+      const matrix3_t rotmatFootRtWorld =
           Eigen::AngleAxisd(degrees * std::numbers::pi / 180.0, axis)
               .toRotationMatrix() *
           Eigen::AngleAxisd(angle(generator), vector3_t::UnitZ())
               .toRotationMatrix();
       points.push_back(
           stancePoint(models, absl::StrFormat("tilted_%g_deg_%d", degrees, i),
-                      tilted, /*speed=*/1.5, generator));
+                      rotmatFootRtWorld, /*randomRateBound=*/1.5, generator));
     }
   }
   return points;
@@ -399,11 +404,10 @@ vector3_t skewPart(const matrix3_t& matrix) {
 DifferencedOrientationErrorRates oracleRatesOf(
     const FootKinematics& kinematics) {
   const AttitudeMotion motion{
-      .initialRotation = kinematics.rotation,
-      .angularVelocity = kinematics.angularVelocity,
-      .angularAcceleration = kinematics.angularAcceleration};
-  return test_support::differencedOrientationErrorRates(motion,
-                                                        vector3_t::UnitZ());
+      .initRotmatEeRtWorld = kinematics.rotmatFootRtWorld,
+      .angvelEeRtWorldEwrtWorld = kinematics.angvelFootRtWorldEwrtWorld,
+      .angaccEeRtWorldEwrtWorld = kinematics.angaccFootRtWorldEwrtWorld};
+  return test_support::differencedTiltRates(motion, vector3_t::UnitZ());
 }
 
 /** The law of (b) and its scale per row: the magnitudes of its summands.
@@ -417,48 +421,53 @@ struct AssembledLaw {
 
 /**
  * The stance constraint of `gains` at `kinematics`, `rates` its orientation
- * error's rate and acceleration and `groundHeight` the height the z row servoes
- * to, each row assembled from its gains.
+ * error's rate and acceleration and `desPosFootRtWorldEwrtWorldZ` the height
+ * the z row servoes to, each row assembled from its gains.
  */
 AssembledLaw assembledLaw(const ModelSettings::FootConstraintConfig& gains,
                           const FootKinematics& kinematics,
                           const vector3_t& rate,
-                          const vector3_t& acceleration,
+                          const vector3_t& secondRate,
                           scalar_t rateScale,
-                          scalar_t groundHeight) {
-  const vector3_t error = rotationMatrixDistanceToPlane<scalar_t>(
-      kinematics.rotation, vector3_t::UnitZ());
+                          scalar_t desPosFootRtWorldEwrtWorldZ) {
+  const vector3_t tiltFootRtSurfaceEwrtWorld =
+      rotationMatrixDistanceToPlane<scalar_t>(kinematics.rotmatFootRtWorld,
+                                              vector3_t::UnitZ());
   AssembledLaw law;
   for (Eigen::Index i = 0; i < 2; ++i) {
-    law.value(i) =
-        gains.linearVelocityErrorGain_xy * kinematics.linearVelocity(i) +
-        gains.linearAccelerationErrorGain_xy * kinematics.linearAcceleration(i);
+    law.value(i) = gains.linearVelocityErrorGain_xy *
+                       kinematics.linvelFootRtWorldEwrtWorld(i) +
+                   gains.linearAccelerationErrorGain_xy *
+                       kinematics.linaccFootRtWorldEwrtWorld(i);
     law.tolerance(i) =
         kLibraryRoundOff * (std::abs(gains.linearVelocityErrorGain_xy *
-                                     kinematics.linearVelocity(i)) +
+                                     kinematics.linvelFootRtWorldEwrtWorld(i)) +
                             std::abs(gains.linearAccelerationErrorGain_xy *
-                                     kinematics.linearAcceleration(i)) +
+                                     kinematics.linaccFootRtWorldEwrtWorld(i)) +
                             1.0);
   }
-  const scalar_t height = kinematics.position.z() - groundHeight;
-  law.value(2) =
-      gains.positionErrorGain_z * height +
-      gains.linearVelocityErrorGain_z * kinematics.linearVelocity.z() +
-      gains.linearAccelerationErrorGain_z * kinematics.linearAcceleration.z();
-  law.tolerance(2) =
-      kLibraryRoundOff *
-      (std::abs(gains.positionErrorGain_z) *
-           (std::abs(kinematics.position.z()) + std::abs(groundHeight)) +
-       std::abs(gains.linearVelocityErrorGain_z *
-                kinematics.linearVelocity.z()) +
-       std::abs(gains.linearAccelerationErrorGain_z *
-                kinematics.linearAcceleration.z()) +
-       1.0);
+  const scalar_t errPosFootRtWorldEwrtWorldZ =
+      kinematics.posFootRtWorldEwrtWorld.z() - desPosFootRtWorldEwrtWorldZ;
+  law.value(2) = gains.positionErrorGain_z * errPosFootRtWorldEwrtWorldZ +
+                 gains.linearVelocityErrorGain_z *
+                     kinematics.linvelFootRtWorldEwrtWorld.z() +
+                 gains.linearAccelerationErrorGain_z *
+                     kinematics.linaccFootRtWorldEwrtWorld.z();
+  law.tolerance(2) = kLibraryRoundOff *
+                     (std::abs(gains.positionErrorGain_z) *
+                          (std::abs(kinematics.posFootRtWorldEwrtWorld.z()) +
+                           std::abs(desPosFootRtWorldEwrtWorldZ)) +
+                      std::abs(gains.linearVelocityErrorGain_z *
+                               kinematics.linvelFootRtWorldEwrtWorld.z()) +
+                      std::abs(gains.linearAccelerationErrorGain_z *
+                               kinematics.linaccFootRtWorldEwrtWorld.z()) +
+                      1.0);
   const scalar_t rateUnit = std::max(1.0, rateScale);
   for (Eigen::Index i = 0; i < 3; ++i) {
-    law.value(3 + i) = gains.orientationErrorGain * error(i) +
-                       gains.angularVelocityErrorGain * rate(i) +
-                       gains.angularAccelerationErrorGain * acceleration(i);
+    law.value(3 + i) =
+        gains.orientationErrorGain * tiltFootRtSurfaceEwrtWorld(i) +
+        gains.angularVelocityErrorGain * rate(i) +
+        gains.angularAccelerationErrorGain * secondRate(i);
     law.tolerance(3 + i) =
         kDifferencedRateTolerance *
             (std::abs(gains.angularVelocityErrorGain) * rateUnit +
@@ -469,7 +478,7 @@ AssembledLaw assembledLaw(const ModelSettings::FootConstraintConfig& gains,
   return law;
 }
 
-scalar_t groundHeightOf(const StanceFootModels& models) {
+scalar_t getDesPosFootRtWorldEwrtWorldZ(const StanceFootModels& models) {
   return models.interface->getSwitchedModelReferenceManagerPtr()
       ->getSwingTrajectoryPlanner()
       ->getDesPosFootRtWorldEwrtWorldZ(kFoot, kTime);
@@ -490,84 +499,106 @@ TEST(StanceFootOrientationRates,
         footKinematicsAt(*models, point.state, point.input);
     // The foot's placement along q(t) = q (+) (v t + a t^2 / 2), at t = 0, +-h
     // / 2 and +-h.
-    std::array<pinocchio::SE3, 5> placements;
+    std::array<pinocchio::SE3, 5> stencilPoseFootRtWorld;
     const std::array<scalar_t, 5> times = {
         0.0, 0.5 * kMotionStep, -0.5 * kMotionStep, kMotionStep, -kMotionStep};
     for (size_t s = 0; s < times.size(); ++s) {
       const vector_t displacement =
           motion.v * times[s] + 0.5 * times[s] * times[s] * motion.a;
-      placements[s] = footPlacementAt(
+      stencilPoseFootRtWorld[s] = computePoseFootRtWorld(
           *models, pinocchio::integrate(model, motion.q, displacement));
     }
     const scalar_t h = kMotionStep;
-    const vector3_t positionRate =
-        (4.0 * (placements[1].translation() - placements[2].translation()) / h -
-         (placements[3].translation() - placements[4].translation()) /
+    const vector3_t differencedLinvelFootRtWorldEwrtWorld =
+        (4.0 *
+             (stencilPoseFootRtWorld[1].translation() -
+              stencilPoseFootRtWorld[2].translation()) /
+             h -
+         (stencilPoseFootRtWorld[3].translation() -
+          stencilPoseFootRtWorld[4].translation()) /
              (2.0 * h)) /
         3.0;
-    const vector3_t positionAcceleration =
+    const vector3_t differencedLinaccFootRtWorldEwrtWorld =
         (4.0 *
-             (placements[1].translation() - 2.0 * placements[0].translation() +
-              placements[2].translation()) /
+             (stencilPoseFootRtWorld[1].translation() -
+              2.0 * stencilPoseFootRtWorld[0].translation() +
+              stencilPoseFootRtWorld[2].translation()) /
              (0.25 * h * h) -
-         (placements[3].translation() - 2.0 * placements[0].translation() +
-          placements[4].translation()) /
+         (stencilPoseFootRtWorld[3].translation() -
+          2.0 * stencilPoseFootRtWorld[0].translation() +
+          stencilPoseFootRtWorld[4].translation()) /
              (h * h)) /
         3.0;
-    const matrix3_t rotationRate =
-        (4.0 * (placements[1].rotation() - placements[2].rotation()) / h -
-         (placements[3].rotation() - placements[4].rotation()) / (2.0 * h)) /
-        3.0;
-    const matrix3_t rotationAcceleration =
+    const matrix3_t differencedRateRotmatFootRtWorld =
         (4.0 *
-             (placements[1].rotation() - 2.0 * placements[0].rotation() +
-              placements[2].rotation()) /
+             (stencilPoseFootRtWorld[1].rotation() -
+              stencilPoseFootRtWorld[2].rotation()) /
+             h -
+         (stencilPoseFootRtWorld[3].rotation() -
+          stencilPoseFootRtWorld[4].rotation()) /
+             (2.0 * h)) /
+        3.0;
+    const matrix3_t differencedSecondRateRotmatFootRtWorld =
+        (4.0 *
+             (stencilPoseFootRtWorld[1].rotation() -
+              2.0 * stencilPoseFootRtWorld[0].rotation() +
+              stencilPoseFootRtWorld[2].rotation()) /
              (0.25 * h * h) -
-         (placements[3].rotation() - 2.0 * placements[0].rotation() +
-          placements[4].rotation()) /
+         (stencilPoseFootRtWorld[3].rotation() -
+          2.0 * stencilPoseFootRtWorld[0].rotation() +
+          stencilPoseFootRtWorld[4].rotation()) /
              (h * h)) /
         3.0;
-    const matrix3_t rotationTransposed = placements[0].rotation().transpose();
-    const vector3_t angularVelocity =
-        skewPart(rotationRate * rotationTransposed);
-    const vector3_t angularAcceleration =
-        skewPart(rotationAcceleration * rotationTransposed);
-    const scalar_t velocityScale =
-        std::max({1.0, kinematics.linearVelocity.norm(),
-                  kinematics.angularVelocity.norm()});
-    const scalar_t accelerationScale =
-        std::max({1.0, kinematics.linearAcceleration.norm(),
-                  kinematics.angularAcceleration.norm()});
+    const matrix3_t rotmatWorldRtFoot =
+        stencilPoseFootRtWorld[0].rotation().transpose();
+    const vector3_t differencedAngvelFootRtWorldEwrtWorld =
+        skewPart(differencedRateRotmatFootRtWorld * rotmatWorldRtFoot);
+    const vector3_t differencedAngaccFootRtWorldEwrtWorld =
+        skewPart(differencedSecondRateRotmatFootRtWorld * rotmatWorldRtFoot);
+    const scalar_t firstDerivativeScale =
+        std::max({1.0, kinematics.linvelFootRtWorldEwrtWorld.norm(),
+                  kinematics.angvelFootRtWorldEwrtWorld.norm()});
+    const scalar_t secondDerivativeScale =
+        std::max({1.0, kinematics.linaccFootRtWorldEwrtWorld.norm(),
+                  kinematics.angaccFootRtWorldEwrtWorld.norm()});
     // Each comparison's deviation relative to its tolerance.
     const std::array<scalar_t, 4> deviations = {
-        (positionRate - kinematics.linearVelocity).cwiseAbs().maxCoeff() /
-            (kMotionTolerance * velocityScale),
-        (angularVelocity - kinematics.angularVelocity).cwiseAbs().maxCoeff() /
-            (kMotionTolerance * velocityScale),
-        (positionAcceleration - kinematics.linearAcceleration)
+        (differencedLinvelFootRtWorldEwrtWorld -
+         kinematics.linvelFootRtWorldEwrtWorld)
                 .cwiseAbs()
                 .maxCoeff() /
-            (kMotionTolerance * accelerationScale),
-        (angularAcceleration - kinematics.angularAcceleration)
+            (kMotionTolerance * firstDerivativeScale),
+        (differencedAngvelFootRtWorldEwrtWorld -
+         kinematics.angvelFootRtWorldEwrtWorld)
                 .cwiseAbs()
                 .maxCoeff() /
-            (kMotionTolerance * accelerationScale)};
+            (kMotionTolerance * firstDerivativeScale),
+        (differencedLinaccFootRtWorldEwrtWorld -
+         kinematics.linaccFootRtWorldEwrtWorld)
+                .cwiseAbs()
+                .maxCoeff() /
+            (kMotionTolerance * secondDerivativeScale),
+        (differencedAngaccFootRtWorldEwrtWorld -
+         kinematics.angaccFootRtWorldEwrtWorld)
+                .cwiseAbs()
+                .maxCoeff() /
+            (kMotionTolerance * secondDerivativeScale)};
     EXPECT_LE(deviations[0], 1.0) << "linear velocity";
     EXPECT_LE(deviations[1], 1.0) << "angular velocity";
     EXPECT_LE(deviations[2], 1.0) << "linear acceleration";
     EXPECT_LE(deviations[3], 1.0)
-        << "differenced " << angularAcceleration.transpose() << "\nPinocchio  "
-        << kinematics.angularAcceleration.transpose();
+        << "differenced " << differencedAngaccFootRtWorldEwrtWorld.transpose()
+        << "\nPinocchio  " << kinematics.angaccFootRtWorldEwrtWorld.transpose();
     largestDeviation =
         std::max(largestDeviation,
                  *std::max_element(deviations.begin(), deviations.end()));
     if (point.atRest) {
-      EXPECT_TRUE(kinematics.angularVelocity.isZero(/*prec=*/0.0));
+      EXPECT_TRUE(kinematics.angvelFootRtWorldEwrtWorld.isZero(/*prec=*/0.0));
     } else {
-      EXPECT_GT(kinematics.angularVelocity.norm(), 0.1)
+      EXPECT_GT(kinematics.angvelFootRtWorldEwrtWorld.norm(), 0.1)
           << "the case under test: a turning foot";
     }
-    EXPECT_GT(kinematics.angularAcceleration.norm(), 0.1)
+    EXPECT_GT(kinematics.angaccFootRtWorldEwrtWorld.norm(), 0.1)
         << "the case under test: an accelerating foot";
   }
   absl::PrintF(
@@ -593,8 +624,8 @@ TEST(StanceFootOrientationRates,
         footKinematicsAt(*models, point.state, point.input);
     const DifferencedOrientationErrorRates rates = oracleRatesOf(kinematics);
     const AssembledLaw law =
-        assembledLaw(gains, kinematics, rates.rate, rates.acceleration,
-                     rates.rateScale, groundHeightOf(*models));
+        assembledLaw(gains, kinematics, rates.rate, rates.secondRate,
+                     rates.rateScale, getDesPosFootRtWorldEwrtWorldZ(*models));
     const vector_t value =
         constraint->getValue(kTime, point.state, point.input, PreComputation());
     ASSERT_EQ(value.size(), 6);
@@ -635,7 +666,7 @@ TEST(StanceFootOrientationRates,
   const std::unique_ptr<ZeroAccelerationConstraintCppAd> constraint =
       stanceConstraint(*models, gains);
   ASSERT_NE(constraint, nullptr);
-  const vector3_t normal = vector3_t::UnitZ();
+  const vector3_t normalSurfaceEwrtWorld = vector3_t::UnitZ();
   scalar_t largestGyroscopicTerm = 0.0;
   scalar_t smallestTiltedDifference = 1.0e300;
   for (const StancePoint& point : stancePoints(*models)) {
@@ -649,16 +680,17 @@ TEST(StanceFootOrientationRates,
     ModelSettings::FootConstraintConfig formerGains = gains;
     formerGains.angularVelocityErrorGain = formerVelocityGain;
     formerGains.angularAccelerationErrorGain = formerAccelerationGain;
-    const AssembledLaw former =
-        assembledLaw(formerGains, kinematics, kinematics.angularVelocity,
-                     kinematics.angularAcceleration,
-                     /*rateScale=*/0.0, groundHeightOf(*models));
+    const AssembledLaw former = assembledLaw(
+        formerGains, kinematics, kinematics.angvelFootRtWorldEwrtWorld,
+        kinematics.angaccFootRtWorldEwrtWorld,
+        /*rateScale=*/0.0, getDesPosFootRtWorldEwrtWorldZ(*models));
     const vector6_t difference = value - former.value;
     const scalar_t angularScale =
-        gains.angularVelocityErrorGain * kinematics.angularVelocity.norm() +
+        gains.angularVelocityErrorGain *
+            kinematics.angvelFootRtWorldEwrtWorld.norm() +
         gains.angularAccelerationErrorGain *
-            (kinematics.angularAcceleration.norm() +
-             kinematics.angularVelocity.squaredNorm()) +
+            (kinematics.angaccFootRtWorldEwrtWorld.norm() +
+             kinematics.angvelFootRtWorldEwrtWorld.squaredNorm()) +
         gains.orientationErrorGain + 1.0;
     // The linear rows are unchanged.
     EXPECT_LE(difference.head<3>().cwiseAbs().maxCoeff(),
@@ -666,9 +698,10 @@ TEST(StanceFootOrientationRates,
     if (point.level) {
       // de/dt = w / 2 and d2e/dt2 = alpha / 2 + 1/2 (n.w)(n x w) at a level
       // foot: the difference is Ka_former (n.w)(n x w).
-      const vector3_t gyroscopicTerm = formerAccelerationGain *
-                                       normal.dot(kinematics.angularVelocity) *
-                                       normal.cross(kinematics.angularVelocity);
+      const vector3_t gyroscopicTerm =
+          formerAccelerationGain *
+          normalSurfaceEwrtWorld.dot(kinematics.angvelFootRtWorldEwrtWorld) *
+          normalSurfaceEwrtWorld.cross(kinematics.angvelFootRtWorldEwrtWorld);
       EXPECT_LE((difference.tail<3>() - gyroscopicTerm).cwiseAbs().maxCoeff(),
                 kLibraryRoundOff * angularScale)
           << difference.tail<3>().transpose() << "\nvs\n"
@@ -686,12 +719,12 @@ TEST(StanceFootOrientationRates,
       const DifferencedOrientationErrorRates rates = oracleRatesOf(kinematics);
       const vector3_t expected =
           gains.angularVelocityErrorGain *
-              (rates.rate - 0.5 * kinematics.angularVelocity) +
+              (rates.rate - 0.5 * kinematics.angvelFootRtWorldEwrtWorld) +
           gains.angularAccelerationErrorGain *
-              (rates.acceleration - 0.5 * kinematics.angularAcceleration);
-      const AssembledLaw law =
-          assembledLaw(gains, kinematics, rates.rate, rates.acceleration,
-                       rates.rateScale, groundHeightOf(*models));
+              (rates.secondRate - 0.5 * kinematics.angaccFootRtWorldEwrtWorld);
+      const AssembledLaw law = assembledLaw(
+          gains, kinematics, rates.rate, rates.secondRate, rates.rateScale,
+          getDesPosFootRtWorldEwrtWorldZ(*models));
       EXPECT_LE((difference.tail<3>() - expected).cwiseAbs().maxCoeff(),
                 law.tolerance.tail<3>().maxCoeff());
       smallestTiltedDifference =
@@ -713,13 +746,13 @@ TEST(StanceFootOrientationRates,
 
 /** The map M = de/dw from the angular velocity to the rate of the tilt error,
  * plus 1/2 n v' (the centroidal map). */
-matrix3_t frozenRateMap(const matrix3_t& rotation) {
+matrix3_t frozenRateMap(const matrix3_t& rotmatFootRtWorld) {
   const vector3_t n = vector3_t::UnitZ();
-  const vector3_t v = rotation.col(2);
-  const vector3_t axis = v.cross(n);
+  const vector3_t v = rotmatFootRtWorld.col(2);
+  const vector3_t vCrossN = v.cross(n);
   const scalar_t root = std::sqrt(2.0 * (1.0 + v.dot(n)));
   return (v.dot(n) * matrix3_t::Identity() - v * n.transpose()) / root +
-         axis * axis.transpose() / (root * root * root) +
+         vCrossN * vCrossN.transpose() / (root * root * root) +
          0.5 * n * v.transpose();
 }
 
@@ -804,10 +837,10 @@ matrix_t withLargestEntryMoved(const matrix_t& jacobian,
 /** The Jacobians of the foot's world-frame angular velocity w and acceleration
  * alpha in the state and the input. Passive data. */
 struct AngularRateJacobians {
-  matrix_t velocityDx;
-  matrix_t velocityDu;
-  matrix_t accelerationDx;
-  matrix_t accelerationDu;
+  matrix_t dxAngvelFootRtWorldEwrtWorld;
+  matrix_t duAngvelFootRtWorldEwrtWorld;
+  matrix_t dxAngaccFootRtWorldEwrtWorld;
+  matrix_t duAngaccFootRtWorldEwrtWorld;
 };
 
 /**
@@ -821,37 +854,38 @@ struct AngularRateJacobians {
 AngularRateJacobians angularRateJacobiansAt(const StanceFootModels& models,
                                             const FootKinematics& kinematics,
                                             const StancePoint& point) {
-  const std::vector<vector3_t> awayFromTheFoot = {-kinematics.rotation.col(2)};
+  const std::vector<vector3_t> normalSurfacesEwrtWorld = {
+      -kinematics.rotmatFootRtWorld.col(2)};
   const VectorFunctionLinearApproximation halfRate =
       models.dynamics
-          ->getPoseWrtPlaneRateLinearApproximation(point.state, point.input,
-                                                   awayFromTheFoot)
+          ->getLinearApproximationXeeRate(point.state, point.input,
+                                          normalSurfacesEwrtWorld)
           .front();
-  const VectorFunctionLinearApproximation halfAcceleration =
+  const VectorFunctionLinearApproximation halfSecondRate =
       models.dynamics
-          ->getPoseWrtPlaneAccelerationLinearApproximation(
-              point.state, point.input, awayFromTheFoot)
+          ->getLinearApproximationXeeSecondRate(point.state, point.input,
+                                                normalSurfacesEwrtWorld)
           .front();
-  const scalar_t velocityScale =
-      std::max(1.0, kinematics.angularVelocity.norm());
-  const scalar_t accelerationScale =
-      std::max(1.0, kinematics.angularAcceleration.norm());
-  EXPECT_LE((2.0 * halfRate.f.tail<3>() - kinematics.angularVelocity)
+  const scalar_t angvelScale =
+      std::max(1.0, kinematics.angvelFootRtWorldEwrtWorld.norm());
+  const scalar_t angaccScale =
+      std::max(1.0, kinematics.angaccFootRtWorldEwrtWorld.norm());
+  EXPECT_LE((2.0 * halfRate.f.tail<3>() - kinematics.angvelFootRtWorldEwrtWorld)
                 .cwiseAbs()
                 .maxCoeff(),
-            kLibraryRoundOff * velocityScale)
+            kLibraryRoundOff * angvelScale)
       << "the fallback is not w / 2";
   EXPECT_LE(
-      (2.0 * halfAcceleration.f.tail<3>() - kinematics.angularAcceleration)
+      (2.0 * halfSecondRate.f.tail<3>() - kinematics.angaccFootRtWorldEwrtWorld)
           .cwiseAbs()
           .maxCoeff(),
-      kLibraryRoundOff * accelerationScale)
+      kLibraryRoundOff * angaccScale)
       << "the fallback is not alpha / 2";
   return AngularRateJacobians{
-      .velocityDx = 2.0 * halfRate.dfdx.bottomRows(3),
-      .velocityDu = 2.0 * halfRate.dfdu.bottomRows(3),
-      .accelerationDx = 2.0 * halfAcceleration.dfdx.bottomRows(3),
-      .accelerationDu = 2.0 * halfAcceleration.dfdu.bottomRows(3)};
+      .dxAngvelFootRtWorldEwrtWorld = 2.0 * halfRate.dfdx.bottomRows(3),
+      .duAngvelFootRtWorldEwrtWorld = 2.0 * halfRate.dfdu.bottomRows(3),
+      .dxAngaccFootRtWorldEwrtWorld = 2.0 * halfSecondRate.dfdx.bottomRows(3),
+      .duAngaccFootRtWorldEwrtWorld = 2.0 * halfSecondRate.dfdu.bottomRows(3)};
 }
 
 TEST(StanceFootOrientationRates,
@@ -867,10 +901,10 @@ TEST(StanceFootOrientationRates,
   const StateManifold& manifold = *models->interface->getStateManifold();
   const Eigen::Index tangentDim =
       static_cast<Eigen::Index>(manifold.getTangentDim());
-  const std::vector<vector3_t> ground = {vector3_t::UnitZ()};
+  const std::vector<vector3_t> normalSurfacesEwrtWorld = {vector3_t::UnitZ()};
   scalar_t largestExact = 0.0;
   scalar_t smallestMutation = 1.0e300;
-  scalar_t smallestOrientationMutation = 1.0e300;
+  scalar_t smallestTiltRowsMutation = 1.0e300;
   scalar_t smallestFrozen = 1.0e300;
   for (const StancePoint& point : stancePoints(*models)) {
     SCOPED_TRACE(point.name);
@@ -919,7 +953,7 @@ TEST(StanceFootOrientationRates,
       EXPECT_GT(stateMutation, 1.0) << "rows from " << firstRow;
       EXPECT_GT(inputMutation, 1.0) << "rows from " << firstRow;
       scalar_t& smallest =
-          firstRow == 0 ? smallestMutation : smallestOrientationMutation;
+          firstRow == 0 ? smallestMutation : smallestTiltRowsMutation;
       smallest = std::min({smallest, stateMutation, inputMutation});
     }
 
@@ -931,24 +965,27 @@ TEST(StanceFootOrientationRates,
     // alpha alone, d(d2e/dt2 + 1/2 n v.alpha)/du = (M + 1/2 n v') d(alpha)/du.
     const FootKinematics kinematics =
         footKinematicsAt(*models, point.state, point.input);
-    const matrix3_t map = frozenRateMap(kinematics.rotation);
-    const VectorFunctionLinearApproximation error =
+    const matrix3_t map = frozenRateMap(kinematics.rotmatFootRtWorld);
+    const VectorFunctionLinearApproximation approxTiltFootRtSurfaceEwrtWorld =
         models->dynamics
-            ->getOrientationErrorWrtPlaneLinearApproximation(point.state,
-                                                             ground)
+            ->getLinearApproximationTiltEesRtSurfaceEwrtWorld(
+                point.state, normalSurfacesEwrtWorld)
             .front();
     const AngularRateJacobians angular =
         angularRateJacobiansAt(*models, kinematics, point);
     matrix_t frozenState = linearization.dfdx;
     frozenState.bottomRows(3) =
-        gains.orientationErrorGain * error.dfdx +
-        gains.angularVelocityErrorGain * map * angular.velocityDx +
-        gains.angularAccelerationErrorGain * map * angular.accelerationDx;
+        gains.orientationErrorGain * approxTiltFootRtSurfaceEwrtWorld.dfdx +
+        gains.angularVelocityErrorGain * map *
+            angular.dxAngvelFootRtWorldEwrtWorld +
+        gains.angularAccelerationErrorGain * map *
+            angular.dxAngaccFootRtWorldEwrtWorld;
     manifold.pullBackStateColumns(point.state, frozenState);
     matrix_t frozenInput = linearization.dfdu;
-    frozenInput.bottomRows(3) =
-        gains.angularVelocityErrorGain * map * angular.velocityDu +
-        gains.angularAccelerationErrorGain * map * angular.accelerationDu;
+    frozenInput.bottomRows(3) = gains.angularVelocityErrorGain * map *
+                                    angular.duAngvelFootRtWorldEwrtWorld +
+                                gains.angularAccelerationErrorGain * map *
+                                    angular.duAngaccFootRtWorldEwrtWorld;
     const scalar_t frozen =
         largestResidualToBound(frozenState, stateDifferences);
     EXPECT_GT(frozen, 1.0)
@@ -963,8 +1000,7 @@ TEST(StanceFootOrientationRates,
       "largest entry by at least %.3g, of the orientation rows' by %.3g, and "
       "the frozen-map linearization's state Jacobian "
       "by at least %.3g times its bound\n",
-      largestExact, smallestMutation, smallestOrientationMutation,
-      smallestFrozen);
+      largestExact, smallestMutation, smallestTiltRowsMutation, smallestFrozen);
 }
 
 }  // namespace

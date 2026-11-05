@@ -810,7 +810,7 @@ def _has_default_constant(field: _Field) -> bool:
 
 
 def _default_constant(field: _Field) -> str:
-    """The struct's constant for the explicit default of the number field `field`: `kDefaultSwingHeight`."""
+    """The struct's constant for the explicit default of the number field `field`: `kDefaultSwingTimeScale`."""
     return f"kDefault{camel_case(field.name)}"
 
 

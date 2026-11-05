@@ -262,9 +262,9 @@ class MpcNodeRuntime {
     /** The time of the last accepted walking command; nullopt before the first.
      * IO thread only. */
     std::optional<std::chrono::steady_clock::time_point> lastWalkingCommandTime;
-    /** [m] The pelvis height of the last accepted walking command, which the
-     * stop command keeps. IO thread only. */
-    double lastPelvisHeight = 0.0;
+    /** [m] The base height above the ground of the last accepted walking
+     * command, which the stop command keeps. IO thread only. */
+    double prevCmdPosBaseRtSurfaceEwrtWorldZ = 0.0;
     /** Whether the stop command has replaced the last walking command since it
      * arrived. IO thread only. */
     bool walkingCommandTimedOut = false;

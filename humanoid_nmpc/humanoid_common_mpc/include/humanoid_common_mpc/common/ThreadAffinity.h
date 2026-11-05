@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pthread.h>
 #include <sched.h>
 
+#include <cstddef>
 #include <string>
 #include <thread>
 #include <vector>
@@ -123,8 +124,9 @@ inline std::vector<int> availableCores() {
   }
   if (cores.empty()) {
     for (int core = 0;
-         core < static_cast<int>(std::thread::hardware_concurrency()); ++core)
+         core < static_cast<int>(std::thread::hardware_concurrency()); ++core) {
       cores.push_back(core);
+    }
   }
   return cores;
 }
@@ -134,8 +136,9 @@ inline void appendCores(const std::vector<int>& cores,
                         size_t first,
                         size_t last,
                         std::vector<int>& partition) {
-  for (size_t index = first; index < last && index < cores.size(); ++index)
+  for (size_t index = first; index < last && index < cores.size(); ++index) {
     partition.push_back(cores[index]);
+  }
 }
 
 /**

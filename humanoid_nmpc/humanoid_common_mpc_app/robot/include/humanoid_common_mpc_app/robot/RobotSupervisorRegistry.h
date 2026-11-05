@@ -78,8 +78,8 @@ struct RobotSupervisorContext {
   OperatorCommandMailbox* absl_nonnull commands;
   FsmStateMailbox* absl_nonnull fsmStates;
   RealtimeEventLog* absl_nullable eventLog = nullptr;
-  /** The task file's fall recovery keys (`sim_max_base_tilt_angle`,
-   * `sim_gantry_catch_lift`). */
+  /** The task file's fall recovery keys (`sim_max_tiltangle_base_rt_world`,
+   * `sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z`). */
   SimFallRecovery::Config fallRecovery;
   /** The joints whose posture and speed decide whether a caught robot rests
    * (SimFallRecovery). */

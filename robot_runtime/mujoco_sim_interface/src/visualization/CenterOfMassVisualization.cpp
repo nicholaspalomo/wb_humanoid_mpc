@@ -29,8 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mujoco_sim_interface/visualization/CenterOfMassVisualization.h"
 
-#include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/visualization/GroundMarkerGeoms.h"
+#include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -43,8 +44,9 @@ constexpr double kShadowLineWidth =
 
 void CenterOfMassVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   if (frame.model == nullptr || frame.state == nullptr ||
-      frame.scene == nullptr)
+      frame.scene == nullptr) {
     return;
+  }
   const RobotCentroidalState state =
       robotCentroidalState(frame.model, frame.state->data);
   if (!state.valid) return;
@@ -55,7 +57,8 @@ void CenterOfMassVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   addSphereGeom(frame.scene, state.posComRtWorldEwrtWorld,
                 kCenterOfMassMarkerRadius, kMarkerColor);
   addVerticalLineGeom(frame.scene, state.posComRtWorldEwrtWorld,
-                      /*groundHeight=*/0.0, kShadowLineWidth, kShadowColor);
+                      /*posSurfaceRtWorldEwrtWorldZ=*/0.0, kShadowLineWidth,
+                      kShadowColor);
   addGroundDiscGeom(frame.scene, state.posComRtWorldEwrtWorld[0],
                     state.posComRtWorldEwrtWorld[1], kCenterOfMassMarkerRadius,
                     kShadowColor);

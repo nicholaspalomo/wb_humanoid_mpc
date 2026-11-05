@@ -61,8 +61,8 @@ config::ContactSet contactSet() {
   candidate.name = "knee";
   candidate.kind = config::ContactSet::Kind::kPoint;
   candidate.parent_joint = "knee_joint";
-  candidate.offset = Eigen::Vector3d(0.05, 0.0, 0.0);
-  candidate.pad_normal = Eigen::Vector3d::UnitX();
+  candidate.pos_pad_rt_link_ewrt_link = Eigen::Vector3d(0.05, 0.0, 0.0);
+  candidate.normal_pad_ewrt_link = Eigen::Vector3d::UnitX();
   set.candidates = {candidate};
   return set;
 }
@@ -74,7 +74,7 @@ config::TerrainScene scene() {
   floor.name = "ground";
   floor.friction = 0.8;
   config::TerrainScene::Box box;
-  box.center = Eigen::Vector3d(0.0, 0.0, -0.5);
+  box.pos_box_rt_world_ewrt_world = Eigen::Vector3d(0.0, 0.0, -0.5);
   box.half_extents = Eigen::Vector3d(10.0, 10.0, 0.5);
   floor.shape = box;
   terrain.primitives = {floor};
@@ -89,8 +89,8 @@ config::MultiContactPlan plan() {
   for (int k = 0; k < 3; ++k) {
     config::MultiContactPlan::Knot knot;
     knot.time = 0.5 * k;
-    knot.base_position = Eigen::Vector3d(0.1 * k, 0.0, 0.9);
-    knot.base_orientation_xyzw = Eigen::Vector4d(0.0, 0.0, 0.0, 1.0);
+    knot.pos_base_rt_world_ewrt_world = Eigen::Vector3d(0.1 * k, 0.0, 0.9);
+    knot.quat_base_rt_world_xyzw = Eigen::Vector4d(0.0, 0.0, 0.0, 1.0);
     knot.joint_positions = Eigen::VectorXd::Constant(1, 0.2);
     knot.active_contacts = 1;
     plan.knots.push_back(knot);
@@ -110,8 +110,8 @@ TEST(PlanFileTest, HashesIgnoreHowDefaultsAreSpelled) {
       nproto::ParseTextproto<humanoid_multi_contact::TerrainScene>(
           R"(name: "floor"
              primitives { name: "ground" friction: 0.8
-                          box { center: [0, 0, -0.5] half_extents: [10, 10, 0.5]
-                                orientation_xyzw: [] } })",
+                          box { pos_box_rt_world_ewrt_world: [0, 0, -0.5] half_extents: [10, 10, 0.5]
+                                quat_box_rt_world_xyzw: [] } })",
           "spelled");
   ASSERT_TRUE(spelled.ok()) << spelled.status();
   config::TerrainScene parsed;
@@ -121,7 +121,7 @@ TEST(PlanFileTest, HashesIgnoreHowDefaultsAreSpelled) {
   config::TerrainScene moved = scene();
   std::get<config::TerrainScene::Primitive::kBoxIndex>(
       moved.primitives.front().shape)
-      .center.z() = -0.49;
+      .pos_box_rt_world_ewrt_world.z() = -0.49;
   EXPECT_NE(terrainSceneHash(moved), terrainSceneHash(scene()));
   config::ContactSet renamed = contactSet();
   renamed.candidates.front().name = "elbow";
@@ -154,7 +154,8 @@ TEST(PlanFileTest, RefusesAPlanMadeForAnotherContactSetOrScene) {
   const std::string path = temporaryPath("refused.binpb");
   ASSERT_TRUE(savePlanFile(plan(), path).ok());
   config::ContactSet otherSet = contactSet();
-  otherSet.candidates.front().offset = Eigen::Vector3d(0.06, 0.0, 0.0);
+  otherSet.candidates.front().pos_pad_rt_link_ewrt_link =
+      Eigen::Vector3d(0.06, 0.0, 0.0);
   const absl::StatusOr<config::MultiContactPlan> wrongSet =
       loadPlanFile(path, otherSet, scene());
   EXPECT_EQ(wrongSet.status().code(), absl::StatusCode::kFailedPrecondition);

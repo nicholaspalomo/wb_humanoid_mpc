@@ -83,35 +83,61 @@ std::vector<uint64_t> memberBits(const Parameters& parameters) {
   std::array<double, sizeof(Parameters) / sizeof(double)> members{};
   std::memcpy(members.data(), &parameters, sizeof(Parameters));
   std::vector<uint64_t> bits;
-  for (const double member : members)
+  for (const double member : members) {
     bits.push_back(std::bit_cast<uint64_t>(member));
+  }
   return bits;
 }
 
 /** The bits of the parameter struct of the heuristic `heuristic` in `config`;
  * empty for a name that has none. */
-std::vector<uint64_t> parameterBits(const LocomotionHeuristicConfig& config,
-                                    absl::string_view heuristic) {
-  if (heuristic == heuristic::kOrientationCompensation)
-    return memberBits(config.orientationCompensation);
-  if (heuristic == heuristic::kPeriodicOrientation)
-    return memberBits(config.periodicOrientation);
-  if (heuristic == heuristic::kHeightCompensation)
+std::vector<uint64_t> heuristicParameterBits(
+    const LocomotionHeuristicConfig& config, absl::string_view heuristic) {
+  if (heuristic == heuristic::kOrientationCompensationName) {
+    return memberBits(config.orientationCompensationParameters);
+  }
+  if (heuristic == heuristic::kPeriodicOrientationName) {
+    return memberBits(config.periodicOrientationParameters);
+  }
+  if (heuristic == heuristic::kHeightCompensation) {
     return memberBits(config.heightCompensation);
-  if (heuristic == heuristic::kHipCenteredStepping)
+  }
+  if (heuristic == heuristic::kHipCenteredStepping) {
     return memberBits(config.hipCenteredStepping);
-  if (heuristic == heuristic::kCapturePoint)
+  }
+  if (heuristic == heuristic::kCapturePoint) {
     return memberBits(config.capturePoint);
-  if (heuristic == heuristic::kTranslationalStepping)
+  }
+  if (heuristic == heuristic::kTranslationalStepping) {
     return memberBits(config.translationalStepping);
-  if (heuristic == heuristic::kInPlaceTurning)
+  }
+  if (heuristic == heuristic::kInPlaceTurning) {
     return memberBits(config.inPlaceTurning);
-  if (heuristic == heuristic::kHighSpeedTurning)
+  }
+  if (heuristic == heuristic::kHighSpeedTurning) {
     return memberBits(config.highSpeedTurning);
-  if (heuristic == heuristic::kImpulseScaling)
+  }
+  if (heuristic == heuristic::kImpulseScaling) {
     return memberBits(config.impulseScaling);
-  if (heuristic == heuristic::kCentripetalAcceleration)
-    return memberBits(config.centripetalAcceleration);
+  }
+  if (heuristic == heuristic::kCentripetalAccelerationName) {
+    return memberBits(config.centripetalAccelerationParameters);
+  }
+  return {};
+}
+
+/** The bits of the parameter struct whose task-file block is the field
+ * `block` (parameterBlockName()) in `config`; empty for a field that is no
+ * heuristic's block. */
+std::vector<uint64_t> parameterBits(const LocomotionHeuristicConfig& config,
+                                    absl::string_view block) {
+  for (const HeuristicKind kind : allHeuristicKinds()) {
+    for (const std::string& name : knownHeuristicNames(kind)) {
+      if (parameterBlockName(name) == block) {
+        return heuristicParameterBits(config, name);
+      }
+    }
+  }
   return {};
 }
 
@@ -121,8 +147,9 @@ std::vector<const FieldDescriptor* absl_nonnull> blockFields() {
   std::vector<const FieldDescriptor* absl_nonnull> blocks;
   const Descriptor* absl_nonnull descriptor = HeuristicsProto::descriptor();
   for (int i = 0; i < descriptor->field_count(); ++i) {
-    if (descriptor->field(i)->message_type() != nullptr)
+    if (descriptor->field(i)->message_type() != nullptr) {
       blocks.push_back(descriptor->field(i));
+    }
   }
   return blocks;
 }
@@ -180,16 +207,18 @@ TEST(LocomotionHeuristicsFromConfigTest,
   std::set<std::string> registered;
   std::set<std::string> kinds;
   for (const HeuristicKind kind : allHeuristicKinds()) {
-    kinds.emplace(heuristicKindName(kind));
-    for (const std::string& name : knownHeuristicNames(kind))
-      registered.insert(name);
+    kinds.emplace(heuristicListName(kind));
+    for (const std::string& name : knownHeuristicNames(kind)) {
+      registered.insert(parameterBlockName(name));
+    }
   }
   std::set<std::string> blocks;
-  for (const FieldDescriptor* absl_nonnull block : blockFields())
+  for (const FieldDescriptor* absl_nonnull block : blockFields()) {
     blocks.emplace(block->name());
+  }
   EXPECT_EQ(blocks, registered)
       << "one parameter block per heuristic, named after it "
-         "(LocomotionHeuristicFormulation.cpp)";
+         "(parameterBlockName())";
 
   std::set<std::string> lists;
   const Descriptor* absl_nonnull descriptor = HeuristicsProto::descriptor();
@@ -202,6 +231,23 @@ TEST(LocomotionHeuristicsFromConfigTest,
     lists.emplace(field->name());
   }
   EXPECT_EQ(lists, kinds) << "one name list per kind of heuristic";
+}
+
+TEST(LocomotionHeuristicsFromConfigTest,
+     ABlockIsNamedAfterItsHeuristicUnlessTheNameHoldsAQuantityWord) {
+  EXPECT_EQ(parameterBlockName(heuristic::kCapturePoint), "capture_point");
+  EXPECT_EQ(parameterBlockName(heuristic::kHeightCompensation),
+            "height_compensation");
+  EXPECT_EQ(parameterBlockName(heuristic::kOrientationCompensationName),
+            "orientation_compensation_parameters");
+  EXPECT_EQ(parameterBlockName(heuristic::kPeriodicOrientationName),
+            "periodic_orientation_parameters");
+  EXPECT_EQ(parameterBlockName(heuristic::kCentripetalAccelerationName),
+            "centripetal_acceleration_parameters");
+  EXPECT_EQ(heuristicListName(HeuristicKind::kBasePose),
+            "base_pose_heuristics");
+  EXPECT_EQ(heuristicListName(HeuristicKind::kFoothold), "foothold_heuristics");
+  EXPECT_EQ(heuristicListName(HeuristicKind::kWrench), "wrench_heuristics");
 }
 
 TEST(LocomotionHeuristicsFromConfigTest, EveryParameterReachesAMemberOfItsOwn) {
@@ -255,34 +301,37 @@ TEST(LocomotionHeuristicsFromConfigTest, EveryParameterReachesAMemberOfItsOwn) {
 
 TEST(LocomotionHeuristicsFromConfigTest, TheListsAreCopiedAsWritten) {
   const absl::StatusOr<LocomotionHeuristicConfig> heuristics = convertText(
-      "base_pose: \"periodicOrientation\"\n"
-      "foothold: \"hip_centered_stepping\"\n"
-      "foothold: \"capture_point\"\n"
-      "wrench: \"impulse_scaling\"\n"
+      "base_pose_heuristics: \"periodicOrientation\"\n"
+      "foothold_heuristics: \"hip_centered_stepping\"\n"
+      "foothold_heuristics: \"capture_point\"\n"
+      "wrench_heuristics: \"impulse_scaling\"\n"
       "capture_point { gain: 0.5 }");
   ASSERT_TRUE(heuristics.ok()) << heuristics.status();
-  EXPECT_EQ(heuristics->formulation.basePose,
+  EXPECT_EQ(heuristics->formulation.basePoseHeuristics,
             std::vector<std::string>{"periodicOrientation"});
   EXPECT_EQ(
-      heuristics->formulation.foothold,
+      heuristics->formulation.footholdHeuristics,
       (std::vector<std::string>{"hip_centered_stepping", "capture_point"}));
-  EXPECT_EQ(heuristics->formulation.wrench,
+  EXPECT_EQ(heuristics->formulation.wrenchHeuristics,
             std::vector<std::string>{"impulse_scaling"});
-  EXPECT_TRUE(heuristics->formulation.listed(HeuristicKind::kBasePose,
-                                             heuristic::kPeriodicOrientation));
+  EXPECT_TRUE(heuristics->formulation.listed(
+      HeuristicKind::kBasePose, heuristic::kPeriodicOrientationName));
   EXPECT_EQ(heuristics->capturePoint.gain, 0.5);
 }
 
 TEST(LocomotionHeuristicsFromConfigTest, TheLayersOwnChecksStillApply) {
   const std::array<std::pair<absl::string_view, absl::string_view>, 5> refused =
       {{
-          {"foothold: \"lean_forward\"",
+          {"foothold_heuristics: \"lean_forward\"",
            "unknown foothold heuristic 'lean_forward'"},
-          {"foothold: \"periodic_orientation\"", "is a base_pose heuristic"},
-          {"wrench: \"impulse_scaling\"\nwrench: \"impulseScaling\"",
+          {"foothold_heuristics: \"periodic_orientation\"",
+           "is a base_pose heuristic"},
+          {"wrench_heuristics: \"impulse_scaling\"\nwrench_heuristics: "
+           "\"impulseScaling\"",
            "listed more than once"},
-          {"foothold: \"\"", "unknown foothold heuristic ''"},
-          {"centripetal_acceleration { maximum_force_ratio_of_weight: 0 }",
+          {"foothold_heuristics: \"\"", "unknown foothold heuristic ''"},
+          {"centripetal_acceleration_parameters { "
+           "max_wnorm_force_com_ewrt_world_xy: 0 }",
            "needs a force clamp"},
       }};
   for (const std::pair<absl::string_view, absl::string_view>& entry : refused) {
@@ -302,21 +351,27 @@ TEST(LocomotionHeuristicsFromConfigTest,
   // no 0 sentinel.
   const absl::StatusOr<LocomotionHeuristicConfig> absent = convertText("");
   ASSERT_TRUE(absent.ok()) << absent.status();
-  EXPECT_EQ(absent->capturePoint.comHeightOverride,
-            LocomotionHeuristicConfig{}.capturePoint.comHeightOverride);
-  EXPECT_EQ(absent->centripetalAcceleration.maximumForce,
-            LocomotionHeuristicConfig{}.centripetalAcceleration.maximumForce);
+  EXPECT_EQ(absent->capturePoint.overridePosComRtFeetmeanEwrtWorldZ,
+            LocomotionHeuristicConfig{}
+                .capturePoint.overridePosComRtFeetmeanEwrtWorldZ);
+  EXPECT_EQ(absent->centripetalAccelerationParameters.maxForceComEwrtWorldXy,
+            LocomotionHeuristicConfig{}
+                .centripetalAccelerationParameters.maxForceComEwrtWorldXy);
   const absl::StatusOr<LocomotionHeuristicConfig> present = convertText(
-      "capture_point { com_height_override: 0.9 }\ncentripetal_acceleration { "
+      "capture_point { override_pos_com_rt_feetmean_ewrt_world_z: 0.9 }\n"
+      "centripetal_acceleration_parameters { "
       "max_force_com_ewrt_world_xy: 40 }");
   ASSERT_TRUE(present.ok()) << present.status();
-  EXPECT_EQ(present->capturePoint.comHeightOverride, 0.9);
-  EXPECT_EQ(present->centripetalAcceleration.maximumForce, 40.0);
+  EXPECT_EQ(present->capturePoint.overridePosComRtFeetmeanEwrtWorldZ, 0.9);
+  EXPECT_EQ(present->centripetalAccelerationParameters.maxForceComEwrtWorldXy,
+            40.0);
   for (const absl::string_view text :
-       {"capture_point { com_height_override: 0 }",
-        "capture_point { com_height_override: -1 }",
-        "centripetal_acceleration { max_force_com_ewrt_world_xy: 0 }",
-        "centripetal_acceleration { max_force_com_ewrt_world_xy: -5 }"}) {
+       {"capture_point { override_pos_com_rt_feetmean_ewrt_world_z: 0 }",
+        "capture_point { override_pos_com_rt_feetmean_ewrt_world_z: -1 }",
+        "centripetal_acceleration_parameters { max_force_com_ewrt_world_xy: 0 "
+        "}",
+        "centripetal_acceleration_parameters { max_force_com_ewrt_world_xy: -5 "
+        "}"}) {
     const absl::StatusOr<LocomotionHeuristicConfig> refused = convertText(text);
     EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument)
         << text;
@@ -368,14 +423,15 @@ TEST(LocomotionHeuristicsFromConfigTest,
 
 TEST(LocomotionHeuristicsFromConfigTest,
      TheCamelCaseSpellingOfAKeyIsRefusedWithItsNewName) {
-  const absl::StatusOr<LocomotionHeuristicConfig> heuristics =
-      convertText("capture_point {\n  comHeightOverride: 1.0805\n}");
+  const absl::StatusOr<LocomotionHeuristicConfig> heuristics = convertText(
+      "capture_point {\n  overridePosComRtFeetmeanEwrtWorldZ: 1.0805\n}");
   ASSERT_EQ(heuristics.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(
       absl::StartsWith(heuristics.status().message(), "task.textproto:3:3: "))
       << heuristics.status();
-  EXPECT_TRUE(absl::StrContains(heuristics.status().message(),
-                                "Did you mean \"com_height_override\"?"))
+  EXPECT_TRUE(absl::StrContains(
+      heuristics.status().message(),
+      "Did you mean \"override_pos_com_rt_feetmean_ewrt_world_z\"?"))
       << heuristics.status();
 }
 

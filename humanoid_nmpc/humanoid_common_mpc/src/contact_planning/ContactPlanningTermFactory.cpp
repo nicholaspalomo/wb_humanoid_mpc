@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/constraint/FootMotionInSwingOnlyConstraint.h"
 #include "humanoid_common_mpc/contact_planning/constraint/FootSeparationConstraint.h"
@@ -66,6 +67,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/cost/ZmpRegularizationCost.h"
 #include "humanoid_common_mpc/contact_planning/execution/DcmStepAdjustmentRule.h"
 #include "humanoid_common_mpc/contact_planning/execution/EnergyCadenceModulationRule.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
 #include "humanoid_common_mpc/contact_planning/execution/PhaseResettingRule.h"
 #include "humanoid_common_mpc/contact_planning/logic/AlternatingFeetRule.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactSwitchCost.h"
@@ -77,10 +79,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/model/FootholdIntegrator.h"
 #include "humanoid_common_mpc/contact_planning/model/HeadingDoubleIntegrator.h"
 #include "humanoid_common_mpc/contact_planning/model/LipComDynamics.h"
+#include "humanoid_common_mpc/contact_planning/problem/AssignmentCost.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactLogicRule.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningProblem.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipConstraint.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipCost.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipModelBlock.h"
+#include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
 #include "humanoid_common_mpc/contact_planning/search/CadenceStretchStage.h"
 #include "humanoid_common_mpc/contact_planning/search/DivingStage.h"
 #include "humanoid_common_mpc/contact_planning/search/EventShiftLocalSearchStage.h"
 #include "humanoid_common_mpc/contact_planning/search/HeadingRelinearizationStage.h"
+#include "humanoid_common_mpc/contact_planning/search/SearchStage.h"
 #include "humanoid_common_mpc/contact_planning/search/WarmStartPreviousPlanStage.h"
 
 namespace ocs2::humanoid {
@@ -141,10 +151,12 @@ ContactPlanningTermFactory::makeModelBlock(absl::string_view name) {
   ASSIGN_OR_RETURN(const std::string canonical,
                    canonicalOrError(TermKind::kModelBlock, name));
   if (canonical == term::kLipCom) return std::make_unique<LipComDynamics>();
-  if (canonical == term::kFootholdIntegrator)
+  if (canonical == term::kFootholdIntegrator) {
     return std::make_unique<FootholdIntegrator>();
-  if (canonical == term::kHeadingDoubleIntegrator)
+  }
+  if (canonical == term::kHeadingDoubleIntegrator) {
     return std::make_unique<HeadingDoubleIntegrator>();
+  }
   return unknownTerm(TermKind::kModelBlock, name);
 }
 
@@ -152,30 +164,41 @@ absl::StatusOr<std::unique_ptr<LipCost>> ContactPlanningTermFactory::makeCost(
     absl::string_view name) {
   ASSIGN_OR_RETURN(const std::string canonical,
                    canonicalOrError(TermKind::kCost, name));
-  if (canonical == term::kRegularization)
+  if (canonical == term::kRegularization) {
     return std::make_unique<RegularizationCost>();
-  if (canonical == term::kPreviousFootholdConsistency)
+  }
+  if (canonical == term::kPreviousFootholdConsistency) {
     return std::make_unique<PreviousFootholdConsistencyCost>();
-  if (canonical == term::kVelocityTracking)
+  }
+  if (canonical == term::kVelocityTracking) {
     return std::make_unique<VelocityTrackingCost>();
+  }
   if (canonical == term::kStepWidth) return std::make_unique<StepWidthCost>();
-  if (canonical == term::kHeadingRateTracking)
+  if (canonical == term::kHeadingRateTracking) {
     return std::make_unique<HeadingRateTrackingCost>();
-  if (canonical == term::kHeadingTracking)
+  }
+  if (canonical == term::kHeadingTracking) {
     return std::make_unique<HeadingTrackingCost>();
-  if (canonical == term::kFootYawTracking)
+  }
+  if (canonical == term::kFootYawTracking) {
     return std::make_unique<FootYawTrackingCost>();
-  if (canonical == term::kYawTorqueRegularization)
+  }
+  if (canonical == term::kYawTorqueRegularizationName) {
     return std::make_unique<YawTorqueRegularizationCost>();
-  if (canonical == term::kFootYawRegularization)
+  }
+  if (canonical == term::kFootYawRegularization) {
     return std::make_unique<FootYawRegularizationCost>();
-  if (canonical == term::kZmpRegularization)
+  }
+  if (canonical == term::kZmpRegularization) {
     return std::make_unique<ZmpRegularizationCost>();
-  if (canonical == term::kFootholdRegularization)
+  }
+  if (canonical == term::kFootholdRegularization) {
     return std::make_unique<FootholdRegularizationCost>();
+  }
   if (canonical == term::kStepLength) return std::make_unique<StepLengthCost>();
-  if (canonical == term::kTerminalDcm)
+  if (canonical == term::kTerminalDcm) {
     return std::make_unique<TerminalDcmCost>();
+  }
   return unknownTerm(TermKind::kCost, name);
 }
 
@@ -183,14 +206,18 @@ absl::StatusOr<std::unique_ptr<LipConstraint>>
 ContactPlanningTermFactory::makeSoftConstraint(absl::string_view name) {
   ASSIGN_OR_RETURN(const std::string canonical,
                    canonicalOrError(TermKind::kSoftConstraint, name));
-  if (canonical == term::kZmpSupportRegion)
+  if (canonical == term::kZmpSupportRegion) {
     return std::make_unique<ZmpSupportRegionConstraint>();
-  if (canonical == term::kReachability)
+  }
+  if (canonical == term::kReachability) {
     return std::make_unique<ReachabilityConstraint>();
-  if (canonical == term::kFootSeparation)
+  }
+  if (canonical == term::kFootSeparation) {
     return std::make_unique<FootSeparationConstraint>();
-  if (canonical == term::kHipYawRange)
+  }
+  if (canonical == term::kHipYawRange) {
     return std::make_unique<HipYawRangeConstraint>();
+  }
   return unknownTerm(TermKind::kSoftConstraint, name);
 }
 
@@ -198,14 +225,18 @@ absl::StatusOr<std::unique_ptr<LipConstraint>>
 ContactPlanningTermFactory::makeHardConstraint(absl::string_view name) {
   ASSIGN_OR_RETURN(const std::string canonical,
                    canonicalOrError(TermKind::kHardConstraint, name));
-  if (canonical == term::kNoFlight)
+  if (canonical == term::kNoFlight) {
     return std::make_unique<NoFlightConstraint>();
-  if (canonical == term::kFootMotionInSwingOnly)
+  }
+  if (canonical == term::kFootMotionInSwingOnly) {
     return std::make_unique<FootMotionInSwingOnlyConstraint>();
-  if (canonical == term::kYawTorqueBudget)
+  }
+  if (canonical == term::kYawTorqueBudgetName) {
     return std::make_unique<YawTorqueBudgetConstraint>();
-  if (canonical == term::kFootYawPinnedInContact)
+  }
+  if (canonical == term::kFootYawPinnedInContact) {
     return std::make_unique<FootYawPinnedInContactConstraint>();
+  }
   return unknownTerm(TermKind::kHardConstraint, name);
 }
 
@@ -213,13 +244,16 @@ absl::StatusOr<std::unique_ptr<ContactLogicRule>>
 ContactPlanningTermFactory::makeLogicRule(absl::string_view name) {
   ASSIGN_OR_RETURN(const std::string canonical,
                    canonicalOrError(TermKind::kLogicRule, name));
-  if (canonical == term::kPhaseDurations)
+  if (canonical == term::kPhaseDurations) {
     return std::make_unique<PhaseDurationsRule>();
+  }
   if (canonical == term::kNoFlight) return std::make_unique<NoFlightRule>();
-  if (canonical == term::kMinimumDoubleSupport)
+  if (canonical == term::kMinimumDoubleSupport) {
     return std::make_unique<MinimumDoubleSupportRule>();
-  if (canonical == term::kAlternatingFeet)
+  }
+  if (canonical == term::kAlternatingFeet) {
     return std::make_unique<AlternatingFeetRule>();
+  }
   return unknownTerm(TermKind::kLogicRule, name);
 }
 
@@ -227,12 +261,15 @@ absl::StatusOr<std::unique_ptr<AssignmentCost>>
 ContactPlanningTermFactory::makeAssignmentCost(absl::string_view name) {
   ASSIGN_OR_RETURN(const std::string canonical,
                    canonicalOrError(TermKind::kAssignmentCost, name));
-  if (canonical == term::kContactSwitch)
+  if (canonical == term::kContactSwitch) {
     return std::make_unique<ContactSwitchCost>();
-  if (canonical == term::kPlanConsistency)
+  }
+  if (canonical == term::kPlanConsistency) {
     return std::make_unique<PlanConsistencyCost>();
-  if (canonical == term::kDoubleSupportPenalty)
+  }
+  if (canonical == term::kDoubleSupportPenalty) {
     return std::make_unique<DoubleSupportPenaltyCost>();
+  }
   return unknownTerm(TermKind::kAssignmentCost, name);
 }
 
@@ -240,15 +277,19 @@ absl::StatusOr<std::unique_ptr<SearchStage>>
 ContactPlanningTermFactory::makeSearchStage(absl::string_view name) {
   ASSIGN_OR_RETURN(const std::string canonical,
                    canonicalOrError(TermKind::kSearchStage, name));
-  if (canonical == term::kWarmStartPreviousPlan)
+  if (canonical == term::kWarmStartPreviousPlan) {
     return std::make_unique<WarmStartPreviousPlanStage>();
+  }
   if (canonical == term::kDiving) return std::make_unique<DivingStage>();
-  if (canonical == term::kEventShiftLocalSearch)
+  if (canonical == term::kEventShiftLocalSearch) {
     return std::make_unique<EventShiftLocalSearchStage>();
-  if (canonical == term::kHeadingRelinearization)
+  }
+  if (canonical == term::kHeadingRelinearization) {
     return std::make_unique<HeadingRelinearizationStage>();
-  if (canonical == term::kCadenceStretch)
+  }
+  if (canonical == term::kCadenceStretch) {
     return std::make_unique<CadenceStretchStage>();
+  }
   return unknownTerm(TermKind::kSearchStage, name);
 }
 
@@ -258,12 +299,15 @@ namespace {
 std::unique_ptr<ExecutionRule> executionRuleOrNull(
     const std::string& canonical,
     const ContactPlanningTermFactory::ExtraRuleMaker& extra) {
-  if (canonical == term::kPhaseResetting)
+  if (canonical == term::kPhaseResetting) {
     return std::make_unique<PhaseResettingRule>();
-  if (canonical == term::kEnergyCadenceModulation)
+  }
+  if (canonical == term::kEnergyCadenceModulation) {
     return std::make_unique<EnergyCadenceModulationRule>();
-  if (canonical == term::kDcmStepAdjustment)
+  }
+  if (canonical == term::kDcmStepAdjustment) {
     return std::make_unique<DcmStepAdjustmentRule>();
+  }
   if (extra) return extra(canonical);
   return nullptr;
 }
@@ -320,8 +364,9 @@ ContactPlanningTermFactory::buildSearchStagesStatus(
     ASSIGN_OR_RETURN(std::unique_ptr<SearchStage> stage,
                      makeSearchStage(canonical));
     for (const std::string& block : stage->requiredBlocks()) {
-      if (!config.formulation.hasDynamics(block))
+      if (!config.formulation.hasDynamics(block)) {
         return missingBlock("search stage", name, block);
+      }
     }
     stage->configure(config);
     RETURN_IF_ERROR(stages.add(canonical, std::move(stage)));
@@ -340,8 +385,9 @@ ContactPlanningTermFactory::buildExecutionRulesStatus(
     std::unique_ptr<ExecutionRule> rule = executionRuleOrNull(canonical, extra);
     if (rule == nullptr) return unavailableExecutionRule(canonical);
     for (const std::string& block : rule->requiredBlocks()) {
-      if (!config.formulation.hasDynamics(block))
+      if (!config.formulation.hasDynamics(block)) {
         return missingBlock("execution rule", name, block);
+      }
     }
     rule->configure(config);
     RETURN_IF_ERROR(rules.add(canonical, std::move(rule)));

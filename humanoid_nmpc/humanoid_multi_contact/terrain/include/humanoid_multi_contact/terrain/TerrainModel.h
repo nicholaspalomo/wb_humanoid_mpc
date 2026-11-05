@@ -112,76 +112,86 @@ class TerrainModel {
   /** The exact query of one primitive; requires 0 <= index < numPrimitives().
    */
   template <typename Scalar>
-  PrimitiveQuery<Scalar> primitiveQuery(int index,
-                                        const Vector3<Scalar>& point) const {
+  PrimitiveQuery<Scalar> primitiveQuery(
+      int index, const Vector3<Scalar>& posQueryRtWorldEwrtWorld) const {
     const TerrainPrimitive& primitive = primitives_[index];
     if (const BoxGeometry* absl_nullable box =
             std::get_if<BoxGeometry>(&primitive.geometry)) {
-      return boxQuery(*box, point);
+      return boxQuery(*box, posQueryRtWorldEwrtWorld);
     }
-    return capsuleQuery(std::get<CapsuleGeometry>(primitive.geometry), point);
+    return capsuleQuery(std::get<CapsuleGeometry>(primitive.geometry),
+                        posQueryRtWorldEwrtWorld);
   }
 
-  /** [m] The smooth minimum of the primitives' signed distances at `point`,
-   * negative inside the scene. */
+  /** [m] The smooth minimum of the primitives' signed distances at
+   * `posQueryRtWorldEwrtWorld`, negative inside the scene. */
   template <typename Scalar>
-  Scalar signedDistance(const Vector3<Scalar>& point) const {
-    return blend(point).distance;
+  Scalar signedDistance(const Vector3<Scalar>& posQueryRtWorldEwrtWorld) const {
+    return blend(posQueryRtWorldEwrtWorld).distance;
   }
 
-  /** The unit outward normal at `point`: the gradient of signedDistance(), the
-   * softmin-weighted sum of the primitives' normals, normalized. */
+  /** The terrain's unit outward normal at `posQueryRtWorldEwrtWorld`: the
+   * gradient of signedDistance(), the softmin-weighted sum of the primitives'
+   * normals, normalized. */
   template <typename Scalar>
-  Vector3<Scalar> normal(const Vector3<Scalar>& point) const {
-    return blend(point).normal;
+  Vector3<Scalar> getNormalTerrainEwrtWorld(
+      const Vector3<Scalar>& posQueryRtWorldEwrtWorld) const {
+    return blend(posQueryRtWorldEwrtWorld).normalSurfaceEwrtWorld;
   }
 
-  /** point - signedDistance(point) * normal(point): exact where one primitive
+  /** p - signedDistance(p) * getNormalTerrainEwrtWorld(p) at
+   * p = `posQueryRtWorldEwrtWorld`: exact where one primitive
    * is nearest by several kSmoothMinimumScale, a blend where several are. */
   template <typename Scalar>
-  Vector3<Scalar> nearestPoint(const Vector3<Scalar>& point) const {
-    const PrimitiveQuery<Scalar> query = blend(point);
-    return point - query.distance * query.normal;
+  Vector3<Scalar> computeNearestPosSurfaceRtWorldEwrtWorld(
+      const Vector3<Scalar>& posQueryRtWorldEwrtWorld) const {
+    const PrimitiveQuery<Scalar> query = blend(posQueryRtWorldEwrtWorld);
+    return posQueryRtWorldEwrtWorld -
+           query.distance * query.normalSurfaceEwrtWorld;
   }
 
   /** [m] The signed distance of a sphere to the scene: negative when it
    * penetrates. Exact for one primitive. */
   template <typename Scalar>
-  Scalar sphereDistance(const Vector3<Scalar>& center,
+  Scalar sphereDistance(const Vector3<Scalar>& posSphereRtWorldEwrtWorld,
                         const Scalar& radius) const {
-    return signedDistance(center) - radius;
+    return signedDistance(posSphereRtWorldEwrtWorld) - radius;
   }
 
-  /** The primitive with the smallest exact signed distance at `point` (the
-   * first one on a tie). */
-  NearestPrimitive nearestPrimitive(const Eigen::Vector3d& point) const;
+  /** The primitive with the smallest exact signed distance at
+   * `posQueryRtWorldEwrtWorld` (the first one on a tie). */
+  NearestPrimitive nearestPrimitive(
+      const Eigen::Vector3d& posQueryRtWorldEwrtWorld) const;
 
   /** The frame and polygon of a face of a box primitive; InvalidArgument when
    * the index is out of range or the primitive is a capsule. */
   absl::StatusOr<PatchFrame> boxFaceFrame(int index, BoxFace face) const;
 
   /**
-   * The patch a contact at `point` rests on: the nearest primitive, and on a
-   * box the face whose plane is nearest to the point (the largest excess over
-   * the box's half extents, which on an edge or a corner is the face the point
-   * is farthest outside of), or on a capsule its tangent plane at the nearest
-   * point.
+   * The patch a contact at `posQueryRtWorldEwrtWorld` rests on: the nearest
+   * primitive, and on a box the face whose plane is nearest to the point (the
+   * largest excess over the box's half extents, which on an edge or a corner is
+   * the face the point is farthest outside of), or on a capsule its tangent
+   * plane at the nearest point.
    */
-  PatchFrame patchFrameAt(const Eigen::Vector3d& point) const;
+  PatchFrame patchFrameAt(
+      const Eigen::Vector3d& posQueryRtWorldEwrtWorld) const;
 
  private:
   TerrainModel() = default;
 
   /** The smooth minimum of the distances, and the normalized softmin-weighted
-   * normal, at `point`; nearestPoint is not set. */
+   * normal, at `posQueryRtWorldEwrtWorld`; nearestPosSurfaceRtWorldEwrtWorld is
+   * not set. */
   template <typename Scalar>
-  PrimitiveQuery<Scalar> blend(const Vector3<Scalar>& point) const {
+  PrimitiveQuery<Scalar> blend(
+      const Vector3<Scalar>& posQueryRtWorldEwrtWorld) const {
     using std::exp;
     using std::log;
     std::vector<PrimitiveQuery<Scalar>> queries;
     queries.reserve(primitives_.size());
     for (int index = 0; index < numPrimitives(); ++index) {
-      queries.push_back(primitiveQuery(index, point));
+      queries.push_back(primitiveQuery(index, posQueryRtWorldEwrtWorld));
     }
     Scalar minimum = queries.front().distance;
     for (const PrimitiveQuery<Scalar>& query : queries) {
@@ -189,18 +199,19 @@ class TerrainModel {
     }
     const Scalar scale = Scalar(kSmoothMinimumScale);
     Scalar weightSum = Scalar(0.0);
-    Vector3<Scalar> weightedNormal = Vector3<Scalar>::Zero();
+    Vector3<Scalar> weightedNormalSurfaceEwrtWorld = Vector3<Scalar>::Zero();
     for (const PrimitiveQuery<Scalar>& query : queries) {
       // In (0, 1]: the nearest primitive's weight is 1.
       const Scalar weight = exp(Scalar(-(query.distance - minimum) / scale));
       weightSum += weight;
-      weightedNormal += weight * query.normal;
+      weightedNormalSurfaceEwrtWorld += weight * query.normalSurfaceEwrtWorld;
     }
     PrimitiveQuery<Scalar> result;
     result.distance = minimum - scale * log(weightSum);
     const Scalar normalNorm = internal::guardedSqrt(
-        Scalar(weightedNormal.squaredNorm()), kPrimitiveNormGuard);
-    result.normal = weightedNormal / normalNorm;
+        Scalar(weightedNormalSurfaceEwrtWorld.squaredNorm()),
+        kPrimitiveNormGuard);
+    result.normalSurfaceEwrtWorld = weightedNormalSurfaceEwrtWorld / normalNorm;
     return result;
   }
 

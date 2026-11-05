@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/ProductStateManifold.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/manifold/StateManifoldSegment.h"
@@ -62,8 +63,9 @@ absl::StatusOr<std::shared_ptr<const StateManifold>> stateManifoldOf(
     }
     stateStart += segment.stateDim;
     if (segment.kind != TuningSegmentKind::kEulerZyxOrientation) {
-      if (segment.stateDim > 0)
+      if (segment.stateDim > 0) {
         segments.push_back(StateManifoldSegment::euclidean(segment.stateDim));
+      }
       continue;
     }
     if (segment.stateDim != kQuaternionOrientationStateDim) {

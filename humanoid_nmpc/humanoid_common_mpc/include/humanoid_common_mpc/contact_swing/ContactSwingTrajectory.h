@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/functional/function_ref.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -43,7 +44,7 @@ namespace ocs2::humanoid {
  * outward unit normal there, in the world frame. Passive data. */
 struct ContactSwingEndpoint {
   vector3_t posContactRtWorldEwrtWorld = vector3_t::Zero();  // [m]
-  vector3_t normal = vector3_t::UnitZ();
+  vector3_t normalSurfaceEwrtWorld = vector3_t::UnitZ();
 };
 
 /** The reference of a swinging contact at one instant, in the world frame.
@@ -57,12 +58,12 @@ struct ContactSwingReference {
  * data. */
 struct ContactSwingSettings {
   /** The defaults of the fields below. */
-  static constexpr scalar_t kDefaultLiftHeight = 0.1;  // [m]
-  static constexpr scalar_t kDefaultClearance = 0.05;  // [m]
+  static constexpr scalar_t kNomMinDistControlpointRtContact = 0.1;  // [m]
+  static constexpr scalar_t kDefaultClearance = 0.05;                // [m]
 
   // [m] Positive: how far along the two normals the inner control points of
-  // the arc start.
-  scalar_t liftHeight = kDefaultLiftHeight;
+  // the arc start from its end points, the least control distance.
+  scalar_t minDistControlpointRtContact = kNomMinDistControlpointRtContact;
   // [m] Not negative: the signed distance to the terrain every point of the
   // arc away from its ends keeps.
   scalar_t clearance = kDefaultClearance;
@@ -81,9 +82,10 @@ struct ContactSwingSettings {
  * leaves and at touch-down along -n_touch, into the target surface, timed by
  * s = 3 sigma^2 - 2 sigma^3 of the normalized time sigma, so that it starts
  * and ends at rest. Create() raises the control distance a from the settings'
- * lift height until every sampled point of the arc keeps the terrain's signed
- * distance at least the clearance, ramped down linearly to zero over the first
- * and the last quarter of the arc, where it must meet the surfaces.
+ * minDistControlpointRtContact until every sampled point of the arc keeps the
+ * terrain's signed distance at least the clearance, ramped down linearly to
+ * zero over the first and the last quarter of the arc, where it must meet the
+ * surfaces.
  *
  * A value type, immutable after Create(): every method is const and safe to
  * call concurrently.
@@ -94,13 +96,13 @@ class ContactSwingTrajectory {
    * The swing from `liftOff` at `liftOffTime` [s] to `touchDown` at
    * `touchDownTime`, clear of the terrain whose signed distance [m] at a world
    * point is `signedDistance` (read only within Create()). When no control
-   * distance up to kMaxControlDistanceGrowth times the lift height clears the
+   * distance up to kMaxControlDistanceGrowth times the least one clears the
    * terrain, the swing of the largest is returned and clearanceSatisfied() is
    * false.
    *
    * @return InvalidArgument for a touch-down not after the lift-off, a value
-   * that is not finite, a normal that is not unit (within 1e-6), a lift height
-   * that is not positive or a negative clearance.
+   * that is not finite, a normal that is not unit (within 1e-6), a least
+   * control distance that is not positive or a negative clearance.
    */
   static absl::StatusOr<ContactSwingTrajectory> Create(
       scalar_t liftOffTime,
@@ -129,7 +131,9 @@ class ContactSwingTrajectory {
   scalar_t liftOffTime() const { return liftOffTime_; }
   scalar_t touchDownTime() const { return touchDownTime_; }
   /** [m] The control distance a the arc was built with. */
-  scalar_t controlDistance() const { return controlDistance_; }
+  scalar_t getDistControlpointRtContact() const {
+    return distControlpointRtContact_;
+  }
   /** Whether every sampled point keeps the required clearance. */
   bool clearanceSatisfied() const { return clearanceSatisfied_; }
   /** [m] The smallest excess of the sampled points' signed distance over the
@@ -137,7 +141,7 @@ class ContactSwingTrajectory {
   scalar_t clearanceMargin() const { return clearanceMargin_; }
 
   /** The point of the arc at the arc parameter `s` in [0, 1]. */
-  vector3_t pointAt(scalar_t s) const;
+  vector3_t evaluatePosContactRtWorldEwrtWorld(scalar_t s) const;
   /** dB/ds at the arc parameter `s`. */
   vector3_t tangentAt(scalar_t s) const;
 
@@ -148,7 +152,7 @@ class ContactSwingTrajectory {
    * ramps from zero to the full clearance. */
   static constexpr scalar_t kClearanceRampFraction = 0.25;
   /** The factor the control distance grows by per attempt, and the largest
-   * multiple of the lift height it reaches. */
+   * multiple of the least control distance it reaches. */
   static constexpr scalar_t kControlDistanceGrowth = 1.25;
   static constexpr scalar_t kMaxControlDistanceGrowth = 40.0;
   /** The control points of a cubic Bezier arc. */
@@ -157,15 +161,16 @@ class ContactSwingTrajectory {
  private:
   ContactSwingTrajectory() = default;
 
-  /** Sets the control points for the control distance `controlDistance`. */
+  /** Sets the control points `distControlpointRtContact` [m] from the end
+   * points along their surface normals. */
   void setControlPoints(const ContactSwingEndpoint& liftOff,
                         const ContactSwingEndpoint& touchDown,
-                        scalar_t controlDistance);
+                        scalar_t distControlpointRtContact);
 
   scalar_t liftOffTime_ = 0.0;
   scalar_t touchDownTime_ = 0.0;  // > liftOffTime_
   std::array<vector3_t, kNumControlPoints> controlPoints_;
-  scalar_t controlDistance_ = 0.0;
+  scalar_t distControlpointRtContact_ = 0.0;
   bool clearanceSatisfied_ = false;
   scalar_t clearanceMargin_ = 0.0;
 };

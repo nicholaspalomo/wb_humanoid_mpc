@@ -44,11 +44,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
 
 #include "humanoid_common_mpc/acom/AcomSirenWeightsAtlas.h"
 #include "humanoid_common_mpc/acom/AcomSirenWeightsG1.h"
 #include "humanoid_common_mpc/acom/AcomSirenWeightsSa01.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 
 namespace ocs2::humanoid {
@@ -302,7 +304,7 @@ void AngularCenterOfMass::checkJointVectorSize(const vector_t& qJoints) const {
          "one in use.";
 }
 
-vector3_t AngularCenterOfMass::computeJointOrientationOffset(
+vector3_t AngularCenterOfMass::computeRotvecAcomRtBase(
     const vector_t& qJoints) const {
   checkWeightsLoaded();
   checkJointVectorSize(qJoints);
@@ -317,12 +319,12 @@ vector3_t AngularCenterOfMass::computeJointOrientationOffset(
 
   // Output linear layer: y = W_out * x + b_out
   const SirenLayerWeights& outLayer = layers_[numLayers_];
-  vector3_t out = outLayer.weight * x + outLayer.bias;
-  return out;
+  vector3_t rotvecAcomRtBase = outLayer.weight * x + outLayer.bias;
+  return rotvecAcomRtBase;
 }
 
-AngularCenterOfMass::JointOffsetAndJacobian
-AngularCenterOfMass::computeJointOffsetAndJacobian(
+AngularCenterOfMass::RotvecAndJacobian
+AngularCenterOfMass::computeValueAndJacobianRotvecAcomRtBase(
     const vector_t& qJoints) const {
   checkWeightsLoaded();
   checkJointVectorSize(qJoints);
@@ -344,35 +346,39 @@ AngularCenterOfMass::computeJointOffsetAndJacobian(
 
   // Output layer: y = W_out * x + b_out, and its derivative J = W_out * J_{L-1}
   const SirenLayerWeights& outLayer = layers_[numLayers_];
-  return JointOffsetAndJacobian{.offset = outLayer.weight * x + outLayer.bias,
-                                .jacobian = outLayer.weight * J};
+  return RotvecAndJacobian{
+      .rotvecAcomRtBase = outLayer.weight * x + outLayer.bias,
+      .jacobian = outLayer.weight * J};
 }
 
-matrix_t AngularCenterOfMass::computeJointOffsetJacobian(
+matrix_t AngularCenterOfMass::computeJacobianRotvecAcomRtBase(
     const vector_t& qJoints) const {
-  return computeJointOffsetAndJacobian(qJoints).jacobian;
+  return computeValueAndJacobianRotvecAcomRtBase(qJoints).jacobian;
 }
 
 // The JAX model mirrors the composition and its tangent Jacobian, for the
 // training notebook and its tests.
 // LINT.IfChange(acom_attitude)
-vector4_t AngularCenterOfMass::acomAttitude(const vector4_t& xi,
-                                            const vector_t& qJoints) const {
-  const vector3_t offset = computeJointOrientationOffset(qJoints);
-  return quaternionProduct(safelyNormalizedQuaternion(xi),
-                           quaternionExp(offset));
+vector4_t AngularCenterOfMass::computeQuatAcomRtWorldXyzw(
+    const vector4_t& quatBaseRtWorldXyzw, const vector_t& qJoints) const {
+  const vector3_t rotvecAcomRtBase = computeRotvecAcomRtBase(qJoints);
+  return quaternionProduct(safelyNormalizedQuaternion(quatBaseRtWorldXyzw),
+                           quaternionExp(rotvecAcomRtBase));
 }
 
 AcomAttitudeTangentJacobian AngularCenterOfMass::acomAttitudeTangentJacobian(
     const vector_t& qJoints) const {
-  const JointOffsetAndJacobian joints = computeJointOffsetAndJacobian(qJoints);
+  const RotvecAndJacobian joints =
+      computeValueAndJacobianRotvecAcomRtBase(qJoints);
   // xi_hat (x) Exp(dphi) (x) Exp(Delta_theta) = xi_a (x) Exp(R(Delta_theta)^T
   // dphi), and Exp(Delta_theta + J dq) = Exp(Delta_theta) (x)
   // Exp(J_r(Delta_theta) J dq), to first order.
   return AcomAttitudeTangentJacobian{
       .baseTangent =
-          quaternionRotationMatrix(quaternionExp(joints.offset)).transpose(),
-      .jointAngles = so3RightJacobian(joints.offset) * joints.jacobian};
+          quaternionRotationMatrix(quaternionExp(joints.rotvecAcomRtBase))
+              .transpose(),
+      .jointAngles =
+          so3RightJacobian(joints.rotvecAcomRtBase) * joints.jacobian};
 }
 // LINT.ThenChange(//humanoid_learning/acom/models.py:acom_attitude)
 

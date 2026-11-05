@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -88,14 +89,14 @@ void applyInput(const ViewerInput& input, DemoScene& scene) {
     case ViewerInputType::kDrag:
       scene.offsetX += input.dx * 255.0;
       scene.offsetY += input.dy * 255.0;
-      scene.status.camera.azimuth += input.dx * 180.0;
-      scene.status.camera.elevation += input.dy * 90.0;
+      scene.status.camera.azimuthCamfocusRtCamEwrtWorld += input.dx * 180.0;
+      scene.status.camera.elevationCamfocusRtCamEwrtWorld += input.dy * 90.0;
       return;
     case ViewerInputType::kScroll:
       // Positive notches zoom out, as MujocoFrameRenderer::scroll() does.
       scene.zoom =
           std::clamp(scene.zoom * std::exp(-0.05 * input.notches), 0.1, 10.0);
-      scene.status.camera.distance = 3.0 / scene.zoom;
+      scene.status.camera.distCamRtCamfocus = 3.0 / scene.zoom;
       return;
     case ViewerInputType::kKey:
       if (input.key >= '0' && input.key <= '5') {
@@ -110,8 +111,9 @@ void applyInput(const ViewerInput& input, DemoScene& scene) {
       }
       for (ViewerStatus::Visualization& visualization :
            scene.status.visualizations) {
-        if (visualization.hotkey == input.key)
+        if (visualization.hotkey == input.key) {
           visualization.enabled = !visualization.enabled;
+        }
       }
       return;
     case ViewerInputType::kResetCamera:
@@ -126,18 +128,22 @@ void applyInput(const ViewerInput& input, DemoScene& scene) {
     case ViewerInputType::kToggleVisualization:
       for (ViewerStatus::Visualization& visualization :
            scene.status.visualizations) {
-        if (visualization.name == input.visualizationName)
+        if (visualization.name == input.visualizationName) {
           visualization.enabled = !visualization.enabled;
+        }
       }
       return;
     case ViewerInputType::kSettings:
-      if (input.width.has_value())
+      if (input.width.has_value()) {
         scene.status.render.width = std::min(*input.width, 1920);
-      if (input.height.has_value())
+      }
+      if (input.height.has_value()) {
         scene.status.render.height = std::min(*input.height, 1080);
+      }
       if (input.fps.has_value()) scene.status.render.targetFps = *input.fps;
-      if (input.quality.has_value())
+      if (input.quality.has_value()) {
         scene.status.render.quality = *input.quality;
+      }
       return;
   }
   LOG(ERROR) << "unknown input type " << static_cast<int>(input.type);
@@ -194,7 +200,7 @@ int runDemo() {
     return 1;
   }
   DemoScene scene;
-  scene.status.camera.distance = 3.0;
+  scene.status.camera.distCamRtCamfocus = 3.0;
   scene.status.render = {.width = 1280,
                          .height = 720,
                          .targetFps = 30,

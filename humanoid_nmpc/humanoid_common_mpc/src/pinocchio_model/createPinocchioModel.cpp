@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
@@ -43,15 +44,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_pinocchio_interface/urdf.h"
-#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/multibody.hpp"
+#include "pinocchio/multibody/joint/fwd.hpp"
 #include "pinocchio/parsers/urdf.hpp"
+#include "pinocchio/spatial/fwd.hpp"
+#include "urdf_model/joint.h"
 #include "urdf_parser/urdf_parser.h"
+#include "urdf_world/types.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
+#include "humanoid_common_mpc/contact/ContactCenterPoint.h"
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
@@ -98,12 +107,12 @@ pinocchio::JointModelComposite getBaseJointcomposite() {
 void addContactCenterFrames(const ContactPolygon& contactPolygon,
                             pinocchio::ModelTpl<scalar_t>& model) {
   const ContactCenterPoint& ccp = contactPolygon.getContactCenterPoint();
-  pinocchio::SE3 contactPlacement(ccp.rotmatContactRtLink,
-                                  ccp.posContactRtLinkEwrtLink);
-  pinocchio::Frame contactCenterFrame(ccp.frameName,
-                                      model.getJointId(ccp.parentJointName),
-                                      model.getFrameId(ccp.parentJointName),
-                                      contactPlacement, pinocchio::FIXED_JOINT);
+  pinocchio::SE3 poseContactRtLink(ccp.rotmatContactRtLink,
+                                   ccp.posContactRtLinkEwrtLink);
+  pinocchio::Frame contactCenterFrame(
+      ccp.frameName, model.getJointId(ccp.parentJointName),
+      model.getFrameId(ccp.parentJointName), poseContactRtLink,
+      pinocchio::FIXED_JOINT);
   model.addFrame(contactCenterFrame);
 }
 
@@ -123,7 +132,8 @@ void addCollisionCenterFrames(const ContactPolygon& contactPolygon,
       ccp.rotmatContactRtLink,
       ccp.posContactRtLinkEwrtLink +
           ccp.rotmatContactRtLink *
-              vector3_t(contactPolygon.getBounds().x_max *
+              vector3_t(contactPolygon.getBounds()
+                                .max_pos_corners_rt_contact_ewrt_contact_x *
                             kCollisionPointFootprintFraction,
                         0.0, 0.0));
   pinocchio::Frame contactCenterFrameCP1(
@@ -134,7 +144,8 @@ void addCollisionCenterFrames(const ContactPolygon& contactPolygon,
       ccp.rotmatContactRtLink,
       ccp.posContactRtLinkEwrtLink +
           ccp.rotmatContactRtLink *
-              vector3_t(contactPolygon.getBounds().x_min *
+              vector3_t(contactPolygon.getBounds()
+                                .min_pos_corners_rt_contact_ewrt_contact_x *
                             kCollisionPointFootprintFraction,
                         0.0, 0.0));
   pinocchio::Frame contactCenterFrameCP2(
@@ -163,17 +174,17 @@ void addContactPolygonFrames(const ContactPolygon& contactPolygon,
   // center.rotmatContactRtLink (the identity for a sole).
   int nPoints = contactPolygon.getNumberOfContactPoints();
   for (int i = 0; i < nPoints; ++i) {
-    vector3_t contactPointTranslation =
+    vector3_t posCornerRtLinkEwrtLink =
         center.posContactRtLinkEwrtLink +
         center.rotmatContactRtLink *
-            contactPolygon.getContactPointTranslation(i);
-    pinocchio::SE3 cornerPlacement(center.rotmatContactRtLink,
-                                   contactPointTranslation);
+            contactPolygon.getPosCornerRtContactEwrtContact(i);
+    pinocchio::SE3 poseCornerRtLink(center.rotmatContactRtLink,
+                                    posCornerRtLinkEwrtLink);
 
     pinocchio::Frame currContactFrame(
         contactPolygon.getPolygonPointFrameName(i),
         model.getJointId(contactPolygon.getParentJointName()),
-        model.getFrameId(contactPolygon.getParentJointName()), cornerPlacement,
+        model.getFrameId(contactPolygon.getParentJointName()), poseCornerRtLink,
         pinocchio::FIXED_JOINT);
     model.addFrame(currContactFrame);
   }
@@ -197,12 +208,13 @@ absl::Status addPointContactFrame(const ModelSettings::PointContact& contact,
         "' is a frame of the robot model already; a 3-DoF contact names the "
         "frame the MPC adds."));
   }
-  const pinocchio::SE3 offset(matrix3_t::Identity(), contact.translation);
+  const pinocchio::SE3 poseContactRtLink(matrix3_t::Identity(),
+                                         contact.posContactRtLinkEwrtLink);
   if (model.existJointName(contact.parentJointName)) {
     model.addFrame(pinocchio::Frame(contact.name,
                                     model.getJointId(contact.parentJointName),
                                     model.getFrameId(contact.parentJointName),
-                                    offset, pinocchio::FIXED_JOINT));
+                                    poseContactRtLink, pinocchio::FIXED_JOINT));
     return absl::OkStatus();
   }
   if (model.existFrame(contact.parentJointName)) {
@@ -212,9 +224,9 @@ absl::Status addPointContactFrame(const ModelSettings::PointContact& contact,
         model.getFrameId(contact.parentJointName);
     const pinocchio::Frame& parent =
         model.frames[static_cast<size_t>(parentFrame)];
-    model.addFrame(pinocchio::Frame(contact.name, parent.parentJoint,
-                                    parentFrame, parent.placement * offset,
-                                    pinocchio::FIXED_JOINT));
+    model.addFrame(pinocchio::Frame(
+        contact.name, parent.parentJoint, parentFrame,
+        parent.placement * poseContactRtLink, pinocchio::FIXED_JOINT));
     return absl::OkStatus();
   }
   return absl::NotFoundError(absl::StrCat(

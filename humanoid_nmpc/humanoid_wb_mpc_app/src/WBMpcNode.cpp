@@ -79,19 +79,20 @@ absl::StatusOr<std::unique_ptr<WBMpcNode>> WBMpcNode::Create(
   WBMpcTargetTrajectoriesCalculator* absl_nonnull calculator =
       node->targetCalculator_.get();
   // The commanded base height stands on the ground the reference manager
-  // applied in this solve, so it follows a hot reload of terrain_height
-  // (TargetTrajectoriesCalculatorBase::setTerrainHeightSource).
-  calculator->setTerrainHeightSource(
+  // applied in this solve, so it follows a hot reload of
+  // pos_surface_rt_world_ewrt_world_z
+  // (TargetTrajectoriesCalculatorBase::setSourcePosSurfaceRtWorldEwrtWorldZ).
+  calculator->setSourcePosSurfaceRtWorldEwrtWorldZ(
       [referenceManager = interface.getSwitchedModelReferenceManagerPtr()]() {
-        return referenceManager->getAppliedTerrainHeight();
+        return referenceManager->getAppliedPosSurfaceRtWorldEwrtWorldZ();
       });
   const ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories
       targetTrajectoriesFunction =
-          [calculator](const vector4_t& velocityTarget, scalar_t initTime,
+          [calculator](const vector4_t& velocityCommand, scalar_t initTime,
                        scalar_t /*finalTime*/, const vector_t& initState,
                        const BasePlanarMotion& measuredMotion) {
             return calculator->velocityCommandToTargetTrajectories(
-                velocityTarget, initTime, initState, measuredMotion);
+                velocityCommand, initTime, initState, measuredMotion);
           };
   ASSIGN_OR_RETURN(
       node->motionManager_,

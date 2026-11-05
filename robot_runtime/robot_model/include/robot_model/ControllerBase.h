@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "robot_core/Types.h"
 #include "robot_model/RobotJointAction.h"
 #include "robot_model/RobotState.h"
 

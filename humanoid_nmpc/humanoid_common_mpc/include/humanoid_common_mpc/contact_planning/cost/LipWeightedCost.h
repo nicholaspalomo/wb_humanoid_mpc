@@ -32,7 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/contact_planning/problem/Layout.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipCost.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipIndices.h"
 

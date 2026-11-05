@@ -100,7 +100,7 @@ TerrainModel floorTerrain() {
   floor.name = "ground";
   floor.friction = 0.8;
   config::TerrainScene::Box box;
-  box.center = Eigen::Vector3d(0.0, 0.0, -0.5);
+  box.pos_box_rt_world_ewrt_world = Eigen::Vector3d(0.0, 0.0, -0.5);
   box.half_extents = Eigen::Vector3d(20.0, 20.0, 0.5);
   floor.shape = box;
   scene.primitives.push_back(floor);
@@ -112,7 +112,7 @@ TerrainModel floorTerrain() {
 /** Standing on the floor at the scenarios' nominal pose. */
 RobotConfiguration standing() {
   RobotConfiguration configuration;
-  configuration.basePosition = Eigen::Vector3d(0.0, 0.0, 0.9232);
+  configuration.posBaseRtWorldEwrtWorld = Eigen::Vector3d(0.0, 0.0, 0.9232);
   configuration.jointNames = {"l_leg_hpy", "r_leg_hpy", "l_leg_kny",
                               "r_leg_kny", "l_leg_aky", "r_leg_aky",
                               "l_arm_shx", "r_arm_shx"};
@@ -129,8 +129,8 @@ config::CollisionModel::Link capsuleLink(const std::string& name,
   link.name = name;
   link.parent_joint = joint;
   config::CollisionModel::Capsule capsule;
-  capsule.start = Eigen::Vector3d::Zero();
-  capsule.end = end;
+  capsule.pos_capsulestart_rt_link_ewrt_link = Eigen::Vector3d::Zero();
+  capsule.pos_capsuleend_rt_link_ewrt_link = end;
   capsule.radius = radius;
   link.shape = capsule;
   return link;
@@ -147,12 +147,14 @@ TEST(CollisionModel, CapsuleSpheresAreAtMostOneRadiusApart) {
   ASSERT_TRUE(collision.ok()) << collision.status();
   // 0.42 / 0.055 = 7.6: eight intervals, nine spheres.
   ASSERT_EQ(collision->spheres().size(), 9U);
-  EXPECT_NEAR(collision->spheres().front().center.z(), 0.0, kTolerance);
-  EXPECT_NEAR(collision->spheres().back().center.z(), -0.42, kTolerance);
+  EXPECT_NEAR(collision->spheres().front().posSphereRtLinkEwrtLink.z(), 0.0,
+              kTolerance);
+  EXPECT_NEAR(collision->spheres().back().posSphereRtLinkEwrtLink.z(), -0.42,
+              kTolerance);
   for (size_t i = 1; i < collision->spheres().size(); ++i) {
-    const double spacing =
-        (collision->spheres()[i].center - collision->spheres()[i - 1].center)
-            .norm();
+    const double spacing = (collision->spheres()[i].posSphereRtLinkEwrtLink -
+                            collision->spheres()[i - 1].posSphereRtLinkEwrtLink)
+                               .norm();
     EXPECT_LE(spacing, 0.055 + kTolerance);
     EXPECT_EQ(collision->spheres()[i].radius, 0.055);
   }
@@ -166,7 +168,7 @@ TEST(CollisionModel, BoxSpheresLieInsideTheBox) {
   link.name = "pelvis";
   link.parent_joint = "root_joint";
   config::CollisionModel::Box box;
-  box.center = Eigen::Vector3d(-0.02, 0.0, 0.01);
+  box.pos_box_rt_link_ewrt_link = Eigen::Vector3d(-0.02, 0.0, 0.01);
   box.half_extents = Eigen::Vector3d(0.12, 0.15, 0.08);
   link.shape = box;
   config.links.push_back(link);
@@ -177,10 +179,13 @@ TEST(CollisionModel, BoxSpheresLieInsideTheBox) {
   ASSERT_EQ(collision->spheres().size(), 6U);
   for (const CollisionSphere& sphere : collision->spheres()) {
     EXPECT_EQ(sphere.radius, 0.08);
-    const Eigen::Vector3d offset = (sphere.center - box.center).cwiseAbs();
-    EXPECT_LE(offset.x() + sphere.radius, 0.12 + kTolerance);
-    EXPECT_LE(offset.y() + sphere.radius, 0.15 + kTolerance);
-    EXPECT_LE(offset.z() + sphere.radius, 0.08 + kTolerance);
+    const Eigen::Vector3d posSphereRtBoxEwrtLink =
+        (sphere.posSphereRtLinkEwrtLink -
+         Eigen::Vector3d(box.pos_box_rt_link_ewrt_link))
+            .cwiseAbs();
+    EXPECT_LE(posSphereRtBoxEwrtLink.x() + sphere.radius, 0.12 + kTolerance);
+    EXPECT_LE(posSphereRtBoxEwrtLink.y() + sphere.radius, 0.15 + kTolerance);
+    EXPECT_LE(posSphereRtBoxEwrtLink.z() + sphere.radius, 0.08 + kTolerance);
   }
 }
 
@@ -229,16 +234,18 @@ TEST(CollisionModel, RefusesBadModels) {
 }
 
 TEST(CollisionModel, DistanceToPad) {
-  PadRegion point{.center = Eigen::Vector3d(1.0, 0.0, 0.0),
-                  .rotation = Eigen::Matrix3d::Identity(),
+  PadRegion point{.posPadRtWorldEwrtWorld = Eigen::Vector3d(1.0, 0.0, 0.0),
+                  .rotmatPadRtWorld = Eigen::Matrix3d::Identity(),
                   .rectangle = std::nullopt};
   EXPECT_NEAR(distanceToPad(point, Eigen::Vector3d(1.0, 0.0, 0.3)), 0.3,
               kTolerance);
   PadRegion rectangle{
-      .center = Eigen::Vector3d::Zero(),
-      .rotation = Eigen::Matrix3d::Identity(),
-      .rectangle = ContactRectangle{
-          .xMin = -0.1, .xMax = 0.1, .yMin = -0.05, .yMax = 0.05}};
+      .posPadRtWorldEwrtWorld = Eigen::Vector3d::Zero(),
+      .rotmatPadRtWorld = Eigen::Matrix3d::Identity(),
+      .rectangle = ContactRectangle{.minPosCornersRtPadEwrtPadX = -0.1,
+                                    .maxPosCornersRtPadEwrtPadX = 0.1,
+                                    .minPosCornersRtPadEwrtPadY = -0.05,
+                                    .maxPosCornersRtPadEwrtPadY = 0.05}};
   // Above the rectangle: the height; beside it: the distance to its edge.
   EXPECT_NEAR(distanceToPad(rectangle, Eigen::Vector3d(0.05, 0.0, 0.2)), 0.2,
               kTolerance);
@@ -282,7 +289,7 @@ TEST(CollisionModel, AtlasStandingClearsTheFloor) {
 
   // Two centimeters lower, they penetrate by two centimeters.
   RobotConfiguration lower = standing();
-  lower.basePosition.z() -= 0.02;
+  lower.posBaseRtWorldEwrtWorld.z() -= 0.02;
   ASSERT_TRUE(model->setConfiguration(lower).ok());
   const SphereClearance penetrating = collision.terrainClearance(
       *model, floor, /*mask=*/0, kDefaultPadNeighborhood);

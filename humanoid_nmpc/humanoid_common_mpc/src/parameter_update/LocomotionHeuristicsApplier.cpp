@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/config/swing/LocomotionHeuristicsFromConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
+#include "humanoid_common_mpc/parameter_update/HotUpdateTarget.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
 
 namespace ocs2::humanoid {
@@ -47,8 +48,8 @@ namespace {
 
 // LINT.IfChange(locomotion_heuristics_fields)
 constexpr std::array<absl::string_view, 10> kFields = {
-    "locomotion_heuristics.orientation_compensation",
-    "locomotion_heuristics.periodic_orientation",
+    "locomotion_heuristics.orientation_compensation_parameters",
+    "locomotion_heuristics.periodic_orientation_parameters",
     "locomotion_heuristics.height_compensation",
     "locomotion_heuristics.hip_centered_stepping",
     "locomotion_heuristics.capture_point",
@@ -56,7 +57,7 @@ constexpr std::array<absl::string_view, 10> kFields = {
     "locomotion_heuristics.in_place_turning",
     "locomotion_heuristics.high_speed_turning",
     "locomotion_heuristics.impulse_scaling",
-    "locomotion_heuristics.centripetal_acceleration",
+    "locomotion_heuristics.centripetal_acceleration_parameters",
 };
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto, //humanoid_nmpc/humanoid_mpc_config/locomotion_heuristics_config.proto)

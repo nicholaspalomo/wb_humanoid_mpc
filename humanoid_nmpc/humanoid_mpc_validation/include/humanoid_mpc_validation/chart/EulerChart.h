@@ -172,7 +172,7 @@ absl::StatusOr<matrix_t> physicalTangentJacobian(
  * whole-body rates in eulerChartJacobian() and physicalTangentJacobian(). It is
  * EulerBoundary's bodyRateEulerZyxJacobian(), bit for bit.
  */
-matrix3_t localAngularVelocityEulerAngleDerivative(
-    const vector3_t& eulerZyx, const vector3_t& eulerZyxRates);
+matrix3_t bodyRateEulerZyxAngleDerivative(const vector3_t& eulerZyx,
+                                          const vector3_t& eulerZyxRates);
 
 }  // namespace ocs2::humanoid::validation

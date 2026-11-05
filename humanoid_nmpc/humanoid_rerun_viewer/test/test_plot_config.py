@@ -408,13 +408,13 @@ class TelemetryRecordingConfigTest(unittest.TestCase):
             with self.subTest(path=group.path):
                 self.assertEqual(records(group.path), plotted)
         self.assertTrue(records("base_pose/roll"))
-        frame_poses = [
+        frame_pose_group_names = [
             group.path
             for group in telemetry_contract.frame_groups("pelvis")
             if group.path.startswith("frames/pose/")
         ]
-        self.assertTrue(frame_poses)
-        for path in frame_poses:
+        self.assertTrue(frame_pose_group_names)
+        for path in frame_pose_group_names:
             self.assertTrue(records(path), path)
         self.assertTrue(records("my/custom"))
         self.assertFalse(records("joints/position/measured"))

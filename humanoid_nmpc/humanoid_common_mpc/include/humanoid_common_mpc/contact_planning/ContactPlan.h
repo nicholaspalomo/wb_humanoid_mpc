@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <vector>
@@ -45,16 +46,22 @@ namespace ocs2::humanoid {
  * quantities are in the world frame. */
 struct ContactPlannerInput {
   scalar_t time = 0.0;
-  vector2_t comPosition = vector2_t::Zero();
-  vector2_t comVelocity = vector2_t::Zero();
-  scalar_t yaw = 0.0;  // base yaw, defines the planning frame
-  feet_array_t<vector2_t> footPositions =
+  vector2_t posComRtWorldEwrtWorldXy = vector2_t::Zero();
+  // The CoM velocity the planners' LIP starts from. The whole-body reference
+  // manager fills it with the base velocity, which stands in for it
+  // (getProxyLinvelComRtWorldEwrtWorld()).
+  vector2_t proxyLinvelComRtWorldEwrtWorldXy = vector2_t::Zero();
+  // [rad] the yaw of the frame the planner plans in: the base yaw, or with the
+  // heading model the heading model's initial yaw (initYawHeadingRtWorld).
+  scalar_t yawHeadingRtWorld = 0.0;
+  feet_array_t<vector2_t> posFeetRtWorldEwrtWorldXy =
       makeFeetArray(vector2_t(vector2_t::Zero()));
   contact_flag_t contacts =
       makeFeetArray(true);  // contact state of the phase active at `time`
   feet_array_t<scalar_t> phaseElapsedTime =
       makeFeetArray(0.0);  // [s] time already spent in that phase, per foot
-  vector2_t velocityCommand = vector2_t::Zero();  // commanded CoM velocity
+  vector2_t cmdLinvelBaseRtWorldEwrtWorldXy =
+      vector2_t::Zero();  // the operator's commanded base velocity
   std::vector<contact_flag_t>
       committedContacts;  // contacts imposed on the first nodes (commit window)
   // [s] per committed node and foot: the time the foot entered the contact
@@ -70,23 +77,29 @@ struct ContactPlannerInput {
       0.0;  // [s] the applied schedule is treated as fixed up to this time
 
   // Heading model (`dynamics` lists heading_double_integrator:
-  // ContactPlanningConfig::usesHeadingModel()). `yaw` then equals `heading`.
-  scalar_t heading =
-      0.0;  // [rad] whole-body heading at planning time (ACoM yaw, or base yaw)
-  // [rad/s] its rate, MpcRobotModelBase::getTargetPlanarCommand()'s yaw rate of
-  // the measured state: the angular momentum about the vertical over the yaw
-  // inertia on the centroidal state, the base's world yaw rate on a state that
-  // stores the base velocity.
-  scalar_t headingRate = 0.0;
-  scalar_t headingRateCommand = 0.0;  // [rad/s] commanded yaw rate
+  // ContactPlanningConfig::usesHeadingModel()). `yawHeadingRtWorld` then equals
+  // `initYawHeadingRtWorld`.
+  //
+  // [rad] the initial yaw of the heading model's whole-body heading. The
+  // reference manager measures the ACoM's yaw when it has the ACoM evaluator
+  // (ContactPlanningReferenceManager::computeYawAcomRtWorld()) and the base's
+  // yaw otherwise, and starts the heading model from the one it measures.
+  scalar_t initYawHeadingRtWorld = 0.0;
+  // [rad/s] the heading model's initial yaw rate:
+  // MpcRobotModelBase::getRefPlanarMotion()'s yaw rate of the measured
+  // state, the angular momentum about the vertical over the yaw inertia on the
+  // centroidal state, the base's world yaw rate on a state that stores the base
+  // velocity.
+  scalar_t initRateYawHeadingRtWorld = 0.0;
+  scalar_t cmdRateYawBaseRtWorld = 0.0;  // [rad/s] commanded yaw rate
   // [kg m^2] the whole-body inertia about the vertical, filled from the robot
   // model at every plan (ContactPlanningReferenceManager::makePlannerInput
   // reads I_zz out of pinocchio::ccrba, which is positive definite for any
   // physical model in any configuration). It must be strictly positive whenever
-  // the heading model is on: LipContactPlanner::yawInertia returns an
-  // InvalidArgument for a non-positive value, plan() logs it and degrades to an
-  // invalid plan, and the reference manager then keeps the previous schedule
-  // for that frame.
+  // the heading model is on: LipContactPlanner::getInertiaComEwrtWorldZz
+  // returns an InvalidArgument for a non-positive value, plan() logs it and
+  // degrades to an invalid plan, and the reference manager then keeps the
+  // previous schedule for that frame.
   //
   // This comment used to read "<= 0: configured value", promising a fallback
   // that has never existed - there is no yaw inertia anywhere in
@@ -96,14 +109,15 @@ struct ContactPlannerInput {
   // if it is not positive") and ContactPlanningModelParameters.h ("taken from
   // the model at every plan and is not part of this"). A caller who believed it
   // would leave the field at its default and silently get no plan at all.
-  scalar_t yawInertia = 0.0;
-  feet_array_t<scalar_t> footYaws = makeFeetArray(
-      0.0);  // [rad] foot yaws at planning time, unwrapped near `heading`
+  scalar_t inertiaComEwrtWorldZz = 0.0;
+  // [rad] the ZYX yaw of every foot at planning time, unwrapped near
+  // `initYawHeadingRtWorld`.
+  feet_array_t<scalar_t> eulerzyxFeetRtWorldYaw = makeFeetArray(0.0);
   // [rad] the base (pelvis) yaw at planning time. The hip yaw joints turn the
   // feet against the pelvis, not against the whole-body heading, and the two
-  // differ when the heading is the ACoM's (HipYawRangeConstraint). Empty: the
-  // base yaw is the heading.
-  std::optional<scalar_t> baseYaw;
+  // differ when the heading is the ACoM's (HipYawRangeConstraint). Empty
+  // without the heading model.
+  std::optional<scalar_t> yawBaseRtWorld;
 };
 
 /** Result of the contact planner: contact sequence, footholds and the
@@ -114,12 +128,21 @@ struct ContactPlan {
   scalar_t dt = PlannerSettings::kDefaultNodeDuration;  // [s]
   scalar_t committedUntil =
       0.0;  // [s] the plan honored the applied schedule up to this time
-  scalar_t yaw = 0.0;  // [rad] base yaw at planning time; the geometry was
-                       // planned in this frame
-  // [1/s] natural frequency sqrt(shared.gravity / shared.comHeight) of the
-  // pendulum the plan was made on, so that the plan's DCM is always taken on
-  // its own pendulum (ContactPlanningReferenceManager::getPlannedDcm); 0: not
-  // recorded.
+  // [rad] the input's yawHeadingRtWorld, the heading at the snapshot. Without
+  // the heading model the geometry of the node at time t was planned in this
+  // heading turned by rateYawHeadingRtWorld * (t - startTime)
+  // (getYawHeadingRtWorld()).
+  scalar_t yawHeadingRtWorld = 0.0;
+  // [rad/s] the rate at which the planning heading turns over the horizon
+  // without the heading model: the commanded yaw rate (lip_miqp's
+  // ContactPlanningContext::computeAxes()), scaled by the standing blend
+  // under hlip (HlipContactPlanner::computeYawHeadingRtWorld()). 0: the plan
+  // was made in one constant heading.
+  scalar_t rateYawHeadingRtWorld = 0.0;
+  // [1/s] natural frequency sqrt(shared.gravity /
+  // shared.nomPosComRtFeetmeanEwrtWorldZ) of the pendulum the plan was made on,
+  // so that the plan's DCM is always taken on its own pendulum
+  // (ContactPlanningReferenceManager::getPlannedDcm); 0: not recorded.
   scalar_t omega = 0.0;
   std::vector<contact_flag_t> contacts;  // per interval k = 0..N-1
   // The gait in continuous time, for a planner that decides its events off the
@@ -141,25 +164,26 @@ struct ContactPlan {
   // standing blend - or empty for a phase in which it moves at constant
   // velocity (the H-LIP's double support and flight; a constant velocity is a
   // LIP whose ZMP is the CoM itself). lipReferenceState() and
-  // comPositionAtTime() read these to reproduce the planner's continuous-time
-  // CoM between nodes; `zmp` cannot, since the H-LIP's ZMP moves with the CoM
-  // in double support and jumps at events inside an interval.
-  std::vector<std::optional<vector2_t>> phaseZmp;
+  // evaluatePosComRtWorldEwrtWorldXy() read these to reproduce the planner's
+  // continuous-time CoM between nodes; `posZmpRtWorldEwrtWorldXyTraj` cannot,
+  // since the H-LIP's ZMP moves with the CoM in double support and jumps at
+  // events inside an interval.
+  std::vector<std::optional<vector2_t>> phasePosZmpRtWorldEwrtWorldXyTraj;
   std::vector<feet_array_t<vector2_t>>
-      footholds;  // per node k = 0..N, planned foot xy (landing spot while
-                  // swinging)
-  std::vector<vector2_t> comPosition;  // per node
-  std::vector<vector2_t> comVelocity;  // per node
+      desPosFeetRtWorldEwrtWorldXyTraj;  // per node k = 0..N, planned foot xy
+                                         // (landing spot while swinging)
+  std::vector<vector2_t> posComRtWorldEwrtWorldXyTraj;     // per node
+  std::vector<vector2_t> linvelComRtWorldEwrtWorldXyTraj;  // per node
   // Per interval. The mixed-integer planner's ZMP is constant over an interval;
-  // for a plan that carries phaseZmp it is the reduced model's ZMP at the
-  // interval's midpoint, for display only.
-  std::vector<vector2_t> zmp;
+  // for a plan that carries phasePosZmpRtWorldEwrtWorldXyTraj it is the reduced
+  // model's ZMP at the interval's midpoint, for display only.
+  std::vector<vector2_t> posZmpRtWorldEwrtWorldXyTraj;
   // Heading model only (empty otherwise): per node k = 0..N.
-  std::vector<scalar_t> heading;      // [rad] whole-body heading
-  std::vector<scalar_t> headingRate;  // [rad/s]
-  std::vector<feet_array_t<scalar_t>>
-      footYaws;  // [rad] planned foot yaw (the landing yaw while the foot
-                 // swings)
+  std::vector<scalar_t> headingModelYawTraj;      // [rad] whole-body heading
+  std::vector<scalar_t> headingModelYawRateTraj;  // [rad/s]
+  // [rad] the planned ZYX yaw of every foot (the landing yaw while the foot
+  // swings).
+  std::vector<feet_array_t<scalar_t>> desEulerzyxFeetRtWorldYawTraj;
 
   // Steps the planner had to cut to the reachable region. A clipped step is no
   // longer the deadbeat step, so the lateral error it was meant to cancel
@@ -200,17 +224,17 @@ struct ContactPlan {
 
   /** Planned foot position of the node nearest to `time` (clamped). Empty when
    * the plan is not valid. */
-  std::optional<vector2_t> footholdAtTime(size_t contactIndex,
-                                          scalar_t time) const;
+  std::optional<vector2_t> getDesPosFootRtWorldEwrtWorldXy(size_t contactIndex,
+                                                           scalar_t time) const;
 
   /**
    * Planned foot position of the node BEFORE the one nearest `time` (clamped) -
    * the stance a foot leaves when it lifts off at `time`.
    *
    * This exists because "the node before the lift-off" cannot be expressed by
-   * nudging the argument of footholdAtTime(). That function rounds to the
-   * nearest node, so `liftOffTime - 0.5 * dt` rounds back UP to the lift-off
-   * node itself
+   * nudging the argument of getDesPosFootRtWorldEwrtWorldXy(). That function
+   * rounds to the nearest node, so `liftOffTime - 0.5 * dt` rounds back UP to
+   * the lift-off node itself
    * (`lround(k - 0.5) == k`), and any smaller nudge is a guess about where the
    * lift-off sits between two nodes.
    *
@@ -219,10 +243,10 @@ struct ContactPlan {
    * lift-off node holds. Under `lip_miqp` the foothold state has not jumped
    * yet, so node k is still the stance. Under `hlip` - the shipped default -
    * HlipContactPlanner computes the landing spot of a swing BEFORE stamping
-   * `plan.footholds` over every node of that single-support phase, so node k
-   * already carries the LANDING position. Reading it there makes a swing's
-   * start equal its target, which collapses the whole swing reference to a
-   * constant with zero commanded velocity.
+   * `plan.desPosFeetRtWorldEwrtWorldXyTraj` over every node of that
+   * single-support phase, so node k already carries the LANDING position.
+   * Reading it there makes a swing's start equal its target, which collapses
+   * the whole swing reference to a constant with zero commanded velocity.
    *
    * Node k-1 is a contact node for the foot under BOTH planners, so this one
    * accessor is correct for both. The nearest node is resolved with the same
@@ -230,8 +254,8 @@ struct ContactPlan {
    * lift-off that does not sit exactly on the node grid still resolves to a
    * node the foot is standing on.
    */
-  std::optional<vector2_t> footholdBeforeTime(size_t contactIndex,
-                                              scalar_t time) const;
+  std::optional<vector2_t> getPrevDesPosFootRtWorldEwrtWorldXy(
+      size_t contactIndex, scalar_t time) const;
 
   /**
    * One line for the log (planner.logPlans): validity, search statistics
@@ -243,35 +267,42 @@ struct ContactPlan {
    * A step is measured from the last node the foot was still standing on to its
    * touch-down node, so it is the same quantity under both planners even though
    * they disagree about what the lift-off node itself holds (see
-   * footholdBeforeTime above). A swing that is already in flight at the start
-   * of the plan has no such node, so it prints its duration and no displacement
-   * rather than a zero that would look like a step in place.
+   * getPrevDesPosFootRtWorldEwrtWorldXy above). A swing that is already in
+   * flight at the start of the plan has no such node, so it prints its duration
+   * and no displacement rather than a zero that would look like a step in
+   * place.
    */
   std::string describe() const;
-  bool hasHeading() const { return valid && !heading.empty(); }
+  bool hasHeading() const { return valid && !headingModelYawTraj.empty(); }
   /** Planned heading / heading rate at `time`, linearly interpolated between
    * nodes and clamped to the plan; empty without the heading model. */
-  std::optional<scalar_t> headingAtTime(scalar_t time) const;
-  std::optional<scalar_t> headingRateAtTime(scalar_t time) const;
+  std::optional<scalar_t> headingModelYawAtTime(scalar_t time) const;
+  std::optional<scalar_t> headingModelYawRateAtTime(scalar_t time) const;
+  /** Returns the heading the plan's geometry at `time` was planned in,
+   * clamped to the plan: the planned heading (headingModelYawAtTime()) with the
+   * heading model, otherwise the snapshot heading yawHeadingRtWorld turned by
+   * rateYawHeadingRtWorld. A reachable region or a heading direction read off
+   * the plan at `time` is in this frame. */
+  scalar_t getYawHeadingRtWorld(scalar_t time) const;
   /** Planned foot yaw at the node nearest to `time` (the landing yaw while the
    * foot swings); empty without the heading model. */
-  std::optional<scalar_t> footYawAtTime(size_t contactIndex,
-                                        scalar_t time) const;
+  std::optional<scalar_t> getDesEulerzyxFootRtWorldYaw(size_t contactIndex,
+                                                       scalar_t time) const;
 
   /** Planned foot yaw of the node BEFORE the one nearest `time`; the yaw
-   * counterpart of footholdBeforeTime(). */
-  std::optional<scalar_t> footYawBeforeTime(size_t contactIndex,
-                                            scalar_t time) const;
+   * counterpart of getPrevDesPosFootRtWorldEwrtWorldXy(). */
+  std::optional<scalar_t> getPrevDesEulerzyxFootRtWorldYaw(size_t contactIndex,
+                                                           scalar_t time) const;
 
   /**
    * The reduced model's center of mass at `time`, clamped to the plan: the
    * state of the node at or before `time` propagated in closed form through the
    * plan's own reduced model (lipReferenceState() on the recorded `omega`),
    * which is exact for both planners - the mixed-integer planner's LIP with a
-   * constant ZMP per interval, and the H-LIP's continuous phases (phaseZmp). A
-   * plan that records no `omega` or whose per-interval data is inconsistent
-   * falls back to linear interpolation between nodes. The velocity is the time
-   * derivative of the position.
+   * constant ZMP per interval, and the H-LIP's continuous phases
+   * (phasePosZmpRtWorldEwrtWorldXyTraj). A plan that records no `omega` or
+   * whose per-interval data is inconsistent falls back to linear interpolation
+   * between nodes. The velocity is the time derivative of the position.
    *
    * This is the trajectory the footholds were planned for: with the H-LIP
    * planner it is the orbit the deadbeat step regulates to, whose lateral part
@@ -280,8 +311,10 @@ struct ContactPlan {
    * planner's footholds pull in opposite directions (planned_com_override,
    * humanoid_nmpc/docs/hlip_contact_planner/README.md).
    */
-  std::optional<vector2_t> comPositionAtTime(scalar_t time) const;
-  std::optional<vector2_t> comVelocityAtTime(scalar_t time) const;
+  std::optional<vector2_t> evaluatePosComRtWorldEwrtWorldXy(
+      scalar_t time) const;
+  std::optional<vector2_t> evaluateLinvelComRtWorldEwrtWorldXy(
+      scalar_t time) const;
 
   /**
    * Moves the whole plan by `shift` seconds (start time, commit boundary and

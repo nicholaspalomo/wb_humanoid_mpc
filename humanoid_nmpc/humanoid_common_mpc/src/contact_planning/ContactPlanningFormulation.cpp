@@ -29,14 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 
-#include <algorithm>
 #include <cctype>
 #include <cstddef>
 #include <string>
 #include <vector>
 
-#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
@@ -67,17 +66,16 @@ const absl::flat_hash_set<std::string>& headingModelTerms() {
   static const absl::flat_hash_set<std::string>& kTerms =
       *new absl::flat_hash_set<std::string>{
           term::kHeadingRateTracking,    term::kHeadingTracking,
-          term::kFootYawTracking,        term::kYawTorqueRegularization,
+          term::kFootYawTracking,        term::kYawTorqueRegularizationName,
           term::kFootYawRegularization,  term::kHipYawRange,
-          term::kYawTorqueBudget,        term::kFootYawPinnedInContact,
+          term::kYawTorqueBudgetName,    term::kFootYawPinnedInContact,
           term::kHeadingRelinearization, term::kPlannedHeadingOverride};
   return kTerms;
 }
 
 /** Position of `name` in `list` (matched like every other lookup), or
  * list.size() when it is not listed. */
-size_t positionIn(const std::vector<std::string>& list,
-                  absl::string_view name) {
+size_t indexIn(const std::vector<std::string>& list, absl::string_view name) {
   for (size_t i = 0; i < list.size(); ++i) {
     if (sameTermName(list[i], name)) return i;
   }
@@ -108,6 +106,13 @@ const std::vector<TermKind>& allTermKinds() {
       TermKind::kLogicRule,      TermKind::kAssignmentCost,
       TermKind::kSearchStage,    TermKind::kExecutionRule};
   return kKinds;
+}
+
+std::string termBlockName(absl::string_view name) {
+  if (name == term::kYawTorqueRegularizationName) {
+    return absl::StrCat(name, "_parameters");
+  }
+  return std::string(name);
 }
 
 std::string termKindName(TermKind kind) {
@@ -145,7 +150,7 @@ const std::vector<std::string>& knownTermNames(TermKind kind) {
                                     term::kHeadingRateTracking,
                                     term::kHeadingTracking,
                                     term::kFootYawTracking,
-                                    term::kYawTorqueRegularization,
+                                    term::kYawTorqueRegularizationName,
                                     term::kFootYawRegularization,
                                     term::kZmpRegularization,
                                     term::kFootholdRegularization,
@@ -155,7 +160,7 @@ const std::vector<std::string>& knownTermNames(TermKind kind) {
       term::kZmpSupportRegion, term::kReachability, term::kFootSeparation,
       term::kHipYawRange};
   static const std::vector<std::string>& kHard = *new std::vector<std::string>{
-      term::kNoFlight, term::kFootMotionInSwingOnly, term::kYawTorqueBudget,
+      term::kNoFlight, term::kFootMotionInSwingOnly, term::kYawTorqueBudgetName,
       term::kFootYawPinnedInContact};
   static const std::vector<std::string>& kLogic = *new std::vector<std::string>{
       term::kPhaseDurations, term::kNoFlight, term::kMinimumDoubleSupport,
@@ -246,16 +251,17 @@ const std::vector<std::string>& ContactPlanningFormulation::list(
 
 bool ContactPlanningFormulation::listed(const std::vector<std::string>& list,
                                         absl::string_view name) {
-  return positionIn(list, name) < list.size();
+  return indexIn(list, name) < list.size();
 }
 
 void ContactPlanningFormulation::setListed(std::vector<std::string>& list,
                                            absl::string_view name,
                                            bool on) {
-  const size_t position = positionIn(list, name);
-  if (on && position == list.size()) list.emplace_back(name);
-  if (!on && position < list.size())
-    list.erase(list.begin() + static_cast<ptrdiff_t>(position));
+  const size_t listIndex = indexIn(list, name);
+  if (on && listIndex == list.size()) list.emplace_back(name);
+  if (!on && listIndex < list.size()) {
+    list.erase(list.begin() + static_cast<ptrdiff_t>(listIndex));
+  }
 }
 
 void ContactPlanningFormulation::setHeadingModel(bool on) {
@@ -273,11 +279,20 @@ void ContactPlanningFormulation::setHeadingModel(bool on) {
       // The heading costs go where the previous planner accumulated them: after
       // the tracking costs on the state and before the running costs, i.e.
       // right before zmp_regularization (appended when that one is not listed).
-      for (const std::string& name : headingTerms)
+      for (const std::string& name : headingTerms) {
         setListed(terms, name, /*on=*/false);
-      const size_t position = positionIn(terms, term::kZmpRegularization);
-      terms.insert(terms.begin() + static_cast<ptrdiff_t>(position),
+      }
+      const size_t listIndex = indexIn(terms, term::kZmpRegularization);
+      terms.insert(terms.begin() + static_cast<ptrdiff_t>(listIndex),
                    headingTerms.begin(), headingTerms.end());
+    } else if (on && kind == TermKind::kExecutionRule) {
+      // planned_heading_override goes before planned_com_override, which reads
+      // the base yaw it writes (validateStatus() rejects the other order).
+      for (const std::string& name : headingTerms) {
+        if (listed(terms, name)) continue;
+        const size_t listIndex = indexIn(terms, term::kPlannedComOverride);
+        terms.insert(terms.begin() + static_cast<ptrdiff_t>(listIndex), name);
+      }
     } else {
       for (const std::string& name : headingTerms) setListed(terms, name, on);
     }
@@ -295,9 +310,10 @@ absl::Status ContactPlanningFormulation::validateStatus() const {
             absl::StrCat("unknown ", key, " term '", name,
                          "'; supported: ", joinNames(knownTermNames(kind))));
       }
-      if (!seen.insert(canonical).second)
+      if (!seen.insert(canonical).second) {
         return invalidFormulation(
             absl::StrCat(key, " lists '", canonical, "' twice"));
+      }
       const std::string required = requiredModelBlock(kind, canonical);
       if (!required.empty() && !hasDynamics(required)) {
         return invalidFormulation(absl::StrCat(key, " term '", canonical,
@@ -316,13 +332,24 @@ absl::Status ContactPlanningFormulation::validateStatus() const {
   }
   if (hasExecutionRule(term::kPhaseResetting) &&
       hasExecutionRule(term::kEnergyCadenceModulation) &&
-      positionIn(execution, term::kPhaseResetting) >
-          positionIn(execution, term::kEnergyCadenceModulation)) {
+      indexIn(execution, term::kPhaseResetting) >
+          indexIn(execution, term::kEnergyCadenceModulation)) {
     return invalidFormulation(
         absl::StrCat("'", term::kPhaseResetting, "' must be listed before '",
                      term::kEnergyCadenceModulation,
                      "' in execution: an early touch-down ends a swing before "
                      "the cadence rule may re-time it"));
+  }
+  if (hasExecutionRule(term::kPlannedHeadingOverride) &&
+      hasExecutionRule(term::kPlannedComOverride) &&
+      indexIn(execution, term::kPlannedHeadingOverride) >
+          indexIn(execution, term::kPlannedComOverride)) {
+    return invalidFormulation(absl::StrCat(
+        "'", term::kPlannedHeadingOverride, "' must be listed before '",
+        term::kPlannedComOverride,
+        "' in execution: the center-of-mass override turns the measured "
+        "center-of-mass offset by the knot's base yaw, which the heading "
+        "override rewrites"));
   }
   return absl::OkStatus();
 }

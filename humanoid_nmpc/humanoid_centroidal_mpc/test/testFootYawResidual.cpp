@@ -30,8 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
+#include <cstddef>
 #include <functional>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <random>
 #include <string>
@@ -42,13 +44,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/CppAdInterface.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 #include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h"
 #include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
@@ -75,22 +83,25 @@ namespace {
 using Cost = CentroidalMpcEndEffectorFootCost;
 
 /** The residual as it was, as the cost taped it. */
-ad_scalar_t legacyFootYawError(const ad_matrix3_t& orientation,
-                               const ad_scalar_t& yawReference,
+ad_scalar_t legacyFootYawError(const ad_matrix3_t& rotmatFootRtWorld,
+                               const ad_scalar_t& desYawFootRtWorld,
                                const ad_scalar_t& hasYawReference) {
-  const ad_scalar_t footYaw =
-      CppAD::atan2(orientation(1, 0), orientation(0, 0));
-  return hasYawReference * CppAD::atan2(CppAD::sin(footYaw - yawReference),
-                                        CppAD::cos(footYaw - yawReference));
+  const ad_scalar_t eulerzyxFootRtWorldYaw =
+      CppAD::atan2(rotmatFootRtWorld(1, 0), rotmatFootRtWorld(0, 0));
+  return hasYawReference *
+         CppAD::atan2(CppAD::sin(eulerzyxFootRtWorldYaw - desYawFootRtWorld),
+                      CppAD::cos(eulerzyxFootRtWorldYaw - desYawFootRtWorld));
 }
 
 /** The residual as it was, evaluated. */
-scalar_t legacyFootYawError(const matrix3_t& orientation,
-                            scalar_t yawReference,
+scalar_t legacyFootYawError(const matrix3_t& rotmatFootRtWorld,
+                            scalar_t desYawFootRtWorld,
                             scalar_t hasYawReference) {
-  const scalar_t footYaw = std::atan2(orientation(1, 0), orientation(0, 0));
-  return hasYawReference * std::atan2(std::sin(footYaw - yawReference),
-                                      std::cos(footYaw - yawReference));
+  const scalar_t eulerzyxFootRtWorldYaw =
+      std::atan2(rotmatFootRtWorld(1, 0), rotmatFootRtWorld(0, 0));
+  return hasYawReference *
+         std::atan2(std::sin(eulerzyxFootRtWorldYaw - desYawFootRtWorld),
+                    std::cos(eulerzyxFootRtWorldYaw - desYawFootRtWorld));
 }
 
 using AdResidual = std::function<ad_scalar_t(
@@ -98,19 +109,19 @@ using AdResidual = std::function<ad_scalar_t(
 
 /**
  * `residual` of a foot whose orientation has the ZYX Euler angles x, with the
- * parameters p = (yawReference, hasYawReference), as a generated CppAD library:
- * the code path of the cost, where the derivatives of both branches of a
- * conditional expression are evaluated and 0 * NaN is NaN.
+ * parameters p = (desYawFootRtWorld, hasYawReference), as a generated
+ * CppAD library: the code path of the cost, where the derivatives of both
+ * branches of a conditional expression are evaluated and 0 * NaN is NaN.
  */
 std::unique_ptr<CppAdInterface> generate(const AdResidual& residual,
                                          const std::string& name) {
   const CppAdInterface::ad_parameterized_function_t function =
       [residual](const ad_vector_t& x, const ad_vector_t& p, ad_vector_t& y) {
-        const ad_matrix3_t rotation =
+        const ad_matrix3_t rotmatFootRtWorld =
             getRotationMatrixFromZyxEulerAngles<ad_scalar_t>(
                 Eigen::Matrix<ad_scalar_t, 3, 1>(x(0), x(1), x(2)));
         y.resize(1);
-        y(0) = residual(rotation, p(0), p(1));
+        y(0) = residual(rotmatFootRtWorld, p(0), p(1));
       };
   std::unique_ptr<CppAdInterface> library = std::make_unique<CppAdInterface>(
       function, /*variableDim=*/3, /*parameterDim=*/2,
@@ -121,35 +132,40 @@ std::unique_ptr<CppAdInterface> generate(const AdResidual& residual,
 }
 
 vector_t jacobianAt(const CppAdInterface& library,
-                    const vector3_t& eulerZyx,
-                    scalar_t yawReference,
+                    const vector3_t& eulerzyxFootRtWorld,
+                    scalar_t desYawFootRtWorld,
                     scalar_t hasYawReference) {
   const matrix_t jacobian = library.getJacobian(
-      eulerZyx, (vector_t(2) << yawReference, hasYawReference).finished());
+      eulerzyxFootRtWorld,
+      (vector_t(2) << desYawFootRtWorld, hasYawReference).finished());
   return jacobian.row(0).transpose();
 }
 
 TEST(FootYawResidual, IsTheWrappedYawErrorAtEveryNonSingularOrientation) {
   std::mt19937 generator(7);
-  std::uniform_real_distribution<scalar_t> yawDistribution(-M_PI, M_PI);
+  std::uniform_real_distribution<scalar_t> yawDistribution(-std::numbers::pi,
+                                                           std::numbers::pi);
   std::uniform_real_distribution<scalar_t> tiltDistribution(-0.4, 0.4);
   for (int sample = 0; sample < 2000; ++sample) {
-    const vector3_t euler(yawDistribution(generator),
-                          tiltDistribution(generator),
-                          tiltDistribution(generator));
-    const matrix3_t rotation =
-        getRotationMatrixFromZyxEulerAngles<scalar_t>(euler);
-    const scalar_t reference = yawDistribution(generator);
+    const vector3_t eulerzyxFootRtWorld(yawDistribution(generator),
+                                        tiltDistribution(generator),
+                                        tiltDistribution(generator));
+    const matrix3_t rotmatFootRtWorld =
+        getRotationMatrixFromZyxEulerAngles<scalar_t>(eulerzyxFootRtWorld);
+    const scalar_t desYawFootRtWorld = yawDistribution(generator);
     const scalar_t legacy =
-        legacyFootYawError(rotation, reference, /*hasYawReference=*/1.0);
-    if (std::abs(std::abs(legacy) - M_PI) < 1.0e-3)
+        legacyFootYawError(rotmatFootRtWorld, desYawFootRtWorld,
+                           /*hasYawReference=*/1.0);
+    if (std::abs(std::abs(legacy) - std::numbers::pi) < 1.0e-3) {
       continue;  // the wrap itself, where neither is continuous
-    EXPECT_NEAR(Cost::footYawError<scalar_t>(rotation, reference,
-                                             /*hasYawReference=*/1.0),
-                legacy, 1.0e-9)
+    }
+    EXPECT_NEAR(
+        Cost::footYawError<scalar_t>(rotmatFootRtWorld, desYawFootRtWorld,
+                                     /*hasYawReference=*/1.0),
+        legacy, 1.0e-9)
         << "sample " << sample;
     // Masked, it is exactly zero, whatever the orientation and the reference.
-    EXPECT_EQ(Cost::footYawError<scalar_t>(rotation, reference,
+    EXPECT_EQ(Cost::footYawError<scalar_t>(rotmatFootRtWorld, desYawFootRtWorld,
                                            /*hasYawReference=*/0.0),
               0.0)
         << "sample " << sample;
@@ -162,43 +178,51 @@ TEST(FootYawResidual, IsTheFootYawMinusItsReference) {
   // orientation is built about the world z axis directly, not through the Euler
   // helpers.
   std::mt19937 generator(11);
-  std::uniform_real_distribution<scalar_t> yawDistribution(-M_PI, M_PI);
+  std::uniform_real_distribution<scalar_t> yawDistribution(-std::numbers::pi,
+                                                           std::numbers::pi);
   for (int sample = 0; sample < 2000; ++sample) {
-    const scalar_t yaw = yawDistribution(generator);
-    const scalar_t reference = yawDistribution(generator);
-    const scalar_t wrapped = std::remainder(yaw - reference, 2.0 * M_PI);
-    if (std::abs(std::abs(wrapped) - M_PI) < 1.0e-6)
+    const scalar_t eulerzyxFootRtWorldYaw = yawDistribution(generator);
+    const scalar_t desYawFootRtWorld = yawDistribution(generator);
+    const scalar_t wrapped = std::remainder(
+        eulerzyxFootRtWorldYaw - desYawFootRtWorld, 2.0 * std::numbers::pi);
+    if (std::abs(std::abs(wrapped) - std::numbers::pi) < 1.0e-6) {
       continue;  // the wrap itself
-    const matrix3_t rotation =
-        Eigen::AngleAxis<scalar_t>(yaw, vector3_t::UnitZ()).toRotationMatrix();
-    EXPECT_NEAR(Cost::footYawError<scalar_t>(rotation, reference,
-                                             /*hasYawReference=*/1.0),
-                wrapped, 1.0e-9)
+    }
+    const matrix3_t rotmatFootRtWorld =
+        Eigen::AngleAxis<scalar_t>(eulerzyxFootRtWorldYaw, vector3_t::UnitZ())
+            .toRotationMatrix();
+    EXPECT_NEAR(
+        Cost::footYawError<scalar_t>(rotmatFootRtWorld, desYawFootRtWorld,
+                                     /*hasYawReference=*/1.0),
+        wrapped, 1.0e-9)
         << "sample " << sample;
   }
-  const matrix3_t turnedLeft =
+  const matrix3_t turnedRotmatFootRtWorld =
       Eigen::AngleAxis<scalar_t>(0.1, vector3_t::UnitZ()).toRotationMatrix();
-  EXPECT_GT(Cost::footYawError<scalar_t>(turnedLeft, /*yawReference=*/0.0,
+  EXPECT_GT(Cost::footYawError<scalar_t>(turnedRotmatFootRtWorld,
+                                         /*desYawFootRtWorld=*/0.0,
                                          /*hasYawReference=*/1.0),
             0.0);
 }
 
 TEST(FootYawResidual, HasFiniteDerivativesAtAYawOfExactlyZero) {
   const std::unique_ptr<CppAdInterface> library = generate(
-      [](const ad_matrix3_t& rotation, const ad_scalar_t& reference,
-         const ad_scalar_t& has) {
-        return Cost::footYawError<ad_scalar_t>(rotation, reference, has);
+      [](const ad_matrix3_t& rotmatFootRtWorld,
+         const ad_scalar_t& desYawFootRtWorld, const ad_scalar_t& has) {
+        return Cost::footYawError<ad_scalar_t>(rotmatFootRtWorld,
+                                               desYawFootRtWorld, has);
       },
       "halfAngle");
   for (const scalar_t hasYawReference : {0.0, 1.0}) {
-    for (const vector3_t& euler :
+    for (const vector3_t& eulerzyxFootRtWorld :
          {vector3_t(0.0, 0.0, 0.0), vector3_t(0.0, 0.1, -0.05),
           vector3_t(1.0e-9, 0.0, 0.0)}) {
       const vector_t jacobian =
-          jacobianAt(*library, euler, /*yawReference=*/0.0, hasYawReference);
+          jacobianAt(*library, eulerzyxFootRtWorld,
+                     /*desYawFootRtWorld=*/0.0, hasYawReference);
       EXPECT_TRUE(jacobian.allFinite())
           << "hasYawReference " << hasYawReference << ", euler "
-          << euler.transpose() << ": " << jacobian.transpose();
+          << eulerzyxFootRtWorld.transpose() << ": " << jacobian.transpose();
     }
   }
 }
@@ -208,19 +232,22 @@ TEST(FootYawResidual, TheLegacyResidualHadNoFiniteDerivativeThere) {
   // differentiable at a yaw of exactly zero, masked or not, and is at a yaw of
   // 1e-9.
   const std::unique_ptr<CppAdInterface> library = generate(
-      [](const ad_matrix3_t& rotation, const ad_scalar_t& reference,
-         const ad_scalar_t& has) {
-        return legacyFootYawError(rotation, reference, has);
+      [](const ad_matrix3_t& rotmatFootRtWorld,
+         const ad_scalar_t& desYawFootRtWorld, const ad_scalar_t& has) {
+        return legacyFootYawError(rotmatFootRtWorld, desYawFootRtWorld, has);
       },
       "legacy");
-  EXPECT_FALSE(jacobianAt(*library, vector3_t::Zero(), /*yawReference=*/0.0,
+  EXPECT_FALSE(jacobianAt(*library, vector3_t::Zero(),
+                          /*desYawFootRtWorld=*/0.0,
                           /*hasYawReference=*/0.0)
                    .allFinite());
-  EXPECT_FALSE(jacobianAt(*library, vector3_t::Zero(), /*yawReference=*/0.0,
+  EXPECT_FALSE(jacobianAt(*library, vector3_t::Zero(),
+                          /*desYawFootRtWorld=*/0.0,
                           /*hasYawReference=*/1.0)
                    .allFinite());
   EXPECT_TRUE(jacobianAt(*library, vector3_t(1.0e-9, 0.0, 0.0),
-                         /*yawReference=*/0.0, /*hasYawReference=*/1.0)
+                         /*desYawFootRtWorld=*/0.0,
+                         /*hasYawReference=*/1.0)
                   .allFinite());
 }
 
@@ -233,7 +260,7 @@ TEST(FootYawResidual,
   DrcAtlasContactTestModel atlas("testFootYawResidual_");
   const vector_t& state = atlas.nominalState();
   const vector_t input = atlas.makeInput(atlas.wrenchModel(), /*loadedFoot=*/1,
-                                         /*normalForce=*/800.0);
+                                         /*forceFootEwrtParamZ=*/800.0);
   const TargetTrajectories target({DrcAtlasContactTestModel::kQueryTime},
                                   {state}, {input});
   atlas.referenceManager().setTargetTrajectories(target);
@@ -258,11 +285,11 @@ TEST(FootYawResidual,
   pinocchio::framesForwardKinematics(
       pinocchioInterface.getModel(), pinocchioInterface.getData(),
       atlas.wrenchModel().getGeneralizedCoordinates(state));
-  const matrix3_t footRotation =
+  const matrix3_t rotmatFootRtWorld =
       pinocchioInterface.getData().oMf[footFrame].rotation();
-  ASSERT_EQ(footRotation(1, 0), 0.0)
+  ASSERT_EQ(rotmatFootRtWorld(1, 0), 0.0)
       << "the case under test: a foot yaw of exactly zero";
-  ASSERT_GT(footRotation(0, 0), 0.0);
+  ASSERT_GT(rotmatFootRtWorld(0, 0), 0.0);
   const ScalarFunctionQuadraticApproximation approximation =
       cost.getQuadraticApproximation(time, state, input, target,
                                      PreComputation());
@@ -281,7 +308,7 @@ TEST(FootCostParameters, AreTheReferenceManagersWhateverTargetTheSolverPasses) {
   DrcAtlasContactTestModel atlas("testFootYawResidual_");
   const vector_t& state = atlas.nominalState();
   const vector_t input = atlas.makeInput(atlas.wrenchModel(), /*loadedFoot=*/1,
-                                         /*normalForce=*/800.0);
+                                         /*forceFootEwrtParamZ=*/800.0);
   const TargetTrajectories target({DrcAtlasContactTestModel::kQueryTime},
                                   {state}, {input});
   atlas.referenceManager().setTargetTrajectories(target);
@@ -409,7 +436,7 @@ TEST(FootCostParameters, TheHeightReferenceIsTheSwingPlannersOnAnyGround) {
   NoLandingTargetReferenceManager noTarget(atlas);
   const vector_t& state = atlas.nominalState();
   const vector_t input = atlas.makeInput(atlas.wrenchModel(), /*loadedFoot=*/1,
-                                         /*normalForce=*/800.0);
+                                         /*forceFootEwrtParamZ=*/800.0);
   const TargetTrajectories target({DrcAtlasContactTestModel::kQueryTime},
                                   {state}, {input});
   constexpr size_t kSwingFoot = 0;
@@ -423,10 +450,12 @@ TEST(FootCostParameters, TheHeightReferenceIsTheSwingPlannersOnAnyGround) {
                     atlas.pinocchioInterface(), atlas.adWrenchModel(),
                     kSwingFoot, "testFootYawResidual_foot_l",
                     atlas.modelSettings());
-    std::optional<vector_t> heightsOnFlatGround;
-    for (const scalar_t terrainHeight : {0.0, 0.37, -0.21}) {
-      SCOPED_TRACE(absl::StrCat("terrain height ", terrainHeight));
-      referenceManager->setTerrainHeight(terrainHeight);
+    std::optional<vector_t> flatDesPosFootRtSurfaceEwrtWorldZTraj;
+    for (const scalar_t posSurfaceRtWorldEwrtWorldZ : {0.0, 0.37, -0.21}) {
+      SCOPED_TRACE(
+          absl::StrCat("terrain height ", posSurfaceRtWorldEwrtWorldZ));
+      referenceManager->setPosSurfaceRtWorldEwrtWorldZ(
+          posSurfaceRtWorldEwrtWorldZ);
       contact_flag_t swing = makeFeetArray(true);
       swing[kSwingFoot] = false;
       schedule(*referenceManager, swing, state);
@@ -435,7 +464,8 @@ TEST(FootCostParameters, TheHeightReferenceIsTheSwingPlannersOnAnyGround) {
       const std::vector<scalar_t> times = {-0.9 * kSwingHalfWidth,
                                            -0.3 * kSwingHalfWidth, 0.0,
                                            0.6 * kSwingHalfWidth};
-      vector_t heights(static_cast<Eigen::Index>(times.size()));
+      vector_t desPosFootRtSurfaceEwrtWorldZTraj(
+          static_cast<Eigen::Index>(times.size()));
       for (size_t i = 0; i < times.size(); ++i) {
         const vector_t parameters =
             cost.getParameters(times[i], target, PreComputation());
@@ -446,21 +476,27 @@ TEST(FootCostParameters, TheHeightReferenceIsTheSwingPlannersOnAnyGround) {
             parameters(kReferenceZVelocityIndex),
             planner.getDesLinvelFootRtWorldEwrtWorldZ(kSwingFoot, times[i]))
             << "t = " << times[i];
-        EXPECT_GT(parameters(kReferenceZIndex), terrainHeight)
+        EXPECT_GT(parameters(kReferenceZIndex), posSurfaceRtWorldEwrtWorldZ)
             << "a swing foot is referenced above the ground, t = " << times[i];
-        heights(static_cast<Eigen::Index>(i)) =
-            parameters(kReferenceZIndex) - terrainHeight;
+        desPosFootRtSurfaceEwrtWorldZTraj(static_cast<Eigen::Index>(i)) =
+            parameters(kReferenceZIndex) - posSurfaceRtWorldEwrtWorldZ;
       }
-      if (!heightsOnFlatGround.has_value()) heightsOnFlatGround = heights;
-      EXPECT_TRUE(heights.isApprox(*heightsOnFlatGround, /*prec=*/1.0e-12))
-          << heights.transpose() << " | " << heightsOnFlatGround->transpose();
+      if (!flatDesPosFootRtSurfaceEwrtWorldZTraj.has_value()) {
+        flatDesPosFootRtSurfaceEwrtWorldZTraj =
+            desPosFootRtSurfaceEwrtWorldZTraj;
+      }
+      EXPECT_TRUE(desPosFootRtSurfaceEwrtWorldZTraj.isApprox(
+          *flatDesPosFootRtSurfaceEwrtWorldZTraj, /*prec=*/1.0e-12))
+          << desPosFootRtSurfaceEwrtWorldZTraj.transpose() << " | "
+          << flatDesPosFootRtSurfaceEwrtWorldZTraj->transpose();
 
       // In stance (active_phases "swing_and_stance") the foot is referenced on
       // the ground, at rest.
       schedule(*referenceManager, makeFeetArray(true), state);
       const vector_t stance =
           cost.getParameters(/*time=*/0.0, target, PreComputation());
-      EXPECT_NEAR(stance(kReferenceZIndex), terrainHeight, 1.0e-12);
+      EXPECT_NEAR(stance(kReferenceZIndex), posSurfaceRtWorldEwrtWorldZ,
+                  1.0e-12);
       EXPECT_EQ(stance(kReferenceZVelocityIndex), 0.0);
     }
   }
@@ -476,7 +512,7 @@ TEST(FootCostParameters,
   NoLandingTargetReferenceManager noTarget(atlas);
   const vector_t& state = atlas.nominalState();
   const vector_t input = atlas.makeInput(atlas.wrenchModel(), /*loadedFoot=*/1,
-                                         /*normalForce=*/800.0);
+                                         /*forceFootEwrtParamZ=*/800.0);
   vector_t movingState = state;
   movingState(0) = 0.4;  // a commanded forward velocity [m/s], the normalized
                          // linear momentum of the target
@@ -506,7 +542,7 @@ TEST(FootCostParameters,
     EXPECT_NEAR(parameters(kLinearVelocitySqrtWeightStart + 1),
                 std::sqrt(weight), 1.0e-15);
     EXPECT_EQ(parameters(kLinearVelocitySqrtWeightStart + 2), 0.0)
-        << "lin_velocity_z keeps its configured weight";
+        << "linvel_z keeps its configured weight";
     // A hot reload writes the same parameters as a cost built with the weight.
     Cost reloaded = velocityOnlyFootCost(atlas, noTarget, kSwingFoot,
                                          kDefaultSwingVelocityReferenceWeight);

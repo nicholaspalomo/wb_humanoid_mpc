@@ -31,14 +31,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
-#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/constraint/LipConstraintBase.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactPlanningTerm.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipConstraint.h"
+#include "humanoid_common_mpc/contact_planning/problem/RowBuilder.h"
 
 namespace ocs2::humanoid {
 
 /**
- * `reachability` (soft, every node): -reachX <= e_x . (p_i - c) <= reachX and
- * reachYInner <= side_i e_y . (p_i - c) <= reachYOuter (side +1 for the left
+ * `reachability` (soft, every node): -maxNormPosFootRtComEwrtHeadingX <= e_x .
+ * (p_i
+ * - c) <= maxNormPosFootRtComEwrtHeadingX and minPosFootRtComEwrtHeadingY <=
+ * side_i e_y . (p_i - c) <= maxPosFootRtComEwrtHeadingY (side +1 for the left
  * foot, -1 for the right), with the first-order heading term of the frame.
  * Imposed at the terminal node too: the foothold of a swing that ends at the
  * horizon is a state of node N.

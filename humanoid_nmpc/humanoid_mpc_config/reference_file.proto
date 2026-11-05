@@ -33,8 +33,8 @@ message ReferenceFile {
   // LINT.IfChange(derive_parameters_command_limits)
   double cmd_max_linvel_base_rt_world_ewrt_heading_x = 3 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m/s" minimum: 0 }];
   double cmd_max_linvel_base_rt_world_ewrt_heading_y = 4 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m/s" minimum: 0 }];
-  // [m] The largest change of the base height a command may ask for, either way of nom_pos_base_rt_world_ewrt_world_z. Required.
-  double cmd_max_err_pos_base_rt_world_ewrt_world_z = 5 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m" minimum: 0 }];
+  // [m] The largest change of the base height a command may ask for, either way of nom_pos_base_rt_surface_ewrt_world_z. Required.
+  double cmd_max_err_pos_base_rt_surface_ewrt_world_z = 5 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m" minimum: 0 }];
   // [rad/s] The yaw rate of a full stick deflection. Required.
   double cmd_max_angvel_base_rt_world_ewrt_world_z = 6 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "rad/s" minimum: 0 }];
   // LINT.ThenChange(//tools/locomotion_heuristics/derive_parameters.py:derive_parameters_inputs)
@@ -78,7 +78,7 @@ message ReferenceFile {
   // [m] The base height above the ground of the default posture, which a command without a pelvis height asks for.
   // Required.
   // LINT.IfChange(derive_parameters_base_height)
-  double nom_pos_base_rt_world_ewrt_world_z = 11 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m" minimum: 0 }];
+  double nom_pos_base_rt_surface_ewrt_world_z = 11 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m" minimum: 0 }];
   // LINT.ThenChange(//tools/locomotion_heuristics/derive_parameters.py:derive_parameters_inputs)
   // [rad] The joint positions of the default posture, by joint name (formerly defaultJointState by index): every joint
   // of the MPC model exactly once, in any order; a fixed joint or a name the model does not have is refused.

@@ -107,7 +107,7 @@ constexpr Eigen::Index kAngularVelocityIndex = 9;
 constexpr Eigen::Index kAngularAccelerationIndex = 12;
 /** [rad] The largest tilt of the tilted cases, the smallest of the steep ones.
  */
-constexpr scalar_t kLargestTilt = 80.0 * std::numbers::pi / 180.0;
+constexpr scalar_t kMaxTiltangleEeRtSurface = 80.0 * std::numbers::pi / 180.0;
 /** 1 + v.n where the steep cases end and the near-anti-parallel ones begin. */
 constexpr scalar_t kSteepestOnePlusCosine = 1.0e-2;
 /** The smallest 1 + v.n the oracle is compared at
@@ -192,41 +192,44 @@ struct RateCase {
   std::string name;
   Regime regime = Regime::kLevel;
   AttitudeMotion motion;
-  vector3_t planeNormal = vector3_t::UnitZ();
+  vector3_t normalSurfaceEwrtWorld = vector3_t::UnitZ();
 };
 
 /** The taped functions' values at a case: [rate; acceleration]. */
 struct TapedRates {
   vector3_t rate = vector3_t::Zero();
-  vector3_t acceleration = vector3_t::Zero();
+  vector3_t secondRate = vector3_t::Zero();
 };
 
 /** The variables of the taped functions at `motion`. */
 vector_t variablesOf(const AttitudeMotion& motion) {
   vector_t variables(kVariableDim);
   variables.head<9>() = Eigen::Map<const Eigen::Matrix<scalar_t, 9, 1>>(
-      motion.initialRotation.data());
-  variables.segment<3>(kAngularVelocityIndex) = motion.angularVelocity;
-  variables.segment<3>(kAngularAccelerationIndex) = motion.angularAcceleration;
+      motion.initRotmatEeRtWorld.data());
+  variables.segment<3>(kAngularVelocityIndex) = motion.angvelEeRtWorldEwrtWorld;
+  variables.segment<3>(kAngularAccelerationIndex) =
+      motion.angaccEeRtWorldEwrtWorld;
   return variables;
 }
 
-/** y = [orientationErrorWrtPlaneRate(); orientationErrorWrtPlaneAcceleration()]
+/** y = [planeTiltRate(); planeTiltSecondRate()]
  * of x = [vec(R); w; alpha], p = n. */
 void ratesFunction(const ad_vector_t& x, const ad_vector_t& p, ad_vector_t& y) {
-  ad_matrix3_t rotation;
-  rotation.col(0) = x.segment<3>(0);
-  rotation.col(1) = x.segment<3>(3);
-  rotation.col(2) = x.segment<3>(6);
-  const ad_vector3_t angularVelocity = x.segment<3>(kAngularVelocityIndex);
-  const ad_vector3_t angularAcceleration =
+  ad_matrix3_t rotmatEeRtWorld;
+  rotmatEeRtWorld.col(0) = x.segment<3>(0);
+  rotmatEeRtWorld.col(1) = x.segment<3>(3);
+  rotmatEeRtWorld.col(2) = x.segment<3>(6);
+  const ad_vector3_t angvelEeRtWorldEwrtWorld =
+      x.segment<3>(kAngularVelocityIndex);
+  const ad_vector3_t angaccEeRtWorldEwrtWorld =
       x.segment<3>(kAngularAccelerationIndex);
-  const ad_vector3_t planeNormal = p.head<3>();
+  const ad_vector3_t normalSurfaceEwrtWorld = p.head<3>();
   y.resize(6);
-  y.head<3>() = orientationErrorWrtPlaneRate<ad_scalar_t>(
-      rotation, angularVelocity, planeNormal);
-  y.tail<3>() = orientationErrorWrtPlaneAcceleration<ad_scalar_t>(
-      rotation, angularVelocity, angularAcceleration, planeNormal);
+  y.head<3>() = planeTiltRate<ad_scalar_t>(
+      rotmatEeRtWorld, angvelEeRtWorldEwrtWorld, normalSurfaceEwrtWorld);
+  y.tail<3>() = planeTiltSecondRate<ad_scalar_t>(
+      rotmatEeRtWorld, angvelEeRtWorldEwrtWorld, angaccEeRtWorldEwrtWorld,
+      normalSurfaceEwrtWorld);
 }
 
 std::unique_ptr<CppAdInterface> makeTapedRates() {
@@ -251,54 +254,61 @@ const CppAdInterface& tapedRates() {
 
 TapedRates tapedRatesAt(const RateCase& rateCase) {
   const vector_t values = tapedRates().getFunctionValue(
-      variablesOf(rateCase.motion), rateCase.planeNormal);
-  return TapedRates{.rate = values.head<3>(), .acceleration = values.tail<3>()};
+      variablesOf(rateCase.motion), rateCase.normalSurfaceEwrtWorld);
+  return TapedRates{.rate = values.head<3>(), .secondRate = values.tail<3>()};
 }
 
-/** A unit vector perpendicular to the unit vector `normal`, at the angle
- * `direction` about it. */
-vector3_t perpendicularTo(const vector3_t& normal, scalar_t direction) {
-  const vector3_t reference =
-      std::abs(normal.x()) < 0.9 ? vector3_t::UnitX() : vector3_t::UnitY();
-  const vector3_t first = normal.cross(reference).normalized();
-  const vector3_t second = normal.cross(first);
+/** A unit vector perpendicular to the unit vector `normalSurfaceEwrtWorld`, at
+ * the angle `direction` about it. */
+vector3_t perpendicularTo(const vector3_t& normalSurfaceEwrtWorld,
+                          scalar_t direction) {
+  const vector3_t reference = std::abs(normalSurfaceEwrtWorld.x()) < 0.9
+                                  ? vector3_t::UnitX()
+                                  : vector3_t::UnitY();
+  const vector3_t first = normalSurfaceEwrtWorld.cross(reference).normalized();
+  const vector3_t second = normalSurfaceEwrtWorld.cross(first);
   return std::cos(direction) * first + std::sin(direction) * second;
 }
 
 /**
- * The shortest-arc rotation from e_z to the unit vector `normal`: about e_z x n
- * by the angle between them, a half turn about e_x for n = -e_z.
+ * The shortest-arc rotation from e_z to the unit vector
+ * `normalSurfaceEwrtWorld`: about e_z x n by the angle between them, a half
+ * turn about e_x for n = -e_z.
  */
-matrix3_t shortestArcFromUnitZ(const vector3_t& normal) {
-  const vector3_t axis = vector3_t::UnitZ().cross(normal);
-  const scalar_t sine = axis.norm();
+matrix3_t shortestArcFromUnitZ(const vector3_t& normalSurfaceEwrtWorld) {
+  const vector3_t zCrossN = vector3_t::UnitZ().cross(normalSurfaceEwrtWorld);
+  const scalar_t sine = zCrossN.norm();
   if (sine > 0.0)
-    return Eigen::AngleAxisd(std::atan2(sine, normal.z()), axis / sine)
+    return Eigen::AngleAxisd(std::atan2(sine, normalSurfaceEwrtWorld.z()),
+                             zCrossN / sine)
         .toRotationMatrix();
-  if (normal.z() > 0.0) return matrix3_t::Identity();
+  if (normalSurfaceEwrtWorld.z() > 0.0) return matrix3_t::Identity();
   return Eigen::AngleAxisd(std::numbers::pi, vector3_t::UnitX())
       .toRotationMatrix();
 }
 
 /**
- * The attitude whose normal R e_z is the plane normal turned by `tiltAngle`
- * about a perpendicular axis at `tiltDirection`, turned by `yaw` about its own
- * normal: R = Exp(tilt u) R_n R_z(yaw), R_n the shortest arc from e_z to n.
+ * The attitude whose normal R e_z is the plane normal turned by
+ * `tiltangleEeRtSurface` about a perpendicular axis at `tiltDirection`, turned
+ * by `yawEeRtSurface` about its own normal: R = Exp(tilt u) R_n
+ * R_z(yawEeRtSurface), R_n the shortest arc from e_z to n.
  */
-matrix3_t attitudeOf(const vector3_t& planeNormal,
-                     scalar_t tiltAngle,
+matrix3_t attitudeOf(const vector3_t& normalSurfaceEwrtWorld,
+                     scalar_t tiltangleEeRtSurface,
                      scalar_t tiltDirection,
-                     scalar_t yaw) {
-  return Eigen::AngleAxisd(tiltAngle,
-                           perpendicularTo(planeNormal, tiltDirection))
+                     scalar_t yawEeRtSurface) {
+  return Eigen::AngleAxisd(
+             tiltangleEeRtSurface,
+             perpendicularTo(normalSurfaceEwrtWorld, tiltDirection))
              .toRotationMatrix() *
-         shortestArcFromUnitZ(planeNormal) *
-         Eigen::AngleAxisd(yaw, vector3_t::UnitZ()).toRotationMatrix();
+         shortestArcFromUnitZ(normalSurfaceEwrtWorld) *
+         Eigen::AngleAxisd(yawEeRtSurface, vector3_t::UnitZ())
+             .toRotationMatrix();
 }
 
 /** The tilt angle pi - psi at which 1 + v.n = 1 - cos(psi) = `onePlusCosine`:
  * psi = 2 asin(sqrt(onePlusCosine / 2)). */
-scalar_t tiltAngleAt(scalar_t onePlusCosine) {
+scalar_t computeTiltangleEeRtSurface(scalar_t onePlusCosine) {
   return std::numbers::pi - 2.0 * std::asin(std::sqrt(0.5 * onePlusCosine));
 }
 
@@ -312,7 +322,7 @@ std::vector<RateCase> rateCases() {
   // cases.
   std::uniform_real_distribution<scalar_t> logSteep(
       std::log10(kSteepestOnePlusCosine),
-      std::log10(1.0 + std::cos(kLargestTilt)));
+      std::log10(1.0 + std::cos(kMaxTiltangleEeRtSurface)));
   std::uniform_real_distribution<scalar_t> logDistance(
       std::log10(kOracleSmallestOnePlusCosine),
       std::log10(kSteepestOnePlusCosine));
@@ -330,54 +340,62 @@ std::vector<RateCase> rateCases() {
       // The first half about the ground normal, the second about random plane
       // normals.
       const bool groundNormal = i < kCasesPerRegime;
-      const vector3_t planeNormal =
+      const vector3_t normalSurfaceEwrtWorld =
           groundNormal
               ? vector3_t::UnitZ()
               : vector3_t(unit(generator), unit(generator), unit(generator))
                     .normalized();
-      scalar_t tiltAngle = 0.0;
+      scalar_t tiltangleEeRtSurface = 0.0;
       switch (regime) {
         case Regime::kLevel:
-          tiltAngle = 0.0;
+          tiltangleEeRtSurface = 0.0;
           break;
         case Regime::kTilted:
           // Uniform in (0, 80 degrees].
-          tiltAngle = kLargestTilt * 0.5 * (1.0 - unit(generator));
+          tiltangleEeRtSurface =
+              kMaxTiltangleEeRtSurface * 0.5 * (1.0 - unit(generator));
           break;
         case Regime::kSteep:
-          tiltAngle = tiltAngleAt(std::pow(10.0, logSteep(generator)));
+          tiltangleEeRtSurface =
+              computeTiltangleEeRtSurface(std::pow(10.0, logSteep(generator)));
           break;
         case Regime::kNearAntiParallel:
-          tiltAngle = tiltAngleAt(std::pow(10.0, logDistance(generator)));
+          tiltangleEeRtSurface = computeTiltangleEeRtSurface(
+              std::pow(10.0, logDistance(generator)));
           break;
         case Regime::kNearGuard:
-          tiltAngle = tiltAngleAt(std::pow(10.0, logNearGuard(generator)));
+          tiltangleEeRtSurface = computeTiltangleEeRtSurface(
+              std::pow(10.0, logNearGuard(generator)));
           break;
         case Regime::kInsideGuard:
-          tiltAngle = tiltAngleAt(insideGuard[i % insideGuard.size()]);
+          tiltangleEeRtSurface =
+              computeTiltangleEeRtSurface(insideGuard[i % insideGuard.size()]);
           break;
       }
       RateCase rateCase;
       rateCase.regime = regime;
-      rateCase.planeNormal = planeNormal;
-      rateCase.motion.initialRotation = attitudeOf(
-          planeNormal, tiltAngle, angle(generator), angle(generator));
-      rateCase.motion.angularVelocity =
+      rateCase.normalSurfaceEwrtWorld = normalSurfaceEwrtWorld;
+      rateCase.motion.initRotmatEeRtWorld =
+          attitudeOf(normalSurfaceEwrtWorld, tiltangleEeRtSurface,
+                     angle(generator), angle(generator));
+      rateCase.motion.angvelEeRtWorldEwrtWorld =
           2.0 * vector3_t(unit(generator), unit(generator), unit(generator));
-      rateCase.motion.angularAcceleration =
+      rateCase.motion.angaccEeRtWorldEwrtWorld =
           15.0 * vector3_t(unit(generator), unit(generator), unit(generator));
       // Every tenth: a pure spin about the end-effector normal, then about the
       // plane normal.
-      const vector3_t endEffectorNormal =
-          rateCase.motion.initialRotation.col(2);
+      const vector3_t initZAxisEeEwrtWorld =
+          rateCase.motion.initRotmatEeRtWorld.col(2);
       if (i % 10 == 3)
-        rateCase.motion.angularVelocity = 1.7 * endEffectorNormal;
-      if (i % 10 == 7) rateCase.motion.angularVelocity = -1.3 * planeNormal;
-      rateCase.name =
-          absl::StrFormat("%s_%d (tilt %.6g rad, 1 + v.n = %.3g, |w| = %.3g)",
-                          regimeName(regime), i, tiltAngle,
-                          1.0 + endEffectorNormal.dot(planeNormal),
-                          rateCase.motion.angularVelocity.norm());
+        rateCase.motion.angvelEeRtWorldEwrtWorld = 1.7 * initZAxisEeEwrtWorld;
+      if (i % 10 == 7)
+        rateCase.motion.angvelEeRtWorldEwrtWorld =
+            -1.3 * normalSurfaceEwrtWorld;
+      rateCase.name = absl::StrFormat(
+          "%s_%d (tilt %.6g rad, 1 + v.n = %.3g, |w| = %.3g)",
+          regimeName(regime), i, tiltangleEeRtSurface,
+          1.0 + initZAxisEeEwrtWorld.dot(normalSurfaceEwrtWorld),
+          rateCase.motion.angvelEeRtWorldEwrtWorld.norm());
       cases.push_back(std::move(rateCase));
     }
   }
@@ -393,7 +411,8 @@ scalar_t relativeDeviation(const vector3_t& a,
 
 /** 1 + v.n of the case's attitude and plane. */
 scalar_t onePlusCosineOf(const RateCase& rateCase) {
-  return 1.0 + rateCase.motion.initialRotation.col(2).dot(rateCase.planeNormal);
+  return 1.0 + rateCase.motion.initRotmatEeRtWorld.col(2).dot(
+                   rateCase.normalSurfaceEwrtWorld);
 }
 
 /**
@@ -412,7 +431,7 @@ scalar_t tapeAgreementTolerance(const RateCase& rateCase) {
 /**
  * The natural scale of each entry of the taped Jacobian, by block, for
  * kJacobianTolerance: with psi = min(1, sqrt(2 (1 + v.n))) and r = max(1,
- * orientationErrorRateScale()), the k-th time derivative of e is of the order
+ * tiltRateScale()), the k-th time derivative of e is of the order
  * of r^k (OrientationErrorRateOracle.h) and e varies over psi^2 / 2 along the
  * normal, so a derivative of the rate (k = 1) or the acceleration (k = 2) by
  * the attitude is of the order of r^k / psi^2; the rate is M w and the
@@ -426,8 +445,8 @@ matrix_t jacobianScales(const RateCase& rateCase) {
   const scalar_t psi =
       std::min(1.0, std::sqrt(2.0 * onePlusCosineOf(rateCase)));
   const scalar_t rate =
-      std::max(1.0, test_support::orientationErrorRateScale(
-                        rateCase.motion, rateCase.planeNormal));
+      std::max(1.0, test_support::tiltRateScale(
+                        rateCase.motion, rateCase.normalSurfaceEwrtWorld));
   matrix_t scales(6, kVariableDim);
   scales.block(0, 0, 3, kAngularVelocityIndex).setConstant(rate / (psi * psi));
   scales.block(3, 0, 3, kAngularVelocityIndex)
@@ -460,7 +479,8 @@ matrix_t differencedJacobian(const RateCase& rateCase) {
     for (size_t s = 0; s < offsets.size(); ++s) {
       vector_t moved = variables;
       moved(i) += offsets[s];
-      values[s] = tapedRates().getFunctionValue(moved, rateCase.planeNormal);
+      values[s] =
+          tapedRates().getFunctionValue(moved, rateCase.normalSurfaceEwrtWorld);
     }
     const vector_t full = (values[0] - values[1]) / (2.0 * step);
     const vector_t half = (values[2] - values[3]) / step;
@@ -511,23 +531,23 @@ TEST(OrientationErrorWrtPlaneRates,
     SCOPED_TRACE(rateCase.name);
     const TapedRates taped = tapedRatesAt(rateCase);
     const DifferencedOrientationErrorRates differenced =
-        test_support::differencedOrientationErrorRates(rateCase.motion,
-                                                       rateCase.planeNormal);
+        test_support::differencedTiltRates(rateCase.motion,
+                                           rateCase.normalSurfaceEwrtWorld);
     const scalar_t rateDeviation =
         relativeDeviation(taped.rate, differenced.rate, differenced.rateScale);
-    const scalar_t accelerationDeviation =
-        relativeDeviation(taped.acceleration, differenced.acceleration,
+    const scalar_t secondRateDeviation =
+        relativeDeviation(taped.secondRate, differenced.secondRate,
                           differenced.rateScale * differenced.rateScale);
     EXPECT_LE(rateDeviation, kDifferencedRateTolerance)
         << taped.rate.transpose() << "\nvs\n"
         << differenced.rate.transpose();
-    EXPECT_LE(accelerationDeviation, kDifferencedRateTolerance)
-        << taped.acceleration.transpose() << "\nvs\n"
-        << differenced.acceleration.transpose();
+    EXPECT_LE(secondRateDeviation, kDifferencedRateTolerance)
+        << taped.secondRate.transpose() << "\nvs\n"
+        << differenced.secondRate.transpose();
     std::pair<scalar_t, scalar_t>& largest =
         largestDeviation[regimeName(rateCase.regime)];
     largest.first = std::max(largest.first, rateDeviation);
-    largest.second = std::max(largest.second, accelerationDeviation);
+    largest.second = std::max(largest.second, secondRateDeviation);
     ++compared;
   }
   // The level, tilted, steep and near-anti-parallel regimes.
@@ -547,24 +567,24 @@ TEST(OrientationErrorWrtPlaneRates, TheTapeIsThePlainDoubleInstantiation) {
     SCOPED_TRACE(rateCase.name);
     const TapedRates taped = tapedRatesAt(rateCase);
     const AttitudeMotion& motion = rateCase.motion;
-    const vector3_t rate = orientationErrorWrtPlaneRate<scalar_t>(
-        motion.initialRotation, motion.angularVelocity, rateCase.planeNormal);
-    const vector3_t acceleration =
-        orientationErrorWrtPlaneAcceleration<scalar_t>(
-            motion.initialRotation, motion.angularVelocity,
-            motion.angularAcceleration, rateCase.planeNormal);
+    const vector3_t rate = planeTiltRate<scalar_t>(
+        motion.initRotmatEeRtWorld, motion.angvelEeRtWorldEwrtWorld,
+        rateCase.normalSurfaceEwrtWorld);
+    const vector3_t secondRate = planeTiltSecondRate<scalar_t>(
+        motion.initRotmatEeRtWorld, motion.angvelEeRtWorldEwrtWorld,
+        motion.angaccEeRtWorldEwrtWorld, rateCase.normalSurfaceEwrtWorld);
     // Inside the guard the rates are w / 2 and alpha / 2, of the scale of w and
     // alpha.
-    const scalar_t scale = rateCase.regime == Regime::kInsideGuard
-                               ? std::max(motion.angularVelocity.norm(),
-                                          motion.angularAcceleration.norm())
-                               : test_support::orientationErrorRateScale(
-                                     motion, rateCase.planeNormal);
+    const scalar_t scale =
+        rateCase.regime == Regime::kInsideGuard
+            ? std::max(motion.angvelEeRtWorldEwrtWorld.norm(),
+                       motion.angaccEeRtWorldEwrtWorld.norm())
+            : test_support::tiltRateScale(motion,
+                                          rateCase.normalSurfaceEwrtWorld);
     const scalar_t tolerance = tapeAgreementTolerance(rateCase);
     EXPECT_LE(relativeDeviation(taped.rate, rate, scale), tolerance);
-    EXPECT_LE(
-        relativeDeviation(taped.acceleration, acceleration, scale * scale),
-        tolerance);
+    EXPECT_LE(relativeDeviation(taped.secondRate, secondRate, scale * scale),
+              tolerance);
     if (rateCase.regime == Regime::kNearGuard) ++nearGuard;
   }
   EXPECT_EQ(nearGuard, 2 * kCasesPerRegime);
@@ -577,16 +597,15 @@ TEST(OrientationErrorWrtPlaneRates,
     if (rateCase.regime != Regime::kLevel) continue;
     SCOPED_TRACE(rateCase.name);
     const TapedRates taped = tapedRatesAt(rateCase);
-    const vector3_t& n = rateCase.planeNormal;
-    const vector3_t& w = rateCase.motion.angularVelocity;
-    const vector3_t& alpha = rateCase.motion.angularAcceleration;
+    const vector3_t& n = rateCase.normalSurfaceEwrtWorld;
+    const vector3_t& w = rateCase.motion.angvelEeRtWorldEwrtWorld;
+    const vector3_t& alpha = rateCase.motion.angaccEeRtWorldEwrtWorld;
     const vector3_t gyroscopicTerm = 0.5 * n.dot(w) * n.cross(w);
     EXPECT_LE(relativeDeviation(taped.rate, 0.5 * w, w.norm()),
               kClosedFormTolerance);
-    EXPECT_LE(
-        relativeDeviation(taped.acceleration, 0.5 * alpha + gyroscopicTerm,
-                          alpha.norm() + w.squaredNorm()),
-        kClosedFormTolerance);
+    EXPECT_LE(relativeDeviation(taped.secondRate, 0.5 * alpha + gyroscopicTerm,
+                                alpha.norm() + w.squaredNorm()),
+              kClosedFormTolerance);
     // The term is perpendicular to n: the row along the plane normal is
     // (n.alpha) / 2 exactly.
     EXPECT_NEAR(n.dot(gyroscopicTerm), 0.0,
@@ -615,20 +634,21 @@ TEST(OrientationErrorWrtPlaneRates,
   for (const RateCase& rateCase : rateCases()) {
     if (rateCase.regime != Regime::kInsideGuard) continue;
     SCOPED_TRACE(rateCase.name);
-    ASSERT_LT(
-        1.0 + rateCase.motion.initialRotation.col(2).dot(rateCase.planeNormal),
-        kPlaneNormalAntiParallelThreshold);
+    ASSERT_LT(1.0 + rateCase.motion.initRotmatEeRtWorld.col(2).dot(
+                        rateCase.normalSurfaceEwrtWorld),
+              kPlaneNormalAntiParallelThreshold);
     const TapedRates taped = tapedRatesAt(rateCase);
-    EXPECT_LE(
-        relativeDeviation(taped.rate, 0.5 * rateCase.motion.angularVelocity,
-                          rateCase.motion.angularVelocity.norm()),
-        1.0e-15);
-    EXPECT_LE(relativeDeviation(taped.acceleration,
-                                0.5 * rateCase.motion.angularAcceleration,
-                                rateCase.motion.angularAcceleration.norm()),
+    EXPECT_LE(relativeDeviation(
+                  taped.rate, 0.5 * rateCase.motion.angvelEeRtWorldEwrtWorld,
+                  rateCase.motion.angvelEeRtWorldEwrtWorld.norm()),
               1.0e-15);
+    EXPECT_LE(
+        relativeDeviation(taped.secondRate,
+                          0.5 * rateCase.motion.angaccEeRtWorldEwrtWorld,
+                          rateCase.motion.angaccEeRtWorldEwrtWorld.norm()),
+        1.0e-15);
     const matrix_t jacobian = tapedRates().getJacobian(
-        variablesOf(rateCase.motion), rateCase.planeNormal);
+        variablesOf(rateCase.motion), rateCase.normalSurfaceEwrtWorld);
     ASSERT_TRUE(jacobian.allFinite()) << jacobian;
     EXPECT_TRUE(jacobian == fallbackJacobian) << jacobian;
     ++guarded;
@@ -641,13 +661,13 @@ TEST(OrientationErrorWrtPlaneRates,
   std::map<std::string, scalar_t>
       largestDeviation;  // per regime, relative to the tolerance
   scalar_t smallestRateMapRejection = 1.0e300;
-  scalar_t smallestAccelerationMapRejection = 1.0e300;
+  scalar_t smallestSecondRateMapRejection = 1.0e300;
   size_t nearGuard = 0;
   for (const RateCase& rateCase : rateCases()) {
     if (rateCase.regime == Regime::kInsideGuard) continue;
     SCOPED_TRACE(rateCase.name);
     const matrix_t jacobian = tapedRates().getJacobian(
-        variablesOf(rateCase.motion), rateCase.planeNormal);
+        variablesOf(rateCase.motion), rateCase.normalSurfaceEwrtWorld);
     ASSERT_TRUE(jacobian.allFinite()) << jacobian;
     if (!comparedWithDifferences(rateCase.regime)) {
       // Near the guard, outside it: finite, and not differenced, whose steps
@@ -673,18 +693,18 @@ TEST(OrientationErrorWrtPlaneRates,
         withLargestBlockEntryMoved(jacobian, /*row=*/0,
                                    /*col=*/kAngularVelocityIndex),
         differenced, scales);
-    const scalar_t accelerationMapRejection = largestDeviationToTolerance(
+    const scalar_t secondRateMapRejection = largestDeviationToTolerance(
         withLargestBlockEntryMoved(jacobian, /*row=*/3,
                                    /*col=*/kAngularAccelerationIndex),
         differenced, scales);
     EXPECT_GT(rateMapRejection, 1.0)
         << "a 1e-6 change of the rate's map is not resolved";
-    EXPECT_GT(accelerationMapRejection, 1.0)
+    EXPECT_GT(secondRateMapRejection, 1.0)
         << "a 1e-6 change of the acceleration's map is not resolved";
     smallestRateMapRejection =
         std::min(smallestRateMapRejection, rateMapRejection);
-    smallestAccelerationMapRejection =
-        std::min(smallestAccelerationMapRejection, accelerationMapRejection);
+    smallestSecondRateMapRejection =
+        std::min(smallestSecondRateMapRejection, secondRateMapRejection);
   }
   EXPECT_EQ(nearGuard, 2 * kCasesPerRegime);
   for (const std::pair<const std::string, scalar_t>& entry : largestDeviation) {
@@ -697,7 +717,7 @@ TEST(OrientationErrorWrtPlaneRates,
       "[rates] the Jacobian's comparison rejects a 1e-6 change of the rate's "
       "map by w by a factor of %.3g at least, of the "
       "acceleration's by alpha by %.3g\n",
-      smallestRateMapRejection, smallestAccelerationMapRejection);
+      smallestRateMapRejection, smallestSecondRateMapRejection);
 }
 
 TEST(OrientationErrorWrtPlaneRates,
@@ -714,31 +734,34 @@ TEST(OrientationErrorWrtPlaneRates,
     const AttitudeMotion& motion = rateCase.motion;
     for (scalar_t time : {0.0, 0.3}) {
       const matrix3_t full =
-          (test_support::rotationAlong(motion, time + step) -
-           test_support::rotationAlong(motion, time - step)) /
+          (test_support::computeRotmatEeRtWorld(motion, time + step) -
+           test_support::computeRotmatEeRtWorld(motion, time - step)) /
           (2.0 * step);
       const matrix3_t half =
-          (test_support::rotationAlong(motion, time + 0.5 * step) -
-           test_support::rotationAlong(motion, time - 0.5 * step)) /
+          (test_support::computeRotmatEeRtWorld(motion, time + 0.5 * step) -
+           test_support::computeRotmatEeRtWorld(motion, time - 0.5 * step)) /
           step;
-      const matrix3_t rotationRate = (4.0 * half - full) / 3.0;
+      const matrix3_t rateRotmatEeRtWorld = (4.0 * half - full) / 3.0;
       const matrix3_t cross =
-          rotationRate * test_support::rotationAlong(motion, time).transpose();
+          rateRotmatEeRtWorld *
+          test_support::computeRotmatEeRtWorld(motion, time).transpose();
       const vector3_t differenced(cross(2, 1), cross(0, 2), cross(1, 0));
-      EXPECT_LE((test_support::angularVelocityAlong(motion, time) - differenced)
+      EXPECT_LE((test_support::computeAngvelEeRtWorldEwrtWorld(motion, time) -
+                 differenced)
                     .cwiseAbs()
                     .maxCoeff(),
                 1.0e-9)
           << "t = " << time;
     }
-    const vector3_t full = (test_support::angularVelocityAlong(motion, step) -
-                            test_support::angularVelocityAlong(motion, -step)) /
-                           (2.0 * step);
+    const vector3_t full =
+        (test_support::computeAngvelEeRtWorldEwrtWorld(motion, step) -
+         test_support::computeAngvelEeRtWorldEwrtWorld(motion, -step)) /
+        (2.0 * step);
     const vector3_t half =
-        (test_support::angularVelocityAlong(motion, 0.5 * step) -
-         test_support::angularVelocityAlong(motion, -0.5 * step)) /
+        (test_support::computeAngvelEeRtWorldEwrtWorld(motion, 0.5 * step) -
+         test_support::computeAngvelEeRtWorldEwrtWorld(motion, -0.5 * step)) /
         step;
-    EXPECT_LE(((4.0 * half - full) / 3.0 - motion.angularAcceleration)
+    EXPECT_LE(((4.0 * half - full) / 3.0 - motion.angaccEeRtWorldEwrtWorld)
                   .cwiseAbs()
                   .maxCoeff(),
               1.0e-9);

@@ -32,8 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pthread.h>
 #include <sched.h>
 
-#include <string>
-
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
@@ -95,9 +93,10 @@ absl::Status placeCurrentThread(absl::Span<const int> cores,
   absl::Status idled = priority == ViewerThreadPriority::kIdle
                            ? idleScheduling()
                            : absl::OkStatus();
-  if (!pinned.ok() && !idled.ok())
+  if (!pinned.ok() && !idled.ok()) {
     return absl::Status(pinned.code(),
                         absl::StrCat(pinned.message(), "; ", idled.message()));
+  }
   if (!pinned.ok()) return pinned;
   return idled;
 }
