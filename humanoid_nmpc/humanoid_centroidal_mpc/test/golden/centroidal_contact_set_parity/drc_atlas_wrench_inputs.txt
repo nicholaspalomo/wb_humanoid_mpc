@@ -45,9 +45,9 @@ equality.f@0.6	12x1	daccb7484554d6ff
 equality.dfdx@0.6	12x37	9f1ced0666a74e42
 equality.dfdu@0.6	12x36	fce139643352944c
 desiredState@0.8	37x1	10932d29264bea02
-cost.f@0.8	1x1	f85df21219ff2073
-cost.dfdx@0.8	37x1	ac5535cf21e92d0e
-cost.dfdu@0.8	36x1	b4e538ac6c75938b
+cost.f@0.8	1x1	bea6fb49a1820297
+cost.dfdx@0.8	37x1	64c87380336d5633
+cost.dfdu@0.8	36x1	30ad8d7c7a780813
 cost.dfdxx@0.8	37x37	24de86e51c610bb4
 cost.dfdux@0.8	36x37	d34b7de758f5113d
 cost.dfduu@0.8	36x36	6f6b41621ed006e6
@@ -58,9 +58,9 @@ equality.f@0.8	13x1	8a241cedc343033d
 equality.dfdx@0.8	13x37	72b52da506f1c5b9
 equality.dfdu@0.8	13x36	5037374c847b4c92
 desiredState@1.2	37x1	007017fa946328d3
-cost.f@1.2	1x1	4357f8c0bb59e84e
-cost.dfdx@1.2	37x1	03087f8ed38bd882
-cost.dfdu@1.2	36x1	9a49ecf1a130b91d
+cost.f@1.2	1x1	e21d8467803ca140
+cost.dfdx@1.2	37x1	ae3de48542c002ac
+cost.dfdu@1.2	36x1	3dc578c65c092b05
 cost.dfdxx@1.2	37x37	d7c4e05d81dea4c8
 cost.dfdux@1.2	36x37	a4dc5b909a21c5c2
 cost.dfduu@1.2	36x36	cf8637fe3c07f6df

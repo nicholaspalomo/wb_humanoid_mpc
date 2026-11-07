@@ -28,7 +28,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -58,13 +57,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
@@ -76,6 +77,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 namespace {
+
+/** The measured contact of a biped's left and right foot, as a mask of the
+ * biped's two contacts. */
+ContactMask feetInContact(bool left, bool right) {
+  ContactMask mask(/*numContacts=*/static_cast<size_t>(kBipedFootCount));
+  mask.set(/*contactIndex=*/kContactLeftIndex, left);
+  mask.set(/*contactIndex=*/kContactRightIndex, right);
+  return mask;
+}
 
 /** The action of joint `index`, which every joint of the description holds: a
  * test failure and a zero action if not. */
@@ -112,6 +122,21 @@ absl::StatusOr<::robot::model::RobotDescription> twoJointDescription() {
       std::filesystem::path(::testing::TempDir()) / "two_joint_robot.urdf";
   std::ofstream(path) << kTwoJointUrdf;
   return ::robot::model::RobotDescription::Create(path.string());
+}
+
+/** The world-frame wrench of every contact of `model` that `state` and
+ * `input` carry, in contact order. */
+ContactArray<vector6_t> computeWrenchContactsEwrtWorld(
+    const MpcRobotModelBase<scalar_t>& model,
+    const vector_t& state,
+    const vector_t& input) {
+  ContactArray<vector6_t> wrenchContactsEwrtWorld(
+      model.modelSettings.contactNames.size());
+  for (size_t i = 0; i < wrenchContactsEwrtWorld.size(); ++i) {
+    wrenchContactsEwrtWorld[i] =
+        model.getWrenchContactEwrtWorld(state, input, /*contactIndex=*/i);
+  }
+  return wrenchContactsEwrtWorld;
 }
 
 }  // namespace
@@ -652,12 +677,15 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
                                                        "right_ankle_roll_joint",
                                                        vector3_t::Zero())));
   ASSERT_TRUE(rightBasis.ok()) << rightBasis.status();
-  const std::array<ContactWrenchConeBasisMatrix, kNumContacts> basisMatrices = {
+  const std::vector<ContactWrenchConeBasisMatrix> basisMatrices = {
       *std::move(leftBasis), *std::move(rightBasis)};
-  BasisInputsModelDecorator<scalar_t> basisModel(
-      std::unique_ptr<MpcRobotModelBase<scalar_t>>(
-          testingModelInterface_.getMpcRobotModel().clone()),
-      basisMatrices, testingModelInterface_.getPinocchioInterface());
+  absl::StatusOr<std::unique_ptr<BasisInputsModelDecorator<scalar_t>>>
+      basisModelPtr = BasisInputsModelDecorator<scalar_t>::Create(
+          std::unique_ptr<MpcRobotModelBase<scalar_t>>(
+              testingModelInterface_.getMpcRobotModel().clone()),
+          basisMatrices, testingModelInterface_.getPinocchioInterface());
+  ASSERT_TRUE(basisModelPtr.ok()) << basisModelPtr.status();
+  BasisInputsModelDecorator<scalar_t>& basisModel = **basisModelPtr;
   ASSERT_NE(basisModel.getInputDim(),
             testingModelInterface_.getMpcRobotModel().getInputDim());
 
@@ -708,14 +736,14 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
       testingModelInterface_.getPinocchioInterface();
   const vector_t weightInput = weightCompensatingInput(
       pinocchioInterface, {true, true}, basisModel, observation.state);
-  const std::array<vector6_t, 2> wrenchFeetEwrtWorld{
-      basisModel.getWrenchContactEwrtWorld(observation.state, weightInput,
-                                           /*contactIndex=*/0),
-      basisModel.getWrenchContactEwrtWorld(observation.state, weightInput,
-                                           /*contactIndex=*/1)};
-  const std::array<vector6_t, 2> wrenchFeetEwrtFoot{
-      basisModel.getWrenchContactEwrtParam(weightInput, /*contactIndex=*/0),
-      basisModel.getWrenchContactEwrtParam(weightInput, /*contactIndex=*/1)};
+  const ContactArray<vector6_t> wrenchFeetEwrtWorld =
+      computeWrenchContactsEwrtWorld(basisModel, observation.state,
+                                     weightInput);
+  ContactArray<vector6_t> wrenchFeetEwrtFoot(wrenchFeetEwrtWorld.size());
+  for (size_t i = 0; i < wrenchFeetEwrtFoot.size(); ++i) {
+    wrenchFeetEwrtFoot[i] =
+        basisModel.getWrenchContactEwrtParam(weightInput, /*contactIndex=*/i);
+  }
 
   const vector_t q = basisModel.getGeneralizedCoordinates(observation.state);
   const vector_t qd =
@@ -780,9 +808,9 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
   robotState.setContactFlag(/*index=*/1, /*contactFlag=*/false);
   controller.computeJointControlAction(/*time=*/0.01, robotState, jointAction);
   EXPECT_EQ(controller.getCurrentObservation().mode,
-            stanceLeg2ModeNumber({true, false}));
+            bipedModeOfFootContacts({true, false}));
   EXPECT_EQ(controller.getMeasuredContactFlags(),
-            (contact_flag_t{true, false}));
+            feetInContact(/*left=*/true, /*right=*/false));
 
   // An injected estimator overrides whatever the RobotState carries, and is
   // asked once per control cycle.
@@ -794,14 +822,14 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
   controller.computeJointControlAction(/*time=*/0.02, robotState, jointAction);
   EXPECT_EQ(estimator->calls, 1u);
   EXPECT_EQ(controller.getCurrentObservation().mode,
-            stanceLeg2ModeNumber({false, true}));
+            bipedModeOfFootContacts({false, true}));
   EXPECT_EQ(controller.getMeasuredContactFlags(),
-            (contact_flag_t{false, true}));
+            feetInContact(/*left=*/false, /*right=*/true));
   estimator->set({true, true});
   controller.computeJointControlAction(/*time=*/0.03, robotState, jointAction);
   EXPECT_EQ(estimator->calls, 2u);
   EXPECT_EQ(controller.getCurrentObservation().mode,
-            stanceLeg2ModeNumber({true, true}));
+            bipedModeOfFootContacts({true, true}));
 
   // An estimator that reports the wrong number of contact points is a
   // configuration error, not a silent mode: the estimate is refused, counted
@@ -811,7 +839,8 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
   estimator->set({true});
   controller.computeJointControlAction(/*time=*/0.04, robotState, jointAction);
   EXPECT_EQ(controller.getNumRefusedContactEstimates(), 1U);
-  EXPECT_EQ(controller.getMeasuredContactFlags(), (contact_flag_t{true, true}))
+  EXPECT_EQ(controller.getMeasuredContactFlags(),
+            feetInContact(/*left=*/true, /*right=*/true))
       << "a refused estimate changed the contact state";
 
   // A null pointer restores the default.
@@ -820,7 +849,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
             "RobotStateContactEstimator");
   controller.computeJointControlAction(/*time=*/0.05, robotState, jointAction);
   EXPECT_EQ(controller.getCurrentObservation().mode,
-            stanceLeg2ModeNumber({true, false}));
+            bipedModeOfFootContacts({true, false}));
 }
 
 // The contact wrenches the inverse dynamics projects are gated by the measured
@@ -886,11 +915,8 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
   const SystemObservation& observation = controller.getCurrentObservation();
   const vector_t weightInput = weightCompensatingInput(
       pinocchioInterface, {true, false}, model, observation.state);
-  const std::array<vector6_t, 2> wrenchFeetEwrtWorld{
-      model.getWrenchContactEwrtWorld(observation.state, weightInput,
-                                      /*contactIndex=*/0),
-      model.getWrenchContactEwrtWorld(observation.state, weightInput,
-                                      /*contactIndex=*/1)};
+  const ContactArray<vector6_t> wrenchFeetEwrtWorld =
+      computeWrenchContactsEwrtWorld(model, observation.state, weightInput);
   ASSERT_TRUE(wrenchFeetEwrtWorld[1].isZero());
   const vector_t expected = computeBaseHeldJointTorques<scalar_t>(
       model.getGeneralizedCoordinates(observation.state),

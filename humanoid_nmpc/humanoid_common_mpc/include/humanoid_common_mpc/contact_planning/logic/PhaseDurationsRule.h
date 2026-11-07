@@ -46,10 +46,11 @@ namespace ocs2::humanoid {
  * reach its minimum before the horizon ends is deferred to the next plan); and
  * the maximum contact duration yields to the rules that can make lifting
  * impossible (no flight, the double-support hold, the other foot being overdue
- * too). Because those exceptions depend on the other foot, an overdue lift is
- * only fixed on a partial assignment once the other foot's binaries through
+ * too). Because those exceptions depend on the other feet, an overdue lift is
+ * only fixed on a partial assignment once the other feet's binaries through
  * that node are fixed; the complete-assignment semantics are unaffected by
- * that. Written for a biped.
+ * that. Written over the number of feet (ContactLogicState::numFeet(),
+ * overdueLiftIsImplied()); for a biped the other feet are the one other foot.
  *
  * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
  * configures and evaluates it from one thread at a time.

@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_mpc_msgs/target_contact_patch.nproto.h"
 #include "humanoid_mpc_msgs/viewer_annotations.nproto.h"
 #include "mujoco_sim_interface/MujocoContactPatch.h"
@@ -65,7 +64,9 @@ robot::mujoco_sim_interface::TargetContactPatch::Kind viewerKind(
 MujocoViewerAnnotator::MujocoViewerAnnotator(
     robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull simulator)
     : simulator_(simulator) {
-  patches_.reserve(kNumContacts);
+  // One patch per contact of the simulator's contact set, so that apply()
+  // does not allocate for an annotation of every contact.
+  patches_.reserve(simulator_->getConfig().contactFrameNames.size());
 }
 
 void MujocoViewerAnnotator::apply(const msgs::ViewerAnnotations& annotations) {

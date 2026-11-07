@@ -27,6 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -37,7 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/visualization/BalanceQuantities.h"
 
@@ -143,93 +144,132 @@ TEST(DivergentComponentOfMotion, IsTheComAtRestAndIgnoresTheVerticalAxis) {
  * (r_i - point) x f_i + tau_i. */
 vector3_t computeTorqueLocalEwrtWorld(
     const vector3_t& posLocalRtWorldEwrtWorld,
-    const feet_array_t<vector3_t>& posFeetRtWorldEwrtWorld,
-    const feet_array_t<vector6_t>& wrenchFeetEwrtWorld) {
+    const ContactArray<vector3_t>& posContactsRtWorldEwrtWorld,
+    const ContactArray<vector6_t>& wrenchContactsEwrtWorld) {
   vector3_t torqueLocalEwrtWorld = vector3_t::Zero();
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  for (size_t contact = 0; contact < posContactsRtWorldEwrtWorld.size();
+       ++contact) {
     torqueLocalEwrtWorld +=
-        (posFeetRtWorldEwrtWorld[contact] - posLocalRtWorldEwrtWorld)
-            .cross(vector3_t(wrenchFeetEwrtWorld[contact].head<kForceDim>())) +
-        vector3_t(wrenchFeetEwrtWorld[contact].tail<kTorqueDim>());
+        (posContactsRtWorldEwrtWorld[contact] - posLocalRtWorldEwrtWorld)
+            .cross(
+                vector3_t(wrenchContactsEwrtWorld[contact].head<kForceDim>())) +
+        vector3_t(wrenchContactsEwrtWorld[contact].tail<kTorqueDim>());
   }
   return torqueLocalEwrtWorld;
 }
 
-feet_array_t<vector6_t> randomWrenchFeetEwrtWorld(std::mt19937& generator) {
+ContactArray<vector3_t> randomPosContactsRtWorldEwrtWorld(
+    std::mt19937& generator, size_t numContacts) {
+  ContactArray<vector3_t> posContactsRtWorldEwrtWorld(numContacts);
+  for (vector3_t& posContactRtWorldEwrtWorld : posContactsRtWorldEwrtWorld) {
+    posContactRtWorldEwrtWorld = randomVector(generator, /*scale=*/0.5);
+  }
+  return posContactsRtWorldEwrtWorld;
+}
+
+ContactArray<vector6_t> randomWrenchContactsEwrtWorld(std::mt19937& generator,
+                                                      size_t numContacts) {
   std::uniform_real_distribution<scalar_t> normal(50.0, 500.0);
-  feet_array_t<vector6_t> wrenchFeetEwrtWorld;
-  for (vector6_t& wrenchFootEwrtWorld : wrenchFeetEwrtWorld) {
-    wrenchFootEwrtWorld.head<kForceDim>() =
+  ContactArray<vector6_t> wrenchContactsEwrtWorld(numContacts);
+  for (vector6_t& wrenchContactEwrtWorld : wrenchContactsEwrtWorld) {
+    wrenchContactEwrtWorld.head<kForceDim>() =
         randomVector(generator, /*scale=*/100.0);
-    wrenchFootEwrtWorld[kWrenchForceZIndex] = normal(generator);
-    wrenchFootEwrtWorld.tail<kTorqueDim>() =
+    wrenchContactEwrtWorld[kWrenchForceZIndex] = normal(generator);
+    wrenchContactEwrtWorld.tail<kTorqueDim>() =
         randomVector(generator, /*scale=*/20.0);
   }
-  return wrenchFeetEwrtWorld;
+  return wrenchContactsEwrtWorld;
 }
 
+// The contact counts of the property tests: a biped's two feet, a
+// quadruped's four feet and a set of six contacts.
+constexpr std::array<size_t, 3> kContactCounts = {2, 4, 6};
+
 // The defining property: the net contact moment about the ZMP has no horizontal
-// component, for feet at any heights.
+// component, for contacts at any heights.
 TEST(ZeroMomentPoint, TheNetMomentAboutItIsVertical) {
   std::mt19937 generator(/*seed=*/3);
-  for (int trial = 0; trial < kTrials; ++trial) {
-    const feet_array_t<vector3_t> posFeetRtWorldEwrtWorld = {
-        randomVector(generator, /*scale=*/0.5),
-        randomVector(generator, /*scale=*/0.5)};
-    const feet_array_t<vector6_t> wrenchFeetEwrtWorld =
-        randomWrenchFeetEwrtWorld(generator);
-    const std::optional<vector3_t> posZmpRtWorldEwrtWorld =
-        computePosZmpRtWorldEwrtWorld(posFeetRtWorldEwrtWorld,
-                                      wrenchFeetEwrtWorld,
-                                      /*minForceWorldEwrtWorldZ=*/1.0);
-    if (!posZmpRtWorldEwrtWorld.has_value()) {
-      FAIL() << "loaded feet have a ZMP";
+  for (const size_t numContacts : kContactCounts) {
+    for (int trial = 0; trial < kTrials; ++trial) {
+      const ContactArray<vector3_t> posContactsRtWorldEwrtWorld =
+          randomPosContactsRtWorldEwrtWorld(generator, numContacts);
+      const ContactArray<vector6_t> wrenchContactsEwrtWorld =
+          randomWrenchContactsEwrtWorld(generator, numContacts);
+      const std::optional<vector3_t> posZmpRtWorldEwrtWorld =
+          computePosZmpRtWorldEwrtWorld(posContactsRtWorldEwrtWorld,
+                                        wrenchContactsEwrtWorld,
+                                        /*minForceWorldEwrtWorldZ=*/1.0);
+      if (!posZmpRtWorldEwrtWorld.has_value()) {
+        FAIL() << "loaded contacts have a ZMP";
+      }
+      const vector3_t torqueZmpEwrtWorld = computeTorqueLocalEwrtWorld(
+          *posZmpRtWorldEwrtWorld, posContactsRtWorldEwrtWorld,
+          wrenchContactsEwrtWorld);
+      EXPECT_NEAR(torqueZmpEwrtWorld.x(), 0.0, 1.0e-8)
+          << numContacts << " contacts, trial " << trial;
+      EXPECT_NEAR(torqueZmpEwrtWorld.y(), 0.0, 1.0e-8)
+          << numContacts << " contacts, trial " << trial;
+      // The plane is the normal-force-weighted contact height.
+      scalar_t weightedSumPosContactsRtWorldEwrtWorldZ = 0.0;
+      scalar_t forceWorldEwrtWorldZ = 0.0;
+      for (size_t contact = 0; contact < numContacts; ++contact) {
+        weightedSumPosContactsRtWorldEwrtWorldZ +=
+            wrenchContactsEwrtWorld[contact][kWrenchForceZIndex] *
+            posContactsRtWorldEwrtWorld[contact].z();
+        forceWorldEwrtWorldZ +=
+            wrenchContactsEwrtWorld[contact][kWrenchForceZIndex];
+      }
+      EXPECT_NEAR(
+          posZmpRtWorldEwrtWorld->z(),
+          weightedSumPosContactsRtWorldEwrtWorldZ / forceWorldEwrtWorldZ,
+          kTolerance)
+          << numContacts << " contacts, trial " << trial;
     }
-    const vector3_t torqueZmpEwrtWorld = computeTorqueLocalEwrtWorld(
-        *posZmpRtWorldEwrtWorld, posFeetRtWorldEwrtWorld, wrenchFeetEwrtWorld);
-    EXPECT_NEAR(torqueZmpEwrtWorld.x(), 0.0, 1.0e-8) << trial;
-    EXPECT_NEAR(torqueZmpEwrtWorld.y(), 0.0, 1.0e-8) << trial;
-    // The plane is the normal-force-weighted contact height.
-    const scalar_t height = (wrenchFeetEwrtWorld[0][kWrenchForceZIndex] *
-                                 posFeetRtWorldEwrtWorld[0].z() +
-                             wrenchFeetEwrtWorld[1][kWrenchForceZIndex] *
-                                 posFeetRtWorldEwrtWorld[1].z()) /
-                            (wrenchFeetEwrtWorld[0][kWrenchForceZIndex] +
-                             wrenchFeetEwrtWorld[1][kWrenchForceZIndex]);
-    EXPECT_NEAR(posZmpRtWorldEwrtWorld->z(), height, kTolerance) << trial;
   }
 }
 
-// On flat ground with one foot loaded, the ZMP is that foot's center of
-// pressure, r + (-tau_y, tau_x) / f_z.
-TEST(ZeroMomentPoint, OfOneFootOnFlatGroundIsItsCenterOfPressure) {
+// On flat ground with one contact loaded, the ZMP is that contact's center of
+// pressure, r + (-tau_y, tau_x) / f_z, whichever contact of the set it is.
+TEST(ZeroMomentPoint, OfOneContactOnFlatGroundIsItsCenterOfPressure) {
   std::mt19937 generator(/*seed=*/4);
-  for (int trial = 0; trial < kTrials; ++trial) {
-    feet_array_t<vector3_t> posFeetRtWorldEwrtWorld = {
-        randomVector(generator, /*scale=*/0.5),
-        randomVector(generator, /*scale=*/0.5)};
-    posFeetRtWorldEwrtWorld[1].z() = posFeetRtWorldEwrtWorld[0].z();
-    feet_array_t<vector6_t> wrenchFeetEwrtWorld =
-        randomWrenchFeetEwrtWorld(generator);
-    wrenchFeetEwrtWorld[1].setZero();
-    const std::optional<vector3_t> posZmpRtWorldEwrtWorld =
-        computePosZmpRtWorldEwrtWorld(posFeetRtWorldEwrtWorld,
-                                      wrenchFeetEwrtWorld,
-                                      /*minForceWorldEwrtWorldZ=*/1.0);
-    if (!posZmpRtWorldEwrtWorld.has_value()) {
-      FAIL() << "loaded feet have a ZMP";
+  for (const size_t numContacts : kContactCounts) {
+    for (int trial = 0; trial < kTrials; ++trial) {
+      const size_t loaded = static_cast<size_t>(trial) % numContacts;
+      ContactArray<vector3_t> posContactsRtWorldEwrtWorld =
+          randomPosContactsRtWorldEwrtWorld(generator, numContacts);
+      for (vector3_t& posContactRtWorldEwrtWorld :
+           posContactsRtWorldEwrtWorld) {
+        posContactRtWorldEwrtWorld.z() =
+            posContactsRtWorldEwrtWorld[loaded].z();
+      }
+      ContactArray<vector6_t> wrenchContactsEwrtWorld =
+          randomWrenchContactsEwrtWorld(generator, numContacts);
+      for (size_t contact = 0; contact < numContacts; ++contact) {
+        if (contact != loaded) {
+          wrenchContactsEwrtWorld[contact].setZero();
+        }
+      }
+      const std::optional<vector3_t> posZmpRtWorldEwrtWorld =
+          computePosZmpRtWorldEwrtWorld(posContactsRtWorldEwrtWorld,
+                                        wrenchContactsEwrtWorld,
+                                        /*minForceWorldEwrtWorldZ=*/1.0);
+      if (!posZmpRtWorldEwrtWorld.has_value()) {
+        FAIL() << "a loaded contact has a ZMP";
+      }
+      const vector6_t& wrenchContactEwrtWorld = wrenchContactsEwrtWorld[loaded];
+      const scalar_t forceContactEwrtWorldZ =
+          wrenchContactEwrtWorld[kWrenchForceZIndex];
+      const vector3_t posCopRtWorldEwrtWorld =
+          posContactsRtWorldEwrtWorld[loaded] +
+          vector3_t(-wrenchContactEwrtWorld[kWrenchTorqueYIndex] /
+                        forceContactEwrtWorldZ,
+                    wrenchContactEwrtWorld[kWrenchTorqueXIndex] /
+                        forceContactEwrtWorldZ,
+                    0.0);
+      EXPECT_LT((*posZmpRtWorldEwrtWorld - posCopRtWorldEwrtWorld).norm(),
+                kTolerance)
+          << numContacts << " contacts, trial " << trial;
     }
-    const scalar_t forceFootEwrtWorldZ =
-        wrenchFeetEwrtWorld[0][kWrenchForceZIndex];
-    const vector3_t posCopRtWorldEwrtWorld =
-        posFeetRtWorldEwrtWorld[0] +
-        vector3_t(
-            -wrenchFeetEwrtWorld[0][kWrenchTorqueYIndex] / forceFootEwrtWorldZ,
-            wrenchFeetEwrtWorld[0][kWrenchTorqueXIndex] / forceFootEwrtWorldZ,
-            0.0);
-    EXPECT_LT((*posZmpRtWorldEwrtWorld - posCopRtWorldEwrtWorld).norm(),
-              kTolerance)
-        << trial;
   }
 }
 
@@ -237,57 +277,93 @@ TEST(ZeroMomentPoint, OfOneFootOnFlatGroundIsItsCenterOfPressure) {
 // wrenches' torques are unchanged.
 TEST(ZeroMomentPoint, MovesWithTheContacts) {
   std::mt19937 generator(/*seed=*/5);
-  for (int trial = 0; trial < kTrials; ++trial) {
-    feet_array_t<vector3_t> posFeetRtWorldEwrtWorld = {
-        randomVector(generator, /*scale=*/0.5),
-        randomVector(generator, /*scale=*/0.5)};
-    const feet_array_t<vector6_t> wrenchFeetEwrtWorld =
-        randomWrenchFeetEwrtWorld(generator);
-    const vector3_t errPosFootRtWorldEwrtWorld(
-        randomVector(generator, /*scale=*/2.0).x(),
-        randomVector(generator, /*scale=*/2.0).y(), 0.0);
-    const std::optional<vector3_t> posZmpRtWorldEwrtWorld =
-        computePosZmpRtWorldEwrtWorld(posFeetRtWorldEwrtWorld,
-                                      wrenchFeetEwrtWorld,
-                                      /*minForceWorldEwrtWorldZ=*/1.0);
-    for (vector3_t& posFootRtWorldEwrtWorld : posFeetRtWorldEwrtWorld) {
-      posFootRtWorldEwrtWorld += errPosFootRtWorldEwrtWorld;
+  for (const size_t numContacts : kContactCounts) {
+    for (int trial = 0; trial < kTrials; ++trial) {
+      ContactArray<vector3_t> posContactsRtWorldEwrtWorld =
+          randomPosContactsRtWorldEwrtWorld(generator, numContacts);
+      const ContactArray<vector6_t> wrenchContactsEwrtWorld =
+          randomWrenchContactsEwrtWorld(generator, numContacts);
+      const vector3_t errPosContactRtWorldEwrtWorld(
+          randomVector(generator, /*scale=*/2.0).x(),
+          randomVector(generator, /*scale=*/2.0).y(), 0.0);
+      const std::optional<vector3_t> posZmpRtWorldEwrtWorld =
+          computePosZmpRtWorldEwrtWorld(posContactsRtWorldEwrtWorld,
+                                        wrenchContactsEwrtWorld,
+                                        /*minForceWorldEwrtWorldZ=*/1.0);
+      for (vector3_t& posContactRtWorldEwrtWorld :
+           posContactsRtWorldEwrtWorld) {
+        posContactRtWorldEwrtWorld += errPosContactRtWorldEwrtWorld;
+      }
+      const std::optional<vector3_t> movedPosZmpRtWorldEwrtWorld =
+          computePosZmpRtWorldEwrtWorld(posContactsRtWorldEwrtWorld,
+                                        wrenchContactsEwrtWorld,
+                                        /*minForceWorldEwrtWorldZ=*/1.0);
+      if (!(posZmpRtWorldEwrtWorld.has_value() &&
+            movedPosZmpRtWorldEwrtWorld.has_value())) {
+        FAIL() << "loaded contacts have a ZMP";
+      }
+      EXPECT_LT((*movedPosZmpRtWorldEwrtWorld -
+                 (*posZmpRtWorldEwrtWorld + errPosContactRtWorldEwrtWorld))
+                    .norm(),
+                1.0e-8)
+          << numContacts << " contacts, trial " << trial;
     }
-    const std::optional<vector3_t> movedPosZmpRtWorldEwrtWorld =
-        computePosZmpRtWorldEwrtWorld(posFeetRtWorldEwrtWorld,
-                                      wrenchFeetEwrtWorld,
-                                      /*minForceWorldEwrtWorldZ=*/1.0);
-    if (!(posZmpRtWorldEwrtWorld.has_value() &&
-          movedPosZmpRtWorldEwrtWorld.has_value())) {
-      FAIL() << "loaded feet have a ZMP";
-    }
-    EXPECT_LT((*movedPosZmpRtWorldEwrtWorld -
-               (*posZmpRtWorldEwrtWorld + errPosFootRtWorldEwrtWorld))
-                  .norm(),
-              1.0e-8)
-        << trial;
   }
 }
 
+// Four point contacts at the corners of a rectangle, loaded equally, have
+// their ZMP at its center: a quadruped standing on four feet.
+TEST(ZeroMomentPoint, OfFourEquallyLoadedPointContactsIsTheirCentroid) {
+  const ContactArray<vector3_t> posContactsRtWorldEwrtWorld = [] {
+    ContactArray<vector3_t> posCornersRtWorldEwrtWorld(/*numContacts=*/4);
+    posCornersRtWorldEwrtWorld[0] = vector3_t(0.3, 0.2, 0.0);
+    posCornersRtWorldEwrtWorld[1] = vector3_t(0.3, -0.2, 0.0);
+    posCornersRtWorldEwrtWorld[2] = vector3_t(-0.3, 0.2, 0.0);
+    posCornersRtWorldEwrtWorld[3] = vector3_t(-0.3, -0.2, 0.0);
+    return posCornersRtWorldEwrtWorld;
+  }();
+  vector6_t wrenchContactEwrtWorld = vector6_t::Zero();
+  wrenchContactEwrtWorld[kWrenchForceZIndex] = 100.0;
+  const ContactArray<vector6_t> wrenchContactsEwrtWorld(
+      /*numContacts=*/4, wrenchContactEwrtWorld);
+  const std::optional<vector3_t> posZmpRtWorldEwrtWorld =
+      computePosZmpRtWorldEwrtWorld(posContactsRtWorldEwrtWorld,
+                                    wrenchContactsEwrtWorld,
+                                    /*minForceWorldEwrtWorldZ=*/1.0);
+  if (!posZmpRtWorldEwrtWorld.has_value()) {
+    FAIL() << "loaded contacts have a ZMP";
+  }
+  EXPECT_LT(posZmpRtWorldEwrtWorld->norm(), kTolerance);
+}
+
 TEST(ZeroMomentPoint, IsUndefinedWithoutNormalForce) {
-  const feet_array_t<vector3_t> posFeetRtWorldEwrtWorld = {
-      vector3_t(0.0, 0.1, 0.0), vector3_t(0.0, -0.1, 0.0)};
-  feet_array_t<vector6_t> wrenchFeetEwrtWorld = {vector6_t::Zero(),
-                                                 vector6_t::Zero()};
-  EXPECT_FALSE(computePosZmpRtWorldEwrtWorld(posFeetRtWorldEwrtWorld,
-                                             wrenchFeetEwrtWorld,
+  ContactArray<vector3_t> posContactsRtWorldEwrtWorld(/*numContacts=*/2);
+  posContactsRtWorldEwrtWorld[0] = vector3_t(0.0, 0.1, 0.0);
+  posContactsRtWorldEwrtWorld[1] = vector3_t(0.0, -0.1, 0.0);
+  ContactArray<vector6_t> wrenchContactsEwrtWorld(/*numContacts=*/2,
+                                                  vector6_t::Zero());
+  EXPECT_FALSE(computePosZmpRtWorldEwrtWorld(posContactsRtWorldEwrtWorld,
+                                             wrenchContactsEwrtWorld,
                                              /*minForceWorldEwrtWorldZ=*/1.0)
                    .has_value());
-  wrenchFeetEwrtWorld[0][kWrenchForceZIndex] = 0.5;
-  EXPECT_FALSE(computePosZmpRtWorldEwrtWorld(posFeetRtWorldEwrtWorld,
-                                             wrenchFeetEwrtWorld,
+  wrenchContactsEwrtWorld[0][kWrenchForceZIndex] = 0.5;
+  EXPECT_FALSE(computePosZmpRtWorldEwrtWorld(posContactsRtWorldEwrtWorld,
+                                             wrenchContactsEwrtWorld,
                                              /*minForceWorldEwrtWorldZ=*/1.0)
                    .has_value());
-  wrenchFeetEwrtWorld[1][kWrenchForceZIndex] = 0.6;
-  EXPECT_TRUE(computePosZmpRtWorldEwrtWorld(posFeetRtWorldEwrtWorld,
-                                            wrenchFeetEwrtWorld,
+  wrenchContactsEwrtWorld[1][kWrenchForceZIndex] = 0.6;
+  EXPECT_TRUE(computePosZmpRtWorldEwrtWorld(posContactsRtWorldEwrtWorld,
+                                            wrenchContactsEwrtWorld,
                                             /*minForceWorldEwrtWorldZ=*/1.0)
                   .has_value());
+}
+
+// An empty contact set carries no force and has no ZMP.
+TEST(ZeroMomentPoint, IsUndefinedForAnEmptyContactSet) {
+  EXPECT_FALSE(computePosZmpRtWorldEwrtWorld(ContactArray<vector3_t>(),
+                                             ContactArray<vector6_t>(),
+                                             /*minForceWorldEwrtWorldZ=*/1.0)
+                   .has_value());
 }
 
 }  // namespace

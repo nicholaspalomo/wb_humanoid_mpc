@@ -52,7 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
 #include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
@@ -93,7 +93,7 @@ SystemObservation movingObservation(const AtlasReferenceStack& stack,
       vector3_t(model.getYawBaseRtWorld(observation.state) + 0.4, 0.05, -0.03));
   observation.state.tail(3).array() += 0.2;
   observation.input = vector_t::Zero(stack.model().getInputDim());
-  observation.mode = ModeNumber::kStance;
+  observation.mode = kBipedModeStance;
   return observation;
 }
 

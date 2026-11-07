@@ -66,7 +66,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/multi_contact/PlannedMotionReferenceManager.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
@@ -334,7 +333,8 @@ class CentroidalMpcInterface final : public RobotInterface {
   size_t getWrenchInputDim() const { return centroidalModelInfo_.inputDim; }
   size_t getNumBasisInputs() const {
     return basisDecoratorPtr_
-               ? basisDecoratorPtr_->getNumBasisPerFoot() * kNumContacts
+               ? basisDecoratorPtr_->getNumBasisPerFoot() *
+                     basisDecoratorPtr_->getBasisMatrices().size()
                : 0;
   }
   scalar_t getBasisScalingRegularization() const {

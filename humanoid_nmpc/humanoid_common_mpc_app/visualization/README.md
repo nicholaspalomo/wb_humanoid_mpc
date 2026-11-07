@@ -127,6 +127,12 @@ height; NaN below 1 N), and the ACoM attitude (`AngularCenterOfMass`, NaN for a 
 pitch, yaw. The measured wrenches carry no torque (the simulator's force sensors), so the measured ZMP is the
 normal-force-weighted mean of the contact frames, not a per-foot center of pressure.
 
+**Contacts.** The contact force, foot kinematics and contact wrench groups, and the ZMP, cover every contact of
+`ModelSettings::contactNames`, in contact order, so a robot with hand or knee contacts or a quadruped plots each of
+them. The biped's feet, the last two contacts when they are 6-DoF contacts, keep the contract's `left` and `right`
+paths; every other contact's groups are named by its contact name (`TelemetryBuilder::contactSeriesNames()`,
+humanoid_nmpc/humanoid_rerun_viewer/README.md).
+
 **The MPC solution** (`SolutionTermEvaluator`): with `VisualizationModel::solverProblem`, the solver's own problem (the
 first worker's of `SqpSolver::getOcpDefinitions()`, with the weights the parameter updater wrote), the post-solve
 observer evaluates every cost and constraint term by name at the solution's first node (the final terms at its last)
@@ -178,7 +184,8 @@ error at start-up that names the field.
 `RobotStateDecoder` maps the sample's joints by name. The five joint-action arrays are each empty or aligned with
 `joint_names`; a joint without an action has a NaN position target (`robot_state_sample.proto`). The effort applied is
 `feed-forward + kp (q_des - q) + kd (qd_des - qd)`, 0 without an action. `meas_wrench_contacts_ewrt_world` are in contact
-order, in the world frame. The base and the MPC joints become the MPC's generalized coordinates `[p_W, xi, q_j]` and
+order, in the world frame: `DecodedRobotState::measWrenchContactsEwrtWorld` holds one per contact of the set, zero for a
+contact the sample sends none for. The base and the MPC joints become the MPC's generalized coordinates `[p_W, xi, q_j]` and
 velocities `[v_W, w_B, dq_j]` through the robot model's measurement helpers (`fillGeneralizedCoordinatesFromMeasurement()`,
 `fillGeneralizedVelocitiesFromMeasurement()`), the conversion the MRT controllers use; the generalized forces are sized
 as the velocities. Beside them the decoder keeps, for display only, the sample's body angular velocity, the Euler angles
@@ -192,6 +199,6 @@ of its quaternion and their rates (`eulerzyxBaseRtWorld`, `rateEulerzyxBaseRtWor
 | `:test_policy_snapshot` | the plan's and the target's sampling: the states along the state manifold's geodesic and the inputs linear (bit for bit `LinearInterpolation`), the node before an event, held outside the horizon, a target without inputs or of other dimensions |
 | `:test_robot_state_decoder` | the base in the world frame, `q`'s quaternion and `v`'s body angular velocity, through the robot model's measurement helpers in every formulation; the display's Euler angles and rates: a level turn, tilted bases (the Euler layout's route through the world angular velocity to 1e-12, and the angles' central difference), near the pitch singularity down to `cos(pitch) = 1e-5`, and NaN below 1e-6; joints by name in any order; the PD law of the action; refusals |
 | `:test_scene_builder` | for the G1 centroidal, the Atlas with basis-vector inputs and the G1 whole-body MPC: every path once; link poses, plan points, footholds and collision spheres against an independently built Pinocchio model; forces ending at the hand-computed CoP; corner forces equivalent to the wrench; no NaN without force; sample-only and observation-only scenes; the plan recomputed only for a new policy |
-| `:test_telemetry_builder` | the group layout against the contract, the display coordinates' and the velocities' names; base, Euler angles, Euler rates (the decoder's, bit for bit), body and world angular velocities, twists, joints, wrenches, the reference and the plan against hand-computed values, the whole-body reference's angular velocity in every frame; the measured acceleration and its reset on a rewind; every value finite, but the Euler rates at the pitch singularity; every formulation |
+| `:test_telemetry_builder` | the group layout against the contract, the display coordinates' and the velocities' names; base, Euler angles, Euler rates (the decoder's, bit for bit), body and world angular velocities, twists, joints, wrenches, the reference and the plan against hand-computed values, the whole-body reference's angular velocity in every frame; the measured acceleration and its reset on a rewind; every value finite, but the Euler rates at the pitch singularity; every formulation; the Atlas with a point contact on each hand (four contacts): the contacts' names and groups in contact order, each contact's plan wrench and sensor force at its own index, the ZMP of all four |
 | `:test_visualization_publisher` | one series per sample in order; a held publisher makes the queue drop and never blocks the feeders; the scene's rate bound; no scene without news; a stale sample giving way to the observation; rejected samples; start and stop; the thread under `SCHED_IDLE` by default, `kInherited` keeping the starting thread's policy; `robot/state` to `viz/telemetry` over loopback buses, published by the bus's IO thread (never `Bus::publish()` on the visualization thread); the MPC node's attacher publishing `viz/telemetry` and `viz/scene` on the node's bus from the robot's samples and its observer, and refusing a null publisher |
 | `:test_end_to_end` | the driver (`:visualization_publisher_driver`) -> the bus -> the Rerun bridge's save sink: every link with visuals of all three instances, every marker, exactly the contract's telemetry groups and names, every series in the `.rrd` |

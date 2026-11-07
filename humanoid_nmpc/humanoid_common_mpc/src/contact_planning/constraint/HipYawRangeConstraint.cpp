@@ -47,7 +47,7 @@ namespace ocs2::humanoid {
 
 std::string HipYawRangeConstraint::describe() const {
   std::string out = "psi_i - theta - (theta_base - theta at planning time) in";
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     absl::StrAppend(&out, " [", params_.minYawFeetRtBase[foot], ", ",
                     params_.maxYawFeetRtBase[foot], "]");
   }
@@ -84,7 +84,7 @@ void HipYawRangeConstraint::addRows(const ContactPlanningContext& ctx,
   // out is the change of delta over the horizon, which the whole-body MPC still
   // sees against the joint's own limits.
   const scalar_t initYawBaseRtHeading = computeInitYawBaseRtHeading(*ctx.input);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     rows.addSoft({{idx_.eulerzyxFeetRtWorldYaw[foot], 1.0},
                   {idx_.headingModelYaw, -1.0}},
                  /*uCoefficients=*/{},

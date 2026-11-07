@@ -43,11 +43,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/reference/GaitFromConfig.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/gait_file.nproto.h"
 
@@ -61,6 +61,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 namespace ocs2::humanoid {
 namespace {
+
+// The biped's two feet, which every case here is written for.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 constexpr char kGaitFile[] =
     "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto";
@@ -90,15 +93,16 @@ struct Swing {
 std::vector<Swing> swingsOf(const ModeSchedule& schedule, size_t foot) {
   std::vector<Swing> swings;
   for (size_t p = 1; p + 1 < schedule.modeSequence.size(); ++p) {
-    const bool inStance = modeNumber2StanceLeg(schedule.modeSequence[p])[foot];
+    const bool inStance =
+        bipedFootContactsOfMode(schedule.modeSequence[p])[foot];
     const bool stanceBefore =
-        modeNumber2StanceLeg(schedule.modeSequence[p - 1])[foot];
+        bipedFootContactsOfMode(schedule.modeSequence[p - 1])[foot];
     if (!inStance && stanceBefore) {
       swings.push_back(
           Swing{.liftOff = schedule.eventTimes[p - 1], .touchDown = 0.0});
     }
     const bool stanceAfter =
-        modeNumber2StanceLeg(schedule.modeSequence[p + 1])[foot];
+        bipedFootContactsOfMode(schedule.modeSequence[p + 1])[foot];
     if (!inStance && stanceAfter) {
       swings.back().touchDown = schedule.eventTimes[p];
     }
@@ -109,10 +113,9 @@ std::vector<Swing> swingsOf(const ModeSchedule& schedule, size_t foot) {
 /** STANCE | a random sequence of modes with random durations | STANCE. */
 ModeSchedule randomSchedule(std::mt19937& generator) {
   std::uniform_int_distribution<int> phaseCount(1, 12);
-  std::uniform_int_distribution<size_t> mode(ModeNumber::kFly,
-                                             ModeNumber::kStance);
+  std::uniform_int_distribution<size_t> mode(kBipedModeFly, kBipedModeStance);
   std::uniform_real_distribution<scalar_t> duration(0.03, 0.4);
-  std::vector<size_t> modes = {ModeNumber::kStance};
+  std::vector<size_t> modes = {kBipedModeStance};
   std::vector<scalar_t> eventTimes;
   scalar_t time = 0.5;
   const int count = phaseCount(generator);
@@ -122,14 +125,14 @@ ModeSchedule randomSchedule(std::mt19937& generator) {
     time += duration(generator);
   }
   eventTimes.push_back(time);
-  modes.push_back(ModeNumber::kStance);
+  modes.push_back(kBipedModeStance);
   return ModeSchedule(eventTimes, modes);
 }
 
 /** STANCE | `cycles` repetitions of `gait` from time 0.5 | STANCE. */
 ModeSchedule repeatedGaitSchedule(const ModeSequenceTemplate& gait,
                                   int cycles) {
-  std::vector<size_t> modes = {ModeNumber::kStance};
+  std::vector<size_t> modes = {kBipedModeStance};
   std::vector<scalar_t> eventTimes;
   const scalar_t period = gait.switchingTimes.back();
   for (int cycle = 0; cycle < cycles; ++cycle) {
@@ -139,7 +142,7 @@ ModeSchedule repeatedGaitSchedule(const ModeSequenceTemplate& gait,
     }
   }
   eventTimes.push_back(0.5 + cycles * period);
-  modes.push_back(ModeNumber::kStance);
+  modes.push_back(kBipedModeStance);
   return ModeSchedule(eventTimes, modes);
 }
 
@@ -147,7 +150,7 @@ ModeSchedule repeatedGaitSchedule(const ModeSequenceTemplate& gait,
  * `schedule`. */
 void expectContinuousAtEveryEvent(const SwingTrajectoryPlanner& planner,
                                   const ModeSchedule& schedule) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     for (const scalar_t event : schedule.eventTimes) {
       const scalar_t before = event - kEventEpsilon;
       const scalar_t after = event + kEventEpsilon;
@@ -177,7 +180,7 @@ void expectOneApexPerSwing(const SwingTrajectoryPlanner& planner,
                            const ModeSchedule& schedule,
                            const SwingTrajectoryPlanner::Config& config,
                            scalar_t posSurfaceRtWorldEwrtWorldZ) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     for (const Swing& swing : swingsOf(schedule, foot)) {
       const scalar_t middle = 0.5 * (swing.liftOff + swing.touchDown);
       const scalar_t scaling = std::min(
@@ -220,7 +223,7 @@ TEST(SwingTrajectoryContinuity, RandomMultiPhaseSchedules) {
   for (int trial = 0; trial < 300; ++trial) {
     const ModeSchedule schedule = randomSchedule(generator);
     const scalar_t posSurfaceRtWorldEwrtWorldZ = terrain(generator);
-    SwingTrajectoryPlanner planner(config, kNumContacts);
+    SwingTrajectoryPlanner planner(config, kNumFeet);
     planner.update(schedule, posSurfaceRtWorldEwrtWorldZ);
     expectContinuousAtEveryEvent(planner, schedule);
     expectOneApexPerSwing(planner, schedule, config,
@@ -234,7 +237,7 @@ TEST(SwingTrajectoryContinuity, PitchedSwingsAreContinuous) {
   config.swingMaxTiltangleFootRtSurface = 0.2;
   for (int trial = 0; trial < 100; ++trial) {
     const ModeSchedule schedule = randomSchedule(generator);
-    SwingTrajectoryPlanner planner(config, kNumContacts);
+    SwingTrajectoryPlanner planner(config, kNumFeet);
     planner.update(schedule, /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
     expectContinuousAtEveryEvent(planner, schedule);
   }
@@ -265,7 +268,7 @@ TEST(SwingTrajectoryContinuity, ShippedRunGaits) {
     ASSERT_TRUE(multiPhaseSwing) << name;
 
     const SwingTrajectoryPlanner::Config config = continuousConfig();
-    SwingTrajectoryPlanner planner(config, kNumContacts);
+    SwingTrajectoryPlanner planner(config, kNumFeet);
     planner.update(schedule, /*posSurfaceRtWorldEwrtWorldZ=*/0.05);
     expectContinuousAtEveryEvent(planner, schedule);
     expectOneApexPerSwing(planner, schedule, config,
@@ -284,9 +287,9 @@ TEST(SwingTrajectoryContinuity, InnerEventsAreContinuousWithEndVelocities) {
   config.impactProximityFactorTouchdownSlope = 2.0;
   for (int trial = 0; trial < 300; ++trial) {
     const ModeSchedule schedule = randomSchedule(generator);
-    SwingTrajectoryPlanner planner(config, kNumContacts);
+    SwingTrajectoryPlanner planner(config, kNumFeet);
     planner.update(schedule, /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       for (const Swing& swing : swingsOf(schedule, foot)) {
         const scalar_t scaling = std::min(
             1.0, (swing.touchDown - swing.liftOff) / config.swingTimeScale);
@@ -325,13 +328,13 @@ TEST(SwingTrajectoryContinuity, InnerEventsAreContinuousWithEndVelocities) {
 TEST(SwingTrajectoryContinuity, StepUpApproachesFromAbove) {
   SwingTrajectoryPlanner::Config config = continuousConfig();
   const ModeSchedule schedule(
-      {1.0, 1.4}, {ModeNumber::kStance, ModeNumber::kRf, ModeNumber::kStance});
+      {1.0, 1.4}, {kBipedModeStance, kBipedModeRf, kBipedModeStance});
   for (const scalar_t step : {-0.3, -0.05, 0.0, 0.05, 0.1, 0.25}) {
-    feet_array_t<scalar_array_t> liftOff =
-        makeFeetArray(scalar_array_t(3, 0.0));
-    feet_array_t<scalar_array_t> touchDown =
-        makeFeetArray(scalar_array_t(3, step));
-    SwingTrajectoryPlanner planner(config, kNumContacts);
+    const ContactArray<scalar_array_t> liftOff(kNumFeet,
+                                               scalar_array_t(3, 0.0));
+    const ContactArray<scalar_array_t> touchDown(kNumFeet,
+                                                 scalar_array_t(3, step));
+    SwingTrajectoryPlanner planner(config, kNumFeet);
     planner.update(schedule, liftOff, touchDown);
     // Foot 0 (left) swings in RF. Its height must stay at or above the
     // touch-down height over the second half.

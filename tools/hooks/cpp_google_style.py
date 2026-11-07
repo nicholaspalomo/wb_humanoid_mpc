@@ -38,7 +38,8 @@ Each check names the guide section it enforces:
   user-defined literals, inline namespaces, `decltype(auto)`, coroutines, C++20 modules, `<ratio>` / `<cfenv>`,
   `alloca`, statement expressions, the conditional with an omitted operand (`x ?: y`), `long double` literals (`1.0L`),
   `__attribute__` / `__builtin_`, `#pragma` other than `once` and `GCC diagnostic`, a namespace- or class-scope
-  `thread_local` without `constinit`, and `strtok`. `<filesystem>` is allowed (AGENTS.md).
+  `thread_local` without `constinit`, `strtok`, and the POSIX math constants (`M_PI`, `M_PI_2`, `M_SQRT2`, ...), which
+  standard C++ replaces with `<numbers>` (`std::numbers::pi`). `<filesystem>` is allowed (AGENTS.md).
 - `exceptions` (Exceptions): `throw`, `try` and `catch` outside tests. A boundary with a library that throws keeps one
   `try` / `catch` with `// NOLINT(exceptions): <reason>`.
 - `rtti` (Run-time type information): `typeid`, `dynamic_cast`, `std::dynamic_pointer_cast`, `std::any_cast`,
@@ -375,6 +376,22 @@ _NUMBER_BODY = re.compile(
 _LONG_DOUBLE_LITERAL = re.compile(
     r"^(?:0[xX][0-9a-fA-F']*\.?[0-9a-fA-F']*[pP][+-]?\d+|(?:[\d']*\.[\d']*(?:[eE][+-]?\d+)?|[\d']+[eE][+-]?\d+))[lL]$"
 )
+# The POSIX <math.h> constants, which standard C++ does not define, and their <numbers> replacement where one exists.
+_POSIX_MATH_CONSTANTS = {
+    "M_E": "std::numbers::e",
+    "M_LOG2E": "std::numbers::log2e",
+    "M_LOG10E": "std::numbers::log10e",
+    "M_LN2": "std::numbers::ln2",
+    "M_LN10": "std::numbers::ln10",
+    "M_PI": "std::numbers::pi",
+    "M_PI_2": "std::numbers::pi / 2.0",
+    "M_PI_4": "std::numbers::pi / 4.0",
+    "M_1_PI": "std::numbers::inv_pi",
+    "M_2_PI": "2.0 * std::numbers::inv_pi",
+    "M_2_SQRTPI": "2.0 * std::numbers::inv_sqrtpi",
+    "M_SQRT2": "std::numbers::sqrt2",
+    "M_SQRT1_2": "std::numbers::sqrt2 / 2.0",
+}
 _RATIOS = frozenset(
     {
         "ratio",
@@ -542,6 +559,12 @@ def check_forbidden_construct(
                 )
         elif text == "strtok" and following == "(":
             add(token, "`strtok` is not reentrant: use absl::StrSplit")
+        elif text in _POSIX_MATH_CONSTANTS and previous not in ("::", "."):
+            add(
+                token,
+                f"`{text}` is a POSIX macro, not standard C++: use"
+                f" `{_POSIX_MATH_CONSTANTS[text]}` from <numbers>",
+            )
     without_comments, _ = cpp_source.mask(source)
     starts = cpp_source.line_starts(without_comments)
     for match in _FORBIDDEN_HEADERS.finditer(without_comments):
@@ -1228,8 +1251,9 @@ CHECKS = [
         check_source=check_forbidden_construct,
         description=(
             "no long double, user-defined literals, inline namespaces,"
-            " coroutines, modules, <ratio>, alloca, GNU extensions or"
-            " non-constinit global thread_local (Google C++ Style Guide)."
+            " coroutines, modules, <ratio>, alloca, GNU extensions,"
+            " non-constinit global thread_local or the POSIX M_PI constants"
+            " (Google C++ Style Guide)."
         ),
     ),
     check_types.Check(

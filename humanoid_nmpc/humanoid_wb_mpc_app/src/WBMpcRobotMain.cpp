@@ -229,6 +229,7 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options,
   backendOptions.contactFrameNames = modelSettings.contactNames;
   backendOptions.contactParentJointNames =
       modelSettings.contactParentJointNamesInContactOrder();
+  backendOptions.numPointContacts = modelSettings.contactNames3DoF.size();
   backendOptions.simulator = settings.simulator;
   backendOptions.viewer = options.viewer;
   // clang-format off
@@ -259,9 +260,10 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options,
   // LINT.IfChange(robot_mpc_link)
   const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel =
       models.getMpcRobotModel();
-  const ipc::ModelDimensions dimensions{.stateDim = mpcRobotModel.getStateDim(),
-                                        .inputDim = mpcRobotModel.getInputDim(),
-                                        .numModes = kNumModeNumbers};
+  const ipc::ModelDimensions dimensions{
+      .stateDim = mpcRobotModel.getStateDim(),
+      .inputDim = mpcRobotModel.getInputDim(),
+      .numModes = numModeNumbersOf(modelSettings.numContacts())};
   ASSIGN_OR_RETURN(std::shared_ptr<const StateManifold> stateManifold,
                    stateManifoldOf(mpcRobotModel));
   ipc::RemoteMpcLink::Config linkConfig;

@@ -61,8 +61,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
@@ -105,13 +105,13 @@ DrcAtlasContactTestModel::DrcAtlasContactTestModel(
   // The basis-vector decorator, built through the conversion
   // CentroidalMpcInterface builds it with, so that a test sees the input
   // parameterization - generator set and all - the shipped robot actually runs.
-  const absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>>
+  const absl::StatusOr<std::vector<ContactWrenchConeBasisMatrix>>
       basisMatrices = contactWrenchConeBasesFromConfig(config_.task.contacts,
                                                        *modelSettings_);
   CHECK(basisMatrices.ok()) << basisMatrices.status();
-  basisModel_ = std::make_unique<BasisInputsModelDecorator<scalar_t>>(
+  basisModel_ = checkedValue(BasisInputsModelDecorator<scalar_t>::Create(
       std::unique_ptr<MpcRobotModelBase<scalar_t>>(wrenchModel_->clone()),
-      *basisMatrices, *pinocchioInterface_);
+      *basisMatrices, *pinocchioInterface_));
 
   const CentroidalModelInfoCppAd infoCppAd = info_.toCppAd();
   mappingCppAd_ =
@@ -120,7 +120,7 @@ DrcAtlasContactTestModel::DrcAtlasContactTestModel(
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
       new SwingTrajectoryPlanner(checkedValue(swingTrajectorySettingsFromConfig(
                                      config_.task.swing_trajectory_config)),
-                                 kNumContacts));
+                                 modelSettings_->contactNames.size()));
   referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(
       checkedValue(GaitSchedule::Create(config_.reference, *modelSettings_,
                                         /*verbose=*/false)),
@@ -134,7 +134,8 @@ DrcAtlasContactTestModel::DrcAtlasContactTestModel(
 
 DrcAtlasContactTestModel::~DrcAtlasContactTestModel() = default;
 
-void DrcAtlasContactTestModel::setContactFlags(const contact_flag_t& contacts) {
+void DrcAtlasContactTestModel::setContactFlags(
+    const BipedFeetArray<bool>& contacts) {
   // The requested mode is bracketed by stance phases rather than standing
   // alone, because the swing trajectory planner that preSolverRun() drives
   // needs every swing phase to be preceded and followed by a contact phase of
@@ -144,8 +145,7 @@ void DrcAtlasContactTestModel::setContactFlags(const contact_flag_t& contacts) {
   // so nothing is tiled from the gait template on top of them.
   const ModeSchedule schedule(
       {-kBracketHalfWidth, kBracketHalfWidth},
-      {ModeNumber::kStance, stanceLeg2ModeNumber(contacts),
-       ModeNumber::kStance});
+      {kBipedModeStance, bipedModeOfFootContacts(contacts), kBipedModeStance});
   // It has to go through the GAIT schedule, not through
   // ReferenceManager::setModeSchedule(): that setter only fills a buffer, and
   // SwitchedModelReferenceManager::modifyReferences() overwrites the whole mode
@@ -154,11 +154,11 @@ void DrcAtlasContactTestModel::setContactFlags(const contact_flag_t& contacts) {
   // file's gait happened to be, so a test would pass or fail by coincidence.
   referenceManager_->getGaitSchedule()->updateModeSchedule(schedule);
   referenceManager_->preSolverRun(kQueryTime, kQueryTime + 1.0, nominalState_,
-                                  stanceLeg2ModeNumber(contacts));
+                                  bipedModeOfFootContacts(contacts));
 }
 
 void DrcAtlasContactTestModel::setSwing(size_t swingFoot) {
-  contact_flag_t contacts = makeFeetArray(true);
+  BipedFeetArray<bool> contacts = makeBipedFeetArray(/*value=*/true);
   contacts[swingFoot] = false;
   setContactFlags(contacts);
 }

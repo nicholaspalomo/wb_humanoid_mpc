@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristic.h"
 
@@ -42,7 +43,7 @@ namespace ocs2::humanoid {
  * shooting node. */
 struct WrenchHeuristicContext {
   /** Which feet the mode schedule calls stance feet at this node. */
-  contact_flag_t contactFlags = makeFeetArray(false);
+  BipedFeetArray<bool> contactFlags = makeBipedFeetArray(false);
   /** How many of them there are; never zero when a heuristic is called, because
    * a flight phase has no stance foot to load. */
   size_t numStanceFeet = 0;
@@ -51,7 +52,7 @@ struct WrenchHeuristicContext {
    * the scheduled gait cycle this foot is on the ground. 1 while the foot never
    * leaves the ground, which is what standing gives.
    */
-  feet_array_t<scalar_t> stanceDutyFactor = makeFeetArray(1.0);
+  BipedFeetArray<scalar_t> stanceDutyFactor = makeBipedFeetArray(1.0);
   /** [m/s] commanded CoM linear velocity in the world at this node. */
   vector2_t cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t::Zero();
   /** [rad/s] commanded yaw rate at this node. */

@@ -39,23 +39,41 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
 
 namespace ocs2::humanoid {
+
+/**
+ * The gait mode layout of the contact set of `modelSettings`: its number of
+ * contacts, and as its stance mode kBipedModeStance (the two feet, the last two
+ * contacts) when it has two or more 6-DoF contacts, the last two of which are
+ * the feet, or every contact active otherwise. The
+ * shipped robots and the DRC Atlas multi-contact set therefore keep STANCE = 3,
+ * and a set of point contacts stands on all of them.
+ */
+GaitModeLayout gaitModeLayoutOf(const ModelSettings& modelSettings);
 
 /**
  * The mode schedule of the MPC: an initial schedule, extended over the horizon
  * by tiling the current mode sequence template (the gait), into which a new
  * gait is inserted from a given time on.
  *
+ * The stance phase it inserts between gaits, appends after the last one and
+ * starts the schedule with is the stance mode of its layout
+ * (gaitModeLayoutOf()).
+ *
  * Not thread-safe: SwitchedModelReferenceManager and ProceduralMpcMotionManager
  * share it, and both use it on the solver thread.
  */
 class GaitSchedule {
  public:
+  /** `modeLayout` is the contact set the modes are of; its stanceMode is the
+   * stance phase this schedule inserts. */
   GaitSchedule(ModeSchedule initModeSchedule,
                ModeSequenceTemplate initModeSequenceTemplate,
-               scalar_t phaseTransitionStanceTime);
+               scalar_t phaseTransitionStanceTime,
+               GaitModeLayout modeLayout);
 
   // Shared by the reference manager and the gait updaters through one
   // std::shared_ptr; a copy would fork the schedule.
@@ -74,6 +92,10 @@ class GaitSchedule {
 
   ModeSchedule getCurrentModeSchedule() const { return modeSchedule_; }
 
+  /** The contact set the modes of this schedule are of, for reading gait files
+   * against it (parseModeNumber()). */
+  GaitModeLayout modeLayout() const { return modeLayout_; }
+
   /**
    * Used to insert a new user defined logic in the given time period.
    *
@@ -91,7 +113,7 @@ class GaitSchedule {
    * The schedule of a typed reference file: its initial_mode_schedule
    * (initialModeScheduleFromConfig()), extended with its
    * default_mode_sequence_template (defaultModeSequenceTemplateFromConfig()),
-   * and fails like those.
+   * both read against gaitModeLayoutOf(modelSettings), and fails like those.
    */
   static absl::StatusOr<std::shared_ptr<GaitSchedule>> Create(
       const mpc_config::ReferenceFile& referenceFile,
@@ -143,6 +165,7 @@ class GaitSchedule {
   ModeSchedule modeSchedule_;
   ModeSequenceTemplate modeSequenceTemplate_;
   scalar_t phaseTransitionStanceTime_;
+  GaitModeLayout modeLayout_;
 };
 
 }  // namespace ocs2::humanoid

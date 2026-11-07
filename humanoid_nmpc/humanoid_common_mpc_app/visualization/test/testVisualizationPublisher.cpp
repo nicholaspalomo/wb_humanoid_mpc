@@ -61,7 +61,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc_app/visualization/SceneContract.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationModel.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationPublisher.h"
@@ -294,7 +294,7 @@ TEST_F(VisualizationPublisherTest,
                      /*forceFootEwrtWorldZ=*/300.0, vector2_t::Zero(), &command,
                      &solution);
   const SystemObservation observation =
-      robot_->observation(/*time=*/0.0, ModeNumber::kStance);
+      robot_->observation(/*time=*/0.0, kBipedModeStance);
   const std::chrono::steady_clock::time_point start =
       std::chrono::steady_clock::now();
   size_t accepted = 0;
@@ -331,7 +331,7 @@ TEST_F(VisualizationPublisherTest, TheSceneIsPublishedAtMostAtItsFrequency) {
   EXPECT_EQ(publisher->config().sceneFrequency, frequency);
   ASSERT_TRUE(publisher->start().ok());
   SystemObservation observation =
-      robot_->observation(/*time=*/0.0, ModeNumber::kStance);
+      robot_->observation(/*time=*/0.0, kBipedModeStance);
   publisher->setObservation(observation);
   ASSERT_TRUE(waitFor([&] { return sink_.sceneCount() >= 1; }));
   const size_t first = sink_.sceneCount();
@@ -359,12 +359,12 @@ TEST_F(VisualizationPublisherTest, NothingNewPublishesNoScene) {
   absl::SleepFor(absl::Milliseconds(100));
   EXPECT_EQ(sink_.sceneCount(), 0u) << "a scene without anything to draw";
   publisher->setObservation(
-      robot_->observation(/*time=*/0.0, ModeNumber::kStance));
+      robot_->observation(/*time=*/0.0, kBipedModeStance));
   ASSERT_TRUE(waitFor([&] { return sink_.sceneCount() >= 1; }));
   absl::SleepFor(absl::Milliseconds(300));
   EXPECT_EQ(sink_.sceneCount(), 1u);
   publisher->setObservation(
-      robot_->observation(/*time=*/0.1, ModeNumber::kStance));
+      robot_->observation(/*time=*/0.1, kBipedModeStance));
   ASSERT_TRUE(waitFor([&] { return sink_.sceneCount() >= 2; }));
   publisher->stop();
   EXPECT_EQ(publisher->statistics().scenesPublished, 2u);
@@ -435,7 +435,7 @@ TEST_F(VisualizationPublisherTest, AStaleSampleGivesWayToTheObservation) {
   })) << "the recent sample is drawn";
   absl::SleepFor(absl::Milliseconds(600));
   publisher->setObservation(
-      robot_->observation(/*time=*/0.5, ModeNumber::kStance));
+      robot_->observation(/*time=*/0.5, kBipedModeStance));
   // The scene takes its time from the sample whenever it draws one, so 0.5
   // means the stale sample was left out.
   ASSERT_TRUE(waitFor([&] {
@@ -471,7 +471,7 @@ TEST_F(VisualizationPublisherTest, AClockThatGoesBackIsPlottedToo) {
   }
   ASSERT_TRUE(waitFor([&] { return sink_.telemetryCount() == 4; }));
   publisher->setObservation(
-      robot_->observation(/*time=*/0.02, ModeNumber::kStance));
+      robot_->observation(/*time=*/0.02, kBipedModeStance));
   ASSERT_TRUE(waitFor([&] { return sink_.sceneCount() >= 1; }));
   publisher->stop();
   EXPECT_EQ(sink_.telemetryTimes(),

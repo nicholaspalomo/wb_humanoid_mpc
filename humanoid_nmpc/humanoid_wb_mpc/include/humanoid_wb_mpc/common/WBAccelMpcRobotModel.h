@@ -46,7 +46,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -108,8 +107,8 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
             MpcRobotModelDimensions{
                 .stateDim = kBaseStateDim +
                             kStateEntriesPerJoint * modelSettings.mpc_joint_dim,
-                .inputDim =
-                    kWrenchDim * kNumContacts + modelSettings.mpc_joint_dim,
+                .inputDim = kWrenchDim * modelSettings.numContacts() +
+                            modelSettings.mpc_joint_dim,
                 .configurationDim =
                     kBaseConfigurationDim + modelSettings.mpc_joint_dim,
                 .velocityDim = kBaseVelocityDim + modelSettings.mpc_joint_dim},
@@ -136,11 +135,11 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     return kBaseStateDim + this->modelSettings.mpc_joint_dim;
   };
   // LINT.IfChange(input_indices)
-  // The wrench of each of the biped's two feet: WBMpcInterface refuses any
-  // other contact set, so unlike the centroidal input there are no 3-DoF
-  // contacts here.
+  // The wrench of each 6-DoF contact of the set. WBMpcInterface refuses every
+  // set but the biped's two feet, so unlike the centroidal input there are no
+  // 3-DoF contacts here.
   size_t getJointAccelerationsStartindex() const {
-    return kWrenchDim * kNumContacts;
+    return kWrenchDim * this->modelSettings.numContacts();
   }
 
   // Assumes contact wrench [f_x, f_y, f_z, M_x, M_y, M_z]^T

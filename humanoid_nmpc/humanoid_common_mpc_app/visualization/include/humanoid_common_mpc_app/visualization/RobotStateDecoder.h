@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
@@ -102,10 +103,11 @@ struct DecodedRobotState {
   vector_t jointVelocityTargets;
   vector_t jointFeedForwardEfforts;
 
-  /** Per contact of ModelSettings::contactNames: the measured wrench [force;
-   * torque], world frame; 0 when not sent. */
-  feet_array_t<vector6_t> measWrenchContactsEwrtWorld =
-      makeFeetArray<vector6_t>(vector6_t::Zero());
+  /** Per contact of ModelSettings::contactNames, in contact order: the
+   * measured wrench [force; torque], world frame; 0 for a contact the sample
+   * sends no wrench for. RobotStateDecoder::decode() sizes it to the contact
+   * set. */
+  ContactArray<vector6_t> measWrenchContactsEwrtWorld;
 };
 
 /**

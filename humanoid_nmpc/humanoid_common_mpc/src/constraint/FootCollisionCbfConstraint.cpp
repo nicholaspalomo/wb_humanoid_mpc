@@ -45,6 +45,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/multibody/fwd.hpp"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -96,9 +98,8 @@ FootCollisionCbfConstraint::FootCollisionCbfConstraint(
 bool FootCollisionCbfConstraint::isActive(scalar_t time) const {
   // Off while both feet are in contact, as FootCollisionConstraint: it would
   // fight the stance feet's constraints.
-  const contact_flag_t contactFlags =
-      referenceManagerPtr_->getContactFlags(time);
-  return !(contactFlags[0] && contactFlags[1]);
+  const ContactMask contactFlags = referenceManagerPtr_->getContactFlags(time);
+  return !(contactFlags[kContactLeftIndex] && contactFlags[kContactRightIndex]);
 }
 
 /******************************************************************************************************/

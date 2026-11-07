@@ -36,13 +36,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
-#include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
 
 namespace {
+
+// The biped's two feet, which every case here is written for.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 constexpr scalar_t kTol = 1.0e-9;
 constexpr scalar_t kLiftOff = 1.0;
@@ -51,11 +54,11 @@ constexpr scalar_t kTouchDown =
 constexpr scalar_t kPosSurfaceRtWorldEwrtWorldZ = 0.0;
 
 ModeSchedule singleSwingSchedule() {
-  contact_flag_t swinging = makeFeetArray(true);
+  BipedFeetArray<bool> swinging = makeBipedFeetArray(true);
   swinging[0] = false;
-  const size_t stance = stanceLeg2ModeNumber(makeFeetArray(true));
+  const size_t stance = bipedModeOfFootContacts(makeBipedFeetArray(true));
   return ModeSchedule({kLiftOff, kTouchDown},
-                      {stance, stanceLeg2ModeNumber(swinging), stance});
+                      {stance, bipedModeOfFootContacts(swinging), stance});
 }
 
 /** The DRC Atlas swing configuration, with the touch-down velocity as a
@@ -75,7 +78,7 @@ SwingTrajectoryPlanner::Config atlasConfig(
 SwingTrajectoryPlanner plannerWith(
     scalar_t touchdownLinvelFootRtWorldEwrtWorldZ) {
   SwingTrajectoryPlanner planner(
-      atlasConfig(touchdownLinvelFootRtWorldEwrtWorldZ), kNumContacts);
+      atlasConfig(touchdownLinvelFootRtWorldEwrtWorldZ), kNumFeet);
   planner.update(singleSwingSchedule(), kPosSurfaceRtWorldEwrtWorldZ);
   return planner;
 }
@@ -235,27 +238,30 @@ TEST(SwingLandingVelocity, AnExtendedSwingContinuesDownAtTheSearchVelocity) {
   const SwingTrajectoryPlanner::Config config = atlasConfig(-0.05);
   const SwingTrajectoryPlanner planned = plannerWith(-0.05);
 
-  contact_flag_t swinging = makeFeetArray(true);
+  BipedFeetArray<bool> swinging = makeBipedFeetArray(true);
   swinging[0] = false;
-  const size_t stance = stanceLeg2ModeNumber(makeFeetArray(true));
+  const size_t stance = bipedModeOfFootContacts(makeBipedFeetArray(true));
   const ModeSchedule extendedSchedule(
       {kLiftOff, kTouchDown + kExtension},
-      {stance, stanceLeg2ModeNumber(swinging), stance});
+      {stance, bipedModeOfFootContacts(swinging), stance});
   const scalar_array_t liftoffPosFootRtWorldEwrtWorldZTraj(
       3, kPosSurfaceRtWorldEwrtWorldZ);
   const scalar_array_t touchdownPosFootRtWorldEwrtWorldZTraj(
       3, kPosSurfaceRtWorldEwrtWorldZ +
              config.touchdownPosFootRtSurfaceEwrtWorldZ);
-  feet_array_t<std::optional<SwingTrajectoryPlanner::GroundSearch>> searches =
-      makeFeetArray(std::optional<SwingTrajectoryPlanner::GroundSearch>{});
+  ContactArray<std::optional<SwingTrajectoryPlanner::GroundSearch>> searches(
+      kNumFeet, std::optional<SwingTrajectoryPlanner::GroundSearch>{});
   searches[0] = SwingTrajectoryPlanner::GroundSearch{
       .liftOffTime = kLiftOff,
       .plannedTouchDownTime = kTouchDown,
       .descentSpeedFootRtWorld = kSearchSpeedFootRtWorld};
-  SwingTrajectoryPlanner extended(config, kNumContacts);
-  extended.update(
-      extendedSchedule, makeFeetArray(liftoffPosFootRtWorldEwrtWorldZTraj),
-      makeFeetArray(touchdownPosFootRtWorldEwrtWorldZTraj), searches);
+  SwingTrajectoryPlanner extended(config, kNumFeet);
+  extended.update(extendedSchedule,
+                  ContactArray<scalar_array_t>(
+                      kNumFeet, liftoffPosFootRtWorldEwrtWorldZTraj),
+                  ContactArray<scalar_array_t>(
+                      kNumFeet, touchdownPosFootRtWorldEwrtWorldZTraj),
+                  searches);
 
   // Up to the planned touch-down nothing changes.
   for (scalar_t t = kLiftOff + 1.0e-6; t <= kTouchDown; t += 0.01) {
@@ -297,7 +303,7 @@ TEST(SwingLandingVelocity, AnExtendedSwingContinuesDownAtTheSearchVelocity) {
   // What re-fitting the spline over the extended swing did instead: right after
   // the planned touch-down the reference sits higher and descends much faster
   // than the search velocity.
-  SwingTrajectoryPlanner refitted(config, kNumContacts);
+  SwingTrajectoryPlanner refitted(config, kNumFeet);
   refitted.update(extendedSchedule, kPosSurfaceRtWorldEwrtWorldZ);
   const scalar_t probe = kTouchDown + 0.005;
   EXPECT_GT(refitted.getDesPosFootRtWorldEwrtWorldZ(/*leg=*/0, probe),
@@ -311,9 +317,12 @@ TEST(SwingLandingVelocity, AnExtendedSwingContinuesDownAtTheSearchVelocity) {
       SwingTrajectoryPlanner::GroundSearch{.liftOffTime = kLiftOff,
                                            .plannedTouchDownTime = kTouchDown,
                                            .descentSpeedFootRtWorld = 0.0};
-  extended.update(
-      extendedSchedule, makeFeetArray(liftoffPosFootRtWorldEwrtWorldZTraj),
-      makeFeetArray(touchdownPosFootRtWorldEwrtWorldZTraj), searches);
+  extended.update(extendedSchedule,
+                  ContactArray<scalar_array_t>(
+                      kNumFeet, liftoffPosFootRtWorldEwrtWorldZTraj),
+                  ContactArray<scalar_array_t>(
+                      kNumFeet, touchdownPosFootRtWorldEwrtWorldZTraj),
+                  searches);
   EXPECT_NEAR(
       extended.getDesPosFootRtWorldEwrtWorldZ(/*leg=*/0, kTouchDown + 0.03),
       touchdownDesPosFootRtWorldEwrtWorldZ, kTol);

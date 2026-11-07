@@ -37,9 +37,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -71,10 +71,17 @@ scalar_t updateGaitSchedule(GaitSchedule& gaitSchedule,
   const std::vector<scalar_t>::const_iterator it =
       std::upper_bound(modeSchedule.eventTimes.begin(),
                        modeSchedule.eventTimes.end(), earliestSwitchingTime);
+  // The left-stance alignment below is a biped gait rule: kBipedModeLf names
+  // the left foot alone only on a set whose feet are its last two contacts
+  // (GaitModeLayout). On any other set the mask 2 is the second-to-last
+  // contact alone, which says nothing about the gait, and the switch is not
+  // moved.
+  const bool bipedFeetLast =
+      gaitSchedule.modeLayout().stanceMode == kBipedModeStance;
   scalar_t nextEventTime = finalTime;
   if (it == modeSchedule.eventTimes.end()) {
     nextEventTime = finalTime;
-  } else if (modeSchedule.modeAtTime(*it) == ModeNumber::kLf &&
+  } else if (bipedFeetLast && modeSchedule.modeAtTime(*it) == kBipedModeLf &&
              it != modeSchedule.eventTimes.begin()) {
     // The phase that ends at this event is LF, the left foot in stance and the
     // right one swinging (modeAtTime of an event time is the phase before it),

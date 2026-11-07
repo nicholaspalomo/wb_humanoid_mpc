@@ -385,7 +385,7 @@ per-node seam. $\Phi$ comes from `getPhaseVariable(t)` and runs over $[0,1)$ for
 $c_1 = 2\pi$ is one period per cycle and $c_1 = 4\pi$ one per step; it **freezes** at 0 or 0.5 through double support
 rather than advancing, so the offset is held constant there instead of continuing its cycle. Phase $[0, 0.5)$ is the
 `LF` mode and $[0.5, 1)$ the `RF` mode, and those name the foot **in contact**, not the one swinging
-(`modeNumber2StanceLeg` maps `LF` to contact flags `{true, false}`) - so the first half of the cycle is left stance
+(`bipedFootContactsOfMode` maps `LF` to contact flags `{true, false}`) - so the first half of the cycle is left stance
 with the right foot in the air.
 
 **The rate goes with the attitude.** A reference that tilts at gait frequency while its rate channel says it holds

@@ -34,15 +34,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <string>
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "absl/status/status.h"
+
+#include "humanoid_common_mpc/common/TwoContactCount.h"
 #include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicHelpers.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == kBipedFootCount,
-              "the alternation rule is written for a biped");
+absl::Status AlternatingFeetRule::validateContactSet(size_t numContacts) const {
+  return checkTwoContactCount(/*component=*/"AlternatingFeetRule", numContacts);
+}
 
 std::string AlternatingFeetRule::describe() const {
   return "a foot may not swing twice without the other foot swinging in "
@@ -53,10 +56,10 @@ bool AlternatingFeetRule::propagate(const ContactLogicState& s,
                                     MiqpAssignment& a,
                                     bool& changed) const {
   int lastSwung = s.input->lastSwungFoot;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < ContactLogicState::kNumFeet; ++foot) {
     if (!s.input->contacts[foot]) lastSwung = static_cast<int>(foot);
   }
-  std::array<int8_t, kNumContacts> kappa{
+  std::array<int8_t, ContactLogicState::kNumFeet> kappa{
       static_cast<int8_t>(s.input->contacts[0] ? 1 : 0),
       static_cast<int8_t>(s.input->contacts[1] ? 1 : 0)};
   for (int k = 0; k < s.numNodes; ++k) {
@@ -67,7 +70,7 @@ bool AlternatingFeetRule::propagate(const ContactLogicState& s,
     // foot 1 is read. While foot 0's binary here is free that is undecided, and
     // so is everything this node says about foot 1.
     bool earlierFootMayLift = false;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < ContactLogicState::kNumFeet; ++foot) {
       const int index = ContactLogicState::contactBinaryIndex(k, foot);
       const int8_t value = a[static_cast<size_t>(index)];
       if (kappa[foot] == 1) {
@@ -93,7 +96,7 @@ bool AlternatingFeetRule::propagate(const ContactLogicState& s,
       allFixed = allFixed && a[static_cast<size_t>(index)] != kMiqpFree;
     }
     if (!allFixed) break;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < ContactLogicState::kNumFeet; ++foot) {
       kappa[foot] = a[static_cast<size_t>(
           ContactLogicState::contactBinaryIndex(k, foot))];
     }

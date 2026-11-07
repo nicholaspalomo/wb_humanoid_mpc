@@ -59,12 +59,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
 #include "humanoid_mpc_validation/chart/EulerChart.h"
@@ -203,8 +203,9 @@ TermProbePoint probePoint(const MpcEquivalenceFixture& mpc,
                        .input = vector_t(),
                        .atRest = false};
   point.input = mpc.weightCompensatingInput(
-      point.state,
-      modeNumber2StanceLeg(reference.modeSchedule.modeAtTime(time)));
+      point.state, ContactMask::fromModeNumber(
+                       reference.modeSchedule.modeAtTime(time),
+                       mpc.model().modelSettings.contactNames.size()));
   for (Eigen::Index i = 0; i < point.input.size(); ++i) {
     point.input(i) +=
         uniform(-kInputPerturbation, kInputPerturbation, generator);

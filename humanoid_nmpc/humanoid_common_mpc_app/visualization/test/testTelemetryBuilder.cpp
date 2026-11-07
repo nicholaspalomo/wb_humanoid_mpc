@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -42,10 +43,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_replace.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
@@ -55,9 +58,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc_app/visualization/PolicySnapshot.h"
 #include "humanoid_common_mpc_app/visualization/RobotStateDecoder.h"
@@ -65,6 +70,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/visualization/TelemetryBuilder.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationConfig.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationModel.h"
+#include "humanoid_mpc_config/model_settings_config.nproto.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.pb.h"
 #include "humanoid_mpc_msgs/robot_state_sample.pb.h"
@@ -76,6 +82,8 @@ namespace ocs2::humanoid::visualization {
 namespace {
 
 constexpr scalar_t kTolerance = 1.0e-9;
+// The fixture's robot is a biped: its contact set is the two feet.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 const humanoid_mpc_msgs::ScalarGroup* absl_nullable findGroup(
     const humanoid_mpc_msgs::TelemetrySeries& series, const std::string& path) {
@@ -244,19 +252,67 @@ bool isNotANumberByContract(const std::string& path, bool hasAcom) {
 }
 
 /** The net contact moment about the point `posLocalRtWorldEwrtWorld` of world
- * wrenches about `posFeetRtWorldEwrtWorld`. */
+ * wrenches about `posContactsRtWorldEwrtWorld`. */
 vector3_t computeTorqueLocalEwrtWorld(
     const vector3_t& posLocalRtWorldEwrtWorld,
-    const feet_array_t<vector3_t>& posFeetRtWorldEwrtWorld,
-    const feet_array_t<vector6_t>& wrenchFeetEwrtWorld) {
+    const ContactArray<vector3_t>& posContactsRtWorldEwrtWorld,
+    const ContactArray<vector6_t>& wrenchContactsEwrtWorld) {
   vector3_t torqueLocalEwrtWorld = vector3_t::Zero();
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  for (size_t contact = 0; contact < posContactsRtWorldEwrtWorld.size();
+       ++contact) {
     torqueLocalEwrtWorld +=
-        (posFeetRtWorldEwrtWorld[contact] - posLocalRtWorldEwrtWorld)
-            .cross(vector3_t(wrenchFeetEwrtWorld[contact].head<kForceDim>())) +
-        vector3_t(wrenchFeetEwrtWorld[contact].tail<kTorqueDim>());
+        (posContactsRtWorldEwrtWorld[contact] - posLocalRtWorldEwrtWorld)
+            .cross(
+                vector3_t(wrenchContactsEwrtWorld[contact].head<kForceDim>())) +
+        vector3_t(wrenchContactsEwrtWorld[contact].tail<kTorqueDim>());
   }
   return torqueLocalEwrtWorld;
+}
+
+/**
+ * Expects the plan's ZMP of `series` at `time` to be the point about which the
+ * contact moment of every contact of `robot`'s set, at the policy's state and
+ * input, is vertical.
+ */
+void expectZmpOfThePlan(const test::TestRobot& robot,
+                        const PolicySnapshot& policy,
+                        const humanoid_mpc_msgs::TelemetrySeries& series,
+                        scalar_t time) {
+  vector_t state;
+  vector_t input;
+  samplePlan(policy, robot.stateManifold(), time, &state, &input);
+  const MpcRobotModelBase<scalar_t>& model = robot.robotModel();
+  PinocchioInterface reference = robot.makeReferencePinocchioInterface();
+  pinocchio::forwardKinematics(reference.getModel(), reference.getData(),
+                               model.getGeneralizedCoordinates(state));
+  pinocchio::updateFramePlacements(reference.getModel(), reference.getData());
+  const size_t numContacts = robot.modelSettings().numContacts();
+  ContactArray<vector3_t> posContactsRtWorldEwrtWorld(numContacts);
+  ContactArray<vector6_t> wrenchContactsEwrtWorld(numContacts);
+  scalar_t forceWorldEwrtWorldZ = 0.0;
+  scalar_t weightedSumPosContactsRtWorldEwrtWorldZ = 0.0;
+  for (size_t contact = 0; contact < numContacts; ++contact) {
+    posContactsRtWorldEwrtWorld[contact] =
+        reference.getData()
+            .oMf[reference.getModel().getFrameId(
+                robot.modelSettings().contactNames[contact])]
+            .translation();
+    wrenchContactsEwrtWorld[contact] =
+        model.getWrenchContactEwrtWorld(state, input, contact);
+    forceWorldEwrtWorldZ +=
+        wrenchContactsEwrtWorld[contact][kWrenchForceZIndex];
+    weightedSumPosContactsRtWorldEwrtWorldZ +=
+        wrenchContactsEwrtWorld[contact][kWrenchForceZIndex] *
+        posContactsRtWorldEwrtWorld[contact].z();
+  }
+  const vector3_t posZmpRtWorldEwrtWorld(
+      valueOf(series, "zmp/x", "plan"), valueOf(series, "zmp/y", "plan"),
+      weightedSumPosContactsRtWorldEwrtWorldZ / forceWorldEwrtWorldZ);
+  const vector3_t torqueZmpEwrtWorld = computeTorqueLocalEwrtWorld(
+      posZmpRtWorldEwrtWorld, posContactsRtWorldEwrtWorld,
+      wrenchContactsEwrtWorld);
+  EXPECT_NEAR(torqueZmpEwrtWorld.x(), 0.0, 1.0e-7);
+  EXPECT_NEAR(torqueZmpEwrtWorld.y(), 0.0, 1.0e-7);
 }
 
 class TelemetryBuilderTest : public ::testing::Test {
@@ -283,7 +339,7 @@ class TelemetryBuilderTest : public ::testing::Test {
                        /*forceFootEwrtWorldZ=*/300.0, vector2_t(0.02, -0.01),
                        &command, &solution);
     policy_.assign(command, solution);
-    observation_ = robot_->observation(/*time=*/0.0, ModeNumber::kStance);
+    observation_ = robot_->observation(/*time=*/0.0, kBipedModeStance);
   }
 
   DecodedRobotState decode(const humanoid_mpc_msgs::RobotStateSample& proto) {
@@ -313,14 +369,14 @@ class TelemetryBuilderTest : public ::testing::Test {
                                 /*computeSubtreeComs=*/false);
     pinocchio::updateFramePlacements(reference.getModel(), reference.getData());
     scalar_t posFeetmeanRtWorldEwrtWorldZ = 0.0;
-    for (size_t contact = 0; contact < kNumContacts; ++contact) {
+    for (size_t contact = 0; contact < kNumFeet; ++contact) {
       posFeetmeanRtWorldEwrtWorldZ +=
           reference.getData()
               .oMf[reference.getModel().getFrameId(
                   robot_->modelSettings().contactNames[contact])]
               .translation()
               .z() /
-          static_cast<scalar_t>(kNumContacts);
+          static_cast<scalar_t>(kNumFeet);
     }
     return std::sqrt(
         reference.getModel().gravity.linear().norm() /
@@ -365,32 +421,7 @@ class TelemetryBuilderTest : public ::testing::Test {
         posComRtWorldEwrtWorld.y() + linvelComRtWorldEwrtWorld.y() / omega,
         1.0e-8);
 
-    pinocchio::forwardKinematics(reference.getModel(), reference.getData(), q);
-    pinocchio::updateFramePlacements(reference.getModel(), reference.getData());
-    feet_array_t<vector3_t> posFeetRtWorldEwrtWorld;
-    feet_array_t<vector6_t> wrenchFeetEwrtWorld;
-    scalar_t forceWorldEwrtWorldZ = 0.0;
-    scalar_t weightedSumPosFeetRtWorldEwrtWorldZ = 0.0;
-    for (size_t contact = 0; contact < kNumContacts; ++contact) {
-      posFeetRtWorldEwrtWorld[contact] =
-          reference.getData()
-              .oMf[reference.getModel().getFrameId(
-                  robot_->modelSettings().contactNames[contact])]
-              .translation();
-      wrenchFeetEwrtWorld[contact] =
-          model.getWrenchContactEwrtWorld(state, input, contact);
-      forceWorldEwrtWorldZ += wrenchFeetEwrtWorld[contact][kWrenchForceZIndex];
-      weightedSumPosFeetRtWorldEwrtWorldZ +=
-          wrenchFeetEwrtWorld[contact][kWrenchForceZIndex] *
-          posFeetRtWorldEwrtWorld[contact].z();
-    }
-    const vector3_t posZmpRtWorldEwrtWorld(
-        valueOf(series, "zmp/x", "plan"), valueOf(series, "zmp/y", "plan"),
-        weightedSumPosFeetRtWorldEwrtWorldZ / forceWorldEwrtWorldZ);
-    const vector3_t torqueZmpEwrtWorld = computeTorqueLocalEwrtWorld(
-        posZmpRtWorldEwrtWorld, posFeetRtWorldEwrtWorld, wrenchFeetEwrtWorld);
-    EXPECT_NEAR(torqueZmpEwrtWorld.x(), 0.0, 1.0e-7);
-    EXPECT_NEAR(torqueZmpEwrtWorld.y(), 0.0, 1.0e-7);
+    expectZmpOfThePlan(*robot_, policy_, series, time);
 
     if (!hasAcom()) {
       EXPECT_TRUE(std::isnan(valueOf(series, "acom/yaw", "plan")));
@@ -876,7 +907,7 @@ TEST_F(TelemetryBuilderTest,
 TEST_F(TelemetryBuilderTest,
        TheObservationGroupsAreTheObservationAndThePolicysInputThere) {
   observation_.time = 0.2;
-  observation_.mode = ModeNumber::kLf;
+  observation_.mode = kBipedModeLf;
   const humanoid_mpc_msgs::TelemetrySeries& series =
       builder_->build(decode(robot_->robotState(
                           /*time=*/0.25, vector3_t::Zero(), vector3_t::Zero())),
@@ -889,7 +920,7 @@ TEST_F(TelemetryBuilderTest,
   EXPECT_TRUE(
       valuesOf(series, "mpc_observation/input").isApprox(input, kTolerance));
   EXPECT_EQ(valueOf(series, "mpc_observation/mode", "mode"),
-            static_cast<double>(ModeNumber::kLf));
+            static_cast<double>(kBipedModeLf));
 }
 
 TEST_F(TelemetryBuilderTest, TheJointGroupsAreTheDecodedJoints) {
@@ -974,13 +1005,13 @@ TEST_F(TelemetryBuilderTest,
                                measured.generalizedCoordinates);
   pinocchio::updateFramePlacements(reference.getModel(), reference.getData());
   vector3_t posFeetmeanRtWorldEwrtWorld = vector3_t::Zero();
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  for (size_t contact = 0; contact < kNumFeet; ++contact) {
     posFeetmeanRtWorldEwrtWorld +=
         reference.getData()
             .oMf[reference.getModel().getFrameId(
                 robot_->modelSettings().contactNames[contact])]
             .translation() /
-        static_cast<scalar_t>(kNumContacts);
+        static_cast<scalar_t>(kNumFeet);
   }
   EXPECT_NEAR(valueOf(series, "zmp/x", "measured"),
               posFeetmeanRtWorldEwrtWorld.x(), kTolerance);
@@ -1137,6 +1168,164 @@ TEST_F(TelemetryBuilderTest, EveryFormulationGivesTheContractsGroups) {
       }
     }
   }
+}
+
+/** A 3-DoF contact of the task file, 0.1 m to the side of a wrist. */
+mpc_config::ModelSettingsConfig::PointContact handContact(
+    const std::string& name,
+    const std::string& wrist,
+    scalar_t posContactRtLinkEwrtLinkY) {
+  mpc_config::ModelSettingsConfig::PointContact contact;
+  contact.name = name;
+  contact.parent_joint_name = wrist;
+  contact.pos_contact_rt_link_ewrt_link.y = posContactRtLinkEwrtLinkY;
+  return contact;
+}
+
+/** The DRC Atlas with a 3-DoF contact on each hand, world-frame wrench inputs:
+ * the contact set {left hand, right hand, left foot, right foot}. */
+std::unique_ptr<test::TestRobot> loadFourContactAtlas() {
+  return test::TestRobot::loadWithPointContacts(
+      test::atlasFiles(), test::Formulation::kCentroidal,
+      {handContact("hand_l_contact", "l_arm_wrx",
+                   /*posContactRtLinkEwrtLinkY=*/0.1),
+       handContact("hand_r_contact", "r_arm_wrx",
+                   /*posContactRtLinkEwrtLinkY=*/-0.1)});
+}
+
+TEST(TelemetryBuilderContactSet,
+     NamesTheFeetLeftAndRightAndOtherContactsByName) {
+  const std::unique_ptr<test::TestRobot> atlas = loadFourContactAtlas();
+  ASSERT_EQ(atlas->modelSettings().numContacts(), 4u);
+  EXPECT_EQ(TelemetryBuilder::contactSeriesNames(
+                atlas->modelSettings().contactNames,
+                atlas->modelSettings().contactNames6DoF.size()),
+            (std::vector<std::string>{"hand_l_contact", "hand_r_contact",
+                                      "left", "right"}));
+  // A quadruped's four point feet, and a set of one 6-DoF contact: no biped
+  // feet.
+  const std::vector<std::string> pointFeet = {"lf_foot", "rf_foot", "lh_foot",
+                                              "rh_foot"};
+  EXPECT_EQ(TelemetryBuilder::contactSeriesNames(pointFeet,
+                                                 /*numSixDofContacts=*/0),
+            pointFeet);
+  const std::vector<std::string> oneSurface = {"hand_l_contact",
+                                               "seat_contact"};
+  EXPECT_EQ(TelemetryBuilder::contactSeriesNames(oneSurface,
+                                                 /*numSixDofContacts=*/1),
+            oneSurface);
+  // A biped's two feet.
+  EXPECT_EQ(TelemetryBuilder::contactSeriesNames(
+                {"foot_l_contact", "foot_r_contact"}, /*numSixDofContacts=*/2),
+            (std::vector<std::string>{"left", "right"}));
+}
+
+TEST(TelemetryBuilderContactSet, PlotsEveryContactInContactOrder) {
+  const std::unique_ptr<test::TestRobot> atlas = loadFourContactAtlas();
+  const absl::StatusOr<VisualizationConfig> config =
+      loadVisualizationConfig(atlas->taskFile(), atlas->modelSettings());
+  ASSERT_TRUE(config.ok()) << config.status();
+  absl::StatusOr<std::unique_ptr<TelemetryBuilder>> builder =
+      TelemetryBuilder::Create(atlas->model(), *config);
+  ASSERT_TRUE(builder.ok()) << builder.status();
+  const std::vector<std::string> paths = (*builder)->groupPaths();
+  // Six groups per contact: the biped's twelve and six more per hand.
+  EXPECT_EQ(paths.size(), 42 + 24 + 12 + 12 * config->telemetryFrames.size());
+  const std::vector<std::string> names = {"hand_l_contact", "hand_r_contact",
+                                          "left", "right"};
+  // Each per-contact group runs over the contacts in contact order.
+  for (const char* absl_nonnull pattern :
+       {"contact_forces/%s_normal", "contact_forces/%s_tangential",
+        "foot_kinematics/%s_acceleration_z", "foot_kinematics/%s_velocity_z"}) {
+    const std::string first = absl::StrReplaceAll(pattern, {{"%s", names[0]}});
+    const std::vector<std::string>::const_iterator start =
+        std::find(paths.begin(), paths.end(), first);
+    ASSERT_NE(start, paths.end()) << first;
+    for (size_t contact = 0; contact < names.size(); ++contact) {
+      ASSERT_LT(static_cast<size_t>(start - paths.begin()) + contact,
+                paths.size());
+      EXPECT_EQ(*(start + static_cast<ptrdiff_t>(contact)),
+                absl::StrReplaceAll(pattern, {{"%s", names[contact]}}));
+    }
+  }
+  const std::vector<std::string>::const_iterator firstHandGroupPath = std::find(
+      paths.begin(), paths.end(), "contact_wrenches/hand_l_contact/mpc");
+  ASSERT_NE(firstHandGroupPath, paths.end());
+  for (size_t contact = 0; contact < names.size(); ++contact) {
+    const ptrdiff_t offset = static_cast<ptrdiff_t>(2 * contact);
+    EXPECT_EQ(*(firstHandGroupPath + offset),
+              absl::StrCat("contact_wrenches/", names[contact], "/mpc"));
+    EXPECT_EQ(*(firstHandGroupPath + offset + 1),
+              absl::StrCat("contact_wrenches/", names[contact], "/measured"));
+  }
+
+  // A policy whose left hand pushes on a wall and whose feet carry the rest:
+  // every contact's plan wrench, the sensor wrench of the sample's contact of
+  // the same index, and the ZMP of all four.
+  CommandData command;
+  PrimalSolution solution;
+  atlas->makePolicy(/*startTime=*/0.0, /*nodes=*/11,
+                    /*forceFootEwrtWorldZ=*/400.0, vector2_t(0.01, 0.0),
+                    &command, &solution);
+  const vector3_t forceHandEwrtWorld(-30.0, 5.0, 80.0);
+  for (size_t node = 0; node < solution.inputTrajectory_.size(); ++node) {
+    atlas->robotModel().setForceContactEwrtWorld(
+        solution.stateTrajectory_[node], solution.inputTrajectory_[node],
+        forceHandEwrtWorld, /*contactIndex=*/0);
+  }
+  PolicySnapshot policy;
+  policy.assign(command, solution);
+  const SystemObservation observation =
+      atlas->observation(/*time=*/0.0, kBipedModeStance);
+
+  humanoid_mpc_msgs::RobotStateSample proto = atlas->robotState(
+      /*time=*/0.1, vector3_t(0.0, 0.0, 0.9), vector3_t::Zero());
+  ASSERT_EQ(proto.meas_wrench_contacts_ewrt_world_size(), 4);
+  // NOLINTBEGIN(frame-naming): the components of a Wrench message, whose frames its field names
+  proto.mutable_meas_wrench_contacts_ewrt_world(1)->mutable_force()->set_z(
+      20.0);
+  proto.mutable_meas_wrench_contacts_ewrt_world(2)->mutable_force()->set_z(
+      350.0);
+  // NOLINTEND(frame-naming)
+  RobotStateDecoder decoder(atlas->robotModel());
+  msgs::RobotStateSample sample;
+  ASSERT_TRUE(msgs::FromProto(proto, &sample).ok());
+  DecodedRobotState measured;
+  ASSERT_TRUE(decoder.decode(sample, &measured).ok());
+  ASSERT_EQ(measured.measWrenchContactsEwrtWorld.size(), 4u);
+
+  const humanoid_mpc_msgs::TelemetrySeries& series =
+      (*builder)->build(measured, &observation, &policy);
+  vector_t state;
+  vector_t input;
+  samplePlan(policy, atlas->stateManifold(), /*time=*/0.1, &state, &input);
+  for (size_t contact = 0; contact < names.size(); ++contact) {
+    SCOPED_TRACE(names[contact]);
+    const vector6_t wrenchContactEwrtWorld =
+        atlas->robotModel().getWrenchContactEwrtWorld(state, input, contact);
+    EXPECT_TRUE(valuesOf(series, absl::StrCat("contact_wrenches/",
+                                              names[contact], "/mpc"))
+                    .isApprox(wrenchContactEwrtWorld, kTolerance));
+    EXPECT_NEAR(
+        valueOf(series,
+                absl::StrCat("contact_forces/", names[contact], "_normal"),
+                "mpc"),
+        wrenchContactEwrtWorld[kWrenchForceZIndex], kTolerance);
+  }
+  EXPECT_NEAR(
+      valueOf(series, "contact_forces/hand_l_contact_tangential", "mpc_x"),
+      forceHandEwrtWorld.x(), kTolerance);
+  EXPECT_EQ(valueOf(series, "contact_forces/hand_r_contact_normal", "measured"),
+            20.0);
+  EXPECT_EQ(valueOf(series, "contact_forces/left_normal", "measured"), 350.0);
+  EXPECT_EQ(valueOf(series, "contact_forces/right_normal", "measured"), 0.0);
+  EXPECT_EQ(valuesOf(series, "frames/wrench/foot_l_contact/measured"),
+            (vector_t(6) << 0.0, 0.0, 350.0, 0.0, 0.0, 0.0).finished());
+  EXPECT_TRUE(valuesOf(series, "frames/wrench/foot_r_contact/plan")
+                  .isApprox(atlas->robotModel().getWrenchContactEwrtWorld(
+                                state, input, /*contactIndex=*/3),
+                            kTolerance));
+  expectZmpOfThePlan(*atlas, policy, series, /*time=*/0.1);
 }
 
 }  // namespace

@@ -38,15 +38,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
 absl::StatusOr<ContactWrenchGate> ContactWrenchGate::Create(
-    const Config& config) {
+    const Config& config, size_t numContacts) {
   RETURN_IF_ERROR(validateConfig(config));
-  return ContactWrenchGate(config);
+  if (numContacts > kMaxNumContacts) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("ContactWrenchGate: the contact set has ", numContacts,
+                     " contacts; at most ", kMaxNumContacts, " are supported"));
+  }
+  return ContactWrenchGate(config, numContacts);
 }
 
 bool ContactWrenchGate::isValidConfig(const Config& config) {
@@ -75,10 +82,10 @@ void ContactWrenchGate::reset() {
   scales_.fill(1.0);
 }
 
-const feet_array_t<scalar_t>& ContactWrenchGate::update(
-    scalar_t time, const contact_flag_t& measuredContactFlags) {
+const ContactArray<scalar_t>& ContactWrenchGate::update(
+    scalar_t time, ContactMask measuredContactFlags) {
   for (size_t i = 0; i < scales_.size(); ++i) {
-    if (!measuredContactFlags[i]) {
+    if (i >= measuredContactFlags.size() || !measuredContactFlags[i]) {
       onsetTime_[i] = std::nullopt;
       scales_[i] = 0.0;
       continue;
@@ -98,13 +105,12 @@ const feet_array_t<scalar_t>& ContactWrenchGate::update(
   return scales_;
 }
 
-feet_array_t<vector6_t> ContactWrenchGate::apply(
-    feet_array_t<vector6_t> plannedWrenchFeetEwrtWorld) const {
+void ContactWrenchGate::apply(
+    ContactArray<vector6_t>& plannedWrenchContactsEwrtWorld) const {
   for (size_t i = 0;
-       i < plannedWrenchFeetEwrtWorld.size() && i < scales_.size(); ++i) {
-    plannedWrenchFeetEwrtWorld[i] *= scales_[i];
+       i < plannedWrenchContactsEwrtWorld.size() && i < scales_.size(); ++i) {
+    plannedWrenchContactsEwrtWorld[i] *= scales_[i];
   }
-  return plannedWrenchFeetEwrtWorld;
 }
 
 }  // namespace ocs2::humanoid

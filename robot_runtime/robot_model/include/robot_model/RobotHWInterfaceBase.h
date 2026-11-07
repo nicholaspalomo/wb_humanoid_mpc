@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <utility>
 
@@ -70,10 +71,14 @@ namespace robot::model {
 class RobotHWInterfaceBase {
  public:
   /** The interface of the robot `robotDescription` describes
-   * (RobotDescription::Create()). */
-  explicit RobotHWInterfaceBase(RobotDescription robotDescription)
+   * (RobotDescription::Create()), whose states carry `contactSize` contact
+   * flags: one per contact point of the controller's contact set, which every
+   * published state must carry too (a state of another size makes the
+   * controller's copy allocate, and its contact estimate is refused). */
+  explicit RobotHWInterfaceBase(RobotDescription robotDescription,
+                                size_t contactSize)
       : robotDescription_(std::move(robotDescription)),
-        robotState_(model::RobotState(robotDescription_)),
+        robotState_(model::RobotState(robotDescription_, contactSize)),
         robotJointAction_(model::RobotJointAction(robotDescription_)),
         stateBuffer_(robotState_),
         actionBuffer_(

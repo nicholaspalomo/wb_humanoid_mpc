@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/multi_contact/PlanContactOrder.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
@@ -96,12 +97,12 @@ TEST(PlanContactOrder, theFeetOfAPlanAreTheBipedsStance) {
   HUMANOID_ASSERT_OK_AND_ASSIGN(const multi_contact::ContactMask bothFeet,
                                 contactSet.maskOf(feet));
   HUMANOID_ASSERT_OK_AND_ASSIGN(const size_t stance, order.modeOf(bothFeet));
-  EXPECT_EQ(stance, static_cast<size_t>(ModeNumber::kStance));
+  EXPECT_EQ(stance, kBipedModeStance);
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const multi_contact::ContactMask leftFoot,
       contactSet.maskOf(std::vector<std::string>{"foot_l_contact"}));
   HUMANOID_ASSERT_OK_AND_ASSIGN(const size_t left, order.modeOf(leftFoot));
-  EXPECT_EQ(left, static_cast<size_t>(ModeNumber::kLf));
+  EXPECT_EQ(left, kBipedModeLf);
   // A knee, the plan's candidate 2, is the MPC's first contact: the most
   // significant bit of a mode.
   HUMANOID_ASSERT_OK_AND_ASSIGN(

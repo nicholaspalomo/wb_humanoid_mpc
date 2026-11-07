@@ -29,8 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <array>
+#include <cstddef>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "absl/base/nullability.h"
@@ -38,7 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/robot/RobotBackend.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
@@ -58,6 +59,13 @@ namespace ocs2::humanoid {
  * (`web` without EGL or with its port taken) refuses the start, and `web,none`
  * falls back to no viewer. start() is startSim() with the physics thread pinned
  * to the cores given.
+ *
+ * The simulator has a force sensor in each of two feet
+ * (MujocoSimInterface::takeMeasForceFeetEwrtWorld()). They are the measured
+ * forces of the two 6-DoF contacts, left then right in contact order, when the
+ * contact set has exactly two 6-DoF contacts (a biped's feet, after any point
+ * contacts); every other contact, and every contact of a set with another
+ * number of 6-DoF contacts, has no sensor and reads zero.
  */
 class MujocoRobotBackend final : public RobotBackend {
  public:
@@ -79,8 +87,8 @@ class MujocoRobotBackend final : public RobotBackend {
     return !simulator_->isZeroTorqueMode();
   }
   void enableTorques() override { simulator_->enableTorques(); }
-  void readMeasForceFeetEwrtWorld(
-      std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld) override;
+  void readMeasForceContactsEwrtWorld(
+      ContactArray<vector3_t>& measForceContactsEwrtWorld) override;
   /** Zero torque (disableTorques()): the start-up state of the simulator. */
   void enterSafeState() override { simulator_->disableTorques(); }
   void registerContactEstimators(
@@ -107,11 +115,21 @@ class MujocoRobotBackend final : public RobotBackend {
   static absl::Status checkOptions(const RobotBackendOptions& options);
 
  private:
-  explicit MujocoRobotBackend(
+  /** The contacts of the feet's force sensors. */
+  struct FootSensorContacts {
+    size_t left = 0;
+    size_t right = 0;
+  };
+
+  MujocoRobotBackend(
       std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface>
-          simulator);
+          simulator,
+      std::optional<FootSensorContacts> footSensorContacts);
 
   std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> simulator_;
+  /// The contacts the two foot sensors measure; empty when the contact set does
+  /// not have exactly two 6-DoF contacts (no contact has a sensor).
+  std::optional<FootSensorContacts> footSensorContacts_;
 };
 
 }  // namespace ocs2::humanoid

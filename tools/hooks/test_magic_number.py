@@ -361,7 +361,7 @@ class NamedConstantTest(unittest.TestCase):
             " kDefaultGain = 3.0;\ninline constexpr scalar_t"
             " kGravitationalAcceleration = 9.81;  // [m/s^2]\nconst scalar_t"
             " kTolerance = 1.0e-6;\nconstexpr scalar_t kQuarterTurn = 0.25 *"
-            " M_PI;\nconstexpr std::array<int, 3> kAxes = {2, 0, 1};\nconstexpr"
+            " std::numbers::pi;\nconstexpr std::array<int, 3> kAxes = {2, 0, 1};\nconstexpr"
             " Rgba kTick{.r = 0.25f, .g = 0.5f, .b = 0.75f, .a ="
             " 1.0f};\nconstexpr scalar_t Foo::kBar = 3.0;\n[[maybe_unused]]"
             " constexpr int kSpare = 7;\nstatic const std::string kName ="

@@ -137,8 +137,9 @@ QUANTITIES: dict[str, str] = {
 POINT_REFERENCED_QUANTITIES = frozenset({"angmom", "cmom"})
 
 # LINT.IfChange(frames)
-# The frame names. The README's frame table defines each one.
-FRAMES = frozenset(
+# The frames and points of the robot, its contacts, its terrain and its controllers. The README's frame table defines
+# each one.
+_PHYSICAL_FRAMES = frozenset(
     {
         "world",
         "base",
@@ -147,24 +148,17 @@ FRAMES = frozenset(
         "crb",
         "heading",
         "torso",
-        "imu",
         "contact",
         "mjcontact",
         "foot",
         "lfoot",
         "rfoot",
         "hand",
-        "lhand",
-        "rhand",
-        "knee",
         "lknee",
-        "rknee",
         "hip",
         "lhip",
         "rhip",
         "ankle",
-        "lankle",
-        "rankle",
         "pad",
         "ee",
         "link",
@@ -174,11 +168,9 @@ FRAMES = frozenset(
         "surface",
         "box",
         "stance",
-        "icp",
         "dcm",
         "zmp",
         "cop",
-        "cam",
         "ball",
         "sphere",
         "param",
@@ -199,21 +191,28 @@ FRAMES = frozenset(
         "chordmid",
         "controlpoint",
         "query",
-        "arrow",
-        "arrowhead",
-        "strippoint",
-        "camfocus",
         "mjbody",
     }
 )
+# The frames and points of the viewers only: the camera and the geometry of the visualization markers
+# (humanoid_mpc_msgs' Arrows and LineStrip). No controller quantity names them. The README's viewer table defines each
+# one.
+_VIEWER_FRAMES = frozenset(
+    {
+        "cam",
+        "camfocus",
+        "arrow",
+        "arrowhead",
+        "strippoint",
+    }
+)
+# The frame names.
+FRAMES = _PHYSICAL_FRAMES | _VIEWER_FRAMES
 # The plurals of the generic roles, for a container indexed by that role; frame1 only.
-PLURAL_FRAMES: dict[str, str] = {
+_PHYSICAL_PLURAL_FRAMES: dict[str, str] = {
     "contacts": "contact",
     "feet": "foot",
-    "hands": "hand",
-    "knees": "knee",
     "hips": "hip",
-    "ankles": "ankle",
     "pads": "pad",
     "ees": "ee",
     "links": "link",
@@ -222,10 +221,13 @@ PLURAL_FRAMES: dict[str, str] = {
     "corners": "corner",
     "mjcontacts": "mjcontact",
     "generators": "generator",
+}
+_VIEWER_PLURAL_FRAMES: dict[str, str] = {
     "arrows": "arrow",
     "arrowheads": "arrowhead",
     "strippoints": "strippoint",
 }
+PLURAL_FRAMES: dict[str, str] = _PHYSICAL_PLURAL_FRAMES | _VIEWER_PLURAL_FRAMES
 # What a free vector may belong to besides a frame.
 FREE_SUBJECTS = frozenset({"terrain", "joint"})
 # LINT.ThenChange(//humanoid_nmpc/docs/frame_naming/README.md:frames)
@@ -1036,7 +1038,9 @@ _VECTOR_TYPES = frozenset(
         "VECTOR3_T",
     }
 )
-_VECTOR_CONTAINERS = frozenset({"vector", "array", "feet_array_t"})
+_VECTOR_CONTAINERS = frozenset(
+    {"vector", "array", "BipedFeetArray", "ContactArray"}
+)
 POINT_WORDS = frozenset({"center", "centers"})
 _DECLARATOR_FOLLOWERS = frozenset({"=", ";", ",", ")", "{", "(", "["})
 _DECLARATOR_QUALIFIERS = frozenset({"const", "&", "&&", "*"})

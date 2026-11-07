@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/TwoContactCount.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -88,8 +89,8 @@ Rotation2 rotmatFromYaw(scalar_t yaw) {
   return matrix;
 }
 
-contact_flag_t stanceOnly(size_t stanceFoot) {
-  contact_flag_t contacts = makeFeetArray(false);
+BipedFeetArray<bool> stanceOnly(size_t stanceFoot) {
+  BipedFeetArray<bool> contacts = makeBipedFeetArray(false);
   contacts[stanceFoot] = true;
   return contacts;
 }
@@ -98,13 +99,13 @@ size_t otherFoot(size_t foot) {
   return foot == kContactLeftIndex ? kContactRightIndex : kContactLeftIndex;
 }
 
-bool bothFeetDown(const contact_flag_t& contacts) {
+bool bothFeetDown(const BipedFeetArray<bool>& contacts) {
   return contacts[kContactLeftIndex] && contacts[kContactRightIndex];
 }
 
 /** The foot in flight in a contact state, or -1 when both feet are down (and
  * when neither is). */
-int swingFootOf(const contact_flag_t& contacts) {
+int swingFootOf(const BipedFeetArray<bool>& contacts) {
   if (bothFeetDown(contacts)) return -1;
   if (!contacts[kContactLeftIndex] && !contacts[kContactRightIndex]) return -1;
   return contacts[kContactLeftIndex] ? static_cast<int>(kContactRightIndex)
@@ -239,7 +240,7 @@ scalar_t appendPhase(std::vector<GaitPhase>& gait,
                      scalar_t startTime,
                      scalar_t endTime,
                      int endNode,
-                     const contact_flag_t& contacts,
+                     const BipedFeetArray<bool>& contacts,
                      int swingFoot) {
   const int startNode = gait.empty() ? 0 : gait.back().endNode;
   endNode = std::max(endNode, startNode);
@@ -273,9 +274,10 @@ scalar_t appendPhase(std::vector<GaitPhase>& gait,
  * (replayCommittedWindow). */
 struct CommittedWindowEnd {
   scalar_t time = 0.0;  // start of the phase in progress, continuous
-  contact_flag_t contacts = makeFeetArray(true);  // its contact state
-  scalar_t phaseBegan = 0.0;  // when it began, which the cadence counts from
-  int lastSwungFoot = -1;     // the last foot that swung, -1 when none is known
+  BipedFeetArray<bool> contacts =
+      makeBipedFeetArray(true);  // its contact state
+  scalar_t phaseBegan = 0.0;     // when it began, which the cadence counts from
+  int lastSwungFoot = -1;  // the last foot that swung, -1 when none is known
 };
 
 /**
@@ -289,13 +291,13 @@ CommittedWindowEnd replayCommittedWindow(const ContactPlannerInput& input,
   const std::vector<scalar_t> sampleTimes =
       committedSampleTimes(input.time, dt, numCommitted, input.committedUntil);
   scalar_t time = input.time;
-  contact_flag_t contacts = input.contacts;
+  BipedFeetArray<bool> contacts = input.contacts;
   scalar_t phaseBegan = input.time - elapsedInCurrentPhase(input);
   int lastSwungFoot = input.lastSwungFoot;
   if (swingFootOf(contacts) >= 0) lastSwungFoot = swingFootOf(contacts);
 
   for (int node = 0; node < numCommitted; ++node) {
-    const contact_flag_t& next =
+    const BipedFeetArray<bool>& next =
         input.committedContacts[static_cast<size_t>(node)];
     if (next == contacts) continue;
     // One switch per foot that changed, in the order they happened. Two feet
@@ -303,7 +305,7 @@ CommittedWindowEnd replayCommittedWindow(const ContactPlannerInput& input,
     // node that holds it) keep the brief state between them as a phase of its
     // own that covers no interval.
     std::vector<std::pair<scalar_t, size_t>> switches;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
       if (next[foot] != contacts[foot]) {
         switches.emplace_back(
             committedSwitchTime(input, sampleTimes, node, foot, dt), foot);
@@ -338,6 +340,8 @@ absl::StatusOr<HlipModel> HlipContactPlanner::makeModel(
 absl::StatusOr<std::unique_ptr<HlipContactPlanner>> HlipContactPlanner::Create(
     ContactPlanningConfig config) {
   RETURN_IF_ERROR(config.validateStatus());
+  RETURN_IF_ERROR(checkTwoContactCount(/*component=*/"HlipContactPlanner",
+                                       config.shared.numContacts));
   ASSIGN_OR_RETURN(const HlipModel model, makeModel(config));
   // WrapUnique: the constructor is private (ToTW #134).
   return absl::WrapUnique(new HlipContactPlanner(std::move(config), model));
@@ -352,6 +356,8 @@ absl::Status HlipContactPlanner::setConfig(
   // Validated first, so that nothing unvalidated is built and the running
   // configuration is kept on a refusal.
   RETURN_IF_ERROR(config.validateStatus());
+  RETURN_IF_ERROR(checkTwoContactCount(/*component=*/"HlipContactPlanner",
+                                       config.shared.numContacts));
   ASSIGN_OR_RETURN(HlipModel model, makeModel(config));
   config_ = config;
   model_ = std::move(model);
@@ -531,7 +537,7 @@ std::vector<HlipContactPlanner::GaitPhase> HlipContactPlanner::buildGait(
   const CommittedWindowEnd windowState =
       replayCommittedWindow(input, dt, numCommitted, gait);
   scalar_t time = windowState.time;
-  contact_flag_t contacts = windowState.contacts;
+  BipedFeetArray<bool> contacts = windowState.contacts;
   const scalar_t phaseBegan = windowState.phaseBegan;
   const int lastSwungFoot = windowState.lastSwungFoot;
 
@@ -545,7 +551,7 @@ std::vector<HlipContactPlanner::GaitPhase> HlipContactPlanner::buildGait(
     // window, then carry on as double support.
     time = appendPhase(gait, time, std::max(time, windowEnd), numCommitted,
                        contacts, /*swingFoot=*/-1);
-    contacts = makeFeetArray(true);
+    contacts = makeBipedFeetArray(true);
   }
   const int currentSwingFoot = swingFootOf(contacts);
   if (currentSwingFoot >= 0) {
@@ -560,7 +566,7 @@ std::vector<HlipContactPlanner::GaitPhase> HlipContactPlanner::buildGait(
 
   // 2a. Standing: the rest of the horizon is double support.
   if (kind == GaitKind::kStanding) {
-    appendPhase(gait, time, horizonEnd, numNodes, makeFeetArray(true),
+    appendPhase(gait, time, horizonEnd, numNodes, makeBipedFeetArray(true),
                 /*swingFoot=*/-1);
     if (gait.empty()) {
       // Nothing was committed and the horizon is degenerate; keep the previous
@@ -569,7 +575,7 @@ std::vector<HlipContactPlanner::GaitPhase> HlipContactPlanner::buildGait(
       stance.startTime = input.time;
       stance.endTime = horizonEnd;
       stance.endNode = numNodes;
-      stance.contacts = makeFeetArray(true);
+      stance.contacts = makeBipedFeetArray(true);
       gait.push_back(stance);
     }
     return gait;
@@ -582,7 +588,7 @@ std::vector<HlipContactPlanner::GaitPhase> HlipContactPlanner::buildGait(
     const scalar_t liftOff = std::max(windowEnd, phaseBegan + dspDuration);
     time = appendPhase(gait, time, liftOff,
                        nearestNode(input, dt, numNodes, liftOff),
-                       makeFeetArray(true), /*swingFoot=*/-1);
+                       makeBipedFeetArray(true), /*swingFoot=*/-1);
     swingFoot = lastSwungFoot >= 0
                     ? otherFoot(static_cast<size_t>(lastSwungFoot))
                     : nextSwingFoot(input);
@@ -590,7 +596,7 @@ std::vector<HlipContactPlanner::GaitPhase> HlipContactPlanner::buildGait(
     const scalar_t liftOff = time + dspDuration;
     time = appendPhase(gait, time, liftOff,
                        nearestNode(input, dt, numNodes, liftOff),
-                       makeFeetArray(true), /*swingFoot=*/-1);
+                       makeBipedFeetArray(true), /*swingFoot=*/-1);
     swingFoot = otherFoot(static_cast<size_t>(currentSwingFoot));
   }
 
@@ -606,7 +612,7 @@ std::vector<HlipContactPlanner::GaitPhase> HlipContactPlanner::buildGait(
     const scalar_t liftOff = time + dspDuration;
     time = appendPhase(gait, time, liftOff,
                        nearestNode(input, dt, numNodes, liftOff),
-                       makeFeetArray(true), /*swingFoot=*/-1);
+                       makeBipedFeetArray(true), /*swingFoot=*/-1);
     swingFoot = otherFoot(swingFoot);
   }
   return gait;
@@ -760,7 +766,7 @@ ContactPlan HlipContactPlanner::initialPlan(
   plan.committedUntil = input.committedUntil;
   plan.yawHeadingRtWorld = input.yawHeadingRtWorld;
   plan.omega = config_.omega();
-  plan.contacts.assign(numIntervals, makeFeetArray(true));
+  plan.contacts.assign(numIntervals, makeBipedFeetArray(true));
   plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(numNodes,
                                                input.posFeetRtWorldEwrtWorldXy);
   plan.posComRtWorldEwrtWorldXyTraj.assign(numNodes,
@@ -793,9 +799,9 @@ HlipContactPlanner::GaitRollOut HlipContactPlanner::rollOutGait(
   // The LIP starts from the input's CoM velocity.
   vector2_t linvelComRtWorldEwrtWorldXy =
       input.proxyLinvelComRtWorldEwrtWorldXy;
-  feet_array_t<vector2_t> desPosFeetRtWorldEwrtWorldXy =
+  BipedFeetArray<vector2_t> desPosFeetRtWorldEwrtWorldXy =
       input.posFeetRtWorldEwrtWorldXy;
-  feet_array_t<scalar_t> desEulerzyxFeetRtWorldYaw =
+  BipedFeetArray<scalar_t> desEulerzyxFeetRtWorldYaw =
       input.eulerzyxFeetRtWorldYaw;
   for (const GaitPhase& phase : gait) {
     PhaseRollOut entry;
@@ -933,7 +939,7 @@ void HlipContactPlanner::fillPhaseZmps(const std::vector<GaitPhase>& gait,
 }
 
 void HlipContactPlanner::blendTowardsStanding(
-    const feet_array_t<vector2_t>& posFeetRtWorldEwrtWorldXy,
+    const BipedFeetArray<vector2_t>& posFeetRtWorldEwrtWorldXy,
     scalar_t alpha,
     ContactPlan& plan) {
   const vector2_t posFeetmeanRtWorldEwrtWorldXy =
@@ -1030,6 +1036,8 @@ HlipContactPlanner::computeStartUpNormPosLfootRtRfootEwrtHeadingYTraj(
 
 absl::StatusOr<std::string> HlipContactPlanner::formulationSummary(
     const ContactPlanningConfig& config) {
+  RETURN_IF_ERROR(checkTwoContactCount(/*component=*/"HlipContactPlanner",
+                                       config.shared.numContacts));
   ASSIGN_OR_RETURN(const HlipModel model, makeModel(config));
   return summaryOf(config, model);
 }

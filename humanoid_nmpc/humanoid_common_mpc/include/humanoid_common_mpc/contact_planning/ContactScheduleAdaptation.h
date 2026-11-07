@@ -38,13 +38,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 
 /**
- * Adaptive execution of a planned contact schedule, generic in the number of
- * feet (kNumContacts).
+ * Adaptive execution of a planned contact schedule for the biped's two feet
+ * (BipedFeetArray), with every rule written as a loop over the feet rather than
+ * as a left and a right case.
  *
  * The mixed-integer planner decides the contact sequence on a coarse grid and
  * re-plans at a few Hz. Between plans the executed schedule is adapted to what
@@ -83,7 +85,8 @@ size_t modeIndexAtTime(const ModeSchedule& schedule, scalar_t time);
 
 /** Contact flags of the phase active at `time` (same convention as
  * modeIndexAtTime). */
-contact_flag_t contactFlagsAtTime(const ModeSchedule& schedule, scalar_t time);
+BipedFeetArray<bool> contactFlagsAtTime(const ModeSchedule& schedule,
+                                        scalar_t time);
 
 /** A range [first, last] of phase indices of a mode schedule. */
 struct PhaseIndexRange {
@@ -238,7 +241,7 @@ bool planAgreesWithSwingsInFlight(const ModeSchedule& applied,
  * turned into a delayed touch-down or a phantom re-lift of the foot that had
  * just landed.
  */
-std::vector<contact_flag_t> committedContactsForPlanner(
+std::vector<BipedFeetArray<bool>> committedContactsForPlanner(
     const ModeSchedule& schedule,
     scalar_t startTime,
     scalar_t dt,
@@ -257,8 +260,8 @@ std::vector<scalar_t> committedSampleTimes(scalar_t startTime,
  * or before `time` that changed the foot's contact state, or -infinity when the
  * schedule has no such event (the phase started before the schedule).
  */
-feet_array_t<scalar_t> contactPhaseStartTimes(const ModeSchedule& schedule,
-                                              scalar_t time);
+BipedFeetArray<scalar_t> contactPhaseStartTimes(const ModeSchedule& schedule,
+                                                scalar_t time);
 
 /**
  * For every committed node (same sampling as committedContactsForPlanner) and
@@ -273,7 +276,7 @@ feet_array_t<scalar_t> contactPhaseStartTimes(const ModeSchedule& schedule,
  * schedule contained double supports and contact phases a small fraction of the
  * configured minimum long.
  */
-std::vector<feet_array_t<scalar_t>> committedPhaseStartsForPlanner(
+std::vector<BipedFeetArray<scalar_t>> committedPhaseStartsForPlanner(
     const ModeSchedule& schedule,
     scalar_t startTime,
     scalar_t dt,
@@ -297,8 +300,8 @@ std::vector<feet_array_t<scalar_t>> committedPhaseStartsForPlanner(
 struct LiftOffHistory {
   /** [s] the latest lift-off seen of each foot; -infinity until one has been
    * seen. */
-  feet_array_t<scalar_t> lastLiftOffTimes =
-      makeFeetArray(-std::numeric_limits<scalar_t>::infinity());
+  BipedFeetArray<scalar_t> lastLiftOffTimes =
+      makeBipedFeetArray(-std::numeric_limits<scalar_t>::infinity());
 
   /**
    * Records every lift-off of `schedule` at or before `time` (an event at
@@ -441,13 +444,13 @@ struct ContactEventReport {
  * @param latches               per-foot swing memory, owned by the caller
  * @return what happened to every foot
  */
-feet_array_t<ContactEventReport> adaptScheduleToContactEvents(
+BipedFeetArray<ContactEventReport> adaptScheduleToContactEvents(
     ModeSchedule& schedule,
     scalar_t time,
-    const contact_flag_t& measuredContact,
-    const feet_array_t<scalar_t>& cadenceTouchDownShift,
+    const BipedFeetArray<bool>& measuredContact,
+    const BipedFeetArray<scalar_t>& cadenceTouchDownShift,
     const ContactPlanningConfig& config,
-    feet_array_t<SwingTimingLatch>& latches);
+    BipedFeetArray<SwingTimingLatch>& latches);
 
 /*============================================ LIP helpers
  * =================================================*/

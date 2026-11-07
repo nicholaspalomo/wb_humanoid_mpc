@@ -460,6 +460,43 @@ cc_test(
         "//lib/ocs2:ocs2_dimensions",
         "//lib/ocs2:ocs2_physical_constants",
         "//lib/ocs2:ocs2_pinocchio_interface",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_mpc_test_support",
+        "//robot_runtime/robot_model",
+    ],
+)
+
+# The centroidal MPC on four 3-DoF point contacts and no 6-DoF contact (a point-footed quadruped's set) on the DRC Atlas:
+# the interface builds, its LQ approximation gates each contact by its mode, and every term written for two feet is refused.
+cc_test(
+    name = "testPointContactQuadrupedLikeSet",
+    size = "large",
+    srcs = ["test/testPointContactQuadrupedLikeSet.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_common_mpc:status_test_macros",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_centroidal_model",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_dimensions",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_physical_constants",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )
 
@@ -943,6 +980,7 @@ cc_test(
         "//lib/ocs2:ocs2_centroidal_model",
         "//lib/ocs2:ocs2_core_types",
         "//lib/ocs2:ocs2_pinocchio_interface",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "@pinocchio",
     ],
 )

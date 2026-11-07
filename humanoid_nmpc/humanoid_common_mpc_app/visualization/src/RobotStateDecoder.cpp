@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/visualization/RobotStateDecoder.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -44,7 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
@@ -283,18 +284,22 @@ absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample,
     }
   }
 
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  // Every contact of the set, in contact order (TelemetrySampler sends one
+  // wrench per contact); a sample of fewer wrenches leaves the rest zero.
+  state->measWrenchContactsEwrtWorld.assign(
+      robotModel_->modelSettings.numContacts(), vector6_t::Zero());
+  const size_t numSampleWrenches =
+      std::min(state->measWrenchContactsEwrtWorld.size(),
+               sample.meas_wrench_contacts_ewrt_world.size());
+  for (size_t contact = 0; contact < numSampleWrenches; ++contact) {
     vector6_t& measWrenchContactEwrtWorld =
         state->measWrenchContactsEwrtWorld[contact];
-    measWrenchContactEwrtWorld.setZero();
-    if (contact < sample.meas_wrench_contacts_ewrt_world.size()) {
-      // NOLINTBEGIN(frame-naming): the components of a Wrench message, whose frames its field names
-      measWrenchContactEwrtWorld.head<kForceDim>() =
-          toVector3(sample.meas_wrench_contacts_ewrt_world[contact].force);
-      measWrenchContactEwrtWorld.tail<kTorqueDim>() =
-          toVector3(sample.meas_wrench_contacts_ewrt_world[contact].torque);
-      // NOLINTEND(frame-naming)
-    }
+    // NOLINTBEGIN(frame-naming): the components of a Wrench message, whose frames its field names
+    measWrenchContactEwrtWorld.head<kForceDim>() =
+        toVector3(sample.meas_wrench_contacts_ewrt_world[contact].force);
+    measWrenchContactEwrtWorld.tail<kTorqueDim>() =
+        toVector3(sample.meas_wrench_contacts_ewrt_world[contact].torque);
+    // NOLINTEND(frame-naming)
   }
   return absl::OkStatus();
 }

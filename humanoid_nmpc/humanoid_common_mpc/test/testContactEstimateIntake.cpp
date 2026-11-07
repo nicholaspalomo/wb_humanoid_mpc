@@ -41,8 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/mrt/ContactEstimateIntake.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
@@ -86,27 +85,51 @@ class FixedContactEstimator final : public robot::model::ContactEstimator {
   std::vector<bool> flags_;
 };
 
+/** The biped's two feet. */
+constexpr size_t kBipedContacts = 2;
+/** A quadruped-like set of four point contacts. */
+constexpr size_t kFourContacts = 4;
+
 TEST(ContactEstimateIntake, TakesAnEstimateWithOneFlagPerContactPoint) {
-  ContactEstimateIntake intake("Controller");
+  ContactEstimateIntake intake("Controller", kBipedContacts);
+  EXPECT_EQ(intake.numContacts(), kBipedContacts);
   RecordingSink sink;
-  contact_flag_t measured{};
+  ContactMask measured(kBipedContacts);
   EXPECT_TRUE(intake.take({true, false}, measured, sink));
-  EXPECT_EQ(measured, (contact_flag_t{true, false}));
+  EXPECT_TRUE(measured[0]);
+  EXPECT_FALSE(measured[1]);
+  EXPECT_EQ(measured.modeNumber(), 2U) << "LF: the left foot alone";
   EXPECT_EQ(intake.numRefused(), 0U);
   EXPECT_TRUE(sink.events.empty());
 }
 
+TEST(ContactEstimateIntake, TakesAFourContactEstimateAndRefusesABipedOne) {
+  ContactEstimateIntake intake("Controller", kFourContacts);
+  RecordingSink sink;
+  ContactMask measured(kFourContacts);
+  EXPECT_TRUE(intake.take({true, false, true, true}, measured, sink));
+  EXPECT_EQ(measured.modeNumber(), 0b1011U);
+  EXPECT_EQ(measured.numActive(), 3U);
+
+  EXPECT_FALSE(intake.take({true, true}, measured, sink));
+  EXPECT_EQ(measured.modeNumber(), 0b1011U)
+      << "a refused estimate keeps the flags of the cycle before";
+  ASSERT_EQ(sink.events.size(), 1U);
+  EXPECT_EQ(sink.events[0].values[0], 2.0);
+  EXPECT_EQ(sink.events[0].values[1], static_cast<double>(kFourContacts));
+}
+
 TEST(ContactEstimateIntake,
      RefusesAnyOtherEstimateKeepsTheLastFlagsAndReportsOncePerRun) {
-  ContactEstimateIntake intake("Controller");
+  ContactEstimateIntake intake("Controller", kBipedContacts);
   intake.resetEstimator("per_corner");
   RecordingSink sink;
-  contact_flag_t measured{};
+  ContactMask measured(kBipedContacts);
   ASSERT_TRUE(intake.take({true, true}, measured, sink));
   for (int cycle = 0; cycle < 5; ++cycle) {
     EXPECT_FALSE(intake.take({true, true, false, false}, measured, sink));
   }
-  EXPECT_EQ(measured, (contact_flag_t{true, true}))
+  EXPECT_EQ(measured, ContactMask::allActive(kBipedContacts))
       << "a refused estimate keeps the flags of the cycle before";
   EXPECT_EQ(intake.numRefused(), 5U);
   ASSERT_EQ(sink.events.size(), 1U)
@@ -114,7 +137,7 @@ TEST(ContactEstimateIntake,
   const ControllerEvent& report = sink.events[0];
   EXPECT_EQ(report.code, ControllerEventCode::kContactEstimateRefused);
   EXPECT_EQ(report.values[0], 4.0);
-  EXPECT_EQ(report.values[1], static_cast<double>(kNumContacts));
+  EXPECT_EQ(report.values[1], static_cast<double>(kBipedContacts));
   EXPECT_EQ(controllerEventText(report), "per_corner");
   EXPECT_TRUE(isWarningControllerEvent(report));
 
@@ -130,10 +153,10 @@ TEST(ContactEstimateIntake,
 }
 
 TEST(ContactEstimateIntake, AllocatesNothing) {
-  ContactEstimateIntake intake("Controller");
+  ContactEstimateIntake intake("Controller", kFourContacts);
   RecordingSink sink;
-  contact_flag_t measured{};
-  const std::vector<bool> good = {true, false};
+  ContactMask measured(kFourContacts);
+  const std::vector<bool> good = {true, false, false, true};
   const std::vector<bool> bad = {true};
   const size_t before = robot::realtime::heapAllocationCountOnThisThread();
   intake.resetEstimator(
@@ -188,13 +211,21 @@ TEST_F(CheckContactEstimatorTest,
        AcceptsOneFlagPerContactPointAndRefusesAnyOtherCount) {
   const robot::model::RobotState state(*description_);
   FixedContactEstimator good({true, true});
-  EXPECT_TRUE(checkContactEstimator(good, state, "fixed").ok());
+  EXPECT_TRUE(checkContactEstimator(good, state, kBipedContacts, "fixed").ok());
   FixedContactEstimator one({true});
-  const absl::Status refused = checkContactEstimator(one, state, "fixed");
+  const absl::Status refused =
+      checkContactEstimator(one, state, kBipedContacts, "fixed");
   EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(refused.message().find("'fixed' reports 1 contact flags"),
             std::string::npos)
       << refused;
+  EXPECT_NE(refused.message().find("has 2 contacts"), std::string::npos)
+      << refused;
+
+  FixedContactEstimator four({true, true, false, true});
+  EXPECT_TRUE(checkContactEstimator(four, state, kFourContacts, "fixed").ok());
+  EXPECT_EQ(checkContactEstimator(good, state, kFourContacts, "fixed").code(),
+            absl::StatusCode::kInvalidArgument);
 }
 
 }  // namespace

@@ -55,7 +55,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
@@ -67,9 +67,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationModel.h"
+#include "humanoid_mpc_config/model_settings_config.nproto.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_msgs/quaternion.pb.h"
@@ -171,78 +172,99 @@ std::unique_ptr<TestRobot> TestRobot::load(const RobotFiles& files,
   std::unique_ptr<TestRobot> robot(new TestRobot());
   robot->formulation_ = formulation;
   robot->taskFile_ = resolve(files.taskFile);
-  robot->referenceFile_ = resolve(files.referenceFile);
-  robot->urdfFile_ = resolve(files.urdfFile);
-  robot->modelSettings_ = std::make_unique<ModelSettings>(
-      ModelSettings::Create(robot->taskFile_, robot->urdfFile_,
-                            "visualization_test", /*verbose=*/false)
-          .value());
-  robot->pinocchioInterface_ = std::make_unique<PinocchioInterface>(
-      robot->makeReferencePinocchioInterface());
   absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(robot->taskFile_);
   CHECK_OK(task.status());
   robot->task_ = *std::move(task);
-  const mpc_config::TaskFile& taskFile = robot->task_;
+  robot->referenceFile_ = resolve(files.referenceFile);
+  robot->urdfFile_ = resolve(files.urdfFile);
+  robot->build();
+  return robot;
+}
 
-  if (formulation == Formulation::kWholeBody) {
-    robot->robotModel_ = std::make_unique<WBAccelMpcRobotModel<scalar_t>>(
-        *robot->modelSettings_);
+std::unique_ptr<TestRobot> TestRobot::loadWithPointContacts(
+    const RobotFiles& files,
+    Formulation formulation,
+    const std::vector<mpc_config::ModelSettingsConfig::PointContact>&
+        pointContacts) {
+  std::unique_ptr<TestRobot> robot(new TestRobot());
+  robot->formulation_ = formulation;
+  robot->taskFile_ = resolve(files.taskFile);
+  absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(robot->taskFile_);
+  CHECK_OK(task.status());
+  robot->task_ = *std::move(task);
+  robot->task_.model_settings.contacts_3dof = pointContacts;
+  robot->referenceFile_ = resolve(files.referenceFile);
+  robot->urdfFile_ = resolve(files.urdfFile);
+  robot->build();
+  return robot;
+}
+
+void TestRobot::build() {
+  modelSettings_ = std::make_unique<ModelSettings>(
+      ModelSettings::Create(task_, urdfFile_, "visualization_test",
+                            /*verbose=*/false)
+          .value());
+  pinocchioInterface_ =
+      std::make_unique<PinocchioInterface>(makeReferencePinocchioInterface());
+  const mpc_config::TaskFile& taskFile = task_;
+
+  if (formulation_ == Formulation::kWholeBody) {
+    robotModel_ =
+        std::make_unique<WBAccelMpcRobotModel<scalar_t>>(*modelSettings_);
   } else {
     const absl::StatusOr<mpc_config::ReferenceFile> reference =
-        loadReferenceFile(robot->referenceFile_);
+        loadReferenceFile(referenceFile_);
     CHECK_OK(reference.status());
     const absl::StatusOr<CentroidalModelType> centroidalModelType =
         centroidalModelTypeFromConfig(taskFile);
     CHECK_OK(centroidalModelType.status());
     const absl::StatusOr<vector_t> defaultJointState =
         defaultJointStateFromConfig(*reference,
-                                    robot->modelSettings_->mpcModelJointNames,
-                                    robot->modelSettings_->fixedJointNames);
+                                    modelSettings_->mpcModelJointNames,
+                                    modelSettings_->fixedJointNames);
     CHECK_OK(defaultJointState.status());
-    robot->centroidalModelInfo_ = centroidal_model::createCentroidalModelInfo(
-        *robot->pinocchioInterface_, *centroidalModelType, *defaultJointState,
-        robot->modelSettings_->contactNames3DoF,
-        robot->modelSettings_->contactNames6DoF);
+    centroidalModelInfo_ = centroidal_model::createCentroidalModelInfo(
+        *pinocchioInterface_, *centroidalModelType, *defaultJointState,
+        modelSettings_->contactNames3DoF, modelSettings_->contactNames6DoF);
     std::unique_ptr<MpcRobotModelBase<scalar_t>> wrenchModel =
         std::make_unique<CentroidalMpcRobotModel<scalar_t>>(
-            *robot->modelSettings_, *robot->pinocchioInterface_,
-            robot->centroidalModelInfo_);
-    if (formulation == Formulation::kCentroidal) {
-      robot->robotModel_ = std::move(wrenchModel);
+            *modelSettings_, *pinocchioInterface_, centroidalModelInfo_);
+    if (formulation_ == Formulation::kCentroidal) {
+      robotModel_ = std::move(wrenchModel);
     } else {
-      const absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> bases =
-          contactWrenchConeBasesFromConfig(taskFile.contacts,
-                                           *robot->modelSettings_);
+      const absl::StatusOr<std::vector<ContactWrenchConeBasisMatrix>> bases =
+          contactWrenchConeBasesFromConfig(taskFile.contacts, *modelSettings_);
       CHECK_OK(bases.status());
-      robot->robotModel_ =
-          std::make_unique<BasisInputsModelDecorator<scalar_t>>(
-              std::move(wrenchModel), *bases, *robot->pinocchioInterface_);
+      absl::StatusOr<std::unique_ptr<BasisInputsModelDecorator<scalar_t>>>
+          decorator = BasisInputsModelDecorator<scalar_t>::Create(
+              std::move(wrenchModel), *bases, *pinocchioInterface_);
+      CHECK_OK(decorator.status());
+      robotModel_ = *std::move(decorator);
     }
   }
-  const StateInputLayout::Mpc mpc = formulation == Formulation::kWholeBody
+  const StateInputLayout::Mpc mpc = formulation_ == Formulation::kWholeBody
                                         ? StateInputLayout::Mpc::kWholeBody
                                         : StateInputLayout::Mpc::kCentroidal;
   const absl::StatusOr<vector_t> initialState = stateValuesFromConfig(
-      taskFile.initial_state, stateInputLayout(*robot->modelSettings_, mpc),
+      taskFile.initial_state, stateInputLayout(*modelSettings_, mpc),
       /*fieldPath=*/"initial_state");
   CHECK_OK(initialState.status());
   // The one mapping of the tuning layout onto the state, as the MPC interfaces
   // build their initial state.
   absl::StatusOr<vector_t> nominalState =
-      robot->robotModel_->stateFromTuning(*initialState);
+      robotModel_->stateFromTuning(*initialState);
   CHECK_OK(nominalState.status());
   CHECK_EQ(nominalState->size(),
-           static_cast<Eigen::Index>(robot->robotModel_->getStateDim()));
-  robot->nominalState_ = *std::move(nominalState);
+           static_cast<Eigen::Index>(robotModel_->getStateDim()));
+  nominalState_ = *std::move(nominalState);
   absl::StatusOr<std::shared_ptr<const StateManifold>> stateManifold =
-      stateManifoldOf(*robot->robotModel_);
+      stateManifoldOf(*robotModel_);
   CHECK_OK(stateManifold.status());
-  robot->stateManifold_ = *std::move(stateManifold);
-  return robot;
+  stateManifold_ = *std::move(stateManifold);
 }
 
 PinocchioInterface TestRobot::makeReferencePinocchioInterface() const {
-  return loadCustomPinocchioInterface(taskFile_, urdfFile_, *modelSettings_,
+  return loadCustomPinocchioInterface(task_, urdfFile_, *modelSettings_,
                                       /*scaleTotalMass=*/false)
       .value();
 }
@@ -276,7 +298,7 @@ void TestRobot::makePolicy(scalar_t startTime,
   solution->clear();
   solution->modeSchedule_ =
       ModeSchedule({startTime + 0.3, startTime + 0.6},
-                   {ModeNumber::kStance, ModeNumber::kRf, ModeNumber::kStance});
+                   {kBipedModeStance, kBipedModeRf, kBipedModeStance});
   for (size_t node = 0; node < nodes; ++node) {
     const scalar_t fraction =
         static_cast<scalar_t>(node) / static_cast<scalar_t>(nodes - 1);
@@ -295,9 +317,10 @@ void TestRobot::makePolicy(scalar_t startTime,
     robotModel_->setJointAngles(state, joints);
 
     vector_t input = vector_t::Zero(robotModel_->getInputDim());
-    const contact_flag_t stance =
-        modeNumber2StanceLeg(solution->modeSchedule_.modeAtTime(time));
-    for (size_t contact = 0; contact < kNumContacts; ++contact) {
+    const ContactMask stance = ContactMask::fromModeNumber(
+        solution->modeSchedule_.modeAtTime(time),
+        robotModel_->modelSettings.contactNames.size());
+    for (size_t contact = 0; contact < stance.size(); ++contact) {
       if (!stance[contact]) {
         continue;
       }
@@ -319,7 +342,7 @@ void TestRobot::makePolicy(scalar_t startTime,
     solution->stateTrajectory_.push_back(state);
     solution->inputTrajectory_.push_back(input);
   }
-  command->mpcInitObservation_ = observation(startTime, ModeNumber::kStance);
+  command->mpcInitObservation_ = observation(startTime, kBipedModeStance);
   command->mpcTargetTrajectories_ =
       TargetTrajectories({startTime, startTime + duration},
                          {nominalState_, solution->stateTrajectory_.back()},
@@ -354,7 +377,7 @@ humanoid_mpc_msgs::RobotStateSample TestRobot::robotState(
     sample.add_joint_velocities(0.1);
     sample.add_joint_measured_efforts(0.0);
   }
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  for (size_t contact = 0; contact < modelSettings_->numContacts(); ++contact) {
     sample.add_contact_flags(true);
     humanoid_mpc_msgs::Wrench* absl_nonnull measWrenchContactEwrtWorld =
         sample.add_meas_wrench_contacts_ewrt_world();

@@ -76,7 +76,7 @@ ContactLogicState ContactLogicState::make(
   // A double support already in progress at planning time counts from its
   // touch-down, the start of the shorter contact.
   s.initialTouchDownNode = kNoTouchDownNode;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     if (input.contacts[foot] && input.contacts[1 - foot]) {
       s.initialTouchDownNode = std::max(
           s.initialTouchDownNode,
@@ -185,7 +185,7 @@ int ContactLogicState::contactAge(const MiqpAssignment& a,
 scalar_t ContactLogicState::latestTouchDownNode(const MiqpAssignment& a,
                                                 int node) const {
   scalar_t latest = initialTouchDownNode;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     int8_t kappa = input->contacts[foot] ? 1 : 0;
     for (int k = 0; k <= node && k < numNodes; ++k) {
       const int8_t value = a[static_cast<size_t>(contactBinaryIndex(k, foot))];

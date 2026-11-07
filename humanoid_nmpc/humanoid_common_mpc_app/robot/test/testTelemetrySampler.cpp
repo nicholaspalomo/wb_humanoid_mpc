@@ -27,7 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <array>
 #include <cmath>
 #include <cstddef>
 #include <vector>
@@ -36,7 +35,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc_app/robot/JointNamesByIndex.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySampler.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
@@ -85,6 +87,7 @@ class TelemetrySamplerTest : public ::testing::Test {
                                   size_t capacity = 16) const {
     TelemetrySampler::Config config;
     config.jointNames = jointNamesByIndex(description_);
+    config.numContacts = static_cast<size_t>(kBipedFootCount);
     config.decimation = decimation;
     config.capacity = capacity;
     return config;
@@ -93,9 +96,17 @@ class TelemetrySamplerTest : public ::testing::Test {
   robot::model::RobotDescription description_;
   robot::model::RobotState state_;
   robot::model::RobotJointAction action_;
-  const contact_flag_t flags_{true, false};
-  const std::array<vector3_t, kNumContacts> measForceFeetEwrtWorld_{
-      vector3_t(1.0, 2.0, 300.0), vector3_t(0.0, 0.0, 0.5)};
+  // The left foot alone in contact.
+  const ContactMask flags_ = ContactMask::fromModeNumber(
+      /*modeNumber=*/kBipedModeLf,
+      /*numContacts=*/static_cast<size_t>(kBipedFootCount));
+  const ContactArray<vector3_t> measForceFeetEwrtWorld_ = []() {
+    ContactArray<vector3_t> forceFeetEwrtWorld(
+        /*numContacts=*/static_cast<size_t>(kBipedFootCount));
+    forceFeetEwrtWorld[0] = vector3_t(1.0, 2.0, 300.0);
+    forceFeetEwrtWorld[1] = vector3_t(0.0, 0.0, 0.5);
+    return forceFeetEwrtWorld;
+  }();
 };
 
 TEST_F(TelemetrySamplerTest, TakesOneSampleEveryDecimationCycles) {
@@ -155,7 +166,8 @@ TEST_F(TelemetrySamplerTest,
         robot_test::valueOrFail(action_.at(index)).feed_forward_effort);
   }
   EXPECT_EQ(sample.contact_flags, (std::vector<bool>{true, false}));
-  ASSERT_EQ(sample.meas_wrench_contacts_ewrt_world.size(), kNumContacts);
+  ASSERT_EQ(sample.meas_wrench_contacts_ewrt_world.size(),
+            static_cast<size_t>(kBipedFootCount));
   // NOLINTBEGIN(frame-naming): the components of a Wrench message, whose frames its field names
   EXPECT_DOUBLE_EQ(sample.meas_wrench_contacts_ewrt_world[0].force.z, 300.0);
   EXPECT_DOUBLE_EQ(sample.meas_wrench_contacts_ewrt_world[1].force.z, 0.5);

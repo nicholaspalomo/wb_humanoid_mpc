@@ -143,8 +143,8 @@ CONVENTIONAL_CALLEES = frozenset(
         "fetch_sub",
         # <ctime>: time(nullptr) is the C API's spelling of "now".
         "time",
-        # this repository's fill: a feet_array_t holding one value per foot (humanoid_common_mpc/common/Types.h)
-        "makeFeetArray",
+        # this repository's fill: a BipedFeetArray (humanoid_common_mpc/common/BipedFeet.h) holding one value per foot
+        "makeBipedFeetArray",
         # Eigen
         "block",
         "bottomLeftCorner",

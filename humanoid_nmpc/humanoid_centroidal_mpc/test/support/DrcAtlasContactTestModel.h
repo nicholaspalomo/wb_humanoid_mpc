@@ -45,9 +45,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -92,12 +92,12 @@ class DrcAtlasContactTestModel {
    * report `contacts` at. */
   static constexpr scalar_t kQueryTime = 0.0;
 
-  /** Makes getContactFlags(kQueryTime) return `contacts`, flushing the
-   * reference manager's mode-schedule buffer. */
-  void setContactFlags(const contact_flag_t& contacts);
+  /** Makes getContactFlags(kQueryTime) return the biped's feet `contacts`
+   * (left, right), flushing the reference manager's mode-schedule buffer. */
+  void setContactFlags(const BipedFeetArray<bool>& contacts);
 
   /** Both feet in contact. */
-  void setStance() { setContactFlags(makeFeetArray(true)); }
+  void setStance() { setContactFlags(makeBipedFeetArray(/*value=*/true)); }
 
   /** `swingFoot` out of contact, the other foot in contact - the case the
    * schedule gate used to switch terms off in. */

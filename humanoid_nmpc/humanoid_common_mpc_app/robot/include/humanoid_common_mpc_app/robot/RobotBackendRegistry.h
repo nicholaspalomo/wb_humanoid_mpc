@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -94,6 +95,9 @@ struct RobotBackendOptions {
    * contactParentJointNamesInContactOrder()). */
   std::vector<std::string> contactFrameNames;
   std::vector<std::string> contactParentJointNames;
+  /** How many of contactFrameNames are 3-DoF (point) contacts, which come
+   * first (ModelSettings::contactNames3DoF.size()); the rest are 6-DoF. */
+  size_t numPointContacts = 0;
   /** The target contact patches the viewer draws, per contact; empty: none (no
    * contact planner). */
   std::vector<robot::mujoco_sim_interface::ContactPatchCorners>

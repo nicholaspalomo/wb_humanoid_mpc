@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/GaitScheduleUpdater.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
@@ -51,28 +52,27 @@ namespace {
 // The shipped reference files: a stance schedule and a stance template of 0.5
 // s.
 ModeSchedule initialSchedule() {
-  return ModeSchedule({0.5}, {ModeNumber::kStance, ModeNumber::kStance});
+  return ModeSchedule({0.5}, {kBipedModeStance, kBipedModeStance});
 }
 ModeSequenceTemplate stanceTemplate() {
-  return ModeSequenceTemplate({0.0, 0.5}, {ModeNumber::kStance});
+  return ModeSequenceTemplate({0.0, 0.5}, {kBipedModeStance});
 }
 ModeSequenceTemplate trotTemplate() {
-  return ModeSequenceTemplate({0.0, 0.35, 0.7},
-                              {ModeNumber::kLf, ModeNumber::kRf});
+  return ModeSequenceTemplate({0.0, 0.35, 0.7}, {kBipedModeLf, kBipedModeRf});
 }
 
 bool hasSwing(const ModeSchedule& schedule, scalar_t from, scalar_t to) {
   for (scalar_t time = from; time <= to; time += 0.01) {
-    if (schedule.modeAtTime(time) != ModeNumber::kStance) return true;
+    if (schedule.modeAtTime(time) != kBipedModeStance) return true;
   }
   return false;
 }
 
 TEST(GaitScheduleReset, AResetScheduleAnswersExactlyAsAFreshOne) {
   GaitSchedule used(initialSchedule(), stanceTemplate(),
-                    /*phaseTransitionStanceTime=*/0.0);
+                    /*phaseTransitionStanceTime=*/0.0, GaitModeLayout{});
   GaitSchedule fresh(initialSchedule(), stanceTemplate(),
-                     /*phaseTransitionStanceTime=*/0.0);
+                     /*phaseTransitionStanceTime=*/0.0, GaitModeLayout{});
 
   // Trotting from t = 5 s: the schedule carries swings up to the end of its
   // horizon.
@@ -87,9 +87,9 @@ TEST(GaitScheduleReset, AResetScheduleAnswersExactlyAsAFreshOne) {
   // Queried at the time of the reset, and after the clock ran back to 2 s.
   for (const scalar_t time : {6.0, 2.0}) {
     GaitSchedule reference(initialSchedule(), stanceTemplate(),
-                           /*phaseTransitionStanceTime=*/0.0);
+                           /*phaseTransitionStanceTime=*/0.0, GaitModeLayout{});
     GaitSchedule reset(initialSchedule(), stanceTemplate(),
-                       /*phaseTransitionStanceTime=*/0.0);
+                       /*phaseTransitionStanceTime=*/0.0, GaitModeLayout{});
     reset.insertModeSequenceTemplate(trotTemplate(), /*startTime=*/5.0,
                                      /*finalTime=*/12.0);
     reset.reset();
@@ -115,15 +115,15 @@ TEST(UpdateGaitSchedule,
   // not exist. The updater used to read the event before the first one.
   GaitSchedule schedule(
       ModeSchedule({5.0, 5.3},
-                   {ModeNumber::kLf, ModeNumber::kStance, ModeNumber::kStance}),
+                   {kBipedModeLf, kBipedModeStance, kBipedModeStance}),
       stanceTemplate(),
-      /*phaseTransitionStanceTime=*/0.0);
+      /*phaseTransitionStanceTime=*/0.0, GaitModeLayout{});
   const scalar_t initTime = 1.0;
   const scalar_t finalTime = 2.0;
   const ModeSchedule before =
       schedule.getModeSchedule(initTime, finalTime + (finalTime - initTime));
   ASSERT_EQ(before.eventTimes.front(), 5.0);
-  ASSERT_EQ(before.modeAtTime(before.eventTimes.front()), ModeNumber::kLf)
+  ASSERT_EQ(before.modeAtTime(before.eventTimes.front()), kBipedModeLf)
       << "the case under test: the first phase is a left swing";
 
   updateGaitSchedule(schedule, trotTemplate(), initTime, finalTime);
@@ -134,9 +134,9 @@ TEST(UpdateGaitSchedule,
       schedule.getModeSchedule(initTime, /*upperBoundTime=*/8.0);
   ASSERT_FALSE(after.eventTimes.empty());
   EXPECT_DOUBLE_EQ(after.eventTimes.front(), 5.0);
-  EXPECT_EQ(after.modeAtTime(5.0 + 0.1), ModeNumber::kLf)
+  EXPECT_EQ(after.modeAtTime(5.0 + 0.1), kBipedModeLf)
       << "the trot begins after the first event";
-  EXPECT_EQ(after.modeAtTime(5.0 + 0.35 + 0.1), ModeNumber::kRf);
+  EXPECT_EQ(after.modeAtTime(5.0 + 0.35 + 0.1), kBipedModeRf);
   for (const scalar_t eventTime : after.eventTimes) {
     EXPECT_TRUE(std::isfinite(eventTime));
   }

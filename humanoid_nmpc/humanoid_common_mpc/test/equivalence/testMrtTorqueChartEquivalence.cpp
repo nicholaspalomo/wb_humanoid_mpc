@@ -51,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/fwd.hpp"
 #include "pinocchio/multibody/joint/fwd.hpp"
 
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
@@ -170,8 +171,9 @@ TEST_P(MrtTorqueChartEquivalence,
   const pinocchio::Model model = interface->getModel();
   ASSERT_TRUE(model.existFrame("foot_l_contact") &&
               model.existFrame("foot_r_contact"));
-  const feet_array_t<pinocchio::FrameIndex> soleFrames = {
-      model.getFrameId("foot_l_contact"), model.getFrameId("foot_r_contact")};
+  ContactArray<pinocchio::FrameIndex> soleFrames(/*numContacts=*/2);
+  soleFrames[0] = model.getFrameId("foot_l_contact");
+  soleFrames[1] = model.getFrameId("foot_r_contact");
   const pinocchio::Model eulerModel = eulerRootTwin(model);
   ASSERT_EQ(eulerModel.nv, model.nv);
   const Eigen::Index joints = model.nv - 6;
@@ -245,10 +247,15 @@ TEST_P(MrtTorqueChartEquivalence,
         m.bottomRightCorner(joints, joints) * jointAccelerations -
         residual.tail(joints);
 
+    ContactArray<vector6_t> wrenchContactsEwrtWorld(/*numContacts=*/2);
+    wrenchContactsEwrtWorld[0] = wrenchFeetEwrtWorld[0];
+    wrenchContactsEwrtWorld[1] = wrenchFeetEwrtWorld[1];
     const vector_t jointTorques = computeJointTorques<scalar_t>(
-        q, v, jointAccelerations, wrenchFeetEwrtWorld, soleFrames, *interface);
+        q, v, jointAccelerations, wrenchContactsEwrtWorld, soleFrames,
+        *interface);
     const vector_t heldJointTorques = computeBaseHeldJointTorques<scalar_t>(
-        q, v, jointAccelerations, wrenchFeetEwrtWorld, soleFrames, *interface);
+        q, v, jointAccelerations, wrenchContactsEwrtWorld, soleFrames,
+        *interface);
     ASSERT_TRUE(isCloseRelative(jointTorques, eulerModelJointTorques,
                                 kJointTorqueTolerance))
         << "the free base's torques";

@@ -102,7 +102,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/cost/InputQuadraticCost.h"
 #include "humanoid_common_mpc/cost/TuningQuadraticStateCost.h"
 #include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/parameter_update/CommandLimitsReloaders.h"
@@ -555,7 +555,7 @@ class Stack {
     observation_.time = 0.0;
     observation_.state = interface_->getInitialState();
     observation_.input = vector_t::Zero(effectiveModel.getInputDim());
-    observation_.mode = ModeNumber::kStance;
+    observation_.mode = kBipedModeStance;
     mrt_->setCurrentObservation(observation_);
     mrt_->resetMpcNode(centroidalMpcResetTargetTrajectories(
         observation_, interface_->getCentroidalModelInfo(), effectiveModel,

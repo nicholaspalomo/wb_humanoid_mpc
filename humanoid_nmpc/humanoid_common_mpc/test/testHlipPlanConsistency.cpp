@@ -48,11 +48,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipContactPlanner.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipModel.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 namespace ocs2::humanoid {
 namespace {
+
+// The biped's two feet, which every case here is written for.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 constexpr scalar_t kNomPosLfootRtRfootEwrtHeadingY = 0.25;
 constexpr scalar_t kDt = 0.025;
@@ -89,8 +92,8 @@ ContactPlannerInput makeStandingInput(
       vector2_t(0.0, 0.5 * kNomPosLfootRtRfootEwrtHeadingY);
   input.posFeetRtWorldEwrtWorldXy[kContactRightIndex] =
       vector2_t(0.0, -0.5 * kNomPosLfootRtRfootEwrtHeadingY);
-  input.contacts = makeFeetArray(true);
-  input.phaseElapsedTime = makeFeetArray(
+  input.contacts = makeBipedFeetArray(true);
+  input.phaseElapsedTime = makeBipedFeetArray(
       1.0);  // a long stance: the robot has been standing for a while
   input.cmdLinvelBaseRtWorldEwrtWorldXy = cmdLinvelBaseRtWorldEwrtWorldXy;
   input.committedUntil = input.time;
@@ -98,9 +101,9 @@ ContactPlannerInput makeStandingInput(
 }
 
 size_t modeWithSwinging(size_t foot) {
-  contact_flag_t contacts = makeFeetArray(true);
+  BipedFeetArray<bool> contacts = makeBipedFeetArray(true);
   contacts[foot] = false;
-  return stanceLeg2ModeNumber(contacts);
+  return bipedModeOfFootContacts(contacts);
 }
 
 /**
@@ -119,8 +122,8 @@ ContactPlannerInput makeInputWithLeftSwingInFlight(
     const ContactPlanningConfig& config) {
   const ModeSchedule executed(
       {liftOff, touchDown},
-      {ModeNumber::kStance, modeWithSwinging(kContactLeftIndex),
-       ModeNumber::kStance});
+      {kBipedModeStance, modeWithSwinging(kContactLeftIndex),
+       kBipedModeStance});
   ContactPlannerInput input = makeStandingInput(vector2_t::Zero());
   input.time = time;
   input.posFeetRtWorldEwrtWorldXy[kContactLeftIndex] = vector2_t(
@@ -166,8 +169,8 @@ AxisStates orbitAtLeftLiftOff(const HlipModel& model,
 
 /** The contact state the gait itself describes at `time`, independent of how
  * the plan was sampled onto nodes. */
-contact_flag_t gaitContactsAt(const std::vector<GaitPhase>& gait,
-                              scalar_t time) {
+BipedFeetArray<bool> gaitContactsAt(const std::vector<GaitPhase>& gait,
+                                    scalar_t time) {
   for (const GaitPhase& phase : gait) {
     if (time < phase.endTime) return phase.contacts;
   }
@@ -285,7 +288,7 @@ TEST(HlipPlanConsistency,
   // The reference manager has committed the first two intervals to double
   // support, which is what it does out of a stance: the commit window covers
   // the planner's own latency.
-  input.committedContacts.assign(2, makeFeetArray(true));
+  input.committedContacts.assign(2, makeBipedFeetArray(true));
   input.committedUntil = input.time + 2.0 * kDt;
 
   const std::vector<GaitPhase> gait =
@@ -295,7 +298,7 @@ TEST(HlipPlanConsistency,
   // starting at node 0. Out of a long stance the nominal cadence used to lift a
   // foot immediately, because `dspDuration - elapsed` was negative.
   ASSERT_FALSE(gait.empty());
-  EXPECT_EQ(gait.front().contacts, makeFeetArray(true));
+  EXPECT_EQ(gait.front().contacts, makeBipedFeetArray(true));
   EXPECT_FALSE(gait.front().isSingleSupport());
   EXPECT_NEAR(gait.front().endTime, input.time + 2.0 * kDt, 1.0e-9)
       << "the first phase must end where the committed window ends, not where "
@@ -320,7 +323,7 @@ TEST(HlipPlanConsistency, theCommittedContactsAreStillHonoredExactly) {
   ContactPlannerInput input = makeStandingInput(vector2_t(0.4, 0.0));
   // An arbitrary committed pattern, including a swing the nominal cadence would
   // not have chosen.
-  input.committedContacts.assign(4, makeFeetArray(true));
+  input.committedContacts.assign(4, makeBipedFeetArray(true));
   input.committedContacts[2][kContactRightIndex] = false;
   input.committedContacts[3][kContactRightIndex] = false;
   input.committedUntil = input.time + 4.0 * kDt;
@@ -465,7 +468,7 @@ struct NamedInput {
 std::vector<NamedInput> roundingFixtures(const ContactPlanningConfig& config) {
   std::vector<NamedInput> fixtures;
   ContactPlannerInput onGrid = makeStandingInput(vector2_t(0.4, 0.0));
-  onGrid.committedContacts.assign(2, makeFeetArray(true));
+  onGrid.committedContacts.assign(2, makeBipedFeetArray(true));
   onGrid.committedUntil = onGrid.time + 2.0 * kDt;
   fixtures.push_back({"on-grid stance", onGrid});
 
@@ -535,7 +538,7 @@ TEST(HlipPlanConsistency, theFootholdChangesOnTheSameNodeTheContactDoes) {
     // the node at which its contact flag says it left the ground - never one
     // node out - and a foot's foothold may not move at any other node.
     int liftOffs = 0;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       for (int interval = 1; interval < plan.numIntervals(); ++interval) {
         const bool liftsOff =
             plan.contacts[interval - 1][foot] && !plan.contacts[interval][foot];
@@ -704,7 +707,7 @@ TEST(HlipPlanConsistency,
 
   const ContactPlan plan = planner->plan(input);
   ASSERT_TRUE(plan.valid);
-  const feet_array_t<vector2_t>& finalDesPosFeetRtWorldEwrtWorldXy =
+  const BipedFeetArray<vector2_t>& finalDesPosFeetRtWorldEwrtWorldXy =
       plan.desPosFeetRtWorldEwrtWorldXyTraj.back();
   const vector2_t desPosFeetmeanRtWorldEwrtWorldXy =
       0.5 * (finalDesPosFeetRtWorldEwrtWorldXy[kContactLeftIndex] +
@@ -803,7 +806,7 @@ TEST(HlipPlanConsistency,
         kSspDuration * static_cast<scalar_t>(sample) / 10.0;
     ContactPlannerInput input = makeStandingInput(vector2_t::Zero());
     input.contacts[kContactLeftIndex] = false;
-    input.phaseElapsedTime = makeFeetArray(inFlight);
+    input.phaseElapsedTime = makeBipedFeetArray(inFlight);
     input.lastSwungFoot = static_cast<int>(kContactLeftIndex);
     const HlipModel::State y =
         model.flowSingleSupport(atLiftOff.lateral, inFlight);
@@ -817,7 +820,7 @@ TEST(HlipPlanConsistency,
   // slowing down from it to rest.
   for (const scalar_t fraction : {1.0, 0.7, 0.3, 0.0}) {
     ContactPlannerInput input = makeStandingInput(vector2_t::Zero());
-    input.phaseElapsedTime = makeFeetArray(0.02);
+    input.phaseElapsedTime = makeBipedFeetArray(0.02);
     input.lastSwungFoot = static_cast<int>(kContactLeftIndex);
     input.proxyLinvelComRtWorldEwrtWorldXy =
         vector2_t(0.0, fraction * orbit.beforeFirstStep(1));
@@ -843,7 +846,7 @@ TEST(HlipPlanConsistency, aLateralPushBeyondTheOrbitsSwayStillStartsTheGait) {
       orbit.beforeFirstStep(1);  // towards the left foot that has just landed
 
   ContactPlannerInput afterLeft = makeStandingInput(vector2_t::Zero());
-  afterLeft.phaseElapsedTime = makeFeetArray(0.02);
+  afterLeft.phaseElapsedTime = makeBipedFeetArray(0.02);
   afterLeft.lastSwungFoot = static_cast<int>(kContactLeftIndex);
   afterLeft.proxyLinvelComRtWorldEwrtWorldXy = vector2_t(0.0, drift + 0.1);
   EXPECT_NEAR(planner->computeBlendLinvelComRtWorldEwrtHeadingXy(afterLeft).y(),

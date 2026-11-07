@@ -49,9 +49,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
 #include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
@@ -142,7 +142,7 @@ absl::StatusOr<std::unique_ptr<MpcNodeRuntime>> MpcNodeRuntime::Create(
         const WalkingVelocityCommand scaledCommand =
             motionManager->getScaledWalkingVelocityCommand();
         if (planner != nullptr) {
-          const feet_array_t<TargetContactPose> desPoseFeetRtWorld =
+          const BipedFeetArray<TargetContactPose> desPoseFeetRtWorld =
               planner->getDesPoseFeetRtWorld();
           fillViewerAnnotations(&desPoseFeetRtWorld, scaledCommand,
                                 annotations);

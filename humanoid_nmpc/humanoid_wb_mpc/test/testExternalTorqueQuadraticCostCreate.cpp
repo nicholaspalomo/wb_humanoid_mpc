@@ -69,6 +69,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+
 std::string runfilePath(absl::string_view relativePath) {
   std::vector<std::filesystem::path> roots;
   if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR")) {
@@ -117,7 +119,7 @@ class ExternalTorqueQuadraticCostCreateTest : public ::testing::Test {
     ASSERT_TRUE(swingConfig.ok()) << swingConfig.status();
     referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(
         *std::move(gaitSchedule),
-        std::make_unique<SwingTrajectoryPlanner>(*swingConfig, kNumContacts),
+        std::make_unique<SwingTrajectoryPlanner>(*swingConfig, kNumFeet),
         *pinocchioInterface_, *model_);
   }
 

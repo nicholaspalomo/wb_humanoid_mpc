@@ -56,7 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
 #include "humanoid_common_mpc/contact_planning/execution/ScheduleAdaptationPipeline.h"
 #include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 
 namespace ocs2::humanoid {
 
@@ -65,7 +65,7 @@ namespace {
 bool footInContact(const ModeSchedule& schedule,
                    size_t phaseIndex,
                    size_t foot) {
-  return modeNumber2StanceLeg(schedule.modeSequence[phaseIndex])[foot];
+  return bipedFootContactsOfMode(schedule.modeSequence[phaseIndex])[foot];
 }
 
 /** First phase of the swing of `foot` that contains phase `index` (the foot is
@@ -101,9 +101,10 @@ size_t modeIndexAtTime(const ModeSchedule& schedule, scalar_t time) {
   return index;
 }
 
-contact_flag_t contactFlagsAtTime(const ModeSchedule& schedule, scalar_t time) {
-  if (schedule.modeSequence.empty()) return makeFeetArray(true);
-  return modeNumber2StanceLeg(
+BipedFeetArray<bool> contactFlagsAtTime(const ModeSchedule& schedule,
+                                        scalar_t time) {
+  if (schedule.modeSequence.empty()) return makeBipedFeetArray(true);
+  return bipedFootContactsOfMode(
       schedule.modeSequence[modeIndexAtTime(schedule, time)]);
 }
 
@@ -225,7 +226,8 @@ scalar_t stanceDutyFactor(const ModeSchedule& schedule,
   // a foot carrying the robot through the other's swing must not be handed the
   // standing value of half the weight.
   scalar_t firstLiftOffOfAnyFoot = std::numeric_limits<scalar_t>::infinity();
-  for (size_t other = 0; other < kNumContacts; ++other) {
+  for (size_t other = 0; other < static_cast<size_t>(kBipedFootCount);
+       ++other) {
     const FootEvents events = footEvents(schedule, other);
     if (!events.liftOffs.empty()) {
       firstLiftOffOfAnyFoot =
@@ -322,8 +324,9 @@ scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule,
     if (i >= eventTimes.size()) {
       break;  // the last phase has no touch-down to extend to
     }
-    const contact_flag_t contacts = modeNumber2StanceLeg(modeSequence[i]);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    const BipedFeetArray<bool> contacts =
+        bipedFootContactsOfMode(modeSequence[i]);
+    for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
       if (!contacts[foot]) {
         boundary =
             std::max(boundary, eventTimes[i]);  // touch-down of this swing
@@ -344,8 +347,9 @@ bool planAgreesWithSwingsInFlight(const ModeSchedule& applied,
                                   const ContactPlan& plan,
                                   scalar_t time) {
   if (!plan.valid || plan.contacts.empty()) return true;
-  const contact_flag_t planned = plan.contactsAtTime(time + kMinTimeShift);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  const BipedFeetArray<bool> planned =
+      plan.contactsAtTime(time + kMinTimeShift);
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     const std::optional<SwingWindow> phase =
         swingPhaseAtTime(applied, foot, time);
     // Not swinging, or a lift-off at `time` itself: nothing is in flight that
@@ -376,13 +380,13 @@ std::vector<scalar_t> committedSampleTimes(scalar_t startTime,
   return sampleTimes;
 }
 
-std::vector<contact_flag_t> committedContactsForPlanner(
+std::vector<BipedFeetArray<bool>> committedContactsForPlanner(
     const ModeSchedule& schedule,
     scalar_t startTime,
     scalar_t dt,
     int maxNodes,
     scalar_t committedUntil) {
-  std::vector<contact_flag_t> committed;
+  std::vector<BipedFeetArray<bool>> committed;
   for (const scalar_t sampleTime :
        committedSampleTimes(startTime, dt, maxNodes, committedUntil)) {
     committed.push_back(contactFlagsAtTime(schedule, sampleTime));
@@ -390,15 +394,15 @@ std::vector<contact_flag_t> committedContactsForPlanner(
   return committed;
 }
 
-feet_array_t<scalar_t> contactPhaseStartTimes(const ModeSchedule& schedule,
-                                              scalar_t time) {
-  feet_array_t<scalar_t> starts =
-      makeFeetArray(-std::numeric_limits<scalar_t>::infinity());
+BipedFeetArray<scalar_t> contactPhaseStartTimes(const ModeSchedule& schedule,
+                                                scalar_t time) {
+  BipedFeetArray<scalar_t> starts =
+      makeBipedFeetArray(-std::numeric_limits<scalar_t>::infinity());
   if (schedule.modeSequence.empty()) return starts;
   const size_t modeIndex = modeIndexAtTime(schedule, time);
-  const contact_flag_t contacts =
-      modeNumber2StanceLeg(schedule.modeSequence[modeIndex]);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  const BipedFeetArray<bool> contacts =
+      bipedFootContactsOfMode(schedule.modeSequence[modeIndex]);
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     // Walk back through the events while the foot keeps the same contact state.
     size_t index = modeIndex;
     while (index > 0 &&
@@ -410,13 +414,13 @@ feet_array_t<scalar_t> contactPhaseStartTimes(const ModeSchedule& schedule,
   return starts;
 }
 
-std::vector<feet_array_t<scalar_t>> committedPhaseStartsForPlanner(
+std::vector<BipedFeetArray<scalar_t>> committedPhaseStartsForPlanner(
     const ModeSchedule& schedule,
     scalar_t startTime,
     scalar_t dt,
     int maxNodes,
     scalar_t committedUntil) {
-  std::vector<feet_array_t<scalar_t>> starts;
+  std::vector<BipedFeetArray<scalar_t>> starts;
   for (const scalar_t sampleTime :
        committedSampleTimes(startTime, dt, maxNodes, committedUntil)) {
     starts.push_back(contactPhaseStartTimes(schedule, sampleTime));
@@ -435,9 +439,11 @@ void LiftOffHistory::record(const ModeSchedule& schedule, scalar_t time) {
   for (size_t event = 0;
        event < eventTimes.size() && event + 1 < modeSequence.size(); ++event) {
     if (eventTimes[event] > time) break;
-    const contact_flag_t before = modeNumber2StanceLeg(modeSequence[event]);
-    const contact_flag_t after = modeNumber2StanceLeg(modeSequence[event + 1]);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    const BipedFeetArray<bool> before =
+        bipedFootContactsOfMode(modeSequence[event]);
+    const BipedFeetArray<bool> after =
+        bipedFootContactsOfMode(modeSequence[event + 1]);
+    for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
       if (before[foot] && !after[foot]) {
         lastLiftOffTimes[foot] =
             std::max(lastLiftOffTimes[foot], eventTimes[event]);
@@ -449,7 +455,7 @@ void LiftOffHistory::record(const ModeSchedule& schedule, scalar_t time) {
 int LiftOffHistory::lastSwungFoot() const {
   int lastSwung = -1;
   scalar_t latest = -std::numeric_limits<scalar_t>::infinity();
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     if (std::isfinite(lastLiftOffTimes[foot]) &&
         lastLiftOffTimes[foot] >= latest) {
       latest = lastLiftOffTimes[foot];
@@ -466,9 +472,9 @@ void fillPlannerInputFromSchedule(const ModeSchedule& schedule,
                                   ContactPlannerInput& input) {
   const scalar_t time = input.time;
   input.contacts = contactFlagsAtTime(schedule, time);
-  const feet_array_t<scalar_t> phaseStarts =
+  const BipedFeetArray<scalar_t> phaseStarts =
       contactPhaseStartTimes(schedule, time);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     const scalar_t phaseStart = std::isfinite(phaseStarts[foot])
                                     ? phaseStarts[foot]
                                     : time - kPhaseElapsedTimeBeforeTheSchedule;
@@ -546,9 +552,9 @@ std::optional<scalar_t> truncateSwingPhase(ModeSchedule& schedule,
     ++last;
   }
   for (size_t p = index; p <= last; ++p) {
-    contact_flag_t flags = modeNumber2StanceLeg(modeSequence[p]);
+    BipedFeetArray<bool> flags = bipedFootContactsOfMode(modeSequence[p]);
     flags[foot] = true;
-    modeSequence[p] = stanceLeg2ModeNumber(flags);
+    modeSequence[p] = bipedModeOfFootContacts(flags);
   }
   removeRedundantEvents(schedule);
   return touchDown;
@@ -572,13 +578,13 @@ bool shiftEventsFrom(ModeSchedule& schedule,
 /*============================================ contact events
  * ==============================================*/
 
-feet_array_t<ContactEventReport> adaptScheduleToContactEvents(
+BipedFeetArray<ContactEventReport> adaptScheduleToContactEvents(
     ModeSchedule& schedule,
     scalar_t time,
-    const contact_flag_t& measuredContact,
-    const feet_array_t<scalar_t>& cadenceTouchDownShift,
+    const BipedFeetArray<bool>& measuredContact,
+    const BipedFeetArray<scalar_t>& cadenceTouchDownShift,
     const ContactPlanningConfig& config,
-    feet_array_t<SwingTimingLatch>& latches) {
+    BipedFeetArray<SwingTimingLatch>& latches) {
   // The schedule rules of the configuration's execution list, in list order
   // (the heading override and the foothold rules do not touch the schedule);
   // the cadence shifts are given, so the cadence rule's own computation is

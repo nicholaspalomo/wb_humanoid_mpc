@@ -39,12 +39,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
 #include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 
 namespace ocs2::humanoid {
 
@@ -53,7 +52,7 @@ namespace {
 bool footInContact(const ModeSchedule& schedule,
                    size_t phaseIndex,
                    size_t foot) {
-  return modeNumber2StanceLeg(schedule.modeSequence[phaseIndex])[foot];
+  return bipedFootContactsOfMode(schedule.modeSequence[phaseIndex])[foot];
 }
 
 /** First phase of the swing of `foot` that contains phase `index` (the foot is
@@ -66,17 +65,17 @@ size_t firstSwingPhase(const ModeSchedule& schedule,
 }
 }  // namespace
 
-feet_array_t<ContactEventReport> adaptScheduleWithRules(
+BipedFeetArray<ContactEventReport> adaptScheduleWithRules(
     ModeSchedule& schedule,
     const ExecutionContext& ctx,
     const TermCollection<ExecutionRule>& rules,
-    feet_array_t<SwingTimingLatch>& latches) {
-  feet_array_t<ContactEventReport> reports =
-      makeFeetArray(ContactEventReport{});
+    BipedFeetArray<SwingTimingLatch>& latches) {
+  BipedFeetArray<ContactEventReport> reports =
+      makeBipedFeetArray(ContactEventReport{});
   if (schedule.modeSequence.empty()) return reports;
   const scalar_t time = ctx.time;
 
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     SwingTimingLatch& latch = latches[foot];
     ContactEventReport& report = reports[foot];
 

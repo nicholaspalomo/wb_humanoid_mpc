@@ -43,7 +43,7 @@ void LipIndices::bind(const Layout& layout) {
                                layout.state(var::kLinvelComRtWorldEwrtWorldY)};
   posZmpRtWorldEwrtWorld = {layout.input(var::kPosZmpRtWorldEwrtWorldX),
                             layout.input(var::kPosZmpRtWorldEwrtWorldY)};
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < static_cast<size_t>(kBipedFootCount); ++i) {
     posFeetRtWorldEwrtWorld[i] = {
         layout.state(var::posFootRtWorldEwrtWorldX(i)),
         layout.state(var::posFootRtWorldEwrtWorldY(i))};
@@ -55,7 +55,7 @@ void LipIndices::bind(const Layout& layout) {
   hasHeading = layout.hasHeading;
   headingModelYaw = layout.headingModelYaw;
   headingModelYawRate = layout.headingModelYawRate;
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < static_cast<size_t>(kBipedFootCount); ++i) {
     eulerzyxFeetRtWorldYaw[i] =
         hasHeading ? layout.eulerzyxFootRtWorldYaw(i) : -1;
     torqueFeetEwrtWorldZ[i] = hasHeading ? layout.torqueFootEwrtWorldZ(i) : -1;

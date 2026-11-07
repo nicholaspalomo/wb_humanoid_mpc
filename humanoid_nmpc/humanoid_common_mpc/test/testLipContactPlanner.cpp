@@ -64,12 +64,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
 #include "humanoid_common_mpc/contact_planning/search/CadenceStretchStage.h"
 #include "humanoid_common_mpc/contact_planning/search/SearchStage.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 namespace ocs2::humanoid {
 
 namespace {
+
+// The biped's two feet, which every case here is written for.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 constexpr scalar_t kSoftTol =
     2.0e-2;  // the geometric constraints are soft; allow a small violation
@@ -118,7 +121,7 @@ struct PhaseStats {
 
 PhaseStats analyze(const ContactPlan& plan) {
   PhaseStats stats;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     int run = 0;
     bool current = plan.contacts[0][foot];
     bool runStartedInside = false;
@@ -140,7 +143,7 @@ PhaseStats analyze(const ContactPlan& plan) {
       ++run;
     }
   }
-  for (const contact_flag_t& c : plan.contacts) {
+  for (const BipedFeetArray<bool>& c : plan.contacts) {
     if (!c[0] && !c[1]) stats.flight = true;
   }
   return stats;
@@ -151,12 +154,12 @@ bool zmpInsideSupport(const ContactPlan& plan,
                       int k) {
   const vector2_t& posZmpRtWorldEwrtWorldXy =
       plan.posZmpRtWorldEwrtWorldXyTraj[k];
-  const contact_flag_t c = plan.contacts[k];
+  const BipedFeetArray<bool> c = plan.contacts[k];
   scalar_t minPosZmpRtWorldEwrtWorldX = 1.0e9;
   scalar_t maxPosZmpRtWorldEwrtWorldX = -1.0e9;
   scalar_t minPosZmpRtWorldEwrtWorldY = 1.0e9;
   scalar_t maxPosZmpRtWorldEwrtWorldY = -1.0e9;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     if (!c[foot]) continue;
     const vector2_t& desPosFootRtWorldEwrtWorldXy =
         plan.desPosFeetRtWorldEwrtWorldXyTraj[k][foot];
@@ -192,7 +195,7 @@ void printPlan(const ContactPlan& plan) {
     LOG(INFO) << "(none)\n";
     return;
   }
-  for (const contact_flag_t& c : plan.contacts) {
+  for (const BipedFeetArray<bool>& c : plan.contacts) {
     LOG(INFO) << "[" << c[0] << c[1] << "]";
   }
   LOG(INFO) << "\n";
@@ -269,7 +272,7 @@ TEST(LipContactPlannerTest, StandingProducesNoSteps) {
   printPlan(plan);
   ASSERT_TRUE(plan.valid);
   EXPECT_TRUE(plan.optimal);
-  for (const contact_flag_t& c : plan.contacts) {
+  for (const BipedFeetArray<bool>& c : plan.contacts) {
     EXPECT_TRUE(c[0] && c[1]);
   }
   EXPECT_LT((plan.posComRtWorldEwrtWorldXyTraj.back() -
@@ -287,8 +290,7 @@ TEST(LipContactPlannerTest, StandingProducesNoSteps) {
   const ModeSchedule schedule = plan.toModeSchedule();
   EXPECT_TRUE(schedule.eventTimes.empty());
   EXPECT_EQ(schedule.modeSequence.size(), 1u);
-  EXPECT_EQ(schedule.modeSequence.front(),
-            static_cast<size_t>(ModeNumber::kStance));
+  EXPECT_EQ(schedule.modeSequence.front(), kBipedModeStance);
 }
 
 /**
@@ -374,7 +376,7 @@ TEST(LipContactPlannerTest, WalkingCommandProducesAlternatingSteps) {
         std::abs(desPosLfootRtRfootEwrtWorldXy(0)),
         config.footSeparation.maxNormPosLfootRtRfootEwrtHeadingX + kSoftTol)
         << "k=" << k;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       const vector2_t desPosFootRtComEwrtWorldXy =
           plan.desPosFeetRtWorldEwrtWorldXyTraj[k][foot] -
           plan.posComRtWorldEwrtWorldXyTraj[k];
@@ -385,7 +387,7 @@ TEST(LipContactPlannerTest, WalkingCommandProducesAlternatingSteps) {
   }
   // A foot in contact does not move.
   for (int k = 0; k < plan.numIntervals(); ++k) {
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       if (plan.contacts[k][foot]) {
         EXPECT_LT((plan.desPosFeetRtWorldEwrtWorldXyTraj[k + 1][foot] -
                    plan.desPosFeetRtWorldEwrtWorldXyTraj[k][foot])
@@ -1037,14 +1039,14 @@ namespace {
  * lift-off event. */
 template <typename Visitor>
 void forEachSwing(const ModeSchedule& schedule, const Visitor& visit) {
-  for (size_t f = 0; f < kNumContacts; ++f) {
+  for (size_t f = 0; f < kNumFeet; ++f) {
     for (size_t i = 0; i + 1 < schedule.modeSequence.size(); ++i) {
       const bool liftOff =
-          modeNumber2StanceLeg(schedule.modeSequence[i])[f] &&
-          !modeNumber2StanceLeg(schedule.modeSequence[i + 1])[f];
+          bipedFootContactsOfMode(schedule.modeSequence[i])[f] &&
+          !bipedFootContactsOfMode(schedule.modeSequence[i + 1])[f];
       if (!liftOff) continue;
       for (size_t j = i + 1; j < schedule.eventTimes.size(); ++j) {
-        if (modeNumber2StanceLeg(schedule.modeSequence[j + 1])[f]) {
+        if (bipedFootContactsOfMode(schedule.modeSequence[j + 1])[f]) {
           visit(f, schedule.eventTimes[i], schedule.eventTimes[j]);
           break;
         }
@@ -1072,8 +1074,8 @@ ModeSchedule walkRecedingHorizon(const ContactPlanningConfig& c,
       checkedValue(LipContactPlanner::Create(c));
   ContactPlannerInput in = makeStandingInput();
   in.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.4, 0.0);
-  ModeSchedule applied({-1.0, 20.0}, {ModeNumber::kStance, ModeNumber::kStance,
-                                      ModeNumber::kStance});
+  ModeSchedule applied({-1.0, 20.0},
+                       {kBipedModeStance, kBipedModeStance, kBipedModeStance});
   std::deque<std::pair<int, ContactPlan>>
       pending;  // (tick at which the plan is applied, plan)
 
@@ -1127,11 +1129,11 @@ ModeSchedule walkRecedingHorizon(const ContactPlanningConfig& c,
           applied, t, c.planner.dt, c.planner.numNodes - 1, in.committedUntil);
       in.committedPhaseStartTimes = committedPhaseStartsForPlanner(
           applied, t, c.planner.dt, c.planner.numNodes - 1, in.committedUntil);
-      for (size_t f = 0; f < kNumContacts; ++f) {
+      for (size_t f = 0; f < kNumFeet; ++f) {
         size_t idx = modeIndexAtTime(applied, t);
         scalar_t phaseStart = t - 10.0;
         while (idx > 0 &&
-               modeNumber2StanceLeg(applied.modeSequence[idx - 1])[f] ==
+               bipedFootContactsOfMode(applied.modeSequence[idx - 1])[f] ==
                    in.contacts[f]) {
           --idx;
         }
@@ -1143,11 +1145,11 @@ ModeSchedule walkRecedingHorizon(const ContactPlanningConfig& c,
       in.lastSwungFoot = -1;
       for (size_t i = modeIndexAtTime(applied, t);
            i > 0 && in.lastSwungFoot < 0; --i) {
-        const contact_flag_t before =
-            modeNumber2StanceLeg(applied.modeSequence[i - 1]);
-        const contact_flag_t after =
-            modeNumber2StanceLeg(applied.modeSequence[i]);
-        for (size_t f = 0; f < kNumContacts; ++f) {
+        const BipedFeetArray<bool> before =
+            bipedFootContactsOfMode(applied.modeSequence[i - 1]);
+        const BipedFeetArray<bool> after =
+            bipedFootContactsOfMode(applied.modeSequence[i]);
+        for (size_t f = 0; f < kNumFeet; ++f) {
           if (before[f] && !after[f]) in.lastSwungFoot = static_cast<int>(f);
         }
       }
@@ -1159,9 +1161,9 @@ ModeSchedule walkRecedingHorizon(const ContactPlanningConfig& c,
       if (latencyTicks == 0) activateDuePlans(step, t);
     }
     for (size_t m : applied.modeSequence) {
-      const contact_flag_t flags = modeNumber2StanceLeg(m);
+      const BipedFeetArray<bool> flags = bipedFootContactsOfMode(m);
       bool anyContact = false;
-      for (size_t i = 0; i < kNumContacts; ++i) {
+      for (size_t i = 0; i < kNumFeet; ++i) {
         anyContact = anyContact || flags[i];
       }
       EXPECT_TRUE(anyContact) << "flight phase at step " << step;
@@ -1215,7 +1217,7 @@ void expectExecutedStepsAlternateWithFullStances(const ModeSchedule& applied,
           << touchDown << "); schedule: " << applied;
     }
   }
-  for (size_t f = 0; f < kNumContacts; ++f) {
+  for (size_t f = 0; f < kNumFeet; ++f) {
     std::optional<scalar_t> lastTouchDown;
     for (const std::tuple<scalar_t, scalar_t, size_t>& swing : swings) {
       const scalar_t liftOff = std::get<0>(swing);
@@ -1302,7 +1304,7 @@ ContactPlannerInput turnInPlaceInput(scalar_t cmdRateYawBaseRtWorld) {
   in.yawHeadingRtWorld = 0.0;
   in.initRateYawHeadingRtWorld = 0.0;
   in.cmdRateYawBaseRtWorld = cmdRateYawBaseRtWorld;
-  in.eulerzyxFeetRtWorldYaw = makeFeetArray(0.0);
+  in.eulerzyxFeetRtWorldYaw = makeBipedFeetArray(0.0);
   in.inertiaComEwrtWorldZz =
       15.0;  // from the robot model in the reference manager
   return in;
@@ -1321,16 +1323,15 @@ TEST(LipContactPlannerHeading,
                                 LipContactPlanner::makeLayout(headingConfig()));
   EXPECT_TRUE(heading.hasHeading);
   EXPECT_EQ(heading.nx,
-            LipContactPlanner::kStateDim + 2 + static_cast<int>(kNumContacts));
+            LipContactPlanner::kStateDim + 2 + static_cast<int>(kNumFeet));
   EXPECT_EQ(heading.nu,
-            LipContactPlanner::kInputDim + 2 * static_cast<int>(kNumContacts));
+            LipContactPlanner::kInputDim + 2 * static_cast<int>(kNumFeet));
   // The binaries keep their indices: the heading block is appended after the
   // LIP inputs.
   EXPECT_EQ(heading.yawTorqueStart, LipContactPlanner::kInputDim);
   EXPECT_GT(heading.yawTorqueStart, LipContactPlanner::kCr);
-  EXPECT_EQ(heading.eulerzyxFootRtWorldYaw(kNumContacts - 1), heading.nx - 1);
-  EXPECT_EQ(heading.errEulerzyxFootRtWorldYaw(kNumContacts - 1),
-            heading.nu - 1);
+  EXPECT_EQ(heading.eulerzyxFootRtWorldYaw(kNumFeet - 1), heading.nx - 1);
+  EXPECT_EQ(heading.errEulerzyxFootRtWorldYaw(kNumFeet - 1), heading.nu - 1);
 
   // A LIP plan carries no heading; the heading model needs the yaw inertia from
   // the model and the derived parameters.
@@ -1419,7 +1420,7 @@ TEST(LipContactPlannerHeading, TurnsInPlaceByStepping) {
   }
   // Foot yaw is pinned in contact and lands near the heading; every foot stays
   // within hip range (soft, with margin).
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     for (int k = 0; k < c.planner.numNodes; ++k) {
       if (plan.contacts[k][foot]) {
         EXPECT_NEAR(plan.desEulerzyxFeetRtWorldYawTraj[k + 1][foot],
@@ -1440,7 +1441,7 @@ TEST(LipContactPlannerHeading, TurnsInPlaceByStepping) {
   const OcpQpSolution& sol = planner->getLastResult().solution;
   for (int k = 0; k < c.planner.numNodes; ++k) {
     scalar_t total = 0.0;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       const scalar_t tau = sol.u[k](L.torqueFootEwrtWorldZ(foot));
       const bool bothDown = plan.contacts[k][0] && plan.contacts[k][1];
       const scalar_t limit =
@@ -1530,7 +1531,7 @@ TEST(LipContactPlannerHeading, RelinearizedFrameMatchesThePlannedHeading) {
   next.initRateYawHeadingRtWorld = plan.headingModelYawRateTraj[1];
   next.eulerzyxFeetRtWorldYaw = plan.desEulerzyxFeetRtWorldYawTraj[1];
   next.contacts = plan.contacts[1];
-  next.phaseElapsedTime = makeFeetArray(0.1);
+  next.phaseElapsedTime = makeBipedFeetArray(0.1);
   const LipContactPlanner::HeadingNominal nominal =
       planner->defaultNominal(next);
   ASSERT_EQ(nominal.nomHeadingModelYawTraj.size(),
@@ -1587,7 +1588,8 @@ TEST(LipContactPlannerHeading,
   ContactPlannerInput first = turnInPlaceInput(0.6);
   first.initYawHeadingRtWorld = std::numbers::pi - 0.05;
   first.yawHeadingRtWorld = first.initYawHeadingRtWorld;
-  first.eulerzyxFeetRtWorldYaw = makeFeetArray(first.initYawHeadingRtWorld);
+  first.eulerzyxFeetRtWorldYaw =
+      makeBipedFeetArray(first.initYawHeadingRtWorld);
   const ContactPlan before = planner->plan(first);
   ASSERT_TRUE(before.valid);
   ASSERT_GT(before.headingModelYawTraj.back(), std::numbers::pi)
@@ -1598,7 +1600,8 @@ TEST(LipContactPlannerHeading,
   second.time = first.time + c.planner.dt;
   second.initYawHeadingRtWorld = -std::numbers::pi + 0.02;
   second.yawHeadingRtWorld = second.initYawHeadingRtWorld;
-  second.eulerzyxFeetRtWorldYaw = makeFeetArray(second.initYawHeadingRtWorld);
+  second.eulerzyxFeetRtWorldYaw =
+      makeBipedFeetArray(second.initYawHeadingRtWorld);
   const LipContactPlanner::HeadingNominal nominal =
       planner->defaultNominal(second);
   for (int k = 0; k <= c.planner.numNodes; ++k) {
@@ -1624,7 +1627,7 @@ TEST(LipContactPlannerHeading,
   EXPECT_NEAR(after.headingModelYawTraj.front(), second.initYawHeadingRtWorld,
               1.0e-9);
   for (int k = 0; k <= c.planner.numNodes; ++k) {
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       EXPECT_LE(std::abs(after.desEulerzyxFeetRtWorldYawTraj[k][foot] -
                          after.headingModelYawTraj[k]),
                 c.footYawOffsetBounds(foot).maxYawFootRtBase + 0.05)
@@ -1707,7 +1710,7 @@ TEST(LipContactPlannerTest, RecedingHorizonWarmStartKeepsPlanConsistent) {
   next.posFeetRtWorldEwrtWorldXy[1] =
       first.desPosFeetRtWorldEwrtWorldXyTraj[1][1];
   next.contacts = first.contacts[1];
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     next.phaseElapsedTime[foot] =
         (first.contacts[1][foot] == first.contacts[0][foot])
             ? input.phaseElapsedTime[foot] + config.planner.dt
@@ -1725,7 +1728,7 @@ TEST(LipContactPlannerTest, RecedingHorizonWarmStartKeepsPlanConsistent) {
   // terms the first lacks.
   for (int k = 0; k + 1 < config.planner.numNodes; ++k) {
     EXPECT_EQ(second.contacts[k], first.contacts[k + 1]) << "node " << k;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       if (!first.contacts[k + 1][foot]) continue;
       EXPECT_NEAR((second.desPosFeetRtWorldEwrtWorldXyTraj[k][foot] -
                    first.desPosFeetRtWorldEwrtWorldXyTraj[k + 1][foot])
@@ -1747,38 +1750,36 @@ TEST(ContactPlanTest, ModeScheduleConversionAndMerge) {
                    {true, true}, {false, true}, {false, true}};
   const ModeSchedule schedule = plan.toModeSchedule();
   ASSERT_EQ(schedule.modeSequence.size(), 5u);
-  EXPECT_EQ(schedule.modeSequence[0], static_cast<size_t>(ModeNumber::kStance));
-  EXPECT_EQ(schedule.modeSequence[1], static_cast<size_t>(ModeNumber::kLf));
-  EXPECT_EQ(schedule.modeSequence[2], static_cast<size_t>(ModeNumber::kStance));
-  EXPECT_EQ(schedule.modeSequence[3], static_cast<size_t>(ModeNumber::kRf));
-  EXPECT_EQ(schedule.modeSequence[4], static_cast<size_t>(ModeNumber::kStance));
+  EXPECT_EQ(schedule.modeSequence[0], kBipedModeStance);
+  EXPECT_EQ(schedule.modeSequence[1], kBipedModeLf);
+  EXPECT_EQ(schedule.modeSequence[2], kBipedModeStance);
+  EXPECT_EQ(schedule.modeSequence[3], kBipedModeRf);
+  EXPECT_EQ(schedule.modeSequence[4], kBipedModeStance);
   ASSERT_EQ(schedule.eventTimes.size(), 4u);
   EXPECT_NEAR(schedule.eventTimes[0], 1.1, 1.0e-9);
   EXPECT_NEAR(schedule.eventTimes[1], 1.3, 1.0e-9);
   EXPECT_NEAR(schedule.eventTimes[2], 1.4, 1.0e-9);
   EXPECT_NEAR(schedule.eventTimes[3], 1.6, 1.0e-9);
-  EXPECT_EQ(schedule.modeAtTime(1.25), static_cast<size_t>(ModeNumber::kLf));
+  EXPECT_EQ(schedule.modeAtTime(1.25), kBipedModeLf);
 
   // Applied schedule: RF swing from 0.9 to 1.15, then stance. Merge at commit
   // time 1.05: keep the applied RF phase, then follow the plan from 1.05 on
   // (which says LF from 1.1).
   const ModeSchedule applied(
-      {0.9, 1.15}, {ModeNumber::kStance, ModeNumber::kRf, ModeNumber::kStance});
+      {0.9, 1.15}, {kBipedModeStance, kBipedModeRf, kBipedModeStance});
   const ModeSchedule merged =
       mergeModeSchedules(applied, schedule, /*commitTime=*/1.05,
                          /*lowerBoundTime=*/0.0, /*upperBoundTime=*/2.5);
-  EXPECT_EQ(merged.modeAtTime(0.5), static_cast<size_t>(ModeNumber::kStance));
-  EXPECT_EQ(merged.modeAtTime(1.0), static_cast<size_t>(ModeNumber::kRf));
-  EXPECT_EQ(merged.modeAtTime(1.07),
-            static_cast<size_t>(
-                ModeNumber::kStance));  // plan mode at the commit time
-  EXPECT_EQ(merged.modeAtTime(1.2), static_cast<size_t>(ModeNumber::kLf));
-  EXPECT_EQ(merged.modeAtTime(1.5), static_cast<size_t>(ModeNumber::kRf));
-  EXPECT_EQ(merged.modeAtTime(2.4), static_cast<size_t>(ModeNumber::kStance));
-  EXPECT_EQ(merged.modeSequence.front(),
-            static_cast<size_t>(ModeNumber::kStance));
-  EXPECT_EQ(merged.modeSequence.back(),
-            static_cast<size_t>(ModeNumber::kStance));
+  EXPECT_EQ(merged.modeAtTime(0.5), kBipedModeStance);
+  EXPECT_EQ(merged.modeAtTime(1.0), kBipedModeRf);
+  EXPECT_EQ(
+      merged.modeAtTime(1.07),
+      static_cast<size_t>(kBipedModeStance));  // plan mode at the commit time
+  EXPECT_EQ(merged.modeAtTime(1.2), kBipedModeLf);
+  EXPECT_EQ(merged.modeAtTime(1.5), kBipedModeRf);
+  EXPECT_EQ(merged.modeAtTime(2.4), kBipedModeStance);
+  EXPECT_EQ(merged.modeSequence.front(), kBipedModeStance);
+  EXPECT_EQ(merged.modeSequence.back(), kBipedModeStance);
   for (size_t i = 1; i < merged.eventTimes.size(); ++i) {
     EXPECT_GT(merged.eventTimes[i], merged.eventTimes[i - 1]);
   }
@@ -1792,15 +1793,15 @@ TEST(ContactPlanTest, AllStanceMergeKeepsOneEvent) {
   plan.valid = true;
   plan.startTime = 1.0;
   plan.dt = 0.1;
-  plan.contacts.assign(12, contact_flag_t{true, true});
-  const ModeSchedule applied({0.5}, {ModeNumber::kStance, ModeNumber::kStance});
+  plan.contacts.assign(12, BipedFeetArray<bool>{true, true});
+  const ModeSchedule applied({0.5}, {kBipedModeStance, kBipedModeStance});
   const ModeSchedule merged =
       mergeModeSchedules(applied, plan.toModeSchedule(), /*commitTime=*/1.1,
                          /*lowerBoundTime=*/0.0, /*upperBoundTime=*/3.0);
   ASSERT_FALSE(merged.eventTimes.empty());
   ASSERT_EQ(merged.modeSequence.size(), merged.eventTimes.size() + 1);
   for (const size_t mode : merged.modeSequence) {
-    EXPECT_EQ(mode, static_cast<size_t>(ModeNumber::kStance));
+    EXPECT_EQ(mode, kBipedModeStance);
   }
 }
 
@@ -1955,7 +1956,7 @@ TEST(LipContactPlannerModel,
       EXPECT_NEAR(s.A(L.headingModelYawRate, L.headingModelYawRate), 1.0,
                   1.0e-12);
       EXPECT_NEAR(s.A(L.headingModelYawRate, L.headingModelYaw), 0.0, 1.0e-12);
-      for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      for (size_t foot = 0; foot < kNumFeet; ++foot) {
         EXPECT_NEAR(s.B(L.headingModelYaw, L.torqueFootEwrtWorldZ(foot)),
                     0.5 * c.planner.dt * c.planner.dt / inertia, 1.0e-12)
             << "I=" << inertia;
@@ -1979,7 +1980,7 @@ TEST(LipContactPlannerModel,
                           c.yawTorqueBudgetParameters
                               .doubleSupportMaxTorqueFeetmeanEwrtWorldZ));
       for (size_t i = 0; i < s.idxbu.size(); ++i) {
-        for (size_t foot = 0; foot < kNumContacts; ++foot) {
+        for (size_t foot = 0; foot < kNumFeet; ++foot) {
           if (s.idxbu[i] != L.torqueFootEwrtWorldZ(foot)) continue;
           EXPECT_NEAR(s.lbu(i), -share, 1.0e-12);
           EXPECT_NEAR(s.ubu(i), share, 1.0e-12);
@@ -2082,7 +2083,7 @@ TEST(LipContactPlannerModel,
   for (int k = 0; k < c.planner.numNodes; ++k) {
     const bool both = plan.contacts[k][0] && plan.contacts[k][1];
     scalar_t sumAbs = 0.0;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       const scalar_t tau = std::abs(sol.u[k](L.torqueFootEwrtWorldZ(foot)));
       sumAbs += tau;
       if (!plan.contacts[k][foot]) {
@@ -2114,7 +2115,7 @@ TEST(LipContactPlannerModel,
     }
     // The heading rate integrates exactly the torque the feet carry.
     scalar_t total = 0.0;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       total += sol.u[k](L.torqueFootEwrtWorldZ(foot));
     }
     EXPECT_NEAR(plan.headingModelYawRateTraj[k + 1],
@@ -2144,7 +2145,7 @@ TEST(LipContactPlannerModel, FootholdGeometryLivesInTheHeadingFrame) {
   ContactPlannerInput in = turnInPlaceInput(0.0);
   in.initYawHeadingRtWorld = yawHeadingRtWorld;
   in.yawHeadingRtWorld = yawHeadingRtWorld;
-  in.eulerzyxFeetRtWorldYaw = makeFeetArray(yawHeadingRtWorld);
+  in.eulerzyxFeetRtWorldYaw = makeBipedFeetArray(yawHeadingRtWorld);
   in.posFeetRtWorldEwrtWorldXy[0] =
       0.5 * c.stepWidth.nomPosLfootRtRfootEwrtHeadingY *
       leftDirHeadingEwrtWorldXy;  // left foot on the heading's left
@@ -2207,7 +2208,7 @@ TEST(LipContactPlannerModel, FootholdGeometryLivesInTheHeadingFrame) {
     // stance feet.
     vector2_t desPosStanceRtWorldEwrtWorldXy = vector2_t::Zero();
     int n = 0;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       if (plan.contacts[k][foot]) {
         desPosStanceRtWorldEwrtWorldXy +=
             plan.desPosFeetRtWorldEwrtWorldXyTraj[k][foot];
@@ -2251,7 +2252,7 @@ TEST(LipContactPlannerModel,
                                 planner->buildProblem(in, nominal));
   for (int k = 0; k <= c.planner.numNodes; ++k) {
     const OcpQpStage& s = problem.stages[k];
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       EXPECT_NEAR(s.Q(L.eulerzyxFootRtWorldYaw(foot), L.headingModelYaw), 0.0,
                   1.0e-12)
           << "node " << k << ": no coupling of the foot yaw into the heading";
@@ -2288,7 +2289,7 @@ TEST(LipContactPlannerModel,
   // Whatever the heading did, the feet never step further than the hip range
   // allows (soft rows, with margin).
   for (int k = 0; k <= c.planner.numNodes; ++k) {
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       EXPECT_LE(std::abs(plan.desEulerzyxFeetRtWorldYawTraj[k][foot] -
                          plan.headingModelYawTraj[k]),
                 c.footYawOffsetBounds(foot).maxYawFootRtBase + 0.05)
@@ -2522,7 +2523,7 @@ TEST(LipContactPlannerModel, TerminalNodeCarriesTheKinematicRows) {
   const ContactPlan plan = planner->plan(in);
   ASSERT_TRUE(plan.valid);
   const int N = c.planner.numNodes;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     EXPECT_LE(std::abs(plan.desPosFeetRtWorldEwrtWorldXyTraj[N][foot](0) -
                        plan.posComRtWorldEwrtWorldXyTraj[N](0)),
               c.reachability.maxNormPosFootRtComEwrtHeadingX + kSoftTol)
@@ -2587,7 +2588,7 @@ TEST(LipContactPlannerTest,
   next.initRateYawHeadingRtWorld = plan.headingModelYawRateTraj[1];
   next.eulerzyxFeetRtWorldYaw = plan.desEulerzyxFeetRtWorldYawTraj[1];
   next.contacts = plan.contacts[1];
-  next.phaseElapsedTime = makeFeetArray(0.1);
+  next.phaseElapsedTime = makeBipedFeetArray(0.1);
   const scalar_t ramp =
       next.initYawHeadingRtWorld + next.cmdRateYawBaseRtWorld * c.planner.dt;
   ASSERT_GT(std::abs(plan.headingModelYawTraj[2] - ramp), 1.0e-6)
@@ -2620,7 +2621,7 @@ TEST(LipContactPlannerTest, APlanWithoutAnIncumbentIsNotReportedOptimal) {
   // root propagation is infeasible, the search is "exhausted" at once, and
   // there is no plan to call optimal.
   in.committedUntil = in.time + c.planner.dt;
-  in.committedContacts = {makeFeetArray(false)};
+  in.committedContacts = {makeBipedFeetArray(false)};
   const ContactPlan plan = planner->plan(in);
   EXPECT_FALSE(plan.valid);
   EXPECT_FALSE(plan.optimal);
@@ -2645,8 +2646,8 @@ TEST(LipContactPlannerTest,
   in.phaseElapsedTime = {0.05, 5.0};
   // Left: in the air over nodes 0-2, down over nodes 3-4, in the air again from
   // node 5, the right foot down throughout.
-  const contact_flag_t leftUp{false, true};
-  const contact_flag_t bothDown{true, true};
+  const BipedFeetArray<bool> leftUp{false, true};
+  const BipedFeetArray<bool> bothDown{true, true};
   in.committedContacts = {leftUp,   leftUp, leftUp, bothDown,
                           bothDown, leftUp, leftUp};
   in.committedUntil = in.time + 7.0 * c.planner.dt;
@@ -2657,7 +2658,7 @@ TEST(LipContactPlannerTest,
   }
   int lastSwung = 0;  // the left foot lifted last inside the prefix
   for (int k = 7; k < c.planner.numNodes; ++k) {
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       if (plan.contacts[k - 1][foot] && !plan.contacts[k][foot]) {
         EXPECT_NE(static_cast<int>(foot), lastSwung)
             << "foot " << foot << " lifted twice in a row at node " << k;
@@ -2703,12 +2704,12 @@ TEST(LipContactPlannerTest,
       [](const ContactPlan& plan) {
         int doubleSupportNodes = 0;
         int exchanges = 0;
-        for (const contact_flag_t& c : plan.contacts) {
+        for (const BipedFeetArray<bool>& c : plan.contacts) {
           if (c[0] && c[1]) ++doubleSupportNodes;
         }
         for (int k = 1; k < plan.numIntervals(); ++k) {
-          const contact_flag_t& previous = plan.contacts[k - 1];
-          const contact_flag_t& current = plan.contacts[k];
+          const BipedFeetArray<bool>& previous = plan.contacts[k - 1];
+          const BipedFeetArray<bool>& current = plan.contacts[k];
           const bool bothSingle =
               previous[0] != previous[1] && current[0] != current[1];
           if (bothSingle && previous[0] != current[0]) ++exchanges;
@@ -2808,7 +2809,7 @@ ContactPlannerInput committedStoppingInput(
   input.proxyLinvelComRtWorldEwrtWorldXy = vector2_t(0.15, 0.0);
   input.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t::Zero();
   input.committedContacts.assign(static_cast<size_t>(config.planner.numNodes),
-                                 makeFeetArray(true));
+                                 makeBipedFeetArray(true));
   // The commit window that commits all of those nodes, as
   // committedContactsForPlanner() would have sampled them: the whole horizon.
   // The stretch keeps the last committed node live at this boundary
@@ -2863,7 +2864,7 @@ ContactPlannerInput committedTurningStopInput(
   // any grid, which keeps the stretch decision with the translational motion.
   input.initRateYawHeadingRtWorld = cmdRateYawBaseRtWorld;
   input.cmdRateYawBaseRtWorld = cmdRateYawBaseRtWorld;
-  input.eulerzyxFeetRtWorldYaw = makeFeetArray(0.0);
+  input.eulerzyxFeetRtWorldYaw = makeBipedFeetArray(0.0);
   input.inertiaComEwrtWorldZz = 15.0;
   return input;
 }
@@ -2968,7 +2969,7 @@ SwingInFlight committedSwingInFlight(const ContactPlanningConfig& config) {
   // RF: only the right foot in contact, i.e. the left foot swings.
   scenario.applied =
       ModeSchedule({time - 0.2, scenario.touchDown},
-                   {ModeNumber::kStance, ModeNumber::kRf, ModeNumber::kStance});
+                   {kBipedModeStance, kBipedModeRf, kBipedModeStance});
   ContactPlannerInput& input = scenario.input;
   input = makeStandingInput();
   input.time = time;
@@ -2991,8 +2992,9 @@ scalar_t firstTouchDownAfter(const ModeSchedule& schedule,
                              size_t foot,
                              scalar_t time) {
   for (size_t i = 0; i < schedule.eventTimes.size(); ++i) {
-    const bool before = modeNumber2StanceLeg(schedule.modeSequence[i])[foot];
-    const bool after = modeNumber2StanceLeg(schedule.modeSequence[i + 1])[foot];
+    const bool before = bipedFootContactsOfMode(schedule.modeSequence[i])[foot];
+    const bool after =
+        bipedFootContactsOfMode(schedule.modeSequence[i + 1])[foot];
     if (!before && after && schedule.eventTimes[i] > time) {
       return schedule.eventTimes[i];
     }
@@ -3247,7 +3249,7 @@ TEST(LipContactPlannerTest,
   next.posComRtWorldEwrtWorldXy = plan.posComRtWorldEwrtWorldXyTraj[1];
   next.proxyLinvelComRtWorldEwrtWorldXy =
       plan.linvelComRtWorldEwrtWorldXyTraj[1];
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     next.posFeetRtWorldEwrtWorldXy[foot] =
         plan.desPosFeetRtWorldEwrtWorldXyTraj[1][foot];
     next.phaseElapsedTime[foot] = first.phaseElapsedTime[foot] + plan.dt;
@@ -3388,7 +3390,7 @@ TEST(LipContactPlannerHeading,
         << "node " << k
         << ": the commanded heading ramp is sampled on the grid the plan is "
            "emitted on";
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       const scalar_t refEulerzyxFootRtWorldYaw =
           -0.5 * stage.q(layout.eulerzyxFootRtWorldYaw(foot)) /
           c.footYawTracking.weight;
@@ -3489,6 +3491,31 @@ TEST(LipContactPlannerSearchStages,
     EXPECT_EQ(result.incumbentObjective, 2.5);
     EXPECT_EQ(run.chosenDt, 0.0) << "no stretch is adopted";
   }
+}
+
+// The planner's variable layout has a left and a right foot. A model with any
+// other contact set (shared.numContacts) is refused by name and count when the
+// planner is built and when it is reconfigured, which keeps the running
+// configuration.
+TEST(LipContactPlanner, RefusesAContactSetThatIsNotTwoFeet) {
+  constexpr size_t kFourContacts = 4;
+  ContactPlanningConfig fourContacts = makeConfig();
+  fourContacts.shared.numContacts = kFourContacts;
+  const absl::Status created = LipContactPlanner::Create(fourContacts).status();
+  HUMANOID_ASSERT_OK_AND_ASSIGN(std::unique_ptr<LipContactPlanner> planner,
+                                LipContactPlanner::Create(makeConfig()));
+  const absl::Status reconfigured = planner->setConfig(fourContacts);
+  const std::array<absl::Status, 2> statuses = {created, reconfigured};
+  for (const absl::Status& status : statuses) {
+    EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
+    EXPECT_NE(std::string(status.message())
+                  .find("LipContactPlanner is written for two contacts; the "
+                        "contact set has 4 contacts"),
+              std::string::npos)
+        << status;
+  }
+  EXPECT_EQ(planner->getConfig().shared.numContacts,
+            static_cast<size_t>(kBipedFootCount));
 }
 
 }  // namespace ocs2::humanoid

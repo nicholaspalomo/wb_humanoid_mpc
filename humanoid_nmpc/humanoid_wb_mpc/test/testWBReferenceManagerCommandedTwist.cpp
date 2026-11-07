@@ -54,8 +54,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
@@ -82,6 +82,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 constexpr scalar_t kInitTime = 1.5;
 constexpr scalar_t kHorizon = 1.0;
@@ -134,7 +136,7 @@ absl::StatusOr<WholeBodyReferences> loadG1() {
                                         /*verbose=*/false));
   loaded.referenceManager = std::make_unique<SwitchedModelReferenceManager>(
       std::move(gaitSchedule),
-      std::make_unique<SwingTrajectoryPlanner>(swingConfig, kNumContacts),
+      std::make_unique<SwingTrajectoryPlanner>(swingConfig, kNumFeet),
       *loaded.pinocchioInterface, *loaded.model);
   ASSIGN_OR_RETURN(loaded.calculator,
                    WBMpcTargetTrajectoriesCalculator::Create(
@@ -169,7 +171,7 @@ TEST(WBReferenceManagerCommandedTwist,
   ASSERT_EQ(target.stateTrajectory.size(), 3);
   g1->referenceManager->setTargetTrajectories(target);
   g1->referenceManager->preSolverRun(kInitTime, kInitTime + kHorizon, state,
-                                     ModeNumber::kStance);
+                                     kBipedModeStance);
 
   // Every knot moves at the command in its own heading frame and turns at it
   // (design README section 2.9); the reference manager reads the interpolated
@@ -332,7 +334,7 @@ TEST(WBReferenceManagerCommandedTwist,
     }
     g1->referenceManager->setTargetTrajectories(target);
     g1->referenceManager->preSolverRun(kInitTime, kInitTime + kHorizon, state,
-                                       ModeNumber::kStance);
+                                       kBipedModeStance);
     std::vector<vector_t> desired;
     for (scalar_t time = kInitTime; time <= kInitTime + kHorizon;
          time += 0.05) {
@@ -341,7 +343,7 @@ TEST(WBReferenceManagerCommandedTwist,
     }
     g1->referenceManager->setTargetTrajectories(turnedTarget);
     g1->referenceManager->preSolverRun(kInitTime, kInitTime + kHorizon,
-                                       turnedState, ModeNumber::kStance);
+                                       turnedState, kBipedModeStance);
     size_t node = 0;
     for (scalar_t time = kInitTime; time <= kInitTime + kHorizon;
          time += 0.05, ++node) {
@@ -379,7 +381,7 @@ TEST(WBReferenceManagerCommandedTwist,
           /*measuredMotion=*/BasePlanarMotion{});
   g1->referenceManager->setTargetTrajectories(target);
   g1->referenceManager->preSolverRun(kInitTime, kInitTime + kHorizon, state,
-                                     ModeNumber::kStance);
+                                     kBipedModeStance);
   const vector_t& knot = target.stateTrajectory.back();
   EXPECT_TRUE(
       g1->referenceManager->shapePoseBaseRtWorld(kInitTime + 0.5, knot) == knot)

@@ -51,11 +51,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
@@ -299,7 +300,7 @@ TEST(WBMpcMrtJointControllerAllocations,
   policy.inputTrajectory_ = {input, input};
   policy.modeSchedule_ = ModeSchedule(
       /*eventTimesInput=*/{},
-      /*modeSequenceInput=*/{static_cast<size_t>(ModeNumber::kStance)});
+      /*modeSequenceInput=*/{kBipedModeStance});
   policy.controllerPtr_ = std::make_unique<ManifoldLinearController>(
       policy.timeTrajectory_, policy.stateTrajectory_, policy.inputTrajectory_,
       matrix_array_t{matrix_t::Constant(nu, ndx, 0.5),
@@ -378,9 +379,9 @@ TEST(
 
   // The controller starts in WB_MPC with no hold armed and no policy: it
   // compensates the weight on the measured feet.
-  for (const contact_flag_t& contacts :
-       {contact_flag_t{true, true}, contact_flag_t{true, false},
-        contact_flag_t{false, false}}) {
+  for (const BipedFeetArray<bool>& contacts :
+       {BipedFeetArray<bool>{true, true}, BipedFeetArray<bool>{true, false},
+        BipedFeetArray<bool>{false, false}}) {
     SCOPED_TRACE(::testing::Message() << contacts[0] << contacts[1]);
     state.setContactFlag(/*index=*/0, /*contactFlag=*/contacts[0]);
     state.setContactFlag(/*index=*/1, /*contactFlag=*/contacts[1]);

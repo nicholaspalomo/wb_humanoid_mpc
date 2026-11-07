@@ -59,11 +59,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
@@ -316,9 +317,9 @@ TEST_P(
     TheObservedMomentumIsTheCentroidalMapsAndTheWeightCompensationAllocatesNothing) {
   // The controller starts in WB_MPC with no hold armed and no policy: it
   // compensates the weight on the measured feet.
-  for (const contact_flag_t& contacts :
-       {contact_flag_t{true, true}, contact_flag_t{false, true},
-        contact_flag_t{false, false}}) {
+  for (const BipedFeetArray<bool>& contacts :
+       {BipedFeetArray<bool>{true, true}, BipedFeetArray<bool>{false, true},
+        BipedFeetArray<bool>{false, false}}) {
     SCOPED_TRACE(::testing::Message() << contacts[0] << contacts[1]);
     state_->setContactFlag(/*index=*/0, /*contactFlag=*/contacts[0]);
     state_->setContactFlag(/*index=*/1, /*contactFlag=*/contacts[1]);
@@ -381,9 +382,9 @@ TEST_P(
     const vector_t input = weightCompensatingInput(
         reference, contacts, effective, observation.state);
     const size_t numStanceLegs = numberOfLegsInContacts(contacts);
-    feet_array_t<vector6_t> wrenchFeetEwrtWorld;
-    for (size_t i = 0; i < kNumContacts; ++i) {
-      wrenchFeetEwrtWorld[i].setZero();
+    ContactArray<vector6_t> wrenchFeetEwrtWorld(contacts.size(),
+                                                vector6_t::Zero());
+    for (size_t i = 0; i < contacts.size(); ++i) {
       if (contacts[i]) {
         wrenchFeetEwrtWorld[i](2) = computeRobotWeight(reference) /
                                     static_cast<scalar_t>(numStanceLegs);
@@ -444,14 +445,14 @@ TEST_P(CentroidalControllerOnShippedRobot, ExecutingAPolicyAllocatesNothing) {
   manifold->project(end);
   PinocchioInterface reference = interface_->getPinocchioInterface();
   const vector_t input = weightCompensatingInput(
-      reference, contact_flag_t{true, true}, effective, start);
+      reference, BipedFeetArray<bool>{true, true}, effective, start);
   PrimalSolution policy;
   policy.timeTrajectory_ = {time_, time_ + 10.0};
   policy.stateTrajectory_ = {start, end};
   policy.inputTrajectory_ = {input, input};
   policy.modeSchedule_ = ModeSchedule(
       /*eventTimesInput=*/{},
-      /*modeSequenceInput=*/{static_cast<size_t>(ModeNumber::kStance)});
+      /*modeSequenceInput=*/{kBipedModeStance});
   policy.controllerPtr_ = std::make_unique<ManifoldLinearController>(
       policy.timeTrajectory_, policy.stateTrajectory_, policy.inputTrajectory_,
       matrix_array_t{matrix_t::Constant(nu, ndx, 0.01),

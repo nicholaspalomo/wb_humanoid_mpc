@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopDriver.h"
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -64,6 +63,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/kinematics.hpp"
 
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -136,6 +136,7 @@ ClosedLoopDriver::simulatorConfig() const {
   options.contactFrameNames = modelSettings_->contactNames;
   options.contactParentJointNames =
       modelSettings_->contactParentJointNamesInContactOrder();
+  options.numPointContacts = modelSettings_->contactNames3DoF.size();
   options.simulator = settings_.simulator;
   options.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
   // clang-format off
@@ -232,7 +233,7 @@ std::optional<double> ClosedLoopDriver::maxUnitQuaternionNormDeviation() const {
       measurementModel_->getBaseOrientationStartIndex());
 }
 
-std::array<Eigen::Vector3d, 2>
+ContactArray<Eigen::Vector3d>
 ClosedLoopDriver::computePosContactsRtWorldEwrtWorld(
     const SystemObservation& observation) {
   const vector_t q =
@@ -241,8 +242,13 @@ ClosedLoopDriver::computePosContactsRtWorldEwrtWorld(
   PinocchioInterface::Data& data = measurementPinocchio_->getData();
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
-  return {data.oMf[contactFrameIds_[0]].translation(),
-          data.oMf[contactFrameIds_[1]].translation()};
+  ContactArray<Eigen::Vector3d> posContactsRtWorldEwrtWorld(
+      contactFrameIds_.size());
+  for (size_t contact = 0; contact < contactFrameIds_.size(); ++contact) {
+    posContactsRtWorldEwrtWorld[contact] =
+        data.oMf[contactFrameIds_[contact]].translation();
+  }
+  return posContactsRtWorldEwrtWorld;
 }
 
 absl::Status ClosedLoopDriver::connectSimulator(
@@ -272,8 +278,9 @@ absl::Status ClosedLoopDriver::connectSimulator(
   // unknown one.
   const std::shared_ptr<robot::model::ContactEstimator> estimator =
       contactEstimators_.create(canonical);
-  const absl::Status suits =
-      checkContactEstimator(*estimator, *estimatorProbeState_, canonical);
+  const absl::Status suits = checkContactEstimator(
+      *estimator, *estimatorProbeState_,
+      robotController_->measuredContactFlags().size(), canonical);
   if (!suits.ok()) {
     return absl::InvalidArgumentError(
         absl::StrCat("contact_estimator of the task file: ", suits.message()));
@@ -330,8 +337,9 @@ void ClosedLoopDriver::applyControllerSideSettings(double time) {
         contactEstimators_.create(canonical);
     const absl::Status suits =
         estimatorProbeState_.has_value()
-            ? checkContactEstimator(*estimator, *estimatorProbeState_,
-                                    canonical)
+            ? checkContactEstimator(
+                  *estimator, *estimatorProbeState_,
+                  robotController_->measuredContactFlags().size(), canonical)
             : absl::FailedPreconditionError(
                   "the simulator is not connected (connectSimulator())");
     if (suits.ok()) {
@@ -405,12 +413,13 @@ absl::Status ClosedLoopDriver::initializeShared(
   measurementModel_.reset(robotModel.clone());
   measurementPinocchio_ =
       std::make_unique<PinocchioInterface>(pinocchioInterface);
-  if (modelSettings.contactNames.size() < 2) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("[ClosedLoopDriver] ", configuration.taskFile,
-                     " names fewer than two contact points"));
+  if (modelSettings.contactNames.empty()) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[ClosedLoopDriver] ", configuration.taskFile, " names no contact"));
   }
-  for (size_t contact = 0; contact < 2; ++contact) {
+  contactFrameIds_.assign(modelSettings.contactNames.size(), /*value=*/0);
+  for (size_t contact = 0; contact < modelSettings.contactNames.size();
+       ++contact) {
     const std::string& frame = modelSettings.contactNames[contact];
     if (!measurementPinocchio_->getModel().existFrame(frame)) {
       return absl::NotFoundError(absl::StrCat(

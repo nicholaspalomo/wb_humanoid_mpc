@@ -29,7 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -47,7 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/time.h"
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/robot/ConfigFileStore.h"
 #include "humanoid_common_mpc_app/robot/FallRecovery.h"
@@ -374,7 +373,9 @@ class RobotProcess {
   std::string contactEstimatorName_;
   std::vector<bool> plannedContactFlags_;
   const std::vector<bool> noContactFlags_;
-  std::array<vector3_t, kNumContacts> measForceFeetEwrtWorld_;
+  // One per contact of the controller's contact set (measuredContactFlags()),
+  // sized at construction.
+  ContactArray<vector3_t> measForceContactsEwrtWorld_;
 
   // ---- Communication thread state.
   msgs::FsmState fsmState_;

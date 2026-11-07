@@ -28,6 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <functional>
@@ -58,11 +59,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipContactPlanner.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipModel.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 namespace ocs2::humanoid {
 namespace {
+
+// The biped's two feet, which every case here is written for.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 constexpr scalar_t kNomPosLfootRtRfootEwrtHeadingY = 0.25;
 
@@ -106,8 +110,8 @@ ContactPlannerInput makeStandingInput(
       vector2_t(0.0, 0.5 * kNomPosLfootRtRfootEwrtHeadingY);
   input.posFeetRtWorldEwrtWorldXy[kContactRightIndex] =
       vector2_t(0.0, -0.5 * kNomPosLfootRtRfootEwrtHeadingY);
-  input.contacts = makeFeetArray(true);
-  input.phaseElapsedTime = makeFeetArray(1.0);
+  input.contacts = makeBipedFeetArray(true);
+  input.phaseElapsedTime = makeBipedFeetArray(1.0);
   input.cmdLinvelBaseRtWorldEwrtWorldXy = cmdLinvelBaseRtWorldEwrtWorldXy;
   input.committedUntil = input.time;
   return input;
@@ -116,9 +120,9 @@ ContactPlannerInput makeStandingInput(
 /** The feet the planner placed over the horizon, in the order they land. */
 std::vector<size_t> swingOrder(const ContactPlan& plan) {
   std::vector<size_t> order;
-  contact_flag_t previous = plan.contacts.front();
-  for (const contact_flag_t& contacts : plan.contacts) {
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  BipedFeetArray<bool> previous = plan.contacts.front();
+  for (const BipedFeetArray<bool>& contacts : plan.contacts) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       if (previous[foot] && !contacts[foot]) order.push_back(foot);
     }
     previous = contacts;
@@ -149,7 +153,7 @@ struct PlannedSwing {
 /** Every swing of the plan that lifts off and lands inside the horizon. */
 std::vector<PlannedSwing> plannedSwings(const ContactPlan& plan) {
   std::vector<PlannedSwing> swings;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     int liftOff = -1;
     for (int interval = 1; interval < plan.numIntervals(); ++interval) {
       const bool wasDown =
@@ -228,14 +232,14 @@ class ReducedModelLoop {
       : config_(config),
         planner_(createPlanner(config)),
         cyclePeriod_(cyclePeriod),
-        applied_(/*eventTimesInput=*/{}, {ModeNumber::kStance}) {
+        applied_(/*eventTimesInput=*/{}, {kBipedModeStance}) {
     posFeetRtWorldEwrtWorldXy_[kContactLeftIndex] =
         vector2_t(0.0, 0.5 * config.hlip.nomPosLfootRtRfootEwrtHeadingY);
     posFeetRtWorldEwrtWorldXy_[kContactRightIndex] =
         vector2_t(0.0, -0.5 * config.hlip.nomPosLfootRtRfootEwrtHeadingY);
     posComRtWorldEwrtWorldXy_ = vector2_t::Zero();
     linvelComRtWorldEwrtWorldXy_ = vector2_t::Zero();
-    contacts_ = makeFeetArray(true);
+    contacts_ = makeBipedFeetArray(true);
   }
 
   void setCmdLinvelBaseRtWorldEwrtWorldXy(
@@ -270,7 +274,7 @@ class ReducedModelLoop {
     activePlanWalks_ = walking;
     // A foot in flight follows its swing reference to the landing spot of the
     // plan now active.
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       if (contacts_[foot]) continue;
       const std::optional<size_t> touchDown =
           touchDownEventIndex(applied_, foot, time_);
@@ -315,9 +319,9 @@ class ReducedModelLoop {
   /** Applies the contact events of the executed schedule at `time_`: lands
    * swings, records lift-offs. */
   void applyEvents() {
-    const contact_flag_t now =
+    const BipedFeetArray<bool> now =
         contactFlagsAtTime(applied_, time_ + kEventTolerance);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       if (contacts_[foot] == now[foot]) continue;
       Event event{.foot = foot, .time = time_, .touchDown = now[foot]};
       if (now[foot]) {
@@ -432,8 +436,8 @@ class ReducedModelLoop {
   vector2_t cmdLinvelBaseRtWorldEwrtWorldXy_ = vector2_t::Zero();
   vector2_t posComRtWorldEwrtWorldXy_;
   vector2_t linvelComRtWorldEwrtWorldXy_;
-  feet_array_t<vector2_t> posFeetRtWorldEwrtWorldXy_;
-  contact_flag_t contacts_ = makeFeetArray(true);
+  BipedFeetArray<vector2_t> posFeetRtWorldEwrtWorldXy_;
+  BipedFeetArray<bool> contacts_ = makeBipedFeetArray(true);
   std::vector<Event> events_;
 };
 
@@ -468,13 +472,13 @@ TEST(HlipContactPlanner, standsAtZeroCommand) {
   const ContactPlan plan = planner->plan(makeStandingInput(vector2_t::Zero()));
 
   ASSERT_TRUE(plan.valid);
-  for (const contact_flag_t& contacts : plan.contacts) {
+  for (const BipedFeetArray<bool>& contacts : plan.contacts) {
     EXPECT_TRUE(contacts[kContactLeftIndex]);
     EXPECT_TRUE(contacts[kContactRightIndex]);
   }
   // Standing keeps the feet exactly where they are: there is no
   // stepping-in-place at rest.
-  for (const feet_array_t<vector2_t>& desPosFeetRtWorldEwrtWorldXy :
+  for (const BipedFeetArray<vector2_t>& desPosFeetRtWorldEwrtWorldXy :
        plan.desPosFeetRtWorldEwrtWorldXyTraj) {
     EXPECT_NEAR(desPosFeetRtWorldEwrtWorldXy[kContactLeftIndex].y(),
                 0.5 * kNomPosLfootRtRfootEwrtHeadingY, 1.0e-12);
@@ -543,7 +547,7 @@ TEST(HlipContactPlanner, walksAtACommandAndAlternatesFeet) {
   }
   // Exactly one foot is ever off the ground: the nominal gait has no flight
   // phase.
-  for (const contact_flag_t& contacts : plan.contacts) {
+  for (const BipedFeetArray<bool>& contacts : plan.contacts) {
     EXPECT_TRUE(contacts[kContactLeftIndex] || contacts[kContactRightIndex]);
   }
 }
@@ -629,7 +633,7 @@ TEST(HlipContactPlanner, stepsAdvanceByTheCommandedVelocityOnTheOrbit) {
   ContactPlannerInput input =
       makeStandingInput(vector2_t(cmdLinvelBaseRtWorldEwrtWorldX, 0.0));
   input.contacts[kContactLeftIndex] = false;
-  input.phaseElapsedTime = makeFeetArray(0.0);
+  input.phaseElapsedTime = makeBipedFeetArray(0.0);
   // The state a single support actually begins from is the post-impact state
   // carried through the double support, which the reduced model drifts at
   // constant velocity.
@@ -696,7 +700,7 @@ TEST(HlipContactPlanner,
     ContactPlannerInput input =
         makeStandingInput(vector2_t(0.0, cmdLinvelBaseRtWorldEwrtWorldY));
     input.contacts[kContactLeftIndex] = false;
-    input.phaseElapsedTime = makeFeetArray(0.0);
+    input.phaseElapsedTime = makeBipedFeetArray(0.0);
     const HlipModel::State atLiftOff = HlipModel::flowDoubleSupport(
         HlipModel::applyStepTransition(orbit.beforeSecondStep,
                                        nomErrPosRfootRtWorldEwrtLocal),
@@ -885,7 +889,7 @@ TEST(HlipContactPlanner, theStrideIsScaledByAlpha) {
   ContactPlannerInput input =
       makeStandingInput(vector2_t(cmdLinvelBaseRtWorldEwrtHeadingX, 0.0));
   input.contacts[kContactLeftIndex] = false;
-  input.phaseElapsedTime = makeFeetArray(0.0);
+  input.phaseElapsedTime = makeBipedFeetArray(0.0);
   const vector2_t stancePosFootRtWorldEwrtWorldXy =
       input.posFeetRtWorldEwrtWorldXy[kContactRightIndex];
   const HlipModel::PeriodTwoOrbit lateralOrbit =
@@ -960,7 +964,7 @@ TEST(HlipContactPlanner, honorsTheCommittedContacts) {
       HlipContactPlanner::Create(config));
   ContactPlannerInput input = makeStandingInput(vector2_t(0.5, 0.0));
   input.committedUntil = 0.1;
-  input.committedContacts.assign(4, makeFeetArray(true));
+  input.committedContacts.assign(4, makeBipedFeetArray(true));
   input.committedContacts[2][kContactRightIndex] = false;
 
   const ContactPlan plan = planner->plan(input);
@@ -1133,7 +1137,7 @@ TEST(HlipContactPlanner,
               .norm(),
           1.0e-4)
           << "t=" << time;
-      const contact_flag_t contacts = plan.contactsAtTime(time);
+      const BipedFeetArray<bool> contacts = plan.contactsAtTime(time);
       if (contacts[kContactLeftIndex] && contacts[kContactRightIndex]) {
         EXPECT_LT(
             (state->posZmpRtWorldEwrtWorldXy - state->posComRtWorldEwrtWorldXy)
@@ -1165,7 +1169,7 @@ TEST(HlipContactPlanner, closedLoopTracksTheCommandedVelocity) {
   ContactPlannerInput input =
       makeStandingInput(vector2_t(cmdLinvelBaseRtWorldEwrtWorldX, 0.0));
   input.contacts[kContactLeftIndex] = false;
-  input.phaseElapsedTime = makeFeetArray(0.0);
+  input.phaseElapsedTime = makeBipedFeetArray(0.0);
 
   scalar_t prevStancePosFootRtWorldEwrtWorldX =
       input.posFeetRtWorldEwrtWorldXy[kContactRightIndex].x();
@@ -1209,10 +1213,10 @@ TEST(HlipContactPlanner, closedLoopTracksTheCommandedVelocity) {
     input.posComRtWorldEwrtWorldXy +=
         config.hlip.dspDuration * input.proxyLinvelComRtWorldEwrtWorldXy;
     input.time += config.hlip.dspDuration;
-    input.contacts = makeFeetArray(true);
+    input.contacts = makeBipedFeetArray(true);
     input.contacts[stanceFoot] =
         false;  // the roles swap: the old stance foot swings next
-    input.phaseElapsedTime = makeFeetArray(0.0);
+    input.phaseElapsedTime = makeBipedFeetArray(0.0);
     input.lastSwungFoot = static_cast<int>(swingFoot);
     input.committedUntil = input.time;
   }
@@ -1242,7 +1246,7 @@ StartUpRollOut rollOutTheStartUp(const ContactPlanningConfig& config,
       vector2_t(0.0, -0.5 * config.hlip.nomPosLfootRtRfootEwrtHeadingY);
   input.contacts[kContactLeftIndex] =
       false;  // standing on the right, the left about to swing
-  input.phaseElapsedTime = makeFeetArray(0.0);
+  input.phaseElapsedTime = makeBipedFeetArray(0.0);
 
   StartUpRollOut result;
   for (int step = 0; step < numSteps; ++step) {
@@ -1279,9 +1283,9 @@ StartUpRollOut rollOutTheStartUp(const ContactPlanningConfig& config,
     input.posComRtWorldEwrtWorldXy +=
         config.hlip.dspDuration * input.proxyLinvelComRtWorldEwrtWorldXy;
     input.time += config.hlip.dspDuration;
-    input.contacts = makeFeetArray(true);
+    input.contacts = makeBipedFeetArray(true);
     input.contacts[stanceFoot] = false;
-    input.phaseElapsedTime = makeFeetArray(0.0);
+    input.phaseElapsedTime = makeBipedFeetArray(0.0);
     input.lastSwungFoot = static_cast<int>(swingFoot);
     input.committedUntil = input.time;
 
@@ -1454,7 +1458,7 @@ TEST(HlipContactPlanner, clipsStepsToTheReachableRegion) {
       vector2_t(1.5, 0.0));  // far beyond what one step can deliver
   input.contacts[kContactLeftIndex] = false;
   input.proxyLinvelComRtWorldEwrtWorldXy = vector2_t(1.5, 0.0);
-  input.phaseElapsedTime = makeFeetArray(0.0);
+  input.phaseElapsedTime = makeBipedFeetArray(0.0);
 
   const ContactPlan plan = planner->plan(input);
   ASSERT_TRUE(plan.valid);
@@ -1489,7 +1493,7 @@ TEST(HlipContactPlanner, clipsStepsToTheReachableRegion) {
       HlipContactPlanner::Create(roomy));
   ContactPlannerInput reachable = makeStandingInput(vector2_t(0.3, 0.0));
   reachable.contacts[kContactLeftIndex] = false;
-  reachable.phaseElapsedTime = makeFeetArray(0.0);
+  reachable.phaseElapsedTime = makeBipedFeetArray(0.0);
   const HlipModel::PeriodTwoOrbit lateralOrbit =
       roomyPlanner->getModel().periodTwoOrbit(
           roomy.hlip.nomPosLfootRtRfootEwrtHeadingY,
@@ -1526,7 +1530,7 @@ TEST(HlipContactPlanner, isPlannedInTheHeadingFrame) {
 
   ContactPlannerInput straight = makeStandingInput(vector2_t(0.5, 0.1));
   straight.contacts[kContactLeftIndex] = false;
-  straight.phaseElapsedTime = makeFeetArray(0.0);
+  straight.phaseElapsedTime = makeBipedFeetArray(0.0);
   straight.proxyLinvelComRtWorldEwrtWorldXy = vector2_t(0.3, -0.05);
 
   ContactPlannerInput turned = straight;
@@ -1537,7 +1541,7 @@ TEST(HlipContactPlanner, isPlannedInTheHeadingFrame) {
       rotmatHeadingRtWorld * straight.proxyLinvelComRtWorldEwrtWorldXy;
   turned.posComRtWorldEwrtWorldXy =
       rotmatHeadingRtWorld * straight.posComRtWorldEwrtWorldXy;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     turned.posFeetRtWorldEwrtWorldXy[foot] =
         rotmatHeadingRtWorld * straight.posFeetRtWorldEwrtWorldXy[foot];
   }
@@ -1552,7 +1556,7 @@ TEST(HlipContactPlanner, isPlannedInTheHeadingFrame) {
     EXPECT_EQ(
         straightPlan.contacts[std::min(node, straightPlan.contacts.size() - 1)],
         turnedPlan.contacts[std::min(node, turnedPlan.contacts.size() - 1)]);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       const vector2_t expected =
           rotmatHeadingRtWorld *
           straightPlan.desPosFeetRtWorldEwrtWorldXyTraj[node][foot];
@@ -1592,7 +1596,7 @@ TurningWalk planTurningWalk(const ContactPlanningConfig& config) {
   const ModeSchedule schedule = walk.plan.toModeSchedule();
   bool found = false;
   for (const scalar_t eventTime : schedule.eventTimes) {
-    for (size_t foot = 0; foot < kNumContacts && !found; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet && !found; ++foot) {
       const std::optional<SwingWindow> swing =
           swingPhaseAtTime(schedule, foot, eventTime + 1.0e-3);
       if (!swing.has_value()) continue;
@@ -1662,7 +1666,7 @@ TEST(HlipContactPlanner,
 
   DcmStepAdjustmentRule rule;
   rule.configure(config);
-  const feet_array_t<vector2_t> errPosFeetRtWorldEwrtWorldXy =
+  const BipedFeetArray<vector2_t> errPosFeetRtWorldEwrtWorldXy =
       rule.correctFootholds(ctx, walk.plan.toModeSchedule());
 
   const scalar_t omega = config.omega();
@@ -1751,7 +1755,7 @@ TEST(HlipContactPlanner,
   const scalar_t inSnapshotHeading = shiftAlong(kTurnYawHeadingRtWorld);
   ASSERT_GT(std::abs(expected - inSnapshotHeading), 1.0e-3)
       << "the two headings must disagree for the test to tell them apart";
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     EXPECT_NEAR(ctx.cadenceTouchDownShift[foot], expected, 1.0e-9)
         << "foot " << foot << ", snapshot-heading shift " << inSnapshotHeading;
   }
@@ -1868,8 +1872,8 @@ TEST(HlipContactPlanner,
     int doubleSupports = 0;
     int swings = 0;
     std::optional<scalar_t> lastTouchDown;
-    feet_array_t<std::optional<scalar_t>> liftOffs =
-        makeFeetArray(std::optional<scalar_t>());
+    BipedFeetArray<std::optional<scalar_t>> liftOffs =
+        makeBipedFeetArray(std::optional<scalar_t>());
     for (const ReducedModelLoop::Event& event : loop.events()) {
       if (!event.touchDown) {
         liftOffs[event.foot] = event.time;
@@ -2025,18 +2029,18 @@ TEST(HlipContactPlanner, theLastSwungFootOutlivesTheScheduleHistory) {
 /** The history forgets a lift-off later than the time it is asked at: time ran
  * backwards, as it does on a reset. */
 TEST(HlipContactPlanner, theLiftOffHistoryForgetsTheFutureAfterAReset) {
-  contact_flag_t leftSwinging = makeFeetArray(true);
+  BipedFeetArray<bool> leftSwinging = makeBipedFeetArray(true);
   leftSwinging[kContactLeftIndex] = false;
   const ModeSchedule walked(
-      {5.0, 5.25}, {ModeNumber::kStance, stanceLeg2ModeNumber(leftSwinging),
-                    ModeNumber::kStance});
+      {5.0, 5.25}, {kBipedModeStance, bipedModeOfFootContacts(leftSwinging),
+                    kBipedModeStance});
   LiftOffHistory history;
   history.record(walked, /*time=*/4.9);
   EXPECT_EQ(history.lastSwungFoot(), -1)
       << "a lift-off after the query time has not happened";
   history.record(walked, /*time=*/6.0);
   EXPECT_EQ(history.lastSwungFoot(), static_cast<int>(kContactLeftIndex));
-  history.record(ModeSchedule(/*eventTimesInput=*/{}, {ModeNumber::kStance}),
+  history.record(ModeSchedule(/*eventTimesInput=*/{}, {kBipedModeStance}),
                  /*time=*/0.5);
   EXPECT_EQ(history.lastSwungFoot(), -1)
       << "after the reset the lift-off at 5 s lies in the future";
@@ -2085,6 +2089,36 @@ TEST(HlipContactPlanner,
   EXPECT_NEAR(planner->getModel().naturalFrequency(), lowerOmega, 1.0e-12);
   EXPECT_NEAR(planner->plan(makeStandingInput(vector2_t::Zero())).omega,
               lowerOmega, 1.0e-12);
+}
+
+// The H-LIP gait is a left and a right foot stepping in turn: a model whose
+// contact set is not two feet (shared.numContacts, written from the model by
+// ContactPlanningModelParameters::applyTo()) is refused by name and count when
+// the planner is built, reconfigured or summarized.
+TEST(HlipContactPlanner, refusesAContactSetThatIsNotTwoFeet) {
+  constexpr size_t kFourContacts = 4;
+  ContactPlanningConfig fourContacts = makeConfig();
+  fourContacts.shared.numContacts = kFourContacts;
+  const absl::Status created =
+      HlipContactPlanner::Create(fourContacts).status();
+  const absl::Status summarized =
+      HlipContactPlanner::formulationSummary(fourContacts).status();
+  const std::unique_ptr<HlipContactPlanner> planner =
+      createPlanner(makeConfig());
+  const absl::Status reconfigured = planner->setConfig(fourContacts);
+  const std::array<absl::Status, 3> statuses = {created, summarized,
+                                                reconfigured};
+  for (const absl::Status& status : statuses) {
+    EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
+    EXPECT_TRUE(absl::StrContains(
+        status.message(),
+        "HlipContactPlanner is written for two contacts; the contact set has 4 "
+        "contacts"))
+        << status;
+  }
+  EXPECT_EQ(planner->getConfig().shared.numContacts,
+            static_cast<size_t>(kBipedFootCount))
+      << "a refused configuration keeps the running one";
 }
 
 }  // namespace

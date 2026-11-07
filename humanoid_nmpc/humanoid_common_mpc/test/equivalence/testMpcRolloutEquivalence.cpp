@@ -80,6 +80,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
+// The oracle and the fixture are written for the biped's two feet.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+
 /** The safety factor on the Richardson estimates of the two rollouts'
  * integration errors (leading term only). */
 constexpr scalar_t kStepHalvingSafety = 2.0;
@@ -266,7 +269,7 @@ vector_t smallInput(const MpcEquivalenceFixture& mpc,
   const scalar_t halfWeight = 0.5 * oracle.totalMass() * 9.81;
   vector_t input = vector_t::Zero(oracle.inputDim());
   Eigen::Index row = 0;
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  for (size_t contact = 0; contact < kNumFeet; ++contact) {
     if (oracle.options().contactInput == OracleContactInput::kWorldWrench) {
       for (Eigen::Index i = 0; i < 3; ++i) {
         input(row + i) = 0.01 * halfWeight * unit(generator);

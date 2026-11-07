@@ -56,6 +56,9 @@ namespace ocs2::humanoid {
 
 namespace {
 
+// The biped's two feet, which every case here is written for.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+
 constexpr scalar_t kTol = 1.0e-12;
 
 /** Whether any of `warnings` mentions `text`. */
@@ -941,7 +944,7 @@ TEST(ContactPlanningLayout,
   // write the center-of-mass state on a heading-less formulation.
   const Layout none;
   EXPECT_FALSE(none.hasHeading);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     EXPECT_EQ(none.eulerzyxFootRtWorldYaw(foot), -1) << "foot " << foot;
     EXPECT_EQ(none.torqueFootEwrtWorldZ(foot), -1) << "foot " << foot;
     EXPECT_EQ(none.errEulerzyxFootRtWorldYaw(foot), -1) << "foot " << foot;
@@ -951,7 +954,7 @@ TEST(ContactPlanningLayout,
   heading.startEulerzyxFeetRtWorldYaw = 8;
   heading.yawTorqueStart = 5;
   heading.startErrEulerzyxFeetRtWorldYaw = 7;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     EXPECT_EQ(heading.eulerzyxFootRtWorldYaw(foot), 8 + static_cast<int>(foot))
         << "foot " << foot;
     EXPECT_EQ(heading.torqueFootEwrtWorldZ(foot), 5 + static_cast<int>(foot))

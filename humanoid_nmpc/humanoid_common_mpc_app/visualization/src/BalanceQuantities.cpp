@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/visualization/BalanceQuantities.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <optional>
@@ -36,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid::visualization {
@@ -59,30 +61,31 @@ vector2_t computePosDcmRtWorldEwrtWorldXy(
 }
 
 std::optional<vector3_t> computePosZmpRtWorldEwrtWorld(
-    const feet_array_t<vector3_t>& posFeetRtWorldEwrtWorld,
-    const feet_array_t<vector6_t>& wrenchFeetEwrtWorld,
+    const ContactArray<vector3_t>& posContactsRtWorldEwrtWorld,
+    const ContactArray<vector6_t>& wrenchContactsEwrtWorld,
     scalar_t minForceWorldEwrtWorldZ) {
   // The net force, and the net moment about the world origin.
   vector3_t forceWorldEwrtWorld = vector3_t::Zero();
   vector3_t torqueWorldEwrtWorld = vector3_t::Zero();
-  // The sum of the feet's heights, each weighted by its normal force.
-  scalar_t weightedSumPosFeetRtWorldEwrtWorldZ = 0.0;
-  for (size_t contact = 0; contact < posFeetRtWorldEwrtWorld.size();
-       ++contact) {
-    const vector3_t forceFootEwrtWorld =
-        wrenchFeetEwrtWorld[contact].head<kForceDim>();
-    forceWorldEwrtWorld += forceFootEwrtWorld;
+  // The sum of the contacts' heights, each weighted by its normal force.
+  scalar_t weightedSumPosContactsRtWorldEwrtWorldZ = 0.0;
+  const size_t numContacts = std::min(posContactsRtWorldEwrtWorld.size(),
+                                      wrenchContactsEwrtWorld.size());
+  for (size_t contact = 0; contact < numContacts; ++contact) {
+    const vector3_t forceContactEwrtWorld =
+        wrenchContactsEwrtWorld[contact].head<kForceDim>();
+    forceWorldEwrtWorld += forceContactEwrtWorld;
     torqueWorldEwrtWorld +=
-        posFeetRtWorldEwrtWorld[contact].cross(forceFootEwrtWorld) +
-        wrenchFeetEwrtWorld[contact].tail<kTorqueDim>();
-    weightedSumPosFeetRtWorldEwrtWorldZ +=
-        forceFootEwrtWorld.z() * posFeetRtWorldEwrtWorld[contact].z();
+        posContactsRtWorldEwrtWorld[contact].cross(forceContactEwrtWorld) +
+        wrenchContactsEwrtWorld[contact].tail<kTorqueDim>();
+    weightedSumPosContactsRtWorldEwrtWorldZ +=
+        forceContactEwrtWorld.z() * posContactsRtWorldEwrtWorld[contact].z();
   }
   if (!(forceWorldEwrtWorld.z() > minForceWorldEwrtWorldZ)) {
     return std::nullopt;
   }
   const scalar_t posZmpRtWorldEwrtWorldZ =
-      weightedSumPosFeetRtWorldEwrtWorldZ / forceWorldEwrtWorld.z();
+      weightedSumPosContactsRtWorldEwrtWorldZ / forceWorldEwrtWorld.z();
   return vector3_t((posZmpRtWorldEwrtWorldZ * forceWorldEwrtWorld.x() -
                     torqueWorldEwrtWorld.y()) /
                        forceWorldEwrtWorld.z(),

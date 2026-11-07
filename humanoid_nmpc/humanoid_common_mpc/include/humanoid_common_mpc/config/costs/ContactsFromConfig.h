@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -38,7 +39,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/constraint/FrictionForceConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactCenterPoint.h"
@@ -140,10 +140,17 @@ absl::StatusOr<ContactWrenchConeBasisMatrix> contactWrenchConeBasisFromConfig(
     const ContactRectangle& footprint);
 
 /**
- * The bases of both contacts of `modelSettings`, each around its own sole
- * (contactRectangleFromConfig()).
+ * One basis per contact of `modelSettings`, in contact order, each around its
+ * own footprint (contactRectangleFromConfig()). Any number of 6-DoF contacts is
+ * supported.
+ *
+ * @return InvalidArgument naming the contact and
+ * contact_input_parameterization when the set has a 3-DoF (point) contact: the
+ * generator sets span a 6-DoF contact's wrench cone, and no set for a point
+ * contact's force cone exists yet. The errors of contactRectangleFromConfig()
+ * and ContactWrenchConeBasisMatrix::Create().
  */
-absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>>
+absl::StatusOr<std::vector<ContactWrenchConeBasisMatrix>>
 contactWrenchConeBasesFromConfig(const mpc_config::ContactsConfig& contacts,
                                  const ModelSettings& modelSettings);
 

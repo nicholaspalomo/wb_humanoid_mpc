@@ -61,6 +61,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/rnea.hpp"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h"
@@ -93,6 +94,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+
+/** The measured contact of a biped's left and right foot, as a mask of the
+ * biped's two contacts. */
+ContactMask feetInContact(bool left, bool right) {
+  ContactMask mask(/*numContacts=*/static_cast<size_t>(kBipedFootCount));
+  mask.set(/*contactIndex=*/kContactLeftIndex, left);
+  mask.set(/*contactIndex=*/kContactRightIndex, right);
+  return mask;
+}
 
 constexpr scalar_t kControlPeriod = 0.01;  // [s]
 
@@ -504,7 +516,7 @@ TEST(
   PinocchioInterface pinocchioInterface = harness.pinocchioInterface();
   WBAccelMpcRobotModel<scalar_t>& model = harness.mutableModel();
   const vector_t input = weightCompensatingInput(
-      pinocchioInterface, contact_flag_t{true, false}, model);
+      pinocchioInterface, BipedFeetArray<bool>{true, false}, model);
   const vector_t baseHeld = computeBaseHeldJointTorques<scalar_t>(
       harness.initialState(), input, pinocchioInterface, model);
   const vector_t floatingBase = computeJointTorques<scalar_t>(
@@ -576,7 +588,7 @@ TEST(WBMpcMrtJointController,
   ASSERT_EQ(target.timeTrajectory.size(), 2u);
   EXPECT_GT(target.timeTrajectory[1], target.timeTrajectory[0]);
   scalar_t sumForceContactsEwrtParamZ = 0.0;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     sumForceContactsEwrtParamZ += harness.model().getForceContactEwrtParam(
         target.inputTrajectory[0], foot)(2);
   }
@@ -791,7 +803,7 @@ TEST(
   harness.setContactFlags(/*left=*/true, /*right=*/false);
   harness.cycle(std::chrono::microseconds(0));
   EXPECT_EQ(harness.controller().getMeasuredContactFlags(),
-            (contact_flag_t{true, false}));
+            feetInContact(/*left=*/true, /*right=*/false));
   EXPECT_EQ(harness.controller().getNumRefusedContactEstimates(), 0U)
       << "positive control: one flag per contact point is taken";
 
@@ -800,7 +812,7 @@ TEST(
   harness.cycle(std::chrono::microseconds(0));
   harness.cycle(std::chrono::microseconds(0));
   EXPECT_EQ(harness.controller().getMeasuredContactFlags(),
-            (contact_flag_t{true, false}))
+            feetInContact(/*left=*/true, /*right=*/false))
       << "a refused estimate changed the contact state";
   EXPECT_EQ(harness.controller().getNumRefusedContactEstimates(), 2U);
   ASSERT_EQ(sink.events.size(), 1U)

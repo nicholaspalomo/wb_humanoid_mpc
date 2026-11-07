@@ -29,12 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <string>
 
 #include "absl/status/statusor.h"
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_mpc_config/mimic_joints_config.nproto.h"
 
 namespace ocs2::humanoid {
@@ -58,13 +59,16 @@ struct JointMimicSettings {
  * then right_knee), as the two MPC interfaces read the blocks
  * mimicJoints.left_knee and mimicJoints.right_knee: a joint name the block
  * leaves out is empty and a number 0, which the constraints' Create() then
- * refuses by name.
+ * refuses by name. The blocks are one per leg of a biped, so a model whose
+ * contact set (`numContacts`, ModelSettings::numContacts()) is not two feet is
+ * refused.
  *
  * @return The settings; InvalidArgument naming the field when a multiplier or
- * gain is not finite (inf or nan).
+ * gain is not finite (inf or nan), and InvalidArgument naming the knee joint
+ * mimic and the count when `numContacts` is not two.
  */
-absl::StatusOr<feet_array_t<JointMimicSettings>> kneeMimicJointsFromConfig(
-    const mpc_config::MimicJointsConfig& mimicJoints);
+absl::StatusOr<BipedFeetArray<JointMimicSettings>> kneeMimicJointsFromConfig(
+    const mpc_config::MimicJointsConfig& mimicJoints, size_t numContacts);
 
 /**
  * kneeMimicJointsFromConfig() for the centroidal MPC, whose
@@ -74,8 +78,8 @@ absl::StatusOr<feet_array_t<JointMimicSettings>> kneeMimicJointsFromConfig(
  * @return The settings, velocity gains 0; InvalidArgument as
  * kneeMimicJointsFromConfig(), and naming a velocity_gain that is not 0.
  */
-absl::StatusOr<feet_array_t<JointMimicSettings>>
+absl::StatusOr<BipedFeetArray<JointMimicSettings>>
 kneeMimicKinematicJointsFromConfig(
-    const mpc_config::MimicJointsConfig& mimicJoints);
+    const mpc_config::MimicJointsConfig& mimicJoints, size_t numContacts);
 
 }  // namespace ocs2::humanoid

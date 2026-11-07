@@ -109,9 +109,9 @@ struct BasePoseHeuristicContext {
    * SwitchedModelReferenceManager::getPhaseVariable().
    *
    * [0, 0.5) is the LF mode and [0.5, 1) the RF mode, and those name the foot
-   * IN CONTACT, not the one swinging: modeNumber2StanceLeg maps LF to contact
-   * flags {true, false}. So the first half of the cycle is left stance with the
-   * RIGHT foot in the air, and the second half is the mirror of it.
+   * IN CONTACT, not the one swinging: bipedFootContactsOfMode maps LF to
+   * contact flags {true, false}. So the first half of the cycle is left stance
+   * with the RIGHT foot in the air, and the second half is the mirror of it.
    *
    * It FREEZES at 0.0 or 0.5 through double support rather than advancing, so a
    * periodic heuristic holds a constant offset there instead of continuing its

@@ -48,14 +48,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/reference/TargetTrajectories.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigReload.h"
 #include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.pb.h"
@@ -83,6 +82,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 namespace ocs2::humanoid {
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 using google::protobuf::Descriptor;
 using google::protobuf::FieldDescriptor;
@@ -219,7 +220,7 @@ void expectSameReferences(AtlasReferenceStack& reloaded,
     const scalar_t query = time + kQueryStep * step;
     EXPECT_EQ(a.getContactFlags(query), b.getContactFlags(query))
         << when << ", t = " << query;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       const std::optional<SwingFootReference> referenceA =
           a.getSwingFootReference(foot, query);
       const std::optional<SwingFootReference> referenceB =
@@ -244,11 +245,11 @@ void expectSameReferences(AtlasReferenceStack& reloaded,
   EXPECT_EQ(reloaded.planningReferenceManager()->hasActivePlan(),
             fresh.planningReferenceManager()->hasActivePlan())
       << when;
-  const feet_array_t<TargetContactPose> firstDesPoseFeetRtWorld =
+  const BipedFeetArray<TargetContactPose> firstDesPoseFeetRtWorld =
       reloaded.planningReferenceManager()->getDesPoseFeetRtWorld();
-  const feet_array_t<TargetContactPose> secondDesPoseFeetRtWorld =
+  const BipedFeetArray<TargetContactPose> secondDesPoseFeetRtWorld =
       fresh.planningReferenceManager()->getDesPoseFeetRtWorld();
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     EXPECT_LT((firstDesPoseFeetRtWorld[foot].posFootRtWorldEwrtWorldXy -
                secondDesPoseFeetRtWorld[foot].posFootRtWorldEwrtWorldXy)
                   .norm(),
@@ -297,8 +298,8 @@ TEST(ContactPlanningReloadEqualsFreshStart,
       reloaded.command(kCmdLinvelBaseRtWorldEwrtHeadingX / kCommandLimitX);
       fresh.command(kCmdLinvelBaseRtWorldEwrtHeadingX / kCommandLimitX);
     }
-    reloaded.mpc().run(time, state, ModeNumber::kStance);
-    fresh.mpc().run(time, state, ModeNumber::kStance);
+    reloaded.mpc().run(time, state, kBipedModeStance);
+    fresh.mpc().run(time, state, kBipedModeStance);
     expectSameReferences(reloaded, fresh, time, absl::StrCat("solve ", solve));
     if (HasFatalFailure()) return;
     time += kSolvePeriod;

@@ -60,7 +60,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 #include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
@@ -162,7 +162,7 @@ class NodeHarness {
     observation.state = node_->interface().getInitialState();
     observation.input =
         vector_t::Zero(node_->interface().getMpcRobotModel().getInputDim());
-    observation.mode = ModeNumber::kStance;
+    observation.mode = kBipedModeStance;
     return observation;
   }
 
@@ -484,7 +484,7 @@ class DummySimRunner {
     initialObservation_.time = 0.0;
     initialObservation_.state = node.interface().getInitialState();
     initialObservation_.input = vector_t::Zero(node.dimensions().inputDim);
-    initialObservation_.mode = ModeNumber::kStance;
+    initialObservation_.mode = kBipedModeStance;
   }
 
   /** Runs the loop for `duration` of wall time once its first policy has

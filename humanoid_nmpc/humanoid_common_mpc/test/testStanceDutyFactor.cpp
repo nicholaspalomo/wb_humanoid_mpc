@@ -38,11 +38,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 
 namespace ocs2::humanoid {
 
 namespace {
+
+// The biped's two feet, which every case here is written for.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 /**
  * The value of `optional`, or a failed expectation and a value-initialized T. A
@@ -69,11 +72,11 @@ ModeSchedule alternatingSingleSupport(scalar_t period, size_t cycles) {
   std::vector<size_t> modes;
   std::vector<scalar_t> events;
   for (size_t i = 0; i < 2 * cycles; ++i) {
-    modes.push_back(i % 2 == 0 ? ModeNumber::kRf : ModeNumber::kLf);
+    modes.push_back(i % 2 == 0 ? kBipedModeRf : kBipedModeLf);
     events.push_back(static_cast<scalar_t>(i + 1) * period);
   }
-  modes.push_back(ModeNumber::kStance);  // N modes, N - 1 events: the trailing
-                                         // phase is unbounded
+  modes.push_back(kBipedModeStance);  // N modes, N - 1 events: the trailing
+                                      // phase is unbounded
   return ModeSchedule(std::move(events), std::move(modes));
 }
 
@@ -87,22 +90,22 @@ ModeSchedule walk(size_t cycles, scalar_t leadIn = 0.0) {
   std::vector<scalar_t> events;
   scalar_t time = 0.0;
   if (leadIn > 0.0) {
-    modes.push_back(ModeNumber::kStance);
+    modes.push_back(kBipedModeStance);
     time += leadIn;
     events.push_back(time);
   }
   for (size_t i = 0; i < cycles; ++i) {
     for (const std::pair<size_t, scalar_t>& phase :
-         {std::pair<size_t, scalar_t>{ModeNumber::kRf, 0.6},
-          std::pair<size_t, scalar_t>{ModeNumber::kStance, 0.1},
-          std::pair<size_t, scalar_t>{ModeNumber::kLf, 0.6},
-          std::pair<size_t, scalar_t>{ModeNumber::kStance, 0.1}}) {
+         {std::pair<size_t, scalar_t>{kBipedModeRf, 0.6},
+          std::pair<size_t, scalar_t>{kBipedModeStance, 0.1},
+          std::pair<size_t, scalar_t>{kBipedModeLf, 0.6},
+          std::pair<size_t, scalar_t>{kBipedModeStance, 0.1}}) {
       modes.push_back(phase.first);
       time += phase.second;
       events.push_back(time);
     }
   }
-  modes.push_back(ModeNumber::kStance);
+  modes.push_back(kBipedModeStance);
   return ModeSchedule(std::move(events), std::move(modes));
 }
 
@@ -146,8 +149,8 @@ TEST(StanceDutyFactor, StandingIsOneForBothFeet) {
   // the walk has something to measure.
   const ModeSchedule schedule(
       std::vector<scalar_t>{0.5, 1.0},
-      std::vector<size_t>{ModeNumber::kStance, ModeNumber::kStance,
-                          ModeNumber::kStance});
+      std::vector<size_t>{kBipedModeStance, kBipedModeStance,
+                          kBipedModeStance});
   // 1 is also the value at which the impulse-scaling correction is identically
   // zero, so a robot that never lifts a foot gets exactly the contact-force
   // reference it had before the heuristic existed.
@@ -203,7 +206,7 @@ TEST(StanceDutyFactor, DegenerateInputsReturnOneRatherThanZero) {
   // One lift-off and nothing after it is no complete stride either.
   const ModeSchedule oneStep(
       std::vector<scalar_t>{0.5},
-      std::vector<size_t>{ModeNumber::kStance, ModeNumber::kRf});
+      std::vector<size_t>{kBipedModeStance, kBipedModeRf});
   EXPECT_NEAR(stanceDutyFactor(oneStep, kContactRightIndex, /*time=*/0.7), 1.0,
               1.0e-12);
 }
@@ -211,7 +214,7 @@ TEST(StanceDutyFactor, DegenerateInputsReturnOneRatherThanZero) {
 TEST(StanceDutyFactor, IsAlwaysAFraction) {
   const ModeSchedule schedule = walk(4, 0.5);
   for (scalar_t time = -1.0; time < 8.0; time += 0.13) {
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       const scalar_t beta = stanceDutyFactor(schedule, foot, time);
       EXPECT_GT(beta, 0.0);
       EXPECT_LE(beta, 1.0);

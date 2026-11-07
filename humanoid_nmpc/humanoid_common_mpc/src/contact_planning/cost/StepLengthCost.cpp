@@ -77,7 +77,7 @@ void StepLengthCost::addToStage(const ContactPlanningContext& ctx,
   const vector2_t nomErrPosFootRtWorldEwrtWorldXy =
       computeNomErrPosFootRtWorldEwrtWorldXy(cmdLinvelBaseRtWorldEwrtWorldXy,
                                              ctx.dt);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       // dp - d_nom (1 - c) = dp + d_nom c - d_nom
       stage.addQuadraticResidual(

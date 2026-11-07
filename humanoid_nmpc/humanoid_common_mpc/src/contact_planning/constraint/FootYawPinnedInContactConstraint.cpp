@@ -53,7 +53,7 @@ void FootYawPinnedInContactConstraint::addRows(
     int /*node*/,
     RowBuilder& rows) const {
   constexpr scalar_t kYawBigM = HeadingDoubleIntegrator::kYawBigM;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     for (const scalar_t sign : {1.0, -1.0}) {
       rows.addHard(
           /*xCoefficients=*/{},

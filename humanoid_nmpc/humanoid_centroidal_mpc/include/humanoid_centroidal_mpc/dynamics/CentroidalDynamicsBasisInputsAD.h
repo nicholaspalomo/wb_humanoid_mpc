@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
-#include <array>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -40,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
@@ -47,7 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/multibody/fwd.hpp"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -95,21 +95,21 @@ class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
    * @param modelSettings      Build settings (CppAD model folder, recompile
    * flags, contact names, etc.).
    * @param localBasisMatrices Per-contact basis matrices B_i (6 ×
-   * numBasisPerFoot) in the local contact frame.
+   * numBasisPerFoot) in the local contact frame, one per contact of the set
+   * (any number of 6-DoF contacts, no 3-DoF contact), in contact order.
    */
   static absl::StatusOr<std::unique_ptr<CentroidalDynamicsBasisInputsAD>>
   Create(const PinocchioInterface& pinocchioInterface,
          const CentroidalModelInfo& info,
          const std::string& modelName,
          const ModelSettings& modelSettings,
-         const std::array<matrix_t, kNumContacts>& localBasisMatrices);
+         absl::Span<const matrix_t> localBasisMatrices);
 
   /** The checks Create() runs before it builds anything. */
-  static absl::Status validate(
-      const PinocchioInterface& pinocchioInterface,
-      const CentroidalModelInfo& info,
-      const ModelSettings& modelSettings,
-      const std::array<matrix_t, kNumContacts>& localBasisMatrices);
+  static absl::Status validate(const PinocchioInterface& pinocchioInterface,
+                               const CentroidalModelInfo& info,
+                               const ModelSettings& modelSettings,
+                               absl::Span<const matrix_t> localBasisMatrices);
 
   ~CentroidalDynamicsBasisInputsAD() override = default;
   CentroidalDynamicsBasisInputsAD* absl_nonnull clone() const override {
@@ -135,7 +135,7 @@ class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
    */
   static std::string uniqueModelName(
       absl::string_view modelName,
-      const std::array<matrix_t, kNumContacts>& localBasisMatrices);
+      absl::Span<const matrix_t> localBasisMatrices);
 
   /**
    * Converts a basis-vector input into the wrench-space input of the underlying
@@ -163,15 +163,16 @@ class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
       const CentroidalModelInfo& info,
       const std::string& modelName,
       const ModelSettings& modelSettings,
-      const std::array<matrix_t, kNumContacts>& localBasisMatrices);
+      absl::Span<const matrix_t> localBasisMatrices);
 
   CentroidalDynamicsBasisInputsAD(const CentroidalDynamicsBasisInputsAD& rhs);
 
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
   CentroidalModelInfoCppAd infoCppAd_;
 
-  std::array<matrix_t, kNumContacts> B_local_;
-  std::array<pinocchio::FrameIndex, kNumContacts> contactFrameIndices_;
+  // One entry per contact, in contact order.
+  ContactArray<matrix_t> B_local_;
+  ContactArray<pinocchio::FrameIndex> contactFrameIndices_;
   size_t numBasisPerFoot_;
   size_t jointDim_;
   size_t basisInputDim_;

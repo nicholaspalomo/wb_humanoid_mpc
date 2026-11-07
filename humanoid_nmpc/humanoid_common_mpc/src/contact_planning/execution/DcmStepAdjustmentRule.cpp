@@ -57,10 +57,10 @@ void DcmStepAdjustmentRule::configure(const ContactPlanningConfig& config) {
   params_ = config.dcmStepAdjustment;
 }
 
-feet_array_t<vector2_t> DcmStepAdjustmentRule::correctFootholds(
+BipedFeetArray<vector2_t> DcmStepAdjustmentRule::correctFootholds(
     const ExecutionContext& ctx, const ModeSchedule& schedule) const {
-  feet_array_t<vector2_t> errPosFeetRtWorldEwrtWorldXy =
-      makeFeetArray(vector2_t(vector2_t::Zero()));
+  BipedFeetArray<vector2_t> errPosFeetRtWorldEwrtWorldXy =
+      makeBipedFeetArray(vector2_t(vector2_t::Zero()));
   if (!ctx.hasPlan() || !ctx.hasPredictedComState) {
     return errPosFeetRtWorldEwrtWorldXy;
   }
@@ -80,7 +80,7 @@ feet_array_t<vector2_t> DcmStepAdjustmentRule::correctFootholds(
           ctx.predictedPosComRtWorldEwrtWorldXy,
           ctx.predictedProxyLinvelComRtWorldEwrtWorldXy, omega);
 
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     const std::optional<SwingWindow> phase =
         swingPhaseAtTime(schedule, foot, ctx.time);
     if (!phase.has_value()) continue;

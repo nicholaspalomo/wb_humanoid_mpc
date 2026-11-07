@@ -29,7 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <optional>
 #include <string>
@@ -37,7 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Core"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_mpc_validation/io/JsonValue.h"
 
 namespace ocs2::humanoid::validation {
@@ -60,10 +60,11 @@ struct ControlCycleSample {
   Eigen::Vector3d refVelocityCommand = Eigen::Vector3d::Zero();
   double referenceBaseHeight =
       0.0;  ///< [m] world height of the base the command asks for
-  std::array<Eigen::Vector3d, kNumContacts> posContactsRtWorldEwrtWorld{
-      Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero()};  ///< [m] world
-  std::array<bool, kNumContacts> contactFlags{
-      false, false};  ///< measured: the simulator's ground truth
+  /// [m] world, per contact of the robot's set in contact order; as many as
+  /// the ClosedLoopMetrics was made for.
+  ContactArray<Eigen::Vector3d> posContactsRtWorldEwrtWorld;
+  /// Measured: the simulator's ground truth, per contact of the set.
+  ContactMask contactFlags;
   Eigen::VectorXd
       jointTorques;  ///< [N m] commanded total torque of each MPC joint
   size_t nonFiniteValues = 0;  ///< in the observation, the policy input and the
@@ -200,6 +201,13 @@ struct ClosedLoopRunInfo {
  */
 class ClosedLoopMetrics {
  public:
+  /** Metrics of a robot of `numContacts` contacts
+   * (ModelSettings::numContacts(), at most kMaxNumContacts): every control
+   * cycle's sample carries that many contact positions and flags. */
+  explicit ClosedLoopMetrics(size_t numContacts);
+
+  /** Adds one control cycle. Aborts on a sample of another contact count than
+   * the metrics', a bug of the loop that collects them. */
   void addControlCycle(const ControlCycleSample& sample);
   void addSolve(const SolveSample& sample);
   /** The robot fell at `time` [s] (tilt, height or a simulator reset, said in
@@ -250,9 +258,9 @@ class ClosedLoopMetrics {
   double cumulativeHeadingMax_ = 0.0;
   double cumulativeHeadingMin_ = 0.0;
 
-  std::array<StancePhase, kNumContacts> stance_{};
-  std::array<Eigen::Vector2d, kNumContacts> prevPosContactsRtWorldEwrtWorldXy_{
-      Eigen::Vector2d::Zero(), Eigen::Vector2d::Zero()};
+  // Per contact of the set, sized at construction.
+  ContactArray<StancePhase> stance_;
+  ContactArray<Eigen::Vector2d> prevPosContactsRtWorldEwrtWorldXy_;
   std::vector<double> stanceFinalDrifts_;
   double slipMax_ = 0.0;
 

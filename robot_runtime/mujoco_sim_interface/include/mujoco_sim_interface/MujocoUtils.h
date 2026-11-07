@@ -121,9 +121,11 @@ inline constexpr int kMjFreeJointAngularVelocityStartIndex = ocs2::kPositionDim;
 inline constexpr int kMjBodyInvweightSize = 2;
 
 /** The most contact points a contact mask (groundTruthContactMask()) covers:
- * one bit of a uint32_t each. */
+ * one bit of a uint32_t each, as many as the MPC's contact set may have. */
+// LINT.IfChange(contact_mask_capacity)
 inline constexpr int kContactMaskCapacity =
     std::numeric_limits<uint32_t>::digits;
+// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ContactArray.h:max_num_contacts)
 
 /** Deletes an mjModel, so that a std::unique_ptr owns it (MjModelPtr). */
 struct MjModelDeleter {

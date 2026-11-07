@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -37,7 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "robot_model/ContactEstimator.h"
@@ -50,11 +51,11 @@ namespace ocs2::humanoid {
  * estimator every control cycle (robot_model/ContactEstimator.h), shared by
  * CentroidalMpcMrtJointController and WBMpcMrtJointController.
  *
- * An estimate is taken when it carries one flag per contact point of the
- * controller (kNumContacts). Any other estimate is a configuration error of the
- * estimator: it is refused, the measured flags stay those of the cycle before,
- * and the refusal is counted. The first refusal after an estimate was taken, or
- * after the estimator was replaced, posts
+ * An estimate is taken when it carries one flag per contact of the controller's
+ * contact set (ModelSettings::contactNames, in its order). Any other estimate
+ * is a configuration error of the estimator: it is refused, the measured flags
+ * stay those of the cycle before, and the refusal is counted. The first refusal
+ * after an estimate was taken, or after the estimator was replaced, posts
  * ControllerEventCode::kContactEstimateRefused to the controller's event sink,
  * so that a misconfigured estimator is reported once rather than on every
  * cycle; the robot process's communication thread logs it as a warning. The
@@ -67,9 +68,11 @@ namespace ocs2::humanoid {
  */
 class ContactEstimateIntake {
  public:
-  /** `controller` names the controller in the refusal report: a string literal,
-   * which must outlive the intake. */
-  explicit ContactEstimateIntake(const char* absl_nonnull controller);
+  /** The intake of a controller with `numContacts` contacts. `controller`
+   * names the controller in the refusal report: a string literal, which must
+   * outlive the intake. */
+  ContactEstimateIntake(const char* absl_nonnull controller,
+                        size_t numContacts);
 
   ContactEstimateIntake(const ContactEstimateIntake&) = delete;
   ContactEstimateIntake& operator=(const ContactEstimateIntake&) = delete;
@@ -83,20 +86,25 @@ class ContactEstimateIntake {
   void resetEstimator(absl::string_view estimatorName);
 
   /**
-   * Takes `estimated` into `measured` when it holds kNumContacts flags and
-   * returns true. Otherwise leaves `measured` as it is, counts the refusal,
-   * posts kContactEstimateRefused to `sink` when it is the first refusal since
-   * an estimate was taken or since resetEstimator(), and returns false.
-   * Allocates nothing.
+   * Takes `estimated` into `measured` when it holds numContacts() flags and
+   * returns true. `measured` must be a mask of numContacts() contacts.
+   * Otherwise leaves `measured` as it is, counts the refusal, posts
+   * kContactEstimateRefused to `sink` when it is the first refusal since an
+   * estimate was taken or since resetEstimator(), and returns false. Allocates
+   * nothing.
    */
   bool take(const std::vector<bool>& estimated,
-            contact_flag_t& measured,
+            ContactMask& measured,
             ControllerEventSink& sink);
 
   /** The estimates refused so far. Any thread. */
   uint64_t numRefused() const { return numRefused_.load(); }
 
+  /** The number of flags an estimate must carry. */
+  size_t numContacts() const { return numContacts_; }
+
  private:
+  size_t numContacts_ = 0;
   /** The report of a refusal, prepared by resetEstimator(): take() fills in the
    * number of flags and posts it. */
   ControllerEvent refusal_;
@@ -106,14 +114,15 @@ class ContactEstimateIntake {
 };
 
 /**
- * OK when `estimator` writes one flag per contact point of the MRT joint
- * controllers (kNumContacts) for `robotState`; InvalidArgument naming
+ * OK when `estimator` writes one flag per contact of an MRT joint controller
+ * with `numContacts` contacts for `robotState`; InvalidArgument naming
  * `estimatorName` and both counts otherwise. For the thread that installs an
  * estimator, before the control thread uses it: it asks the estimator once,
  * which allocates.
  */
 absl::Status checkContactEstimator(robot::model::ContactEstimator& estimator,
                                    const robot::model::RobotState& robotState,
+                                   size_t numContacts,
                                    absl::string_view estimatorName);
 
 }  // namespace ocs2::humanoid

@@ -27,7 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -45,9 +44,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc_app/robot/FsmCommand.h"
 #include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
 #include "humanoid_common_mpc_app/robot/JointNamesByIndex.h"
@@ -253,14 +255,19 @@ TEST(RobotRealtimeAllocations,
       robot_test::atlasDescription();
   TelemetrySampler::Config config;
   config.jointNames = jointNamesByIndex(description);
+  config.numContacts = static_cast<size_t>(kBipedFootCount);
   config.decimation = 1;
   config.capacity = 8;
   TelemetrySampler sampler(config);
   robot::model::RobotState state(description);
   robot::model::RobotJointAction action(description);
-  const contact_flag_t flags{true, false};
-  const std::array<vector3_t, kNumContacts> measForceFeetEwrtWorld{
-      vector3_t(1.0, 2.0, 3.0), vector3_t::Zero()};
+  // The left foot alone in contact.
+  const ContactMask flags = ContactMask::fromModeNumber(
+      /*modeNumber=*/kBipedModeLf,
+      /*numContacts=*/static_cast<size_t>(kBipedFootCount));
+  ContactArray<vector3_t> measForceFeetEwrtWorld(
+      /*numContacts=*/static_cast<size_t>(kBipedFootCount), vector3_t::Zero());
+  measForceFeetEwrtWorld[0] = vector3_t(1.0, 2.0, 3.0);
 
   // The first round warms nothing up: the slots are built with their shape at
   // construction.

@@ -64,9 +64,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -78,6 +78,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 /** A reference manager with a planned DCM of its own choosing, so that the cost
  * can be shown what it does under a plan. */
@@ -119,7 +121,7 @@ class DcmTerminalCostTest : public ::testing::Test {
         new SwingTrajectoryPlanner(
             checkedValue(swingTrajectorySettingsFromConfig(
                 atlas_.task.swing_trajectory_config)),
-            kNumContacts));
+            kNumFeet));
     HUMANOID_ASSERT_OK_AND_ASSIGN(
         std::shared_ptr<GaitSchedule> gaitSchedule,
         GaitSchedule::Create(atlas_.reference, *modelSettings_,
@@ -131,15 +133,14 @@ class DcmTerminalCostTest : public ::testing::Test {
     // manager rebuilds its schedule from the gait schedule on every
     // preSolverRun, so the phase has to be inserted there.
     referenceManager_->getGaitSchedule()->insertModeSequenceTemplate(
-        ModeSequenceTemplate({0.0, 0.5, 1.0},
-                             {ModeNumber::kRf, ModeNumber::kStance}),
+        ModeSequenceTemplate({0.0, 0.5, 1.0}, {kBipedModeRf, kBipedModeStance}),
         /*startTime=*/1.0, /*finalTime=*/3.0);
     HUMANOID_ASSERT_OK_AND_ASSIGN(
         initialState_, initialStateOnModel(atlas_.task, *robotModel_));
     // The reference manager needs one preSolverRun to swap in the buffered mode
     // schedule.
     referenceManager_->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0,
-                                    initialState_, ModeNumber::kStance);
+                                    initialState_, kBipedModeStance);
 
     // An explicit height: the tests below are about the cost's arithmetic, on a
     // pendulum they choose.
@@ -192,7 +193,7 @@ class DcmTerminalCostTest : public ::testing::Test {
   }
 
   vector2_t computeMeanPosContactRtWorldEwrtWorldXy(
-      const vector_t& state, const contact_flag_t& contacts) const {
+      const vector_t& state, const BipedFeetArray<bool>& contacts) const {
     const vector_t q = robotModel_->getGeneralizedCoordinates(state);
     PinocchioInterface pinocchio(*pinocchioInterface_);
     const std::vector<vector3_t> posContactsRtWorldEwrtWorld =
@@ -200,7 +201,7 @@ class DcmTerminalCostTest : public ::testing::Test {
                                                      *robotModel_);
     vector2_t meanPosContactRtWorldEwrtWorldXy = vector2_t::Zero();
     int count = 0;
-    for (size_t i = 0; i < kNumContacts; ++i) {
+    for (size_t i = 0; i < kNumFeet; ++i) {
       if (contacts[i]) {
         meanPosContactRtWorldEwrtWorldXy +=
             posContactsRtWorldEwrtWorld[i].head<2>();
@@ -267,7 +268,7 @@ TEST_F(DcmTerminalCostTest, SingleSupportUsesStanceFoot) {
   const vector_t& state = initialState_;
   // Right foot single support on [1.0, 1.5).
   ASSERT_EQ(referenceManager_->getModeSchedule().modeAtTime(1.25),
-            static_cast<size_t>(ModeNumber::kRf));
+            kBipedModeRf);
   const vector_t paramsRf = cost_->getParameters(/*time=*/1.25, emptyTargets);
   EXPECT_DOUBLE_EQ(paramsRf(0), 0.0);
   EXPECT_DOUBLE_EQ(paramsRf(1), 1.0);
@@ -545,10 +546,10 @@ TEST_F(DcmTerminalCostTest, UnderAPlanTheRobotsDcmIsTakenOnThePlansPendulum) {
           std::make_unique<SwingTrajectoryPlanner>(
               checkedValue(swingTrajectorySettingsFromConfig(
                   atlas_.task.swing_trajectory_config)),
-              kNumContacts),
+              kNumFeet),
           *pinocchioInterface_, *robotModel_);
   planning->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, initialState_,
-                         ModeNumber::kStance);
+                         kBipedModeStance);
   const std::unique_ptr<DcmTerminalCost> cost = createCost(*planning, config_);
   ASSERT_NE(cost, nullptr);
 

@@ -63,7 +63,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_nmpc/humanoid_wb_mpc/test/OrientationErrorRateOracle.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
@@ -104,6 +104,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 namespace ocs2::humanoid {
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 using test_support::AttitudeMotion;
 using test_support::DifferencedOrientationErrorRates;
@@ -184,7 +186,7 @@ std::unique_ptr<StanceFootModels> makeStanceFootModels() {
   // around kTime.
   models->interface->getSwitchedModelReferenceManagerPtr()->preSolverRun(
       kTime - 0.5, kTime + 1.0, models->interface->getInitialState(),
-      ModeNumber::kStance);
+      kBipedModeStance);
   const ModelSettings& settings = models->interface->modelSettings();
   models->adRobotModel =
       std::make_unique<WBAccelMpcRobotModel<ad_scalar_t>>(settings);
@@ -344,7 +346,7 @@ StancePoint stancePoint(const StanceFootModels& models,
     point.state(nq + i) =
         randomRateBound * unit(generator) * (i < 3 ? 1.0 / 3.0 : 1.0);
   }
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     const Eigen::Index start = static_cast<Eigen::Index>(6 * foot);
     point.input.segment<3>(start) =
         vector3_t(30.0 * unit(generator), 30.0 * unit(generator),
@@ -353,7 +355,7 @@ StancePoint stancePoint(const StanceFootModels& models,
         5.0 * vector3_t(unit(generator), unit(generator), unit(generator));
   }
   for (Eigen::Index j = 0; j < joints; ++j) {
-    point.input(6 * kNumContacts + j) = 5.0 * unit(generator);
+    point.input(6 * kNumFeet + j) = 5.0 * unit(generator);
   }
   return point;
 }

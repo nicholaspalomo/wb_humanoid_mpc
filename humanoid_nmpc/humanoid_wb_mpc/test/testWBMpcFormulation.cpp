@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -306,6 +307,42 @@ TEST_F(WBMpcFormulationTest, aContactSetOtherThanTheFeetIsRefused) {
   EXPECT_TRUE(absl::StrContains(refused.status().message(),
                                 "the whole-body MPC runs on the biped's"))
       << refused.status();
+}
+
+/**
+ * Four 3-DoF point contacts and no 6-DoF foot, the contact set of a
+ * point-footed quadruped, are refused the same way, with the contact counts in
+ * the message.
+ */
+TEST_F(WBMpcFormulationTest, aSetOfFourPointContactsIsRefused) {
+  ASSERT_EQ(task_.model_settings.contact_parent_joint_names.size(), 2U);
+  mpc_config::TaskFile points = task_;
+  points.model_settings.contacts_3dof.clear();
+  for (size_t i = 0; i < 4; ++i) {
+    mpc_config::ModelSettingsConfig::PointContact point;
+    point.name = absl::StrCat("point_", i, "_contact");
+    point.parent_joint_name =
+        task_.model_settings.contact_parent_joint_names[i % 2];
+    points.model_settings.contacts_3dof.push_back(point);
+  }
+  points.model_settings.contact_names_6dof = {};
+  points.model_settings.contact_parent_joint_names = {};
+  const absl::StatusOr<std::unique_ptr<WBMpcInterface>> refused =
+      WBMpcInterface::CreateControllerModels(points, urdfFile_, reference_);
+  ASSERT_FALSE(refused.ok());
+  EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(refused.status().message(),
+                                "lists 4 3-DoF and 0 6-DoF contacts"))
+      << refused.status();
+  EXPECT_TRUE(absl::StrContains(refused.status().message(),
+                                "the whole-body MPC runs on the biped's"))
+      << refused.status();
+  // The full interface refuses it too, before any term is built.
+  const absl::Status interfaceRefusal = refusal(points);
+  EXPECT_EQ(interfaceRefusal.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(interfaceRefusal.message(),
+                                "the whole-body MPC runs on the biped's"))
+      << interfaceRefusal;
 }
 
 /**

@@ -49,11 +49,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipContactPlanner.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 namespace ocs2::humanoid {
 namespace {
+
+// The biped's two feet, which every case here is written for.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 constexpr scalar_t kTol = 1.0e-6;
 
@@ -77,9 +80,9 @@ ContactPlanningConfig makeConfig() {
 }
 
 size_t modeWithSwinging(size_t foot) {
-  contact_flag_t flags = makeFeetArray(true);
+  BipedFeetArray<bool> flags = makeBipedFeetArray(true);
   flags[foot] = false;
-  return stanceLeg2ModeNumber(flags);
+  return bipedModeOfFootContacts(flags);
 }
 
 /**
@@ -122,13 +125,14 @@ std::vector<Phase> phasesInside(const ModeSchedule& schedule,
                                 scalar_t from,
                                 scalar_t to) {
   std::vector<Phase> phases;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     std::optional<Phase> current;
     for (size_t i = 0; i < schedule.eventTimes.size(); ++i) {
       const scalar_t t = schedule.eventTimes[i];
-      const bool before = modeNumber2StanceLeg(schedule.modeSequence[i])[foot];
+      const bool before =
+          bipedFootContactsOfMode(schedule.modeSequence[i])[foot];
       const bool after =
-          modeNumber2StanceLeg(schedule.modeSequence[i + 1])[foot];
+          bipedFootContactsOfMode(schedule.modeSequence[i + 1])[foot];
       if (before == after) continue;
       if (current.has_value()) {
         current->end = t;
@@ -148,7 +152,7 @@ std::vector<std::pair<scalar_t, scalar_t>> doubleSupportsInside(
     const ModeSchedule& schedule, scalar_t from, scalar_t to) {
   std::vector<std::pair<scalar_t, scalar_t>> supports;
   for (size_t i = 0; i + 1 < schedule.modeSequence.size(); ++i) {
-    if (schedule.modeSequence[i + 1] != ModeNumber::kStance ||
+    if (schedule.modeSequence[i + 1] != kBipedModeStance ||
         i + 1 >= schedule.eventTimes.size()) {
       continue;
     }
@@ -164,10 +168,12 @@ std::vector<std::pair<scalar_t, scalar_t>> doubleSupportsInside(
 void printSchedule(const ModeSchedule& schedule) {
   LOG(INFO) << "  schedule:";
   for (size_t i = 0; i < schedule.eventTimes.size(); ++i) {
-    const contact_flag_t c = modeNumber2StanceLeg(schedule.modeSequence[i]);
+    const BipedFeetArray<bool> c =
+        bipedFootContactsOfMode(schedule.modeSequence[i]);
     LOG(INFO) << " [" << c[0] << c[1] << "] " << schedule.eventTimes[i];
   }
-  const contact_flag_t c = modeNumber2StanceLeg(schedule.modeSequence.back());
+  const BipedFeetArray<bool> c =
+      bipedFootContactsOfMode(schedule.modeSequence.back());
   LOG(INFO) << " [" << c[0] << c[1] << "]\n";
 }
 
@@ -246,13 +252,13 @@ ContactPlan makeCountingPlan(scalar_t startTime, scalar_t dt, int numNodes) {
                                                1);
   plan.desEulerzyxFeetRtWorldYawTraj.resize(static_cast<size_t>(numNodes) + 1);
   plan.headingModelYawTraj.assign(static_cast<size_t>(numNodes) + 1, 0.0);
-  plan.contacts.assign(static_cast<size_t>(numNodes), makeFeetArray(true));
+  plan.contacts.assign(static_cast<size_t>(numNodes), makeBipedFeetArray(true));
   for (int k = 0; k <= numNodes; ++k) {
     const scalar_t value = static_cast<scalar_t>(k);
     plan.desPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(k)] =
-        makeFeetArray(vector2_t(value, -value));
+        makeBipedFeetArray(vector2_t(value, -value));
     plan.desEulerzyxFeetRtWorldYawTraj[static_cast<size_t>(k)] =
-        makeFeetArray(value);
+        makeBipedFeetArray(value);
   }
   return plan;
 }
@@ -426,7 +432,6 @@ ContactPlanningConfig makeHlipConfig() {
 
 TEST(ContactPlanDescribe,
      AStepIsMeasuredFromTheLastStanceNodeAndNotFromTheLiftOffNode) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   ContactPlan plan;
   plan.valid = true;
   plan.startTime = 0.0;
@@ -463,7 +468,6 @@ TEST(ContactPlanDescribe,
 
 TEST(ContactPlanDescribe,
      ASwingAlreadyInFlightAtTheStartOfThePlanPrintsNoStepAtAll) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   // A plan that begins mid-swing holds no pre-lift-off foothold for that foot:
   // the lift-off happened before node 0. There is no step to report, and
   // reporting a zero would be the very thing this pins - a displacement of zero
@@ -489,7 +493,6 @@ TEST(ContactPlanDescribe,
 
 TEST(ContactPlanDescribe,
      EveryStepOfARealHlipPlanReportsTheDisplacementTheDeadbeatLawChose) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   const ContactPlanningConfig config = makeHlipConfig();
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const std::unique_ptr<HlipContactPlanner> planner,
@@ -503,13 +506,13 @@ TEST(ContactPlanDescribe,
       vector2_t(0.0, 0.5 * config.hlip.nomPosLfootRtRfootEwrtHeadingY);
   input.posFeetRtWorldEwrtWorldXy[kContactRightIndex] =
       vector2_t(0.0, -0.5 * config.hlip.nomPosLfootRtRfootEwrtHeadingY);
-  input.contacts = makeFeetArray(true);
+  input.contacts = makeBipedFeetArray(true);
   // A double support that has only just begun, so the nominal cadence serves
   // out its remaining 0.05 s before the first foot leaves the ground. Every
   // swing in the plan then has a stance node in front of it, which is what
   // makes this a test of the measurement rather than of the mid-swing case
   // above.
-  input.phaseElapsedTime = makeFeetArray(0.0);
+  input.phaseElapsedTime = makeBipedFeetArray(0.0);
   input.cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t(0.4, 0.0);
   input.committedUntil = input.time;
   ASSERT_TRUE(planner->isWalking(input));
@@ -545,7 +548,6 @@ TEST(ContactPlanDescribe,
 
 TEST(ContactPlanMerge,
      TouchDownAtTheCommitBoundaryDoesNotShortenTheFollowingPhases) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   // The right foot lands at 0.97 s, 0.07 s into the planner node [0.9, 1.0).
   // The commit boundary of a plan made at 0.7 s is that touch-down, so the node
   // straddles it and is committed with the foot in contact. Counted from the
@@ -555,27 +557,23 @@ TEST(ContactPlanMerge,
   // it landed against the 0.15 s minimum.
   const ContactPlanningConfig config = makeConfig();
   const ModeSchedule applied(
-      {0.57, 0.97},
-      {ModeNumber::kStance, modeWithSwinging(1), ModeNumber::kStance});
+      {0.57, 0.97}, {kBipedModeStance, modeWithSwinging(1), kBipedModeStance});
   expectMergedScheduleHonorsMinimumDurations(applied, /*time=*/0.7, config);
 }
 
 TEST(ContactPlanMerge,
      TouchDownInsideTheCommitWindowDoesNotShortenTheFollowingPhases) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   // The touch-down at 0.92 s lies inside the commit window of a plan made at
   // 0.7 s (boundary 0.95 s): the node [0.9, 1.0) straddles the boundary and
   // reports the landed state, the landing itself is 0.02 s into the node.
   const ContactPlanningConfig config = makeConfig();
   const ModeSchedule applied(
-      {0.52, 0.92},
-      {ModeNumber::kStance, modeWithSwinging(1), ModeNumber::kStance});
+      {0.52, 0.92}, {kBipedModeStance, modeWithSwinging(1), kBipedModeStance});
   expectMergedScheduleHonorsMinimumDurations(applied, /*time=*/0.7, config);
 }
 
 TEST(ContactPlanMerge,
      TouchDownAfterTheMidpointOfACommittedNodeIsCountedFromItsEvent) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   // The touch-down at 0.88 s lies after the midpoint of the node [0.8, 0.9),
   // which is committed as "swinging"; the next node reports the contact, 0.02 s
   // before its start. Counting from that node's start would make the contact
@@ -583,8 +581,7 @@ TEST(ContactPlanMerge,
   // shows that the event time, not the node, is used.
   const ContactPlanningConfig config = makeConfig();
   const ModeSchedule applied(
-      {0.48, 0.88},
-      {ModeNumber::kStance, modeWithSwinging(1), ModeNumber::kStance});
+      {0.48, 0.88}, {kBipedModeStance, modeWithSwinging(1), kBipedModeStance});
   expectMergedScheduleHonorsMinimumDurations(applied, /*time=*/0.7, config);
 }
 
@@ -598,12 +595,11 @@ TEST(ContactPlanMerge,
  */
 TEST(ContactPlanMerge,
      TheInputCarriesTheLastSwungFootAndTheMergedPlanAlternatesFromIt) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   const ContactPlanningConfig config = makeConfig();
   for (const size_t swungFoot : {kContactLeftIndex, kContactRightIndex}) {
     const ModeSchedule applied(
-        {0.57, 0.97}, {ModeNumber::kStance, modeWithSwinging(swungFoot),
-                       ModeNumber::kStance});
+        {0.57, 0.97},
+        {kBipedModeStance, modeWithSwinging(swungFoot), kBipedModeStance});
     const ContactPlannerInput input = makeInput(applied, /*time=*/0.7, config);
     EXPECT_EQ(input.lastSwungFoot, static_cast<int>(swungFoot));
     const ModeSchedule merged = expectMergedScheduleHonorsMinimumDurations(
@@ -613,11 +609,11 @@ TEST(ContactPlanMerge,
                        i < merged.eventTimes.size() && !nextSwing.has_value();
          ++i) {
       if (merged.eventTimes[i] <= 0.97 + kTol) continue;
-      const contact_flag_t before =
-          modeNumber2StanceLeg(merged.modeSequence[i]);
-      const contact_flag_t after =
-          modeNumber2StanceLeg(merged.modeSequence[i + 1]);
-      for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      const BipedFeetArray<bool> before =
+          bipedFootContactsOfMode(merged.modeSequence[i]);
+      const BipedFeetArray<bool> after =
+          bipedFootContactsOfMode(merged.modeSequence[i + 1]);
+      for (size_t foot = 0; foot < kNumFeet; ++foot) {
         if (before[foot] && !after[foot]) nextSwing = foot;
       }
     }
@@ -631,11 +627,9 @@ TEST(ContactPlanMerge,
 }
 
 TEST(ContactPlanMerge, GridAlignedTouchDownIsUnchanged) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   const ContactPlanningConfig config = makeConfig();
   const ModeSchedule applied(
-      {0.6, 1.0},
-      {ModeNumber::kStance, modeWithSwinging(1), ModeNumber::kStance});
+      {0.6, 1.0}, {kBipedModeStance, modeWithSwinging(1), kBipedModeStance});
   expectMergedScheduleHonorsMinimumDurations(applied, /*time=*/0.7, config);
 }
 
@@ -649,13 +643,11 @@ TEST(ContactPlanMerge, GridAlignedTouchDownIsUnchanged) {
  * stay down.
  */
 TEST(ContactPlanMerge, TouchDownJustBeforeAGridAlignedBoundaryIsNotReLifted) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   ContactPlanningConfig config = makeConfig();
   config.planner.commitTime = 0.3;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   const ModeSchedule applied(
-      {0.57, 0.97},
-      {ModeNumber::kStance, modeWithSwinging(1), ModeNumber::kStance});
+      {0.57, 0.97}, {kBipedModeStance, modeWithSwinging(1), kBipedModeStance});
   EXPECT_NEAR(commitBoundaryForSchedule(applied, /*time=*/0.7,
                                         config.planner.commitTime),
               1.0, kTol)
@@ -672,13 +664,11 @@ TEST(ContactPlanMerge, TouchDownJustBeforeAGridAlignedBoundaryIsNotReLifted) {
 }
 
 TEST(ContactPlanMerge, TouchDownExactlyOnAGridAlignedBoundaryIsKept) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   ContactPlanningConfig config = makeConfig();
   config.planner.commitTime = 0.3;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   const ModeSchedule applied(
-      {0.6, 1.0},
-      {ModeNumber::kStance, modeWithSwinging(1), ModeNumber::kStance});
+      {0.6, 1.0}, {kBipedModeStance, modeWithSwinging(1), kBipedModeStance});
   EXPECT_NEAR(commitBoundaryForSchedule(applied, /*time=*/0.7,
                                         config.planner.commitTime),
               1.0, kTol);
@@ -702,12 +692,11 @@ TEST(ContactPlanMerge, TouchDownExactlyOnAGridAlignedBoundaryIsKept) {
  * horizon.
  */
 TEST(ContactPlanMerge, PhaseStartingExactlyAtTheLowerBoundSurvivesTheMerge) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   const scalar_t lowerBound = -1.0;
   const ModeSchedule applied(
       {lowerBound, lowerBound + 0.4},
-      {ModeNumber::kStance, modeWithSwinging(0), ModeNumber::kStance});
-  const ModeSchedule allStance(/*eventTimesInput=*/{}, {ModeNumber::kStance});
+      {kBipedModeStance, modeWithSwinging(0), kBipedModeStance});
+  const ModeSchedule allStance(/*eventTimesInput=*/{}, {kBipedModeStance});
   const ModeSchedule merged =
       mergeModeSchedules(applied, allStance, /*commitTime=*/0.3, lowerBound,
                          /*upperBoundTime=*/2.0);
@@ -722,7 +711,7 @@ TEST(ContactPlanMerge, PhaseStartingExactlyAtTheLowerBoundSurvivesTheMerge) {
   // An event strictly before the lower bound is history that is not carried.
   const ModeSchedule earlier(
       {lowerBound - 0.01, lowerBound + 0.4},
-      {ModeNumber::kStance, modeWithSwinging(0), ModeNumber::kStance});
+      {kBipedModeStance, modeWithSwinging(0), kBipedModeStance});
   const ModeSchedule mergedEarlier =
       mergeModeSchedules(earlier, allStance, /*commitTime=*/0.3, lowerBound,
                          /*upperBoundTime=*/2.0);
@@ -742,9 +731,9 @@ TEST(ContactPlanContinuousPhases, theModeScheduleTakesTheContinuousEventTimes) {
   plan.valid = true;
   plan.startTime = 1.0;
   plan.dt = 0.1;
-  const contact_flag_t stance = makeFeetArray(true);
-  const contact_flag_t leftSwings =
-      modeNumber2StanceLeg(modeWithSwinging(kContactLeftIndex));
+  const BipedFeetArray<bool> stance = makeBipedFeetArray(true);
+  const BipedFeetArray<bool> leftSwings =
+      bipedFootContactsOfMode(modeWithSwinging(kContactLeftIndex));
   // Intervals [1.0, 2.0): the left foot swings from 1.137 to 1.387, sampled
   // onto the grid as [1.1, 1.4).
   plan.contacts.assign(10, stance);
@@ -752,7 +741,7 @@ TEST(ContactPlanContinuousPhases, theModeScheduleTakesTheContinuousEventTimes) {
     plan.contacts[interval] = leftSwings;
   }
   plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
-      11, makeFeetArray(vector2_t(vector2_t::Zero())));
+      11, makeBipedFeetArray(vector2_t(vector2_t::Zero())));
 
   // Positive control: without continuous phases the events are the node times.
   const ModeSchedule onTheGrid = plan.toModeSchedule();
@@ -769,11 +758,9 @@ TEST(ContactPlanContinuousPhases, theModeScheduleTakesTheContinuousEventTimes) {
   ASSERT_EQ(continuous.eventTimes.size(), 2u);
   EXPECT_NEAR(continuous.eventTimes[0], 1.137, 1.0e-12);
   EXPECT_NEAR(continuous.eventTimes[1], 1.387, 1.0e-12);
-  EXPECT_EQ(continuous.modeSequence.front(),
-            static_cast<size_t>(ModeNumber::kStance));
+  EXPECT_EQ(continuous.modeSequence.front(), kBipedModeStance);
   EXPECT_EQ(continuous.modeSequence[1], modeWithSwinging(kContactLeftIndex));
-  EXPECT_EQ(continuous.modeSequence.back(),
-            static_cast<size_t>(ModeNumber::kStance));
+  EXPECT_EQ(continuous.modeSequence.back(), kBipedModeStance);
 
   // The contact lookups follow the same times: at 1.12 the grid says swinging,
   // the gait says not yet.

@@ -29,7 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <string>
+
+#include "absl/status/status.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
@@ -48,6 +51,9 @@ namespace ocs2::humanoid {
 class AlternatingFeetRule final : public ContactLogicRule {
  public:
   std::string describe() const override;
+  /** Refuses every contact set but two feet: the term is written for a left
+   * and a right foot. */
+  absl::Status validateContactSet(size_t numContacts) const override;
   void configure(const ContactPlanningConfig& /*config*/) override {}
   bool propagate(const ContactLogicState& state,
                  MiqpAssignment& a,

@@ -54,7 +54,7 @@ void ContactSwitchCost::configure(const ContactPlanningConfig& config) {
 scalar_t ContactSwitchCost::cost(const ContactLogicState& s,
                                  const MiqpAssignment& a) const {
   int numSwitches = 0;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     int previous = s.input->contacts[foot] ? 1 : 0;
     for (int k = 0; k < s.numNodes; ++k) {
       const int8_t value = a[static_cast<size_t>(

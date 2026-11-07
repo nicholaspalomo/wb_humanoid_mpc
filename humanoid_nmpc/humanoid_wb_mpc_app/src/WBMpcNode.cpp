@@ -229,9 +229,10 @@ TargetTrajectories WBMpcNode::resetTargetTrajectories(
 
 ipc::ModelDimensions WBMpcNode::dimensions() const {
   const WBAccelMpcRobotModel<scalar_t>& model = interface_->getMpcRobotModel();
-  return {.stateDim = model.getStateDim(),
-          .inputDim = model.getInputDim(),
-          .numModes = kNumModeNumbers};
+  return {
+      .stateDim = model.getStateDim(),
+      .inputDim = model.getInputDim(),
+      .numModes = numModeNumbersOf(interface_->modelSettings().numContacts())};
 }
 
 }  // namespace ocs2::humanoid

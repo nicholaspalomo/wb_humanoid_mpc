@@ -72,6 +72,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
@@ -102,6 +103,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 namespace ocs2::humanoid {
 namespace {
+
+// The biped's two feet, which every case here is written for.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 constexpr char kTaskFile[] =
     "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto";
@@ -468,9 +472,9 @@ ContactPlan standingPlan(scalar_t startTime, scalar_t dt, size_t numNodes) {
   plan.startTime = startTime;
   plan.dt = dt;
   plan.committedUntil = startTime + dt;
-  plan.contacts.assign(numNodes, makeFeetArray(true));
+  plan.contacts.assign(numNodes, makeBipedFeetArray(true));
   plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
-      numNodes + 1, makeFeetArray(vector2_t(vector2_t::Zero())));
+      numNodes + 1, makeBipedFeetArray(vector2_t(vector2_t::Zero())));
   plan.posComRtWorldEwrtWorldXyTraj.assign(numNodes + 1, vector2_t::Zero());
   plan.linvelComRtWorldEwrtWorldXyTraj.assign(numNodes + 1, vector2_t::Zero());
   plan.posZmpRtWorldEwrtWorldXyTraj.assign(numNodes, vector2_t::Zero());
@@ -608,7 +612,7 @@ TEST_F(ReferenceConsumersTest,
   ASSERT_NE(referenceManager, nullptr);
   referenceManager->setTargetTrajectories(twoKnotTarget());
   referenceManager->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, state_,
-                                 ModeNumber::kStance);
+                                 kBipedModeStance);
   const vector2_t cmdLinvelBaseRtWorldEwrtWorldXy =
       referenceManager->getCmdLinvelBaseRtWorldEwrtWorldXy(/*time=*/0.5);
   EXPECT_EQ(cmdLinvelBaseRtWorldEwrtWorldXy, vector2_t(0.2, 0.1))
@@ -642,7 +646,7 @@ TEST_F(ReferenceConsumersTest,
   ASSERT_NE(referenceManager, nullptr);
   referenceManager->setTargetTrajectories(twoKnotTarget());
   referenceManager->preSolverRun(kInitTime, /*finalTime=*/kInitTime + 1.0,
-                                 state_, ModeNumber::kStance);
+                                 state_, kBipedModeStance);
   ASSERT_EQ(referenceManager->getCmdRateYawBaseRtWorld(kQueryTime),
             kCmdRateYawBaseRtWorld);
   const vector2_t initCmdLinvelBaseRtWorldEwrtWorldXy(0.2, 0.1);
@@ -773,7 +777,7 @@ TEST_F(ReferenceConsumersTest,
       << "without an ACoM evaluator the heading model starts from the base yaw";
   referenceManager->setTargetTrajectories(twoKnotTarget());
   referenceManager->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, state_,
-                                 ModeNumber::kStance);
+                                 kBipedModeStance);
   EXPECT_EQ(referenceManager
                 ->makePlannerInput(/*initTime=*/0.0, state_, vector2_t::Zero())
                 .yawHeadingRtWorld,
@@ -802,7 +806,7 @@ TEST_F(ReferenceConsumersTest,
   referenceManager->setContactPlan(
       standingPlan(/*startTime=*/0.0, config.planner.dt, kPlanNodes));
   referenceManager->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, state_,
-                                 ModeNumber::kStance);
+                                 kBipedModeStance);
 
   const TargetTrajectories& resampled =
       referenceManager->getTargetTrajectories();
@@ -834,7 +838,7 @@ TEST_F(ReferenceConsumersTest, TheHipLandmarksAreTurnedIntoTheModelsHeading) {
   // The same hips in the world, read in a base frame turned by the offset.
   const scalar_t cosOffset = std::cos(kOffsetYawBaseRtWorld);
   const scalar_t sinOffset = std::sin(kOffsetYawBaseRtWorld);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     const vector2_t& posHipRtBaseEwrtHeadingXy =
         reference->posHipsRtBaseEwrtHeadingXy[foot];
     const vector2_t expected(cosOffset * posHipRtBaseEwrtHeadingXy.x() +
@@ -902,7 +906,7 @@ TEST_F(ReferenceConsumersTest,
         referenceManager->setContactPlan(
             standingPlan(/*startTime=*/0.0, dt, kPlanNodes));
         referenceManager->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0,
-                                       state_, ModeNumber::kStance);
+                                       state_, kBipedModeStance);
         const TargetTrajectories& resampled =
             referenceManager->getTargetTrajectories();
         for (size_t knot = 0; knot < resampled.timeTrajectory.size(); ++knot) {
@@ -956,11 +960,10 @@ TEST_F(ReferenceConsumersTest,
  * gait phase moves at 0.5 / 0.35 per second at every time after it. */
 std::shared_ptr<GaitSchedule> walkingSchedule() {
   return std::make_shared<GaitSchedule>(
-      ModeSchedule({0.0, 0.35, 0.7}, {ModeNumber::kStance, ModeNumber::kLf,
-                                      ModeNumber::kRf, ModeNumber::kLf}),
-      ModeSequenceTemplate({0.0, 0.35, 0.7},
-                           {ModeNumber::kRf, ModeNumber::kLf}),
-      /*phaseTransitionStanceTime=*/0.0);
+      ModeSchedule({0.0, 0.35, 0.7}, {kBipedModeStance, kBipedModeLf,
+                                      kBipedModeRf, kBipedModeLf}),
+      ModeSequenceTemplate({0.0, 0.35, 0.7}, {kBipedModeRf, kBipedModeLf}),
+      /*phaseTransitionStanceTime=*/0.0, GaitModeLayout{});
 }
 
 /** The normalized angular momentum L / m that `state` of `model` stores. */
@@ -1033,7 +1036,7 @@ TEST_F(ReferenceConsumersTest,
     manager->setLocomotionHeuristicLayer(sharedLayer);
     manager->setTargetTrajectories(twoKnotTarget());
     manager->preSolverRun(kInitTime, /*finalTime=*/kInitTime + 1.0, state_,
-                          ModeNumber::kRf);
+                          kBipedModeRf);
   }
   const scalar_t phaseRate = (*planning)->getPhaseVariableRate(kQueryTime);
   ASSERT_NEAR(phaseRate, 0.5 / 0.35, 1.0e-12) << "not in single support";

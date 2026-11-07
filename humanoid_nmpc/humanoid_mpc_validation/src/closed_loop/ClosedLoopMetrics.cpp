@@ -39,9 +39,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "Eigen/Geometry"
+#include "absl/log/absl_check.h"
 #include "ocs2_core/Dimensions.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetricsSchema.h"
@@ -102,6 +103,11 @@ JsonValue summarizeSample(std::vector<double> values) {
   return summary;
 }
 
+ClosedLoopMetrics::ClosedLoopMetrics(size_t numContacts)
+    : stance_(numContacts, StancePhase()),
+      prevPosContactsRtWorldEwrtWorldXy_(numContacts, Eigen::Vector2d::Zero()) {
+}
+
 void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
   if (numCycles_ == 0) firstTime_ = sample.time;
   lastTime_ = sample.time;
@@ -158,7 +164,9 @@ void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
 
   // Stance-foot slip: the horizontal drift of a contact point from where it
   // touched down, while it stays in contact.
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  ABSL_CHECK_EQ(sample.posContactsRtWorldEwrtWorld.size(), stance_.size());
+  ABSL_CHECK_EQ(sample.contactFlags.size(), stance_.size());
+  for (size_t contact = 0; contact < stance_.size(); ++contact) {
     const Eigen::Vector2d posContactRtWorldEwrtWorldXy =
         sample.posContactsRtWorldEwrtWorld[contact]
             .head<kHorizontalPositionDim>();
@@ -302,7 +310,7 @@ JsonValue ClosedLoopMetrics::report(const ClosedLoopRunInfo& info) const {
   // The stance phases still open at the end count as ended there.
   std::vector<double> finalDrifts = stanceFinalDrifts_;
   double slipMax = slipMax_;
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  for (size_t contact = 0; contact < stance_.size(); ++contact) {
     if (!stance_[contact].active) continue;
     finalDrifts.push_back(
         (prevPosContactsRtWorldEwrtWorldXy_[contact] -

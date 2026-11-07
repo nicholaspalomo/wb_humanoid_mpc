@@ -39,8 +39,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `no_flight`: c_L + c_R >= 1 at every node (also a hard row of the QP under
- * the same name).
+ * `no_flight`: sum_i c_i >= 1 over the feet at every node, c_L + c_R >= 1 for
+ * a biped (also a hard row of the QP under the same name). Written over the
+ * number of feet (propagateMinimumContactCount()).
  *
  * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
  * configures and evaluates it from one thread at a time.

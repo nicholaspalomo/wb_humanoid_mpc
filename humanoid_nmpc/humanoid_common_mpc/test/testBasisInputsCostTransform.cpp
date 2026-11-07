@@ -42,7 +42,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactCenterPoint.h"
@@ -63,6 +62,10 @@ namespace ocs2::humanoid {
 namespace {
 
 constexpr size_t kJointDim = 5;
+/// The contact count of most tests (a biped's); the null-space tests also run
+/// on kQuadrupedLikeNumContacts.
+constexpr size_t kTestNumContacts = 2;
+constexpr size_t kQuadrupedLikeNumContacts = 4;
 constexpr scalar_t kRegularization = 1.0e-4;
 
 /** The DRC Atlas contact weights of R (force x, y, z, moment x, y, z), which
@@ -72,7 +75,9 @@ vector_t atlasLikeContactWeights() {
       .finished();
 }
 
-feet_array_t<matrix_t> makeBases(absl::string_view generatorSet) {
+/** `numContacts` copies of one footprint's basis, one per contact. */
+std::vector<matrix_t> makeBases(absl::string_view generatorSet,
+                                size_t numContacts = kTestNumContacts) {
   ContactWrenchConeConstraint::Config config;
   config.numBasisVectors = 4;
   config.frictionCoefficient = 0.5;
@@ -83,12 +88,12 @@ feet_array_t<matrix_t> makeBases(absl::string_view generatorSet) {
   const absl::StatusOr<ContactWrenchConeBasisMatrix> basis =
       ContactWrenchConeBasisMatrix::Create(config, rectangle, generatorSet);
   EXPECT_TRUE(basis.ok()) << basis.status();
-  return {basis->getBasisMatrix(), basis->getBasisMatrix()};
+  return std::vector<matrix_t>(numContacts, basis->getBasisMatrix());
 }
 
-/** M = blkdiag(B_0, B_1, I_joints), as
+/** M = blkdiag(B_0, ..., B_{n-1}, I_joints), as
  * BasisInputsModelDecorator::getLocalBasisGeneratorMap builds it. */
-matrix_t makeBasisGeneratorMap(const feet_array_t<matrix_t>& bases) {
+matrix_t makeBasisGeneratorMap(const std::vector<matrix_t>& bases) {
   const Eigen::Index numBasisPerFoot = bases[0].cols();
   const Eigen::Index numContacts = static_cast<Eigen::Index>(bases.size());
   const Eigen::Index jointDim = static_cast<Eigen::Index>(kJointDim);
@@ -102,11 +107,12 @@ matrix_t makeBasisGeneratorMap(const feet_array_t<matrix_t>& bases) {
   return M;
 }
 
-/** A block-diagonal wrench-space R: the given weights on every contact wrench
- * and 1e-3 on the joint velocities. */
-matrix_t makeWrappedSpaceR(const vector_t& contactWeights) {
-  vector_t diagonal(6 * kNumContacts + kJointDim);
-  for (size_t i = 0; i < kNumContacts; ++i) {
+/** A block-diagonal wrench-space R: the given weights on each of the
+ * `numContacts` contact wrenches and 1e-3 on the joint velocities. */
+matrix_t makeWrappedSpaceR(const vector_t& contactWeights,
+                           size_t numContacts = kTestNumContacts) {
+  vector_t diagonal(static_cast<Eigen::Index>(6 * numContacts + kJointDim));
+  for (size_t i = 0; i < numContacts; ++i) {
     diagonal.segment(static_cast<Eigen::Index>(6 * i), 6) = contactWeights;
   }
   diagonal.tail(kJointDim).setConstant(1.0e-3);
@@ -260,28 +266,34 @@ TEST(BasisInputsCostTransformTest,
 
 TEST(BasisInputsCostTransformTest,
      NullSpaceShapeIsTheBlockDiagonalProjectorOfEachFoot) {
-  for (const std::string& generatorSet : allGeneratorSets()) {
-    const feet_array_t<matrix_t> bases = makeBases(generatorSet);
-    const matrix_t M = makeBasisGeneratorMap(bases);
-    const size_t numBasisInputs = static_cast<size_t>(M.cols()) - kJointDim;
-    const matrix_t S = nullSpaceRegularizationShape(M, numBasisInputs);
-    // Cross-check against the projector ContactWrenchConeBasisMatrix computes
-    // from its own pseudoinverse.
-    ContactWrenchConeConstraint::Config config;
-    config.numBasisVectors = 4;
-    config.frictionCoefficient = 0.5;
-    config.torsionalFrictionCoefficient = 0.05;
-    const ContactRectangle rectangle(
-        PolygonBounds(-0.12, 0.12, -0.055, 0.055),
-        ContactCenterPoint("foot", "ankle", vector3_t::Zero()));
-    const absl::StatusOr<ContactWrenchConeBasisMatrix> basis =
-        ContactWrenchConeBasisMatrix::Create(config, rectangle, generatorSet);
-    ASSERT_TRUE(basis.ok());
-    const Eigen::Index n = static_cast<Eigen::Index>(basis->numBasis());
-    matrix_t expected = matrix_t::Zero(2 * n, 2 * n);
-    expected.topLeftCorner(n, n) = basis->getNullSpaceProjector();
-    expected.bottomRightCorner(n, n) = basis->getNullSpaceProjector();
-    EXPECT_LE((S - expected).cwiseAbs().maxCoeff(), 1.0e-10) << generatorSet;
+  for (const size_t numContacts :
+       {kTestNumContacts, kQuadrupedLikeNumContacts}) {
+    for (const std::string& generatorSet : allGeneratorSets()) {
+      const std::vector<matrix_t> bases = makeBases(generatorSet, numContacts);
+      const matrix_t M = makeBasisGeneratorMap(bases);
+      const size_t numBasisInputs = static_cast<size_t>(M.cols()) - kJointDim;
+      const matrix_t S = nullSpaceRegularizationShape(M, numBasisInputs);
+      // Cross-check against the projector ContactWrenchConeBasisMatrix computes
+      // from its own pseudoinverse.
+      ContactWrenchConeConstraint::Config config;
+      config.numBasisVectors = 4;
+      config.frictionCoefficient = 0.5;
+      config.torsionalFrictionCoefficient = 0.05;
+      const ContactRectangle rectangle(
+          PolygonBounds(-0.12, 0.12, -0.055, 0.055),
+          ContactCenterPoint("foot", "ankle", vector3_t::Zero()));
+      const absl::StatusOr<ContactWrenchConeBasisMatrix> basis =
+          ContactWrenchConeBasisMatrix::Create(config, rectangle, generatorSet);
+      ASSERT_TRUE(basis.ok());
+      const Eigen::Index n = static_cast<Eigen::Index>(basis->numBasis());
+      const Eigen::Index contacts = static_cast<Eigen::Index>(numContacts);
+      matrix_t expected = matrix_t::Zero(contacts * n, contacts * n);
+      for (Eigen::Index i = 0; i < contacts; ++i) {
+        expected.block(n * i, n * i, n, n) = basis->getNullSpaceProjector();
+      }
+      EXPECT_LE((S - expected).cwiseAbs().maxCoeff(), 1.0e-10)
+          << generatorSet << ", " << numContacts << " contacts";
+    }
   }
 }
 
@@ -333,40 +345,45 @@ TEST(BasisInputsCostTransformTest,
   // must give G = R exactly; full_diagonal gives R + reg (B Bᵀ)⁻¹ on the
   // contact block, which is what made R's moment and tangential weights nearly
   // irrelevant on Atlas.
-  for (const std::string& generatorSet : allGeneratorSets()) {
-    const feet_array_t<matrix_t> bases = makeBases(generatorSet);
-    const matrix_t M = makeBasisGeneratorMap(bases);
-    const matrix_t R = makeWrappedSpaceR(atlasLikeContactWeights());
+  for (const size_t numContacts :
+       {kTestNumContacts, kQuadrupedLikeNumContacts}) {
+    for (const std::string& generatorSet : allGeneratorSets()) {
+      const std::vector<matrix_t> bases = makeBases(generatorSet, numContacts);
+      const matrix_t M = makeBasisGeneratorMap(bases);
+      const matrix_t R =
+          makeWrappedSpaceR(atlasLikeContactWeights(), numContacts);
 
-    const matrix_t H_null = transformWrenchInputCostToBasisSpace(
-        R, makeConfig(M, kNullSpaceBasisRegularization));
-    const matrix_t G_null = (M * H_null.inverse() * M.transpose()).inverse();
-    EXPECT_LE(
-        ((G_null - R).cwiseAbs().array() / R.diagonal().maxCoeff()).maxCoeff(),
-        1.0e-6)
-        << generatorSet << ":\n"
-        << G_null.diagonal().transpose();
+      const matrix_t H_null = transformWrenchInputCostToBasisSpace(
+          R, makeConfig(M, kNullSpaceBasisRegularization));
+      const matrix_t G_null = (M * H_null.inverse() * M.transpose()).inverse();
+      EXPECT_LE(((G_null - R).cwiseAbs().array() / R.diagonal().maxCoeff())
+                    .maxCoeff(),
+                1.0e-6)
+          << generatorSet << ":\n"
+          << G_null.diagonal().transpose();
 
-    const matrix_t H_full = transformWrenchInputCostToBasisSpace(
-        R, makeConfig(M, kFullDiagonalBasisRegularization));
-    const matrix_t G_full = (M * H_full.inverse() * M.transpose()).inverse();
-    const matrix_t& B = bases[0];
-    const matrix_t expectedContactMetric =
-        R.topLeftCorner(6, 6) + kRegularization * (B * B.transpose()).inverse();
-    EXPECT_LE(((G_full.topLeftCorner(6, 6) - expectedContactMetric)
-                   .cwiseAbs()
-                   .array() /
-               expectedContactMetric.cwiseAbs().maxCoeff())
-                  .maxCoeff(),
-              1.0e-6)
-        << generatorSet;
-    EXPECT_GT((G_full.topLeftCorner(6, 6) - R.topLeftCorner(6, 6))
-                  .cwiseAbs()
-                  .maxCoeff(),
-              R.topLeftCorner(6, 6).maxCoeff())
-        << generatorSet
-        << ": full_diagonal is expected to distort the wrench metric by more "
-           "than R's largest weight";
+      const matrix_t H_full = transformWrenchInputCostToBasisSpace(
+          R, makeConfig(M, kFullDiagonalBasisRegularization));
+      const matrix_t G_full = (M * H_full.inverse() * M.transpose()).inverse();
+      const matrix_t& B = bases[0];
+      const matrix_t expectedContactMetric =
+          R.topLeftCorner(6, 6) +
+          kRegularization * (B * B.transpose()).inverse();
+      EXPECT_LE(((G_full.topLeftCorner(6, 6) - expectedContactMetric)
+                     .cwiseAbs()
+                     .array() /
+                 expectedContactMetric.cwiseAbs().maxCoeff())
+                    .maxCoeff(),
+                1.0e-6)
+          << generatorSet;
+      EXPECT_GT((G_full.topLeftCorner(6, 6) - R.topLeftCorner(6, 6))
+                    .cwiseAbs()
+                    .maxCoeff(),
+                R.topLeftCorner(6, 6).maxCoeff())
+          << generatorSet
+          << ": full_diagonal is expected to distort the wrench metric by more "
+             "than R's largest weight";
+    }
   }
 }
 

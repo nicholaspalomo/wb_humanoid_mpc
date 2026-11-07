@@ -163,11 +163,12 @@ absl::StatusOr<LoadedRobot> loadRobot(absl::string_view name,
     robot.model = std::move(wrenchModel);
     return robot;
   }
-  ASSIGN_OR_RETURN(const feet_array_t<ContactWrenchConeBasisMatrix> bases,
+  ASSIGN_OR_RETURN(const std::vector<ContactWrenchConeBasisMatrix> bases,
                    contactWrenchConeBasesFromConfig(robot.config.task.contacts,
                                                     *robot.modelSettings));
-  robot.model = std::make_unique<BasisInputsModelDecorator<scalar_t>>(
-      std::move(wrenchModel), bases, *robot.pinocchioInterface);
+  ASSIGN_OR_RETURN(robot.model, BasisInputsModelDecorator<scalar_t>::Create(
+                                    std::move(wrenchModel), bases,
+                                    *robot.pinocchioInterface));
   return robot;
 }
 

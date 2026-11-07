@@ -420,7 +420,8 @@ void SceneBuilder::writeObservationMarkers(
   scalar_t sumForceContactsEwrtWorldZ = 0.0;
   const size_t numContacts = contactFrames_.size();
   for (size_t contact = 0; contact < numContacts; ++contact) {
-    // For the biped's two feet, modeNumber2StanceLeg()'s reading.
+    // The contact's bit of the mode number; a number with a bit past the
+    // contact set is no mode, and no contact is active in it.
     if (!contactIsActiveInMode(observation.mode, contact, numContacts)) {
       continue;
     }

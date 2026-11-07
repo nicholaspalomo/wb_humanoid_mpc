@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <memory>
 #include <numbers>
@@ -56,7 +55,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsAD.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
@@ -129,12 +127,14 @@ absl::StatusOr<LoadedDynamics> loadDynamics(DynamicsCase dynamicsCase) {
     loaded.inputDim = static_cast<Eigen::Index>(r.info->inputDim);
     return loaded;
   }
-  absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> bases =
+  absl::StatusOr<std::vector<ContactWrenchConeBasisMatrix>> bases =
       contactWrenchConeBasesFromConfig(r.config.task.contacts,
                                        *r.modelSettings);
   if (!bases.ok()) return bases.status();
-  const std::array<matrix_t, kNumContacts> basisMatrices = {
-      (*bases)[0].getBasisMatrix(), (*bases)[1].getBasisMatrix()};
+  std::vector<matrix_t> basisMatrices;
+  for (const ContactWrenchConeBasisMatrix& basis : *bases) {
+    basisMatrices.push_back(basis.getBasisMatrix());
+  }
   absl::StatusOr<std::unique_ptr<CentroidalDynamicsBasisInputsAD>> dynamics =
       CentroidalDynamicsBasisInputsAD::Create(
           *r.pinocchioInterface, *r.info,
@@ -144,7 +144,7 @@ absl::StatusOr<LoadedDynamics> loadDynamics(DynamicsCase dynamicsCase) {
   loaded.dynamics = *std::move(dynamics);
   loaded.basisPerFoot = static_cast<Eigen::Index>((*bases)[0].numBasis());
   loaded.inputDim =
-      static_cast<Eigen::Index>(kNumContacts) * loaded.basisPerFoot +
+      static_cast<Eigen::Index>(basisMatrices.size()) * loaded.basisPerFoot +
       static_cast<Eigen::Index>(r.info->actuatedDofNum);
   return loaded;
 }

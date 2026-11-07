@@ -61,15 +61,15 @@ TargetContactPose makeStanceDesPoseFootRtWorld(
 }
 }  // namespace
 
-feet_array_t<TargetContactPose> computeDesPoseFeetRtWorld(
+BipedFeetArray<TargetContactPose> computeDesPoseFeetRtWorld(
     const ContactPlan& plan,
     const ModeSchedule& schedule,
     const TargetContactPoseInputs& inputs) {
-  feet_array_t<TargetContactPose> desPoseFeetRtWorld =
-      makeFeetArray(TargetContactPose{});
+  BipedFeetArray<TargetContactPose> desPoseFeetRtWorld =
+      makeBipedFeetArray(TargetContactPose{});
   if (!plan.valid) return desPoseFeetRtWorld;
 
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     // The swing in flight, or else the foot's next swing: an event at the query
     // time counts as passed in the schedule queries, so the phase lookup at the
     // next lift-off returns that swing.

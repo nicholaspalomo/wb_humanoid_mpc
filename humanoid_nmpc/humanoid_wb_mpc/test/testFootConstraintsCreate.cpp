@@ -44,7 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_nmpc/humanoid_wb_mpc/test/AffineEndEffectorDynamics.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
@@ -121,8 +121,7 @@ TEST(FootConstraintsCreate,
   // The swing planner's trajectories, whose stance height the height row
   // servoes to.
   referenceManager.preSolverRun(/*initTime=*/-0.5, /*finalTime=*/1.0,
-                                interface->getInitialState(),
-                                ModeNumber::kStance);
+                                interface->getInitialState(), kBipedModeStance);
   const ModelSettings::FootConstraintConfig& gains =
       interface->modelSettings().footConstraintConfig;
   const AffineEndEffectorDynamics dynamics;

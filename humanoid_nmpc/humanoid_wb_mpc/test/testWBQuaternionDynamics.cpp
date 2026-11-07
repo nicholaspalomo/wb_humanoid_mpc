@@ -93,6 +93,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+
 constexpr scalar_t kFiniteDifferenceStep = 1.0e-6;
 constexpr scalar_t kFiniteDifferenceTolerance =
     1.0e-5;  // relative to max(1, the largest entry of the Jacobian)
@@ -223,7 +225,7 @@ StateInput randomPoint(const WBAccelMpcRobotModel<scalar_t>& model,
       vector3_t(unit(generator), unit(generator), unit(generator)));
   vector_t input = point.input;
   model.setJointVelocities(point.state, input, jointVelocities);
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  for (size_t contact = 0; contact < kNumFeet; ++contact) {
     const vector6_t wrenchContactEwrtParam =
         (vector6_t() << 40.0 * unit(generator), 40.0 * unit(generator),
          200.0 + 100.0 * unit(generator), 5.0 * unit(generator),

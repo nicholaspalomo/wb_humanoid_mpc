@@ -58,7 +58,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -135,7 +135,7 @@ class Fingerprint {
     add(absl::StrCat(name, ".quadratic"), slack->quadratic);
     add(absl::StrCat(name, ".linear"), slack->linear);
   }
-  void add(absl::string_view name, const feet_array_t<scalar_t>& values) {
+  void add(absl::string_view name, const BipedFeetArray<scalar_t>& values) {
     for (size_t foot = 0; foot < values.size(); ++foot) {
       add(absl::StrCat(name, "[", foot, "]"), values[foot]);
     }

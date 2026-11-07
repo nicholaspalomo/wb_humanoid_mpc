@@ -32,7 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
 #include "humanoid_mpc_msgs/target_contact_patch.pb.h"
 #include "humanoid_mpc_msgs/viewer_annotations.pb.h"
@@ -51,15 +51,15 @@ void targetContactPatchToProto(
 
 /**
  * Fills MpcPolicy.annotations, the display-only part of a policy that the
- * robot's viewers draw: one target contact patch per foot when
- * `desPoseFeetRtWorld` is given
+ * robot's viewers draw: one target contact patch per foot of the biped contact
+ * planner when `desPoseFeetRtWorld` is given
  * (ContactPlanningReferenceManager::getDesPoseFeetRtWorld(); none without a
  * contact planner), and the scaled velocity command the solve started from
  * (ProceduralMpcMotionManager::getScaledWalkingVelocityCommand(): [m/s] and
  * [rad/s] after the command limits). Replaces whatever `annotations` held.
  */
 void fillViewerAnnotations(
-    const feet_array_t<TargetContactPose>* absl_nullable desPoseFeetRtWorld,
+    const BipedFeetArray<TargetContactPose>* absl_nullable desPoseFeetRtWorld,
     const WalkingVelocityCommand& scaledVelocityCommand,
     humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations);
 

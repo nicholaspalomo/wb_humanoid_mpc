@@ -46,8 +46,7 @@ namespace ocs2::humanoid {
 
 namespace var {
 std::string footLabel(size_t foot) {
-  if (kNumContacts == kBipedFootCount) return foot == 0 ? "L" : "R";
-  return std::to_string(foot);
+  return foot == kContactLeftIndex ? "L" : "R";
 }
 std::string posFootRtWorldEwrtWorldX(size_t foot) {
   return "p_" + footLabel(foot) + "x";

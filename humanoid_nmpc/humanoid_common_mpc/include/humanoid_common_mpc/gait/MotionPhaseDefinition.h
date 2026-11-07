@@ -40,58 +40,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 
 namespace ocs2::humanoid {
 
-/**
- * The contact modes of the two feet. A mode number is the stance flags {LF, RF}
- * read as the bits of a two-bit number (stanceLeg2ModeNumber()), which is how
- * ModeSchedule stores it: as a size_t.
+/*
+ * Mode numbers. A mode number is the bitmask of the active contacts of a
+ * contact set (ModelSettings::contactNames, 3-DoF contacts first): contact i
+ * is bit numContacts - 1 - i, so the first contact is the most significant
+ * bit. ModeSchedule and the policies store it as a size_t, and
+ * ContactMask::fromModeNumber() (common/ContactMask.h) reads it as the flags
+ * of every contact. The biped's four modes and their gait-file names FLY, RF,
+ * LF and STANCE are gait/BipedModes.h's kBipedMode* constants; they are the
+ * same numbers when the two feet are the last contacts of a larger set.
  */
-// NOLINTNEXTLINE(totw-unscoped-enum): a mode number IS the size_t ModeSchedule stores; every use spells ModeNumber::k...
-enum ModeNumber {
-  kFly = 0,
-  kRf = 1,
-  kLf = 2,
-  kStance = 3,
-};
-
-/** The mode numbers, FLY to STANCE: the modes a humanoid MPC's mode schedule
- * and policy may carry. */
-inline constexpr size_t kNumModeNumbers =
-    static_cast<size_t>(ModeNumber::kStance) + 1;
-
-/**
- * The left foot's stance flag in a mode number, bit 1: as the mask
- * modeNumber2StanceLeg() reads it with, and as the place value
- * stanceLeg2ModeNumber() weighs it with. The right foot's is bit 0, the
- * value 1.
- */
-inline constexpr unsigned int kLeftStanceModeBitMask = 2U;
-inline constexpr int kLeftStanceModePlaceValue = 2;
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-/** The stance flags {LF, RF} of `modeNumber`; no foot is in stance for a number
- * that is not a mode. Realtime-safe. */
-inline contact_flag_t modeNumber2StanceLeg(size_t modeNumber) {
-  if (modeNumber > static_cast<size_t>(ModeNumber::kStance)) {
-    return contact_flag_t{false, false};
-  }
-  // The inverse of stanceLeg2ModeNumber(): bit 1 is the left foot, bit 0 the
-  // right one.
-  return contact_flag_t{(modeNumber & kLeftStanceModeBitMask) != 0,
-                        (modeNumber & 1U) != 0};
-}
 
 /**
  * Whether contact `contactIndex` of a set of `numContacts` contacts
  * (ModelSettings::contactNames) is active in `modeNumber`, the bitmask of the
  * active contacts in contact-set order with the first contact the most
  * significant bit: contact i is bit numContacts - 1 - i. For the biped's two
- * feet that is modeNumber2StanceLeg()'s reading, FLY, RF, LF and STANCE
+ * feet that is bipedFootContactsOfMode()'s reading, FLY, RF, LF and STANCE
  * unchanged, and in a larger set whose last two contacts are the feet those
  * four numbers still mean the same feet with every other contact inactive. A
  * number with a bit past the contacts is no mode: no contact is active in it.
@@ -125,17 +95,11 @@ inline size_t contactModeBit(size_t contactIndex, size_t numContacts) {
 /**
  * The number of mode numbers of a set of `numContacts` contacts, 2^numContacts:
  * the bound a mode of its schedules and policies is checked against.
- * kNumModeNumbers for the biped's two feet. Requires numContacts < the bits of
+ * kNumBipedModes for the biped's two feet. Requires numContacts < the bits of
  * a size_t.
  */
 inline size_t numModeNumbersOf(size_t numContacts) {
   return size_t{1} << numContacts;
-}
-
-inline size_t stanceLeg2ModeNumber(const contact_flag_t& stanceLegs) {
-  return static_cast<size_t>(static_cast<size_t>(stanceLegs[1]) +
-                             kLeftStanceModePlaceValue *
-                                 static_cast<size_t>(stanceLegs[0]));
 }
 
 /******************************************************************************************************/
@@ -147,7 +111,7 @@ inline size_t stanceLeg2ModeNumber(const contact_flag_t& stanceLegs) {
 inline std::string modeNumber2String(size_t modeNumber) {
   // Indexed by the mode number.
   // LINT.IfChange(mode_names)
-  constexpr std::array<absl::string_view, kNumModeNumbers> kModeNames = {
+  constexpr std::array<absl::string_view, kNumBipedModes> kModeNames = {
       "FLY", "RF", "LF", "STANCE"};
   // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/mode_sequence_template_config.proto:mode_names)
   return modeNumber < kModeNames.size() ? std::string(kModeNames[modeNumber])
@@ -158,18 +122,58 @@ inline std::string modeNumber2String(size_t modeNumber) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-/** The mode number a gait file names `modeString` (FLY, RF, LF or STANCE), or
- * InvalidArgument naming the valid names. */
-inline absl::StatusOr<size_t> parseModeNumber(absl::string_view modeString) {
-  for (const ModeNumber mode : {ModeNumber::kFly, ModeNumber::kRf,
-                                ModeNumber::kLf, ModeNumber::kStance}) {
-    if (modeString == modeNumber2String(mode)) {
-      return static_cast<size_t>(mode);
-    }
+/**
+ * The contact set a gait file's modes are read against (parseModeNumber()): its
+ * number of contacts and its stance mode, the mode GaitSchedule inserts between
+ * gaits and appends after the last one. GaitSchedule.h's gaitModeLayoutOf()
+ * derives it from ModelSettings. The default is the biped's two feet.
+ */
+struct GaitModeLayout {
+  size_t numContacts = static_cast<size_t>(kBipedFootCount);
+  // The mode number "STANCE" names: kBipedModeStance (the two feet, which are
+  // the last two contacts) on a set whose last two contacts are 6-DoF feet, all
+  // contacts active otherwise.
+  size_t stanceMode = kBipedModeStance;
+};
+
+/**
+ * The mode number a gait file names `modeString` on the contact set `layout`:
+ *  - "FLY", no contact active, and "STANCE", layout.stanceMode, on any set;
+ *  - "LF" and "RF", the left or the right foot alone, on a set whose stance
+ *    mode is the biped's (the feet are its last two contacts);
+ *  - a string of layout.numContacts digits '0' and '1', the bitmask of the
+ *    active contacts in contact order (contact 0 first, the most significant
+ *    bit), on any set: "1001" is contacts 0 and 3 of a set of four.
+ * InvalidArgument naming the valid forms and the contact count otherwise.
+ */
+inline absl::StatusOr<size_t> parseModeNumber(absl::string_view modeString,
+                                              GaitModeLayout layout) {
+  if (modeString == modeNumber2String(kBipedModeFly)) return kBipedModeFly;
+  if (modeString == modeNumber2String(kBipedModeStance)) {
+    return layout.stanceMode;
   }
-  return absl::InvalidArgumentError(
-      absl::StrCat("'", modeString,
-                   "' is not a mode; the modes are FLY, RF, LF and STANCE."));
+  const bool bipedFeetLast = layout.stanceMode == kBipedModeStance;
+  if (bipedFeetLast) {
+    if (modeString == modeNumber2String(kBipedModeLf)) return kBipedModeLf;
+    if (modeString == modeNumber2String(kBipedModeRf)) return kBipedModeRf;
+  }
+  constexpr size_t kModeNumberBits = std::numeric_limits<size_t>::digits;
+  const bool isMask =
+      modeString.size() == layout.numContacts &&
+      layout.numContacts < kModeNumberBits &&
+      modeString.find_first_not_of("01") == absl::string_view::npos;
+  if (isMask) {
+    size_t mode = 0;
+    for (const char digit : modeString) {
+      mode = (mode << 1U) | static_cast<size_t>(digit == '1');
+    }
+    return mode;
+  }
+  return absl::InvalidArgumentError(absl::StrCat(
+      "'", modeString, "' is not a mode of a set of ", layout.numContacts,
+      " contacts; the modes are FLY, STANCE", bipedFeetLast ? ", LF, RF" : "",
+      " and a string of ", layout.numContacts,
+      " digits 0 and 1, one per contact in contact order (1 in contact)."));
 }
 
 }  // namespace ocs2::humanoid

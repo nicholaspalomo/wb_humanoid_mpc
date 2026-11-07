@@ -32,7 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -50,6 +52,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
+#include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/frames.hpp"
@@ -62,7 +67,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/initialization/CentroidalWeightCompInitializer.h"
+#include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/ContactTermNames.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -74,14 +82,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/PointFrictionConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactPatchFrame.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_common_mpc/pinocchio_model/RealtimeRigidBodyDynamics.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/input_weights.nproto.h"
 #include "humanoid_mpc_config/model_settings_config.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 #include "support/TypedConfigFiles.h"
 
 /**
@@ -350,17 +364,17 @@ TEST_F(MixedContactSetTest, aModeNumberIsTheBitmaskOfTheContactsInOrder) {
   constexpr size_t kNumMixedContacts = kNumPointContacts + kNumSurfaceContacts;
   // The first contact is the most significant bit: the feet, listed last,
   // keep the biped's bits, so STANCE is still both feet.
-  EXPECT_FALSE(contactIsActiveInMode(ModeNumber::kStance, /*contactIndex=*/0,
+  EXPECT_FALSE(contactIsActiveInMode(kBipedModeStance, /*contactIndex=*/0,
                                      kNumMixedContacts));
-  EXPECT_FALSE(contactIsActiveInMode(ModeNumber::kStance, /*contactIndex=*/1,
+  EXPECT_FALSE(contactIsActiveInMode(kBipedModeStance, /*contactIndex=*/1,
                                      kNumMixedContacts));
-  EXPECT_TRUE(contactIsActiveInMode(ModeNumber::kStance, /*contactIndex=*/2,
+  EXPECT_TRUE(contactIsActiveInMode(kBipedModeStance, /*contactIndex=*/2,
                                     kNumMixedContacts));
-  EXPECT_TRUE(contactIsActiveInMode(ModeNumber::kStance, /*contactIndex=*/3,
+  EXPECT_TRUE(contactIsActiveInMode(kBipedModeStance, /*contactIndex=*/3,
                                     kNumMixedContacts));
-  EXPECT_TRUE(contactIsActiveInMode(ModeNumber::kLf, /*contactIndex=*/2,
+  EXPECT_TRUE(contactIsActiveInMode(kBipedModeLf, /*contactIndex=*/2,
                                     kNumMixedContacts));
-  EXPECT_FALSE(contactIsActiveInMode(ModeNumber::kLf, /*contactIndex=*/3,
+  EXPECT_FALSE(contactIsActiveInMode(kBipedModeLf, /*contactIndex=*/3,
                                      kNumMixedContacts));
   constexpr size_t kLeftHandAndRightFoot = 0b1001;
   EXPECT_TRUE(contactIsActiveInMode(kLeftHandAndRightFoot, /*contactIndex=*/0,
@@ -389,7 +403,8 @@ class OnePatchReferenceManager final : public SwitchedModelReferenceManager {
             checkedValue(GaitSchedule::Create(mpc.config().reference,
                                               mpc.modelSettings())),
             std::make_unique<SwingTrajectoryPlanner>(
-                SwingTrajectoryPlanner::Config(), kNumContacts),
+                SwingTrajectoryPlanner::Config(),
+                mpc.modelSettings().numContacts()),
             mpc.getPinocchioInterface(),
             mpc.getMpcRobotModel()),
         patch_(std::move(patch)) {}
@@ -565,7 +580,7 @@ void setMode(CentroidalMpcInterface& mpc, size_t mode) {
   SwitchedModelReferenceManager& referenceManager =
       *mpc.getSwitchedModelReferenceManagerPtr();
   referenceManager.getGaitSchedule()->updateModeSchedule(ModeSchedule(
-      {-kBracket, kBracket}, {ModeNumber::kStance, mode, ModeNumber::kStance}));
+      {-kBracket, kBracket}, {kBipedModeStance, mode, kBipedModeStance}));
   referenceManager.preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0,
                                 mpc.getInitialState(), mode);
 }
@@ -595,7 +610,7 @@ TEST_F(MixedContactSetTest, theWeightIsSharedAmongTheActiveContacts) {
           TargetTrajectories({0.0}, {state}, {input}), state, /*time=*/0.0);
   EXPECT_TRUE(desired.isApprox(input, kTolerance));
 
-  setMode(mpc, ModeNumber::kStance);
+  setMode(mpc, kBipedModeStance);
   initializer->compute(/*time=*/0.0, state, /*nextTime=*/0.1, input, nextState);
   EXPECT_TRUE(
       model.getForceContactEwrtParam(input, /*contactIndex=*/0).isZero(0.0));
@@ -605,6 +620,141 @@ TEST_F(MixedContactSetTest, theWeightIsSharedAmongTheActiveContacts) {
               0.5 * weight, kTolerance);
   EXPECT_NEAR(model.getForceContactEwrtParam(input, /*contactIndex=*/3).z(),
               0.5 * weight, kTolerance);
+}
+
+// The contact frames of the inverse dynamics are every contact's, in contact
+// order: getContactFrameIndexArray() once returned the first two contacts,
+// which here are the hands, so the realtime inverse dynamics applied the
+// wrenches of the feet's slots at the hands.
+TEST_F(MixedContactSetTest, theContactFramesAreEveryContactsInContactOrder) {
+  CentroidalMpcInterface& mpc = interface();
+  const ModelSettings& settings = mpc.modelSettings();
+  const PinocchioInterface& pinocchioInterface = mpc.getPinocchioInterface();
+  const pinocchio::Model& pinocchioModel = pinocchioInterface.getModel();
+  const ContactArray<pinocchio::FrameIndex> frames =
+      getContactFrameIndexArray<scalar_t>(pinocchioInterface,
+                                          mpc.getMpcRobotModel());
+  ASSERT_EQ(frames.size(), kNumPointContacts + kNumSurfaceContacts);
+  for (size_t i = 0; i < frames.size(); ++i) {
+    EXPECT_EQ(frames[i], pinocchioModel.getFrameId(settings.contactNames[i]))
+        << settings.contactNames[i];
+  }
+  EXPECT_TRUE(
+      checkContactFramesExist(pinocchioModel, settings.contactNames).ok());
+
+  // A planned wrench on the left foot (contact 2) alone: the realtime inverse
+  // dynamics on those frames is the inverse dynamics at the foot's own frame.
+  absl::StatusOr<std::unique_ptr<RealtimeRigidBodyDynamics>> dynamics =
+      RealtimeRigidBodyDynamics::Create(pinocchioModel, frames);
+  ASSERT_TRUE(dynamics.ok()) << dynamics.status();
+  const CentroidalMpcRobotModel<scalar_t>& model = mpc.getMpcRobotModel();
+  const vector_t state = probeState();
+  const vector_t q = model.getGeneralizedCoordinates(state);
+  const vector_t v = vector_t::Zero(pinocchioModel.nv);
+  const vector_t qddJoints = vector_t::Zero(model.getJointDim());
+  ContactArray<vector6_t> wrenchContactsEwrtWorld(frames.size(),
+                                                  vector6_t::Zero());
+  constexpr size_t kLeftFoot = kNumPointContacts + kContactLeftIndex;
+  wrenchContactsEwrtWorld[kLeftFoot] << 10.0, -5.0, 400.0, 2.0, -3.0, 1.0;
+  const vector_t realtime = (*dynamics)->freeBaseJointTorques(
+      q, v, qddJoints, wrenchContactsEwrtWorld);
+  ContactArray<pinocchio::FrameIndex> footFrame(
+      /*numContacts=*/1, pinocchioModel.getFrameId("foot_l_contact"));
+  ContactArray<vector6_t> wrenchFootEwrtWorld(
+      /*numContacts=*/1, wrenchContactsEwrtWorld[kLeftFoot]);
+  PinocchioInterface working = pinocchioInterface;
+  const vector_t expected = computeJointTorques<scalar_t>(
+      q, v, qddJoints, wrenchFootEwrtWorld, footFrame, working);
+  EXPECT_LT((realtime - expected).cwiseAbs().maxCoeff(),
+            1.0e-9 * (1.0 + expected.cwiseAbs().maxCoeff()));
+}
+
+// The MRT controller's feedforward covers every contact of the set: with all
+// four measured in contact and no policy yet, the weight is shared by the four
+// and the feedforward is the base-held inverse dynamics of those wrenches at
+// the hands' and the feet's own frames.
+TEST_F(MixedContactSetTest, theMrtFeedforwardAppliesEveryContactAtItsFrame) {
+  CentroidalMpcInterface& mpc = interface();
+  const ModelSettings& settings = mpc.modelSettings();
+  const CentroidalMpcRobotModel<scalar_t>& model = mpc.getMpcRobotModel();
+  const size_t numContacts = settings.contactNames.size();
+  const ::robot::model::RobotDescription description = checkedValue(
+      ::robot::model::RobotDescription::Create(atlasFiles().urdfFile));
+  // A generous torque limit keeps the controller's clamp from masking the
+  // comparison.
+  const std::filesystem::path gainsFile =
+      std::filesystem::path(::testing::TempDir()) /
+      "mixed_contact_set_pd_gains.textproto";
+  {
+    std::ofstream gains(gainsFile);
+    gains << "# proto-message: humanoid_mpc_config.JointPdGainsFile\n"
+             "default_gains { kp: 100.0 kd: 10.0 max_joint_torque: 1000000.0 "
+             "}\n";
+  }
+  mpc_test::ScriptedMpc scriptedMpc(mpc::Settings{}, model.getInputDim());
+  std::unique_ptr<CentroidalMpcMrtJointController> controller =
+      checkedValue(CentroidalMpcMrtJointController::Create(
+          description, settings, model, scriptedMpc,
+          /*solverObservationObserver=*/nullptr, mpc.getPinocchioInterface(),
+          /*mpcDesiredFrequency=*/400.0, gainsFile.string()));
+
+  // Every contact measured in contact (the default estimator reads the
+  // state's flags); no policy arrives, so the controller compensates the
+  // weight.
+  ::robot::model::RobotState robotState(description, numContacts);
+  for (size_t i = 0; i < numContacts; ++i) {
+    robotState.setContactFlag(i, /*contactFlag=*/true);
+  }
+  ::robot::model::RobotJointAction action(description);
+  controller->computeJointControlAction(/*time=*/0.01, robotState, action);
+  ASSERT_EQ(controller->getMeasuredContactFlags(),
+            ContactMask::allActive(numContacts));
+
+  PinocchioInterface pinocchioInterface = mpc.getPinocchioInterface();
+  const pinocchio::Model& pinocchioModel = pinocchioInterface.getModel();
+  ContactArray<pinocchio::FrameIndex> frames(numContacts, /*value=*/0);
+  ContactArray<vector6_t> wrenchContactsEwrtWorld(numContacts,
+                                                  vector6_t::Zero());
+  const scalar_t weight = computeRobotWeight(pinocchioInterface);
+  for (size_t i = 0; i < numContacts; ++i) {
+    frames[i] = pinocchioModel.getFrameId(settings.contactNames[i]);
+    wrenchContactsEwrtWorld[i](2) = weight / static_cast<scalar_t>(numContacts);
+  }
+  const SystemObservation& observation = controller->getCurrentObservation();
+  // getGeneralizedVelocities() updates the model's own Pinocchio data: a copy.
+  const std::unique_ptr<MpcRobotModelBase<scalar_t>> modelCopy(model.clone());
+  const vector_t q = modelCopy->getGeneralizedCoordinates(observation.state);
+  const vector_t v =
+      modelCopy->getGeneralizedVelocities(observation.state, observation.input);
+  const vector_t expected = computeBaseHeldJointTorques<scalar_t>(
+      q, v, vector_t::Zero(model.getJointDim()), wrenchContactsEwrtWorld,
+      frames, pinocchioInterface);
+  // Positive control: the feet alone carrying the weight are other torques.
+  ContactArray<vector6_t> feetOnly = wrenchContactsEwrtWorld;
+  for (size_t i = 0; i < numContacts; ++i) {
+    feetOnly[i](2) = settings.isPointContact(i) ? 0.0 : 0.5 * weight;
+  }
+  const vector_t positiveControlJointTorques =
+      computeBaseHeldJointTorques<scalar_t>(
+          q, v, vector_t::Zero(model.getJointDim()), feetOnly, frames,
+          pinocchioInterface);
+  ASSERT_GT((expected - positiveControlJointTorques).cwiseAbs().maxCoeff(),
+            1.0);
+
+  const std::vector<size_t> mpcJointIndices =
+      description.getJointIndices(settings.mpcModelJointNames);
+  ASSERT_EQ(static_cast<Eigen::Index>(mpcJointIndices.size()), expected.size());
+  for (size_t i = 0; i < mpcJointIndices.size(); ++i) {
+    const std::optional<::robot::model::JointAction>& jointAction =
+        action[mpcJointIndices[i]];
+    if (!jointAction.has_value()) {
+      GTEST_FAIL() << "no action for " << settings.mpcModelJointNames[i];
+    }
+    EXPECT_NEAR(jointAction->feed_forward_effort,
+                expected[static_cast<Eigen::Index>(i)], 1.0e-6)
+        << settings.mpcModelJointNames[i];
+  }
+  std::filesystem::remove(gainsFile);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -705,6 +855,19 @@ TEST(MixedContactSetRefusal, thePlannersTheBasisAndTheHeuristicsAreRefused) {
       "hip_centered_stepping"};
   expectRefused(checkCentroidalContactSet(settings, heuristics),
                 "locomotion_heuristics");
+}
+
+TEST(MixedContactSetRefusal, theBasisRunsOnASetOfSixDofContactsOfAnyCount) {
+  // The two feet and the seat pad, all 6-DoF: one wrench cone basis each.
+  mpc_config::TaskFile task = mixedContactSetConfig(loadAtlas()).task;
+  task.model_settings.contacts_3dof = {};
+  task.model_settings.contact_names_6dof.push_back("seat_contact");
+  task.model_settings.contact_parent_joint_names.push_back("root_joint");
+  task.contact_input_parameterization = "basis_vectors";
+  const ModelSettings settings = mixedModelSettings(task);
+  ASSERT_FALSE(settings.isBipedContactSet());
+  ASSERT_EQ(settings.contactNames.size(), 3U);
+  HUMANOID_ASSERT_OK(checkCentroidalContactSet(settings, task));
 }
 
 TEST(MixedContactSetRefusal, theInterfaceRefusesBeforeItBuildsAModel) {

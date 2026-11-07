@@ -94,7 +94,7 @@ SwingLegVerticalConstraintCppAd::SwingLegVerticalConstraintCppAd(
 /******************************************************************************************************/
 /******************************************************************************************************/
 bool SwingLegVerticalConstraintCppAd::isActive(scalar_t time) const {
-  return !referenceManagerPtr_->getContactFlags(time)[contactPointIndex_];
+  return !referenceManagerPtr_->isInContact(time, contactPointIndex_);
 }
 
 /******************************************************************************************************/

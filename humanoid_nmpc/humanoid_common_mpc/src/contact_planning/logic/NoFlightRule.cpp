@@ -29,38 +29,37 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/logic/NoFlightRule.h"
 
+#include <array>
 #include <cstddef>
 #include <string>
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicHelpers.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == kBipedFootCount,
-              "the no-flight rule is written for a biped");
+namespace {
+// At least one foot in contact at every node.
+constexpr size_t kMinContactCount = 1;
+}  // namespace
 
 std::string NoFlightRule::describe() const {
-  return "c_L + c_R >= 1 at every node";
+  return "sum_i c_i >= 1 at every node";
 }
 
 bool NoFlightRule::propagate(const ContactLogicState& s,
                              MiqpAssignment& a,
                              bool& changed) const {
+  const ContactMask everyFoot = ContactMask::allActive(s.numFeet());
+  std::array<int, ContactLogicState::kNumFeet> nodeBinaries{};
   for (int k = 0; k < s.numNodes; ++k) {
-    const int cL = ContactLogicState::contactBinaryIndex(k, /*foot=*/0);
-    const int cR = ContactLogicState::contactBinaryIndex(k, /*foot=*/1);
-    if (a[static_cast<size_t>(cL)] == 0 && a[static_cast<size_t>(cR)] == 0) {
-      return false;
+    for (size_t foot = 0; foot < s.numFeet(); ++foot) {
+      nodeBinaries[foot] = ContactLogicState::contactBinaryIndex(k, foot);
     }
-    if (a[static_cast<size_t>(cL)] == 0 &&
-        !fixBinary(a, cR, /*value=*/1, changed)) {
-      return false;
-    }
-    if (a[static_cast<size_t>(cR)] == 0 &&
-        !fixBinary(a, cL, /*value=*/1, changed)) {
+    if (!propagateMinimumContactCount(nodeBinaries, everyFoot, kMinContactCount,
+                                      a, changed)) {
       return false;
     }
   }

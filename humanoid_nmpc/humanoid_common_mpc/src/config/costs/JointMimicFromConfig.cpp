@@ -43,7 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/TwoContactCount.h"
 #include "humanoid_mpc_config/mimic_joints_config.nproto.h"
 
 namespace ocs2::humanoid {
@@ -90,25 +90,29 @@ absl::StatusOr<JointMimicSettings> mimicJointFromConfig(
 
 }  // namespace
 
-absl::StatusOr<feet_array_t<JointMimicSettings>> kneeMimicJointsFromConfig(
-    const mpc_config::MimicJointsConfig& mimicJoints) {
-  static_assert(kNumContacts == kBipedFootCount,
-                "one knee mimic block per leg: left_knee and right_knee");
+absl::StatusOr<BipedFeetArray<JointMimicSettings>> kneeMimicJointsFromConfig(
+    const mpc_config::MimicJointsConfig& mimicJoints, size_t numContacts) {
+  // One knee mimic block per leg: left_knee and right_knee.
+  RETURN_IF_ERROR(
+      checkTwoContactCount(
+          /*component=*/"The knee joint mimic (mimic_joints.left_knee and "
+                        "right_knee)",
+          numContacts));
   ASSIGN_OR_RETURN(JointMimicSettings left,
                    mimicJointFromConfig(mimicJoints.left_knee, "left_knee"));
   ASSIGN_OR_RETURN(JointMimicSettings right,
                    mimicJointFromConfig(mimicJoints.right_knee, "right_knee"));
-  return feet_array_t<JointMimicSettings>{std::move(left), std::move(right)};
+  return BipedFeetArray<JointMimicSettings>{std::move(left), std::move(right)};
 }
 
-absl::StatusOr<feet_array_t<JointMimicSettings>>
+absl::StatusOr<BipedFeetArray<JointMimicSettings>>
 kneeMimicKinematicJointsFromConfig(
-    const mpc_config::MimicJointsConfig& mimicJoints) {
-  constexpr std::array<absl::string_view, kNumContacts> kBlocks = {
-      "left_knee", "right_knee"};
-  ASSIGN_OR_RETURN(feet_array_t<JointMimicSettings> settings,
-                   kneeMimicJointsFromConfig(mimicJoints));
-  for (size_t leg = 0; leg < kNumContacts; ++leg) {
+    const mpc_config::MimicJointsConfig& mimicJoints, size_t numContacts) {
+  constexpr BipedFeetArray<absl::string_view> kBlocks = {"left_knee",
+                                                         "right_knee"};
+  ASSIGN_OR_RETURN(BipedFeetArray<JointMimicSettings> settings,
+                   kneeMimicJointsFromConfig(mimicJoints, numContacts));
+  for (size_t leg = 0; leg < settings.size(); ++leg) {
     if (settings[leg].velocityGain != 0.0) {
       return absl::InvalidArgumentError(
           absl::StrCat("mimic_joints.", kBlocks[leg], ".velocity_gain is ",

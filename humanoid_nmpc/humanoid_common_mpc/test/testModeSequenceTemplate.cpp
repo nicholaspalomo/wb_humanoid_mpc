@@ -40,14 +40,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/reference/GaitFromConfig.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_mpc_config/gait_file.nproto.h"
@@ -153,7 +155,7 @@ TEST(ModeSequenceTemplateTest, TheDocumentedLayoutsLoad) {
   ASSERT_TRUE(gaits.ok()) << gaits.status();
   ASSERT_TRUE(gaits->contains("walk"));
   EXPECT_EQ(gaits->at("walk").modeSequence,
-            (std::vector<size_t>{ModeNumber::kLf, ModeNumber::kRf}));
+            (std::vector<size_t>{kBipedModeLf, kBipedModeRf}));
   EXPECT_EQ(gaits->at("walk").switchingTimes,
             (std::vector<scalar_t>{0.0, 0.4, 0.8}));
 
@@ -170,9 +172,9 @@ TEST(ModeSequenceTemplateTest, TheDocumentedLayoutsLoad) {
   const absl::StatusOr<ModeSchedule> modeSchedule =
       initialModeScheduleFromConfig(*referenceFile);
   ASSERT_TRUE(modeSchedule.ok()) << modeSchedule.status();
-  EXPECT_EQ(modeSchedule->modeSequence,
-            (std::vector<size_t>{ModeNumber::kStance, ModeNumber::kLf,
-                                 ModeNumber::kStance}));
+  EXPECT_EQ(
+      modeSchedule->modeSequence,
+      (std::vector<size_t>{kBipedModeStance, kBipedModeLf, kBipedModeStance}));
   EXPECT_EQ(modeSchedule->eventTimes, (std::vector<scalar_t>{0.5, 1.0}));
 }
 
@@ -229,26 +231,71 @@ TEST(ModeSequenceTemplateTest, AnInvalidTemplateIsRefusedNamingWhereItIs) {
 
 TEST(MotionPhaseDefinitionTest,
      ModeNamesRoundTripAndStanceLegsMatchTheModeNumbers) {
-  for (const ModeNumber mode : {ModeNumber::kFly, ModeNumber::kRf,
-                                ModeNumber::kLf, ModeNumber::kStance}) {
+  for (const size_t mode :
+       {kBipedModeFly, kBipedModeRf, kBipedModeLf, kBipedModeStance}) {
     const absl::StatusOr<size_t> parsed =
-        parseModeNumber(modeNumber2String(mode));
+        parseModeNumber(modeNumber2String(mode), GaitModeLayout{});
     ASSERT_TRUE(parsed.ok()) << parsed.status();
-    EXPECT_EQ(*parsed, static_cast<size_t>(mode));
-    EXPECT_EQ(stanceLeg2ModeNumber(modeNumber2StanceLeg(mode)),
-              static_cast<size_t>(mode));
+    EXPECT_EQ(*parsed, mode);
+    EXPECT_EQ(bipedModeOfFootContacts(bipedFootContactsOfMode(mode)), mode);
   }
-  EXPECT_EQ(modeNumber2StanceLeg(ModeNumber::kLf),
-            (contact_flag_t{true, false}));
-  EXPECT_EQ(modeNumber2StanceLeg(ModeNumber::kRf),
-            (contact_flag_t{false, true}));
-  EXPECT_EQ(modeNumber2StanceLeg(/*modeNumber=*/7),
-            (contact_flag_t{false, false}))
+  EXPECT_EQ(bipedFootContactsOfMode(kBipedModeLf),
+            (BipedFeetArray<bool>{true, false}));
+  EXPECT_EQ(bipedFootContactsOfMode(kBipedModeRf),
+            (BipedFeetArray<bool>{false, true}));
+  EXPECT_EQ(bipedFootContactsOfMode(/*modeNumber=*/7),
+            (BipedFeetArray<bool>{false, false}))
       << "a number that is not a mode";
   EXPECT_EQ(modeNumber2String(/*modeNumber=*/7), "");
-  EXPECT_EQ(parseModeNumber("stance").status().code(),
+  EXPECT_EQ(parseModeNumber("stance", GaitModeLayout{}).status().code(),
             absl::StatusCode::kInvalidArgument)
       << "the names are upper case";
+  const absl::StatusOr<size_t> bothFeet =
+      parseModeNumber("11", GaitModeLayout{});
+  ASSERT_TRUE(bothFeet.ok()) << bothFeet.status();
+  EXPECT_EQ(*bothFeet, kBipedModeStance) << "one digit per foot, left first";
+}
+
+// A set of four point contacts: STANCE is all four, a mode is one digit per
+// contact, and the foot names LF and RF, which name no contact of it, are
+// refused naming the contact count.
+TEST(MotionPhaseDefinitionTest, AFourPointSetReadsStanceAndDigitMasks) {
+  const GaitModeLayout fourPoints{.numContacts = 4, .stanceMode = 0b1111};
+  const absl::StatusOr<size_t> stance = parseModeNumber("STANCE", fourPoints);
+  ASSERT_TRUE(stance.ok()) << stance.status();
+  EXPECT_EQ(*stance, 0b1111U);
+  const absl::StatusOr<size_t> fly = parseModeNumber("FLY", fourPoints);
+  ASSERT_TRUE(fly.ok()) << fly.status();
+  EXPECT_EQ(*fly, 0U);
+  const absl::StatusOr<size_t> diagonal = parseModeNumber("1001", fourPoints);
+  ASSERT_TRUE(diagonal.ok()) << diagonal.status();
+  EXPECT_EQ(*diagonal, 0b1001U) << "contact 0 is the most significant bit";
+  for (const absl::string_view refused : {"LF", "RF", "101", "10010", "10a1"}) {
+    const absl::StatusOr<size_t> mode = parseModeNumber(refused, fourPoints);
+    EXPECT_EQ(mode.status().code(), absl::StatusCode::kInvalidArgument)
+        << refused;
+    EXPECT_THAT(mode.status().message(),
+                ::testing::HasSubstr("a set of 4 contacts"))
+        << refused;
+  }
+}
+
+// The DRC Atlas multi-contact set (3-DoF contacts first, then the two feet)
+// keeps the biped names: STANCE is the two feet, the last two contacts.
+TEST(MotionPhaseDefinitionTest, ASetEndingInTheFeetKeepsTheBipedNames) {
+  const GaitModeLayout feetLast{.numContacts = 6,
+                                .stanceMode = kBipedModeStance};
+  for (const size_t mode :
+       {kBipedModeFly, kBipedModeRf, kBipedModeLf, kBipedModeStance}) {
+    const absl::StatusOr<size_t> parsed =
+        parseModeNumber(modeNumber2String(mode), feetLast);
+    ASSERT_TRUE(parsed.ok()) << parsed.status();
+    EXPECT_EQ(*parsed, mode);
+  }
+  const absl::StatusOr<size_t> handsAndFeet =
+      parseModeNumber("110011", feetLast);
+  ASSERT_TRUE(handsAndFeet.ok()) << handsAndFeet.status();
+  EXPECT_EQ(*handsAndFeet, 0b110011U);
 }
 
 TEST(ModeSequenceTemplateTest,
@@ -297,7 +344,7 @@ TEST(ModeSequenceTemplateTest, AMismatchedLengthIsRejected) {
 TEST(ModeSequenceTemplateTest, FormatsAsItsSwitchingTimesAndModes) {
   const ModeSequenceTemplate modeSequenceTemplate(
       /*switchingTimesInput=*/{0.0, 0.35, 0.7},
-      /*modeSequenceInput=*/{ModeNumber::kStance, ModeNumber::kLf});
+      /*modeSequenceInput=*/{kBipedModeStance, kBipedModeLf});
   EXPECT_EQ(absl::StrCat(modeSequenceTemplate),
             "Template switching times: {0, 0.35, 0.7}\nTemplate mode sequence: "
             "  {3, 2}\n");

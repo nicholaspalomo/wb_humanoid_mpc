@@ -56,7 +56,7 @@ void FootholdRegularizationCost::addToStage(
     int /*node*/,
     StageAccumulator& stage) const {
   for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
       stage.addQuadraticResidual(
           /*xCoefficients=*/{},
           {{idx_.errPosFeetRtWorldEwrtWorld[foot][axis], 1.0}},

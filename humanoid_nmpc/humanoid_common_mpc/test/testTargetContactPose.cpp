@@ -39,23 +39,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 
 /**
  * Unit tests of the target contact poses the MuJoCo viewer draws
- * (TargetContactPose.h). Written in terms of kNumContacts: every scenario is
+ * (TargetContactPose.h). Written in terms of kNumFeet: every scenario is
  * run for every foot.
  */
 namespace ocs2::humanoid {
 
 namespace {
 
+// The biped's two feet, which every case here is written for.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+
 constexpr scalar_t kTol = 1.0e-9;
 
 size_t modeWithSwinging(std::initializer_list<size_t> swingingFeet) {
-  contact_flag_t flags = makeFeetArray(true);
+  BipedFeetArray<bool> flags = makeBipedFeetArray(true);
   for (size_t foot : swingingFeet) flags[foot] = false;
-  return stanceLeg2ModeNumber(flags);
+  return bipedModeOfFootContacts(flags);
 }
 
 const size_t kAllInContact = modeWithSwinging({});
@@ -81,10 +84,10 @@ ContactPlan makePlan(bool heading) {
   plan.startTime = 0.0;
   plan.dt = 0.1;
   plan.yawHeadingRtWorld = 0.3;
-  plan.contacts.assign(numIntervals, makeFeetArray(true));
+  plan.contacts.assign(numIntervals, makeBipedFeetArray(true));
   plan.desPosFeetRtWorldEwrtWorldXyTraj.resize(numIntervals + 1);
   for (int k = 0; k <= numIntervals; ++k) {
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       plan.desPosFeetRtWorldEwrtWorldXyTraj[k][foot] =
           vector2_t(0.1 * k, 0.1 - 0.2 * static_cast<scalar_t>(foot));
     }
@@ -94,7 +97,7 @@ ContactPlan makePlan(bool heading) {
     plan.headingModelYawRateTraj.assign(numIntervals + 1, 0.0);
     plan.desEulerzyxFeetRtWorldYawTraj.resize(numIntervals + 1);
     for (int k = 0; k <= numIntervals; ++k) {
-      for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      for (size_t foot = 0; foot < kNumFeet; ++foot) {
         plan.desEulerzyxFeetRtWorldYawTraj[k][foot] =
             0.05 * k + 0.01 * static_cast<scalar_t>(foot);
       }
@@ -112,7 +115,7 @@ scalar_t computePlannedYawFootRtWorld(int node, size_t foot) {
 TargetContactPoseInputs makeInputs(scalar_t time) {
   TargetContactPoseInputs inputs;
   inputs.time = time;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     inputs.posFeetRtWorldEwrtWorld[foot] =
         vector3_t(-1.0, 0.5 - static_cast<scalar_t>(foot),
                   0.02 * static_cast<scalar_t>(foot + 1));
@@ -146,8 +149,8 @@ void expectStancePlacement(const TargetContactPose& desPoseFootRtWorld,
 TEST(TargetContactPose, InvalidPlanGivesNoTargets) {
   ContactPlan plan = makePlan(/*heading=*/true);
   plan.valid = false;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
-    const feet_array_t<TargetContactPose> desPoseFeetRtWorld =
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
+    const BipedFeetArray<TargetContactPose> desPoseFeetRtWorld =
         computeDesPoseFeetRtWorld(
             plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4),
             makeInputs(1.2));
@@ -155,7 +158,7 @@ TEST(TargetContactPose, InvalidPlanGivesNoTargets) {
       EXPECT_FALSE(desPoseFootRtWorld.valid);
     }
   }
-  const feet_array_t<TargetContactPose> desPoseFeetRtWorld =
+  const BipedFeetArray<TargetContactPose> desPoseFeetRtWorld =
       computeDesPoseFeetRtWorld(ContactPlan{}, ModeSchedule(), makeInputs(0.0));
   for (const TargetContactPose& desPoseFootRtWorld : desPoseFeetRtWorld) {
     EXPECT_FALSE(desPoseFootRtWorld.valid);
@@ -165,10 +168,10 @@ TEST(TargetContactPose, InvalidPlanGivesNoTargets) {
 TEST(TargetContactPose,
      SwingInFlightTargetsThePlannedLandingWithTheStepAdjustment) {
   const ContactPlan plan = makePlan(/*heading=*/true);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     TargetContactPoseInputs inputs = makeInputs(1.2);
     inputs.errPosFeetRtWorldEwrtWorldXy[foot] = vector2_t(0.02, -0.01);
-    const feet_array_t<TargetContactPose> desPoseFeetRtWorld =
+    const BipedFeetArray<TargetContactPose> desPoseFeetRtWorld =
         computeDesPoseFeetRtWorld(
             plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4),
             inputs);
@@ -190,7 +193,7 @@ TEST(TargetContactPose,
     EXPECT_NEAR(desPoseFootRtWorld.eulerzyxFootRtWorldYaw,
                 computePlannedYawFootRtWorld(/*node=*/14, foot), kTol);
 
-    for (size_t other = 0; other < kNumContacts; ++other) {
+    for (size_t other = 0; other < kNumFeet; ++other) {
       if (other != foot) {
         expectStancePlacement(desPoseFeetRtWorld[other], other, inputs);
       }
@@ -200,7 +203,7 @@ TEST(TargetContactPose,
 
 TEST(TargetContactPose, StanceFootWithAnUpcomingSwingTargetsItsNextLanding) {
   const ContactPlan plan = makePlan(/*heading=*/true);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     const ModeSchedule schedule =
         singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
     const TargetContactPoseInputs inputs = makeInputs(0.5);
@@ -237,7 +240,7 @@ TEST(TargetContactPose, StanceFootWithAnUpcomingSwingTargetsItsNextLanding) {
 TEST(TargetContactPose, WithoutTheHeadingModelTheYawIsTheMeasuredFootYaw) {
   const ContactPlan plan = makePlan(/*heading=*/false);
   ASSERT_FALSE(plan.hasHeading());
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     const TargetContactPoseInputs inputs = makeInputs(1.2);
     const TargetContactPose desPoseFootRtWorld = computeDesPoseFeetRtWorld(
         plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4),
@@ -253,7 +256,7 @@ TEST(TargetContactPose, WithoutTheHeadingModelTheYawIsTheMeasuredFootYaw) {
 TEST(TargetContactPose,
      SwingWithoutTouchDownEventFallsBackToTheStancePlacement) {
   const ContactPlan plan = makePlan(/*heading=*/true);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     const ModeSchedule noTouchDown({1.0},
                                    {kAllInContact, modeWithSwinging({foot})});
     for (scalar_t time : {0.5, 1.2}) {
@@ -266,14 +269,13 @@ TEST(TargetContactPose,
 }
 
 TEST(TargetContactPose, TwoStepSequenceGivesEachFootItsOwnLanding) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   const ContactPlan plan = makePlan(/*heading=*/true);
   // foot 0 swings [1.0, 1.4], double support, foot 1 swings [1.5, 1.9].
   const ModeSchedule schedule(
       {1.0, 1.4, 1.5, 1.9},
       {kAllInContact, modeWithSwinging({0}), kAllInContact,
        modeWithSwinging({1}), kAllInContact});
-  const feet_array_t<TargetContactPose> desPoseFeetRtWorld =
+  const BipedFeetArray<TargetContactPose> desPoseFeetRtWorld =
       computeDesPoseFeetRtWorld(plan, schedule, makeInputs(1.2));
   EXPECT_EQ(desPoseFeetRtWorld[0].kind,
             TargetContactPose::Kind::kSwingInFlight);

@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 
@@ -73,11 +74,11 @@ struct TargetContactPose {
  * plan and the schedule. */
 struct TargetContactPoseInputs {
   scalar_t time = 0.0;
-  feet_array_t<vector3_t> posFeetRtWorldEwrtWorld = makeFeetArray(
+  BipedFeetArray<vector3_t> posFeetRtWorldEwrtWorld = makeBipedFeetArray(
       vector3_t(vector3_t::Zero()));  // measured contact frame origins
-  feet_array_t<scalar_t> eulerzyxFeetRtWorldYaw =
-      makeFeetArray(0.0);  // measured contact frame ZYX yaws
-  feet_array_t<vector2_t> errPosFeetRtWorldEwrtWorldXy = makeFeetArray(
+  BipedFeetArray<scalar_t> eulerzyxFeetRtWorldYaw =
+      makeBipedFeetArray(0.0);  // measured contact frame ZYX yaws
+  BipedFeetArray<vector2_t> errPosFeetRtWorldEwrtWorldXy = makeBipedFeetArray(
       vector2_t(vector2_t::Zero()));  // landing offset (zero when off)
   scalar_t posSurfaceRtWorldEwrtWorldZ =
       0.0;  // [m] ground height the swing targets land on
@@ -92,7 +93,7 @@ struct TargetContactPoseInputs {
  * heading model and the measured foot yaw without it. Every pose is invalid
  * when the plan is not valid.
  */
-feet_array_t<TargetContactPose> computeDesPoseFeetRtWorld(
+BipedFeetArray<TargetContactPose> computeDesPoseFeetRtWorld(
     const ContactPlan& plan,
     const ModeSchedule& schedule,
     const TargetContactPoseInputs& inputs);

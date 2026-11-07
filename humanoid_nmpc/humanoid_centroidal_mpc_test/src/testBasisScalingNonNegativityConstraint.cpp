@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
@@ -55,9 +56,11 @@ namespace ocs2::humanoid {
 
 /// Number of basis-vector scalings per foot (mimics N=4 → 4+7=11 basis).
 static constexpr size_t kNumBasisPerFoot = 11;
+/// The test's contact set: the two Atlas feet.
+static constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 /// Two-foot layout: [λ_left(11), λ_right(11), joint_vel(24)] = 46.
 static constexpr size_t kJointDim = 24;
-static constexpr size_t kInputDim = kNumBasisPerFoot * kNumContacts + kJointDim;
+static constexpr size_t kInputDim = kNumBasisPerFoot * kNumFeet + kJointDim;
 /// Arbitrary state dimension (constraint math is independent of state).
 static constexpr size_t kStateDim = 36;
 
@@ -107,12 +110,12 @@ class BasisScalingNonNegativityConstraintTest : public ::testing::Test {
         {0.5, 0.5}, {kModeDoubleStance, kModeDoubleStance});
     std::shared_ptr<GaitSchedule> gaitSchedule = std::make_shared<GaitSchedule>(
         doubleStanceModeSchedule, doubleStanceModeSequenceTemplate,
-        /*phaseTransitionStanceTime=*/0.0);
+        /*phaseTransitionStanceTime=*/0.0, GaitModeLayout{});
 
     referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(
         gaitSchedule,
         std::make_unique<SwingTrajectoryPlanner>(
-            SwingTrajectoryPlanner::Config(), kNumContacts),
+            SwingTrajectoryPlanner::Config(), kNumFeet),
         testingModelInterface_->getPinocchioInterface(),
         testingModelInterface_->getMpcRobotModel());
 
@@ -129,7 +132,7 @@ class BasisScalingNonNegativityConstraintTest : public ::testing::Test {
   /// Creates an input vector with all λ set to the given value.
   vector_t makeInput(scalar_t lambdaValue) const {
     vector_t input = vector_t::Zero(kInputDim);
-    input.head(kNumBasisPerFoot * kNumContacts).setConstant(lambdaValue);
+    input.head(kNumBasisPerFoot * kNumFeet).setConstant(lambdaValue);
     return input;
   }
 

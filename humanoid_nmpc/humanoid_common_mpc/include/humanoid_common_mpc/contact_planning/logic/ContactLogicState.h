@@ -56,8 +56,12 @@ namespace ocs2::humanoid {
  * itself fixes, which is exactly how the maximum-contact rule once forced a
  * lift-off inside a double-support hold it could not see.
  *
- * The binaries are laid out node-major: index kNumContacts * node + foot
- * (contactBinaryIndex).
+ * The binaries are laid out node-major: index kNumFeet * node + foot
+ * (contactBinaryIndex). kNumFeet is the planner's foot count, the size of its
+ * per-foot input (ContactPlannerInput) and of its variable layout: two, for
+ * both planners are written for a biped and refuse every contact count but two
+ * (checkTwoContactCount()). The rules written over the number of feet read
+ * it through numFeet().
  *
  * Passive data, read-only once make() has built it, so concurrent calls of its
  * const helpers are safe. `input` and `previousAssignment` must outlive it.
@@ -89,7 +93,10 @@ struct ContactLogicState {
   std::optional<int> previousPlanShift;
   const MiqpAssignment* absl_nullable previousAssignment = nullptr;
 
-  static constexpr int kBinariesPerNode = static_cast<int>(kNumContacts);
+  static constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+  static constexpr int kBinariesPerNode = static_cast<int>(kNumFeet);
+  /** The number of feet the binaries of a node cover, kNumFeet. */
+  static constexpr size_t numFeet() { return kNumFeet; }
   static int contactBinaryIndex(int node, size_t foot) {
     return kBinariesPerNode * node + static_cast<int>(foot);
   }

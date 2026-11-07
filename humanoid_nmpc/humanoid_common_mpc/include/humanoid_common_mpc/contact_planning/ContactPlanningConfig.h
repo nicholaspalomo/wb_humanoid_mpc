@@ -42,7 +42,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 
 namespace ocs2::humanoid {
@@ -173,6 +172,13 @@ struct SharedParameters {
   // every hot reload; a configuration with no model (a planner unit test) keeps
   // the default.
   scalar_t gravity = kGravityMagnitude;
+  // The number of contacts of the robot model's contact set
+  // (ModelSettings::numContacts()); not a file key.
+  // ContactPlanningModelParameters::applyTo() writes it like `gravity`; a
+  // configuration with no model keeps the biped's two feet. Both planners and
+  // the terms written for a left and a right foot refuse any other count when
+  // they are built (checkTwoContactCount()).
+  size_t numContacts = static_cast<size_t>(kBipedFootCount);
   // [m] LIP height, omega = sqrt(g / nomPosComRtFeetmeanEwrtWorldZ). Unset =
   // from the model: its center of mass above its feet at the task file's
   // initialState (computeProxyPosComRtFeetmeanEwrtWorldZ, which an unset DCM
@@ -496,10 +502,10 @@ struct FootSeparationParameters {
 /** Hip yaw range per foot, derived from the model
  * (ContactPlanningModelParameters), not a file key. */
 struct HipYawRangeParameters {
-  feet_array_t<scalar_t> minYawFeetRtBase =
-      makeFeetArray(0.0);  // [rad] bounds on foot yaw - pelvis (base) yaw, the
-                           // hip yaw joint range
-  feet_array_t<scalar_t> maxYawFeetRtBase = makeFeetArray(0.0);
+  BipedFeetArray<scalar_t> minYawFeetRtBase =
+      makeBipedFeetArray(0.0);  // [rad] bounds on foot yaw - pelvis (base) yaw,
+                                // the hip yaw joint range
+  BipedFeetArray<scalar_t> maxYawFeetRtBase = makeBipedFeetArray(0.0);
   std::optional<SlackPenalty> slack;
 };
 /** Yaw torque the ground can carry, derived from the model and the wrench cone,
@@ -746,8 +752,8 @@ struct ContactPlanningConfig {
   /** Symmetric foot yaw bounds, for tests and for robots without a
    * model-derived value. */
   void setSymmetricMaxYawFootRtBase(scalar_t maxYawFootRtBase) {
-    hipYawRange.minYawFeetRtBase = makeFeetArray(-maxYawFootRtBase);
-    hipYawRange.maxYawFeetRtBase = makeFeetArray(maxYawFootRtBase);
+    hipYawRange.minYawFeetRtBase = makeBipedFeetArray(-maxYawFootRtBase);
+    hipYawRange.maxYawFeetRtBase = makeBipedFeetArray(maxYawFootRtBase);
   }
   /** True once the model-derived parameters of the heading model have been
    * applied. */
@@ -760,7 +766,7 @@ struct ContactPlanningConfig {
             0.0) {
       return false;
     }
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
       if (!(hipYawRange.minYawFeetRtBase[foot] < 0.0 &&
             hipYawRange.maxYawFeetRtBase[foot] > 0.0)) {
         return false;

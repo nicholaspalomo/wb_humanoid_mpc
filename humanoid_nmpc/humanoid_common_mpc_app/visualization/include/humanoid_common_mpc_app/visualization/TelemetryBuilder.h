@@ -50,7 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -114,6 +114,11 @@ namespace ocs2::humanoid::visualization {
  * terms of the latest solution (SolutionTerms, computed on the solver thread by
  * SolutionTermEvaluator), held until the next one; NaN before it.
  *
+ * Contacts: the contact force, foot kinematics and contact wrench groups are
+ * per contact of ModelSettings::contactNames, in contact order, each named by
+ * contactSeriesNames(): a biped's two feet keep the contract's "left" and
+ * "right", every other contact is named by its contact name.
+ *
  * The group layout (paths, names) is fixed at construction; build() only writes
  * values. Not thread-safe.
  */
@@ -172,6 +177,20 @@ class TelemetryBuilder {
   /** The paths of the groups, in the order of the message. */
   std::vector<std::string> groupPaths() const;
 
+  /**
+   * Returns the name of each contact of `contactNames`
+   * (ModelSettings::contactNames, of which the last `numSixDofContacts` are
+   * the 6-DoF ones), in contact order, as the contact groups' paths spell it
+   * (contact_forces/<name>_normal, contact_wrenches/<name>/mpc, ...). A set
+   * with two or more 6-DoF contacts lists its feet last, so that the biped's
+   * mode numbers keep their meaning (contactIsActiveInMode()): its last two
+   * contacts are named "left" and "right" (kContactLeftIndex and
+   * kContactRightIndex of the two feet), the contract's names. Every other
+   * contact is named by its contact name.
+   */
+  static std::vector<std::string> contactSeriesNames(
+      const std::vector<std::string>& contactNames, size_t numSixDofContacts);
+
  private:
   /** The sources of the plots: measured, reference and plan (sources_). */
   static constexpr size_t kNumSources = 3;
@@ -212,8 +231,9 @@ class TelemetryBuilder {
     vector3_t eulerzyxBaseRtWorld = vector3_t::Zero();
     vector3_t rateEulerzyxBaseRtWorld = vector3_t::Zero();
     vector_t displayCoordinates;
-    feet_array_t<vector6_t> wrenchFeetEwrtWorld =
-        makeFeetArray<vector6_t>(vector6_t::Zero());
+    /** Per contact of the set, the world-frame wrench; sized at construction.
+     */
+    ContactArray<vector6_t> wrenchContactsEwrtWorld;
     std::unique_ptr<PinocchioInterface::Data> data;
     // The balance quantities (updateBalance()); NaN where they are undefined.
     vector3_t posComRtWorldEwrtWorld = vector3_t::Zero();
@@ -261,7 +281,7 @@ class TelemetryBuilder {
    * its accelerations from the previous sample. */
   void updateMeasuredSource(const DecodedRobotState& measured);
   /** Writes the base, contact force, generalized base and foot panels from the
-   * sources and `measured`. */
+   * sources and `measured`; the measured wrenches are the measured source's. */
   void writeBasePanels(const DecodedRobotState& measured);
   /** Writes the balance panels (CoM, ACoM angles, DCM, ZMP) of every source. */
   void writeBalancePanels();
@@ -281,21 +301,12 @@ class TelemetryBuilder {
     return robotModel_->modelSettings;
   }
 
-  /**
-   * The model's contact of the plots' foot `foot` (0 left, 1 right): the last
-   * two contacts of the contact set, which are the biped's two feet and, in a
-   * larger set, the feet listed last so that the biped's mode numbers keep
-   * their meaning (contactIsActiveInMode()).
-   */
-  size_t footContact(size_t foot) const {
-    return modelSettings().contactNames.size() - kNumContacts + foot;
-  }
-
   PinocchioInterface pinocchioInterface_;
   std::unique_ptr<MpcRobotModelBase<scalar_t>> robotModel_;
   // VisualizationModel::stateManifold, retained (Create() refuses a null one).
   const StateManifold* absl_nonnull stateManifold_;
-  feet_array_t<pinocchio::FrameIndex> contactFrames_{};
+  // Per contact of the set, its frame of the MPC's model.
+  ContactArray<pinocchio::FrameIndex> contactFrames_;
   /** [1/s] sqrt(g / z0) of the DCM; nullopt without a nominal state
    * (VisualizationModel::nominalState). */
   std::optional<scalar_t> pendulumFrequency_;
@@ -308,7 +319,9 @@ class TelemetryBuilder {
       groupValues_;
 
   // The groups, by what they plot: a `group<quantity>_` member holds the
-  // indices of the groups that plot that quantity, per axis, foot or source.
+  // indices of the groups that plot that quantity, per axis, contact or
+  // source. The per-contact ones are sized to the contact set at
+  // construction.
   // Panel groups:
   std::array<int, kPositionDim> groupPosBaseRtWorldEwrtWorld_{};
   std::array<int, kEulerAnglesZyxDim> groupEulerzyxBaseRtWorld_{};
@@ -316,12 +329,12 @@ class TelemetryBuilder {
   std::array<int, kRotationTangentDim> groupAngvelBaseRtWorldEwrtBase_{};
   std::array<int, kPositionDim> groupLinvelBaseRtWorldEwrtWorld_{};
   std::array<int, kRotationTangentDim> groupAngvelBaseRtWorldEwrtWorld_{};
-  feet_array_t<int> groupForceFeetEwrtWorldZ_{};
-  feet_array_t<int> groupForceFeetEwrtWorldXy_{};
+  ContactArray<int> groupForceContactsEwrtWorldZ_;
+  ContactArray<int> groupForceContactsEwrtWorldXy_;
   std::array<int, kNumGeneralizedBasePanels> generalizedBaseCoordinate_{};
   std::array<int, kNumGeneralizedBasePanels> generalizedBaseVelocity_{};
-  feet_array_t<int> groupLinaccFeetRtWorldEwrtWorldZ_{};
-  feet_array_t<int> groupLinvelFeetRtWorldEwrtWorldZ_{};
+  ContactArray<int> groupLinaccContactsRtWorldEwrtWorldZ_;
+  ContactArray<int> groupLinvelContactsRtWorldEwrtWorldZ_;
   std::array<int, kPositionDim> groupPosComRtWorldEwrtWorld_{};
   std::array<int, kHorizontalPositionDim> groupPosDcmRtWorldEwrtWorldXy_{};
   std::array<int, kHorizontalPositionDim> groupPosZmpRtWorldEwrtWorldXy_{};
@@ -331,8 +344,8 @@ class TelemetryBuilder {
   std::array<int, kNumSources> generalizedCoordinateGroups_{};
   std::array<int, kNumSources> generalizedVelocityGroups_{};
   std::array<int, kNumForceSources> generalizedForceGroups_{};
-  feet_array_t<int> groupPlanWrenchFeetEwrtWorld_{};
-  feet_array_t<int> groupMeasForceFeetEwrtWorld_{};
+  ContactArray<int> groupPlanWrenchContactsEwrtWorld_;
+  ContactArray<int> groupMeasForceContactsEwrtWorld_;
   int observationState_ = 0;
   int observationInput_ = 0;
   int observationMode_ = 0;

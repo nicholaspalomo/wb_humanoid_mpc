@@ -51,8 +51,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 #include "ocs2_sqp/SqpMpc.h"
 
-#include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
 #include "humanoid_mpc_config/mpc_parameter_update.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
@@ -71,17 +71,17 @@ namespace {
  */
 // LINT.IfChange(walking_schedule)
 ModeSchedule walkingSchedule() {
-  contact_flag_t rightSwing = makeFeetArray(true);
+  BipedFeetArray<bool> rightSwing = makeBipedFeetArray(true);
   rightSwing[1] = false;
-  contact_flag_t leftSwing = makeFeetArray(true);
+  BipedFeetArray<bool> leftSwing = makeBipedFeetArray(true);
   leftSwing[0] = false;
   return ModeSchedule(
       /*eventTimesInput=*/{-10.0, 0.1, 0.45, 0.55, 0.9, 10.0},
-      /*modeSequenceInput=*/{ModeNumber::kStance, ModeNumber::kStance,
-                             stanceLeg2ModeNumber(rightSwing),
-                             ModeNumber::kStance,
-                             stanceLeg2ModeNumber(leftSwing),
-                             ModeNumber::kStance, ModeNumber::kStance});
+      /*modeSequenceInput=*/{kBipedModeStance, kBipedModeStance,
+                             bipedModeOfFootContacts(rightSwing),
+                             kBipedModeStance,
+                             bipedModeOfFootContacts(leftSwing),
+                             kBipedModeStance, kBipedModeStance});
 }
 // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/RunningProblemFingerprint.cpp:early_swing_times)
 
@@ -130,7 +130,7 @@ WholeBodySolverStack::WholeBodySolverStack(const mpc_config::TaskFile& task,
   observation_.state = interface.getInitialState();
   observation_.input = vector_t::Zero(
       static_cast<Eigen::Index>(interface.getMpcRobotModel().getInputDim()));
-  observation_.mode = ModeNumber::kStance;
+  observation_.mode = kBipedModeStance;
   mrt_->setCurrentObservation(observation_);
   mrt_->resetMpcNode(
       wbMpcResetTargetTrajectories(observation_, interface.getMpcRobotModel(),

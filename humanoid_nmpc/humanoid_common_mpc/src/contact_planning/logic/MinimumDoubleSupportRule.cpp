@@ -38,7 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicHelpers.h"
@@ -46,12 +46,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == kBipedFootCount,
-              "the double support rule is written for a biped");
-
 std::string MinimumDoubleSupportRule::describe() const {
-  return absl::StrCat("after a touch-down the other foot stays down >= ",
-                      minDoubleSupportDuration_,
+  if (!minSupportCount_.has_value()) {
+    return absl::StrCat(
+        "after a touch-down every foot in contact stays down >= ",
+        minDoubleSupportDuration_, " s (the touch-down node included)");
+  }
+  return absl::StrCat("after a touch-down a foot in contact lifts only while ",
+                      *minSupportCount_,
+                      " feet stay down, for >= ", minDoubleSupportDuration_,
                       " s (the touch-down node included)");
 }
 
@@ -64,40 +67,52 @@ bool MinimumDoubleSupportRule::propagate(const ContactLogicState& s,
                                          bool& changed) const {
   using S = ContactLogicState;
   // Sound on a partial assignment: the walk stops at the first node that is not
-  // fixed for both feet, and at the node it stops on only a touch-down that is
+  // fixed for every foot, and at the node it stops on only a touch-down that is
   // already fixed is counted. A binary still free there can only add a
   // touch-down, which can only lengthen the hold, so every hold this pass
   // enforces holds in every completion.
   if (s.nDoubleSupportHold <= 0) return true;
-  std::array<int8_t, kNumContacts> kappa{
-      static_cast<int8_t>(s.input->contacts[0] ? 1 : 0),
-      static_cast<int8_t>(s.input->contacts[1] ? 1 : 0)};
+  const size_t numFeet = s.numFeet();
+  const size_t minSupportCount = minSupportCount_.value_or(numFeet);
+  std::array<int8_t, S::kNumFeet> kappa{};
+  for (size_t foot = 0; foot < numFeet; ++foot) {
+    kappa[foot] = static_cast<int8_t>(s.input->contacts[foot] ? 1 : 0);
+  }
+  std::array<int, S::kNumFeet> nodeBinaries{};
   scalar_t lastTouchDown = s.initialTouchDownNode;
   for (int k = 0; k < s.numNodes; ++k) {
-    // A touch-down decided at this very node already binds the other foot at
-    // this node: lifting it here would turn single support on one foot into
-    // single support on the other with no double support at all.
+    for (size_t foot = 0; foot < numFeet; ++foot) {
+      nodeBinaries[foot] = S::contactBinaryIndex(k, foot);
+    }
+    // A touch-down decided at this very node already binds the other feet at
+    // this node: lifting one here would move the weight from one support to
+    // another with no shared support at all.
     scalar_t latestTouchDown = lastTouchDown;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      if (kappa[foot] == 0 &&
-          a[static_cast<size_t>(S::contactBinaryIndex(k, foot))] == 1) {
+    for (size_t foot = 0; foot < numFeet; ++foot) {
+      if (kappa[foot] == 0 && a[static_cast<size_t>(nodeBinaries[foot])] == 1) {
         latestTouchDown = std::max(latestTouchDown, s.switchNode(k, foot));
       }
     }
-    bool allFixed = true;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      const int index = S::contactBinaryIndex(k, foot);
-      if (kappa[foot] == 1 && s.heldAfterTouchDown(k, latestTouchDown) &&
-          k >= s.numCommitted) {
-        if (a[static_cast<size_t>(index)] == 0) return false;
-        fixBinary(a, index, /*value=*/1, changed);
+    // The feet the hold binds at this node: those in contact before it, while
+    // the hold after the latest touch-down lasts, off the committed prefix.
+    ContactMask heldFeet(numFeet);
+    if (s.heldAfterTouchDown(k, latestTouchDown) && k >= s.numCommitted) {
+      for (size_t foot = 0; foot < numFeet; ++foot) {
+        heldFeet.set(foot, /*active=*/kappa[foot] == 1);
       }
-      allFixed = allFixed && a[static_cast<size_t>(index)] != kMiqpFree;
+    }
+    if (!propagateMinimumContactCount(nodeBinaries, heldFeet, minSupportCount,
+                                      a, changed)) {
+      return false;
+    }
+    bool allFixed = true;
+    for (size_t foot = 0; foot < numFeet; ++foot) {
+      allFixed =
+          allFixed && a[static_cast<size_t>(nodeBinaries[foot])] != kMiqpFree;
     }
     if (!allFixed) break;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      const int8_t value =
-          a[static_cast<size_t>(S::contactBinaryIndex(k, foot))];
+    for (size_t foot = 0; foot < numFeet; ++foot) {
+      const int8_t value = a[static_cast<size_t>(nodeBinaries[foot])];
       if (kappa[foot] == 0 && value == 1) {
         lastTouchDown = std::max(lastTouchDown, s.switchNode(k, foot));
       }

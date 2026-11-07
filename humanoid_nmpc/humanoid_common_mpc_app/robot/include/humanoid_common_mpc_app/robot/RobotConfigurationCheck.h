@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <functional>
 #include <optional>
 #include <string>
@@ -86,12 +87,15 @@ struct RobotConfigurationCheckContext {
   /**
    * The contact estimators the backend filled in (the robot process's
    * registry); nullptr: contact_estimator is not checked. Must outlive every
-   * call with the context. backendOptions.initialState, when set, is the state
-   * each estimator is asked once on (checkContactEstimator()), as the operator
-   * mailbox asks it.
+   * call with the context. backendOptions.initialState, when set together with
+   * numContacts, is the state each estimator is asked once on
+   * (checkContactEstimator()), as the operator mailbox asks it.
    */
   const robot::model::ContactEstimatorRegistry* absl_nullable
   contactEstimators = nullptr;
+  /** The contacts of the controller (ModelSettings::numContacts()): the flags
+   * the probe of a contact estimator must answer. Empty: no probe. */
+  std::optional<size_t> numContacts;
   /** The backend (--backend); empty: its options are not checked. */
   std::string backendName;
   /** The backend's options as the binary builds them; the simulator's come from

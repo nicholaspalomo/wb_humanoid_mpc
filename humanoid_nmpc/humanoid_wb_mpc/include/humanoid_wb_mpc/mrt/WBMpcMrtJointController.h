@@ -54,6 +54,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
@@ -261,7 +263,7 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
    * thread that runs computeJointControlAction(): the policy is not
    * thread-safe.
    */
-  std::optional<contact_flag_t> getPlannedContactFlags(scalar_t time) const;
+  std::optional<ContactMask> getPlannedContactFlags(scalar_t time) const;
 
   /**
    * Source of the measured contact state (robot_model/ContactEstimator.h). It
@@ -281,8 +283,9 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
     return *contactEstimator_;
   }
   /** Measured contact flags of the last control cycle (updateMpcObservation),
-   * as reported by the contact estimator. */
-  const contact_flag_t& getMeasuredContactFlags() const {
+   * as reported by the contact estimator: a mask of the model's contact set
+   * (ModelSettings::contactNames), all inactive before the first cycle. */
+  const ContactMask& getMeasuredContactFlags() const {
     return measuredContactFlags_;
   }
   /**
@@ -510,8 +513,9 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   // destructor stops it before anything its reset target reads goes away.
   std::unique_ptr<MpcLink> mpcLink_;
   std::shared_ptr<::robot::model::ContactEstimator> contactEstimator_;
-  contact_flag_t measuredContactFlags_{};  // of the last control cycle, from
-                                           // contactEstimator_
+  ContactMask measuredContactFlags_;  // of the last control cycle, from
+                                      // contactEstimator_; sized to the
+                                      // contact set at construction
   ContactEstimateIntake
       contactEstimateIntake_;  // takes or refuses each estimate into
                                // measuredContactFlags_
@@ -549,6 +553,10 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
                                  ///< configuration q (nq)
   vector_t policyCoordinates_;   ///< the Pinocchio configuration q of a planned
                                  ///< or observed state (nq)
+  /// The world-frame wrench of every contact the feedforward applies (the gated
+  /// policy wrenches, or the weight compensation), one per contact, sized at
+  /// construction.
+  ContactArray<vector6_t> wrenchContactsEwrtWorld_;
 
   // The state manifold of mpcRobotModel_'s layout (stateManifoldOf()), never
   // null; declared before policyEvaluator_, which retains a pointer to it. A

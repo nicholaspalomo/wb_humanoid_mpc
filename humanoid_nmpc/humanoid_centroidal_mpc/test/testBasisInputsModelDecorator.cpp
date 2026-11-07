@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "Eigen/Core"
 #include "Eigen/Geometry"
@@ -61,6 +62,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/dynamics/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -71,6 +73,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_mpc_config/model_settings_config.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 #include "support/TypedConfigFiles.h"
 
@@ -91,6 +94,9 @@ constexpr scalar_t kTol = 1.0e-9;
 /// Index of the base quaternion in the centroidal state [momentum(6), base
 /// position(3), base quaternion (x, y, z, w), joints].
 constexpr Eigen::Index kBaseOrientationStateIndex = 9;
+
+/// The fixture's contact set: the two Atlas feet.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 /// Cone parameters of the test bases (approximately the Atlas foot).
 ContactWrenchConeConstraint::Config makeTestConeConfig() {
@@ -122,7 +128,7 @@ ContactWrenchConeRows makeTestConeRows() {
 
 // Helper to create basis matrices of the given generator set with typical Atlas
 // parameters.
-std::array<ContactWrenchConeBasisMatrix, kNumContacts> makeTestBasisMatrices(
+std::vector<ContactWrenchConeBasisMatrix> makeTestBasisMatrices(
     absl::string_view generatorSet =
         kConservativeInnerApproximationGeneratorSet) {
   absl::StatusOr<ContactWrenchConeBasisMatrix> left =
@@ -207,8 +213,8 @@ class BasisInputsModelDecoratorTest : public ::testing::Test {
 
     // The decorator needs the pinocchio interface to evaluate the contact frame
     // orientation for the world-frame accessors; it keeps its own copy.
-    decorator_ = std::make_unique<BasisInputsModelDecorator<scalar_t>>(
-        std::move(wrappedModel), basisMatrices_, *pinocchioInterface_);
+    decorator_ = checkedValue(BasisInputsModelDecorator<scalar_t>::Create(
+        std::move(wrappedModel), basisMatrices_, *pinocchioInterface_));
   }
 
   /// Standing configuration with the given base yaw and pitch, zero roll and
@@ -261,7 +267,7 @@ class BasisInputsModelDecoratorTest : public ::testing::Test {
   std::unique_ptr<PinocchioInterface> pinocchioInterface_;
   std::unique_ptr<CentroidalModelInfo> centroidalModelInfo_;
 
-  std::array<ContactWrenchConeBasisMatrix, kNumContacts> basisMatrices_ =
+  std::vector<ContactWrenchConeBasisMatrix> basisMatrices_ =
       makeTestBasisMatrices();
   std::unique_ptr<BasisInputsModelDecorator<scalar_t>> decorator_;
   std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> wrenchModel_;
@@ -274,7 +280,7 @@ class BasisInputsModelDecoratorTest : public ::testing::Test {
 // ==================== Dimension tests ====================
 
 TEST_F(BasisInputsModelDecoratorTest, InputDimIsCorrect) {
-  const size_t expectedInputDim = numBasisPerFoot_ * kNumContacts + jointDim_;
+  const size_t expectedInputDim = numBasisPerFoot_ * kNumFeet + jointDim_;
   EXPECT_EQ(decorator_->getInputDim(), expectedInputDim);
   EXPECT_NE(decorator_->getInputDim(), wrenchInputDim_)
       << "Decorated input dim should differ from wrench input dim";
@@ -302,7 +308,7 @@ TEST_F(BasisInputsModelDecoratorTest, ContactWrenchStartIndices) {
 
 TEST_F(BasisInputsModelDecoratorTest, JointVelocitiesStartIndex) {
   EXPECT_EQ(decorator_->getJointVelocitiesStartindex(),
-            numBasisPerFoot_ * kNumContacts);
+            numBasisPerFoot_ * kNumFeet);
 }
 
 // ==================== Wrench round-trip: set → get ====================
@@ -409,7 +415,7 @@ TEST_F(BasisInputsModelDecoratorTest,
        {-15.0 * std::numbers::pi / 180.0, 15.0 * std::numbers::pi / 180.0}) {
     const vector_t state = makeState(/*eulerzyxBaseRtWorldYaw=*/0.3, pitch);
     const vector3_t forceContactEwrtWorld(0.0, 0.0, robotWeight / 2.0);
-    for (size_t i = 0; i < kNumContacts; ++i) {
+    for (size_t i = 0; i < kNumFeet; ++i) {
       vector6_t wrenchContactEwrtWorld = vector6_t::Zero();
       wrenchContactEwrtWorld.head<3>() = forceContactEwrtWorld;
       const vector6_t wrenchContactEwrtContact =
@@ -439,7 +445,7 @@ TEST_F(BasisInputsModelDecoratorTest,
     // input.
     const vector_t compensating = weightCompensatingInput(
         *pinocchioInterface_, {true, true}, *decorator_, state);
-    for (size_t i = 0; i < kNumContacts; ++i) {
+    for (size_t i = 0; i < kNumFeet; ++i) {
       EXPECT_LE((decorator_->getForceContactEwrtWorld(state, compensating, i) -
                  forceContactEwrtWorld)
                     .norm(),
@@ -452,26 +458,27 @@ TEST_F(BasisInputsModelDecoratorTest,
 TEST_F(BasisInputsModelDecoratorTest, ExactGeneratorSetDecoratesTheSameModel) {
   // The exact wrench cone set changes only the number of scalings per foot;
   // every accessor keeps its meaning.
-  const std::array<ContactWrenchConeBasisMatrix, kNumContacts> exactBases =
+  const std::vector<ContactWrenchConeBasisMatrix> exactBases =
       makeTestBasisMatrices(kExactWrenchConeGeneratorSet);
-  BasisInputsModelDecorator<scalar_t> exact(
-      std::make_unique<CentroidalMpcRobotModel<scalar_t>>(
-          *modelSettings_, *pinocchioInterface_, *centroidalModelInfo_),
-      exactBases, *pinocchioInterface_);
+  const std::unique_ptr<BasisInputsModelDecorator<scalar_t>> exactPtr =
+      checkedValue(BasisInputsModelDecorator<scalar_t>::Create(
+          std::make_unique<CentroidalMpcRobotModel<scalar_t>>(
+              *modelSettings_, *pinocchioInterface_, *centroidalModelInfo_),
+          exactBases, *pinocchioInterface_));
+  const BasisInputsModelDecorator<scalar_t>& exact = *exactPtr;
   const size_t numBasisPerFoot =
       4 * makeTestConeConfig()
               .numBasisVectors;  // corner forces along the pyramid edges
   EXPECT_EQ(exact.getNumBasisPerFoot(), numBasisPerFoot);
-  EXPECT_EQ(exact.getInputDim(), numBasisPerFoot * kNumContacts + jointDim_);
-  EXPECT_EQ(exact.getJointVelocitiesStartindex(),
-            numBasisPerFoot * kNumContacts);
+  EXPECT_EQ(exact.getInputDim(), numBasisPerFoot * kNumFeet + jointDim_);
+  EXPECT_EQ(exact.getJointVelocitiesStartindex(), numBasisPerFoot * kNumFeet);
 
   // Every wrench of the cone round-trips, including an extreme ray, whose
   // minimum-norm scalings are negative.
   const vector_t state = makeState(kQuarterTurnEulerzyxBaseRtWorldYaw,
                                    /*eulerzyxBaseRtWorldPitch=*/0.2);
   const ContactWrenchConeRows rows = makeTestConeRows();
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < kNumFeet; ++i) {
     const vector6_t extremeRay = 300.0 * exactBases[i].getBasisMatrix().col(0);
     ASSERT_LT(
         (exactBases[i].getBasisMatrixPseudoInverse() * extremeRay).minCoeff(),
@@ -618,7 +625,7 @@ TEST_F(BasisInputsModelDecoratorTest, StateDelegatesMatchWrappedModel) {
 // ==================== Basis matrix accessor ====================
 
 TEST_F(BasisInputsModelDecoratorTest, BasisMatrixAccessor) {
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < kNumFeet; ++i) {
     const matrix_t& B = decorator_->getBasisMatrix(i);
     EXPECT_EQ(B.rows(), 6);
     EXPECT_EQ(B.cols(), static_cast<int>(numBasisPerFoot_));
@@ -654,9 +661,9 @@ TEST_F(BasisInputsModelDecoratorTest,
   const matrix_t M = decorator_->getLocalBasisGeneratorMap();
 
   const Eigen::Index expectedRows =
-      static_cast<Eigen::Index>(6 * kNumContacts + jointDim_);
+      static_cast<Eigen::Index>(6 * kNumFeet + jointDim_);
   const Eigen::Index expectedCols =
-      static_cast<Eigen::Index>(numBasisPerFoot_ * kNumContacts + jointDim_);
+      static_cast<Eigen::Index>(numBasisPerFoot_ * kNumFeet + jointDim_);
   ASSERT_EQ(M.rows(), expectedRows);
   ASSERT_EQ(M.cols(), expectedCols);
   ASSERT_EQ(static_cast<size_t>(M.rows()), wrenchInputDim_);
@@ -664,13 +671,12 @@ TEST_F(BasisInputsModelDecoratorTest,
 
   // Expected layout: M = blkdiag(B_0, B_1, I_joints), everything else zero.
   matrix_t expected = matrix_t::Zero(expectedRows, expectedCols);
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < kNumFeet; ++i) {
     expected.block(6 * i, numBasisPerFoot_ * i, 6, numBasisPerFoot_) =
         basisMatrices_[i].getBasisMatrix();
   }
   expected
-      .block(6 * kNumContacts, numBasisPerFoot_ * kNumContacts, jointDim_,
-             jointDim_)
+      .block(6 * kNumFeet, numBasisPerFoot_ * kNumFeet, jointDim_, jointDim_)
       .setIdentity();
   EXPECT_TRUE((M - expected).isZero(0.0))
       << "M must be exactly blkdiag(B_0, B_1, I):\nM =\n"
@@ -682,7 +688,7 @@ TEST_F(BasisInputsModelDecoratorTest,
   const vector_t basisInput = vector_t::Random(expectedCols);
   const vector_t wrappedInput = M * basisInput;
   const vector_t state = decorator_->getNeutralState();
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < kNumFeet; ++i) {
     EXPECT_TRUE(wrappedInput.segment(6 * i, 6).isApprox(
         decorator_->getWrenchContactEwrtParam(basisInput, i), kTol));
   }
@@ -697,7 +703,7 @@ TEST_F(BasisInputsModelDecoratorTest,
        WorldFrameAccessorsRotateLocalWrenchWithContactFrame) {
   const vector_t state = makeState(kQuarterTurnEulerzyxBaseRtWorldYaw);
   vector_t input = vector_t::Zero(decorator_->getInputDim());
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < kNumFeet; ++i) {
     // Distinct, strictly positive scalings per foot so that both wrench blocks
     // are non-trivial and inside the cone.
     input.segment(decorator_->getContactWrenchStartIndices(i),
@@ -706,7 +712,7 @@ TEST_F(BasisInputsModelDecoratorTest,
                             3.0 + static_cast<scalar_t>(i));
   }
 
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < kNumFeet; ++i) {
     const vector6_t expected_wrench_contact_ewrt_contact =
         basisMatrices_[i].getBasisMatrix() * getLambda(input, i);
     const vector6_t wrench_contact_ewrt_contact =
@@ -790,7 +796,7 @@ TEST_F(BasisInputsModelDecoratorTest, YawedBaseRotatesLocalXForceIntoWorldY) {
                                  vector3_t::UnitZ())
           .toRotationMatrix();
 
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < kNumFeet; ++i) {
     const matrix3_t unturned_rotmat_contact_rt_world =
         computePinocchioRotmatContactRtWorld(stateZeroYaw, i);
     const matrix3_t turned_rotmat_contact_rt_world =
@@ -873,7 +879,7 @@ TEST_F(BasisInputsModelDecoratorTest,
 
   for (const scalar_t yaw : {0.0, kQuarterTurnEulerzyxBaseRtWorldYaw, -0.7}) {
     const vector_t state = makeState(yaw);
-    for (size_t i = 0; i < kNumContacts; ++i) {
+    for (size_t i = 0; i < kNumFeet; ++i) {
       // Precondition of an exact round trip: the wrench is inside the cone the
       // basis SPANS. Satisfying the wrench-space rows is not enough, because
       // the default generator set spans only part of that cone.
@@ -922,7 +928,7 @@ TEST_F(BasisInputsModelDecoratorTest, SetGetContactForceInWorldFrameRoundTrip) {
   const vector_t state = makeState(kQuarterTurnEulerzyxBaseRtWorldYaw);
   const vector3_t force_contact_ewrt_contact(5.0, -3.0, 80.0);
 
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < kNumFeet; ++i) {
     const matrix3_t rotmat_contact_rt_world =
         computePinocchioRotmatContactRtWorld(state, i);
     const vector3_t in_force_contact_ewrt_world =
@@ -965,7 +971,7 @@ TEST_F(BasisInputsModelDecoratorTest,
     model.setJointAngles(state, vector_t::Random(jointDim_));
     const vector_t input = vector_t::Random(wrenchInputDim_);
 
-    for (size_t i = 0; i < kNumContacts; ++i) {
+    for (size_t i = 0; i < kNumFeet; ++i) {
       EXPECT_TRUE((model.getWrenchContactEwrtWorld(state, input, i) -
                    model.getWrenchContactEwrtParam(input, i))
                       .isZero(0.0));
@@ -1033,7 +1039,7 @@ TEST_F(BasisInputsModelDecoratorTest,
       << "Weight compensation must not command joint velocities";
 
   const vector3_t expectedForceFootEwrtWorld(0.0, 0.0, robotWeight / 2.0);
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < kNumFeet; ++i) {
     EXPECT_GE(getLambda(inputDoubleContact, i).minCoeff(), 0.0)
         << "All lambda must be non-negative for contact " << i;
 
@@ -1077,8 +1083,7 @@ TEST_F(BasisInputsModelDecoratorTest,
 
 TEST_F(BasisInputsModelDecoratorTest,
        BasisDynamicsValidationNamesTheKeyToChangeBeforeBuildingAnything) {
-  const std::array<matrix_t, kNumContacts> bases =
-      decorator_->getBasisMatrices();
+  const ContactArray<matrix_t> bases = decorator_->getBasisMatrices();
   // Positive control: the configuration the fixture's decorator runs on is
   // accepted.
   EXPECT_TRUE(CentroidalDynamicsBasisInputsAD::validate(*pinocchioInterface_,
@@ -1117,8 +1122,25 @@ TEST_F(BasisInputsModelDecoratorTest,
             absl::string_view::npos)
       << wrongCount;
 
+  // A three-DoF contact: no generator set exists for a point contact.
+  CentroidalModelInfo withPointContact = *centroidalModelInfo_;
+  withPointContact.numThreeDofContacts = 1;
+  EXPECT_EQ(CentroidalDynamicsBasisInputsAD::validate(
+                *pinocchioInterface_, withPointContact, *modelSettings_, bases)
+                .code(),
+            absl::StatusCode::kInvalidArgument);
+
+  // One basis per contact.
+  ContactArray<matrix_t> oneBasis(/*numContacts=*/1);
+  oneBasis[0] = bases[0];
+  EXPECT_EQ(CentroidalDynamicsBasisInputsAD::validate(*pinocchioInterface_,
+                                                      *centroidalModelInfo_,
+                                                      *modelSettings_, oneBasis)
+                .code(),
+            absl::StatusCode::kInvalidArgument);
+
   // Bases of different sizes are a programming error, not a configuration one.
-  std::array<matrix_t, kNumContacts> mismatched = bases;
+  ContactArray<matrix_t> mismatched = bases;
   mismatched[1] =
       makeTestBasisMatrices(kExactWrenchConeGeneratorSet)[1].getBasisMatrix();
   EXPECT_EQ(CentroidalDynamicsBasisInputsAD::validate(
@@ -1130,12 +1152,13 @@ TEST_F(BasisInputsModelDecoratorTest,
 
 TEST_F(BasisInputsModelDecoratorTest,
        BasisDynamicsLibraryNameCarriesTheBasisKey) {
-  const std::array<matrix_t, kNumContacts> conservative =
-      decorator_->getBasisMatrices();
-  const std::array<ContactWrenchConeBasisMatrix, kNumContacts> exactBases =
+  const ContactArray<matrix_t> conservative = decorator_->getBasisMatrices();
+  const std::vector<ContactWrenchConeBasisMatrix> exactBases =
       makeTestBasisMatrices(kExactWrenchConeGeneratorSet);
-  const std::array<matrix_t, kNumContacts> exact = {
-      exactBases[0].getBasisMatrix(), exactBases[1].getBasisMatrix()};
+  ContactArray<matrix_t> exact(exactBases.size());
+  for (size_t i = 0; i < exactBases.size(); ++i) {
+    exact[i] = exactBases[i].getBasisMatrix();
+  }
   EXPECT_EQ(CentroidalDynamicsBasisInputsAD::uniqueModelName("dynamics",
                                                              conservative),
             absl::StrCat("dynamics_", basisInputsLibraryKey(conservative)));
@@ -1143,6 +1166,197 @@ TEST_F(BasisInputsModelDecoratorTest,
       CentroidalDynamicsBasisInputsAD::uniqueModelName("dynamics",
                                                        conservative),
       CentroidalDynamicsBasisInputsAD::uniqueModelName("dynamics", exact));
+}
+
+// ==================== Any number of 6-DoF contacts ====================
+
+/**
+ * The Atlas with `numContacts` 6-DoF contacts: the two feet, then the seat pad
+ * and the back pad of the multi-contact Atlas, each around the shared contact
+ * rectangle. The members outlive the models that keep references to them.
+ */
+struct SixDofContactAtlas {
+  CentroidalMpcConfig config;
+  std::unique_ptr<ModelSettings> modelSettings;
+  std::unique_ptr<PinocchioInterface> pinocchioInterface;
+  std::unique_ptr<CentroidalModelInfo> info;
+  std::vector<ContactWrenchConeBasisMatrix> bases;
+  std::unique_ptr<BasisInputsModelDecorator<scalar_t>> decorator;
+};
+
+std::unique_ptr<SixDofContactAtlas> makeSixDofContactAtlas(size_t numContacts) {
+  constexpr std::array<std::pair<absl::string_view, absl::string_view>, 2>
+      kPads = {
+          {{"seat_contact", "root_joint"}, {"torso_back_contact", "back_bkx"}}};
+  const CentroidalRobotFiles files = atlasFiles();
+  std::unique_ptr<SixDofContactAtlas> atlas =
+      std::make_unique<SixDofContactAtlas>();
+  atlas->config = checkedValue(loadConfigOf(files));
+  mpc_config::ModelSettingsConfig& settings = atlas->config.task.model_settings;
+  for (size_t i = kNumFeet; i < numContacts; ++i) {
+    settings.contact_names_6dof.emplace_back(kPads[i - kNumFeet].first);
+    settings.contact_parent_joint_names.emplace_back(
+        kPads[i - kNumFeet].second);
+  }
+  atlas->modelSettings =
+      std::make_unique<ModelSettings>(checkedValue(ModelSettings::Create(
+          atlas->config.task, files.urdfFile, "basis_decorator_contacts_test",
+          /*verbose=*/false)));
+  atlas->pinocchioInterface = std::make_unique<PinocchioInterface>(
+      checkedValue(loadCustomPinocchioInterface(
+          atlas->config.task, files.urdfFile, *atlas->modelSettings,
+          /*scaleTotalMass=*/false)));
+  atlas->info =
+      std::make_unique<CentroidalModelInfo>(checkedValue(centroidalModelInfoOf(
+          atlas->config, *atlas->pinocchioInterface, *atlas->modelSettings)));
+  const std::vector<ContactWrenchConeBasisMatrix> feet =
+      makeTestBasisMatrices();
+  for (size_t i = 0; i < numContacts; ++i) {
+    atlas->bases.push_back(feet[i % kNumFeet]);
+  }
+  atlas->decorator = checkedValue(BasisInputsModelDecorator<scalar_t>::Create(
+      std::make_unique<CentroidalMpcRobotModel<scalar_t>>(
+          *atlas->modelSettings, *atlas->pinocchioInterface, *atlas->info),
+      atlas->bases, *atlas->pinocchioInterface));
+  return atlas;
+}
+
+/** Non-negative scalings, different for every contact and generator. */
+vector_t positiveScalings(size_t numBasis, size_t contactIndex) {
+  vector_t lambda(static_cast<Eigen::Index>(numBasis));
+  for (Eigen::Index k = 0; k < lambda.size(); ++k) {
+    lambda(k) = 1.0 + 0.5 * static_cast<scalar_t>(k) +
+                3.0 * static_cast<scalar_t>(contactIndex);
+  }
+  return lambda;
+}
+
+TEST(BasisInputsModelDecoratorContacts, theLayoutCoversEveryContact) {
+  for (const size_t numContacts : {size_t{3}, size_t{4}}) {
+    const std::unique_ptr<SixDofContactAtlas> atlas =
+        makeSixDofContactAtlas(numContacts);
+    const BasisInputsModelDecorator<scalar_t>& decorator = *atlas->decorator;
+    ASSERT_EQ(atlas->modelSettings->contactNames.size(), numContacts);
+    const size_t numBasis = decorator.getNumBasisPerFoot();
+    const size_t jointDim = atlas->modelSettings->mpc_joint_dim;
+    EXPECT_EQ(decorator.getInputDim(), numBasis * numContacts + jointDim)
+        << numContacts;
+    EXPECT_EQ(decorator.getJointVelocitiesStartindex(), numBasis * numContacts);
+    ASSERT_EQ(decorator.getBasisMatrices().size(), numContacts);
+    for (size_t i = 0; i < numContacts; ++i) {
+      EXPECT_EQ(decorator.getContactWrenchStartIndices(i), numBasis * i);
+      EXPECT_EQ(decorator.getContactInputDim(i), numBasis);
+      EXPECT_EQ(decorator.getBasisMatrix(i), atlas->bases[i].getBasisMatrix());
+    }
+
+    // M = blkdiag(B_0, ..., B_{n-1}, I): each B_i at its own wrench rows and
+    // scaling columns, the identity on the joints, zero elsewhere.
+    const matrix_t M = decorator.getLocalBasisGeneratorMap();
+    const Eigen::Index wrenchInputDim =
+        static_cast<Eigen::Index>(kContactWrenchDim * numContacts + jointDim);
+    ASSERT_EQ(M.rows(), wrenchInputDim);
+    ASSERT_EQ(M.cols(), static_cast<Eigen::Index>(decorator.getInputDim()));
+    matrix_t expected = matrix_t::Zero(M.rows(), M.cols());
+    for (size_t i = 0; i < numContacts; ++i) {
+      expected.block(static_cast<Eigen::Index>(kContactWrenchDim * i),
+                     static_cast<Eigen::Index>(numBasis * i),
+                     static_cast<Eigen::Index>(kContactWrenchDim),
+                     static_cast<Eigen::Index>(numBasis)) =
+          atlas->bases[i].getBasisMatrix();
+    }
+    expected
+        .bottomRightCorner(static_cast<Eigen::Index>(jointDim),
+                           static_cast<Eigen::Index>(jointDim))
+        .setIdentity();
+    EXPECT_EQ(M, expected) << numContacts;
+  }
+}
+
+TEST(BasisInputsModelDecoratorContacts, everyContactsWrenchRoundTrips) {
+  for (const size_t numContacts : {size_t{3}, size_t{4}}) {
+    const std::unique_ptr<SixDofContactAtlas> atlas =
+        makeSixDofContactAtlas(numContacts);
+    const BasisInputsModelDecorator<scalar_t>& decorator = *atlas->decorator;
+    const size_t numBasis = decorator.getNumBasisPerFoot();
+    const vector_t state = decorator.getNeutralState();
+    vector_t localInput =
+        vector_t::Zero(static_cast<Eigen::Index>(decorator.getInputDim()));
+    vector_t worldInput = localInput;
+    for (size_t i = 0; i < numContacts; ++i) {
+      // A wrench inside the cone of B_i, so that the setters reproduce it.
+      const vector6_t wrenchContactEwrtContact =
+          atlas->bases[i].getBasisMatrix() * positiveScalings(numBasis, i);
+      decorator.setWrenchContactEwrtParam(localInput, wrenchContactEwrtContact,
+                                          i);
+      const vector6_t wrenchContactEwrtWorld =
+          decorator.computeWrenchContactEwrtWorld(state,
+                                                  wrenchContactEwrtContact, i);
+      decorator.setWrenchContactEwrtWorld(state, worldInput,
+                                          wrenchContactEwrtWorld, i);
+      EXPECT_TRUE(decorator.getWrenchContactEwrtParam(localInput, i)
+                      .isApprox(wrenchContactEwrtContact, kTol))
+          << numContacts << " contacts, contact " << i;
+      EXPECT_TRUE(decorator.getWrenchContactEwrtWorld(state, worldInput, i)
+                      .isApprox(wrenchContactEwrtWorld, kTol))
+          << numContacts << " contacts, contact " << i;
+    }
+    // Writing one contact leaves the scalings of the others alone.
+    for (size_t i = 0; i < numContacts; ++i) {
+      EXPECT_TRUE(localInput
+                      .segment(static_cast<Eigen::Index>(numBasis * i),
+                               static_cast<Eigen::Index>(numBasis))
+                      .isApprox(worldInput.segment(
+                                    static_cast<Eigen::Index>(numBasis * i),
+                                    static_cast<Eigen::Index>(numBasis)),
+                                kTol))
+          << numContacts << " contacts, contact " << i;
+    }
+    // The basis dynamics accept the set; the CppAD model is not built here.
+    HUMANOID_ASSERT_OK(CentroidalDynamicsBasisInputsAD::validate(
+        *atlas->pinocchioInterface, *atlas->info, *atlas->modelSettings,
+        decorator.getBasisMatrices()));
+  }
+}
+
+TEST(BasisInputsModelDecoratorContacts, theBasesMustMatchTheContactSet) {
+  const std::unique_ptr<SixDofContactAtlas> atlas =
+      makeSixDofContactAtlas(/*numContacts=*/3);
+  HUMANOID_ASSERT_OK(BasisInputsModelDecorator<scalar_t>::validateBasisMatrices(
+      atlas->bases, *atlas->modelSettings));
+  const std::vector<ContactWrenchConeBasisMatrix> twoBases =
+      makeTestBasisMatrices();
+  const absl::Status tooFew =
+      BasisInputsModelDecorator<scalar_t>::validateBasisMatrices(
+          twoBases, *atlas->modelSettings);
+  EXPECT_EQ(tooFew.code(), absl::StatusCode::kInvalidArgument) << tooFew;
+  std::vector<ContactWrenchConeBasisMatrix> mixedSizes = atlas->bases;
+  mixedSizes[2] = makeTestBasisMatrices(kExactWrenchConeGeneratorSet)[0];
+  const absl::Status mixed =
+      BasisInputsModelDecorator<scalar_t>::validateBasisMatrices(
+          mixedSizes, *atlas->modelSettings);
+  EXPECT_EQ(mixed.code(), absl::StatusCode::kInvalidArgument) << mixed;
+  EXPECT_NE(mixed.message().find("seat_contact"), absl::string_view::npos)
+      << mixed;
+
+  // Create() refuses what validateBasisMatrices() refuses, and a null model.
+  const absl::StatusOr<std::unique_ptr<BasisInputsModelDecorator<scalar_t>>>
+      refused = BasisInputsModelDecorator<scalar_t>::Create(
+          std::make_unique<CentroidalMpcRobotModel<scalar_t>>(
+              *atlas->modelSettings, *atlas->pinocchioInterface, *atlas->info),
+          twoBases, *atlas->pinocchioInterface);
+  EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument)
+      << refused.status();
+  const absl::StatusOr<std::unique_ptr<BasisInputsModelDecorator<scalar_t>>>
+      noModel = BasisInputsModelDecorator<scalar_t>::Create(
+          /*wrappedModel=*/nullptr, atlas->bases, *atlas->pinocchioInterface);
+  EXPECT_EQ(noModel.status().code(), absl::StatusCode::kInvalidArgument)
+      << noModel.status();
+  EXPECT_TRUE(
+      BasisInputsModelDecorator<scalar_t>::Create(
+          std::make_unique<CentroidalMpcRobotModel<scalar_t>>(
+              *atlas->modelSettings, *atlas->pinocchioInterface, *atlas->info),
+          atlas->bases, *atlas->pinocchioInterface)
+          .ok());
 }
 
 }  // namespace

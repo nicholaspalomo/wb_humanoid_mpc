@@ -61,6 +61,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -70,7 +71,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/cost/BasePoseShapedQuadraticStateCost.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
 #include "humanoid_common_mpc/cost/TuningQuadraticStateCost.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
@@ -86,6 +87,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 // Every seam test solves on the same periodic walk, one stride per second from
 // every integer k:
@@ -103,14 +106,14 @@ constexpr scalar_t kWalkStanceDuration = 0.6;
 
 ModeSchedule walkSchedule() {
   std::vector<scalar_t> eventTimes;
-  std::vector<size_t> modeSequence{static_cast<size_t>(ModeNumber::kRf)};
+  std::vector<size_t> modeSequence{kBipedModeRf};
   for (int k = -3; k <= 8; ++k) {
     const scalar_t start = static_cast<scalar_t>(k);
     for (const scalar_t offset : {0.0, 0.1, 0.5, 0.6}) {
       eventTimes.push_back(start + offset);
     }
-    for (const ModeNumber mode : {ModeNumber::kStance, ModeNumber::kLf,
-                                  ModeNumber::kStance, ModeNumber::kRf}) {
+    for (const size_t mode :
+         {kBipedModeStance, kBipedModeLf, kBipedModeStance, kBipedModeRf}) {
       modeSequence.push_back(static_cast<size_t>(mode));
     }
   }
@@ -136,14 +139,14 @@ constexpr scalar_t kLongStrideDutyFactor = 0.8 / 1.4;
 
 ModeSchedule longStrideWalkSchedule() {
   std::vector<scalar_t> eventTimes;
-  std::vector<size_t> modeSequence{static_cast<size_t>(ModeNumber::kRf)};
+  std::vector<size_t> modeSequence{kBipedModeRf};
   for (int k = -3; k <= 6; ++k) {
     const scalar_t start = kLongStride * static_cast<scalar_t>(k);
     for (const scalar_t offset : {0.0, 0.1, 0.7, 0.8}) {
       eventTimes.push_back(start + offset);
     }
-    for (const ModeNumber mode : {ModeNumber::kStance, ModeNumber::kLf,
-                                  ModeNumber::kStance, ModeNumber::kRf}) {
+    for (const size_t mode :
+         {kBipedModeStance, kBipedModeLf, kBipedModeStance, kBipedModeRf}) {
       modeSequence.push_back(static_cast<size_t>(mode));
     }
   }
@@ -157,14 +160,14 @@ constexpr scalar_t kRunDutyFactor = 0.375;
 
 ModeSchedule runSchedule() {
   std::vector<scalar_t> eventTimes;
-  std::vector<size_t> modeSequence{static_cast<size_t>(ModeNumber::kFly)};
+  std::vector<size_t> modeSequence{kBipedModeFly};
   for (int k = -4; k <= 12; ++k) {
     const scalar_t start = 0.8 * static_cast<scalar_t>(k);
     for (const scalar_t offset : {0.0, 0.3, 0.4, 0.7}) {
       eventTimes.push_back(start + offset);
     }
-    for (const ModeNumber mode : {ModeNumber::kLf, ModeNumber::kFly,
-                                  ModeNumber::kRf, ModeNumber::kFly}) {
+    for (const size_t mode :
+         {kBipedModeLf, kBipedModeFly, kBipedModeRf, kBipedModeFly}) {
       modeSequence.push_back(static_cast<size_t>(mode));
     }
   }
@@ -588,7 +591,14 @@ absl::NoDestructor<CentroidalMpcConfig>
 bool LocomotionHeuristicIntegrationTest::footholdExistedBeforeFirstSolve_ =
     true;
 
-size_t numberOfStanceFeet(const contact_flag_t& flags) {
+/** The left and the right foot of `mask`, a contact set of the biped's two
+ * feet: every robot of this test is a biped. */
+BipedFeetArray<bool> feetOf(ContactMask mask) {
+  EXPECT_EQ(mask.size(), static_cast<size_t>(kBipedFootCount));
+  return {mask[kContactLeftIndex], mask[kContactRightIndex]};
+}
+
+size_t numberOfStanceFeet(const BipedFeetArray<bool>& flags) {
   // NOLINTNEXTLINE(argument-comment): `true` is the value counted, which libstdc++ names __value.
   return static_cast<size_t>(std::count(flags.begin(), flags.end(), true));
 }
@@ -697,12 +707,13 @@ TEST_F(LocomotionHeuristicIntegrationTest,
 
   struct Node {
     scalar_t time;
-    contact_flag_t contacts;
+    BipedFeetArray<bool> contacts;
   };
   const std::vector<Node> nodes = {
       {1.05, {true, true}}, {1.3, {true, false}}, {1.8, {false, true}}};
   for (const Node& node : nodes) {
-    const contact_flag_t flags = referenceManager->getContactFlags(node.time);
+    const BipedFeetArray<bool> flags =
+        feetOf(referenceManager->getContactFlags(node.time));
     ASSERT_EQ(flags, node.contacts)
         << "the walk did not reach the reference manager at t = " << node.time;
     const size_t numStance = numberOfStanceFeet(flags);
@@ -720,7 +731,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
 
     // And independently of that call: W/n straight up on every stance foot and
     // nothing at all on a swing foot.
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       if (flags[foot]) {
         const vector3_t forceFootEwrtParam =
             effectiveModel.getForceContactEwrtParam(desired, foot);
@@ -859,14 +870,21 @@ TEST_F(LocomotionHeuristicIntegrationTest,
     const std::vector<Landing> landings = {
         {kContactRightIndex, kContactLeftIndex, -1.0, 1.5, 1.0},
         {kContactLeftIndex, kContactRightIndex, 1.0, 2.0, 1.5}};
+    // The stance foot stands where it was measured when it landed by the
+    // solve, and at its own nominal target when it lands later: the left
+    // landing at 2.0 steps from where the right lands at 1.5, not from where
+    // the right stood at the solve.
+    std::optional<vector2_t> previousExpected;
     for (const Landing& landing : landings) {
       const scalar_t predictedYawBaseRtWorld =
           cmdRateYawBaseRtWorld * (landing.touchDown - solveTime);
       const vector2_t errPosBaseRtWorldEwrtWorldXy =
           command * (landing.touchDown - landing.stanceLanded);
       const vector2_t stancePosFootRtWorldEwrtWorldXy =
-          computePosFootRtWorldEwrtWorldXy(interface, state,
-                                           landing.stanceFoot);
+          (landing.stanceLanded > solveTime && previousExpected.has_value())
+              ? *previousExpected
+              : computePosFootRtWorldEwrtWorldXy(interface, state,
+                                                 landing.stanceFoot);
       const vector2_t expected =
           stancePosFootRtWorldEwrtWorldXy + errPosBaseRtWorldEwrtWorldXy +
           landing.side * nomPosLfootRtRfootEwrtHeadingY *
@@ -891,6 +909,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
           vector2_t(0.0, landing.side * nomPosLfootRtRfootEwrtHeadingY);
       EXPECT_GT((expected - measHeadingPosFootRtWorldEwrtWorldXy).norm(), 0.09)
           << "foot " << landing.foot;
+      previousExpected = expected;
     }
   }
 }
@@ -1569,7 +1588,7 @@ TEST_F(
 
   struct Node {
     scalar_t time;
-    contact_flag_t contacts;
+    BipedFeetArray<bool> contacts;
   };
   // One node in each phase of the stride [1.4, 2.8): DS [1.4, 1.5), LF
   // [1.5, 2.1), DS [2.1, 2.2), RF [2.2, 2.8).
@@ -1578,11 +1597,12 @@ TEST_F(
                                    {2.15, {true, true}},
                                    {2.5, {false, true}}};
   for (const Node& node : nodes) {
-    ASSERT_EQ(referenceManager->getContactFlags(node.time), node.contacts)
+    ASSERT_EQ(feetOf(referenceManager->getContactFlags(node.time)),
+              node.contacts)
         << "t = " << node.time;
     const vector_t input =
         referenceManager->getDesiredInput(target, state, node.time);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       if (node.contacts[foot]) {
         // Read in the input's own frame, which is what the vertical path
         // writes: a vertical force is the same there.
@@ -1608,7 +1628,7 @@ TEST_F(
     const scalar_t time = kLongStride + (static_cast<scalar_t>(i) + 0.5) * 0.01;
     const vector_t input =
         referenceManager->getDesiredInput(target, state, time);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       sumForceFeetEwrtParamZ +=
           effectiveModel.getForceContactEwrtParam(input, foot).z();
     }
@@ -1643,8 +1663,8 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   const scalar_t weight = totalWeight(*enabled_);
 
   // LF [1.6, 1.9): the positive control for the flight check below.
-  ASSERT_EQ(referenceManager->getContactFlags(1.75),
-            contact_flag_t({true, false}));
+  ASSERT_EQ(feetOf(referenceManager->getContactFlags(1.75)),
+            BipedFeetArray<bool>({true, false}));
   const vector_t singleSupport =
       referenceManager->getDesiredInput(target, state, /*time=*/1.75);
   EXPECT_NEAR(
@@ -1653,8 +1673,8 @@ TEST_F(LocomotionHeuristicIntegrationTest,
       weight / (2.0 * kRunDutyFactor), 1.0e-9 * weight);
 
   // Flight [1.9, 2.0).
-  ASSERT_EQ(referenceManager->getContactFlags(1.95),
-            contact_flag_t({false, false}));
+  ASSERT_EQ(feetOf(referenceManager->getContactFlags(1.95)),
+            BipedFeetArray<bool>({false, false}));
   const vector_t flight =
       referenceManager->getDesiredInput(target, state, /*time=*/1.95);
   EXPECT_TRUE(flight.isZero(0.0)) << flight.transpose();
@@ -1665,7 +1685,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
     const scalar_t time = 1.6 + (static_cast<scalar_t>(i) + 0.5) * 0.01;
     const vector_t input =
         referenceManager->getDesiredInput(target, state, time);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       sumForceFeetEwrtParamZ +=
           effectiveModel.getForceContactEwrtParam(input, foot).z();
     }
@@ -1733,7 +1753,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   const matrix3_t rotmatHeadingRtWorld =
       Eigen::AngleAxis<scalar_t>(yawBaseRtWorld, vector3_t::UnitZ())
           .toRotationMatrix();
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     const matrix3_t rotmatFootRtWorld =
         computePoseLinkRtWorld(
             *stanceAnchored_, state,
@@ -1746,14 +1766,15 @@ TEST_F(LocomotionHeuristicIntegrationTest,
 
   struct Node {
     scalar_t time;
-    contact_flag_t contacts;
+    BipedFeetArray<bool> contacts;
   };
   // Double support, t = 1.05: per foot m * 0.5 * (-0.4, 1.0) / 2 = m * (-0.1,
   // 0.25), and W / 2. Left stance, t = 1.3: the one stance foot carries all of
   // it, m * (-0.2, 0.5) and W; the swing foot nothing.
   const std::vector<Node> nodes = {{1.05, {true, true}}, {1.3, {true, false}}};
   for (const Node& node : nodes) {
-    ASSERT_EQ(referenceManager->getContactFlags(node.time), node.contacts)
+    ASSERT_EQ(feetOf(referenceManager->getContactFlags(node.time)),
+              node.contacts)
         << "t = " << node.time;
     const scalar_t numStance =
         static_cast<scalar_t>(numberOfStanceFeet(node.contacts));
@@ -1778,7 +1799,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
     EXPECT_TRUE(referenceManager->getDesiredInput(target, elsewhere,
                                                   node.time) == input)
         << "t = " << node.time;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       if (!node.contacts[foot]) {
         EXPECT_TRUE(
             effectiveModel.getWrenchContactEwrtParam(input, foot).isZero(0.0))

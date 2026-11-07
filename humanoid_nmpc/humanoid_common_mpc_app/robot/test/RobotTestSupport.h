@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -47,6 +48,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
@@ -119,8 +122,8 @@ class ScriptedRobotController final : public RobotController {
   void computeJointControlAction(
       const robot::model::RobotState& robotState,
       robot::model::RobotJointAction& jointAction) override;
-  std::optional<contact_flag_t> plannedContactFlags() const override;
-  const contact_flag_t& measuredContactFlags() const override {
+  std::optional<ContactMask> plannedContactFlags() const override;
+  const ContactMask& measuredContactFlags() const override {
     return measuredContactFlags_;
   }
   void requestMpcReset() override { resets_.fetch_add(1); }
@@ -194,7 +197,9 @@ class ScriptedRobotController final : public RobotController {
       vector3_t::Zero();
   ContactWrenchGate::Config gate_;
   std::shared_ptr<robot::model::ContactEstimator> contactEstimator_;
-  contact_flag_t measuredContactFlags_{};
+  // The two feet of the biped robots the tests run.
+  ContactMask measuredContactFlags_ =
+      ContactMask(/*numContacts=*/static_cast<size_t>(kBipedFootCount));
   std::vector<bool> estimatedFlags_;
   std::atomic<bool> healthy_{true};
   std::atomic<bool> started_{false};

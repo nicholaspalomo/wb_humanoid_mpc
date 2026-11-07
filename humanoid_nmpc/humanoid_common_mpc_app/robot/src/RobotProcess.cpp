@@ -52,7 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -189,13 +189,14 @@ absl::StatusOr<std::unique_ptr<RobotProcess>> RobotProcess::Create(
       };
   // Every estimator is asked once, on the state the robot starts in, before the
   // realtime thread can install it: one that reports another number of flags
-  // than the controller's contact points is refused here instead of on every
+  // than the controller's contacts is refused here instead of on every
   // cycle.
   const robot::model::RobotState* absl_nonnull const probeState = &initialState;
+  const size_t numContacts = controller->measuredContactFlags().size();
   mailboxHooks.checkContactEstimator =
-      [probeState](robot::model::ContactEstimator& estimator,
-                   absl::string_view name) {
-        return checkContactEstimator(estimator, *probeState, name);
+      [probeState, numContacts](robot::model::ContactEstimator& estimator,
+                                absl::string_view name) {
+        return checkContactEstimator(estimator, *probeState, numContacts, name);
       };
   ASSIGN_OR_RETURN(process->mailbox_,
                    OperatorCommandMailbox::Create(std::move(mailboxConfig),
@@ -269,6 +270,8 @@ absl::StatusOr<std::unique_ptr<RobotProcess>> RobotProcess::Create(
                      static_cast<double>(processConfig.controlFrequency)));
     TelemetrySampler::Config samplerConfig;
     samplerConfig.jointNames = jointNamesByIndex(description);
+    samplerConfig.numContacts =
+        process->controller_->measuredContactFlags().size();
     samplerConfig.decimation = std::max<size_t>(
         1, static_cast<size_t>(std::round(processConfig.controlFrequency /
                                           telemetryFrequency)));
@@ -319,14 +322,16 @@ RobotProcess::RobotProcess(robot::ipc::Bus* absl_nonnull bus,
       config_(std::move(config)),
       hooks_(std::move(hooks)),
       loop_(loopConfig(config_)),
-      plannedContactFlags_(kNumContacts, /*value=*/false),
-      noContactFlags_() {
+      plannedContactFlags_(controller->measuredContactFlags().size(),
+                           /*value=*/false),
+      noContactFlags_(),
+      measForceContactsEwrtWorld_(controller->measuredContactFlags().size(),
+                                  vector3_t::Zero()) {
   currentMode_.reserve(kModeNameCapacity);
   currentMode_.assign(control_mode::kZeroJointTorque.data(),
                       control_mode::kZeroJointTorque.size());
   contactEstimatorName_.reserve(
       ControllerSettingsUpdate::kContactEstimatorNameCapacity);
-  measForceFeetEwrtWorld_.fill(vector3_t::Zero());
 }
 
 RobotProcess::~RobotProcess() {
@@ -468,10 +473,12 @@ void RobotProcess::cycle() {
   // Contact timeline in the MuJoCo viewer: the contact state the executed
   // policy plans for now, against the physics.
   if (simulator_ != nullptr) {
-    const std::optional<contact_flag_t> planned =
+    const std::optional<ContactMask> planned =
         controller_->plannedContactFlags();
     if (planned.has_value()) {
-      for (size_t contact = 0; contact < kNumContacts; ++contact) {
+      for (size_t contact = 0;
+           contact < plannedContactFlags_.size() && contact < planned->size();
+           ++contact) {
         plannedContactFlags_[contact] = (*planned)[contact];
       }
       simulator_->setTargetContactFlags(plannedContactFlags_);
@@ -481,10 +488,10 @@ void RobotProcess::cycle() {
   }
 
   if (sampler_ != nullptr) {
-    backend_->readMeasForceFeetEwrtWorld(measForceFeetEwrtWorld_);
+    backend_->readMeasForceContactsEwrtWorld(measForceContactsEwrtWorld_);
     sampler_->sample(robotState, hardware.getRobotJointAction(), currentMode_,
                      controller_->measuredContactFlags(),
-                     measForceFeetEwrtWorld_);
+                     measForceContactsEwrtWorld_);
   }
 
   applyControllerSettings();

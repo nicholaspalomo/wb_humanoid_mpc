@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
@@ -486,7 +487,7 @@ vector_t solveNonNegativeBasisScalings(
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-uint64_t basisContentHash(const feet_array_t<matrix_t>& localBasisMatrices) {
+uint64_t basisContentHash(absl::Span<const matrix_t> localBasisMatrices) {
   std::string serialized;
   for (const matrix_t& basis : localBasisMatrices) {
     absl::StrAppend(&serialized, basis.rows(), "x", basis.cols(), ":");
@@ -513,7 +514,7 @@ uint64_t basisContentHash(const feet_array_t<matrix_t>& localBasisMatrices) {
 }
 
 std::string basisInputsLibraryKey(
-    const feet_array_t<matrix_t>& localBasisMatrices) {
+    absl::Span<const matrix_t> localBasisMatrices) {
   return absl::StrCat(
       "basis", localBasisMatrices[0].cols(), "_",
       absl::Hex(basisContentHash(localBasisMatrices), absl::kZeroPad16));

@@ -30,8 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // The conversion of the knee mimic joints (JointMimicFromConfig.h): the left
 // knee first, every value carried over, a value that is not finite refused by
 // its path, and the centroidal variant refusing the velocity gain it has no use
-// for.
+// for, and both refusing a contact set that is not two feet.
 
+#include <array>
+#include <cstddef>
 #include <limits>
 
 #include "absl/status/status.h"
@@ -39,12 +41,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
 
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/config/costs/JointMimicFromConfig.h"
 #include "humanoid_mpc_config/mimic_joints_config.nproto.h"
 
 namespace ocs2::humanoid {
 namespace {
+
+// The biped's contact count, which the knee blocks are written for.
+constexpr size_t kTwoFeet = static_cast<size_t>(kBipedFootCount);
+// A quadruped-like set of four point contacts.
+constexpr size_t kFourContacts = 4;
 
 /** Knee mimic joints whose two legs differ in every value. */
 mpc_config::MimicJointsConfig kneeMimicJoints() {
@@ -63,8 +70,8 @@ mpc_config::MimicJointsConfig kneeMimicJoints() {
 TEST(JointMimicFromConfigTest, TheLegsComeInTheOrderOfTheContacts) {
   mpc_config::MimicJointsConfig mimicJoints = kneeMimicJoints();
   mimicJoints.right_knee.velocity_gain = 0.25;
-  const absl::StatusOr<feet_array_t<JointMimicSettings>> joints =
-      kneeMimicJointsFromConfig(mimicJoints);
+  const absl::StatusOr<BipedFeetArray<JointMimicSettings>> joints =
+      kneeMimicJointsFromConfig(mimicJoints, kTwoFeet);
   ASSERT_TRUE(joints.ok()) << joints.status();
   EXPECT_EQ((*joints)[0].parentJointName, "l_knee");
   EXPECT_EQ((*joints)[0].childJointName, "l_knee_mimic");
@@ -77,8 +84,8 @@ TEST(JointMimicFromConfigTest, TheLegsComeInTheOrderOfTheContacts) {
 }
 
 TEST(JointMimicFromConfigTest, AnEmptyBlockIsEmptyNamesAndZeros) {
-  const absl::StatusOr<feet_array_t<JointMimicSettings>> joints =
-      kneeMimicJointsFromConfig(mpc_config::MimicJointsConfig{});
+  const absl::StatusOr<BipedFeetArray<JointMimicSettings>> joints =
+      kneeMimicJointsFromConfig(mpc_config::MimicJointsConfig{}, kTwoFeet);
   ASSERT_TRUE(joints.ok()) << joints.status();
   for (const JointMimicSettings& joint : *joints) {
     EXPECT_TRUE(joint.parentJointName.empty());
@@ -91,8 +98,8 @@ TEST(JointMimicFromConfigTest, RefusesANonFiniteValueByItsPath) {
   mpc_config::MimicJointsConfig mimicJoints = kneeMimicJoints();
   mimicJoints.right_knee.position_gain =
       std::numeric_limits<double>::infinity();
-  const absl::StatusOr<feet_array_t<JointMimicSettings>> refused =
-      kneeMimicJointsFromConfig(mimicJoints);
+  const absl::StatusOr<BipedFeetArray<JointMimicSettings>> refused =
+      kneeMimicJointsFromConfig(mimicJoints, kTwoFeet);
   EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(absl::StrContains(refused.status().message(),
                                 "mimic_joints.right_knee.position_gain"))
@@ -101,14 +108,31 @@ TEST(JointMimicFromConfigTest, RefusesANonFiniteValueByItsPath) {
 
 TEST(JointMimicFromConfigTest, TheCentroidalVariantRefusesAVelocityGain) {
   mpc_config::MimicJointsConfig mimicJoints = kneeMimicJoints();
-  EXPECT_TRUE(kneeMimicKinematicJointsFromConfig(mimicJoints).ok());
+  EXPECT_TRUE(kneeMimicKinematicJointsFromConfig(mimicJoints, kTwoFeet).ok());
   mimicJoints.left_knee.velocity_gain = 1.0;
-  const absl::StatusOr<feet_array_t<JointMimicSettings>> refused =
-      kneeMimicKinematicJointsFromConfig(mimicJoints);
+  const absl::StatusOr<BipedFeetArray<JointMimicSettings>> refused =
+      kneeMimicKinematicJointsFromConfig(mimicJoints, kTwoFeet);
   EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(absl::StrContains(refused.status().message(),
                                 "mimic_joints.left_knee.velocity_gain"))
       << refused.status();
+}
+
+TEST(JointMimicFromConfigTest, BothVariantsRefuseAContactSetThatIsNotTwoFeet) {
+  const absl::StatusOr<BipedFeetArray<JointMimicSettings>> dynamic =
+      kneeMimicJointsFromConfig(kneeMimicJoints(), kFourContacts);
+  const absl::StatusOr<BipedFeetArray<JointMimicSettings>> kinematic =
+      kneeMimicKinematicJointsFromConfig(kneeMimicJoints(), kFourContacts);
+  const std::array<absl::Status, 2> statuses = {dynamic.status(),
+                                                kinematic.status()};
+  for (const absl::Status& status : statuses) {
+    EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+    EXPECT_TRUE(absl::StrContains(status.message(), "knee joint mimic"))
+        << status;
+    EXPECT_TRUE(
+        absl::StrContains(status.message(), "the contact set has 4 contacts"))
+        << status;
+  }
 }
 
 }  // namespace

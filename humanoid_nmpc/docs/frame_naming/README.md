@@ -297,24 +297,17 @@ and frame3 the frame whose axes the components are written in. "The origin of f"
 | `crb` | the composite rigid body: the whole robot locked in its current configuration, origin at the center of mass, rotating as one rigid body; its angular velocity `angvel_crb_rt_world_ewrt_world` is I_G^-1 L_G, the locked (average) angular velocity, which no link and not `com` (axes aligned with `world`) has |
 | `heading` | origin at the base origin, z along world z, x along world x turned about z by `yaw_heading_rt_world`: the base's twist heading `yaw_base_rt_world` (`BasePlanarMotion`, the velocity command's axes), except in the contact planners with the heading model on, where it is the heading model's yaw (`ContactPlannerInput::yawHeadingRtWorld`, which starts at `initYawHeadingRtWorld`) |
 | `torso` | the upper-body link (table 4.1) |
-| `imu` | the IMU's sensor frame; on the shipped robots it is the base frame (`RobotState`: the root's orientation and angular velocity are the IMU's), so code reading `RobotState` writes `base` |
 | `contact` | a contact frame chosen at runtime by contact index: one of the task file's `contacts_3dof` / `contact_names_6dof` |
 | `mjcontact` | a MuJoCo physics contact between two geoms (`mjData::contact[i]`), not one of the controller's contact frames: origin at `mjContact::pos`, x along the contact normal from `geom[0]` to `geom[1]` (the first row of `mjContact::frame`), y and z the two tangents; the frame of `mj_contactForce` |
 | `foot` | a foot contact frame chosen at runtime by foot index |
 | `lfoot` | the left foot's contact frame, `foot_l_contact`, at the sole |
 | `rfoot` | the right foot's contact frame, `foot_r_contact` |
 | `hand` | a hand contact frame chosen at runtime |
-| `lhand` | the left hand's contact frame, `hand_l_contact` |
-| `rhand` | the right hand's contact frame, `hand_r_contact` |
-| `knee` | a knee contact frame chosen at runtime |
 | `lknee` | the left knee's contact frame, `knee_l_contact` |
-| `rknee` | the right knee's contact frame, `knee_r_contact` |
 | `hip` | a hip joint frame chosen at runtime (the locomotion heuristics' hip centers) |
 | `lhip` | the left hip joint frame |
 | `rhip` | the right hip joint frame |
 | `ankle` | an ankle joint frame chosen at runtime, the parent joint of a foot contact |
-| `lankle` | the left ankle joint frame (`left_ankle_frame`) |
-| `rankle` | the right ankle joint frame |
 | `pad` | a multi-contact pad's frame, chosen by index: z = -normal_pad_ewrt_link, x = x_axis_pad_ewrt_link (`contact_set.textproto`; `SurfacePad`'s fields of the same names in the task file); also the forearm, thigh, seat and torso pads |
 | `ee` | an end-effector frame of OCS2's `EndEffectorKinematics`, chosen by index |
 | `link` | any Pinocchio frame chosen at runtime by name or id (`telemetry_frames`, collision bodies) |
@@ -324,11 +317,9 @@ and frame3 the frame whose axes the components are written in. "The origin of f"
 | `surface` | a contact surface or terrain patch: origin on the surface, z along its outward normal (contact planning's candidate rectangles, multi-contact terrain) |
 | `box` | a box of a multi-contact scene: origin at its center, axes along its edges; a terrain primitive (`TerrainScene.Box`, `BoxGeometry`), a box of a link's collision model (`CollisionModel.Box`, in its joint's frame) or a scenario's goal region of base positions (`Scenario.BaseRegion`, axis-aligned) |
 | `stance` | the reference point of a multi-contact stance's contact wrench generators (`WrenchGenerators::posStanceRtWorldEwrtWorld`): origin at the mean of the active pads' centers, axes aligned with `world` |
-| `icp` | the instantaneous capture point, axes aligned with `world` |
 | `dcm` | the divergent component of motion, axes aligned with `world` |
 | `zmp` | the zero-moment point, axes aligned with `world` |
 | `cop` | a contact's center of pressure, axes aligned with `world` |
-| `cam` | the viewer's camera frame (web viewer, MuJoCo free camera) |
 | `ball` | the dodgeball projectile's body frame |
 | `sphere` | the center of a sphere: a collision sphere at a fixed offset from its contact frame (`TerrainNonPenetrationConstraint`) or in its link's frame (`CollisionModel.Sphere`), or a viewer sphere marker (`humanoid_mpc_msgs.Spheres`: collision spheres, centers of pressure, footholds), axes aligned with the frame it is given in |
 | `param` | the frame the input vector parameterizes a contact wrench in: `world` for the wrench-space models, the contact frame for `BasisInputsModelDecorator` (section 2.9) |
@@ -345,13 +336,9 @@ and frame3 the frame whose axes the components are written in. "The origin of f"
 | `capsulestart` | a capsule's frame at the start of its axis segment (`TerrainScene.Capsule`, `CollisionModel.Capsule`): origin at the start point, z along the axis toward its end when the two differ |
 | `capsuleend` | the end point of a capsule's axis segment, axes aligned with `capsulestart` |
 | `query` | a point a function is evaluated at: a geometric query's point (a terrain primitive's or a pad region's distance query), or the point a point Jacobian is taken at (`RobotStanceModel::computeLinjacQueryRtWorldEwrtWorld`); axes aligned with the frame the point is given in |
-| `arrow` | a viewer arrow marker's tail (`humanoid_mpc_msgs.Arrows`), axes aligned with `world` |
-| `arrowhead` | a viewer arrow marker's head, axes aligned with `world` |
 | `segmentpoint` | a point of a capsule's axis segment: the one nearest a query, or one sampled along it; axes aligned with the frame it is given in |
 | `controlpoint` | an inner control point of a contact swing's cubic Bezier arc (`ContactSwingTrajectory`): the lift-off or touch-down point moved along its surface's normal, axes aligned with `world` |
 | `chordmid` | the midpoint of the straight chord of a swing traverse, from its lift-off to its touch-down, axes aligned with `world` |
-| `strippoint` | a point of a viewer polyline (`humanoid_mpc_msgs.LineStrip`), axes aligned with `world` |
-| `camfocus` | the viewer's orbit camera's focal point, the point the camera looks at and orbits, axes aligned with `world` |
 | `mjbody` | the MuJoCo body a URDF link becomes: that link with every fixed-joint descendant the MJCF does not model as a body of its own lumped into it; origin and axes are the link's |
 | `local` | in a generic helper whose frames are its arguments, the body frame the caller passes (`rotateVectorLocalToWorld`): "some frame f" |
 
@@ -361,10 +348,7 @@ Plurals, for a container indexed by the role (frame1 only):
 |---|---|
 | `contacts` | `contact` |
 | `feet` | `foot` |
-| `hands` | `hand` |
-| `knees` | `knee` |
 | `hips` | `hip` |
-| `ankles` | `ankle` |
 | `pads` | `pad` |
 | `ees` | `ee` |
 | `links` | `link` |
@@ -373,9 +357,6 @@ Plurals, for a container indexed by the role (frame1 only):
 | `corners` | `corner` |
 | `mjcontacts` | `mjcontact` |
 | `generators` | `generator` |
-| `arrows` | `arrow` |
-| `arrowheads` | `arrowhead` |
-| `strippoints` | `strippoint` |
 
 Subjects of a free vector besides the frames:
 
@@ -383,6 +364,23 @@ Subjects of a free vector besides the frames:
 |---|---|
 | `terrain` | the ground or terrain under the robot (`normal_terrain_ewrt_world`) |
 | `joint` | a joint (`axis_joint_ewrt_base`) |
+
+Frames and points of the viewers only (`_VIEWER_FRAMES` in tools/hooks/frame_naming.py): the camera and the
+geometry of the visualization markers. No controller quantity uses them.
+
+| Frame | Definition |
+|---|---|
+| `cam` | the viewer's camera frame (web viewer, MuJoCo free camera) |
+| `camfocus` | the viewer's orbit camera's focal point, the point the camera looks at and orbits, axes aligned with `world` |
+| `arrow` | a viewer arrow marker's tail (`humanoid_mpc_msgs.Arrows`), axes aligned with `world` |
+| `arrowhead` | a viewer arrow marker's head, axes aligned with `world` |
+| `strippoint` | a point of a viewer polyline (`humanoid_mpc_msgs.LineStrip`), axes aligned with `world` |
+
+| Plural | Of |
+|---|---|
+| `arrows` | `arrow` |
+| `arrowheads` | `arrowhead` |
+| `strippoints` | `strippoint` |
 <!-- LINT.ThenChange(//tools/hooks/frame_naming.py:frames) -->
 
 ### 4.1 Robot links and their roles
@@ -394,7 +392,7 @@ The names of links are robot-specific and never appear in an identifier; the rol
 | `base` | `pelvis` | `pelvis` | `pelvis_link` | `base_link` |
 | `torso` | `utorso` | `torso_link` | `waist_yaw_link` | - |
 | `lfoot`, `rfoot` | `foot_l_contact`, `foot_r_contact` | `foot_l_contact`, `foot_r_contact` | `foot_l_contact`, `foot_r_contact` | `foot_l_contact`, `foot_r_contact` |
-| `lhand`, `rhand`, `lknee`, `rknee` | `hand_l_contact`, `hand_r_contact`, `knee_l_contact`, `knee_r_contact` (multi-contact) | - | - | - |
+| `hand`, `lknee` | `hand_l_contact`, `hand_r_contact`, `knee_l_contact` (multi-contact) | - | - | - |
 
 So the C++ `pelvisAngularVelLocal` is `angvelBaseRtWorldEwrtBase`, and the proto field `desired_pelvis_height` is
 `cmd_pos_base_rt_surface_ewrt_world_z`.
@@ -660,7 +658,7 @@ different places (a local `position`), decide each by section 6.
 | `MpcRobotModelBase` | the parameters `wrench` / `force` / `moment` of the input-only setters | `wrenchContactEwrtParam` / `forceContactEwrtParam` / `torqueContactEwrtParam` (an override keeps its base's names) |
 | `BasisInputsModelDecorator` | `getContactFrameRotationLocalToWorld(state, i)`, `rotateWrenchLocalToWorld(state, wrenchLocal, i)` / `(w_R_l, wrenchLocal)`, `rotateWrenchWorldToLocal(state, wrenchWorld, i)` | `getRotmatContactRtWorld(state, i)`, `computeWrenchContactEwrtWorld(state, wrenchContactEwrtContact, i)` / `(rotmatContactRtWorld, wrenchContactEwrtContact)`, `computeWrenchContactEwrtContact(state, wrenchContactEwrtWorld, i)` |
 | `BasisInputsModelDecorator`, `BasisInputsCostTransform` | `getLocalBasisToWrenchMap`, `basisToWrenchMap`; the wrapped model's `wrenchInput`, `wrenchJacobians` | `getLocalBasisGeneratorMap`, `basisGeneratorMap` (a map whose blocks are the generators: no frame pair); `wrappedInput`, `wrappedJacobians` |
-| `RealtimeRigidBodyDynamics` | `gravityTorques()`, `getBaseAcceleration()`, `centroidalMomentum(q, v)`, `contactFrameRotations(q)`, `footWrenches`, `baseRotation()`, `velocity_` / `acceleration_` | `gravityJointTorques()`, `getBaseGeneralizedAcceleration()` (`[ddp_W, dw_B]`, the base rows of the generalized acceleration), `computeCmomComRtWorldEwrtWorld(q, v)`, `computeRotmatContactsRtWorld(q)`, `wrenchFeetEwrtWorld`, `rotmatBaseRtWorld()`, `generalizedVelocity_` / `generalizedAcceleration_` |
+| `RealtimeRigidBodyDynamics` | `gravityTorques()`, `getBaseAcceleration()`, `centroidalMomentum(q, v)`, `contactFrameRotations(q)`, `footWrenches`, `baseRotation()`, `velocity_` / `acceleration_` | `gravityJointTorques()`, `getBaseGeneralizedAcceleration()` (`[ddp_W, dw_B]`, the base rows of the generalized acceleration), `computeCmomComRtWorldEwrtWorld(q, v)`, `computeRotmatContactsRtWorld(q)`, `wrenchContactsEwrtWorld`, `rotmatBaseRtWorld()`, `generalizedVelocity_` / `generalizedAcceleration_` |
 | pinocchio_model `DynamicsHelperFunctions.h` | `computeContactPositions` / `getContactPositions`, `computeFramePositions` / `getFramePositions`, `computeBaseAcceleration`, `getRotationMatrixLocalToWorld(data, frame)` | `computePosContactsRtWorldEwrtWorld` / `getPosContactsRtWorldEwrtWorld`, `computePosLinksRtWorldEwrtWorld` / `getPosLinksRtWorldEwrtWorld`, `computeBaseGeneralizedAcceleration`, `getRotmatLinkRtWorld(data, frame)` (the whole-body MPC's own `computeBaseAcceleration(state, input, ...)` becomes an overload of the same name, `computeBaseGeneralizedAcceleration(state, input, ...)`) |
 | `orientation/BaseOrientation.h` | `headingQuaternion(xi)`, `swingQuaternion(xi)`, `kMinimumTwistNorm`, `kQuaternionNormGuard`; file-local `splitTwistSwing`, `twistNorm`, `twistHemisphereSign`, `headingFromTwist` | `verticalTwistFromQuaternion(xi)`, `swingFromQuaternion(xi)`, `kMinimumHeadingCoefficientsNorm` (rho = \|(xi_z, xi_w)\|), `kUnitQuaternionNormGuard`; `twistSwingSplitFromQuaternion`, `headingCoefficientsNorm`, `headingHemisphereSign`, `headingFromCoefficients` (generic algebra of the twist-swing split) |
 | `orientation/EulerBoundary.h` | `eulerZyxRateToLocalAngularVelocityMatrix`, `eulerZyxRatesFromLocalAngularVelocity(eulerZyx, localAngularVelocity)`, `localAngularVelocityFromEulerZyxRates`, `localAngularVelocityEulerZyxJacobian` | `eulerZyxRateToBodyRateMatrix`, `eulerZyxRatesFromBodyRates(eulerZyx, angvelLocalRtWorldEwrtLocal)`, `bodyRatesFromEulerZyxRates`, `bodyRateEulerZyxJacobian` (generic Euler conversions: "body rate" is the body angular velocity of the frame the caller passes) |
@@ -669,7 +667,7 @@ different places (a local `position`), decide each by section 6.
 | `ModelSettings` | `FootConstraintConfig::constrainOrientation`, `ContactImplicitConfig::velocityReference` / `angularVelocityReference` / `kDefaultVelocityReference` | `constrainAttitude`, `scaleLinvelContactRtWorldEwrtWorldXy` / `scaleAngvelContactRtWorldEwrtWorldZ` / `kNomScaleLinvelContactRtWorldEwrtWorldXy` (the config dump keeps its keys) |
 | term names | `contact_term::kContactMomentXY` / `kForceWeightedSlip` / `kNormalVelocity` / `kNormalVelocitySoft`, `kZeroVelocityTermSuffix`, `kWrenchContactInputParameterization`, `kWrenchInputsLibraryKey` | `kContactMomentXYName` / `kForceWeightedSlipName` / `kNormalVelocityName` / `kNormalVelocitySoftName`, `kZeroVelocityTermNameSuffix`, `kWrenchContactInputParameterizationName`, `kWrenchInputsLibraryName` (registry names; the enumerators `MpcSoftConstraintType::kNormalVelocity`, ... keep theirs) |
 | contact | `contactForceInputJacobian(model, i)`, `normalContactForceRow(model, i)`; `ContactCenterPoint::rotationFromParent` / `translationFromParent`; `ContactPatchFrame::worldToPatchRotation` (p_R_w) | `inputJacobianForceContactEwrtParam(model, i)`, `inputRowForceContactEwrtParamZ(model, i)`; `rotmatContactRtLink` / `posContactRtLinkEwrtLink`; `rotmatWorldRtSurface` |
-| contact | the basis-generator helper `wrenchAt(point, force, torsion)`, `ContactWrenchMapper`'s `contactWrench` / `contactPointForceVec`, `ContactWrenchGate::apply(plannedWrenches)` | `generatorWrenchAt(point, generatorForce, torsion)`, `wrenchContactEwrtContact` / `forceCornersEwrtContact`, `apply(plannedWrenchFeetEwrtWorld)` |
+| contact | the basis-generator helper `wrenchAt(point, force, torsion)`, `ContactWrenchMapper`'s `contactWrench` / `contactPointForceVec`, `ContactWrenchGate::apply(plannedWrenches)` | `generatorWrenchAt(point, generatorForce, torsion)`, `wrenchContactEwrtContact` / `forceCornersEwrtContact`, `apply(plannedWrenchContactsEwrtWorld)` |
 | contact_swing | `ContactSwingEndpoint::position`, `ContactSwingReference::position` / `linearVelocity` | `posContactRtWorldEwrtWorld`, `posContactRtWorldEwrtWorld` / `linvelContactRtWorldEwrtWorld` |
 | swing_foot_planner | `CubicSpline` / `SplineCpg`'s `position(t)` / `velocity(t)` / `acceleration(t)` and `Node::position` / `velocity` (a generic scalar spline) | `value(t)` / `derivative(t)` / `secondDerivative(t)`, `Node::value` / `derivative` |
 | `SwingTrajectoryPlanner` | `getZpositionConstraint` / `getZvelocityConstraint` / `getZaccelerationConstraint`; `Config::liftOffVelocity` / `touchDownVelocity` / `impactProximityFactorLiftOffVelocity` / `impactProximityFactorTouchDownVelocity`; `descentVelocity` | `getDesPosFootRtWorldEwrtWorldZ` / `getDesLinvelFootRtWorldEwrtWorldZ` / `getDesLinaccFootRtWorldEwrtWorldZ`; `liftoffLinvelFootRtWorldEwrtWorldZ` / `touchdownLinvelFootRtWorldEwrtWorldZ` / `impactProximityFactorLiftoffSlope` / `impactProximityFactorTouchdownSlope`; `descentSpeedFootRtWorld` |
@@ -697,7 +695,7 @@ different places (a local `position`), decide each by section 6.
 | `ProceduralMpcMotionManager` | `GaitModeStateConfig::minLinVelCmd` / `maxLinVelCmd` / `minAngVelCmd` / `maxAngVelCmd` / `linVelErrorThresh` / `angVelErrorThresh`, `getMaxLinearAcceleration` / `getMaxAngularAcceleration`, `velocityTargetToTargetTrajectories` (the parameter; the type alias keeps its name), `velocityTarget` | `cmdMinLinvelBaseRtWorldEwrtHeadingXy` / `cmdMaxLinvelBaseRtWorldEwrtHeadingXy` / `cmdMinAngvelBaseRtWorldEwrtWorldZ` / `cmdMaxAngvelBaseRtWorldEwrtWorldZ` / `maxErrLinvelBaseRtWorldEwrtHeadingXy` / `maxErrAngvelBaseRtWorldEwrtWorldZ`, `getCmdMaxLinaccBaseRtWorldEwrtHeadingXy` / `getCmdMaxAngaccBaseRtWorldEwrtWorldZ`, `velocityCommandToTargetTrajectories`, `velocityCommand` |
 | `StrideMotionHistory.h` | `instantaneousPlanarMotion(orientation, twistWorld)`, `addSample(time, positionXy, heading, seed)`, `lastPosition_` | `(quatBaseRtWorldXyzw, twistBaseRtWorldEwrtWorld)`, `(time, posBaseRtWorldEwrtWorldXy, yawBaseRtWorld, seed)`, `prevPosBaseRtWorldEwrtWorldXy_`; a `Sample`'s unwrapped `heading` is `unwrappedYawBaseRtWorld` (not wrapped into (-pi, pi]) |
 | `SwitchedModelReferenceManager` | `SwingFootReference::position` / `linearVelocity`, `getSwingFootVelocityReference`, `getCommandedVelocity` / `getCommandedYawRate`, `PlanarCommandAt::velocityWorld` / `yawRate`, `PlanarBasePose::position` / `yaw`, `commandedPoseChange` | `desPosFootRtWorldEwrtWorld` / `desLinvelFootRtWorldEwrtWorld`, and its `yaw` is `desYawFootRtWorld` (the planned foot is flat, so its twist heading and its ZYX yaw `atan2(R10, R00)` agree), `getSwingRefLinvelFootRtWorldEwrtWorldXy`, `getCmdLinvelBaseRtWorldEwrtWorldXy` / `getCmdRateYawBaseRtWorld` (the operator's command, whatever channel the model stores it in), `cmdLinvelBaseRtWorldEwrtWorldXy` / `cmdRateYawBaseRtWorld`, `posBaseRtWorldEwrtWorldXy` / `yawBaseRtWorld`, `integratePlanarCommand` |
-| `SwitchedModelReferenceManager` | `shapeBasePose`, `shapedBodyAngularVelocity(..., nominalBodyAngularVelocity, ...)`, `tiltAngularVelocityInWorld`, `measuredBasePosition_` / `measuredBaseYaw_` / `liftOffPositions_` / `measuredComVelocity_`; file-local `storesBaseAngularVelocity`, `kNormalizedAngularMomentumSegment`, `normalizedAngularMomentumRow` | `shapePoseBaseRtWorld`, `computeShapedAngvelBaseRtWorldEwrtBase(..., refAngvelBaseRtWorldEwrtBase, ...)`, `computeOffsetAngvelBaseRtWorldEwrtWorld`, `measPosBaseRtWorldEwrtWorldXy_` / `measYawBaseRtWorld_` / `liftoffPosFeetRtWorldEwrtWorldXy_` / `measProxyLinvelComRtWorldEwrtWorldXy_`; `storesAngvelBaseRtWorldEwrtBase`, `kMnormAngmomSegmentName`, `mnormAngmomStartIndex` |
+| `SwitchedModelReferenceManager` | `shapeBasePose`, `shapedBodyAngularVelocity(..., nominalBodyAngularVelocity, ...)`, `tiltAngularVelocityInWorld`, `measuredBasePosition_` / `measuredBaseYaw_` / `liftOffPositions_` / `measuredComVelocity_`; file-local `storesBaseAngularVelocity`, `kNormalizedAngularMomentumSegment`, `normalizedAngularMomentumRow` | `shapePoseBaseRtWorld`, `computeShapedAngvelBaseRtWorldEwrtBase(..., refAngvelBaseRtWorldEwrtBase, ...)`, `computeOffsetAngvelBaseRtWorldEwrtWorld`, `measPosBaseRtWorldEwrtWorldXy_` / `measYawBaseRtWorld_` / `liftoffPosContactsRtWorldEwrtWorldXy_` / `measProxyLinvelComRtWorldEwrtWorldXy_`; `storesAngvelBaseRtWorldEwrtBase`, `kMnormAngmomSegmentName`, `mnormAngmomStartIndex` |
 | `ArmSwing.cpp` | `ArmJoint::position` / `axis` | `posLinkRtWorldEwrtWorld` / `axisJointEwrtWorld` |
 | mrt | `control_mode::kZeroTorque`, `JointPdGainsDefaults::torqueLimit` | `kZeroJointTorque` (its mode name `"ZERO_TORQUE"` and the enumerator `FsmCommandKind::kZeroTorque` stay), `maxJointTorque` (joint space; the config dump keeps its key) |
 | config | `kCommandedVelocityTerminalDcmTarget` / `kRestTerminalDcmTarget`, `trackingStateWeightsFromConfig(..., basePose)` | `kCommandedVelocityTerminalDcmTargetName` / `kRestTerminalDcmTargetName` (registry names), `(..., basePoseWeights)`; the C++ reads of `TaskSpaceWeights` and `InputWeights` fields carry the per-component-weight `NOLINT(frame-naming)` |
@@ -741,7 +739,7 @@ different places (a local `position`), decide each by section 6.
 | whole-body tests | `withoutQuaternionRate`, `quaternionRate(model, derivative)`, `headingRotation(angle)`, `streamOrientation`, `expectSameStateUpToTheQuaternionSign`, `largestQuaternionNormDeviation`, `planarPoseOf`, a `PlanarPose` variable `pose` | `withoutRateQuatBaseRtWorldXyzw`, `getRateQuatBaseRtWorldXyzw(model, derivative)`, `unitQuaternionOfYaw(angle)`, `streamQuatBaseRtWorldXyzw`, `expectSameStateUpToTheUnitQuaternionSign`, `largestUnitQuaternionNormDeviation`, `planarBaseOf`, `planarBase` |
 | `EndEffectorKinematicsTwistConstraint` | `setGroundPlaneNormal` / `getGroundPlaneNormal`, `ground_plane_normal_` | `setNormalTerrainEwrtWorld` / `getNormalTerrainEwrtWorld`, `normalTerrainEwrtWorld_` |
 | `EndEffectorDynamicsAccelerationsConstraint` | `ground_plane_normal_` | `normalTerrainEwrtWorld_` |
-| `RobotBackend` (common_mpc_app) | `readMeasuredContactForces(forces)`, `RobotProcess::measuredContactForces_`, `TelemetrySampler::sample(..., measuredContactForces)` | `readMeasForceFeetEwrtWorld(measForceFeetEwrtWorld)`, `measForceFeetEwrtWorld_`, `(..., measForceFeetEwrtWorld)` (one force per foot, in the world frame) |
+| `RobotBackend` (common_mpc_app) | `readMeasuredContactForces(forces)`, `RobotProcess::measuredContactForces_`, `TelemetrySampler::sample(..., measuredContactForces)` | `readMeasForceContactsEwrtWorld(measForceContactsEwrtWorld)`, `measForceContactsEwrtWorld_`, `(..., measForceContactsEwrtWorld)` (one force per contact, in the world frame) |
 | `DecodedRobotState` (common_mpc_app visualization) | `basePosition` / `baseRotation` / `baseOrientation` / `baseLinearVelocity` / `baseAngularVelocity` / `baseAngularVelocityLocal` / `baseEulerAnglesZyx` / `baseEulerZyxRates` / `measuredContactWrenches` | `posBaseRtWorldEwrtWorld` / `rotmatBaseRtWorld` / `quatBaseRtWorld` / `linvelBaseRtWorldEwrtWorld` / `angvelBaseRtWorldEwrtWorld` / `angvelBaseRtWorldEwrtBase` / `eulerzyxBaseRtWorld` / `rateEulerzyxBaseRtWorld` / `measWrenchContactsEwrtWorld` |
 | `BalanceQuantities.h`, `SceneContract.h`, `SceneBuilder` | `zeroMomentPoint(positions, wrenches, minNormalForce)`, `divergentComponentOfMotion(com, comVelocity, omega)`; the marker paths `kContactForces` / `kCornerForces`, `kForceScale`, `kMinNormalForceForCop`, `cornerForceMappers_`, `addForceArrow`, `writeLinkPoses` | `computePosZmpRtWorldEwrtWorld(posFeetRtWorldEwrtWorld, wrenchFeetEwrtWorld, minForceWorldEwrtWorldZ)`, `computePosDcmRtWorldEwrtWorldXy(posComRtWorldEwrtWorld, linvelComRtWorldEwrtWorld, omega)`; `kContactForceMarkers` / `kCornerForceMarkers`, `kNewtonsPerArrowMeter`, `kCopMinForceContactEwrtContactZ`, `cornerMappers_`, `addContactArrow`, `writePoseLinksRtWorld` |
 | `TelemetryBuilder` | the group-index members `basePosition_`, `normalForce_`, `footVelocity_`, `dofPositions_`, ...; the frame-group kinds `kPose` / `kTwist` / `kAcceleration` / `kWrench`, `kAccelerationHalfInterval`, `kMinNormalForceForZmp`; `Source::contactWrenches` / `com` / `dcm` / `zmp` | `group<quantity>_` (`groupPosBaseRtWorldEwrtWorld_`, `groupForceFeetEwrtWorldZ_`, `groupLinvelFeetRtWorldEwrtWorldZ_`, ...), `generalizedCoordinateGroups_`, ...; `kPoseSlot`, ... (layout), `kCentralDifferenceHalfInterval`, `kZmpMinForceWorldEwrtWorldZ`; `wrenchFeetEwrtWorld` / `posComRtWorldEwrtWorld` / `posDcmRtWorldEwrtWorldXy` / `posZmpRtWorldEwrtWorldXy`. `referenceBaseLinearVelocity_` holds `getProxyLinvelComRtWorldEwrtWorld()` of the reference: `refProxyLinvelComRtWorldEwrtWorld_` |

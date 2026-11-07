@@ -95,6 +95,15 @@ absl::Status notFinalized(absl::string_view operation) {
 }
 
 template <typename T>
+absl::Status validateContactSets(const TermCollection<T>& collection,
+                                 size_t numContacts) {
+  for (const std::unique_ptr<T>& term : collection) {
+    RETURN_IF_ERROR(term->validateContactSet(numContacts));
+  }
+  return absl::OkStatus();
+}
+
+template <typename T>
 void bindAndConfigure(TermCollection<T>& collection,
                       const Layout& layout,
                       const ContactPlanningConfig& config) {
@@ -147,6 +156,14 @@ absl::Status ContactPlanningProblem::finalize(
   RETURN_IF_ERROR(checkRequiredBlocks(logicRules, model, "logic rule"));
   RETURN_IF_ERROR(
       checkRequiredBlocks(assignmentCosts, model, "assignment cost"));
+
+  const size_t numContacts = config.shared.numContacts;
+  RETURN_IF_ERROR(validateContactSets(model, numContacts));
+  RETURN_IF_ERROR(validateContactSets(costs, numContacts));
+  RETURN_IF_ERROR(validateContactSets(softConstraints, numContacts));
+  RETURN_IF_ERROR(validateContactSets(hardConstraints, numContacts));
+  RETURN_IF_ERROR(validateContactSets(logicRules, numContacts));
+  RETURN_IF_ERROR(validateContactSets(assignmentCosts, numContacts));
 
   bindAndConfigure(model, layout_, config);
   bindAndConfigure(costs, layout_, config);

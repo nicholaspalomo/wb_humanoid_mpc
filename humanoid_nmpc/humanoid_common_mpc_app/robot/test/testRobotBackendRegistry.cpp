@@ -27,7 +27,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <array>
+#include <cstddef>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -35,8 +36,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc_app/robot/MujocoRobotBackend.h"
 #include "humanoid_common_mpc_app/robot/RobotBackend.h"
@@ -75,6 +78,7 @@ RobotBackendOptions atlasOptions() {
   options.contactFrameNames = modelSettings.contactNames;
   options.contactParentJointNames =
       modelSettings.contactParentJointNamesInContactOrder();
+  options.numPointContacts = modelSettings.contactNames3DoF.size();
   options.simulator.minForceMjcontactEwrtMjcontactX = 7.0;
   options.simulator.visualizations = std::vector<std::string>{};
   options.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
@@ -107,10 +111,36 @@ TEST(RobotBackendRegistry, TheMujocoBackendIsBuiltByName) {
   EXPECT_FALSE(estimators.has("cheater_sim"));
   (*backend)->registerContactEstimators(estimators);
   EXPECT_TRUE(estimators.has("cheater_sim"));
-  std::array<vector3_t, kNumContacts> measForceFeetEwrtWorld;
-  (*backend)->readMeasForceFeetEwrtWorld(measForceFeetEwrtWorld);
-  EXPECT_TRUE(measForceFeetEwrtWorld[0].allFinite() &&
-              measForceFeetEwrtWorld[1].allFinite());
+  // The two feet carry the two force sensors; an entry past them has none.
+  const vector3_t unset =
+      vector3_t::Constant(std::numeric_limits<scalar_t>::quiet_NaN());
+  ContactArray<vector3_t> measForceContactsEwrtWorld(
+      /*numContacts=*/static_cast<size_t>(kBipedFootCount) + 1, unset);
+  (*backend)->readMeasForceContactsEwrtWorld(measForceContactsEwrtWorld);
+  EXPECT_EQ(measForceContactsEwrtWorld.size(),
+            static_cast<size_t>(kBipedFootCount) + 1);
+  EXPECT_TRUE(measForceContactsEwrtWorld[kContactLeftIndex].allFinite() &&
+              measForceContactsEwrtWorld[kContactRightIndex].allFinite());
+  EXPECT_TRUE(measForceContactsEwrtWorld[static_cast<size_t>(kBipedFootCount)]
+                  .isZero());
+}
+
+// A contact set without exactly two 6-DoF contacts has no contact the foot
+// sensors measure: every contact reads zero.
+TEST(RobotBackendRegistry, TheMujocoFootSensorsNeedTwoSixDofContacts) {
+  RobotBackendOptions options = atlasOptions();
+  // The first foot counted as a point contact leaves one 6-DoF contact.
+  options.numPointContacts = 1;
+  const RobotBackendRegistry registry;
+  absl::StatusOr<std::unique_ptr<RobotBackend>> backend =
+      registry.create("mujoco", options);
+  ASSERT_TRUE(backend.ok()) << backend.status();
+  ASSERT_TRUE((*backend)->initialize().ok());
+  ContactArray<vector3_t> measForceContactsEwrtWorld(
+      /*numContacts=*/static_cast<size_t>(kBipedFootCount), vector3_t::Ones());
+  (*backend)->readMeasForceContactsEwrtWorld(measForceContactsEwrtWorld);
+  EXPECT_TRUE(measForceContactsEwrtWorld[0].isZero());
+  EXPECT_TRUE(measForceContactsEwrtWorld[1].isZero());
 }
 
 TEST(RobotBackendRegistry, AnUnknownNameListsTheAvailableOnes) {

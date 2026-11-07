@@ -5,13 +5,18 @@ load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 package(default_visibility = ["//visibility:public"])
 
-# Headers shared by the planner core and the rest of the library (types, the number of feet, the mode-number and the
-# contact term name conventions and the absl::Status propagation macros, header only).
+# Headers shared by the planner core and the rest of the library (types, the contact set's ContactArray and ContactMask,
+# the biped's feet and modes, the mode-number and the contact term name conventions and the absl::Status propagation
+# macros, header only).
 _COMMON_TYPES_HDRS = [
+    "include/humanoid_common_mpc/common/TwoContactCount.h",
     "include/humanoid_common_mpc/common/BipedFeet.h",
+    "include/humanoid_common_mpc/common/ContactArray.h",
+    "include/humanoid_common_mpc/common/ContactMask.h",
     "include/humanoid_common_mpc/common/ContactTermNames.h",
     "include/humanoid_common_mpc/common/StatusMacros.h",
     "include/humanoid_common_mpc/common/Types.h",
+    "include/humanoid_common_mpc/gait/BipedModes.h",
     "include/humanoid_common_mpc/gait/MotionPhaseDefinition.h",
 ]
 
@@ -26,6 +31,7 @@ cc_library(
         "//lib/ocs2:ocs2_dimensions",
         "@abseil-cpp//absl/base:no_destructor",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -284,6 +290,7 @@ cc_library(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:str_format",
         "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/types:span",
         "@blasfeo",
         "@eigen",
         "@hpipm",
@@ -561,6 +568,61 @@ cc_test(
     ],
 )
 
+# The nominal step of a later step in the horizon starts from the stance foot's nominal touch-down, not from its position
+# latched at the last solve, and so does a swing whose previous touch-down lies after the last solve.
+cc_test(
+    name = "testNominalStepAnchor",
+    size = "small",
+    srcs = ["test/testNominalStepAnchor.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        ":quaternion_layout_robot_model",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The swing trajectory planner and the reference manager's contact flags on contact sets other than the biped's: a
+# four-contact trot, a six-contact set, and the DRC Atlas with a 3-DoF contact on each hand.
+cc_test(
+    name = "testContactSetReference",
+    size = "small",
+    srcs = ["test/testContactSetReference.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        ":quaternion_layout_robot_model",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
 # The procedural arm swing on every shipped robot that names its arm joints, on the robots' own URDFs without CppAD: the
 # derived joint senses against a finite difference of the forward kinematics, the swing it produces, its independence of
 # the node's state, and the arm_swing block's conversion.
@@ -678,6 +740,7 @@ cc_test(
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
     ],
 )
@@ -1024,7 +1087,8 @@ cc_test(
     ],
 )
 
-# A new gait is tiled over the horizon however late on the clock it is inserted, and the next solve sees what it saw.
+# A new gait is tiled over the horizon however late on the clock it is inserted, the next solve sees what it saw, and
+# only a biped switch moves back to the start of LF.
 cc_test(
     name = "testGaitScheduleUpdaterHorizon",
     size = "small",
@@ -1285,6 +1349,49 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc_types",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The contact set's per-contact values (common/ContactArray.h): sized at run time up to kMaxNumContacts, iterated and
+# compared over its contacts only, refusing a larger set.
+cc_test(
+    name = "testContactArray",
+    size = "small",
+    srcs = ["test/testContactArray.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The active contacts of a set as their mode number (common/ContactMask.h): the biped's modes, a four- and a six-contact
+# set, and agreement with contactIsActiveInMode() on every set of up to six contacts.
+cc_test(
+    name = "testContactMask",
+    size = "small",
+    srcs = ["test/testContactMask.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc_types",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The per-tick operations of ContactArray and ContactMask allocate nothing.
+cc_test(
+    name = "testContactSetAllocations",
+    size = "small",
+    srcs = ["test/testContactSetAllocations.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    linkstatic = True,
+    deps = [
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "//robot_runtime/robot_realtime:allocation_counter",
         "@googletest//:gtest_main",
     ],
 )
@@ -1756,9 +1863,11 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":contact_planning_core",
+        ":humanoid_common_mpc_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
     ],
 )
@@ -1868,6 +1977,7 @@ cc_test(
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
     ],

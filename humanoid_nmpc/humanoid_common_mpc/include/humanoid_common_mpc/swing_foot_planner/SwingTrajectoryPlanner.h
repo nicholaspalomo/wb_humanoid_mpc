@@ -37,15 +37,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/swing_foot_planner/SplineCpg.h"
 
 namespace ocs2::humanoid {
 
 /**
  * Plans the swing-foot height, pitch and impact-proximity references of every
- * foot over the mode schedule: update() rebuilds them from a schedule, and the
- * getters evaluate them at a time.
+ * contact of the set over the mode schedule: update() rebuilds them from a
+ * schedule, and the getters evaluate them at a time. Contact i is bit
+ * numFeet - 1 - i of a mode number (ContactMask), so the planner covers any
+ * contact count up to kMaxNumContacts; a planner of two feet reads a biped's
+ * FLY, RF, LF and STANCE modes, and sees every other number as both feet in
+ * swing. A swing that begins before the schedule or ends after it (a contact
+ * the schedule never puts in contact, such as a hand of a set whose gait walks
+ * on the feet alone, or one placed for a while and lifted again) has no planned
+ * swing: its references are those of a contact in stance.
  *
  * Not thread-safe: SwitchedModelReferenceManager updates it on the solver
  * thread before each solve, and the costs read it during the solve.
@@ -118,6 +125,8 @@ class SwingTrajectoryPlanner {
               // touch-down (>= 0)
   };
 
+  /** A planner of `numFeet` contacts (ModelSettings::contactNames.size()),
+   * at most kMaxNumContacts. */
   SwingTrajectoryPlanner(Config config, size_t numFeet);
 
   // Copyable, not assignable: the number of feet is fixed at construction.
@@ -130,19 +139,25 @@ class SwingTrajectoryPlanner {
   void update(const ModeSchedule& modeSchedule,
               scalar_t posSurfaceRtWorldEwrtWorldZ);
 
+  /** Rebuilds the references from `modeSchedule` with per-phase lift-off and
+   * touch-down heights per contact; each array holds at least the planner's
+   * number of feet, each entry one height per phase of the schedule. */
   void update(
       const ModeSchedule& modeSchedule,
-      const feet_array_t<scalar_array_t>& liftoffPosFeetRtWorldEwrtWorldZTraj,
-      const feet_array_t<scalar_array_t>&
+      const ContactArray<scalar_array_t>& liftoffPosFeetRtWorldEwrtWorldZTraj,
+      const ContactArray<scalar_array_t>&
           touchdownPosFeetRtWorldEwrtWorldZTraj);
 
   /** As above, with the swings that are searching for the ground (empty
    * entries: none). */
   void update(
       const ModeSchedule& modeSchedule,
-      const feet_array_t<scalar_array_t>& liftoffPosFeetRtWorldEwrtWorldZTraj,
-      const feet_array_t<scalar_array_t>& touchdownPosFeetRtWorldEwrtWorldZTraj,
-      const feet_array_t<std::optional<GroundSearch>>& groundSearches);
+      const ContactArray<scalar_array_t>& liftoffPosFeetRtWorldEwrtWorldZTraj,
+      const ContactArray<scalar_array_t>& touchdownPosFeetRtWorldEwrtWorldZTraj,
+      const ContactArray<std::optional<GroundSearch>>& groundSearches);
+
+  /** The number of contacts the planner plans, fixed at construction. */
+  size_t numFeet() const { return numFeet_; }
 
   scalar_t getDesLinaccFootRtWorldEwrtWorldZ(size_t leg, scalar_t time) const;
 
@@ -170,7 +185,7 @@ class SwingTrajectoryPlanner {
    * @param phaseIDsStock
    * @return contactFlagStock
    */
-  feet_array_t<std::vector<bool>> extractContactFlags(
+  ContactArray<std::vector<bool>> extractContactFlags(
       const std::vector<size_t>& phaseIDsStock) const;
 
   /**
@@ -178,7 +193,7 @@ class SwingTrajectoryPlanner {
    * eventTimes[startTimeIndex] is its take-off and eventTimes[finalTimeIndex]
    * its touch-down. Both are 0 for a stance phase; startTimeIndex is -1 for a
    * swing that began before the schedule and finalTimeIndex the last phase for
-   * one that ends after it (checkThatIndicesAreValid()).
+   * one that ends after it (isPlannableSwing()).
    */
   struct SwingEventIndices {
     int startTimeIndex = 0;
@@ -216,19 +231,14 @@ class SwingTrajectoryPlanner {
       const std::vector<bool>& contactFlagStock);
 
   /**
-   * Check if event time indices are valid
-   * @param leg
-   * @param index : phase index
-   * @param startIndex : liftoff event time index
-   * @param finalIndex : touchdown event time index
-   * @param phaseIDsStock : mode sequence
+   * Whether the swing phase whose lift-off and touch-down are the event-time
+   * indices `startIndex` and `finalIndex` (findIndex()) lies within a schedule
+   * of `numPhases` phases: its lift-off is an event of the schedule (not -1)
+   * and its touch-down is followed by a phase in contact.
    */
-  static void checkThatIndicesAreValid(
-      int leg,
-      int index,
-      int startIndex,
-      int finalIndex,
-      const std::vector<size_t>& phaseIDsStock);
+  static bool isPlannableSwing(int startIndex,
+                               int finalIndex,
+                               size_t numPhases);
 
   static scalar_t swingTrajectoryScaling(scalar_t startTime,
                                          scalar_t finalTime,
@@ -270,6 +280,11 @@ class SwingTrajectoryPlanner {
       scalar_t liftoffPosFootRtWorldEwrtWorldZ,
       scalar_t touchdownPosFootRtWorldEwrtWorldZ) const;
 
+  /** Appends to contact `contact`'s references one phase in stance at the
+   * height `posFootRtWorldEwrtWorldZ` [m]: a flat height and an impact
+   * proximity of 1. */
+  void appendStancePhase(size_t contact, scalar_t posFootRtWorldEwrtWorldZ);
+
   /** True while the foot is searching for the ground past its planned
    * touch-down at `time`. */
   static bool isSearching(const SwingWindow& window, scalar_t time) {
@@ -279,10 +294,12 @@ class SwingTrajectoryPlanner {
   Config config_;
   const size_t numFeet_;
 
-  feet_array_t<std::vector<SwingWindow>> swingWindows_;
-  feet_array_t<std::vector<SplineCpg>> impactProximityTrajectories_;
-  feet_array_t<std::vector<SplineCpg>> desPosFeetRtWorldEwrtWorldZTraj_;
-  feet_array_t<std::vector<scalar_t>> feetHeightTrajectoriesEvents_;
+  // One entry per contact (numFeet_ of them), each a per-phase vector over the
+  // schedule; every vector is empty until the first update().
+  ContactArray<std::vector<SwingWindow>> swingWindows_;
+  ContactArray<std::vector<SplineCpg>> impactProximityTrajectories_;
+  ContactArray<std::vector<SplineCpg>> desPosFeetRtWorldEwrtWorldZTraj_;
+  ContactArray<std::vector<scalar_t>> feetHeightTrajectoriesEvents_;
 };
 
 }  // namespace ocs2::humanoid

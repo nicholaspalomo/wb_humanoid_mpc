@@ -29,14 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <array>
+#include <cstddef>
 #include <string>
 #include <vector>
 
 #include "Eigen/Core"
 #include "absl/status/statusor.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_mpc_validation/io/GoldenIo.h"
 #include "robot_model/RobotDescription.h"
 #include "robot_model/RobotState.h"
@@ -51,10 +51,6 @@ namespace ocs2::humanoid::validation {
  * through the same observation path.
  */
 struct RobotStateRecord {
-  /** The contact points a record holds the flags of: the robot's two feet, in
-   * the RobotState's contact order. */
-  static constexpr int kNumRecordedContacts = static_cast<int>(kNumContacts);
-
   double time = 0.0;  ///< [s]
   Eigen::Vector3d posBaseRtWorldEwrtWorld =
       Eigen::Vector3d::Zero();  ///< [m] world frame
@@ -67,44 +63,52 @@ struct RobotStateRecord {
   Eigen::VectorXd
       jointPositions;  ///< every joint of the description, in its order
   Eigen::VectorXd jointVelocities;
-  std::array<bool, kNumRecordedContacts> contactFlags{false, false};
+  /// The RobotState's contact flags, one per contact of the robot's set in its
+  /// contact order: as many as the state has (two for a biped).
+  ContactMask contactFlags;
   Eigen::Vector4d guiCommand =
       Eigen::Vector4d::Zero();  ///< GuiVelocityCommand::message
 };
 
 /** A recording: the joint names of the description, in the order of the
- * records' joint vectors. */
+ * records' joint vectors. Every record holds the flags of the same contact
+ * set. */
 struct RecordedRobotStates {
   std::vector<std::string> jointNames;
   std::vector<RobotStateRecord> records;
 };
 
-/** The record of `state` (every joint of `description`) with the GUI command
- * `guiCommand`. */
+/** The record of `state` (every joint of `description`, every contact flag)
+ * with the GUI command `guiCommand`. */
 RobotStateRecord recordRobotState(
     const robot::model::RobotState& state,
     const robot::model::RobotDescription& description,
     const Eigen::Vector4d& guiCommand);
 
 /**
- * The RobotState of `record` for `description`, its joints matched by name
- * (`jointNames`, the order of the record's joint vectors): the order of a
- * RobotDescription's joints differs from one process to the next.
- * InvalidArgument when the recording's joints are not exactly the
- * description's.
+ * The RobotState of `record` for `description` and a contact set of
+ * `numContacts` contacts, its joints matched by name (`jointNames`, the order
+ * of the record's joint vectors): the order of a RobotDescription's joints
+ * differs from one process to the next. InvalidArgument when the recording's
+ * joints are not exactly the description's, or when the record holds the flags
+ * of another number of contacts than `numContacts`.
  */
 absl::StatusOr<robot::model::RobotState> toRobotState(
     const RobotStateRecord& record,
     const std::vector<std::string>& jointNames,
-    const robot::model::RobotDescription& description);
+    const robot::model::RobotDescription& description,
+    size_t numContacts);
 
 /** The recording as a golden file: one matrix per field, a row per record, the
- * joint names in a note. */
-GoldenFile toGoldenFile(const RecordedRobotStates& states,
-                        GoldenProvenance provenance);
+ * joint names in a note; the contact flags have a column per contact of the
+ * records' set (none without a record). InvalidArgument when two records hold
+ * the flags of different numbers of contacts. */
+absl::StatusOr<GoldenFile> toGoldenFile(const RecordedRobotStates& states,
+                                        GoldenProvenance provenance);
 
-/** The recording of a golden file written by toGoldenFile(); InvalidArgument
- * naming what is missing or mis-sized. */
+/** The recording of a golden file written by toGoldenFile(), its contact count
+ * the columns of the contact flags; InvalidArgument naming what is missing or
+ * mis-sized, or for more than kMaxNumContacts contacts. */
 absl::StatusOr<RecordedRobotStates> fromGoldenFile(const GoldenFile& golden);
 
 }  // namespace ocs2::humanoid::validation

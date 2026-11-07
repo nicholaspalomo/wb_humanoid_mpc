@@ -43,20 +43,31 @@ select them.
                                                      checks every column against buildLocalWrenchConeRows
                                                           |
                                                           v
-                                       B_i, B_i^+, P_i = I - B_i^+ B_i, basisInputsLibraryKey(B_0, B_1)
+                                       B_i, B_i^+, P_i = I - B_i^+ B_i, basisInputsLibraryKey(B_0, ..., B_{n-1})
                                                           |
          +------------------------------+-----------------+-------------------+-----------------------------+
          v                              v                                     v                             v
  BasisInputsModelDecorator     CentroidalDynamicsBasisInputsAD     BasisInputsCostTransform       BasisScalingNonNegativity-
- u = [lambda_0, lambda_1, qd]  W_i,world = R_i(q) B_i lambda_i     R_basis = M^T R M               Constraint
+ u = [lambda_0, ..., qd]       W_i,world = R_i(q) B_i lambda_i     R_basis = M^T R M               Constraint
  get: W_local = B lambda       -> centroidal flow map (CppAD,               + reg blkdiag(S, 0)    lambda >= 0
  set: lambda = NNLS(B, W)         library named by the key)        S by name: full_diagonal |     (barrier, or hinge when
                                                                               null_space           un-gated)
 ```
 
-`M = blkdiag(B_0, B_1, I_joints)` is the constant map from the basis-vector input to the wrench-space input with
-every wrench in its local contact frame (`BasisInputsModelDecorator::getLocalBasisGeneratorMap`). The dynamics rotate
-each $B_i \lambda_i$ into the world frame inside the CppAD tape, so they do not use $M$.
+`M = blkdiag(B_0, ..., B_{n-1}, I_joints)` is the constant map from the basis-vector input to the wrench-space input
+with every wrench in its local contact frame (`BasisInputsModelDecorator::getLocalBasisGeneratorMap`). The dynamics
+rotate each $B_i \lambda_i$ into the world frame inside the CppAD tape, so they do not use $M$.
+
+**The contact set.** The parameterization runs on any number of 6-DoF contacts: `contactWrenchConeBasesFromConfig`
+builds one basis per contact of `model_settings`, in contact order, each around its own footprint (its surface pad, or
+the shared `contacts.contact_rectangle`), and contact $i$ owns the scalings
+$[n_b i, n_b (i + 1))$ of the input, followed by the joint velocities. Every contact has the same number $n_b$ of
+generators (`BasisInputsModelDecorator::validateBasisMatrices`). A 3-DoF (point) contact has a force cone and no
+footprint, and no generator set for it exists yet, so a contact set with a point contact is refused under
+`basis_vectors`: by `checkCentroidalContactSet` before the interface builds anything, and by
+`contactWrenchConeBasesFromConfig` with a message naming the contact and `contact_input_parameterization`. For the
+shipped bipeds the bases, the input layout and the library key (section 8) are what they were when the parameterization
+was written for two feet.
 
 ## 2. The contact wrench cone of a rectangular footprint
 
@@ -298,7 +309,7 @@ the library default of the config (mu 0.7, 5 N) in place without a word.
 
 Every CppAD tape built on the basis-vector input depends on the parameterization: its input dimension is
 $n_b N_{\text{contacts}} + n_j$, and some tapes (the external-torque cost, the contact-moment constraint) embed $B$
-itself. `basisInputsLibraryKey(B_0, B_1)` returns `basis<n_b>_<16 hex digits>`, a content hash of the bases that is
+itself. `basisInputsLibraryKey(B_0, ..., B_{n-1})` returns `basis<n_b>_<16 hex digits>`, a content hash of the bases that is
 stable across processes and platforms, and `kWrenchInputsLibraryName` is its wrench-mode counterpart. The dynamics
 library carries the key in its name (`dynamics_basis11_...`), and `CentroidalMpcInterface` appends the key of the
 parameterization to the CppAD model folder before any term is built (below the folder's state-layout tag,
@@ -317,11 +328,12 @@ key's folder.
 | Target | What it shows |
 | --- | --- |
 | `//humanoid_nmpc/humanoid_common_mpc:testContactWrenchConeRows` | the pyramid admits no tangential ratio above $\mu$ in any direction; corner forces inside their pyramids always satisfy the rows and every wrench satisfying them is produced by corner forces; for $N = 4$ the rows are Caron et al.'s closed form; the lateral-force-at-the-toe counterexample is admitted; the affine offsets; degenerate footprints refused |
-| `//humanoid_nmpc/humanoid_common_mpc:testContactWrenchConeBasisMatrix` | every column of every set lies inside the rows; every sampled wrench of the cone is a non-negative combination of the exact set, whose columns are exactly the cone's vertices and none redundant; the conservative set provably misses the audit's counterexamples and its coverage is logged; the registry, the key-naming errors, the NNLS and the library key |
+| `//humanoid_nmpc/humanoid_common_mpc:testContactWrenchConeBasisMatrix` | every column of every set lies inside the rows; every sampled wrench of the cone is a non-negative combination of the exact set, whose columns are exactly the cone's vertices and none redundant; the conservative set provably misses the audit's counterexamples and its coverage is logged; the registry, the key-naming errors, the NNLS and the library key, whose value for two feet is pinned and which changes with a third contact |
 | `//humanoid_nmpc/humanoid_common_mpc:testBasisInputsCostTransform` | `null_space` leaves the wrench metric exactly $R$ and the regularization vanishes on $\operatorname{range}(M^\top)$; `full_diagonal` is the old transform bit for bit and distorts the metric by $\text{reg}\,(BB^\top)^{-1}$; positive definiteness and when it fails |
-| `//humanoid_nmpc/humanoid_centroidal_mpc:testBasisInputsModelDecorator` | wrenches whose minimum-norm scalings are negative, and the weight seen from a pitched foot, round-trip exactly; the exact set decorates the same model |
+| `//humanoid_nmpc/humanoid_centroidal_mpc:testBasisInputsModelDecorator` | wrenches whose minimum-norm scalings are negative, and the weight seen from a pitched foot, round-trip exactly; the exact set decorates the same model; with three and four 6-DoF contacts the input dimension, the start indices, the block structure of $M$ and every contact's wrench round trip; bases that do not match the contact set are refused |
+| `//humanoid_nmpc/humanoid_centroidal_mpc:testMixedContactSet` | `basis_vectors` is accepted on a set of three 6-DoF contacts and refused on a set with 3-DoF contacts |
 | `//humanoid_nmpc/humanoid_centroidal_mpc_test:test_basis_inputs_formulation` | the full Atlas interface in both modes: dimensions, dynamics, the input cost, and that the shipped defaults are unchanged; the CppAD folder keyed by the parameterization and the basis; the barrier built without `contact_wrench_cone`; `null_space` reaching the start-up input cost |
-| `//humanoid_nmpc/humanoid_common_mpc:testContactInputParameterization` | the parameterization registry, its conversion and the refusal of the retired boolean; the shipped robots select what they ran before; every field of the wrench-cone block required by name; the bases a task file's `basis_generator_set` builds |
+| `//humanoid_nmpc/humanoid_common_mpc:testContactInputParameterization` | the parameterization registry, its conversion and the refusal of the retired boolean; the shipped robots select what they ran before; every field of the wrench-cone block required by name; the bases a task file's `basis_generator_set` builds, one per 6-DoF contact, and the refusal of a point contact by name |
 | `//humanoid_nmpc/humanoid_centroidal_mpc:testContactInputParameterizationWiring` | `CentroidalMpcInterface::Create` refuses, by field and before any CppAD model is built, the retired boolean, an unknown parameterization, generator set or regularization, a negative, zero or unparsable `basis_scaling_regularization`, an unparsable barrier `mu` or `delta`, and a wrench-cone block missing a field (for the basis and for the contact planner) |
 | `//humanoid_nmpc/humanoid_centroidal_mpc:testMpcParameterUpdaterModule` | on the shipped Atlas: a hot reload reproduces the factory's basis-space $R$, applies a named `basis_regularization`, refuses an unknown shape, an unparsable weight or an indefinite $\lambda$ block and keeps the running $R$, keeps the running barrier when its `mu` is not a number, reports a changed parameterization as structural, and logs no failure for cone terms the problem does not carry |
 | `//humanoid_nmpc/humanoid_wb_mpc:testWBMpcFormulation` | the whole-body MPC refuses `basis_vectors`, the retired boolean and the contact planner by name |

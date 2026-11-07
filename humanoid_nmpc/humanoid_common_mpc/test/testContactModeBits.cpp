@@ -32,7 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 /**
@@ -48,9 +49,9 @@ namespace {
 TEST(ContactModeBits, theBipedsModesKeepTheirMeaning) {
   constexpr size_t kNumNumbersTried = 16;
   for (size_t mode = 0; mode < kNumNumbersTried; ++mode) {
-    const contact_flag_t biped = modeNumber2StanceLeg(mode);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
-      EXPECT_EQ(contactIsActiveInMode(mode, foot, kNumContacts), biped[foot])
+    const BipedFeetArray<bool> biped = bipedFootContactsOfMode(mode);
+    for (size_t foot = 0; foot < biped.size(); ++foot) {
+      EXPECT_EQ(contactIsActiveInMode(mode, foot, biped.size()), biped[foot])
           << "mode " << mode << ", foot " << foot;
     }
   }
@@ -73,12 +74,30 @@ TEST(ContactModeBits, theFirstContactIsTheMostSignificantBit) {
   EXPECT_FALSE(contactIsActiveInMode(size_t{1} << kNumContactsOfTheSet,
                                      /*contactIndex=*/0, kNumContactsOfTheSet));
   // The biped's numbers mean the feet when they are the set's last two.
-  EXPECT_TRUE(contactIsActiveInMode(ModeNumber::kStance, /*contactIndex=*/3,
+  EXPECT_TRUE(contactIsActiveInMode(kBipedModeStance, /*contactIndex=*/3,
                                     kNumContactsOfTheSet));
-  EXPECT_TRUE(contactIsActiveInMode(ModeNumber::kStance, /*contactIndex=*/4,
+  EXPECT_TRUE(contactIsActiveInMode(kBipedModeStance, /*contactIndex=*/4,
                                     kNumContactsOfTheSet));
-  EXPECT_FALSE(contactIsActiveInMode(ModeNumber::kStance, /*contactIndex=*/2,
+  EXPECT_FALSE(contactIsActiveInMode(kBipedModeStance, /*contactIndex=*/2,
                                      kNumContactsOfTheSet));
+}
+
+// The biped's mode numbers and its per-foot flags are each other's inverse on
+// the four modes, and the two-foot ContactMask reads the same flags.
+TEST(ContactModeBits, theBipedModesAndTheirFootContactsRoundTrip) {
+  for (size_t mode = 0; mode < kNumBipedModes; ++mode) {
+    EXPECT_EQ(bipedModeOfFootContacts(bipedFootContactsOfMode(mode)), mode)
+        << "mode " << mode;
+    const ContactMask mask =
+        ContactMask::fromModeNumber(mode, static_cast<size_t>(kBipedFootCount));
+    const BipedFeetArray<bool> feet = bipedFootContactsOfMode(mode);
+    EXPECT_EQ(mask[kContactLeftIndex], feet[kContactLeftIndex])
+        << "mode " << mode;
+    EXPECT_EQ(mask[kContactRightIndex], feet[kContactRightIndex])
+        << "mode " << mode;
+  }
+  EXPECT_EQ(bipedFootContactsOfMode(kNumBipedModes),
+            makeBipedFeetArray(/*value=*/false));
 }
 
 }  // namespace

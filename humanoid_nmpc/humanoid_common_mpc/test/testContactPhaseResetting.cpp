@@ -48,17 +48,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 
 /**
  * Unit tests of the adaptive execution of a contact schedule (phase resetting
  * on early / late touch-down, cadence modulation, DCM step adjustment and the
- * LIP helpers). Everything is written in terms of kNumContacts: the schedules
+ * LIP helpers). Everything is written in terms of kNumFeet: the schedules
  * are built from contact flags and every scenario is run for every foot.
  */
 namespace ocs2::humanoid {
 
 namespace {
+
+// The biped's two feet, which every case here is written for.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 /**
  * The value of `optional`, or a failed expectation and a value-initialized T. A
@@ -78,9 +81,9 @@ constexpr scalar_t kTol = 1.0e-9;
 
 /** Mode number in which exactly the given feet are out of contact. */
 size_t modeWithSwinging(std::initializer_list<size_t> swingingFeet) {
-  contact_flag_t flags = makeFeetArray(true);
+  BipedFeetArray<bool> flags = makeBipedFeetArray(true);
   for (size_t foot : swingingFeet) flags[foot] = false;
-  return stanceLeg2ModeNumber(flags);
+  return bipedModeOfFootContacts(flags);
 }
 
 const size_t kAllInContact = modeWithSwinging({});
@@ -106,7 +109,7 @@ ModeSchedule twoStepSchedule(size_t foot, size_t other) {
 }
 
 size_t otherFoot(size_t foot) {
-  return (foot + 1) % kNumContacts;
+  return (foot + 1) % kNumFeet;
 }
 
 ContactPlanningConfig makeConfig() {
@@ -139,9 +142,9 @@ bool strictlyIncreasing(const std::vector<scalar_t>& times) {
 
 bool hasFlightPhase(const ModeSchedule& schedule) {
   for (size_t mode : schedule.modeSequence) {
-    const contact_flag_t flags = modeNumber2StanceLeg(mode);
+    const BipedFeetArray<bool> flags = bipedFootContactsOfMode(mode);
     bool any = false;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) any = any || flags[foot];
+    for (size_t foot = 0; foot < kNumFeet; ++foot) any = any || flags[foot];
     if (!any) return true;
   }
   return false;
@@ -164,13 +167,13 @@ ContactPlan makePlan(scalar_t startTime,
   plan.valid = true;
   plan.startTime = startTime;
   plan.dt = dt;
-  plan.contacts.assign(numIntervals, makeFeetArray(true));
+  plan.contacts.assign(numIntervals, makeBipedFeetArray(true));
   plan.posZmpRtWorldEwrtWorldXyTraj.assign(numIntervals,
                                            posZmpRtWorldEwrtWorldXy);
   plan.posComRtWorldEwrtWorldXyTraj.resize(numIntervals + 1);
   plan.linvelComRtWorldEwrtWorldXyTraj.resize(numIntervals + 1);
   plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
-      numIntervals + 1, makeFeetArray(vector2_t(vector2_t::Zero())));
+      numIntervals + 1, makeBipedFeetArray(vector2_t(vector2_t::Zero())));
   const scalar_t omega = std::sqrt(9.81 / 0.85);
   for (int k = 0; k <= numIntervals; ++k) {
     // Exact LIP propagation with constant ZMP so that the node states are
@@ -185,7 +188,7 @@ ContactPlan makePlan(scalar_t startTime,
     plan.linvelComRtWorldEwrtWorldXyTraj[k] =
         (posComRtWorldEwrtWorldXy - posZmpRtWorldEwrtWorldXy) * (omega * sh) +
         linvelComRtWorldEwrtWorldXy * ch;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       plan.desPosFeetRtWorldEwrtWorldXyTraj[k][foot] =
           vector2_t(0.3, 0.1 - 0.2 * static_cast<scalar_t>(foot));
     }
@@ -199,7 +202,7 @@ ContactPlan makePlan(scalar_t startTime,
  * ============================================*/
 
 TEST(ContactScheduleQueries, EventAtQueryTimeCountsAsPassed) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     const ModeSchedule schedule =
         singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
     EXPECT_EQ(modeIndexAtTime(schedule, /*time=*/0.5), 0u);
@@ -221,13 +224,13 @@ TEST(ContactScheduleQueries, EventAtQueryTimeCountsAsPassed) {
   ModeSchedule empty;
   empty.clear();
   EXPECT_EQ(modeIndexAtTime(empty, /*time=*/3.0), 0u);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     EXPECT_TRUE(contactFlagsAtTime(empty, /*time=*/0.0)[foot]);
   }
 }
 
 TEST(ContactScheduleQueries, SwingPhaseLookup) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     const ModeSchedule schedule =
         singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
     const std::optional<SwingWindow> phase =
@@ -239,7 +242,7 @@ TEST(ContactScheduleQueries, SwingPhaseLookup) {
     EXPECT_NEAR(phase->touchDown, 1.4, kTol);
     EXPECT_FALSE(swingPhaseAtTime(schedule, foot, /*time=*/0.5).has_value());
     EXPECT_FALSE(swingPhaseAtTime(schedule, foot, /*time=*/1.4).has_value());
-    for (size_t other = 0; other < kNumContacts; ++other) {
+    for (size_t other = 0; other < kNumFeet; ++other) {
       if (other != foot) {
         EXPECT_FALSE(
             swingPhaseAtTime(schedule, other, /*time=*/1.2).has_value());
@@ -262,7 +265,7 @@ TEST(ContactScheduleQueries, SwingPhaseLookup) {
 }
 
 TEST(ContactScheduleQueries, SwingWithoutLiftOffOrTouchDownEvent) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     const ModeSchedule noLiftOff({1.4},
                                  {modeWithSwinging({foot}), kAllInContact});
     EXPECT_FALSE(swingPhaseAtTime(noLiftOff, foot, /*time=*/1.0).has_value());
@@ -278,7 +281,6 @@ TEST(ContactScheduleQueries, SwingWithoutLiftOffOrTouchDownEvent) {
 }
 
 TEST(ContactScheduleQueries, SwingSpanningSeveralPhases) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   // foot 0 in the air over [1.0, 1.6] while foot 1 lifts at 1.2 and lands
   // at 1.4 (a flight phase, only for the query).
   const ModeSchedule schedule(
@@ -332,7 +334,7 @@ TEST(ContactScheduleEdits, RemoveRedundantEvents) {
 }
 
 TEST(ContactScheduleEdits, TruncateSwingMidPhase) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     ModeSchedule schedule = twoStepSchedule(foot, otherFoot(foot));
     const std::optional<scalar_t> cut =
         truncateSwingPhase(schedule, foot, /*time=*/1.25);
@@ -348,16 +350,14 @@ TEST(ContactScheduleEdits, TruncateSwingMidPhase) {
     EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.3)[foot]);
     EXPECT_EQ(schedule.eventTimes,
               (std::vector<scalar_t>{1.0, 1.25, 1.5, 1.9}));
-    if (kNumContacts > 1) {
-      EXPECT_FALSE(contactFlagsAtTime(schedule, /*time=*/1.6)[otherFoot(foot)]);
-      EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.95)[otherFoot(foot)]);
-    }
+    EXPECT_FALSE(contactFlagsAtTime(schedule, /*time=*/1.6)[otherFoot(foot)]);
+    EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.95)[otherFoot(foot)]);
     EXPECT_FALSE(hasFlightPhase(schedule));
   }
 }
 
 TEST(ContactScheduleEdits, TruncateSwingAtPhaseStartDoesNotDuplicateEvent) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     ModeSchedule schedule =
         singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
     ASSERT_TRUE(truncateSwingPhase(schedule, foot, /*time=*/1.0).has_value());
@@ -369,7 +369,7 @@ TEST(ContactScheduleEdits, TruncateSwingAtPhaseStartDoesNotDuplicateEvent) {
 }
 
 TEST(ContactScheduleEdits, TruncateSwingRejectsStanceAndMissingTouchDown) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     ModeSchedule schedule =
         singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
     const ModeSchedule before = schedule;
@@ -385,7 +385,6 @@ TEST(ContactScheduleEdits, TruncateSwingRejectsStanceAndMissingTouchDown) {
 }
 
 TEST(ContactScheduleEdits, TruncateSwingSpanningSeveralPhasesKeepsOtherFeet) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   ModeSchedule schedule(
       {1.0, 1.2, 1.4, 1.6},
       {kAllInContact, modeWithSwinging({0}), modeWithSwinging({0, 1}),
@@ -429,25 +428,26 @@ TEST(ContactScheduleEdits, ShiftEventsPreservesLaterDurations) {
 class ContactEventTest : public ::testing::Test {
  protected:
   ContactPlanningConfig config_ = makeConfig();
-  feet_array_t<SwingTimingLatch> latches_ = makeFeetArray(SwingTimingLatch{});
-  feet_array_t<scalar_t> noCadence_ = makeFeetArray(0.0);
+  BipedFeetArray<SwingTimingLatch> latches_ =
+      makeBipedFeetArray(SwingTimingLatch{});
+  BipedFeetArray<scalar_t> noCadence_ = makeBipedFeetArray(0.0);
 
-  contact_flag_t measured(size_t swingingFoot, bool inContact) {
-    contact_flag_t flags = makeFeetArray(true);
+  BipedFeetArray<bool> measured(size_t swingingFoot, bool inContact) {
+    BipedFeetArray<bool> flags = makeBipedFeetArray(true);
     flags[swingingFoot] = inContact;
     return flags;
   }
 
-  feet_array_t<ContactEventReport> step(ModeSchedule& schedule,
-                                        scalar_t time,
-                                        const contact_flag_t& contact) {
+  BipedFeetArray<ContactEventReport> step(ModeSchedule& schedule,
+                                          scalar_t time,
+                                          const BipedFeetArray<bool>& contact) {
     return adaptScheduleToContactEvents(schedule, time, contact, noCadence_,
                                         config_, latches_);
   }
 
   static void expectNoEventExcept(
-      const feet_array_t<ContactEventReport>& reports, size_t foot) {
-    for (size_t i = 0; i < kNumContacts; ++i) {
+      const BipedFeetArray<ContactEventReport>& reports, size_t foot) {
+    for (size_t i = 0; i < kNumFeet; ++i) {
       if (i != foot) {
         EXPECT_EQ(reports[i].type, ContactEventReport::Type::kNone)
             << "foot " << i;
@@ -457,21 +457,21 @@ class ContactEventTest : public ::testing::Test {
 };
 
 TEST_F(ContactEventTest, NothingHappensWhenContactMatchesSchedule) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     latches_.fill(SwingTimingLatch{});
     ModeSchedule schedule = twoStepSchedule(foot, otherFoot(foot));
     const ModeSchedule before = schedule;
     for (scalar_t t : {0.5, 1.0, 1.2, 1.39}) {
-      const feet_array_t<ContactEventReport> reports =
+      const BipedFeetArray<ContactEventReport> reports =
           step(schedule, t, measured(foot, /*inContact=*/false));
-      for (size_t i = 0; i < kNumContacts; ++i) {
+      for (size_t i = 0; i < kNumFeet; ++i) {
         EXPECT_EQ(reports[i].type, ContactEventReport::Type::kNone);
       }
     }
     EXPECT_TRUE(latches_[foot].active);
     EXPECT_NEAR(latches_[foot].liftOffTime, 1.0, kTol);
     EXPECT_NEAR(latches_[foot].nominalTouchDownTime, 1.4, kTol);
-    const feet_array_t<ContactEventReport> landed =
+    const BipedFeetArray<ContactEventReport> landed =
         step(schedule, /*time=*/1.4, measured(foot, /*inContact=*/true));
     EXPECT_EQ(landed[foot].type, ContactEventReport::Type::kNone);
     EXPECT_FALSE(latches_[foot].active)
@@ -482,12 +482,12 @@ TEST_F(ContactEventTest, NothingHappensWhenContactMatchesSchedule) {
 }
 
 TEST_F(ContactEventTest, EarlyTouchDownTruncatesSwingInPlace) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     latches_.fill(SwingTimingLatch{});
     ModeSchedule schedule = twoStepSchedule(foot, otherFoot(foot));
     step(schedule, /*time=*/1.1,
          measured(foot, /*inContact=*/false));  // in flight, latch created
-    const feet_array_t<ContactEventReport> reports =
+    const BipedFeetArray<ContactEventReport> reports =
         step(schedule, /*time=*/1.25, measured(foot, /*inContact=*/true));
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::kEarlyTouchDown);
     EXPECT_NEAR(reports[foot].touchDownTime, 1.25, kTol);
@@ -517,7 +517,7 @@ TEST_F(ContactEventTest, EarlyTouchDownTruncatesSwingInPlace) {
 TEST_F(
     ContactEventTest,
     EarlyTouchDownIgnoredDuringScuffingWindowButAcceptedWhenContactPersists) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     latches_.fill(SwingTimingLatch{});
     ModeSchedule schedule = singleSwingSchedule(
         foot, /*liftOff=*/1.0,
@@ -544,7 +544,7 @@ TEST_F(
 TEST_F(ContactEventTest,
        EarlyTouchDownRequiresContactToPersistForTheDebounceDuration) {
   config_.phaseResetting.earlyTouchdownMinContactDuration = 0.04;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     latches_.fill(SwingTimingLatch{});
     ModeSchedule schedule =
         singleSwingSchedule(foot, /*liftOff=*/1.0,
@@ -561,7 +561,7 @@ TEST_F(ContactEventTest,
         ContactEventReport::Type::kNone);
     EXPECT_FALSE(contactFlagsAtTime(schedule, /*time=*/1.22)[foot])
         << "the swing must not end before the contact has persisted";
-    const feet_array_t<ContactEventReport> reports =
+    const BipedFeetArray<ContactEventReport> reports =
         step(schedule, /*time=*/1.24, measured(foot, /*inContact=*/true));
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::kEarlyTouchDown);
     EXPECT_NEAR(reports[foot].touchDownTime, 1.24, kTol)
@@ -573,7 +573,7 @@ TEST_F(ContactEventTest,
 
 TEST_F(ContactEventTest, SingleChatteringContactSampleDoesNotEndTheSwing) {
   config_.phaseResetting.earlyTouchdownMinContactDuration = 0.04;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     latches_.fill(SwingTimingLatch{});
     ModeSchedule schedule =
         singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
@@ -608,7 +608,7 @@ TEST_F(ContactEventTest, SingleChatteringContactSampleDoesNotEndTheSwing) {
 
 TEST_F(ContactEventTest, DebounceStartsOnlyAfterTheScuffingWindow) {
   config_.phaseResetting.earlyTouchdownMinContactDuration = 0.04;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     latches_.fill(SwingTimingLatch{});
     ModeSchedule schedule = singleSwingSchedule(
         foot, /*liftOff=*/1.0, /*touchDown=*/1.4);  // window 0.25 * 0.4 = 0.1
@@ -642,7 +642,7 @@ TEST_F(ContactEventTest, DebounceStartsOnlyAfterTheScuffingWindow) {
 
 TEST_F(ContactEventTest, ZeroDebounceEndsTheSwingOnTheFirstSample) {
   config_.phaseResetting.earlyTouchdownMinContactDuration = 0.0;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     latches_.fill(SwingTimingLatch{});
     ModeSchedule schedule =
         singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
@@ -657,11 +657,11 @@ TEST_F(ContactEventTest,
        EarlyTouchDownWindowUsesNominalDurationEvenAfterCadenceShift) {
   config_.formulation.setExecutionRule(term::kEnergyCadenceModulation,
                                        /*on=*/true);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     latches_.fill(SwingTimingLatch{});
     ModeSchedule schedule =
         singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
-    feet_array_t<scalar_t> cadence = makeFeetArray(0.0);
+    BipedFeetArray<scalar_t> cadence = makeBipedFeetArray(0.0);
     cadence[foot] = 0.2;  // touch-down 1.6 (within maxSwingDuration)
     adaptScheduleToContactEvents(schedule, /*time=*/1.05,
                                  measured(foot, /*inContact=*/false), cadence,
@@ -670,7 +670,7 @@ TEST_F(ContactEventTest,
     EXPECT_NEAR(latches_[foot].nominalTouchDownTime, 1.4, kTol);
     // The window is 25 % of the nominal 0.4 s, i.e. contact at 1.1 counts
     // although the swing now lasts until 1.6.
-    const feet_array_t<ContactEventReport> reports =
+    const BipedFeetArray<ContactEventReport> reports =
         adaptScheduleToContactEvents(schedule, /*time=*/1.1,
                                      measured(foot, /*inContact=*/true),
                                      cadence, config_, latches_);
@@ -680,7 +680,7 @@ TEST_F(ContactEventTest,
 
 TEST_F(ContactEventTest, PhaseResettingDisabledLeavesScheduleAlone) {
   config_.formulation.setExecutionRule(term::kPhaseResetting, /*on=*/false);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     latches_.fill(SwingTimingLatch{});
     ModeSchedule schedule =
         singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
@@ -699,14 +699,14 @@ TEST_F(ContactEventTest, PhaseResettingDisabledLeavesScheduleAlone) {
 }
 
 TEST_F(ContactEventTest, LateTouchDownExtendsInStepsUpToBudgetThenGivesUp) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     latches_.fill(SwingTimingLatch{});
     ModeSchedule schedule = twoStepSchedule(foot, otherFoot(foot));
     step(schedule, /*time=*/1.2, measured(foot, /*inContact=*/false));
 
     // 1.405: scheduled in contact since 1.4, no contact measured -> touch-down
     // pushed to 1.455, tail shifted by 0.055.
-    feet_array_t<ContactEventReport> reports =
+    BipedFeetArray<ContactEventReport> reports =
         step(schedule, /*time=*/1.405, measured(foot, /*inContact=*/false));
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::kLateTouchDown);
     EXPECT_NEAR(reports[foot].touchDownTime, 1.455, kTol);
@@ -760,7 +760,7 @@ TEST_F(ContactEventTest, LateTouchDownExtendsInStepsUpToBudgetThenGivesUp) {
 }
 
 TEST_F(ContactEventTest, ContactDuringLateExtensionEndsSwingImmediately) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     latches_.fill(SwingTimingLatch{});
     ModeSchedule schedule = twoStepSchedule(foot, otherFoot(foot));
     step(schedule, /*time=*/1.2, measured(foot, /*inContact=*/false));
@@ -768,7 +768,7 @@ TEST_F(ContactEventTest, ContactDuringLateExtensionEndsSwingImmediately) {
                    measured(foot, /*inContact=*/false))[foot]
                   .type,
               ContactEventReport::Type::kLateTouchDown);
-    const feet_array_t<ContactEventReport> reports =
+    const BipedFeetArray<ContactEventReport> reports =
         step(schedule, /*time=*/1.43, measured(foot, /*inContact=*/true));
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::kEarlyTouchDown);
     EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.43)[foot]);
@@ -786,7 +786,7 @@ TEST_F(ContactEventTest, ContactDuringLateExtensionEndsSwingImmediately) {
 }
 
 TEST_F(ContactEventTest, LateTouchDownNeedsALatchedSwing) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     latches_.fill(SwingTimingLatch{});
     ModeSchedule schedule =
         singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
@@ -815,14 +815,14 @@ TEST_F(ContactEventTest,
        CadenceShiftMovesTouchDownRelativeToNominalWithinLimits) {
   config_.formulation.setExecutionRule(term::kEnergyCadenceModulation,
                                        /*on=*/true);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     latches_.fill(SwingTimingLatch{});
     ModeSchedule schedule = twoStepSchedule(
         foot, otherFoot(foot));  // swing [1.0, 1.4], limits [1.3, 1.6]
-    feet_array_t<scalar_t> cadence = makeFeetArray(0.0);
+    BipedFeetArray<scalar_t> cadence = makeBipedFeetArray(0.0);
 
     cadence[foot] = 0.1;
-    feet_array_t<ContactEventReport> reports = adaptScheduleToContactEvents(
+    BipedFeetArray<ContactEventReport> reports = adaptScheduleToContactEvents(
         schedule, /*time=*/1.1, measured(foot, /*inContact=*/false), cadence,
         config_, latches_);
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::kCadenceShift);
@@ -881,15 +881,15 @@ TEST_F(ContactEventTest, CadenceRequestEarlierThanFeasibleLetsTheFootLand) {
   config_.formulation.setExecutionRule(term::kEnergyCadenceModulation,
                                        /*on=*/true);
   config_.formulation.setExecutionRule(term::kPhaseResetting, /*on=*/false);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     latches_.fill(SwingTimingLatch{});
     ModeSchedule schedule =
         ModeSchedule({1.1, 1.5, 1.6, 2.0},
                      {kAllInContact, modeWithSwinging({foot}), kAllInContact,
                       modeWithSwinging({otherFoot(foot)}), kAllInContact});
-    feet_array_t<scalar_t> cadence = makeFeetArray(0.0);
+    BipedFeetArray<scalar_t> cadence = makeBipedFeetArray(0.0);
     cadence[foot] = -0.10;
-    feet_array_t<ContactEventReport> reports = adaptScheduleToContactEvents(
+    BipedFeetArray<ContactEventReport> reports = adaptScheduleToContactEvents(
         schedule, /*time=*/1.30, measured(foot, /*inContact=*/false), cadence,
         config_, latches_);
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::kCadenceShift);
@@ -918,21 +918,22 @@ TEST_F(ContactEventTest, CadenceRequestIsClippedToWhatRemainsFeasible) {
   // to now + margin, not to the current touch-down and not into the past.
   config_.formulation.setExecutionRule(term::kEnergyCadenceModulation,
                                        /*on=*/true);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     latches_.fill(SwingTimingLatch{});
     ModeSchedule schedule =
         singleSwingSchedule(foot, /*liftOff=*/1.1, /*touchDown=*/1.5);
-    feet_array_t<scalar_t> cadence = makeFeetArray(0.0);
+    BipedFeetArray<scalar_t> cadence = makeBipedFeetArray(0.0);
     cadence[foot] = -0.10;  // wanted 1.40
-    const feet_array_t<ContactEventReport> reports =
+    const BipedFeetArray<ContactEventReport> reports =
         adaptScheduleToContactEvents(schedule, /*time=*/1.42,
                                      measured(foot, /*inContact=*/false),
                                      cadence, config_, latches_);
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::kCadenceShift);
     EXPECT_NEAR(schedule.eventTimes[1], 1.44, kTol);
-    const feet_array_t<ContactEventReport> again = adaptScheduleToContactEvents(
-        schedule, /*time=*/1.43, measured(foot, /*inContact=*/false), cadence,
-        config_, latches_);
+    const BipedFeetArray<ContactEventReport> again =
+        adaptScheduleToContactEvents(schedule, /*time=*/1.43,
+                                     measured(foot, /*inContact=*/false),
+                                     cadence, config_, latches_);
     EXPECT_EQ(again[foot].type, ContactEventReport::Type::kNone)
         << "once imminent the touch-down stands";
     EXPECT_NEAR(schedule.eventTimes[1], 1.44, kTol);
@@ -941,11 +942,11 @@ TEST_F(ContactEventTest, CadenceRequestIsClippedToWhatRemainsFeasible) {
 
 TEST_F(ContactEventTest,
        CadenceShiftIgnoredWhenDisabledOrWhileSearchingForGround) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     latches_.fill(SwingTimingLatch{});
     ModeSchedule schedule =
         singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
-    feet_array_t<scalar_t> cadence = makeFeetArray(0.1);
+    BipedFeetArray<scalar_t> cadence = makeBipedFeetArray(0.1);
     config_.formulation.setExecutionRule(term::kEnergyCadenceModulation,
                                          /*on=*/false);
     EXPECT_EQ(adaptScheduleToContactEvents(schedule, /*time=*/1.1,
@@ -975,9 +976,9 @@ TEST_F(ContactEventTest,
 TEST_F(ContactEventTest, EmptyScheduleIsHarmless) {
   ModeSchedule empty;
   empty.clear();
-  const feet_array_t<ContactEventReport> reports =
-      step(empty, /*time=*/1.0, makeFeetArray(true));
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  const BipedFeetArray<ContactEventReport> reports =
+      step(empty, /*time=*/1.0, makeBipedFeetArray(true));
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::kNone);
   }
 }
@@ -985,12 +986,11 @@ TEST_F(ContactEventTest, EmptyScheduleIsHarmless) {
 TEST_F(ContactEventTest, AlternatingGaitSimulationStaysConsistent) {
   // Feet take turns; every second swing lands early, every third misses the
   // ground for a while.
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   std::vector<scalar_t> events;
   std::vector<size_t> modes{kAllInContact};
   scalar_t t = 1.0;
   for (int step = 0; step < 8; ++step) {
-    const size_t foot = static_cast<size_t>(step) % kNumContacts;
+    const size_t foot = static_cast<size_t>(step) % kNumFeet;
     events.push_back(t);
     modes.push_back(modeWithSwinging({foot}));
     events.push_back(t + 0.4);
@@ -1001,8 +1001,8 @@ TEST_F(ContactEventTest, AlternatingGaitSimulationStaysConsistent) {
   int early = 0;
   int late = 0;
   for (scalar_t time = 0.5; time < 6.0; time += 0.02) {
-    contact_flag_t contact = makeFeetArray(true);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    BipedFeetArray<bool> contact = makeBipedFeetArray(true);
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       const std::optional<SwingWindow> phase =
           swingPhaseAtTime(schedule, foot, time);
       if (phase.has_value()) {
@@ -1022,9 +1022,9 @@ TEST_F(ContactEventTest, AlternatingGaitSimulationStaysConsistent) {
         contact[foot] = !searching;
       }
     }
-    const feet_array_t<ContactEventReport> reports =
+    const BipedFeetArray<ContactEventReport> reports =
         step(schedule, time, contact);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       if (reports[foot].type == ContactEventReport::Type::kEarlyTouchDown) {
         ++early;
       }
@@ -1036,7 +1036,7 @@ TEST_F(ContactEventTest, AlternatingGaitSimulationStaysConsistent) {
     ASSERT_FALSE(hasFlightPhase(schedule)) << "at t=" << time;
     // Every phase of every foot keeps a positive duration and a swing never
     // lasts longer than max + extension.
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       const std::optional<SwingWindow> phase =
           swingPhaseAtTime(schedule, foot, time);
       if (phase.has_value()) {
@@ -1054,12 +1054,11 @@ TEST_F(ContactEventTest, AlternatingGaitSimulationStaysConsistent) {
  * ================================*/
 
 TEST(CommittedContacts, StraddlingNodeTakesTheStateHandedOverAtTheBoundary) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   // Right foot swings 0.07 -> 0.47. Planner grid from 0.0 with dt 0.1, boundary
   // at the touch-down 0.47.
   const ModeSchedule schedule(
       {0.07, 0.47}, {kAllInContact, modeWithSwinging({1}), kAllInContact});
-  const std::vector<contact_flag_t> committed =
+  const std::vector<BipedFeetArray<bool>> committed =
       committedContactsForPlanner(schedule, /*startTime=*/0.0, /*dt=*/0.1,
                                   /*maxNodes=*/11, /*committedUntil=*/0.47);
   ASSERT_EQ(committed.size(), 5u)
@@ -1073,12 +1072,14 @@ TEST(CommittedContacts, StraddlingNodeTakesTheStateHandedOverAtTheBoundary) {
   // would read "swinging" and let the plan keep the foot in the air until 0.5;
   // sampled at the boundary it reads the landed state the schedule hands over.
   EXPECT_TRUE(committed[4][1]);
-  for (const contact_flag_t& c : committed) EXPECT_TRUE(c[0]);
+  for (const BipedFeetArray<bool>& c : committed) EXPECT_TRUE(c[0]);
 
   // The merge of such a plan with the executed schedule keeps the touch-down
   // where it is.
-  std::vector<contact_flag_t> planContacts = committed;
-  while (planContacts.size() < 12) planContacts.push_back(makeFeetArray(true));
+  std::vector<BipedFeetArray<bool>> planContacts = committed;
+  while (planContacts.size() < 12) {
+    planContacts.push_back(makeBipedFeetArray(true));
+  }
   ContactPlan plan;
   plan.valid = true;
   plan.startTime = 0.0;
@@ -1097,13 +1098,12 @@ TEST(CommittedContacts, StraddlingNodeTakesTheStateHandedOverAtTheBoundary) {
 }
 
 TEST(CommittedContacts, BoundaryInsideAContactPhaseAndNodeLimit) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   // Left swings 0.83 -> 1.23; boundary 1.25 (commit window), grid from 1.0.
   const ModeSchedule schedule(
       {0.83, 1.23, 1.33, 1.73},
       {kAllInContact, modeWithSwinging({0}), kAllInContact,
        modeWithSwinging({1}), kAllInContact});
-  const std::vector<contact_flag_t> committed =
+  const std::vector<BipedFeetArray<bool>> committed =
       committedContactsForPlanner(schedule, /*startTime=*/1.0, /*dt=*/0.1,
                                   /*maxNodes=*/11, /*committedUntil=*/1.25);
   ASSERT_EQ(committed.size(), 3u) << "nodes starting at 1.0, 1.1, 1.2";
@@ -1132,7 +1132,6 @@ TEST(CommittedContacts, BoundaryInsideAContactPhaseAndNodeLimit) {
 
 TEST(CommittedContacts,
      LastCommittedNodeEndingOnTheBoundaryIsSampledAtTheBoundary) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   // Right foot swings -0.13 -> 0.27 and lands 0.03 s before a boundary at 0.3
   // that lies on the node grid from 0.0 (the live commit time of three whole
   // nodes, with no swing to extend it). Sampled at its midpoint 0.25 the node
@@ -1148,7 +1147,7 @@ TEST(CommittedContacts,
   EXPECT_NEAR(samples[1], 0.15, kTol);
   EXPECT_NEAR(samples[2], 0.3, kTol) << "the node that ends on the boundary is "
                                         "sampled at the boundary, not at 0.25";
-  const std::vector<contact_flag_t> committed =
+  const std::vector<BipedFeetArray<bool>> committed =
       committedContactsForPlanner(schedule, /*startTime=*/0.0, /*dt=*/0.1,
                                   /*maxNodes=*/11, /*committedUntil=*/0.3);
   ASSERT_EQ(committed.size(), 3u);
@@ -1156,7 +1155,7 @@ TEST(CommittedContacts,
   EXPECT_FALSE(committed[1][1]);
   EXPECT_TRUE(committed[2][1]) << "landed before the boundary: the plan "
                                   "continues from a foot on the ground";
-  const std::vector<feet_array_t<scalar_t>> starts =
+  const std::vector<BipedFeetArray<scalar_t>> starts =
       committedPhaseStartsForPlanner(schedule, /*startTime=*/0.0, /*dt=*/0.1,
                                      /*maxNodes=*/11, /*committedUntil=*/0.3);
   ASSERT_EQ(starts.size(), 3u);
@@ -1183,7 +1182,7 @@ TEST(CommittedContacts,
   plan.committedUntil = 0.3;
   plan.contacts = committed;
   while (plan.contacts.size() < 12) {
-    plan.contacts.push_back(makeFeetArray(true));
+    plan.contacts.push_back(makeBipedFeetArray(true));
   }
   const ModeSchedule merged =
       mergeModeSchedules(schedule, plan.toModeSchedule(), /*commitTime=*/0.3,
@@ -1195,7 +1194,6 @@ TEST(CommittedContacts,
 }
 
 TEST(CommitBoundary, CoversSwingsOfEveryFootThatStartOnAnExtendedBoundary) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   // Right swings 1.0 -> 1.4; the left lifts at the very touch-down of the right
   // (no double support) and lands at 1.8. The window from 0.9 (commit time 0.25
   // -> 1.15) overlaps the right swing, which extends the boundary to 1.4; the
@@ -1246,7 +1244,6 @@ TEST(CommitBoundary, CoversSwingsOfEveryFootThatStartOnAnExtendedBoundary) {
  */
 TEST(CommitBoundary,
      TheExtensionChainsThroughAZeroDoubleSupportGaitUntilItIsCapped) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   // Alternating single supports abutting at every event: a perfect
   // zero-double-support gait.
   const ModeSchedule zeroDoubleSupport(
@@ -1299,12 +1296,11 @@ TEST(CommitBoundary,
 }
 
 TEST(CommittedContacts, PhaseStartsAreTheExecutedEventTimes) {
-  if (kNumContacts < 2) GTEST_SKIP() << "needs a second foot";
   // Right foot swings 0.57 -> 0.97. Planner grid from 0.7 with dt 0.1, boundary
   // at the touch-down 0.97.
   const ModeSchedule schedule(
       {0.57, 0.97}, {kAllInContact, modeWithSwinging({1}), kAllInContact});
-  const feet_array_t<scalar_t> before =
+  const BipedFeetArray<scalar_t> before =
       contactPhaseStartTimes(schedule, /*time=*/0.7);
   EXPECT_TRUE(std::isinf(before[0]) && before[0] < 0.0)
       << "the left foot's contact began before the schedule";
@@ -1323,7 +1319,7 @@ TEST(CommittedContacts, PhaseStartsAreTheExecutedEventTimes) {
   EXPECT_NEAR(samples[2], 0.97, kTol)
       << "the straddling node is sampled at the boundary";
 
-  const std::vector<feet_array_t<scalar_t>> starts =
+  const std::vector<BipedFeetArray<scalar_t>> starts =
       committedPhaseStartsForPlanner(schedule, /*startTime=*/0.7, /*dt=*/0.1,
                                      /*maxNodes=*/11, /*committedUntil=*/0.97);
   ASSERT_EQ(starts.size(), 3u);
@@ -1334,7 +1330,7 @@ TEST(CommittedContacts, PhaseStartsAreTheExecutedEventTimes) {
   // The straddling node reports the landed state; the landing happened at 0.97,
   // 0.07 s after the node start.
   EXPECT_NEAR(starts[2][1], 0.97, kTol);
-  for (const feet_array_t<scalar_t>& nodeStarts : starts) {
+  for (const BipedFeetArray<scalar_t>& nodeStarts : starts) {
     EXPECT_TRUE(std::isinf(nodeStarts[0]));
   }
   EXPECT_TRUE(committedPhaseStartsForPlanner(schedule, /*startTime=*/0.7,
@@ -1370,11 +1366,11 @@ TEST(PlanShiftLog,
 
 TEST(PlanShiftLog, PlanMadeBeforeASwingWasCommittedDisagreesWithItInFlight) {
   // Executed schedule: foot 0 swings [1.2, 1.7).
-  contact_flag_t foot0InAir = makeFeetArray(true);
+  BipedFeetArray<bool> foot0InAir = makeBipedFeetArray(true);
   foot0InAir[0] = false;
   const ModeSchedule applied(
-      {1.2, 1.7}, {ModeNumber::kStance, stanceLeg2ModeNumber(foot0InAir),
-                   ModeNumber::kStance});
+      {1.2, 1.7}, {kBipedModeStance, bipedModeOfFootContacts(foot0InAir),
+                   kBipedModeStance});
 
   // A plan that keeps both feet down was made from a snapshot without that
   // swing: merging it while the swing is in flight would land the foot at the
@@ -1426,9 +1422,9 @@ TEST(PlanHeading, InterpolatesHeadingAndLooksUpFootYaw) {
       << "clamped after the plan";
   plan.headingModelYawTraj = {0.0, 0.1, 0.2, 0.3, 0.4};
   plan.headingModelYawRateTraj = {1.0, 1.0, 1.0, 1.0, 1.0};
-  plan.desEulerzyxFeetRtWorldYawTraj = {makeFeetArray(0.0), makeFeetArray(0.0),
-                                        makeFeetArray(0.2), makeFeetArray(0.2),
-                                        makeFeetArray(0.4)};
+  plan.desEulerzyxFeetRtWorldYawTraj = {
+      makeBipedFeetArray(0.0), makeBipedFeetArray(0.0), makeBipedFeetArray(0.2),
+      makeBipedFeetArray(0.2), makeBipedFeetArray(0.4)};
   ASSERT_TRUE(plan.hasHeading());
   EXPECT_NEAR(valueOrFailure(plan.headingModelYawAtTime(1.0)), 0.0, kTol);
   EXPECT_NEAR(plan.getYawHeadingRtWorld(1.15), 0.15, kTol)
@@ -1451,7 +1447,7 @@ TEST(PlanHeading, InterpolatesHeadingAndLooksUpFootYaw) {
 }
 
 TEST(SwingQueries, CurrentOrNextLiftOff) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     const ModeSchedule schedule = twoStepSchedule(
         foot, foot);  // the same foot swings [1.0, 1.4] and [1.5, 1.9]
     ASSERT_TRUE(

@@ -86,6 +86,9 @@ namespace ocs2::humanoid {
 
 namespace {
 
+// The biped's two feet, which every case here is written for.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+
 constexpr char kFixtureDir[] =
     "humanoid_nmpc/humanoid_common_mpc/test/data/contact_planning";
 
@@ -151,8 +154,8 @@ ContactPlannerInput midSwing() {
   input.posFeetRtWorldEwrtWorldXy[0] = vector2_t(0.1, 0.13);
   input.committedUntil = input.time + 0.25;
   input.committedContacts = {{false, true}, {false, true}, {true, true}};
-  input.committedPhaseStartTimes = {makeFeetArray(input.time - 0.16),
-                                    makeFeetArray(input.time - 0.16),
+  input.committedPhaseStartTimes = {makeBipedFeetArray(input.time - 0.16),
+                                    makeBipedFeetArray(input.time - 0.16),
                                     {input.time + 0.27, input.time - 0.7}};
   return input;
 }
@@ -820,7 +823,7 @@ TEST(ContactPlanningRegression, RecedingHorizonPlansMatchTheRecordedWalks) {
       const ContactPlan plan = planner->plan(input);
       ASSERT_TRUE(plan.valid) << prefix;
       std::string contacts;
-      for (const contact_flag_t& c : plan.contacts) {
+      for (const BipedFeetArray<bool>& c : plan.contacts) {
         contacts += (contacts.empty() ? "" : " ") +
                     std::string(c[0] ? "1" : "0") + (c[1] ? "1" : "0");
       }
@@ -830,7 +833,7 @@ TEST(ContactPlanningRegression, RecedingHorizonPlansMatchTheRecordedWalks) {
         for (int axis = 0; axis < 2; ++axis) {
           trajectory.push_back(plan.posComRtWorldEwrtWorldXyTraj[k](axis));
         }
-        for (size_t foot = 0; foot < kNumContacts; ++foot) {
+        for (size_t foot = 0; foot < kNumFeet; ++foot) {
           for (int axis = 0; axis < 2; ++axis) {
             trajectory.push_back(
                 plan.desPosFeetRtWorldEwrtWorldXyTraj[k][foot](axis));
@@ -844,8 +847,8 @@ TEST(ContactPlanningRegression, RecedingHorizonPlansMatchTheRecordedWalks) {
       // Advance one node along the plan (no commit window in this
       // configuration).
       const scalar_t nextTime = input.time + config.planner.dt;
-      const contact_flag_t contactsNext = plan.contactsAtTime(nextTime);
-      for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      const BipedFeetArray<bool> contactsNext = plan.contactsAtTime(nextTime);
+      for (size_t foot = 0; foot < kNumFeet; ++foot) {
         input.phaseElapsedTime[foot] =
             (contactsNext[foot] == input.contacts[foot])
                 ? input.phaseElapsedTime[foot] + config.planner.dt

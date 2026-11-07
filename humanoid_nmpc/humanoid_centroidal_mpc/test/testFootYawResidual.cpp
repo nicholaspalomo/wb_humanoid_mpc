@@ -60,8 +60,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h"
 #include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
@@ -79,6 +79,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 using Cost = CentroidalMpcEndEffectorFootCost;
 
@@ -369,7 +371,7 @@ class NoLandingTargetReferenceManager final
             std::make_unique<SwingTrajectoryPlanner>(
                 checkedValue(swingTrajectorySettingsFromConfig(
                     atlas.config().task.swing_trajectory_config)),
-                kNumContacts),
+                kNumFeet),
             atlas.pinocchioInterface(),
             atlas.wrenchModel()) {}
 
@@ -386,15 +388,14 @@ class NoLandingTargetReferenceManager final
  * DrcAtlasContactTestModel::setContactFlags() does).
  */
 void schedule(SwitchedModelReferenceManager& referenceManager,
-              const contact_flag_t& contacts,
+              const BipedFeetArray<bool>& contacts,
               const vector_t& state) {
   const ModeSchedule modeSchedule(
       {-kSwingHalfWidth, kSwingHalfWidth},
-      {ModeNumber::kStance, stanceLeg2ModeNumber(contacts),
-       ModeNumber::kStance});
+      {kBipedModeStance, bipedModeOfFootContacts(contacts), kBipedModeStance});
   referenceManager.getGaitSchedule()->updateModeSchedule(modeSchedule);
   referenceManager.preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, state,
-                                stanceLeg2ModeNumber(contacts));
+                                bipedModeOfFootContacts(contacts));
 }
 
 /** The Atlas foot cost's settings as shipped, with
@@ -456,7 +457,7 @@ TEST(FootCostParameters, TheHeightReferenceIsTheSwingPlannersOnAnyGround) {
           absl::StrCat("terrain height ", posSurfaceRtWorldEwrtWorldZ));
       referenceManager->setPosSurfaceRtWorldEwrtWorldZ(
           posSurfaceRtWorldEwrtWorldZ);
-      contact_flag_t swing = makeFeetArray(true);
+      BipedFeetArray<bool> swing = makeBipedFeetArray(true);
       swing[kSwingFoot] = false;
       schedule(*referenceManager, swing, state);
       const SwingTrajectoryPlanner& planner =
@@ -492,7 +493,7 @@ TEST(FootCostParameters, TheHeightReferenceIsTheSwingPlannersOnAnyGround) {
 
       // In stance (active_phases "swing_and_stance") the foot is referenced on
       // the ground, at rest.
-      schedule(*referenceManager, makeFeetArray(true), state);
+      schedule(*referenceManager, makeBipedFeetArray(true), state);
       const vector_t stance =
           cost.getParameters(/*time=*/0.0, target, PreComputation());
       EXPECT_NEAR(stance(kReferenceZIndex), posSurfaceRtWorldEwrtWorldZ,
@@ -520,7 +521,7 @@ TEST(FootCostParameters,
                                   {movingState}, {input});
   noTarget.setTargetTrajectories(target);
   constexpr size_t kSwingFoot = 0;
-  contact_flag_t swing = makeFeetArray(true);
+  BipedFeetArray<bool> swing = makeBipedFeetArray(true);
   swing[kSwingFoot] = false;
   schedule(noTarget, swing, state);
   // Near lift-off, where the impact proximity has not yet ramped the velocity

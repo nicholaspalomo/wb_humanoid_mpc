@@ -62,7 +62,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/mrt/JointActionAccess.h"
@@ -244,7 +244,7 @@ class PolicyExecution : public ::testing::Test {
     policy.inputTrajectory_ = {input, input};
     policy.modeSchedule_ = ModeSchedule(
         /*eventTimesInput=*/{},
-        /*modeSequenceInput=*/{static_cast<size_t>(ModeNumber::kStance)});
+        /*modeSequenceInput=*/{kBipedModeStance});
     policy.controllerPtr_ = std::move(controller);
     return policy;
   }
@@ -523,7 +523,7 @@ TEST_F(PolicyExecution,
       plan.inputTrajectory_ = {input, laterInput};
       plan.modeSchedule_ = ModeSchedule(
           /*eventTimesInput=*/{},
-          /*modeSequenceInput=*/{static_cast<size_t>(ModeNumber::kStance)});
+          /*modeSequenceInput=*/{kBipedModeStance});
       const matrix_t scaledGain = gainScale * gain;
       plan.controllerPtr_ = std::make_unique<ManifoldLinearController>(
           plan.timeTrajectory_, plan.stateTrajectory_, plan.inputTrajectory_,

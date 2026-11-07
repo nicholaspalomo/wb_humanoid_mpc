@@ -52,7 +52,7 @@ void FootYawRegularizationCost::addToStage(
     const ContactPlanningContext& /*ctx*/,
     int /*node*/,
     StageAccumulator& stage) const {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     stage.addQuadraticResidual(/*xCoefficients=*/{},
                                {{idx_.errEulerzyxFeetRtWorldYaw[foot], 1.0}},
                                /*offset=*/0.0, weight_);

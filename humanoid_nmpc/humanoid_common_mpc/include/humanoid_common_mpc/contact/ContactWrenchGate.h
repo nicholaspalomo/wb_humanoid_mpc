@@ -29,12 +29,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <optional>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
@@ -46,15 +49,17 @@ namespace ocs2::humanoid {
  *
  * A contact point that is not measured in contact cannot transmit a wrench, so
  * its planned wrench is dropped whatever the executed plan expects there. With
- * the default configuration the planned wrench of a foot is applied in full
- * from the first control cycle its contact is measured (an instantaneous gate).
+ * the default configuration the planned wrench of a contact is applied in full
+ * from the first control cycle it is measured in contact (an instantaneous
+ * gate). The gate has one entry per contact of the contact set, in contact
+ * order, fixed at construction.
  * Two optional shaping terms soften the load onset at touch-down, where a heel
  * or toe strike trips the contact detection while the sole is still landing:
- *  - debounceTime: measured contact must persist this long before the foot's
- * planned wrench is applied at all;
+ *  - debounceTime: measured contact must persist this long before the
+ * contact's planned wrench is applied at all;
  *  - rampTime: the wrench then ramps linearly from zero to the planned value
- * over this time. Lift-off is never shaped: a foot that leaves the ground loses
- * its wrench at once. Both times default to zero, which reproduces the
+ * over this time. Lift-off is never shaped: a contact that leaves the ground
+ * loses its wrench at once. Both times default to zero, which reproduces the
  * instantaneous gate exactly.
  *
  * Copyable value type. Not thread-safe: update() and setConfig() mutate it, so
@@ -68,11 +73,17 @@ class ContactWrenchGate {
     scalar_t rampTime = 0.0;      // [s] >= 0
   };
 
-  /** The instantaneous gate, the default Config. */
-  ContactWrenchGate() = default;
-  /** The gate of `config`, or InvalidArgument when validateConfig(config)
-   * refuses it. */
-  static absl::StatusOr<ContactWrenchGate> Create(const Config& config);
+  /** The instantaneous gate (the default Config) of `numContacts` contacts.
+   * Requires numContacts <= kMaxNumContacts (checked); ModelSettings::Create()
+   * refuses a larger contact set. */
+  explicit ContactWrenchGate(size_t numContacts)
+      : onsetTime_(numContacts, /*value=*/std::nullopt),
+        scales_(numContacts, /*value=*/1.0) {}
+  /** The gate of `config` for `numContacts` contacts, or InvalidArgument when
+   * validateConfig(config) refuses the configuration or there are more than
+   * kMaxNumContacts contacts. */
+  static absl::StatusOr<ContactWrenchGate> Create(const Config& config,
+                                                  size_t numContacts);
 
   ContactWrenchGate(const ContactWrenchGate&) = default;
   ContactWrenchGate& operator=(const ContactWrenchGate&) = default;
@@ -93,43 +104,54 @@ class ContactWrenchGate {
 
   /**
    * Replaces the configuration when validateConfig(config) is OK and returns
-   * true; the onsets of the feet in contact are kept. An invalid configuration
-   * keeps the one in use and returns false: the realtime thread calls this,
-   * where nothing may end the process, and the callers validate what they read,
-   * so it does not happen. Allocation-free.
+   * true; the onsets of the contacts measured in contact are kept. An invalid
+   * configuration keeps the one in use and returns false: the realtime thread
+   * calls this, where nothing may end the process, and the callers validate
+   * what they read, so it does not happen. Allocation-free.
    */
   bool setConfig(const Config& config);
   const Config& getConfig() const { return config_; }
 
   /**
    * Advances the gate to `time` with the measured contact state of this control
-   * cycle and returns the per-foot scale in [0, 1] of the planned wrench. Call
-   * once per control cycle; time must not decrease between calls (a decrease
-   * restarts the onset of every foot in contact).
+   * cycle and returns the per-contact scale in [0, 1] of the planned wrench.
+   * Call once per control cycle; time must not decrease between calls (a
+   * decrease restarts the onset of every contact measured in contact).
+   * Contact i reads entry i of `measuredContactFlags`; a contact past its size
+   * is not in contact. Allocation-free.
    */
-  const feet_array_t<scalar_t>& update(
-      scalar_t time, const contact_flag_t& measuredContactFlags);
+  const ContactArray<scalar_t>& update(scalar_t time,
+                                       ContactMask measuredContactFlags);
 
-  /** The scales of the last update (all ones before the first). */
-  const feet_array_t<scalar_t>& getScales() const { return scales_; }
+  /** The scales of the last update (all ones before the first), one per
+   * contact. */
+  const ContactArray<scalar_t>& getScales() const { return scales_; }
 
-  /** The planned wrenches scaled by the last update. */
-  feet_array_t<vector6_t> apply(
-      feet_array_t<vector6_t> plannedWrenchFeetEwrtWorld) const;
+  /** Scales each of the planned wrenches `plannedWrenchContactsEwrtWorld` (one
+   * per contact, in place: the preallocated buffer of the realtime thread) by
+   * the last update. An entry past numContacts() is left as it is.
+   * Allocation-free. */
+  void apply(ContactArray<vector6_t>& plannedWrenchContactsEwrtWorld) const;
+
+  /** The number of contacts of the gate, fixed at construction. */
+  size_t numContacts() const { return scales_.size(); }
 
   /** Forgets every contact onset; the next update starts the debounce and ramp
-   * of every foot in contact anew. */
+   * of every contact measured in contact anew. */
   void reset();
 
  private:
-  explicit ContactWrenchGate(const Config& config) : config_(config) {}
+  ContactWrenchGate(const Config& config, size_t numContacts)
+      : config_(config),
+        onsetTime_(numContacts, /*value=*/std::nullopt),
+        scales_(numContacts, /*value=*/1.0) {}
 
   Config config_;
-  feet_array_t<std::optional<scalar_t>>
-      onsetTime_{};  // [s] when the measured contact of each foot began; empty
-                     // while not in contact
-  feet_array_t<scalar_t> scales_ = makeFeetArray<scalar_t>(
-      /*value=*/1.0);  // all ones before the first update
+  // [s] When the measured contact of each contact began; empty while not in
+  // contact. One entry per contact.
+  ContactArray<std::optional<scalar_t>> onsetTime_;
+  // One per contact, all ones before the first update.
+  ContactArray<scalar_t> scales_;
 };
 
 }  // namespace ocs2::humanoid

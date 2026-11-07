@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -75,8 +76,8 @@ struct LocomotionHeuristicModelParameters {
    * walk finds nothing - a fallback that is exact for a leg standing
    * vertically, which is the posture this is evaluated in.
    */
-  feet_array_t<vector2_t> posHipsRtBaseEwrtHeadingXy =
-      makeFeetArray(vector2_t(vector2_t::Zero()));
+  BipedFeetArray<vector2_t> posHipsRtBaseEwrtHeadingXy =
+      makeBipedFeetArray(vector2_t(vector2_t::Zero()));
 
   /** One line per derived quantity, for the start-up banner. */
   std::string summary() const;

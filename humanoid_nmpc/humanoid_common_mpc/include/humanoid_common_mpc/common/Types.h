@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -39,8 +38,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
-
-#include "humanoid_common_mpc/common/BipedFeet.h"
 
 namespace ocs2 {
 
@@ -99,24 +96,9 @@ using ad_quaternion_t = QUATERNION_T<ad_scalar_t>;
 */
 /******************************************************************************************************/
 
-// The number of contacts and their indices:
-// humanoid_common_mpc/common/BipedFeet.h.
-
-template <typename T>
-using feet_array_t = std::array<T, kNumContacts>;
-
-/** A per-foot array with every entry set to `value`; use it instead of brace
- * lists that hard-code the number of feet. */
-template <typename T>
-feet_array_t<T> makeFeetArray(const T& value) {
-  feet_array_t<T> array;
-  array.fill(value);
-  return array;
-}
-
-using contact_flag_t =
-    feet_array_t<bool>;  // describes which feet are in contacts [left_contact,
-                         // right_contact]
+// One value per contact of a set and its active contacts:
+// common/ContactArray.h and common/ContactMask.h; the biped's two feet:
+// common/BipedFeet.h.
 
 // The contact wrench and its entries (ocs2_core/Dimensions.h): the force, then
 // the torque.

@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 
@@ -54,15 +55,15 @@ struct ContactPlannerInput {
   // [rad] the yaw of the frame the planner plans in: the base yaw, or with the
   // heading model the heading model's initial yaw (initYawHeadingRtWorld).
   scalar_t yawHeadingRtWorld = 0.0;
-  feet_array_t<vector2_t> posFeetRtWorldEwrtWorldXy =
-      makeFeetArray(vector2_t(vector2_t::Zero()));
-  contact_flag_t contacts =
-      makeFeetArray(true);  // contact state of the phase active at `time`
-  feet_array_t<scalar_t> phaseElapsedTime =
-      makeFeetArray(0.0);  // [s] time already spent in that phase, per foot
+  BipedFeetArray<vector2_t> posFeetRtWorldEwrtWorldXy =
+      makeBipedFeetArray(vector2_t(vector2_t::Zero()));
+  BipedFeetArray<bool> contacts =
+      makeBipedFeetArray(true);  // contact state of the phase active at `time`
+  BipedFeetArray<scalar_t> phaseElapsedTime = makeBipedFeetArray(
+      0.0);  // [s] time already spent in that phase, per foot
   vector2_t cmdLinvelBaseRtWorldEwrtWorldXy =
       vector2_t::Zero();  // the operator's commanded base velocity
-  std::vector<contact_flag_t>
+  std::vector<BipedFeetArray<bool>>
       committedContacts;  // contacts imposed on the first nodes (commit window)
   // [s] per committed node and foot: the time the foot entered the contact
   // state it has at that node, from the executed schedule
@@ -70,7 +71,7 @@ struct ContactPlannerInput {
   // node is then counted from its real start instead of from the node start.
   // Empty, or shorter than committedContacts: the remaining nodes count from
   // their node start.
-  std::vector<feet_array_t<scalar_t>> committedPhaseStartTimes;
+  std::vector<BipedFeetArray<scalar_t>> committedPhaseStartTimes;
   int lastSwungFoot =
       -1;  // foot that swung most recently (-1 unknown), for alternation
   scalar_t committedUntil =
@@ -112,7 +113,7 @@ struct ContactPlannerInput {
   scalar_t inertiaComEwrtWorldZz = 0.0;
   // [rad] the ZYX yaw of every foot at planning time, unwrapped near
   // `initYawHeadingRtWorld`.
-  feet_array_t<scalar_t> eulerzyxFeetRtWorldYaw = makeFeetArray(0.0);
+  BipedFeetArray<scalar_t> eulerzyxFeetRtWorldYaw = makeBipedFeetArray(0.0);
   // [rad] the base (pelvis) yaw at planning time. The hip yaw joints turn the
   // feet against the pelvis, not against the whole-body heading, and the two
   // differ when the heading is the ACoM's (HipYawRangeConstraint). Empty
@@ -144,7 +145,7 @@ struct ContactPlan {
   // so that the plan's DCM is always taken on its own pendulum
   // (ContactPlanningReferenceManager::getPlannedDcm); 0: not recorded.
   scalar_t omega = 0.0;
-  std::vector<contact_flag_t> contacts;  // per interval k = 0..N-1
+  std::vector<BipedFeetArray<bool>> contacts;  // per interval k = 0..N-1
   // The gait in continuous time, for a planner that decides its events off the
   // node grid (HlipContactPlanner): the contact state of every phase, in order,
   // and the time each begins (phaseStartTimes.front() is startTime). `contacts`
@@ -156,7 +157,7 @@ struct ContactPlan {
   // systematic value - while the deadbeat gain that placed the step assumed
   // hlip.dspDuration. Empty: the events are the node times of `contacts` (the
   // mixed-integer planner, whose events are on the grid).
-  std::vector<contact_flag_t> phaseContacts;
+  std::vector<BipedFeetArray<bool>> phaseContacts;
   std::vector<scalar_t> phaseStartTimes;
   // Per continuous phase (same size as phaseStartTimes when present): the fixed
   // ZMP the reduced model's center of mass falls about during that phase - the
@@ -169,7 +170,7 @@ struct ContactPlan {
   // since the H-LIP's ZMP moves with the CoM in double support and jumps at
   // events inside an interval.
   std::vector<std::optional<vector2_t>> phasePosZmpRtWorldEwrtWorldXyTraj;
-  std::vector<feet_array_t<vector2_t>>
+  std::vector<BipedFeetArray<vector2_t>>
       desPosFeetRtWorldEwrtWorldXyTraj;  // per node k = 0..N, planned foot xy
                                          // (landing spot while swinging)
   std::vector<vector2_t> posComRtWorldEwrtWorldXyTraj;     // per node
@@ -183,7 +184,7 @@ struct ContactPlan {
   std::vector<scalar_t> headingModelYawRateTraj;  // [rad/s]
   // [rad] the planned ZYX yaw of every foot (the landing yaw while the foot
   // swings).
-  std::vector<feet_array_t<scalar_t>> desEulerzyxFeetRtWorldYawTraj;
+  std::vector<BipedFeetArray<scalar_t>> desEulerzyxFeetRtWorldYawTraj;
 
   // Steps the planner had to cut to the reachable region. A clipped step is no
   // longer the deadbeat step, so the lateral error it was meant to cancel
@@ -213,7 +214,7 @@ struct ContactPlan {
    * the plan carries one (phaseContacts), of the interval containing it
    * otherwise; clamped to the plan.
    */
-  contact_flag_t contactsAtTime(scalar_t time) const;
+  BipedFeetArray<bool> contactsAtTime(scalar_t time) const;
 
   /** Whether the plan carries its gait in continuous time (phaseContacts /
    * phaseStartTimes, consistent sizes). */

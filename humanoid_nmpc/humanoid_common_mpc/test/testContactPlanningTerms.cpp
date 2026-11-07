@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Dimensions.h"
@@ -52,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -65,10 +67,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/cost/TerminalDcmCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/VelocityTrackingCost.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
+#include "humanoid_common_mpc/contact_planning/logic/ContactLogicHelpers.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 #include "humanoid_common_mpc/contact_planning/logic/DoubleSupportPenaltyCost.h"
+#include "humanoid_common_mpc/contact_planning/logic/MinimumDoubleSupportRule.h"
 #include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
 #include "humanoid_common_mpc/contact_planning/problem/AssignmentCost.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactLogicRule.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningProblem.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningTerm.h"
@@ -82,12 +87,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
 #include "humanoid_common_mpc/contact_planning/search/CadenceStretchStage.h"
 #include "humanoid_common_mpc/contact_planning/search/SearchStage.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
 
 namespace ocs2::humanoid {
 
 namespace {
+
+// The biped's two feet, which every case here is written for.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 ContactPlanningConfig makeConfig() {
   ContactPlanningConfig config;
@@ -178,8 +186,8 @@ TEST(ContactPlanningTerms, LayoutIsComposedFromTheBlocksInOrder) {
 
   HUMANOID_ASSERT_OK_AND_ASSIGN(
       const Layout heading, LipContactPlanner::makeLayout(makeHeadingConfig()));
-  EXPECT_EQ(heading.nx, kLipStateDim + 2 + static_cast<int>(kNumContacts));
-  EXPECT_EQ(heading.nu, kLipInputDim + 2 * static_cast<int>(kNumContacts));
+  EXPECT_EQ(heading.nx, kLipStateDim + 2 + static_cast<int>(kNumFeet));
+  EXPECT_EQ(heading.nu, kLipInputDim + 2 * static_cast<int>(kNumFeet));
   EXPECT_TRUE(heading.hasHeading);
   EXPECT_EQ(heading.headingModelYaw, kLipStateDim)
       << "the heading block appends, the LIP indices are unchanged";
@@ -595,12 +603,12 @@ namespace {
 scalar_t stepLengthFunctional(scalar_t weight,
                               const vector2_t& nomErrPosFootRtWorldEwrtWorldXy,
                               const std::vector<vector_t>& inputs) {
-  const std::array<std::array<int, 2>, kNumContacts> footDelta{
+  const std::array<std::array<int, 2>, kNumFeet> footDelta{
       {{kLipDlx, kLipDly}, {kLipDrx, kLipDry}}};
-  const std::array<int, kNumContacts> contact{kLipCl, kLipCr};
+  const std::array<int, kNumFeet> contact{kLipCl, kLipCr};
   scalar_t total = 0.0;
   for (const vector_t& input : inputs) {
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       for (int axis = 0; axis < 2; ++axis) {
         const scalar_t residual =
             input(footDelta[foot][static_cast<size_t>(axis)]) -
@@ -1258,15 +1266,17 @@ TEST(ContactPlanningTerms,
 TEST(ContactPlanningTerms,
      WithoutRulesTheScheduleIsLeftAloneAndTheLatchTracksTheSwing) {
   // A swing of the left foot from 1.0 to 1.4 s, the right foot down throughout.
-  ModeSchedule schedule(
-      {1.0, 1.4}, {ModeNumber::kStance, ModeNumber::kRf, ModeNumber::kStance});
-  feet_array_t<SwingTimingLatch> latches = makeFeetArray(SwingTimingLatch{});
+  ModeSchedule schedule({1.0, 1.4},
+                        {kBipedModeStance, kBipedModeRf, kBipedModeStance});
+  BipedFeetArray<SwingTimingLatch> latches =
+      makeBipedFeetArray(SwingTimingLatch{});
   const ContactPlanningConfig config = makeConfig();
-  const feet_array_t<scalar_t> noCadence = makeFeetArray(0.0);
-  contact_flag_t measured = {true,
-                             true};  // the left foot reports contact mid-swing
-  const feet_array_t<ContactEventReport> reports = adaptScheduleToContactEvents(
-      schedule, /*time=*/1.2, measured, noCadence, config, latches);
+  const BipedFeetArray<scalar_t> noCadence = makeBipedFeetArray(0.0);
+  BipedFeetArray<bool> measured = {
+      true, true};  // the left foot reports contact mid-swing
+  const BipedFeetArray<ContactEventReport> reports =
+      adaptScheduleToContactEvents(schedule, /*time=*/1.2, measured, noCadence,
+                                   config, latches);
   EXPECT_EQ(reports[0].type, ContactEventReport::Type::kNone)
       << "no phase_resetting rule listed";
   EXPECT_TRUE(latches[0].active);
@@ -1274,7 +1284,7 @@ TEST(ContactPlanningTerms,
   EXPECT_NEAR(schedule.eventTimes[1], 1.4, 1.0e-12);
   measured = {false, true};  // the foot is still in the air at its scheduled
                              // touch-down: nothing extends it either
-  const feet_array_t<ContactEventReport> late = adaptScheduleToContactEvents(
+  const BipedFeetArray<ContactEventReport> late = adaptScheduleToContactEvents(
       schedule, /*time=*/1.45, measured, noCadence, config, latches);
   EXPECT_EQ(late[0].type, ContactEventReport::Type::kNone);
   EXPECT_FALSE(latches[0].active)
@@ -1297,7 +1307,7 @@ TEST(ContactPlanningTerms,
 
   ContactLogicState state;
   state.numNodes = 3;
-  MiqpAssignment a(3 * kNumContacts);
+  MiqpAssignment a(3 * kNumFeet);
   const std::function<void(int, int8_t, int8_t)> set =
       [&a](int node, int8_t left, int8_t right) {
         a[static_cast<size_t>(
@@ -1353,7 +1363,7 @@ TEST(ContactPlanningTerms,
 
   ContactLogicState state;
   state.numNodes = 3;
-  MiqpAssignment partial(3 * kNumContacts, kMiqpFree);
+  MiqpAssignment partial(3 * kNumFeet, kMiqpFree);
   EXPECT_NEAR(cost.cost(state, partial), 0.0, 1.0e-12)
       << "nothing decided, nothing charged";
 
@@ -1452,9 +1462,8 @@ TEST(ContactPlanningTerms,
      ANearlyOnTimeTouchDownDoesNotSplitAZeroDoubleSupportExchange) {
   // Left swings 1.0 -> 1.4 and lands at the instant the right lifts; right then
   // swings 1.4 -> 1.8.
-  const ModeSchedule nominal(
-      {1.0, 1.4, 1.8}, {ModeNumber::kStance, ModeNumber::kRf, ModeNumber::kLf,
-                        ModeNumber::kStance});
+  const ModeSchedule nominal({1.0, 1.4, 1.8}, {kBipedModeStance, kBipedModeRf,
+                                               kBipedModeLf, kBipedModeStance});
   ContactPlanningConfig config = makeConfig();
   config.formulation.execution = {term::kPhaseResetting};
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
@@ -1462,8 +1471,8 @@ TEST(ContactPlanningTerms,
             config.phaseResetting.earlyTouchdownMinContactDuration)
       << "otherwise the debounce alone pushes every truncation inside the "
          "guard window";
-  const feet_array_t<scalar_t> noCadence = makeFeetArray(0.0);
-  const contact_flag_t bothDown = {true, true};
+  const BipedFeetArray<scalar_t> noCadence = makeBipedFeetArray(0.0);
+  const BipedFeetArray<bool> bothDown = {true, true};
 
   // The shortest double support anywhere in the schedule, ignoring the leading
   // and trailing stance phases.
@@ -1471,7 +1480,7 @@ TEST(ContactPlanningTerms,
       [](const ModeSchedule& schedule) {
         scalar_t shortest = std::numeric_limits<scalar_t>::infinity();
         for (size_t i = 0; i + 1 < schedule.eventTimes.size(); ++i) {
-          if (schedule.modeSequence[i + 1] == ModeNumber::kStance) {
+          if (schedule.modeSequence[i + 1] == kBipedModeStance) {
             shortest = std::min(
                 shortest, schedule.eventTimes[i + 1] - schedule.eventTimes[i]);
           }
@@ -1482,10 +1491,11 @@ TEST(ContactPlanningTerms,
   {  // Landing 30 ms early: inside the guard, the exchange is left exactly as
      // planned.
     ModeSchedule schedule = nominal;
-    feet_array_t<SwingTimingLatch> latches = makeFeetArray(SwingTimingLatch{});
+    BipedFeetArray<SwingTimingLatch> latches =
+        makeBipedFeetArray(SwingTimingLatch{});
     adaptScheduleToContactEvents(schedule, /*time=*/1.37, bothDown, noCadence,
                                  config, latches);
-    const feet_array_t<ContactEventReport> reports =
+    const BipedFeetArray<ContactEventReport> reports =
         adaptScheduleToContactEvents(schedule, /*time=*/1.392, bothDown,
                                      noCadence, config, latches);
     EXPECT_EQ(reports[0].type, ContactEventReport::Type::kNone)
@@ -1498,10 +1508,11 @@ TEST(ContactPlanningTerms,
   {  // Landing 200 ms early: a real early touch-down, still reset, and the
      // double support it opens spans the guard.
     ModeSchedule schedule = nominal;
-    feet_array_t<SwingTimingLatch> latches = makeFeetArray(SwingTimingLatch{});
+    BipedFeetArray<SwingTimingLatch> latches =
+        makeBipedFeetArray(SwingTimingLatch{});
     adaptScheduleToContactEvents(schedule, /*time=*/1.20, bothDown, noCadence,
                                  config, latches);
-    const feet_array_t<ContactEventReport> reports =
+    const BipedFeetArray<ContactEventReport> reports =
         adaptScheduleToContactEvents(schedule, /*time=*/1.222, bothDown,
                                      noCadence, config, latches);
     EXPECT_EQ(reports[0].type, ContactEventReport::Type::kEarlyTouchDown);
@@ -1517,10 +1528,11 @@ TEST(ContactPlanningTerms,
     unguarded.phaseResetting.earlyTouchdownMinAdvance = 0.0;
     EXPECT_EQ(unguarded.validateStatus(), absl::OkStatus());
     ModeSchedule schedule = nominal;
-    feet_array_t<SwingTimingLatch> latches = makeFeetArray(SwingTimingLatch{});
+    BipedFeetArray<SwingTimingLatch> latches =
+        makeBipedFeetArray(SwingTimingLatch{});
     adaptScheduleToContactEvents(schedule, /*time=*/1.37, bothDown, noCadence,
                                  unguarded, latches);
-    const feet_array_t<ContactEventReport> reports =
+    const BipedFeetArray<ContactEventReport> reports =
         adaptScheduleToContactEvents(schedule, /*time=*/1.392, bothDown,
                                      noCadence, unguarded, latches);
     EXPECT_EQ(reports[0].type, ContactEventReport::Type::kEarlyTouchDown);
@@ -1589,7 +1601,7 @@ std::vector<MiqpAssignment> allCompletionsOf(const MiqpAssignment& partial) {
 std::string printAssignment(const MiqpAssignment& assignment) {
   std::string out;
   for (size_t i = 0; i < assignment.size(); ++i) {
-    if (i > 0 && i % kNumContacts == 0) out += " ";
+    if (i > 0 && i % kNumFeet == 0) out += " ";
     out +=
         (assignment[i] == kMiqpFree) ? "." : (assignment[i] == 1 ? "1" : "0");
   }
@@ -1597,7 +1609,7 @@ std::string printAssignment(const MiqpAssignment& assignment) {
 }
 
 /** Writes both feet of one node of an assignment. Binaries are node-major:
- * kNumContacts * node + foot. */
+ * kNumFeet * node + foot. */
 void setContacts(MiqpAssignment& assignment,
                  int node,
                  int8_t left,
@@ -1658,7 +1670,7 @@ TEST(
   // The measured contact state is the node before the horizon: an assignment
   // that keeps both feet down over the whole horizon costs nothing, and the
   // same assignment costs one event when a foot is in the air at planning time.
-  MiqpAssignment allDown(static_cast<size_t>(kNumNodes) * kNumContacts,
+  MiqpAssignment allDown(static_cast<size_t>(kNumNodes) * kNumFeet,
                          static_cast<int8_t>(1));
   EXPECT_NEAR(term->cost(state, allDown), 0.0, 1.0e-12)
       << "both feet were already down, nothing happens";
@@ -1672,7 +1684,7 @@ TEST(
   // One full swing of the left foot inside the horizon: lift-off at node 0 and
   // touch-down at node 2 is two events, the right foot never moves. 2 * 0.25 =
   // 0.5.
-  MiqpAssignment oneSwing(static_cast<size_t>(kNumNodes) * kNumContacts,
+  MiqpAssignment oneSwing(static_cast<size_t>(kNumNodes) * kNumFeet,
                           static_cast<int8_t>(1));
   setContacts(oneSwing, /*node=*/0, /*left=*/0, /*right=*/1);
   setContacts(oneSwing, /*node=*/1, /*left=*/0, /*right=*/1);
@@ -1682,7 +1694,7 @@ TEST(
 
   // Both feet stepping on every node is the most expensive pattern of this
   // horizon: three alternations per foot.
-  MiqpAssignment chattering(static_cast<size_t>(kNumNodes) * kNumContacts,
+  MiqpAssignment chattering(static_cast<size_t>(kNumNodes) * kNumFeet,
                             static_cast<int8_t>(0));
   setContacts(chattering, /*node=*/0, /*left=*/0, /*right=*/0);
   setContacts(chattering, /*node=*/1, /*left=*/1, /*right=*/1);
@@ -1696,7 +1708,7 @@ TEST(
   // 1 costs two events. A term that charged the free nodes, or that treated a
   // free node as a swing, would report more than zero here and the search could
   // prune the completion away.
-  MiqpAssignment onlyNodeOne(static_cast<size_t>(kNumNodes) * kNumContacts,
+  MiqpAssignment onlyNodeOne(static_cast<size_t>(kNumNodes) * kNumFeet,
                              kMiqpFree);
   onlyNodeOne[static_cast<size_t>(
       ContactLogicState::contactBinaryIndex(1, 0))] = 1;
@@ -1716,7 +1728,7 @@ TEST(
   // The contract itself, over every partial assignment of the horizon and every
   // completion of each.
   const std::vector<MiqpAssignment> partials =
-      allPartialAssignments(kNumNodes * static_cast<int>(kNumContacts));
+      allPartialAssignments(kNumNodes * static_cast<int>(kNumFeet));
   ASSERT_EQ(partials.size(), 729u) << "3^6 patterns of free / 0 / 1";
   int numStrictBounds = 0;
   for (const MiqpAssignment& partial : partials) {
@@ -1785,7 +1797,7 @@ TEST(
       << term->describe();
 
   const ContactPlannerInput standing = makeStandingInput();
-  MiqpAssignment previous(static_cast<size_t>(kNumNodes) * kNumContacts,
+  MiqpAssignment previous(static_cast<size_t>(kNumNodes) * kNumFeet,
                           static_cast<int8_t>(0));
   setContacts(previous, /*node=*/0, /*left=*/1,
               /*right=*/0);  // left down, right swinging
@@ -1800,7 +1812,7 @@ TEST(
   // The assignment every case below is scored against: all four feet-nodes in
   // the air is deliberately far from the previous plan, so that each shift
   // produces a different, checkable number.
-  MiqpAssignment allUp(static_cast<size_t>(kNumNodes) * kNumContacts,
+  MiqpAssignment allUp(static_cast<size_t>(kNumNodes) * kNumFeet,
                        static_cast<int8_t>(0));
 
   // shift 0 - the previous plan has not moved, node k is compared with node k.
@@ -1844,7 +1856,7 @@ TEST(
   // An exact, hand-counted value at the shipped shift of one cycle: node 0
   // matches the previous node 1, node 1 matches the previous node 2, and node 2
   // differs from the (clamped) previous node 2 in the right foot alone.
-  MiqpAssignment nearlyConsistent(static_cast<size_t>(kNumNodes) * kNumContacts,
+  MiqpAssignment nearlyConsistent(static_cast<size_t>(kNumNodes) * kNumFeet,
                                   static_cast<int8_t>(0));
   setContacts(nearlyConsistent, /*node=*/0, /*left=*/0, /*right=*/1);
   setContacts(nearlyConsistent, /*node=*/1, /*left=*/1, /*right=*/1);
@@ -1875,7 +1887,7 @@ TEST(
   // active for the last node.
   state.previousPlanShift = 1;
   const std::vector<MiqpAssignment> partials =
-      allPartialAssignments(kNumNodes * static_cast<int>(kNumContacts));
+      allPartialAssignments(kNumNodes * static_cast<int>(kNumFeet));
   ASSERT_EQ(partials.size(), 729u);
   int numStrictBounds = 0;
   for (const MiqpAssignment& partial : partials) {
@@ -1903,7 +1915,7 @@ TEST(
     int expected = 0;
     for (int node = 0; node < kNumNodes; ++node) {
       const int source = std::min(node + 1, kNumNodes - 1);
-      for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      for (size_t foot = 0; foot < kNumFeet; ++foot) {
         const size_t here = static_cast<size_t>(
             ContactLogicState::contactBinaryIndex(node, foot));
         const size_t there = static_cast<size_t>(
@@ -2043,7 +2055,7 @@ TEST(
 
     const int source = std::min(node + kShift, numNodes);
     scalar_t expectedConstant = 0.0;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       for (int axis = 0; axis < 2; ++axis) {
         const int index =
             layout.state(axis == 0 ? var::posFootRtWorldEwrtWorldX(foot)
@@ -2489,7 +2501,7 @@ vector2_t rotated(scalar_t yaw, const vector2_t& vector) {
 TEST(ContactPlanningTerms,
      TheSingleSupportZmpBoxIsTheStanceFootsRotatedFootprint) {
   constexpr scalar_t kYawHeadingRtWorld = 0.1;
-  const feet_array_t<scalar_t> nomEulerzyxFeetRtWorldYaw{
+  const BipedFeetArray<scalar_t> nomEulerzyxFeetRtWorldYaw{
       kYawHeadingRtWorld + 0.6, kYawHeadingRtWorld - 0.5};
   ContactPlanningConfig config = makeHeadingConfig();
   config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootX = 0.1;
@@ -2517,13 +2529,13 @@ TEST(ContactPlanningTerms,
   const vector2_t maxNormPosZmpRtFootEwrtFootXy(
       config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootX,
       config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootY);
-  const feet_array_t<vector2_t> posFeetRtWorldEwrtWorldXy{
+  const BipedFeetArray<vector2_t> posFeetRtWorldEwrtWorldXy{
       vector2_t(0.31, 0.12), vector2_t(0.27, -0.13)};
   for (const int node : {0, 4}) {
     const OcpQpStage stage = constraintRows(*term, ctx, layout, node);
-    for (size_t stance = 0; stance < kNumContacts; ++stance) {
+    for (size_t stance = 0; stance < kNumFeet; ++stance) {
       vector_t x = vector_t::Zero(layout.nx);
-      for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      for (size_t foot = 0; foot < kNumFeet; ++foot) {
         x(layout.state(var::posFootRtWorldEwrtWorldX(foot))) =
             posFeetRtWorldEwrtWorldXy[foot].x();
         x(layout.state(var::posFootRtWorldEwrtWorldY(foot))) =
@@ -2687,13 +2699,13 @@ TEST(ContactPlanningTerms, TheHipYawRangeIsMeasuredFromThePelvis) {
         makeHeadingContext(input, layout, nominal, config);
     const OcpQpStage stage = constraintRows(*term, ctx, layout, /*node=*/0);
     const scalar_t yawBaseRtWorld = c.yawBaseRtWorld.value_or(c.yawAcomRtWorld);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       for (int sample = 0; sample <= 40; ++sample) {
         const scalar_t hipAngle = -1.0 + 0.05 * static_cast<scalar_t>(sample) +
                                   0.0013;  // off the bounds themselves
         vector_t x = vector_t::Zero(layout.nx);
         x(layout.headingModelYaw) = c.yawAcomRtWorld;
-        for (size_t other = 0; other < kNumContacts; ++other) {
+        for (size_t other = 0; other < kNumFeet; ++other) {
           x(layout.eulerzyxFootRtWorldYaw(other)) =
               c.yawAcomRtWorld;  // inside both ranges
         }
@@ -2770,7 +2782,7 @@ TEST(ContactPlanningTerms,
                                              : std::max(0.0, own + other - 1.0);
           return alone * (own - t) + shared * t;
         };
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       for (const scalar_t sign : {1.0, -1.0}) {
         EXPECT_NEAR(budget(foot, /*own=*/1.0, /*other=*/0.0, sign), alone,
                     1.0e-9)
@@ -2933,7 +2945,7 @@ TEST(ContactPlanningTerms,
                                            std::cos(cmdYawHeadingRtWorld)),
                                  1.0e-12))
         << "node " << node << ": e_y = " << axes[1].transpose();
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       EXPECT_TRUE(
           ctx.getRotmatFootRtWorld(node, foot)[1].isApprox(axes[1], 1.0e-12))
           << "node " << node << ", foot " << foot;
@@ -2981,6 +2993,256 @@ TEST(ContactPlanningTerms,
               -2.0 * kWeight * kNomPosLfootRtRfootEwrtHeadingY *
                   leftDirHeadingEwrtWorldXy.y(),
               1.0e-12);
+}
+
+// The contact count of the model reaches the planner's terms through
+// shared.numContacts. A term written for a left and a right foot refuses any
+// other count by its name and the count; the terms written over the number of
+// feet accept it. finalize() asks every listed term, so the default
+// formulation, which lists biped-only terms, is refused as a whole.
+TEST(ContactPlanningTerms, BipedOnlyTermsRefuseAContactSetThatIsNotTwoFeet) {
+  constexpr size_t kFourContacts = 4;
+  struct BipedOnlyTerm {
+    absl::StatusOr<std::unique_ptr<ContactPlanningTerm>> term;
+    std::string className;
+  };
+  std::vector<BipedOnlyTerm> bipedOnly;
+  bipedOnly.push_back({.term = ContactPlanningTermFactory::makeModelBlock(
+                           term::kFootholdIntegrator),
+                       .className = "FootholdIntegrator"});
+  bipedOnly.push_back({.term = ContactPlanningTermFactory::makeSoftConstraint(
+                           term::kFootSeparation),
+                       .className = "FootSeparationConstraint"});
+  bipedOnly.push_back({.term = ContactPlanningTermFactory::makeSoftConstraint(
+                           term::kZmpSupportRegion),
+                       .className = "ZmpSupportRegionConstraint"});
+  bipedOnly.push_back({.term = ContactPlanningTermFactory::makeHardConstraint(
+                           term::kYawTorqueBudgetName),
+                       .className = "YawTorqueBudgetConstraint"});
+  bipedOnly.push_back({.term = ContactPlanningTermFactory::makeLogicRule(
+                           term::kAlternatingFeet),
+                       .className = "AlternatingFeetRule"});
+  for (const BipedOnlyTerm& entry : bipedOnly) {
+    ASSERT_TRUE(entry.term.ok()) << entry.term.status();
+    const ContactPlanningTerm& bipedTerm = **entry.term;
+    EXPECT_EQ(
+        bipedTerm.validateContactSet(static_cast<size_t>(kBipedFootCount)),
+        absl::OkStatus())
+        << entry.className;
+    const absl::Status refused = bipedTerm.validateContactSet(kFourContacts);
+    EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument);
+    EXPECT_EQ(
+        refused.message(),
+        absl::StrCat(entry.className,
+                     " is written for two contacts; the contact set has 4 "
+                     "contacts"));
+  }
+
+  std::vector<absl::StatusOr<std::unique_ptr<ContactPlanningTerm>>> generic;
+  generic.emplace_back(
+      ContactPlanningTermFactory::makeHardConstraint(term::kNoFlight));
+  generic.emplace_back(
+      ContactPlanningTermFactory::makeLogicRule(term::kNoFlight));
+  generic.emplace_back(
+      ContactPlanningTermFactory::makeLogicRule(term::kPhaseDurations));
+  generic.emplace_back(
+      ContactPlanningTermFactory::makeLogicRule(term::kMinimumDoubleSupport));
+  for (const absl::StatusOr<std::unique_ptr<ContactPlanningTerm>>& genericTerm :
+       generic) {
+    ASSERT_TRUE(genericTerm.ok()) << genericTerm.status();
+    EXPECT_EQ((*genericTerm)->validateContactSet(kFourContacts),
+              absl::OkStatus())
+        << (*genericTerm)->describe();
+  }
+
+  ContactPlanningConfig fourContacts = makeConfig();
+  fourContacts.shared.numContacts = kFourContacts;
+  const absl::Status assembled =
+      ContactPlanningTermFactory::buildProblemStatus(fourContacts).status();
+  EXPECT_EQ(assembled.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_NE(std::string(assembled.message())
+                .find("is written for two contacts; the contact set has 4 "
+                      "contacts"),
+            std::string::npos)
+      << assembled;
+}
+
+// The counting core of no_flight and minimum_double_support on four feet. The
+// planner's variable layout and its input (ContactPlannerInput) hold two feet,
+// so the rules themselves cannot be run on a four-foot problem yet; their
+// count logic is the helper, which is written over the number of feet.
+TEST(ContactPlanningTerms, TheMinimumContactCountPropagatesOverFourFeet) {
+  const std::array<int, 4> nodeBinaries = {0, 1, 2, 3};
+  const ContactMask everyFoot = ContactMask::allActive(/*numContacts=*/4);
+
+  // no_flight: at least one foot. Three feet lifted force the fourth down.
+  MiqpAssignment threeLifted = {0, 0, kMiqpFree, 0};
+  bool changed = false;
+  EXPECT_TRUE(propagateMinimumContactCount(nodeBinaries, everyFoot,
+                                           /*minContactCount=*/1, threeLifted,
+                                           changed));
+  EXPECT_TRUE(changed);
+  EXPECT_EQ(threeLifted, (MiqpAssignment{0, 0, 1, 0}));
+  // Two feet still free: either may support, nothing is implied.
+  MiqpAssignment twoFree = {0, kMiqpFree, kMiqpFree, 0};
+  changed = false;
+  EXPECT_TRUE(propagateMinimumContactCount(nodeBinaries, everyFoot,
+                                           /*minContactCount=*/1, twoFree,
+                                           changed));
+  EXPECT_FALSE(changed);
+  EXPECT_EQ(twoFree, (MiqpAssignment{0, kMiqpFree, kMiqpFree, 0}));
+  // Every foot lifted is a flight phase.
+  MiqpAssignment flight = {0, 0, 0, 0};
+  changed = false;
+  EXPECT_FALSE(propagateMinimumContactCount(nodeBinaries, everyFoot,
+                                            /*minContactCount=*/1, flight,
+                                            changed));
+
+  // A minimum support of three during a hold that binds the first three feet
+  // (the fourth was in the air before the node). With the fourth foot free,
+  // every bound foot can still lift while three others may support: nothing is
+  // implied. Once the fourth lifts, the three bound feet are the only possible
+  // support and stay down.
+  ContactMask boundFeet(/*numContacts=*/4);
+  boundFeet.set(/*contactIndex=*/0, /*active=*/true);
+  boundFeet.set(/*contactIndex=*/1, /*active=*/true);
+  boundFeet.set(/*contactIndex=*/2, /*active=*/true);
+  MiqpAssignment fourthFree = {kMiqpFree, kMiqpFree, kMiqpFree, kMiqpFree};
+  changed = false;
+  EXPECT_TRUE(propagateMinimumContactCount(nodeBinaries, boundFeet,
+                                           /*minContactCount=*/3, fourthFree,
+                                           changed));
+  EXPECT_FALSE(changed);
+  MiqpAssignment fourthLifted = {kMiqpFree, kMiqpFree, kMiqpFree, 0};
+  changed = false;
+  EXPECT_TRUE(propagateMinimumContactCount(nodeBinaries, boundFeet,
+                                           /*minContactCount=*/3, fourthLifted,
+                                           changed));
+  EXPECT_TRUE(changed);
+  EXPECT_EQ(fourthLifted, (MiqpAssignment{1, 1, 1, 0}));
+  // A bound foot already lifted while the others cannot reach three is a
+  // contradiction; with the fourth down they can, and nothing is fixed.
+  MiqpAssignment boundLifted = {0, kMiqpFree, kMiqpFree, 0};
+  changed = false;
+  EXPECT_FALSE(propagateMinimumContactCount(nodeBinaries, boundFeet,
+                                            /*minContactCount=*/3, boundLifted,
+                                            changed));
+  MiqpAssignment fourthDown = {0, kMiqpFree, kMiqpFree, 1};
+  changed = false;
+  EXPECT_TRUE(propagateMinimumContactCount(nodeBinaries, boundFeet,
+                                           /*minContactCount=*/3, fourthDown,
+                                           changed));
+  EXPECT_TRUE(changed) << "the two free bound feet are the rest of the three";
+  EXPECT_EQ(fourthDown, (MiqpAssignment{0, 1, 1, 1}));
+}
+
+// The counting core of phase_durations on four feet (see the test above for
+// why the helper and not the rule): an overdue foot's lift is implied only
+// once every other foot is decided, one of them supports, the hold does not
+// keep it down, and no supporting overdue foot lifts first.
+TEST(ContactPlanningTerms, AnOverdueLiftIsImpliedOverFourFeet) {
+  const OtherFootAtNode supporting = {
+      .decided = true, .inContact = true, .liftsFirst = false};
+  const OtherFootAtNode airborne = {
+      .decided = true, .inContact = false, .liftsFirst = false};
+  const OtherFootAtNode undecided = {
+      .decided = false, .inContact = false, .liftsFirst = false};
+  const OtherFootAtNode overdueFirst = {
+      .decided = true, .inContact = true, .liftsFirst = true};
+
+  const std::array<OtherFootAtNode, 3> oneSupports = {airborne, supporting,
+                                                      airborne};
+  EXPECT_TRUE(overdueLiftIsImplied(oneSupports, DoubleSupportHold::kNone));
+  EXPECT_FALSE(overdueLiftIsImplied(oneSupports, DoubleSupportHold::kHeld));
+  const std::array<OtherFootAtNode, 3> noneSupports = {airborne, airborne,
+                                                       airborne};
+  EXPECT_FALSE(overdueLiftIsImplied(noneSupports, DoubleSupportHold::kNone))
+      << "lifting the last support would be a flight phase";
+  const std::array<OtherFootAtNode, 3> oneUndecided = {supporting, undecided,
+                                                       supporting};
+  EXPECT_FALSE(overdueLiftIsImplied(oneUndecided, DoubleSupportHold::kNone));
+  const std::array<OtherFootAtNode, 3> anotherGoesFirst = {
+      supporting, overdueFirst, airborne};
+  EXPECT_FALSE(
+      overdueLiftIsImplied(anotherGoesFirst, DoubleSupportHold::kNone));
+  // For a biped the other feet are one foot, and the four cases of the rule
+  // are the ones it always had.
+  EXPECT_TRUE(overdueLiftIsImplied(std::array<OtherFootAtNode, 1>{supporting},
+                                   DoubleSupportHold::kNone));
+  EXPECT_FALSE(overdueLiftIsImplied(std::array<OtherFootAtNode, 1>{airborne},
+                                    DoubleSupportHold::kNone));
+  EXPECT_FALSE(overdueLiftIsImplied(std::array<OtherFootAtNode, 1>{undecided},
+                                    DoubleSupportHold::kNone));
+  EXPECT_FALSE(overdueLiftIsImplied(
+      std::array<OtherFootAtNode, 1>{overdueFirst}, DoubleSupportHold::kNone));
+}
+
+// minimum_double_support as a minimum support count on the biped: the
+// registry's rule (every foot) and an explicit count of two or more propagate
+// identically on every partial assignment of a short horizon, and a count of
+// one lets the other foot lift at a touch-down while the landing foot
+// supports.
+TEST(ContactPlanningTerms, TheMinimumSupportCountDefaultsToEveryFoot) {
+  constexpr int kNumNodes = 3;
+  ContactPlanningConfig config = makeConfig();
+  config.planner.numNodes = kNumNodes;
+  ASSERT_EQ(config.validateStatus(), absl::OkStatus());
+  ContactPlannerInput landing = makeStandingInput();
+  landing.contacts = {false, true};  // the left foot swings at planning time
+  landing.phaseElapsedTime = {0.2, 1.0};
+  const ContactLogicState state = ContactLogicState::make(
+      landing, config, /*previousPlanShift=*/std::nullopt,
+      /*previousAssignment=*/nullptr);
+  ASSERT_GT(state.nDoubleSupportHold, 0);
+
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<ContactLogicRule> registryRule,
+      ContactPlanningTermFactory::makeLogicRule(term::kMinimumDoubleSupport));
+  registryRule->configure(config);
+  MinimumDoubleSupportRule twoFeet(/*minSupportCount=*/2);
+  MinimumDoubleSupportRule moreThanTheFeet(/*minSupportCount=*/5);
+  twoFeet.configure(config);
+  moreThanTheFeet.configure(config);
+  for (const MiqpAssignment& partial :
+       allPartialAssignments(state.numBinaries())) {
+    MiqpAssignment expected = partial;
+    bool expectedChanged = false;
+    const bool expectedFeasible =
+        registryRule->propagate(state, expected, expectedChanged);
+    const std::array<const MinimumDoubleSupportRule* absl_nonnull, 2>
+        explicitRules = {&twoFeet, &moreThanTheFeet};
+    for (const MinimumDoubleSupportRule* absl_nonnull rule : explicitRules) {
+      MiqpAssignment actual = partial;
+      bool actualChanged = false;
+      ASSERT_EQ(rule->propagate(state, actual, actualChanged), expectedFeasible)
+          << printAssignment(partial);
+      if (!expectedFeasible) continue;
+      EXPECT_EQ(actual, expected) << printAssignment(partial);
+      EXPECT_EQ(actualChanged, expectedChanged) << printAssignment(partial);
+    }
+  }
+
+  // The left foot lands at node 0 with the right foot's binary still free:
+  // the double support holds the right foot down, a minimum support of one does
+  // not, since the landing left foot already supports.
+  MiqpAssignment touchDown(static_cast<size_t>(state.numBinaries()), kMiqpFree);
+  touchDown[static_cast<size_t>(ContactLogicState::contactBinaryIndex(
+      /*node=*/0, kContactLeftIndex))] = 1;
+  MiqpAssignment held = touchDown;
+  bool changed = false;
+  ASSERT_TRUE(registryRule->propagate(state, held, changed));
+  EXPECT_EQ(held[static_cast<size_t>(ContactLogicState::contactBinaryIndex(
+                /*node=*/0, kContactRightIndex))],
+            1);
+  MinimumDoubleSupportRule oneFoot(/*minSupportCount=*/1);
+  oneFoot.configure(config);
+  MiqpAssignment released = touchDown;
+  changed = false;
+  ASSERT_TRUE(oneFoot.propagate(state, released, changed));
+  EXPECT_FALSE(changed);
+  EXPECT_EQ(released[static_cast<size_t>(ContactLogicState::contactBinaryIndex(
+                /*node=*/0, kContactRightIndex))],
+            kMiqpFree);
 }
 
 }  // namespace ocs2::humanoid

@@ -35,7 +35,8 @@ each group's description says what its values are:
   and "measured"). The blueprint plots each panel from its group alone. The values also appear in the complete groups;
   the duplication costs a few doubles per message and keeps every panel independent of the robot's joint names.
 - The complete groups: every joint (JOINT_GROUPS), every generalized coordinate, velocity and force (DOF_GROUPS), both
-  contact wrenches (SERIES_GROUPS_WRENCH_FEET_EWRT_WORLD), every tracked frame (frame_groups(), one set per frame of the task file's
+  contact wrenches (SERIES_GROUPS_WRENCH_FEET_EWRT_WORLD), every other contact's groups (contact_groups(), one set per
+  contact of a set larger than the biped's), every tracked frame (frame_groups(), one set per frame of the task file's
   telemetry_frames), the MPC observation (MPC_OBSERVATION_GROUPS), the optimized plan's included, and the latest MPC
   solution's performance index and cost and constraint terms (MPC_SOLUTION_GROUPS). The orientation quaternions are not
   plotted: the Euler angles next to them (and the 3D scene) show them.
@@ -88,7 +89,8 @@ WRENCH_NAMES = (
 )
 FORCE_NAMES = ("force_x", "force_y", "force_z")
 
-# Contact 0 and 1 of ModelSettings::contactNames (kContactLeftIndex, kContactRightIndex).
+# The biped's feet: the last two contacts of ModelSettings::contactNames when they are 6-DoF contacts
+# (TelemetryBuilder::contactSeriesNames()). Every other contact's groups are named by its contact name.
 LEFT = "left"
 RIGHT = "right"
 
@@ -312,7 +314,54 @@ _LINVEL_FEET_RT_WORLD_EWRT_WORLD_Z = (
     " of the target trajectory"
 )
 
+
 # LINT.IfChange(panel_groups)
+def _contact_normal_group(contact: str) -> SeriesGroup:
+    """The normal force panel group of the contact named `contact` in the paths."""
+    return _pair(
+        f"contact_forces/{contact}_normal",
+        "N",
+        _FORCE_FEET_EWRT_WORLD_Z,
+        (palette.PLOT_RED, palette.PLOT_BLUE),
+        names=(MPC, MEASURED),
+    )
+
+
+def _contact_tangential_group(contact: str) -> SeriesGroup:
+    """The tangential force panel group of the contact named `contact`."""
+    return SeriesGroup(
+        path=f"contact_forces/{contact}_tangential",
+        names=("mpc_x", "measured_x", "mpc_y", "measured_y"),
+        unit="N",
+        description=_FORCE_FEET_EWRT_WORLD_XY,
+        colors=(
+            palette.PLOT_ORANGE,
+            palette.PLOT_GREEN,
+            palette.PLOT_PURPLE,
+            palette.PLOT_BROWN,
+        ),
+    )
+
+
+# The foot_kinematics/ groups of a contact, by the derivative they plot: its unit, description and colors.
+_FOOT_KINEMATICS: dict[str, tuple[str, str, tuple[str, str]]] = {
+    "acceleration": (
+        "m/s^2",
+        _LINACC_FEET_RT_WORLD_EWRT_WORLD_Z,
+        _POSITION_COLORS,
+    ),
+    "velocity": ("m/s", _LINVEL_FEET_RT_WORLD_EWRT_WORLD_Z, _ANGLE_COLORS),
+}
+
+
+def _foot_kinematics_group(contact: str, derivative: str) -> SeriesGroup:
+    """The vertical `derivative` ("acceleration" or "velocity") panel group of the contact named `contact`."""
+    unit, description, colors = _FOOT_KINEMATICS[derivative]
+    return _pair(
+        f"foot_kinematics/{contact}_{derivative}_z", unit, description, colors
+    )
+
+
 PANEL_GROUPS: tuple[SeriesGroup, ...] = (
     # Base Pose & Euler
     _pair(
@@ -410,44 +459,10 @@ PANEL_GROUPS: tuple[SeriesGroup, ...] = (
         _ANGLE_COLORS,
     ),
     # Contact Forces
-    _pair(
-        "contact_forces/left_normal",
-        "N",
-        _FORCE_FEET_EWRT_WORLD_Z,
-        (palette.PLOT_RED, palette.PLOT_BLUE),
-        names=(MPC, MEASURED),
-    ),
-    _pair(
-        "contact_forces/right_normal",
-        "N",
-        _FORCE_FEET_EWRT_WORLD_Z,
-        (palette.PLOT_RED, palette.PLOT_BLUE),
-        names=(MPC, MEASURED),
-    ),
-    SeriesGroup(
-        path="contact_forces/left_tangential",
-        names=("mpc_x", "measured_x", "mpc_y", "measured_y"),
-        unit="N",
-        description=_FORCE_FEET_EWRT_WORLD_XY,
-        colors=(
-            palette.PLOT_ORANGE,
-            palette.PLOT_GREEN,
-            palette.PLOT_PURPLE,
-            palette.PLOT_BROWN,
-        ),
-    ),
-    SeriesGroup(
-        path="contact_forces/right_tangential",
-        names=("mpc_x", "measured_x", "mpc_y", "measured_y"),
-        unit="N",
-        description=_FORCE_FEET_EWRT_WORLD_XY,
-        colors=(
-            palette.PLOT_ORANGE,
-            palette.PLOT_GREEN,
-            palette.PLOT_PURPLE,
-            palette.PLOT_BROWN,
-        ),
-    ),
+    _contact_normal_group(LEFT),
+    _contact_normal_group(RIGHT),
+    _contact_tangential_group(LEFT),
+    _contact_tangential_group(RIGHT),
     # Generalized Coordinates (Pinocchio)
     _pair(
         "generalized_base/position_z",
@@ -479,31 +494,11 @@ PANEL_GROUPS: tuple[SeriesGroup, ...] = (
         _GENERALIZED_VELOCITY,
         _ANGLE_COLORS,
     ),
-    # Frame Kinematics & Acceleration (contact 0 is the left foot, contact 1 the right)
-    _pair(
-        "foot_kinematics/left_acceleration_z",
-        "m/s^2",
-        _LINACC_FEET_RT_WORLD_EWRT_WORLD_Z,
-        _POSITION_COLORS,
-    ),
-    _pair(
-        "foot_kinematics/right_acceleration_z",
-        "m/s^2",
-        _LINACC_FEET_RT_WORLD_EWRT_WORLD_Z,
-        _POSITION_COLORS,
-    ),
-    _pair(
-        "foot_kinematics/left_velocity_z",
-        "m/s",
-        _LINVEL_FEET_RT_WORLD_EWRT_WORLD_Z,
-        _ANGLE_COLORS,
-    ),
-    _pair(
-        "foot_kinematics/right_velocity_z",
-        "m/s",
-        _LINVEL_FEET_RT_WORLD_EWRT_WORLD_Z,
-        _ANGLE_COLORS,
-    ),
+    # Frame Kinematics & Acceleration (the biped's left and right foot)
+    _foot_kinematics_group(LEFT, "acceleration"),
+    _foot_kinematics_group(RIGHT, "acceleration"),
+    _foot_kinematics_group(LEFT, "velocity"),
+    _foot_kinematics_group(RIGHT, "velocity"),
     # Balance (CoM, DCM, ZMP, ACoM)
     _triple("com/position_x", "m", _POS_COM_RT_WORLD_EWRT_WORLD),
     _triple("com/position_y", "m", _POS_COM_RT_WORLD_EWRT_WORLD),
@@ -657,6 +652,28 @@ SERIES_GROUPS_WRENCH_FEET_EWRT_WORLD: tuple[SeriesGroup, ...] = (
     + _series_groups_wrench_foot_ewrt_world(RIGHT)
 )
 
+
+def contact_groups(contact: str) -> tuple[SeriesGroup, ...]:
+    """The groups of a contact other than the biped's two feet, named `contact` (its ModelSettings::contactNames entry).
+
+    The producer sends them for every contact of a set larger than the biped's, in contact order within each kind:
+    the four panel groups of contact_forces/ and foot_kinematics/, and the two contact_wrenches/ groups. The tabs plot
+    the feet's groups only; these are in the entity tree.
+
+    Args:
+        contact: The contact's name.
+
+    Returns:
+        Its normal and tangential force, vertical acceleration and velocity, plan wrench and measured force groups.
+    """
+    return (
+        _contact_normal_group(contact),
+        _contact_tangential_group(contact),
+        _foot_kinematics_group(contact, "acceleration"),
+        _foot_kinematics_group(contact, "velocity"),
+    ) + _series_groups_wrench_foot_ewrt_world(contact)
+
+
 MPC_OBSERVATION_GROUPS: tuple[SeriesGroup, ...] = (
     _robot_dependent(
         "mpc_observation/state",
@@ -782,11 +799,32 @@ _STATIC_GROUPS_BY_PATH: dict[str, SeriesGroup] = {
 }
 
 
+# The paths of a contact's groups (contact_groups()), each capturing the contact's name.
+_CONTACT_PATHS = (
+    re.compile(
+        r"^contact_forces/(?P<contact>[A-Za-z0-9_.\-]+)_(?:normal|tangential)$"
+    ),
+    re.compile(
+        r"^foot_kinematics/(?P<contact>[A-Za-z0-9_.\-]+)_(?:acceleration|velocity)_z$"
+    ),
+    re.compile(
+        r"^contact_wrenches/(?P<contact>[A-Za-z0-9_.\-]+)/(?:mpc|measured)$"
+    ),
+)
+
+
 def find_group(path: str) -> SeriesGroup | None:
-    """The group of the contract at `path` (a frame group for any frame name), or None."""
+    """The group of the contract at `path` (a frame group for any frame name, a contact group for any contact), or None."""
     group = _STATIC_GROUPS_BY_PATH.get(path)
     if group is not None:
         return group
+    for contact_path in _CONTACT_PATHS:
+        contact_match = contact_path.match(path)
+        if contact_match is None:
+            continue
+        for contact_group in contact_groups(contact_match.group("contact")):
+            if contact_group.path == path:
+                return contact_group
     match = _FRAME_PATH.match(path)
     if match is None or match.group("kind") not in FRAME_KINDS:
         return None

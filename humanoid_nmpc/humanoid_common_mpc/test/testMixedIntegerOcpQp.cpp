@@ -58,6 +58,9 @@ namespace ocs2::humanoid {
 
 namespace {
 
+// The biped's two feet, which every case here is written for.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+
 /** OcpQpHpipmSolver::solve() on a problem it accepts; the test fails if it
  * rejects the problem. */
 OcpQpSolution qpSolveOrFail(OcpQpHpipmSolver& solver,
@@ -326,7 +329,7 @@ ContactPlanningConfig makePlannerConfig() {
  * The heading block declares no binaries, so the binary list must come out
  * exactly as it does without it. That is the half of the agreement a new model
  * block could break without any other test noticing: `contactBinaryIndex`
- * hard-codes kNumContacts binaries per node in the feet's own order, while
+ * hard-codes kNumFeet binaries per node in the feet's own order, while
  * `binaryVariables` concatenates whatever the blocks declare, in the blocks'
  * order.
  */
@@ -355,7 +358,7 @@ ContactPlannerInput makeStandingInput() {
 /** The foot a layout input index belongs to, or -1 when the index is not a
  * contact binary of any foot. */
 int footOfContactInput(const Layout& layout, int inputIndex) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     if (layout.input(var::contact(foot)) == inputIndex) {
       return static_cast<int>(foot);
     }
@@ -373,7 +376,7 @@ int footOfContactInput(const Layout& layout, int inputIndex) {
  * every assignment cost, the committed prefix of `initialAssignment` and the
  * event-shift local search instead address the same assignment through
  * `ContactLogicState::contactBinaryIndex(node, foot)`, which assumes
- * kNumContacts entries per node laid out in the feet's order. Nothing in the
+ * kNumFeet entries per node laid out in the feet's order. Nothing in the
  * code connects the two, so this states the connection.
  */
 void expectBinaryLayoutAgreesWithContactBinaryIndex(
@@ -394,7 +397,7 @@ void expectBinaryLayoutAgreesWithContactBinaryIndex(
   // Forward: the index contactBinaryIndex hands out is the position of that
   // node's and that foot's contact input.
   for (int k = 0; k < numNodes; ++k) {
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       const int index = ContactLogicState::contactBinaryIndex(k, foot);
       ASSERT_GE(index, 0);
       ASSERT_LT(static_cast<size_t>(index), binaries.size());
@@ -1050,7 +1053,7 @@ TEST(MixedIntegerOcpQpSolveFixedTest,
  *
  * `binaryVariables()` walks the nodes and, inside a node, the model blocks,
  * appending whatever each block declares as a binary input;
- * `contactBinaryIndex(k, foot)` returns `kNumContacts * k + foot`. The two
+ * `contactBinaryIndex(k, foot)` returns `kNumFeet * k + foot`. The two
  * agree only because exactly one block (foothold_integrator) declares binaries
  * and declares them one per foot in the feet's order. Should the loops in
  * `binaryVariables` ever be exchanged, should a second block declare a binary,

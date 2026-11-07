@@ -61,7 +61,7 @@ void FootMotionInSwingOnlyConstraint::addRows(const ContactPlanningContext& ctx,
                                               int /*node*/,
                                               RowBuilder& rows) const {
   const scalar_t M = ctx.bigM;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       for (const scalar_t sign : {1.0, -1.0}) {
         rows.addHard(

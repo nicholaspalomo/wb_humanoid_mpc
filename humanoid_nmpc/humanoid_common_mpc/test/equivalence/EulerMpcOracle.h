@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Pinocchio forward declarations must be included first.
 #include "pinocchio/fwd.hpp"
 
-#include <array>
 #include <memory>
 #include <string>
 
@@ -43,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
 
 /*
@@ -115,10 +115,11 @@ struct EulerMpcOracleOptions {
   OracleFormulation formulation = OracleFormulation::kCentroidal;
   /** The contact frames, left then right: the frames the MPC applies the
    * contact wrenches at. */
-  std::array<std::string, kNumContacts> contactFrameNames;
+  BipedFeetArray<std::string> contactFrameNames;
   OracleContactInput contactInput = OracleContactInput::kWorldWrench;
-  /** For kLocalBasis: each contact's 6 x n basis; ignored otherwise. */
-  std::array<matrix_t, kNumContacts> localBasisMatrices;
+  /** For kLocalBasis: each contact's 6 x n basis, one per entry of
+   * contactFrameNames; ignored otherwise. */
+  ContactArray<matrix_t> localBasisMatrices;
   /** [m/s^2] in the world frame. */
   vector3_t gravityEwrtWorld = vector3_t(0.0, 0.0, -9.81);
 };
@@ -175,7 +176,7 @@ class EulerMpcOracle {
 
   /** The world-frame contact wrenches [f; tau] of `input` at `eulerState`, left
    * then right. */
-  std::array<vector6_t, kNumContacts> computeWrenchContactsEwrtWorld(
+  BipedFeetArray<vector6_t> computeWrenchContactsEwrtWorld(
       const vector_t& eulerState, const vector_t& input) const;
 
   /**
@@ -191,14 +192,14 @@ class EulerMpcOracle {
   // pinocchio::Model has no move constructor, so the model is copied in.
   EulerMpcOracle(const pinocchio::Model& model,
                  EulerMpcOracleOptions options,
-                 std::array<pinocchio::FrameIndex, kNumContacts> contactFrames);
+                 BipedFeetArray<pinocchio::FrameIndex> contactFrames);
 
   /** q_e = [p_W, Theta, q_j] of an Euler state. */
   vector_t configurationOf(const vector_t& eulerState) const;
 
   pinocchio::Model model_;
   EulerMpcOracleOptions options_;
-  std::array<pinocchio::FrameIndex, kNumContacts> contactFrames_;
+  BipedFeetArray<pinocchio::FrameIndex> contactFrames_;
   scalar_t totalMass_;
 };
 

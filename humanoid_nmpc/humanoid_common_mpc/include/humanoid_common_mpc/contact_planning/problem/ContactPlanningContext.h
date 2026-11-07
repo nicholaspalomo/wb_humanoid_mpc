@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -50,12 +51,12 @@ namespace ocs2::humanoid {
 struct HeadingNominal {
   std::vector<scalar_t> nomHeadingModelYawTraj;
   std::vector<vector2_t> nomPosComRtWorldEwrtWorldXyTraj;
-  std::vector<feet_array_t<vector2_t>> nomPosFeetRtWorldEwrtWorldXyTraj;
+  std::vector<BipedFeetArray<vector2_t>> nomPosFeetRtWorldEwrtWorldXyTraj;
   // [rad] per node, the nominal ZYX yaw of every foot, which the footprint
   // frames of the ZMP support region are taken at
   // (ContactPlanningContext::rotmatFeetRtWorldTraj). Empty, or not covering
   // every node: every foot is taken at the nominal heading.
-  std::vector<feet_array_t<scalar_t>> nomEulerzyxFeetRtWorldYawTraj;
+  std::vector<BipedFeetArray<scalar_t>> nomEulerzyxFeetRtWorldYawTraj;
 };
 
 /**
@@ -93,7 +94,7 @@ struct ContactPlanningContext {
   // (HeadingNominal::nomEulerzyxFeetRtWorldYawTraj);
   // equal to `rotmatHeadingRtWorldTraj` without the heading model or without
   // nominal foot yaws.
-  std::vector<feet_array_t<std::array<vector2_t, kHorizontalPositionDim>>>
+  std::vector<BipedFeetArray<std::array<vector2_t, kHorizontalPositionDim>>>
       rotmatFeetRtWorldTraj;
 
   bool hasHeading() const { return layout != nullptr && layout->hasHeading; }

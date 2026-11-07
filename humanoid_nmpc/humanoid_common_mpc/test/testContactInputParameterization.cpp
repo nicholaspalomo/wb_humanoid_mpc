@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
 #include <limits>
@@ -48,13 +49,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StateLayout.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
 #include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_mpc_config/contacts_config.nproto.h"
+#include "humanoid_mpc_config/model_settings_config.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.pb.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
@@ -353,7 +354,7 @@ class ContactWrenchConeBasesTest : public ::testing::Test {
 
 TEST_F(ContactWrenchConeBasesTest,
        TheShippedFileBuildsTheConservativeSetFromItsConeBlock) {
-  const absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> bases =
+  const absl::StatusOr<std::vector<ContactWrenchConeBasisMatrix>> bases =
       contactWrenchConeBasesFromConfig(task_.contacts, *modelSettings_);
   ASSERT_TRUE(bases.ok()) << bases.status();
   const absl::StatusOr<ContactWrenchConeConstraint::Config> cone =
@@ -369,7 +370,7 @@ TEST_F(ContactWrenchConeBasesTest,
 TEST_F(ContactWrenchConeBasesTest, TheGeneratorSetIsTheOneTheTaskFileNames) {
   mpc_config::TaskFile exact = task_;
   exact.contacts.basis_generator_set = kExactWrenchConeGeneratorSet;
-  const absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> bases =
+  const absl::StatusOr<std::vector<ContactWrenchConeBasisMatrix>> bases =
       contactWrenchConeBasesFromConfig(exact.contacts, *modelSettings_);
   ASSERT_TRUE(bases.ok()) << bases.status();
   const absl::StatusOr<ContactWrenchConeConstraint::Config> cone =
@@ -410,6 +411,45 @@ TEST_F(ContactWrenchConeBasesTest,
       contactWrenchConeBasesFromConfig(noFriction.contacts, *modelSettings_)
           .status(),
       {absl::StrCat(kConeBlock, ".friction_coefficient")});
+}
+
+TEST_F(ContactWrenchConeBasesTest, EverySixDofContactGetsABasisOfItsOwn) {
+  // A third 6-DoF contact: the seat pad of the multi-contact Atlas, around the
+  // shared contact rectangle.
+  mpc_config::TaskFile threeContacts = task_;
+  threeContacts.model_settings.contact_names_6dof.push_back("seat_contact");
+  threeContacts.model_settings.contact_parent_joint_names.push_back(
+      "root_joint");
+  const ModelSettings settings = checkedValue(ModelSettings::Create(
+      threeContacts, urdfFile_, "centroidal_mpc_", /*verbose=*/false));
+  ASSERT_EQ(settings.contactNames.size(), 3U);
+  const absl::StatusOr<std::vector<ContactWrenchConeBasisMatrix>> bases =
+      contactWrenchConeBasesFromConfig(threeContacts.contacts, settings);
+  ASSERT_TRUE(bases.ok()) << bases.status();
+  const absl::StatusOr<std::vector<ContactWrenchConeBasisMatrix>> feet =
+      contactWrenchConeBasesFromConfig(task_.contacts, *modelSettings_);
+  ASSERT_TRUE(feet.ok()) << feet.status();
+  ASSERT_EQ(bases->size(), 3U);
+  ASSERT_EQ(feet->size(), 2U);
+  for (size_t i = 0; i < feet->size(); ++i) {
+    EXPECT_EQ((*bases)[i].getBasisMatrix(), (*feet)[i].getBasisMatrix()) << i;
+  }
+  EXPECT_EQ((*bases)[2].numBasis(), (*feet)[0].numBasis());
+}
+
+TEST_F(ContactWrenchConeBasesTest, APointContactIsRefusedByNameAndKey) {
+  mpc_config::TaskFile withHand = task_;
+  mpc_config::ModelSettingsConfig::PointContact hand;
+  hand.name = "hand_l_contact";
+  hand.parent_joint_name = "l_arm_wrx";
+  withHand.model_settings.contacts_3dof.push_back(hand);
+  const ModelSettings settings = checkedValue(ModelSettings::Create(
+      withHand, urdfFile_, "centroidal_mpc_", /*verbose=*/false));
+  expectInvalidArgumentNaming(
+      contactWrenchConeBasesFromConfig(withHand.contacts, settings).status(),
+      {"hand_l_contact", "3-DoF contact",
+       std::string(kContactInputParameterizationKey),
+       std::string(kBasisVectorsContactInputParameterization)});
 }
 
 TEST_F(ContactWrenchConeBasesTest,

@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
@@ -236,18 +237,23 @@ vector_t solveNonNegativeBasisScalings(
  * and -0 as 0. Round-off in the last bits of an entry therefore leaves it
  * unchanged unless the entry happens to sit on a rounding boundary of the 12th
  * digit, in which case the only consequence is one extra CppAD compilation.
+ * `localBasisMatrices` holds one basis per contact in contact order; the
+ * contacts are hashed in that order, so a biped's two bases hash as they did
+ * before the contact set became generic (testContactWrenchConeBasisMatrix pins
+ * the value).
  */
-uint64_t basisContentHash(const feet_array_t<matrix_t>& localBasisMatrices);
+uint64_t basisContentHash(absl::Span<const matrix_t> localBasisMatrices);
 
 /**
  * The key of a basis-vector input parameterization for naming CppAD libraries:
- * "basis<numBasisPerFoot>_<16 hex digits of basisContentHash>". Every CppAD
- * tape whose domain or body depends on the contact input parameterization has
- * to be keyed by it, so that a cached library is never loaded for another
+ * "basis<numBasisPerFoot>_<16 hex digits of basisContentHash>", with the
+ * generator count of the first contact. Requires at least one basis. Every
+ * CppAD tape whose domain or body depends on the contact input parameterization
+ * has to be keyed by it, so that a cached library is never loaded for another
  * parameterization or another basis.
  */
 std::string basisInputsLibraryKey(
-    const feet_array_t<matrix_t>& localBasisMatrices);
+    absl::Span<const matrix_t> localBasisMatrices);
 
 /** The counterpart of basisInputsLibraryKey() for the wrench-space input
  * parameterization. */

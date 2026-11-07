@@ -72,13 +72,13 @@ void HeadingDoubleIntegrator::bind(const Layout& layout) {
 void HeadingDoubleIntegrator::declareVariables(LayoutBuilder& layout) const {
   layout.addState(var::kHeadingModelYaw);
   layout.addState(var::kHeadingModelYawRate);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     layout.addState(var::eulerzyxFootRtWorldYaw(foot));
   }
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     layout.addInput(var::torqueFootEwrtWorldZ(foot));
   }
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     layout.addInput(var::errEulerzyxFootRtWorldYaw(foot));
   }
 }
@@ -91,7 +91,7 @@ void HeadingDoubleIntegrator::addDynamics(const ContactPlanningContext& ctx,
   s.A(idx_.headingModelYaw, idx_.headingModelYaw) = 1.0;
   s.A(idx_.headingModelYaw, idx_.headingModelYawRate) = dt;
   s.A(idx_.headingModelYawRate, idx_.headingModelYawRate) = 1.0;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     s.A(idx_.eulerzyxFeetRtWorldYaw[foot], idx_.eulerzyxFeetRtWorldYaw[foot]) =
         1.0;
     s.B(idx_.headingModelYaw, idx_.torqueFeetEwrtWorldZ[foot]) =
@@ -107,7 +107,7 @@ void HeadingDoubleIntegrator::addInputBounds(
     const ContactPlanningContext& /*ctx*/,
     int /*node*/,
     InputBoundsBuilder& bounds) const {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     bounds.add(idx_.torqueFeetEwrtWorldZ[foot], -maxTorqueFootEwrtWorldZ_,
                maxTorqueFootEwrtWorldZ_);
     bounds.add(idx_.errEulerzyxFeetRtWorldYaw[foot], -kYawBigM, kYawBigM);
@@ -118,7 +118,7 @@ void HeadingDoubleIntegrator::setInitialState(const ContactPlanningContext& ctx,
                                               vector_t& x0) const {
   x0(idx_.headingModelYaw) = ctx.input->initYawHeadingRtWorld;
   x0(idx_.headingModelYawRate) = ctx.input->initRateYawHeadingRtWorld;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     x0(idx_.eulerzyxFeetRtWorldYaw[foot]) =
         ctx.input->eulerzyxFeetRtWorldYaw[foot];
   }
@@ -136,7 +136,7 @@ void HeadingDoubleIntegrator::decode(const ContactPlanningContext& ctx,
     plan.headingModelYawTraj[static_cast<size_t>(k)] = x(idx_.headingModelYaw);
     plan.headingModelYawRateTraj[static_cast<size_t>(k)] =
         x(idx_.headingModelYawRate);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
       plan.desEulerzyxFeetRtWorldYawTraj[static_cast<size_t>(k)][foot] =
           x(idx_.eulerzyxFeetRtWorldYaw[foot]);
     }

@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc_app/node/DummySimLoop.h"
 #include "humanoid_common_mpc_app/node/ExitCodes.h"
@@ -130,7 +131,8 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   config.mpcDesiredFrequency = (*interface)->mpcSettings().mpcDesiredFrequency_;
   config.link.dimensions = {.stateDim = model.getStateDim(),
                             .inputDim = model.getInputDim(),
-                            .numModes = ocs2::humanoid::kNumModeNumbers};
+                            .numModes = ocs2::humanoid::numModeNumbersOf(
+                                (*interface)->modelSettings().numContacts())};
   // The MPC's state manifold, on which the link decodes the node's
   // manifold-linear policies and interpolates their states.
   config.link.stateManifold = (*interface)->getStateManifold();
@@ -148,7 +150,7 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   initialObservation.time = 0.0;
   initialObservation.state = (*interface)->getInitialState();
   initialObservation.input = ocs2::vector_t::Zero(model.getInputDim());
-  initialObservation.mode = ocs2::humanoid::ModeNumber::kStance;
+  initialObservation.mode = ocs2::humanoid::kBipedModeStance;
   const absl::Status ran = (*loop)->run(initialObservation, []() {
     return ocs2::humanoid::node::shutdownRequested();
   });

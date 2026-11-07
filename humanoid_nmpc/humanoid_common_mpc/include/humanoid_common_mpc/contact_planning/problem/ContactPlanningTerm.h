@@ -29,8 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <vector>
+
+#include "absl/status/status.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/problem/Layout.h"
@@ -64,6 +67,17 @@ class ContactPlanningTerm {
   /** Model blocks this term needs in the layout; the problem rejects a
    * formulation that lists the term without them. */
   virtual std::vector<std::string> requiredBlocks() const { return {}; }
+  /**
+   * Returns OK when the term can be built for a contact set of `numContacts`
+   * contacts (ContactPlanningConfig::shared.numContacts), and otherwise the
+   * InvalidArgument that names the term and the count. A term written for a
+   * left and a right foot refuses every count but two
+   * (checkTwoContactCount()); one written over the number of feet accepts
+   * any. ContactPlanningProblem::finalize() asks every term of the problem.
+   */
+  virtual absl::Status validateContactSet(size_t /*numContacts*/) const {
+    return absl::OkStatus();
+  }
   /** Resolves the variable indices the term uses. Called once after the layout
    * is final and after every re-assembly. */
   virtual void bind(const Layout& /*layout*/) {}

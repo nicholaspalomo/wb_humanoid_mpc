@@ -29,8 +29,10 @@ message ModeSequenceTemplateConfig {
   // file's default template has none.
   string name = 1 [default = ""];
   // LINT.IfChange(mode_names)
-  // The modes in order, at least one: the names of MotionPhaseDefinition.h's modeNumber2String(), "STANCE" (both feet
-  // in contact), "LF" (the left foot only), "RF" (the right foot only) or "FLY".
+  // The modes in order, at least one, as MotionPhaseDefinition.h's parseModeNumber() reads them: "STANCE" (the contact
+  // set's stance: both feet on a set ending in two 6-DoF feet, every contact otherwise) or "FLY" on any set, "LF" (the left
+  // foot only) or "RF" (the right foot only) on a set ending in two 6-DoF feet, or one digit 0 or 1 per contact in contact
+  // order (1 in contact) on any set, e.g. "1001" for contacts 0 and 3 of four.
   repeated string mode_sequence = 2;
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/gait/MotionPhaseDefinition.h:mode_names)
   // [s] When each mode starts, and after them the end of the cycle: one more time than there are modes, finite and

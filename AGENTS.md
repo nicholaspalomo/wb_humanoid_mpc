@@ -176,8 +176,9 @@ Enforced by:
   - inclusive language (`inclusive-language`);
   - the license block (`license-header`);
   - the forbidden constructs (`long double` and its `1.0L` literals, user-defined literals, inline namespaces,
-    `decltype(auto)`, coroutines, modules, `<ratio>`, `<cfenv>`, `alloca`, GNU extensions such as `x ?: y`)
-    (`forbidden-construct`);
+    `decltype(auto)`, coroutines, modules, `<ratio>`, `<cfenv>`, `alloca`, GNU extensions such as `x ?: y`, and the
+    POSIX math constants `M_PI`, `M_PI_2`, `M_SQRT2` and the like, which are `std::numbers::pi` and its siblings from
+    `<numbers>`) (`forbidden-construct`);
 - the GCC warnings of `bazel/copts.bzl`.
 
 Protocol Buffers and dependencies are enforced by the checks in `tools/hooks` too (humanoid_mpc_msgs/README.md):

@@ -55,8 +55,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
@@ -75,6 +75,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 namespace ocs2::humanoid {
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 constexpr scalar_t kHorizon = 1.0;
 // [rad/s] The commanded and measured turn about the world z axis.
@@ -130,7 +132,7 @@ TEST(ContactPlannerYawRateOnTheWholeBody,
           GaitSchedule::Create(referenceFile, *modelSettings, /*verbose=*/false)
               .value(),
           std::make_unique<SwingTrajectoryPlanner>(*std::move(swingConfig),
-                                                   kNumContacts),
+                                                   kNumFeet),
           *pinocchioInterface, model, config);
   ASSERT_TRUE(created.ok()) << created.status();
   ContactPlanningReferenceManager& referenceManager = **created;
@@ -155,7 +157,7 @@ TEST(ContactPlannerYawRateOnTheWholeBody,
   referenceManager.setTargetTrajectories(TargetTrajectories(
       {0.0, 2.0 * kHorizon}, {turning, turning}, {zeroInput, zeroInput}));
   referenceManager.preSolverRun(/*initTime=*/0.0, /*finalTime=*/kHorizon,
-                                turning, ModeNumber::kStance);
+                                turning, kBipedModeStance);
   EXPECT_NEAR(referenceManager.cmdRateYawBaseRtWorld(), kCmdRateYawBaseRtWorld,
               1.0e-12);
   EXPECT_NEAR(referenceManager.getCmdRateYawBaseRtWorld(/*time=*/0.0),

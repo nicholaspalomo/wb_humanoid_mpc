@@ -35,8 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
-#include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 /**
@@ -51,17 +50,20 @@ namespace ocs2::humanoid {
 
 namespace {
 
+// The biped's two feet, which every case here is written for.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+
 constexpr scalar_t kTol = 1.0e-9;
 constexpr scalar_t kLiftOff = 1.0;
 constexpr scalar_t kTouchDown = 1.5;
 
 /** STANCE | foot 0 swings [kLiftOff, kTouchDown] | STANCE. */
 ModeSchedule singleSwingSchedule() {
-  contact_flag_t swinging = makeFeetArray(true);
+  BipedFeetArray<bool> swinging = makeBipedFeetArray(true);
   swinging[0] = false;
-  const size_t stance = stanceLeg2ModeNumber(makeFeetArray(true));
+  const size_t stance = bipedModeOfFootContacts(makeBipedFeetArray(true));
   return ModeSchedule({kLiftOff, kTouchDown},
-                      {stance, stanceLeg2ModeNumber(swinging), stance});
+                      {stance, bipedModeOfFootContacts(swinging), stance});
 }
 
 SwingTrajectoryPlanner::Config pitchedConfig(scalar_t angle) {
@@ -85,8 +87,7 @@ scalar_t atSwingFraction(const SwingTrajectoryPlanner& planner, scalar_t tau) {
 /** The default configuration must reproduce the previous flat-foot reference
  * exactly. */
 TEST(SwingPitchReference, disabledByDefault) {
-  SwingTrajectoryPlanner planner(SwingTrajectoryPlanner::Config(),
-                                 kNumContacts);
+  SwingTrajectoryPlanner planner(SwingTrajectoryPlanner::Config(), kNumFeet);
   planner.update(singleSwingSchedule(), /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
 
   EXPECT_DOUBLE_EQ(
@@ -99,7 +100,7 @@ TEST(SwingPitchReference, disabledByDefault) {
 /** Zero at both ends of the swing so that lift-off and touch-down are made with
  * a flat sole. */
 TEST(SwingPitchReference, flatAtBothEndsOfTheSwing) {
-  SwingTrajectoryPlanner planner(pitchedConfig(0.1), kNumContacts);
+  SwingTrajectoryPlanner planner(pitchedConfig(0.1), kNumFeet);
   planner.update(singleSwingSchedule(), /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
 
   EXPECT_NEAR(atSwingFraction(planner, /*tau=*/0.0), 0.0, kTol);
@@ -108,7 +109,7 @@ TEST(SwingPitchReference, flatAtBothEndsOfTheSwing) {
 
 /** A foot in contact is never pitched, on either side of the swing. */
 TEST(SwingPitchReference, zeroInStance) {
-  SwingTrajectoryPlanner planner(pitchedConfig(0.1), kNumContacts);
+  SwingTrajectoryPlanner planner(pitchedConfig(0.1), kNumFeet);
   planner.update(singleSwingSchedule(), /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
 
   EXPECT_NEAR(
@@ -129,7 +130,7 @@ TEST(SwingPitchReference, zeroInStance) {
  * and is never exceeded. */
 TEST(SwingPitchReference, reachesTheConfiguredAngleOverTheHeldSection) {
   const scalar_t angle = 0.1;
-  SwingTrajectoryPlanner planner(pitchedConfig(angle), kNumContacts);
+  SwingTrajectoryPlanner planner(pitchedConfig(angle), kNumFeet);
   planner.update(singleSwingSchedule(), /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
 
   for (scalar_t tau = 0.30; tau <= 0.80; tau += 0.05) {
@@ -146,7 +147,7 @@ TEST(SwingPitchReference, reachesTheConfiguredAngleOverTheHeldSection) {
 /** Monotone up through the rise and monotone down through the fall, so the
  * reference is smooth for the solver. */
 TEST(SwingPitchReference, monotoneRampsWithNoPlateauOvershoot) {
-  SwingTrajectoryPlanner planner(pitchedConfig(0.1), kNumContacts);
+  SwingTrajectoryPlanner planner(pitchedConfig(0.1), kNumFeet);
   planner.update(singleSwingSchedule(), /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
 
   scalar_t previous = atSwingFraction(planner, /*tau=*/0.0);
@@ -171,7 +172,7 @@ TEST(SwingPitchReference, monotoneRampsWithNoPlateauOvershoot) {
 TEST(SwingPitchReference, keepsTheToeAboveGroundThroughTheLateDescent) {
   constexpr scalar_t kToeLever = 0.12;
   const scalar_t angle = 0.1;
-  SwingTrajectoryPlanner planner(pitchedConfig(angle), kNumContacts);
+  SwingTrajectoryPlanner planner(pitchedConfig(angle), kNumFeet);
   planner.update(singleSwingSchedule(), /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
 
   bool sawLowSoleCenter = false;
@@ -196,16 +197,17 @@ TEST(SwingPitchReference, keepsTheToeAboveGroundThroughTheLateDescent) {
  * is scaled down in height. */
 TEST(SwingPitchReference, shortSwingsAreScaledDown) {
   const scalar_t angle = 0.1;
-  SwingTrajectoryPlanner planner(pitchedConfig(angle), kNumContacts);
+  SwingTrajectoryPlanner planner(pitchedConfig(angle), kNumFeet);
 
   const scalar_t shortLiftOff = 1.0;
   const scalar_t shortTouchDown = 1.2;  // 0.2 s, half of swingTimeScale
-  contact_flag_t swinging = makeFeetArray(true);
+  BipedFeetArray<bool> swinging = makeBipedFeetArray(true);
   swinging[0] = false;
-  const size_t stance = stanceLeg2ModeNumber(makeFeetArray(true));
-  planner.update(ModeSchedule({shortLiftOff, shortTouchDown},
-                              {stance, stanceLeg2ModeNumber(swinging), stance}),
-                 /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
+  const size_t stance = bipedModeOfFootContacts(makeBipedFeetArray(true));
+  planner.update(
+      ModeSchedule({shortLiftOff, shortTouchDown},
+                   {stance, bipedModeOfFootContacts(swinging), stance}),
+      /*posSurfaceRtWorldEwrtWorldZ=*/0.0);
 
   const scalar_t midSwing = 0.5 * (shortLiftOff + shortTouchDown);
   EXPECT_NEAR(planner.getSwingRefTiltangleFootRtSurface(/*leg=*/0, midSwing),

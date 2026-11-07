@@ -39,10 +39,11 @@ namespace ocs2::humanoid {
 
 /**
  * Inserts `updatedGait` into `gaitSchedule` at the first event after 70% of the
- * horizon [initTime, finalTime] (or where the left swing that ends there
- * starts), tiled up to the absolute time initTime + 1.5 * (finalTime -
- * initTime). The reference manager calls it on the solver thread before a
- * solve, when the commanded gait changes.
+ * horizon [initTime, finalTime] (or, on a biped set whose feet are its last two
+ * contacts, where the left stance that ends there starts), tiled up to the
+ * absolute time initTime + 1.5 * (finalTime - initTime). The reference manager
+ * calls it on the solver thread before a solve, when the commanded gait
+ * changes.
  *
  * @return [s] The time at which the schedule leaves the gait it ran for
  * `updatedGait` (and for the transition stance

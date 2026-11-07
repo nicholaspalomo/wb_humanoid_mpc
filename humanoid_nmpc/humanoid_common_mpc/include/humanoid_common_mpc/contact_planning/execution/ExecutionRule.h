@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
@@ -101,9 +102,9 @@ class ExecutionRule : public ContactPlanningTerm {
   }
   /** Per-foot landing target offsets (xy) of the swings in flight; zero for
    * feet the rule does not move. */
-  virtual feet_array_t<vector2_t> correctFootholds(
+  virtual BipedFeetArray<vector2_t> correctFootholds(
       const ExecutionContext& /*ctx*/, const ModeSchedule& /*schedule*/) const {
-    return makeFeetArray(vector2_t(vector2_t::Zero()));
+    return makeBipedFeetArray(vector2_t(vector2_t::Zero()));
   }
   /** Rewrites the MPC's target trajectory (the planned heading override). */
   virtual void overrideTarget(

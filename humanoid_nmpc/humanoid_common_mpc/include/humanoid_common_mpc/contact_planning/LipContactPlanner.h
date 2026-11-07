@@ -117,7 +117,9 @@ class LipContactPlanner final : public ContactPlannerInterface {
   /**
    * Builds a planner, or returns the rejection of
    * ContactPlanningConfig::validateStatus() - an InvalidArgument whose message
-   * names the key to change - for an invalid configuration, and that of the
+   * names the key to change - for an invalid configuration, an InvalidArgument
+   * naming the planner when shared.numContacts is not two (its variable layout
+   * has a left and a right foot, checkTwoContactCount()), and that of the
    * term factory for a formulation it cannot assemble. The only way to build
    * one: the constructor is private, and it used to be a public one that threw
    * std::invalid_argument with the same message. makeContactPlanner builds

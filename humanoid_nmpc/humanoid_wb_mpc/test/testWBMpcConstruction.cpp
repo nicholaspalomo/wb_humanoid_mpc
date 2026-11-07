@@ -54,7 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
 
 #include "humanoid_common_mpc/config/ConfigFiles.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
 #include "humanoid_wb_mpc/config/costs/EndEffectorDynamicsWeightsFromConfig.h"
@@ -171,7 +171,7 @@ TEST(WBMpcConstructionTest,
   referenceManager.setTargetTrajectories(
       TargetTrajectories({initTime}, {initState}, {zeroInput}));
   referenceManager.preSolverRun(initTime, finalTime, initState,
-                                ModeNumber::kStance);
+                                kBipedModeStance);
   OptimalControlProblem problem(interface->getOptimalControlProblem());
   problem.targetTrajectoriesPtr = &referenceManager.getTargetTrajectories();
 
@@ -224,7 +224,7 @@ TEST(WBMpcConstructionTest,
   const TargetTrajectories target({initTime}, {initState}, {zeroInput});
   referenceManager.setTargetTrajectories(target);
   referenceManager.preSolverRun(initTime, finalTime, initState,
-                                ModeNumber::kStance);
+                                kBipedModeStance);
   OptimalControlProblem problem(interface->getOptimalControlProblem());
 
   // The weights the shipped file gives the foot cost (task_space_foot_cost),

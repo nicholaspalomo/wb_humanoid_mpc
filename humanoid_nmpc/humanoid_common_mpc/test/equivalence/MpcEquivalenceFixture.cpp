@@ -73,12 +73,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_validation/chart/EulerChart.h"
@@ -89,6 +90,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 namespace {
+
+// The oracle and the fixture are written for the biped's two feet.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 using validation::EulerStateLayout;
 using validation::EulerStateSegment;
@@ -235,12 +239,12 @@ MpcEquivalenceFixture::Create(absl::string_view robotName) {
                      " has no state manifold: not the quaternion layout"));
   }
   const ModelSettings& settings = fixture->modelSettings();
-  if (settings.contactNames.size() != kNumContacts) {
+  if (settings.contactNames.size() != kNumFeet) {
     return absl::InvalidArgumentError(
         absl::StrCat("[MpcEquivalenceFixture] ", robot.name, " has ",
                      settings.contactNames.size(), " contacts"));
   }
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  for (size_t contact = 0; contact < kNumFeet; ++contact) {
     fixture->oracleOptions_.contactFrameNames[contact] =
         settings.contactNames[contact];
   }
@@ -376,8 +380,8 @@ matrix_t MpcEquivalenceFixture::inputWorldTurn(
   if (oracleOptions_.contactInput == OracleContactInput::kLocalBasis) {
     return action;
   }
-  for (Eigen::Index contact = 0;
-       contact < static_cast<Eigen::Index>(kNumContacts); ++contact) {
+  for (Eigen::Index contact = 0; contact < static_cast<Eigen::Index>(kNumFeet);
+       ++contact) {
     action.block<3, 3>(6 * contact, 6 * contact) = worldTurnMatrix;
     action.block<3, 3>(6 * contact + 3, 6 * contact + 3) = worldTurnMatrix;
   }
@@ -479,7 +483,7 @@ vector_t MpcEquivalenceFixture::randomInput(scalar_t maxAbsJointEntry,
   const Eigen::Index nj = oracle_->jointDim();
   vector_t input(oracle_->inputDim());
   Eigen::Index row = 0;
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  for (size_t contact = 0; contact < kNumFeet; ++contact) {
     if (oracleOptions_.contactInput == OracleContactInput::kWorldWrench) {
       input.segment<6>(row)
           << uniform(/*low=*/-0.25, /*high=*/0.25, generator) * halfWeight,
@@ -513,21 +517,21 @@ const vector_t& MpcEquivalenceFixture::initialState() const {
 }
 
 vector_t MpcEquivalenceFixture::weightCompensatingInput(
-    const vector_t& state, const contact_flag_t& contactFlags) const {
+    const vector_t& state, ContactMask contactFlags) const {
   return humanoid::weightCompensatingInput(pinocchioInterface(), contactFlags,
                                            model(), state);
 }
 
 EquivalenceReference MpcEquivalenceFixture::walkingReference() const {
   std::vector<scalar_t> eventTimes;
-  std::vector<size_t> modes = {ModeNumber::kStance};
+  std::vector<size_t> modes = {kBipedModeStance};
   scalar_t liftOff = kWalkingFirstLiftOff;
   for (size_t step = 0; step < kWalkingSteps; ++step) {
     const scalar_t touchDown = liftOff + kWalkingSingleSupport;
     eventTimes.push_back(liftOff);
     eventTimes.push_back(touchDown);
-    modes.push_back(step % 2 == 0 ? ModeNumber::kLf : ModeNumber::kRf);
-    modes.push_back(ModeNumber::kStance);
+    modes.push_back(step % 2 == 0 ? kBipedModeLf : kBipedModeRf);
+    modes.push_back(kBipedModeStance);
     liftOff = touchDown + kWalkingDoubleSupport;
   }
   const vector_t& start = initialState();
@@ -544,7 +548,7 @@ EquivalenceReference MpcEquivalenceFixture::walkingReference() const {
           {0.0, kWalkingTargetTime}, {start, ahead}, {zeroInput, zeroInput}),
       .initTime = 0.0,
       .initState = start,
-      .initMode = ModeNumber::kStance};
+      .initMode = kBipedModeStance};
 }
 
 SqpCase MpcEquivalenceFixture::restingWarmStart() const {
@@ -552,7 +556,8 @@ SqpCase MpcEquivalenceFixture::restingWarmStart() const {
   return SqpCase{.initState = state,
                  .warmStartState = state,
                  .warmStartInput = weightCompensatingInput(
-                     state, modeNumber2StanceLeg(ModeNumber::kStance))};
+                     state, ContactMask::allActive(
+                                model().modelSettings.contactNames.size()))};
 }
 
 SwitchedModelReferenceManager& MpcEquivalenceFixture::referenceManager() const {

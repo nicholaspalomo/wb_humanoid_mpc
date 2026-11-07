@@ -283,8 +283,8 @@ TEST_F(RemoteMpcLinkProtocolTest, APolicyOfOtherDimensionsIsRejected) {
 
 TEST_F(RemoteMpcLinkProtocolTest,
        APolicyWithAModeTheModelDoesNotHaveIsRejected) {
-  // The controller looks the planned contacts up by mode
-  // (modeNumber2StanceLeg()), which knows the model's modes only.
+  // The controller reads the planned contacts of a mode
+  // (ContactMask::fromModeNumber()), which knows the model's modes only.
   humanoid_mpc_msgs::MpcPolicy policy =
       policyFrom(/*initTime=*/kStartTime, /*solveCount=*/1);
   ASSERT_GT(policy.mode_schedule().mode_sequence_size(), 0);

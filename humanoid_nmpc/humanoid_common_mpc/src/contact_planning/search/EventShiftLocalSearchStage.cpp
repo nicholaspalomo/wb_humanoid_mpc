@@ -97,7 +97,7 @@ absl::Status EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
     if (elapsed() > timeBudget) break;
     const MiqpAssignment base = result.assignment;
     bool improved = false;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
       for (int k = 1; k < N; ++k) {
         const size_t index =
             static_cast<size_t>(ContactLogicState::contactBinaryIndex(k, foot));

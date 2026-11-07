@@ -54,6 +54,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
@@ -82,6 +84,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 namespace {
+
+/** The measured contact of a biped's left and right foot, as a mask of the
+ * biped's two contacts. */
+ContactMask feetInContact(bool left, bool right) {
+  ContactMask mask(/*numContacts=*/static_cast<size_t>(kBipedFootCount));
+  mask.set(/*contactIndex=*/kContactLeftIndex, left);
+  mask.set(/*contactIndex=*/kContactRightIndex, right);
+  return mask;
+}
 
 /** The action of joint `index`; a zero action, and a failure of the test, when
  * `action` carries none for the joint. */
@@ -385,7 +396,7 @@ TEST(
       std::make_shared<FixedContactEstimator>(std::vector<bool>{true, false}));
   harness.cycle(std::chrono::microseconds(0));
   EXPECT_EQ(harness.controller().getMeasuredContactFlags(),
-            (contact_flag_t{true, false}));
+            feetInContact(/*left=*/true, /*right=*/false));
   EXPECT_EQ(harness.controller().getNumRefusedContactEstimates(), 0U)
       << "positive control: one flag per contact point is taken";
   EXPECT_TRUE(sink.events.empty());
@@ -395,7 +406,7 @@ TEST(
   harness.cycle(std::chrono::microseconds(0));
   harness.cycle(std::chrono::microseconds(0));
   EXPECT_EQ(harness.controller().getMeasuredContactFlags(),
-            (contact_flag_t{true, false}))
+            feetInContact(/*left=*/true, /*right=*/false))
       << "a refused estimate changed the contact state";
   EXPECT_EQ(harness.controller().getNumRefusedContactEstimates(), 2U);
   ASSERT_EQ(sink.events.size(), 1U)
@@ -611,7 +622,7 @@ TEST(MrtJointControllerReset,
     state(6) += linvelBaseRtWorldEwrtWorldX * kControlPeriod;
     harness.setState(state, vector3_t(linvelBaseRtWorldEwrtWorldX, 0.0, 0.0));
     harness.cycle();
-    const std::optional<contact_flag_t> planned =
+    const std::optional<ContactMask> planned =
         harness.controller().getPlannedContactFlags(harness.time() + 0.3);
     walked =
         walked || (planned.has_value() && !((*planned)[0] && (*planned)[1]));
@@ -667,7 +678,7 @@ TEST(MrtJointControllerReset,
       1.0e-9);
   for (scalar_t query = harness.time();
        query <= harness.time() + stack.horizon(); query += 0.01) {
-    const std::optional<contact_flag_t> planned =
+    const std::optional<ContactMask> planned =
         harness.controller().getPlannedContactFlags(query);
     if (!planned.has_value()) {
       GTEST_FAIL();

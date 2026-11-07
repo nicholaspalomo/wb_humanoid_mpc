@@ -220,7 +220,7 @@ TargetContactPose makeDesPoseFootRtWorld(TargetContactPose::Kind kind,
 }
 
 TEST(FillViewerAnnotations, SendsOnePatchPerFootAndTheScaledCommand) {
-  const feet_array_t<TargetContactPose> desPoseFeetRtWorld = {
+  const BipedFeetArray<TargetContactPose> desPoseFeetRtWorld = {
       makeDesPoseFootRtWorld(TargetContactPose::Kind::kSwingInFlight,
                              /*x=*/0.4),
       makeDesPoseFootRtWorld(TargetContactPose::Kind::kNextSwing, /*x=*/0.1)};
@@ -232,8 +232,7 @@ TEST(FillViewerAnnotations, SendsOnePatchPerFootAndTheScaledCommand) {
   humanoid_mpc_msgs::ViewerAnnotations annotations;
   fillViewerAnnotations(&desPoseFeetRtWorld, scaled, &annotations);
 
-  ASSERT_EQ(annotations.target_contact_patches_size(),
-            static_cast<int>(kNumContacts));
+  ASSERT_EQ(annotations.target_contact_patches_size(), kBipedFootCount);
   const humanoid_mpc_msgs::TargetContactPatch& left =
       annotations.target_contact_patches(0);
   ASSERT_TRUE(left.has_des_pose_foot_rt_world());

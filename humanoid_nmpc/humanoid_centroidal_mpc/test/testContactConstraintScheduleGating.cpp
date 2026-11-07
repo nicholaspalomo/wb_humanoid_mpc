@@ -29,7 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"
 
-#include <array>
 #include <cmath>
 #include <cstddef>
 #include <memory>
@@ -67,6 +66,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ContactTermNames.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -223,7 +223,7 @@ TEST_F(ContactConstraintScheduleGatingTest,
   EXPECT_TRUE(makeLambdaBarrier(/*scheduleGated=*/false)->isActive(kTime));
 
   // ...and in flight, with neither foot on the ground.
-  model_->setContactFlags(makeFeetArray(false));
+  model_->setContactFlags(makeBipedFeetArray(false));
   EXPECT_TRUE(makeWrenchCone(/*scheduleGated=*/false)->isActive(kTime));
   EXPECT_TRUE(makeFrictionCone(/*scheduleGated=*/false)->isActive(kTime));
   EXPECT_TRUE(makeCenterOfPressure(/*scheduleGated=*/false)->isActive(kTime));
@@ -1267,8 +1267,7 @@ TEST_F(ContactConstraintScheduleGatingTest,
   // torques, which is the gantry case and the behavior GRAVITY_COMP had in
   // every regime.
   PinocchioInterface workingInterface = pinocchioInterface;
-  const std::array<vector6_t, 2> noContact{vector6_t::Zero(),
-                                           vector6_t::Zero()};
+  const ContactArray<vector6_t> noContact(/*numContacts=*/2, vector6_t::Zero());
   const vector_t unloaded = computeBaseHeldJointTorques<scalar_t>(
       q, qd, qdd_j, noContact,
       getContactFrameIndexArray<scalar_t>(workingInterface,
@@ -1288,8 +1287,8 @@ TEST_F(ContactConstraintScheduleGatingTest,
   const scalar_t robotWeight = 9.81 * pinocchio::computeTotalMass(model);
   vector6_t wrenchFootEwrtWorld = vector6_t::Zero();
   wrenchFootEwrtWorld(2) = 0.5 * robotWeight;
-  const std::array<vector6_t, 2> standing{wrenchFootEwrtWorld,
-                                          wrenchFootEwrtWorld};
+  const ContactArray<vector6_t> standing(/*numContacts=*/2,
+                                         wrenchFootEwrtWorld);
   const vector_t loaded = computeBaseHeldJointTorques<scalar_t>(
       q, qd, qdd_j, standing,
       getContactFrameIndexArray<scalar_t>(workingInterface,

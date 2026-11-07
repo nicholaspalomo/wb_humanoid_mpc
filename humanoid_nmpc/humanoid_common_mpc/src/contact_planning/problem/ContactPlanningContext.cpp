@@ -94,7 +94,7 @@ void ContactPlanningContext::computeAxes() {
         frameAxes(hasHeading() ? nominal->nomHeadingModelYawTraj[node]
                                : input->yawHeadingRtWorld +
                                      getCmdErrYawHeadingRtWorld(k));
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
       rotmatFeetRtWorldTraj[node][foot] =
           withFootYaws
               ? frameAxes(nominal->nomEulerzyxFeetRtWorldYawTraj[node][foot])
@@ -117,7 +117,7 @@ HeadingNominal nominalFromSolution(const Layout& layout,
         layout.hasHeading ? x[k](layout.headingModelYaw) : 0.0;
     nominal.nomPosComRtWorldEwrtWorldXyTraj[k] =
         x[k].segment<kHorizontalPositionDim>(cx);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
       nominal.nomPosFeetRtWorldEwrtWorldXyTraj[k][foot] =
           x[k].segment<kHorizontalPositionDim>(
               layout.state(var::posFootRtWorldEwrtWorldX(foot)));

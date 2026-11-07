@@ -27,6 +27,7 @@
 
 """Tests for cpp_google_style.py: the Google C++ Style Guide rules cpplint and clang-tidy do not cover."""
 
+import math
 import unittest
 
 from tools.hooks import check_test_support
@@ -190,6 +191,9 @@ class ForbiddenConstructTest(unittest.TestCase):
             "double d = 1.0L;",
             "double d = 1e3l;",
             "double d = 0x1.8p3L;",
+            "double half = 0.5 * M_PI;",
+            "double quarter = M_PI_4;",
+            "double root = M_SQRT2;",
         ]:
             with self.subTest(source=source):
                 self.assertGreaterEqual(
@@ -213,11 +217,34 @@ class ForbiddenConstructTest(unittest.TestCase):
             "long count = 1L;",
             "int x = a ? b : c;",
             "auto x = c ? ::f() : g();",
+            "double half = 0.5 * std::numbers::pi;",
+            "// M_PI in a comment",
+            'const char kName[] = "M_PI";',
+            "double y = config.M_PI;",
         ]:
             with self.subTest(source=source):
                 self.assertEqual(
                     style.check_forbidden_construct(f"{source}\n", "a.cpp"), []
                 )
+
+    def test_posix_math_constant_names_its_replacement(self):
+        findings = style.check_forbidden_construct(
+            "double x = M_1_PI;\n", "a.cpp"
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertIn("std::numbers::inv_pi", findings[0].message)
+
+    def test_sqrt1_2_replacement_is_the_same_double(self):
+        # 1.0 / sqrt2 rounds twice and is one ulp below M_SQRT1_2; halving sqrt2 is exact.
+        findings = style.check_forbidden_construct(
+            "double x = M_SQRT1_2;\n", "a.cpp"
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertIn("std::numbers::sqrt2 / 2.0", findings[0].message)
+        # M_SQRT1_2 is 0.70710678118654752440..., which rounds to this double.
+        m_sqrt1_2 = float.fromhex("0x1.6a09e667f3bcdp-1")
+        self.assertEqual(math.sqrt(2.0) / 2.0, m_sqrt1_2)
+        self.assertNotEqual(1.0 / math.sqrt(2.0), m_sqrt1_2)
 
     def test_the_registry_runs_it(self):
         check_test_support.assert_check_behaves(

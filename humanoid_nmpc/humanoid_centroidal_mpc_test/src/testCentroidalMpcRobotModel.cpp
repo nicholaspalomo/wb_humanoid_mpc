@@ -130,7 +130,7 @@ TEST_F(CentroidalMpcRobotModelTest, StartIndices) {
   EXPECT_EQ(testingModelInterface_.getMpcRobotModel().getJointStartindex(), 13);
   EXPECT_EQ(
       testingModelInterface_.getMpcRobotModel().getJointVelocitiesStartindex(),
-      12);  // 6 * kNumContacts
+      12);  // 6 per foot, two feet
 
   // Contact indices
   EXPECT_EQ(

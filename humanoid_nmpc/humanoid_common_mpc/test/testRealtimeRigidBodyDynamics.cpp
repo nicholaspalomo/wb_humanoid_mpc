@@ -51,7 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/fwd.hpp"
 #include "pinocchio/spatial/fwd.hpp"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
@@ -105,23 +105,24 @@ constexpr MpcPackage kPackages[] = {
 using ForceVector = std::vector<pinocchio::Force>;
 
 /** The external forces of RNEA for world-frame wrenches at the origins of the
- * sole frames `frames`, after kinematics. */
+ * contact frames `frames`, after kinematics. */
 ForceVector computeWrenchLinksEwrtLink(
     const pinocchio::Model& model,
     const pinocchio::Data& data,
-    const feet_array_t<pinocchio::FrameIndex>& frames,
-    const feet_array_t<vector6_t>& wrenchFeetEwrtWorld) {
+    const ContactArray<pinocchio::FrameIndex>& frames,
+    const ContactArray<vector6_t>& wrenchContactsEwrtWorld) {
   ForceVector wrenchLinksEwrtLink(model.njoints, pinocchio::Force::Zero());
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < frames.size(); ++i) {
     const pinocchio::Frame& frame = model.frames[frames[i]];
-    const matrix3_t rotmatFootRtWorld = data.oMf[frames[i]].rotation();
+    const matrix3_t rotmatContactRtWorld = data.oMf[frames[i]].rotation();
     // The wrench in the frame's own axes, about its origin, then in the parent
     // joint's frame.
-    const pinocchio::Force wrenchFootEwrtFoot(
-        rotmatFootRtWorld.transpose() * wrenchFeetEwrtWorld[i].head<3>(),
-        rotmatFootRtWorld.transpose() * wrenchFeetEwrtWorld[i].tail<3>());
+    const pinocchio::Force wrenchContactEwrtContact(
+        rotmatContactRtWorld.transpose() * wrenchContactsEwrtWorld[i].head<3>(),
+        rotmatContactRtWorld.transpose() *
+            wrenchContactsEwrtWorld[i].tail<3>());
     wrenchLinksEwrtLink[frame.parentJoint] +=
-        frame.placement.act(wrenchFootEwrtFoot);
+        frame.placement.act(wrenchContactEwrtContact);
   }
   return wrenchLinksEwrtLink;
 }
@@ -132,10 +133,15 @@ struct Sample {
   vector_t q;
   vector_t v;
   vector_t qddJoints;
-  feet_array_t<vector6_t> wrenchFeetEwrtWorld;
+  ContactArray<vector6_t> wrenchContactsEwrtWorld;
 };
 
-Sample randomSample(const pinocchio::Model& model, std::mt19937& generator) {
+/** A random sample with `numContacts` wrenches, of which the first
+ * `numPointContacts` have a zero moment (point contacts). */
+Sample randomSample(const pinocchio::Model& model,
+                    std::mt19937& generator,
+                    size_t numContacts = 2,
+                    size_t numPointContacts = 0) {
   std::normal_distribution<scalar_t> normal(0.0, 1.0);
   Sample sample;
   sample.q.resize(model.nq);
@@ -151,10 +157,13 @@ Sample randomSample(const pinocchio::Model& model, std::mt19937& generator) {
   for (Eigen::Index i = 0; i < sample.qddJoints.size(); ++i) {
     sample.qddJoints(i) = 3.0 * normal(generator);
   }
-  for (vector6_t& wrenchFootEwrtWorld : sample.wrenchFeetEwrtWorld) {
-    for (Eigen::Index i = 0; i < wrenchFootEwrtWorld.size(); ++i) {
-      wrenchFootEwrtWorld(i) = 100.0 * normal(generator);
+  sample.wrenchContactsEwrtWorld.assign(numContacts, vector6_t::Zero());
+  for (size_t contact = 0; contact < numContacts; ++contact) {
+    vector6_t& wrenchContactEwrtWorld = sample.wrenchContactsEwrtWorld[contact];
+    for (Eigen::Index i = 0; i < wrenchContactEwrtWorld.size(); ++i) {
+      wrenchContactEwrtWorld(i) = 100.0 * normal(generator);
     }
+    if (contact < numPointContacts) wrenchContactEwrtWorld.tail<3>().setZero();
   }
   return sample;
 }
@@ -175,7 +184,8 @@ class RealtimeRigidBodyDynamicsTest
         loadCustomPinocchioInterface(taskFile, urdfFile, modelSettings)
             .value());
     const pinocchio::Model& model = pinocchioInterface_->getModel();
-    for (size_t i = 0; i < kNumContacts; ++i) {
+    frames_.assign(modelSettings.contactNames.size(), /*value=*/0);
+    for (size_t i = 0; i < frames_.size(); ++i) {
       frames_[i] = model.getFrameId(modelSettings.contactNames[i]);
     }
     absl::StatusOr<std::unique_ptr<RealtimeRigidBodyDynamics>> dynamics =
@@ -185,7 +195,7 @@ class RealtimeRigidBodyDynamicsTest
   }
 
   std::unique_ptr<PinocchioInterface> pinocchioInterface_;
-  feet_array_t<pinocchio::FrameIndex> frames_{};
+  ContactArray<pinocchio::FrameIndex> frames_;
   std::unique_ptr<RealtimeRigidBodyDynamics> dynamics_;
 };
 
@@ -198,7 +208,7 @@ TEST_P(RealtimeRigidBodyDynamicsTest,
       RealtimeRigidBodyDynamics::Create(dynamics_->getModel(), frames_);
   EXPECT_EQ(ofTwin.status().code(), absl::StatusCode::kInvalidArgument)
       << ofTwin.status();
-  feet_array_t<pinocchio::FrameIndex> missing = frames_;
+  ContactArray<pinocchio::FrameIndex> missing = frames_;
   missing[1] = pinocchioInterface_->getModel().frames.size();
   EXPECT_EQ(RealtimeRigidBodyDynamics::Create(pinocchioInterface_->getModel(),
                                               missing)
@@ -227,9 +237,10 @@ TEST_P(RealtimeRigidBodyDynamicsTest,
       EXPECT_TRUE(twinData.oMf[frame].isApprox(modelData.oMf[frame], 1.0e-12))
           << model.frames[frame].name;
     }
-    const feet_array_t<matrix3_t>& rotmatContactsRtWorld =
+    const ContactArray<matrix3_t>& rotmatContactsRtWorld =
         dynamics_->computeRotmatContactsRtWorld(sample.q);
-    for (size_t i = 0; i < kNumContacts; ++i) {
+    ASSERT_EQ(rotmatContactsRtWorld.size(), frames_.size());
+    for (size_t i = 0; i < frames_.size(); ++i) {
       EXPECT_LT(
           (rotmatContactsRtWorld[i] - modelData.oMf[frames_[i]].rotation())
               .cwiseAbs()
@@ -274,14 +285,14 @@ TEST_P(RealtimeRigidBodyDynamicsTest,
   for (int trial = 0; trial < 50; ++trial) {
     const Sample sample = randomSample(model, generator);
     const vector_t jointTorques = dynamics_->freeBaseJointTorques(
-        sample.q, sample.v, sample.qddJoints, sample.wrenchFeetEwrtWorld);
+        sample.q, sample.v, sample.qddJoints, sample.wrenchContactsEwrtWorld);
     vector_t a(model.nv);
     a << dynamics_->getBaseGeneralizedAcceleration(), sample.qddJoints;
 
     pinocchio::forwardKinematics(model, reference, sample.q);
     pinocchio::updateFramePlacements(model, reference);
     const ForceVector wrenchLinksEwrtLink = computeWrenchLinksEwrtLink(
-        model, reference, frames_, sample.wrenchFeetEwrtWorld);
+        model, reference, frames_, sample.wrenchContactsEwrtWorld);
     const vector_t rnea = pinocchio::rnea(model, reference, sample.q, sample.v,
                                           a, wrenchLinksEwrtLink);
     const scalar_t scale = 1.0 + rnea.cwiseAbs().maxCoeff();
@@ -293,9 +304,9 @@ TEST_P(RealtimeRigidBodyDynamicsTest,
               1.0e-9 * scale)
         << "trial " << trial;
 
-    const vector_t helper =
-        computeJointTorques<scalar_t>(sample.q, sample.v, sample.qddJoints,
-                                      sample.wrenchFeetEwrtWorld, frames_, mpc);
+    const vector_t helper = computeJointTorques<scalar_t>(
+        sample.q, sample.v, sample.qddJoints, sample.wrenchContactsEwrtWorld,
+        frames_, mpc);
     EXPECT_LT((helper - jointTorques).cwiseAbs().maxCoeff(), 1.0e-9 * scale)
         << "trial " << trial;
   }
@@ -310,14 +321,14 @@ TEST_P(RealtimeRigidBodyDynamicsTest,
   for (int trial = 0; trial < 50; ++trial) {
     const Sample sample = randomSample(model, generator);
     const vector_t jointTorques = dynamics_->heldBaseJointTorques(
-        sample.q, sample.v, sample.qddJoints, sample.wrenchFeetEwrtWorld);
+        sample.q, sample.v, sample.qddJoints, sample.wrenchContactsEwrtWorld);
     vector_t a = vector_t::Zero(model.nv);
     a.tail(sample.qddJoints.size()) = sample.qddJoints;
 
     pinocchio::forwardKinematics(model, reference, sample.q);
     pinocchio::updateFramePlacements(model, reference);
     const ForceVector wrenchLinksEwrtLink = computeWrenchLinksEwrtLink(
-        model, reference, frames_, sample.wrenchFeetEwrtWorld);
+        model, reference, frames_, sample.wrenchContactsEwrtWorld);
     const vector_t rnea = pinocchio::rnea(model, reference, sample.q, sample.v,
                                           a, wrenchLinksEwrtLink);
     const scalar_t scale = 1.0 + rnea.cwiseAbs().maxCoeff();
@@ -328,7 +339,7 @@ TEST_P(RealtimeRigidBodyDynamicsTest,
         << "trial " << trial;
 
     const vector_t helper = computeBaseHeldJointTorques<scalar_t>(
-        sample.q, sample.v, sample.qddJoints, sample.wrenchFeetEwrtWorld,
+        sample.q, sample.v, sample.qddJoints, sample.wrenchContactsEwrtWorld,
         frames_, mpc);
     EXPECT_LT((helper - jointTorques).cwiseAbs().maxCoeff(), 1.0e-9 * scale)
         << "trial " << trial;
@@ -344,9 +355,9 @@ TEST_P(RealtimeRigidBodyDynamicsTest, NoFunctionAllocates) {
     const size_t before = robot::realtime::heapAllocationCountOnThisThread();
     dynamics_->gravityJointTorques(sample.q);
     dynamics_->freeBaseJointTorques(sample.q, sample.v, sample.qddJoints,
-                                    sample.wrenchFeetEwrtWorld);
+                                    sample.wrenchContactsEwrtWorld);
     dynamics_->heldBaseJointTorques(sample.q, sample.v, sample.qddJoints,
-                                    sample.wrenchFeetEwrtWorld);
+                                    sample.wrenchContactsEwrtWorld);
     dynamics_->computeCmomComRtWorldEwrtWorld(sample.q, sample.v);
     dynamics_->computeRotmatContactsRtWorld(sample.q);
     const size_t allocations =
@@ -368,6 +379,100 @@ TEST_P(RealtimeRigidBodyDynamicsTest, NoFunctionAllocates) {
   RecordProperty("pinocchio_allocations_on_the_composite_root",
                  static_cast<int>(compositeAllocations));
   EXPECT_GT(compositeAllocations, 0u);
+}
+
+// A contact set of four contacts, two point contacts at two frames of the
+// model ahead of the two soles (contact order: 3-DoF first): every contact's
+// wrench enters the free-base and the held-base torques, which match RNEA with
+// all four as external forces, and computeJointTorques() of the same set.
+TEST_P(RealtimeRigidBodyDynamicsTest, CoversEveryContactOfAFourContactSet) {
+  PinocchioInterface& mpc = *pinocchioInterface_;
+  const pinocchio::Model& model = mpc.getModel();
+  constexpr size_t kNumContacts4 = 4;
+  constexpr size_t kNumPointContacts = 2;
+  ContactArray<pinocchio::FrameIndex> frames(kNumContacts4, /*value=*/0);
+  // Two frames on the legs, away from the soles: the joint frames of the
+  // parents of the soles' parent joints.
+  for (size_t i = 0; i < kNumPointContacts; ++i) {
+    const pinocchio::JointIndex soleJoint =
+        model.frames[frames_[i]].parentJoint;
+    frames[i] = model.getFrameId(model.names[model.parents[soleJoint]]);
+  }
+  frames[2] = frames_[0];
+  frames[3] = frames_[1];
+  for (size_t i = 0; i < kNumPointContacts; ++i) {
+    ASSERT_LT(frames[i], model.frames.size()) << "contact " << i;
+  }
+  absl::StatusOr<std::unique_ptr<RealtimeRigidBodyDynamics>> created =
+      RealtimeRigidBodyDynamics::Create(model, frames);
+  ASSERT_TRUE(created.ok()) << created.status();
+  RealtimeRigidBodyDynamics& dynamics = **created;
+
+  pinocchio::Data reference(model);
+  std::mt19937 generator(/*sd=*/61);
+  for (int trial = 0; trial < 20; ++trial) {
+    const Sample sample =
+        randomSample(model, generator, kNumContacts4, kNumPointContacts);
+    pinocchio::forwardKinematics(model, reference, sample.q);
+    pinocchio::updateFramePlacements(model, reference);
+    const ForceVector wrenchLinksEwrtLink = computeWrenchLinksEwrtLink(
+        model, reference, frames, sample.wrenchContactsEwrtWorld);
+    const ContactArray<matrix3_t>& rotmatContactsRtWorld =
+        dynamics.computeRotmatContactsRtWorld(sample.q);
+    ASSERT_EQ(rotmatContactsRtWorld.size(), kNumContacts4);
+    for (size_t i = 0; i < kNumContacts4; ++i) {
+      EXPECT_TRUE(rotmatContactsRtWorld[i].isApprox(
+          reference.oMf[frames[i]].rotation(), 1.0e-12))
+          << "contact " << i;
+    }
+
+    const vector_t freeBase = dynamics.freeBaseJointTorques(
+        sample.q, sample.v, sample.qddJoints, sample.wrenchContactsEwrtWorld);
+    vector_t a(model.nv);
+    a << dynamics.getBaseGeneralizedAcceleration(), sample.qddJoints;
+    const vector_t rnea = pinocchio::rnea(model, reference, sample.q, sample.v,
+                                          a, wrenchLinksEwrtLink);
+    const scalar_t scale = 1.0 + rnea.cwiseAbs().maxCoeff();
+    EXPECT_LT(rnea.head<6>().cwiseAbs().maxCoeff(), 1.0e-9 * scale)
+        << "trial " << trial;
+    EXPECT_LT(
+        (rnea.tail(sample.qddJoints.size()) - freeBase).cwiseAbs().maxCoeff(),
+        1.0e-9 * scale)
+        << "trial " << trial;
+    const vector_t helper = computeJointTorques<scalar_t>(
+        sample.q, sample.v, sample.qddJoints, sample.wrenchContactsEwrtWorld,
+        frames, mpc);
+    EXPECT_LT((helper - freeBase).cwiseAbs().maxCoeff(), 1.0e-9 * scale)
+        << "trial " << trial;
+
+    const vector_t heldBase = dynamics.heldBaseJointTorques(
+        sample.q, sample.v, sample.qddJoints, sample.wrenchContactsEwrtWorld);
+    vector_t aHeld = vector_t::Zero(model.nv);
+    aHeld.tail(sample.qddJoints.size()) = sample.qddJoints;
+    const vector_t rneaHeld = pinocchio::rnea(
+        model, reference, sample.q, sample.v, aHeld, wrenchLinksEwrtLink);
+    const scalar_t scaleHeld = 1.0 + rneaHeld.cwiseAbs().maxCoeff();
+    EXPECT_LT((rneaHeld.tail(sample.qddJoints.size()) - heldBase)
+                  .cwiseAbs()
+                  .maxCoeff(),
+              1.0e-9 * scaleHeld)
+        << "trial " << trial;
+  }
+
+  // The four-contact set allocates nothing either.
+  const Sample sample =
+      randomSample(model, generator, kNumContacts4, kNumPointContacts);
+  for (int pass = 0; pass < 2; ++pass) {
+    const size_t before = robot::realtime::heapAllocationCountOnThisThread();
+    dynamics.freeBaseJointTorques(sample.q, sample.v, sample.qddJoints,
+                                  sample.wrenchContactsEwrtWorld);
+    dynamics.heldBaseJointTorques(sample.q, sample.v, sample.qddJoints,
+                                  sample.wrenchContactsEwrtWorld);
+    dynamics.computeRotmatContactsRtWorld(sample.q);
+    const size_t allocations =
+        robot::realtime::heapAllocationCountOnThisThread() - before;
+    if (pass == 1) EXPECT_EQ(allocations, 0u);
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(G1,

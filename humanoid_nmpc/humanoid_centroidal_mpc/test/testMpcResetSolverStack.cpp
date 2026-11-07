@@ -54,7 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
@@ -140,7 +140,7 @@ class SolverStack {
     observation_.state = interface_->getInitialState();
     observation_.input =
         vector_t::Zero(interface_->getEffectiveMpcRobotModel().getInputDim());
-    observation_.mode = ModeNumber::kStance;
+    observation_.mode = kBipedModeStance;
     mrt_->setCurrentObservation(observation_);
     mrt_->resetMpcNode(resetTarget());
   }
@@ -246,7 +246,7 @@ void trot(SolverStack& stack) {
 void putBackAtTheInitialState(SolverStack& stack) {
   SystemObservation& observation = stack.observation();
   observation.state = stack.interface().getInitialState();
-  observation.mode = ModeNumber::kStance;
+  observation.mode = kBipedModeStance;
   observation.time -= 0.3;
   stack.command(0.0);  // the remote control re-centers its sticks
 }
@@ -274,7 +274,7 @@ TEST(
   EXPECT_LT((solvedFrom.state - held.state).cwiseAbs().maxCoeff(), 1.0e-12);
   for (scalar_t time = held.time; time <= held.time + horizon; time += 0.01) {
     EXPECT_EQ(stack.mrt().getPolicy().modeSchedule_.modeAtTime(time),
-              ModeNumber::kStance)
+              kBipedModeStance)
         << "t = " << time;
   }
 
@@ -332,7 +332,7 @@ TEST(MpcResetSolverStack, AFullResetSolvesAndWalksExactlyAsAFreshStack) {
   for (SolverStack* absl_nonnull stack : resetStacks) {
     SystemObservation& observation = stack->observation();
     observation.state = stack->interface().getInitialState();
-    observation.mode = ModeNumber::kStance;
+    observation.mode = kBipedModeStance;
     observation.time = kResetTime;
     stack->command(0.0);
     stack->mrt().setCurrentObservation(observation);
@@ -448,7 +448,7 @@ TEST(MpcResetSolverStack,
   // back at the origin.
   SystemObservation& observation = stack.observation();
   observation.state = stack.interface().getInitialState();
-  observation.mode = ModeNumber::kStance;
+  observation.mode = kBipedModeStance;
   observation.time = 2.0;
   stack.command(0.0);
   stack.mrt().setCurrentObservation(observation);

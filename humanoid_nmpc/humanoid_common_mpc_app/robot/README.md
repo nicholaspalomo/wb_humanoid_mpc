@@ -89,10 +89,16 @@ binaries have no in-process MPC (`InProcessMpcLink` serves the controller unit t
 
 A backend is a `RobotBackend` (`RobotBackend.h`): the `robot::model::RobotHWInterfaceBase` the loop reads and writes,
 `initialize()` and `start()`, whether the actuators take the action (`acceptsJointAction()`: false while the torques are
-off), the measured foot forces, its safe state (`enterSafeState()`: MuJoCo's zero torque; the loop's last act when a
+off), the measured contact forces (`readMeasForceContactsEwrtWorld()`, one per contact in contact order, zero where
+the robot has no sensor), its safe state (`enterSafeState()`: MuJoCo's zero torque; the loop's last act when a
 cycle throws or the process stops), the switch back on (`enableTorques()`), the contact estimators only it can provide,
 the supervisor that drives it (`supervisorName()`) and its simulator, if it is one. A new backend is one
 `RobotBackendRegistry::add()`; an unknown `--backend` is refused with the list of the available names.
+
+The MuJoCo scenes have a force sensor in each of the two feet. `MujocoRobotBackend` reports them as the forces of the two
+6-DoF contacts, left then right in contact order, when the contact set has exactly two 6-DoF contacts after its point
+contacts (`RobotBackendOptions::numPointContacts`); every other contact, and every contact of a set with another number
+of 6-DoF contacts, reads zero.
 
 ### The supervisors
 
@@ -121,7 +127,7 @@ test-only `FakeRobotBackend`, which does exactly it with a thread in place of th
    its lever arm), and for the base's position and linear velocity its best guess (the initial pose, a motion capture).
    It executes an action only while `takeJointAction()` says it is fresh.
 2. A `RobotBackend` around it: `acceptsJointAction()` / `enableTorques()` / `enterSafeState()` are the drives' torque
-   switch (the safe state is the drives' damping), `readMeasForceFeetEwrtWorld()` its foot force sensors (zero without),
+   switch (the safe state is the drives' damping), `readMeasForceContactsEwrtWorld()` its contact force sensors (zero without),
    `registerContactEstimators()` any estimator only it provides, `supervisorName()` `kHardwareSupervisorName`, and
    `simulator()` stays nullptr. Everything the realtime thread calls is lock-free and allocates nothing.
 3. One `RobotBackendRegistry::add()` under the robot's name, with an `OptionsCheck` of its options, and the name in the
@@ -215,9 +221,11 @@ in WB_MPC (`test_centroidal_mpc_mrt_joint_controller_allocations` on the wrench 
 inputs of the Atlas, `testWBMpcMrtJointControllerAllocations`; zero allocations each). The policy is evaluated at the
 lookahead and at the measurement on preallocated buffers (`LookaheadPolicyEvaluator` over `RealtimePolicyEvaluator`,
 bit-identical to MRT_BASE's by its parity test), the targets are read into workspaces sized at construction, and the
-rigid-body dynamics - the gravity torques, the centroidal momentum of the observation, the sole frames' orientations
+rigid-body dynamics - the gravity torques, the centroidal momentum of the observation, the contact frames' orientations
 that rotate basis-vector wrenches into the world, and the inverse dynamics of a policy (base free) and of the weight
-compensation (base held) - run on `RealtimeRigidBodyDynamics` (humanoid_common_mpc/pinocchio_model). Pinocchio's passes
+compensation (base held), over every contact of the contact set at its own frame (`getContactFrameIndexArray()`, in
+contact order, the per-contact values in a preallocated `ContactArray`) - run on `RealtimeRigidBodyDynamics`
+(humanoid_common_mpc/pinocchio_model). Pinocchio's passes
 over the MPC models' composite base joint, `Composite(Translation, Spherical)` (the quaternion floating base), make a
 heap temporary of the joint's dynamic-size motion subspace in every call (`crba()`, `rnea()`, `nonLinearEffects()`,
 `computeJointJacobians()`, `computeCentroidalMap()`); `RealtimeRigidBodyDynamics` runs them on a twin of the model whose

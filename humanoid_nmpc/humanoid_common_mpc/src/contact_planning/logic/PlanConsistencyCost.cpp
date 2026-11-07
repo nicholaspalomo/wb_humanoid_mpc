@@ -61,7 +61,8 @@ scalar_t PlanConsistencyCost::cost(const ContactLogicState& s,
       cost_ > 0.0) {
     for (int k = 0; k < s.numNodes; ++k) {
       const int source = std::min(k + *s.previousPlanShift, s.numNodes - 1);
-      for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount);
+           ++foot) {
         const int8_t value =
             a[static_cast<size_t>(S::contactBinaryIndex(k, foot))];
         if (value != kMiqpFree &&

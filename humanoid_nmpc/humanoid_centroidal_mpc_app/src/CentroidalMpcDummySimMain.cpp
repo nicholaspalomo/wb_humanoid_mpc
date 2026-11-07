@@ -52,6 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc_app/CentroidalAppFlags.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc_app/node/DummySimLoop.h"
 #include "humanoid_common_mpc_app/node/ExitCodes.h"
@@ -165,9 +166,12 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   initialObservation.time = 0.0;
   initialObservation.state = (*interface)->getInitialState();
   initialObservation.input = ocs2::vector_t::Zero(effectiveModel.getInputDim());
-  // Standing on both feet, or on the first stance of a tracked plan, from its
-  // first state (getInitialState()).
-  initialObservation.mode = ocs2::humanoid::ModeNumber::kStance;
+  // Standing on every foot of the contact set, the gait schedule's STANCE (the
+  // two feet of a biped, all four points of a quadruped-like set), or on the
+  // first stance of a tracked plan, from its first state (getInitialState()).
+  initialObservation.mode =
+      ocs2::humanoid::gaitModeLayoutOf((*interface)->modelSettings())
+          .stanceMode;
   if (const std::shared_ptr<ocs2::humanoid::PlannedMotionReferenceManager>&
           planned = (*interface)->getPlannedMotionReferenceManagerPtr();
       planned != nullptr) {

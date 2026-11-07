@@ -99,7 +99,10 @@ ProceduralMpcMotionManager::Create(
           std::move(switchedModelReferenceManagerPtr), mpcRobotModel,
           std::move(velocityCommandToTargetTrajectories)));
   RETURN_IF_ERROR(manager->applyCommandLimits(referenceSettings));
-  ASSIGN_OR_RETURN(manager->gaitMap_, gaitMapFromConfig(gaitFile));
+  // The gaits are read against the contact set of the schedule they go into.
+  ASSIGN_OR_RETURN(
+      manager->gaitMap_,
+      gaitMapFromConfig(gaitFile, manager->gaitSchedulePtr_->modeLayout()));
   RETURN_IF_ERROR(checkEveryGaitIsLoaded(
       manager->gaitMap_, manager->gaitModeStates_, "(gait_list and gaits)"));
   // The measured motion is averaged over the cycle of the gait the schedule

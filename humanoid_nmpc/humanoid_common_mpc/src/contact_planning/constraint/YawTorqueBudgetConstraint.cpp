@@ -33,10 +33,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/TwoContactCount.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipCoefficients.h"
@@ -44,8 +46,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == kBipedFootCount,
-              "the yaw torque budget rows are written for a biped");
+absl::Status YawTorqueBudgetConstraint::validateContactSet(
+    size_t numContacts) const {
+  return checkTwoContactCount(/*component=*/"YawTorqueBudgetConstraint",
+                              numContacts);
+}
 
 std::string YawTorqueBudgetConstraint::describe() const {
   return absl::StrCat(
@@ -85,7 +90,7 @@ void YawTorqueBudgetConstraint::addRows(const ContactPlanningContext& /*ctx*/,
              params_.doubleSupportMaxTorqueFeetmeanEwrtWorldZ);
   const scalar_t excessMaxTorqueFootEwrtFootZ =
       doubleSupportMaxTorqueFootEwrtFootZ - maxTorqueFootEwrtFootZ;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     const size_t other = 1 - foot;
     for (const scalar_t sign : {1.0, -1.0}) {
       if (excessMaxTorqueFootEwrtFootZ >= 0.0) {

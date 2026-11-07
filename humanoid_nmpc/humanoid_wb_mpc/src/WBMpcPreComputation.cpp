@@ -43,7 +43,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_wb_mpc/constraint/EndEffectorDynamicsLinearAccConstraint.h"
@@ -65,7 +64,10 @@ WBMpcPreComputation::WBMpcPreComputation(
                       .linearAccelerationErrorGainZ =
                           mpcRobotModel.modelSettings.footConstraintConfig
                               .linearAccelerationErrorGain_z} {
-  eeNormalAccConConfigs_.resize(kNumContacts);
+  // One per contact of the set; the whole-body MPC refuses any set but the
+  // biped's two feet (WBMpcInterface).
+  eeNormalAccConConfigs_.resize(
+      mpcRobotModel.modelSettings.contactNames.size());
 }
 
 /******************************************************************************************************/
@@ -131,7 +133,7 @@ void WBMpcPreComputation::request(RequestSet request,
       mpcRobotModelPtr_->getGeneralizedCoordinates(x));
 
   if (request.contains(Request::Constraint)) {
-    for (size_t i = 0; i < kNumContacts; ++i) {
+    for (size_t i = 0; i < eeNormalAccConConfigs_.size(); ++i) {
       eeNormalAccConConfigs_[i] = normalAccelerationConstraintConfig(i, t);
     }
   }

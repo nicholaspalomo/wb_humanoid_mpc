@@ -41,8 +41,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `no_flight` (hard, running nodes): 1 <= c_L + c_R <= 2, no flight phase (also
- * a logic rule under the same name).
+ * `no_flight` (hard, running nodes): 1 <= sum_i c_i <= n over the n feet of
+ * the layout, no flight phase (also a logic rule under the same name). Written
+ * over the number of feet; for a biped the row is 1 <= c_L + c_R <= 2.
  *
  * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
  * configures and evaluates it from one thread at a time.

@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -86,9 +87,9 @@ ContactPlan restingComPlan() {
   plan.startTime = 0.0;
   plan.dt = 0.1;
   plan.committedUntil = plan.dt;
-  plan.contacts.assign(kNodes, makeFeetArray(true));
+  plan.contacts.assign(kNodes, makeBipedFeetArray(true));
   plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
-      kNodes + 1, makeFeetArray(vector2_t(vector2_t::Zero())));
+      kNodes + 1, makeBipedFeetArray(vector2_t(vector2_t::Zero())));
   plan.posComRtWorldEwrtWorldXyTraj.assign(kNodes + 1,
                                            kPlannedPosComRtWorldEwrtWorldXy);
   plan.linvelComRtWorldEwrtWorldXyTraj.assign(kNodes + 1, vector2_t::Zero());

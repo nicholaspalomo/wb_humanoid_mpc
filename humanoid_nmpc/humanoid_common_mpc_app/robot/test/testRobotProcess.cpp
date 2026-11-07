@@ -27,7 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -54,7 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/time.h"
 #include "gtest/gtest.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
@@ -173,6 +172,7 @@ class RobotProcessTest : public ::testing::Test {
     options.contactFrameNames = modelSettings.contactNames;
     options.contactParentJointNames =
         modelSettings.contactParentJointNamesInContactOrder();
+    options.numPointContacts = modelSettings.contactNames3DoF.size();
     options.simulator.visualizations = std::vector<std::string>{};
     options.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
     initialState_.emplace(*options.initialState);
@@ -616,9 +616,9 @@ class RecordingBackend final : public RobotBackend {
     if (accepted) acceptedInModes_.push_back(controller_.mode());
     return accepted;
   }
-  void readMeasForceFeetEwrtWorld(
-      std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld) override {
-    backend_.readMeasForceFeetEwrtWorld(measForceFeetEwrtWorld);
+  void readMeasForceContactsEwrtWorld(
+      ContactArray<vector3_t>& measForceContactsEwrtWorld) override {
+    backend_.readMeasForceContactsEwrtWorld(measForceContactsEwrtWorld);
   }
   void enterSafeState() override {
     safeStates_.fetch_add(1);
@@ -674,9 +674,9 @@ class NoSimulatorBackend final : public RobotBackend {
   bool acceptsJointAction() const override {
     return backend_.acceptsJointAction();
   }
-  void readMeasForceFeetEwrtWorld(
-      std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld) override {
-    backend_.readMeasForceFeetEwrtWorld(measForceFeetEwrtWorld);
+  void readMeasForceContactsEwrtWorld(
+      ContactArray<vector3_t>& measForceContactsEwrtWorld) override {
+    backend_.readMeasForceContactsEwrtWorld(measForceContactsEwrtWorld);
   }
   void enterSafeState() override { backend_.enterSafeState(); }
   void registerContactEstimators(

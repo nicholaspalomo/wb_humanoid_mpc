@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid::visualization {
@@ -79,18 +80,19 @@ vector2_t computePosDcmRtWorldEwrtWorldXy(
  * contact is at the same height, it is the ground, and p is the net center of
  * pressure.
  *
- * @param posFeetRtWorldEwrtWorld  per contact, the world position r_i of the
- * point the wrench is about (the contact frame's origin).
- * @param wrenchFeetEwrtWorld   per contact, the world-frame wrench [f_i;
- * tau_i], tau_i the torque about r_i.
+ * @param posContactsRtWorldEwrtWorld  per contact of the set, the world
+ * position r_i of the point the wrench is about (the contact frame's origin).
+ * @param wrenchContactsEwrtWorld   per contact, the world-frame wrench [f_i;
+ * tau_i], tau_i the torque about r_i; a point contact's tau_i is zero. Only the
+ * contacts both arrays hold are summed.
  * @param minForceWorldEwrtWorldZ [N] below this net normal force F_z there is
  * no ZMP.
  * @return nullopt when F_z is not above `minForceWorldEwrtWorldZ` (a flight
  * phase, or no wrenches).
  */
 std::optional<vector3_t> computePosZmpRtWorldEwrtWorld(
-    const feet_array_t<vector3_t>& posFeetRtWorldEwrtWorld,
-    const feet_array_t<vector6_t>& wrenchFeetEwrtWorld,
+    const ContactArray<vector3_t>& posContactsRtWorldEwrtWorld,
+    const ContactArray<vector6_t>& wrenchContactsEwrtWorld,
     scalar_t minForceWorldEwrtWorldZ);
 
 }  // namespace ocs2::humanoid::visualization

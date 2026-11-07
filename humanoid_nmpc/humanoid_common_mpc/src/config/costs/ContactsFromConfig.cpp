@@ -52,7 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
 
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactInputParameterization.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -413,24 +413,32 @@ absl::StatusOr<ContactWrenchConeBasisMatrix> contactWrenchConeBasisFromConfig(
                                               contacts.basis_generator_set);
 }
 
-absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>>
+absl::StatusOr<std::vector<ContactWrenchConeBasisMatrix>>
 contactWrenchConeBasesFromConfig(const mpc_config::ContactsConfig& contacts,
                                  const ModelSettings& modelSettings) {
-  static_assert(
-      kNumContacts == kBipedFootCount,
-      "contactWrenchConeBasesFromConfig builds one basis per foot of a biped");
-  ASSIGN_OR_RETURN(
-      const ContactRectangle leftFootprint,
-      contactRectangleFromConfig(contacts, modelSettings, /*contactIndex=*/0));
-  ASSIGN_OR_RETURN(
-      const ContactRectangle rightFootprint,
-      contactRectangleFromConfig(contacts, modelSettings, /*contactIndex=*/1));
-  ASSIGN_OR_RETURN(ContactWrenchConeBasisMatrix leftBasis,
-                   contactWrenchConeBasisFromConfig(contacts, leftFootprint));
-  ASSIGN_OR_RETURN(ContactWrenchConeBasisMatrix rightBasis,
-                   contactWrenchConeBasisFromConfig(contacts, rightFootprint));
-  return feet_array_t<ContactWrenchConeBasisMatrix>{std::move(leftBasis),
-                                                    std::move(rightBasis)};
+  std::vector<ContactWrenchConeBasisMatrix> bases;
+  bases.reserve(modelSettings.contactNames.size());
+  for (size_t i = 0; i < modelSettings.contactNames.size(); ++i) {
+    // The generator sets span a 6-DoF contact's wrench cone over its
+    // footprint. A point contact has a force cone only, and no generator set
+    // for it exists yet.
+    if (modelSettings.isPointContact(i)) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "contact ", i, " (", modelSettings.contactNames[i],
+          ") is a 3-DoF contact, and ", kContactInputParameterizationKey, " '",
+          kBasisVectorsContactInputParameterization,
+          "' has generator sets for 6-DoF contacts only; select '",
+          kWrenchContactInputParameterizationName,
+          "', or list the contact in model_settings.contact_names_6dof."));
+    }
+    ASSIGN_OR_RETURN(const ContactRectangle footprint,
+                     contactRectangleFromConfig(contacts, modelSettings,
+                                                static_cast<int>(i)));
+    ASSIGN_OR_RETURN(ContactWrenchConeBasisMatrix basis,
+                     contactWrenchConeBasisFromConfig(contacts, footprint));
+    bases.push_back(std::move(basis));
+  }
+  return bases;
 }
 
 absl::StatusOr<PieceWisePolynomialBarrierPenalty::Config>

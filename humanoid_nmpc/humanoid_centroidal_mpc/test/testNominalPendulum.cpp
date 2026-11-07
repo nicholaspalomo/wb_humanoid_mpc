@@ -282,7 +282,7 @@ TEST_P(NominalPendulum, EveryConsumerDerivesTheModelsCenterOfMassAboveItsFeet) {
       deriveContactPlanningModelParameters(
           forPlanner, *robotModel_, initialState_,
           modelSettings_->contactParentJointNames,
-          ContactPlanningGroundParameters());
+          modelSettings_->numContacts(), ContactPlanningGroundParameters());
   EXPECT_NEAR(planner.nomPosComRtFeetmeanEwrtWorldZ, shared, 1.0e-12)
       << "a contact planner's file without "
          "shared.nom_pos_com_rt_feetmean_ewrt_world_z would resolve to "

@@ -72,7 +72,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/costs/JointMimicFromConfig.h"
 #include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
@@ -502,7 +501,8 @@ absl::Status WBMpcInterface::setupModels(
       const SwingTrajectoryPlanner::Config swingConfig,
       swingTrajectorySettingsFromConfig(taskFile.swing_trajectory_config));
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner =
-      std::make_unique<SwingTrajectoryPlanner>(swingConfig, kNumContacts);
+      std::make_unique<SwingTrajectoryPlanner>(
+          swingConfig, modelSettings_.contactNames.size());
 
   // Mode schedule manager
   referenceManagerPtr_ = std::make_shared<SwitchedModelReferenceManager>(
@@ -662,10 +662,11 @@ absl::Status WBMpcInterface::addContactTerms(
         wholeBodyFootCostWeightsFromConfig(taskFile.task_space_foot_cost));
   }
   // The knee mimic joints of both legs, in the order of the contacts.
-  feet_array_t<JointMimicSettings> kneeMimicJoints;
+  BipedFeetArray<JointMimicSettings> kneeMimicJoints;
   if (tasks.hasHardConstraint(MpcHardConstraintType::kKneeJointMimic)) {
     ASSIGN_OR_RETURN(kneeMimicJoints,
-                     kneeMimicJointsFromConfig(taskFile.mimic_joints));
+                     kneeMimicJointsFromConfig(taskFile.mimic_joints,
+                                               modelSettings_.numContacts()));
   }
   // The foot constraints read the end-effector dynamics; the foot cost tapes
   // its own kinematics.
@@ -675,7 +676,7 @@ absl::Status WBMpcInterface::addContactTerms(
       tasks.hasHardConstraint(MpcHardConstraintType::kNormalVelocity) ||
       tasks.hasSoftConstraint(MpcSoftConstraintType::kNormalVelocity);
 
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < modelSettings_.numContacts(); ++i) {
     const std::string& footName = modelSettings_.contactNames[i];
 
     std::unique_ptr<EndEffectorDynamics<scalar_t>> eeDynamicsPtr;

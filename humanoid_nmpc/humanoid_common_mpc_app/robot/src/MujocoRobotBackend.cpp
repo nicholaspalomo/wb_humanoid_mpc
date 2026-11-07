@@ -29,8 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/MujocoRobotBackend.h"
 
-#include <array>
+#include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -41,17 +42,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
 #include "humanoid_common_mpc_app/robot/RobotSupervisorRegistry.h"
 #include "mujoco_sim_interface/CheaterSimContactEstimator.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/Projectile.h"
 #include "mujoco_sim_interface/viewer/ViewerSettings.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 
 namespace ocs2::humanoid {
+
+// A contact set the MPC accepts fits the simulator's ground-truth contact mask.
+static_assert(
+    kMaxNumContacts ==
+    static_cast<size_t>(robot::mujoco_sim_interface::kContactMaskCapacity));
 
 absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig>
 MujocoRobotBackend::makeConfig(const RobotBackendOptions& options) {
@@ -128,12 +136,25 @@ absl::StatusOr<std::unique_ptr<MujocoRobotBackend>> MujocoRobotBackend::Create(
         absl::StrCat("the MuJoCo simulator did not start on ", options.mjcfFile,
                      ": ", simulator.status().message()));
   }
-  return absl::WrapUnique(new MujocoRobotBackend(*std::move(simulator)));
+  // The two foot sensors are the two 6-DoF contacts', left then right, when
+  // the set has exactly two of them after its point contacts.
+  std::optional<FootSensorContacts> footSensorContacts;
+  if (options.numPointContacts <= options.contactFrameNames.size() &&
+      options.contactFrameNames.size() - options.numPointContacts ==
+          static_cast<size_t>(kBipedFootCount)) {
+    footSensorContacts = FootSensorContacts{
+        .left = options.numPointContacts + kContactLeftIndex,
+        .right = options.numPointContacts + kContactRightIndex};
+  }
+  return absl::WrapUnique(
+      new MujocoRobotBackend(*std::move(simulator), footSensorContacts));
 }
 
 MujocoRobotBackend::MujocoRobotBackend(
-    std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> simulator)
-    : simulator_(std::move(simulator)) {}
+    std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> simulator,
+    std::optional<FootSensorContacts> footSensorContacts)
+    : simulator_(std::move(simulator)),
+      footSensorContacts_(footSensorContacts) {}
 
 absl::string_view MujocoRobotBackend::name() const {
   return kMujocoBackendName;
@@ -161,13 +182,17 @@ absl::Status MujocoRobotBackend::start(const std::vector<int>& cores) {
   return absl::OkStatus();
 }
 
-void MujocoRobotBackend::readMeasForceFeetEwrtWorld(
-    std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld) {
-  static_assert(kNumContacts == kBipedFootCount,
-                "the simulator has a force sensor in each of two feet "
-                "(takeMeasForceFeetEwrtWorld())");
-  simulator_->takeMeasForceFeetEwrtWorld(measForceFeetEwrtWorld[0],
-                                         measForceFeetEwrtWorld[1]);
+void MujocoRobotBackend::readMeasForceContactsEwrtWorld(
+    ContactArray<vector3_t>& measForceContactsEwrtWorld) {
+  measForceContactsEwrtWorld.fill(vector3_t::Zero());
+  if (!footSensorContacts_.has_value() ||
+      footSensorContacts_->left >= measForceContactsEwrtWorld.size() ||
+      footSensorContacts_->right >= measForceContactsEwrtWorld.size()) {
+    return;
+  }
+  simulator_->takeMeasForceFeetEwrtWorld(
+      measForceContactsEwrtWorld[footSensorContacts_->left],
+      measForceContactsEwrtWorld[footSensorContacts_->right]);
 }
 
 void MujocoRobotBackend::registerContactEstimators(

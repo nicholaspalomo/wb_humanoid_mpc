@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/TelemetrySampler.h"
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <cstddef>
 #include <limits>
@@ -41,7 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/functional/function_ref.h"
 #include "absl/strings/string_view.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
 #include "robot_model/RobotJointAction.h"
@@ -50,7 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 msgs::RobotStateSample TelemetrySampler::prototype(
-    const std::vector<std::string>& jointNames) {
+    const std::vector<std::string>& jointNames, size_t numContacts) {
   const Eigen::Index numJoints = static_cast<Eigen::Index>(jointNames.size());
   msgs::RobotStateSample sample;
   sample.joint_names = jointNames;
@@ -62,23 +62,24 @@ msgs::RobotStateSample TelemetrySampler::prototype(
   sample.joint_kp = Eigen::VectorXd::Zero(numJoints);
   sample.joint_kd = Eigen::VectorXd::Zero(numJoints);
   sample.joint_feed_forward_efforts = Eigen::VectorXd::Zero(numJoints);
-  sample.contact_flags.assign(kNumContacts, false);
-  sample.meas_wrench_contacts_ewrt_world.assign(kNumContacts, msgs::Wrench());
+  sample.contact_flags.assign(numContacts, false);
+  sample.meas_wrench_contacts_ewrt_world.assign(numContacts, msgs::Wrench());
   return sample;
 }
 
 TelemetrySampler::TelemetrySampler(const Config& config)
     : decimation_(std::max<size_t>(1, config.decimation)),
       numJoints_(config.jointNames.size()),
+      numContacts_(config.numContacts),
       queue_(std::max<size_t>(1, config.capacity),
-             prototype(config.jointNames)) {}
+             prototype(config.jointNames, config.numContacts)) {}
 
 bool TelemetrySampler::sample(
     const robot::model::RobotState& robotState,
     const robot::model::RobotJointAction& jointAction,
     absl::string_view controlMode,
-    const contact_flag_t& measuredContactFlags,
-    const std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld) {
+    ContactMask measuredContactFlags,
+    const ContactArray<vector3_t>& measForceContactsEwrtWorld) {
   if (++cycle_ < decimation_) {
     return false;
   }
@@ -132,15 +133,21 @@ bool TelemetrySampler::sample(
       slot.joint_feed_forward_efforts[row] =
           action.has_value() ? action->feed_forward_effort : 0.0;
     }
-    for (size_t contact = 0; contact < kNumContacts; ++contact) {
+    for (size_t contact = 0;
+         contact < numContacts_ && contact < measuredContactFlags.size();
+         ++contact) {
       slot.contact_flags[contact] = measuredContactFlags[contact];
+    }
+    for (size_t contact = 0;
+         contact < numContacts_ && contact < measForceContactsEwrtWorld.size();
+         ++contact) {
       msgs::Wrench& measWrenchContactEwrtWorld =
           slot.meas_wrench_contacts_ewrt_world[contact];
       // NOLINTBEGIN(frame-naming): the components of a Wrench message, whose frames its field names
       measWrenchContactEwrtWorld.force = {
-          .x = measForceFeetEwrtWorld[contact].x(),
-          .y = measForceFeetEwrtWorld[contact].y(),
-          .z = measForceFeetEwrtWorld[contact].z()};
+          .x = measForceContactsEwrtWorld[contact].x(),
+          .y = measForceContactsEwrtWorld[contact].y(),
+          .z = measForceContactsEwrtWorld[contact].z()};
       measWrenchContactEwrtWorld.torque = msgs::Vector3();
       // NOLINTEND(frame-naming)
     }

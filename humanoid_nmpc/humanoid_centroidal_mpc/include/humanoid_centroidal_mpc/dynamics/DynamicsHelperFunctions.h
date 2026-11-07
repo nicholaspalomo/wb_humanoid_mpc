@@ -34,13 +34,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 
-#include "absl/functional/function_ref.h"
 #include "cppad/cg.hpp"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
@@ -56,7 +56,7 @@ namespace ocs2::humanoid {
 
 inline vector_t weightCompensatingInput(
     const CentroidalModelInfoTpl<scalar_t>& info,
-    const contact_flag_t& contactFlags,
+    const BipedFeetArray<bool>& contactFlags,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
   // The mass of THIS model, read per call: a function-static cache kept the
   // first model's weight for every model in the process.
@@ -84,7 +84,7 @@ inline vector_t weightCompensatingInput(
 
 inline vector_t weightCompensatingInput(
     const CentroidalModelInfoTpl<scalar_t>& info,
-    const contact_flag_t& contactFlags,
+    const BipedFeetArray<bool>& contactFlags,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     const vector_t& state) {
   // The mass of THIS model, read per call: a function-static cache kept the
@@ -105,30 +105,26 @@ inline vector_t weightCompensatingInput(
   return input;
 }
 
-/**
- * The state-aware weightCompensatingInput() of any contact set: the weight of
- * `info`'s robot shared evenly by the contacts of `mpcRobotModel`'s set
- * (ModelSettings::contactNames) that `isContactActive` says are active, as
- * vertical world-frame forces through the world-frame setter at `state`. Zero
- * when no contact is active. Not retained.
- */
-inline vector_t weightCompensatingInputOfContacts(
+/** The state-aware weightCompensatingInput() of the contacts `contactFlags`
+ * says are active, for a contact set of any size: the weight of `info`'s robot
+ * shared evenly by them as vertical world-frame forces through the world-frame
+ * setter at `state`. Zero when no contact is active. Contact i of the mask is
+ * contact i of `mpcRobotModel`'s set. */
+inline vector_t weightCompensatingInput(
     const CentroidalModelInfoTpl<scalar_t>& info,
-    absl::FunctionRef<bool(size_t)> isContactActive,
+    ContactMask contactFlags,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     const vector_t& state) {
   const scalar_t robotWeight = info.robotMass * kGravityMagnitude;
-  const size_t numContacts = mpcRobotModel.modelSettings.contactNames.size();
-  size_t numActive = 0;
-  for (size_t i = 0; i < numContacts; ++i) {
-    if (isContactActive(i)) ++numActive;
-  }
+  const size_t numStanceContacts = contactFlags.numActive();
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
-  if (numActive == 0) return input;
+  if (numStanceContacts == 0) return input;
+  // The same arithmetic as the two-foot overload above, so that a biped's
+  // initial guess is bit-identical whichever of the two it is built with.
   const vector3_t forceContactEwrtWorld(
-      0.0, 0.0, robotWeight / static_cast<scalar_t>(numActive));
-  for (size_t i = 0; i < numContacts; ++i) {
-    if (isContactActive(i)) {
+      0.0, 0.0, robotWeight / static_cast<scalar_t>(numStanceContacts));
+  for (size_t i = 0; i < contactFlags.size(); ++i) {
+    if (contactFlags[i]) {
       mpcRobotModel.setForceContactEwrtWorld(state, input,
                                              forceContactEwrtWorld, i);
     }

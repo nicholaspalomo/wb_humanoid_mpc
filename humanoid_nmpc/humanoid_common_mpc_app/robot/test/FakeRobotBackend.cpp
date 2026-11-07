@@ -29,7 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/FakeRobotBackend.h"
 
-#include <array>
 #include <chrono>
 #include <cstdint>
 #include <thread>
@@ -39,7 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/robot/RobotSupervisorRegistry.h"
 #include "robot_model/RobotDescription.h"
@@ -69,7 +68,8 @@ FakeRobotBackend::Trajectory standingStill(
 FakeRobotBackend::FakeRobotBackend(robot::model::RobotDescription description,
                                    const robot::model::RobotState& initialState,
                                    std::chrono::microseconds period)
-    : hardware_(std::move(description)),
+    : hardware_(std::move(description),
+                /*contactSize=*/initialState.getContactFlags().size()),
       period_(period),
       trajectory_(standingStill(initialState)),
       driverState_(initialState),
@@ -111,9 +111,9 @@ void FakeRobotBackend::enterSafeState() {
   safeStates_.fetch_add(1);
 }
 
-void FakeRobotBackend::readMeasForceFeetEwrtWorld(
-    std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld) {
-  measForceFeetEwrtWorld.fill(vector3_t::Zero());
+void FakeRobotBackend::readMeasForceContactsEwrtWorld(
+    ContactArray<vector3_t>& measForceContactsEwrtWorld) {
+  measForceContactsEwrtWorld.fill(vector3_t::Zero());
 }
 
 absl::string_view FakeRobotBackend::supervisorName() const {

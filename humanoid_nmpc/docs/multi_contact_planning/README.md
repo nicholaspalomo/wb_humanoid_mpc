@@ -20,18 +20,37 @@ lists the design decisions.
 
 ## 1. Why the current stack cannot do this
 
-Three assumptions run through the code, each of them correct for walking on a floor and each of them wrong here.
+Three assumptions ran through the code when this design began, each of them correct for walking on a floor and each
+of them wrong here. The first, two contacts that are both feet, is resolved, and the paragraph under it says how the
+code now represents a contact set; the other two paragraphs describe the code as this design found it.
 
-**Two contacts, both feet, fixed at compile time.**
-- `kNumContacts = 2` (`humanoid_common_mpc/common/BipedFeet.h`).
-- `feet_array_t<T> = std::array<T, kNumContacts>` and `contact_flag_t = feet_array_t<bool>` (`common/Types.h`).
-- About 130 first-party files use them.
-- The input layout of both models is `6 * kNumContacts` wrench entries followed by the joint velocities
-  (`CentroidalMpcRobotModel.h`, `WBAccelMpcRobotModel.h`).
-- The mode numbers are a 2-bit mask: `FLY`, `RF`, `LF` and `STANCE` (`gait/MotionPhaseDefinition.h`).
-- Eight contact-planning rules and constraints `static_assert(kNumContacts == kBipedFootCount)`.
-- The basis-vector contact parameterization, which Atlas and SA01 ship, requires exactly two 6-DoF contacts
-  (`CentroidalDynamicsBasisInputsAD.cpp`).
+**The contact set (resolved).**
+- The stack was written with two contacts fixed at compile time. The contact set is now run-time data
+  (`ModelSettings::contactNames`, at most `kMaxNumContacts = 32`): generic code holds one value per contact in a
+  `ContactArray<T>` (`humanoid_common_mpc/common/ContactArray.h`) and the active contacts in a `ContactMask`
+  (`common/ContactMask.h`), both sized from the model. Code written for a left and a right foot uses
+  `BipedFeetArray<T>` (`common/BipedFeet.h`).
+- The centroidal input holds the wrench of every 6-DoF contact and the force of every 3-DoF contact, followed by the
+  joint velocities (`CentroidalMpcRobotModel.h`). The whole-body input (`WBAccelMpcRobotModel.h`) holds one wrench
+  per contact, and the whole-body MPC refuses every contact set but the biped's two feet.
+- A mode number is the bitmask of the active contacts, contact `i` at bit `numContacts - 1 - i`
+  (`gait/MotionPhaseDefinition.h`). The biped's `FLY`, `RF`, `LF` and `STANCE` are `kBipedModeFly` to
+  `kBipedModeStance` (`gait/BipedModes.h`). A gait file names a mode `FLY`, `STANCE` (both feet on a set ending in two
+  6-DoF feet, every contact otherwise), `LF` or `RF` (on a set ending in two 6-DoF feet), or one digit 0 or 1 per contact
+  in contact order (`parseModeNumber()`), and the gait schedule's stance phases are that `STANCE`
+  (`gaitModeLayoutOf()`, `gait/GaitSchedule.h`).
+- The contact planner is written for two feet. Both planners (`LipContactPlanner`, `HlipContactPlanner`), the
+  planner terms `foot_separation`, `zmp_support_region`, `yaw_torque_budget` and `alternating_feet`, the foothold
+  integrator and the knee mimic blocks refuse a contact set of any size but two when they are built, with an InvalidArgument that names the component and
+  the contact count (`checkTwoContactCount()`, `common/TwoContactCount.h`). The count reaches the planner as
+  `shared.numContacts`, which `ContactPlanningModelParameters::applyTo()` writes from the model. The rules
+  `no_flight` and `phase_durations` and the `no_flight` row are written over the number of feet, and
+  `minimum_double_support` is a minimum support count (every foot by default, the double support of a biped).
+- The basis-vector contact parameterization, which Atlas and SA01 ship, takes any number of 6-DoF contacts and no
+  3-DoF contact (`CentroidalDynamicsBasisInputsAD.cpp`).
+- The contact set may hold any mix of 3-DoF and 6-DoF contacts, a set of point contacts alone included. The realtime
+  inverse dynamics of the MRT controllers apply every contact's wrench at its own frame
+  (`getContactFrameIndexArray()`).
 
 Underneath, OCS2's `CentroidalModelInfo` and its centroidal dynamics are generic over any number of
 mixed 3-DoF (point) and 6-DoF (surface) contacts (`numThreeDofContacts`, `numSixDofContacts`,
@@ -146,7 +165,7 @@ leaves only condition 2.
 
 ### 3.1 The contact set
 
-The contact set is runtime data, not `kNumContacts`. Each candidate has:
+The contact set is runtime data. Each candidate has:
 - a name;
 - a kind: `point` (3-DoF) or `surface` (6-DoF, with a rectangle);
 - a parent joint;
@@ -813,7 +832,8 @@ of the plan's.
      `PointFrictionConeConstraint` for a 3-DoF one. `friction_force_cone`, `zero_wrench` and `zero_velocity` run on
      both (three translation rows for a point). `contact_moment_xy` is built for the 6-DoF contacts only. The
      initializer and the input reference share the weight among the active contacts.
-   - The terms that are biped by nature keep `kNumContacts` and their `static_assert`s. On any other contact set,
+   - The terms that are biped by nature hold `BipedFeetArray`s and index the feet with `kContactLeftIndex` and
+     `kContactRightIndex`. On any other contact set,
      `checkCentroidalContactSet()` refuses them by name before a model is built.
      <!-- LINT.IfChange(biped_only_terms) -->
      They are:
@@ -836,6 +856,8 @@ of the plan's.
      robot's assembled problem with a record made before the change, bit for bit. Three variants on Atlas and G1 cover
      the wrench cone, the contact-implicit terms and a soft yaw-holding stance. `testMixedContactSet` checks Atlas
      with two 3-DoF hand contacts against the hand-derived centroidal momentum rate.
+     `testPointContactQuadrupedLikeSet` builds the MPC on four 3-DoF contacts and no 6-DoF contact (the corners of
+     Atlas's soles) and checks that its LQ approximation gates each contact by its mode on a trot.
 2. Cones and contact constraints are evaluated in the patch frame. `FrictionForceConeConstraint`, the new
    `PointFrictionConeConstraint` and the zero-velocity constraint take a rotation from the world to the patch frame,
    and the zero-velocity constraint also takes the patch's offset along its normal (`ContactPatchFrame`). That

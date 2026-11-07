@@ -49,8 +49,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/config/reference/GaitFromConfig.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_mpc_config/gait_file.nproto.h"
 #include "humanoid_mpc_config/mode_schedule_config.nproto.h"
 #include "humanoid_mpc_config/mode_sequence_template_config.nproto.h"
@@ -94,7 +94,7 @@ TEST(ModeSequenceTemplateFromConfigTest, TheModesAndTimesAreThePatterns) {
       modeSequenceTemplateFromConfig(trot(), "gaits[trot]");
   ASSERT_TRUE(converted.ok()) << converted.status();
   EXPECT_EQ(converted->modeSequence,
-            (std::vector<size_t>{ModeNumber::kLf, ModeNumber::kRf}));
+            (std::vector<size_t>{kBipedModeLf, kBipedModeRf}));
   EXPECT_EQ(converted->switchingTimes, (std::vector<scalar_t>{0.0, 0.5, 1.0}));
 }
 
@@ -164,7 +164,7 @@ TEST(ModeScheduleFromConfigTest, TheScheduleHasOneEventTimeFewerThanModes) {
       modeScheduleFromConfig(config, "initial_mode_schedule");
   ASSERT_TRUE(schedule.ok()) << schedule.status();
   EXPECT_EQ(schedule->modeSequence,
-            (std::vector<size_t>{ModeNumber::kStance, ModeNumber::kLf}));
+            (std::vector<size_t>{kBipedModeStance, kBipedModeLf}));
   EXPECT_EQ(schedule->eventTimes, (std::vector<scalar_t>{0.5}));
 
   config.event_times = times({0.5, 1.0});
@@ -193,7 +193,7 @@ TEST(GaitMapFromConfigTest, EveryListedGaitByName) {
   EXPECT_EQ(gaits->at("trot").switchingTimes,
             (std::vector<scalar_t>{0.0, 0.5, 1.0}));
   EXPECT_EQ(gaits->at("stance").modeSequence,
-            (std::vector<size_t>{ModeNumber::kStance}));
+            (std::vector<size_t>{kBipedModeStance}));
 }
 
 TEST(GaitMapFromConfigTest, AnEmptyFileHasNoGaits) {

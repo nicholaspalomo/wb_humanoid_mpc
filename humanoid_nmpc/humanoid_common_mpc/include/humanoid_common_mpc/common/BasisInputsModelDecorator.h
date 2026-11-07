@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
-#include <array>
 #include <cstddef>
 #include <memory>
 #include <type_traits>
@@ -39,16 +38,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Core"
 #include "absl/base/nullability.h"
-#include "absl/log/absl_check.h"
+#include "absl/memory/memory.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/multibody.hpp"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
@@ -84,6 +87,10 @@ namespace ocs2::humanoid {
  * changes: the 6 wrench variables per contact are replaced by numBasisPerFoot_
  * scaling variables.
  *
+ * The decorator works for any number of 6-DoF contacts: contact i owns the
+ * λ-block [numBasisPerFoot_ * i, numBasisPerFoot_ * (i + 1)), and the joint
+ * velocities follow the last block.
+ *
  * Template parameter SCALAR_T must match the wrapped model.
  *
  * The const methods are safe to call concurrently when the wrapped model's are:
@@ -95,36 +102,59 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   using Base = MpcRobotModelBase<SCALAR_T>;
 
   /**
-   * @param wrappedModel       The model to decorate (ownership transferred).
-   * @param basisMatrices      Per-contact basis matrices (in the local contact
-   * frame). Must have exactly kNumContacts elements.
-   * @param pinocchioInterface Pinocchio interface used to evaluate the contact
-   * frame orientations for the world-frame accessors (copied).
+   * Checks the bases a decorator would be built from: one basis per contact of
+   * `modelSettings` (contactNames, in contact order) and the same number of
+   * generators in each. A 3-DoF (point) contact needs no basis of its own, but
+   * no generator set for a point contact exists yet, so a set with one is
+   * refused before this is reached (contactWrenchConeBasesFromConfig).
+   *
+   * @return InvalidArgument naming the counts that disagree.
    */
-  BasisInputsModelDecorator(
-      std::unique_ptr<MpcRobotModelBase<SCALAR_T>> wrappedModel,
-      const std::array<ContactWrenchConeBasisMatrix, kNumContacts>&
-          basisMatrices,
-      const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface)
-      : Base(wrappedModel->modelSettings,
-             MpcRobotModelDimensions{
-                 .stateDim = wrappedModel->getStateDim(),
-                 .inputDim = computeInputDim(basisMatrices,
-                                             wrappedModel->modelSettings),
-                 .configurationDim = wrappedModel->getConfigurationDim(),
-                 .velocityDim = wrappedModel->getVelocityDim()},
-             wrappedModel->getTuningLayout()),
-        wrappedModel_(std::move(wrappedModel)),
-        pinocchioInterface_(pinocchioInterface),
-        numBasisPerFoot_(basisMatrices[0].numBasis()) {
-    for (size_t i = 0; i < kNumContacts; ++i) {
-      ABSL_CHECK_EQ(basisMatrices[i].numBasis(), numBasisPerFoot_)
-          << "BasisInputsModelDecorator: every foot has one basis size";
-      B_local_[i] = basisMatrices[i].getBasisMatrix();
-      B_pinv_local_[i] = basisMatrices[i].getBasisMatrixPseudoInverse();
-      contactFrameIndices_[i] = ocs2::humanoid::getContactFrameIndex<SCALAR_T>(
-          pinocchioInterface_, *wrappedModel_, i);
+  static absl::Status validateBasisMatrices(
+      absl::Span<const ContactWrenchConeBasisMatrix> basisMatrices,
+      const ModelSettings& modelSettings) {
+    const size_t numContacts = modelSettings.contactNames.size();
+    if (basisMatrices.size() != numContacts || numContacts == 0) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[BasisInputsModelDecorator] ", basisMatrices.size(),
+          " wrench cone bases for a contact set of ", numContacts,
+          " contacts; the basis-vector inputs need one basis per contact."));
     }
+    for (size_t i = 0; i < numContacts; ++i) {
+      if (basisMatrices[i].numBasis() != basisMatrices[0].numBasis()) {
+        return absl::InvalidArgumentError(absl::StrCat(
+            "[BasisInputsModelDecorator] contact ", i, " (",
+            modelSettings.contactNames[i], ") has ",
+            basisMatrices[i].numBasis(), " basis vectors and contact 0 has ",
+            basisMatrices[0].numBasis(),
+            "; every contact has one basis size."));
+      }
+    }
+    return absl::OkStatus();
+  }
+
+  /**
+   * Builds a decorator of `wrappedModel` (ownership transferred) whose contact
+   * i is parameterized by basisMatrices[i], in the local contact frame, one
+   * per contact of the wrapped model's contact set in contact order (copied).
+   * `pinocchioInterface` evaluates the contact frame orientations for the
+   * world-frame accessors (copied).
+   *
+   * @return InvalidArgument when `wrappedModel` is null or the bases fail
+   * validateBasisMatrices().
+   */
+  static absl::StatusOr<std::unique_ptr<BasisInputsModelDecorator>> Create(
+      std::unique_ptr<MpcRobotModelBase<SCALAR_T>> wrappedModel,
+      absl::Span<const ContactWrenchConeBasisMatrix> basisMatrices,
+      const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface) {
+    if (wrappedModel == nullptr) {
+      return absl::InvalidArgumentError(
+          "[BasisInputsModelDecorator] no model to decorate.");
+    }
+    RETURN_IF_ERROR(
+        validateBasisMatrices(basisMatrices, wrappedModel->modelSettings));
+    return absl::WrapUnique(new BasisInputsModelDecorator(
+        std::move(wrappedModel), basisMatrices, pinocchioInterface));
   }
 
   ~BasisInputsModelDecorator() override = default;
@@ -147,10 +177,8 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
     return B_local_[contactIndex];
   }
 
-  /** All local-frame basis matrices. */
-  const std::array<matrix_t, kNumContacts>& getBasisMatrices() const {
-    return B_local_;
-  }
+  /** All local-frame basis matrices, one per contact in contact order. */
+  const ContactArray<matrix_t>& getBasisMatrices() const { return B_local_; }
 
   /** Local-frame pseudoinverse of the basis matrix. */
   const matrix_t& getBasisMatrixPseudoInverse(size_t contactIndex) const {
@@ -175,7 +203,7 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
     const size_t wrenchInputDim = wrappedModel_->getInputDim();
     const size_t jointDim = this->modelSettings.mpc_joint_dim;
     matrix_t M = matrix_t::Zero(wrenchInputDim, this->input_dim);
-    for (size_t i = 0; i < kNumContacts; ++i) {
+    for (size_t i = 0; i < B_local_.size(); ++i) {
       M.block(wrappedModel_->getContactWrenchStartIndices(i),
               getContactWrenchStartIndices(i), kContactWrenchDim,
               numBasisPerFoot_) = B_local_[i];
@@ -200,7 +228,7 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
 
   /** Joint velocities/accelerations start after the basis-vector block. */
   size_t getJointVelocitiesStartindex() const override {
-    return numBasisPerFoot_ * kNumContacts;
+    return numBasisPerFoot_ * B_local_.size();
   }
 
   /** Start index of the λ-block for the given contact. */
@@ -629,10 +657,39 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
         B_pinv_local_(rhs.B_pinv_local_),
         contactFrameIndices_(rhs.contactFrameIndices_) {}
 
-  static size_t computeInputDim(const std::array<ContactWrenchConeBasisMatrix,
-                                                 kNumContacts>& basisMatrices,
-                                const ModelSettings& modelSettings) {
-    return basisMatrices[0].numBasis() * kNumContacts +
+  /** Requires a non-null `wrappedModel` and bases that pass
+   * validateBasisMatrices() (Create()). */
+  BasisInputsModelDecorator(
+      std::unique_ptr<MpcRobotModelBase<SCALAR_T>> wrappedModel,
+      absl::Span<const ContactWrenchConeBasisMatrix> basisMatrices,
+      const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface)
+      : Base(wrappedModel->modelSettings,
+             MpcRobotModelDimensions{
+                 .stateDim = wrappedModel->getStateDim(),
+                 .inputDim = computeInputDim(basisMatrices,
+                                             wrappedModel->modelSettings),
+                 .configurationDim = wrappedModel->getConfigurationDim(),
+                 .velocityDim = wrappedModel->getVelocityDim()},
+             wrappedModel->getTuningLayout()),
+        wrappedModel_(std::move(wrappedModel)),
+        pinocchioInterface_(pinocchioInterface),
+        numBasisPerFoot_(basisMatrices[0].numBasis()),
+        B_local_(basisMatrices.size()),
+        B_pinv_local_(basisMatrices.size()),
+        contactFrameIndices_(basisMatrices.size(), /*value=*/0) {
+    for (size_t i = 0; i < basisMatrices.size(); ++i) {
+      B_local_[i] = basisMatrices[i].getBasisMatrix();
+      B_pinv_local_[i] = basisMatrices[i].getBasisMatrixPseudoInverse();
+      contactFrameIndices_[i] = ocs2::humanoid::getContactFrameIndex<SCALAR_T>(
+          pinocchioInterface_, *wrappedModel_, i);
+    }
+  }
+
+  /** The input dimension of bases that passed validateBasisMatrices(). */
+  static size_t computeInputDim(
+      absl::Span<const ContactWrenchConeBasisMatrix> basisMatrices,
+      const ModelSettings& modelSettings) {
+    return basisMatrices[0].numBasis() * basisMatrices.size() +
            modelSettings.mpc_joint_dim;
   }
 
@@ -640,9 +697,10 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   PinocchioInterfaceTpl<SCALAR_T> pinocchioInterface_;
   const size_t numBasisPerFoot_;
 
-  std::array<matrix_t, kNumContacts> B_local_;
-  std::array<matrix_t, kNumContacts> B_pinv_local_;
-  std::array<pinocchio::FrameIndex, kNumContacts> contactFrameIndices_{};
+  // One entry per contact, in contact order, sized at construction.
+  ContactArray<matrix_t> B_local_;
+  ContactArray<matrix_t> B_pinv_local_;
+  ContactArray<pinocchio::FrameIndex> contactFrameIndices_;
 };
 
 }  // namespace ocs2::humanoid

@@ -373,7 +373,8 @@ class LegacyTest(unittest.TestCase):
             "std::vector<Eigen::Vector3d> centers;\n"
             "const vector2_t& stanceFoot = b;\n"
             "VECTOR3_T<SCALAR_T> com(x);\n"
-            "feet_array_t<vector2_t> feet;\n"
+            "BipedFeetArray<vector2_t> feet;\n"
+            "ContactArray<vector3_t> contacts;\n"
             "void f(const Eigen::Vector3d& center);\n"
             "const vector2_t measuredCenter = c;\n"
         )
@@ -385,6 +386,7 @@ class LegacyTest(unittest.TestCase):
                 "stanceFoot",
                 "com",
                 "feet",
+                "contacts",
                 "center",
                 "measuredCenter",
             ],
@@ -611,6 +613,34 @@ class VocabularyTest(unittest.TestCase):
         for words in groups.values():
             for word in words:
                 self.assertRegex(word, r"^[a-z][a-z0-9]*$")
+
+    def test_the_viewer_frames_are_a_separate_group_of_the_frames(self):
+        # pylint: disable=protected-access  # The groups are private to the module under test.
+        self.assertEqual(
+            frame_naming._PHYSICAL_FRAMES & frame_naming._VIEWER_FRAMES, set()
+        )
+        self.assertEqual(
+            frame_naming.FRAMES,
+            frame_naming._PHYSICAL_FRAMES | frame_naming._VIEWER_FRAMES,
+        )
+        self.assertEqual(
+            set(frame_naming._VIEWER_PLURAL_FRAMES.values())
+            - frame_naming._VIEWER_FRAMES,
+            set(),
+        )
+        self.assertEqual(
+            set(frame_naming._PHYSICAL_PLURAL_FRAMES.values())
+            - frame_naming._PHYSICAL_FRAMES,
+            set(),
+        )
+
+    def test_a_pruned_frame_word_is_refused(self):
+        for name in (
+            "pos_icp_rt_world_ewrt_world",
+            "pos_rknee_rt_base_ewrt_base",
+        ):
+            with self.subTest(name=name):
+                self.assertNotEqual(frame_naming.grammar_problems(name), [])
 
     def test_the_readme_lists_the_vocabulary(self):
         self.assertEqual(

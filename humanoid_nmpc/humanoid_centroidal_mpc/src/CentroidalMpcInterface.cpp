@@ -497,15 +497,29 @@ absl::Status CentroidalMpcInterface::setupContactInputParameterization() {
     return absl::OkStatus();
   }
 
-  // The bases of both feet: the generator set named by
-  // contacts.basis_generator_set, built from the
+  // One basis per contact (any number of 6-DoF contacts): the generator set
+  // named by contacts.basis_generator_set, built from the
   // contacts.contact_wrench_cone_soft_constraint block (every geometry field
-  // required) and each foot's contact rectangle. The set fixes the input
+  // required) and each contact's rectangle. The set fixes the input
   // dimension, so it is read here and never reloaded.
   const mpc_config::ContactsConfig& contacts = config_.task.contacts;
   ASSIGN_OR_RETURN(
-      const feet_array_t<ContactWrenchConeBasisMatrix> basisMatrices,
+      const std::vector<ContactWrenchConeBasisMatrix> basisMatrices,
       contactWrenchConeBasesFromConfig(contacts, modelSettings_));
+  // The decorator models, each owning a clone of the inner model; Create()
+  // refuses bases that do not match the contact set. They carry a pinocchio
+  // interface so that they can rotate the local-frame basis wrench into the
+  // world frame for a given state.
+  ASSIGN_OR_RETURN(basisDecoratorPtr_,
+                   BasisInputsModelDecorator<scalar_t>::Create(
+                       std::unique_ptr<MpcRobotModelBase<scalar_t>>(
+                           mpcRobotModelPtr_->clone()),
+                       basisMatrices, *pinocchioInterfacePtr_));
+  ASSIGN_OR_RETURN(basisDecoratorADPtr_,
+                   BasisInputsModelDecorator<ad_scalar_t>::Create(
+                       std::unique_ptr<MpcRobotModelBase<ad_scalar_t>>(
+                           mpcRobotModelADPtr_->clone()),
+                       basisMatrices, pinocchioInterfacePtr_->toCppAd()));
   basisGeneratorSet_ = basisMatrices[0].generatorSet();
   ASSIGN_OR_RETURN(const ContactWrenchConeConstraint::Config coneConfig,
                    contactWrenchConeConfigFromConfig(contacts));
@@ -544,21 +558,9 @@ absl::Status CentroidalMpcInterface::setupContactInputParameterization() {
       << "[CentroidalMpcInterface] basis-vector contact inputs, generator set '"
       << basisGeneratorSet_ << "': " << numBasisPerFoot
       << " basis vectors per foot (total input dim: "
-      << numBasisPerFoot * kNumContacts + modelSettings_.mpc_joint_dim
+      << numBasisPerFoot * basisMatrices.size() + modelSettings_.mpc_joint_dim
       << "); lambda regularization '" << basisRegularization_
       << "' with weight " << basisScalingRegularization_ << ".";
-
-  // Create decorator models (take ownership of cloned inner models). The
-  // decorators carry a pinocchio interface so that they can rotate the
-  // local-frame basis wrench into the world frame for a given state.
-  basisDecoratorPtr_ = std::make_unique<BasisInputsModelDecorator<scalar_t>>(
-      std::unique_ptr<MpcRobotModelBase<scalar_t>>(mpcRobotModelPtr_->clone()),
-      basisMatrices, *pinocchioInterfacePtr_);
-  basisDecoratorADPtr_ =
-      std::make_unique<BasisInputsModelDecorator<ad_scalar_t>>(
-          std::unique_ptr<MpcRobotModelBase<ad_scalar_t>>(
-              mpcRobotModelADPtr_->clone()),
-          basisMatrices, pinocchioInterfacePtr_->toCppAd());
 
   effectiveMpcRobotModelPtr_ = basisDecoratorPtr_.get();
   effectiveMpcRobotModelADPtr_ = basisDecoratorADPtr_.get();
@@ -621,7 +623,8 @@ absl::Status CentroidalMpcInterface::setupReferenceManager() {
       const SwingTrajectoryPlanner::Config swingConfig,
       swingTrajectorySettingsFromConfig(config_.task.swing_trajectory_config));
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner =
-      std::make_unique<SwingTrajectoryPlanner>(swingConfig, kNumContacts);
+      std::make_unique<SwingTrajectoryPlanner>(
+          swingConfig, modelSettings_.contactNames.size());
 
   // Where the mode schedule and the footholds come from, by name.
   ASSIGN_OR_RETURN(contactScheduleSource_,
@@ -721,7 +724,8 @@ absl::Status CentroidalMpcInterface::setupReferenceManager() {
   RETURN_IF_ERROR(modelGravity(pinocchioInterfacePtr_->getModel()).status());
   contactPlanningModelParameters_ = deriveContactPlanningModelParameters(
       *pinocchioInterfacePtr_, *effectiveMpcRobotModelPtr_, initialState_,
-      modelSettings_.contactParentJointNames, ground);
+      modelSettings_.contactParentJointNames, modelSettings_.numContacts(),
+      ground);
   contactPlanningModelParameters_->applyTo(contactPlanningConfig);
   LOG(INFO) << "[CentroidalMpcInterface] contact planner model parameters: "
             << contactPlanningModelParameters_->summary();
@@ -890,7 +894,7 @@ struct CentroidalMpcInterface::ContactTermInputs {
   bool scheduleGatedContactConstraints;
   // The knee mimic joints, in the order of the contacts, when the hard
   // constraint is listed.
-  const feet_array_t<JointMimicSettings>* absl_nonnull kneeMimicJoints;
+  const BipedFeetArray<JointMimicSettings>* absl_nonnull kneeMimicJoints;
   const TaskSpaceFootCostSettings* absl_nonnull footCost;
 };
 
@@ -1086,11 +1090,12 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
 
   // The knee mimic joints, in the order of the contacts, when the hard
   // constraint is listed.
-  feet_array_t<JointMimicSettings> kneeMimicJoints;
+  BipedFeetArray<JointMimicSettings> kneeMimicJoints;
   if (formulationTasks.hasHardConstraint(
           MpcHardConstraintType::kKneeJointMimic)) {
     ASSIGN_OR_RETURN(kneeMimicJoints,
-                     kneeMimicKinematicJointsFromConfig(task.mimic_joints));
+                     kneeMimicKinematicJointsFromConfig(
+                         task.mimic_joints, modelSettings_.numContacts()));
   }
 
   // Constraint terms
@@ -1686,7 +1691,7 @@ absl::Status CentroidalMpcInterface::addContactHardConstraintsAndFootCosts(
     const EndEffectorKinematics<scalar_t>* absl_nullable eeKinematicsPtr) {
   const MpcFormulationTasks& formulationTasks = *inputs.formulationTasks;
   const HumanoidCostConstraintFactory& factory = *inputs.factory;
-  const feet_array_t<JointMimicSettings>& kneeMimicJoints =
+  const BipedFeetArray<JointMimicSettings>& kneeMimicJoints =
       *inputs.kneeMimicJoints;
   const TaskSpaceFootCostSettings& footCost = *inputs.footCost;
   const std::string& footName = modelSettings_.contactNames[i];

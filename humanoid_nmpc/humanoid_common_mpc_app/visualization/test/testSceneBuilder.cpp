@@ -64,7 +64,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
 #include "humanoid_common_mpc/constraint/FootCollisionConstraint.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc_app/visualization/PolicySnapshot.h"
 #include "humanoid_common_mpc_app/visualization/SceneBuilder.h"
@@ -224,7 +224,7 @@ class SceneBuilderTest : public ::testing::TestWithParam<test::Formulation> {
     ASSERT_TRUE(builder.ok()) << builder.status();
     builder_ = std::move(*builder);
 
-    observation_ = robot_->observation(/*time=*/0.0, ModeNumber::kStance);
+    observation_ = robot_->observation(/*time=*/0.0, kBipedModeStance);
     makePolicy(kForceFootEwrtWorldZ);
     const humanoid_mpc_msgs::RobotStateSample proto = robot_->robotState(
         /*time=*/0.02, vector3_t(0.1, -0.2, 0.75), vector3_t(0.05, -0.1, 0.4));
@@ -381,9 +381,9 @@ TEST_P(SceneBuilderTest, ContactForcesEndAtTheCentersOfPressure) {
   const humanoid_mpc_msgs::Arrows& contactArrows =
       arrowsAt(scene, scene::kContactForceMarkers);
   ASSERT_EQ(contactArrows.pos_arrowheads_rt_arrow_ewrt_world_size(),
-            static_cast<int>(kNumContacts));
+            static_cast<int>(robot_->modelSettings().numContacts()));
   ASSERT_EQ(contactArrows.pos_arrows_rt_world_ewrt_world_size(),
-            static_cast<int>(kNumContacts));
+            static_cast<int>(robot_->modelSettings().numContacts()));
 
   PinocchioInterface reference = robot_->makeReferencePinocchioInterface();
   forwardKinematics(reference, robot_->robotModel().getGeneralizedCoordinates(
@@ -391,7 +391,8 @@ TEST_P(SceneBuilderTest, ContactForcesEndAtTheCentersOfPressure) {
   const vector_t input = inputAtObservation();
   vector3_t weightedSumPosCopRtWorldEwrtWorld = vector3_t::Zero();
   scalar_t sumForceContactsEwrtWorldZ = 0.0;
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  for (size_t contact = 0; contact < robot_->modelSettings().numContacts();
+       ++contact) {
     const pinocchio::SE3& frame =
         reference.getData().oMf[reference.getModel().getFrameId(
             robot_->modelSettings().contactNames[contact])];
@@ -447,13 +448,14 @@ TEST_P(SceneBuilderTest, TheCornerForcesAreEquivalentToTheContactWrench) {
   const humanoid_mpc_msgs::Arrows& corners =
       arrowsAt(scene, scene::kCornerForceMarkers);
   ASSERT_EQ(corners.pos_arrowheads_rt_arrow_ewrt_world_size(),
-            static_cast<int>(4 * kNumContacts));
+            static_cast<int>(4 * robot_->modelSettings().numContacts()));
 
   PinocchioInterface reference = robot_->makeReferencePinocchioInterface();
   forwardKinematics(reference, robot_->robotModel().getGeneralizedCoordinates(
                                    observation_.state));
   const vector_t input = inputAtObservation();
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  for (size_t contact = 0; contact < robot_->modelSettings().numContacts();
+       ++contact) {
     const Model& model = reference.getModel();
     const vector3_t posContactRtWorldEwrtWorld =
         reference.getData()
@@ -507,7 +509,7 @@ TEST_P(SceneBuilderTest, TheCornerForcesAreEquivalentToTheContactWrench) {
 }
 
 TEST_P(SceneBuilderTest, ASwingFootHasNoContactMarkers) {
-  observation_.mode = ModeNumber::kRf;
+  observation_.mode = kBipedModeRf;
   const humanoid_mpc_msgs::VisualizationScene scene = build(allInputs());
   EXPECT_EQ(arrowsAt(scene, scene::kContactForceMarkers)
                 .pos_arrowheads_rt_arrow_ewrt_world_size(),
@@ -526,8 +528,9 @@ TEST_P(SceneBuilderTest, ACenterOfPressureWithoutForceIsTheContactFrameNotNan) {
   const humanoid_mpc_msgs::Arrows& contactArrows =
       arrowsAt(scene, scene::kContactForceMarkers);
   ASSERT_EQ(contactArrows.pos_arrowheads_rt_arrow_ewrt_world_size(),
-            static_cast<int>(kNumContacts));
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+            static_cast<int>(robot_->modelSettings().numContacts()));
+  for (size_t contact = 0; contact < robot_->modelSettings().numContacts();
+       ++contact) {
     const vector3_t posArrowheadRtWorldEwrtWorld =
         toVector(contactArrows.pos_arrows_rt_world_ewrt_world(
             static_cast<int>(contact))) +
@@ -720,7 +723,8 @@ TEST_P(SceneBuilderTest, ThePlanIsTheFramesBaseAndTheComAtItsHeight) {
             .norm() < 1.0e-9)
         << node;
     forwardKinematics(reference, q);
-    for (size_t contact = 0; contact < kNumContacts; ++contact) {
+    for (size_t contact = 0; contact < robot_->modelSettings().numContacts();
+         ++contact) {
       const scalar_t posContactRtWorldEwrtWorldZ =
           reference.getData()
               .oMf[model.getFrameId(

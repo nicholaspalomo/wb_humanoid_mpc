@@ -117,6 +117,7 @@ RobotConfigurationCheckContext fullContext(
   context.mpcJointNames = {"left_knee", "right_knee"};
   context.otherJointNames = {"neck"};
   context.contactEstimators = &registry;
+  context.numContacts = 2;
   context.backendName = "mujoco";
   context.backendOptions.mjcfFile = robot_test::kAtlasScene;
   context.backendOptions.initialState.emplace(robot_test::atlasDescription());
@@ -224,6 +225,28 @@ TEST(RobotConfigurationCheck,
       context);
   EXPECT_THAT(status.message(), AllOf(HasSubstr("contact_estimator"),
                                       HasSubstr("3 contact flags")));
+}
+
+TEST(RobotConfigurationCheck,
+     TheProbeAsksForOneFlagPerContactOfTheControllersContactSet) {
+  const robot::model::ContactEstimatorRegistry registry;
+  RobotConfigurationCheckContext context = fullContext(registry);
+  // A controller of four contacts on a robot state of four contact points
+  // passes; on the state of two it is refused.
+  context.numContacts = 4;
+  const RobotConfigFiles files = filesWith(
+      R"(model_settings { robot_name: "g1" } contact_estimator: "always_in_contact")");
+  const absl::Status refused = checkRobotConfiguration(files, context);
+  EXPECT_THAT(refused.message(),
+              AllOf(HasSubstr("2 contact flags"), HasSubstr("4 contacts")));
+  context.backendOptions.initialState.emplace(robot_test::atlasDescription(),
+                                              /*contactSize=*/4);
+  EXPECT_TRUE(checkRobotConfiguration(files, context).ok());
+  context.numContacts.reset();
+  context.backendOptions.initialState.emplace(robot_test::atlasDescription(),
+                                              /*contactSize=*/3);
+  EXPECT_TRUE(checkRobotConfiguration(files, context).ok())
+      << "without the controller's contact count there is no probe";
 }
 
 TEST(RobotConfigurationCheck, AnUnknownTelemetrySinkIsRefused) {

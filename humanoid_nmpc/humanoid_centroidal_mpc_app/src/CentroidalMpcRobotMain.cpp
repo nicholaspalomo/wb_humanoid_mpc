@@ -110,7 +110,7 @@ namespace {
 constexpr size_t kPdGainsFileCheckInterval = 100;
 
 /**
- * The target contact patches the viewer draws, one per contact: the contact
+ * The target contact patches the viewer draws, one per foot: the contact
  * rectangle of every foot (the task file's contacts block of `config`), drawn
  * at the pose the contact planner wants the foot on the ground. Without a
  * contact planner (contact_schedule_source: "gait_schedule") there is no target
@@ -125,7 +125,10 @@ targetContactPatchCorners(const CentroidalMpcConfig& config,
   if (!source.ok() || *source != ContactScheduleSource::kContactPlanner) {
     return patches;
   }
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  // The contact planner is the biped's: its targets are the two feet, the
+  // only contacts of its set.
+  for (size_t contact = 0; contact < static_cast<size_t>(kBipedFootCount);
+       ++contact) {
     robot::mujoco_sim_interface::ContactPatchCorners corners;
     const absl::StatusOr<ContactRectangle> rectangle =
         contactRectangleFromConfig(config.task.contacts, modelSettings,
@@ -315,6 +318,7 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options,
   backendOptions.contactFrameNames = modelSettings.contactNames;
   backendOptions.contactParentJointNames =
       modelSettings.contactParentJointNamesInContactOrder();
+  backendOptions.numPointContacts = modelSettings.contactNames3DoF.size();
   backendOptions.contactPatchCorners =
       targetContactPatchCorners(models.config(), modelSettings);
   backendOptions.simulator = settings.simulator;
@@ -354,7 +358,7 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options,
   const ipc::ModelDimensions dimensions{
       .stateDim = effectiveModel.getStateDim(),
       .inputDim = effectiveModel.getInputDim(),
-      .numModes = kNumModeNumbers};
+      .numModes = numModeNumbersOf(modelSettings.numContacts())};
   ASSIGN_OR_RETURN(std::shared_ptr<const StateManifold> stateManifold,
                    stateManifoldOf(effectiveModel));
   ipc::RemoteMpcLink::Config linkConfig;

@@ -49,7 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/time.h"
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_common_mpc/mrt/ControlMode.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
@@ -144,17 +144,17 @@ void ScriptedRobotController::computeJointControlAction(
   }
   if (contactEstimator_ != nullptr) {
     contactEstimator_->estimateContactFlags(robotState, estimatedFlags_);
-    for (size_t contact = 0;
-         contact < kNumContacts && contact < estimatedFlags_.size();
+    for (size_t contact = 0; contact < measuredContactFlags_.size() &&
+                             contact < estimatedFlags_.size();
          ++contact) {
-      measuredContactFlags_[contact] = estimatedFlags_[contact];
+      measuredContactFlags_.set(contact, estimatedFlags_[contact]);
     }
   }
   const uint64_t cycle = cycles_.fetch_add(1);
   if (cycleHook_) cycleHook_(cycle);
 }
 
-std::optional<contact_flag_t> ScriptedRobotController::plannedContactFlags()
+std::optional<ContactMask> ScriptedRobotController::plannedContactFlags()
     const {
   return std::nullopt;
 }

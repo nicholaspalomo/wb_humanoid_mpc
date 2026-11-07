@@ -67,7 +67,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
@@ -97,6 +97,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 constexpr scalar_t kFiniteDifferenceStep = 1.0e-6;
 constexpr scalar_t kFiniteDifferenceTolerance = 1.0e-5;
@@ -476,19 +478,19 @@ vector4_t unitQuaternionOfYaw(scalar_t angle) {
 OptimalControlProblem problemAt(WBMpcInterface& interface,
                                 const vector_t& initState,
                                 const TargetTrajectories& target) {
-  contact_flag_t rightSwing = makeFeetArray(true);
+  BipedFeetArray<bool> rightSwing = makeBipedFeetArray(true);
   rightSwing[1] = false;
   const ModeSchedule schedule(
       /*eventTimesInput=*/{-10.0, kSwingStart, kSwingEnd, 10.0},
-      /*modeSequenceInput=*/{ModeNumber::kStance, ModeNumber::kStance,
-                             stanceLeg2ModeNumber(rightSwing),
-                             ModeNumber::kStance, ModeNumber::kStance});
+      /*modeSequenceInput=*/{kBipedModeStance, kBipedModeStance,
+                             bipedModeOfFootContacts(rightSwing),
+                             kBipedModeStance, kBipedModeStance});
   SwitchedModelReferenceManager& referenceManager =
       *interface.getSwitchedModelReferenceManagerPtr();
   referenceManager.setTargetTrajectories(target);
   referenceManager.getGaitSchedule()->updateModeSchedule(schedule);
   referenceManager.preSolverRun(kStanceTime - 0.2, kSwingEnd + 0.5, initState,
-                                ModeNumber::kStance);
+                                kBipedModeStance);
   OptimalControlProblem problem(interface.getOptimalControlProblem());
   problem.targetTrajectoriesPtr = &referenceManager.getTargetTrajectories();
   return problem;
@@ -526,8 +528,8 @@ vector_t walkingState(const WBMpcInterface& interface,
 vector_t walkingInput(WBMpcInterface& interface) {
   const WBAccelMpcRobotModel<scalar_t>& model = interface.getMpcRobotModel();
   vector_t input = weightCompensatingInput(interface.getPinocchioInterface(),
-                                           makeFeetArray(true), model);
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+                                           makeBipedFeetArray(true), model);
+  for (size_t contact = 0; contact < kNumFeet; ++contact) {
     vector6_t wrenchContactEwrtParam =
         model.getWrenchContactEwrtParam(input, contact);
     wrenchContactEwrtParam.head<2>() += vector2_t(15.0, -8.0);
@@ -583,7 +585,7 @@ vector_t turnedInput(const WBAccelMpcRobotModel<scalar_t>& model,
   const matrix3_t turnRotmat =
       Eigen::AngleAxis<scalar_t>(angle, vector3_t::UnitZ()).toRotationMatrix();
   vector_t turned = input;
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  for (size_t contact = 0; contact < kNumFeet; ++contact) {
     const vector6_t wrenchContactEwrtParam =
         model.getWrenchContactEwrtParam(input, contact);
     vector6_t turnedWrenchContactEwrtParam;
@@ -809,7 +811,7 @@ TEST(WBQuaternionInvariances,
     solver.setReferenceManager(interface->getReferenceManagerPtr());
     const scalar_t finalTime =
         kSwingStart + interface->mpcSettings().timeHorizon_;
-    solver.run(kSwingStart, state, /*initMode=*/ModeNumber::kStance, finalTime);
+    solver.run(kSwingStart, state, /*initMode=*/kBipedModeStance, finalTime);
     PrimalSolution solution;
     solver.getPrimalSolution(finalTime, &solution);
     ASSERT_FALSE(solution.stateTrajectory_.empty());

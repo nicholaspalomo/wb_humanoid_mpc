@@ -43,27 +43,44 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/reference/GaitFromConfig.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
 
 namespace ocs2::humanoid {
 
+GaitModeLayout gaitModeLayoutOf(const ModelSettings& modelSettings) {
+  const size_t numContacts = modelSettings.numContacts();
+  // The 6-DoF contacts are the last ones of the set (3-DoF first), so with two
+  // or more of them the last two are the feet, as
+  // TelemetryBuilder::contactSeriesNames() reads them.
+  const bool bipedFeet = modelSettings.contactNames6DoF.size() >=
+                         static_cast<size_t>(kBipedFootCount);
+  return GaitModeLayout{.numContacts = numContacts,
+                        .stanceMode = bipedFeet
+                                          ? kBipedModeStance
+                                          : numModeNumbersOf(numContacts) - 1};
+}
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 GaitSchedule::GaitSchedule(ModeSchedule initModeSchedule,
                            ModeSequenceTemplate initModeSequenceTemplate,
-                           scalar_t phaseTransitionStanceTime)
+                           scalar_t phaseTransitionStanceTime,
+                           GaitModeLayout modeLayout)
     : initModeSchedule_(initModeSchedule),
       initModeSequenceTemplate_(initModeSequenceTemplate),
       modeSchedule_(std::move(initModeSchedule)),
       modeSequenceTemplate_(std::move(initModeSequenceTemplate)),
-      phaseTransitionStanceTime_(phaseTransitionStanceTime) {}
+      phaseTransitionStanceTime_(phaseTransitionStanceTime),
+      modeLayout_(modeLayout) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -99,13 +116,13 @@ void GaitSchedule::insertModeSequenceTemplate(
 
   // add an intermediate stance phase
   scalar_t phaseTransitionStanceTime = phaseTransitionStanceTime_;
-  if (!modeSequence.empty() && modeSequence.back() == ModeNumber::kStance) {
+  if (!modeSequence.empty() && modeSequence.back() == modeLayout_.stanceMode) {
     phaseTransitionStanceTime = 0.0;
   }
 
   if (phaseTransitionStanceTime > 0.0) {
     eventTimes.push_back(startTime);
-    modeSequence.push_back(ModeNumber::kStance);
+    modeSequence.push_back(modeLayout_.stanceMode);
   }
 
   // tile the mode sequence template from startTime+phaseTransitionStanceTime to
@@ -132,7 +149,7 @@ ModeSchedule GaitSchedule::getModeSchedule(scalar_t lowerBoundTime,
     modeSequence.erase(modeSequence.begin(), modeSequence.begin() + index - 1);
 
     // set the default initial phase
-    modeSequence.front() = ModeNumber::kStance;
+    modeSequence.front() = modeLayout_.stanceMode;
   }
 
   // Start tiling at time
@@ -188,7 +205,7 @@ void GaitSchedule::tileModeSequenceTemplate(scalar_t startTime,
   }  // end of while loop
 
   // default final phase
-  modeSequence.push_back(ModeNumber::kStance);
+  modeSequence.push_back(modeLayout_.stanceMode);
 }
 
 /******************************************************************************************************/
@@ -218,7 +235,7 @@ std::shared_ptr<GaitSchedule> makeGaitSchedule(
   }
   return std::make_shared<GaitSchedule>(
       initModeSchedule, defaultModeSequenceTemplate,
-      modelSettings.phaseTransitionStanceTime);
+      modelSettings.phaseTransitionStanceTime, gaitModeLayoutOf(modelSettings));
 }
 
 }  // namespace
@@ -227,10 +244,12 @@ absl::StatusOr<std::shared_ptr<GaitSchedule>> GaitSchedule::Create(
     const mpc_config::ReferenceFile& referenceFile,
     const ModelSettings& modelSettings,
     bool verbose) {
+  const GaitModeLayout layout = gaitModeLayoutOf(modelSettings);
   ASSIGN_OR_RETURN(const ModeSchedule initModeSchedule,
-                   initialModeScheduleFromConfig(referenceFile));
-  ASSIGN_OR_RETURN(const ModeSequenceTemplate defaultModeSequenceTemplate,
-                   defaultModeSequenceTemplateFromConfig(referenceFile));
+                   initialModeScheduleFromConfig(referenceFile, layout));
+  ASSIGN_OR_RETURN(
+      const ModeSequenceTemplate defaultModeSequenceTemplate,
+      defaultModeSequenceTemplateFromConfig(referenceFile, layout));
   return makeGaitSchedule(initModeSchedule, defaultModeSequenceTemplate,
                           modelSettings, verbose);
 }

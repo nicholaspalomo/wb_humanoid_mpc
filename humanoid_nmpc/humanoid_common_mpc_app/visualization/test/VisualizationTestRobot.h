@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationModel.h"
+#include "humanoid_mpc_config/model_settings_config.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_msgs/robot_state_sample.pb.h"
 
@@ -92,6 +93,18 @@ class TestRobot {
  public:
   static std::unique_ptr<TestRobot> load(const RobotFiles& files,
                                          Formulation formulation);
+  /**
+   * load() with `pointContacts` in place of the task file's 3-DoF contacts
+   * (model_settings.contacts_3dof): the contact set is those contacts, then the
+   * task file's 6-DoF contacts. taskFile() stays the shipped file's path, so
+   * every other key is the shipped one; task() and the models carry the
+   * contacts. Formulation::kCentroidalBasisVectors refuses a point contact.
+   */
+  static std::unique_ptr<TestRobot> loadWithPointContacts(
+      const RobotFiles& files,
+      Formulation formulation,
+      const std::vector<mpc_config::ModelSettingsConfig::PointContact>&
+          pointContacts);
 
   VisualizationModel model() const;
   const ModelSettings& modelSettings() const { return *modelSettings_; }
@@ -150,6 +163,9 @@ class TestRobot {
 
  private:
   TestRobot() = default;
+  /** Builds the model settings, the models and the nominal state from task_,
+   * urdfFile_, referenceFile_ and formulation_, which the caller set. */
+  void build();
 
   Formulation formulation_ = Formulation::kCentroidal;
   std::string taskFile_;

@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
-#include <array>
 #include <cstddef>
 #include <memory>
 #include <optional>
@@ -57,6 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_sqp/SqpSettings.h"
 
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/config/robot/ControllerSideSettingsFromConfig.h"
@@ -287,8 +287,8 @@ class ClosedLoopDriver {
   std::optional<double> maxUnitQuaternionNormDeviation() const;
 
   /** The world positions of the MPC's contact frames at the configuration of
-   * `observation`. */
-  std::array<Eigen::Vector3d, 2> computePosContactsRtWorldEwrtWorld(
+   * `observation`, one per contact of the set in contact order. */
+  ContactArray<Eigen::Vector3d> computePosContactsRtWorldEwrtWorld(
       const SystemObservation& observation);
 
   // ---------------------------------------------------------------- the robot
@@ -411,7 +411,8 @@ class ClosedLoopDriver {
 
   std::unique_ptr<MpcRobotModelBase<scalar_t>> measurementModel_;
   std::unique_ptr<PinocchioInterface> measurementPinocchio_;
-  std::array<size_t, 2> contactFrameIds_{0, 0};
+  // The frame of each contact of the set, in contact order.
+  ContactArray<size_t> contactFrameIds_;
 
   // The robot process's controller (made by the derived driver) and the link it
   // owns, which this driver solves.

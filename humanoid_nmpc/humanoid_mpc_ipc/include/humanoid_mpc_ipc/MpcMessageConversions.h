@@ -91,10 +91,13 @@ struct ModelDimensions {
   size_t inputDim = 0;
   /**
    * The number of modes of the model: every mode a message carries (an
-   * observation's, each mode of a policy's mode schedule) must be below it. The
-   * humanoids' modes are the contact flags of the two feet, 0 to 3
-   * (humanoid_common_mpc/gait/MotionPhaseDefinition.h), so 4; another mode
-   * would reach modeNumber2StanceLeg(), which has no contact flags for it.
+   * observation's, each mode of a policy's mode schedule) must be below it. A
+   * mode is the bitmask of its contacts, one bit per contact of the set, so a
+   * set of n contacts has 2^n (numModeNumbersOf() of
+   * humanoid_common_mpc/gait/MotionPhaseDefinition.h): 4 for a biped. The
+   * controller reads the planned contacts of a mode with
+   * ContactMask::fromModeNumber(), which reads a number past them as no
+   * contact at all.
    */
   size_t numModes = 0;
 };

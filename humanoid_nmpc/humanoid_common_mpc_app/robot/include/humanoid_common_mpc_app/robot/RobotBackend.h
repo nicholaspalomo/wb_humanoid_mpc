@@ -29,14 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <array>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "robot_model/ContactEstimatorRegistry.h"
@@ -66,10 +65,10 @@ namespace ocs2::humanoid {
  * the task file's state_estimator replaces them for the controller (`kalman`).
  *
  * THREADS. initialize() and start() run on the main thread before the realtime
- * loop; hardware(), acceptsJointAction() and readMeasForceFeetEwrtWorld() are
- * called by the realtime thread every cycle and must be realtime-safe: no lock
- * the backend's own threads hold, no allocation, no I/O. hardware()'s state and
- * action go through the lock-free buffers of RobotHWInterfaceBase.
+ * loop; hardware(), acceptsJointAction() and readMeasForceContactsEwrtWorld()
+ * are called by the realtime thread every cycle and must be realtime-safe: no
+ * lock the backend's own threads hold, no allocation, no I/O. hardware()'s
+ * state and action go through the lock-free buffers of RobotHWInterfaceBase.
  * enterSafeState() is called by the realtime thread when its cycle fails, and
  * by the main thread when the process stops.
  */
@@ -121,13 +120,16 @@ class RobotBackend {
   virtual void enableTorques() = 0;
 
   /**
-   * The forces the feet measure [N], in contact order (left, right): the force
-   * each foot carries in the world frame, +z up while it stands
-   * (robot_state_sample.proto, meas_wrench_contacts_ewrt_world); zero where the
-   * robot has no sensor. Realtime thread.
+   * Writes the forces the contacts measure [N] into
+   * `measForceContactsEwrtWorld`, one entry per contact in contact order (the
+   * caller sizes it to the contact set; the backend writes every entry and
+   * keeps its size): the force each contact carries in the world frame, +z up
+   * while it stands (robot_state_sample.proto,
+   * meas_wrench_contacts_ewrt_world); zero where the robot has no sensor.
+   * Realtime thread.
    */
-  virtual void readMeasForceFeetEwrtWorld(
-      std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld) = 0;
+  virtual void readMeasForceContactsEwrtWorld(
+      ContactArray<vector3_t>& measForceContactsEwrtWorld) = 0;
 
   /**
    * Takes the actuators to the backend's safe state, whatever action is

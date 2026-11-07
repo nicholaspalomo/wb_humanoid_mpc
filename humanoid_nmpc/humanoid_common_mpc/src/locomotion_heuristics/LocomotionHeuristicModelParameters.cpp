@@ -114,7 +114,8 @@ deriveLocomotionHeuristicModelParameters(
   const scalar_t sinYaw = std::sin(yawBaseRtWorld);
   const std::vector<std::string>& contactParentJointNames =
       mpcRobotModel.modelSettings.contactParentJointNames;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < derived.posHipsRtBaseEwrtHeadingXy.size();
+       ++foot) {
     // Fallback: this foot's own horizontal position relative to the base. It is
     // exact for a leg standing vertically, which is the posture this is
     // evaluated in, so a robot whose tree cannot be walked still gets a

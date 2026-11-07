@@ -83,9 +83,12 @@ absl::Status writeLockstepOutputs(const LockstepResult& result,
     GoldenProvenance statesProvenance = provenance;
     statesProvenance.notes.emplace_back("robot", robot);
     statesProvenance.notes.emplace_back("scenario", scenario);
+    ASSIGN_OR_RETURN(
+        const GoldenFile recordedStates,
+        toGoldenFile(result.recordedStates, std::move(statesProvenance)));
     RETURN_IF_ERROR(writeGoldenFile(
         (directory / recordedStatesFileName(robot, scenario)).string(),
-        toGoldenFile(result.recordedStates, std::move(statesProvenance))));
+        recordedStates));
   }
   return absl::OkStatus();
 }

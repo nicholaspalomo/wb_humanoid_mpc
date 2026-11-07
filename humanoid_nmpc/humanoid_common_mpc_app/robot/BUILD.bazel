@@ -537,6 +537,26 @@ cc_test(
     ],
 )
 
+# The contact flags the simulator publishes: one per contact point of the controller's set, which a four-contact
+# controller's intake takes.
+cc_test(
+    name = "test_sim_contact_flags",
+    size = "small",
+    srcs = ["test/testSimContactFlags.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc:controller_event",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_common_mpc:mrt_control_thread",
+        "//robot_runtime/mujoco_sim_interface",
+        "//robot_runtime/mujoco_sim_interface:viewer_settings",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+    ],
+)
+
 # The telemetry sampler: the decimation, the payload of robot/state round-tripped through its message, the joint names,
 # and the drops of a full ring.
 cc_test(
@@ -571,6 +591,7 @@ cc_test(
         ":robot_process",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
         "//robot_runtime/mujoco_sim_interface",
         "//robot_runtime/mujoco_sim_interface:viewer_settings",
         "//robot_runtime/robot_model",

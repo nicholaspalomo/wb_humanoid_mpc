@@ -50,6 +50,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetrics.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetricsSchema.h"
 #include "humanoid_mpc_validation/closed_loop/MetricBands.h"
@@ -73,6 +76,8 @@ namespace ocs2::humanoid::validation {
 namespace {
 
 constexpr double kTimeStep = 0.01;
+// The samples' robot is a biped: two feet, left then right.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 Eigen::Vector4d unitQuaternionOfYaw(double yaw) {
   return Eigen::Quaterniond(Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()))
@@ -96,9 +101,10 @@ ControlCycleSample trackingSample(size_t k,
   sample.refVelocityCommand =
       Eigen::Vector3d(cmdLinvelBaseRtWorldEwrtHeadingX, 0.0, yawRate);
   sample.referenceBaseHeight = 0.8;
-  sample.posContactsRtWorldEwrtWorld = {Eigen::Vector3d(0.0, 0.1, 0.0),
-                                        Eigen::Vector3d(0.0, -0.1, 0.0)};
-  sample.contactFlags = {true, true};
+  sample.posContactsRtWorldEwrtWorld = ContactArray<Eigen::Vector3d>(kNumFeet);
+  sample.posContactsRtWorldEwrtWorld[0] = Eigen::Vector3d(0.0, 0.1, 0.0);
+  sample.posContactsRtWorldEwrtWorld[1] = Eigen::Vector3d(0.0, -0.1, 0.0);
+  sample.contactFlags = ContactMask::allActive(kNumFeet);
   sample.jointTorques = Eigen::VectorXd::Constant(/*size=*/3, 2.0);
   return sample;
 }
@@ -121,7 +127,7 @@ JsonValue reportOf(const ClosedLoopMetrics& metrics) {
 }
 
 TEST(ClosedLoopMetrics, PerfectTrackingHasNoErrorAndAConstantHeightNoSpread) {
-  ClosedLoopMetrics metrics;
+  ClosedLoopMetrics metrics(kNumFeet);
   for (size_t k = 0; k < 200; ++k) {
     metrics.addControlCycle(trackingSample(
         k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5, /*yawRate=*/0.3));
@@ -142,7 +148,7 @@ TEST(ClosedLoopMetrics, PerfectTrackingHasNoErrorAndAConstantHeightNoSpread) {
 }
 
 TEST(ClosedLoopMetrics, TheErrorsAreTheRmsOfTheDifferences) {
-  ClosedLoopMetrics metrics;
+  ClosedLoopMetrics metrics(kNumFeet);
   for (size_t k = 0; k < 100; ++k) {
     ControlCycleSample sample = trackingSample(
         k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/0.0);
@@ -162,7 +168,7 @@ TEST(ClosedLoopMetrics, TheHeightSpreadIsTheTwoPassStandardDeviation) {
   std::mt19937_64 generator(/*seed=*/7);
   for (const double spread : {1.0e-2, 1.0e-4, 1.0e-6}) {
     std::normal_distribution<double> height(/*mean=*/0.8, spread);
-    ClosedLoopMetrics metrics;
+    ClosedLoopMetrics metrics(kNumFeet);
     std::vector<double> heights;
     for (size_t k = 0; k < 5000; ++k) {
       ControlCycleSample sample = trackingSample(
@@ -185,7 +191,7 @@ TEST(ClosedLoopMetrics, TheHeightSpreadIsTheTwoPassStandardDeviation) {
         << "spread " << spread;
   }
   for (const double constantHeight : {0.79, 0.8, 0.912, 1.05}) {
-    ClosedLoopMetrics metrics;
+    ClosedLoopMetrics metrics(kNumFeet);
     for (size_t k = 0; k < 10000; ++k) {
       ControlCycleSample sample = trackingSample(
           k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/0.0);
@@ -201,7 +207,7 @@ TEST(ClosedLoopMetrics, TheVelocityErrorIsTakenInTheHeadingFrame) {
   // Walking forward at 0.5 m/s while facing 2 rad: in the world the velocity
   // points at 2 rad, in the heading frame it is straight ahead, as the command
   // is.
-  ClosedLoopMetrics metrics;
+  ClosedLoopMetrics metrics(kNumFeet);
   ControlCycleSample sample = trackingSample(
       /*k=*/0, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5, /*yawRate=*/0.0);
   sample.quatBaseRtWorldXyzw = unitQuaternionOfYaw(2.0);
@@ -214,7 +220,7 @@ TEST(ClosedLoopMetrics, TheVelocityErrorIsTakenInTheHeadingFrame) {
 
 TEST(ClosedLoopMetrics, TheHeadingUnwrapsThroughPlusMinusPi) {
   // 1 rad/s for 12.6 s: two full turns, through the +/-pi seam four times.
-  ClosedLoopMetrics metrics;
+  ClosedLoopMetrics metrics(kNumFeet);
   const size_t steps = 1260;
   for (size_t k = 0; k <= steps; ++k) {
     metrics.addControlCycle(trackingSample(
@@ -227,7 +233,7 @@ TEST(ClosedLoopMetrics, TheHeadingUnwrapsThroughPlusMinusPi) {
 }
 
 TEST(ClosedLoopMetrics, TheTiltIsTheAngleOfTheBaseFromUpright) {
-  ClosedLoopMetrics metrics;
+  ClosedLoopMetrics metrics(kNumFeet);
   ControlCycleSample sample = trackingSample(
       /*k=*/0, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/0.0);
   // Rolled 0.1 rad after a yaw of 2.5 rad: the tilt does not depend on the
@@ -240,8 +246,47 @@ TEST(ClosedLoopMetrics, TheTiltIsTheAngleOfTheBaseFromUpright) {
   EXPECT_NEAR(numberAt(reportOf(metrics), "tilt.max_rad"), 0.1, 1.0e-12);
 }
 
+constexpr size_t kNumQuadrupedFeet = 4;
+
+/** `sample` on four point feet at the corners of a rectangle, all in contact.
+ */
+ControlCycleSample withFourFeet(ControlCycleSample sample) {
+  sample.posContactsRtWorldEwrtWorld =
+      ContactArray<Eigen::Vector3d>(kNumQuadrupedFeet);
+  sample.posContactsRtWorldEwrtWorld[0] = Eigen::Vector3d(0.3, 0.2, 0.0);
+  sample.posContactsRtWorldEwrtWorld[1] = Eigen::Vector3d(0.3, -0.2, 0.0);
+  sample.posContactsRtWorldEwrtWorld[2] = Eigen::Vector3d(-0.3, 0.2, 0.0);
+  sample.posContactsRtWorldEwrtWorld[3] = Eigen::Vector3d(-0.3, -0.2, 0.0);
+  sample.contactFlags = ContactMask::allActive(kNumQuadrupedFeet);
+  return sample;
+}
+
+// A quadruped-like set of four point feet: every contact's stance phases are
+// measured, not only the first two.
+TEST(ClosedLoopMetrics, EveryContactOfAFourContactSetHasItsStancePhases) {
+  ClosedLoopMetrics metrics(kNumQuadrupedFeet);
+  for (size_t k = 0; k < 20; ++k) {
+    ControlCycleSample sample = withFourFeet(trackingSample(
+        k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/0.0));
+    // The last foot slides 2 mm per cycle.
+    sample.posContactsRtWorldEwrtWorld[3].x() -= 0.002 * static_cast<double>(k);
+    metrics.addControlCycle(sample);
+  }
+  // The last foot lifts off and lands again, a second stance phase of its own.
+  ControlCycleSample swing = withFourFeet(trackingSample(
+      /*k=*/20, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/0.0));
+  swing.contactFlags.set(/*contactIndex=*/3, /*active=*/false);
+  metrics.addControlCycle(swing);
+  metrics.addControlCycle(withFourFeet(trackingSample(
+      /*k=*/21, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/0.0)));
+  const JsonValue report = reportOf(metrics);
+  EXPECT_EQ(numberAt(report, "stance_foot_slip.stance_phases"), 5.0)
+      << "one per foot, and a second of the last foot";
+  EXPECT_NEAR(numberAt(report, "stance_foot_slip.max_m"), 0.038, 1.0e-12);
+}
+
 TEST(ClosedLoopMetrics, APlantedFootDoesNotSlipAndASlidingOneDoes) {
-  ClosedLoopMetrics metrics;
+  ClosedLoopMetrics metrics(kNumFeet);
   for (size_t k = 0; k < 50; ++k) {
     ControlCycleSample sample = trackingSample(
         k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/0.0);
@@ -253,7 +298,7 @@ TEST(ClosedLoopMetrics, APlantedFootDoesNotSlipAndASlidingOneDoes) {
   // slip.
   ControlCycleSample swing = trackingSample(
       /*k=*/50, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.0, /*yawRate=*/0.0);
-  swing.contactFlags = {true, false};
+  swing.contactFlags.set(/*contactIndex=*/1, /*active=*/false);
   metrics.addControlCycle(swing);
   for (size_t k = 51; k < 60; ++k) {
     ControlCycleSample sample = trackingSample(
@@ -270,7 +315,7 @@ TEST(ClosedLoopMetrics, APlantedFootDoesNotSlipAndASlidingOneDoes) {
 }
 
 TEST(ClosedLoopMetrics, SolveStatisticsAreNearestRankPercentiles) {
-  ClosedLoopMetrics metrics;
+  ClosedLoopMetrics metrics(kNumFeet);
   for (int k = 1; k <= 100; ++k) {
     SolveSample solve;
     solve.time = 0.01 * k;
@@ -324,7 +369,7 @@ SolveSample refusedAboveGMax(SolveSample solve, double fullStepViolation) {
 
 TEST(ClosedLoopMetrics,
      TheSqpStepsShowACycleAsGrowthRunsEndedByRefusalsAboveGMax) {
-  ClosedLoopMetrics metrics;
+  ClosedLoopMetrics metrics(kNumFeet);
   // A cycle: full steps whose violation grows by about 1.9 from one solve to
   // the next, then a full step refused above g_max and a half step that resets
   // the violation, and growth again.
@@ -393,7 +438,7 @@ TEST(ClosedLoopMetrics,
       << "over the seven with a swing";
 
   // A run without a step has counts of zero and no statistics.
-  const JsonValue empty = reportOf(ClosedLoopMetrics());
+  const JsonValue empty = reportOf(ClosedLoopMetrics(kNumFeet));
   EXPECT_EQ(numberAt(empty, "sqp_step.steps"), 0.0);
   EXPECT_EQ(numberAt(empty, "sqp_step.longest_violation_growth"), 0.0);
   EXPECT_TRUE(empty.findPath("sqp_step.constraint_violation.max")->isNull());
@@ -402,7 +447,7 @@ TEST(ClosedLoopMetrics,
 }
 
 TEST(ClosedLoopMetrics, AFallIsReportedWithItsTimeAndReason) {
-  ClosedLoopMetrics metrics;
+  ClosedLoopMetrics metrics(kNumFeet);
   metrics.setFall(/*time=*/3.5, "the base tilted 1.2 rad");
   const JsonValue report = reportOf(metrics);
   EXPECT_FALSE(report.findPath("survival.survived")->asBool());
@@ -430,7 +475,7 @@ TEST(ClosedLoopMetrics, EveryWrapAngleIsInMinusPiToPi) {
 // counted where the text keeps them.
 TEST(ClosedLoopMetrics, ANonFiniteSolveSampleIsKeptAndCounted) {
   const double nan = std::numeric_limits<double>::quiet_NaN();
-  ClosedLoopMetrics metrics;
+  ClosedLoopMetrics metrics(kNumFeet);
   for (const double time : {0.0, 0.02, 0.04}) {
     SolveSample solve;
     solve.time = time;
@@ -460,7 +505,7 @@ TEST(ClosedLoopMetrics, ANonFiniteSolveSampleIsKeptAndCounted) {
   ASSERT_NE(deviation, nullptr);
   EXPECT_TRUE(deviation->isNull());
   EXPECT_EQ(numberAt(*parsed, "quaternion_norm.non_finite_solves"), 1.0);
-  EXPECT_EQ(numberAt(reportOf(ClosedLoopMetrics()),
+  EXPECT_EQ(numberAt(reportOf(ClosedLoopMetrics(kNumFeet)),
                      "quaternion_norm.non_finite_solves"),
             0.0);
 }
@@ -469,7 +514,7 @@ TEST(ClosedLoopMetrics, ANonFiniteSolveSampleIsKeptAndCounted) {
 // the schema
 
 TEST(ClosedLoopMetricsSchema, EveryDocumentTheMetricsWriteValidates) {
-  ClosedLoopMetrics metrics;
+  ClosedLoopMetrics metrics(kNumFeet);
   for (size_t k = 0; k < 20; ++k) {
     metrics.addControlCycle(trackingSample(
         k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.3, /*yawRate=*/0.1));
@@ -482,7 +527,8 @@ TEST(ClosedLoopMetricsSchema, EveryDocumentTheMetricsWriteValidates) {
   const JsonValue report = reportOf(metrics);
   EXPECT_TRUE(validateClosedLoopMetrics(report).ok())
       << validateClosedLoopMetrics(report);
-  EXPECT_TRUE(validateClosedLoopMetrics(reportOf(ClosedLoopMetrics())).ok())
+  EXPECT_TRUE(
+      validateClosedLoopMetrics(reportOf(ClosedLoopMetrics(kNumFeet))).ok())
       << "the document of a run without samples";
 
   // And the document reads back from its text to the same, still valid.
@@ -493,7 +539,7 @@ TEST(ClosedLoopMetricsSchema, EveryDocumentTheMetricsWriteValidates) {
 }
 
 TEST(ClosedLoopMetricsSchema, MissingMistypedAndUnknownFieldsAreNamed) {
-  const JsonValue report = reportOf(ClosedLoopMetrics());
+  const JsonValue report = reportOf(ClosedLoopMetrics(kNumFeet));
 
   // A copy without base_height.mean_m.
   JsonValue missing = JsonValue::object();
@@ -737,7 +783,7 @@ TEST(MetricBands, TheDescriptionListsBothKinds) {
 /** A surviving run's metrics document, as ClosedLoopMetrics writes it: a walk
  * at `cmdLinvelBaseRtWorldEwrtHeadingX`, one solve. */
 JsonValue walkDocument(double cmdLinvelBaseRtWorldEwrtHeadingX) {
-  ClosedLoopMetrics metrics;
+  ClosedLoopMetrics metrics(kNumFeet);
   for (size_t k = 0; k < 100; ++k) {
     metrics.addControlCycle(
         trackingSample(k, cmdLinvelBaseRtWorldEwrtHeadingX, /*yawRate=*/0.1));

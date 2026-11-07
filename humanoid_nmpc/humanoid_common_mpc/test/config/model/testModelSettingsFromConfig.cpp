@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "google/protobuf/message.h"
 #include "gtest/gtest.h"
 
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StateLayout.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -758,6 +759,73 @@ TEST(ModelSettingsFromConfig, APointContactNeedsANameAParentAndAFiniteOffset) {
     EXPECT_EQ(settings.status().code(), absl::StatusCode::kInvalidArgument);
     EXPECT_THAT(settings.status().message(), HasSubstr(entry.second));
   }
+}
+
+/** A task file of the two-joint robot with two feet and `numPointContacts`
+ * 3-DoF contacts on the hip. */
+mpc_config::TaskFile taskWithPointContacts(size_t numPointContacts) {
+  mpc_config::TaskFile task = twoJointTask();
+  task.model_settings.contact_names_6dof = {"foot_l", "foot_r"};
+  for (size_t i = 0; i < numPointContacts; ++i) {
+    mpc_config::ModelSettingsConfig::PointContact contact;
+    contact.name = absl::StrCat("point_", i);
+    contact.parent_joint_name = "hip";
+    task.model_settings.contacts_3dof.push_back(contact);
+  }
+  return task;
+}
+
+// A mode number has one bit per contact (common/ContactMask.h): a set of
+// kMaxNumContacts contacts is built, one more is refused naming the count.
+TEST(ModelSettingsFromConfig, MoreContactsThanAModeNumberHoldsAreRefused) {
+  constexpr size_t kNumFeet = 2;
+  const absl::StatusOr<ModelSettings> largest =
+      ModelSettings::Create(taskWithPointContacts(kMaxNumContacts - kNumFeet),
+                            twoJointUrdf(), "test_", /*verbose=*/false);
+  ASSERT_TRUE(largest.ok()) << largest.status();
+  EXPECT_EQ(largest->numContacts(), kMaxNumContacts);
+  EXPECT_FALSE(largest->isBipedContactSet());
+
+  const absl::StatusOr<ModelSettings> refused = ModelSettings::Create(
+      taskWithPointContacts(kMaxNumContacts - kNumFeet + 1), twoJointUrdf(),
+      "test_", /*verbose=*/false);
+  ASSERT_FALSE(refused.ok());
+  EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(refused.status().message(),
+              HasSubstr("the contact set has 33 contacts"));
+  EXPECT_THAT(refused.status().message(),
+              HasSubstr("at most 32 are supported"));
+}
+
+// A set of point contacts alone, such as a point-footed quadruped's, is valid:
+// the contact set needs no 6-DoF contact.
+TEST(ModelSettingsFromConfig, ASetOfPointContactsAloneIsBuilt) {
+  constexpr size_t kNumPoints = 4;
+  mpc_config::TaskFile task = taskWithPointContacts(kNumPoints);
+  task.model_settings.contact_names_6dof = {};
+  const absl::StatusOr<ModelSettings> settings =
+      ModelSettings::Create(task, twoJointUrdf(), "test_", /*verbose=*/false);
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  EXPECT_EQ(settings->numContacts(), kNumPoints);
+  EXPECT_THAT(
+      settings->contactNames,
+      ::testing::ElementsAre("point_0", "point_1", "point_2", "point_3"));
+  EXPECT_TRUE(settings->contactNames6DoF.empty());
+  for (size_t i = 0; i < kNumPoints; ++i) {
+    EXPECT_TRUE(settings->isPointContact(i)) << i;
+  }
+  EXPECT_FALSE(settings->isBipedContactSet());
+  EXPECT_THAT(settings->contactParentJointNamesInContactOrder(),
+              ::testing::ElementsAre("hip", "hip", "hip", "hip"));
+}
+
+TEST(ModelSettingsFromConfig, NumContactsCountsEveryContactOfTheSet) {
+  const absl::StatusOr<ModelSettings> biped = ModelSettings::Create(
+      taskWithPointContacts(/*numPointContacts=*/0), twoJointUrdf(), "test_",
+      /*verbose=*/false);
+  ASSERT_TRUE(biped.ok()) << biped.status();
+  EXPECT_EQ(biped->numContacts(), 2U);
+  EXPECT_TRUE(biped->isBipedContactSet());
 }
 
 }  // namespace

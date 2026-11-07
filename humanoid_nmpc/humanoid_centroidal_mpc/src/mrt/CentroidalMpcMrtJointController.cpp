@@ -68,7 +68,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
@@ -187,7 +188,9 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(
       })),
       contactEstimator_(
           std::make_shared<::robot::model::RobotStateContactEstimator>()),
-      contactEstimateIntake_(kControllerName),
+      measuredContactFlags_(modelSettings.numContacts()),
+      contactEstimateIntake_(kControllerName, modelSettings.numContacts()),
+      contactWrenchGate_(modelSettings.numContacts()),
       pinocchioInterface_(std::move(pinocchioInterface)),
       mpcRobotModelPtr_(mpcRobotModel.clone()),
       effectiveModelPtr_(effectiveMpcRobotModel
@@ -199,9 +202,10 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(
       holdAction_(robotDescription),
       stateManifold_(std::move(stateManifold)),
       policyEvaluator_(
-          ipc::ModelDimensions{.stateDim = effectiveModelPtr_->getStateDim(),
-                               .inputDim = effectiveModelPtr_->getInputDim(),
-                               .numModes = kNumModeNumbers},
+          ipc::ModelDimensions{
+              .stateDim = effectiveModelPtr_->getStateDim(),
+              .inputDim = effectiveModelPtr_->getInputDim(),
+              .numModes = numModeNumbersOf(modelSettings.numContacts())},
           stateManifold_.get()),
       mpcPolicyState_(vector_t::Zero(effectiveModelPtr_->getStateDim())),
       mpcPolicyInput_(vector_t::Zero(effectiveModelPtr_->getInputDim())),
@@ -236,7 +240,7 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(
   vPinocchio_ = vector_t::Zero(mpcRobotModelPtr_->getVelocityDim());
   mpcJointPositions_ = vector_t::Zero(mpcJointIndices_.size());
   mpcJointVelocities_ = vector_t::Zero(mpcJointIndices_.size());
-  estimatedContactFlags_.assign(kNumContacts, true);
+  estimatedContactFlags_.assign(modelSettings.numContacts(), true);
   gravityCoordinates_ =
       vector_t::Zero(mpcRobotModelPtr_->getConfigurationDim());
   gravityJointPositions_ = vector_t::Zero(mpcJointIndices_.size());
@@ -245,6 +249,8 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(
   policyJointPositions_ = vector_t::Zero(effectiveModelPtr_->getJointDim());
   policyJointVelocities_ = vector_t::Zero(effectiveModelPtr_->getJointDim());
   zeroJointAccelerations_ = vector_t::Zero(effectiveModelPtr_->getJointDim());
+  wrenchContactsEwrtWorld_.assign(modelSettings.numContacts(),
+                                  vector6_t::Zero());
   safetyHoldMpcJointPositions_ = vector_t::Zero(mpcJointIndices_.size());
   safetyHoldOtherJointPositions_ = vector_t::Zero(otherJointIndices_.size());
   nominalJointPositions_.reserve(robotDescription.getNumJoints());
@@ -460,7 +466,7 @@ void CentroidalMpcMrtJointController::updateMpcObservation(
   // through the event sink (ContactEstimateIntake).
   contactEstimateIntake_.take(estimatedContactFlags_, measuredContactFlags_,
                               *eventSink_);
-  mpcObservation.mode = stanceLeg2ModeNumber(measuredContactFlags_);
+  mpcObservation.mode = measuredContactFlags_.modeNumber();
   contactWrenchGate_.update(mpcObservation.time, measuredContactFlags_);
 }
 
@@ -730,27 +736,28 @@ void CentroidalMpcMrtJointController::computeJointControlAction(
                                             ? mpcPolicyState
                                             : currentMpcObservation_.state;
     fillPlannedCoordinates(contactFrameState);
-    const feet_array_t<matrix3_t>& rotmatContactsRtWorld =
+    const ContactArray<matrix3_t>& rotmatContactsRtWorld =
         rigidBodyDynamics_->computeRotmatContactsRtWorld(plannedCoordinates_);
     // The policy carries a wrench wherever its own schedule expects contact.
-    // Whether a foot can actually transmit it is decided by the measured
-    // contact state of this cycle, not by the plan: the wrench of a foot that
-    // is not touching is dropped, and after touch-down it is debounced and
-    // ramped in as configured (ContactWrenchGate).
-    const feet_array_t<vector6_t> wrenchFeetEwrtWorld =
-        contactWrenchGate_.apply(
-            {effectiveModelPtr_->getWrenchContactEwrtWorld(
-                 mpcPolicyInput, rotmatContactsRtWorld[0], /*contactIndex=*/0),
-             effectiveModelPtr_->getWrenchContactEwrtWorld(
-                 mpcPolicyInput, rotmatContactsRtWorld[1],
-                 /*contactIndex=*/1)});
+    // Whether a contact can actually transmit it is decided by the measured
+    // contact state of this cycle, not by the plan: the wrench of a contact
+    // that is not touching is dropped, and after touch-down it is debounced
+    // and ramped in as configured (ContactWrenchGate). Every contact of the
+    // set, in contact order: a point contact's wrench has a zero moment.
+    for (size_t i = 0; i < wrenchContactsEwrtWorld_.size(); ++i) {
+      wrenchContactsEwrtWorld_[i] =
+          effectiveModelPtr_->getWrenchContactEwrtWorld(
+              mpcPolicyInput, rotmatContactsRtWorld[i], /*contactIndex=*/i);
+    }
+    contactWrenchGate_.apply(wrenchContactsEwrtWorld_);
 
     // Evaluate inverse dynamics using measured robot state for physical
     // consistency: the measurement's q and v, of which the observation is made
     // (getGeneralizedCoordinates() and getGeneralizedVelocities() of the
     // observation give them back, the latter through the centroidal momentum).
     const vector_t& mpcJointTorques = rigidBodyDynamics_->freeBaseJointTorques(
-        qPinocchio_, vPinocchio_, zeroJointAccelerations_, wrenchFeetEwrtWorld);
+        qPinocchio_, vPinocchio_, zeroJointAccelerations_,
+        wrenchContactsEwrtWorld_);
 
     // Gravity-comp fallback: use pure gravity compensation instead of full ID
     // torques (`wb_mpc_feedforward: "gravity_compensation"` in the task file),
@@ -782,26 +789,25 @@ void CentroidalMpcMrtJointController::computeJointControlAction(
       noPolicyReported_ = true;
     }
     // Apply the weight-compensating wrenches around the current state: the
-    // weight shared evenly by the feet measured in contact, as vertical
+    // weight shared evenly by the contacts measured in contact, as vertical
     // world-frame forces (weightCompensatingInput(), whose wrenches these are,
     // and which the basis-vector input reproduces up to its non-negative
     // least-squares fit). With none (the robot hangs on the gantry) no contact
     // force is compensated and the feedforward is the gravity and Coriolis term
     // of the free legs, the base being held (heldBaseJointTorques(); the
     // free-base inverse dynamics would let the base fall freely).
-    const size_t numStanceLegs = numberOfLegsInContacts(measuredContactFlags_);
-    feet_array_t<vector6_t> wrenchFeetEwrtWorld;
-    for (size_t i = 0; i < kNumContacts; ++i) {
-      wrenchFeetEwrtWorld[i].setZero();
-      if (numStanceLegs > 0 && measuredContactFlags_[i]) {
-        wrenchFeetEwrtWorld[i](kZAxisIndex) =
-            robotWeight_ / static_cast<scalar_t>(numStanceLegs);
+    const size_t numActiveContacts = measuredContactFlags_.numActive();
+    for (size_t i = 0; i < wrenchContactsEwrtWorld_.size(); ++i) {
+      wrenchContactsEwrtWorld_[i].setZero();
+      if (numActiveContacts > 0 && measuredContactFlags_[i]) {
+        wrenchContactsEwrtWorld_[i](kZAxisIndex) =
+            robotWeight_ / static_cast<scalar_t>(numActiveContacts);
       }
     }
     const vector_t& weightCompensatingJointTorques =
         rigidBodyDynamics_->heldBaseJointTorques(qPinocchio_, vPinocchio_,
                                                  zeroJointAccelerations_,
-                                                 wrenchFeetEwrtWorld);
+                                                 wrenchContactsEwrtWorld_);
 
     for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
       const size_t index = mpcJointIndices_[i];
@@ -1205,11 +1211,12 @@ const vector_t& CentroidalMpcMrtJointController::computeGravityCompensation(
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::optional<contact_flag_t>
+std::optional<ContactMask>
 CentroidalMpcMrtJointController::getPlannedContactFlags(scalar_t time) const {
   if (!policyActivated_.load()) return std::nullopt;
-  return modeNumber2StanceLeg(
-      mpcLink_->getPolicy().modeSchedule_.modeAtTime(time));
+  return ContactMask::fromModeNumber(
+      mpcLink_->getPolicy().modeSchedule_.modeAtTime(time),
+      measuredContactFlags_.size());
 }
 
 }  // namespace ocs2::humanoid

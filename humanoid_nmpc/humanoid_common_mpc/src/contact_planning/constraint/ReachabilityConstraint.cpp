@@ -65,7 +65,7 @@ void ReachabilityConstraint::addRows(const ContactPlanningContext& ctx,
                                      RowBuilder& rows) const {
   const std::array<vector2_t, kHorizontalPositionDim>& rotmatHeadingRtWorld =
       ctx.getRotmatHeadingRtWorld(node);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       Coefficients xc;
       for (int w = 0; w < kHorizontalPositionDim; ++w) {

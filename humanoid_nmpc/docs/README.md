@@ -84,6 +84,11 @@ One covers planning for terrain that is not a flat floor, with more contacts tha
   planner beside it, the static and dynamic stability conditions both must certify, the terrain model, the runtime
   contact set the centroidal MPC needs, and the four dummy sims.
 
+The contact set is run-time data of any size up to 32 contacts, 3-DoF and 6-DoF mixed, with one bit per contact in a
+mode number ([`humanoid_common_mpc`](../humanoid_common_mpc/README.md), "Contacts and modes"). The centroidal MPC
+runs on any such set; the whole-body MPC, the contact planner and the terms written for two feet run on the biped's two
+6-DoF feet and refuse any other set by name.
+
 And the last covers how the controller runs as processes:
 
 * [distributed_runtime](distributed_runtime/README.md) - the robot process, the MPC node and the operator tools as
@@ -525,7 +530,7 @@ the schedule it executes between plans, using only the measured contact state an
 implemented as `ExecutionRule` terms under `humanoid_common_mpc/contact_planning/execution/` (`PhaseResettingRule`,
 `EnergyCadenceModulationRule`, `DcmStepAdjustmentRule`; the same list also holds the two reference overrides,
 `PlannedComOverride` and the `PlannedHeadingOverride` of the heading model, which are plumbing rather than corrections) over the
-pure schedule queries and edits of `ContactScheduleAdaptation.{h,cpp}`, written for any number of feet (`kNumContacts`),
+pure schedule queries and edits of `ContactScheduleAdaptation.{h,cpp}`, written for any number of feet,
 and driven from `ContactPlanningReferenceManager` through the pipeline of `ScheduleAdaptationPipeline.h`.
 
 **None of the three corrections is enabled in the shipped files**: `phase_resetting`, `energy_cadence_modulation` and

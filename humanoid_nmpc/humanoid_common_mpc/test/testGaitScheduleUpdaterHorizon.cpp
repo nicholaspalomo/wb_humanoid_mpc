@@ -28,6 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <algorithm>
+#include <cstddef>
 #include <memory>
 #include <vector>
 
@@ -36,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/GaitScheduleUpdater.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
@@ -58,19 +60,18 @@ constexpr scalar_t kHorizon = 1.0;  // [s] the DRC Atlas horizon
 // The shipped reference files: a stance schedule and a stance template of 0.5
 // s; a walk of two 0.35 s swings.
 ModeSchedule initialSchedule() {
-  return ModeSchedule({0.5}, {ModeNumber::kStance, ModeNumber::kStance});
+  return ModeSchedule({0.5}, {kBipedModeStance, kBipedModeStance});
 }
 ModeSequenceTemplate stanceTemplate() {
-  return ModeSequenceTemplate({0.0, 0.5}, {ModeNumber::kStance});
+  return ModeSequenceTemplate({0.0, 0.5}, {kBipedModeStance});
 }
 ModeSequenceTemplate walkTemplate() {
-  return ModeSequenceTemplate({0.0, 0.35, 0.7},
-                              {ModeNumber::kLf, ModeNumber::kRf});
+  return ModeSequenceTemplate({0.0, 0.35, 0.7}, {kBipedModeLf, kBipedModeRf});
 }
 
 bool hasSwing(const ModeSchedule& schedule, scalar_t from, scalar_t to) {
   for (scalar_t time = from; time <= to; time += 0.01) {
-    if (schedule.modeAtTime(time) != ModeNumber::kStance) return true;
+    if (schedule.modeAtTime(time) != kBipedModeStance) return true;
   }
   return false;
 }
@@ -80,7 +81,8 @@ bool hasSwing(const ModeSchedule& schedule, scalar_t from, scalar_t to) {
 std::shared_ptr<GaitSchedule> standingScheduleAt(
     scalar_t initTime, scalar_t phaseTransitionStanceTime) {
   std::shared_ptr<GaitSchedule> schedule = std::make_shared<GaitSchedule>(
-      initialSchedule(), stanceTemplate(), phaseTransitionStanceTime);
+      initialSchedule(), stanceTemplate(), phaseTransitionStanceTime,
+      GaitModeLayout{});
   schedule->getModeSchedule(initTime - kHorizon, initTime + 2.0 * kHorizon);
   return schedule;
 }
@@ -160,6 +162,44 @@ TEST(GaitScheduleUpdaterHorizon, theNextSolveSeesTheScheduleItSawBeforeTheFix) {
       }
     }
   }
+}
+
+// The new gait starts at the first event after 0.7 of the horizon, 0.8 s here,
+// and the phase before it is mode 2. On the biped set that is LF, so the switch
+// moves back to where LF starts (0.5 s); on a set of four contacts 2 (0b0010)
+// is the third contact alone, which is no left stance, and the switch stays.
+constexpr scalar_t kPhaseTwoStart = 0.5;  // [s]
+constexpr scalar_t kPhaseTwoEnd = 0.8;    // [s]
+constexpr size_t kModeTwo = 0b0010;
+
+std::shared_ptr<GaitSchedule> scheduleWithModeTwoBefore(GaitModeLayout layout) {
+  std::shared_ptr<GaitSchedule> schedule = std::make_shared<GaitSchedule>(
+      ModeSchedule({kPhaseTwoStart, kPhaseTwoEnd},
+                   {layout.stanceMode, kModeTwo, layout.stanceMode}),
+      ModeSequenceTemplate({0.0, 0.5}, {layout.stanceMode}),
+      /*phaseTransitionStanceTime=*/0.0, layout);
+  schedule->getModeSchedule(/*lowerBoundTime=*/-kHorizon,
+                            /*upperBoundTime=*/2.0 * kHorizon);
+  return schedule;
+}
+
+TEST(GaitScheduleUpdaterSwitchTime, aBipedSwitchMovesBackToTheStartOfLf) {
+  static_assert(kModeTwo == kBipedModeLf);
+  std::shared_ptr<GaitSchedule> schedule =
+      scheduleWithModeTwoBefore(GaitModeLayout{});
+  EXPECT_EQ(updateGaitSchedule(*schedule, walkTemplate(), /*initTime=*/0.0,
+                               /*finalTime=*/kHorizon),
+            kPhaseTwoStart);
+}
+
+TEST(GaitScheduleUpdaterSwitchTime, aFourContactSwitchIsNotMovedBack) {
+  constexpr size_t kAllFour = 0b1111;
+  std::shared_ptr<GaitSchedule> schedule = scheduleWithModeTwoBefore(
+      GaitModeLayout{.numContacts = 4, .stanceMode = kAllFour});
+  const ModeSequenceTemplate trot({0.0, 0.35, 0.7}, {0b1001, 0b0110});
+  EXPECT_EQ(updateGaitSchedule(*schedule, trot, /*initTime=*/0.0,
+                               /*finalTime=*/kHorizon),
+            kPhaseTwoEnd);
 }
 
 }  // namespace

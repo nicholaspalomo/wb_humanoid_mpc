@@ -33,7 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_core/Dimensions.h"
 
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/contact_planning/problem/Layout.h"
 
 namespace ocs2::humanoid {
@@ -52,18 +52,19 @@ struct LipIndices {
   PlanarIndices posComRtWorldEwrtWorld{-1, -1};     // c_x, c_y
   PlanarIndices linvelComRtWorldEwrtWorld{-1, -1};  // v_x, v_y
   PlanarIndices posZmpRtWorldEwrtWorld{-1, -1};     // zmp_x, zmp_y (input)
-  feet_array_t<PlanarIndices> posFeetRtWorldEwrtWorld =
-      makeFeetArray(PlanarIndices{-1, -1});  // p_i (x, y)
-  feet_array_t<PlanarIndices> errPosFeetRtWorldEwrtWorld =
-      makeFeetArray(PlanarIndices{
+  BipedFeetArray<PlanarIndices> posFeetRtWorldEwrtWorld =
+      makeBipedFeetArray(PlanarIndices{-1, -1});  // p_i (x, y)
+  BipedFeetArray<PlanarIndices> errPosFeetRtWorldEwrtWorld =
+      makeBipedFeetArray(PlanarIndices{
           -1, -1});  // dp_i (input): the foothold change, new minus old
-  feet_array_t<int> contact = makeFeetArray(-1);  // c_i (binary input)
+  BipedFeetArray<int> contact = makeBipedFeetArray(-1);  // c_i (binary input)
   bool hasHeading = false;
   int headingModelYaw = -1;
   int headingModelYawRate = -1;
-  feet_array_t<int> eulerzyxFeetRtWorldYaw = makeFeetArray(-1);
-  feet_array_t<int> torqueFeetEwrtWorldZ = makeFeetArray(-1);       // input
-  feet_array_t<int> errEulerzyxFeetRtWorldYaw = makeFeetArray(-1);  // input
+  BipedFeetArray<int> eulerzyxFeetRtWorldYaw = makeBipedFeetArray(-1);
+  BipedFeetArray<int> torqueFeetEwrtWorldZ = makeBipedFeetArray(-1);  // input
+  BipedFeetArray<int> errEulerzyxFeetRtWorldYaw =
+      makeBipedFeetArray(-1);  // input
 
   void bind(const Layout& layout);
 };

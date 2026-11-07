@@ -39,7 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
@@ -82,10 +82,13 @@ class RobotController {
       const robot::model::RobotState& robotState,
       robot::model::RobotJointAction& jointAction) = 0;
   /** The contact flags the policy in use plans for the time of the last
-   * observation; nullopt until one is in use. */
-  virtual std::optional<contact_flag_t> plannedContactFlags() const = 0;
-  /** The contact flags the contact estimator measured in the last cycle. */
-  virtual const contact_flag_t& measuredContactFlags() const = 0;
+   * observation, a mask of the controller's contact set; nullopt until one is
+   * in use. */
+  virtual std::optional<ContactMask> plannedContactFlags() const = 0;
+  /** The contact flags the contact estimator measured in the last cycle. Sized
+   * to the controller's contact set (ModelSettings::contactNames) from
+   * construction on, so its size() is the controller's contact count. */
+  virtual const ContactMask& measuredContactFlags() const = 0;
   /** requestMpcReset(): the policy in use carries the robot until a new one is
    * in use. */
   virtual void requestMpcReset() = 0;

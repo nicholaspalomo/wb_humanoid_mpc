@@ -358,6 +358,11 @@ class ModelSettings {
   // number's bits (gait/MotionPhaseDefinition.h, contactIsActiveInMode()).
   std::vector<std::string> contactNames;
 
+  /** The number of contacts of the set, contactNames.size(): the size of its
+   * ContactArray and ContactMask values. At most kMaxNumContacts
+   * (Create()). */
+  size_t numContacts() const { return contactNames.size(); }
+
   /**
    * Returns the joint each contact of contactNames hangs from, in that order:
    * a 3-DoF contact's pointContacts parent joint, then a 6-DoF contact's
@@ -373,7 +378,7 @@ class ModelSettings {
 
   /**
    * Whether the contact set is the biped's: two 6-DoF feet and nothing else,
-   * the set the terms written for a left and a right foot (kNumContacts)
+   * the set the terms written for a left and a right foot (BipedFeetArray)
    * require. Every shipped robot's is.
    */
   bool isBipedContactSet() const {

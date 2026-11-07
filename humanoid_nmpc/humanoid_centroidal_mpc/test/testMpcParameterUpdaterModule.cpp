@@ -105,8 +105,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/cost/InputQuadraticCost.h"
 #include "humanoid_common_mpc/cost/TuningQuadraticStateCost.h"
 #include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/locomotion_heuristics/BasePoseHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
 #include "humanoid_common_mpc/parameter_update/HotFieldApplier.h"
@@ -136,6 +136,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 namespace ocs2::humanoid {
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 /** Whether `collection` carries a term named `name`. */
 template <typename Term>
@@ -1780,7 +1782,7 @@ TEST_F(
           built.interface->getEffectiveMpcRobotModel().getInputDim())}));
   const scalar_t horizon = built.interface->mpcSettings().timeHorizon_;
   referenceManager.preSolverRun(/*initTime=*/0.1, /*finalTime=*/0.1 + horizon,
-                                state, ModeNumber::kStance);
+                                state, kBipedModeStance);
   updater->preSolverRun(/*initTime=*/0.1, /*finalTime=*/0.1 + horizon, state,
                         referenceManager);
   EXPECT_DOUBLE_EQ(referenceManager.getAppliedPosSurfaceRtWorldEwrtWorldZ(),
@@ -2013,16 +2015,18 @@ TEST_F(MpcParameterUpdaterModuleTest,
   modelParameters.maxPosCornersRtFootprintEwrtContactY = 0.055;
   modelParameters.maxTorqueFootEwrtFootZ = 12.0;
   modelParameters.perStepWidthDoubleSupportMaxTorqueFeetmeanEwrtWorldZ = 34.0;
-  modelParameters.minYawFeetRtBase = makeFeetArray(static_cast<scalar_t>(-0.4));
-  modelParameters.maxYawFeetRtBase = makeFeetArray(static_cast<scalar_t>(0.4));
-  modelParameters.hipYawJoints.assign(kNumContacts, std::string());
+  modelParameters.minYawFeetRtBase =
+      makeBipedFeetArray(static_cast<scalar_t>(-0.4));
+  modelParameters.maxYawFeetRtBase =
+      makeBipedFeetArray(static_cast<scalar_t>(0.4));
+  modelParameters.hipYawJoints.assign(kNumFeet, std::string());
   ContactPlanningConfig config = *unvalidated;
   modelParameters.applyTo(config);
   ASSERT_TRUE(config.validateStatus().ok())
       << "with the model parameters applied the very same file is valid";
   std::unique_ptr<SwingTrajectoryPlanner> swingPlanner =
       std::make_unique<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config{},
-                                               kNumContacts);
+                                               kNumFeet);
   absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> manager =
       ContactPlanningReferenceManager::Create(
           checkedValue(GaitSchedule::Create(shipped_.reference,

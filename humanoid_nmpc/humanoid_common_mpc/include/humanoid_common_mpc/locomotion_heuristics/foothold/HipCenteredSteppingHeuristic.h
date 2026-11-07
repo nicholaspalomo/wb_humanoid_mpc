@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristic.h"
@@ -87,8 +88,8 @@ class HipCenteredSteppingHeuristic final : public FootholdHeuristic {
 
  private:
   HipCenteredSteppingParameters parameters_;
-  feet_array_t<vector2_t> posHipsRtBaseEwrtHeadingXy_ =
-      makeFeetArray(vector2_t(vector2_t::Zero()));
+  BipedFeetArray<vector2_t> posHipsRtBaseEwrtHeadingXy_ =
+      makeBipedFeetArray(vector2_t(vector2_t::Zero()));
 };
 
 }  // namespace ocs2::humanoid

@@ -55,7 +55,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "tools/config_dump/ValueDump.h"
 
@@ -230,9 +230,8 @@ void dumpProblem(ValueDump& dump,
   const ModeSchedule schedule(
       std::vector<scalar_t>(kWalkingEventTimes.begin(),
                             kWalkingEventTimes.end()),
-      {ModeNumber::kStance, ModeNumber::kLf, ModeNumber::kStance,
-       ModeNumber::kRf, ModeNumber::kStance, ModeNumber::kLf,
-       ModeNumber::kStance});
+      {kBipedModeStance, kBipedModeLf, kBipedModeStance, kBipedModeRf,
+       kBipedModeStance, kBipedModeLf, kBipedModeStance});
   vector_t targetState = initialState;
   vector3_t refPosBaseRtWorldEwrtWorld =
       robotModel.getPosBaseRtWorldEwrtWorld(targetState);
@@ -246,7 +245,7 @@ void dumpProblem(ValueDump& dump,
   referenceManager.setTargetTrajectories(TargetTrajectories(
       {0.0, kTargetTime}, {initialState, targetState}, {zeroInput, zeroInput}));
   referenceManager.preSolverRun(/*initTime=*/0.0, /*finalTime=*/kFinalTime,
-                                initialState, ModeNumber::kStance);
+                                initialState, kBipedModeStance);
   copy.targetTrajectoriesPtr = &referenceManager.getTargetTrajectories();
 
   for (size_t point = 0; point < kTimes.size(); ++point) {

@@ -42,6 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_oc/synchronized_module/ReferenceManager.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactPatchFrame.h"
@@ -116,19 +118,23 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    */
   void reset() override;
 
-  /** The stance flags of the biped's two feet at `time`
-   * (modeNumber2StanceLeg()); the terms written for two feet read these. */
-  contact_flag_t getContactFlags(scalar_t time) const;
+  /** The active contacts of the model's contact set
+   * (ModelSettings::contactNames) at `time`: the mode number of the schedule
+   * at `time` read with ContactMask::fromModeNumber(). For a biped, entry
+   * kContactLeftIndex / kContactRightIndex is the left / right foot.
+   * Thread-safe. */
+  ContactMask getContactFlags(scalar_t time) const;
 
+  /** True when every contact of the set is active at `time`. */
   bool isInStancePhase(scalar_t time) const {
-    return getContactFlags(time)[0] && getContactFlags(time)[1];
+    return getContactFlags(time).all();
   }
 
   /**
    * Whether contact `contactIndex` of the model's contact set
    * (ModelSettings::contactNames) is active at `time`: its bit of the mode
-   * number (contactIsActiveInMode()). For the biped's two feet it is
-   * getContactFlags(time)[contactIndex]. Thread-safe.
+   * number (contactIsActiveInMode()), i.e. getContactFlags(time)[contactIndex].
+   * Thread-safe.
    */
   bool isInContact(scalar_t time, size_t contactIndex) const {
     return contactIsActiveInMode(this->getModeSchedule().modeAtTime(time),
@@ -259,7 +265,11 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   /**
    * Task-space reference of a foot in swing at `time`, or empty when nothing
    * has an opinion about where it lands: a cubic sweep from where the foot
-   * actually lifted off to getNomPosFootRtWorldEwrtWorldXy() at its touch-down.
+   * lifts off to getNomPosFootRtWorldEwrtWorldXy() at its touch-down. The
+   * lift-off point is the position measured in contact at the last solve when
+   * the foot's previous touch-down was at or before that solve, and that
+   * touch-down's nominal target when it lies later in the horizon
+   * (anchorPosFootRtWorldEwrtWorldXy()).
    *
    * Present when `nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y` is
    * positive, or when any foothold heuristic is listed; empty otherwise - the
@@ -285,7 +295,11 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * this one. Measured from the stance foot because it is the one landmark that
    * holds still while this foot swings; over one step because that is how far
    * the body travels between the two landings, which makes this the
-   * steady-state Raibert target without a coefficient to tune.
+   * steady-state Raibert target without a coefficient to tune. The stance foot
+   * stands where it was measured at the last solve if it landed by then, and
+   * at its own nominal target if it lands later in the horizon
+   * (anchorPosFootRtWorldEwrtWorldXy()), so every step of the horizon chains
+   * from the one before.
    *
    * With foothold heuristics listed, Bledt's H_r: the hip at touch-down, plus
    * the heuristics' offsets. The anchor is the base PREDICTED at touch-down -
@@ -299,6 +313,9 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * translational_stepping's a1 v above all - are measured from the hip at the
    * moment of landing, as in the dissertation, and mean the same thing on both
    * paths.
+   *
+   * Written for a biped's left and right foot: empty for any other contact set
+   * (ModelSettings::isBipedContactSet()).
    */
   std::optional<vector2_t> getNomPosFootRtWorldEwrtWorldXy(size_t contactIndex,
                                                            scalar_t time) const;
@@ -663,10 +680,10 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   scalar_t lastSolveTime_ = 0.0;
   vector2_t measPosBaseRtWorldEwrtWorldXy_{vector2_t::Zero()};
   scalar_t measYawBaseRtWorld_ = 0.0;
-  /// Where each foot was the last time it was measured in contact, i.e. where
-  /// it lifted off from.
-  feet_array_t<vector2_t> liftoffPosFeetRtWorldEwrtWorldXy_{
-      makeFeetArray(vector2_t(vector2_t::Zero()))};
+  /// Where each contact was the last time it was measured in contact, i.e.
+  /// where it lifted off from; one entry per contact of the set, zero until
+  /// first measured.
+  ContactArray<vector2_t> liftoffPosContactsRtWorldEwrtWorldXy_;
   /// [m/s] measured CoM linear velocity, and [m] measured CoM height above the
   /// mean foot height, at the last solve. Latched for the foothold heuristics,
   /// which are feedback laws on where the robot actually is rather than on the
@@ -735,6 +752,54 @@ class SwitchedModelReferenceManager : public ReferenceManager {
 
   std::shared_ptr<GaitSchedule> gaitSchedulePtr_;
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr_;  // never null
+
+ private:
+  /**
+   * Returns where foot `contactIndex` stands [m] after its touch-down at
+   * `touchDownTime`: the position latched for it at the last solve
+   * (liftoffPosContactsRtWorldEwrtWorldXy_) when `touchDownTime` is absent or
+   * at or before that solve, otherwise getNomPosFootRtWorldEwrtWorldXy() of
+   * that touch-down, the foot's own nominal target. nullopt when that target is
+   * nullopt. The two functions recurse into each other only on the nominal-step
+   * path, and each nested call asks about a strictly earlier touch-down, so the
+   * depth is at most the number of touch-downs between the last solve and the
+   * first call's time; each level costs a walk of the mode schedule.
+   */
+  std::optional<vector2_t> anchorPosFootRtWorldEwrtWorldXy(
+      size_t contactIndex, std::optional<scalar_t> touchDownTime) const;
+
+  /**
+   * Returns the nominal step [m] of foot `contactIndex` touching down at
+   * `time`, the branch of getNomPosFootRtWorldEwrtWorldXy() with no foothold
+   * heuristic: a whole step width, `nomPosLfootRtRfootEwrtHeadingY` [m], to
+   * this foot's side `side` (+1 left, -1 right) of the stance foot
+   * `stanceIndex`, carried forward at the commanded velocity over one step,
+   * from the stance foot's own touch-down to this one. Both ends are fixed
+   * instants, so the target holds still through the swing; an advance over
+   * the time from the last solve instead would shrink to nothing as the swing
+   * ends and pull the target back onto the stance foot.
+   *
+   * Measured from the stance foot, not from the base: in single support the
+   * base sits roughly over the stance foot, so half a step width from the base
+   * is half a step width from the stance foot - half the separation intended -
+   * and the base moves further over the stance foot with every step, so the
+   * feet converge.
+   *
+   * One step of travel from the stance foot is where Raibert's rule puts the
+   * foot in steady state, with no coefficient: the stance foot itself landed
+   * half a stance of travel ahead of the CoM one step earlier.
+   *
+   * The stance foot is where it lands (anchorPosFootRtWorldEwrtWorldXy()): its
+   * position latched at the last solve when it landed by then, its own nominal
+   * target when it lands later in the horizon, and the latched position when it
+   * lands at the same instant as this foot. nullopt when that anchor is.
+   *
+   * `contactIndex` is a biped foot (kContactLeftIndex or kContactRightIndex);
+   * the stance foot is the other one, and the step width is the model's
+   * nominalFootholdConfig.nomPosLfootRtRfootEwrtHeadingY.
+   */
+  std::optional<vector2_t> nomStepPosFootRtWorldEwrtWorldXy(
+      size_t contactIndex, scalar_t time) const;
 };
 
 }  // namespace ocs2::humanoid

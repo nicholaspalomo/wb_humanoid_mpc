@@ -56,6 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/config/costs/DcmTerminalCostFromConfig.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
@@ -368,7 +369,7 @@ void dumpContacts(ValueDump& dump,
   }
   addBarrier(dump, "contact_wrench_cone.barrier",
              contactWrenchConeBarrierFromConfig(contacts));
-  const absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> bases =
+  const absl::StatusOr<std::vector<ContactWrenchConeBasisMatrix>> bases =
       contactWrenchConeBasesFromConfig(contacts, model);
   if (bases.ok()) {
     for (size_t i = 0; i < bases->size(); ++i) {
@@ -415,7 +416,7 @@ void dumpContacts(ValueDump& dump,
 
 void dumpMimicJoints(
     ValueDump& dump,
-    const absl::StatusOr<feet_array_t<JointMimicSettings>>& mimic) {
+    const absl::StatusOr<BipedFeetArray<JointMimicSettings>>& mimic) {
   if (!mimic.ok()) {
     addError(dump, "mimic_joints", mimic.status());
     return;
@@ -430,9 +431,12 @@ void dumpMimicJoints(
   }
 }
 
+// `model` is null when the model settings did not load; the knee mimic, which
+// needs the contact set, is then left out like the weights and contacts.
 void dumpConstraints(ValueDump& dump,
                      const mpc_config::TaskFile& task,
-                     StateInputLayout::Mpc mpc) {
+                     StateInputLayout::Mpc mpc,
+                     const ModelSettings* absl_nullable model) {
   dump.addSection("constraints");
   addBarrier(dump, "joint_limits.barrier",
              jointLimitsBarrierFromConfig(task.joint_limits));
@@ -464,10 +468,13 @@ void dumpConstraints(ValueDump& dump,
   }
   addBarrier(dump, "collision_cbf_constraint.barrier",
              footCollisionCbfBarrierFromConfig(task.collision_cbf_constraint));
-  dumpMimicJoints(dump,
-                  mpc == StateInputLayout::Mpc::kCentroidal
-                      ? kneeMimicKinematicJointsFromConfig(task.mimic_joints)
-                      : kneeMimicJointsFromConfig(task.mimic_joints));
+  if (model == nullptr) return;
+  const size_t numContacts = model->numContacts();
+  dumpMimicJoints(
+      dump,
+      mpc == StateInputLayout::Mpc::kCentroidal
+          ? kneeMimicKinematicJointsFromConfig(task.mimic_joints, numContacts)
+          : kneeMimicJointsFromConfig(task.mimic_joints, numContacts));
 }
 
 void dumpTaskSpaceCosts(ValueDump& dump,
@@ -683,7 +690,7 @@ std::string dumpConversions(const ConversionInputs& inputs,
     dumpWeights(dump, inputs.task, stateInputLayout(*model, mpc));
     dumpContacts(dump, inputs.task.contacts, *model);
   }
-  dumpConstraints(dump, inputs.task, mpc);
+  dumpConstraints(dump, inputs.task, mpc, model.ok() ? &*model : nullptr);
   dumpTaskSpaceCosts(dump, inputs.task, mpc);
   if (mpc == StateInputLayout::Mpc::kCentroidal) {
     dumpCentroidalCosts(dump, inputs.task);

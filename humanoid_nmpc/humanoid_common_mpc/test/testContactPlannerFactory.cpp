@@ -27,13 +27,17 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <cstddef>
 #include <memory>
 #include <string>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerInterface.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -130,6 +134,33 @@ TEST(ContactPlannerFactory, summaryMatchesTheBuiltPlanner) {
       makeContactPlanner(config);
   ASSERT_TRUE(built.ok());
   EXPECT_EQ(*summary, (*built)->getFormulationSummary());
+}
+
+// Both planners are written for a biped's two feet. A model with any other
+// contact set (shared.numContacts, which
+// ContactPlanningModelParameters::applyTo() writes from the model) is refused
+// by the planner's name and the count, both when the planner is built and when
+// its summary is asked for.
+TEST(ContactPlannerFactory, everyPlannerRefusesAContactSetThatIsNotTwoFeet) {
+  constexpr size_t kFourContacts = 4;
+  for (const std::string& name : knownPlannerNames()) {
+    ContactPlanningConfig config = makeConfig();
+    config.planner.type = name;
+    config.shared.numContacts = kFourContacts;
+    const std::string expected = absl::StrCat(
+        name == planner::kHlip ? "HlipContactPlanner" : "LipContactPlanner",
+        " is written for two contacts; the contact set has 4 contacts");
+    const absl::Status built = makeContactPlanner(config).status();
+    EXPECT_EQ(built.code(), absl::StatusCode::kInvalidArgument) << name;
+    EXPECT_TRUE(absl::StrContains(built.message(), expected)) << built;
+    const absl::Status summarized = contactPlannerSummary(config).status();
+    EXPECT_EQ(summarized.code(), absl::StatusCode::kInvalidArgument) << name;
+    EXPECT_TRUE(absl::StrContains(summarized.message(), expected))
+        << summarized;
+
+    config.shared.numContacts = static_cast<size_t>(kBipedFootCount);
+    EXPECT_TRUE(makeContactPlanner(config).ok()) << name;
+  }
 }
 
 }  // namespace

@@ -168,7 +168,9 @@ struct MujocoSimConfig {
   // Contact points of the controller, in its order (URDF frame or link names).
   // They drive the ground-truth contact detection behind the viewer's contact
   // timeline, the contact flags of the RobotState handed to the controller and
-  // the CheaterSimContactEstimator.
+  // the CheaterSimContactEstimator. Every published state carries one contact
+  // flag per entry (two when the list is empty), so a controller's contact
+  // estimate has one flag per contact of its set.
   std::vector<std::string> contactFrameNames;
   // Joint carrying each contact frame (same order, may be shorter or hold empty
   // strings). A contact frame that the controller adds to its own kinematic

@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <numbers>
 #include <numeric>
 #include <stdexcept>
 
@@ -236,7 +237,7 @@ void SqpSolver::runImpl(scalar_t initTime, const vector_t& initState, scalar_t f
         x.begin(), x.end(), [stateManifold](const vector_t& state) { return stateManifold->hasRepresentableAttitudes(state); });
     const scalar_t initialGapAngle =
         everyStateHasAnAttitude ? stateManifold->getMaximumTangentAngle(stateManifold->difference(x.front(), initState)) : 0.0;
-    if (!everyStateHasAnAttitude || initialGapAngle > 0.5 * M_PI) {
+    if (!everyStateHasAnAttitude || initialGapAngle > 0.5 * std::numbers::pi) {
       if (everyStateHasAnAttitude) {
         LOG(WARNING) << "[SqpSolver] The warm start is " << initialGapAngle
                      << " rad away from the initial state (more than pi / 2); initializing from the initial state instead.";

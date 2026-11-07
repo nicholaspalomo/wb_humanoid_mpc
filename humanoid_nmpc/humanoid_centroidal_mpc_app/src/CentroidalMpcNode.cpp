@@ -277,7 +277,7 @@ ipc::ModelDimensions CentroidalMpcNode::dimensions() const {
   const MpcRobotModelBase<scalar_t>& effectiveModel =
       interface_->getEffectiveMpcRobotModel();
   // Every mode of the contact set: the biped's FLY to STANCE
-  // (kNumModeNumbers), or the bitmasks of a larger set's.
+  // (kNumBipedModes), or the bitmasks of a larger set's.
   return {.stateDim = effectiveModel.getStateDim(),
           .inputDim = effectiveModel.getInputDim(),
           .numModes = numModeNumbersOf(

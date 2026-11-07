@@ -275,8 +275,9 @@ angular velocity of the base below the Euler angles. The producer is the C++ vis
 source is taken at the sample's time: "measured" is the sample, "reference" the MPC's target trajectory (not the
 plan), "plan" the latest MPC policy's state and input, "mpc" the plan's
 contact wrenches, "target" the joint action the robot applied. Before the first policy the reference and the plan are
-the measured robot at rest, and the plan's wrenches are 0. Left is contact 0 of `ModelSettings::contactNames`, right is
-contact 1.
+the measured robot at rest, and the plan's wrenches are 0. Left and right are the biped's feet, the last two contacts
+of `ModelSettings::contactNames` when they are 6-DoF contacts (`TelemetryBuilder::contactSeriesNames()`); every other
+contact's groups are named by its contact name in their paths.
 
 The MPC's state holds the base orientation as a unit quaternion and its velocity as the body angular velocity w_B
 (humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 3.4). The plots show what a person reads: the ZYX
@@ -340,6 +341,12 @@ duplication costs a few doubles per message, and it keeps every panel independen
 
 The three panels of the "Joint Dynamics" tab plot the complete joint groups below: every joint, and the velocity panel
 the velocity targets too.
+
+A contact set larger than the biped's (a robot with hand or knee contacts, a quadruped) sends the four contact groups
+above for every contact, in contact order: the feet's as listed, and each other contact's as
+`contact_forces/<contact>_normal`, `contact_forces/<contact>_tangential`, `foot_kinematics/<contact>_acceleration_z` and
+`foot_kinematics/<contact>_velocity_z`, `<contact>` its `ModelSettings::contactNames` entry (`contact_groups()`). The
+tabs plot the feet's groups; the others are in the entity tree.
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/telemetry_contract.py:panel_groups, //humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/telemetry_contract.py:panel_tabs) -->
 
 ### Complete groups
@@ -392,6 +399,9 @@ Wrenches", "MPC Solution" and "MPC Observation".
    A producer without the solver's problem (the dummy simulator's own, a test) sends the group without series.
 6. `<collection>/<term>` per constraint term: `equality/`, `state_equality/`, `inequality/`, `state_inequality/` (at
    the first node), `final_equality/`, `final_inequality/` (at the last).
+
+A contact other than the biped's feet has `contact_wrenches/<contact>/mpc` and `contact_wrenches/<contact>/measured`,
+named as its panel groups above.
 
 `<frame>` is each frame of the task file's `telemetry_frames` (the contact frames when it lists none), and `<source>` is
 `measured`, `reference` (the target trajectory's) or `plan`. The kind comes first in the path so that one view can plot

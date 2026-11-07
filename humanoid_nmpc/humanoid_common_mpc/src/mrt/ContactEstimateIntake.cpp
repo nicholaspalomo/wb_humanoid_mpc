@@ -29,7 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/mrt/ContactEstimateIntake.h"
 
-#include <algorithm>
+#include <cstddef>
 #include <vector>
 
 #include "absl/base/nullability.h"
@@ -37,8 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "robot_model/ContactEstimator.h"
@@ -47,26 +46,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 ContactEstimateIntake::ContactEstimateIntake(
-    const char* absl_nonnull controller)
-    : refusal_(
+    const char* absl_nonnull controller, size_t numContacts)
+    : numContacts_(numContacts),
+      refusal_(
           makeControllerEvent(ControllerEventCode::kContactEstimateRefused,
                               controller,
                               /*value0=*/0.0,
-                              /*value1=*/static_cast<double>(kNumContacts))) {}
+                              /*value1=*/static_cast<double>(numContacts))) {}
 
 void ContactEstimateIntake::resetEstimator(absl::string_view estimatorName) {
   refusal_ = makeControllerEvent(ControllerEventCode::kContactEstimateRefused,
                                  refusal_.controller, /*value0=*/0.0,
-                                 /*value1=*/static_cast<double>(kNumContacts),
+                                 /*value1=*/static_cast<double>(numContacts_),
                                  estimatorName);
   refusalReported_ = false;
 }
 
 bool ContactEstimateIntake::take(const std::vector<bool>& estimated,
-                                 contact_flag_t& measured,
+                                 ContactMask& measured,
                                  ControllerEventSink& sink) {
-  if (estimated.size() == kNumContacts) {
-    std::copy(estimated.begin(), estimated.end(), measured.begin());
+  if (estimated.size() == numContacts_) {
+    for (size_t i = 0; i < numContacts_; ++i) measured.set(i, estimated[i]);
     refusalReported_ = false;
     return true;
   }
@@ -81,14 +81,15 @@ bool ContactEstimateIntake::take(const std::vector<bool>& estimated,
 
 absl::Status checkContactEstimator(robot::model::ContactEstimator& estimator,
                                    const robot::model::RobotState& robotState,
+                                   size_t numContacts,
                                    absl::string_view estimatorName) {
   const std::vector<bool> flags =
       robot::model::estimateContactFlags(estimator, robotState);
-  if (flags.size() != kNumContacts) {
+  if (flags.size() != numContacts) {
     return absl::InvalidArgumentError(
         absl::StrCat("the contact estimator '", estimatorName, "' reports ",
                      flags.size(), " contact flags, but the controller has ",
-                     kNumContacts, " contact points: it would never be taken"));
+                     numContacts, " contacts: it would never be taken"));
   }
   return absl::OkStatus();
 }

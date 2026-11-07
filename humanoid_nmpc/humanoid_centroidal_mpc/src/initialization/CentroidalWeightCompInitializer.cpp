@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/initialization/CentroidalWeightCompInitializer.h"
 
-#include <cstddef>
 #include <utility>
 
 #include "absl/base/nullability.h"
@@ -40,7 +39,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/dynamics/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
@@ -83,19 +81,11 @@ void CentroidalWeightCompInitializer::compute(scalar_t time,
                                               scalar_t /*nextTime*/,
                                               vector_t& input,
                                               vector_t& nextState) {
-  if (mpcRobotModelPtr_->modelSettings.isBipedContactSet()) {
-    const contact_flag_t contactFlags =
-        referenceManagerPtr_->getContactFlags(time);
-    input =
-        weightCompensatingInput(info_, contactFlags, *mpcRobotModelPtr_, state);
-  } else {
-    input = weightCompensatingInputOfContacts(
-        info_,
-        [this, time](size_t contact) {
-          return referenceManagerPtr_->isInContact(time, contact);
-        },
-        *mpcRobotModelPtr_, state);
-  }
+  // Every contact of the set, the biped's two feet included: the mask is the
+  // schedule's mode at `time` (SwitchedModelReferenceManager::isInContact()).
+  input = weightCompensatingInput(info_,
+                                  referenceManagerPtr_->getContactFlags(time),
+                                  *mpcRobotModelPtr_, state);
   nextState = state;
   if (!extendMnormCmomComRtWorldEwrtWorld_) {
     centroidal_model::getMnormCmomComRtWorldEwrtWorld(nextState, info_)

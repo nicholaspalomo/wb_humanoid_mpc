@@ -57,10 +57,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** The mode numbers of the mode names `names`, at least one, the field
- * `path`.mode_sequence. */
+/** The mode numbers of the mode names `names` on the contact set `layout`
+ * (parseModeNumber()), at least one, the field `path`.mode_sequence. */
 absl::StatusOr<std::vector<size_t>> modeNumbers(
-    const std::vector<std::string>& names, absl::string_view path) {
+    const std::vector<std::string>& names,
+    absl::string_view path,
+    GaitModeLayout layout) {
   if (names.empty()) {
     return absl::InvalidArgumentError(absl::StrCat(
         path, ".mode_sequence is empty; it needs at least one mode"));
@@ -68,7 +70,7 @@ absl::StatusOr<std::vector<size_t>> modeNumbers(
   std::vector<size_t> modes;
   modes.reserve(names.size());
   for (size_t i = 0; i < names.size(); ++i) {
-    const absl::StatusOr<size_t> mode = parseModeNumber(names[i]);
+    const absl::StatusOr<size_t> mode = parseModeNumber(names[i], layout);
     if (!mode.ok()) {
       return absl::InvalidArgumentError(absl::StrCat(
           path, ".mode_sequence[", i, "]: ", mode.status().message()));
@@ -97,9 +99,10 @@ absl::StatusOr<std::vector<scalar_t>> finiteTimes(const Eigen::VectorXd& times,
 
 absl::StatusOr<ModeSequenceTemplate> modeSequenceTemplateFromConfig(
     const mpc_config::ModeSequenceTemplateConfig& config,
-    absl::string_view path) {
+    absl::string_view path,
+    GaitModeLayout layout) {
   ASSIGN_OR_RETURN(std::vector<size_t> modes,
-                   modeNumbers(config.mode_sequence, path));
+                   modeNumbers(config.mode_sequence, path, layout));
   ASSIGN_OR_RETURN(
       std::vector<scalar_t> switchingTimes,
       finiteTimes(config.switching_times, path, "switching_times"));
@@ -124,9 +127,11 @@ absl::StatusOr<ModeSequenceTemplate> modeSequenceTemplateFromConfig(
 }
 
 absl::StatusOr<ModeSchedule> modeScheduleFromConfig(
-    const mpc_config::ModeScheduleConfig& config, absl::string_view path) {
+    const mpc_config::ModeScheduleConfig& config,
+    absl::string_view path,
+    GaitModeLayout layout) {
   ASSIGN_OR_RETURN(std::vector<size_t> modes,
-                   modeNumbers(config.mode_sequence, path));
+                   modeNumbers(config.mode_sequence, path, layout));
   ASSIGN_OR_RETURN(std::vector<scalar_t> eventTimes,
                    finiteTimes(config.event_times, path, "event_times"));
   if (eventTimes.size() + 1 != modes.size()) {
@@ -139,7 +144,7 @@ absl::StatusOr<ModeSchedule> modeScheduleFromConfig(
 }
 
 absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaitMapFromConfig(
-    const mpc_config::GaitFile& file) {
+    const mpc_config::GaitFile& file, GaitModeLayout layout) {
   absl::flat_hash_set<std::string> listed;
   for (const std::string& name : file.gait_list) {
     if (!listed.insert(name).second) {
@@ -164,7 +169,7 @@ absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaitMapFromConfig(
           "gaits defines the gait '", gait.name, "' more than once"));
     }
     ASSIGN_OR_RETURN(ModeSequenceTemplate pattern,
-                     modeSequenceTemplateFromConfig(gait, path));
+                     modeSequenceTemplateFromConfig(gait, path, layout));
     gaits.emplace(gait.name, std::move(pattern));
   }
   for (const std::string& name : file.gait_list) {
@@ -178,10 +183,10 @@ absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaitMapFromConfig(
 }
 
 absl::StatusOr<ModeSchedule> initialModeScheduleFromConfig(
-    const mpc_config::ReferenceFile& file) {
+    const mpc_config::ReferenceFile& file, GaitModeLayout layout) {
   ASSIGN_OR_RETURN(ModeSchedule schedule,
                    modeScheduleFromConfig(file.initial_mode_schedule,
-                                          "initial_mode_schedule"));
+                                          "initial_mode_schedule", layout));
   // GaitSchedule::getModeSchedule() drops the schedule's last mode, the stance
   // it ends in, and tiles the gait from the last event time on: a schedule of
   // one mode, which has none, is undefined behavior there, so it is refused
@@ -197,7 +202,7 @@ absl::StatusOr<ModeSchedule> initialModeScheduleFromConfig(
 }
 
 absl::StatusOr<ModeSequenceTemplate> defaultModeSequenceTemplateFromConfig(
-    const mpc_config::ReferenceFile& file) {
+    const mpc_config::ReferenceFile& file, GaitModeLayout layout) {
   if (!file.default_mode_sequence_template.name.empty()) {
     return absl::InvalidArgumentError(
         absl::StrCat("default_mode_sequence_template.name is '",
@@ -206,7 +211,8 @@ absl::StatusOr<ModeSequenceTemplate> defaultModeSequenceTemplateFromConfig(
                      "and has no name"));
   }
   return modeSequenceTemplateFromConfig(file.default_mode_sequence_template,
-                                        "default_mode_sequence_template");
+                                        "default_mode_sequence_template",
+                                        layout);
 }
 
 }  // namespace ocs2::humanoid

@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -116,9 +117,9 @@ ContactPlan headingPlan(scalar_t initHeadingModelYaw,
   plan.startTime = 0.0;
   plan.dt = 0.1;
   plan.committedUntil = plan.dt;
-  plan.contacts.assign(kNodes, makeFeetArray(true));
+  plan.contacts.assign(kNodes, makeBipedFeetArray(true));
   plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
-      kNodes + 1, makeFeetArray(vector2_t(vector2_t::Zero())));
+      kNodes + 1, makeBipedFeetArray(vector2_t(vector2_t::Zero())));
   plan.posComRtWorldEwrtWorldXyTraj.assign(kNodes + 1, vector2_t::Zero());
   plan.linvelComRtWorldEwrtWorldXyTraj.assign(kNodes + 1, vector2_t::Zero());
   plan.posZmpRtWorldEwrtWorldXyTraj.assign(kNodes, vector2_t::Zero());

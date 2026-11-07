@@ -252,6 +252,27 @@ class TelemetryGroupsTest(unittest.TestCase):
         ):
             self.assertIsNone(telemetry_contract.find_group(path), path)
 
+    def test_find_group_knows_every_contact_group(self) -> None:
+        for group in telemetry_contract.contact_groups("hand_l_contact"):
+            self.assertEqual(telemetry_contract.find_group(group.path), group)
+        for path in (
+            "contact_forces/hand_l_contact_lateral",
+            "contact_wrenches/hand_l_contact/plan",
+            "foot_kinematics/hand_l_contact_velocity_x",
+            "contact_forces/_normal",
+        ):
+            self.assertIsNone(telemetry_contract.find_group(path), path)
+
+    def test_the_feet_groups_are_the_contact_groups_of_left_and_right(
+        self,
+    ) -> None:
+        # A contact's groups and the biped's feet's are written by the same producer loop, so they have one form.
+        for side in (telemetry_contract.LEFT, telemetry_contract.RIGHT):
+            for group in telemetry_contract.contact_groups(side):
+                self.assertIn(
+                    group, telemetry_contract.STATIC_GROUPS, group.path
+                )
+
     def test_complete_groups_carry_every_series_of_the_panels(self) -> None:
         # The panels duplicate values for plotting; the complete groups carry every series. Spot-check the kinds of
         # data: per DOF, per joint, per contact, per frame.

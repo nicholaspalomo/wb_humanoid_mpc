@@ -171,6 +171,7 @@ HipYawRange deriveHipYawRange(const PinocchioInterface::Model& model,
 void ContactPlanningModelParameters::applyTo(
     ContactPlanningConfig& config) const {
   config.shared.gravity = gravity;
+  config.shared.numContacts = numContacts;
   config.yawTorqueBudgetParameters.maxTorqueFootEwrtFootZ =
       maxTorqueFootEwrtFootZ;
   config.yawTorqueBudgetParameters.doubleSupportMaxTorqueFeetmeanEwrtWorldZ =
@@ -202,9 +203,9 @@ std::string ContactPlanningModelParameters::summary() const {
       " x ", maxPosCornersRtFootprintEwrtContactY,
       " m, maxTorqueFootEwrtFootZ ", maxTorqueFootEwrtFootZ,
       " N m, perStepWidthDoubleSupportMaxTorqueFeetmeanEwrtWorldZ ",
-      perStepWidthDoubleSupportMaxTorqueFeetmeanEwrtWorldZ,
-      " N, foot yaw bounds");
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      perStepWidthDoubleSupportMaxTorqueFeetmeanEwrtWorldZ, " N, ", numContacts,
+      " contacts, foot yaw bounds");
+  for (size_t foot = 0; foot < minYawFeetRtBase.size(); ++foot) {
     absl::StrAppend(&out, " [", minYawFeetRtBase[foot], ", ",
                     maxYawFeetRtBase[foot], "]");
     if (foot < hipYawJoints.size()) {
@@ -223,8 +224,10 @@ ContactPlanningModelParameters deriveContactPlanningModelParameters(
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     const vector_t& nominalState,
     const std::vector<std::string>& contactParentJointNames,
+    size_t numContacts,
     const ContactPlanningGroundParameters& ground) {
   ContactPlanningModelParameters derived;
+  derived.numContacts = numContacts;
   const PinocchioInterface::Model& model = pinocchioInterface.getModel();
   derived.totalMass = pinocchio::computeTotalMass(model);
   // The magnitude, which the weight is whatever the direction; modelGravity()
@@ -247,8 +250,10 @@ ContactPlanningModelParameters deriveContactPlanningModelParameters(
   derived.perStepWidthDoubleSupportMaxTorqueFeetmeanEwrtWorldZ =
       ground.frictionCoefficient * 0.5 * weight;
 
-  derived.hipYawJoints.assign(kNumContacts, "");
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  // One hip yaw range per foot of the biped planners, which refuse any other
+  // contact set.
+  derived.hipYawJoints.assign(derived.minYawFeetRtBase.size(), "");
+  for (size_t foot = 0; foot < derived.minYawFeetRtBase.size(); ++foot) {
     const HipYawRange range =
         foot < contactParentJointNames.size()
             ? deriveHipYawRange(model, contactParentJointNames[foot])

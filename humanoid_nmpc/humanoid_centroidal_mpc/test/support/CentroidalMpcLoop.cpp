@@ -57,7 +57,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_mpc_config/state_weights.nproto.h"
@@ -164,7 +164,7 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcLoop>> CentroidalMpcLoop::Create(
   loop->observation_.state = interface.getInitialState();
   loop->observation_.input =
       vector_t::Zero(static_cast<Eigen::Index>(effectiveModel.getInputDim()));
-  loop->observation_.mode = ModeNumber::kStance;
+  loop->observation_.mode = kBipedModeStance;
   loop->mrt_->setCurrentObservation(loop->observation_);
   loop->mrt_->resetMpcNode(centroidalMpcResetTargetTrajectories(
       loop->observation_, interface.getCentroidalModelInfo(), effectiveModel,

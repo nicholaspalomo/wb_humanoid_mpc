@@ -93,6 +93,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+
 using Plan = multi_contact::config::MultiContactPlan;
 
 constexpr char kStairsScenario[] =
@@ -673,7 +675,7 @@ std::shared_ptr<PlannedMotionReferenceManager> forwardAndReverseManagerOf(
       checkedValue(
           GaitSchedule::Create(config.reference, models.modelSettings())),
       std::make_unique<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(),
-                                               kNumContacts),
+                                               kNumFeet),
       models.getPinocchioInterface(), models.getMpcRobotModel(), stairsSource(),
       settings));
 }

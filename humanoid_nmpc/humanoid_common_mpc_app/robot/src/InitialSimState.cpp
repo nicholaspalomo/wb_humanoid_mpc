@@ -34,7 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -49,8 +48,9 @@ robot::model::RobotState createInitialSimState(
     const ModelSettings& modelSettings,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     const vector_t& initMpcState) {
-  robot::model::RobotState initState(robotDescription,
-                                     /*contactSize=*/kNumContacts);
+  robot::model::RobotState initState(
+      robotDescription,
+      /*contactSize=*/modelSettings.numContacts());
   initState.setConfigurationToZero();
 
   initState.setPosBaseRtWorldEwrtWorld(

@@ -47,7 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 #include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "support/AtlasReferenceStack.h"
 
@@ -70,6 +70,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 using ScheduleSource = AtlasReferenceStack::ScheduleSource;
 
@@ -100,7 +102,7 @@ void walk(AtlasReferenceStack& stack,
           scalar_t duration) {
   const scalar_t end = time + duration;
   while (time < end - 1.0e-9) {
-    stack.mpc().run(time, state, ModeNumber::kStance);
+    stack.mpc().run(time, state, kBipedModeStance);
     state =
         walkingState(stack, state, linvelComRtWorldEwrtWorldX, kSolvePeriod);
     time += kSolvePeriod;
@@ -155,7 +157,7 @@ void expectSameReferences(AtlasReferenceStack& used,
     const scalar_t query = time + 0.05 * step;
     EXPECT_EQ(a.getContactFlags(query), b.getContactFlags(query))
         << when << ", t = " << query;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       const std::optional<SwingFootReference> referenceA =
           a.getSwingFootReference(foot, query);
       const std::optional<SwingFootReference> referenceB =
@@ -182,11 +184,11 @@ void expectSameReferences(AtlasReferenceStack& used,
     EXPECT_EQ(used.planningReferenceManager()->hasActivePlan(),
               fresh.planningReferenceManager()->hasActivePlan())
         << when;
-    const feet_array_t<TargetContactPose> firstDesPoseFeetRtWorld =
+    const BipedFeetArray<TargetContactPose> firstDesPoseFeetRtWorld =
         used.planningReferenceManager()->getDesPoseFeetRtWorld();
-    const feet_array_t<TargetContactPose> secondDesPoseFeetRtWorld =
+    const BipedFeetArray<TargetContactPose> secondDesPoseFeetRtWorld =
         fresh.planningReferenceManager()->getDesPoseFeetRtWorld();
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       EXPECT_EQ(firstDesPoseFeetRtWorld[foot].valid,
                 secondDesPoseFeetRtWorld[foot].valid)
           << when << ", foot " << foot;
@@ -246,8 +248,8 @@ void resetStackBehavesAsAFreshOne(ScheduleSource source,
   fresh.command(rawCommandFor(commandAfterReset));
 
   for (int solve = 0; solve < 50; ++solve) {
-    used.mpc().run(time, held, ModeNumber::kStance);
-    fresh.mpc().run(time, held, ModeNumber::kStance);
+    used.mpc().run(time, held, kBipedModeStance);
+    fresh.mpc().run(time, held, kBipedModeStance);
     expectSameReferences(used, fresh, time,
                          absl::StrCat("solve ", solve, " after the reset"));
     if (testing::Test::HasFatalFailure()) return;
@@ -324,7 +326,7 @@ TEST(MpcResetState,
       stack.resetTarget(time, state));
   bool swungWithinASecond = false;
   for (const scalar_t end = time + 1.0; time < end; time += kSolvePeriod) {
-    stack.mpc().run(time, state, ModeNumber::kStance);
+    stack.mpc().run(time, state, kBipedModeStance);
     state = walkingState(stack, state, /*linvelComRtWorldEwrtWorldX=*/1.0,
                          kSolvePeriod);
     swungWithinASecond =
@@ -344,7 +346,7 @@ TEST(MpcResetState,
   fresh.command(rawCommandFor(1.0));
   bool freshSwungWithinASecond = false;
   for (const scalar_t end = time + 1.0; time < end; time += kSolvePeriod) {
-    fresh.mpc().run(time, state, ModeNumber::kStance);
+    fresh.mpc().run(time, state, kBipedModeStance);
     state = walkingState(fresh, state, /*linvelComRtWorldEwrtWorldX=*/1.0,
                          kSolvePeriod);
     freshSwungWithinASecond = freshSwungWithinASecond ||
@@ -376,7 +378,7 @@ TEST(MpcResetState, AfterAResetTheSwingFootStartsWhereTheFootIsNotWhereItWas) {
   stack.referenceManager().setTargetTrajectories(
       stack.resetTarget(time, state));
   stack.command(0.0);
-  stack.mpc().run(time, state, ModeNumber::kStance);
+  stack.mpc().run(time, state, kBipedModeStance);
   time += kSolvePeriod;
   EXPECT_FALSE(scheduleSwingsIn(stack, stack.referenceManager(), time,
                                 time + stack.horizon()))
@@ -387,8 +389,8 @@ TEST(MpcResetState, AfterAResetTheSwingFootStartsWhereTheFootIsNotWhereItWas) {
   scalar_t desMaxNormLinvelFootRtWorldEwrtWorldXy = 0.0;
   size_t swingReferences = 0;
   for (const scalar_t end = time + 4.0; time < end; time += kSolvePeriod) {
-    stack.mpc().run(time, state, ModeNumber::kStance);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    stack.mpc().run(time, state, kBipedModeStance);
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       const std::optional<SwingFootReference> reference =
           stack.referenceManager().getSwingFootReference(foot, time + 0.05);
       if (!reference.has_value()) continue;
@@ -441,7 +443,7 @@ TEST(MpcResetState, EachMotionManagerSwitchesGaitsOnItsOwnThresholds) {
   standing.command(0.0);
   vector_t still = standing.initialState();
   for (int solve = 0; solve < 100; ++solve, standingTime += kSolvePeriod) {
-    standing.mpc().run(standingTime, still, ModeNumber::kStance);
+    standing.mpc().run(standingTime, still, kBipedModeStance);
   }
   EXPECT_EQ(standing.motionManager().getCurrentGaitCommand(), "stance");
 }
@@ -454,9 +456,9 @@ ContactPlan standingPlan(scalar_t startTime, scalar_t dt, size_t numNodes) {
   plan.startTime = startTime;
   plan.dt = dt;
   plan.committedUntil = startTime + dt;
-  plan.contacts.assign(numNodes, makeFeetArray(true));
+  plan.contacts.assign(numNodes, makeBipedFeetArray(true));
   plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
-      numNodes + 1, makeFeetArray(vector2_t(vector2_t::Zero())));
+      numNodes + 1, makeBipedFeetArray(vector2_t(vector2_t::Zero())));
   plan.posComRtWorldEwrtWorldXyTraj.assign(numNodes + 1, vector2_t::Zero());
   plan.linvelComRtWorldEwrtWorldXyTraj.assign(numNodes + 1, vector2_t::Zero());
   plan.posZmpRtWorldEwrtWorldXyTraj.assign(numNodes, vector2_t::Zero());

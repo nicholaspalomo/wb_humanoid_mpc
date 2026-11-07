@@ -60,11 +60,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/frames.hpp"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
@@ -356,13 +357,16 @@ absl::Status DcmTerminalCost::setConfig(const Config& config) {
 }
 
 vector2_t DcmTerminalCost::computeSupportWeights(scalar_t time) const {
-  const contact_flag_t contacts = referenceManagerPtr_->getContactFlags(time);
-  vector2_t weights(contacts[0] ? 1.0 : 0.0, contacts[1] ? 1.0 : 0.0);
+  // Written for a left and a right foot: the cost is refused for any other
+  // contact set (checkCentroidalContactSet()).
+  const ContactMask contacts = referenceManagerPtr_->getContactFlags(time);
+  vector2_t weights(contacts[kContactLeftIndex] ? 1.0 : 0.0,
+                    contacts[kContactRightIndex] ? 1.0 : 0.0);
   const ModeSchedule& schedule = referenceManagerPtr_->getModeSchedule();
   const std::vector<scalar_t>& eventTimes = schedule.eventTimes;
   const std::vector<size_t>& modeSequence = schedule.modeSequence;
   if (config_.supportBlendTime > 0.0 && !modeSequence.empty()) {
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
       if (!contacts[foot]) continue;
       // Contact phase [start, end] of this foot around `time`.
       size_t index = static_cast<size_t>(
@@ -370,12 +374,13 @@ vector2_t DcmTerminalCost::computeSupportWeights(scalar_t time) const {
           eventTimes.begin());
       if (index >= modeSequence.size()) index = modeSequence.size() - 1;
       size_t first = index;
-      while (first > 0 && modeNumber2StanceLeg(modeSequence[first - 1])[foot]) {
+      while (first > 0 &&
+             bipedFootContactsOfMode(modeSequence[first - 1])[foot]) {
         --first;
       }
       size_t last = index;
       while (last + 1 < modeSequence.size() &&
-             modeNumber2StanceLeg(modeSequence[last + 1])[foot]) {
+             bipedFootContactsOfMode(modeSequence[last + 1])[foot]) {
         ++last;
       }
       const scalar_t start = (first == 0)

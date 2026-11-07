@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/ControlMode.h"
@@ -216,7 +217,8 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
   uint64_t resetsAtCommandStart = 0;
   uint64_t fullResetsAtCommandStart = 0;
 
-  ClosedLoopMetrics metrics;
+  const size_t numContacts = driver->modelSettings().numContacts();
+  ClosedLoopMetrics metrics(numContacts);
   LockstepResult result;
   result.recordedStates.jointNames = description.getJointNames();
   RowCollector seriesTime(/*cols=*/1);
@@ -408,10 +410,13 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
       sample.posContactsRtWorldEwrtWorld =
           driver->computePosContactsRtWorldEwrtWorld(
               driver->currentObservation());
+      // The simulator's contact points are the model's contacts, in contact
+      // order (ClosedLoopDriver::simulatorConfig()).
       const std::vector<bool> contacts = sim.getGroundTruthContactFlags();
-      for (size_t contact = 0; contact < 2 && contact < contacts.size();
-           ++contact) {
-        sample.contactFlags[contact] = contacts[contact];
+      sample.contactFlags = ContactMask(numContacts);
+      for (size_t contact = 0;
+           contact < numContacts && contact < contacts.size(); ++contact) {
+        sample.contactFlags.set(contact, contacts[contact]);
       }
       ASSIGN_OR_RETURN(
           sample.jointTorques,

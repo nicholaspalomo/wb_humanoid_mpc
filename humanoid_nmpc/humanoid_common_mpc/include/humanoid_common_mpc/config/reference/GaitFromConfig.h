@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_mpc_config/gait_file.nproto.h"
 #include "humanoid_mpc_config/mode_schedule_config.nproto.h"
 #include "humanoid_mpc_config/mode_sequence_template_config.nproto.h"
@@ -44,9 +45,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
+/*
+ * Each function below reads the mode names against the contact set `layout`
+ * (parseModeNumber(): FLY, STANCE, LF and RF on a set ending in two 6-DoF feet,
+ * and one 0/1 digit per contact on any set). The default layout is the biped's
+ * two feet; the gait schedule passes gaitModeLayoutOf() its model settings.
+ */
+
 /**
  * The gait pattern `config` as a ModeSequenceTemplate. It has at least one
- * mode, each a name of modeNumber2String() (FLY, RF, LF, STANCE), and one more
+ * mode, each a mode name of `layout` (parseModeNumber()), and one more
  * switching time than modes, finite and strictly increasing: the templates that
  * describe a gait. The name is not read.
  *
@@ -57,19 +65,22 @@ namespace ocs2::humanoid {
  */
 absl::StatusOr<ModeSequenceTemplate> modeSequenceTemplateFromConfig(
     const mpc_config::ModeSequenceTemplateConfig& config,
-    absl::string_view path);
+    absl::string_view path,
+    GaitModeLayout layout = GaitModeLayout{});
 
 /**
- * The mode schedule `config` as a ModeSchedule: at least one mode, each a name
- * of modeNumber2String(), and one event time fewer than modes, each finite (the
- * sizes ModeSchedule's constructor asserts).
+ * The mode schedule `config` as a ModeSchedule: at least one mode, each a mode
+ * name of `layout` (parseModeNumber()), and one event time fewer than modes,
+ * each finite (the sizes ModeSchedule's constructor asserts).
  *
  * @param config The schedule.
  * @param path Where it is in its file, for the errors: "initial_mode_schedule".
  * @return The schedule; InvalidArgument naming `path` and what is wrong.
  */
 absl::StatusOr<ModeSchedule> modeScheduleFromConfig(
-    const mpc_config::ModeScheduleConfig& config, absl::string_view path);
+    const mpc_config::ModeScheduleConfig& config,
+    absl::string_view path,
+    GaitModeLayout layout = GaitModeLayout{});
 
 /**
  * Every gait of the gait file by name, as the procedural motion manager selects
@@ -81,7 +92,7 @@ absl::StatusOr<ModeSchedule> modeScheduleFromConfig(
  * @return The gaits; InvalidArgument naming the gait and what is wrong.
  */
 absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaitMapFromConfig(
-    const mpc_config::GaitFile& file);
+    const mpc_config::GaitFile& file, GaitModeLayout layout = GaitModeLayout{});
 
 /**
  * The mode schedule the gait schedule starts from: the reference file's
@@ -89,7 +100,8 @@ absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaitMapFromConfig(
  * time, which GaitSchedule::getModeSchedule() needs; InvalidArgument otherwise.
  */
 absl::StatusOr<ModeSchedule> initialModeScheduleFromConfig(
-    const mpc_config::ReferenceFile& file);
+    const mpc_config::ReferenceFile& file,
+    GaitModeLayout layout = GaitModeLayout{});
 
 /**
  * The gait the gait schedule repeats until the motion manager inserts another:
@@ -98,6 +110,7 @@ absl::StatusOr<ModeSchedule> initialModeScheduleFromConfig(
  * it has one.
  */
 absl::StatusOr<ModeSequenceTemplate> defaultModeSequenceTemplateFromConfig(
-    const mpc_config::ReferenceFile& file);
+    const mpc_config::ReferenceFile& file,
+    GaitModeLayout layout = GaitModeLayout{});
 
 }  // namespace ocs2::humanoid

@@ -36,7 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/mrt/ContactEstimateIntake.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
@@ -158,9 +158,10 @@ TEST(RealtimeEventLog, ARefusedContactEstimateIsLoggedOnceAsAWarning) {
   // cycle; the communication thread logs one warning naming the estimator and
   // both counts.
   RealtimeEventLog log;
-  ContactEstimateIntake intake("CentroidalMpcMrtJointController");
+  ContactEstimateIntake intake("CentroidalMpcMrtJointController",
+                               /*numContacts=*/2);
   intake.resetEstimator("FixedContactEstimator");
-  contact_flag_t measured{};
+  ContactMask measured(/*numContacts=*/2);
   for (int cycle = 0; cycle < 3; ++cycle) {
     EXPECT_FALSE(intake.take(/*estimated=*/{true}, measured, log));
   }

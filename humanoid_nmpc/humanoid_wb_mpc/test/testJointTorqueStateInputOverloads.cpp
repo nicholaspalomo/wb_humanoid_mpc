@@ -53,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/spatial/fwd.hpp"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
@@ -74,6 +75,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+
+/** `values`, one per contact of a biped, as the generic inverse dynamics take
+ * them. */
+template <typename T>
+ContactArray<T> toContactArray(const std::array<T, 2>& values) {
+  ContactArray<T> contactValues(values.size());
+  for (size_t i = 0; i < values.size(); ++i) contactValues[i] = values[i];
+  return contactValues;
+}
 
 std::string runfilePath(absl::string_view relativePath) {
   std::vector<std::filesystem::path> roots;
@@ -117,12 +129,12 @@ RneaReference floatingBaseRnea(
     const vector_t& v,
     const vector_t& qddJoints,
     const std::array<vector6_t, 2>& wrenchFeetEwrtWorld,
-    const feet_array_t<pinocchio::FrameIndex>& soleFrames) {
+    const BipedFeetArray<pinocchio::FrameIndex>& soleFrames) {
   pinocchio::Data data(model);
   pinocchio::framesForwardKinematics(model, data, q);
   std::vector<pinocchio::Force> fext(static_cast<size_t>(model.njoints),
                                      pinocchio::Force::Zero());
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     const pinocchio::JointIndex joint =
         model.frames[soleFrames[foot]].parentJoint;
     const matrix3_t rotmatLinkRtWorld = data.oMi[joint].rotation();
@@ -201,7 +213,7 @@ class JointTorqueStateInputOverloadsTest : public ::testing::Test {
     }
     wrenchFeetEwrtWorld_[0] << 30.0, -12.0, 320.0, 4.0, -6.0, 1.5;
     wrenchFeetEwrtWorld_[1] << -18.0, 25.0, 210.0, -3.0, 5.0, -0.8;
-    for (size_t i = 0; i < kNumContacts; ++i) {
+    for (size_t i = 0; i < kNumFeet; ++i) {
       soleFrames_[i] = model.getFrameId(modelSettings_->contactNames[i]);
     }
   }
@@ -234,7 +246,7 @@ class JointTorqueStateInputOverloadsTest : public ::testing::Test {
   vector_t v_;
   vector_t qddJoints_;
   std::array<vector6_t, 2> wrenchFeetEwrtWorld_;
-  feet_array_t<pinocchio::FrameIndex> soleFrames_{};
+  BipedFeetArray<pinocchio::FrameIndex> soleFrames_{};
 };
 
 TEST_F(JointTorqueStateInputOverloadsTest,
@@ -252,14 +264,16 @@ TEST_F(JointTorqueStateInputOverloadsTest,
   const vector_t baseHeld = computeBaseHeldJointTorques<scalar_t>(
       stateInput.first, stateInput.second, overloadInterface, *model_);
   const vector_t baseHeldDirect = computeBaseHeldJointTorques<scalar_t>(
-      q_, v_, qddJoints_, wrenchFeetEwrtWorld_, soleFrames_, directInterface);
+      q_, v_, qddJoints_, toContactArray(wrenchFeetEwrtWorld_),
+      toContactArray(soleFrames_), directInterface);
   const scalar_t scale = std::max(1.0, maxAbs(baseHeldDirect));
   EXPECT_LT(maxAbs(baseHeld - baseHeldDirect), 1.0e-12 * scale);
 
   const vector_t floating = computeJointTorques<scalar_t>(
       stateInput.first, stateInput.second, overloadInterface, *model_);
   const vector_t floatingDirect = computeJointTorques<scalar_t>(
-      q_, v_, qddJoints_, wrenchFeetEwrtWorld_, soleFrames_, directInterface);
+      q_, v_, qddJoints_, toContactArray(wrenchFeetEwrtWorld_),
+      toContactArray(soleFrames_), directInterface);
   EXPECT_LT(maxAbs(floating - floatingDirect),
             1.0e-12 * std::max(1.0, maxAbs(floatingDirect)));
 
@@ -270,11 +284,11 @@ TEST_F(JointTorqueStateInputOverloadsTest,
   // other torques.
   const std::array<vector6_t, 2> exchanged = {wrenchFeetEwrtWorld_[1],
                                               wrenchFeetEwrtWorld_[0]};
-  EXPECT_GT(
-      maxAbs(computeBaseHeldJointTorques<scalar_t>(
-                 q_, v_, qddJoints_, exchanged, soleFrames_, directInterface) -
-             baseHeld),
-      1.0);
+  EXPECT_GT(maxAbs(computeBaseHeldJointTorques<scalar_t>(
+                       q_, v_, qddJoints_, toContactArray(exchanged),
+                       toContactArray(soleFrames_), directInterface) -
+                   baseHeld),
+            1.0);
 }
 
 TEST_F(JointTorqueStateInputOverloadsTest,
@@ -321,7 +335,7 @@ TEST_F(
   ModelSettings renamedSettings = *std::move(created);
   renamedSettings.contactNames = {"left_sole_renamed", "right_sole_renamed"};
   pinocchio::Model renamedModel = pinocchioInterface_->getModel();
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < kNumFeet; ++i) {
     renamedModel
         .frames[renamedModel.getFrameId(modelSettings_->contactNames[i])]
         .name = renamedSettings.contactNames[i];

@@ -70,8 +70,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
@@ -82,6 +82,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 /// The calls a target is built over. The calculator passes the command through
 /// unfiltered (it once low-pass filtered it per call), so every call gives the
@@ -180,13 +182,14 @@ class YawCommandDynamicsTest : public ::testing::Test {
     PinocchioInterface pinocchioForDerivation(*pinocchioInterface_);
     deriveContactPlanningModelParameters(
         pinocchioForDerivation, *robotModel_, initialState_,
-        modelSettings_->contactParentJointNames, ground)
+        modelSettings_->contactParentJointNames, modelSettings_->numContacts(),
+        ground)
         .applyTo(config);
     std::unique_ptr<SwingTrajectoryPlanner> swingPlanner(
         new SwingTrajectoryPlanner(
             checkedValue(swingTrajectorySettingsFromConfig(
                 atlas_.task.swing_trajectory_config)),
-            kNumContacts));
+            kNumFeet));
     absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>>
         referenceManager = ContactPlanningReferenceManager::Create(
             checkedValue(GaitSchedule::Create(atlas_.reference, *modelSettings_,
@@ -463,7 +466,7 @@ TEST_F(YawCommandDynamicsTest,
   PinocchioInterface pinocchio(*pinocchioInterface_);
   pinocchio::forwardKinematics(pinocchio.getModel(), pinocchio.getData(), q);
   pinocchio::updateFramePlacements(pinocchio.getModel(), pinocchio.getData());
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     const pinocchio::FrameIndex frameId =
         pinocchio.getModel().getFrameId(modelSettings_->contactNames6DoF[foot]);
     const matrix3_t rotmatFootRtWorld =
@@ -511,7 +514,7 @@ TEST_F(YawCommandDynamicsTest,
 
   referenceManager->setTargetTrajectories(target);
   referenceManager->preSolverRun(/*initTime=*/0.0, horizon, initialState_,
-                                 ModeNumber::kStance);
+                                 kBipedModeStance);
   EXPECT_NEAR(referenceManager->cmdRateYawBaseRtWorld(), cmdRateYawBaseRtWorld,
               1.0e-6);
   const ContactPlannerInput input = referenceManager->makePlannerInput(
@@ -528,7 +531,7 @@ TEST_F(YawCommandDynamicsTest,
   referenceManager->setTargetTrajectories(
       settledTarget(vector4_t(0.0, 0.0, 0.0, cmdRateYawBaseRtWorld), turning));
   referenceManager->preSolverRun(/*initTime=*/0.02, 0.02 + horizon, turning,
-                                 ModeNumber::kStance);
+                                 kBipedModeStance);
   EXPECT_NEAR(referenceManager->cmdRateYawBaseRtWorld(), cmdRateYawBaseRtWorld,
               1.0e-6);
 
@@ -537,12 +540,12 @@ TEST_F(YawCommandDynamicsTest,
   referenceManager->setTargetTrajectories(
       settledTarget(vector4_t(0.5, 0.1, 0.0, 0.0), initialState_));
   referenceManager->preSolverRun(/*initTime=*/0.04, 0.04 + horizon,
-                                 initialState_, ModeNumber::kStance);
+                                 initialState_, kBipedModeStance);
   EXPECT_NEAR(referenceManager->cmdRateYawBaseRtWorld(), 0.0, 1.0e-9);
   // An empty target leaves nothing to command.
   referenceManager->setTargetTrajectories(TargetTrajectories());
   referenceManager->preSolverRun(/*initTime=*/0.06, 0.06 + horizon,
-                                 initialState_, ModeNumber::kStance);
+                                 initialState_, kBipedModeStance);
   EXPECT_NEAR(referenceManager->cmdRateYawBaseRtWorld(), 0.0, 1.0e-9);
 }
 

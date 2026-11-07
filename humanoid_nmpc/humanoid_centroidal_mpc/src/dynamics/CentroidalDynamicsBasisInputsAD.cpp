@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
 
-#include <array>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -41,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
@@ -54,7 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/fwd.hpp"
 #include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
@@ -65,12 +65,13 @@ namespace {
 
 /** Frame index of every contact; validate() has established that each frame
  * exists. */
-std::array<pinocchio::FrameIndex, kNumContacts> contactFrameIndices(
+ContactArray<pinocchio::FrameIndex> contactFrameIndices(
     const PinocchioInterface& pinocchioInterface,
     const ModelSettings& modelSettings) {
   const pinocchio::ModelTpl<scalar_t>& model = pinocchioInterface.getModel();
-  std::array<pinocchio::FrameIndex, kNumContacts> indices{};
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  ContactArray<pinocchio::FrameIndex> indices(modelSettings.contactNames.size(),
+                                              /*value=*/0);
+  for (size_t i = 0; i < indices.size(); ++i) {
     indices[i] = model.getFrameId(modelSettings.contactNames[i]);
   }
   return indices;
@@ -84,17 +85,26 @@ absl::Status CentroidalDynamicsBasisInputsAD::validate(
     const PinocchioInterface& pinocchioInterface,
     const CentroidalModelInfo& info,
     const ModelSettings& modelSettings,
-    const std::array<matrix_t, kNumContacts>& localBasisMatrices) {
-  if (info.numThreeDofContacts != 0 || info.numSixDofContacts != kNumContacts ||
-      modelSettings.contactNames.size() != kNumContacts) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("[CentroidalDynamicsBasisInputsAD] basis-vector contact "
-                     "inputs need exactly ",
-                     kNumContacts,
-                     " six-DoF contacts and no three-DoF contacts; "
-                     "model_settings.contact_names_6dof gives ",
-                     info.numSixDofContacts, " six-DoF and ",
-                     info.numThreeDofContacts, " three-DoF contacts."));
+    absl::Span<const matrix_t> localBasisMatrices) {
+  // Any number of six-DoF contacts: no generator set for a three-DoF contact
+  // exists yet (humanoid_nmpc/docs/contact_basis_vectors/README.md).
+  const size_t numContacts = modelSettings.contactNames.size();
+  if (info.numThreeDofContacts != 0 || numContacts == 0 ||
+      info.numSixDofContacts != numContacts || numContacts > kMaxNumContacts) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[CentroidalDynamicsBasisInputsAD] basis-vector contact inputs need "
+        "between 1 and ",
+        kMaxNumContacts,
+        " six-DoF contacts and no three-DoF contacts; "
+        "model_settings.contact_names_6dof gives ",
+        info.numSixDofContacts, " six-DoF and ", info.numThreeDofContacts,
+        " three-DoF contacts in a set of ", numContacts, "."));
+  }
+  if (localBasisMatrices.size() != numContacts) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[CentroidalDynamicsBasisInputsAD] ", localBasisMatrices.size(),
+        " basis matrices for ", numContacts,
+        " contacts; the basis-vector inputs need one basis per contact."));
   }
   if (static_cast<size_t>(info.actuatedDofNum) != modelSettings.mpc_joint_dim) {
     return absl::InvalidArgumentError(absl::StrCat(
@@ -105,7 +115,7 @@ absl::Status CentroidalDynamicsBasisInputsAD::validate(
   }
   const pinocchio::ModelTpl<scalar_t>& model = pinocchioInterface.getModel();
   const Eigen::Index numBasisPerFoot = localBasisMatrices[0].cols();
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < numContacts; ++i) {
     if (localBasisMatrices[i].rows() !=
             static_cast<Eigen::Index>(kContactWrenchDim) ||
         localBasisMatrices[i].cols() != numBasisPerFoot) {
@@ -134,7 +144,7 @@ CentroidalDynamicsBasisInputsAD::Create(
     const CentroidalModelInfo& info,
     const std::string& modelName,
     const ModelSettings& modelSettings,
-    const std::array<matrix_t, kNumContacts>& localBasisMatrices) {
+    absl::Span<const matrix_t> localBasisMatrices) {
   if (absl::Status status =
           validate(pinocchioInterface, info, modelSettings, localBasisMatrices);
       !status.ok()) {
@@ -153,19 +163,22 @@ CentroidalDynamicsBasisInputsAD::CentroidalDynamicsBasisInputsAD(
     const CentroidalModelInfo& info,
     const std::string& modelName,
     const ModelSettings& modelSettings,
-    const std::array<matrix_t, kNumContacts>& localBasisMatrices)
+    absl::Span<const matrix_t> localBasisMatrices)
     : SystemDynamicsBaseAD(),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       infoCppAd_(info.toCppAd()),
-      B_local_(localBasisMatrices),
+      B_local_(localBasisMatrices.size()),
       // Create() has validated the arguments.
       contactFrameIndices_(
           contactFrameIndices(pinocchioInterface, modelSettings)),
       numBasisPerFoot_(static_cast<size_t>(localBasisMatrices[0].cols())),
       jointDim_(modelSettings.mpc_joint_dim),
       basisInputDim_(static_cast<size_t>(localBasisMatrices[0].cols()) *
-                         kNumContacts +
+                         localBasisMatrices.size() +
                      modelSettings.mpc_joint_dim) {
+  for (size_t i = 0; i < localBasisMatrices.size(); ++i) {
+    B_local_[i] = localBasisMatrices[i];
+  }
   initialize(info.stateDim, basisInputDim_,
              uniqueModelName(modelName, localBasisMatrices),
              modelSettings.modelFolderCppAd,
@@ -183,7 +196,7 @@ CentroidalDynamicsBasisInputsAD::CentroidalDynamicsBasisInputsAD(
 /******************************************************************************************************/
 std::string CentroidalDynamicsBasisInputsAD::uniqueModelName(
     absl::string_view modelName,
-    const std::array<matrix_t, kNumContacts>& localBasisMatrices) {
+    absl::Span<const matrix_t> localBasisMatrices) {
   // A cached CppAD library compiled for a different basis (another generator
   // set, friction coefficient, footprint or number of generators) must never be
   // reused, so the name carries the basis' content key.
@@ -202,7 +215,7 @@ VECTOR_T<SCALAR_T> CentroidalDynamicsBasisInputsAD::toWrappedInput(
   const pinocchio::DataTpl<SCALAR_T>& data = pinocchioInterface.getData();
 
   VECTOR_T<SCALAR_T> wrappedInput = VECTOR_T<SCALAR_T>::Zero(info.inputDim);
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < B_local_.size(); ++i) {
     const VECTOR_T<SCALAR_T> lambda =
         basisInput.segment(numBasisPerFoot_ * i, numBasisPerFoot_);
     const VECTOR6_T<SCALAR_T> wrenchContactEwrtContact =

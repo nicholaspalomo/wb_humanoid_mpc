@@ -47,9 +47,10 @@ namespace ocs2::humanoid {
  * constraints foot_collision, foot_collision_cbf, normal_velocity and the
  * contact-implicit terms, the hard constraints normal_velocity and
  * knee_joint_mimic, contact_schedule_source "contact_planner" (its H-LIP and
- * MIQP planners and their contact-planning rules and constraints),
- * contact_input_parameterization "basis_vectors" and any locomotion
- * heuristic.
+ * MIQP planners and their contact-planning rules and constraints) and any
+ * locomotion heuristic. contact_input_parameterization "basis_vectors" runs
+ * on a set of 6-DoF contacts of any count and is refused on a set with a 3-DoF
+ * contact, for which no generator set exists.
  *
  * @return OkStatus, or one InvalidArgument naming the contact set and every
  * refused selection by its key; the errors of the conversions it reads the

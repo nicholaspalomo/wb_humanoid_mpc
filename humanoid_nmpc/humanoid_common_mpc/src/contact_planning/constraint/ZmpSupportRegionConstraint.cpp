@@ -35,11 +35,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <functional>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/TwoContactCount.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
@@ -48,8 +50,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == kBipedFootCount,
-              "the support region rows are written for a biped");
+absl::Status ZmpSupportRegionConstraint::validateContactSet(
+    size_t numContacts) const {
+  return checkTwoContactCount(/*component=*/"ZmpSupportRegionConstraint",
+                              numContacts);
+}
 
 std::string ZmpSupportRegionConstraint::describe() const {
   return absl::StrCat(
@@ -109,7 +114,7 @@ void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx,
   // heading re-linearization drives to zero. A stance foot's yaw is pinned
   // while it is down (foot_yaw_pinned_in_contact), so for the foot standing at
   // planning time the nominal is its measured yaw and the box is exact.
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     const size_t other = 1 - foot;
     const std::array<vector2_t, kHorizontalPositionDim>& rotmatFootRtWorld =
         ctx.getRotmatFootRtWorld(node, foot);

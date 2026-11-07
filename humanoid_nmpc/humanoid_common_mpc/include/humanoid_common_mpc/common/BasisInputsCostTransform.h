@@ -197,7 +197,7 @@ inline absl::StatusOr<BasisRegularizationBuilder> getBasisRegularizationBuilder(
  * @param M                    Local basis-to-wrench map (wrenchInputDim ×
  * basisInputDim).
  * @param numBasisInputs       Number of leading λ entries in the basis-vector
- * input (numBasisPerFoot · kNumContacts).
+ * input (numBasisPerFoot times the number of contacts).
  * @param lambdaRegularization Non-negative weight of the regularization.
  */
 inline matrix_t transformWrenchInputCostToBasisSpace(

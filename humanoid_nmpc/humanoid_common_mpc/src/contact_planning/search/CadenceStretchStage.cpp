@@ -131,7 +131,7 @@ scalar_t CadenceStretchStage::admissibleStretch(
   const GaitLimits& limits = config.shared.gaitLimits;
   const scalar_t dt = config.planner.dt;
   scalar_t stretch = std::max(1.0, maxStretch);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     const FootPhaseRuns runs = footPhaseRuns(assignment, numNodes, foot);
     // A maximum that is already violated at s = 1 cannot be repaired by
     // stretching further, so the bound is only ever applied where the phase

@@ -29,9 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <array>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <thread>
@@ -41,7 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/robot/RobotBackend.h"
 #include "robot_model/ContactEstimatorRegistry.h"
@@ -106,8 +106,8 @@ class FakeRobotBackend final : public RobotBackend {
     return jointTorquesEnabled_.load();
   }
   void enableTorques() override;
-  void readMeasForceFeetEwrtWorld(
-      std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld) override;
+  void readMeasForceContactsEwrtWorld(
+      ContactArray<vector3_t>& measForceContactsEwrtWorld) override;
   void enterSafeState() override;
   void registerContactEstimators(
       robot::model::ContactEstimatorRegistry& /*registry*/) const override {}
@@ -130,8 +130,9 @@ class FakeRobotBackend final : public RobotBackend {
   /** RobotHWInterfaceBase's robot side, opened for the driver thread. */
   class Hardware final : public robot::model::RobotHWInterfaceBase {
    public:
-    explicit Hardware(robot::model::RobotDescription description)
-        : RobotHWInterfaceBase(std::move(description)) {}
+    explicit Hardware(robot::model::RobotDescription description,
+                      size_t contactSize)
+        : RobotHWInterfaceBase(std::move(description), contactSize) {}
     void publish(const robot::model::RobotState& state) {
       publishRobotState(state);
     }

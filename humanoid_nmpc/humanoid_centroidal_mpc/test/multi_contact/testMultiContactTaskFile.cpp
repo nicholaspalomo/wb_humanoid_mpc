@@ -50,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
 #include "humanoid_common_mpc/contact/ContactCenterPoint.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
@@ -160,8 +161,8 @@ TEST(MultiContactTaskFile, theFeetAreLastSoTheBipedModesKeepTheirMeaning) {
   ASSERT_GT(n, static_cast<size_t>(kBipedFootCount));
   EXPECT_EQ(settings.contactNames[n - kBipedFootCount], "foot_l_contact");
   EXPECT_EQ(settings.contactNames[n - 1], "foot_r_contact");
-  EXPECT_TRUE(contactIsActiveInMode(ModeNumber::kLf, n - kBipedFootCount, n));
-  EXPECT_FALSE(contactIsActiveInMode(ModeNumber::kLf, n - 1, n));
+  EXPECT_TRUE(contactIsActiveInMode(kBipedModeLf, n - kBipedFootCount, n));
+  EXPECT_FALSE(contactIsActiveInMode(kBipedModeLf, n - 1, n));
   EXPECT_EQ(numModeNumbersOf(n), size_t{1} << n);
 }
 

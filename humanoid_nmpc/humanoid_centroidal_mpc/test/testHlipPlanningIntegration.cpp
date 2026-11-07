@@ -71,12 +71,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/execution/PlannedComOverride.h"
 #include "humanoid_common_mpc/contact_planning/execution/PlannedHeadingOverride.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 /**
  * The active plan of `referenceManager`, which the calling test has asserted it
@@ -106,11 +108,11 @@ std::optional<Swing> firstSwingAfter(const ModeSchedule& schedule,
   for (size_t i = 0;
        i + 1 < schedule.modeSequence.size() && i < schedule.eventTimes.size();
        ++i) {
-    const contact_flag_t before =
-        modeNumber2StanceLeg(schedule.modeSequence[i]);
-    const contact_flag_t afterFlags =
-        modeNumber2StanceLeg(schedule.modeSequence[i + 1]);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    const BipedFeetArray<bool> before =
+        bipedFootContactsOfMode(schedule.modeSequence[i]);
+    const BipedFeetArray<bool> afterFlags =
+        bipedFootContactsOfMode(schedule.modeSequence[i + 1]);
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       if (before[foot] && !afterFlags[foot] && schedule.eventTimes[i] > after) {
         Swing swing;
         swing.foot = foot;
@@ -118,7 +120,7 @@ std::optional<Swing> firstSwingAfter(const ModeSchedule& schedule,
         for (size_t j = i + 1; j + 1 < schedule.modeSequence.size() &&
                                j < schedule.eventTimes.size();
              ++j) {
-          if (modeNumber2StanceLeg(schedule.modeSequence[j + 1])[foot]) {
+          if (bipedFootContactsOfMode(schedule.modeSequence[j + 1])[foot]) {
             swing.touchDown = schedule.eventTimes[j];
             return swing;
           }
@@ -259,10 +261,10 @@ class HlipPlanningIntegrationTest : public ::testing::Test {
     referenceManager_->setTargetTrajectories(
         TargetTrajectories({time}, {target}, {vector_t::Zero(inputDim)}));
     referenceManager_->preSolverRun(time, time + horizon, state,
-                                    ModeNumber::kStance);
+                                    kBipedModeStance);
     module_->preSolverRun(time, time + horizon, state, *referenceManager_);
     referenceManager_->preSolverRun(time + 0.02, time + 0.02 + horizon, state,
-                                    ModeNumber::kStance);
+                                    kBipedModeStance);
   }
 
   /** Horizontal center of mass of the full model at the generalized coordinates
@@ -361,7 +363,7 @@ TEST_F(HlipPlanningIntegrationTest,
     referenceManager_->setTargetTrajectories(
         TargetTrajectories({time}, {target}, {vector_t::Zero(inputDim)}));
     referenceManager_->preSolverRun(time, time + horizon, state,
-                                    ModeNumber::kStance);
+                                    kBipedModeStance);
 
     const ContactPlannerInput input = referenceManager_->makePlannerInput(
         time, state, referenceManager_->cmdLinvelBaseRtWorldEwrtWorldXy());
@@ -384,7 +386,7 @@ TEST_F(HlipPlanningIntegrationTest,
     EXPECT_NEAR(plan.startTime, time, 1.0e-9)
         << "the active plan is not the one made in this iteration";
     bool swings = false;
-    for (const contact_flag_t& contacts : plan.contacts) {
+    for (const BipedFeetArray<bool>& contacts : plan.contacts) {
       swings = swings || !contacts[0] || !contacts[1];
     }
     EXPECT_TRUE(swings)
@@ -412,7 +414,7 @@ TEST_F(HlipPlanningIntegrationTest, StandsStillAtZeroCommand) {
   ASSERT_TRUE(referenceManager_->hasActivePlan());
 
   const ContactPlan& plan = activePlanOf(*referenceManager_);
-  for (const contact_flag_t& contacts : plan.contacts) {
+  for (const BipedFeetArray<bool>& contacts : plan.contacts) {
     EXPECT_TRUE(contacts[kContactLeftIndex] && contacts[kContactRightIndex])
         << "a resting robot must not step in place";
   }
@@ -474,11 +476,11 @@ TEST_F(HlipPlanningIntegrationTest,
                                event + 1 < schedule.modeSequence.size();
              ++event) {
           if (schedule.eventTimes[event] > now) break;
-          const contact_flag_t before =
-              modeNumber2StanceLeg(schedule.modeSequence[event]);
-          const contact_flag_t after =
-              modeNumber2StanceLeg(schedule.modeSequence[event + 1]);
-          for (size_t foot = 0; foot < kNumContacts; ++foot) {
+          const BipedFeetArray<bool> before =
+              bipedFootContactsOfMode(schedule.modeSequence[event]);
+          const BipedFeetArray<bool> after =
+              bipedFootContactsOfMode(schedule.modeSequence[event + 1]);
+          for (size_t foot = 0; foot < kNumFeet; ++foot) {
             if (before[foot] && !after[foot] &&
                 schedule.eventTimes[event] >= lastLiftOffTime) {
               lastLiftOffTime = schedule.eventTimes[event];
@@ -493,7 +495,7 @@ TEST_F(HlipPlanningIntegrationTest,
   scalar_t time = 0.0;
   const std::function<void()> runCycle = [&]() {
     referenceManager_->preSolverRun(time, time + horizon, state,
-                                    ModeNumber::kStance);
+                                    kBipedModeStance);
     module_->preSolverRun(time, time + horizon, state, *referenceManager_);
     recordExecutedLiftOffs(time);
     time += cyclePeriod;
@@ -515,7 +517,7 @@ TEST_F(HlipPlanningIntegrationTest,
   ASSERT_LT(time, giveUpAt)
       << "the robot never stopped stepping at a zero command";
   referenceManager_->preSolverRun(time, time + horizon, state,
-                                  ModeNumber::kStance);
+                                  kBipedModeStance);
 
   // Positive control: the schedule itself no longer holds a lift-off, so read
   // off it alone the foot is unknown.
@@ -550,7 +552,7 @@ TEST_F(HlipPlanningIntegrationTest, TheGaitAdvancesAtTheCommandedVelocity) {
   const ContactPlanningConfig config = referenceManager_->getConfig();
 
   // Both feet end the horizon ahead of where they started.
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     EXPECT_GT(plan.desPosFeetRtWorldEwrtWorldXyTraj.back()[foot].x(),
               plan.desPosFeetRtWorldEwrtWorldXyTraj.front()[foot].x())
         << "foot " << foot << " must travel forward";
@@ -672,7 +674,7 @@ TEST_F(HlipPlanningIntegrationTest,
   scalar_t time = 0.0;
   for (int cycle = 0; cycle < 5; ++cycle) {
     referenceManager_->preSolverRun(time, time + horizon, state,
-                                    ModeNumber::kStance);
+                                    kBipedModeStance);
     module_->preSolverRun(time, time + horizon, state, *referenceManager_);
     EXPECT_NEAR(referenceManager_->cmdLinvelBaseRtWorldEwrtWorldXy().x(),
                 cmdLinvelBaseRtWorldEwrtHeadingX, 1.0e-9)
@@ -681,7 +683,7 @@ TEST_F(HlipPlanningIntegrationTest,
   }
 
   referenceManager_->preSolverRun(time, time + horizon, state,
-                                  ModeNumber::kStance);
+                                  kBipedModeStance);
   ASSERT_TRUE(referenceManager_->hasActivePlan());
   EXPECT_TRUE(
       firstSwingAfter(referenceManager_->getModeSchedule(), time).has_value())
@@ -821,8 +823,7 @@ TEST_F(HlipPlanningIntegrationTest,
   // plan's end, the plan itself still usable.
   const scalar_t initTime = plan.endTime() - 0.5 * horizon;
   const scalar_t finalTime = initTime + horizon;
-  referenceManager_->preSolverRun(initTime, finalTime, state,
-                                  ModeNumber::kStance);
+  referenceManager_->preSolverRun(initTime, finalTime, state, kBipedModeStance);
   ASSERT_TRUE(referenceManager_->planReferencesUsable())
       << "the plan must still drive the references inside its horizon";
   ASSERT_GT(finalTime, plan.endTime());
@@ -1011,18 +1012,18 @@ TEST_F(HlipPlanningIntegrationTest,
   swingPlanner->setConfig(swingConfig);  // what MpcParameterUpdaterModule does
                                          // when the task file is saved
   referenceManager_->preSolverRun(/*initTime=*/0.04, 0.04 + horizon, state,
-                                  ModeNumber::kStance);
+                                  kBipedModeStance);
   EXPECT_EQ(log.count("swing_time_scale"), 1U)
       << "the next solver run must notice that every swing is now scaled down";
   referenceManager_->preSolverRun(/*initTime=*/0.06, 0.06 + horizon, state,
-                                  ModeNumber::kStance);
+                                  kBipedModeStance);
   EXPECT_EQ(log.count("swing_time_scale"), 1U)
       << "once per change, not once per control cycle";
 
   swingConfig.swingTimeScale = shortestSwing;
   swingPlanner->setConfig(swingConfig);
   referenceManager_->preSolverRun(/*initTime=*/0.08, 0.08 + horizon, state,
-                                  ModeNumber::kStance);
+                                  kBipedModeStance);
   EXPECT_EQ(log.count("swing_time_scale"), 1U)
       << "a swing_time_scale that fits again is not reported";
 }

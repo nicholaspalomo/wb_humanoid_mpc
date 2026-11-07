@@ -35,7 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
@@ -49,15 +49,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** Returns the world-frame wrench of each contact that `state` and `input`
- * carry, in the order of the contacts. */
+/** Returns the world-frame wrench of every contact that `state` and `input`
+ * carry, in contact order (one per modelSettings.contactNames entry). */
 template <typename SCALAR_T>
-feet_array_t<VECTOR6_T<SCALAR_T>> computeWrenchContactsEwrtWorld(
+ContactArray<VECTOR6_T<SCALAR_T>> computeWrenchContactsEwrtWorld(
     const VECTOR_T<SCALAR_T>& state,
     const VECTOR_T<SCALAR_T>& input,
     const WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel) {
-  feet_array_t<VECTOR6_T<SCALAR_T>> wrenchContactsEwrtWorld;
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  ContactArray<VECTOR6_T<SCALAR_T>> wrenchContactsEwrtWorld(
+      mpcRobotModel.modelSettings.contactNames.size());
+  for (size_t i = 0; i < wrenchContactsEwrtWorld.size(); ++i) {
     wrenchContactsEwrtWorld[i] =
         mpcRobotModel.getWrenchContactEwrtWorld(state, input,
                                                 /*contactIndex=*/i);
@@ -93,13 +94,13 @@ VECTOR6_T<SCALAR_T> computeBaseGeneralizedAcceleration(
   pinocchio::nonLinearEffects(model, data, q, qd);
 
   // The base columns [dp_W, w_B] - the head of v - of the LOCAL_WORLD_ALIGNED
-  // Jacobian of each configured sole frame (modelSettings.contactNames), which
-  // take world-frame wrenches. The state-aware accessor is frame-correct for
-  // every input parameterization; for the wrench-space WB model it is the input
-  // wrench itself.
+  // Jacobian of each configured contact frame (modelSettings.contactNames),
+  // which take world-frame wrenches. The state-aware accessor is frame-correct
+  // for every input parameterization; for the wrench-space WB model it is the
+  // input wrench itself.
   VECTOR6_T<SCALAR_T> baseGeneralizedExternalForce =
       VECTOR6_T<SCALAR_T>::Zero();
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < mpcRobotModel.modelSettings.contactNames.size(); ++i) {
     MATRIX_T<SCALAR_T> jacContactRtWorldEwrtWorld =
         MATRIX_T<SCALAR_T>::Zero(kTwistDim, mpcRobotModel.getVelocityDim());
     pinocchio::computeFrameJacobian(
@@ -227,7 +228,7 @@ VECTOR_T<SCALAR_T> computeJointTorques(
 
   // World-frame wrenches for the LOCAL_WORLD_ALIGNED Jacobians of
   // computeJointTorques (see computeBaseGeneralizedAcceleration).
-  const feet_array_t<VECTOR6_T<SCALAR_T>> wrenchContactsEwrtWorld =
+  const ContactArray<VECTOR6_T<SCALAR_T>> wrenchContactsEwrtWorld =
       computeWrenchContactsEwrtWorld<SCALAR_T>(state, input, mpcRobotModel);
   return computeJointTorques<SCALAR_T>(
       q, qd, qdd_joints, wrenchContactsEwrtWorld,

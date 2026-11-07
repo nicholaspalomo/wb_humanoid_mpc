@@ -59,8 +59,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/reference_manager/ArmSwing.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -352,15 +352,15 @@ TEST(ArmSwing, AtlasSwingsItsArmsWithTheShoulderYawAndTheElbowFlexion) {
  * 0.5) LF, then the mirror of it. */
 ModeSchedule walkSchedule() {
   std::vector<scalar_t> eventTimes;
-  std::vector<size_t> modeSequence{static_cast<size_t>(ModeNumber::kRf)};
+  std::vector<size_t> modeSequence{kBipedModeRf};
   for (int k = -3; k <= 8; ++k) {
     const scalar_t start = static_cast<scalar_t>(k);
     for (const scalar_t offset : {0.0, 0.1, 0.5, 0.6}) {
       eventTimes.push_back(start + offset);
     }
-    for (const ModeNumber mode : {ModeNumber::kStance, ModeNumber::kLf,
-                                  ModeNumber::kStance, ModeNumber::kRf}) {
-      modeSequence.push_back(static_cast<size_t>(mode));
+    for (const size_t mode :
+         {kBipedModeStance, kBipedModeLf, kBipedModeStance, kBipedModeRf}) {
+      modeSequence.push_back(mode);
     }
   }
   return ModeSchedule(eventTimes, modeSequence);
@@ -428,7 +428,7 @@ TEST(ArmSwing, InLeftStanceTheLeftArmSwingsForwardAndFlexesAndTheRightOneBack) {
            vector_t::Zero(robot->model->getInputDim())});
       referenceManager->setTargetTrajectories(target);
       referenceManager->preSolverRun(/*initTime=*/1.02, /*finalTime=*/2.02,
-                                     knot, ModeNumber::kStance);
+                                     knot, kBipedModeStance);
       ASSERT_NEAR(referenceManager->getPhaseVariable(time), 0.4, 1.0e-12);
       const vector_t desired =
           referenceManager->getDesiredState(target, knot, time);
@@ -510,7 +510,7 @@ TEST(ArmSwing,
          vector_t::Zero(robot->model->getInputDim())});
     referenceManager->setTargetTrajectories(target);
     referenceManager->preSolverRun(/*initTime=*/1.02, /*finalTime=*/2.02, knot,
-                                   ModeNumber::kStance);
+                                   kBipedModeStance);
     const vector_t desired =
         referenceManager->getDesiredState(target, knot, time);
     // Read off the interpolated target exactly as the reference manager reads
@@ -554,7 +554,7 @@ TEST(ArmSwing, NoneHoldsTheTargetsPosture) {
        vector_t::Zero(robot->model->getInputDim())});
   referenceManager->setTargetTrajectories(target);
   referenceManager->preSolverRun(/*initTime=*/1.02, /*finalTime=*/2.02, knot,
-                                 ModeNumber::kStance);
+                                 kBipedModeStance);
   EXPECT_TRUE(robot->model->getJointAngles(referenceManager->getDesiredState(
                   target, knot, /*time=*/1.42)) ==
               robot->model->getJointAngles(knot));

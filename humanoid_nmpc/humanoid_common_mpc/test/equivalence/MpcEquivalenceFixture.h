@@ -55,10 +55,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_sqp/SqpSolverStatus.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_validation/chart/EulerChart.h"
 #include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
@@ -136,7 +137,7 @@ struct EquivalenceReference {
   scalar_t initTime = 0.0;
   /** The state the reference manager takes as measured. */
   vector_t initState;
-  size_t initMode = ModeNumber::kStance;
+  size_t initMode = kBipedModeStance;
 };
 
 /** One SQP solve from a fixed warm start: `warmStartState` and `warmStartInput`
@@ -335,7 +336,7 @@ class MpcEquivalenceFixture {
    * reset targets' weight compensation), in the effective model's inputs.
    */
   vector_t weightCompensatingInput(const vector_t& state,
-                                   const contact_flag_t& contactFlags) const;
+                                   ContactMask contactFlags) const;
 
   /**
    * The walking reference of the SQP and term tests, from initialState() at 0

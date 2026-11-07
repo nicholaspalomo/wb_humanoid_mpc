@@ -63,8 +63,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactPatchFrame.h"
 #include "humanoid_common_mpc/contact_swing/ContactSwingPlanner.h"
 #include "humanoid_common_mpc/contact_swing/ContactSwingTrajectory.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/multi_contact_plan_config.nproto.h"
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
@@ -86,6 +86,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 namespace ocs2::humanoid {
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 constexpr char kBoxClimbScenario[] =
     "humanoid_nmpc/humanoid_multi_contact/scenarios/config/box_climb.textproto";
@@ -155,7 +157,7 @@ std::shared_ptr<PlannedMotionReferenceManager> managerOf(
       checkedValue(
           GaitSchedule::Create(config.reference, models.modelSettings())),
       std::make_unique<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(),
-                                               kNumContacts),
+                                               kNumFeet),
       models.getPinocchioInterface(), models.getMpcRobotModel(),
       std::move(source), settings));
 }
@@ -168,7 +170,7 @@ std::shared_ptr<PlannedMotionReferenceManager> managerOf(
       checkedValue(
           GaitSchedule::Create(config.reference, models.modelSettings())),
       std::make_unique<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config(),
-                                               kNumContacts),
+                                               kNumFeet),
       models.getPinocchioInterface(), models.getMpcRobotModel(),
       std::move(source), settingsOf(models)));
 }
@@ -190,11 +192,10 @@ TEST(PlannedMotionReferenceManager, theModeScheduleIsThePlansStancesByName) {
       managerOf(*models, swaySource());
   const vector_t initial = manager->plannedMotion().initialState();
   manager->preSolverRun(/*initTime=*/10.0, /*finalTime=*/10.0 + kHorizon,
-                        initial, ModeNumber::kStance);
+                        initial, kBipedModeStance);
   // Both feet, the MPC's last two contacts: the biped's STANCE in the larger
   // set, every other contact inactive.
-  EXPECT_EQ(manager->getModeSchedule().modeAtTime(10.5),
-            static_cast<size_t>(ModeNumber::kStance));
+  EXPECT_EQ(manager->getModeSchedule().modeAtTime(10.5), kBipedModeStance);
   const size_t n = models->modelSettings().contactNames.size();
   for (size_t i = 0; i < n; ++i) {
     const std::string& name = models->modelSettings().contactNames[i];
@@ -210,7 +211,7 @@ TEST(PlannedMotionReferenceManager, theTargetsAreThePlansStatesFromTheStart) {
       managerOf(*models, swaySource());
   const PlannedMotion& motion = manager->plannedMotion();
   manager->preSolverRun(/*initTime=*/10.0, /*finalTime=*/10.0 + kHorizon,
-                        motion.initialState(), ModeNumber::kStance);
+                        motion.initialState(), kBipedModeStance);
   const TargetTrajectories& targets = manager->getTargetTrajectories();
   const MpcRobotModelBase<scalar_t>& model = models->getMpcRobotModel();
   // The plan starts at the first solve: its knot at 0.25 s is the target at
@@ -222,7 +223,7 @@ TEST(PlannedMotionReferenceManager, theTargetsAreThePlansStatesFromTheStart) {
               19.164 / models->getCentroidalModelInfo().robotMass, kTolerance);
   // Past the plan's end it holds the last knot.
   manager->preSolverRun(/*initTime=*/20.0, /*finalTime=*/20.0 + kHorizon,
-                        motion.initialState(), ModeNumber::kStance);
+                        motion.initialState(), kBipedModeStance);
   EXPECT_TRUE(
       model.getDesiredState(manager->getTargetTrajectories(), /*time=*/20.5)
           .isApprox(motion.targets().stateTrajectory.back(), kTolerance));
@@ -247,7 +248,7 @@ TEST(PlannedMotionReferenceManager, theForceReferenceIsThePlansWrenches) {
   for (const std::shared_ptr<PlannedMotionReferenceManager>& manager :
        {planned, shared}) {
     manager->preSolverRun(/*initTime=*/10.0, /*finalTime=*/10.0 + kHorizon,
-                          initial, ModeNumber::kStance);
+                          initial, kBipedModeStance);
   }
   // At 10.3 s the plan is at 0.3 s: the knot of 0.25 s.
   const multi_contact::config::MultiContactPlan::Knot& knot =
@@ -329,25 +330,23 @@ TEST(PlannedMotionReferenceManager, holdsTheClockUntilTheStanceIsReached) {
   // The robot stays where the plan started, 6 cm behind the plan's CoM at the
   // hold point: the clock stops there.
   const vector_t standing = motion.initialState();
-  manager->preSolverRun(/*initTime=*/0.0, kHorizon, standing,
-                        ModeNumber::kStance);
+  manager->preSolverRun(/*initTime=*/0.0, kHorizon, standing, kBipedModeStance);
   manager->preSolverRun(/*initTime=*/0.45, 0.45 + kHorizon, standing,
-                        ModeNumber::kStance);
+                        kBipedModeStance);
   EXPECT_TRUE(manager->clock().isHolding());
   EXPECT_NEAR(manager->planTimeAt(0.45), 0.5 - lead, kTolerance);
   manager->preSolverRun(/*initTime=*/2.0, 2.0 + kHorizon, standing,
-                        ModeNumber::kStance);
+                        kBipedModeStance);
   EXPECT_TRUE(manager->clock().isHolding());
   EXPECT_NEAR(manager->planTimeAt(2.0), 0.5 - lead, kTolerance);
   // The lift-off stays in the horizon, `lead` ahead: never skipped.
-  EXPECT_EQ(manager->getModeSchedule().modeAtTime(2.0),
-            static_cast<size_t>(ModeNumber::kStance));
+  EXPECT_EQ(manager->getModeSchedule().modeAtTime(2.0), kBipedModeStance);
   EXPECT_EQ(manager->getModeSchedule().modeAtTime(2.0 + lead + 0.01),
-            static_cast<size_t>(ModeNumber::kLf));
+            kBipedModeLf);
   // The robot reaches the plan's state at the hold point: released.
   const vector_t reached = model.getDesiredState(motion.targets(), 0.5 - lead);
   manager->preSolverRun(/*initTime=*/2.02, 2.02 + kHorizon, reached,
-                        ModeNumber::kStance);
+                        kBipedModeStance);
   EXPECT_FALSE(manager->clock().isHolding());
   EXPECT_EQ(manager->clock().releasedEvents(), 1U);
   EXPECT_NEAR(manager->planTimeAt(2.02), 0.5 - lead + 0.02, kTolerance);
@@ -367,7 +366,7 @@ TEST(PlannedMotionReferenceManager, swingsAContactFromWhereItLiftedOff) {
   for (const scalar_t time : {0.0, 0.2, 0.4, 0.6}) {
     manager->preSolverRun(time, time + kHorizon,
                           model.getDesiredState(motion.targets(), time),
-                          ModeNumber::kStance);
+                          kBipedModeStance);
     if (manager->isInContact(time, right)) {
       liftoffPosRfootRtWorldEwrtWorld =
           manager->measPosContactsRtWorldEwrtWorld()[right];
@@ -435,7 +434,7 @@ TEST(PlannedMotionReferenceManager, aSwingLongerThanTheArcLimitFollowsThePlan) {
   for (const scalar_t time : {0.0, 0.2, 0.4, 0.6}) {
     manager->preSolverRun(time, time + kHorizon,
                           model.getDesiredState(motion.targets(), time),
-                          ModeNumber::kStance);
+                          kBipedModeStance);
   }
   const ContactSwingPlanner* absl_nullable planner =
       manager->getContactSwingPlanner();
@@ -491,7 +490,7 @@ TEST(PlannedMotionReferenceManager, aSwingLongerThanTheArcLimitFollowsThePlan) {
   for (const scalar_t time : {0.0, 0.2, 0.4, 0.6}) {
     oneArc->preSolverRun(time, time + kHorizon,
                          model.getDesiredState(motion.targets(), time),
-                         ModeNumber::kStance);
+                         kBipedModeStance);
   }
   ASSERT_NE(oneArc->getContactSwingPlanner(), nullptr);
   EXPECT_EQ(oneArc->getContactSwingPlanner()->swings(right).size(), 1U);
@@ -508,7 +507,7 @@ TEST(PlannedMotionReferenceManager, thePatchesAreThePlansPhases) {
       managerOf(*models, swaySource());
   manager->preSolverRun(/*initTime=*/0.0, kHorizon,
                         manager->plannedMotion().initialState(),
-                        ModeNumber::kStance);
+                        kBipedModeStance);
   // The feet rest on the floor's top face: the world-aligned patch at z = 0,
   // exactly the arithmetic of the shipped terms.
   const ContactPatchFrame foot = manager->getContactPatchFrame(

@@ -125,7 +125,8 @@ absl::StatusOr<JsonValue> runSolveBenchmark(
   for (const RobotStateRecord& record : states.records) {
     ASSIGN_OR_RETURN(
         robot::model::RobotState robotState,
-        toRobotState(record, states.jointNames, driver->robotDescription()));
+        toRobotState(record, states.jointNames, driver->robotDescription(),
+                     driver->modelSettings().numContacts()));
     robotStates.push_back(std::move(robotState));
   }
 

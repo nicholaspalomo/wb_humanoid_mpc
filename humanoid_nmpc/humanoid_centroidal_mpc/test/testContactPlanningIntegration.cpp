@@ -61,6 +61,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -72,7 +73,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.h"
 #include "humanoid_mpc_config/contacts_config.nproto.h"
@@ -81,6 +82,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 /**
  * The active plan of `referenceManager`, which the calling test has asserted it
@@ -212,7 +215,7 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
 
   // 1. No plan yet: the gait schedule (double support) is used.
   scalar_t t = 0.0;
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   EXPECT_FALSE(referenceManager->hasActivePlan());
   EXPECT_TRUE(referenceManager->isInStancePhase(t + 0.5));
   EXPECT_FALSE(
@@ -231,7 +234,7 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
       module->getStatistics();
   EXPECT_TRUE(standingStats.lastPlanValid);
   t += 0.02;
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   ASSERT_TRUE(referenceManager->hasActivePlan());
   for (scalar_t tau = t; tau < t + horizon; tau += 0.05) {
     EXPECT_TRUE(referenceManager->isInStancePhase(tau)) << "tau=" << tau;
@@ -245,7 +248,7 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
       TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
   referenceManager->preSolverRun(
       t, t + horizon, state,
-      ModeNumber::kStance);  // swaps in the target trajectories
+      kBipedModeStance);  // swaps in the target trajectories
   module->preSolverRun(t, t + horizon, state, *referenceManager);
   const ContactPlannerModule::Statistics walkingStats = module->getStatistics();
   ASSERT_TRUE(walkingStats.lastPlanValid);
@@ -253,7 +256,7 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
             << walkingStats.lastNumBranchAndBoundNodes
             << " relaxations, optimal=" << walkingStats.lastOptimal;
   t += 0.02;
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   const ModeSchedule& schedule = referenceManager->getModeSchedule();
   LOG(INFO) << "mode schedule: " << schedule;
 
@@ -263,10 +266,10 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
   // passed) disagree by design.
   bool foundSwing = false;
   for (scalar_t tau = t + 0.01; tau < t + horizon; tau += 0.02) {
-    const contact_flag_t contacts = referenceManager->getContactFlags(tau);
+    const ContactMask contacts = referenceManager->getContactFlags(tau);
     ASSERT_TRUE(contacts[0] || contacts[1])
         << "no flight phase allowed at tau=" << tau;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       const std::optional<SwingFootReference> reference =
           referenceManager->getSwingFootReference(foot, tau);
       if (contacts[foot]) {
@@ -300,10 +303,10 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
   // of the upcoming swings: for a foot with a swing in the schedule the pose is
   // where the swing-foot reference ends up at its touch-down.
   {
-    const feet_array_t<TargetContactPose> targets =
+    const BipedFeetArray<TargetContactPose> targets =
         referenceManager->getDesPoseFeetRtWorld();
     bool foundLandingTarget = false;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       const TargetContactPose& target = targets[foot];
       ASSERT_TRUE(target.valid) << "foot " << foot;
       EXPECT_TRUE(target.posFootRtWorldEwrtWorldXy.allFinite());
@@ -344,16 +347,16 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
   size_t swingFoot = 0;
   for (size_t i = 0; i < schedule.eventTimes.size() && firstLiftOff < 0.0;
        ++i) {
-    const contact_flag_t before =
-        modeNumber2StanceLeg(schedule.modeSequence[i]);
-    const contact_flag_t after =
-        modeNumber2StanceLeg(schedule.modeSequence[i + 1]);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    const BipedFeetArray<bool> before =
+        bipedFootContactsOfMode(schedule.modeSequence[i]);
+    const BipedFeetArray<bool> after =
+        bipedFootContactsOfMode(schedule.modeSequence[i + 1]);
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       if (before[foot] && !after[foot] && schedule.eventTimes[i] > t) {
         firstLiftOff = schedule.eventTimes[i];
         swingFoot = foot;
         for (size_t j = i + 1; j < schedule.eventTimes.size(); ++j) {
-          if (modeNumber2StanceLeg(schedule.modeSequence[j + 1])[foot]) {
+          if (bipedFootContactsOfMode(schedule.modeSequence[j + 1])[foot]) {
             firstTouchDown = schedule.eventTimes[j];
             break;
           }
@@ -369,16 +372,16 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
   // The measured mode reports the swing foot in flight; reporting it in contact
   // would (correctly) trigger an early touch-down, see
   // AdaptsScheduleToContactEventsAndDcmError.
-  contact_flag_t inFlight = makeFeetArray(true);
+  BipedFeetArray<bool> inFlight = makeBipedFeetArray(true);
   inFlight[swingFoot] = false;
   referenceManager->preSolverRun(midSwing, midSwing + horizon, state,
-                                 stanceLeg2ModeNumber(inFlight));
+                                 bipedModeOfFootContacts(inFlight));
   EXPECT_GE(referenceManager->commitBoundary(midSwing),
             firstTouchDown - 1.0e-9);
   module->preSolverRun(midSwing, midSwing + horizon, state, *referenceManager);
   ASSERT_TRUE(module->getStatistics().lastPlanValid);
   referenceManager->preSolverRun(midSwing + 0.02, midSwing + 0.02 + horizon,
-                                 state, stanceLeg2ModeNumber(inFlight));
+                                 state, bipedModeOfFootContacts(inFlight));
   EXPECT_FALSE(referenceManager->isInContact(midSwing + 0.02, swingFoot));
   EXPECT_FALSE(referenceManager->isInContact(firstTouchDown - 0.01, swingFoot))
       << "the in-flight swing was cut short";
@@ -393,9 +396,9 @@ namespace {
 
 /** Mode number in which every foot but `swingFoot` is in contact. */
 size_t modeWithSwingFoot(size_t swingFoot) {
-  contact_flag_t flags = makeFeetArray(true);
+  BipedFeetArray<bool> flags = makeBipedFeetArray(true);
   flags[swingFoot] = false;
-  return stanceLeg2ModeNumber(flags);
+  return bipedModeOfFootContacts(flags);
 }
 
 struct Swing {
@@ -408,17 +411,17 @@ struct Swing {
 std::optional<Swing> firstSwingAfter(const ModeSchedule& schedule,
                                      scalar_t after) {
   for (size_t i = 0; i < schedule.eventTimes.size(); ++i) {
-    const contact_flag_t before =
-        modeNumber2StanceLeg(schedule.modeSequence[i]);
-    const contact_flag_t afterFlags =
-        modeNumber2StanceLeg(schedule.modeSequence[i + 1]);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    const BipedFeetArray<bool> before =
+        bipedFootContactsOfMode(schedule.modeSequence[i]);
+    const BipedFeetArray<bool> afterFlags =
+        bipedFootContactsOfMode(schedule.modeSequence[i + 1]);
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       if (before[foot] && !afterFlags[foot] && schedule.eventTimes[i] > after) {
         Swing swing;
         swing.foot = foot;
         swing.liftOff = schedule.eventTimes[i];
         for (size_t j = i + 1; j < schedule.eventTimes.size(); ++j) {
-          if (modeNumber2StanceLeg(schedule.modeSequence[j + 1])[foot]) {
+          if (bipedFootContactsOfMode(schedule.modeSequence[j + 1])[foot]) {
             swing.touchDown = schedule.eventTimes[j];
             return swing;
           }
@@ -479,11 +482,11 @@ TEST_F(ContactPlanningIntegrationTest,
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(
       TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   module->preSolverRun(t, t + horizon, state, *referenceManager);
   ASSERT_TRUE(module->getStatistics().lastPlanValid);
   t += 0.02;
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   ASSERT_TRUE(referenceManager->hasActivePlan());
 
   const std::optional<Swing> swing =
@@ -531,7 +534,7 @@ TEST_F(ContactPlanningIntegrationTest,
   const scalar_t midSwing = 0.5 * (swing->liftOff + swing->touchDown);
   const ModeSchedule beforeEvent = referenceManager->getModeSchedule();
   referenceManager->preSolverRun(midSwing, midSwing + horizon, state,
-                                 ModeNumber::kStance);
+                                 kBipedModeStance);
   EXPECT_EQ(referenceManager->getLastContactEvents()[foot].type,
             ContactEventReport::Type::kNone)
       << "phase resetting must be inactive once it is switched off";
@@ -593,10 +596,10 @@ TEST_F(ContactPlanningIntegrationTest,
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(
       TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
-  solveAt(t, state, ModeNumber::kStance);
+  solveAt(t, state, kBipedModeStance);
   planAt(t, state);
   t += 0.02;
-  solveAt(t, state, ModeNumber::kStance);
+  solveAt(t, state, kBipedModeStance);
   ASSERT_TRUE(referenceManager->hasActivePlan());
   const std::optional<Swing> swing =
       firstSwingAfter(referenceManager->getModeSchedule(), t);
@@ -743,9 +746,8 @@ TEST_F(ContactPlanningIntegrationTest,
   // ---- 2. Early touch-down: contact that persists for the debounce duration
   // switches the foot to contact, in place. ----
   const ModeSchedule beforeEarly = referenceManager->getModeSchedule();
-  solveAt(
-      midSwing, state,
-      ModeNumber::kStance);  // first contact sample: the debounce timer starts
+  solveAt(midSwing, state,
+          kBipedModeStance);  // first contact sample: the debounce timer starts
   EXPECT_EQ(referenceManager->getLastContactEvents()[foot].type,
             ContactEventReport::Type::kNone)
       << "a single contact sample must not end the swing";
@@ -754,7 +756,7 @@ TEST_F(ContactPlanningIntegrationTest,
   const scalar_t landed =
       midSwing + config.phaseResetting.earlyTouchdownMinContactDuration;
   solveAt(landed, state,
-          ModeNumber::kStance);  // contact has persisted: the swing ends now
+          kBipedModeStance);  // contact has persisted: the swing ends now
   EXPECT_EQ(referenceManager->getLastContactEvents()[foot].type,
             ContactEventReport::Type::kEarlyTouchDown);
   EXPECT_TRUE(referenceManager->isInContact(landed + 1.0e-3, foot));
@@ -776,9 +778,9 @@ TEST_F(ContactPlanningIntegrationTest,
     EXPECT_TRUE(found) << "event at " << event << " moved";
   }
   for (scalar_t tau = landed; tau < landed + horizon; tau += 0.02) {
-    const contact_flag_t contacts = referenceManager->getContactFlags(tau);
+    const ContactMask contacts = referenceManager->getContactFlags(tau);
     bool any = false;
-    for (size_t i = 0; i < kNumContacts; ++i) any = any || contacts[i];
+    for (size_t i = 0; i < kNumFeet; ++i) any = any || contacts[i];
     ASSERT_TRUE(any) << "no flight phase at tau=" << tau;
   }
   // The planner input right after the event sees the foot in contact with a
@@ -794,7 +796,7 @@ TEST_F(ContactPlanningIntegrationTest,
   EXPECT_EQ(module->setConfig(noDcm), absl::OkStatus());
   planAt(landed, state);  // re-plan from the new stance state
   scalar_t t2 = landed + 0.02;
-  solveAt(t2, state, ModeNumber::kStance);
+  solveAt(t2, state, kBipedModeStance);
   const std::optional<Swing> next =
       firstSwingAfter(referenceManager->getModeSchedule(), t2);
   if (!next.has_value()) {
@@ -897,9 +899,9 @@ TEST_F(ContactPlanningIntegrationTest,
   EXPECT_FALSE(referenceManager->getSwingTimingLatches()[foot2].active);
   for (scalar_t tau = lastTouchDown; tau < lastTouchDown + horizon;
        tau += 0.02) {
-    const contact_flag_t contacts = referenceManager->getContactFlags(tau);
+    const ContactMask contacts = referenceManager->getContactFlags(tau);
     bool any = false;
-    for (size_t i = 0; i < kNumContacts; ++i) any = any || contacts[i];
+    for (size_t i = 0; i < kNumFeet; ++i) any = any || contacts[i];
     ASSERT_TRUE(any) << "no flight phase at tau=" << tau;
   }
 
@@ -909,7 +911,7 @@ TEST_F(ContactPlanningIntegrationTest,
   // brings the touch-down forward. ----
   planAt(lastTouchDown + 0.01, state);
   const scalar_t t3 = lastTouchDown + 0.03;
-  solveAt(t3, state, ModeNumber::kStance);
+  solveAt(t3, state, kBipedModeStance);
   const std::optional<Swing> third =
       firstSwingAfter(referenceManager->getModeSchedule(), t3);
   if (!third.has_value()) {
@@ -1022,10 +1024,10 @@ TEST_F(ContactPlanningIntegrationTest,
                          {vector_t::Zero(inputDim), vector_t::Zero(inputDim)}));
 
   scalar_t t = 0.0;
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   module->preSolverRun(t, t + horizon, state, *referenceManager);
   ASSERT_TRUE(module->getStatistics().lastPlanValid);
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   ASSERT_TRUE(referenceManager->hasActivePlan());
   const scalar_t planEnd = activePlanOf(*referenceManager).endTime();
 
@@ -1036,7 +1038,7 @@ TEST_F(ContactPlanningIntegrationTest,
       << "the plan must fall short of finalTime for this test to mean anything";
   ASSERT_LT(t + horizon, rampEnd)
       << "the solver horizon must stay inside the ramp";
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
 
   const TargetTrajectories& live = referenceManager->getTargetTrajectories();
   ASSERT_FALSE(live.empty());
@@ -1079,11 +1081,11 @@ TEST_F(ContactPlanningIntegrationTest, AnExpiredPlanStopsDrivingTheReferences) {
       TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
 
   // One planning cycle, so that a plan becomes active.
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   module->preSolverRun(t, t + horizon, state, *referenceManager);
   ASSERT_TRUE(module->getStatistics().lastPlanValid);
   t += 0.02;
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   ASSERT_TRUE(referenceManager->hasActivePlan());
 
   const ContactPlan& plan = activePlanOf(*referenceManager);
@@ -1097,10 +1099,10 @@ TEST_F(ContactPlanningIntegrationTest, AnExpiredPlanStopsDrivingTheReferences) {
   const scalar_t expiredTime = planEnd + 1.0;
   for (scalar_t step = t; step <= expiredTime; step += 0.1) {
     referenceManager->preSolverRun(step, step + horizon, state,
-                                   ModeNumber::kStance);
+                                   kBipedModeStance);
   }
   referenceManager->preSolverRun(expiredTime, expiredTime + horizon, state,
-                                 ModeNumber::kStance);
+                                 kBipedModeStance);
 
   // The plan object is still there - nothing clears it - but it may no longer
   // speak for the robot.
@@ -1109,7 +1111,7 @@ TEST_F(ContactPlanningIntegrationTest, AnExpiredPlanStopsDrivingTheReferences) {
   EXPECT_FALSE(referenceManager->planReferencesUsableAt(expiredTime));
   EXPECT_FALSE(referenceManager->getPlannedDcm(expiredTime).has_value())
       << "an expired plan must not go on aiming the terminal DCM cost";
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     EXPECT_FALSE(
         referenceManager->getSwingFootReference(foot, expiredTime).has_value())
         << "an expired plan must not go on placing foot " << foot;
@@ -1151,13 +1153,13 @@ TEST_F(ContactPlanningIntegrationTest,
       TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
   // The schedule has to cover the long plan: the reference manager keeps the
   // merged schedule over [t - H, t + 2H].
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   module->preSolverRun(t, t + horizon, state, *referenceManager);
   ASSERT_TRUE(module->getStatistics().lastPlanValid);
   t += 0.02;
   referenceManager->preSolverRun(
       t, t + 1.4, state,
-      ModeNumber::kStance);  // a 1.4 s horizon keeps [t - 1.4, t + 2.8]
+      kBipedModeStance);  // a 1.4 s horizon keeps [t - 1.4, t + 2.8]
   ASSERT_TRUE(referenceManager->hasActivePlan());
   const ModeSchedule& schedule = referenceManager->getModeSchedule();
 
@@ -1165,11 +1167,11 @@ TEST_F(ContactPlanningIntegrationTest,
   std::optional<Swing> first;
   std::optional<Swing> second;
   for (size_t i = 0; i + 1 < schedule.modeSequence.size(); ++i) {
-    const contact_flag_t before =
-        modeNumber2StanceLeg(schedule.modeSequence[i]);
-    const contact_flag_t after =
-        modeNumber2StanceLeg(schedule.modeSequence[i + 1]);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    const BipedFeetArray<bool> before =
+        bipedFootContactsOfMode(schedule.modeSequence[i]);
+    const BipedFeetArray<bool> after =
+        bipedFootContactsOfMode(schedule.modeSequence[i + 1]);
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       if (!(before[foot] && !after[foot]) || schedule.eventTimes[i] <= t) {
         continue;
       }
@@ -1177,7 +1179,7 @@ TEST_F(ContactPlanningIntegrationTest,
       swing.foot = foot;
       swing.liftOff = schedule.eventTimes[i];
       for (size_t j = i + 1; j < schedule.eventTimes.size(); ++j) {
-        if (modeNumber2StanceLeg(schedule.modeSequence[j + 1])[foot]) {
+        if (bipedFootContactsOfMode(schedule.modeSequence[j + 1])[foot]) {
           swing.touchDown = schedule.eventTimes[j];
           break;
         }
@@ -1355,7 +1357,8 @@ TEST_F(ContactPlanningIntegrationTest,
       deriveContactPlanningModelParameters(
           pinocchio, interface_->getEffectiveMpcRobotModel(),
           interface_->getInitialState(),
-          interface_->modelSettings().contactParentJointNames, ground);
+          interface_->modelSettings().contactParentJointNames,
+          interface_->modelSettings().numContacts(), ground);
   EXPECT_GT(derived.nomPosComRtFeetmeanEwrtWorldZ, 0.6);
   EXPECT_LT(derived.nomPosComRtFeetmeanEwrtWorldZ, 1.2);
   ContactPlanningConfig explicitHeight = reloaded;
@@ -1375,7 +1378,7 @@ TEST_F(ContactPlanningIntegrationTest,
       << "unset means from the model";
   EXPECT_TRUE(modelHeight.validateStatus().ok())
       << modelHeight.validateStatus();
-  EXPECT_EQ(derived.hipYawJoints.size(), kNumContacts);
+  EXPECT_EQ(derived.hipYawJoints.size(), kNumFeet);
   EXPECT_EQ(derived.hipYawJoints[0], "l_leg_hpz");
   EXPECT_EQ(derived.hipYawJoints[1], "r_leg_hpz");
 }
@@ -1546,7 +1549,7 @@ TEST_F(ContactPlanningIntegrationTest,
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(
       TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
 
   const std::function<size_t()> plansSoFar = [&]() {
     return module->getStatistics().numPlans;
@@ -1569,7 +1572,7 @@ TEST_F(ContactPlanningIntegrationTest,
     EXPECT_EQ(module->setConfig(background), absl::OkStatus());
     const size_t beforeBackground = plansSoFar();
     t += 0.02;
-    referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+    referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
     module->preSolverRun(t, t + horizon, state, *referenceManager);
     EXPECT_TRUE(waitForPlan(beforeBackground))
         << "cycle " << cycle
@@ -1591,7 +1594,7 @@ TEST_F(ContactPlanningIntegrationTest,
     // Synchronous planning works right away, once per pre-solve hook.
     const size_t beforeSynchronous = plansSoFar();
     t += 0.02;
-    referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+    referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
     module->preSolverRun(t, t + horizon, state, *referenceManager);
     EXPECT_EQ(plansSoFar(), beforeSynchronous + 1)
         << "cycle " << cycle << ": no synchronous plan";
@@ -1691,7 +1694,7 @@ TEST_F(ContactPlanningIntegrationTest,
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(
       turningTarget(t, cmdRateYawBaseRtWorld));
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   ContactPlannerInput input =
       referenceManager->makePlannerInput(t, state, vector2_t::Zero());
   EXPECT_NEAR(input.cmdRateYawBaseRtWorld, cmdRateYawBaseRtWorld, 1.0e-9);
@@ -1707,7 +1710,7 @@ TEST_F(ContactPlanningIntegrationTest,
   plan.committedUntil = t + config.planner.commitTime;
   plan.yawHeadingRtWorld = input.initYawHeadingRtWorld;
   const int numNodes = config.planner.numNodes;
-  plan.contacts.assign(numNodes, makeFeetArray(true));
+  plan.contacts.assign(numNodes, makeBipedFeetArray(true));
   plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(numNodes + 1,
                                                input.posFeetRtWorldEwrtWorldXy);
   plan.posComRtWorldEwrtWorldXyTraj.assign(numNodes + 1,
@@ -1718,7 +1721,7 @@ TEST_F(ContactPlanningIntegrationTest,
   plan.headingModelYawTraj.resize(numNodes + 1);
   plan.headingModelYawRateTraj.assign(numNodes + 1, plannedRateYawBaseRtWorld);
   plan.desEulerzyxFeetRtWorldYawTraj.assign(
-      numNodes + 1, makeFeetArray(input.initYawHeadingRtWorld));
+      numNodes + 1, makeBipedFeetArray(input.initYawHeadingRtWorld));
   for (int k = 0; k <= numNodes; ++k) {
     plan.headingModelYawTraj[k] =
         input.initYawHeadingRtWorld + plannedRateYawBaseRtWorld *
@@ -1732,7 +1735,7 @@ TEST_F(ContactPlanningIntegrationTest,
   t += 0.02;
   referenceManager->setTargetTrajectories(
       turningTarget(t, cmdRateYawBaseRtWorld));
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   ASSERT_TRUE(referenceManager->hasActivePlan());
   EXPECT_NEAR(computeStoredRefRateYawBaseRtWorld(t), plannedRateYawBaseRtWorld,
               1.0e-6)
@@ -1744,7 +1747,7 @@ TEST_F(ContactPlanningIntegrationTest,
   // 3. No fresh target this cycle: the stored one is the rewritten one, and the
   // captured command has to stand.
   t += 0.02;
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   ASSERT_TRUE(referenceManager->hasActivePlan());
   EXPECT_NEAR(computeStoredRefRateYawBaseRtWorld(t), plannedRateYawBaseRtWorld,
               1.0e-6);
@@ -1757,7 +1760,7 @@ TEST_F(ContactPlanningIntegrationTest,
   t += 0.02;
   referenceManager->setTargetTrajectories(
       turningTarget(t, 2.0 * cmdRateYawBaseRtWorld));
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   input = referenceManager->makePlannerInput(t, state, vector2_t::Zero());
   EXPECT_NEAR(input.cmdRateYawBaseRtWorld, 2.0 * cmdRateYawBaseRtWorld, 1.0e-9);
   EXPECT_NEAR(computeStoredRefRateYawBaseRtWorld(t), plannedRateYawBaseRtWorld,
@@ -1773,11 +1776,11 @@ std::pair<std::optional<Swing>, std::optional<Swing>> twoSwingsOfOneFoot(
   std::optional<Swing> first;
   std::optional<Swing> second;
   for (size_t i = 0; i + 1 < schedule.modeSequence.size(); ++i) {
-    const contact_flag_t before =
-        modeNumber2StanceLeg(schedule.modeSequence[i]);
-    const contact_flag_t afterFlags =
-        modeNumber2StanceLeg(schedule.modeSequence[i + 1]);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    const BipedFeetArray<bool> before =
+        bipedFootContactsOfMode(schedule.modeSequence[i]);
+    const BipedFeetArray<bool> afterFlags =
+        bipedFootContactsOfMode(schedule.modeSequence[i + 1]);
+    for (size_t foot = 0; foot < kNumFeet; ++foot) {
       if (!(before[foot] && !afterFlags[foot]) ||
           schedule.eventTimes[i] <= after) {
         continue;
@@ -1786,7 +1789,7 @@ std::pair<std::optional<Swing>, std::optional<Swing>> twoSwingsOfOneFoot(
       swing.foot = foot;
       swing.liftOff = schedule.eventTimes[i];
       for (size_t j = i + 1; j < schedule.eventTimes.size(); ++j) {
-        if (modeNumber2StanceLeg(schedule.modeSequence[j + 1])[foot]) {
+        if (bipedFootContactsOfMode(schedule.modeSequence[j + 1])[foot]) {
           swing.touchDown = schedule.eventTimes[j];
           break;
         }
@@ -1842,13 +1845,13 @@ TEST_F(ContactPlanningIntegrationTest,
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(
       TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   module->preSolverRun(t, t + horizon, state, *referenceManager);
   ASSERT_TRUE(module->getStatistics().lastPlanValid);
   t += 0.02;
   referenceManager->preSolverRun(
       t, t + 1.4, state,
-      ModeNumber::kStance);  // a 1.4 s horizon keeps [t - 1.4, t + 2.8]
+      kBipedModeStance);  // a 1.4 s horizon keeps [t - 1.4, t + 2.8]
   ASSERT_TRUE(referenceManager->hasActivePlan());
   const std::pair<std::optional<Swing>, std::optional<Swing>> swings =
       twoSwingsOfOneFoot(referenceManager->getModeSchedule(), t);
@@ -1953,11 +1956,11 @@ TEST_F(ContactPlanningIntegrationTest,
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(
       TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   module->preSolverRun(t, t + horizon, state, *referenceManager);
   ASSERT_TRUE(module->getStatistics().lastPlanValid);
   t += 0.02;
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   ASSERT_TRUE(referenceManager->hasActivePlan());
   const std::optional<Swing> swing =
       firstSwingAfter(referenceManager->getModeSchedule(), t);
@@ -2203,7 +2206,7 @@ TEST_F(ContactPlanningIntegrationTest,
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(
       TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
 
   const std::function<size_t()> plansSoFar = [&]() {
     return module->getStatistics().numPlans;
@@ -2235,7 +2238,7 @@ TEST_F(ContactPlanningIntegrationTest,
 
   // The cycle that activates the plan posts the next snapshot.
   t += 0.02;
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   EXPECT_FALSE(referenceManager->hasPendingPlan());
   ASSERT_TRUE(referenceManager->hasActivePlan());
   const size_t activated = plansSoFar();
@@ -2275,11 +2278,11 @@ TEST_F(ContactPlanningIntegrationTest, StalePlanIsDroppedAndCounted) {
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(
       TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   module->preSolverRun(t, t + horizon, state, *referenceManager);
   ASSERT_TRUE(module->getStatistics().lastPlanValid);
   t += 0.02;
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   ASSERT_TRUE(referenceManager->hasActivePlan());
   EXPECT_EQ(module->getStatistics().numStalePlansDropped, 0u);
   EXPECT_EQ(module->getStatistics().numInconsistentPlansDropped, 0u);
@@ -2293,7 +2296,7 @@ TEST_F(ContactPlanningIntegrationTest, StalePlanIsDroppedAndCounted) {
   referenceManager->setContactPlan(stale);
   EXPECT_TRUE(referenceManager->hasPendingPlan());
   t += 0.02;
-  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::kStance);
+  referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
   EXPECT_FALSE(referenceManager->hasPendingPlan());
   EXPECT_EQ(module->getStatistics().numStalePlansDropped, 1u);
   EXPECT_NEAR(activePlanOf(*referenceManager).startTime, activeStart, 1.0e-12)

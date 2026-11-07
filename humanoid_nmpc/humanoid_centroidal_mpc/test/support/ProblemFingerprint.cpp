@@ -50,7 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid::test {
@@ -109,9 +109,8 @@ void setWalkingReferences(CentroidalMpcInterface& interface) {
       interface.getEffectiveMpcRobotModel().getInputDim());
   const ModeSchedule schedule(
       {0.2, 0.55, 0.65, 1.0, 1.1, 1.45},
-      {ModeNumber::kStance, ModeNumber::kLf, ModeNumber::kStance,
-       ModeNumber::kRf, ModeNumber::kStance, ModeNumber::kLf,
-       ModeNumber::kStance});
+      {kBipedModeStance, kBipedModeLf, kBipedModeStance, kBipedModeRf,
+       kBipedModeStance, kBipedModeLf, kBipedModeStance});
   vector_t xStart = x0;
   xStart(0) = 0.4;  // forward normalized momentum: a walking command
   vector_t xEnd = xStart;
@@ -123,7 +122,7 @@ void setWalkingReferences(CentroidalMpcInterface& interface) {
   referenceManager->setTargetTrajectories(
       TargetTrajectories({0.0, 2.0}, {xStart, xEnd}, {u0, u0}));
   referenceManager->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.5, x0,
-                                 ModeNumber::kStance);
+                                 kBipedModeStance);
   interface.getOptimalControlProblemRef().targetTrajectoriesPtr =
       &referenceManager->getTargetTrajectories();
 }

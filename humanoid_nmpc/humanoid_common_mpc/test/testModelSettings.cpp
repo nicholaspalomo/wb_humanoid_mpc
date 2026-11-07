@@ -46,9 +46,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StateLayout.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 
 /**
@@ -261,8 +261,13 @@ TEST(GaitScheduleCreate, LoadsTheReferenceFileOrReportsWhyNot) {
   const absl::StatusOr<std::shared_ptr<GaitSchedule>> schedule =
       GaitSchedule::Create(reference, *settings);
   ASSERT_TRUE(schedule.ok()) << schedule.status();
+  // The two-joint model lists no contact, so its STANCE is the empty mask of no
+  // contact (gaitModeLayoutOf()).
+  EXPECT_EQ((*schedule)->modeLayout().numContacts, 0U);
+  const size_t stance = gaitModeLayoutOf(*settings).stanceMode;
+  EXPECT_EQ(stance, 0U);
   EXPECT_EQ((*schedule)->getCurrentModeSchedule().modeSequence,
-            (std::vector<size_t>{ModeNumber::kStance, ModeNumber::kStance}));
+            (std::vector<size_t>{stance, stance}));
 
   const std::string noTemplate =
       writeFile("reference_without_template.textproto",
@@ -288,7 +293,7 @@ TEST(ProceduralMpcMotionManagerGaits,
   // The motion manager switches gaits by name as the commanded velocity
   // changes; a gait file without one of them used to load and then fail the
   // solve the first time the command asked for it.
-  const ModeSequenceTemplate stance({0.0, 1.0}, {ModeNumber::kStance});
+  const ModeSequenceTemplate stance({0.0, 1.0}, {kBipedModeStance});
   ProceduralMpcMotionManager::GaitModeStateConfig stanceState{};
   stanceState.gaitCommand = "stance";
   ProceduralMpcMotionManager::GaitModeStateConfig walkState{};

@@ -67,8 +67,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
 #include "humanoid_common_mpc/parameter_update/ReferenceManagerApplier.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
@@ -103,6 +103,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 namespace ocs2::humanoid {
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 constexpr scalar_t kHorizon = 1.0;
 constexpr scalar_t kCyclePeriod = 0.01;
@@ -180,7 +182,7 @@ std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlannerOf(
   EXPECT_TRUE(config.ok()) << config.status();
   return std::make_unique<SwingTrajectoryPlanner>(
       config.ok() ? *std::move(config) : SwingTrajectoryPlanner::Config(),
-      kNumContacts);
+      kNumFeet);
 }
 
 /** A plan that stands on both feet for `numNodes` nodes of `dt` from
@@ -191,9 +193,9 @@ ContactPlan standingPlan(scalar_t startTime, scalar_t dt, size_t numNodes) {
   plan.startTime = startTime;
   plan.dt = dt;
   plan.committedUntil = startTime + dt;
-  plan.contacts.assign(numNodes, makeFeetArray(true));
+  plan.contacts.assign(numNodes, makeBipedFeetArray(true));
   plan.desPosFeetRtWorldEwrtWorldXyTraj.assign(
-      numNodes + 1, makeFeetArray(vector2_t(vector2_t::Zero())));
+      numNodes + 1, makeBipedFeetArray(vector2_t(vector2_t::Zero())));
   plan.posComRtWorldEwrtWorldXyTraj.assign(numNodes + 1, vector2_t::Zero());
   plan.linvelComRtWorldEwrtWorldXyTraj.assign(numNodes + 1, vector2_t::Zero());
   plan.posZmpRtWorldEwrtWorldXyTraj.assign(numNodes, vector2_t::Zero());
@@ -295,7 +297,7 @@ class WholeBodyReferences {
   void cycle() {
     const scalar_t time = kCyclePeriod * static_cast<scalar_t>(numCycles_++);
     referenceManager_->preSolverRun(time, time + kHorizon, initialState_,
-                                    ModeNumber::kStance);
+                                    kBipedModeStance);
     motionManager_->preSolverRun(time, time + kHorizon, initialState_,
                                  *referenceManager_);
     if (parameterUpdater_ != nullptr) {
@@ -618,7 +620,7 @@ TEST(BaseHeightFollowsTerrainTest,
   for (int i = 0; i < kSettlingCycles; ++i, ++cycle) {
     const scalar_t time = kCyclePeriod * static_cast<scalar_t>(cycle);
     referenceManager.preSolverRun(time, time + kHorizon, state,
-                                  ModeNumber::kStance);
+                                  kBipedModeStance);
     // Positive control: the plan is in use and its target is the densified one
     // - a knot per plan node, then the operator's own knot past the plan - so
     // the tail below is read from the operator's copy.
@@ -642,7 +644,7 @@ TEST(BaseHeightFollowsTerrainTest,
   for (int i = 0; i < kSettlingCycles; ++i, ++cycle) {
     const scalar_t time = kCyclePeriod * static_cast<scalar_t>(cycle);
     referenceManager.preSolverRun(time, time + kHorizon, state,
-                                  ModeNumber::kStance);
+                                  kBipedModeStance);
     ASSERT_TRUE(referenceManager.planReferencesUsableAt(time));
     ASSERT_EQ(referenceManager.getTargetTrajectories().timeTrajectory.back(),
               kPublishedUntil);

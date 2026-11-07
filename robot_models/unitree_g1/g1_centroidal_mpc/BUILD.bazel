@@ -30,6 +30,7 @@ cc_binary(
     ],
     deps = [
         "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//humanoid_nmpc/humanoid_centroidal_mpc",
         "//lib/ocs2:ocs2_pinocchio_interface",

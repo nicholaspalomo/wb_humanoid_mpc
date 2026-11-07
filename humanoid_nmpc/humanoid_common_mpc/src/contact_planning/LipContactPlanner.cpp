@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/TwoContactCount.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
@@ -122,6 +123,8 @@ absl::StatusOr<std::unique_ptr<LipContactPlanner>> LipContactPlanner::Create(
   // the terms and stages need; the term factory reports anything it still
   // cannot assemble.
   RETURN_IF_ERROR(config.validateStatus());
+  RETURN_IF_ERROR(checkTwoContactCount(/*component=*/"LipContactPlanner",
+                                       config.shared.numContacts));
   ASSIGN_OR_RETURN(ContactPlanningProblem problem,
                    ContactPlanningTermFactory::buildProblemStatus(config));
   ASSIGN_OR_RETURN(TermCollection<SearchStage> stages,
@@ -153,6 +156,8 @@ void LipContactPlanner::rebuildSolver() {
 
 absl::Status LipContactPlanner::setConfig(const ContactPlanningConfig& config) {
   RETURN_IF_ERROR(config.validateStatus());
+  RETURN_IF_ERROR(checkTwoContactCount(/*component=*/"LipContactPlanner",
+                                       config.shared.numContacts));
   ASSIGN_OR_RETURN(ContactPlanningProblem problem,
                    ContactPlanningTermFactory::buildProblemStatus(config));
   ASSIGN_OR_RETURN(TermCollection<SearchStage> stages,
@@ -260,7 +265,7 @@ MiqpAssignment LipContactPlanner::initialAssignment(
   const int numCommitted =
       std::min(static_cast<int>(input.committedContacts.size()), N);
   for (int k = 0; k < numCommitted; ++k) {
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
       assignment[static_cast<size_t>(contactBinaryIndex(k, foot))] =
           input.committedContacts[static_cast<size_t>(k)][foot] ? 1 : 0;
     }
@@ -345,7 +350,8 @@ HeadingNominal LipContactPlanner::defaultNominal(
           previousPlan_->posComRtWorldEwrtWorldXyTraj[source];
       nominal.nomPosFeetRtWorldEwrtWorldXyTraj[i] =
           previousPlan_->desPosFeetRtWorldEwrtWorldXyTraj[source];
-      for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount);
+           ++foot) {
         nominal.nomEulerzyxFeetRtWorldYawTraj[i][foot] =
             previousYaws
                 ? previousPlan_->desEulerzyxFeetRtWorldYawTraj[source][foot] +

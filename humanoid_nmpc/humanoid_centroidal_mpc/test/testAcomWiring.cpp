@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -96,6 +97,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 namespace ocs2::humanoid {
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 // The base pose in the tuning layout of the state weights Q,
 // [mnorm_cmom_com_rt_world_ewrt_world(6), pos_base_rt_world_ewrt_world(3),
@@ -522,7 +525,8 @@ class HeadingModelReloadTest : public ::testing::Test {
     PinocchioInterface pinocchioForDerivation(*pinocchioInterface_);
     deriveContactPlanningModelParameters(
         pinocchioForDerivation, *robotModel_, initialState_,
-        modelSettings_->contactParentJointNames, ground)
+        modelSettings_->contactParentJointNames, modelSettings_->numContacts(),
+        ground)
         .applyTo(headingOn_);
     ASSERT_TRUE(headingOn_.validateStatus().ok())
         << headingOn_.validateStatus();
@@ -541,7 +545,7 @@ class HeadingModelReloadTest : public ::testing::Test {
         std::make_unique<SwingTrajectoryPlanner>(
             checkedValue(swingTrajectorySettingsFromConfig(
                 atlas_.task.swing_trajectory_config)),
-            kNumContacts);
+            kNumFeet);
     absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> manager =
         ContactPlanningReferenceManager::Create(
             checkedValue(GaitSchedule::Create(atlas_.reference, *modelSettings_,

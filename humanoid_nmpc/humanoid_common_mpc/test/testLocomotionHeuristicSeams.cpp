@@ -116,8 +116,8 @@ std::vector<vector2_t> computePosFeetmeanRtBaseEwrtHeadingXyTraj(
     scalar_t yawBaseRtWorld,
     int numSteps,
     Anchor anchor) {
-  feet_array_t<vector2_t> posFeetRtWorldEwrtWorldXy =
-      makeFeetArray(vector2_t(vector2_t::Zero()));
+  BipedFeetArray<vector2_t> posFeetRtWorldEwrtWorldXy =
+      makeBipedFeetArray(vector2_t(vector2_t::Zero()));
   const vector2_t leftDirHeadingEwrtWorldXy(-std::sin(yawBaseRtWorld),
                                             std::cos(yawBaseRtWorld));
   posFeetRtWorldEwrtWorldXy[kContactLeftIndex] =

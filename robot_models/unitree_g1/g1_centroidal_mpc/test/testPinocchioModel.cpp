@@ -34,7 +34,6 @@ Contact:  manuel.galliker@1x.tech
 
 #include "pinocchio/fwd.hpp"
 
-#include <array>
 #include <chrono>
 #include <cstddef>
 #include <exception>
@@ -64,6 +63,8 @@ Contact:  manuel.galliker@1x.tech
 #include "pinocchio/multibody/fwd.hpp"
 #include "pinocchio/spatial/fwd.hpp"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -93,7 +94,7 @@ struct InverseDynamicsSamples {
   std::vector<vector_t> q;
   std::vector<vector_t> qd;
   std::vector<vector_t> qddJoints;
-  std::vector<std::array<VECTOR6_T<scalar_t>, 2>> wrenchFeetEwrtWorld;
+  std::vector<ContactArray<VECTOR6_T<scalar_t>>> wrenchFeetEwrtWorld;
 };
 
 /** `size` standard-normal samples. */
@@ -127,7 +128,8 @@ InverseDynamicsSamples randomInverseDynamicsSamples(
     samples.q.push_back(std::move(q));
     samples.qd.push_back(randomNormal(nv, generator));
     samples.qddJoints.push_back(randomNormal(numJoints, generator));
-    std::array<VECTOR6_T<scalar_t>, 2> wrenchFeetEwrtWorld;
+    ContactArray<VECTOR6_T<scalar_t>> wrenchFeetEwrtWorld(
+        static_cast<size_t>(kBipedFootCount));
     for (VECTOR6_T<scalar_t>& wrenchFootEwrtWorld : wrenchFeetEwrtWorld) {
       wrenchFootEwrtWorld = randomNormal(/*size=*/6, generator);
     }
@@ -147,8 +149,8 @@ vector_t rneaJointTorques(
     const vector_t& q,
     const vector_t& qd,
     const vector_t& qddJoints,
-    const std::array<VECTOR6_T<scalar_t>, 2>& wrenchFeetEwrtWorld,
-    const feet_array_t<pinocchio::FrameIndex>& soleFrames,
+    const ContactArray<VECTOR6_T<scalar_t>>& wrenchFeetEwrtWorld,
+    const ContactArray<pinocchio::FrameIndex>& soleFrames,
     PinocchioInterface& pinocchioInterface) {
   const pinocchio::Model& model = pinocchioInterface.getModel();
   pinocchio::Data& data = pinocchioInterface.getData();
@@ -186,7 +188,7 @@ vector_t rneaJointTorques(
  * inputs. */
 void benchmarkInverseDynamics(
     PinocchioInterface& pinocchioInterface,
-    const feet_array_t<pinocchio::FrameIndex>& soleFrames) {
+    const ContactArray<pinocchio::FrameIndex>& soleFrames) {
   constexpr int kNumIterations = 10000;
   constexpr int kBatch = 10;
   const InverseDynamicsSamples samples =
@@ -244,7 +246,7 @@ void benchmarkInverseDynamics(
  * difference for a few random inputs. */
 void compareInverseDynamics(
     PinocchioInterface& pinocchioInterface,
-    const feet_array_t<pinocchio::FrameIndex>& soleFrames) {
+    const ContactArray<pinocchio::FrameIndex>& soleFrames) {
   constexpr int kNumIterations = 10;
   const InverseDynamicsSamples samples =
       randomInverseDynamicsSamples(pinocchioInterface, kNumIterations);
@@ -459,9 +461,13 @@ int printModels() {
     LOG(ERROR) << *taskFile << ": " << frames;
     return 1;
   }
-  const feet_array_t<pinocchio::FrameIndex> soleFrames = {
-      pinocchioInterface.getModel().getFrameId(modelSettings->contactNames[0]),
-      pinocchioInterface.getModel().getFrameId(modelSettings->contactNames[1])};
+  // The G1 is a biped: its two sole frames are its contacts.
+  ContactArray<pinocchio::FrameIndex> soleFrames(
+      static_cast<size_t>(kBipedFootCount));
+  soleFrames[kContactLeftIndex] =
+      pinocchioInterface.getModel().getFrameId(modelSettings->contactNames[0]);
+  soleFrames[kContactRightIndex] =
+      pinocchioInterface.getModel().getFrameId(modelSettings->contactNames[1]);
   benchmarkInverseDynamics(pinocchioInterface, soleFrames);
   compareInverseDynamics(pinocchioInterface, soleFrames);
   return 0;

@@ -78,8 +78,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
 #include "humanoid_mpc_ipc/MpcServer.h"
@@ -150,7 +150,7 @@ void insertSteps(WBMpcInterface& interface) {
       ->getGaitSchedule()
       ->insertModeSequenceTemplate(
           ModeSequenceTemplate({0.0, 0.35, 0.7},
-                               {ModeNumber::kLf, ModeNumber::kStance}),
+                               {kBipedModeLf, kBipedModeStance}),
           /*startTime=*/kStepStartTime, /*finalTime=*/2.0);
 }
 
@@ -162,7 +162,7 @@ SystemObservation standingObservation(const WBMpcInterface& interface) {
   observation.state = interface.getInitialState();
   observation.input = vector_t::Zero(
       static_cast<Eigen::Index>(interface.getMpcRobotModel().getInputDim()));
-  observation.mode = ModeNumber::kStance;
+  observation.mode = kBipedModeStance;
   return observation;
 }
 

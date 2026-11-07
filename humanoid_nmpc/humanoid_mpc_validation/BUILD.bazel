@@ -72,6 +72,7 @@ cc_library(
         "@abseil-cpp//absl/base:no_destructor",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -360,6 +361,7 @@ cc_test(
     deps = [
         ":closed_loop_metrics",
         ":validation_io",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/status",
@@ -484,6 +486,7 @@ cc_test(
     deps = [
         ":recorded_robot_states",
         ":validation_io",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
         "//robot_runtime/robot_core",
         "//robot_runtime/robot_model",
         "@abseil-cpp//absl/base:nullability",

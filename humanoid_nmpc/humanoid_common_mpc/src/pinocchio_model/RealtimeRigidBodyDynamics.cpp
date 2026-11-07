@@ -57,7 +57,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/joint/fwd.hpp"
 #include "pinocchio/multibody/joint/joint-free-flyer.hpp"  // IWYU pragma: keep
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -120,7 +120,7 @@ absl::Status checkSameRootPlacement(const PinocchioInterface::Model& mpcModel,
 absl::StatusOr<std::unique_ptr<RealtimeRigidBodyDynamics>>
 RealtimeRigidBodyDynamics::Create(
     const PinocchioInterface::Model& mpcModel,
-    const feet_array_t<pinocchio::FrameIndex>& contactFrames) {
+    const ContactArray<pinocchio::FrameIndex>& contactFrames) {
   if (mpcModel.njoints <= static_cast<int>(kRootJoint) ||
       mpcModel.parents[kRootJoint] != 0 ||
       mpcModel.joints[kRootJoint].shortname() != "JointModelComposite" ||
@@ -134,7 +134,7 @@ RealtimeRigidBodyDynamics::Create(
                      ", not the MPC models' Composite(Translation, Spherical) "
                      "on the universe"));
   }
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  for (size_t contact = 0; contact < contactFrames.size(); ++contact) {
     if (contactFrames[contact] >= mpcModel.frames.size()) {
       return absl::NotFoundError(absl::StrCat(
           "[RealtimeRigidBodyDynamics] contact ", contact,
@@ -158,19 +158,18 @@ RealtimeRigidBodyDynamics::Create(
 
 RealtimeRigidBodyDynamics::RealtimeRigidBodyDynamics(
     const PinocchioInterface::Model& twin,
-    const feet_array_t<pinocchio::FrameIndex>& contactFrames)
+    const ContactArray<pinocchio::FrameIndex>& contactFrames)
     : model_(twin),
       data_(model_),
       contactFrames_(contactFrames),
       configuration_(pinocchio::neutral(model_)),
       generalizedVelocity_(vector_t::Zero(model_.nv)),
       generalizedAcceleration_(vector_t::Zero(model_.nv)),
-      jacFootRtWorldEwrtWorld_(matrix_t::Zero(kTwistDim, model_.nv)),
+      jacContactRtWorldEwrtWorld_(matrix_t::Zero(kTwistDim, model_.nv)),
       generalizedContactForce_(vector_t::Zero(model_.nv)),
       jointTorques_(vector_t::Zero(model_.nv - kRootVelocityDim)),
-      gravityJointTorques_(vector_t::Zero(model_.nv - kRootVelocityDim)) {
-  rotmatContactsRtWorld_.fill(matrix3_t::Identity());
-}
+      gravityJointTorques_(vector_t::Zero(model_.nv - kRootVelocityDim)),
+      rotmatContactsRtWorld_(contactFrames.size(), matrix3_t::Identity()) {}
 
 matrix3_t RealtimeRigidBodyDynamics::rotmatBaseRtWorld() const {
   return quaternionRotationMatrix<scalar_t>(quaternion_coeffs_t<scalar_t>(
@@ -188,19 +187,20 @@ void RealtimeRigidBodyDynamics::setState(const Eigen::Ref<const vector_t>& q,
 }
 
 void RealtimeRigidBodyDynamics::computeGeneralizedContactForce(
-    const feet_array_t<vector6_t>& wrenchFeetEwrtWorld) {
-  // The LOCAL_WORLD_ALIGNED Jacobians take the world-frame wrenches at the sole
-  // origins. Their joint columns are those of the MPC model; only the base
-  // columns follow the twin's base velocity.
+    const ContactArray<vector6_t>& wrenchContactsEwrtWorld) {
+  // The LOCAL_WORLD_ALIGNED Jacobians take the world-frame wrenches at the
+  // contact frames' origins. Their joint columns are those of the MPC model;
+  // only the base columns follow the twin's base velocity.
   pinocchio::computeJointJacobians(model_, data_, configuration_);
   generalizedContactForce_.setZero();
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
-    jacFootRtWorldEwrtWorld_.setZero();
+  for (size_t contact = 0; contact < contactFrames_.size(); ++contact) {
+    jacContactRtWorldEwrtWorld_.setZero();
     pinocchio::getFrameJacobian(model_, data_, contactFrames_[contact],
                                 pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED,
-                                jacFootRtWorldEwrtWorld_);
+                                jacContactRtWorldEwrtWorld_);
     generalizedContactForce_.noalias() +=
-        jacFootRtWorldEwrtWorld_.transpose() * wrenchFeetEwrtWorld[contact];
+        jacContactRtWorldEwrtWorld_.transpose() *
+        wrenchContactsEwrtWorld[contact];
   }
 }
 
@@ -216,7 +216,7 @@ const vector_t& RealtimeRigidBodyDynamics::freeBaseJointTorques(
     const Eigen::Ref<const vector_t>& q,
     const Eigen::Ref<const vector_t>& v,
     const Eigen::Ref<const vector_t>& qddJoints,
-    const feet_array_t<vector6_t>& wrenchFeetEwrtWorld) {
+    const ContactArray<vector6_t>& wrenchContactsEwrtWorld) {
   setState(q, v);
   // M with both triangles (crba() writes the upper one), and nle(q, v), in the
   // twin's coordinates.
@@ -225,7 +225,7 @@ const vector_t& RealtimeRigidBodyDynamics::freeBaseJointTorques(
       data_.M.transpose().triangularView<Eigen::StrictlyLower>();
   pinocchio::nonLinearEffects(model_, data_, configuration_,
                               generalizedVelocity_);
-  computeGeneralizedContactForce(wrenchFeetEwrtWorld);
+  computeGeneralizedContactForce(wrenchContactsEwrtWorld);
 
   // The base rows M_bb a_b = (J^T W)_b - nle_b - M_bj qdd_j. M_bb is the
   // robot's composite inertia, positive definite.
@@ -267,7 +267,7 @@ const vector_t& RealtimeRigidBodyDynamics::heldBaseJointTorques(
     const Eigen::Ref<const vector_t>& q,
     const Eigen::Ref<const vector_t>& v,
     const Eigen::Ref<const vector_t>& qddJoints,
-    const feet_array_t<vector6_t>& wrenchFeetEwrtWorld) {
+    const ContactArray<vector6_t>& wrenchContactsEwrtWorld) {
   setState(q, v);
   // ddp_W = 0 and dw_B = 0 are, in the twin's coordinates, dv_B = -w_B x v_B
   // and dw_B = 0.
@@ -282,7 +282,7 @@ const vector_t& RealtimeRigidBodyDynamics::heldBaseJointTorques(
   generalizedAcceleration_.tail(numJoints) = qddJoints;
   pinocchio::rnea(model_, data_, configuration_, generalizedVelocity_,
                   generalizedAcceleration_);
-  computeGeneralizedContactForce(wrenchFeetEwrtWorld);
+  computeGeneralizedContactForce(wrenchContactsEwrtWorld);
   jointTorques_ = data_.tau.tail(numJoints);
   jointTorques_ -= generalizedContactForce_.tail(numJoints);
   return jointTorques_;
@@ -296,12 +296,12 @@ const vector6_t& RealtimeRigidBodyDynamics::computeCmomComRtWorldEwrtWorld(
   return cmomComRtWorldEwrtWorld_;
 }
 
-const feet_array_t<matrix3_t>&
+const ContactArray<matrix3_t>&
 RealtimeRigidBodyDynamics::computeRotmatContactsRtWorld(
     const Eigen::Ref<const vector_t>& q) {
   configuration_ = q;
   pinocchio::forwardKinematics(model_, data_, configuration_);
-  for (size_t contact = 0; contact < kNumContacts; ++contact) {
+  for (size_t contact = 0; contact < contactFrames_.size(); ++contact) {
     rotmatContactsRtWorld_[contact] =
         pinocchio::updateFramePlacement(model_, data_, contactFrames_[contact])
             .rotation();

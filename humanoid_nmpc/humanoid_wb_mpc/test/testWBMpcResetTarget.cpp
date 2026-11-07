@@ -53,7 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
@@ -131,7 +131,7 @@ class G1Model {
                                       poseeulerzyxBaseRtWorld);
     observation.state.tail(model_.getVelocityDim()).setConstant(0.2);
     observation.input = vector_t::Zero(model_.getInputDim());
-    observation.mode = ModeNumber::kStance;
+    observation.mode = kBipedModeStance;
     return observation;
   }
 

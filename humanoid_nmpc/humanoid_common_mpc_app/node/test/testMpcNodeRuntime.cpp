@@ -68,7 +68,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc_app/node/MpcNodeRuntime.h"
 #include "humanoid_mpc_config/mpc_parameter_update.nproto.h"
@@ -193,7 +193,7 @@ class Harness {
     MpcNodeRuntime::Config config;
     config.dimensions = {.stateDim = stack_.model().getStateDim(),
                          .inputDim = stack_.model().getInputDim(),
-                         .numModes = kNumModeNumbers};
+                         .numModes = kNumBipedModes};
     config.solverThread = defaultSolverThreadConfig(/*realtimePriority=*/0);
     config.robotName = robotName_;
     config.taskFileIdentity = taskFileIdentity_;
@@ -245,7 +245,7 @@ class Harness {
     observation.time = time;
     observation.state = stack_.initialState();
     observation.input = vector_t::Zero(stack_.model().getInputDim());
-    observation.mode = ModeNumber::kStance;
+    observation.mode = kBipedModeStance;
     return test_support::ScriptedRobot::observationMessage(
         observation, sequence, requested, fullRequested);
   }
@@ -733,7 +733,7 @@ TEST(MpcNodeRuntime,
       harness.solve(harness.observation(/*time=*/1.1, /*sequence=*/2));
   if (!policy.has_value()) FAIL() << "no policy";
   EXPECT_EQ(policy->annotations().target_contact_patches_size(),
-            static_cast<int>(kNumContacts));
+            kBipedFootCount);
 }
 
 TEST(MpcNodeRuntime,
@@ -862,7 +862,7 @@ humanoid_mpc_msgs::MpcObservation swayingWalkObservation(
       data.Ag * generalizedVelocity / stack.centroidalModelInfo().robotMass;
   observation.input =
       vector_t::Zero(static_cast<Eigen::Index>(stack.model().getInputDim()));
-  observation.mode = ModeNumber::kStance;
+  observation.mode = kBipedModeStance;
   return test_support::ScriptedRobot::observationMessage(observation, sequence);
 }
 

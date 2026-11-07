@@ -81,8 +81,9 @@ type, and controller data of the size the node dimensions imply. The `absl::Inva
 `MpcPolicy.state_trajectory[3].data[2] is nan; every value must be finite`. Whether the dimensions are the robot
 model's is for `checkDimensions()`, given the dimensions of the model the receiver evaluates the policy with: the
 state and input sizes, and `numModes`, which every mode of the message (the observation's, each of the mode schedule)
-must be below. A humanoid has 4, the contact combinations of its two feet; the controller looks the planned contacts up
-by mode (`modeNumber2StanceLeg()`), which has no contact flags for any other.
+must be below. A mode is the bitmask of its active contacts, so a set of n contacts has 2^n (`numModeNumbersOf()`): a
+biped has 4, the contact combinations of its two feet. The controller reads the planned contacts of a mode with
+`ContactMask::fromModeNumber()`, which reads a number past them as no contact at all.
 
 **Model layout.** Equal dimensions do not make equal models: an MPC node restarted with another `fixed_joint_names`
 of the same count, or a robot image whose URDF orders the joints differently, exchanges states whose joints are

@@ -50,10 +50,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/dynamics/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "support/AtlasReferenceStack.h"
 #include "support/CentroidalMpcLoop.h"
@@ -169,10 +170,10 @@ TEST(UnitNorm, TheRolloutProjectsEveryStateOntoTheUnitSphere) {
   state.segment<4>(orientationStart) =
       1.1 * quaternionFromEulerZyx(vector3_t(0.5, 0.1, -0.1));
   const vector_t input = weightCompensatingInput(
-      interface.getCentroidalModelInfo(), contact_flag_t{true, true},
+      interface.getCentroidalModelInfo(), BipedFeetArray<bool>{true, true},
       effectiveModel, state);
   FeedforwardController controller({0.0, 2.0}, {input, input});
-  ModeSchedule schedule(/*eventTimesInput=*/{}, {ModeNumber::kStance});
+  ModeSchedule schedule(/*eventTimesInput=*/{}, {kBipedModeStance});
   scalar_array_t times;
   size_array_t postEventIndices;
   vector_array_t states;

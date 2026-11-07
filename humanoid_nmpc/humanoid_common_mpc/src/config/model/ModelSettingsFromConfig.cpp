@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StateLayout.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -462,6 +463,14 @@ absl::StatusOr<ModelSettings> ModelSettings::Create(
   settings.contactNames.insert(settings.contactNames.end(),
                                settings.contactNames6DoF.begin(),
                                settings.contactNames6DoF.end());
+  // A mode number holds one bit per contact (common/ContactMask.h).
+  if (settings.contactNames.size() > kMaxNumContacts) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[ModelSettings] the contact set has ", settings.contactNames.size(),
+        " contacts (model_settings.contacts_3dof and contact_names_6dof); at "
+        "most ",
+        kMaxNumContacts, " are supported"));
+  }
   settings.mpc_joint_dim = settings.mpcModelJointNames.size();
   settings.full_joint_dim = settings.fullJointNames.size();
 

@@ -54,9 +54,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_config/contacts_config.nproto.h"
 #include "humanoid_mpc_config/joint_value.nproto.h"
@@ -67,6 +66,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::live_tuning_test {
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 // LINT.IfChange(robot_files)
 constexpr char kTaskFile[] =
@@ -252,19 +253,18 @@ WBMpcInterface* absl_nullable variantWholeBodyMpc() {
 }
 
 void scheduleOneSwing(WBMpcInterface& interface, size_t swingFoot) {
-  contact_flag_t swingFlags = makeFeetArray(true);
+  BipedFeetArray<bool> swingFlags = makeBipedFeetArray(true);
   swingFlags[swingFoot] = false;
   const ModeSchedule schedule(
       /*eventTimesInput=*/{-10.0, kSwingStart, kSwingEnd, 10.0},
-      /*modeSequenceInput=*/{ModeNumber::kStance, ModeNumber::kStance,
-                             stanceLeg2ModeNumber(swingFlags),
-                             ModeNumber::kStance, ModeNumber::kStance});
+      /*modeSequenceInput=*/{kBipedModeStance, kBipedModeStance,
+                             bipedModeOfFootContacts(swingFlags),
+                             kBipedModeStance, kBipedModeStance});
   SwitchedModelReferenceManager& referenceManager =
       *interface.getSwitchedModelReferenceManagerPtr();
   referenceManager.getGaitSchedule()->updateModeSchedule(schedule);
   referenceManager.preSolverRun(kSwingStart - 0.2, kSwingEnd + 0.5,
-                                interface.getInitialState(),
-                                ModeNumber::kStance);
+                                interface.getInitialState(), kBipedModeStance);
 }
 
 std::vector<EvaluationPoint> evaluationPoints(const WBMpcInterface& interface,
@@ -276,8 +276,7 @@ std::vector<EvaluationPoint> evaluationPoints(const WBMpcInterface& interface,
   // configuration.
   const Eigen::Index numCoordinates =
       static_cast<Eigen::Index>(model.getConfigurationDim());
-  const Eigen::Index numWrenchInputs =
-      static_cast<Eigen::Index>(6 * kNumContacts);
+  const Eigen::Index numWrenchInputs = static_cast<Eigen::Index>(6 * kNumFeet);
   // Inside the swing, and in stance before and after it.
   const std::vector<scalar_t> times = {0.1, 0.3, 0.45, -0.4, 0.9};
   std::vector<EvaluationPoint> points;

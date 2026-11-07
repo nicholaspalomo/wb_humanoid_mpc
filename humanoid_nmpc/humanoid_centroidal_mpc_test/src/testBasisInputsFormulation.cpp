@@ -99,6 +99,8 @@ namespace ocs2::humanoid {
 namespace {
 
 constexpr size_t kWrenchDimPerContact = 6;
+/// The shipped Atlas' contact set: its two feet.
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 // Centroidal state layout: [h(6), p_base(3), xi(4) (x, y, z, w), q_joints].
 // Used to sanity check the model accessors.
 constexpr Eigen::Index kBaseOrientationStartIndex = 9;
@@ -378,8 +380,8 @@ TEST_F(BasisInputsFormulationTest, BasisModeDimensions) {
   EXPECT_EQ(numBasisPerFoot, numBasisVectorsFromFile + 7);
 
   const size_t jointDim = interface.modelSettings().mpc_joint_dim;
-  const size_t wrenchInputDim = kWrenchDimPerContact * kNumContacts + jointDim;
-  const size_t basisInputDim = kNumContacts * numBasisPerFoot + jointDim;
+  const size_t wrenchInputDim = kWrenchDimPerContact * kNumFeet + jointDim;
+  const size_t basisInputDim = kNumFeet * numBasisPerFoot + jointDim;
 
   EXPECT_EQ(interface.getEffectiveMpcRobotModel().getInputDim(), basisInputDim);
   EXPECT_EQ(interface.getEffectiveMpcRobotModelAD().getInputDim(),
@@ -391,10 +393,10 @@ TEST_F(BasisInputsFormulationTest, BasisModeDimensions) {
   EXPECT_EQ(interface.getWrenchInputDim(), wrenchInputDim);
   EXPECT_EQ(interface.getWrenchInputDim(),
             static_cast<size_t>(interface.getCentroidalModelInfo().inputDim));
-  EXPECT_EQ(interface.getNumBasisInputs(), kNumContacts * numBasisPerFoot);
+  EXPECT_EQ(interface.getNumBasisInputs(), kNumFeet * numBasisPerFoot);
   EXPECT_EQ(
       interface.getEffectiveMpcRobotModel().getJointVelocitiesStartindex(),
-      kNumContacts * numBasisPerFoot);
+      kNumFeet * numBasisPerFoot);
 
   // M = blkdiag(B_0, B_1, I_joints) of size wrenchInputDim x basisInputDim.
   const std::optional<matrix_t>& basisGeneratorMap =
@@ -405,7 +407,7 @@ TEST_F(BasisInputsFormulationTest, BasisModeDimensions) {
   const matrix_t& M = *basisGeneratorMap;
   ASSERT_EQ(static_cast<size_t>(M.rows()), interface.getWrenchInputDim());
   ASSERT_EQ(static_cast<size_t>(M.cols()), basisInputDim);
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < kNumFeet; ++i) {
     const matrix_t& B = decorator->getBasisMatrix(i);
     ASSERT_EQ(static_cast<size_t>(B.rows()), kWrenchDimPerContact);
     ASSERT_EQ(static_cast<size_t>(B.cols()), numBasisPerFoot);
@@ -420,10 +422,9 @@ TEST_F(BasisInputsFormulationTest, BasisModeDimensions) {
                        .norm(),
                    0.0);
   EXPECT_DOUBLE_EQ(
-      M.topRightCorner(kWrenchDimPerContact * kNumContacts, jointDim).norm(),
-      0.0);
+      M.topRightCorner(kWrenchDimPerContact * kNumFeet, jointDim).norm(), 0.0);
   EXPECT_DOUBLE_EQ(
-      M.bottomLeftCorner(jointDim, kNumContacts * numBasisPerFoot).norm(), 0.0);
+      M.bottomLeftCorner(jointDim, kNumFeet * numBasisPerFoot).norm(), 0.0);
 
   // The OCP uses the basis-input dynamics with a matching input dimension.
   CentroidalDynamicsBasisInputsAD* absl_nullable dynamics =
@@ -439,7 +440,7 @@ TEST_F(BasisInputsFormulationTest, BasisModeDimensions) {
   EXPECT_EQ(config->regularization, kDefaultBasisRegularization)
       << "the shipped λ regularization is the full diagonal";
   EXPECT_EQ(config->wrenchInputDim, wrenchInputDim);
-  EXPECT_EQ(config->numBasisInputs, kNumContacts * numBasisPerFoot);
+  EXPECT_EQ(config->numBasisInputs, kNumFeet * numBasisPerFoot);
   EXPECT_EQ(config->basisInputDim(), basisInputDim);
   EXPECT_DOUBLE_EQ(config->lambdaRegularization,
                    interface.getBasisScalingRegularization());
@@ -485,7 +486,7 @@ TEST_F(BasisInputsFormulationTest,
   std::mt19937 gen(42);
   const vector_t x = makeRotatedTestState(basisInterface, gen);
   const vector_t uBasis =
-      makeRandomBasisInput(kNumContacts * numBasisPerFoot, jointDim, gen);
+      makeRandomBasisInput(kNumFeet * numBasisPerFoot, jointDim, gen);
   ASSERT_EQ(static_cast<size_t>(uBasis.size()), effectiveModel.getInputDim());
   // Sanity check of the assumed state layout (the quaternion of the ZYX Euler
   // angles at 9..12, joints from 13).
@@ -516,7 +517,7 @@ TEST_F(BasisInputsFormulationTest,
       M *
       uBasis;  // naive constant map: wrenches stay in the local contact frame
 
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < kNumFeet; ++i) {
     const VECTOR6_T<scalar_t> dynamicsWrenchContactEwrtWorld =
         wrappedInput.segment<kWrenchDimPerContact>(kWrenchDimPerContact * i);
     const VECTOR6_T<scalar_t> decoratorWrenchContactEwrtWorld =
@@ -600,13 +601,13 @@ TEST_F(BasisInputsFormulationTest, CenterOfPressureUsesTheContactFrameWrench) {
   std::mt19937 gen(7);
   const vector_t x = makeRotatedTestState(basisInterface, gen);
   const vector_t uBasis =
-      makeRandomBasisInput(kNumContacts * decorator.getNumBasisPerFoot(),
+      makeRandomBasisInput(kNumFeet * decorator.getNumBasisPerFoot(),
                            basisInterface.modelSettings().mpc_joint_dim, gen);
   PinocchioInterface pinocchioInterface =
       basisInterface.getPinocchioInterface();
   updateFramePlacements<scalar_t>(effectiveModel.getGeneralizedCoordinates(x),
                                   pinocchioInterface);
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < kNumFeet; ++i) {
     const vector6_t wrenchContactEwrtContact =
         decorator.getWrenchContactEwrtParam(uBasis, i);
     ASSERT_GT(std::abs(wrenchContactEwrtContact[kWrenchForceZIndex]), 1.0e-6)
@@ -653,7 +654,7 @@ TEST_F(BasisInputsFormulationTest,
   std::mt19937 gen(1234);
   const vector_t x = makeRotatedTestState(interface, gen);
   const vector_t u =
-      makeRandomBasisInput(kNumContacts * numBasisPerFoot, jointDim, gen);
+      makeRandomBasisInput(kNumFeet * numBasisPerFoot, jointDim, gen);
 
   const PreComputation preComp;
   const VectorFunctionLinearApproximation approx =
@@ -809,7 +810,7 @@ TEST_F(BasisInputsFormulationTest,
 
   EXPECT_EQ(effectiveModel.getContactInputDim(0), numBasisPerFoot);
 
-  for (size_t contactIndex = 0; contactIndex < kNumContacts; ++contactIndex) {
+  for (size_t contactIndex = 0; contactIndex < kNumFeet; ++contactIndex) {
     ZeroWrenchConstraint constraint(
         *interface.getSwitchedModelReferenceManagerPtr(), contactIndex,
         effectiveModel);
@@ -817,7 +818,7 @@ TEST_F(BasisInputsFormulationTest,
     std::mt19937 gen(7 + contactIndex);
     const vector_t x = makeRotatedTestState(interface, gen);
     const vector_t u =
-        makeRandomBasisInput(kNumContacts * numBasisPerFoot, jointDim, gen);
+        makeRandomBasisInput(kNumFeet * numBasisPerFoot, jointDim, gen);
     const size_t lambdaStart = numBasisPerFoot * contactIndex;
 
     // The constrained quantity is the basis scaling block itself, not the six
@@ -921,7 +922,7 @@ TEST_F(BasisInputsFormulationTest, BasisGeneratorsStayInsideTheWrenchCone) {
 
   std::mt19937 gen(11);
   std::uniform_real_distribution<scalar_t> magnitude(0.0, 200.0);
-  for (size_t contactIndex = 0; contactIndex < kNumContacts; ++contactIndex) {
+  for (size_t contactIndex = 0; contactIndex < kNumFeet; ++contactIndex) {
     const ContactRectangle rectangle = checkedValue(contactRectangleFromConfig(
         h.config.task.contacts, interface.modelSettings(),
         static_cast<int>(contactIndex)));
@@ -1107,7 +1108,7 @@ TEST_F(BasisInputsFormulationTest, WrenchModeUnchanged) {
   const CentroidalMpcInterface& interface = *h.interface;
 
   const size_t jointDim = interface.modelSettings().mpc_joint_dim;
-  const size_t wrenchInputDim = kWrenchDimPerContact * kNumContacts + jointDim;
+  const size_t wrenchInputDim = kWrenchDimPerContact * kNumFeet + jointDim;
 
   EXPECT_FALSE(interface.usesContactBasisVectorInputs());
   EXPECT_EQ(interface.getEffectiveMpcRobotModel().getInputDim(),
@@ -1125,7 +1126,7 @@ TEST_F(BasisInputsFormulationTest, WrenchModeUnchanged) {
                 &interface.getMpcRobotModelAD()));
   EXPECT_EQ(
       interface.getEffectiveMpcRobotModel().getJointVelocitiesStartindex(),
-      kWrenchDimPerContact * kNumContacts);
+      kWrenchDimPerContact * kNumFeet);
 
   EXPECT_FALSE(interface.getBasisInputsCostTransformConfig().has_value());
   EXPECT_FALSE(interface.getBasisGeneratorMap().has_value());
@@ -1141,7 +1142,7 @@ TEST_F(BasisInputsFormulationTest, WrenchModeUnchanged) {
   // basis-mode test).
   const MpcRobotModelBase<scalar_t>& wrenchModel =
       interface.getEffectiveMpcRobotModel();
-  for (size_t contactIndex = 0; contactIndex < kNumContacts; ++contactIndex) {
+  for (size_t contactIndex = 0; contactIndex < kNumFeet; ++contactIndex) {
     EXPECT_EQ(wrenchModel.getContactInputDim(contactIndex),
               kWrenchDimPerContact);
     ZeroWrenchConstraint zeroWrenchConstraint(
@@ -1206,7 +1207,7 @@ TEST_F(BasisInputsFormulationTest, WrenchModeUnchanged) {
   }
   const MpcRobotModelBase<scalar_t>& model =
       interface.getEffectiveMpcRobotModel();
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < kNumFeet; ++i) {
     EXPECT_DOUBLE_EQ((model.getWrenchContactEwrtWorld(x, u, i) -
                       model.getWrenchContactEwrtParam(u, i))
                          .norm(),

@@ -30,15 +30,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/logic/PhaseDurationsRule.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicHelpers.h"
@@ -46,9 +47,43 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == kBipedFootCount,
-              "the phase duration rule is written for a biped (the other foot "
-              "is 1 - foot)");
+namespace {
+
+/**
+ * Reads the foot `other` at node k for the overdue lift of `foot`
+ * (overdueLiftIsImplied()), off the live assignment: whether it is decided
+ * there, whether it supports, and whether, overdue as well, it lifts first by
+ * the tie break - who swung last, else who has stood longer, else the lower
+ * foot index. On a complete assignment that tie break is the rule itself, not
+ * a preference, since exactly one order satisfies it; the other foot's own
+ * pass forces its lift when it wins.
+ */
+OtherFootAtNode otherFootAtNode(const ContactLogicState& s,
+                                const MiqpAssignment& a,
+                                size_t foot,
+                                size_t other,
+                                int k) {
+  const int8_t otherValue =
+      a[static_cast<size_t>(ContactLogicState::contactBinaryIndex(k, other))];
+  OtherFootAtNode result;
+  result.decided = otherValue != kMiqpFree && s.stateBefore(a, other, k) != -1;
+  result.inContact = otherValue == 1;
+  if (!result.decided || !result.inContact) return result;
+  const int otherAge = s.contactAge(a, other, k);
+  const bool otherOverdue = s.nContactMax > 0 && otherAge >= s.nContactMax;
+  if (!otherOverdue) return result;
+  bool thisGoesFirst = true;
+  if (s.input->lastSwungFoot >= 0) {
+    thisGoesFirst = static_cast<size_t>(s.input->lastSwungFoot) != foot;
+  } else {
+    const int thisAge = s.contactAge(a, foot, k);
+    thisGoesFirst = thisAge > otherAge || (thisAge == otherAge && foot < other);
+  }
+  result.liftsFirst = !thisGoesFirst;
+  return result;
+}
+
+}  // namespace
 
 std::string PhaseDurationsRule::describe() const {
   std::string out = absl::StrCat(
@@ -72,7 +107,10 @@ bool PhaseDurationsRule::propagate(const ContactLogicState& s,
                                    MiqpAssignment& a,
                                    bool& changed) const {
   const int N = s.numNodes;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  // The other feet of the foot being walked, as overdueLiftIsImplied() reads
+  // them; refilled at every overdue node.
+  std::array<OtherFootAtNode, ContactLogicState::kNumFeet> otherFeet{};
+  for (size_t foot = 0; foot < s.numFeet(); ++foot) {
     int8_t kappa = s.input->contacts[foot] ? 1 : 0;
     // The phase active at planning time has lasted a non-integer number of
     // nodes: count it rounded down against the minimum duration and rounded up
@@ -132,62 +170,46 @@ bool PhaseDurationsRule::propagate(const ContactLogicState& s,
         }
         if (mustSwitch && kappa == 1) {
           // Overdue to lift. On a complete assignment the foot has to lift at
-          // this node unless one of three things excuses it: the other foot is
-          // not supporting (it is in the air here), the minimum double support
-          // after the latest touch-down of either foot still holds this foot
-          // down, or the other foot is overdue too and the tie break lets it go
-          // first. All three are functions of the OTHER foot's binaries up to
-          // and including this node (and of this foot's, which are fixed before
-          // this node here).
+          // this node unless one of three things excuses it: no other foot is
+          // supporting (for a biped, the other foot is in the air here), the
+          // minimum double support after the latest touch-down of any foot
+          // still holds this foot down, or a supporting other foot is overdue
+          // too and the tie break lets it go first. All three are functions of
+          // the OTHER feet's binaries up to and including this node (and of
+          // this foot's, which are fixed before this node here);
+          // overdueLiftIsImplied() combines them.
           //
           // On a partial assignment the lift may therefore be FIXED only once
-          // the other foot is fixed through this node and supports here: then
-          // all three are decided exactly as they will be in every completion,
-          // and the lift is implied. Before that it is not. This rule used to
-          // decide them early - it took the other foot as supporting while its
-          // binary here was still free (on a complete assignment the other foot
-          // lifting at this node excuses this one), it treated a history it
-          // could not read as "no touch-down" (skipping the hold after one),
-          // and it read the hold from a per-pass snapshot of the prefix that
-          // missed a touch-down this very pass had fixed. Each of those fixed
-          // binaries that some feasible completions disagree with, so the
-          // branch-and-bound pruned feasible subtrees - the other foot stepping
-          // first after a push, for one - and still reported the plan optimal.
-          // See MiqpPropagateFn and ContactLogicRule for the contract, and
-          // testContactPlanningRegression for the enumeration over the partial
-          // assignments the search reaches.
-          const size_t other = 1 - foot;
-          const int8_t otherValue = a[static_cast<size_t>(
-              ContactLogicState::contactBinaryIndex(k, other))];
-          const bool otherDecided =
-              otherValue != kMiqpFree && s.stateBefore(a, other, k) != -1;
-          if (!otherDecided || otherValue == 0) {
+          // the other feet are fixed through this node and one supports here:
+          // then all three are decided exactly as they will be in every
+          // completion, and the lift is implied. Before that it is not. This
+          // rule used to decide them early - it took the other foot as
+          // supporting while its binary here was still free (on a complete
+          // assignment the other foot lifting at this node excuses this one),
+          // it treated a history it could not read as "no touch-down" (skipping
+          // the hold after one), and it read the hold from a per-pass snapshot
+          // of the prefix that missed a touch-down this very pass had fixed.
+          // Each of those fixed binaries that some feasible completions
+          // disagree with, so the branch-and-bound pruned feasible subtrees -
+          // the other foot stepping first after a push, for one - and still
+          // reported the plan optimal. See MiqpPropagateFn and ContactLogicRule
+          // for the contract, and testContactPlanningRegression for the
+          // enumeration over the partial assignments the search reaches.
+          size_t numOtherFeet = 0;
+          for (size_t other = 0; other < s.numFeet(); ++other) {
+            if (other == foot) continue;
+            otherFeet[numOtherFeet] = otherFootAtNode(s, a, foot, other, k);
+            ++numOtherFeet;
+          }
+          const DoubleSupportHold hold =
+              s.nDoubleSupportHold > 0 &&
+                      s.heldAfterTouchDown(k, s.latestTouchDownNode(a, k))
+                  ? DoubleSupportHold::kHeld
+                  : DoubleSupportHold::kNone;
+          if (!overdueLiftIsImplied(absl::Span<const OtherFootAtNode>(
+                                        otherFeet.data(), numOtherFeet),
+                                    hold)) {
             mustSwitch = false;
-          } else {
-            const bool held =
-                s.nDoubleSupportHold > 0 &&
-                s.heldAfterTouchDown(k, s.latestTouchDownNode(a, k));
-            const int otherAge = s.contactAge(a, other, k);
-            const bool otherOverdue =
-                s.nContactMax > 0 && otherAge >= s.nContactMax;
-            bool thisGoesFirst = true;
-            if (otherOverdue) {
-              // Both feet are overdue and both support here: one of them has to
-              // lift, and the tie break - who swung last, else who has stood
-              // longer, else the lower foot index - decides which. On a
-              // complete assignment that is the rule itself, not a preference,
-              // since exactly one order satisfies it; the other foot's own pass
-              // forces its lift when it wins.
-              if (s.input->lastSwungFoot >= 0) {
-                thisGoesFirst =
-                    static_cast<size_t>(s.input->lastSwungFoot) != foot;
-              } else {
-                const int thisAge = s.contactAge(a, foot, k);
-                thisGoesFirst =
-                    thisAge > otherAge || (thisAge == otherAge && foot < other);
-              }
-            }
-            if (held || !thisGoesFirst) mustSwitch = false;
           }
         }
         if (mustStay && !fixBinary(a, index, kappa, changed)) return false;

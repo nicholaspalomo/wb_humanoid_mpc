@@ -29,7 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -39,7 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/functional/function_ref.h"
 #include "absl/strings/string_view.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
 #include "robot_model/RobotJointAction.h"
@@ -72,6 +72,10 @@ class TelemetrySampler {
 
     /** The robot's joints, by joint index (jointNamesByIndex()). */
     std::vector<std::string> jointNames;
+    /** The contacts of the controller's contact set
+     * (ModelSettings::contactNames): the size of a sample's contact_flags and
+     * meas_wrench_contacts_ewrt_world. */
+    size_t numContacts = 0;
     /** One sample every this many cycles: round(mpc.mrt_desired_frequency /
      * telemetry_frequency), at least 1. */
     size_t decimation = 1;
@@ -89,14 +93,15 @@ class TelemetrySampler {
   /**
    * Realtime thread, once per cycle: counts the cycle and, every decimation-th
    * one, copies it into a slot. True when a sample was taken (or dropped
-   * because the queue was full).
+   * because the queue was full). `measuredContactFlags` is a mask of
+   * Config::numContacts contacts and `measForceContactsEwrtWorld` has one force
+   * per contact (RobotBackend::readMeasForceContactsEwrtWorld()).
    */
-  bool sample(
-      const robot::model::RobotState& robotState,
-      const robot::model::RobotJointAction& jointAction,
-      absl::string_view controlMode,
-      const contact_flag_t& measuredContactFlags,
-      const std::array<vector3_t, kNumContacts>& measForceFeetEwrtWorld);
+  bool sample(const robot::model::RobotState& robotState,
+              const robot::model::RobotJointAction& jointAction,
+              absl::string_view controlMode,
+              ContactMask measuredContactFlags,
+              const ContactArray<vector3_t>& measForceContactsEwrtWorld);
 
   /** Communication thread: hands every sample taken so far to `consumer`,
    * oldest first; returns how many. */
@@ -112,13 +117,15 @@ class TelemetrySampler {
 
   size_t decimation() const { return decimation_; }
 
-  /** A sample with the shape every slot has: `jointNames`, and zeros. */
+  /** A sample sized as every slot is: `jointNames`, `numContacts`
+   * contact flags and measured wrenches, and zeros. */
   static msgs::RobotStateSample prototype(
-      const std::vector<std::string>& jointNames);
+      const std::vector<std::string>& jointNames, size_t numContacts);
 
  private:
   const size_t decimation_;
   const size_t numJoints_;
+  const size_t numContacts_;
   robot::realtime::SpscQueue<msgs::RobotStateSample> queue_;
   size_t cycle_ = 0;  // realtime thread
   std::atomic<uint64_t> samplesTaken_{0};

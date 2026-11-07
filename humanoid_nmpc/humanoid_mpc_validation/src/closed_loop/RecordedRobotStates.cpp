@@ -45,6 +45,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
 
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_mpc_validation/io/GoldenIo.h"
 #include "robot_core/Types.h"
 #include "robot_model/RobotDescription.h"
@@ -68,9 +70,8 @@ constexpr char kGuiCommand[] = "gui_command";
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/README.md:recorded_state_labels)
 
 // The columns of a recording's matrices, one row per record: the sizes of the
-// RobotStateRecord fields they hold. The contact flags have
-// RobotStateRecord::kNumRecordedContacts columns, the joint vectors one per
-// joint.
+// RobotStateRecord fields they hold. The contact flags have one column per
+// contact of the recording's set, the joint vectors one per joint.
 constexpr int kPositionColumnCount = kPositionDim;               // (x, y, z)
 constexpr int kQuaternionColumnCount = kQuaternionCoefficients;  // (x, y, z, w)
 constexpr int kVelocityColumnCount =
@@ -120,10 +121,9 @@ RobotStateRecord recordRobotState(
         state.getJointVelocity(joints[i]);
   }
   const std::vector<bool>& flags = state.getContactFlags();
-  for (size_t contact = 0; contact < RobotStateRecord::kNumRecordedContacts &&
-                           contact < flags.size();
-       ++contact) {
-    record.contactFlags[contact] = flags[contact];
+  record.contactFlags = ContactMask(flags.size());
+  for (size_t contact = 0; contact < flags.size(); ++contact) {
+    record.contactFlags.set(contact, flags[contact]);
   }
   record.guiCommand = guiCommand;
   return record;
@@ -132,7 +132,13 @@ RobotStateRecord recordRobotState(
 absl::StatusOr<robot::model::RobotState> toRobotState(
     const RobotStateRecord& record,
     const std::vector<std::string>& jointNames,
-    const robot::model::RobotDescription& description) {
+    const robot::model::RobotDescription& description,
+    size_t numContacts) {
+  if (record.contactFlags.size() != numContacts) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[toRobotState] the record holds the flags of ",
+        record.contactFlags.size(), " contacts, the robot has ", numContacts));
+  }
   // The joints are matched by name: the order of a RobotDescription's joints is
   // not the same in every process.
   if (jointNames.size() != description.getNumJoints()) {
@@ -160,8 +166,7 @@ absl::StatusOr<robot::model::RobotState> toRobotState(
           "[toRobotState] the joint '", name, "' is recorded twice"));
     }
   }
-  robot::model::RobotState state(
-      description, /*contactSize=*/RobotStateRecord::kNumRecordedContacts);
+  robot::model::RobotState state(description, /*contactSize=*/numContacts);
   state.setTime(record.time);
   state.setPosBaseRtWorldEwrtWorld(record.posBaseRtWorldEwrtWorld);
   Eigen::Quaterniond quatBaseRtWorld;
@@ -176,13 +181,24 @@ absl::StatusOr<robot::model::RobotState> toRobotState(
     state.setJointVelocity(
         joint, record.jointVelocities(static_cast<Eigen::Index>(i)));
   }
-  state.setContactFlag(/*index=*/0, record.contactFlags[0]);
-  state.setContactFlag(/*index=*/1, record.contactFlags[1]);
+  for (size_t contact = 0; contact < numContacts; ++contact) {
+    state.setContactFlag(contact, record.contactFlags[contact]);
+  }
   return state;
 }
 
-GoldenFile toGoldenFile(const RecordedRobotStates& states,
-                        GoldenProvenance provenance) {
+absl::StatusOr<GoldenFile> toGoldenFile(const RecordedRobotStates& states,
+                                        GoldenProvenance provenance) {
+  const size_t numContacts =
+      states.records.empty() ? 0 : states.records.front().contactFlags.size();
+  for (size_t index = 0; index < states.records.size(); ++index) {
+    if (states.records[index].contactFlags.size() != numContacts) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("[toGoldenFile] record ", index, " holds the flags of ",
+                       states.records[index].contactFlags.size(),
+                       " contacts, the first record of ", numContacts));
+    }
+  }
   const Eigen::Index rows = static_cast<Eigen::Index>(states.records.size());
   const Eigen::Index numJoints =
       static_cast<Eigen::Index>(states.jointNames.size());
@@ -193,7 +209,7 @@ GoldenFile toGoldenFile(const RecordedRobotStates& states,
   golden_matrix_t angvelBaseRtWorldEwrtBaseTraj(rows, kVelocityColumnCount);
   golden_matrix_t jointPositions(rows, numJoints);
   golden_matrix_t jointVelocities(rows, numJoints);
-  golden_matrix_t contactFlags(rows, RobotStateRecord::kNumRecordedContacts);
+  golden_matrix_t contactFlags(rows, static_cast<Eigen::Index>(numContacts));
   golden_matrix_t guiCommand(rows, kGuiCommandColumnCount);
   for (Eigen::Index row = 0; row < rows; ++row) {
     const RobotStateRecord& record = states.records[static_cast<size_t>(row)];
@@ -207,8 +223,10 @@ GoldenFile toGoldenFile(const RecordedRobotStates& states,
         record.angvelBaseRtWorldEwrtBase.transpose();
     jointPositions.row(row) = record.jointPositions.transpose();
     jointVelocities.row(row) = record.jointVelocities.transpose();
-    contactFlags(row, /*col=*/0) = record.contactFlags[0] ? 1.0 : 0.0;
-    contactFlags(row, /*col=*/1) = record.contactFlags[1] ? 1.0 : 0.0;
+    for (size_t contact = 0; contact < numContacts; ++contact) {
+      contactFlags(row, static_cast<Eigen::Index>(contact)) =
+          record.contactFlags[contact] ? 1.0 : 0.0;
+    }
     guiCommand.row(row) = record.guiCommand.transpose();
   }
   GoldenFile golden;
@@ -267,9 +285,18 @@ absl::StatusOr<RecordedRobotStates> fromGoldenFile(const GoldenFile& golden) {
       requireMatrix(golden, kJointPositions, rows, numJoints);
   absl::StatusOr<const golden_matrix_t* absl_nonnull> jointVelocities =
       requireMatrix(golden, kJointVelocities, rows, numJoints);
+  // The recording's contact count is the columns of its contact flags.
+  const golden_matrix_t* absl_nullable recordedContactFlags =
+      golden.find(kContactFlags);
+  const Eigen::Index numContacts =
+      recordedContactFlags == nullptr ? 0 : recordedContactFlags->cols();
+  if (numContacts > static_cast<Eigen::Index>(kMaxNumContacts)) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[fromGoldenFile] '", kContactFlags, "' has ", numContacts,
+        " columns, the flags of more than ", kMaxNumContacts, " contacts"));
+  }
   absl::StatusOr<const golden_matrix_t* absl_nonnull> contactFlags =
-      requireMatrix(golden, kContactFlags, rows,
-                    RobotStateRecord::kNumRecordedContacts);
+      requireMatrix(golden, kContactFlags, rows, numContacts);
   absl::StatusOr<const golden_matrix_t* absl_nonnull> guiCommand =
       requireMatrix(golden, kGuiCommand, rows, kGuiCommandColumnCount);
   for (const absl::StatusOr<const golden_matrix_t* absl_nonnull>* absl_nonnull
@@ -293,8 +320,11 @@ absl::StatusOr<RecordedRobotStates> fromGoldenFile(const GoldenFile& golden) {
         (*angvelBaseRtWorldEwrtBaseTraj)->row(row).transpose();
     record.jointPositions = (*jointPositions)->row(row).transpose();
     record.jointVelocities = (*jointVelocities)->row(row).transpose();
-    record.contactFlags = {(**contactFlags)(row, /*col=*/0) != 0.0,
-                           (**contactFlags)(row, /*col=*/1) != 0.0};
+    record.contactFlags = ContactMask(static_cast<size_t>(numContacts));
+    for (Eigen::Index contact = 0; contact < numContacts; ++contact) {
+      record.contactFlags.set(static_cast<size_t>(contact),
+                              (**contactFlags)(row, contact) != 0.0);
+    }
     record.guiCommand = (*guiCommand)->row(row).transpose();
   }
   return states;

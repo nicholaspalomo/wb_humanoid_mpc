@@ -72,12 +72,15 @@ absl::Status checkContactEstimatorName(
         taskSource, ": contact_estimator: there is no contact estimator '",
         name, "' on this robot. Available: ", registry.availableNames(), "."));
   }
-  if (!context.backendOptions.initialState.has_value()) return absl::OkStatus();
+  if (!context.backendOptions.initialState.has_value() ||
+      !context.numContacts.has_value()) {
+    return absl::OkStatus();
+  }
   const std::shared_ptr<robot::model::ContactEstimator> estimator =
       registry.create(canonical);
   return withConfigFile(
       checkContactEstimator(*estimator, *context.backendOptions.initialState,
-                            canonical),
+                            *context.numContacts, canonical),
       absl::StrCat(taskSource, ": contact_estimator"));
 }
 

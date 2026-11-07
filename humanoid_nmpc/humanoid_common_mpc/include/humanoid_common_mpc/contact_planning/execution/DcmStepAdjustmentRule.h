@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_core/reference/ModeSchedule.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
@@ -54,7 +55,7 @@ class DcmStepAdjustmentRule final : public ExecutionRule {
   std::string describe() const override;
   void configure(const ContactPlanningConfig& config) override;
   bool needsPredictedTrajectory() const override { return true; }
-  feet_array_t<vector2_t> correctFootholds(
+  BipedFeetArray<vector2_t> correctFootholds(
       const ExecutionContext& ctx, const ModeSchedule& schedule) const override;
 
  private:

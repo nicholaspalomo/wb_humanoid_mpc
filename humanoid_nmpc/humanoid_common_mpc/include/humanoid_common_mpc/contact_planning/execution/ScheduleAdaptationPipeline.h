@@ -31,7 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_core/reference/ModeSchedule.h"
 
-#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
@@ -46,10 +46,10 @@ namespace ocs2::humanoid {
  * scheduled releases its latch), then the rules run in order until one reports
  * an event. Returns what happened to every foot.
  */
-feet_array_t<ContactEventReport> adaptScheduleWithRules(
+BipedFeetArray<ContactEventReport> adaptScheduleWithRules(
     ModeSchedule& schedule,
     const ExecutionContext& ctx,
     const TermCollection<ExecutionRule>& rules,
-    feet_array_t<SwingTimingLatch>& latches);
+    BipedFeetArray<SwingTimingLatch>& latches);
 
 }  // namespace ocs2::humanoid

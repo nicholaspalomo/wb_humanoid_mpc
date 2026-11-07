@@ -76,6 +76,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::live_tuning_test {
 namespace {
 
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+
 constexpr size_t kNumPoints = 10;
 
 void expectSameQuadraticApproximation(
@@ -188,7 +190,7 @@ TEST(WholeBodyTermSetters, TheFootCostsSetWeightsEqualsAFootCostBuiltWithThem) {
   expectQuaternionLayout(*interface);
   const std::vector<EvaluationPoint> points =
       evaluationPoints(*interface, kNumPoints);
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     scheduleOneSwing(*interface, foot);
     const std::string& footName = interface->modelSettings().contactNames[foot];
     const std::unique_ptr<EndEffectorDynamicsFootCost> retuned =
@@ -396,7 +398,7 @@ TEST(WholeBodyTermSetters,
   const SwitchedModelReferenceManager& referenceManager =
       *interface->getSwitchedModelReferenceManagerPtr();
   const OptimalControlProblem& problem = interface->getOptimalControlProblem();
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     const std::string& footName = interface->modelSettings().contactNames[foot];
     SCOPED_TRACE(footName);
     const FootDynamics footDynamics = footDynamicsOf(*interface, foot);
@@ -432,7 +434,7 @@ TEST(WholeBodyTermSetters,
 void expectSameSwingConfigs(const WBMpcPreComputation& expected,
                             const WBMpcPreComputation& actual,
                             const std::string& where) {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < kNumFeet; ++foot) {
     const EndEffectorDynamicsLinearAccConstraint::Config& e =
         expected.getEeNormalAccelerationConstraintConfigs()[foot];
     const EndEffectorDynamicsLinearAccConstraint::Config& a =

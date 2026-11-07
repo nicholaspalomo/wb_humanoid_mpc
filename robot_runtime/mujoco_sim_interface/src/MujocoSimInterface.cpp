@@ -79,15 +79,24 @@ using ::ocs2::kYAxisIndex;
 using ::ocs2::kZAxisIndex;
 
 namespace {
-/// The contact points of the initial state when the configuration gives none:
-/// the two feet.
-constexpr int kInitialStateContactPoints = 2;
 /// [m] The height of the base in the initial state when the configuration gives
 /// none.
 constexpr double kInitPosBaseRtWorldEwrtWorldZ = 1.0;
 /// The projectile whose restitution the no-ball fallback impulse models: the
 /// ball the GUI's Dodgeball tab throws.
 constexpr char kFallbackImpactProjectile[] = "dodgeball";
+
+/**
+ * Returns the number of contact flags of every state the simulator publishes:
+ * one per contact point of `config` (contactFrameNames, the controller's
+ * contact set in contact order), or RobotState::kDefaultContactSize when the
+ * configuration lists none.
+ */
+size_t publishedContactSize(const MujocoSimConfig& config) {
+  return config.contactFrameNames.empty()
+             ? model::RobotState::kDefaultContactSize
+             : config.contactFrameNames.size();
+}
 
 /// [us] How long the physics pauses after an automatic reset, so that the
 /// controller can catch up.
@@ -476,9 +485,12 @@ MujocoSimInterface::MujocoSimInterface(
     const MujocoSimConfig& config,
     robot::model::RobotDescription robotDescription,
     LoadedScene scene)
-    : RobotHWInterfaceBase(std::move(robotDescription)),
+    : RobotHWInterfaceBase(std::move(robotDescription),
+                           /*contactSize=*/publishedContactSize(config)),
       config_(config),
-      robotStateInternal_(model::RobotState(this->getRobotDescription())),
+      robotStateInternal_(
+          model::RobotState(this->getRobotDescription(),
+                            /*contactSize=*/publishedContactSize(config))),
       robotJointActionInternal_(
           model::RobotJointAction(this->getRobotDescription())),
       timeStepMicro_(
@@ -553,7 +565,7 @@ void MujocoSimInterface::setInitialState() {
     return;
   }
   model::RobotState initialState(getRobotDescription(),
-                                 /*contactSize=*/kInitialStateContactPoints);
+                                 /*contactSize=*/publishedContactSize(config_));
   initialState.setConfigurationToZero();
   initialState.setPosBaseRtWorldEwrtWorld(
       vector3_t(0.0, 0.0, kInitPosBaseRtWorldEwrtWorldZ));

@@ -158,7 +158,7 @@ void AtlasReferenceStack::build(
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
       new SwingTrajectoryPlanner(checkedValue(swingTrajectorySettingsFromConfig(
                                      config_.task.swing_trajectory_config)),
-                                 kNumContacts));
+                                 static_cast<size_t>(kBipedFootCount)));
   if (scheduleSource == ScheduleSource::kGaitSchedule) {
     referenceManager_ = std::make_shared<SwitchedModelReferenceManager>(
         checkedValue(GaitSchedule::Create(config_.reference, *modelSettings_,
@@ -202,7 +202,8 @@ void AtlasReferenceStack::build(
     const ContactPlanningModelParameters modelParameters =
         deriveContactPlanningModelParameters(
             *pinocchioInterface_, *model_, initialState_,
-            modelSettings_->contactParentJointNames, ground);
+            modelSettings_->contactParentJointNames,
+            modelSettings_->numContacts(), ground);
     modelParameters.applyTo(*planningConfig);
     CHECK(planningConfig->validateStatus().ok())
         << planningConfig->validateStatus();

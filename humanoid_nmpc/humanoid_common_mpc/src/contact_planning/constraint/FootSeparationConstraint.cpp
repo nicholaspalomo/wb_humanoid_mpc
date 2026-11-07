@@ -34,11 +34,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/TwoContactCount.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
@@ -47,8 +48,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-static_assert(kNumContacts == kBipedFootCount,
-              "the separation rows are written for a biped");
+absl::Status FootSeparationConstraint::validateContactSet(
+    size_t numContacts) const {
+  return checkTwoContactCount(/*component=*/"FootSeparationConstraint",
+                              numContacts);
+}
 
 std::string FootSeparationConstraint::describe() const {
   return absl::StrCat(

@@ -43,7 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
 #include "support/AtlasReferenceStack.h"
 
@@ -75,7 +75,7 @@ class VelocityCommandFilterWiringTest : public ::testing::Test {
     std::vector<scalar_t> references;
     for (size_t k = 0; k < numSolves; ++k) {
       stack_.mpc().run(start + static_cast<scalar_t>(k) * kSolvePeriod, state,
-                       ModeNumber::kStance);
+                       kBipedModeStance);
       references.push_back(
           stack_.motionManager().getRampedVelocityCommand()(0));
     }

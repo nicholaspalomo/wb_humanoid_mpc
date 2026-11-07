@@ -87,7 +87,8 @@ TEST(TestDynamicsHelperFunctions, computePosCopRtWorldEwrtWorld) {
           q, pinocchioInterface, testingModelInterface.getMpcRobotModel());
   // A pure force acts at the contact frame origin: the center of pressure is
   // the contact position.
-  for (size_t contactIndex = 0; contactIndex < kNumContacts; ++contactIndex) {
+  for (size_t contactIndex = 0;
+       contactIndex < static_cast<size_t>(kBipedFootCount); ++contactIndex) {
     EXPECT_TRUE(posContactsRtWorldEwrtWorld[contactIndex].isApprox(
         computePosCopRtWorldEwrtWorld<scalar_t>(
             state, input, pinocchioInterface, contactIndex,
@@ -127,7 +128,7 @@ TEST(TestDynamicsHelperFunctions,
 
   // The wrench-space input already stores world-frame wrenches, so the CoP must
   // be the one of the input's wrench rotated into the contact frame.
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < static_cast<size_t>(kBipedFootCount); ++i) {
     const pinocchio::FrameIndex frameIndex =
         getContactFrameIndex(pinocchioInterface, model, i);
     const vector6_t wrenchContactEwrtContact =
@@ -283,9 +284,10 @@ TEST(TestDynamicsHelperFunctions,
 
   const scalar_t robotWeight = centroidalModelInfo.robotMass * 9.81;
 
-  for (const contact_flag_t& flags :
-       {contact_flag_t{true, true}, contact_flag_t{true, false},
-        contact_flag_t{false, true}, contact_flag_t{false, false}}) {
+  for (const BipedFeetArray<bool>& flags :
+       {BipedFeetArray<bool>{true, true}, BipedFeetArray<bool>{true, false},
+        BipedFeetArray<bool>{false, true},
+        BipedFeetArray<bool>{false, false}}) {
     const vector_t inputOnlyFromPinocchio =
         weightCompensatingInput(pinocchioInterface, flags, model);
     const vector_t stateAwareFromPinocchio =
@@ -307,7 +309,7 @@ TEST(TestDynamicsHelperFunctions,
     // forces that sum to the robot weight.
     EXPECT_TRUE((stateAwareFromInfo - stateAwareFromPinocchio).isZero(1.0e-9));
     vector3_t forceComEwrtWorld = vector3_t::Zero();
-    for (size_t i = 0; i < kNumContacts; ++i) {
+    for (size_t i = 0; i < static_cast<size_t>(kBipedFootCount); ++i) {
       const vector3_t forceContactEwrtWorld =
           model.getForceContactEwrtWorld(state, stateAwareFromPinocchio, i);
       EXPECT_TRUE((forceContactEwrtWorld -
@@ -357,9 +359,9 @@ TEST(TestDynamicsHelperFunctions,
       vector_t state = model.getNeutralState();
       model.setEulerzyxBaseRtWorld(state, vector3_t(0.3, 0.0, 0.0));
 
-      for (const contact_flag_t& flags :
-           {contact_flag_t{true, true}, contact_flag_t{true, false},
-            contact_flag_t{false, true}}) {
+      for (const BipedFeetArray<bool>& flags :
+           {BipedFeetArray<bool>{true, true}, BipedFeetArray<bool>{true, false},
+            BipedFeetArray<bool>{false, true}}) {
         SCOPED_TRACE(absl::StrCat(robot->taskFile, ", round ", round,
                                   ", contacts {", flags[0], ", ", flags[1],
                                   "}"));
@@ -372,7 +374,7 @@ TEST(TestDynamicsHelperFunctions,
             weightCompensatingInput(info, flags, model, state)};
         for (const vector_t& input : inputs) {
           vector3_t forceComEwrtWorld = vector3_t::Zero();
-          for (size_t i = 0; i < kNumContacts; ++i) {
+          for (size_t i = 0; i < static_cast<size_t>(kBipedFootCount); ++i) {
             forceComEwrtWorld +=
                 model.getForceContactEwrtWorld(state, input, i);
           }

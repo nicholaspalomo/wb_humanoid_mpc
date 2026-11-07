@@ -47,7 +47,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/multibody/fwd.hpp"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsLinearVelConstraint.h"
 #include "humanoid_common_mpc/contact_swing/ContactSwingPlanner.h"
@@ -71,7 +70,9 @@ HumanoidPreComputation::HumanoidPreComputation(
   // theirs has no swing references here, and its terms read the contact's
   // patch instead (ZeroVelocityConstraintCppAd).
   const size_t numPlannedFeet =
-      mpcRobotModel.modelSettings.isBipedContactSet() ? kNumContacts : 0;
+      mpcRobotModel.modelSettings.isBipedContactSet()
+          ? mpcRobotModel.modelSettings.contactNames.size()
+          : 0;
   eeNormalVelConConfigs_.resize(numPlannedFeet);
   desPosFeetRtWorldEwrtWorldZ_.resize(numPlannedFeet);
   for (size_t i = 0; i < numPlannedFeet; ++i) {

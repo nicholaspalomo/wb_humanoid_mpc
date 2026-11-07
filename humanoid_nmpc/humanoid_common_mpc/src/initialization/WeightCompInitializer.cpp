@@ -34,8 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
-#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
@@ -78,8 +78,7 @@ void WeightCompInitializer::compute(scalar_t time,
                                     scalar_t /*nextTime*/,
                                     vector_t& input,
                                     vector_t& nextState) {
-  const contact_flag_t contactFlags =
-      referenceManagerPtr_->getContactFlags(time);
+  const ContactMask contactFlags = referenceManagerPtr_->getContactFlags(time);
   input = weightCompensatingInput(*pinocchioInterfacePtr_, contactFlags,
                                   *mpcRobotModelPtr_);
   nextState = state;

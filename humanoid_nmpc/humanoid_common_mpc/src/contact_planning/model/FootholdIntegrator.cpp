@@ -34,11 +34,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/log/check.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/TwoContactCount.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
@@ -52,9 +53,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-static_assert(
-    kNumContacts == kBipedFootCount,
-    "the foothold block lays out two feet (kLipPlx..kLipPry, kLipDlx..kLipCr)");
+absl::Status FootholdIntegrator::validateContactSet(size_t numContacts) const {
+  // The block lays out two feet (kLipPlx..kLipPry, kLipDlx..kLipCr).
+  return checkTwoContactCount(/*component=*/"FootholdIntegrator", numContacts);
+}
 
 std::string FootholdIntegrator::describe() const {
   return absl::StrCat("p_{i,k+1} = p_{i,k} + dp_{i,k}, |dp| <= bigM = ", bigM_,
@@ -77,15 +79,15 @@ void FootholdIntegrator::bind(const Layout& layout) {
 }
 
 void FootholdIntegrator::declareVariables(LayoutBuilder& layout) const {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < ContactLogicState::kNumFeet; ++foot) {
     layout.addState(var::posFootRtWorldEwrtWorldX(foot));
     layout.addState(var::posFootRtWorldEwrtWorldY(foot));
   }
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < ContactLogicState::kNumFeet; ++foot) {
     layout.addInput(var::errPosFootRtWorldEwrtWorldX(foot));
     layout.addInput(var::errPosFootRtWorldEwrtWorldY(foot));
   }
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < ContactLogicState::kNumFeet; ++foot) {
     layout.addInput(var::contact(foot));
   }
 }
@@ -93,7 +95,7 @@ void FootholdIntegrator::declareVariables(LayoutBuilder& layout) const {
 void FootholdIntegrator::addDynamics(const ContactPlanningContext& /*ctx*/,
                                      int /*node*/,
                                      OcpQpStage& s) const {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < ContactLogicState::kNumFeet; ++foot) {
     for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       s.A(idx_.posFeetRtWorldEwrtWorld[foot][axis],
           idx_.posFeetRtWorldEwrtWorld[foot][axis]) = 1.0;
@@ -107,19 +109,19 @@ void FootholdIntegrator::addInputBounds(const ContactPlanningContext& ctx,
                                         int /*node*/,
                                         InputBoundsBuilder& bounds) const {
   const scalar_t M = ctx.bigM;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < ContactLogicState::kNumFeet; ++foot) {
     for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       bounds.add(idx_.errPosFeetRtWorldEwrtWorld[foot][axis], -M, M);
     }
   }
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < ContactLogicState::kNumFeet; ++foot) {
     bounds.add(idx_.contact[foot], /*lower=*/0.0, /*upper=*/1.0);
   }
 }
 
 void FootholdIntegrator::setInitialState(const ContactPlanningContext& ctx,
                                          vector_t& x0) const {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < ContactLogicState::kNumFeet; ++foot) {
     for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
       x0(idx_.posFeetRtWorldEwrtWorld[foot][axis]) =
           ctx.input->posFeetRtWorldEwrtWorldXy[foot](axis);
@@ -135,13 +137,13 @@ void FootholdIntegrator::decode(const ContactPlanningContext& ctx,
   plan.contacts.resize(static_cast<size_t>(N));
   for (int k = 0; k <= N; ++k) {
     const vector_t& x = result.solution.x[static_cast<size_t>(k)];
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < ContactLogicState::kNumFeet; ++foot) {
       plan.desPosFeetRtWorldEwrtWorldXyTraj[static_cast<size_t>(k)][foot] =
           vector2_t(x(idx_.posFeetRtWorldEwrtWorld[foot][0]),
                     x(idx_.posFeetRtWorldEwrtWorld[foot][1]));
     }
     if (k < N) {
-      for (size_t foot = 0; foot < kNumContacts; ++foot) {
+      for (size_t foot = 0; foot < ContactLogicState::kNumFeet; ++foot) {
         plan.contacts[static_cast<size_t>(k)][foot] =
             result.assignment[static_cast<size_t>(
                 ContactLogicState::contactBinaryIndex(k, foot))] == 1;
@@ -152,7 +154,7 @@ void FootholdIntegrator::decode(const ContactPlanningContext& ctx,
 
 std::vector<int> FootholdIntegrator::binaryInputs() const {
   std::vector<int> binaries;
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < ContactLogicState::kNumFeet; ++foot) {
     binaries.push_back(idx_.contact[foot]);
   }
   return binaries;

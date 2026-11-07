@@ -78,6 +78,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+
 constexpr char kTaskFile[] =
     "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto";
 constexpr char kUrdfFile[] =
@@ -147,7 +149,7 @@ class WBContactWrenchConeCreateTest : public ::testing::Test {
     ASSERT_TRUE(swingConfig.ok()) << swingConfig.status();
     referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(
         *std::move(gaitSchedule),
-        std::make_unique<SwingTrajectoryPlanner>(*swingConfig, kNumContacts),
+        std::make_unique<SwingTrajectoryPlanner>(*swingConfig, kNumFeet),
         *pinocchioInterface_, *model_);
   }
 

@@ -69,7 +69,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
 #include "humanoid_common_mpc/constraint/FrictionForceConeConstraint.h"
 #include "humanoid_common_mpc/constraint/GroundPenetrationConstraint.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
@@ -549,18 +549,18 @@ class ContactImplicitProblemTest : public ContactImplicitFormulationTest {
    * outside the window keep the gait schedule from tiling its template over it.
    */
   void scheduleOneSwing(size_t swingFoot) const {
-    contact_flag_t swingFlags = makeFeetArray(true);
+    BipedFeetArray<bool> swingFlags = makeBipedFeetArray(true);
     swingFlags[swingFoot] = false;
     const ModeSchedule schedule({-10.0, kSwingStart, kSwingEnd, 10.0},
-                                {ModeNumber::kStance, ModeNumber::kStance,
-                                 stanceLeg2ModeNumber(swingFlags),
-                                 ModeNumber::kStance, ModeNumber::kStance});
+                                {kBipedModeStance, kBipedModeStance,
+                                 bipedModeOfFootContacts(swingFlags),
+                                 kBipedModeStance, kBipedModeStance});
     SwitchedModelReferenceManager& referenceManager =
         *interface_->getSwitchedModelReferenceManagerPtr();
     referenceManager.getGaitSchedule()->updateModeSchedule(schedule);
     referenceManager.preSolverRun(kSwingStart - 0.2, kSwingEnd + 0.5,
                                   interface_->getInitialState(),
-                                  ModeNumber::kStance);
+                                  kBipedModeStance);
   }
 
   static constexpr scalar_t kSwingStart = 0.0;

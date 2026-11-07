@@ -53,7 +53,7 @@ void FootYawTrackingCost::configure(const ContactPlanningConfig& config) {
 void FootYawTrackingCost::addToStage(const ContactPlanningContext& ctx,
                                      int node,
                                      StageAccumulator& stage) const {
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     stage.addQuadraticResidual(
         {{idx_.eulerzyxFeetRtWorldYaw[foot], 1.0}}, /*uCoefficients=*/{},
         -ctx.nominal->nomHeadingModelYawTraj[static_cast<size_t>(node)],

@@ -73,7 +73,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "support/ShippedCentroidalRobot.h"
 #include "support/TypedConfigFiles.h"
@@ -113,6 +113,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 constexpr scalar_t kFiniteDifferenceStep = 1.0e-6;
 constexpr scalar_t kFiniteDifferenceTolerance = 1.0e-5;
@@ -428,9 +430,8 @@ class QuaternionInvariances
     const vector_t x0 = interface_->getInitialState();
     const ModeSchedule schedule(
         {0.2, 0.55, 0.65, 1.0, 1.1, 1.45},
-        {ModeNumber::kStance, ModeNumber::kLf, ModeNumber::kStance,
-         ModeNumber::kRf, ModeNumber::kStance, ModeNumber::kLf,
-         ModeNumber::kStance});
+        {kBipedModeStance, kBipedModeLf, kBipedModeStance, kBipedModeRf,
+         kBipedModeStance, kBipedModeLf, kBipedModeStance});
     vector_t start = x0;
     start(0) = 0.4;  // forward normalized momentum: a walking command
     vector_t end = start;
@@ -447,7 +448,7 @@ class QuaternionInvariances
         {u0, u0}));
     referenceManager->preSolverRun(/*initTime=*/0.0, /*finalTime=*/kFinalTime,
                                    turnedState(model(), x0, angle),
-                                   ModeNumber::kStance);
+                                   kBipedModeStance);
     problem().targetTrajectoriesPtr =
         &referenceManager->getTargetTrajectories();
   }
@@ -470,7 +471,7 @@ class QuaternionInvariances
     }
     model().setJointAngles(state, joints);
     vector_t input = weightCompensatingInput(
-        interface_->getCentroidalModelInfo(), contact_flag_t{true, true},
+        interface_->getCentroidalModelInfo(), BipedFeetArray<bool>{true, true},
         effectiveModel, state);
     for (Eigen::Index i = 0; i < input.size(); ++i) {
       input(i) *= 1.0 + 0.1 * std::sin(0.7 * static_cast<scalar_t>(i));
@@ -513,7 +514,7 @@ class QuaternionInvariances
         interface_->getEffectiveMpcRobotModel();
     if (effectiveModel.getInputDim() != model().getInputDim()) return input;
     vector_t turned = input;
-    for (size_t contact = 0; contact < kNumContacts; ++contact) {
+    for (size_t contact = 0; contact < kNumFeet; ++contact) {
       model().setForceContactEwrtParam(
           turned,
           turnedAboutZ(angle, model().getForceContactEwrtParam(input, contact)),
@@ -693,7 +694,7 @@ TEST_P(QuaternionInvariances,
                      interface_->getInitializer());
     solver.setReferenceManager(interface_->getReferenceManagerPtr());
     const ProblemPoint start = pointAt(/*time=*/0.0, eulerzyxBaseRtWorld);
-    solver.run(/*initTime=*/0.0, start.state, ModeNumber::kStance,
+    solver.run(/*initTime=*/0.0, start.state, kBipedModeStance,
                /*finalTime=*/interface_->mpcSettings().timeHorizon_);
     PrimalSolution solution;
     solver.getPrimalSolution(interface_->mpcSettings().timeHorizon_, &solution);

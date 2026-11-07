@@ -55,7 +55,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/mrt/JointActionAccess.h"
@@ -147,7 +147,7 @@ PrimalSolution policyOf(std::unique_ptr<ControllerBase> controller,
   policy.inputTrajectory_ = {input, input};
   policy.modeSchedule_ = ModeSchedule(
       /*eventTimesInput=*/{},
-      /*modeSequenceInput=*/{static_cast<size_t>(ModeNumber::kStance)});
+      /*modeSequenceInput=*/{kBipedModeStance});
   policy.controllerPtr_ = std::move(controller);
   return policy;
 }
@@ -339,7 +339,7 @@ TEST(CentroidalMpcMrtPolicyExecution,
       plan.inputTrajectory_ = {input, input + vector_t::Constant(nu, 0.4)};
       plan.modeSchedule_ = ModeSchedule(
           /*eventTimesInput=*/{},
-          /*modeSequenceInput=*/{static_cast<size_t>(ModeNumber::kStance)});
+          /*modeSequenceInput=*/{kBipedModeStance});
       const matrix_t scaledGain = gainScale * gain;
       plan.controllerPtr_ = std::make_unique<ManifoldLinearController>(
           plan.timeTrajectory_, plan.stateTrajectory_, plan.inputTrajectory_,

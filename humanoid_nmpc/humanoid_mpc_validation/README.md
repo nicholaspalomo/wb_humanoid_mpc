@@ -262,6 +262,10 @@ URDF, named in the `joint_names` note), `contact_flags` and `gui_command`. It is
 state, so states recorded with one formulation drive another through the same observation path.
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/RecordedRobotStates.cpp:recorded_state_labels) -->
 
+`contact_flags` has a column per contact of the robot's contact set, in contact order: two for a biped. The benchmark
+replays a recording only on a robot of the same contact count (`toRobotState()` refuses another), and the closed-loop
+metrics measure the stance phases of every contact.
+
 ## Tests
 
 | Target | What it checks |

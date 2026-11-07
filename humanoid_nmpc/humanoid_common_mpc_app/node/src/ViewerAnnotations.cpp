@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
 #include "humanoid_mpc_msgs/target_contact_patch.pb.h"
@@ -79,7 +80,7 @@ void targetContactPatchToProto(
 }
 
 void fillViewerAnnotations(
-    const feet_array_t<TargetContactPose>* absl_nullable desPoseFeetRtWorld,
+    const BipedFeetArray<TargetContactPose>* absl_nullable desPoseFeetRtWorld,
     const WalkingVelocityCommand& scaledVelocityCommand,
     humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
   annotations->Clear();

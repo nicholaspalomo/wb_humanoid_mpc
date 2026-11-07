@@ -63,7 +63,7 @@ scalar_t DoubleSupportPenaltyCost::cost(const ContactLogicState& s,
     // assignment and could discard the optimum. Skipping it keeps the cost a
     // lower bound, exact once the assignment is complete.
     bool allInContact = true;
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
       allInContact =
           allInContact &&
           a[static_cast<size_t>(S::contactBinaryIndex(k, foot))] == 1;

@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
@@ -395,20 +396,20 @@ class ContactPlanningReferenceManager final
    * foot's swing in flight or of its next swing, or its placement. Every pose
    * is invalid while no plan is active.
    */
-  feet_array_t<TargetContactPose> getDesPoseFeetRtWorld() const;
+  BipedFeetArray<TargetContactPose> getDesPoseFeetRtWorld() const;
 
   // Introspection of the adaptive execution (solver thread only; for tests and
   // telemetry).
-  const feet_array_t<ContactEventReport>& getLastContactEvents() const {
+  const BipedFeetArray<ContactEventReport>& getLastContactEvents() const {
     return lastContactEvents_;
   }
-  const feet_array_t<SwingTimingLatch>& getSwingTimingLatches() const {
+  const BipedFeetArray<SwingTimingLatch>& getSwingTimingLatches() const {
     return swingLatches_;
   }
-  const feet_array_t<vector2_t>& getErrPosFeetRtWorldEwrtWorldXy() const {
+  const BipedFeetArray<vector2_t>& getErrPosFeetRtWorldEwrtWorldXy() const {
     return errPosFeetRtWorldEwrtWorldXy_;
   }
-  const feet_array_t<scalar_t>& getCadenceTouchDownShift() const {
+  const BipedFeetArray<scalar_t>& getCadenceTouchDownShift() const {
     return cadenceTouchDownShift_;
   }
 
@@ -463,10 +464,11 @@ class ContactPlanningReferenceManager final
   /** Foot positions from the state; latches the lift-off position of every foot
    * while it is in contact. */
   void updateFootBookkeeping(scalar_t initTime, const vector_t& initState);
-  feet_array_t<vector3_t> computePosFeetRtWorldEwrtWorld(const vector_t& state);
+  BipedFeetArray<vector3_t> computePosFeetRtWorldEwrtWorld(
+      const vector_t& state);
   /** Foot ZYX yaws from the frame placements computed by the last
    * computePosFeetRtWorldEwrtWorld() call. */
-  feet_array_t<scalar_t> readEulerzyxFeetRtWorldYaw() const;
+  BipedFeetArray<scalar_t> readEulerzyxFeetRtWorldYaw() const;
   /** [kg m^2] The composite rotational inertia about the center of mass at
    * `state`, in world axes. Overwrites the Pinocchio data's composite terms. */
   matrix3_t computeInertiaComEwrtWorld(const vector_t& state);
@@ -602,23 +604,24 @@ class ContactPlanningReferenceManager final
   // default constructor: it is seeded with an empty target, which
   // captureOperatorCommand() reads as "no command yet".
   BufferedValue<TargetTrajectories> operatorTarget_{TargetTrajectories()};
-  feet_array_t<scalar_t> eulerzyxFeetRtWorldYaw_ = makeFeetArray(0.0);
-  feet_array_t<scalar_t> liftoffEulerzyxFeetRtWorldYaw_ = makeFeetArray(0.0);
+  BipedFeetArray<scalar_t> eulerzyxFeetRtWorldYaw_ = makeBipedFeetArray(0.0);
+  BipedFeetArray<scalar_t> liftoffEulerzyxFeetRtWorldYaw_ =
+      makeBipedFeetArray(0.0);
 
-  feet_array_t<vector3_t> posFeetRtWorldEwrtWorld_ =
-      makeFeetArray(vector3_t(vector3_t::Zero()));
-  feet_array_t<vector3_t> liftoffPosFeetRtWorldEwrtWorld_ =
-      makeFeetArray(vector3_t(vector3_t::Zero()));
+  BipedFeetArray<vector3_t> posFeetRtWorldEwrtWorld_ =
+      makeBipedFeetArray(vector3_t(vector3_t::Zero()));
+  BipedFeetArray<vector3_t> liftoffPosFeetRtWorldEwrtWorld_ =
+      makeBipedFeetArray(vector3_t(vector3_t::Zero()));
   bool footBookkeepingInitialized_ = false;
 
   // Adaptive execution state (solver thread).
-  feet_array_t<SwingTimingLatch> swingLatches_ =
-      makeFeetArray(SwingTimingLatch{});
-  feet_array_t<ContactEventReport> lastContactEvents_ =
-      makeFeetArray(ContactEventReport{});
-  feet_array_t<scalar_t> cadenceTouchDownShift_ = makeFeetArray(0.0);
-  feet_array_t<vector2_t> errPosFeetRtWorldEwrtWorldXy_ =
-      makeFeetArray(vector2_t(vector2_t::Zero()));
+  BipedFeetArray<SwingTimingLatch> swingLatches_ =
+      makeBipedFeetArray(SwingTimingLatch{});
+  BipedFeetArray<ContactEventReport> lastContactEvents_ =
+      makeBipedFeetArray(ContactEventReport{});
+  BipedFeetArray<scalar_t> cadenceTouchDownShift_ = makeBipedFeetArray(0.0);
+  BipedFeetArray<vector2_t> errPosFeetRtWorldEwrtWorldXy_ =
+      makeBipedFeetArray(vector2_t(vector2_t::Zero()));
   HorizontalComState comState_;  // at the current solver run
   std::mutex predictionMutex_;
   scalar_array_t predictedTimes_;  // NMPC prediction handed over after the
@@ -632,8 +635,8 @@ class ContactPlanningReferenceManager final
   std::atomic<bool> replanRequested_{false};
 
   mutable std::mutex targetContactMutex_;
-  feet_array_t<TargetContactPose> desPoseFeetRtWorld_ =
-      makeFeetArray(TargetContactPose{});  // read by the control thread
+  BipedFeetArray<TargetContactPose> desPoseFeetRtWorld_ =
+      makeBipedFeetArray(TargetContactPose{});  // read by the control thread
 };
 
 }  // namespace ocs2::humanoid

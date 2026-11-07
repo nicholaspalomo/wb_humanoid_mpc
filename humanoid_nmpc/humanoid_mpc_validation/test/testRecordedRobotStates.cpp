@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "Eigen/Geometry"
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
@@ -58,11 +59,15 @@ constexpr char kG1Urdf[] =
 constexpr char kAtlasUrdf[] =
     "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
 
+// The contact set of a biped: its two feet.
+constexpr size_t kNumFeet = 2;
+
 robot::model::RobotState randomState(
     const robot::model::RobotDescription& description,
-    std::mt19937& generator) {
+    std::mt19937& generator,
+    size_t numContacts) {
   std::uniform_real_distribution<double> uniform(-1.0, 1.0);
-  robot::model::RobotState state(description, /*contactSize=*/2);
+  robot::model::RobotState state(description, /*contactSize=*/numContacts);
   state.setTime(12.345 + uniform(generator));
   state.setPosBaseRtWorldEwrtWorld(Eigen::Vector3d(
       uniform(generator), uniform(generator), 0.8 + 0.1 * uniform(generator)));
@@ -75,8 +80,9 @@ robot::model::RobotState randomState(
     state.setJointPosition(joint, uniform(generator));
     state.setJointVelocity(joint, 10.0 * uniform(generator));
   }
-  state.setContactFlag(/*index=*/0, uniform(generator) > 0.0);
-  state.setContactFlag(/*index=*/1, uniform(generator) > 0.0);
+  for (size_t contact = 0; contact < numContacts; ++contact) {
+    state.setContactFlag(contact, uniform(generator) > 0.0);
+  }
   return state;
 }
 
@@ -90,14 +96,15 @@ TEST(RecordedRobotStates, ARecordingReadsBackAsTheStatesThatWereRecorded) {
   recording.jointNames = description.getJointNames();
   std::vector<robot::model::RobotState> states;
   for (int k = 0; k < 5; ++k) {
-    states.push_back(randomState(description, generator));
+    states.push_back(randomState(description, generator, kNumFeet));
     recording.records.push_back(recordRobotState(
         states.back(), description, Eigen::Vector4d(0.1 * k, -0.2, 0.79, 0.3)));
   }
   GoldenProvenance provenance;
   provenance.gitCommit = "c331ddd";
-  const GoldenFile golden = toGoldenFile(recording, provenance);
-  const absl::StatusOr<std::string> text = formatGoldenFile(golden);
+  const absl::StatusOr<GoldenFile> golden = toGoldenFile(recording, provenance);
+  ASSERT_TRUE(golden.ok()) << golden.status();
+  const absl::StatusOr<std::string> text = formatGoldenFile(*golden);
   ASSERT_TRUE(text.ok()) << text.status();
   const absl::StatusOr<GoldenFile> parsed = parseGoldenFile(*text);
   ASSERT_TRUE(parsed.ok()) << parsed.status();
@@ -108,7 +115,7 @@ TEST(RecordedRobotStates, ARecordingReadsBackAsTheStatesThatWereRecorded) {
 
   for (size_t k = 0; k < states.size(); ++k) {
     const absl::StatusOr<robot::model::RobotState> state =
-        toRobotState(read->records[k], read->jointNames, description);
+        toRobotState(read->records[k], read->jointNames, description, kNumFeet);
     ASSERT_TRUE(state.ok()) << state.status();
     const robot::model::RobotState& expected = states[k];
     EXPECT_EQ(state->getTime(), expected.getTime());
@@ -140,7 +147,8 @@ TEST(RecordedRobotStates, JointsAreMatchedByNameWhateverTheirOrder) {
   ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
   const robot::model::RobotDescription& description = *descriptionOrStatus;
   std::mt19937 generator(11);
-  const robot::model::RobotState state = randomState(description, generator);
+  const robot::model::RobotState state =
+      randomState(description, generator, kNumFeet);
   const RobotStateRecord record =
       recordRobotState(state, description, Eigen::Vector4d::Zero());
   const std::vector<std::string>& names = description.getJointNames();
@@ -158,7 +166,7 @@ TEST(RecordedRobotStates, JointsAreMatchedByNameWhateverTheirOrder) {
         record.jointVelocities(static_cast<Eigen::Index>(order[i]));
   }
   const absl::StatusOr<robot::model::RobotState> read =
-      toRobotState(reordered, reorderedNames, description);
+      toRobotState(reordered, reorderedNames, description, kNumFeet);
   ASSERT_TRUE(read.ok()) << read.status();
   for (const robot::joint_index_t joint : description.getJointIndices()) {
     EXPECT_EQ(read->getJointPosition(joint), state.getJointPosition(joint));
@@ -167,8 +175,9 @@ TEST(RecordedRobotStates, JointsAreMatchedByNameWhateverTheirOrder) {
 
   std::vector<std::string> duplicated = names;
   duplicated.back() = duplicated.front();
-  EXPECT_EQ(toRobotState(record, duplicated, description).status().code(),
-            absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(
+      toRobotState(record, duplicated, description, kNumFeet).status().code(),
+      absl::StatusCode::kInvalidArgument);
 }
 
 TEST(RecordedRobotStates, ARecordingRefusesAnotherRobot) {
@@ -181,24 +190,70 @@ TEST(RecordedRobotStates, ARecordingRefusesAnotherRobot) {
   ASSERT_TRUE(atlasOrStatus.ok()) << atlasOrStatus.status();
   const robot::model::RobotDescription& atlas = *atlasOrStatus;
   std::mt19937 generator(3);
-  const RobotStateRecord record =
-      recordRobotState(randomState(g1, generator), g1, Eigen::Vector4d::Zero());
-  EXPECT_EQ(toRobotState(record, g1.getJointNames(), atlas).status().code(),
-            absl::StatusCode::kInvalidArgument);
+  const RobotStateRecord record = recordRobotState(
+      randomState(g1, generator, kNumFeet), g1, Eigen::Vector4d::Zero());
+  EXPECT_EQ(
+      toRobotState(record, g1.getJointNames(), atlas, kNumFeet).status().code(),
+      absl::StatusCode::kInvalidArgument);
 
-  GoldenFile withoutNames =
+  absl::StatusOr<GoldenFile> golden =
       toGoldenFile(RecordedRobotStates{.jointNames = g1.getJointNames(),
                                        .records = {record}},
                    GoldenProvenance());
+  ASSERT_TRUE(golden.ok()) << golden.status();
+  GoldenFile withoutNames = *golden;
   withoutNames.provenance.notes.clear();
   EXPECT_EQ(fromGoldenFile(withoutNames).status().code(),
             absl::StatusCode::kInvalidArgument);
-  GoldenFile truncated =
-      toGoldenFile(RecordedRobotStates{.jointNames = g1.getJointNames(),
-                                       .records = {record}},
-                   GoldenProvenance());
+  GoldenFile truncated = *golden;
   truncated.entries.pop_back();
   EXPECT_EQ(fromGoldenFile(truncated).status().code(),
+            absl::StatusCode::kInvalidArgument);
+}
+
+// A recording holds the flags of the contact set it was recorded with, of any
+// size, and is replayed on a robot of that set only.
+TEST(RecordedRobotStates, ARecordingKeepsItsContactSetAndRefusesAnother) {
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus =
+      robot::model::RobotDescription::Create(kG1Urdf);
+  ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
+  const robot::model::RobotDescription& description = *descriptionOrStatus;
+  constexpr size_t kNumQuadrupedFeet = 4;
+  std::mt19937 generator(5);
+  RecordedRobotStates recording;
+  recording.jointNames = description.getJointNames();
+  std::vector<robot::model::RobotState> states;
+  for (int k = 0; k < 4; ++k) {
+    states.push_back(randomState(description, generator, kNumQuadrupedFeet));
+    recording.records.push_back(
+        recordRobotState(states.back(), description, Eigen::Vector4d::Zero()));
+  }
+  const absl::StatusOr<GoldenFile> golden =
+      toGoldenFile(recording, GoldenProvenance());
+  ASSERT_TRUE(golden.ok()) << golden.status();
+  const golden_matrix_t* absl_nullable contactFlags =
+      golden->find("contact_flags");
+  ASSERT_NE(contactFlags, nullptr);
+  EXPECT_EQ(contactFlags->cols(), static_cast<Eigen::Index>(kNumQuadrupedFeet));
+  const absl::StatusOr<RecordedRobotStates> read = fromGoldenFile(*golden);
+  ASSERT_TRUE(read.ok()) << read.status();
+  for (size_t k = 0; k < states.size(); ++k) {
+    const absl::StatusOr<robot::model::RobotState> state = toRobotState(
+        read->records[k], read->jointNames, description, kNumQuadrupedFeet);
+    ASSERT_TRUE(state.ok()) << state.status();
+    EXPECT_EQ(state->getContactFlags(), states[k].getContactFlags());
+  }
+  EXPECT_EQ(
+      toRobotState(read->records[0], read->jointNames, description, kNumFeet)
+          .status()
+          .code(),
+      absl::StatusCode::kInvalidArgument);
+
+  // Records of two contact sets make no recording.
+  recording.records.push_back(
+      recordRobotState(randomState(description, generator, kNumFeet),
+                       description, Eigen::Vector4d::Zero()));
+  EXPECT_EQ(toGoldenFile(recording, GoldenProvenance()).status().code(),
             absl::StatusCode::kInvalidArgument);
 }
 

@@ -127,7 +127,7 @@ class HlipContactPlanner final : public ContactPlannerInterface {
     // A phase shorter than half a node can end on the node it starts on and
     // then covers no interval at all.
     int endNode = 0;
-    contact_flag_t contacts = makeFeetArray(true);
+    BipedFeetArray<bool> contacts = makeBipedFeetArray(true);
     int swingFoot = -1;
 
     scalar_t duration() const { return endTime - startTime; }
@@ -143,15 +143,18 @@ class HlipContactPlanner final : public ContactPlannerInterface {
   /**
    * Builds the planner of a configuration. Returns the Status of
    * ContactPlanningConfig::validateStatus() when the configuration does not
-   * validate, and the H-LIP model's when its cadence or pendulum is out of
-   * bounds.
+   * validate, the H-LIP model's when its cadence or pendulum is out of
+   * bounds, and an InvalidArgument naming the planner when
+   * shared.numContacts is not two: the gait is a left and a right foot
+   * stepping in turn (checkTwoContactCount()).
    */
   static absl::StatusOr<std::unique_ptr<HlipContactPlanner>> Create(
       ContactPlanningConfig config);
 
   ContactPlan plan(const ContactPlannerInput& input) override;
-  /** Refuses a configuration that does not validate (or whose H-LIP model
-   * cannot be built) and keeps the running one. */
+  /** Refuses a configuration that does not validate, whose H-LIP model
+   * cannot be built or whose contact set is not two feet, and keeps the
+   * running one. */
   absl::Status setConfig(const ContactPlanningConfig& config) override;
   /** The planner keeps nothing between plans, so this does nothing; it exists
    * for the interface. */
@@ -166,7 +169,8 @@ class HlipContactPlanner final : public ContactPlannerInterface {
    * fits `hlip.maxPosLfootRtRfootEwrtHeadingY` and, when it does not, whether
    * the reduced model recovers from the clipped step or locks
    * (computeStartUpNormPosLfootRtRfootEwrtHeadingYTraj). InvalidArgument when
-   * the configuration's H-LIP model cannot be built (HlipModel::Create()).
+   * the configuration's H-LIP model cannot be built (HlipModel::Create()) or
+   * its contact set is not two feet.
    */
   static absl::StatusOr<std::string> formulationSummary(
       const ContactPlanningConfig& config);
@@ -352,9 +356,10 @@ class HlipContactPlanner final : public ContactPlannerInterface {
                                    // phase's heading frame
     HlipModel::State stateY = HlipModel::State::Zero();
     // during the phase: a swinging foot at its landing spot
-    feet_array_t<vector2_t> desPosFeetRtWorldEwrtWorldXy{};
+    BipedFeetArray<vector2_t> desPosFeetRtWorldEwrtWorldXy{};
     // the planned ZYX yaw of every foot during the phase
-    feet_array_t<scalar_t> desEulerzyxFeetRtWorldYaw = makeFeetArray(0.0);
+    BipedFeetArray<scalar_t> desEulerzyxFeetRtWorldYaw =
+        makeBipedFeetArray(0.0);
   };
 
   /** The roll-out of a whole gait, one entry per phase, and how many of its
@@ -402,7 +407,7 @@ class HlipContactPlanner final : public ContactPlannerInterface {
   /** Blends the center of mass and the phase ZMPs of a standing plan towards
    * the center of `posFeetRtWorldEwrtWorldXy` by `alpha`. */
   static void blendTowardsStanding(
-      const feet_array_t<vector2_t>& posFeetRtWorldEwrtWorldXy,
+      const BipedFeetArray<vector2_t>& posFeetRtWorldEwrtWorldXy,
       scalar_t alpha,
       ContactPlan& plan);
   /** Fills the per-interval contacts and ZMP and the continuous-time phases of

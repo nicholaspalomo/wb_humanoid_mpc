@@ -90,6 +90,7 @@ RobotConfigurationCheckContext robotConfigurationCheckContext(
   context.mpcJointNames = modelSettings.mpcModelJointNames;
   context.otherJointNames = modelSettings.fixedJointNames;
   context.contactEstimators = contactEstimators;
+  context.numContacts = modelSettings.numContacts();
   context.backendName = options.backend;
   context.backendOptions = backendOptions;
   return context;

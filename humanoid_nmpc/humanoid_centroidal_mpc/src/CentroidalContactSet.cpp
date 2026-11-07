@@ -78,7 +78,7 @@ constexpr std::array<MpcHardConstraintType, 2> kBipedOnlyHardConstraints = {
     MpcHardConstraintType::kNormalVelocity,
     MpcHardConstraintType::kKneeJointMimic,
 };
-// LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/test/testMixedContactSet.cpp:biped_only_terms, //humanoid_nmpc/docs/multi_contact_planning/README.md:biped_only_terms)
+// LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/test/testMixedContactSet.cpp:biped_only_terms, //humanoid_nmpc/humanoid_centroidal_mpc/test/testPointContactQuadrupedLikeSet.cpp:biped_only_terms, //humanoid_nmpc/docs/multi_contact_planning/README.md:biped_only_terms)
 
 /** "name (3-DoF), ..." of the contacts of `modelSettings`, in input order. */
 std::string describeContactSet(const ModelSettings& modelSettings) {
@@ -145,13 +145,19 @@ absl::Status checkCentroidalContactSet(const ModelSettings& modelSettings,
         absl::StrCat("contact_schedule_source '",
                      contactScheduleSourceName(contactScheduleSource), "'"));
   }
-  // The basis-vector parameterization: one wrench cone basis per foot.
+  // The basis-vector parameterization: one wrench cone basis per 6-DoF
+  // contact, for any number of them. Its generator sets span a 6-DoF contact's
+  // wrench cone over its footprint; none exists for a 3-DoF contact's force
+  // cone, so a set with a point contact is refused.
   ASSIGN_OR_RETURN(const ContactInputParameterization contactInputs,
                    contactInputParameterizationFromConfig(task));
-  if (contactInputs != ContactInputParameterization::kWrench) {
+  if (contactInputs != ContactInputParameterization::kWrench &&
+      !modelSettings.contactNames3DoF.empty()) {
     refused.push_back(
         absl::StrCat("contact_input_parameterization '",
-                     contactInputParameterizationName(contactInputs), "'"));
+                     contactInputParameterizationName(contactInputs),
+                     "' (its generator sets are for 6-DoF contacts; the set "
+                     "has 3-DoF contacts)"));
   }
   // The locomotion heuristics: footholds, a base pose over the feet and
   // per-foot wrench offsets.

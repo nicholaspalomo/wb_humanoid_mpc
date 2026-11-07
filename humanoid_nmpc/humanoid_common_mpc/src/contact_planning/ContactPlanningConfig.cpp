@@ -762,7 +762,7 @@ absl::Status validateModelDerived(const ContactPlanningConfig& config) {
             .doubleSupportMaxTorqueFeetmeanEwrtWorldZ,
         "non-negative");
   }
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     const bool unset = config.hipYawRange.minYawFeetRtBase[foot] == 0.0 &&
                        config.hipYawRange.maxYawFeetRtBase[foot] == 0.0;
     if (!unset && !(config.hipYawRange.minYawFeetRtBase[foot] < 0.0 &&

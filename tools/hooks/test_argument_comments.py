@@ -172,7 +172,7 @@ class ExemptionsTest(unittest.TestCase):
             "std::atomic<bool> stopped(false);",
             "flag.store(true);",
             "srand(time(nullptr));",
-            "const feet_array_t<bool> all = makeFeetArray(true);",
+            "const BipedFeetArray<bool> all = makeBipedFeetArray(true);",
             "EXPECT_EQ(kind, std::optional<bool>(true));",
         ]:
             with self.subTest(source=source):

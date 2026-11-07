@@ -50,6 +50,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactCenterPoint.h"
@@ -1148,7 +1150,7 @@ TEST(NonNegativeBasisScalingsTest,
 
 // ==================== The CppAD library key ====================
 
-feet_array_t<matrix_t> basesFor(
+BipedFeetArray<matrix_t> basesFor(
     const ContactWrenchConeConstraint::Config& config,
     const ContactRectangle& rectangle,
     const std::string& generatorSet) {
@@ -1161,7 +1163,7 @@ TEST(BasisInputsLibraryKeyTest,
      IsDeterministicAndSeparatesEveryParameterization) {
   const std::string conservative(kConservativeInnerApproximationGeneratorSet);
   const std::string exact(kExactWrenchConeGeneratorSet);
-  const feet_array_t<matrix_t> reference =
+  const BipedFeetArray<matrix_t> reference =
       basesFor(makeTestConeConfig(), makeTestContactRectangle(), conservative);
   EXPECT_EQ(
       basisInputsLibraryKey(reference),
@@ -1185,35 +1187,56 @@ TEST(BasisInputsLibraryKeyTest,
   EXPECT_EQ(basisInputsLibraryKey(basesFor(
                 otherTorsion, makeTestContactRectangle(), conservative)),
             key);
-  const std::vector<feet_array_t<matrix_t>> others = {
+  const std::vector<BipedFeetArray<matrix_t>> others = {
       basesFor(makeTestConeConfig(), makeTestContactRectangle(), exact),
       basesFor(otherFriction, makeTestContactRectangle(), conservative),
       basesFor(makeTestConeConfig(8), makeTestContactRectangle(), conservative),
       basesFor(makeTestConeConfig(), makeRectangle(-0.10, 0.12, -0.05, 0.05),
                conservative),
   };
-  for (const feet_array_t<matrix_t>& other : others) {
+  for (const BipedFeetArray<matrix_t>& other : others) {
     EXPECT_NE(basisInputsLibraryKey(other), key);
   }
   // The two feet are part of the key: an asymmetric pair differs from a
   // symmetric one.
-  feet_array_t<matrix_t> mixed = reference;
+  BipedFeetArray<matrix_t> mixed = reference;
   mixed[1] = others[1][1];
   EXPECT_NE(basisInputsLibraryKey(mixed), key);
 }
 
-TEST(BasisInputsLibraryKeyTest, IgnoresRoundOffButNotRealChanges) {
-  const feet_array_t<matrix_t> reference =
+// The CppAD model folders of the shipped bipeds are keyed by this hash, so a
+// change of the serialization recompiles every robot's libraries. The value is
+// the hash of two equal conservative bases before the contact set became
+// generic in the number of contacts.
+TEST(BasisInputsLibraryKeyTest, TheHashOfTwoFeetIsPinned) {
+  const BipedFeetArray<matrix_t> bothFeet =
       basesFor(makeTestConeConfig(), makeTestContactRectangle(),
                std::string(kConservativeInnerApproximationGeneratorSet));
-  feet_array_t<matrix_t> roundOff = reference;
+  EXPECT_EQ(basisContentHash(bothFeet), uint64_t{15'996'273'781'376'581'007});
+  // The same two bases in the N-contact container hash the same.
+  const ContactArray<matrix_t> twoContacts(/*numContacts=*/2,
+                                           /*value=*/bothFeet[0]);
+  EXPECT_EQ(basisContentHash(twoContacts), basisContentHash(bothFeet));
+  // Every contact is part of the hash: a third contact changes it.
+  const ContactArray<matrix_t> threeContacts(/*numContacts=*/3,
+                                             /*value=*/bothFeet[0]);
+  EXPECT_NE(basisContentHash(threeContacts), basisContentHash(bothFeet));
+  EXPECT_TRUE(std::regex_match(basisInputsLibraryKey(threeContacts),
+                               std::regex("basis11_[0-9a-f]{16}")));
+}
+
+TEST(BasisInputsLibraryKeyTest, IgnoresRoundOffButNotRealChanges) {
+  const BipedFeetArray<matrix_t> reference =
+      basesFor(makeTestConeConfig(), makeTestContactRectangle(),
+               std::string(kConservativeInnerApproximationGeneratorSet));
+  BipedFeetArray<matrix_t> roundOff = reference;
   roundOff[0](0, 0) *= 1.0 + 1.0e-15;
   ASSERT_EQ(roundOff[1](0, 4), 0.0)
       << "the pure normal ray (column N = 4) has no tangential force";
   roundOff[1](0, 4) = -0.0;     // the sign of a zero entry
   roundOff[0](1, 4) = 6.0e-17;  // a zero that a libm computed as cos(pi / 2)
   EXPECT_EQ(basisContentHash(roundOff), basisContentHash(reference));
-  feet_array_t<matrix_t> changed = reference;
+  BipedFeetArray<matrix_t> changed = reference;
   changed[0](0, 0) += 1.0e-6;
   EXPECT_NE(basisContentHash(changed), basisContentHash(reference));
 }

@@ -35,19 +35,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <functional>
 #include <optional>
-#include <stdexcept>
-#include <string>
 #include <utility>
 #include <vector>
 
-#include "absl/log/log.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/misc/Lookup.h"
 #include "ocs2_core/misc/Numerics.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
-#include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/swing_foot_planner/CubicSpline.h"
 
 namespace ocs2::humanoid {
@@ -64,7 +61,12 @@ constexpr scalar_t kSmoothStepQuadraticCoefficient = 3.0;
 /******************************************************************************************************/
 
 SwingTrajectoryPlanner::SwingTrajectoryPlanner(Config config, size_t numFeet)
-    : config_(config), numFeet_(numFeet) {}
+    : config_(config),
+      numFeet_(numFeet),
+      swingWindows_(numFeet),
+      impactProximityTrajectories_(numFeet),
+      desPosFeetRtWorldEwrtWorldZTraj_(numFeet),
+      feetHeightTrajectoriesEvents_(numFeet) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -182,11 +184,10 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
       modeSchedule.modeSequence.size(),
       posSurfaceRtWorldEwrtWorldZ +
           config_.touchdownPosFootRtSurfaceEwrtWorldZ);
-  feet_array_t<scalar_array_t> liftoffPosFeetRtWorldEwrtWorldZTraj;
-  liftoffPosFeetRtWorldEwrtWorldZTraj.fill(posSurfaceRtWorldEwrtWorldZTraj);
-  feet_array_t<scalar_array_t> touchdownPosFeetRtWorldEwrtWorldZTraj;
-  touchdownPosFeetRtWorldEwrtWorldZTraj.fill(
-      touchdownPosFootRtWorldEwrtWorldZTraj);
+  const ContactArray<scalar_array_t> liftoffPosFeetRtWorldEwrtWorldZTraj(
+      numFeet_, posSurfaceRtWorldEwrtWorldZTraj);
+  const ContactArray<scalar_array_t> touchdownPosFeetRtWorldEwrtWorldZTraj(
+      numFeet_, touchdownPosFootRtWorldEwrtWorldZTraj);
   update(modeSchedule, liftoffPosFeetRtWorldEwrtWorldZTraj,
          touchdownPosFeetRtWorldEwrtWorldZTraj);
 }
@@ -197,11 +198,12 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
 
 void SwingTrajectoryPlanner::update(
     const ModeSchedule& modeSchedule,
-    const feet_array_t<scalar_array_t>& liftoffPosFeetRtWorldEwrtWorldZTraj,
-    const feet_array_t<scalar_array_t>& touchdownPosFeetRtWorldEwrtWorldZTraj) {
+    const ContactArray<scalar_array_t>& liftoffPosFeetRtWorldEwrtWorldZTraj,
+    const ContactArray<scalar_array_t>& touchdownPosFeetRtWorldEwrtWorldZTraj) {
   update(modeSchedule, liftoffPosFeetRtWorldEwrtWorldZTraj,
          touchdownPosFeetRtWorldEwrtWorldZTraj,
-         makeFeetArray(std::optional<GroundSearch>{}));
+         ContactArray<std::optional<GroundSearch>>(
+             numFeet_, /*value=*/std::optional<GroundSearch>{}));
 }
 
 /******************************************************************************************************/
@@ -210,19 +212,19 @@ void SwingTrajectoryPlanner::update(
 
 void SwingTrajectoryPlanner::update(
     const ModeSchedule& modeSchedule,
-    const feet_array_t<scalar_array_t>& liftoffPosFeetRtWorldEwrtWorldZTraj,
-    const feet_array_t<scalar_array_t>& touchdownPosFeetRtWorldEwrtWorldZTraj,
-    const feet_array_t<std::optional<GroundSearch>>& groundSearches) {
+    const ContactArray<scalar_array_t>& liftoffPosFeetRtWorldEwrtWorldZTraj,
+    const ContactArray<scalar_array_t>& touchdownPosFeetRtWorldEwrtWorldZTraj,
+    const ContactArray<std::optional<GroundSearch>>& groundSearches) {
   constexpr scalar_t kSwingTimeTolerance =
       1.0e-6;  // [s] event times that identify the same swing
   const std::vector<size_t>& modeSequence = modeSchedule.modeSequence;
   const std::vector<scalar_t>& eventTimes = modeSchedule.eventTimes;
 
-  const feet_array_t<std::vector<bool>> eesContactFlagStocks =
+  const ContactArray<std::vector<bool>> eesContactFlagStocks =
       extractContactFlags(modeSequence);
 
-  feet_array_t<std::vector<int>> startTimesIndices;
-  feet_array_t<std::vector<int>> finalTimesIndices;
+  ContactArray<std::vector<int>> startTimesIndices(numFeet_);
+  ContactArray<std::vector<int>> finalTimesIndices(numFeet_);
   for (size_t leg = 0; leg < numFeet_; ++leg) {
     FootSwingEventIndices swings =
         updateFootSchedule(eesContactFlagStocks[leg]);
@@ -240,8 +242,17 @@ void SwingTrajectoryPlanner::update(
     for (int p = 0; p < static_cast<int>(modeSequence.size()); ++p) {
       const int swingStartIndex = startTimesIndices[j][p];
       const int swingFinalIndex = finalTimesIndices[j][p];
-      checkThatIndicesAreValid(j, p, swingStartIndex, swingFinalIndex,
-                               modeSequence);
+      // A phase in contact, and a swing whose lift-off lies before the schedule
+      // or whose touch-down lies after it - a contact out of contact at either
+      // end, such as a hand that is placed for a while and lifted again, or one
+      // the schedule never puts in contact: no swing is planned, and the
+      // references are those of a contact in stance.
+      if (eesContactFlagStocks[j][p] ||
+          !isPlannableSwing(swingStartIndex, swingFinalIndex,
+                            modeSequence.size())) {
+        appendStancePhase(j, liftoffPosFeetRtWorldEwrtWorldZTraj[j][p]);
+        continue;
+      }
 
       const scalar_t swingStartTime = eventTimes[swingStartIndex];
       scalar_t swingFinalTime = eventTimes[swingFinalIndex];
@@ -251,7 +262,7 @@ void SwingTrajectoryPlanner::update(
       // reference continues from its end as a straight descent.
       bool searching = false;
       const std::optional<GroundSearch>& search = groundSearches[j];
-      if (!eesContactFlagStocks[j][p] && search.has_value() &&
+      if (search.has_value() &&
           std::abs(search->liftOffTime - swingStartTime) <=
               kSwingTimeTolerance &&
           search->plannedTouchDownTime > swingStartTime + kSwingTimeTolerance &&
@@ -260,64 +271,60 @@ void SwingTrajectoryPlanner::update(
         swingFinalTime = search->plannedTouchDownTime;
       }
 
-      if (!eesContactFlagStocks[j][p]) {
-        // Every phase of a swing, which spans several phases in a gait with
-        // flight phases (run: the swing of one foot is FLY | other foot in
-        // stance | FLY), gets the same splines over the whole swing, so the
-        // references are continuous at the inner events and have one apex and
-        // one short-swing scaling per swing. The heights are read at the
-        // swing's first and last phase so that every phase of the swing reads
-        // the same ones.
-        const scalar_t scaling = swingTrajectoryScaling(
-            swingStartTime, swingFinalTime, config_.swingTimeScale);
-        const scalar_t liftoffPosFootRtWorldEwrtWorldZ =
-            liftoffPosFeetRtWorldEwrtWorldZTraj[j][swingStartIndex + 1];
-        const scalar_t touchdownPosFootRtWorldEwrtWorldZ =
-            touchdownPosFeetRtWorldEwrtWorldZTraj[j][swingFinalIndex];
-        SwingWindow window;
-        window.isSwing = true;
-        window.startTime = swingStartTime;
-        window.finalTime = swingFinalTime;
-        window.scaling = scaling;
-        window.searching = searching;
-        window.descentStartPosFootRtWorldEwrtWorldZ =
-            touchdownPosFootRtWorldEwrtWorldZ;
-        window.descentSpeedFootRtWorld =
-            searching ? std::max(0.0, search->descentSpeedFootRtWorld) : 0.0;
-        swingWindows_[j].push_back(window);
-        const SwingSplines splines =
-            makeSwingSplines(window, liftoffPosFootRtWorldEwrtWorldZ,
-                             touchdownPosFootRtWorldEwrtWorldZ);
-        desPosFeetRtWorldEwrtWorldZTraj_[j].push_back(
-            splines.desPosFootRtWorldEwrtWorldZ);
-        impactProximityTrajectories_[j].push_back(splines.impactProximity);
-      } else {  // for a stance leg
-        swingWindows_[j].push_back(SwingWindow{});
-        // Note: setting the time here arbitrarily to 0.0 -> 1.0 makes the
-        // assert in CubicSpline fail
-        const CubicSpline::Node liftOff{
-            .time = 0.0,
-            .value = liftoffPosFeetRtWorldEwrtWorldZTraj[j][p],
-            .derivative = 0.0};
-        const CubicSpline::Node touchDown{
-            .time = 1.0,
-            .value = liftoffPosFeetRtWorldEwrtWorldZTraj[j][p],
-            .derivative = 0.0};
-        desPosFeetRtWorldEwrtWorldZTraj_[j].emplace_back(
-            liftOff, liftoffPosFeetRtWorldEwrtWorldZTraj[j][p], touchDown);
-
-        // If the foot is in contact the impact proximity factor is always 1.
-        const CubicSpline::Node impactProximityTouchDown{
-            .time = 0.0, .value = 1.0, .derivative = 0};
-        const CubicSpline::Node impactProximityLiftOff{
-            .time = 1.0, .value = 1.0, .derivative = 0};
-
-        impactProximityTrajectories_[j].emplace_back(
-            impactProximityTouchDown, 1.0, impactProximityLiftOff);
-      }
+      // Every phase of a swing, which spans several phases in a gait with
+      // flight phases (run: the swing of one foot is FLY | other foot in
+      // stance | FLY), gets the same splines over the whole swing, so the
+      // references are continuous at the inner events and have one apex and
+      // one short-swing scaling per swing. The heights are read at the
+      // swing's first and last phase so that every phase of the swing reads
+      // the same ones.
+      const scalar_t scaling = swingTrajectoryScaling(
+          swingStartTime, swingFinalTime, config_.swingTimeScale);
+      const scalar_t liftoffPosFootRtWorldEwrtWorldZ =
+          liftoffPosFeetRtWorldEwrtWorldZTraj[j][swingStartIndex + 1];
+      const scalar_t touchdownPosFootRtWorldEwrtWorldZ =
+          touchdownPosFeetRtWorldEwrtWorldZTraj[j][swingFinalIndex];
+      SwingWindow window;
+      window.isSwing = true;
+      window.startTime = swingStartTime;
+      window.finalTime = swingFinalTime;
+      window.scaling = scaling;
+      window.searching = searching;
+      window.descentStartPosFootRtWorldEwrtWorldZ =
+          touchdownPosFootRtWorldEwrtWorldZ;
+      window.descentSpeedFootRtWorld =
+          searching ? std::max(0.0, search->descentSpeedFootRtWorld) : 0.0;
+      swingWindows_[j].push_back(window);
+      const SwingSplines splines =
+          makeSwingSplines(window, liftoffPosFootRtWorldEwrtWorldZ,
+                           touchdownPosFootRtWorldEwrtWorldZ);
+      desPosFeetRtWorldEwrtWorldZTraj_[j].push_back(
+          splines.desPosFootRtWorldEwrtWorldZ);
+      impactProximityTrajectories_[j].push_back(splines.impactProximity);
     }
     feetHeightTrajectoriesEvents_[j] = eventTimes;
   }
+}
+
+void SwingTrajectoryPlanner::appendStancePhase(
+    size_t contact, scalar_t posFootRtWorldEwrtWorldZ) {
+  swingWindows_[contact].push_back(SwingWindow{});
+  // Note: setting the time here arbitrarily to 0.0 -> 1.0 makes the
+  // assert in CubicSpline fail
+  const CubicSpline::Node liftOff{
+      .time = 0.0, .value = posFootRtWorldEwrtWorldZ, .derivative = 0.0};
+  const CubicSpline::Node touchDown{
+      .time = 1.0, .value = posFootRtWorldEwrtWorldZ, .derivative = 0.0};
+  desPosFeetRtWorldEwrtWorldZTraj_[contact].emplace_back(
+      liftOff, posFootRtWorldEwrtWorldZ, touchDown);
+
+  // If the foot is in contact the impact proximity factor is always 1.
+  const CubicSpline::Node impactProximityTouchDown{
+      .time = 0.0, .value = 1.0, .derivative = 0};
+  const CubicSpline::Node impactProximityLiftOff{
+      .time = 1.0, .value = 1.0, .derivative = 0};
+  impactProximityTrajectories_[contact].emplace_back(
+      impactProximityTouchDown, 1.0, impactProximityLiftOff);
 }
 
 /******************************************************************************************************/
@@ -391,16 +398,16 @@ SwingTrajectoryPlanner::updateFootSchedule(
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-feet_array_t<std::vector<bool>> SwingTrajectoryPlanner::extractContactFlags(
+ContactArray<std::vector<bool>> SwingTrajectoryPlanner::extractContactFlags(
     const std::vector<size_t>& phaseIDsStock) const {
   const size_t numPhases = phaseIDsStock.size();
 
-  feet_array_t<std::vector<bool>> contactFlagStock;
-  std::fill(contactFlagStock.begin(), contactFlagStock.end(),
-            std::vector<bool>(numPhases));
+  ContactArray<std::vector<bool>> contactFlagStock(
+      numFeet_, std::vector<bool>(numPhases));
 
   for (size_t i = 0; i < numPhases; ++i) {
-    const contact_flag_t contactFlag = modeNumber2StanceLeg(phaseIDsStock[i]);
+    const ContactMask contactFlag =
+        ContactMask::fromModeNumber(phaseIDsStock[i], numFeet_);
     for (size_t j = 0; j < numFeet_; ++j) {
       contactFlagStock[j][i] = contactFlag[j];
     }
@@ -447,37 +454,10 @@ SwingTrajectoryPlanner::SwingEventIndices SwingTrajectoryPlanner::findIndex(
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void SwingTrajectoryPlanner::checkThatIndicesAreValid(
-    int leg,
-    int index,
-    int startIndex,
-    int finalIndex,
-    const std::vector<size_t>& phaseIDsStock) {
-  const size_t numSubsystems = phaseIDsStock.size();
-  if (startIndex < 0) {
-    LOG(INFO) << "Subsystem: " << index << " out of " << numSubsystems - 1;
-    for (size_t i = 0; i < numSubsystems; ++i) {
-      LOG(INFO) << "[" << i << "]: " << phaseIDsStock[i] << ",  ";
-    }
-    LOG(INFO);
-
-    // NOLINTNEXTLINE(exceptions): update() runs in the solve, inside OCS2 overrides with no status channel; it fails the solve.
-    throw std::runtime_error(
-        "The time of take-off for the first swing of the EE with ID " +
-        std::to_string(leg) + " is not defined.");
-  }
-  if (static_cast<size_t>(finalIndex) >= numSubsystems - 1) {
-    LOG(INFO) << "Subsystem: " << index << " out of " << numSubsystems - 1;
-    for (size_t i = 0; i < numSubsystems; ++i) {
-      LOG(INFO) << "[" << i << "]: " << phaseIDsStock[i] << ",  ";
-    }
-    LOG(INFO);
-
-    // NOLINTNEXTLINE(exceptions): update() runs in the solve, inside OCS2 overrides with no status channel; it fails the solve.
-    throw std::runtime_error(
-        "The time of touch-down for the last swing of the EE with ID " +
-        std::to_string(leg) + " is not defined.");
-  }
+bool SwingTrajectoryPlanner::isPlannableSwing(int startIndex,
+                                              int finalIndex,
+                                              size_t numPhases) {
+  return startIndex >= 0 && static_cast<size_t>(finalIndex) + 1 < numPhases;
 }
 
 /******************************************************************************************************/

@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -53,7 +54,7 @@ struct ExecutionContext {
       : config(&config) {}
 
   scalar_t time = 0.0;
-  contact_flag_t measuredContact = makeFeetArray(true);
+  BipedFeetArray<bool> measuredContact = makeBipedFeetArray(true);
   const ContactPlan* absl_nullable activePlan =
       nullptr;  // a valid plan, or null while none is active
   const ContactPlanningConfig* absl_nonnull
@@ -77,8 +78,8 @@ struct ExecutionContext {
   vector2_t predictedPosComRtWorldEwrtWorldXy = vector2_t::Zero();
   vector2_t predictedProxyLinvelComRtWorldEwrtWorldXy = vector2_t::Zero();
   scalar_t totalMass = 0.0;
-  feet_array_t<scalar_t> cadenceTouchDownShift =
-      makeFeetArray(0.0);  // [s] per foot, set by energy_cadence_modulation
+  BipedFeetArray<scalar_t> cadenceTouchDownShift = makeBipedFeetArray(
+      0.0);  // [s] per foot, set by energy_cadence_modulation
 
   scalar_t omega() const { return config->omega(); }
   bool hasPlan() const { return activePlan != nullptr && activePlan->valid; }

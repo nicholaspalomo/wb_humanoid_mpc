@@ -300,7 +300,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
 
   BasisInputsCostTransformConfig config;
   config.wrenchInputDim = wrenchInputDim;
-  config.numBasisInputs = 8 * kNumContacts;
+  config.numBasisInputs = 8 * static_cast<size_t>(kBipedFootCount);
   config.lambdaRegularization = 1.0e-3;
   config.basisGeneratorMap =
       matrix_t::Random(wrenchInputDim, config.numBasisInputs + numJoints);

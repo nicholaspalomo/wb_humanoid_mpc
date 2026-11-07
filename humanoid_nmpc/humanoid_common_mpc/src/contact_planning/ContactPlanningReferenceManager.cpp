@@ -62,6 +62,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -79,8 +80,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/execution/PlannedHeadingOverride.h"
 #include "humanoid_common_mpc/contact_planning/execution/ScheduleAdaptationPipeline.h"
 #include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -318,11 +319,11 @@ std::optional<scalar_t> ContactPlanningReferenceManager::computeYawAcomRtWorld(
       mpcRobotModelPtr_->getJointAngles(state)));
 }
 
-feet_array_t<scalar_t>
+BipedFeetArray<scalar_t>
 ContactPlanningReferenceManager::readEulerzyxFeetRtWorldYaw() const {
-  feet_array_t<scalar_t> eulerzyxFeetRtWorldYaw = makeFeetArray(0.0);
+  BipedFeetArray<scalar_t> eulerzyxFeetRtWorldYaw = makeBipedFeetArray(0.0);
   const PinocchioInterface::Data& data = pinocchioInterface_.getData();
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < static_cast<size_t>(kBipedFootCount); ++i) {
     const matrix3_t rotmatFootRtWorld =
         data.oMf[getContactFrameIndex(pinocchioInterface_, *mpcRobotModelPtr_,
                                       i)]
@@ -502,16 +503,18 @@ void ContactPlanningReferenceManager::resetRuntimeState() {
   cmdRateYawBaseRtWorld_ = 0.0;
   cmdLinvelBaseRtWorldEwrtWorldXy_.setZero();
   cmdLatchTime_ = 0.0;
-  eulerzyxFeetRtWorldYaw_ = makeFeetArray(0.0);
-  liftoffEulerzyxFeetRtWorldYaw_ = makeFeetArray(0.0);
-  posFeetRtWorldEwrtWorld_ = makeFeetArray(vector3_t(vector3_t::Zero()));
-  liftoffPosFeetRtWorldEwrtWorld_ = makeFeetArray(vector3_t(vector3_t::Zero()));
+  eulerzyxFeetRtWorldYaw_ = makeBipedFeetArray(0.0);
+  liftoffEulerzyxFeetRtWorldYaw_ = makeBipedFeetArray(0.0);
+  posFeetRtWorldEwrtWorld_ = makeBipedFeetArray(vector3_t(vector3_t::Zero()));
+  liftoffPosFeetRtWorldEwrtWorld_ =
+      makeBipedFeetArray(vector3_t(vector3_t::Zero()));
   footBookkeepingInitialized_ = false;
 
-  swingLatches_ = makeFeetArray(SwingTimingLatch{});
-  lastContactEvents_ = makeFeetArray(ContactEventReport{});
-  cadenceTouchDownShift_ = makeFeetArray(0.0);
-  errPosFeetRtWorldEwrtWorldXy_ = makeFeetArray(vector2_t(vector2_t::Zero()));
+  swingLatches_ = makeBipedFeetArray(SwingTimingLatch{});
+  lastContactEvents_ = makeBipedFeetArray(ContactEventReport{});
+  cadenceTouchDownShift_ = makeBipedFeetArray(0.0);
+  errPosFeetRtWorldEwrtWorldXy_ =
+      makeBipedFeetArray(vector2_t(vector2_t::Zero()));
   comState_ = HorizontalComState{};
   {
     std::lock_guard<std::mutex> lock(predictionMutex_);
@@ -524,7 +527,7 @@ void ContactPlanningReferenceManager::resetRuntimeState() {
   replanRequested_.store(false);
   {
     std::lock_guard<std::mutex> lock(targetContactMutex_);
-    desPoseFeetRtWorld_ = makeFeetArray(TargetContactPose{});
+    desPoseFeetRtWorld_ = makeBipedFeetArray(TargetContactPose{});
   }
 }
 
@@ -568,15 +571,15 @@ ContactPlanningConfig ContactPlanningReferenceManager::getConfig() const {
   return config_;
 }
 
-feet_array_t<vector3_t>
+BipedFeetArray<vector3_t>
 ContactPlanningReferenceManager::computePosFeetRtWorldEwrtWorld(
     const vector_t& state) {
   const vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(state);
   const std::vector<vector3_t> posContactsRtWorldEwrtWorld =
       computePosContactsRtWorldEwrtWorld<scalar_t>(q, pinocchioInterface_,
                                                    *mpcRobotModelPtr_);
-  feet_array_t<vector3_t> posFeetRtWorldEwrtWorld;
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  BipedFeetArray<vector3_t> posFeetRtWorldEwrtWorld;
+  for (size_t i = 0; i < static_cast<size_t>(kBipedFootCount); ++i) {
     posFeetRtWorldEwrtWorld[i] = posContactsRtWorldEwrtWorld[i];
   }
   return posFeetRtWorldEwrtWorld;
@@ -601,9 +604,9 @@ void ContactPlanningReferenceManager::updateFootBookkeeping(
     scalar_t initTime, const vector_t& initState) {
   posFeetRtWorldEwrtWorld_ = computePosFeetRtWorldEwrtWorld(initState);
   eulerzyxFeetRtWorldYaw_ = readEulerzyxFeetRtWorldYaw();
-  const contact_flag_t contacts =
+  const BipedFeetArray<bool> contacts =
       contactFlagsAtTime(appliedSchedule_, initTime);
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < static_cast<size_t>(kBipedFootCount); ++i) {
     if (contacts[i] || !footBookkeepingInitialized_) {
       liftoffPosFeetRtWorldEwrtWorld_[i] = posFeetRtWorldEwrtWorld_[i];
       liftoffEulerzyxFeetRtWorldYaw_[i] = eulerzyxFeetRtWorldYaw_[i];
@@ -870,7 +873,7 @@ void ContactPlanningReferenceManager::fillExecutionContext(
     size_t initMode,
     ExecutionContext& ctx) {
   ctx.time = initTime;
-  ctx.measuredContact = modeNumber2StanceLeg(initMode);
+  ctx.measuredContact = bipedFootContactsOfMode(initMode);
   ctx.totalMass = totalMass_;
   // An expired plan is withheld from the execution rules for the same reason
   // the schedule merge refuses it: every ContactPlan lookup clamps, so
@@ -944,7 +947,7 @@ ModeSchedule ContactPlanningReferenceManager::scheduleToExecute(
     // which ends in STANCE.
     schedule = mergeModeSchedules(
         appliedSchedule_,
-        ModeSchedule(/*eventTimesInput=*/{}, {ModeNumber::kStance}),
+        ModeSchedule(/*eventTimesInput=*/{}, {kBipedModeStance}),
         upperBoundTime, lowerBoundTime, upperBoundTime);
   } else {
     schedule =
@@ -1027,8 +1030,8 @@ TargetTrajectories ContactPlanningReferenceManager::targetOnPlanGrid(
 
 void ContactPlanningReferenceManager::updateDesPoseFeetRtWorld(
     scalar_t initTime, scalar_t posSurfaceRtWorldEwrtWorldZ) {
-  feet_array_t<TargetContactPose> desPoseFeetRtWorld =
-      makeFeetArray(TargetContactPose{});
+  BipedFeetArray<TargetContactPose> desPoseFeetRtWorld =
+      makeBipedFeetArray(TargetContactPose{});
   const ContactPlan* absl_nullable usablePlan = usablePlanAt(initTime);
   if (usablePlan != nullptr && footBookkeepingInitialized_) {
     TargetContactPoseInputs inputs;
@@ -1044,7 +1047,7 @@ void ContactPlanningReferenceManager::updateDesPoseFeetRtWorld(
   desPoseFeetRtWorld_ = desPoseFeetRtWorld;
 }
 
-feet_array_t<TargetContactPose>
+BipedFeetArray<TargetContactPose>
 ContactPlanningReferenceManager::getDesPoseFeetRtWorld() const {
   std::lock_guard<std::mutex> lock(targetContactMutex_);
   return desPoseFeetRtWorld_;
@@ -1057,20 +1060,25 @@ void ContactPlanningReferenceManager::updateSwingTrajectories(
   const SwingTrajectoryPlanner::Config& swingConfig =
       swingTrajectoryPtr_->getConfig();
   const size_t numPhases = schedule.modeSequence.size();
-  feet_array_t<scalar_array_t> liftoffPosFeetRtWorldEwrtWorldZTraj =
-      makeFeetArray(scalar_array_t(numPhases, posSurfaceRtWorldEwrtWorldZ));
-  feet_array_t<scalar_array_t> touchdownPosFeetRtWorldEwrtWorldZTraj =
-      makeFeetArray(scalar_array_t(
-          numPhases, posSurfaceRtWorldEwrtWorldZ +
+  // The planner's contacts are the biped's two feet: the contact planner is
+  // refused for any other set (checkCentroidalContactSet()).
+  const size_t numFeet = swingTrajectoryPtr_->numFeet();
+  const ContactArray<scalar_array_t> liftoffPosFeetRtWorldEwrtWorldZTraj(
+      numFeet, scalar_array_t(numPhases, posSurfaceRtWorldEwrtWorldZ));
+  const ContactArray<scalar_array_t> touchdownPosFeetRtWorldEwrtWorldZTraj(
+      numFeet,
+      scalar_array_t(numPhases,
+                     posSurfaceRtWorldEwrtWorldZ +
                          swingConfig.touchdownPosFootRtSurfaceEwrtWorldZ));
 
   // A rule may have a foot searching for the ground (a late touch-down): its
   // height reference then continues the planned swing as a straight descent
   // instead of hovering.
-  feet_array_t<std::optional<SwingTrajectoryPlanner::GroundSearch>>
-      groundSearches =
-          makeFeetArray(std::optional<SwingTrajectoryPlanner::GroundSearch>{});
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  ContactArray<std::optional<SwingTrajectoryPlanner::GroundSearch>>
+      groundSearches(
+          numFeet,
+          /*value=*/std::optional<SwingTrajectoryPlanner::GroundSearch>{});
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     for (const std::unique_ptr<ExecutionRule>& rule : executionRules_) {
       const std::optional<GroundSearchRequest> search =
           rule->groundSearch(ctx, foot, schedule, swingLatches_[foot]);
@@ -1092,9 +1100,9 @@ void ContactPlanningReferenceManager::updateDcmStepAdjustment(
     const ExecutionContext& ctx) {
   errPosFeetRtWorldEwrtWorldXy_.fill(vector2_t::Zero());
   for (const std::unique_ptr<ExecutionRule>& rule : executionRules_) {
-    const feet_array_t<vector2_t> errPosFeetRtWorldEwrtWorldXy =
+    const BipedFeetArray<vector2_t> errPosFeetRtWorldEwrtWorldXy =
         rule->correctFootholds(ctx, appliedSchedule_);
-    for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
       errPosFeetRtWorldEwrtWorldXy_[foot] += errPosFeetRtWorldEwrtWorldXy[foot];
     }
   }
@@ -1249,9 +1257,9 @@ ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(
       mpcRobotModelPtr_->getYawBaseRtWorld(initState);
   input.yawHeadingRtWorld = yawBaseRtWorld;
 
-  const feet_array_t<vector3_t> posFeetRtWorldEwrtWorld =
+  const BipedFeetArray<vector3_t> posFeetRtWorldEwrtWorld =
       computePosFeetRtWorldEwrtWorld(initState);
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < static_cast<size_t>(kBipedFootCount); ++i) {
     input.posFeetRtWorldEwrtWorldXy[i] =
         posFeetRtWorldEwrtWorld[i].head<kHorizontalPositionDim>();
   }
@@ -1272,7 +1280,7 @@ ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(
     // has the ACoM evaluator, the base's otherwise - its rate from the angular
     // momentum about the vertical, and the foot yaws unwrapped near the
     // heading. The planning frame is the heading.
-    const feet_array_t<scalar_t> eulerzyxFeetRtWorldYaw =
+    const BipedFeetArray<scalar_t> eulerzyxFeetRtWorldYaw =
         readEulerzyxFeetRtWorldYaw();
     const std::optional<scalar_t> yawAcomRtWorld =
         computeYawAcomRtWorld(initState);
@@ -1287,7 +1295,7 @@ ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(
     input.initRateYawHeadingRtWorld = mpcRobotModelPtr_->getRefPlanarMotion(
         initState, input.inertiaComEwrtWorldZz)(
         MpcRobotModelBase<scalar_t>::kRefPlanarMotionYawRateIndex);
-    for (size_t i = 0; i < kNumContacts; ++i) {
+    for (size_t i = 0; i < static_cast<size_t>(kBipedFootCount); ++i) {
       input.eulerzyxFeetRtWorldYaw[i] = moduloAngleWithReference(
           eulerzyxFeetRtWorldYaw[i], input.initYawHeadingRtWorld);
     }

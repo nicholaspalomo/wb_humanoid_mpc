@@ -28,7 +28,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstddef>
 #include <iterator>
@@ -60,12 +59,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
 
 namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 constexpr size_t kContactPointIndex = 0;
 constexpr size_t kFourBasisVectors = 4;
@@ -154,13 +156,13 @@ class TestContactWrenchConeConstraint : public ::testing::Test {
     ModeSchedule initModeSchedule({0.0, 1.0}, {3});
     ModeSequenceTemplate initModeSequenceTemplate({0.5, 0.5}, {3, 3});
     std::shared_ptr<GaitSchedule> gaitSchedulePtr =
-        std::make_shared<GaitSchedule>(initModeSchedule,
-                                       initModeSequenceTemplate,
-                                       /*phaseTransitionStanceTime=*/0.0);
+        std::make_shared<GaitSchedule>(
+            initModeSchedule, initModeSequenceTemplate,
+            /*phaseTransitionStanceTime=*/0.0, GaitModeLayout{});
     referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(
         gaitSchedulePtr,
         std::make_unique<SwingTrajectoryPlanner>(
-            SwingTrajectoryPlanner::Config(), kNumContacts),
+            SwingTrajectoryPlanner::Config(), kNumFeet),
         testingModelInterface_->getPinocchioInterface(),
         testingModelInterface_->getMpcRobotModel());
   }
@@ -501,12 +503,14 @@ TEST_F(TestContactWrenchConeConstraint, RefusesABasisVectorModel) {
                                                        vector3_t::Zero())));
   ASSERT_TRUE(leftBasis.ok()) << leftBasis.status();
   ASSERT_TRUE(rightBasis.ok()) << rightBasis.status();
-  const BasisInputsModelDecorator<scalar_t> basisModel(
-      std::unique_ptr<MpcRobotModelBase<scalar_t>>(
-          testingModelInterface_->getMpcRobotModel().clone()),
-      std::array<ContactWrenchConeBasisMatrix, kNumContacts>{*leftBasis,
-                                                             *rightBasis},
-      testingModelInterface_->getPinocchioInterface());
+  const absl::StatusOr<std::unique_ptr<BasisInputsModelDecorator<scalar_t>>>
+      basisModelPtr = BasisInputsModelDecorator<scalar_t>::Create(
+          std::unique_ptr<MpcRobotModelBase<scalar_t>>(
+              testingModelInterface_->getMpcRobotModel().clone()),
+          std::vector<ContactWrenchConeBasisMatrix>{*leftBasis, *rightBasis},
+          testingModelInterface_->getPinocchioInterface());
+  ASSERT_TRUE(basisModelPtr.ok()) << basisModelPtr.status();
+  const BasisInputsModelDecorator<scalar_t>& basisModel = **basisModelPtr;
 
   const absl::StatusOr<std::unique_ptr<ContactWrenchConeConstraint>> onBasis =
       ContactWrenchConeConstraint::Create(

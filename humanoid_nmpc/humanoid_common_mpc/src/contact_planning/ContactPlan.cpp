@@ -46,7 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/gait/BipedModes.h"
 
 namespace ocs2::humanoid {
 
@@ -78,7 +78,7 @@ std::string ContactPlan::describe() const {
                           linvelComRtWorldEwrtWorldXyTraj.back().y());
   }
   const int N = numIntervals();
-  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
     absl::StrAppend(&out, " | ", foot == 0 ? "L" : "R", ":");
     int k = 0;
     while (k < N) {
@@ -145,7 +145,7 @@ int ContactPlan::intervalIndex(scalar_t time) const {
   return std::clamp(k, 0, numIntervals() - 1);
 }
 
-contact_flag_t ContactPlan::contactsAtTime(scalar_t time) const {
+BipedFeetArray<bool> ContactPlan::contactsAtTime(scalar_t time) const {
   if (hasContinuousPhases()) {
     // The last phase that has begun by `time`; an event at `time` itself has
     // passed, as in intervalIndex().
@@ -156,7 +156,7 @@ contact_flag_t ContactPlan::contactsAtTime(scalar_t time) const {
     }
     return phaseContacts[phase];
   }
-  if (contacts.empty()) return makeFeetArray(true);
+  if (contacts.empty()) return makeBipedFeetArray(true);
   return contacts[intervalIndex(time)];
 }
 
@@ -289,7 +289,7 @@ ModeSchedule ContactPlan::toModeSchedule() const {
       if (!isLast && phaseEnd - phaseStartTimes[phase] < kMinModeDuration) {
         continue;
       }
-      const size_t mode = stanceLeg2ModeNumber(phaseContacts[phase]);
+      const size_t mode = bipedModeOfFootContacts(phaseContacts[phase]);
       if (modeSequence.empty()) {
         modeSequence.push_back(mode);
       } else if (mode != modeSequence.back()) {
@@ -297,30 +297,30 @@ ModeSchedule ContactPlan::toModeSchedule() const {
         modeSequence.push_back(mode);
       }
     }
-    if (modeSequence.back() != ModeNumber::kStance) {
+    if (modeSequence.back() != kBipedModeStance) {
       eventTimes.push_back(
           std::max(endTime(), eventTimes.empty()
                                   ? startTime
                                   : eventTimes.back() + kMinModeDuration));
-      modeSequence.push_back(ModeNumber::kStance);
+      modeSequence.push_back(kBipedModeStance);
     }
     return ModeSchedule(eventTimes, modeSequence);
   }
   if (contacts.empty()) {
-    modeSequence.push_back(ModeNumber::kStance);
+    modeSequence.push_back(kBipedModeStance);
     return ModeSchedule(eventTimes, modeSequence);
   }
-  modeSequence.push_back(stanceLeg2ModeNumber(contacts.front()));
+  modeSequence.push_back(bipedModeOfFootContacts(contacts.front()));
   for (int k = 1; k < numIntervals(); ++k) {
-    const size_t mode = stanceLeg2ModeNumber(contacts[k]);
+    const size_t mode = bipedModeOfFootContacts(contacts[k]);
     if (mode != modeSequence.back()) {
       eventTimes.push_back(startTime + dt * static_cast<scalar_t>(k));
       modeSequence.push_back(mode);
     }
   }
-  if (modeSequence.back() != ModeNumber::kStance) {
+  if (modeSequence.back() != kBipedModeStance) {
     eventTimes.push_back(endTime());
-    modeSequence.push_back(ModeNumber::kStance);
+    modeSequence.push_back(kBipedModeStance);
   }
   return ModeSchedule(eventTimes, modeSequence);
 }
@@ -370,20 +370,20 @@ ModeSchedule mergeModeSchedules(const ModeSchedule& applied,
   // The swing planner needs every swing phase to be preceded and followed by a
   // contact phase of the same foot. A leading STANCE placed before the first
   // event guarantees a lift-off, a trailing STANCE guarantees a touch-down.
-  if (modeSequence.front() != ModeNumber::kStance) {
+  if (modeSequence.front() != kBipedModeStance) {
     const scalar_t firstTime =
         eventTimes.empty() ? lowerBoundTime
                            : std::min(lowerBoundTime, eventTimes.front());
     eventTimes.insert(eventTimes.begin(), firstTime - 1.0);
-    modeSequence.insert(modeSequence.begin(), ModeNumber::kStance);
+    modeSequence.insert(modeSequence.begin(), kBipedModeStance);
   }
-  if (modeSequence.back() != ModeNumber::kStance) {
+  if (modeSequence.back() != kBipedModeStance) {
     const scalar_t lastTime =
         eventTimes.empty()
             ? upperBoundTime
             : std::max(upperBoundTime, eventTimes.back() + kClosingStanceDelay);
     eventTimes.push_back(lastTime);
-    modeSequence.push_back(ModeNumber::kStance);
+    modeSequence.push_back(kBipedModeStance);
   }
   // The swing trajectory planner rejects a schedule without events (it needs a
   // preceding and a following phase for every subsystem), so an all-stance
@@ -391,7 +391,7 @@ ModeSchedule mergeModeSchedules(const ModeSchedule& applied,
   // the reference file.
   if (eventTimes.empty()) {
     eventTimes.push_back(upperBoundTime);
-    modeSequence.push_back(ModeNumber::kStance);
+    modeSequence.push_back(kBipedModeStance);
   }
   return ModeSchedule(eventTimes, modeSequence);
 }

@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
+#include <optional>
 #include <string>
 
 #include "ocs2_core/Types.h"
@@ -41,16 +43,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `minimum_double_support`: after a touch-down at node k the other foot may not
- * lift off before k + n_ds, the node of the touch-down itself included (a
- * lift-off at the very node the other foot lands would be a weight transfer
- * with no double support at all).
+ * `minimum_double_support`, a minimum support count: after a touch-down at
+ * node k, until k + n_ds (the node of the touch-down itself included), a foot
+ * that is in contact may lift only while at least `minSupportCount` feet stay
+ * in contact. The count defaults to every foot of the planner
+ * (ContactLogicState::numFeet()), so that no foot in contact lifts during the
+ * hold. For a biped that is the double support: after a touch-down the other
+ * foot may not lift off before k + n_ds (a lift-off at the very node the other
+ * foot lands would be a weight transfer with no double support at all). The
+ * registry name and the configuration key (min_double_support_duration) keep
+ * the biped's name.
  *
  * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
  * configures and evaluates it from one thread at a time.
  */
 class MinimumDoubleSupportRule final : public ContactLogicRule {
  public:
+  /** The rule the registry builds: every foot of the planner is the minimum
+   * support. */
+  MinimumDoubleSupportRule() = default;
+  /** A rule whose hold keeps at least `minSupportCount` feet in contact. A
+   * count of at least the planner's foot count keeps every foot in contact
+   * down, like the default. */
+  explicit MinimumDoubleSupportRule(size_t minSupportCount)
+      : minSupportCount_(minSupportCount) {}
+
   std::string describe() const override;
   void configure(const ContactPlanningConfig& config) override;
   bool propagate(const ContactLogicState& state,
@@ -59,6 +76,9 @@ class MinimumDoubleSupportRule final : public ContactLogicRule {
 
  private:
   scalar_t minDoubleSupportDuration_ = 0.0;
+  // The feet that stay in contact during the hold; empty: every foot of the
+  // planner.
+  std::optional<size_t> minSupportCount_;
 };
 
 }  // namespace ocs2::humanoid

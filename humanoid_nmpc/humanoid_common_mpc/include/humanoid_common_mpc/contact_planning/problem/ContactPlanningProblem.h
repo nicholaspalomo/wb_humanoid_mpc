@@ -61,9 +61,10 @@ namespace ocs2::humanoid {
  * ContactPlanningTermFactory::buildProblemStatus() from the term lists of the
  * configuration (or by hand, in the same order the factory would use).
  * finalize() then composes the variable layout from the model blocks, checks
- * that every term finds the blocks it needs, binds the terms to the layout and
- * configures them. assemble() writes the OCP-QP of one plan, node by node and
- * term by term in collection order, and the logic side (propagate,
+ * that every term finds the blocks it needs and accepts the contact count
+ * (ContactPlanningTerm::validateContactSet()), binds the terms to the layout
+ * and configures them. assemble() writes the OCP-QP of one plan, node by node
+ * and term by term in collection order, and the logic side (propagate,
  * assignmentCost) is what MixedIntegerOcpQp calls on the binaries. configure()
  * is the hot-reload path: every term re-reads its parameter block; the term
  * lists themselves are the factory's business (re-assembly).

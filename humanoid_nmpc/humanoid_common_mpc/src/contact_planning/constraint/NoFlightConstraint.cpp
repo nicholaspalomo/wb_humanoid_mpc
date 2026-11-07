@@ -29,35 +29,40 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/constraint/NoFlightConstraint.h"
 
-#include <cmath>
 #include <string>
 
+#include "absl/strings/str_cat.h"
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "humanoid_common_mpc/contact_planning/problem/LipCoefficients.h"
 #include "humanoid_common_mpc/contact_planning/problem/RowBuilder.h"
 
 namespace ocs2::humanoid {
 
 namespace {
-// The upper bound of the contact flags' sum c_L + c_R: every foot in contact.
-constexpr scalar_t kMaxContactFlagSum = static_cast<scalar_t>(kBipedFootCount);
+// The lower bound of the contact flags' sum: at least one foot in contact.
+constexpr scalar_t kMinContactFlagSum = 1.0;
 }  // namespace
 
-static_assert(kNumContacts == kBipedFootCount,
-              "the no-flight row is written for a biped");
-
 std::string NoFlightConstraint::describe() const {
-  return "1 <= c_L + c_R <= 2 on the running nodes";
+  return absl::StrCat("1 <= sum_i c_i <= ", idx_.contact.size(),
+                      " on the running nodes");
 }
 
 void NoFlightConstraint::addRows(const ContactPlanningContext& /*ctx*/,
                                  int /*node*/,
                                  RowBuilder& rows) const {
-  rows.addHard(/*xCoefficients=*/{},
-               {{idx_.contact[0], 1.0}, {idx_.contact[1], 1.0}}, /*lower=*/1.0,
-               /*upper=*/kMaxContactFlagSum);
+  // One row over the contact binaries of every foot of the layout, in foot
+  // order; its upper bound, every foot in contact, is the foot count.
+  Coefficients uCoefficients;
+  uCoefficients.reserve(idx_.contact.size());
+  for (const int contactIndex : idx_.contact) {
+    uCoefficients.emplace_back(contactIndex, 1.0);
+  }
+  rows.addHard(/*xCoefficients=*/{}, uCoefficients,
+               /*lower=*/kMinContactFlagSum,
+               /*upper=*/static_cast<scalar_t>(idx_.contact.size()));
 }
 
 }  // namespace ocs2::humanoid

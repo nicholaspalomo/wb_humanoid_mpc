@@ -52,7 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/rnea.hpp"
 #include "pinocchio/multibody.hpp"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -123,14 +123,16 @@ template <typename SCALAR_T>
 std::vector<VECTOR3_T<SCALAR_T>> getPosContactsRtWorldEwrtWorld(
     const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
     const MpcRobotModelBase<SCALAR_T>& mpcRobotModel) {
+  // Every contact of the set in contact order (3-DoF contacts first): the
+  // feet of a biped, the four feet of a quadruped, the knees, hands and feet of
+  // a multi-contact set.
+  const size_t numContacts = mpcRobotModel.modelSettings.numContacts();
   std::vector<VECTOR3_T<SCALAR_T>> posContactsRtWorldEwrtWorld;
-  posContactsRtWorldEwrtWorld.reserve(kNumContacts);
+  posContactsRtWorldEwrtWorld.reserve(numContacts);
   const typename PinocchioInterfaceTpl<SCALAR_T>::Data& data =
       pinocchioInterface.getData();
-  std::vector<pinocchio::FrameIndex> contactFrameIndices =
-      getContactFrameIndices(pinocchioInterface, mpcRobotModel);
 
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < numContacts; ++i) {
     const VECTOR3_T<SCALAR_T>& posContactRtWorldEwrtWorld =
         data.oMf[getContactFrameIndex(pinocchioInterface, mpcRobotModel, i)]
             .translation();
@@ -340,7 +342,8 @@ namespace {
 ///
 /// Writes the full joint-space inertia matrix M(q) into data.M and the
 /// nonlinear effects nle(q, qd) into data.nle, and returns the generalized
-/// contact force J_l^T W_l + J_r^T W_r: the terms of M qdd + nle = S^T tau +
+/// contact force sum_i J_i^T W_i over the contacts: the terms of M qdd + nle =
+/// S^T tau +
 /// J^T W that the inverse dynamics below read.
 ///
 /// pinocchio::crba() writes, for every joint, its rows over the columns of its
@@ -358,8 +361,8 @@ template <typename SCALAR_T>
 VECTOR_T<SCALAR_T> updateInverseDynamicsTerms(
     const VECTOR_T<SCALAR_T>& q,
     const VECTOR_T<SCALAR_T>& qd,
-    const feet_array_t<VECTOR6_T<SCALAR_T>>& wrenchFeetEwrtWorld,
-    const feet_array_t<pinocchio::FrameIndex>& contactFrames,
+    const ContactArray<VECTOR6_T<SCALAR_T>>& wrenchContactsEwrtWorld,
+    const ContactArray<pinocchio::FrameIndex>& contactFrames,
     const pinocchio::ModelTpl<SCALAR_T>& model,
     pinocchio::DataTpl<SCALAR_T>& data) {
   data.M.setZero();
@@ -368,19 +371,19 @@ VECTOR_T<SCALAR_T> updateInverseDynamicsTerms(
       data.M.transpose().template triangularView<Eigen::StrictlyLower>();
   pinocchio::nonLinearEffects(model, data, q, qd);
 
-  // LOCAL_WORLD_ALIGNED Jacobians of the sole frames, which take the
+  // LOCAL_WORLD_ALIGNED Jacobians of the contact frames, which take the
   // world-frame wrenches of the MPC.
   VECTOR_T<SCALAR_T> generalizedContactForce =
       VECTOR_T<SCALAR_T>::Zero(qd.size());
-  for (size_t i = 0; i < kNumContacts; ++i) {
-    MATRIX_T<SCALAR_T> jacFootRtWorldEwrtWorld =
+  for (size_t i = 0; i < contactFrames.size(); ++i) {
+    MATRIX_T<SCALAR_T> jacContactRtWorldEwrtWorld =
         MATRIX_T<SCALAR_T>::Zero(kTwistDim, qd.size());
     pinocchio::computeFrameJacobian(
         model, data, q, contactFrames[i],
         pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED,
-        jacFootRtWorldEwrtWorld);
+        jacContactRtWorldEwrtWorld);
     generalizedContactForce +=
-        jacFootRtWorldEwrtWorld.transpose() * wrenchFeetEwrtWorld[i];
+        jacContactRtWorldEwrtWorld.transpose() * wrenchContactsEwrtWorld[i];
   }
   return generalizedContactForce;
 }
@@ -392,14 +395,14 @@ VECTOR_T<SCALAR_T> computeJointTorques(
     const VECTOR_T<SCALAR_T>& q,
     const VECTOR_T<SCALAR_T>& qd,
     const VECTOR_T<SCALAR_T>& qdd_joints,
-    const feet_array_t<VECTOR6_T<SCALAR_T>>& wrenchFeetEwrtWorld,
-    const feet_array_t<pinocchio::FrameIndex>& contactFrames,
+    const ContactArray<VECTOR6_T<SCALAR_T>>& wrenchContactsEwrtWorld,
+    const ContactArray<pinocchio::FrameIndex>& contactFrames,
     PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface) {
   const typename PinocchioInterfaceTpl<SCALAR_T>::Model& model =
       pinocchioInterface.getModel();
   pinocchio::DataTpl<SCALAR_T>& data = pinocchioInterface.getData();
   const VECTOR_T<SCALAR_T> generalizedExternalForce =
-      updateInverseDynamicsTerms<SCALAR_T>(q, qd, wrenchFeetEwrtWorld,
+      updateInverseDynamicsTerms<SCALAR_T>(q, qd, wrenchContactsEwrtWorld,
                                            contactFrames, model, data);
 
   // The base is unactuated: its rows fix the base acceleration the wrenches
@@ -418,15 +421,15 @@ template VECTOR_T<scalar_t> computeJointTorques(
     const VECTOR_T<scalar_t>& q,
     const VECTOR_T<scalar_t>& qd,
     const VECTOR_T<scalar_t>& qdd_joints,
-    const feet_array_t<VECTOR6_T<scalar_t>>& wrenchFeetEwrtWorld,
-    const feet_array_t<pinocchio::FrameIndex>& contactFrames,
+    const ContactArray<VECTOR6_T<scalar_t>>& wrenchContactsEwrtWorld,
+    const ContactArray<pinocchio::FrameIndex>& contactFrames,
     PinocchioInterfaceTpl<scalar_t>& pinocchioInterface);
 template VECTOR_T<ad_scalar_t> computeJointTorques(
     const VECTOR_T<ad_scalar_t>& q,
     const VECTOR_T<ad_scalar_t>& qd,
     const VECTOR_T<ad_scalar_t>& qdd_joints,
-    const feet_array_t<VECTOR6_T<ad_scalar_t>>& wrenchFeetEwrtWorld,
-    const feet_array_t<pinocchio::FrameIndex>& contactFrames,
+    const ContactArray<VECTOR6_T<ad_scalar_t>>& wrenchContactsEwrtWorld,
+    const ContactArray<pinocchio::FrameIndex>& contactFrames,
     PinocchioInterfaceTpl<ad_scalar_t>& pinocchioInterface);
 
 /******************************************************************************************************/
@@ -438,14 +441,14 @@ VECTOR_T<SCALAR_T> computeBaseHeldJointTorques(
     const VECTOR_T<SCALAR_T>& q,
     const VECTOR_T<SCALAR_T>& qd,
     const VECTOR_T<SCALAR_T>& qdd_joints,
-    const feet_array_t<VECTOR6_T<SCALAR_T>>& wrenchFeetEwrtWorld,
-    const feet_array_t<pinocchio::FrameIndex>& contactFrames,
+    const ContactArray<VECTOR6_T<SCALAR_T>>& wrenchContactsEwrtWorld,
+    const ContactArray<pinocchio::FrameIndex>& contactFrames,
     PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface) {
   const typename PinocchioInterfaceTpl<SCALAR_T>::Model& model =
       pinocchioInterface.getModel();
   pinocchio::DataTpl<SCALAR_T>& data = pinocchioInterface.getData();
   const VECTOR_T<SCALAR_T> generalizedExternalForce =
-      updateInverseDynamicsTerms<SCALAR_T>(q, qd, wrenchFeetEwrtWorld,
+      updateInverseDynamicsTerms<SCALAR_T>(q, qd, wrenchContactsEwrtWorld,
                                            contactFrames, model, data);
 
   // Whatever holds the base (the gantry) supplies the base rows; the base
@@ -458,8 +461,8 @@ template VECTOR_T<scalar_t> computeBaseHeldJointTorques(
     const VECTOR_T<scalar_t>& q,
     const VECTOR_T<scalar_t>& qd,
     const VECTOR_T<scalar_t>& qdd_joints,
-    const feet_array_t<VECTOR6_T<scalar_t>>& wrenchFeetEwrtWorld,
-    const feet_array_t<pinocchio::FrameIndex>& contactFrames,
+    const ContactArray<VECTOR6_T<scalar_t>>& wrenchContactsEwrtWorld,
+    const ContactArray<pinocchio::FrameIndex>& contactFrames,
     PinocchioInterfaceTpl<scalar_t>& pinocchioInterface);
 
 /******************************************************************************************************/
@@ -468,12 +471,12 @@ template VECTOR_T<scalar_t> computeBaseHeldJointTorques(
 
 absl::Status checkContactFramesExist(
     const pinocchio::Model& model, absl::Span<const std::string> contactNames) {
-  if (contactNames.size() < kNumContacts) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "model_settings names ", contactNames.size(),
-        " contact frames, but the MPC has ", kNumContacts, " contacts."));
+  if (contactNames.empty()) {
+    return absl::InvalidArgumentError(
+        "model_settings names no contact frame; the MPC needs at least one "
+        "contact.");
   }
-  for (size_t i = 0; i < kNumContacts; ++i) {
+  for (size_t i = 0; i < contactNames.size(); ++i) {
     if (!model.existFrame(contactNames[i])) {
       return absl::NotFoundError(
           absl::StrCat("contact frame \"", contactNames[i], "\" (contact ", i,

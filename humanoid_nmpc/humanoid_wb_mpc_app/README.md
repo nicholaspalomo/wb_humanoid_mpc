@@ -116,3 +116,8 @@ directives), replacing it atomically and keeping the file as first loaded as `<f
 The formulation choices only the centroidal MPC implements are refused at start-up, by name: the contact-implicit terms,
 `com_and_acom_tracking_cost`, `dcm_terminal_cost`, `contact_input_parameterization: "basis_vectors"` and
 `contact_schedule_source: "contact_planner"`.
+
+The whole-body MPC runs on the biped's two 6-DoF feet alone. `WBMpcInterface` refuses any other contact set (a 3-DoF
+contact, a third 6-DoF contact, or a set of point contacts with no foot) with an InvalidArgument that gives the number
+of 3-DoF and 6-DoF contacts and names the centroidal MPC as the one that takes any contact set
+(`testWBMpcFormulation`: `aContactSetOtherThanTheFeetIsRefused`, `aSetOfFourPointContactsIsRefused`).

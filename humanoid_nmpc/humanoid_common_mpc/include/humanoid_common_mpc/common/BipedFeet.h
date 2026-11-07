@@ -29,28 +29,47 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <array>
 #include <cstddef>
 
 /*
- * The contacts of the humanoid MPCs, its feet, without the rest of
- * humanoid_common_mpc/common/Types.h (which includes it): code that only counts
- * the feet, such as the validation's metrics, includes this header and none of
- * the Eigen, OCS2 and CppAD headers Types.h brings with it.
+ * The feet of a biped, without the Eigen, OCS2 and CppAD headers of
+ * humanoid_common_mpc/common/Types.h.
+ *
+ * Code that is meaningful for any contact set holds one value per contact in
+ * a ContactArray and the active contacts in a ContactMask
+ * (common/ContactArray.h, common/ContactMask.h), sized from
+ * ModelSettings::numContacts(). BipedFeetArray is for the code written for a
+ * left and a right foot only, which refuses any other contact set
+ * (ModelSettings::isBipedContactSet()).
  */
 
 namespace ocs2 {
 
-/** The contacts of the MPC, one per foot, and the index of each in a per-foot
- * array (feet_array_t). */
-inline constexpr size_t kNumContacts = 2;
+/** The index of each foot in a BipedFeetArray, and in the contact set of a
+ * biped (two 6-DoF contacts, left then right). */
 inline constexpr size_t kContactLeftIndex = 0;
 inline constexpr size_t kContactRightIndex = 1;
 
 /**
- * The feet of a biped, one per leg: what the code written for a left and a
- * right foot (the contact planner's rows, rules and variable layout, one wrench
- * cone basis or knee mimic block per foot) static_asserts that kNumContacts is.
+ * The feet of a biped, one per leg. The code written for a left and a right
+ * foot (the contact planners, their biped-only rows and rules, the knee mimic
+ * blocks) refuses a contact set of any other size when it is built
+ * (common/TwoContactCount.h).
  */
 inline constexpr int kBipedFootCount = 2;
+
+/** One value per foot of a biped, indexed by kContactLeftIndex and
+ * kContactRightIndex. */
+template <typename T>
+using BipedFeetArray = std::array<T, static_cast<size_t>(kBipedFootCount)>;
+
+/** A per-foot array with both entries set to `value`. */
+template <typename T>
+BipedFeetArray<T> makeBipedFeetArray(const T& value) {
+  BipedFeetArray<T> array;
+  array.fill(value);
+  return array;
+}
 
 }  // namespace ocs2

@@ -75,7 +75,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "urdf_parser/urdf_parser.h"
 #include "urdf_world/types.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -471,7 +470,7 @@ class G1Models {
     pinocchio::Model quaternionModel;
     pinocchio::urdf::buildModel(reducedTree, translationSphericalRoot(),
                                 quaternionModel);
-    for (size_t contact = 0; contact < kNumContacts; ++contact) {
+    for (size_t contact = 0; contact < settings_->numContacts(); ++contact) {
       const ContactCenterPoint center =
           checkedValue(contactCenterPointFromConfig(task_.contacts, *settings_,
                                                     static_cast<int>(contact)));
