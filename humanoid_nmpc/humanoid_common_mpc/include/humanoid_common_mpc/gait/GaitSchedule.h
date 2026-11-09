@@ -45,12 +45,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The gait mode layout of the contact set of `modelSettings`: its number of
- * contacts, and as its stance mode kBipedModeStance (the two feet, the last two
- * contacts) when it has two or more 6-DoF contacts, the last two of which are
- * the feet, or every contact active otherwise. The
- * shipped robots and the DRC Atlas multi-contact set therefore keep STANCE = 3,
- * and a set of point contacts stands on all of them.
+ * Returns the gait mode layout of the contact set of `modelSettings`: its
+ * number of contacts, and as its stance mode kBipedModeStance (the two feet,
+ * the last two contacts) on the biped and on a set without legs that has two
+ * or more 6-DoF contacts, the last two of which are the feet, or every contact
+ * active otherwise (a legged set that is not the biped, such as a quadruped on
+ * four 6-DoF soles, or a set of point contacts); its legs (ModelSettings::legs,
+ * each with the OR of its contacts' mode bits) and its contact names. The
+ * shipped robots and the DRC Atlas multi-contact set therefore keep STANCE = 3.
  */
 GaitModeLayout gaitModeLayoutOf(const ModelSettings& modelSettings);
 
@@ -94,7 +96,7 @@ class GaitSchedule {
 
   /** The contact set the modes of this schedule are of, for reading gait files
    * against it (parseModeNumber()). */
-  GaitModeLayout modeLayout() const { return modeLayout_; }
+  const GaitModeLayout& modeLayout() const { return modeLayout_; }
 
   /**
    * Used to insert a new user defined logic in the given time period.

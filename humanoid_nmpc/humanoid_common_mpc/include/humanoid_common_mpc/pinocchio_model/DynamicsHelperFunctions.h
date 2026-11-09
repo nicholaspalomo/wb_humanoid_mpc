@@ -164,20 +164,23 @@ std::vector<VECTOR3_T<SCALAR_T>> getPosLinksRtWorldEwrtWorld(
 /// Above the mean foot height rather than above the world origin, so that it is
 /// the same number on a robot standing on a box as on one standing on the
 /// floor. The contact frames are the sole centers (createPinocchioModel adds
-/// them). On a contact set that is not the biped's two feet
-/// (ModelSettings::isBipedContactSet()), whose first two contacts need not be
-/// feet, it is the height above the lowest contact frame of the set instead:
-/// the support of a robot standing, sitting or lying. Updates the center of
-/// mass and the frame placements of `pinocchioInterface`'s data.
+/// them). `feetmean` is the mean over the legs' contacts (ModelSettings::legs):
+/// on the biped contact set (ModelSettings::isBipedContactSet()) its two feet,
+/// on another set with legs every contact of a leg. On a set without legs, such
+/// as a robot sitting on a seat, it is the height above the lowest contact
+/// frame of the set instead. Updates the center of mass and the frame
+/// placements of `pinocchioInterface`'s data.
 ///
 /// @param q Generalized coordinates
 /// (MpcRobotModelBase::getGeneralizedCoordinates of a state).
 /// @param pinocchioInterface Pinocchio interface of the MPC model.
 /// @param mpcRobotModel The MPC robot model, which names the contact frames.
 ///
-/// @return [m] computePosComRtFeetmeanEwrtWorldZ() on the biped contact set,
-/// computePosComRtLowcontactEwrtWorldZ() on any other, where it stands in for
-/// the height above the feet (the `proxy` of the frame naming convention).
+/// @return [m] computePosComRtFeetmeanEwrtWorldZ() on the biped contact set
+/// and, over the legs' contacts, on another set with legs;
+/// computePosComRtLowcontactEwrtWorldZ() on a set without legs, where it stands
+/// in for the height above the feet (the `proxy` of the frame naming
+/// convention).
 
 scalar_t computeProxyPosComRtFeetmeanEwrtWorldZ(
     const vector_t& q,
@@ -185,23 +188,30 @@ scalar_t computeProxyPosComRtFeetmeanEwrtWorldZ(
     const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
 ///
-/// @brief Computes the center of mass height above the mean of the contact
-/// frames' origins (the soles), for the biped contact set
-/// (ModelSettings::isBipedContactSet()). Updates the center of mass and the
-/// frame placements of `pinocchioInterface`'s data.
+/// @brief Computes the center of mass height above the mean of foot contact
+/// frames' origins (the soles): every contact of the set (the biped's two
+/// feet, ModelSettings::isBipedContactSet()), or the contacts
+/// `footContactIndices` (indices into ModelSettings::contactNames, at least
+/// one, each valid). Updates the center of mass and the frame placements of
+/// `pinocchioInterface`'s data.
 ///
-/// @return [m] the center of mass height above the mean height of the contact
-/// frames.
+/// @return [m] the center of mass height above the mean height of the foot
+/// contact frames.
 
 scalar_t computePosComRtFeetmeanEwrtWorldZ(
     const vector_t& q,
     PinocchioInterface& pinocchioInterface,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel);
+scalar_t computePosComRtFeetmeanEwrtWorldZ(
+    const vector_t& q,
+    PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    absl::Span<const size_t> footContactIndices);
 
 ///
 /// @brief Computes the center of mass height above the lowest contact frame of
-/// the contact set: the support of a robot standing, sitting or lying on a
-/// contact set whose first two contacts need not be feet. Updates the center of
+/// the contact set: the support of a robot sitting or lying on a contact set
+/// without legs. Updates the center of
 /// mass and the frame placements of `pinocchioInterface`'s data.
 ///
 /// @return [m] the center of mass height above the lowest contact frame.

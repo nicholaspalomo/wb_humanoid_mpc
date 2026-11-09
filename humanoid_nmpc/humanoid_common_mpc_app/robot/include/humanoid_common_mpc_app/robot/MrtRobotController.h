@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/ContactMask.h"
@@ -105,6 +106,14 @@ class MrtRobotController final : public RobotController {
   std::optional<ContactMask> plannedContactFlags() const override {
     return controller_->getPlannedContactFlags(
         controller_->getCurrentObservation().time);
+  }
+
+  bool plannedContactSwitchTimes(
+      absl::Span<scalar_t> timeSinceSwitch,
+      absl::Span<scalar_t> timeToSwitch) const override {
+    return controller_->getPlannedContactSwitchTimes(
+        controller_->getCurrentObservation().time, timeSinceSwitch,
+        timeToSwitch);
   }
 
   const ContactMask& measuredContactFlags() const override {

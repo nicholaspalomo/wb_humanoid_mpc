@@ -96,7 +96,7 @@ on both sides of a contact event, bit for bit.
 <!-- LINT.IfChange(robot_binaries) -->
 | Binary | Bus node | What |
 |---|---|---|
-| `:humanoid_centroidal_mpc_robot` | `robot` | the realtime loop: the centroidal MRT joint controller on a robot backend (`--backend=mujoco`) |
+| `:humanoid_centroidal_mpc_robot` | `robot` | the realtime loop: the centroidal MRT joint controller on a robot backend (`--backend=mujoco`); under a multi-contact task file it reads the node's plan (`--multi_contact_scenario`, `--multi_contact_plan`) for its state estimator's contact surfaces |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_app/BUILD.bazel:robot_binaries) -->
 
 The binary that runs on the robot's realtime computer and, with the MuJoCo backend, in simulation: see

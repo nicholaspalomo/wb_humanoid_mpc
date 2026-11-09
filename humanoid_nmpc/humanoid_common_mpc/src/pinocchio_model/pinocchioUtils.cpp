@@ -53,6 +53,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
+pinocchio::JointIndex hipJointOf(const pinocchio::Model& model,
+                                 pinocchio::JointIndex joint) {
+  while (model.parents[joint] > kFloatingBaseJoint) {
+    joint = model.parents[joint];
+  }
+  return joint;
+}
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/

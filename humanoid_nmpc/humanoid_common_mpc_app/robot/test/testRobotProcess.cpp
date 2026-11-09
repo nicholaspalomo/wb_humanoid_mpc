@@ -480,7 +480,7 @@ TEST_F(RobotProcessTest,
   config.settings.contactEstimator = "magic";
   absl::StatusOr<std::unique_ptr<RobotProcess>> unknownEstimator =
       RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_,
-                           &estimators_, config);
+                           &estimators_, std::move(config));
   EXPECT_EQ(unknownEstimator.status().code(),
             absl::StatusCode::kInvalidArgument);
   EXPECT_NE(unknownEstimator.status().message().find("cheater_sim"),
@@ -494,11 +494,11 @@ TEST_F(RobotProcessTest,
 
   std::unique_ptr<robot::ipc::Bus> otherBus =
       robot_test::createLoopbackBus("robot");
-  config = processConfig();
-  config.settings.telemetrySinks = {"bus", "carrier_pigeon"};
+  RobotProcess::Config sinkConfig = processConfig();
+  sinkConfig.settings.telemetrySinks = {"bus", "carrier_pigeon"};
   absl::StatusOr<std::unique_ptr<RobotProcess>> unknownSink =
       RobotProcess::Create(otherBus.get(), backend_.get(), &controller_,
-                           &estimators_, config);
+                           &estimators_, std::move(sinkConfig));
   EXPECT_EQ(unknownSink.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(unknownSink.status().message().find("carrier_pigeon"),
             std::string::npos);
@@ -524,8 +524,9 @@ TEST_F(
                   [] { return std::make_shared<OneFlagContactEstimator>(); });
   RobotProcess::Config config = processConfig();
   config.settings.contactEstimator = "one_flag";
-  absl::StatusOr<std::unique_ptr<RobotProcess>> refused = RobotProcess::Create(
-      robotBus_.get(), backend_.get(), &controller_, &estimators_, config);
+  absl::StatusOr<std::unique_ptr<RobotProcess>> refused =
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_,
+                           &estimators_, std::move(config));
   EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(
       refused.status().message().find("'one_flag' reports 1 contact flags"),
@@ -714,8 +715,9 @@ TEST_F(RobotProcessTest,
        RefusesAnUnknownStateEstimatorListingTheAvailableOnes) {
   RobotProcess::Config config = processConfig();
   config.settings.stateEstimator = "oracle";
-  absl::StatusOr<std::unique_ptr<RobotProcess>> created = RobotProcess::Create(
-      robotBus_.get(), backend_.get(), &controller_, &estimators_, config);
+  absl::StatusOr<std::unique_ptr<RobotProcess>> created =
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_,
+                           &estimators_, std::move(config));
   EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(created.status().message().find("state_estimator"),
             std::string::npos)
@@ -877,8 +879,9 @@ TEST_F(RobotProcessTest, ASaveOnTheBusIsStoredAndTheTaskFileWatcherAppliesIt) {
   // The test's task file is the store's copy.
   config.configStore.task = {
       .path = taskFile_, .identity = kTestTaskIdentity, .inPlacePath = ""};
-  absl::StatusOr<std::unique_ptr<RobotProcess>> created = RobotProcess::Create(
-      robotBus_.get(), backend_.get(), &controller_, &estimators_, config);
+  absl::StatusOr<std::unique_ptr<RobotProcess>> created =
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_,
+                           &estimators_, std::move(config));
   ASSERT_TRUE(created.ok()) << created.status();
   process_ = *std::move(created);
   std::optional<humanoid_mpc_msgs::ConfigFileSaveStatus> answer;
@@ -934,8 +937,9 @@ TEST_F(RobotProcessTest,
        AnMpcParameterUpdateOfAnotherConfigurationInstallsNothing) {
   RobotProcess::Config config = processConfig();
   config.taskFileIdentity = kTestTaskIdentity;
-  absl::StatusOr<std::unique_ptr<RobotProcess>> created = RobotProcess::Create(
-      robotBus_.get(), backend_.get(), &controller_, &estimators_, config);
+  absl::StatusOr<std::unique_ptr<RobotProcess>> created =
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_,
+                           &estimators_, std::move(config));
   ASSERT_TRUE(created.ok()) << created.status();
   process_ = *std::move(created);
   ASSERT_TRUE(robotBus_->start().ok());
@@ -973,8 +977,9 @@ TEST_F(RobotProcessTest,
        AJointPdGainsUpdateOfAnotherConfigurationInstallsNothing) {
   RobotProcess::Config config = processConfig();
   config.pdGainsFileIdentity = kTestPdGainsIdentity;
-  absl::StatusOr<std::unique_ptr<RobotProcess>> created = RobotProcess::Create(
-      robotBus_.get(), backend_.get(), &controller_, &estimators_, config);
+  absl::StatusOr<std::unique_ptr<RobotProcess>> created =
+      RobotProcess::Create(robotBus_.get(), backend_.get(), &controller_,
+                           &estimators_, std::move(config));
   ASSERT_TRUE(created.ok()) << created.status();
   process_ = *std::move(created);
   ASSERT_TRUE(robotBus_->start().ok());

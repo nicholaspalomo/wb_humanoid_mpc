@@ -53,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody.hpp"
 
 #include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -209,14 +210,28 @@ scalar_t computeProxyPosComRtFeetmeanEwrtWorldZ(
     const vector_t& q,
     PinocchioInterface& pinocchioInterface,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
-  // Any other contact set: its first two contacts need not be the feet, so the
-  // height above its lowest contact frame stands in for the one above the feet.
-  if (!mpcRobotModel.modelSettings.isBipedContactSet()) {
-    return computePosComRtLowcontactEwrtWorldZ(q, pinocchioInterface,
-                                               mpcRobotModel);
+  const ModelSettings& settings = mpcRobotModel.modelSettings;
+  // The biped keeps the mean over its two feet, by the arithmetic it always
+  // had.
+  if (settings.isBipedContactSet()) {
+    return computePosComRtFeetmeanEwrtWorldZ(q, pinocchioInterface,
+                                             mpcRobotModel);
   }
-  return computePosComRtFeetmeanEwrtWorldZ(q, pinocchioInterface,
-                                           mpcRobotModel);
+  // Another set with legs: the mean over the legs' contacts.
+  if (!settings.legs.empty()) {
+    std::vector<size_t> footContactIndices;
+    for (const ModelSettings::Leg& leg : settings.legs) {
+      footContactIndices.insert(footContactIndices.end(),
+                                leg.contactIndices.begin(),
+                                leg.contactIndices.end());
+    }
+    return computePosComRtFeetmeanEwrtWorldZ(q, pinocchioInterface,
+                                             mpcRobotModel, footContactIndices);
+  }
+  // A set without legs (a robot sitting or lying): the height above its lowest
+  // contact frame stands in for the one above the feet.
+  return computePosComRtLowcontactEwrtWorldZ(q, pinocchioInterface,
+                                             mpcRobotModel);
 }
 
 scalar_t computePosComRtFeetmeanEwrtWorldZ(
@@ -237,6 +252,28 @@ scalar_t computePosComRtFeetmeanEwrtWorldZ(
     posFeetmeanRtWorldEwrtWorldZ +=
         posContactRtWorldEwrtWorld(kZAxisIndex) /
         static_cast<scalar_t>(posContactsRtWorldEwrtWorld.size());
+  }
+  return posComRtWorldEwrtWorldZ - posFeetmeanRtWorldEwrtWorldZ;
+}
+
+scalar_t computePosComRtFeetmeanEwrtWorldZ(
+    const vector_t& q,
+    PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    absl::Span<const size_t> footContactIndices) {
+  pinocchio::centerOfMass(pinocchioInterface.getModel(),
+                          pinocchioInterface.getData(), q,
+                          /*computeSubtreeComs=*/false);
+  const scalar_t posComRtWorldEwrtWorldZ =
+      pinocchioInterface.getData().com[0](kZAxisIndex);
+  const std::vector<vector3_t> posContactsRtWorldEwrtWorld =
+      computePosContactsRtWorldEwrtWorld<scalar_t>(q, pinocchioInterface,
+                                                   mpcRobotModel);
+  scalar_t posFeetmeanRtWorldEwrtWorldZ = 0.0;
+  for (const size_t contact : footContactIndices) {
+    posFeetmeanRtWorldEwrtWorldZ +=
+        posContactsRtWorldEwrtWorld[contact](kZAxisIndex) /
+        static_cast<scalar_t>(footContactIndices.size());
   }
   return posComRtWorldEwrtWorldZ - posFeetmeanRtWorldEwrtWorldZ;
 }

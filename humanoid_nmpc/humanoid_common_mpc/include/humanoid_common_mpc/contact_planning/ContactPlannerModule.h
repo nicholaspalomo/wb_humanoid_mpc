@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerInterface.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
@@ -137,8 +138,10 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
    * nomPosComRtFeetmeanEwrtWorldZ where the file leaves it out, the ZMP box
    * where it leaves it at 0) - are applied to `config` first and to every
    * configuration set later, including the hot reloads, which do not carry
-   * them. A null reference manager, an unknown planner or a configuration that
-   * does not validate is an InvalidArgument naming the key to change.
+   * them. A null reference manager, an unknown planner, a configuration that
+   * does not validate or a reference manager whose contact set is not the
+   * biped's (makeContactPlanner()) is an InvalidArgument naming the key to
+   * change.
    */
   static absl::StatusOr<std::shared_ptr<ContactPlannerModule>> Create(
       std::shared_ptr<ContactPlanningReferenceManager> referenceManagerPtr,
@@ -185,10 +188,11 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
   absl::Status setConfig(const ContactPlanningConfig& config);
 
   /**
-   * The formulation summary to log after a reload from `previous` to `next`, or
-   * empty when the reload changes nothing the summary reports.
+   * Returns the formulation summary to log after a reload from `previous` to
+   * `next` on the contact set `contactSet` (contactPlannerSummary()), or empty
+   * when the reload changes nothing the summary reports.
    *
-   * The summary is not only a record: for the H-LIP planner it carries the
+   * The summary is not only a record: for the H-LIP planner it includes the
    * start-up check of whether the first step out of a standstill fits the reach
    * (HlipContactPlanner::formulationSummary), and every key that check depends
    * on - hlip.sspDuration, hlip.dspDuration,
@@ -200,7 +204,9 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
    * this module knowing which keys those are.
    */
   static std::optional<std::string> reloadSummary(
-      const ContactPlanningConfig& previous, const ContactPlanningConfig& next);
+      const ContactPlanningConfig& previous,
+      const ContactPlanningConfig& next,
+      ContactSetSummary contactSet);
   ContactPlanningConfig getConfig() const;
 
   Statistics getStatistics() const;
@@ -212,7 +218,8 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
       std::shared_ptr<ContactPlanningReferenceManager> referenceManagerPtr,
       ContactPlanningConfig config,
       std::optional<ContactPlanningModelParameters> modelParameters,
-      std::unique_ptr<ContactPlannerInterface> planner);
+      std::unique_ptr<ContactPlannerInterface> planner,
+      ContactSetSummary contactSet);
 
   void workerLoop();
   /**
@@ -226,6 +233,9 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
   void stopWorker();
 
   std::shared_ptr<ContactPlanningReferenceManager> referenceManagerPtr_;
+  // The contact set of the reference manager's model, which every rebuilt
+  // planner is checked against.
+  ContactSetSummary contactSet_;
 
   mutable std::mutex configMutex_;
   ContactPlanningConfig config_;

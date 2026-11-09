@@ -3,6 +3,7 @@ edition = "2023";
 package humanoid_mpc_config;
 
 import "humanoid_mpc_config/config_options.proto";
+import "humanoid_mpc_config/gait_switching_table_config.proto";
 import "humanoid_mpc_config/mode_sequence_template_config.proto";
 import "nproto/options.proto";
 import "nproto/retired_field_options.proto";
@@ -23,7 +24,9 @@ import "nproto/retired_field_options.proto";
 //   }
 //
 // gait_list names every gait of gaits exactly once: a gait it does not name, or a name with no gait, is refused.
-// Next ID: 3
+// gait_switching, optional, is the table of the gaits the velocity command selects; every gait it names must be in the
+// file.
+// Next ID: 4
 message GaitFile {
   option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::GaitFile";
   option (nproto.retired_field) = {
@@ -32,7 +35,7 @@ message GaitFile {
   };
   option (nproto.retired_layout_hint) = "Each gait is a block gaits { name: \"<name>\" mode_sequence: ... switching_times: ... } that gait_list names, not a block per gait name.";
 
-  reserved 3 to max;
+  reserved 4 to max;
 
   // The gaits by name, each once (formerly list).
   repeated string gait_list = 1 [
@@ -46,6 +49,18 @@ message GaitFile {
     (humanoid_mpc_config.tuning) = {
       reload: RELOAD_START_UP
       exclude_reason: "the gaits, read once at start-up: the GUI has no gait tab, edit the gait file"
+    }
+  ];
+  // The gaits the walking velocity command switches between, slowest first, with their thresholds. Absent: the
+  // default table of ProceduralMpcMotionManager, which a biped gait file names:
+  // LINT.IfChange(default_gait_switching_table)
+  // stance, slow_walk, walk, slower_trot, slow_trot, trot, run.
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/reference_manager/GaitSwitchingTable.cpp:default_gait_switching_table)
+  GaitSwitchingTableConfig gait_switching = 3 [
+    (nproto.optional_message) = true,
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      exclude_reason: "the gait switching table, read once at start-up: the GUI has no gait tab, edit the gait file"
     }
   ];
 }

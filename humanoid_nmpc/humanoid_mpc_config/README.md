@@ -33,7 +33,7 @@ Every `.proto` file holds one message, named after the file. The task file's blo
 | Field of `TaskFile` | Message (file) | What it sets |
 |---|---|---|
 | `interface` | `InterfaceConfig` | the interface's own flags (`verbose`) |
-| `model_settings` | `ModelSettingsConfig` | the robot model: its name, the joints the MPC fixes, the 6-DoF contacts, the arm-swing joints, the CppAD flags, the foot constraint gains |
+| `model_settings` | `ModelSettingsConfig` | the robot model: its name, the joints the MPC fixes, the 6-DoF and 3-DoF contacts, the legs (absent on a biped: `left` and `right`), the arm-swing joints, the CppAD flags, the foot constraint gains |
 | `multiple_shooting`, `rollout`, `mpc` | `SqpSettingsConfig`, `RolloutSettingsConfig`, `MpcSettingsConfig` | the SQP solver, the rollouts and the MPC loop (`toSqpSettings()` and the others, defaults of the OCS2 structs) |
 | `initial_state` | `StateValues` | the initial state, by name |
 | `state_weights`, `final_state_weights` | `StateWeights` | the running and the terminal state weights, by name |
@@ -46,7 +46,7 @@ Every `.proto` file holds one message, named after the file. The task file's blo
 | `dcm_terminal_cost` | `DcmTerminalCostConfig` | the centroidal MPC's capture-point cost |
 | `swing_trajectory_config` | `SwingTrajectoryConfig` | the swing-foot trajectories |
 | `locomotion_heuristics` | `LocomotionHeuristicsConfig` | the reference-shaping heuristics (humanoid_nmpc/docs/locomotion_heuristics/README.md) |
-| `nominal_foothold`, `contact_implicit` | `NominalFootholdConfig`, `ContactImplicitConfig` | the nominal foothold reference; the contact-implicit terms |
+| `nominal_foothold`, `contact_implicit` | `NominalFootholdConfig`, `ContactImplicitConfig` | the nominal foothold reference and its anchor (`step_width`, `nominal_stance`); the contact-implicit terms |
 | `contact_wrench_gate`, `mpc_link` | `ContactWrenchGateConfig`, `MpcLinkConfig` | the robot process: touch-down shaping of the planned wrenches, the remote MPC link |
 
 The task file's scalars and lists set the formulation (`costs`, `soft_constraints`, `hard_constraints`,
@@ -57,7 +57,10 @@ The task file's scalars and lists set the formulation (`costs`, `soft_constraint
 
 - `reference_file.proto`: the command limits and filter, the default posture `default_joint_state` (`JointValue`
   entries) and the gait schedule's start (`ModeScheduleConfig`, `ModeSequenceTemplateConfig`).
-- `gait_file.proto`: the gaits by name (`ModeSequenceTemplateConfig`).
+- `gait_file.proto`: the gaits by name (`ModeSequenceTemplateConfig`) and, optionally, the table of the gaits the
+  walking velocity command switches between (`gait_switching`, `GaitSwitchingTableConfig` of
+  `gait_switching_table_config.proto`). A file without the table gets the default one of the bipeds, so it must have
+  their gaits.
 - `joint_pd_gains_file.proto`: the gains every joint starts from and those of named joints.
 - `contact_planning_file.proto`: the planner, its shared and H-LIP blocks, the term lists and a block per term
   (humanoid_nmpc/docs/README.md, section 2.10; humanoid_nmpc/docs/contact_planner_terms/README.md).

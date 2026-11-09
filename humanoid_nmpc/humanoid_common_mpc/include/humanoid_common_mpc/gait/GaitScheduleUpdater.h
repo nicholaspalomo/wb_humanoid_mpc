@@ -30,17 +30,34 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
+#include <optional>
+
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 namespace ocs2::humanoid {
 
 /**
+ * Returns the mode `gait` starts its cycle with on the contact set `layout`:
+ * the first mode of its template in which every contact of the first leg
+ * (layout.legs[0]) is active and at least one other leg swings, or
+ * defaultCycleStartMode(layout) when the template has no such mode or the
+ * layout has no legs (LF on a biped, none otherwise). On a biped every gait
+ * gives LF, as the cycle start always was: a walk "LF STANCE RF STANCE", a
+ * very slow walk "RF STANCE LF STANCE" and a jump "STANCE FLY" alike. A
+ * quadruped trot "LF_RH RF_LH" starts with LF_RH.
+ */
+std::optional<size_t> cycleStartMode(const ModeSequenceTemplate& gait,
+                                     const GaitModeLayout& layout);
+
+/**
  * Inserts `updatedGait` into `gaitSchedule` at the first event after 70% of the
- * horizon [initTime, finalTime] (or, on a biped set whose feet are its last two
- * contacts, where the left stance that ends there starts), tiled up to the
+ * horizon [initTime, finalTime] (or, when the phase that ends there has the
+ * gait's cycleStartMode(), where that phase starts), tiled up to the
  * absolute time initTime + 1.5 * (finalTime - initTime). The reference manager
  * calls it on the solver thread before a solve, when the commanded gait
  * changes.

@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -91,14 +92,19 @@ LocomotionHeuristicLayer::Create(
   }
 
   // The foothold anchor keeps the feet apart laterally with the nominal step
-  // width, or - with hip_centered_stepping - with the hips. With neither, every
-  // other foothold heuristic is a velocity- or rate-proportional correction
-  // around the base's own lateral line, half of a zero step width to either
-  // side, and both feet are targeted onto the same point: towards
+  // width, with each contact's nominal stance point (the nominal_stance
+  // anchor), or - with hip_centered_stepping - with the hips. With none of
+  // them, every other foothold heuristic is a velocity- or rate-proportional
+  // correction around the base's own lateral line, half of a zero step width
+  // to either side, and both feet are targeted onto the same point: towards
   // self-collision and zero support width. That cannot work, so it is refused.
   const bool listsAnchor = config.formulation.listed(
       HeuristicKind::kFoothold, heuristic::kHipCenteredStepping);
+  const bool nominalStanceAnchor =
+      environment.nominalFootholdAnchor ==
+      ModelSettings::NominalFootholdAnchor::kNominalStance;
   if (!config.formulation.footholdHeuristics.empty() && !listsAnchor &&
+      !nominalStanceAnchor &&
       !(environment.nomPosLfootRtRfootEwrtHeadingY > 0.0)) {
     return absl::InvalidArgumentError(absl::StrCat(
         "[LocomotionHeuristicLayer] locomotion_heuristics.foothold_heuristics "
@@ -111,10 +117,11 @@ LocomotionHeuristicLayer::Create(
         "landing target that sits on the base's own lateral line, so both feet "
         "would be aimed at the same point under the base. "
         "Either add 'hip_centered_stepping' to the list, which places each "
-        "foot relative to its own hip, or set "
+        "foot relative to its own hip, set "
         "nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y to the lateral "
         "distance between the "
-        "feet."));
+        "feet, or set nominal_foothold.anchor to 'nominal_stance', which "
+        "places each contact where it stands at the nominal posture."));
   }
 
   auto layer = std::make_unique<LocomotionHeuristicLayer>();

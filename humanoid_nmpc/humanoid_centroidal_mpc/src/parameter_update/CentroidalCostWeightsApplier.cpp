@@ -106,6 +106,8 @@ void CentroidalCostWeightsApplier::apply(HotUpdateTarget& target) {
         updateTermIfPresent<CentroidalMpcEndEffectorFootCost>(
             *ocp.costPtr, taskSpaceKinematicsCostName(footName),
             [&](CentroidalMpcEndEffectorFootCost& cost) {
+              // The cost of a 3-DoF contact keeps its orientation and
+              // angular-velocity weights at zero (setWeights()).
               cost.setWeights(weights);
               cost.setActiveInStance(footCost->activeInStance);
               cost.setSwingVelocityReferenceWeight(

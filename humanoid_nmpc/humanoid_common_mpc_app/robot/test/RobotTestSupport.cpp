@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/ContactMask.h"
@@ -157,6 +158,21 @@ void ScriptedRobotController::computeJointControlAction(
 std::optional<ContactMask> ScriptedRobotController::plannedContactFlags()
     const {
   return std::nullopt;
+}
+
+bool ScriptedRobotController::plannedContactSwitchTimes(
+    absl::Span<scalar_t> timeSinceSwitch,
+    absl::Span<scalar_t> timeToSwitch) const {
+  if (plannedTimesSinceSwitch_.empty()) return false;
+  for (size_t contact = 0;
+       contact < plannedTimesSinceSwitch_.size() &&
+       contact < plannedTimesToSwitch_.size() &&
+       contact < timeSinceSwitch.size() && contact < timeToSwitch.size();
+       ++contact) {
+    timeSinceSwitch[contact] = plannedTimesSinceSwitch_[contact];
+    timeToSwitch[contact] = plannedTimesToSwitch_[contact];
+  }
+  return true;
 }
 
 void ScriptedRobotController::setContactEstimator(

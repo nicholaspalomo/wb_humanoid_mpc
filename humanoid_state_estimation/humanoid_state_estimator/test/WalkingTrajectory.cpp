@@ -142,7 +142,7 @@ std::vector<std::string> prismaticBipedJointNames() {
   return {"left_x", "left_y", "left_z", "right_x", "right_y", "right_z"};
 }
 
-std::vector<std::string> prismaticBipedFootFrames() {
+std::vector<std::string> prismaticBipedFootLinks() {
   return {"left_foot", "right_foot"};
 }
 

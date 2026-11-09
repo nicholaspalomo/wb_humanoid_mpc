@@ -216,6 +216,7 @@ TEST(RobotProcessSettings, EveryFieldIsRead) {
       "stance_contact_random_walk: 0.02 swing_contact_random_walk: 5 "
       "kinematic_position_noise: 0.004 kinematic_velocity_noise: 0.06 "
       "contact_height_noise: 0.02 nom_pos_contact_rt_world_ewrt_world_z: 0.03 "
+      "contact_trust_ramp_duration: 0.04 contact_trust_ramp_max_scale: 3 "
       "}\n");
   ASSERT_TRUE(settings.ok()) << settings.status();
   EXPECT_EQ(settings->stateEstimator, "kalman");
@@ -230,6 +231,8 @@ TEST(RobotProcessSettings, EveryFieldIsRead) {
   EXPECT_DOUBLE_EQ(kalman.kinematicVelocityNoise, 0.06);
   EXPECT_DOUBLE_EQ(kalman.contactHeightNoise, 0.02);
   EXPECT_DOUBLE_EQ(kalman.nomPosContactRtWorldEwrtWorldZ, 0.03);
+  EXPECT_DOUBLE_EQ(kalman.contactTrustRampDuration, 0.04);
+  EXPECT_DOUBLE_EQ(kalman.contactTrustRampMaxScale, 3.0);
   EXPECT_EQ(settings->contactEstimator, "robot_state");
   EXPECT_DOUBLE_EQ(settings->simulator.minForceMjcontactEwrtMjcontactX, 8.0);
   EXPECT_DOUBLE_EQ(settings->simulator.contactTimelineWindow, 3.0);
@@ -298,6 +301,39 @@ TEST(
         << value.text;
     EXPECT_THAT(settings.status().message(), HasSubstr(value.field))
         << value.text;
+  }
+}
+
+TEST(RobotProcessSettings,
+     TheContactTrustRampIsOffByDefaultAndRefusesBadValues) {
+  const absl::StatusOr<RobotProcessSettings> defaults =
+      settingsOfText("mpc { time_horizon: 1.0 }\n");
+  ASSERT_TRUE(defaults.ok()) << defaults.status();
+  EXPECT_EQ(defaults->kalmanStateEstimator.contactTrustRampDuration, 0.0)
+      << "off unless the task file turns it on";
+  EXPECT_EQ(defaults->kalmanStateEstimator.contactTrustRampMaxScale, 1.0);
+  struct Refused {
+    std::string text;
+    std::string field;
+  };
+  const Refused refused[] = {
+      {.text = "kalman_state_estimator { contact_trust_ramp_duration: -0.1 }\n",
+       .field = "kalman_state_estimator.contact_trust_ramp_duration"},
+      {.text = "kalman_state_estimator { contact_trust_ramp_duration: inf }\n",
+       .field = "kalman_state_estimator.contact_trust_ramp_duration"},
+      {.text = "kalman_state_estimator { contact_trust_ramp_max_scale: 0.9 }\n",
+       .field = "kalman_state_estimator.contact_trust_ramp_max_scale"},
+      {.text = "kalman_state_estimator { contact_trust_ramp_max_scale: nan }\n",
+       .field = "kalman_state_estimator.contact_trust_ramp_max_scale"},
+  };
+  for (const Refused& value : refused) {
+    const absl::StatusOr<RobotProcessSettings> settings =
+        settingsOfText(value.text);
+    ASSERT_TRUE(settings.ok()) << settings.status();
+    const absl::Status status = estimation::KalmanBaseEstimator::validateConfig(
+        settings->kalmanStateEstimator);
+    EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << value.text;
+    EXPECT_THAT(status.message(), HasSubstr(value.field)) << value.text;
   }
 }
 

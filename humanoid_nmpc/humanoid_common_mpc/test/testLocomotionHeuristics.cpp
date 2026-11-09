@@ -504,6 +504,7 @@ TEST(LocomotionHeuristics, HipCenteredSteppingPlacesEachFootOnItsOwnSide) {
   FootholdHeuristicContext left = footholdContext();
   FootholdHeuristicContext right = footholdContext();
   right.contactIndex = kContactRightIndex;
+  right.legIndex = kContactRightIndex;
   right.side = -1.0;
   EXPECT_NEAR((*layer)->computeOffsetPosFootRtWorldEwrtWorldXy(left).y(), 0.08,
               1.0e-12);

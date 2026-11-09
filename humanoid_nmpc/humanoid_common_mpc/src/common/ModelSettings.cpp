@@ -28,31 +28,25 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
-
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
 #include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <vector>
 
-#include "absl/log/log.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "ocs2_core/Types.h"
-#include "ocs2_pinocchio_interface/PinocchioInterface.h"
-#include "pinocchio/multibody/fwd.hpp"
-#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/StateLayout.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
-#include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
-#include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "nproto/Fnv1a64Constants.h"
 
@@ -100,11 +94,6 @@ static_assert(sizeof(ModelSettings::ContactImplicitConfig) ==
               "every field of ModelSettings::ContactImplicitConfig needs a key "
               "in kContactImplicitKeys");
 
-// The joints of a Pinocchio model before the URDF's own: the universe and the
-// floating base's root joint, which the URDF's first joint follows.
-constexpr int kNonUrdfJointCount =
-    static_cast<int>(kFirstJointAfterFloatingBase);
-
 }  // namespace
 
 absl::Span<const ModelSettings::ContactImplicitKey>
@@ -125,24 +114,6 @@ absl::StatusOr<ModelSettings> ModelSettings::Create(
     return withConfigFile(settings.status(), configFile);
   }
   return settings;
-}
-
-void ModelSettings::loadFullJointNames(const std::string& urdfFile,
-                                       bool verbose) {
-  // Get full joint order from a full pinocchio interface, this removes any
-  // joints marked as fix in the urdf.
-  const PinocchioInterface fullPinocchioInterface =
-      createDefaultPinocchioInterface(urdfFile);
-  const pinocchio::Model& model = fullPinocchioInterface.getModel();
-  if (verbose) LOG(INFO) << "Full URDF joints: ";
-  fullJointNames.reserve(
-      model.njoints - kNonUrdfJointCount);  // Subtract universe and root joint
-  for (pinocchio::JointIndex joint_id = kFirstJointAfterFloatingBase;
-       joint_id < static_cast<pinocchio::JointIndex>(model.njoints);
-       ++joint_id) {
-    if (verbose) LOG(INFO) << model.names[joint_id];
-    fullJointNames.emplace_back(model.names[joint_id]);
-  }
 }
 
 namespace {
@@ -193,6 +164,29 @@ std::vector<std::string> ModelSettings::contactParentJointNamesInContactOrder()
                           : std::string());
   }
   return parents;
+}
+
+std::optional<size_t> ModelSettings::legOfContact(size_t contactIndex) const {
+  for (size_t leg = 0; leg < legs.size(); ++leg) {
+    for (const size_t contact : legs[leg].contactIndices) {
+      if (contact == contactIndex) return leg;
+    }
+  }
+  return std::nullopt;
+}
+
+bool ModelSettings::isLeggedContactSet() const {
+  if (legs.empty()) return false;
+  for (size_t contact = 0; contact < numContacts(); ++contact) {
+    if (!legOfContact(contact).has_value()) return false;
+  }
+  return true;
+}
+
+bool ModelSettings::hasBipedStance() const {
+  const bool leggedNonBiped = isLeggedContactSet() && !isBipedContactSet();
+  return !leggedNonBiped &&
+         contactNames6DoF.size() >= static_cast<size_t>(kBipedFootCount);
 }
 
 uint64_t modelLayoutFingerprint(const ModelSettings& settings) {

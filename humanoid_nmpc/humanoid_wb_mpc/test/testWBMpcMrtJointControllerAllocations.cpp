@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -43,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Geometry"
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/control/ManifoldLinearController.h"
@@ -312,10 +314,24 @@ TEST(WBMpcMrtJointControllerAllocations,
                               // itself on first use
   ASSERT_FALSE(controller.isHolding()) << "the policy is executed";
 
+  // The robot process asks for the planned switch times every cycle, into
+  // storage it sized once.
+  std::vector<scalar_t> timesSinceSwitch(modelSettings.numContacts(), 0.0);
+  std::vector<scalar_t> timesToSwitch(modelSettings.numContacts(), 0.0);
   const size_t before = robot::realtime::heapAllocationCountOnThisThread();
   runCycles(controller, nominal, state, action, time, "WB_MPC", kCyclesPerMode);
+  const bool planned = controller.getPlannedContactSwitchTimes(
+      time, absl::MakeSpan(timesSinceSwitch), absl::MakeSpan(timesToSwitch));
   EXPECT_EQ(robot::realtime::heapAllocationCountOnThisThread() - before, 0u)
       << kCyclesPerMode << " cycles executing a policy allocated";
+  ASSERT_TRUE(planned);
+  // The policy stands throughout: no switch either way.
+  for (size_t contact = 0; contact < timesToSwitch.size(); ++contact) {
+    EXPECT_EQ(timesSinceSwitch[contact],
+              std::numeric_limits<scalar_t>::infinity());
+    EXPECT_EQ(timesToSwitch[contact],
+              std::numeric_limits<scalar_t>::infinity());
+  }
 }
 
 /** `count` control cycles, 2 ms apart from `time`, which it advances, in the

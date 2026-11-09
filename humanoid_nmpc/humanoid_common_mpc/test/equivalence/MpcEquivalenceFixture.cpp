@@ -188,7 +188,8 @@ std::vector<std::string> mpcEquivalenceConfigurationNames() {
   std::vector<std::string> names;
   for (const validation::RobotConfiguration& robot :
        validation::robotConfigurations()) {
-    names.push_back(robot.name);
+    // A state-estimator variant runs the MPC of the configuration it varies.
+    if (!robot.isStateEstimatorVariant()) names.push_back(robot.name);
   }
   return names;
 }

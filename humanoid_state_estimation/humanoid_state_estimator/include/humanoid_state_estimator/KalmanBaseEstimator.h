@@ -37,9 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_state_estimator/ContactEstimationInputs.h"
 #include "humanoid_state_estimator/ContactKinematics.h"
 #include "humanoid_state_estimator/KalmanFilter.h"
 
@@ -52,11 +54,17 @@ namespace ocs2::humanoid::estimation {
  * contact point, the formulation of Bloesch et al. (2013) with the orientation
  * taken from the IMU, as the MIT Cheetah's linear estimator does.
  *
- *   predict:  p+ = p + dt v + dt^2/2 a,  v+ = v + dt a,  c_i+ = c_i,   a = R f
- * + g, correct, per contact i in stance: c_i - p = R p_rel_i (where the leg
- * kinematics put the contact point) v = -R (omega x p_rel_i + v_rel_i) (the
- * stance contact point does not move) e_z^T c_i =
- * nom_pos_contact_rt_world_ewrt_world_z (it stands on flat ground at z = 0)
+ *   predict:  p+ = p + dt v + dt^2/2 a,  v+ = v + dt a,  c_i+ = c_i,
+ *             a = R f + g,
+ *   correct, per contact i in stance:
+ *     c_i - p = R p_rel_i                    (where the leg kinematics put
+ *                                             the contact point)
+ *     v = -R (omega x p_rel_i + v_rel_i)     (the stance contact point does
+ *                                             not move)
+ *     e_z^T c_i = h_i                        (the surface height the caller
+ *                                             gives contact i,
+ *                                             ContactEstimationInputs; no
+ *                                             such row without one)
  *
  * with R the IMU's orientation (base to world), omega the base's angular
  * velocity and f the accelerometer's specific force R^T (a - g), both in the
@@ -70,9 +78,17 @@ namespace ocs2::humanoid::estimation {
  * is a correct() of its own, which equals the joint update because the
  * measurements' noise is independent.
  *
+ * Optionally (Config::contactTrustRampDuration > 0) a stance contact is
+ * trusted less near a planned liftoff or touchdown: with d the time to the
+ * nearer planned switch the caller gives (ContactEstimationInputs), its stance
+ * random walk and its velocity and height noise standard deviations are
+ * multiplied by contactTrustScale(d, ...) (ContactTrustRamp.h), 1 outside the
+ * window. Off, the noise is never rewritten for it.
+ *
  * The orientation is not estimated: it is the IMU's (on a simulator, the
- * truth). The base height is observable through the contact height only, so on
- * uneven ground the position's z drifts with the feet.
+ * truth). The base height is observable through the contact heights only: a
+ * stance contact without a surface height keeps the height it had at
+ * touch-down, and with no height at all the position's z drifts.
  *
  * REALTIME. The models, inputs and measurements are built once by Create() and
  * the filter's workspace is reserved; update() overwrites their values in place
@@ -93,6 +109,8 @@ class KalmanBaseEstimator {
     static constexpr scalar_t kDefaultKinematicVelocityNoise = 0.05;
     static constexpr scalar_t kDefaultContactHeightNoise = 0.01;
     static constexpr scalar_t kNomPosContactRtWorldEwrtWorldZ = 0.0;
+    static constexpr scalar_t kDefaultContactTrustRampDuration = 0.0;
+    static constexpr scalar_t kDefaultContactTrustRampMaxScale = 1.0;
     // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/kalman_state_estimator_config.proto:kalman_state_estimator_defaults)
 
     /** [m/s^2] The accelerometer's noise on one sample
@@ -112,9 +130,20 @@ class KalmanBaseEstimator {
     scalar_t kinematicVelocityNoise = kDefaultKinematicVelocityNoise;
     /** [m] (contact_height_noise). */
     scalar_t contactHeightNoise = kDefaultContactHeightNoise;
-    /** [m] The height of a standing contact point in the world
-     * (nom_pos_contact_rt_world_ewrt_world_z); any finite value. */
+    /** [m] The flat ground's height (nom_pos_contact_rt_world_ewrt_world_z);
+     * any finite value. The estimator does not read it: the robot process
+     * gives it to every contact while no multi-contact plan names a surface
+     * (FlatGroundSurfaceHeights). The contact points are the MPC's sole and
+     * pad centers and point offsets (ContactPointSpec), so 0 is flat ground at
+     * z = 0. */
     scalar_t nomPosContactRtWorldEwrtWorldZ = kNomPosContactRtWorldEwrtWorldZ;
+    /** [s] The contact-trust ramp's window around a planned contact switch
+     * (contact_trust_ramp_duration), >= 0; 0 turns the ramp off, and update()
+     * then rewrites no noise for it (ContactTrustRamp.h). */
+    scalar_t contactTrustRampDuration = kDefaultContactTrustRampDuration;
+    /** The ramp's factor on the standard deviations at the switch
+     * (contact_trust_ramp_max_scale), >= 1. */
+    scalar_t contactTrustRampMaxScale = kDefaultContactTrustRampMaxScale;
   };
 
   /**
@@ -156,10 +185,13 @@ class KalmanBaseEstimator {
    * Advances the estimate by `dt` [s] (> 0) with the IMU's orientation (base to
    * world), angular velocity and specific force (base frame), and corrects it
    * with the kinematics of every contact point `contactFlags` (one per contact)
-   * has in stance. A non-finite IMU reading or a bad dt fails before anything
-   * changes; a non-finite joint reading fails the correction after the
-   * prediction was applied, so the estimate is then the IMU's prediction alone.
-   * Allocates nothing.
+   * has in stance, and with the surface height `contactInputs` gives each of
+   * them (none for a contact without one); with the contact-trust ramp on,
+   * also with the planned switch times it gives. A non-finite IMU reading, a
+   * bad dt, or flags or inputs of another number than the contact points fail
+   * before anything changes; a non-finite joint reading fails the correction
+   * after the prediction was applied, so the estimate is then the IMU's
+   * prediction alone. Allocates nothing.
    */
   absl::Status update(scalar_t dt,
                       const quaternion_t& quatBaseRtWorld,
@@ -167,7 +199,8 @@ class KalmanBaseEstimator {
                       const vector3_t& specforceBaseRtWorldEwrtBase,
                       const vector_t& jointPositions,
                       const vector_t& jointVelocities,
-                      const std::vector<bool>& contactFlags);
+                      const std::vector<bool>& contactFlags,
+                      const ContactEstimationInputs& contactInputs);
 
   /** [m] The base position in the world. */
   const vector3_t& posBaseRtWorldEwrtWorld() const {
@@ -177,9 +210,18 @@ class KalmanBaseEstimator {
   const vector3_t& linvelBaseRtWorldEwrtWorld() const {
     return linvelBaseRtWorldEwrtWorld_;
   }
-  /** [m] Contact `contact`'s estimated position in the world. Allocates: for
-   * tests and tools, not the realtime thread. */
+  /** [m] The estimated world positions of the contact points, in contact
+   * order, as of the last reset() or update(). Allocates nothing; the span is
+   * valid as long as the estimator. */
+  absl::Span<const vector3_t> estPosContactsRtWorldEwrtWorld() const {
+    return estPosContactsRtWorldEwrtWorld_;
+  }
+  /** Returns contact `contact`'s estimated position [m] in the world.
+   * Allocates: for tests and tools, not the realtime thread. */
   absl::StatusOr<vector3_t> posContactRtWorldEwrtWorld(size_t contact) const;
+  /** Returns the 3 x 3 covariance of contact `contact`'s estimated world
+   * position. Allocates: for tests and tools, not the realtime thread. */
+  absl::StatusOr<matrix_t> contactStateCovariance(size_t contact) const;
   size_t numContacts() const { return kinematics_->numContacts(); }
   const ContactKinematics& kinematics() const { return *kinematics_; }
 
@@ -198,6 +240,32 @@ class KalmanBaseEstimator {
 
   absl::Status build();
   absl::Status readEstimate();
+  /** Rewrites contact `contact`'s velocity and height measurement noise in
+   * place as `scale` times the configured standard deviations (the
+   * contact-trust ramp). Allocates nothing. */
+  void scaleContactMeasurementNoise(size_t contact, scalar_t scale);
+  /** Writes the prediction's input, the world acceleration of the specific
+   * force `specforceBaseRtWorldEwrtBase` rotated by `rotmatBaseRtWorld`, and
+   * the base channels' transition, input and process noise blocks for the
+   * step `dt`. Allocates nothing. */
+  void setBaseProcessModel(scalar_t dt,
+                           const matrix3_t& rotmatBaseRtWorld,
+                           const vector3_t& specforceBaseRtWorldEwrtBase);
+  /** Returns the contact-trust ramp's scale of contact `contact`:
+   * contactTrustScale() of the nearer planned switch of `contactInputs`. */
+  scalar_t contactTrustScaleOf(
+      size_t contact, const ContactEstimationInputs& contactInputs) const;
+  /** Writes contact `contact`'s process noise for the step `dt` from its
+   * random walk `randomWalk` [m/sqrt(s)]. Allocates nothing. */
+  void setContactProcessNoise(size_t contact, scalar_t randomWalk, scalar_t dt);
+  /** Corrects the filter with stance contact `contact`'s relative position and
+   * velocity rows, and its height row where `contactInputs` gives the surface
+   * height, from the kinematics of the last ContactKinematics::update().
+   * Returns the filter's error. Allocates nothing. */
+  absl::Status correctContact(size_t contact,
+                              const matrix3_t& rotmatBaseRtWorld,
+                              const vector3_t& angvelBaseRtWorldEwrtBase,
+                              const ContactEstimationInputs& contactInputs);
 
   const Config config_;
   std::unique_ptr<ContactKinematics> kinematics_;
@@ -220,6 +288,11 @@ class KalmanBaseEstimator {
   KalmanFilterState filterStateLinvelBaseRtWorldEwrtWorld_;
   vector3_t posBaseRtWorldEwrtWorld_ = vector3_t::Zero();
   vector3_t linvelBaseRtWorldEwrtWorld_ = vector3_t::Zero();
+  // One per contact point: the filter's channel, read in place by
+  // readEstimate() (sized by build(), so that reading allocates nothing), and
+  // its position.
+  std::vector<KalmanFilterState> filterStateContacts_;
+  std::vector<vector3_t> estPosContactsRtWorldEwrtWorld_;
 };
 
 }  // namespace ocs2::humanoid::estimation

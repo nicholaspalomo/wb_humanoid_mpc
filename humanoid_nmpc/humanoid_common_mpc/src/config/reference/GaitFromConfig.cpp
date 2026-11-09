@@ -62,7 +62,7 @@ namespace {
 absl::StatusOr<std::vector<size_t>> modeNumbers(
     const std::vector<std::string>& names,
     absl::string_view path,
-    GaitModeLayout layout) {
+    const GaitModeLayout& layout) {
   if (names.empty()) {
     return absl::InvalidArgumentError(absl::StrCat(
         path, ".mode_sequence is empty; it needs at least one mode"));
@@ -100,7 +100,7 @@ absl::StatusOr<std::vector<scalar_t>> finiteTimes(const Eigen::VectorXd& times,
 absl::StatusOr<ModeSequenceTemplate> modeSequenceTemplateFromConfig(
     const mpc_config::ModeSequenceTemplateConfig& config,
     absl::string_view path,
-    GaitModeLayout layout) {
+    const GaitModeLayout& layout) {
   ASSIGN_OR_RETURN(std::vector<size_t> modes,
                    modeNumbers(config.mode_sequence, path, layout));
   ASSIGN_OR_RETURN(
@@ -129,7 +129,7 @@ absl::StatusOr<ModeSequenceTemplate> modeSequenceTemplateFromConfig(
 absl::StatusOr<ModeSchedule> modeScheduleFromConfig(
     const mpc_config::ModeScheduleConfig& config,
     absl::string_view path,
-    GaitModeLayout layout) {
+    const GaitModeLayout& layout) {
   ASSIGN_OR_RETURN(std::vector<size_t> modes,
                    modeNumbers(config.mode_sequence, path, layout));
   ASSIGN_OR_RETURN(std::vector<scalar_t> eventTimes,
@@ -144,7 +144,7 @@ absl::StatusOr<ModeSchedule> modeScheduleFromConfig(
 }
 
 absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaitMapFromConfig(
-    const mpc_config::GaitFile& file, GaitModeLayout layout) {
+    const mpc_config::GaitFile& file, const GaitModeLayout& layout) {
   absl::flat_hash_set<std::string> listed;
   for (const std::string& name : file.gait_list) {
     if (!listed.insert(name).second) {
@@ -183,7 +183,7 @@ absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaitMapFromConfig(
 }
 
 absl::StatusOr<ModeSchedule> initialModeScheduleFromConfig(
-    const mpc_config::ReferenceFile& file, GaitModeLayout layout) {
+    const mpc_config::ReferenceFile& file, const GaitModeLayout& layout) {
   ASSIGN_OR_RETURN(ModeSchedule schedule,
                    modeScheduleFromConfig(file.initial_mode_schedule,
                                           "initial_mode_schedule", layout));
@@ -202,7 +202,7 @@ absl::StatusOr<ModeSchedule> initialModeScheduleFromConfig(
 }
 
 absl::StatusOr<ModeSequenceTemplate> defaultModeSequenceTemplateFromConfig(
-    const mpc_config::ReferenceFile& file, GaitModeLayout layout) {
+    const mpc_config::ReferenceFile& file, const GaitModeLayout& layout) {
   if (!file.default_mode_sequence_template.name.empty()) {
     return absl::InvalidArgumentError(
         absl::StrCat("default_mode_sequence_template.name is '",

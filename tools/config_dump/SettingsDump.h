@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/MPC_Settings.h"
@@ -42,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
+#include "humanoid_common_mpc/reference_manager/GaitSwitchingTable.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/teleop/KeyboardVelocityCommand.h"
@@ -74,6 +76,9 @@ void dumpModeSchedule(ValueDump& dump,
 void dumpGaitMap(ValueDump& dump,
                  absl::string_view path,
                  const std::map<std::string, ModeSequenceTemplate>& gaits);
+void dumpGaitModeStates(ValueDump& dump,
+                        absl::string_view path,
+                        absl::Span<const GaitModeStateConfig> states);
 void dumpTargetTrajectories(ValueDump& dump,
                             absl::string_view path,
                             const TargetTrajectories& targets);

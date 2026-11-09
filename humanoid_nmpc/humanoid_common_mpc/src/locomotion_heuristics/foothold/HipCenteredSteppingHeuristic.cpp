@@ -30,13 +30,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/foothold/HipCenteredSteppingHeuristic.h"
 
 #include <cmath>
+#include <cstddef>
 #include <string>
+#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
 #include "ocs2_core/Types.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
@@ -62,8 +64,14 @@ vector2_t HipCenteredSteppingHeuristic::computeOffsetPosFootRtWorldEwrtWorldXy(
   // simplification of the control model, which carries the full base rotation:
   // only the heading at the touch-down is predicted, and the roll and pitch of
   // a walking base move a ground-projected hip offset by a second-order amount.
+  // The hip of the landing contact's leg. A leg the model parameters have no
+  // hip for keeps the predicted base as its anchor rather than reading past
+  // the end.
+  if (context.legIndex >= posHipsRtBaseEwrtHeadingXy_.size()) {
+    return vector2_t::Zero();
+  }
   const vector2_t posHipRtBaseEwrtHeadingXy =
-      posHipsRtBaseEwrtHeadingXy_[context.contactIndex];
+      posHipsRtBaseEwrtHeadingXy_[context.legIndex];
   const scalar_t scaledPosHipRtBaseEwrtHeadingX =
       parameters_.longitudinalScale * posHipRtBaseEwrtHeadingXy.x();
   const scalar_t scaledPosHipRtBaseEwrtHeadingY =
@@ -87,12 +95,16 @@ vector2_t HipCenteredSteppingHeuristic::computeOffsetPosFootRtWorldEwrtWorldXy(
 }
 
 std::string HipCenteredSteppingHeuristic::describe() const {
+  std::vector<std::string> hips;
+  for (size_t leg = 0; leg < posHipsRtBaseEwrtHeadingXy_.size(); ++leg) {
+    hips.push_back(absl::StrCat("leg ", leg, " (",
+                                posHipsRtBaseEwrtHeadingXy_[leg].x(), ", ",
+                                posHipsRtBaseEwrtHeadingXy_[leg].y(), ") m"));
+  }
   return absl::StrCat(
       "hip_centered_stepping: foot under the hip at (",
       parameters_.longitudinalScale, " * x_hip, ", parameters_.lateralScale,
-      " * y_hip) of the measured base; left hip = (",
-      posHipsRtBaseEwrtHeadingXy_[kContactLeftIndex].x(), ", ",
-      posHipsRtBaseEwrtHeadingXy_[kContactLeftIndex].y(), ") m");
+      " * y_hip) of the measured base; hips ", absl::StrJoin(hips, ", "));
 }
 
 }  // namespace ocs2::humanoid

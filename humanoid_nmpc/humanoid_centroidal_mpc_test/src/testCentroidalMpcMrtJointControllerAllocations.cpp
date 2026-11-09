@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <cstddef>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -43,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Geometry"
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
@@ -463,11 +465,27 @@ TEST_P(CentroidalControllerOnShippedRobot, ExecutingAPolicyAllocatesNothing) {
             10 * kCyclesPerMode);  // into use, past the entry ramp
   ASSERT_FALSE(controller_->isEnteringMpc()) << "the policy is executed";
 
+  // The robot process asks for the planned switch times every cycle
+  // (PlannedSwitchTimesSource::fill()), into storage it sized once.
+  const size_t numContacts = interface_->modelSettings().numContacts();
+  std::vector<scalar_t> timesSinceSwitch(numContacts, 0.0);
+  std::vector<scalar_t> timesToSwitch(numContacts, 0.0);
   const size_t before = robot::realtime::heapAllocationCountOnThisThread();
   runCycles(*controller_, nominal_, *state_, *action_, time_, "WB_MPC",
             kCyclesPerMode);
+  const bool planned = controller_->getPlannedContactSwitchTimes(
+      time_, absl::MakeSpan(timesSinceSwitch), absl::MakeSpan(timesToSwitch));
   EXPECT_EQ(robot::realtime::heapAllocationCountOnThisThread() - before, 0u)
-      << kCyclesPerMode << " cycles executing a policy allocated";
+      << kCyclesPerMode
+      << " cycles executing a policy and asking for its switch times allocated";
+  ASSERT_TRUE(planned);
+  // The policy stands throughout: no switch either way.
+  for (size_t contact = 0; contact < numContacts; ++contact) {
+    EXPECT_EQ(timesSinceSwitch[contact],
+              std::numeric_limits<scalar_t>::infinity());
+    EXPECT_EQ(timesToSwitch[contact],
+              std::numeric_limits<scalar_t>::infinity());
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(ShippedRobots,

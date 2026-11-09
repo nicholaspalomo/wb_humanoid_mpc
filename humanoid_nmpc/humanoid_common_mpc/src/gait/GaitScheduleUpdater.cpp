@@ -31,15 +31,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/GaitScheduleUpdater.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <optional>
 #include <vector>
 
 #include "absl/log/log.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
-#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -52,6 +54,22 @@ constexpr scalar_t kEarliestSwitchInitTimeWeight = 0.3;
 constexpr scalar_t kTilingHorizons = 1.5;
 
 }  // namespace
+
+std::optional<size_t> cycleStartMode(const ModeSequenceTemplate& gait,
+                                     const GaitModeLayout& layout) {
+  if (layout.legs.empty()) return defaultCycleStartMode(layout);
+  const size_t firstLegBits = layout.legs.front().modeBits;
+  for (const size_t mode : gait.modeSequence) {
+    const bool firstLegInStance = (mode & firstLegBits) == firstLegBits;
+    bool otherLegSwings = false;
+    for (size_t leg = 1; leg < layout.legs.size(); ++leg) {
+      const size_t legBits = layout.legs[leg].modeBits;
+      if ((mode & legBits) != legBits) otherLegSwings = true;
+    }
+    if (firstLegInStance && otherLegSwings) return mode;
+  }
+  return defaultCycleStartMode(layout);
+}
 
 scalar_t updateGaitSchedule(GaitSchedule& gaitSchedule,
                             const ModeSequenceTemplate& updatedGait,
@@ -71,25 +89,27 @@ scalar_t updateGaitSchedule(GaitSchedule& gaitSchedule,
   const std::vector<scalar_t>::const_iterator it =
       std::upper_bound(modeSchedule.eventTimes.begin(),
                        modeSchedule.eventTimes.end(), earliestSwitchingTime);
-  // The left-stance alignment below is a biped gait rule: kBipedModeLf names
-  // the left foot alone only on a set whose feet are its last two contacts
-  // (GaitModeLayout). On any other set the mask 2 is the second-to-last
-  // contact alone, which says nothing about the gait, and the switch is not
-  // moved.
-  const bool bipedFeetLast =
-      gaitSchedule.modeLayout().stanceMode == kBipedModeStance;
+  // The new gait starts at the first event after the earliest switching time,
+  // or one phase earlier where that phase is the one the gait's cycle starts
+  // with (cycleStartMode()): a trot that starts in LF_RH begins where an LF_RH
+  // phase of the old gait begins, so that the swing under way is not cut short.
+  // On a biped every gait gives LF (a gait without an LF phase falls back to
+  // it), so this is the rule it always was: move back to the start of an LF
+  // phase.
+  const std::optional<size_t> alignmentMode =
+      cycleStartMode(updatedGait, gaitSchedule.modeLayout());
   scalar_t nextEventTime = finalTime;
   if (it == modeSchedule.eventTimes.end()) {
     nextEventTime = finalTime;
-  } else if (bipedFeetLast && modeSchedule.modeAtTime(*it) == kBipedModeLf &&
+  } else if (alignmentMode.has_value() &&
+             modeSchedule.modeAtTime(*it) == *alignmentMode &&
              it != modeSchedule.eventTimes.begin()) {
-    // The phase that ends at this event is LF, the left foot in stance and the
-    // right one swinging (modeAtTime of an event time is the phase before it),
-    // so the new gait starts where that phase starts, at the event before. When
-    // the phase is the first of the schedule there is no event before it - the
-    // first event already lies past the switching time, as after a clock that
-    // ran backwards - and reading one was undefined: the gait then starts where
-    // it ends.
+    // The phase that ends at this event has the alignment mode (modeAtTime of
+    // an event time is the phase before it), so the new gait starts where that
+    // phase starts, at the event before. When the phase is the first of the
+    // schedule there is no event before it - the first event already lies past
+    // the switching time, as after a clock that ran backwards - and reading one
+    // was undefined: the gait then starts where it ends.
     nextEventTime = *(it - 1);
   } else {
     nextEventTime = *it;

@@ -545,7 +545,7 @@ TEST(ArmSwing, NoneHoldsTheTargetsPosture) {
   ASSERT_NE(referenceManager, nullptr);
   ArmSwingSettings none;
   none.generator = ArmSwingGenerator::kNone;
-  referenceManager->setArmSwingSettings(none);
+  ASSERT_TRUE(referenceManager->setArmSwingSettings(none).ok());
   const vector_t knot = walkingState(*robot, /*eulerzyxBaseRtWorldYaw=*/0.3,
                                      /*proxyLinvelComRtWorldEwrtHeadingX=*/0.6);
   const TargetTrajectories target(

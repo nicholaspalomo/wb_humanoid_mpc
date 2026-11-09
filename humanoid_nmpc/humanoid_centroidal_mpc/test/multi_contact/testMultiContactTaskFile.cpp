@@ -37,6 +37,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "Eigen/Geometry"
+#include "absl/status/status.h"
+#include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
@@ -44,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/spatial/fwd.hpp"
 
+#include "humanoid_centroidal_mpc/CentroidalContactSet.h"
 #include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -229,6 +233,36 @@ TEST(MultiContactTaskFile, theModelsContactFramesAreTheStanceModelsPads) {
           << stance->getRotmatPadRtWorld(k);
     }
   }
+}
+
+// The multi-contact set has no legs: its contacts swing with contact_swing,
+// and the swing terms of the swing trajectory planner, which run on a legged
+// set, are refused on it by name.
+TEST(MultiContactTaskFile, theSwingTermsOfALeggedSetAreRefused) {
+  const TaskUnderTest loaded = loadTask();
+  const ModelSettings settings = modelSettingsOf(loaded);
+  ASSERT_FALSE(settings.isLeggedContactSet());
+  HUMANOID_ASSERT_OK(checkCentroidalContactSet(settings, loaded.task));
+  // normal_velocity is listed as a hard or as a soft constraint, not both.
+  mpc_config::TaskFile hard = loaded.task;
+  hard.costs.emplace_back("task_space_foot_cost");
+  hard.hard_constraints.emplace_back("normal_velocity");
+  const absl::Status hardRefused = checkCentroidalContactSet(settings, hard);
+  EXPECT_EQ(hardRefused.code(), absl::StatusCode::kInvalidArgument)
+      << hardRefused;
+  for (const absl::string_view selection :
+       {"costs 'task_space_foot_cost'", "hard_constraints 'normal_velocity'"}) {
+    EXPECT_TRUE(absl::StrContains(hardRefused.message(), selection))
+        << selection << ": " << hardRefused;
+  }
+  mpc_config::TaskFile soft = loaded.task;
+  soft.soft_constraints.emplace_back("normal_velocity");
+  const absl::Status softRefused = checkCentroidalContactSet(settings, soft);
+  EXPECT_EQ(softRefused.code(), absl::StatusCode::kInvalidArgument)
+      << softRefused;
+  EXPECT_TRUE(absl::StrContains(softRefused.message(),
+                                "soft_constraints 'normal_velocity'"))
+      << softRefused;
 }
 
 }  // namespace

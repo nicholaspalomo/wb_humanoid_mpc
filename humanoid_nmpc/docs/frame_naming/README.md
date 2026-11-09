@@ -323,10 +323,10 @@ and frame3 the frame whose axes the components are written in. "The origin of f"
 | `ball` | the dodgeball projectile's body frame |
 | `sphere` | the center of a sphere: a collision sphere at a fixed offset from its contact frame (`TerrainNonPenetrationConstraint`) or in its link's frame (`CollisionModel.Sphere`), or a viewer sphere marker (`humanoid_mpc_msgs.Spheres`: collision spheres, centers of pressure, footholds), axes aligned with the frame it is given in |
 | `param` | the frame the input vector parameterizes a contact wrench in: `world` for the wrench-space models, the contact frame for `BasisInputsModelDecorator` (section 2.9) |
-| `feetmean` | the mean of the foot contact frames' origins (the soles), axes aligned with `world`: what the LIP consumers measure the pendulum length above (`computePosComRtFeetmeanEwrtWorldZ()`) |
+| `feetmean` | the mean of the foot contact frames' origins, axes aligned with `world`: the contacts of the legs (`ModelSettings::legs`; on a biped its two soles). What the LIP consumers measure the pendulum length above (`computePosComRtFeetmeanEwrtWorldZ()`) |
 | `supportcenter` | the mean of the foot contact frames' origins weighted by the support blend, (w_l p_l + w_r p_r) / (w_l + w_r), axes aligned with `world`: the support center the DCM terminal cost references (`DcmTerminalCost`); equal to `feetmean` only at equal weights |
 | `reachcenter` | the point a contact candidate's reach is measured from in the multi-contact planner (`StanceGraphPlanner`, `ContactSampler`): the origin of the limb root's link, or the pad's center for a trunk contact without a limb root, axes aligned with `world` |
-| `lowcontact` | the contact frame whose origin is lowest in world z, axes aligned with `world`: the pendulum anchor of a contact set that is not a biped's (`computePosComRtLowcontactEwrtWorldZ()`) |
+| `lowcontact` | the contact frame whose origin is lowest in world z, axes aligned with `world`: the pendulum anchor of a contact set without legs (`computePosComRtLowcontactEwrtWorldZ()`) |
 | `swingend` | the higher in world z of a swing's lift-off and touch-down foot positions, axes aligned with `world`: what the swing apex is set above (`SwingTrajectoryPlanner::Config::apexPosFootRtSwingendEwrtWorldZ`) |
 | `corner` | a corner of a contact's support polygon (`ContactPolygon`, `ContactRectangle`), axes aligned with the contact frame |
 | `footprint` | the center of a contact's support rectangle (`ContactRectangle`), axes aligned with the contact frame |

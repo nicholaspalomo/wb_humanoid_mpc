@@ -100,16 +100,19 @@ mpc_config::TaskFile taskFileOf(absl::string_view name,
 constexpr char kInertial[] =
     R"(<inertial><mass value="1.0"/><origin xyz="0 0 0"/><inertia ixx="0.1" ixy="0" ixz="0" iyy="0.1" iyz="0" izz="0.1"/></inertial>)";
 
-/** A floating base with two revolute joints, `shoulder` and `hip`; $0 is each
- * link's inertial block. */
+/** A floating base with two revolute joints, `shoulder` on the left and `hip`
+ * on the right, so that the contacts on them are a left and a right leg; $0 is
+ * each link's inertial block. */
 constexpr char kTwoJointUrdf[] = R"(<robot name="two_joints">
   <link name="base">$0</link>
   <link name="arm">$0</link>
   <link name="leg">$0</link>
   <joint name="shoulder" type="revolute">
+    <origin xyz="0 0.1 0"/>
     <parent link="base"/><child link="arm"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="10" velocity="1"/>
   </joint>
   <joint name="hip" type="revolute">
+    <origin xyz="0 -0.1 0"/>
     <parent link="base"/><child link="leg"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="10" velocity="1"/>
   </joint>
 </robot>

@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_state_estimator/ContactEstimationInputs.h"
 #include "humanoid_state_estimator/KalmanBaseEstimator.h"
 #include "robot_model/RobotDescription.h"
 
@@ -106,7 +107,8 @@ void KalmanStateEstimator::reset(const robot::model::RobotState& measured) {
 }
 
 const robot::model::RobotState& KalmanStateEstimator::estimate(
-    const robot::model::RobotState& measured) {
+    const robot::model::RobotState& measured,
+    const ContactEstimationInputs& contactInputs) {
   if (!initialized_) reset(measured);
   estimated_ = measured;
   const scalar_t dt = measured.getTime() - previousTime_;
@@ -116,7 +118,7 @@ const robot::model::RobotState& KalmanStateEstimator::estimate(
         dt, measured.getQuatBaseRtWorld(),
         measured.getAngvelBaseRtWorldEwrtBase(),
         measured.getSpecforceBaseRtWorldEwrtBase(), jointPositions_,
-        jointVelocities_, measured.getContactFlags());
+        jointVelocities_, measured.getContactFlags(), contactInputs);
     if (!updated.ok()) failedUpdates_.fetch_add(1, std::memory_order_relaxed);
     previousTime_ = measured.getTime();
   }

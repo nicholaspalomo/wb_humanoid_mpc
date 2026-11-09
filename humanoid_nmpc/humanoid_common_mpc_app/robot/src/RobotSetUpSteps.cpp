@@ -32,18 +32,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotSetUpSteps.h"
 
 #include <cstddef>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcFormulationConfig.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
+#include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
+#include "humanoid_common_mpc/contact/ContactCenterPoint.h"
 #include "humanoid_common_mpc_app/robot/ConfigFileStore.h"
+#include "humanoid_common_mpc_app/robot/ContactSurfaceHeightSource.h"
+#include "humanoid_common_mpc_app/robot/FlatGroundSurfaceHeights.h"
+#include "humanoid_common_mpc_app/robot/PlannedSurfaceHeights.h"
 #include "humanoid_common_mpc_app/robot/RemoteMpcLinkAdapter.h"
 #include "humanoid_common_mpc_app/robot/RobotAppOptions.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
@@ -54,9 +65,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotStartup.h"
 #include "humanoid_common_mpc_app/robot/TaskFileWatcher.h"
 #include "humanoid_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h"
+#include "humanoid_mpc_config/contacts_config.nproto.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_ipc/RemoteMpcLink.h"
 #include "humanoid_mpc_msgs/loop_timing.pb.h"
 #include "humanoid_mpc_msgs/viewer_annotations.nproto.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 #include "humanoid_state_estimator/ContactKinematics.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 
@@ -119,36 +133,75 @@ RobotProcess::Hooks robotProcessHooks(
   return hooks;
 }
 
-std::vector<estimation::ContactPointSpec> stateEstimatorContacts(
-    const ModelSettings& modelSettings) {
-  std::vector<estimation::ContactPointSpec> contacts;
-  contacts.reserve(modelSettings.contactNames.size());
-  // The 3-DoF contacts come first in contactNames. Their offset is from the
-  // parent joint, so the parent joint's frame is the only one named: the
-  // offset does not apply to a frame of the contact's own name.
-  for (const ModelSettings::PointContact& point : modelSettings.pointContacts) {
-    contacts.push_back(estimation::ContactPointSpec{
-        .frameNames = {point.parentJointName},
-        .posContactRtLinkEwrtLink = point.posContactRtLinkEwrtLink});
-  }
-  // The 6-DoF contacts follow, and contactParentJointNames lists their parents
-  // in their own order.
-  for (size_t contact = 0; contact < modelSettings.contactNames6DoF.size();
-       ++contact) {
-    estimation::ContactPointSpec spec{
-        .frameNames = {modelSettings.contactNames6DoF[contact]}};
-    if (contact < modelSettings.contactParentJointNames.size()) {
-      spec.frameNames.push_back(modelSettings.contactParentJointNames[contact]);
+absl::StatusOr<std::vector<estimation::ContactPointSpec>>
+stateEstimatorContacts(const ModelSettings& modelSettings,
+                       const mpc_config::ContactsConfig& contacts,
+                       const std::string& urdfFile) {
+  const std::vector<std::string> parentJoints =
+      modelSettings.contactParentJointNamesInContactOrder();
+  for (size_t contact = 0; contact < parentJoints.size(); ++contact) {
+    if (parentJoints[contact].empty()) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[stateEstimatorContacts] the 6-DoF contact '",
+          modelSettings.contactNames[contact],
+          "' has no parent joint (model_settings.contact_parent_joint_names)"));
     }
-    contacts.push_back(std::move(spec));
   }
-  return contacts;
+  ASSIGN_OR_RETURN(const std::vector<std::string> links,
+                   estimation::childLinkNamesOfJoints(urdfFile, parentJoints));
+  std::vector<estimation::ContactPointSpec> points;
+  points.reserve(links.size());
+  for (size_t contact = 0; contact < links.size(); ++contact) {
+    // The MPC places each contact relative to its parent joint's frame, which
+    // is the child link's: a 3-DoF contact at its own offset, a 6-DoF one at
+    // its contact center, as addContactCenterFrames() puts it in the MPC
+    // model. A point needs no rotation, so the pad's is not used.
+    vector3_t posContactRtLinkEwrtLink = vector3_t::Zero();
+    if (modelSettings.isPointContact(contact)) {
+      posContactRtLinkEwrtLink =
+          modelSettings.pointContacts[contact].posContactRtLinkEwrtLink;
+    } else {
+      ASSIGN_OR_RETURN(const ContactCenterPoint center,
+                       contactCenterPointFromConfig(contacts, modelSettings,
+                                                    static_cast<int>(contact)));
+      posContactRtLinkEwrtLink = center.posContactRtLinkEwrtLink;
+    }
+    points.push_back(estimation::ContactPointSpec{
+        .linkName = links[contact],
+        .posContactRtLinkEwrtLink = posContactRtLinkEwrtLink});
+  }
+  return points;
 }
 
-RobotProcess::Config robotProcessConfig(const RobotAppOptions& options,
-                                        const RobotConfigDirectory& directory,
-                                        const RobotConfiguration& configuration,
-                                        const ModelSettings& modelSettings) {
+absl::StatusOr<std::unique_ptr<const ContactSurfaceHeightSource>>
+contactSurfaceHeightSource(
+    const mpc_config::TaskFile& task,
+    const ModelSettings& modelSettings,
+    const RobotProcessSettings& settings,
+    const multi_contact::config::MultiContactPlan* absl_nullable plan) {
+  ASSIGN_OR_RETURN(const ContactScheduleSource source,
+                   contactScheduleSourceFromConfig(task));
+  if (source != ContactScheduleSource::kMultiContactPlan) {
+    return std::make_unique<const FlatGroundSurfaceHeights>(
+        settings.kalmanStateEstimator.nomPosContactRtWorldEwrtWorldZ);
+  }
+  if (plan == nullptr) {
+    return absl::InvalidArgumentError(
+        "[contactSurfaceHeightSource] contact_schedule_source: "
+        "\"multi_contact_plan\" needs the plan the MPC tracks, for the "
+        "patches the state estimator's contacts stand on; none was loaded.");
+  }
+  ASSIGN_OR_RETURN(std::unique_ptr<PlannedSurfaceHeights> planned,
+                   PlannedSurfaceHeights::Create(*plan, modelSettings));
+  return std::unique_ptr<const ContactSurfaceHeightSource>(std::move(planned));
+}
+
+absl::StatusOr<RobotProcess::Config> robotProcessConfig(
+    const RobotAppOptions& options,
+    const RobotConfigDirectory& directory,
+    const RobotConfiguration& configuration,
+    const ModelSettings& modelSettings,
+    const multi_contact::config::MultiContactPlan* absl_nullable plan) {
   RobotProcess::Config config;
   config.realtimePriority = options.realtimePriority;
   config.realtimeCores = options.realtimeCores;
@@ -162,7 +215,20 @@ RobotProcess::Config robotProcessConfig(const RobotAppOptions& options,
   config.configStore =
       configFileStoreConfig(directory, modelSettings.robotName);
   config.urdfFile = options.files.urdfFile;
-  config.stateEstimatorContacts = stateEstimatorContacts(modelSettings);
+  absl::StatusOr<std::vector<estimation::ContactPointSpec>> contacts =
+      stateEstimatorContacts(modelSettings, configuration.files.task.contacts,
+                             config.urdfFile);
+  if (!contacts.ok()) {
+    return withConfigFile(contacts.status(), directory.files().taskFile);
+  }
+  config.stateEstimatorContacts = *std::move(contacts);
+  absl::StatusOr<std::unique_ptr<const ContactSurfaceHeightSource>> surfaces =
+      contactSurfaceHeightSource(configuration.files.task, modelSettings,
+                                 configuration.settings, plan);
+  if (!surfaces.ok()) {
+    return withConfigFile(surfaces.status(), directory.files().taskFile);
+  }
+  config.contactSurfaceHeights = *std::move(surfaces);
   return config;
 }
 

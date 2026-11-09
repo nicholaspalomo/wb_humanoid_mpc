@@ -32,7 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_state_estimator/ContactEstimationInputs.h"
 #include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid::estimation {
@@ -64,12 +67,24 @@ class StateEstimator {
 
   /**
    * The state the controller consumes this cycle, from the state `measured` the
-   * backend published. The reference stays valid until the next call of
-   * estimate() or reset() and the lifetime of `measured` (the ground truth
-   * returns `measured` itself). Allocates nothing.
+   * backend published and what the caller knows of the contacts this cycle,
+   * `contactInputs` (one entry per contact; not retained). The reference stays
+   * valid until the next call of estimate() or reset() and the lifetime of
+   * `measured` (the ground truth returns `measured` itself). Allocates nothing.
    */
   virtual const robot::model::RobotState& estimate(
-      const robot::model::RobotState& measured) = 0;
+      const robot::model::RobotState& measured,
+      const ContactEstimationInputs& contactInputs) = 0;
+
+  /**
+   * [m] The estimated world positions of the contact points, in contact order,
+   * as of the last estimate() or reset(); empty for an estimator that keeps
+   * none (ground_truth). The caller reads them to find the surface each
+   * contact rests on (ContactSurfaceHeightSource). Valid until the next
+   * estimate() or reset(). Allocates nothing.
+   */
+  virtual absl::Span<const vector3_t> estPosContactsRtWorldEwrtWorld()
+      const = 0;
 
   /** The updates that failed (a non-finite reading) and kept the previous
    * estimate. Any thread. */

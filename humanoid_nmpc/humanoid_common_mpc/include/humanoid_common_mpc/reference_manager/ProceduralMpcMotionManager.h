@@ -63,6 +63,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
 #include "humanoid_common_mpc/reference_manager/BreakFrequencyAlphaFilter.h"
+#include "humanoid_common_mpc/reference_manager/GaitSwitchingTable.h"
 #include "humanoid_common_mpc/reference_manager/StrideMotionHistory.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_config/gait_file.nproto.h"
@@ -133,6 +134,10 @@ namespace ocs2::humanoid {
  */
 class ProceduralMpcMotionManager : public SolverSynchronizedModule {
  public:
+  // A row of the gait switching table (GaitSwitchingTable.h), by the name the
+  // callers of this class spell it.
+  using GaitModeStateConfig = ::ocs2::humanoid::GaitModeStateConfig;
+
   /**
    * Builds the target trajectories of the filtered velocity command
    * `velocityCommand` ([v_x, v_y, pelvis height, yaw rate]) for the solve over
@@ -145,16 +150,6 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
                                        scalar_t finalTime,
                                        const vector_t& initState,
                                        const BasePlanarMotion& measuredMotion)>;
-
-  struct GaitModeStateConfig {
-    std::string gaitCommand = "stance";
-    scalar_t cmdMinLinvelBaseRtWorldEwrtHeadingXy;
-    scalar_t cmdMaxLinvelBaseRtWorldEwrtHeadingXy;
-    scalar_t cmdMinAngvelBaseRtWorldEwrtWorldZ;
-    scalar_t cmdMaxAngvelBaseRtWorldEwrtWorldZ;
-    scalar_t maxErrLinvelBaseRtWorldEwrtHeadingXy;
-    scalar_t maxErrAngvelBaseRtWorldEwrtWorldZ;
-  };
 
   /**
    * The motion manager of the gaits of the typed gait file `gaitFile`
@@ -302,6 +297,12 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
     return currentGaitCommand_;
   }
 
+  /** The gait switching table the manager selects gaits from, slowest first
+   * (gaitModeStatesFromConfig() of its gait file). Fixed after Create(). */
+  absl::Span<const GaitModeStateConfig> gaitModeStates() const {
+    return gaitModeStates_;
+  }
+
   /**
    * The operator's command, normalized (velocities in [-1, 1] of the command
    * limits, the pelvis height in meters), scaled by the command limits and kept
@@ -427,23 +428,10 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
 
  protected:
   // The gaits the velocity command selects, slowest first, with their command
-  // limits and error thresholds in the order of GaitModeStateConfig's fields. A
-  // table of tuned values rather than a constexpr array, which
-  // GaitModeStateConfig's std::string rules out, and
-  // tools/locomotion_heuristics/test_derive_parameters.py reads its rows out of
-  // this initializer.
-  // NOLINTBEGIN(magic-number): the tuned thresholds of the gait table, one row per gait (the comment above).
-  // clang-format off
-  const std::vector<GaitModeStateConfig> gaitModeStates_ {
-    { "stance",       -0.1,  0.1, -0.1,  0.1,  10.0,   10.0 }, // Large threshold allows switching away from stance purely command based.
-    { "slow_walk",     0.05,  0.3,  0.05,  0.2,    0.05,  0.05},
-    { "walk",          0.25,  0.5, 0.15,  0.35,    0.05,  0.05},
-    { "slower_trot",   0.45, 0.7, 0.3,  0.55,      0.1,  0.1},
-    { "slow_trot",     0.65, 0.9,  0.5,  0.7,      0.2,  0.2},
-    { "trot",          0.8,  1.3,  0.65,  10.0,    0.2,  0.2},
-    { "run",           1.2,  10.0,  0.65,  10.0,   0.2,  0.2}
-  };  // clang-format on
-  // NOLINTEND(magic-number)
+  // limits and error thresholds: the gait file's gait_switching table, or
+  // defaultGaitModeStates() (gaitModeStatesFromConfig()). Create() sets it and
+  // checks that the gait map has each of its gaits; never empty afterwards.
+  std::vector<GaitModeStateConfig> gaitModeStates_;
 
   size_t currentGaitMode_ = 0;
 

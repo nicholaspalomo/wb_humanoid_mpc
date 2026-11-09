@@ -43,14 +43,17 @@ namespace ocs2::humanoid {
  * runs the terms written per contact for any contact - the dynamics, the cones,
  * zero_wrench and zero_velocity - and the costs of the whole state and input,
  * and refuses those written for exactly two feet: the costs
- * task_space_foot_cost, external_torque_cost and dcm_terminal_cost, the soft
- * constraints foot_collision, foot_collision_cbf, normal_velocity and the
- * contact-implicit terms, the hard constraints normal_velocity and
- * knee_joint_mimic, contact_schedule_source "contact_planner" (its H-LIP and
- * MIQP planners and their contact-planning rules and constraints) and any
- * locomotion heuristic. contact_input_parameterization "basis_vectors" runs
- * on a set of 6-DoF contacts of any count and is refused on a set with a 3-DoF
- * contact, for which no generator set exists.
+ * external_torque_cost and dcm_terminal_cost, the soft constraints
+ * foot_collision, foot_collision_cbf and the contact-implicit terms, the hard
+ * constraint knee_joint_mimic, contact_schedule_source "contact_planner" (its
+ * H-LIP and MIQP planners and their contact-planning rules and constraints),
+ * the base-pose and wrench locomotion heuristics and the step_width foothold
+ * anchor with a positive step width. The swing terms task_space_foot_cost and
+ * the soft and hard normal_velocity, and the foothold heuristics, run on a set
+ * that model_settings.legs describes (ModelSettings::isLeggedContactSet()) and
+ * are refused on a set without legs. contact_input_parameterization
+ * "basis_vectors" runs on a set of 6-DoF contacts of any count and is refused
+ * on a set with a 3-DoF contact, for which no generator set exists.
  *
  * @return OkStatus, or one InvalidArgument naming the contact set and every
  * refused selection by its key; the errors of the conversions it reads the

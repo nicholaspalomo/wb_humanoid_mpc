@@ -226,6 +226,10 @@ absl::flat_hash_map<std::string, Accepts> acceptors() {
          config.playback = name;
          return plannedMotionSettingsFromConfig(config).ok();
        }},
+      {"nominal_foothold_anchor",
+       [](const std::string& name) {
+         return nominalFootholdAnchorFromName(name).ok();
+       }},
       {"projectile",
        [](const std::string& name) {
          return robot::mujoco_sim_interface::projectileFromName(name).ok();

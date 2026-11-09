@@ -135,11 +135,15 @@ ContactPlanningConfig makeHlipConfig() {
 TEST(ContactPlannerModuleReload,
      AReloadThatChangesNothingTheSummaryReportsIsSilent) {
   const ContactPlanningConfig config = makeHlipConfig();
-  EXPECT_FALSE(ContactPlannerModule::reloadSummary(config, config).has_value())
+  EXPECT_FALSE(ContactPlannerModule::reloadSummary(config, config,
+                                                   kBipedContactSetSummary)
+                   .has_value())
       << "the GUI re-sends the file on every slider move";
   ContactPlanningConfig faster = config;
   faster.planner.planningFrequency = 2.0 * config.planner.planningFrequency;
-  EXPECT_FALSE(ContactPlannerModule::reloadSummary(config, faster).has_value());
+  EXPECT_FALSE(ContactPlannerModule::reloadSummary(config, faster,
+                                                   kBipedContactSetSummary)
+                   .has_value());
 }
 
 TEST(ContactPlannerModuleReload,
@@ -156,7 +160,8 @@ TEST(ContactPlannerModuleReload,
   longSwing.hlip.sspDuration = 0.35;
 
   const std::optional<std::string> reloaded =
-      ContactPlannerModule::reloadSummary(fits, longSwing);
+      ContactPlannerModule::reloadSummary(fits, longSwing,
+                                          kBipedContactSetSummary);
   if (!reloaded.has_value()) {
     GTEST_FAIL() << "a cadence change must be re-checked and re-printed";
   }
@@ -164,30 +169,36 @@ TEST(ContactPlannerModuleReload,
       << *reloaded;
   EXPECT_NE(reloaded->find("DOES NOT FIT"), std::string::npos) << *reloaded;
   // It is the same summary the start-up prints, not a partial one.
-  const absl::StatusOr<std::string> startUp = contactPlannerSummary(longSwing);
+  const absl::StatusOr<std::string> startUp =
+      contactPlannerSummary(longSwing, kBipedContactSetSummary);
   ASSERT_TRUE(startUp.ok());
   EXPECT_EQ(*reloaded, *startUp);
 
   // And back: the fitting cadence reports that it fits.
   const std::optional<std::string> restored =
-      ContactPlannerModule::reloadSummary(longSwing, fits);
+      ContactPlannerModule::reloadSummary(longSwing, fits,
+                                          kBipedContactSetSummary);
   if (!restored.has_value()) GTEST_FAIL();
   EXPECT_NE(restored->find("(fits)"), std::string::npos) << *restored;
 
   // Each of the other keys the check reads re-prints it too.
   ContactPlanningConfig narrowReach = fits;
   narrowReach.hlip.maxPosLfootRtRfootEwrtHeadingY = 0.35;
-  EXPECT_TRUE(
-      ContactPlannerModule::reloadSummary(fits, narrowReach).has_value())
+  EXPECT_TRUE(ContactPlannerModule::reloadSummary(fits, narrowReach,
+                                                  kBipedContactSetSummary)
+                  .has_value())
       << "hlip.maxPosLfootRtRfootEwrtHeadingY";
   ContactPlanningConfig longerTransfer = fits;
   longerTransfer.hlip.dspDuration = 0.1;
-  EXPECT_TRUE(
-      ContactPlannerModule::reloadSummary(fits, longerTransfer).has_value())
+  EXPECT_TRUE(ContactPlannerModule::reloadSummary(fits, longerTransfer,
+                                                  kBipedContactSetSummary)
+                  .has_value())
       << "hlip.dspDuration";
   ContactPlanningConfig wider = fits;
   wider.hlip.nomPosLfootRtRfootEwrtHeadingY = 0.3;
-  EXPECT_TRUE(ContactPlannerModule::reloadSummary(fits, wider).has_value())
+  EXPECT_TRUE(
+      ContactPlannerModule::reloadSummary(fits, wider, kBipedContactSetSummary)
+          .has_value())
       << "hlip.nomPosLfootRtRfootEwrtHeadingY";
 }
 
@@ -195,12 +206,14 @@ TEST(ContactPlannerModuleReload, AStructuralChangeAlwaysReprints) {
   const ContactPlanningConfig config = makeHlipConfig();
   ContactPlanningConfig finerGrid = config;
   finerGrid.planner.dt = 0.02;
-  EXPECT_TRUE(
-      ContactPlannerModule::reloadSummary(config, finerGrid).has_value());
+  EXPECT_TRUE(ContactPlannerModule::reloadSummary(config, finerGrid,
+                                                  kBipedContactSetSummary)
+                  .has_value());
   ContactPlanningConfig otherPlanner = config;
   otherPlanner.planner.type = "lip_miqp";
-  EXPECT_TRUE(
-      ContactPlannerModule::reloadSummary(config, otherPlanner).has_value());
+  EXPECT_TRUE(ContactPlannerModule::reloadSummary(config, otherPlanner,
+                                                  kBipedContactSetSummary)
+                  .has_value());
 }
 
 }  // namespace ocs2::humanoid

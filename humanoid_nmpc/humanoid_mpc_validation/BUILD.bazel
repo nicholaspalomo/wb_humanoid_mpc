@@ -161,7 +161,9 @@ cc_library(
     includes = ["include"],
     deps = [
         "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
         "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//humanoid_state_estimation/humanoid_state_estimator:state_estimator",
         "//robot_runtime/robot_model",
         "@abseil-cpp//absl/base:nullability",
@@ -538,10 +540,12 @@ cc_test(
         "//robot_models/unitree_g1/g1_description",
     ],
     deps = [
+        ":closed_loop_metrics",
         ":lockstep_state_estimator",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
         "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//humanoid_state_estimation/humanoid_state_estimator:state_estimator",
         "//robot_runtime/robot_model",
         "@abseil-cpp//absl/base:nullability",
@@ -628,7 +632,16 @@ _ROBOT_DATA = {
         "//robot_models/unitree_g1/g1_wb_mpc",
         "//robot_models/unitree_g1/g1_description",
     ],
+    # unitree_g1's files with the kalman state estimator (a state-estimator variant).
+    "unitree_g1_kalman": [
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+    ],
 }
+
+# The state-estimator variants (RobotConfiguration::isStateEstimatorVariant()) run another configuration's MPC on the
+# same files: the solve benchmark of that MPC is the other configuration's, so they get no benchmark_mpc_solve_ test.
+_STATE_ESTIMATOR_VARIANTS = ["unitree_g1_kalman"]
 # LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations)
 
 # The GUI's command scaling of every configuration's reference file and the contact wrench gate of its task file's
@@ -861,6 +874,7 @@ cc_binary(
         ],
     )
     for robot, data in _ROBOT_DATA.items()
+    if robot not in _STATE_ESTIMATOR_VARIANTS
 ]
 
 # The worktree state of a run's provenance (Makefile: VALIDATION_WORKTREE_STATE), in throwaway git repositories: the

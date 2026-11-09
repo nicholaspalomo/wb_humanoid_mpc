@@ -54,6 +54,19 @@ enum class Verbosity {
 /// 0) and the floating-base root (joint 1): the first actuated joint.
 inline constexpr pinocchio::JointIndex kFirstJointAfterFloatingBase = 2;
 
+/// The floating base's root joint of such a model (joint 1).
+inline constexpr pinocchio::JointIndex kFloatingBaseJoint =
+    kFirstJointAfterFloatingBase - 1;
+
+/// Returns the hip of the limb `joint` belongs to in a floating-base model: the
+/// first joint below the floating base on the way from `joint` up the tree,
+/// however the URDF names it. `joint` itself when it is a child of the floating
+/// base, and the floating base when `joint` is it. The one walk the legs of
+/// ModelSettings and the hips of LocomotionHeuristicModelParameters share.
+/// Precondition: 0 < joint < model.njoints.
+pinocchio::JointIndex hipJointOf(const pinocchio::Model& model,
+                                 pinocchio::JointIndex joint);
+
 ///
 /// \brief Checks that the actuated joints of the Pinocchio model are
 /// ModelSettings::mpcModelJointNames, in that order.

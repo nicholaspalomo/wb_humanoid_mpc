@@ -96,7 +96,8 @@ class ZmpSupportRegionConstraint final : public LipConstraintBase {
  public:
   std::string describe() const override;
   /** Refuses every contact set but two feet: the term is written for a left
-   * and a right foot. */
+   * and a right foot. A planner is only built for the biped's two 6-DoF feet
+   * (makeContactPlanner()), so this guards a term built by hand. */
   absl::Status validateContactSet(size_t numContacts) const override;
   void configure(const ContactPlanningConfig& config) override;
   NodeSet nodeSet() const override { return NodeSet::kRunning; }

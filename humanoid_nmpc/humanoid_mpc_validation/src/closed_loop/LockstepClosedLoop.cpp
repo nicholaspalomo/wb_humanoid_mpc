@@ -52,9 +52,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/mrt/ControlMode.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
+#include "humanoid_common_mpc_app/robot/ContactSurfaceHeightSource.h"
+#include "humanoid_common_mpc_app/robot/PlannedSwitchTimesSource.h"
 #include "humanoid_common_mpc_app/robot/RobotController.h"
+#include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
+#include "humanoid_common_mpc_app/robot/RobotSetUpSteps.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopDriver.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetrics.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopScenario.h"
@@ -65,6 +71,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/closed_loop/TimeSeriesLabels.h"
 #include "humanoid_mpc_validation/io/GoldenIo.h"
 #include "humanoid_mpc_validation/io/JsonValue.h"
+#include "humanoid_state_estimator/ContactEstimationInputs.h"
 #include "humanoid_state_estimator/StateEstimator.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "robot_core/Types.h"
@@ -155,12 +162,31 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
   RobotController& controller = driver->robotController();
   // The state the controller is handed, as RobotProcess::Create() builds its
   // source: the simulator's state itself (ground_truth), or the task file's
-  // state estimator's estimate from it (kalman).
+  // state estimator's estimate from it (kalman). A state-estimator variant
+  // names the estimator in place of the task file.
+  ASSIGN_OR_RETURN(const mpc_config::TaskFile task,
+                   loadTaskFile(configuration_.taskFile));
+  const RobotProcessSettings estimatorSettings =
+      withStateEstimator(driver->settings(), configuration_.stateEstimator);
   ASSIGN_OR_RETURN(
       const std::unique_ptr<estimation::StateEstimator> stateEstimator,
       createRobotProcessStateEstimator(
-          driver->settings(), driver->modelSettings(), configuration_.urdfFile,
-          configuration_.taskFile, &sim.getRobotDescription()));
+          estimatorSettings, driver->modelSettings(), task.contacts,
+          configuration_.urdfFile, configuration_.taskFile,
+          &sim.getRobotDescription()));
+  // The contacts' surface heights, as robotProcessConfig() chooses them: the
+  // validation scenarios walk, on the flat ground of the task file (a
+  // multi-contact task file is refused for want of its plan).
+  ASSIGN_OR_RETURN(
+      const std::unique_ptr<const ContactSurfaceHeightSource> surfaceHeights,
+      contactSurfaceHeightSource(task, driver->modelSettings(),
+                                 driver->settings(), /*plan=*/nullptr));
+  estimation::ContactEstimationInputs contactInputs(
+      controller.measuredContactFlags().size());
+  // And the planned switch times of the policy in use, as the robot process
+  // passes them on (the kalman contact-trust ramp).
+  PlannedSwitchTimesSource plannedSwitchTimes(
+      controller.measuredContactFlags().size());
 
   // As RobotProcess::start() starts: the backend initialized (one step), the
   // estimator reset on the first observation and the MPC's start-up reset from
@@ -170,7 +196,11 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
   sim.updateInterfaceStateFromRobot();
   const robot::model::RobotState initialState = sim.getRobotState();
   stateEstimator->reset(sim.getRobotState());
-  driver->startMpc(stateEstimator->estimate(sim.getRobotState()));
+  surfaceHeights->fill(stateEstimator->estPosContactsRtWorldEwrtWorld(),
+                       contactInputs);
+  plannedSwitchTimes.fill(controller, contactInputs);
+  driver->startMpc(
+      stateEstimator->estimate(sim.getRobotState(), contactInputs));
   const DriverSolveOutcome firstSolve = driver->solve();
   if (!firstSolve.status.ok()) return firstSolve.status;
   // The JOINT_PD posture is the posture the robot is spawned in, as the robot
@@ -300,8 +330,11 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
     // the fall check above, the metrics and the joints' feedback torques below
     // read the simulator's true state, as the plant's own joint loops do.
     // LINT.IfChange(robot_process_cycle)
+    surfaceHeights->fill(stateEstimator->estPosContactsRtWorldEwrtWorld(),
+                         contactInputs);
+    plannedSwitchTimes.fill(controller, contactInputs);
     const robot::model::RobotState& estimatedState =
-        stateEstimator->estimate(state);
+        stateEstimator->estimate(state, contactInputs);
     robot::model::RobotJointAction& action = sim.getRobotJointAction();
     controller.prepareCycle(mode, nominalPosture);
     controller.computeJointControlAction(estimatedState, action);
@@ -471,6 +504,10 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
   settings.set("control_period_s", JsonValue::number(controlPeriod));
   settings.set("solver_threads",
                JsonValue::number(static_cast<double>(driver->solverThreads())));
+  // The estimator the controller's state came from, so that a document of a
+  // state-estimator variant says what it ran.
+  settings.set("state_estimator",
+               JsonValue::string(std::string(stateEstimator->name())));
   settings.set(
       "solve_latency",
       JsonValue::string(

@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/ContactMask.h"
@@ -85,6 +86,14 @@ class RobotController {
    * observation, a mask of the controller's contact set; nullopt until one is
    * in use. */
   virtual std::optional<ContactMask> plannedContactFlags() const = 0;
+  /** Each contact's time [s] since its last and until its next planned switch
+   * in the policy in use, at the time of the last observation, written to the
+   * first entries of `timeSinceSwitch` and `timeToSwitch` (+infinity where the
+   * plan shows none); false, with nothing written, while plannedContactFlags()
+   * is nullopt. Allocates nothing. */
+  virtual bool plannedContactSwitchTimes(
+      absl::Span<scalar_t> timeSinceSwitch,
+      absl::Span<scalar_t> timeToSwitch) const = 0;
   /** The contact flags the contact estimator measured in the last cycle. Sized
    * to the controller's contact set (ModelSettings::contactNames) from
    * construction on, so its size() is the controller's contact count. */

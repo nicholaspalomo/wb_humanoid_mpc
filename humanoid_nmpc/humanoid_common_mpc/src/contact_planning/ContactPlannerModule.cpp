@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
 
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
@@ -66,24 +67,30 @@ ContactPlannerModule::Create(
         "[ContactPlannerModule] the reference manager must not be null");
   }
   if (modelParameters.has_value()) modelParameters->applyTo(config);
+  const ModelSettings& modelSettings = referenceManagerPtr->modelSettings();
+  const ContactSetSummary contactSet = {
+      .numContacts = modelSettings.numContacts(),
+      .isBiped = modelSettings.isBipedContactSet()};
   // makeContactPlanner validates first and returns the rejection that names the
-  // key.
+  // key, or the planner a contact set other than the biped's cannot run.
   ASSIGN_OR_RETURN(std::unique_ptr<ContactPlannerInterface> planner,
-                   makeContactPlanner(config));
+                   makeContactPlanner(config, contactSet));
   RETURN_IF_ERROR(referenceManagerPtr->setConfigStatus(config));
   // absl::WrapUnique: the constructor is private.
   return std::shared_ptr<ContactPlannerModule>(
       absl::WrapUnique(new ContactPlannerModule(
           std::move(referenceManagerPtr), std::move(config),
-          std::move(modelParameters), std::move(planner))));
+          std::move(modelParameters), std::move(planner), contactSet)));
 }
 
 ContactPlannerModule::ContactPlannerModule(
     std::shared_ptr<ContactPlanningReferenceManager> referenceManagerPtr,
     ContactPlanningConfig config,
     std::optional<ContactPlanningModelParameters> modelParameters,
-    std::unique_ptr<ContactPlannerInterface> planner)
+    std::unique_ptr<ContactPlannerInterface> planner,
+    ContactSetSummary contactSet)
     : referenceManagerPtr_(std::move(referenceManagerPtr)),
+      contactSet_(contactSet),
       config_(std::move(config)),
       modelParameters_(std::move(modelParameters)),
       planner_(std::move(planner)),
@@ -164,7 +171,8 @@ absl::Status ContactPlannerModule::setConfig(
     configChanged_ = true;
     logPlans_.store(config.planner.logPlans);
   }
-  const std::optional<std::string> summary = reloadSummary(previous, config);
+  const std::optional<std::string> summary =
+      reloadSummary(previous, config, contactSet_);
   if (summary.has_value()) {
     LOG(INFO)
         << "[ContactPlannerModule] contact planner formulation reloaded:\n"
@@ -180,9 +188,13 @@ absl::Status ContactPlannerModule::setConfig(
 }
 
 std::optional<std::string> ContactPlannerModule::reloadSummary(
-    const ContactPlanningConfig& previous, const ContactPlanningConfig& next) {
-  const absl::StatusOr<std::string> before = contactPlannerSummary(previous);
-  const absl::StatusOr<std::string> after = contactPlannerSummary(next);
+    const ContactPlanningConfig& previous,
+    const ContactPlanningConfig& next,
+    ContactSetSummary contactSet) {
+  const absl::StatusOr<std::string> before =
+      contactPlannerSummary(previous, contactSet);
+  const absl::StatusOr<std::string> after =
+      contactPlannerSummary(next, contactSet);
   std::string afterText =
       after.ok() ? *after : std::string(after.status().message());
   // A change the summary does not print can still change what the planner is
@@ -253,7 +265,7 @@ void ContactPlannerModule::runPlanner(const ContactPlannerInput& input,
         // The implementation itself changed: build the new one and drop
         // whatever the old one carried over.
         absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> rebuilt =
-            makeContactPlanner(config_);
+            makeContactPlanner(config_, contactSet_);
         if (rebuilt.ok()) {
           planner_ = *std::move(rebuilt);
           plannerType_ = config_.planner.type;

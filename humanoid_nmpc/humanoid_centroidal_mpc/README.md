@@ -27,7 +27,12 @@ bit for bit in `testCentroidalContactSetParity`.
   ([`contact_basis_vectors`](../docs/contact_basis_vectors/README.md)).
 - The terms written for the biped's two feet, the online contact planner and the locomotion heuristics are refused by
   name on any other set, before a model is built, by `checkCentroidalContactSet()` (`CentroidalContactSet.h`; the list
-  is in [`multi_contact_planning`](../docs/multi_contact_planning/README.md), section 7.2).
+  is in [`multi_contact_planning`](../docs/multi_contact_planning/README.md), section 7.2). The swing terms
+  `task_space_foot_cost` and the soft and hard `normal_velocity`, which track the swing trajectory planner, also run
+  on a set that `model_settings.legs` describes. A 3-DoF contact's foot cost has no orientation to track: its rotvec
+  and angular-velocity weights are zero, at start-up and after every hot reload of `task_space_foot_cost`
+  (`CentroidalMpcEndEffectorFootCost::setWeights()`). `DcmTerminalCost::Create()` refuses a non-biped set itself, for a
+  cost built by hand.
 
 The MRT joint controller's realtime inverse dynamics apply each contact's planned wrench at its own frame:
 `getContactFrameIndexArray()` (`humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h`) returns every contact's
@@ -38,5 +43,7 @@ frames.
 |---|---|
 | `testCentroidalContactSetParity` | the shipped robots' assembled problems, bit for bit against a record |
 | `testMixedContactSet` | Atlas's feet with a 3-DoF contact on each hand: the input layout, the hand-derived momentum rate, the cones in the patch frame, the weight sharing, the contact frames of the inverse dynamics, the refusals |
-| `testPointContactQuadrupedLikeSet` | four point contacts and no 6-DoF contact (the corners of Atlas's soles, in a quadruped's leg order): the interface builds, its LQ approximation is finite and gates each contact by its mode on a trot, the weight is shared among the active contacts, the biped's `STANCE` is the feet of a six-contact set, and every biped-only term is refused by name |
+| `testPointContactQuadrupedLikeSet` | four point contacts and no 6-DoF contact (the corners of Atlas's soles, in a quadruped's leg order): the interface builds, its LQ approximation is finite and gates each contact by its mode on a trot, the weight is shared among the active contacts, the biped's `STANCE` is the feet of a six-contact set, every biped-only term, the procedural arm swing and a hand-built `DcmTerminalCost` are refused by name, and the swing terms run once the set's legs are described |
+| `testPointContactSwingTerms` | the same four contacts as legs LF, RF, LH and RH with `task_space_foot_cost` and the hard `normal_velocity`: no orientation weight on a point contact's foot cost, also after a hot reload, and each contact's swing height and servo following its own swing on a trot |
+| `testPointContactQuadrupedTrot` | the same legged four contacts trotting on the `trot` of `quadruped_gait.textproto`, read by leg name, with the `nominal_stance` foothold anchor: several SQP iterations from the standing state converge to a finite plan whose stance contacts hold still and whose swing contacts rise to the apex and land within 1 cm of their footholds. Each foot pivots about its stance corner, since its toe and heel share the ankle link |
 | `testBasisInputsModelDecorator` | the basis-vector inputs on three and four 6-DoF contacts |

@@ -40,15 +40,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::estimation::test_support {
 
-/** test/data/prismatic_biped.urdf, its feet and its joints in robot joint order
- * (their names sorted). */
+/** test/data/prismatic_biped.urdf, its foot links and its joints in robot joint
+ * order (their names sorted). */
 inline constexpr char kPrismaticBipedUrdf[] =
     "humanoid_state_estimation/humanoid_state_estimator/test/data/"
     "prismatic_biped.urdf";
 inline constexpr size_t kNumFeet = 2;
 inline constexpr size_t kNumJoints = 6;
 std::vector<std::string> prismaticBipedJointNames();
-std::vector<std::string> prismaticBipedFootFrames();
+std::vector<std::string> prismaticBipedFootLinks();
 
 /** The world gravity the trajectory's accelerometer reading subtracts [m/s^2].
  */

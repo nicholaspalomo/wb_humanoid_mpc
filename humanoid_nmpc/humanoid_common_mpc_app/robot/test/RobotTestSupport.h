@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -123,6 +124,10 @@ class ScriptedRobotController final : public RobotController {
       const robot::model::RobotState& robotState,
       robot::model::RobotJointAction& jointAction) override;
   std::optional<ContactMask> plannedContactFlags() const override;
+  /** The times setPlannedContactSwitchTimes() scripted; false until then. */
+  bool plannedContactSwitchTimes(
+      absl::Span<scalar_t> timeSinceSwitch,
+      absl::Span<scalar_t> timeToSwitch) const override;
   const ContactMask& measuredContactFlags() const override {
     return measuredContactFlags_;
   }
@@ -156,6 +161,13 @@ class ScriptedRobotController final : public RobotController {
     robotJointNames_ = std::move(names);
   }
   void setHealthy(bool healthy) { healthy_.store(healthy); }
+  /** The planned switch times plannedContactSwitchTimes() answers with from
+   * now on, one per contact; empty: it answers false. Before the loop runs. */
+  void setPlannedContactSwitchTimes(std::vector<scalar_t> timeSinceSwitch,
+                                    std::vector<scalar_t> timeToSwitch) {
+    plannedTimesSinceSwitch_ = std::move(timeSinceSwitch);
+    plannedTimesToSwitch_ = std::move(timeToSwitch);
+  }
   /**
    * Called at the end of every computeJointControlAction(), on the realtime
    * thread, with the number of the cycle (from 0): for a test that measures
@@ -197,6 +209,9 @@ class ScriptedRobotController final : public RobotController {
       vector3_t::Zero();
   ContactWrenchGate::Config gate_;
   std::shared_ptr<robot::model::ContactEstimator> contactEstimator_;
+  // [s] What plannedContactSwitchTimes() answers with; empty: false.
+  std::vector<scalar_t> plannedTimesSinceSwitch_;
+  std::vector<scalar_t> plannedTimesToSwitch_;
   // The two feet of the biped robots the tests run.
   ContactMask measuredContactFlags_ =
       ContactMask(/*numContacts=*/static_cast<size_t>(kBipedFootCount));

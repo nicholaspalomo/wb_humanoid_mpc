@@ -29,10 +29,12 @@ message ModeSequenceTemplateConfig {
   // file's default template has none.
   string name = 1 [default = ""];
   // LINT.IfChange(mode_names)
-  // The modes in order, at least one, as MotionPhaseDefinition.h's parseModeNumber() reads them: "STANCE" (the contact
-  // set's stance: both feet on a set ending in two 6-DoF feet, every contact otherwise) or "FLY" on any set, "LF" (the left
-  // foot only) or "RF" (the right foot only) on a set ending in two 6-DoF feet, or one digit 0 or 1 per contact in contact
-  // order (1 in contact) on any set, e.g. "1001" for contacts 0 and 3 of four.
+  // The modes in order, at least one, as MotionPhaseDefinition.h's parseModeNumber() reads them, tried in this order:
+  // "FLY" (no contact) or "STANCE" (the contact set's stance: both feet on a set ending in two 6-DoF feet, every contact
+  // otherwise) on any set; "LF" (the left foot only) or "RF" (the right foot only) on a set ending in two 6-DoF feet;
+  // distinct leg names (model_settings.legs) joined by "_", the contacts of those legs, e.g. "LF_RH" for a quadruped's
+  // diagonal pair; distinct contact names joined by "+", e.g. "sole_l_toe_contact+sole_r_heel_contact"; or one digit 0
+  // or 1 per contact in contact order (1 in contact), e.g. "1001" for contacts 0 and 3 of four.
   repeated string mode_sequence = 2;
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/gait/MotionPhaseDefinition.h:mode_names)
   // [s] When each mode starts, and after them the end of the cycle: one more time than there are modes, finite and

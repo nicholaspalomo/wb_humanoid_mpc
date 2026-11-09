@@ -52,9 +52,13 @@ enum class ArmSwingGenerator {
   kProcedural,
 };
 
-/** The names of the generators, in the registry's order: "procedural", "none".
- */
+/** Returns the names of the generators, in the registry's order: "procedural",
+ * "none". */
 std::vector<std::string> armSwingGeneratorNames();
+
+/** Returns the registry name of `generator`, the inverse of
+ * armSwingGeneratorFromName(). */
+absl::string_view armSwingGeneratorName(ArmSwingGenerator generator);
 
 /** The generator named `name`; InvalidArgument listing the valid names
  * otherwise. */

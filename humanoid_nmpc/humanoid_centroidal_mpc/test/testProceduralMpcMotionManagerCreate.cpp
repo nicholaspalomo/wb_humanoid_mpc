@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <filesystem>
 #include <limits>
 #include <memory>
@@ -44,7 +45,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_replace.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_mpc/SystemObservation.h"
@@ -57,8 +60,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
+#include "humanoid_common_mpc/reference_manager/GaitSwitchingTable.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
+#include "nproto/Textproto.h"
 #include "support/AtlasReferenceStack.h"
 #include "support/TypedConfigFiles.h"
 
@@ -120,9 +125,9 @@ absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> create(
  * 1, so the scaled command is the operator's; null after a failed expectation.
  */
 std::unique_ptr<ProceduralMpcMotionManager> unfilteredManager(
-    AtlasReferenceStack& stack) {
+    AtlasReferenceStack& stack, const std::string& gaitFile) {
   absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> manager =
-      create(stack, stack.gaitFile(), stack.referenceFile());
+      create(stack, gaitFile, stack.referenceFile());
   EXPECT_TRUE(manager.ok()) << manager.status();
   absl::StatusOr<ReferenceSettings> settings =
       referenceSettingsFromConfig(stack.config().reference);
@@ -136,6 +141,12 @@ std::unique_ptr<ProceduralMpcMotionManager> unfilteredManager(
   settings->velocityCommandFilterBreakFrequency = 0.0;
   EXPECT_EQ((*manager)->applyCommandLimits(*settings), absl::OkStatus());
   return *std::move(manager);
+}
+
+/** unfilteredManager() of the shipped gait file. */
+std::unique_ptr<ProceduralMpcMotionManager> unfilteredManager(
+    AtlasReferenceStack& stack) {
+  return unfilteredManager(stack, stack.gaitFile());
 }
 
 /**
@@ -403,6 +414,123 @@ TEST(ProceduralMpcMotionManagerCreate, BuildsTheManagerOfTheShippedFiles) {
       create(stack, stack.gaitFile(), stack.referenceFile());
   ASSERT_TRUE(manager.ok()) << manager.status();
   EXPECT_EQ((*manager)->getCurrentGaitCommand(), "stance");
+}
+
+TEST(ProceduralMpcMotionManagerCreate,
+     AGaitFileWithoutATableSelectsFromTheDefaultTable) {
+  AtlasReferenceStack stack;
+  const absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> manager =
+      create(stack, stack.gaitFile(), stack.referenceFile());
+  ASSERT_TRUE(manager.ok()) << manager.status();
+  const std::vector<GaitModeStateConfig> defaults = defaultGaitModeStates();
+  const absl::Span<const GaitModeStateConfig> table =
+      (*manager)->gaitModeStates();
+  ASSERT_EQ(table.size(), defaults.size());
+  for (size_t i = 0; i < defaults.size(); ++i) {
+    EXPECT_EQ(table[i].gaitCommand, defaults[i].gaitCommand);
+    EXPECT_EQ(table[i].cmdMaxLinvelBaseRtWorldEwrtHeadingXy,
+              defaults[i].cmdMaxLinvelBaseRtWorldEwrtHeadingXy);
+    EXPECT_EQ(table[i].maxErrAngvelBaseRtWorldEwrtWorldZ,
+              defaults[i].maxErrAngvelBaseRtWorldEwrtWorldZ);
+  }
+}
+
+/** The shipped gait file with the gait switching table `table` (a
+ * gait_switching block's text) appended, written to the test's temporary
+ * directory as `name`; its path. */
+std::string gaitFileWithTable(const AtlasReferenceStack& stack,
+                              const std::string& name,
+                              const std::string& table) {
+  const absl::StatusOr<std::string> shipped =
+      nproto::ReadTextFile(stack.gaitFile());
+  EXPECT_TRUE(shipped.ok()) << shipped.status();
+  return writeTempFile(name,
+                       absl::StrCat(shipped.ok() ? *shipped : "", "\n", table));
+}
+
+// From stance straight to the trot: the stance row of the default table, then
+// the shipped trot with slow_walk's thresholds.
+constexpr char kStanceThenTrot[] = R"pb(
+  gait_switching {
+    rows {
+      gait: "stance"
+      cmd_min_linvel_base_rt_world_ewrt_heading_xy: -0.1
+      cmd_max_linvel_base_rt_world_ewrt_heading_xy: 0.1
+      cmd_min_angvel_base_rt_world_ewrt_world_z: -0.1
+      cmd_max_angvel_base_rt_world_ewrt_world_z: 0.1
+      max_err_linvel_base_rt_world_ewrt_heading_xy: 10.0
+      max_err_angvel_base_rt_world_ewrt_world_z: 10.0
+    }
+    rows {
+      gait: "trot"
+      cmd_min_linvel_base_rt_world_ewrt_heading_xy: 0.05
+      cmd_max_linvel_base_rt_world_ewrt_heading_xy: 0.3
+      cmd_min_angvel_base_rt_world_ewrt_world_z: 0.05
+      cmd_max_angvel_base_rt_world_ewrt_world_z: 0.2
+      max_err_linvel_base_rt_world_ewrt_heading_xy: 0.05
+      max_err_angvel_base_rt_world_ewrt_world_z: 0.05
+    }
+  }
+)pb";
+
+TEST(ProceduralMpcMotionManagerGaits, TheGaitFilesTableDrivesTheSelection) {
+  // The command that takes the default table out of stance into slow_walk
+  // (AFasterGaitWaitsForTheRobotsMeanTurnOverAStride) takes this table into its
+  // second row, the trot.
+  AtlasReferenceStack stack;
+  const std::unique_ptr<ProceduralMpcMotionManager> manager = unfilteredManager(
+      stack, gaitFileWithTable(stack, "stance_then_trot_gait.textproto",
+                               kStanceThenTrot));
+  ASSERT_NE(manager, nullptr);
+  ASSERT_EQ(manager->gaitModeStates().size(), 2U);
+  EXPECT_EQ(manager->getCurrentGaitCommand(), "stance");
+  const vector_t stillJoints =
+      vector_t::Zero(static_cast<Eigen::Index>(stack.model().getJointDim()));
+  solveAt(*manager, stack, /*time=*/1.0, /*cmdRateYawBaseRtWorld=*/0.15,
+          stack.initialState(), measuredInput(stack, stillJoints));
+  EXPECT_EQ(manager->getCurrentGaitCommand(), "trot");
+  // It never goes past the last row, however fast the command.
+  scalar_t yawBaseRtWorld = 0.0;
+  turnFor(*manager, stack, /*from=*/1.0, /*to=*/4.0, /*rateYawBaseRtWorld=*/0.9,
+          /*cmdRateYawBaseRtWorld=*/1.0, yawBaseRtWorld);
+  EXPECT_EQ(manager->getCurrentGaitCommand(), "trot");
+}
+
+TEST(ProceduralMpcMotionManagerCreate,
+     ATableNamingAGaitTheFileLacksIsRefusedNamingIt) {
+  AtlasReferenceStack stack;
+  const std::string gaitFile = gaitFileWithTable(
+      stack, "gallop_table_gait.textproto",
+      absl::StrReplaceAll(kStanceThenTrot,
+                          {{"gait: \"trot\"", "gait: \"gallop\""}}));
+  const absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> manager =
+      create(stack, gaitFile, stack.referenceFile());
+  EXPECT_EQ(manager.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(
+      absl::StrContains(manager.status().message(), "has no gait 'gallop'"))
+      << manager.status();
+  EXPECT_TRUE(absl::StrContains(manager.status().message(), gaitFile))
+      << manager.status();
+}
+
+TEST(ProceduralMpcMotionManagerCreate,
+     AMalformedTableIsRefusedNamingTheFileAndTheRow) {
+  AtlasReferenceStack stack;
+  const std::string gaitFile = gaitFileWithTable(
+      stack, "malformed_table_gait.textproto",
+      absl::StrReplaceAll(
+          kStanceThenTrot,
+          {{"cmd_max_angvel_base_rt_world_ewrt_world_z: 0.2",
+            "cmd_max_angvel_base_rt_world_ewrt_world_z: 0.01"}}));
+  const absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> manager =
+      create(stack, gaitFile, stack.referenceFile());
+  EXPECT_EQ(manager.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(
+      manager.status().message(),
+      "gait_switching.rows[1].cmd_max_angvel_base_rt_world_ewrt_world_z"))
+      << manager.status();
+  EXPECT_TRUE(absl::StrContains(manager.status().message(), gaitFile))
+      << manager.status();
 }
 
 TEST(ProceduralMpcMotionManagerCreate,

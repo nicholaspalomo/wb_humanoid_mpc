@@ -29,7 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <string>
+#include <vector>
 
 #include "absl/status/statusor.h"
 #include "ocs2_core/PhysicalConstants.h"
@@ -66,18 +68,32 @@ struct LocomotionHeuristicModelParameters {
   /**
    * [m] position of each leg's hip relative to the base, in the heading frame
    * (rotated by the nominal base yaw only), at the nominal posture, with the
-   * vertical component dropped.
+   * vertical component dropped: one entry per leg of ModelSettings::legs, in
+   * leg order, so entry kContactLeftIndex / kContactRightIndex is the biped's
+   * left / right hip.
    *
    * The landmark `hip_centered_stepping` places the foot under. Found by
-   * walking up the kinematic tree from the joint that carries the contact frame
-   * to the last joint before the floating base, which is the hip however the
-   * URDF happens to name it, and falling back to the contact frame's own
-   * horizontal position relative to the base, in the heading frame, when that
-   * walk finds nothing - a fallback that is exact for a leg standing
-   * vertically, which is the posture this is evaluated in.
+   * walking up the kinematic tree from the joint that carries the leg's first
+   * contact to the last joint before the floating base (hipJointOf()), which is
+   * the hip however the URDF happens to name it, and falling back to that
+   * contact's own horizontal position relative to the base, in the heading
+   * frame, when that walk finds nothing - a fallback that is exact for a leg
+   * standing vertically, which is the posture this is evaluated in. A contact
+   * set without legs gets the biped's two entries from contacts 0 and 1. The
+   * default is the biped's two hips at the base origin, which a hand-built
+   * value overwrites by index.
    */
-  BipedFeetArray<vector2_t> posHipsRtBaseEwrtHeadingXy =
-      makeBipedFeetArray(vector2_t(vector2_t::Zero()));
+  std::vector<vector2_t> posHipsRtBaseEwrtHeadingXy = std::vector<vector2_t>(
+      static_cast<size_t>(kBipedFootCount), vector2_t::Zero());
+  /**
+   * [m] position of each contact (ModelSettings::contactNames, in contact
+   * order) relative to the base, in the heading frame, at the nominal posture,
+   * with the vertical component dropped: where the contact stands when the
+   * robot stands nominally. The `nominal_stance` anchor of
+   * nominal_foothold.anchor lands a swing contact here relative to the
+   * predicted base. Empty until derived.
+   */
+  std::vector<vector2_t> nomPosContactsRtBaseEwrtHeadingXy;
 
   /** One line per derived quantity, for the start-up banner. */
   std::string summary() const;
@@ -95,6 +111,19 @@ struct LocomotionHeuristicModelParameters {
  */
 absl::StatusOr<LocomotionHeuristicModelParameters>
 deriveLocomotionHeuristicModelParameters(
+    PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    const vector_t& nominalState);
+
+/**
+ * Computes each contact's position [m] relative to the base at `nominalState`,
+ * in the
+ * heading frame (the base yaw of `nominalState` only), with the vertical
+ * dropped, in contact order (LocomotionHeuristicModelParameters::
+ * nomPosContactsRtBaseEwrtHeadingXy). Runs the forward kinematics of
+ * `nominalState` on `pinocchioInterface`'s data.
+ */
+std::vector<vector2_t> computeNomPosContactsRtBaseEwrtHeadingXy(
     PinocchioInterface& pinocchioInterface,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     const vector_t& nominalState);

@@ -506,9 +506,9 @@ class LaunchFilesTest(unittest.TestCase):
                 with self.subTest(binary=os.path.basename(program)):
                     own: set[str] = set()
                     name = os.path.basename(program)
-                    if role != "robot" and name.startswith(
-                        "humanoid_centroidal_mpc"
-                    ):
+                    # The centroidal robot binary links the same plan flags, for the surfaces its state
+                    # estimator's contacts stand on.
+                    if name.startswith("humanoid_centroidal_mpc"):
                         own = centroidal
                     # Exactly: a flag the README lists that the binary lacks, or one the binary defines that the
                     # README leaves out, both fail.

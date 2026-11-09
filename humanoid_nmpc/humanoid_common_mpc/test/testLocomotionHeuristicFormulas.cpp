@@ -120,6 +120,7 @@ FootholdHeuristicContext leftFoot() {
 FootholdHeuristicContext rightFoot() {
   FootholdHeuristicContext context = leftFoot();
   context.contactIndex = kContactRightIndex;
+  context.legIndex = kContactRightIndex;
   context.side = -1.0;
   return context;
 }

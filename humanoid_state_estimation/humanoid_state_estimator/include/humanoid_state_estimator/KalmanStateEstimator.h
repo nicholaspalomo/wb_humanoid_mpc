@@ -35,8 +35,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_state_estimator/ContactEstimationInputs.h"
 #include "humanoid_state_estimator/KalmanBaseEstimator.h"
 #include "humanoid_state_estimator/StateEstimator.h"
 #include "humanoid_state_estimator/StateEstimatorNames.h"
@@ -49,14 +52,17 @@ namespace ocs2::humanoid::estimation {
  * The `kalman` state estimator: the backend's state with the base position and
  * linear velocity replaced by KalmanBaseEstimator's, from the IMU (the state's
  * root orientation, angular velocity and
- * getSpecforceBaseRtWorldEwrtBase()), the joint positions and velocities
- * and the state's contact flags. Everything else - the orientation, the angular
- * velocity, the joints, the flags, the time - is the backend's.
+ * getSpecforceBaseRtWorldEwrtBase()), the joint positions and velocities,
+ * the state's contact flags and the surface heights the caller gives the
+ * contacts (ContactEstimationInputs, passed through to
+ * KalmanBaseEstimator::update()). Everything else - the orientation, the
+ * angular velocity, the joints, the flags, the time - is the backend's.
  *
  * The time step is the difference of the states' times; a state whose time did
  * not advance (the backend has not published a new one) or is not finite is
  * handed on with the previous estimate, without an update. An update that fails
- * (a non-finite reading, flags of another number than the contact points) is
+ * (a non-finite reading, flags or contact inputs of another number than the
+ * contact points) is
  * counted and the estimate of the prediction, or the previous one, is handed
  * on.
  *
@@ -79,7 +85,11 @@ class KalmanStateEstimator final : public StateEstimator {
   absl::string_view name() const override { return kKalmanStateEstimatorName; }
   void reset(const robot::model::RobotState& measured) override;
   const robot::model::RobotState& estimate(
-      const robot::model::RobotState& measured) override;
+      const robot::model::RobotState& measured,
+      const ContactEstimationInputs& contactInputs) override;
+  absl::Span<const vector3_t> estPosContactsRtWorldEwrtWorld() const override {
+    return estimator_->estPosContactsRtWorldEwrtWorld();
+  }
   uint64_t failedUpdates() const override {
     return failedUpdates_.load(std::memory_order_relaxed);
   }

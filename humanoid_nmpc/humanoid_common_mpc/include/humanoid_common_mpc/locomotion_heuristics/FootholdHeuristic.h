@@ -58,17 +58,32 @@ struct FootholdHeuristicContext {
   // time: what the operator asked for, which the Raibert-style leads are
   // proportional to.
 
-  /** Which foot is landing; kContactLeftIndex or kContactRightIndex. */
+  /** Which contact is landing, an index into ModelSettings::contactNames; on
+   * a biped kContactLeftIndex or kContactRightIndex. */
   size_t contactIndex = 0;
+  /** The leg the landing contact belongs to, an index into
+   * ModelSettings::legs; on a biped the same as contactIndex (legs "left" and
+   * "right"). */
+  size_t legIndex = 0;
   /**
-   * +1 for the left foot and -1 for the right: the side of the robot this foot
-   * is on.
+   * The lateral sign of the leg (ModelSettings::Leg::lateralSign): +1 for a leg
+   * on the left and -1 for one on the right, exactly as the biped's left and
+   * right foot have always been.
    *
    * Every lateral coefficient in this family is multiplied by it, so that one
-   * number in the task file describes both feet and the two feet step to
-   * opposite sides of the body rather than both to the left.
+   * number in the task file describes every leg and the legs step to their own
+   * sides of the body rather than all to the left.
    */
   scalar_t side = 1.0;
+  /**
+   * [m] Where the landing contact stands relative to the base at the nominal
+   * posture, in the heading frame, with the vertical dropped
+   * (LocomotionHeuristicModelParameters::nomPosContactsRtBaseEwrtHeadingXy).
+   * The `nominal_stance` anchor (nominal_foothold.anchor) places the contact
+   * there relative to the predicted base; zero while the reference manager has
+   * no nominal posture (configureNominalStance()).
+   */
+  vector2_t nomPosContactRtBaseEwrtHeadingXy = vector2_t::Zero();
   /** [m] PREDICTED base position in the world at the touch-down: measured at
    * the last solve, carried forward by the command. */
   vector2_t posBaseRtWorldEwrtWorldXy = vector2_t::Zero();
@@ -132,10 +147,12 @@ struct FootholdHeuristicContext {
  *  - SOMETHING MUST KEEP THE FEET APART. The anchor takes its lateral
  * separation from half of
  * `nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y` to each side of the
- * predicted base, or - with `hip_centered_stepping` listed - from the hips.
- * With the step width at 0 and no hip_centered_stepping, every other heuristic
- * would correct a target on the base's own lateral line and both feet would be
- * aimed at the same point. That combination is rejected too.
+ * predicted base (the `step_width` anchor), from each contact's nominal stance
+ * point (the `nominal_stance` anchor), or - with `hip_centered_stepping`
+ * listed - from the hips. With the step_width anchor, the step width at 0 and
+ * no hip_centered_stepping, every other heuristic would correct a target on
+ * the base's own lateral line and both feet would be aimed at the same point.
+ * That combination is rejected too.
  *  - THE FOOT COST'S XY WEIGHTS MUST BE NON-ZERO.
  * `task_space_foot_cost.weights.pos_x` and `pos_y` gate this whole channel and
  * are 0 on every robot shipped here, because with `zero_velocity` in

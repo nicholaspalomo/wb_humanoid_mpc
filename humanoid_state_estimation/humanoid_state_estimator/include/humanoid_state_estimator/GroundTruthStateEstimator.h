@@ -32,7 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_state_estimator/ContactEstimationInputs.h"
 #include "humanoid_state_estimator/StateEstimator.h"
 #include "humanoid_state_estimator/StateEstimatorNames.h"
 #include "robot_model/RobotState.h"
@@ -57,11 +60,16 @@ class GroundTruthStateEstimator final : public StateEstimator {
   }
   void reset(const robot::model::RobotState& /*measured*/) override {}
   /** `measured` itself, valid as long as `measured` is (the contract of
-   * StateEstimator::estimate()). */
+   * StateEstimator::estimate()); `contactInputs` is not read. */
   const robot::model::RobotState& estimate(
-      const robot::model::RobotState& measured) override {
+      const robot::model::RobotState& measured,
+      const ContactEstimationInputs& /*contactInputs*/) override {
     // NOLINTNEXTLINE(bugprone-return-const-ref-from-parameter): the base contract bounds the reference by `measured`'s life.
     return measured;
+  }
+  /** None: the ground truth keeps no contact positions. */
+  absl::Span<const vector3_t> estPosContactsRtWorldEwrtWorld() const override {
+    return {};
   }
   uint64_t failedUpdates() const override { return 0; }
 };

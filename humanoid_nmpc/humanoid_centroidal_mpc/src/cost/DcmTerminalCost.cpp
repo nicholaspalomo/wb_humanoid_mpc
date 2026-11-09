@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PreComputation.h"
@@ -253,6 +254,15 @@ absl::StatusOr<std::unique_ptr<DcmTerminalCost>> DcmTerminalCost::Create(
     const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
     const std::string& costName,
     const ModelSettings& modelSettings) {
+  // The support weights blend between the left and the right foot of a
+  // two-foot support (computeSupportWeights()).
+  if (!modelSettings.isBipedContactSet()) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[DcmTerminalCost] dcm_terminal_cost is written for two 6-DoF feet: "
+        "its support blends a left and a right foot. The contact set has ",
+        modelSettings.contactNames.size(), " contacts (",
+        absl::StrJoin(modelSettings.contactNames, ", "), ")."));
+  }
   ASSIGN_OR_RETURN(const scalar_t modelGravityMagnitude,
                    modelGravity(pinocchioInterface.getModel()));
   ASSIGN_OR_RETURN(Config resolved,

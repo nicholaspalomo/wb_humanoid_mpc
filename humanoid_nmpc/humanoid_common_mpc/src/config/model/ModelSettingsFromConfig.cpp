@@ -27,6 +27,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
+
 #include "humanoid_common_mpc/config/model/ModelSettingsFromConfig.h"
 
 #include <algorithm>
@@ -34,7 +36,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <exception>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
@@ -44,16 +48,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/ascii.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/joint-configuration.hpp"
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StateLayout.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigValueChecks.h"
+#include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
 #include "humanoid_mpc_config/contact_implicit_config.nproto.h"
 #include "humanoid_mpc_config/model_settings_config.nproto.h"
 #include "humanoid_mpc_config/model_settings_config.nproto.pb.h"
@@ -64,6 +77,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 namespace {
+
+// The names of nominal_foothold.anchor (ModelSettings::NominalFootholdAnchor).
+// LINT.IfChange(nominal_foothold_anchor_names)
+constexpr char kStepWidthAnchorName[] = "step_width";
+constexpr char kNominalStanceAnchorName[] = "nominal_stance";
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/nominal_foothold_config.proto:nominal_foothold_anchor)
 
 // ContactImplicitConfig holds nothing but its seven scalars, so a field added
 // to it without a line in contactImplicitFromConfig() - which would leave it at
@@ -290,6 +309,370 @@ pointContactsFromConfig(
 }
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/model_settings_config.proto:contacts_3dof)
 
+/** The joints of the URDF's floating-base model `model`, in its order: every
+ * joint after the universe and the floating base. */
+std::vector<std::string> urdfJointNames(const pinocchio::Model& model,
+                                        bool verbose) {
+  std::vector<std::string> names;
+  for (pinocchio::JointIndex joint = kFirstJointAfterFloatingBase;
+       joint < static_cast<pinocchio::JointIndex>(model.njoints); ++joint) {
+    names.emplace_back(model.names[joint]);
+  }
+  if (verbose) {
+    LOG(INFO) << "[ModelSettings] the URDF's joints: "
+              << absl::StrJoin(names, ", ");
+  }
+  return names;
+}
+
+// The mode names every contact set has, which a leg name would shadow.
+// LINT.IfChange(reserved_leg_names)
+constexpr std::array<absl::string_view, 2> kReservedLegNames = {"FLY",
+                                                                "STANCE"};
+// The foot aliases of a set with the biped's stance, which parseModeNumber()
+// reads before the leg names, so a leg of that name would be shadowed.
+constexpr std::array<absl::string_view, 2> kBipedFootAliasNames = {"LF", "RF"};
+// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/gait/MotionPhaseDefinition.h:mode_names)
+
+// LINT.IfChange(legs)
+// [m] A hip closer than this to the base's x-z plane has no side.
+constexpr scalar_t kHipSideTolerance = 1.0e-3;
+// [m] A hip closer than this to the mean hip along the base's x axis is
+// neither a front nor a hind leg.
+constexpr scalar_t kHipFrontHindTolerance = 1.0e-2;
+// The names of the two legs of a biped whose task file lists none.
+constexpr char kDefaultLeftLegName[] = "left";
+constexpr char kDefaultRightLegName[] = "right";
+
+/** A hip: the frame's name and its position relative to the base. */
+struct Hip {
+  std::string frameName;
+  vector3_t posHipRtBaseEwrtBase = vector3_t::Zero();
+};
+
+/**
+ * The URDF's floating-base model at its neutral configuration: the base at the
+ * world origin with its axes, so that every placement is relative to the base
+ * and in its axes. Keeps a reference to the model, which must outlive it. Its
+ * const methods are safe to call concurrently.
+ */
+class NeutralModel {
+ public:
+  explicit NeutralModel(const pinocchio::Model& model)
+      : model_(model), data_(model) {
+    pinocchio::framesForwardKinematics(model_, data_,
+                                       pinocchio::neutral(model_));
+  }
+  NeutralModel(const NeutralModel&) = delete;
+  NeutralModel& operator=(const NeutralModel&) = delete;
+  NeutralModel(NeutralModel&&) = delete;
+  NeutralModel& operator=(NeutralModel&&) = delete;
+  ~NeutralModel() = default;
+
+  /** The hip found by walking up from the joint `parentJointName`
+   * (hipJointOf()), or nullopt when it is not a joint of the model. */
+  std::optional<Hip> derivedHip(const std::string& parentJointName) const {
+    if (parentJointName.empty() || !model_.existJointName(parentJointName)) {
+      return std::nullopt;
+    }
+    const pinocchio::JointIndex hip =
+        hipJointOf(model_, model_.getJointId(parentJointName));
+    return Hip{.frameName = model_.names[hip],
+               .posHipRtBaseEwrtBase = data_.oMi[hip].translation()};
+  }
+
+  /** The frame `frameName` as a hip, or nullopt when the model has no such
+   * frame. */
+  std::optional<Hip> explicitHip(const std::string& frameName) const {
+    if (!model_.existFrame(frameName)) return std::nullopt;
+    return Hip{.frameName = frameName,
+               .posHipRtBaseEwrtBase =
+                   data_.oMf[model_.getFrameId(frameName)].translation()};
+  }
+
+ private:
+  const pinocchio::Model& model_;
+  pinocchio::Data data_;
+};
+
+/** InvalidArgument naming `entry` unless `name` is a valid leg name that
+ * `taken` does not hold. */
+absl::Status checkLegName(absl::string_view entry,
+                          const std::string& name,
+                          const absl::flat_hash_set<std::string>& taken) {
+  const bool alphanumeric =
+      !name.empty() && std::all_of(name.begin(), name.end(), [](char c) {
+        return absl::ascii_isalnum(static_cast<unsigned char>(c));
+      });
+  const bool allDigits = std::all_of(name.begin(), name.end(), [](char c) {
+    return absl::ascii_isdigit(static_cast<unsigned char>(c));
+  });
+  if (!alphanumeric || allDigits) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[ModelSettings] ", entry, ".name is '", name,
+        "'; a leg name is letters and digits, not all digits (mode names join "
+        "leg names with '_')."));
+  }
+  if (std::find(kReservedLegNames.begin(), kReservedLegNames.end(), name) !=
+      kReservedLegNames.end()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[ModelSettings] ", entry, ".name is '", name,
+                     "', which is a mode name of every contact set (",
+                     absl::StrJoin(kReservedLegNames, ", "), ")."));
+  }
+  if (taken.contains(name)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[ModelSettings] ", entry, ".name is '", name,
+                     "', which another leg has: leg names are unique."));
+  }
+  return absl::OkStatus();
+}
+
+/** Returns InvalidArgument naming the leg and the alias when a leg of
+ * `settings`, whose legs are set, has the name of a foot alias on a set with
+ * the biped's stance (ModelSettings::hasBipedStance()); OK otherwise. */
+absl::Status checkLegNamesAgainstFootAliases(const ModelSettings& settings) {
+  if (!settings.hasBipedStance()) return absl::OkStatus();
+  for (size_t i = 0; i < settings.legs.size(); ++i) {
+    const std::string& name = settings.legs[i].name;
+    if (std::find(kBipedFootAliasNames.begin(), kBipedFootAliasNames.end(),
+                  name) != kBipedFootAliasNames.end()) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[ModelSettings] model_settings.legs[", i, "].name is '", name,
+          "', which is the foot alias '", name,
+          "' of a contact set that stands on the biped's two feet: a gait "
+          "file's '",
+          name,
+          "' would name that foot, not the leg. Name the legs other than ",
+          absl::StrJoin(kBipedFootAliasNames, ", "), "."));
+    }
+  }
+  return absl::OkStatus();
+}
+
+/** The side of a leg whose hip is `hip`: +1 left, -1 right, or
+ * InvalidArgument naming `leg` and saying `remedy` for a hip on the base's x-z
+ * plane. */
+absl::StatusOr<scalar_t> lateralSignOf(absl::string_view leg,
+                                       const Hip& hip,
+                                       absl::string_view remedy) {
+  const scalar_t y = hip.posHipRtBaseEwrtBase.y();
+  if (y > kHipSideTolerance) return 1.0;
+  if (y < -kHipSideTolerance) return -1.0;
+  return absl::InvalidArgumentError(absl::StrCat(
+      "[ModelSettings] ", leg, " has its hip ", hip.frameName, " at y = ", y,
+      " m relative to the base, within ", kHipSideTolerance,
+      " m of the base's x-z plane: a leg's side is the side of its hip; ",
+      remedy, "."));
+}
+
+/** Sets each leg's front/hind position from its hip x against the mean x of
+ * the legs whose hip is known. */
+void classifyFrontAndHindLegs(std::vector<ModelSettings::Leg>& legs) {
+  scalar_t sumX = 0.0;
+  size_t numKnown = 0;
+  for (const ModelSettings::Leg& leg : legs) {
+    if (leg.hipFrameName.empty()) continue;
+    sumX += leg.posHipRtBaseEwrtBase.x();
+    ++numKnown;
+  }
+  if (numKnown == 0) return;
+  const scalar_t meanX = sumX / static_cast<scalar_t>(numKnown);
+  for (ModelSettings::Leg& leg : legs) {
+    if (leg.hipFrameName.empty()) continue;
+    const scalar_t dx = leg.posHipRtBaseEwrtBase.x() - meanX;
+    leg.longitudinal =
+        dx > kHipFrontHindTolerance
+            ? ModelSettings::LegLongitudinalPosition::kFront
+            : (dx < -kHipFrontHindTolerance
+                   ? ModelSettings::LegLongitudinalPosition::kHind
+                   : ModelSettings::LegLongitudinalPosition::kCenter);
+  }
+}
+
+/**
+ * The contact indices of the leg `entry`, model_settings.legs[legIndex] (named
+ * `field`), in the contact order of `settings`. Records each contact's leg in
+ * `legOfContact`; InvalidArgument for a leg without contacts, a name that is
+ * not a contact of the set, or a contact another leg already has.
+ */
+absl::StatusOr<std::vector<size_t>> legContactIndicesFromConfig(
+    absl::string_view field,
+    size_t legIndex,
+    const mpc_config::ModelSettingsConfig::Leg& entry,
+    const ModelSettings& settings,
+    absl::flat_hash_map<size_t, size_t>& legOfContact) {
+  if (entry.contacts.empty()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[ModelSettings] ", field, " ('", entry.name,
+                     "') names no contact; a leg ends in at least one."));
+  }
+  std::vector<size_t> contactIndices;
+  contactIndices.reserve(entry.contacts.size());
+  for (const std::string& contact : entry.contacts) {
+    const std::vector<std::string>::const_iterator found = std::find(
+        settings.contactNames.begin(), settings.contactNames.end(), contact);
+    if (found == settings.contactNames.end()) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[ModelSettings] ", field, " ('", entry.name, "') names contact '",
+          contact, "', which is not a contact of the set (",
+          absl::StrJoin(settings.contactNames, ", "), ")."));
+    }
+    const size_t index =
+        static_cast<size_t>(found - settings.contactNames.begin());
+    if (const std::pair<absl::flat_hash_map<size_t, size_t>::iterator, bool>
+            inserted = legOfContact.try_emplace(index, legIndex);
+        !inserted.second) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[ModelSettings] ", field, " ('", entry.name, "') names contact '",
+          contact, "', which model_settings.legs[", inserted.first->second,
+          "] names too: a contact is in at most one leg."));
+    }
+    contactIndices.push_back(index);
+  }
+  return contactIndices;
+}
+
+/**
+ * The hip of the leg `entry` (named `field`): its hip_frame_name, or the hip
+ * derived from `firstParentJoint`, the parent joint of its first contact.
+ * InvalidArgument when the named frame or the parent joint is not in `model`.
+ */
+absl::StatusOr<Hip> hipOfLegEntry(
+    absl::string_view field,
+    const mpc_config::ModelSettingsConfig::Leg& entry,
+    const std::string& firstParentJoint,
+    const NeutralModel& model) {
+  if (!entry.hip_frame_name.empty()) {
+    std::optional<Hip> hip = model.explicitHip(entry.hip_frame_name);
+    if (!hip.has_value()) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[ModelSettings] ", field, ".hip_frame_name is '",
+          entry.hip_frame_name, "', which is not a frame of the URDF."));
+    }
+    return *std::move(hip);
+  }
+  std::optional<Hip> hip = model.derivedHip(firstParentJoint);
+  if (!hip.has_value()) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[ModelSettings] ", field, " ('", entry.name,
+        "') has no hip_frame_name, and its first contact '",
+        entry.contacts.front(), "' hangs from '", firstParentJoint,
+        "', which is not a joint of the URDF to derive the hip from; name "
+        "the hip_frame_name."));
+  }
+  return *std::move(hip);
+}
+
+/**
+ * The legs of model_settings.legs, on the contacts and parent joints of
+ * `settings` and the hips of `model`, or InvalidArgument naming
+ * model_settings.legs[i] and what is wrong with it.
+ */
+absl::StatusOr<std::vector<ModelSettings::Leg>> legsFromConfig(
+    const std::vector<mpc_config::ModelSettingsConfig::Leg>& config,
+    const ModelSettings& settings,
+    const NeutralModel& model) {
+  const std::vector<std::string> parents =
+      settings.contactParentJointNamesInContactOrder();
+  absl::flat_hash_set<std::string> names;
+  absl::flat_hash_map<size_t, size_t> legOfContact;
+  std::vector<ModelSettings::Leg> legs;
+  legs.reserve(config.size());
+  for (size_t i = 0; i < config.size(); ++i) {
+    const mpc_config::ModelSettingsConfig::Leg& entry = config[i];
+    const std::string field = absl::StrCat("model_settings.legs[", i, "]");
+    RETURN_IF_ERROR(checkLegName(field, entry.name, names));
+    names.insert(entry.name);
+    ModelSettings::Leg leg{.name = entry.name};
+    ASSIGN_OR_RETURN(
+        leg.contactIndices,
+        legContactIndicesFromConfig(field, i, entry, settings, legOfContact));
+    ASSIGN_OR_RETURN(const Hip hip,
+                     hipOfLegEntry(field, entry,
+                                   parents[leg.contactIndices.front()], model));
+    ASSIGN_OR_RETURN(
+        leg.lateralSign,
+        lateralSignOf(absl::StrCat(field, " ('", entry.name, "')"), hip,
+                      /*remedy=*/"name another hip_frame_name"));
+    leg.hipFrameName = hip.frameName;
+    leg.posHipRtBaseEwrtBase = hip.posHipRtBaseEwrtBase;
+    legs.push_back(std::move(leg));
+  }
+  classifyFrontAndHindLegs(legs);
+  return legs;
+}
+
+/**
+ * The two legs of a biped contact set whose task file lists none: "left" on
+ * contact 0 and "right" on contact 1, with the hips derived from their parent
+ * joints. A foot without a parent joint of the URDF keeps the side of its
+ * index and no hip; InvalidArgument when a derived hip is on the other side
+ * or on the base's x-z plane.
+ */
+absl::StatusOr<std::vector<ModelSettings::Leg>> defaultBipedLegs(
+    const ModelSettings& settings, const NeutralModel& model) {
+  const std::vector<std::string> parents =
+      settings.contactParentJointNamesInContactOrder();
+  struct DefaultLeg {
+    const char* absl_nonnull name;
+    size_t contact;
+    scalar_t lateralSign;
+  };
+  const std::array<DefaultLeg, kBipedFootCount> defaults = {{
+      {.name = kDefaultLeftLegName,
+       .contact = kContactLeftIndex,
+       .lateralSign = 1.0},
+      {.name = kDefaultRightLegName,
+       .contact = kContactRightIndex,
+       .lateralSign = -1.0},
+  }};
+  std::vector<ModelSettings::Leg> legs;
+  legs.reserve(defaults.size());
+  for (const DefaultLeg& entry : defaults) {
+    ModelSettings::Leg leg{.name = entry.name,
+                           .contactIndices = {entry.contact},
+                           .lateralSign = entry.lateralSign};
+    if (const std::optional<Hip> hip = model.derivedHip(parents[entry.contact]);
+        hip.has_value()) {
+      const std::string description =
+          absl::StrCat("the default biped leg '", entry.name, "' on contact '",
+                       settings.contactNames[entry.contact], "'");
+      ASSIGN_OR_RETURN(const scalar_t lateralSign,
+                       lateralSignOf(description, *hip,
+                                     /*remedy=*/
+                                     "name the legs in "
+                                     "model_settings.legs"));
+      if (lateralSign != entry.lateralSign) {
+        return absl::InvalidArgumentError(absl::StrCat(
+            "[ModelSettings] ", description, " has its hip ", hip->frameName,
+            " at y = ", hip->posHipRtBaseEwrtBase.y(),
+            " m relative to the base, on the other side: contact_names_6dof "
+            "lists the left foot first, or model_settings.legs names the "
+            "legs."));
+      }
+      leg.hipFrameName = hip->frameName;
+      leg.posHipRtBaseEwrtBase = hip->posHipRtBaseEwrtBase;
+    }
+    legs.push_back(std::move(leg));
+  }
+  classifyFrontAndHindLegs(legs);
+  return legs;
+}
+
+/** The legs of `settings`: model_settings.legs, the default biped legs, or
+ * none. */
+absl::StatusOr<std::vector<ModelSettings::Leg>> legsOf(
+    const std::vector<mpc_config::ModelSettingsConfig::Leg>& config,
+    const ModelSettings& settings,
+    const pinocchio::Model& urdfModel) {
+  const NeutralModel model(urdfModel);
+  if (!config.empty()) return legsFromConfig(config, settings, model);
+  if (settings.isBipedContactSet()) return defaultBipedLegs(settings, model);
+  return std::vector<ModelSettings::Leg>();
+}
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/model_settings_config.proto:legs)
+
 }  // namespace
 
 std::vector<std::string> stanceConstraintNames() {
@@ -395,14 +778,45 @@ ModelSettings::ContactImplicitConfig contactImplicitFromConfig(
   };
 }
 
+std::vector<std::string> nominalFootholdAnchorNames() {
+  return {kStepWidthAnchorName, kNominalStanceAnchorName};
+}
+
+absl::StatusOr<ModelSettings::NominalFootholdAnchor>
+nominalFootholdAnchorFromName(absl::string_view name) {
+  if (name == kStepWidthAnchorName) {
+    return ModelSettings::NominalFootholdAnchor::kStepWidth;
+  }
+  if (name == kNominalStanceAnchorName) {
+    return ModelSettings::NominalFootholdAnchor::kNominalStance;
+  }
+  return absl::InvalidArgumentError(
+      absl::StrCat("nominal_foothold.anchor is '", name, "'; the anchors are ",
+                   absl::StrJoin(nominalFootholdAnchorNames(), ", "), "."));
+}
+
+std::string nominalFootholdAnchorName(
+    ModelSettings::NominalFootholdAnchor anchor) {
+  switch (anchor) {
+    case ModelSettings::NominalFootholdAnchor::kStepWidth:
+      return kStepWidthAnchorName;
+    case ModelSettings::NominalFootholdAnchor::kNominalStance:
+      return kNominalStanceAnchorName;
+  }
+  return "unknown";
+}
+
 absl::StatusOr<ModelSettings::NominalFootholdConfig> nominalFootholdFromConfig(
     const mpc_config::NominalFootholdConfig& config) {
   RETURN_IF_ERROR(requireNonNegative(
       "nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y",
       config.nom_pos_lfoot_rt_rfoot_ewrt_heading_y));
+  ASSIGN_OR_RETURN(const ModelSettings::NominalFootholdAnchor anchor,
+                   nominalFootholdAnchorFromName(config.anchor));
   return ModelSettings::NominalFootholdConfig{
       .nomPosLfootRtRfootEwrtHeadingY =
-          config.nom_pos_lfoot_rt_rfoot_ewrt_heading_y};
+          config.nom_pos_lfoot_rt_rfoot_ewrt_heading_y,
+      .anchor = anchor};
 }
 
 absl::StatusOr<ModelSettings> ModelSettings::Create(
@@ -444,15 +858,19 @@ absl::StatusOr<ModelSettings> ModelSettings::Create(
     settings.contactNames3DoF.push_back(contact.name);
   }
 
+  // The URDF's floating-base model, which the joint names and the hips of the
+  // legs are read from.
+  std::optional<PinocchioInterface> urdfModel;
   // NOLINTNEXTLINE(exceptions): Pinocchio's URDF parser reports a file it cannot read by throwing; converted to a Status here, once.
   try {
-    settings.loadFullJointNames(urdfFile, verbose);
+    urdfModel.emplace(createDefaultPinocchioInterface(urdfFile));
     // NOLINTNEXTLINE(exceptions): the boundary of the try above.
   } catch (const std::exception& error) {
     return absl::InvalidArgumentError(
         absl::StrCat("[ModelSettings] cannot read the joints of the URDF ",
                      urdfFile, ": ", error.what()));
   }
+  settings.fullJointNames = urdfJointNames(urdfModel->getModel(), verbose);
   ASSIGN_OR_RETURN(settings.mpcModelJointNames,
                    activeJointNames(settings.fullJointNames,
                                     settings.fixedJointNames, verbose));
@@ -471,6 +889,9 @@ absl::StatusOr<ModelSettings> ModelSettings::Create(
         "most ",
         kMaxNumContacts, " are supported"));
   }
+  ASSIGN_OR_RETURN(settings.legs,
+                   legsOf(config.legs, settings, urdfModel->getModel()));
+  RETURN_IF_ERROR(checkLegNamesAgainstFootAliases(settings));
   settings.mpc_joint_dim = settings.mpcModelJointNames.size();
   settings.full_joint_dim = settings.fullJointNames.size();
 
@@ -512,6 +933,21 @@ absl::StatusOr<ModelSettings> ModelSettings::Create(
       contactImplicitFromConfig(taskFile.contact_implicit);
   ASSIGN_OR_RETURN(settings.nominalFootholdConfig,
                    nominalFootholdFromConfig(taskFile.nominal_foothold));
+  // The nominal_stance anchor places each leg's contacts; a set that is not
+  // described by its legs has none to place, and the anchor would be silently
+  // inert on it.
+  if (settings.nominalFootholdConfig.anchor ==
+          ModelSettings::NominalFootholdAnchor::kNominalStance &&
+      !settings.isLeggedContactSet()) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[ModelSettings] nominal_foothold.anchor '", kNominalStanceAnchorName,
+        "' places every contact of a leg, and the contact set has ",
+        settings.contactNames.size(), " contacts (",
+        absl::StrJoin(settings.contactNames, ", "),
+        ") that model_settings.legs does not all assign to a leg. List the "
+        "legs, or use the anchor '",
+        kStepWidthAnchorName, "'."));
+  }
   return settings;
 }
 

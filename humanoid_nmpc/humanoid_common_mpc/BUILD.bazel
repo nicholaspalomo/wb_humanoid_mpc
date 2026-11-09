@@ -7,7 +7,7 @@ package(default_visibility = ["//visibility:public"])
 
 # Headers shared by the planner core and the rest of the library (types, the contact set's ContactArray and ContactMask,
 # the biped's feet and modes, the mode-number and the contact term name conventions and the absl::Status propagation
-# macros, header only).
+# macros; header only except the mode names of src/gait/MotionPhaseDefinition.cpp).
 _COMMON_TYPES_HDRS = [
     "include/humanoid_common_mpc/common/TwoContactCount.h",
     "include/humanoid_common_mpc/common/BipedFeet.h",
@@ -22,6 +22,7 @@ _COMMON_TYPES_HDRS = [
 
 cc_library(
     name = "humanoid_common_mpc_types",
+    srcs = ["src/gait/MotionPhaseDefinition.cpp"],
     hdrs = _COMMON_TYPES_HDRS,
     includes = ["include"],
     copts = FIRST_PARTY_COPTS,
@@ -36,6 +37,7 @@ cc_library(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/types:span",
         "@eigen",
     ],
 )
@@ -345,6 +347,8 @@ cc_library(
         "src/command/TargetTrajectoriesCalculatorBase.cpp",
         "src/gait/GaitSchedule.cpp",
         "src/gait/GaitScheduleUpdater.cpp",
+        "src/gait/LegSwingPhase.cpp",
+        "src/gait/ModeScheduleSwitchTimes.cpp",
         "src/swing_foot_planner/CubicSpline.cpp",
         "src/swing_foot_planner/SplineCpg.cpp",
         "src/swing_foot_planner/SwingTrajectoryPlanner.cpp",
@@ -365,6 +369,7 @@ cc_library(
         "src/locomotion_heuristics/wrench/ImpulseScalingHeuristic.cpp",
         "src/reference_manager/ArmSwing.cpp",
         "src/reference_manager/SwitchedModelReferenceManager.cpp",
+        "src/reference_manager/GaitSwitchingTable.cpp",
         "src/reference_manager/ProceduralMpcMotionManager.cpp",
         "src/reference_manager/StrideMotionHistory.cpp",
         "src/mrt/InProcessMpcLink.cpp",
@@ -595,6 +600,53 @@ cc_test(
     ],
 )
 
+# The schedule queries of one leg of any contact set (gait/LegSwingPhase.h): the swing window, phase and rate of each leg
+# of a four-contact trot, a leg of two contacts, degenerate schedules, and the stance and touch-downs of the biped's feet.
+cc_test(
+    name = "testLegSwingPhase",
+    size = "small",
+    srcs = ["test/testLegSwingPhase.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The reference manager per leg: the biped's sides, hips and gait phase unchanged; on the Atlas sole-corner set with four
+# legs, each leg's swing phase, the nominal_stance foothold anchor, and the foothold heuristics on each leg's side and
+# hip; the anchor's name registry and its refusals.
+cc_test(
+    name = "testPerLegFootholds",
+    size = "small",
+    srcs = ["test/testPerLegFootholds.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        ":quaternion_layout_robot_model",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
 # The swing trajectory planner and the reference manager's contact flags on contact sets other than the biped's: a
 # four-contact trot, a six-contact set, and the DRC Atlas with a 3-DoF contact on each hand.
 cc_test(
@@ -741,6 +793,26 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testQuadrupedGaitFile",
+    size = "small",
+    srcs = ["test/testQuadrupedGaitFile.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [":quadruped_gait_config"],
+    deps = [
+        ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
     ],
 )
@@ -1023,6 +1095,25 @@ cc_test(
     ],
 )
 
+# Each contact's time since its last and until its next planned switch in a mode schedule (gait/ModeScheduleSwitchTimes.h),
+# on a biped walk and a four-contact trot, allocation-free. Linked statically for the allocation counter.
+cc_test(
+    name = "testModeScheduleSwitchTimes",
+    size = "small",
+    srcs = ["test/testModeScheduleSwitchTimes.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    linkstatic = True,
+    deps = [
+        ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//robot_runtime/robot_realtime:allocation_counter",
+        "@abseil-cpp//absl/types:span",
+        "@googletest//:gtest_main",
+    ],
+)
+
 # The contact estimates the MRT joint controllers take or refuse, the refusal reported once per run, allocation-free; and
 # the check of an estimator before it is installed.
 cc_test(
@@ -1088,7 +1179,8 @@ cc_test(
 )
 
 # A new gait is tiled over the horizon however late on the clock it is inserted, the next solve sees what it saw, and
-# only a biped switch moves back to the start of LF.
+# a new gait starts where a phase of its first swing mode starts (LF on a biped, LF_RH for a quadruped trot), the
+# default table's biped gaits exactly where they did before.
 cc_test(
     name = "testGaitScheduleUpdaterHorizon",
     size = "small",
@@ -1474,6 +1566,26 @@ cc_test(
     ],
 )
 
+# The gait switching table: the default one is the manager's former table row for row, a gait file's own table is read
+# in order and refused naming the row and the field, and a table naming a gait the file lacks is refused.
+cc_test(
+    name = "testGaitSwitchingTable",
+    size = "small",
+    srcs = ["test/testGaitSwitchingTable.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
 # The gait switches of ProceduralMpcMotionManager on the robot's stride-mean motion, its velocity and its turn, in both
 # directions (design defect D2), and before its window is measured. Builds no model.
 cc_test(
@@ -1732,6 +1844,22 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core_types",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The swing trajectory planner on four contacts: each contact's height reference follows its own swings, on a trot and
+# on a one-at-a-time walk.
+cc_test(
+    name = "testSwingTrajectoryPlannerContacts",
+    size = "small",
+    srcs = ["test/testSwingTrajectoryPlannerContacts.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_core_types",
         "@googletest//:gtest_main",
     ],
@@ -2313,6 +2441,12 @@ filegroup(
     srcs = ["config/command/gait.textproto"],
 )
 
+# The shared gait file of the quadrupeds: contacts and legs LF, RF, LH, RH.
+filegroup(
+    name = "quadruped_gait_config",
+    srcs = ["config/command/quadruped_gait.textproto"],
+)
+
 # ==============================================================================
 # The typed configuration files (humanoid_nmpc/humanoid_mpc_config)
 # ==============================================================================
@@ -2332,7 +2466,7 @@ _SHIPPED_ROBOT_DATA = [
     "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
     "//robot_models/unitree_r1/unitree_r1_description",
 ]
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/config/testConfigRoots.cpp:shipped_robots, //humanoid_nmpc/humanoid_common_mpc/test/config/weights/testStateInputWeightsFromConfig.cpp:shipped_task_files)
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/config/testConfigRoots.cpp:shipped_robots, //humanoid_nmpc/humanoid_common_mpc/test/config/weights/testStateInputWeightsFromConfig.cpp:shipped_task_files, //humanoid_nmpc/humanoid_common_mpc/test/testModelSettingsLegs.cpp:shipped_robots)
 
 # The quaternion layouts of both MPCs, read and written slot for slot as their robot models do
 # (test/support/QuaternionLayoutRobotModel.h), for the tests that evaluate a term on a real state - TuningLayoutDeviation,
@@ -2421,6 +2555,35 @@ cc_test(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/types:span",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The legs of ModelSettings on every shipped robot, the multi-contact Atlas and the Atlas sole corners as four legs, the
+# refusals of model_settings.legs, and the pendulum length above the legs' contacts.
+cc_test(
+    name = "testModelSettingsLegs",
+    size = "small",
+    srcs = ["test/testModelSettingsLegs.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _SHIPPED_ROBOT_DATA,
+    deps = [
+        ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        ":quaternion_layout_robot_model",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//robot_runtime/robot_core:resource_paths",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@pinocchio",
     ],

@@ -5,7 +5,9 @@ Every robot is a directory of Bazel packages: a description package (`*_descript
 (`*_centroidal_mpc`, and for the Unitree G1 also `g1_wb_mpc`), which holds the MPC's configuration in `config/`, its
 launch files in `launch/` and, for the centroidal MPCs, a Pinocchio playground in `test/testPinocchioModel.cpp`.
 `tests/` cross-checks them: the URDF and MJCF inertias agree, the launch files start built binaries with files that
-exist, and the filegroups ship no side files.
+exist, the filegroups ship no side files, and each robot's joint PD gains are stable in its MJCF at the simulator's
+2 kHz step. The simulator applies the PD explicitly and integrates only the MJCF's joint `damping` implicitly, so a light
+link under a large kd needs damping in the scene (`test_joint_pd_stability.py`).
 
 | Robot | Packages | README |
 | --- | --- | --- |
@@ -27,7 +29,10 @@ files document every field, its unit and its default:
 | `config/command/reference.textproto` | `ReferenceFile` | the command limits and filter, the default base height and the default joint state |
 | `config/controller/joint_pd_gains.textproto` | `JointPdGainsFile` | the PD gains and torque limits of the robot's joint controller |
 
-Every robot shares the gait patterns, `humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto` (`GaitFile`).
+The bipeds share the gait patterns, `humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto` (`GaitFile`), and
+the quadrupeds share `quadruped_gait.textproto` beside it. A robot that needs other gaits ships its own gait file in
+its package and sets the `gait_file` variable of its launch files and the validation's `RobotConfiguration::gaitFile`
+to it.
 Each file starts with the schema it is written in (`# proto-file:` and `# proto-message:`), which editors read and
 `make lint` checks. The launch files pass the task, reference and gait files to the binaries (`--task_file`,
 `--reference_file`, `--gait_file`); the contact planner's file and the PD gains file are found from the task file's

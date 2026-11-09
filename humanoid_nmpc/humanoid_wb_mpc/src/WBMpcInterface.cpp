@@ -528,6 +528,9 @@ absl::Status WBMpcInterface::setupModels(
   // joint turns, from the model at the initial posture.
   RETURN_IF_ERROR(referenceManagerPtr_->configureArmSwing(taskFile.arm_swing,
                                                           initialState_));
+  // Where each contact stands at the initial posture, the landmark of the
+  // nominal_stance foothold anchor.
+  referenceManagerPtr_->configureNominalStance(initialState_);
   return absl::OkStatus();
 }
 

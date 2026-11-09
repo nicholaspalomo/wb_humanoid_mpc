@@ -51,13 +51,9 @@ struct StateEstimatorContext {
   /**
    * The contact points, one per contact of the MPC in its contact order
    * (model_settings' contact_names: the 3-DoF contacts, then the 6-DoF ones),
-   * each with its URDF frames in order of preference and its position in the
-   * frame chosen. The MPC adds its contact frames to its own model, so a URDF
-   * usually has only their parent joints' frames: a 6-DoF contact is then at
-   * its parent joint's origin (kalman_state_estimator's
-   * nom_pos_contact_rt_world_ewrt_world_z is that joint's height while its foot
-   * stands), and a 3-DoF contact at its pos_contact_rt_link_ewrt_link from its
-   * parent joint.
+   * each a URDF link and the point in its frame. The robot process gives the
+   * MPC's own points (stateEstimatorContacts()): a sole's or pad's center and a
+   * 3-DoF contact's offset, so a standing sole is on the ground.
    */
   std::vector<ContactPointSpec> contacts;
   /** The robot whose states are estimated; it must outlive the estimator. */
@@ -85,7 +81,7 @@ class StateEstimatorRegistry {
   /**
    * The estimator `name` names, built from `context`. InvalidArgument listing
    * the available names for an unknown one, and the errors of building it (a
-   * URDF without the contact frames, a noise model out of range).
+   * URDF without a contact link, a noise model out of range).
    */
   absl::StatusOr<std::unique_ptr<StateEstimator>> create(
       absl::string_view name, const StateEstimatorContext& context) const;

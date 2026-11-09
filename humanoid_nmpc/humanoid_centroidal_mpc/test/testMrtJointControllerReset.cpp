@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -45,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/types/span.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
@@ -601,6 +603,62 @@ TEST(MrtJointControllerReset,
       << "one rewind, one reset";
   EXPECT_GT(harness.maxDifference(harness.cycle(), jointPd), 0.05)
       << "the MPC's policy is executed again";
+}
+
+TEST(MrtJointControllerReset,
+     ThePlannedSwitchTimesAreWhereThePlannedContactFlagsChange) {
+  ControllerHarness harness;
+  AtlasReferenceStack& stack = harness.stack();
+  std::vector<scalar_t> timesSinceSwitch(2, 0.0);
+  std::vector<scalar_t> timesToSwitch(2, 0.0);
+  EXPECT_FALSE(harness.controller().getPlannedContactSwitchTimes(
+      harness.time(), absl::MakeSpan(timesSinceSwitch),
+      absl::MakeSpan(timesToSwitch)))
+      << "no policy in use yet";
+  EXPECT_EQ(timesToSwitch[0], 0.0) << "nothing written";
+  harness.start();
+  harness.enterMpc();
+
+  constexpr scalar_t kStep = 1.0e-6;
+  const scalar_t linvelBaseRtWorldEwrtWorldX = 1.2;
+  stack.command(linvelBaseRtWorldEwrtWorldX / 1.2);
+  vector_t state = stack.initialState();
+  int switchesChecked = 0;
+  for (int k = 0; k < 400; ++k) {
+    state(6) += linvelBaseRtWorldEwrtWorldX * kControlPeriod;
+    harness.setState(state, vector3_t(linvelBaseRtWorldEwrtWorldX, 0.0, 0.0));
+    harness.cycle();
+    const scalar_t now = harness.time();
+    if (!harness.controller().getPlannedContactSwitchTimes(
+            now, absl::MakeSpan(timesSinceSwitch),
+            absl::MakeSpan(timesToSwitch))) {
+      continue;
+    }
+    const std::optional<ContactMask> flagsNow =
+        harness.controller().getPlannedContactFlags(now);
+    if (!flagsNow.has_value()) {
+      GTEST_FAIL() << "no planned contact flags now";
+    }
+    for (size_t contact = 0; contact < timesToSwitch.size(); ++contact) {
+      if (!std::isfinite(timesToSwitch[contact])) continue;
+      ASSERT_GE(timesToSwitch[contact], 0.0);
+      const scalar_t switchTime = now + timesToSwitch[contact];
+      // Unchanged up to the switch, changed right after it.
+      const std::optional<ContactMask> before =
+          harness.controller().getPlannedContactFlags(switchTime - kStep);
+      const std::optional<ContactMask> after =
+          harness.controller().getPlannedContactFlags(switchTime + kStep);
+      if (!before.has_value() || !after.has_value()) {
+        GTEST_FAIL() << "no planned contact flags around the switch";
+      }
+      if (timesToSwitch[contact] > kStep) {
+        EXPECT_EQ((*before)[contact], (*flagsNow)[contact]) << contact;
+      }
+      EXPECT_NE((*after)[contact], (*flagsNow)[contact]) << contact;
+      ++switchesChecked;
+    }
+  }
+  EXPECT_GT(switchesChecked, 0) << "positive control: the policy steps";
 }
 
 TEST(MrtJointControllerReset,

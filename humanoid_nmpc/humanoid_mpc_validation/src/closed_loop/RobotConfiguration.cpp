@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -80,10 +81,34 @@ RobotConfiguration makeConfiguration(const std::string& name,
   return configuration;
 }
 
+// The state-estimator variant's estimator and scenarios. kalman is
+// kKalmanStateEstimatorName of humanoid_state_estimator, spelled here so that
+// the metrics library does not link the estimator.
+// LINT.IfChange(kalman_variant)
+constexpr char kKalmanStateEstimator[] = "kalman";
+// clang-format off
+// LINT.ThenChange(//humanoid_state_estimation/humanoid_state_estimator/include/humanoid_state_estimator/StateEstimatorNames.h:kalman_name)
+// clang-format on
+
+/**
+ * unitree_g1 with the kalman state estimator in the robot process, held to
+ * unitree_g1's documents: standing (the filter at rest), walk_0p5 (stance
+ * switches) and turn_in_place_720 (the yaw the filter takes from the IMU while
+ * it estimates the position), which keeps the run to three scenarios.
+ */
+RobotConfiguration makeKalmanVariant(const RobotConfiguration& base) {
+  RobotConfiguration variant = base;
+  variant.name = absl::StrCat(base.name, "_kalman");
+  variant.stateEstimator = kKalmanStateEstimator;
+  variant.scenarios = {"standing", "walk_0p5", "turn_in_place_720"};
+  variant.baselineConfiguration = base.name;
+  return variant;
+}
+
 std::vector<RobotConfiguration> makeConfigurations() {
   // The files of robot_models/<robot>/<package>/launch/robot.textproto and
   // mpc.textproto.
-  return {
+  std::vector<RobotConfiguration> configurations = {
       makeConfiguration(
           "drc_atlas", MpcFormulation::kCentroidal,
           "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config",
@@ -117,6 +142,14 @@ std::vector<RobotConfiguration> makeConfigurations() {
           "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml",
           /*walkingScenario=*/"walk_0p5"),
   };
+  std::vector<RobotConfiguration> variants;
+  for (const RobotConfiguration& configuration : configurations) {
+    if (configuration.name == "unitree_g1") {
+      variants.push_back(makeKalmanVariant(configuration));
+    }
+  }
+  configurations.insert(configurations.end(), variants.begin(), variants.end());
+  return configurations;
 }
 
 }  // namespace
@@ -138,6 +171,11 @@ std::vector<std::string> RobotConfiguration::configurationFiles() const {
     files.push_back(contactPlanningFile);
   }
   return files;
+}
+
+bool RobotConfiguration::runsScenario(absl::string_view scenario) const {
+  return scenarios.empty() || std::find(scenarios.begin(), scenarios.end(),
+                                        scenario) != scenarios.end();
 }
 
 const std::vector<RobotConfiguration>& robotConfigurations() {

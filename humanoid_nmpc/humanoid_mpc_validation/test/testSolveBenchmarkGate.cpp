@@ -340,6 +340,8 @@ TEST(
 
 TEST(SolveBenchmarkGate, EveryRobotHasItsDefaultRecordedStates) {
   for (const RobotConfiguration& configuration : robotConfigurations()) {
+    // A state-estimator variant has no benchmark (BUILD.bazel).
+    if (configuration.isStateEstimatorVariant()) continue;
     const std::filesystem::path states =
         std::filesystem::path(kStatesDirectory) /
         absl::StrCat(configuration.name, "_", configuration.walkingScenario,

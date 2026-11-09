@@ -1151,6 +1151,9 @@ better by more than the band is reported as an improvement, not a violation), an
 | p99 solve time | at most +10 % |
 | quaternion norm | `max \|‖ξ‖ − 1\|` < 1e-9 |
 
+The state-estimator variant `unitree_g1_kalman` is held to `unitree_g1`'s runs within bands of its own
+(`closedLoopMetricBandsFor()`, `val/README.md`): 0.04 rad of tilt and 0.2 m of slip, the rest as above.
+
 ### 4.6 Real-time gate
 
 `benchmark_mpc_solve` (`testonly` `cc_binary`, both formulations) replays the walking states of

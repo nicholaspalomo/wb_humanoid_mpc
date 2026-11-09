@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -51,6 +52,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
+#include "humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
+#include "humanoid_centroidal_mpc_app/CentroidalAppFlags.h"
 #include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
@@ -85,8 +88,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotSetUpSteps.h"
 #include "humanoid_common_mpc_app/robot/RobotStack.h"
 #include "humanoid_common_mpc_app/robot/RobotStartup.h"
+#include "humanoid_mpc_config/multi_contact_plan_config.nproto.h"
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
 #include "humanoid_mpc_ipc/RemoteMpcLink.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 #include "mujoco_sim_interface/MujocoContactPatch.h"
 #include "robot_core/Types.h"
 #include "robot_model/ContactEstimatorRegistry.h"
@@ -192,6 +197,32 @@ void warnAboutPhaseResettingWithoutContactSensing(
            "contact_estimator: \"cheater_sim\" in "
         << taskFile << ".";
   }
+}
+
+/**
+ * The multi-contact plan the MPC node tracks, when the task file of `files`
+ * names contact_schedule_source: "multi_contact_plan": the task file's
+ * multi_contact_plan.scenario_file and plan_file, or the files of
+ * --multi_contact_scenario and --multi_contact_plan, read as the node reads
+ * them (overrideMultiContactPlanFiles(), loadMultiContactPlanSource()), so
+ * that both processes read one plan. std::nullopt for every other task file.
+ * The state estimator's contacts stand on its patches
+ * (contactSurfaceHeightSource()).
+ */
+absl::StatusOr<std::optional<multi_contact::config::MultiContactPlan>>
+trackedMultiContactPlan(const RobotConfigFiles& files) {
+  ASSIGN_OR_RETURN(const ContactScheduleSource source,
+                   contactScheduleSourceFromConfig(files.task));
+  if (source != ContactScheduleSource::kMultiContactPlan) return std::nullopt;
+  CentroidalMpcConfig config;
+  config.task = files.task;
+  overrideMultiContactPlanFiles(multiContactPlanFilesFromFlags(), config);
+  const mpc_config::MultiContactPlanConfig& block =
+      config.task.multi_contact_plan;
+  absl::StatusOr<MultiContactPlanSource> loaded =
+      loadMultiContactPlanSource(block.scenario_file, block.plan_file);
+  if (!loaded.ok()) return withConfigFile(loaded.status(), files.taskSource);
+  return std::move(loaded->plan);
 }
 
 /** The centroidal MPC's configuration of the parsed files. */
@@ -379,8 +410,13 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options,
 
   const scalar_t mrtDesiredFrequency =
       models.mpcSettings().mrtDesiredFrequency_;
-  RobotProcess::Config config =
-      robotProcessConfig(options, directory, configuration, modelSettings);
+  ASSIGN_OR_RETURN(
+      const std::optional<multi_contact::config::MultiContactPlan> plan,
+      trackedMultiContactPlan(configuration.files));
+  ASSIGN_OR_RETURN(
+      RobotProcess::Config config,
+      robotProcessConfig(options, directory, configuration, modelSettings,
+                         plan.has_value() ? &*plan : nullptr));
   config.controlFrequency = mrtDesiredFrequency > 0.0
                                 ? mrtDesiredFrequency
                                 : kMrtFallbackControlFrequency;

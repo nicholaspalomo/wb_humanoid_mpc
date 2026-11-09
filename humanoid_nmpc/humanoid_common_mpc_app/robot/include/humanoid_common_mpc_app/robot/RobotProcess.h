@@ -49,11 +49,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/robot/ConfigFileStore.h"
+#include "humanoid_common_mpc_app/robot/ContactSurfaceHeightSource.h"
 #include "humanoid_common_mpc_app/robot/FallRecovery.h"
 #include "humanoid_common_mpc_app/robot/FsmBridge.h"
 #include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
 #include "humanoid_common_mpc_app/robot/MujocoViewerAnnotator.h"
 #include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
+#include "humanoid_common_mpc_app/robot/PlannedSwitchTimesSource.h"
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
 #include "humanoid_common_mpc_app/robot/RealtimeLoopRunner.h"
 #include "humanoid_common_mpc_app/robot/RobotBackend.h"
@@ -67,6 +69,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/loop_timing.pb.h"
 #include "humanoid_mpc_msgs/robot_state_sample.pb.h"
 #include "humanoid_mpc_msgs/viewer_annotations.nproto.h"
+#include "humanoid_state_estimator/ContactEstimationInputs.h"
 #include "humanoid_state_estimator/ContactKinematics.h"
 #include "humanoid_state_estimator/StateEstimator.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
@@ -97,8 +100,9 @@ namespace ocs2::humanoid {
  *   1. read the robot state from the backend, and run the task file's state
  * estimator over it (state_estimator: `ground_truth` hands the backend's state
  * on as it is, `kalman` replaces the base's position and linear velocity with
- * its estimate from the IMU and the leg kinematics): what every later step
- * reads;
+ * its estimate from the IMU and the leg kinematics), with the surface height
+ * of each contact (Config::contactSurfaceHeights, looked up at the previous
+ * estimate's contact positions): what every later step reads;
  *   2. take the operator's joint targets into the JOINT_PD posture (mailbox);
  *   3. hand the controller the mode and the posture, and run
  * computeJointControlAction(), which writes the observation into the MPC link
@@ -219,13 +223,20 @@ class RobotProcess {
     /** The joints the fall recovery judges rest on: those of the MPC model. */
     std::vector<size_t> restJointIndices;
     /**
-     * The robot's URDF and the MPC's contact points in contact order
-     * (stateEstimatorContacts() of the model settings): the leg kinematics of
-     * the `kalman` state estimator (StateEstimatorContext::contacts). Unused
-     * by `ground_truth`.
+     * The robot's URDF and the MPC's contact points in contact order, each on
+     * a URDF link (stateEstimatorContacts() of the model settings and the task
+     * file's contacts block): the leg kinematics of the `kalman` state
+     * estimator (StateEstimatorContext::contacts). Unused by `ground_truth`.
      */
     std::string urdfFile;
     std::vector<estimation::ContactPointSpec> stateEstimatorContacts;
+    /**
+     * Where the state estimator's contacts stand, filled into its contact
+     * inputs every cycle (contactSurfaceHeightSource(): the flat ground, or
+     * the patches of the multi-contact plan the MPC tracks). Null: the flat
+     * ground at settings.kalmanStateEstimator.nomPosContactRtWorldEwrtWorldZ.
+     */
+    std::unique_ptr<const ContactSurfaceHeightSource> contactSurfaceHeights;
     /** The PD gains file is checked every this many control periods (100
      * centroidal, 500 whole-body, ~1 Hz). */
     size_t pdGainsFileCheckInterval = kDefaultPdGainsFileCheckInterval;
@@ -376,6 +387,17 @@ class RobotProcess {
   // One per contact of the controller's contact set (measuredContactFlags()),
   // sized at construction.
   ContactArray<vector3_t> measForceContactsEwrtWorld_;
+  // The flat ground of the task file when Config::contactSurfaceHeights is
+  // null, and the source in use: the config's or this one.
+  std::unique_ptr<const ContactSurfaceHeightSource>
+      defaultContactSurfaceHeights_;
+  const ContactSurfaceHeightSource* absl_nonnull contactSurfaceHeights_;
+  // What the state estimator is told of the contacts each cycle, one entry per
+  // contact of the controller's contact set, sized at construction.
+  estimation::ContactEstimationInputs contactEstimationInputs_;
+  // The planned switch times of the policy in use, written into
+  // contactEstimationInputs_ every cycle (the kalman contact-trust ramp).
+  PlannedSwitchTimesSource plannedSwitchTimes_;
 
   // ---- Communication thread state.
   msgs::FsmState fsmState_;

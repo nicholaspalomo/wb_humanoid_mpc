@@ -107,9 +107,26 @@ absl::StatusOr<ModelSettings::FootConstraintConfig> footConstraintFromConfig(
 ModelSettings::ContactImplicitConfig contactImplicitFromConfig(
     const mpc_config::ContactImplicitConfig& config);
 
+/** Returns the names of the nominal foothold anchors, in the registry's order:
+ * "step_width", "nominal_stance". */
+std::vector<std::string> nominalFootholdAnchorNames();
+
+/** Returns the anchor named `name`, or InvalidArgument listing the valid
+ * names. */
+absl::StatusOr<ModelSettings::NominalFootholdAnchor>
+nominalFootholdAnchorFromName(absl::string_view name);
+
+/** Returns the registry name of `anchor`, the inverse of
+ * nominalFootholdAnchorFromName(). */
+std::string nominalFootholdAnchorName(
+    ModelSettings::NominalFootholdAnchor anchor);
+
 /**
- * nominal_foothold: the step width of the nominal foothold reference;
- * InvalidArgument when it is not a finite number of at least 0.
+ * nominal_foothold: the step width and the anchor of the nominal foothold
+ * reference; InvalidArgument when the width is not a finite number of at least
+ * 0 or the anchor names none. Which contact sets an anchor runs on is checked
+ * by ModelSettings::Create() (nominal_stance needs legs) and by the centroidal
+ * MPC (checkCentroidalContactSet(): step_width with a width needs the biped).
  */
 absl::StatusOr<ModelSettings::NominalFootholdConfig> nominalFootholdFromConfig(
     const mpc_config::NominalFootholdConfig& config);

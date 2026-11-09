@@ -39,7 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // ones (MpcAppFlags.h): the scenario and the plan they track under
 // contact_schedule_source: "multi_contact_plan", and how the plan plays, in
 // place of the task file's multi_contact_plan.scenario_file, plan_file and
-// playback. Defined in
+// playback. The centroidal robot binary reads the scenario and the plan too,
+// for the surfaces of its state estimator's contacts. Defined in
 // CentroidalAppFlags.cpp, so link :centroidal_app_flags into binaries only.
 // LINT.IfChange(centroidal_app_flags)
 ABSL_DECLARE_FLAG(std::string, multi_contact_scenario);

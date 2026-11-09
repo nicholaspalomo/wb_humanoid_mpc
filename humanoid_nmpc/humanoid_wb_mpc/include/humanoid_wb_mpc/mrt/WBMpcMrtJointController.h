@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
@@ -264,6 +265,18 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
    * thread-safe.
    */
   std::optional<ContactMask> getPlannedContactFlags(scalar_t time) const;
+
+  /**
+   * Each contact's time [s] since its last and until its next planned switch
+   * around `time` in the mode schedule of the policy being executed
+   * (plannedContactSwitchTimes(), +infinity where it shows none), written to
+   * the first entries of `timeSinceSwitch` and `timeToSwitch`. False, with
+   * nothing written, while getPlannedContactFlags() is empty. Allocates
+   * nothing; the same thread as getPlannedContactFlags().
+   */
+  bool getPlannedContactSwitchTimes(scalar_t time,
+                                    absl::Span<scalar_t> timeSinceSwitch,
+                                    absl::Span<scalar_t> timeToSwitch) const;
 
   /**
    * Source of the measured contact state (robot_model/ContactEstimator.h). It

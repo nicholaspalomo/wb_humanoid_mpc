@@ -43,9 +43,11 @@ namespace ocs2::humanoid {
  * Returns OK when the contact set has exactly two contacts, and otherwise an
  * InvalidArgument that names `component` and the count:
  * "FootSeparationConstraint is written for two contacts; the contact set has 4
- * contacts". It checks the count only: the contact planner and its biped-only
- * terms read the set as a left and a right contact (kContactLeftIndex,
- * kContactRightIndex) and accept two point contacts as well as two 6-DoF feet.
+ * contacts". It checks the count only: the contact planner's terms read the
+ * set as a left and a right contact (kContactLeftIndex, kContactRightIndex).
+ * Which kind the two contacts are is checked once, where the planner is built:
+ * makeContactPlanner() refuses every set that is not the biped's two 6-DoF
+ * feet.
  * A component calls it where it is built or validated (a Create() factory, a
  * configuration conversion), never per solve.
  */

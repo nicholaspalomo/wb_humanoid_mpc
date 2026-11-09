@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/multibody/fwd.hpp"
 
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsLinearVelConstraint.h"
 #include "humanoid_common_mpc/contact_swing/ContactSwingPlanner.h"
@@ -66,12 +67,15 @@ HumanoidPreComputation::HumanoidPreComputation(
       mpcRobotModelPtr_(&mpcRobotModel),
       positionErrorGainZ_(mpcRobotModel.modelSettings.footConstraintConfig
                               .positionErrorGain_z) {
-  // The swing planner plans the biped's two feet: a contact set other than
-  // theirs has no swing references here, and its terms read the contact's
-  // patch instead (ZeroVelocityConstraintCppAd).
+  // The swing planner plans every contact. Its references are read here for
+  // the normal-velocity terms, which run on the biped and on a set its legs
+  // describe (checkCentroidalContactSet()); any other set swings its contacts
+  // on the contact swing planner, and its terms read the contact's patch
+  // instead (ZeroVelocityConstraintCppAd).
+  const ModelSettings& modelSettings = mpcRobotModel.modelSettings;
   const size_t numPlannedFeet =
-      mpcRobotModel.modelSettings.isBipedContactSet()
-          ? mpcRobotModel.modelSettings.contactNames.size()
+      modelSettings.isBipedContactSet() || modelSettings.isLeggedContactSet()
+          ? modelSettings.contactNames.size()
           : 0;
   eeNormalVelConConfigs_.resize(numPlannedFeet);
   desPosFeetRtWorldEwrtWorldZ_.resize(numPlannedFeet);

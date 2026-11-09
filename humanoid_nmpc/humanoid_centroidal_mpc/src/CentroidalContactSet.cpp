@@ -45,39 +45,55 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/model/ModelSettingsFromConfig.h"
 #include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
 #include "humanoid_common_mpc/config/swing/LocomotionHeuristicsFromConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 
 namespace ocs2::humanoid {
 namespace {
 
 // LINT.IfChange(biped_only_terms)
-/** The costs written for the biped's two feet: the swing-foot tracking (on the
- * biped swing planner), the leg torques and the DCM of a two-foot support. */
-constexpr std::array<MpcCostType, 3> kBipedOnlyCosts = {
-    MpcCostType::kTaskSpaceFootCost,
+/** The costs written for the biped's two feet: the leg torques and the DCM of
+ * a two-foot support. */
+constexpr std::array<MpcCostType, 2> kBipedOnlyCosts = {
     MpcCostType::kExternalTorqueCost,
     MpcCostType::kDcmTerminalCost,
 };
-/** The soft constraints written for the feet: the leg collision spheres, the
- * swing servo of the biped swing planner and the footprint corners and 6-D
- * slip of the contact-implicit formulation. */
-constexpr std::array<MpcSoftConstraintType, 6> kBipedOnlySoftConstraints = {
+/** The soft constraints written for the feet: the leg collision spheres and
+ * the footprint corners and 6-D slip of the contact-implicit formulation. */
+constexpr std::array<MpcSoftConstraintType, 5> kBipedOnlySoftConstraints = {
     MpcSoftConstraintType::kFootCollision,
     MpcSoftConstraintType::kFootCollisionCbf,
-    MpcSoftConstraintType::kNormalVelocity,
     MpcSoftConstraintType::kContactComplementarity,
     MpcSoftConstraintType::kForceWeightedSlip,
     MpcSoftConstraintType::kGroundPenetration,
 };
-/** The hard constraints written for the feet: the swing servo, and the knee
- * mimic joints of one leg per foot. */
-constexpr std::array<MpcHardConstraintType, 2> kBipedOnlyHardConstraints = {
-    MpcHardConstraintType::kNormalVelocity,
+/** The hard constraints written for the feet: the knee mimic joints of one leg
+ * per foot. */
+constexpr std::array<MpcHardConstraintType, 1> kBipedOnlyHardConstraints = {
     MpcHardConstraintType::kKneeJointMimic,
 };
+/** The terms that track the swing trajectory planner, which plans every
+ * contact: the swing-foot cost and the normal-velocity servo. They run on the
+ * biped and on a set its legs describe (ModelSettings::isLeggedContactSet()),
+ * a 3-DoF contact's foot cost without its orientation weights; a set without
+ * legs swings its contacts with contact_swing instead. */
+constexpr std::array<MpcCostType, 1> kLeggedOnlyCosts = {
+    MpcCostType::kTaskSpaceFootCost,
+};
+constexpr std::array<MpcSoftConstraintType, 1> kLeggedOnlySoftConstraints = {
+    MpcSoftConstraintType::kNormalVelocity,
+};
+constexpr std::array<MpcHardConstraintType, 1> kLeggedOnlyHardConstraints = {
+    MpcHardConstraintType::kNormalVelocity,
+};
+// Beside these, checkCentroidalContactSet() refuses on any non-biped set the
+// online contact planner, the basis vectors on a set with a 3-DoF contact, the
+// base-pose and wrench heuristics, every heuristic on a set without legs, and
+// the step_width foothold anchor with a positive step width.
 // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/test/testMixedContactSet.cpp:biped_only_terms, //humanoid_nmpc/humanoid_centroidal_mpc/test/testPointContactQuadrupedLikeSet.cpp:biped_only_terms, //humanoid_nmpc/docs/multi_contact_planning/README.md:biped_only_terms)
 
 /** "name (3-DoF), ..." of the contacts of `modelSettings`, in input order. */
@@ -107,33 +123,41 @@ absl::Status appendListed(
   return absl::OkStatus();
 }
 
-}  // namespace
-
-absl::Status checkCentroidalContactSet(const ModelSettings& modelSettings,
-                                       const mpc_config::TaskFile& task) {
-  if (modelSettings.isBipedContactSet()) return absl::OkStatus();
-
-  ASSIGN_OR_RETURN(
-      const MpcFormulationTasks tasks,
-      mpcFormulationTasksFromConfig(task, FormulationLogging::kQuiet));
-  std::vector<std::string> refused;
+/** Appends `<list> '<name>'` for every term of the three lists that `tasks`
+ * selects. */
+template <size_t kNumCosts, size_t kNumSoft, size_t kNumHard>
+absl::Status appendListedTerms(
+    const MpcFormulationTasks& tasks,
+    const std::array<MpcCostType, kNumCosts>& costs,
+    const std::array<MpcSoftConstraintType, kNumSoft>& softConstraints,
+    const std::array<MpcHardConstraintType, kNumHard>& hardConstraints,
+    std::vector<std::string>& refused) {
   RETURN_IF_ERROR(appendListed<MpcCostType>(
-      kBipedOnlyCosts, "costs",
+      costs, "costs",
       [&tasks](MpcCostType type) { return tasks.hasCost(type); },
       &mpcCostTypeToString, refused));
   RETURN_IF_ERROR(appendListed<MpcSoftConstraintType>(
-      kBipedOnlySoftConstraints, "soft_constraints",
+      softConstraints, "soft_constraints",
       [&tasks](MpcSoftConstraintType type) {
         return tasks.hasSoftConstraint(type);
       },
       &mpcSoftConstraintTypeToString, refused));
-  RETURN_IF_ERROR(appendListed<MpcHardConstraintType>(
-      kBipedOnlyHardConstraints, "hard_constraints",
+  return appendListed<MpcHardConstraintType>(
+      hardConstraints, "hard_constraints",
       [&tasks](MpcHardConstraintType type) {
         return tasks.hasHardConstraint(type);
       },
-      &mpcHardConstraintTypeToString, refused));
+      &mpcHardConstraintTypeToString, refused);
+}
 
+/**
+ * Appends the online contact planner, which `task` selects as its contact
+ * schedule source, and the basis-vector parameterization on a set with a 3-DoF
+ * contact.
+ */
+absl::Status appendRefusedPlannerAndInputs(const ModelSettings& modelSettings,
+                                           const mpc_config::TaskFile& task,
+                                           std::vector<std::string>& refused) {
   // The online contact planner: its H-LIP and MIQP planners, its eight
   // contact-planning rules and its foot separation, ZMP support region,
   // no-flight and yaw-torque-budget constraints are all written for two feet.
@@ -159,25 +183,99 @@ absl::Status checkCentroidalContactSet(const ModelSettings& modelSettings,
                      "' (its generator sets are for 6-DoF contacts; the set "
                      "has 3-DoF contacts)"));
   }
-  // The locomotion heuristics: footholds, a base pose over the feet and
-  // per-foot wrench offsets.
+  return absl::OkStatus();
+}
+
+/**
+ * Appends the locomotion heuristics of `formulation` that `modelSettings`
+ * cannot run. The foothold family places each leg's contacts
+ * (FootholdHeuristicContext: the leg's side, its hip, its nominal stance) and
+ * runs on a set described by its legs; the base-pose family reads the biped's
+ * gait phase and the wrench family a left and a right foot, so they stay the
+ * biped's. A set without legs has no leg to place a foothold for.
+ */
+void appendRefusedHeuristics(const ModelSettings& modelSettings,
+                             const LocomotionHeuristicFormulation& formulation,
+                             std::vector<std::string>& refused) {
+  if (!modelSettings.isLeggedContactSet()) {
+    if (!formulation.empty()) {
+      refused.push_back(
+          "locomotion_heuristics (any listed heuristic; the set has no legs)");
+    }
+    return;
+  }
+  for (const std::string& name : formulation.basePoseHeuristics) {
+    refused.push_back(absl::StrCat(
+        "locomotion_heuristics.base_pose_heuristics '", name, "'"));
+  }
+  for (const std::string& name : formulation.wrenchHeuristics) {
+    refused.push_back(
+        absl::StrCat("locomotion_heuristics.wrench_heuristics '", name, "'"));
+  }
+}
+
+/**
+ * Appends the step_width anchor of `nominalFoothold` with a positive step
+ * width, which measures the width from the other, stance foot of two. The
+ * nominal_stance anchor places any legged set's contacts
+ * (ModelSettings::Create() refuses it on a set without legs).
+ */
+void appendRefusedFootholdAnchor(
+    const ModelSettings::NominalFootholdConfig& nominalFoothold,
+    std::vector<std::string>& refused) {
+  if (nominalFoothold.anchor ==
+          ModelSettings::NominalFootholdAnchor::kStepWidth &&
+      nominalFoothold.nomPosLfootRtRfootEwrtHeadingY > 0.0) {
+    refused.push_back(absl::StrCat(
+        "nominal_foothold.anchor '",
+        nominalFootholdAnchorName(nominalFoothold.anchor),
+        "' with nom_pos_lfoot_rt_rfoot_ewrt_heading_y ",
+        nominalFoothold.nomPosLfootRtRfootEwrtHeadingY,
+        " m (set it to 0, or the anchor to 'nominal_stance' on a legged set)"));
+  }
+}
+
+}  // namespace
+
+absl::Status checkCentroidalContactSet(const ModelSettings& modelSettings,
+                                       const mpc_config::TaskFile& task) {
+  if (modelSettings.isBipedContactSet()) return absl::OkStatus();
+
+  ASSIGN_OR_RETURN(
+      const MpcFormulationTasks tasks,
+      mpcFormulationTasksFromConfig(task, FormulationLogging::kQuiet));
+  std::vector<std::string> refused;
+  RETURN_IF_ERROR(appendListedTerms(tasks, kBipedOnlyCosts,
+                                    kBipedOnlySoftConstraints,
+                                    kBipedOnlyHardConstraints, refused));
+  if (!modelSettings.isLeggedContactSet()) {
+    RETURN_IF_ERROR(appendListedTerms(tasks, kLeggedOnlyCosts,
+                                      kLeggedOnlySoftConstraints,
+                                      kLeggedOnlyHardConstraints, refused));
+  }
+  RETURN_IF_ERROR(appendRefusedPlannerAndInputs(modelSettings, task, refused));
   ASSIGN_OR_RETURN(
       const LocomotionHeuristicConfig heuristics,
       locomotionHeuristicConfigFromConfig(task.locomotion_heuristics));
-  if (!heuristics.formulation.empty()) {
-    refused.push_back("locomotion_heuristics (any listed heuristic)");
-  }
+  appendRefusedHeuristics(modelSettings, heuristics.formulation, refused);
+  appendRefusedFootholdAnchor(modelSettings.nominalFootholdConfig, refused);
 
   if (refused.empty()) return absl::OkStatus();
   return absl::InvalidArgumentError(absl::StrCat(
-      "[CentroidalMpcInterface] model_settings lists the contact set ",
+      "[CentroidalMpcInterface] model_settings lists a contact set of ",
+      modelSettings.contactNames.size(), " contacts, ",
       describeContactSet(modelSettings),
       ", which is not the biped's two 6-DoF feet, and the task file selects ",
       absl::StrJoin(refused, ", "),
-      ", which are written for exactly two 6-DoF feet. Remove them, or list "
-      "the two feet alone (model_settings.contact_names_6dof, no "
-      "contacts_3dof) (humanoid_nmpc/docs/multi_contact_planning/README.md, "
-      "section 7.2)."));
+      ", which are written for exactly two 6-DoF feet",
+      modelSettings.isLeggedContactSet()
+          ? ""
+          : " (task_space_foot_cost, normal_velocity and the foothold "
+            "heuristics also run on a set that model_settings.legs "
+            "describes)",
+      ". Remove them, or list the two feet alone "
+      "(model_settings.contact_names_6dof, no contacts_3dof) "
+      "(humanoid_nmpc/docs/multi_contact_planning/README.md, section 7.2)."));
 }
 
 }  // namespace ocs2::humanoid

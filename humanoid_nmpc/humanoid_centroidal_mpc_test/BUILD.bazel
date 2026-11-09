@@ -128,6 +128,7 @@ cc_test(
         "//robot_runtime/robot_realtime:allocation_counter",
         "//humanoid_nmpc/humanoid_common_mpc:controller_event",
         "//lib/ocs2:ocs2_mpc",
+        "@abseil-cpp//absl/types:span",
     ],
 )
 

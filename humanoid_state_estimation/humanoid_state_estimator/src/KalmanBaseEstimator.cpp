@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_state_estimator/KalmanBaseEstimator.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <memory>
@@ -41,11 +42,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_state_estimator/ContactEstimationInputs.h"
 #include "humanoid_state_estimator/ContactKinematics.h"
+#include "humanoid_state_estimator/ContactTrustRamp.h"
 #include "humanoid_state_estimator/KalmanFilter.h"
 
 namespace ocs2::humanoid::estimation {
@@ -115,6 +119,20 @@ absl::Status KalmanBaseEstimator::validateConfig(const Config& config) {
         absl::StrCat("kalman_state_estimator.nom_pos_contact_rt_world_ewrt_"
                      "world_z must be finite, got ",
                      config.nomPosContactRtWorldEwrtWorldZ));
+  }
+  if (!(std::isfinite(config.contactTrustRampDuration) &&
+        config.contactTrustRampDuration >= 0.0)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("kalman_state_estimator.contact_trust_ramp_duration must "
+                     "be a non-negative time (0 = off), got ",
+                     config.contactTrustRampDuration, " s"));
+  }
+  if (!(std::isfinite(config.contactTrustRampMaxScale) &&
+        config.contactTrustRampMaxScale >= 1.0)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("kalman_state_estimator.contact_trust_ramp_max_scale must "
+                     "be a finite factor of at least 1, got ",
+                     config.contactTrustRampMaxScale));
   }
   return absl::OkStatus();
 }
@@ -194,13 +212,15 @@ absl::Status KalmanBaseEstimator::build() {
                                        config_.kinematicVelocityNoise * eye});
     measurements.measurements.push_back(
         {.name = absl::StrCat("contact_", contact, "_height"),
-         .measurement =
-             vector_t::Constant(1, config_.nomPosContactRtWorldEwrtWorldZ),
+         // update() writes the caller's surface height.
+         .measurement = vector_t::Zero(1),
          .measurementModel = {{state, outputRowPosContactRtWorldEwrtWorldZ}},
          .measurementNoiseCovariance = matrix_t::Constant(
              1, 1, config_.contactHeightNoise * config_.contactHeightNoise)});
     contacts_.push_back(std::move(measurements));
   }
+  filterStateContacts_.resize(numContacts);
+  estPosContactsRtWorldEwrtWorld_.assign(numContacts, vector3_t::Zero());
 
   // The maps are final from here on, so the pointers into them stay valid.
   transitionDtBlock_ =
@@ -251,7 +271,8 @@ absl::Status KalmanBaseEstimator::update(
     const vector3_t& specforceBaseRtWorldEwrtBase,
     const vector_t& jointPositions,
     const vector_t& jointVelocities,
-    const std::vector<bool>& contactFlags) {
+    const std::vector<bool>& contactFlags,
+    const ContactEstimationInputs& contactInputs) {
   if (!(std::isfinite(dt) && dt > 0.0)) {
     return absl::InvalidArgumentError(absl::StrCat(
         "KalmanBaseEstimator::update(): the time step must be positive, got ",
@@ -261,6 +282,12 @@ absl::Status KalmanBaseEstimator::update(
     return absl::InvalidArgumentError(absl::StrCat(
         "KalmanBaseEstimator::update(): ", contactFlags.size(),
         " contact flags for ", contacts_.size(), " contact points"));
+  }
+  if (contactInputs.numContacts() != contacts_.size()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("KalmanBaseEstimator::update(): contact inputs for ",
+                     contactInputs.numContacts(), " contacts, there are ",
+                     contacts_.size(), " contact points"));
   }
   if (static_cast<size_t>(jointPositions.size()) != kinematics_->numJoints() ||
       static_cast<size_t>(jointVelocities.size()) != kinematics_->numJoints()) {
@@ -272,7 +299,42 @@ absl::Status KalmanBaseEstimator::update(
   const matrix3_t rotmatBaseRtWorld =
       quatBaseRtWorld.normalized().toRotationMatrix();
 
-  // The prediction: the world acceleration a = R f + g drives p and v.
+  setBaseProcessModel(dt, rotmatBaseRtWorld, specforceBaseRtWorldEwrtBase);
+  for (size_t contact = 0; contact < contacts_.size(); ++contact) {
+    scalar_t randomWalk = contactFlags[contact]
+                              ? config_.stanceContactRandomWalk
+                              : config_.swingContactRandomWalk;
+    // The contact-trust ramp scales a stance contact's random walk and its
+    // measurement noise alike. Off, the measurement noise is never rewritten,
+    // so the filter is the one without it.
+    if (config_.contactTrustRampDuration > 0.0 && contactFlags[contact]) {
+      const scalar_t scale = contactTrustScaleOf(contact, contactInputs);
+      randomWalk *= scale;
+      scaleContactMeasurementNoise(contact, scale);
+    }
+    setContactProcessNoise(contact, randomWalk, dt);
+  }
+  RETURN_IF_ERROR(filter_.predict(processModel_, inputs_));
+
+  // The corrections of the stance contact points, one at a time.
+  kinematics_->update(jointPositions, jointVelocities);
+  for (size_t contact = 0; contact < contacts_.size(); ++contact) {
+    if (!contactFlags[contact]) continue;
+    absl::Status corrected = correctContact(
+        contact, rotmatBaseRtWorld, angvelBaseRtWorldEwrtBase, contactInputs);
+    if (!corrected.ok()) {
+      RETURN_IF_ERROR(readEstimate());
+      return corrected;
+    }
+  }
+  return readEstimate();
+}
+
+void KalmanBaseEstimator::setBaseProcessModel(
+    scalar_t dt,
+    const matrix3_t& rotmatBaseRtWorld,
+    const vector3_t& specforceBaseRtWorldEwrtBase) {
+  // The world acceleration a = R f + g drives p and v.
   inputs_[0].input = rotmatBaseRtWorld * specforceBaseRtWorldEwrtBase +
                      kinematics_->gravityEwrtWorld();
   transitionDtBlock_->setIdentity();
@@ -289,42 +351,67 @@ absl::Status KalmanBaseEstimator::update(
       .processNoiseCovariance.setIdentity();
   processModel_[kChannelLinvelBaseRtWorldEwrtWorld].processNoiseCovariance *=
       config_.baseVelocityRandomWalk * config_.baseVelocityRandomWalk * dt;
-  for (size_t contact = 0; contact < contacts_.size(); ++contact) {
-    const scalar_t randomWalk = contactFlags[contact]
-                                    ? config_.stanceContactRandomWalk
-                                    : config_.swingContactRandomWalk;
-    matrix_t& noise =
-        processModel_[kFirstContactChannel + contact].processNoiseCovariance;
-    noise.setIdentity();
-    noise *= randomWalk * randomWalk * dt;
-  }
-  RETURN_IF_ERROR(filter_.predict(processModel_, inputs_));
+}
 
-  // The corrections of the stance contact points, one at a time.
-  kinematics_->update(jointPositions, jointVelocities);
-  for (size_t contact = 0; contact < contacts_.size(); ++contact) {
-    if (!contactFlags[contact]) continue;
-    const vector3_t& posContactRtBaseEwrtBase =
-        kinematics_->posContactRtBaseEwrtBase(contact);
-    const vector3_t& linvelContactRtBaseEwrtBase =
-        kinematics_->linvelContactRtBaseEwrtBase(contact);
-    std::vector<KalmanFilterMeasurement>& measurements =
-        contacts_[contact].measurements;
-    measurements[kSlotMeasPosContactRtBaseEwrtWorld].measurement =
-        rotmatBaseRtWorld * posContactRtBaseEwrtBase;
-    measurements[kSlotMeasLinvelBaseRtWorldEwrtWorld].measurement =
-        -(rotmatBaseRtWorld *
-          (angvelBaseRtWorldEwrtBase.cross(posContactRtBaseEwrtBase) +
-           linvelContactRtBaseEwrtBase));
+scalar_t KalmanBaseEstimator::contactTrustScaleOf(
+    size_t contact, const ContactEstimationInputs& contactInputs) const {
+  return contactTrustScale(
+      std::min(contactInputs.plannedTimeSinceSwitch(contact),
+               contactInputs.plannedTimeToSwitch(contact)),
+      config_.contactTrustRampDuration, config_.contactTrustRampMaxScale);
+}
+
+void KalmanBaseEstimator::setContactProcessNoise(size_t contact,
+                                                 scalar_t randomWalk,
+                                                 scalar_t dt) {
+  matrix_t& noise =
+      processModel_[kFirstContactChannel + contact].processNoiseCovariance;
+  noise.setIdentity();
+  noise *= randomWalk * randomWalk * dt;
+}
+
+absl::Status KalmanBaseEstimator::correctContact(
+    size_t contact,
+    const matrix3_t& rotmatBaseRtWorld,
+    const vector3_t& angvelBaseRtWorldEwrtBase,
+    const ContactEstimationInputs& contactInputs) {
+  const vector3_t& posContactRtBaseEwrtBase =
+      kinematics_->posContactRtBaseEwrtBase(contact);
+  const vector3_t& linvelContactRtBaseEwrtBase =
+      kinematics_->linvelContactRtBaseEwrtBase(contact);
+  std::vector<KalmanFilterMeasurement>& measurements =
+      contacts_[contact].measurements;
+  measurements[kSlotMeasPosContactRtBaseEwrtWorld].measurement =
+      rotmatBaseRtWorld * posContactRtBaseEwrtBase;
+  measurements[kSlotMeasLinvelBaseRtWorldEwrtWorld].measurement =
+      -(rotmatBaseRtWorld *
+        (angvelBaseRtWorldEwrtBase.cross(posContactRtBaseEwrtBase) +
+         linvelContactRtBaseEwrtBase));
+  // The height row only where the caller knows the surface: the slots before
+  // it are the position and velocity rows, which always apply.
+  absl::Span<const KalmanFilterMeasurement> rows = measurements;
+  if (contactInputs.hasNomPosContactRtWorldEwrtWorldZ(contact)) {
     measurements[kSlotMeasPosContactRtWorldEwrtWorldZ].measurement(0) =
-        config_.nomPosContactRtWorldEwrtWorldZ;
-    absl::Status corrected = filter_.correct(measurements);
-    if (!corrected.ok()) {
-      RETURN_IF_ERROR(readEstimate());
-      return corrected;
-    }
+        contactInputs.nomPosContactRtWorldEwrtWorldZ(contact);
+  } else {
+    rows = rows.first(kSlotMeasPosContactRtWorldEwrtWorldZ);
   }
-  return readEstimate();
+  return filter_.correct(rows);
+}
+
+void KalmanBaseEstimator::scaleContactMeasurementNoise(size_t contact,
+                                                       scalar_t scale) {
+  std::vector<KalmanFilterMeasurement>& measurements =
+      contacts_[contact].measurements;
+  const scalar_t velocityNoise = scale * config_.kinematicVelocityNoise;
+  matrix_t& velocityNoiseCovariance =
+      measurements[kSlotMeasLinvelBaseRtWorldEwrtWorld]
+          .measurementNoiseCovariance;
+  velocityNoiseCovariance.setIdentity();
+  velocityNoiseCovariance *= velocityNoise * velocityNoise;
+  const scalar_t heightNoise = scale * config_.contactHeightNoise;
+  measurements[kSlotMeasPosContactRtWorldEwrtWorldZ].measurementNoiseCovariance(
+      0, 0) = heightNoise * heightNoise;
 }
 
 absl::Status KalmanBaseEstimator::readEstimate() {
@@ -334,6 +421,12 @@ absl::Status KalmanBaseEstimator::readEstimate() {
                                    filterStateLinvelBaseRtWorldEwrtWorld_));
   posBaseRtWorldEwrtWorld_ = filterStatePosBaseRtWorldEwrtWorld_.state;
   linvelBaseRtWorldEwrtWorld_ = filterStateLinvelBaseRtWorldEwrtWorld_.state;
+  for (size_t contact = 0; contact < contacts_.size(); ++contact) {
+    RETURN_IF_ERROR(filter_.getState(contacts_[contact].stateName,
+                                     filterStateContacts_[contact]));
+    estPosContactsRtWorldEwrtWorld_[contact] =
+        filterStateContacts_[contact].state;
+  }
   return absl::OkStatus();
 }
 
@@ -346,6 +439,17 @@ absl::StatusOr<vector3_t> KalmanBaseEstimator::posContactRtWorldEwrtWorld(
   ASSIGN_OR_RETURN(const KalmanFilterState state,
                    filter_.getState(contacts_[contact].stateName));
   return vector3_t(state.state);
+}
+
+absl::StatusOr<matrix_t> KalmanBaseEstimator::contactStateCovariance(
+    size_t contact) const {
+  if (contact >= contacts_.size()) {
+    return absl::OutOfRangeError(
+        absl::StrCat("KalmanBaseEstimator: no contact point ", contact));
+  }
+  ASSIGN_OR_RETURN(const KalmanFilterState state,
+                   filter_.getState(contacts_[contact].stateName));
+  return state.stateCovariance;
 }
 
 }  // namespace ocs2::humanoid::estimation

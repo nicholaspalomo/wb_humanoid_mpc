@@ -406,8 +406,9 @@ entity paths and the telemetry groups the visualization publisher must send: the
   multi-contact plan: the centroidal MPC's node and dummy simulator add `--multi_contact_scenario --multi_contact_plan
   --multi_contact_playback` (the scenario and the plan tracked under `contact_schedule_source: "multi_contact_plan"`,
   and how the plan plays, `once` or `forward_and_reverse`; empty: the task file's `multi_contact_plan` block,
-  [multi_contact_planning](../multi_contact_planning/README.md)); the robot
-  binaries add `--mjcf_file
+  [multi_contact_planning](../multi_contact_planning/README.md)), and so does the centroidal robot binary, which reads
+  `--multi_contact_scenario --multi_contact_plan` for the surfaces its state estimator's contacts stand on; the
+  robot binaries add `--mjcf_file
   --realtime_priority --backend --realtime_cores --backend_cores --viewer --plot_config --web_viewer_address
   --web_viewer_port --web_viewer_allowed_hosts --viewer_cores --config_store_dir --config_seed`
   ([`humanoid_common_mpc_app/robot`](../../humanoid_common_mpc_app/robot/README.md#the-command-line)).

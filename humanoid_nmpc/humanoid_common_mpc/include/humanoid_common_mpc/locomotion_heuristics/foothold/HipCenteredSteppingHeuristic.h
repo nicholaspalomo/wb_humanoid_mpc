@@ -30,11 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristic.h"
@@ -58,7 +58,9 @@ namespace ocs2::humanoid {
  * any speed, because a foot placed under the hip at lift-off is well behind the
  * robot by touch-down. It earns its place as the term the velocity-dependent
  * heuristics are summed on top of, and as the only member of the family that
- * tells the left foot from the right at zero velocity.
+ * tells the left foot from the right at zero velocity. Each landing contact
+ * goes under the hip of its own leg (FootholdHeuristicContext::legIndex), so
+ * it serves any number of legs.
  *
  * It is also the only foothold heuristic that MOVES THE ANCHOR, from the stance
  * foot to the measured base, which is a change SwitchedModelReferenceManager's
@@ -88,8 +90,8 @@ class HipCenteredSteppingHeuristic final : public FootholdHeuristic {
 
  private:
   HipCenteredSteppingParameters parameters_;
-  BipedFeetArray<vector2_t> posHipsRtBaseEwrtHeadingXy_ =
-      makeBipedFeetArray(vector2_t(vector2_t::Zero()));
+  // One hip per leg (LocomotionHeuristicModelParameters).
+  std::vector<vector2_t> posHipsRtBaseEwrtHeadingXy_;
 };
 
 }  // namespace ocs2::humanoid

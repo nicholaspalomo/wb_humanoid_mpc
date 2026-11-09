@@ -110,7 +110,7 @@ inline constexpr char kMpcEquivalenceConfigurationVariable[] =
     "MPC_EQUIVALENCE_CONFIGURATION";
 
 /** The configurations the tests are instantiated for: the one the variable
- * names, else every RobotConfiguration. */
+ * names, else every RobotConfiguration but the state-estimator variants. */
 std::vector<std::string> mpcEquivalenceConfigurationNames();
 
 /** The name of a test of the configuration `info.param`. */

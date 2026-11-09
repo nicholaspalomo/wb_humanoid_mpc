@@ -61,10 +61,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/mrt/ContactEstimateIntake.h"
 #include "humanoid_common_mpc/mrt/ControlMode.h"
 #include "humanoid_common_mpc_app/robot/ConfigFileStore.h"
+#include "humanoid_common_mpc_app/robot/ContactSurfaceHeightSource.h"
 #include "humanoid_common_mpc_app/robot/FallRecovery.h"
+#include "humanoid_common_mpc_app/robot/FlatGroundSurfaceHeights.h"
 #include "humanoid_common_mpc_app/robot/JointNamesByIndex.h"
 #include "humanoid_common_mpc_app/robot/MujocoViewerAnnotator.h"
 #include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
+#include "humanoid_common_mpc_app/robot/PlannedSwitchTimesSource.h"
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
 #include "humanoid_common_mpc_app/robot/RealtimeLoopRunner.h"
 #include "humanoid_common_mpc_app/robot/RobotBackend.h"
@@ -120,6 +123,15 @@ constexpr size_t kModeNameCapacity = 32;
 std::chrono::nanoseconds periodOf(scalar_t frequency) {
   return std::chrono::nanoseconds(
       static_cast<int64_t>(std::llround(kNanosecondsPerSecond / frequency)));
+}
+
+/** The flat ground of `config`'s task file when it names no source of the
+ * contacts' surface heights; null when it names one. */
+std::unique_ptr<const ContactSurfaceHeightSource>
+defaultContactSurfaceHeightsOf(const RobotProcess::Config& config) {
+  if (config.contactSurfaceHeights != nullptr) return nullptr;
+  return std::make_unique<const FlatGroundSurfaceHeights>(
+      config.settings.kalmanStateEstimator.nomPosContactRtWorldEwrtWorldZ);
 }
 
 RealtimeLoopConfig loopConfig(const RobotProcess::Config& config) {
@@ -221,6 +233,8 @@ absl::StatusOr<std::unique_ptr<RobotProcess>> RobotProcess::Create(
 
   // The state the controller is handed: the backend's, or an estimate from it.
   // LINT.IfChange(robot_process_state_estimator)
+  // The contact points are the MPC's on the URDF's links, as
+  // robotProcessConfig() placed them (stateEstimatorContacts()).
   const estimation::StateEstimatorContext estimatorContext{
       .urdfFile = processConfig.urdfFile,
       .contacts = processConfig.stateEstimatorContacts,
@@ -326,7 +340,13 @@ RobotProcess::RobotProcess(robot::ipc::Bus* absl_nonnull bus,
                            /*value=*/false),
       noContactFlags_(),
       measForceContactsEwrtWorld_(controller->measuredContactFlags().size(),
-                                  vector3_t::Zero()) {
+                                  vector3_t::Zero()),
+      defaultContactSurfaceHeights_(defaultContactSurfaceHeightsOf(config_)),
+      contactSurfaceHeights_(config_.contactSurfaceHeights != nullptr
+                                 ? config_.contactSurfaceHeights.get()
+                                 : defaultContactSurfaceHeights_.get()),
+      contactEstimationInputs_(controller->measuredContactFlags().size()),
+      plannedSwitchTimes_(controller->measuredContactFlags().size()) {
   currentMode_.reserve(kModeNameCapacity);
   currentMode_.assign(control_mode::kZeroJointTorque.data(),
                       control_mode::kZeroJointTorque.size());
@@ -373,7 +393,12 @@ absl::Status RobotProcess::start() {
   RETURN_IF_ERROR(backend_->initialize());
   hardware.updateInterfaceStateFromRobot();
   stateEstimator_->reset(hardware.getRobotState());
-  controller_->startMpc(stateEstimator_->estimate(hardware.getRobotState()));
+  contactSurfaceHeights_->fill(
+      stateEstimator_->estPosContactsRtWorldEwrtWorld(),
+      contactEstimationInputs_);
+  plannedSwitchTimes_.fill(*controller_, contactEstimationInputs_);
+  controller_->startMpc(stateEstimator_->estimate(hardware.getRobotState(),
+                                                  contactEstimationInputs_));
 
   // The robot spawns in zero-torque mode, passively held by the gantry; the MPC
   // keeps receiving the state.
@@ -455,9 +480,15 @@ void RobotProcess::cycle() {
   robot::model::RobotHWInterfaceBase& hardware = backend_->hardware();
   hardware.updateInterfaceStateFromRobot();
   // What every step below reads: the backend's state, or the state estimator's
-  // estimate from it.
-  const robot::model::RobotState& robotState =
-      stateEstimator_->estimate(hardware.getRobotState());
+  // estimate from it, with each contact's surface height looked up where the
+  // previous estimate put the contact and its planned switch times from the
+  // policy in use at the last observation.
+  contactSurfaceHeights_->fill(
+      stateEstimator_->estPosContactsRtWorldEwrtWorld(),
+      contactEstimationInputs_);
+  plannedSwitchTimes_.fill(*controller_, contactEstimationInputs_);
+  const robot::model::RobotState& robotState = stateEstimator_->estimate(
+      hardware.getRobotState(), contactEstimationInputs_);
 
   // The FSM mode and the JOINT_PD posture reach the controller, which computes
   // the action of every mode itself.

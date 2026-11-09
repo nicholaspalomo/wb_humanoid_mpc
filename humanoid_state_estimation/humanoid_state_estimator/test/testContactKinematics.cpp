@@ -29,7 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // ContactKinematics against closed forms (the prismatic biped, a continuous
 // joint with an offset contact point) and, on the Atlas URDF, its velocity
-// against a central finite difference of its position.
+// against a central finite difference of its position; the child links of
+// joints (childLinkNamesOfJoints()).
 
 #include <cmath>
 #include <cstdlib>
@@ -58,10 +59,10 @@ namespace {
 constexpr char kAtlasUrdf[] =
     "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
 
-std::vector<ContactPointSpec> specsOf(const std::vector<std::string>& frames) {
+std::vector<ContactPointSpec> specsOf(const std::vector<std::string>& links) {
   std::vector<ContactPointSpec> specs;
-  for (const std::string& frame : frames) {
-    specs.push_back(ContactPointSpec{.frameNames = {frame}});
+  for (const std::string& link : links) {
+    specs.push_back(ContactPointSpec{.linkName = link});
   }
   return specs;
 }
@@ -70,7 +71,7 @@ std::unique_ptr<ContactKinematics> prismaticBiped() {
   absl::StatusOr<std::unique_ptr<ContactKinematics>> kinematics =
       ContactKinematics::Create(
           test_support::kPrismaticBipedUrdf,
-          specsOf(test_support::prismaticBipedFootFrames()),
+          specsOf(test_support::prismaticBipedFootLinks()),
           test_support::prismaticBipedJointNames());
   EXPECT_TRUE(kinematics.ok()) << kinematics.status();
   return kinematics.ok() ? *std::move(kinematics) : nullptr;
@@ -108,8 +109,9 @@ TEST(ContactKinematicsTest,
   }
 }
 
-TEST(ContactKinematicsTest,
-     AContinuousJointAndAnOffsetPointFollowTheClosedForm) {
+/** A one-joint arm in TEST_TMPDIR: a continuous hinge `spin` from `base` to
+ * `arm`, and `tip` fixed 1 m along the arm's x axis by `tip_mount`. */
+std::string armUrdf() {
   const std::string urdf =
       (std::filesystem::path(std::getenv("TEST_TMPDIR")) / "arm.urdf").string();
   std::ofstream(urdf) << R"(<?xml version="1.0"?>
@@ -120,17 +122,21 @@ TEST(ContactKinematicsTest,
   <joint name="spin" type="continuous"><parent link="base"/><child link="arm"/><axis xyz="0 0 1"/></joint>
   <joint name="tip_mount" type="fixed"><parent link="arm"/><child link="tip"/><origin xyz="1 0 0"/></joint>
 </robot>)";
+  return urdf;
+}
+
+TEST(ContactKinematicsTest,
+     AContinuousJointAndAnOffsetPointFollowTheClosedForm) {
   // The tip's frame, and a point 0.5 m along its y axis: R(theta) (1, 0.5, 0).
   absl::StatusOr<std::unique_ptr<ContactKinematics>> kinematics =
       ContactKinematics::Create(
-          urdf,
+          armUrdf(),
           {ContactPointSpec{
-              .frameNames = {"not_a_frame", "tip"},
+              .linkName = "tip",
               .posContactRtLinkEwrtLink = vector3_t(0.0, 0.5, 0.0)}},
           {"spin"});
   ASSERT_TRUE(kinematics.ok()) << kinematics.status();
-  EXPECT_EQ((*kinematics)->contactFrameName(0), "tip")
-      << "the first frame of the list the URDF has";
+  EXPECT_EQ((*kinematics)->contactLinkName(0), "tip");
   const scalar_t theta = 0.7;
   const scalar_t rate = -1.3;
   (*kinematics)
@@ -155,21 +161,57 @@ TEST(ContactKinematicsTest,
                     1.0e-12));
 }
 
-TEST(ContactKinematicsTest, RefusesAContactNoneOfWhoseFramesIsInTheUrdf) {
-  const absl::StatusOr<std::unique_ptr<ContactKinematics>> kinematics =
-      ContactKinematics::Create(test_support::kPrismaticBipedUrdf,
-                                specsOf({"foot_l_contact"}),
-                                test_support::prismaticBipedJointNames());
-  ASSERT_EQ(kinematics.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(
-      absl::StrContains(kinematics.status().message(), "foot_l_contact"))
-      << kinematics.status();
-  EXPECT_TRUE(absl::StrContains(kinematics.status().message(), "left_foot"))
-      << "lists the frames: " << kinematics.status();
+TEST(ContactKinematicsTest, RefusesAContactWhoseLinkIsNotInTheUrdf) {
+  // An MPC contact frame is not a link of the URDF, and neither is a joint.
+  for (const std::string& notALink :
+       std::vector<std::string>{"foot_l_contact", "left_z"}) {
+    const absl::StatusOr<std::unique_ptr<ContactKinematics>> kinematics =
+        ContactKinematics::Create(test_support::kPrismaticBipedUrdf,
+                                  specsOf({notALink}),
+                                  test_support::prismaticBipedJointNames());
+    ASSERT_EQ(kinematics.status().code(), absl::StatusCode::kInvalidArgument)
+        << notALink;
+    EXPECT_TRUE(absl::StrContains(kinematics.status().message(), notALink))
+        << kinematics.status();
+    EXPECT_TRUE(absl::StrContains(kinematics.status().message(), "left_foot"))
+        << "lists the links: " << kinematics.status();
+  }
   EXPECT_EQ(ContactKinematics::Create("no/such.urdf", specsOf({"left_foot"}),
                                       /*jointNames=*/{})
                 .status()
                 .code(),
+            absl::StatusCode::kInvalidArgument);
+}
+
+TEST(ContactKinematicsTest, AJointsChildLinkIsTheLinkItPlaces) {
+  const absl::StatusOr<std::vector<std::string>> links = childLinkNamesOfJoints(
+      armUrdf(), {kMpcRootJointName, "spin", "tip_mount", "spin"});
+  ASSERT_TRUE(links.ok()) << links.status();
+  EXPECT_EQ(*links, (std::vector<std::string>{"base", "arm", "tip", "arm"}))
+      << "the MPC's free-flyer is the URDF's root link; a fixed joint has a "
+         "child link too";
+  const absl::StatusOr<std::vector<std::string>> biped = childLinkNamesOfJoints(
+      test_support::kPrismaticBipedUrdf, {"left_z", "right_x"});
+  ASSERT_TRUE(biped.ok()) << biped.status();
+  EXPECT_EQ(*biped, (std::vector<std::string>{"left_foot", "right_x_link"}));
+  EXPECT_TRUE(childLinkNamesOfJoints(test_support::kPrismaticBipedUrdf,
+                                     /*jointNames=*/{})
+                  .ok());
+}
+
+TEST(ContactKinematicsTest, AJointTheUrdfDoesNotHaveHasNoChildLink) {
+  // A link's name is not a joint's.
+  for (const std::string& notAJoint :
+       std::vector<std::string>{"no_such_joint", "left_foot"}) {
+    const absl::StatusOr<std::vector<std::string>> links =
+        childLinkNamesOfJoints(test_support::kPrismaticBipedUrdf,
+                               {"left_x", notAJoint});
+    ASSERT_EQ(links.status().code(), absl::StatusCode::kInvalidArgument)
+        << notAJoint;
+    EXPECT_TRUE(absl::StrContains(links.status().message(), notAJoint))
+        << links.status();
+  }
+  EXPECT_EQ(childLinkNamesOfJoints("no/such.urdf", {"left_x"}).status().code(),
             absl::StatusCode::kInvalidArgument);
 }
 

@@ -76,9 +76,9 @@ LOADER_SOURCE = os.path.join(
     REPO_ROOT,
     "humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicConfig.cpp",
 )
-MOTION_MANAGER_HEADER = os.path.join(
+GAIT_SWITCHING_TABLE_SOURCE = os.path.join(
     REPO_ROOT,
-    "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h",
+    "humanoid_nmpc/humanoid_common_mpc/src/reference_manager/GaitSwitchingTable.cpp",
 )
 
 # The names of Bledt's Appendix C by list, which is also what LocomotionHeuristicFormulation registers.
@@ -110,11 +110,14 @@ FRICTION_CONES = (
     ("friction_force_cone", "friction_force_cone_soft_constraint"),
 )
 
-#: The walking gaits of ProceduralMpcMotionManager::gaitModeStates_, slowest first. The motion manager moves along
-#: this ladder with the commanded speed, so a stepping coefficient has to be right on every rung, not only on `trot`.
-#: A copy of the C++ table, which test_speed_ladder_is_the_motion_managers_and_every_rung_is_a_gait reads back out of
-#: the header: a rung added there fails that test until it is added here.
+#: The walking gaits of the default gait switching table (defaultGaitModeStates(), which every biped gait file uses by
+#: leaving gait_switching out), slowest first. The motion manager moves along this ladder with the commanded speed, so
+#: a stepping coefficient has to be right on every rung, not only on `trot`. A copy of the C++ table, which
+#: test_speed_ladder_is_the_motion_managers_and_every_rung_is_a_gait reads back out of GaitSwitchingTable.cpp: a rung
+#: added there fails that test until it is added here.
+# LINT.IfChange(speed_ladder)
 SPEED_LADDER = ("slow_walk", "walk", "slower_trot", "slow_trot", "trot", "run")
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/reference_manager/GaitSwitchingTable.cpp:default_gait_switching_table)
 
 #: Which feet each mode name of the gait file puts IN CONTACT, as (left, right). The names say which foot is DOWN - `LF`
 #: is left stance, right swing - and FLY carries neither. The test's own reading, independent of the script's.
@@ -382,9 +385,13 @@ def _validate_range_checks():
 
 
 def _motion_manager_gait_ladder():
-    """The gait names of ProceduralMpcMotionManager::gaitModeStates_, in order, and the number of rows it has."""
-    source = _read_text(MOTION_MANAGER_HEADER)
-    match = re.search(r"gaitModeStates_\s*\{(.*?)\n\s*\};", source, re.DOTALL)
+    """The gait names of the default gait switching table (defaultGaitModeStates()), in order, and its row count."""
+    source = _read_text(GAIT_SWITCHING_TABLE_SOURCE)
+    match = re.search(
+        r"defaultGaitModeStates\(\)\s*\{.*?return\s*\{(.*?)\n\s*\};",
+        source,
+        re.DOTALL,
+    )
     if match is None:
         return [], 0
     body = match.group(1)
@@ -1346,13 +1353,15 @@ class ShippedConfigurationTest(unittest.TestCase):
             derive.gait_cadence(_gaits(), "moonwalk")
 
     def test_speed_ladder_is_the_motion_managers_and_every_rung_is_a_gait(self):
-        # SPEED_LADDER is a copy of ProceduralMpcMotionManager::gaitModeStates_, and the stepping tests claim "every
+        # SPEED_LADDER is a copy of the default gait switching table, and the stepping tests claim "every
         # rung" on its strength; a rung added to the C++ ladder (a fast_trot, say) has to fail here until it is copied,
         # or the claim goes stale silently.
         names, rows = _motion_manager_gait_ladder()
-        self.assertTrue(names, "the gaitModeStates_ initializer was not found")
+        self.assertTrue(
+            names, "the defaultGaitModeStates() initializer was not found"
+        )
         self.assertEqual(
-            len(names), rows, "a gaitModeStates_ row was not parsed"
+            len(names), rows, "a defaultGaitModeStates() row was not parsed"
         )
         # The standing state heads the C++ ladder but is not a walking gait: it has no step to place.
         self.assertEqual(names[0], "stance")

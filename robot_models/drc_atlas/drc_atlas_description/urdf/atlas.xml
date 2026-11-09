@@ -203,7 +203,10 @@
               <geom class="collision" type="capsule" size="0.055" fromto="0 0 0 0 0 -0.42"/>
               <body name="l_talus" pos="0 0 -0.422">
                 <inertial pos="0 0 0" quat="0.5 0.5 -0.5 0.5" mass="0.125" diaginertia="1.30101e-05 1.01674e-05 8.42775e-06"/>
-                <joint name="l_leg_aky" pos="0 0 0" axis="0 1 0" range="-1 0.7" actuatorfrcrange="-740 740" damping="5.0"/>
+                <!-- damping 25 [N m s/rad], not the 5.0 of the other joints: the simulator applies the joint PD explicitly at
+                     its 2 kHz step and integrates only this damping implicitly, and the ankle pitch PD (kp = 1406.25,
+                     kd = 56.25 on 9.5e-3 kg m^2) is unstable below about 25 (robot_models/tests/test_joint_pd_stability.py). -->
+                <joint name="l_leg_aky" pos="0 0 0" axis="0 1 0" range="-1 0.7" actuatorfrcrange="-740 740" damping="25.0"/>
                 <geom class="visual" pos="0.014 0 0.008" type="mesh" mesh="l_talus"/>
                 <body name="l_foot">
                   <inertial pos="0.027 0 -0.067" quat="0 0.707107 0 0.707107" mass="2.05" diaginertia="0.008 0.007 0.002"/>
@@ -244,7 +247,8 @@
               <geom class="collision" type="capsule" size="0.055" fromto="0 0 0 0 0 -0.42"/>
               <body name="r_talus" pos="0 0 -0.422">
                 <inertial pos="0 0 0" quat="0.5 0.5 -0.5 0.5" mass="0.125" diaginertia="1.30101e-05 1.01674e-05 8.42775e-06"/>
-                <joint name="r_leg_aky" pos="0 0 0" axis="0 1 0" range="-1 0.7" actuatorfrcrange="-740 740" damping="5.0"/>
+                <!-- damping 25, as l_leg_aky. -->
+                <joint name="r_leg_aky" pos="0 0 0" axis="0 1 0" range="-1 0.7" actuatorfrcrange="-740 740" damping="25.0"/>
                 <geom class="visual" pos="0.014 0 0.008" type="mesh" mesh="r_talus"/>
                 <body name="r_foot">
                   <inertial pos="0.027 0 -0.067" quat="0 0.707107 0 0.707107" mass="2.05" diaginertia="0.008 0.007 0.002"/>

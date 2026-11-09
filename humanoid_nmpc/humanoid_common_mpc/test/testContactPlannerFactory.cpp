@@ -61,7 +61,7 @@ TEST(ContactPlannerFactory, buildsEveryKnownPlanner) {
     ContactPlanningConfig config = makeConfig();
     config.planner.type = name;
     const absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> planner =
-        makeContactPlanner(config);
+        makeContactPlanner(config, kBipedContactSetSummary);
     ASSERT_TRUE(planner.ok()) << name << ": " << planner.status().message();
     EXPECT_NE(*planner, nullptr);
     EXPECT_FALSE((*planner)->getFormulationSummary().empty());
@@ -79,7 +79,7 @@ TEST(ContactPlannerFactory, unknownPlannerListsTheOnesThatExist) {
   ContactPlanningConfig config = makeConfig();
   config.planner.type = "hilp";  // a typo of hlip
   const absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> planner =
-      makeContactPlanner(config);
+      makeContactPlanner(config, kBipedContactSetSummary);
   ASSERT_FALSE(planner.ok());
   const std::string message(planner.status().message());
   EXPECT_NE(message.find("hilp"), std::string::npos);
@@ -103,7 +103,9 @@ TEST(ContactPlannerFactory,
     config.planner.dt = -0.05;
     absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> planner =
         absl::InternalError("not built");
-    EXPECT_NO_THROW(planner = makeContactPlanner(config)) << name;
+    EXPECT_NO_THROW(planner =
+                        makeContactPlanner(config, kBipedContactSetSummary))
+        << name;
     ASSERT_FALSE(planner.ok())
         << name << ": an invalid planner.dt must not build a planner";
     EXPECT_EQ(planner.status().code(), absl::StatusCode::kInvalidArgument)
@@ -113,7 +115,9 @@ TEST(ContactPlannerFactory,
         << name << ": " << planner.status().message();
 
     absl::StatusOr<std::string> summary = std::string();
-    EXPECT_NO_THROW(summary = contactPlannerSummary(config)) << name;
+    EXPECT_NO_THROW(summary =
+                        contactPlannerSummary(config, kBipedContactSetSummary))
+        << name;
     ASSERT_FALSE(summary.ok()) << name;
     EXPECT_NE(std::string(summary.status().message()).find("planner.dt"),
               std::string::npos)
@@ -121,17 +125,19 @@ TEST(ContactPlannerFactory,
 
     // Positive control: the same configuration with the key repaired builds.
     config.planner.dt = 0.05;
-    EXPECT_TRUE(makeContactPlanner(config).ok()) << name;
+    EXPECT_TRUE(makeContactPlanner(config, kBipedContactSetSummary).ok())
+        << name;
   }
 }
 
 TEST(ContactPlannerFactory, summaryMatchesTheBuiltPlanner) {
   ContactPlanningConfig config = makeConfig();
   config.planner.type = planner::kHlip;
-  const absl::StatusOr<std::string> summary = contactPlannerSummary(config);
+  const absl::StatusOr<std::string> summary =
+      contactPlannerSummary(config, kBipedContactSetSummary);
   ASSERT_TRUE(summary.ok());
   const absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> built =
-      makeContactPlanner(config);
+      makeContactPlanner(config, kBipedContactSetSummary);
   ASSERT_TRUE(built.ok());
   EXPECT_EQ(*summary, (*built)->getFormulationSummary());
 }
@@ -150,16 +156,56 @@ TEST(ContactPlannerFactory, everyPlannerRefusesAContactSetThatIsNotTwoFeet) {
     const std::string expected = absl::StrCat(
         name == planner::kHlip ? "HlipContactPlanner" : "LipContactPlanner",
         " is written for two contacts; the contact set has 4 contacts");
-    const absl::Status built = makeContactPlanner(config).status();
+    const absl::Status built =
+        makeContactPlanner(config, kBipedContactSetSummary).status();
     EXPECT_EQ(built.code(), absl::StatusCode::kInvalidArgument) << name;
     EXPECT_TRUE(absl::StrContains(built.message(), expected)) << built;
-    const absl::Status summarized = contactPlannerSummary(config).status();
+    const absl::Status summarized =
+        contactPlannerSummary(config, kBipedContactSetSummary).status();
     EXPECT_EQ(summarized.code(), absl::StatusCode::kInvalidArgument) << name;
     EXPECT_TRUE(absl::StrContains(summarized.message(), expected))
         << summarized;
 
     config.shared.numContacts = static_cast<size_t>(kBipedFootCount);
-    EXPECT_TRUE(makeContactPlanner(config).ok()) << name;
+    EXPECT_TRUE(makeContactPlanner(config, kBipedContactSetSummary).ok())
+        << name;
+  }
+}
+
+// The contact set the factory is given: a set that is not the biped's two
+// 6-DoF feet - four point feet, or two point feet, whose count the planners'
+// own check accepts - is refused by planner.type and the contact count before
+// anything is built, and with it the planners' step widths, which are positive
+// by default.
+TEST(ContactPlannerFactory, everyPlannerRefusesANonBipedContactSetByName) {
+  constexpr ContactSetSummary kFourPointFeet = {.numContacts = 4,
+                                                .isBiped = false};
+  constexpr ContactSetSummary kTwoPointFeet = {.numContacts = 2,
+                                               .isBiped = false};
+  for (const std::string& name :
+       {std::string(planner::kHlip), std::string(planner::kLipMiqp)}) {
+    ContactPlanningConfig config = makeConfig();
+    config.planner.type = name;
+    ASSERT_GT(config.hlip.nomPosLfootRtRfootEwrtHeadingY, 0.0);
+    ASSERT_GT(config.stepWidth.nomPosLfootRtRfootEwrtHeadingY, 0.0);
+    for (const ContactSetSummary contactSet : {kFourPointFeet, kTwoPointFeet}) {
+      const std::string expected = absl::StrCat(
+          "planner.type '", name, "' is written for two 6-DoF feet");
+      const std::string count = absl::StrCat(
+          "the contact set has ", contactSet.numContacts, " contacts");
+      const absl::Status built =
+          makeContactPlanner(config, contactSet).status();
+      EXPECT_EQ(built.code(), absl::StatusCode::kInvalidArgument) << name;
+      EXPECT_TRUE(absl::StrContains(built.message(), expected)) << built;
+      EXPECT_TRUE(absl::StrContains(built.message(), count)) << built;
+      const absl::Status summarized =
+          contactPlannerSummary(config, contactSet).status();
+      EXPECT_EQ(summarized.code(), absl::StatusCode::kInvalidArgument) << name;
+      EXPECT_TRUE(absl::StrContains(summarized.message(), expected))
+          << summarized;
+    }
+    EXPECT_TRUE(makeContactPlanner(config, kBipedContactSetSummary).ok())
+        << name;
   }
 }
 

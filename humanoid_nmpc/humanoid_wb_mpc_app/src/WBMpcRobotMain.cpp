@@ -284,8 +284,13 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options,
 
   const scalar_t mrtDesiredFrequency =
       models.mpcSettings().mrtDesiredFrequency_;
-  RobotProcess::Config config =
-      robotProcessConfig(options, directory, configuration, modelSettings);
+  ASSIGN_OR_RETURN(
+      RobotProcess::Config config,
+      // The whole-body MPC tracks no multi-contact plan (WBMpcInterface
+      // refuses contact_schedule_source: "multi_contact_plan"): its contacts
+      // stand on the flat ground.
+      robotProcessConfig(options, directory, configuration, modelSettings,
+                         /*plan=*/nullptr));
   config.controlFrequency = mrtDesiredFrequency > 0.0
                                 ? mrtDesiredFrequency
                                 : kMrtFallbackControlFrequency;

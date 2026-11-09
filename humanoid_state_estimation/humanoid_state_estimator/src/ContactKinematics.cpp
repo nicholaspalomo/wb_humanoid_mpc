@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_state_estimator/ContactKinematics.h"
 
-#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <exception>
@@ -46,10 +45,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody.hpp"
 #include "pinocchio/multibody/fwd.hpp"
 #include "pinocchio/parsers/urdf.hpp"
 #include "pinocchio/spatial/fwd.hpp"
@@ -100,12 +101,15 @@ namespace {
  * (cos theta, sin theta). */
 constexpr int kContinuousJointCoordinates = 2;
 
-/** The names of the frames of `model`, for an error message. */
-std::string frameNames(const pinocchio::Model& model) {
+/** The universe's frame, which the fixed-base model's root link hangs from. */
+constexpr pinocchio::FrameIndex kUniverseFrame = 0;
+
+/** The names of the links (BODY frames) of `model`, for an error message. */
+std::string linkNames(const pinocchio::Model& model) {
   std::vector<std::string> names;
   names.reserve(model.frames.size());
   for (const pinocchio::Frame& frame : model.frames) {
-    names.push_back(frame.name);
+    if (frame.type == pinocchio::BODY) names.push_back(frame.name);
   }
   return absl::StrJoin(names, ", ");
 }
@@ -123,7 +127,55 @@ absl::StatusOr<pinocchio::Model> fixedBaseModel(const std::string& urdfFile) {
   return model;
 }
 
+/**
+ * The link whose frame `frame` (a joint's, of type JOINT or FIXED_JOINT, or the
+ * universe's) places: the BODY frame whose parent frame it is. NotFound when no
+ * link hangs from it.
+ */
+absl::StatusOr<std::string> childLinkOfFrame(const pinocchio::Model& model,
+                                             pinocchio::FrameIndex frame) {
+  for (const pinocchio::Frame& candidate : model.frames) {
+    if (candidate.type == pinocchio::BODY && candidate.parentFrame == frame) {
+      return candidate.name;
+    }
+  }
+  return absl::NotFoundError(
+      absl::StrCat("ContactKinematics: no link hangs "
+                   "from the frame '",
+                   model.frames[frame].name, "'"));
+}
+
 }  // namespace
+
+absl::StatusOr<std::vector<std::string>> childLinkNamesOfJoints(
+    const std::string& urdfFile, absl::Span<const std::string> jointNames) {
+  absl::StatusOr<pinocchio::Model> model = fixedBaseModel(urdfFile);
+  if (!model.ok()) return model.status();
+  const pinocchio::FrameType jointFrameTypes =
+      static_cast<pinocchio::FrameType>(pinocchio::JOINT |
+                                        pinocchio::FIXED_JOINT);
+  std::vector<std::string> links;
+  links.reserve(jointNames.size());
+  for (const std::string& joint : jointNames) {
+    pinocchio::FrameIndex frame = kUniverseFrame;
+    if (joint != kMpcRootJointName) {
+      if (!model->existFrame(joint, jointFrameTypes)) {
+        return absl::InvalidArgumentError(
+            absl::StrCat("ContactKinematics: the URDF '", urdfFile,
+                         "' has no joint '", joint, "'"));
+      }
+      frame = model->getFrameId(joint, jointFrameTypes);
+    }
+    absl::StatusOr<std::string> link = childLinkOfFrame(*model, frame);
+    if (!link.ok()) {
+      return absl::InvalidArgumentError(
+          absl::StrCat(link.status().message(), " in the URDF '", urdfFile,
+                       "' (the child link of '", joint, "')"));
+    }
+    links.push_back(*std::move(link));
+  }
+  return links;
+}
 
 absl::StatusOr<std::unique_ptr<ContactKinematics>> ContactKinematics::Create(
     const std::string& urdfFile,
@@ -139,17 +191,14 @@ absl::StatusOr<std::unique_ptr<ContactKinematics>> ContactKinematics::Create(
   std::vector<vector3_t> posContactsRtLinkEwrtLink;
   std::vector<std::string> names;
   for (const ContactPointSpec& contact : contacts) {
-    const std::vector<std::string>::const_iterator found = std::find_if(
-        contact.frameNames.begin(), contact.frameNames.end(),
-        [&model](const std::string& name) { return model->existFrame(name); });
-    if (found == contact.frameNames.end()) {
+    if (!model->existBodyName(contact.linkName)) {
       return absl::InvalidArgumentError(absl::StrCat(
-          "ContactKinematics: the URDF '", urdfFile,
-          "' has none of the frames ", absl::StrJoin(contact.frameNames, ", "),
-          " of a contact point; its frames: ", frameNames(*model)));
+          "ContactKinematics: the URDF '", urdfFile, "' has no link '",
+          contact.linkName,
+          "' for a contact point; its links: ", linkNames(*model)));
     }
-    frames.push_back(model->getFrameId(*found));
-    names.push_back(*found);
+    frames.push_back(model->getBodyId(contact.linkName));
+    names.push_back(contact.linkName);
     posContactsRtLinkEwrtLink.push_back(contact.posContactRtLinkEwrtLink);
   }
 
@@ -189,14 +238,14 @@ absl::StatusOr<std::unique_ptr<ContactKinematics>> ContactKinematics::Create(
 }
 
 ContactKinematics::ContactKinematics(std::unique_ptr<Model> model,
-                                     std::vector<std::string> contactFrameNames,
+                                     std::vector<std::string> contactLinkNames,
                                      size_t numRobotJoints)
     : model_(std::move(model)),
-      contactFrameNames_(std::move(contactFrameNames)),
+      contactLinkNames_(std::move(contactLinkNames)),
       numRobotJoints_(numRobotJoints),
       gravityEwrtWorld_(model_->model.gravity.linear()),
-      posContactsRtBaseEwrtBase_(contactFrameNames_.size(), vector3_t::Zero()),
-      linvelContactsRtBaseEwrtBase_(contactFrameNames_.size(),
+      posContactsRtBaseEwrtBase_(contactLinkNames_.size(), vector3_t::Zero()),
+      linvelContactsRtBaseEwrtBase_(contactLinkNames_.size(),
                                     vector3_t::Zero()) {}
 
 ContactKinematics::~ContactKinematics() = default;

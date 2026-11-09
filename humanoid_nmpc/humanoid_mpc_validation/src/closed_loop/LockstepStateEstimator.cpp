@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
@@ -39,23 +41,38 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/RobotSetUpSteps.h"
+#include "humanoid_mpc_config/contacts_config.nproto.h"
+#include "humanoid_state_estimator/ContactKinematics.h"
 #include "humanoid_state_estimator/StateEstimator.h"
 #include "humanoid_state_estimator/StateEstimatorRegistry.h"
 #include "robot_model/RobotDescription.h"
 
 namespace ocs2::humanoid::validation {
 
+RobotProcessSettings withStateEstimator(RobotProcessSettings settings,
+                                        absl::string_view stateEstimator) {
+  if (!stateEstimator.empty()) {
+    settings.stateEstimator = std::string(stateEstimator);
+  }
+  return settings;
+}
+
 // LINT.IfChange(robot_process_state_estimator)
-estimation::StateEstimatorContext robotProcessStateEstimatorContext(
+absl::StatusOr<estimation::StateEstimatorContext>
+robotProcessStateEstimatorContext(
     const RobotProcessSettings& settings,
     const ModelSettings& modelSettings,
+    const mpc_config::ContactsConfig& contacts,
     const std::string& urdfFile,
     const robot::model::RobotDescription* absl_nonnull description) {
+  ASSIGN_OR_RETURN(std::vector<estimation::ContactPointSpec> contactPoints,
+                   stateEstimatorContacts(modelSettings, contacts, urdfFile));
   return estimation::StateEstimatorContext{
       .urdfFile = urdfFile,
-      .contacts = stateEstimatorContacts(modelSettings),
+      .contacts = std::move(contactPoints),
       .description = description,
       .kalman = settings.kalmanStateEstimator};
 }
@@ -64,19 +81,27 @@ absl::StatusOr<std::unique_ptr<estimation::StateEstimator>>
 createRobotProcessStateEstimator(
     const RobotProcessSettings& settings,
     const ModelSettings& modelSettings,
+    const mpc_config::ContactsConfig& contacts,
     const std::string& urdfFile,
     absl::string_view taskFile,
     const robot::model::RobotDescription* absl_nonnull description) {
+  const absl::string_view source =
+      taskFile.empty() ? absl::string_view("the task file") : taskFile;
+  const absl::StatusOr<estimation::StateEstimatorContext> context =
+      robotProcessStateEstimatorContext(settings, modelSettings, contacts,
+                                        urdfFile, description);
+  if (!context.ok()) {
+    return absl::Status(context.status().code(),
+                        absl::StrCat(source, ": state_estimator: ",
+                                     context.status().message()));
+  }
   absl::StatusOr<std::unique_ptr<estimation::StateEstimator>> estimator =
-      estimation::StateEstimatorRegistry().create(
-          settings.stateEstimator,
-          robotProcessStateEstimatorContext(settings, modelSettings, urdfFile,
-                                            description));
+      estimation::StateEstimatorRegistry().create(settings.stateEstimator,
+                                                  *context);
   if (!estimator.ok()) {
-    return absl::Status(
-        estimator.status().code(),
-        absl::StrCat(taskFile.empty() ? "the task file" : taskFile,
-                     ": state_estimator: ", estimator.status().message()));
+    return absl::Status(estimator.status().code(),
+                        absl::StrCat(source, ": state_estimator: ",
+                                     estimator.status().message()));
   }
   return estimator;
 }

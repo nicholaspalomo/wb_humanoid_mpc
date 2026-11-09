@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "ocs2_core/Types.h"
 
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/locomotion_heuristics/BasePoseHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
@@ -65,6 +66,10 @@ struct LocomotionHeuristicEnvironment {
   /// [m] `nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y`: the lateral
   /// separation the foothold anchor keeps.
   scalar_t nomPosLfootRtRfootEwrtHeadingY = 0.0;
+  /// `nominal_foothold.anchor`: the nominal_stance anchor keeps the feet apart
+  /// by itself, each at its own nominal stance point.
+  ModelSettings::NominalFootholdAnchor nominalFootholdAnchor =
+      ModelSettings::NominalFootholdAnchor::kStepWidth;
   /// `com_and_acom_tracking_cost` listed in `costs`: the cost factory zeroes
   /// Q's and Q_final's base-pose blocks.
   bool listsComAndAcomTrackingCost = false;

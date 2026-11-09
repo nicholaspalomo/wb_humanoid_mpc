@@ -184,7 +184,8 @@ cc_library(
     ],
 )
 
-# Each configuration's shipped files (validation::robotConfigurations()).
+# Each configuration's shipped files (validation::robotConfigurations()), but for the state-estimator variants
+# (unitree_g1_kalman), whose MPC is the one of the configuration they vary: the estimator does not change the MPC.
 # LINT.IfChange(mpc_equivalence_robots)
 _MPC_EQUIVALENCE_ROBOTS = {
     "drc_atlas": [

@@ -68,6 +68,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 #include "humanoid_common_mpc/gait/GaitScheduleUpdater.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
+#include "humanoid_common_mpc/reference_manager/GaitSwitchingTable.h"
 #include "humanoid_common_mpc/reference_manager/StrideMotionHistory.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_config/gait_file.nproto.h"
@@ -103,8 +104,14 @@ ProceduralMpcMotionManager::Create(
   ASSIGN_OR_RETURN(
       manager->gaitMap_,
       gaitMapFromConfig(gaitFile, manager->gaitSchedulePtr_->modeLayout()));
+  ASSIGN_OR_RETURN(manager->gaitModeStates_,
+                   gaitModeStatesFromConfig(gaitFile));
   RETURN_IF_ERROR(checkEveryGaitIsLoaded(
-      manager->gaitMap_, manager->gaitModeStates_, "(gait_list and gaits)"));
+      manager->gaitMap_, manager->gaitModeStates_,
+      gaitFile.gait_switching.has_value()
+          ? "(gait_list and gaits; gait_switching names it)"
+          : "(gait_list and gaits; the default gait switching table names "
+            "it)"));
   // The measured motion is averaged over the cycle of the gait the schedule
   // runs, so the history keeps the longest cycle of the gaits the command
   // selects. gaitMapFromConfig() refuses a template whose switching times do

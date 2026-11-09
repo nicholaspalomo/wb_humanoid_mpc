@@ -103,7 +103,13 @@ void ReferenceManagerApplier::apply(HotUpdateTarget& target) {
   if (const std::optional<ArmSwingSettings> armSwing = convertedOrReported(
           armSwingSettingsFromConfig(target.task().arm_swing), target.source(),
           "arm_swing")) {
-    referenceManager->setArmSwingSettings(*armSwing);
+    // A procedural swing on a contact set other than the biped's is refused,
+    // and the running settings stay.
+    if (const absl::Status applied =
+            referenceManager->setArmSwingSettings(*armSwing);
+        !applied.ok()) {
+      target.reportNotApplied("arm_swing", applied);
+    }
   }
 }
 

@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/integration/Integrator.h"
 #include "ocs2_core/integration/SensitivityIntegrator.h"
 #include "ocs2_core/reference/ModeSchedule.h"
@@ -52,8 +53,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "hpipm_interface/HpipmInterfaceSettings.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/config/model/ModelSettingsFromConfig.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
+#include "humanoid_common_mpc/reference_manager/GaitSwitchingTable.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/SimFallRecovery.h"
@@ -107,6 +110,23 @@ void dumpModelSettings(ValueDump& dump,
         static_cast<int64_t>(entry.second));
   }
   dump.addStrings(joinPath(path, "contactNames"), settings.contactNames);
+  for (size_t i = 0; i < settings.legs.size(); ++i) {
+    const ModelSettings::Leg& leg = settings.legs[i];
+    const std::string legPath =
+        absl::StrCat(joinPath(path, "legs"), "[", i, "]");
+    dump.addString(joinPath(legPath, "name"), leg.name);
+    dump.addSizes(joinPath(legPath, "contactIndices"), leg.contactIndices);
+    dump.addString(joinPath(legPath, "hipFrameName"), leg.hipFrameName);
+    dump.addDouble(joinPath(legPath, "posHipRtBaseEwrtBase.x"),
+                   leg.posHipRtBaseEwrtBase.x());
+    dump.addDouble(joinPath(legPath, "posHipRtBaseEwrtBase.y"),
+                   leg.posHipRtBaseEwrtBase.y());
+    dump.addDouble(joinPath(legPath, "posHipRtBaseEwrtBase.z"),
+                   leg.posHipRtBaseEwrtBase.z());
+    dump.addDouble(joinPath(legPath, "lateralSign"), leg.lateralSign);
+    dump.addInteger(joinPath(legPath, "longitudinal"),
+                    static_cast<int64_t>(leg.longitudinal));
+  }
   dump.addInteger(joinPath(path, "mpc_joint_dim"),
                   static_cast<int64_t>(settings.mpc_joint_dim));
   dump.addInteger(joinPath(path, "full_joint_dim"),
@@ -164,6 +184,9 @@ void dumpModelSettings(ValueDump& dump,
   dump.addDouble(joinPath(implicitPath, "gapSmoothing"), implicit.gapSmoothing);
   dump.addDouble(joinPath(path, "nominalFootholdConfig.stepWidth"),
                  settings.nominalFootholdConfig.nomPosLfootRtRfootEwrtHeadingY);
+  dump.addString(
+      joinPath(path, "nominalFootholdConfig.anchor"),
+      nominalFootholdAnchorName(settings.nominalFootholdConfig.anchor));
   dump.addDouble(joinPath(path, "terrainHeight"),
                  settings.posSurfaceRtWorldEwrtWorldZ);
 }
@@ -290,6 +313,29 @@ void dumpGaitMap(ValueDump& dump,
   }
 }
 
+void dumpGaitModeStates(ValueDump& dump,
+                        absl::string_view path,
+                        absl::Span<const GaitModeStateConfig> states) {
+  dump.addInteger(joinPath(path, "size"), static_cast<int64_t>(states.size()));
+  for (size_t i = 0; i < states.size(); ++i) {
+    const GaitModeStateConfig& state = states[i];
+    const std::string rowPath = absl::StrCat(path, "[", i, "]");
+    dump.addString(joinPath(rowPath, "gaitCommand"), state.gaitCommand);
+    dump.addDouble(joinPath(rowPath, "cmdMinLinvelBaseRtWorldEwrtHeadingXy"),
+                   state.cmdMinLinvelBaseRtWorldEwrtHeadingXy);
+    dump.addDouble(joinPath(rowPath, "cmdMaxLinvelBaseRtWorldEwrtHeadingXy"),
+                   state.cmdMaxLinvelBaseRtWorldEwrtHeadingXy);
+    dump.addDouble(joinPath(rowPath, "cmdMinAngvelBaseRtWorldEwrtWorldZ"),
+                   state.cmdMinAngvelBaseRtWorldEwrtWorldZ);
+    dump.addDouble(joinPath(rowPath, "cmdMaxAngvelBaseRtWorldEwrtWorldZ"),
+                   state.cmdMaxAngvelBaseRtWorldEwrtWorldZ);
+    dump.addDouble(joinPath(rowPath, "maxErrLinvelBaseRtWorldEwrtHeadingXy"),
+                   state.maxErrLinvelBaseRtWorldEwrtHeadingXy);
+    dump.addDouble(joinPath(rowPath, "maxErrAngvelBaseRtWorldEwrtWorldZ"),
+                   state.maxErrAngvelBaseRtWorldEwrtWorldZ);
+  }
+}
+
 void dumpTargetTrajectories(ValueDump& dump,
                             absl::string_view path,
                             const TargetTrajectories& targets) {
@@ -409,6 +455,10 @@ void dumpRobotProcessSettings(ValueDump& dump,
                  kalman.contactHeightNoise);
   dump.addDouble(joinPath(kalmanPath, "nomPosContactRtWorldEwrtWorldZ"),
                  kalman.nomPosContactRtWorldEwrtWorldZ);
+  dump.addDouble(joinPath(kalmanPath, "contactTrustRampDuration"),
+                 kalman.contactTrustRampDuration);
+  dump.addDouble(joinPath(kalmanPath, "contactTrustRampMaxScale"),
+                 kalman.contactTrustRampMaxScale);
 }
 
 void dumpVisualizationConfig(ValueDump& dump,

@@ -241,9 +241,9 @@ TEST(GuiVelocityCommand, TheClampIsTheOneTheMpcNodeAppliesToAReceivedMessage) {
   }
 }
 
-TEST(RobotConfigurations, TheFiveConfigurationsNameTheirFiles) {
+TEST(RobotConfigurations, TheSixConfigurationsNameTheirFiles) {
   const std::vector<RobotConfiguration>& configurations = robotConfigurations();
-  ASSERT_EQ(configurations.size(), 5u);
+  ASSERT_EQ(configurations.size(), 6u);
   size_t wholeBody = 0;
   for (const RobotConfiguration& configuration : configurations) {
     EXPECT_TRUE(findRobotConfiguration(configuration.name).ok())
@@ -260,6 +260,45 @@ TEST(RobotConfigurations, TheFiveConfigurationsNameTheirFiles) {
   EXPECT_EQ(findRobotConfiguration("unknown").status().code(),
             absl::StatusCode::kNotFound);
   EXPECT_EQ(formulationName(MpcFormulation::kWholeBody), "whole_body");
+}
+
+TEST(RobotConfigurations, OnlyTheKalmanVariantOverridesTheStateEstimator) {
+  for (const RobotConfiguration& configuration : robotConfigurations()) {
+    if (configuration.name == "unitree_g1_kalman") continue;
+    EXPECT_FALSE(configuration.isStateEstimatorVariant()) << configuration.name;
+    EXPECT_TRUE(configuration.stateEstimator.empty()) << configuration.name;
+    EXPECT_TRUE(configuration.scenarios.empty()) << configuration.name;
+    EXPECT_EQ(configuration.baselineName(), configuration.name);
+    for (const ClosedLoopScenario& scenario : closedLoopScenarios()) {
+      EXPECT_TRUE(configuration.runsScenario(scenario.name))
+          << configuration.name << " " << scenario.name;
+    }
+  }
+}
+
+TEST(RobotConfigurations, TheKalmanVariantRunsUnitreeG1sFilesWithKalman) {
+  const absl::StatusOr<RobotConfiguration> variant =
+      findRobotConfiguration("unitree_g1_kalman");
+  ASSERT_TRUE(variant.ok()) << variant.status();
+  const absl::StatusOr<RobotConfiguration> g1 =
+      findRobotConfiguration("unitree_g1");
+  ASSERT_TRUE(g1.ok()) << g1.status();
+  EXPECT_TRUE(variant->isStateEstimatorVariant());
+  EXPECT_EQ(variant->stateEstimator, "kalman");
+  EXPECT_EQ(variant->formulation, g1->formulation);
+  EXPECT_EQ(variant->configurationFiles(), g1->configurationFiles());
+  EXPECT_EQ(variant->walkingScenario, g1->walkingScenario);
+  EXPECT_EQ(variant->baselineName(), "unitree_g1");
+  // Three scenarios keep the run affordable; each is one of the suite's.
+  const std::vector<std::string> scenarios = {"standing", "walk_0p5",
+                                              "turn_in_place_720"};
+  EXPECT_EQ(variant->scenarios, scenarios);
+  for (const std::string& name : scenarios) {
+    EXPECT_TRUE(findClosedLoopScenario(name).ok()) << name;
+    EXPECT_TRUE(variant->runsScenario(name)) << name;
+  }
+  EXPECT_FALSE(variant->runsScenario("arc"));
+  EXPECT_FALSE(variant->runsScenario("smoke"));
 }
 
 /**

@@ -128,8 +128,10 @@ absl::Status checkSceneSupportsGantryHold(const mjModel* absl_nonnull model,
  * Passive data: the simulator copies it.
  */
 struct MujocoSimConfig {
+  // LINT.IfChange(simulator_time_step)
   /** [s] The physics step of a configuration that sets none: 2 kHz. */
   static constexpr double kDefaultTimestep = 0.0005;
+  // LINT.ThenChange(//robot_models/tests/test_joint_pd_stability.py:simulator_time_step)
   /** [Hz] How often the viewer gets a new state, unless configured otherwise.
    */
   static constexpr double kDefaultRenderFrequencyHz = 60.0;
@@ -188,7 +190,10 @@ struct MujocoSimConfig {
   /// while the torques are off (zero-torque mode), so that the passive robot
   /// settles rather than swings; the ball's dofs never get it. While the
   /// torques are on, every joint has the scene's own dof_damping, as the MJCF
-  /// declares it. Task file `sim_ragdoll_joint_damping`; >= 0.
+  /// declares it: the only damping MuJoCo integrates implicitly, which the
+  /// explicit joint PD of simulationStep() needs on a light link
+  /// (robot_models/tests/test_joint_pd_stability.py). Task file
+  /// `sim_ragdoll_joint_damping`; >= 0.
   double ragdollJointDamping = kDefaultRagdollJointDamping;
   /// [m] The height of the base (its free joint's z) below which the robot has
   /// fallen: it is reset and caught on the gantry. Task file

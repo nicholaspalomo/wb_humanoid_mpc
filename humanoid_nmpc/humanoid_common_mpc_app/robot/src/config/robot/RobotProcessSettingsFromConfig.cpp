@@ -95,6 +95,8 @@ estimation::KalmanBaseEstimator::Config kalmanBaseEstimatorConfigFromConfig(
       .contactHeightNoise = config.contact_height_noise,
       .nomPosContactRtWorldEwrtWorldZ =
           config.nom_pos_contact_rt_world_ewrt_world_z,
+      .contactTrustRampDuration = config.contact_trust_ramp_duration,
+      .contactTrustRampMaxScale = config.contact_trust_ramp_max_scale,
   };
   // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/kalman_state_estimator_config.proto:kalman_state_estimator_defaults)
 }

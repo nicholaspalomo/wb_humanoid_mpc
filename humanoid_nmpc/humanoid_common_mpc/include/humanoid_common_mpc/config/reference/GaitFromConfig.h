@@ -47,9 +47,10 @@ namespace ocs2::humanoid {
 
 /*
  * Each function below reads the mode names against the contact set `layout`
- * (parseModeNumber(): FLY, STANCE, LF and RF on a set ending in two 6-DoF feet,
- * and one 0/1 digit per contact on any set). The default layout is the biped's
- * two feet; the gait schedule passes gaitModeLayoutOf() its model settings.
+ * (parseModeNumber(): FLY and STANCE on any set, LF and RF on a set ending in
+ * two 6-DoF feet, leg names joined by '_', contact names joined by '+', and one
+ * 0/1 digit per contact). The default layout is the biped's two feet; the gait
+ * schedule passes gaitModeLayoutOf() its model settings.
  */
 
 /**
@@ -66,7 +67,7 @@ namespace ocs2::humanoid {
 absl::StatusOr<ModeSequenceTemplate> modeSequenceTemplateFromConfig(
     const mpc_config::ModeSequenceTemplateConfig& config,
     absl::string_view path,
-    GaitModeLayout layout = GaitModeLayout{});
+    const GaitModeLayout& layout = GaitModeLayout{});
 
 /**
  * The mode schedule `config` as a ModeSchedule: at least one mode, each a mode
@@ -80,7 +81,7 @@ absl::StatusOr<ModeSequenceTemplate> modeSequenceTemplateFromConfig(
 absl::StatusOr<ModeSchedule> modeScheduleFromConfig(
     const mpc_config::ModeScheduleConfig& config,
     absl::string_view path,
-    GaitModeLayout layout = GaitModeLayout{});
+    const GaitModeLayout& layout = GaitModeLayout{});
 
 /**
  * Every gait of the gait file by name, as the procedural motion manager selects
@@ -92,7 +93,8 @@ absl::StatusOr<ModeSchedule> modeScheduleFromConfig(
  * @return The gaits; InvalidArgument naming the gait and what is wrong.
  */
 absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaitMapFromConfig(
-    const mpc_config::GaitFile& file, GaitModeLayout layout = GaitModeLayout{});
+    const mpc_config::GaitFile& file,
+    const GaitModeLayout& layout = GaitModeLayout{});
 
 /**
  * The mode schedule the gait schedule starts from: the reference file's
@@ -101,7 +103,7 @@ absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaitMapFromConfig(
  */
 absl::StatusOr<ModeSchedule> initialModeScheduleFromConfig(
     const mpc_config::ReferenceFile& file,
-    GaitModeLayout layout = GaitModeLayout{});
+    const GaitModeLayout& layout = GaitModeLayout{});
 
 /**
  * The gait the gait schedule repeats until the motion manager inserts another:
@@ -111,6 +113,6 @@ absl::StatusOr<ModeSchedule> initialModeScheduleFromConfig(
  */
 absl::StatusOr<ModeSequenceTemplate> defaultModeSequenceTemplateFromConfig(
     const mpc_config::ReferenceFile& file,
-    GaitModeLayout layout = GaitModeLayout{});
+    const GaitModeLayout& layout = GaitModeLayout{});
 
 }  // namespace ocs2::humanoid

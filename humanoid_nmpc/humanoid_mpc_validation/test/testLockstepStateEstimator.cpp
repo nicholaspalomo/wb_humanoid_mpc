@@ -45,8 +45,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_validation/closed_loop/LockstepStateEstimator.h"
+#include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
+#include "humanoid_state_estimator/ContactEstimationInputs.h"
 #include "humanoid_state_estimator/StateEstimator.h"
 #include "humanoid_state_estimator/StateEstimatorNames.h"
 #include "humanoid_state_estimator/StateEstimatorRegistry.h"
@@ -56,7 +60,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*
  * The lockstep closed loop builds the robot process's state estimator as
  * RobotProcess::Create() builds it: by the task file's state_estimator, from
- * the MPC's contact frames and their parent joints, the URDF, the robot
+ * the MPC's contact points on the URDF's links, the URDF, the robot
  * description and the kalman noise model. ground_truth hands the controller the
  * measured state itself, so a lockstep run with it is the run without an
  * estimator stage bit for bit; kalman replaces only the base's position and
@@ -86,7 +90,8 @@ struct G1 {
   G1()
       : taskFile(runfilePath(kTaskFile)),
         urdfFile(runfilePath(kUrdfFile)),
-        modelSettings(ModelSettings::Create(taskFile,
+        task(loadTaskFile(taskFile).value()),
+        modelSettings(ModelSettings::Create(task,
                                             urdfFile,
                                             "lockstep_state_estimator_test_",
                                             /*verbose=*/false)
@@ -100,6 +105,7 @@ struct G1 {
   }
   std::string taskFile;
   std::string urdfFile;
+  mpc_config::TaskFile task;
   ModelSettings modelSettings;
   robot::model::RobotDescription description;
   robot::model::RobotState state;
@@ -109,25 +115,27 @@ TEST(LockstepStateEstimator, TheContextIsTheRobotProcesss) {
   const G1 g1;
   RobotProcessSettings settings;
   settings.kalmanStateEstimator.nomPosContactRtWorldEwrtWorldZ = 0.0123;
-  const estimation::StateEstimatorContext context =
-      robotProcessStateEstimatorContext(settings, g1.modelSettings, g1.urdfFile,
+  const absl::StatusOr<estimation::StateEstimatorContext> context =
+      robotProcessStateEstimatorContext(settings, g1.modelSettings,
+                                        g1.task.contacts, g1.urdfFile,
                                         &g1.description);
-  // RobotProcess::Create() takes them from the robot binary's backend options,
-  // which take them from the model settings.
-  EXPECT_EQ(context.urdfFile, g1.urdfFile);
-  ASSERT_EQ(context.contacts.size(), g1.modelSettings.contactNames.size());
-  for (size_t contact = 0; contact < context.contacts.size(); ++contact) {
-    EXPECT_EQ(context.contacts[contact].frameNames,
-              (std::vector<std::string>{
-                  g1.modelSettings.contactNames[contact],
-                  g1.modelSettings.contactParentJointNames[contact]}))
+  ASSERT_TRUE(context.ok()) << context.status();
+  // RobotProcess::Create() takes them from robotProcessConfig(): the soles'
+  // centers on the ankle roll links, at the task file's contact offset.
+  EXPECT_EQ(context->urdfFile, g1.urdfFile);
+  ASSERT_EQ(context->contacts.size(), g1.modelSettings.contactNames.size());
+  const std::vector<std::string> soleLinks = {"left_ankle_roll_link",
+                                              "right_ankle_roll_link"};
+  const vector3_t posContactRtLinkEwrtLink(0.035, 0.0, -0.035);
+  for (size_t contact = 0; contact < context->contacts.size(); ++contact) {
+    EXPECT_EQ(context->contacts[contact].linkName, soleLinks[contact])
         << "contact " << contact;
-    EXPECT_EQ(context.contacts[contact].posContactRtLinkEwrtLink,
-              vector3_t::Zero())
+    EXPECT_EQ(context->contacts[contact].posContactRtLinkEwrtLink,
+              posContactRtLinkEwrtLink)
         << "contact " << contact;
   }
-  EXPECT_EQ(context.description, &g1.description);
-  EXPECT_EQ(context.kalman.nomPosContactRtWorldEwrtWorldZ, 0.0123);
+  EXPECT_EQ(context->description, &g1.description);
+  EXPECT_EQ(context->kalman.nomPosContactRtWorldEwrtWorldZ, 0.0123);
 }
 
 TEST(LockstepStateEstimator, GroundTruthHandsOnTheMeasuredStateItself) {
@@ -136,12 +144,15 @@ TEST(LockstepStateEstimator, GroundTruthHandsOnTheMeasuredStateItself) {
   ASSERT_EQ(settings.stateEstimator,
             estimation::kGroundTruthStateEstimatorName);
   absl::StatusOr<std::unique_ptr<estimation::StateEstimator>> estimator =
-      createRobotProcessStateEstimator(settings, g1.modelSettings, g1.urdfFile,
+      createRobotProcessStateEstimator(settings, g1.modelSettings,
+                                       g1.task.contacts, g1.urdfFile,
                                        g1.taskFile, &g1.description);
   ASSERT_TRUE(estimator.ok()) << estimator.status();
   EXPECT_EQ((*estimator)->name(), estimation::kGroundTruthStateEstimatorName);
   (*estimator)->reset(g1.state);
-  EXPECT_EQ(&(*estimator)->estimate(g1.state), &g1.state)
+  const estimation::ContactEstimationInputs contactInputs(
+      g1.modelSettings.numContacts());
+  EXPECT_EQ(&(*estimator)->estimate(g1.state, contactInputs), &g1.state)
       << "the controller reads the simulator's state, bit for bit";
 }
 
@@ -150,12 +161,16 @@ TEST(LockstepStateEstimator, KalmanEstimatesTheBaseAndKeepsTheJoints) {
   RobotProcessSettings settings;
   settings.stateEstimator = std::string(estimation::kKalmanStateEstimatorName);
   absl::StatusOr<std::unique_ptr<estimation::StateEstimator>> estimator =
-      createRobotProcessStateEstimator(settings, g1.modelSettings, g1.urdfFile,
+      createRobotProcessStateEstimator(settings, g1.modelSettings,
+                                       g1.task.contacts, g1.urdfFile,
                                        g1.taskFile, &g1.description);
   ASSERT_TRUE(estimator.ok()) << estimator.status();
   EXPECT_EQ((*estimator)->name(), estimation::kKalmanStateEstimatorName);
   (*estimator)->reset(g1.state);
-  const robot::model::RobotState& estimate = (*estimator)->estimate(g1.state);
+  const estimation::ContactEstimationInputs contactInputs(
+      g1.modelSettings.numContacts());
+  const robot::model::RobotState& estimate =
+      (*estimator)->estimate(g1.state, contactInputs);
   EXPECT_NE(&estimate, &g1.state);
   for (size_t joint = 0; joint < g1.description.getNumJoints(); ++joint) {
     EXPECT_EQ(estimate.getJointPosition(joint),
@@ -170,7 +185,8 @@ TEST(LockstepStateEstimator, KalmanEstimatesTheBaseAndKeepsTheJoints) {
 /**
  * Adds a 3-DoF contact at the left knee to `modelSettings`, first in the
  * contact order as a multi-contact task's contacts_3dof come. Its frame, like
- * the feet's, is not in the URDF: the MPC adds it to its own model.
+ * the feet's, is not in the URDF: the MPC adds it to its own model, and the
+ * estimator places it on the knee joint's child link.
  */
 void addKneePointContact(ModelSettings& modelSettings) {
   const ModelSettings::PointContact knee{
@@ -193,7 +209,8 @@ TEST(LockstepStateEstimator, KalmanBuildsTheLegKinematicsOfPointContacts) {
   // contact_parent_joint_names has one entry per 6-DoF contact, which follow
   // the 3-DoF ones: each contact must be paired with its own parent joint.
   const absl::StatusOr<std::unique_ptr<estimation::StateEstimator>> estimator =
-      createRobotProcessStateEstimator(settings, g1.modelSettings, g1.urdfFile,
+      createRobotProcessStateEstimator(settings, g1.modelSettings,
+                                       g1.task.contacts, g1.urdfFile,
                                        g1.taskFile, &g1.description);
   ASSERT_TRUE(estimator.ok()) << estimator.status();
   EXPECT_EQ((*estimator)->name(), estimation::kKalmanStateEstimatorName);
@@ -202,24 +219,72 @@ TEST(LockstepStateEstimator, KalmanBuildsTheLegKinematicsOfPointContacts) {
 TEST(LockstepStateEstimator, APointContactIsAtItsOffsetFromItsOwnParentJoint) {
   G1 g1;
   addKneePointContact(g1.modelSettings);
-  const estimation::StateEstimatorContext context =
+  const absl::StatusOr<estimation::StateEstimatorContext> context =
       robotProcessStateEstimatorContext(RobotProcessSettings(),
-                                        g1.modelSettings, g1.urdfFile,
-                                        &g1.description);
-  ASSERT_EQ(context.contacts.size(), 3u);
-  EXPECT_EQ(context.contacts[0].frameNames,
-            (std::vector<std::string>{"left_knee_joint"}));
-  EXPECT_EQ(context.contacts[0].posContactRtLinkEwrtLink,
+                                        g1.modelSettings, g1.task.contacts,
+                                        g1.urdfFile, &g1.description);
+  ASSERT_TRUE(context.ok()) << context.status();
+  ASSERT_EQ(context->contacts.size(), 3u);
+  EXPECT_EQ(context->contacts[0].linkName, "left_knee_link");
+  EXPECT_EQ(context->contacts[0].posContactRtLinkEwrtLink,
             g1.modelSettings.pointContacts[0].posContactRtLinkEwrtLink);
   // The feet keep their own parents, contact_parent_joint_names[0] and [1].
-  EXPECT_EQ(
-      context.contacts[1].frameNames,
-      (std::vector<std::string>{"foot_l_contact", "left_ankle_roll_joint"}));
-  EXPECT_EQ(
-      context.contacts[2].frameNames,
-      (std::vector<std::string>{"foot_r_contact", "right_ankle_roll_joint"}));
-  EXPECT_EQ(context.contacts[1].posContactRtLinkEwrtLink, vector3_t::Zero());
-  EXPECT_EQ(context.contacts[2].posContactRtLinkEwrtLink, vector3_t::Zero());
+  EXPECT_EQ(context->contacts[1].linkName, "left_ankle_roll_link");
+  EXPECT_EQ(context->contacts[2].linkName, "right_ankle_roll_link");
+  EXPECT_EQ(context->contacts[1].posContactRtLinkEwrtLink,
+            vector3_t(0.035, 0.0, -0.035));
+  EXPECT_EQ(context->contacts[2].posContactRtLinkEwrtLink,
+            vector3_t(0.035, 0.0, -0.035));
+}
+
+TEST(LockstepStateEstimator, AConfigurationsEstimatorReplacesTheTaskFiles) {
+  RobotProcessSettings settings;  // the task file's: ground_truth
+  settings.kalmanStateEstimator.nomPosContactRtWorldEwrtWorldZ = 0.0123;
+  const RobotProcessSettings kept =
+      withStateEstimator(settings, /*stateEstimator=*/"");
+  EXPECT_EQ(kept.stateEstimator, estimation::kGroundTruthStateEstimatorName);
+  const RobotProcessSettings replaced =
+      withStateEstimator(settings, estimation::kKalmanStateEstimatorName);
+  EXPECT_EQ(replaced.stateEstimator, estimation::kKalmanStateEstimatorName);
+  // The noise model stays the task file's.
+  EXPECT_EQ(replaced.kalmanStateEstimator.nomPosContactRtWorldEwrtWorldZ,
+            0.0123);
+}
+
+TEST(LockstepStateEstimator, TheKalmanVariantRunsTheKalmanEstimator) {
+  const G1 g1;
+  const absl::StatusOr<RobotConfiguration> variant =
+      findRobotConfiguration("unitree_g1_kalman");
+  ASSERT_TRUE(variant.ok()) << variant.status();
+  // The configuration spells the registry's name.
+  EXPECT_EQ(variant->stateEstimator, estimation::kKalmanStateEstimatorName);
+  ASSERT_TRUE(
+      estimation::StateEstimatorRegistry().has(variant->stateEstimator));
+  // As LockstepClosedLoop::run() builds it, from the G1 task file, which
+  // names ground_truth.
+  const absl::StatusOr<RobotProcessSettings> taskSettings =
+      loadRobotProcessSettings(g1.taskFile);
+  ASSERT_TRUE(taskSettings.ok()) << taskSettings.status();
+  ASSERT_EQ(taskSettings->stateEstimator,
+            estimation::kGroundTruthStateEstimatorName);
+  const absl::StatusOr<std::unique_ptr<estimation::StateEstimator>> estimator =
+      createRobotProcessStateEstimator(
+          withStateEstimator(*taskSettings, variant->stateEstimator),
+          g1.modelSettings, g1.task.contacts, g1.urdfFile, g1.taskFile,
+          &g1.description);
+  ASSERT_TRUE(estimator.ok()) << estimator.status();
+  EXPECT_EQ((*estimator)->name(), estimation::kKalmanStateEstimatorName);
+  // unitree_g1 itself keeps the task file's.
+  const absl::StatusOr<RobotConfiguration> g1Configuration =
+      findRobotConfiguration("unitree_g1");
+  ASSERT_TRUE(g1Configuration.ok()) << g1Configuration.status();
+  const absl::StatusOr<std::unique_ptr<estimation::StateEstimator>>
+      groundTruth = createRobotProcessStateEstimator(
+          withStateEstimator(*taskSettings, g1Configuration->stateEstimator),
+          g1.modelSettings, g1.task.contacts, g1.urdfFile, g1.taskFile,
+          &g1.description);
+  ASSERT_TRUE(groundTruth.ok()) << groundTruth.status();
+  EXPECT_EQ((*groundTruth)->name(), estimation::kGroundTruthStateEstimatorName);
 }
 
 TEST(LockstepStateEstimator, AnUnknownNameIsRefusedNamingTheTaskFileField) {
@@ -227,7 +292,8 @@ TEST(LockstepStateEstimator, AnUnknownNameIsRefusedNamingTheTaskFileField) {
   RobotProcessSettings settings;
   settings.stateEstimator = "no_such_estimator";
   const absl::StatusOr<std::unique_ptr<estimation::StateEstimator>> estimator =
-      createRobotProcessStateEstimator(settings, g1.modelSettings, g1.urdfFile,
+      createRobotProcessStateEstimator(settings, g1.modelSettings,
+                                       g1.task.contacts, g1.urdfFile,
                                        g1.taskFile, &g1.description);
   ASSERT_FALSE(estimator.ok());
   EXPECT_EQ(estimator.status().code(), absl::StatusCode::kInvalidArgument);

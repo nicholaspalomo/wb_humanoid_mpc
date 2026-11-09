@@ -8,7 +8,7 @@ formulation, and the mailboxes, telemetry and FSM around it on the bus.
 <!-- LINT.IfChange(robot_binaries) -->
 | Binary | Bus node | What |
 |---|---|---|
-| `//humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_robot` | `robot` | the centroidal MRT joint controller on a backend |
+| `//humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_robot` | `robot` | the centroidal MRT joint controller on a backend; reads the MPC node's multi-contact plan for the state estimator's contact surfaces |
 | `//humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_robot` | `robot` | the whole-body MRT joint controller on a backend |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_app/BUILD.bazel:robot_binaries, //humanoid_nmpc/humanoid_wb_mpc_app/BUILD.bazel:robot_binaries) -->
 
@@ -135,7 +135,38 @@ test-only `FakeRobotBackend`, which does exactly it with a thread in place of th
    `make deploy-robot BACKEND=`) selects it.
 4. The task file's `state_estimator: "kalman"`, whose base position and velocity come from the IMU and the leg
    kinematics instead of the backend's guess (`kalman_state_estimator` its noise model), and `contact_estimator:
-   "robot_state"` for the foot sensors' flags.
+   "robot_state"` for the foot sensors' flags. The leg kinematics run on the URDF and place each contact where the
+   MPC's model has it (`stateEstimatorContacts()`): on the child link of its parent joint (the URDF's root link for
+   `root_joint`), at a 3-DoF contact's offset or at the center of a sole or surface pad from the task file's
+   `contacts` block. A standing sole's point is then on the ground, so `nom_pos_contact_rt_world_ewrt_world_z` is 0 on
+   flat ground at z = 0.
+
+### The contacts' surface heights
+
+The `kalman` estimator observes the base height through one height row per stance contact, `e_z^T c_i = h_i`. The
+robot process gives each contact its `h_i` every cycle in an `estimation::ContactEstimationInputs`, sized once, from a
+`ContactSurfaceHeightSource` that `robotProcessConfig()` picks from the task file (`contactSurfaceHeightSource()`):
+
+- `FlatGroundSurfaceHeights`: every contact at `kalman_state_estimator.nom_pos_contact_rt_world_ewrt_world_z`, for
+  every task file that tracks no multi-contact plan;
+- `PlannedSurfaceHeights`: under `contact_schedule_source: "multi_contact_plan"`, the patches of the plan the MPC node
+  tracks (the centroidal robot binary reads it as the node does, from the task file's `multi_contact_plan` block or
+  `--multi_contact_scenario` and `--multi_contact_plan`). Each contact takes the patch of its own phases whose center
+  is nearest to where the previous estimate puts it, and the patch's plane height at the contact's x and y. A contact
+  more than 0.1 m from every patch of it, or on a patch tilted more than 30 degrees (a hand on a wall), gets no height
+  row; its position and velocity rows still apply. With the `ground_truth` estimator, which keeps no contact
+  positions, no contact has a height, and the estimator does not read them.
+
+The lockstep closed loop of `humanoid_mpc_validation` builds the same source.
+
+### The planned contact switch times
+
+The same inputs give each contact's time since its last and until its next planned switch, which the `kalman`
+estimator's contact-trust ramp reads (off by default; `humanoid_state_estimation/humanoid_state_estimator/README.md`).
+`PlannedSwitchTimesSource` writes them every cycle from `RobotController::plannedContactSwitchTimes()`: the mode
+schedule of the policy in use at the controller's last observation (`plannedContactSwitchTimes()` in
+`humanoid_common_mpc/gait/ModeScheduleSwitchTimes.h`), +infinity where it shows no switch, and none at all while no
+policy is in use. The lockstep closed loop writes them the same way.
 
 ## The realtime thread
 
@@ -153,7 +184,8 @@ The cycle (`RobotProcess::cycle()`):
 
 1. read the robot state from the backend, through the task file's state estimator (`state_estimator`): `ground_truth`
    hands it on as it is, `kalman` replaces the base position and linear velocity with its estimate
-   (`humanoid_state_estimation`); what every later step reads;
+   (`humanoid_state_estimation`), with each contact's surface height looked up where the previous estimate put the
+   contact and its planned switch times from the policy in use; what every later step reads;
 2. take the operator's joint targets into the JOINT_PD posture;
 3. hand the controller the mode and the posture (the centroidal controller the mode first, the whole-body controller
    the posture first: `CycleInputOrder`) and run `computeJointControlAction()`, which writes the observation into the
@@ -213,7 +245,7 @@ counted (`getConsecutiveFailedPolicyUpdateLocks()`, an atomic), which the contro
 `MRT_BASE::kPolicyUpdateLockContentionThreshold` as `kPolicyUpdateLockContended`; the solver side destroys the policies
 a reset or a discard drops after it has released the buffer's lock, so freeing them never holds that try-lock off
 (`//lib/ocs2:test_mrt_policy_buffer`). The robot process adds no allocation, nor does the backend hand-over, nor the
-`kalman` state estimator with its leg kinematics (`:test_robot_realtime_allocations`, which counts the realtime thread's
+contacts' surface heights, nor the `kalman` state estimator with its leg kinematics (`:test_robot_realtime_allocations`, which counts the realtime thread's
 allocations over hundreds of whole cycles of the process on the fake backend), and neither controller allocates: the
 observation, the passive modes, the hold of WB_MPC, a contact estimator swap (whose name is a view of a literal,
 `ContactEstimator::getName()`), the weight compensation of WB_MPC before its first policy and the execution of a policy
@@ -355,7 +387,7 @@ GUI then reports in sync; a file the save did not change otherwise, which it rep
 | `contact_estimator` | `"cheater_sim"` | the controller's measured contact state (`ContactEstimatorRegistry`; the backend adds `cheater_sim`); hot-reloaded |
 | `contact_wrench_gate` | the instantaneous gate | `debounce_time`, `ramp_time` [s] of the touch-down shaping; hot-reloaded as `contact_estimator` |
 | `state_estimator` | `"ground_truth"` | the base state the controller is handed (`StateEstimatorRegistry`): `"ground_truth"` the backend's, `"kalman"` estimated from the IMU and the leg kinematics; read at start-up |
-| `kalman_state_estimator` | its defaults | the noise model of `"kalman"` (`kalman_state_estimator_config.proto`): the IMU's noise, the random walks of the base and of the stance and swing feet, the kinematics' noise, the stance feet's height |
+| `kalman_state_estimator` | its defaults | the noise model of `"kalman"` (`kalman_state_estimator_config.proto`): the IMU's noise, the random walks of the base and of the stance and swing feet, the kinematics' noise, and the flat ground's height the stance contacts get without a multi-contact plan |
 | `sim_min_force_mjcontact_ewrt_mjcontact_x`, `sim_contact_timeline_window`, `sim_visualizations`, `gantry_hold`, `sim_projectile` | the simulator's; no viewer marker | the MuJoCo backend |
 | `sim_ragdoll_joint_damping`, `sim_auto_reset_min_pos_base_rt_world_ewrt_world_z` | 20 N m s/rad, 0.2 m | the MuJoCo backend: the robot joints' damping while the torques are off (on, they have the MJCF's own), and the base height below which the robot is reset |
 | `sim_max_tiltangle_base_rt_world`, `sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z` | absent (off) | the fall recovery ([`docs/mpc_reset`](../../docs/mpc_reset/README.md)) |
@@ -385,6 +417,7 @@ field.
 | `RealtimeLoopRunner.h`, `RealtimeEventLog.h`, `FallRecoveryTypes.h` | the realtime thread's own building blocks (`:realtime_loop`, Abseil and `robot_runtime` only) |
 | `RobotBackend.h`, `RobotBackendRegistry.h`, `MujocoRobotBackend.h` | the backends by name |
 | `RobotController.h`, `MrtRobotController.h` | the MRT joint controller of either formulation, as the loop drives it |
+| `ContactSurfaceHeightSource.h`, `FlatGroundSurfaceHeights.h`, `PlannedSurfaceHeights.h`, `PlannedSwitchTimesSource.h` | what the state estimator is told of the contacts each cycle: their surface heights and planned switch times |
 | `RemoteMpcLinkAdapter.h` | the controllers' `MpcLink` over `ipc::RemoteMpcLink` |
 | `OperatorCommandMailbox.h`, `FsmCommand.h`, `config/robot/DodgeballThrowFromMessage.h` | the operator's commands |
 | `FsmBridge.h`, `FallRecovery.h`, `RobotSupervisorRegistry.h`, `FsmBridgeState.h`, `FsmStateMailbox.h` | the supervisors by name, and what every FSM bridge keeps |
@@ -407,7 +440,10 @@ field.
 | Target | What |
 |---|---|
 | `:test_realtime_loop_runner` | pacing on absolute deadlines (no drift with half the period computing), overruns counted, a snapshot per window, a clean stop, a set-up step the process may not take reported and skipped, a cycle that throws ending the loop and running the fault function once |
-| `:test_robot_realtime_allocations` | the realtime side of the mailboxes, the event log, the FSM state, the telemetry sampler (a full ring included) and the loop runner allocate nothing; the realtime side does not wait while the IO thread holds the mailbox's lock; the whole cycle of the process on the fake backend with the `kalman` state estimator, FSM commands included, allocates nothing |
+| `:test_robot_realtime_allocations` | the realtime side of the mailboxes, the event log, the FSM state, the telemetry sampler (a full ring included) and the loop runner allocate nothing; the realtime side does not wait while the IO thread holds the mailbox's lock; the whole cycle of the process on the fake backend with the `kalman` state estimator, its contact-trust ramp on and a multi-contact plan's surface heights, FSM commands included, allocates nothing |
+| `:test_state_estimator_contacts` | the `kalman` estimator's contact points: the G1 standing on its soles at its true base height keeps that height (the contact points were once the ankle origins, which put the base low by the ankle's height), the soles on the ankle links at the task file's offset, the Atlas seat pad on the URDF's root link at its pad offset with no velocity relative to the base, a surface contact without a parent joint and an unknown parent joint refused |
+| `:test_contact_surface_height_source` | the contacts' surface heights: the flat ground sets every contact; a multi-contact plan's patches give a contact on a seat its height and one on a ramp the ramp's plane at its x and y, and none on a wall, a steep ramp, far from every patch or without an estimated position; a pad pose that is not a center and a unit normal refused; the task file's contact schedule source selects the source, and a multi-contact task file without its plan is refused; `fill()` allocates nothing |
+| `:test_planned_switch_times_source` | the controller's planned switch times written into the estimator's inputs, none without a policy or past the controller's contacts, `fill()` allocating nothing |
 | `:test_hardware_supervisor` | the `hardware` supervisor: the FSM commands switch the backend's torques, the gantry commands are ignored, a tilt past the limit under torque switches them off once; the `sim` supervisor refused for a backend that is no simulator; the whole process running its cycles over the bus on the fake backend with either state estimator |
 | `:test_operator_command_mailbox` | FSM commands in order and once, aliases, unknown names; joint targets merged, the newest wins; dodgeballs; the gantry clamp; controller settings resolved, estimators kept alive, unknown names, a whole task file without a gate being the instantaneous gate; PD gains to the controller; the handlers, typed tuning payloads included, on a loopback bus |
 | `:test_sim_fsm_bridge` | the FSM against the headless simulator: torques, gantry, one command per cycle, the slider, controller resets and health in the state, joint targets, the dodgeball |

@@ -48,11 +48,14 @@ enum class MpcFormulation {
 std::string formulationName(MpcFormulation formulation);
 
 /**
- * One of the five configurations the closed-loop metrics and the solve
- * benchmark run: the files the robot's launch files pass to its robot binary
- * and its MPC node (robot_models/<robot>/<package>/launch/robot.textproto and
- * mpc.textproto), as paths relative to the workspace root, which is the working
- * directory of a Bazel test.
+ * One of the configurations the closed-loop metrics run: the files the robot's
+ * launch files pass to its robot binary and its MPC node
+ * (robot_models/<robot>/<package>/launch/robot.textproto and mpc.textproto), as
+ * paths relative to the workspace root, which is the working directory of a
+ * Bazel test. A state-estimator variant (isStateEstimatorVariant()) runs the
+ * files of another configuration with another state estimator: its MPC is that
+ * configuration's, so the solve benchmark and the MPC equivalence suites leave
+ * it out.
  */
 struct RobotConfiguration {
   std::string name;  ///< the registry name, e.g. drc_atlas
@@ -65,8 +68,35 @@ struct RobotConfiguration {
   std::string pdGainsFile;
   /// The walking scenario the robot survives, whose recorded states the solve
   /// benchmark replays by default: walk_0p5, or walk_0p3 for a robot that falls
-  /// at 0.5 m/s (EngineAI SA01 and Unitree R1).
+  /// at 0.5 m/s (EngineAI SA01 and Unitree R1). The closed-loop test fails a
+  /// run of it that falls (walkingSurvivalViolation()), but on a
+  /// state-estimator variant.
   std::string walkingScenario = "walk_0p5";
+  /// The robot process's state estimator (StateEstimatorRegistry name) the run
+  /// uses in place of the task file's state_estimator; empty: the task file's.
+  /// Set only on a state-estimator variant.
+  std::string stateEstimator;
+  /// The scenarios the run covers (ClosedLoopScenario::name); empty: every one.
+  std::vector<std::string> scenarios;
+  /// The configuration whose documents in a baseline label a run is compared
+  /// with; empty: this one's own. A state-estimator variant is held to the
+  /// configuration it varies, within the bands closedLoopMetricBandsFor() gives
+  /// it.
+  std::string baselineConfiguration;
+
+  /** Returns whether this configuration runs another's files with another
+   * state estimator (stateEstimator is set). */
+  bool isStateEstimatorVariant() const { return !stateEstimator.empty(); }
+
+  /** Whether the run covers `scenario`: every scenario when `scenarios` is
+   * empty. */
+  bool runsScenario(absl::string_view scenario) const;
+
+  /** Returns the configuration name a baseline label's documents are looked
+   * up under: baselineConfiguration, or `name` when it is empty. */
+  const std::string& baselineName() const {
+    return baselineConfiguration.empty() ? name : baselineConfiguration;
+  }
 
   /**
    * Every file the run depends on, whose hashes go into the provenance: the
@@ -77,8 +107,9 @@ struct RobotConfiguration {
 };
 
 // LINT.IfChange(robot_configurations)
-/** drc_atlas, engineai_sa01, unitree_g1, unitree_r1 (centroidal) and
- * unitree_g1_wb (whole-body). */
+/** drc_atlas, engineai_sa01, unitree_g1, unitree_r1 (centroidal),
+ * unitree_g1_wb (whole-body) and unitree_g1_kalman (unitree_g1 with the kalman
+ * state estimator, standing, walk_0p5 and turn_in_place_720 only). */
 const std::vector<RobotConfiguration>& robotConfigurations();
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/BUILD.bazel:robot_configurations, //Makefile:closed_loop_targets, //humanoid_nmpc/humanoid_common_mpc/test/equivalence/BUILD.bazel:mpc_equivalence_robots)

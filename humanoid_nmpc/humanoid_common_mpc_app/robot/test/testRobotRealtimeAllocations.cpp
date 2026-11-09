@@ -36,30 +36,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/notification.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
 #include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc_app/robot/FsmCommand.h"
 #include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
 #include "humanoid_common_mpc_app/robot/JointNamesByIndex.h"
 #include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
+#include "humanoid_common_mpc_app/robot/PlannedSurfaceHeights.h"
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
 #include "humanoid_common_mpc_app/robot/RealtimeLoopRunner.h"
 #include "humanoid_common_mpc_app/robot/RobotProcess.h"
 #include "humanoid_common_mpc_app/robot/RobotSetUpSteps.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySampler.h"
 #include "humanoid_mpc_config/mpc_parameter_update.pb.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.pb.h"
 #include "humanoid_mpc_msgs/dodgeball_throw.pb.h"
 #include "humanoid_mpc_msgs/fsm_command.pb.h"
@@ -67,6 +72,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/joint_targets.pb.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/FakeRobotBackend.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
 #include "humanoid_state_estimator/StateEstimatorNames.h"
@@ -363,8 +369,10 @@ TEST(RobotRealtimeAllocations,
 TEST(
     RobotRealtimeAllocations,
     TheProcessCycleOnTheHardwareSupervisorWithTheKalmanEstimatorAllocatesNothing) {
-  // The whole cycle of the robot process on its realtime thread - the kalman
-  // state estimator's predict and corrections and its leg kinematics, the FSM
+  // The whole cycle of the robot process on its realtime thread - the
+  // contacts' surface heights from a multi-contact plan's patches, the planned
+  // switch times and the kalman state estimator's predict and corrections with
+  // its contact-trust ramp on and its leg kinematics, the FSM
   // commands of the hardware supervisor, the fall recovery, the telemetry
   // sampler and the backend hand-over - between two cycles well after the
   // start, while FSM commands switch the torques. The scripted controller
@@ -399,16 +407,44 @@ TEST(
       std::string(estimation::kKalmanStateEstimatorName);
   config.settings.fallRecovery.maxTiltangleBaseRtWorld = 0.5;
   config.urdfFile = kAtlasUrdf;
-  const ModelSettings modelSettings =
-      ModelSettings::Create(
+  const mpc_config::TaskFile task =
+      loadTaskFile(
           "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/"
-          "task.textproto",
-          kAtlasUrdf, "centroidal_mpc_",
-          /*verbose=*/false)
+          "task.textproto")
           .value();
-  config.stateEstimatorContacts = stateEstimatorContacts(modelSettings);
+  const ModelSettings modelSettings =
+      ModelSettings::Create(task, kAtlasUrdf, "centroidal_mpc_",
+                            /*verbose=*/false)
+          .value();
+  config.stateEstimatorContacts =
+      stateEstimatorContacts(modelSettings, task.contacts, kAtlasUrdf).value();
+  // The ramp on, and every contact inside its window: the noise is rewritten
+  // in every cycle.
+  config.settings.kalmanStateEstimator.contactTrustRampDuration = 0.05;
+  config.settings.kalmanStateEstimator.contactTrustRampMaxScale = 3.0;
+  controller.setPlannedContactSwitchTimes(
+      std::vector<scalar_t>(modelSettings.numContacts(), 0.2),
+      std::vector<scalar_t>(modelSettings.numContacts(), 0.01));
+  // The contacts' surfaces are a multi-contact plan's, the source whose fill()
+  // searches every cycle: the floor under each contact, and a wall beside the
+  // first one.
+  multi_contact::config::MultiContactPlan plan;
+  for (const std::string& contact : modelSettings.contactNames) {
+    multi_contact::config::MultiContactPlan::ContactPhase floor;
+    floor.contact = contact;
+    floor.des_pose_pad_rt_world =
+        (vector_t(6) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0).finished();
+    plan.phases.push_back(floor);
+  }
+  multi_contact::config::MultiContactPlan::ContactPhase wall;
+  wall.contact = modelSettings.contactNames.front();
+  wall.des_pose_pad_rt_world =
+      (vector_t(6) << 0.5, 0.0, 1.0, -1.0, 0.0, 0.0).finished();
+  plan.phases.push_back(wall);
+  config.contactSurfaceHeights =
+      PlannedSurfaceHeights::Create(plan, modelSettings).value();
   absl::StatusOr<std::unique_ptr<RobotProcess>> created = RobotProcess::Create(
-      bus.get(), &backend, &controller, &estimators, config);
+      bus.get(), &backend, &controller, &estimators, std::move(config));
   ASSERT_TRUE(created.ok()) << created.status();
   RobotProcess& process = **created;
   ASSERT_TRUE(bus->start().ok());

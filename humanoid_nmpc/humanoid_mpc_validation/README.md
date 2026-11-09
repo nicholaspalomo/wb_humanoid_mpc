@@ -175,13 +175,54 @@ is an improvement; a run that fell in the baseline is compared on survival alone
 (only on the machine of the baseline, `--compare_solve_time`), and the quaternion norm below 1e-9. A metric that is null
 in the baseline is not compared; one that the baseline measured and the candidate did not (null, or NaN in a run's
 document still in memory) fails, since no band can hold a value that is not there.
+
+A state-estimator variant (`unitree_g1_kalman`, below) is held to the run of the configuration it varies, within its
+own bands (`closedLoopMetricBandsFor()`): the defaults but for the tilt, 0.04 rad, and the stance-foot slip, 0.2 m.
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/MetricBands.h:metric_bands) -->
+
+One requirement needs no baseline: a configuration survives its walking scenario (`RobotConfiguration::walkingScenario`,
+`walk_0p5`, or `walk_0p3` for SA01 and R1). A run of it that falls fails the closed-loop test after its documents are
+written (`walkingSurvivalViolation()`), and the comparison with a baseline, run or archived, lists the fall as a
+violation even where the baseline fell too. A state-estimator variant is exempt: its baseline is the run of the
+configuration it varies, and a fall where that run survived already fails its comparison.
+
+## The kalman variant
+
+`unitree_g1_kalman` runs `unitree_g1`'s files with the robot process's `kalman` state estimator in place of the task
+file's `ground_truth` (`RobotConfiguration::stateEstimator`, applied by `withStateEstimator()` where the runner builds
+the estimator), so the filter runs end to end in the lockstep loop: the MPC and the controller see its estimate of the
+base position and linear velocity. It runs `standing`, `walk_0p5` and `turn_in_place_720` only
+(`RobotConfiguration::scenarios`), and each document says which estimator ran (`settings.state_estimator`). With
+`BASELINE=<label>` its runs are compared with `unitree_g1`'s runs of that label (`baselineConfiguration`), not with
+earlier kalman runs, so the comparison measures what the estimator costs. It has no solve benchmark and is not one of
+the MPC equivalence configurations: the estimator does not change the MPC.
+
+Its bands were set from its first run, label `2026-11-07_kalman_variant` (`data/closed_loop/2026-11-07_kalman_variant/`),
+against `unitree_g1`'s runs of the same label:
+
+| Metric | ground truth | kalman | Band |
+|---|---|---|---|
+| `base_height.mean_m` (standing) | 0.7908 m | 0.7891 m | 5 mm (default) |
+| `base_height.rms_error_m` | 0.3 mm | 2.0 mm | 5 mm (default) |
+| `tilt.rms_rad`, `tilt.max_rad` | 0.0014, 0.0016 rad | 0.0280, 0.0301 rad | 0.04 rad |
+| `velocity.rms_error_mps` | 1.2 mm/s | 1.8 mm/s | default |
+| `yaw_rate.rms_error_radps` | 0.5 mrad/s | 4.3 mrad/s | default |
+| `stance_foot_slip.max_m` | 1e-7 m | 0.153 m | 0.2 m |
+
+The slip is read from the controller's observation, so on this variant it is the drift of the estimated horizontal base
+position (the feet did not move); the leaning follows the estimate. In that run both configurations fell while walking
+and turning, so those runs are compared on survival alone: `unitree_g1` fell 12.2 s into `walk_0p5` and 52.1 s into
+`turn_in_place_720` (tilt past 1 rad), `unitree_g1_kalman` 1.9 s and 1.6 s into them (the base below half its height).
+The ground-truth falls came from the simulator, not the MPC: the G1's MJCF declared no joint damping once the simulator
+stopped giving every joint 10 N m s/rad (082971a6), and the explicit 2 kHz PD drove each swing foot's ankle roll between
+its limits. With that damping in the MJCF, `unitree_g1` survives all three (label `2026-11-08_g1_fall_fix`).
 
 ## Recording and comparing labels
 
 A label is a directory of documents, one per run: `make closed-loop-metrics ROBOT=<robot> LABEL=<label>` writes
 `data/closed_loop/<label>/<robot>_<scenario>.json`, and `make benchmark-mpc-solve ROBOT=<robot> LABEL=<label>` writes
-`data/benchmark/<label>/<robot>_solve_benchmark.json`. No label is checked in: record a baseline on the code to compare
+`data/benchmark/<label>/<robot>_solve_benchmark.json`. The only label checked in is the one the kalman variant's bands
+were set from; otherwise record a baseline on the code to compare
 against and a candidate on the change, on the same machine and container image, and give each label a README saying
 what it ran (the commit and the worktree state are in every document's provenance) and, for a candidate, the
 improvements its comparison found. Only the metrics documents are copied into the label; the time series and the
@@ -242,7 +283,8 @@ of [`humanoid_mpc_config`](../humanoid_mpc_config/README.md) - `config/mpc/task.
 `config/mpc/contact_planning.textproto` where the robot has one, and the gait file `gait.textproto` - plus its URDF and
 MuJoCo scene, and the provenance records the SHA-256 of each.
 
-`ROBOT` is `drc_atlas`, `engineai_sa01`, `unitree_g1`, `unitree_r1` or `unitree_g1_wb`. The targets run the manual tests
+`ROBOT` is `drc_atlas`, `engineai_sa01`, `unitree_g1`, `unitree_r1`, `unitree_g1_wb` or, for the closed-loop metrics
+only, `unitree_g1_kalman` (["The kalman variant"](#the-kalman-variant)). The targets run the manual tests
 `closed_loop_<robot>`, `benchmark_mpc_solve_<robot>` and `compare_closed_loop_labels` under `bazel test`, so that the machine lock of `tools/bazel`
 keeps them from running next to another build, and copy the documents into `data/`.
 
@@ -282,7 +324,7 @@ metrics measure the stance phases of every contact.
 | `test_lockstep_determinism` | smoke runs on the Unitree G1 with one solver thread agree to 1e-9, two in one process and one in a process of its own, and a run's per-solve gaps, SQP steps and swing residuals hold its document's largest (exclusive: it compiles CppAD libraries) |
 | `test_initial_state_gap` | the initial-state gap of a solve (`initialStateGapOf`): the state manifold's rotation angle wherever its layout puts the rotation block, zero without a rotation block; and the quaternion norm deviation of a solution (`maxUnitQuaternionNormDeviationOf`), the largest distance of a stored quaternion from the unit sphere, none without a node |
 | `test_driver_settings_from_config` | the GUI's command scaling from its own fields of the reference file, a limit that is absent or not positive refused by name, every configuration's reference file; the contact wrench gate of a whole task file: no block is the instantaneous gate, a refused block keeps the gate in use, every configuration's task file sets its own |
-| `test_robot_scene_gantry_hold` | the gantry hold each configuration's task file names (pinned: a change is a change of its runs), its MuJoCo scene supporting it, the robot process's mujoco backend running on it without falling back to `kinematic_teleport`; each configuration on `weld_constraint` (all five) failing the check with its scene's weld taken out |
+| `test_robot_scene_gantry_hold` | the gantry hold each configuration's task file names (pinned: a change is a change of its runs), its MuJoCo scene supporting it, the robot process's mujoco backend running on it without falling back to `kinematic_teleport`; each configuration on `weld_constraint` (all six) failing the check with its scene's weld taken out |
 | `test_hot_field_coverage` | the reload classes of the task file's schema against each formulation's parameter updater (T8, `humanoid_mpc_config/README.md`): the centroidal and the whole-body MPC each apply exactly the `RELOAD_HOT` fields they read, neither applies a field only the other formulation, the robot process or the GUI reads, and every applied name is a field of the schema. From the updaters' static field lists: builds no MPC |
 | `test_solve_benchmark_gate` | the real-time gate on synthetic documents: a document passes against itself (one without a toolchain compares its tape counts only), each criterion fails alone, only the libraries both documents count compared one by one, a solve time of another machine, compiler, HPIPM target or image refused while the tape counts still compare; every robot's default recorded states exist |
 | `test_worktree_state` | the provenance's worktree state in throwaway git repositories: untracked contents change it, ignored files do not |

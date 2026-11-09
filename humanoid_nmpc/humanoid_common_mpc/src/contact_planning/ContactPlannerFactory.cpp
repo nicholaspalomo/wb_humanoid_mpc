@@ -70,6 +70,20 @@ absl::Status unknownPlanner(absl::string_view name) {
                    "'; supported: ", absl::StrJoin(knownPlannerNames(), ", ")));
 }
 
+/** OK on the biped's contact set; otherwise the InvalidArgument naming the
+ * planner `name` and the contact count. */
+absl::Status checkBipedContactSet(absl::string_view name,
+                                  ContactSetSummary contactSet) {
+  if (contactSet.isBiped) return absl::OkStatus();
+  return absl::InvalidArgumentError(absl::StrCat(
+      "[ContactPlannerFactory] planner.type '", name,
+      "' is written for two 6-DoF feet (a left and a right foot and the step "
+      "width between them); the contact set has ",
+      contactSet.numContacts,
+      " contacts. Schedule the contacts with the gait schedule or a "
+      "multi-contact plan instead."));
+}
+
 }  // namespace
 
 const std::vector<std::string>& knownPlannerNames() {
@@ -93,9 +107,10 @@ std::string canonicalPlannerName(absl::string_view name) {
 }
 
 absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> makeContactPlanner(
-    const ContactPlanningConfig& config) {
+    const ContactPlanningConfig& config, ContactSetSummary contactSet) {
   const std::string name = canonicalPlannerName(config.planner.type);
   if (name.empty()) return unknownPlanner(config.planner.type);
+  RETURN_IF_ERROR(checkBipedContactSet(name, contactSet));
   // An invalid configuration is returned as the Status of
   // ContactPlanningConfig::validateStatus(), which names the key. Both planners
   // validate in their Create() factory, so the same bad key is refused the same
@@ -111,9 +126,10 @@ absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> makeContactPlanner(
 }
 
 absl::StatusOr<std::string> contactPlannerSummary(
-    const ContactPlanningConfig& config) {
+    const ContactPlanningConfig& config, ContactSetSummary contactSet) {
   const std::string name = canonicalPlannerName(config.planner.type);
   if (name.empty()) return unknownPlanner(config.planner.type);
+  RETURN_IF_ERROR(checkBipedContactSet(name, contactSet));
   // As in makeContactPlanner: the H-LIP summary is computed from the
   // configuration as it is, so it is validated first (the mixed-integer summary
   // assembles a planner through LipContactPlanner::Create(), which validates it

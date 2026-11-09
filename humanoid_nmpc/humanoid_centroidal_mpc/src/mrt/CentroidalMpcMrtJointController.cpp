@@ -52,6 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/types/span.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
@@ -76,6 +77,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/robot/JointPdGainsFromConfig.h"
+#include "humanoid_common_mpc/gait/ModeScheduleSwitchTimes.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/ControlMode.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
@@ -1217,6 +1219,17 @@ CentroidalMpcMrtJointController::getPlannedContactFlags(scalar_t time) const {
   return ContactMask::fromModeNumber(
       mpcLink_->getPolicy().modeSchedule_.modeAtTime(time),
       measuredContactFlags_.size());
+}
+
+bool CentroidalMpcMrtJointController::getPlannedContactSwitchTimes(
+    scalar_t time,
+    absl::Span<scalar_t> timeSinceSwitch,
+    absl::Span<scalar_t> timeToSwitch) const {
+  if (!policyActivated_.load()) return false;
+  plannedContactSwitchTimes(mpcLink_->getPolicy().modeSchedule_, time,
+                            measuredContactFlags_.size(), timeSinceSwitch,
+                            timeToSwitch);
+  return true;
 }
 
 }  // namespace ocs2::humanoid

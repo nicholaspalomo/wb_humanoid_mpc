@@ -403,7 +403,8 @@ TEST_F(HlipPlanningIntegrationTest, TheShippedPlannerIsTheClosedFormHlip) {
   // stays off.
   EXPECT_EQ(config.formulation.execution,
             std::vector<std::string>{term::kPlannedComOverride});
-  const absl::StatusOr<std::string> summary = contactPlannerSummary(config);
+  const absl::StatusOr<std::string> summary =
+      contactPlannerSummary(config, kBipedContactSetSummary);
   ASSERT_TRUE(summary.ok());
   EXPECT_NE(summary->find("H-LIP"), std::string::npos);
 }

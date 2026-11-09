@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc_app/robot/FallRecovery.h"
 #include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
 #include "humanoid_common_mpc_app/robot/HardwareFallRecovery.h"
@@ -57,6 +58,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotProcess.h"
 #include "humanoid_common_mpc_app/robot/RobotSetUpSteps.h"
 #include "humanoid_common_mpc_app/robot/RobotSupervisorRegistry.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_ipc/Topics.h"
 #include "humanoid_mpc_msgs/fsm_command.pb.h"
 #include "humanoid_mpc_msgs/fsm_state.nproto.h"
@@ -330,16 +332,21 @@ class RobotProcessOnHardwareTest
     config.settings.stateEstimator = stateEstimator;
     config.settings.fallRecovery.maxTiltangleBaseRtWorld =
         kMaxTiltangleBaseRtWorld;
+    const mpc_config::TaskFile task =
+        loadTaskFile(robot_test::kAtlasTask).value();
     const ModelSettings modelSettings =
-        ModelSettings::Create(robot_test::kAtlasTask, robot_test::kAtlasUrdf,
-                              "centroidal_mpc_", /*verbose=*/false)
+        ModelSettings::Create(task, robot_test::kAtlasUrdf, "centroidal_mpc_",
+                              /*verbose=*/false)
             .value();
     config.urdfFile = robot_test::kAtlasUrdf;
-    config.stateEstimatorContacts = stateEstimatorContacts(modelSettings);
-    // The height the contact frames stand at in the world (kalman's
+    config.stateEstimatorContacts =
+        stateEstimatorContacts(modelSettings, task.contacts,
+                               robot_test::kAtlasUrdf)
+            .value();
+    // The height the contact points stand at in the world (kalman's
     // nom_pos_contact_rt_world_ewrt_world_z): the Atlas stands at
     // kStandingPosBaseRtWorldEwrtWorldZ with every joint at zero, so it is that
-    // height plus the frames' height below the base at zero joints, by the same
+    // height plus the soles' height below the base at zero joints, by the same
     // leg kinematics the estimator runs.
     absl::StatusOr<std::unique_ptr<estimation::ContactKinematics>> kinematics =
         estimation::ContactKinematics::Create(robot_test::kAtlasUrdf,

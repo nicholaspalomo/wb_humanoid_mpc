@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -65,9 +66,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * test's undeclared outputs, where `make closed-loop-metrics` collects them.
  * With a baseline (--baseline, a label under data/closed_loop/), a run is also
  * compared with it within the bands of section 4.5
- * (compareClosedLoopMetrics()), and its violations and improvements are logged
- * and written beside the outputs, where the Make target prints them. --label is
- * required.
+ * (compareClosedLoopMetrics(); a state-estimator variant with the baseline's
+ * run of the configuration it varies, within closedLoopMetricBandsFor()), and
+ * its violations and improvements are logged
+ * and written beside the outputs, where the Make target prints them. Without a
+ * baseline too, a configuration that falls in its walking scenario
+ * (RobotConfiguration::walkingScenario) fails (walkingSurvivalViolation()).
+ * --label is required. A scenario the configuration does not run
+ * (RobotConfiguration::scenarios) is skipped.
  *
  * The closed_loop_<robot> tests are tagged manual and exclusive: a run builds
  * the MPC (compiling its CppAD libraries on the first one) and simulates up to
@@ -177,6 +183,9 @@ TEST_P(ClosedLoopScenarioTest, RunsAndStaysWithinTheBaselineBands) {
   const absl::StatusOr<ClosedLoopScenario> scenario =
       findClosedLoopScenario(GetParam());
   ASSERT_TRUE(scenario.ok()) << scenario.status();
+  if (!configuration->runsScenario(scenario->name)) {
+    GTEST_SKIP() << configuration->name << " does not run " << scenario->name;
+  }
 
   LockstepOptions options;
   if (absl::GetFlag(FLAGS_threads) > 0) {
@@ -207,12 +216,17 @@ TEST_P(ClosedLoopScenarioTest, RunsAndStaysWithinTheBaselineBands) {
   ASSERT_TRUE(written.ok()) << written;
   LOG(WARNING) << configuration->name << " " << scenario->name << ":\n"
                << result->metrics.serialize();
+  // The outputs are written first, so that a run that fails here still leaves
+  // its documents for `make closed-loop-metrics` to collect.
+  const std::optional<std::string> walkingFall =
+      walkingSurvivalViolation(*configuration, scenario->name, result->metrics);
+  EXPECT_FALSE(walkingFall.has_value()) << walkingFall.value_or("");
 
   const std::string baselineLabel = absl::GetFlag(FLAGS_baseline);
   if (baselineLabel.empty()) return;
   const std::filesystem::path baselineFile =
       std::filesystem::path(kBaselineDirectory) / baselineLabel /
-      metricsFileName(configuration->name, scenario->name);
+      metricsFileName(configuration->baselineName(), scenario->name);
   if (!std::filesystem::exists(baselineFile)) {
     LOG(WARNING) << "No baseline " << baselineFile
                  << ": nothing to compare with.";
@@ -221,9 +235,13 @@ TEST_P(ClosedLoopScenarioTest, RunsAndStaysWithinTheBaselineBands) {
   const absl::StatusOr<JsonValue> baseline =
       readJsonFile(baselineFile.string());
   ASSERT_TRUE(baseline.ok()) << baseline.status();
-  const ClosedLoopComparison comparison = compareClosedLoopMetrics(
+  ClosedLoopComparison comparison = compareClosedLoopMetrics(
       result->metrics, *baseline,
-      BandOptions{.compareSolveTime = absl::GetFlag(FLAGS_compare_solve_time)});
+      BandOptions{.compareSolveTime = absl::GetFlag(FLAGS_compare_solve_time),
+                  .bands = closedLoopMetricBandsFor(*configuration)});
+  // As compareArchivedClosedLoopRuns() adds it, so that the archived
+  // comparison of this run reaches the same verdict.
+  if (walkingFall.has_value()) comparison.violations.push_back(*walkingFall);
   const std::string description = describeClosedLoopComparison(comparison);
   LOG(WARNING) << configuration->name << " " << scenario->name << " against "
                << baselineLabel << ":\n"

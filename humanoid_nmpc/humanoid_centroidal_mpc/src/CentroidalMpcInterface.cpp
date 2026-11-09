@@ -847,6 +847,8 @@ absl::Status CentroidalMpcInterface::setupLocomotionHeuristics() {
   environment.usesContactBasisVectorInputs = usesContactBasisVectorInputs();
   environment.nomPosLfootRtRfootEwrtHeadingY =
       modelSettings_.nominalFootholdConfig.nomPosLfootRtRfootEwrtHeadingY;
+  environment.nominalFootholdAnchor =
+      modelSettings_.nominalFootholdConfig.anchor;
   ASSIGN_OR_RETURN(
       const MpcFormulationTasks formulationTasks,
       mpcFormulationTasksFromConfig(config_.task, FormulationLogging::kQuiet));
@@ -993,6 +995,9 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   // joint turns, from the model at the initial posture.
   RETURN_IF_ERROR(
       referenceManagerPtr_->configureArmSwing(task.arm_swing, initialState_));
+  // Where each contact stands at the initial posture, the landmark of the
+  // nominal_stance foothold anchor.
+  referenceManagerPtr_->configureNominalStance(initialState_);
 
   HumanoidCostConstraintFactory factory(
       &task, StateInputLayout::Mpc::kCentroidal, *referenceManagerPtr_,

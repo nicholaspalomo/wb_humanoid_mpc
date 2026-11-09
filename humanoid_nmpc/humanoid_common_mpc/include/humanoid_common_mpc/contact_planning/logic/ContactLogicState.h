@@ -59,9 +59,9 @@ namespace ocs2::humanoid {
  * The binaries are laid out node-major: index kNumFeet * node + foot
  * (contactBinaryIndex). kNumFeet is the planner's foot count, the size of its
  * per-foot input (ContactPlannerInput) and of its variable layout: two, for
- * both planners are written for a biped and refuse every contact count but two
- * (checkTwoContactCount()). The rules written over the number of feet read
- * it through numFeet().
+ * both planners are written for a biped and are built only for the biped's two
+ * 6-DoF feet (makeContactPlanner(), checkTwoContactCount()). The rules written
+ * over the number of feet read it through numFeet().
  *
  * Passive data, read-only once make() has built it, so concurrent calls of its
  * const helpers are safe. `input` and `previousAssignment` must outlive it.

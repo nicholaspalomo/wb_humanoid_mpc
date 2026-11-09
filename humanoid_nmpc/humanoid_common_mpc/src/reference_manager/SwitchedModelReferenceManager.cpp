@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <memory>
@@ -43,6 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/Types.h"
@@ -58,6 +61,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
 #include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactMask.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -65,9 +69,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
+#include "humanoid_common_mpc/gait/LegSwingPhase.h"
 #include "humanoid_common_mpc/locomotion_heuristics/BasePoseHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 #include "humanoid_common_mpc/locomotion_heuristics/WrenchHeuristic.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
@@ -261,6 +267,31 @@ scalar_t SwitchedModelReferenceManager::getPhaseVariableRate(
   return 0.0;
 }
 
+scalar_t SwitchedModelReferenceManager::getSwingPhaseVariable(
+    size_t legIndex, scalar_t time) const {
+  const std::vector<ModelSettings::Leg>& legs =
+      mpcRobotModelPtr_->modelSettings.legs;
+  if (legIndex >= legs.size()) return 0.0;
+  return legSwingPhaseVariable(this->getModeSchedule(), numContacts_,
+                               legs[legIndex].contactIndices, time);
+}
+
+scalar_t SwitchedModelReferenceManager::getSwingPhaseVariableRate(
+    size_t legIndex, scalar_t time) const {
+  const std::vector<ModelSettings::Leg>& legs =
+      mpcRobotModelPtr_->modelSettings.legs;
+  if (legIndex >= legs.size()) return 0.0;
+  return legSwingPhaseVariableRate(this->getModeSchedule(), numContacts_,
+                                   legs[legIndex].contactIndices, time);
+}
+
+void SwitchedModelReferenceManager::configureNominalStance(
+    const vector_t& nominalState) {
+  PinocchioInterface pinocchioInterface = pinocchioInterface_;
+  nomPosContactsRtBaseEwrtHeadingXy_ = computeNomPosContactsRtBaseEwrtHeadingXy(
+      pinocchioInterface, *mpcRobotModelPtr_, nominalState);
+}
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -320,10 +351,37 @@ SwitchedModelReferenceManager::getSwingRefLinvelFootRtWorldEwrtWorldXy(
   return getCmdLinvelBaseRtWorldEwrtWorldXy(time);
 }
 
+absl::Status SwitchedModelReferenceManager::checkArmSwingContactSet(
+    const ArmSwingSettings& settings) const {
+  const ModelSettings& modelSettings = mpcRobotModelPtr_->modelSettings;
+  if (!armSwingReferenceActive_ ||
+      settings.generator != ArmSwingGenerator::kProcedural ||
+      modelSettings.isBipedContactSet()) {
+    return absl::OkStatus();
+  }
+  return absl::InvalidArgumentError(absl::StrCat(
+      "[ArmSwing] arm_swing.generator '",
+      armSwingGeneratorName(settings.generator),
+      "' is written for two 6-DoF feet: it swings the arms against the "
+      "biped's gait phase. The contact set has ",
+      modelSettings.contactNames.size(), " contacts (",
+      absl::StrJoin(modelSettings.contactNames, ", "),
+      "). Set arm_swing.generator 'none', or leave out "
+      "model_settings.arm_joint_names."));
+}
+
+absl::Status SwitchedModelReferenceManager::setArmSwingSettings(
+    const ArmSwingSettings& settings) {
+  RETURN_IF_ERROR(checkArmSwingContactSet(settings));
+  armSwingSettings_ = settings;
+  return absl::OkStatus();
+}
+
 absl::Status SwitchedModelReferenceManager::configureArmSwing(
     const mpc_config::ArmSwingConfig& config, const vector_t& nominalState) {
   ASSIGN_OR_RETURN(const ArmSwingSettings settings,
                    armSwingSettingsFromConfig(config));
+  RETURN_IF_ERROR(checkArmSwingContactSet(settings));
   if (mpcRobotModelPtr_->modelSettings.hasArmSwingJoints) {
     ASSIGN_OR_RETURN(
         armSwingDirections_,
@@ -344,8 +402,11 @@ bool SwitchedModelReferenceManager::needsMeasuredState() const {
   // ones: the base-pose and wrench families read the commanded yaw rate, which
   // is recovered by inverting the target's momentum channel with the composite
   // yaw inertia this function's caller latches.
-  return mpcRobotModelPtr_->modelSettings.nominalFootholdConfig
-                 .nomPosLfootRtRfootEwrtHeadingY > 0.0 ||
+  const ModelSettings::NominalFootholdConfig& nominalFoothold =
+      mpcRobotModelPtr_->modelSettings.nominalFootholdConfig;
+  return nominalFoothold.nomPosLfootRtRfootEwrtHeadingY > 0.0 ||
+         nominalFoothold.anchor ==
+             ModelSettings::NominalFootholdAnchor::kNominalStance ||
          !heuristicLayerPtr_->empty();
 }
 
@@ -403,9 +464,22 @@ SwitchedModelReferenceManager::predictedBaseAt(scalar_t time) const {
 
 FootholdHeuristicContext SwitchedModelReferenceManager::footholdContext(
     size_t contactIndex, scalar_t time) const {
+  const ModelSettings& modelSettings = mpcRobotModelPtr_->modelSettings;
   FootholdHeuristicContext context;
   context.contactIndex = contactIndex;
-  context.side = (contactIndex == kContactLeftIndex) ? 1.0 : -1.0;
+  // The leg of the landing contact. A set without legs is the biped's (the
+  // only set without legs that reaches here, see
+  // getNomPosFootRtWorldEwrtWorldXy()), whose contact index is its leg index
+  // and whose left foot is contact 0.
+  const std::optional<size_t> leg = modelSettings.legOfContact(contactIndex);
+  context.legIndex = leg.value_or(contactIndex);
+  context.side = leg.has_value() ? modelSettings.legs[*leg].lateralSign
+                 : (contactIndex == kContactLeftIndex) ? 1.0
+                                                       : -1.0;
+  if (contactIndex < nomPosContactsRtBaseEwrtHeadingXy_.size()) {
+    context.nomPosContactRtBaseEwrtHeadingXy =
+        nomPosContactsRtBaseEwrtHeadingXy_[contactIndex];
+  }
   const PlanarBasePose predicted = predictedBaseAt(time);
   context.posBaseRtWorldEwrtWorldXy = predicted.posBaseRtWorldEwrtWorldXy;
   context.yawBaseRtWorld = predicted.yawBaseRtWorld;
@@ -417,19 +491,32 @@ FootholdHeuristicContext SwitchedModelReferenceManager::footholdContext(
       getCmdLinvelBaseRtWorldEwrtWorldXy(time);
   context.cmdRateYawBaseRtWorld = getCmdRateYawBaseRtWorld(time);
   context.measPosComRtFeetmeanEwrtWorldZ = measPosComRtFeetmeanEwrtWorldZ_;
+  // The biped's feet keep the schedule queries written for them; a leg of any
+  // other set is in stance while any of its contacts is.
   context.stanceDuration =
-      upcomingStanceDuration(modeSchedule_, contactIndex, time);
+      modelSettings.isBipedContactSet() || !leg.has_value()
+          ? upcomingStanceDuration(modeSchedule_, contactIndex, time)
+          : legUpcomingStanceDuration(modeSchedule_, numContacts_,
+                                      modelSettings.legs[*leg].contactIndices,
+                                      time);
   return context;
 }
 
 std::optional<vector2_t>
 SwitchedModelReferenceManager::getNomPosFootRtWorldEwrtWorldXy(
     size_t contactIndex, scalar_t time) const {
-  // The nominal step and the foothold heuristics place a left and a right foot
-  // (kContactLeftIndex, kContactRightIndex) a step width apart; another contact
-  // set has no foothold here rather than reading its first two contacts as
-  // feet. footholdContext() is reached only from below this guard.
-  if (!mpcRobotModelPtr_->modelSettings.isBipedContactSet()) {
+  // The step_width anchor places a left and a right foot (kContactLeftIndex,
+  // kContactRightIndex) a step width apart; another contact set has no
+  // foothold on it rather than reading its first two contacts as feet. The
+  // nominal_stance anchor places every contact of a legged set.
+  // footholdContext() is reached only from below this guard.
+  const ModelSettings& modelSettings = mpcRobotModelPtr_->modelSettings;
+  if (modelSettings.nominalFootholdConfig.anchor ==
+      ModelSettings::NominalFootholdAnchor::kNominalStance) {
+    if (!modelSettings.isLeggedContactSet()) return std::nullopt;
+    return footholdOnNominalStance(contactIndex, time);
+  }
+  if (!modelSettings.isBipedContactSet()) {
     return std::nullopt;
   }
   const scalar_t nomPosLfootRtRfootEwrtHeadingY =
@@ -450,8 +537,6 @@ SwitchedModelReferenceManager::getNomPosFootRtWorldEwrtWorldXy(
   if (!haveHeuristics) {
     return nomStepPosFootRtWorldEwrtWorldXy(contactIndex, time);
   }
-  const scalar_t side = (contactIndex == kContactLeftIndex) ? 1.0 : -1.0;
-
   // BLEDT'S H_r: the hip at the moment of landing, plus the listed heuristics'
   // offsets. See the header.
   const FootholdHeuristicContext context = footholdContext(contactIndex, time);
@@ -473,7 +558,7 @@ SwitchedModelReferenceManager::getNomPosFootRtWorldEwrtWorldXy(
   // computePosHipRtWorldEwrtWorldXy().)
   return vector2_t(
       computePosHipRtWorldEwrtWorldXy(context.posBaseRtWorldEwrtWorldXy,
-                                      context.yawBaseRtWorld, side,
+                                      context.yawBaseRtWorld, context.side,
                                       nomPosLfootRtRfootEwrtHeadingY) +
       offsetPosFootRtWorldEwrtWorldXy);
 }
@@ -540,12 +625,63 @@ vector2_t SwitchedModelReferenceManager::computePosHipRtWorldEwrtWorldXy(
                        (0.5 * side * nomPosLfootRtRfootEwrtHeadingY));
 }
 
+std::optional<vector2_t> SwitchedModelReferenceManager::footholdOnNominalStance(
+    size_t contactIndex, scalar_t time) const {
+  // Nothing measured yet (the first solve), or no nominal posture to stand in.
+  if (!hasMeasuredState_ ||
+      contactIndex >= nomPosContactsRtBaseEwrtHeadingXy_.size()) {
+    return std::nullopt;
+  }
+  const FootholdHeuristicContext context = footholdContext(contactIndex, time);
+  vector2_t nomPosContactRtWorldEwrtWorldXy =
+      computeNomPosContactRtWorldEwrtWorldXy(context);
+  if (heuristicLayerPtr_->footholdEmpty()) {
+    return nomPosContactRtWorldEwrtWorldXy;
+  }
+  const vector2_t offsetPosFootRtWorldEwrtWorldXy =
+      heuristicLayerPtr_->computeOffsetPosFootRtWorldEwrtWorldXy(context);
+  if (heuristicLayerPtr_->footholdMovesAnchor()) {
+    // hip_centered_stepping is listed: its offset is the hip relative to the
+    // predicted base, so the base is the anchor.
+    return vector2_t(context.posBaseRtWorldEwrtWorldXy +
+                     offsetPosFootRtWorldEwrtWorldXy);
+  }
+  return vector2_t(nomPosContactRtWorldEwrtWorldXy +
+                   offsetPosFootRtWorldEwrtWorldXy);
+}
+
+vector2_t SwitchedModelReferenceManager::computeNomPosContactRtWorldEwrtWorldXy(
+    const FootholdHeuristicContext& context) {
+  const scalar_t cosYaw = std::cos(context.yawBaseRtWorld);
+  const scalar_t sinYaw = std::sin(context.yawBaseRtWorld);
+  const vector2_t& nomPosContactRtBaseEwrtHeadingXy =
+      context.nomPosContactRtBaseEwrtHeadingXy;
+  return vector2_t(context.posBaseRtWorldEwrtWorldXy.x() +
+                       cosYaw * nomPosContactRtBaseEwrtHeadingXy.x() -
+                       sinYaw * nomPosContactRtBaseEwrtHeadingXy.y(),
+                   context.posBaseRtWorldEwrtWorldXy.y() +
+                       sinYaw * nomPosContactRtBaseEwrtHeadingXy.x() +
+                       cosYaw * nomPosContactRtBaseEwrtHeadingXy.y());
+}
+
 std::optional<SwingFootReference>
 SwitchedModelReferenceManager::getSwingFootReference(size_t contactIndex,
                                                      scalar_t time) const {
   if (isInContact(time, contactIndex)) return std::nullopt;
-  const std::optional<SwingWindow> phase =
-      swingPhaseAtTime(modeSchedule_, contactIndex, time);
+  // The biped's feet keep the schedule queries written for them; a contact of
+  // any other set is its own one-contact leg (LegSwingPhase.h).
+  const bool bipedContactSet =
+      mpcRobotModelPtr_->modelSettings.isBipedContactSet();
+  const std::array<size_t, 1> contact = {contactIndex};
+  std::optional<SwingWindow> phase;
+  if (bipedContactSet) {
+    phase = swingPhaseAtTime(modeSchedule_, contactIndex, time);
+  } else if (const std::optional<LegSwingWindow> window = legSwingWindowAtTime(
+                 modeSchedule_, numContacts_, contact, time);
+             window.has_value()) {
+    phase =
+        SwingWindow{.liftOff = window->liftOff, .touchDown = window->touchDown};
+  }
   if (!phase.has_value()) return std::nullopt;
   const scalar_t liftOffTime = phase->liftOff;
   const scalar_t touchDownTime = phase->touchDown;
@@ -567,7 +703,10 @@ SwitchedModelReferenceManager::getSwingFootReference(size_t contactIndex,
   const std::optional<vector2_t> liftoffPosFootRtWorldEwrtWorldXy =
       anchorPosFootRtWorldEwrtWorldXy(
           contactIndex,
-          previousTouchDownTime(modeSchedule_, contactIndex, liftOffTime));
+          bipedContactSet
+              ? previousTouchDownTime(modeSchedule_, contactIndex, liftOffTime)
+              : legPreviousTouchDownTime(modeSchedule_, numContacts_, contact,
+                                         liftOffTime));
   if (!liftoffPosFootRtWorldEwrtWorldXy.has_value()) return std::nullopt;
 
   // The same cubic blend the planned-foothold path uses: p'(0) = 1, p'(1) = 0,

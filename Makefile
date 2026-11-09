@@ -255,12 +255,13 @@ validation_env = --test_env=WB_VALIDATION_GIT_COMMIT="$$commit" --test_env=WB_VA
 	--nozip_undeclared_test_outputs --cache_test_results=no --test_output=errors
 
 ## Closed-loop metrics of one robot: make closed-loop-metrics ROBOT=<robot> LABEL=<label> [SCENARIO=walk_0p5] [BASELINE=<label>] [RECORD_STATES=1]
-# ROBOT: drc_atlas, engineai_sa01, unitree_g1, unitree_r1 or unitree_g1_wb. Without SCENARIO every scenario runs. The
+# ROBOT: drc_atlas, engineai_sa01, unitree_g1, unitree_r1, unitree_g1_wb or unitree_g1_kalman (unitree_g1 with the kalman
+# state estimator, three scenarios, held to unitree_g1's documents of BASELINE). Without SCENARIO every scenario runs. The
 # metrics land in data/closed_loop/$(LABEL)/ and the time series stay in the test's outputs; RECORD_STATES=1 also keeps
 # the walking states for the solve benchmark. With BASELINE each run's violations and improvements against it are printed
 # at the end.
 closed-loop-metrics:
-	@$(if $(and $(ROBOT),$(LABEL)),,$(error Usage: make closed-loop-metrics ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|unitree_g1_wb LABEL=<label> [SCENARIO=<scenario>] [BASELINE=<label>] [RECORD_STATES=1]))
+	@$(if $(and $(ROBOT),$(LABEL)),,$(error Usage: make closed-loop-metrics ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|unitree_g1_wb|unitree_g1_kalman LABEL=<label> [SCENARIO=<scenario>] [BASELINE=<label>] [RECORD_STATES=1]))
 	@$(validation_provenance) outputs=.bazel/testlogs/$(VALIDATION_PKG)/closed_loop_$(ROBOT)/test.outputs; \
 	$(bazel_indexed) test //$(VALIDATION_PKG):closed_loop_$(ROBOT) $(validation_env) --test_arg=--label=$(LABEL) \
 		$(if $(SCENARIO),--test_filter='*/$(SCENARIO)') $(if $(BASELINE),--test_arg=--baseline=$(BASELINE)); status=$$?; \
@@ -271,6 +272,7 @@ closed-loop-metrics:
 	echo "Metrics in $(VALIDATION_PKG)/data/closed_loop/$(LABEL)/, time series in $$outputs/."; exit $$status
 
 ## Solve benchmark of one robot: make benchmark-mpc-solve ROBOT=<robot> LABEL=<label> [STATES=<recorded states>] [BASELINE=<label>]
+# unitree_g1_kalman has no benchmark: its MPC is unitree_g1's.
 # Replays data/benchmark/states/<robot>_<walking scenario>_states.txt by default: walk_0p5, or walk_0p3 for EngineAI SA01
 # and Unitree R1 (RobotConfiguration::walkingScenario). The document lands in data/benchmark/$(LABEL)/; with BASELINE the
 # run is held to the real-time gate (SolveBenchmarkGate.h, $(VALIDATION_PKG)/README.md) against
@@ -289,7 +291,7 @@ benchmark-mpc-solve:
 # with BASELINE holds a run (compareClosedLoopMetrics()), from the archived documents: no simulation. Prints each run's
 # violations and improvements; fails when a run has a violation.
 compare-closed-loop:
-	@$(if $(and $(CANDIDATE),$(BASELINE)),,$(error Usage: make compare-closed-loop CANDIDATE=<label> BASELINE=<label> [ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|unitree_g1_wb]))
+	@$(if $(and $(CANDIDATE),$(BASELINE)),,$(error Usage: make compare-closed-loop CANDIDATE=<label> BASELINE=<label> [ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|unitree_g1_wb|unitree_g1_kalman]))
 	@$(bazel_indexed) test //$(VALIDATION_PKG):compare_closed_loop_labels --test_arg=--candidate=$(CANDIDATE) --test_arg=--baseline=$(BASELINE) \
 		$(if $(ROBOT),--test_arg=--robot=$(ROBOT)) --cache_test_results=no --test_output=all
 # LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations, //humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/LockstepOutputs.h:output_names, //humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/io/RunProvenance.h:provenance_environment, //humanoid_nmpc/humanoid_mpc_validation/exe/benchmarkMpcSolveMain.cpp:benchmark_paths, //humanoid_nmpc/humanoid_mpc_validation/exe/compareClosedLoopMain.cpp:comparison_paths, //humanoid_nmpc/humanoid_mpc_validation/test/closedLoopScenarios.cpp:comparison_file)

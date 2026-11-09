@@ -82,6 +82,12 @@ namespace ocs2::humanoid {
  *    tilt's, 0 on flat ground, and weights.rotvec_z weighs next to
  * nothing: CentroidalMpcInterface warns at start-up.
  *
+ * A 3-DoF contact (ModelSettings::isPointContact()) has no orientation to
+ * track: its rotvec and angular-velocity weights are held at zero, at
+ * construction and by every setWeights() of a hot reload. The residual and
+ * its CppAD library are the same for both kinds of contact; the weights are
+ * parameters of the library.
+ *
  * Not thread-safe; the solver clones it per worker.
  */
 class CentroidalMpcEndEffectorFootCost final
@@ -154,8 +160,13 @@ class CentroidalMpcEndEffectorFootCost final
   }
   bool getActiveInStance() const { return activeInStance_; }
 
+  /**
+   * Sets the task_space_foot_cost weights (EndEffectorKinematicsWeights::
+   * toVector() order). On a 3-DoF contact the orientation and angular-velocity
+   * entries are stored as zero whatever `weights` gives them.
+   */
   void setWeights(const vector12_t& weights) {
-    sqrtWeights_ = weights.cwiseSqrt();
+    sqrtWeights_ = contactWeights(weights).cwiseSqrt();
   }
   void getWeights(vector12_t& weights) const {
     weights = sqrtWeights_.cwiseProduct(sqrtWeights_);
@@ -239,6 +250,10 @@ class CentroidalMpcEndEffectorFootCost final
   CentroidalMpcEndEffectorFootCost(
       const CentroidalMpcEndEffectorFootCost& other);
 
+  /** Returns `weights` with the orientation and angular-velocity entries
+   * zeroed on a 3-DoF contact, and unchanged on a 6-DoF one. */
+  vector12_t contactWeights(const vector12_t& weights) const;
+
   ad_vector_t costVectorFunction(ad_scalar_t time,
                                  const ad_vector_t& state,
                                  const ad_vector_t& input,
@@ -254,6 +269,8 @@ class CentroidalMpcEndEffectorFootCost final
   bool activeInStance_ = false;
 
   size_t contactIndex_;
+  // Whether the contact is a 3-DoF one, whose orientation weights stay zero.
+  bool pointContact_ = false;
   const pinocchio::FrameIndex frameID_;
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
   std::unique_ptr<MpcRobotModelBase<ad_scalar_t>> mpcRobotModelAdPtr_;

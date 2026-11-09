@@ -180,6 +180,17 @@ std::vector<std::string> armSwingGeneratorNames() {
   return {kProceduralGeneratorName, kNoGeneratorName};
 }
 
+absl::string_view armSwingGeneratorName(ArmSwingGenerator generator) {
+  switch (generator) {
+    case ArmSwingGenerator::kProcedural:
+      return kProceduralGeneratorName;
+    case ArmSwingGenerator::kNone:
+      return kNoGeneratorName;
+  }
+  // Not a value of the enum.
+  return kNoGeneratorName;
+}
+
 absl::StatusOr<ArmSwingGenerator> armSwingGeneratorFromName(
     absl::string_view name) {
   if (name == kProceduralGeneratorName) return ArmSwingGenerator::kProcedural;

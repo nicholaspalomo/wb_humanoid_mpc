@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -119,6 +120,27 @@ class ModelSettings {
   };
 
   /**
+   * What the nominal foothold of a swing contact is measured from, selected by
+   * name with nominal_foothold.anchor (nominalFootholdAnchorFromName(),
+   * ModelSettingsFromConfig.h). SwitchedModelReferenceManager::
+   * getNomPosFootRtWorldEwrtWorldXy() places the contact.
+   */
+  enum class NominalFootholdAnchor {
+    // "step_width": the biped's anchor. The nominal step lands a foot
+    // nomPosLfootRtRfootEwrtHeadingY to its side of the other, stance foot;
+    // the foothold heuristics start from half that width to the foot's side of
+    // the predicted base. Written for the biped's two feet: the centroidal MPC
+    // refuses it with a positive width on any other set
+    // (checkCentroidalContactSet()).
+    kStepWidth,
+    // "nominal_stance": the contact lands where it stands at the nominal
+    // posture relative to the base predicted at its touch-down, turned by the
+    // predicted yaw; for a quadruped, below its hip. Any legged set
+    // (isLeggedContactSet()), the biped included as an opt-in.
+    kNominalStance,
+  };
+
+  /**
    * The nominal foothold reference, used only when no contact planner supplies
    * one.
    *
@@ -141,8 +163,11 @@ class ModelSettings {
    */
   struct NominalFootholdConfig {
     // [m] The lateral distance between the feet along the heading's y axis;
-    // 0 disables the nominal reference.
+    // 0 disables the nominal reference of the step_width anchor.
     scalar_t nomPosLfootRtRfootEwrtHeadingY = 0.0;
+    // What the landing target is measured from (nominal_foothold.anchor,
+    // nominalFootholdAnchorFromName()).
+    NominalFootholdAnchor anchor = NominalFootholdAnchor::kStepWidth;
   };
 
   /**
@@ -290,8 +315,10 @@ class ModelSettings {
    * with the other conversions of the typed task file's model and formulation.
    *
    * @return InvalidArgument naming the URDF when it cannot be read, when every
-   * joint of the URDF is fixed, or naming model_settings.arm_joint_names when
-   * it names a joint that is not an active MPC joint.
+   * joint of the URDF is fixed, naming model_settings.arm_joint_names when
+   * it names a joint that is not an active MPC joint, or naming
+   * model_settings.legs[i] (or the default biped legs) and what is wrong with
+   * the leg.
    */
   static absl::StatusOr<ModelSettings> Create(
       const mpc_config::TaskFile& taskFile,
@@ -386,6 +413,64 @@ class ModelSettings {
            contactNames6DoF.size() == static_cast<size_t>(kBipedFootCount);
   }
 
+  /** Where a leg's hip is along the base's x axis, relative to the mean hip. */
+  enum class LegLongitudinalPosition {
+    kFront,
+    kHind,
+    kCenter,
+  };
+
+  /**
+   * A leg of model_settings.legs, or one of the two default legs of a biped:
+   * its name, the contacts at its end and its hip.
+   *
+   * The side and the front/hind position are derived from the hip's position,
+   * never typed. An empty hipFrameName means the hip is unknown: only a default
+   * biped leg whose foot names no parent joint of the URDF has none, and it
+   * then has posHipRtBaseEwrtBase zero, the side of its index (left +1, right
+   * -1) and kCenter.
+   */
+  struct Leg {
+    // Letters and digits only, unique among the legs.
+    std::string name;
+    // Indices into contactNames, at least one; each contact is in at most one
+    // leg.
+    std::vector<size_t> contactIndices;
+    // A frame of the URDF model: the explicit hip_frame_name, or the derived
+    // hip joint's name.
+    std::string hipFrameName;
+    // [m] The hip's position relative to the base, in base axes, at the
+    // model's neutral joint configuration.
+    vector3_t posHipRtBaseEwrtBase = vector3_t::Zero();
+    // +1 for a leg on the left (posHipRtBaseEwrtBase.y() > 0), -1 on the right.
+    scalar_t lateralSign = 1.0;
+    LegLongitudinalPosition longitudinal = LegLongitudinalPosition::kCenter;
+  };
+
+  // The legs, in the order of model_settings.legs, or "left" (contact 0) and
+  // "right" (contact 1) on a biped contact set whose task file lists none.
+  // Empty on any other set without legs.
+  std::vector<Leg> legs;
+
+  /** Returns the index into legs of the leg that contact `contactIndex`
+   * belongs to, or nullopt for a contact that is in no leg. Linear in the
+   * number of contacts of the legs. */
+  std::optional<size_t> legOfContact(size_t contactIndex) const;
+
+  /** Returns whether the robot is described by its legs: there is at least
+   * one leg and every contact is in one. */
+  bool isLeggedContactSet() const;
+
+  /**
+   * Returns whether the set stands on the biped's two feet: its last two
+   * contacts are 6-DoF feet (the 6-DoF contacts follow the 3-DoF ones) and it
+   * is not legged other than as the biped. The biped and the multi-contact
+   * Atlas do; a quadruped on four soles stands on all its contacts. Its gait
+   * files then read STANCE as kBipedModeStance and LF and RF as the foot
+   * aliases (gaitModeLayoutOf()), so no leg may be named LF or RF.
+   */
+  bool hasBipedStance() const;
+
   // The formulation choices are not flags here. Each is selected by name, and
   // read - and refused, with a message that names the key to change - by the
   // interface that builds the problem, where a Status can be returned:
@@ -456,10 +541,6 @@ class ModelSettings {
 
  private:
   ModelSettings() = default;
-
-  /** Appends the URDF's joints to fullJointNames, in its order (Create());
-   * throws what Pinocchio's URDF parser throws. */
-  void loadFullJointNames(const std::string& urdfFile, bool verbose);
 };
 
 /** The model_fingerprint of an MpcObservation or MpcPolicy that does not carry

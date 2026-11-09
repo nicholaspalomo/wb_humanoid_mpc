@@ -167,6 +167,12 @@ registries {
 }
 
 registries {
+  name: "nominal_foothold_anchor"
+  names: "step_width"
+  names: "nominal_stance"
+}
+
+registries {
   name: "projectile"
   names: "dodgeball"
 }

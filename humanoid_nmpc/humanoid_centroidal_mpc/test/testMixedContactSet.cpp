@@ -163,6 +163,12 @@ CentroidalMpcConfig mixedContactSetConfig(const CentroidalMpcConfig& atlas) {
   // NOLINTEND(frame-naming)
   task.contact_input_parameterization = "wrench";
   task.contact_schedule_source = "gait_schedule";
+  // The Atlas's step width is the biped's step_width foothold anchor, which
+  // this set does not run.
+  task.nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y = 0.0;
+  // The procedural arm swing follows the biped's gait phase, and is refused on
+  // this set.
+  task.arm_swing.generator = "none";
   task.costs = {"state_quadratic_cost", "input_quadratic_cost"};
   task.hard_constraints = {"zero_wrench", "zero_velocity"};
   task.soft_constraints = {"joint_limits", "contact_wrench_cone",
@@ -769,6 +775,12 @@ struct ListedTerm {
 };
 
 // LINT.IfChange(biped_only_terms)
+// The terms of the three lists: the biped-only ones, and the swing terms
+// (task_space_foot_cost, normal_velocity) that a set without legs, as this
+// one is, does not run either. The planner, the basis vectors, the heuristics
+// (base-pose and wrench on any non-biped set, all of them on a set without
+// legs) and the step_width foothold anchor are tested by their own cases
+// below.
 constexpr ListedTerm kBipedOnlyTerms[] = {
     {.list = &mpc_config::TaskFile::costs,
      .listName = "costs",
@@ -816,6 +828,7 @@ void expectRefused(const absl::Status& status, absl::string_view selection) {
 TEST(MixedContactSetRefusal, everyTermWrittenForTwoFeetIsRefusedByName) {
   const CentroidalMpcConfig mixed = mixedContactSetConfig(loadAtlas());
   const ModelSettings settings = mixedModelSettings(mixed.task);
+  ASSERT_FALSE(settings.isLeggedContactSet());
   HUMANOID_ASSERT_OK(checkCentroidalContactSet(settings, mixed.task));
   for (const ListedTerm& listed : kBipedOnlyTerms) {
     mpc_config::TaskFile task = mixed.task;

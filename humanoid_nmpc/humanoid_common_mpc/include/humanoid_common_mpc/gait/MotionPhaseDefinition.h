@@ -30,14 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <limits>
+#include <optional>
 #include <string>
+#include <vector>
 
-#include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
@@ -106,74 +105,97 @@ inline size_t numModeNumbersOf(size_t numContacts) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-/** The name of `modeNumber` in the gait files (FLY, RF, LF or STANCE), or an
- * empty string for a number that is not a mode. */
-inline std::string modeNumber2String(size_t modeNumber) {
-  // Indexed by the mode number.
-  // LINT.IfChange(mode_names)
-  constexpr std::array<absl::string_view, kNumBipedModes> kModeNames = {
-      "FLY", "RF", "LF", "STANCE"};
-  // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/mode_sequence_template_config.proto:mode_names)
-  return modeNumber < kModeNames.size() ? std::string(kModeNames[modeNumber])
-                                        : std::string();
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
+// The spellings of the gait files' mode names (parseModeNumber()). FLY and
+// STANCE name a mode on every contact set, LF and RF on a set whose stance is
+// the biped's; leg names are joined by the leg separator and contact names by
+// the contact separator.
+// LINT.IfChange(mode_names)
+inline constexpr char kModeNameFly[] = "FLY";
+inline constexpr char kModeNameStance[] = "STANCE";
+inline constexpr char kModeNameLeftFoot[] = "LF";
+inline constexpr char kModeNameRightFoot[] = "RF";
+inline constexpr char kModeLegSeparator = '_';
+inline constexpr char kModeContactSeparator = '+';
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/mode_sequence_template_config.proto:mode_names, //humanoid_nmpc/humanoid_common_mpc/src/config/model/ModelSettingsFromConfig.cpp:reserved_leg_names, //humanoid_nmpc/humanoid_mpc_config/model_settings_config.proto:legs)
 
 /**
- * The contact set a gait file's modes are read against (parseModeNumber()): its
- * number of contacts and its stance mode, the mode GaitSchedule inserts between
- * gaits and appends after the last one. GaitSchedule.h's gaitModeLayoutOf()
- * derives it from ModelSettings. The default is the biped's two feet.
+ * The contact set a gait file's modes are read against (parseModeNumber())
+ * and printed for (modeNumber2String()): its number of contacts, its stance
+ * mode, the mode GaitSchedule inserts between gaits and appends after the last
+ * one, and the names of its legs and contacts. GaitSchedule.h's
+ * gaitModeLayoutOf() derives it from ModelSettings. The default is the biped's
+ * two feet without leg or contact names, which reads and prints FLY, RF, LF
+ * and STANCE only.
  */
 struct GaitModeLayout {
+  /** A leg of the set (ModelSettings::Leg) and the mode number in which its
+   * contacts alone are active. parseModeNumber() reads the contact names with
+   * the same pair, one contact per entry. */
+  struct LegModeBits {
+    std::string name;
+    // The OR of contactModeBit() over the leg's contacts (the contact's bit
+    // for a contact); nonzero.
+    size_t modeBits = 0;
+  };
+
   size_t numContacts = static_cast<size_t>(kBipedFootCount);
   // The mode number "STANCE" names: kBipedModeStance (the two feet, which are
-  // the last two contacts) on a set whose last two contacts are 6-DoF feet, all
+  // the last two contacts) on a set whose last two contacts are 6-DoF feet and
+  // that is not legged other than as the biped (gaitModeLayoutOf()), all
   // contacts active otherwise.
   size_t stanceMode = kBipedModeStance;
+  // The legs in ModelSettings::legs order; empty on a set without legs.
+  std::vector<LegModeBits> legs;
+  // ModelSettings::contactNames, in contact order; empty when the layout names
+  // no contacts, so the '+' form is not read.
+  std::vector<std::string> contactNames;
 };
 
 /**
- * The mode number a gait file names `modeString` on the contact set `layout`:
+ * Returns the mode a new gait aligns its start to when its template has no mode
+ * other than the stance (updateGaitSchedule()): kBipedModeLf, the left foot
+ * alone, on a set whose stance is the biped's (layout.stanceMode ==
+ * kBipedModeStance), and none on any other set, whose stance template is not
+ * moved. A function of the stance mode rather than a field of GaitModeLayout,
+ * so that a layout built by hand cannot contradict its own stance.
+ */
+std::optional<size_t> defaultCycleStartMode(const GaitModeLayout& layout);
+
+/**
+ * Returns the name of `modeNumber` on the contact set `layout`, the inverse of
+ * parseModeNumber():
+ *  - "FLY" for no contact and "STANCE" for layout.stanceMode;
+ *  - on a set whose stance is the biped's (layout.stanceMode ==
+ *    kBipedModeStance), "LF" and "RF" for the left or the right foot alone;
+ *  - the names of the legs joined by '_' in leg order when the mode is the
+ *    union of whole legs of the layout ("LF_RH");
+ *  - otherwise one digit 0 or 1 per contact, contact 0 first ("1001").
+ * On the default layout that is FLY, RF, LF and STANCE for modes 0 to 3, as the
+ * gait files name them. An empty string for a number that is not a mode of the
+ * set (a bit past its contacts).
+ */
+std::string modeNumber2String(size_t modeNumber,
+                              const GaitModeLayout& layout = GaitModeLayout{});
+
+/**
+ * Parses `modeString`, a mode name of a gait file, into the mode number on the
+ * contact set `layout`,
+ * tried in this order:
  *  - "FLY", no contact active, and "STANCE", layout.stanceMode, on any set;
  *  - "LF" and "RF", the left or the right foot alone, on a set whose stance
  *    mode is the biped's (the feet are its last two contacts);
+ *  - distinct leg names of layout.legs joined by '_', the contacts of those
+ *    legs: "LF_RH" is 0b1001 for legs LF, RF, LH and RH of one contact each;
+ *  - distinct contact names of layout.contactNames joined by '+', those
+ *    contacts: "sole_l_toe_contact+sole_r_heel_contact";
  *  - a string of layout.numContacts digits '0' and '1', the bitmask of the
  *    active contacts in contact order (contact 0 first, the most significant
  *    bit), on any set: "1001" is contacts 0 and 3 of a set of four.
- * InvalidArgument naming the valid forms and the contact count otherwise.
+ * A string of leg or contact names that repeats one is refused naming it.
+ * InvalidArgument naming the valid forms, the contact count and the legs
+ * otherwise.
  */
-inline absl::StatusOr<size_t> parseModeNumber(absl::string_view modeString,
-                                              GaitModeLayout layout) {
-  if (modeString == modeNumber2String(kBipedModeFly)) return kBipedModeFly;
-  if (modeString == modeNumber2String(kBipedModeStance)) {
-    return layout.stanceMode;
-  }
-  const bool bipedFeetLast = layout.stanceMode == kBipedModeStance;
-  if (bipedFeetLast) {
-    if (modeString == modeNumber2String(kBipedModeLf)) return kBipedModeLf;
-    if (modeString == modeNumber2String(kBipedModeRf)) return kBipedModeRf;
-  }
-  constexpr size_t kModeNumberBits = std::numeric_limits<size_t>::digits;
-  const bool isMask =
-      modeString.size() == layout.numContacts &&
-      layout.numContacts < kModeNumberBits &&
-      modeString.find_first_not_of("01") == absl::string_view::npos;
-  if (isMask) {
-    size_t mode = 0;
-    for (const char digit : modeString) {
-      mode = (mode << 1U) | static_cast<size_t>(digit == '1');
-    }
-    return mode;
-  }
-  return absl::InvalidArgumentError(absl::StrCat(
-      "'", modeString, "' is not a mode of a set of ", layout.numContacts,
-      " contacts; the modes are FLY, STANCE", bipedFeetLast ? ", LF, RF" : "",
-      " and a string of ", layout.numContacts,
-      " digits 0 and 1, one per contact in contact order (1 in contact)."));
-}
+absl::StatusOr<size_t> parseModeNumber(absl::string_view modeString,
+                                       const GaitModeLayout& layout);
 
 }  // namespace ocs2::humanoid

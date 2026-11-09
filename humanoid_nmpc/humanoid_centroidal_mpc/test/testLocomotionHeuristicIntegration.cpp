@@ -2439,6 +2439,7 @@ TEST_F(LocomotionHeuristicIntegrationTest,
   left.side = 1.0;
   FootholdHeuristicContext right;
   right.contactIndex = kContactRightIndex;
+  right.legIndex = kContactRightIndex;
   right.side = -1.0;
   const vector2_t offsetPosLfootRtWorldEwrtWorldXy =
       layer->computeOffsetPosFootRtWorldEwrtWorldXy(left);

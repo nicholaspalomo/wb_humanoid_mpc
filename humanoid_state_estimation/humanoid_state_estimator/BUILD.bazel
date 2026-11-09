@@ -34,13 +34,17 @@ cc_library(
 cc_library(
     name = "state_estimator",
     srcs = [
+        "src/ContactEstimationInputs.cpp",
         "src/ContactKinematics.cpp",
+        "src/ContactTrustRamp.cpp",
         "src/KalmanBaseEstimator.cpp",
         "src/KalmanStateEstimator.cpp",
         "src/StateEstimatorRegistry.cpp",
     ],
     hdrs = [
+        "include/humanoid_state_estimator/ContactEstimationInputs.h",
         "include/humanoid_state_estimator/ContactKinematics.h",
+        "include/humanoid_state_estimator/ContactTrustRamp.h",
         "include/humanoid_state_estimator/GroundTruthStateEstimator.h",
         "include/humanoid_state_estimator/KalmanBaseEstimator.h",
         "include/humanoid_state_estimator/KalmanStateEstimator.h",
@@ -62,6 +66,7 @@ cc_library(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/types:span",
         "@eigen",
         "@pinocchio",
     ],
@@ -105,6 +110,20 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The contact-trust ramp's scale (ContactTrustRamp.h): 1 outside its window, off and with no known switch, its maximum at
+# the switch, monotone and continuously differentiable at the window's edge.
+cc_test(
+    name = "test_contact_trust_ramp",
+    size = "small",
+    srcs = ["test/testContactTrustRamp.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":state_estimator",
+        "//lib/ocs2:ocs2_core_types",
         "@googletest//:gtest_main",
     ],
 )

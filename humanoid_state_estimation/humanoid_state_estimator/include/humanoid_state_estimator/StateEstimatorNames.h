@@ -40,6 +40,10 @@ inline constexpr absl::string_view kGroundTruthStateEstimatorName =
     "ground_truth";
 /** The IMU and the leg kinematics through a Kalman filter
  * (KalmanStateEstimator). */
+// LINT.IfChange(kalman_name)
 inline constexpr absl::string_view kKalmanStateEstimatorName = "kalman";
+// clang-format off
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/RobotConfiguration.cpp:kalman_variant)
+// clang-format on
 
 }  // namespace ocs2::humanoid::estimation

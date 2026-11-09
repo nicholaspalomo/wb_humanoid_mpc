@@ -91,6 +91,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
 #include "humanoid_common_mpc/reference_manager/ArmSwing.h"
+#include "humanoid_common_mpc/reference_manager/GaitSwitchingTable.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h"
@@ -623,6 +624,13 @@ void dumpReference(ValueDump& dump,
     dumpGaitMap(dump, "gaits", *gaits);
   } else {
     addError(dump, "gaits", gaits.status());
+  }
+  const absl::StatusOr<std::vector<GaitModeStateConfig>> switching =
+      gaitModeStatesFromConfig(inputs.gait);
+  if (switching.ok()) {
+    dumpGaitModeStates(dump, "gait_switching", *switching);
+  } else {
+    addError(dump, "gait_switching", switching.status());
   }
 }
 

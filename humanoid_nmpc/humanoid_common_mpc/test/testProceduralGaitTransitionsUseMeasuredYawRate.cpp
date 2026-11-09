@@ -51,7 +51,7 @@ namespace ocs2::humanoid {
 namespace {
 
 /** The thresholds of the shipped "slow_walk" gait
- * (ProceduralMpcMotionManager::gaitModeStates_). */
+ * (defaultGaitModeStates(), GaitSwitchingTable.h). */
 ProceduralMpcMotionManager::GaitModeStateConfig slowWalk() {
   return ProceduralMpcMotionManager::GaitModeStateConfig{
       .gaitCommand = "slow_walk",

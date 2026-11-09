@@ -57,6 +57,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
+#include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_centroidal_mpc/initialization/CentroidalWeightCompInitializer.h"
 #include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -64,11 +65,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/reference_manager/ArmSwing.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
-#include "humanoid_mpc_config/input_weights.nproto.h"
-#include "humanoid_mpc_config/model_settings_config.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/support/StatusTestMacros.h"
+#include "support/FourPointContactSet.h"
 #include "support/TypedConfigFiles.h"
 
 /**
@@ -92,26 +93,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-constexpr size_t kNumPoints = 4;
+using four_point_set::fourPointConfig;
+using four_point_set::kAllFour;
+using four_point_set::kFrontLeft;
+using four_point_set::kFrontLeftHindRight;
+using four_point_set::kFrontRight;
+using four_point_set::kFrontRightHindLeft;
+using four_point_set::kHindLeft;
+using four_point_set::kHindRight;
+
+constexpr size_t kNumPoints = four_point_set::kNumContacts;
 constexpr scalar_t kTolerance = 1.0e-9;
-
-// The sole corners in the ankle link (max: the toe, min: the heel), from the
-// Atlas sole of the shipped task file: the sole center 0.04 m forward of and
-// 0.082 m below the ankle, 0.12 m from the center to the toe and to the heel.
-constexpr scalar_t kMaxPosCornerRtAnkleEwrtAnkleX = 0.16;
-constexpr scalar_t kMinPosCornerRtAnkleEwrtAnkleX = -0.08;
-constexpr scalar_t kPosCornerRtAnkleEwrtAnkleZ = -0.082;
-
-// The four contacts in contact order, a quadruped's leg order.
-constexpr char kFrontLeft[] = "sole_l_toe_contact";
-constexpr char kFrontRight[] = "sole_r_toe_contact";
-constexpr char kHindLeft[] = "sole_l_heel_contact";
-constexpr char kHindRight[] = "sole_r_heel_contact";
-
-// The modes of the set: all four, and the two diagonal pairs of a trot.
-constexpr size_t kAllFour = 0b1111;
-constexpr size_t kFrontLeftHindRight = 0b1001;
-constexpr size_t kFrontRightHindLeft = 0b0110;
 
 // The trot of the LQ tests: all four, one diagonal, the other, all four.
 constexpr scalar_t kFirstLiftOffTime = 0.2;
@@ -120,70 +112,14 @@ constexpr scalar_t kLastTouchDownTime = 0.8;
 constexpr scalar_t kFirstDiagonalTime = 0.35;
 constexpr scalar_t kSecondDiagonalTime = 0.65;
 
-/** A 3-DoF contact on the sole of the foot whose ankle is `ankle`. */
-mpc_config::ModelSettingsConfig::PointContact soleCorner(
-    absl::string_view name,
-    absl::string_view ankle,
-    scalar_t posContactRtAnkleEwrtAnkleX) {
-  mpc_config::ModelSettingsConfig::PointContact contact;
-  contact.name = std::string(name);
-  contact.parent_joint_name = std::string(ankle);
-  contact.pos_contact_rt_link_ewrt_link.x = posContactRtAnkleEwrtAnkleX;
-  contact.pos_contact_rt_link_ewrt_link.z = kPosCornerRtAnkleEwrtAnkleZ;
-  return contact;
-}
-
-/** The four sole corners, in contact order. */
-std::vector<mpc_config::ModelSettingsConfig::PointContact> soleCorners() {
-  return {
-      soleCorner(kFrontLeft, "l_leg_akx", kMaxPosCornerRtAnkleEwrtAnkleX),
-      soleCorner(kFrontRight, "r_leg_akx", kMaxPosCornerRtAnkleEwrtAnkleX),
-      soleCorner(kHindLeft, "l_leg_akx", kMinPosCornerRtAnkleEwrtAnkleX),
-      soleCorner(kHindRight, "r_leg_akx", kMinPosCornerRtAnkleEwrtAnkleX),
-  };
-}
-
-/** The input weight of a 3-DoF contact: its force alone. */
-mpc_config::InputWeights::ContactWrench pointWeight(absl::string_view name) {
-  mpc_config::InputWeights::ContactWrench weight;
-  weight.contact = std::string(name);
-  mpc_config::Xyz forceWeights;
-  forceWeights.x = 1.0e-5;
-  forceWeights.y = 2.0e-5;
-  forceWeights.z = 5.0e-5;
-  // NOLINTNEXTLINE(frame-naming): a per-component weight field
-  weight.force = forceWeights;
-  return weight;
-}
-
-/**
- * The shipped DRC Atlas configuration on the four sole corners alone, on
- * wrench inputs and the gait schedule, with only the terms that run on any
- * contact set.
- */
-CentroidalMpcConfig fourPointConfig(const CentroidalMpcConfig& atlas) {
-  CentroidalMpcConfig config = atlas;
-  mpc_config::TaskFile& task = config.task;
-  task.model_settings.contacts_3dof = soleCorners();
-  task.model_settings.contact_names_6dof = {};
-  task.model_settings.contact_parent_joint_names = {};
-  // NOLINTBEGIN(frame-naming): a per-component weight field
-  task.input_weights.contact_wrenches = {
-      pointWeight(kFrontLeft), pointWeight(kFrontRight), pointWeight(kHindLeft),
-      pointWeight(kHindRight)};
-  // NOLINTEND(frame-naming)
-  task.contact_input_parameterization = "wrench";
-  task.contact_schedule_source = "gait_schedule";
-  task.costs = {"state_quadratic_cost", "input_quadratic_cost"};
-  task.hard_constraints = {"zero_wrench", "zero_velocity"};
-  task.soft_constraints = {"joint_limits", "contact_wrench_cone",
-                           "friction_force_cone"};
-  return config;
-}
-
 /** The shipped DRC Atlas configuration. */
 CentroidalMpcConfig loadAtlas() {
   return checkedValue(loadConfigOf(atlasFiles()));
+}
+
+/** The four-point task described by its legs LF, RF, LH and RH. */
+mpc_config::TaskFile leggedFourPointTask() {
+  return four_point_set::leggedFourPointConfig(loadAtlas()).task;
 }
 
 /** The model settings of `task` on the Atlas URDF. */
@@ -386,6 +322,84 @@ TEST_F(PointContactSetTest, theWeightIsSharedAmongTheActiveContacts) {
   EXPECT_TRUE(desired.isApprox(diagonal, kTolerance));
 }
 
+// The input reference shares the weight among the active contacts of any
+// mode of the set: three of four here.
+TEST_F(PointContactSetTest, theDesiredInputSharesTheWeightAmongThreeContacts) {
+  CentroidalMpcInterface& mpc = interface();
+  const CentroidalMpcRobotModel<scalar_t>& model = mpc.getMpcRobotModel();
+  const scalar_t weight =
+      mpc.getCentroidalModelInfo().robotMass * kGravityMagnitude;
+  constexpr size_t kAllButFrontRight = 0b1011;
+  prepareSolve(mpc, constantMode(kAllButFrontRight));
+  const vector_t desired =
+      mpc.getSwitchedModelReferenceManagerPtr()->getDesiredInput(
+          mpc.getSwitchedModelReferenceManagerPtr()->getTargetTrajectories(),
+          mpc.getInitialState(), /*time=*/0.0);
+  const ContactMask active =
+      ContactMask::fromModeNumber(kAllButFrontRight, kNumPoints);
+  ASSERT_EQ(active.numActive(), 3U);
+  for (size_t i = 0; i < kNumPoints; ++i) {
+    // On wrench inputs the input parameterization is the world frame.
+    const vector3_t refForceContactEwrtWorld =
+        model.getForceContactEwrtParam(desired, i);
+    if (active[i]) {
+      EXPECT_NEAR(refForceContactEwrtWorld.z(), weight / 3.0, kTolerance)
+          << "contact " << i;
+      EXPECT_TRUE(refForceContactEwrtWorld.head<2>().isZero(0.0))
+          << "contact " << i;
+    } else {
+      EXPECT_TRUE(refForceContactEwrtWorld.isZero(0.0)) << "contact " << i;
+    }
+  }
+  EXPECT_TRUE(desired.tail(model.getJointDim()).isZero(0.0));
+}
+
+// The procedural arm swing follows the biped's gait phase: a reload that
+// selects it on this set is refused with the generator and the count, and the
+// running settings stay.
+TEST_F(PointContactSetTest, aReloadedProceduralArmSwingIsRefused) {
+  SwitchedModelReferenceManager& referenceManager =
+      *interface().getSwitchedModelReferenceManagerPtr();
+  ASSERT_TRUE(referenceManager.isArmSwingReferenceActive())
+      << "the Atlas names its arm joints";
+  ASSERT_EQ(referenceManager.getArmSwingSettings().generator,
+            ArmSwingGenerator::kNone);
+  ArmSwingSettings procedural;
+  procedural.generator = ArmSwingGenerator::kProcedural;
+  const absl::Status refused = referenceManager.setArmSwingSettings(procedural);
+  EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument) << refused;
+  EXPECT_TRUE(
+      absl::StrContains(refused.message(), "arm_swing.generator 'procedural'"))
+      << refused;
+  EXPECT_TRUE(absl::StrContains(refused.message(), "has 4 contacts"))
+      << refused;
+  EXPECT_EQ(referenceManager.getArmSwingSettings().generator,
+            ArmSwingGenerator::kNone);
+  ArmSwingSettings none;
+  none.generator = ArmSwingGenerator::kNone;
+  HUMANOID_ASSERT_OK(referenceManager.setArmSwingSettings(none));
+}
+
+// The DCM terminal cost blends a left and a right foot: built on this set by
+// hand, past checkCentroidalContactSet(), it is refused with its name and the
+// count before anything is generated.
+TEST_F(PointContactSetTest, theDcmTerminalCostRefusesTheSet) {
+  CentroidalMpcInterface& mpc = interface();
+  constexpr scalar_t kNomPosComRtFeetmeanEwrtWorldZ = 0.9;
+  const absl::StatusOr<std::unique_ptr<DcmTerminalCost>> cost =
+      DcmTerminalCost::Create(
+          *mpc.getSwitchedModelReferenceManagerPtr(), DcmTerminalCost::Config{},
+          kNomPosComRtFeetmeanEwrtWorldZ, mpc.getPinocchioInterface(),
+          mpc.getEffectiveMpcRobotModelAD(), DcmTerminalCost::kLibraryName,
+          mpc.modelSettings());
+  ASSERT_FALSE(cost.ok());
+  EXPECT_EQ(cost.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(cost.status().message(), "dcm_terminal_cost"))
+      << cost.status();
+  EXPECT_TRUE(absl::StrContains(cost.status().message(), "has 4 contacts"))
+      << cost.status();
+}
+
 /** The largest magnitude of the force columns of contact `contactIndex`. */
 scalar_t contactColumnsMagnitude(const matrix_t& jacobianWrtInput,
                                  const CentroidalMpcRobotModel<scalar_t>& model,
@@ -513,10 +527,12 @@ struct ListedTerm {
 // The biped-only terms that run beside the zero-velocity stance constraint;
 // the contact-implicit ones replace it and are checked below.
 // LINT.IfChange(biped_only_terms)
+// The terms of the three lists, refused on any non-biped set, and the swing
+// terms, which run on a set its legs describe and are refused on a set
+// without legs. The planner, the basis vectors, the heuristics (base-pose and
+// wrench on any non-biped set, all of them on a set without legs) and the
+// step_width foothold anchor are tested by their own cases below.
 constexpr ListedTerm kBipedOnlyTerms[] = {
-    {.list = &mpc_config::TaskFile::costs,
-     .listName = "costs",
-     .term = "task_space_foot_cost"},
     {.list = &mpc_config::TaskFile::costs,
      .listName = "costs",
      .term = "external_torque_cost"},
@@ -529,15 +545,20 @@ constexpr ListedTerm kBipedOnlyTerms[] = {
     {.list = &mpc_config::TaskFile::soft_constraints,
      .listName = "soft_constraints",
      .term = "foot_collision_cbf"},
+    {.list = &mpc_config::TaskFile::hard_constraints,
+     .listName = "hard_constraints",
+     .term = "knee_joint_mimic"},
+};
+constexpr ListedTerm kSwingTerms[] = {
+    {.list = &mpc_config::TaskFile::costs,
+     .listName = "costs",
+     .term = "task_space_foot_cost"},
     {.list = &mpc_config::TaskFile::soft_constraints,
      .listName = "soft_constraints",
      .term = "normal_velocity"},
     {.list = &mpc_config::TaskFile::hard_constraints,
      .listName = "hard_constraints",
      .term = "normal_velocity"},
-    {.list = &mpc_config::TaskFile::hard_constraints,
-     .listName = "hard_constraints",
-     .term = "knee_joint_mimic"},
 };
 constexpr std::array<absl::string_view, 3> kContactImplicitTerms = {
     "contact_complementarity", "force_weighted_slip", "ground_penetration"};
@@ -555,12 +576,50 @@ void expectRefused(const absl::Status& status, absl::string_view selection) {
 TEST(PointContactSetRefusal, everyTermWrittenForTwoFeetIsRefusedByName) {
   const mpc_config::TaskFile points = fourPointConfig(loadAtlas()).task;
   const ModelSettings settings = modelSettingsOf(points);
+  ASSERT_FALSE(settings.isLeggedContactSet());
   HUMANOID_ASSERT_OK(checkCentroidalContactSet(settings, points));
   for (const ListedTerm& listed : kBipedOnlyTerms) {
     mpc_config::TaskFile task = points;
     (task.*listed.list).push_back(listed.term);
     expectRefused(checkCentroidalContactSet(settings, task),
                   absl::StrCat(listed.listName, " '", listed.term, "'"));
+  }
+  // Without legs the swing terms have no leg to swing either.
+  for (const ListedTerm& listed : kSwingTerms) {
+    mpc_config::TaskFile task = points;
+    (task.*listed.list).push_back(listed.term);
+    const absl::Status refused = checkCentroidalContactSet(settings, task);
+    expectRefused(refused,
+                  absl::StrCat(listed.listName, " '", listed.term, "'"));
+    EXPECT_TRUE(absl::StrContains(refused.message(), "model_settings.legs"))
+        << refused;
+  }
+}
+
+// On the set its legs describe, the swing terms run: the swing-foot cost and
+// the normal-velocity servo of every contact, each alone and the cost with
+// either servo (normal_velocity is listed as hard or as soft, not both). The
+// biped-only terms are still refused.
+TEST(PointContactSetRefusal, aLeggedSetRunsTheSwingTerms) {
+  const mpc_config::TaskFile legged = leggedFourPointTask();
+  const ModelSettings settings = modelSettingsOf(legged);
+  ASSERT_TRUE(settings.isLeggedContactSet());
+  for (const ListedTerm& listed : kSwingTerms) {
+    mpc_config::TaskFile task = legged;
+    (task.*listed.list).push_back(listed.term);
+    HUMANOID_ASSERT_OK(checkCentroidalContactSet(settings, task));
+  }
+  for (const ListedTerm& servo : {kSwingTerms[1], kSwingTerms[2]}) {
+    mpc_config::TaskFile task = legged;
+    (task.*kSwingTerms[0].list).push_back(kSwingTerms[0].term);
+    (task.*servo.list).push_back(servo.term);
+    HUMANOID_ASSERT_OK(checkCentroidalContactSet(settings, task));
+    for (const ListedTerm& listed : kBipedOnlyTerms) {
+      mpc_config::TaskFile refusedTask = task;
+      (refusedTask.*listed.list).push_back(listed.term);
+      expectRefused(checkCentroidalContactSet(settings, refusedTask),
+                    absl::StrCat(listed.listName, " '", listed.term, "'"));
+    }
   }
 }
 
@@ -600,6 +659,43 @@ TEST(PointContactSetRefusal, thePlannerTheBasisAndTheHeuristicsAreRefused) {
                 "locomotion_heuristics");
 }
 
+TEST(PointContactSetRefusal, aLeggedSetRunsTheFootholdHeuristicsAlone) {
+  mpc_config::TaskFile task = leggedFourPointTask();
+  task.nominal_foothold.anchor = "nominal_stance";
+  task.locomotion_heuristics.foothold_heuristics = {"hip_centered_stepping",
+                                                    "translational_stepping"};
+  const ModelSettings settings = modelSettingsOf(task);
+  ASSERT_TRUE(settings.isLeggedContactSet());
+  HUMANOID_ASSERT_OK(checkCentroidalContactSet(settings, task));
+
+  mpc_config::TaskFile shaped = task;
+  shaped.locomotion_heuristics.base_pose_heuristics = {"periodic_orientation"};
+  expectRefused(
+      checkCentroidalContactSet(settings, shaped),
+      "locomotion_heuristics.base_pose_heuristics 'periodic_orientation'");
+  mpc_config::TaskFile scaled = task;
+  scaled.locomotion_heuristics.wrench_heuristics = {"impulse_scaling"};
+  expectRefused(checkCentroidalContactSet(settings, scaled),
+                "locomotion_heuristics.wrench_heuristics 'impulse_scaling'");
+}
+
+TEST(PointContactSetRefusal, theStepWidthAnchorIsRefusedWithAStepWidth) {
+  mpc_config::TaskFile task = leggedFourPointTask();
+  task.nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y = 0.3;
+  const ModelSettings settings = modelSettingsOf(task);
+  const absl::Status refused = checkCentroidalContactSet(settings, task);
+  expectRefused(refused, "nominal_foothold.anchor 'step_width'");
+  EXPECT_TRUE(absl::StrContains(refused.message(), "a contact set of 4"))
+      << refused;
+  // Without a width the anchor does nothing on this set, and nothing is
+  // refused; nominal_stance takes a width without reading it.
+  task.nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y = 0.0;
+  HUMANOID_ASSERT_OK(checkCentroidalContactSet(modelSettingsOf(task), task));
+  task.nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y = 0.3;
+  task.nominal_foothold.anchor = "nominal_stance";
+  HUMANOID_ASSERT_OK(checkCentroidalContactSet(modelSettingsOf(task), task));
+}
+
 TEST(PointContactSetRefusal, theInterfaceRefusesBeforeItBuildsAModel) {
   CentroidalMpcConfig config = fourPointConfig(loadAtlas());
   config.task.soft_constraints.push_back("foot_collision");
@@ -607,6 +703,23 @@ TEST(PointContactSetRefusal, theInterfaceRefusesBeforeItBuildsAModel) {
       CentroidalMpcInterface::Create(config, atlasFiles().urdfFile);
   ASSERT_FALSE(interface.ok());
   expectRefused(interface.status(), "soft_constraints 'foot_collision'");
+}
+
+// The procedural arm swing on this set is refused when the interface is built,
+// before any model is generated.
+TEST(PointContactSetRefusal, theProceduralArmSwingIsRefusedByName) {
+  CentroidalMpcConfig config = fourPointConfig(loadAtlas());
+  config.task.arm_swing.generator = "procedural";
+  ASSERT_TRUE(modelSettingsOf(config.task).hasArmSwingJoints);
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
+      CentroidalMpcInterface::Create(config, atlasFiles().urdfFile);
+  ASSERT_FALSE(interface.ok());
+  EXPECT_EQ(interface.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(interface.status().message(),
+                                "[ArmSwing] arm_swing.generator 'procedural'"))
+      << interface.status();
+  EXPECT_TRUE(absl::StrContains(interface.status().message(), "has 4 contacts"))
+      << interface.status();
 }
 
 }  // namespace

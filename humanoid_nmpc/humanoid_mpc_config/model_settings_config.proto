@@ -9,9 +9,9 @@ import "nproto/retired_field_options.proto";
 
 // The robot model the MPC is formulated on (the task file's model_settings block, ModelSettings): the robot's name, the
 // gains of the foot constraints, the CppAD flags, the joints the MPC leaves out, the 6-DoF contacts and the joints they
-// are attached to, the 3-DoF contacts, and the joints of the procedural arm swing. Joints and contacts are URDF and
-// Pinocchio names; ModelSettings::Create() reads the rest of the model, the joints and their order, off the URDF.
-// Next ID: 11
+// are attached to, the 3-DoF contacts, the legs, and the joints of the procedural arm swing. Joints and contacts are URDF
+// and Pinocchio names; ModelSettings::Create() reads the rest of the model, the joints and their order, off the URDF.
+// Next ID: 12
 message ModelSettingsConfig {
   option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::ModelSettingsConfig";
   // The folder used to be a key that nothing read; the old loader warned about it.
@@ -20,7 +20,7 @@ message ModelSettingsConfig {
     replacement: "the CppAD libraries are built under cppad_code_gen/cppad_<mpc><robot_name>, derived from the robot (the centroidal MPC adds a sub-folder per contact input parameterization); delete the key"
   };
 
-  reserved 11 to max;
+  reserved 12 to max;
 
   // The gains of the swing- and stance-foot constraints, the weights of their soft forms and the rows of the stance
   // constraint (ModelSettings::FootConstraintConfig).
@@ -153,4 +153,33 @@ message ModelSettingsConfig {
     }
   ];
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/model/ModelSettingsFromConfig.cpp:contacts_3dof)
+
+  // A leg of the robot (ModelSettings::Leg): the contacts at its end and the frame of its hip. Its lateral side and its
+  // front or hind position are derived from the hip's position relative to the base at the model's neutral
+  // configuration, never typed.
+  // Next ID: 4
+  message Leg {
+    reserved 4 to max;
+
+    // Non-empty, letters and digits only (mode names join leg names with '_'), not all digits, not FLY or STANCE, not
+    // LF or RF on a set that stands on the biped's two feet (whose gait files read them as the feet), and unique among
+    // the legs.
+    string name = 1 [default = ""];
+    // The contacts at the leg's end, by name: one or more of the contact set's contacts (contacts_3dof and
+    // contact_names_6dof), each in at most one leg. One contact for a point foot or a wheel, or a 6-DoF sole.
+    repeated string contacts = 2;
+    // A frame of the URDF model; empty: derived, the first joint below the floating base on the way from the parent
+    // joint of the leg's first contact to the base.
+    string hip_frame_name = 3 [default = ""];
+  }
+
+  // The legs. Absent on a biped contact set (the two 6-DoF feet alone): two legs, "left" on the first foot and "right"
+  // on the second, whose derived sides must agree. Absent on any other set: no legs.
+  // LINT.IfChange(legs)
+  repeated Leg legs = 11 [
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "the legs of the robot model, read at start-up"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/model/ModelSettingsFromConfig.cpp:legs)
 }

@@ -43,7 +43,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -57,15 +56,28 @@ namespace ocs2::humanoid {
 
 GaitModeLayout gaitModeLayoutOf(const ModelSettings& modelSettings) {
   const size_t numContacts = modelSettings.numContacts();
-  // The 6-DoF contacts are the last ones of the set (3-DoF first), so with two
-  // or more of them the last two are the feet, as
-  // TelemetryBuilder::contactSeriesNames() reads them.
-  const bool bipedFeet = modelSettings.contactNames6DoF.size() >=
-                         static_cast<size_t>(kBipedFootCount);
-  return GaitModeLayout{.numContacts = numContacts,
+  // The 6-DoF contacts are the last ones of the set (3-DoF first), so on a set
+  // with the biped's stance (ModelSettings::hasBipedStance()) the last two are
+  // the feet, as TelemetryBuilder::contactSeriesNames() reads them. A legged
+  // set that is not the biped (a quadruped on four soles) stands on all its
+  // contacts, and its legs, not the foot aliases, name LF and RF.
+  const bool bipedFeet = modelSettings.hasBipedStance();
+  GaitModeLayout layout{.numContacts = numContacts,
                         .stanceMode = bipedFeet
                                           ? kBipedModeStance
-                                          : numModeNumbersOf(numContacts) - 1};
+                                          : numModeNumbersOf(numContacts) - 1,
+                        .legs = {},
+                        .contactNames = modelSettings.contactNames};
+  layout.legs.reserve(modelSettings.legs.size());
+  for (const ModelSettings::Leg& leg : modelSettings.legs) {
+    size_t modeBits = 0;
+    for (const size_t contact : leg.contactIndices) {
+      modeBits |= contactModeBit(contact, numContacts);
+    }
+    layout.legs.push_back(
+        GaitModeLayout::LegModeBits{.name = leg.name, .modeBits = modeBits});
+  }
+  return layout;
 }
 
 /******************************************************************************************************/
@@ -80,7 +92,7 @@ GaitSchedule::GaitSchedule(ModeSchedule initModeSchedule,
       modeSchedule_(std::move(initModeSchedule)),
       modeSequenceTemplate_(std::move(initModeSequenceTemplate)),
       phaseTransitionStanceTime_(phaseTransitionStanceTime),
-      modeLayout_(modeLayout) {}
+      modeLayout_(std::move(modeLayout)) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/

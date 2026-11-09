@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -36,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 
+#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerInterface.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 
@@ -55,6 +57,21 @@ inline constexpr char kLipMiqp[] = "lip_miqp";
 // clang-format on
 }  // namespace planner
 
+/**
+ * The contact set a planner is built for, as much of it as the factory reads:
+ * how many contacts, and whether they are the biped's two 6-DoF feet
+ * (ModelSettings::isBipedContactSet()). Passive data; the planning core holds
+ * no robot model, so its callers fill it from their ModelSettings.
+ */
+struct ContactSetSummary {
+  size_t numContacts = 0;
+  bool isBiped = false;
+};
+
+/** The biped's two 6-DoF feet, the only contact set the planners run on. */
+inline constexpr ContactSetSummary kBipedContactSetSummary = {
+    .numContacts = static_cast<size_t>(kBipedFootCount), .isBiped = true};
+
 /** The planner names that can be selected, in the order they are offered. */
 const std::vector<std::string>& knownPlannerNames();
 
@@ -63,18 +80,25 @@ const std::vector<std::string>& knownPlannerNames();
 std::string canonicalPlannerName(absl::string_view name);
 
 /**
- * Builds the planner `config.planner.type` names. An unknown name is rejected
- * with a message that lists the names that exist, so a typo in the task file
- * names the fix, and an invalid configuration with the message of
- * ContactPlanningConfig::validateStatus(), which names the key to change.
- * Neither throws.
+ * Builds the planner `config.planner.type` names for the contact set
+ * `contactSet`. An unknown name is rejected with a message that lists the names
+ * that exist, so a typo in the task file names the fix, and an invalid
+ * configuration with the message of ContactPlanningConfig::validateStatus(),
+ * which names the key to change. Both planners, the H-LIP stepper and the
+ * mixed-integer LIP program, are written for a left and a right foot: their
+ * layout (LipIndices, ContactPlannerInput, ContactLogicState::kNumFeet), their
+ * step widths (hlip.nom_pos_lfoot_rt_rfoot_ewrt_heading_y,
+ * step_width.nom_pos_lfoot_rt_rfoot_ewrt_heading_y) and their two-foot terms
+ * (FootSeparationConstraint, ZmpSupportRegionConstraint, the contact logic
+ * rules), so any other contact set is an InvalidArgument naming planner.type
+ * and the contact count. Neither throws.
  */
 absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> makeContactPlanner(
-    const ContactPlanningConfig& config);
+    const ContactPlanningConfig& config, ContactSetSummary contactSet);
 
-/** The formulation summary of the planner a configuration selects, rejecting
- * what makeContactPlanner rejects. */
+/** Returns the formulation summary of the planner a configuration selects for
+ * `contactSet`, rejecting what makeContactPlanner rejects. */
 absl::StatusOr<std::string> contactPlannerSummary(
-    const ContactPlanningConfig& config);
+    const ContactPlanningConfig& config, ContactSetSummary contactSet);
 
 }  // namespace ocs2::humanoid

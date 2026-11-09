@@ -45,7 +45,8 @@ cc_library(
     ],
 )
 
-# The flags the centroidal node and dummy simulator add (CentroidalAppFlags.h): the multi-contact scenario and plan.
+# The flags the centroidal node, dummy simulator and robot binary add (CentroidalAppFlags.h): the multi-contact scenario
+# and plan.
 cc_library(
     name = "centroidal_app_flags",
     srcs = ["src/CentroidalAppFlags.cpp"],
@@ -239,7 +240,11 @@ cc_binary(
     name = "humanoid_centroidal_mpc_robot",
     srcs = ["src/CentroidalMpcRobotMain.cpp"],
     copts = FIRST_PARTY_COPTS,
+    # The plan the MPC node tracks, read again for the state estimator's contact surfaces under a multi-contact task
+    # file (--multi_contact_scenario, --multi_contact_plan).
+    data = _MULTI_CONTACT_DATA,
     deps = [
+        ":centroidal_app_flags",
         "//humanoid_nmpc/humanoid_centroidal_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc:contact_planning_core",
@@ -248,8 +253,10 @@ cc_binary(
         "//humanoid_nmpc/humanoid_common_mpc_app/node:node_process",
         "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_app_flags",
         "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//humanoid_nmpc/humanoid_mpc_ipc",
         "//humanoid_nmpc/humanoid_mpc_ipc:remote_mpc_link",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_core_types",
         "//robot_runtime/mujoco_sim_interface",

@@ -416,6 +416,7 @@ cc_test(
         "//robot_runtime/robot_realtime:allocation_counter",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/types:span",
         "@googletest//:gtest_main",
         "@pinocchio",
         "//humanoid_nmpc/humanoid_common_mpc:controller_event",

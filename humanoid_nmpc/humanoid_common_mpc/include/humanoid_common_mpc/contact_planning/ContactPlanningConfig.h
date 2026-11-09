@@ -177,7 +177,8 @@ struct SharedParameters {
   // ContactPlanningModelParameters::applyTo() writes it like `gravity`; a
   // configuration with no model keeps the biped's two feet. Both planners and
   // the terms written for a left and a right foot refuse any other count when
-  // they are built (checkTwoContactCount()).
+  // they are built (checkTwoContactCount()); makeContactPlanner() refuses
+  // before them every set that is not the biped's two 6-DoF feet.
   size_t numContacts = static_cast<size_t>(kBipedFootCount);
   // [m] LIP height, omega = sqrt(g / nomPosComRtFeetmeanEwrtWorldZ). Unset =
   // from the model: its center of mass above its feet at the task file's

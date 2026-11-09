@@ -162,7 +162,9 @@ class DcmTerminalCost final : public StateCost {
    * Builds the cost with `config` resolved against
    * `modelNomPosComRtFeetmeanEwrtWorldZ` and the gravity of
    * `pinocchioInterface`'s model (resolveConfig, modelGravity()), or returns
-   * the InvalidArgument that names the field to change.
+   * the InvalidArgument that names the field to change. A contact set other
+   * than the biped's two 6-DoF feet (ModelSettings::isBipedContactSet()) is an
+   * InvalidArgument naming dcm_terminal_cost and the contact count.
    *
    * @param modelNomPosComRtFeetmeanEwrtWorldZ [m] the model's pendulum length
    * at the nominal state

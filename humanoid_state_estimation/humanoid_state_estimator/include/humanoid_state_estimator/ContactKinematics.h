@@ -35,26 +35,46 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid::estimation {
 
-/** A contact point of the robot: a frame of the URDF and a point rigidly
- * attached to it, in that frame's axes. */
+/**
+ * The name of the MPC model's free-flyer joint: the root joint Pinocchio's URDF
+ * parser adds (pinocchio::urdf::buildModel() with a root joint, as
+ * getPinocchioInterfaceFromUrdfFile() builds the MPC's model), from which a
+ * contact on the base hangs (model_settings.contact_parent_joint_names). In the
+ * fixed-base model of ContactKinematics it is the URDF's root link.
+ */
+inline constexpr char kMpcRootJointName[] = "root_joint";
+
+/**
+ * A contact point of the robot: a URDF link, which is a BODY frame of the
+ * fixed-base Pinocchio model, and the point in that link's frame.
+ */
 struct ContactPointSpec {
-  /**
-   * Frames of the URDF's Pinocchio model (a link, a joint or a fixed frame), in
-   * order of preference: the first one the URDF has is the contact's frame. The
-   * MPC's contact frames are added to its model from the task file's contact
-   * rectangles and are not in the URDF, so a caller names them first and their
-   * parent joint after.
-   */
-  std::vector<std::string> frameNames;
-  /** [m] The contact point in the chosen frame. */
+  /** The link's name in the URDF. */
+  std::string linkName;
+  /** [m] The contact point in the link's frame. */
   vector3_t posContactRtLinkEwrtLink = vector3_t::Zero();
 };
+
+/**
+ * Returns the child link of each joint of `jointNames` in the URDF `urdfFile`,
+ * in their order: the link whose frame the joint places. kMpcRootJointName maps
+ * to the URDF's root link. A URDF child link's frame is its joint's frame, so a
+ * point given relative to a joint's frame (an MPC contact's offset from its
+ * parent joint) is the same point relative to the child link. A joint of type
+ * fixed in the URDF has a child link too. Parses the URDF once.
+ *
+ * @return InvalidArgument for a URDF that does not load, or naming a joint the
+ * URDF does not have.
+ */
+absl::StatusOr<std::vector<std::string>> childLinkNamesOfJoints(
+    const std::string& urdfFile, absl::Span<const std::string> jointNames);
 
 /**
  * The leg kinematics of a floating-base robot, relative to its base: where each
@@ -83,8 +103,8 @@ class ContactKinematics {
   /**
    * The kinematics of `contacts` on the URDF `urdfFile`, with the joint vectors
    * in the order of `jointNames`. InvalidArgument for a URDF that does not
-   * parse, a contact none of whose frames is in it (the message lists its
-   * frames), a joint of an unsupported type, or no contact.
+   * parse, a contact whose link is not in it (the message lists its links), a
+   * joint of an unsupported type, or no contact.
    */
   static absl::StatusOr<std::unique_ptr<ContactKinematics>> Create(
       const std::string& urdfFile,
@@ -97,11 +117,10 @@ class ContactKinematics {
   ContactKinematics& operator=(ContactKinematics&&) = delete;
   ~ContactKinematics();
 
-  size_t numContacts() const { return contactFrameNames_.size(); }
-  /** The name of the frame contact `contact` was resolved to
-   * (ContactPointSpec::frameNames). */
-  const std::string& contactFrameName(size_t contact) const {
-    return contactFrameNames_[contact];
+  size_t numContacts() const { return contactLinkNames_.size(); }
+  /** The link of contact `contact` (ContactPointSpec::linkName). */
+  const std::string& contactLinkName(size_t contact) const {
+    return contactLinkNames_[contact];
   }
   /** The number of joints update() takes: the size of the joint names given to
    * Create(). */
@@ -134,12 +153,12 @@ class ContactKinematics {
   struct Model;
 
   ContactKinematics(std::unique_ptr<Model> model,
-                    std::vector<std::string> contactFrameNames,
+                    std::vector<std::string> contactLinkNames,
                     size_t numRobotJoints);
 
   /** Never null. */
   std::unique_ptr<Model> model_;
-  std::vector<std::string> contactFrameNames_;
+  std::vector<std::string> contactLinkNames_;
   size_t numRobotJoints_ = 0;
   vector3_t gravityEwrtWorld_ = vector3_t::Zero();
   std::vector<vector3_t> posContactsRtBaseEwrtBase_;

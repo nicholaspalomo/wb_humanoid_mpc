@@ -36,10 +36,12 @@ code now represents a contact set; the other two paragraphs describe the code as
 - A mode number is the bitmask of the active contacts, contact `i` at bit `numContacts - 1 - i`
   (`gait/MotionPhaseDefinition.h`). The biped's `FLY`, `RF`, `LF` and `STANCE` are `kBipedModeFly` to
   `kBipedModeStance` (`gait/BipedModes.h`). A gait file names a mode `FLY`, `STANCE` (both feet on a set ending in two
-  6-DoF feet, every contact otherwise), `LF` or `RF` (on a set ending in two 6-DoF feet), or one digit 0 or 1 per contact
-  in contact order (`parseModeNumber()`), and the gait schedule's stance phases are that `STANCE`
-  (`gaitModeLayoutOf()`, `gait/GaitSchedule.h`).
-- The contact planner is written for two feet. Both planners (`LipContactPlanner`, `HlipContactPlanner`), the
+  6-DoF feet, every contact otherwise), `LF` or `RF` (on a set ending in two 6-DoF feet), the stance legs joined by `_`
+  (`LF_RH` on a quadruped), the stance contacts joined by `+`, or one digit 0 or 1 per contact in contact order
+  (`parseModeNumber()`), and the gait schedule's stance phases are that `STANCE` (`gaitModeLayoutOf()`,
+  `gait/GaitSchedule.h`).
+- The contact planner is written for two feet. `makeContactPlanner()` refuses every contact set but the biped's two
+  6-DoF feet by `planner.type` and the contact count. Behind it, both planners (`LipContactPlanner`, `HlipContactPlanner`), the
   planner terms `foot_separation`, `zmp_support_region`, `yaw_torque_budget` and `alternating_feet`, the foothold
   integrator and the knee mimic blocks refuse a contact set of any size but two when they are built, with an InvalidArgument that names the component and
   the contact count (`checkTwoContactCount()`, `common/TwoContactCount.h`). The count reaches the planner as
@@ -837,19 +839,25 @@ of the plan's.
      `checkCentroidalContactSet()` refuses them by name before a model is built.
      <!-- LINT.IfChange(biped_only_terms) -->
      They are:
-     - the costs `task_space_foot_cost`, `external_torque_cost` and `dcm_terminal_cost`;
-     - the soft constraints `foot_collision`, `foot_collision_cbf`, `normal_velocity` and the three contact-implicit
-       terms;
-     - the hard constraints `normal_velocity` and `knee_joint_mimic`;
+     - the costs `external_torque_cost` and `dcm_terminal_cost`;
+     - the soft constraints `foot_collision`, `foot_collision_cbf` and the three contact-implicit terms;
+     - the hard constraint `knee_joint_mimic`;
+     - on a set that `model_settings.legs` does not describe, the swing terms of the swing trajectory planner: the cost
+       `task_space_foot_cost` and the soft and hard `normal_velocity` (a legged set runs them, a 3-DoF contact's foot
+       cost without orientation weights);
      - `contact_schedule_source: "contact_planner"`, which brings the H-LIP and MIQP planners, the eight
        contact-planning rules, `FootSeparationConstraint`, `ZmpSupportRegionConstraint` and the no-flight and
        yaw-torque-budget constraints;
      - `contact_input_parameterization: "basis_vectors"`;
-     - every locomotion heuristic.
+     - the base-pose and wrench locomotion heuristics, and on a set that `model_settings.legs` does not describe,
+       every locomotion heuristic (the foothold heuristics place each leg's contacts and run on a legged set);
+     - the `step_width` anchor of `nominal_foothold` with a positive `nom_pos_lfoot_rt_rfoot_ewrt_heading_y`
+       (the `nominal_stance` anchor runs on any legged set).
      <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/CentroidalContactSet.cpp:biped_only_terms) -->
 
-     The biped's swing planner, and every term that reads it, stays the biped's: other contacts swing on a generalized planner of their own and terms that read it (`contact_swing`, item 3), so no term of
-     this list is ungated.
+     The swing trajectory planner plans every contact; the terms that read it run on the biped and on a legged set.
+     A set without legs swings its contacts on the contact swing planner and the terms that read it (`contact_swing`,
+     item 3), so no term of this list is ungated.
    - Version 1 is the centroidal MPC only. The whole-body MPC refuses any contact set but the biped's when it builds its
      models, as it refuses the contact-implicit terms today.
    - Parity: `testCentroidalContactSetParity` compares every term's name, value and derivatives of each shipped
@@ -858,6 +866,9 @@ of the plan's.
      with two 3-DoF hand contacts against the hand-derived centroidal momentum rate.
      `testPointContactQuadrupedLikeSet` builds the MPC on four 3-DoF contacts and no 6-DoF contact (the corners of
      Atlas's soles) and checks that its LQ approximation gates each contact by its mode on a trot.
+     `testPointContactQuadrupedTrot` describes the same contacts as legs LF, RF, LH and RH and solves the trot of the
+     shared quadruped gait file: the stance contacts hold still, and each swing contact rises and lands on its
+     `nominal_stance` foothold.
 2. Cones and contact constraints are evaluated in the patch frame. `FrictionForceConeConstraint`, the new
    `PointFrictionConeConstraint` and the zero-velocity constraint take a rotation from the world to the patch frame,
    and the zero-velocity constraint also takes the patch's offset along its normal (`ContactPatchFrame`). That

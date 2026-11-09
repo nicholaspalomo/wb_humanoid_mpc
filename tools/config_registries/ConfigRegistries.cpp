@@ -154,6 +154,8 @@ mpc_config::ConfigRegistries collectConfigRegistries() {
       {.name = "mpc_cost", .names = mpcCostNames()},
       {.name = "multi_contact_force_reference", .names = forceReferenceNames()},
       {.name = "multi_contact_plan_playback", .names = planPlaybackNames()},
+      {.name = "nominal_foothold_anchor",
+       .names = nominalFootholdAnchorNames()},
       {.name = "projectile",
        .names = robot::mujoco_sim_interface::availableProjectiles()},
       {.name = "rollout_integrator", .names = rolloutIntegratorNames()},

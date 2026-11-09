@@ -633,6 +633,35 @@ SA01 is the easier robot of the two to start on, and the contrast is instructive
   narrower, but G1 stands wider), so its lateral pendulum has the least margin and roll is the primary channel to shape, and the roll phase is the one
   coefficient in the family that is derived rather than fitted.
 
+### Legs, sides and the foothold anchor
+
+The foothold family works per leg (`model_settings.legs`, `ModelSettings::Leg`; a biped that lists none gets the legs
+`left` and `right`). For a landing contact, `FootholdHeuristicContext` has the index of its leg (`legIndex`),
+the leg's lateral sign (`side`, +1 on the left and -1 on the right, derived from the hip and not typed), and where
+the contact stands relative to the base at the nominal posture (`nomPosContactRtBaseEwrtHeadingXy`). Every lateral
+coefficient is multiplied by `side`, and `hip_centered_stepping` places the contact under the hip of its own leg
+(`LocomotionHeuristicModelParameters::posHipsRtBaseEwrtHeadingXy`, one entry per leg): the frame the leg's
+`hip_frame_name` names, or the derived hip joint (the last joint above the leg's first contact) when it names none. On a biped the numbers are the
+ones the two feet always had.
+
+The anchor the offsets are added to is selected by name with `nominal_foothold.anchor`:
+
+| Anchor | Nominal step (no heuristic listed) | Anchor of the heuristics | Contact sets |
+| --- | --- | --- | --- |
+| `step_width` (default) | a whole `nom_pos_lfoot_rt_rfoot_ewrt_heading_y` to the foot's side of the other, stance foot, carried forward over one step | the predicted base plus half the step width to the foot's side | the biped's two feet; the centroidal MPC refuses it with a positive width on any other set |
+| `nominal_stance` | the predicted base at touch-down plus the contact's nominal stance point, turned by the predicted yaw (for a quadruped, below its hip) | the same point | any legged set; a biped may opt in |
+
+With `hip_centered_stepping` listed the anchor is the predicted base under either name. The forward placement of
+`nominal_stance` comes from the predicted base, which the command carries forward to the touch-down. The landmark is
+derived once at start-up from the initial posture (`SwitchedModelReferenceManager::configureNominalStance()`), by
+both MPC interfaces.
+
+On a contact set that is not the biped's, the centroidal MPC (`checkCentroidalContactSet()`) allows the foothold
+family on a set that `model_settings.legs` describes, and refuses the base-pose family (it reads the biped's gait
+phase, `getPhaseVariable()`) and the wrench family (a left and a right foot) by name. A set without legs refuses every
+heuristic. The phase of one leg's swing on any set is `getSwingPhaseVariable(legIndex, time)`, 0 in stance and 0 to 1
+from lift-off to touch-down (`gait/LegSwingPhase.h`).
+
 ### Preconditions the layer checks for you
 
 | Situation | What happens |
@@ -644,7 +673,8 @@ SA01 is the easier robot of the two to start on, and the contrast is instructive
 | `hip_centered_stepping` listed alone, or omitted while others are listed | **Warning** - neither half of Bledt's sum is a configuration he validates |
 | `centripetal_acceleration` with `contact_input_parameterization: "basis_vectors"` | **Warning** - the reference moves onto the forward-kinematics path; watch the solve time |
 | A list entry that is not a string, a list written as a block, or a value that is not a number | **Error** from the strict parser, naming the file, the line and the column - read as an empty list, such a typo would leave the configuration silently inert |
-| A foothold heuristic without `hip_centered_stepping` on a robot whose `nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y` is 0 | **Error** - nothing would keep the feet apart, and the swing foot would be aimed at the stance foot |
+| A foothold heuristic without `hip_centered_stepping` on a robot whose `nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y` is 0, with the `step_width` anchor | **Error** - nothing would keep the feet apart, and the swing foot would be aimed at the stance foot; the `nominal_stance` anchor keeps them apart by itself |
+| An unknown `nominal_foothold.anchor`, or `nominal_stance` on a set that `model_settings.legs` does not cover | **Error** from `ModelSettings::Create()`, listing the anchors or naming the contacts |
 | A base-pose heuristic with `com_and_acom_tracking_cost` in `costs` | **Warning** - the factory zeroes the base-pose block of `state_weights` and `final_state_weights`; it would do nothing |
 | A foothold heuristic with `task_space_foot_cost.weights.pos_x` and `pos_y` both 0, or the foot cost unlisted | **Warning** - nothing tracks the landing target; it would not move the feet |
 | A clamp set to zero (`capture_point.max_norm_offset_pos_foot_rt_world_ewrt_world_xy`, or both `centripetal_acceleration` limits) | **Error** - every clamp here stops a bad measurement reaching the solver, so removing one is not a way to configure it |
@@ -703,6 +733,8 @@ unchanged.
 | `//humanoid_nmpc/humanoid_common_mpc:testLocomotionHeuristicFormulas` | every formula off the degenerate point (yaw ≠ 0, both feet, every term and clamp, the stance-proportional terms), sums of several heuristics, the anchor and world-frame flags in both list orders, all 42 keys round-tripped, every validation branch, the start-up rejections and warnings, and an all-or-nothing hot reload |
 | `//humanoid_nmpc/humanoid_common_mpc:testShippedLocomotionHeuristicBlocks` | every robot's shipped task file loads with all three lists empty, uncommenting any one candidate name gives a valid file with that name listed, and every parameter of the schema is written in the file |
 | `//humanoid_nmpc/humanoid_common_mpc:testLocomotionHeuristicSeams` | the foothold anchor keeps the feet with the body through a sustained sidestep at any heading (the stance-foot anchor it replaced as the drifting control), and the shaped attitude's angular velocity and tilt rate are its derivative, against a central difference of the rotation |
+| `//humanoid_nmpc/humanoid_common_mpc:testPerLegFootholds` | the biped's sides, hips and gait phase unchanged; on the Atlas sole-corner set with four legs, each leg's swing phase, the `nominal_stance` anchor at every contact's nominal stance point turned by the predicted yaw, the lateral terms on each leg's side, `hip_centered_stepping` under each leg's hip; the anchor names and refusals |
+| `//humanoid_nmpc/humanoid_common_mpc:testLegSwingPhase` | the swing window, phase and rate of each leg of a trot, a leg of two contacts, degenerate schedules, and the stance duration and touch-downs of the biped's feet |
 | `//humanoid_nmpc/humanoid_common_mpc:testArmSwing` | the procedural arm swing on every robot with arms: the derived joint senses against the forward kinematics, the swing end to end, parity on G1 and R1, independence of the node's state, and the `arm_swing` block |
 | `//humanoid_nmpc/humanoid_common_mpc:testStanceDutyFactor` | $\beta$ per stride: the gait's duty factor at every node and for both feet on `walk`, standing, the start and end of a walk, and the default-constructed schedule that carries one `FLY` mode and no events |
 | `//humanoid_nmpc/humanoid_centroidal_mpc:testLocomotionHeuristicIntegration` | end to end on the DRC Atlas model through `SwitchedModelReferenceManager`: all three seams with a walking mode schedule, including the landing target holding still through a swing, the impulse reference averaging to the weight over a stride, the base-pose rotation and indices at a non-zero yaw, the gait phase, and the shaped terminal cost; $\mathbf{r}_{hip}$ from the URDF; the task-file errors returned as a `Status` |
@@ -729,6 +761,7 @@ humanoid_nmpc/humanoid_common_mpc/{include/humanoid_common_mpc,src}/locomotion_h
 humanoid_nmpc/humanoid_common_mpc/{include/humanoid_common_mpc,src}/
   reference_manager/SwitchedModelReferenceManager   the three seams: shapePoseBaseRtWorld(), getNomPosFootRtWorldEwrtWorldXy(), getDesiredInput()
   contact_planning/ContactScheduleAdaptation         stanceDutyFactor(), upcomingStanceDuration(), previousTouchDownTime()
+  gait/LegSwingPhase                                 the same schedule queries for one leg of any contact set
   cost/BasePoseShapedQuadraticStateCost               the terminal cost on the shaped base pose
   base_pose/  OrientationCompensation, PeriodicOrientation, HeightCompensation
   foothold/   HipCenteredStepping, CapturePoint, TranslationalStepping, InPlaceTurning, HighSpeedTurning

@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopScenario.h"
@@ -165,25 +166,68 @@ bool isRegularFile(const std::filesystem::path& path) {
   return std::filesystem::is_regular_file(path, error);
 }
 
-/** The archived run `robot` `scenario` of the candidate directory against the
- * baseline directory's; both documents exist. */
+/** The archived run of `configuration` in `scenario` of the candidate
+ * directory against the baseline directory's run of its baseline
+ * configuration; both documents exist. */
 absl::StatusOr<ClosedLoopComparison> compareArchivedRun(
     const ArchivedComparisonOptions& options,
-    const std::string& robot,
+    const RobotConfiguration& configuration,
     const std::string& scenario) {
-  const std::string fileName = archivedMetricsFileName(robot, scenario);
   ASSIGN_OR_RETURN(
       const JsonValue candidate,
-      readJsonFile(
-          (std::filesystem::path(options.candidateDirectory) / fileName)
-              .string()));
+      readJsonFile((std::filesystem::path(options.candidateDirectory) /
+                    archivedMetricsFileName(configuration.name, scenario))
+                       .string()));
   ASSIGN_OR_RETURN(
       const JsonValue baseline,
-      readJsonFile((std::filesystem::path(options.baselineDirectory) / fileName)
-                       .string()));
-  return compareClosedLoopMetrics(
+      readJsonFile(
+          (std::filesystem::path(options.baselineDirectory) /
+           archivedMetricsFileName(configuration.baselineName(), scenario))
+              .string()));
+  ClosedLoopComparison comparison = compareClosedLoopMetrics(
       candidate, baseline,
-      BandOptions{.compareSolveTime = options.compareSolveTime});
+      BandOptions{.compareSolveTime = options.compareSolveTime,
+                  .bands = closedLoopMetricBandsFor(configuration)});
+  if (std::optional<std::string> fall =
+          walkingSurvivalViolation(configuration, scenario, candidate);
+      fall.has_value()) {
+    comparison.violations.push_back(*std::move(fall));
+  }
+  return comparison;
+}
+
+// The kalman variant's bands that differ from closedLoopMetricBands(), from
+// its first run against unitree_g1 (label 2026-11-07_kalman_variant,
+// README.md). Only standing is compared there: unitree_g1 itself fell in
+// walk_0p5 and turn_in_place_720, which are compared on survival alone.
+/** [rad] Tilt, RMS and maximum: kalman 0.0280 and 0.0301 against 0.0014 and
+ * 0.0016 standing, worse by 0.0266 and 0.0284. The MPC stabilizes the posture
+ * about the estimated base position, which drifts from the true one, so the
+ * robot leans to follow it. */
+constexpr double kKalmanTiltBand = 0.04;
+/** [m] Stance-foot slip: the metric reads the contact points from the
+ * controller's observation, so on this variant it measures the drift of the
+ * estimated base position, 0.153 m over the 10 s of standing (against 1e-7 m
+ * with ground truth) while the feet stayed put; the absolute horizontal
+ * position is not observable from the IMU and the leg kinematics. */
+constexpr double kKalmanSlipBand = 0.2;
+
+/**
+ * unitree_g1_kalman's bands around unitree_g1's documents. The height, the
+ * velocity and the yaw rate stayed within the default bands (standing: the
+ * height mean 1.7 mm lower, its RMS error 1.7 mm worse, the velocity error
+ * 0.6 mm/s and the yaw-rate error 3.8 mrad/s worse), so they keep them.
+ */
+std::vector<MetricBand> kalmanVariantBands() {
+  std::vector<MetricBand> bands = closedLoopMetricBands();
+  for (MetricBand& band : bands) {
+    if (band.path == "tilt.rms_rad" || band.path == "tilt.max_rad") {
+      band.absolute = kKalmanTiltBand;
+    } else if (band.path == "stance_foot_slip.max_m") {
+      band.absolute = kKalmanSlipBand;
+    }
+  }
+  return bands;
 }
 
 }  // namespace
@@ -223,6 +267,14 @@ const std::vector<MetricBand>& closedLoopMetricBands() {
   return *kBands;
 }
 
+const std::vector<MetricBand>& closedLoopMetricBandsFor(
+    const RobotConfiguration& configuration) {
+  static const absl::NoDestructor<std::vector<MetricBand>> kKalmanBands(
+      kalmanVariantBands());
+  if (configuration.isStateEstimatorVariant()) return *kKalmanBands;
+  return closedLoopMetricBands();
+}
+
 std::string describeClosedLoopComparison(
     const ClosedLoopComparison& comparison) {
   std::string text =
@@ -260,7 +312,7 @@ ClosedLoopComparison compareClosedLoopMetrics(const JsonValue& candidate,
     return comparison;
   }
 
-  for (const MetricBand& band : closedLoopMetricBands()) {
+  for (const MetricBand& band : options.bands) {
     const std::optional<HeldNumber> held =
         candidateNumberHeldTo(candidate, baseline, band.path, comparison);
     if (held.has_value()) {
@@ -302,6 +354,19 @@ ClosedLoopComparison compareClosedLoopMetrics(const JsonValue& candidate,
   return comparison;
 }
 
+std::optional<std::string> walkingSurvivalViolation(
+    const RobotConfiguration& configuration,
+    absl::string_view scenario,
+    const JsonValue& metrics) {
+  if (configuration.isStateEstimatorVariant() ||
+      scenario != configuration.walkingScenario || survivedIn(metrics)) {
+    return std::nullopt;
+  }
+  return absl::StrCat("survival: ", configuration.name, " fell in ", scenario,
+                      ", the walking scenario it must survive (",
+                      fallReasonIn(metrics), ")");
+}
+
 absl::StatusOr<ArchivedComparison> compareArchivedClosedLoopRuns(
     const ArchivedComparisonOptions& options) {
   for (const std::string& directory :
@@ -327,16 +392,16 @@ absl::StatusOr<ArchivedComparison> compareArchivedClosedLoopRuns(
               archivedMetricsFileName(configuration.name, scenario.name))) {
         continue;
       }
-      if (!isRegularFile(
-              baselineDirectory /
-              archivedMetricsFileName(configuration.name, scenario.name))) {
+      if (!isRegularFile(baselineDirectory /
+                         archivedMetricsFileName(configuration.baselineName(),
+                                                 scenario.name))) {
         result.withoutBaseline.push_back(
             absl::StrCat(configuration.name, " ", scenario.name));
         continue;
       }
       ASSIGN_OR_RETURN(
           ClosedLoopComparison comparison,
-          compareArchivedRun(options, configuration.name, scenario.name));
+          compareArchivedRun(options, configuration, scenario.name));
       result.runs.push_back({.robot = configuration.name,
                              .scenario = scenario.name,
                              .comparison = std::move(comparison)});

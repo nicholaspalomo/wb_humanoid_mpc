@@ -135,6 +135,96 @@ TEST(ModeSequenceTemplateTest, EveryShippedGaitIsValid) {
   }
 }
 
+/** The biped's layout as gaitModeLayoutOf() gives it for a shipped robot: two
+ * 6-DoF feet, the default legs "left" and "right", and the foot names. */
+GaitModeLayout bipedLayoutWithLegs() {
+  return GaitModeLayout{
+      .numContacts = 2,
+      .stanceMode = kBipedModeStance,
+      .legs = {{.name = "left", .modeBits = kBipedModeLf},
+               {.name = "right", .modeBits = kBipedModeRf}},
+      .contactNames = {"left_foot_contact", "right_foot_contact"}};
+}
+
+/** A quadruped's layout: contacts and legs LF, RF, LH, RH, one contact each. */
+GaitModeLayout quadrupedLayout() {
+  return GaitModeLayout{
+      .numContacts = 4,
+      .stanceMode = 0b1111,
+      .legs = {{.name = "LF", .modeBits = 0b1000},
+               {.name = "RF", .modeBits = 0b0100},
+               {.name = "LH", .modeBits = 0b0010},
+               {.name = "RH", .modeBits = 0b0001}},
+      .contactNames = {"lf_foot", "rf_foot", "lh_foot", "rh_foot"}};
+}
+
+/** The DRC Atlas sole-corner set: four point contacts, toe and heel per sole,
+ * one leg per contact as testModelSettingsLegs names them. */
+GaitModeLayout soleCornerLayout() {
+  return GaitModeLayout{
+      .numContacts = 4,
+      .stanceMode = 0b1111,
+      .legs = {{.name = "LF", .modeBits = 0b1000},
+               {.name = "RF", .modeBits = 0b0100},
+               {.name = "LH", .modeBits = 0b0010},
+               {.name = "RH", .modeBits = 0b0001}},
+      .contactNames = {"sole_l_toe_contact", "sole_r_toe_contact",
+                       "sole_l_heel_contact", "sole_r_heel_contact"}};
+}
+
+// The shipped biped gait file read by the mode names of the contact set: every
+// gait has the modes and times the FLY/RF/LF/STANCE-only reader gave it, on
+// the default layout and on a biped layout with legs and contact names.
+TEST(ModeSequenceTemplateTest, EveryShippedBipedGaitKeepsItsModesAndTimes) {
+  constexpr size_t kFly = kBipedModeFly;
+  constexpr size_t kRf = kBipedModeRf;
+  constexpr size_t kLf = kBipedModeLf;
+  constexpr size_t kStance = kBipedModeStance;
+  const std::map<std::string, ModeSequenceTemplate> expected = {
+      {"stance", ModeSequenceTemplate({0.0, 0.5}, {kStance})},
+      {"left_leg", ModeSequenceTemplate({0.0, 0.5}, {kLf})},
+      {"right_leg", ModeSequenceTemplate({0.0, 0.5}, {kRf})},
+      {"trot", ModeSequenceTemplate({0.0, 0.5, 1.0}, {kLf, kRf})},
+      {"fast_trot", ModeSequenceTemplate({0.0, 0.4, 0.8}, {kLf, kRf})},
+      {"slow_trot", ModeSequenceTemplate({0.0, 0.55, 1.1}, {kLf, kRf})},
+      {"slower_trot", ModeSequenceTemplate({0.0, 0.6, 1.2}, {kLf, kRf})},
+      {"walk", ModeSequenceTemplate({0.0, 0.6, 0.7, 1.3, 1.4},
+                                    {kLf, kStance, kRf, kStance})},
+      {"fast_walk", ModeSequenceTemplate({0.0, 0.3, 0.5, 0.8, 1.0},
+                                         {kLf, kStance, kRf, kStance})},
+      {"slow_walk", ModeSequenceTemplate({0.0, 0.65, 0.85, 1.5, 1.7},
+                                         {kLf, kStance, kRf, kStance})},
+      {"very_slow_walk", ModeSequenceTemplate({0.0, 0.7, 1.1, 1.8, 2.2},
+                                              {kRf, kStance, kLf, kStance})},
+      {"run",
+       ModeSequenceTemplate({0.0, 0.3, 0.4, 0.7, 0.8}, {kLf, kFly, kRf, kFly})},
+      {"fast_run",
+       ModeSequenceTemplate({0.0, 0.3, 0.4, 0.7, 0.8}, {kLf, kFly, kRf, kFly})},
+      {"skip", ModeSequenceTemplate({0.0, 0.25, 0.3, 0.5, 0.75, 0.8, 1.0},
+                                    {kLf, kFly, kLf, kRf, kFly, kRf})},
+      {"jump", ModeSequenceTemplate({0.0, 0.3, 0.5}, {kStance, kFly})},
+  };
+  const std::string gaitFile = gaitFilePath();
+  ASSERT_FALSE(gaitFile.empty()) << kGaitFile << " is not in the runfiles";
+  const absl::StatusOr<mpc_config::GaitFile> file = loadGaitFile(gaitFile);
+  ASSERT_TRUE(file.ok()) << file.status();
+  for (const GaitModeLayout& layout :
+       {GaitModeLayout{}, bipedLayoutWithLegs()}) {
+    const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits =
+        gaitMapFromConfig(*file, layout);
+    ASSERT_TRUE(gaits.ok()) << gaits.status();
+    ASSERT_EQ(gaits->size(), expected.size());
+    for (const std::pair<const std::string, ModeSequenceTemplate>& entry :
+         expected) {
+      ASSERT_TRUE(gaits->contains(entry.first)) << entry.first;
+      const ModeSequenceTemplate& parsed = gaits->find(entry.first)->second;
+      EXPECT_EQ(parsed.modeSequence, entry.second.modeSequence) << entry.first;
+      EXPECT_EQ(parsed.switchingTimes, entry.second.switchingTimes)
+          << entry.first;
+    }
+  }
+}
+
 TEST(ModeSequenceTemplateTest, TheDocumentedLayoutsLoad) {
   // The layouts of a gait (gait.textproto's gaits) and of a mode schedule
   // (reference.textproto's initial_mode_schedule), read back by their
@@ -296,6 +386,136 @@ TEST(MotionPhaseDefinitionTest, ASetEndingInTheFeetKeepsTheBipedNames) {
       parseModeNumber("110011", feetLast);
   ASSERT_TRUE(handsAndFeet.ok()) << handsAndFeet.status();
   EXPECT_EQ(*handsAndFeet, 0b110011U);
+}
+
+// On the biped the aliases keep their meaning, and the default legs and the
+// foot names name the same modes.
+TEST(MotionPhaseDefinitionTest, TheBipedReadsItsAliasesLegsAndContacts) {
+  const GaitModeLayout biped = bipedLayoutWithLegs();
+  const std::vector<std::pair<std::string, size_t>> names = {
+      {"FLY", kBipedModeFly},
+      {"STANCE", kBipedModeStance},
+      {"LF", kBipedModeLf},
+      {"RF", kBipedModeRf},
+      {"left", kBipedModeLf},
+      {"right", kBipedModeRf},
+      {"left_right", kBipedModeStance},
+      {"right_left", kBipedModeStance},
+      {"left_foot_contact", kBipedModeLf},
+      {"left_foot_contact+right_foot_contact", kBipedModeStance},
+      {"10", kBipedModeLf},
+      {"01", kBipedModeRf}};
+  for (const std::pair<std::string, size_t>& name : names) {
+    const absl::StatusOr<size_t> mode = parseModeNumber(name.first, biped);
+    ASSERT_TRUE(mode.ok()) << name.first << ": " << mode.status();
+    EXPECT_EQ(*mode, name.second) << name.first;
+  }
+}
+
+TEST(MotionPhaseDefinitionTest, AQuadrupedReadsItsLegNames) {
+  const GaitModeLayout quadruped = quadrupedLayout();
+  const std::vector<std::pair<std::string, size_t>> names = {
+      {"LF_RH", 0b1001},
+      {"RF_LH", 0b0110},
+      {"RH_LF", 0b1001},
+      {"LF", 0b1000},
+      {"RF", 0b0100},
+      {"LF_LH", 0b1010},
+      {"LF_RF_RH", 0b1101},
+      {"LF_RF_LH_RH", 0b1111},
+      {"STANCE", 0b1111},
+      {"FLY", 0},
+      {"lf_foot+rh_foot", 0b1001},
+      {"0110", 0b0110}};
+  for (const std::pair<std::string, size_t>& name : names) {
+    const absl::StatusOr<size_t> mode = parseModeNumber(name.first, quadruped);
+    ASSERT_TRUE(mode.ok()) << name.first << ": " << mode.status();
+    EXPECT_EQ(*mode, name.second) << name.first;
+  }
+}
+
+TEST(MotionPhaseDefinitionTest, TheContactFormNamesPointContactsByName) {
+  const absl::StatusOr<size_t> mode = parseModeNumber(
+      "sole_l_toe_contact+sole_r_heel_contact", soleCornerLayout());
+  ASSERT_TRUE(mode.ok()) << mode.status();
+  EXPECT_EQ(*mode, 0b1001U) << "contacts 0 and 3";
+}
+
+TEST(MotionPhaseDefinitionTest, AnUnknownOrRepeatedLegIsRefusedListingTheLegs) {
+  const GaitModeLayout quadruped = quadrupedLayout();
+  for (const absl::string_view refused :
+       {"LF_XX", "LF__RH", "lf", "LF+RH", "lf_foot+xx", "11111"}) {
+    const absl::StatusOr<size_t> mode = parseModeNumber(refused, quadruped);
+    EXPECT_EQ(mode.status().code(), absl::StatusCode::kInvalidArgument)
+        << refused;
+    EXPECT_THAT(mode.status().message(),
+                ::testing::HasSubstr("the legs LF, RF, LH, RH joined by '_'"))
+        << refused;
+    EXPECT_THAT(mode.status().message(),
+                ::testing::HasSubstr("a set of 4 contacts"))
+        << refused;
+  }
+  const absl::StatusOr<size_t> repeatedLeg =
+      parseModeNumber("LF_RH_LF", quadruped);
+  EXPECT_EQ(repeatedLeg.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(repeatedLeg.status().message(),
+              ::testing::HasSubstr("names the leg 'LF' more than once; the "
+                                   "legs are LF, RF, LH, RH"));
+  const absl::StatusOr<size_t> repeatedContact =
+      parseModeNumber("lf_foot+lf_foot", quadruped);
+  EXPECT_EQ(repeatedContact.status().code(),
+            absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(
+      repeatedContact.status().message(),
+      ::testing::HasSubstr("names the contact 'lf_foot' more than once"));
+}
+
+TEST(MotionPhaseDefinitionTest, ModeNamesRoundTripOnEveryLayout) {
+  // The biped prints its four modes as the gait files name them, with or
+  // without legs.
+  for (const GaitModeLayout& biped :
+       {GaitModeLayout{}, bipedLayoutWithLegs()}) {
+    EXPECT_EQ(modeNumber2String(kBipedModeFly, biped), "FLY");
+    EXPECT_EQ(modeNumber2String(kBipedModeRf, biped), "RF");
+    EXPECT_EQ(modeNumber2String(kBipedModeLf, biped), "LF");
+    EXPECT_EQ(modeNumber2String(kBipedModeStance, biped), "STANCE");
+    EXPECT_EQ(modeNumber2String(/*modeNumber=*/4, biped), "")
+        << "no mode of two contacts";
+  }
+  const GaitModeLayout quadruped = quadrupedLayout();
+  EXPECT_EQ(modeNumber2String(/*modeNumber=*/0b1001, quadruped), "LF_RH");
+  EXPECT_EQ(modeNumber2String(/*modeNumber=*/0b0110, quadruped), "RF_LH");
+  EXPECT_EQ(modeNumber2String(/*modeNumber=*/0b1101, quadruped), "LF_RF_RH");
+  EXPECT_EQ(modeNumber2String(/*modeNumber=*/0b1111, quadruped), "STANCE");
+  EXPECT_EQ(modeNumber2String(/*modeNumber=*/0, quadruped), "FLY");
+  EXPECT_EQ(modeNumber2String(/*modeNumber=*/16, quadruped), "");
+  // Without legs, and where a mode is no union of whole legs, the digits.
+  const GaitModeLayout fourPoints{.numContacts = 4, .stanceMode = 0b1111};
+  EXPECT_EQ(modeNumber2String(/*modeNumber=*/0b1001, fourPoints), "1001");
+  GaitModeLayout twoLegs = quadrupedLayout();
+  twoLegs.legs = {{.name = "left", .modeBits = 0b1010},
+                  {.name = "right", .modeBits = 0b0101}};
+  EXPECT_EQ(modeNumber2String(/*modeNumber=*/0b1010, twoLegs), "left");
+  EXPECT_EQ(modeNumber2String(/*modeNumber=*/0b1000, twoLegs), "1000");
+  // A leg named like a foot alias on a biped-stance set prints its digits,
+  // which read back as the same mode.
+  const GaitModeLayout aliasLeg{.numContacts = 4,
+                                .stanceMode = kBipedModeStance,
+                                .legs = {{.name = "LF", .modeBits = 0b1000}},
+                                .contactNames = {}};
+  EXPECT_EQ(modeNumber2String(/*modeNumber=*/0b1000, aliasLeg), "1000");
+
+  const std::vector<GaitModeLayout> layouts = {
+      GaitModeLayout{}, bipedLayoutWithLegs(), quadruped, fourPoints,
+      twoLegs,          soleCornerLayout(),    aliasLeg};
+  for (const GaitModeLayout& layout : layouts) {
+    for (size_t mode = 0; mode < numModeNumbersOf(layout.numContacts); ++mode) {
+      const std::string name = modeNumber2String(mode, layout);
+      const absl::StatusOr<size_t> parsed = parseModeNumber(name, layout);
+      ASSERT_TRUE(parsed.ok()) << name << ": " << parsed.status();
+      EXPECT_EQ(*parsed, mode) << name;
+    }
+  }
 }
 
 TEST(ModeSequenceTemplateTest,

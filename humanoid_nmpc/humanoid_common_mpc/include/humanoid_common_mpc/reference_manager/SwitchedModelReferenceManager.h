@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <memory>
 #include <optional>
+#include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
@@ -44,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ContactMask.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactPatchFrame.h"
@@ -118,6 +120,12 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    */
   void reset() override;
 
+  /** Returns the model settings of the robot model the manager was built
+   * on. */
+  const ModelSettings& modelSettings() const {
+    return mpcRobotModelPtr_->modelSettings;
+  }
+
   /** The active contacts of the model's contact set
    * (ModelSettings::contactNames) at `time`: the mode number of the schedule
    * at `time` read with ContactMask::fromModeNumber(). For a biped, entry
@@ -169,7 +177,9 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * default. The MPC interfaces switch it on for a robot that names
    * model_settings.armJointNames, except the centroidal MPC under
    * com_and_acom_tracking_cost, where the arm motion emerges from the ACoM cost
-   * and a generator driving the same joints would fight it.
+   * and a generator driving the same joints would fight it. They call it before
+   * configureArmSwing(), which refuses an active procedural swing on a
+   * contact set other than the biped's.
    */
   void setArmSwingReferenceActive(bool armSwingReferenceActive) {
     armSwingReferenceActive_ = armSwingReferenceActive;
@@ -182,19 +192,22 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * turns from the model at `nominalState`, the nominal standing posture
    * (deriveArmSwingDirections()). The MPC interfaces call it once at start-up;
    * a refused block or joint leaves the configuration as it was and is
-   * returned.
+   * returned. The procedural generator swings the arms against the biped's
+   * gait phase (getPhaseVariable()): while the swing is active
+   * (setArmSwingReferenceActive()) it is refused on any other contact set with
+   * an InvalidArgument naming arm_swing.generator and the contact count.
    */
   absl::Status configureArmSwing(const mpc_config::ArmSwingConfig& config,
                                  const vector_t& nominalState);
 
   /**
    * Retunes the arm swing (a hot reload of arm_swing); the directions derived
-   * at start-up stay. Not thread-safe: called on the solver thread between two
-   * solves, as every hot-field applier is (HotFieldApplier).
+   * at start-up stay. Refuses, as configureArmSwing() does, an active
+   * procedural swing on a contact set other than the biped's, and then keeps
+   * the running settings. Not thread-safe: called on the solver thread between
+   * two solves, as every hot-field applier is (HotFieldApplier).
    */
-  void setArmSwingSettings(const ArmSwingSettings& settings) {
-    armSwingSettings_ = settings;
-  }
+  absl::Status setArmSwingSettings(const ArmSwingSettings& settings);
   const ArmSwingSettings& getArmSwingSettings() const {
     return armSwingSettings_;
   }
@@ -249,14 +262,49 @@ class SwitchedModelReferenceManager : public ReferenceManager {
     return swingTrajectoryPtr_.get();
   }
 
+  /**
+   * Returns the biped's gait phase at `time`, in [0, 1): [0, 0.5) across left
+   * stance (the mode LF), [0.5, 1) across right stance (RF), held through
+   * double support, and 0 where the schedule gives nothing to interpolate. Read
+   * by the procedural arm swing and by periodic_orientation, both written for
+   * two feet; on any other contact set the biped modes never occur and it stays
+   * 0. The phase of one leg's swing on any set is getSwingPhaseVariable().
+   */
   scalar_t getPhaseVariable(scalar_t time) const;
 
   /**
-   * [1/s] d getPhaseVariable(time) / dt: 0.5 over the duration of the
+   * Returns d getPhaseVariable(time) / dt [1/s]: 0.5 over the duration of the
    * single-support mode at `time`, and 0 where the phase is constant - through
    * double support, and wherever getPhaseVariable() falls back to 0.
+   * Biped-only, as getPhaseVariable() is.
    */
   scalar_t getPhaseVariableRate(scalar_t time) const;
+
+  /**
+   * Returns the phase of leg `legIndex`'s swing (ModelSettings::legs) at
+   * `time`: (time - liftOff) / (touchDown - liftOff) over a swing in which
+   * every contact of the leg is out of contact (legSwingPhaseVariable()), in
+   * [0, 1]; 0 in stance, for a schedule that holds no lift-off or touch-down of
+   * the swing, and for a leg index the settings do not have. Thread-safe.
+   */
+  scalar_t getSwingPhaseVariable(size_t legIndex, scalar_t time) const;
+
+  /** Returns d getSwingPhaseVariable(legIndex, time) / dt [1/s]:
+   * 1 / (touchDown - liftOff) in swing, 0 wherever the phase is constant.
+   * Thread-safe. */
+  scalar_t getSwingPhaseVariableRate(size_t legIndex, scalar_t time) const;
+
+  /**
+   * Derives where each contact stands relative to the base at `nominalState`,
+   * the nominal standing posture, in the heading frame
+   * (computeNomPosContactsRtBaseEwrtHeadingXy()): the landmark of the
+   * `nominal_stance` anchor of nominal_foothold.anchor. The MPC interfaces call
+   * it once at start-up, beside configureArmSwing(); until then the anchor has
+   * no landmark and getNomPosFootRtWorldEwrtWorldXy() returns nothing on it. It
+   * runs the forward kinematics on a copy of the model, so nothing this manager
+   * evaluates later reads its result from the model's data. Not thread-safe.
+   */
+  void configureNominalStance(const vector_t& nominalState);
 
   /** True when the mode schedule is produced by an online contact planner
    * instead of the gait schedule. */
@@ -272,7 +320,8 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * (anchorPosFootRtWorldEwrtWorldXy()).
    *
    * Present when `nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y` is
-   * positive, or when any foothold heuristic is listed; empty otherwise - the
+   * positive, when any foothold heuristic is listed, or with the
+   * `nominal_stance` anchor on a legged set; empty otherwise - the
    * default, which leaves the foot cost's xy position weights switched off
    * exactly as before. A contact planner overrides this with its planned
    * footholds (ContactPlanningReferenceManager), and never calls
@@ -287,35 +336,40 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * an opinion. A LANDMARK: it does not move while the foot swings, however
    * many times the solver re-evaluates it - which it does at every solve, with
    * the latest measurement - because a target that slides through the swing is
-   * a target the foot never reaches.
-   *
-   * With no foothold heuristic listed, the nominal step: a whole step width to
-   * this foot's side of the **other, stance** foot, carried forward at the
-   * commanded velocity over one step, from the stance foot's own touch-down to
-   * this one. Measured from the stance foot because it is the one landmark that
-   * holds still while this foot swings; over one step because that is how far
-   * the body travels between the two landings, which makes this the
-   * steady-state Raibert target without a coefficient to tune. The stance foot
-   * stands where it was measured at the last solve if it landed by then, and
-   * at its own nominal target if it lands later in the horizon
-   * (anchorPosFootRtWorldEwrtWorldXy()), so every step of the horizon chains
-   * from the one before.
-   *
-   * With foothold heuristics listed, Bledt's H_r: the hip at touch-down, plus
-   * the heuristics' offsets. The anchor is the base PREDICTED at touch-down -
-   * measured at the solve and carried forward by the command - at the heading
-   * predicted for then, plus half the step width to this foot's side across
-   * that heading (computePosHipRtWorldEwrtWorldXy(); a
-   * nomPosLfootRtRfootEwrtHeadingY of zero is rejected at start-up unless
-   * hip_centered_stepping is listed, which supplies the separation from the
-   * hips instead). With hip_centered_stepping listed the anchor is the
-   * predicted base itself. Either way the heuristics' leads -
-   * translational_stepping's a1 v above all - are measured from the hip at the
-   * moment of landing, as in the dissertation, and mean the same thing on both
-   * paths.
-   *
-   * Written for a biped's left and right foot: empty for any other contact set
-   * (ModelSettings::isBipedContactSet()).
+   * a target the foot never reaches.  With no foothold heuristic listed, the
+   * nominal step: a whole step width to this foot's side of the **other,
+   * stance** foot, carried forward at the commanded velocity over one step,
+   * from the stance foot's own touch-down to this one. Measured from the stance
+   * foot because it is the one landmark that holds still while this foot
+   * swings; over one step because that is how far the body travels between the
+   * two landings, which makes this the steady-state Raibert target without a
+   * coefficient to tune. The stance foot stands where it was measured at the
+   * last solve if it landed by then, and at its own nominal target if it lands
+   * later in the horizon (anchorPosFootRtWorldEwrtWorldXy()), so every step of
+   * the horizon chains from the one before.  With foothold heuristics listed,
+   * Bledt's H_r: the hip at touch-down, plus the heuristics' offsets. The
+   * anchor is the base PREDICTED at touch-down - measured at the solve and
+   * carried forward by the command - at the heading predicted for then, plus
+   * half the step width to this foot's side across that heading
+   * (computePosHipRtWorldEwrtWorldXy(); a nomPosLfootRtRfootEwrtHeadingY of
+   * zero is rejected at start-up unless hip_centered_stepping is listed, which
+   * supplies the separation from the hips instead). With hip_centered_stepping
+   * listed the anchor is the predicted base itself. Either way the heuristics'
+   * leads - translational_stepping's a1 v above all - are measured from the hip
+   * at the moment of landing, as in the dissertation, and mean the same thing
+   * on both paths.  All of the above is the `step_width` anchor
+   * (nominal_foothold.anchor, the default), written for a biped's left and
+   * right foot: it is empty for any other contact set
+   * (ModelSettings::isBipedContactSet()).  The `nominal_stance` anchor runs on
+   * any legged set (ModelSettings::isLeggedContactSet()), the biped included,
+   * and is empty on a set without legs. Its nominal step is the base predicted
+   * at the touch-down plus where this contact stands relative to the base at
+   * the nominal posture, turned by the predicted yaw
+   * (nomPosContactsRtBaseEwrtHeadingXy_, configureNominalStance()); the forward
+   * placement comes from the base predicted at touch-down, which is advanced by
+   * the velocity command. With foothold heuristics listed that same point is
+   * their anchor, unless hip_centered_stepping measures the offsets from the
+   * predicted base instead. It needs no step width.
    */
   std::optional<vector2_t> getNomPosFootRtWorldEwrtWorldXy(size_t contactIndex,
                                                            scalar_t time) const;
@@ -743,6 +797,11 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   std::shared_ptr<LocomotionHeuristicLayer> heuristicLayerPtr_{
       std::make_shared<LocomotionHeuristicLayer>()};
 
+  /// [m] Where each contact stands relative to the base at the nominal
+  /// posture, in the heading frame, in contact order: the landmark of the
+  /// nominal_stance anchor. Empty until configureNominalStance().
+  std::vector<vector2_t> nomPosContactsRtBaseEwrtHeadingXy_;
+
   bool armSwingReferenceActive_ = false;
   /// The tuning of the arm swing (hot), and which way each arm joint turns
   /// (derived once by configureArmSwing(); the defaults until then are the
@@ -754,6 +813,13 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr_;  // never null
 
  private:
+  /**
+   * Returns OK unless `settings` would run the procedural arm swing, which
+   * reads the biped's gait phase, on a contact set other than the biped's
+   * while the swing is active; then the InvalidArgument naming
+   * arm_swing.generator and the contact count.
+   */
+  absl::Status checkArmSwingContactSet(const ArmSwingSettings& settings) const;
   /**
    * Returns where foot `contactIndex` stands [m] after its touch-down at
    * `touchDownTime`: the position latched for it at the last solve
@@ -800,6 +866,26 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    */
   std::optional<vector2_t> nomStepPosFootRtWorldEwrtWorldXy(
       size_t contactIndex, scalar_t time) const;
+
+  /**
+   * Computes the nominal_stance foothold of contact `contactIndex` touching
+   * down at `time` (the nominal_stance branch of
+   * getNomPosFootRtWorldEwrtWorldXy()): the nominal stance point
+   * (computeNomPosContactRtWorldEwrtWorldXy()), plus the foothold
+   * heuristics' offsets when any is listed, measured from the predicted base
+   * instead when hip_centered_stepping is listed. nullopt before
+   * configureNominalStance().
+   */
+  std::optional<vector2_t> footholdOnNominalStance(size_t contactIndex,
+                                                   scalar_t time) const;
+
+  /**
+   * Returns the nominal stance point [m] of the landing described by `context`:
+   * its predicted base plus context.nomPosContactRtBaseEwrtHeadingXy turned
+   * into the world by its predicted yaw.
+   */
+  static vector2_t computeNomPosContactRtWorldEwrtWorldXy(
+      const FootholdHeuristicContext& context);
 };
 
 }  // namespace ocs2::humanoid

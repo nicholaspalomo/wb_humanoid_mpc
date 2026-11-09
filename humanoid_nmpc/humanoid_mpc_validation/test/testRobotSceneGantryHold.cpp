@@ -85,6 +85,8 @@ std::vector<ExpectedHold> expectedHolds() {
       {.configuration = "unitree_g1", .hold = GantryHold::kWeldConstraint},
       {.configuration = "unitree_r1", .hold = GantryHold::kWeldConstraint},
       {.configuration = "unitree_g1_wb", .hold = GantryHold::kWeldConstraint},
+      {.configuration = "unitree_g1_kalman",
+       .hold = GantryHold::kWeldConstraint},
   };
 }
 
@@ -200,8 +202,8 @@ TEST(RobotSceneGantryHold, EachWeldedSceneFailsTheCheckWithItsWeldTakenOut) {
                  HasSubstr("no equality named 'gantry'")))
         << configuration->sceneFile;
   }
-  EXPECT_EQ(welded, 5) << "every configuration runs on the weld: Atlas, SA01, "
-                          "R1 and both G1 configurations";
+  EXPECT_EQ(welded, 6) << "every configuration runs on the weld: Atlas, SA01, "
+                          "R1 and the three G1 configurations";
 }
 
 }  // namespace

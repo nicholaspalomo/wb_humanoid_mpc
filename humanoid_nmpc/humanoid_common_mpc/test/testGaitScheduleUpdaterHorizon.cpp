@@ -30,8 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
@@ -165,14 +167,16 @@ TEST(GaitScheduleUpdaterHorizon, theNextSolveSeesTheScheduleItSawBeforeTheFix) {
 }
 
 // The new gait starts at the first event after 0.7 of the horizon, 0.8 s here,
-// and the phase before it is mode 2. On the biped set that is LF, so the switch
-// moves back to where LF starts (0.5 s); on a set of four contacts 2 (0b0010)
-// is the third contact alone, which is no left stance, and the switch stays.
+// and the phase before it is mode 2. On the biped set that is LF, the mode a
+// walk starts with, so the switch moves back to where LF starts (0.5 s); on a
+// set of four contacts 2 (0b0010) is the third contact alone, which is not the
+// 0b1001 the trot inserted there starts with, and the switch stays.
 constexpr scalar_t kPhaseTwoStart = 0.5;  // [s]
 constexpr scalar_t kPhaseTwoEnd = 0.8;    // [s]
 constexpr size_t kModeTwo = 0b0010;
 
-std::shared_ptr<GaitSchedule> scheduleWithModeTwoBefore(GaitModeLayout layout) {
+std::shared_ptr<GaitSchedule> scheduleWithModeTwoBefore(
+    const GaitModeLayout& layout) {
   std::shared_ptr<GaitSchedule> schedule = std::make_shared<GaitSchedule>(
       ModeSchedule({kPhaseTwoStart, kPhaseTwoEnd},
                    {layout.stanceMode, kModeTwo, layout.stanceMode}),
@@ -199,6 +203,242 @@ TEST(GaitScheduleUpdaterSwitchTime, aFourContactSwitchIsNotMovedBack) {
   const ModeSequenceTemplate trot({0.0, 0.35, 0.7}, {0b1001, 0b0110});
   EXPECT_EQ(updateGaitSchedule(*schedule, trot, /*initTime=*/0.0,
                                /*finalTime=*/kHorizon),
+            kPhaseTwoEnd);
+}
+
+// The gaits of the default gait switching table as the shipped biped gait file
+// gives them.
+struct NamedGait {
+  std::string name;
+  ModeSequenceTemplate gait;
+};
+
+std::vector<NamedGait> defaultTableGaits() {
+  return {
+      {"stance", ModeSequenceTemplate({0.0, 0.5}, {kBipedModeStance})},
+      {"slow_walk", ModeSequenceTemplate({0.0, 0.65, 0.85, 1.5, 1.7},
+                                         {kBipedModeLf, kBipedModeStance,
+                                          kBipedModeRf, kBipedModeStance})},
+      {"walk", ModeSequenceTemplate({0.0, 0.6, 0.7, 1.3, 1.4},
+                                    {kBipedModeLf, kBipedModeStance,
+                                     kBipedModeRf, kBipedModeStance})},
+      {"slower_trot",
+       ModeSequenceTemplate({0.0, 0.6, 1.2}, {kBipedModeLf, kBipedModeRf})},
+      {"slow_trot",
+       ModeSequenceTemplate({0.0, 0.55, 1.1}, {kBipedModeLf, kBipedModeRf})},
+      {"trot",
+       ModeSequenceTemplate({0.0, 0.5, 1.0}, {kBipedModeLf, kBipedModeRf})},
+      {"run", ModeSequenceTemplate(
+                  {0.0, 0.3, 0.4, 0.7, 0.8},
+                  {kBipedModeLf, kBipedModeFly, kBipedModeRf, kBipedModeFly})},
+  };
+}
+
+/** A biped stance schedule with one `mode` phase over [0.5, 0.8] s, queried
+ * as before a solve. */
+std::shared_ptr<GaitSchedule> bipedScheduleWithPhase(
+    size_t mode, const GaitModeLayout& layout = GaitModeLayout{}) {
+  std::shared_ptr<GaitSchedule> schedule = std::make_shared<GaitSchedule>(
+      ModeSchedule({kPhaseTwoStart, kPhaseTwoEnd},
+                   {kBipedModeStance, mode, kBipedModeStance}),
+      stanceTemplate(), /*phaseTransitionStanceTime=*/0.0, layout);
+  schedule->getModeSchedule(/*lowerBoundTime=*/-kHorizon,
+                            /*upperBoundTime=*/2.0 * kHorizon);
+  return schedule;
+}
+
+TEST(GaitScheduleUpdaterSwitchTime,
+     EveryDefaultTableGaitStartsWhereItDidBefore) {
+  // The rule before the generic cycle start: back to the start of an LF phase
+  // that ends at the first event after 0.7 s, otherwise at that event. Each
+  // gait the motion manager selects by default starts at the same literal time
+  // and leaves the same schedule as an insertion at that time.
+  struct Case {
+    std::string schedule;
+    std::shared_ptr<GaitSchedule> (*absl_nonnull make)();
+    scalar_t expectedStart;  // [s]
+  };
+  const std::vector<Case> cases = {
+      {"stance", [] { return standingScheduleAt(0.0, 0.0); }, 1.0},
+      {"LF before", [] { return bipedScheduleWithPhase(kBipedModeLf); },
+       kPhaseTwoStart},
+      {"RF before", [] { return bipedScheduleWithPhase(kBipedModeRf); },
+       kPhaseTwoEnd},
+      {"FLY before", [] { return bipedScheduleWithPhase(kBipedModeFly); },
+       kPhaseTwoEnd},
+  };
+  for (const NamedGait& named : defaultTableGaits()) {
+    for (const Case& testCase : cases) {
+      SCOPED_TRACE(absl::StrCat(named.name, " on ", testCase.schedule));
+      std::shared_ptr<GaitSchedule> updated = testCase.make();
+      EXPECT_EQ(updateGaitSchedule(*updated, named.gait, /*initTime=*/0.0,
+                                   /*finalTime=*/kHorizon),
+                testCase.expectedStart);
+      std::shared_ptr<GaitSchedule> legacy = testCase.make();
+      legacy->getModeSchedule(/*lowerBoundTime=*/0.0,
+                              /*upperBoundTime=*/2.0 * kHorizon);
+      legacy->insertModeSequenceTemplate(named.gait, testCase.expectedStart,
+                                         /*finalTime=*/1.5 * kHorizon);
+      const ModeSchedule updatedSchedule = updated->getCurrentModeSchedule();
+      const ModeSchedule legacySchedule = legacy->getCurrentModeSchedule();
+      EXPECT_EQ(updatedSchedule.eventTimes, legacySchedule.eventTimes);
+      EXPECT_EQ(updatedSchedule.modeSequence, legacySchedule.modeSequence);
+    }
+  }
+}
+
+// The biped's two default legs, left (contact 0) and right (contact 1), as
+// gaitModeLayoutOf() gives them.
+GaitModeLayout bipedLeggedLayout() {
+  return GaitModeLayout{.numContacts = 2,
+                        .stanceMode = kBipedModeStance,
+                        .legs = {{.name = "left", .modeBits = kBipedModeLf},
+                                 {.name = "right", .modeBits = kBipedModeRf}},
+                        .contactNames = {}};
+}
+
+// Four legs of one contact each, LF, RF, LH and RH.
+GaitModeLayout quadrupedLeggedLayout() {
+  return GaitModeLayout{.numContacts = 4,
+                        .stanceMode = 0b1111,
+                        .legs = {{.name = "LF", .modeBits = 0b1000},
+                                 {.name = "RF", .modeBits = 0b0100},
+                                 {.name = "LH", .modeBits = 0b0010},
+                                 {.name = "RH", .modeBits = 0b0001}},
+                        .contactNames = {}};
+}
+
+// The shipped biped gaits that do not open with LF: very_slow_walk, right_leg
+// and jump.
+std::vector<NamedGait> gaitsThatDoNotOpenWithLf() {
+  return {
+      {"very_slow_walk",
+       ModeSequenceTemplate(
+           {0.0, 0.7, 1.1, 1.8, 2.2},
+           {kBipedModeRf, kBipedModeStance, kBipedModeLf, kBipedModeStance})},
+      {"right_leg", ModeSequenceTemplate({0.0, 0.5}, {kBipedModeRf})},
+      {"jump", ModeSequenceTemplate({0.0, 0.3, 0.5},
+                                    {kBipedModeStance, kBipedModeFly})},
+  };
+}
+
+TEST(GaitScheduleUpdaterSwitchTime,
+     GaitsThatDoNotOpenWithLfStartWhereTheyDidBefore) {
+  // The rule before the generic cycle start moved every biped switch back to
+  // the start of an LF phase that ends at the first event after 0.7 s, whatever
+  // the new gait opens with.
+  struct Case {
+    std::string schedule;
+    size_t mode;
+    scalar_t expectedStart;  // [s]
+  };
+  const std::vector<Case> cases = {
+      {"LF before", kBipedModeLf, kPhaseTwoStart},
+      {"RF before", kBipedModeRf, kPhaseTwoEnd},
+      {"FLY before", kBipedModeFly, kPhaseTwoEnd},
+  };
+  for (const GaitModeLayout& layout : {GaitModeLayout{}, bipedLeggedLayout()}) {
+    for (const NamedGait& named : gaitsThatDoNotOpenWithLf()) {
+      for (const Case& testCase : cases) {
+        SCOPED_TRACE(absl::StrCat(named.name, " on ", testCase.schedule, ", ",
+                                  layout.legs.size(), " legs"));
+        std::shared_ptr<GaitSchedule> updated =
+            bipedScheduleWithPhase(testCase.mode, layout);
+        EXPECT_EQ(updateGaitSchedule(*updated, named.gait, /*initTime=*/0.0,
+                                     /*finalTime=*/kHorizon),
+                  testCase.expectedStart);
+      }
+    }
+  }
+}
+
+TEST(GaitScheduleUpdaterSwitchTime, TheCycleStartsWhereTheFirstLegStands) {
+  for (const GaitModeLayout& biped : {GaitModeLayout{}, bipedLeggedLayout()}) {
+    SCOPED_TRACE(absl::StrCat(biped.legs.size(), " legs"));
+    EXPECT_EQ(cycleStartMode(walkTemplate(), biped), kBipedModeLf);
+    EXPECT_EQ(
+        cycleStartMode(ModeSequenceTemplate({0.0, 0.2, 0.6},
+                                            {kBipedModeStance, kBipedModeRf}),
+                       biped),
+        kBipedModeLf)
+        << "a gait without an LF phase falls back to LF";
+    EXPECT_EQ(
+        cycleStartMode(ModeSequenceTemplate({0.0, 0.3, 0.5},
+                                            {kBipedModeStance, kBipedModeFly}),
+                       biped),
+        kBipedModeLf);
+    EXPECT_EQ(
+        cycleStartMode(ModeSequenceTemplate({0.0, 0.7, 1.1, 1.8, 2.2},
+                                            {kBipedModeRf, kBipedModeStance,
+                                             kBipedModeLf, kBipedModeStance}),
+                       biped),
+        kBipedModeLf)
+        << "a gait that opens with RF still aligns on its LF phase";
+    EXPECT_EQ(cycleStartMode(stanceTemplate(), biped), kBipedModeLf)
+        << "a biped stance template keeps aligning to LF";
+    EXPECT_EQ(defaultCycleStartMode(biped), kBipedModeLf);
+  }
+
+  constexpr size_t kAllFour = 0b1111;
+  const GaitModeLayout quadruped = quadrupedLeggedLayout();
+  EXPECT_EQ(
+      cycleStartMode(ModeSequenceTemplate({0.0, 0.35, 0.7}, {0b1001, 0b0110}),
+                     quadruped),
+      0b1001U);
+  EXPECT_EQ(
+      cycleStartMode(ModeSequenceTemplate({0.0, 0.35, 0.7}, {0b0110, 0b1001}),
+                     quadruped),
+      0b1001U)
+      << "the trot starts where LF stands, wherever the template opens";
+  EXPECT_FALSE(
+      cycleStartMode(ModeSequenceTemplate({0.0, 0.5}, {kAllFour}), quadruped)
+          .has_value());
+  EXPECT_FALSE(defaultCycleStartMode(quadruped).has_value());
+  const GaitModeLayout leglessFour{.numContacts = 4, .stanceMode = kAllFour};
+  EXPECT_FALSE(
+      cycleStartMode(ModeSequenceTemplate({0.0, 0.35, 0.7}, {0b1001, 0b0110}),
+                     leglessFour)
+          .has_value())
+      << "a set without legs has no first leg to align to";
+}
+
+// A quadruped stance schedule (contacts LF, RF, LH, RH) with one `mode` phase
+// over [0.5, 0.8] s, queried as before a solve.
+constexpr size_t kQuadrupedStance = 0b1111;
+constexpr size_t kLfRh = 0b1001;
+constexpr size_t kRfLh = 0b0110;
+
+std::shared_ptr<GaitSchedule> quadrupedScheduleWithPhase(size_t mode) {
+  const GaitModeLayout layout = quadrupedLeggedLayout();
+  std::shared_ptr<GaitSchedule> schedule = std::make_shared<GaitSchedule>(
+      ModeSchedule({kPhaseTwoStart, kPhaseTwoEnd},
+                   {kQuadrupedStance, mode, kQuadrupedStance}),
+      ModeSequenceTemplate({0.0, 0.5}, {kQuadrupedStance}),
+      /*phaseTransitionStanceTime=*/0.0, layout);
+  schedule->getModeSchedule(/*lowerBoundTime=*/-kHorizon,
+                            /*upperBoundTime=*/2.0 * kHorizon);
+  return schedule;
+}
+
+TEST(GaitScheduleUpdaterSwitchTime, AQuadrupedTrotAlignsToItsFirstDiagonal) {
+  const ModeSequenceTemplate trot({0.0, 0.35, 0.7}, {kLfRh, kRfLh});
+  std::shared_ptr<GaitSchedule> lfRhBefore = quadrupedScheduleWithPhase(kLfRh);
+  EXPECT_EQ(updateGaitSchedule(*lfRhBefore, trot, /*initTime=*/0.0,
+                               /*finalTime=*/kHorizon),
+            kPhaseTwoStart)
+      << "an LF_RH phase that ends past the switching time is redone";
+  std::shared_ptr<GaitSchedule> rfLhBefore = quadrupedScheduleWithPhase(kRfLh);
+  EXPECT_EQ(updateGaitSchedule(*rfLhBefore, trot, /*initTime=*/0.0,
+                               /*finalTime=*/kHorizon),
+            kPhaseTwoEnd)
+      << "after RF_LH the trot goes on with LF_RH";
+}
+
+TEST(GaitScheduleUpdaterSwitchTime, AQuadrupedStanceTemplateIsNotMoved) {
+  std::shared_ptr<GaitSchedule> schedule = quadrupedScheduleWithPhase(kLfRh);
+  EXPECT_EQ(updateGaitSchedule(
+                *schedule, ModeSequenceTemplate({0.0, 0.5}, {kQuadrupedStance}),
+                /*initTime=*/0.0, /*finalTime=*/kHorizon),
             kPhaseTwoEnd);
 }
 

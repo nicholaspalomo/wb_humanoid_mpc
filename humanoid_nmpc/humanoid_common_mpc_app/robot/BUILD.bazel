@@ -42,7 +42,8 @@ cc_library(
 )
 
 # The robot process (RobotProcess.h) and its parts: the backend registry, the operator's mailboxes, the supervisors (the
-# FSM bridge and the fall recovery of the simulator and of a hardware backend), the telemetry sampler and sinks, the task file's settings (from the typed task
+# FSM bridge and the fall recovery of the simulator and of a hardware backend), the contacts' surface heights for the
+# state estimator (flat ground or a multi-contact plan's patches), the telemetry sampler and sinks, the task file's settings (from the typed task
 # file, src/config/robot/), the MpcLink over the remote MPC link, and the configuration store (the persistent copies
 # the GUI's Save writes, RobotConfigDirectory.h, ConfigFileStore.h) with the start-up the robot binaries share
 # (RobotStartup.h).
@@ -53,6 +54,7 @@ cc_library(
         "src/BusTelemetrySink.cpp",
         "src/ConfigFileStore.cpp",
         "src/FsmBridgeState.cpp",
+        "src/FlatGroundSurfaceHeights.cpp",
         "src/FsmCommand.cpp",
         "src/FsmStateMailbox.cpp",
         "src/HardwareFallRecovery.cpp",
@@ -62,6 +64,8 @@ cc_library(
         "src/MujocoRobotBackend.cpp",
         "src/MujocoViewerAnnotator.cpp",
         "src/OperatorCommandMailbox.cpp",
+        "src/PlannedSurfaceHeights.cpp",
+        "src/PlannedSwitchTimesSource.cpp",
         "src/RemoteMpcLinkAdapter.cpp",
         "src/RobotAppOptions.cpp",
         "src/RobotBackendRegistry.cpp",
@@ -86,7 +90,9 @@ cc_library(
         "include/humanoid_common_mpc_app/robot/AtomicFileWrite.h",
         "include/humanoid_common_mpc_app/robot/BusTelemetrySink.h",
         "include/humanoid_common_mpc_app/robot/ConfigFileStore.h",
+        "include/humanoid_common_mpc_app/robot/ContactSurfaceHeightSource.h",
         "include/humanoid_common_mpc_app/robot/FallRecovery.h",
+        "include/humanoid_common_mpc_app/robot/FlatGroundSurfaceHeights.h",
         "include/humanoid_common_mpc_app/robot/FsmBridge.h",
         "include/humanoid_common_mpc_app/robot/FsmBridgeState.h",
         "include/humanoid_common_mpc_app/robot/FsmCommand.h",
@@ -99,6 +105,8 @@ cc_library(
         "include/humanoid_common_mpc_app/robot/MujocoRobotBackend.h",
         "include/humanoid_common_mpc_app/robot/MujocoViewerAnnotator.h",
         "include/humanoid_common_mpc_app/robot/OperatorCommandMailbox.h",
+        "include/humanoid_common_mpc_app/robot/PlannedSurfaceHeights.h",
+        "include/humanoid_common_mpc_app/robot/PlannedSwitchTimesSource.h",
         "include/humanoid_common_mpc_app/robot/RemoteMpcLinkAdapter.h",
         "include/humanoid_common_mpc_app/robot/RobotAppOptions.h",
         "include/humanoid_common_mpc_app/robot/RobotBackend.h",
@@ -139,6 +147,8 @@ cc_library(
         "//humanoid_nmpc/humanoid_mpc_ipc:remote_mpc_link",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+        # The multi-contact plan's patches, for the state estimator's contact heights (PlannedSurfaceHeights.h).
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
         # The plot configuration, whose mujoco_viewer names the MuJoCo viewer without --viewer (RobotAppOptions.h).
         "//humanoid_nmpc/humanoid_rerun_viewer:plot_config_cc_proto",
         "//humanoid_nmpc/humanoid_rerun_viewer:plot_config_nproto",
@@ -170,6 +180,7 @@ cc_library(
         "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/synchronization",
         "@abseil-cpp//absl/time",
+        "@abseil-cpp//absl/types:span",
         "@eigen",
         "@pinocchio//:pinocchio",
         "@protobuf",
@@ -255,6 +266,7 @@ cc_library(
         "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/synchronization",
         "@abseil-cpp//absl/time",
+        "@abseil-cpp//absl/types:span",
         "@googletest//:gtest",
     ],
 )
@@ -342,6 +354,8 @@ cc_test(
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
+        "//lib/ocs2:ocs2_core_types",
         "//robot_runtime/mujoco_sim_interface",
         "//robot_runtime/mujoco_sim_interface:viewer_settings",
         "//robot_runtime/robot_model",
@@ -372,6 +386,7 @@ cc_test(
         ":robot_test_support",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//humanoid_nmpc/humanoid_mpc_ipc",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
@@ -384,6 +399,87 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/synchronization",
         "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The kalman state estimator's contact points (stateEstimatorContacts()): the MPC's sole centers, pad centers and point
+# offsets on the URDF's links, so that the G1 standing on its soles keeps its true base height, and the Atlas seat pad
+# on the URDF's root link.
+cc_test(
+    name = "test_state_estimator_contacts",
+    size = "small",
+    srcs = ["test/testStateEstimatorContacts.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+    ],
+    deps = [
+        ":robot_process",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_state_estimation/humanoid_state_estimator:state_estimator",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The contacts' surface heights for the state estimator (ContactSurfaceHeightSource.h): the flat ground, a multi-contact
+# plan's patches (a seat, a ramp, none on a wall or far from every patch), the task file's selection, and an
+# allocation-free fill(). Linked statically for the allocation counter, which replaces malloc for the whole binary.
+cc_test(
+    name = "test_contact_surface_height_source",
+    size = "small",
+    srcs = ["test/testContactSurfaceHeightSource.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+    ],
+    linkstatic = True,
+    deps = [
+        ":robot_process",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_nmpc/humanoid_multi_contact/plan:multi_contact_plan_nproto",
+        "//humanoid_state_estimation/humanoid_state_estimator:state_estimator",
+        "//lib/ocs2:ocs2_core_types",
+        "//robot_runtime/robot_realtime:allocation_counter",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The planned contact switch times handed to the state estimator (PlannedSwitchTimesSource.h): the controller's, none
+# without a policy, allocation-free. Linked statically for the allocation counter.
+cc_test(
+    name = "test_planned_switch_times_source",
+    size = "small",
+    srcs = ["test/testPlannedSwitchTimesSource.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    linkstatic = True,
+    deps = [
+        ":robot_process",
+        ":robot_test_support",
+        "//humanoid_state_estimation/humanoid_state_estimator:state_estimator",
+        "//lib/ocs2:ocs2_core_types",
+        "//robot_runtime/robot_realtime:allocation_counter",
         "@googletest//:gtest_main",
     ],
 )

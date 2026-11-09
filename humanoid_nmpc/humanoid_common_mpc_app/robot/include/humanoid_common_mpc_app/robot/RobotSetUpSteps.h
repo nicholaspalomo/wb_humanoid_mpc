@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -38,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc_app/robot/ContactSurfaceHeightSource.h"
 #include "humanoid_common_mpc_app/robot/RemoteMpcLinkAdapter.h"
 #include "humanoid_common_mpc_app/robot/RobotAppOptions.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
@@ -45,6 +47,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotConfigurationCheck.h"
 #include "humanoid_common_mpc_app/robot/RobotProcess.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
+#include "humanoid_mpc_config/contacts_config.nproto.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_multi_contact/plan/multi_contact_plan.nproto.h"
 #include "humanoid_state_estimator/ContactKinematics.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 
@@ -105,26 +110,64 @@ RobotProcess::Hooks robotProcessHooks(
 /**
  * Returns the contact points of `modelSettings` in its contact order
  * (contactNames), for the leg kinematics of the `kalman` state estimator
- * (RobotProcess::Config::stateEstimatorContacts): a 3-DoF contact at its
- * posContactRtLinkEwrtLink from its parent joint's frame, and a 6-DoF contact
- * at its own frame or, where the URDF does not have it, at the origin of its
- * parent joint's frame (contactParentJointNames, one per 6-DoF contact).
+ * (RobotProcess::Config::stateEstimatorContacts): the MPC's own contact points
+ * on the links of the URDF `urdfFile`. Each contact is on the child link of its
+ * parent joint (estimation::childLinkNamesOfJoints(), the URDF's root link for
+ * estimation::kMpcRootJointName): a 3-DoF contact at its
+ * posContactRtLinkEwrtLink, a 6-DoF contact at the center of its sole or
+ * surface pad, contactCenterPointFromConfig() of `contacts` (the task file's
+ * contacts block), which is where the MPC model's contact frame is. Parses the
+ * URDF once.
+ *
+ * @return InvalidArgument naming a 6-DoF contact without a parent joint, the
+ * errors of childLinkNamesOfJoints() and of contactCenterPointFromConfig().
  */
-std::vector<estimation::ContactPointSpec> stateEstimatorContacts(
-    const ModelSettings& modelSettings);
+absl::StatusOr<std::vector<estimation::ContactPointSpec>>
+stateEstimatorContacts(const ModelSettings& modelSettings,
+                       const mpc_config::ContactsConfig& contacts,
+                       const std::string& urdfFile);
+
+/**
+ * Returns where the robot process takes the contacts' surface heights from for
+ * the state estimator (RobotProcess::Config::contactSurfaceHeights): under
+ * the task file `task`'s contact_schedule_source "multi_contact_plan", the
+ * patches of `plan`, the plan the MPC tracks (PlannedSurfaceHeights over the
+ * contacts of `modelSettings`); otherwise the flat ground at
+ * settings.kalmanStateEstimator.nomPosContactRtWorldEwrtWorldZ
+ * (FlatGroundSurfaceHeights). `plan` is read here and not retained; it may be
+ * null when the task file tracks no plan.
+ *
+ * @return InvalidArgument for a multi_contact_plan task file without `plan`,
+ * the errors of contactScheduleSourceFromConfig() and of
+ * PlannedSurfaceHeights::Create().
+ */
+absl::StatusOr<std::unique_ptr<const ContactSurfaceHeightSource>>
+contactSurfaceHeightSource(
+    const mpc_config::TaskFile& task,
+    const ModelSettings& modelSettings,
+    const RobotProcessSettings& settings,
+    const multi_contact::config::MultiContactPlan* absl_nullable plan);
 
 /**
  * Returns the robot process's configuration as far as the options, the
  * directory and the configuration give it: the realtime thread's priority and
  * cores, the backend's cores, the settings, the task file watched (with the
  * time it was read at) and its identity, the robot of `modelSettings`, its URDF
- * and contact frames (the leg kinematics of the `kalman` state estimator) and
- * the configuration store. The formulation fills in the control rate, the
- * initial state, the rest joints and the PD gains file's check interval.
+ * and contact points (stateEstimatorContacts() of the task file's contacts
+ * block, the leg kinematics of the `kalman` state estimator), the contacts'
+ * surface heights (contactSurfaceHeightSource() with `plan`, the multi-contact
+ * plan the MPC tracks or null) and the configuration store. The formulation
+ * fills in the control rate, the initial state, the rest joints and the PD
+ * gains file's check interval.
+ *
+ * @return the errors of stateEstimatorContacts() and of
+ * contactSurfaceHeightSource(), prefixed with the task file.
  */
-RobotProcess::Config robotProcessConfig(const RobotAppOptions& options,
-                                        const RobotConfigDirectory& directory,
-                                        const RobotConfiguration& configuration,
-                                        const ModelSettings& modelSettings);
+absl::StatusOr<RobotProcess::Config> robotProcessConfig(
+    const RobotAppOptions& options,
+    const RobotConfigDirectory& directory,
+    const RobotConfiguration& configuration,
+    const ModelSettings& modelSettings,
+    const multi_contact::config::MultiContactPlan* absl_nullable plan);
 
 }  // namespace ocs2::humanoid

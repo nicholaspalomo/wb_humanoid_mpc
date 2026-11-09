@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <utility>
@@ -48,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_state_estimation/humanoid_state_estimator/test/MeasuredState.h"
 #include "humanoid_state_estimation/humanoid_state_estimator/test/WalkingTrajectory.h"
+#include "humanoid_state_estimator/ContactEstimationInputs.h"
 #include "humanoid_state_estimator/ContactKinematics.h"
 #include "humanoid_state_estimator/KalmanBaseEstimator.h"
 #include "humanoid_state_estimator/StateEstimator.h"
@@ -63,11 +65,11 @@ using test_support::walkingSample;
 
 constexpr scalar_t kDt = 0.002;
 
-/** The prismatic biped's feet, as contact points at their own frames. */
+/** The prismatic biped's feet, as contact points at their links' origins. */
 std::vector<ContactPointSpec> footContacts() {
   std::vector<ContactPointSpec> contacts;
-  for (const std::string& frame : test_support::prismaticBipedFootFrames()) {
-    contacts.push_back(ContactPointSpec{.frameNames = {frame}});
+  for (const std::string& link : test_support::prismaticBipedFootLinks()) {
+    contacts.push_back(ContactPointSpec{.linkName = link});
   }
   return contacts;
 }
@@ -113,20 +115,23 @@ TEST(StateEstimatorRegistryTest, TheGroundTruthHandsTheMeasuredStateItselfOn) {
   EXPECT_EQ((*estimator)->name(), "ground_truth");
   robot::model::RobotState measured(description);
   (*estimator)->reset(measured);
-  EXPECT_EQ(&(*estimator)->estimate(measured), &measured);
+  const ContactEstimationInputs contactInputs(test_support::kNumFeet);
+  EXPECT_EQ(&(*estimator)->estimate(measured, contactInputs), &measured);
+  EXPECT_TRUE((*estimator)->estPosContactsRtWorldEwrtWorld().empty());
 }
 
 TEST(StateEstimatorRegistryTest,
-     KalmanRefusesAUrdfWithoutTheContactFramesAndFallsBackToTheParentJoint) {
+     KalmanRefusesAContactLinkTheUrdfDoesNotHaveAndABadNoiseModel) {
   const robot::model::RobotDescription description = bipedDescription();
   StateEstimatorContext context = contextOf(description);
-  context.contacts = {ContactPointSpec{.frameNames = {"foot_l_contact"}},
-                      ContactPointSpec{.frameNames = {"foot_r_contact"}}};
-  EXPECT_EQ(StateEstimatorRegistry().create("kalman", context).status().code(),
-            absl::StatusCode::kInvalidArgument);
-  context.contacts[0].frameNames.emplace_back("left_z");
-  context.contacts[1].frameNames.emplace_back("right_z");
   EXPECT_TRUE(StateEstimatorRegistry().create("kalman", context).ok());
+  context.contacts[0].linkName = "foot_l_contact";
+  const absl::StatusOr<std::unique_ptr<StateEstimator>> noLink =
+      StateEstimatorRegistry().create("kalman", context);
+  EXPECT_EQ(noLink.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(noLink.status().message(), "foot_l_contact"))
+      << noLink.status();
+  context = contextOf(description);
   context.kalman.imuAccelerationNoise = 0.0;
   const absl::StatusOr<std::unique_ptr<StateEstimator>> refused =
       StateEstimatorRegistry().create("kalman", context);
@@ -153,13 +158,15 @@ TEST(StateEstimatorRegistryTest,
   measured.setLinvelBaseRtWorldEwrtBase(start.quatBaseRtWorld.inverse() *
                                         start.linvelBaseRtWorldEwrtWorld);
   estimator.reset(measured);
+  const ContactEstimationInputs contactInputs(test_support::kNumFeet);
 
   scalar_t maxErrPosBaseRtWorldEwrtWorld = 0.0;
   scalar_t maxErrLinvelBaseRtWorldEwrtBase = 0.0;
   for (int step = 1; step <= 2000; ++step) {
     const WalkingSample sample = walkingSample(step * kDt);
     test_support::writeMeasuredState(sample, measured);
-    const robot::model::RobotState& estimated = estimator.estimate(measured);
+    const robot::model::RobotState& estimated =
+        estimator.estimate(measured, contactInputs);
     ASSERT_NE(&estimated, &measured);
     maxErrPosBaseRtWorldEwrtWorld = std::max(
         maxErrPosBaseRtWorldEwrtWorld, (estimated.getPosBaseRtWorldEwrtWorld() -
@@ -182,18 +189,38 @@ TEST(StateEstimatorRegistryTest,
   EXPECT_LT(maxErrPosBaseRtWorldEwrtWorld, 1.0e-3);
   EXPECT_LT(maxErrLinvelBaseRtWorldEwrtBase, 5.0e-3);
   EXPECT_EQ(estimator.failedUpdates(), 0u);
+  // The contact positions the robot process looks surfaces up with: the
+  // walk's feet.
+  ASSERT_EQ(estimator.estPosContactsRtWorldEwrtWorld().size(),
+            test_support::kNumFeet);
+  const WalkingSample last = walkingSample(2000 * kDt);
+  for (size_t foot = 0; foot < test_support::kNumFeet; ++foot) {
+    EXPECT_LT((estimator.estPosContactsRtWorldEwrtWorld()[foot] -
+               last.posFeetRtWorldEwrtWorld[foot])
+                  .norm(),
+              2.0e-3)
+        << "foot " << foot;
+  }
 
   // A state that does not advance in time is handed on with the previous
   // estimate; a non-finite one is counted.
   const vector3_t posBaseRtWorldEwrtWorld =
-      estimator.estimate(measured).getPosBaseRtWorldEwrtWorld();
-  EXPECT_EQ(estimator.estimate(measured).getPosBaseRtWorldEwrtWorld(),
-            posBaseRtWorldEwrtWorld);
+      estimator.estimate(measured, contactInputs).getPosBaseRtWorldEwrtWorld();
+  EXPECT_EQ(
+      estimator.estimate(measured, contactInputs).getPosBaseRtWorldEwrtWorld(),
+      posBaseRtWorldEwrtWorld);
   measured.setTime(measured.getTime() + kDt);
   measured.setSpecforceBaseRtWorldEwrtBase(vector3_t::Constant(std::nan("")));
-  EXPECT_TRUE(
-      estimator.estimate(measured).getPosBaseRtWorldEwrtWorld().allFinite());
+  EXPECT_TRUE(estimator.estimate(measured, contactInputs)
+                  .getPosBaseRtWorldEwrtWorld()
+                  .allFinite());
   EXPECT_EQ(estimator.failedUpdates(), 1u);
+  // Contact inputs of another number of contacts are counted too.
+  measured.setTime(measured.getTime() + kDt);
+  measured.setSpecforceBaseRtWorldEwrtBase(last.specforceBaseRtWorldEwrtBase);
+  estimator.estimate(measured,
+                     ContactEstimationInputs(test_support::kNumFeet + 1));
+  EXPECT_EQ(estimator.failedUpdates(), 2u);
 }
 
 }  // namespace

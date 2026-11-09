@@ -29,11 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 
+#include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 #include "humanoid_mpc_validation/io/JsonValue.h"
 
 namespace ocs2::humanoid::validation {
@@ -74,6 +77,17 @@ struct MetricBand {
  * compareClosedLoopMetrics() itself.
  */
 const std::vector<MetricBand>& closedLoopMetricBands();
+
+/**
+ * Returns the bands a run of `configuration` is held to:
+ * closedLoopMetricBands(), but for a state-estimator variant, whose bands
+ * around the documents of the configuration it varies
+ * (RobotConfiguration::baselineConfiguration) allow for what the estimator
+ * costs: unitree_g1_kalman's, set from its first run against unitree_g1
+ * (MetricBands.cpp gives each band's measured difference).
+ */
+const std::vector<MetricBand>& closedLoopMetricBandsFor(
+    const RobotConfiguration& configuration);
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/docs/quaternion_base_orientation/README.md, //humanoid_nmpc/humanoid_mpc_validation/README.md:metric_bands)
 // clang-format on
@@ -83,6 +97,9 @@ struct BandOptions {
   /// The p99 solve time is compared only between runs on the same machine; off,
   /// it is skipped.
   bool compareSolveTime = true;
+  /// The bands the metrics are held to (closedLoopMetricBandsFor() of the
+  /// candidate's configuration).
+  std::vector<MetricBand> bands = closedLoopMetricBands();
 };
 
 /**
@@ -119,6 +136,25 @@ ClosedLoopComparison compareClosedLoopMetrics(const JsonValue& candidate,
                                               const JsonValue& baseline,
                                               const BandOptions& options);
 
+/**
+ * Returns the violation of the one requirement a run is held to without a
+ * baseline: a configuration survives its walking scenario
+ * (RobotConfiguration::walkingScenario), the walk whose recorded states the
+ * solve benchmark replays. `metrics` is the document of the run of `scenario`
+ * by `configuration`. The sentence starts with "survival", as the violations of
+ * compareClosedLoopMetrics() start with their path; std::nullopt when the run
+ * survived, when `scenario` is not the walking scenario, and for a
+ * state-estimator variant, which is held to the documents of the configuration
+ * it varies instead (compareClosedLoopMetrics() fails a fall where that
+ * baseline survived). The closed-loop test fails such a run whether or not it
+ * has a baseline, and adds the sentence to its comparison when it has one, as
+ * compareArchivedClosedLoopRuns() does, so the two verdicts stay the same.
+ */
+std::optional<std::string> walkingSurvivalViolation(
+    const RobotConfiguration& configuration,
+    absl::string_view scenario,
+    const JsonValue& metrics);
+
 /** Which archived runs compareArchivedClosedLoopRuns() compares. */
 struct ArchivedComparisonOptions {
   std::string candidateDirectory;  ///< the candidate label's directory,
@@ -153,7 +189,9 @@ struct ArchivedComparison {
  * candidate's directory
  * (`<robot>_<scenario>.json`, as LockstepOutputs.h names it) with a document of
  * the same run in the baseline's, held to it by compareClosedLoopMetrics() as
- * the run itself compared it. The archived documents read back to the run's
+ * the run itself compared it: a state-estimator variant's document with the
+ * baseline's document of the configuration it varies, within its own bands
+ * (closedLoopMetricBandsFor()). The archived documents read back to the run's
  * values bit for bit (JsonValue), so the verdict is the run's. NotFound for a
  * directory that does not exist or an unknown robot; the error of a file that
  * cannot be read.

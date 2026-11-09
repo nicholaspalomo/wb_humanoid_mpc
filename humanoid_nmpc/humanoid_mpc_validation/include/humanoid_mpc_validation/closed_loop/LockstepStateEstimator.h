@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
+#include "humanoid_mpc_config/contacts_config.nproto.h"
 #include "humanoid_state_estimator/StateEstimator.h"
 #include "humanoid_state_estimator/StateEstimatorRegistry.h"
 #include "robot_model/RobotDescription.h"
@@ -45,16 +46,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 
 /**
+ * Returns `settings` with its state_estimator replaced by `stateEstimator`
+ * when that is not empty (RobotConfiguration::stateEstimator), and unchanged
+ * otherwise. Only the estimator's name changes: its noise model stays the
+ * task file's `kalman_state_estimator` block.
+ */
+RobotProcessSettings withStateEstimator(RobotProcessSettings settings,
+                                        absl::string_view stateEstimator);
+
+/**
  * Returns the context the robot process builds its state estimator from
  * (RobotProcess::Create()): the URDF `urdfFile`, the contact points of
- * `modelSettings` (stateEstimatorContacts(), as robotProcessConfig() hands them
- * to the robot process), the robot `description`, which is retained in the
- * result and must outlive every estimator built from it, and the `kalman` noise
- * model of `settings`.
+ * `modelSettings` and of the task file's contacts block `contacts`
+ * (stateEstimatorContacts(), as robotProcessConfig() passes them to the robot
+ * process), the robot `description`, which is retained in the result and must
+ * outlive every estimator built from it, and the `kalman` noise model of
+ * `settings`. The errors of stateEstimatorContacts().
  */
-estimation::StateEstimatorContext robotProcessStateEstimatorContext(
+absl::StatusOr<estimation::StateEstimatorContext>
+robotProcessStateEstimatorContext(
     const RobotProcessSettings& settings,
     const ModelSettings& modelSettings,
+    const mpc_config::ContactsConfig& contacts,
     const std::string& urdfFile,
     const robot::model::RobotDescription* absl_nonnull description);
 
@@ -63,14 +76,15 @@ estimation::StateEstimatorContext robotProcessStateEstimatorContext(
  * (settings.stateEstimator) with robotProcessStateEstimatorContext(), as
  * RobotProcess::Create() builds it: `ground_truth` hands the measured state on
  * itself, `kalman` estimates the base's position and linear velocity. An
- * unknown name or an estimator that cannot be built is the registry's error,
- * prefixed with "<taskFile>: state_estimator: " as the robot process reports
- * it. `description` must outlive the estimator.
+ * unknown name, contact points that cannot be placed or an estimator that
+ * cannot be built is the error, prefixed with "<taskFile>: state_estimator: "
+ * as the robot process reports it. `description` must outlive the estimator.
  */
 absl::StatusOr<std::unique_ptr<estimation::StateEstimator>>
 createRobotProcessStateEstimator(
     const RobotProcessSettings& settings,
     const ModelSettings& modelSettings,
+    const mpc_config::ContactsConfig& contacts,
     const std::string& urdfFile,
     absl::string_view taskFile,
     const robot::model::RobotDescription* absl_nonnull description);

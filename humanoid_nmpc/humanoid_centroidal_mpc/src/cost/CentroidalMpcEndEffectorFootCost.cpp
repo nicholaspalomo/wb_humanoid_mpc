@@ -101,15 +101,16 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(
     const ModelSettings& modelSettings)
     : StateInputCostGaussNewtonAd(),
       referenceManagerPtr_(&referenceManager),
-      sqrtWeights_(settings.weights.toVector().cwiseSqrt()),
       swingVelocityReferenceSqrtWeight_(
           std::sqrt(settings.swingVelocityReferenceWeight)),
       activeInStance_(settings.activeInStance),
       contactIndex_(contactIndex),
+      pointContact_(modelSettings.isPointContact(contactIndex)),
       frameID_(pinocchioInterface.getModel().getFrameId(
           modelSettings.contactNames[contactIndex])),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelAdPtr_(mpcRobotModelAD.clone()) {
+  setWeights(settings.weights.toVector());
   // The library name carries the residual's version, so that a library taped
   // from an earlier residual is never loaded from the cache in its place (the
   // robots ship recompileLibrariesCppAd: false): kLibraryVersionSuffix.
@@ -142,9 +143,27 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(
       isActive_(other.isActive_),
       activeInStance_(other.activeInStance_),
       contactIndex_(other.contactIndex_),
+      pointContact_(other.pointContact_),
       frameID_(other.frameID_),
       pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
       mpcRobotModelAdPtr_(other.mpcRobotModelAdPtr_->clone()) {}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+vector12_t CentroidalMpcEndEffectorFootCost::contactWeights(
+    const vector12_t& weights) const {
+  if (!pointContact_) return weights;
+  // A point has a position and a linear velocity only: the orientation residual
+  // of its frame, which the contact's parent link turns, and its angular
+  // velocity mean nothing for the contact.
+  vector12_t pointWeights = weights;
+  pointWeights.segment<kRotationTangentDim>(kPositionDim).setZero();
+  pointWeights.segment<kRotationTangentDim>(kPoseTangentDim + kPositionDim)
+      .setZero();
+  return pointWeights;
+}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
