@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "google/protobuf/repeated_ptr_field.h"
 
 namespace nproto::internal {
@@ -136,7 +137,7 @@ absl::Status AnnotateKey(absl::string_view formattedKey,
   return prefixed(absl::StrCat("[", formattedKey, "]"), status);
 }
 
-std::string FormatKey(const std::string& key) {
+std::string FormatKey(absl::string_view key) {
   return absl::StrCat("\"", absl::CEscape(key), "\"");
 }
 
@@ -154,7 +155,7 @@ void StringsFromProto(
 }
 
 void StringsToProto(
-    const std::vector<std::string>& value,
+    absl::Span<const std::string> value,
     google::protobuf::RepeatedPtrField<std::string>* absl_nonnull proto) {
   ResizeRepeatedPtrField(static_cast<int>(value.size()), proto);
   for (size_t index = 0; index < value.size(); ++index) {

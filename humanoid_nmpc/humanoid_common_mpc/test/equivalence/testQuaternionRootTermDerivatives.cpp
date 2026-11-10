@@ -33,15 +33,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <functional>
-#include <map>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/btree_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/functional/any_invocable.h"
+#include "absl/functional/function_ref.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
@@ -271,16 +272,16 @@ struct ProbedFunction {
   /** Whether it is a final term, whose precomputation is requestFinal()'s. */
   bool final = false;
   /** The value at (x, u), the precomputation requested there. */
-  std::function<vector_t(const vector_t&, const vector_t&)> value;
+  absl::AnyInvocable<vector_t(const vector_t&, const vector_t&) const> value;
   /** dfdx (rows x ambient state) and dfdu (rows x inputs; no columns for a
    * state term) at (x, u), the approximation requested. */
-  std::function<VectorFunctionLinearApproximation(const vector_t&,
-                                                  const vector_t&)>
+  absl::AnyInvocable<VectorFunctionLinearApproximation(const vector_t&,
+                                                       const vector_t&) const>
       derivatives;
   /** For a ConstraintOrder::Quadratic constraint: d2c/du2 and d2c/dudx of each
    * row at (x, u); empty otherwise. */
-  std::function<VectorFunctionQuadraticApproximation(const vector_t&,
-                                                     const vector_t&)>
+  absl::AnyInvocable<VectorFunctionQuadraticApproximation(
+      const vector_t&, const vector_t&) const>
       secondOrder;
   /**
    * For the stance feet's twist constraint, hard or soft: what its reported
@@ -288,7 +289,8 @@ struct ProbedFunction {
    * (droppedRateMapTerm()); empty for every other function, whose state
    * Jacobian is its derivative.
    */
-  std::function<DroppedTerm(const StateManifold&, const TermProbePoint&)>
+  absl::AnyInvocable<DroppedTerm(const StateManifold&, const TermProbePoint&)
+                         const>
       droppedStateTerm;
 };
 
@@ -633,8 +635,7 @@ vector_t valueAt(OptimalControlProblem& problem,
  * Richardson-extrapolated central differences: (4 D(h / 2) - D(h)) / 3 with
  * D(h) = (v(h) - v(-h)) / 2h.
  */
-vector_t extrapolatedDifference(
-    const std::function<vector_t(scalar_t)>& value) {
+vector_t extrapolatedDifference(absl::FunctionRef<vector_t(scalar_t)> value) {
   const vector_t full = (value(kDifferenceStep) - value(-kDifferenceStep)) /
                         (2.0 * kDifferenceStep);
   const vector_t half =
@@ -645,7 +646,7 @@ vector_t extrapolatedDifference(
 
 /** What differs between a reported derivative and its difference beyond
  * kDerivativeTolerance; nullopt when nothing does. */
-std::optional<std::string> derivativeMismatch(const std::string& what,
+std::optional<std::string> derivativeMismatch(absl::string_view what,
                                               const matrix_t& reported,
                                               const matrix_t& differenced) {
   if (reported.rows() != differenced.rows() ||
@@ -959,7 +960,7 @@ FunctionCheck checkFunction(OptimalControlProblem& problem,
                              TermRequest::kApproximation);
   VectorFunctionQuadraticApproximation quadratic =
       function.secondOrder(point.state, point.input);
-  const std::function<matrix_t(const vector_t&, const vector_t&)>
+  const absl::AnyInvocable<matrix_t(const vector_t&, const vector_t&) const>
       inputJacobianAt = [&](const vector_t& x, const vector_t& u) {
         requestIntermediateTermsAt(problem, point.time, x, u,
                                    TermRequest::kApproximation);
@@ -1032,7 +1033,7 @@ struct DroppedTermStatistics {
 
 /** Adds `check`, at the point named `point`, to `statistics`. */
 void addToStatistics(const DroppedTermCheck& check,
-                     const std::string& point,
+                     absl::string_view point,
                      DroppedTermStatistics& statistics) {
   ++statistics.points;
   if (check.mapApplied) ++statistics.mapPoints;
@@ -1073,7 +1074,7 @@ struct DerivativeTally {
   absl::flat_hash_set<std::string> checked;
   absl::flat_hash_set<std::string> nonZero;
   /** The twist constraints' dropped-term comparisons, by label. */
-  std::map<std::string, DroppedTermStatistics> droppedTerms;
+  absl::btree_map<std::string, DroppedTermStatistics> droppedTerms;
   size_t probed = 0;
   size_t secondOrder = 0;
 };

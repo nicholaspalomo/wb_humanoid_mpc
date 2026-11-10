@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/FactoryFunctions.h"
 #include "ocs2_core/Types.h"
@@ -84,7 +85,7 @@ namespace ocs2::humanoid::visualization::test {
 
 namespace {
 
-std::string resolve(const std::string& path) {
+std::string resolve(absl::string_view path) {
   const absl::StatusOr<std::string> resolved = robot::resolveResourcePath(path);
   CHECK_OK(resolved.status());
   return *resolved;
@@ -184,15 +185,14 @@ std::unique_ptr<TestRobot> TestRobot::load(const RobotFiles& files,
 std::unique_ptr<TestRobot> TestRobot::loadWithPointContacts(
     const RobotFiles& files,
     Formulation formulation,
-    const std::vector<mpc_config::ModelSettingsConfig::PointContact>&
-        pointContacts) {
+    std::vector<mpc_config::ModelSettingsConfig::PointContact> pointContacts) {
   std::unique_ptr<TestRobot> robot(new TestRobot());
   robot->formulation_ = formulation;
   robot->taskFile_ = resolve(files.taskFile);
   absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(robot->taskFile_);
   CHECK_OK(task.status());
   robot->task_ = *std::move(task);
-  robot->task_.model_settings.contacts_3dof = pointContacts;
+  robot->task_.model_settings.contacts_3dof = std::move(pointContacts);
   robot->referenceFile_ = resolve(files.referenceFile);
   robot->urdfFile_ = resolve(files.urdfFile);
   robot->build();

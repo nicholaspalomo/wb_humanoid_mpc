@@ -85,6 +85,7 @@ cc_library(
     includes = ["include"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "@abseil-cpp//absl/container:btree",
         "@abseil-cpp//absl/strings:string_view",
         ":egl_headers",
         ":viewer_settings",
@@ -157,6 +158,8 @@ cc_test(
     srcs = ["test/testProjectile.cpp"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         ":mujoco_sim_interface",
@@ -190,6 +193,8 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     data = ["//robot_models/drc_atlas/drc_atlas_description"],
     deps = [
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "//robot_runtime/robot_core",
         ":mujoco_sim_interface",
         ":viewer_settings",
@@ -244,6 +249,7 @@ cc_test(
     srcs = ["test/testVisualizationRegistry.cpp"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "@abseil-cpp//absl/container:btree",
         ":mujoco_sim_interface",
         "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
@@ -316,6 +322,7 @@ cc_test(
     srcs = ["test/testMujocoSimStartup.cpp"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "@abseil-cpp//absl/strings:string_view",
         ":mujoco_sim_interface",
         ":viewer_settings",
         "@abseil-cpp//absl/base:nullability",
@@ -398,6 +405,8 @@ cc_test(
     data = ["//robot_models/drc_atlas/drc_atlas_description"],
     env = VIEWER_TEST_ENV,
     deps = [
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/types:span",
         ":mujoco_sim_interface",
         ":viewer_settings",
         ":viewer_test_support",
@@ -487,6 +496,7 @@ WEB_VIEWER_TEST_DEPS = [
     "@abseil-cpp//absl/strings:string_view",
     "@abseil-cpp//absl/time",
     "@googletest//:gtest_main",
+    "@abseil-cpp//absl/functional:function_ref",
 ]
 
 # The web viewer end to end on an ephemeral port: frames, camera input and keys, no rendering without a client, the
@@ -526,6 +536,7 @@ WEB_VIEWER_SIM_RATE_DEPS = [
     "@abseil-cpp//absl/strings:string_view",
     "@abseil-cpp//absl/time",
     "@googletest//:gtest_main",
+    "@abseil-cpp//absl/types:span",
 ]
 
 # LINT.IfChange(sim_rate_targets)
@@ -604,6 +615,8 @@ cc_test(
     srcs = ["test/testMujocoSimInterfaceState.cpp"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         ":mujoco_sim_interface",
         ":viewer_settings",
         "//robot_runtime/robot_model",

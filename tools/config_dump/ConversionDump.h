@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "absl/strings/string_view.h"
+
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_mpc_config/gait_file.nproto.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
@@ -67,7 +69,7 @@ struct ConversionInputs {
  * own.
  */
 std::string dumpConversions(const ConversionInputs& inputs,
-                            const std::string& urdfFile,
+                            absl::string_view urdfFile,
                             StateInputLayout::Mpc mpc);
 
 }  // namespace ocs2::humanoid::config_dump

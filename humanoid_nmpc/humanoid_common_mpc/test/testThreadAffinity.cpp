@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <thread>
 #include <vector>
 
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
@@ -49,7 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-bool within(const std::vector<int>& cores, const std::vector<int>& allowed) {
+bool within(absl::Span<const int> cores, absl::Span<const int> allowed) {
   return std::all_of(cores.begin(), cores.end(), [&allowed](int core) {
     return std::find(allowed.begin(), allowed.end(), core) != allowed.end();
   });
@@ -74,7 +75,7 @@ TEST(ThreadAffinity, ThePartitionsOfAWholeMachineAreTheShippedOnes) {
   EXPECT_EQ(eight.mpcCores, range(/*first=*/3, /*count=*/5));
 }
 
-bool intersects(const std::vector<int>& cores, const std::vector<int>& others) {
+bool intersects(absl::Span<const int> cores, absl::Span<const int> others) {
   return std::any_of(cores.begin(), cores.end(), [&others](int core) {
     return std::find(others.begin(), others.end(), core) != others.end();
   });

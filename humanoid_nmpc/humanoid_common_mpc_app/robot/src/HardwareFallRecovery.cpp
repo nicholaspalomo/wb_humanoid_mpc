@@ -30,9 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/HardwareFallRecovery.h"
 
 #include <string>
-#include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/mrt/ControlMode.h"
@@ -54,7 +54,7 @@ HardwareFallRecovery::HardwareFallRecovery(
 
 FallRecovery::Cycle HardwareFallRecovery::update(
     const robot::model::RobotState& robotState,
-    const std::vector<scalar_t>& /*nominalJointPositions*/,
+    absl::Span<const scalar_t> /*nominalJointPositions*/,
     std::string& currentModeName) {
   Cycle cycle;
   if (!(maxTiltangleBaseRtWorld_ > 0.0) || !backend_->acceptsJointAction()) {

@@ -34,7 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <optional>
 #include <string>
-#include <vector>
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -66,7 +65,7 @@ constexpr std::array<absl::string_view, 2> kFields = {
 
 /** Whether `ocp` carries the foot cost of any foot of `contactNames`. */
 bool carriesFootCost(const OptimalControlProblem& ocp,
-                     const std::vector<std::string>& contactNames) {
+                     absl::Span<const std::string> contactNames) {
   for (const std::string& footName : contactNames) {
     if (carriesTerm(*ocp.costPtr, taskSpaceKinematicsCostName(footName))) {
       return true;

@@ -33,12 +33,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <cmath>
 #include <cstddef>
-#include <functional>
 #include <memory>
-#include <mutex>
 #include <numbers>
 #include <vector>
 
+#include "absl/base/thread_annotations.h"
+#include "absl/functional/any_invocable.h"
+#include "absl/synchronization/mutex.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 
@@ -200,7 +201,7 @@ class TargetTrajectoriesCalculatorBase {
    * Thread-safe.
    */
   void setSourcePosSurfaceRtWorldEwrtWorldZ(
-      std::function<scalar_t()> sourcePosSurfaceRtWorldEwrtWorldZ);
+      absl::AnyInvocable<scalar_t() const> sourcePosSurfaceRtWorldEwrtWorldZ);
 
   /** [m] the ground the commanded base heights stand on: the source's, or the
    * task file's without one. Thread-safe. */
@@ -476,8 +477,9 @@ class TargetTrajectoriesCalculatorBase {
   // (setSourcePosSurfaceRtWorldEwrtWorldZ). Guarded, because the source is
   // replaced from the thread that wires the calculator while a command thread
   // may be building a target.
-  mutable std::mutex surfaceSourceMutex_;
-  std::function<scalar_t()> sourcePosSurfaceRtWorldEwrtWorldZ_;
+  mutable absl::Mutex surfaceSourceMutex_;
+  absl::AnyInvocable<scalar_t() const> sourcePosSurfaceRtWorldEwrtWorldZ_
+      ABSL_GUARDED_BY(surfaceSourceMutex_);
   vector_t targetJointState_;
   scalar_t mpcHorizon_;
 };

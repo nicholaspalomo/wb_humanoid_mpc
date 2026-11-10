@@ -29,7 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cstddef>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -39,6 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -62,15 +63,15 @@ constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 constexpr scalar_t kTol = 1.0e-12;
 
 /** Whether any of `warnings` mentions `text`. */
-bool anyMentions(const std::vector<std::string>& warnings,
-                 const std::string& text) {
+bool anyMentions(absl::Span<const std::string> warnings,
+                 absl::string_view text) {
   for (const std::string& warning : warnings) {
     if (absl::StrContains(warning, text)) return true;
   }
   return false;
 }
 
-std::string joinWarnings(const std::vector<std::string>& warnings) {
+std::string joinWarnings(absl::Span<const std::string> warnings) {
   std::string out;
   for (const std::string& warning : warnings) {
     absl::StrAppend(&out, "\n  - ", warning);
@@ -115,7 +116,7 @@ ContactPlanningConfig makeWorkingHlipConfig() {
  * manager's robot model; testHlipPlanningIntegration covers them).
  */
 std::unique_ptr<ContactPlanningTerm> makeTerm(TermKind kind,
-                                              const std::string& name) {
+                                              absl::string_view name) {
   switch (kind) {
     case TermKind::kModelBlock:
       return checkedValue(ContactPlanningTermFactory::makeModelBlock(name));
@@ -390,7 +391,7 @@ TEST(ContactPlanningConfigValidation,
 TEST(ContactPlanningConfigValidation, EveryRejectionNamesTheKeyToChange) {
   struct Case {
     std::string key;
-    std::function<void(ContactPlanningConfig&)> breakIt;
+    void (*absl_nonnull breakIt)(ContactPlanningConfig&);
   };
   const std::vector<Case> cases{
       {"planner.dt", [](ContactPlanningConfig& c) { c.planner.dt = 0.0; }},

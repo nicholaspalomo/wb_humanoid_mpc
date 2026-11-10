@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 
 #include "humanoid_mpc_validation/io/GoldenIo.h"
 #include "humanoid_mpc_validation/io/JsonValue.h"
@@ -94,7 +95,7 @@ std::string describeMachine();
  */
 absl::StatusOr<JsonValue> makeRunProvenanceJson(
     const RunEnvironment& environment,
-    const std::vector<std::string>& configurationFiles);
+    absl::Span<const std::string> configurationFiles);
 
 /**
  * The toolchain of a document's `provenance` object, as makeRunProvenanceJson()
@@ -116,6 +117,6 @@ std::vector<std::pair<std::string, std::string>> toolchainNotes(
  * (toolchainNotes()) are its notes. */
 absl::StatusOr<GoldenProvenance> makeRunGoldenProvenance(
     const RunEnvironment& environment,
-    const std::vector<std::string>& configurationFiles);
+    absl::Span<const std::string> configurationFiles);
 
 }  // namespace ocs2::humanoid::validation

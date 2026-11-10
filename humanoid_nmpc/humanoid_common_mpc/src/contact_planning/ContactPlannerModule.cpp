@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
@@ -41,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/synchronization/mutex.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
@@ -116,7 +116,7 @@ void ContactPlannerModule::startWorker() {
     // timestamp of the previous incarnation, must not leak into the new worker:
     // it would plan from a stale time, or the first post after re-enabling
     // would be throttled.
-    std::lock_guard<std::mutex> lock(inputMutex_);
+    absl::MutexLock lock(inputMutex_);
     pendingInput_.reset();
     pendingInputUrgent_ = false;
     throttle_ = SnapshotThrottle{};
@@ -133,12 +133,12 @@ void ContactPlannerModule::stopWorker() {
     // check and its wait is a lost wake-up: the worker blocks forever and the
     // join below hangs the calling thread (the solver thread on a runtime
     // toggle, or shutdown).
-    std::lock_guard<std::mutex> lock(inputMutex_);
+    absl::MutexLock lock(inputMutex_);
     running_.store(false);
     pendingInput_.reset();
     pendingInputUrgent_ = false;
   }
-  inputCondition_.notify_all();
+  inputCondition_.SignalAll();
   if (worker_.joinable()) {
     worker_.join();
   }
@@ -157,7 +157,7 @@ absl::Status ContactPlannerModule::setConfig(
   ContactPlanningConfig previous;
 
   {
-    std::lock_guard<std::mutex> lock(configMutex_);
+    absl::MutexLock lock(configMutex_);
     if (config_.planner.runInBackgroundThread !=
         config.planner.runInBackgroundThread) {
       if (config.planner.runInBackgroundThread) {
@@ -214,14 +214,14 @@ std::optional<std::string> ContactPlannerModule::reloadSummary(
 }
 
 ContactPlanningConfig ContactPlannerModule::getConfig() const {
-  std::lock_guard<std::mutex> lock(configMutex_);
+  absl::MutexLock lock(configMutex_);
   return config_;
 }
 
 ContactPlannerModule::Statistics ContactPlannerModule::getStatistics() const {
   Statistics statistics;
   {
-    std::lock_guard<std::mutex> lock(statisticsMutex_);
+    absl::MutexLock lock(statisticsMutex_);
     statistics = statistics_;
   }
   statistics.numStalePlansDropped =
@@ -233,7 +233,7 @@ ContactPlannerModule::Statistics ContactPlannerModule::getStatistics() const {
 
 void ContactPlannerModule::reset() {
   {
-    std::lock_guard<std::mutex> lock(inputMutex_);
+    absl::MutexLock lock(inputMutex_);
     pendingInput_.reset();
     pendingInputUrgent_ = false;
     throttle_ = SnapshotThrottle{};
@@ -259,7 +259,7 @@ void ContactPlannerModule::runPlanner(const ContactPlannerInput& input,
     plannerEpoch_ = planEpoch;
   }
   {
-    std::lock_guard<std::mutex> lock(configMutex_);
+    absl::MutexLock lock(configMutex_);
     if (configChanged_) {
       if (config_.planner.type != plannerType_) {
         // The implementation itself changed: build the new one and drop
@@ -304,13 +304,13 @@ void ContactPlannerModule::runPlanner(const ContactPlannerInput& input,
     // makes this plan stale, and the reference manager's one-shot re-plan
     // request has already been consumed for it; dropping it would delay the
     // re-plan by a full planning period.
-    std::lock_guard<std::mutex> lock(inputMutex_);
+    absl::MutexLock lock(inputMutex_);
     if (!pendingInputUrgent_ && pendingInput_.has_value()) {
       pendingInput_.reset();
       throttle_.dropped();
     }
   }
-  std::lock_guard<std::mutex> lock(statisticsMutex_);
+  absl::MutexLock lock(statisticsMutex_);
   ++statistics_.numPlans;
   if (!plan.valid) ++statistics_.numFailedPlans;
   statistics_.lastPlanValid = plan.valid;
@@ -328,10 +328,10 @@ void ContactPlannerModule::workerLoop() {
     ContactPlannerInput input;
     uint64_t planEpoch = 0;
     {
-      std::unique_lock<std::mutex> lock(inputMutex_);
-      inputCondition_.wait(lock, [this]() {
-        return !running_.load() || pendingInput_.has_value();
-      });
+      absl::MutexLock lock(inputMutex_);
+      while (running_.load() && !pendingInput_.has_value()) {
+        inputCondition_.Wait(&inputMutex_);
+      }
       if (!running_.load()) return;
       if (!pendingInput_.has_value()) {
         continue;  // the wait above returns with one; this states it for the
@@ -398,7 +398,7 @@ void ContactPlannerModule::preSolverRun(
   const std::chrono::duration<scalar_t> minPeriod(
       1.0 / config.planner.planningFrequency);
   {
-    std::lock_guard<std::mutex> lock(inputMutex_);
+    absl::MutexLock lock(inputMutex_);
     if (!replanRequested && !throttle_.allows(now, minPeriod)) {
       return;
     }
@@ -409,7 +409,7 @@ void ContactPlannerModule::preSolverRun(
         replanRequested;  // urgency outlives the snapshot that carried it
     throttle_.posted(now);
   }
-  inputCondition_.notify_one();
+  inputCondition_.Signal();
 }
 
 }  // namespace ocs2::humanoid

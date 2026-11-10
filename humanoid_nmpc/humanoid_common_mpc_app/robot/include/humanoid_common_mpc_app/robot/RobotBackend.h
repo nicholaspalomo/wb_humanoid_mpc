@@ -29,11 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <vector>
-
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -105,7 +104,7 @@ class RobotBackend {
    * pinned to `cores` (empty: not pinned). The robot starts with its torques
    * off (ZERO_TORQUE) and, in simulation, held by the gantry.
    */
-  virtual absl::Status start(const std::vector<int>& cores) = 0;
+  virtual absl::Status start(absl::Span<const int> cores) = 0;
 
   /** Whether the joint action of this cycle reaches the actuators: false while
    * the torques are off. Realtime thread. */

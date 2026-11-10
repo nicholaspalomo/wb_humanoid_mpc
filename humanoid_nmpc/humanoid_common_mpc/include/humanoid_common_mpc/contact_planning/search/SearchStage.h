@@ -30,11 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <chrono>
-#include <functional>
 #include <optional>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "ocs2_core/Types.h"
@@ -79,6 +79,7 @@ struct SearchSetup {
  * What the stages that run after the branch-and-bound work on: the incumbent,
  * the problem, the solver and the counters. One per plan; the pointers are into
  * the planner and the plan's input and are non-null while the stages run.
+ * Move-only (the re-assembly callables).
  */
 struct SearchRun {
   using Clock = std::chrono::steady_clock;
@@ -99,13 +100,13 @@ struct SearchRun {
   SearchStatistics* absl_nullable statistics = nullptr;
   // Re-builds the problem around a nominal; the planner's error when it cannot
   // build the context.
-  std::function<absl::StatusOr<OcpQpProblem>(const HeadingNominal&)>
+  absl::AnyInvocable<absl::StatusOr<OcpQpProblem>(const HeadingNominal&)>
       assembleWithNominal;
   // Re-builds the problem on a grid of a different node duration, the
   // incumbent's contact pattern unchanged. Under a fixed pattern the cadence is
   // the grid scale, so this is how a stage re-times every phase of the plan
   // together.
-  std::function<absl::StatusOr<OcpQpProblem>(scalar_t)> assembleWithGrid;
+  absl::AnyInvocable<absl::StatusOr<OcpQpProblem>(scalar_t)> assembleWithGrid;
   Clock::time_point start;  // start of the plan, for the time budgets
   bool verbose = false;
   // Output of a stage that re-timed the grid: the node duration the plan is to

@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_mpc_validation/benchmark/SolveBenchmarkGate.h"
@@ -71,7 +72,7 @@ constexpr char kTwistConstraintLibrary[] =
 
 /** An object with `members`, in their order. */
 JsonValue objectWith(
-    const std::vector<std::pair<std::string, JsonValue>>& members) {
+    absl::Span<const std::pair<std::string, JsonValue>> members) {
   JsonValue object = JsonValue::object();
   for (const std::pair<std::string, JsonValue>& member : members) {
     object.set(member.first, member.second);
@@ -139,7 +140,7 @@ JsonValue benchmarkDocument() {
 /** `document` with the number at the key path `path` (from `depth` on) scaled
  * by `factor`; members keep their order. */
 JsonValue scaled(const JsonValue& document,
-                 const std::vector<std::string>& path,
+                 absl::Span<const std::string> path,
                  double factor,
                  size_t depth = 0) {
   JsonValue copy = document;

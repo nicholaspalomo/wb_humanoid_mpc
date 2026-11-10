@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Geometry"
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
@@ -95,10 +96,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-std::string runfilePath(const std::string& relativePath) {
+std::string runfilePath(absl::string_view relativePath) {
   const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR");
   const std::filesystem::path candidate =
-      srcDir != nullptr ? std::filesystem::path(srcDir) / "_main" / relativePath
+      srcDir != nullptr ? std::filesystem::path(srcDir) / "_main" /
+                              std::filesystem::path(relativePath)
                         : std::filesystem::path(relativePath);
   return candidate.string();
 }
@@ -118,7 +120,7 @@ constexpr const char* absl_nonnull kModes[] = {
 constexpr int kCyclesPerMode = 20;
 
 void runModes(WBMpcMrtJointController& controller,
-              const std::vector<scalar_t>& nominal,
+              absl::Span<const scalar_t> nominal,
               robot::model::RobotState& state,
               robot::model::RobotJointAction& action,
               scalar_t& time,
@@ -226,7 +228,7 @@ TEST(WBMpcMrtJointControllerAllocations,
 /** `count` control cycles in `mode`, 2 ms apart from `time`, which it advances.
  */
 void runCycles(WBMpcMrtJointController& controller,
-               const std::vector<scalar_t>& nominal,
+               absl::Span<const scalar_t> nominal,
                robot::model::RobotState& state,
                robot::model::RobotJointAction& action,
                scalar_t& time,
@@ -337,7 +339,7 @@ TEST(WBMpcMrtJointControllerAllocations,
 /** `count` control cycles, 2 ms apart from `time`, which it advances, in the
  * controller's own mode: no mode is commanded. */
 void runCyclesInItsOwnMode(WBMpcMrtJointController& controller,
-                           const std::vector<scalar_t>& nominal,
+                           absl::Span<const scalar_t> nominal,
                            robot::model::RobotState& state,
                            robot::model::RobotJointAction& action,
                            scalar_t& time,

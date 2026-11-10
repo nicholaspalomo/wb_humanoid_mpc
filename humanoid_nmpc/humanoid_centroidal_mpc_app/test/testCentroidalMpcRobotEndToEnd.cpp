@@ -34,7 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <functional>
 #include <ios>
 #include <memory>
 #include <optional>
@@ -42,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
@@ -132,8 +132,8 @@ humanoid_mpc_msgs::LoopTiming timingOf(const ScriptedOperator& remoteControl) {
 
 /** The robot binary's command line on the DRC Atlas files and `networkFile`,
  * its viewer chosen by `viewerArgument`. */
-std::vector<std::string> robotCommand(const std::string& networkFile,
-                                      const std::string& viewerArgument) {
+std::vector<std::string> robotCommand(absl::string_view networkFile,
+                                      absl::string_view viewerArgument) {
   return {kRobotBinary,
           "--robot_name=drc_atlas",
           absl::StrCat("--task_file=", kAtlasTask),
@@ -141,15 +141,15 @@ std::vector<std::string> robotCommand(const std::string& networkFile,
           absl::StrCat("--urdf_file=", kAtlasUrdf),
           absl::StrCat("--mjcf_file=", kAtlasScene),
           absl::StrCat("--network_config=", networkFile),
-          viewerArgument,
+          std::string(viewerArgument),
           "--realtime_cores=none",
           "--backend_cores=none"};
 }
 
 /** Writes a plot configuration to `path` whose mujoco_viewer is `viewer`,
  * replacing the file. */
-void writePlotConfig(const std::string& path, absl::string_view viewer) {
-  std::ofstream(path, std::ios::trunc) << absl::StrCat(
+void writePlotConfig(absl::string_view path, absl::string_view viewer) {
+  std::ofstream(std::filesystem::path(path), std::ios::trunc) << absl::StrCat(
       "# proto-file: "
       "humanoid_nmpc/humanoid_rerun_viewer/proto/plot_config.proto\n",
       "# proto-message: humanoid_rerun_viewer_proto.PlotConfig\n",
@@ -271,8 +271,8 @@ TEST(CentroidalMpcRobotEndToEnd,
   // The offset joint's target: its JOINT_PD posture plus the scripted offset
   // under the MPC's action (once the entry ramp, mpcEntryBlendTime, is over),
   // the posture itself under the JOINT_PD action.
-  const std::function<std::optional<double>(absl::string_view)> offsetTarget =
-      [&](absl::string_view mode) -> std::optional<double> {
+  const absl::AnyInvocable<std::optional<double>(absl::string_view) const>
+      offsetTarget = [&](absl::string_view mode) -> std::optional<double> {
     const std::optional<humanoid_mpc_msgs::RobotStateSample> sample =
         remoteControl.sample();
     if (!sample.has_value() || sample->control_mode() != mode) {

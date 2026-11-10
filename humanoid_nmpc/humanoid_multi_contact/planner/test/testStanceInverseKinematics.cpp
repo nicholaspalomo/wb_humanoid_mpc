@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Core"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "pinocchio/algorithm/joint-configuration.hpp"
 
@@ -152,7 +153,7 @@ Eigen::VectorXd standing(const RobotStanceModel& model) {
   return *q;
 }
 
-int candidateOf(const RobotStanceModel& model, const std::string& name) {
+int candidateOf(const RobotStanceModel& model, absl::string_view name) {
   const absl::StatusOr<int> index = model.contactSet().indexOf(name);
   EXPECT_TRUE(index.ok()) << index.status();
   return *index;

@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/functional/function_ref.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ContactMask.h"
@@ -50,10 +51,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 msgs::RobotStateSample TelemetrySampler::prototype(
-    const std::vector<std::string>& jointNames, size_t numContacts) {
+    absl::Span<const std::string> jointNames, size_t numContacts) {
   const Eigen::Index numJoints = static_cast<Eigen::Index>(jointNames.size());
   msgs::RobotStateSample sample;
-  sample.joint_names = jointNames;
+  sample.joint_names.assign(jointNames.begin(), jointNames.end());
   sample.joint_positions = Eigen::VectorXd::Zero(numJoints);
   sample.joint_velocities = Eigen::VectorXd::Zero(numJoints);
   sample.joint_measured_efforts = Eigen::VectorXd::Zero(numJoints);

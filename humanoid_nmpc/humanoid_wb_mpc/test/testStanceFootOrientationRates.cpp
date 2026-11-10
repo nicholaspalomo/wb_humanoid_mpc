@@ -315,7 +315,7 @@ struct StancePoint {
  * accelerations within 5 rad/s^2.
  */
 StancePoint stancePoint(const StanceFootModels& models,
-                        const std::string& name,
+                        std::string name,
                         const matrix3_t& rotmatFootRtWorld,
                         scalar_t randomRateBound,
                         std::mt19937& generator) {
@@ -328,7 +328,7 @@ StancePoint stancePoint(const StanceFootModels& models,
       static_cast<Eigen::Index>(robotModel.getVelocityDim());
   const Eigen::Index joints =
       static_cast<Eigen::Index>(robotModel.getJointDim());
-  StancePoint point{.name = name,
+  StancePoint point{.name = std::move(name),
                     .state = models.interface->getInitialState(),
                     .input = vector_t::Zero(robotModel.getInputDim())};
   for (Eigen::Index j = 0; j < joints; ++j) {

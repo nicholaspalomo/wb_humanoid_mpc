@@ -80,7 +80,7 @@ JointPdGainsDefaults someDefaults() {
   return defaults;
 }
 
-absl::StatusOr<std::optional<JointPdGains>> load(const std::string& file) {
+absl::StatusOr<std::optional<JointPdGains>> load(absl::string_view file) {
   return loadJointPdGains(file, *kMpcJoints, *kOtherJoints);
 }
 

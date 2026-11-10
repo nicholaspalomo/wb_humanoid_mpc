@@ -33,16 +33,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "ocs2_core/Types.h"
 
@@ -249,20 +250,21 @@ class RobotProcess {
   struct Hooks {
     /** The viewer annotations of the newest policy, when there are new ones
      * (RemoteMpcLink::takeAnnotations()). */
-    std::function<bool(msgs::ViewerAnnotations& annotations)>
+    absl::AnyInvocable<bool(msgs::ViewerAnnotations& annotations) const>
         takeViewerAnnotations;
     /** LoopTiming's fields of the MPC link: stale_policies_dropped and
      * policy_age_s. */
-    std::function<void(humanoid_mpc_msgs::LoopTiming& loopTiming)>
+    absl::AnyInvocable<void(humanoid_mpc_msgs::LoopTiming& loopTiming) const>
         fillLinkStatistics;
     /**
      * The configuration store's check of a save
      * (ConfigFileStore::Hooks::validateConfigFile): the binaries bind it to
      * checkConfigFileCandidate() on the stored files with the running process's
      * estimator registry. Runs on the store's writer thread, not the
-     * communication thread. Empty: a text that parses is stored.
+     * communication thread. Empty: a text that parses is stored. Create() moves
+     * it into the store.
      */
-    std::function<absl::Status(const ConfigFileCandidate& candidate)>
+    absl::AnyInvocable<absl::Status(const ConfigFileCandidate& candidate) const>
         validateConfigFile;
   };
 
@@ -354,7 +356,7 @@ class RobotProcess {
   // Applies the controller-side settings of the changed task `file`, but for a
   // file written before the newest operator/mpc_parameters arrived
   // (OperatorCommandMailbox::lastMpcParametersArrival()), an older edit.
-  void onTaskFileChanged(const std::string& file);
+  void onTaskFileChanged(absl::string_view file);
 
   robot::ipc::Bus* absl_nonnull bus_;
   RobotBackend* absl_nonnull backend_;
@@ -364,6 +366,8 @@ class RobotProcess {
       simulator_;
   RobotController* absl_nonnull controller_;
   const Config config_;
+  /** Set at construction, without validateConfigFile, which the store owns;
+   * called on the communication thread only. */
   const Hooks hooks_;
 
   RealtimeEventLog eventLog_;

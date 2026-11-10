@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <functional>
 #include <ios>
 #include <iterator>
 #include <memory>
@@ -45,12 +44,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/ContactArray.h"
@@ -214,7 +216,7 @@ class RobotProcessTest : public ::testing::Test {
     operatorBus_->stop();
   }
 
-  void writeTaskFile(const std::string& contactEstimator) {
+  void writeTaskFile(absl::string_view contactEstimator) {
     std::ofstream file(taskFile_, std::ios::trunc);
     file << "# proto-message: humanoid_mpc_config.TaskFile\ncontact_estimator: "
             "\""
@@ -247,7 +249,7 @@ class RobotProcessTest : public ::testing::Test {
 
   /** Publishes an FSM command until `done` holds (the subscription takes a
    * moment to reach the publisher). */
-  bool command(const std::string& name, const std::function<bool()>& done) {
+  bool command(absl::string_view name, absl::FunctionRef<bool()> done) {
     humanoid_mpc_msgs::FsmCommand message;
     message.set_command(name);
     message.set_sequence(++sequence_);
@@ -264,7 +266,7 @@ class RobotProcessTest : public ::testing::Test {
   template <typename Message>
   bool publishUntil(absl::string_view topic,
                     const Message& message,
-                    const std::function<bool()>& done) {
+                    absl::FunctionRef<bool()> done) {
     return waitFor([&]() {
       operatorBus_->publish(topic, message).IgnoreError();
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -583,7 +585,7 @@ TEST_F(RobotProcessTest, RefusesAControllerOfAnotherRobotBeforeStart) {
                            &estimators_, processConfig());
   EXPECT_EQ(fewer.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(fewer.status().message().find(
-                "a robot of " + std::to_string(names.size()) + " joints"),
+                absl::StrCat("a robot of ", names.size(), " joints")),
             std::string::npos)
       << fewer.status();
   EXPECT_EQ(otherRobot.eventSink(), nullptr) << "nothing was set up";
@@ -608,7 +610,7 @@ class RecordingBackend final : public RobotBackend {
     return backend_.hardware();
   }
   absl::Status initialize() override { return backend_.initialize(); }
-  absl::Status start(const std::vector<int>& cores) override {
+  absl::Status start(absl::Span<const int> cores) override {
     return backend_.start(cores);
   }
   bool acceptsJointAction() const override {
@@ -669,7 +671,7 @@ class NoSimulatorBackend final : public RobotBackend {
     return backend_.hardware();
   }
   absl::Status initialize() override { return backend_.initialize(); }
-  absl::Status start(const std::vector<int>& cores) override {
+  absl::Status start(absl::Span<const int> cores) override {
     return backend_.start(cores);
   }
   bool acceptsJointAction() const override {
@@ -862,7 +864,7 @@ constexpr char kTestTaskIdentity[] =
     "robot_models/test_robot/test_robot_mpc/config/mpc/task.textproto";
 
 /** A save of the test's task file as the GUI sends it. */
-humanoid_mpc_msgs::ConfigFileSave taskFileSave(const std::string& text,
+humanoid_mpc_msgs::ConfigFileSave taskFileSave(absl::string_view text,
                                                uint64_t sequence) {
   humanoid_mpc_msgs::ConfigFileSave save;
   save.set_kind(humanoid_mpc_msgs::CONFIG_FILE_KIND_TASK);

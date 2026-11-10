@@ -41,13 +41,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::node {
 
-absl::Status validateFileFlag(absl::string_view flag, const std::string& path) {
+absl::Status validateFileFlag(absl::string_view flag, absl::string_view path) {
   if (path.empty()) {
     return absl::InvalidArgumentError(
         absl::StrCat(flag, " is not given; name the robot's file"));
   }
   std::error_code error;
-  if (!std::filesystem::is_regular_file(path, error)) {
+  if (!std::filesystem::is_regular_file(std::filesystem::path(path), error)) {
     return absl::NotFoundError(absl::StrCat(flag, "=", path, ": no such file"));
   }
   return absl::OkStatus();

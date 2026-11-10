@@ -30,17 +30,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/LoopbackNetwork.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
-#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/functional/function_ref.h"
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 
 #include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"
@@ -50,7 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::test_support {
 
 absl::StatusOr<robot::ipc::NetworkConfig> writeLoopbackNetworkFile(
-    const std::string& path, const std::vector<std::string>& nodes) {
+    absl::string_view path, absl::Span<const std::string> nodes) {
   robot::ipc::NetworkConfig network = robot::ipc::isolatedTestNetwork(nodes);
   // The shipped topics and their QoS, with the publishers among `nodes`, so
   // that the writers of one-off messages exist from start-up as in production.
@@ -66,16 +69,16 @@ absl::StatusOr<robot::ipc::NetworkConfig> writeLoopbackNetworkFile(
     network.topics.push_back(std::move(topic));
   }
   {
-    std::ofstream file(path);
+    std::ofstream file{std::filesystem::path(path)};
     file << robot::ipc::formatNetworkConfig(network);
   }
   return robot::ipc::loadNetworkConfig(path);
 }
 
 std::unique_ptr<robot::ipc::Bus> createBus(
-    const robot::ipc::NetworkConfig& network, const std::string& node) {
+    const robot::ipc::NetworkConfig& network, absl::string_view node) {
   robot::ipc::BusOptions options;
-  options.nodeName = node;
+  options.nodeName = std::string(node);
   options.network = network;
   options.ioPollPeriod = absl::Milliseconds(5);
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
@@ -84,7 +87,7 @@ std::unique_ptr<robot::ipc::Bus> createBus(
   return *std::move(bus);
 }
 
-bool waitFor(const std::function<bool()>& condition, absl::Duration timeout) {
+bool waitFor(absl::FunctionRef<bool()> condition, absl::Duration timeout) {
   const absl::Time deadline = absl::Now() + timeout;
   while (!condition()) {
     if (absl::Now() > deadline) return false;

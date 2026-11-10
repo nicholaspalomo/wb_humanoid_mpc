@@ -125,7 +125,7 @@ pinocchio::JointModelComposite eulerRoot() {
  * loadCustomPinocchioInterface() applies. */
 urdf::ModelInterfaceSharedPtr reducedUrdf(
     const urdf::ModelInterface& urdfTree,
-    const std::vector<std::string>& keptJointNames) {
+    absl::Span<const std::string> keptJointNames) {
   urdf::ModelInterfaceSharedPtr reduced =
       std::make_shared<urdf::ModelInterface>(urdfTree);
   for (std::pair<const std::string, std::shared_ptr<urdf::Joint>>& joint :

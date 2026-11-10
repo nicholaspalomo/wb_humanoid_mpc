@@ -71,9 +71,10 @@ comment / string masker; use it rather than regular expressions over raw source.
 
 The modules: `argument_comments`, `include_style`, `boost_usage`, `american_spelling`, `proto_file_layout`,
 `proto_next_id`, `textproto_headers`, `yaml_usage`, `pointer_nullability`, `no_auto`, `cpp_google_style`, `cpp_totw`,
-`magic_number`, `todo_format`, `inclusive_language`, `claudisms`, `license_header`, `python_imports`,
-`python_docstrings`, `python_language`, the base orientation's `spherical_zyx`, `euler_boundary`, `state_interpolation`
-and `quaternion_scalar_constructor`, and `frame_naming` (humanoid_nmpc/docs/frame_naming/README.md). `python3 -m tools.hooks.lint_code --only <name>` runs one check; the names and
+`cpp_abseil` (the Abseil types chosen over their standard library counterparts), `magic_number`, `todo_format`,
+`inclusive_language`, `claudisms`, `license_header`, `python_imports`, `python_docstrings`, `python_language`, the base
+orientation's `spherical_zyx`, `euler_boundary`, `state_interpolation` and `quaternion_scalar_constructor`, and
+`frame_naming` (humanoid_nmpc/docs/frame_naming/README.md). `python3 -m tools.hooks.lint_code --only <name>` runs one check; the names and
 descriptions are in each module's `CHECKS`.
 
 `magic_number` (`magic-number`) reads production C++ only: the first-party code and lib/ocs2 without

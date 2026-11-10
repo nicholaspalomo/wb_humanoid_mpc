@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 namespace ocs2::humanoid::validation {
 
@@ -98,7 +99,7 @@ struct GoldenFile {
 absl::StatusOr<GoldenProvenance> makeGoldenProvenance(
     std::string gitCommit,
     std::string worktreeState,
-    const std::vector<std::string>& configurationFiles);
+    absl::Span<const std::string> configurationFiles);
 
 /**
  * The text of `golden`. InvalidArgument for a label that is empty, holds
@@ -113,9 +114,9 @@ absl::StatusOr<GoldenFile> parseGoldenFile(absl::string_view text);
 
 /** formatGoldenFile() into `path`, creating its directory; the errors of
  * formatGoldenFile(), or Internal if unwritable. */
-absl::Status writeGoldenFile(const std::string& path, const GoldenFile& golden);
+absl::Status writeGoldenFile(absl::string_view path, const GoldenFile& golden);
 
 /** parseGoldenFile() of the file at `path`; NotFound when it cannot be read. */
-absl::StatusOr<GoldenFile> readGoldenFile(const std::string& path);
+absl::StatusOr<GoldenFile> readGoldenFile(absl::string_view path);
 
 }  // namespace ocs2::humanoid::validation

@@ -30,10 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <memory>
-#include <string>
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/cost/StateCost.h"
@@ -71,8 +71,8 @@ TerrainModel ballFloor();
  * `libraryName` in `folder`. */
 absl::StatusOr<std::unique_ptr<ContactFeatureFunction>> ballFeatures(
     const TerrainModel& terrain,
-    const std::string& libraryName,
-    const std::string& folder);
+    absl::string_view libraryName,
+    absl::string_view folder);
 
 /** x_dot = (v, f / m + g). */
 class BallDynamics final : public SystemDynamicsBase {

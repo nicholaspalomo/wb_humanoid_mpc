@@ -31,12 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
-#include <string>
 
+#include "absl/functional/function_ref.h"
 #include "absl/log/check.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -140,8 +140,8 @@ uint64_t ScriptedOperator::scenesReceived() const {
 }
 
 bool ScriptedOperator::sendFsmCommand(
-    const std::string& command,
-    const std::function<bool(const humanoid_mpc_msgs::FsmState&)>& reached,
+    absl::string_view command,
+    absl::FunctionRef<bool(const humanoid_mpc_msgs::FsmState&)> reached,
     absl::Duration timeout) {
   humanoid_mpc_msgs::FsmCommand message;
   message.set_command(command);
@@ -156,11 +156,10 @@ bool ScriptedOperator::sendFsmCommand(
       timeout);
 }
 
-bool ScriptedOperator::enterMode(const std::string& mode) {
-  return sendFsmCommand(mode,
-                        [&mode](const humanoid_mpc_msgs::FsmState& state) {
-                          return state.mode() == mode;
-                        });
+bool ScriptedOperator::enterMode(absl::string_view mode) {
+  return sendFsmCommand(mode, [mode](const humanoid_mpc_msgs::FsmState& state) {
+    return state.mode() == mode;
+  });
 }
 
 void ScriptedOperator::sendVelocityCommand(

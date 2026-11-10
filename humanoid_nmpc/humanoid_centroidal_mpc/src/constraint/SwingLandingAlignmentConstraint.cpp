@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
@@ -66,7 +67,7 @@ SwingLandingAlignmentConstraint::SwingLandingAlignmentConstraint(
     const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
     size_t contactIndex,
     scalar_t window,
-    const std::string& libraryName,
+    absl::string_view libraryName,
     const ModelSettings& modelSettings)
     : StateConstraintCppAd(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
@@ -76,8 +77,8 @@ SwingLandingAlignmentConstraint::SwingLandingAlignmentConstraint(
       numContacts_(modelSettings.contactNames.size()),
       frameName_(modelSettings.contactNames[contactIndex]),
       window_(window) {
-  initialize(mpcRobotModelPtr_->getStateDim(), kPositionDim, libraryName,
-             modelSettings.modelFolderCppAd,
+  initialize(mpcRobotModelPtr_->getStateDim(), kPositionDim,
+             std::string(libraryName), modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 

@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <limits>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
@@ -48,7 +49,7 @@ namespace ocs2::humanoid {
 
 absl::StatusOr<PlanContactOrder> PlanContactOrder::Create(
     const multi_contact::ContactSet& planContacts,
-    const std::vector<std::string>& mpcContactNames) {
+    std::vector<std::string> mpcContactNames) {
   constexpr size_t kModeNumberBits = std::numeric_limits<size_t>::digits;
   if (mpcContactNames.size() >= kModeNumberBits) {
     return absl::InvalidArgumentError(
@@ -65,8 +66,8 @@ absl::StatusOr<PlanContactOrder> PlanContactOrder::Create(
     }
   }
   PlanContactOrder order;
-  order.mpcContactNames_ = mpcContactNames;
   order.planIndexByMpcIndex_.assign(mpcContactNames.size(), std::nullopt);
+  order.mpcContactNames_ = std::move(mpcContactNames);
   order.mpcIndexByPlanIndex_.assign(static_cast<size_t>(planContacts.size()),
                                     std::nullopt);
   for (int planIndex = 0; planIndex < planContacts.size(); ++planIndex) {

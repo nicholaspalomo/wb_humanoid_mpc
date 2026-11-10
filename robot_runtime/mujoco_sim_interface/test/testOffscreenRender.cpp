@@ -37,6 +37,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "mujoco/mujoco.h"
 
@@ -57,7 +59,7 @@ namespace robot::mujoco_sim_interface {
 namespace {
 
 std::unique_ptr<MujocoSimInterface> makeSim(const MujocoSimConfig& config,
-                                            const std::string& urdfPath) {
+                                            absl::string_view urdfPath) {
   absl::StatusOr<std::unique_ptr<MujocoSimInterface>> sim =
       MujocoSimInterface::Create(config, urdfPath);
   EXPECT_TRUE(sim.ok()) << sim.status();
@@ -88,7 +90,7 @@ std::unique_ptr<MujocoSimInterface> makeSteppedAtlas() {
 }
 
 /** The share of red pixels: the hinge robot's base is a red box. */
-double redPixelFraction(const std::vector<uint8_t>& rgb) {
+double redPixelFraction(absl::Span<const uint8_t> rgb) {
   int64_t redPixels = 0;
   for (size_t pixel = 0; pixel + 2 < rgb.size(); pixel += 3) {
     const int red = rgb[pixel];
@@ -101,7 +103,7 @@ double redPixelFraction(const std::vector<uint8_t>& rgb) {
 
 /** Rows [firstRow, lastRow) of a bottom-up RGB image of `width` pixels: row 0
  * is the bottom of the picture. */
-std::vector<uint8_t> rows(const std::vector<uint8_t>& rgb,
+std::vector<uint8_t> rows(absl::Span<const uint8_t> rgb,
                           int width,
                           int firstRow,
                           int lastRow) {

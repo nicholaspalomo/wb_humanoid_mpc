@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -41,9 +40,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/functional/function_ref.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -88,11 +89,10 @@ makeHeadlessAtlas(bool gantryLocked) {
   return *std::move(sim);
 }
 
-std::unique_ptr<robot::ipc::Bus> createLoopbackBus(
-    const std::string& nodeName) {
+std::unique_ptr<robot::ipc::Bus> createLoopbackBus(absl::string_view nodeName) {
   robot::ipc::BusOptions options;
-  options.nodeName = nodeName;
-  options.network = robot::ipc::isolatedTestNetwork({nodeName});
+  options.nodeName = std::string(nodeName);
+  options.network = robot::ipc::isolatedTestNetwork({options.nodeName});
   options.ioPollPeriod = absl::Milliseconds(5);
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
       robot::ipc::Bus::Create(std::move(options));
@@ -100,7 +100,7 @@ std::unique_ptr<robot::ipc::Bus> createLoopbackBus(
   return *std::move(bus);
 }
 
-bool waitFor(const std::function<bool()>& condition, absl::Duration timeout) {
+bool waitFor(absl::FunctionRef<bool()> condition, absl::Duration timeout) {
   const absl::Time deadline = absl::Now() + timeout;
   while (!condition()) {
     if (absl::Now() > deadline) return false;
@@ -111,14 +111,14 @@ bool waitFor(const std::function<bool()>& condition, absl::Duration timeout) {
 
 void ScriptedRobotController::prepareCycle(
     absl::string_view controlMode,
-    const std::vector<scalar_t>& nominalJointPositions) {
+    absl::Span<const scalar_t> nominalJointPositions) {
   absl::MutexLock lock(mutex_);
   mode_.assign(controlMode.data(), controlMode.size());
-  nominal_ = nominalJointPositions;
+  nominal_.assign(nominalJointPositions.begin(), nominalJointPositions.end());
 }
 
-void ScriptedRobotController::throwInNextCycle(const std::string& message) {
-  throwMessage_ = message;
+void ScriptedRobotController::throwInNextCycle(std::string message) {
+  throwMessage_ = std::move(message);
   throwInNextCycle_.store(true);
 }
 

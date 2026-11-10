@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 
 #include "absl/base/nullability.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 
@@ -44,7 +45,7 @@ namespace ocs2::humanoid::ipc {
  * OCS2 GaussNewtonDDP::getPrimalSolution(); at least one entry of a non-empty
  * trajectory is kept.
  */
-size_t solutionWindowLength(const scalar_array_t& timeTrajectory,
+size_t solutionWindowLength(absl::Span<const scalar_t> timeTrajectory,
                             scalar_t finalTime);
 
 /**

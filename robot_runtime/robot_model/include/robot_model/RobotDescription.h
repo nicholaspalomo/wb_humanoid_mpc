@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "robot_core/Types.h"
 
@@ -123,7 +124,7 @@ class RobotDescription {
   /** The indices of `jointNames`, in their order; NotFound naming the first
    * joint the URDF does not have. */
   absl::StatusOr<std::vector<joint_index_t>> findJointIndices(
-      const std::vector<std::string>& jointNames) const;
+      absl::Span<const std::string> jointNames) const;
 
   /**
    * The index of `jointName`, which must be a joint of the description
@@ -134,7 +135,7 @@ class RobotDescription {
   /** getJointIndex() of each name, in their order. For names that come from a
    * file, use findJointIndices(). */
   std::vector<joint_index_t> getJointIndices(
-      const std::vector<std::string>& jointNames) const;
+      absl::Span<const std::string> jointNames) const;
 
   /** The name of joint `jointIndex`, which must be below getNumJoints();
    * another index ends the process. */

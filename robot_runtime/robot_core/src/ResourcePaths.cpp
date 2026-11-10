@@ -129,19 +129,19 @@ void recordSearched(std::string entry, std::vector<std::string>& searched) {
 
 /** `path` as an absolute path, unchanged when the working directory is unknown.
  */
-std::string absolutePath(const std::string& path) {
+std::string absolutePath(std::string path) {
   std::error_code error;
   const std::filesystem::path absolute = std::filesystem::absolute(path, error);
-  return error ? path : absolute.string();
+  return error ? std::move(path) : absolute.string();
 }
 
 /** The path of `runfilesPath` in `runfiles` when it exists there. Otherwise
  * records where it was searched for. */
 std::optional<std::string> findInRunfiles(const Runfiles& runfiles,
-                                          const std::string& runfilesPath,
+                                          absl::string_view runfilesPath,
                                           absl::string_view runfilesName,
                                           std::vector<std::string>& searched) {
-  const std::string candidate = runfiles.Rlocation(runfilesPath);
+  const std::string candidate = runfiles.Rlocation(std::string(runfilesPath));
   if (candidate.empty()) {
     recordSearched(absl::StrCat(runfilesName, " (not listed in its manifest)"),
                    searched);

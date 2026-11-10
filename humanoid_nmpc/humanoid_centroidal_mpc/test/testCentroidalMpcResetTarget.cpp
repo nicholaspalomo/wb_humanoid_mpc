@@ -208,9 +208,15 @@ class CapturingFactory {
   MpcLinkFactory factory() {
     return [this](MpcLink::ResetTargetFunction resetTarget)
                -> std::unique_ptr<MpcLink> {
-      resetTarget_ = resetTarget;
-      return std::make_unique<InProcessMpcLink>(mpc_, std::move(resetTarget),
-                                                InProcessMpcLink::Config());
+      // The factory keeps the target; the link calls it through this
+      // factory, which outlives the controller.
+      resetTarget_ = std::move(resetTarget);
+      return std::make_unique<InProcessMpcLink>(
+          mpc_,
+          [this](const SystemObservation& observation) {
+            return resetTarget_(observation);
+          },
+          InProcessMpcLink::Config());
     };
   }
   const MpcLink::ResetTargetFunction& resetTarget() const {

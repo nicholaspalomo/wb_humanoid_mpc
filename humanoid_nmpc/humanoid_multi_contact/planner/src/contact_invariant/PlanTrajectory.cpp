@@ -42,6 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
@@ -83,7 +85,7 @@ RobotConfiguration configurationOf(const MpcRobotModelBase<scalar_t>& model,
 /** The knot of node `k` of `trajectory`, without its phases. */
 PlanKnot knotOf(const MpcTrajectory& trajectory,
                 const PlanConversion& conversion,
-                const std::vector<int>& candidates,
+                absl::Span<const int> candidates,
                 size_t k) {
   const MpcRobotModelBase<scalar_t>& model = *conversion.model;
   const vector_t& state = trajectory.states[k];
@@ -125,14 +127,13 @@ PlanKnot knotOf(const MpcTrajectory& trajectory,
  * under its mean pad position, found from a point kPatchProbeDepth inside the
  * pad (against its mean z axis), so that a sole near a riser's foot is
  * assigned the tread it stands on rather than the riser. */
-PlanPhase phaseOf(
-    const std::vector<Eigen::Vector3d>& posPadRtWorldEwrtWorldTraj,
-    const std::vector<Eigen::Vector3d>& zAxisPadEwrtWorldTraj,
-    const MpcTrajectory& trajectory,
-    const TerrainModel& terrain,
-    const std::string& name,
-    size_t begin,
-    size_t end) {
+PlanPhase phaseOf(absl::Span<const Eigen::Vector3d> posPadRtWorldEwrtWorldTraj,
+                  absl::Span<const Eigen::Vector3d> zAxisPadEwrtWorldTraj,
+                  const MpcTrajectory& trajectory,
+                  const TerrainModel& terrain,
+                  absl::string_view name,
+                  size_t begin,
+                  size_t end) {
   Eigen::Vector3d meanPosPadRtWorldEwrtWorld = Eigen::Vector3d::Zero();
   Eigen::Vector3d meanZAxisPadEwrtWorld = Eigen::Vector3d::Zero();
   for (size_t k = begin; k < end; ++k) {
@@ -182,9 +183,8 @@ PlanPhase phaseOf(
 
 }  // namespace
 
-std::vector<int> candidateIndicesOf(
-    const std::vector<std::string>& contactNames,
-    const ContactSet& contactSet) {
+std::vector<int> candidateIndicesOf(absl::Span<const std::string> contactNames,
+                                    const ContactSet& contactSet) {
   std::vector<int> indices;
   for (const std::string& name : contactNames) {
     const absl::StatusOr<int> index = contactSet.indexOf(name);

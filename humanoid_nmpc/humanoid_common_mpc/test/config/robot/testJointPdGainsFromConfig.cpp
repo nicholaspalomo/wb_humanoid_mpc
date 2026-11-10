@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -70,9 +71,9 @@ mpc_config::JointPdGainsFile completeDefaults() {
   return file;
 }
 
-mpc_config::JointPdGainsFile::JointGains joint(const std::string& name) {
+mpc_config::JointPdGainsFile::JointGains joint(absl::string_view name) {
   mpc_config::JointPdGainsFile::JointGains entry;
-  entry.joint = name;
+  entry.joint = std::string(name);
   return entry;
 }
 

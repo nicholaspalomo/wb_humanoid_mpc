@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_multi_contact/planner/contact_invariant/StanceThresholding.h"
@@ -50,7 +51,7 @@ std::vector<double> timesOf(int nodes) {
 }
 
 /** One candidate's activations as nodes of one entry. */
-std::vector<std::vector<double>> column(const std::vector<double>& values) {
+std::vector<std::vector<double>> column(absl::Span<const double> values) {
   std::vector<std::vector<double>> nodes;
   for (const double value : values) nodes.push_back({value});
   return nodes;

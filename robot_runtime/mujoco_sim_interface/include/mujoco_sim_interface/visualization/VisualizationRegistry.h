@@ -34,6 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 
@@ -56,7 +58,7 @@ std::vector<std::string> defaultVisualizationNames();
 /** Creates the visualization registered under `name`, or nullptr if there is
  * none. */
 std::unique_ptr<MujocoVisualization> createVisualization(
-    const std::string& name);
+    absl::string_view name);
 
 /**
  * Creates the visualizations listed in `names` (task file
@@ -65,7 +67,7 @@ std::unique_ptr<MujocoVisualization> createVisualization(
  * to `errors`.
  */
 std::vector<std::unique_ptr<MujocoVisualization>> createVisualizations(
-    const std::vector<std::string>& names,
+    absl::Span<const std::string> names,
     std::vector<std::string>* absl_nullable errors);
 
 }  // namespace robot::mujoco_sim_interface

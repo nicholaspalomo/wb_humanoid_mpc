@@ -38,7 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::multi_contact {
 
-std::string resolveInputPath(const std::string& path) {
+std::string resolveInputPath(std::string path) {
   if (path.empty() || std::filesystem::path(path).is_absolute()) return path;
   for (const char* absl_nullable variable :
        {std::getenv("BUILD_WORKING_DIRECTORY"),
@@ -52,7 +52,7 @@ std::string resolveInputPath(const std::string& path) {
   return path;
 }
 
-std::string resolveOutputPath(const std::string& path) {
+std::string resolveOutputPath(std::string path) {
   const char* absl_nullable directory = std::getenv("BUILD_WORKING_DIRECTORY");
   if (std::filesystem::path(path).is_absolute() || directory == nullptr) {
     return path;

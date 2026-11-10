@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 
 #include "robot_runtime/web_viewer/test/WebViewerTestSupport.h"
@@ -47,8 +48,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::web_viewer {
 namespace {
 
-double psnr(const std::vector<uint8_t>& expected,
-            const std::vector<uint8_t>& actual) {
+double psnr(absl::Span<const uint8_t> expected,
+            absl::Span<const uint8_t> actual) {
   double squaredError = 0.0;
   for (size_t index = 0; index < expected.size(); ++index) {
     const double difference = static_cast<double>(expected[index]) -

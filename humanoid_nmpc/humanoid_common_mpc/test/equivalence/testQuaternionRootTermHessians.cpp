@@ -33,9 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <functional>
 #include <initializer_list>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -44,12 +42,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Eigenvalues"
 #include "absl/base/nullability.h"
+#include "absl/container/btree_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
@@ -292,9 +293,10 @@ struct ConstraintSecondOrder {
 struct SecondOrderRule {
   std::string name;
   /** v and its Jacobians at (x, u), the precomputation requested there. */
-  std::function<InnerLinearization(const vector_t&, const vector_t&)> inner;
+  absl::AnyInvocable<InnerLinearization(const vector_t&, const vector_t&) const>
+      inner;
   /** phi at v. */
-  std::function<OuterApproximation(const vector_t&)> outer;
+  absl::AnyInvocable<OuterApproximation(const vector_t&) const> outer;
   /**
    * Whether phi is a penalty sum_i p(v_i), whose p' and p'' are held to
    * differences of p and p'. A quadratic phi's derivatives are W v and W of the
@@ -303,7 +305,8 @@ struct SecondOrderRule {
   bool penaltyOuter = false;
   /** For a soft constraint of ConstraintOrder::Quadratic: the constraint's
    * second order at (x, u); empty otherwise. */
-  std::function<ConstraintSecondOrder(const vector_t&, const vector_t&)>
+  absl::AnyInvocable<ConstraintSecondOrder(const vector_t&, const vector_t&)
+                         const>
       constraintSecondOrder;
 };
 
@@ -312,11 +315,11 @@ struct SecondOrderRule {
 struct TermUnderTest {
   std::string label;
   bool hasInput = false;
-  std::function<scalar_t(const vector_t&, const vector_t&)> value;
+  absl::AnyInvocable<scalar_t(const vector_t&, const vector_t&) const> value;
   /** The term's own quadratic approximation, ambient; for a state term with
    * empty input blocks. */
-  std::function<ScalarFunctionQuadraticApproximation(const vector_t&,
-                                                     const vector_t&)>
+  absl::AnyInvocable<ScalarFunctionQuadraticApproximation(
+      const vector_t&, const vector_t&) const>
       approximation;
   /** NotFound naming the term when its class has no rule. */
   absl::StatusOr<SecondOrderRule> rule;
@@ -397,8 +400,8 @@ matrix_t denseTuningJacobian(const TuningDeviationApproximation& deviation,
 
 /** Where a Tuning* cost takes its references at (x, u): the state's and, for a
  * state-input cost, the input's. */
-using TuningReference =
-    std::function<StateInputReference(const vector_t&, const vector_t&)>;
+using TuningReference = absl::AnyInvocable<StateInputReference(
+    const vector_t&, const vector_t&) const>;
 
 /** What a Tuning* cost does with the input. */
 enum class TuningInput {
@@ -713,7 +716,8 @@ absl::StatusOr<SecondOrderRule> basisScalingRule(
 
 /** The second order of a ConstraintOrder::Quadratic state-input constraint,
  * with the shift its class documents. */
-std::function<ConstraintSecondOrder(const vector_t&, const vector_t&)>
+absl::AnyInvocable<ConstraintSecondOrder(const vector_t&, const vector_t&)
+                       const>
 stateInputConstraintSecondOrder(const StateInputConstraint& constraint,
                                 const PreComputation& preComputation,
                                 scalar_t time) {
@@ -746,7 +750,8 @@ SecondOrderRule stateInputSoftConstraintRule(
   const MultidimensionalPenalty* absl_nonnull penalty =
       &softConstraint.getPenalty();
   const PreComputation* absl_nonnull precomputation = &preComputation;
-  std::function<ConstraintSecondOrder(const vector_t&, const vector_t&)>
+  absl::AnyInvocable<ConstraintSecondOrder(const vector_t&, const vector_t&)
+                         const>
       secondOrder =
           stateInputConstraintSecondOrder(*constraint, preComputation, time);
   return SecondOrderRule{
@@ -814,7 +819,7 @@ SecondOrderRule stateSoftConstraintRule(StateSoftConstraint& softConstraint,
  * is none. */
 absl::StatusOr<SecondOrderRule> stateInputTermRule(
     StateInputCost& term,
-    const std::string& label,
+    absl::string_view label,
     const MpcEquivalenceFixture& mpc,
     const TargetTrajectories& targets,
     const PreComputation& preComputation,
@@ -890,7 +895,7 @@ absl::StatusOr<SecondOrderRule> stateInputTermRule(
  * none. */
 absl::StatusOr<SecondOrderRule> stateTermRule(
     StateCost& term,
-    const std::string& label,
+    absl::string_view label,
     const MpcEquivalenceFixture& mpc,
     const TargetTrajectories& targets,
     const PreComputation& preComputation,
@@ -1310,7 +1315,7 @@ void storeDirection(const TermSample& center,
 std::vector<TermDifferences> differenceTerms(
     OptimalControlProblem& problem,
     const StateManifold& manifold,
-    const std::vector<TermUnderTest>& terms,
+    absl::Span<const TermUnderTest> terms,
     TermGroup group,
     scalar_t time,
     const TermProbePoint& point) {
@@ -1391,7 +1396,7 @@ struct Tally {
 
 /** |actual - expected| <= bound entry by entry, or the worst entry relative to
  * its bound (a NaN fails); nullopt when within. */
-std::optional<std::string> boundViolation(const std::string& what,
+std::optional<std::string> boundViolation(absl::string_view what,
                                           const matrix_t& actual,
                                           const matrix_t& expected,
                                           const matrix_t& bound) {
@@ -1472,7 +1477,7 @@ MutatedMatrix mutated(const matrix_t& matrix, Mutation mutation) {
 
 /** Compares `actual` with `expected` within `bound`, and that the comparison
  * rejects `actual` mutated as `mutation` says. */
-Deviation compareHessian(const std::string& what,
+Deviation compareHessian(absl::string_view what,
                          const matrix_t& actual,
                          const matrix_t& expected,
                          const matrix_t& bound,
@@ -1501,7 +1506,7 @@ Deviation compareHessian(const std::string& what,
 
 /** A first derivative against its differences within kFirstDerivativeTolerance
  * of max(1, its largest entry). */
-Deviation compareFirstDerivative(const std::string& what,
+Deviation compareFirstDerivative(absl::string_view what,
                                  const matrix_t& reported,
                                  const matrix_t& differenced,
                                  Tally& tally) {
@@ -1828,7 +1833,7 @@ void checkFirstOrders(const SecondOrderRule& rule,
 void checkAssembly(const TermAtPoint& at,
                    const TangentModel& model,
                    const CheckContext& context,
-                   const std::vector<HessianBlock>& blocks,
+                   absl::Span<const HessianBlock> blocks,
                    TermStatistics& statistics,
                    Tally& tally) {
   const vector_t assembledGradient =
@@ -1991,7 +1996,7 @@ void checkExactness(const TermAtPoint& at,
                     const TermDifferences& differences,
                     const TangentModel& model,
                     const CheckContext& context,
-                    const std::vector<HessianBlock>& blocks,
+                    absl::Span<const HessianBlock> blocks,
                     TermStatistics& statistics,
                     Tally& tally) {
   const Eigen::Index dim = differences.gradientJacobian.rows();
@@ -2010,7 +2015,7 @@ void checkExactness(const TermAtPoint& at,
     // directions: their mean. The cross block ux is taken as the differences of
     // the input gradient along the state, whose round-off is the input
     // gradient's.
-    const std::function<matrix_t(const matrix_t&)> estimate =
+    const absl::AnyInvocable<matrix_t(const matrix_t&) const> estimate =
         [&block](const matrix_t& matrix) {
           return block.symmetric ? symmetricPart(blockOf(matrix, block))
                                  : blockOf(matrix, block);
@@ -2048,12 +2053,11 @@ void checkExactness(const TermAtPoint& at,
 
 /** The terms of `group` at `point`: their quantities there, after the requests
  * a solver makes. */
-std::vector<TermAtPoint> evaluateAtPoint(
-    OptimalControlProblem& problem,
-    const std::vector<TermUnderTest>& terms,
-    TermGroup group,
-    scalar_t time,
-    const TermProbePoint& point) {
+std::vector<TermAtPoint> evaluateAtPoint(OptimalControlProblem& problem,
+                                         absl::Span<const TermUnderTest> terms,
+                                         TermGroup group,
+                                         scalar_t time,
+                                         const TermProbePoint& point) {
   const StateInput at{.state = point.state, .input = point.input};
   std::vector<TermAtPoint> evaluated(terms.size());
   requestGroup(problem, group, time, at, TermRequest::kValues);
@@ -2086,7 +2090,7 @@ void checkGroupAtPoint(
     scalar_t time,
     const TermProbePoint& point,
     const absl::flat_hash_set<std::string>* absl_nullable only,
-    std::map<std::string, TermStatistics>& statistics,
+    absl::btree_map<std::string, TermStatistics>& statistics,
     Tally& tally) {
   std::vector<TermUnderTest> terms;
   for (TermUnderTest& term : termsUnderTest(problem, mpc, group, time)) {
@@ -2149,7 +2153,7 @@ TEST_P(QuaternionRootTermHessians,
   const std::vector<TargetedProbePoint> bands =
       barrierBandPoints(problem, mpc, points);
 
-  std::map<std::string, TermStatistics> statistics;
+  absl::btree_map<std::string, TermStatistics> statistics;
   Tally tally;
   for (const TermProbePoint& point : points) {
     checkGroupAtPoint(problem, mpc, TermGroup::kIntermediate, point.time, point,

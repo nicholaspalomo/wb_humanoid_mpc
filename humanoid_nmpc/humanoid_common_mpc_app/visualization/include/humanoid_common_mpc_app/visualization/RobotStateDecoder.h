@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/ContactArray.h"
@@ -170,7 +171,7 @@ class RobotStateDecoder {
                       DecodedRobotState* absl_nonnull state);
 
  private:
-  void updateJointIndices(const std::vector<std::string>& sampleJointNames);
+  void updateJointIndices(absl::Span<const std::string> sampleJointNames);
 
   std::unique_ptr<MpcRobotModelBase<scalar_t>> robotModel_;
   std::vector<std::string> fullJointNames_;

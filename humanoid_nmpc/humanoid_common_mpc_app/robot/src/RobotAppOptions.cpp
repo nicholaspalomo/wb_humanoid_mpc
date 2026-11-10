@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_rerun_viewer_proto/plot_config.nproto.h"
@@ -97,7 +98,7 @@ absl::StatusOr<std::vector<std::string>> viewerNamesFromPlotConfig(
  * flags; InvalidArgument naming the flag. */
 absl::StatusOr<robot::mujoco_sim_interface::WebViewerOptions>
 webViewerOptionsFromFlags(const ViewerFlagValues& flags,
-                          const std::vector<int>& defaultViewerCores) {
+                          absl::Span<const int> defaultViewerCores) {
   robot::mujoco_sim_interface::WebViewerOptions web;
   web.address = std::string(absl::StripAsciiWhitespace(flags.webViewerAddress));
   if (web.address.empty()) {
@@ -142,9 +143,11 @@ webViewerOptionsFromFlags(const ViewerFlagValues& flags,
 }  // namespace
 
 absl::StatusOr<std::vector<int>> parseCoreList(
-    absl::string_view value, const std::vector<int>& defaultCores) {
+    absl::string_view value, absl::Span<const int> defaultCores) {
   const absl::string_view trimmed = absl::StripAsciiWhitespace(value);
-  if (trimmed == "default") return defaultCores;
+  if (trimmed == "default") {
+    return std::vector<int>(defaultCores.begin(), defaultCores.end());
+  }
   if (trimmed.empty() || trimmed == "none") return std::vector<int>();
   std::vector<int> cores;
   for (absl::string_view part : absl::StrSplit(trimmed, ',')) {
@@ -182,7 +185,7 @@ absl::StatusOr<std::vector<std::string>> viewerNamesFromFlags(
 
 absl::StatusOr<robot::mujoco_sim_interface::ViewerSettings>
 viewerSettingsFromFlags(const ViewerFlagValues& flags,
-                        const std::vector<int>& defaultViewerCores) {
+                        absl::Span<const int> defaultViewerCores) {
   robot::mujoco_sim_interface::ViewerSettings settings;
   ASSIGN_OR_RETURN(settings.names, viewerNamesFromFlags(flags));
   ASSIGN_OR_RETURN(settings.web,

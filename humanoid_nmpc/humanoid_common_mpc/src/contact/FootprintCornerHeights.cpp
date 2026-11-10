@@ -42,6 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/CppAdInterface.h"
@@ -78,7 +80,7 @@ class Fnv1a64 {
   void add(double value) {
     add(static_cast<int64_t>(std::llround(value * kFingerprintResolution)));
   }
-  void add(const std::string& text) {
+  void add(absl::string_view text) {
     for (const char character : text) {
       hash_ ^= static_cast<uint64_t>(static_cast<unsigned char>(character));
       hash_ *= nproto::kFnvPrime;
@@ -108,7 +110,7 @@ class Fnv1a64 {
  * of the configuration q only, so its velocity dimension does not enter).
  */
 uint64_t geometryFingerprint(const pinocchio::Model& model,
-                             const std::vector<size_t>& frameIds,
+                             absl::Span<const size_t> frameIds,
                              size_t stateDim,
                              size_t configurationDim) {
   Fnv1a64 hash;
@@ -134,12 +136,12 @@ FootprintCornerHeights::FootprintCornerHeights(
     const PinocchioInterface& pinocchioInterface,
     const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
     std::vector<std::string> frameNames,
-    const std::string& modelName,
+    std::string modelName,
     const ModelSettings& modelSettings)
     : frameNames_(std::move(frameNames)),
       mpcRobotModelAdPtr_(mpcRobotModelAD.clone()),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
-      modelName_(modelName),
+      modelName_(std::move(modelName)),
       modelFolder_(modelSettings.modelFolderCppAd),
       verbose_(modelSettings.verboseCppAd) {
   CHECK(!frameNames_.empty()) << "[FootprintCornerHeights] " << modelName_

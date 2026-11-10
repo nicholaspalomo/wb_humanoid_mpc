@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cstddef>
-#include <functional>
 #include <limits>
 #include <memory>
 #include <string>
@@ -380,7 +379,7 @@ TEST_F(QuadraticCostWeightsApplierTest,
   // robot runs: every corruption is refused with a warning, and every worker
   // keeps the weights of a fresh start with the shipped file (the block refused
   // keeps its running value, the others apply the shipped ones again).
-  const std::vector<std::function<void(mpc_config::TaskFile&)>> corruptions = {
+  const std::vector<void (*absl_nonnull)(mpc_config::TaskFile&)> corruptions = {
       [](mpc_config::TaskFile& t) { t.state_weights.scaling = -1.0; },
       [](mpc_config::TaskFile& t) {
         t.state_weights.scaling = std::numeric_limits<double>::quiet_NaN();
@@ -392,8 +391,7 @@ TEST_F(QuadraticCostWeightsApplierTest,
       [](mpc_config::TaskFile& t) { t.terminal_cost_scaling = -2.0; },
       [](mpc_config::TaskFile& t) { t.input_weights.scaling = -1.0; },
   };
-  for (const std::function<void(mpc_config::TaskFile&)>& corrupt :
-       corruptions) {
+  for (void (*absl_nonnull corrupt)(mpc_config::TaskFile&) : corruptions) {
     // From the shipped file, so that the blocks the corruption leaves valid
     // apply the shipped weights again.
     mpc_config::TaskFile refused = task_;

@@ -30,9 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <string>
-
 #include "absl/base/nullability.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/PinocchioCentroidalDynamicsAD.h"
 #include "ocs2_core/PreComputation.h"
@@ -53,7 +52,7 @@ class CentroidalDynamicsAD final : public SystemDynamicsBase {
  public:
   CentroidalDynamicsAD(const PinocchioInterface& pinocchioInterface,
                        const CentroidalModelInfo& info,
-                       const std::string& modelName,
+                       absl::string_view modelName,
                        const ModelSettings& modelSettings);
 
   ~CentroidalDynamicsAD() override = default;

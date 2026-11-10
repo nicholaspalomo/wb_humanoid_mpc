@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/base/nullability.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
@@ -88,7 +89,7 @@ class SwingLandingAlignmentConstraint final : public StateConstraintCppAd {
       const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
       size_t contactIndex,
       scalar_t window,
-      const std::string& libraryName,
+      absl::string_view libraryName,
       const ModelSettings& modelSettings);
   ~SwingLandingAlignmentConstraint() override = default;
   SwingLandingAlignmentConstraint& operator=(

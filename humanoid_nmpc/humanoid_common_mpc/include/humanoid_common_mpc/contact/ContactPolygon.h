@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
@@ -79,7 +80,7 @@ class ContactPolygon {
  public:
   /** The polygon of `posCornersRtContactEwrtContact` scaled by `scaleFactor`,
    * with the bounds of the scaled points. */
-  ContactPolygon(const std::vector<vector3_t>& posCornersRtContactEwrtContact,
+  ContactPolygon(absl::Span<const vector3_t> posCornersRtContactEwrtContact,
                  const ContactCenterPoint& contactCenterPoint,
                  scalar_t scaleFactor = 1.0);
 
@@ -114,7 +115,7 @@ class ContactPolygon {
  protected:
   // constructor can be used by child class. Child class has to ensure that the
   // polygonLimits are correct
-  ContactPolygon(const std::vector<vector3_t>& posCornersRtContactEwrtContact,
+  ContactPolygon(std::vector<vector3_t> posCornersRtContactEwrtContact,
                  const PolygonBounds& polygonBounds,
                  const ContactCenterPoint& contactCenterPoint);
 

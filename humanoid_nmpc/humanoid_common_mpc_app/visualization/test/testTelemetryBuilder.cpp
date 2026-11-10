@@ -44,6 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_replace.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
@@ -86,7 +88,7 @@ constexpr scalar_t kTolerance = 1.0e-9;
 constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 const humanoid_mpc_msgs::ScalarGroup* absl_nullable findGroup(
-    const humanoid_mpc_msgs::TelemetrySeries& series, const std::string& path) {
+    const humanoid_mpc_msgs::TelemetrySeries& series, absl::string_view path) {
   for (const humanoid_mpc_msgs::ScalarGroup& group : series.groups()) {
     if (group.path() == path) {
       return &group;
@@ -97,8 +99,8 @@ const humanoid_mpc_msgs::ScalarGroup* absl_nullable findGroup(
 
 /** The value `name` of the group at `path`. */
 double valueOf(const humanoid_mpc_msgs::TelemetrySeries& series,
-               const std::string& path,
-               const std::string& name) {
+               absl::string_view path,
+               absl::string_view name) {
   const humanoid_mpc_msgs::ScalarGroup* absl_nullable group =
       findGroup(series, path);
   if (group == nullptr) {
@@ -116,7 +118,7 @@ double valueOf(const humanoid_mpc_msgs::TelemetrySeries& series,
 
 /** Every value of the group at `path`. */
 vector_t valuesOf(const humanoid_mpc_msgs::TelemetrySeries& series,
-                  const std::string& path) {
+                  absl::string_view path) {
   const humanoid_mpc_msgs::ScalarGroup* absl_nullable group =
       findGroup(series, path);
   if (group == nullptr) {
@@ -148,7 +150,7 @@ vector_t displayCoordinatesOf(const MpcRobotModelBase<scalar_t>& model,
  * here independently of the builder; test_end_to_end compares them with the
  * bridge's contract module itself.
  */
-std::vector<std::string> contractPaths(const std::vector<std::string>& frames) {
+std::vector<std::string> contractPaths(absl::Span<const std::string> frames) {
   std::vector<std::string> paths = {"base_pose/position_x",
                                     "base_pose/position_y",
                                     "base_pose/position_z",
@@ -245,7 +247,7 @@ humanoid_mpc_msgs::RobotStateSample withMeasForceFeetEwrtWorldZ(
 
 /** The groups that are NaN by contract in the tests' data: the reference's
  * target carries no contact forces, so its ZMP. */
-bool isNotANumberByContract(const std::string& path, bool hasAcom) {
+bool isNotANumberByContract(absl::string_view path, bool hasAcom) {
   return path == "zmp/x" || path == "zmp/y" ||
          (!hasAcom &&
           (path == "acom/roll" || path == "acom/pitch" || path == "acom/yaw"));
@@ -1172,12 +1174,10 @@ TEST_F(TelemetryBuilderTest, EveryFormulationGivesTheContractsGroups) {
 
 /** A 3-DoF contact of the task file, 0.1 m to the side of a wrist. */
 mpc_config::ModelSettingsConfig::PointContact handContact(
-    const std::string& name,
-    const std::string& wrist,
-    scalar_t posContactRtLinkEwrtLinkY) {
+    std::string name, std::string wrist, scalar_t posContactRtLinkEwrtLinkY) {
   mpc_config::ModelSettingsConfig::PointContact contact;
-  contact.name = name;
-  contact.parent_joint_name = wrist;
+  contact.name = std::move(name);
+  contact.parent_joint_name = std::move(wrist);
   contact.pos_contact_rt_link_ewrt_link.y = posContactRtLinkEwrtLinkY;
   return contact;
 }

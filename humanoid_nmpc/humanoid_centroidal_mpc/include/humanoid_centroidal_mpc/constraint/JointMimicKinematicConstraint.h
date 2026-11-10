@@ -74,8 +74,8 @@ class JointMimicKinematicConstraint final : public StateInputConstraint {
    */
   static absl::StatusOr<std::unique_ptr<JointMimicKinematicConstraint>> Create(
       const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-      const std::string& parentJointName,
-      const std::string& childJointName,
+      std::string parentJointName,
+      std::string childJointName,
       scalar_t multiplier,
       scalar_t positionGain);
 

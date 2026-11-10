@@ -33,21 +33,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <functional>
 #include <limits>
-#include <map>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/btree_map.h"
 #include "absl/log/absl_check.h"
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
@@ -128,8 +128,8 @@ ProceduralMpcMotionManager::Create(
 
 absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>>
 ProceduralMpcMotionManager::Create(
-    const std::string& gaitFile,
-    const std::string& referenceFile,
+    absl::string_view gaitFile,
+    absl::string_view referenceFile,
     std::shared_ptr<SwitchedModelReferenceManager>
         switchedModelReferenceManagerPtr,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
@@ -164,7 +164,7 @@ ProceduralMpcMotionManager::ProceduralMpcMotionManager(
           std::move(velocityCommandToTargetTrajectories)) {}
 
 absl::Status ProceduralMpcMotionManager::checkEveryGaitIsLoaded(
-    const std::map<std::string, ModeSequenceTemplate>& gaitMap,
+    const absl::btree_map<std::string, ModeSequenceTemplate>& gaitMap,
     absl::Span<const GaitModeStateConfig> gaitModeStates,
     absl::string_view gaitFile) {
   // Every gait the velocity command can select has to be in the file:
@@ -181,11 +181,11 @@ absl::Status ProceduralMpcMotionManager::checkEveryGaitIsLoaded(
 }
 
 scalar_t ProceduralMpcMotionManager::cycleDurationOf(
-    const std::string& gaitCommand) const {
+    absl::string_view gaitCommand) const {
   // Create() refused a gait file without every gait of gaitModeStates_, the
   // only names this is asked for.
-  const std::map<std::string, ModeSequenceTemplate>::const_iterator gait =
-      gaitMap_.find(gaitCommand);
+  const absl::btree_map<std::string, ModeSequenceTemplate>::const_iterator
+      gait = gaitMap_.find(gaitCommand);
   ABSL_CHECK(gait != gaitMap_.end()) << "no gait " << gaitCommand;
   const std::vector<scalar_t>& switchingTimes = gait->second.switchingTimes;
   return switchingTimes.back() - switchingTimes.front();
@@ -563,8 +563,8 @@ void ProceduralMpcMotionManager::preSolverRun(
   if (currentGaitCommand_ != lastGaitCommand_) {
     // loadGaits() refused a gait file without every gait of gaitModeStates_,
     // which currentGaitCommand_ is one of.
-    const std::map<std::string, ModeSequenceTemplate>::const_iterator gait =
-        gaitMap_.find(currentGaitCommand_);
+    const absl::btree_map<std::string, ModeSequenceTemplate>::const_iterator
+        gait = gaitMap_.find(currentGaitCommand_);
     ABSL_CHECK(gait != gaitMap_.end()) << "no gait " << currentGaitCommand_;
 
     const scalar_t gaitStart = updateGaitSchedule(

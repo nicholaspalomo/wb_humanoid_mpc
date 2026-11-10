@@ -36,12 +36,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cstddef>
-#include <functional>
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
@@ -82,7 +83,7 @@ namespace ocs2::humanoid::config_registries {
 namespace {
 
 using Registry = mpc_config::ConfigRegistries::Registry;
-using Accepts = std::function<bool(const std::string& name)>;
+using Accepts = bool (*absl_nonnull)(absl::string_view name);
 
 constexpr char kWriteIt[] =
     "write it with `bazel run "
@@ -90,7 +91,7 @@ constexpr char kWriteIt[] =
 
 /** Whether some list of the contact planner holds the term `name`, spelled so.
  */
-bool isContactPlanningTerm(const std::string& name) {
+bool isContactPlanningTerm(absl::string_view name) {
   const std::vector<TermKind>& kinds = allTermKinds();
   return std::any_of(kinds.begin(), kinds.end(), [&name](TermKind kind) {
     return canonicalTermName(kind, name) == name;
@@ -98,7 +99,7 @@ bool isContactPlanningTerm(const std::string& name) {
 }
 
 /** Whether some list of the locomotion heuristics holds `name`, spelled so. */
-bool isLocomotionHeuristic(const std::string& name) {
+bool isLocomotionHeuristic(absl::string_view name) {
   for (const HeuristicKind kind : allHeuristicKinds()) {
     if (canonicalHeuristicName(kind, name) == name) return true;
   }
@@ -107,17 +108,17 @@ bool isLocomotionHeuristic(const std::string& name) {
 
 /** Whether the robot process reads a task file naming `name` as its whole-body
  * feedforward. */
-bool isWbMpcFeedforward(const std::string& name) {
+bool isWbMpcFeedforward(absl::string_view name) {
   mpc_config::TaskFile task;
-  task.wb_mpc_feedforward = name;
+  task.wb_mpc_feedforward = std::string(name);
   return robotProcessSettingsFromConfig(task).ok();
 }
 
 /** Whether the contact planner's conversion reads a planning file whose
  * planner.threading is `name`. */
-bool isPlannerThreading(const std::string& name) {
+bool isPlannerThreading(absl::string_view name) {
   mpc_config::ContactPlanningFile file;
-  file.planner.threading = name;
+  file.planner.threading = std::string(name);
   return contactPlanningConfigFromConfig(
              file, ContactPlanningValidation::kDeferUntilModelParametersApplied)
       .ok();
@@ -125,9 +126,9 @@ bool isPlannerThreading(const std::string& name) {
 
 /** Whether the contact planner's conversion reads a planning file whose
  * terminal_dcm.target is `name`. */
-bool isTerminalDcmTarget(const std::string& name) {
+bool isTerminalDcmTarget(absl::string_view name) {
   mpc_config::ContactPlanningFile file;
-  file.terminal_dcm.target = name;
+  file.terminal_dcm.target = std::string(name);
   return contactPlanningConfigFromConfig(
              file, ContactPlanningValidation::kDeferUntilModelParametersApplied)
       .ok();
@@ -135,25 +136,25 @@ bool isTerminalDcmTarget(const std::string& name) {
 
 /** Whether the model settings read a foot_constraint block whose
  * stance_constraint is `name`. */
-bool isStanceConstraint(const std::string& name) {
+bool isStanceConstraint(absl::string_view name) {
   mpc_config::ModelSettingsConfig::FootConstraintConfig footConstraint;
-  footConstraint.stance_constraint = name;
+  footConstraint.stance_constraint = std::string(name);
   return footConstraintFromConfig(footConstraint).ok();
 }
 
 /** Whether the SQP settings read a multiple_shooting block whose
  * integrator_type is `name`. */
-bool isSensitivityIntegrator(const std::string& name) {
+bool isSensitivityIntegrator(absl::string_view name) {
   mpc_config::SqpSettingsConfig config;
-  config.integrator_type = name;
+  config.integrator_type = std::string(name);
   return toSqpSettings(config).ok();
 }
 
 /** Whether the rollout settings read a rollout block whose integrator_type is
  * `name`. */
-bool isRolloutIntegrator(const std::string& name) {
+bool isRolloutIntegrator(absl::string_view name) {
   mpc_config::RolloutSettingsConfig config;
-  config.integrator_type = name;
+  config.integrator_type = std::string(name);
   return toRolloutSettings(config).ok();
 }
 
@@ -162,96 +163,96 @@ bool isRolloutIntegrator(const std::string& name) {
 absl::flat_hash_map<std::string, Accepts> acceptors() {
   return {
       {"arm_swing",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return armSwingGeneratorFromName(name).ok();
        }},
       {"basis_generator_set",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return getBasisGeneratorSetBuilder(name).ok();
        }},
       {"basis_regularization",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return getBasisRegularizationBuilder(name).ok();
        }},
       {"centroidal_model",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return centroidalModelTypeFromName(name).ok();
        }},
       {"contact_estimator",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return robot::model::ContactEstimatorRegistry().has(name) ||
                 name == robot::mujoco_sim_interface::
                             kCheaterSimContactEstimatorName;
        }},
       {"contact_input_parameterization",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return contactInputParameterizationFromName(name).ok();
        }},
       {"contact_planner",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return canonicalPlannerName(name) == name;
        }},
       {"contact_planner_threading", &isPlannerThreading},
       {"contact_planning_term", &isContactPlanningTerm},
       {"contact_schedule_source",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return contactScheduleSourceFromName(name).ok();
        }},
       {"foot_cost_phases",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return footCostActiveInStanceFromName(
                     name, "task_space_foot_cost.active_phases")
              .ok();
        }},
       {"gantry_hold",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return robot::mujoco_sim_interface::gantryHoldFromName(name).ok();
        }},
       {"hard_constraint",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return stringToMpcHardConstraintType(name).ok();
        }},
       {"locomotion_heuristic", &isLocomotionHeuristic},
       {"mpc_cost",
-       [](const std::string& name) { return stringToMpcCostType(name).ok(); }},
+       [](absl::string_view name) { return stringToMpcCostType(name).ok(); }},
       {"multi_contact_force_reference",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          mpc_config::MultiContactPlanConfig config;
-         config.force_reference_mode = name;
+         config.force_reference_mode = std::string(name);
          return plannedMotionSettingsFromConfig(config).ok();
        }},
       {"multi_contact_plan_playback",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          mpc_config::MultiContactPlanConfig config;
-         config.playback = name;
+         config.playback = std::string(name);
          return plannedMotionSettingsFromConfig(config).ok();
        }},
       {"nominal_foothold_anchor",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return nominalFootholdAnchorFromName(name).ok();
        }},
       {"projectile",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return robot::mujoco_sim_interface::projectileFromName(name).ok();
        }},
       {"rollout_integrator", &isRolloutIntegrator},
       {"sensitivity_integrator", &isSensitivityIntegrator},
       {"soft_constraint",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return stringToMpcSoftConstraintType(name).ok();
        }},
       {"stance_constraint", &isStanceConstraint},
       {"state_estimator",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return estimation::StateEstimatorRegistry().has(name);
        }},
       {"telemetry_sink",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return TelemetrySinkRegistry().has(name);
        }},
       {"terminal_dcm_target", &isTerminalDcmTarget},
       {"visualization",
-       [](const std::string& name) {
+       [](absl::string_view name) {
          return robot::mujoco_sim_interface::createVisualization(name) !=
                 nullptr;
        }},

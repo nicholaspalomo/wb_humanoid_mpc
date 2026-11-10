@@ -33,8 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
-#include <functional>
-#include <sstream>
+#include <iterator>
 #include <string>
 #include <utility>
 #include <vector>
@@ -44,6 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "urdf_model/types.h"
 #include "urdf_world/types.h"
@@ -70,6 +71,15 @@ constexpr double kMinPosComRtWorldEwrtWorldZ = 0.05;
 /// shares that root. The world body never does.
 bool isRobotBody(const mjModel* absl_nonnull model, int body, int robotRoot) {
   return body != 0 && model->body_rootid[body] == robotRoot;
+}
+
+/// Parses the URDF file at `urdfPath`; null when it cannot be read or parsed.
+urdf::ModelInterfaceSharedPtr parseUrdfFile(absl::string_view urdfPath) {
+  std::ifstream file{std::string(urdfPath)};
+  if (!file) return nullptr;
+  const std::string content{std::istreambuf_iterator<char>(file),
+                            std::istreambuf_iterator<char>()};
+  return urdf::parseURDF(content);
 }
 
 }  // namespace
@@ -180,22 +190,15 @@ bool isInBodySubtree(const mjModel* absl_nonnull model,
 
 std::vector<int> resolveContactBodies(
     const mjModel* absl_nonnull model,
-    const std::string& urdfPath,
-    const std::vector<std::string>& contactFrameNames,
-    const std::vector<std::string>& contactParentJointNames,
+    absl::string_view urdfPath,
+    absl::Span<const std::string> contactFrameNames,
+    absl::Span<const std::string> contactParentJointNames,
     std::vector<std::string>* absl_nullable errors) {
   std::vector<int> bodyIds(contactFrameNames.size(), -1);
 
+  // Parsed on the first frame that needs it, and again on the next one while
+  // it does not parse.
   urdf::ModelInterfaceSharedPtr urdfModel;
-  const std::function<void()> loadUrdf = [&]() {
-    if (urdfModel) return;
-    std::ifstream file(urdfPath);
-    if (file) {
-      std::stringstream content;
-      content << file.rdbuf();
-      urdfModel = urdf::parseURDF(content.str());
-    }
-  };
 
   for (size_t i = 0; i < contactFrameNames.size(); ++i) {
     // 1. The body driven by the joint that carries the contact frame.
@@ -219,7 +222,7 @@ std::vector<int> resolveContactBodies(
     // joints.
     std::string linkName = contactFrameNames[i];
     int bodyId = mj_name2id(model, mjOBJ_BODY, linkName.c_str());
-    if (bodyId < 0) loadUrdf();
+    if (bodyId < 0 && !urdfModel) urdfModel = parseUrdfFile(urdfPath);
     bool reported = false;
     // Walk up through fixed joints: the MJCF conversion merges fixed-joint
     // children into their parent body.
@@ -254,7 +257,7 @@ std::vector<int> resolveContactBodies(
 
 uint32_t groundTruthContactMask(const mjModel* absl_nonnull model,
                                 const mjData* absl_nonnull data,
-                                const std::vector<int>& contactBodyIds,
+                                absl::Span<const int> contactBodyIds,
                                 double minForceMjcontactEwrtMjcontactX,
                                 int ignoreBodyId) {
   uint32_t mask = 0;

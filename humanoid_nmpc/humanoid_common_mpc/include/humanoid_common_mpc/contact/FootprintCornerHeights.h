@@ -106,7 +106,7 @@ class FootprintCornerHeights {
   FootprintCornerHeights(const PinocchioInterface& pinocchioInterface,
                          const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
                          std::vector<std::string> frameNames,
-                         const std::string& modelName,
+                         std::string modelName,
                          const ModelSettings& modelSettings);
 
   FootprintCornerHeights(const FootprintCornerHeights& rhs);

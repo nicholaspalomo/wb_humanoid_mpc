@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
@@ -77,11 +78,10 @@ scalar_t SimFallRecovery::computeTiltangleBaseRtWorld(
       rotmatBaseRtWorld(kZAxisIndex, kZAxisIndex), -1.0, 1.0));
 }
 
-bool SimFallRecovery::isAtRest(
-    const robot::model::RobotState& robotState,
-    const std::vector<scalar_t>& nominalJointPositions,
-    const std::vector<size_t>& jointIndices,
-    const Config& config) {
+bool SimFallRecovery::isAtRest(const robot::model::RobotState& robotState,
+                               absl::Span<const scalar_t> nominalJointPositions,
+                               absl::Span<const size_t> jointIndices,
+                               const Config& config) {
   if (computeTiltangleBaseRtWorld(robotState.getQuatBaseRtWorld()) >
       config.settleMaxTiltangleBaseRtWorld) {
     return false;
@@ -127,7 +127,7 @@ void SimFallRecovery::report(RealtimeEventCode code,
 
 bool SimFallRecovery::restedFor(
     const robot::model::RobotState& robotState,
-    const std::vector<scalar_t>& nominalJointPositions) {
+    absl::Span<const scalar_t> nominalJointPositions) {
   if (!isAtRest(robotState, nominalJointPositions, restJointIndices_,
                 config_)) {
     restingSince_.reset();
@@ -145,7 +145,7 @@ void SimFallRecovery::enterPhase(Phase phase, scalar_t time) {
 
 SimFallRecovery::Cycle SimFallRecovery::update(
     const robot::model::RobotState& robotState,
-    const std::vector<scalar_t>& nominalJointPositions,
+    absl::Span<const scalar_t> nominalJointPositions,
     std::string& currentModeName) {
   robot::mujoco_sim_interface::MujocoSimInterface& robotInterface = *simulator_;
   Cycle cycle;
@@ -248,7 +248,7 @@ SimFallRecovery::Cycle SimFallRecovery::update(
 
 void SimFallRecovery::stepSettleSequence(
     const robot::model::RobotState& robotState,
-    const std::vector<scalar_t>& nominalJointPositions) {
+    absl::Span<const scalar_t> nominalJointPositions) {
   robot::mujoco_sim_interface::MujocoSimInterface& robotInterface = *simulator_;
   const scalar_t time = robotState.getTime();
   const scalar_t elapsed = std::max<scalar_t>(0.0, time - phaseStartTime_);

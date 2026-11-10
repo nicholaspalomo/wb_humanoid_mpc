@@ -33,9 +33,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"
 
 #include <cstddef>
-#include <string>
 
 #include "absl/base/nullability.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
@@ -67,7 +67,7 @@ class FootCollisionConstraint final : public StateConstraintCppAd {
                           const PinocchioInterface& pinocchioInterface,
                           const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
                           const Config& config,
-                          const std::string& costName,
+                          absl::string_view costName,
                           const ModelSettings& modelSettings);
 
   ~FootCollisionConstraint() override = default;

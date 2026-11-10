@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/PreComputation.h"
@@ -360,7 +361,7 @@ void appendPlannerConfig(const SwingTrajectoryPlanner& planner,
  */
 void appendWalkingStateReference(const WBMpcInterface& interface,
                                  const TargetTrajectories& target,
-                                 const std::vector<EvaluationPoint>& points,
+                                 absl::Span<const EvaluationPoint> points,
                                  std::vector<scalar_t>& fingerprint) {
   constexpr scalar_t kRefLinvelBaseRtWorldEwrtHeadingX = 0.5;  // [m/s]
   const WBAccelMpcRobotModel<scalar_t>& model = interface.getMpcRobotModel();

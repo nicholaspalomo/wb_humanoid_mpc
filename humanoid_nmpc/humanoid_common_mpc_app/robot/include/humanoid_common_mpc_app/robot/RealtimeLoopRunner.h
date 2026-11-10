@@ -34,12 +34,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <string>
 #include <thread>
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/synchronization/notification.h"
@@ -110,10 +110,10 @@ struct RealtimeLoopConfig {
  */
 class RealtimeLoopRunner {
  public:
-  using CycleFunction = std::function<void()>;
+  using CycleFunction = absl::AnyInvocable<void()>;
   /** Run on the realtime thread after a cycle threw, before the loop ends. Must
    * not throw. */
-  using FaultFunction = std::function<void()>;
+  using FaultFunction = absl::AnyInvocable<void()>;
 
   explicit RealtimeLoopRunner(RealtimeLoopConfig config);
   ~RealtimeLoopRunner();

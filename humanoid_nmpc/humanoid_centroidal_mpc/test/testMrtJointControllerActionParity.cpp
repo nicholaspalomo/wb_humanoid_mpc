@@ -36,10 +36,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -255,17 +255,16 @@ class ActionRecorder {
 };
 
 /** The whole file at `path`, or nullopt when it cannot be read. */
-std::optional<std::string> readFile(const std::string& path) {
-  std::ifstream file(path);
+std::optional<std::string> readFile(absl::string_view path) {
+  std::ifstream file{std::filesystem::path(path)};
   if (!file.is_open()) return std::nullopt;
-  std::stringstream contents;
-  contents << file.rdbuf();
-  return contents.str();
+  return std::string(std::istreambuf_iterator<char>(file),
+                     std::istreambuf_iterator<char>());
 }
 
 /** Writes `record` where the test's undeclared outputs go, and returns where
  * that is (empty when it cannot). */
-std::string writeOutput(const std::string& record) {
+std::string writeOutput(absl::string_view record) {
   const char* absl_nullable outputDir =
       std::getenv("TEST_UNDECLARED_OUTPUTS_DIR");
   if (outputDir == nullptr) return std::string();

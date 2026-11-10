@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -59,8 +60,8 @@ namespace {
 /** The contact estimator `name` of the task file at `taskSource`, against the
  * registry and its probe. */
 absl::Status checkContactEstimatorName(
-    const std::string& name,
-    const std::string& taskSource,
+    absl::string_view name,
+    absl::string_view taskSource,
     const RobotConfigurationCheckContext& context) {
   if (context.contactEstimators == nullptr) return absl::OkStatus();
   const robot::model::ContactEstimatorRegistry& registry =
@@ -87,7 +88,7 @@ absl::Status checkContactEstimatorName(
 /** Every name of the task file's telemetry_sinks against the sinks there are.
  */
 absl::Status checkTelemetrySinks(const RobotProcessSettings& settings,
-                                 const std::string& taskSource) {
+                                 absl::string_view taskSource) {
   const TelemetrySinkRegistry sinks;
   for (const std::string& name : settings.telemetrySinks) {
     if (!sinks.has(name)) {
@@ -102,7 +103,7 @@ absl::Status checkTelemetrySinks(const RobotProcessSettings& settings,
 /** The task file's state_estimator against the registry, and the noise model of
  * `kalman`. */
 absl::Status checkStateEstimator(const RobotProcessSettings& settings,
-                                 const std::string& taskSource) {
+                                 absl::string_view taskSource) {
   const estimation::StateEstimatorRegistry estimators;
   if (!estimators.has(settings.stateEstimator)) {
     return absl::InvalidArgumentError(absl::StrCat(

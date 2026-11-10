@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <thread>
@@ -42,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -227,7 +227,7 @@ class ControllerHarness {
 
   /** Cycles until `done` holds, at most `maxCycles`; returns whether it did. */
   bool cycleUntil(
-      const std::function<bool()>& done,
+      absl::FunctionRef<bool()> done,
       int maxCycles,
       std::chrono::microseconds pause = std::chrono::microseconds(500)) {
     for (int k = 0; k < maxCycles; ++k) {

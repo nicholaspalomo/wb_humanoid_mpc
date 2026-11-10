@@ -29,8 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <string>
-
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
@@ -90,7 +88,7 @@ struct KeyboardCommandLimits {
  * finite number or, for the four limits, is not positive.
  */
 absl::StatusOr<KeyboardCommandLimits> loadKeyboardCommandLimits(
-    const std::string& referenceFile);
+    absl::string_view referenceFile);
 
 /**
  * The command of one typed line, "v_x v_y delta_height yaw_rate" separated by

@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
@@ -385,7 +386,7 @@ class HlipContactPlanner final : public ContactPlannerInterface {
    * deadbeat step. */
   GaitRollOut rollOutGait(
       const ContactPlannerInput& input,
-      const std::vector<GaitPhase>& gait,
+      absl::Span<const GaitPhase> gait,
       scalar_t alpha,
       const vector2_t& plannedCmdLinvelBaseRtWorldEwrtHeadingXy) const;
   /** The center of mass of the roll-out `entry` of `phase` at `time`. */
@@ -395,14 +396,14 @@ class HlipContactPlanner final : public ContactPlannerInterface {
   /** Fills the per-node center of mass, footholds and (with the heading model)
    * heading of `plan`. */
   void fillNodes(const ContactPlannerInput& input,
-                 const std::vector<GaitPhase>& gait,
-                 const std::vector<PhaseRollOut>& rollOut,
+                 absl::Span<const GaitPhase> gait,
+                 absl::Span<const PhaseRollOut> rollOut,
                  scalar_t alpha,
                  ContactPlan& plan) const;
   /** Fills `plan.phasePosZmpRtWorldEwrtWorldXyTraj`: the stance foot of every
    * single support, none in double support. */
-  static void fillPhaseZmps(const std::vector<GaitPhase>& gait,
-                            const std::vector<PhaseRollOut>& rollOut,
+  static void fillPhaseZmps(absl::Span<const GaitPhase> gait,
+                            absl::Span<const PhaseRollOut> rollOut,
                             ContactPlan& plan);
   /** Blends the center of mass and the phase ZMPs of a standing plan towards
    * the center of `posFeetRtWorldEwrtWorldXy` by `alpha`. */
@@ -413,7 +414,7 @@ class HlipContactPlanner final : public ContactPlannerInterface {
   /** Fills the per-interval contacts and ZMP and the continuous-time phases of
    * `plan` from `gait`. */
   void fillContactsAndPhases(const ContactPlannerInput& input,
-                             const std::vector<GaitPhase>& gait,
+                             absl::Span<const GaitPhase> gait,
                              ContactPlan& plan) const;
 
   ContactPlanningConfig config_;

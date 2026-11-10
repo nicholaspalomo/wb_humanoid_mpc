@@ -39,6 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "mujoco/mujoco.h"
 #include "ocs2_core/Dimensions.h"
 
@@ -293,9 +295,9 @@ bool isInBodySubtree(const mjModel* absl_nonnull model,
  */
 std::vector<int> resolveContactBodies(
     const mjModel* absl_nonnull model,
-    const std::string& urdfPath,
-    const std::vector<std::string>& contactFrameNames,
-    const std::vector<std::string>& contactParentJointNames,
+    absl::string_view urdfPath,
+    absl::Span<const std::string> contactFrameNames,
+    absl::Span<const std::string> contactParentJointNames,
     std::vector<std::string>* absl_nullable errors);
 
 /**
@@ -321,7 +323,7 @@ std::vector<int> resolveContactBodies(
  */
 uint32_t groundTruthContactMask(const mjModel* absl_nonnull model,
                                 const mjData* absl_nonnull data,
-                                const std::vector<int>& contactBodyIds,
+                                absl::Span<const int> contactBodyIds,
                                 double minForceMjcontactEwrtMjcontactX,
                                 int ignoreBodyId = -1);
 

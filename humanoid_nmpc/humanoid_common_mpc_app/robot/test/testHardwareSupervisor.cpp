@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -39,8 +38,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
@@ -116,7 +117,7 @@ std::unique_ptr<OperatorCommandMailbox> makeMailbox(
 }
 
 void send(OperatorCommandMailbox& mailbox,
-          const std::string& command,
+          absl::string_view command,
           uint64_t sequence) {
   humanoid_mpc_msgs::FsmCommand message;
   message.set_command(command);
@@ -323,13 +324,13 @@ class RobotProcessOnHardwareTest
     backend_->stop();
   }
 
-  RobotProcess::Config processConfig(const std::string& stateEstimator) const {
+  RobotProcess::Config processConfig(std::string stateEstimator) const {
     RobotProcess::Config config;
     config.controlFrequency = 500.0;
     config.initialState = initialState_;
     config.settings.contactEstimator = "robot_state";
     config.settings.telemetrySinks.clear();
-    config.settings.stateEstimator = stateEstimator;
+    config.settings.stateEstimator = std::move(stateEstimator);
     config.settings.fallRecovery.maxTiltangleBaseRtWorld =
         kMaxTiltangleBaseRtWorld;
     const mpc_config::TaskFile task =
@@ -367,7 +368,7 @@ class RobotProcessOnHardwareTest
     return config;
   }
 
-  bool command(const std::string& name, const std::function<bool()>& done) {
+  bool command(absl::string_view name, absl::FunctionRef<bool()> done) {
     humanoid_mpc_msgs::FsmCommand message;
     message.set_command(name);
     message.set_sequence(++sequence_);

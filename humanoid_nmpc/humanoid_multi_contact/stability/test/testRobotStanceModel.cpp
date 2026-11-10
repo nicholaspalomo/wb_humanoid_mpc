@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Geometry"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PhysicalConstants.h"
 
@@ -97,7 +98,7 @@ RobotConfiguration standing() {
 /** The stance of the named candidates at the model's configuration, on flat
  * ground. */
 Stance flatStance(const RobotStanceModel& model,
-                  const std::vector<std::string>& names) {
+                  absl::Span<const std::string> names) {
   Stance stance;
   for (const std::string& name : names) {
     const int index = *model.contactSet().indexOf(name);

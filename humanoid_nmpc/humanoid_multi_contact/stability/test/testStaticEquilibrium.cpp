@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Dimensions.h"
 
@@ -64,9 +65,9 @@ constexpr double kSoleHalfWidth = 0.055;
 constexpr double kFootY = 0.1115;
 constexpr double kFootX = 0.04;
 
-StanceContact foot(const std::string& name, double y) {
+StanceContact foot(std::string name, double y) {
   return StanceContact{
-      .name = name,
+      .name = std::move(name),
       .kind = ContactKind::kSurface,
       .posPadRtWorldEwrtWorld = Eigen::Vector3d(kFootX, y, 0.0),
       .rotmatSurfaceRtWorld = Eigen::Matrix3d::Identity(),
@@ -79,7 +80,7 @@ StanceContact foot(const std::string& name, double y) {
 }
 
 /** A point contact whose cone's z axis is `normal`. */
-StanceContact point(const std::string& name,
+StanceContact point(std::string name,
                     const Eigen::Vector3d& posPadRtWorldEwrtWorld,
                     const Eigen::Vector3d& normal) {
   Eigen::Matrix3d rotmatSurfaceRtWorld;
@@ -87,7 +88,7 @@ StanceContact point(const std::string& name,
   rotmatSurfaceRtWorld.col(0) = rotmatSurfaceRtWorld.col(2).unitOrthogonal();
   rotmatSurfaceRtWorld.col(1) =
       rotmatSurfaceRtWorld.col(2).cross(rotmatSurfaceRtWorld.col(0));
-  return StanceContact{.name = name,
+  return StanceContact{.name = std::move(name),
                        .kind = ContactKind::kPoint,
                        .posPadRtWorldEwrtWorld = posPadRtWorldEwrtWorld,
                        .rotmatSurfaceRtWorld = rotmatSurfaceRtWorld,
@@ -117,7 +118,7 @@ std::vector<Eigen::Vector2d> polygonOf(const Stance& stance) {
  * NaN for an empty polygon: bugprone-unchecked-optional-access does not see
  * googletest's ASSERTs. */
 double marginOf(
-    const std::vector<Eigen::Vector2d>& supportPosComRtWorldEwrtWorldXySamples,
+    absl::Span<const Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples,
     const Eigen::Vector2d& posComRtWorldEwrtWorldXy) {
   const std::optional<double> margin = staticMargin(
       supportPosComRtWorldEwrtWorldXySamples, posComRtWorldEwrtWorldXy);
@@ -128,7 +129,7 @@ double marginOf(
   return *margin;
 }
 
-double polygonArea(const std::vector<Eigen::Vector2d>& polygon) {
+double polygonArea(absl::Span<const Eigen::Vector2d> polygon) {
   double area = 0.0;
   for (size_t i = 0; i < polygon.size(); ++i) {
     const Eigen::Vector2d& a = polygon[i];
@@ -392,12 +393,12 @@ bool coneHolds(const StaticEquilibrium& equilibrium,
 
 /** A contact of a stance HPIPM stalled on, its numbers as printed with 17
  * digits: `rotmatSurfaceRtWorld` column-major. */
-StanceContact contactOf(const std::string& name,
+StanceContact contactOf(std::string name,
                         ContactKind kind,
                         const Eigen::Vector3d& posPadRtWorldEwrtWorld,
-                        const std::vector<double>& rotmatSurfaceRtWorld) {
+                        absl::Span<const double> rotmatSurfaceRtWorld) {
   StanceContact contact{
-      .name = name,
+      .name = std::move(name),
       .kind = kind,
       .posPadRtWorldEwrtWorld = posPadRtWorldEwrtWorld,
       .rotmatSurfaceRtWorld =

@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
-#include <map>
 #include <memory>
 #include <numbers>
 #include <random>
@@ -42,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Geometry"
 #include "absl/base/nullability.h"
+#include "absl/container/btree_map.h"
 #include "absl/strings/str_format.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
@@ -529,7 +529,7 @@ matrix_t withLargestBlockEntryMoved(const matrix_t& jacobian,
 
 TEST(OrientationErrorWrtPlaneRates,
      TheTapedRatesAreTheDerivativesOfTheOrientationError) {
-  std::map<std::string, std::pair<scalar_t, scalar_t>>
+  absl::btree_map<std::string, std::pair<scalar_t, scalar_t>>
       largestDeviation;  // per regime: rate, acceleration
   size_t compared = 0;
   for (const RateCase& rateCase : rateCases()) {
@@ -664,7 +664,7 @@ TEST(OrientationErrorWrtPlaneRates,
 
 TEST(OrientationErrorWrtPlaneRates,
      OutsideTheGuardTheTapedJacobianIsTheDerivative) {
-  std::map<std::string, scalar_t>
+  absl::btree_map<std::string, scalar_t>
       largestDeviation;  // per regime, relative to the tolerance
   scalar_t smallestRateMapRejection = 1.0e300;
   scalar_t smallestSecondRateMapRejection = 1.0e300;

@@ -33,9 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
-#include <functional>
+#include <iterator>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -43,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -52,6 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/cost/QuadraticStateInputCost.h"
@@ -84,7 +85,7 @@ namespace {
 
 constexpr absl::Duration kTimeout = absl::Seconds(20);
 
-bool waitFor(const std::function<bool()>& condition,
+bool waitFor(absl::FunctionRef<bool()> condition,
              absl::Duration timeout = kTimeout) {
   const absl::Time deadline = absl::Now() + timeout;
   while (absl::Now() < deadline) {
@@ -187,7 +188,7 @@ class VisualizationPublisherTest : public ::testing::Test {
 
   std::unique_ptr<VisualizationPublisher> create(
       VisualizationPublisher::Options options,
-      const std::string& taskFile = "") {
+      absl::string_view taskFile = "") {
     VisualizationModel model = robot_->model();
     if (!taskFile.empty()) {
       model.taskFile = taskFile;
@@ -203,9 +204,8 @@ class VisualizationPublisherTest : public ::testing::Test {
    * `frequency`. */
   static std::string taskFileWithSceneFrequency(double frequency) {
     std::ifstream stream(robot_->taskFile());
-    std::stringstream text;
-    text << stream.rdbuf();
-    const std::string original = text.str();
+    const std::string original{std::istreambuf_iterator<char>(stream),
+                               std::istreambuf_iterator<char>()};
     const std::string replaced = absl::StrReplaceAll(
         original, {{"rerun_scene_frequency: 30",
                     absl::StrCat("rerun_scene_frequency: ", frequency)}});
@@ -399,7 +399,7 @@ TEST_F(VisualizationPublisherTest, TheSceneDrawsTheLatestPolicyAndSample) {
 
 /** Whether `scenes` hold one at `time` that draws the measured robot. */
 bool hasMeasuredSceneAt(
-    const std::vector<humanoid_mpc_msgs::VisualizationScene>& scenes,
+    absl::Span<const humanoid_mpc_msgs::VisualizationScene> scenes,
     double time) {
   for (const humanoid_mpc_msgs::VisualizationScene& scene : scenes) {
     if (scene.time() != time) continue;
@@ -529,10 +529,10 @@ TEST_F(VisualizationPublisherTest, InvalidOptionsAreRefused) {
             absl::StatusCode::kInvalidArgument);
 }
 
-std::unique_ptr<robot::ipc::Bus> createBus(const std::string& name) {
+std::unique_ptr<robot::ipc::Bus> createBus(std::string name) {
   robot::ipc::BusOptions options;
-  options.nodeName = name;
   options.network = robot::ipc::isolatedTestNetwork({name});
+  options.nodeName = std::move(name);
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
       robot::ipc::Bus::Create(std::move(options));
   EXPECT_TRUE(bus.ok()) << bus.status();
@@ -627,7 +627,7 @@ TEST_F(VisualizationPublisherTest,
   std::unique_ptr<robot::ipc::Bus> bridgeBus = createBus("bridge");
   ASSERT_TRUE(mpcBus != nullptr && robotBus != nullptr && bridgeBus != nullptr);
   std::unique_ptr<VisualizationPublisher> publisher;
-  const VisualizationPublisher::BusAttacher attacher =
+  VisualizationPublisher::BusAttacher attacher =
       VisualizationPublisher::MakeBusAttacher(robot_->model(), testOptions(),
                                               &publisher);
   absl::StatusOr<VisualizationPublisher::PostSolveObserver> observer =
@@ -691,7 +691,7 @@ TEST_F(VisualizationPublisherTest,
 TEST_F(VisualizationPublisherTest, TheBusAttacherNeedsAPlaceForItsPublisher) {
   std::unique_ptr<robot::ipc::Bus> mpcBus = createBus("mpc");
   ASSERT_NE(mpcBus, nullptr);
-  const VisualizationPublisher::BusAttacher attacher =
+  VisualizationPublisher::BusAttacher attacher =
       VisualizationPublisher::MakeBusAttacher(robot_->model(),
                                               VisualizationPublisher::Options(),
                                               /*publisher=*/nullptr);

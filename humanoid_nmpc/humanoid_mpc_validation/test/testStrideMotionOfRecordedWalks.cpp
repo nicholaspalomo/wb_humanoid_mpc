@@ -30,13 +30,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "Eigen/Geometry"
+#include "absl/container/btree_map.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -96,11 +99,11 @@ constexpr scalar_t kStraightLateralBound = 0.05;
 
 /** The recording `file` of data/benchmark/states/; an empty recording after a
  * failed expectation. */
-RecordedRobotStates loadRecording(const std::string& file) {
-  const absl::StatusOr<std::string> path = robot::resolveResourcePath(
-      std::string(
-          "humanoid_nmpc/humanoid_mpc_validation/data/benchmark/states/") +
-      file);
+RecordedRobotStates loadRecording(absl::string_view file) {
+  const absl::StatusOr<std::string> path =
+      robot::resolveResourcePath(absl::StrCat(
+          "humanoid_nmpc/humanoid_mpc_validation/data/benchmark/states/",
+          file));
   EXPECT_TRUE(path.ok()) << path.status();
   if (!path.ok()) return RecordedRobotStates();
   const absl::StatusOr<GoldenFile> golden = readGoldenFile(*path);
@@ -113,7 +116,7 @@ RecordedRobotStates loadRecording(const std::string& file) {
 
 /** [s] The cycle of each gait of the shipped gait file; empty after a failed
  * expectation. */
-std::map<std::string, scalar_t> gaitCycles() {
+absl::btree_map<std::string, scalar_t> gaitCycles() {
   const absl::StatusOr<std::string> path = robot::resolveResourcePath(
       "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto");
   EXPECT_TRUE(path.ok()) << path.status();
@@ -121,10 +124,10 @@ std::map<std::string, scalar_t> gaitCycles() {
   const absl::StatusOr<mpc_config::GaitFile> file = loadGaitFile(*path);
   EXPECT_TRUE(file.ok()) << file.status();
   if (!file.ok()) return {};
-  const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits =
-      gaitMapFromConfig(*file);
+  const absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+      gaits = gaitMapFromConfig(*file);
   EXPECT_TRUE(gaits.ok()) << gaits.status();
-  std::map<std::string, scalar_t> cycles;
+  absl::btree_map<std::string, scalar_t> cycles;
   if (!gaits.ok()) return cycles;
   for (const std::pair<const std::string, ModeSequenceTemplate>& gait :
        *gaits) {
@@ -235,7 +238,7 @@ StrideMeans strideMeansOf(const RecordedRobotStates& recording,
 
 TEST(StrideMotionOfRecordedWalks,
      AStraightWalkReadsAsNeitherATurnNorASidewaysWalk) {
-  const std::map<std::string, scalar_t> cycles = gaitCycles();
+  const absl::btree_map<std::string, scalar_t> cycles = gaitCycles();
   for (const RecordedWalk& walk : recordedWalks()) {
     SCOPED_TRACE(walk.file);
     const RecordedRobotStates recording = loadRecording(walk.file);
@@ -278,7 +281,7 @@ TEST(StrideMotionOfRecordedWalks,
 }
 
 TEST(StrideMotionOfRecordedWalks, AnAddedTurnReadsExactlyAsThatTurn) {
-  const std::map<std::string, scalar_t> cycles = gaitCycles();
+  const absl::btree_map<std::string, scalar_t> cycles = gaitCycles();
   for (const RecordedWalk& walk : recordedWalks()) {
     SCOPED_TRACE(walk.file);
     const RecordedRobotStates recording = loadRecording(walk.file);
@@ -344,7 +347,7 @@ struct BridgedMeans {
   std::vector<bool> measured;
 };
 
-BridgedMeans meansWithAGap(const std::vector<RobotStateRecord>& records,
+BridgedMeans meansWithAGap(absl::Span<const RobotStateRecord> records,
                            scalar_t window,
                            scalar_t gapStart,
                            scalar_t gapEnd) {
@@ -379,7 +382,7 @@ TEST(StrideMotionOfRecordedWalks,
   // deviation from the line across the stall, within the bounds
   // StrideMotionHistory states. The mean is never measured while its window
   // holds the stall.
-  const std::map<std::string, scalar_t> cycles = gaitCycles();
+  const absl::btree_map<std::string, scalar_t> cycles = gaitCycles();
   for (const RecordedWalk& walk : recordedWalks()) {
     SCOPED_TRACE(walk.file);
     const RecordedRobotStates recording = loadRecording(walk.file);
@@ -455,7 +458,7 @@ TEST(StrideMotionOfRecordedWalks,
   // its first sample blends the sway's turn into the mean for a window. On the
   // Unitree G1's and R1's walks most restart instants read a turn above the
   // 0.15 rad/s that raises slow_walk.
-  const std::map<std::string, scalar_t> cycles = gaitCycles();
+  const absl::btree_map<std::string, scalar_t> cycles = gaitCycles();
   for (const RecordedWalk& walk : recordedWalks()) {
     if (!walk.file.starts_with("unitree_g1_walk") &&
         !walk.file.starts_with("unitree_r1")) {

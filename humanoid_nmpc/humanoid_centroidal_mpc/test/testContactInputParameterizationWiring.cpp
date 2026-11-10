@@ -29,18 +29,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
-#include <functional>
 #include <limits>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
@@ -78,10 +79,9 @@ class ContactInputParameterizationWiringTest : public ::testing::Test {
 
   /** Create()'s status for the shipped configuration with `edit` applied, which
    * must be an InvalidArgument naming every phrase. */
-  void expectRefusedNaming(
-      absl::string_view name,
-      const std::function<void(mpc_config::TaskFile&)>& edit,
-      const std::vector<std::string>& phrases) const {
+  void expectRefusedNaming(absl::string_view name,
+                           absl::FunctionRef<void(mpc_config::TaskFile&)> edit,
+                           absl::Span<const std::string> phrases) const {
     SCOPED_TRACE(name);
     CentroidalMpcConfig config = shipped_;
     edit(config.task);
@@ -91,7 +91,7 @@ class ContactInputParameterizationWiringTest : public ::testing::Test {
   }
 
   static void expectRefusal(const absl::Status& status,
-                            const std::vector<std::string>& phrases) {
+                            absl::Span<const std::string> phrases) {
     ASSERT_FALSE(status.ok()) << "Create() accepted the variant";
     EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
     for (const std::string& phrase : phrases) {

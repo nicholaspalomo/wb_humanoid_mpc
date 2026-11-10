@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -74,7 +75,7 @@ OcpQpSolution qpSolveOrFail(OcpQpHpipmSolver& solver,
  * returns an error. */
 MiqpResult solveOrFail(MixedIntegerOcpQp& miqp,
                        OcpQpProblem& problem,
-                       const std::vector<MiqpBinaryVariable>& binaries,
+                       absl::Span<const MiqpBinaryVariable> binaries,
                        const MiqpAssignment& initialAssignment,
                        const MiqpPropagateFn& propagate,
                        const MiqpAssignment* absl_nullable warmStart = nullptr,
@@ -90,7 +91,7 @@ MiqpResult solveOrFail(MixedIntegerOcpQp& miqp,
  * this returns false) on an error. */
 bool solveFixedOrFail(MixedIntegerOcpQp& miqp,
                       OcpQpProblem& problem,
-                      const std::vector<MiqpBinaryVariable>& binaries,
+                      absl::Span<const MiqpBinaryVariable> binaries,
                       MiqpAssignment assignment,
                       const MiqpPropagateFn& propagate,
                       const MiqpAssignmentCostFn& assignmentCost,

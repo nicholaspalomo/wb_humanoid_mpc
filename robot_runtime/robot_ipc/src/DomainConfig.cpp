@@ -161,11 +161,12 @@ std::string internalSection(const TransportOptions& transport) {
 
 // Whether `address` (IPv4) belongs to an interface of this machine: a UDP
 // socket can bind it.
-bool isLocalAddress(const std::string& address) {
+bool isLocalAddress(absl::string_view address) {
   sockaddr_in socketAddress{};
   socketAddress.sin_family = AF_INET;
-  // sin_port 0: any port.
-  if (::inet_pton(AF_INET, address.c_str(), &socketAddress.sin_addr) != 1) {
+  // sin_port 0: any port. inet_pton() needs a NUL-terminated address.
+  const std::string addressText(address);
+  if (::inet_pton(AF_INET, addressText.c_str(), &socketAddress.sin_addr) != 1) {
     return false;
   }
   const int socketFd =

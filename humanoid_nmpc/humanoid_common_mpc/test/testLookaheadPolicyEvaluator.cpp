@@ -94,12 +94,12 @@ scalar_array_t nodeTimes() {
 /** A plan that moves fast: random states and inputs at every node, the
  * quaternion block projected when on a manifold. */
 PrimalSolution movingPlan(std::unique_ptr<ControllerBase> controller,
-                          const vector_array_t& states,
-                          const vector_array_t& inputs) {
+                          vector_array_t states,
+                          vector_array_t inputs) {
   PrimalSolution policy;
   policy.timeTrajectory_ = nodeTimes();
-  policy.stateTrajectory_ = states;
-  policy.inputTrajectory_ = inputs;
+  policy.stateTrajectory_ = std::move(states);
+  policy.inputTrajectory_ = std::move(inputs);
   policy.modeSchedule_ =
       ModeSchedule(/*eventTimesInput=*/{}, /*modeSequenceInput=*/{0});
   policy.controllerPtr_ = std::move(controller);

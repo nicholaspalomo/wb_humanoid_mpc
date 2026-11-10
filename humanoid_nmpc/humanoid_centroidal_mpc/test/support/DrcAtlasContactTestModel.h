@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <string>
 
+#include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_core/Types.h"
@@ -84,7 +85,7 @@ class DrcAtlasContactTestModel {
    * that two fixtures with different end-effector sets do not collide on a
    * cached library.
    */
-  explicit DrcAtlasContactTestModel(const std::string& modelNamePrefix);
+  explicit DrcAtlasContactTestModel(std::string modelNamePrefix);
 
   ~DrcAtlasContactTestModel();
 
@@ -159,7 +160,7 @@ class DrcAtlasContactTestModel {
    * the two test binaries.
    */
   std::unique_ptr<FootprintCornerHeights> makeCornerHeights(
-      size_t contactIndex, const std::string& modelNameSuffix) const;
+      size_t contactIndex, absl::string_view modelNameSuffix) const;
 
   /** The footprint of a contact, as the wrench cone and the basis matrices read
    * it from the task file. */

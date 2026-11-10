@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "google/protobuf/repeated_ptr_field.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/control/ControllerBase.h"
@@ -116,12 +117,12 @@ void writeVector(const vector_t& vector,
                message->mutable_data());
 }
 
-void writeScalars(const scalar_array_t& values,
+void writeScalars(absl::Span<const scalar_t> values,
                   DoubleField* absl_nonnull field) {
   writeDoubles(values.data(), values.size(), field);
 }
 
-void writeIndices(const std::vector<size_t>& values,
+void writeIndices(absl::Span<const size_t> values,
                   IndexField* absl_nonnull field) {
   field->resize(static_cast<int>(values.size()));
   std::copy(values.begin(), values.end(), field->mutable_data());
@@ -141,7 +142,7 @@ void resizeVectors(size_t size, VectorField* absl_nonnull field) {
   }
 }
 
-void writeVectors(const vector_array_t& vectors,
+void writeVectors(absl::Span<const vector_t> vectors,
                   VectorField* absl_nonnull field) {
   resizeVectors(vectors.size(), field);
   for (size_t k = 0; k < vectors.size(); ++k) {
@@ -201,9 +202,11 @@ void writeManifoldLinearControllerNodes(
 // for a controller on other time stamps. The flatten() interface writes
 // std::vectors, so this allocates scratch arrays (and Eigen temporaries) on
 // every call.
-void sampleController(const ControllerBase& controller,
-                      const scalar_array_t& timeTrajectory,
-                      VectorField* absl_nonnull field) {
+void sampleController(
+    const ControllerBase& controller,
+    // NOLINTNEXTLINE(absl-span-param): ControllerBase::flatten takes const std::vector<T>&
+    const scalar_array_t& timeTrajectory,
+    VectorField* absl_nonnull field) {
   std::vector<std::vector<double>> samples(timeTrajectory.size());
   std::vector<std::vector<double>* absl_nonnull> sampleRefs;
   sampleRefs.reserve(samples.size());
@@ -223,7 +226,7 @@ void sampleController(const ControllerBase& controller,
 // stamps, since it travels only as its own nodes.
 absl::Status checkManifoldLinearController(
     const ManifoldLinearController& controller,
-    const scalar_array_t& timeTrajectory) {
+    absl::Span<const scalar_t> timeTrajectory) {
   const size_t nodes = controller.getTimeStamps().size();
   if (controller.getAnchorStates().size() != nodes ||
       controller.getNominalInputs().size() != nodes ||
@@ -750,13 +753,13 @@ void readPerformanceIndex(const humanoid_mpc_msgs::PerformanceIndex& message,
 }
 
 // LINT.IfChange(manifold_node_reader)
-// The ManifoldLinearController of a validated CONTROLLER_TYPE_MANIFOLD_LINEAR
-// policy, on `timeTrajectory` and `stateManifold`: the inverse of
-// writeManifoldLinearControllerNodes(), as
+// Builds the ManifoldLinearController of a validated
+// CONTROLLER_TYPE_MANIFOLD_LINEAR policy on `timeTrajectory`, which it keeps,
+// and `stateManifold`, inverting writeManifoldLinearControllerNodes() as
 // ManifoldLinearController::unFlatten() reads the same layout.
 std::unique_ptr<ControllerBase> readManifoldLinearController(
     const humanoid_mpc_msgs::MpcPolicy& message,
-    const scalar_array_t& timeTrajectory,
+    scalar_array_t timeTrajectory,
     std::shared_ptr<const StateManifold> stateManifold) {
   const size_t nodes = static_cast<size_t>(message.controller_data_size());
   const Eigen::Index tangentDim =
@@ -776,24 +779,24 @@ std::unique_ptr<ControllerBase> readManifoldLinearController(
                                           tangentDim);
   }
   return std::make_unique<ManifoldLinearController>(
-      timeTrajectory, std::move(anchorStates), std::move(nominalInputs),
-      std::move(gains), std::move(stateManifold));
+      std::move(timeTrajectory), std::move(anchorStates),
+      std::move(nominalInputs), std::move(gains), std::move(stateManifold));
 }
 // LINT.ThenChange(:manifold_node_writer)
 
-// The controller of a validated policy, on `timeTrajectory`: the inverse of
-// FeedforwardController::flattenSingle() or LinearController::flattenSingle()
-// node by node, as their unFlatten() reads it, without the intermediate
-// std::vector copies unFlatten() would need; a ManifoldLinearController on
-// `stateManifold`.
+// Builds the controller of a validated policy on `timeTrajectory`, which it
+// keeps, reading the nodes as FeedforwardController::unFlatten() /
+// LinearController::unFlatten() would, without their intermediate std::vector
+// copies; a CONTROLLER_TYPE_MANIFOLD_LINEAR policy becomes a
+// ManifoldLinearController on `stateManifold`.
 std::unique_ptr<ControllerBase> readController(
     const humanoid_mpc_msgs::MpcPolicy& message,
-    const scalar_array_t& timeTrajectory,
+    scalar_array_t timeTrajectory,
     std::shared_ptr<const StateManifold> stateManifold) {
   const size_t nodes = static_cast<size_t>(message.controller_data_size());
   if (message.controller_type() ==
       humanoid_mpc_msgs::CONTROLLER_TYPE_MANIFOLD_LINEAR) {
-    return readManifoldLinearController(message, timeTrajectory,
+    return readManifoldLinearController(message, std::move(timeTrajectory),
                                         std::move(stateManifold));
   }
   if (message.controller_type() == humanoid_mpc_msgs::CONTROLLER_TYPE_LINEAR) {
@@ -814,12 +817,12 @@ std::unique_ptr<ControllerBase> readController(
             data + i * stride + 1, stateDim);
       }
     }
-    return std::make_unique<LinearController>(timeTrajectory, std::move(bias),
-                                              std::move(gain));
+    return std::make_unique<LinearController>(std::move(timeTrajectory),
+                                              std::move(bias), std::move(gain));
   }
   vector_array_t feedforward;
   readVectors(message.controller_data(), &feedforward);
-  return std::make_unique<FeedforwardController>(timeTrajectory,
+  return std::make_unique<FeedforwardController>(std::move(timeTrajectory),
                                                  std::move(feedforward));
 }
 

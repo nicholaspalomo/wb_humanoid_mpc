@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <functional>
 #include <ios>
 #include <memory>
 #include <optional>
@@ -44,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -118,28 +118,29 @@ std::string scratchDirectory(absl::string_view name) {
 }
 
 /** Writes `contents` at `path`, creating its directory. */
-void writeFile(const std::string& path, absl::string_view contents) {
-  std::filesystem::create_directories(
-      std::filesystem::path(path).parent_path());
-  std::ofstream(path, std::ios::trunc) << contents;
+void writeFile(absl::string_view path, absl::string_view contents) {
+  const std::filesystem::path file(path);
+  std::filesystem::create_directories(file.parent_path());
+  std::ofstream(file, std::ios::trunc) << contents;
 }
 
-std::string readFile(const std::string& path) {
+std::string readFile(absl::string_view path) {
   const absl::StatusOr<std::string> bytes = readFileBytes(path);
   return bytes.ok() ? *bytes : std::string("<unreadable>");
 }
 
-std::filesystem::file_time_type writeTimeOf(const std::string& path) {
+std::filesystem::file_time_type writeTimeOf(absl::string_view path) {
   std::error_code error;
-  return std::filesystem::last_write_time(path, error);
+  return std::filesystem::last_write_time(std::filesystem::path(path), error);
 }
 
 /** A store's files, at their layout below `directory`. */
-RobotConfigDirectory::Files writeStore(const std::string& directory) {
+RobotConfigDirectory::Files writeStore(absl::string_view directory) {
   RobotConfigDirectory::Files files{
-      .taskFile = directory + "/mpc/task.textproto",
-      .referenceFile = directory + "/command/reference.textproto",
-      .pdGainsFile = directory + "/controller/joint_pd_gains.textproto"};
+      .taskFile = absl::StrCat(directory, "/mpc/task.textproto"),
+      .referenceFile = absl::StrCat(directory, "/command/reference.textproto"),
+      .pdGainsFile =
+          absl::StrCat(directory, "/controller/joint_pd_gains.textproto")};
   writeFile(files.taskFile, kStoredTask);
   writeFile(files.referenceFile, kStoredReference);
   writeFile(files.pdGainsFile, kStoredGains);
@@ -241,7 +242,8 @@ class Answers {
 std::unique_ptr<ConfigFileStore> startedStore(
     ConfigFileStore::Config config,
     Answers& answers,
-    std::function<absl::Status(const ConfigFileCandidate&)> validate) {
+    absl::AnyInvocable<absl::Status(const ConfigFileCandidate&) const>
+        validate) {
   ConfigFileStore::Hooks hooks;
   hooks.validateConfigFile = std::move(validate);
   hooks.statusObserver =

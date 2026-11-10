@@ -85,7 +85,7 @@ absl::string_view kindName(msgs::ConfigFileKind kind) {
 humanoid_mpc_msgs::ConfigFileSaveStatus answerOf(
     humanoid_mpc_msgs::ConfigFileKind kind,
     uint64_t sequence,
-    const std::string& configPath,
+    absl::string_view configPath,
     Result result,
     std::string message,
     std::string storedPath) {

@@ -67,8 +67,8 @@ namespace ocs2::humanoid::visualization {
  * THREADS. post() on one thread at a time (the visualization thread); drain()
  * on the bus's IO thread only (Attach() registers it). publishFailures() on any
  * thread. Shared: the bus's callback and the poster each hold it, so it lives
- * as long as the longer of the two (the reason for std::shared_ptr:
- * Bus::addPeriodicCallback() keeps a copyable std::function).
+ * as long as the longer of the two (the reason for std::shared_ptr: the
+ * callback that Bus::addPeriodicCallback() keeps and the poster both own it).
  */
 class IoThreadOutbox {
  public:

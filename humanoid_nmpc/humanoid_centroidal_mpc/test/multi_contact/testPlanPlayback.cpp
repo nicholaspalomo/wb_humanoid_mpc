@@ -33,13 +33,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -693,9 +693,10 @@ TEST(PlannedMotionReferenceManager, runsTheClockAndTheScheduleAcrossTheWrap) {
   ASSERT_GT(events, 0U);
   const scalar_t firstEvent = motion.eventTimes().front();
   /** The plan's own state at plan time `time`: every stance reached. */
-  const std::function<vector_t(scalar_t)> planned = [&](scalar_t time) {
-    return model.getDesiredState(motion.targets(), motion.cycleTime(time));
-  };
+  const absl::AnyInvocable<vector_t(scalar_t) const> planned =
+      [&](scalar_t time) {
+        return model.getDesiredState(motion.targets(), motion.cycleTime(time));
+      };
   constexpr scalar_t kStep = 0.05;  // [s]
   // Tracking the plan's own states through a whole period, the clock never
   // holds and every change is released, the wrap included.

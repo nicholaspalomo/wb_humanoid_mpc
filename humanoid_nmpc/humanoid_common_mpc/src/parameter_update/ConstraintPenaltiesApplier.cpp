@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <optional>
 #include <string>
-#include <vector>
 
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -85,7 +84,7 @@ constexpr std::array<absl::string_view, 11> kFields = {
 /** Whether any foot of `contactNames` carries the soft constraint with `suffix`
  * in `ocp`. */
 bool carriesContactTerm(const OptimalControlProblem& ocp,
-                        const std::vector<std::string>& contactNames,
+                        absl::Span<const std::string> contactNames,
                         absl::string_view suffix) {
   for (const std::string& footName : contactNames) {
     if (carriesTerm(*ocp.softConstraintPtr,
@@ -114,7 +113,7 @@ struct Penalties {
 Penalties penaltiesOf(HotUpdateTarget& target) {
   const mpc_config::TaskFile& task = target.task();
   const OptimalControlProblem& running = target.runningProblem();
-  const std::vector<std::string>& contactNames = target.contactNames();
+  absl::Span<const std::string> contactNames = target.contactNames();
   Penalties penalties;
   if (carriesContactTerm(running, contactNames,
                          contact_term::kContactWrenchCone) ||
@@ -161,7 +160,7 @@ Penalties penaltiesOf(HotUpdateTarget& target) {
  * of every foot, as a Cone. */
 template <typename Cone>
 void setConePenalty(OptimalControlProblem& ocp,
-                    const std::vector<std::string>& contactNames,
+                    absl::Span<const std::string> contactNames,
                     absl::string_view suffix,
                     const RelaxedBarrierPenalty::Config& barrier) {
   for (const std::string& footName : contactNames) {
@@ -185,7 +184,7 @@ absl::Span<const absl::string_view> ConstraintPenaltiesApplier::staticFields() {
 
 void ConstraintPenaltiesApplier::apply(HotUpdateTarget& target) {
   const Penalties penalties = penaltiesOf(target);
-  const std::vector<std::string>& contactNames = target.contactNames();
+  absl::Span<const std::string> contactNames = target.contactNames();
   for (OptimalControlProblem& ocp : target.problems()) {
     if (penalties.wrenchCone.has_value()) {
       setConePenalty<ContactWrenchConeConstraint>(

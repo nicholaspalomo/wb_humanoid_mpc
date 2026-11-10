@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -41,6 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/any_invocable.h"
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
@@ -101,11 +102,11 @@ makeHeadlessAtlas(bool gantryLocked);
 
 /** A bus publishing as `nodeName` on this test process's DDS domain
  * (robot::ipc::isolatedTestNetwork()). */
-std::unique_ptr<robot::ipc::Bus> createLoopbackBus(const std::string& nodeName);
+std::unique_ptr<robot::ipc::Bus> createLoopbackBus(absl::string_view nodeName);
 
 /** Polls `condition` every millisecond until it holds or `timeout` passes;
  * whether it held. */
-bool waitFor(const std::function<bool()>& condition,
+bool waitFor(absl::FunctionRef<bool()> condition,
              absl::Duration timeout = absl::Seconds(10));
 
 /**
@@ -117,9 +118,8 @@ bool waitFor(const std::function<bool()>& condition,
  */
 class ScriptedRobotController final : public RobotController {
  public:
-  void prepareCycle(
-      absl::string_view controlMode,
-      const std::vector<scalar_t>& nominalJointPositions) override;
+  void prepareCycle(absl::string_view controlMode,
+                    absl::Span<const scalar_t> nominalJointPositions) override;
   void computeJointControlAction(
       const robot::model::RobotState& robotState,
       robot::model::RobotJointAction& jointAction) override;
@@ -173,12 +173,12 @@ class ScriptedRobotController final : public RobotController {
    * thread, with the number of the cycle (from 0): for a test that measures
    * that thread. Before the loop runs.
    */
-  void setCycleHook(std::function<void(uint64_t cycle)> hook) {
+  void setCycleHook(absl::AnyInvocable<void(uint64_t cycle)> hook) {
     cycleHook_ = std::move(hook);
   }
   /** The next computeJointControlAction() throws std::runtime_error(`message`).
    */
-  void throwInNextCycle(const std::string& message);
+  void throwInNextCycle(std::string message);
   ControllerEventSink* absl_nullable eventSink() const {
     return eventSink_.load();
   }
@@ -227,7 +227,7 @@ class ScriptedRobotController final : public RobotController {
   std::atomic<uint64_t> pdGainsDocuments_{0};
   std::atomic<uint64_t> pdGainsPolls_{0};
   std::vector<std::string> robotJointNames_;
-  std::function<void(uint64_t cycle)> cycleHook_;
+  absl::AnyInvocable<void(uint64_t cycle)> cycleHook_;
 };
 
 }  // namespace ocs2::humanoid::robot_test

@@ -103,8 +103,7 @@ mjtMouse mouseAction(web_viewer::ViewerMouseButton button, bool shift) {
 
 web_viewer::WebViewerServerOptions serverOptions(
     const WebViewerOptions& options,
-    const std::vector<web_viewer::ViewerStatus::Visualization>&
-        visualizations) {
+    absl::Span<const web_viewer::ViewerStatus::Visualization> visualizations) {
   web_viewer::WebViewerServerOptions server;
   server.address = options.address;
   server.port = options.port;

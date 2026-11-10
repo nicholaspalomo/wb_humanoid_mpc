@@ -31,12 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 #include <memory>
-#include <string>
 #include <utility>
 
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/MPC_MRT_Interface.h"
 #include "ocs2_sqp/SqpMpc.h"
@@ -50,7 +50,7 @@ namespace ocs2::humanoid {
 
 absl::StatusOr<std::unique_ptr<MultiContactPlanLoop>>
 MultiContactPlanLoop::Create(CentroidalMpcConfig config,
-                             const std::string& urdfFile) {
+                             absl::string_view urdfFile) {
   std::unique_ptr<MultiContactPlanLoop> loop =
       absl::WrapUnique(new MultiContactPlanLoop());
   ASSIGN_OR_RETURN(loop->interface_,

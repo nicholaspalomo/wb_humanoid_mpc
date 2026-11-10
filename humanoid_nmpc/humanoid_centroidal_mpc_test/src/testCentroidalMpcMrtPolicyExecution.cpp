@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/control/ControllerBase.h"
@@ -104,7 +105,7 @@ constexpr int kCycles = 20;
 /** `cycles` control cycles in `mode` at `robotState`, 10 ms apart from `time`,
  * which it advances. */
 void runCycles(CentroidalMpcMrtJointController& controller,
-               const std::vector<scalar_t>& nominal,
+               absl::Span<const scalar_t> nominal,
                robot::model::RobotState& robotState,
                robot::model::RobotJointAction& action,
                scalar_t& time,

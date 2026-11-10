@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactArray.h"
@@ -169,7 +170,7 @@ absl::Status MujocoRobotBackend::initialize() {
   return simulator_->viewerStatus();
 }
 
-absl::Status MujocoRobotBackend::start(const std::vector<int>& cores) {
+absl::Status MujocoRobotBackend::start(absl::Span<const int> cores) {
   simulator_->startSim();
   if (!cores.empty() &&
       !setThreadCpuAffinity(cores,

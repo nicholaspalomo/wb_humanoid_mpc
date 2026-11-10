@@ -29,11 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/strings/string_view.h"
 
 #include "robot_model/ContactEstimator.h"
@@ -53,11 +53,12 @@ namespace robot::model {
  * caller's to validate with has(), reporting availableNames() for one that is
  * not registered; create() of an unregistered name is a programming error. Not
  * thread-safe: register everything before sharing the registry, which is then
- * read-only.
+ * read-only. Move-only, since the factories are.
  */
 class ContactEstimatorRegistry {
  public:
-  using Factory = std::function<std::shared_ptr<ContactEstimator>()>;
+  // Called by the const create(), so a factory is a const callable.
+  using Factory = absl::AnyInvocable<std::shared_ptr<ContactEstimator>() const>;
 
   struct Entry {
     std::string name;
@@ -69,6 +70,12 @@ class ContactEstimatorRegistry {
 
   /** Registers the estimators of robot_model. */
   ContactEstimatorRegistry();
+
+  ContactEstimatorRegistry(const ContactEstimatorRegistry&) = delete;
+  ContactEstimatorRegistry& operator=(const ContactEstimatorRegistry&) = delete;
+  ContactEstimatorRegistry(ContactEstimatorRegistry&&) = default;
+  ContactEstimatorRegistry& operator=(ContactEstimatorRegistry&&) = default;
+  ~ContactEstimatorRegistry() = default;
 
   /**
    * Adds an estimator. An empty name, an empty factory or a name already

@@ -31,12 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <numbers>
 #include <random>
-#include <string>
 #include <vector>
 
 #include "Eigen/Core"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
@@ -104,7 +104,7 @@ mpc_config::StateValues distinctValues(const StateInputLayout& layout) {
 }
 
 /** The first row of the block `name` of `layout`. */
-size_t blockStart(const EulerStateLayout& layout, const std::string& name) {
+size_t blockStart(const EulerStateLayout& layout, absl::string_view name) {
   size_t start = 0;
   for (const EulerStateSegment& segment : layout.segments) {
     if (segment.name == name) return start;

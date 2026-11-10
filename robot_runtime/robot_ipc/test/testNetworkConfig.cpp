@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "gtest/gtest.h"
 
@@ -65,7 +66,7 @@ constexpr char kSource[] = "test.textproto";
 // The largest UDP port.
 constexpr int kMaxUdpPort = 65535;
 
-absl::StatusOr<NetworkConfig> parse(const std::string& text) {
+absl::StatusOr<NetworkConfig> parse(absl::string_view text) {
   return parseNetworkConfig(text, kSource);
 }
 

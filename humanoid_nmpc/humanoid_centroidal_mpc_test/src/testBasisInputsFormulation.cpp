@@ -49,7 +49,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdlib>
 #include <filesystem>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <random>
@@ -60,6 +59,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Eigenvalues"
 #include "absl/base/nullability.h"
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -312,7 +312,7 @@ class BasisInputsFormulationTest : public ::testing::Test {
    * changes the CppAD folder.
    */
   static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>>
-  buildBasisVariant(const std::function<void(mpc_config::TaskFile&)>& edit) {
+  buildBasisVariant(absl::FunctionRef<void(mpc_config::TaskFile&)> edit) {
     InterfaceHolder& basis = holder(/*useBasisInputs=*/true);
     if (!basis.interface) {
       return absl::FailedPreconditionError(

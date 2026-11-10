@@ -62,7 +62,7 @@ constexpr std::array<absl::string_view, 2> kFields = {
  * refused matrix or a mistyped term is returned. */
 template <typename Term>
 absl::Status setComAndAcomWeights(Collection<Term>& collection,
-                                  const std::string& termName,
+                                  absl::string_view termName,
                                   const matrix_t& com,
                                   const matrix_t& acom) {
   // A refused weight matrix comes back from setWeights(), a missing or mistyped

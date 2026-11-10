@@ -34,7 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <fstream>
 #include <ios>
 #include <iterator>
-#include <map>
 #include <memory>
 #include <string>
 #include <thread>
@@ -42,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/btree_map.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
@@ -85,9 +85,9 @@ std::string runfilePath(absl::string_view relativePath) {
 }
 
 /** The files of `folder`, by name, with their contents. */
-std::map<std::string, std::string> readFiles(
+absl::btree_map<std::string, std::string> readFiles(
     const std::filesystem::path& folder) {
-  std::map<std::string, std::string> files;
+  absl::btree_map<std::string, std::string> files;
   for (const std::filesystem::directory_entry& entry :
        std::filesystem::directory_iterator(folder)) {
     std::ifstream file(entry.path(), std::ios::binary);
@@ -103,7 +103,7 @@ std::map<std::string, std::string> readFiles(
  * and returns the sources of its zero- and first-order models, generated into
  * `folder`.
  */
-std::map<std::string, std::string> generateFlowMapSources(
+absl::btree_map<std::string, std::string> generateFlowMapSources(
     const PinocchioInterface& pinocchioInterface,
     const ModelSettings& modelSettings,
     const std::filesystem::path& folder) {
@@ -147,13 +147,14 @@ TEST(CodegenDeterminism,
       (*interface)->getPinocchioInterface();
   const ModelSettings& modelSettings = (*interface)->modelSettings();
 
-  const std::map<std::string, std::string> first = generateFlowMapSources(
-      pinocchioInterface, modelSettings, scratch / "first");
+  const absl::btree_map<std::string, std::string> first =
+      generateFlowMapSources(pinocchioInterface, modelSettings,
+                             scratch / "first");
 
   // The second on another thread, which allocates from an arena and a cache of
   // its own, after blocks of every small size were taken and kept: its
   // constants live at other addresses than the first generation's.
-  std::map<std::string, std::string> second;
+  absl::btree_map<std::string, std::string> second;
   std::thread([&pinocchioInterface, &modelSettings, &scratch, &second]() {
     std::vector<std::unique_ptr<char[]>> kept;
     for (size_t size = 1; size <= 512; ++size) {
@@ -174,7 +175,7 @@ TEST(CodegenDeterminism,
   RecordProperty("source_bytes", static_cast<int>(bytes));
   ASSERT_EQ(first.size(), second.size());
   for (const std::pair<const std::string, std::string>& source : first) {
-    const std::map<std::string, std::string>::const_iterator other =
+    const absl::btree_map<std::string, std::string>::const_iterator other =
         second.find(source.first);
     ASSERT_NE(other, second.end()) << source.first;
     EXPECT_TRUE(source.second == other->second)

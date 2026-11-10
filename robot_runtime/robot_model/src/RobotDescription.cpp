@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "urdf_model/types.h"
 #include "urdf_world/types.h"
 #include "urdfdom/urdf_parser/urdf_parser.h"
@@ -58,10 +59,10 @@ namespace {
 /** urdf::parseURDF() of `content`; InvalidArgument naming `urdfPath` when it
  * does not parse. */
 absl::StatusOr<urdf::ModelInterfaceSharedPtr> parseUrdf(
-    const std::string& content, absl::string_view urdfPath) {
+    absl::string_view content, absl::string_view urdfPath) {
   urdf::ModelInterfaceSharedPtr model;
   try {  // NOLINT(exceptions): urdfdom is not documented not to throw from its parser; converted to a Status at once
-    model = urdf::parseURDF(content);
+    model = urdf::parseURDF(std::string(content));
     // NOLINTNEXTLINE(exceptions): urdfdom; converted to a Status at once
   } catch (const std::exception& error) {
     return absl::InvalidArgumentError(absl::StrCat(
@@ -166,7 +167,7 @@ std::optional<joint_index_t> RobotDescription::findJointIndex(
 }
 
 absl::StatusOr<std::vector<joint_index_t>> RobotDescription::findJointIndices(
-    const std::vector<std::string>& jointNames) const {
+    absl::Span<const std::string> jointNames) const {
   std::vector<joint_index_t> jointIndices;
   jointIndices.reserve(jointNames.size());
   for (const std::string& jointName : jointNames) {
@@ -191,7 +192,7 @@ joint_index_t RobotDescription::getJointIndex(
 }
 
 std::vector<joint_index_t> RobotDescription::getJointIndices(
-    const std::vector<std::string>& jointNames) const {
+    absl::Span<const std::string> jointNames) const {
   std::vector<joint_index_t> jointIndices;
   jointIndices.reserve(jointNames.size());
   for (const std::string& jointName : jointNames) {

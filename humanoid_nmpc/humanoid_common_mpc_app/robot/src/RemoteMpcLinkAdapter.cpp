@@ -43,6 +43,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_ipc/Bus.h"
 
 namespace ocs2::humanoid {
+namespace {
+
+/**
+ * An MpcLinkFactory that hands over the link it owns on the first call and
+ * returns nullptr after that. Not thread-safe; move-only.
+ */
+class LinkHandOver {
+ public:
+  explicit LinkHandOver(std::unique_ptr<MpcLink> link)
+      : link_(std::move(link)) {}
+
+  LinkHandOver(const LinkHandOver&) = delete;
+  LinkHandOver& operator=(const LinkHandOver&) = delete;
+  LinkHandOver(LinkHandOver&&) noexcept = default;
+  LinkHandOver& operator=(LinkHandOver&&) noexcept = default;
+  ~LinkHandOver() = default;
+
+  // MpcLinkFactory calls it through a const reference, hence the mutable link.
+  std::unique_ptr<MpcLink> operator()(
+      MpcLink::ResetTargetFunction /*resetTarget*/) const {
+    return std::move(link_);
+  }
+
+ private:
+  /** The link until the first call; nullptr after it. */
+  mutable std::unique_ptr<MpcLink> link_;
+};
+
+}  // namespace
 
 absl::StatusOr<std::unique_ptr<RemoteMpcLinkAdapter>>
 RemoteMpcLinkAdapter::Create(robot::ipc::Bus* absl_nonnull bus,
@@ -76,12 +105,7 @@ void RemoteMpcLinkAdapter::start(const SystemObservation& initialObservation) {
 }
 
 MpcLinkFactory handOverMpcLink(std::unique_ptr<MpcLink> link) {
-  // std::function needs a copyable callable, and the link is handed over once:
-  // a shared slot holds it until then.
-  std::shared_ptr<std::unique_ptr<MpcLink>> slot =
-      std::make_shared<std::unique_ptr<MpcLink>>(std::move(link));
-  return [slot](const MpcLink::ResetTargetFunction& /*resetTarget*/)
-             -> std::unique_ptr<MpcLink> { return std::move(*slot); };
+  return LinkHandOver(std::move(link));
 }
 
 }  // namespace ocs2::humanoid

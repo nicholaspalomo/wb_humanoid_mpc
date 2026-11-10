@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_mpc/SystemObservation.h"
@@ -215,8 +216,8 @@ absl::StatusOr<std::unique_ptr<TelemetryBuilder>> TelemetryBuilder::Create(
   return builder;
 }
 
-int TelemetryBuilder::addGroup(const std::string& path,
-                               const std::vector<std::string>& names) {
+int TelemetryBuilder::addGroup(absl::string_view path,
+                               absl::Span<const std::string> names) {
   humanoid_mpc_msgs::ScalarGroup* absl_nonnull group = series_.add_groups();
   group->set_path(path);
   for (const std::string& name : names) {
@@ -484,8 +485,8 @@ std::vector<std::string> TelemetryBuilder::groupPaths() const {
 }
 
 std::vector<std::string> TelemetryBuilder::contactSeriesNames(
-    const std::vector<std::string>& contactNames, size_t numSixDofContacts) {
-  std::vector<std::string> names = contactNames;
+    absl::Span<const std::string> contactNames, size_t numSixDofContacts) {
+  std::vector<std::string> names(contactNames.begin(), contactNames.end());
   constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
   const size_t numContacts = names.size();
   if (numContacts < kNumFeet || numSixDofContacts < kNumFeet) {

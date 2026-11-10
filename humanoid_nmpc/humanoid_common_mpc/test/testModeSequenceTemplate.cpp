@@ -30,17 +30,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "Eigen/Core"
 #include "absl/base/nullability.h"
+#include "absl/container/btree_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
@@ -81,20 +82,19 @@ std::string gaitFilePath() {
 
 /** Writes `content` to a file of the test's scratch directory and returns its
  * path. */
-std::string writeGaitFile(const std::string& name, const std::string& content) {
+std::string writeGaitFile(absl::string_view name, absl::string_view content) {
   const std::string file = absl::StrCat(testing::TempDir(), "/", name);
   std::ofstream(file) << content;
   return file;
 }
 
 /** The gait `name` of `modes` switching at `times`. */
-mpc_config::ModeSequenceTemplateConfig gait(
-    const std::string& name,
-    const std::vector<std::string>& modes,
-    const std::vector<double>& times) {
+mpc_config::ModeSequenceTemplateConfig gait(std::string name,
+                                            std::vector<std::string> modes,
+                                            absl::Span<const double> times) {
   mpc_config::ModeSequenceTemplateConfig config;
-  config.name = name;
-  config.mode_sequence = modes;
+  config.name = std::move(name);
+  config.mode_sequence = std::move(modes);
   config.switching_times = Eigen::Map<const Eigen::VectorXd>(
       times.data(), static_cast<Eigen::Index>(times.size()));
   return config;
@@ -102,12 +102,12 @@ mpc_config::ModeSequenceTemplateConfig gait(
 
 /** A gait file of `gaits`, each listed in gait_list. */
 mpc_config::GaitFile gaitFileOf(
-    const std::vector<mpc_config::ModeSequenceTemplateConfig>& gaits) {
+    std::vector<mpc_config::ModeSequenceTemplateConfig> gaits) {
   mpc_config::GaitFile file;
   for (const mpc_config::ModeSequenceTemplateConfig& config : gaits) {
     file.gait_list.push_back(config.name);
   }
-  file.gaits = gaits;
+  file.gaits = std::move(gaits);
   return file;
 }
 
@@ -120,8 +120,8 @@ TEST(ModeSequenceTemplateTest, EveryShippedGaitIsValid) {
   ASSERT_FALSE(gaitFile.empty()) << kGaitFile << " is not in the runfiles";
   const absl::StatusOr<mpc_config::GaitFile> file = loadGaitFile(gaitFile);
   ASSERT_TRUE(file.ok()) << file.status();
-  const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits =
-      gaitMapFromConfig(*file);
+  const absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+      gaits = gaitMapFromConfig(*file);
   ASSERT_TRUE(gaits.ok()) << gaits.status();
   ASSERT_GT(gaits->size(), 10U) << "the gait list was not read";
   for (const std::pair<const std::string, ModeSequenceTemplate>& entry :
@@ -180,7 +180,7 @@ TEST(ModeSequenceTemplateTest, EveryShippedBipedGaitKeepsItsModesAndTimes) {
   constexpr size_t kRf = kBipedModeRf;
   constexpr size_t kLf = kBipedModeLf;
   constexpr size_t kStance = kBipedModeStance;
-  const std::map<std::string, ModeSequenceTemplate> expected = {
+  const absl::btree_map<std::string, ModeSequenceTemplate> expected = {
       {"stance", ModeSequenceTemplate({0.0, 0.5}, {kStance})},
       {"left_leg", ModeSequenceTemplate({0.0, 0.5}, {kLf})},
       {"right_leg", ModeSequenceTemplate({0.0, 0.5}, {kRf})},
@@ -210,8 +210,8 @@ TEST(ModeSequenceTemplateTest, EveryShippedBipedGaitKeepsItsModesAndTimes) {
   ASSERT_TRUE(file.ok()) << file.status();
   for (const GaitModeLayout& layout :
        {GaitModeLayout{}, bipedLayoutWithLegs()}) {
-    const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits =
-        gaitMapFromConfig(*file, layout);
+    const absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+        gaits = gaitMapFromConfig(*file, layout);
     ASSERT_TRUE(gaits.ok()) << gaits.status();
     ASSERT_EQ(gaits->size(), expected.size());
     for (const std::pair<const std::string, ModeSequenceTemplate>& entry :
@@ -240,8 +240,8 @@ TEST(ModeSequenceTemplateTest, TheDocumentedLayoutsLoad) {
                     "}\n");
   const absl::StatusOr<mpc_config::GaitFile> gaitFile = loadGaitFile(gaitPath);
   ASSERT_TRUE(gaitFile.ok()) << gaitFile.status();
-  const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits =
-      gaitMapFromConfig(*gaitFile);
+  const absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+      gaits = gaitMapFromConfig(*gaitFile);
   ASSERT_TRUE(gaits.ok()) << gaits.status();
   ASSERT_TRUE(gaits->contains("walk"));
   EXPECT_EQ(gaits->at("walk").modeSequence,
@@ -281,8 +281,8 @@ TEST(ModeSequenceTemplateTest,
   mpc_config::GaitFile file =
       gaitFileOf({gait("other", {"STANCE"}, {0.0, 0.5})});
   file.gait_list = {"walk", "other"};
-  const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits =
-      gaitMapFromConfig(file);
+  const absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+      gaits = gaitMapFromConfig(file);
   EXPECT_EQ(gaits.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(gaits.status().message(), ::testing::HasSubstr("walk"));
 }

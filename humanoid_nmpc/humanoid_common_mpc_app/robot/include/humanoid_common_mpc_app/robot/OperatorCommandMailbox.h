@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -43,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -176,7 +176,8 @@ class OperatorCommandMailbox {
    */
   struct Hooks {
     /** operator/pd_gains, the controller's setPdGains(). IO thread. */
-    std::function<absl::Status(const mpc_config::JointPdGainsFile& gains)>
+    absl::AnyInvocable<absl::Status(const mpc_config::JointPdGainsFile& gains)
+                           const>
         pdGains;
     /**
      * Whether a contact estimator the mailbox has just built suits the
@@ -185,8 +186,8 @@ class OperatorCommandMailbox {
      * before the realtime thread can use it; an error refuses the estimator.
      * Unset: every estimator is accepted.
      */
-    std::function<absl::Status(robot::model::ContactEstimator& estimator,
-                               absl::string_view name)>
+    absl::AnyInvocable<absl::Status(robot::model::ContactEstimator& estimator,
+                                    absl::string_view name) const>
         checkContactEstimator;
   };
 
@@ -295,7 +296,7 @@ class OperatorCommandMailbox {
    * estimator too.
    */
   absl::StatusOr<std::shared_ptr<robot::model::ContactEstimator>>
-  contactEstimator(const std::string& name);
+  contactEstimator(absl::string_view name);
 
   /**
    * When the newest operator/mpc_parameters that onMpcParameters() accepted

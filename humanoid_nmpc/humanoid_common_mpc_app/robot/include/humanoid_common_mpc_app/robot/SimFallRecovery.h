@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
@@ -166,7 +167,7 @@ class SimFallRecovery final : public FallRecovery {
    * change `currentModeName`; see the class comment.
    */
   Cycle update(const robot::model::RobotState& robotState,
-               const std::vector<scalar_t>& nominalJointPositions,
+               absl::Span<const scalar_t> nominalJointPositions,
                std::string& currentModeName) override;
 
   Phase phase() const { return phase_; }
@@ -187,18 +188,18 @@ class SimFallRecovery final : public FallRecovery {
    * `config`, judged on the joints `jointIndices` (instantaneous; no hold).
    */
   static bool isAtRest(const robot::model::RobotState& robotState,
-                       const std::vector<scalar_t>& nominalJointPositions,
-                       const std::vector<size_t>& jointIndices,
+                       absl::Span<const scalar_t> nominalJointPositions,
+                       absl::Span<const size_t> jointIndices,
                        const Config& config);
 
  private:
   /** True once the robot has been at rest for settleHoldTime; false (and the
    * hold restarted) otherwise. */
   bool restedFor(const robot::model::RobotState& robotState,
-                 const std::vector<scalar_t>& nominalJointPositions);
+                 absl::Span<const scalar_t> nominalJointPositions);
   void enterPhase(Phase phase, scalar_t time);
   void stepSettleSequence(const robot::model::RobotState& robotState,
-                          const std::vector<scalar_t>& nominalJointPositions);
+                          absl::Span<const scalar_t> nominalJointPositions);
   void report(RealtimeEventCode code,
               int32_t detail = 0,
               absl::string_view text = {},

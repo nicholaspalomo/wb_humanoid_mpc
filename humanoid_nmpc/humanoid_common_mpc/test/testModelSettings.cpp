@@ -31,15 +31,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 #include <fstream>
-#include <map>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/container/btree_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -65,7 +66,7 @@ using ::testing::HasSubstr;
 
 /** Writes `content` to `name` in the test's scratch directory and returns its
  * path. */
-std::string writeFile(const std::string& name, const std::string& content) {
+std::string writeFile(absl::string_view name, absl::string_view content) {
   const std::string path = absl::StrCat(::testing::TempDir(), "/", name);
   std::ofstream(path) << content;
   return path;
@@ -101,7 +102,7 @@ std::string twoJointUrdf() {
 
 /** A task file whose model_settings block carries `extra` after its robot name.
  */
-std::string taskFile(const std::string& name, const std::string& extra) {
+std::string taskFile(absl::string_view name, absl::string_view extra) {
   return writeFile(
       name, absl::StrCat(kTaskHeader,
                          "model_settings {\n  robot_name: \"two_joints\"\n  "
@@ -300,7 +301,7 @@ TEST(ProceduralMpcMotionManagerGaits,
   walkState.gaitCommand = "walk";
   const std::vector<ProceduralMpcMotionManager::GaitModeStateConfig> states = {
       stanceState, walkState};
-  const std::map<std::string, ModeSequenceTemplate> stanceOnly = {
+  const absl::btree_map<std::string, ModeSequenceTemplate> stanceOnly = {
       {"stance", stance}};
   const absl::Status refused =
       ProceduralMpcMotionManager::checkEveryGaitIsLoaded(stanceOnly, states,
@@ -309,8 +310,8 @@ TEST(ProceduralMpcMotionManagerGaits,
   EXPECT_THAT(refused.message(),
               HasSubstr("gait.textproto has no gait 'walk'"));
 
-  const std::map<std::string, ModeSequenceTemplate> both = {{"stance", stance},
-                                                            {"walk", stance}};
+  const absl::btree_map<std::string, ModeSequenceTemplate> both = {
+      {"stance", stance}, {"walk", stance}};
   EXPECT_TRUE(ProceduralMpcMotionManager::checkEveryGaitIsLoaded(
                   both, states, "gait.textproto")
                   .ok());

@@ -32,12 +32,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <memory>
 #include <optional>
-#include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -82,7 +82,7 @@ class MujocoRobotBackend final : public RobotBackend {
     return *simulator_;
   }
   absl::Status initialize() override;
-  absl::Status start(const std::vector<int>& cores) override;
+  absl::Status start(absl::Span<const int> cores) override;
   bool acceptsJointAction() const override {
     return !simulator_->isZeroTorqueMode();
   }

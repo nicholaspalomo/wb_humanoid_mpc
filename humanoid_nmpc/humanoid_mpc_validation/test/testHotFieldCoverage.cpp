@@ -31,16 +31,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <array>
-#include <set>
 #include <string>
-#include <string_view>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/btree_set.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "google/protobuf/descriptor.h"
 #include "gtest/gtest.h"
 
@@ -83,7 +83,7 @@ bool covers(absl::string_view name, absl::string_view path) {
          absl::StartsWith(path, absl::StrCat(name, "["));
 }
 
-bool coveredBy(const std::vector<std::string>& names, absl::string_view path) {
+bool coveredBy(absl::Span<const std::string> names, absl::string_view path) {
   return std::any_of(
       names.begin(), names.end(),
       [path](const std::string& name) { return covers(name, path); });
@@ -186,7 +186,7 @@ const google::protobuf::FieldDescriptor* absl_nullable fieldAt(
   for (absl::string_view segment : absl::StrSplit(path, '.')) {
     if (message == nullptr) return nullptr;
     if (absl::EndsWith(segment, "[*]")) {
-      segment.remove_suffix(std::string_view("[*]").size());
+      segment.remove_suffix(absl::string_view("[*]").size());
     }
     field = message->FindFieldByName(segment);
     if (field == nullptr) return nullptr;
@@ -238,7 +238,7 @@ constexpr std::array<NonNumericHotLeaf, 3> kNonNumericHotLeaves = {{
 }};
 
 TEST(HotFieldCoverage, EveryHotLeafThatIsNotANumberNamesTheTestThatAppliesIt) {
-  std::set<std::string> found;
+  absl::btree_set<std::string> found;
   for (const ConfigLeaf& leaf : taskFileLeaves()) {
     if (!leaf.tunable || leaf.reload != ConfigReload::kHot ||
         !isReadByTheMpc(leaf.consumer)) {
@@ -249,7 +249,7 @@ TEST(HotFieldCoverage, EveryHotLeafThatIsNotANumberNamesTheTestThatAppliesIt) {
     ASSERT_NE(field, nullptr) << leaf.path;
     if (!isNumber(*field)) found.insert(leaf.path);
   }
-  std::set<std::string> listed;
+  absl::btree_set<std::string> listed;
   for (const NonNumericHotLeaf& entry : kNonNumericHotLeaves) {
     listed.insert(entry.path);
   }

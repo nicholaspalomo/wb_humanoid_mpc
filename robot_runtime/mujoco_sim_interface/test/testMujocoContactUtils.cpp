@@ -117,9 +117,9 @@ constexpr char kUrdf[] = R"(
 </robot>
 )";
 
-std::string writeTempFile(const std::string& name,
+std::string writeTempFile(absl::string_view name,
                           const char* absl_nonnull content) {
-  const std::string path = testing::TempDir() + "/" + name;
+  const std::string path = absl::StrCat(testing::TempDir(), "/", name);
   std::ofstream out(path);
   out << content;
   return path;

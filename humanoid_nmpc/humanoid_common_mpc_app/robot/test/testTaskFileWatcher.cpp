@@ -53,9 +53,10 @@ namespace {
 
 /** Moves the file's modification time on by a second, so that a rewrite inside
  * the file system's clock tick counts. */
-void touchForward(const std::string& file) {
+void touchForward(absl::string_view file) {
+  const std::filesystem::path path(file);
   std::filesystem::last_write_time(
-      file, std::filesystem::last_write_time(file) + std::chrono::seconds(1));
+      path, std::filesystem::last_write_time(path) + std::chrono::seconds(1));
 }
 
 TEST(TaskFileWatcher, AWriteIsReportedOnceAndAnUnchangedFileNever) {

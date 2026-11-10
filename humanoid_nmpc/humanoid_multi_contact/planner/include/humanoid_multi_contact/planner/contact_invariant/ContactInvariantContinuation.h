@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_oc/oc_data/PerformanceIndex.h"
@@ -102,6 +103,6 @@ struct ContinuationProblem {
 absl::StatusOr<std::vector<StageSolution>> solveContinuation(
     const ContinuationProblem& problem,
     const GuessTrajectory& guess,
-    const std::vector<ContinuationStage>& stages);
+    absl::Span<const ContinuationStage> stages);
 
 }  // namespace ocs2::humanoid::multi_contact

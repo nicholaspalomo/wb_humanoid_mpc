@@ -38,6 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
+#include "absl/strings/numbers.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
@@ -388,21 +390,26 @@ namespace {
 /** Every "(dx,dy)" foothold displacement in a describe() line, in the order it
  * printed them. */
 std::vector<vector2_t> parseDesErrPosFootRtWorldEwrtWorldXySamples(
-    const std::string& line) {
+    absl::string_view line) {
   std::vector<vector2_t> desErrPosFootRtWorldEwrtWorldXySamples;
   size_t offset = 0;
   while (true) {
     const size_t open = line.find('(', offset);
-    if (open == std::string::npos) break;
+    if (open == absl::string_view::npos) break;
     const size_t comma = line.find(',', open);
     const size_t close = line.find(')', open);
-    if (comma == std::string::npos || close == std::string::npos ||
+    if (comma == absl::string_view::npos || close == absl::string_view::npos ||
         comma > close) {
       break;
     }
-    desErrPosFootRtWorldEwrtWorldXySamples.emplace_back(
-        std::stod(line.substr(open + 1, comma - open - 1)),
-        std::stod(line.substr(comma + 1, close - comma - 1)));
+    double dx = 0.0;
+    double dy = 0.0;
+    EXPECT_TRUE(absl::SimpleAtod(line.substr(open + 1, comma - open - 1), &dx))
+        << line;
+    EXPECT_TRUE(
+        absl::SimpleAtod(line.substr(comma + 1, close - comma - 1), &dy))
+        << line;
+    desErrPosFootRtWorldEwrtWorldXySamples.emplace_back(dx, dy);
     offset = close + 1;
   }
   return desErrPosFootRtWorldEwrtWorldXySamples;

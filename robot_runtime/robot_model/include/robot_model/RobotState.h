@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
+#include "absl/types/span.h"
 
 #include "robot_core/Types.h"
 #include "robot_model/JointIDMap.h"
@@ -147,9 +148,8 @@ class RobotState {
   scalar_t getCheckedJointVelocity(size_t jointId) const;
 
   //  Get a vector_t of joint positions given a vector of joint IDs
-  template <typename E>
   vector_t getJointPositions(
-      const std::vector<E>& jointIds,
+      absl::Span<const joint_index_t> jointIds,
       scalar_t defaultValue =
           std::numeric_limits<scalar_t>::quiet_NaN()) const {
     return jointStateMap_.toVector(jointIds, &RobotState::jointPositionOf,
@@ -157,9 +157,8 @@ class RobotState {
   }
 
   //  Get a vector_t of joint velocities given a vector of joint IDs
-  template <typename E>
   vector_t getJointVelocities(
-      const std::vector<E>& jointIds,
+      absl::Span<const joint_index_t> jointIds,
       scalar_t defaultValue =
           std::numeric_limits<scalar_t>::quiet_NaN()) const {
     return jointStateMap_.toVector(jointIds, &RobotState::jointVelocityOf,
@@ -168,8 +167,7 @@ class RobotState {
 
   //  The joint positions into `jointPositions`, resized to jointIds.size(): no
   //  allocation once it has that size (the control thread's form).
-  template <typename E>
-  void getJointPositions(const std::vector<E>& jointIds,
+  void getJointPositions(absl::Span<const joint_index_t> jointIds,
                          vector_t& jointPositions,
                          scalar_t defaultValue =
                              std::numeric_limits<scalar_t>::quiet_NaN()) const {
@@ -178,9 +176,8 @@ class RobotState {
   }
 
   //  The joint velocities into `jointVelocities`, as getJointPositions() above.
-  template <typename E>
   void getJointVelocities(
-      const std::vector<E>& jointIds,
+      absl::Span<const joint_index_t> jointIds,
       vector_t& jointVelocities,
       scalar_t defaultValue =
           std::numeric_limits<scalar_t>::quiet_NaN()) const {

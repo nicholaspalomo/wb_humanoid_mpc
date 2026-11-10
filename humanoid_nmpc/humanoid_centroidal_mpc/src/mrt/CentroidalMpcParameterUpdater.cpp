@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <filesystem>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -41,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
@@ -161,19 +161,19 @@ absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>>
 makeCentroidalMpcParameterUpdater(
     MPC_BASE* absl_nullable mpc,
     const CentroidalMpcInterface& interface,
-    const std::string& taskFile,
-    const std::string& referenceFile,
+    std::string taskFile,
+    std::string referenceFile,
     std::vector<ReferenceFileReloader> referenceFileReloaders,
     std::optional<std::filesystem::file_time_type> taskFileReadAt,
     std::optional<std::filesystem::file_time_type> referenceFileReadAt,
     std::optional<std::filesystem::file_time_type> contactPlanningFileReadAt,
     absl::Duration fileCheckPeriod,
-    std::function<absl::Time()> clock) {
+    absl::AnyInvocable<absl::Time()> clock) {
   // A reload is compared with the configuration the interface was built from.
   MpcParameterUpdaterModule::Options options;
-  options.taskFile = taskFile;
-  options.referenceFile = referenceFile;
   options.contactPlanningFile = contactPlanningFileBeside(taskFile);
+  options.taskFile = std::move(taskFile);
+  options.referenceFile = std::move(referenceFile);
   options.taskFileReadAt = taskFileReadAt;
   options.referenceFileReadAt = referenceFileReadAt;
   options.contactPlanningFileReadAt = contactPlanningFileReadAt;

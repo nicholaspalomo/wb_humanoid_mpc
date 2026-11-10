@@ -59,8 +59,7 @@ namespace {
 
 /** The leaf of `leaves` at `path`; a missing one fails the test and is a
  * default leaf. */
-ConfigLeaf leafAt(const std::vector<ConfigLeaf>& leaves,
-                  absl::string_view path) {
+ConfigLeaf leafAt(absl::Span<const ConfigLeaf> leaves, absl::string_view path) {
   for (const ConfigLeaf& leaf : leaves) {
     if (leaf.path == path) return leaf;
   }

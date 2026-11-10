@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
 #include "gtest/gtest.h"
@@ -61,7 +62,7 @@ constexpr char kPosSurfaceRtWorldEwrtWorldZ[] =
 
 /** Whether the whole-body updater applies the field at `path` (the path without
  * list indices): at or below one of `names`. */
-bool isApplied(absl::string_view path, const std::vector<std::string>& names) {
+bool isApplied(absl::string_view path, absl::Span<const std::string> names) {
   for (const std::string& name : names) {
     if (path == name || absl::StartsWith(path, absl::StrCat(name, "."))) {
       return true;
@@ -100,8 +101,8 @@ class LeafWalk {
         move_(move) {}
 
   void walk(Message& message,
-            const std::string& path,
-            const std::string& plainPath) {
+            absl::string_view path,
+            absl::string_view plainPath) {
     const Reflection& reflection = *message.GetReflection();
     std::vector<const FieldDescriptor* absl_nonnull> fields;
     reflection.ListFields(message, &fields);

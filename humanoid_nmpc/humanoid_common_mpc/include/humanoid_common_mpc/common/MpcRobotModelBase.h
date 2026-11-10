@@ -523,7 +523,9 @@ class MpcRobotModelBase {
    */
   virtual vector_t interpolateStateTrajectory(
       scalar_t time,
+      // NOLINTNEXTLINE(absl-span-param): LinearInterpolation::interpolate takes const std::vector<T>&
       const scalar_array_t& times,
+      // NOLINTNEXTLINE(absl-span-param): LinearInterpolation::interpolate takes const std::vector<T>&
       const vector_array_t& states) const = 0;
 
   /** The state at rest at the origin: zero positions, momenta, velocities and
@@ -741,7 +743,9 @@ class MpcRobotModelBase {
    */
   vector_t interpolateWithSlerpedQuatBaseRtWorld(
       scalar_t time,
+      // NOLINTNEXTLINE(absl-span-param): LinearInterpolation::interpolate takes const std::vector<T>&
       const scalar_array_t& times,
+      // NOLINTNEXTLINE(absl-span-param): LinearInterpolation::interpolate takes const std::vector<T>&
       const vector_array_t& states) const {
     vector_t interpolated =
         LinearInterpolation::interpolate(time, times, states);

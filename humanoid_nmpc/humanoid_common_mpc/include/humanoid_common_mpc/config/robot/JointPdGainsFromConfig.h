@@ -30,9 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <string>
-#include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
@@ -74,7 +74,7 @@ namespace ocs2::humanoid {
  */
 absl::StatusOr<JointPdGains> jointPdGainsFromConfig(
     const mpc_config::JointPdGainsFile& file,
-    const std::vector<std::string>& mpcJointNames,
-    const std::vector<std::string>& otherJointNames);
+    absl::Span<const std::string> mpcJointNames,
+    absl::Span<const std::string> otherJointNames);
 
 }  // namespace ocs2::humanoid

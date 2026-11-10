@@ -40,6 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 namespace ocs2::humanoid {
 
@@ -51,9 +53,9 @@ namespace ocs2::humanoid {
  * @param threadName: Optional human-readable name for logging.
  * @return True if affinity was successfully set.
  */
-inline bool setThreadCpuAffinity(const std::vector<int>& cpuCores,
+inline bool setThreadCpuAffinity(absl::Span<const int> cpuCores,
                                  pthread_t thread = pthread_self(),
-                                 const std::string& threadName = "") {
+                                 absl::string_view threadName = "") {
   if (cpuCores.empty()) {
     return true;
   }
@@ -88,7 +90,7 @@ inline bool setThreadCpuAffinity(const std::vector<int>& cpuCores,
   }
 
   LOG(INFO) << "[ThreadAffinity] Successfully pinned "
-            << (threadName.empty() ? "thread" : threadName)
+            << (threadName.empty() ? absl::string_view("thread") : threadName)
             << " to CPU core(s): [" << absl::StrJoin(validCores, ",") << "]";
 
   return true;
@@ -132,7 +134,7 @@ inline std::vector<int> availableCores() {
 }
 
 /** Appends cores[first, last) to `partition` (as far as `cores` reaches). */
-inline void appendCores(const std::vector<int>& cores,
+inline void appendCores(absl::Span<const int> cores,
                         size_t first,
                         size_t last,
                         std::vector<int>& partition) {
@@ -155,7 +157,7 @@ inline void appendCores(const std::vector<int>& cores,
  * would not: the physics could wait out a viewer thread's 3 ms time slice).
  * test_web_viewer_sim_rate_on_the_physics_cores measures it.
  */
-inline SystemCoreAllocation coreAllocationFor(const std::vector<int>& cores) {
+inline SystemCoreAllocation coreAllocationFor(absl::Span<const int> cores) {
   const size_t numCores = cores.size();
   SystemCoreAllocation alloc;
   // LINT.IfChange(viewer_cores)
@@ -187,10 +189,10 @@ inline SystemCoreAllocation coreAllocationFor(const std::vector<int>& cores) {
     appendCores(cores, kSmallTierMrtEnd, numCores, alloc.mpcCores);
   } else {
     // Under 4 cores: do not restrict
-    alloc.simCores = cores;
-    alloc.mrtCores = cores;
-    alloc.mpcCores = cores;
-    alloc.viewerCores = cores;
+    alloc.simCores.assign(cores.begin(), cores.end());
+    alloc.mrtCores = alloc.simCores;
+    alloc.mpcCores = alloc.simCores;
+    alloc.viewerCores = alloc.simCores;
   }
   if (alloc.viewerCores.empty()) alloc.viewerCores = alloc.simCores;
   // LINT.ThenChange(//robot_runtime/mujoco_sim_interface/test/testWebViewerSimRate.cpp:default_placements)

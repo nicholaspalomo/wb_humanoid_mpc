@@ -34,10 +34,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "Eigen/Core"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
@@ -93,7 +93,7 @@ struct RobotFeatureSettings {
 absl::StatusOr<std::unique_ptr<ContactFeatureFunction>> robotContactFeatures(
     const PinocchioInterface& pinocchio,
     const CentroidalModelInfo& info,
-    const std::vector<RobotFeatureCandidate>& candidates,
+    absl::Span<const RobotFeatureCandidate> candidates,
     const TerrainModel& terrain,
     const RobotFeatureSettings& settings,
     const FeatureLibrarySettings& library);

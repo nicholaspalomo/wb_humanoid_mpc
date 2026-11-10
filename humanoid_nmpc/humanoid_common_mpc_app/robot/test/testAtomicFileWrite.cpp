@@ -60,16 +60,16 @@ std::string scratch(absl::string_view name) {
   return directory.string();
 }
 
-std::string contentsOf(const std::string& path) {
-  std::ifstream file(path);
+std::string contentsOf(absl::string_view path) {
+  std::ifstream file{std::filesystem::path(path)};
   return std::string(std::istreambuf_iterator<char>(file),
                      std::istreambuf_iterator<char>());
 }
 
 /** Whether `directory` holds anything but `name`. */
-bool holdsOnly(const std::string& directory, absl::string_view name) {
+bool holdsOnly(absl::string_view directory, absl::string_view name) {
   for (const std::filesystem::directory_entry& entry :
-       std::filesystem::directory_iterator(directory)) {
+       std::filesystem::directory_iterator(std::filesystem::path(directory))) {
     if (entry.path().filename() != std::string(name)) return false;
   }
   return true;

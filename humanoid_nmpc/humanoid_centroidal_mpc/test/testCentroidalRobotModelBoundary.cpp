@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/Types.h"
@@ -459,7 +460,7 @@ void expectSlerpedAttitudeAndLinearRows(
     const MpcRobotModelBase<scalar_t>& model,
     const StateManifold& manifold,
     const TargetTrajectories& targets,
-    const std::vector<scalar_t>& times) {
+    absl::Span<const scalar_t> times) {
   const Eigen::Index orientationStart =
       static_cast<Eigen::Index>(model.getBaseOrientationStartIndex());
   const vector_t& first = targets.stateTrajectory.front();

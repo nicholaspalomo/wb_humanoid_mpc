@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
@@ -138,7 +140,7 @@ struct HipYawRange {
  * contain 0.
  */
 HipYawRange deriveHipYawRange(const PinocchioInterface::Model& model,
-                              const std::string& contactParentJointName);
+                              absl::string_view contactParentJointName);
 
 /**
  * Derives the planner's model parameters from the robot model and the ground
@@ -168,7 +170,7 @@ ContactPlanningModelParameters deriveContactPlanningModelParameters(
     PinocchioInterface& pinocchioInterface,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     const vector_t& nominalState,
-    const std::vector<std::string>& contactParentJointNames,
+    absl::Span<const std::string> contactParentJointNames,
     size_t numContacts,
     const ContactPlanningGroundParameters& ground);
 

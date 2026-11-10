@@ -30,13 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
-#include <map>
 #include <random>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/btree_map.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
@@ -248,8 +248,8 @@ TEST(SwingTrajectoryContinuity, ShippedRunGaits) {
   ASSERT_FALSE(gaitFile.empty()) << kGaitFile << " is not in the runfiles";
   const absl::StatusOr<mpc_config::GaitFile> file = loadGaitFile(gaitFile);
   ASSERT_TRUE(file.ok()) << file.status();
-  const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits =
-      gaitMapFromConfig(*file);
+  const absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+      gaits = gaitMapFromConfig(*file);
   ASSERT_TRUE(gaits.ok()) << gaits.status();
   for (const std::string& name :
        {std::string("run"), std::string("fast_run")}) {

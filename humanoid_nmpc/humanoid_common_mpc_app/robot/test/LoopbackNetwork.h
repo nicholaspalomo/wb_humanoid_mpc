@@ -29,13 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <functional>
 #include <memory>
 #include <string>
-#include <vector>
 
+#include "absl/functional/function_ref.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 
 #include "robot_ipc/Bus.h"
 #include "robot_ipc/NetworkConfig.h"
@@ -49,15 +50,15 @@ namespace ocs2::humanoid::test_support {
  * read it (--network_config).
  */
 absl::StatusOr<robot::ipc::NetworkConfig> writeLoopbackNetworkFile(
-    const std::string& path, const std::vector<std::string>& nodes);
+    absl::string_view path, absl::Span<const std::string> nodes);
 
 /** A bus of `network` that publishes as `node`, with a short IO poll period.
  * CHECK-fails when it cannot be created. */
 std::unique_ptr<robot::ipc::Bus> createBus(
-    const robot::ipc::NetworkConfig& network, const std::string& node);
+    const robot::ipc::NetworkConfig& network, absl::string_view node);
 
 /** Polls `condition` every 5 ms until it holds or `timeout` passes; whether it
  * held. */
-bool waitFor(const std::function<bool()>& condition, absl::Duration timeout);
+bool waitFor(absl::FunctionRef<bool()> condition, absl::Duration timeout);
 
 }  // namespace ocs2::humanoid::test_support

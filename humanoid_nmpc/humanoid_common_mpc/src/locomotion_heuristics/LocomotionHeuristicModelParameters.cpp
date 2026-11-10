@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
@@ -88,7 +89,7 @@ std::vector<size_t> hipWalkContactsOf(const ModelSettings& modelSettings) {
  * to the base at `posBaseRtWorldEwrtWorldXy` [m], in the heading frame of the
  * base yaw `yawBaseRtWorld` [rad]. */
 std::vector<vector2_t> computePosContactsRtBaseEwrtHeadingXy(
-    const std::vector<vector3_t>& posContactsRtWorldEwrtWorld,
+    absl::Span<const vector3_t> posContactsRtWorldEwrtWorld,
     const vector2_t& posBaseRtWorldEwrtWorldXy,
     scalar_t yawBaseRtWorld) {
   std::vector<vector2_t> posContactsRtBaseEwrtHeadingXy;
@@ -167,7 +168,7 @@ absl::StatusOr<std::vector<vector2_t>> computePosHipsRtBaseEwrtHeadingXy(
     const pinocchio::Model& model,
     const pinocchio::Data& data,
     const ModelSettings& modelSettings,
-    const std::vector<vector3_t>& posContactsRtWorldEwrtWorld,
+    absl::Span<const vector3_t> posContactsRtWorldEwrtWorld,
     const vector2_t& posBaseRtWorldEwrtWorldXy,
     scalar_t yawBaseRtWorld) {
   const std::vector<size_t> hipWalkContacts = hipWalkContactsOf(modelSettings);

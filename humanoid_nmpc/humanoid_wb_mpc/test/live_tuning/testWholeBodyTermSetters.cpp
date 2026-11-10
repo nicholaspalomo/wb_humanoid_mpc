@@ -40,6 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/PreComputation.h"
@@ -83,7 +85,7 @@ constexpr size_t kNumPoints = 10;
 void expectSameQuadraticApproximation(
     const ScalarFunctionQuadraticApproximation& expected,
     const ScalarFunctionQuadraticApproximation& actual,
-    const std::string& where) {
+    absl::string_view where) {
   EXPECT_EQ(expected.f, actual.f) << where;
   EXPECT_TRUE(expected.dfdx == actual.dfdx) << where;
   EXPECT_TRUE(expected.dfdu == actual.dfdu) << where;
@@ -95,7 +97,7 @@ void expectSameQuadraticApproximation(
 void expectSameLinearApproximation(
     const VectorFunctionLinearApproximation& expected,
     const VectorFunctionLinearApproximation& actual,
-    const std::string& where) {
+    absl::string_view where) {
   EXPECT_TRUE(expected.f == actual.f) << where;
   EXPECT_TRUE(expected.dfdx == actual.dfdx) << where;
   EXPECT_TRUE(expected.dfdu == actual.dfdu) << where;
@@ -105,7 +107,7 @@ void expectSameLinearApproximation(
  * approximation at every point. */
 void expectSameCost(const StateInputCost& fresh,
                     const StateInputCost& retuned,
-                    const std::vector<EvaluationPoint>& points) {
+                    absl::Span<const EvaluationPoint> points) {
   const TargetTrajectories target;
   const PreComputation preComputation;
   for (size_t i = 0; i < points.size(); ++i) {
@@ -369,7 +371,7 @@ FootDynamics footDynamicsOf(WBMpcInterface& interface, size_t foot) {
  * at every point. */
 void expectSameConstraint(const StateInputConstraint& expected,
                           const StateInputConstraint& actual,
-                          const std::vector<EvaluationPoint>& points) {
+                          absl::Span<const EvaluationPoint> points) {
   const PreComputation preComputation;
   for (size_t i = 0; i < points.size(); ++i) {
     const EvaluationPoint& point = points[i];
@@ -433,7 +435,7 @@ TEST(WholeBodyTermSetters,
 
 void expectSameSwingConfigs(const WBMpcPreComputation& expected,
                             const WBMpcPreComputation& actual,
-                            const std::string& where) {
+                            absl::string_view where) {
   for (size_t foot = 0; foot < kNumFeet; ++foot) {
     const EndEffectorDynamicsLinearAccConstraint::Config& e =
         expected.getEeNormalAccelerationConstraintConfigs()[foot];

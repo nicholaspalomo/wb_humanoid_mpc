@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 
 #include "absl/base/nullability.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/control/LinearController.h"
 #include "ocs2_core/control/ManifoldLinearController.h"
@@ -158,7 +159,7 @@ class RealtimePolicyEvaluator {
   /** interpolateStateTrajectory(stateManifold_, ...) of the policy's state
    * trajectory at `segment`, into `mpcState`. */
   void interpolatePlanState(const LinearInterpolation::index_alpha_t& segment,
-                            const vector_array_t& stateTrajectory,
+                            absl::Span<const vector_t> stateTrajectory,
                             vector_t& mpcState);
 
   const ModelDimensions dimensions_;

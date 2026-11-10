@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
@@ -109,7 +110,7 @@ std::vector<int> allowedCores() {
   return cores;
 }
 
-bool pin(pthread_t thread, const std::vector<int>& cores) {
+bool pin(pthread_t thread, absl::Span<const int> cores) {
   cpu_set_t set;
   CPU_ZERO(&set);
   for (const int core : cores) CPU_SET(core, &set);

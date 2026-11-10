@@ -106,7 +106,7 @@ class EglLibrary {
       : soname_(std::move(soname)), functions_(functions) {}
 
   /** Loads `soname` and resolves its entry points (Get()). */
-  static absl::StatusOr<Functions> load(const std::string& soname);
+  static absl::StatusOr<Functions> load(absl::string_view soname);
 
   std::string soname_;
   Functions functions_;

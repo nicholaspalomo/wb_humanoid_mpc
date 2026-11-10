@@ -36,6 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/ContactMask.h"
@@ -120,9 +122,9 @@ constexpr size_t kFourContacts = 4;
  * the robot's weight. */
 constexpr int kSettleSteps = 200;
 
-std::string writeTempFile(const std::string& name,
+std::string writeTempFile(absl::string_view name,
                           const char* absl_nonnull content) {
-  const std::string path = testing::TempDir() + "/" + name;
+  const std::string path = absl::StrCat(testing::TempDir(), "/", name);
   std::ofstream(path) << content;
   return path;
 }
@@ -140,7 +142,7 @@ class CountingSink final : public ControllerEventSink {
 /** The simulator of kFourFootScene with `contactFrameNames` as its contact
  * points, headless and without a gantry. */
 std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> makeSim(
-    const std::vector<std::string>& contactFrameNames) {
+    std::vector<std::string> contactFrameNames) {
   robot::mujoco_sim_interface::MujocoSimConfig config;
   config.scenePath = writeTempFile("four_foot_scene.xml", kFourFootScene);
   config.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
@@ -149,7 +151,7 @@ std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> makeSim(
   config.dt = kTimestep;
   config.renderFrequencyHz = 1.0 / kTimestep;
   config.ragdollJointDamping = 0.0;
-  config.contactFrameNames = contactFrameNames;
+  config.contactFrameNames = std::move(contactFrameNames);
   absl::StatusOr<
       std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface>>
       sim = robot::mujoco_sim_interface::MujocoSimInterface::Create(

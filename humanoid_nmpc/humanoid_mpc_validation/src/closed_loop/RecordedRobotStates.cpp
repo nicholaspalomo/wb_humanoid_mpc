@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/common/ContactArray.h"
@@ -131,7 +132,7 @@ RobotStateRecord recordRobotState(
 
 absl::StatusOr<robot::model::RobotState> toRobotState(
     const RobotStateRecord& record,
-    const std::vector<std::string>& jointNames,
+    absl::Span<const std::string> jointNames,
     const robot::model::RobotDescription& description,
     size_t numContacts) {
   if (record.contactFlags.size() != numContacts) {

@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_format.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 #include "ocs2_sqp/SqpSettings.h"
@@ -121,7 +122,7 @@ absl::StatusOr<StageSolution> solveStage(const ContinuationProblem& problem,
 absl::StatusOr<std::vector<StageSolution>> solveContinuation(
     const ContinuationProblem& problem,
     const GuessTrajectory& guess,
-    const std::vector<ContinuationStage>& stages) {
+    absl::Span<const ContinuationStage> stages) {
   std::vector<StageSolution> solutions;
   GuessTrajectory current = guess;
   for (const ContinuationStage& stage : stages) {

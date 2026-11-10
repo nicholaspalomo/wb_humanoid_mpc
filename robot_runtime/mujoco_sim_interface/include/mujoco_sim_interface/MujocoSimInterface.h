@@ -36,7 +36,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
@@ -44,9 +43,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Dense"
 #include "absl/base/nullability.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/types/span.h"
 #include "mujoco/mujoco.h"
 #include "ocs2_core/Dimensions.h"
 
@@ -239,7 +241,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
    * robot.
    */
   static absl::StatusOr<std::unique_ptr<MujocoSimInterface>> Create(
-      const MujocoSimConfig& config, const std::string& urdfPath);
+      const MujocoSimConfig& config, absl::string_view urdfPath);
 
   MujocoSimInterface(const MujocoSimInterface&) = delete;
   MujocoSimInterface& operator=(const MujocoSimInterface&) = delete;
@@ -423,7 +425,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   /// Bit i set: no MuJoCo body could be resolved for contact point i (it is
   /// reported as touching, and drawn as unknown).
   uint32_t getUnresolvedContactMask() const { return unresolvedContactMask_; }
-  double getContactTimelineWindow() const { return contactTimeline_.window(); }
+  double getContactTimelineWindow() const { return contactTimelineWindow_; }
   /// Planned contact state from the control thread; an empty vector means
   /// "unknown" (no policy yet).
   void setTargetContactFlags(const std::vector<bool>& flags);
@@ -455,8 +457,9 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   /// Target contact pose of every contact point from the control thread
   /// (MujocoContactPatch.h); an empty vector or invalid entries clear the
-  /// viewer's patches.
-  void setTargetContactPatches(const std::vector<TargetContactPatch>& patches);
+  /// viewer's patches. Copies `patches` into storage it reuses, so a call that
+  /// passes no more patches than the last one does not allocate.
+  void setTargetContactPatches(absl::Span<const TargetContactPatch> patches);
   /// Snapshot of the target patches for the render thread.
   void copyTargetContactPatches(std::vector<TargetContactPatch>& out) const;
 
@@ -811,8 +814,11 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   std::atomic<uint32_t> targetContactMask_{0};
   std::atomic<bool> targetContactKnown_{false};
   std::atomic<uint32_t> groundTruthContactMask_{0};
-  mutable std::mutex contactTimelineMutex_;
-  ContactTimeline contactTimeline_;
+  mutable absl::Mutex contactTimelineMutex_;
+  ContactTimeline contactTimeline_ ABSL_GUARDED_BY(contactTimelineMutex_);
+  /// contactTimeline_.window(), fixed once the contact detection is set up and
+  /// read without the lock.
+  double contactTimelineWindow_ = ContactTimeline().window();
   /// The most samples the timeline holds at once, which copyContactTimeline()
   /// reserves.
   size_t contactTimelineCapacity_ = 0;
@@ -821,10 +827,10 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   std::optional<ContactTimelineSample> pendingTimelineSample_;
   /// See droppedContactTimelineSamples().
   std::atomic<int64_t> droppedTimelineSamples_{0};
-  mutable std::mutex targetPatchMutex_;
-  std::vector<TargetContactPatch>
-      targetContactPatches_;  // written by the control thread, drawn by the
-                              // renderer
+  mutable absl::Mutex targetPatchMutex_;
+  /// Written by the control thread, drawn by the renderer.
+  std::vector<TargetContactPatch> targetContactPatches_
+      ABSL_GUARDED_BY(targetPatchMutex_);
   /// Staged by throwDodgeball(), taken by the simulation thread on its next
   /// step: the newest throw replaces one that was not taken yet. Lock-free, so
   /// that the realtime loop never waits for the physics thread. Separate from

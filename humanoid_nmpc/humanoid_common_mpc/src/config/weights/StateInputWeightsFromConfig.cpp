@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
@@ -233,7 +234,7 @@ class LayoutConversion {
    * (`inThisMpc`), which then requires every joint exactly once; refuses a
    * non-empty list when the MPC does not have it.
    */
-  void placeJoints(const std::vector<mpc_config::JointValue>& entries,
+  void placeJoints(absl::Span<const mpc_config::JointValue> entries,
                    InThisMpc inThisMpc,
                    absl::string_view name,
                    Eigen::Index start) {
@@ -299,7 +300,7 @@ class LayoutConversion {
    */
   void addRepeated(absl::string_view listPath,
                    absl::string_view what,
-                   const std::vector<std::string>& twice) {
+                   absl::Span<const std::string> twice) {
     if (!twice.empty()) {
       addProblem(absl::StrCat(listPath, ": ", absl::StrJoin(twice, ", "),
                               " given more than once (each ", what,
@@ -360,7 +361,7 @@ void placeStateBlock(std::optional<Block> block,
 
 /** Places the joint list `name` of a state at its row of `tuningLayout`, or
  * refuses it when the layout has no such block. */
-void placeStateJoints(const std::vector<mpc_config::JointValue>& entries,
+void placeStateJoints(absl::Span<const mpc_config::JointValue> entries,
                       absl::string_view name,
                       const TuningLayout& tuningLayout,
                       LayoutConversion& conversion) {

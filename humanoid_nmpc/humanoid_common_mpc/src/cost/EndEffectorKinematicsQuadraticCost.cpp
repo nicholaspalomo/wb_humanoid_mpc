@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
@@ -69,7 +70,7 @@ EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(
     const PinocchioInterface& pinocchioInterface,
     const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
     const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-    const std::string& endEffectorName,
+    absl::string_view endEffectorName,
     const ModelSettings& modelSettings,
     const SwitchedModelReferenceManager* absl_nullable referenceManager)
     : StateInputCostGaussNewtonAd(),
@@ -81,7 +82,8 @@ EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(
   LOG(INFO) << "Initialized EndEffectorKinematicsQuadraticCost with weights: "
             << weights.toVector().transpose();
   LOG(INFO) << "Frame name: " << endEffectorName;
-  frameID_ = pinocchioInterface.getModel().getFrameId(endEffectorName);
+  frameID_ =
+      pinocchioInterface.getModel().getFrameId(std::string(endEffectorName));
   LOG(INFO) << "Frame ID: " << frameID_;
   LOG(INFO) << "State dim: " << mpcRobotModelADPtr_->getStateDim();
   LOG(INFO) << "Input dim: " << mpcRobotModelADPtr_->getInputDim();

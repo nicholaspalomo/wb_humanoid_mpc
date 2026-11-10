@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <cstddef>
 #include <filesystem>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -40,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -123,7 +123,7 @@ class MpcParameterUpdaterModule final : public SolverSynchronizedModule {
    * (referenceSettingsFromConfig()), or returns why it refused them.
    */
   using ReferenceFileReloader =
-      std::function<absl::Status(const ReferenceSettings&)>;
+      absl::AnyInvocable<absl::Status(const ReferenceSettings&)>;
 
   /** What the updater reaches, watches and applies with, for Create(). */
   struct Options {
@@ -149,7 +149,7 @@ class MpcParameterUpdaterModule final : public SolverSynchronizedModule {
     // second.
     absl::Duration fileCheckPeriod = absl::Seconds(1);
     // Clock source for file checking; defaults to absl::Now.
-    std::function<absl::Time()> clock;
+    absl::AnyInvocable<absl::Time()> clock;
     // The task file the running problem was built from, which a reload's
     // start-up fields are compared with.
     mpc_config::TaskFile runningTask;
@@ -312,7 +312,7 @@ class MpcParameterUpdaterModule final : public SolverSynchronizedModule {
   std::filesystem::file_time_type referenceFileLastWriteTime_;
   std::vector<ReferenceFileReloader> referenceFileReloaders_;
   absl::Duration fileCheckPeriod_;
-  std::function<absl::Time()> clock_;
+  absl::AnyInvocable<absl::Time()> clock_;
   absl::Time lastFileCheck_ = absl::InfinitePast();
 
   // The update enqueued by enqueueParameterUpdate() and not yet applied;

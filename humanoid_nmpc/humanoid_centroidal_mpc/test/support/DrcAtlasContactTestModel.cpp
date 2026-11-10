@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
@@ -77,9 +78,8 @@ namespace {
 constexpr scalar_t kBracketHalfWidth = 10.0;
 }  // namespace
 
-DrcAtlasContactTestModel::DrcAtlasContactTestModel(
-    const std::string& modelNamePrefix)
-    : modelNamePrefix_(modelNamePrefix) {
+DrcAtlasContactTestModel::DrcAtlasContactTestModel(std::string modelNamePrefix)
+    : modelNamePrefix_(std::move(modelNamePrefix)) {
   const CentroidalRobotFiles files = atlasFiles();
   taskFile_ = files.taskFile;
   referenceFile_ = files.referenceFile;
@@ -194,7 +194,7 @@ DrcAtlasContactTestModel::makeEndEffectorKinematics(size_t contactIndex,
 
 std::unique_ptr<FootprintCornerHeights>
 DrcAtlasContactTestModel::makeCornerHeights(
-    size_t contactIndex, const std::string& modelNameSuffix) const {
+    size_t contactIndex, absl::string_view modelNameSuffix) const {
   const ContactRectangle footprint = contactRectangle(contactIndex);
   std::vector<std::string> cornerFrames;
   cornerFrames.reserve(footprint.getNumberOfContactPoints());

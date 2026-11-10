@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
 #include "nproto/Textproto.h"
@@ -68,8 +69,7 @@ namespace {
 // tree the test runs in.
 constexpr char kScalarsFile[] = "tools/nproto/test/testdata/scalars.textproto";
 
-std::string temporaryFile(const std::string& name,
-                          const std::string& contents) {
+std::string temporaryFile(absl::string_view name, absl::string_view contents) {
   const char* absl_nullable directory = std::getenv("TEST_TMPDIR");
   const std::string path =
       absl::StrCat(directory != nullptr ? directory : "/tmp", "/", name);
@@ -78,7 +78,7 @@ std::string temporaryFile(const std::string& name,
   return path;
 }
 
-void expectInvalid(const absl::Status& status, const std::string& expected) {
+void expectInvalid(const absl::Status& status, absl::string_view expected) {
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
   EXPECT_TRUE(absl::StrContains(status.message(), expected))
       << "'" << status.message() << "' lacks '" << expected << "'";

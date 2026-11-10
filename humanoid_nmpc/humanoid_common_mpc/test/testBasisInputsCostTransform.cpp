@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -93,7 +94,7 @@ std::vector<matrix_t> makeBases(absl::string_view generatorSet,
 
 /** M = blkdiag(B_0, ..., B_{n-1}, I_joints), as
  * BasisInputsModelDecorator::getLocalBasisGeneratorMap builds it. */
-matrix_t makeBasisGeneratorMap(const std::vector<matrix_t>& bases) {
+matrix_t makeBasisGeneratorMap(absl::Span<const matrix_t> bases) {
   const Eigen::Index numBasisPerFoot = bases[0].cols();
   const Eigen::Index numContacts = static_cast<Eigen::Index>(bases.size());
   const Eigen::Index jointDim = static_cast<Eigen::Index>(kJointDim);

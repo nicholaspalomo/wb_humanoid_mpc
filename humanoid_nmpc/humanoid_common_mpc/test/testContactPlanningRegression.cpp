@@ -52,23 +52,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
-#include <functional>
-#include <ios>
-#include <map>
 #include <memory>
-#include <set>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/btree_map.h"
+#include "absl/container/btree_set.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/match.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -185,11 +189,7 @@ struct Fnv {
       h *= 1099511628211ull;
     }
   }
-  std::string hex() const {
-    std::ostringstream out;
-    out << std::hex << h;
-    return out.str();
-  }
+  std::string hex() const { return absl::StrFormat("%x", h); }
 };
 
 /** nnz and hash of the nonzero entries of a matrix, in row-major order. */
@@ -261,16 +261,16 @@ std::string hashRows(const OcpQpStage& s) {
 using Fixture = std::vector<std::pair<std::string, std::string>>;
 
 std::string fixtureText(const Fixture& fixture) {
-  std::ostringstream out;
+  std::string out;
   for (const std::pair<std::string, std::string>& entry : fixture) {
-    out << entry.first << " " << entry.second << "\n";
+    absl::StrAppend(&out, entry.first, " ", entry.second, "\n");
   }
-  return out.str();
+  return out;
 }
 
-Fixture readFixture(const std::string& file) {
+Fixture readFixture(absl::string_view file) {
   Fixture fixture;
-  std::ifstream in(file);
+  std::ifstream in{std::filesystem::path(file)};
   std::string line;
   while (std::getline(in, line)) {
     if (line.empty() || line[0] == '#') continue;
@@ -309,14 +309,14 @@ void checkOrRecord(const char* absl_nonnull name,
   }
   const Fixture recorded = readFixture(path);
   ASSERT_FALSE(recorded.empty()) << "missing or empty fixture " << path;
-  std::map<std::string, std::string> recordedByKey(recorded.begin(),
-                                                   recorded.end());
+  const absl::btree_map<std::string, std::string> recordedByKey(
+      recorded.begin(), recorded.end());
   ASSERT_EQ(recorded.size(), fixture.size())
       << "the fixture " << name << " has a different number of entries";
   for (const std::pair<std::string, std::string>& entry : fixture) {
     const std::string& key = entry.first;
     const std::string& value = entry.second;
-    const std::map<std::string, std::string>::const_iterator it =
+    const absl::btree_map<std::string, std::string>::const_iterator it =
         recordedByKey.find(key);
     ASSERT_NE(it, recordedByKey.end()) << "no recorded entry for " << key;
     EXPECT_EQ(it->second, value)
@@ -325,20 +325,29 @@ void checkOrRecord(const char* absl_nonnull name,
   }
 }
 
-std::string formatNumbers(const std::vector<scalar_t>& values, int precision) {
-  std::ostringstream out;
-  out.precision(precision);
+/** Formats `values` separated by spaces, each as "%.<precision>g". */
+std::string formatNumbers(absl::Span<const scalar_t> values, int precision) {
+  std::string out;
   for (size_t i = 0; i < values.size(); ++i) {
-    out << (i > 0 ? " " : "") << values[i];
+    absl::StrAppend(&out, i > 0 ? " " : "",
+                    absl::StrFormat("%.*g", precision, values[i]));
   }
-  return out.str();
+  return out;
 }
 
-std::vector<scalar_t> parseNumbers(const std::string& text) {
+/** Parses the white-space separated numbers of `text`; a word that is not a
+ * number fails the test and ends the list. */
+std::vector<scalar_t> parseNumbers(absl::string_view text) {
   std::vector<scalar_t> values;
-  std::istringstream in(text);
-  scalar_t v = 0.0;
-  while (in >> v) values.push_back(v);
+  for (absl::string_view word :
+       absl::StrSplit(text, absl::ByAnyChar(" \t\n"), absl::SkipEmpty())) {
+    scalar_t v = 0.0;
+    if (!absl::SimpleAtod(word, &v)) {
+      ADD_FAILURE() << "not a number: '" << word << "' in '" << text << "'";
+      break;
+    }
+    values.push_back(v);
+  }
   return values;
 }
 
@@ -367,17 +376,17 @@ TEST(ContactPlanningRegression, AssembledProblemsMatchTheRecordedFormulation) {
               /*precision=*/12));
       for (size_t k = 0; k < problem.stages.size(); ++k) {
         const OcpQpStage& s = problem.stages[k];
-        const std::string stage = prefix + ".stage" + std::to_string(k);
-        std::ostringstream dims;
-        dims << s.numStates() << " " << s.numInputs() << " "
-             << s.numGeneralConstraints() << " " << s.softGeneralIndices.size();
-        fixture.emplace_back(stage + ".dims", dims.str());
-        const std::function<void(const char* absl_nonnull,
-                                 const std::pair<int, std::string>&)>
+        const std::string stage = absl::StrCat(prefix, ".stage", k);
+        fixture.emplace_back(absl::StrCat(stage, ".dims"),
+                             absl::StrCat(s.numStates(), " ", s.numInputs(),
+                                          " ", s.numGeneralConstraints(), " ",
+                                          s.softGeneralIndices.size()));
+        const absl::AnyInvocable<void(const char* absl_nonnull,
+                                      const std::pair<int, std::string>&) const>
             entry = [&](const char* absl_nonnull what,
                         const std::pair<int, std::string>& h) {
-              fixture.emplace_back(stage + "." + what,
-                                   std::to_string(h.first) + " " + h.second);
+              fixture.emplace_back(absl::StrCat(stage, ".", what),
+                                   absl::StrCat(h.first, " ", h.second));
             };
         entry("Q", hashMatrix(s.Q));
         entry("R", hashMatrix(s.R));
@@ -387,8 +396,8 @@ TEST(ContactPlanningRegression, AssembledProblemsMatchTheRecordedFormulation) {
         entry("A", hashMatrix(s.A));
         entry("B", hashMatrix(s.B));
         entry("b", hashVector(s.b));
-        fixture.emplace_back(stage + ".bounds", std::to_string(s.idxbu.size()) +
-                                                    " " + hashBounds(s));
+        fixture.emplace_back(absl::StrCat(stage, ".bounds"),
+                             absl::StrCat(s.idxbu.size(), " ", hashBounds(s)));
         fixture.emplace_back(stage + ".rows", hashRows(s));
       }
     }
@@ -486,9 +495,9 @@ TEST(ContactPlanningRegression, FeasibleAssignmentsMatchTheRecordedRules) {
         }
       }
       EXPECT_GT(numFeasible, 0) << "case " << c << " input " << inputName;
-      const std::string key = "case" + std::to_string(c) + "." + inputName;
+      const std::string key = absl::StrCat("case", c, ".", inputName);
       fixture.emplace_back(key + ".feasible",
-                           std::to_string(numFeasible) + " " + bitmap);
+                           absl::StrCat(numFeasible, " ", bitmap));
       fixture.emplace_back(key + ".costs", costs.hex());
     }
   }
@@ -639,11 +648,11 @@ bool agrees(const MiqpAssignment& partial, int code) {
 
 /** Records into `audit` every way `propagated` (the result of propagating
  * `before`) contradicts the oracle. */
-void checkPropagation(const std::string& where,
+void checkPropagation(absl::string_view where,
                       const MiqpAssignment& before,
                       bool declaredFeasible,
                       const MiqpAssignment& propagated,
-                      const std::vector<int>& feasible,
+                      absl::Span<const int> feasible,
                       SearchTreeAudit& audit) {
   std::vector<int> completions;
   for (const int code : feasible) {
@@ -701,7 +710,7 @@ SearchTreeAudit auditSearchTree(const LipContactPlanner& planner,
   checkPropagation("root", initial, rootFeasible, root, feasible, audit);
   if (!rootFeasible) return audit;
 
-  std::set<MiqpAssignment> seen{root};
+  absl::btree_set<MiqpAssignment> seen{root};
   std::vector<MiqpAssignment> open{root};
   while (!open.empty()) {
     const MiqpAssignment parent = open.back();
@@ -818,8 +827,8 @@ TEST(ContactPlanningRegression, RecedingHorizonPlansMatchTheRecordedWalks) {
         LipContactPlanner::Create(config));
     ContactPlannerInput input = walking();
     for (int step = 0; step < 8; ++step) {
-      const std::string prefix = std::string(heading ? "heading" : "lip") +
-                                 ".step" + std::to_string(step);
+      const std::string prefix =
+          absl::StrCat(heading ? "heading" : "lip", ".step", step);
       const ContactPlan plan = planner->plan(input);
       ASSERT_TRUE(plan.valid) << prefix;
       std::string contacts;
@@ -887,13 +896,13 @@ TEST(ContactPlanningRegression, RecedingHorizonPlansMatchTheRecordedWalks) {
   }
   const Fixture recorded = readFixture(path);
   ASSERT_FALSE(recorded.empty()) << "missing or empty fixture " << path;
-  std::map<std::string, std::string> recordedByKey(recorded.begin(),
-                                                   recorded.end());
+  const absl::btree_map<std::string, std::string> recordedByKey(
+      recorded.begin(), recorded.end());
   ASSERT_EQ(recorded.size(), fixture.size());
   for (const std::pair<std::string, std::string>& entry : fixture) {
     const std::string& key = entry.first;
     const std::string& value = entry.second;
-    const std::map<std::string, std::string>::const_iterator it =
+    const absl::btree_map<std::string, std::string>::const_iterator it =
         recordedByKey.find(key);
     ASSERT_NE(it, recordedByKey.end()) << "no recorded entry for " << key;
     if (absl::StrContains(key, ".contacts")) {

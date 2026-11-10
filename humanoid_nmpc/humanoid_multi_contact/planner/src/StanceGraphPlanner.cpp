@@ -51,8 +51,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PhysicalConstants.h"
 #include "pinocchio/algorithm/joint-configuration.hpp"
@@ -177,7 +179,7 @@ ContactPlacement placementAt(const RobotStanceModel& model,
 /** Whether `joint` is of the trunk: the free flyer (or the universe), or a
  * joint with two or more children that lead to candidates. */
 bool isTrunk(pinocchio::JointIndex joint,
-             const std::vector<int>& leadingChildren) {
+             absl::Span<const int> leadingChildren) {
   constexpr pinocchio::JointIndex kFreeFlyer = 1;
   return joint <= kFreeFlyer || leadingChildren[joint] > 1;
 }
@@ -424,7 +426,7 @@ class StanceGraphSearch : public LazySearchProblem {
   /** The posture references of a transition from `q`. */
   std::vector<Eigen::VectorXd> referencesFrom(const Eigen::VectorXd& q) const;
   /** Records a failure of a candidate of `parent`. */
-  void recordFailure(int parent, int node, const std::string& failure);
+  void recordFailure(int parent, int node, absl::string_view failure);
 
   PlanningContext& context_;
   std::vector<StanceNode> nodes_;
@@ -688,7 +690,7 @@ std::vector<SearchCandidate> StanceGraphSearch::candidates(int node) {
 
 void StanceGraphSearch::recordFailure(int parent,
                                       int node,
-                                      const std::string& failure) {
+                                      absl::string_view failure) {
   const StanceNode& entry = nodes_[node];
   const ContactSet& contactSet = context_.motion->model().contactSet();
   std::string change;
@@ -1154,7 +1156,7 @@ class PathMotionBuilder {
    * puts seconds later while the pad already rises toward it. */
   void add(const StanceNode& start,
            const StancePlacements& inside,
-           const std::vector<Eigen::VectorXd>& knots,
+           absl::Span<const Eigen::VectorXd> knots,
            const StancePlacements& endStance,
            bool breaksAtStart) {
     MotionSegment segment;
@@ -1190,8 +1192,8 @@ class PathMotionBuilder {
  * motion that brings it (the motion is inside the smaller stance), and broken
  * after the dwell at the end of the motion before the one that leaves it.
  */
-PathMotion pathMotion(const std::vector<StanceNode>& nodes,
-                      const std::vector<int>& path,
+PathMotion pathMotion(absl::Span<const StanceNode> nodes,
+                      absl::Span<const int> path,
                       ContactBreak contactBreak) {
   PathMotionBuilder builder(nodes[path.front()]);
   for (size_t i = 1; i < path.size(); ++i) {
@@ -1211,8 +1213,8 @@ PathMotion pathMotion(const std::vector<StanceNode>& nodes,
  * from the knot that makes the contact to the one that breaks it (or the
  * last). */
 std::vector<config::MultiContactPlan::ContactPhase> phasesOf(
-    const std::vector<config::MultiContactPlan::Knot>& knots,
-    const std::vector<StancePlacements>& stances,
+    absl::Span<const config::MultiContactPlan::Knot> knots,
+    absl::Span<const StancePlacements> stances,
     const ContactSet& contactSet,
     const TerrainModel& terrain) {
   std::vector<config::MultiContactPlan::ContactPhase> phases;
@@ -1383,7 +1385,7 @@ absl::StatusOr<FoundPath> findPath(PlanningContext& context,
  * retiming slowdown. */
 std::vector<double> retimed(std::vector<double> slowdowns,
                             const config::CertifierReport& report,
-                            const std::vector<int>& segmentOfKnot,
+                            absl::Span<const int> segmentOfKnot,
                             const std::vector<bool>& firstOfSegment,
                             const StanceGraphPlannerOptions& options) {
   std::vector<bool> slower(slowdowns.size(),
@@ -1407,8 +1409,8 @@ std::vector<double> retimed(std::vector<double> slowdowns,
  * steps. */
 absl::StatusOr<std::optional<std::string>> sweptCollision(
     StanceMotion& motion,
-    const std::vector<Eigen::VectorXd>& configurations,
-    const std::vector<StancePlacements>& stances) {
+    absl::Span<const Eigen::VectorXd> configurations,
+    absl::Span<const StancePlacements> stances) {
   for (size_t k = 0; k + 1 < configurations.size(); ++k) {
     ASSIGN_OR_RETURN(const std::optional<std::string> sweep,
                      motion.sweptClearance(configurations[k],

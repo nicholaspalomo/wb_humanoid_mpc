@@ -170,8 +170,8 @@ namespace {
  * missing file used to surface as whatever the first reader threw.
  */
 absl::Status checkInputFileExists(absl::string_view what,
-                                  const std::string& path) {
-  if (!std::filesystem::exists(path)) {
+                                  absl::string_view path) {
+  if (!std::filesystem::exists(std::filesystem::path(path))) {
     return absl::NotFoundError(
         absl::StrCat("[CentroidalMpcInterface] ", what, " not found: ", path));
   }
@@ -181,8 +181,8 @@ absl::Status checkInputFileExists(absl::string_view what,
 
 /** checkInputFileExists() of the task and reference files the path forms of
  * Create() read. */
-absl::Status checkConfigFilesExist(const std::string& taskFile,
-                                   const std::string& referenceFile) {
+absl::Status checkConfigFilesExist(absl::string_view taskFile,
+                                   absl::string_view referenceFile) {
   RETURN_IF_ERROR(checkInputFileExists("task file", taskFile));
   return checkInputFileExists("reference file", referenceFile);
 }
@@ -237,11 +237,11 @@ void logConfig(const CentroidalMpcConfig& config) {
 CentroidalMpcInterface::CentroidalMpcInterface(CentroidalMpcConfig config,
                                                ModelSettings modelSettings,
                                                SolverSettings solverSettings,
-                                               const std::string& urdfFile)
+                                               std::string urdfFile)
     : config_(std::move(config)),
       modelSettings_(std::move(modelSettings)),
       solverSettings_(std::move(solverSettings)),
-      urdfFile_(urdfFile),
+      urdfFile_(std::move(urdfFile)),
       verbose_(solverSettings_.verbose) {}
 
 /******************************************************************************************************/
@@ -332,9 +332,9 @@ absl::Status CentroidalMpcInterface::setupModels() {
 /******************************************************************************************************/
 
 absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>>
-CentroidalMpcInterface::Create(const std::string& taskFile,
-                               const std::string& urdfFile,
-                               const std::string& referenceFile) {
+CentroidalMpcInterface::Create(absl::string_view taskFile,
+                               absl::string_view urdfFile,
+                               absl::string_view referenceFile) {
   // The inputs exist before anything reads them.
   RETURN_IF_ERROR(checkConfigFilesExist(taskFile, referenceFile));
   ASSIGN_OR_RETURN(CentroidalMpcConfig config,
@@ -344,13 +344,13 @@ CentroidalMpcInterface::Create(const std::string& taskFile,
 
 absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>>
 CentroidalMpcInterface::Create(CentroidalMpcConfig config,
-                               const std::string& urdfFile) {
+                               absl::string_view urdfFile) {
   return build(std::move(config), urdfFile, Scope::kMpc);
 }
 
 absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>>
 CentroidalMpcInterface::Create(CentroidalMpcConfig config,
-                               const std::string& urdfFile,
+                               absl::string_view urdfFile,
                                MultiContactPlanSource planSource) {
   if (config.task.contact_schedule_source !=
       contactScheduleSourceName(ContactScheduleSource::kMultiContactPlan)) {
@@ -365,9 +365,9 @@ CentroidalMpcInterface::Create(CentroidalMpcConfig config,
 
 absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>>
 CentroidalMpcInterface::CreateControllerModels(
-    const std::string& taskFile,
-    const std::string& urdfFile,
-    const std::string& referenceFile) {
+    absl::string_view taskFile,
+    absl::string_view urdfFile,
+    absl::string_view referenceFile) {
   RETURN_IF_ERROR(checkConfigFilesExist(taskFile, referenceFile));
   ASSIGN_OR_RETURN(CentroidalMpcConfig config,
                    loadCentroidalMpcConfig(taskFile, referenceFile));
@@ -376,14 +376,14 @@ CentroidalMpcInterface::CreateControllerModels(
 
 absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>>
 CentroidalMpcInterface::CreateControllerModels(CentroidalMpcConfig config,
-                                               const std::string& urdfFile) {
+                                               absl::string_view urdfFile) {
   return build(std::move(config), urdfFile, Scope::kControllerModels);
 }
 
 absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>>
 CentroidalMpcInterface::build(
     CentroidalMpcConfig config,
-    const std::string& urdfFile,
+    absl::string_view urdfFile,
     Scope scope,
     std::optional<MultiContactPlanSource> planSource) {
   // The model settings read the URDF.
@@ -402,9 +402,10 @@ CentroidalMpcInterface::build(
   // A contact set other than the biped's two feet refuses, before any model is
   // built, every selection written for exactly two feet.
   RETURN_IF_ERROR(checkCentroidalContactSet(modelSettings, config.task));
-  std::unique_ptr<CentroidalMpcInterface> interface = absl::WrapUnique(
-      new CentroidalMpcInterface(std::move(config), std::move(modelSettings),
-                                 std::move(solverSettings), urdfFile));
+  std::unique_ptr<CentroidalMpcInterface> interface =
+      absl::WrapUnique(new CentroidalMpcInterface(
+          std::move(config), std::move(modelSettings),
+          std::move(solverSettings), std::string(urdfFile)));
   interface->planSource_ = std::move(planSource);
   RETURN_IF_ERROR(catchingModelBuilderExceptions([&]() -> absl::Status {
     // In this order: the robot models first; the reference manager and the

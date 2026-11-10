@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/misc/Collection.h"
 #include "ocs2_core/penalties/penalties/PenaltyBase.h"
@@ -86,15 +87,17 @@ void reportNotApplied(absl::string_view source,
  */
 template <typename Derived, typename Term>
 absl::Status updateTerm(Collection<Term>& collection,
-                        const std::string& name,
+                        absl::string_view name,
                         absl::FunctionRef<void(Derived&)> update) {
+  // Collection looks terms up by const std::string&.
+  const std::string key(name);
   size_t index = 0;
-  if (!collection.getTermIndex(name, index)) {
+  if (!collection.getTermIndex(key, index)) {
     return absl::NotFoundError(
         absl::StrCat("the problem has no term ", name, "."));
   }
   return exceptionsToStatus(
-      [&]() { update(collection.template get<Derived>(name)); });
+      [&]() { update(collection.template get<Derived>(key)); });
 }
 
 /**
@@ -105,7 +108,7 @@ absl::Status updateTerm(Collection<Term>& collection,
  */
 template <typename Derived, typename Term>
 void updateTermIfPresent(Collection<Term>& collection,
-                         const std::string& name,
+                         absl::string_view name,
                          absl::FunctionRef<void(Derived&)> update) {
   const absl::Status status = updateTerm<Derived>(collection, name, update);
   if (!status.ok() && !absl::IsNotFound(status)) {
@@ -115,8 +118,10 @@ void updateTermIfPresent(Collection<Term>& collection,
 
 /** Whether `collection` carries the term `name`. */
 template <typename Term>
-bool carriesTerm(const Collection<Term>& collection, const std::string& name) {
-  return collection.getTermNameMap().contains(name);
+bool carriesTerm(const Collection<Term>& collection, absl::string_view name) {
+  // getTermIndex() rather than getTermNameMap(), which returns a copy.
+  size_t index = 0;
+  return collection.getTermIndex(std::string(name), index);
 }
 
 /** Hands `parameters` to every penalty of `softConstraint`. */
@@ -151,7 +156,7 @@ std::optional<T> convertedOrReported(absl::StatusOr<T> converted,
  * foot constraints to at start-up and on a reload alike.
  */
 void setSoftTermWeight(std::vector<OptimalControlProblem>& problems,
-                       const std::vector<std::string>& contactNames,
+                       absl::Span<const std::string> contactNames,
                        absl::string_view termSuffix,
                        scalar_t weight);
 

@@ -30,7 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <limits>
-#include <vector>
+
+#include "absl/types/span.h"
 
 #include "robot_core/Types.h"
 #include "robot_model/IDMapBase.h"
@@ -57,7 +58,7 @@ class JointIdMap : public IDMapBase<T> {
 
   //  Get a vector of joint properties given a vector of joint IDs
   template <IDMapExtractor<T, scalar_t> Extractor>
-  vector_t toVector(const std::vector<joint_index_t>& jointIds,
+  vector_t toVector(absl::Span<const joint_index_t> jointIds,
                     Extractor valueExtractor,
                     scalar_t defaultValue =
                         std::numeric_limits<scalar_t>::quiet_NaN()) const {
@@ -68,7 +69,7 @@ class JointIdMap : public IDMapBase<T> {
   //  The same into `vector`, resized to jointIds.size(): no allocation once it
   //  has that size.
   template <IDMapExtractor<T, scalar_t> Extractor>
-  void writeVector(const std::vector<joint_index_t>& jointIds,
+  void writeVector(absl::Span<const joint_index_t> jointIds,
                    Extractor valueExtractor,
                    vector_t& vector,
                    scalar_t defaultValue =

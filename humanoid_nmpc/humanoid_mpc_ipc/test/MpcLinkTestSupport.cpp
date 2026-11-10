@@ -32,15 +32,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
-#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -222,7 +223,7 @@ std::unique_ptr<ManifoldScriptedMpc> makeManifoldScriptedMpc(
       mpcSettings(), std::move(stateManifold), kInputDim);
 }
 
-bool waitFor(const std::function<bool()>& condition, absl::Duration timeout) {
+bool waitFor(absl::FunctionRef<bool()> condition, absl::Duration timeout) {
   const absl::Time deadline = absl::Now() + timeout;
   while (absl::Now() < deadline) {
     if (condition()) {
@@ -233,11 +234,12 @@ bool waitFor(const std::function<bool()>& condition, absl::Duration timeout) {
   return condition();
 }
 
-std::unique_ptr<robot::ipc::Bus> createNodeBus(const std::string& name,
+std::unique_ptr<robot::ipc::Bus> createNodeBus(absl::string_view name,
                                                int domainIndex) {
   robot::ipc::BusOptions options;
-  options.nodeName = name;
-  options.network = robot::ipc::isolatedTestNetwork({name}, domainIndex);
+  options.nodeName = std::string(name);
+  options.network =
+      robot::ipc::isolatedTestNetwork({options.nodeName}, domainIndex);
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
       robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());

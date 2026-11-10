@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <vector>
 
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
@@ -104,7 +105,7 @@ void ContactPlanningContext::computeAxes() {
 }
 
 HeadingNominal nominalFromSolution(const Layout& layout,
-                                   const std::vector<vector_t>& x) {
+                                   absl::Span<const vector_t> x) {
   HeadingNominal nominal;
   const size_t n = x.size();
   nominal.nomHeadingModelYawTraj.resize(n);

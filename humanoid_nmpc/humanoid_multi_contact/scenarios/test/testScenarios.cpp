@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -81,7 +82,7 @@ const std::vector<ExpectedScenario>& expectedScenarios() {
   return *kScenarios;
 }
 
-absl::StatusOr<LoadedScenario> loadNamedScenario(const std::string& name) {
+absl::StatusOr<LoadedScenario> loadNamedScenario(absl::string_view name) {
   ASSIGN_OR_RETURN(const std::string path,
                    robot::resolveResourcePath(
                        absl::StrCat(kScenarioDirectory, name, ".textproto")));
@@ -102,7 +103,7 @@ absl::StatusOr<config::CertifierReport::Knot> certifyPosture(
 }
 
 void expectStable(const config::CertifierReport::Knot& knot,
-                  const std::string& what) {
+                  absl::string_view what) {
   SCOPED_TRACE(what);
   EXPECT_TRUE(knot.passed) << absl::StrJoin(knot.failures, "; ");
   EXPECT_TRUE(knot.dynamic_condition);
@@ -310,7 +311,7 @@ TEST(ScenariosTest, AKneelingWaypointRestsTheEndOfItsThighBesideTheKnee) {
 
 void expectRefused(const LoadedScenario& loaded,
                    const config::Scenario& scenario,
-                   const std::string& message) {
+                   absl::string_view message) {
   const absl::Status status =
       validateScenario(scenario, loaded.contactSet, loaded.terrain);
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);

@@ -30,12 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <cstddef>
-#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 
@@ -106,7 +106,8 @@ struct RobotConfigurationCheckContext {
    * the whole-body MPC, its feedforward). Empty: none - the set-up builds the
    * models itself, through the same function.
    */
-  std::function<absl::Status(const RobotConfigFiles& files)> checkFormulation;
+  absl::AnyInvocable<absl::Status(const RobotConfigFiles& files) const>
+      checkFormulation;
 };
 
 /**

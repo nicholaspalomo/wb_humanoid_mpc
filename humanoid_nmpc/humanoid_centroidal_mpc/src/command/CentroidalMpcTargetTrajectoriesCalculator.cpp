@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <memory>
 #include <optional>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -41,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
@@ -70,7 +70,7 @@ constexpr scalar_t kMaxJointFilterTimeGap = 0.1;
 
 absl::StatusOr<std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>>
 CentroidalMpcTargetTrajectoriesCalculator::Create(
-    const std::string& referenceFile,
+    absl::string_view referenceFile,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     PinocchioInterface pinocchioInterface,
     scalar_t mpcHorizon) {

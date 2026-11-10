@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "pinocchio/multibody/fwd.hpp"
 
@@ -410,7 +411,7 @@ std::vector<PadRegion> CollisionModel::activePadRegions(
   return pads;
 }
 
-bool CollisionModel::isExempt(const std::vector<PadRegion>& pads,
+bool CollisionModel::isExempt(absl::Span<const PadRegion> pads,
                               pinocchio::JointIndex joint,
                               const Eigen::Vector3d& posSphereRtWorldEwrtWorld,
                               double radius,
@@ -425,7 +426,7 @@ bool CollisionModel::isExempt(const std::vector<PadRegion>& pads,
 }
 
 double CollisionModel::restingAllowance(
-    const std::vector<PadRegion>& pads,
+    absl::Span<const PadRegion> pads,
     pinocchio::JointIndex joint,
     const Eigen::Vector3d& posSphereRtWorldEwrtWorld,
     double radius,

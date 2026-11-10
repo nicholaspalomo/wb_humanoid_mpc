@@ -629,7 +629,7 @@ TEST_F(MpcServerTest,
   config.resetSupervisor.initialRetryInterval = 0.05;
   config.resetSupervisor.maxRetryInterval = 0.1;
   std::atomic<bool> resetFails{false};
-  const MpcServer::ResetTargetTrajectoriesFunction resetTargets =
+  MpcServer::ResetTargetTrajectoriesFunction resetTargets =
       [&resetFails](const SystemObservation& observation)
       -> absl::StatusOr<TargetTrajectories> {
     if (resetFails.load()) {
@@ -637,7 +637,8 @@ TEST_F(MpcServerTest,
     }
     return resetTargetsFor(observation);
   };
-  build(config, MpcServer::Hooks(), test_support::mpcSettings(), resetTargets);
+  build(config, MpcServer::Hooks(), test_support::mpcSettings(),
+        std::move(resetTargets));
   warmUp();
 
   // A reset the robot asks for and the server cannot make: the request stays

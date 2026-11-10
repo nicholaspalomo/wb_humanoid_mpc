@@ -342,7 +342,7 @@ void MpcParameterUpdaterModule::reloadReferenceFile() {
     return;
   }
   bool refused = false;
-  for (const ReferenceFileReloader& reload : referenceFileReloaders_) {
+  for (ReferenceFileReloader& reload : referenceFileReloaders_) {
     // A reloader that refuses the limits leaves the others to run.
     if (const absl::Status status = reload(*settings); !status.ok()) {
       LOG(WARNING) << "[MpcParameterUpdaterModule] Failed to reload "

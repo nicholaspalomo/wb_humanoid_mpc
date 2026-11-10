@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_core/Dimensions.h"
@@ -90,8 +91,8 @@ TerrainClearanceConstraint::TerrainClearanceConstraint(
     std::vector<ClearanceSphere> spheres,
     const TerrainModel& terrain,
     scalar_t margin,
-    const std::string& libraryName,
-    const std::string& folder,
+    absl::string_view libraryName,
+    absl::string_view folder,
     bool recompile,
     bool verbose)
     : StateConstraintCppAd(ConstraintOrder::Linear),
@@ -100,8 +101,8 @@ TerrainClearanceConstraint::TerrainClearanceConstraint(
       spheres_(std::move(spheres)),
       terrain_(terrain),
       margin_(margin) {
-  initialize(info.stateDim, /*parameterDim=*/0, libraryName, folder, recompile,
-             verbose);
+  initialize(info.stateDim, /*parameterDim=*/0, std::string(libraryName),
+             std::string(folder), recompile, verbose);
 }
 
 ad_vector_t TerrainClearanceConstraint::constraintFunction(

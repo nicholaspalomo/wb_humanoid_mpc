@@ -30,9 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <string>
-
 #include "absl/base/nullability.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/dynamics/SystemDynamicsBaseAD.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
@@ -63,7 +62,7 @@ class WBAccelDynamicsAD final : public SystemDynamicsBaseAD {
   WBAccelDynamicsAD(
       const PinocchioInterface& pinocchioInterface,
       const WBAccelMpcRobotModel<ad_scalar_t>* absl_nonnull mpcRobotModel,
-      const std::string& modelName,
+      absl::string_view modelName,
       const ModelSettings& modelSettings);
 
   ~WBAccelDynamicsAD() override = default;

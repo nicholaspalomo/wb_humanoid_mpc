@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
@@ -95,7 +96,7 @@ class EndEffectorDynamics {
    */
   virtual std::vector<vector3_t> getTiltEesRtSurfaceEwrtWorld(
       const vector_t& state,
-      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const = 0;
+      absl::Span<const vector3_t> normalSurfacesEwrtWorld) const = 0;
 
   /**
    * Returns, per end effector, the rate of its pose with respect to the plane
@@ -118,7 +119,7 @@ class EndEffectorDynamics {
   virtual std::vector<vector6_t> getXeeRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const = 0;
+      absl::Span<const vector3_t> normalSurfacesEwrtWorld) const = 0;
 
   /**
    * Returns, per end effector, the time derivative of getXeeRate()
@@ -135,7 +136,7 @@ class EndEffectorDynamics {
   virtual std::vector<vector6_t> getXeeSecondRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const = 0;
+      absl::Span<const vector3_t> normalSurfacesEwrtWorld) const = 0;
 
   /** Returns the linear approximations of getPosEesRtWorldEwrtWorld() in the
    * state. */
@@ -157,7 +158,7 @@ class EndEffectorDynamics {
   virtual std::vector<VectorFunctionLinearApproximation>
   getLinearApproximationTiltEesRtSurfaceEwrtWorld(
       const vector_t& state,
-      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const = 0;
+      absl::Span<const vector3_t> normalSurfacesEwrtWorld) const = 0;
 
   /** Returns the linear approximations of getXeeRate(), whose values
    * they hold. */
@@ -165,7 +166,7 @@ class EndEffectorDynamics {
   getLinearApproximationXeeRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const = 0;
+      absl::Span<const vector3_t> normalSurfacesEwrtWorld) const = 0;
 
   /** Returns the linear approximations of getXeeSecondRate(), whose
    * values they hold. */
@@ -173,7 +174,7 @@ class EndEffectorDynamics {
   getLinearApproximationXeeSecondRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const = 0;
+      absl::Span<const vector3_t> normalSurfacesEwrtWorld) const = 0;
 
  protected:
   // For the clone() of a derived class.

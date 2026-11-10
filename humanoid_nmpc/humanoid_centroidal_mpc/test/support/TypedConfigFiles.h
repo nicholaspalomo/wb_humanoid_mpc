@@ -123,7 +123,7 @@ std::string contactPlanningFileText(
 
 /** Writes `text` to `path`, replacing the file; Internal naming the path when
  * it cannot be written. */
-absl::Status writeTextFile(const std::string& path, absl::string_view text);
+absl::Status writeTextFile(absl::string_view path, absl::string_view text);
 
 /**
  * Writes the configuration `config` into the directory `directory` (created if
@@ -132,8 +132,8 @@ absl::Status writeTextFile(const std::string& path, absl::string_view text);
  * Returns the paths of the task and reference files with `urdfFile`.
  */
 absl::StatusOr<CentroidalRobotFiles> writeConfig(
-    const std::string& directory,
+    absl::string_view directory,
     const CentroidalMpcConfig& config,
-    const std::string& urdfFile);
+    std::string urdfFile);
 
 }  // namespace ocs2::humanoid

@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Core"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_multi_contact/collision/collision_model.nproto.h"
@@ -215,7 +216,7 @@ class CollisionModel {
   /** Whether a sphere on the link of `joint` at `posSphereRtWorldEwrtWorld` of
    * `radius` lies within `neighborhood` of one of `pads` that exempts that
    * link. */
-  static bool isExempt(const std::vector<PadRegion>& pads,
+  static bool isExempt(absl::Span<const PadRegion> pads,
                        pinocchio::JointIndex joint,
                        const Eigen::Vector3d& posSphereRtWorldEwrtWorld,
                        double radius,
@@ -226,7 +227,7 @@ class CollisionModel {
    * kRestingLinkDepth when one of them lists the joint among its restingJoints
    * and the sphere is within `neighborhood` of it, else 0. */
   static double restingAllowance(
-      const std::vector<PadRegion>& pads,
+      absl::Span<const PadRegion> pads,
       pinocchio::JointIndex joint,
       const Eigen::Vector3d& posSphereRtWorldEwrtWorld,
       double radius,

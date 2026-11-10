@@ -34,10 +34,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <memory>
 #include <optional>
-#include <string>
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
@@ -239,7 +239,7 @@ class HumanoidCostConstraintFactory {
   /** The center-of-pressure constraint of a contact: its sole and
    * contacts.contact_moment_xy_soft_constraint. */
   absl::StatusOr<std::unique_ptr<StateInputCost>> makeContactMomentXYConstraint(
-      size_t contactPointIndex, const std::string& name) const;
+      size_t contactPointIndex, absl::string_view name) const;
 
   /**
    * The contact wrench cone of one foot as a soft constraint: the ground and

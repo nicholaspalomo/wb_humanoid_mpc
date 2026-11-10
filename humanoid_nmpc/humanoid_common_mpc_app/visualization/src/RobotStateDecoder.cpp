@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
@@ -113,7 +114,7 @@ scalar_t appliedEffort(const msgs::RobotStateSample& sample, int index) {
 
 /** For each of `names`, its index in `sampleIndices`, or -1. */
 void lookUpJoints(const absl::flat_hash_map<std::string, int>& sampleIndices,
-                  const std::vector<std::string>& names,
+                  absl::Span<const std::string> names,
                   std::vector<int>* absl_nonnull indices) {
   indices->assign(names.size(), -1);
   for (size_t joint = 0; joint < names.size(); ++joint) {
@@ -150,7 +151,7 @@ RobotStateDecoder::RobotStateDecoder(
           vector_t::Zero(static_cast<Eigen::Index>(mpcJointNames_.size()))) {}
 
 void RobotStateDecoder::updateJointIndices(
-    const std::vector<std::string>& sampleJointNames) {
+    absl::Span<const std::string> sampleJointNames) {
   if (hasJointIndices_ && sampleJointNames == sampleJointNames_) {
     return;
   }
@@ -160,7 +161,7 @@ void RobotStateDecoder::updateJointIndices(
   }
   lookUpJoints(sampleIndices, fullJointNames_, &fullJointToSample_);
   lookUpJoints(sampleIndices, mpcJointNames_, &mpcJointToSample_);
-  sampleJointNames_ = sampleJointNames;
+  sampleJointNames_.assign(sampleJointNames.begin(), sampleJointNames.end());
   hasJointIndices_ = true;
 }
 

@@ -31,18 +31,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <cstddef>
-#include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "Eigen/Core"
+#include "absl/container/btree_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
@@ -60,7 +61,7 @@ namespace {
 /** The mode numbers of the mode names `names` on the contact set `layout`
  * (parseModeNumber()), at least one, the field `path`.mode_sequence. */
 absl::StatusOr<std::vector<size_t>> modeNumbers(
-    const std::vector<std::string>& names,
+    absl::Span<const std::string> names,
     absl::string_view path,
     const GaitModeLayout& layout) {
   if (names.empty()) {
@@ -143,8 +144,9 @@ absl::StatusOr<ModeSchedule> modeScheduleFromConfig(
   return ModeSchedule(std::move(eventTimes), std::move(modes));
 }
 
-absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaitMapFromConfig(
-    const mpc_config::GaitFile& file, const GaitModeLayout& layout) {
+absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+gaitMapFromConfig(const mpc_config::GaitFile& file,
+                  const GaitModeLayout& layout) {
   absl::flat_hash_set<std::string> listed;
   for (const std::string& name : file.gait_list) {
     if (!listed.insert(name).second) {
@@ -152,7 +154,7 @@ absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaitMapFromConfig(
           absl::StrCat("gait_list names the gait '", name, "' more than once"));
     }
   }
-  std::map<std::string, ModeSequenceTemplate> gaits;
+  absl::btree_map<std::string, ModeSequenceTemplate> gaits;
   for (size_t i = 0; i < file.gaits.size(); ++i) {
     const mpc_config::ModeSequenceTemplateConfig& gait = file.gaits[i];
     if (gait.name.empty()) {

@@ -77,7 +77,7 @@ class VisualizationConfigTest : public ::testing::Test {
 
   /** `text`, below the header that names the schema, written to a task file of
    * its own in the test's temporary directory; its path. */
-  static std::string writeTaskFile(const std::string& text) {
+  static std::string writeTaskFile(absl::string_view text) {
     const char* absl_nullable directory = std::getenv("TEST_TMPDIR");
     const std::string file =
         absl::StrCat(directory != nullptr ? directory : "/tmp",
@@ -89,13 +89,13 @@ class VisualizationConfigTest : public ::testing::Test {
   }
 
   /** The visualization settings of a task file whose whole text is `text`. */
-  absl::StatusOr<VisualizationConfig> load(const std::string& text) const {
+  absl::StatusOr<VisualizationConfig> load(absl::string_view text) const {
     return loadVisualizationConfig(writeTaskFile(text),
                                    robot_->modelSettings());
   }
 
   /** `text` refused by the conversion, naming the task file and `field`. */
-  void expectRefused(const std::string& text, absl::string_view field) const {
+  void expectRefused(absl::string_view text, absl::string_view field) const {
     const absl::StatusOr<VisualizationConfig> config = load(text);
     ASSERT_FALSE(config.ok()) << text;
     EXPECT_EQ(config.status().code(), absl::StatusCode::kInvalidArgument)
@@ -109,7 +109,7 @@ class VisualizationConfigTest : public ::testing::Test {
 
   /** `text` refused by the strict parser where it is written: on its first
    * line. */
-  void expectNotParsed(const std::string& text) const {
+  void expectNotParsed(absl::string_view text) const {
     const absl::StatusOr<VisualizationConfig> config = load(text);
     ASSERT_FALSE(config.ok()) << text;
     EXPECT_EQ(config.status().code(), absl::StatusCode::kInvalidArgument)

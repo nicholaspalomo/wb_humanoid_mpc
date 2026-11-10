@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PhysicalConstants.h"
@@ -405,7 +406,7 @@ TEST(PlannedMotionReferenceManager, swingsAContactFromWhereItLiftedOff) {
 /** [m] Where the plan of `motion` has the frame `frame` at plan time `time`. */
 vector3_t computePlannedPosLinkRtWorldEwrtWorld(CentroidalMpcInterface& models,
                                                 const PlannedMotion& motion,
-                                                const std::string& frame,
+                                                absl::string_view frame,
                                                 scalar_t time) {
   const MpcRobotModelBase<scalar_t>& model = models.getMpcRobotModel();
   PinocchioInterface pinocchio = models.getPinocchioInterface();
@@ -413,9 +414,9 @@ vector3_t computePlannedPosLinkRtWorldEwrtWorld(CentroidalMpcInterface& models,
       pinocchio.getModel(), pinocchio.getData(),
       model.getGeneralizedCoordinates(
           model.getDesiredState(motion.targets(), time)));
-  return pinocchio::updateFramePlacement(pinocchio.getModel(),
-                                         pinocchio.getData(),
-                                         pinocchio.getModel().getFrameId(frame))
+  return pinocchio::updateFramePlacement(
+             pinocchio.getModel(), pinocchio.getData(),
+             pinocchio.getModel().getFrameId(std::string(frame)))
       .translation();
 }
 

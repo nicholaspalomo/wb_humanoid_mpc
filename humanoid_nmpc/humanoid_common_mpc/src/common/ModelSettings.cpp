@@ -102,9 +102,9 @@ ModelSettings::contactImplicitKeys() {
 }
 
 absl::StatusOr<ModelSettings> ModelSettings::Create(
-    const std::string& configFile,
-    const std::string& urdfFile,
-    const std::string& mpcName,
+    absl::string_view configFile,
+    absl::string_view urdfFile,
+    absl::string_view mpcName,
     bool verbose) {
   ASSIGN_OR_RETURN(const mpc_config::TaskFile taskFile,
                    loadTaskFile(configFile));
@@ -139,7 +139,7 @@ class LayoutHash {
       hash_ *= nproto::kFnvPrime;
     }
   }
-  void addStrings(const std::vector<std::string>& texts) {
+  void addStrings(absl::Span<const std::string> texts) {
     addWord(texts.size());
     for (const std::string& text : texts) addString(text);
   }

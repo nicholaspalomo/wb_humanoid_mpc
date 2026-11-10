@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 namespace ocs2::humanoid {
 
@@ -198,7 +199,7 @@ struct ContactPlanningFormulation {
   std::vector<std::string>& list(TermKind kind);
   const std::vector<std::string>& list(TermKind kind) const;
 
-  static bool listed(const std::vector<std::string>& list,
+  static bool listed(absl::Span<const std::string> list,
                      absl::string_view name);
   /** Adds `name` to the end of the list, or removes it, without duplicates. */
   static void setListed(std::vector<std::string>& list,

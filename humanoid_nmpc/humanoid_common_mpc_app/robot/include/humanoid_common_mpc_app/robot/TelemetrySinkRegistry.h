@@ -29,12 +29,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 
@@ -64,8 +64,9 @@ inline constexpr absl::string_view kBusTelemetrySinkName = "bus";
  */
 class TelemetrySinkRegistry {
  public:
-  using Factory = std::function<absl::StatusOr<std::unique_ptr<TelemetrySink>>(
-      const TelemetrySinkContext& context)>;
+  using Factory =
+      absl::AnyInvocable<absl::StatusOr<std::unique_ptr<TelemetrySink>>(
+          const TelemetrySinkContext& context) const>;
 
   /** A registry with the built-in sinks. */
   TelemetrySinkRegistry();

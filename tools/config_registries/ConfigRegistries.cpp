@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/strings/escaping.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
 #include "humanoid_centroidal_mpc/multi_contact/PlanPlayback.h"
@@ -68,9 +69,9 @@ namespace {
 using Registry = mpc_config::ConfigRegistries::Registry;
 
 /** `names` with `name` appended unless it holds it already. */
-void appendOnce(const std::string& name, std::vector<std::string>& names) {
+void appendOnce(absl::string_view name, std::vector<std::string>& names) {
   if (std::find(names.begin(), names.end(), name) == names.end()) {
-    names.push_back(name);
+    names.emplace_back(name);
   }
 }
 

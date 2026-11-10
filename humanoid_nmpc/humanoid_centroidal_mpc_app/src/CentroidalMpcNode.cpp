@@ -133,7 +133,7 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcNode>> CentroidalMpcNode::Create(
       [referenceManager = interface.getSwitchedModelReferenceManagerPtr()]() {
         return referenceManager->getAppliedPosSurfaceRtWorldEwrtWorldZ();
       });
-  const ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories
+  ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories
       targetTrajectoriesFunction =
           [calculator](const vector4_t& velocityCommand, scalar_t initTime,
                        scalar_t /*finalTime*/, const vector_t& initState,
@@ -145,7 +145,7 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcNode>> CentroidalMpcNode::Create(
                    ProceduralMpcMotionManager::Create(
                        files.gaitFile, files.referenceFile,
                        interface.getSwitchedModelReferenceManagerPtr(),
-                       effectiveModel, targetTrajectoriesFunction));
+                       effectiveModel, std::move(targetTrajectoriesFunction)));
   // A reset of the MPC (MPC_BASE::reset()) resets the command path with it: the
   // motion manager itself, and through this hook the target calculator behind
   // targetTrajectoriesFunction, whose filters are its state.

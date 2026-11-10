@@ -31,13 +31,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <functional>
 #include <ios>
 #include <iterator>
 #include <string>
 #include <system_error>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -83,21 +83,21 @@ constexpr char kSaved[] =
     "# proto-message: humanoid_mpc_config.TaskFile\nmodel_settings { "
     "robot_name: \"g1\" }\ntelemetry_frequency: 20\n";
 
-std::string readFile(const std::string& path) {
-  std::ifstream file(path);
+std::string readFile(absl::string_view path) {
+  std::ifstream file{std::filesystem::path(path)};
   return std::string(std::istreambuf_iterator<char>(file),
                      std::istreambuf_iterator<char>());
 }
 
-void writeFile(const std::string& path, absl::string_view contents) {
-  std::filesystem::create_directories(
-      std::filesystem::path(path).parent_path());
-  std::ofstream(path, std::ios::trunc) << contents;
+void writeFile(absl::string_view path, absl::string_view contents) {
+  const std::filesystem::path file(path);
+  std::filesystem::create_directories(file.parent_path());
+  std::ofstream(file, std::ios::trunc) << contents;
 }
 
-bool exists(const std::string& path) {
+bool exists(absl::string_view path) {
   std::error_code error;
-  return std::filesystem::exists(path, error);
+  return std::filesystem::exists(std::filesystem::path(path), error);
 }
 
 /** A bundle of one robot configuration and an empty store, in the scratch
@@ -343,7 +343,7 @@ TEST(RobotConfigDirectory,
 /** A bring-up that records the task file of every attempt and fails on the
  * files `fails` refuses. */
 struct FakeBringUp {
-  std::function<bool(const RobotConfigDirectory&)> fails;
+  absl::AnyInvocable<bool(const RobotConfigDirectory&) const> fails;
   std::vector<std::string> attempts;
 
   absl::StatusOr<RobotStack> operator()(const RobotConfigDirectory& directory) {

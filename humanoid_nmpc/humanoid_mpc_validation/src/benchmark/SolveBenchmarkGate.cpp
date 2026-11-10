@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_mpc_validation/io/JsonValue.h"
 #include "humanoid_mpc_validation/io/RunProvenance.h"
@@ -50,7 +51,7 @@ namespace ocs2::humanoid::validation {
 namespace {
 
 std::optional<double> numberAt(const JsonValue& document,
-                               const std::string& path) {
+                               absl::string_view path) {
   const JsonValue* absl_nullable value = document.findPath(path);
   if (value == nullptr || !value->isNumber()) return std::nullopt;
   return value->asNumber();
@@ -80,7 +81,7 @@ struct SharedLibrary {
 
 /** A breach when `candidate` exceeds `baseline` by more than `increase`,
  * relative. */
-void checkIncrease(const std::string& what,
+void checkIncrease(absl::string_view what,
                    std::optional<double> candidate,
                    std::optional<double> baseline,
                    double increase,
@@ -99,7 +100,7 @@ void checkIncrease(const std::string& what,
 }
 
 /** The string at `path`, or "" when there is none. */
-std::string stringAt(const JsonValue& document, const std::string& path) {
+std::string stringAt(const JsonValue& document, absl::string_view path) {
   const JsonValue* absl_nullable value = document.findPath(path);
   return value != nullptr && value->isString() ? value->asString()
                                                : std::string();

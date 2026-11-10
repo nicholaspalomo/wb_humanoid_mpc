@@ -68,7 +68,7 @@ constexpr std::array<absl::string_view, 1> kFields = {
 /** Whether `ocp` carries any contact-implicit term of a foot of `contactNames`.
  */
 bool carriesContactImplicitTerms(const OptimalControlProblem& ocp,
-                                 const std::vector<std::string>& contactNames) {
+                                 absl::Span<const std::string> contactNames) {
   for (const std::string& footName : contactNames) {
     if (carriesTerm(*ocp.softConstraintPtr,
                     contact_term::name(
@@ -165,7 +165,7 @@ void ContactImplicitApplier::beforeEverySolve(
 
 void setContactImplicitTermsPosSurfaceRtWorldEwrtWorldZ(
     std::vector<OptimalControlProblem>& problems,
-    const std::vector<std::string>& contactNames,
+    absl::Span<const std::string> contactNames,
     scalar_t posSurfaceRtWorldEwrtWorldZ) {
   for (OptimalControlProblem& ocp : problems) {
     for (const std::string& footName : contactNames) {

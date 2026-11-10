@@ -270,18 +270,21 @@ class LocomotionHeuristicIntegrationTest : public ::testing::Test {
   /** The shipped DRC Atlas configuration with its three locomotion_heuristics
    * lists replaced. */
   static CentroidalMpcConfig withLists(
-      const std::vector<std::string>& basePoseHeuristics,
-      const std::vector<std::string>& footholdHeuristics,
-      const std::vector<std::string>& wrenchHeuristics) {
+      std::vector<std::string> basePoseHeuristics,
+      std::vector<std::string> footholdHeuristics,
+      std::vector<std::string> wrenchHeuristics) {
     CentroidalMpcConfig config = *shippedConfig_;
     EXPECT_TRUE(
         config.task.locomotion_heuristics.base_pose_heuristics.empty() &&
         config.task.locomotion_heuristics.foothold_heuristics.empty() &&
         config.task.locomotion_heuristics.wrench_heuristics.empty())
         << "the shipped locomotion_heuristics lists are no longer empty";
-    config.task.locomotion_heuristics.base_pose_heuristics = basePoseHeuristics;
-    config.task.locomotion_heuristics.foothold_heuristics = footholdHeuristics;
-    config.task.locomotion_heuristics.wrench_heuristics = wrenchHeuristics;
+    config.task.locomotion_heuristics.base_pose_heuristics =
+        std::move(basePoseHeuristics);
+    config.task.locomotion_heuristics.foothold_heuristics =
+        std::move(footholdHeuristics);
+    config.task.locomotion_heuristics.wrench_heuristics =
+        std::move(wrenchHeuristics);
     config.task.contact_schedule_source =
         std::string(kGaitScheduleContactScheduleSource);
     return config;
@@ -534,7 +537,7 @@ class LocomotionHeuristicIntegrationTest : public ::testing::Test {
   static pinocchio::SE3 computePoseLinkRtWorld(
       CentroidalMpcInterface& interface,
       const vector_t& state,
-      const std::string& frameName) {
+      absl::string_view frameName) {
     const PinocchioInterface::Model& model =
         interface.getPinocchioInterface().getModel();
     PinocchioInterface::Data data(model);
@@ -542,7 +545,7 @@ class LocomotionHeuristicIntegrationTest : public ::testing::Test {
         interface.getMpcRobotModel().getGeneralizedCoordinates(state);
     pinocchio::forwardKinematics(model, data, q);
     pinocchio::updateFramePlacements(model, data);
-    return data.oMf[model.getFrameId(frameName)];
+    return data.oMf[model.getFrameId(std::string(frameName))];
   }
 
   static vector2_t computePosFootRtWorldEwrtWorldXy(

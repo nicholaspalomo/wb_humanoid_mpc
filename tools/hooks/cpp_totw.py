@@ -77,7 +77,7 @@ def _texts(code: tuple[Token, ...], start: int, count: int) -> list[str]:
     return [t.text for t in code[start : start + count]]
 
 
-def _qualified(
+def qualified(
     code: tuple[Token, ...], index: int, namespace: str, names: frozenset[str]
 ) -> str | None:
     """The name of `namespace::name` starting at code[index] (`::` in front allowed), when it is one of `names`."""
@@ -100,7 +100,7 @@ def _qualified(
     return None
 
 
-def _parameter_start(code: tuple[Token, ...], index: int) -> bool:
+def parameter_start(code: tuple[Token, ...], index: int) -> bool:
     """True when code[index] starts a parameter: after `(` or `,` of a parameter list, not of a range-for."""
     if index == 0 or code[index - 1].text not in ("(", ","):
         return False
@@ -154,7 +154,7 @@ def check_unordered(source: str, path: str) -> list[check_types.Finding]:
             " data, logs or serialized output.",
         )
         for i in range(len(code))
-        if (name := _qualified(code, i, "std", _UNORDERED)) is not None
+        if (name := qualified(code, i, "std", _UNORDERED)) is not None
     ]
 
 
@@ -520,7 +520,7 @@ def check_small_by_const_ref(
             or code[i + 2].text != "&"
         ):
             continue
-        if not _parameter_start(code, i):
+        if not parameter_start(code, i):
             continue
         findings.append(
             _finding(
@@ -548,7 +548,7 @@ def _const_reference_to(
     for i in range(len(code) - 4):
         if code[i].text != "const":
             continue
-        name = _qualified(code, i + 1, namespace, names)
+        name = qualified(code, i + 1, namespace, names)
         if name is None:
             continue
         k = i + 4
@@ -595,7 +595,7 @@ def check_optional_ref_param(
             " #163).",
         )
         for i, _ in _const_reference_to(code, "std", frozenset({"optional"}))
-        if _parameter_start(code, i)
+        if parameter_start(code, i)
     ]
 
 
@@ -616,7 +616,7 @@ def check_smart_ptr_ref_param(
         for i, name in _const_reference_to(
             code, "std", frozenset({"unique_ptr", "shared_ptr"})
         )
-        if _parameter_start(code, i)
+        if parameter_start(code, i)
     ]
 
 
@@ -808,7 +808,7 @@ def check_view_member(source: str, path: str) -> list[check_types.Finding]:
         namespace = texts[k] if k < len(texts) else ""
         if (
             namespace not in _VIEWS
-            or _qualified(tokens, k, namespace, _VIEWS[namespace]) is None
+            or qualified(tokens, k, namespace, _VIEWS[namespace]) is None
         ):
             continue
         j = k + 3
@@ -1029,7 +1029,7 @@ def check_reader_lock(source: str, path: str) -> list[check_types.Finding]:
     code = cpp_source.code_tokens(source)
     findings = []
     for i, token in enumerate(code):
-        if _qualified(
+        if qualified(
             code, i, "std", _READER_LOCKS
         ) is not None or token.text in (
             "ReaderMutexLock",

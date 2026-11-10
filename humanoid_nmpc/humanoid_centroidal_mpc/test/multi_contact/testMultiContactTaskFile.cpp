@@ -101,7 +101,7 @@ ModelSettings modelSettingsOf(const TaskUnderTest& loaded) {
 
 /** The index of `name` among `settings`' contacts; fails the test without one.
  */
-size_t contactIndexOf(const ModelSettings& settings, const std::string& name) {
+size_t contactIndexOf(const ModelSettings& settings, absl::string_view name) {
   const std::vector<std::string>& names = settings.contactNames;
   const std::vector<std::string>::const_iterator found =
       std::find(names.begin(), names.end(), name);

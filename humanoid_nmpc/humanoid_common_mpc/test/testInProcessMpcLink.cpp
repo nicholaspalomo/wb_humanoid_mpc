@@ -32,18 +32,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cmath>
 #include <cstddef>
-#include <functional>
 #include <memory>
-#include <mutex>
 #include <thread>
 #include <utility>
 #include <vector>
 
 #include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
+#include "absl/base/thread_annotations.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/synchronization/mutex.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
@@ -156,24 +157,24 @@ class ResetTargetRecorder {
  public:
   MpcLink::ResetTargetFunction function() {
     return [this](const SystemObservation& observation) {
-      std::lock_guard<std::mutex> lock(mutex_);
+      absl::MutexLock lock(mutex_);
       times_.push_back(observation.time);
       return TargetTrajectories({observation.time}, {observation.state},
                                 {vector_t::Zero(kInputDim)});
     };
   }
   std::vector<scalar_t> times() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    absl::MutexLock lock(mutex_);
     return times_;
   }
 
  private:
-  mutable std::mutex mutex_;
-  std::vector<scalar_t> times_;
+  mutable absl::Mutex mutex_;
+  std::vector<scalar_t> times_ ABSL_GUARDED_BY(mutex_);
 };
 
 bool waitFor(
-    const std::function<bool()>& done,
+    absl::FunctionRef<bool()> done,
     std::chrono::milliseconds timeout = std::chrono::milliseconds(5000)) {
   const std::chrono::steady_clock::time_point deadline =
       std::chrono::steady_clock::now() + timeout;
@@ -359,12 +360,12 @@ TEST_F(InProcessMpcLinkTest,
     absl::StatusCode code;
     bool healthy;
   };
-  std::mutex mutex;
+  absl::Mutex mutex;
   std::vector<Seen> seen;
   MpcLink* absl_nullable linkPtr = nullptr;
   std::unique_ptr<InProcessMpcLink> link =
       makeLink(/*mpcDesiredFrequency=*/1000.0, [&](const absl::Status& status) {
-        std::lock_guard<std::mutex> lock(mutex);
+        absl::MutexLock lock(mutex);
         seen.push_back({status.code(), linkPtr->isHealthy()});
       });
   linkPtr = link.get();
@@ -374,7 +375,7 @@ TEST_F(InProcessMpcLinkTest,
   ASSERT_TRUE(waitForCurrentPolicy(*link));
   link->stop();
 
-  std::lock_guard<std::mutex> lock(mutex);
+  absl::MutexLock lock(mutex);
   const size_t failures =
       link->getResetSupervisor().getConfig().maxConsecutiveFailures;
   ASSERT_GT(seen.size(), failures);
@@ -781,12 +782,12 @@ TEST(InProcessMpcLinkStateManifold,
 
   InProcessMpcLink::Config config;
   config.execution = InProcessMpcLink::Execution::kCaller;
-  const MpcLink::ResetTargetFunction resetTarget =
+  MpcLink::ResetTargetFunction resetTarget =
       [](const SystemObservation& observation) {
         return TargetTrajectories({observation.time}, {observation.state},
                                   {vector_t::Zero(kInputDim)});
       };
-  InProcessMpcLink link(mpc, resetTarget, std::move(config));
+  InProcessMpcLink link(mpc, std::move(resetTarget), std::move(config));
   // The link hands its MRT the manifold of the MPC's own problem, without a
   // configuration of its own.
   EXPECT_EQ(link.mrt().getStateManifold().get(), problemManifold.get());

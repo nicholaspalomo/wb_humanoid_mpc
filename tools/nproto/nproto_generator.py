@@ -43,8 +43,8 @@ nproto generates for it with an option, the first statement of its body (tools/n
 Its nested messages and enums become nested C++ types of that struct (TargetContactPatch::Kind) and carry no option of
 their own. For every file protoc asks it to generate, the generator writes three files next to protoc's own output:
 
-- `<file>.nproto.h`: the struct (or the `enum class` for an enum file) in the namespace of the option, with Eigen and
-  standard types only and no protobuf include, plus `operator==` / `operator!=`;
+- `<file>.nproto.h`: the struct (or the `enum class` for an enum file) in the namespace of the option, with Eigen,
+  standard types and absl::btree_map only and no protobuf include, plus `operator==` / `operator!=`;
 - `<file>.nproto.pb.h` and `<file>.nproto.pb.cc`: `ToProto()` and `FromProto()` between the struct and the message of
   the protobuf C++ code, written so that converting into objects of the same shape does not allocate. Their output
   parameter is `absl_nonnull` (AGENTS.md, "Raw pointers carry nullability"), which the repository's lint cannot check
@@ -108,6 +108,17 @@ RUNTIME_HEADER = "nproto/Conversions.h"
 OUTPUT_NULLABILITY = "absl_nonnull"
 NULLABILITY_HEADER = "absl/base/nullability.h"
 # LINT.ThenChange(//tools/nproto/include/nproto/Conversions.h:output_parameters)
+# The header of absl::btree_map, the member type of a map field (AGENTS.md, "absl-ordered-container"); the runtime's
+# @abseil-cpp//absl/container:btree dependency provides it.
+BTREE_MAP_HEADER = "absl/container/btree_map.h"
+# A map whose value is a struct nested in the struct that declares the member stays a std::map: absl::btree_map
+# instantiates std::pair<const K, V> at the member's declaration, and the default member initializers of a struct nested
+# in a struct that is not yet complete cannot be used there (GCC: "default member initializer required before the end
+# of its enclosing class"). The std::map member carries this NOLINT for the absl-ordered-container check.
+STD_MAP_NOLINT = (
+    "// NOLINTNEXTLINE(absl-ordered-container): btree_map needs a complete"
+    " value"
+)
 
 # The column limit of the repository's .clang-format, which the generated code keeps to (nproto_layout.py).
 COLUMN_LIMIT = nproto_layout.COLUMN_LIMIT
@@ -1224,13 +1235,17 @@ class _FileGenerator:
         if field.kind == _KIND_MAP:
             key = descriptor.message_type.fields_by_name["key"]
             value = descriptor.message_type.fields_by_name["value"]
-            includes.standard.add("map")
             _note_value_includes(key, includes)
             _note_value_includes(value, includes)
-            return (
-                f"std::map<{self._value_type(key, scope, user)},"
+            arguments = (
+                f"<{self._value_type(key, scope, user)},"
                 f" {self._value_type(value, scope, user)}>"
             )
+            if self._nested_in_scope(value, scope, user):
+                includes.standard.add("map")
+                return f"std::map{arguments}"
+            includes.absl.add(BTREE_MAP_HEADER)
+            return f"absl::btree_map{arguments}"
         if field.kind == _KIND_EIGEN:
             includes.eigen = True
             return _EIGEN_VECTORS[descriptor.type]
@@ -1243,6 +1258,16 @@ class _FileGenerator:
             includes.standard.add("optional")
             return f"std::optional<{element}>"
         return element
+
+    def _nested_in_scope(
+        self, field: FieldDescriptor, scope: Sequence[Descriptor], user: str
+    ) -> bool:
+        """Whether `field` is a message whose struct is, or is nested in, the outermost of the structs `scope`."""
+        if field.message_type is None or not scope:
+            return False
+        outermost = self._type_info(scope[0].full_name, user).struct_path
+        value = self._type_info(field.message_type.full_name, user).struct_path
+        return value[: len(outermost)] == outermost
 
     def _enum_prefix(self, enum: EnumDescriptor) -> str:
         prefix = f"{snake_case(enum.name).upper()}_"
@@ -1487,6 +1512,8 @@ class _FileGenerator:
             for comment in field.comment:
                 members.append(inner + comment)
             member_type = self._member_type(field, inner_scope, includes)
+            if member_type.startswith("std::map<"):
+                members.append(inner + STD_MAP_NOLINT)
             default = None
             if not field.optional and not field.descriptor.is_repeated:
                 default = self._default(field, inner_scope)

@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "pinocchio/algorithm/frames.hpp"
@@ -114,10 +115,10 @@ std::string linkNames(const pinocchio::Model& model) {
   return absl::StrJoin(names, ", ");
 }
 
-absl::StatusOr<pinocchio::Model> fixedBaseModel(const std::string& urdfFile) {
+absl::StatusOr<pinocchio::Model> fixedBaseModel(absl::string_view urdfFile) {
   pinocchio::Model model;
   try {  // NOLINT(exceptions): Pinocchio's URDF parser throws; converted at once
-    pinocchio::urdf::buildModel(urdfFile, model);
+    pinocchio::urdf::buildModel(std::string(urdfFile), model);
     // NOLINTNEXTLINE(exceptions): Pinocchio's URDF parser throws; converted at once
   } catch (const std::exception& error) {
     return absl::InvalidArgumentError(
@@ -148,7 +149,7 @@ absl::StatusOr<std::string> childLinkOfFrame(const pinocchio::Model& model,
 }  // namespace
 
 absl::StatusOr<std::vector<std::string>> childLinkNamesOfJoints(
-    const std::string& urdfFile, absl::Span<const std::string> jointNames) {
+    absl::string_view urdfFile, absl::Span<const std::string> jointNames) {
   absl::StatusOr<pinocchio::Model> model = fixedBaseModel(urdfFile);
   if (!model.ok()) return model.status();
   const pinocchio::FrameType jointFrameTypes =
@@ -178,9 +179,9 @@ absl::StatusOr<std::vector<std::string>> childLinkNamesOfJoints(
 }
 
 absl::StatusOr<std::unique_ptr<ContactKinematics>> ContactKinematics::Create(
-    const std::string& urdfFile,
-    const std::vector<ContactPointSpec>& contacts,
-    const std::vector<std::string>& jointNames) {
+    absl::string_view urdfFile,
+    absl::Span<const ContactPointSpec> contacts,
+    absl::Span<const std::string> jointNames) {
   if (contacts.empty()) {
     return absl::InvalidArgumentError("ContactKinematics: no contact point");
   }

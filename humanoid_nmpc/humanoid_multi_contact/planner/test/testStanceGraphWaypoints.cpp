@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
@@ -88,7 +89,7 @@ LoadedScenario standingInFrontOfTheBox() {
 
 /** A waypoint of `stance`'s contacts on their primitives. */
 config::Scenario::Goal waypointOf(
-    const std::vector<std::pair<std::string, std::string>>& stance) {
+    absl::Span<const std::pair<std::string, std::string>> stance) {
   config::Scenario::Goal waypoint;
   for (const std::pair<std::string, std::string>& entry : stance) {
     config::Scenario::GoalContact contact;

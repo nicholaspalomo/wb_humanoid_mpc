@@ -63,9 +63,10 @@ class DomainRegistry {
    * more user of it when it exists with the same configuration. One that exists
    * with another configuration is FailedPrecondition: two buses of one process
    * would disagree about the network. A DDS failure (an invalid configuration,
-   * an interface that does not exist) is Internal.
+   * an interface that does not exist) is Internal. Keeps `config` when it
+   * creates the domain.
    */
-  absl::Status acquire(int domainId, const std::string& config);
+  absl::Status acquire(int domainId, std::string config);
 
   /** Releases one use of `domainId` from acquire(); the last release deletes
    * the domain. */

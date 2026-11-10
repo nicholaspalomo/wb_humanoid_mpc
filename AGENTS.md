@@ -179,6 +179,11 @@ Enforced by:
     `decltype(auto)`, coroutines, modules, `<ratio>`, `<cfenv>`, `alloca`, GNU extensions such as `x ?: y`, and the
     POSIX math constants `M_PI`, `M_PI_2`, `M_SQRT2` and the like, which are `std::numbers::pi` and its siblings from
     `<numbers>`) (`forbidden-construct`);
+  - Abseil types where the standard library has a counterpart: `absl::Span` and `absl::string_view` parameters, btree
+    containers, `absl::Mutex`, `absl::AnyInvocable` / `FunctionRef`, `absl::StrCat` / `SimpleAtoi`, and no
+    `std::stringstream`, `std::string_view` or `std::span` (`absl-span-param`, `absl-string-view-param`,
+    `absl-ordered-container`, `absl-mutex`, `absl-function`, `absl-number-conversion`, `absl-string-stream`,
+    `absl-view-type`; tools/hooks/cpp_abseil.py lists the exemptions);
 - the GCC warnings of `bazel/copts.bzl`.
 
 Protocol Buffers and dependencies are enforced by the checks in `tools/hooks` too (humanoid_mpc_msgs/README.md):
@@ -238,8 +243,10 @@ Agent rules (no tool checks these):
 - Avoid template metaprogramming. Constrain templates with `requires` and the standard concepts; add no new public
   concepts.
 - Choose libraries in this order: what the code base already uses, Abseil, the standard library, then first-party code.
-  Abseil first means `absl::Status` / `StatusOr` with `RETURN_IF_ERROR` / `ASSIGN_OR_RETURN`, `absl::StrCat` /
-  `StrJoin` / `StrFormat`, `absl::flat_hash_map` / `flat_hash_set`, Abseil logging and `absl::string_view`.
+  Abseil first means `absl::Status` / `StatusOr` with `RETURN_IF_ERROR` / `ASSIGN_OR_RETURN`, `absl::StrJoin`,
+  `absl::flat_hash_map` / `flat_hash_set` and Abseil logging. The Abseil types the `absl-*` checks enforce (spans,
+  string views, btree containers, mutexes, callables, conversions and string formatting) are listed under "Enforced
+  by" above.
 - Names are as descriptive as their scope is wide, with no letter-dropping abbreviations. A new identifier writes an
   acronym as one word (`IcpCost`, not `ICPCost`).
 - Comments:
@@ -310,6 +317,7 @@ Checked by a tool (tip: what is enforced, by what):
 | Tip | Rule | Checked by |
 |---|---|---|
 | #1, #93, #234 | views and spans by value, never `const absl::string_view&` / `const absl::Span<...>&` | `totw-view-param` |
+| #1 | read-only string parameters are `absl::string_view`; a kept copy is `std::string` by value, moved | `absl-string-view-param` |
 | #3 | `absl::StrCat` / `StrAppend`, no `+` chains; `absl::StrContains` / `StartsWith` | clang-tidy `performance-inefficient-string-concatenation`, `abseil-str-cat-append`, `abseil-redundant-strcat-calls`, `abseil-string-find-str-contains`, `abseil-string-find-startswith` |
 | #5 | no `c_str()` of a temporary stored in a pointer | `totw-c-str-stored`, `-Werror=dangling-pointer` |
 | #10 | `absl::StrSplit` with a character delimiter; no `strtok` | `abseil-faster-strsplit-delimiter`, `forbidden-construct` |
@@ -320,6 +328,7 @@ Checked by a tool (tip: what is enforced, by what):
 | #76 | `absl::Status`, not exceptions; a returned Status is never dropped | `exceptions`, `-Werror=unused-result`, `bugprone-unused-return-value` |
 | #86 | `enum class` | `totw-unscoped-enum` |
 | #88 | `=` for values, not `bool x_{false};` | `totw-brace-literal-init` (fixed by `make format`) |
+| #93 | read-only sequence parameters are `absl::Span<const T>`, not `const std::vector<T>&` or OCS2's `*_array_t`; a kept copy is a vector by value, moved | `absl-span-param` |
 | #99, #152, #218 | nothing added to `namespace std`, no `std::hash` specializations | `totw-std-specialization`, `cert-dcl58-cpp` |
 | #101, #107, #180 | no references or views to temporaries; no view-typed members | `totw-view-member`, `bugprone-dangling-handle`, `bugprone-return-const-ref-from-parameter`, `readability-reference-to-constructed-temporary`, `performance-unnecessary-copy-initialization` |
 | #108 | lambdas, not `std::bind` | `modernize-avoid-bind` |
@@ -349,10 +358,15 @@ Checked by a tool (tip: what is enforced, by what):
 | #231 | `std::min` / `std::max`, not a hand-written comparison | `readability-use-std-min-max` |
 | #232 | no `auto` (this file's rule, which is stricter); no copying range-for | `no-auto`, `-Werror=range-loop-construct`, `performance-for-range-copy`, `performance-implicit-conversion-in-loop` |
 | #234 | numbers, enums and views by value | `totw-small-by-const-ref`, `performance-unnecessary-value-param` |
+| Abseil first | `absl::btree_map` / `btree_set` and the multi forms, not `std::map` / `std::set` | `absl-ordered-container` |
+| Abseil first | `absl::Mutex`, `absl::MutexLock` and `absl::CondVar`, not `std::mutex`, its locks or `std::condition_variable` | `absl-mutex` |
+| Abseil first | `absl::AnyInvocable` for a stored callable, `absl::FunctionRef` for one only called during the call, not `std::function` | `absl-function` |
+| Abseil first | `absl::StrCat` and `absl::SimpleAtoi` / `SimpleAtod`, not `std::to_string` or the throwing `std::stoi` family | `absl-number-conversion` |
+| Abseil first | `absl::StrCat` / `StrFormat` / `StrSplit`, not the `std::stringstream` family | `absl-string-stream` |
+| Abseil first | `absl::string_view` and `absl::Span`, not `std::string_view` or `std::span` | `absl-view-type` |
 <!-- LINT.ThenChange(//tools/hooks/checks.py:registry, //.clang-tidy:checks, //bazel/copts.bzl:first_party_copts) -->
 
 Agent rules:
-- Take read-only strings as `absl::string_view` by value; store a `std::string` when you keep the data (#1).
 - Format messages with `absl::Substitute` or `StrFormat`, and join with `absl::StrJoin` (#18, #36). Under GCC, a
   `StrFormat` mismatch is not caught at compile time, so test formatted messages.
 - Return by value. Do not add output parameters or `std::move` "for speed" (#166, #176).
@@ -360,8 +374,8 @@ Agent rules:
   than sharing an init helper (#74).
 - Define operators, `AbslHashValue` and `AbslStringify` next to their type, never in tests or on generated protos (#49,
   #99, #215).
-- Take read-only sequences as `absl::Span<const T>` by value (#93). Eigen's counterpart is `const Eigen::Ref<const ...>&`:
-  a const `Ref` may own a temporary copy of its argument, so copying it is not cheap (`performance-unnecessary-value-param`).
+- Eigen's counterpart of `absl::Span<const T>` is `const Eigen::Ref<const ...>&`: a const `Ref` may own a temporary copy
+  of its argument, so copying it is not cheap (#93; `performance-unnecessary-value-param`).
 - Replace a `bool` parameter with an `enum class` or a registry name (#94).
 - A function that keeps a pointer or reference to an argument takes it as `T* absl_nonnull` and documents how long it
   must live (#116). Pass sink parameters by value and move them (#117).

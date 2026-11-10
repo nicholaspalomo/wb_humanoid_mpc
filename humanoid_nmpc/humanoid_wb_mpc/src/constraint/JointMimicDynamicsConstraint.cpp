@@ -56,8 +56,8 @@ namespace ocs2::humanoid {
 absl::StatusOr<std::unique_ptr<JointMimicDynamicsConstraint>>
 JointMimicDynamicsConstraint::Create(
     const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel,
-    const std::string& parentJointName,
-    const std::string& childJointName,
+    std::string parentJointName,
+    std::string childJointName,
     scalar_t multiplier,
     scalar_t positionGain,
     scalar_t velocityGain) {
@@ -73,12 +73,12 @@ JointMimicDynamicsConstraint::Create(
         positionGain, " and velocityGain ", velocityGain));
   }
   Config config;
-  config.parentJointName = parentJointName;
-  config.childJointName = childJointName;
   ASSIGN_OR_RETURN(config.parentJointIndex,
                    mpcRobotModel.findJointIndex(parentJointName));
   ASSIGN_OR_RETURN(config.childJointIndex,
                    mpcRobotModel.findJointIndex(childJointName));
+  config.parentJointName = std::move(parentJointName);
+  config.childJointName = std::move(childJointName);
   config.multiplier = multiplier;
   config.positionGain = positionGain;
   config.velocityGain = velocityGain;

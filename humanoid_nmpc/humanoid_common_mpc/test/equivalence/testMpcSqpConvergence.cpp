@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/model_data/Metrics.h"
@@ -258,7 +259,7 @@ LargestResidual largestEqualityResidual(const ProblemMetrics& metrics) {
 
 /** Checks the cycle of a cycling configuration's (C1) iterations (the file
  * comment); records its resets and growth. */
-void expectCycle(const std::vector<sqp::IterationRecord>& iterations,
+void expectCycle(absl::Span<const sqp::IterationRecord> iterations,
                  scalar_t gMax) {
   std::vector<size_t> resets;
   for (size_t k = iterations.size() / 2; k < iterations.size(); ++k) {
@@ -316,8 +317,8 @@ void expectCycle(const std::vector<sqp::IterationRecord>& iterations,
  * swing rows `swingRows`, 0 without one>`, the solves separated by spaces: the
  * record (C2)'s numbers are re-derived from.
  */
-std::string solveRecord(const std::vector<RealTimeSolve>& solves,
-                        const std::vector<size_t>& swingRows) {
+std::string solveRecord(absl::Span<const RealTimeSolve> solves,
+                        absl::Span<const size_t> swingRows) {
   std::vector<std::string> record;
   for (const RealTimeSolve& solve : solves) {
     const validation::SqpStepSample sample =

@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
@@ -40,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -131,7 +131,7 @@ absl::StatusOr<std::string> canonicalOrError(TermKind kind,
  * its canonical name, in list order. */
 template <typename T>
 absl::Status addTerms(
-    const std::vector<std::string>& names,
+    absl::Span<const std::string> names,
     TermKind kind,
     absl::StatusOr<std::unique_ptr<T>> (*absl_nonnull make)(absl::string_view),
     TermCollection<T>& collection) {
@@ -297,7 +297,7 @@ namespace {
 /** The execution rule `canonical` names, from the core or else from `extra`;
  * null when neither can build it. */
 std::unique_ptr<ExecutionRule> executionRuleOrNull(
-    const std::string& canonical,
+    absl::string_view canonical,
     const ContactPlanningTermFactory::ExtraRuleMaker& extra) {
   if (canonical == term::kPhaseResetting) {
     return std::make_unique<PhaseResettingRule>();

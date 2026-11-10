@@ -37,7 +37,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -119,7 +118,7 @@ CentroidalMpcMrtJointController::Create(
     MPC_MRT_Interface::SolverObservationObserver solverObservationObserver,
     PinocchioInterface pinocchioInterface,
     scalar_t mpcDesiredFrequency,
-    const std::string& pdGainsFile,
+    absl::string_view pdGainsFile,
     const MpcRobotModelBase<scalar_t>* absl_nullable effectiveMpcRobotModel) {
   InProcessMpcLink::Config linkConfig;
   linkConfig.mpcDesiredFrequency = mpcDesiredFrequency;
@@ -138,7 +137,7 @@ CentroidalMpcMrtJointController::Create(
     const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel,
     const MpcLinkFactory& mpcLinkFactory,
     PinocchioInterface pinocchioInterface,
-    const std::string& pdGainsFile,
+    absl::string_view pdGainsFile,
     const MpcRobotModelBase<scalar_t>* absl_nullable effectiveMpcRobotModel) {
   // The joints the control cycle indexes without a check: refused here, by
   // name, rather than by the constructor's check.
@@ -167,9 +166,9 @@ CentroidalMpcMrtJointController::Create(
   std::unique_ptr<CentroidalMpcMrtJointController> controller =
       absl::WrapUnique(new CentroidalMpcMrtJointController(
           robotDescription, modelSettings, mpcRobotModel, mpcLinkFactory,
-          std::move(pinocchioInterface), pdGainsFile, effectiveMpcRobotModel,
-          std::move(initialPdGains), std::move(stateManifold),
-          std::move(rigidBodyDynamics)));
+          std::move(pinocchioInterface), std::string(pdGainsFile),
+          effectiveMpcRobotModel, std::move(initialPdGains),
+          std::move(stateManifold), std::move(rigidBodyDynamics)));
   RETURN_IF_ERROR(controller->checkConstruction());
   return controller;
 }
@@ -180,7 +179,7 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(
     const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel,
     const MpcLinkFactory& mpcLinkFactory,
     PinocchioInterface pinocchioInterface,
-    const std::string& pdGainsFile,
+    std::string pdGainsFile,
     const MpcRobotModelBase<scalar_t>* absl_nullable effectiveMpcRobotModel,
     InitialPdGains initialPdGains,
     std::shared_ptr<const StateManifold> stateManifold,
@@ -213,7 +212,7 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(
       mpcPolicyInput_(vector_t::Zero(effectiveModelPtr_->getInputDim())),
       rigidBodyDynamics_(std::move(rigidBodyDynamics)),
       robotWeight_(computeRobotWeight(pinocchioInterface_)),
-      pdGainsFile_(pdGainsFile),
+      pdGainsFile_(std::move(pdGainsFile)),
       robotJointNames_(robotDescription.getJointNames()),
       mpcModelJointNames_(modelSettings.mpcModelJointNames),
       fixedJointNames_(modelSettings.fixedJointNames),
@@ -272,7 +271,7 @@ absl::Status CentroidalMpcMrtJointController::checkConstruction() const {
 
 absl::StatusOr<CentroidalMpcMrtJointController::InitialPdGains>
 CentroidalMpcMrtJointController::loadInitialPdGains(
-    const std::string& pdGainsFile, const ModelSettings& modelSettings) {
+    absl::string_view pdGainsFile, const ModelSettings& modelSettings) {
   const std::vector<std::string>& mpcJointNames =
       modelSettings.mpcModelJointNames;
   const std::vector<std::string>& fixedJointNames =

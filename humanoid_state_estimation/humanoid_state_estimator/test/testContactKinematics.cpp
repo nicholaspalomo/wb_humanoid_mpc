@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -59,7 +60,7 @@ namespace {
 constexpr char kAtlasUrdf[] =
     "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
 
-std::vector<ContactPointSpec> specsOf(const std::vector<std::string>& links) {
+std::vector<ContactPointSpec> specsOf(absl::Span<const std::string> links) {
   std::vector<ContactPointSpec> specs;
   for (const std::string& link : links) {
     specs.push_back(ContactPointSpec{.linkName = link});

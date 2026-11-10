@@ -90,11 +90,13 @@ Function resolve(PFNEGLGETPROCADDRESSPROC getProcAddress,
 }  // namespace
 
 absl::StatusOr<EglLibrary::Functions> EglLibrary::load(
-    const std::string& soname) {
+    absl::string_view soname) {
   // RTLD_LOCAL: the library's symbols stay out of the global namespace, so that
   // they cannot satisfy another library's lookups. MuJoCo still finds the GL of
   // the context made current through it (dl_iterate_phdr sees local objects).
-  void* absl_nullable handle = dlopen(soname.c_str(), RTLD_NOW | RTLD_LOCAL);
+  const std::string sonameString(soname);  // dlopen needs a NUL terminator
+  void* absl_nullable handle =
+      dlopen(sonameString.c_str(), RTLD_NOW | RTLD_LOCAL);
   if (handle == nullptr) {
     const char* absl_nullable error = dlerror();
     return absl::UnavailableError(absl::StrCat(

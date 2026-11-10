@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Core"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_mpc_validation/io/GoldenIo.h"
@@ -95,7 +96,7 @@ RobotStateRecord recordRobotState(
  */
 absl::StatusOr<robot::model::RobotState> toRobotState(
     const RobotStateRecord& record,
-    const std::vector<std::string>& jointNames,
+    absl::Span<const std::string> jointNames,
     const robot::model::RobotDescription& description,
     size_t numContacts);
 

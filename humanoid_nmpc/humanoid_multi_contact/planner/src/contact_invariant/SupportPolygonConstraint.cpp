@@ -40,6 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_core/Dimensions.h"
@@ -65,7 +67,7 @@ constexpr int kOffsetParameters = 2 * kMaxPolygonEdges;
 }  // namespace
 
 absl::StatusOr<TimedPolygon> polygonOf(
-    const std::vector<Eigen::Vector2d>& vertices,
+    absl::Span<const Eigen::Vector2d> vertices,
     double startTime,
     double endTime) {
   const size_t n = vertices.size();
@@ -111,8 +113,8 @@ SupportPolygonConstraint::SupportPolygonConstraint(
     const CentroidalModelInfo& info,
     std::vector<TimedPolygon> polygons,
     scalar_t margin,
-    const std::string& libraryName,
-    const std::string& folder,
+    absl::string_view libraryName,
+    absl::string_view folder,
     bool recompile,
     bool verbose)
     : StateConstraintCppAd(ConstraintOrder::Linear),
@@ -120,8 +122,8 @@ SupportPolygonConstraint::SupportPolygonConstraint(
       infoCppAd_(info.toCppAd()),
       polygons_(std::move(polygons)),
       margin_(margin) {
-  initialize(info.stateDim, kNumParameters, libraryName, folder, recompile,
-             verbose);
+  initialize(info.stateDim, kNumParameters, std::string(libraryName),
+             std::string(folder), recompile, verbose);
 }
 
 std::optional<size_t> SupportPolygonConstraint::polygonAt(scalar_t time) const {

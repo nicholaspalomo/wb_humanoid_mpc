@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -150,8 +151,8 @@ absl::Status readControllerConstants(const mpc_config::JointPdGainsFile& file,
 
 absl::StatusOr<JointPdGains> jointPdGainsFromConfig(
     const mpc_config::JointPdGainsFile& file,
-    const std::vector<std::string>& mpcJointNames,
-    const std::vector<std::string>& otherJointNames) {
+    absl::Span<const std::string> mpcJointNames,
+    absl::Span<const std::string> otherJointNames) {
   const mpc_config::JointPdGainsFile::Gains& fileDefaults = file.default_gains;
   JointPdGainsDefaults resolvedDefaults;
   ASSIGN_OR_RETURN(resolvedDefaults.kp,

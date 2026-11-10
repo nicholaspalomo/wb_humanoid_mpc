@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetrics.h"
@@ -139,7 +140,7 @@ std::vector<std::string> suiteScenarioNames() {
   return names;
 }
 
-bool isWalkingScenario(const std::string& name) {
+bool isWalkingScenario(absl::string_view name) {
   return name == "walk_0p5" || name == "walk_0p3";
 }
 
@@ -156,11 +157,11 @@ std::string outputDirectory() {
 // LINT.IfChange(comparison_file)
 /** Writes `description`, the run's comparison with `baselineLabel`, into
  * <robot>_<scenario>_comparison.txt of `directory`. */
-absl::Status writeComparison(const std::string& directory,
-                             const std::string& robot,
-                             const std::string& scenario,
-                             const std::string& baselineLabel,
-                             const std::string& description) {
+absl::Status writeComparison(absl::string_view directory,
+                             absl::string_view robot,
+                             absl::string_view scenario,
+                             absl::string_view baselineLabel,
+                             absl::string_view description) {
   const std::filesystem::path file =
       std::filesystem::path(directory) /
       absl::StrCat(robot, "_", scenario, "_comparison.txt");

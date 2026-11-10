@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/initialization/Initializer.h"
 #include "ocs2_core/manifold/StateManifold.h"
@@ -138,7 +139,7 @@ InitialStateGap initialStateGapOf(const vector_t& delta,
  * orientationStartIndex + 4 entries.
  */
 std::optional<double> maxUnitQuaternionNormDeviationOf(
-    const vector_array_t& states, size_t orientationStartIndex);
+    absl::Span<const vector_t> states, size_t orientationStartIndex);
 
 /**
  * A formulation's two processes in one, for the lockstep closed loop, without

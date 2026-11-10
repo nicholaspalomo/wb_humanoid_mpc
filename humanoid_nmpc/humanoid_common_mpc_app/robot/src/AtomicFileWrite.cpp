@@ -114,12 +114,14 @@ absl::Status syncAfter(absl::string_view what, absl::string_view path) {
 
 /** Creates `temporary` exclusively; one left by a dead process of this pid is
  * removed and the creation retried once. */
-absl::StatusOr<int> createTemporary(const std::string& temporary) {
+absl::StatusOr<int> createTemporary(absl::string_view temporary) {
   constexpr int kFlags = O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC;
   constexpr mode_t kMode = 0644;
-  int fd = ::open(temporary.c_str(), kFlags, kMode);
-  if (fd < 0 && errno == EEXIST && ::unlink(temporary.c_str()) == 0) {
-    fd = ::open(temporary.c_str(), kFlags, kMode);
+  // open() and unlink() take a NUL-terminated path.
+  const std::string path(temporary);
+  int fd = ::open(path.c_str(), kFlags, kMode);
+  if (fd < 0 && errno == EEXIST && ::unlink(path.c_str()) == 0) {
+    fd = ::open(path.c_str(), kFlags, kMode);
   }
   if (fd < 0) {
     return absl::ErrnoToStatus(
@@ -130,7 +132,7 @@ absl::StatusOr<int> createTemporary(const std::string& temporary) {
 
 /** Writes `contents` to the open temporary `fd`, fsyncs and closes it. */
 absl::Status fillTemporary(int fd,
-                           const std::string& temporary,
+                           absl::string_view temporary,
                            absl::string_view contents) {
   absl::Status status = writeAll(fd, contents, temporary);
   if (status.ok() && ::fsync(fd) != 0) {

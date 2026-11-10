@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -94,7 +95,7 @@ constexpr double kTolerance = 1.0e-9;
  * measures the machine. */
 void collectDifferences(const JsonValue& a,
                         const JsonValue& b,
-                        const std::string& path,
+                        absl::string_view path,
                         std::vector<std::string>& differences) {
   if (absl::StartsWith(path, "solve_time_ms") ||
       absl::StartsWith(path, "provenance")) {
@@ -196,7 +197,7 @@ void expectRunsAgree(const JsonValue& firstMetrics,
  * premature-exit and shard files) are left out of the child's environment, so
  * that only this process reports.
  */
-int runChildProcess(const std::string& outputPrefix) {
+int runChildProcess(absl::string_view outputPrefix) {
   std::vector<std::string> environment;
   for (char* absl_nullable* absl_nonnull variable = environ;
        *variable != nullptr; ++variable) {

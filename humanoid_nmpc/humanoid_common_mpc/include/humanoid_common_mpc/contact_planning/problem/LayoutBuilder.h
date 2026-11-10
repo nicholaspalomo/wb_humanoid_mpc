@@ -56,8 +56,8 @@ class LayoutBuilder {
    * (ContactPlanningFormulation::validateStatus()), so a name declared twice is
    * a programming error and CHECK-fails with the name.
    */
-  int addState(const std::string& name);
-  int addInput(const std::string& name);
+  int addState(std::string name);
+  int addInput(std::string name);
   Layout build() const;
 
  private:

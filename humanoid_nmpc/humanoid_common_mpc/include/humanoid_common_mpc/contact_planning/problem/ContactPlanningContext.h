@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
@@ -149,6 +150,6 @@ struct ContactPlanningContext {
  * positions and foot yaws per node (successive linearization).
  */
 HeadingNominal nominalFromSolution(const Layout& layout,
-                                   const std::vector<vector_t>& x);
+                                   absl::Span<const vector_t> x);
 
 }  // namespace ocs2::humanoid

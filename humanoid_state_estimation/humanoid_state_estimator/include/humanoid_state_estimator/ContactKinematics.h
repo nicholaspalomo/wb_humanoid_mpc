@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
@@ -74,7 +75,7 @@ struct ContactPointSpec {
  * URDF does not have.
  */
 absl::StatusOr<std::vector<std::string>> childLinkNamesOfJoints(
-    const std::string& urdfFile, absl::Span<const std::string> jointNames);
+    absl::string_view urdfFile, absl::Span<const std::string> jointNames);
 
 /**
  * The leg kinematics of a floating-base robot, relative to its base: where each
@@ -107,9 +108,9 @@ class ContactKinematics {
    * joint of an unsupported type, or no contact.
    */
   static absl::StatusOr<std::unique_ptr<ContactKinematics>> Create(
-      const std::string& urdfFile,
-      const std::vector<ContactPointSpec>& contacts,
-      const std::vector<std::string>& jointNames);
+      absl::string_view urdfFile,
+      absl::Span<const ContactPointSpec> contacts,
+      absl::Span<const std::string> jointNames);
 
   ContactKinematics(const ContactKinematics&) = delete;
   ContactKinematics& operator=(const ContactKinematics&) = delete;

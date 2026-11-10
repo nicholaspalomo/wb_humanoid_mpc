@@ -97,7 +97,9 @@ cc_test(
         ":test_cc_protos",
         ":test_structs",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:btree",
         "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings:string_view",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -172,12 +174,13 @@ cc_test(
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
     ],
 )
 
 # The struct headers alone compile under FIRST_PARTY_COPTS (-Wpedantic included) with every warning an error, and pull
-# in neither protobuf nor Abseil.
+# in neither protobuf nor any Abseil header but absl::btree_map.
 cc_test(
     name = "test_struct_headers",
     size = "small",

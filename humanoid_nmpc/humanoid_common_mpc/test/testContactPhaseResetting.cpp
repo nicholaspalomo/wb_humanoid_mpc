@@ -31,13 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <deque>
-#include <functional>
 #include <initializer_list>
 #include <optional>
 #include <utility>
 #include <vector>
 
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
@@ -133,7 +134,17 @@ ContactPlanningConfig makeConfig() {
   return config;
 }
 
-bool strictlyIncreasing(const std::vector<scalar_t>& times) {
+/** Expects validation to refuse a valid configuration after `mutate` breaks
+ * one of its values. */
+void rejects(absl::FunctionRef<void(ContactPlanningConfig&)> mutate) {
+  ContactPlanningConfig config;
+  config.shared.nomPosComRtFeetmeanEwrtWorldZ =
+      0.85;  // valid but for the one value `mutate` breaks
+  mutate(config);
+  EXPECT_EQ(config.validateStatus().code(), absl::StatusCode::kInvalidArgument);
+}
+
+bool strictlyIncreasing(absl::Span<const scalar_t> times) {
   for (size_t i = 1; i < times.size(); ++i) {
     if (times[i] <= times[i - 1]) return false;
   }
@@ -1737,15 +1748,6 @@ TEST(ContactPlanningConfigAdaptive, DefaultsAreValidAndTheRulesAreOff) {
 }
 
 TEST(ContactPlanningConfigAdaptive, ValidationRejectsBadValues) {
-  const std::function<void(const std::function<void(ContactPlanningConfig&)>&)>
-      rejects = [](const std::function<void(ContactPlanningConfig&)>& mutate) {
-        ContactPlanningConfig config;
-        config.shared.nomPosComRtFeetmeanEwrtWorldZ =
-            0.85;  // valid but for the one value `mutate` breaks
-        mutate(config);
-        EXPECT_EQ(config.validateStatus().code(),
-                  absl::StatusCode::kInvalidArgument);
-      };
   rejects([](ContactPlanningConfig& c) {
     c.phaseResetting.earlyTouchdownMinSwingRatio = -0.1;
   });

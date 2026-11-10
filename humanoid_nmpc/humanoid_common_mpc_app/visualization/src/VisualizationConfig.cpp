@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -44,7 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::visualization {
 
 absl::StatusOr<VisualizationConfig> loadVisualizationConfig(
-    const std::string& taskFile, const ModelSettings& modelSettings) {
+    absl::string_view taskFile, const ModelSettings& modelSettings) {
   ASSIGN_OR_RETURN(const mpc_config::TaskFile task, loadTaskFile(taskFile));
   absl::StatusOr<VisualizationConfig> config =
       visualizationConfigFromConfig(task, modelSettings.contactNames);

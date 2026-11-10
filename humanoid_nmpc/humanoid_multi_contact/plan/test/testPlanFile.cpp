@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_multi_contact/contact_set/contact_set.nproto.h"
@@ -98,7 +99,7 @@ config::MultiContactPlan plan() {
   return plan;
 }
 
-std::string temporaryPath(const std::string& name) {
+std::string temporaryPath(absl::string_view name) {
   const char* absl_nullable directory = std::getenv("TEST_TMPDIR");
   return absl::StrCat(directory != nullptr ? directory : "/tmp", "/", name);
 }

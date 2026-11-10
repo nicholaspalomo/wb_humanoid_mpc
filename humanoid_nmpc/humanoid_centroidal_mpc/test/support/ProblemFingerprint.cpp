@@ -78,9 +78,9 @@ void appendTermNames(Fingerprint& fingerprint,
 }
 
 void append(Fingerprint& fingerprint,
-            const std::string& label,
+            std::string label,
             const matrix_t& value) {
-  fingerprint.emplace_back(label, value);
+  fingerprint.emplace_back(std::move(label), value);
 }
 
 /**

@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <bit>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -45,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/control/ControllerBase.h"
@@ -122,10 +122,12 @@ constexpr std::array<ControllerType, 2> kControllerTypes = {
   return bitwiseEqual(matrix_t(expected), matrix_t(actual));
 }
 
+// NOLINTBEGIN(absl-span-param): T and Allocator are deduced from the vectors.
 template <typename T, typename Allocator>
 ::testing::AssertionResult bitwiseEqual(
     const std::vector<T, Allocator>& expected,
     const std::vector<T, Allocator>& actual) {
+  // NOLINTEND(absl-span-param)
   if (expected.size() != actual.size()) {
     return ::testing::AssertionFailure()
            << expected.size() << " elements != " << actual.size()
@@ -321,8 +323,10 @@ Policy roundTrip(const Policy& policy,
 
 // ControllerBase::flatten() at `time`, the sampling of a controller on other
 // time stamps.
-std::vector<std::vector<double>> flatten(const ControllerBase& controller,
-                                         const scalar_array_t& time) {
+std::vector<std::vector<double>> flatten(
+    const ControllerBase& controller,
+    // NOLINTNEXTLINE(absl-span-param): ControllerBase::flatten takes const std::vector<T>&
+    const scalar_array_t& time) {
   std::vector<std::vector<double>> samples(time.size());
   std::vector<std::vector<double>* absl_nonnull> sampleRefs;
   for (std::vector<double>& sample : samples) {
@@ -339,7 +343,7 @@ std::vector<double> asStdVector(const humanoid_mpc_msgs::Vector& vector) {
 // The times a policy is evaluated at: every node, both sides of every node,
 // before and after the horizon, and random times in between.
 scalar_array_t queryTimes(std::mt19937& generator,
-                          const scalar_array_t& timeTrajectory) {
+                          absl::Span<const scalar_t> timeTrajectory) {
   scalar_array_t times;
   for (const scalar_t time : timeTrajectory) {
     times.push_back(time);
@@ -419,7 +423,7 @@ TEST(SystemObservationConversionTest,
       &valid);
 
   const std::vector<std::pair<
-      std::function<void(humanoid_mpc_msgs::SystemObservation* absl_nonnull)>,
+      void (*absl_nonnull)(humanoid_mpc_msgs::SystemObservation* absl_nonnull),
       std::string>>
       cases = {
           {[](humanoid_mpc_msgs::SystemObservation* absl_nonnull message) {
@@ -435,8 +439,8 @@ TEST(SystemObservationConversionTest,
            },
            "SystemObservation.input[1]"},
       };
-  for (const std::pair<std::function<void(
-                           humanoid_mpc_msgs::SystemObservation* absl_nonnull)>,
+  for (const std::pair<void (*absl_nonnull)(
+                           humanoid_mpc_msgs::SystemObservation* absl_nonnull),
                        std::string>& testCase : cases) {
     humanoid_mpc_msgs::SystemObservation message = valid;
     testCase.first(&message);
@@ -471,7 +475,7 @@ TEST(ModeScheduleConversionTest, RejectsInconsistentSchedules) {
   humanoid_mpc_msgs::ModeSchedule valid;
   toProto(ModeSchedule({1.0, 2.0}, {3, 4, 5}), &valid);
   const std::vector<std::pair<
-      std::function<void(humanoid_mpc_msgs::ModeSchedule* absl_nonnull)>,
+      void (*absl_nonnull)(humanoid_mpc_msgs::ModeSchedule* absl_nonnull),
       std::string>>
       cases = {
           {[](humanoid_mpc_msgs::ModeSchedule* absl_nonnull message) {
@@ -491,9 +495,9 @@ TEST(ModeScheduleConversionTest, RejectsInconsistentSchedules) {
            },
            "ModeSchedule.event_times[0]"},
       };
-  for (const std::pair<
-           std::function<void(humanoid_mpc_msgs::ModeSchedule* absl_nonnull)>,
-           std::string>& testCase : cases) {
+  for (const std::pair<void (*absl_nonnull)(
+                           humanoid_mpc_msgs::ModeSchedule* absl_nonnull),
+                       std::string>& testCase : cases) {
     humanoid_mpc_msgs::ModeSchedule message = valid;
     testCase.first(&message);
     ModeSchedule output;
@@ -533,7 +537,7 @@ TEST(TargetTrajectoriesConversionTest,
                                               /*stateDim=*/3, /*inputDim=*/2),
           &valid);
   const std::vector<std::pair<
-      std::function<void(humanoid_mpc_msgs::TargetTrajectories* absl_nonnull)>,
+      void (*absl_nonnull)(humanoid_mpc_msgs::TargetTrajectories* absl_nonnull),
       std::string>>
       cases = {
           {[](humanoid_mpc_msgs::TargetTrajectories* absl_nonnull message) {
@@ -558,10 +562,9 @@ TEST(TargetTrajectoriesConversionTest,
            },
            "TargetTrajectories.input[3].data[0]"},
       };
-  for (const std::pair<
-           std::function<void(
-               humanoid_mpc_msgs::TargetTrajectories* absl_nonnull)>,
-           std::string>& testCase : cases) {
+  for (const std::pair<void (*absl_nonnull)(
+                           humanoid_mpc_msgs::TargetTrajectories* absl_nonnull),
+                       std::string>& testCase : cases) {
     humanoid_mpc_msgs::TargetTrajectories message = valid;
     testCase.first(&message);
     TargetTrajectories output;
@@ -848,8 +851,8 @@ TEST(PolicyConversionTest,
   const humanoid_mpc_msgs::MpcPolicy previous =
       encode(randomPolicy(generator, {.nodes = 3}, /*targetNodes=*/1));
 
-  const std::vector<
-      std::pair<std::function<void(PrimalSolution* absl_nonnull)>, std::string>>
+  const std::vector<std::pair<
+      void (*absl_nonnull)(PrimalSolution* absl_nonnull), std::string>>
       cases = {
           {[](PrimalSolution* absl_nonnull primalSolution) {
              primalSolution->controllerPtr_.reset();
@@ -878,7 +881,7 @@ TEST(PolicyConversionTest,
            "node 2 of the LinearController has a gain of 3 rows but a bias of "
            "2 entries"},
       };
-  for (const std::pair<std::function<void(PrimalSolution* absl_nonnull)>,
+  for (const std::pair<void (*absl_nonnull)(PrimalSolution* absl_nonnull),
                        std::string>& testCase : cases) {
     PrimalSolution primalSolution = policy.primalSolution;
     testCase.first(&primalSolution);
@@ -898,7 +901,7 @@ TEST(PolicyConversionTest,
 struct MalformedPolicy {
   std::string description;
   ControllerType controllerType;
-  std::function<void(humanoid_mpc_msgs::MpcPolicy* absl_nonnull)> corrupt;
+  void (*absl_nonnull corrupt)(humanoid_mpc_msgs::MpcPolicy* absl_nonnull);
   // A part of the error message, naming the offending field.
   std::string expectedError;
 };

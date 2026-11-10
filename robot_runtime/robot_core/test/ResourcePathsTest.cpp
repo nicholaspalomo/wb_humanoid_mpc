@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
 #include "robot_core/ResourcePaths.h"
@@ -55,8 +56,8 @@ constexpr char kProbeFile[] =
 // LINT.ThenChange(//robot_runtime/robot_core/BUILD.bazel:resource_paths_test_data)
 constexpr char kProbeContents[] = "resource paths probe\n";
 
-std::string readFile(const std::string& path) {
-  std::ifstream stream(path);
+std::string readFile(absl::string_view path) {
+  std::ifstream stream{std::filesystem::path(path)};
   return std::string(std::istreambuf_iterator<char>(stream),
                      std::istreambuf_iterator<char>());
 }
@@ -99,7 +100,7 @@ class ScopedEnvironmentVariable {
  * end of the test. */
 class ScopedTemporaryDirectory {
  public:
-  explicit ScopedTemporaryDirectory(const std::string& name)
+  explicit ScopedTemporaryDirectory(absl::string_view name)
       : path_(std::filesystem::path(::testing::TempDir()) / name) {
     std::filesystem::remove_all(path_);
     std::filesystem::create_directories(path_);
@@ -116,8 +117,8 @@ class ScopedTemporaryDirectory {
 
   /** Writes `contents` to `relativePath` under the directory, creating the
    * directories in between. */
-  void writeFile(const std::string& relativePath,
-                 const std::string& contents) const {
+  void writeFile(absl::string_view relativePath,
+                 absl::string_view contents) const {
     const std::filesystem::path file = path_ / relativePath;
     std::filesystem::create_directories(file.parent_path());
     std::ofstream(file) << contents;

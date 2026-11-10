@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <cstring>
-#include <functional>
 #include <iterator>
 #include <memory>
 #include <numbers>
@@ -42,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -878,7 +878,7 @@ TEST_F(ReferenceConsumersTest,
 
   // The operator's knots a quarter of a node apart for 1.2 plan lengths, the
   // base turning `yawPerKnot` between them.
-  const std::function<TargetTrajectories(scalar_t)> turningTarget =
+  const absl::AnyInvocable<TargetTrajectories(scalar_t) const> turningTarget =
       [&](scalar_t yawPerKnot) {
         TargetTrajectories target;
         for (size_t knot = 0;
@@ -896,7 +896,7 @@ TEST_F(ReferenceConsumersTest,
         return target;
       };
   // The resampled target's knots inside the plan, after a solver run at time 0.
-  const std::function<TargetTrajectories(const TargetTrajectories&)>
+  const absl::AnyInvocable<TargetTrajectories(const TargetTrajectories&) const>
       resampledInsideThePlan = [&](const TargetTrajectories& target) {
         const std::shared_ptr<ContactPlanningReferenceManager>
             referenceManager = contactPlanningReferenceManagerOf(model, config);

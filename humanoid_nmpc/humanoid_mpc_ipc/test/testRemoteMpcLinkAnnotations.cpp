@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <utility>
 
 #include "absl/base/nullability.h"
 #include "absl/log/check.h"
@@ -108,7 +109,7 @@ TEST(RemoteMpcLinkAnnotations,
   MpcServer::Config serverConfig;
   serverConfig.dimensions = modelDimensions();
   absl::StatusOr<std::unique_ptr<MpcServer>> server = MpcServer::Create(
-      mpcBus.get(), mpc.get(), resetTargetsFor, serverConfig, hooks);
+      mpcBus.get(), mpc.get(), resetTargetsFor, serverConfig, std::move(hooks));
   ASSERT_TRUE(server.ok()) << server.status();
   ASSERT_TRUE(robotBus->start().ok());
   ASSERT_TRUE(mpcBus->start().ok());

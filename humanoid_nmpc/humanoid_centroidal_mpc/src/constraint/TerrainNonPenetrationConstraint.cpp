@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <string>
 
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
@@ -71,7 +72,7 @@ TerrainNonPenetrationConstraint::TerrainNonPenetrationConstraint(
     size_t contactIndex,
     const Sphere& sphere,
     scalar_t margin,
-    const std::string& libraryName,
+    absl::string_view libraryName,
     const ModelSettings& modelSettings)
     : StateConstraintCppAd(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
@@ -82,8 +83,8 @@ TerrainNonPenetrationConstraint::TerrainNonPenetrationConstraint(
       frameName_(modelSettings.contactNames[contactIndex]),
       sphere_(sphere),
       margin_(margin) {
-  initialize(mpcRobotModelPtr_->getStateDim(), kNumParameters, libraryName,
-             modelSettings.modelFolderCppAd,
+  initialize(mpcRobotModelPtr_->getStateDim(), kNumParameters,
+             std::string(libraryName), modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 

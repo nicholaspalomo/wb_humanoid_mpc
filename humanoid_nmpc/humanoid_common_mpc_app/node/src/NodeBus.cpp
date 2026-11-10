@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "robot_ipc/Bus.h"
@@ -43,7 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::node {
 
 absl::StatusOr<robot::ipc::NetworkConfig> loadNodeNetwork(
-    const std::string& networkConfigPath) {
+    absl::string_view networkConfigPath) {
   if (networkConfigPath.empty()) {
     return robot::ipc::localhostNetworkConfig();
   }
@@ -51,17 +52,17 @@ absl::StatusOr<robot::ipc::NetworkConfig> loadNodeNetwork(
 }
 
 absl::StatusOr<robot::ipc::BusOptions> nodeBusOptions(
-    const std::string& networkConfigPath, const std::string& nodeName) {
+    absl::string_view networkConfigPath, std::string nodeName) {
   robot::ipc::BusOptions options;
-  options.nodeName = nodeName;
+  options.nodeName = std::move(nodeName);
   ASSIGN_OR_RETURN(options.network, loadNodeNetwork(networkConfigPath));
   return options;
 }
 
 absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> createNodeBus(
-    const std::string& networkConfigPath, const std::string& nodeName) {
+    absl::string_view networkConfigPath, std::string nodeName) {
   ASSIGN_OR_RETURN(robot::ipc::BusOptions options,
-                   nodeBusOptions(networkConfigPath, nodeName));
+                   nodeBusOptions(networkConfigPath, std::move(nodeName)));
   return robot::ipc::Bus::Create(std::move(options));
 }
 

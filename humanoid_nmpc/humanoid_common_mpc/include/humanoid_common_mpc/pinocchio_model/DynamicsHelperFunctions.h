@@ -127,7 +127,7 @@ template <typename SCALAR_T>
 std::vector<VECTOR3_T<SCALAR_T>> computePosLinksRtWorldEwrtWorld(
     const VECTOR_T<SCALAR_T>& q,
     PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
-    const std::vector<std::string>& frameNames);
+    absl::Span<const std::string> frameNames);
 
 ///
 /// @brief Returns all the frame positions in the inertial frame.
@@ -144,7 +144,7 @@ std::vector<VECTOR3_T<SCALAR_T>> computePosLinksRtWorldEwrtWorld(
 template <typename SCALAR_T>
 std::vector<VECTOR3_T<SCALAR_T>> getPosLinksRtWorldEwrtWorld(
     const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
-    std::vector<std::string> frameNames);
+    absl::Span<const std::string> frameNames);
 
 ///
 /// @brief The pendulum length of the robot: its whole-body center of mass above

@@ -156,18 +156,18 @@ template <typename SCALAR_T>
 std::vector<VECTOR3_T<SCALAR_T>> computePosLinksRtWorldEwrtWorld(
     const VECTOR_T<SCALAR_T>& q,
     PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
-    const std::vector<std::string>& frameNames) {
+    absl::Span<const std::string> frameNames) {
   updateFramePlacements<SCALAR_T>(q, pinocchioInterface);
   return getPosLinksRtWorldEwrtWorld<SCALAR_T>(pinocchioInterface, frameNames);
 }
 template std::vector<VECTOR3_T<ad_scalar_t>> computePosLinksRtWorldEwrtWorld(
     const VECTOR_T<ad_scalar_t>& q,
     PinocchioInterfaceTpl<ad_scalar_t>& pinocchioInterface,
-    const std::vector<std::string>& frameNames);
+    absl::Span<const std::string> frameNames);
 template std::vector<VECTOR3_T<scalar_t>> computePosLinksRtWorldEwrtWorld(
     const VECTOR_T<scalar_t>& q,
     PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
-    const std::vector<std::string>& frameNames);
+    absl::Span<const std::string> frameNames);
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -176,7 +176,7 @@ template std::vector<VECTOR3_T<scalar_t>> computePosLinksRtWorldEwrtWorld(
 template <typename SCALAR_T>
 std::vector<VECTOR3_T<SCALAR_T>> getPosLinksRtWorldEwrtWorld(
     const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
-    std::vector<std::string> frameNames) {
+    absl::Span<const std::string> frameNames) {
   std::vector<VECTOR3_T<SCALAR_T>> posLinksRtWorldEwrtWorld;
   posLinksRtWorldEwrtWorld.reserve(frameNames.size());
   const typename PinocchioInterfaceTpl<SCALAR_T>::Model& model =
@@ -197,10 +197,10 @@ std::vector<VECTOR3_T<SCALAR_T>> getPosLinksRtWorldEwrtWorld(
 }
 template std::vector<VECTOR3_T<ad_scalar_t>> getPosLinksRtWorldEwrtWorld(
     const PinocchioInterfaceTpl<ad_scalar_t>& pinocchioInterface,
-    std::vector<std::string> frameNames);
+    absl::Span<const std::string> frameNames);
 template std::vector<VECTOR3_T<scalar_t>> getPosLinksRtWorldEwrtWorld(
     const PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
-    std::vector<std::string> frameNames);
+    absl::Span<const std::string> frameNames);
 
 /******************************************************************************************************/
 /******************************************************************************************************/

@@ -161,7 +161,7 @@ int run() {
   absl::Time nextPolicy = start;
   CommandData command;
   PrimalSolution solution;
-  const VisualizationPublisher::PostSolveObserver observer =
+  VisualizationPublisher::PostSolveObserver observer =
       (*publisher)->postSolveObserver();
   PerformanceIndex performance;
   for (absl::Time now = start; now < end; now = absl::Now()) {

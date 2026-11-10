@@ -419,6 +419,52 @@ class GeneratedFilesTest(GeneratorTestCase):
             for qualified in ("std::int", "std::uint", "std::size_t"):
                 self.assertNotIn(qualified, content, name)
 
+    def test_a_map_field_is_an_absl_btree_map(self):
+        members = (
+            'field { name: "weights" number: 1 label: LABEL_REPEATED type:'
+            ' TYPE_MESSAGE type_name: ".pkg.Node.WeightsEntry" } nested_type {'
+            ' name: "WeightsEntry" field { name: "key" number: 1 label:'
+            ' LABEL_OPTIONAL type: TYPE_STRING } field { name: "value" number:'
+            " 2 label: LABEL_OPTIONAL type: TYPE_DOUBLE } options { map_entry:"
+            " true } }"
+        )
+        files = self.assertGenerates(
+            nproto_generator.generate(request(message_file(members=members)))
+        )
+        header = files["pkg/node.nproto.h"]
+        self.assertIn(
+            "  absl::btree_map<std::string, double> weights;\n", header
+        )
+        self.assertIn('#include "absl/container/btree_map.h"\n', header)
+        self.assertNotIn("std::map", header)
+        self.assertNotIn("#include <map>", header)
+
+    def test_a_map_of_a_struct_nested_in_its_own_struct_is_a_std_map(self):
+        # absl::btree_map would need the nested struct's default member initializers before the enclosing struct is
+        # complete, which GCC rejects.
+        members = (
+            'field { name: "children" number: 1 label: LABEL_REPEATED type:'
+            ' TYPE_MESSAGE type_name: ".pkg.Node.ChildrenEntry" } nested_type'
+            ' { name: "Child" field { name: "x" number: 1 label:'
+            " LABEL_OPTIONAL type: TYPE_DOUBLE } } nested_type { name:"
+            ' "ChildrenEntry" field { name: "key" number: 1 label:'
+            ' LABEL_OPTIONAL type: TYPE_STRING } field { name: "value" number:'
+            " 2 label: LABEL_OPTIONAL type: TYPE_MESSAGE type_name:"
+            ' ".pkg.Node.Child" } options { map_entry: true } }'
+        )
+        files = self.assertGenerates(
+            nproto_generator.generate(request(message_file(members=members)))
+        )
+        header = files["pkg/node.nproto.h"]
+        self.assertIn(
+            f"  {nproto_generator.STD_MAP_NOLINT}\n"
+            "  std::map<std::string, Child> children;\n",
+            header,
+        )
+        self.assertIn("#include <map>\n", header)
+        self.assertNotIn("absl::btree_map", header)
+        self.assertNotIn("absl/container", header)
+
     def test_a_signature_longer_than_a_line_keeps_its_annotation(self):
         # Too long to align the parameters after the open parenthesis, so clang-format breaks after it and puts them
         # one per line (BinPackParameters: false).

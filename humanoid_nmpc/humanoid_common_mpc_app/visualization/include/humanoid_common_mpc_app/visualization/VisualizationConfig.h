@@ -82,7 +82,7 @@ struct VisualizationConfig {
  * column, and those of visualizationConfigFromConfig() prefixed with the file.
  */
 absl::StatusOr<VisualizationConfig> loadVisualizationConfig(
-    const std::string& taskFile, const ModelSettings& modelSettings);
+    absl::string_view taskFile, const ModelSettings& modelSettings);
 
 /** One line for the start-up log: the scene rate (and whether it is the
  * default) and the frame lists. */

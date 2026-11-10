@@ -98,13 +98,13 @@ class TestRobot {
    * (model_settings.contacts_3dof): the contact set is those contacts, then the
    * task file's 6-DoF contacts. taskFile() stays the shipped file's path, so
    * every other key is the shipped one; task() and the models carry the
-   * contacts. Formulation::kCentroidalBasisVectors refuses a point contact.
+   * contacts, which it moves into task(). Formulation::kCentroidalBasisVectors
+   * refuses a point contact.
    */
   static std::unique_ptr<TestRobot> loadWithPointContacts(
       const RobotFiles& files,
       Formulation formulation,
-      const std::vector<mpc_config::ModelSettingsConfig::PointContact>&
-          pointContacts);
+      std::vector<mpc_config::ModelSettingsConfig::PointContact> pointContacts);
 
   VisualizationModel model() const;
   const ModelSettings& modelSettings() const { return *modelSettings_; }

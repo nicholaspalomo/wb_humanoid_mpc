@@ -84,9 +84,8 @@ class MrtRobotController final : public RobotController {
   Controller& controller() { return *controller_; }
   const Controller& controller() const { return *controller_; }
 
-  void prepareCycle(
-      absl::string_view controlMode,
-      const std::vector<scalar_t>& nominalJointPositions) override {
+  void prepareCycle(absl::string_view controlMode,
+                    absl::Span<const scalar_t> nominalJointPositions) override {
     if (inputOrder_ == CycleInputOrder::kModeThenPosture) {
       controller_->setControlMode(controlMode);
       controller_->setNominalJointPositions(nominalJointPositions);

@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -82,7 +83,7 @@ MixedIntegerOcpQp::MixedIntegerOcpQp(OcpQpHpipmSolver::Settings qpSettings,
 absl::StatusOr<std::vector<MixedIntegerOcpQp::BinaryLocation>>
 MixedIntegerOcpQp::locateBinaries(
     const OcpQpProblem& problem,
-    const std::vector<MiqpBinaryVariable>& binaries) const {
+    absl::Span<const MiqpBinaryVariable> binaries) const {
   std::vector<BinaryLocation> locations;
   locations.reserve(binaries.size());
   for (const MiqpBinaryVariable& binary : binaries) {
@@ -107,7 +108,7 @@ MixedIntegerOcpQp::locateBinaries(
 
 void MixedIntegerOcpQp::applyAssignment(
     OcpQpProblem& problem,
-    const std::vector<BinaryLocation>& locations,
+    absl::Span<const BinaryLocation> locations,
     const MiqpAssignment& assignment) const {
   for (size_t i = 0; i < locations.size(); ++i) {
     OcpQpStage& stage = problem.stages[locations[i].stage];
@@ -125,7 +126,7 @@ void MixedIntegerOcpQp::applyAssignment(
 
 int MixedIntegerOcpQp::firstFractional(
     const OcpQpSolution& solution,
-    const std::vector<MiqpBinaryVariable>& binaries,
+    absl::Span<const MiqpBinaryVariable> binaries,
     const MiqpAssignment& assignment,
     scalar_t& fractionalValue) const {
   for (size_t i = 0; i < binaries.size(); ++i) {
@@ -144,7 +145,7 @@ int MixedIntegerOcpQp::firstFractional(
 
 absl::StatusOr<bool> MixedIntegerOcpQp::solveFixed(
     OcpQpProblem& problem,
-    const std::vector<MiqpBinaryVariable>& binaries,
+    absl::Span<const MiqpBinaryVariable> binaries,
     MiqpAssignment assignment,
     const MiqpPropagateFn& propagate,
     const MiqpAssignmentCostFn& assignmentCost,
@@ -184,7 +185,7 @@ class MixedIntegerOcpQp::Search {
  public:
   Search(MixedIntegerOcpQp* absl_nonnull owner,
          OcpQpProblem* absl_nonnull problem,
-         const std::vector<MiqpBinaryVariable>* absl_nonnull binaries,
+         absl::Span<const MiqpBinaryVariable> binaries,
          std::vector<BinaryLocation> locations,
          const MiqpPropagateFn* absl_nonnull propagate,
          const MiqpAssignmentCostFn* absl_nonnull assignmentCost)
@@ -318,7 +319,7 @@ class MixedIntegerOcpQp::Search {
    * assignment is complete. Only used to find incumbents, never to prune.
    */
   void dive(MiqpAssignment assignment, OcpQpSolution relaxation) {
-    const std::vector<MiqpBinaryVariable>& binaries = *binaries_;
+    const absl::Span<const MiqpBinaryVariable> binaries = binaries_;
     for (int iteration = 0;
          iteration < owner_->settings_.maxDiveIterations && !limitsHit();
          ++iteration) {
@@ -360,7 +361,7 @@ class MixedIntegerOcpQp::Search {
    */
   void tryWarmStart(const MiqpAssignment& root,
                     const MiqpAssignment* absl_nullable warmStart) {
-    if (warmStart == nullptr || warmStart->size() != binaries_->size()) return;
+    if (warmStart == nullptr || warmStart->size() != binaries_.size()) return;
     MiqpAssignment warm = root;
     for (size_t i = 0; i < warm.size(); ++i) {
       if (warm[i] == kMiqpFree) warm[i] = (*warmStart)[i];
@@ -463,7 +464,7 @@ class MixedIntegerOcpQp::Search {
   std::optional<Branch> chooseBranch(const MiqpAssignment& assignment,
                                      const OcpQpSolution& relaxation,
                                      scalar_t bound) {
-    const std::vector<MiqpBinaryVariable>& binaries = *binaries_;
+    const absl::Span<const MiqpBinaryVariable> binaries = binaries_;
     scalar_t fractionalValue = 0.0;
     const int fractional = owner_->firstFractional(relaxation, binaries,
                                                    assignment, fractionalValue);
@@ -520,7 +521,8 @@ class MixedIntegerOcpQp::Search {
 
   MixedIntegerOcpQp* absl_nonnull owner_;
   OcpQpProblem* absl_nonnull problem_;
-  const std::vector<MiqpBinaryVariable>* absl_nonnull binaries_;
+  // NOLINTNEXTLINE(totw-view-member): Search is a local of MixedIntegerOcpQp::solve() and dies before the binaries it views
+  absl::Span<const MiqpBinaryVariable> binaries_;
   std::vector<BinaryLocation> locations_;
   const MiqpPropagateFn* absl_nonnull
   propagate_;  // may hold no target: no propagation
@@ -537,7 +539,7 @@ class MixedIntegerOcpQp::Search {
 
 absl::StatusOr<MiqpResult> MixedIntegerOcpQp::solve(
     OcpQpProblem& problem,
-    const std::vector<MiqpBinaryVariable>& binaries,
+    absl::Span<const MiqpBinaryVariable> binaries,
     const MiqpAssignment& initialAssignment,
     const MiqpPropagateFn& propagate,
     const MiqpAssignment* absl_nullable warmStart,
@@ -550,7 +552,7 @@ absl::StatusOr<MiqpResult> MixedIntegerOcpQp::solve(
   }
   ASSIGN_OR_RETURN(std::vector<BinaryLocation> locations,
                    locateBinaries(problem, binaries));
-  Search search(this, &problem, &binaries, std::move(locations), &propagate,
+  Search search(this, &problem, binaries, std::move(locations), &propagate,
                 &assignmentCost);
   return search.run(initialAssignment, warmStart);
 }

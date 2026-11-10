@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
 
@@ -75,10 +76,10 @@ std::string errEulerzyxFootRtWorldYaw(size_t foot) {
 }  // namespace var
 
 namespace {
-int indexOf(const std::vector<std::string>& names,
+int indexOf(absl::Span<const std::string> names,
             absl::string_view name,
             const char* absl_nonnull what) {
-  const std::vector<std::string>::const_iterator it =
+  const absl::Span<const std::string>::const_iterator it =
       std::find(names.begin(), names.end(), name);
   CHECK(it != names.end()) << "[Layout] no " << what << " named '" << name
                            << "'";

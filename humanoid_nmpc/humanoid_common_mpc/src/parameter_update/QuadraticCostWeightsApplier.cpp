@@ -103,7 +103,7 @@ absl::StatusOr<matrix_t> inputWeights(const HotUpdateTarget& target) {
  */
 template <typename Derived, typename Term>
 void setWeightsIfPresent(Collection<Term>& collection,
-                         const std::string& name,
+                         absl::string_view name,
                          absl::FunctionRef<absl::Status(Derived&)> set) {
   absl::Status refused = absl::OkStatus();
   updateTermIfPresent<Derived>(collection, name,

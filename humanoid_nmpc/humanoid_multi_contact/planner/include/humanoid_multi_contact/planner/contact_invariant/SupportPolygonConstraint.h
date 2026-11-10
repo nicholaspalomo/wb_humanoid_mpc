@@ -33,12 +33,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 #include <optional>
-#include <string>
 #include <vector>
 
 #include "Eigen/Core"
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
@@ -74,7 +75,7 @@ struct TimedPolygon {
  * kMaxPolygonEdges, or a polygon that is not counterclockwise and convex.
  */
 absl::StatusOr<TimedPolygon> polygonOf(
-    const std::vector<Eigen::Vector2d>& vertices,
+    absl::Span<const Eigen::Vector2d> vertices,
     double startTime,
     double endTime);
 
@@ -99,8 +100,8 @@ class SupportPolygonConstraint final : public StateConstraintCppAd {
                            const CentroidalModelInfo& info,
                            std::vector<TimedPolygon> polygons,
                            scalar_t margin,
-                           const std::string& libraryName,
-                           const std::string& folder,
+                           absl::string_view libraryName,
+                           absl::string_view folder,
                            bool recompile,
                            bool verbose);
   ~SupportPolygonConstraint() override = default;

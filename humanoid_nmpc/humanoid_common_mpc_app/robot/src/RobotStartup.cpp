@@ -57,6 +57,17 @@ void confirmBoot(RobotConfigDirectory& directory) {
   }
 }
 
+/** Sets up the files of `files` with `setUpRobot` and starts the bus and the
+ * process; a stack that fails to start is destroyed on the way out, which
+ * stops what it started. */
+absl::StatusOr<RobotStack> setUpAndStart(RobotSetUp setUpRobot,
+                                         const RobotConfigDirectory& files) {
+  ASSIGN_OR_RETURN(RobotStack stack, setUpRobot(files));
+  RETURN_IF_ERROR(stack.bus->start());
+  RETURN_IF_ERROR(stack.process->start());
+  return stack;
+}
+
 }  // namespace
 
 absl::StatusOr<RobotConfigDirectory> openRobotConfigDirectory(
@@ -79,7 +90,7 @@ absl::StatusOr<std::string> bundledRobotName(
 }
 
 absl::StatusOr<RobotStack> bringUpRobot(RobotConfigDirectory& directory,
-                                        const RobotBringUp& bringUp) {
+                                        RobotBringUp bringUp) {
   absl::StatusOr<RobotStack> stack = bringUp(directory);
   if (stack.ok() || !directory.usesStoredCopies()) return stack;
   LOG(ERROR)
@@ -113,21 +124,16 @@ absl::StatusOr<RobotStack> bringUpRobot(RobotConfigDirectory& directory,
 }
 
 absl::Status runRobot(const RobotAppOptions& options,
-                      const RobotSetUp& setUpRobot,
+                      RobotSetUp setUpRobot,
                       absl::FunctionRef<bool()> shutdownRequested) {
   ASSIGN_OR_RETURN(RobotConfigDirectory directory,
                    openRobotConfigDirectory(options));
-  const RobotBringUp bringUp =
-      [&setUpRobot](
-          const RobotConfigDirectory& files) -> absl::StatusOr<RobotStack> {
-    // A stack that fails to start is destroyed on the way out, which stops what
-    // it started.
-    ASSIGN_OR_RETURN(RobotStack stack, setUpRobot(files));
-    RETURN_IF_ERROR(stack.bus->start());
-    RETURN_IF_ERROR(stack.process->start());
-    return stack;
-  };
-  ASSIGN_OR_RETURN(RobotStack stack, bringUpRobot(directory, bringUp));
+  absl::StatusOr<RobotStack> started =
+      bringUpRobot(directory, [setUpRobot](const RobotConfigDirectory& files) {
+        return setUpAndStart(setUpRobot, files);
+      });
+  if (!started.ok()) return started.status();
+  RobotStack stack = *std::move(started);
   // Until SIGINT or SIGTERM, or until a cycle of the realtime loop throws (the
   // backend is then in its safe state and the binary exits with a failure,
   // which the container's restart policy answers).

@@ -53,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
 #include "gtest/gtest.h"
@@ -121,10 +122,10 @@ class Fingerprint {
   void add(absl::string_view name, bool value) {
     absl::StrAppend(&text_, name, " = ", value ? "true" : "false", "\n");
   }
-  void add(absl::string_view name, const std::string& value) {
+  void add(absl::string_view name, absl::string_view value) {
     absl::StrAppend(&text_, name, " = \"", value, "\"\n");
   }
-  void add(absl::string_view name, const std::vector<std::string>& values) {
+  void add(absl::string_view name, absl::Span<const std::string> values) {
     absl::StrAppend(&text_, name, " = [", absl::StrJoin(values, ", "), "]\n");
   }
   void add(absl::string_view name, std::optional<SlackPenalty> slack) {
@@ -341,15 +342,14 @@ std::string pathName(const FieldPath& path) {
  * terminal_dcm.target), otherwise `current` renamed, which the unvalidated
  * conversion keeps.
  */
-std::string otherName(const FieldDescriptor& field,
-                      const std::string& current) {
+std::string otherName(const FieldDescriptor& field, absl::string_view current) {
   const std::string& registry =
       field.options().GetExtension(humanoid_mpc_config::tuning).registry();
   std::vector<std::string> names;
   if (registry == "contact_planner_threading") names = plannerThreadingNames();
   if (registry == "terminal_dcm_target") names = terminalDcmTargetNames();
-  for (const std::string& name : names) {
-    if (name != current) return name;
+  for (std::string& name : names) {
+    if (name != current) return std::move(name);
   }
   return absl::StrCat(current, "_changed");
 }

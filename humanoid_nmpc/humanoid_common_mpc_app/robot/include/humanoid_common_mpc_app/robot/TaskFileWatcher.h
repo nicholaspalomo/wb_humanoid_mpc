@@ -30,10 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <filesystem>
-#include <functional>
 #include <optional>
 #include <string>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/strings/string_view.h"
 
 namespace ocs2::humanoid {
@@ -50,6 +50,9 @@ namespace ocs2::humanoid {
  */
 class TaskFileWatcher {
  public:
+  /** Called by poll() with file(), on the polling thread. */
+  using OnChange = absl::AnyInvocable<void(const std::string& file)>;
+
   /**
    * Watches `file`, the robot's task file, which is handed to `onChange`, from
    * `readAt`: the write time the file had when its contents were last read
@@ -59,12 +62,11 @@ class TaskFileWatcher {
    */
   TaskFileWatcher(absl::string_view file,
                   std::optional<std::filesystem::file_time_type> readAt,
-                  std::function<void(const std::string& file)> onChange);
+                  OnChange onChange);
 
   /** Watches `file` from its time now: the constructor above with
    * writeTimeOf(file). */
-  TaskFileWatcher(absl::string_view file,
-                  std::function<void(const std::string& file)> onChange);
+  TaskFileWatcher(absl::string_view file, OnChange onChange);
 
   /** The write time of `file`; nullopt when it has none to read (it does not
    * exist). */
@@ -80,7 +82,8 @@ class TaskFileWatcher {
 
  private:
   const std::string file_;
-  const std::function<void(const std::string& file)> onChange_;
+  /** Set once at construction; empty: poll() calls nothing. */
+  OnChange onChange_;
   std::filesystem::file_time_type lastWriteTime_{};
   bool haveWriteTime_ = false;
 };

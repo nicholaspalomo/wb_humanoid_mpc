@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <cmath>
 #include <cstdint>
-#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -197,28 +196,25 @@ RemoteMpcLink::~RemoteMpcLink() {
 
 absl::Status RemoteMpcLink::registerOnBus() {
   const std::shared_ptr<CallbackGuard> guard = guard_;
-  const std::function<void(const humanoid_mpc_msgs::MpcPolicy&)>
-      onPolicyMessage = [guard](const humanoid_mpc_msgs::MpcPolicy& message) {
+  RETURN_IF_ERROR(bus_->subscribe<humanoid_mpc_msgs::MpcPolicy>(
+      topics::kMpcPolicy, robot::ipc::Delivery::kLatest,
+      [guard](const humanoid_mpc_msgs::MpcPolicy& message) {
         absl::MutexLock lock(guard->mutex);
         if (guard->link != nullptr) guard->link->onPolicy(message);
-      };
-  const std::function<void(const humanoid_mpc_msgs::MpcStatus&)>
-      onStatusMessage = [guard](const humanoid_mpc_msgs::MpcStatus& message) {
-        absl::MutexLock lock(guard->mutex);
-        if (guard->link != nullptr) guard->link->onStatus(message);
-      };
-  const std::function<void()> onPollPeriod = [guard]() {
-    absl::MutexLock lock(guard->mutex);
-    if (guard->link != nullptr) guard->link->onPoll();
-  };
-  RETURN_IF_ERROR(bus_->subscribe<humanoid_mpc_msgs::MpcPolicy>(
-      topics::kMpcPolicy, robot::ipc::Delivery::kLatest, onPolicyMessage));
+      }));
   // After mpc/policy: the bus hands the newest message of each topic of one
   // drain over in the order of the subscriptions, so a status is handled after
   // a policy of the same drain, which an earlier or the same attempt solved.
   RETURN_IF_ERROR(bus_->subscribe<humanoid_mpc_msgs::MpcStatus>(
-      topics::kMpcStatus, robot::ipc::Delivery::kLatest, onStatusMessage));
-  return bus_->addPeriodicCallback(config_.pollPeriod, onPollPeriod);
+      topics::kMpcStatus, robot::ipc::Delivery::kLatest,
+      [guard](const humanoid_mpc_msgs::MpcStatus& message) {
+        absl::MutexLock lock(guard->mutex);
+        if (guard->link != nullptr) guard->link->onStatus(message);
+      }));
+  return bus_->addPeriodicCallback(config_.pollPeriod, [guard]() {
+    absl::MutexLock lock(guard->mutex);
+    if (guard->link != nullptr) guard->link->onPoll();
+  });
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

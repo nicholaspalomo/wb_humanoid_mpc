@@ -29,8 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 
-#include <string>
-
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 
@@ -48,7 +46,7 @@ absl::string_view wbMpcFeedforwardName(WbMpcFeedforward feedforward) {
 }
 
 absl::StatusOr<RobotProcessSettings> loadRobotProcessSettings(
-    const std::string& taskFile) {
+    absl::string_view taskFile) {
   ASSIGN_OR_RETURN(const mpc_config::TaskFile task, loadTaskFile(taskFile));
   absl::StatusOr<RobotProcessSettings> settings =
       robotProcessSettingsFromConfig(task);

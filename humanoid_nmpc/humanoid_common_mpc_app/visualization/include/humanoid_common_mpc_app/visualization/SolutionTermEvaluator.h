@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_oc/oc_data/PerformanceIndex.h"
@@ -164,10 +165,10 @@ class SolutionTermEvaluator {
   /** Appends the terms `names` of `collection`, named "<prefix>/<name>". */
   void addCostTerms(CostCollection collection,
                     absl::string_view prefix,
-                    const std::vector<std::string>& names);
+                    absl::Span<const std::string> names);
   void addConstraintTerms(ConstraintCollection collection,
                           absl::string_view prefix,
-                          const std::vector<std::string>& names);
+                          absl::Span<const std::string> names);
   scalar_t costValue(const CostTerm& term,
                      scalar_t time,
                      const vector_t& state,

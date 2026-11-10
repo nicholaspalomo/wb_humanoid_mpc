@@ -44,17 +44,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
-#include <string>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
@@ -122,7 +123,8 @@ struct ParityModel {
    * evaluator. */
   std::shared_ptr<const StateManifold> stateManifold;
   /** The observation of a step at `time` with state `value`. */
-  std::function<SystemObservation(scalar_t time, scalar_t value)> observationAt;
+  absl::AnyInvocable<SystemObservation(scalar_t time, scalar_t value) const>
+      observationAt;
 };
 
 ParityModel flatModel() {
@@ -233,10 +235,10 @@ void expectSame(const Seen& inProcess, const Seen& remote, size_t step) {
  * as solverWorker() serves it. `failNextSolve` makes the next solve of `mpc`
  * fail; the script asks for it only of an MPC that can fail.
  */
-std::vector<Seen> runInProcess(const std::vector<Step>& steps,
+std::vector<Seen> runInProcess(absl::Span<const Step> steps,
                                const ParityModel& model,
                                MPC_BASE& mpc,
-                               const std::function<void()>& failNextSolve) {
+                               absl::FunctionRef<void()> failNextSolve) {
   MPC_MRT_Interface mrt(mpc);
   mrt.setStateManifold(model.stateManifold);
   MpcResetSupervisor supervisor;
@@ -283,10 +285,10 @@ std::vector<Seen> runInProcess(const std::vector<Step>& steps,
 
 /** The controller with the solver behind the network link: `mpc` served by an
  * MpcServer, as in runInProcess(). */
-std::vector<Seen> runRemote(const std::vector<Step>& steps,
+std::vector<Seen> runRemote(absl::Span<const Step> steps,
                             const ParityModel& model,
                             MPC_BASE& mpc,
-                            const std::function<void()>& failNextSolve) {
+                            absl::FunctionRef<void()> failNextSolve) {
   std::unique_ptr<robot::ipc::Bus> robotBus =
       test_support::createNodeBus("robot");
   std::unique_ptr<robot::ipc::Bus> mpcBus = test_support::createNodeBus("mpc");
@@ -392,7 +394,7 @@ TEST(RemoteMpcLinkParityTest,
       test_support::makeManifoldScriptedMpc(model.stateManifold);
   std::unique_ptr<test_support::ManifoldScriptedMpc> remoteMpc =
       test_support::makeManifoldScriptedMpc(model.stateManifold);
-  const std::function<void()> neverFails = []() {
+  const absl::AnyInvocable<void() const> neverFails = []() {
     ADD_FAILURE() << "the manifold script has no solver failures";
   };
   const std::vector<Seen> inProcess =

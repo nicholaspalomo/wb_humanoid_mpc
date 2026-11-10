@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
@@ -143,6 +144,6 @@ absl::StatusOr<TaskSpaceFootCostSettings> taskSpaceFootCostFromConfig(
  */
 absl::StatusOr<std::vector<TaskSpaceLinkCostSettings>>
 taskSpaceLinkCostsFromConfig(
-    const std::vector<mpc_config::TaskSpaceCostConfig>& costs);
+    absl::Span<const mpc_config::TaskSpaceCostConfig> costs);
 
 }  // namespace ocs2::humanoid

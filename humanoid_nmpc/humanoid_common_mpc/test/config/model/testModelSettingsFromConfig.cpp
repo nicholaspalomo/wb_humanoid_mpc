@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
+#include "absl/types/span.h"
 #include "gmock/gmock.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
@@ -155,7 +156,7 @@ std::string describe(const ModelSettings::ContactImplicitConfig& config) {
       " ");
 }
 
-std::string describe(const std::vector<ModelSettings::PointContact>& contacts) {
+std::string describe(absl::Span<const ModelSettings::PointContact> contacts) {
   std::vector<std::string> described;
   for (const ModelSettings::PointContact& contact : contacts) {
     described.push_back(
@@ -459,7 +460,7 @@ Message* absl_nonnull elementWithNamesSet(
 /** The dotted paths, `prefix` first, of every scalar or repeated scalar field
  * below `descriptor`. */
 void collectLeaves(const Descriptor* absl_nonnull descriptor,
-                   const std::string& prefix,
+                   absl::string_view prefix,
                    std::vector<std::string>& leaves) {
   for (int index = 0; index < descriptor->field_count(); ++index) {
     const FieldDescriptor* absl_nonnull field = descriptor->field(index);

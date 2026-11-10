@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -76,7 +77,7 @@ constexpr char kLeftFoot[] = "foot_l_contact";
 constexpr char kRightFoot[] = "foot_r_contact";
 
 ModelSettings modelSettingsOf(const mpc_config::TaskFile& task,
-                              const std::string& urdfFile) {
+                              absl::string_view urdfFile) {
   return ModelSettings::Create(task, urdfFile, "surface_height_source_test_",
                                /*verbose=*/false)
       .value();
@@ -84,11 +85,11 @@ ModelSettings modelSettingsOf(const mpc_config::TaskFile& task,
 
 using ContactPhase = multi_contact::config::MultiContactPlan::ContactPhase;
 
-ContactPhase phaseOn(const std::string& contact,
+ContactPhase phaseOn(absl::string_view contact,
                      const vector3_t& posSurfaceRtWorldEwrtWorld,
                      const vector3_t& normalSurfaceEwrtWorld) {
   ContactPhase phase;
-  phase.contact = contact;
+  phase.contact = std::string(contact);
   phase.des_pose_pad_rt_world = vector_t(6);
   phase.des_pose_pad_rt_world << posSurfaceRtWorldEwrtWorld,
       normalSurfaceEwrtWorld;

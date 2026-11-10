@@ -92,7 +92,7 @@ The include paths follow the proto import paths:
 
 | Include | What it declares | Depends on |
 |---|---|---|
-| `"humanoid_mpc_msgs/mpc_policy.nproto.h"` | the struct, its nested types and `operator==` / `operator!=` | Eigen and the standard library only |
+| `"humanoid_mpc_msgs/mpc_policy.nproto.h"` | the struct, its nested types and `operator==` / `operator!=` | Eigen, the standard library and, for a map field, `absl/container/btree_map.h` |
 | `"humanoid_mpc_msgs/mpc_policy.nproto.pb.h"` | `ToProto()` / `FromProto()` of the struct and of every nested type | the protobuf code, Abseil |
 
 The protos of protobuf itself (descriptor.proto, the well-known types) and `options.proto` get no structs (the
@@ -127,7 +127,7 @@ it and `-Werror` (`//tools/nproto/test:test_struct_headers`, `:test_generated_co
 | `repeated double` / `repeated float` | `Eigen::VectorXd` / `Eigen::VectorXf` | size 0 |
 | any other `repeated` scalar, enum or string | `std::vector<T>` (`repeated bool`: `std::vector<bool>`) | empty |
 | `repeated` message | `std::vector<Struct>` | empty |
-| `map<K, V>` | `std::map<K, V or its struct>`, in key order | empty |
+| `map<K, V>` | `absl::btree_map<K, V or its struct>`, in key order; `std::map` when V is a struct nested in the struct of the member, whose default member initializers btree_map cannot use before the enclosing struct is complete | empty |
 | `oneof o { A a = 1; B b = 2; }` | `std::variant<std::monostate, A, B> o;` and `kAIndex = 1`, `kBIndex = 2` | `std::monostate` (none set) |
 
 Choices behind the table:
@@ -217,7 +217,7 @@ same map keys, the same oneof alternatives and the same optional members present
 |---|---|
 | the first conversion into a default-constructed struct or an empty message | every buffer is created |
 | a repeated field, vector or string that grows beyond its capacity | Eigen and protobuf's `RepeatedField` reallocate to grow; a vector or `RepeatedPtrField` of strings or messages also creates the new elements |
-| a map whose key set changes | `std::map` and `google::protobuf::Map` allocate a node per key, so a map with other keys is rebuilt; prefer a repeated field or an Eigen vector in data the realtime loop converts |
+| a map whose key set changes | `absl::btree_map`, `std::map` and `google::protobuf::Map` allocate on insertion, so a map with other keys is rebuilt; prefer a repeated field or an Eigen vector in data the realtime loop converts |
 | a oneof that switches to an alternative holding a string, a vector or a message | the variant (and the message) destroy the old alternative and create the new one |
 | an optional message member or field that becomes present | the struct or the submessage is created |
 | an error of `FromProto()` | the error message is built |
@@ -406,7 +406,8 @@ bazel test //tools/nproto/... //humanoid_nmpc/humanoid_mpc_msgs:messages_nproto_
   round trips of every test message both ways, every oneof alternative, presence (`optional_message` included), maps,
   the errors of `FromProto()`.
 - `:test_nproto_allocations`: allocation-freedom of the conversions into objects of the value's shape.
-- `:test_struct_headers`: the struct headers alone compile under `-Wpedantic -Werror` without protobuf or Abseil.
+- `:test_struct_headers`: the struct headers alone compile under `-Wpedantic -Werror` without protobuf, and without
+  any Abseil header but `absl/container/btree_map.h`.
 - `:test_textproto`: a good file, unknown fields, type errors and other mistakes with their line and column, retired
   fields in both spellings, suggestions and layout hints, the header check, a missing file, a conversion error, and
   `WriteTextproto()` round trips.
@@ -417,6 +418,6 @@ bazel test //tools/nproto/... //humanoid_nmpc/humanoid_mpc_msgs:messages_nproto_
 - `:test_generated_code`: the generated code of the test protos (`long_names.proto` among them, whose names make every
   kind of line wrap), of `humanoid_mpc_msgs` and of `humanoid_mpc_config` is clang-format clean, the repository's C++ lint checks (`no-auto`, `pointer-nullability`, `magic-number`, ...)
   find nothing in it (`make lint` never sees `bazel-out`), its output parameters are `absl_nonnull`, and its struct
-  headers include neither protobuf nor Abseil.
+  headers include neither protobuf nor any Abseil header but `absl/container/btree_map.h`.
 - `ExpectRoundTrips<Struct, Proto>()` (`:proto_test_values`) is the round-trip check any package can run over its own
   messages, as `//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto_test` does for every message there.

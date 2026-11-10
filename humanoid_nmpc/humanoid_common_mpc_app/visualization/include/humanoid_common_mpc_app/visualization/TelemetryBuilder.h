@@ -39,6 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
@@ -189,7 +191,7 @@ class TelemetryBuilder {
    * contact is named by its contact name.
    */
   static std::vector<std::string> contactSeriesNames(
-      const std::vector<std::string>& contactNames, size_t numSixDofContacts);
+      absl::Span<const std::string> contactNames, size_t numSixDofContacts);
 
  private:
   /** The sources of the plots: measured, reference and plan (sources_). */
@@ -250,7 +252,7 @@ class TelemetryBuilder {
   absl::Status initialize(const VisualizationConfig& config,
                           const SolutionTermNames& termNames);
 
-  int addGroup(const std::string& path, const std::vector<std::string>& names);
+  int addGroup(absl::string_view path, absl::Span<const std::string> names);
   /** The values of `group`, which must have at least one name: an empty
    * RepeatedField's mutable_data() may be null. */
   double* absl_nonnull values(int group) {

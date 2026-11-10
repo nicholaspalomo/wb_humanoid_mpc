@@ -39,7 +39,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
@@ -54,6 +53,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PhysicalConstants.h"
 
@@ -460,7 +461,7 @@ absl::Status MujocoSimInterface::checkConfigNumbers(
 }
 
 absl::StatusOr<std::unique_ptr<MujocoSimInterface>> MujocoSimInterface::Create(
-    const MujocoSimConfig& config, const std::string& urdfPath) {
+    const MujocoSimConfig& config, absl::string_view urdfPath) {
   if (absl::Status viewer = validateViewerSettings(config.viewer);
       !viewer.ok()) {
     return viewer;
@@ -1290,11 +1291,17 @@ void MujocoSimInterface::setupContactDetection() {
   contactTimelineSampleInterval_ = std::max<size_t>(
       1, static_cast<size_t>(
              std::lround(1.0 / (kTimelineSampleRateHz * timestep))));
-  contactTimeline_ = ContactTimeline(config_.contactTimelineWindow);
+  {
+    // The physics thread has not started yet; the lock only states the
+    // invariant.
+    absl::MutexLock lock(contactTimelineMutex_);
+    contactTimeline_ = ContactTimeline(config_.contactTimelineWindow);
+    contactTimelineWindow_ = contactTimeline_.window();
+  }
   // Samples within one window, both ends included, and one for rounding.
   contactTimelineCapacity_ =
       static_cast<size_t>(std::ceil(
-          contactTimeline_.window() /
+          contactTimelineWindow_ /
           (static_cast<double>(contactTimelineSampleInterval_) * timestep))) +
       kExtraTimelineSamples;
   if (verbose_) {
@@ -1376,8 +1383,7 @@ void MujocoSimInterface::updateGroundTruthContacts() {
   // under this lock: a sample that finds the lock held waits for the next one,
   // and of two that find it held the older is dropped
   // (droppedContactTimelineSamples()).
-  std::unique_lock<std::mutex> lock(contactTimelineMutex_, std::try_to_lock);
-  if (!lock.owns_lock()) {
+  if (!contactTimelineMutex_.try_lock()) {
     if (pendingTimelineSample_.has_value()) {
       droppedTimelineSamples_.fetch_add(1, std::memory_order_relaxed);
     }
@@ -1389,6 +1395,7 @@ void MujocoSimInterface::updateGroundTruthContacts() {
     pendingTimelineSample_.reset();
   }
   contactTimeline_.append(sample);
+  contactTimelineMutex_.unlock();
 }
 
 void MujocoSimInterface::setTargetContactFlags(const std::vector<bool>& flags) {
@@ -1414,7 +1421,7 @@ void MujocoSimInterface::copyContactTimeline(
   out.clear();
   out.reserve(contactTimelineCapacity_);  // before the lock, and a no-op once
                                           // `out` has been reserved
-  std::lock_guard<std::mutex> lock(contactTimelineMutex_);
+  absl::MutexLock lock(contactTimelineMutex_);
   out.assign(contactTimeline_.samples().begin(),
              contactTimeline_.samples().end());
 }
@@ -1786,14 +1793,14 @@ double MujocoSimInterface::getYawBaseRtWorld() const {
 }
 
 void MujocoSimInterface::setTargetContactPatches(
-    const std::vector<TargetContactPatch>& patches) {
-  std::lock_guard<std::mutex> lock(targetPatchMutex_);
-  targetContactPatches_ = patches;
+    absl::Span<const TargetContactPatch> patches) {
+  absl::MutexLock lock(targetPatchMutex_);
+  targetContactPatches_.assign(patches.begin(), patches.end());
 }
 
 void MujocoSimInterface::copyTargetContactPatches(
     std::vector<TargetContactPatch>& out) const {
-  std::lock_guard<std::mutex> lock(targetPatchMutex_);
+  absl::MutexLock lock(targetPatchMutex_);
   out = targetContactPatches_;
 }
 

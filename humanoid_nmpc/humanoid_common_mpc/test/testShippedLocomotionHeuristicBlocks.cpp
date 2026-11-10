@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
 #include "gtest/gtest.h"
@@ -207,21 +208,21 @@ std::vector<std::string> taskFilesInRunfiles(absl::string_view packageSuffix) {
   return found;
 }
 
-std::string readFile(const std::string& path) {
-  std::ifstream in(path);
+std::string readFile(absl::string_view path) {
+  std::ifstream in{std::string(path)};
   return std::string((std::istreambuf_iterator<char>(in)),
                      std::istreambuf_iterator<char>());
 }
 
-std::string writeTempFile(const std::string& name, const std::string& content) {
+std::string writeTempFile(absl::string_view name, absl::string_view content) {
   const std::string file =
-      (std::filesystem::path(testing::TempDir()) / name).string();
+      (std::filesystem::path(testing::TempDir()) / std::string(name)).string();
   std::ofstream out(file);
   out << content;
   return file;
 }
 
-std::vector<std::string> splitLines(const std::string& text) {
+std::vector<std::string> splitLines(absl::string_view text) {
   return absl::StrSplit(text, '\n');
 }
 
@@ -230,7 +231,7 @@ std::vector<std::string> sorted(std::vector<std::string> names) {
   return names;
 }
 
-std::string describe(const std::vector<std::string>& names) {
+std::string describe(absl::Span<const std::string> names) {
   return names.empty() ? "(none)" : absl::StrJoin(names, ", ");
 }
 
@@ -256,7 +257,7 @@ struct LineRange {
  * field of another top-level block
  * (`model_settings`, `contacts`) is never mistaken for one of the block's own.
  */
-LineRange blockLineRange(const std::vector<std::string>& lines) {
+LineRange blockLineRange(absl::Span<const std::string> lines) {
   const std::regex blockStart(
       absl::StrCat("^", kBlockKey, R"(\s*\{\s*(#.*)?$)"));
   const std::regex blockEnd("^\\}");
@@ -276,7 +277,7 @@ LineRange blockLineRange(const std::vector<std::string>& lines) {
 /** Every commented list entry of the block, found TEXTUALLY, because a comment
  * is exactly what the parser throws away. */
 std::vector<CommentedCandidate> commentedListCandidates(
-    const std::vector<std::string>& lines) {
+    absl::Span<const std::string> lines) {
   const std::regex commentedEntry(
       R"re(^\s*#\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*"([A-Za-z_][A-Za-z0-9_]*)")re");
   std::vector<CommentedCandidate> candidates;
@@ -305,7 +306,7 @@ std::string withLineUncommented(std::vector<std::string> lines,
 
 /** Whether any line of the text opens a live `locomotion_heuristics` block, at
  * any indentation; comments do not count. */
-bool hasLiveBlockKey(const std::string& text) {
+bool hasLiveBlockKey(absl::string_view text) {
   const std::regex liveKey(absl::StrCat("^[ \\t]*", kBlockKey, "[ \\t]*[:{]"));
   for (const std::string& line : splitLines(text)) {
     if (std::regex_search(line, liveKey)) return true;
@@ -316,7 +317,7 @@ bool hasLiveBlockKey(const std::string& text) {
 /** The heuristics of the task file at `path`, as the MPC reads them:
  * loadTaskFile(), then their conversion. */
 absl::StatusOr<LocomotionHeuristicConfig> heuristicsOfFile(
-    const std::string& path) {
+    absl::string_view path) {
   absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(path);
   if (!task.ok()) return task.status();
   return locomotionHeuristicConfigFromConfig(task->locomotion_heuristics);

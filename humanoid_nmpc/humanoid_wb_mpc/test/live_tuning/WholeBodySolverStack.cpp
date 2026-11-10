@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
@@ -196,8 +197,8 @@ std::vector<PrimalSolution> WholeBodySolverStack::solve(size_t count) {
   return policies;
 }
 
-scalar_t policyDifference(const std::vector<PrimalSolution>& expected,
-                          const std::vector<PrimalSolution>& actual) {
+scalar_t policyDifference(absl::Span<const PrimalSolution> expected,
+                          absl::Span<const PrimalSolution> actual) {
   if (expected.size() != actual.size()) {
     return std::numeric_limits<scalar_t>::infinity();
   }

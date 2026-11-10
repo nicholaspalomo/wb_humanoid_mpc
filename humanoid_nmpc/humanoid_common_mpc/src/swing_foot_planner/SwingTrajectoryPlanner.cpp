@@ -33,11 +33,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cstddef>
 #include <cstdlib>
-#include <functional>
 #include <optional>
 #include <utility>
 #include <vector>
 
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/misc/Lookup.h"
 #include "ocs2_core/misc/Numerics.h"
@@ -53,6 +53,11 @@ namespace {
 /** The coefficient of the quadratic term of the smoothstep 3 u^2 - 2 u^3
  * (swingPitchProfile()). */
 constexpr scalar_t kSmoothStepQuadraticCoefficient = 3.0;
+
+/** Returns the smoothstep 3 u^2 - 2 u^3 of `u`, for `u` in [0, 1]. */
+scalar_t smoothStep(scalar_t u) {
+  return u * u * (kSmoothStepQuadraticCoefficient - 2.0 * u);
+}
 
 }  // namespace
 
@@ -135,10 +140,6 @@ scalar_t SwingTrajectoryPlanner::swingPitchProfile(scalar_t tau) const {
   const scalar_t rise = std::clamp(config_.swingPitchRiseFraction, 0.0, 1.0);
   const scalar_t fall =
       std::clamp(config_.swingPitchFallFraction, 0.0, 1.0 - rise);
-  const std::function<scalar_t(scalar_t)> smoothStep = [](scalar_t u) {
-    return u * u * (kSmoothStepQuadraticCoefficient - 2.0 * u);
-  };
-
   if (tau <= 0.0 || tau >= 1.0) return 0.0;
   if (rise > 0.0 && tau < rise) return smoothStep(tau / rise);
   if (fall > 0.0 && tau > 1.0 - fall) return smoothStep((1.0 - tau) / fall);
@@ -399,7 +400,7 @@ SwingTrajectoryPlanner::updateFootSchedule(
 /******************************************************************************************************/
 
 ContactArray<std::vector<bool>> SwingTrajectoryPlanner::extractContactFlags(
-    const std::vector<size_t>& phaseIDsStock) const {
+    absl::Span<const size_t> phaseIDsStock) const {
   const size_t numPhases = phaseIDsStock.size();
 
   ContactArray<std::vector<bool>> contactFlagStock(

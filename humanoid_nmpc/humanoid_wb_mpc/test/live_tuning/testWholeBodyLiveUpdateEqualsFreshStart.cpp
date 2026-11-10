@@ -33,19 +33,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <map>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
+#include "absl/container/btree_map.h"
+#include "absl/container/btree_set.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
@@ -268,7 +269,7 @@ RunningQuadraticWeights runningQuadraticWeights(WholeBodySolverStack& stack) {
  * states of `policies`. */
 scalar_t largestUnitQuaternionNormDeviation(
     const WBMpcInterface& interface,
-    const std::vector<PrimalSolution>& policies) {
+    absl::Span<const PrimalSolution> policies) {
   const Eigen::Index start = static_cast<Eigen::Index>(
       interface.getMpcRobotModel().getBaseOrientationStartIndex());
   scalar_t largest = 0.0;
@@ -384,12 +385,12 @@ TEST(WholeBodyLiveUpdate, EveryAppliedLeafChangesWhatTheProblemEvaluatesTo) {
   // foot's rotvec_z weighs the tilt from). A weight the whole-body foot
   // cost would multiply by a zero error is refused at start-up and on a reload
   // alike (wholeBodyFootCostWeightsFromConfig()), and changes nothing.
-  const std::set<std::string> refusedAsInert = {
+  const absl::btree_set<std::string> refusedAsInert = {
       "task_space_foot_cost.weights.pos_x",
       "task_space_foot_cost.weights.pos_y",
       "task_space_foot_cost.weights.pos_z"};
-  std::map<std::string, bool> live;
-  std::set<std::string> refused;
+  absl::btree_map<std::string, bool> live;
+  absl::btree_set<std::string> refused;
   for (const TaskFileKind kind :
        {TaskFileKind::kShipped, TaskFileKind::kVariant}) {
     const mpc_config::TaskFile file = taskFileOf(kind);

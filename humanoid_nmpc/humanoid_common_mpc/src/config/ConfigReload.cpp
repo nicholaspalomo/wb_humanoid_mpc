@@ -136,7 +136,7 @@ std::string childPath(absl::string_view prefix, const FieldDescriptor& field) {
 }
 
 void walkLeaves(const Descriptor& descriptor,
-                const std::string& prefix,
+                absl::string_view prefix,
                 const FieldTuning& tuning,
                 std::vector<std::string>& stack,
                 std::vector<ConfigLeaf>& found) {
@@ -250,11 +250,11 @@ bool sameValues(const Message& running,
 
 /** Appends the field at `path` with `tuning` to `changed`, unless a hot reload
  * applies it. */
-void recordChange(const std::string& path,
+void recordChange(std::string path,
                   const FieldTuning& tuning,
                   std::vector<ConfigChange>& changed) {
   if (tuning.reload == ConfigReload::kHot) return;
-  changed.push_back(ConfigChange{.path = path,
+  changed.push_back(ConfigChange{.path = std::move(path),
                                  .reload = tuning.reload,
                                  .consumer = tuning.consumer,
                                  .formulations = tuning.formulations});
@@ -262,7 +262,7 @@ void recordChange(const std::string& path,
 
 void walkChanges(const Message& running,
                  const Message& reloaded,
-                 const std::string& prefix,
+                 absl::string_view prefix,
                  const FieldTuning& tuning,
                  std::vector<ConfigChange>& changed);
 
@@ -274,7 +274,7 @@ void walkChanges(const Message& running,
 void walkElementChanges(const Message& running,
                         const Message& reloaded,
                         const FieldDescriptor& field,
-                        const std::string& path,
+                        absl::string_view path,
                         const FieldTuning& tuning,
                         std::vector<ConfigChange>& changed) {
   const Reflection& left = *running.GetReflection();
@@ -295,7 +295,7 @@ void walkElementChanges(const Message& running,
 
 void walkChanges(const Message& running,
                  const Message& reloaded,
-                 const std::string& prefix,
+                 absl::string_view prefix,
                  const FieldTuning& tuning,
                  std::vector<ConfigChange>& changed) {
   const Descriptor& descriptor = *running.GetDescriptor();

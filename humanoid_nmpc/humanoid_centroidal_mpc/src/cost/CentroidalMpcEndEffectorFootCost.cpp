@@ -35,10 +35,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <optional>
-#include <string>
 
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
@@ -97,7 +97,7 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(
     const PinocchioInterface& pinocchioInterface,
     const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
     size_t contactIndex,
-    const std::string& costName,
+    absl::string_view costName,
     const ModelSettings& modelSettings)
     : StateInputCostGaussNewtonAd(),
       referenceManagerPtr_(&referenceManager),

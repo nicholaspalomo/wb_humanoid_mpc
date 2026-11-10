@@ -30,12 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_ipc/RealtimePolicyEvaluator.h"
 
 #include <cstddef>
-#include <vector>
 
 #include "Eigen/Core"
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
 #include "absl/log/check.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/control/ControllerBase.h"
 #include "ocs2_core/control/FeedforwardController.h"
@@ -56,9 +56,9 @@ using LinearInterpolation::index_alpha_t;
 // True when the nodes `segment` interpolates between are `rows` x `cols`, so
 // that interpolateInto() combines them as OCS2 does (it would pick one of two
 // nodes of different sizes) and writes into an output of that size.
-template <typename Data, typename Allocator>
+template <typename Data>
 bool segmentHasSize(const index_alpha_t& segment,
-                    const std::vector<Data, Allocator>& nodes,
+                    absl::Span<const Data> nodes,
                     Eigen::Index rows,
                     Eigen::Index cols) {
   const size_t first = static_cast<size_t>(segment.first);
@@ -73,9 +73,9 @@ bool segmentHasSize(const index_alpha_t& segment,
 // LinearInterpolation::interpolate(segment, nodes) assigned to `result`: the
 // same expression, so the same doubles, but into storage `result` already has
 // instead of a vector or matrix returned by value.
-template <typename Data, typename Allocator, typename Result>
+template <typename Data, typename Result>
 void interpolateInto(const index_alpha_t& segment,
-                     const std::vector<Data, Allocator>& nodes,
+                     absl::Span<const Data> nodes,
                      Result& result) {
   if (nodes.size() > 1) {
     const scalar_t alpha = segment.second;
@@ -102,11 +102,11 @@ bool computeFeedforwardInput(const FeedforwardController& controller,
   }
   const index_alpha_t inputSegment =
       LinearInterpolation::timeSegment(time, controller.timeStamp_);
-  if (!segmentHasSize(inputSegment, controller.uffArray_, inputDim,
-                      /*cols=*/1)) {
+  if (!segmentHasSize<vector_t>(inputSegment, controller.uffArray_, inputDim,
+                                /*cols=*/1)) {
     return false;
   }
-  interpolateInto(inputSegment, controller.uffArray_, mpcInput);
+  interpolateInto<vector_t>(inputSegment, controller.uffArray_, mpcInput);
   return true;
 }
 
@@ -155,8 +155,8 @@ RealtimePolicyEvaluator::Outcome RealtimePolicyEvaluator::evaluate(
   }
   const index_alpha_t stateSegment =
       LinearInterpolation::timeSegment(time, policy.timeTrajectory_);
-  if (!segmentHasSize(stateSegment, policy.stateTrajectory_, stateDim,
-                      /*cols=*/1)) {
+  if (!segmentHasSize<vector_t>(stateSegment, policy.stateTrajectory_, stateDim,
+                                /*cols=*/1)) {
     return Outcome::kMismatchedPolicy;
   }
 
@@ -200,7 +200,7 @@ RealtimePolicyEvaluator::Outcome RealtimePolicyEvaluator::evaluate(
   // As MRT_BASE::evaluatePolicy(), on the policy's time trajectory: linearly,
   // or along the state manifold.
   if (flat) {
-    interpolateInto(stateSegment, policy.stateTrajectory_, mpcState);
+    interpolateInto<vector_t>(stateSegment, policy.stateTrajectory_, mpcState);
   } else {
     interpolatePlanState(stateSegment, policy.stateTrajectory_, mpcState);
   }
@@ -220,15 +220,15 @@ bool RealtimePolicyEvaluator::computeLinearInput(
   }
   const index_alpha_t inputSegment =
       LinearInterpolation::timeSegment(time, controller.timeStamp_);
-  if (!segmentHasSize(inputSegment, controller.biasArray_,
-                      sizeOf(dimensions_.inputDim), /*cols=*/1) ||
-      !segmentHasSize(inputSegment, controller.gainArray_,
-                      sizeOf(dimensions_.inputDim),
-                      sizeOf(dimensions_.stateDim))) {
+  if (!segmentHasSize<vector_t>(inputSegment, controller.biasArray_,
+                                sizeOf(dimensions_.inputDim), /*cols=*/1) ||
+      !segmentHasSize<matrix_t>(inputSegment, controller.gainArray_,
+                                sizeOf(dimensions_.inputDim),
+                                sizeOf(dimensions_.stateDim))) {
     return false;
   }
-  interpolateInto(inputSegment, controller.biasArray_, mpcInput);
-  interpolateInto(inputSegment, controller.gainArray_, gain_);
+  interpolateInto<vector_t>(inputSegment, controller.biasArray_, mpcInput);
+  interpolateInto<matrix_t>(inputSegment, controller.gainArray_, gain_);
   mpcInput.noalias() += gain_ * state;
   return true;
 }
@@ -247,12 +247,13 @@ bool RealtimePolicyEvaluator::computeManifoldInput(
   const index_alpha_t segment =
       LinearInterpolation::timeSegment(time, controller.getTimeStamps());
   const Eigen::Index inputDim = sizeOf(dimensions_.inputDim);
-  if (!segmentHasSize(segment, controller.getAnchorStates(),
-                      sizeOf(dimensions_.stateDim), /*cols=*/1) ||
-      !segmentHasSize(segment, controller.getNominalInputs(), inputDim,
-                      /*cols=*/1) ||
-      !segmentHasSize(segment, controller.getFeedbackGains(), inputDim,
-                      delta_.size())) {
+  if (!segmentHasSize<vector_t>(segment, controller.getAnchorStates(),
+                                sizeOf(dimensions_.stateDim), /*cols=*/1) ||
+      !segmentHasSize<vector_t>(segment, controller.getNominalInputs(),
+                                inputDim,
+                                /*cols=*/1) ||
+      !segmentHasSize<matrix_t>(segment, controller.getFeedbackGains(),
+                                inputDim, delta_.size())) {
     return false;
   }
   // ManifoldLinearController::computeInput()'s blend of the two node laws,
@@ -286,7 +287,7 @@ void RealtimePolicyEvaluator::computeNodeInput(
 
 void RealtimePolicyEvaluator::interpolatePlanState(
     const index_alpha_t& segment,
-    const vector_array_t& stateTrajectory,
+    absl::Span<const vector_t> stateTrajectory,
     vector_t& mpcState) {
   // interpolateStateTrajectory() (StateTrajectoryInterpolation.h): the nearer
   // node at either end of the segment, the geodesic between. Its snap between

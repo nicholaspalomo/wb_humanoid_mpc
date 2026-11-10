@@ -39,7 +39,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
-#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -49,10 +48,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/any_invocable.h"
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
@@ -85,7 +87,7 @@ constexpr char kSubscriberNode[] = "subscriber";
 constexpr char kProbeTopic[] = "test/probe";
 
 // Polls `condition` until it holds or `timeout` passes.
-bool waitFor(const std::function<bool()>& condition,
+bool waitFor(absl::FunctionRef<bool()> condition,
              absl::Duration timeout = kTimeout) {
   const absl::Time deadline = absl::Now() + timeout;
   while (absl::Now() < deadline) {
@@ -158,7 +160,7 @@ TestSample makeSample(uint64_t sequence, uint32_t publisherIndex = 0) {
 // read.
 class Collector {
  public:
-  std::function<void(const TestSample&)> handler() {
+  absl::AnyInvocable<void(const TestSample&)> handler() {
     return [this](const TestSample& sample) {
       absl::MutexLock lock(mutex_);
       samples_.push_back(sample);
@@ -211,7 +213,7 @@ class RawParticipant {
 
   bool ok() const { return participant_ > 0; }
 
-  dds_entity_t writer(const std::string& topic) {
+  dds_entity_t writer(absl::string_view topic) {
     dds_qos_t* absl_nonnull qos = dds_create_qos();
     dds_qset_reliability(qos, DDS_RELIABILITY_RELIABLE, DDS_SECS(1));
     dds_qset_history(qos, DDS_HISTORY_KEEP_LAST, kReliableEventsHistoryDepth);
@@ -221,7 +223,7 @@ class RawParticipant {
     return writer;
   }
 
-  dds_entity_t reader(const std::string& topic) {
+  dds_entity_t reader(absl::string_view topic) {
     dds_qos_t* absl_nonnull qos = dds_create_qos();
     dds_qset_reliability(qos, DDS_RELIABILITY_RELIABLE, DDS_SECS(1));
     dds_qset_history(qos, DDS_HISTORY_KEEP_LAST, kReliableEventsHistoryDepth);
@@ -232,9 +234,9 @@ class RawParticipant {
   }
 
  private:
-  dds_entity_t topicEntity(const std::string& topic) const {
+  dds_entity_t topicEntity(absl::string_view topic) const {
     return dds_create_topic(participant_, &robot_ipc_Envelope_desc,
-                            topic.c_str(), /*qos=*/nullptr,
+                            std::string(topic).c_str(), /*qos=*/nullptr,
                             /*listener=*/nullptr);
   }
 
@@ -916,8 +918,8 @@ TEST(BusDeliveryTest, TheBusWritesTheEnvelopeOfItsWireProtocol) {
 // called, as "topic:sequence".
 class OrderLog {
  public:
-  std::function<void(const TestSample&)> handler(const std::string& topic) {
-    return [this, topic](const TestSample& sample) {
+  absl::AnyInvocable<void(const TestSample&)> handler(absl::string_view topic) {
+    return [this, topic = std::string(topic)](const TestSample& sample) {
       absl::MutexLock lock(mutex_);
       entries_.push_back(absl::StrCat(topic, ":", sample.sequence()));
     };
@@ -1058,7 +1060,7 @@ TEST(BusDeliveryTest, AThrowingHandlerIsCountedAndTheBusCarriesOn) {
   const std::unique_ptr<Bus> subscriber = createSubscriber();
   ASSERT_NE(subscriber, nullptr);
   Collector collector;
-  const std::function<void(const TestSample&)> collect = collector.handler();
+  absl::AnyInvocable<void(const TestSample&)> collect = collector.handler();
   ASSERT_TRUE(subscribeProbe(*subscriber).ok());
   ASSERT_TRUE(
       subscriber

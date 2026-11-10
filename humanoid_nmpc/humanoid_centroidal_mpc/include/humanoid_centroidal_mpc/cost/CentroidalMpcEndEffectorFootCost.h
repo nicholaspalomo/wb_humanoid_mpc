@@ -127,7 +127,7 @@ class CentroidalMpcEndEffectorFootCost final
       const PinocchioInterface& pinocchioInterface,
       const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
       size_t contactIndex,
-      const std::string& costName,
+      absl::string_view costName,
       const ModelSettings& modelSettings);
 
   ~CentroidalMpcEndEffectorFootCost() override = default;

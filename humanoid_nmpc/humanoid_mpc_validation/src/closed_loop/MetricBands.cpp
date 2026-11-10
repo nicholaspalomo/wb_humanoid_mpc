@@ -60,7 +60,7 @@ constexpr double kMaxSolveTimeRatio = 1.10;
 constexpr double kMaxUnitQuaternionNormDeviation = 1.0e-9;
 
 std::optional<double> numberAt(const JsonValue& document,
-                               const std::string& path) {
+                               absl::string_view path) {
   const JsonValue* absl_nullable value = document.findPath(path);
   if (value == nullptr || !value->isNumber()) return std::nullopt;
   return value->asNumber();
@@ -84,7 +84,7 @@ struct HeldNumber {
 std::optional<HeldNumber> candidateNumberHeldTo(
     const JsonValue& candidate,
     const JsonValue& baseline,
-    const std::string& path,
+    absl::string_view path,
     ClosedLoopComparison& comparison) {
   const std::optional<double> reference = numberAt(baseline, path);
   if (!reference.has_value() || !std::isfinite(*reference)) return std::nullopt;
@@ -152,8 +152,8 @@ void holdToBand(const MetricBand& band,
 // LINT.IfChange(archived_file_names)
 /** The name LockstepOutputs.h gives a run's metrics document, which `make
  * closed-loop-metrics` archives. */
-std::string archivedMetricsFileName(const std::string& robot,
-                                    const std::string& scenario) {
+std::string archivedMetricsFileName(absl::string_view robot,
+                                    absl::string_view scenario) {
   return absl::StrCat(robot, "_", scenario, ".json");
 }
 // clang-format off
@@ -172,7 +172,7 @@ bool isRegularFile(const std::filesystem::path& path) {
 absl::StatusOr<ClosedLoopComparison> compareArchivedRun(
     const ArchivedComparisonOptions& options,
     const RobotConfiguration& configuration,
-    const std::string& scenario) {
+    absl::string_view scenario) {
   ASSIGN_OR_RETURN(
       const JsonValue candidate,
       readJsonFile((std::filesystem::path(options.candidateDirectory) /

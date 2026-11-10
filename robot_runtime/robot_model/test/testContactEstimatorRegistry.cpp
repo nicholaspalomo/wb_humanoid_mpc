@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <string>
 #include <system_error>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "absl/status/statusor.h"
@@ -116,6 +118,15 @@ TEST_F(ContactEstimatorRegistryTest,
   EXPECT_TRUE(registry.has(" ROBOT_STATE "));
   EXPECT_EQ(registry.create("Always_In_Contact")->getName(),
             "AlwaysInContactEstimator");
+}
+
+TEST(ContactEstimatorRegistry, IsMoveOnly) {
+  static_assert(!std::is_copy_constructible_v<ContactEstimatorRegistry>);
+  static_assert(!std::is_copy_assignable_v<ContactEstimatorRegistry>);
+  ContactEstimatorRegistry registry;
+  ContactEstimatorRegistry moved = std::move(registry);
+  EXPECT_TRUE(moved.has(ContactEstimatorRegistry::kRobotState));
+  EXPECT_TRUE(moved.has(ContactEstimatorRegistry::kAlwaysInContact));
 }
 
 TEST(ContactEstimatorRegistryDeathTest,

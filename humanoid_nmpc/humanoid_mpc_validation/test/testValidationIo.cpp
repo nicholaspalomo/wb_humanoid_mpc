@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_mpc_validation/io/GoldenIo.h"
@@ -66,7 +67,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 namespace {
 
-std::string temporaryPath(const std::string& name) {
+std::string temporaryPath(absl::string_view name) {
   const char* absl_nullable tmp = std::getenv("TEST_TMPDIR");
   return (std::filesystem::path(tmp != nullptr ? tmp : "/tmp") / name).string();
 }

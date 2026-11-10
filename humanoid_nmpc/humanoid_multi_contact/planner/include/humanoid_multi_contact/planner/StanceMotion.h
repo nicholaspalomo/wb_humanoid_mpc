@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Core"
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 
 #include "humanoid_multi_contact/collision/CollisionModel.h"
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
@@ -282,7 +283,7 @@ class StanceMotion {
       const StancePlacements& held,
       const StancePlacements& supporting,
       const Eigen::VectorXd& start,
-      const std::vector<Eigen::VectorXd>& references);
+      absl::Span<const Eigen::VectorXd> references);
 
   /** Why `q` cannot hold `stance` statically, or std::nullopt when it can
    * (design section 2, condition 1, with the options' checks). */
@@ -352,7 +353,7 @@ class StanceMotion {
   absl::StatusOr<std::optional<std::string>> knotJump(
       const Eigen::VectorXd& from,
       const Eigen::VectorXd& to,
-      const std::vector<int>& movingPads);
+      absl::Span<const int> movingPads);
 
   StanceInverseKinematics& ik() { return *ik_; }
   RobotStanceModel& model() { return ik_->model(); }

@@ -30,7 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <string>
-#include <vector>
+
+#include "absl/types/span.h"
 
 #include "robot_ipc/NetworkConfig.h"
 
@@ -44,7 +45,7 @@ namespace robot::ipc {
  * networks apart (the two ends of a relay) uses two indices. Hand it to a child
  * process with formatNetworkConfig() to share it across processes.
  */
-NetworkConfig isolatedTestNetwork(const std::vector<std::string>& nodeNames,
+NetworkConfig isolatedTestNetwork(absl::Span<const std::string> nodeNames,
                                   int domainIndex = 0);
 
 }  // namespace robot::ipc

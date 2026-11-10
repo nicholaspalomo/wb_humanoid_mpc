@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -124,8 +123,9 @@ absl::StatusOr<std::unique_ptr<MpcNodeRuntime>> MpcNodeRuntime::Create(
   }
   std::unique_ptr<MpcNodeRuntime> runtime = absl::WrapUnique(
       new MpcNodeRuntime(std::move(bus), std::make_shared<Counters>()));
-  RETURN_IF_ERROR(runtime->subscribeOperatorInputs(components, config.robotName,
-                                                   config.taskFileIdentity));
+  RETURN_IF_ERROR(runtime->subscribeOperatorInputs(
+      components.motionManager, std::move(components.parameterUpdateSink),
+      std::move(config.robotName), std::move(config.taskFileIdentity)));
   if (config.walkingCommandTimeout > absl::ZeroDuration()) {
     RETURN_IF_ERROR(runtime->addWalkingCommandWatchdog(
         components.motionManager, config.walkingCommandTimeout));
@@ -189,65 +189,61 @@ MpcNodeRuntime::~MpcNodeRuntime() {
 }
 
 absl::Status MpcNodeRuntime::subscribeOperatorInputs(
-    const Components& components,
-    const std::string& robotName,
-    const std::string& taskFileIdentity) {
-  const std::function<void(const humanoid_mpc_msgs::WalkingVelocityCommand&)>
-      onVelocityCommand =
-          [motionManager = components.motionManager, counters = counters_](
-              const humanoid_mpc_msgs::WalkingVelocityCommand& message) {
-            counters->velocityCommandsReceived.fetch_add(1);
-            const absl::Status applied =
-                applyWalkingVelocityCommand(message, *motionManager);
-            if (!applied.ok()) {
-              counters->velocityCommandsRejected.fetch_add(1);
-              LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
-                  << "[MpcNode] Ignoring a walking velocity command: "
-                  << applied.message();
-              return;
-            }
-            counters->lastWalkingCommandTime = std::chrono::steady_clock::now();
-            counters->prevCmdPosBaseRtSurfaceEwrtWorldZ =
-                message.cmd_pos_base_rt_surface_ewrt_world_z();
-            counters->walkingCommandTimedOut = false;
-          };
+    std::shared_ptr<ProceduralMpcMotionManager> motionManager,
+    ParameterUpdateSink parameterUpdateSink,
+    std::string robotName,
+    std::string taskFileIdentity) {
   RETURN_IF_ERROR(bus_->subscribe<humanoid_mpc_msgs::WalkingVelocityCommand>(
       ipc::topics::kOperatorWalkingVelocityCommand,
-      robot::ipc::Delivery::kLatest, onVelocityCommand));
-  if (!components.parameterUpdateSink) {
+      robot::ipc::Delivery::kLatest,
+      [motionManager = std::move(motionManager), counters = counters_](
+          const humanoid_mpc_msgs::WalkingVelocityCommand& message) {
+        counters->velocityCommandsReceived.fetch_add(1);
+        const absl::Status applied =
+            applyWalkingVelocityCommand(message, *motionManager);
+        if (!applied.ok()) {
+          counters->velocityCommandsRejected.fetch_add(1);
+          LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
+              << "[MpcNode] Ignoring a walking velocity command: "
+              << applied.message();
+          return;
+        }
+        counters->lastWalkingCommandTime = std::chrono::steady_clock::now();
+        counters->prevCmdPosBaseRtSurfaceEwrtWorldZ =
+            message.cmd_pos_base_rt_surface_ewrt_world_z();
+        counters->walkingCommandTimedOut = false;
+      }));
+  if (parameterUpdateSink == nullptr) {
     return absl::OkStatus();
   }
-  const std::function<void(const humanoid_mpc_config::MpcParameterUpdate&)>
-      onParameters =
-          [sink = components.parameterUpdateSink, counters = counters_,
-           robotName, taskFileIdentity](
-              const humanoid_mpc_config::MpcParameterUpdate& message) {
-            counters->parameterUpdatesReceived.fetch_add(1);
-            if (const absl::Status refused = checkMpcParameterUpdate(
-                    message, robotName, taskFileIdentity);
-                !refused.ok()) {
-              counters->parameterUpdatesRejected.fetch_add(1);
-              LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
-                  << "[MpcNode] Ignoring an MPC parameter update: "
-                  << refused.message() << "; nothing was applied.";
-              return;
-            }
-            mpc_config::MpcParameterUpdate update;
-            const absl::Status converted =
-                mpc_config::FromProto(message, &update);
-            if (!converted.ok()) {
-              counters->parameterUpdatesRejected.fetch_add(1);
-              LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
-                  << "[MpcNode] Ignoring an MPC parameter update that does not "
-                     "convert: "
-                  << converted.message();
-              return;
-            }
-            sink(update);
-          };
   return bus_->subscribe<humanoid_mpc_config::MpcParameterUpdate>(
       ipc::topics::kOperatorMpcParameters, robot::ipc::Delivery::kLatest,
-      onParameters);
+      [sink = std::move(parameterUpdateSink), counters = counters_,
+       robotName = std::move(robotName),
+       taskFileIdentity = std::move(taskFileIdentity)](
+          const humanoid_mpc_config::MpcParameterUpdate& message) mutable {
+        counters->parameterUpdatesReceived.fetch_add(1);
+        if (const absl::Status refused =
+                checkMpcParameterUpdate(message, robotName, taskFileIdentity);
+            !refused.ok()) {
+          counters->parameterUpdatesRejected.fetch_add(1);
+          LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
+              << "[MpcNode] Ignoring an MPC parameter update: "
+              << refused.message() << "; nothing was applied.";
+          return;
+        }
+        mpc_config::MpcParameterUpdate update;
+        const absl::Status converted = mpc_config::FromProto(message, &update);
+        if (!converted.ok()) {
+          counters->parameterUpdatesRejected.fetch_add(1);
+          LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
+              << "[MpcNode] Ignoring an MPC parameter update that does not "
+                 "convert: "
+              << converted.message();
+          return;
+        }
+        sink(update);
+      });
 }
 
 absl::Status MpcNodeRuntime::addWalkingCommandWatchdog(

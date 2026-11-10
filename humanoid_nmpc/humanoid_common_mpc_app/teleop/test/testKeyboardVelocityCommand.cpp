@@ -35,7 +35,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <functional>
 #include <ios>
 #include <memory>
 #include <optional>
@@ -45,10 +44,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -81,8 +82,8 @@ constexpr char kReferenceHeader[] =
 
 /** The reference file `content`, on the line below kReferenceHeader, written to
  * `name`; its path. */
-std::string writeTemporaryFile(const std::string& name,
-                               const std::string& content) {
+std::string writeTemporaryFile(absl::string_view name,
+                               absl::string_view content) {
   const char* absl_nullable directory = std::getenv("TEST_TMPDIR");
   const std::string path =
       absl::StrCat(directory != nullptr ? directory : "/tmp", "/", name);
@@ -211,6 +212,11 @@ TEST(KeyboardCommandToMessage, NormalizesByTheLimitsAndClampsToThem) {
   EXPECT_DOUBLE_EQ(beyond.cmd_lnorm_angvel_base_rt_world_ewrt_world_z(), -1.0);
 }
 
+/** Returns false: the stop predicate of a read that is never asked to stop. */
+bool neverStop() {
+  return false;
+}
+
 TEST(LineReader, ReadsLinesAndTheLastOneWithoutABreak) {
   int pipeEnds[2];
   ASSERT_EQ(::pipe(pipeEnds), 0);
@@ -219,11 +225,10 @@ TEST(LineReader, ReadsLinesAndTheLastOneWithoutABreak) {
             static_cast<ssize_t>(input.size()));
   ::close(pipeEnds[1]);
   LineReader reader(pipeEnds[0], absl::Milliseconds(10));
-  const std::function<bool()> never = []() { return false; };
-  EXPECT_EQ(reader.readLine(never), std::optional<std::string>("0.1 0"));
-  EXPECT_EQ(reader.readLine(never), std::optional<std::string>(""));
-  EXPECT_EQ(reader.readLine(never), std::optional<std::string>("0.2 0.1"));
-  EXPECT_EQ(reader.readLine(never), std::nullopt);
+  EXPECT_EQ(reader.readLine(neverStop), std::optional<std::string>("0.1 0"));
+  EXPECT_EQ(reader.readLine(neverStop), std::optional<std::string>(""));
+  EXPECT_EQ(reader.readLine(neverStop), std::optional<std::string>("0.2 0.1"));
+  EXPECT_EQ(reader.readLine(neverStop), std::nullopt);
   ::close(pipeEnds[0]);
 }
 
@@ -244,7 +249,7 @@ TEST(LineReader, GivesUpWaitingOnceTheStopPredicateHolds) {
 // is `cmdMaxLinvelBaseRtWorldEwrtHeadingX`
 // (nom_pos_base_rt_surface_ewrt_world_z 0.75 m).
 std::string makeReferenceTextproto(
-    const std::string& cmdMaxLinvelBaseRtWorldEwrtHeadingX) {
+    absl::string_view cmdMaxLinvelBaseRtWorldEwrtHeadingX) {
   return absl::StrCat("cmd_max_linvel_base_rt_world_ewrt_heading_x: ",
                       cmdMaxLinvelBaseRtWorldEwrtHeadingX,
                       "\ncmd_max_linvel_base_rt_world_ewrt_heading_y: "
@@ -253,12 +258,13 @@ std::string makeReferenceTextproto(
                       "nom_pos_base_rt_surface_ewrt_world_z: 0.75\n");
 }
 
-// Rewrites `path` with the reference file `content` below kReferenceHeader and
+// Rewrites `file` with the reference file `content` below kReferenceHeader and
 // moves its modification time `secondsLater` seconds past the previous one, so
 // that a file system of coarse timestamps still shows the change.
-void rewriteLater(const std::string& path,
-                  const std::string& content,
+void rewriteLater(absl::string_view file,
+                  absl::string_view content,
                   int secondsLater) {
+  const std::filesystem::path path(file);
   std::error_code error;
   const std::filesystem::file_time_type before =
       std::filesystem::last_write_time(path, error);
@@ -268,6 +274,10 @@ void rewriteLater(const std::string& path,
       path, before + std::chrono::seconds(secondsLater), error);
   ASSERT_FALSE(error) << error.message();
 }
+
+// Whether a received command is the one a test waits for.
+using CommandPredicate =
+    absl::FunctionRef<bool(const humanoid_mpc_msgs::WalkingVelocityCommand&)>;
 
 // The commands a subscriber on its own loopback bus receives on
 // operator/walking_velocity_command.
@@ -287,9 +297,7 @@ class CommandRecorder {
     return count_;
   }
   // Waits up to `timeout` until the last command satisfies `done`.
-  bool waitFor(const std::function<bool(
-                   const humanoid_mpc_msgs::WalkingVelocityCommand&)>& done,
-               absl::Duration timeout) const {
+  bool waitFor(CommandPredicate done, absl::Duration timeout) const {
     const absl::Time deadline = absl::Now() + timeout;
     while (absl::Now() < deadline) {
       const std::optional<humanoid_mpc_msgs::WalkingVelocityCommand> command =
@@ -307,10 +315,10 @@ class CommandRecorder {
   int count_ ABSL_GUARDED_BY(mutex_) = 0;
 };
 
-std::unique_ptr<robot::ipc::Bus> loopbackBus(const std::string& name) {
+std::unique_ptr<robot::ipc::Bus> loopbackBus(absl::string_view name) {
   robot::ipc::BusOptions options;
-  options.nodeName = name;
-  options.network = robot::ipc::isolatedTestNetwork({name});
+  options.nodeName = std::string(name);
+  options.network = robot::ipc::isolatedTestNetwork({options.nodeName});
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
       robot::ipc::Bus::Create(std::move(options));
   EXPECT_TRUE(bus.ok()) << bus.status();
@@ -381,7 +389,7 @@ struct RepeaterRig {
   std::unique_ptr<VelocityCommandRepeater> repeater;
 };
 
-RepeaterRig startRepeaterRig(const std::string& referenceFile,
+RepeaterRig startRepeaterRig(std::string referenceFile,
                              const KeyboardCommandLimits& limits,
                              absl::Duration limitsCheckPeriod) {
   RepeaterRig rig{.teleop = loopbackBus("teleop"),
@@ -400,8 +408,8 @@ RepeaterRig startRepeaterRig(const std::string& referenceFile,
               })
           .ok());
   absl::StatusOr<std::unique_ptr<VelocityCommandRepeater>> repeater =
-      VelocityCommandRepeater::Create(*rig.teleop, referenceFile, limits,
-                                      kVelocityCommandPeriod,
+      VelocityCommandRepeater::Create(*rig.teleop, std::move(referenceFile),
+                                      limits, kVelocityCommandPeriod,
                                       limitsCheckPeriod);
   EXPECT_TRUE(repeater.ok()) << repeater.status();
   if (repeater.ok()) rig.repeater = *std::move(repeater);

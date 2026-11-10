@@ -38,6 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"
@@ -149,8 +151,8 @@ class RobotStateDecoderTest : public ::testing::Test {
   }
 
   /** The index of joint `name` in `names`. */
-  static size_t indexOf(const std::vector<std::string>& names,
-                        const std::string& name) {
+  static size_t indexOf(absl::Span<const std::string> names,
+                        absl::string_view name) {
     for (size_t index = 0; index < names.size(); ++index) {
       if (names[index] == name) {
         return index;

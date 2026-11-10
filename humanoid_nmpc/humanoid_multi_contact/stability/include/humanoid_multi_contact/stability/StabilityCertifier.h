@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 
 #include "humanoid_multi_contact/collision/CollisionModel.h"
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
@@ -160,7 +161,7 @@ class StabilityCertifier {
    * increase.
    */
   absl::StatusOr<config::CertifierReport> certifyKnots(
-      const std::vector<CertifierKnot>& knots);
+      absl::Span<const CertifierKnot> knots);
 
   const RobotStanceModel& model() const { return *model_; }
   const TerrainModel& terrain() const { return terrain_; }

@@ -35,13 +35,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <deque>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <utility>
 
 #include "absl/base/nullability.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
@@ -378,10 +380,11 @@ class ContactPlanningReferenceManager final
    * that compare the measured center of mass with the prediction (cadence
    * modulation, DCM step adjustment) read it, interpolated in the robot model's
    * layout (MpcRobotModelBase::interpolateStateTrajectory) at the start of the
-   * next solve. Empty arrays clear the prediction.
+   * next solve. Empty arrays clear the prediction. The arrays are copied; they
+   * are not retained.
    */
-  void setPredictedTrajectory(const scalar_array_t& times,
-                              const vector_array_t& states);
+  void setPredictedTrajectory(absl::Span<const scalar_t> times,
+                              absl::Span<const vector_t> states);
 
   /** True when a prediction covering the current solver time was available. */
   bool hasPredictedComState() const { return hasPredictedComState_; }
@@ -554,8 +557,8 @@ class ContactPlanningReferenceManager final
   void updateDesPoseFeetRtWorld(scalar_t initTime,
                                 scalar_t posSurfaceRtWorldEwrtWorldZ);
 
-  mutable std::mutex configMutex_;
-  ContactPlanningConfig config_;
+  mutable absl::Mutex configMutex_;
+  ContactPlanningConfig config_ ABSL_GUARDED_BY(configMutex_);
   TermCollection<ExecutionRule> executionRules_;  // solver thread
   // The swing trajectory planner's swingTimeScale the last swingTimeScale check
   // ran against (solver thread). A task-file reload replaces the swing
@@ -564,10 +567,11 @@ class ContactPlanningReferenceManager final
   // differs from this one.
   std::optional<scalar_t> checkedSwingTimeScale_;
 
-  mutable std::mutex planMutex_;
-  std::optional<ContactPlan> pendingPlan_;  // written by the planner thread
-  uint64_t planEpoch_ =
-      0;  // guarded by planMutex_; see setContactPlan(plan, planEpoch)
+  mutable absl::Mutex planMutex_;
+  // Written by the planner thread.
+  std::optional<ContactPlan> pendingPlan_ ABSL_GUARDED_BY(planMutex_);
+  // See setContactPlan(plan, planEpoch).
+  uint64_t planEpoch_ ABSL_GUARDED_BY(planMutex_) = 0;
   std::optional<ContactPlan> activePlan_;  // solver thread copy
 
   ModeSchedule appliedSchedule_;
@@ -623,10 +627,11 @@ class ContactPlanningReferenceManager final
   BipedFeetArray<vector2_t> errPosFeetRtWorldEwrtWorldXy_ =
       makeBipedFeetArray(vector2_t(vector2_t::Zero()));
   HorizontalComState comState_;  // at the current solver run
-  std::mutex predictionMutex_;
-  scalar_array_t predictedTimes_;  // NMPC prediction handed over after the
-                                   // previous solve (written by the module)
-  vector_array_t predictedStates_;
+  absl::Mutex predictionMutex_;
+  // NMPC prediction handed over after the previous solve (written by the
+  // module).
+  scalar_array_t predictedTimes_ ABSL_GUARDED_BY(predictionMutex_);
+  vector_array_t predictedStates_ ABSL_GUARDED_BY(predictionMutex_);
   bool hasPredictedComState_ = false;
   HorizontalComState
       predictedComState_;  // predicted for the current solver run
@@ -634,9 +639,10 @@ class ContactPlanningReferenceManager final
       scheduleShiftLog_;  // every re-timing of later events
   std::atomic<bool> replanRequested_{false};
 
-  mutable std::mutex targetContactMutex_;
-  BipedFeetArray<TargetContactPose> desPoseFeetRtWorld_ =
-      makeBipedFeetArray(TargetContactPose{});  // read by the control thread
+  mutable absl::Mutex targetContactMutex_;
+  // Read by the control thread.
+  BipedFeetArray<TargetContactPose> desPoseFeetRtWorld_ ABSL_GUARDED_BY(
+      targetContactMutex_) = makeBipedFeetArray(TargetContactPose{});
 };
 
 }  // namespace ocs2::humanoid

@@ -37,13 +37,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
-#include <string>
 #include <utility>
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -247,7 +246,7 @@ class RemoteMpcLinkTest : public ::testing::Test {
    * in. Until `condition`, evaluated after the swap, holds; false after
    * kTimeout.
    */
-  bool runRobotUntil(const std::function<bool()>& condition,
+  bool runRobotUntil(absl::FunctionRef<bool()> condition,
                      scalar_t timeStep = 0.001) {
     const absl::Time deadline = absl::Now() + test_support::kTimeout;
     while (absl::Now() < deadline) {

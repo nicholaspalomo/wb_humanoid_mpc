@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/PreComputation.h"
@@ -80,9 +81,9 @@ namespace {
 
 /** Whether `collection` carries a term named `name`. */
 template <typename Term>
-bool hasTerm(const Collection<Term>& collection, const std::string& name) {
+bool hasTerm(const Collection<Term>& collection, absl::string_view name) {
   size_t index = 0;
-  return collection.getTermIndex(name, index);
+  return collection.getTermIndex(std::string(name), index);
 }
 
 /**
@@ -118,11 +119,11 @@ class ContactImplicitFormulationTest : public ::testing::Test {
    * in the working tree.
    */
   mpc_config::TaskFile taskWithLists(
-      const std::vector<std::string>& hardConstraints,
-      const std::vector<std::string>& softConstraints) const {
+      std::vector<std::string> hardConstraints,
+      std::vector<std::string> softConstraints) const {
     mpc_config::TaskFile task = shipped_.task;
-    task.hard_constraints = hardConstraints;
-    task.soft_constraints = softConstraints;
+    task.hard_constraints = std::move(hardConstraints);
+    task.soft_constraints = std::move(softConstraints);
     return task;
   }
 
@@ -531,7 +532,7 @@ class ContactImplicitProblemTest : public ContactImplicitFormulationTest {
 
   /** [m] the world height of a frame at a state, from the numeric Pinocchio
    * model the interface was built on. */
-  scalar_t computePosLinkRtWorldEwrtWorldZ(const std::string& frameName,
+  scalar_t computePosLinkRtWorldEwrtWorldZ(absl::string_view frameName,
                                            const vector_t& state) const {
     const pinocchio::Model& model =
         interface_->getPinocchioInterface().getModel();
@@ -539,7 +540,7 @@ class ContactImplicitProblemTest : public ContactImplicitFormulationTest {
     updateFramePlacements(
         interface_->getMpcRobotModel().getGeneralizedCoordinates(state), model,
         data);
-    return data.oMf[model.getFrameId(frameName)].translation().z();
+    return data.oMf[model.getFrameId(std::string(frameName))].translation().z();
   }
 
   /**

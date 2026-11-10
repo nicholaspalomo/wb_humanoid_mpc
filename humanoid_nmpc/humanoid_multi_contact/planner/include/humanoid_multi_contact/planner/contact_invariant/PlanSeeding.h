@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 
@@ -72,28 +73,30 @@ vector_t mpcStateOf(const MpcRobotModelBase<scalar_t>& model,
                     const RobotConfiguration& configuration);
 
 /**
- * `trajectory` at `times`: the states interpolated on `manifold` (nullptr:
- * linearly), the inputs and the stances of the last node at or before each
- * time (the solver's zero-order hold).
+ * Resamples `trajectory` at `times`, which is moved into the result:
+ * interpolates the states on `manifold` (nullptr: linearly) and takes the
+ * inputs and stances of the last node at or before each time (the solver's
+ * zero-order hold).
  */
 MpcTrajectory resampledTrajectory(const MpcTrajectory& trajectory,
-                                  const std::vector<double>& times,
+                                  std::vector<double> times,
                                   const StateManifold* absl_nullable manifold);
 
 /**
- * `plan` resampled on the MPC's layout at `times` (within the plan's): the
- * base position, joints and momenta interpolated linearly and the base
- * orientation spherically between the knots around each time, the knot
- * before the time's contact mode, wrenches and joint velocities.
- * InvalidArgument for a plan without knots or of the wrong sizes.
+ * Resamples `plan` on the MPC's layout at `times` (within the plan's; moved
+ * into the result): interpolates the base position, joints and momenta
+ * linearly and the base orientation spherically between the knots around each
+ * time, and takes the contact mode, wrenches and joint velocities of the knot
+ * before the time. Returns InvalidArgument for a plan without knots or of the
+ * wrong sizes.
  */
 absl::StatusOr<MpcTrajectory> mpcTrajectoryOfPlan(
     const config::MultiContactPlan& plan,
     const MpcRobotModelBase<scalar_t>& model,
-    const std::vector<std::string>& contactNames,
+    absl::Span<const std::string> contactNames,
     const ContactSet& contactSet,
     double mass,
-    const std::vector<double>& times);
+    std::vector<double> times);
 
 /**
  * `plan` retimed to `duration` [s]: its runs of knots of one stance keep

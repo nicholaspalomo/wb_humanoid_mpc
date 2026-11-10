@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 namespace ocs2::humanoid {
@@ -147,14 +148,14 @@ struct OcpQpSolution {
 /** Evaluates the objective of the problem (including soft constraint penalties)
  * for the given trajectories. */
 scalar_t evaluateOcpQpObjective(const OcpQpProblem& problem,
-                                const std::vector<vector_t>& x,
-                                const std::vector<vector_t>& u);
+                                absl::Span<const vector_t> x,
+                                absl::Span<const vector_t> u);
 
 /** Maximum violation of the hard box / general constraints and of the dynamics
  * for the given trajectories. */
 scalar_t evaluateOcpQpMaxHardViolation(const OcpQpProblem& problem,
-                                       const std::vector<vector_t>& x,
-                                       const std::vector<vector_t>& u);
+                                       absl::Span<const vector_t> x,
+                                       absl::Span<const vector_t> u);
 
 /**
  * Thin wrapper around the HPIPM interior point solver for OCP-QPs with box,

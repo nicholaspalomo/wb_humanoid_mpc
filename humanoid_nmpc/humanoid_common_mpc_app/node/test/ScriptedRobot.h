@@ -31,12 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
 
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
@@ -89,7 +89,7 @@ class ScriptedRobot {
    * false when it does not within 30 s. */
   bool sendAsOperator(absl::string_view topic,
                       const google::protobuf::Message& message,
-                      const std::function<bool()>& received);
+                      absl::FunctionRef<bool()> received);
 
   /** The newest policy solved from the observation at `time`. */
   std::optional<humanoid_mpc_msgs::MpcPolicy> policySolvedAt(double time) const;
@@ -105,7 +105,6 @@ class ScriptedRobot {
 
 /** Polls `condition` every millisecond until it holds or `timeoutSeconds` pass;
  * returns whether it held. */
-bool waitFor(const std::function<bool()>& condition,
-             double timeoutSeconds = 30.0);
+bool waitFor(absl::FunctionRef<bool()> condition, double timeoutSeconds = 30.0);
 
 }  // namespace ocs2::humanoid::node::test_support

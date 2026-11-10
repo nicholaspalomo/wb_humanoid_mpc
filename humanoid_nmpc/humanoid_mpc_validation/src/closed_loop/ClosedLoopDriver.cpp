@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/initialization/Initializer.h"
 #include "ocs2_core/manifold/StateManifold.h"
@@ -111,7 +112,7 @@ InitialStateGap initialStateGapOf(const vector_t& delta,
 }
 
 std::optional<double> maxUnitQuaternionNormDeviationOf(
-    const vector_array_t& states, size_t orientationStartIndex) {
+    absl::Span<const vector_t> states, size_t orientationStartIndex) {
   if (states.empty()) return std::nullopt;
   const Eigen::Index start = static_cast<Eigen::Index>(orientationStartIndex);
   double deviation = 0.0;
@@ -478,11 +479,11 @@ absl::Status ClosedLoopDriver::initializeCommandPath(
             return calculatorPtr->velocityCommandToTargetTrajectories(
                 velocityCommand, initTime, initState, measuredMotion);
           };
-  ASSIGN_OR_RETURN(
-      motionManager_,
-      ProceduralMpcMotionManager::Create(
-          configuration_.gaitFile, configuration_.referenceFile,
-          std::move(referenceManager), commandModel, targetTrajectories));
+  ASSIGN_OR_RETURN(motionManager_,
+                   ProceduralMpcMotionManager::Create(
+                       configuration_.gaitFile, configuration_.referenceFile,
+                       std::move(referenceManager), commandModel,
+                       std::move(targetTrajectories)));
   // A reset of the MPC resets the command path with it, as the MPC nodes wire
   // it.
   motionManager_->setResetHook([calculatorPtr]() { calculatorPtr->reset(); });

@@ -62,6 +62,7 @@ struct FeatureLibrarySettings {
 class ContactFeatureFunction {
  public:
   /** The features of a physical state and input: numFeatureRows() values. */
+  // NOLINTNEXTLINE(absl-function): captured into CppAdInterface::ad_function_t, a std::function that copies it.
   using Function = std::function<ad_vector_t(const ad_vector_t& state,
                                              const ad_vector_t& input)>;
 

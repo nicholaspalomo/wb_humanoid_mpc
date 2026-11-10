@@ -125,7 +125,7 @@ absl::StatusOr<std::vector<double>> segmentKnotTimes(
  */
 absl::StatusOr<std::vector<config::MultiContactPlan::Knot>> timedPlanKnots(
     RobotStanceModel& model,
-    const std::vector<MotionSegment>& segments,
+    absl::Span<const MotionSegment> segments,
     const TimingOptions& options,
     absl::Span<const double> slowdowns);
 

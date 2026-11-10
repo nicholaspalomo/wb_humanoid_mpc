@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_mpc/MPC_MRT_Interface.h"
 #include "ocs2_mpc/SystemObservation.h"
@@ -118,7 +119,7 @@ class WholeBodySolverStack {
 
 /** Returns the largest difference between the policies, relative to max(1, |a|,
  * |b|) entry by entry; 0 when bitwise equal. */
-scalar_t policyDifference(const std::vector<PrimalSolution>& expected,
-                          const std::vector<PrimalSolution>& actual);
+scalar_t policyDifference(absl::Span<const PrimalSolution> expected,
+                          absl::Span<const PrimalSolution> actual);
 
 }  // namespace ocs2::humanoid::live_tuning_test

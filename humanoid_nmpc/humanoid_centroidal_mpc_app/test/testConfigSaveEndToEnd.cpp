@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <fstream>
 #include <ios>
 #include <iterator>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -42,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/thread_annotations.h"
+#include "absl/container/btree_map.h"
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/ascii.h"
@@ -112,19 +112,19 @@ constexpr char kRobotName[] = "atlas";
 using test_support::ChildProcess;
 using test_support::waitFor;
 
-std::string readFile(const std::string& path) {
-  std::ifstream file(path);
+std::string readFile(absl::string_view path) {
+  std::ifstream file{std::filesystem::path(path)};
   return std::string(std::istreambuf_iterator<char>(file),
                      std::istreambuf_iterator<char>());
 }
 
-void writeFile(const std::string& path, absl::string_view contents) {
-  std::ofstream(path, std::ios::trunc) << contents;
+void writeFile(absl::string_view path, absl::string_view contents) {
+  std::ofstream(std::filesystem::path(path), std::ios::trunc) << contents;
 }
 
-bool exists(const std::string& path) {
+bool exists(absl::string_view path) {
   std::error_code error;
-  return std::filesystem::exists(path, error);
+  return std::filesystem::exists(std::filesystem::path(path), error);
 }
 
 /**
@@ -166,8 +166,10 @@ class SaveClient {
       waitFor(
           [&]() {
             absl::MutexLock lock(mutex_);
-            const std::map<uint64_t, humanoid_mpc_msgs::ConfigFileSaveStatus>::
-                const_iterator found = answers_.find(save.sequence());
+            const absl::btree_map<
+                uint64_t,
+                humanoid_mpc_msgs::ConfigFileSaveStatus>::const_iterator found =
+                answers_.find(save.sequence());
             if (found != answers_.end()) answer = found->second;
             return answer.has_value();
           },
@@ -210,15 +212,15 @@ class SaveClient {
  private:
   std::unique_ptr<robot::ipc::Bus> bus_;
   absl::Mutex mutex_;
-  std::map<uint64_t, humanoid_mpc_msgs::ConfigFileSaveStatus> answers_
+  absl::btree_map<uint64_t, humanoid_mpc_msgs::ConfigFileSaveStatus> answers_
       ABSL_GUARDED_BY(mutex_);
   std::vector<double> sampleTimes_ ABSL_GUARDED_BY(mutex_);
 };
 
 /** The robot binary on the Atlas files, with the store `storeDirectory`, on the
  * network file `networkFile`. */
-std::unique_ptr<ChildProcess> startRobot(const std::string& networkFile,
-                                         const std::string& storeDirectory) {
+std::unique_ptr<ChildProcess> startRobot(absl::string_view networkFile,
+                                         absl::string_view storeDirectory) {
   return std::make_unique<ChildProcess>(std::vector<std::string>{
       kRobotBinary, "--robot_name=drc_atlas",
       absl::StrCat("--task_file=", kAtlasTask),
@@ -234,8 +236,8 @@ std::unique_ptr<ChildProcess> startRobot(const std::string& networkFile,
 /** A save of `text` as the file of `kind` of the Atlas configuration, stamped
  * as the GUI stamps it. */
 humanoid_mpc_msgs::ConfigFileSave saveOf(msgs::ConfigFileKind kind,
-                                         const std::string& bundledFile,
-                                         const std::string& text,
+                                         absl::string_view bundledFile,
+                                         absl::string_view text,
                                          uint64_t sequence) {
   humanoid_mpc_msgs::ConfigFileSave save;
   humanoid_mpc_msgs::ConfigFileKind protoKind =
@@ -273,7 +275,7 @@ std::string withFieldValue(absl::string_view text,
 /** The textproto `text` parsed as `Message`; a test failure and the default
  * message when it does not parse. */
 template <typename Message>
-Message parsed(const std::string& text) {
+Message parsed(absl::string_view text) {
   absl::StatusOr<Message> message =
       nproto::ParseTextproto<Message>(text, "the test's file");
   EXPECT_TRUE(message.ok()) << message.status();

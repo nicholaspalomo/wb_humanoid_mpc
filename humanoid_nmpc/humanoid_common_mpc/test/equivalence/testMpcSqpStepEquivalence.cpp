@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/dynamics/SystemDynamicsBase.h"
@@ -783,9 +784,9 @@ struct GapComparison {
  */
 GapComparison compareGaps(const MpcEquivalenceFixture& mpc,
                           const StateManifold& chart,
-                          const std::vector<AnnotatedTime>& grid,
-                          const vector_array_t& states,
-                          const vector_array_t& inputs) {
+                          absl::Span<const AnnotatedTime> grid,
+                          absl::Span<const vector_t> states,
+                          absl::Span<const vector_t> inputs) {
   const OrientationRows rows = orientationIndicesOf(mpc);
   SystemDynamicsBase& dynamics = *mpc.problem().dynamicsPtr;
   const DynamicsSensitivityDiscretizer sensitivity =
@@ -863,9 +864,9 @@ scalar_t qpStateStepDistance(const RealTimeIteration& a,
  * `inputs` through the events.
  */
 vector_array_t withScaledGaps(const MpcEquivalenceFixture& mpc,
-                              const std::vector<AnnotatedTime>& grid,
-                              const vector_array_t& states,
-                              const vector_array_t& inputs,
+                              absl::Span<const AnnotatedTime> grid,
+                              absl::Span<const vector_t> states,
+                              absl::Span<const vector_t> inputs,
                               scalar_t scale) {
   SystemDynamicsBase& dynamics = *mpc.problem().dynamicsPtr;
   const DynamicsDiscretizer discretizer =

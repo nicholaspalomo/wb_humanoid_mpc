@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <string>
 
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/constraint/ConstraintOrder.h"
@@ -62,7 +63,7 @@ ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(
     size_t contactPointIndex,
     const PinocchioInterface& pinocchioInterface,
     const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
-    const std::string& costName,
+    absl::string_view costName,
     const ModelSettings& modelSettings,
     bool scheduleGated)
     : StateInputConstraintCppAd(ConstraintOrder::Linear),
@@ -73,7 +74,8 @@ ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       scheduleGated_(scheduleGated) {
   initialize(mpcRobotModelPtr_->getStateDim(), mpcRobotModelPtr_->getInputDim(),
-             /*parameterDim=*/0, costName, modelSettings.modelFolderCppAd,
+             /*parameterDim=*/0, std::string(costName),
+             modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 /******************************************************************************************************/

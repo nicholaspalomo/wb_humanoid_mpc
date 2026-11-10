@@ -64,6 +64,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_state_estimation/humanoid_state_estimator/test/AllocationCounter.h"
@@ -135,7 +136,7 @@ std::vector<KalmanFilterInput> makeInputs(
 
 std::vector<KalmanFilterMeasurement> makeMeasurements(
     const Names& names,
-    const std::vector<vector_t>& pos_contacts_rt_world_ewrt_world,
+    absl::Span<const vector_t> pos_contacts_rt_world_ewrt_world,
     const vector_t& pos_base_rt_world_ewrt_world,
     const vector_t& linvel_base_rt_world_ewrt_world) {
   matrix_t e_z = matrix_t::Zero(1, 3);

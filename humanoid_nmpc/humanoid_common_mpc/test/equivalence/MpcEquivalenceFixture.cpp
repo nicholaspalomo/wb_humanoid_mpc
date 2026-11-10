@@ -53,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/NumericTraits.h"
 #include "ocs2_core/Types.h"
@@ -745,7 +746,7 @@ RealTimeIteration MpcEquivalenceFixture::realTimeIteration(
     const EquivalenceReference& reference,
     const vector_t& initState,
     const PrimalSolution& warmStart,
-    const vector_array_t& warmStartNodes,
+    absl::Span<const vector_t> warmStartNodes,
     const vector_t& warmStartInput) const {
   const std::shared_ptr<const StateManifold> iterationManifold = manifold;
   const SqpRun run = sqpRun(

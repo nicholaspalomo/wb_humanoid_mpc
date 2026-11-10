@@ -125,7 +125,7 @@ constexpr int kCyclesPerMode = 20;
 /** What the robot process calls every cycle - the mode and the posture, then
  * the action - through kModes. */
 void runModes(CentroidalMpcMrtJointController& controller,
-              const std::vector<scalar_t>& nominal,
+              absl::Span<const scalar_t> nominal,
               robot::model::RobotState& state,
               robot::model::RobotJointAction& action,
               scalar_t& time,
@@ -234,7 +234,7 @@ constexpr ShippedRobot kShippedRobots[] = {
 /** `count` control cycles, 10 ms apart from `time`, which it advances; in
  * `mode`, or in the controller's own without one. */
 void runCycles(CentroidalMpcMrtJointController& controller,
-               const std::vector<scalar_t>& nominal,
+               absl::Span<const scalar_t> nominal,
                robot::model::RobotState& state,
                robot::model::RobotJointAction& action,
                scalar_t& time,

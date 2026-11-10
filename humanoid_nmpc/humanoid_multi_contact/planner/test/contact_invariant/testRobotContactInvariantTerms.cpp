@@ -40,7 +40,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
-#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -48,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Core"
 #include "absl/base/nullability.h"
+#include "absl/functional/function_ref.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PhysicalConstants.h"
@@ -164,7 +164,7 @@ vector_t feetOnlyInput(const AtlasModels& atlas) {
 }
 
 /** Central differences of `value` in `point`'s entries. */
-matrix_t numericJacobian(const std::function<vector_t(const vector_t&)>& value,
+matrix_t numericJacobian(absl::FunctionRef<vector_t(const vector_t&)> value,
                          const vector_t& point) {
   const vector_t center = value(point);
   matrix_t jacobian(center.size(), point.size());

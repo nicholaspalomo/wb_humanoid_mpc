@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/LU"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -162,7 +163,7 @@ std::vector<vector2_t> inscribedPolygon(size_t numFacets, scalar_t friction) {
   return vertices;
 }
 
-bool insidePolygon(const std::vector<vector2_t>& vertices,
+bool insidePolygon(absl::Span<const vector2_t> vertices,
                    const vector2_t& point) {
   for (size_t k = 0; k < vertices.size(); ++k) {
     const vector2_t edge = vertices[(k + 1) % vertices.size()] - vertices[k];
@@ -490,8 +491,7 @@ std::vector<vector6_t> caronRows(scalar_t facetFriction, const Geometry& g) {
 }
 
 /** Whether `row` is a positive multiple of one of `rows`. */
-bool containsDirection(const std::vector<vector6_t>& rows,
-                       const vector6_t& row) {
+bool containsDirection(absl::Span<const vector6_t> rows, const vector6_t& row) {
   return std::any_of(rows.begin(), rows.end(), [&row](const vector6_t& other) {
     return (other.normalized() - row.normalized()).norm() < 1.0e-9;
   });

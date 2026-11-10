@@ -31,17 +31,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
 
+#include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/synchronization/mutex.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/synchronized_module/ReferenceManagerInterface.h"
@@ -237,10 +237,11 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
   // planner is checked against.
   ContactSetSummary contactSet_;
 
-  mutable std::mutex configMutex_;
-  ContactPlanningConfig config_;
+  mutable absl::Mutex configMutex_;
+  ContactPlanningConfig config_ ABSL_GUARDED_BY(configMutex_);
+  // Set at construction and never changed.
   std::optional<ContactPlanningModelParameters> modelParameters_;
-  bool configChanged_ = false;
+  bool configChanged_ ABSL_GUARDED_BY(configMutex_) = false;
 
   // Used by the worker thread, or by the solver thread in synchronous mode. The
   // implementation is chosen by name
@@ -255,18 +256,21 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
   uint64_t plannerEpoch_ = 0;
 
   std::thread worker_;
+  // Written to false only under inputMutex_, so the worker's wait cannot miss
+  // the stop (stopWorker()).
   std::atomic<bool> running_{false};
-  std::mutex inputMutex_;
-  std::condition_variable inputCondition_;
-  std::optional<ContactPlannerInput> pendingInput_;
-  uint64_t pendingInputPlanEpoch_ =
-      0;  // the reference manager's plan epoch when pendingInput_ was taken
-  bool pendingInputUrgent_ = false;  // the pending snapshot follows a contact
-                                     // event and must not be dropped
-  SnapshotThrottle throttle_;
+  absl::Mutex inputMutex_;
+  // Signaled when pendingInput_ is set or running_ is cleared.
+  absl::CondVar inputCondition_;
+  std::optional<ContactPlannerInput> pendingInput_ ABSL_GUARDED_BY(inputMutex_);
+  // The reference manager's plan epoch when pendingInput_ was taken.
+  uint64_t pendingInputPlanEpoch_ ABSL_GUARDED_BY(inputMutex_) = 0;
+  // The pending snapshot follows a contact event and must not be dropped.
+  bool pendingInputUrgent_ ABSL_GUARDED_BY(inputMutex_) = false;
+  SnapshotThrottle throttle_ ABSL_GUARDED_BY(inputMutex_);
 
-  mutable std::mutex statisticsMutex_;
-  Statistics statistics_;
+  mutable absl::Mutex statisticsMutex_;
+  Statistics statistics_ ABSL_GUARDED_BY(statisticsMutex_);
   std::atomic<bool> logPlans_{false};  // planner.logPlans, mirrored here so the
                                        // worker needs no config lock per plan
 };

@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
@@ -189,11 +190,11 @@ absl::StatusOr<LoadedRobot> load(const ShippedRobot& robot) {
 vector3_t computePosSubtreecomRtWorldEwrtWorld(
     const PinocchioInterface& pinocchioInterface,
     const vector_t& q,
-    const std::string& jointName) {
+    absl::string_view jointName) {
   const pinocchio::Model& model = pinocchioInterface.getModel();
   pinocchio::Data data(model);
   pinocchio::forwardKinematics(model, data, q);
-  const pinocchio::JointIndex joint = model.getJointId(jointName);
+  const pinocchio::JointIndex joint = model.getJointId(std::string(jointName));
   vector3_t weighted = vector3_t::Zero();
   scalar_t mass = 0.0;
   for (pinocchio::JointIndex body = joint;
@@ -214,19 +215,19 @@ vector3_t computePosSubtreecomRtWorldEwrtWorld(
 vector3_t computePosLinkRtWorldEwrtWorld(
     const PinocchioInterface& pinocchioInterface,
     const vector_t& q,
-    const std::string& jointName) {
+    absl::string_view jointName) {
   const pinocchio::Model& model = pinocchioInterface.getModel();
   pinocchio::Data data(model);
   pinocchio::forwardKinematics(model, data, q);
-  return data.oMi[model.getJointId(jointName)].translation();
+  return data.oMi[model.getJointId(std::string(jointName))].translation();
 }
 
 /** [rad] The elbow's interior angle at `q`: between the upper arm (elbow to
  * shoulder) and what the elbow carries. */
 scalar_t elbowAngle(const PinocchioInterface& pinocchioInterface,
                     const vector_t& q,
-                    const std::string& shoulder,
-                    const std::string& elbow) {
+                    absl::string_view shoulder,
+                    absl::string_view elbow) {
   const vector3_t posLinkRtWorldEwrtWorld =
       computePosLinkRtWorldEwrtWorld(pinocchioInterface, q, elbow);
   // The shoulder minus the elbow.

@@ -28,9 +28,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <cstddef>
-#include <functional>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -51,9 +51,8 @@ constexpr scalar_t kTolerance = 1.0e-12;
 
 TEST(PlanClock, runsWithTheSolvesFromTheFirstOne) {
   PlanClock clock({1.0, 2.0}, kLead, /*startTime=*/0.0);
-  const std::function<bool(size_t, scalar_t)> ready = [](size_t, scalar_t) {
-    return true;
-  };
+  const absl::AnyInvocable<bool(size_t, scalar_t) const> ready =
+      [](size_t, scalar_t) { return true; };
   EXPECT_NEAR(clock.advance(/*time=*/5.0, ready), 0.0, kTolerance);
   EXPECT_NEAR(clock.advance(/*time=*/5.5, ready), 0.5, kTolerance);
   EXPECT_NEAR(clock.offset(), 5.0, kTolerance);
@@ -64,12 +63,12 @@ TEST(PlanClock, holdsBeforeAChangeUntilTheStanceIsReached) {
   PlanClock clock({1.0}, kLead, /*startTime=*/0.0);
   bool reached = false;
   std::vector<scalar_t> judgedAt;
-  const std::function<bool(size_t, scalar_t)> ready = [&](size_t event,
-                                                          scalar_t holdTime) {
-    EXPECT_EQ(event, 0U);
-    judgedAt.push_back(holdTime);
-    return reached;
-  };
+  const absl::AnyInvocable<bool(size_t, scalar_t) const> ready =
+      [&](size_t event, scalar_t holdTime) {
+        EXPECT_EQ(event, 0U);
+        judgedAt.push_back(holdTime);
+        return reached;
+      };
   EXPECT_NEAR(clock.advance(/*time=*/0.0, ready), 0.0, kTolerance);
   EXPECT_NEAR(clock.advance(/*time=*/0.85, ready), 0.85, kTolerance);
   // Past the hold point, 0.9 s, and not reached: held there.
@@ -90,11 +89,11 @@ TEST(PlanClock, holdsBeforeAChangeUntilTheStanceIsReached) {
 TEST(PlanClock, neverSkipsAChangeOnALongStep) {
   PlanClock clock({1.0, 1.2, 1.4}, kLead, /*startTime=*/0.0);
   size_t judged = 0;
-  const std::function<bool(size_t, scalar_t)> ready = [&judged](size_t,
-                                                                scalar_t) {
-    ++judged;
-    return true;
-  };
+  const absl::AnyInvocable<bool(size_t, scalar_t) const> ready =
+      [&judged](size_t, scalar_t) {
+        ++judged;
+        return true;
+      };
   clock.advance(/*time=*/0.0, ready);
   // A stalled solve of 2 s releases one change and stops at the next hold
   // point.
@@ -110,7 +109,7 @@ TEST(PlanClock, neverSkipsAChangeOnALongStep) {
 TEST(PlanClock, aChangeWithinTheLeadOfTheStartIsJudgedAtTheStart) {
   PlanClock clock({0.05}, kLead, /*startTime=*/0.0);
   scalar_t judgedAt = -1.0;
-  const std::function<bool(size_t, scalar_t)> ready =
+  const absl::AnyInvocable<bool(size_t, scalar_t) const> ready =
       [&judgedAt](size_t, scalar_t holdTime) {
         judgedAt = holdTime;
         return false;
@@ -122,9 +121,8 @@ TEST(PlanClock, aChangeWithinTheLeadOfTheStartIsJudgedAtTheStart) {
 
 TEST(PlanClock, resetStartsThePlanAnew) {
   PlanClock clock({1.0}, kLead, /*startTime=*/0.0);
-  const std::function<bool(size_t, scalar_t)> ready = [](size_t, scalar_t) {
-    return true;
-  };
+  const absl::AnyInvocable<bool(size_t, scalar_t) const> ready =
+      [](size_t, scalar_t) { return true; };
   clock.advance(/*time=*/0.0, ready);
   clock.advance(/*time=*/2.0, ready);
   clock.reset();
@@ -137,9 +135,8 @@ TEST(PlanClock, aPeriodicPlansChangesRepeatEveryPeriod) {
   EXPECT_NEAR(clock.eventTime(2), 4.0, kTolerance);
   EXPECT_NEAR(clock.eventTime(5), 8.0, kTolerance);
   EXPECT_NEAR(clock.holdTime(4), 7.0 - kLead, kTolerance);
-  const std::function<bool(size_t, scalar_t)> ready = [](size_t, scalar_t) {
-    return true;
-  };
+  const absl::AnyInvocable<bool(size_t, scalar_t) const> ready =
+      [](size_t, scalar_t) { return true; };
   // Every change of three periods released, solve after solve, the clock
   // never held.
   for (int step = 0; step <= 180; ++step) {
@@ -154,12 +151,12 @@ TEST(PlanClock, holdsAcrossTheWrapOfAPeriodicPlan) {
   PlanClock clock({1.0}, kLead, /*startTime=*/0.0, /*period=*/2.0);
   bool reached = true;
   std::vector<size_t> judged;
-  const std::function<bool(size_t, scalar_t)> ready = [&](size_t event,
-                                                          scalar_t holdTime) {
-    judged.push_back(event);
-    EXPECT_NEAR(holdTime, clock.eventTime(event) - kLead, kTolerance);
-    return reached;
-  };
+  const absl::AnyInvocable<bool(size_t, scalar_t) const> ready =
+      [&](size_t event, scalar_t holdTime) {
+        judged.push_back(event);
+        EXPECT_NEAR(holdTime, clock.eventTime(event) - kLead, kTolerance);
+        return reached;
+      };
   clock.advance(/*time=*/0.0, ready);
   clock.advance(/*time=*/1.0, ready);
   EXPECT_EQ(clock.releasedEvents(), 1U);

@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <vector>
 
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
@@ -76,7 +77,7 @@ struct Swing {
 /** Where `time` lies for `contact`: inside one of its `swings` by more than
  * `margin`, within `margin` of a lift-off or touch-down, or in stance. */
 enum class SwingPart { kSwing, kEvent, kStance };
-SwingPart swingPartAt(const std::vector<Swing>& swings,
+SwingPart swingPartAt(absl::Span<const Swing> swings,
                       size_t contact,
                       scalar_t time,
                       scalar_t margin) {
@@ -99,7 +100,7 @@ SwingPart swingPartAt(const std::vector<Swing>& swings,
  * swing; sampled every `kStep` over [0, `finalTime`].
  */
 void expectSwings(const SwingTrajectoryPlanner& planner,
-                  const std::vector<Swing>& swings,
+                  absl::Span<const Swing> swings,
                   scalar_t finalTime) {
   constexpr scalar_t kStep = 0.01;
   constexpr scalar_t kMargin = 1.0e-3;

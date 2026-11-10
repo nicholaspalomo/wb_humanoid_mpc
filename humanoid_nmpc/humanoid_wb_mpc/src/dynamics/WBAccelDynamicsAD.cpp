@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/base/nullability.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/dynamics/SystemDynamicsBaseAD.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
@@ -49,13 +50,13 @@ namespace ocs2::humanoid {
 WBAccelDynamicsAD::WBAccelDynamicsAD(
     const PinocchioInterface& pinocchioInterface,
     const WBAccelMpcRobotModel<ad_scalar_t>* absl_nonnull mpcRobotModel,
-    const std::string& modelName,
+    absl::string_view modelName,
     const ModelSettings& modelSettings)
     : SystemDynamicsBaseAD(),
       pinInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModel_(mpcRobotModel) {
   initialize(mpcRobotModel_->getStateDim(), mpcRobotModel_->getInputDim(),
-             modelName, modelSettings.modelFolderCppAd,
+             std::string(modelName), modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 

@@ -77,11 +77,11 @@ static void PrintTo(const ModelSettings::ContactImplicitKey& key,
 namespace {
 
 /** A task file with the given lists (and a cost, which every real file has). */
-mpc_config::TaskFile taskWith(const std::vector<std::string>& hardConstraints,
-                              const std::vector<std::string>& softConstraints) {
+mpc_config::TaskFile taskWith(std::vector<std::string> hardConstraints,
+                              std::vector<std::string> softConstraints) {
   mpc_config::TaskFile task;
-  task.hard_constraints = hardConstraints;
-  task.soft_constraints = softConstraints;
+  task.hard_constraints = std::move(hardConstraints);
+  task.soft_constraints = std::move(softConstraints);
   task.costs = {"state_quadratic_cost"};
   return task;
 }
@@ -89,10 +89,11 @@ mpc_config::TaskFile taskWith(const std::vector<std::string>& hardConstraints,
 /** The formulation of the task file with the given lists, as the MPC interfaces
  * read it. */
 absl::StatusOr<MpcFormulationTasks> load(
-    const std::vector<std::string>& hardConstraints,
-    const std::vector<std::string>& softConstraints) {
+    std::vector<std::string> hardConstraints,
+    std::vector<std::string> softConstraints) {
   return mpcFormulationTasksFromConfig(
-      taskWith(hardConstraints, softConstraints), FormulationLogging::kQuiet);
+      taskWith(std::move(hardConstraints), std::move(softConstraints)),
+      FormulationLogging::kQuiet);
 }
 
 /** The textproto `text` as the parser reads a task file. */
@@ -131,7 +132,7 @@ std::vector<std::string> with(std::vector<std::string> entries,
 /** Whether `status`, or the status of `tasks`, is an InvalidArgument whose
  * message mentions every one of `phrases`. */
 ::testing::AssertionResult refusedMentioning(
-    const absl::Status& status, const std::vector<std::string>& phrases) {
+    const absl::Status& status, absl::Span<const std::string> phrases) {
   if (status.ok()) {
     return ::testing::AssertionFailure() << "the task file was accepted";
   }
@@ -151,13 +152,13 @@ std::vector<std::string> with(std::vector<std::string> entries,
 
 ::testing::AssertionResult refusedMentioning(
     const absl::StatusOr<MpcFormulationTasks>& tasks,
-    const std::vector<std::string>& phrases) {
+    absl::Span<const std::string> phrases) {
   return refusedMentioning(tasks.status(), phrases);
 }
 
 /** Writes `content` under the test's temp directory as
  * testMpcFormulationConfig_<name>.textproto and returns its path. */
-std::string writeContent(absl::string_view name, const std::string& content) {
+std::string writeContent(absl::string_view name, absl::string_view content) {
   const std::string path =
       (std::filesystem::path(testing::TempDir()) /
        absl::StrCat("testMpcFormulationConfig_", name, ".textproto"))

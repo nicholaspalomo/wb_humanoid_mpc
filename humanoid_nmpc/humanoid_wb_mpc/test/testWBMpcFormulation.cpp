@@ -86,8 +86,8 @@ std::string runfilePath(absl::string_view relativePath) {
   return std::string();
 }
 
-std::string readFile(const std::string& path) {
-  std::ifstream in(path);
+std::string readFile(absl::string_view path) {
+  std::ifstream in((std::filesystem::path(path)));
   return std::string((std::istreambuf_iterator<char>(in)),
                      std::istreambuf_iterator<char>());
 }

@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <string>
 #include <vector>
 
@@ -158,6 +157,49 @@ int contactStateCode(const ContactTimelineSample& sample, int contact) {
          (static_cast<int>((sample.target >> contact) & 1u) << 1) |
          (sample.targetKnown ? kPlanKnownBit : 0);
 }
+
+/// The time axis of the strips, oldest on the left.
+struct TimeAxis {
+  double start = 0.0;   // [s] the time at the left end
+  double window = 0.0;  // [s] the time the strips span, positive
+  int left = 0;         // [px] the column of `start`
+  int width = 0;        // [px] the columns `window` spans
+};
+
+/// Returns the framebuffer column of `time` on `axis`, clamped to the axis.
+int columnOf(const TimeAxis& axis, double time) {
+  const double fraction =
+      std::clamp((time - axis.start) / axis.window, 0.0, 1.0);
+  return axis.left + static_cast<int>(std::lround(fraction * axis.width));
+}
+
+/// The legend's row in the panel header.
+struct LegendRow {
+  int right = 0;       // [px] where the room for entries ends
+  int bottom = 0;      // [px]
+  int height = 0;      // [px]
+  int fontHeight = 0;  // [px] also the width of a swatch and its gap
+};
+
+/// Draws one legend entry, a `color` swatch and `text`, at column `left` of
+/// `row`, and returns the column of the next entry; draws nothing and returns
+/// `left` when the entry does not fit before `row.right`.
+int addLegendEntry(const LegendRow& row,
+                   const Rgba& color,
+                   const char* absl_nonnull text,
+                   const mjrContext* absl_nonnull con,
+                   int left) {
+  const int textW = textWidth(text, con) + kLabelTextPadding;
+  if (left + kLegendSwatchRoom + textW > row.right) {
+    return left;  // no room: the rest of the legend is dropped
+  }
+  fillRect(left, row.bottom + kLegendSwatchInset,
+           row.fontHeight - kLegendSwatchInset,
+           row.height - kLegendSwatchHeightInset, color);
+  const int labelLeft = left + row.fontHeight;
+  drawLabel(labelLeft, row.bottom, textW, row.height, text, con);
+  return labelLeft + textW + kLegendEntryGap;
+}
 }  // namespace
 
 std::string ContactTimelineVisualization::tickLabel(int secondsAgo) {
@@ -217,10 +259,8 @@ void ContactTimelineVisualization::renderOverlay(
   }
   fillRect(panelL, panelB, panelW, panelH, kPanelBackground);
 
-  const std::function<int(double)> xOf = [&](double time) {
-    const double fraction = std::clamp((time - start) / window, 0.0, 1.0);
-    return x0 + static_cast<int>(std::lround(fraction * stripW));
-  };
+  const TimeAxis axis{
+      .start = start, .window = window, .left = x0, .width = stripW};
 
   // Header: title and legend.
   const int headerB = panelB + panelH - kPanelPadding - headerH;
@@ -229,23 +269,13 @@ void ContactTimelineVisualization::renderOverlay(
             std::max(nameW + tagW, textWidth(title, con) + kLabelTextPadding),
             headerH, title, con);
   {
+    const LegendRow row{
+        .right = x1, .bottom = headerB, .height = headerH, .fontHeight = fontH};
     int lx = x0;
-    const std::function<void(const Rgba&, const char* absl_nonnull)> legend =
-        [&](const Rgba& color, const char* absl_nonnull text) {
-          const int textW = textWidth(text, con) + kLabelTextPadding;
-          if (lx + kLegendSwatchRoom + textW > x1) {
-            return;  // no room: the rest of the legend is dropped
-          }
-          fillRect(lx, headerB + kLegendSwatchInset, fontH - kLegendSwatchInset,
-                   headerH - kLegendSwatchHeightInset, color);
-          lx += fontH;
-          drawLabel(lx, headerB, textW, headerH, text, con);
-          lx += textW + kLegendEntryGap;
-        };
-    legend(kPlanContact, "plan: contact");
-    legend(kSimContact, "sim: contact");
-    legend(kSimEarly, "sim touching, plan swing");
-    legend(kSimLate, "sim in air, plan contact");
+    lx = addLegendEntry(row, kPlanContact, "plan: contact", con, lx);
+    lx = addLegendEntry(row, kSimContact, "sim: contact", con, lx);
+    lx = addLegendEntry(row, kSimEarly, "sim touching, plan swing", con, lx);
+    lx = addLegendEntry(row, kSimLate, "sim in air, plan contact", con, lx);
   }
 
   // One group of two strips per contact point: the plan on top, the physics
@@ -279,8 +309,8 @@ void ContactTimelineVisualization::renderOverlay(
       }
       const double runEnd = (k < samples.size()) ? samples[k].time : now;
       if (runEnd >= start) {
-        const int xa = xOf(samples[runStart].time);
-        const int xb = std::max(xOf(runEnd), xa + 1);
+        const int xa = columnOf(axis, samples[runStart].time);
+        const int xb = std::max(columnOf(axis, runEnd), xa + 1);
         const bool touching = (code & kTouchingBit) != 0;
         const bool planContact = (code & kPlanContactBit) != 0;
         const bool planKnown = (code & kPlanKnownBit) != 0;
@@ -302,7 +332,7 @@ void ContactTimelineVisualization::renderOverlay(
   const int ticksH = stripsTop - (axisB + axisH);
   for (int secondsAgo = 0; secondsAgo <= static_cast<int>(window);
        ++secondsAgo) {
-    const int x = xOf(now - secondsAgo);
+    const int x = columnOf(axis, now - secondsAgo);
     fillRect(x, axisB + axisH, /*width=*/1, ticksH, kTick);
     const std::string text = tickLabel(secondsAgo);
     const int labelW = textWidth(text.c_str(), con) + kLabelTextPadding;

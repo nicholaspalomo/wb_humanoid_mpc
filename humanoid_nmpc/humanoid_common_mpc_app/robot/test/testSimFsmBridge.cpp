@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -88,7 +89,7 @@ class SimFsmBridgeTest : public ::testing::Test {
                                              sim_.get(), &log_);
   }
 
-  void send(const std::string& command) {
+  void send(absl::string_view command) {
     humanoid_mpc_msgs::FsmCommand message;
     message.set_command(command);
     message.set_sequence(++sequence_);

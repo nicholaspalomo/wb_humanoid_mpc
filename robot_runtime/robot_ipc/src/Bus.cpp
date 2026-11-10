@@ -37,7 +37,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdint>
 #include <exception>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -49,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
@@ -199,7 +199,7 @@ struct PendingMessage {
 struct PeriodicCallback {
   Clock::duration period = Clock::duration::zero();
   Clock::time_point nextDeadline;
-  std::function<void()> callback;
+  absl::AnyInvocable<void()> callback;
 };
 
 absl::Status ddsError(absl::string_view what, dds_return_t code) {
@@ -290,7 +290,7 @@ class Bus::Impl {
   absl::Status initialize();
   absl::Status addSubscription(std::unique_ptr<Subscription> subscription);
   absl::Status addPeriodicCallback(absl::Duration period,
-                                   std::function<void()> callback);
+                                   absl::AnyInvocable<void()> callback);
   absl::Status start();
   void stop();
   bool isRunning() const { return running_.load() && !stopRequested_.load(); }
@@ -322,8 +322,8 @@ class Bus::Impl {
   absl::StatusOr<OutgoingMessage> serialize(
       absl::string_view topic, const google::protobuf::Message& message);
   TopicCounters& countersFor(absl::string_view topic);
-  absl::StatusOr<dds_entity_t> topicFor(const std::string& name);
-  absl::StatusOr<TopicWriter* absl_nonnull> writerFor(const std::string& topic);
+  absl::StatusOr<dds_entity_t> topicFor(absl::string_view name);
+  absl::StatusOr<TopicWriter* absl_nonnull> writerFor(absl::string_view topic);
   absl::Status createReader(Subscription& subscription);
   void wake() const;
   absl::Status enqueue(OutgoingMessage outgoing);
@@ -444,26 +444,29 @@ absl::Status Bus::Impl::initialize() {
   return absl::OkStatus();
 }
 
-absl::StatusOr<dds_entity_t> Bus::Impl::topicFor(const std::string& name) {
+absl::StatusOr<dds_entity_t> Bus::Impl::topicFor(absl::string_view name) {
   const absl::flat_hash_map<std::string, dds_entity_t>::const_iterator it =
       topics_.find(name);
   if (it != topics_.end()) {
     return it->second;
   }
   ROBOT_IPC_RETURN_IF_ERROR(validateTopicName(name));
+  // dds_create_topic() needs a NUL-terminated name.
+  std::string topicName(name);
   const dds_entity_t topic =
-      dds_create_topic(participant_, &robot_ipc_Envelope_desc, name.c_str(),
-                       /*qos=*/nullptr, /*listener=*/nullptr);
+      dds_create_topic(participant_, &robot_ipc_Envelope_desc,
+                       topicName.c_str(), /*qos=*/nullptr,
+                       /*listener=*/nullptr);
   if (topic < 0) {
     return ddsError(absl::StrCat("cannot create the DDS topic '", name, "'"),
                     topic);
   }
-  topics_.emplace(name, topic);
+  topics_.emplace(std::move(topicName), topic);
   return topic;
 }
 
 absl::StatusOr<TopicWriter* absl_nonnull> Bus::Impl::writerFor(
-    const std::string& topic) {
+    absl::string_view topic) {
   const absl::flat_hash_map<std::string, TopicWriter>::iterator it =
       writers_.find(topic);
   if (it != writers_.end()) {
@@ -557,8 +560,8 @@ absl::Status Bus::Impl::addSubscription(
   return absl::OkStatus();
 }
 
-absl::Status Bus::Impl::addPeriodicCallback(absl::Duration period,
-                                            std::function<void()> callback) {
+absl::Status Bus::Impl::addPeriodicCallback(
+    absl::Duration period, absl::AnyInvocable<void()> callback) {
   if (period <= absl::ZeroDuration()) {
     return absl::InvalidArgumentError(
         "robot_ipc: a periodic callback needs a positive period");
@@ -1167,7 +1170,7 @@ absl::Status Bus::subscribeRaw(absl::string_view topic,
 }
 
 absl::Status Bus::addPeriodicCallback(absl::Duration period,
-                                      std::function<void()> callback) {
+                                      absl::AnyInvocable<void()> callback) {
   return impl_->addPeriodicCallback(period, std::move(callback));
 }
 

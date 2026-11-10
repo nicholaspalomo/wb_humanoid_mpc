@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <cstddef>
-#include <map>
 #include <memory>
 #include <numeric>
 #include <optional>
@@ -39,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/btree_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -178,7 +178,7 @@ CentroidalMpcConfig trotConfig() {
 }
 
 /** Every gait of a gait file by name. */
-using GaitMap = std::map<std::string, ModeSequenceTemplate>;
+using GaitMap = absl::btree_map<std::string, ModeSequenceTemplate>;
 
 /** The trot of the quadruped gait file, read against `layout`. */
 absl::StatusOr<ModeSequenceTemplate> trotOf(const GaitModeLayout& layout) {

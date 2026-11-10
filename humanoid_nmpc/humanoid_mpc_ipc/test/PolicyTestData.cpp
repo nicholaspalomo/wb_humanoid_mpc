@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/control/ControllerType.h"
 #include "ocs2_core/control/FeedforwardController.h"
@@ -74,7 +75,8 @@ matrix_t randomMatrix(std::mt19937& generator, size_t rows, size_t cols) {
 // post-event nodes: the node before each is its pre-event node, at the same
 // time.
 std::vector<AnnotatedTime> annotatedTimes(
-    const scalar_array_t& times, const size_array_t& postEventIndices) {
+    absl::Span<const scalar_t> times,
+    absl::Span<const size_t> postEventIndices) {
   std::vector<AnnotatedTime> annotated;
   for (size_t k = 0; k < times.size(); ++k) {
     AnnotatedTime::Event event = AnnotatedTime::Event::None;

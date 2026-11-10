@@ -66,12 +66,12 @@ robotProcessStateEstimatorContext(
     const RobotProcessSettings& settings,
     const ModelSettings& modelSettings,
     const mpc_config::ContactsConfig& contacts,
-    const std::string& urdfFile,
+    absl::string_view urdfFile,
     const robot::model::RobotDescription* absl_nonnull description) {
   ASSIGN_OR_RETURN(std::vector<estimation::ContactPointSpec> contactPoints,
                    stateEstimatorContacts(modelSettings, contacts, urdfFile));
   return estimation::StateEstimatorContext{
-      .urdfFile = urdfFile,
+      .urdfFile = std::string(urdfFile),
       .contacts = std::move(contactPoints),
       .description = description,
       .kalman = settings.kalmanStateEstimator};
@@ -82,7 +82,7 @@ createRobotProcessStateEstimator(
     const RobotProcessSettings& settings,
     const ModelSettings& modelSettings,
     const mpc_config::ContactsConfig& contacts,
-    const std::string& urdfFile,
+    absl::string_view urdfFile,
     absl::string_view taskFile,
     const robot::model::RobotDescription* absl_nonnull description) {
   const absl::string_view source =

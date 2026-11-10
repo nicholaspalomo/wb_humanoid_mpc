@@ -61,9 +61,9 @@ std::string recordedStatesFileName(absl::string_view robot,
  * `provenance`. The first error of a file that cannot be written.
  */
 absl::Status writeLockstepOutputs(const LockstepResult& result,
-                                  const std::string& outputDir,
-                                  const std::string& robot,
-                                  const std::string& scenario,
+                                  absl::string_view outputDir,
+                                  absl::string_view robot,
+                                  absl::string_view scenario,
                                   const GoldenProvenance& provenance);
 
 }  // namespace ocs2::humanoid::validation

@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -38,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -95,10 +95,11 @@ namespace robot::ipc {
  */
 class Bus {
  public:
-  using RawHandler = std::function<void(absl::string_view typeName,
-                                        absl::string_view payload)>;
+  // The bus keeps each handler and calls it on the IO thread only.
+  using RawHandler = absl::AnyInvocable<void(absl::string_view typeName,
+                                             absl::string_view payload)>;
   using MessageHandler =
-      std::function<void(const google::protobuf::Message& message)>;
+      absl::AnyInvocable<void(const google::protobuf::Message& message)>;
 
   /**
    * Joins the DDS domain and creates the writers of the topics the network file
@@ -124,17 +125,18 @@ class Bus {
   template <typename Msg>
   absl::Status subscribe(absl::string_view topic,
                          Delivery delivery,
-                         std::function<void(const Msg&)> handler) {
+                         absl::AnyInvocable<void(const Msg&)> handler) {
     static_assert(std::is_base_of_v<google::protobuf::Message, Msg>,
                   "subscribe<Msg>() needs a generated protobuf message");
     if (handler == nullptr) {
       return absl::InvalidArgumentError("subscribe(): the handler is empty");
     }
-    return subscribeMessage(topic, delivery, std::make_unique<Msg>(),
-                            [handler = std::move(handler)](
-                                const google::protobuf::Message& message) {
-                              handler(static_cast<const Msg&>(message));
-                            });
+    return subscribeMessage(
+        topic, delivery, std::make_unique<Msg>(),
+        [handler = std::move(handler)](
+            const google::protobuf::Message& message) mutable {
+          handler(static_cast<const Msg&>(message));
+        });
   }
 
   /**
@@ -153,7 +155,7 @@ class Bus {
    * next deadline still ahead, rather than called at once or in a burst.
    */
   absl::Status addPeriodicCallback(absl::Duration period,
-                                   std::function<void()> callback);
+                                   absl::AnyInvocable<void()> callback);
 
   /** Launches the IO thread. Idempotent. */
   absl::Status start();

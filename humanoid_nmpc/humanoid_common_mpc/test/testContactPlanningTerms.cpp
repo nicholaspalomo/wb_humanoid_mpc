@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -41,11 +40,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
@@ -431,8 +432,8 @@ TEST(ContactPlanningTerms,
   // node: the DCM xi = c + v / omega is carried to the end of the interval by
   // the LIP, xi_N = z + e^{omega dt} (xi_{N-1} - z), and compared with the
   // target.
-  const std::function<scalar_t(const OcpQpStage&, const vector_t&,
-                               const vector_t&)>
+  const absl::AnyInvocable<scalar_t(const OcpQpStage&, const vector_t&,
+                                    const vector_t&) const>
       stageCost =
           [](const OcpQpStage& stage, const vector_t& x, const vector_t& u) {
             return 0.5 * x.dot(stage.Q * x) + 0.5 * u.dot(stage.R * u) +
@@ -602,7 +603,7 @@ namespace {
 // assembled objective has to evaluate to.
 scalar_t stepLengthFunctional(scalar_t weight,
                               const vector2_t& nomErrPosFootRtWorldEwrtWorldXy,
-                              const std::vector<vector_t>& inputs) {
+                              absl::Span<const vector_t> inputs) {
   const std::array<std::array<int, 2>, kNumFeet> footDelta{
       {{kLipDlx, kLipDly}, {kLipDrx, kLipDry}}};
   const std::array<int, kNumFeet> contact{kLipCl, kLipCr};
@@ -1308,7 +1309,7 @@ TEST(ContactPlanningTerms,
   ContactLogicState state;
   state.numNodes = 3;
   MiqpAssignment a(3 * kNumFeet);
-  const std::function<void(int, int8_t, int8_t)> set =
+  const absl::AnyInvocable<void(int, int8_t, int8_t) const> set =
       [&a](int node, int8_t left, int8_t right) {
         a[static_cast<size_t>(
             ContactLogicState::contactBinaryIndex(node, /*foot=*/0))] = left;
@@ -1411,7 +1412,7 @@ TEST(ContactPlanningTerms, CadenceStretchIsBoundedByTheGaitLimits) {
   config.cadenceStretch.maxStretch = 2.0;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
 
-  const std::function<MiqpAssignment(int)> assignmentWithSwing =
+  const absl::AnyInvocable<MiqpAssignment(int) const> assignmentWithSwing =
       [&config](int swingNodes) {
         MiqpAssignment assignment(
             static_cast<size_t>(ContactLogicState::kBinariesPerNode *
@@ -1476,8 +1477,8 @@ TEST(ContactPlanningTerms,
 
   // The shortest double support anywhere in the schedule, ignoring the leading
   // and trailing stance phases.
-  const std::function<scalar_t(const ModeSchedule&)> shortestDoubleSupport =
-      [](const ModeSchedule& schedule) {
+  const absl::AnyInvocable<scalar_t(const ModeSchedule&) const>
+      shortestDoubleSupport = [](const ModeSchedule& schedule) {
         scalar_t shortest = std::numeric_limits<scalar_t>::infinity();
         for (size_t i = 0; i + 1 < schedule.eventTimes.size(); ++i) {
           if (schedule.modeSequence[i + 1] == kBipedModeStance) {
@@ -2759,8 +2760,9 @@ TEST(ContactPlanningTerms,
 
     // The largest |tau_foot| the rows admit with the binaries at (own, other),
     // for either sign of the torque.
-    const std::function<scalar_t(size_t, scalar_t, scalar_t, scalar_t)> budget =
-        [&](size_t foot, scalar_t own, scalar_t other, scalar_t sign) {
+    const absl::AnyInvocable<scalar_t(size_t, scalar_t, scalar_t, scalar_t)
+                                 const>
+        budget = [&](size_t foot, scalar_t own, scalar_t other, scalar_t sign) {
           vector_t u = vector_t::Zero(layout.nu);
           u(layout.input(var::contact(foot))) = own;
           u(layout.input(var::contact(1 - foot))) = other;
@@ -2776,7 +2778,7 @@ TEST(ContactPlanningTerms,
         };
     // The concave envelope: max over t of T_t (a - t) + D t, t = lambda_11 in
     // [max(0, a + b - 1), min(a, b)].
-    const std::function<scalar_t(scalar_t, scalar_t)> envelope =
+    const absl::AnyInvocable<scalar_t(scalar_t, scalar_t) const> envelope =
         [&](scalar_t own, scalar_t other) {
           const scalar_t t = shared >= alone ? std::min(own, other)
                                              : std::max(0.0, own + other - 1.0);

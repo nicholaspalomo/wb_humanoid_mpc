@@ -39,11 +39,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <cstring>
 #include <limits>
-#include <set>
 #include <type_traits>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/btree_set.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -115,7 +115,7 @@ TEST(SwingTrajectoryFromConfigTest, EveryFieldReachesASettingOfItsOwn) {
   ASSERT_EQ(defaults.size(), static_cast<size_t>(descriptor->field_count()))
       << "one setting per field of the schema";
 
-  std::set<size_t> reached;
+  absl::btree_set<size_t> reached;
   for (int i = 0; i < descriptor->field_count(); ++i) {
     const google::protobuf::FieldDescriptor* absl_nonnull field =
         descriptor->field(i);

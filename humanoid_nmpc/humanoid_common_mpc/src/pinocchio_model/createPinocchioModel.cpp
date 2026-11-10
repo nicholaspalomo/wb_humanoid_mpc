@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_pinocchio_interface/urdf.h"
@@ -242,9 +243,9 @@ absl::Status addPointContactFrame(const ModelSettings::PointContact& contact,
 /******************************************************************************************************/
 
 PinocchioInterface createDefaultPinocchioInterface(
-    const std::string& urdfFilePath) {
-  PinocchioInterface pinocchioInterface =
-      getPinocchioInterfaceFromUrdfFile(urdfFilePath, getBaseJointcomposite());
+    absl::string_view urdfFilePath) {
+  PinocchioInterface pinocchioInterface = getPinocchioInterfaceFromUrdfFile(
+      std::string(urdfFilePath), getBaseJointcomposite());
 
   return pinocchioInterface;
 }
@@ -260,14 +261,15 @@ namespace {
  * frames of the sole that `contactRectangle(i)` gives each contact i.
  */
 absl::StatusOr<PinocchioInterface> buildCustomPinocchioInterface(
-    const std::string& urdfFilePath,
+    absl::string_view urdfFilePath,
     const ModelSettings& modelSettings,
     absl::FunctionRef<absl::StatusOr<ContactRectangle>(int contactIndex)>
         contactRectangle,
     bool scaleTotalMass,
     scalar_t totalMass,
     bool verbose) {
-  urdf::ModelInterfaceSharedPtr urdfTree = urdf::parseURDFFile(urdfFilePath);
+  urdf::ModelInterfaceSharedPtr urdfTree =
+      urdf::parseURDFFile(std::string(urdfFilePath));
   if (urdfTree == nullptr) {
     return absl::InvalidArgumentError(
         absl::StrCat("[loadCustomPinocchioInterface] the file '", urdfFilePath,
@@ -331,7 +333,7 @@ absl::StatusOr<PinocchioInterface> buildCustomPinocchioInterface(
 
 absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(
     const mpc_config::TaskFile& taskFile,
-    const std::string& urdfFilePath,
+    absl::string_view urdfFilePath,
     const ModelSettings& modelSettings,
     bool scaleTotalMass,
     scalar_t totalMass,
@@ -347,8 +349,8 @@ absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(
 }
 
 absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(
-    const std::string& taskFilePath,
-    const std::string& urdfFilePath,
+    absl::string_view taskFilePath,
+    absl::string_view urdfFilePath,
     const ModelSettings& modelSettings,
     bool scaleTotalMass,
     scalar_t totalMass,

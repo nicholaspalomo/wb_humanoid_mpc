@@ -34,16 +34,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <limits>
-#include <map>
 #include <memory>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/btree_map.h"
+#include "absl/container/btree_set.h"
 #include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -52,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gmock/gmock.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
@@ -285,9 +285,9 @@ bool covers(absl::string_view declared, absl::string_view path) {
  * the centroidal formulation and covered by centroidalHotFieldNames().
  * pos_surface_rt_world_ewrt_world_z is left out (see the file comment).
  */
-std::set<std::string> appliedLeafPaths() {
+absl::btree_set<std::string> appliedLeafPaths() {
   const std::vector<std::string> names = centroidalHotFieldNames();
-  std::set<std::string> paths;
+  absl::btree_set<std::string> paths;
   for (const ConfigLeaf& leaf :
        configLeaves(*humanoid_mpc_config::TaskFile::descriptor())) {
     if (leaf.reload != ConfigReload::kHot || !leaf.tunable) continue;
@@ -399,8 +399,8 @@ bool isNumber(const FieldDescriptor& field) {
  */
 void forEachNumber(
     Message& message,
-    const std::string& prefix,
-    const std::set<std::string>& paths,
+    absl::string_view prefix,
+    const absl::btree_set<std::string>& paths,
     absl::FunctionRef<void(const NumberField&, const std::string&)> visit) {
   const Descriptor& descriptor = *message.GetDescriptor();
   const Reflection& reflection = *message.GetReflection();
@@ -447,13 +447,13 @@ void forEachNumber(
 
 /** `task` with every number of a leaf in `paths` perturbed by `step`; returns
  * the paths of the numbers it perturbed. */
-std::set<std::string> perturb(mpc_config::TaskFile& task,
-                              const std::set<std::string>& paths,
-                              Step step) {
+absl::btree_set<std::string> perturb(mpc_config::TaskFile& task,
+                                     const absl::btree_set<std::string>& paths,
+                                     Step step) {
   humanoid_mpc_config::TaskFile message;
   mpc_config::ToProto(task, &message);
-  std::set<std::string> perturbed;
-  std::map<std::string, size_t> ordinals;
+  absl::btree_set<std::string> perturbed;
+  absl::btree_map<std::string, size_t> ordinals;
   forEachNumber(message, /*prefix=*/"", paths,
                 [&](const NumberField& number, const std::string& path) {
                   const size_t ordinal =
@@ -667,7 +667,7 @@ std::string exact(scalar_t value);
 std::string exact(const matrix_t& value);
 
 /** Values by name, at 17 digits (exact()). */
-using Dump = std::map<std::string, std::string>;
+using Dump = absl::btree_map<std::string, std::string>;
 
 /** The keys of `a` whose values differ in `b`, or that `b` does not have. */
 std::vector<std::string> changedKeys(const Dump& a, const Dump& b);
@@ -739,18 +739,18 @@ void expectTheSameSolves(Stack& a, Stack& b) {
  * Fails the test when a leaf of `moved` is not an applied leaf of the file.
  */
 CentroidalMpcConfig editedFile(const CentroidalMpcConfig& config,
-                               const std::set<std::string>& moved) {
-  const std::set<std::string> applied = appliedLeafPaths();
+                               const absl::btree_set<std::string>& moved) {
+  const absl::btree_set<std::string> applied = appliedLeafPaths();
   for (const std::string& path : moved) {
     EXPECT_TRUE(applied.contains(path))
         << path << " is not a leaf a reload applies";
   }
-  std::set<std::string> scaled;
+  absl::btree_set<std::string> scaled;
   for (const std::string& path : applied) {
     if (!moved.contains(path)) scaled.insert(path);
   }
   CentroidalMpcConfig edited = config;
-  const std::set<std::string> perturbed =
+  const absl::btree_set<std::string> perturbed =
       perturb(edited.task, scaled, Step::kScale);
   EXPECT_GT(perturbed.size(), 50U)
       << "the perturbation reached almost no field: "
@@ -819,7 +819,7 @@ Dump runningWeightsOf(Stack& stack) {
  */
 void expectALiveUpdateIsAFreshStart(
     const CentroidalMpcConfig& config,
-    const std::set<std::string>& moved,
+    const absl::btree_set<std::string>& moved,
     absl::FunctionRef<void(Stack&)> expectOnTheReloaded) {
   const CentroidalMpcConfig edited = editedFile(config, moved);
   Stack live(config, Stack::Updater::kRegistered);
@@ -939,7 +939,7 @@ TEST(LiveUpdateEqualsFreshStart,
      WithEveryBaseOrientationRowWeighedOnTheAtlasWithoutTheAcomCost) {
   // Without the CoM + ACoM cost, so that the factory weighs the base-pose
   // blocks of Q and Q_final rather than zeroes them.
-  const std::set<std::string> baseAttitudeWeightPaths = {
+  const absl::btree_set<std::string> baseAttitudeWeightPaths = {
       "state_weights.eulerzyx_base_rt_world.yaw",
       "state_weights.eulerzyx_base_rt_world.pitch",
       "state_weights.eulerzyx_base_rt_world.roll",
@@ -954,7 +954,7 @@ TEST(LiveUpdateEqualsFreshStart,
 TEST(LiveUpdateEqualsFreshStart, WithEveryAcomRowWeighedOnTheShippedAtlas) {
   // The CoM + ACoM cost as it ships, which zeroes the base-pose blocks of Q and
   // Q_final and weighs the ACoM attitude.
-  const std::set<std::string> computeQuatAcomRtWorldXyzw = {
+  const absl::btree_set<std::string> computeQuatAcomRtWorldXyzw = {
       "acom_weights.yaw", "acom_weights.pitch", "acom_weights.roll"};
   expectALiveUpdateIsAFreshStart(shippedAtlas(), computeQuatAcomRtWorldXyzw,
                                  expectEveryAcomRowWeighed);
@@ -974,7 +974,7 @@ TEST_P(LiveUpdateWeightsEqualFreshStart, WithEveryOrientationRowMoved) {
   // None of them has the CoM + ACoM cost (the Atlas's): their Q and Q_final
   // weigh the base pose themselves. EngineAI SA01 ends its horizon with the DCM
   // cost, so its final_state_weights reach no running term.
-  const std::set<std::string> moved = {
+  const absl::btree_set<std::string> moved = {
       "state_weights.eulerzyx_base_rt_world.yaw",
       "state_weights.eulerzyx_base_rt_world.pitch",
       "state_weights.eulerzyx_base_rt_world.roll",
@@ -1041,7 +1041,7 @@ TEST(LiveUpdateEqualsFreshStart, AnUpdaterFedNothingChangesNoSolve) {
 /** The one ground every contact-implicit term of every worker is on, or NaN
  * when they disagree or there is none. */
 scalar_t contactImplicitTermsPosSurfaceRtWorldEwrtWorldZ(
-    SqpSolver& solver, const std::vector<std::string>& contactNames) {
+    SqpSolver& solver, absl::Span<const std::string> contactNames) {
   std::vector<scalar_t> posSurfacesRtWorldEwrtWorldZ;
   for (OptimalControlProblem& ocp : solver.getOcpDefinitions()) {
     for (const std::string& footName : contactNames) {
@@ -1405,9 +1405,9 @@ constexpr std::array<absl::string_view, 18> kNotExercisedHere = {
 
 TEST(LiveUpdateEqualsFreshStart,
      EveryAppliedNumberChangesWhatItWritesAndAReloadOfTheFileRestoresIt) {
-  const std::set<std::string> leaves = appliedLeafPaths();
-  std::set<std::string> live;
-  std::set<std::string> visited;
+  const absl::btree_set<std::string> leaves = appliedLeafPaths();
+  absl::btree_set<std::string> live;
+  absl::btree_set<std::string> visited;
   const CentroidalMpcConfig shipped = shippedAtlas();
   const std::vector<CentroidalMpcConfig> variants = {
       shipped, contactImplicitAtlas(shipped),

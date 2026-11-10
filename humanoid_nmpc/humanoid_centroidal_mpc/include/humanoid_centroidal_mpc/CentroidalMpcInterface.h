@@ -129,11 +129,11 @@ class CentroidalMpcInterface final : public RobotInterface {
    * builders threw. Nothing is thrown.
    */
   static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> Create(
-      const std::string& taskFile,
-      const std::string& urdfFile,
-      const std::string& referenceFile);
+      absl::string_view taskFile,
+      absl::string_view urdfFile,
+      absl::string_view referenceFile);
   static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> Create(
-      CentroidalMpcConfig config, const std::string& urdfFile);
+      CentroidalMpcConfig config, absl::string_view urdfFile);
 
   /**
    * The MPC of `config` tracking the plan of `planSource` (a scenario and a
@@ -146,7 +146,7 @@ class CentroidalMpcInterface final : public RobotInterface {
    */
   static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> Create(
       CentroidalMpcConfig config,
-      const std::string& urdfFile,
+      absl::string_view urdfFile,
       MultiContactPlanSource planSource);
 
   /**
@@ -164,12 +164,12 @@ class CentroidalMpcInterface final : public RobotInterface {
    * errors, are Create()'s.
    */
   static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>>
-  CreateControllerModels(const std::string& taskFile,
-                         const std::string& urdfFile,
-                         const std::string& referenceFile);
+  CreateControllerModels(absl::string_view taskFile,
+                         absl::string_view urdfFile,
+                         absl::string_view referenceFile);
   static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>>
   CreateControllerModels(CentroidalMpcConfig config,
-                         const std::string& urdfFile);
+                         absl::string_view urdfFile);
 
   ~CentroidalMpcInterface() override = default;
   CentroidalMpcInterface(const CentroidalMpcInterface&) = delete;
@@ -378,7 +378,7 @@ class CentroidalMpcInterface final : public RobotInterface {
   CentroidalMpcInterface(CentroidalMpcConfig config,
                          ModelSettings modelSettings,
                          SolverSettings solverSettings,
-                         const std::string& urdfFile);
+                         std::string urdfFile);
 
   /** What a factory builds: the models of CreateControllerModels(), or the
    * whole MPC of Create(). */
@@ -392,7 +392,7 @@ class CentroidalMpcInterface final : public RobotInterface {
    */
   static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> build(
       CentroidalMpcConfig config,
-      const std::string& urdfFile,
+      absl::string_view urdfFile,
       Scope scope,
       std::optional<MultiContactPlanSource> planSource = std::nullopt);
 

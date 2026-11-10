@@ -119,9 +119,9 @@ constexpr char kSceneWithAProjectileName[] = R"(
 </mujoco>
 )";
 
-std::string writeTempFile(const std::string& name,
+std::string writeTempFile(absl::string_view name,
                           const char* absl_nonnull content) {
-  const std::string path = testing::TempDir() + "/" + name;
+  const std::string path = absl::StrCat(testing::TempDir(), "/", name);
   std::ofstream(path) << content;
   return path;
 }
@@ -182,7 +182,7 @@ TEST(MujocoSimInterfaceCreate, AnUnknownGantryHoldIsRefusedWithTheValidNames) {
 
 /** The hinge scene with `equality` (the contents of an MJCF <equality> element)
  * declared, written to `name`. */
-std::string hingeSceneWithEquality(const std::string& name,
+std::string hingeSceneWithEquality(absl::string_view name,
                                    absl::string_view equality) {
   const std::string scene = absl::StrReplaceAll(
       kHingeScene, {{"</mujoco>", absl::StrCat("<equality>", equality,
@@ -192,11 +192,11 @@ std::string hingeSceneWithEquality(const std::string& name,
 
 /** The compiled scene at `path`; null, with a test failure saying why, when it
  * does not load. */
-MjModelPtr loadModel(const std::string& path) {
+MjModelPtr loadModel(absl::string_view path) {
   constexpr int kErrorSize = 1000;
   char error[kErrorSize] = "";
-  MjModelPtr model(
-      mj_loadXML(path.c_str(), /*vfs=*/nullptr, error, kErrorSize));
+  MjModelPtr model(mj_loadXML(std::string(path).c_str(), /*vfs=*/nullptr, error,
+                              kErrorSize));
   EXPECT_NE(model, nullptr) << path << ": " << error;
   return model;
 }

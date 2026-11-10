@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <functional>
 #include <ios>
 #include <iterator>
 #include <limits>
@@ -226,7 +225,8 @@ TEST_F(MpcParameterUpdaterModuleTest,
   const scalar_t runningDeltaTol = solver.getSettings().deltaTol;
   const scalar_t runningGMax = solver.getSettings().g_max;
   const scalar_t runningGMin = solver.getSettings().g_min;
-  const std::vector<std::function<void(mpc_config::SqpSettingsConfig&)>>
+  // Capture-less, so plain function pointers.
+  const std::vector<void (*absl_nonnull)(mpc_config::SqpSettingsConfig&)>
       outOfRange = {
           [](mpc_config::SqpSettingsConfig& c) { c.delta_tol = 0.0; },
           [](mpc_config::SqpSettingsConfig& c) { c.delta_tol = -1.0; },
@@ -239,7 +239,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
           },
           [](mpc_config::SqpSettingsConfig& c) { c.g_min = 2.0 * c.g_max; },
       };
-  for (const std::function<void(mpc_config::SqpSettingsConfig&)>& corrupt :
+  for (void (*absl_nonnull corrupt)(mpc_config::SqpSettingsConfig&) :
        outOfRange) {
     mpc_config::TaskFile refused = shipped;
     refused.multiple_shooting.sqp_iteration = static_cast<int32_t>(running) + 5;

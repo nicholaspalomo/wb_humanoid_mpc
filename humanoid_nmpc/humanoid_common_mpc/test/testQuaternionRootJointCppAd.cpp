@@ -48,10 +48,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
 #include "ocs2_core/Types.h"
@@ -167,7 +169,9 @@ namespace {
 using ad_fun_t = CppAD::ADFun<ad_base_t>;
 using AdModel = PinocchioInterfaceCppAd::Model;
 using AdData = PinocchioInterfaceCppAd::Data;
+// NOLINTNEXTLINE(absl-function): copied with PinocchioFunction, which unitQuaternionRootFunction() returns by copy.
 using ReferenceFunction = std::function<vector_t(const vector_t&)>;
+// NOLINTNEXTLINE(absl-function): captured by copy into CppAdInterface::ad_function_t lambdas, which std::function copies.
 using AdConfigurationMap = std::function<ad_vector_t(const ad_vector_t&)>;
 
 // LINT.IfChange(robot_files)
@@ -320,7 +324,7 @@ void append(const Eigen::MatrixBase<Derived>& block,
 }
 
 template <typename Scalar>
-VECTOR_T<Scalar> toVector(const std::vector<Scalar>& values) {
+VECTOR_T<Scalar> toVector(absl::Span<const Scalar> values) {
   return Eigen::Map<const VECTOR_T<Scalar>>(
       values.data(), static_cast<Eigen::Index>(values.size()));
 }
@@ -332,7 +336,7 @@ VECTOR_T<Scalar> centroidalMapAndFrames(
     const pinocchio::ModelTpl<Scalar>& model,
     pinocchio::DataTpl<Scalar>& data,
     const VECTOR_T<Scalar>& q,
-    const std::vector<pinocchio::FrameIndex>& frames) {
+    absl::Span<const pinocchio::FrameIndex> frames) {
   std::vector<Scalar> values;
   append(pinocchio::computeCentroidalMap(model, data, q), values);
   pinocchio::computeJointJacobians(model, data, q);
@@ -350,7 +354,7 @@ VECTOR_T<Scalar> centroidalMapAndFrames(
   }
   append(pinocchio::jacobianCenterOfMass(model, data, q), values);
   append(data.com[0], values);
-  return toVector(values);
+  return toVector<Scalar>(values);
 }
 
 /** The upper triangle of crba()'s mass matrix, the part it writes. */
@@ -366,7 +370,7 @@ VECTOR_T<Scalar> massMatrixUpperTriangle(
       values.push_back(massMatrix(row, col));
     }
   }
-  return toVector(values);
+  return toVector<Scalar>(values);
 }
 
 template <typename Scalar>
@@ -389,7 +393,7 @@ VECTOR_T<Scalar> centroidalCompositeRigidBody(
   append(pinocchio::ccrba(model, data, q, v), values);
   append(data.hg.toVector(), values);
   append(data.Ig.matrix(), values);
-  return toVector(values);
+  return toVector<Scalar>(values);
 }
 
 /**
@@ -404,7 +408,7 @@ VECTOR_T<Scalar> computeFrameMotions(
     const VECTOR_T<Scalar>& q,
     const VECTOR_T<Scalar>& v,
     const VECTOR_T<Scalar>& a,
-    const std::vector<pinocchio::FrameIndex>& frames) {
+    absl::Span<const pinocchio::FrameIndex> frames) {
   pinocchio::forwardKinematics(model, data, q, v, a);
   std::vector<Scalar> values;
   for (const pinocchio::FrameIndex frame : frames) {
@@ -419,7 +423,7 @@ VECTOR_T<Scalar> computeFrameMotions(
             .toVector(),
         values);
   }
-  return toVector(values);
+  return toVector<Scalar>(values);
 }
 
 /******************************************************************************************************/
@@ -889,8 +893,8 @@ scalar_t relativeError(const matrix_t& a, const matrix_t& b) {
       vector_t(Eigen::Map<const vector_t>(b.data(), b.size())));
 }
 
-matrix_t centralDifferenceJacobian(const ReferenceFunction& function,
-                                   const vector_t& x) {
+matrix_t centralDifferenceJacobian(
+    absl::FunctionRef<vector_t(const vector_t&)> function, const vector_t& x) {
   const vector_t value = function(x);
   matrix_t jacobian(value.size(), x.size());
   for (Eigen::Index i = 0; i < x.size(); ++i) {

@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
@@ -136,15 +137,15 @@ class AngularCenterOfMass {
    */
   static absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> Create(
       absl::string_view robotName,
-      const std::vector<std::string>& modelJointNames);
+      absl::Span<const std::string> modelJointNames);
 
   /**
    * Validates and loads layer weights and biases. Returns InvalidArgument, and
    * leaves the evaluator unchanged, if the layer count, a layer's shape or the
    * 3-wide readout does not match the architecture this evaluator was built
-   * for.
+   * for. Keeps `layers` on success.
    */
-  absl::Status loadWeights(const std::vector<SirenLayerWeights>& layers);
+  absl::Status loadWeights(std::vector<SirenLayerWeights> layers);
 
   /**
    * Records the joint names, in input order, that the network was trained on.

@@ -73,8 +73,8 @@ double intervalTime(
     const Eigen::VectorXd& to,
     const Eigen::Vector3d& initPosComRtWorldEwrtWorld,
     const Eigen::Vector3d& finalPosComRtWorldEwrtWorld,
-    const std::vector<Eigen::Vector3d>& initPosPadsRtWorldEwrtWorld,
-    const std::vector<Eigen::Vector3d>& finalPosPadsRtWorldEwrtWorld,
+    absl::Span<const Eigen::Vector3d> initPosPadsRtWorldEwrtWorld,
+    absl::Span<const Eigen::Vector3d> finalPosPadsRtWorldEwrtWorld,
     const TimingOptions& options) {
   const Eigen::VectorXd tangent =
       pinocchio::difference(model.model(), from, to);
@@ -214,7 +214,7 @@ absl::Status appendKnot(RobotStanceModel& model,
 
 absl::StatusOr<std::vector<config::MultiContactPlan::Knot>> timedPlanKnots(
     RobotStanceModel& model,
-    const std::vector<MotionSegment>& segments,
+    absl::Span<const MotionSegment> segments,
     const TimingOptions& options,
     absl::Span<const double> slowdowns) {
   if (slowdowns.size() != segments.size()) {

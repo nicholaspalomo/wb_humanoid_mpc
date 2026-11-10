@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 
 #include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"
@@ -47,7 +48,7 @@ namespace ocs2::humanoid::node {
  * (config/ipc/network.textproto, robot::ipc::localhostNetworkConfig()).
  */
 absl::StatusOr<robot::ipc::NetworkConfig> loadNodeNetwork(
-    const std::string& networkConfigPath);
+    absl::string_view networkConfigPath);
 
 /**
  * The options of the bus of a binary that publishes as `nodeName` (--ipc_node)
@@ -58,7 +59,7 @@ absl::StatusOr<robot::ipc::NetworkConfig> loadNodeNetwork(
  * publishes them. The errors of loadNodeNetwork().
  */
 absl::StatusOr<robot::ipc::BusOptions> nodeBusOptions(
-    const std::string& networkConfigPath, const std::string& nodeName);
+    absl::string_view networkConfigPath, std::string nodeName);
 
 /**
  * The bus of nodeBusOptions(), created and not yet started. The errors of
@@ -67,6 +68,6 @@ absl::StatusOr<robot::ipc::BusOptions> nodeBusOptions(
  * node whose host is an address of another machine.
  */
 absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> createNodeBus(
-    const std::string& networkConfigPath, const std::string& nodeName);
+    absl::string_view networkConfigPath, std::string nodeName);
 
 }  // namespace ocs2::humanoid::node

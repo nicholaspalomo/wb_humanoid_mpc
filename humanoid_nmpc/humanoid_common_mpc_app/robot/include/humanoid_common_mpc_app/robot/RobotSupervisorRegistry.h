@@ -30,12 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <cstddef>
-#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 
@@ -95,8 +95,8 @@ struct RobotSupervisorContext {
  */
 class RobotSupervisorRegistry {
  public:
-  using Factory = std::function<absl::StatusOr<RobotSupervisor>(
-      const RobotSupervisorContext& context)>;
+  using Factory = absl::AnyInvocable<absl::StatusOr<RobotSupervisor>(
+      const RobotSupervisorContext& context) const>;
 
   /** A registry with the built-in supervisors (`sim`, `hardware`). */
   RobotSupervisorRegistry();

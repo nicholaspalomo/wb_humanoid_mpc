@@ -35,10 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <numbers>
 #include <optional>
 #include <string>
@@ -51,6 +49,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
@@ -175,6 +176,35 @@ scalar_array_t boundedAngleResampleTimes(
   return times;
 }
 
+/**
+ * Returns the input of a tail knot at `time` (targetOnPlanGrid()): the
+ * operator's when the published target carries one, the live target's
+ * otherwise.
+ */
+vector_t tailInput(const TargetTrajectories& operatorTarget,
+                   const TargetTrajectories& targetTrajectories,
+                   scalar_t time) {
+  return operatorTarget.inputTrajectory.empty()
+             ? targetTrajectories.getDesiredInput(time)
+             : operatorTarget.getDesiredInput(time);
+}
+
+/**
+ * Appends a sample of the live target `targetTrajectories` at `time` with
+ * `state` to `denseTarget`, with the live target's input when it has inputs.
+ */
+void appendLiveSample(const TargetTrajectories& targetTrajectories,
+                      scalar_t time,
+                      vector_t state,
+                      TargetTrajectories& denseTarget) {
+  denseTarget.timeTrajectory.push_back(time);
+  denseTarget.stateTrajectory.push_back(std::move(state));
+  if (!targetTrajectories.inputTrajectory.empty()) {
+    denseTarget.inputTrajectory.push_back(
+        targetTrajectories.getDesiredInput(time));
+  }
+}
+
 }  // namespace
 
 absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>>
@@ -217,7 +247,7 @@ ContactPlanningReferenceManager::buildExecutionRules(
   // its ACoM evaluator slot) are made here; every other rule comes from the
   // factory.
   const ContactPlanningTermFactory::ExtraRuleMaker makeModelRule =
-      [this](const std::string& name) -> std::unique_ptr<ExecutionRule> {
+      [this](absl::string_view name) -> std::unique_ptr<ExecutionRule> {
     if (name == term::kPlannedHeadingOverride) {
       return std::make_unique<PlannedHeadingOverride>(*mpcRobotModelPtr_,
                                                       &acom_);
@@ -439,7 +469,7 @@ ContactPlanningReferenceManager::getPlannedDcm(scalar_t time) const {
   // is taken to be on the running configuration's.
   scalar_t omega = plan->omega;
   if (!(omega > 0.0)) {
-    std::lock_guard<std::mutex> lock(configMutex_);
+    absl::MutexLock lock(configMutex_);
     omega = config_.omega();
   }
   if (!(omega > 0.0)) return std::nullopt;
@@ -459,20 +489,20 @@ ContactPlanningReferenceManager::getPlannedDcm(scalar_t time) const {
 }
 
 void ContactPlanningReferenceManager::setContactPlan(const ContactPlan& plan) {
-  std::lock_guard<std::mutex> lock(planMutex_);
+  absl::MutexLock lock(planMutex_);
   pendingPlan_ = plan;
 }
 
 bool ContactPlanningReferenceManager::setContactPlan(const ContactPlan& plan,
                                                      uint64_t planEpoch) {
-  std::lock_guard<std::mutex> lock(planMutex_);
+  absl::MutexLock lock(planMutex_);
   if (planEpoch != planEpoch_) return false;
   pendingPlan_ = plan;
   return true;
 }
 
 uint64_t ContactPlanningReferenceManager::planEpoch() const {
-  std::lock_guard<std::mutex> lock(planMutex_);
+  absl::MutexLock lock(planMutex_);
   return planEpoch_;
 }
 
@@ -490,7 +520,7 @@ void ContactPlanningReferenceManager::reset() {
 void ContactPlanningReferenceManager::resetRuntimeState() {
   SwitchedModelReferenceManager::resetRuntimeState();
   {
-    std::lock_guard<std::mutex> lock(planMutex_);
+    absl::MutexLock lock(planMutex_);
     pendingPlan_.reset();
     ++planEpoch_;
   }
@@ -517,7 +547,7 @@ void ContactPlanningReferenceManager::resetRuntimeState() {
       makeBipedFeetArray(vector2_t(vector2_t::Zero()));
   comState_ = HorizontalComState{};
   {
-    std::lock_guard<std::mutex> lock(predictionMutex_);
+    absl::MutexLock lock(predictionMutex_);
     predictedTimes_.clear();
     predictedStates_.clear();
   }
@@ -526,13 +556,13 @@ void ContactPlanningReferenceManager::resetRuntimeState() {
   scheduleShiftLog_.clear();
   replanRequested_.store(false);
   {
-    std::lock_guard<std::mutex> lock(targetContactMutex_);
+    absl::MutexLock lock(targetContactMutex_);
     desPoseFeetRtWorld_ = makeBipedFeetArray(TargetContactPose{});
   }
 }
 
 bool ContactPlanningReferenceManager::hasPendingPlan() const {
-  std::lock_guard<std::mutex> lock(planMutex_);
+  absl::MutexLock lock(planMutex_);
   return pendingPlan_.has_value();
 }
 
@@ -560,14 +590,14 @@ absl::Status ContactPlanningReferenceManager::setConfigStatus(
     if (acom != nullptr) acom_ = std::move(acom);
   }
   logSwingTimeScaleWarning(config);
-  std::lock_guard<std::mutex> lock(configMutex_);
+  absl::MutexLock lock(configMutex_);
   config_ = config;
   executionRules_ = std::move(rules);
   return absl::OkStatus();
 }
 
 ContactPlanningConfig ContactPlanningReferenceManager::getConfig() const {
-  std::lock_guard<std::mutex> lock(configMutex_);
+  absl::MutexLock lock(configMutex_);
   return config_;
 }
 
@@ -618,7 +648,7 @@ void ContactPlanningReferenceManager::updateFootBookkeeping(
 void ContactPlanningReferenceManager::activatePendingPlan(scalar_t initTime) {
   std::optional<ContactPlan> candidate;
   {
-    std::lock_guard<std::mutex> lock(planMutex_);
+    absl::MutexLock lock(planMutex_);
     if (pendingPlan_.has_value()) {
       candidate = std::move(*pendingPlan_);
       pendingPlan_.reset();
@@ -671,15 +701,15 @@ void ContactPlanningReferenceManager::activatePendingPlan(scalar_t initTime) {
 }
 
 void ContactPlanningReferenceManager::setPredictedTrajectory(
-    const scalar_array_t& times, const vector_array_t& states) {
-  std::lock_guard<std::mutex> lock(predictionMutex_);
+    absl::Span<const scalar_t> times, absl::Span<const vector_t> states) {
+  absl::MutexLock lock(predictionMutex_);
   if (times.size() != states.size()) {
     predictedTimes_.clear();
     predictedStates_.clear();
     return;
   }
-  predictedTimes_ = times;
-  predictedStates_ = states;
+  predictedTimes_.assign(times.begin(), times.end());
+  predictedStates_.assign(states.begin(), states.end());
 }
 
 void ContactPlanningReferenceManager::updatePredictedComState(
@@ -687,7 +717,7 @@ void ContactPlanningReferenceManager::updatePredictedComState(
   hasPredictedComState_ = false;
   vector_t predictedState;
   {
-    std::lock_guard<std::mutex> lock(predictionMutex_);
+    absl::MutexLock lock(predictionMutex_);
     if (predictedTimes_.size() < kMinPredictionKnots ||
         initTime < predictedTimes_.front() - kPredictionTimeTolerance ||
         initTime > predictedTimes_.back() + kPredictionTimeTolerance) {
@@ -972,24 +1002,6 @@ TargetTrajectories ContactPlanningReferenceManager::targetOnPlanGrid(
   if (hasInput) {
     denseTarget.inputTrajectory.reserve(numNodes + numOperatorKnots + 1);
   }
-  // The input of a tail knot: the operator's when the published target carries
-  // one, the live target's otherwise.
-  const std::function<vector_t(scalar_t)> tailInput =
-      [&](scalar_t time) -> vector_t {
-    return operatorTarget.inputTrajectory.empty()
-               ? targetTrajectories.getDesiredInput(time)
-               : operatorTarget.getDesiredInput(time);
-  };
-  // A sample of the live target at `time`.
-  const std::function<void(scalar_t, vector_t)> appendLiveSample =
-      [&](scalar_t time, vector_t state) {
-        denseTarget.timeTrajectory.push_back(time);
-        denseTarget.stateTrajectory.push_back(std::move(state));
-        if (hasInput) {
-          denseTarget.inputTrajectory.push_back(
-              targetTrajectories.getDesiredInput(time));
-        }
-      };
   for (size_t i = 0; i < numNodes; ++i) {
     const scalar_t time = plan.startTime + static_cast<scalar_t>(i) * plan.dt;
     vector_t state =
@@ -1002,11 +1014,13 @@ TargetTrajectories ContactPlanningReferenceManager::targetOnPlanGrid(
                *mpcRobotModelPtr_, targetTrajectories,
                denseTarget.timeTrajectory.back(),
                denseTarget.stateTrajectory.back(), time, state)) {
-        appendLiveSample(boundTime, mpcRobotModelPtr_->getDesiredState(
-                                        targetTrajectories, boundTime));
+        appendLiveSample(
+            targetTrajectories, boundTime,
+            mpcRobotModelPtr_->getDesiredState(targetTrajectories, boundTime),
+            denseTarget);
       }
     }
-    appendLiveSample(time, std::move(state));
+    appendLiveSample(targetTrajectories, time, std::move(state), denseTarget);
   }
   const scalar_t lastDenseTime = denseTarget.timeTrajectory.empty()
                                      ? plan.startTime
@@ -1016,14 +1030,20 @@ TargetTrajectories ContactPlanningReferenceManager::targetOnPlanGrid(
     if (time <= lastDenseTime) continue;
     denseTarget.timeTrajectory.push_back(time);
     denseTarget.stateTrajectory.push_back(operatorTarget.stateTrajectory[i]);
-    if (hasInput) denseTarget.inputTrajectory.push_back(tailInput(time));
+    if (hasInput) {
+      denseTarget.inputTrajectory.push_back(
+          tailInput(operatorTarget, targetTrajectories, time));
+    }
   }
   if (denseTarget.timeTrajectory.empty() ||
       denseTarget.timeTrajectory.back() < finalTime) {
     denseTarget.timeTrajectory.push_back(finalTime);
     denseTarget.stateTrajectory.push_back(
         mpcRobotModelPtr_->getDesiredState(operatorTarget, finalTime));
-    if (hasInput) denseTarget.inputTrajectory.push_back(tailInput(finalTime));
+    if (hasInput) {
+      denseTarget.inputTrajectory.push_back(
+          tailInput(operatorTarget, targetTrajectories, finalTime));
+    }
   }
   return denseTarget;
 }
@@ -1043,13 +1063,13 @@ void ContactPlanningReferenceManager::updateDesPoseFeetRtWorld(
     desPoseFeetRtWorld =
         computeDesPoseFeetRtWorld(*usablePlan, appliedSchedule_, inputs);
   }
-  std::lock_guard<std::mutex> lock(targetContactMutex_);
+  absl::MutexLock lock(targetContactMutex_);
   desPoseFeetRtWorld_ = desPoseFeetRtWorld;
 }
 
 BipedFeetArray<TargetContactPose>
 ContactPlanningReferenceManager::getDesPoseFeetRtWorld() const {
-  std::lock_guard<std::mutex> lock(targetContactMutex_);
+  absl::MutexLock lock(targetContactMutex_);
   return desPoseFeetRtWorld_;
 }
 

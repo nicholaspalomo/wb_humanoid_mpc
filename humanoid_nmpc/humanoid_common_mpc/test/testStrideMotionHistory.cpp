@@ -30,12 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <functional>
 #include <numbers>
 #include <random>
 #include <vector>
 
 #include "Eigen/Geometry"
+#include "absl/functional/any_invocable.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -71,8 +72,8 @@ vector2_t rotated(scalar_t angle, const vector2_t& vector) {
 /** A planar motion given by its heading Psi(t) and its heading-frame velocity
  * v_h(t): the base's p(t) = int R_z(Psi) v_h. */
 struct PlanarTrajectory {
-  std::function<scalar_t(scalar_t)> yawBaseRtWorld;
-  std::function<vector2_t(scalar_t)> linvelBaseRtWorldEwrtHeadingXy;
+  absl::AnyInvocable<scalar_t(scalar_t) const> yawBaseRtWorld;
+  absl::AnyInvocable<vector2_t(scalar_t) const> linvelBaseRtWorldEwrtHeadingXy;
 
   /** [m] p(t1) - p(t0), by composite Simpson with 200 steps: off by far below
    * 1e-15 m on the motions below. */
@@ -121,7 +122,7 @@ BasePlanarMotion atRest() {
  * motion before the first being `seed`. */
 void feed(StrideMotionHistory& history,
           const PlanarTrajectory& trajectory,
-          const std::vector<scalar_t>& times,
+          absl::Span<const scalar_t> times,
           const BasePlanarMotion& seed) {
   vector2_t posBaseRtWorldEwrtWorldXy = vector2_t(1.0, -2.0);
   for (size_t i = 0; i < times.size(); ++i) {
@@ -162,7 +163,7 @@ struct MeanDeviation {
 };
 
 MeanDeviation deviationOverTheRun(const PlanarTrajectory& trajectory,
-                                  const std::vector<scalar_t>& times,
+                                  absl::Span<const scalar_t> times,
                                   scalar_t window) {
   StrideMotionHistory history(/*retention=*/2.0);
   MeanDeviation deviation;
@@ -256,10 +257,11 @@ TEST(StrideMotionHistory, BeforeTheFirstSampleTheSeedsMotionIsAveragedIn) {
   BasePlanarMotion seed{.linvelBaseRtWorldEwrtHeadingXy = vector2_t(0.3, -0.1),
                         .rateYawBaseRtWorld = 0.5};
   int seedCalls = 0;
-  const std::function<BasePlanarMotion()> countedSeed = [&seed, &seedCalls]() {
-    ++seedCalls;
-    return seed;
-  };
+  const absl::AnyInvocable<BasePlanarMotion() const> countedSeed =
+      [&seed, &seedCalls]() {
+        ++seedCalls;
+        return seed;
+      };
   // The first sample: the window holds the seed alone.
   history.addSample(/*time=*/10.0, vector2_t(1.0, 1.0), /*yawBaseRtWorld=*/0.2,
                     countedSeed);
@@ -293,7 +295,8 @@ TEST(StrideMotionHistory, ItRestartsWhenTheClockRunsBackwardsOrSkips) {
   BasePlanarMotion turning{.linvelBaseRtWorldEwrtHeadingXy = vector2_t::Zero(),
                            .rateYawBaseRtWorld = 0.4};
   int seedCalls = 0;
-  const std::function<BasePlanarMotion()> seed = [&turning, &seedCalls]() {
+  const absl::AnyInvocable<BasePlanarMotion() const> seed = [&turning,
+                                                             &seedCalls]() {
     ++seedCalls;
     return turning;
   };

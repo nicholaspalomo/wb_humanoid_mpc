@@ -301,9 +301,9 @@ class ModelSettings {
    * parse (InvalidArgument naming the file, line and column), and the typed
    * Create()'s errors, prefixed with the file.
    */
-  static absl::StatusOr<ModelSettings> Create(const std::string& configFile,
-                                              const std::string& urdfFile,
-                                              const std::string& mpcName,
+  static absl::StatusOr<ModelSettings> Create(absl::string_view configFile,
+                                              absl::string_view urdfFile,
+                                              absl::string_view mpcName,
                                               bool verbose = false);
 
   /**
@@ -322,8 +322,8 @@ class ModelSettings {
    */
   static absl::StatusOr<ModelSettings> Create(
       const mpc_config::TaskFile& taskFile,
-      const std::string& urdfFile,
-      const std::string& mpcName,
+      absl::string_view urdfFile,
+      absl::string_view mpcName,
       bool verbose);
 
   // Movable, so that Create() can return one and an MPC interface can take it

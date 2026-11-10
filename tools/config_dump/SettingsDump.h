@@ -29,9 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <map>
 #include <string>
 
+#include "absl/container/btree_map.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "ocs2_core/reference/ModeSchedule.h"
@@ -73,9 +73,10 @@ void dumpSwingSettings(ValueDump& dump,
 void dumpModeSchedule(ValueDump& dump,
                       absl::string_view path,
                       const ModeSchedule& schedule);
-void dumpGaitMap(ValueDump& dump,
-                 absl::string_view path,
-                 const std::map<std::string, ModeSequenceTemplate>& gaits);
+void dumpGaitMap(
+    ValueDump& dump,
+    absl::string_view path,
+    const absl::btree_map<std::string, ModeSequenceTemplate>& gaits);
 void dumpGaitModeStates(ValueDump& dump,
                         absl::string_view path,
                         absl::Span<const GaitModeStateConfig> states);

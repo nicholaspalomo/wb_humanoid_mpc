@@ -31,9 +31,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cstddef>
+#include <type_traits>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/types/span.h"
 #include "mujoco/mujoco.h"
 #include "ocs2_core/Dimensions.h"
 
@@ -61,9 +63,10 @@ void copyOut(const T* absl_nullable field, std::vector<T>& values) {
 }
 
 /** Copies `values` into the first `values.size()` elements of a model array;
- * nothing into a null array. */
+ * nothing into a null array. T is deduced from `field` alone. */
 template <typename T>
-void copyIn(const std::vector<T>& values, T* absl_nullable field) {
+void copyIn(absl::Span<const std::type_identity_t<T>> values,
+            T* absl_nullable field) {
   if (field != nullptr) std::copy(values.begin(), values.end(), field);
 }
 

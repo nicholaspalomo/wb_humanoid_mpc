@@ -29,11 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <cstddef>
-#include <functional>
 #include <numbers>
 #include <random>
 
 #include "Eigen/Geometry"
+#include "absl/functional/any_invocable.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
@@ -234,7 +234,7 @@ TEST(TiltAngleToPlane, TheTapeMatchesTheDoubleOverloadAndItsDerivative) {
       };
   // No comparison between variables, which CppADCodeGen cannot generate:
   // recording comparisons adds no operation.
-  const std::function<size_t(bool)> tapeOperations =
+  const absl::AnyInvocable<size_t(bool) const> tapeOperations =
       [&taped](bool recordCompare) {
         ad_vector_t xp = ad_vector_t::Ones(kVariableDim + kParameterDim);
         CppAD::Independent(xp, /*abort_op_index=*/0, recordCompare);
@@ -253,7 +253,7 @@ TEST(TiltAngleToPlane, TheTapeMatchesTheDoubleOverloadAndItsDerivative) {
   library.createModels(CppAdInterface::ApproximationOrder::First,
                        /*verbose=*/false);
 
-  const std::function<matrix_t(const vector_t&, const vector_t&)>
+  const absl::AnyInvocable<matrix_t(const vector_t&, const vector_t&) const>
       finiteDifference = [](const vector_t& x, const vector_t& p) {
         matrix_t jacobian(kRotationTangentDim, kVariableDim);
         for (Eigen::Index i = 0; i < kVariableDim; ++i) {

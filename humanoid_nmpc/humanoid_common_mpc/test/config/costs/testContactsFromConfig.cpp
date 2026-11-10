@@ -36,7 +36,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <limits>
 #include <optional>
 #include <string>
@@ -44,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -152,7 +152,7 @@ TEST(ContactsFromConfigTest, TheRectangleIsScaledAroundTheCenterPoint) {
 TEST(ContactsFromConfigTest,
      AnEmptyOrInvertedRectangleOrANonPositiveScaleIsRefused) {
   using Rectangle = mpc_config::ContactsConfig::Rectangle;
-  const std::vector<std::function<void(Rectangle&)>> refusedRectangles = {
+  const std::vector<void (*absl_nonnull)(Rectangle&)> refusedRectangles = {
       [](Rectangle& r) {
         r.max_pos_corners_rt_contact_ewrt_contact_x =
             r.min_pos_corners_rt_contact_ewrt_contact_x;
@@ -175,7 +175,7 @@ TEST(ContactsFromConfigTest,
         r.scale_factor = std::numeric_limits<double>::quiet_NaN();
       },
   };
-  for (const std::function<void(Rectangle&)>& corrupt : refusedRectangles) {
+  for (void (*absl_nonnull corrupt)(Rectangle&) : refusedRectangles) {
     mpc_config::ContactsConfig contacts = completeCone();
     corrupt(contacts.contact_rectangle);
     const absl::Status status =

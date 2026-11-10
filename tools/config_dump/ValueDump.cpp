@@ -37,13 +37,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstring>
 #include <limits>
 #include <string>
-#include <vector>
 
 #include "Eigen/Core"
 #include "absl/strings/escaping.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "nproto/Fnv1a64Constants.h"
 
@@ -99,7 +99,7 @@ void ValueDump::addString(absl::string_view path, absl::string_view value) {
 }
 
 void ValueDump::addStrings(absl::string_view path,
-                           const std::vector<std::string>& values) {
+                           absl::Span<const std::string> values) {
   addInteger(absl::StrCat(path, ".size"), static_cast<int64_t>(values.size()));
   for (size_t i = 0; i < values.size(); ++i) {
     addString(absl::StrCat(path, "[", i, "]"), values[i]);
@@ -107,7 +107,7 @@ void ValueDump::addStrings(absl::string_view path,
 }
 
 void ValueDump::addDoubles(absl::string_view path,
-                           const std::vector<double>& values) {
+                           absl::Span<const double> values) {
   addInteger(absl::StrCat(path, ".size"), static_cast<int64_t>(values.size()));
   for (size_t i = 0; i < values.size(); ++i) {
     addDouble(absl::StrCat(path, "[", i, "]"), values[i]);
@@ -115,7 +115,7 @@ void ValueDump::addDoubles(absl::string_view path,
 }
 
 void ValueDump::addSizes(absl::string_view path,
-                         const std::vector<size_t>& values) {
+                         absl::Span<const size_t> values) {
   addInteger(absl::StrCat(path, ".size"), static_cast<int64_t>(values.size()));
   for (size_t i = 0; i < values.size(); ++i) {
     addInteger(absl::StrCat(path, "[", i, "]"),

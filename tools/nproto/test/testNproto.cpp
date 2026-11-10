@@ -48,7 +48,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "Eigen/Core"
+#include "absl/container/btree_map.h"
 #include "absl/status/status.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
 #include "nproto_test/other/point.nproto.h"
@@ -152,16 +154,26 @@ static_assert(kIs<decltype(RepeatedFields::scalars), std::vector<Scalars>>);
 static_assert(kIs<decltype(RepeatedFields::inners), std::vector<Outer::Inner>>);
 
 static_assert(
-    kIs<decltype(Maps::double_by_name), std::map<std::string, double>>);
-static_assert(kIs<decltype(Maps::name_by_id), std::map<int32_t, std::string>>);
-static_assert(kIs<decltype(Maps::scalars_by_id), std::map<int64_t, Scalars>>);
+    kIs<decltype(Maps::double_by_name), absl::btree_map<std::string, double>>);
 static_assert(
-    kIs<decltype(Maps::severity_by_id), std::map<uint32_t, Severity>>);
+    kIs<decltype(Maps::name_by_id), absl::btree_map<int32_t, std::string>>);
 static_assert(
-    kIs<decltype(Maps::inner_by_id), std::map<uint64_t, Outer::Inner>>);
-static_assert(kIs<decltype(Maps::count_by_flag), std::map<bool, int32_t>>);
+    kIs<decltype(Maps::scalars_by_id), absl::btree_map<int64_t, Scalars>>);
 static_assert(
-    kIs<decltype(Maps::kind_by_code), std::map<int64_t, Outer::Kind>>);
+    kIs<decltype(Maps::severity_by_id), absl::btree_map<uint32_t, Severity>>);
+static_assert(
+    kIs<decltype(Maps::inner_by_id), absl::btree_map<uint64_t, Outer::Inner>>);
+static_assert(
+    kIs<decltype(Maps::count_by_flag), absl::btree_map<bool, int32_t>>);
+static_assert(
+    kIs<decltype(Maps::kind_by_code), absl::btree_map<int64_t, Outer::Kind>>);
+// A map of a struct nested in the struct of the member is a std::map:
+// absl::btree_map would need the nested struct complete
+// (nproto_generator.STD_MAP_NOLINT).
+static_assert(
+    kIs<decltype(Outer::inner_by_name),
+        // NOLINTNEXTLINE(absl-ordered-container): the generated member type.
+        std::map<std::string, Outer::Inner>>);
 
 // Nested messages by value; nested enums as nested enum classes.
 static_assert(kIs<decltype(Outer::inner), Outer::Inner>);
@@ -171,8 +183,8 @@ static_assert(kIs<decltype(Outer::kind), Outer::Kind>);
 static_assert(kIs<decltype(Imports::point), other::Point>);
 static_assert(kIs<decltype(Imports::frame), other::Point::Frame>);
 static_assert(kIs<decltype(Imports::units), std::vector<other::Unit>>);
-static_assert(
-    kIs<decltype(Imports::point_by_name), std::map<std::string, other::Point>>);
+static_assert(kIs<decltype(Imports::point_by_name),
+                  absl::btree_map<std::string, other::Point>>);
 
 // A oneof is a std::variant whose index 0 means "not set"; alternatives of one
 // type are told apart by index.
@@ -518,7 +530,7 @@ TEST(MapTest, MapsAreInKeyOrderAndFollowTheMessage) {
   proto.mutable_double_by_name()->erase("b");
   (*proto.mutable_double_by_name())["d"] = 4.0;
   ASSERT_TRUE(FromProto(proto, &value).ok());
-  EXPECT_EQ(value.double_by_name, (std::map<std::string, double>{
+  EXPECT_EQ(value.double_by_name, (absl::btree_map<std::string, double>{
                                       {"a", 10.0}, {"c", 3.0}, {"d", 4.0}}));
 
   value.double_by_name.erase("d");
@@ -585,7 +597,7 @@ TEST(EnumTest, AnUndefinedNumberIsAnError) {
 }
 
 // The error of FromProto() names the field path down to the enum.
-void expectError(const absl::Status& status, const std::string& message) {
+void expectError(const absl::Status& status, absl::string_view message) {
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
   EXPECT_EQ(status.message(), message);
 }

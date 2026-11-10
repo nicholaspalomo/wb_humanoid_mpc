@@ -41,12 +41,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/LoopbackNetwork.h"
 
 namespace ocs2::humanoid::test_support {
 
-ChildProcess::ChildProcess(const std::vector<std::string>& arguments) {
+ChildProcess::ChildProcess(absl::Span<const std::string> arguments) {
   CHECK(!arguments.empty()) << "a process needs a program";
   name_ = arguments.front();
   std::vector<char* absl_nullable>

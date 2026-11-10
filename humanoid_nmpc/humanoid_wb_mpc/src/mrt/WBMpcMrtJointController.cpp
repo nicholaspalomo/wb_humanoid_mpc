@@ -130,7 +130,7 @@ WBMpcMrtJointController::Create(
     MPC_MRT_Interface::SolverObservationObserver solverObservationObserver,
     PinocchioInterface pinocchioInterface,
     scalar_t mpcDesiredFrequency,
-    const std::string& pdGainsFile) {
+    absl::string_view pdGainsFile) {
   return Create(
       robotDescription, modelSettings,
       inProcessMpcLinkFactory(mpc, std::move(solverObservationObserver),
@@ -144,7 +144,7 @@ WBMpcMrtJointController::Create(
     const ModelSettings& modelSettings,
     const MpcLinkFactory& mpcLinkFactory,
     PinocchioInterface pinocchioInterface,
-    const std::string& pdGainsFile) {
+    absl::string_view pdGainsFile) {
   // The joints the control cycle indexes without a check: refused here, by
   // name, rather than by the constructor's check.
   RETURN_IF_ERROR(
@@ -175,8 +175,9 @@ WBMpcMrtJointController::Create(
   std::unique_ptr<WBMpcMrtJointController> controller =
       absl::WrapUnique(new WBMpcMrtJointController(
           robotDescription, modelSettings, mpcLinkFactory,
-          std::move(pinocchioInterface), pdGainsFile, std::move(initialPdGains),
-          std::move(stateManifold), std::move(rigidBodyDynamics)));
+          std::move(pinocchioInterface), std::string(pdGainsFile),
+          std::move(initialPdGains), std::move(stateManifold),
+          std::move(rigidBodyDynamics)));
   if (controller->mpcLink_ == nullptr) {
     return absl::InvalidArgumentError(kNoMpcLinkMessage);
   }
@@ -188,7 +189,7 @@ WBMpcMrtJointController::WBMpcMrtJointController(
     const ModelSettings& modelSettings,
     const MpcLinkFactory& mpcLinkFactory,
     PinocchioInterface pinocchioInterface,
-    const std::string& pdGainsFile,
+    std::string pdGainsFile,
     InitialPdGains initialPdGains,
     std::shared_ptr<const StateManifold> stateManifold,
     std::unique_ptr<RealtimeRigidBodyDynamics> rigidBodyDynamics)
@@ -214,7 +215,7 @@ WBMpcMrtJointController::WBMpcMrtJointController(
       robotWeight_(computeRobotWeight(pinocchioInterface_)),
       mpcPolicyState_(vector_t::Zero(mpcRobotModel_.getStateDim())),
       mpcPolicyInput_(vector_t::Zero(mpcRobotModel_.getInputDim())),
-      pdGainsFile_(pdGainsFile),
+      pdGainsFile_(std::move(pdGainsFile)),
       robotJointNames_(robotDescription.getJointNames()),
       mpcModelJointNames_(modelSettings.mpcModelJointNames),
       fixedJointNames_(modelSettings.fixedJointNames),
@@ -253,7 +254,7 @@ WBMpcMrtJointController::WBMpcMrtJointController(
 
 absl::StatusOr<WBMpcMrtJointController::InitialPdGains>
 WBMpcMrtJointController::loadInitialPdGains(const ModelSettings& modelSettings,
-                                            const std::string& pdGainsFile) {
+                                            absl::string_view pdGainsFile) {
   // The write time first, then the gains: a save that lands between the two is
   // reloaded by the next poll.
   InitialPdGains initial;

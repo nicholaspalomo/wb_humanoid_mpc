@@ -31,8 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstdint>
 #include <string>
-#include <vector>
 
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc_app/robot/FallRecoveryTypes.h"
@@ -83,7 +83,7 @@ class FallRecovery {
    * change `currentModeName`.
    */
   virtual Cycle update(const robot::model::RobotState& robotState,
-                       const std::vector<scalar_t>& nominalJointPositions,
+                       absl::Span<const scalar_t> nominalJointPositions,
                        std::string& currentModeName) = 0;
 };
 

@@ -36,6 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
 #include "pinocchio/multibody/fwd.hpp"
@@ -164,7 +166,7 @@ class HardContactRefinement {
   static absl::StatusOr<std::unique_ptr<HardContactRefinement>> Create(
       const LoadedScenario& loaded,
       CentroidalMpcConfig config,
-      const std::string& urdfFile,
+      absl::string_view urdfFile,
       const RefinementOptions& options);
 
   HardContactRefinement(const HardContactRefinement&) = delete;
@@ -204,7 +206,7 @@ class HardContactRefinement {
   absl::StatusOr<RefinementResult> solve(
       const config::MultiContactPlan& seed,
       const MpcTrajectory& guess,
-      const std::vector<TimedPolygon>& polygons);
+      absl::Span<const TimedPolygon> polygons);
 
   LoadedScenario loaded_;
   CentroidalMpcConfig config_;

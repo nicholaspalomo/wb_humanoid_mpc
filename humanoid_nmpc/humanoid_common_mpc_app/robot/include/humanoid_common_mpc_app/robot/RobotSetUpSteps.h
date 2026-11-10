@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc_app/robot/ContactSurfaceHeightSource.h"
@@ -125,7 +126,7 @@ RobotProcess::Hooks robotProcessHooks(
 absl::StatusOr<std::vector<estimation::ContactPointSpec>>
 stateEstimatorContacts(const ModelSettings& modelSettings,
                        const mpc_config::ContactsConfig& contacts,
-                       const std::string& urdfFile);
+                       absl::string_view urdfFile);
 
 /**
  * Returns where the robot process takes the contacts' surface heights from for

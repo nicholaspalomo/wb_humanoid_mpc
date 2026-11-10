@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
@@ -147,7 +148,7 @@ void candidateFeatures(const PinocchioInterfaceCppAd::Model& model,
 absl::StatusOr<std::unique_ptr<ContactFeatureFunction>> robotContactFeatures(
     const PinocchioInterface& pinocchio,
     const CentroidalModelInfo& info,
-    const std::vector<RobotFeatureCandidate>& candidates,
+    absl::Span<const RobotFeatureCandidate> candidates,
     const TerrainModel& terrain,
     const RobotFeatureSettings& settings,
     const FeatureLibrarySettings& library) {

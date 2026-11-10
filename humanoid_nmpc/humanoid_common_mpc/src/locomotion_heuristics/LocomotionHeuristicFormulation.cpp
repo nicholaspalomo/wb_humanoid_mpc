@@ -40,13 +40,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/ascii.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/types/span.h"
 
 namespace ocs2::humanoid {
 
 namespace {
 
 /** The rejection message's list of what WOULD have been valid. */
-std::string joinNames(const std::vector<std::string>& names) {
+std::string joinNames(absl::Span<const std::string> names) {
   return names.empty() ? "(none)" : absl::StrJoin(names, ", ");
 }
 

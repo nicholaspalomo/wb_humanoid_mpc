@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -261,11 +262,11 @@ TEST(TaskSpaceFootCostFromConfigTest, RefusesTheFieldsOfTheNamedCosts) {
 }
 
 /** A named link cost. */
-mpc_config::TaskSpaceCostConfig linkCost(const std::string& name,
-                                         const std::string& linkName) {
+mpc_config::TaskSpaceCostConfig linkCost(absl::string_view name,
+                                         absl::string_view linkName) {
   mpc_config::TaskSpaceCostConfig cost;
-  cost.name = name;
-  cost.link_name = linkName;
+  cost.name = std::string(name);
+  cost.link_name = std::string(linkName);
   return cost;
 }
 

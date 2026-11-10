@@ -28,14 +28,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <cstddef>
-#include <map>
 #include <string>
 #include <vector>
 
+#include "absl/container/btree_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_replace.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -183,7 +184,7 @@ absl::Status tableStatusWith(absl::string_view from, absl::string_view to) {
 }
 
 void expectRefusedNaming(const absl::Status& status,
-                         const std::vector<std::string>& parts) {
+                         absl::Span<const std::string> parts) {
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
   for (const std::string& part : parts) {
     EXPECT_THAT(status.message(), HasSubstr(part));
@@ -233,8 +234,8 @@ TEST(GaitSwitchingTable, AFirstRowOtherThanStanceIsRefused) {
 
 TEST(GaitSwitchingTable, ATableNamingAGaitTheFileLacksIsRefusedNamingIt) {
   const mpc_config::GaitFile file = gaitFileOf(kTwoGaitFile);
-  const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits =
-      gaitMapFromConfig(file);
+  const absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+      gaits = gaitMapFromConfig(file);
   ASSERT_TRUE(gaits.ok()) << gaits.status();
   absl::StatusOr<std::vector<GaitModeStateConfig>> table =
       gaitModeStatesFromConfig(file);

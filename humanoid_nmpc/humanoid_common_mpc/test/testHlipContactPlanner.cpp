@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <functional>
 #include <limits>
 #include <memory>
 #include <numbers>
@@ -40,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -1734,7 +1734,7 @@ TEST(HlipContactPlanner,
   const scalar_t omega = config.omega();
   const LipState reference =
       valueOrFailure(lipReferenceState(walk.plan, omega, time));
-  const std::function<scalar_t(scalar_t)> shiftAlong =
+  const absl::AnyInvocable<scalar_t(scalar_t) const> shiftAlong =
       [&](scalar_t yawHeadingRtWorld) {
         const vector2_t dirHeadingEwrtWorldXy(std::cos(yawHeadingRtWorld),
                                               std::sin(yawHeadingRtWorld));

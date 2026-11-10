@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/no_destructor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 
 #include "robot_ipc/NetworkConfig.h"
 #include "robot_ipc/NodeEndpoint.h"
@@ -69,7 +70,7 @@ const ProcessDomain& processDomain() {
 
 }  // namespace
 
-NetworkConfig isolatedTestNetwork(const std::vector<std::string>& nodeNames,
+NetworkConfig isolatedTestNetwork(absl::Span<const std::string> nodeNames,
                                   int domainIndex) {
   NetworkConfig network;
   for (const std::string& name : nodeNames) {

@@ -34,12 +34,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdlib>
 #include <filesystem>
-#include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/btree_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -100,7 +100,8 @@ GaitModeLayout quadrupedLayout() {
 }
 
 /** Every gait of the quadruped file on quadrupedLayout(). */
-absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> quadrupedGaits() {
+absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+quadrupedGaits() {
   const std::string path = quadrupedGaitFilePath();
   if (path.empty()) {
     return absl::NotFoundError(
@@ -112,7 +113,7 @@ absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> quadrupedGaits() {
 }
 
 TEST(QuadrupedGaitFileTest, EveryGaitHasTheModesAndTimesOfTheOcs2Example) {
-  const std::map<std::string, ModeSequenceTemplate> expected = {
+  const absl::btree_map<std::string, ModeSequenceTemplate> expected = {
       {"stance", ModeSequenceTemplate({0.0, 0.5}, {kStance})},
       {"trot", ModeSequenceTemplate({0.0, 0.35, 0.70}, {kLf | kRh, kRf | kLh})},
       {"standing_trot",
@@ -130,8 +131,8 @@ TEST(QuadrupedGaitFileTest, EveryGaitHasTheModesAndTimesOfTheOcs2Example) {
                             {kLf | kRf | kRh, kRf | kRh, kRf | kLh | kRh,
                              kLf | kRf | kLh, kLf | kLh, kLf | kLh | kRh})},
   };
-  const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits =
-      quadrupedGaits();
+  const absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+      gaits = quadrupedGaits();
   ASSERT_TRUE(gaits.ok()) << gaits.status();
   ASSERT_EQ(gaits->size(), expected.size());
   for (const std::pair<const std::string, ModeSequenceTemplate>& entry :
@@ -155,8 +156,8 @@ TEST(QuadrupedGaitFileTest, LfIsTheLeftFrontLegOnTheQuadruped) {
 }
 
 TEST(QuadrupedGaitFileTest, TheScheduleStandsOnAllFourAndTilesTheTrot) {
-  const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits =
-      quadrupedGaits();
+  const absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+      gaits = quadrupedGaits();
   ASSERT_TRUE(gaits.ok()) << gaits.status();
   constexpr scalar_t kTransitionStanceTime = 0.2;
   GaitSchedule schedule(ModeSchedule(/*eventTimesInput=*/{0.5},
@@ -211,8 +212,8 @@ TEST(QuadrupedGaitFileTest, ItsSwitchingTableNamesItsOwnGaits) {
   }
   EXPECT_EQ(names, (std::vector<std::string>{"stance", "static_walk", "trot",
                                              "flying_trot"}));
-  const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits =
-      gaitMapFromConfig(*file, quadrupedLayout());
+  const absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+      gaits = gaitMapFromConfig(*file, quadrupedLayout());
   ASSERT_TRUE(gaits.ok()) << gaits.status();
   EXPECT_TRUE(ProceduralMpcMotionManager::checkEveryGaitIsLoaded(
                   *gaits, *table, kQuadrupedGaitFile)

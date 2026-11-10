@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/ascii.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationConfig.h"
@@ -65,11 +66,11 @@ bool isEntityPathName(absl::string_view name) {
 /** The frames of the list `field`, or `fallback` when it is empty;
  * InvalidArgument naming `field` for a bad list. */
 absl::StatusOr<std::vector<std::string>> frameList(
-    const std::vector<std::string>& frames,
+    absl::Span<const std::string> frames,
     absl::string_view field,
-    const std::vector<std::string>& fallback) {
+    absl::Span<const std::string> fallback) {
   if (frames.empty()) {
-    return fallback;
+    return std::vector<std::string>(fallback.begin(), fallback.end());
   }
   absl::flat_hash_set<absl::string_view> seen;
   for (const std::string& frame : frames) {
@@ -85,14 +86,14 @@ absl::StatusOr<std::vector<std::string>> frameList(
           absl::StrCat(field, " names the frame '", frame, "' twice."));
     }
   }
-  return frames;
+  return std::vector<std::string>(frames.begin(), frames.end());
 }
 
 }  // namespace
 
 absl::StatusOr<VisualizationConfig> visualizationConfigFromConfig(
     const mpc_config::TaskFile& task,
-    const std::vector<std::string>& contactFrameNames) {
+    absl::Span<const std::string> contactFrameNames) {
   VisualizationConfig config;
   if (task.rerun_scene_frequency.has_value()) {
     const double frequency = *task.rerun_scene_frequency;

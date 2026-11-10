@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_wb_mpc/end_effector/EndEffectorDynamics.h"
@@ -151,22 +152,19 @@ class AffineEndEffectorDynamics final : public EndEffectorDynamics<scalar_t> {
   }
   std::vector<vector3_t> getTiltEesRtSurfaceEwrtWorld(
       const vector_t& state,
-      const std::vector<vector3_t>& /*normalSurfacesEwrtWorld*/)
-      const override {
+      absl::Span<const vector3_t> /*normalSurfacesEwrtWorld*/) const override {
     return {tiltEeRtSurfaceEwrtWorld(state)};
   }
   std::vector<vector6_t> getXeeRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& /*normalSurfacesEwrtWorld*/)
-      const override {
+      absl::Span<const vector3_t> /*normalSurfacesEwrtWorld*/) const override {
     return {xeeRate(state, input)};
   }
   std::vector<vector6_t> getXeeSecondRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& /*normalSurfacesEwrtWorld*/)
-      const override {
+      absl::Span<const vector3_t> /*normalSurfacesEwrtWorld*/) const override {
     return {xeeSecondRate(state, input)};
   }
 
@@ -193,8 +191,7 @@ class AffineEndEffectorDynamics final : public EndEffectorDynamics<scalar_t> {
   std::vector<VectorFunctionLinearApproximation>
   getLinearApproximationTiltEesRtSurfaceEwrtWorld(
       const vector_t& state,
-      const std::vector<vector3_t>& /*normalSurfacesEwrtWorld*/)
-      const override {
+      absl::Span<const vector3_t> /*normalSurfacesEwrtWorld*/) const override {
     VectorFunctionLinearApproximation approximation;
     approximation.f = tiltEeRtSurfaceEwrtWorld(state);
     approximation.dfdx = dxTiltEeRtSurfaceEwrtWorld_;
@@ -203,16 +200,14 @@ class AffineEndEffectorDynamics final : public EndEffectorDynamics<scalar_t> {
   std::vector<VectorFunctionLinearApproximation> getLinearApproximationXeeRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& /*normalSurfacesEwrtWorld*/)
-      const override {
+      absl::Span<const vector3_t> /*normalSurfacesEwrtWorld*/) const override {
     return {affine(xeeRate(state, input), dxXeeRate_, duXeeRate_)};
   }
   std::vector<VectorFunctionLinearApproximation>
   getLinearApproximationXeeSecondRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& /*normalSurfacesEwrtWorld*/)
-      const override {
+      absl::Span<const vector3_t> /*normalSurfacesEwrtWorld*/) const override {
     return {affine(xeeSecondRate(state, input), dxXeeSecondRate_,
                    duXeeSecondRate_)};
   }

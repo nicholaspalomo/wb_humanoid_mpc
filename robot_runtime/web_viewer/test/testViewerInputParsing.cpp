@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
 #include "web_viewer/ViewerCameraMode.h"
@@ -56,7 +57,7 @@ absl::StatusOr<ViewerInput> parse(const Parameters& parameters) {
 }
 
 void expectRefused(const Parameters& parameters,
-                   const std::string& messagePart) {
+                   absl::string_view messagePart) {
   const absl::StatusOr<ViewerInput> input = parse(parameters);
   ASSERT_FALSE(input.ok());
   EXPECT_EQ(input.status().code(), absl::StatusCode::kInvalidArgument);

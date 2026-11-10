@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Core"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/PreComputation.h"
@@ -82,8 +83,8 @@ TerrainModel ballFloor() {
 
 absl::StatusOr<std::unique_ptr<ContactFeatureFunction>> ballFeatures(
     const TerrainModel& terrain,
-    const std::string& libraryName,
-    const std::string& folder) {
+    absl::string_view libraryName,
+    absl::string_view folder) {
   const ContactFeatureFunction::Function function =
       [terrain](const ad_vector_t& state,
                 const ad_vector_t& input) -> ad_vector_t {
@@ -119,8 +120,9 @@ absl::StatusOr<std::unique_ptr<ContactFeatureFunction>> ballFeatures(
   };
   return ContactFeatureFunction::Create(
       function, kBallStateDim, kBallInputDim, /*numCandidates=*/1,
-      FeatureLibrarySettings{
-          .name = libraryName, .folder = folder, .recompile = true});
+      FeatureLibrarySettings{.name = std::string(libraryName),
+                             .folder = std::string(folder),
+                             .recompile = true});
 }
 
 vector_t BallDynamics::computeFlowMap(scalar_t /*time*/,

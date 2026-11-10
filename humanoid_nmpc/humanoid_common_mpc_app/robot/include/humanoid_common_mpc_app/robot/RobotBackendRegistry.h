@@ -30,13 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <cstddef>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -126,15 +126,16 @@ inline constexpr absl::string_view kMujocoBackendName = "mujoco";
  */
 class RobotBackendRegistry {
  public:
-  using Factory = std::function<absl::StatusOr<std::unique_ptr<RobotBackend>>(
-      const RobotBackendOptions& options)>;
+  using Factory =
+      absl::AnyInvocable<absl::StatusOr<std::unique_ptr<RobotBackend>>(
+          const RobotBackendOptions& options) const>;
   /**
    * What the backend would refuse in `options` without building it (the task
    * file's simulator settings, the files it needs): OK or the refusal create()
    * would give. For a save the robot checks before it stores the file.
    */
-  using OptionsCheck =
-      std::function<absl::Status(const RobotBackendOptions& options)>;
+  using OptionsCheck = absl::AnyInvocable<absl::Status(
+      const RobotBackendOptions& options) const>;
 
   /** A registry with the built-in backends (`mujoco`). */
   RobotBackendRegistry();

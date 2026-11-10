@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // contact set of the DRC Atlas.
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "Eigen/Core"
@@ -52,9 +53,9 @@ constexpr char kAtlasContactSet[] =
     "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/"
     "contact_set.textproto";
 
-config::ContactSet::Candidate pointCandidate(const std::string& name) {
+config::ContactSet::Candidate pointCandidate(std::string name) {
   config::ContactSet::Candidate candidate;
-  candidate.name = name;
+  candidate.name = std::move(name);
   candidate.kind = config::ContactSet::Kind::kPoint;
   candidate.parent_joint = "joint";
   candidate.pos_pad_rt_link_ewrt_link = Eigen::Vector3d(0.1, 0.0, 0.0);
@@ -63,8 +64,8 @@ config::ContactSet::Candidate pointCandidate(const std::string& name) {
   return candidate;
 }
 
-config::ContactSet::Candidate surfaceCandidate(const std::string& name) {
-  config::ContactSet::Candidate candidate = pointCandidate(name);
+config::ContactSet::Candidate surfaceCandidate(std::string name) {
+  config::ContactSet::Candidate candidate = pointCandidate(std::move(name));
   candidate.kind = config::ContactSet::Kind::kSurface;
   candidate.normal_pad_ewrt_link = -Eigen::Vector3d::UnitZ();
   candidate.x_axis_pad_ewrt_link = Eigen::Vector3d::UnitX();
@@ -77,16 +78,16 @@ config::ContactSet::Candidate surfaceCandidate(const std::string& name) {
 }
 
 absl::StatusOr<ContactSet> setOf(
-    const std::vector<config::ContactSet::Candidate>& candidates) {
+    std::vector<config::ContactSet::Candidate> candidates) {
   config::ContactSet config;
   config.robot = "test";
-  config.candidates = candidates;
+  config.candidates = std::move(candidates);
   return ContactSet::Create(config);
 }
 
-void expectRefused(const std::vector<config::ContactSet::Candidate>& candidates,
+void expectRefused(std::vector<config::ContactSet::Candidate> candidates,
                    absl::string_view message) {
-  const absl::StatusOr<ContactSet> set = setOf(candidates);
+  const absl::StatusOr<ContactSet> set = setOf(std::move(candidates));
   ASSERT_FALSE(set.ok());
   EXPECT_EQ(set.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(absl::StrContains(set.status().message(), message))

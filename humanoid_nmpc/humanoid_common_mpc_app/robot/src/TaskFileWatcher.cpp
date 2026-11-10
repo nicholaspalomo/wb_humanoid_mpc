@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/TaskFileWatcher.h"
 
 #include <filesystem>
-#include <functional>
 #include <optional>
 #include <string>
 #include <system_error>
@@ -43,7 +42,7 @@ namespace ocs2::humanoid {
 TaskFileWatcher::TaskFileWatcher(
     absl::string_view file,
     std::optional<std::filesystem::file_time_type> readAt,
-    std::function<void(const std::string& file)> onChange)
+    OnChange onChange)
     : file_(file), onChange_(std::move(onChange)) {
   if (!readAt.has_value()) readAt = writeTimeOf(file_);
   if (readAt.has_value()) {
@@ -52,9 +51,7 @@ TaskFileWatcher::TaskFileWatcher(
   }
 }
 
-TaskFileWatcher::TaskFileWatcher(
-    absl::string_view file,
-    std::function<void(const std::string& file)> onChange)
+TaskFileWatcher::TaskFileWatcher(absl::string_view file, OnChange onChange)
     : TaskFileWatcher(file, /*readAt=*/std::nullopt, std::move(onChange)) {}
 
 std::optional<std::filesystem::file_time_type> TaskFileWatcher::writeTimeOf(

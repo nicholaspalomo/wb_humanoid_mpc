@@ -139,7 +139,7 @@ struct RobotProcessSettings {
  * column, and those of robotProcessSettingsFromConfig() prefixed with the file.
  */
 absl::StatusOr<RobotProcessSettings> loadRobotProcessSettings(
-    const std::string& taskFile);
+    absl::string_view taskFile);
 
 /** The name of `feedforward`, as `wb_mpc_feedforward` spells it. */
 absl::string_view wbMpcFeedforwardName(WbMpcFeedforward feedforward);

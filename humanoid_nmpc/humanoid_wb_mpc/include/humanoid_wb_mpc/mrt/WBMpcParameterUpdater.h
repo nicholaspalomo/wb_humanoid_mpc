@@ -30,13 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <filesystem>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
 #include "absl/time/time.h"
 #include "ocs2_mpc/MPC_BASE.h"
@@ -70,8 +70,8 @@ absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>>
 makeWholeBodyMpcParameterUpdater(
     MPC_BASE* absl_nullable mpc,
     const WBMpcInterface& interface,
-    const std::string& taskFile,
-    const std::string& referenceFile,
+    std::string taskFile,
+    std::string referenceFile,
     std::vector<MpcParameterUpdaterModule::ReferenceFileReloader>
         referenceFileReloaders,
     std::optional<std::filesystem::file_time_type> taskFileReadAt =
@@ -79,6 +79,6 @@ makeWholeBodyMpcParameterUpdater(
     std::optional<std::filesystem::file_time_type> referenceFileReadAt =
         std::nullopt,
     absl::Duration fileCheckPeriod = absl::Seconds(1),
-    std::function<absl::Time()> clock = nullptr);
+    absl::AnyInvocable<absl::Time()> clock = nullptr);
 
 }  // namespace ocs2::humanoid

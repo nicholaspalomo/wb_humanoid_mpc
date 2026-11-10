@@ -73,7 +73,9 @@ cc_test(
     srcs = ["src/testCentroidalConversions.cpp"],
     copts = FIRST_PARTY_COPTS,
     data = _TEST_DATA,
-    deps = _TEST_DEPS,
+    deps = _TEST_DEPS + [
+        "@abseil-cpp//absl/functional:any_invocable",
+    ],
 )
 
 cc_test(
@@ -146,6 +148,7 @@ cc_test(
         "//robot_runtime/robot_realtime:allocation_counter",
         "//humanoid_nmpc/humanoid_common_mpc:controller_event",
         "//humanoid_nmpc/humanoid_common_mpc:mrt_control_thread",
+        "@abseil-cpp//absl/types:span",
     ],
 )
 
@@ -160,6 +163,7 @@ cc_test(
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_mpc_test_support",
         "//robot_runtime/robot_core",
+        "@abseil-cpp//absl/functional:any_invocable",
     ],
 )
 
@@ -198,6 +202,7 @@ cc_test(
     data = _TEST_DATA,
     deps = _TEST_DEPS + [
         "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "@abseil-cpp//absl/functional:function_ref",
     ],
 )
 

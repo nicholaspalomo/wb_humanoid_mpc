@@ -49,6 +49,7 @@ from tools.hooks import argument_comments
 from tools.hooks import boost_usage
 from tools.hooks import check_types
 from tools.hooks import claudisms
+from tools.hooks import cpp_abseil
 from tools.hooks import cpp_google_style
 from tools.hooks import cpp_totw
 from tools.hooks import euler_boundary
@@ -145,6 +146,7 @@ _MODULE_CHECKS: list[Check] = (
     + no_auto.CHECKS
     + cpp_google_style.CHECKS
     + cpp_totw.CHECKS
+    + cpp_abseil.CHECKS
     + magic_number.CHECKS
     + todo_format.CHECKS
     + inclusive_language.CHECKS

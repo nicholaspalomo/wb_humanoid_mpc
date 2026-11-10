@@ -33,9 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Pinocchio forward declarations must be included first
 #include "pinocchio/fwd.hpp"
 
-#include <string>
-
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_pinocchio_interface/urdf.h"
@@ -52,7 +51,7 @@ namespace ocs2::humanoid {
 ///
 
 PinocchioInterface createDefaultPinocchioInterface(
-    const std::string& urdfFilePath);
+    absl::string_view urdfFilePath);
 
 ///
 /// \brief Creates the MPC's Pinocchio model from the URDF: every joint not in
@@ -76,7 +75,7 @@ PinocchioInterface createDefaultPinocchioInterface(
 ///
 absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(
     const mpc_config::TaskFile& taskFile,
-    const std::string& urdfFilePath,
+    absl::string_view urdfFilePath,
     const ModelSettings& modelSettings,
     bool scaleTotalMass = false,
     scalar_t totalMass = 1.0,
@@ -91,8 +90,8 @@ absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(
 ///         prefixed with the file.
 ///
 absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(
-    const std::string& taskFilePath,
-    const std::string& urdfFilePath,
+    absl::string_view taskFilePath,
+    absl::string_view urdfFilePath,
     const ModelSettings& modelSettings,
     bool scaleTotalMass = false,
     scalar_t totalMass = 1.0,

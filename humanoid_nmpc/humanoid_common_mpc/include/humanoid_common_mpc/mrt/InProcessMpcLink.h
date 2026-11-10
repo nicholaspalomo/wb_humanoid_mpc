@@ -102,6 +102,7 @@ class InProcessMpcLink final : public MpcLink {
    * Called on the thread that solves after every solve attempt, with its
    * status, once the supervisor has accounted for it.
    */
+  // NOLINTNEXTLINE(absl-function): factory() copies its Config into each link.
   using SolveObserver = std::function<void(const absl::Status& solveStatus)>;
 
   /** Who runs the solver iterations. */

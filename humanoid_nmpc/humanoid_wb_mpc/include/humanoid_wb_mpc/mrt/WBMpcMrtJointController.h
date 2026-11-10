@@ -126,7 +126,7 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
       MPC_MRT_Interface::SolverObservationObserver solverObservationObserver,
       PinocchioInterface pinocchioInterface,
       scalar_t mpcDesiredFrequency,
-      const std::string& pdGainsFile);
+      absl::string_view pdGainsFile);
 
   /**
    * Makes a controller that reaches its MPC through the link `mpcLinkFactory`
@@ -141,7 +141,7 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
       const ModelSettings& modelSettings,
       const MpcLinkFactory& mpcLinkFactory,
       PinocchioInterface pinocchioInterface,
-      const std::string& pdGainsFile);
+      absl::string_view pdGainsFile);
 
   WBMpcMrtJointController(const WBMpcMrtJointController&) = delete;
   WBMpcMrtJointController& operator=(const WBMpcMrtJointController&) = delete;
@@ -247,8 +247,10 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
 
   /** Nominal joint positions of JOINT_PD, indexed like the RobotDescription's
    * joints. Empty: hold the current posture. */
-  void setNominalJointPositions(const std::vector<scalar_t>& jointPositions) {
-    nominalJointPositions_ = jointPositions;
+  void setNominalJointPositions(absl::Span<const scalar_t> jointPositions) {
+    // assign() reuses the capacity reserved at construction: no allocation on
+    // the control thread.
+    nominalJointPositions_.assign(jointPositions.begin(), jointPositions.end());
   }
 
   /** Time constant [s] of the SAFETY decay (see
@@ -396,7 +398,7 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
       const ModelSettings& modelSettings,
       const MpcLinkFactory& mpcLinkFactory,
       PinocchioInterface pinocchioInterface,
-      const std::string& pdGainsFile,
+      std::string pdGainsFile,
       InitialPdGains initialPdGains,
       std::shared_ptr<const StateManifold> stateManifold,
       std::unique_ptr<RealtimeRigidBodyDynamics> rigidBodyDynamics);
@@ -417,7 +419,7 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
    * next poll. Its errors when the file is empty, missing or refused.
    */
   static absl::StatusOr<InitialPdGains> loadInitialPdGains(
-      const ModelSettings& modelSettings, const std::string& pdGainsFile);
+      const ModelSettings& modelSettings, absl::string_view pdGainsFile);
 
   /**
    * Posts `gains` (resolved from `source`, for the log) to the control thread

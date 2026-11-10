@@ -305,10 +305,10 @@ class XvfbProcess {
  */
 class ScopedDisplay {
  public:
-  explicit ScopedDisplay(const std::string& display) {
+  explicit ScopedDisplay(absl::string_view display) {
     const char* absl_nullable previous = std::getenv("DISPLAY");
     if (previous != nullptr) previous_ = std::string(previous);
-    setenv("DISPLAY", display.c_str(), /*replace=*/1);
+    setenv("DISPLAY", std::string(display).c_str(), /*replace=*/1);
   }
   ScopedDisplay(const ScopedDisplay&) = delete;
   ScopedDisplay& operator=(const ScopedDisplay&) = delete;

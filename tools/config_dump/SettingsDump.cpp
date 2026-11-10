@@ -34,12 +34,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <map>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/container/btree_map.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -301,9 +301,10 @@ void dumpModeSchedule(ValueDump& dump,
   dump.addSizes(joinPath(path, "modeSequence"), schedule.modeSequence);
 }
 
-void dumpGaitMap(ValueDump& dump,
-                 absl::string_view path,
-                 const std::map<std::string, ModeSequenceTemplate>& gaits) {
+void dumpGaitMap(
+    ValueDump& dump,
+    absl::string_view path,
+    const absl::btree_map<std::string, ModeSequenceTemplate>& gaits) {
   dump.addInteger(joinPath(path, "size"), static_cast<int64_t>(gaits.size()));
   for (const std::pair<const std::string, ModeSequenceTemplate>& gait : gaits) {
     const std::string gaitPath = joinPath(path, gait.first);

@@ -31,10 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <chrono>
 #include <cstddef>
-#include <functional>
-#include <set>
 #include <string>
 
+#include "absl/container/btree_set.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
@@ -58,6 +57,12 @@ constexpr scalar_t kAdmissibleStretchTolerance = 1.0e-9;
 // A candidate replaces the incumbent only when it lowers the objective by more
 // than this.
 constexpr scalar_t kMinObjectiveImprovement = 1.0e-6;
+
+/** Returns the seconds elapsed since `start`. */
+scalar_t secondsSince(SearchRun::Clock::time_point start) {
+  return std::chrono::duration<scalar_t>(SearchRun::Clock::now() - start)
+      .count();
+}
 }  // namespace
 
 std::string EventShiftLocalSearchStage::describe() const {
@@ -74,10 +79,6 @@ void EventShiftLocalSearchStage::configure(
 
 absl::Status EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
   const SearchRun::Clock::time_point start = SearchRun::Clock::now();
-  const std::function<scalar_t()> elapsed = [&start]() {
-    return std::chrono::duration<scalar_t>(SearchRun::Clock::now() - start)
-        .count();
-  };
   MiqpResult& result = *run.result;
   SearchStatistics& statistics = *run.statistics;
   const scalar_t timeBudget = params_.maxTime;
@@ -91,10 +92,10 @@ absl::Status EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
   const scalar_t stretch =
       run.chosenDt > 0.0 ? run.chosenDt / run.config->planner.dt : 1.0;
 
-  std::set<MiqpAssignment> evaluated;
+  absl::btree_set<MiqpAssignment> evaluated;
   evaluated.insert(result.assignment);
   for (int round = 0; round < params_.iterations; ++round) {
-    if (elapsed() > timeBudget) break;
+    if (secondsSince(start) > timeBudget) break;
     const MiqpAssignment base = result.assignment;
     bool improved = false;
     for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
@@ -131,7 +132,7 @@ absl::Status EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
             continue;
           }
           if (!evaluated.insert(candidate).second) continue;
-          if (elapsed() > timeBudget) break;
+          if (secondsSince(start) > timeBudget) break;
           OcpQpSolution solution;
           scalar_t objective = 0.0;
           ++statistics.numLocalSearchQps;
@@ -162,7 +163,7 @@ absl::Status EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
     }
     if (!improved) break;
   }
-  statistics.localSearchTime = elapsed();
+  statistics.localSearchTime = secondsSince(start);
   return absl::OkStatus();
 }
 

@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
@@ -136,7 +137,7 @@ RobotProcess::Hooks robotProcessHooks(
 absl::StatusOr<std::vector<estimation::ContactPointSpec>>
 stateEstimatorContacts(const ModelSettings& modelSettings,
                        const mpc_config::ContactsConfig& contacts,
-                       const std::string& urdfFile) {
+                       absl::string_view urdfFile) {
   const std::vector<std::string> parentJoints =
       modelSettings.contactParentJointNamesInContactOrder();
   for (size_t contact = 0; contact < parentJoints.size(); ++contact) {

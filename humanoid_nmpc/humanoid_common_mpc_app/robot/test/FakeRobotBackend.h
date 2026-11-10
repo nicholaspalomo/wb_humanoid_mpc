@@ -33,13 +33,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <thread>
 #include <utility>
-#include <vector>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -76,7 +76,7 @@ class FakeRobotBackend final : public RobotBackend {
   /** The state at `time` [s], written into `state` (a state of the backend's
    * description, starting from the last one). */
   using Trajectory =
-      std::function<void(double time, robot::model::RobotState& state)>;
+      absl::AnyInvocable<void(double time, robot::model::RobotState& state)>;
 
   static constexpr std::chrono::microseconds kDefaultPeriod{1000};
 
@@ -101,7 +101,7 @@ class FakeRobotBackend final : public RobotBackend {
   /** Publishes the trajectory's state at time 0. */
   absl::Status initialize() override;
   /** Launches the driver thread; the cores are ignored. */
-  absl::Status start(const std::vector<int>& cores) override;
+  absl::Status start(absl::Span<const int> cores) override;
   bool acceptsJointAction() const override {
     return jointTorquesEnabled_.load();
   }

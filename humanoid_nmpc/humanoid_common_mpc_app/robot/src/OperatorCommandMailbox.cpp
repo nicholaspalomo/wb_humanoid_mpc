@@ -433,7 +433,7 @@ void OperatorCommandMailbox::postControllerSettings(
 }
 
 absl::StatusOr<std::shared_ptr<robot::model::ContactEstimator>>
-OperatorCommandMailbox::contactEstimator(const std::string& name) {
+OperatorCommandMailbox::contactEstimator(absl::string_view name) {
   const std::string canonical =
       robot::model::ContactEstimatorRegistry::canonicalName(name);
   absl::MutexLock lock(estimatorsMutex_);

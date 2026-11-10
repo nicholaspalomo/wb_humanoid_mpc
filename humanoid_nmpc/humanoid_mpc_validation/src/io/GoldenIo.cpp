@@ -53,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
+#include "absl/types/span.h"
 
 #include "humanoid_mpc_validation/io/Sha256.h"
 
@@ -111,7 +112,7 @@ const golden_matrix_t* absl_nullable GoldenFile::find(
 absl::StatusOr<GoldenProvenance> makeGoldenProvenance(
     std::string gitCommit,
     std::string worktreeState,
-    const std::vector<std::string>& configurationFiles) {
+    absl::Span<const std::string> configurationFiles) {
   GoldenProvenance provenance;
   provenance.gitCommit = std::move(gitCommit);
   provenance.worktreeState = std::move(worktreeState);
@@ -269,15 +270,15 @@ absl::StatusOr<GoldenFile> parseGoldenFile(absl::string_view text) {
   return golden;
 }
 
-absl::Status writeGoldenFile(const std::string& path,
-                             const GoldenFile& golden) {
+absl::Status writeGoldenFile(absl::string_view path, const GoldenFile& golden) {
   absl::StatusOr<std::string> text = formatGoldenFile(golden);
   if (!text.ok()) return text.status();
   const std::filesystem::path parent =
       std::filesystem::path(path).parent_path();
   std::error_code error;
   if (!parent.empty()) std::filesystem::create_directories(parent, error);
-  std::ofstream file(path, std::ios::binary | std::ios::trunc);
+  std::ofstream file{std::filesystem::path(path),
+                     std::ios::binary | std::ios::trunc};
   if (!file.is_open()) {
     return absl::InternalError(
         absl::StrCat("[writeGoldenFile] cannot write '", path, "'"));
@@ -291,8 +292,8 @@ absl::Status writeGoldenFile(const std::string& path,
   return absl::OkStatus();
 }
 
-absl::StatusOr<GoldenFile> readGoldenFile(const std::string& path) {
-  std::ifstream file(path, std::ios::binary);
+absl::StatusOr<GoldenFile> readGoldenFile(absl::string_view path) {
+  std::ifstream file{std::filesystem::path(path), std::ios::binary};
   if (!file.is_open()) {
     return absl::NotFoundError(
         absl::StrCat("[readGoldenFile] cannot read '", path, "'"));

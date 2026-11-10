@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -86,7 +87,7 @@ bool isOneOf(absl::string_view name,
  * them. */
 absl::Status checkContacts(
     const config::Scenario& scenario,
-    const std::vector<std::string>& names,
+    absl::Span<const std::string> names,
     absl::string_view field,
     const ContactSet& contactSet,
     const absl::flat_hash_set<std::string>* absl_nullable allowed) {

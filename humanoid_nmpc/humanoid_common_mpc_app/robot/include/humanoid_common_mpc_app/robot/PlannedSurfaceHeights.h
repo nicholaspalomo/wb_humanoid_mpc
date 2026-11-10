@@ -126,7 +126,7 @@ class PlannedSurfaceHeights final : public ContactSurfaceHeightSource {
 
   /** Returns whether `patches` holds the patch of exactly this center and
    * unit normal (the dedup of Create()). Private because Patch is. */
-  static bool hasPatch(const std::vector<Patch>& patches,
+  static bool hasPatch(absl::Span<const Patch> patches,
                        const vector3_t& posSurfaceRtWorldEwrtWorld,
                        const vector3_t& normalSurfaceEwrtWorld);
 

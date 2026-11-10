@@ -35,6 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/CppAdInterface.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
@@ -82,8 +84,8 @@ class PinocchioEndEffectorDynamicsCppAd final
       const PinocchioInterface& pinocchioInterface,
       WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
       std::vector<std::string> endEffectorIds,
-      const std::string& modelName,
-      const std::string& modelFolder = "/tmp/ocs2",
+      absl::string_view modelName,
+      absl::string_view modelFolder = "/tmp/ocs2",
       bool recompileLibraries = true,
       bool verbose = false);
 
@@ -106,15 +108,15 @@ class PinocchioEndEffectorDynamicsCppAd final
       const vector_t& state, const vector_t& input) const override;
   std::vector<vector3_t> getTiltEesRtSurfaceEwrtWorld(
       const vector_t& state,
-      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const override;
+      absl::Span<const vector3_t> normalSurfacesEwrtWorld) const override;
   std::vector<vector6_t> getXeeRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const override;
+      absl::Span<const vector3_t> normalSurfacesEwrtWorld) const override;
   std::vector<vector6_t> getXeeSecondRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const override;
+      absl::Span<const vector3_t> normalSurfacesEwrtWorld) const override;
 
   std::vector<VectorFunctionLinearApproximation>
   getLinearApproximationPosEesRtWorldEwrtWorld(
@@ -128,16 +130,16 @@ class PinocchioEndEffectorDynamicsCppAd final
   std::vector<VectorFunctionLinearApproximation>
   getLinearApproximationTiltEesRtSurfaceEwrtWorld(
       const vector_t& state,
-      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const override;
+      absl::Span<const vector3_t> normalSurfacesEwrtWorld) const override;
   std::vector<VectorFunctionLinearApproximation> getLinearApproximationXeeRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const override;
+      absl::Span<const vector3_t> normalSurfacesEwrtWorld) const override;
   std::vector<VectorFunctionLinearApproximation>
   getLinearApproximationXeeSecondRate(
       const vector_t& state,
       const vector_t& input,
-      const std::vector<vector3_t>& normalSurfacesEwrtWorld) const override;
+      absl::Span<const vector3_t> normalSurfacesEwrtWorld) const override;
 
  private:
   PinocchioEndEffectorDynamicsCppAd(

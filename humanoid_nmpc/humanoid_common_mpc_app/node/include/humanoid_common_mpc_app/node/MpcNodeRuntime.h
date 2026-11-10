@@ -32,12 +32,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <chrono>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/time/time.h"
@@ -137,10 +137,16 @@ class MpcNodeRuntime {
    * Create().
    */
   using VisualizationAttacher =
-      std::function<absl::StatusOr<ipc::MpcServer::PostSolveObserver>(
+      absl::AnyInvocable<absl::StatusOr<ipc::MpcServer::PostSolveObserver>(
           robot::ipc::Bus& bus)>;
 
-  /** What the node is made of; see the class comment. */
+  /** Takes an operator/mpc_parameters update, on the bus's IO thread; see
+   * Components::parameterUpdateSink. */
+  using ParameterUpdateSink =
+      absl::AnyInvocable<void(const mpc_config::MpcParameterUpdate& update)>;
+
+  /** What the node is made of; see the class comment. Move-only: Create()
+   * takes its callables. */
   struct Components {
     /** The MPC (an SqpMpc with its reference manager and synchronized modules).
      * Required. */
@@ -153,8 +159,7 @@ class MpcNodeRuntime {
     std::shared_ptr<ProceduralMpcMotionManager> motionManager;
     /** Where the updates of operator/mpc_parameters go; empty: the topic is not
      * subscribed (no parameter updater). */
-    std::function<void(const mpc_config::MpcParameterUpdate& update)>
-        parameterUpdateSink;
+    ParameterUpdateSink parameterUpdateSink;
     /** The contact planner's reference manager, for the target contact patches;
      * null: no patches are sent. */
     std::shared_ptr<const ContactPlanningReferenceManager>
@@ -275,13 +280,16 @@ class MpcNodeRuntime {
                  std::shared_ptr<Counters> counters);
 
   /**
-   * Subscribes the motion manager and the parameter sink, which refuses an
-   * update of another robot or configuration than `robotName` and
-   * `taskFileIdentity` (Config).
+   * Subscribes `motionManager` and `parameterUpdateSink` (empty: the topic is
+   * not subscribed), which refuses an update of another robot or configuration
+   * than `robotName` and `taskFileIdentity` (Config). The subscriptions keep
+   * the sink and the two names.
    */
-  absl::Status subscribeOperatorInputs(const Components& components,
-                                       const std::string& robotName,
-                                       const std::string& taskFileIdentity);
+  absl::Status subscribeOperatorInputs(
+      std::shared_ptr<ProceduralMpcMotionManager> motionManager,
+      ParameterUpdateSink parameterUpdateSink,
+      std::string robotName,
+      std::string taskFileIdentity);
 
   /** Registers the bus callback that replaces a walking command older than
    * `timeout` by the stop command. */

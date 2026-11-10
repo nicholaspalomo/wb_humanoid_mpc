@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 
@@ -104,7 +105,7 @@ constexpr size_t kPdGainsFileCheckInterval = 500;
  * the MPC node's). What the set-up builds, and what a save is checked with.
  */
 absl::StatusOr<std::unique_ptr<WBMpcInterface>> controllerModelsOf(
-    const RobotConfigFiles& files, const std::string& urdfFile) {
+    const RobotConfigFiles& files, absl::string_view urdfFile) {
   absl::StatusOr<std::unique_ptr<WBMpcInterface>> interface =
       WBMpcInterface::CreateControllerModels(files.task, urdfFile,
                                              files.reference);
@@ -117,7 +118,7 @@ absl::StatusOr<std::unique_ptr<WBMpcInterface>> controllerModelsOf(
 /** The whole-body controller computes its feedforward with the inverse dynamics
  * only. */
 absl::Status checkFeedforward(const RobotProcessSettings& settings,
-                              const std::string& taskSource) {
+                              absl::string_view taskSource) {
   if (settings.wbMpcFeedforward == WbMpcFeedforward::kInverseDynamics) {
     return absl::OkStatus();
   }
@@ -131,7 +132,7 @@ absl::Status checkFeedforward(const RobotProcessSettings& settings,
 /** The whole-body MPC's check of saved files: its controller models and its
  * feedforward. */
 absl::Status checkWholeBodyFiles(const RobotConfigFiles& files,
-                                 const std::string& urdfFile) {
+                                 absl::string_view urdfFile) {
   RETURN_IF_ERROR(controllerModelsOf(files, urdfFile).status());
   ASSIGN_OR_RETURN(const RobotProcessSettings settings,
                    robotProcessSettingsFromConfig(files.task));
@@ -144,7 +145,7 @@ absl::StatusOr<std::unique_ptr<RobotController>> createController(
     const robot::model::RobotDescription& robotDescription,
     WBMpcInterface& models,
     const MpcLinkFactory& linkFactory,
-    const std::string& pdGainsFile,
+    absl::string_view pdGainsFile,
     const RobotProcessSettings& settings) {
   // The whole-body controller keeps a reference to the model settings: the
   // interface outlives it.

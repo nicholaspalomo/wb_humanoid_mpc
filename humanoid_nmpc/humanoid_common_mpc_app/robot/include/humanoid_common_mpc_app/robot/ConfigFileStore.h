@@ -34,7 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdint>
 #include <deque>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -42,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
@@ -148,11 +148,12 @@ class ConfigFileStore {
      * place of its kind's file; the refusal otherwise. Empty: a text that
      * parses is accepted.
      */
-    std::function<absl::Status(const ConfigFileCandidate& candidate)>
+    absl::AnyInvocable<absl::Status(const ConfigFileCandidate& candidate) const>
         validateConfigFile;
     /** Every answer, after it was published; on the IO or the writer thread.
      * For tests and tools; may be empty. */
-    std::function<void(const humanoid_mpc_msgs::ConfigFileSaveStatus& status)>
+    absl::AnyInvocable<void(
+        const humanoid_mpc_msgs::ConfigFileSaveStatus& status) const>
         statusObserver;
   };
 

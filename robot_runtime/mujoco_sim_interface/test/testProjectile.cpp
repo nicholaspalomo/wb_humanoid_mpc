@@ -38,6 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "mujoco/mujoco.h"
 
@@ -92,8 +94,8 @@ constexpr char kShippedScene[] = R"(
 </mujoco>
 )";
 
-std::string writeTempFile(const std::string& name, const std::string& content) {
-  const std::string path = testing::TempDir() + "/" + name;
+std::string writeTempFile(absl::string_view name, absl::string_view content) {
+  const std::string path = absl::StrCat(testing::TempDir(), "/", name);
   std::ofstream out(path);
   out << content;
   return path;
@@ -101,14 +103,16 @@ std::string writeTempFile(const std::string& name, const std::string& content) {
 
 /** RAII around a compiled model, with or without a projectile appended. */
 struct Scene {
-  explicit Scene(const std::string& path,
+  explicit Scene(absl::string_view path,
                  const Projectile* absl_nullable projectile = nullptr) {
     char error[1000] = {0};
+    const std::string pathString(path);  // MuJoCo takes a C string
     if (projectile == nullptr) {
-      model = mj_loadXML(path.c_str(), /*vfs=*/nullptr, error, sizeof(error));
+      model =
+          mj_loadXML(pathString.c_str(), /*vfs=*/nullptr, error, sizeof(error));
     } else {
-      mjSpec* absl_nullable spec =
-          mj_parseXML(path.c_str(), /*vfs=*/nullptr, error, sizeof(error));
+      mjSpec* absl_nullable spec = mj_parseXML(
+          pathString.c_str(), /*vfs=*/nullptr, error, sizeof(error));
       if (spec != nullptr) {
         addStatus = addProjectileToSpec(spec, *projectile, "sim_projectile");
         if (addStatus.ok()) model = mj_compile(spec, /*vfs=*/nullptr);

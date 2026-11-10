@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
-#include <functional>
 #include <ios>
 #include <limits>
 #include <memory>
@@ -44,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -590,28 +590,31 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
 
   using EntryResult = std::tuple<bool, ::robot::model::RobotJointAction,
                                  ::robot::model::RobotJointAction>;
-  const std::function<EntryResult(scalar_t)> run = [&](scalar_t blendTime) {
-    const std::unique_ptr<CentroidalMpcMrtJointController> controllerPtr =
-        CentroidalMpcMrtJointController::Create(
-            robotDesc, testingModelInterface_.getModelSettings(),
-            testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
-            /*solverObservationObserver=*/nullptr,
-            testingModelInterface_.getPinocchioInterface(),
-            /*mpcDesiredFrequency=*/400.0, tempPdGainsFile_.string())
-            .value();
-    CentroidalMpcMrtJointController& controller = *controllerPtr;
-    controller.setMpcEntryBlendTime(blendTime);
-    controller.setControlMode("JOINT_PD");
-    ::robot::model::RobotJointAction held(robotDesc);
-    controller.computeJointControlAction(/*time=*/0.01, robotState, held);
-    controller.setControlMode(
-        "WB_MPC");  // requests a reset; the link is never started, so no
-                    // post-reset policy arrives
-    ::robot::model::RobotJointAction entered(robotDesc);
-    controller.computeJointControlAction(/*time=*/0.02, robotState, entered);
-    controller.computeJointControlAction(/*time=*/0.03, robotState, entered);
-    return EntryResult(controller.isEnteringMpc(), held, entered);
-  };
+  const absl::AnyInvocable<EntryResult(scalar_t) const> run =
+      [&](scalar_t blendTime) {
+        const std::unique_ptr<CentroidalMpcMrtJointController> controllerPtr =
+            CentroidalMpcMrtJointController::Create(
+                robotDesc, testingModelInterface_.getModelSettings(),
+                testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
+                /*solverObservationObserver=*/nullptr,
+                testingModelInterface_.getPinocchioInterface(),
+                /*mpcDesiredFrequency=*/400.0, tempPdGainsFile_.string())
+                .value();
+        CentroidalMpcMrtJointController& controller = *controllerPtr;
+        controller.setMpcEntryBlendTime(blendTime);
+        controller.setControlMode("JOINT_PD");
+        ::robot::model::RobotJointAction held(robotDesc);
+        controller.computeJointControlAction(/*time=*/0.01, robotState, held);
+        controller.setControlMode(
+            "WB_MPC");  // requests a reset; the link is never started, so no
+                        // post-reset policy arrives
+        ::robot::model::RobotJointAction entered(robotDesc);
+        controller.computeJointControlAction(/*time=*/0.02, robotState,
+                                             entered);
+        controller.computeJointControlAction(/*time=*/0.03, robotState,
+                                             entered);
+        return EntryResult(controller.isEnteringMpc(), held, entered);
+      };
 
   for (const scalar_t blendTime : {0.0, 0.3}) {
     const EntryResult result = run(blendTime);
@@ -891,8 +894,8 @@ TEST_F(CentroidalMpcMrtJointControllerTest,
       std::make_shared<FixedContactEstimator>(std::vector<bool>{true, true});
   controller.setContactEstimator(estimator);
 
-  const std::function<::robot::model::RobotJointAction(
-      const std::vector<bool>&)>
+  const absl::AnyInvocable<::robot::model::RobotJointAction(
+      const std::vector<bool>&) const>
       feedforward = [&](const std::vector<bool>& measured) {
         estimator->set(measured);
         ::robot::model::RobotJointAction action(robotDesc);

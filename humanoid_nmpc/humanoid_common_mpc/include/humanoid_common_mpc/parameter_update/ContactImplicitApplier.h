@@ -108,7 +108,7 @@ class ContactImplicitApplier final : public HotFieldApplier {
  */
 void setContactImplicitTermsPosSurfaceRtWorldEwrtWorldZ(
     std::vector<OptimalControlProblem>& problems,
-    const std::vector<std::string>& contactNames,
+    absl::Span<const std::string> contactNames,
     scalar_t posSurfaceRtWorldEwrtWorldZ);
 
 }  // namespace ocs2::humanoid

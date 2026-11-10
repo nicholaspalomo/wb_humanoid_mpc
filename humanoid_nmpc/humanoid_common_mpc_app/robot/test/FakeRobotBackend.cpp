@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -85,7 +86,7 @@ absl::Status FakeRobotBackend::initialize() {
   return absl::OkStatus();
 }
 
-absl::Status FakeRobotBackend::start(const std::vector<int>& /*cores*/) {
+absl::Status FakeRobotBackend::start(absl::Span<const int> /*cores*/) {
   if (driver_.joinable()) return absl::OkStatus();
   stopRequested_.store(false);
   driver_ = std::thread([this]() { runDriver(); });

@@ -35,14 +35,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
-#include <map>
 #include <optional>
-#include <set>
 #include <string>
 #include <type_traits>
 #include <vector>
 
 #include "Eigen/Core"
+#include "absl/container/btree_map.h"
+#include "absl/container/btree_set.h"
 #include "absl/status/status.h"
 #include "gtest/gtest.h"
 
@@ -187,7 +187,7 @@ static_assert(
     std::is_same_v<decltype(RobotStateSample::meas_wrench_contacts_ewrt_world),
                    std::vector<Wrench>>);
 static_assert(std::is_same_v<decltype(JointTargets::joint_positions),
-                             std::map<std::string, double>>);
+                             absl::btree_map<std::string, double>>);
 static_assert(std::is_same_v<decltype(Spheres::radii), Eigen::VectorXf>);
 static_assert(std::is_same_v<decltype(TargetContactPatch::kind),
                              TargetContactPatch::Kind>);
@@ -252,12 +252,13 @@ TYPED_TEST(MessageRoundTripTest, ConvertsBothWaysWithoutLosingAnything) {
 }
 
 template <typename... Conversions>
-std::set<std::string> filesOf(::testing::Types<Conversions...> /*types*/) {
+absl::btree_set<std::string> filesOf(
+    ::testing::Types<Conversions...> /*types*/) {
   return {std::string(Conversions::Proto::descriptor()->file()->name())...};
 }
 
 TEST(CoverageTest, EveryProtoFileOfThePackageIsTested) {
-  std::set<std::string> covered = filesOf(AllMessages());
+  absl::btree_set<std::string> covered = filesOf(AllMessages());
   covered.insert(std::string(
       humanoid_mpc_msgs::ControllerType_descriptor()->file()->name()));
   covered.insert(std::string(

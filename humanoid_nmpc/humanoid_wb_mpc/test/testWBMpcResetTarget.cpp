@@ -250,9 +250,15 @@ TEST(WBMpcResetTarget, IsWhatTheControllerHandsItsMpcLink) {
   const MpcLinkFactory factory =
       [&mpc, &captured](MpcLink::ResetTargetFunction resetTarget)
       -> std::unique_ptr<MpcLink> {
-    captured = resetTarget;
-    return std::make_unique<InProcessMpcLink>(mpc, std::move(resetTarget),
-                                              InProcessMpcLink::Config());
+    // The test keeps the target; the link calls it through `captured`, which
+    // outlives the controller.
+    captured = std::move(resetTarget);
+    return std::make_unique<InProcessMpcLink>(
+        mpc,
+        [&captured](const SystemObservation& observation) {
+          return captured(observation);
+        },
+        InProcessMpcLink::Config());
   };
   const absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> controller =
       WBMpcMrtJointController::Create(

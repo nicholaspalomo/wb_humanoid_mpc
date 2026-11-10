@@ -522,7 +522,7 @@ absl::StatusOr<NetworkConfig> parseNetworkConfig(absl::string_view text,
   return config;
 }
 
-absl::StatusOr<NetworkConfig> loadNetworkConfig(const std::string& path) {
+absl::StatusOr<NetworkConfig> loadNetworkConfig(absl::string_view path) {
   robot_ipc_proto::NetworkConfig message;
   absl::Status loaded = loadTextproto(path, message);
   if (absl::IsNotFound(loaded)) {

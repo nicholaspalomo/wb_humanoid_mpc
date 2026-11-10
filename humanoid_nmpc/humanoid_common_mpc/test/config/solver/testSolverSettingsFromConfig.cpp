@@ -32,16 +32,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // are named as OCS2 names them, and what the settings cannot hold is refused
 // naming the field. The schema refuses the keys it retired, naming what to do.
 
-#include <functional>
 #include <limits>
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/integration/Integrator.h"
 #include "ocs2_core/integration/SensitivityIntegrator.h"
@@ -324,7 +325,7 @@ TEST(SolverSettingsFromConfigTest, ANegativeCountIsRefusedNamingTheField) {
 template <typename Config>
 struct RangedField {
   std::string path;
-  std::function<void(Config&, double)> set;
+  void (*absl_nonnull set)(Config&, double);
   // Values outside the field's range besides NaN (0 and -1 for a positive
   // field, -1 for a non-negative one, the upper ends for a factor below 1).
   std::vector<double> outOfRange;
@@ -334,7 +335,7 @@ struct RangedField {
  * naming the field. */
 template <typename Config, typename Convert>
 void expectEveryOutOfRangeValueRefused(
-    const std::vector<RangedField<Config>>& fields, Convert convert) {
+    absl::Span<const RangedField<Config>> fields, Convert convert) {
   for (const RangedField<Config>& field : fields) {
     std::vector<double> values = field.outOfRange;
     values.push_back(std::numeric_limits<double>::quiet_NaN());
@@ -376,7 +377,7 @@ TEST(SolverSettingsFromConfigTest,
        [](Sqp& c, double v) { c.gamma_c = v; },
        {-1.0, 1.0}},
   };
-  expectEveryOutOfRangeValueRefused(
+  expectEveryOutOfRangeValueRefused<Sqp>(
       sqpFields, [](const Sqp& c) { return toSqpSettings(c); });
 
   using Rollout = mpc_config::RolloutSettingsConfig;
@@ -391,7 +392,7 @@ TEST(SolverSettingsFromConfigTest,
        [](Rollout& c, double v) { c.time_step = v; },
        {0.0, -1.0}},
   };
-  expectEveryOutOfRangeValueRefused(
+  expectEveryOutOfRangeValueRefused<Rollout>(
       rolloutFields, [](const Rollout& c) { return toRolloutSettings(c); });
 
   using Mpc = mpc_config::MpcSettingsConfig;
@@ -409,7 +410,7 @@ TEST(SolverSettingsFromConfigTest,
        [](Mpc& c, double v) { c.mrt_desired_frequency = v; },
        {0.0, -1.0}},
   };
-  expectEveryOutOfRangeValueRefused(
+  expectEveryOutOfRangeValueRefused<Mpc>(
       mpcFields, [](const Mpc& c) { return toMpcSettings(c); });
 }
 

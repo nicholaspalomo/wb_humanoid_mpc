@@ -32,8 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <string>
-
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "google/protobuf/message.h"
@@ -57,7 +55,7 @@ absl::Status parseTextproto(absl::string_view text,
  * parseTextproto() on the file at `path`, which also names it in the error
  * messages. A file that cannot be read is NotFound.
  */
-absl::Status loadTextproto(const std::string& path,
+absl::Status loadTextproto(absl::string_view path,
                            google::protobuf::Message& message);
 
 }  // namespace robot::ipc

@@ -29,14 +29,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
-#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "Eigen/Dense"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -95,8 +96,8 @@ scalar_t solveUnconstrainedDense(const OcpQpProblem& problem,
   vector_t g = vector_t::Zero(numVars);
   matrix_t Aeq = matrix_t::Zero(numEq, numVars);
   vector_t beq = vector_t::Zero(numEq);
-  const std::function<int(int)> xi = [&](int k) { return k * nx; };
-  const std::function<int(int)> ui = [&](int k) {
+  const absl::AnyInvocable<int(int) const> xi = [&](int k) { return k * nx; };
+  const absl::AnyInvocable<int(int) const> ui = [&](int k) {
     return (N + 1) * nx + k * nu;
   };
   for (int k = 0; k <= N; ++k) {
@@ -474,9 +475,9 @@ TEST(OcpQpHpipmTest, ConsecutiveSolvesWithDifferentDimensionsReallocate) {
  * is wrong, not thrown. */
 TEST(OcpQpHpipmTest, AnInconsistentProblemIsAnInvalidArgumentNamingTheProblem) {
   OcpQpHpipmSolver solver;
-  const std::function<void(const OcpQpProblem&, const std::string&)>
+  const absl::AnyInvocable<void(const OcpQpProblem&, absl::string_view) const>
       expectRejected = [&solver](const OcpQpProblem& problem,
-                                 const std::string& expected) {
+                                 absl::string_view expected) {
         const absl::StatusOr<OcpQpSolution> solution = solver.solve(problem);
         ASSERT_FALSE(solution.ok()) << expected;
         EXPECT_EQ(solution.status().code(), absl::StatusCode::kInvalidArgument);

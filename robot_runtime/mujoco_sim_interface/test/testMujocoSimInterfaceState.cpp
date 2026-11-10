@@ -41,6 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Dense"
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "mujoco/mujoco.h"
 
@@ -117,9 +119,9 @@ constexpr char kScene[] = R"(
 
 constexpr double kTimestep = 0.0005;
 
-std::string writeTempFile(const std::string& name,
+std::string writeTempFile(absl::string_view name,
                           const char* absl_nonnull content) {
-  const std::string path = testing::TempDir() + "/" + name;
+  const std::string path = absl::StrCat(testing::TempDir(), "/", name);
   std::ofstream(path) << content;
   return path;
 }

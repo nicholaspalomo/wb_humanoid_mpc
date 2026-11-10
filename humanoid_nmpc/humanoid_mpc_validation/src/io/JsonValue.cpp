@@ -109,7 +109,7 @@ std::string formatNumber(double value) {
   return text;
 }
 
-void appendEscaped(std::string& out, const std::string& text) {
+void appendEscaped(std::string& out, absl::string_view text) {
   out.push_back('"');
   for (const char c : text) {
     switch (c) {
@@ -644,8 +644,8 @@ bool operator==(const JsonValue& lhs, const JsonValue& rhs) {
   return false;
 }
 
-absl::StatusOr<JsonValue> readJsonFile(const std::string& path) {
-  std::ifstream file(path, std::ios::binary);
+absl::StatusOr<JsonValue> readJsonFile(absl::string_view path) {
+  std::ifstream file{std::filesystem::path(path), std::ios::binary};
   if (!file.is_open()) {
     return absl::NotFoundError(
         absl::StrCat("[readJsonFile] cannot read '", path, "'"));
@@ -660,12 +660,13 @@ absl::StatusOr<JsonValue> readJsonFile(const std::string& path) {
   return value;
 }
 
-absl::Status writeJsonFile(const std::string& path, const JsonValue& value) {
+absl::Status writeJsonFile(absl::string_view path, const JsonValue& value) {
   const std::filesystem::path parent =
       std::filesystem::path(path).parent_path();
   std::error_code error;
   if (!parent.empty()) std::filesystem::create_directories(parent, error);
-  std::ofstream file(path, std::ios::binary | std::ios::trunc);
+  std::ofstream file{std::filesystem::path(path),
+                     std::ios::binary | std::ios::trunc};
   if (!file.is_open()) {
     return absl::InternalError(
         absl::StrCat("[writeJsonFile] cannot write '", path, "'"));

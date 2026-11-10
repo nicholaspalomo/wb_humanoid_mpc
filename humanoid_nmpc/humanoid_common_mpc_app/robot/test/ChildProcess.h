@@ -32,9 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sys/types.h>
 
 #include <string>
-#include <vector>
 
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 
 namespace ocs2::humanoid::test_support {
 
@@ -49,7 +49,7 @@ class ChildProcess {
  public:
   /** Starts `arguments` (the program first; a path, not looked up in PATH).
    * CHECK-fails when it cannot be spawned. */
-  explicit ChildProcess(const std::vector<std::string>& arguments);
+  explicit ChildProcess(absl::Span<const std::string> arguments);
 
   /** SIGKILL and reap, unless it has exited. */
   ~ChildProcess();

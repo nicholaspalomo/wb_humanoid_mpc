@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
@@ -169,7 +170,7 @@ AxisStates orbitAtLeftLiftOff(const HlipModel& model,
 
 /** The contact state the gait itself describes at `time`, independent of how
  * the plan was sampled onto nodes. */
-BipedFeetArray<bool> gaitContactsAt(const std::vector<GaitPhase>& gait,
+BipedFeetArray<bool> gaitContactsAt(absl::Span<const GaitPhase> gait,
                                     scalar_t time) {
   for (const GaitPhase& phase : gait) {
     if (time < phase.endTime) return phase.contacts;
@@ -190,11 +191,10 @@ struct RolledOutNode {
   vector2_t linvelComRtWorldEwrtWorldXy;
 };
 
-std::vector<RolledOutNode> independentRollOut(
-    const HlipModel& model,
-    const ContactPlannerInput& input,
-    const std::vector<GaitPhase>& gait,
-    const ContactPlan& plan) {
+std::vector<RolledOutNode> independentRollOut(const HlipModel& model,
+                                              const ContactPlannerInput& input,
+                                              absl::Span<const GaitPhase> gait,
+                                              const ContactPlan& plan) {
   struct Start {
     vector2_t posComRtWorldEwrtWorldXy;
     vector2_t linvelComRtWorldEwrtWorldXy;

@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
@@ -558,7 +559,7 @@ namespace {
  * not give one.
  */
 std::string writeReferenceWithAnUnparsableTimeConstant(
-    const std::string& referenceFile) {
+    absl::string_view referenceFile) {
   const absl::StatusOr<mpc_config::ReferenceFile> shipped =
       loadReferenceFile(referenceFile);
   if (!shipped.ok()) {

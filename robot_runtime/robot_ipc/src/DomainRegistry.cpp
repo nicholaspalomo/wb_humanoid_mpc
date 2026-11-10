@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_runtime/robot_ipc/src/DomainRegistry.h"
 
 #include <string>
+#include <utility>
 
 #include "absl/base/no_destructor.h"
 #include "absl/container/flat_hash_map.h"
@@ -41,7 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::ipc {
 
-absl::Status DomainRegistry::acquire(int domainId, const std::string& config) {
+absl::Status DomainRegistry::acquire(int domainId, std::string config) {
   absl::MutexLock lock(mutex_);
   const absl::flat_hash_map<int, Domain>::iterator it = domains_.find(domainId);
   if (it != domains_.end()) {
@@ -62,8 +63,9 @@ absl::Status DomainRegistry::acquire(int domainId, const std::string& config) {
         absl::StrCat("robot_ipc: cannot create DDS domain ", domainId, ": ",
                      dds_strretcode(domain), " (configuration: ", config, ")"));
   }
-  domains_.emplace(domainId,
-                   Domain{.entity = domain, .config = config, .users = 1});
+  domains_.emplace(
+      domainId,
+      Domain{.entity = domain, .config = std::move(config), .users = 1});
   return absl::OkStatus();
 }
 

@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/control/ControllerBase.h"
 #include "ocs2_core/control/FeedforwardController.h"
@@ -82,10 +83,11 @@ void trimController(scalar_t finalTime,
 
 }  // namespace
 
-size_t solutionWindowLength(const scalar_array_t& timeTrajectory,
+size_t solutionWindowLength(absl::Span<const scalar_t> timeTrajectory,
                             scalar_t finalTime) {
-  const scalar_array_t::const_iterator firstLater = std::upper_bound(
-      timeTrajectory.cbegin(), timeTrajectory.cend(), finalTime);
+  const absl::Span<const scalar_t>::const_iterator firstLater =
+      std::upper_bound(timeTrajectory.cbegin(), timeTrajectory.cend(),
+                       finalTime);
   size_t length = static_cast<size_t>(firstLater - timeTrajectory.cbegin());
   if (length < timeTrajectory.size()) {
     ++length;

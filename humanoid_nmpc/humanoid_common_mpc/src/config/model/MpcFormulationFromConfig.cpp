@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
@@ -64,7 +65,7 @@ constexpr absl::string_view kCheckPrefix = "[checkMpcFormulationTasks] ";
 template <typename Type, typename Set>
 absl::Status insertTerms(
     absl::string_view field,
-    const std::vector<std::string>& names,
+    absl::Span<const std::string> names,
     absl::StatusOr<Type> (*absl_nonnull fromName)(absl::string_view),
     Set* absl_nonnull terms) {
   for (size_t i = 0; i < names.size(); ++i) {
@@ -158,7 +159,7 @@ absl::Status logTasks(const MpcFormulationTasks& tasks) {
 }
 
 /** Whether `names` holds `name`. */
-bool isOneOf(const std::vector<std::string>& names, absl::string_view name) {
+bool isOneOf(absl::Span<const std::string> names, absl::string_view name) {
   return std::find(names.begin(), names.end(), name) != names.end();
 }
 

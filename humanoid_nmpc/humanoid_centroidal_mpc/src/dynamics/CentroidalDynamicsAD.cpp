@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
@@ -47,11 +48,11 @@ namespace ocs2::humanoid {
 CentroidalDynamicsAD::CentroidalDynamicsAD(
     const PinocchioInterface& pinocchioInterface,
     const CentroidalModelInfo& info,
-    const std::string& modelName,
+    absl::string_view modelName,
     const ModelSettings& modelSettings)
     : pinocchioCentroidalDynamicsAd_(pinocchioInterface,
                                      info,
-                                     modelName,
+                                     std::string(modelName),
                                      modelSettings.modelFolderCppAd,
                                      modelSettings.recompileLibrariesCppAd,
                                      modelSettings.verboseCppAd) {}

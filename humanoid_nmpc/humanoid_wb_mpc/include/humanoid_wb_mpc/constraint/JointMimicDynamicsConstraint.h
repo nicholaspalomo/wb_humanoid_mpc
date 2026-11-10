@@ -78,8 +78,8 @@ class JointMimicDynamicsConstraint final : public StateInputConstraint {
    */
   static absl::StatusOr<std::unique_ptr<JointMimicDynamicsConstraint>> Create(
       const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel,
-      const std::string& parentJointName,
-      const std::string& childJointName,
+      std::string parentJointName,
+      std::string childJointName,
       scalar_t multiplier,
       scalar_t positionGain,
       scalar_t velocityGain);

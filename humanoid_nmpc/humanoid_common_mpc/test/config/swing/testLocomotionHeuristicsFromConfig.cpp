@@ -38,13 +38,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <cstring>
 #include <limits>
-#include <set>
 #include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/btree_set.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -204,15 +204,15 @@ TEST(LocomotionHeuristicsFromConfigTest, TheDefaultsAreTheLayersOwnNoOp) {
 
 TEST(LocomotionHeuristicsFromConfigTest,
      TheBlocksAndListsAreTheRegistrysHeuristics) {
-  std::set<std::string> registered;
-  std::set<std::string> kinds;
+  absl::btree_set<std::string> registered;
+  absl::btree_set<std::string> kinds;
   for (const HeuristicKind kind : allHeuristicKinds()) {
     kinds.emplace(heuristicListName(kind));
     for (const std::string& name : knownHeuristicNames(kind)) {
       registered.insert(parameterBlockName(name));
     }
   }
-  std::set<std::string> blocks;
+  absl::btree_set<std::string> blocks;
   for (const FieldDescriptor* absl_nonnull block : blockFields()) {
     blocks.emplace(block->name());
   }
@@ -220,7 +220,7 @@ TEST(LocomotionHeuristicsFromConfigTest,
       << "one parameter block per heuristic, named after it "
          "(parameterBlockName())";
 
-  std::set<std::string> lists;
+  absl::btree_set<std::string> lists;
   const Descriptor* absl_nonnull descriptor = HeuristicsProto::descriptor();
   for (int i = 0; i < descriptor->field_count(); ++i) {
     const FieldDescriptor* absl_nonnull field = descriptor->field(i);
@@ -259,7 +259,7 @@ TEST(LocomotionHeuristicsFromConfigTest, EveryParameterReachesAMemberOfItsOwn) {
         parameterBits(defaults, block->name());
     ASSERT_EQ(blockDefaults.size(), static_cast<size_t>(message->field_count()))
         << block->name() << ": one member per field";
-    std::set<size_t> reached;
+    absl::btree_set<size_t> reached;
     for (int i = 0; i < message->field_count(); ++i) {
       const FieldDescriptor* absl_nonnull field = message->field(i);
       ASSERT_EQ(field->cpp_type(), FieldDescriptor::CPPTYPE_DOUBLE)

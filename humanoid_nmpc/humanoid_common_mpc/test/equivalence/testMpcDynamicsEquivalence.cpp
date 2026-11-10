@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
-#include <functional>
 #include <limits>
 #include <memory>
 #include <numbers>
@@ -39,9 +38,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/dynamics/SystemDynamicsBase.h"
@@ -197,7 +198,7 @@ std::vector<FlowRowBlock> flowRowBlocks(const MpcEquivalenceFixture& mpc,
  * no block covers, which fails the comparison.
  */
 matrix_t rowClassBound(const matrix_t& expected,
-                       const std::vector<FlowRowBlock>& blocks) {
+                       absl::Span<const FlowRowBlock> blocks) {
   matrix_t bound =
       matrix_t::Constant(expected.rows(), expected.cols(),
                          std::numeric_limits<scalar_t>::quiet_NaN());
@@ -282,8 +283,8 @@ EulerInterval eulerInterval(const MpcEquivalenceFixture& mpc,
                             const vector_t& input,
                             int halves) {
   const scalar_t dt = mpc.nodeTimeStep() / static_cast<scalar_t>(halves);
-  const std::function<vector_t(const vector_t&, const vector_t&)> flow =
-      [&oracle, dt, halves](const vector_t& x, const vector_t& u) {
+  const absl::AnyInvocable<vector_t(const vector_t&, const vector_t&) const>
+      flow = [&oracle, dt, halves](const vector_t& x, const vector_t& u) {
         vector_t end = x;
         for (int half = 0; half < halves; ++half) {
           end = oracle.rk4Step(end, u, dt);
@@ -745,8 +746,8 @@ TEST_P(MpcDynamicsEquivalence,
       ASSERT_NEAR(manifold.getMaximumTangentAngle(production.f), angle, 1.0e-12)
           << "the gap's rotation is |b|";
 
-      const std::function<vector_t(const vector_t&, const vector_t&)> gap =
-          [&](const vector_t& stateStep, const vector_t& inputValue) {
+      const absl::AnyInvocable<vector_t(const vector_t&, const vector_t&) const>
+          gap = [&](const vector_t& stateStep, const vector_t& inputValue) {
             vector_t start;
             manifold.retract(state, stateStep, /*alpha=*/1.0, start);
             vector_t flowEnd =

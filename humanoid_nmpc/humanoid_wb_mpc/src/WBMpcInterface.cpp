@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 // Pinocchio forward declarations must be included first
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
@@ -215,7 +216,7 @@ constexpr std::array<MpcHardConstraintType, 4> kWholeBodyHardConstraints = {
 template <typename TermType, size_t kSupportedCount>
 absl::Status refuseUnbuiltTerms(
     absl::string_view field,
-    const std::vector<std::string>& names,
+    absl::Span<const std::string> names,
     absl::FunctionRef<absl::StatusOr<TermType>(absl::string_view)> typeOf,
     absl::FunctionRef<bool(TermType)> listed,
     const std::array<TermType, kSupportedCount>& supported) {
@@ -366,39 +367,39 @@ WBMpcInterface::WBMpcInterface(ModelSettings modelSettings,
 
 absl::StatusOr<std::unique_ptr<WBMpcInterface>> WBMpcInterface::Create(
     const mpc_config::TaskFile& taskFile,
-    const std::string& urdfFile,
+    absl::string_view urdfFile,
     const mpc_config::ReferenceFile& referenceFile) {
   return build(taskFile, urdfFile, referenceFile, ConfigSources{}, Scope::kMpc);
 }
 
 absl::StatusOr<std::unique_ptr<WBMpcInterface>> WBMpcInterface::Create(
-    const std::string& taskFile,
-    const std::string& urdfFile,
-    const std::string& referenceFile) {
+    absl::string_view taskFile,
+    absl::string_view urdfFile,
+    absl::string_view referenceFile) {
   return buildFromFiles(taskFile, urdfFile, referenceFile, Scope::kMpc);
 }
 
 absl::StatusOr<std::unique_ptr<WBMpcInterface>>
 WBMpcInterface::CreateControllerModels(
     const mpc_config::TaskFile& taskFile,
-    const std::string& urdfFile,
+    absl::string_view urdfFile,
     const mpc_config::ReferenceFile& referenceFile) {
   return build(taskFile, urdfFile, referenceFile, ConfigSources{},
                Scope::kControllerModels);
 }
 
 absl::StatusOr<std::unique_ptr<WBMpcInterface>>
-WBMpcInterface::CreateControllerModels(const std::string& taskFile,
-                                       const std::string& urdfFile,
-                                       const std::string& referenceFile) {
+WBMpcInterface::CreateControllerModels(absl::string_view taskFile,
+                                       absl::string_view urdfFile,
+                                       absl::string_view referenceFile) {
   return buildFromFiles(taskFile, urdfFile, referenceFile,
                         Scope::kControllerModels);
 }
 
 absl::StatusOr<std::unique_ptr<WBMpcInterface>> WBMpcInterface::buildFromFiles(
-    const std::string& taskFile,
-    const std::string& urdfFile,
-    const std::string& referenceFile,
+    absl::string_view taskFile,
+    absl::string_view urdfFile,
+    absl::string_view referenceFile,
     Scope scope) {
   // The inputs exist before anything reads them; the model settings read the
   // URDF as well.
@@ -408,15 +409,15 @@ absl::StatusOr<std::unique_ptr<WBMpcInterface>> WBMpcInterface::buildFromFiles(
   ASSIGN_OR_RETURN(const mpc_config::TaskFile task, loadTaskFile(taskFile));
   ASSIGN_OR_RETURN(const mpc_config::ReferenceFile reference,
                    loadReferenceFile(referenceFile));
-  return build(
-      task, urdfFile, reference,
-      ConfigSources{.taskFile = taskFile, .referenceFile = referenceFile},
-      scope);
+  return build(task, urdfFile, reference,
+               ConfigSources{.taskFile = std::string(taskFile),
+                             .referenceFile = std::string(referenceFile)},
+               scope);
 }
 
 absl::StatusOr<std::unique_ptr<WBMpcInterface>> WBMpcInterface::build(
     const mpc_config::TaskFile& taskFile,
-    const std::string& urdfFile,
+    absl::string_view urdfFile,
     const mpc_config::ReferenceFile& referenceFile,
     const ConfigSources& sources,
     Scope scope) {
@@ -474,7 +475,7 @@ absl::StatusOr<std::unique_ptr<WBMpcInterface>> WBMpcInterface::build(
 /******************************************************************************************************/
 absl::Status WBMpcInterface::setupModels(
     const mpc_config::TaskFile& taskFile,
-    const std::string& urdfFile,
+    absl::string_view urdfFile,
     std::shared_ptr<GaitSchedule> gaitSchedule) {
   // PinocchioInterface: a model whose actuated joints are not model_settings'
   // in order is refused here, by name.

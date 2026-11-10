@@ -252,7 +252,7 @@ absl::StatusOr<std::unique_ptr<DcmTerminalCost>> DcmTerminalCost::Create(
     scalar_t modelNomPosComRtFeetmeanEwrtWorldZ,
     const PinocchioInterface& pinocchioInterface,
     const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-    const std::string& costName,
+    absl::string_view costName,
     const ModelSettings& modelSettings) {
   // The support weights blend between the left and the right foot of a
   // two-foot support (computeSupportWeights()).
@@ -281,7 +281,7 @@ DcmTerminalCost::DcmTerminalCost(
     scalar_t modelGravityMagnitude,
     const PinocchioInterface& pinocchioInterface,
     const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-    const std::string& costName,
+    absl::string_view costName,
     const ModelSettings& modelSettings)
     : referenceManagerPtr_(&referenceManager),
       config_(std::move(config)),

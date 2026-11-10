@@ -68,7 +68,7 @@ class PlanContactOrder {
    */
   static absl::StatusOr<PlanContactOrder> Create(
       const multi_contact::ContactSet& planContacts,
-      const std::vector<std::string>& mpcContactNames);
+      std::vector<std::string> mpcContactNames);
 
   PlanContactOrder(const PlanContactOrder&) = default;
   PlanContactOrder& operator=(const PlanContactOrder&) = default;

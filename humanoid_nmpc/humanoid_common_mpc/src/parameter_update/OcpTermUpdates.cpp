@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
@@ -72,7 +73,7 @@ void reportNotApplied(absl::string_view source,
 }
 
 void setSoftTermWeight(std::vector<OptimalControlProblem>& problems,
-                       const std::vector<std::string>& contactNames,
+                       absl::Span<const std::string> contactNames,
                        absl::string_view termSuffix,
                        scalar_t weight) {
   const vector_t scaleParam = (vector_t(1) << weight).finished();

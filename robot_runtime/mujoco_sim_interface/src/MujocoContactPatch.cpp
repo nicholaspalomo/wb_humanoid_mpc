@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <cstring>
-#include <functional>
 #include <limits>
 #include <vector>
 
@@ -89,6 +88,26 @@ Bounds boundsOf(const ContactPatchCorners& posCornersRtFootEwrtFootXy) {
   }
   return bounds;
 }
+
+/// Takes the next free geom of `scene`, which must have one, cleared and marked
+/// as a free decoration: mjv_initGeom leaves the object fields alone.
+mjvGeom* absl_nonnull nextGeom(mjvScene* absl_nonnull scene) {
+  mjvGeom* absl_nonnull geom = &scene->geoms[scene->ngeom++];
+  std::memset(geom, 0, sizeof(mjvGeom));
+  geom->objtype = mjOBJ_UNKNOWN;
+  geom->objid = -1;
+  geom->dataid = -1;
+  geom->matid = -1;
+  geom->segid = -1;
+  return geom;
+}
+
+/// Gives `geom` the decoration category and the emission of `style`.
+void finishGeom(const ContactPatchStyle& style, mjvGeom* absl_nonnull geom) {
+  geom->category = mjCAT_DECOR;
+  geom->emission = style.emission;
+}
+
 }  // namespace
 
 ContactPatchCorners defaultContactPatchCorners() {
@@ -138,23 +157,6 @@ int addContactPatchGeoms(mjvScene* absl_nullable scene,
   const mjtNum desRotmatFootRtWorld[kMjMatrixSize] = {
       c,   -s,  0.0, s,  c,
       0.0, 0.0, 0.0, 1.0};  // row-major rotation about z by the yaw
-  // mjv_initGeom leaves the object fields alone, so every geom is cleared and
-  // marked as a free decoration first.
-  const std::function<mjvGeom* absl_nonnull()> nextGeom = [scene]() {
-    mjvGeom* absl_nonnull geom = &scene->geoms[scene->ngeom++];
-    std::memset(geom, 0, sizeof(mjvGeom));
-    geom->objtype = mjOBJ_UNKNOWN;
-    geom->objid = -1;
-    geom->dataid = -1;
-    geom->matid = -1;
-    geom->segid = -1;
-    return geom;
-  };
-  const std::function<void(mjvGeom* absl_nonnull)> finish =
-      [&style](mjvGeom* absl_nonnull geom) {
-        geom->category = mjCAT_DECOR;
-        geom->emission = style.emission;
-      };
   const Bounds bounds = boundsOf(posCornersRtFootEwrtFootXy);
 
   if (style.fill) {
@@ -180,10 +182,10 @@ int addContactPatchGeoms(mjvScene* absl_nullable scene,
         patch.desPosFootRtWorldEwrtWorldY + s * posFootprintRtFootEwrtFootX +
             c * posFootprintRtFootEwrtFootY,
         patch.desPosFootRtWorldEwrtWorldZ + kSlabHalfThickness};
-    mjvGeom* absl_nonnull slab = nextGeom();
+    mjvGeom* absl_nonnull slab = nextGeom(scene);
     mjv_initGeom(slab, mjGEOM_BOX, size, desPosFootprintRtWorldEwrtWorld,
                  desRotmatFootRtWorld, rgba);
-    finish(slab);
+    finishGeom(style, slab);
   }
 
   // The outline and the arrow sit just above the slab so that neither is hidden
@@ -206,13 +208,13 @@ int addContactPatchGeoms(mjvScene* absl_nullable scene,
         nextPosCornerRtWorldEwrtWorld[kXAxisIndex],
         nextPosCornerRtWorldEwrtWorld[kYAxisIndex],
         nextPosCornerRtWorldEwrtWorld[kZAxisIndex]};
-    mjvGeom* absl_nonnull edge = nextGeom();
+    mjvGeom* absl_nonnull edge = nextGeom(scene);
     mjv_initGeom(edge, mjGEOM_CAPSULE, /*size=*/nullptr, /*pos=*/nullptr,
                  /*mat=*/nullptr, rgba);
     mjv_connector(edge, mjGEOM_CAPSULE, kOutlineRadius,
                   posStrippointRtWorldEwrtWorld,
                   nextPosStrippointRtWorldEwrtWorld);
-    finish(edge);
+    finishGeom(style, edge);
   }
 
   if (style.arrow) {
@@ -226,12 +228,12 @@ int addContactPatchGeoms(mjvScene* absl_nullable scene,
         patch.desPosFootRtWorldEwrtWorldX + length * c,
         patch.desPosFootRtWorldEwrtWorldY + length * s,
         patch.desPosFootRtWorldEwrtWorldZ + offsetPosCornersRtFootEwrtWorldZ};
-    mjvGeom* absl_nonnull arrow = nextGeom();
+    mjvGeom* absl_nonnull arrow = nextGeom(scene);
     mjv_initGeom(arrow, mjGEOM_ARROW, /*size=*/nullptr, /*pos=*/nullptr,
                  /*mat=*/nullptr, rgba);
     mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth, posArrowRtWorldEwrtWorld,
                   posArrowheadRtWorldEwrtWorld);
-    finish(arrow);
+    finishGeom(style, arrow);
   }
   return needed;
 }

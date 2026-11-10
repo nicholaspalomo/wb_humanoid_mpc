@@ -166,6 +166,7 @@ cc_test(
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
+        "@abseil-cpp//absl/strings:string_view",
         "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
         "//humanoid_nmpc/humanoid_mpc_ipc:mpc_server",
         "//lib/ocs2:ocs2_core_types",

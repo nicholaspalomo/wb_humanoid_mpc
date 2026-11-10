@@ -34,6 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <type_traits>
+#include <utility>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -71,6 +73,14 @@ TEST(MultiContactPlannerRegistry, BuildsEveryPlannerOfTheDesign) {
   EXPECT_EQ(kContactInvariantPlannerName, "contact_invariant");
   EXPECT_EQ(kStanceGraphThenContactInvariantPlannerName,
             "stance_graph_then_contact_invariant");
+}
+
+TEST(MultiContactPlannerRegistry, IsMoveOnly) {
+  static_assert(!std::is_copy_constructible_v<MultiContactPlannerRegistry>);
+  static_assert(!std::is_copy_assignable_v<MultiContactPlannerRegistry>);
+  MultiContactPlannerRegistry registry;
+  MultiContactPlannerRegistry moved = std::move(registry);
+  EXPECT_TRUE(moved.has("stance_graph"));
 }
 
 TEST(MultiContactPlannerRegistry, EveryNameIsADesignName) {

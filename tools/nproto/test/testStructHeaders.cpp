@@ -27,10 +27,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// The struct headers nproto generates hold plain C++ only: this file includes
-// them alone, without protobuf or Abseil, and compiles with -Wall -Wextra
-// -Wpedantic -Werror. Every struct header is included, also the ones no test
-// below names (IWYU pragma: keep), so that each of them is compiled alone.
+// The struct headers nproto generates hold plain C++ and, for map fields,
+// absl::btree_map: this file includes them alone, without protobuf or the rest
+// of Abseil, and compiles with -Wall -Wextra -Wpedantic -Werror. Every struct
+// header is included, also the ones no test below names (IWYU pragma: keep), so
+// that each of them is compiled alone.
 
 #include "gtest/gtest.h"
 
@@ -52,8 +53,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifdef GOOGLE_PROTOBUF_VERSION
 #error "a struct header included protobuf"
 #endif
-#ifdef ABSL_BASE_CONFIG_H_
-#error "a struct header included Abseil"
+#ifdef ABSL_STATUS_STATUS_H_
+#error "a struct header included absl::Status"
 #endif
 
 namespace nproto::test {

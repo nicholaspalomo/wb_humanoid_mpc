@@ -36,10 +36,10 @@ namespace ocs2::humanoid::multi_contact {
 /** `path` as the user meant it on a `bazel run` command line: absolute, else
  * from the directory `bazel run` was started from, else from the repository,
  * whichever exists; `path` itself when none does. */
-std::string resolveInputPath(const std::string& path);
+std::string resolveInputPath(std::string path);
 
 /** `path` from the directory `bazel run` was started from, unless absolute or
  * not run by `bazel run`. */
-std::string resolveOutputPath(const std::string& path);
+std::string resolveOutputPath(std::string path);
 
 }  // namespace ocs2::humanoid::multi_contact

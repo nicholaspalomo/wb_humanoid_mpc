@@ -33,10 +33,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <optional>
 #include <string>
-#include <vector>
 
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 namespace ocs2::humanoid {
@@ -98,10 +98,9 @@ inline constexpr int kNumMrtJointGroups = 2;
  * and kd with the default torque limit; the controller constants at the
  * schema's defaults (JointPdGainsFile::kDefault...).
  */
-JointPdGains defaultJointPdGains(
-    const JointPdGainsDefaults& defaults,
-    const std::vector<std::string>& mpcJointNames,
-    const std::vector<std::string>& otherJointNames);
+JointPdGains defaultJointPdGains(const JointPdGainsDefaults& defaults,
+                                 absl::Span<const std::string> mpcJointNames,
+                                 absl::Span<const std::string> otherJointNames);
 
 /**
  * The joint PD gains of the gains file `file` - a robot's
@@ -118,8 +117,8 @@ JointPdGains defaultJointPdGains(
  */
 absl::StatusOr<std::optional<JointPdGains>> loadJointPdGains(
     absl::string_view file,
-    const std::vector<std::string>& mpcJointNames,
-    const std::vector<std::string>& otherJointNames);
+    absl::Span<const std::string> mpcJointNames,
+    absl::Span<const std::string> otherJointNames);
 
 /**
  * The gains a controller starts on: those of `file` (loadJointPdGains()).
@@ -131,8 +130,8 @@ absl::StatusOr<std::optional<JointPdGains>> loadJointPdGains(
  */
 absl::StatusOr<JointPdGains> loadRequiredJointPdGains(
     absl::string_view file,
-    const std::vector<std::string>& mpcJointNames,
-    const std::vector<std::string>& otherJointNames,
+    absl::Span<const std::string> mpcJointNames,
+    absl::Span<const std::string> otherJointNames,
     absl::string_view controller);
 
 /**

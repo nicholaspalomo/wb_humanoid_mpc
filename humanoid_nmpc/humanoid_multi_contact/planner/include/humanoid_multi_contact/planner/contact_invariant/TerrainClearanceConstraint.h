@@ -32,12 +32,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cstddef>
-#include <string>
 #include <vector>
 
 #include "Eigen/Core"
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
@@ -95,8 +95,8 @@ class TerrainClearanceConstraint final : public StateConstraintCppAd {
                              std::vector<ClearanceSphere> spheres,
                              const TerrainModel& terrain,
                              scalar_t margin,
-                             const std::string& libraryName,
-                             const std::string& folder,
+                             absl::string_view libraryName,
+                             absl::string_view folder,
                              bool recompile,
                              bool verbose);
   ~TerrainClearanceConstraint() override = default;

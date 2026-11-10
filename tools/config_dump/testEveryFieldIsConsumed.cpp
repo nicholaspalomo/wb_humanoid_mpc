@@ -44,13 +44,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cstddef>
-#include <map>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/btree_map.h"
+#include "absl/container/btree_set.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -104,9 +104,9 @@ constexpr char kReadByThePlanSource[] =
 
 // The fields no conversion of the C++ stack reads, each with what does (by its
 // path, elements as [*]).
-const std::map<std::string, std::string>& notReadByTheConversions() {
-  static const std::map<std::string, std::string>& kFields =
-      *new std::map<std::string, std::string>{
+const absl::btree_map<std::string, std::string>& notReadByTheConversions() {
+  static const absl::btree_map<std::string, std::string>& kFields =
+      *new absl::btree_map<std::string, std::string>{
           {"TaskFile.contacts.surface_pads",
            "the pads of 3-DoF contacts, which none of the dumped "
            "configurations has: ContactsFromConfig reads them for the "
@@ -219,7 +219,7 @@ void collectLeaves(const Message& message,
 }
 
 /** The names of the registry `registry`, from the registries themselves. */
-std::vector<std::string> registryNames(const std::string& registry) {
+std::vector<std::string> registryNames(absl::string_view registry) {
   for (const mpc_config::ConfigRegistries::Registry& entry :
        config_registries::collectConfigRegistries().registries) {
     if (entry.name == registry) return entry.names;
@@ -229,8 +229,7 @@ std::vector<std::string> registryNames(const std::string& registry) {
 
 /** A name of `field`'s registry other than `current`, or `current` renamed for
  * a field without one. */
-std::string otherName(const FieldDescriptor& field,
-                      const std::string& current) {
+std::string otherName(const FieldDescriptor& field, absl::string_view current) {
   const std::string& registry =
       field.options().GetExtension(humanoid_mpc_config::tuning).registry();
   for (const std::string& name : registryNames(registry)) {
@@ -314,7 +313,7 @@ void growList(Message& message, const FieldDescriptor& field) {
       reflection->AddInt32(&message, &field, /*value=*/1);
       return;
     case FieldDescriptor::CPPTYPE_STRING: {
-      std::set<std::string> present;
+      absl::btree_set<std::string> present;
       for (int i = 0; i < reflection->FieldSize(message, &field); ++i) {
         present.insert(reflection->GetRepeatedString(message, &field, i));
       }
@@ -469,8 +468,8 @@ TEST(EveryFieldIsConsumedTest,
      EveryValueOfTheFileSchemasChangesWhatTheConversionsMake) {
   // A schema path is consumed when changing one of its values changes the dump
   // of a configuration.
-  std::map<std::string, bool> consumed;
-  std::map<std::string, std::string> example;
+  absl::btree_map<std::string, bool> consumed;
+  absl::btree_map<std::string, std::string> example;
   size_t values = 0;
   for (const absl::string_view name : kConfigurations) {
     const absl::StatusOr<validation::RobotConfiguration> configuration =

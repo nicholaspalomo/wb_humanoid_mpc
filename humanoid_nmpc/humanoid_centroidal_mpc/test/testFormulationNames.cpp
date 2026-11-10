@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_replace.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/cost/StateCostCollection.h"
@@ -113,7 +114,7 @@ std::string runfilePath(absl::string_view relativePath) {
 }
 
 /** Whether `list` names `entry`. */
-bool lists(const std::vector<std::string>& list, absl::string_view entry) {
+bool lists(absl::Span<const std::string> list, absl::string_view entry) {
   return std::find(list.begin(), list.end(), entry) != list.end();
 }
 

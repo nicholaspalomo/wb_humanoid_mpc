@@ -133,10 +133,10 @@ class JsonValue {
 
 /** JsonValue::parse() of the file at `path`; NotFound when it cannot be read.
  */
-absl::StatusOr<JsonValue> readJsonFile(const std::string& path);
+absl::StatusOr<JsonValue> readJsonFile(absl::string_view path);
 
 /** `value` serialized into `path` with a final newline, creating its directory;
  * Internal when it cannot be written. */
-absl::Status writeJsonFile(const std::string& path, const JsonValue& value);
+absl::Status writeJsonFile(absl::string_view path, const JsonValue& value);
 
 }  // namespace ocs2::humanoid::validation

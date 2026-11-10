@@ -88,13 +88,15 @@ struct ArmJoint {
  * computed at. */
 absl::StatusOr<ArmJoint> armJointAt(const pinocchio::Model& model,
                                     const pinocchio::Data& data,
-                                    const std::string& jointName) {
-  if (!model.existJointName(jointName)) {
+                                    absl::string_view jointName) {
+  // Pinocchio looks joints up by const std::string&.
+  const std::string name(jointName);
+  if (!model.existJointName(name)) {
     return absl::InvalidArgumentError(
         absl::StrCat("[deriveArmSwingDirections] the arm joint '", jointName,
                      "' is not in the robot model."));
   }
-  const pinocchio::JointIndex joint = model.getJointId(jointName);
+  const pinocchio::JointIndex joint = model.getJointId(name);
   if (model.joints[joint].nv() != 1) {
     return absl::InvalidArgumentError(absl::StrCat(
         "[deriveArmSwingDirections] the arm joint '", jointName, "' has ",

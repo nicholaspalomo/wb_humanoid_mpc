@@ -75,7 +75,7 @@ constexpr absl::string_view kBootMarker = ".booting";
 
 /** The path of the file of `kind` below the store `directory`; empty for a kind
  * the robot does not store. */
-std::string storedPathIn(const std::string& directory,
+std::string storedPathIn(absl::string_view directory,
                          msgs::ConfigFileKind kind) {
   const std::filesystem::path root(directory);
   switch (kind) {
@@ -101,9 +101,10 @@ static_assert(kStoredConfigFileKinds[kTaskIndex] == msgs::ConfigFileKind::kTask,
  * boot time of /proc/stat): a start that was ended by the machine going down,
  * not by what it ran. False when either time cannot be read.
  */
-bool writtenBeforeTheMachineBooted(const std::string& path) {
+bool writtenBeforeTheMachineBooted(absl::string_view path) {
   struct stat status = {};
-  if (::stat(path.c_str(), &status) != 0) return false;
+  // stat() takes a NUL-terminated path.
+  if (::stat(std::string(path).c_str(), &status) != 0) return false;
   const absl::StatusOr<std::string> machine = readFileBytes("/proc/stat");
   if (!machine.ok()) return false;
   for (const absl::string_view line : absl::StrSplit(*machine, '\n')) {
@@ -126,7 +127,7 @@ struct ReadFile {
 
 /** The file at `path`, which need not exist; an error other than its absence is
  * returned. */
-absl::StatusOr<ReadFile> readIfThere(const std::string& path) {
+absl::StatusOr<ReadFile> readIfThere(absl::string_view path) {
   absl::StatusOr<std::string> bytes = readFileBytes(path);
   if (bytes.ok()) return ReadFile{.exists = true, .bytes = *std::move(bytes)};
   if (absl::IsNotFound(bytes.status())) return ReadFile{};
@@ -146,7 +147,7 @@ absl::Status doneOrNotDurable(absl::Status done) {
 }
 
 /** Creates the directory of `path` and its parents. */
-absl::Status createParentOf(const std::string& path) {
+absl::Status createParentOf(absl::string_view path) {
   std::error_code error;
   std::filesystem::create_directories(std::filesystem::path(path).parent_path(),
                                       error);

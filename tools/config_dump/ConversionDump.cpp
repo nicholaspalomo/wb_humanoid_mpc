@@ -36,12 +36,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <map>
 #include <string>
 #include <type_traits>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/btree_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -618,8 +618,8 @@ void dumpReference(ValueDump& dump,
     addError(dump, "reference.keyboard", keyboard.status());
   }
   dump.addSection("gaits");
-  const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits =
-      gaitMapFromConfig(inputs.gait);
+  const absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+      gaits = gaitMapFromConfig(inputs.gait);
   if (gaits.ok()) {
     dumpGaitMap(dump, "gaits", *gaits);
   } else {
@@ -679,7 +679,7 @@ void dumpRobot(ValueDump& dump,
 }  // namespace
 
 std::string dumpConversions(const ConversionInputs& inputs,
-                            const std::string& urdfFile,
+                            absl::string_view urdfFile,
                             StateInputLayout::Mpc mpc) {
   ValueDump dump;
   dump.addSection("model_settings");

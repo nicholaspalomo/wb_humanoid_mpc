@@ -120,8 +120,8 @@ cc_library(
 
 # What the generated code calls (nproto/Conversions.h) and the textproto helpers (nproto/Textproto.h). The generated
 # code depends on it through :nproto_toolchain, and with it on protobuf, Eigen and Abseil, absl/base:nullability for
-# the annotated output parameters of its signatures included. The parser reads the retired-field options of the message
-# it parses into (:options_cc_proto).
+# the annotated output parameters of its signatures and absl/container:btree for its map members included. The parser
+# reads the retired-field options of the message it parses into (:options_cc_proto).
 cc_library(
     name = "nproto_runtime",
     srcs = [
@@ -140,11 +140,13 @@ cc_library(
         ":fnv1a64_constants",
         ":options_cc_proto",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:btree",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:str_format",
         "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/types:span",
         "@eigen",
         "@protobuf",
     ],

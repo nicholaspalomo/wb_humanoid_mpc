@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
@@ -91,6 +92,7 @@ std::vector<std::string> termNamesInOrder(const Collection<T>& collection) {
 /** The term `name` of `collection`, or null when the collection has no term of
  * that name. */
 template <typename T>
+// NOLINTNEXTLINE(absl-string-view-param): OCS2's Collection::getTermIndex and get take const std::string&; a view would allocate per term and solve.
 T* absl_nullable findTerm(Collection<T>& collection, const std::string& name) {
   size_t index = 0;
   if (!collection.getTermIndex(name, index)) return nullptr;
@@ -158,10 +160,9 @@ SolutionTermEvaluator::Create(OptimalControlProblem* absl_nonnull problem) {
   return evaluator;
 }
 
-void SolutionTermEvaluator::addCostTerms(
-    CostCollection collection,
-    absl::string_view prefix,
-    const std::vector<std::string>& names) {
+void SolutionTermEvaluator::addCostTerms(CostCollection collection,
+                                         absl::string_view prefix,
+                                         absl::Span<const std::string> names) {
   for (const std::string& name : names) {
     costTerms_.push_back(CostTerm{.collection = collection, .term = name});
     costNames_.push_back(absl::StrCat(prefix, "/", name));
@@ -171,7 +172,7 @@ void SolutionTermEvaluator::addCostTerms(
 void SolutionTermEvaluator::addConstraintTerms(
     ConstraintCollection collection,
     absl::string_view prefix,
-    const std::vector<std::string>& names) {
+    absl::Span<const std::string> names) {
   for (const std::string& name : names) {
     constraintTerms_.push_back(
         ConstraintTerm{.collection = collection, .term = name});

@@ -39,6 +39,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/CppAdInterface.h"
@@ -76,7 +79,7 @@ vector_t stateAndInput(const vector_t& state, const vector_t& input) {
 /** The plane normals one after the other, the parameters of the pose-wrt-plane
  * libraries. */
 vector_t planeNormalParameters(
-    const std::vector<vector3_t>& normalSurfacesEwrtWorld) {
+    absl::Span<const vector3_t> normalSurfacesEwrtWorld) {
   vector_t params(kPlaneNormalDim * normalSurfacesEwrtWorld.size());
   for (size_t i = 0; i < normalSurfacesEwrtWorld.size(); ++i) {
     params.segment<kPlaneNormalDim>(kPlaneNormalDim * i) =
@@ -138,7 +141,7 @@ std::vector<VectorFunctionLinearApproximation> xeeLinearApproximations(
 ad_vector_t computePosEesRtWorldEwrtWorld(
     PinocchioInterfaceCppAd& pinocchioInterface,
     const RobotModelCppAd& robotModel,
-    const std::vector<size_t>& frameIds,
+    absl::Span<const size_t> frameIds,
     const ad_vector_t& state) {
   const PinocchioInterfaceCppAd::Model& model = pinocchioInterface.getModel();
   PinocchioInterfaceCppAd::Data& data = pinocchioInterface.getData();
@@ -161,7 +164,7 @@ ad_vector_t computePosEesRtWorldEwrtWorld(
 ad_vector_t computeLinvelEesRtWorldEwrtWorld(
     PinocchioInterfaceCppAd& pinocchioInterface,
     RobotModelCppAd& robotModel,
-    const std::vector<size_t>& frameIds,
+    absl::Span<const size_t> frameIds,
     const ad_vector_t& state,
     const ad_vector_t& input) {
   const pinocchio::ReferenceFrame rf =
@@ -190,7 +193,7 @@ ad_vector_t computeLinvelEesRtWorldEwrtWorld(
 ad_vector_t computeTiltEesRtSurfaceEwrtWorld(
     PinocchioInterfaceCppAd& pinocchioInterface,
     const RobotModelCppAd& robotModel,
-    const std::vector<size_t>& frameIds,
+    absl::Span<const size_t> frameIds,
     const ad_vector_t& state,
     const ad_vector_t& params) {
   const PinocchioInterfaceCppAd::Model& model = pinocchioInterface.getModel();
@@ -221,7 +224,7 @@ ad_vector_t computeTiltEesRtSurfaceEwrtWorld(
 ad_vector_t computeLinaccEesRtWorldEwrtWorld(
     PinocchioInterfaceCppAd& pinocchioInterface,
     RobotModelCppAd& robotModel,
-    const std::vector<size_t>& frameIds,
+    absl::Span<const size_t> frameIds,
     const ad_vector_t& state,
     const ad_vector_t& input) {
   const pinocchio::ReferenceFrame rf =
@@ -252,7 +255,7 @@ ad_vector_t computeLinaccEesRtWorldEwrtWorld(
  */
 ad_vector_t computeXeeRates(PinocchioInterfaceCppAd& pinocchioInterface,
                             RobotModelCppAd& robotModel,
-                            const std::vector<size_t>& frameIds,
+                            absl::Span<const size_t> frameIds,
                             const ad_vector_t& state,
                             const ad_vector_t& input,
                             const ad_vector_t& params) {
@@ -295,7 +298,7 @@ ad_vector_t computeXeeRates(PinocchioInterfaceCppAd& pinocchioInterface,
  */
 ad_vector_t computeXeeSecondRates(PinocchioInterfaceCppAd& pinocchioInterface,
                                   RobotModelCppAd& robotModel,
-                                  const std::vector<size_t>& frameIds,
+                                  absl::Span<const size_t> frameIds,
                                   const ad_vector_t& state,
                                   const ad_vector_t& input,
                                   const ad_vector_t& params) {
@@ -350,8 +353,8 @@ PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(
     const PinocchioInterface& pinocchioInterface,
     WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
     std::vector<std::string> endEffectorIds,
-    const std::string& modelName,
-    const std::string& modelFolder,
+    absl::string_view modelName,
+    absl::string_view modelFolder,
     bool recompileLibraries,
     bool verbose)
     : endEffectorIds_(std::move(endEffectorIds)) {
@@ -372,6 +375,8 @@ PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(
   const size_t stateDim = mpcRobotModel.getStateDim();
   const size_t inputDim = mpcRobotModel.getInputDim();
   const size_t numPlaneParameters = kPlaneNormalDim * frameIds.size();
+  // CppAdInterface takes the folder as const std::string&.
+  const std::string folder(modelFolder);
 
   const CppAdInterface::ad_function_t tapePosEesRtWorldEwrtWorld =
       [pinocchioInterfaceCppAd, robotModel, frameIds](const ad_vector_t& x,
@@ -379,9 +384,9 @@ PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(
         y = computePosEesRtWorldEwrtWorld(*pinocchioInterfaceCppAd, *robotModel,
                                           frameIds, x);
       };
-  positionCppAdInterfacePtr_ =
-      std::make_unique<CppAdInterface>(tapePosEesRtWorldEwrtWorld, stateDim,
-                                       modelName + "_position", modelFolder);
+  positionCppAdInterfacePtr_ = std::make_unique<CppAdInterface>(
+      tapePosEesRtWorldEwrtWorld, stateDim,
+      absl::StrCat(modelName, "_position"), folder);
 
   const CppAdInterface::ad_function_t tapeLinvelEesRtWorldEwrtWorld =
       [pinocchioInterfaceCppAd, robotModel, frameIds, stateDim, inputDim](
@@ -393,7 +398,7 @@ PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(
       };
   velocityCppAdInterfacePtr_ = std::make_unique<CppAdInterface>(
       tapeLinvelEesRtWorldEwrtWorld, stateDim + inputDim,
-      modelName + "_velocity", modelFolder);
+      absl::StrCat(modelName, "_velocity"), folder);
 
   const CppAdInterface::ad_parameterized_function_t
       tapeTiltEesRtSurfaceEwrtWorld =
@@ -404,7 +409,7 @@ PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(
           };
   tiltEesCppAdInterfacePtr_ = std::make_unique<CppAdInterface>(
       tapeTiltEesRtSurfaceEwrtWorld, stateDim, numPlaneParameters,
-      modelName + "_orientation_wrt_plane", modelFolder);
+      absl::StrCat(modelName, "_orientation_wrt_plane"), folder);
 
   const CppAdInterface::ad_function_t tapeLinaccEesRtWorldEwrtWorld =
       [pinocchioInterfaceCppAd, robotModel, frameIds, stateDim, inputDim](
@@ -416,7 +421,7 @@ PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(
       };
   linearAccelerationCppAdInterfacePtr_ = std::make_unique<CppAdInterface>(
       tapeLinaccEesRtWorldEwrtWorld, stateDim + inputDim,
-      modelName + "_linear_acceleration", modelFolder);
+      absl::StrCat(modelName, "_linear_acceleration"), folder);
 
   // The pose rates with respect to a plane, parameterized by the plane normals.
   const CppAdInterface::ad_parameterized_function_t tapeXeeRates =
@@ -429,7 +434,7 @@ PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(
       };
   xeeRateCppAdInterfacePtr_ = std::make_unique<CppAdInterface>(
       tapeXeeRates, stateDim + inputDim, numPlaneParameters,
-      modelName + "_pose_wrt_plane_rate", modelFolder);
+      absl::StrCat(modelName, "_pose_wrt_plane_rate"), folder);
 
   const CppAdInterface::ad_parameterized_function_t tapeXeeSecondRates =
       [pinocchioInterfaceCppAd, robotModel, frameIds, stateDim, inputDim](
@@ -441,7 +446,7 @@ PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(
       };
   xeeSecondRateCppAdInterfacePtr_ = std::make_unique<CppAdInterface>(
       tapeXeeSecondRates, stateDim + inputDim, numPlaneParameters,
-      modelName + "_pose_wrt_plane_acceleration", modelFolder);
+      absl::StrCat(modelName, "_pose_wrt_plane_acceleration"), folder);
 
   if (recompileLibraries) {
     positionCppAdInterfacePtr_->createModels(
@@ -614,7 +619,7 @@ PinocchioEndEffectorDynamicsCppAd::
 std::vector<PinocchioEndEffectorDynamicsCppAd::vector3_t>
 PinocchioEndEffectorDynamicsCppAd::getTiltEesRtSurfaceEwrtWorld(
     const vector_t& state,
-    const std::vector<vector3_t>& normalSurfacesEwrtWorld) const {
+    absl::Span<const vector3_t> normalSurfacesEwrtWorld) const {
   vector_t params(kPlaneNormalDim * endEffectorIds_.size());
   for (size_t i = 0; i < endEffectorIds_.size(); ++i) {
     params.segment<kPlaneNormalDim>(kPlaneNormalDim * i) =
@@ -642,7 +647,7 @@ std::vector<VectorFunctionLinearApproximation>
 PinocchioEndEffectorDynamicsCppAd::
     getLinearApproximationTiltEesRtSurfaceEwrtWorld(
         const vector_t& state,
-        const std::vector<vector3_t>& normalSurfacesEwrtWorld) const {
+        absl::Span<const vector3_t> normalSurfacesEwrtWorld) const {
   vector_t params(kPlaneNormalDim * endEffectorIds_.size());
   for (size_t i = 0; i < endEffectorIds_.size(); ++i) {
     params.segment<kPlaneNormalDim>(kPlaneNormalDim * i) =
@@ -732,7 +737,7 @@ std::vector<PinocchioEndEffectorDynamicsCppAd::vector6_t>
 PinocchioEndEffectorDynamicsCppAd::getXeeRate(
     const vector_t& state,
     const vector_t& input,
-    const std::vector<vector3_t>& normalSurfacesEwrtWorld) const {
+    absl::Span<const vector3_t> normalSurfacesEwrtWorld) const {
   return xeeBlocks(xeeRateCppAdInterfacePtr_->getFunctionValue(
                        stateAndInput(state, input),
                        planeNormalParameters(normalSurfacesEwrtWorld)),
@@ -746,7 +751,7 @@ std::vector<PinocchioEndEffectorDynamicsCppAd::vector6_t>
 PinocchioEndEffectorDynamicsCppAd::getXeeSecondRate(
     const vector_t& state,
     const vector_t& input,
-    const std::vector<vector3_t>& normalSurfacesEwrtWorld) const {
+    absl::Span<const vector3_t> normalSurfacesEwrtWorld) const {
   return xeeBlocks(xeeSecondRateCppAdInterfacePtr_->getFunctionValue(
                        stateAndInput(state, input),
                        planeNormalParameters(normalSurfacesEwrtWorld)),
@@ -760,7 +765,7 @@ std::vector<VectorFunctionLinearApproximation>
 PinocchioEndEffectorDynamicsCppAd::getLinearApproximationXeeRate(
     const vector_t& state,
     const vector_t& input,
-    const std::vector<vector3_t>& normalSurfacesEwrtWorld) const {
+    absl::Span<const vector3_t> normalSurfacesEwrtWorld) const {
   return xeeLinearApproximations(*xeeRateCppAdInterfacePtr_, state, input,
                                  planeNormalParameters(normalSurfacesEwrtWorld),
                                  endEffectorIds_.size());
@@ -773,7 +778,7 @@ std::vector<VectorFunctionLinearApproximation>
 PinocchioEndEffectorDynamicsCppAd::getLinearApproximationXeeSecondRate(
     const vector_t& state,
     const vector_t& input,
-    const std::vector<vector3_t>& normalSurfacesEwrtWorld) const {
+    absl::Span<const vector3_t> normalSurfacesEwrtWorld) const {
   return xeeLinearApproximations(*xeeSecondRateCppAdInterfacePtr_, state, input,
                                  planeNormalParameters(normalSurfacesEwrtWorld),
                                  endEffectorIds_.size());

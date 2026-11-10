@@ -47,8 +47,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/Types.h"
@@ -190,7 +192,7 @@ absl::StatusOr<std::unique_ptr<LandingAlignmentCost>> landingAlignmentOf(
 std::vector<UnloadingWindow> unloadingWindowsOf(
     const MpcTrajectory& trajectory,
     const MpcRobotModelBase<scalar_t>& model,
-    const std::vector<std::string>& contactNames,
+    absl::Span<const std::string> contactNames,
     const ContactSet& contactSet,
     double window) {
   std::vector<UnloadingWindow> windows;
@@ -316,7 +318,7 @@ HardContactRefinement::HardContactRefinement(
 absl::StatusOr<std::unique_ptr<HardContactRefinement>>
 HardContactRefinement::Create(const LoadedScenario& loaded,
                               CentroidalMpcConfig config,
-                              const std::string& urdfFile,
+                              absl::string_view urdfFile,
                               const RefinementOptions& options) {
   if (!(options.dt > 0.0) || !(options.knotSpacing >= options.dt) ||
       options.sqpIterations < 1 || options.numThreads < 1 ||
@@ -339,8 +341,8 @@ HardContactRefinement::Create(const LoadedScenario& loaded,
   ASSIGN_OR_RETURN(std::unique_ptr<StabilityCertifier> certifier,
                    makeCertifier(loaded));
   return absl::WrapUnique(new HardContactRefinement(
-      loaded, std::move(config), urdfFile, options, std::move(stanceModel),
-      std::move(collision), std::move(certifier)));
+      loaded, std::move(config), std::string(urdfFile), options,
+      std::move(stanceModel), std::move(collision), std::move(certifier)));
 }
 
 absl::StatusOr<std::vector<TimedPolygon>> HardContactRefinement::polygonsOf(
@@ -386,7 +388,7 @@ absl::StatusOr<std::vector<TimedPolygon>> HardContactRefinement::polygonsOf(
 absl::StatusOr<RefinementResult> HardContactRefinement::solve(
     const config::MultiContactPlan& seed,
     const MpcTrajectory& guess,
-    const std::vector<TimedPolygon>& polygons) {
+    absl::Span<const TimedPolygon> polygons) {
   CentroidalMpcConfig config = config_;
   config.task.interface.verbose = false;
   config.task.contacts.contact_wrench_cone_soft_constraint.mu =
@@ -467,7 +469,9 @@ absl::StatusOr<RefinementResult> HardContactRefinement::solve(
         kSupportPolygonTerm,
         std::make_unique<StateSoftConstraint>(
             std::make_unique<SupportPolygonConstraint>(
-                pinocchio, info, polygons, margin,
+                pinocchio, info,
+                std::vector<TimedPolygon>(polygons.begin(), polygons.end()),
+                margin,
                 hashedLibraryName("cio_support_polygon",
                                   absl::StrCat("margin ", margin)),
                 settings.modelFolderCppAd, settings.recompileLibrariesCppAd,

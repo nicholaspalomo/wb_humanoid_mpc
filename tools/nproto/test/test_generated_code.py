@@ -33,8 +33,8 @@ Over every file generated for nproto's test protos, for humanoid_mpc_msgs and fo
   code: `no-auto`, `pointer-nullability` (every raw pointer, the output parameters of ToProto() / FromProto(), carries
   `absl_nonnull` or `absl_nullable`, and the file includes absl/base/nullability.h), `std-integer-type`, the Google
   style and Tips of the Week checks, ...;
-- a struct header (<file>.nproto.h) includes standard headers, Eigen and other struct headers only: no protobuf, no
-  Abseil.
+- a struct header (<file>.nproto.h) includes standard headers, Eigen, other struct headers and, for a map field,
+  absl/container/btree_map.h only: no protobuf and no other Abseil header.
 
 `make lint` cannot check the generated code, which lives in bazel-out; this test runs the same checks over it.
 """
@@ -53,7 +53,7 @@ RUNFILES = os.path.join(os.environ.get("TEST_SRCDIR", ""), "_main")
 CLANG_FORMAT_CONFIG = os.path.join(RUNFILES, ".clang-format")
 STRUCT_HEADER = ".nproto.h"
 ALLOWED_STRUCT_HEADER_INCLUDES = re.compile(
-    r'#include (<[a-z_]+>|"Eigen/Core"|"[^"]+\.nproto\.h")'
+    r'#include (<[a-z_]+>|"Eigen/Core"|"absl/container/btree_map\.h"|"[^"]+\.nproto\.h")'
 )
 # The parameters of a ToProto() / FromProto() declaration or definition, which starts a line of the generated code.
 SIGNATURE = re.compile(
@@ -154,6 +154,7 @@ class GeneratedCodeTest(unittest.TestCase):
         # run_file() skips a check that does not apply to a path, so a path the registry did not take for first-party
         # C++ would pass the test above without being checked.
         expected = {
+            "absl-ordered-container",
             "no-auto",
             "pointer-nullability",
             "std-integer-type",
@@ -189,7 +190,9 @@ class GeneratedCodeTest(unittest.TestCase):
             [],
         )
 
-    def test_struct_headers_include_no_protobuf_and_no_abseil(self):
+    def test_struct_headers_include_no_protobuf_and_only_the_btree_of_abseil(
+        self,
+    ):
         includes = []
         for path in generated_files():
             if not path.endswith(STRUCT_HEADER):

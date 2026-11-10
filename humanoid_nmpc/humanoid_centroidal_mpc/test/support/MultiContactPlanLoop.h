@@ -32,9 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <memory>
-#include <string>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_mpc/MPC_MRT_Interface.h"
 #include "ocs2_mpc/SystemObservation.h"
@@ -71,7 +71,7 @@ class MultiContactPlanLoop {
  public:
   /** The loop of `config` on the URDF at `urdfFile`. */
   static absl::StatusOr<std::unique_ptr<MultiContactPlanLoop>> Create(
-      CentroidalMpcConfig config, const std::string& urdfFile);
+      CentroidalMpcConfig config, absl::string_view urdfFile);
 
   MultiContactPlanLoop(const MultiContactPlanLoop&) = delete;
   MultiContactPlanLoop& operator=(const MultiContactPlanLoop&) = delete;

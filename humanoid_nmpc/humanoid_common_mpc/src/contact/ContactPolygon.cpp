@@ -31,9 +31,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
 
 #include <algorithm>
-#include <string>
+#include <utility>
 #include <vector>
 
+#include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
@@ -47,7 +49,7 @@ namespace {
 /** `posCornersRtContactEwrtContact` scaled by `scaleFactor` about the contact
  * frame's origin. */
 std::vector<vector3_t> computeScaledPosCornersRtContactEwrtContact(
-    const std::vector<vector3_t>& posCornersRtContactEwrtContact,
+    absl::Span<const vector3_t> posCornersRtContactEwrtContact,
     scalar_t scaleFactor) {
   std::vector<vector3_t> scaledPosCornersRtContactEwrtContact;
   scaledPosCornersRtContactEwrtContact.reserve(
@@ -63,7 +65,7 @@ std::vector<vector3_t> computeScaledPosCornersRtContactEwrtContact(
 /** The x and y extent of `posCornersRtContactEwrtContact`; all zero for no
  * corners. */
 PolygonBounds boundsOf(
-    const std::vector<vector3_t>& posCornersRtContactEwrtContact) {
+    absl::Span<const vector3_t> posCornersRtContactEwrtContact) {
   if (posCornersRtContactEwrtContact.empty()) {
     return PolygonBounds(/*min_pos_corners_rt_contact_ewrt_contact_x=*/0.0,
                          /*max_pos_corners_rt_contact_ewrt_contact_x=*/0.0,
@@ -95,7 +97,7 @@ PolygonBounds boundsOf(
 }  // namespace
 
 ContactPolygon::ContactPolygon(
-    const std::vector<vector3_t>& posCornersRtContactEwrtContact,
+    absl::Span<const vector3_t> posCornersRtContactEwrtContact,
     const ContactCenterPoint& contactCenterPoint,
     scalar_t scaleFactor)
     : ContactPolygon(computeScaledPosCornersRtContactEwrtContact(
@@ -105,18 +107,19 @@ ContactPolygon::ContactPolygon(
                      contactCenterPoint) {}
 
 ContactPolygon::ContactPolygon(
-    const std::vector<vector3_t>& posCornersRtContactEwrtContact,
+    std::vector<vector3_t> posCornersRtContactEwrtContact,
     const PolygonBounds& polygonBounds,
     const ContactCenterPoint& contactCenterPoint)
     : polygonLimits_(polygonBounds),
-      posCornersRtContactEwrtContact_(posCornersRtContactEwrtContact),
+      posCornersRtContactEwrtContact_(
+          std::move(posCornersRtContactEwrtContact)),
       contactCenterPoint_(contactCenterPoint) {
   polygonPointFrameNames_.reserve(posCornersRtContactEwrtContact_.size());
 
   for (int i = 0; i < static_cast<int>(posCornersRtContactEwrtContact_.size());
        ++i) {
-    polygonPointFrameNames_.emplace_back(contactCenterPoint.frameName + "_p_" +
-                                         std::to_string(i));
+    polygonPointFrameNames_.push_back(
+        absl::StrCat(contactCenterPoint.frameName, "_p_", i));
   }
 }
 

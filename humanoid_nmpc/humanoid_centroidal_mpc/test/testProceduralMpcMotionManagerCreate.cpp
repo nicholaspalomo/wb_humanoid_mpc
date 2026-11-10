@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_replace.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
@@ -96,7 +97,7 @@ namespace {
 
 /** `text` written to the file `name` in the test's temporary directory; its
  * path. */
-std::string writeTempFile(const std::string& name, const std::string& text) {
+std::string writeTempFile(absl::string_view name, absl::string_view text) {
   const std::string file =
       (std::filesystem::path(::testing::TempDir()) / name).string();
   EXPECT_TRUE(writeTextFile(file, text).ok()) << file;
@@ -105,8 +106,8 @@ std::string writeTempFile(const std::string& name, const std::string& text) {
 
 absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> create(
     AtlasReferenceStack& stack,
-    const std::string& gaitFile,
-    const std::string& referenceFile) {
+    absl::string_view gaitFile,
+    absl::string_view referenceFile) {
   CentroidalMpcTargetTrajectoriesCalculator* absl_nonnull calculator =
       &stack.targetCalculator();
   return ProceduralMpcMotionManager::Create(
@@ -125,7 +126,7 @@ absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> create(
  * 1, so the scaled command is the operator's; null after a failed expectation.
  */
 std::unique_ptr<ProceduralMpcMotionManager> unfilteredManager(
-    AtlasReferenceStack& stack, const std::string& gaitFile) {
+    AtlasReferenceStack& stack, absl::string_view gaitFile) {
   absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> manager =
       create(stack, gaitFile, stack.referenceFile());
   EXPECT_TRUE(manager.ok()) << manager.status();
@@ -402,7 +403,7 @@ std::vector<std::string> walkFor(ProceduralMpcMotionManager& manager,
 }
 
 /** Whether every entry of `gaits` is `gait`. */
-bool allAre(const std::vector<std::string>& gaits, const std::string& gait) {
+bool allAre(absl::Span<const std::string> gaits, absl::string_view gait) {
   return std::all_of(
       gaits.begin(), gaits.end(),
       [&gait](const std::string& entry) { return entry == gait; });
@@ -439,8 +440,8 @@ TEST(ProceduralMpcMotionManagerCreate,
  * gait_switching block's text) appended, written to the test's temporary
  * directory as `name`; its path. */
 std::string gaitFileWithTable(const AtlasReferenceStack& stack,
-                              const std::string& name,
-                              const std::string& table) {
+                              absl::string_view name,
+                              absl::string_view table) {
   const absl::StatusOr<std::string> shipped =
       nproto::ReadTextFile(stack.gaitFile());
   EXPECT_TRUE(shipped.ok()) << shipped.status();

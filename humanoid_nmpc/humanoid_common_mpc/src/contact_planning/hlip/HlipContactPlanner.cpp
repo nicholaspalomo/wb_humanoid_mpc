@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 
@@ -142,7 +143,7 @@ scalar_t elapsedInCurrentPhase(const ContactPlannerInput& input) {
  * is placed at the node start, which is all the grid itself can say.
  */
 scalar_t committedSwitchTime(const ContactPlannerInput& input,
-                             const std::vector<scalar_t>& sampleTimes,
+                             absl::Span<const scalar_t> sampleTimes,
                              int node,
                              size_t foot,
                              scalar_t dt) {
@@ -165,7 +166,7 @@ scalar_t committedSwitchTime(const ContactPlannerInput& input,
 /** The first step from which every width in `widths` is
  * `nomPosLfootRtRfootEwrtHeadingY`, or -1 when the widths never settle there.
  */
-int settlingStep(const std::vector<scalar_t>& widths,
+int settlingStep(absl::Span<const scalar_t> widths,
                  scalar_t nomPosLfootRtRfootEwrtHeadingY) {
   int settled = -1;
   for (int step = static_cast<int>(widths.size()) - 1; step >= 0; --step) {
@@ -187,7 +188,7 @@ int settlingStep(const std::vector<scalar_t>& widths,
  * the reduced model makes of it. */
 std::string startUpVerdict(const ContactPlanningConfig& config,
                            scalar_t demand,
-                           const std::vector<scalar_t>& widths) {
+                           absl::Span<const scalar_t> widths) {
   const HlipParameters& params = config.hlip;
   if (demand <= params.maxPosLfootRtRfootEwrtHeadingY) return " (fits)\n";
   const int settled =
@@ -786,7 +787,7 @@ ContactPlan HlipContactPlanner::initialPlan(
 
 HlipContactPlanner::GaitRollOut HlipContactPlanner::rollOutGait(
     const ContactPlannerInput& input,
-    const std::vector<GaitPhase>& gait,
+    absl::Span<const GaitPhase> gait,
     scalar_t alpha,
     const vector2_t& plannedCmdLinvelBaseRtWorldEwrtHeadingXy) const {
   // The reduced model at the start of every phase, and the feet during it,
@@ -877,8 +878,8 @@ HlipContactPlanner::ComState HlipContactPlanner::comAt(
 }
 
 void HlipContactPlanner::fillNodes(const ContactPlannerInput& input,
-                                   const std::vector<GaitPhase>& gait,
-                                   const std::vector<PhaseRollOut>& rollOut,
+                                   absl::Span<const GaitPhase> gait,
+                                   absl::Span<const PhaseRollOut> rollOut,
                                    scalar_t alpha,
                                    ContactPlan& plan) const {
   const int numNodes = config_.planner.numNodes + 1;
@@ -923,8 +924,8 @@ void HlipContactPlanner::fillNodes(const ContactPlannerInput& input,
   }
 }
 
-void HlipContactPlanner::fillPhaseZmps(const std::vector<GaitPhase>& gait,
-                                       const std::vector<PhaseRollOut>& rollOut,
+void HlipContactPlanner::fillPhaseZmps(absl::Span<const GaitPhase> gait,
+                                       absl::Span<const PhaseRollOut> rollOut,
                                        ContactPlan& plan) {
   plan.phasePosZmpRtWorldEwrtWorldXyTraj.reserve(gait.size());
   for (size_t phase = 0; phase < gait.size(); ++phase) {
@@ -964,10 +965,9 @@ void HlipContactPlanner::blendTowardsStanding(
   }
 }
 
-void HlipContactPlanner::fillContactsAndPhases(
-    const ContactPlannerInput& input,
-    const std::vector<GaitPhase>& gait,
-    ContactPlan& plan) const {
+void HlipContactPlanner::fillContactsAndPhases(const ContactPlannerInput& input,
+                                               absl::Span<const GaitPhase> gait,
+                                               ContactPlan& plan) const {
   const int numIntervals = config_.planner.numNodes;
   const scalar_t dt = config_.planner.dt;
   // Contacts per interval, from the same integer phase boundaries the nodes

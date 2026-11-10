@@ -29,10 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <functional>
 #include <memory>
-#include <string>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 
@@ -78,11 +77,11 @@ class ContactPlanningTermFactory {
    * The execution rules the core knows (phase resetting, cadence modulation,
    * DCM step adjustment). The planned heading override needs the robot model
    * and lives with the reference manager, which passes its own maker as
-   * `extra`. A rule that neither the core nor `extra` builds is an
-   * InvalidArgument naming it.
+   * `extra`, which is only called during the call and may be empty. A rule
+   * that neither the core nor `extra` builds is an InvalidArgument naming it.
    */
-  using ExtraRuleMaker = std::function<std::unique_ptr<ExecutionRule>(
-      const std::string& canonicalName)>;
+  using ExtraRuleMaker = absl::AnyInvocable<std::unique_ptr<ExecutionRule>(
+      absl::string_view canonicalName) const>;
   static absl::StatusOr<std::unique_ptr<ExecutionRule>> makeExecutionRule(
       absl::string_view name, const ExtraRuleMaker& extra = nullptr);
 

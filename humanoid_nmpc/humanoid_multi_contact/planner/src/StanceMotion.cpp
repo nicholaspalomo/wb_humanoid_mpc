@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "pinocchio/algorithm/joint-configuration.hpp"
@@ -202,8 +203,8 @@ std::vector<Eigen::Vector3d> computePosCornersRtWorldEwrtWorld(
  * `secondPosCornersRtWorldEwrtWorld` on `separatingAxisEwrtWorld` are apart by
  * at least `margin`. */
 bool separatedAlong(
-    const std::vector<Eigen::Vector3d>& firstPosCornersRtWorldEwrtWorld,
-    const std::vector<Eigen::Vector3d>& secondPosCornersRtWorldEwrtWorld,
+    absl::Span<const Eigen::Vector3d> firstPosCornersRtWorldEwrtWorld,
+    absl::Span<const Eigen::Vector3d> secondPosCornersRtWorldEwrtWorld,
     const Eigen::Vector3d& separatingAxisEwrtWorld,
     double margin) {
   double firstLow = std::numeric_limits<double>::infinity();
@@ -676,7 +677,7 @@ absl::StatusOr<MotionCheck> StanceMotion::transition(
     const StancePlacements& held,
     const StancePlacements& supporting,
     const Eigen::VectorXd& start,
-    const std::vector<Eigen::VectorXd>& references) {
+    absl::Span<const Eigen::VectorXd> references) {
   ASSIGN_OR_RETURN(
       std::vector<Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples,
       polygonOf(supporting));
@@ -726,7 +727,7 @@ absl::StatusOr<MotionCheck> StanceMotion::transition(
 absl::StatusOr<std::optional<std::string>> StanceMotion::knotJump(
     const Eigen::VectorXd& from,
     const Eigen::VectorXd& to,
-    const std::vector<int>& movingPads) {
+    absl::Span<const int> movingPads) {
   // A knot may lag its interpolation: twice the steps the intervals allow.
   constexpr double kAllowedLag = 2.0;
   RobotStanceModel& robot = model();

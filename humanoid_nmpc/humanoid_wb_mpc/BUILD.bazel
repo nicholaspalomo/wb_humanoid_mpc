@@ -48,6 +48,7 @@ cc_library(
         "@abseil-cpp//absl/base:core_headers",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/functional:any_invocable",
         "@abseil-cpp//absl/functional:function_ref",
         "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/log:absl_log",
@@ -86,6 +87,7 @@ cc_library(
     deps = [
         ":humanoid_wb_mpc",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/types:span",
         "//lib/ocs2:ocs2_core_types",
     ],
 )
@@ -119,6 +121,7 @@ cc_test(
     srcs = ["test/testOrientationErrorWrtPlaneRates.cpp"],
     copts = FIRST_PARTY_COPTS,
     deps = [
+        "@abseil-cpp//absl/container:btree",
         ":humanoid_wb_mpc",
         ":orientation_error_rate_oracle",
         "//humanoid_nmpc/humanoid_common_mpc",
@@ -197,6 +200,7 @@ cc_test(
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
+        "@abseil-cpp//absl/strings:string_view",
         ":humanoid_wb_mpc",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "@abseil-cpp//absl/base:nullability",
@@ -220,6 +224,7 @@ cc_test(
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
+        "@abseil-cpp//absl/strings:string_view",
         ":humanoid_wb_mpc",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "@abseil-cpp//absl/base:nullability",
@@ -272,6 +277,7 @@ cc_test(
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
+        "@abseil-cpp//absl/types:span",
         ":humanoid_wb_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
@@ -330,6 +336,7 @@ cc_test(
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
+        "@abseil-cpp//absl/strings:string_view",
         ":humanoid_wb_mpc",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
@@ -406,6 +413,7 @@ cc_test(
     ],
     linkstatic = True,
     deps = [
+        "@abseil-cpp//absl/strings:string_view",
         ":humanoid_wb_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc:null_mpc_link",
@@ -440,6 +448,8 @@ cc_test(
     ],
     linkstatic = True,
     deps = [
+        "@abseil-cpp//absl/types:span",
+        "@abseil-cpp//absl/strings:string_view",
         ":humanoid_wb_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc:scripted_policy_mpc_link",
@@ -469,6 +479,7 @@ cc_test(
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
+        "@abseil-cpp//absl/functional:function_ref",
         ":humanoid_wb_mpc",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_mpc_test_support",
@@ -609,6 +620,7 @@ cc_test(
     ],
     # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testWBQuaternionInvariances.cpp:robot_files)
     deps = [
+        "@abseil-cpp//absl/types:span",
         ":humanoid_wb_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//lib/ocs2:ocs2_core",
@@ -803,6 +815,7 @@ cc_test(
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
+        "@abseil-cpp//absl/container:btree",
         ":humanoid_wb_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//lib/ocs2:ocs2_core",
@@ -1104,11 +1117,13 @@ cc_test(
         "@abseil-cpp//absl/base:log_severity",
         "@abseil-cpp//absl/base:no_destructor",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:btree",
         "@abseil-cpp//absl/log:scoped_mock_log",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/types:span",
         "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",

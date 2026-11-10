@@ -50,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
@@ -158,8 +159,8 @@ void collectLinkFrames(const Model& model,
  * date) as the instance `name`. */
 void writePoseLinksRtWorld(
     const Data& data,
-    const std::vector<pinocchio::FrameIndex>& frames,
-    const std::vector<std::string>& names,
+    absl::Span<const pinocchio::FrameIndex> frames,
+    absl::Span<const std::string> names,
     absl::string_view name,
     humanoid_mpc_msgs::RobotModelInstance* absl_nonnull instance) {
   instance->Clear();
@@ -184,14 +185,16 @@ void writePoseLinksRtWorld(
 }
 
 absl::StatusOr<pinocchio::FrameIndex> findFrame(const Model& model,
-                                                const std::string& frame,
+                                                absl::string_view frame,
                                                 absl::string_view what) {
-  if (!model.existFrame(frame)) {
+  // Pinocchio looks frames up by const std::string&.
+  const std::string frameName(frame);
+  if (!model.existFrame(frameName)) {
     return absl::InvalidArgumentError(
         absl::StrCat(what, " names the frame '", frame,
                      "', which the MPC's robot model does not have."));
   }
-  return model.getFrameId(frame);
+  return model.getFrameId(frameName);
 }
 
 }  // namespace

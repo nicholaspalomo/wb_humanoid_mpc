@@ -81,15 +81,15 @@ std::string runfilePath(absl::string_view relativePath) {
   return std::string();
 }
 
-std::string readFile(const std::string& path) {
-  std::ifstream in(path);
+std::string readFile(absl::string_view path) {
+  std::ifstream in((std::filesystem::path(path)));
   return std::string((std::istreambuf_iterator<char>(in)),
                      std::istreambuf_iterator<char>());
 }
 
 /** `content` with `from` replaced by `to` exactly once; fails the test when
  * `from` does not occur exactly once. */
-std::string replacedOnce(const std::string& content,
+std::string replacedOnce(std::string content,
                          absl::string_view from,
                          absl::string_view to) {
   const std::string::size_type offset = content.find(from);
@@ -97,9 +97,8 @@ std::string replacedOnce(const std::string& content,
   if (offset == std::string::npos) return content;
   EXPECT_EQ(content.find(from, offset + 1), std::string::npos)
       << "'" << from << "' occurs more than once";
-  std::string result = content;
-  result.replace(offset, from.size(), std::string(to));
-  return result;
+  content.replace(offset, from.size(), std::string(to));
+  return content;
 }
 
 /** `names` with every `from` replaced by `to`; fails the test when `from` is
@@ -150,7 +149,7 @@ class WBMpcFormulationNamesTest : public ::testing::Test {
   /** The refusal of the interface of the task file `content`, written for the
    * test as `name`. */
   absl::Status refusalOfFile(absl::string_view name,
-                             const std::string& content) const {
+                             absl::string_view content) const {
     const std::string path =
         (std::filesystem::path(testing::TempDir()) /
          absl::StrCat("testWBMpcFormulationNames_", name, ".textproto"))

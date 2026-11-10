@@ -29,9 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <map>
 #include <string>
 
+#include "absl/container/btree_map.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/reference/ModeSchedule.h"
@@ -92,9 +92,9 @@ absl::StatusOr<ModeSchedule> modeScheduleFromConfig(
  *
  * @return The gaits; InvalidArgument naming the gait and what is wrong.
  */
-absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaitMapFromConfig(
-    const mpc_config::GaitFile& file,
-    const GaitModeLayout& layout = GaitModeLayout{});
+absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+gaitMapFromConfig(const mpc_config::GaitFile& file,
+                  const GaitModeLayout& layout = GaitModeLayout{});
 
 /**
  * The mode schedule the gait schedule starts from: the reference file's

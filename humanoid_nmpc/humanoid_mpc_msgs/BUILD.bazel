@@ -101,6 +101,7 @@ cc_test(
         ":messages_nproto",
         "//tools/nproto/test:proto_test_values",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:btree",
         "@abseil-cpp//absl/status",
         "@eigen",
         "@googletest//:gtest_main",

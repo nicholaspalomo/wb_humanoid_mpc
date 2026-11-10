@@ -54,6 +54,7 @@ py_library(
         ":boost_usage",
         ":check_types",
         ":claudisms",
+        ":cpp_abseil",
         ":cpp_google_style",
         ":cpp_totw",
         ":euler_boundary",
@@ -585,6 +586,29 @@ py_test(
         ":check_types",
         ":checks",
         ":cpp_totw",
+    ],
+)
+
+py_library(
+    name = "cpp_abseil",
+    srcs = ["cpp_abseil.py"],
+    deps = [
+        ":check_types",
+        ":cpp_source",
+        ":cpp_totw",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_cpp_abseil",
+    size = "small",
+    srcs = ["test_cpp_abseil.py"],
+    deps = [
+        ":check_test_support",
+        ":check_types",
+        ":checks",
+        ":cpp_abseil",
     ],
 )
 

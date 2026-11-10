@@ -99,8 +99,7 @@ std::vector<std::string> carriedLinkCostTerms(const HotUpdateTarget& target) {
   return terms;
 }
 
-bool namesTerm(const std::vector<TermWeights>& entries,
-               absl::string_view term) {
+bool namesTerm(absl::Span<const TermWeights> entries, absl::string_view term) {
   return std::any_of(
       entries.begin(), entries.end(),
       [term](const TermWeights& entry) { return entry.term == term; });
@@ -117,7 +116,7 @@ bool namesTerm(const std::vector<TermWeights>& entries,
  * read by no term either way.
  */
 void reportStructuralChanges(const HotUpdateTarget& target,
-                             const std::vector<TermWeights>& reloaded) {
+                             absl::Span<const TermWeights> reloaded) {
   const std::vector<std::string> carried = carriedLinkCostTerms(target);
   if (carried.empty()) return;
   for (const TermWeights& entry : reloaded) {

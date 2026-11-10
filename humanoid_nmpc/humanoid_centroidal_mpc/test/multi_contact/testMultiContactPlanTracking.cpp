@@ -35,7 +35,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <filesystem>
 #include <limits>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -43,9 +42,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "Eigen/Geometry"
+#include "absl/container/btree_map.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PreComputation.h"
@@ -155,12 +156,12 @@ struct TrackingRun {
 };
 
 /** The multi-contact task file tracking `planFile` of `scenarioFile`. */
-CentroidalMpcConfig trackingConfig(const std::string& scenarioFile,
-                                   const std::string& planFile) {
+CentroidalMpcConfig trackingConfig(absl::string_view scenarioFile,
+                                   absl::string_view planFile) {
   CentroidalMpcConfig config =
       checkedValue(loadConfigOf(atlasMultiContactFiles()));
-  config.task.multi_contact_plan.scenario_file = scenarioFile;
-  config.task.multi_contact_plan.plan_file = planFile;
+  config.task.multi_contact_plan.scenario_file = std::string(scenarioFile);
+  config.task.multi_contact_plan.plan_file = std::string(planFile);
   return config;
 }
 
@@ -265,9 +266,9 @@ struct FailureKind {
 
 /** The kind of a certifier failure: its text up to the first number, with the
  * collision sphere's link kept. */
-std::string failureKindOf(const std::string& failure) {
+std::string failureKindOf(absl::string_view failure) {
   const size_t number = failure.find_first_of("0123456789");
-  return failure.substr(0, number);
+  return std::string(failure.substr(0, number));
 }
 
 /** Certifies the tracked trajectory of `run` on `scenarioFile` and expects
@@ -275,7 +276,7 @@ std::string failureKindOf(const std::string& failure) {
 void expectTheTrackedTrajectoryCertifies(
     const TrackingRun& run,
     const CentroidalMpcInterface& interface,
-    const std::string& scenarioFile) {
+    absl::string_view scenarioFile) {
   const multi_contact::LoadedScenario scenario =
       checkedValue(multi_contact::loadScenario(scenarioFile));
   std::unique_ptr<multi_contact::StabilityCertifier> certifier =
@@ -286,7 +287,7 @@ void expectTheTrackedTrajectoryCertifies(
   double worstPadDistance = 0.0;
   std::optional<double> smallestStaticMargin;
   std::vector<std::string> failures;
-  std::map<std::string, FailureKind> kinds;
+  absl::btree_map<std::string, FailureKind> kinds;
   for (const multi_contact::config::CertifierReport::Knot& knot :
        report.knots) {
     worstResidual = std::max(worstResidual, knot.wrench_cone_residual);
@@ -701,7 +702,7 @@ TEST(MultiContactPlanTracking, walksUpTheStairsAndBackwardDownOverAndOver) {
 vector3_t landingAlignmentResidualOf(
     CentroidalMpcInterface& interface,
     const vector_t& state,
-    const std::string& contactName,
+    absl::string_view contactName,
     const vector3_t& desNormalSurfaceEwrtWorld) {
   PinocchioInterface pinocchio = interface.getPinocchioInterface();
   const vector_t q =
@@ -710,7 +711,7 @@ vector3_t landingAlignmentResidualOf(
   pinocchio::updateFramePlacements(pinocchio.getModel(), pinocchio.getData());
   const vector3_t zAxisContactEwrtWorld =
       pinocchio.getData()
-          .oMf[pinocchio.getModel().getFrameId(contactName)]
+          .oMf[pinocchio.getModel().getFrameId(std::string(contactName))]
           .rotation()
           .col(kZAxisIndex);
   return zAxisContactEwrtWorld.cross(desNormalSurfaceEwrtWorld);

@@ -34,13 +34,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <functional>
-#include <mutex>
 #include <numbers>
 #include <utility>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/log/absl_check.h"
+#include "absl/synchronization/mutex.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
@@ -149,15 +149,15 @@ void TargetTrajectoriesCalculatorBase::reset() {}
 /******************************************************************************************************/
 
 void TargetTrajectoriesCalculatorBase::setSourcePosSurfaceRtWorldEwrtWorldZ(
-    std::function<scalar_t()> sourcePosSurfaceRtWorldEwrtWorldZ) {
-  std::lock_guard<std::mutex> lock(surfaceSourceMutex_);
+    absl::AnyInvocable<scalar_t() const> sourcePosSurfaceRtWorldEwrtWorldZ) {
+  absl::MutexLock lock(surfaceSourceMutex_);
   sourcePosSurfaceRtWorldEwrtWorldZ_ =
       std::move(sourcePosSurfaceRtWorldEwrtWorldZ);
 }
 
 scalar_t TargetTrajectoriesCalculatorBase::getPosSurfaceRtWorldEwrtWorldZ()
     const {
-  std::lock_guard<std::mutex> lock(surfaceSourceMutex_);
+  absl::MutexLock lock(surfaceSourceMutex_);
   return sourcePosSurfaceRtWorldEwrtWorldZ_
              ? sourcePosSurfaceRtWorldEwrtWorldZ_()
              : mpcRobotModelPtr_->modelSettings.posSurfaceRtWorldEwrtWorldZ;

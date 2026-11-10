@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
@@ -79,7 +80,7 @@ constexpr double kBaseVerticalWeight = 15.0;
 
 /** The joint positions `values` of `names`, in the MPC's joint order. */
 vector_t mpcJointsOf(const MpcRobotModelBase<scalar_t>& model,
-                     const std::vector<std::string>& names,
+                     absl::Span<const std::string> names,
                      const Eigen::VectorXd& values) {
   absl::flat_hash_map<std::string, double> byName;
   for (size_t j = 0; j < names.size(); ++j) byName[names[j]] = values(j);
@@ -98,7 +99,7 @@ vector_t mpcJointsOf(const MpcRobotModelBase<scalar_t>& model,
 
 /** [s] The retimed duration of runs of `oldDurations` at `factor`, each at
  * least `minimumRun`. */
-double retimedDuration(const std::vector<double>& oldDurations,
+double retimedDuration(absl::Span<const double> oldDurations,
                        double minimumRun,
                        double factor) {
   double sum = 0.0;
@@ -150,11 +151,11 @@ std::vector<double> knotGrid(double duration, double dt) {
 }
 
 MpcTrajectory resampledTrajectory(const MpcTrajectory& trajectory,
-                                  const std::vector<double>& times,
+                                  std::vector<double> times,
                                   const StateManifold* absl_nullable manifold) {
   MpcTrajectory resampled;
-  resampled.times = times;
-  for (const double time : times) {
+  resampled.times = std::move(times);
+  for (const double time : resampled.times) {
     resampled.states.push_back(interpolateStateTrajectory(
         manifold, time, trajectory.times, trajectory.states));
     size_t node = 0;
@@ -183,10 +184,10 @@ vector_t mpcStateOf(const MpcRobotModelBase<scalar_t>& model,
 absl::StatusOr<MpcTrajectory> mpcTrajectoryOfPlan(
     const config::MultiContactPlan& plan,
     const MpcRobotModelBase<scalar_t>& model,
-    const std::vector<std::string>& contactNames,
+    absl::Span<const std::string> contactNames,
     const ContactSet& contactSet,
     double mass,
-    const std::vector<double>& times) {
+    std::vector<double> times) {
   if (plan.knots.empty()) {
     return absl::InvalidArgumentError(
         absl::StrCat("plan '", plan.scenario, "' has no knot"));
@@ -194,8 +195,8 @@ absl::StatusOr<MpcTrajectory> mpcTrajectoryOfPlan(
   const std::vector<int> candidates =
       candidateIndicesOf(contactNames, contactSet);
   MpcTrajectory trajectory;
-  trajectory.times = times;
-  for (const double time : times) {
+  trajectory.times = std::move(times);
+  for (const double time : trajectory.times) {
     const size_t j = knotBefore(plan, time);
     const size_t next = std::min(j + 1, plan.knots.size() - 1);
     const PlanKnot& a = plan.knots[j];

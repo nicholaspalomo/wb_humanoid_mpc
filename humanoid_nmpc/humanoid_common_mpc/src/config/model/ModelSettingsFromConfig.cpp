@@ -52,6 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/frames.hpp"
@@ -132,7 +133,7 @@ struct NamedGain {
 
 /** The index of each name of `names` in it. */
 absl::flat_hash_map<std::string, size_t> indexMap(
-    const std::vector<std::string>& names) {
+    absl::Span<const std::string> names) {
   absl::flat_hash_map<std::string, size_t> indices;
   for (size_t i = 0; i < names.size(); ++i) {
     indices[names[i]] = i;
@@ -143,8 +144,8 @@ absl::flat_hash_map<std::string, size_t> indexMap(
 /** The joints of the URDF the MPC keeps: every joint that
  * model_settings.fixed_joint_names does not name, in order. */
 absl::StatusOr<std::vector<std::string>> activeJointNames(
-    const std::vector<std::string>& fullJointNames,
-    const std::vector<std::string>& fixedJointNames,
+    absl::Span<const std::string> fullJointNames,
+    absl::Span<const std::string> fixedJointNames,
     bool verbose) {
   // Every fixed joint once, and each a joint of the URDF: a misspelled name
   // would otherwise leave the joint active without a word, and a name given
@@ -202,8 +203,8 @@ absl::StatusOr<std::vector<std::string>> activeJointNames(
 
 /** Where each MPC joint is among the URDF's joints. */
 std::vector<size_t> mpcToFullJointIndices(
-    const std::vector<std::string>& fullJointNames,
-    const std::vector<std::string>& mpcJointNames) {
+    absl::Span<const std::string> fullJointNames,
+    absl::Span<const std::string> mpcJointNames) {
   const absl::flat_hash_map<std::string, size_t> fullIndices =
       indexMap(fullJointNames);
   std::vector<size_t> indices;
@@ -225,7 +226,7 @@ std::vector<size_t> mpcToFullJointIndices(
 absl::StatusOr<size_t> armJointIndex(
     const absl::flat_hash_map<std::string, size_t>& jointIndexMap,
     absl::string_view key,
-    const std::string& name) {
+    absl::string_view name) {
   const absl::flat_hash_map<std::string, size_t>::const_iterator found =
       jointIndexMap.find(name);
   if (found == jointIndexMap.end()) {
@@ -266,8 +267,8 @@ absl::Status checkSoftTermWeight(absl::string_view field, double weight) {
  */
 absl::StatusOr<std::vector<ModelSettings::PointContact>>
 pointContactsFromConfig(
-    const std::vector<mpc_config::ModelSettingsConfig::PointContact>& config,
-    const std::vector<std::string>& contactNames6DoF) {
+    absl::Span<const mpc_config::ModelSettingsConfig::PointContact> config,
+    absl::Span<const std::string> contactNames6DoF) {
   absl::flat_hash_set<std::string> names(contactNames6DoF.begin(),
                                          contactNames6DoF.end());
   std::vector<ModelSettings::PointContact> contacts;
@@ -371,23 +372,26 @@ class NeutralModel {
 
   /** The hip found by walking up from the joint `parentJointName`
    * (hipJointOf()), or nullopt when it is not a joint of the model. */
-  std::optional<Hip> derivedHip(const std::string& parentJointName) const {
-    if (parentJointName.empty() || !model_.existJointName(parentJointName)) {
+  std::optional<Hip> derivedHip(absl::string_view parentJointName) const {
+    // Pinocchio looks names up by const std::string&.
+    const std::string parentJoint(parentJointName);
+    if (parentJoint.empty() || !model_.existJointName(parentJoint)) {
       return std::nullopt;
     }
     const pinocchio::JointIndex hip =
-        hipJointOf(model_, model_.getJointId(parentJointName));
+        hipJointOf(model_, model_.getJointId(parentJoint));
     return Hip{.frameName = model_.names[hip],
                .posHipRtBaseEwrtBase = data_.oMi[hip].translation()};
   }
 
   /** The frame `frameName` as a hip, or nullopt when the model has no such
    * frame. */
-  std::optional<Hip> explicitHip(const std::string& frameName) const {
-    if (!model_.existFrame(frameName)) return std::nullopt;
-    return Hip{.frameName = frameName,
-               .posHipRtBaseEwrtBase =
-                   data_.oMf[model_.getFrameId(frameName)].translation()};
+  std::optional<Hip> explicitHip(absl::string_view frameName) const {
+    std::string frame(frameName);
+    if (!model_.existFrame(frame)) return std::nullopt;
+    const pinocchio::FrameIndex frameIndex = model_.getFrameId(frame);
+    return Hip{.frameName = std::move(frame),
+               .posHipRtBaseEwrtBase = data_.oMf[frameIndex].translation()};
   }
 
  private:
@@ -398,7 +402,7 @@ class NeutralModel {
 /** InvalidArgument naming `entry` unless `name` is a valid leg name that
  * `taken` does not hold. */
 absl::Status checkLegName(absl::string_view entry,
-                          const std::string& name,
+                          absl::string_view name,
                           const absl::flat_hash_set<std::string>& taken) {
   const bool alphanumeric =
       !name.empty() && std::all_of(name.begin(), name.end(), [](char c) {
@@ -541,7 +545,7 @@ absl::StatusOr<std::vector<size_t>> legContactIndicesFromConfig(
 absl::StatusOr<Hip> hipOfLegEntry(
     absl::string_view field,
     const mpc_config::ModelSettingsConfig::Leg& entry,
-    const std::string& firstParentJoint,
+    absl::string_view firstParentJoint,
     const NeutralModel& model) {
   if (!entry.hip_frame_name.empty()) {
     std::optional<Hip> hip = model.explicitHip(entry.hip_frame_name);
@@ -570,7 +574,7 @@ absl::StatusOr<Hip> hipOfLegEntry(
  * model_settings.legs[i] and what is wrong with it.
  */
 absl::StatusOr<std::vector<ModelSettings::Leg>> legsFromConfig(
-    const std::vector<mpc_config::ModelSettingsConfig::Leg>& config,
+    absl::Span<const mpc_config::ModelSettingsConfig::Leg> config,
     const ModelSettings& settings,
     const NeutralModel& model) {
   const std::vector<std::string> parents =
@@ -663,7 +667,7 @@ absl::StatusOr<std::vector<ModelSettings::Leg>> defaultBipedLegs(
 /** The legs of `settings`: model_settings.legs, the default biped legs, or
  * none. */
 absl::StatusOr<std::vector<ModelSettings::Leg>> legsOf(
-    const std::vector<mpc_config::ModelSettingsConfig::Leg>& config,
+    absl::Span<const mpc_config::ModelSettingsConfig::Leg> config,
     const ModelSettings& settings,
     const pinocchio::Model& urdfModel) {
   const NeutralModel model(urdfModel);
@@ -821,8 +825,8 @@ absl::StatusOr<ModelSettings::NominalFootholdConfig> nominalFootholdFromConfig(
 
 absl::StatusOr<ModelSettings> ModelSettings::Create(
     const mpc_config::TaskFile& taskFile,
-    const std::string& urdfFile,
-    const std::string& mpcName,
+    absl::string_view urdfFile,
+    absl::string_view mpcName,
     bool verbose) {
   const mpc_config::ModelSettingsConfig& config = taskFile.model_settings;
   if (verbose) {

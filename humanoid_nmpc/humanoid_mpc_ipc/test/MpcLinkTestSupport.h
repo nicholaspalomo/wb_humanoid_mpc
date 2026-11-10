@@ -32,14 +32,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
-#include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/function_ref.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "ocs2_core/Types.h"
@@ -221,7 +221,7 @@ std::unique_ptr<ManifoldScriptedMpc> makeManifoldScriptedMpc(
 
 /** Polls `condition` every millisecond until it holds or `timeout` passes;
  * returns whether it held. */
-bool waitFor(const std::function<bool()>& condition,
+bool waitFor(absl::FunctionRef<bool()> condition,
              absl::Duration timeout = kTimeout);
 
 /**
@@ -229,7 +229,7 @@ bool waitFor(const std::function<bool()>& condition,
  * `domainIndex` (robot::ipc::isolatedTestNetwork()): the buses of one domain
  * reach each other, those of two domains never do.
  */
-std::unique_ptr<robot::ipc::Bus> createNodeBus(const std::string& name,
+std::unique_ptr<robot::ipc::Bus> createNodeBus(absl::string_view name,
                                                int domainIndex = 0);
 
 /** A bus that only subscribes, on this test process's DDS domain number

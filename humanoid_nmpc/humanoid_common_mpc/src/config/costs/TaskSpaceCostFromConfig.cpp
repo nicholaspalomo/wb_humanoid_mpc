@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -215,7 +216,7 @@ absl::StatusOr<TaskSpaceFootCostSettings> taskSpaceFootCostFromConfig(
 
 absl::StatusOr<std::vector<TaskSpaceLinkCostSettings>>
 taskSpaceLinkCostsFromConfig(
-    const std::vector<mpc_config::TaskSpaceCostConfig>& costs) {
+    absl::Span<const mpc_config::TaskSpaceCostConfig> costs) {
   std::vector<TaskSpaceLinkCostSettings> settings;
   settings.reserve(costs.size());
   absl::flat_hash_set<std::string> names;

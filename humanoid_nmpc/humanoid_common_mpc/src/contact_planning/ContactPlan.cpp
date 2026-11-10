@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "absl/types/span.h"
 #include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
@@ -168,7 +169,7 @@ void ContactPlan::shiftInTime(scalar_t shift) {
 
 namespace {
 template <typename VALUE_T>
-std::optional<VALUE_T> interpolateNodes(const std::vector<VALUE_T>& values,
+std::optional<VALUE_T> interpolateNodes(absl::Span<const VALUE_T> values,
                                         scalar_t startTime,
                                         scalar_t dt,
                                         scalar_t time) {
@@ -185,7 +186,7 @@ std::optional<VALUE_T> interpolateNodes(const std::vector<VALUE_T>& values,
 std::optional<scalar_t> ContactPlan::headingModelYawAtTime(
     scalar_t time) const {
   if (!hasHeading()) return std::nullopt;
-  return interpolateNodes(headingModelYawTraj, startTime, dt, time);
+  return interpolateNodes<scalar_t>(headingModelYawTraj, startTime, dt, time);
 }
 
 scalar_t ContactPlan::getYawHeadingRtWorld(scalar_t time) const {
@@ -202,7 +203,8 @@ scalar_t ContactPlan::getYawHeadingRtWorld(scalar_t time) const {
 std::optional<scalar_t> ContactPlan::headingModelYawRateAtTime(
     scalar_t time) const {
   if (!hasHeading() || headingModelYawRateTraj.empty()) return std::nullopt;
-  return interpolateNodes(headingModelYawRateTraj, startTime, dt, time);
+  return interpolateNodes<scalar_t>(headingModelYawRateTraj, startTime, dt,
+                                    time);
 }
 
 std::optional<scalar_t> ContactPlan::getDesEulerzyxFootRtWorldYaw(
@@ -243,16 +245,16 @@ std::optional<vector2_t> ContactPlan::evaluatePosComRtWorldEwrtWorldXy(
     scalar_t time) const {
   const std::optional<LipState> state = planReducedModelState(*this, time);
   if (state.has_value()) return state->posComRtWorldEwrtWorldXy;
-  return interpolateNodes(posComRtWorldEwrtWorldXyTraj, startTime, dt,
-                          valid ? time : startTime);
+  return interpolateNodes<vector2_t>(posComRtWorldEwrtWorldXyTraj, startTime,
+                                     dt, valid ? time : startTime);
 }
 
 std::optional<vector2_t> ContactPlan::evaluateLinvelComRtWorldEwrtWorldXy(
     scalar_t time) const {
   const std::optional<LipState> state = planReducedModelState(*this, time);
   if (state.has_value()) return state->linvelComRtWorldEwrtWorldXy;
-  return interpolateNodes(linvelComRtWorldEwrtWorldXyTraj, startTime, dt,
-                          valid ? time : startTime);
+  return interpolateNodes<vector2_t>(linvelComRtWorldEwrtWorldXyTraj, startTime,
+                                     dt, valid ? time : startTime);
 }
 
 std::optional<vector2_t> ContactPlan::getDesPosFootRtWorldEwrtWorldXy(

@@ -30,9 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <string>
-#include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc_app/robot/FallRecovery.h"
@@ -66,7 +66,7 @@ class HardwareFallRecovery final : public FallRecovery {
   ~HardwareFallRecovery() override = default;
 
   Cycle update(const robot::model::RobotState& robotState,
-               const std::vector<scalar_t>& nominalJointPositions,
+               absl::Span<const scalar_t> nominalJointPositions,
                std::string& currentModeName) override;
 
  private:

@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 
 namespace ocs2::humanoid::multi_contact {
 
@@ -91,8 +92,8 @@ struct StanceSchedule {
  * InvalidArgument for inconsistent sizes or times that do not increase.
  */
 absl::StatusOr<StanceSchedule> thresholdActivations(
-    const std::vector<double>& times,
-    const std::vector<std::vector<double>>& activations,
+    absl::Span<const double> times,
+    absl::Span<const std::vector<double>> activations,
     const std::vector<bool>& initial,
     const std::vector<bool>& final,
     const ThresholdingOptions& options);

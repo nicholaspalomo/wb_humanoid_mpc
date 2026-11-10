@@ -35,7 +35,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
-#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -47,12 +46,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Dimensions.h"
@@ -141,9 +142,9 @@ constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 /** Whether `collection` carries a term named `name`. */
 template <typename Term>
-bool hasTerm(const Collection<Term>& collection, const std::string& name) {
+bool hasTerm(const Collection<Term>& collection, absl::string_view name) {
   size_t index = 0;
-  return collection.getTermIndex(name, index);
+  return collection.getTermIndex(std::string(name), index);
 }
 
 /** The entry of `joint` in `joints` (a block of joint values by name); a
@@ -227,17 +228,17 @@ vector_t penaltyParameters(SoftConstraint& softConstraint) {
 }
 
 StateInputSoftConstraint& complementarityTerm(OptimalControlProblem& ocp,
-                                              const std::string& footName) {
+                                              absl::string_view footName) {
   return ocp.softConstraintPtr->get<StateInputSoftConstraint>(
       contact_term::name(footName, contact_term::kContactComplementarity));
 }
 StateInputSoftConstraint& slipTerm(OptimalControlProblem& ocp,
-                                   const std::string& footName) {
+                                   absl::string_view footName) {
   return ocp.softConstraintPtr->get<StateInputSoftConstraint>(
       contact_term::name(footName, contact_term::kForceWeightedSlipName));
 }
 StateSoftConstraint& penetrationTerm(OptimalControlProblem& ocp,
-                                     const std::string& footName) {
+                                     absl::string_view footName) {
   return ocp.stateSoftConstraintPtr->get<StateSoftConstraint>(
       contact_term::name(footName, contact_term::kGroundPenetration));
 }
@@ -245,7 +246,7 @@ StateSoftConstraint& penetrationTerm(OptimalControlProblem& ocp,
 /** The one ground every contact-implicit term of every worker is on, or NaN
  * when they disagree or there is none. */
 scalar_t contactImplicitTermsPosSurfaceRtWorldEwrtWorldZ(
-    SqpSolver& solver, const std::vector<std::string>& contactNames) {
+    SqpSolver& solver, absl::Span<const std::string> contactNames) {
   std::vector<scalar_t> posSurfacesRtWorldEwrtWorldZ;
   for (OptimalControlProblem& ocp : solver.getOcpDefinitions()) {
     for (const std::string& footName : contactNames) {
@@ -305,7 +306,7 @@ struct Built {
 
 /** The MPC of `config` and the Atlas URDF; fails the test and has no interface
  * when it is refused. */
-Built build(const CentroidalMpcConfig& config, const std::string& urdfFile) {
+Built build(const CentroidalMpcConfig& config, absl::string_view urdfFile) {
   Built built;
   absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created =
       CentroidalMpcInterface::Create(config, urdfFile);
@@ -329,23 +330,23 @@ struct WatchedFiles {
 };
 
 /** The task file `path` watched, alone. */
-WatchedFiles watchingTaskFile(const std::string& path) {
+WatchedFiles watchingTaskFile(std::string path) {
   WatchedFiles watched;
-  watched.taskFile = path;
+  watched.taskFile = std::move(path);
   return watched;
 }
 
 /** The reference file `path` watched, alone. */
-WatchedFiles watchingReferenceFile(const std::string& path) {
+WatchedFiles watchingReferenceFile(std::string path) {
   WatchedFiles watched;
-  watched.referenceFile = path;
+  watched.referenceFile = std::move(path);
   return watched;
 }
 
 /** The contact planner's file `path` watched, alone. */
-WatchedFiles watchingContactPlanningFile(const std::string& path) {
+WatchedFiles watchingContactPlanningFile(std::string path) {
   WatchedFiles watched;
-  watched.contactPlanningFile = path;
+  watched.contactPlanningFile = std::move(path);
   return watched;
 }
 
@@ -418,13 +419,11 @@ void runFileWatch(MpcParameterUpdaterModule& updater, const Built& built) {
 
 /** Writes `text` to `path` with a modification time `seconds` after the test
  * started, so that every write is seen. */
-void writeWatched(const std::string& path,
-                  absl::string_view text,
-                  int seconds) {
+void writeWatched(absl::string_view path, absl::string_view text, int seconds) {
   ASSERT_TRUE(writeTextFile(path, text).ok());
   std::error_code error;
   std::filesystem::last_write_time(
-      path,
+      std::filesystem::path(path),
       std::filesystem::file_time_type::clock::now() +
           std::chrono::seconds(seconds),
       error);
@@ -453,19 +452,20 @@ std::string inputCostTerm(const OptimalControlProblem& ocp) {
 
 /** Q of the term `term` of `ocp`. */
 matrix_t stateWeightsOf(const OptimalControlProblem& ocp,
-                        const std::string& term) {
-  return ocp.costPtr->get<TuningQuadraticStateInputCost>(term)
+                        absl::string_view term) {
+  return ocp.costPtr->get<TuningQuadraticStateInputCost>(std::string(term))
       .getStateWeights();
 }
 
 /** R of the term `term` of `ocp`: the input-only inputQuadraticCost's, or a
  * TuningQuadraticStateInputCost's. */
 matrix_t inputWeightsOf(const OptimalControlProblem& ocp,
-                        const std::string& term) {
+                        absl::string_view term) {
+  const std::string name(term);
   if (term == "inputQuadraticCost") {
-    return ocp.costPtr->get<InputQuadraticCost>(term).getInputWeights();
+    return ocp.costPtr->get<InputQuadraticCost>(name).getInputWeights();
   }
-  return ocp.costPtr->get<TuningQuadraticStateInputCost>(term)
+  return ocp.costPtr->get<TuningQuadraticStateInputCost>(name)
       .getInputWeights();
 }
 
@@ -900,7 +900,7 @@ TEST_F(
   std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(
       atlas_, atlas_.interface->getSwitchedModelReferenceManagerPtr().get());
   ASSERT_NE(updater, nullptr);
-  const std::function<void(scalar_t, scalar_t)> expectOnEveryWorker =
+  const absl::AnyInvocable<void(scalar_t, scalar_t) const> expectOnEveryWorker =
       [this](scalar_t nomPosComRtFeetmeanEwrtWorldZ, scalar_t weightX) {
         for (OptimalControlProblem& ocp : atlas_.solver().getOcpDefinitions()) {
           const DcmTerminalCost& cost = ocp.finalCostPtr->get<DcmTerminalCost>(
@@ -1235,7 +1235,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
   ASSERT_NE(updater, nullptr);
   struct Case {
     std::string name;
-    std::function<void(mpc_config::TaskFile&)> edit;
+    void (*absl_nonnull edit)(mpc_config::TaskFile&);
     std::string field;
   };
   const std::vector<Case> cases = {
@@ -1392,7 +1392,7 @@ TEST_F(
  * hard or soft. */
 std::vector<EndEffectorKinematicsTwistConstraint* absl_nonnull>
 zeroVelocityTwistConstraints(SqpSolver& solver,
-                             const std::vector<std::string>& contactNames) {
+                             absl::Span<const std::string> contactNames) {
   std::vector<EndEffectorKinematicsTwistConstraint* absl_nonnull> found;
   for (OptimalControlProblem& ocp : solver.getOcpDefinitions()) {
     for (const std::string& footName : contactNames) {
@@ -1510,7 +1510,8 @@ TEST_F(MpcParameterUpdaterModuleTest,
   config.task.soft_constraints.emplace_back("zero_velocity");
   const Built built = build(config, files_.urdfFile);
   ASSERT_NE(built.interface, nullptr);
-  const std::function<scalar_t(OptimalControlProblem&, const std::string&)>
+  const absl::AnyInvocable<scalar_t(OptimalControlProblem&, const std::string&)
+                               const>
       installedWeight =
           [](OptimalControlProblem& ocp, const std::string& footName) {
             // 0.5 * weight at a unit residual, for the quadratic penalty.
@@ -1702,7 +1703,7 @@ TEST_F(
       config.task.contact_implicit.complementarity_weight;
   struct Case {
     std::string name;
-    std::function<void(mpc_config::ContactImplicitConfig&)> edit;
+    void (*absl_nonnull edit)(mpc_config::ContactImplicitConfig&);
     std::string field;
   };
   const std::vector<Case> cases = {
@@ -2085,15 +2086,15 @@ TEST_F(MpcParameterUpdaterModuleTest,
   std::unique_ptr<MpcParameterUpdaterModule> updater = makeUpdater(atlas_);
   ASSERT_NE(updater, nullptr);
   const size_t running = atlas_.solver().getSettings().sqpIteration;
-  const std::function<mpc_config::MpcParameterUpdate(size_t)> withIterations =
-      [this](size_t iterations) {
+  const absl::AnyInvocable<mpc_config::MpcParameterUpdate(size_t) const>
+      withIterations = [this](size_t iterations) {
         mpc_config::MpcParameterUpdate update;
         update.task = shippedTask();
         update.task.multiple_shooting.sqp_iteration =
             static_cast<int32_t>(iterations);
         return update;
       };
-  const std::function<void()> solve = [&]() {
+  const absl::AnyInvocable<void() const> solve = [&]() {
     updater->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0,
                           atlas_.interface->getInitialState(),
                           *atlas_.interface->getReferenceManagerPtr());
@@ -2260,7 +2261,7 @@ TEST_F(MpcParameterUpdaterModuleTest,
   // cmd_max_err_pos_base_rt_surface_ewrt_world_z and adds
   // nom_pos_base_rt_surface_ewrt_world_z, so both reloaded values appear in the
   // target it returns.
-  const std::function<mpc_config::ReferenceFile(scalar_t, scalar_t)>
+  const absl::AnyInvocable<mpc_config::ReferenceFile(scalar_t, scalar_t) const>
       referenceWith = [this](scalar_t cmdMaxErrPosBaseRtSurfaceEwrtWorldZ,
                              scalar_t nomPosBaseRtSurfaceEwrtWorldZ) {
         mpc_config::ReferenceFile reference = shipped_.reference;
@@ -2278,13 +2279,15 @@ TEST_F(MpcParameterUpdaterModuleTest,
           atlas_.interface->mpcSettings().timeHorizon_));
   const vector_t& state = atlas_.interface->getInitialState();
   const vector4_t deepCrouch(0.0, 0.0, -10.0, 0.0);
-  const std::function<scalar_t()> refPosBaseRtWorldEwrtWorldZ = [&]() {
-    const TargetTrajectories target =
-        calculator->poseCommandToTargetTrajectories(deepCrouch,
-                                                    /*initTime=*/0.0, state);
-    return atlas_.interface->getEffectiveMpcRobotModel()
-        .getPosBaseRtWorldEwrtWorld(target.stateTrajectory.back())(2);
-  };
+  const absl::AnyInvocable<scalar_t() const> refPosBaseRtWorldEwrtWorldZ =
+      [&]() {
+        const TargetTrajectories target =
+            calculator->poseCommandToTargetTrajectories(deepCrouch,
+                                                        /*initTime=*/0.0,
+                                                        state);
+        return atlas_.interface->getEffectiveMpcRobotModel()
+            .getPosBaseRtWorldEwrtWorld(target.stateTrajectory.back())(2);
+      };
   EXPECT_NEAR(refPosBaseRtWorldEwrtWorldZ(), 0.90 - 0.10, 1.0e-6);
   // What a reload of the reference file hands the calculator
   // (MpcParameterUpdaterModule::ReferenceFileReloader).
@@ -2333,15 +2336,19 @@ TEST_F(
   mpc.getSolverPtr()->setReferenceManager(interface->getReferenceManagerPtr());
   std::vector<scalar_t> reloadedCmdMaxAngvelBaseRtWorldEwrtWorldZ;
   absl::Time now = absl::FromUnixSeconds(1000);
+  // A reloader is move-only, so the list is built by emplace_back rather than
+  // from braces.
+  std::vector<MpcParameterUpdaterModule::ReferenceFileReloader> reloaders;
+  reloaders.emplace_back([&reloadedCmdMaxAngvelBaseRtWorldEwrtWorldZ](
+                             const ReferenceSettings& settings) {
+    reloadedCmdMaxAngvelBaseRtWorldEwrtWorldZ.push_back(
+        settings.cmdMaxAngvelBaseRtWorldEwrtWorldZ);
+    return absl::OkStatus();
+  });
   absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> wired =
       makeCentroidalMpcParameterUpdater(
           &mpc, *interface, files->taskFile, files->referenceFile,
-          {[&reloadedCmdMaxAngvelBaseRtWorldEwrtWorldZ](
-               const ReferenceSettings& settings) {
-            reloadedCmdMaxAngvelBaseRtWorldEwrtWorldZ.push_back(
-                settings.cmdMaxAngvelBaseRtWorldEwrtWorldZ);
-            return absl::OkStatus();
-          }},
+          std::move(reloaders),
           /*taskFileReadAt=*/std::nullopt,
           /*referenceFileReadAt=*/std::nullopt,
           /*contactPlanningFileReadAt=*/std::nullopt,
@@ -2349,13 +2356,13 @@ TEST_F(
           /*clock=*/[&now]() { return now; });
   ASSERT_TRUE(wired.ok()) << wired.status();
   MpcParameterUpdaterModule& updater = **wired;
-  const std::function<void()> runUpdater = [&]() {
+  const absl::AnyInvocable<void() const> runUpdater = [&]() {
     now += absl::Seconds(1);
     updater.preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0,
                          interface->getInitialState(),
                          *interface->getReferenceManagerPtr());
   };
-  const std::function<scalar_t()> pitchGain = [&interface]() {
+  const absl::AnyInvocable<scalar_t() const> pitchGain = [&interface]() {
     return basePoseHeuristicOffsetAtForwardSpeed(
                *interface->getLocomotionHeuristicLayerPtr(),
                /*cmdLinvelBaseRtWorldEwrtHeadingX=*/1.0)

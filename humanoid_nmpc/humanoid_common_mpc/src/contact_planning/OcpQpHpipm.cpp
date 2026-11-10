@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -212,8 +213,8 @@ OcpQpStage OcpQpStage::Zero(int nx, int nu, OcpQpStageKind kind) {
 }
 
 scalar_t evaluateOcpQpObjective(const OcpQpProblem& problem,
-                                const std::vector<vector_t>& x,
-                                const std::vector<vector_t>& u) {
+                                absl::Span<const vector_t> x,
+                                absl::Span<const vector_t> u) {
   const int N = problem.numStages();
   scalar_t objective = 0.0;
   for (int k = 0; k <= N; ++k) {
@@ -251,8 +252,8 @@ scalar_t evaluateOcpQpObjective(const OcpQpProblem& problem,
 }
 
 scalar_t evaluateOcpQpMaxHardViolation(const OcpQpProblem& problem,
-                                       const std::vector<vector_t>& x,
-                                       const std::vector<vector_t>& u) {
+                                       absl::Span<const vector_t> x,
+                                       absl::Span<const vector_t> u) {
   const int N = problem.numStages();
   scalar_t maxViolation = (x[0] - problem.x0).cwiseAbs().maxCoeff();
   for (int k = 0; k <= N; ++k) {

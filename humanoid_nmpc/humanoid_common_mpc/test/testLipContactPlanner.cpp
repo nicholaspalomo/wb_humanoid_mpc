@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdint>
 #include <deque>
-#include <functional>
 #include <limits>
 #include <memory>
 #include <numbers>
@@ -44,9 +43,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
@@ -584,8 +586,8 @@ TEST(LipContactPlannerTest, MinimumDoubleSupportForbidsASimultaneousSwitch) {
   ContactPlannerInput input =
       makeStandingInput();  // both feet down for a long time
 
-  const std::function<MiqpAssignment(int)> assignmentWithRightLiftOffAt =
-      [&](int liftOffNode) {
+  const absl::AnyInvocable<MiqpAssignment(int) const>
+      assignmentWithRightLiftOffAt = [&](int liftOffNode) {
         MiqpAssignment a = planner->initialAssignment(input);
         for (int k = 0; k < config.planner.numNodes; ++k) {
           a[LipContactPlanner::contactBinaryIndex(k, /*foot=*/0)] =
@@ -634,15 +636,16 @@ TEST(LipContactPlannerTest,
   ContactPlannerInput input = makeStandingInput();
   input.contacts = {true, false};  // right foot swinging
   input.phaseElapsedTime = {1.0, 0.16};
-  const std::function<MiqpAssignment(int)> rightLandsAt = [&](int node) {
-    MiqpAssignment a = planner->initialAssignment(input);
-    for (int k = 0; k < config.planner.numNodes; ++k) {
-      a[LipContactPlanner::contactBinaryIndex(k, /*foot=*/0)] = 1;
-      a[LipContactPlanner::contactBinaryIndex(k, /*foot=*/1)] =
-          (k < node) ? 0 : 1;
-    }
-    return a;
-  };
+  const absl::AnyInvocable<MiqpAssignment(int) const> rightLandsAt =
+      [&](int node) {
+        MiqpAssignment a = planner->initialAssignment(input);
+        for (int k = 0; k < config.planner.numNodes; ++k) {
+          a[LipContactPlanner::contactBinaryIndex(k, /*foot=*/0)] = 1;
+          a[LipContactPlanner::contactBinaryIndex(k, /*foot=*/1)] =
+              (k < node) ? 0 : 1;
+        }
+        return a;
+      };
   MiqpAssignment tooShort = rightLandsAt(1);  // 0.16 + 0.1 = 0.26 s
   EXPECT_FALSE(planner->propagate(input, tooShort))
       << "a 0.26 s swing violates the 0.3 s minimum";
@@ -699,7 +702,7 @@ TEST(LipContactPlannerTest,
   input.committedPhaseStartTimes = {
       {longAgo, 0.57}, {longAgo, 0.57}, {longAgo, 0.97}};
 
-  const std::function<MiqpAssignment(int, int)> assignment =
+  const absl::AnyInvocable<MiqpAssignment(int, int) const> assignment =
       [&](int leftLiftOff, int rightLiftOff) {
         MiqpAssignment a = planner->initialAssignment(input);
         for (int k = 0; k < config.planner.numNodes; ++k) {
@@ -815,7 +818,7 @@ TEST(LipContactPlannerTest,
   // where it can, node 4. `firstFoot` lifts now (swing 0..2, lands at 3, stands
   // to the 0.6 s limit, lifts again at 8); the other foot lifts at
   // `secondLiftOff`.
-  const std::function<MiqpAssignment(size_t, int)> sequenceLifting =
+  const absl::AnyInvocable<MiqpAssignment(size_t, int) const> sequenceLifting =
       [&](size_t firstFoot, int secondLiftOff) {
         const size_t secondFoot = 1 - firstFoot;
         MiqpAssignment a = planner->initialAssignment(input);
@@ -827,9 +830,10 @@ TEST(LipContactPlannerTest,
         }
         return a;
       };
-  const std::function<MiqpAssignment(int)> sequence = [&](int secondLiftOff) {
-    return sequenceLifting(/*firstFoot=*/0, secondLiftOff);
-  };
+  const absl::AnyInvocable<MiqpAssignment(int) const> sequence =
+      [&](int secondLiftOff) {
+        return sequenceLifting(/*firstFoot=*/0, secondLiftOff);
+      };
   MiqpAssignment liftsWhenAllowed = sequence(4);
   EXPECT_TRUE(planner->propagate(input, liftsWhenAllowed));
   MiqpAssignment liftsInsideDoubleSupport = sequence(3);
@@ -878,8 +882,8 @@ TEST(LipContactPlannerTest,
 
 namespace {
 /** A complete assignment from the per-node contact states of the two feet. */
-MiqpAssignment assignmentFromFeet(const std::vector<int>& left,
-                                  const std::vector<int>& right) {
+MiqpAssignment assignmentFromFeet(absl::Span<const int> left,
+                                  absl::Span<const int> right) {
   MiqpAssignment a(LipContactPlanner::kBinariesPerNode * left.size(),
                    kMiqpFree);
   for (size_t k = 0; k < left.size(); ++k) {
@@ -1079,8 +1083,8 @@ ModeSchedule walkRecedingHorizon(const ContactPlanningConfig& c,
   std::deque<std::pair<int, ContactPlan>>
       pending;  // (tick at which the plan is applied, plan)
 
-  const std::function<void(const ModeSchedule&, scalar_t,
-                           const char* absl_nonnull, scalar_t)>
+  const absl::AnyInvocable<void(const ModeSchedule&, scalar_t,
+                                const char* absl_nonnull, scalar_t) const>
       checkFutureSwings = [&](const ModeSchedule& schedule, scalar_t from,
                               const char* absl_nonnull label, scalar_t t) {
         forEachSwing(schedule,
@@ -1096,22 +1100,22 @@ ModeSchedule walkRecedingHorizon(const ContactPlanningConfig& c,
   // The reference manager's activation: merge at the plan's own boundary; a
   // stale plan or one that contradicts a swing in flight at the merge point is
   // dropped.
-  const std::function<void(int, scalar_t)> activateDuePlans = [&](int step,
-                                                                  scalar_t t) {
-    while (!pending.empty() && pending.front().first <= step) {
-      const ContactPlan& due = pending.front().second;
-      const scalar_t commitTime = std::max(t, due.committedUntil);
-      const bool fresh = due.committedUntil >= t - 1.0e-6;
-      if (fresh && planAgreesWithSwingsInFlight(applied, due, commitTime)) {
-        const ModeSchedule planSchedule = due.toModeSchedule();
-        applied = mergeModeSchedules(applied, planSchedule, commitTime,
-                                     /*lowerBoundTime=*/-10.0, t + 2.4);
-        checkFutureSwings(planSchedule, commitTime, "plan", t);
-        checkFutureSwings(applied, t, "merged", t);
-      }
-      pending.pop_front();
-    }
-  };
+  const absl::AnyInvocable<void(int, scalar_t) const> activateDuePlans =
+      [&](int step, scalar_t t) {
+        while (!pending.empty() && pending.front().first <= step) {
+          const ContactPlan& due = pending.front().second;
+          const scalar_t commitTime = std::max(t, due.committedUntil);
+          const bool fresh = due.committedUntil >= t - 1.0e-6;
+          if (fresh && planAgreesWithSwingsInFlight(applied, due, commitTime)) {
+            const ModeSchedule planSchedule = due.toModeSchedule();
+            applied = mergeModeSchedules(applied, planSchedule, commitTime,
+                                         /*lowerBoundTime=*/-10.0, t + 2.4);
+            checkFutureSwings(planSchedule, commitTime, "plan", t);
+            checkFutureSwings(applied, t, "merged", t);
+          }
+          pending.pop_front();
+        }
+      };
 
   for (int step = 0; step < steps; ++step) {
     const scalar_t t = tick * step;
@@ -1275,7 +1279,7 @@ TEST(
   // just landed was lifted again at once and the robot was thrown.
   const ContactPlanningConfig c = recedingHorizonConfig();
   for (int latency : {1, 2, 3}) {
-    SCOPED_TRACE("latency ticks: " + std::to_string(latency));
+    SCOPED_TRACE(absl::StrCat("latency ticks: ", latency));
     const ModeSchedule applied =
         walkRecedingHorizon(c, latency, /*tick=*/0.05, /*steps=*/60);
     expectExecutedSwingsRespectTheMinimum(applied, c, 0.05 * 60);
@@ -1652,8 +1656,8 @@ TEST(LipContactPlannerHeading,
   // before the wrap: the step-width rows are soft and a turn in place bends
   // them by a few centimeters, but a nominal on the wrong branch bent them by a
   // meter.
-  const std::function<scalar_t(const ContactPlan&)> worstWidthViolation =
-      [&](const ContactPlan& plan) {
+  const absl::AnyInvocable<scalar_t(const ContactPlan&) const>
+      worstWidthViolation = [&](const ContactPlan& plan) {
         scalar_t worst = 0.0;
         for (int k = 0; k <= c.planner.numNodes; ++k) {
           const bool bothDown =
@@ -2018,7 +2022,7 @@ TEST(LipContactPlannerModel,
 
   // Budget of `foot` given the contact state: the tightest upper bound the
   // torque rows leave for +tau (the -tau rows are the mirror image).
-  const std::function<scalar_t(size_t, bool, bool)> budget =
+  const absl::AnyInvocable<scalar_t(size_t, bool, bool) const> budget =
       [&](size_t foot, bool left, bool right) {
         vector_t u = vector_t::Zero(s.numInputs());
         u(LipContactPlanner::kCl) = left ? 1.0 : 0.0;
@@ -2326,8 +2330,9 @@ TEST(LipContactPlannerModel, ZmpRowsSelectTheSupportOfTheContactState) {
 
   // Largest violation over the soft rows that involve the ZMP for the given ZMP
   // and contact state.
-  const std::function<scalar_t(const vector2_t&, bool, bool)> zmpViolation =
-      [&](const vector2_t& posZmpRtWorldEwrtWorldXy, bool left, bool right) {
+  const absl::AnyInvocable<scalar_t(const vector2_t&, bool, bool) const>
+      zmpViolation = [&](const vector2_t& posZmpRtWorldEwrtWorldXy, bool left,
+                         bool right) {
         vector_t x = vector_t::Zero(s.numStates());
         x.segment<2>(P::kPlx) = posLfootRtWorldEwrtWorldXy;
         x.segment<2>(P::kPrx) = posRfootRtWorldEwrtWorldXy;
@@ -2472,7 +2477,7 @@ TEST(LipContactPlannerModel, TerminalNodeCarriesTheKinematicRows) {
           << heading << ")";
     }
     // Evaluated on hand-set terminal states.
-    const std::function<scalar_t(const vector_t&)> violation =
+    const absl::AnyInvocable<scalar_t(const vector_t&) const> violation =
         [&](const vector_t& x) {
           const vector_t value = terminal.C * x;
           scalar_t worst = -std::numeric_limits<scalar_t>::infinity();
@@ -2678,7 +2683,7 @@ TEST(LipContactPlannerTest,
  */
 TEST(LipContactPlannerTest,
      DoubleSupportPenaltyRemovesTheTransitionDoubleSupport) {
-  const std::function<ContactPlan(scalar_t)> planAt =
+  const absl::AnyInvocable<ContactPlan(scalar_t) const> planAt =
       [](scalar_t doubleSupportCost) {
         ContactPlanningConfig config = makeConfig();
         config.shared.gaitLimits.minContactDuration = 0.1;
@@ -2700,8 +2705,8 @@ TEST(LipContactPlannerTest,
   // Double-support nodes, and exchanges of support that happen in a single node
   // (single support on one foot becomes single support on the other with no
   // double-support node between them).
-  const std::function<std::pair<int, int>(const ContactPlan&)> count =
-      [](const ContactPlan& plan) {
+  const absl::AnyInvocable<std::pair<int, int>(const ContactPlan&) const>
+      count = [](const ContactPlan& plan) {
         int doubleSupportNodes = 0;
         int exchanges = 0;
         for (const BipedFeetArray<bool>& c : plan.contacts) {
@@ -2832,9 +2837,9 @@ ContactPlanningConfig cadenceStretchConfig() {
 /** The same with the heading model, for the tests that need a linearization
  * frame and a re-linearization stage. */
 ContactPlanningConfig headingCadenceStretchConfig(
-    const std::vector<std::string>& search) {
+    std::vector<std::string> search) {
   ContactPlanningConfig config = headingConfig();
-  config.formulation.search = search;
+  config.formulation.search = std::move(search);
   // step_width is the only cost besides heading_tracking that writes the linear
   // term of the heading state, because it carries the first-order frame term of
   // the foot separation. The last test below reads that entry to recover what
@@ -3158,7 +3163,7 @@ TEST(
                                     term::kEventShiftLocalSearch));
   stage->configure(config);
 
-  const std::function<MiqpAssignment(scalar_t)> searchOnGrid =
+  const absl::AnyInvocable<MiqpAssignment(scalar_t) const> searchOnGrid =
       [&](scalar_t chosenDt) {
         const scalar_t nodeDuration =
             chosenDt > 0.0 ? chosenDt : config.planner.dt;
@@ -3192,7 +3197,7 @@ TEST(
         EXPECT_EQ(stage->afterSearch(run), absl::OkStatus());
         return result.assignment;
       };
-  const std::function<int(const MiqpAssignment&)> leftSwingNodes =
+  const absl::AnyInvocable<int(const MiqpAssignment&) const> leftSwingNodes =
       [numNodes](const MiqpAssignment& a) {
         int nodes = 0;
         for (int node = 0; node < numNodes; ++node) {
@@ -3408,9 +3413,9 @@ TEST(LipContactPlannerHeading,
  */
 TEST(LipContactPlannerSearchStages,
      AStageThatCannotRebuildTheProblemReturnsTheErrorAndKeepsTheIncumbent) {
-  const std::function<SearchRun(const ContactPlanningConfig&,
-                                const LipContactPlanner::Layout&, MiqpResult&,
-                                SearchStatistics&)>
+  const absl::AnyInvocable<SearchRun(const ContactPlanningConfig&,
+                                     const LipContactPlanner::Layout&,
+                                     MiqpResult&, SearchStatistics&) const>
       makeRun = [](const ContactPlanningConfig& config,
                    const LipContactPlanner::Layout& layout, MiqpResult& result,
                    SearchStatistics& statistics) {

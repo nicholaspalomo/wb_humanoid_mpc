@@ -84,7 +84,7 @@ class JointTorqueCostCppAd final : public StateInputCostGaussNewtonAd {
       const vector_t& weights,
       const PinocchioInterface& pinocchioInterface,
       const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
-      const std::string& costName,
+      absl::string_view costName,
       const ModelSettings& modelSettings);
 
   ~JointTorqueCostCppAd() override = default;
@@ -127,7 +127,7 @@ class JointTorqueCostCppAd final : public StateInputCostGaussNewtonAd {
   JointTorqueCostCppAd(const vector_t& weights,
                        const PinocchioInterface& pinocchioInterface,
                        const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
-                       const std::string& costName,
+                       absl::string_view costName,
                        const ModelSettings& modelSettings);
   JointTorqueCostCppAd(const JointTorqueCostCppAd& other);
 

@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <cstddef>
-#include <functional>
 #include <memory>
 #include <numbers>
 #include <optional>
@@ -42,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Geometry"
 #include "absl/base/nullability.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
@@ -106,8 +106,9 @@ scalar_t legacyFootYawError(const matrix3_t& rotmatFootRtWorld,
                     std::cos(eulerzyxFootRtWorldYaw - desYawFootRtWorld));
 }
 
-using AdResidual = std::function<ad_scalar_t(
-    const ad_matrix3_t&, const ad_scalar_t&, const ad_scalar_t&)>;
+using AdResidual = ad_scalar_t (*absl_nonnull)(const ad_matrix3_t&,
+                                               const ad_scalar_t&,
+                                               const ad_scalar_t&);
 
 /**
  * `residual` of a foot whose orientation has the ZYX Euler angles x, with the
@@ -115,8 +116,8 @@ using AdResidual = std::function<ad_scalar_t(
  * CppAD library: the code path of the cost, where the derivatives of both
  * branches of a conditional expression are evaluated and 0 * NaN is NaN.
  */
-std::unique_ptr<CppAdInterface> generate(const AdResidual& residual,
-                                         const std::string& name) {
+std::unique_ptr<CppAdInterface> generate(AdResidual residual,
+                                         absl::string_view name) {
   const CppAdInterface::ad_parameterized_function_t function =
       [residual](const ad_vector_t& x, const ad_vector_t& p, ad_vector_t& y) {
         const ad_matrix3_t rotmatFootRtWorld =
@@ -127,7 +128,8 @@ std::unique_ptr<CppAdInterface> generate(const AdResidual& residual,
       };
   std::unique_ptr<CppAdInterface> library = std::make_unique<CppAdInterface>(
       function, /*variableDim=*/3, /*parameterDim=*/2,
-      "testFootYawResidual_" + name, testing::TempDir() + "/cppad_foot_yaw");
+      absl::StrCat("testFootYawResidual_", name),
+      testing::TempDir() + "/cppad_foot_yaw");
   library->createModels(CppAdInterface::ApproximationOrder::First,
                         /*verbose=*/false);
   return library;

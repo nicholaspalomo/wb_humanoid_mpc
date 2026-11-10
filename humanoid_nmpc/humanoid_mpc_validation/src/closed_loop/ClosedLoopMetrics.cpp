@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Geometry"
 #include "absl/log/absl_check.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/common/ContactArray.h"
@@ -68,7 +69,7 @@ constexpr double kTailPercent = 99.0;
 constexpr double kWholePercent = 100.0;
 
 /** The nearest-rank percentile `percent` of sorted `values`. */
-double percentile(const std::vector<double>& sorted, double percent) {
+double percentile(absl::Span<const double> sorted, double percent) {
   const size_t rank = static_cast<size_t>(
       std::ceil(percent / kWholePercent * static_cast<double>(sorted.size())));
   return sorted[std::min(sorted.size() - 1, rank == 0 ? 0 : rank - 1)];

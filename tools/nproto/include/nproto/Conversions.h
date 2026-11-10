@@ -44,9 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // - repeated fields of the message are resized in place, and RepeatedPtrField
 // keeps the elements a shorter value
 //   removes, cleared, for the next longer one;
-// - a std::map or protobuf Map whose key set is the value's is updated in
-// place; any other key set rebuilds the map,
-//   which allocates a node per key;
+// - an absl::btree_map, std::map or protobuf Map whose key set is the value's
+//   is updated in place; any other key set rebuilds the map, which allocates;
 // - a std::optional or std::variant that already holds the alternative is
 // assigned in place.
 //
@@ -58,9 +57,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <algorithm>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -70,6 +69,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "google/protobuf/map.h"
 #include "google/protobuf/repeated_field.h"
 #include "google/protobuf/repeated_ptr_field.h"
@@ -102,9 +102,12 @@ absl::Status AnnotateKey(absl::string_view formattedKey,
 
 /** A map key as an error message writes it: strings quoted, bools as
  * true/false, integers in decimal. */
-std::string FormatKey(const std::string& key);
+std::string FormatKey(absl::string_view key);
 std::string FormatKey(bool key);
+// Constrained so that a std::string key picks the string_view overload above
+// rather than this template, which would be an exact match.
 template <typename Integer>
+  requires std::integral<Integer>
 std::string FormatKey(Integer key) {
   return absl::StrCat(key);
 }
@@ -181,8 +184,10 @@ void ScalarsFromProto(const google::protobuf::RepeatedField<T>& proto,
 }
 
 template <typename T>
-void ScalarsToProto(const std::vector<T>& value,
-                    google::protobuf::RepeatedField<T>* absl_nonnull proto) {
+void ScalarsToProto(
+    // NOLINTNEXTLINE(absl-span-param): T is deduced from the vector.
+    const std::vector<T>& value,
+    google::protobuf::RepeatedField<T>* absl_nonnull proto) {
   proto->Assign(value.begin(), value.end());
 }
 
@@ -191,7 +196,7 @@ void StringsFromProto(
     const google::protobuf::RepeatedPtrField<std::string>& proto,
     std::vector<std::string>* absl_nonnull value);
 void StringsToProto(
-    const std::vector<std::string>& value,
+    absl::Span<const std::string> value,
     google::protobuf::RepeatedPtrField<std::string>* absl_nonnull proto);
 
 /** repeated enum (a RepeatedField<int> in protobuf's C++ code) -> std::vector
@@ -212,8 +217,10 @@ absl::Status EnumsFromProto(const google::protobuf::RepeatedField<int>& proto,
 }
 
 template <typename Enum>
-void EnumsToProto(const std::vector<Enum>& value,
-                  google::protobuf::RepeatedField<int>* absl_nonnull proto) {
+void EnumsToProto(
+    // NOLINTNEXTLINE(absl-span-param): Enum is deduced from the vector.
+    const std::vector<Enum>& value,
+    google::protobuf::RepeatedField<int>* absl_nonnull proto) {
   proto->Clear();
   for (const Enum element : value) {
     proto->Add(static_cast<int>(element));
@@ -238,6 +245,7 @@ absl::Status MessagesFromProto(
 
 template <typename Struct, typename Proto>
 void MessagesToProto(
+    // NOLINTNEXTLINE(absl-span-param): Struct is deduced from the vector.
     const std::vector<Struct>& value,
     google::protobuf::RepeatedPtrField<Proto>* absl_nonnull proto) {
   ResizeRepeatedPtrField(static_cast<int>(value.size()), proto);
@@ -250,10 +258,12 @@ void MessagesToProto(
 // Maps
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** map<K, V> -> std::map<K, V or its struct>, in key order. */
-template <typename Key, typename Proto, typename Value>
+/** map<K, V> -> `Map`, an absl::btree_map or std::map of K to V or its struct,
+ * in key order (tools/nproto/README.md, "The type mapping"). */
+template <typename Key, typename Proto, typename Map>
+  requires std::same_as<typename Map::key_type, Key>
 absl::Status MapFromProto(const google::protobuf::Map<Key, Proto>& proto,
-                          std::map<Key, Value>* absl_nonnull value) {
+                          Map* absl_nonnull value) {
   bool sameKeys = proto.size() == value->size();
   for (typename google::protobuf::Map<Key, Proto>::const_iterator entry =
            proto.begin();
@@ -266,7 +276,7 @@ absl::Status MapFromProto(const google::protobuf::Map<Key, Proto>& proto,
   for (typename google::protobuf::Map<Key, Proto>::const_iterator entry =
            proto.begin();
        entry != proto.end(); ++entry) {
-    const typename std::map<Key, Value>::iterator target =
+    const typename Map::iterator target =
         sameKeys ? value->find(entry->first)
                  : value->try_emplace(entry->first).first;
     const absl::Status status = ValueFromProto(entry->second, &target->second);
@@ -277,19 +287,20 @@ absl::Status MapFromProto(const google::protobuf::Map<Key, Proto>& proto,
   return absl::OkStatus();
 }
 
-template <typename Key, typename Value, typename Proto>
-void MapToProto(const std::map<Key, Value>& value,
+template <typename Map, typename Key, typename Proto>
+  requires std::same_as<typename Map::key_type, Key>
+void MapToProto(const Map& value,
                 google::protobuf::Map<Key, Proto>* absl_nonnull proto) {
   bool sameKeys = proto->size() == value.size();
-  for (typename std::map<Key, Value>::const_iterator entry = value.begin();
+  for (typename Map::const_iterator entry = value.begin();
        sameKeys && entry != value.end(); ++entry) {
     sameKeys = proto->find(entry->first) != proto->end();
   }
   if (!sameKeys) {
     proto->clear();
   }
-  for (typename std::map<Key, Value>::const_iterator entry = value.begin();
-       entry != value.end(); ++entry) {
+  for (typename Map::const_iterator entry = value.begin(); entry != value.end();
+       ++entry) {
     Proto* absl_nonnull const target =
         sameKeys ? &proto->find(entry->first)->second : &(*proto)[entry->first];
     ValueToProto(entry->second, target);

@@ -63,13 +63,13 @@ using Primitive = config::TerrainScene::Primitive;
 
 constexpr double kTolerance = 1.0e-12;
 
-Primitive boxPrimitive(const std::string& name,
+Primitive boxPrimitive(std::string name,
                        const Eigen::Vector3d& posBoxRtWorldEwrtWorld,
                        const Eigen::Vector3d& halfExtents,
                        const Eigen::Vector4d& quatBoxRtWorldXyzw =
                            Eigen::Vector4d(0.0, 0.0, 0.0, 1.0)) {
   Primitive primitive;
-  primitive.name = name;
+  primitive.name = std::move(name);
   primitive.friction = 0.8;
   config::TerrainScene::Box box;
   box.pos_box_rt_world_ewrt_world = posBoxRtWorldEwrtWorld;
@@ -79,12 +79,12 @@ Primitive boxPrimitive(const std::string& name,
   return primitive;
 }
 
-Primitive capsulePrimitive(const std::string& name,
+Primitive capsulePrimitive(std::string name,
                            const Eigen::Vector3d& start,
                            const Eigen::Vector3d& end,
                            double radius) {
   Primitive primitive;
-  primitive.name = name;
+  primitive.name = std::move(name);
   primitive.friction = 0.5;
   config::TerrainScene::Capsule capsule;
   capsule.pos_capsulestart_rt_world_ewrt_world = start;
@@ -94,10 +94,10 @@ Primitive capsulePrimitive(const std::string& name,
   return primitive;
 }
 
-TerrainModel modelOf(const std::vector<Primitive>& primitives) {
+TerrainModel modelOf(std::vector<Primitive> primitives) {
   config::TerrainScene scene;
   scene.name = "test";
-  scene.primitives = primitives;
+  scene.primitives = std::move(primitives);
   absl::StatusOr<TerrainModel> model = TerrainModel::Create(scene);
   EXPECT_TRUE(model.ok()) << model.status();
   return *std::move(model);

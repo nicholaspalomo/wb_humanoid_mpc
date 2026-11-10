@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 namespace ocs2::humanoid {
 
@@ -53,7 +54,7 @@ absl::Status invalidFormulation(absl::string_view message) {
       absl::StrCat("[ContactPlanningFormulation] ", message));
 }
 
-std::string joinNames(const std::vector<std::string>& names) {
+std::string joinNames(absl::Span<const std::string> names) {
   return names.empty() ? std::string("(none)") : absl::StrJoin(names, ", ");
 }
 
@@ -75,7 +76,7 @@ const absl::flat_hash_set<std::string>& headingModelTerms() {
 
 /** Position of `name` in `list` (matched like every other lookup), or
  * list.size() when it is not listed. */
-size_t indexIn(const std::vector<std::string>& list, absl::string_view name) {
+size_t indexIn(absl::Span<const std::string> list, absl::string_view name) {
   for (size_t i = 0; i < list.size(); ++i) {
     if (sameTermName(list[i], name)) return i;
   }
@@ -249,7 +250,7 @@ const std::vector<std::string>& ContactPlanningFormulation::list(
   return const_cast<ContactPlanningFormulation*>(this)->list(kind);
 }
 
-bool ContactPlanningFormulation::listed(const std::vector<std::string>& list,
+bool ContactPlanningFormulation::listed(absl::Span<const std::string> list,
                                         absl::string_view name) {
   return indexIn(list, name) < list.size();
 }

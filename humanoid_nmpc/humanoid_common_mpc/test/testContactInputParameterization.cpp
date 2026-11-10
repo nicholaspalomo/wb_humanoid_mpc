@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
@@ -86,7 +87,7 @@ std::string runfilePath(absl::string_view relativePath) {
 }
 
 void expectInvalidArgumentNaming(const absl::Status& status,
-                                 const std::vector<std::string>& phrases) {
+                                 absl::Span<const std::string> phrases) {
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
   for (const std::string& phrase : phrases) {
     EXPECT_TRUE(absl::StrContains(status.message(), phrase))

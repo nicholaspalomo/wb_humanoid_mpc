@@ -34,7 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <limits>
 #include <memory>
 #include <numbers>
@@ -45,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -257,7 +257,7 @@ class Harness {
 
   bool sendAsOperator(absl::string_view topic,
                       const google::protobuf::Message& message,
-                      const std::function<bool()>& received) {
+                      absl::FunctionRef<bool()> received) {
     return robot_.sendAsOperator(topic, message, received);
   }
 
@@ -294,7 +294,7 @@ humanoid_mpc_msgs::WalkingVelocityCommand velocityCommand(
 
 /** The command limits of the reference file `referenceFile`, which the motion
  * manager scales the commands by. */
-ReferenceSettings commandLimits(const std::string& referenceFile) {
+ReferenceSettings commandLimits(absl::string_view referenceFile) {
   const absl::StatusOr<mpc_config::ReferenceFile> file =
       loadReferenceFile(referenceFile);
   if (!file.ok()) {
@@ -630,8 +630,7 @@ constexpr char kCentroidalG1TaskFile[] =
 
 /** A G1 update of `configPath` (empty: none), stamped with this build's
  * fingerprint. */
-humanoid_mpc_config::MpcParameterUpdate g1Update(
-    const std::string& configPath) {
+humanoid_mpc_config::MpcParameterUpdate g1Update(absl::string_view configPath) {
   humanoid_mpc_config::MpcParameterUpdate update;
   update.mutable_task()->mutable_model_settings()->set_robot_name("g1");
   update.mutable_task()->set_contact_estimator("always_in_contact");

@@ -35,12 +35,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <system_error>
 #include <utility>
-#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -60,8 +60,8 @@ bool JointPdGains::hasDimensions(size_t numMpcJoints,
 
 JointPdGains defaultJointPdGains(
     const JointPdGainsDefaults& defaults,
-    const std::vector<std::string>& mpcJointNames,
-    const std::vector<std::string>& otherJointNames) {
+    absl::Span<const std::string> mpcJointNames,
+    absl::Span<const std::string> otherJointNames) {
   JointPdGains gains;
   gains.defaults = defaults;
   gains.mpcJointKp = vector_t::Constant(
@@ -90,8 +90,8 @@ JointPdGains defaultJointPdGains(
 
 absl::StatusOr<std::optional<JointPdGains>> loadJointPdGains(
     absl::string_view file,
-    const std::vector<std::string>& mpcJointNames,
-    const std::vector<std::string>& otherJointNames) {
+    absl::Span<const std::string> mpcJointNames,
+    absl::Span<const std::string> otherJointNames) {
   std::error_code error;
   if (file.empty() ||
       !std::filesystem::exists(std::filesystem::path(file), error)) {
@@ -111,8 +111,8 @@ absl::StatusOr<std::optional<JointPdGains>> loadJointPdGains(
 
 absl::StatusOr<JointPdGains> loadRequiredJointPdGains(
     absl::string_view file,
-    const std::vector<std::string>& mpcJointNames,
-    const std::vector<std::string>& otherJointNames,
+    absl::Span<const std::string> mpcJointNames,
+    absl::Span<const std::string> otherJointNames,
     absl::string_view controller) {
   if (file.empty()) {
     return absl::InvalidArgumentError(

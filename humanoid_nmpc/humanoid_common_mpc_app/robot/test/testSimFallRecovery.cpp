@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/absl_check.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "mujoco/mujoco.h"
 #include "ocs2_core/Types.h"
@@ -188,7 +189,7 @@ class AtlasJointPd {
 
   const std::vector<size_t>& mpcJoints() const { return mpcJoints_; }
 
-  void command(MujocoSimInterface& sim, const std::vector<scalar_t>& nominal) {
+  void command(MujocoSimInterface& sim, absl::Span<const scalar_t> nominal) {
     const robot::model::RobotState& state = sim.getRobotState();
     // The MPC model's configuration: the base position, the coefficients (x, y,
     // z, w) of the base's unit quaternion (the Composite(Translation,
@@ -231,8 +232,8 @@ class AtlasJointPd {
 
 /** Why a state is or is not at rest, for the failure messages. */
 std::string describeRest(const robot::model::RobotState& state,
-                         const std::vector<scalar_t>& nominal,
-                         const std::vector<size_t>& joints) {
+                         absl::Span<const scalar_t> nominal,
+                         absl::Span<const size_t> joints) {
   scalar_t maxJointError = 0.0;
   scalar_t maxJointSpeed = 0.0;
   size_t worstJoint = 0;

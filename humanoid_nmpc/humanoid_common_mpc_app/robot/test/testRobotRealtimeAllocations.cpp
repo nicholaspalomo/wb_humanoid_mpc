@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -39,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/notification.h"
@@ -347,7 +347,7 @@ TEST(RobotRealtimeAllocations,
   robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow throwCommand;
   throwCommand.flightTime = 0.5;
   throwCommand.mass = 0.4;
-  const std::function<void(int)> cycle = [&](int index) {
+  const absl::AnyInvocable<void(int) const> cycle = [&](int index) {
     sim.updateInterfaceStateFromRobot();
     sim.getRobotJointAction().at(0)->feed_forward_effort = 0.0;
     sim.applyJointAction();
@@ -450,16 +450,17 @@ TEST(
   ASSERT_TRUE(bus->start().ok());
   ASSERT_TRUE(process.start().ok());
 
-  const std::function<void(const std::string&, uint64_t, uint64_t)> commandAt =
-      [&](const std::string& name, uint64_t sequence, uint64_t cycle) {
-        while (controller.cycles() < cycle) {
-          std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-        humanoid_mpc_msgs::FsmCommand command;
-        command.set_command(name);
-        command.set_sequence(sequence);
-        process.mailbox().onFsmCommand(command);
-      };
+  const absl::AnyInvocable<void(absl::string_view, uint64_t, uint64_t) const>
+      commandAt =
+          [&](absl::string_view name, uint64_t sequence, uint64_t cycle) {
+            while (controller.cycles() < cycle) {
+              std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            humanoid_mpc_msgs::FsmCommand command;
+            command.set_command(name);
+            command.set_sequence(sequence);
+            process.mailbox().onFsmCommand(command);
+          };
   commandAt("JOINT_PD", /*sequence=*/1, /*cycle=*/kFirstSample + 50);
   commandAt("WB_MPC", /*sequence=*/2, /*cycle=*/kFirstSample + 200);
   commandAt("ZERO_TORQUE", /*sequence=*/3, /*cycle=*/kFirstSample + 350);

@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
@@ -227,7 +228,7 @@ class ShippedContactPlanningFile
   scalar_t modelGravity_ = 0.0;  // [m/s^2] modelGravity() of the robot's model
 };
 
-std::string joinWarnings(const std::vector<std::string>& warnings) {
+std::string joinWarnings(absl::Span<const std::string> warnings) {
   std::string out;
   for (const std::string& warning : warnings) {
     absl::StrAppend(&out, "\n  - ", warning);

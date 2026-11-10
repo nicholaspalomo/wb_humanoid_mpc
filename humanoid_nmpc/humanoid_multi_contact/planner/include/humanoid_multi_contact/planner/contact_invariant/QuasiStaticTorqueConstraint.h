@@ -36,6 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
@@ -78,11 +80,11 @@ class QuasiStaticTorqueConstraint final : public StateInputConstraintCppAd {
    * as `libraryName` in `folder`. */
   QuasiStaticTorqueConstraint(const PinocchioInterface& pinocchio,
                               const CentroidalModelInfo& info,
-                              const std::vector<std::string>& contactFrames,
+                              absl::Span<const std::string> contactFrames,
                               std::vector<JointEffortLimit> limits,
                               scalar_t margin,
-                              const std::string& libraryName,
-                              const std::string& folder,
+                              absl::string_view libraryName,
+                              absl::string_view folder,
                               bool recompile,
                               bool verbose);
   ~QuasiStaticTorqueConstraint() override = default;

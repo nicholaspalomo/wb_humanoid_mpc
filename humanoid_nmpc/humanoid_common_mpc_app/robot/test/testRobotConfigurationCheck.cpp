@@ -299,10 +299,10 @@ TEST(RobotConfigurationCheck,
 }
 
 /** Writes `contents` at `path`, creating its directory. */
-void writeFile(const std::string& path, absl::string_view contents) {
-  std::filesystem::create_directories(
-      std::filesystem::path(path).parent_path());
-  std::ofstream(path, std::ios::trunc) << contents;
+void writeFile(absl::string_view path, absl::string_view contents) {
+  const std::filesystem::path file(path);
+  std::filesystem::create_directories(file.parent_path());
+  std::ofstream(file, std::ios::trunc) << contents;
 }
 
 TEST(CheckConfigFileCandidate, ASavedFileIsCheckedInPlaceOfItsStoredCopy) {

@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <cstring>
-#include <functional>
 
 #include "absl/base/nullability.h"
 #include "ocs2_core/Dimensions.h"
@@ -70,6 +69,83 @@ constexpr double kYawArrowLengthPerRate = 0.2;  // [m / (rad/s)]
 // the measured rate, - for the commanded.
 constexpr std::array<double, kHorizontalPositionDim> kPosArrowRtComEwrtWorldXy =
     {0.05, 0.05};
+
+/// Adds to `scene` an arrow from the center of mass along
+/// `linvelLocalRtWorldEwrtWorld` [m/s], `scaleFactor` [m per m/s] long,
+/// unless the scene is full or the speed is below kMinDrawnSpeedLocalRtWorld.
+void addLinvelArrow(const double* absl_nonnull posComRtWorldEwrtWorld,
+                    const mjtNum* absl_nonnull linvelLocalRtWorldEwrtWorld,
+                    const float rgba[absl_nonnull kMjRgbaChannels],
+                    double scaleFactor,
+                    mjvScene& scene) {
+  if (scene.ngeom >= scene.maxgeom) return;
+  const double speed_local_rt_world = std::sqrt(
+      linvelLocalRtWorldEwrtWorld[0] * linvelLocalRtWorldEwrtWorld[0] +
+      linvelLocalRtWorldEwrtWorld[1] * linvelLocalRtWorldEwrtWorld[1] +
+      linvelLocalRtWorldEwrtWorld[kZAxisIndex] *
+          linvelLocalRtWorldEwrtWorld[kZAxisIndex]);
+  if (speed_local_rt_world < kMinDrawnSpeedLocalRtWorld) return;
+
+  mjvGeom* absl_nonnull arrow = &scene.geoms[scene.ngeom++];
+  std::memset(arrow, 0, sizeof(mjvGeom));
+  const double length = speed_local_rt_world * scaleFactor;
+  const mjtNum posArrowRtWorldEwrtWorld[kPositionDim] = {
+      posComRtWorldEwrtWorld[kXAxisIndex], posComRtWorldEwrtWorld[kYAxisIndex],
+      posComRtWorldEwrtWorld[kZAxisIndex]};
+  const mjtNum posArrowheadRtWorldEwrtWorld[kPositionDim] = {
+      posComRtWorldEwrtWorld[0] +
+          length * (linvelLocalRtWorldEwrtWorld[0] / speed_local_rt_world),
+      posComRtWorldEwrtWorld[1] +
+          length * (linvelLocalRtWorldEwrtWorld[1] / speed_local_rt_world),
+      posComRtWorldEwrtWorld[kZAxisIndex] +
+          length * (linvelLocalRtWorldEwrtWorld[kZAxisIndex] /
+                    speed_local_rt_world)};
+  mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth, posArrowRtWorldEwrtWorld,
+                posArrowheadRtWorldEwrtWorld);
+  for (int i = 0; i < kMjRgbaChannels; ++i) arrow->rgba[i] = rgba[i];
+  arrow->category = mjCAT_DECOR;
+  arrow->emission = 1.0f;
+}
+
+/// Adds to `scene` a vertical arrow for the yaw rate
+/// `angvelBaseRtWorldEwrtWorldZ` [rad/s], up for a positive rate, at
+/// `posArrowRtComEwrtWorldXy` from the center of mass, unless the scene
+/// is full or the rate is below kMinDrawnAngvelBaseRtWorldEwrtWorldZ.
+void addYawArrow(
+    const double* absl_nonnull posComRtWorldEwrtWorld,
+    double angvelBaseRtWorldEwrtWorldZ,
+    const float rgba[absl_nonnull kMjRgbaChannels],
+    const std::array<double, kHorizontalPositionDim>& posArrowRtComEwrtWorldXy,
+    mjvScene& scene) {
+  const mjtNum up_axis_ewrt_world[kPositionDim] = {0.0, 0.0, 1.0};
+  if (scene.ngeom >= scene.maxgeom ||
+      std::abs(angvelBaseRtWorldEwrtWorldZ) <
+          kMinDrawnAngvelBaseRtWorldEwrtWorldZ) {
+    return;
+  }
+  mjvGeom* absl_nonnull arrow = &scene.geoms[scene.ngeom++];
+  std::memset(arrow, 0, sizeof(mjvGeom));
+  const double length =
+      std::abs(angvelBaseRtWorldEwrtWorldZ) * kYawArrowLengthPerRate;
+  const double sign = (angvelBaseRtWorldEwrtWorldZ > 0) ? 1.0 : -1.0;
+  const mjtNum posArrowRtWorldEwrtWorld[kPositionDim] = {
+      posComRtWorldEwrtWorld[kXAxisIndex] +
+          posArrowRtComEwrtWorldXy[kXAxisIndex],
+      posComRtWorldEwrtWorld[kYAxisIndex] +
+          posArrowRtComEwrtWorldXy[kYAxisIndex],
+      posComRtWorldEwrtWorld[kZAxisIndex]};
+  const mjtNum posArrowheadRtWorldEwrtWorld[kPositionDim] = {
+      posArrowRtWorldEwrtWorld[0] + sign * length * up_axis_ewrt_world[0],
+      posArrowRtWorldEwrtWorld[1] + sign * length * up_axis_ewrt_world[1],
+      posArrowRtWorldEwrtWorld[kZAxisIndex] +
+          sign * length * up_axis_ewrt_world[kZAxisIndex]};
+  mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth, posArrowRtWorldEwrtWorld,
+                posArrowheadRtWorldEwrtWorld);
+  for (int i = 0; i < kMjRgbaChannels; ++i) arrow->rgba[i] = rgba[i];
+  arrow->category = mjCAT_DECOR;
+  arrow->emission = 1.0f;
+}
+
 }  // namespace
 
 void BaseVelocityVisualization::addSceneGeoms(const VisualizationFrame& frame) {
@@ -134,102 +210,30 @@ void BaseVelocityVisualization::addArrows(const mjModel* absl_nonnull model,
           cosYawBaseRtWorld * command.cmdLinvelBaseRtWorldEwrtHeadingY,
       0.0};
 
-  const std::function<void(const mjtNum* absl_nonnull,
-                           const float* absl_nonnull, double)>
-      draw_arrow =
-          [&](const mjtNum* absl_nonnull linvel_local_rt_world_ewrt_world,
-              const float rgba[absl_nonnull kMjRgbaChannels],
-              double scale_factor) {
-            if (scene.ngeom >= scene.maxgeom) return;
-            const double speed_local_rt_world =
-                std::sqrt(linvel_local_rt_world_ewrt_world[0] *
-                              linvel_local_rt_world_ewrt_world[0] +
-                          linvel_local_rt_world_ewrt_world[1] *
-                              linvel_local_rt_world_ewrt_world[1] +
-                          linvel_local_rt_world_ewrt_world[kZAxisIndex] *
-                              linvel_local_rt_world_ewrt_world[kZAxisIndex]);
-            if (speed_local_rt_world < kMinDrawnSpeedLocalRtWorld) return;
-
-            mjvGeom* absl_nonnull arrow = &scene.geoms[scene.ngeom++];
-            std::memset(arrow, 0, sizeof(mjvGeom));
-            const double length = speed_local_rt_world * scale_factor;
-            const mjtNum posArrowRtWorldEwrtWorld[kPositionDim] = {
-                posComRtWorldEwrtWorld[kXAxisIndex],
-                posComRtWorldEwrtWorld[kYAxisIndex],
-                posComRtWorldEwrtWorld[kZAxisIndex]};
-            const mjtNum posArrowheadRtWorldEwrtWorld[kPositionDim] = {
-                posComRtWorldEwrtWorld[0] +
-                    length * (linvel_local_rt_world_ewrt_world[0] /
-                              speed_local_rt_world),
-                posComRtWorldEwrtWorld[1] +
-                    length * (linvel_local_rt_world_ewrt_world[1] /
-                              speed_local_rt_world),
-                posComRtWorldEwrtWorld[kZAxisIndex] +
-                    length * (linvel_local_rt_world_ewrt_world[kZAxisIndex] /
-                              speed_local_rt_world)};
-            mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth,
-                          posArrowRtWorldEwrtWorld,
-                          posArrowheadRtWorldEwrtWorld);
-            for (int i = 0; i < kMjRgbaChannels; ++i) arrow->rgba[i] = rgba[i];
-            arrow->category = mjCAT_DECOR;
-            arrow->emission = 1.0f;
-          };
-
   const float red[kMjRgbaChannels] = {1.0f, 0.0f, 0.0f, 1.0f};
-  draw_arrow(planar_meas_linvel_com_rt_world_ewrt_world, red,
-             /*scale_factor=*/1.0);
+  addLinvelArrow(posComRtWorldEwrtWorld,
+                 planar_meas_linvel_com_rt_world_ewrt_world, red,
+                 /*scaleFactor=*/1.0, scene);
   const float green[kMjRgbaChannels] = {0.0f, 1.0f, 0.0f, 1.0f};
-  draw_arrow(planar_cmd_linvel_base_rt_world_ewrt_world, green,
-             /*scale_factor=*/1.0);
+  addLinvelArrow(posComRtWorldEwrtWorld,
+                 planar_cmd_linvel_base_rt_world_ewrt_world, green,
+                 /*scaleFactor=*/1.0, scene);
 
   // The yaw rates are rates about the world's vertical, the measured one and
   // the commanded heading rate alike, so they are drawn along the world's z
   // axis, up for a positive rate, offset so the two arrows do not overlap.
-  const mjtNum up_axis_ewrt_world[kPositionDim] = {0.0, 0.0, 1.0};
-
-  const std::function<void(double, const float* absl_nonnull,
-                           const std::array<double, kHorizontalPositionDim>&)>
-      draw_yaw_arrow = [&](double angvel_base_rt_world_ewrt_world_z,
-                           const float rgba[absl_nonnull kMjRgbaChannels],
-                           const std::array<double, kHorizontalPositionDim>&
-                               pos_arrow_rt_com_ewrt_world_xy) {
-        if (scene.ngeom >= scene.maxgeom ||
-            std::abs(angvel_base_rt_world_ewrt_world_z) <
-                kMinDrawnAngvelBaseRtWorldEwrtWorldZ) {
-          return;
-        }
-        mjvGeom* absl_nonnull arrow = &scene.geoms[scene.ngeom++];
-        std::memset(arrow, 0, sizeof(mjvGeom));
-        const double length = std::abs(angvel_base_rt_world_ewrt_world_z) *
-                              kYawArrowLengthPerRate;
-        const double sign =
-            (angvel_base_rt_world_ewrt_world_z > 0) ? 1.0 : -1.0;
-        const mjtNum posArrowRtWorldEwrtWorld[kPositionDim] = {
-            posComRtWorldEwrtWorld[kXAxisIndex] +
-                pos_arrow_rt_com_ewrt_world_xy[kXAxisIndex],
-            posComRtWorldEwrtWorld[kYAxisIndex] +
-                pos_arrow_rt_com_ewrt_world_xy[kYAxisIndex],
-            posComRtWorldEwrtWorld[kZAxisIndex]};
-        const mjtNum posArrowheadRtWorldEwrtWorld[kPositionDim] = {
-            posArrowRtWorldEwrtWorld[0] + sign * length * up_axis_ewrt_world[0],
-            posArrowRtWorldEwrtWorld[1] + sign * length * up_axis_ewrt_world[1],
-            posArrowRtWorldEwrtWorld[kZAxisIndex] +
-                sign * length * up_axis_ewrt_world[kZAxisIndex]};
-        mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth,
-                      posArrowRtWorldEwrtWorld, posArrowheadRtWorldEwrtWorld);
-        for (int i = 0; i < kMjRgbaChannels; ++i) arrow->rgba[i] = rgba[i];
-        arrow->category = mjCAT_DECOR;
-        arrow->emission = 1.0f;
-      };
 
   const float blue[kMjRgbaChannels] = {0.0f, 0.0f, 1.0f, 1.0f};
-  draw_yaw_arrow(meas_angvel_base_rt_world_ewrt_world_z, blue,
-                 /*pos_arrow_rt_com_ewrt_world_xy=*/kPosArrowRtComEwrtWorldXy);
+  addYawArrow(posComRtWorldEwrtWorld, meas_angvel_base_rt_world_ewrt_world_z,
+              blue,
+              /*posArrowRtComEwrtWorldXy=*/kPosArrowRtComEwrtWorldXy, scene);
   const float yellow[kMjRgbaChannels] = {1.0f, 1.0f, 0.0f, 1.0f};
-  draw_yaw_arrow(command.cmdAngvelBaseRtWorldEwrtWorldZ, yellow,
-                 /*pos_arrow_rt_com_ewrt_world_xy=*/
-                 {-kPosArrowRtComEwrtWorldXy[kXAxisIndex],
-                  -kPosArrowRtComEwrtWorldXy[kYAxisIndex]});
+  addYawArrow(posComRtWorldEwrtWorld, command.cmdAngvelBaseRtWorldEwrtWorldZ,
+              yellow,
+              /*posArrowRtComEwrtWorldXy=*/
+              {-kPosArrowRtComEwrtWorldXy[kXAxisIndex],
+               -kPosArrowRtComEwrtWorldXy[kYAxisIndex]},
+              scene);
 }
 
 }  // namespace robot::mujoco_sim_interface

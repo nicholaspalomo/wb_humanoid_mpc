@@ -30,7 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_runtime/robot_ipc/src/Textproto.h"
 
 #include <fstream>
-#include <sstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -116,18 +116,18 @@ absl::Status parseTextproto(absl::string_view text,
   return absl::OkStatus();
 }
 
-absl::Status loadTextproto(const std::string& path,
+absl::Status loadTextproto(absl::string_view path,
                            google::protobuf::Message& message) {
-  std::ifstream file(path);
+  std::ifstream file{std::string(path)};
   if (!file) {
     return absl::NotFoundError(absl::StrCat("cannot open '", path, "'"));
   }
-  std::stringstream text;
-  text << file.rdbuf();
+  const std::string text{std::istreambuf_iterator<char>(file),
+                         std::istreambuf_iterator<char>()};
   if (file.bad()) {
     return absl::DataLossError(absl::StrCat("cannot read '", path, "'"));
   }
-  return parseTextproto(text.str(), path, message);
+  return parseTextproto(text, path, message);
 }
 
 }  // namespace robot::ipc

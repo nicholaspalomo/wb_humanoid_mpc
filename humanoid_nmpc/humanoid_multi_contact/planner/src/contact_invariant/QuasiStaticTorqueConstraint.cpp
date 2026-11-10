@@ -37,6 +37,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/log/absl_check.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
@@ -62,8 +64,8 @@ template <typename Scalar>
 Eigen::Matrix<Scalar, Eigen::Dynamic, 1> quasiStaticJointTorques(
     PinocchioInterfaceTpl<Scalar> interface,
     const CentroidalModelInfoTpl<Scalar>& info,
-    const std::vector<pinocchio::FrameIndex>& frames,
-    const std::vector<JointEffortLimit>& limits,
+    absl::Span<const pinocchio::FrameIndex> frames,
+    absl::Span<const JointEffortLimit> limits,
     const Eigen::Matrix<Scalar, Eigen::Dynamic, 1>& state,
     const Eigen::Matrix<Scalar, Eigen::Dynamic, 1>& input) {
   using Vector = Eigen::Matrix<Scalar, Eigen::Dynamic, 1>;
@@ -102,11 +104,11 @@ Eigen::Matrix<Scalar, Eigen::Dynamic, 1> quasiStaticJointTorques(
 QuasiStaticTorqueConstraint::QuasiStaticTorqueConstraint(
     const PinocchioInterface& pinocchio,
     const CentroidalModelInfo& info,
-    const std::vector<std::string>& contactFrames,
+    absl::Span<const std::string> contactFrames,
     std::vector<JointEffortLimit> limits,
     scalar_t margin,
-    const std::string& libraryName,
-    const std::string& folder,
+    absl::string_view libraryName,
+    absl::string_view folder,
     bool recompile,
     bool verbose)
     : StateInputConstraintCppAd(ConstraintOrder::Linear),
@@ -122,8 +124,8 @@ QuasiStaticTorqueConstraint::QuasiStaticTorqueConstraint(
     ABSL_CHECK(pinocchio.getModel().existFrame(frame)) << frame;
     contactFrames_.push_back(pinocchio.getModel().getFrameId(frame));
   }
-  initialize(info.stateDim, info.inputDim, /*parameterDim=*/0, libraryName,
-             folder, recompile, verbose);
+  initialize(info.stateDim, info.inputDim, /*parameterDim=*/0,
+             std::string(libraryName), std::string(folder), recompile, verbose);
 }
 
 size_t QuasiStaticTorqueConstraint::getNumConstraints(scalar_t /*time*/) const {

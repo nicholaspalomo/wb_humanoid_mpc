@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {
@@ -70,14 +71,14 @@ std::vector<Run> runsOf(const std::vector<bool>& column) {
 
 /** [s] How long `run` lasts: to the first node of the next run, or to the
  * last node. */
-double durationOf(const Run& run, const std::vector<double>& times) {
+double durationOf(const Run& run, absl::Span<const double> times) {
   const size_t last = std::min(run.end, times.size() - 1);
   return times[last] - times[run.begin];
 }
 
 /** Merges the interior runs shorter than `minimumDwell` into their
  * neighbors, shortest first. */
-void mergeShortRuns(const std::vector<double>& times,
+void mergeShortRuns(absl::Span<const double> times,
                     double minimumDwell,
                     std::vector<bool>& column) {
   while (true) {
@@ -103,7 +104,7 @@ struct Change {
   size_t candidate = 0;
 };
 
-std::vector<Change> changesOf(const std::vector<std::vector<bool>>& columns) {
+std::vector<Change> changesOf(absl::Span<const std::vector<bool>> columns) {
   std::vector<Change> changes;
   for (size_t k = 0; k < columns.size(); ++k) {
     for (size_t n = 1; n < columns[k].size(); ++n) {
@@ -121,7 +122,7 @@ std::vector<Change> changesOf(const std::vector<std::vector<bool>>& columns) {
 
 /** Delays the first change closer than `separation` to the change before it;
  * false when no change is. */
-bool delayOneChange(const std::vector<double>& times,
+bool delayOneChange(absl::Span<const double> times,
                     double separation,
                     std::vector<std::vector<bool>>& columns) {
   double last = -std::numeric_limits<double>::infinity();
@@ -149,7 +150,7 @@ bool delayOneChange(const std::vector<double>& times,
 }
 
 /** The candidates in contact at node `node`. */
-int contactsAt(const std::vector<std::vector<bool>>& columns, size_t node) {
+int contactsAt(absl::Span<const std::vector<bool>> columns, size_t node) {
   int count = 0;
   for (const std::vector<bool>& column : columns) count += column[node] ? 1 : 0;
   return count;
@@ -159,7 +160,7 @@ int contactsAt(const std::vector<std::vector<bool>>& columns, size_t node) {
  * that lifted off last stays until another one has touched down and
  * `separation` has passed. False when no node lacks support (or none can be
  * mended). */
-bool mendOneSupportGap(const std::vector<double>& times,
+bool mendOneSupportGap(absl::Span<const double> times,
                        int minimum,
                        double separation,
                        std::vector<std::vector<bool>>& columns) {
@@ -204,7 +205,7 @@ bool onQuantum(double time, double quantum) {
 
 /** Delays one change that is not at a multiple of `quantum` to the next
  * node that is; false when every change is (or none can move). */
-bool quantizeOneChange(const std::vector<double>& times,
+bool quantizeOneChange(absl::Span<const double> times,
                        double quantum,
                        std::vector<std::vector<bool>>& columns) {
   for (const Change& change : changesOf(columns)) {
@@ -225,8 +226,8 @@ bool quantizeOneChange(const std::vector<double>& times,
 }  // namespace
 
 absl::StatusOr<StanceSchedule> thresholdActivations(
-    const std::vector<double>& times,
-    const std::vector<std::vector<double>>& activations,
+    absl::Span<const double> times,
+    absl::Span<const std::vector<double>> activations,
     const std::vector<bool>& initial,
     const std::vector<bool>& final,
     const ThresholdingOptions& options) {

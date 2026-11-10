@@ -7,7 +7,7 @@ import "tools/nproto/test/outer.proto";
 import "tools/nproto/test/scalars.proto";
 import "tools/nproto/test/severity.proto";
 
-// Every key type, and values of every kind: std::map, in key order.
+// Every key type, and values of every kind: absl::btree_map, in key order.
 // Next ID: 13
 message Maps {
   option (nproto.generate_struct) = "nproto::test::Maps";

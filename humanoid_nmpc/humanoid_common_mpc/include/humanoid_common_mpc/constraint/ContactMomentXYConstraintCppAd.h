@@ -31,9 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <cstddef>
-#include <string>
 
 #include "absl/base/nullability.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/constraint/StateInputConstraintCppAd.h"
@@ -64,7 +64,7 @@ class ContactMomentXYConstraintCppAd final : public StateInputConstraintCppAd {
       size_t contactPointIndex,
       const PinocchioInterface& pinocchioInterface,
       const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
-      const std::string& costName,
+      absl::string_view costName,
       const ModelSettings& modelSettings,
       bool scheduleGated = true);
 

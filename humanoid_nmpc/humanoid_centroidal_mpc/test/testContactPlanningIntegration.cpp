@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cmath>
 #include <cstddef>
-#include <functional>
 #include <limits>
 #include <memory>
 #include <numbers>
@@ -43,10 +42,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
@@ -577,11 +578,11 @@ TEST_F(ContactPlanningIntegrationTest,
   const vector_t state = interface_->getInitialState();
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
-  const std::function<void(scalar_t, const vector_t&, size_t)> solveAt =
-      [&](scalar_t t, const vector_t& x, size_t measuredMode) {
+  const absl::AnyInvocable<void(scalar_t, const vector_t&, size_t) const>
+      solveAt = [&](scalar_t t, const vector_t& x, size_t measuredMode) {
         referenceManager->preSolverRun(t, t + horizon, x, measuredMode);
       };
-  const std::function<void(scalar_t, const vector_t&)> planAt =
+  const absl::AnyInvocable<void(scalar_t, const vector_t&) const> planAt =
       [&](scalar_t t, const vector_t& x) {
         module->preSolverRun(t, t + horizon, x, *referenceManager);
         ASSERT_TRUE(module->getStatistics().lastPlanValid);
@@ -1397,7 +1398,7 @@ struct HipYawLeg {
                          // parent / child links
 };
 
-std::string hipYawTestUrdf(const std::vector<HipYawLeg>& legs) {
+std::string hipYawTestUrdf(absl::Span<const HipYawLeg> legs) {
   const std::string inertial =
       R"(<inertial><mass value="1"/><inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/></inertial>)";
   std::string urdf = absl::StrCat(
@@ -1551,15 +1552,16 @@ TEST_F(ContactPlanningIntegrationTest,
       TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
   referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
 
-  const std::function<size_t()> plansSoFar = [&]() {
+  const absl::AnyInvocable<size_t() const> plansSoFar = [&]() {
     return module->getStatistics().numPlans;
   };
-  const std::function<bool(size_t)> waitForPlan = [&](size_t before) {
-    for (int i = 0; i < 1000 && plansSoFar() == before; ++i) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    return plansSoFar() > before;
-  };
+  const absl::AnyInvocable<bool(size_t) const> waitForPlan =
+      [&](size_t before) {
+        for (int i = 0; i < 1000 && plansSoFar() == before; ++i) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return plansSoFar() > before;
+      };
 
   for (int cycle = 0; cycle < 3; ++cycle) {
     // On: the first snapshot after (re)starting must reach the worker, whatever
@@ -1660,8 +1662,8 @@ TEST_F(ContactPlanningIntegrationTest,
   // A target that carries the commanded yaw rate as the momentum of a rigid
   // turn and integrates it in the base yaw over the horizon, as the motion
   // manager produces from a turn command.
-  const std::function<TargetTrajectories(scalar_t, scalar_t)> turningTarget =
-      [&](scalar_t t0, scalar_t rateYawBaseRtWorld) {
+  const absl::AnyInvocable<TargetTrajectories(scalar_t, scalar_t) const>
+      turningTarget = [&](scalar_t t0, scalar_t rateYawBaseRtWorld) {
         vector_t start = state;
         start.segment<3>(3) =
             inertiaComEwrtWorld.col(2) * (rateYawBaseRtWorld / mass);
@@ -1676,8 +1678,8 @@ TEST_F(ContactPlanningIntegrationTest,
       };
   // Yaw rate of whatever target the reference manager currently holds,
   // differentiated the way the planner used to read it.
-  const std::function<scalar_t(scalar_t)> computeStoredRefRateYawBaseRtWorld =
-      [&](scalar_t t0) {
+  const absl::AnyInvocable<scalar_t(scalar_t) const>
+      computeStoredRefRateYawBaseRtWorld = [&](scalar_t t0) {
         const TargetTrajectories& target =
             referenceManager->getTargetTrajectories();
         const scalar_t refEulerzyxBaseRtWorldYaw =
@@ -1971,21 +1973,22 @@ TEST_F(ContactPlanningIntegrationTest,
   const size_t inFlight = modeWithSwingFoot(foot);
   referenceManager->setPredictedTrajectory({0.0, t + 100.0}, {state, state});
 
-  const std::function<scalar_t(scalar_t, scalar_t)> orbitalEnergy =
+  const absl::AnyInvocable<scalar_t(scalar_t, scalar_t) const> orbitalEnergy =
       [&](scalar_t x, scalar_t v) {
         return 0.5 * mass * (v * v - omega * omega * x * x);
       };
   // The planning heading at `time` (the plan turns over its horizon; the yaw
   // at its snapshot is stale by the plan's age).
-  const std::function<vector2_t(const ContactPlan&, scalar_t)> headingAt =
-      [](const ContactPlan& plan, scalar_t time) {
+  const absl::AnyInvocable<vector2_t(const ContactPlan&, scalar_t) const>
+      headingAt = [](const ContactPlan& plan, scalar_t time) {
         const scalar_t yawHeadingRtWorld = plan.getYawHeadingRtWorld(time);
         return vector2_t(std::cos(yawHeadingRtWorld),
                          std::sin(yawHeadingRtWorld));
       };
   // The CoM state along the planned heading relative to the plan's ZMP at
   // `time`, as the manager computes it from a state.
-  const std::function<std::pair<scalar_t, scalar_t>(const vector_t&, scalar_t)>
+  const absl::AnyInvocable<std::pair<scalar_t, scalar_t>(const vector_t&,
+                                                         scalar_t) const>
       lipState = [&](const vector_t& x, scalar_t time) {
         const ContactPlan plan = activePlanOf(*referenceManager);
         const vector2_t dirHeadingEwrtWorldXy = headingAt(plan, time);
@@ -2208,15 +2211,16 @@ TEST_F(ContactPlanningIntegrationTest,
       TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
   referenceManager->preSolverRun(t, t + horizon, state, kBipedModeStance);
 
-  const std::function<size_t()> plansSoFar = [&]() {
+  const absl::AnyInvocable<size_t() const> plansSoFar = [&]() {
     return module->getStatistics().numPlans;
   };
-  const std::function<bool(size_t)> waitForPlan = [&](size_t before) {
-    for (int i = 0; i < 1000 && plansSoFar() == before; ++i) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    return plansSoFar() > before;
-  };
+  const absl::AnyInvocable<bool(size_t) const> waitForPlan =
+      [&](size_t before) {
+        for (int i = 0; i < 1000 && plansSoFar() == before; ++i) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return plansSoFar() > before;
+      };
 
   const size_t before = plansSoFar();
   module->preSolverRun(t, t + horizon, state, *referenceManager);

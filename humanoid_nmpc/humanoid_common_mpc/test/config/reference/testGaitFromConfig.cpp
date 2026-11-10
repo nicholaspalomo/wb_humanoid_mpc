@@ -34,16 +34,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 #include <limits>
-#include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "Eigen/Core"
+#include "absl/container/btree_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
@@ -59,7 +60,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-Eigen::VectorXd times(const std::vector<double>& values) {
+Eigen::VectorXd times(absl::Span<const double> values) {
   return Eigen::Map<const Eigen::VectorXd>(
       values.data(), static_cast<Eigen::Index>(values.size()));
 }
@@ -67,7 +68,7 @@ Eigen::VectorXd times(const std::vector<double>& values) {
 mpc_config::ModeSequenceTemplateConfig pattern(
     absl::string_view name,
     std::vector<std::string> modes,
-    const std::vector<double>& switching) {
+    absl::Span<const double> switching) {
   return mpc_config::ModeSequenceTemplateConfig{
       .name = std::string(name),
       .mode_sequence = std::move(modes),
@@ -186,8 +187,9 @@ TEST(ModeScheduleFromConfigTest, TheScheduleHasOneEventTimeFewerThanModes) {
 }
 
 TEST(GaitMapFromConfigTest, EveryListedGaitByName) {
-  const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits =
-      gaitMapFromConfig(gaitFile({"trot", "stance"}, {stance(), trot()}));
+  const absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+      gaits =
+          gaitMapFromConfig(gaitFile({"trot", "stance"}, {stance(), trot()}));
   ASSERT_TRUE(gaits.ok()) << gaits.status();
   ASSERT_EQ(gaits->size(), size_t{2});
   EXPECT_EQ(gaits->at("trot").switchingTimes,
@@ -197,8 +199,8 @@ TEST(GaitMapFromConfigTest, EveryListedGaitByName) {
 }
 
 TEST(GaitMapFromConfigTest, AnEmptyFileHasNoGaits) {
-  const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits =
-      gaitMapFromConfig(mpc_config::GaitFile{});
+  const absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+      gaits = gaitMapFromConfig(mpc_config::GaitFile{});
   ASSERT_TRUE(gaits.ok()) << gaits.status();
   EXPECT_TRUE(gaits->empty())
       << "the motion manager refuses a file without the gaits it selects";
@@ -222,8 +224,8 @@ TEST(GaitMapFromConfigTest, TheListAndTheGaitsNameEachOtherExactly) {
   };
   for (const std::pair<mpc_config::GaitFile, absl::string_view>& file :
        refused) {
-    const absl::StatusOr<std::map<std::string, ModeSequenceTemplate>> gaits =
-        gaitMapFromConfig(file.first);
+    const absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
+        gaits = gaitMapFromConfig(file.first);
     EXPECT_EQ(gaits.status().code(), absl::StatusCode::kInvalidArgument)
         << file.second;
     EXPECT_TRUE(absl::StrContains(gaits.status().message(), file.second))

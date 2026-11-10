@@ -30,13 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <cstdint>
-#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
-#include <string>
 
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/function_ref.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 
@@ -96,12 +96,12 @@ class ScriptedOperator {
    * `timeout`.
    */
   bool sendFsmCommand(
-      const std::string& command,
-      const std::function<bool(const humanoid_mpc_msgs::FsmState&)>& reached,
+      absl::string_view command,
+      absl::FunctionRef<bool(const humanoid_mpc_msgs::FsmState&)> reached,
       absl::Duration timeout = absl::Seconds(10));
 
   /** sendFsmCommand(`mode`) until the robot reports that mode. */
-  bool enterMode(const std::string& mode);
+  bool enterMode(absl::string_view mode);
 
   /** Publishes `command` on operator/walking_velocity_command every 40 ms (25
    * Hz, as the GUI) for `duration`. */

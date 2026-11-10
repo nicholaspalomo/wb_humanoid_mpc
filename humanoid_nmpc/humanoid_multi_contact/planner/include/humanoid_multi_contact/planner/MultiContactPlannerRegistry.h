@@ -29,12 +29,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 
@@ -49,16 +49,27 @@ namespace ocs2::humanoid::multi_contact {
  * implements yet is refused as Unimplemented, any other unknown name as
  * InvalidArgument; both list the available planners.
  *
- * Not thread-safe: built and used on one thread.
+ * Not thread-safe: built and used on one thread. Move-only, since the
+ * factories are.
  */
 class MultiContactPlannerRegistry {
  public:
+  /** Builds a planner; const because create() is const. */
   using Factory =
-      std::function<absl::StatusOr<std::unique_ptr<MultiContactPlanner>>()>;
+      absl::AnyInvocable<absl::StatusOr<std::unique_ptr<MultiContactPlanner>>()
+                             const>;
 
   /** A registry with the built-in planners: "stance_graph",
    * "contact_invariant" and "stance_graph_then_contact_invariant". */
   MultiContactPlannerRegistry();
+
+  MultiContactPlannerRegistry(const MultiContactPlannerRegistry&) = delete;
+  MultiContactPlannerRegistry& operator=(const MultiContactPlannerRegistry&) =
+      delete;
+  MultiContactPlannerRegistry(MultiContactPlannerRegistry&&) = default;
+  MultiContactPlannerRegistry& operator=(MultiContactPlannerRegistry&&) =
+      default;
+  ~MultiContactPlannerRegistry() = default;
 
   /** Adds the planner `name`, replacing one of that name. */
   void add(std::string name, std::string description, Factory factory);

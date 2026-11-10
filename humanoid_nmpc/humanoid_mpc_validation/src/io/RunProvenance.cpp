@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/io/RunProvenance.h"
 
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -47,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "humanoid_mpc_validation/io/GoldenIo.h"
 #include "humanoid_mpc_validation/io/JsonValue.h"
@@ -58,16 +60,16 @@ namespace {
 /** The kibibytes (KiB, what /proc/meminfo counts in as "kB") of a gibibyte. */
 constexpr double kKibibytesPerGibibyte = 1024.0 * 1024.0;
 
-std::string environmentOr(const char* absl_nonnull name,
-                          const std::string& fallback) {
+std::string environmentOr(const char* absl_nonnull name, std::string fallback) {
   const char* absl_nullable value = std::getenv(name);
-  return value != nullptr && value[0] != '\0' ? std::string(value) : fallback;
+  if (value != nullptr && value[0] != '\0') return std::string(value);
+  return fallback;
 }
 
 /** The value after the first "<key>:" line of `file`, trimmed; empty when there
  * is none. */
-std::string firstValue(const std::string& file, const std::string& key) {
-  std::ifstream stream(file);
+std::string firstValue(absl::string_view file, absl::string_view key) {
+  std::ifstream stream{std::filesystem::path(file)};
   std::string line;
   while (std::getline(stream, line)) {
     if (!absl::StartsWith(line, key)) continue;
@@ -135,7 +137,7 @@ RunEnvironment runEnvironmentFromEnvironment() {
 
 absl::StatusOr<JsonValue> makeRunProvenanceJson(
     const RunEnvironment& environment,
-    const std::vector<std::string>& configurationFiles) {
+    absl::Span<const std::string> configurationFiles) {
   JsonValue provenance = JsonValue::object();
   provenance.set("git_commit", JsonValue::string(environment.gitCommit));
   provenance.set("worktree_state",
@@ -188,7 +190,7 @@ std::vector<std::pair<std::string, std::string>> toolchainNotes(
 
 absl::StatusOr<GoldenProvenance> makeRunGoldenProvenance(
     const RunEnvironment& environment,
-    const std::vector<std::string>& configurationFiles) {
+    absl::Span<const std::string> configurationFiles) {
   absl::StatusOr<GoldenProvenance> provenance = makeGoldenProvenance(
       environment.gitCommit, environment.worktreeState, configurationFiles);
   if (!provenance.ok()) return provenance;

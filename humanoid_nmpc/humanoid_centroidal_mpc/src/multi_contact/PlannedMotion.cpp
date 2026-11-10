@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
@@ -124,7 +125,7 @@ struct PlanJointColumns {
 /** The columns of the plan's joints in the MPC's joints; InvalidArgument for a
  * joint the URDF does not have or one named twice. */
 absl::StatusOr<PlanJointColumns> planJointColumns(
-    const std::vector<std::string>& planJoints,
+    absl::Span<const std::string> planJoints,
     const ModelSettings& modelSettings) {
   absl::flat_hash_map<std::string, size_t> mpcJointByName;
   for (size_t i = 0; i < modelSettings.mpcModelJointNames.size(); ++i) {

@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -134,7 +135,7 @@ ContactRectangle makeAtlasContactRectangle() {
 ContactWrenchConeBasisMatrix createOrDie(
     const ContactWrenchConeConstraint::Config& config,
     const ContactRectangle& rectangle,
-    const std::string& generatorSet) {
+    absl::string_view generatorSet) {
   absl::StatusOr<ContactWrenchConeBasisMatrix> basis =
       ContactWrenchConeBasisMatrix::Create(config, rectangle, generatorSet);
   if (!basis.ok()) {
@@ -449,8 +450,8 @@ TEST(ContactWrenchConeBasisRegistryTest,
 void expectInvalidArgumentNaming(
     const ContactWrenchConeConstraint::Config& config,
     const ContactRectangle& rectangle,
-    const std::string& generatorSet,
-    const std::string& key) {
+    absl::string_view generatorSet,
+    absl::string_view key) {
   const absl::StatusOr<ContactWrenchConeBasisMatrix> basis =
       ContactWrenchConeBasisMatrix::Create(config, rectangle, generatorSet);
   ASSERT_FALSE(basis.ok()) << generatorSet
@@ -1153,7 +1154,7 @@ TEST(NonNegativeBasisScalingsTest,
 BipedFeetArray<matrix_t> basesFor(
     const ContactWrenchConeConstraint::Config& config,
     const ContactRectangle& rectangle,
-    const std::string& generatorSet) {
+    absl::string_view generatorSet) {
   const ContactWrenchConeBasisMatrix basis =
       createOrDie(config, rectangle, generatorSet);
   return {basis.getBasisMatrix(), basis.getBasisMatrix()};

@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <functional>
 #include <limits>
 #include <numbers>
 #include <random>
@@ -39,6 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Geometry"
 #include "Eigen/SVD"
+#include "absl/functional/any_invocable.h"
+#include "absl/functional/function_ref.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
@@ -61,7 +62,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-using QuaternionFunction = std::function<vector3_t(const vector4_t&)>;
+// A function of the stored quaternion coefficients, called only while a
+// finite difference of it is taken.
+using QuaternionFunction = absl::FunctionRef<vector3_t(const vector4_t&)>;
+// A local residual handed to the finite differences.
+using QuaternionResidual =
+    absl::AnyInvocable<vector3_t(const vector4_t&) const>;
 
 constexpr scalar_t kFiniteDifferenceStep = 1.0e-6;
 /** Central differences at kFiniteDifferenceStep: truncation about 1e-12,
@@ -162,7 +168,7 @@ vector4_t referenceFor(const vector4_t& xi, scalar_t headingOffset) {
 }
 
 /** d f(xi (x) Exp(dphi)) / d(dphi) at dphi = 0, by central differences. */
-matrix_t tangentFiniteDifference(const QuaternionFunction& function,
+matrix_t tangentFiniteDifference(QuaternionFunction function,
                                  const vector4_t& xi) {
   matrix_t jacobian(3, 3);
   for (Eigen::Index i = 0; i < 3; ++i) {
@@ -175,7 +181,7 @@ matrix_t tangentFiniteDifference(const QuaternionFunction& function,
 }
 
 /** d f(xi) / d xi in the stored coefficients, by central differences. */
-matrix_t ambientFiniteDifference(const QuaternionFunction& function,
+matrix_t ambientFiniteDifference(QuaternionFunction function,
                                  const vector4_t& xi) {
   matrix_t jacobian(3, 4);
   for (Eigen::Index i = 0; i < 4; ++i) {
@@ -423,7 +429,7 @@ TEST(BaseOrientation, TiltIsExactlyZeroAndRegularAtALevelAttitude) {
                 .maxCoeff(),
             1.0e-11);
   const vector4_t reference = unitQuaternionAboutZ(-0.3);
-  const QuaternionFunction residual = [&reference](const vector4_t& attitude) {
+  const QuaternionResidual residual = [&reference](const vector4_t& attitude) {
     return headingTiltResidual(attitude, reference);
   };
   for (const vector4_t& xi : {below, above}) {
@@ -444,7 +450,7 @@ TEST(BaseOrientation,
   // and -12.15 rad for a roll of 2.5 rad.
   const vector4_t identity(0.0, 0.0, 0.0, 1.0);
   const vector4_t reference = unitQuaternionFromEulerZyx(0.4, -0.2, 0.3);
-  const QuaternionFunction residual = [&reference](const vector4_t& attitude) {
+  const QuaternionResidual residual = [&reference](const vector4_t& attitude) {
     return headingTiltResidual(attitude, reference);
   };
   for (const vector4_t& unit :
@@ -540,7 +546,7 @@ TEST(BaseOrientation, JacobianMatchesFiniteDifferencesInTheBodyTangent) {
   for (const vector4_t& xi : testAttitudes()) {
     for (const scalar_t headingOffset : {-2.5, 0.0, 0.7}) {
       const vector4_t reference = referenceFor(xi, headingOffset);
-      const QuaternionFunction residual =
+      const QuaternionResidual residual =
           [&reference](const vector4_t& attitude) {
             return headingTiltResidual(attitude, reference);
           };
@@ -561,7 +567,7 @@ TEST(BaseOrientation,
      JacobianLiftedByTheTangentLiftMatchesFiniteDifferencesInTheCoefficients) {
   for (const vector4_t& unit : testAttitudes()) {
     const vector4_t reference = referenceFor(unit, /*headingOffset=*/-0.9);
-    const QuaternionFunction residual =
+    const QuaternionResidual residual =
         [&reference](const vector4_t& attitude) {
           return headingTiltResidual(attitude, reference);
         };
@@ -792,7 +798,7 @@ TEST(BaseOrientationProperties, TiltRowsAreIndependentOfTheYawError) {
 
 TEST(BaseOrientationProperties, PitchOfNinetyDegreesIsFiniteAndOfFullRank) {
   const vector4_t reference = unitQuaternionFromEulerZyx(0.2, -0.1, 0.05);
-  const QuaternionFunction residual = [&reference](const vector4_t& attitude) {
+  const QuaternionResidual residual = [&reference](const vector4_t& attitude) {
     return headingTiltResidual(attitude, reference);
   };
   for (const scalar_t pitch :

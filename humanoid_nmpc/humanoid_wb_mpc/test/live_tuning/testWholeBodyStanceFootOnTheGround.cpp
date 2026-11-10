@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/PreComputation.h"
@@ -70,7 +71,7 @@ constexpr scalar_t kStanceTime = 0.05;
  * constraint there.
  */
 vector_t stanceResidual(WholeBodySolverStack& stack,
-                        const std::string& foot,
+                        absl::string_view foot,
                         const vector_t& state,
                         const vector_t& input) {
   OptimalControlProblem& problem =

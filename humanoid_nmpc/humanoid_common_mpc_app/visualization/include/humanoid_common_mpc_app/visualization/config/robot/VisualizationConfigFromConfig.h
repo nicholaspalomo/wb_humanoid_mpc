@@ -30,9 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <string>
-#include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc_app/visualization/VisualizationConfig.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
@@ -52,6 +52,6 @@ namespace ocs2::humanoid::visualization {
  */
 absl::StatusOr<VisualizationConfig> visualizationConfigFromConfig(
     const mpc_config::TaskFile& task,
-    const std::vector<std::string>& contactFrameNames);
+    absl::Span<const std::string> contactFrameNames);
 
 }  // namespace ocs2::humanoid::visualization

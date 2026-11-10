@@ -139,6 +139,7 @@ cc_library(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:str_format",
         "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/types:span",
         "@eigen",
     ],
 )
@@ -154,6 +155,7 @@ _TEST_DEPS = [
     "@abseil-cpp//absl/status",
     "@abseil-cpp//absl/status:statusor",
     "@abseil-cpp//absl/strings",
+    "@abseil-cpp//absl/types:span",
     "@eigen",
     "@googletest//:gtest_main",
 ]

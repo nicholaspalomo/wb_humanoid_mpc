@@ -362,10 +362,12 @@ std::optional<TargetedProbePoint> collisionBandPoint(
     OptimalControlProblem& problem,
     Collection& collection,
     absl::string_view collectionLabel,
-    const std::string& term,
+    absl::string_view termName,
     absl::string_view pointName,
     const MpcEquivalenceFixture& mpc,
     const TermProbePoint& start) {
+  // OCS2's Collection looks a term up by const std::string&.
+  const std::string term(termName);
   size_t index = 0;
   if (!collection.getTermIndex(term, index)) return std::nullopt;
   SoftConstraint* absl_nullable soft =

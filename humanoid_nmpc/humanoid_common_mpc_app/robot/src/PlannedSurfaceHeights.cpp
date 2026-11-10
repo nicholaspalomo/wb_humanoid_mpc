@@ -132,7 +132,7 @@ PlannedSurfaceHeights::Create(
 }
 
 bool PlannedSurfaceHeights::hasPatch(
-    const std::vector<Patch>& patches,
+    absl::Span<const Patch> patches,
     const vector3_t& posSurfaceRtWorldEwrtWorld,
     const vector3_t& normalSurfaceEwrtWorld) {
   return std::any_of(patches.begin(), patches.end(), [&](const Patch& patch) {

@@ -55,8 +55,8 @@ namespace ocs2::humanoid {
 absl::StatusOr<std::unique_ptr<JointMimicKinematicConstraint>>
 JointMimicKinematicConstraint::Create(
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-    const std::string& parentJointName,
-    const std::string& childJointName,
+    std::string parentJointName,
+    std::string childJointName,
     scalar_t multiplier,
     scalar_t positionGain) {
   // Negated, so that NaN is refused too.
@@ -66,12 +66,12 @@ JointMimicKinematicConstraint::Create(
         childJointName, " must be positive, got ", positionGain));
   }
   Config config;
-  config.parentJointName = parentJointName;
-  config.childJointName = childJointName;
   ASSIGN_OR_RETURN(config.parentJointIndex,
                    mpcRobotModel.findJointIndex(parentJointName));
   ASSIGN_OR_RETURN(config.childJointIndex,
                    mpcRobotModel.findJointIndex(childJointName));
+  config.parentJointName = std::move(parentJointName);
+  config.childJointName = std::move(childJointName);
   config.multiplier = multiplier;
   config.positionGain = positionGain;
   // The constructor is private, so std::make_unique cannot reach it.

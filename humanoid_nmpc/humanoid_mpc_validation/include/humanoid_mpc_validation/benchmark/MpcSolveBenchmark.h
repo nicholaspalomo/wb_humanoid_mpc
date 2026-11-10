@@ -75,7 +75,7 @@ absl::StatusOr<JsonValue> runSolveBenchmark(
     const RobotConfiguration& configuration,
     const RecordedRobotStates& states,
     const SolveBenchmarkOptions& options,
-    const std::string& label,
+    absl::string_view label,
     JsonValue provenance);
 
 /**

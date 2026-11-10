@@ -94,8 +94,9 @@ std::string deterministicBytes(const google::protobuf::Message& message) {
 constexpr char kPlanProtoFile[] =
     "humanoid_nmpc/humanoid_multi_contact/plan/multi_contact_plan.proto";
 
-absl::Status writeFile(const std::string& path, absl::string_view contents) {
-  std::ofstream file(path, std::ios::binary | std::ios::trunc);
+absl::Status writeFile(absl::string_view path, absl::string_view contents) {
+  std::ofstream file(std::filesystem::path(path),
+                     std::ios::binary | std::ios::trunc);
   if (!file.is_open()) {
     return absl::InternalError(absl::StrCat("cannot write '", path, "'"));
   }
@@ -203,8 +204,7 @@ absl::Status savePlanFile(const config::MultiContactPlan& plan,
   }
   humanoid_multi_contact::MultiContactPlan message;
   ToProto(plan, &message);
-  RETURN_IF_ERROR(
-      writeFile(std::string(binaryPath), deterministicBytes(message)));
+  RETURN_IF_ERROR(writeFile(binaryPath, deterministicBytes(message)));
   message.clear_knots();
   // The summary names its schema as every textproto of the repository does.
   return writeFile(planSummaryPath(binaryPath),

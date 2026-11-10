@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <map>
 #include <memory>
 #include <numbers>
 #include <string>
@@ -42,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Core"
 #include "absl/base/nullability.h"
+#include "absl/container/btree_map.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
@@ -132,7 +132,7 @@ struct TermValue {
 
 /** Every active term of the problem by label (collection and term name), with
  * "dynamics" for the flow map. */
-using TermValues = std::map<std::string, TermValue>;
+using TermValues = absl::btree_map<std::string, TermValue>;
 
 /** Whether evaluateProblem() computes the Jacobians as well. */
 enum class Derivatives { kWith, kWithout };
@@ -320,7 +320,7 @@ TermValues evaluateProblem(OptimalControlProblem& problem,
 
 /** Whether `label` is the dynamics' flow map, whose quaternion rows read the
  * raw xi; every term reads xi_hat alone. */
-bool isFlowMap(const std::string& label) {
+bool isFlowMap(absl::string_view label) {
   return label == "dynamics";
 }
 
@@ -335,7 +335,7 @@ bool isFlowMap(const std::string& label) {
  * does not: the tangent check holds it to its finite differences at a still
  * point and leaves it out at a moving one.
  */
-bool linearizesWithTheFootAtRest(const std::string& label) {
+bool linearizesWithTheFootAtRest(absl::string_view label) {
   return absl::StrContains(label, "_zeroVelocity");
 }
 
@@ -376,7 +376,7 @@ vector_t turnedState(const MpcRobotModelBase<scalar_t>& model,
 }
 
 /** max |a - b| <= tolerance max(1, max |b|), naming `label`. */
-::testing::AssertionResult isCloseRelative(const std::string& label,
+::testing::AssertionResult isCloseRelative(absl::string_view label,
                                            const matrix_t& a,
                                            const matrix_t& b,
                                            scalar_t tolerance) {
@@ -541,11 +541,11 @@ size_t expectTangentJacobiansAreFiniteDifferences(
     OptimalControlProblem& problem,
     const StateManifold& manifold,
     const ProblemPoint& point,
-    bool (*absl_nonnull skip)(const std::string&)) {
+    bool (*absl_nonnull skip)(absl::string_view)) {
   const TermValues values = evaluateProblem(problem, point, Derivatives::kWith);
   const Eigen::Index tangentDim =
       static_cast<Eigen::Index>(manifold.getTangentDim());
-  std::map<std::string, matrix_t> differences;
+  absl::btree_map<std::string, matrix_t> differences;
   for (Eigen::Index i = 0; i < tangentDim; ++i) {
     vector_t direction = vector_t::Zero(tangentDim);
     direction(i) = 1.0;
@@ -585,7 +585,7 @@ size_t expectTangentJacobiansAreFiniteDifferences(
 
 /** A skip of expectTangentJacobiansAreFiniteDifferences() that checks every
  * term. */
-bool noTerm(const std::string& /*label*/) {
+bool noTerm(absl::string_view /*label*/) {
   return false;
 }
 

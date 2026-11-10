@@ -108,7 +108,7 @@ EndEffectorDynamicsFootCost::Create(
     const PinocchioInterface& pinocchioInterface,
     const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
     size_t contactIndex,
-    const std::string& modelName,
+    absl::string_view modelName,
     const ModelSettings& modelSettings) {
   RETURN_IF_ERROR(checkWeights(weights));
   if (contactIndex >= modelSettings.contactNames.size()) {
@@ -149,7 +149,7 @@ EndEffectorDynamicsFootCost::EndEffectorDynamicsFootCost(
     const PinocchioInterface& pinocchioInterface,
     const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
     size_t contactIndex,
-    const std::string& modelName,
+    absl::string_view modelName,
     const ModelSettings& modelSettings)
     : StateInputCostGaussNewtonAd(),
       referenceManagerPtr_(&referenceManager),
@@ -160,7 +160,8 @@ EndEffectorDynamicsFootCost::EndEffectorDynamicsFootCost(
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelPtr_(mpcRobotModel.clone()) {
   initialize(mpcRobotModel.getStateDim(), mpcRobotModel.getInputDim(),
-             kParameterDim, modelName, modelSettings.modelFolderCppAd,
+             kParameterDim, std::string(modelName),
+             modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd);
   LOG(INFO) << "Frame ID: " << frameID_;
   LOG(INFO) << "Initialized EndEffectorDynamicsFootCost with weights: "

@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/status.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 
 #include "web_viewer/ThreadPlacement.h"
@@ -70,7 +71,7 @@ struct Placement {
   int childPolicy = -1;
 };
 
-Placement placeNewThread(const std::vector<int>& cores,
+Placement placeNewThread(absl::Span<const int> cores,
                          ViewerThreadPriority priority) {
   Placement placement;
   std::thread worker([&placement, &cores, priority] {

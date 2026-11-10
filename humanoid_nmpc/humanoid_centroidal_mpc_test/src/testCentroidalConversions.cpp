@@ -32,10 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <cstddef>
-#include <functional>
 
 #include "Eigen/Core"
 #include "Eigen/Geometry"
+#include "absl/functional/any_invocable.h"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
@@ -247,7 +247,7 @@ TEST(TestCentroidalConversions,
   const vector3_t posComRtWorldEwrtWorld =
       pinocchio::centerOfMass(model, data, q);
   pinocchio::framesForwardKinematics(model, data, q);
-  const std::function<vector6_t(const vector_t&)>
+  const absl::AnyInvocable<vector6_t(const vector_t&) const>
       computeExpectedRateCmomComRtWorldEwrtWorld = [&](const vector_t& input) {
         vector6_t rateCmomComRtWorldEwrtWorld;
         rateCmomComRtWorldEwrtWorld

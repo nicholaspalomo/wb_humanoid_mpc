@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/ComputationRequest.h"
 #include "ocs2_core/PreComputation.h"
@@ -210,7 +211,7 @@ std::vector<std::string> sortedNames(const Collection& collection) {
 /** Appends a reference to each of the terms `names` of `collection` to `terms`.
  */
 void appendTerms(TermCollection collection,
-                 const std::vector<std::string>& names,
+                 absl::Span<const std::string> names,
                  std::vector<TermReference>& terms) {
   for (const std::string& name : names) {
     terms.push_back(TermReference{.collection = collection, .name = name});

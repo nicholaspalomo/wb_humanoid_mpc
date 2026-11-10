@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <string>
 #include <thread>
@@ -41,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -59,6 +59,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/visualization/TelemetryBuilder.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationConfig.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationModel.h"
+#include "humanoid_mpc_ipc/MpcServer.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
 #include "humanoid_mpc_msgs/robot_state_sample.pb.h"
 #include "humanoid_mpc_msgs/visualization_scene.pb.h"
@@ -185,15 +186,12 @@ class VisualizationPublisher {
    * solution's terms; it returns the error of that evaluation (MpcServer logs
    * it), which leaves the policy handed over.
    */
-  using PostSolveObserver =
-      std::function<absl::Status(const CommandData& command,
-                                 const PrimalSolution& solution,
-                                 const PerformanceIndex& performance)>;
+  using PostSolveObserver = ipc::MpcServer::PostSolveObserver;
 
   /** Sends one message on a topic; Bus::publish() in the MPC node. Called on
    * the visualization thread. */
-  using PublishFunction = std::function<absl::Status(
-      absl::string_view topic, const google::protobuf::Message& message)>;
+  using PublishFunction = absl::AnyInvocable<absl::Status(
+      absl::string_view topic, const google::protobuf::Message& message) const>;
 
   using Options = VisualizationPublisherOptions;
   using Statistics = VisualizationPublisherStatistics;
@@ -229,8 +227,8 @@ class VisualizationPublisher {
    * called with the node's bus before the bus starts, it returns the observer
    * the node's MpcServer calls after every policy it publishes.
    */
-  using BusAttacher =
-      std::function<absl::StatusOr<PostSolveObserver>(robot::ipc::Bus& bus)>;
+  using BusAttacher = absl::AnyInvocable<absl::StatusOr<PostSolveObserver>(
+      robot::ipc::Bus& bus)>;
 
   /**
    * The attacher of an MPC node's publisher: on the node's bus, Create() into

@@ -31,14 +31,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cstdint>
-#include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/btree_map.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
 #include "google/protobuf/unknown_field_set.h"
@@ -57,7 +58,7 @@ using google::protobuf::Reflection;
 /** Appends the unknown fields of `message` and of the messages below it, under
  * `path`, to `paths`. */
 void collectUnknownFields(const Message& message,
-                          const std::string& path,
+                          absl::string_view path,
                           std::vector<std::string>& paths) {
   const Reflection* absl_nonnull const reflection = message.GetReflection();
   const google::protobuf::UnknownFieldSet& unknown =
@@ -89,8 +90,8 @@ void collectUnknownFields(const Message& message,
 /** Every message and enum reachable from `root` through the fields, by full
  * name. */
 struct Reachable {
-  std::map<std::string, const Descriptor* absl_nonnull> messages;
-  std::map<std::string, const EnumDescriptor* absl_nonnull> enums;
+  absl::btree_map<std::string, const Descriptor* absl_nonnull> messages;
+  absl::btree_map<std::string, const EnumDescriptor* absl_nonnull> enums;
 };
 
 void collectReachable(const Descriptor& descriptor, Reachable& reachable) {

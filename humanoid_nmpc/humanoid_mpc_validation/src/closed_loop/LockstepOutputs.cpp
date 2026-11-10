@@ -63,9 +63,9 @@ std::string recordedStatesFileName(absl::string_view robot,
 }
 
 absl::Status writeLockstepOutputs(const LockstepResult& result,
-                                  const std::string& outputDir,
-                                  const std::string& robot,
-                                  const std::string& scenario,
+                                  absl::string_view outputDir,
+                                  absl::string_view robot,
+                                  absl::string_view scenario,
                                   const GoldenProvenance& provenance) {
   const std::filesystem::path directory(outputDir);
   RETURN_IF_ERROR(writeJsonFile(

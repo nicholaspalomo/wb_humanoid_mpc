@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/dynamics/LinearSystemDynamics.h"
@@ -383,8 +384,8 @@ class GroundUpdater {
   std::unique_ptr<MpcParameterUpdaterModule> updater_;
 };
 
-void expectRaisedBy(const std::vector<scalar_t>& raised,
-                    const std::vector<scalar_t>& flat,
+void expectRaisedBy(absl::Span<const scalar_t> raised,
+                    absl::Span<const scalar_t> flat,
                     scalar_t posSurfaceRtWorldEwrtWorldZ,
                     absl::string_view when) {
   ASSERT_EQ(raised.size(), flat.size()) << when;

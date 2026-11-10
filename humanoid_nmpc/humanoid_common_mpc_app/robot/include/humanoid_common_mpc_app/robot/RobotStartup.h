@@ -29,7 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <functional>
 #include <string>
 
 #include "absl/functional/function_ref.h"
@@ -59,13 +58,14 @@ inline constexpr absl::Duration kBootConfirmationTime = absl::Seconds(10);
 // clang-format on
 
 /** A formulation's set-up of the files of `directory`
- * (RobotConfigDirectory::files()), up to but not including the start. */
-using RobotSetUp = std::function<absl::StatusOr<RobotStack>(
+ * (RobotConfigDirectory::files()), up to but not including the start. Only
+ * called during runRobot(). */
+using RobotSetUp = absl::FunctionRef<absl::StatusOr<RobotStack>(
     const RobotConfigDirectory& directory)>;
 
 /** A set-up and start of the files of `directory`: the started stack, or why it
- * did not start (destroyed). */
-using RobotBringUp = std::function<absl::StatusOr<RobotStack>(
+ * did not start (destroyed). Only called during bringUpRobot(). */
+using RobotBringUp = absl::FunctionRef<absl::StatusOr<RobotStack>(
     const RobotConfigDirectory& directory)>;
 
 /** The configuration directory of the binary's options: --config_store_dir and
@@ -92,7 +92,7 @@ absl::StatusOr<std::string> bundledRobotName(
  * the error of the start after the rejection, or of the rejection.
  */
 absl::StatusOr<RobotStack> bringUpRobot(RobotConfigDirectory& directory,
-                                        const RobotBringUp& bringUp);
+                                        RobotBringUp bringUp);
 
 /**
  * Runs a robot binary: opens the configuration directory, sets up
@@ -106,7 +106,7 @@ absl::StatusOr<RobotStack> bringUpRobot(RobotConfigDirectory& directory,
  * fault).
  */
 absl::Status runRobot(const RobotAppOptions& options,
-                      const RobotSetUp& setUpRobot,
+                      RobotSetUp setUpRobot,
                       absl::FunctionRef<bool()> shutdownRequested);
 
 }  // namespace ocs2::humanoid

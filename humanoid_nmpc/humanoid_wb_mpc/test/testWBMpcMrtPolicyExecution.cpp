@@ -45,6 +45,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/control/ControllerBase.h"
@@ -95,10 +97,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-std::string runfilePath(const std::string& relativePath) {
+std::string runfilePath(absl::string_view relativePath) {
   const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR");
   const std::filesystem::path candidate =
-      srcDir != nullptr ? std::filesystem::path(srcDir) / "_main" / relativePath
+      srcDir != nullptr ? std::filesystem::path(srcDir) / "_main" /
+                              std::filesystem::path(relativePath)
                         : std::filesystem::path(relativePath);
   return candidate.string();
 }
@@ -194,8 +197,7 @@ class PolicyExecution : public ::testing::Test {
 
   /** The actions of `joints`, flattened as actionValues() flattens them
    * (kActionValuesPerJoint each). */
-  std::vector<scalar_t> actionValuesOf(
-      const std::vector<size_t>& joints) const {
+  std::vector<scalar_t> actionValuesOf(absl::Span<const size_t> joints) const {
     std::vector<scalar_t> values;
     for (size_t joint : joints) {
       const robot::model::JointAction& action =

@@ -91,13 +91,13 @@ std::string runfilePath(absl::string_view relativePath) {
   return std::string();
 }
 
-std::string readFile(const std::string& path) {
-  std::ifstream in(path);
+std::string readFile(absl::string_view path) {
+  std::ifstream in{std::string(path)};
   return std::string((std::istreambuf_iterator<char>(in)),
                      std::istreambuf_iterator<char>());
 }
 
-std::string writeFile(absl::string_view name, const std::string& content) {
+std::string writeFile(absl::string_view name, absl::string_view content) {
   const std::string path =
       (std::filesystem::path(testing::TempDir()) / std::string(name)).string();
   std::ofstream out(path);

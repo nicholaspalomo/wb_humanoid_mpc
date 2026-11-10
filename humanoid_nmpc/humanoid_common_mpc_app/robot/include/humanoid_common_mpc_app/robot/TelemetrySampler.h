@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/functional/function_ref.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ContactMask.h"
@@ -120,7 +121,7 @@ class TelemetrySampler {
   /** A sample sized as every slot is: `jointNames`, `numContacts`
    * contact flags and measured wrenches, and zeros. */
   static msgs::RobotStateSample prototype(
-      const std::vector<std::string>& jointNames, size_t numContacts);
+      absl::Span<const std::string> jointNames, size_t numContacts);
 
  private:
   const size_t decimation_;

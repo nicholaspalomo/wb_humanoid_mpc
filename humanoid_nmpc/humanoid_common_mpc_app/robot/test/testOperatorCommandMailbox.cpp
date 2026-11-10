@@ -93,12 +93,12 @@ class OperatorCommandMailboxTest : public ::testing::Test {
 
   std::unique_ptr<OperatorCommandMailbox> makeMailbox(
       OperatorCommandMailbox::Hooks hooks = OperatorCommandMailbox::Hooks(),
-      const std::string& robotName = "",
-      const std::string& pdGainsFileIdentity = "") {
+      std::string robotName = "",
+      std::string pdGainsFileIdentity = "") {
     OperatorCommandMailbox::Config config;
     config.jointNames = jointNamesByIndex(description_);
-    config.robotName = robotName;
-    config.pdGainsFileIdentity = pdGainsFileIdentity;
+    config.robotName = std::move(robotName);
+    config.pdGainsFileIdentity = std::move(pdGainsFileIdentity);
     config.initialNominalJointPositions.assign(description_.getNumJoints(),
                                                0.25);
     config.commandQueueCapacity = 4;
@@ -110,7 +110,7 @@ class OperatorCommandMailboxTest : public ::testing::Test {
 
   static humanoid_mpc_config::JointPdGainsUpdate pdGainsUpdate(
       const humanoid_mpc_config::JointPdGainsFile& gains,
-      const std::string& configPath = "") {
+      absl::string_view configPath = "") {
     humanoid_mpc_config::JointPdGainsUpdate update;
     *update.mutable_gains() = gains;
     update.set_config_path(configPath);
@@ -118,7 +118,7 @@ class OperatorCommandMailboxTest : public ::testing::Test {
     return update;
   }
 
-  static humanoid_mpc_msgs::FsmCommand fsmCommand(const std::string& command,
+  static humanoid_mpc_msgs::FsmCommand fsmCommand(absl::string_view command,
                                                   uint64_t sequence) {
     humanoid_mpc_msgs::FsmCommand message;
     message.set_command(command);

@@ -36,12 +36,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <filesystem>
-#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
 
 #include "Eigen/Eigenvalues"
+#include "absl/functional/any_invocable.h"
+#include "absl/functional/function_ref.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/ComputationRequest.h"
@@ -96,7 +97,8 @@ vector_t ballInput() {
 }
 
 /** The value of a state-input cost at (x, u), requested first. */
-using CostValue = std::function<double(const vector_t&, const vector_t&)>;
+using CostValue =
+    absl::AnyInvocable<double(const vector_t&, const vector_t&) const>;
 
 CostValue costValue(const StateInputCost& cost, PreComputation& pre) {
   return [&cost, &pre](const vector_t& x, const vector_t& u) {
@@ -107,10 +109,11 @@ CostValue costValue(const StateInputCost& cost, PreComputation& pre) {
 
 /** Expects the gradient of `approximation` to be the central difference of
  * `value` at (x, u). */
-void expectGradient(const CostValue& value,
-                    const vector_t& x,
-                    const vector_t& u,
-                    const ScalarFunctionQuadraticApproximation& approximation) {
+void expectGradient(
+    absl::FunctionRef<double(const vector_t&, const vector_t&)> value,
+    const vector_t& x,
+    const vector_t& u,
+    const ScalarFunctionQuadraticApproximation& approximation) {
   for (int i = 0; i < x.size(); ++i) {
     vector_t plus = x;
     vector_t minus = x;

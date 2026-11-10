@@ -32,12 +32,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <thread>
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
@@ -109,14 +109,14 @@ class MpcServer {
    * the reset then fails like a failed solve, and is retried.
    */
   using ResetTargetTrajectoriesFunction =
-      std::function<absl::StatusOr<TargetTrajectories>(
+      absl::AnyInvocable<absl::StatusOr<TargetTrajectories>(
           const SystemObservation& observation)>;
   /**
    * Fills MpcPolicy.annotations from the solution about to be sent, on the
    * solver thread. Display only: when it returns an error the policy goes out
    * without annotations.
    */
-  using AnnotationsProvider = std::function<absl::Status(
+  using AnnotationsProvider = absl::AnyInvocable<absl::Status(
       const CommandData& command,
       const PrimalSolution& solution,
       humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations)>;
@@ -126,9 +126,9 @@ class MpcServer {
    * logged.
    */
   using PostSolveObserver =
-      std::function<absl::Status(const CommandData& command,
-                                 const PrimalSolution& solution,
-                                 const PerformanceIndex& performance)>;
+      absl::AnyInvocable<absl::Status(const CommandData& command,
+                                      const PrimalSolution& solution,
+                                      const PerformanceIndex& performance)>;
   /**
    * Called with the observation each solve starts from, on the solver thread
    * right before MPC_BASE::run(): its input carries what the MPC's run does not
@@ -136,7 +136,7 @@ class MpcServer {
    * (ProceduralMpcMotionManager::observe()). Returns at once.
    */
   using PreSolveObserver =
-      std::function<void(const SystemObservation& observation)>;
+      absl::AnyInvocable<void(const SystemObservation& observation)>;
 
   struct Config {
     /** The MPC's model: an observation of other dimensions or with a mode
@@ -304,9 +304,13 @@ class MpcServer {
 
   robot::ipc::Bus* absl_nonnull bus_;
   MPC_BASE* absl_nonnull mpc_;
-  const ResetTargetTrajectoriesFunction resetTargetTrajectories_;
+  // resetTargetTrajectories_ and hooks_ are set at construction and never
+  // reassigned; not const because the server calls them through non-const
+  // AnyInvocable signatures, so a callback may keep mutable state of its own.
+  // Called on the solver thread only.
+  ResetTargetTrajectoriesFunction resetTargetTrajectories_;
+  Hooks hooks_;
   const Config config_;
-  const Hooks hooks_;
   MpcResetSupervisor supervisor_;
   // MpcSolverStatus.server_instance of every policy and status: this server,
   // drawn once.

@@ -28,11 +28,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <memory>
-#include <set>
 #include <string>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/btree_set.h"
 #include "gtest/gtest.h"
 #include "mujoco/mujoco.h"
 
@@ -52,8 +52,8 @@ namespace {
 TEST(VisualizationRegistry, NamesAndHotkeysAreUnique) {
   const std::vector<VisualizationInfo> infos = availableVisualizations();
   ASSERT_FALSE(infos.empty());
-  std::set<std::string> names;
-  std::set<char> hotkeys;
+  absl::btree_set<std::string> names;
+  absl::btree_set<char> hotkeys;
   for (const VisualizationInfo& info : infos) {
     EXPECT_FALSE(info.name.empty());
     EXPECT_FALSE(info.description.empty());
@@ -85,7 +85,7 @@ TEST(VisualizationRegistry, EveryNameCreatesItsVisualization) {
 
 TEST(VisualizationRegistry, DefaultSetIsTheHistoricalViewer) {
   const std::vector<std::string> defaults = defaultVisualizationNames();
-  const std::set<std::string> set(defaults.begin(), defaults.end());
+  const absl::btree_set<std::string> set(defaults.begin(), defaults.end());
   for (const char* absl_nonnull name :
        {"metrics", "external_forces", "contact_forces", "base_velocity",
         "contact_timeline", "target_contact_patches"}) {

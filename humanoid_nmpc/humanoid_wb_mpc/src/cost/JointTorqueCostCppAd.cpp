@@ -91,7 +91,7 @@ JointTorqueCostCppAd::Create(
     const vector_t& weights,
     const PinocchioInterface& pinocchioInterface,
     const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
-    const std::string& costName,
+    absl::string_view costName,
     const ModelSettings& modelSettings) {
   RETURN_IF_ERROR(checkWeights(weights, mpcRobotModel.getJointDim()));
   // The constructor is private, so std::make_unique cannot reach it.
@@ -107,7 +107,7 @@ JointTorqueCostCppAd::JointTorqueCostCppAd(
     const vector_t& weights,
     const PinocchioInterface& pinocchioInterface,
     const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
-    const std::string& costName,
+    absl::string_view costName,
     const ModelSettings& modelSettings)
     : StateInputCostGaussNewtonAd(),
       sqrtWeights_(weights.cwiseSqrt()),

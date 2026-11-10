@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/manifold/UnitQuaternionMath.h"
 
@@ -101,7 +102,7 @@ absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> createFromStaticWeights() {
   auto acom = std::make_unique<AngularCenterOfMass>(
       WeightsT::input_dim, WeightsT::num_layers - 1, WeightsT::omega_0);
 
-  const std::vector<SirenLayerWeights> layers = {
+  std::vector<SirenLayerWeights> layers = {
       mapLayer(WeightsT::W0, WeightsT::W0_rows, WeightsT::W0_cols,
                WeightsT::b0),
       mapLayer(WeightsT::W1, WeightsT::W1_rows, WeightsT::W1_cols,
@@ -109,7 +110,7 @@ absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> createFromStaticWeights() {
       mapLayer(WeightsT::W2, WeightsT::W2_rows, WeightsT::W2_cols,
                WeightsT::b2),
   };
-  RETURN_IF_ERROR(acom->loadWeights(layers));
+  RETURN_IF_ERROR(acom->loadWeights(std::move(layers)));
   RETURN_IF_ERROR(acom->setJointNames(std::vector<std::string>(
       std::begin(WeightsT::joint_names), std::end(WeightsT::joint_names))));
   return acom;
@@ -217,7 +218,7 @@ std::vector<std::string> AngularCenterOfMass::registeredRobotNames() {
 
 absl::StatusOr<std::unique_ptr<AngularCenterOfMass>>
 AngularCenterOfMass::Create(absl::string_view robotName,
-                            const std::vector<std::string>& modelJointNames) {
+                            absl::Span<const std::string> modelJointNames) {
   ASSIGN_OR_RETURN(std::unique_ptr<AngularCenterOfMass> acom,
                    createRegisteredNetwork(robotName));
   const RegisteredAcomNetwork& network = *findRegisteredNetwork(robotName);
@@ -246,7 +247,7 @@ AngularCenterOfMass::Create(absl::string_view robotName,
 }
 
 absl::Status AngularCenterOfMass::loadWeights(
-    const std::vector<SirenLayerWeights>& layers) {
+    std::vector<SirenLayerWeights> layers) {
   if (layers.size() != numLayers_ + 1) {
     return absl::InvalidArgumentError(
         absl::StrCat("AngularCenterOfMass::loadWeights: expected ",
@@ -275,7 +276,7 @@ absl::Status AngularCenterOfMass::loadWeights(
         absl::StrCat("AngularCenterOfMass::loadWeights: readout layer has ",
                      layers.back().weight.rows(), " rows, expected 3."));
   }
-  layers_ = layers;
+  layers_ = std::move(layers);
   return absl::OkStatus();
 }
 

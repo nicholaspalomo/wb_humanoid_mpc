@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <climits>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <ios>
 #include <iterator>
@@ -219,8 +220,8 @@ std::string sha256Hex(absl::string_view data) {
   return hex;
 }
 
-absl::StatusOr<std::string> sha256HexOfFile(const std::string& path) {
-  std::ifstream file(path, std::ios::binary);
+absl::StatusOr<std::string> sha256HexOfFile(absl::string_view path) {
+  std::ifstream file{std::filesystem::path(path), std::ios::binary};
   if (!file.is_open()) {
     return absl::NotFoundError(
         absl::StrCat("[sha256HexOfFile] cannot read '", path, "'"));

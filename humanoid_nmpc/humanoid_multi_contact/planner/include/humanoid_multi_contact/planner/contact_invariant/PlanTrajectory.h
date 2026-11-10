@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -87,7 +88,7 @@ absl::StatusOr<config::MultiContactPlan> planOfTrajectory(
 
 /** The contact-set index of each MPC contact of `contactNames`; -1 for a
  * contact that is not a candidate. */
-std::vector<int> candidateIndicesOf(
-    const std::vector<std::string>& contactNames, const ContactSet& contactSet);
+std::vector<int> candidateIndicesOf(absl::Span<const std::string> contactNames,
+                                    const ContactSet& contactSet);
 
 }  // namespace ocs2::humanoid::multi_contact

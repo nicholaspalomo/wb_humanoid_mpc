@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
@@ -102,7 +103,7 @@ class WBMpcInterface final : public RobotInterface {
    */
   static absl::StatusOr<std::unique_ptr<WBMpcInterface>> Create(
       const mpc_config::TaskFile& taskFile,
-      const std::string& urdfFile,
+      absl::string_view urdfFile,
       const mpc_config::ReferenceFile& referenceFile);
 
   /**
@@ -115,9 +116,9 @@ class WBMpcInterface final : public RobotInterface {
    *         typed form's errors, prefixed with the file they are about.
    */
   static absl::StatusOr<std::unique_ptr<WBMpcInterface>> Create(
-      const std::string& taskFile,
-      const std::string& urdfFile,
-      const std::string& referenceFile);
+      absl::string_view taskFile,
+      absl::string_view urdfFile,
+      absl::string_view referenceFile);
 
   /**
    * The models an MRT joint controller needs and nothing else, for a robot
@@ -131,15 +132,15 @@ class WBMpcInterface final : public RobotInterface {
    */
   static absl::StatusOr<std::unique_ptr<WBMpcInterface>> CreateControllerModels(
       const mpc_config::TaskFile& taskFile,
-      const std::string& urdfFile,
+      absl::string_view urdfFile,
       const mpc_config::ReferenceFile& referenceFile);
 
   /** CreateControllerModels() of the files at the paths, failing like the path
    * form of Create(). */
   static absl::StatusOr<std::unique_ptr<WBMpcInterface>> CreateControllerModels(
-      const std::string& taskFile,
-      const std::string& urdfFile,
-      const std::string& referenceFile);
+      absl::string_view taskFile,
+      absl::string_view urdfFile,
+      absl::string_view referenceFile);
 
   ~WBMpcInterface() override = default;
   WBMpcInterface(const WBMpcInterface&) = delete;
@@ -229,7 +230,7 @@ class WBMpcInterface final : public RobotInterface {
    * prefixed with `sources`. */
   static absl::StatusOr<std::unique_ptr<WBMpcInterface>> build(
       const mpc_config::TaskFile& taskFile,
-      const std::string& urdfFile,
+      absl::string_view urdfFile,
       const mpc_config::ReferenceFile& referenceFile,
       const ConfigSources& sources,
       Scope scope);
@@ -237,9 +238,9 @@ class WBMpcInterface final : public RobotInterface {
   /** The path forms of the factories: the files loaded (loadTaskFile(),
    * loadReferenceFile()) and build(). */
   static absl::StatusOr<std::unique_ptr<WBMpcInterface>> buildFromFiles(
-      const std::string& taskFile,
-      const std::string& urdfFile,
-      const std::string& referenceFile,
+      absl::string_view taskFile,
+      absl::string_view urdfFile,
+      absl::string_view referenceFile,
       Scope scope);
 
   /** Takes over the settings; the factories then build the models
@@ -256,7 +257,7 @@ class WBMpcInterface final : public RobotInterface {
    * differs, returned rather than thrown.
    */
   absl::Status setupModels(const mpc_config::TaskFile& taskFile,
-                           const std::string& urdfFile,
+                           absl::string_view urdfFile,
                            std::shared_ptr<GaitSchedule> gaitSchedule);
 
   /**

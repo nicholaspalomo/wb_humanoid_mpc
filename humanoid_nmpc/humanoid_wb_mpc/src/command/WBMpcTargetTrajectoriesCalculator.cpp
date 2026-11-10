@@ -32,12 +32,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 
@@ -109,7 +109,7 @@ WBMpcTargetTrajectoriesCalculator::Create(
 
 absl::StatusOr<std::unique_ptr<WBMpcTargetTrajectoriesCalculator>>
 WBMpcTargetTrajectoriesCalculator::Create(
-    const std::string& referenceFile,
+    absl::string_view referenceFile,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     scalar_t mpcHorizon) {
   LOG(INFO) << "[WBMpcTargetTrajectoriesCalculator] reference file: "

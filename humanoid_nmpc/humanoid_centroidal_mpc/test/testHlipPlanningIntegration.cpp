@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -42,10 +41,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
@@ -145,7 +147,7 @@ class MessageLog {
   }
 
   /** How many captured messages of `severity` contain `needle`. */
-  size_t count(absl::LogSeverity severity, const std::string& needle) const {
+  size_t count(absl::LogSeverity severity, absl::string_view needle) const {
     size_t found = 0;
     for (const std::pair<absl::LogSeverity, std::string>& message : messages_) {
       if (message.first == severity &&
@@ -179,7 +181,7 @@ class WarningLog {
   }
 
   /** How many of the captured warnings contain `needle`. */
-  size_t count(const std::string& needle) const {
+  size_t count(absl::string_view needle) const {
     size_t found = 0;
     for (const std::string& warning : warnings_) {
       if (absl::StrContains(warning, needle)) ++found;
@@ -283,7 +285,7 @@ class HlipPlanningIntegrationTest : public ::testing::Test {
 
   /** The fixture's configuration, edited by `edit`. */
   CentroidalMpcConfig variant(
-      const std::function<void(CentroidalMpcConfig&)>& edit) const {
+      absl::FunctionRef<void(CentroidalMpcConfig&)> edit) const {
     CentroidalMpcConfig config = config_;
     edit(config);
     return config;
@@ -470,7 +472,7 @@ TEST_F(HlipPlanningIntegrationTest,
   // independently of the manager at every cycle.
   int lastLiftOffFoot = -1;
   scalar_t lastLiftOffTime = -std::numeric_limits<scalar_t>::infinity();
-  const std::function<void(scalar_t)> recordExecutedLiftOffs =
+  const absl::AnyInvocable<void(scalar_t) const> recordExecutedLiftOffs =
       [&](scalar_t now) {
         const ModeSchedule& schedule = referenceManager_->getModeSchedule();
         for (size_t event = 0; event < schedule.eventTimes.size() &&
@@ -494,7 +496,7 @@ TEST_F(HlipPlanningIntegrationTest,
   interface_->getMpcRobotModel().setPoseeulerzyxBaseRtWorld(
       target, interface_->getMpcRobotModel().getPoseeulerzyxBaseRtWorld(state));
   scalar_t time = 0.0;
-  const std::function<void()> runCycle = [&]() {
+  const absl::AnyInvocable<void() const> runCycle = [&]() {
     referenceManager_->preSolverRun(time, time + horizon, state,
                                     kBipedModeStance);
     module_->preSolverRun(time, time + horizon, state, *referenceManager_);

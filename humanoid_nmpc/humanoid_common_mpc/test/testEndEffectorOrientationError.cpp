@@ -28,13 +28,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <cstddef>
-#include <functional>
 #include <numbers>
 #include <random>
 #include <string>
 #include <vector>
 
 #include "Eigen/Geometry"
+#include "absl/functional/any_invocable.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
@@ -208,7 +208,7 @@ TEST(EndEffectorOrientationError, TheTapeMatchesTheDoubleOverload) {
         ad_vector4_t(x.head<kQuaternionCoefficients>()),
         ad_vector4_t(x.tail<kQuaternionCoefficients>()));
   };
-  const std::function<vector_t(const vector_t&)> reference =
+  const absl::AnyInvocable<vector_t(const vector_t&) const> reference =
       [](const vector_t& x) -> vector_t {
     return computeErrRotvecEeRtWorld<scalar_t>(
         vector4_t(x.head<kQuaternionCoefficients>()),
@@ -217,7 +217,7 @@ TEST(EndEffectorOrientationError, TheTapeMatchesTheDoubleOverload) {
 
   // No comparison between variables, which CppADCodeGen cannot generate:
   // recording comparisons adds no operation.
-  const std::function<size_t(bool)> tapeOperations =
+  const absl::AnyInvocable<size_t(bool) const> tapeOperations =
       [&taped](bool recordCompare) {
         ad_vector_t x = ad_vector_t::Ones(kVariableDim);
         CppAD::Independent(x, /*abort_op_index=*/0, recordCompare);

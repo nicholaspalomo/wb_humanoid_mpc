@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
-#include <string>
 #include <system_error>
 #include <vector>
 
@@ -62,9 +61,10 @@ static_assert(KeyboardCommandLimits::kNumEntries ==
 }  // namespace
 
 absl::StatusOr<KeyboardCommandLimits> loadKeyboardCommandLimits(
-    const std::string& referenceFile) {
+    absl::string_view referenceFile) {
   std::error_code error;
-  if (!std::filesystem::is_regular_file(referenceFile, error)) {
+  if (!std::filesystem::is_regular_file(std::filesystem::path(referenceFile),
+                                        error)) {
     return absl::NotFoundError(
         absl::StrCat("The reference file ", referenceFile, " does not exist"));
   }

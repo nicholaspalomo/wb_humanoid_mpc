@@ -35,16 +35,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <limits>
 #include <numbers>
 #include <regex>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_replace.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/command/NormalizedWalkingVelocityCommand.h"
@@ -78,14 +79,14 @@ double integrate(const ClosedLoopScenario& scenario,
 }
 
 TEST(ClosedLoopScenarios, TheSetIsTheDesignsWithTheSlowerWalkAndTheSmokeRun) {
-  std::set<std::string> names;
+  absl::btree_set<std::string> names;
   for (const ClosedLoopScenario& scenario : closedLoopScenarios()) {
     EXPECT_TRUE(names.insert(scenario.name).second)
         << "the name " << scenario.name << " is used twice";
     EXPECT_FALSE(scenario.description.empty()) << scenario.name;
     EXPECT_GT(getCommandDuration(scenario), 0.0) << scenario.name;
   }
-  const std::set<std::string> expected = {
+  const absl::btree_set<std::string> expected = {
       "standing",          "walk_0p5",    "walk_0p3", "lateral_0p2",
       "turn_in_place_720", "turn_1radps", "arc",      "smoke"};
   EXPECT_EQ(names, expected);
@@ -309,9 +310,9 @@ TEST(RobotConfigurations, TheKalmanVariantRunsUnitreeG1sFilesWithKalman) {
  * file cannot be read.
  */
 absl::flat_hash_map<std::string, std::string> launchFileVariables(
-    const std::string& path) {
+    absl::string_view path) {
   absl::flat_hash_map<std::string, std::string> variables;
-  std::ifstream file(path);
+  std::ifstream file{std::filesystem::path(path)};
   const std::regex declaration(
       R"re(^variables \{ name: "(\w+)" value: "([^"]*)" \})re");
   std::string line;

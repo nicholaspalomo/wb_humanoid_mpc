@@ -471,10 +471,10 @@ TEST(PerLegFootholds, theNominalStanceLandsEachContactAtItsStance) {
  * `translationalStepping` and the nominal_stance anchor. */
 absl::StatusOr<std::shared_ptr<LocomotionHeuristicLayer>> footholdLayer(
     const LoadedRobot& robot,
-    const std::vector<std::string>& names,
+    std::vector<std::string> names,
     const TranslationalSteppingParameters& translationalStepping) {
   LocomotionHeuristicConfig config;
-  config.formulation.footholdHeuristics = names;
+  config.formulation.footholdHeuristics = std::move(names);
   config.translationalStepping = translationalStepping;
   PinocchioInterface pinocchioInterface = *robot.pinocchioInterface;
   ASSIGN_OR_RETURN(

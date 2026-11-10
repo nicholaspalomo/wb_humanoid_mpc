@@ -32,20 +32,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/benchmark/MpcSolveBenchmark.h"
 
 #include <cstddef>
-#include <map>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/base/thread_annotations.h"
+#include "absl/container/btree_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
+#include "absl/synchronization/mutex.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/CppAdInterface.h"
 
@@ -69,7 +70,7 @@ class TapeOperationCounter {
  public:
   TapeOperationCounter() {
     CppAdInterface::setLibraryObserver([this](const CppAdInterface& library) {
-      std::lock_guard<std::mutex> lock(mutex_);
+      absl::MutexLock lock(mutex_);
       if (counts_.contains(library.getLibraryFolder())) {
         return;  // a copy reloads a library already counted
       }
@@ -85,14 +86,14 @@ class TapeOperationCounter {
   TapeOperationCounter& operator=(const TapeOperationCounter&) = delete;
 
   /** The counts by library folder, sorted. */
-  std::map<std::string, size_t> counts() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+  absl::btree_map<std::string, size_t> counts() const {
+    absl::MutexLock lock(mutex_);
     return counts_;
   }
 
  private:
-  mutable std::mutex mutex_;
-  std::map<std::string, size_t> counts_;
+  mutable absl::Mutex mutex_;
+  absl::btree_map<std::string, size_t> counts_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace
@@ -108,7 +109,7 @@ absl::StatusOr<JsonValue> runSolveBenchmark(
     const RobotConfiguration& configuration,
     const RecordedRobotStates& states,
     const SolveBenchmarkOptions& options,
-    const std::string& label,
+    absl::string_view label,
     JsonValue provenance) {
   if (states.records.size() <= options.warmupSolves) {
     return absl::InvalidArgumentError(
@@ -172,7 +173,7 @@ absl::StatusOr<JsonValue> runSolveBenchmark(
   JsonValue document = JsonValue::object();
   document.set("schema",
                JsonValue::string(std::string(kSolveBenchmarkSchemaName)));
-  document.set("label", JsonValue::string(label));
+  document.set("label", JsonValue::string(std::string(label)));
   document.set("robot", JsonValue::string(configuration.name));
   document.set("formulation",
                JsonValue::string(formulationName(configuration.formulation)));

@@ -32,10 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <vector>
 
 #include "Eigen/Core"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 namespace ocs2::humanoid::config_dump {
 
@@ -67,10 +67,9 @@ class ValueDump {
   void addInteger(absl::string_view path, int64_t value);
   void addBool(absl::string_view path, bool value);
   void addString(absl::string_view path, absl::string_view value);
-  void addStrings(absl::string_view path,
-                  const std::vector<std::string>& values);
-  void addDoubles(absl::string_view path, const std::vector<double>& values);
-  void addSizes(absl::string_view path, const std::vector<size_t>& values);
+  void addStrings(absl::string_view path, absl::Span<const std::string> values);
+  void addDoubles(absl::string_view path, absl::Span<const double> values);
+  void addSizes(absl::string_view path, absl::Span<const size_t> values);
   /** Every element of `matrix`, row by row; a vector (one column) as
    * `<path>[<i>]`. Its size first. */
   void addMatrix(absl::string_view path,

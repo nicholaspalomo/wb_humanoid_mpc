@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
@@ -102,7 +103,7 @@ struct Robot {
   robot::model::RobotDescription description;
 };
 
-Robot loadRobot(const std::string& taskFile, const std::string& urdfFile) {
+Robot loadRobot(absl::string_view taskFile, absl::string_view urdfFile) {
   mpc_config::TaskFile task = loadTaskFile(taskFile).value();
   ModelSettings modelSettings =
       ModelSettings::Create(task, urdfFile, "state_estimator_contacts_test_",
@@ -163,7 +164,7 @@ scalar_t solesOnGroundBaseHeight(const Robot& robot,
 
 /** The contact points the robot process gives the kalman estimator. */
 std::vector<estimation::ContactPointSpec> contactPointsOf(
-    const Robot& robot, const std::string& urdfFile) {
+    const Robot& robot, absl::string_view urdfFile) {
   return stateEstimatorContacts(robot.modelSettings, robot.task.contacts,
                                 urdfFile)
       .value();

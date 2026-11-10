@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <vector>
 
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
@@ -186,7 +187,7 @@ class SwingTrajectoryPlanner {
    * @return contactFlagStock
    */
   ContactArray<std::vector<bool>> extractContactFlags(
-      const std::vector<size_t>& phaseIDsStock) const;
+      absl::Span<const size_t> phaseIDsStock) const;
 
   /**
    * The event-time indices that bound one swing phase:

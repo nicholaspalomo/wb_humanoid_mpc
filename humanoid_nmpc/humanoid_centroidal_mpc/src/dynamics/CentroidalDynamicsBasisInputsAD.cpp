@@ -142,7 +142,7 @@ absl::StatusOr<std::unique_ptr<CentroidalDynamicsBasisInputsAD>>
 CentroidalDynamicsBasisInputsAD::Create(
     const PinocchioInterface& pinocchioInterface,
     const CentroidalModelInfo& info,
-    const std::string& modelName,
+    absl::string_view modelName,
     const ModelSettings& modelSettings,
     absl::Span<const matrix_t> localBasisMatrices) {
   if (absl::Status status =
@@ -161,7 +161,7 @@ CentroidalDynamicsBasisInputsAD::Create(
 CentroidalDynamicsBasisInputsAD::CentroidalDynamicsBasisInputsAD(
     const PinocchioInterface& pinocchioInterface,
     const CentroidalModelInfo& info,
-    const std::string& modelName,
+    absl::string_view modelName,
     const ModelSettings& modelSettings,
     absl::Span<const matrix_t> localBasisMatrices)
     : SystemDynamicsBaseAD(),

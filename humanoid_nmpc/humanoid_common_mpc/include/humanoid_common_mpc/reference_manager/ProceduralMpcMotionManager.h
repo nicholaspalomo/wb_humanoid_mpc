@@ -32,9 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <atomic>
 #include <cstddef>
-#include <functional>
 #include <limits>
-#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -42,6 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/container/btree_map.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -145,11 +145,12 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    * `measuredMotion` (its stride mean, getMeasuredPlanarMotion()).
    */
   using VelocityTargetToTargetTrajectories =
-      std::function<TargetTrajectories(const vector4_t& velocityCommand,
-                                       scalar_t initTime,
-                                       scalar_t finalTime,
-                                       const vector_t& initState,
-                                       const BasePlanarMotion& measuredMotion)>;
+      absl::AnyInvocable<TargetTrajectories(
+          const vector4_t& velocityCommand,
+          scalar_t initTime,
+          scalar_t finalTime,
+          const vector_t& initState,
+          const BasePlanarMotion& measuredMotion)>;
 
   /**
    * The motion manager of the gaits of the typed gait file `gaitFile`
@@ -195,8 +196,8 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    * conversions' prefixed with their file.
    */
   static absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> Create(
-      const std::string& gaitFile,
-      const std::string& referenceFile,
+      absl::string_view gaitFile,
+      absl::string_view referenceFile,
       std::shared_ptr<SwitchedModelReferenceManager>
           switchedModelReferenceManagerPtr,
       const MpcRobotModelBase<scalar_t>& mpcRobotModel,
@@ -287,7 +288,7 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    * TargetTrajectoriesCalculatorBase their VelocityTargetToTargetTrajectories
    * function calls, whose filters are state of the same command path.
    */
-  void setResetHook(std::function<void()> resetHook) {
+  void setResetHook(absl::AnyInvocable<void()> resetHook) {
     resetHook_ = std::move(resetHook);
   }
 
@@ -392,7 +393,7 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
     return rampedVelocityCommand_;
   }
   /** The gaits of the gait file, by name (tools/config_dump reads them). */
-  const std::map<std::string, ModeSequenceTemplate>& gaitMap() const {
+  const absl::btree_map<std::string, ModeSequenceTemplate>& gaitMap() const {
     return gaitMap_;
   }
 
@@ -422,7 +423,7 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    * refuses such a gait file with it. Exposed for the unit test.
    */
   static absl::Status checkEveryGaitIsLoaded(
-      const std::map<std::string, ModeSequenceTemplate>& gaitMap,
+      const absl::btree_map<std::string, ModeSequenceTemplate>& gaitMap,
       absl::Span<const GaitModeStateConfig> gaitModeStates,
       absl::string_view gaitFile);
 
@@ -445,7 +446,7 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
 
   VelocityTargetToTargetTrajectories velocityCommandToTargetTrajectoriesFun_;
 
-  std::map<std::string, ModeSequenceTemplate> gaitMap_;
+  absl::btree_map<std::string, ModeSequenceTemplate> gaitMap_;
 
   // For velocity control mode. The values before Create()'s
   // applyCommandLimits() replaces them.
@@ -483,7 +484,7 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
   scalar_t lastGaitChangeTime_{std::numeric_limits<scalar_t>::lowest()};
   static constexpr scalar_t kGaitChangeHoldOff = 0.2;  // [s]
 
-  std::function<void()> resetHook_;
+  absl::AnyInvocable<void()> resetHook_;
 
  private:
   /** A gait the schedule runs from `startTime` on, with the cycle
@@ -502,7 +503,7 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
 
   /** [s] The cycle of the gait `gaitCommand` of the gait map (loaded by
    * Create()): its template's duration. */
-  scalar_t cycleDurationOf(const std::string& gaitCommand) const;
+  scalar_t cycleDurationOf(absl::string_view gaitCommand) const;
 
   /** [s] The cycle of the gait the schedule runs at `time` (scheduledGaits_),
    * the stride the measured motion is averaged over. */

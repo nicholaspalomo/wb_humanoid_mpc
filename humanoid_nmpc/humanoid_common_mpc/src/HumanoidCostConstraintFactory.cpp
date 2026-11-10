@@ -34,7 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <memory>
-#include <string>
 #include <utility>
 
 #include "absl/base/nullability.h"
@@ -521,7 +520,7 @@ HumanoidCostConstraintFactory::makeJointLimitsConstraint() const {
 
 absl::StatusOr<std::unique_ptr<StateInputCost>>
 HumanoidCostConstraintFactory::makeContactMomentXYConstraint(
-    size_t contactPointIndex, const std::string& name) const {
+    size_t contactPointIndex, absl::string_view name) const {
   const mpc_config::TaskFile& taskFile = *taskFilePtr_;
   ASSIGN_OR_RETURN(const RelaxedBarrierPenalty::Config barrierPenaltyConfig,
                    contactMomentXyBarrierFromConfig(taskFile.contacts));

@@ -31,11 +31,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 #include <optional>
-#include <string>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
@@ -178,7 +178,7 @@ class DcmTerminalCost final : public StateCost {
       scalar_t modelNomPosComRtFeetmeanEwrtWorldZ,
       const PinocchioInterface& pinocchioInterface,
       const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-      const std::string& costName,
+      absl::string_view costName,
       const ModelSettings& modelSettings);
 
   ~DcmTerminalCost() override = default;
@@ -269,7 +269,7 @@ class DcmTerminalCost final : public StateCost {
                   scalar_t modelGravityMagnitude,
                   const PinocchioInterface& pinocchioInterface,
                   const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-                  const std::string& costName,
+                  absl::string_view costName,
                   const ModelSettings& modelSettings);
   DcmTerminalCost(const DcmTerminalCost& other);
 

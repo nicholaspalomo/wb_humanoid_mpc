@@ -31,12 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
 
+#include "absl/functional/function_ref.h"
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
@@ -60,10 +60,10 @@ namespace {
 
 namespace topics = ::ocs2::humanoid::ipc::topics;
 
-std::unique_ptr<robot::ipc::Bus> createLoopbackBus(const std::string& name) {
+std::unique_ptr<robot::ipc::Bus> createLoopbackBus(std::string name) {
   robot::ipc::BusOptions options;
-  options.nodeName = name;
   options.network = robot::ipc::isolatedTestNetwork({name});
+  options.nodeName = std::move(name);
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
       robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());
@@ -72,7 +72,7 @@ std::unique_ptr<robot::ipc::Bus> createLoopbackBus(const std::string& name) {
 
 }  // namespace
 
-bool waitFor(const std::function<bool()>& condition, double timeoutSeconds) {
+bool waitFor(absl::FunctionRef<bool()> condition, double timeoutSeconds) {
   const absl::Time deadline = absl::Now() + absl::Seconds(timeoutSeconds);
   while (!condition()) {
     if (absl::Now() > deadline) return false;
@@ -91,13 +91,12 @@ ScriptedRobot::~ScriptedRobot() {
 }
 
 absl::Status ScriptedRobot::start() {
-  const std::function<void(const humanoid_mpc_msgs::MpcPolicy&)> onPolicy =
+  RETURN_IF_ERROR(robot_->subscribe<humanoid_mpc_msgs::MpcPolicy>(
+      topics::kMpcPolicy, robot::ipc::Delivery::kAll,
       [this](const humanoid_mpc_msgs::MpcPolicy& policy) {
         absl::MutexLock lock(mutex_);
         policies_.push_back(policy);
-      };
-  RETURN_IF_ERROR(robot_->subscribe<humanoid_mpc_msgs::MpcPolicy>(
-      topics::kMpcPolicy, robot::ipc::Delivery::kAll, onPolicy));
+      }));
   RETURN_IF_ERROR(robot_->start());
   return operator_->start();
 }
@@ -138,7 +137,7 @@ std::optional<humanoid_mpc_msgs::MpcPolicy> ScriptedRobot::solve(
 
 bool ScriptedRobot::sendAsOperator(absl::string_view topic,
                                    const google::protobuf::Message& message,
-                                   const std::function<bool()>& received) {
+                                   absl::FunctionRef<bool()> received) {
   absl::Time nextSend = absl::InfinitePast();
   return waitFor([&]() {
     if (absl::Now() >= nextSend) {

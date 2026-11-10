@@ -126,13 +126,13 @@ RobotConfiguration standing() {
   return configuration;
 }
 
-config::CollisionModel::Link capsuleLink(const std::string& name,
-                                         const std::string& joint,
+config::CollisionModel::Link capsuleLink(std::string name,
+                                         std::string joint,
                                          const Eigen::Vector3d& end,
                                          double radius) {
   config::CollisionModel::Link link;
-  link.name = name;
-  link.parent_joint = joint;
+  link.name = std::move(name);
+  link.parent_joint = std::move(joint);
   config::CollisionModel::Capsule capsule;
   capsule.pos_capsulestart_rt_link_ewrt_link = Eigen::Vector3d::Zero();
   capsule.pos_capsuleend_rt_link_ewrt_link = end;

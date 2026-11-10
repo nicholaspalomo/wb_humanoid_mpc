@@ -31,9 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <memory>
-#include <string>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 
@@ -83,7 +83,7 @@ class WBMpcTargetTrajectoriesCalculator
    * column), and the typed form's errors, prefixed with the file.
    */
   static absl::StatusOr<std::unique_ptr<WBMpcTargetTrajectoriesCalculator>>
-  Create(const std::string& referenceFile,
+  Create(absl::string_view referenceFile,
          const MpcRobotModelBase<scalar_t>& mpcRobotModel,
          scalar_t mpcHorizon);
 

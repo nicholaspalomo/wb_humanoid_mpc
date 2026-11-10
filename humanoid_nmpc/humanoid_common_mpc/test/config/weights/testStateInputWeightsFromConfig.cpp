@@ -42,9 +42,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <cstdlib>
-#include <functional>
 #include <limits>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -54,6 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 
@@ -117,7 +118,7 @@ mpc_config::TaskFile taskFile(absl::string_view text) {
 
 /** `status` is InvalidArgument and says each of `expected`. */
 void expectRefused(const absl::Status& status,
-                   const std::vector<std::string>& expected) {
+                   absl::Span<const std::string> expected) {
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
   for (const std::string& part : expected) {
     EXPECT_TRUE(absl::StrContains(status.message(), part))
@@ -193,7 +194,7 @@ struct ExpectedBlock {
 void expectTuningLayoutIsPlaceStatesLayout(
     const StateInputLayout& layout,
     absl::string_view stateText,
-    const std::vector<ExpectedBlock>& blocks) {
+    absl::Span<const ExpectedBlock> blocks) {
   const TuningLayout tuningLayout = tuningLayoutOf(layout);
   ASSERT_EQ(tuningLayout.segments.size(), blocks.size());
   EXPECT_EQ(getTuningLayoutDim(tuningLayout), tuningDimension(layout));
@@ -321,7 +322,7 @@ TEST(StateWeightsFromConfigTest, EveryElementIsTheScalingTimesItsEntry) {
 template <typename Block>
 struct WeightField {
   std::string path;
-  std::function<void(Block&, double)> set;
+  void (*absl_nonnull set)(Block&, double);
 };
 
 /**
@@ -333,7 +334,7 @@ struct WeightField {
 template <typename Block, typename Convert>
 void expectNegativeOrNanWeightsRefused(
     const Block& valid,
-    const std::vector<WeightField<Block>>& fields,
+    absl::Span<const WeightField<std::type_identity_t<Block>>> fields,
     Convert convert) {
   ASSERT_TRUE(convert(valid).ok()) << convert(valid).status();
   for (const WeightField<Block>& field : fields) {

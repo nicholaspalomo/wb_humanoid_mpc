@@ -31,9 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <memory>
-#include <string>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
@@ -74,7 +74,7 @@ class CentroidalMpcTargetTrajectoriesCalculator
    */
   static absl::StatusOr<
       std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>>
-  Create(const std::string& referenceFile,
+  Create(absl::string_view referenceFile,
          const MpcRobotModelBase<scalar_t>& mpcRobotModel,
          PinocchioInterface pinocchioInterface,
          scalar_t mpcHorizon);

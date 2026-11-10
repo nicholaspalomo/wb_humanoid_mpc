@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc_app/node/MpcFiles.h"
 #include "humanoid_common_mpc_app/robot/RobotConfigDirectory.h"
@@ -51,7 +52,7 @@ namespace ocs2::humanoid {
  * InvalidArgument for anything else.
  */
 absl::StatusOr<std::vector<int>> parseCoreList(
-    absl::string_view value, const std::vector<int>& defaultCores);
+    absl::string_view value, absl::Span<const int> defaultCores);
 
 /** The values of the robot binaries' viewer flags (RobotAppFlags.h) as given,
  * before viewerSettingsFromFlags() checks them. */
@@ -119,7 +120,7 @@ absl::StatusOr<std::vector<std::string>> viewerNamesFromFlags(
  */
 absl::StatusOr<robot::mujoco_sim_interface::ViewerSettings>
 viewerSettingsFromFlags(const ViewerFlagValues& flags,
-                        const std::vector<int>& defaultViewerCores);
+                        absl::Span<const int> defaultViewerCores);
 
 /** The environment variable that bounds llvmpipe's (Mesa's software OpenGL's)
  * rasterizer threads. */

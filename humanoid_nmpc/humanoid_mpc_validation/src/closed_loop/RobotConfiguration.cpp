@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 #include "absl/base/no_destructor.h"
@@ -56,14 +57,14 @@ constexpr char kGaitFile[] =
 
 /** A configuration whose MPC package keeps its files in `configDir`
  * (config/mpc, config/command, config/controller). */
-RobotConfiguration makeConfiguration(const std::string& name,
+RobotConfiguration makeConfiguration(std::string name,
                                      MpcFormulation formulation,
-                                     const std::string& configDir,
-                                     const std::string& urdfFile,
-                                     const std::string& sceneFile,
-                                     const std::string& walkingScenario) {
+                                     absl::string_view configDir,
+                                     std::string urdfFile,
+                                     std::string sceneFile,
+                                     std::string walkingScenario) {
   RobotConfiguration configuration;
-  configuration.name = name;
+  configuration.name = std::move(name);
   configuration.formulation = formulation;
   // LINT.IfChange(config_layout)
   configuration.taskFile = absl::StrCat(configDir, "/mpc/task.textproto");
@@ -75,9 +76,9 @@ RobotConfiguration makeConfiguration(const std::string& name,
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/ConfigFiles.h:config_layout, //humanoid_nmpc/remote_control/remote_control/config_files.py:config_layout)
   // clang-format on
   configuration.gaitFile = kGaitFile;
-  configuration.urdfFile = urdfFile;
-  configuration.sceneFile = sceneFile;
-  configuration.walkingScenario = walkingScenario;
+  configuration.urdfFile = std::move(urdfFile);
+  configuration.sceneFile = std::move(sceneFile);
+  configuration.walkingScenario = std::move(walkingScenario);
   return configuration;
 }
 

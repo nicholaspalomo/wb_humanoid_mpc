@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
 
 #include <cstddef>
-#include <functional>
 #include <optional>
 #include <utility>
 
@@ -54,6 +53,39 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
+
+namespace {
+
+/**
+ * Returns the normal-velocity constraint of foot `footIndex` at time `t`: the
+ * swing reference's vertical velocity, servoed towards its height with the gain
+ * `positionErrorGainZ` (none at zero).
+ */
+EndEffectorKinematicsLinearVelConstraint::Config normalVelocityConstraintConfig(
+    const SwingTrajectoryPlanner& swingTrajectoryPlanner,
+    scalar_t positionErrorGainZ,
+    size_t footIndex,
+    scalar_t t) {
+  EndEffectorKinematicsLinearVelConstraint::Config config;
+  config.b =
+      (vector_t(1) << -swingTrajectoryPlanner.getDesLinvelFootRtWorldEwrtWorldZ(
+           footIndex, t))
+          .finished();
+  config.Av = (matrix_t(1, kPositionDim) << 0.0, 0.0, 1.0).finished();
+  // The gain comes from the precomputation, not from the shared ModelSettings,
+  // so that the parameter updater can retune it per worker thread while the
+  // controller runs; see setNormalVelocityPositionErrorGain.
+  if (!numerics::almost_eq(positionErrorGainZ, /*y=*/0.0)) {
+    config.b(0) -=
+        positionErrorGainZ *
+        swingTrajectoryPlanner.getDesPosFootRtWorldEwrtWorldZ(footIndex, t);
+    config.Ax =
+        (matrix_t(1, kPositionDim) << 0.0, 0.0, positionErrorGainZ).finished();
+  }
+  return config;
+}
+
+}  // namespace
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -147,30 +179,6 @@ void HumanoidPreComputation::request(RequestSet request,
   updatePinocchioModelKinematics(
       mpcRobotModelPtr_->getGeneralizedCoordinates(x));
 
-  // lambda to set config for normal velocity constraints
-  const std::function<EndEffectorKinematicsLinearVelConstraint::Config(size_t)>
-      eeNormalVelConConfig = [&](size_t footIndex) {
-        EndEffectorKinematicsLinearVelConstraint::Config config;
-        config.b = (vector_t(1)
-                    << -swingTrajectoryPlannerPtr_
-                            ->getDesLinvelFootRtWorldEwrtWorldZ(footIndex, t))
-                       .finished();
-        config.Av = (matrix_t(1, kPositionDim) << 0.0, 0.0, 1.0).finished();
-        // The gain comes from this object, not from the shared ModelSettings,
-        // so that the parameter updater can retune it per worker thread while
-        // the controller runs; see setNormalVelocityPositionErrorGain.
-        if (!numerics::almost_eq(positionErrorGainZ_, /*y=*/0.0)) {
-          config.b(0) -=
-              positionErrorGainZ_ *
-              swingTrajectoryPlannerPtr_->getDesPosFootRtWorldEwrtWorldZ(
-                  footIndex, t);
-          config.Ax =
-              (matrix_t(1, kPositionDim) << 0.0, 0.0, positionErrorGainZ_)
-                  .finished();
-        }
-        return config;
-      };
-
   // Widened from `contains(Request::Constraint)` deliberately. Today every OCS2
   // call site that evaluates a state-input term - setupIntermediateNode,
   // LinearQuadraticApproximator, MetricsComputation - requests
@@ -188,7 +196,8 @@ void HumanoidPreComputation::request(RequestSet request,
   // for the cost of two swing references on a cost-only request.
   if (request.containsAny(Request::Constraint + Request::SoftConstraint)) {
     for (size_t i = 0; i < desPosFeetRtWorldEwrtWorldZ_.size(); ++i) {
-      eeNormalVelConConfigs_[i] = eeNormalVelConConfig(i);
+      eeNormalVelConConfigs_[i] = normalVelocityConstraintConfig(
+          *swingTrajectoryPlannerPtr_, positionErrorGainZ_, i, t);
       desPosFeetRtWorldEwrtWorldZ_[i] =
           swingTrajectoryPlannerPtr_->getDesPosFootRtWorldEwrtWorldZ(i, t);
     }

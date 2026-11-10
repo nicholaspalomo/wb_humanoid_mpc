@@ -122,13 +122,14 @@ void printJointNames(const PinocchioInterface& pinocchioInterface) {
  * to world, at `q`. */
 void printPoseLinkRtWorld(const PinocchioInterface& pinocchioInterface,
                           const Eigen::VectorXd& q,
-                          const std::string& frameName) {
+                          absl::string_view frameName) {
   const pinocchio::Model& model = pinocchioInterface.getModel();
   pinocchio::Data data = pinocchioInterface.getData();
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
 
-  const pinocchio::FrameIndex frameId = model.getFrameId(frameName);
+  const pinocchio::FrameIndex frameId =
+      model.getFrameId(std::string(frameName));
   const matrix3_t rotmatLinkRtWorld = data.oMf[frameId].rotation();
   const quaternion_t quatLinkRtWorld = matrixToQuaternion(rotmatLinkRtWorld);
   const Eigen::Matrix4d transform = data.oMf[frameId].toHomogeneousMatrix();

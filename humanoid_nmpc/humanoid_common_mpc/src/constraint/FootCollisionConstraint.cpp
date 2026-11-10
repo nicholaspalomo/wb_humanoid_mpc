@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <string>
 
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/automatic_differentiation/Types.h"
 #include "ocs2_core/constraint/ConstraintOrder.h"
@@ -63,15 +64,15 @@ FootCollisionConstraint::FootCollisionConstraint(
     const PinocchioInterface& pinocchioInterface,
     const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
     const Config& config,
-    const std::string& costName,
+    absl::string_view costName,
     const ModelSettings& modelSettings)
     : StateConstraintCppAd(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelPtr_(&mpcRobotModel),
       cfg_(config) {
-  initialize(mpcRobotModelPtr_->getStateDim(), kNumParameters, costName,
-             modelSettings.modelFolderCppAd,
+  initialize(mpcRobotModelPtr_->getStateDim(), kNumParameters,
+             std::string(costName), modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 

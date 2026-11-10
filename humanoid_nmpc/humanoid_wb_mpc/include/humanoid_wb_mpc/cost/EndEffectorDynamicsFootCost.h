@@ -91,7 +91,7 @@ class EndEffectorDynamicsFootCost final : public StateInputCostGaussNewtonAd {
       const PinocchioInterface& pinocchioInterface,
       const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
       size_t contactIndex,
-      const std::string& modelName,
+      absl::string_view modelName,
       const ModelSettings& modelSettings);
 
   /** Returns the name WBMpcInterface adds the cost of the contact `footName`
@@ -151,7 +151,7 @@ class EndEffectorDynamicsFootCost final : public StateInputCostGaussNewtonAd {
       const PinocchioInterface& pinocchioInterface,
       const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
       size_t contactIndex,
-      const std::string& modelName,
+      absl::string_view modelName,
       const ModelSettings& modelSettings);
   EndEffectorDynamicsFootCost(const EndEffectorDynamicsFootCost& other);
 

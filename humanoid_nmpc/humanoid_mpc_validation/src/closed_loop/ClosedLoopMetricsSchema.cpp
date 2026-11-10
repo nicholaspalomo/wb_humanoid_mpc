@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_mpc_validation/io/JsonValue.h"
 
@@ -154,7 +155,7 @@ bool hasKind(const JsonValue& value, JsonFieldKind kind) {
  * that are neither listed nor open. */
 void collectUnknown(
     const JsonValue& value,
-    const std::string& path,
+    absl::string_view path,
     const absl::flat_hash_map<std::string, JsonFieldKind>& known,
     std::vector<std::string>& unknown) {
   if (!path.empty()) {
@@ -164,7 +165,8 @@ void collectUnknown(
     if (field != known.end()) return;
   }
   if (!value.isObject()) {
-    unknown.push_back(path.empty() ? "<document>" : path);
+    unknown.push_back(path.empty() ? std::string("<document>")
+                                   : std::string(path));
     return;
   }
   for (size_t i = 0; i < value.size(); ++i) {

@@ -76,13 +76,14 @@ HttpReply fetchOrFail(int port, const HttpRequest& request) {
   return reply.ok() ? *std::move(reply) : HttpReply();
 }
 
-HttpReply get(int port, const std::string& target) {
-  return fetchOrFail(port, HttpRequest{.method = "GET", .target = target});
+HttpReply get(int port, absl::string_view target) {
+  return fetchOrFail(
+      port, HttpRequest{.method = "GET", .target = std::string(target)});
 }
 
-HttpReply postFromPage(int port, const std::string& target) {
+HttpReply postFromPage(int port, absl::string_view target) {
   return fetchOrFail(port, HttpRequest{.method = "POST",
-                                       .target = target,
+                                       .target = std::string(target),
                                        .headers = {{"X-MuJoCo-Viewer", "1"}}});
 }
 
@@ -534,7 +535,7 @@ TEST(WebViewerServerTest, AClientLeavingMidPartLeavesTheOthersServed) {
 }
 
 // The trust model of README.md, on a loopback bind and on a wildcard bind.
-void checkTrust(const std::string& address) {
+void checkTrust(absl::string_view address) {
   SCOPED_TRACE(address);
   WebViewerServerOptions options = test_support::testServerOptions();
   options.address = address;

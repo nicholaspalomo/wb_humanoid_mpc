@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "gtest/gtest.h"
@@ -128,10 +129,10 @@ node::MpcFiles g1Files() {
   return files;
 }
 
-std::unique_ptr<robot::ipc::Bus> loopbackBus(const std::string& name) {
+std::unique_ptr<robot::ipc::Bus> loopbackBus(std::string name) {
   robot::ipc::BusOptions options;
-  options.nodeName = name;
   options.network = robot::ipc::isolatedTestNetwork({name});
+  options.nodeName = std::move(name);
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
       robot::ipc::Bus::Create(std::move(options));
   EXPECT_TRUE(bus.ok()) << bus.status();
@@ -281,7 +282,7 @@ TEST(WBMpcNode, TheVelocityCommandReachesTheMotionManager) {
 /** The tuning GUI's update of the task file at `taskFile` with its state
  * weights scaled by `stateWeightScale`. */
 humanoid_mpc_config::MpcParameterUpdate stateWeightUpdate(
-    const std::string& taskFile, double stateWeightScale) {
+    absl::string_view taskFile, double stateWeightScale) {
   const absl::StatusOr<humanoid_mpc_config::TaskFile> task =
       nproto::ParseTextprotoFile<humanoid_mpc_config::TaskFile>(taskFile);
   EXPECT_TRUE(task.ok()) << task.status();
@@ -429,9 +430,15 @@ TEST(WBMpcNode, ResetsToTheTargetTheControllerHandsItsInProcessLink) {
   MpcLink::ResetTargetFunction controllerResetTarget;
   const MpcLinkFactory capturing = [&](MpcLink::ResetTargetFunction resetTarget)
       -> std::unique_ptr<MpcLink> {
-    controllerResetTarget = resetTarget;
+    // The test and the link both call the target: the test keeps it, and the
+    // link calls it through the test's variable, which outlives the controller.
+    controllerResetTarget = std::move(resetTarget);
     return std::make_unique<InProcessMpcLink>(
-        scriptedMpc, std::move(resetTarget), InProcessMpcLink::Config());
+        scriptedMpc,
+        [&controllerResetTarget](const SystemObservation& observation) {
+          return controllerResetTarget(observation);
+        },
+        InProcessMpcLink::Config());
   };
   const absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> controller =
       WBMpcMrtJointController::Create(

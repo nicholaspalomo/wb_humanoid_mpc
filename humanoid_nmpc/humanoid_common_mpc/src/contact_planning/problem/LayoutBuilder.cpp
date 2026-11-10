@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/problem/LayoutBuilder.h"
 
 #include <string>
+#include <utility>
 
 #include "absl/log/check.h"
 
@@ -37,18 +38,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-int LayoutBuilder::addState(const std::string& name) {
+int LayoutBuilder::addState(std::string name) {
   CHECK(!layout_.hasState(name))
       << "[Layout] state '" << name << "' declared twice";
-  layout_.stateNames.push_back(name);
+  layout_.stateNames.push_back(std::move(name));
   layout_.nx = static_cast<int>(layout_.stateNames.size());
   return layout_.nx - 1;
 }
 
-int LayoutBuilder::addInput(const std::string& name) {
+int LayoutBuilder::addInput(std::string name) {
   CHECK(!layout_.hasInput(name))
       << "[Layout] input '" << name << "' declared twice";
-  layout_.inputNames.push_back(name);
+  layout_.inputNames.push_back(std::move(name));
   layout_.nu = static_cast<int>(layout_.inputNames.size());
   return layout_.nu - 1;
 }

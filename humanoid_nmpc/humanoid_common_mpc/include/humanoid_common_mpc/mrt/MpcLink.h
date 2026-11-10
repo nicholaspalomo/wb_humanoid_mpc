@@ -30,9 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <cstddef>
-#include <functional>
 #include <memory>
 
+#include "absl/functional/any_invocable.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/CommandData.h"
@@ -123,10 +123,12 @@ class MpcLink {
    * The target an MPC restarts from after a reset, for the observation current
    * when the reset is served. It is formulation-specific, so the controller
    * supplies it (for instance the observed pose held still and upright, with
-   * the weight on both feet). Called on the thread that serves resets.
+   * the weight on both feet). Called on the thread that serves resets. It is
+   * const-callable, since InProcessMpcLink keeps it in a const member, and
+   * move-only.
    */
-  using ResetTargetFunction =
-      std::function<TargetTrajectories(const SystemObservation& observation)>;
+  using ResetTargetFunction = absl::AnyInvocable<TargetTrajectories(
+      const SystemObservation& observation) const>;
 
   virtual ~MpcLink();
 
@@ -220,9 +222,10 @@ class MpcLink {
  * Makes an MRT joint controller's link once the controller can say how to reset
  * its MPC: it is called by the controller's constructor with the controller's
  * reset target, which InProcessMpcLink serves its resets from and a remote link
- * ignores (see MpcLink). Returning nullptr is an error.
+ * ignores (see MpcLink). Returning nullptr is an error. The controllers call it
+ * through a const reference, so it is const-callable; it is move-only.
  */
-using MpcLinkFactory = std::function<std::unique_ptr<MpcLink>(
-    MpcLink::ResetTargetFunction resetTarget)>;
+using MpcLinkFactory = absl::AnyInvocable<std::unique_ptr<MpcLink>(
+    MpcLink::ResetTargetFunction resetTarget) const>;
 
 }  // namespace ocs2::humanoid

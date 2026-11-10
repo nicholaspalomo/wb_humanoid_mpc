@@ -48,6 +48,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
@@ -110,7 +112,7 @@ ControlCycleSample trackingSample(size_t k,
   return sample;
 }
 
-double numberAt(const JsonValue& document, const std::string& path) {
+double numberAt(const JsonValue& document, absl::string_view path) {
   const JsonValue* absl_nullable value = document.findPath(path);
   EXPECT_NE(value, nullptr) << path;
   if (value == nullptr || !value->isNumber()) return std::nan("");
@@ -586,7 +588,7 @@ TEST(ClosedLoopMetricsSchema, MissingMistypedAndUnknownFieldsAreNamed) {
 /** A surviving run's metrics document with the numbers at their dotted paths
  * (each "<group>.<field>"). */
 JsonValue documentWith(
-    const std::vector<std::pair<std::string, double>>& numbers) {
+    absl::Span<const std::pair<std::string, double>> numbers) {
   JsonValue document = JsonValue::object();
   document.set("survival", JsonValue::object())
       .set("survived", JsonValue::boolean(/*value=*/true));
@@ -603,7 +605,7 @@ JsonValue documentWith(
 
 /** Every banded metric at `value`, but `path` at `pathValue`. */
 JsonValue bandedDocument(double value,
-                         const std::string& path,
+                         absl::string_view path,
                          double pathValue) {
   std::vector<std::pair<std::string, double>> numbers;
   for (const MetricBand& band : closedLoopMetricBands()) {
@@ -617,10 +619,10 @@ double allowedDifference(const MetricBand& band, double reference) {
 }
 
 /** `document` as the document of a run that fell for `reason`. */
-JsonValue fellIn(const JsonValue& document, const std::string& reason) {
+JsonValue fellIn(const JsonValue& document, std::string reason) {
   JsonValue survival = JsonValue::object();
   survival.set("survived", JsonValue::boolean(/*value=*/false));
-  survival.set("fall_reason", JsonValue::string(reason));
+  survival.set("fall_reason", JsonValue::string(std::move(reason)));
   JsonValue fell = document;
   fell.set("survival", survival);
   return fell;
@@ -647,7 +649,10 @@ TEST(MetricBands, AConfigurationMustSurviveItsWalkingScenario) {
       continue;
     }
     ++held;
-    ASSERT_TRUE(violation.has_value()) << configuration.name;
+    if (!violation.has_value()) {
+      ADD_FAILURE() << configuration.name << ": no survival violation";
+      continue;
+    }
     EXPECT_EQ(*violation,
               absl::StrCat("survival: ", configuration.name, " fell in ", walk,
                            ", the walking scenario it must survive (the base "
@@ -793,10 +798,10 @@ TEST(MetricBands, TheHeightMeanIsHeldWithinItsBandBothWays) {
 /** `document` with `value` at the two-level path `path` ("<group>.<field>");
  * members keep their order. */
 JsonValue withValueAt(const JsonValue& document,
-                      const std::string& path,
+                      absl::string_view path,
                       const JsonValue& value) {
   const size_t dot = path.find('.');
-  const std::string group = path.substr(0, dot);
+  const std::string group(path.substr(0, dot));
   const JsonValue* absl_nullable existing = document.find(group);
   JsonValue members = existing != nullptr ? *existing : JsonValue::object();
   members.set(path.substr(dot + 1), value);
@@ -900,10 +905,10 @@ JsonValue walkDocument(double cmdLinvelBaseRtWorldEwrtHeadingX) {
 /** `document` with the number `value` at the two-level path `path`
  * ("<group>.<field>"); members keep their order. */
 JsonValue withNumberAt(const JsonValue& document,
-                       const std::string& path,
+                       absl::string_view path,
                        double value) {
   const size_t dot = path.find('.');
-  const std::string group = path.substr(0, dot);
+  const std::string group(path.substr(0, dot));
   const JsonValue* absl_nullable existing = document.find(group);
   JsonValue members = existing != nullptr ? *existing : JsonValue::object();
   members.set(path.substr(dot + 1), JsonValue::number(value));
@@ -922,8 +927,8 @@ struct LabelRun {
 
 /** A fresh directory of the test's temporary directory, `name`, with `runs`
  * archived as `make closed-loop-metrics` does. */
-std::string archiveLabel(const std::string& name,
-                         const std::vector<LabelRun>& runs) {
+std::string archiveLabel(absl::string_view name,
+                         absl::Span<const LabelRun> runs) {
   const std::filesystem::path directory =
       std::filesystem::path(::testing::TempDir()) / name;
   std::error_code error;
@@ -973,8 +978,8 @@ TwoLabels twoLabels() {
 
 /** The candidate's run `robot` `scenario` of `labels`, which it has. */
 const LabelRun& candidateRun(const TwoLabels& labels,
-                             const std::string& robot,
-                             const std::string& scenario) {
+                             absl::string_view robot,
+                             absl::string_view scenario) {
   const std::vector<LabelRun>::const_iterator run = std::find_if(
       labels.candidate.begin(), labels.candidate.end(),
       [&robot, &scenario](const LabelRun& candidate) {

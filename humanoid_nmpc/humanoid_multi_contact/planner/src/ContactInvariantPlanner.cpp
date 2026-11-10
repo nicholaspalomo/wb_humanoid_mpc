@@ -49,8 +49,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PhysicalConstants.h"
 #include "ocs2_core/Types.h"
@@ -288,7 +290,7 @@ absl::StatusOr<RobotConfiguration> goalConfigurationOf(
  */
 absl::StatusOr<MpcTrajectory> guessOf(const PlannerRobot& robot,
                                       const LoadedScenario& loaded,
-                                      const std::vector<double>& times) {
+                                      absl::Span<const double> times) {
   const MpcRobotModelBase<scalar_t>& model = robot.models->getMpcRobotModel();
   ASSIGN_OR_RETURN(const RobotConfiguration initial,
                    configurationOf(loaded.scenario.initial_posture));
@@ -316,7 +318,7 @@ absl::StatusOr<MpcTrajectory> guessOf(const PlannerRobot& robot,
   const double forceContactEwrtWorldZ =
       supports.empty() ? 0.0 : robot.mass * kGravityMagnitude / supports.size();
   MpcTrajectory guess;
-  guess.times = times;
+  guess.times.assign(times.begin(), times.end());
   for (size_t k = 0; k < times.size(); ++k) {
     const double alpha = (times[k] - times.front()) / duration;
     vector_t state = start;

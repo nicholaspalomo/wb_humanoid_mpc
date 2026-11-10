@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -459,7 +460,7 @@ absl::StatusOr<config::CertifierReport> StabilityCertifier::certify(
 }
 
 absl::StatusOr<config::CertifierReport> StabilityCertifier::certifyKnots(
-    const std::vector<CertifierKnot>& knots) {
+    absl::Span<const CertifierKnot> knots) {
   if (knots.empty()) {
     return absl::InvalidArgumentError("there is no knot to certify");
   }

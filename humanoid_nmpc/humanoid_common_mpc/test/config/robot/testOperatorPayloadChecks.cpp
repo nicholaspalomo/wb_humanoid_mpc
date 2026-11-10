@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/status/status.h"
+#include "absl/strings/string_view.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -54,7 +55,7 @@ using ::testing::HasSubstr;
 constexpr char kUnknownField103[] = "\xb8\x06\x01";
 
 /** An update of the robot `robotName`, stamped as the GUI stamps it. */
-humanoid_mpc_config::MpcParameterUpdate updateOf(const std::string& robotName) {
+humanoid_mpc_config::MpcParameterUpdate updateOf(absl::string_view robotName) {
   humanoid_mpc_config::MpcParameterUpdate update;
   update.mutable_task()->mutable_model_settings()->set_robot_name(robotName);
   update.mutable_task()->mutable_contact_wrench_gate()->set_ramp_time(0.04);
@@ -182,7 +183,7 @@ constexpr char kCentroidalG1PdGains[] =
     "joint_pd_gains.textproto";
 
 humanoid_mpc_config::JointPdGainsUpdate pdGainsUpdateOf(
-    const std::string& path) {
+    absl::string_view path) {
   humanoid_mpc_config::JointPdGainsUpdate update;
   update.mutable_gains()->mutable_default_gains()->set_kp(100.0);
   update.set_config_path(path);

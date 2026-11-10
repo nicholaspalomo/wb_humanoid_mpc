@@ -34,8 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstring>
 #include <fstream>
 #include <ios>
+#include <iterator>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -272,15 +272,15 @@ const RetiredField* absl_nullable findRetiredField(
 // you mean "y"?" when the snake-cased name is a field and the message's layout
 // hint.
 std::string explainProblem(const google::protobuf::DescriptorPool& pool,
-                           const std::string& message) {
+                           absl::string_view message) {
   const std::optional<UnknownField> unknown = unknownField(message);
   if (!unknown.has_value()) {
-    return message;
+    return std::string(message);
   }
   const google::protobuf::Descriptor* absl_nullable type =
       pool.FindMessageTypeByName(unknown->messageType);
   if (type == nullptr) {
-    return message;
+    return std::string(message);
   }
   const RetiredField* absl_nullable retired =
       findRetiredField(*type, unknown->fieldName);
@@ -288,7 +288,7 @@ std::string explainProblem(const google::protobuf::DescriptorPool& pool,
     return absl::StrCat("'", unknown->fieldName,
                         "' is retired: ", retired->replacement());
   }
-  std::string explained = message;
+  std::string explained(message);
   const std::string snake = snakeCase(unknown->fieldName);
   if (snake != unknown->fieldName && type->FindFieldByName(snake) != nullptr) {
     absl::StrAppend(&explained, " Did you mean \"", snake, "\"?");
@@ -424,12 +424,12 @@ absl::StatusOr<std::string> ReadTextFile(absl::string_view path) {
     return absl::ErrnoToStatus(error == 0 ? ENOENT : error,
                                absl::StrCat("cannot open '", path, "'"));
   }
-  std::ostringstream text;
-  text << file.rdbuf();
+  std::string text{std::istreambuf_iterator<char>(file),
+                   std::istreambuf_iterator<char>()};
   if (file.bad()) {
     return absl::DataLossError(absl::StrCat("cannot read '", path, "'"));
   }
-  return text.str();
+  return text;
 }
 
 std::string WriteTextproto(const google::protobuf::Message& message) {

@@ -31,10 +31,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <cstddef>
-#include <functional>
 #include <numbers>
 #include <vector>
 
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -102,7 +102,7 @@ class VelocityCommandFilterWiringTest : public ::testing::Test {
    * refusal.
    */
   absl::Status reloadShippedReferenceWith(
-      const std::function<void(mpc_config::ReferenceFile&)>& edit) {
+      absl::FunctionRef<void(mpc_config::ReferenceFile&)> edit) {
     mpc_config::ReferenceFile reference = stack_.config().reference;
     edit(reference);
     const absl::StatusOr<ReferenceSettings> settings =

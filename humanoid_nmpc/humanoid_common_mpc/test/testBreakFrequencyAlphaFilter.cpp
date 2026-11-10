@@ -257,7 +257,7 @@ std::string runfilePath(absl::string_view relativePath) {
 /** The reference settings of the reference file at `path`, as the MPC reads
  * them. */
 absl::StatusOr<ReferenceSettings> referenceSettingsOfFile(
-    const std::string& path) {
+    absl::string_view path) {
   absl::StatusOr<mpc_config::ReferenceFile> file = loadReferenceFile(path);
   if (!file.ok()) return file.status();
   return referenceSettingsFromConfig(*file);

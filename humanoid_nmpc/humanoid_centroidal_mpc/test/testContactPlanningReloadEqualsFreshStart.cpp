@@ -138,7 +138,7 @@ ContactPlanningProto baseFile() {
 /** Appends to `perturbed` the paths of the fields below `message` (at `prefix`)
  * that perturb() changed. */
 void perturb(Message& message,
-             const std::string& prefix,
+             absl::string_view prefix,
              std::vector<std::string>& perturbed) {
   const Descriptor& descriptor = *message.GetDescriptor();
   const Reflection& reflection = *message.GetReflection();
@@ -197,7 +197,7 @@ TEST(ContactPlanningReload, EveryTunableFieldOfTheFileIsReloadHot) {
 void expectSameReferences(AtlasReferenceStack& reloaded,
                           AtlasReferenceStack& fresh,
                           scalar_t time,
-                          const std::string& when) {
+                          absl::string_view when) {
   SwitchedModelReferenceManager& a = reloaded.referenceManager();
   SwitchedModelReferenceManager& b = fresh.referenceManager();
   ASSERT_EQ(a.getModeSchedule().modeSequence, b.getModeSchedule().modeSequence)

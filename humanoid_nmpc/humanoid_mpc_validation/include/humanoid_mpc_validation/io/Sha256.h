@@ -45,6 +45,6 @@ std::string sha256Hex(absl::string_view data);
 
 /** sha256Hex() of the bytes of the file at `path`; NotFound naming the path
  * when it cannot be read. */
-absl::StatusOr<std::string> sha256HexOfFile(const std::string& path);
+absl::StatusOr<std::string> sha256HexOfFile(absl::string_view path);
 
 }  // namespace ocs2::humanoid::validation

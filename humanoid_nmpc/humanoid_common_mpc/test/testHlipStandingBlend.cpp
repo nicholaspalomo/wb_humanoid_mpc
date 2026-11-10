@@ -30,10 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <functional>
 #include <string>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
@@ -636,7 +636,7 @@ TEST(HlipStandingBlend,
                                 "the checks below prove nothing: "
                              << baseline;
 
-  const std::function<std::string(BlendComponent)> keyOf =
+  const absl::AnyInvocable<std::string(BlendComponent) const> keyOf =
       [](BlendComponent component) -> std::string {
     switch (component) {
       case BlendComponent::kCommandedVelocityX:

@@ -51,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_mpc/MPC_Settings.h"
@@ -116,7 +117,7 @@ std::string shippedGainsFile() {
 class WholeBodyPdGainsHarness {
  public:
   explicit WholeBodyPdGainsHarness(
-      const std::string& pdGainsFile = shippedGainsFile())
+      absl::string_view pdGainsFile = shippedGainsFile())
       // A file missing from the runfiles throws here, naming the data
       // dependency to add (robot::resolveResourcePath).
       : task_(loadTaskFile(robot::resolveResourcePath(
@@ -227,13 +228,13 @@ class WholeBodyPdGainsHarness {
 /** A gains file: `kp` as the default, and `firstJointKp` for the joint
  * `firstJoint`. */
 mpc_config::JointPdGainsFile gainsFile(scalar_t kp,
-                                       const std::string& firstJoint,
+                                       absl::string_view firstJoint,
                                        scalar_t firstJointKp) {
   mpc_config::JointPdGainsFile file;
   file.default_gains.kp = kp;
   file.default_gains.kd = 3.0;
   file.default_gains.max_joint_torque = 1000.0;
-  file.joint_gains.push_back({.joint = firstJoint,
+  file.joint_gains.push_back({.joint = std::string(firstJoint),
                               .kp = firstJointKp,
                               .kd = std::nullopt,
                               .max_joint_torque = std::nullopt});
@@ -242,7 +243,7 @@ mpc_config::JointPdGainsFile gainsFile(scalar_t kp,
 
 /** gainsFile() as the text of a joint_pd_gains.textproto. */
 std::string gainsText(scalar_t kp,
-                      const std::string& firstJoint,
+                      absl::string_view firstJoint,
                       scalar_t firstJointKp) {
   return absl::StrCat(
       "default_gains {\n  kp: ", kp,
@@ -260,14 +261,15 @@ absl::Status setFromAnotherThread(WBMpcMrtJointController& controller,
 
 /** Writes the PD gains file `content` to `file`, below the header that names
  * its schema. */
-void writeFile(const std::string& file, const std::string& content) {
-  std::ofstream out(file, std::ios::trunc);
+void writeFile(absl::string_view file, absl::string_view content) {
+  std::ofstream out(std::filesystem::path(file), std::ios::trunc);
   out << "# proto-message: humanoid_mpc_config.JointPdGainsFile\n" << content;
 }
 
-void touchForward(const std::string& file) {
+void touchForward(absl::string_view file) {
+  const std::filesystem::path path(file);
   std::filesystem::last_write_time(
-      file, std::filesystem::last_write_time(file) + std::chrono::seconds(1));
+      path, std::filesystem::last_write_time(path) + std::chrono::seconds(1));
 }
 
 TEST(WBMpcMrtJointControllerPdGains,
@@ -384,10 +386,11 @@ TEST(WBMpcMrtJointControllerPdGains,
 
 /** Gives `file` a modification time `seconds` from now: a write before
  * (negative) or after an event of the test. */
-void setWriteTime(const std::string& file, int seconds) {
+void setWriteTime(absl::string_view file, int seconds) {
   std::filesystem::last_write_time(
-      file, std::filesystem::file_time_type::clock::now() +
-                std::chrono::seconds(seconds));
+      std::filesystem::path(file),
+      std::filesystem::file_time_type::clock::now() +
+          std::chrono::seconds(seconds));
 }
 
 // A Save followed by more tuning within one poll period: the watcher notices

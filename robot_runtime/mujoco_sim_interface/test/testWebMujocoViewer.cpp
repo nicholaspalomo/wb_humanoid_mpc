@@ -33,16 +33,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
-#include <functional>
+#include <iterator>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
@@ -154,7 +154,7 @@ std::unique_ptr<WebMujocoViewer> makeViewer(
 /** Polls /state until `ready` holds for its body or `timeout` passes; returns
  * the last body. */
 std::string awaitState(int port,
-                       const std::function<bool(const std::string&)>& ready,
+                       absl::FunctionRef<bool(const std::string&)> ready,
                        absl::Duration timeout = absl::Seconds(3)) {
   const absl::Time deadline = absl::Now() + timeout;
   std::string body;
@@ -167,7 +167,7 @@ std::string awaitState(int port,
 }
 
 /** Polls `condition` every 10 ms until it holds (true) or 3 s pass (false). */
-bool eventually(const std::function<bool()>& condition) {
+bool eventually(absl::FunctionRef<bool()> condition) {
   const absl::Time deadline = absl::Now() + absl::Seconds(3);
   while (absl::Now() < deadline) {
     if (condition()) return true;
@@ -176,7 +176,7 @@ bool eventually(const std::function<bool()>& condition) {
   return condition();
 }
 
-web_viewer::JpegDecoder::Image decode(const std::string& jpeg) {
+web_viewer::JpegDecoder::Image decode(absl::string_view jpeg) {
   absl::StatusOr<std::unique_ptr<web_viewer::JpegDecoder>> decoder =
       web_viewer::JpegDecoder::Create();
   EXPECT_TRUE(decoder.ok()) << decoder.status();
@@ -542,9 +542,8 @@ std::vector<int> threadCores(int tid) {
  * /proc/self/task/<tid>/stat, after the parenthesized name. */
 std::string threadStatField(int tid, int index) {
   std::ifstream file(absl::StrCat("/proc/self/task/", tid, "/stat"));
-  std::stringstream contents;
-  contents << file.rdbuf();
-  const std::string stat = contents.str();
+  const std::string stat{std::istreambuf_iterator<char>(file),
+                         std::istreambuf_iterator<char>()};
   const size_t nameEnd = stat.rfind(')');
   if (nameEnd == std::string::npos) return "";
   const std::vector<std::string> fields =

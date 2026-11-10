@@ -106,7 +106,7 @@ absl::StatusOr<std::unique_ptr<WBMpcNode>> WBMpcNode::Create(
       [referenceManager = interface.getSwitchedModelReferenceManagerPtr()]() {
         return referenceManager->getAppliedPosSurfaceRtWorldEwrtWorldZ();
       });
-  const ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories
+  ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories
       targetTrajectoriesFunction =
           [calculator](const vector4_t& velocityCommand, scalar_t initTime,
                        scalar_t /*finalTime*/, const vector_t& initState,
@@ -119,7 +119,7 @@ absl::StatusOr<std::unique_ptr<WBMpcNode>> WBMpcNode::Create(
       ProceduralMpcMotionManager::Create(
           files.gaitFile, files.referenceFile,
           interface.getSwitchedModelReferenceManagerPtr(),
-          interface.getMpcRobotModel(), targetTrajectoriesFunction));
+          interface.getMpcRobotModel(), std::move(targetTrajectoriesFunction)));
   // A reset of the MPC (MPC_BASE::reset()) resets the command path with it: the
   // motion manager itself, and through this hook the target calculator behind
   // targetTrajectoriesFunction, whose filters are its state.

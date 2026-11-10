@@ -40,6 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
@@ -116,14 +118,16 @@ std::optional<vector3_t> revoluteAxis(const PinocchioInterface::Model& model,
 }  // namespace
 
 HipYawRange deriveHipYawRange(const PinocchioInterface::Model& model,
-                              const std::string& contactParentJointName) {
+                              absl::string_view contactParentJointName) {
   HipYawRange range;
-  if (!model.existJointName(contactParentJointName)) return range;
+  // Pinocchio looks joints up by const std::string&.
+  const std::string jointName(contactParentJointName);
+  if (!model.existJointName(jointName)) return range;
   // The joint frames in the world at the neutral configuration: what the URDF's
   // joint placements compose to.
   PinocchioInterface::Data data(model);
   pinocchio::forwardKinematics(model, data, pinocchio::neutral(model));
-  pinocchio::JointIndex joint = model.getJointId(contactParentJointName);
+  pinocchio::JointIndex joint = model.getJointId(jointName);
   scalar_t axisJointEwrtWorldZ = 0.0;  // the world z component of the hip yaw
                                        // axisJointEwrtLink: +1 up, -1 down
   for (; joint > 0; joint = model.parents[joint]) {
@@ -223,7 +227,7 @@ ContactPlanningModelParameters deriveContactPlanningModelParameters(
     PinocchioInterface& pinocchioInterface,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     const vector_t& nominalState,
-    const std::vector<std::string>& contactParentJointNames,
+    absl::Span<const std::string> contactParentJointNames,
     size_t numContacts,
     const ContactPlanningGroundParameters& ground) {
   ContactPlanningModelParameters derived;

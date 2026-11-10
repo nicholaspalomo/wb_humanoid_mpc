@@ -55,9 +55,10 @@ constexpr char kSource[] = "settings.textproto";
 
 // A directory the test may write to: Bazel's TEST_TMPDIR, or the working
 // directory outside Bazel.
-std::string temporaryPath(const std::string& name) {
+std::string temporaryPath(absl::string_view name) {
   const char* absl_nullable directory = std::getenv("TEST_TMPDIR");
-  return directory == nullptr ? name : absl::StrCat(directory, "/", name);
+  return directory == nullptr ? std::string(name)
+                              : absl::StrCat(directory, "/", name);
 }
 
 TEST(TextprotoTest, AValidFileFillsTheMessageAfterClearingIt) {

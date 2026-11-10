@@ -190,8 +190,8 @@ std::string contactPlanningFileText(
   return nproto::WriteTextprotoFile(message);
 }
 
-absl::Status writeTextFile(const std::string& path, absl::string_view text) {
-  std::ofstream out(path, std::ios::trunc);
+absl::Status writeTextFile(absl::string_view path, absl::string_view text) {
+  std::ofstream out(std::filesystem::path(path), std::ios::trunc);
   out << text;
   out.close();
   if (!out) {
@@ -201,11 +201,11 @@ absl::Status writeTextFile(const std::string& path, absl::string_view text) {
 }
 
 absl::StatusOr<CentroidalRobotFiles> writeConfig(
-    const std::string& directory,
+    absl::string_view directory,
     const CentroidalMpcConfig& config,
-    const std::string& urdfFile) {
+    std::string urdfFile) {
   std::error_code error;
-  std::filesystem::create_directories(directory, error);
+  std::filesystem::create_directories(std::filesystem::path(directory), error);
   if (error) {
     return absl::InternalError(
         absl::StrCat("could not create ", directory, ": ", error.message()));
@@ -214,7 +214,7 @@ absl::StatusOr<CentroidalRobotFiles> writeConfig(
   CentroidalRobotFiles files{
       .taskFile = (root / "task.textproto").string(),
       .referenceFile = (root / "reference.textproto").string(),
-      .urdfFile = urdfFile,
+      .urdfFile = std::move(urdfFile),
   };
   RETURN_IF_ERROR(writeTextFile(files.taskFile, taskFileText(config.task)));
   RETURN_IF_ERROR(

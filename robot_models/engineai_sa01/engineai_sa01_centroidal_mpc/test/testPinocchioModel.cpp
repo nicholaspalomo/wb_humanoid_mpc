@@ -115,12 +115,12 @@ Eigen::VectorXd neutralConfigurationAtHeight(const pinocchio::Model& model,
 /** Sets the configuration of the one-degree-of-freedom joint `jointName` of
  * `model` in `q` to `angle`; dies without it. */
 void setJointAngle(const pinocchio::Model& model,
-                   const std::string& jointName,
+                   absl::string_view jointName,
                    double angle,
                    Eigen::VectorXd& q) {
-  ABSL_CHECK(model.existJointName(jointName))
-      << "the model has no joint " << jointName;
-  q[model.joints[model.getJointId(jointName)].idx_q()] = angle;
+  const std::string name(jointName);
+  ABSL_CHECK(model.existJointName(name)) << "the model has no joint " << name;
+  q[model.joints[model.getJointId(name)].idx_q()] = angle;
 }
 
 /** The entries of `values`, each with `precision` decimals. */

@@ -30,11 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <cstdint>
-#include <functional>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
@@ -67,16 +68,21 @@ inline constexpr int8_t kMiqpFree = -1;
  * such completion exists. A hook that fixes a preferred value instead, or
  * rejects a node that still has a feasible completion, drops that subtree
  * without a trace, and the result is still reported `optimal`.
+ *
+ * The solver takes it by const reference and only calls it during the call;
+ * an empty one means no propagation.
  */
-using MiqpPropagateFn = std::function<bool(MiqpAssignment& assignment)>;
+using MiqpPropagateFn =
+    absl::AnyInvocable<bool(MiqpAssignment& assignment) const>;
 
 /**
  * Optional cost on the binaries that is not part of the QP (e.g. a price per
  * contact switch). For a complete assignment it must return the exact cost, for
- * a partial one a lower bound (typically: only count what is decided).
+ * a partial one a lower bound (typically: only count what is decided). Taken
+ * by const reference like MiqpPropagateFn; an empty one means no cost.
  */
 using MiqpAssignmentCostFn =
-    std::function<scalar_t(const MiqpAssignment& assignment)>;
+    absl::AnyInvocable<scalar_t(const MiqpAssignment& assignment) const>;
 
 /** The limits and switches of one branch-and-bound search (MixedIntegerOcpQp).
  * Passive data. */
@@ -177,7 +183,7 @@ class MixedIntegerOcpQp {
    */
   absl::StatusOr<MiqpResult> solve(
       OcpQpProblem& problem,
-      const std::vector<MiqpBinaryVariable>& binaries,
+      absl::Span<const MiqpBinaryVariable> binaries,
       const MiqpAssignment& initialAssignment,
       const MiqpPropagateFn& propagate,
       const MiqpAssignment* absl_nullable warmStart = nullptr,
@@ -191,14 +197,13 @@ class MixedIntegerOcpQp {
    * box constraint or a problem the QP solver rejects is an error status, with
    * `objective` at +inf.
    */
-  absl::StatusOr<bool> solveFixed(
-      OcpQpProblem& problem,
-      const std::vector<MiqpBinaryVariable>& binaries,
-      MiqpAssignment assignment,
-      const MiqpPropagateFn& propagate,
-      const MiqpAssignmentCostFn& assignmentCost,
-      OcpQpSolution& solution,
-      scalar_t& objective);
+  absl::StatusOr<bool> solveFixed(OcpQpProblem& problem,
+                                  absl::Span<const MiqpBinaryVariable> binaries,
+                                  MiqpAssignment assignment,
+                                  const MiqpPropagateFn& propagate,
+                                  const MiqpAssignmentCostFn& assignmentCost,
+                                  OcpQpSolution& solution,
+                                  scalar_t& objective);
 
   const MiqpSettings& getSettings() const { return settings_; }
   void setSettings(const MiqpSettings& settings) { settings_ = settings; }
@@ -213,12 +218,12 @@ class MixedIntegerOcpQp {
 
   absl::StatusOr<std::vector<BinaryLocation>> locateBinaries(
       const OcpQpProblem& problem,
-      const std::vector<MiqpBinaryVariable>& binaries) const;
+      absl::Span<const MiqpBinaryVariable> binaries) const;
   void applyAssignment(OcpQpProblem& problem,
-                       const std::vector<BinaryLocation>& locations,
+                       absl::Span<const BinaryLocation> locations,
                        const MiqpAssignment& assignment) const;
   int firstFractional(const OcpQpSolution& solution,
-                      const std::vector<MiqpBinaryVariable>& binaries,
+                      absl::Span<const MiqpBinaryVariable> binaries,
                       const MiqpAssignment& assignment,
                       scalar_t& fractionalValue) const;
 

@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "ocs2_core/PhysicalConstants.h"
@@ -173,6 +174,10 @@ absl::StatusOr<std::unique_ptr<RobotProcess>> RobotProcess::Create(
   // joint indices without a check.
   RETURN_IF_ERROR(checkControllerRobot(
       *controller, backend->hardware().getRobotDescription()));
+  // The store's writer thread calls the check; the process never does.
+  ConfigFileStore::Hooks storeHooks;
+  storeHooks.validateConfigFile = std::move(hooks.validateConfigFile);
+  hooks.validateConfigFile = nullptr;
   std::unique_ptr<RobotProcess> process = absl::WrapUnique(new RobotProcess(
       bus, backend, controller, std::move(config), std::move(hooks)));
   const robot::model::RobotDescription& description =
@@ -307,8 +312,6 @@ absl::StatusOr<std::unique_ptr<RobotProcess>> RobotProcess::Create(
         std::make_unique<MujocoViewerAnnotator>(process->simulator_);
   }
   // The GUI's saves, checked and written on the store's writer thread.
-  ConfigFileStore::Hooks storeHooks;
-  storeHooks.validateConfigFile = process->hooks_.validateConfigFile;
   ASSIGN_OR_RETURN(process->configStore_,
                    ConfigFileStore::Create(processConfig.configStore,
                                            std::move(storeHooks)));
@@ -693,7 +696,7 @@ void RobotProcess::publishLoopTiming(
   }
 }
 
-void RobotProcess::onTaskFileChanged(const std::string& file) {
+void RobotProcess::onTaskFileChanged(absl::string_view file) {
   // A Save followed by more tuning within one poll period: the file is an older
   // edit than the GUI's newest update.
   if (const std::optional<std::filesystem::file_time_type> written =

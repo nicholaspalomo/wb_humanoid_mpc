@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/manifold/StateManifold.h"
 
@@ -171,8 +172,8 @@ targetContactPatchCorners(const CentroidalMpcConfig& config,
  */
 void warnAboutPhaseResettingWithoutContactSensing(
     const CentroidalMpcConfig& config,
-    const std::string& taskFile,
-    const std::string& contactEstimator) {
+    absl::string_view taskFile,
+    absl::string_view contactEstimator) {
   if (robot::model::ContactEstimatorRegistry::canonicalName(contactEstimator) !=
       robot::model::ContactEstimatorRegistry::kAlwaysInContact) {
     return;
@@ -240,7 +241,7 @@ CentroidalMpcConfig centroidalMpcConfigOf(const RobotConfigFiles& files) {
  * the MPC node's). What the set-up builds, and what a save is checked with.
  */
 absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> controllerModelsOf(
-    const RobotConfigFiles& files, const std::string& urdfFile) {
+    const RobotConfigFiles& files, absl::string_view urdfFile) {
   absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
       CentroidalMpcInterface::CreateControllerModels(
           centroidalMpcConfigOf(files), urdfFile);
@@ -256,7 +257,7 @@ absl::StatusOr<std::unique_ptr<RobotController>> createController(
     const robot::model::RobotDescription& robotDescription,
     CentroidalMpcInterface& models,
     const MpcLinkFactory& linkFactory,
-    const std::string& pdGainsFile,
+    absl::string_view pdGainsFile,
     const RobotProcessSettings& settings) {
   const ModelSettings& modelSettings = models.modelSettings();
   // LINT.IfChange(centroidal_robot_controller)

@@ -29,12 +29,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 #include <exception>
-#include <functional>
 #include <memory>
 #include <random>
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
@@ -70,7 +70,8 @@ namespace ocs2::humanoid {
 namespace {
 
 using ad_fun_t = CppAD::ADFun<ad_base_t>;
-using ReferenceFunction = std::function<vector_t(const vector_t&)>;
+// The double-precision function a tape is compared with.
+using ReferenceFunction = vector_t (*absl_nonnull)(const vector_t&);
 
 constexpr Eigen::Index kQuaternionDim = 4;
 constexpr Eigen::Index kAngularVelocityDim = 3;
@@ -227,7 +228,7 @@ std::unique_ptr<CppAdInterface> generate(
   return library;
 }
 
-matrix_t finiteDifferenceJacobian(const ReferenceFunction& function,
+matrix_t finiteDifferenceJacobian(ReferenceFunction function,
                                   const vector_t& x,
                                   scalar_t step) {
   const vector_t value = function(x);

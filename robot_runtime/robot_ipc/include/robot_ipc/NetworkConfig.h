@@ -147,7 +147,7 @@ struct NetworkConfig {
  * as "config/ipc/network.textproto: domain_id: 300 is not a domain id in [0,
  * 232]". A file that cannot be read is NotFound.
  */
-absl::StatusOr<NetworkConfig> loadNetworkConfig(const std::string& path);
+absl::StatusOr<NetworkConfig> loadNetworkConfig(absl::string_view path);
 
 /** loadNetworkConfig() on the text of a network file; `source` names it in the
  * error messages. */

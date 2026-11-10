@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "absl/strings/str_cat.h"
@@ -48,13 +49,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::web_viewer {
 namespace {
 
-EncodedFrame frameWith(const std::string& jpeg, double simTime) {
+EncodedFrame frameWith(std::string jpeg, double simTime) {
   return EncodedFrame{.sequence = 0,
                       .width = 4,
                       .height = 3,
                       .simTime = simTime,
                       .publishTime = absl::UnixEpoch(),
-                      .jpeg = jpeg};
+                      .jpeg = std::move(jpeg)};
 }
 
 TEST(ViewerFrameMailboxTest, PublishStampsSequenceAndTime) {

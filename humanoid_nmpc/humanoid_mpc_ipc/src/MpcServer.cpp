@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstdint>
 #include <exception>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <random>
@@ -153,8 +152,8 @@ MpcServer::MpcServer(robot::ipc::Bus* absl_nonnull bus,
     : bus_(bus),
       mpc_(mpc),
       resetTargetTrajectories_(std::move(resetTargetTrajectories)),
-      config_(std::move(config)),
       hooks_(std::move(hooks)),
+      config_(std::move(config)),
       supervisor_(config_.resetSupervisor),
       serverInstance_(drawServerInstance()),
       guard_(std::make_shared<CallbackGuard>()) {
@@ -170,15 +169,12 @@ MpcServer::~MpcServer() {
 
 absl::Status MpcServer::registerOnBus() {
   const std::shared_ptr<CallbackGuard> guard = guard_;
-  const std::function<void(const humanoid_mpc_msgs::MpcObservation&)>
-      onObservationMessage =
-          [guard](const humanoid_mpc_msgs::MpcObservation& message) {
-            absl::MutexLock lock(guard->mutex);
-            if (guard->server != nullptr) guard->server->onObservation(message);
-          };
   return bus_->subscribe<humanoid_mpc_msgs::MpcObservation>(
       topics::kRobotMpcObservation, robot::ipc::Delivery::kLatest,
-      onObservationMessage);
+      [guard](const humanoid_mpc_msgs::MpcObservation& message) {
+        absl::MutexLock lock(guard->mutex);
+        if (guard->server != nullptr) guard->server->onObservation(message);
+      });
 }
 
 absl::Status MpcServer::start() {

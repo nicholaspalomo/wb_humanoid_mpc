@@ -57,7 +57,7 @@ namespace {
 
 /** InvalidArgument naming `collision_constraint.<field>` when the frame name
  * `frame` is empty. */
-absl::Status checkNamed(absl::string_view field, const std::string& frame) {
+absl::Status checkNamed(absl::string_view field, absl::string_view frame) {
   if (!frame.empty()) return absl::OkStatus();
   return absl::InvalidArgumentError(
       absl::StrCat("collision_constraint.", field,

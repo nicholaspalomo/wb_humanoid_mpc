@@ -101,7 +101,7 @@ class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
   static absl::StatusOr<std::unique_ptr<CentroidalDynamicsBasisInputsAD>>
   Create(const PinocchioInterface& pinocchioInterface,
          const CentroidalModelInfo& info,
-         const std::string& modelName,
+         absl::string_view modelName,
          const ModelSettings& modelSettings,
          absl::Span<const matrix_t> localBasisMatrices);
 
@@ -161,7 +161,7 @@ class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
   CentroidalDynamicsBasisInputsAD(
       const PinocchioInterface& pinocchioInterface,
       const CentroidalModelInfo& info,
-      const std::string& modelName,
+      absl::string_view modelName,
       const ModelSettings& modelSettings,
       absl::Span<const matrix_t> localBasisMatrices);
 

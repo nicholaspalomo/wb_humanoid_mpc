@@ -29,17 +29,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mujoco_sim_interface/visualization/VisualizationRegistry.h"
 
-#include <functional>
 #include <memory>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/no_destructor.h"
 #include "absl/base/nullability.h"
+#include "absl/container/btree_set.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 #include "mujoco_sim_interface/visualization/BaseVelocityVisualization.h"
 #include "mujoco_sim_interface/visualization/CenterOfMassVisualization.h"
@@ -56,10 +57,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 
 namespace {
+/// One row of the visualization registry: how to create the visualization and
+/// whether it is on by default.
 struct Entry {
-  std::function<std::unique_ptr<MujocoVisualization>()> create;
+  /// A capture-less factory, so that the table can be built from an
+  /// initializer list (a move-only callable could not be copied out of one).
+  std::unique_ptr<MujocoVisualization> (*absl_nonnull create)();
   bool enabledByDefault;
 };
+
+/// Creates a default-constructed T: the factory of a visualization class.
+template <typename T>
+std::unique_ptr<MujocoVisualization> makeVisualization() {
+  return std::make_unique<T>();
+}
 
 /// The registry, in drawing order. A new visualization is added here and
 /// nowhere else; the task file refers to the name it reports. The MuJoCo option
@@ -68,27 +79,47 @@ struct Entry {
 const std::vector<Entry>& registry() {
   static const absl::NoDestructor<std::vector<Entry>> kEntries(
       std::vector<Entry>{
-          {[] { return std::make_unique<MetricsOverlay>(); }, true},
-          {[] { return std::make_unique<ExternalForceVisualization>(); }, true},
-          {[] { return std::make_unique<ContactForceVisualization>(); }, true},
-          {[] { return std::make_unique<BaseVelocityVisualization>(); }, true},
-          {[] { return std::make_unique<ContactTimelineVisualization>(); },
-           true},
-          {[] { return std::make_unique<TargetContactPatchVisualization>(); },
-           true},
+          {&makeVisualization<MetricsOverlay>, true},
+          {&makeVisualization<ExternalForceVisualization>, true},
+          {&makeVisualization<ContactForceVisualization>, true},
+          {&makeVisualization<BaseVelocityVisualization>, true},
+          {&makeVisualization<ContactTimelineVisualization>, true},
+          {&makeVisualization<TargetContactPatchVisualization>, true},
           // Centroidal markers on the ground: off unless listed, like MuJoCo's
           // own markers.
-          {[] { return std::make_unique<CenterOfMassVisualization>(); }, false},
-          {[] { return std::make_unique<ZmpVisualization>(); }, false},
-          {[] { return std::make_unique<DcmVisualization>(); }, false},
-          {[] { return MujocoOptionFlagVisualization::contactPoints(); },
+          {&makeVisualization<CenterOfMassVisualization>, false},
+          {&makeVisualization<ZmpVisualization>, false},
+          {&makeVisualization<DcmVisualization>, false},
+          {[] {
+             return std::unique_ptr<MujocoVisualization>(
+                 MujocoOptionFlagVisualization::contactPoints());
+           },
            false},
-          {[] { return MujocoOptionFlagVisualization::contactForceMarkers(); },
+          {[] {
+             return std::unique_ptr<MujocoVisualization>(
+                 MujocoOptionFlagVisualization::contactForceMarkers());
+           },
            false},
-          {[] { return MujocoOptionFlagVisualization::centerOfMass(); }, false},
-          {[] { return MujocoOptionFlagVisualization::inertia(); }, false},
-          {[] { return MujocoOptionFlagVisualization::convexHull(); }, false},
-          {[] { return MujocoOptionFlagVisualization::transparency(); }, false},
+          {[] {
+             return std::unique_ptr<MujocoVisualization>(
+                 MujocoOptionFlagVisualization::centerOfMass());
+           },
+           false},
+          {[] {
+             return std::unique_ptr<MujocoVisualization>(
+                 MujocoOptionFlagVisualization::inertia());
+           },
+           false},
+          {[] {
+             return std::unique_ptr<MujocoVisualization>(
+                 MujocoOptionFlagVisualization::convexHull());
+           },
+           false},
+          {[] {
+             return std::unique_ptr<MujocoVisualization>(
+                 MujocoOptionFlagVisualization::transparency());
+           },
+           false},
       });
   return *kEntries;
 }
@@ -116,7 +147,7 @@ std::vector<std::string> defaultVisualizationNames() {
 }
 
 std::unique_ptr<MujocoVisualization> createVisualization(
-    const std::string& name) {
+    absl::string_view name) {
   for (const Entry& entry : registry()) {
     std::unique_ptr<MujocoVisualization> visualization = entry.create();
     if (visualization->name() == name) return visualization;
@@ -125,13 +156,13 @@ std::unique_ptr<MujocoVisualization> createVisualization(
 }
 
 std::vector<std::unique_ptr<MujocoVisualization>> createVisualizations(
-    const std::vector<std::string>& names,
+    absl::Span<const std::string> names,
     std::vector<std::string>* absl_nullable errors) {
-  std::set<std::string> known;
+  absl::btree_set<std::string> known;
   for (const VisualizationInfo& info : availableVisualizations()) {
     known.insert(info.name);
   }
-  std::set<std::string> requested;
+  absl::btree_set<std::string> requested;
   for (const std::string& name : names) {
     if (!known.contains(name)) {
       if (errors != nullptr) {

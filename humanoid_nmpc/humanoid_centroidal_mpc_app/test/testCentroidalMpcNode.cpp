@@ -33,20 +33,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
-#include <functional>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "gtest/gtest.h"
@@ -138,10 +140,10 @@ node::MpcFiles atlasFiles() {
   return files;
 }
 
-std::unique_ptr<robot::ipc::Bus> loopbackBus(const std::string& name) {
+std::unique_ptr<robot::ipc::Bus> loopbackBus(absl::string_view name) {
   robot::ipc::BusOptions options;
-  options.nodeName = name;
-  options.network = robot::ipc::isolatedTestNetwork({name});
+  options.nodeName = std::string(name);
+  options.network = robot::ipc::isolatedTestNetwork({options.nodeName});
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus =
       robot::ipc::Bus::Create(std::move(options));
   EXPECT_TRUE(bus.ok()) << bus.status();
@@ -290,11 +292,10 @@ TEST(CentroidalMpcNode, TheVelocityCommandReachesTheMotionManager) {
       scaled.cmd_angvel_base_rt_world_ewrt_world_z);
 }
 
-std::string readFile(const std::string& path) {
-  std::ifstream file(path);
-  std::stringstream content;
-  content << file.rdbuf();
-  return content.str();
+std::string readFile(absl::string_view path) {
+  std::ifstream file{std::filesystem::path(path)};
+  return std::string(std::istreambuf_iterator<char>(file),
+                     std::istreambuf_iterator<char>());
 }
 
 /** The SQP solver of the node's MPC. */
@@ -318,9 +319,9 @@ matrix_t runningStateWeights(CentroidalMpcNode& node) {
  * file's configuration path `configPath`.
  */
 humanoid_mpc_config::MpcParameterUpdate parameterUpdateOf(
-    const std::string& taskFile,
-    const std::function<void(humanoid_mpc_config::TaskFile&)>& edit,
-    const std::string& configPath) {
+    absl::string_view taskFile,
+    absl::FunctionRef<void(humanoid_mpc_config::TaskFile&)> edit,
+    absl::string_view configPath) {
   const absl::StatusOr<humanoid_mpc_config::TaskFile> task =
       nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(readFile(taskFile),
                                                             "task");
@@ -433,9 +434,15 @@ TEST(CentroidalMpcNode, ResetsToTheTargetTheControllerHandsItsInProcessLink) {
   MpcLink::ResetTargetFunction controllerResetTarget;
   const MpcLinkFactory capturing = [&](MpcLink::ResetTargetFunction resetTarget)
       -> std::unique_ptr<MpcLink> {
-    controllerResetTarget = resetTarget;
+    // The test and the link both call the target: the test keeps it, and the
+    // link calls it through the test's variable, which outlives the controller.
+    controllerResetTarget = std::move(resetTarget);
     return std::make_unique<InProcessMpcLink>(
-        scriptedMpc, std::move(resetTarget), InProcessMpcLink::Config());
+        scriptedMpc,
+        [&controllerResetTarget](const SystemObservation& observation) {
+          return controllerResetTarget(observation);
+        },
+        InProcessMpcLink::Config());
   };
   absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>>
       controllerOrStatus = CentroidalMpcMrtJointController::Create(

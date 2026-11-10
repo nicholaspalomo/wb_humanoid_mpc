@@ -76,7 +76,7 @@ class RobotController {
    * the order the formulation's sim did. */
   virtual void prepareCycle(
       absl::string_view controlMode,
-      const std::vector<scalar_t>& nominalJointPositions) = 0;
+      absl::Span<const scalar_t> nominalJointPositions) = 0;
   /** computeJointControlAction() of the controller, at the robot's own clock.
    */
   virtual void computeJointControlAction(

@@ -27,6 +27,7 @@ cc_library(
         "//robot_runtime/mujoco_sim_interface",
         "//robot_runtime/robot_model",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
     ],
 )
 
@@ -65,8 +66,10 @@ cc_test(
         "//robot_runtime/mujoco_sim_interface",
         "//robot_runtime/robot_model",
         "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/container:flat_hash_map",
         "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
     ],
 )

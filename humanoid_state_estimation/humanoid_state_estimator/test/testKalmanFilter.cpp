@@ -29,7 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cstddef>
-#include <functional>
 #include <initializer_list>
 #include <limits>
 #include <memory>
@@ -40,9 +39,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Eigen/Eigenvalues"
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -147,15 +148,15 @@ void expectNear(const matrix_t& actual,
 }
 
 KalmanFilterState getStateOrDie(const KalmanFilter& filter,
-                                const std::string& name) {
+                                absl::string_view name) {
   const absl::StatusOr<KalmanFilterState> state = filter.getState(name);
   EXPECT_TRUE(state.ok()) << state.status();
   return *state;
 }
 
 matrix_t getCovarianceOrDie(const KalmanFilter& filter,
-                            const std::string& row_name,
-                            const std::string& col_name) {
+                            absl::string_view row_name,
+                            absl::string_view col_name) {
   const absl::StatusOr<matrix_t> covariance =
       filter.getCovariance(row_name, col_name);
   EXPECT_TRUE(covariance.ok()) << covariance.status();
@@ -264,8 +265,8 @@ TEST(KalmanFilterTest, matchesTheDenseKalmanFilterChannelByChannel) {
   const std::vector<std::string> names = {"a", "b", "c"};
   const std::vector<Eigen::Index> offsets = {0, 2, 5};
   const std::vector<Eigen::Index> sizes = {2, 3, 1};
-  const std::function<void(const std::string&)> expectMatchesReference =
-      [&](const std::string& step) {
+  const absl::AnyInvocable<void(absl::string_view) const>
+      expectMatchesReference = [&](absl::string_view step) {
         SCOPED_TRACE(step);
         for (size_t i = 0; i < names.size(); ++i) {
           const KalmanFilterState state = getStateOrDie(*filter, names[i]);
@@ -1011,7 +1012,7 @@ class KalmanFilterRejectionTest : public ::testing::Test {
   }
 
   void expectRejectedWithoutChange(const absl::Status& status,
-                                   const std::string& expected_message) {
+                                   absl::string_view expected_message) {
     EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
     EXPECT_THAT(status.message(), HasSubstr(expected_message));
     EXPECT_TRUE(jointState(*filter_) == x_before_);

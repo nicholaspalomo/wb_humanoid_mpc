@@ -30,10 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <optional>
-#include <string>
 
+#include "absl/functional/function_ref.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
@@ -134,7 +133,7 @@ scalar_t rawCommandFor(scalar_t cmdLinvelBaseRtWorldEwrtHeadingX) {
 void expectSameReferences(AtlasReferenceStack& used,
                           AtlasReferenceStack& fresh,
                           scalar_t time,
-                          const std::string& when) {
+                          absl::string_view when) {
   SwitchedModelReferenceManager& a = used.referenceManager();
   SwitchedModelReferenceManager& b = fresh.referenceManager();
   EXPECT_EQ(a.getModeSchedule().modeSequence, b.getModeSchedule().modeSequence)
@@ -205,7 +204,7 @@ void expectSameReferences(AtlasReferenceStack& used,
 }
 
 /** How a test resets the MPC of a stack. */
-using ResetFunction = std::function<void(AtlasReferenceStack&)>;
+using ResetFunction = absl::FunctionRef<void(AtlasReferenceStack&)>;
 
 /** MPC_BASE::reset(), as the controllers run it. */
 void resetMpc(AtlasReferenceStack& stack) {
@@ -220,7 +219,7 @@ void resetMpc(AtlasReferenceStack& stack) {
  * one).
  */
 void resetStackBehavesAsAFreshOne(ScheduleSource source,
-                                  const ResetFunction& reset,
+                                  ResetFunction reset,
                                   scalar_t commandAfterReset = 0.0,
                                   absl::string_view plannerType = "") {
   AtlasReferenceStack used(source, plannerType);

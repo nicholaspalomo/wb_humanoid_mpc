@@ -109,6 +109,7 @@ cc_test(
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/types:span",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -189,13 +190,15 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":kalman_filter",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/functional:any_invocable",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/types:span",
         "@eigen",
-        "//lib/ocs2:ocs2_core_types",
         "@googletest//:gtest_main",
     ],
 )
@@ -244,6 +247,7 @@ cc_binary(
     deps = [
         ":allocation_counter",
         ":kalman_filter",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
@@ -251,7 +255,7 @@ cc_binary(
         "@abseil-cpp//absl/strings:str_format",
         "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/time",
+        "@abseil-cpp//absl/types:span",
         "@eigen",
-        "//lib/ocs2:ocs2_core_types",
     ],
 )
