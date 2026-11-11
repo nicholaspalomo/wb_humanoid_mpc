@@ -217,9 +217,17 @@ def _read_text(path):
 
 
 def _task_file(robot):
-    return os.path.join(
-        REPO_ROOT, derive.ROBOTS[robot]["mpc"], "config/mpc/task.textproto"
+    mpc = (
+        derive.ROBOTS[robot]["mpc"]
+        if robot in derive.ROBOTS
+        else derive.UNDERIVED_ROBOTS[robot]
     )
+    return os.path.join(REPO_ROOT, mpc, "config/mpc/task.textproto")
+
+
+def _shipped_centroidal_robots():
+    """Every robot with a centroidal task file: those of derive.ROBOTS and those it does not derive for."""
+    return sorted(set(derive.ROBOTS) | set(derive.UNDERIVED_ROBOTS))
 
 
 def _robot_inputs(robot):
@@ -1039,8 +1047,9 @@ class ShippedConfigurationTest(unittest.TestCase):
     """The shipped files, read with the standard library alone. Never skipped."""
 
     def test_every_centroidal_package_is_a_robot_of_the_script(self):
-        # The default-off guard below loops over derive.ROBOTS, so a centroidal package missing from it would be a robot
-        # whose heuristic lists nobody checks. The whole-body packages are deliberately absent (no layer there).
+        # The default-off guard below loops over derive.ROBOTS and derive.UNDERIVED_ROBOTS, so a centroidal package
+        # missing from both would be a robot whose heuristic lists nobody checks. The whole-body packages are
+        # deliberately absent (no layer there).
         on_disk = {
             os.path.relpath(path, REPO_ROOT)
             for path in glob.glob(
@@ -1051,7 +1060,9 @@ class ShippedConfigurationTest(unittest.TestCase):
             on_disk, "no centroidal package found; is REPO_ROOT right?"
         )
         listed = {paths["mpc"] for paths in derive.ROBOTS.values()}
-        self.assertEqual(listed, on_disk)
+        underived = set(derive.UNDERIVED_ROBOTS.values())
+        self.assertFalse(listed & underived)
+        self.assertEqual(listed | underived, on_disk)
         for robot, paths in sorted(derive.ROBOTS.items()):
             with self.subTest(robot=robot):
                 self.assertTrue(os.path.isfile(_task_file(robot)))
@@ -1073,7 +1084,7 @@ class ShippedConfigurationTest(unittest.TestCase):
         It is separate from the coefficients: those ARE derived per robot, and the DRC Atlas ships real values. The
         list is the switch; the block is the tuning.
         """
-        for robot in sorted(derive.ROBOTS):
+        for robot in _shipped_centroidal_robots():
             with self.subTest(robot=robot):
                 block = _read_textproto(_task_file(robot)).get(
                     "locomotion_heuristics"
@@ -1094,7 +1105,7 @@ class ShippedConfigurationTest(unittest.TestCase):
     def test_uncommenting_one_name_turns_on_exactly_that_name(self):
         # The documented opt-in is "uncomment one name", so every name offered under every list is uncommented here, one
         # at a time, and the file must still parse and list exactly that name.
-        for robot in sorted(derive.ROBOTS):
+        for robot in _shipped_centroidal_robots():
             lines = _read_text(_task_file(robot)).splitlines(keepends=True)
             for kind, known in EXPECTED_HEURISTIC_NAMES.items():
                 entries = _commented_list_entries(lines, kind)

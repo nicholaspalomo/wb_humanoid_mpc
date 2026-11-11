@@ -10,8 +10,8 @@
 #   ROBOT=drc_atlas docker compose -f docker-compose.robot.yaml up
 #
 # Settings, from the environment or the .env file next to this file (deploy_robot.sh writes it on the robot):
-#   ROBOT                       the robot configuration (required): drc_atlas, engineai_sa01, unitree_g1, unitree_g1_wb,
-#                               unitree_r1
+#   ROBOT                       the robot configuration (required): anymal_b, drc_atlas, engineai_sa01, unitree_g1,
+#                               unitree_g1_wb, unitree_r1
 #   WB_ROBOT_IMAGE              the image (default wb-humanoid-robot:latest)
 #   WB_ROBOT_NETWORK_SOURCE     the network file mounted read-only into the container (default the shipped localhost
 #                               network)
@@ -52,7 +52,7 @@ services:
     memswap_limit: ${WB_ROBOT_MEMORY_LIMIT:-4g}
     # LINT.ThenChange(//tools/deploy/README.md:robot_memory_limit)
     environment:
-      ROBOT: ${ROBOT:?set ROBOT to the robot configuration (drc_atlas, engineai_sa01, unitree_g1, unitree_g1_wb, unitree_r1)}
+      ROBOT: ${ROBOT:?set ROBOT to the robot configuration (anymal_b, drc_atlas, engineai_sa01, unitree_g1, unitree_g1_wb, unitree_r1)}
       # LINT.IfChange(robot_environment)
       WB_ROBOT_NETWORK_FILE: /etc/wb-humanoid-robot/network.textproto
       WB_ROBOT_BACKEND: ${WB_ROBOT_BACKEND:-}

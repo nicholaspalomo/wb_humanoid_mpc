@@ -44,6 +44,9 @@ SIDE_FILE_PATTERNS = ("*.bak",)
 
 # Every robot package the BUILD target lists as data, and one file each must ship: the walk below is not vacuous.
 EXPECTED_FILES = (
+    "anybotics_anymal_b/anymal_b_centroidal_mpc/config/mpc/task.textproto",
+    "anybotics_anymal_b/anymal_b_description/LICENSE",
+    "anybotics_anymal_b/anymal_b_description/urdf/anymal_b.urdf",
     "drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto",
     "drc_atlas/drc_atlas_description/urdf/atlas.urdf",
     "engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto",

@@ -102,14 +102,15 @@ gaits {
   switching_times: 1.0
 }
 
-# The gaits the walking velocity command switches between, slowest first (gait_switching_table_config.proto). The
-# thresholds are a first guess modeled on the biped table, not tuned on a quadruped:
+# The gaits the walking velocity command switches between, slowest first (gait_switching_table_config.proto), with
+# thresholds set from ANYmal B's closed-loop runs (humanoid_mpc_validation, label 2026-11-10_anymal_b):
 # - stance leaves on the command alone (error thresholds of 10), as the bipeds' does;
-# - static_walk keeps three legs down, for commands up to 0.2 m/s and 0.2 rad/s;
-# - trot covers commands up to 0.8 m/s and 0.6 rad/s, the range a 0.7 s trot cycle reaches;
+# - trot takes every command from stance up to 0.8 m/s and 0.6 rad/s, the range a 0.7 s trot cycle reaches;
 # - flying_trot takes every faster command.
-# Each row's lower bounds sit below the upper bounds of the row before, so that a command near one bound does not
-# switch back and forth.
+# static_walk is not a row. With it between stance and trot, the trot waited for a stride-mean speed of 0.15 m/s
+# reached in static_walk, and a 0.5 m/s command walked about 2.4 s in static_walk before it trotted, averaging
+# 0.38 m/s. Each row's lower bounds sit below the upper bounds of the row before, so that a command near one bound
+# does not switch back and forth.
 gait_switching {
   rows {
     gait: "stance"
@@ -121,19 +122,10 @@ gait_switching {
     max_err_angvel_base_rt_world_ewrt_world_z: 10.0
   }
   rows {
-    gait: "static_walk"
-    cmd_min_linvel_base_rt_world_ewrt_heading_xy: 0.05
-    cmd_max_linvel_base_rt_world_ewrt_heading_xy: 0.2
-    cmd_min_angvel_base_rt_world_ewrt_world_z: 0.05
-    cmd_max_angvel_base_rt_world_ewrt_world_z: 0.2
-    max_err_linvel_base_rt_world_ewrt_heading_xy: 0.05
-    max_err_angvel_base_rt_world_ewrt_world_z: 0.05
-  }
-  rows {
     gait: "trot"
-    cmd_min_linvel_base_rt_world_ewrt_heading_xy: 0.15
+    cmd_min_linvel_base_rt_world_ewrt_heading_xy: 0.05
     cmd_max_linvel_base_rt_world_ewrt_heading_xy: 0.8
-    cmd_min_angvel_base_rt_world_ewrt_world_z: 0.15
+    cmd_min_angvel_base_rt_world_ewrt_world_z: 0.05
     cmd_max_angvel_base_rt_world_ewrt_world_z: 0.6
     max_err_linvel_base_rt_world_ewrt_heading_xy: 0.1
     max_err_angvel_base_rt_world_ewrt_world_z: 0.1

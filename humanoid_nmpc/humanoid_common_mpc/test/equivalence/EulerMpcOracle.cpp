@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/functional/function_ref.h"
 #include "absl/log/absl_check.h"
@@ -59,14 +60,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/joint/joint-translation.hpp"  // IWYU pragma: keep
 #include "pinocchio/multibody/model.hpp"                    // IWYU pragma: keep
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 namespace {
-
-// The oracle and the fixture are written for the biped's two feet.
-constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 /** The Euler root joint of the oracle: Composite(Translation, SphericalZYX). */
 pinocchio::JointModelComposite eulerRoot() {
@@ -75,13 +72,6 @@ pinocchio::JointModelComposite eulerRoot() {
   // NOLINTNEXTLINE(spherical-zyx): the Euler root of the oracle the quaternion root is compared with
   root.addJoint(pinocchio::JointModelSphericalZYX());
   return root;
-}
-
-/** Rows of a contact's entries of an input. */
-Eigen::Index contactInputDim(const EulerMpcOracleOptions& options) {
-  return options.contactInput == OracleContactInput::kWorldWrench
-             ? 6
-             : options.localBasisMatrices[0].cols();
 }
 
 }  // namespace
@@ -150,8 +140,14 @@ absl::StatusOr<std::unique_ptr<EulerMpcOracle>> EulerMpcOracle::Create(
     EulerMpcOracleOptions options) {
   absl::StatusOr<pinocchio::Model> twin = eulerRootTwinOf(quaternionRootModel);
   if (!twin.ok()) return twin.status();
-  BipedFeetArray<pinocchio::FrameIndex> contactFrames{};
-  for (size_t contact = 0; contact < kNumFeet; ++contact) {
+  const size_t numContacts = options.contactFrameNames.size();
+  if (numContacts == 0 || options.numPointContacts > numContacts) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[EulerMpcOracle] ", numContacts, " contacts of which ",
+                     options.numPointContacts, " are point contacts"));
+  }
+  std::vector<pinocchio::FrameIndex> contactFrames(numContacts);
+  for (size_t contact = 0; contact < numContacts; ++contact) {
     if (!twin->existFrame(options.contactFrameNames[contact])) {
       return absl::InvalidArgumentError(
           absl::StrCat("[EulerMpcOracle] no contact frame ",
@@ -165,10 +161,14 @@ absl::StatusOr<std::unique_ptr<EulerMpcOracle>> EulerMpcOracle::Create(
       return absl::InvalidArgumentError(
           "[EulerMpcOracle] the whole-body MPC takes world-frame wrenches");
     }
-    if (options.localBasisMatrices.size() != kNumFeet) {
+    if (options.numPointContacts > 0) {
+      return absl::InvalidArgumentError(
+          "[EulerMpcOracle] a local basis is for 6-DoF contacts only");
+    }
+    if (options.localBasisMatrices.size() != numContacts) {
       return absl::InvalidArgumentError(
           absl::StrCat("[EulerMpcOracle] ", options.localBasisMatrices.size(),
-                       " local bases for ", kNumFeet, " contacts"));
+                       " local bases for ", numContacts, " contacts"));
     }
     for (const matrix_t& basis : options.localBasisMatrices) {
       if (basis.rows() != 6 ||
@@ -176,23 +176,22 @@ absl::StatusOr<std::unique_ptr<EulerMpcOracle>> EulerMpcOracle::Create(
           basis.cols() == 0) {
         return absl::InvalidArgumentError(
             "[EulerMpcOracle] a local basis is not 6 rows by the same number "
-            "of columns on both contacts");
+            "of columns on every contact");
       }
     }
   }
   twin->gravity.linear(options.gravityEwrtWorld);
   // Not std::make_unique: the constructor is private (ToTW #134).
   return absl::WrapUnique(
-      new EulerMpcOracle(*twin, std::move(options), contactFrames));
+      new EulerMpcOracle(*twin, std::move(options), std::move(contactFrames)));
 }
 
-EulerMpcOracle::EulerMpcOracle(
-    const pinocchio::Model& model,
-    EulerMpcOracleOptions options,
-    BipedFeetArray<pinocchio::FrameIndex> contactFrames)
+EulerMpcOracle::EulerMpcOracle(const pinocchio::Model& model,
+                               EulerMpcOracleOptions options,
+                               std::vector<pinocchio::FrameIndex> contactFrames)
     : model_(model),
       options_(std::move(options)),
-      contactFrames_(contactFrames),
+      contactFrames_(std::move(contactFrames)),
       totalMass_(pinocchio::computeTotalMass(model_)) {}
 
 Eigen::Index EulerMpcOracle::stateDim() const {
@@ -201,9 +200,19 @@ Eigen::Index EulerMpcOracle::stateDim() const {
              : 12 + 2 * jointDim();
 }
 
+Eigen::Index EulerMpcOracle::contactInputDim(size_t contact) const {
+  if (options_.contactInput == OracleContactInput::kLocalBasis) {
+    return options_.localBasisMatrices[contact].cols();
+  }
+  return contact < options_.numPointContacts ? 3 : 6;
+}
+
 Eigen::Index EulerMpcOracle::inputDim() const {
-  return static_cast<Eigen::Index>(kNumFeet) * contactInputDim(options_) +
-         jointDim();
+  Eigen::Index dim = jointDim();
+  for (size_t contact = 0; contact < contactFrames_.size(); ++contact) {
+    dim += contactInputDim(contact);
+  }
+  return dim;
 }
 
 vector_t EulerMpcOracle::configurationOf(const vector_t& eulerState) const {
@@ -212,25 +221,30 @@ vector_t EulerMpcOracle::configurationOf(const vector_t& eulerState) const {
              : vector_t(eulerState.head(model_.nq));
 }
 
-BipedFeetArray<vector6_t> EulerMpcOracle::computeWrenchContactsEwrtWorld(
+std::vector<vector6_t> EulerMpcOracle::computeWrenchContactsEwrtWorld(
     const vector_t& eulerState, const vector_t& input) const {
   ABSL_CHECK_EQ(eulerState.size(), stateDim());
   ABSL_CHECK_EQ(input.size(), inputDim());
-  BipedFeetArray<vector6_t> wrenchContactsEwrtWorld{};
+  const size_t numContacts = contactFrames_.size();
+  std::vector<vector6_t> wrenchContactsEwrtWorld(numContacts,
+                                                 vector6_t::Zero());
   if (options_.contactInput == OracleContactInput::kWorldWrench) {
-    for (size_t contact = 0; contact < kNumFeet; ++contact) {
-      wrenchContactsEwrtWorld[contact] =
-          input.segment<6>(6 * static_cast<Eigen::Index>(contact));
+    Eigen::Index row = 0;
+    for (size_t contact = 0; contact < numContacts; ++contact) {
+      const Eigen::Index dim = contactInputDim(contact);
+      wrenchContactsEwrtWorld[contact].head(dim) = input.segment(row, dim);
+      row += dim;
     }
     return wrenchContactsEwrtWorld;
   }
   pinocchio::Data data(model_);
   pinocchio::framesForwardKinematics(model_, data, configurationOf(eulerState));
-  const Eigen::Index basisDim = contactInputDim(options_);
-  for (size_t contact = 0; contact < kNumFeet; ++contact) {
+  Eigen::Index row = 0;
+  for (size_t contact = 0; contact < numContacts; ++contact) {
+    const Eigen::Index basisDim = contactInputDim(contact);
     const vector6_t wrenchContactEwrtContact =
-        options_.localBasisMatrices[contact] *
-        input.segment(basisDim * static_cast<Eigen::Index>(contact), basisDim);
+        options_.localBasisMatrices[contact] * input.segment(row, basisDim);
+    row += basisDim;
     const matrix3_t rotmatContactRtWorld =
         data.oMf[contactFrames_[contact]].rotation();
     wrenchContactsEwrtWorld[contact]
@@ -242,7 +256,7 @@ BipedFeetArray<vector6_t> EulerMpcOracle::computeWrenchContactsEwrtWorld(
 
 vector_t EulerMpcOracle::flowMap(const vector_t& eulerState,
                                  const vector_t& input) const {
-  const BipedFeetArray<vector6_t> wrenchContactsEwrtWorld =
+  const std::vector<vector6_t> wrenchContactsEwrtWorld =
       computeWrenchContactsEwrtWorld(eulerState, input);
   const Eigen::Index nj = jointDim();
   const Eigen::Index nv = model_.nv;
@@ -261,7 +275,7 @@ vector_t EulerMpcOracle::flowMap(const vector_t& eulerState,
     vector6_t rateCmomComRtWorldEwrtWorld;
     rateCmomComRtWorldEwrtWorld << totalMass_ * options_.gravityEwrtWorld,
         vector3_t::Zero();
-    for (size_t contact = 0; contact < kNumFeet; ++contact) {
+    for (size_t contact = 0; contact < contactFrames_.size(); ++contact) {
       const vector3_t forceContactEwrtWorld =
           wrenchContactsEwrtWorld[contact].head<3>();
       const vector3_t posContactRtComEwrtWorld =
@@ -297,7 +311,7 @@ vector_t EulerMpcOracle::flowMap(const vector_t& eulerState,
   vector6_t baseGeneralizedForce =
       -nonlinearEffects.head<6>() -
       massMatrix.topRightCorner(6, nj) * jointRates;
-  for (size_t contact = 0; contact < kNumFeet; ++contact) {
+  for (size_t contact = 0; contact < contactFrames_.size(); ++contact) {
     matrix_t jacobian = matrix_t::Zero(6, nv);
     pinocchio::computeFrameJacobian(model_, data, q, contactFrames_[contact],
                                     pinocchio::LOCAL_WORLD_ALIGNED, jacobian);

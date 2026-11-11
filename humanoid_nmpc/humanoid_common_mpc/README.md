@@ -125,7 +125,11 @@ thresholds at which the manager switches to the row after or before it (`gait_sw
 file without the table gets `defaultGaitModeStates()` (`reference_manager/GaitSwitchingTable.h`): stance, slow_walk,
 walk, slower_trot, slow_trot, trot and run, the biped table the manager always had. `Create()` refuses a malformed
 table naming the row and the field, and a table naming a gait the file lacks (`checkEveryGaitIsLoaded()`). The
-quadruped file has its own table: stance, static_walk, trot and flying_trot.
+quadruped file has its own table: stance, trot and flying_trot, with thresholds set on ANYbotics ANYmal B, the
+quadruped that ships with the file (label `2026-11-10_anymal_b`, `humanoid_mpc_validation`). static_walk is a gait of
+the file but not a row of the table: between stance and trot it held a 0.5 m/s command in static_walk for about 2.4 s,
+until the stride-mean speed passed the trot row's threshold, and the walk averaged 0.38 m/s. The rest of that robot's
+tuning is in its task file and PD gains.
 
 A new gait starts at the first event after 70 % of the horizon (`updateGaitSchedule()`, `gait/GaitScheduleUpdater.h`).
 When the phase that ends at that event has the mode the new gait starts its cycle with (`cycleStartMode()`: its first

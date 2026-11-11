@@ -345,7 +345,8 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Values(ShippedCentroidalRobot::kDrcAtlas,
                       ShippedCentroidalRobot::kEngineAiSa01,
                       ShippedCentroidalRobot::kUnitreeG1,
-                      ShippedCentroidalRobot::kUnitreeR1),
+                      ShippedCentroidalRobot::kUnitreeR1,
+                      ShippedCentroidalRobot::kAnymalB),
     shippedCentroidalRobotTestName);
 
 }  // namespace

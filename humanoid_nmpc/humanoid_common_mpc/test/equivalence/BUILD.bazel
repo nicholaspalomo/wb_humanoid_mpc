@@ -20,6 +20,8 @@ cc_library(
     # Every shipped MPC configuration: its task file names the joints the model keeps, its description the URDF.
     # LINT.IfChange(equivalence_robot_data)
     data = [
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
@@ -189,6 +191,10 @@ cc_library(
 # (unitree_g1_kalman), whose MPC is the one of the configuration they vary: the estimator does not change the MPC.
 # LINT.IfChange(mpc_equivalence_robots)
 _MPC_EQUIVALENCE_ROBOTS = {
+    "anymal_b": [
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
+    ],
     "drc_atlas": [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",

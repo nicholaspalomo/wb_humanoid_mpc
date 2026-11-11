@@ -691,6 +691,8 @@ cc_test(
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
         "//robot_models/unitree_r1/unitree_r1_description",
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
     ],
     # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/test/testNominalPendulum.cpp:nominal_pendulum_robots)
     deps = [
@@ -1553,6 +1555,8 @@ cc_library(
     includes = ["test"],
     # LINT.IfChange(shipped_centroidal_robot_data)
     data = [
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
@@ -1586,7 +1590,12 @@ cc_library(
     srcs = ["test/support/CentroidalMpcLoop.cpp"],
     hdrs = ["test/support/CentroidalMpcLoop.h"],
     copts = FIRST_PARTY_COPTS,
-    data = ["//humanoid_nmpc/humanoid_common_mpc:gait_config"],
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        # LINT.IfChange(centroidal_mpc_loop_quadruped_gait)
+        "//humanoid_nmpc/humanoid_common_mpc:quadruped_gait_config",
+        # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/test/support/ShippedCentroidalRobot.cpp:anymal_b_gait_file)
+    ],
     includes = ["test"],
     deps = [
         ":humanoid_centroidal_mpc",
@@ -1738,6 +1747,30 @@ cc_test(
         "@pinocchio",
         "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
         "//lib/ocs2:ocs2_core_types",
+    ],
+)
+
+# The shipped ANYmal B's MPC in the lockstep loop on the quadruped gait file: it stands, trots forward and turns in place
+# with every solve finite and every quaternion unit, the gait file picking the trot for the walk. Generates ANYmal B's
+# CppAD libraries.
+cc_test(
+    name = "testAnymalBLockstepLoop",
+    size = "large",
+    srcs = ["test/testAnymalBLockstepLoop.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    tags = ["exclusive"],
+    deps = [
+        ":centroidal_mpc_loop",
+        ":humanoid_centroidal_mpc",
+        ":shipped_centroidal_robot",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core_types",
+        "@abseil-cpp//absl/container:btree",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )
 

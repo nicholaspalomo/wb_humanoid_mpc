@@ -49,7 +49,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/centroidal.hpp"
 #include "pinocchio/multibody/fwd.hpp"
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/equivalence/EulerMpcOracle.h"
@@ -79,9 +78,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 namespace {
-
-// The oracle and the fixture are written for the biped's two feet.
-constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
 
 /** The safety factor on the Richardson estimates of the two rollouts'
  * integration errors (leading term only). */
@@ -252,7 +248,8 @@ void expectSamePhysicalTrajectory(const MpcEquivalenceFixture& mpc,
 }
 
 /**
- * A small input: contact forces within +-1 % of half the weight per axis and
+ * A small input: contact forces within +-1 % of each contact's share of the
+ * weight (half of it on a biped) per axis and
  * moments within +-1 N m (local basis: scalings within [0, 0.02] of the scaling
  * that carries half the weight on a level foot), joint entries within
  * +-`maxAbsJointEntry`. The robot is then all but in free fall, its attitude
@@ -266,20 +263,25 @@ vector_t smallInput(const MpcEquivalenceFixture& mpc,
                     std::mt19937& generator) {
   std::uniform_real_distribution<scalar_t> unit(-1.0, 1.0);
   const EulerMpcOracle& oracle = mpc.oracle();
-  const scalar_t halfWeight = 0.5 * oracle.totalMass() * 9.81;
+  const size_t numContacts = oracle.options().contactFrameNames.size();
+  const scalar_t weightPerContact =
+      (1.0 / static_cast<scalar_t>(numContacts)) * oracle.totalMass() * 9.81;
   vector_t input = vector_t::Zero(oracle.inputDim());
   Eigen::Index row = 0;
-  for (size_t contact = 0; contact < kNumFeet; ++contact) {
+  for (size_t contact = 0; contact < numContacts; ++contact) {
     if (oracle.options().contactInput == OracleContactInput::kWorldWrench) {
+      // A point contact's entries are its force; a 6-DoF contact's moment
+      // follows.
+      const Eigen::Index dim = oracle.contactInputDim(contact);
       for (Eigen::Index i = 0; i < 3; ++i) {
-        input(row + i) = 0.01 * halfWeight * unit(generator);
+        input(row + i) = 0.01 * weightPerContact * unit(generator);
       }
-      for (Eigen::Index i = 3; i < 6; ++i) input(row + i) = unit(generator);
-      row += 6;
+      for (Eigen::Index i = 3; i < dim; ++i) input(row + i) = unit(generator);
+      row += dim;
       continue;
     }
     const matrix_t& basis = oracle.options().localBasisMatrices[contact];
-    const scalar_t nominal = halfWeight / basis.row(2).sum();
+    const scalar_t nominal = weightPerContact / basis.row(2).sum();
     for (Eigen::Index i = 0; i < basis.cols(); ++i) {
       input(row + i) = 0.01 * (1.0 + unit(generator)) * nominal;
     }

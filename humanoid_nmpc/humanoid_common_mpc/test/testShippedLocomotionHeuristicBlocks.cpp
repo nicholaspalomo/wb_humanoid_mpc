@@ -98,6 +98,9 @@ void PrintTo(const ShippedTaskFile& file, std::ostream* absl_nonnull os) {
 // robot it can derive for.
 // LINT.IfChange(shipped_centroidal_task_files)
 constexpr ShippedTaskFile kShippedTaskFiles[] = {
+    {.robot = "anymal_b",
+     .relativePath = "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/"
+                     "config/mpc/task.textproto"},
     {.robot = "drc_atlas",
      .relativePath = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/"
                      "mpc/task.textproto"},

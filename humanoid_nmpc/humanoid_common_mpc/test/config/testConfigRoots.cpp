@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <array>
+#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -102,43 +103,72 @@ struct Robot {
   const char* absl_nonnull urdfFile;
   StateInputLayout::Mpc mpc;
   bool hasContactPlanningFile;
+  // The gait file the configuration is launched with.
+  const char* absl_nonnull gaitFile;
+  // The contacts of its model settings.
+  size_t numContacts;
 };
 
+// The gait files of the bipeds and of the quadruped.
+constexpr char kBipedGaitFile[] =
+    "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto";
+// LINT.IfChange(quadruped_gait_file)
+constexpr char kQuadrupedGaitFile[] =
+    "humanoid_nmpc/humanoid_common_mpc/config/command/quadruped_gait.textproto";
+// LINT.ThenChange(//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/launch/mpc.textproto:gait_file, //robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/launch/dummy_sim.textproto:gait_file, //humanoid_nmpc/humanoid_common_mpc/BUILD.bazel:config_test_data)
+constexpr size_t kBipedNumContacts = 2;
+constexpr size_t kQuadrupedNumContacts = 4;
+
 // LINT.IfChange(shipped_robots)
-constexpr std::array<Robot, 5> kRobots = {{
+constexpr std::array<Robot, 6> kRobots = {{
     {.name = "drc_atlas_centroidal_mpc",
      .package = "robot_models/drc_atlas/drc_atlas_centroidal_mpc",
      .urdfFile = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
      .mpc = StateInputLayout::Mpc::kCentroidal,
-     .hasContactPlanningFile = true},
+     .hasContactPlanningFile = true,
+     .gaitFile = kBipedGaitFile,
+     .numContacts = kBipedNumContacts},
     {.name = "engineai_sa01_centroidal_mpc",
      .package = "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
      .urdfFile = "robot_models/engineai_sa01/engineai_sa01_description/urdf/"
                  "zq_sa01.urdf",
      .mpc = StateInputLayout::Mpc::kCentroidal,
-     .hasContactPlanningFile = true},
+     .hasContactPlanningFile = true,
+     .gaitFile = kBipedGaitFile,
+     .numContacts = kBipedNumContacts},
     {.name = "g1_centroidal_mpc",
      .package = "robot_models/unitree_g1/g1_centroidal_mpc",
      .urdfFile = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
      .mpc = StateInputLayout::Mpc::kCentroidal,
-     .hasContactPlanningFile = false},
+     .hasContactPlanningFile = false,
+     .gaitFile = kBipedGaitFile,
+     .numContacts = kBipedNumContacts},
     {.name = "g1_wb_mpc",
      .package = "robot_models/unitree_g1/g1_wb_mpc",
      .urdfFile = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
      .mpc = StateInputLayout::Mpc::kWholeBody,
-     .hasContactPlanningFile = false},
+     .hasContactPlanningFile = false,
+     .gaitFile = kBipedGaitFile,
+     .numContacts = kBipedNumContacts},
     {.name = "unitree_r1_centroidal_mpc",
      .package = "robot_models/unitree_r1/unitree_r1_centroidal_mpc",
      .urdfFile = "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf",
      .mpc = StateInputLayout::Mpc::kCentroidal,
-     .hasContactPlanningFile = false},
+     .hasContactPlanningFile = false,
+     .gaitFile = kBipedGaitFile,
+     .numContacts = kBipedNumContacts},
+    {.name = "anymal_b_centroidal_mpc",
+     .package = "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+     .urdfFile = "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
+                 "anymal_b.urdf",
+     .mpc = StateInputLayout::Mpc::kCentroidal,
+     .hasContactPlanningFile = false,
+     .gaitFile = kQuadrupedGaitFile,
+     .numContacts = kQuadrupedNumContacts},
 }};
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/BUILD.bazel:config_test_data, //humanoid_nmpc/humanoid_common_mpc/test/equivalence/RootJointModelPair.cpp:equivalence_robots)
 // clang-format on
-
-constexpr absl::string_view kGaitFile =
-    "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto";
 
 /** `relativePath` in the test's runfiles. */
 std::string runfilesPath(absl::string_view relativePath) {
@@ -213,7 +243,7 @@ class RobotStack {
     if (!reference.ok()) return reference.status();
     stack->reference = *std::move(reference);
     absl::StatusOr<mpc_config::GaitFile> gait =
-        loadGaitFile(runfilesPath(kGaitFile));
+        loadGaitFile(runfilesPath(robot.gaitFile));
     if (!gait.ok()) return gait.status();
     stack->gait = *std::move(gait);
 
@@ -237,7 +267,8 @@ class RobotStack {
     stack->referenceManager = std::make_shared<SwitchedModelReferenceManager>(
         *gaitSchedule,
         std::make_unique<SwingTrajectoryPlanner>(
-            SwingTrajectoryPlanner::Config(), /*numFeet=*/2),
+            SwingTrajectoryPlanner::Config(),
+            /*numFeet=*/stack->settings->contactNames.size()),
         *stack->pinocchioInterface, *stack->model);
     return stack;
   }
@@ -261,7 +292,7 @@ TEST_P(ShippedRobotRootsTest, EveryFileLoadsAndBuildsEveryRoot) {
   ASSERT_TRUE(stack.ok()) << stack.status();
   const ModelSettings& settings = *(*stack)->settings;
   EXPECT_FALSE(settings.robotName.empty());
-  EXPECT_EQ(settings.contactNames.size(), 2U);
+  EXPECT_EQ(settings.contactNames.size(), robot.numContacts);
 
   // The path forms of the roots read the same files.
   const absl::StatusOr<ModelSettings> byPath = ModelSettings::Create(

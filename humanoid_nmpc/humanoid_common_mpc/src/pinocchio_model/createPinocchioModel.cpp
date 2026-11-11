@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
@@ -80,6 +81,20 @@ constexpr int kNumBaseJointComponents = 2;
  * which the two collision points of a foot sit, along the sole's x axis.
  */
 constexpr scalar_t kCollisionPointFootprintFraction = 0.6;
+
+/**
+ * The largest entry-wise difference between the axes of a URDF frame and the
+ * axes a 3-DoF contact's configuration gives it for which the contact may name
+ * that frame (addPointContactFrame()).
+ */
+constexpr scalar_t kExistingFrameAxesTolerance = 1.0e-9;
+
+/**
+ * [m] The largest per-axis distance between the origin of a URDF frame and the
+ * point a 3-DoF contact's configuration puts it at for which the contact may
+ * name that frame (addPointContactFrame()).
+ */
+constexpr scalar_t kExistingFrameOriginToleranceM = 1.0e-9;
 
 /**
  * The floating base of every MPC model: Composite(Translation, Spherical), 6
@@ -191,32 +206,32 @@ void addContactPolygonFrames(const ContactPolygon& contactPolygon,
   }
 }
 
+/** Where the configuration of a 3-DoF contact puts its frame. */
+struct PointContactPlacement {
+  pinocchio::JointIndex parentJoint = 0;
+  pinocchio::FrameIndex parentFrame = 0;
+  /** The frame's placement in the frame of `parentJoint`. */
+  pinocchio::SE3 placement = pinocchio::SE3::Identity();
+};
+
 /**
- * Adds the frame of the 3-DoF contact `contact` to `model`: at its translation
- * from its parent, a joint of the model or the frame of a joint the MPC fixes
- * (whose placement it is then composed with). `index` is the contact's entry of
- * model_settings.contacts_3dof, for the refusals: AlreadyExists when the model
- * has a frame of the contact's name, NotFound when it has neither a joint nor a
- * frame of the parent's.
+ * Resolves where `contact` hangs: at its translation from its parent, a joint
+ * of the model or the frame of a joint the MPC fixes (whose placement it is
+ * then composed with). `index` is the contact's entry of
+ * model_settings.contacts_3dof, for the NotFound refusal when the model has
+ * neither a joint nor a frame of the parent's name.
  */
-absl::Status addPointContactFrame(const ModelSettings::PointContact& contact,
-                                  size_t index,
-                                  pinocchio::ModelTpl<scalar_t>& model) {
-  if (model.existFrame(contact.name)) {
-    return absl::AlreadyExistsError(absl::StrCat(
-        "[loadCustomPinocchioInterface] model_settings.contacts_3dof[", index,
-        "].name '", contact.name,
-        "' is a frame of the robot model already; a 3-DoF contact names the "
-        "frame the MPC adds."));
-  }
+absl::StatusOr<PointContactPlacement> configuredPointContactPlacement(
+    const ModelSettings::PointContact& contact,
+    size_t index,
+    const pinocchio::ModelTpl<scalar_t>& model) {
   const pinocchio::SE3 poseContactRtLink(matrix3_t::Identity(),
                                          contact.posContactRtLinkEwrtLink);
   if (model.existJointName(contact.parentJointName)) {
-    model.addFrame(pinocchio::Frame(contact.name,
-                                    model.getJointId(contact.parentJointName),
-                                    model.getFrameId(contact.parentJointName),
-                                    poseContactRtLink, pinocchio::FIXED_JOINT));
-    return absl::OkStatus();
+    return PointContactPlacement{
+        .parentJoint = model.getJointId(contact.parentJointName),
+        .parentFrame = model.getFrameId(contact.parentJointName),
+        .placement = poseContactRtLink};
   }
   if (model.existFrame(contact.parentJointName)) {
     // A joint the MPC fixes is a frame of the reduced model: the contact hangs
@@ -225,15 +240,89 @@ absl::Status addPointContactFrame(const ModelSettings::PointContact& contact,
         model.getFrameId(contact.parentJointName);
     const pinocchio::Frame& parent =
         model.frames[static_cast<size_t>(parentFrame)];
-    model.addFrame(pinocchio::Frame(
-        contact.name, parent.parentJoint, parentFrame,
-        parent.placement * poseContactRtLink, pinocchio::FIXED_JOINT));
-    return absl::OkStatus();
+    return PointContactPlacement{
+        .parentJoint = parent.parentJoint,
+        .parentFrame = parentFrame,
+        .placement = parent.placement * poseContactRtLink};
   }
   return absl::NotFoundError(absl::StrCat(
       "[loadCustomPinocchioInterface] model_settings.contacts_3dof[", index,
       "].parent_joint_name '", contact.parentJointName,
       "' is neither a joint of the robot model nor a joint the MPC fixes."));
+}
+
+/** Formats the translation of `placement` [m] for a refusal. */
+std::string translationText(const pinocchio::SE3& placement) {
+  return absl::StrFormat("(%.9g, %.9g, %.9g)", placement.translation().x(),
+                         placement.translation().y(),
+                         placement.translation().z());
+}
+
+/**
+ * Accepts the frame `existing` of the robot model as the frame of the 3-DoF
+ * contact `contact` (entry `index` of model_settings.contacts_3dof) when it
+ * hangs from the configured joint at the configured placement: the same
+ * axes within kExistingFrameAxesTolerance and the same origin within
+ * kExistingFrameOriginToleranceM. AlreadyExists otherwise, with both
+ * placements.
+ */
+absl::Status acceptExistingPointContactFrame(
+    const ModelSettings::PointContact& contact,
+    size_t index,
+    const PointContactPlacement& configured,
+    const pinocchio::Frame& existing,
+    const pinocchio::ModelTpl<scalar_t>& model) {
+  const scalar_t axesDistance =
+      (existing.placement.rotation() - configured.placement.rotation())
+          .cwiseAbs()
+          .maxCoeff();
+  const scalar_t originDistance =
+      (existing.placement.translation() - configured.placement.translation())
+          .cwiseAbs()
+          .maxCoeff();
+  if (existing.parentJoint == configured.parentJoint &&
+      axesDistance <= kExistingFrameAxesTolerance &&
+      originDistance <= kExistingFrameOriginToleranceM) {
+    return absl::OkStatus();
+  }
+  return absl::AlreadyExistsError(absl::StrCat(
+      "[loadCustomPinocchioInterface] model_settings.contacts_3dof[", index,
+      "].name '", contact.name,
+      "' is a frame of the robot model already, on joint '",
+      model.names[existing.parentJoint], "' at ",
+      translationText(existing.placement),
+      axesDistance <= kExistingFrameAxesTolerance ? "" : " with other axes",
+      ", but the configuration puts it on joint '",
+      model.names[configured.parentJoint], "' at ",
+      translationText(configured.placement),
+      "; a 3-DoF contact names either a new frame or an existing frame at "
+      "exactly its configured placement."));
+}
+
+/**
+ * Adds the frame of the 3-DoF contact `contact` to `model` at its configured
+ * placement (configuredPointContactPlacement()), or adds nothing when the model
+ * has a frame of the contact's name at that placement already, which the MPC
+ * then uses as is (a URDF foot link). `index` is the contact's entry of
+ * model_settings.contacts_3dof, for the refusals: NotFound when the model has
+ * neither a joint nor a frame of the parent's, AlreadyExists when the model's
+ * frame of the contact's name sits elsewhere.
+ */
+absl::Status addPointContactFrame(const ModelSettings::PointContact& contact,
+                                  size_t index,
+                                  pinocchio::ModelTpl<scalar_t>& model) {
+  ASSIGN_OR_RETURN(const PointContactPlacement configured,
+                   configuredPointContactPlacement(contact, index, model));
+  if (model.existFrame(contact.name)) {
+    const pinocchio::Frame& existing =
+        model.frames[static_cast<size_t>(model.getFrameId(contact.name))];
+    return acceptExistingPointContactFrame(contact, index, configured, existing,
+                                           model);
+  }
+  model.addFrame(pinocchio::Frame(contact.name, configured.parentJoint,
+                                  configured.parentFrame, configured.placement,
+                                  pinocchio::FIXED_JOINT));
+  return absl::OkStatus();
 }
 
 }  // namespace

@@ -210,8 +210,7 @@ TEST(QuadrupedGaitFileTest, ItsSwitchingTableNamesItsOwnGaits) {
   for (const GaitModeStateConfig& row : *table) {
     names.push_back(row.gaitCommand);
   }
-  EXPECT_EQ(names, (std::vector<std::string>{"stance", "static_walk", "trot",
-                                             "flying_trot"}));
+  EXPECT_EQ(names, (std::vector<std::string>{"stance", "trot", "flying_trot"}));
   const absl::StatusOr<absl::btree_map<std::string, ModeSequenceTemplate>>
       gaits = gaitMapFromConfig(*file, quadrupedLayout());
   ASSERT_TRUE(gaits.ok()) << gaits.status();

@@ -484,6 +484,7 @@ cc_test(
     # Every robot's shipped MPC task file, for the check that the contact-implicit formulation ships switched off.
     # LINT.IfChange(formulation_shipped_task_files_data)
     data = [
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
         "//robot_models/unitree_g1/g1_centroidal_mpc",
@@ -746,6 +747,7 @@ cc_test(
     # The whole-body package is here for the check that it has NO locomotion_heuristics block.
     # LINT.IfChange(shipped_centroidal_task_files_data)
     data = [
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
         "//robot_models/unitree_g1/g1_centroidal_mpc",
@@ -966,6 +968,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     # LINT.IfChange(shipped_pd_gains_files_data)
     data = [
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
         "//robot_models/unitree_g1/g1_centroidal_mpc",
@@ -1224,6 +1227,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     # LINT.IfChange(filter_test_data)
     data = [
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
         "//robot_models/unitree_g1/g1_centroidal_mpc",
@@ -2507,11 +2511,14 @@ filegroup(
 # The typed configuration files (humanoid_nmpc/humanoid_mpc_config)
 # ==============================================================================
 
-# The shipped robots' configurations and models, and the shared gait file: what test/config/testConfigRoots.cpp and
-# test/config/weights/testStateInputWeightsFromConfig.cpp load.
+# The shipped robots' configurations and models, and the shared gait files of the bipeds and the quadruped: what
+# test/config/testConfigRoots.cpp and test/config/weights/testStateInputWeightsFromConfig.cpp load.
 # LINT.IfChange(config_test_data)
 _SHIPPED_ROBOT_DATA = [
     ":gait_config",
+    ":quadruped_gait_config",
+    "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+    "//robot_models/anybotics_anymal_b/anymal_b_description",
     "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
     "//robot_models/drc_atlas/drc_atlas_description",
     "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",

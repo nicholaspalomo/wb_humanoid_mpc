@@ -153,12 +153,25 @@ RobotFiles r1Files() {
               "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf"};
 }
 
+RobotFiles anymalBFiles() {
+  return {.taskFile =
+              "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/"
+              "mpc/task.textproto",
+          .referenceFile =
+              "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/"
+              "command/reference.textproto",
+          .urdfFile =
+              "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
+              "anymal_b.urdf"};
+}
+
 std::vector<std::pair<RobotFiles, Formulation>> shippedConfigurations() {
   return {{g1CentroidalFiles(), Formulation::kCentroidal},
           {g1WholeBodyFiles(), Formulation::kWholeBody},
           {atlasFiles(), Formulation::kCentroidalBasisVectors},
           {sa01Files(), Formulation::kCentroidalBasisVectors},
-          {r1Files(), Formulation::kCentroidal}};
+          {r1Files(), Formulation::kCentroidal},
+          {anymalBFiles(), Formulation::kCentroidal}};
 }
 
 quaternion_t unitQuaternionOfRollPitchYaw(const vector3_t& rollPitchYaw) {

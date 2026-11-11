@@ -134,7 +134,9 @@ message ModelSettingsConfig {
   message PointContact {
     reserved 4 to max;
 
-    // The frame's name: unique among the contacts, and not a frame the robot model already has.
+    // The frame's name, unique among the contacts: a new frame, which the MPC adds, or a frame of the URDF model that
+    // sits exactly at parent_joint_name + pos_contact_rt_link_ewrt_link with the parent's axes (such as a foot link),
+    // which the MPC then uses as is.
     string name = 1 [default = ""];
     // The joint the frame is attached to, or a joint the MPC fixes (fixed_joint_names), whose frame it then hangs from.
     string parent_joint_name = 2 [default = ""];

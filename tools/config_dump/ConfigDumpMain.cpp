@@ -59,11 +59,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 #include "tools/config_dump/StackDump.h"
 
+// LINT.IfChange(robot_flag)
 ABSL_FLAG(std::string,
           robot,
           "",
           "The configuration (RobotConfiguration::name): drc_atlas, "
-          "engineai_sa01, unitree_g1, unitree_r1, unitree_g1_wb.");
+          "engineai_sa01, unitree_g1, unitree_r1, anymal_b, unitree_g1_wb, "
+          "unitree_g1_kalman.");
+// clang-format off
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations)
+// clang-format on
 
 int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   absl::ParseCommandLine(argc, argv);

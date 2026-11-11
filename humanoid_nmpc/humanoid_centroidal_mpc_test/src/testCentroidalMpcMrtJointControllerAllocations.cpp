@@ -44,11 +44,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Geometry"
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/types/span.h"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/control/ManifoldLinearController.h"
 #include "ocs2_core/manifold/StateManifold.h"
@@ -60,13 +62,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactArray.h"
+#include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
-#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
@@ -86,15 +87,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * cycle, the passive modes (ZERO_TORQUE, JOINT_PD, GRAVITY_COMP, SAFETY, each
  * entry included), the hold of WB_MPC until a policy arrives, the weight
  * compensation of WB_MPC before its first policy, and the execution of a policy
- * - on the wrench-space inputs of the G1 and the basis-vector inputs of the
- * Atlas. A cycle used to make a dozen (the joint vectors of the robot state,
- * the contact flags, the gravity compensation's workspace, a std::function),
- * SAFETY's first cycle resized its posture, Pinocchio's passes over the MPC
- * model's composite base joint made a heap temporary each (the centroidal map
- * of the observation, the nonlinear effects of the gravity compensation, the
- * mass matrix, nonlinear effects and sole Jacobians of the inverse dynamics),
- * and the policy's execution copied the model's vectors and a Pinocchio data
- * per wrench. The controller runs Pinocchio on the model's FreeFlyer twin
+ * - on the wrench-space inputs of the G1, the basis-vector inputs of the
+ * Atlas and the point-contact forces of the four ANYmal B feet. A cycle used to
+ * make a dozen (the joint vectors of the robot state, the contact flags, the
+ * gravity compensation's workspace, a std::function), SAFETY's first cycle
+ * resized its posture, Pinocchio's passes over the MPC model's composite base
+ * joint made a heap temporary each (the centroidal map of the observation, the
+ * nonlinear effects of the gravity compensation, the mass matrix, nonlinear
+ * effects and sole Jacobians of the inverse dynamics), and the policy's
+ * execution copied the model's vectors and a Pinocchio data per wrench. The
+ * controller runs Pinocchio on the model's FreeFlyer twin
  * (RealtimeRigidBodyDynamics), which makes no temporary, and the counts are
  * held at zero. The observation's momentum and the weight compensation are also
  * held to what updateCentroidalDynamics() and computeBaseHeldJointTorques() of
@@ -226,10 +228,11 @@ void PrintTo(const ShippedRobot& robot, std::ostream* absl_nonnull os) {
 }
 
 // The G1 ships wrench-space inputs, the Atlas basis-vector inputs
-// (contact_input_parameterization).
+// (contact_input_parameterization), ANYmal B four 3-DoF point contacts.
 constexpr ShippedRobot kShippedRobots[] = {
     {.name = "unitree_g1", .files = &g1Files},
-    {.name = "drc_atlas", .files = &atlasFiles}};
+    {.name = "drc_atlas", .files = &atlasFiles},
+    {.name = "anymal_b", .files = &anymalBFiles}};
 
 /** `count` control cycles, 10 ms apart from `time`, which it advances; in
  * `mode`, or in the controller's own without one. */
@@ -252,7 +255,8 @@ void runCycles(CentroidalMpcMrtJointController& controller,
 /**
  * The controller as the robot binary builds it (CentroidalMpcRobotMain.cpp)
  * from the interface of CreateControllerModels(), on a moving, tilted robot
- * standing on both feet.
+ * with every contact of its set in stance (both feet of a biped, the four feet
+ * of a quadruped).
  */
 class CentroidalControllerOnShippedRobot
     : public ::testing::TestWithParam<ShippedRobot> {
@@ -283,7 +287,9 @@ class CentroidalControllerOnShippedRobot
     controller_ = *std::move(controller);
     controller_->setEventSink(&sink_);
 
-    state_ = std::make_unique<robot::model::RobotState>(*description_);
+    numContacts_ = interface_->modelSettings().numContacts();
+    state_ =
+        std::make_unique<robot::model::RobotState>(*description_, numContacts_);
     state_->setPosBaseRtWorldEwrtWorld(vector3_t(0.1, -0.2, 0.9));
     state_->setQuatBaseRtWorld(quaternion_t(
         Eigen::AngleAxisd(0.2, vector3_t(1.0, 2.0, -1.0).normalized())));
@@ -296,13 +302,15 @@ class CentroidalControllerOnShippedRobot
           joint,
           /*jointVelocity=*/0.1 * static_cast<scalar_t>(joint % 3) - 0.1);
     }
-    state_->setContactFlag(/*index=*/0, /*contactFlag=*/true);
-    state_->setContactFlag(/*index=*/1, /*contactFlag=*/true);
+    for (size_t contact = 0; contact < numContacts_; ++contact) {
+      state_->setContactFlag(contact, /*contactFlag=*/true);
+    }
     action_ = std::make_unique<robot::model::RobotJointAction>(*description_);
     nominal_.assign(description_->getNumJoints(), 0.1);
   }
 
   std::string taskFile_;
+  size_t numContacts_ = 0;  ///< the contacts of the task file's set
   std::unique_ptr<CentroidalMpcInterface> interface_;
   std::unique_ptr<robot::model::RobotDescription> description_;
   test_support::ScriptedPolicyMpcLink* absl_nullable link_ = nullptr;
@@ -318,13 +326,16 @@ TEST_P(
     CentroidalControllerOnShippedRobot,
     TheObservedMomentumIsTheCentroidalMapsAndTheWeightCompensationAllocatesNothing) {
   // The controller starts in WB_MPC with no hold armed and no policy: it
-  // compensates the weight on the measured feet.
-  for (const BipedFeetArray<bool>& contacts :
-       {BipedFeetArray<bool>{true, true}, BipedFeetArray<bool>{false, true},
-        BipedFeetArray<bool>{false, false}}) {
-    SCOPED_TRACE(::testing::Message() << contacts[0] << contacts[1]);
-    state_->setContactFlag(/*index=*/0, /*contactFlag=*/contacts[0]);
-    state_->setContactFlag(/*index=*/1, /*contactFlag=*/contacts[1]);
+  // compensates the weight on the measured feet: all of them, all but the
+  // first, none.
+  ContactMask allButFirst = ContactMask::allActive(numContacts_);
+  allButFirst.set(/*contactIndex=*/0, /*active=*/false);
+  for (const ContactMask contacts : {ContactMask::allActive(numContacts_),
+                                     allButFirst, ContactMask(numContacts_)}) {
+    SCOPED_TRACE(absl::StrCat(contacts));
+    for (size_t contact = 0; contact < numContacts_; ++contact) {
+      state_->setContactFlag(contact, /*contactFlag=*/contacts[contact]);
+    }
     runCycles(*controller_, nominal_, *state_, *action_, time_,
               /*mode=*/nullptr, /*count=*/1);  // sizes what sizes itself
     const size_t before = robot::realtime::heapAllocationCountOnThisThread();
@@ -383,18 +394,27 @@ TEST_P(
         interface_->getEffectiveMpcRobotModel();
     const vector_t input = weightCompensatingInput(
         reference, contacts, effective, observation.state);
-    const size_t numStanceLegs = numberOfLegsInContacts(contacts);
+    const size_t numStanceContacts = contacts.numActive();
     ContactArray<vector6_t> wrenchFeetEwrtWorld(contacts.size(),
                                                 vector6_t::Zero());
     for (size_t i = 0; i < contacts.size(); ++i) {
       if (contacts[i]) {
         wrenchFeetEwrtWorld[i](2) = computeRobotWeight(reference) /
-                                    static_cast<scalar_t>(numStanceLegs);
+                                    static_cast<scalar_t>(numStanceContacts);
       }
       if (effective.getContactInputDim(i) == kContactWrenchDim) {
         EXPECT_LT(
             (effective.getWrenchContactEwrtWorld(observation.state, input, i) -
              wrenchFeetEwrtWorld[i])
+                .cwiseAbs()
+                .maxCoeff(),
+            1.0e-9);
+      } else if (effective.getContactInputDim(i) ==
+                 static_cast<size_t>(kForceDim)) {
+        // A point contact's input is its world-frame force.
+        EXPECT_LT(
+            (effective.getForceContactEwrtWorld(observation.state, input, i) -
+             wrenchFeetEwrtWorld[i].head<kForceDim>())
                 .cwiseAbs()
                 .maxCoeff(),
             1.0e-9);
@@ -446,15 +466,16 @@ TEST_P(CentroidalControllerOnShippedRobot, ExecutingAPolicyAllocatesNothing) {
   }
   manifold->project(end);
   PinocchioInterface reference = interface_->getPinocchioInterface();
-  const vector_t input = weightCompensatingInput(
-      reference, BipedFeetArray<bool>{true, true}, effective, start);
+  const ContactMask stance = ContactMask::allActive(numContacts_);
+  const vector_t input =
+      weightCompensatingInput(reference, stance, effective, start);
   PrimalSolution policy;
   policy.timeTrajectory_ = {time_, time_ + 10.0};
   policy.stateTrajectory_ = {start, end};
   policy.inputTrajectory_ = {input, input};
   policy.modeSchedule_ = ModeSchedule(
       /*eventTimesInput=*/{},
-      /*modeSequenceInput=*/{kBipedModeStance});
+      /*modeSequenceInput=*/{stance.modeNumber()});
   policy.controllerPtr_ = std::make_unique<ManifoldLinearController>(
       policy.timeTrajectory_, policy.stateTrajectory_, policy.inputTrajectory_,
       matrix_array_t{matrix_t::Constant(nu, ndx, 0.01),

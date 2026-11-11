@@ -41,12 +41,15 @@ from humanoid_rerun_viewer import urdf_kinematics
 from humanoid_rerun_viewer import urdf_model
 
 _RUNFILES_ROOT = os.path.join(os.environ.get("TEST_SRCDIR", ""), "_main")
+# LINT.IfChange(shipped_urdfs)
 SHIPPED_URDFS = (
+    "robot_models/anybotics_anymal_b/anymal_b_description/urdf/anymal_b.urdf",
     "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
     "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf",
     "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
     "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf",
 )
+# LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/BUILD.bazel:robot_descriptions)
 
 # base --(shoulder: revolute about z, 1 m along x)--> arm --(slide: prismatic along x)--> hand --(fixed)--> tool,
 # and a finger that mimics the shoulder at half its angle.

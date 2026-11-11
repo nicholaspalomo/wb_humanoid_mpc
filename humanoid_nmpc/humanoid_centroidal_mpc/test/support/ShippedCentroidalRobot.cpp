@@ -58,6 +58,8 @@ std::string shippedCentroidalRobotName(ShippedCentroidalRobot robot) {
       return "unitree_g1";
     case ShippedCentroidalRobot::kUnitreeR1:
       return "unitree_r1";
+    case ShippedCentroidalRobot::kAnymalB:
+      return "anymal_b";
   }
   return "unknown";
 }
@@ -77,8 +79,26 @@ CentroidalRobotFiles shippedCentroidalRobotFiles(ShippedCentroidalRobot robot) {
       return g1Files();
     case ShippedCentroidalRobot::kUnitreeR1:
       return r1Files();
+    case ShippedCentroidalRobot::kAnymalB:
+      return anymalBFiles();
   }
   return CentroidalRobotFiles{};
+}
+
+std::string shippedCentroidalRobotGaitFile(ShippedCentroidalRobot robot) {
+  switch (robot) {
+    case ShippedCentroidalRobot::kDrcAtlas:
+    case ShippedCentroidalRobot::kEngineAiSa01:
+    case ShippedCentroidalRobot::kUnitreeG1:
+    case ShippedCentroidalRobot::kUnitreeR1:
+      return "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto";
+    // LINT.IfChange(anymal_b_gait_file)
+    case ShippedCentroidalRobot::kAnymalB:
+      return "humanoid_nmpc/humanoid_common_mpc/config/command/"
+             "quadruped_gait.textproto";
+      // LINT.ThenChange(//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/launch/mpc.textproto:gait_file, //robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/launch/dummy_sim.textproto:gait_file, //humanoid_nmpc/humanoid_centroidal_mpc/BUILD.bazel:centroidal_mpc_loop_quadruped_gait)
+  }
+  return "";
 }
 
 absl::StatusOr<LoadedCentroidalRobot> loadShippedCentroidalRobot(

@@ -79,6 +79,11 @@ constexpr Eigen::Index kRootRotationStart = 3;
 
 // LINT.IfChange(equivalence_robots)
 constexpr EquivalenceRobot kEquivalenceRobots[] = {
+    {.name = "anymal_b_centroidal_mpc",
+     .taskFile = "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/"
+                 "config/mpc/task.textproto",
+     .urdfFile = "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
+                 "anymal_b.urdf"},
     {.name = "drc_atlas_centroidal_mpc",
      .taskFile = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/"
                  "task.textproto",

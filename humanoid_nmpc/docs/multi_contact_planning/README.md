@@ -174,6 +174,11 @@ The contact set is runtime data. Each candidate has:
 - a local offset, plus the local normal of its contact pad;
 - the radius of the collision geometry it sits on.
 
+A 3-DoF contact's name is usually a new frame, which the MPC model adds at the parent joint plus the offset. It may
+instead be a frame the URDF already has, such as a quadruped's foot link, when that frame hangs from the configured
+parent joint at exactly the configured offset with the parent's axes (within 1e-9); the MPC then adds no frame and uses
+the URDF's. A frame of that name anywhere else is refused (`AlreadyExists`, with both translations).
+
 For the DRC Atlas, from the link names in `atlas.urdf` and the collision geoms of `atlas.xml`:
 
 | Contact | Kind | Parent joint | Pad | Used in |

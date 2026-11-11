@@ -387,12 +387,16 @@ geometry of the visualization markers. No controller quantity uses them.
 
 The names of links are robot-specific and never appear in an identifier; the role does.
 
-| Role | drc_atlas | unitree_g1 | unitree_r1 | engineai_sa01 |
-|---|---|---|---|---|
-| `base` | `pelvis` | `pelvis` | `pelvis_link` | `base_link` |
-| `torso` | `utorso` | `torso_link` | `waist_yaw_link` | - |
-| `lfoot`, `rfoot` | `foot_l_contact`, `foot_r_contact` | `foot_l_contact`, `foot_r_contact` | `foot_l_contact`, `foot_r_contact` | `foot_l_contact`, `foot_r_contact` |
-| `hand`, `lknee` | `hand_l_contact`, `hand_r_contact`, `knee_l_contact` (multi-contact) | - | - | - |
+| Role | drc_atlas | unitree_g1 | unitree_r1 | engineai_sa01 | anymal_b |
+|---|---|---|---|---|---|
+| `base` | `pelvis` | `pelvis` | `pelvis_link` | `base_link` | `base` |
+| `torso` | `utorso` | `torso_link` | `waist_yaw_link` | - | - |
+| `lfoot`, `rfoot` | `foot_l_contact`, `foot_r_contact` | `foot_l_contact`, `foot_r_contact` | `foot_l_contact`, `foot_r_contact` | `foot_l_contact`, `foot_r_contact` | - |
+| `foot`, `contact` (one per leg) | - | - | - | - | `LF_FOOT`, `RF_FOOT`, `LH_FOOT`, `RH_FOOT` |
+| `hand`, `lknee` | `hand_l_contact`, `hand_r_contact`, `knee_l_contact` (multi-contact) | - | - | - | - |
+
+ANYmal B's four point-contact feet are reached through a loop over contacts or legs, so its code names them with the
+generic `foot` and `contact`; no identifier fixes one of its legs, and the vocabulary has no per-leg word for them.
 
 So the C++ `pelvisAngularVelLocal` is `angvelBaseRtWorldEwrtBase`, and the proto field `desired_pelvis_height` is
 `cmd_pos_base_rt_surface_ewrt_world_z`.

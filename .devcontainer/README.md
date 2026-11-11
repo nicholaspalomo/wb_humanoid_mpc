@@ -196,6 +196,10 @@ Its `-vnc` twin is the same target with `VIEWS=vnc`: everything on the VNC deskt
 | `make launch-sa01-dummy-sim-vnc` | EngineAI SA01 centroidal MPC - dummy sim |
 | `make launch-sa01-sandbox-vnc` | EngineAI SA01 URDF in Rerun, a slider per joint |
 | `make launch-sa01-mpc-vnc NETWORK=<file>` | EngineAI SA01 centroidal MPC - the laptop side against the robot |
+| `make launch-anymal-b-sim-vnc` | ANYbotics ANYmal B centroidal MPC - MuJoCo sim |
+| `make launch-anymal-b-dummy-sim-vnc` | ANYbotics ANYmal B centroidal MPC - dummy sim |
+| `make launch-anymal-b-sandbox-vnc` | ANYbotics ANYmal B URDF in Rerun, a slider per joint |
+| `make launch-anymal-b-mpc-vnc NETWORK=<file>` | ANYbotics ANYmal B centroidal MPC - the laptop side against the robot |
 <!-- LINT.ThenChange(//Makefile:launch_targets, //Makefile:robot_configurations) -->
 
 The DRC Atlas's multi-contact scenarios (humanoid_nmpc/docs/multi_contact_planning/README.md) have a dummy sim each:

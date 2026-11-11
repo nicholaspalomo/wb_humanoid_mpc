@@ -53,6 +53,17 @@ SA01_URDF = os.path.join(
     "urdf",
     "zq_sa01.urdf",
 )
+# ANYmal B: COLLADA meshes upstream, shipped decimated as STL (robot_models/anybotics_anymal_b/anymal_b_description).
+ANYMAL_B_URDF = os.path.join(
+    REPO_ROOT,
+    "robot_models",
+    "anybotics_anymal_b",
+    "anymal_b_description",
+    "urdf",
+    "anymal_b.urdf",
+)
+# The shipped robots whose meshes are drawn in full.
+SHIPPED_URDFS = (SA01_URDF, ANYMAL_B_URDF)
 
 
 def blob_size(contents: rrd_contents.RrdContents, path: str) -> int:
@@ -212,13 +223,25 @@ class VisualColorTest(unittest.TestCase):
         )
 
 
-class ShippedRobotTest(RecordingTestCase):
-    """The EngineAI SA01 in full: every mesh of every instance is an Asset3D in the recording."""
+class ShippedRobotTest(unittest.TestCase):
+    """The shipped robots of SHIPPED_URDFS in full: every mesh of every instance is an Asset3D in the recording."""
 
     def test_every_mesh_of_every_instance(self) -> None:
+        for urdf_path in SHIPPED_URDFS:
+            with self.subTest(urdf=os.path.basename(urdf_path)):
+                self._assert_every_mesh_of_every_instance(urdf_path)
+
+    def _assert_every_mesh_of_every_instance(self, urdf_path: str) -> None:
+        """Asserts that every mesh of the URDF at `urdf_path` loads and is drawn once per instance, in a new recording."""
+        directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory)
+        rrd_path = os.path.join(directory, "recording.rrd")
+        recording = bridge.new_recording("test_robot_meshes")
+        recording.save(rrd_path)
         model = urdf_model.load_urdf(
-            SA01_URDF, urdf_model.default_search_roots(SA01_URDF)
+            urdf_path, urdf_model.default_search_roots(urdf_path)
         )
+        self.assertEqual(list(model.unsupported_meshes), [])
         meshes = robot_meshes.RobotMeshes(model)
         # The mesh file of each mesh visual, by the end of its entity path.
         mesh_files: dict[str, str] = {}
@@ -229,9 +252,11 @@ class ShippedRobotTest(RecordingTestCase):
                 )
         self.assertTrue(mesh_files)
         for style in scene_contract.ROBOT_INSTANCES:
-            result = meshes.log_instance(self.recording, style)
+            result = meshes.log_instance(recording, style)
             self.assertEqual(result.meshes, len(mesh_files))
-        contents = self.contents()
+        recording.flush()
+        recording.disconnect()
+        contents = rrd_contents.RrdContents(rrd_path)
         assets = [
             path
             for path, entity in contents.entities.items()

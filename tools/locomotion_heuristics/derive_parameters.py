@@ -80,8 +80,9 @@ except ImportError:  # pragma: no cover - the dev container always has it
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-#: Where a robot keeps its files, by the name used with --robot. Every centroidal MPC package in robot_models is
-#: listed; the whole-body ones are deliberately absent, because WBMpcInterface never builds the heuristic layer.
+#: Where a robot keeps its files, by the name used with --robot. Every centroidal MPC package in robot_models is in
+#: ROBOTS or in UNDERIVED_ROBOTS (packages whose coefficients the two-foot formulas cannot derive, such as ANYmal B);
+#: the whole-body ones are absent, because WBMpcInterface never builds the heuristic layer.
 #:
 #: NOT a Bazel target. Pinocchio reaches Python through robotpkg's bindings (`/opt/openrobots`, Python 3.12, on the
 #: PYTHONPATH of the dev image and of setup_env.sh) while Bazel's toolchain is a hermetic 3.11 that cannot see them, so
@@ -105,6 +106,12 @@ ROBOTS: dict[str, dict[str, str]] = {
         "mpc": "robot_models/unitree_r1/unitree_r1_centroidal_mpc",
         "urdf": "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf",
     },
+}
+#: The centroidal packages whose coefficients this script does not derive: its formulas are written for two feet (the
+#: foot separation, the step width, the bipeds' gait table), and ANYmal B plans on four point contacts. Their task files
+#: are still held to the default-off rule (test_derive_parameters.py).
+UNDERIVED_ROBOTS: dict[str, str] = {
+    "anymal_b": "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
 }
 # LINT.ThenChange(//humanoid_nmpc/docs/locomotion_heuristics/README.md:derive_parameters_usage, //Makefile:derive_heuristic_parameters_usage, //humanoid_nmpc/humanoid_centroidal_mpc/test/testNominalPendulum.cpp:nominal_pendulum_robots)
 

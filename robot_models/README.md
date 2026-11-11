@@ -8,9 +8,12 @@ launch files in `launch/` and, for the centroidal MPCs, a Pinocchio playground i
 exist, the filegroups ship no side files, and each robot's joint PD gains are stable in its MJCF at the simulator's
 2 kHz step. The simulator applies the PD explicitly and integrates only the MJCF's joint `damping` implicitly, so a light
 link under a large kd needs damping in the scene (`test_joint_pd_stability.py`).
+A biped's MJCF foot is a sole of at least three spheres around the MPC's contact rectangle; a point-contact (3-DoF)
+foot, such as ANYmal B's, is a single sphere whose lowest point is the contact frame (`test_default_stance.py`).
 
 | Robot | Packages | README |
 | --- | --- | --- |
+| ANYbotics ANYmal B | `anymal_b_description`, `anymal_b_centroidal_mpc` | [anybotics_anymal_b](anybotics_anymal_b/README.md) |
 | DRC Atlas | `drc_atlas_description`, `drc_atlas_centroidal_mpc` | [drc_atlas](drc_atlas/README.md) |
 | EngineAI SA01 | `engineai_sa01_description`, `engineai_sa01_centroidal_mpc` | [engineai_sa01](engineai_sa01/README.md) |
 | Unitree G1 | `g1_description`, `g1_centroidal_mpc`, `g1_wb_mpc` | [unitree_g1](unitree_g1/README.md) |

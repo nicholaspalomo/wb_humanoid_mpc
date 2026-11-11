@@ -52,6 +52,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 #include "ocs2_oc/oc_data/TimeDiscretization.h"
 
+#include "humanoid_common_mpc/common/ContactMask.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_mpc_validation/chart/EulerChart.h"
@@ -987,6 +990,20 @@ TEST_P(MpcSqpStepEquivalence,
         kGapProportionality * closing.largestGap() + kSameArithmeticTolerance)
         << "the charts' linearizations differ beyond the gaps' first order";
   }
+}
+
+TEST_P(MpcSqpStepEquivalence,
+       AReferenceWithoutAnInitialModeStartsInFullStance) {
+  MpcEquivalenceFixture& mpc = this->mpc();
+  // On ANYmal B the biped stance mode 3 (0b0011) would put only the hind feet
+  // down; every contact is in stance instead.
+  const size_t fullStance =
+      ContactMask::allActive(mpc.model().modelSettings.contactNames.size())
+          .modeNumber();
+  EquivalenceReference reference = mpc.walkingReference();
+  EXPECT_EQ(reference.initMode, std::optional<size_t>(fullStance));
+  reference.initMode = std::nullopt;
+  EXPECT_EQ(mpc.initialMode(reference), fullStance);
 }
 
 INSTANTIATE_TEST_SUITE_P(

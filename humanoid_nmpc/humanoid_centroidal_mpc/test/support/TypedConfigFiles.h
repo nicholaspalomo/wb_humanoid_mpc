@@ -73,6 +73,10 @@ CentroidalRobotFiles g1Files();
  * calling test and is empty. */
 CentroidalRobotFiles r1Files();
 
+/** The ANYbotics ANYmal B files (robot_models/anybotics_anymal_b); a missing
+ * one fails the calling test and is empty. */
+CentroidalRobotFiles anymalBFiles();
+
 /** The typed configuration of `files` (loadCentroidalMpcConfig()). */
 absl::StatusOr<CentroidalMpcConfig> loadConfigOf(
     const CentroidalRobotFiles& files);

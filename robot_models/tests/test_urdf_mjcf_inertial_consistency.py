@@ -388,7 +388,13 @@ class UrdfMjcfInertialConsistencyTest(unittest.TestCase):
     def test_model_pairs_are_discovered(self):
         """Guards the test itself: a walk that silently found nothing would pass every assertion below."""
         robots = [robot for robot, _, _ in _find_model_pairs()]
-        for robot in ("drc_atlas", "engineai_sa01", "unitree_g1", "unitree_r1"):
+        for robot in (
+            "anybotics_anymal_b",
+            "drc_atlas",
+            "engineai_sa01",
+            "unitree_g1",
+            "unitree_r1",
+        ):
             self.assertIn(
                 robot,
                 robots,

@@ -78,6 +78,23 @@ class TestTheSchemaTheTabReliesOn(unittest.TestCase):
         self.assertEqual(
             joint_pd_tab.classify_joint_section("gripper"), "Other Joints"
         )
+        self.assertEqual(
+            joint_pd_tab.classify_joint_section("LF_HAA"), "Left Front Leg"
+        )
+        self.assertEqual(
+            joint_pd_tab.classify_joint_section("RH_KFE"), "Right Hind Leg"
+        )
+        for section in (
+            "Left Front Leg",
+            "Right Front Leg",
+            "Left Hind Leg",
+            "Right Hind Leg",
+        ):
+            self.assertIn(section, joint_pd_tab.SECTION_ORDER)
+        self.assertEqual(
+            joint_pd_tab.SECTION_ORDER[:3],
+            ("Torso & Spine", "Left Leg", "Right Leg"),
+        )
 
 
 @operator_test_support.requires_display

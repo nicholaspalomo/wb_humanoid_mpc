@@ -37,6 +37,7 @@ import unittest
 _ROOT_README = "README.md"
 _DEV_CONTAINER_README = ".devcontainer/README.md"
 _TASK_FILES = (
+    "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/mpc/task.textproto",
     "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto",
     "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto",
     "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto",

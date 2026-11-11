@@ -226,6 +226,7 @@ _ATLAS_DATA = [
 # Every shipped robot's task file, for the settings test.
 # LINT.IfChange(shipped_task_files)
 _SHIPPED_TASK_FILES = [
+    "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
     "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
     "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
     "//robot_models/unitree_g1/g1_centroidal_mpc",
@@ -349,7 +350,11 @@ cc_test(
     size = "small",
     srcs = ["test/testRobotRealtimeAllocations.cpp"],
     copts = FIRST_PARTY_COPTS,
-    data = _ATLAS_DATA + ["test/data/dodgeball_throw.textproto"],
+    data = _ATLAS_DATA + [
+        "test/data/dodgeball_throw.textproto",
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
+    ],
     linkstatic = True,
     deps = [
         ":realtime_loop",
@@ -588,6 +593,7 @@ cc_test(
     srcs = ["test/testShippedRobotGravity.cpp"],
     copts = FIRST_PARTY_COPTS,
     data = _SHIPPED_TASK_FILES + [
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/engineai_sa01/engineai_sa01_description",
         "//robot_models/unitree_g1/g1_description",
@@ -697,17 +703,23 @@ cc_test(
     size = "small",
     srcs = ["test/testRobotBackendRegistry.cpp"],
     copts = FIRST_PARTY_COPTS,
-    data = _ATLAS_DATA,
+    # Atlas, and ANYmal B for a set of point contacts only.
+    data = _ATLAS_DATA + [
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
+    ],
     deps = [
         ":robot_test_support",
         ":robot_process",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_core_types",
         "//robot_runtime/mujoco_sim_interface",
         "//robot_runtime/mujoco_sim_interface:viewer_settings",
         "//robot_runtime/robot_model",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",

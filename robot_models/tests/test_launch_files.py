@@ -48,6 +48,11 @@ RUNFILES = os.path.join(os.environ["TEST_SRCDIR"], "_main")
 # LINT.IfChange(robot_configurations)
 ROBOT_CONFIGURATIONS = (
     (
+        "anymal_b",
+        "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "centroidal",
+    ),
+    (
         "drc_atlas",
         "robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "centroidal",
@@ -66,6 +71,7 @@ ROBOT_CONFIGURATIONS = (
     ),
 )
 ROBOT_DESCRIPTIONS = (
+    "robot_models/anybotics_anymal_b/anymal_b_description",
     "robot_models/drc_atlas/drc_atlas_description",
     "robot_models/engineai_sa01/engineai_sa01_description",
     "robot_models/unitree_g1/g1_description",

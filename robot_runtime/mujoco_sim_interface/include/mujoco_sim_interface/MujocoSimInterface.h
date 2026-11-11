@@ -109,7 +109,7 @@ std::vector<std::string> gantryHoldNames();
 /// not match.
 absl::StatusOr<GantryHold> gantryHoldFromName(absl::string_view name);
 // clang-format off
-// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:gantry_hold)
+// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:gantry_hold)
 // clang-format on
 
 /**

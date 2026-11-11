@@ -76,7 +76,14 @@ struct ShippedRobot {
 };
 
 // LINT.IfChange(shipped_robots)
-constexpr std::array<ShippedRobot, 5> kShippedRobots = {{
+constexpr std::array<ShippedRobot, 6> kShippedRobots = {{
+    {.name = "anymal_b",
+     .taskFile = "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/"
+                 "config/mpc/task.textproto",
+     .urdfFile = "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
+                 "anymal_b.urdf",
+     .sceneFile = "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
+                  "anymal_b.xml"},
     {.name = "drc_atlas",
      .taskFile = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/"
                  "task.textproto",

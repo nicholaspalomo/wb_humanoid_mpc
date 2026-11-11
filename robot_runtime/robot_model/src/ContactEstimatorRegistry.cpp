@@ -58,7 +58,7 @@ ContactEstimatorRegistry::ContactEstimatorRegistry() {
       [] { return std::make_shared<AlwaysInContactEstimator>(); });
 }
 // clang-format off
-// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:contact_estimator)
+// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:contact_estimator)
 // clang-format on
 
 std::string ContactEstimatorRegistry::canonicalName(absl::string_view name) {

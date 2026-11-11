@@ -60,7 +60,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_validation/chart/EulerChart.h"
 #include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
@@ -138,7 +137,10 @@ struct EquivalenceReference {
   scalar_t initTime = 0.0;
   /** The state the reference manager takes as measured. */
   vector_t initState;
-  size_t initMode = kBipedModeStance;
+  /** The mode at initTime; every contact in stance when empty
+   * (MpcEquivalenceFixture::initialMode()). walkingReference() sets it to every
+   * contact in stance. */
+  std::optional<size_t> initMode;
 };
 
 /** One SQP solve from a fixed warm start: `warmStartState` and `warmStartInput`
@@ -343,10 +345,11 @@ class MpcEquivalenceFixture {
    * The walking reference of the SQP and term tests, from initialState() at 0
    * s: a double support until kWalkingFirstLiftOff, then four single supports
    * of kWalkingSingleSupport (the left foot in stance first, then the right, in
-   * turn) separated by double supports of kWalkingDoubleSupport, and a double
-   * support after them; the target the initial state at 0 s and the same 1 m
-   * ahead along the world x axis at 2 s, with zero inputs; the stance mode at
-   * the start.
+   * turn; on a quadruped the trot's diagonal pairs LF_RH, then RF_LH)
+   * separated by double supports of kWalkingDoubleSupport (all contacts in
+   * stance), and a double support after them; the target the initial state at 0
+   * s and the same 1 m ahead along the world x axis at 2 s, with zero inputs;
+   * the stance mode at the start.
    */
   EquivalenceReference walkingReference() const;
 
@@ -357,6 +360,10 @@ class MpcEquivalenceFixture {
   /** Installs `reference` on the MPC's reference manager: its schedule, its
    * targets, and preSolverRun() over the horizon. */
   void installReference(const EquivalenceReference& reference) const;
+  /** The mode `reference` starts in: its initMode, else every contact of the
+   * model in stance. installReference(), sqpNodeGrid() and sqpRun() pass it to
+   * preSolverRun() and SqpSolver::run(). */
+  size_t initialMode(const EquivalenceReference& reference) const;
   /** The MPC's reference manager, which the problem's terms read. Shared with
    * the interface. */
   SwitchedModelReferenceManager& referenceManager() const;

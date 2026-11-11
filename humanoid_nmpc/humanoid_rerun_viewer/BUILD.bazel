@@ -114,12 +114,15 @@ py_library(
     deps = [":humanoid_rerun_viewer_lib"],
 )
 
+# LINT.IfChange(robot_descriptions)
 _ROBOT_DESCRIPTIONS = [
+    "//robot_models/anybotics_anymal_b/anymal_b_description",
     "//robot_models/drc_atlas/drc_atlas_description",
     "//robot_models/engineai_sa01/engineai_sa01_description",
     "//robot_models/unitree_g1/g1_description",
     "//robot_models/unitree_r1/unitree_r1_description",
 ]
+# LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/test/test_urdf_model.py:shipped_urdfs, //humanoid_nmpc/humanoid_rerun_viewer/test/test_urdf_kinematics.py:shipped_urdfs)
 
 # URDF parsing and package:// resolution, on a sample package and on every URDF of robot_models/.
 py_test(
@@ -139,7 +142,10 @@ py_test(
     legacy_create_init = False,
     size = "small",
     srcs = ["test/test_robot_meshes.py"],
-    data = ["//robot_models/engineai_sa01/engineai_sa01_description"],
+    data = [
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+    ],
     deps = [":test_support"],
 )
 

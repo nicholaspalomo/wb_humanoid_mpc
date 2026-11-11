@@ -32,8 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Pinocchio forward declarations must be included first.
 #include "pinocchio/fwd.hpp"
 
+#include <cstddef>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "absl/functional/function_ref.h"
 #include "absl/status/statusor.h"
@@ -41,7 +43,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/fwd.hpp"
 #include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
 
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -84,9 +85,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * pd_W; dTheta/dt; qd_j],  whole body  f_e = [pd_W; dTheta/dt; qd_j; a_b,e;
  * qdd_j].
  *
- * A contact input is a world-frame wrench, or the scalings lambda of a local
- * basis: W_i = blockdiag(R_i, R_i) B_i lambda_i with R_i the contact frame's
- * rotation in the Euler model.
+ * A contact input is a world-frame wrench, a world-frame force at the frame's
+ * origin for a 3-DoF (point) contact (W_i = [f_i; 0]), or the scalings lambda
+ * of a local basis: W_i = blockdiag(R_i, R_i) B_i lambda_i with R_i the contact
+ * frame's rotation in the Euler model.
  *
  * The gravity of the oracle is a parameter: the dynamics of a robot pitched by
  * 90 degrees is that of the level robot under a rotated gravity, which is how
@@ -103,7 +105,8 @@ enum class OracleFormulation {
 
 /** What the contact entries of an MPC input are. */
 enum class OracleContactInput {
-  /** [f (3), tau (3)] per contact, in the world frame. */
+  /** [f (3), tau (3)] per 6-DoF contact and f (3) per 3-DoF contact, in the
+   * world frame. */
   kWorldWrench,
   /** The scalings lambda of contact i's local basis B_i (6 x n): W_i,local =
      B_i lambda_i. */
@@ -113,9 +116,14 @@ enum class OracleContactInput {
 /** What an EulerMpcOracle evaluates. Passive data. */
 struct EulerMpcOracleOptions {
   OracleFormulation formulation = OracleFormulation::kCentroidal;
-  /** The contact frames, left then right: the frames the MPC applies the
-   * contact wrenches at. */
-  BipedFeetArray<std::string> contactFrameNames;
+  /** The contact frames in the MPC's contact order
+   * (ModelSettings::contactNames): the frames the MPC applies the contact
+   * wrenches at. */
+  std::vector<std::string> contactFrameNames;
+  /** How many of contactFrameNames, the first ones, are 3-DoF point contacts,
+   * whose input is a force and whose moment is zero (the MPC orders the 3-DoF
+   * contacts first). */
+  size_t numPointContacts = 0;
   OracleContactInput contactInput = OracleContactInput::kWorldWrench;
   /** For kLocalBasis: each contact's 6 x n basis, one per entry of
    * contactFrameNames; ignored otherwise. */
@@ -144,9 +152,10 @@ class EulerMpcOracle {
   /**
    * The oracle of the MPC whose Pinocchio model is `quaternionRootModel` (its
    * Euler-root twin, eulerRootTwinOf()). InvalidArgument when the twin cannot
-   * be built, a contact frame does not exist, or a basis is not 6 rows by the
-   * same number of columns on both contacts; the whole body takes world-frame
-   * wrenches only.
+   * be built, there is no contact, more point contacts than contacts, a contact
+   * frame does not exist, or a basis is not 6 rows by the same number of
+   * columns on every contact; the whole body takes world-frame wrenches only,
+   * and a local basis is for a set of 6-DoF contacts only.
    */
   static absl::StatusOr<std::unique_ptr<EulerMpcOracle>> Create(
       const pinocchio::Model& quaternionRootModel,
@@ -165,7 +174,8 @@ class EulerMpcOracle {
   Eigen::Index jointDim() const { return model_.nv - 6; }
   /** Rows of an Euler state: 12 + n_j (centroidal), 12 + 2 n_j (whole body). */
   Eigen::Index stateDim() const;
-  /** Rows of an input: 12 or 2 n (the contacts) + n_j. */
+  /** Rows of an input: the contacts' entries (6 per 6-DoF contact, 3 per
+   * point contact, or a basis's n each) + n_j. */
   Eigen::Index inputDim() const;
   /** [kg] The total mass m of the model. */
   scalar_t totalMass() const { return totalMass_; }
@@ -174,10 +184,13 @@ class EulerMpcOracle {
    * test's own defect. */
   vector_t flowMap(const vector_t& eulerState, const vector_t& input) const;
 
-  /** The world-frame contact wrenches [f; tau] of `input` at `eulerState`, left
-   * then right. */
-  BipedFeetArray<vector6_t> computeWrenchContactsEwrtWorld(
+  /** The world-frame contact wrenches [f; tau] of `input` at `eulerState`, in
+   * contact order; tau is zero at a point contact. */
+  std::vector<vector6_t> computeWrenchContactsEwrtWorld(
       const vector_t& eulerState, const vector_t& input) const;
+
+  /** Rows of contact `contact`'s entries of an input. */
+  Eigen::Index contactInputDim(size_t contact) const;
 
   /**
    * One classical fourth-order Runge-Kutta step of f_e over `dt` with the input
@@ -192,14 +205,14 @@ class EulerMpcOracle {
   // pinocchio::Model has no move constructor, so the model is copied in.
   EulerMpcOracle(const pinocchio::Model& model,
                  EulerMpcOracleOptions options,
-                 BipedFeetArray<pinocchio::FrameIndex> contactFrames);
+                 std::vector<pinocchio::FrameIndex> contactFrames);
 
   /** q_e = [p_W, Theta, q_j] of an Euler state. */
   vector_t configurationOf(const vector_t& eulerState) const;
 
   pinocchio::Model model_;
   EulerMpcOracleOptions options_;
-  BipedFeetArray<pinocchio::FrameIndex> contactFrames_;
+  std::vector<pinocchio::FrameIndex> contactFrames_;
   scalar_t totalMass_;
 };
 

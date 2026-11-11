@@ -1,0 +1,51 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+load("//bazel:robot_files.bzl", "ROBOT_FILE_EXCLUDES")
+# anymal_b_centroidal_mpc - ANYbotics ANYmal B centroidal MPC configuration and tests
+
+package(default_visibility = ["//visibility:public"])
+
+# The launch files (robot.textproto, mpc.textproto, dummy_sim.textproto; tools/launch), for the tests that check them
+# and the robot bundle that exports robot.textproto (tools/deploy).
+exports_files(glob(["launch/*.textproto"], allow_empty = True))
+
+# Configuration and launch files
+filegroup(
+    name = "anymal_b_centroidal_mpc",
+    srcs = glob([
+        "config/**",
+        "launch/**",
+    ], exclude = ROBOT_FILE_EXCLUDES, allow_empty = True),
+)
+
+# Playground for the Pinocchio model: prints its dimensions, joints and frames. Reads the URDF and the task file
+# from its runfiles: `bazel run //robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc:test_pinocchio_model`.
+cc_binary(
+    name = "test_pinocchio_model",
+    srcs = ["test/testPinocchioModel.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        ":anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
+    ],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_nmpc/humanoid_centroidal_mpc",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//lib/ocs2:ocs2_centroidal_model",
+        "//lib/ocs2:ocs2_core",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/base:log_severity",
+        "@eigen",
+        "@pinocchio",
+        "@urdf",
+        "@abseil-cpp//absl/log:log",
+        "@abseil-cpp//absl/log:globals",
+        "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/strings:string_view",
+    ],
+)

@@ -60,16 +60,28 @@ KP_FIELD = "kp"
 KD_FIELD = "kd"
 SCALE_FACTORS = (0.001, 0.01, 0.1, 0.5, 0.8, 1.0, 1.2, 1.5, 2.0)
 
-# The limb sections the joints' rows are grouped in, in the order they are shown.
+# The limb sections the joints' rows are grouped in, in the order they are shown. The quadruped legs follow the biped
+# legs, so a biped's sections keep their order.
 SECTION_ORDER = (
     "Torso & Spine",
     "Left Leg",
     "Right Leg",
+    "Left Front Leg",
+    "Right Front Leg",
+    "Left Hind Leg",
+    "Right Hind Leg",
     "Left Arm",
     "Right Arm",
     "Head & Neck",
     "Other Joints",
 )
+# The quadruped leg sections by the prefix of a joint's name, as ANYmal names its joints (LF_HAA ... RH_KFE).
+_QUADRUPED_LEG_SECTIONS = {
+    "lf_": "Left Front Leg",
+    "rf_": "Right Front Leg",
+    "lh_": "Left Hind Leg",
+    "rh_": "Right Hind Leg",
+}
 DEFAULT_GAINS_SECTION = "Default Gains"
 
 _PUBLISH_DEBOUNCE_MS = 300
@@ -80,6 +92,9 @@ _STATUS_DISPLAY_MS = 5000
 def classify_joint_section(joint_name: str) -> str:
     """The limb section a joint's rows are grouped under, read from its name."""
     name_lower = joint_name.lower()
+    for prefix, section in _QUADRUPED_LEG_SECTIONS.items():
+        if name_lower.startswith(prefix):
+            return section
     if re.search(r"waist|spine|torso|back", name_lower):
         return "Torso & Spine"
     if re.search(
@@ -140,6 +155,7 @@ class JointPdGainsTab(ttk.Frame):
         "Unitree R1 (Centroidal)": "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/controller/joint_pd_gains.textproto",
         "Unitree G1 (Centroidal)": "robot_models/unitree_g1/g1_centroidal_mpc/config/controller/joint_pd_gains.textproto",
         "EngineAI SA01 (Centroidal)": "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/controller/joint_pd_gains.textproto",
+        "ANYmal B (Centroidal)": "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/controller/joint_pd_gains.textproto",
     }
 
     def __init__(

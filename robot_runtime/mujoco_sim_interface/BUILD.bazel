@@ -213,6 +213,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     # Every shipped scene: each declares the gantry weld.
     data = [
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/engineai_sa01/engineai_sa01_description",
         "//robot_models/unitree_g1/g1_description",
@@ -279,6 +280,7 @@ py_test(
     data = [
         "//:.devcontainer/README.md",
         "//:README.md",
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
         "//robot_models/unitree_g1/g1_centroidal_mpc",

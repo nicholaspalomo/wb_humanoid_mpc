@@ -263,7 +263,10 @@ absl::Status checkSoftTermWeight(absl::string_view field, double weight) {
  * The 3-DoF contacts of model_settings.contacts_3dof, each named, attached to a
  * named parent and at a finite translation, or InvalidArgument naming the
  * entry. `contactNames6DoF` are the 6-DoF contacts, which no 3-DoF contact may
- * share a name with.
+ * share a name with. A name may be a frame of the URDF model at exactly the
+ * configured placement, which the MPC then uses instead of adding one; that is
+ * checked when the MPC builds its model (loadCustomPinocchioInterface()), not
+ * here.
  */
 absl::StatusOr<std::vector<ModelSettings::PointContact>>
 pointContactsFromConfig(

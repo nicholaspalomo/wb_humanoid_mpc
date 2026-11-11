@@ -1059,7 +1059,13 @@ struct ShippedTaskFile {
 };
 
 // LINT.IfChange(shipped_task_files)
-constexpr std::array<ShippedTaskFile, 5> kShippedTaskFiles = {{
+constexpr std::array<ShippedTaskFile, 6> kShippedTaskFiles = {{
+    {.name = "anymal_b_centroidal_mpc",
+     .taskFile = "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/"
+                 "config/mpc/task.textproto",
+     .urdfFile = "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
+                 "anymal_b.urdf",
+     .mpc = StateInputLayout::Mpc::kCentroidal},
     {.name = "drc_atlas_centroidal_mpc",
      .taskFile = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/"
                  "task.textproto",

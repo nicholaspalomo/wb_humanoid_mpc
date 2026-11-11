@@ -39,6 +39,7 @@ _TEXTPROTO_FILES = [
     "//humanoid_nmpc/humanoid_mpc_config:config_registries.textproto",
     "//humanoid_nmpc/humanoid_common_mpc:gait_config",
     "//humanoid_nmpc/humanoid_common_mpc_app/robot:test/data/dodgeball_throw.textproto",
+    "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
     "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
     "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
     "//robot_models/unitree_g1/g1_centroidal_mpc",

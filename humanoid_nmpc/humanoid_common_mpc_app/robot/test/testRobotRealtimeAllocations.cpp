@@ -33,11 +33,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <ostream>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -366,8 +368,39 @@ TEST(RobotRealtimeAllocations,
       << "the physics thread published its states";
 }
 
-TEST(
-    RobotRealtimeAllocations,
+/** A shipped robot the whole process cycle runs on: its URDF, its centroidal
+ * task file and a base height that keeps its feet off the fake backend's
+ * floor-less world. */
+struct ProcessCycleRobot {
+  const char* absl_nonnull name;
+  const char* absl_nonnull urdfFile;
+  const char* absl_nonnull taskFile;
+  scalar_t posBaseRtWorldEwrtWorldZ = 0.0;  // [m]
+};
+
+void PrintTo(const ProcessCycleRobot& robot, std::ostream* absl_nonnull os) {
+  *os << robot.name;
+}
+
+// The Atlas's two 6-DoF feet and ANYmal B's four 3-DoF point contacts.
+constexpr ProcessCycleRobot kProcessCycleRobots[] = {
+    {.name = "drc_atlas",
+     .urdfFile = kAtlasUrdf,
+     .taskFile = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/"
+                 "task.textproto",
+     .posBaseRtWorldEwrtWorldZ = 0.95},
+    {.name = "anymal_b",
+     .urdfFile = "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
+                 "anymal_b.urdf",
+     .taskFile = "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/"
+                 "config/mpc/task.textproto",
+     .posBaseRtWorldEwrtWorldZ = 0.55}};
+
+class ProcessCycleAllocations
+    : public ::testing::TestWithParam<ProcessCycleRobot> {};
+
+TEST_P(
+    ProcessCycleAllocations,
     TheProcessCycleOnTheHardwareSupervisorWithTheKalmanEstimatorAllocatesNothing) {
   // The whole cycle of the robot process on its realtime thread - the
   // contacts' surface heights from a multi-contact plan's patches, the planned
@@ -379,14 +412,27 @@ TEST(
   // samples the realtime thread's own counter at those cycles.
   constexpr uint64_t kFirstSample = 100;
   constexpr uint64_t kLastSample = 600;
-  const robot::model::RobotDescription description =
-      robot_test::atlasDescription();
-  robot::model::RobotState initial(description);
-  initial.setPosBaseRtWorldEwrtWorld(vector3_t(0.0, 0.0, 0.95));
-  robot_test::FakeRobotBackend backend(robot_test::atlasDescription(), initial);
+  const ProcessCycleRobot& robot = GetParam();
+  const absl::StatusOr<robot::model::RobotDescription> described =
+      robot::model::RobotDescription::Create(robot.urdfFile);
+  ASSERT_TRUE(described.ok()) << described.status();
+  const robot::model::RobotDescription& description = *described;
+  const mpc_config::TaskFile task = loadTaskFile(robot.taskFile).value();
+  const ModelSettings modelSettings =
+      ModelSettings::Create(task, robot.urdfFile, "centroidal_mpc_",
+                            /*verbose=*/false)
+          .value();
+  robot::model::RobotState initial(description, modelSettings.numContacts());
+  initial.setPosBaseRtWorldEwrtWorld(
+      vector3_t(0.0, 0.0, robot.posBaseRtWorldEwrtWorldZ));
+  absl::StatusOr<robot::model::RobotDescription> backendDescription =
+      robot::model::RobotDescription::Create(robot.urdfFile);
+  ASSERT_TRUE(backendDescription.ok()) << backendDescription.status();
+  robot_test::FakeRobotBackend backend(*std::move(backendDescription), initial);
   robot::model::ContactEstimatorRegistry estimators;
   robot_test::ScriptedRobotController controller;
   controller.setRobotJointNames(description.getJointNames());
+  controller.setNumContacts(modelSettings.numContacts());
   std::atomic<size_t> atFirst{0};
   std::atomic<size_t> atLast{0};
   controller.setCycleHook([&atFirst, &atLast](uint64_t cycle) {
@@ -406,18 +452,10 @@ TEST(
   config.settings.stateEstimator =
       std::string(estimation::kKalmanStateEstimatorName);
   config.settings.fallRecovery.maxTiltangleBaseRtWorld = 0.5;
-  config.urdfFile = kAtlasUrdf;
-  const mpc_config::TaskFile task =
-      loadTaskFile(
-          "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/"
-          "task.textproto")
-          .value();
-  const ModelSettings modelSettings =
-      ModelSettings::Create(task, kAtlasUrdf, "centroidal_mpc_",
-                            /*verbose=*/false)
-          .value();
+  config.urdfFile = robot.urdfFile;
   config.stateEstimatorContacts =
-      stateEstimatorContacts(modelSettings, task.contacts, kAtlasUrdf).value();
+      stateEstimatorContacts(modelSettings, task.contacts, robot.urdfFile)
+          .value();
   // The ramp on, and every contact inside its window: the noise is rewritten
   // in every cycle.
   config.settings.kalmanStateEstimator.contactTrustRampDuration = 0.05;
@@ -477,6 +515,10 @@ TEST(
       << "allocations on the realtime thread between cycles " << kFirstSample
       << " and " << kLastSample;
 }
+
+INSTANTIATE_TEST_SUITE_P(ShippedRobots,
+                         ProcessCycleAllocations,
+                         ::testing::ValuesIn(kProcessCycleRobots));
 
 }  // namespace
 }  // namespace ocs2::humanoid

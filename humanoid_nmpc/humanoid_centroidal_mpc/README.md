@@ -10,8 +10,11 @@ are in [`humanoid_centroidal_mpc_app`](../humanoid_centroidal_mpc_app/README.md)
 ## The contact set
 
 The centroidal MPC runs on any contact set of `model_settings`: 3-DoF point contacts, 6-DoF surface contacts or a mix,
-up to `kMaxNumContacts` (32). The shipped robots are bipeds, two 6-DoF feet, and their assembled problems are recorded
-bit for bit in `testCentroidalContactSetParity`.
+up to `kMaxNumContacts` (32). The shipped bipeds (DRC Atlas, EngineAI SA01, Unitree G1 and R1) plan on two 6-DoF
+feet, and their assembled problems are recorded bit for bit in `testCentroidalContactSetParity`. ANYbotics ANYmal B
+plans on four 3-DoF feet, `LF_FOOT`, `RF_FOOT`, `LH_FOOT` and `RH_FOOT`, one per leg, on the shared quadruped gait file
+([`robot_models/anybotics_anymal_b`](../../robot_models/anybotics_anymal_b/README.md)); it is not in the parity record,
+and `testAnymalBLockstepLoop` runs its shipped configuration instead.
 
 - The input is the force of each 3-DoF contact, the wrench of each 6-DoF contact, then the joint velocities:
   `3 n3 + 6 n6 + nj` entries, with the offsets of OCS2's `CentroidalModelInfo`.
@@ -46,4 +49,5 @@ frames.
 | `testPointContactQuadrupedLikeSet` | four point contacts and no 6-DoF contact (the corners of Atlas's soles, in a quadruped's leg order): the interface builds, its LQ approximation is finite and gates each contact by its mode on a trot, the weight is shared among the active contacts, the biped's `STANCE` is the feet of a six-contact set, every biped-only term, the procedural arm swing and a hand-built `DcmTerminalCost` are refused by name, and the swing terms run once the set's legs are described |
 | `testPointContactSwingTerms` | the same four contacts as legs LF, RF, LH and RH with `task_space_foot_cost` and the hard `normal_velocity`: no orientation weight on a point contact's foot cost, also after a hot reload, and each contact's swing height and servo following its own swing on a trot |
 | `testPointContactQuadrupedTrot` | the same legged four contacts trotting on the `trot` of `quadruped_gait.textproto`, read by leg name, with the `nominal_stance` foothold anchor: several SQP iterations from the standing state converge to a finite plan whose stance contacts hold still and whose swing contacts rise to the apex and land within 1 cm of their footholds. Each foot pivots about its stance corner, since its toe and heel share the ankle link |
+| `testAnymalBLockstepLoop` | ANYmal B's shipped task, reference and gait files in the lockstep loop of the MPC's own rollout (`CentroidalMpcLoop`, the full interface and SQP): standing for 2 s, a 0.3 m/s walk for 5 s and a 0.4 rad/s turn for 4 s. Every solve succeeds, the quaternion stays unit to 1e-12, the walk reaches the `trot` and the stand does not, and the robot covers at least half the commanded distance (1.5 m) and half the commanded angle (1.6 rad) (large, exclusive: it compiles the robot's CppAD libraries) |
 | `testBasisInputsModelDecorator` | the basis-vector inputs on three and four 6-DoF contacts |

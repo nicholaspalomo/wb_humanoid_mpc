@@ -10,6 +10,7 @@ py_test(
     size = "small",
     srcs = ["test_urdf_mjcf_inertial_consistency.py"],
     data = [
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/engineai_sa01/engineai_sa01_description",
         "//robot_models/unitree_g1/g1_description",
@@ -29,6 +30,8 @@ py_test(
     size = "small",
     srcs = ["test_robot_packages_ship_no_side_files.py"],
     data = [
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
@@ -59,6 +62,7 @@ py_test(
         "//humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_robot",
         "//humanoid_nmpc/docs/distributed_runtime:README.md",
         "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//humanoid_nmpc/humanoid_common_mpc:quadruped_gait_config",
         "//humanoid_nmpc/humanoid_rerun_viewer",
         "//humanoid_nmpc/humanoid_rerun_viewer:model_sandbox",
         # The multi-contact scenarios of the DRC Atlas's multi-contact dummy sims.
@@ -67,6 +71,9 @@ py_test(
         "//humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_node",
         "//humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_robot",
         "//humanoid_nmpc/remote_control:base_velocity_controller_gui",
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
+        "//robot_models/anybotics_anymal_b/anymal_b_description:launch/sandbox.textproto",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/drc_atlas/drc_atlas_description:launch/sandbox.textproto",
@@ -85,12 +92,15 @@ py_test(
 )
 
 # The default stance of every robot configuration (reference default and task initial state) on flat ground, by the
-# URDF's forward kinematics, and the MPC contact rectangle inside the MJCF's sole spheres on both feet.
+# URDF's forward kinematics; the MPC contact rectangle of each 6-DoF contact inside the MJCF's sole spheres, and each
+# 3-DoF contact on the lowest point of its foot's single sphere.
 py_test(
     name = "test_default_stance",
     size = "small",
     srcs = ["test_default_stance.py"],
     data = [
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
@@ -116,6 +126,8 @@ py_test(
     size = "small",
     srcs = ["test_joint_pd_stability.py"],
     data = [
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",

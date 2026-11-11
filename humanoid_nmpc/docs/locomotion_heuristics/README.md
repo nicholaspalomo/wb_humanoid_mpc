@@ -546,8 +546,10 @@ maintained by hand, and the derivation of each is printed beside it:
 make derive-heuristic-parameters ROBOT=drc_atlas
 ```
 
-`ROBOT` takes `drc_atlas`, `engineai_sa01`, `unitree_g1` or `unitree_r1` - the centroidal packages; the whole-body one
-has no layer to configure. Calling the script directly gives the rest of its options: `--gait walk` quotes the
+`ROBOT` takes `drc_atlas`, `engineai_sa01`, `unitree_g1` or `unitree_r1` - the bipeds' centroidal packages; the
+whole-body one has no layer to configure. ANYmal B's centroidal package is not derived: the formulas assume two feet
+(the foot separation, the step width, the bipeds' gait table), so the script lists it in `UNDERIVED_ROBOTS` and only
+checks its task file for the default-off rule. Calling the script directly gives the rest of its options: `--gait walk` quotes the
 stepping leads for another cadence (the stance-proportional coefficients themselves do not depend on it), `--check` compares the shipped block against the derivation instead of printing
 it, and `--task-file` / `--urdf` / `--reference-file` take an unregistered robot.
 

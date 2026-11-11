@@ -73,14 +73,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
-#include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactMask.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
-#include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_validation/chart/EulerChart.h"
@@ -92,8 +90,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-// The oracle and the fixture are written for the biped's two feet.
-constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+/**
+ * The contacts in stance in phase `phase` (0 or 1) of the walking reference's
+ * alternating supports: contact i is in stance in phase 0 when i % 2 equals
+ * (i / 2) % 2. On a biped (left, right) that is the left foot then the right
+ * (kBipedModeLf, kBipedModeRf); on a quadruped ordered LF, RF, LH, RH it is the
+ * trot's diagonal pairs LF_RH then RF_LH.
+ */
+ContactMask alternatingSupport(size_t numContacts, size_t phase) {
+  ContactMask mask(numContacts);
+  for (size_t contact = 0; contact < numContacts; ++contact) {
+    const bool inFirstPhase = contact % 2 == (contact / 2) % 2;
+    mask.set(contact, inFirstPhase == (phase == 0));
+  }
+  return mask;
+}
 
 using validation::EulerStateLayout;
 using validation::EulerStateSegment;
@@ -241,15 +252,8 @@ MpcEquivalenceFixture::Create(absl::string_view robotName) {
                      " has no state manifold: not the quaternion layout"));
   }
   const ModelSettings& settings = fixture->modelSettings();
-  if (settings.contactNames.size() != kNumFeet) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("[MpcEquivalenceFixture] ", robot.name, " has ",
-                     settings.contactNames.size(), " contacts"));
-  }
-  for (size_t contact = 0; contact < kNumFeet; ++contact) {
-    fixture->oracleOptions_.contactFrameNames[contact] =
-        settings.contactNames[contact];
-  }
+  fixture->oracleOptions_.contactFrameNames = settings.contactNames;
+  fixture->oracleOptions_.numPointContacts = settings.contactNames3DoF.size();
   fixture->eulerLayout_ = validation::eulerStateLayoutOf(stateInputLayout(
       settings, fixture->isWholeBody() ? StateInputLayout::Mpc::kWholeBody
                                        : StateInputLayout::Mpc::kCentroidal));
@@ -382,10 +386,16 @@ matrix_t MpcEquivalenceFixture::inputWorldTurn(
   if (oracleOptions_.contactInput == OracleContactInput::kLocalBasis) {
     return action;
   }
-  for (Eigen::Index contact = 0; contact < static_cast<Eigen::Index>(kNumFeet);
+  // Each contact's force turns with the world, and a 6-DoF contact's moment
+  // after it.
+  Eigen::Index row = 0;
+  for (size_t contact = 0; contact < oracleOptions_.contactFrameNames.size();
        ++contact) {
-    action.block<3, 3>(6 * contact, 6 * contact) = worldTurnMatrix;
-    action.block<3, 3>(6 * contact + 3, 6 * contact + 3) = worldTurnMatrix;
+    const Eigen::Index dim = oracle_->contactInputDim(contact);
+    for (Eigen::Index block = 0; block < dim; block += 3) {
+      action.block<3, 3>(row + block, row + block) = worldTurnMatrix;
+    }
+    row += dim;
   }
   return action;
 }
@@ -481,16 +491,28 @@ vector_t MpcEquivalenceFixture::randomEulerState(
 
 vector_t MpcEquivalenceFixture::randomInput(scalar_t maxAbsJointEntry,
                                             std::mt19937& generator) const {
-  const scalar_t halfWeight = 0.5 * oracle_->totalMass() * 9.81;
+  const size_t numContacts = oracleOptions_.contactFrameNames.size();
+  const scalar_t weightPerContact =
+      (1.0 / static_cast<scalar_t>(numContacts)) * oracle_->totalMass() * 9.81;
   const Eigen::Index nj = oracle_->jointDim();
   vector_t input(oracle_->inputDim());
   Eigen::Index row = 0;
-  for (size_t contact = 0; contact < kNumFeet; ++contact) {
+  for (size_t contact = 0; contact < numContacts; ++contact) {
     if (oracleOptions_.contactInput == OracleContactInput::kWorldWrench) {
+      if (contact < oracleOptions_.numPointContacts) {
+        input.segment<3>(row)
+            << uniform(/*low=*/-0.25, /*high=*/0.25, generator) *
+                   weightPerContact,
+            uniform(/*low=*/-0.25, /*high=*/0.25, generator) * weightPerContact,
+            uniform(/*low=*/0.5, /*high=*/1.5, generator) * weightPerContact;
+        row += 3;
+        continue;
+      }
       input.segment<6>(row)
-          << uniform(/*low=*/-0.25, /*high=*/0.25, generator) * halfWeight,
-          uniform(/*low=*/-0.25, /*high=*/0.25, generator) * halfWeight,
-          uniform(/*low=*/0.5, /*high=*/1.5, generator) * halfWeight,
+          << uniform(/*low=*/-0.25, /*high=*/0.25, generator) *
+                 weightPerContact,
+          uniform(/*low=*/-0.25, /*high=*/0.25, generator) * weightPerContact,
+          uniform(/*low=*/0.5, /*high=*/1.5, generator) * weightPerContact,
           uniform(/*low=*/-20.0, /*high=*/20.0, generator),
           uniform(/*low=*/-20.0, /*high=*/20.0, generator),
           uniform(/*low=*/-20.0, /*high=*/20.0, generator);
@@ -500,7 +522,7 @@ vector_t MpcEquivalenceFixture::randomInput(scalar_t maxAbsJointEntry,
     const matrix_t& basis = oracleOptions_.localBasisMatrices[contact];
     // The scaling of every generator that carries half the weight on a level
     // foot: row 2 of a local wrench is its normal force.
-    const scalar_t nominal = halfWeight / basis.row(2).sum();
+    const scalar_t nominal = weightPerContact / basis.row(2).sum();
     for (Eigen::Index i = 0; i < basis.cols(); ++i) {
       input(row + i) = uniform(/*low=*/0.0, /*high=*/2.0, generator) * nominal;
     }
@@ -525,15 +547,18 @@ vector_t MpcEquivalenceFixture::weightCompensatingInput(
 }
 
 EquivalenceReference MpcEquivalenceFixture::walkingReference() const {
+  const size_t numContacts = model().modelSettings.numContacts();
+  const size_t stance = ContactMask::allActive(numContacts).modeNumber();
   std::vector<scalar_t> eventTimes;
-  std::vector<size_t> modes = {kBipedModeStance};
+  std::vector<size_t> modes = {stance};
   scalar_t liftOff = kWalkingFirstLiftOff;
   for (size_t step = 0; step < kWalkingSteps; ++step) {
     const scalar_t touchDown = liftOff + kWalkingSingleSupport;
     eventTimes.push_back(liftOff);
     eventTimes.push_back(touchDown);
-    modes.push_back(step % 2 == 0 ? kBipedModeLf : kBipedModeRf);
-    modes.push_back(kBipedModeStance);
+    modes.push_back(
+        alternatingSupport(numContacts, /*phase=*/step % 2).modeNumber());
+    modes.push_back(stance);
     liftOff = touchDown + kWalkingDoubleSupport;
   }
   const vector_t& start = initialState();
@@ -550,7 +575,7 @@ EquivalenceReference MpcEquivalenceFixture::walkingReference() const {
           {0.0, kWalkingTargetTime}, {start, ahead}, {zeroInput, zeroInput}),
       .initTime = 0.0,
       .initState = start,
-      .initMode = kBipedModeStance};
+      .initMode = stance};
 }
 
 SqpCase MpcEquivalenceFixture::restingWarmStart() const {
@@ -580,7 +605,14 @@ void MpcEquivalenceFixture::installReference(
   referenceManager->setTargetTrajectories(reference.targetTrajectories);
   referenceManager->preSolverRun(reference.initTime,
                                  reference.initTime + timeHorizon(),
-                                 reference.initState, reference.initMode);
+                                 reference.initState, initialMode(reference));
+}
+
+size_t MpcEquivalenceFixture::initialMode(
+    const EquivalenceReference& reference) const {
+  return reference.initMode.value_or(
+      ContactMask::allActive(model().modelSettings.contactNames.size())
+          .modeNumber());
 }
 
 std::vector<AnnotatedTime> MpcEquivalenceFixture::sqpNodeGrid(
@@ -594,7 +626,7 @@ std::vector<AnnotatedTime> MpcEquivalenceFixture::sqpNodeGrid(
   // it discretizes.
   const scalar_t finalTime = reference.initTime + timeHorizon();
   referenceManager->preSolverRun(reference.initTime, finalTime,
-                                 reference.initState, reference.initMode);
+                                 reference.initState, initialMode(reference));
   // SqpSolver::runImpl's discretization: the node spacing, cut at the events of
   // the reference manager's schedule.
   return timeDiscretizationWithEvents(
@@ -650,7 +682,7 @@ SqpRun MpcEquivalenceFixture::sqpRun(
       centroidal_->getContactPlannerModulePtr() != nullptr) {
     solver.addSynchronizedModule(centroidal_->getContactPlannerModulePtr());
   }
-  solver.run(reference.initTime, initState, reference.initMode, finalTime,
+  solver.run(reference.initTime, initState, initialMode(reference), finalTime,
              warmStart);
   return SqpRun{.solution = solver.primalSolution(finalTime),
                 .iterations = solver.getIterationRecords(),

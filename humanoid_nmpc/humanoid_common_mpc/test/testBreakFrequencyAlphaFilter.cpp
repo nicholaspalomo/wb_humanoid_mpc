@@ -267,6 +267,8 @@ TEST(VelocityCommandFilterField,
      everyShippedRobotConfiguresTheFilterAndShipsItOff) {
   // LINT.IfChange(shipped_reference_files)
   const std::vector<std::string> referenceFiles = {
+      "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/command/"
+      "reference.textproto",
       "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/"
       "reference.textproto",
       "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/command/"

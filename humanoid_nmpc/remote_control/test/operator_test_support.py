@@ -82,6 +82,7 @@ ATLAS_PD_GAINS_FILE = os.path.join(
 ROBOT_CONFIGS = {
     package: repo_path("robot_models", robot, package, "config")
     for robot, package in (
+        ("anybotics_anymal_b", "anymal_b_centroidal_mpc"),
         ("drc_atlas", "drc_atlas_centroidal_mpc"),
         ("engineai_sa01", "engineai_sa01_centroidal_mpc"),
         ("unitree_g1", "g1_centroidal_mpc"),

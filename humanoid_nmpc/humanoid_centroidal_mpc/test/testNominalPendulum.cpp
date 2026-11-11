@@ -82,9 +82,11 @@ void PrintTo(const CentroidalRobot& robot, std::ostream* absl_nonnull os) {
 }
 
 // Every centroidal MPC package in robot_models, as
-// tools/locomotion_heuristics/derive_parameters.py lists them: the shipped
-// derived numbers of each are checked against this derivation. The BUILD
-// target's `data` lists the same.
+// tools/locomotion_heuristics/derive_parameters.py lists them (its ROBOTS and
+// UNDERIVED_ROBOTS): the shipped derived numbers of each are checked against
+// this derivation. ANYmal B's numbers are not derived by the script, and its
+// task file ships none of them, so for it the tests check the model's pendulum
+// above its four feet. The BUILD target's `data` lists the same.
 // LINT.IfChange(nominal_pendulum_robots)
 constexpr CentroidalRobot kCentroidalRobots[] = {
     {.name = "drc_atlas",
@@ -100,6 +102,10 @@ constexpr CentroidalRobot kCentroidalRobots[] = {
     {.name = "unitree_r1",
      .mpcDirectory = "robot_models/unitree_r1/unitree_r1_centroidal_mpc",
      .urdf = "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf"},
+    {.name = "anymal_b",
+     .mpcDirectory = "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+     .urdf = "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
+             "anymal_b.urdf"},
 };
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/BUILD.bazel:nominal_pendulum_data, //tools/locomotion_heuristics/derive_parameters.py:derive_parameters_robots)
@@ -242,9 +248,9 @@ class NominalPendulum : public ::testing::TestWithParam<CentroidalRobot> {
  */
 TEST_P(NominalPendulum, EveryConsumerDerivesTheModelsCenterOfMassAboveItsFeet) {
   const scalar_t oracle = computeIndependentPosComRtFeetmeanEwrtWorldZ();
-  // A humanoid standing on its feet has its center of mass between half a meter
-  // and a meter and a half above them; outside that, initial_state or the
-  // contact frames are wrong and nothing below means anything.
+  // A shipped robot standing on its feet, humanoid or quadruped, has its center
+  // of mass between 0.4 m and 1.5 m above them; outside that, initial_state or
+  // the contact frames are wrong and nothing below means anything.
   ASSERT_GT(oracle, 0.4) << GetParam().name;
   ASSERT_LT(oracle, 1.5) << GetParam().name;
   const scalar_t shared = computeSharedPosComRtFeetmeanEwrtWorldZ();

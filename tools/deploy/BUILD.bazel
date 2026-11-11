@@ -13,6 +13,7 @@ package(default_visibility = ["//visibility:public"])
 # each from the script exported from its launch file.
 # LINT.IfChange(robot_configurations)
 _ROBOT_CONFIGURATIONS = {
+    "anymal_b": "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc:launch/robot.textproto",
     "drc_atlas": "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/robot.textproto",
     "engineai_sa01": "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc:launch/robot.textproto",
     "unitree_g1": "//robot_models/unitree_g1/g1_centroidal_mpc:launch/robot.textproto",
@@ -91,6 +92,8 @@ robot_bundle(
         "//config/ipc:two_machine.example.textproto",
         "//humanoid_nmpc/humanoid_common_mpc:gait_config",
         "//humanoid_nmpc/humanoid_rerun_viewer:plot_config",
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
@@ -153,6 +156,9 @@ py_test(
         "//config/ipc:network.textproto",
         "//config/ipc:two_machine.example.textproto",
         # The launch files the Makefile's launch targets run, against the binaries they build first.
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc:launch/dummy_sim.textproto",
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc:launch/mpc.textproto",
+        "//robot_models/anybotics_anymal_b/anymal_b_description:launch/sandbox.textproto",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/dummy_sim.textproto",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/mpc.textproto",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/multi_contact_dummy_sim.textproto",

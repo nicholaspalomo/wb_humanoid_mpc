@@ -975,6 +975,8 @@ TEST(ContactScheduleSourceField, aValueThatIsNotANameIsRefused) {
 // other direction.
 // LINT.IfChange(formulation_shipped_task_files)
 constexpr const char* absl_nonnull kShippedTaskFiles[] = {
+    "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/mpc/"
+    "task.textproto",
     "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto",
     "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/"
     "task.textproto",

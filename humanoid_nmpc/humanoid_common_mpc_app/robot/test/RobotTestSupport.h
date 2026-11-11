@@ -161,6 +161,12 @@ class ScriptedRobotController final : public RobotController {
     robotJointNames_ = std::move(names);
   }
   void setHealthy(bool healthy) { healthy_.store(healthy); }
+  /** Sets the size of the contact set measuredContactFlags() reports (two, a
+   * biped's feet, until called), all inactive until an estimator says
+   * otherwise; call before the loop runs. */
+  void setNumContacts(size_t numContacts) {
+    measuredContactFlags_ = ContactMask(numContacts);
+  }
   /** The planned switch times plannedContactSwitchTimes() answers with from
    * now on, one per contact; empty: it answers false. Before the loop runs. */
   void setPlannedContactSwitchTimes(std::vector<scalar_t> timeSinceSwitch,
@@ -212,7 +218,8 @@ class ScriptedRobotController final : public RobotController {
   // [s] What plannedContactSwitchTimes() answers with; empty: false.
   std::vector<scalar_t> plannedTimesSinceSwitch_;
   std::vector<scalar_t> plannedTimesToSwitch_;
-  // The two feet of the biped robots the tests run.
+  // The two feet of the biped robots the tests run, unless setNumContacts()
+  // says otherwise.
   ContactMask measuredContactFlags_ =
       ContactMask(/*numContacts=*/static_cast<size_t>(kBipedFootCount));
   std::vector<bool> estimatedFlags_;

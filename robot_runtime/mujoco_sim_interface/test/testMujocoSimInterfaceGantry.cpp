@@ -92,6 +92,10 @@ std::vector<WeldedScene> weldedScenes() {
        .urdf = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf"},
       {.scene = "robot_models/unitree_r1/unitree_r1_description/urdf/R1.xml",
        .urdf = "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf"},
+      {.scene = "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
+                "anymal_b.xml",
+       .urdf = "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
+               "anymal_b.urdf"},
   };
 }
 

@@ -1,0 +1,251 @@
+<mujoco model="anymal_b">
+  <!-- ANYbotics ANYmal B. Bodies, joints and collision primitives follow the MuJoCo Menagerie model
+       (anybotics_anymal_b), itself derived from ANYbotics' anymal_b_simple_description; the inertials are the
+       URDF's (urdf/anymal_b.urdf), lumped as Pinocchio lumps the fixed ADAPTER and FOOT links into each SHANK.
+       README.md beside urdf/ lists every change to the Menagerie model. -->
+  <default>
+    <default class="anymal_b">
+      <mesh scale="0.001 0.001 0.001"/>
+      <site group="3" size="0.005" rgba="1 0 0 0.66"/>
+      <joint type="hinge" range="-9.42 9.42" damping="2"/>
+      <default class="HAA">
+        <joint axis="1 0 0"/>
+      </default>
+      <default class="HFE">
+        <joint axis="0 1 0"/>
+      </default>
+      <default class="KFE">
+        <joint axis="0 1 0"/>
+      </default>
+      <!-- Visual-only geoms: no collision, group 1 for rendering. -->
+      <default class="visual">
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0"/>
+        <!-- The hind legs draw the other side's meshes turned by 180 degrees about z, as the URDF's visuals do. -->
+        <default class="visual_hind">
+          <geom quat="0 0 0 1"/>
+        </default>
+      </default>
+      <!-- Collision geoms: simple primitives with the contact parameters of the other robots' collision class. -->
+      <default class="collision">
+        <geom group="2" rgba="0.5 0.5 0.5 0.3" density="0" friction="1.0 0.005 0.0001" solimp="0.95 0.99 0.001"
+              solref="0.004 1.0"/>
+        <default class="haa_actuator">
+          <geom type="cylinder" size="0.05 0.05" euler="0 1.57079632679 0"/>
+        </default>
+        <default class="belly_plate_bump">
+          <geom type="box" size="0.05 0.05 0.035"/>
+        </default>
+        <default class="protector">
+          <geom type="cylinder" size="0.08 0.05"/>
+        </default>
+        <default class="heatfins">
+          <geom type="cylinder" size="0.045 0.015"/>
+        </default>
+        <default class="thigh_with_fins">
+          <geom type="box" size="0.04 0.02 0.125"/>
+        </default>
+        <default class="kfe_actuator">
+          <geom type="cylinder" size="0.06 0.06"/>
+        </default>
+        <default class="upper_protector">
+          <geom type="cylinder" size="0.066 0.06"/>
+        </default>
+        <default class="shank">
+          <geom type="box" size="0.04 0.034 0.065"/>
+        </default>
+        <default class="adapter">
+          <geom type="cylinder" size="0.015 0.14"/>
+        </default>
+        <!-- One sphere per foot, the only sphere of its leg: a point contact (3-DoF) for the MPC. -->
+        <default class="foot">
+          <geom type="sphere" size="0.031" priority="1" condim="3" rgba="0.1 0.1 0.1 1"/>
+        </default>
+      </default>
+    </default>
+  </default>
+  <compiler angle="radian" meshdir="../meshes"/>
+  <option timestep="0.001" gravity="0 0 -9.81"/>
+
+  <statistic center="0 0 0.4" extent="1.2"/>
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1" specular="0.9 0.9 0.9"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="-140" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb2="0.835 0.761 0.612" rgb1="0.639 0.722 0.8" width="512" height="512"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="random"
+             rgb1="0.25 0.3 0.35" rgb2="0.15 0.2 0.25"
+             markrgb="0.6 0.7 0.8"
+             width="512" height="512"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="2 2" reflectance="0.05"/>
+    <material name="light_gray" rgba="0.8 0.8 0.8 1"/>
+    <material name="dark_gray" rgba="0.3 0.3 0.3 1"/>
+    <material name="any_blue" rgba="0.2399 0.3499 0.5899 1"/>
+    <material name="foam_dark" rgba="0.1 0.1 0.1 1"/>
+    <mesh class="anymal_b" file="anymal_base.stl"/>
+    <mesh class="anymal_b" file="anymal_hip_l.stl"/>
+    <mesh class="anymal_b" file="anymal_hip_r.stl"/>
+    <mesh class="anymal_b" file="anymal_thigh_l.stl"/>
+    <mesh class="anymal_b" file="anymal_thigh_r.stl"/>
+    <mesh class="anymal_b" file="anymal_shank_l.stl"/>
+    <mesh class="anymal_b" file="anymal_shank_r.stl"/>
+    <mesh class="anymal_b" file="anymal_foot.stl"/>
+  </asset>
+
+  <worldbody>
+    <light pos="1 0 3.5" dir="0 0 -1" directional="true"/>
+    <geom name="floor" size="10 10 0.05" type="plane" material="groundplane"/>
+
+    <!-- The floating base, unyawed: the URDF's base frame (x forward, y left, z up). -->
+    <body name="base" pos="0 0 0.58" childclass="anymal_b">
+      <freejoint name="floating_base_joint"/>
+      <inertial mass="16.7935078" pos="-0.00196055828 -0.00141321775 0.0502071253" fullinertia="0.217391102 0.639432547 0.624140777 -0.00132873239 -0.00228200226 -0.00138078263"/>
+      <geom class="visual" mesh="anymal_base" material="any_blue"/>
+      <geom class="collision" type="box" size="0.2655 0.135 0.12" pos="0 0 0.08"/>
+      <geom class="haa_actuator" pos="0.227 0.116 0"/>
+      <geom class="haa_actuator" pos="0.227 -0.116 0"/>
+      <geom class="haa_actuator" pos="-0.227 0.116 0"/>
+      <geom class="haa_actuator" pos="-0.227 -0.116 0"/>
+      <geom class="belly_plate_bump" pos="0.2155 0 -0.09"/>
+      <geom class="belly_plate_bump" pos="-0.2155 0 -0.09"/>
+      <geom class="collision" type="box" size="0.2655 0.01 0.035" pos="0 0 -0.09"/>
+      <body name="LF_HIP" pos="0.277 0.116 0">
+        <inertial mass="1.42462064" pos="0.0645162581 -0.0037871017 -0.000152184388" fullinertia="0.0024302335 0.00230257239 0.00198067592 -1.53023971e-05 -2.18190954e-05 2.64730213e-05"/>
+        <joint name="LF_HAA" class="HAA"/>
+        <geom class="visual" mesh="anymal_hip_l" material="light_gray"/>
+        <geom class="protector" pos="0.0635 -0.009 0" quat="1 1 0 0"/>
+        <geom class="heatfins" pos="0.0635 -0.074 0" quat="1 1 0 0"/>
+        <body name="LF_THIGH" pos="0.0635 0.041 0">
+          <inertial mass="1.63497647" pos="-0.00389796808 0.0542266185 -0.214583374" fullinertia="0.0120367944 0.0120643638 0.00249422575 6.76206521e-05 0.00028780634 -0.00140610131"/>
+          <joint name="LF_HFE" class="HFE"/>
+          <geom class="visual" mesh="anymal_thigh_l" material="any_blue"/>
+          <geom class="thigh_with_fins" pos="0 0.035 -0.125" quat="0.997373 0.0724365 0 0"/>
+          <geom class="kfe_actuator" pos="0 0.069 -0.25" quat="1 1 0 0"/>
+          <geom class="upper_protector" pos="0 -0.005 0" quat="0.654029 0.75647 0 0"/>
+          <body name="LF_SHANK" pos="0 0.109 -0.25">
+            <inertial mass="0.347375069" pos="0.0587332367 -0.010824396 -0.0980642384" fullinertia="0.00685813394 0.00770431407 0.00101942296 3.22290298e-05 0.00142868592 -0.000316237236"/>
+            <joint name="LF_KFE" class="KFE"/>
+            <geom class="visual" mesh="anymal_shank_l" material="dark_gray"/>
+            <geom class="shank" pos="0.065 -0.015 0.01" quat="1 0 1 0"/>
+            <geom class="visual" mesh="anymal_foot" material="foam_dark" pos="0.1 -0.02 0.032"/>
+            <geom class="adapter" pos="0.1 -0.02 -0.160625"/>
+            <!-- The point-contact foot: its lowest point in the SHANK frame is the URDF's LF_FOOT frame. -->
+            <geom name="LF_foot_sphere" class="foot" pos="0.1 -0.02 -0.29025"/>
+            <site name="LF_FOOT" pos="0.1 -0.02 -0.32125"/>
+          </body>
+        </body>
+      </body>
+      <body name="RF_HIP" pos="0.277 -0.116 0">
+        <inertial mass="1.42462064" pos="0.0645162581 0.0037871017 -0.000152184388" fullinertia="0.0024302335 0.00230257239 0.00198067592 1.53023971e-05 -2.18190954e-05 -2.64730213e-05"/>
+        <joint name="RF_HAA" class="HAA"/>
+        <geom class="visual" mesh="anymal_hip_r" material="light_gray"/>
+        <geom class="protector" pos="0.0635 0.009 0" quat="1 1 0 0"/>
+        <geom class="heatfins" pos="0.0635 0.074 0" quat="1 1 0 0"/>
+        <body name="RF_THIGH" pos="0.0635 -0.041 0">
+          <inertial mass="1.63497647" pos="-0.00389796808 -0.0542266185 -0.214583374" fullinertia="0.0120367944 0.0120643638 0.00249422575 -6.76206521e-05 0.00028780634 0.00140610131"/>
+          <joint name="RF_HFE" class="HFE"/>
+          <geom class="visual" mesh="anymal_thigh_r" material="any_blue"/>
+          <geom class="thigh_with_fins" pos="0 -0.035 -0.125" quat="0.997373 -0.0724365 0 0"/>
+          <geom class="kfe_actuator" pos="0 -0.069 -0.25" quat="1 1 0 0"/>
+          <geom class="upper_protector" pos="0 0.005 0" quat="0.654029 -0.75647 0 0"/>
+          <body name="RF_SHANK" pos="0 -0.109 -0.25">
+            <inertial mass="0.347375069" pos="0.0587332367 0.0108243948 -0.0980642384" fullinertia="0.00685813393 0.00770431407 0.00101942295 -3.22290146e-05 0.00142868592 0.00031623721"/>
+            <joint name="RF_KFE" class="KFE"/>
+            <geom class="visual" mesh="anymal_shank_r" material="dark_gray"/>
+            <geom class="shank" pos="0.065 0.015 0.01" quat="1 0 1 0"/>
+            <geom class="visual" mesh="anymal_foot" material="foam_dark" pos="0.1 0.02 0.032"/>
+            <geom class="adapter" pos="0.1 0.02 -0.160625"/>
+            <!-- The point-contact foot: its lowest point in the SHANK frame is the URDF's RF_FOOT frame. -->
+            <geom name="RF_foot_sphere" class="foot" pos="0.1 0.02 -0.29025"/>
+            <site name="RF_FOOT" pos="0.1 0.02 -0.32125"/>
+          </body>
+        </body>
+      </body>
+      <body name="LH_HIP" pos="-0.277 0.116 0">
+        <inertial mass="1.42462064" pos="-0.0645162581 -0.0037871017 -0.000152184388" fullinertia="0.0024302335 0.00230257239 0.00198067592 1.53023971e-05 2.18190954e-05 2.64730213e-05"/>
+        <joint name="LH_HAA" class="HAA"/>
+        <geom class="visual_hind" mesh="anymal_hip_r" material="light_gray"/>
+        <geom class="protector" pos="-0.0635 -0.009 0" quat="1 -1 0 0"/>
+        <geom class="heatfins" pos="-0.0635 -0.074 0" quat="1 -1 0 0"/>
+        <body name="LH_THIGH" pos="-0.0635 0.041 0">
+          <inertial mass="1.63497647" pos="0.00389796808 0.0542266185 -0.214583374" fullinertia="0.0120367944 0.0120643638 0.00249422575 -6.76206521e-05 -0.00028780634 -0.00140610131"/>
+          <joint name="LH_HFE" class="HFE"/>
+          <geom class="visual_hind" mesh="anymal_thigh_r" material="any_blue"/>
+          <geom class="thigh_with_fins" pos="0 0.035 -0.125" quat="0.997373 0.0724365 0 0"/>
+          <geom class="kfe_actuator" pos="0 0.069 -0.25" quat="1 1 0 0"/>
+          <geom class="upper_protector" pos="0 -0.005 0" quat="0.654029 0.75647 0 0"/>
+          <body name="LH_SHANK" pos="0 0.109 -0.25">
+            <inertial mass="0.347375069" pos="-0.0587332374 -0.010824396 -0.0980642384" fullinertia="0.00685813394 0.00770431409 0.00101942298 -3.22290339e-05 -0.00142868594 -0.000316237236"/>
+            <joint name="LH_KFE" class="KFE"/>
+            <geom class="visual_hind" mesh="anymal_shank_r" material="dark_gray"/>
+            <geom class="shank" pos="-0.065 -0.015 0.01" quat="1 0 1 0"/>
+            <geom class="visual_hind" mesh="anymal_foot" material="foam_dark" pos="-0.1 -0.02 0.032"/>
+            <geom class="adapter" pos="-0.1 -0.02 -0.160625"/>
+            <!-- The point-contact foot: its lowest point in the SHANK frame is the URDF's LH_FOOT frame. -->
+            <geom name="LH_foot_sphere" class="foot" pos="-0.1 -0.02 -0.29025"/>
+            <site name="LH_FOOT" pos="-0.1 -0.02 -0.32125"/>
+          </body>
+        </body>
+      </body>
+      <body name="RH_HIP" pos="-0.277 -0.116 0">
+        <inertial mass="1.42462064" pos="-0.0645162581 0.0037871017 -0.000152184388" fullinertia="0.0024302335 0.00230257239 0.00198067592 -1.53023971e-05 2.18190954e-05 -2.64730213e-05"/>
+        <joint name="RH_HAA" class="HAA"/>
+        <geom class="visual_hind" mesh="anymal_hip_l" material="light_gray"/>
+        <geom class="protector" pos="-0.0635 0.009 0" quat="1 -1 0 0"/>
+        <geom class="heatfins" pos="-0.0635 0.074 0" quat="1 -1 0 0"/>
+        <body name="RH_THIGH" pos="-0.0635 -0.041 0">
+          <inertial mass="1.63497647" pos="0.00389796808 -0.0542266185 -0.214583374" fullinertia="0.0120367944 0.0120643638 0.00249422575 6.76206521e-05 -0.00028780634 0.00140610131"/>
+          <joint name="RH_HFE" class="HFE"/>
+          <geom class="visual_hind" mesh="anymal_thigh_l" material="any_blue"/>
+          <geom class="thigh_with_fins" pos="0 -0.035 -0.125" quat="0.997373 -0.0724365 0 0"/>
+          <geom class="kfe_actuator" pos="0 -0.069 -0.25" quat="1 1 0 0"/>
+          <geom class="upper_protector" pos="0 0.005 0" quat="0.654029 -0.75647 0 0"/>
+          <body name="RH_SHANK" pos="0 -0.109 -0.25">
+            <inertial mass="0.347375069" pos="-0.0587332374 0.0108243948 -0.0980642384" fullinertia="0.00685813393 0.00770431409 0.00101942297 3.2229015e-05 -0.00142868594 0.00031623721"/>
+            <joint name="RH_KFE" class="KFE"/>
+            <geom class="visual_hind" mesh="anymal_shank_l" material="dark_gray"/>
+            <geom class="shank" pos="-0.065 0.015 0.01" quat="1 0 1 0"/>
+            <geom class="visual_hind" mesh="anymal_foot" material="foam_dark" pos="-0.1 0.02 0.032"/>
+            <geom class="adapter" pos="-0.1 0.02 -0.160625"/>
+            <!-- The point-contact foot: its lowest point in the SHANK frame is the URDF's RH_FOOT frame. -->
+            <geom name="RH_foot_sphere" class="foot" pos="-0.1 0.02 -0.29025"/>
+            <site name="RH_FOOT" pos="-0.1 0.02 -0.32125"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <contact>
+    <exclude body1="base" body2="LF_THIGH"/>
+    <exclude body1="base" body2="RF_THIGH"/>
+    <exclude body1="base" body2="LH_THIGH"/>
+    <exclude body1="base" body2="RH_THIGH"/>
+  </contact>
+
+  <!-- One torque motor per joint (gear 1): the simulator writes each joint's torque into its ctrl, limited to the
+       URDF's effort. -->
+  <actuator>
+    <motor name="LF_HAA" joint="LF_HAA" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="LF_HFE" joint="LF_HFE" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="LF_KFE" joint="LF_KFE" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="RF_HAA" joint="RF_HAA" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="RF_HFE" joint="RF_HFE" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="RF_KFE" joint="RF_KFE" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="LH_HAA" joint="LH_HAA" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="LH_HFE" joint="LH_HFE" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="LH_KFE" joint="LH_KFE" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="RH_HAA" joint="RH_HAA" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="RH_HFE" joint="RH_HFE" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="RH_KFE" joint="RH_KFE" ctrlrange="-80 80" forcerange="-80 80"/>
+  </actuator>
+
+  <!-- Virtual gantry. A real weld the constraint solver satisfies inside mj_step, so the base is supported
+       WHILE the dynamics are integrated. MujocoSimInterface drives eq_active from the lock state and writes
+       the suspension height into the relpose translation, so the values here are only a starting point. -->
+  <equality>
+    <weld name="gantry" body1="world" body2="base" relpose="0 0 0.58 1 0 0 0" active="false"/>
+  </equality>
+</mujoco>

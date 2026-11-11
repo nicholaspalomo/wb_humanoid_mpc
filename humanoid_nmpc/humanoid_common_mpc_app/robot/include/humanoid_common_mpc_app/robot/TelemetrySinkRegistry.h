@@ -52,7 +52,7 @@ struct TelemetrySinkContext {
 /** Publishes robot/state on the bus (BusTelemetrySink). */
 inline constexpr absl::string_view kBusTelemetrySinkName = "bus";
 // clang-format off
-// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:telemetry_sinks, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:telemetry_sinks, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:telemetry_sinks, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto:telemetry_sinks, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto:telemetry_sinks, //humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:telemetry_sinks, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:telemetry_sinks)
+// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:telemetry_sinks, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:telemetry_sinks, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:telemetry_sinks, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto:telemetry_sinks, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto:telemetry_sinks, //robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/mpc/task.textproto:telemetry_sinks, //humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:telemetry_sinks, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:telemetry_sinks)
 // clang-format on
 
 /**

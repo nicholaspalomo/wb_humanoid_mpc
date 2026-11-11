@@ -120,7 +120,11 @@ cc_test(
     size = "small",
     srcs = ["src/testCentroidalMpcMrtJointControllerAllocations.cpp"],
     copts = FIRST_PARTY_COPTS,
-    data = _TEST_DATA + ["//humanoid_nmpc/humanoid_common_mpc:gait_config"],
+    data = _TEST_DATA + [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
+    ],
     linkstatic = True,
     deps = _TEST_DEPS + [
         "//humanoid_nmpc/humanoid_centroidal_mpc:typed_config_support",

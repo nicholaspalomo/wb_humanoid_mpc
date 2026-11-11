@@ -242,9 +242,9 @@ TEST(GuiVelocityCommand, TheClampIsTheOneTheMpcNodeAppliesToAReceivedMessage) {
   }
 }
 
-TEST(RobotConfigurations, TheSixConfigurationsNameTheirFiles) {
+TEST(RobotConfigurations, TheSevenConfigurationsNameTheirFiles) {
   const std::vector<RobotConfiguration>& configurations = robotConfigurations();
-  ASSERT_EQ(configurations.size(), 6u);
+  ASSERT_EQ(configurations.size(), 7u);
   size_t wholeBody = 0;
   for (const RobotConfiguration& configuration : configurations) {
     EXPECT_TRUE(findRobotConfiguration(configuration.name).ok())
@@ -268,6 +268,19 @@ TEST(RobotConfigurations, OnlyTheKalmanVariantOverridesTheStateEstimator) {
     if (configuration.name == "unitree_g1_kalman") continue;
     EXPECT_FALSE(configuration.isStateEstimatorVariant()) << configuration.name;
     EXPECT_TRUE(configuration.stateEstimator.empty()) << configuration.name;
+    EXPECT_EQ(configuration.baselineName(), configuration.name);
+  }
+}
+
+TEST(RobotConfigurations, TheBipedsRunEveryScenarioOnTheBipedGaitFile) {
+  for (const RobotConfiguration& configuration : robotConfigurations()) {
+    if (configuration.name == "unitree_g1_kalman" ||
+        configuration.name == "anymal_b") {
+      continue;
+    }
+    EXPECT_EQ(configuration.gaitFile,
+              "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto")
+        << configuration.name;
     EXPECT_TRUE(configuration.scenarios.empty()) << configuration.name;
     EXPECT_EQ(configuration.baselineName(), configuration.name);
     for (const ClosedLoopScenario& scenario : closedLoopScenarios()) {
@@ -300,6 +313,27 @@ TEST(RobotConfigurations, TheKalmanVariantRunsUnitreeG1sFilesWithKalman) {
   }
   EXPECT_FALSE(variant->runsScenario("arc"));
   EXPECT_FALSE(variant->runsScenario("smoke"));
+}
+
+TEST(RobotConfigurations, AnymalBTrotsOnTheQuadrupedGaitFile) {
+  const absl::StatusOr<RobotConfiguration> anymal =
+      findRobotConfiguration("anymal_b");
+  ASSERT_TRUE(anymal.ok()) << anymal.status();
+  EXPECT_EQ(anymal->formulation, MpcFormulation::kCentroidal);
+  EXPECT_FALSE(anymal->isStateEstimatorVariant());
+  EXPECT_EQ(anymal->gaitFile,
+            "humanoid_nmpc/humanoid_common_mpc/config/command/"
+            "quadruped_gait.textproto");
+  EXPECT_EQ(anymal->walkingScenario, "walk_0p5");
+  const std::vector<std::string> scenarios = {"standing", "walk_0p5",
+                                              "turn_in_place_720"};
+  EXPECT_EQ(anymal->scenarios, scenarios);
+  for (const std::string& name : scenarios) {
+    EXPECT_TRUE(findClosedLoopScenario(name).ok()) << name;
+    EXPECT_TRUE(anymal->runsScenario(name)) << name;
+  }
+  EXPECT_FALSE(anymal->runsScenario("walk_0p3"));
+  EXPECT_FALSE(anymal->runsScenario("smoke"));
 }
 
 /**

@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/Dimensions.h"
@@ -75,6 +76,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
@@ -87,6 +89,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/RealtimeRigidBodyDynamics.h"
+#include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/input_weights.nproto.h"
@@ -114,6 +117,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 namespace ocs2::humanoid {
 namespace {
+
+using ::testing::HasSubstr;
 
 constexpr char kLeftHand[] = "hand_l_contact";
 constexpr char kRightHand[] = "hand_r_contact";
@@ -919,6 +924,109 @@ TEST(MixedContactSetRefusal, aMisnamedPointContactIsRefused) {
   EXPECT_TRUE(absl::StrContains(noParent.status().message(),
                                 "contacts_3dof[0].parent_joint_name"))
       << noParent.status();
+}
+
+/** A 3-DoF contact of the task file at `posContactRtLinkEwrtLink` [m] from
+ * `parent`. */
+mpc_config::ModelSettingsConfig::PointContact pointContact(
+    absl::string_view name,
+    absl::string_view parent,
+    const vector3_t& posContactRtLinkEwrtLink) {
+  mpc_config::ModelSettingsConfig::PointContact contact;
+  contact.name = std::string(name);
+  contact.parent_joint_name = std::string(parent);
+  contact.pos_contact_rt_link_ewrt_link.x = posContactRtLinkEwrtLink.x();
+  contact.pos_contact_rt_link_ewrt_link.y = posContactRtLinkEwrtLink.y();
+  contact.pos_contact_rt_link_ewrt_link.z = posContactRtLinkEwrtLink.z();
+  return contact;
+}
+
+/** The MPC model of the shipped DRC Atlas task with the 3-DoF contacts
+ * `contacts` before its two feet. */
+absl::StatusOr<PinocchioInterface> atlasModelWithPointContacts(
+    std::vector<mpc_config::ModelSettingsConfig::PointContact> contacts) {
+  mpc_config::TaskFile task = loadAtlas().task;
+  task.model_settings.contacts_3dof = std::move(contacts);
+  const std::string urdfFile = atlasFiles().urdfFile;
+  ASSIGN_OR_RETURN(const ModelSettings settings,
+                   ModelSettings::Create(task, urdfFile, "existing_frame_",
+                                         /*verbose=*/false));
+  return loadCustomPinocchioInterface(task, urdfFile, settings);
+}
+
+/** The number of frames of `model` named `name`. */
+int numFramesNamed(const PinocchioInterface::Model& model,
+                   absl::string_view name) {
+  int count = 0;
+  for (const pinocchio::Frame& frame : model.frames) {
+    if (frame.name == name) ++count;
+  }
+  return count;
+}
+
+TEST(PointContactFrame, aContactMayNameTheUrdfFrameAtItsPlacement) {
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const PinocchioInterface feetOnly,
+                                atlasModelWithPointContacts({}));
+  // l_foot is the child link of the ankle roll l_leg_akx, at its origin; l_hand
+  // is the child link of the wrist l_arm_wrx, which the MPC fixes.
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const PinocchioInterface named,
+      atlasModelWithPointContacts(
+          {pointContact("l_foot", "l_leg_akx", vector3_t::Zero()),
+           pointContact("l_hand", "l_arm_wrx", vector3_t::Zero())}));
+  const PinocchioInterface::Model& reference = feetOnly.getModel();
+  const PinocchioInterface::Model& model = named.getModel();
+  EXPECT_EQ(model.nframes, reference.nframes);
+  for (const char* absl_nonnull const name : {"l_foot", "l_hand"}) {
+    EXPECT_EQ(numFramesNamed(model, name), 1) << name;
+    EXPECT_EQ(model.getFrameId(name), reference.getFrameId(name)) << name;
+  }
+  EXPECT_EQ(model.frames[model.getFrameId("l_foot")].parentJoint,
+            model.getJointId("l_leg_akx"));
+}
+
+TEST(PointContactFrame, theUrdfFrameAtAnotherOffsetIsRefused) {
+  const absl::StatusOr<PinocchioInterface> model = atlasModelWithPointContacts(
+      {pointContact("l_foot", "l_leg_akx", vector3_t(0.0, 0.0, -0.05))});
+  ASSERT_FALSE(model.ok());
+  EXPECT_EQ(model.status().code(), absl::StatusCode::kAlreadyExists);
+  EXPECT_THAT(model.status().message(),
+              HasSubstr("model_settings.contacts_3dof[0].name 'l_foot'"));
+  EXPECT_THAT(model.status().message(),
+              HasSubstr("on joint 'l_leg_akx' at (0, 0, 0)"));
+  EXPECT_THAT(model.status().message(),
+              HasSubstr("puts it on joint 'l_leg_akx' at (0, 0, -0.05)"));
+}
+
+TEST(PointContactFrame, theUrdfFrameOfAnotherJointIsRefused) {
+  const absl::StatusOr<PinocchioInterface> model = atlasModelWithPointContacts(
+      {pointContact("r_foot", "l_leg_akx", vector3_t::Zero())});
+  ASSERT_FALSE(model.ok());
+  EXPECT_EQ(model.status().code(), absl::StatusCode::kAlreadyExists);
+  EXPECT_THAT(model.status().message(), HasSubstr("on joint 'r_leg_akx'"));
+  EXPECT_THAT(model.status().message(),
+              HasSubstr("puts it on joint 'l_leg_akx'"));
+  EXPECT_THAT(model.status().message(),
+              HasSubstr("an existing frame at exactly its configured "
+                        "placement"));
+}
+
+TEST(PointContactFrame, aNewNameAddsAFrameAtItsOffset) {
+  HUMANOID_ASSERT_OK_AND_ASSIGN(const PinocchioInterface feetOnly,
+                                atlasModelWithPointContacts({}));
+  const vector3_t posContactRtLinkEwrtLink(0.1, 0.0, -0.08);
+  HUMANOID_ASSERT_OK_AND_ASSIGN(
+      const PinocchioInterface added,
+      atlasModelWithPointContacts({pointContact("l_toe_contact", "l_leg_akx",
+                                                posContactRtLinkEwrtLink)}));
+  const PinocchioInterface::Model& model = added.getModel();
+  EXPECT_EQ(model.nframes, feetOnly.getModel().nframes + 1);
+  ASSERT_TRUE(model.existFrame("l_toe_contact"));
+  const pinocchio::Frame& frame =
+      model.frames[model.getFrameId("l_toe_contact")];
+  EXPECT_EQ(frame.parentJoint, model.getJointId("l_leg_akx"));
+  EXPECT_TRUE(frame.placement.rotation().isIdentity());
+  EXPECT_TRUE(frame.placement.translation().isApprox(posContactRtLinkEwrtLink));
 }
 
 }  // namespace

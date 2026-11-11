@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
@@ -41,9 +43,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc_app/robot/MujocoRobotBackend.h"
 #include "humanoid_common_mpc_app/robot/RobotBackend.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
+#include "humanoid_mpc_config/joint_value.nproto.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/viewer/ViewerNames.h"
@@ -56,11 +61,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The robot backends by name: `mujoco` builds the simulator from the options
  * the robot process gathers (without a viewer here, on the Atlas scene), an
  * unknown name is refused with the available ones, and a new backend is one
- * add().
+ * add(). A set of point contacts only starts it too, on the ANYmal B scene.
  */
 
 namespace ocs2::humanoid {
 namespace {
+
+constexpr char kAnymalBUrdf[] =
+    "robot_models/anybotics_anymal_b/anymal_b_description/urdf/anymal_b.urdf";
+constexpr char kAnymalBScene[] =
+    "robot_models/anybotics_anymal_b/anymal_b_description/urdf/anymal_b.xml";
+constexpr char kAnymalBTask[] =
+    "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/mpc/"
+    "task.textproto";
+constexpr char kAnymalBReference[] =
+    "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/command/"
+    "reference.textproto";
 
 RobotBackendOptions atlasOptions() {
   const robot::model::RobotDescription description =
@@ -80,6 +96,42 @@ RobotBackendOptions atlasOptions() {
       modelSettings.contactParentJointNamesInContactOrder();
   options.numPointContacts = modelSettings.contactNames3DoF.size();
   options.simulator.minForceMjcontactEwrtMjcontactX = 7.0;
+  options.simulator.visualizations = std::vector<std::string>{};
+  options.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
+  return options;
+}
+
+/** Returns the options of the mujoco backend on the ANYmal B scene, its robot
+ * in the default stance of its reference file (default_joint_state, every other
+ * joint at zero) with the base level at nom_pos_base_rt_surface_ewrt_world_z
+ * (which the file must set),
+ * its four point contacts in the task file's order, and no viewer. */
+RobotBackendOptions anymalBOptions() {
+  const robot::model::RobotDescription description =
+      robot::model::RobotDescription::Create(kAnymalBUrdf).value();
+  const ModelSettings modelSettings =
+      ModelSettings::Create(kAnymalBTask, kAnymalBUrdf, "centroidal_mpc_",
+                            /*verbose=*/false)
+          .value();
+  const mpc_config::ReferenceFile reference =
+      loadReferenceFile(kAnymalBReference).value();
+  ABSL_CHECK(reference.nom_pos_base_rt_surface_ewrt_world_z.has_value())
+      << kAnymalBReference << " sets no nom_pos_base_rt_surface_ewrt_world_z";
+  RobotBackendOptions options;
+  options.robotName = "anymal_b";
+  options.urdfFile = kAnymalBUrdf;
+  options.mjcfFile = kAnymalBScene;
+  options.initialState.emplace(description);
+  options.initialState->setPosBaseRtWorldEwrtWorld(
+      vector3_t(0.0, 0.0, *reference.nom_pos_base_rt_surface_ewrt_world_z));
+  for (const mpc_config::JointValue& joint : reference.default_joint_state) {
+    options.initialState->setJointPosition(
+        description.getJointIndex(joint.joint), joint.value);
+  }
+  options.contactFrameNames = modelSettings.contactNames;
+  options.contactParentJointNames =
+      modelSettings.contactParentJointNamesInContactOrder();
+  options.numPointContacts = modelSettings.contactNames3DoF.size();
   options.simulator.visualizations = std::vector<std::string>{};
   options.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
   return options;
@@ -141,6 +193,39 @@ TEST(RobotBackendRegistry, TheMujocoFootSensorsNeedTwoSixDofContacts) {
   (*backend)->readMeasForceContactsEwrtWorld(measForceContactsEwrtWorld);
   EXPECT_TRUE(measForceContactsEwrtWorld[0].isZero());
   EXPECT_TRUE(measForceContactsEwrtWorld[1].isZero());
+}
+
+// A set of point contacts only (ANYmal B's four feet, contacts_3dof, no 6-DoF
+// contact) starts the simulator: every contact resolves to its foot's body
+// through its parent joint, the ground truth reads all four feet on the floor
+// once the robot stands on them, and no contact has a foot force sensor.
+TEST(RobotBackendRegistry, TheMujocoBackendStartsOnFourPointContacts) {
+  const RobotBackendOptions options = anymalBOptions();
+  ASSERT_EQ(options.contactFrameNames.size(), 4u);
+  ASSERT_EQ(options.numPointContacts, 4u) << "no 6-DoF contact";
+
+  const RobotBackendRegistry registry;
+  absl::StatusOr<std::unique_ptr<RobotBackend>> backend =
+      registry.create("mujoco", options);
+  ASSERT_TRUE(backend.ok()) << backend.status();
+  ASSERT_TRUE((*backend)->initialize().ok());
+  robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable const sim =
+      (*backend)->simulator();
+  ASSERT_NE(sim, nullptr);
+  EXPECT_TRUE(sim->hasContactDetection());
+  EXPECT_EQ(sim->getNumDetectedContactPoints(), 4u);
+  EXPECT_EQ(sim->getUnresolvedContactMask(), 0u);
+
+  sim->unlockGantry();
+  for (int step = 0; step < 50; ++step) sim->simulationStep();
+  EXPECT_EQ(sim->getGroundTruthContactMask(), 0b1111u);
+
+  ContactArray<vector3_t> measForceContactsEwrtWorld(/*numContacts=*/4,
+                                                     vector3_t::Ones());
+  (*backend)->readMeasForceContactsEwrtWorld(measForceContactsEwrtWorld);
+  for (size_t contact = 0; contact < 4; ++contact) {
+    EXPECT_TRUE(measForceContactsEwrtWorld[contact].isZero()) << contact;
+  }
 }
 
 TEST(RobotBackendRegistry, AnUnknownNameListsTheAvailableOnes) {

@@ -75,6 +75,8 @@ using ::testing::Optional;
 
 // LINT.IfChange(shipped_task_files)
 constexpr absl::string_view kShippedTaskFiles[] = {
+    "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/mpc/"
+    "task.textproto",
     "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto",
     "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/"
     "task.textproto",

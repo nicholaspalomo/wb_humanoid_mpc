@@ -129,6 +129,20 @@ CentroidalRobotFiles r1Files() {
   };
 }
 
+CentroidalRobotFiles anymalBFiles() {
+  return CentroidalRobotFiles{
+      .taskFile =
+          runfile("robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/"
+                  "config/mpc/task.textproto"),
+      .referenceFile =
+          runfile("robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/"
+                  "config/command/reference.textproto"),
+      .urdfFile =
+          runfile("robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
+                  "anymal_b.urdf"),
+  };
+}
+
 absl::StatusOr<CentroidalMpcConfig> loadConfigOf(
     const CentroidalRobotFiles& files) {
   return loadCentroidalMpcConfig(files.taskFile, files.referenceFile);

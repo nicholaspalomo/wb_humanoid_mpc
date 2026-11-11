@@ -63,6 +63,10 @@ LIFT_BASE_M = 1.0
 
 # Each robot configuration: its MuJoCo scene and its joint PD gains file, relative to robot_models/.
 _ROBOTS = {
+    "anymal_b": (
+        "anybotics_anymal_b/anymal_b_description/urdf/anymal_b.xml",
+        "anybotics_anymal_b/anymal_b_centroidal_mpc/config/controller/joint_pd_gains.textproto",
+    ),
     "drc_atlas": (
         "drc_atlas/drc_atlas_description/urdf/atlas.xml",
         "drc_atlas/drc_atlas_centroidal_mpc/config/controller/joint_pd_gains.textproto",

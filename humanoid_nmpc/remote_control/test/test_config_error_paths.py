@@ -41,7 +41,7 @@ import unittest
 
 from remote_control import config_files
 from remote_control.tk_app import combobox
-from remote_control.tk_app import joint_targets_tab
+from remote_control.tk_app import joint_pd_tab
 
 _REFERENCE_HEADER = (
     "# proto-file: humanoid_nmpc/humanoid_mpc_config/reference_file.proto\n"
@@ -118,15 +118,23 @@ class TestReferenceDefaults(unittest.TestCase):
 
     def test_joints_are_grouped_by_limb(self):
         self.assertEqual(
-            joint_targets_tab._classify_joint_section("left_knee_joint"),
+            joint_pd_tab.classify_joint_section("left_knee_joint"),
             "Left Leg",
         )
         self.assertEqual(
-            joint_targets_tab._classify_joint_section("waist_yaw_joint"),
+            joint_pd_tab.classify_joint_section("waist_yaw_joint"),
             "Torso & Spine",
         )
         self.assertEqual(
-            joint_targets_tab._classify_joint_section("gripper"), "Other Joints"
+            joint_pd_tab.classify_joint_section("gripper"), "Other Joints"
+        )
+        self.assertEqual(
+            joint_pd_tab.classify_joint_section("LF_HAA"),
+            "Left Front Leg",
+        )
+        self.assertEqual(
+            joint_pd_tab.classify_joint_section("RH_KFE"),
+            "Right Hind Leg",
         )
 
 

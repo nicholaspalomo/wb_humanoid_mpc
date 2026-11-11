@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -116,6 +117,15 @@ constexpr std::array<Robot, 5> kRobots = {{
                  "task.textproto",
      .urdfFile = "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf"},
 }};
+
+// The shipped quadruped, on its four point feet with one leg each.
+constexpr Robot kAnymalB = {
+    .taskFile =
+        "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/"
+        "config/mpc/task.textproto",
+    .urdfFile =
+        "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
+        "anymal_b.urdf"};
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/BUILD.bazel:config_test_data)
 
 // The four sole corners of the Atlas, a quadruped's leg order (as in
@@ -335,6 +345,38 @@ TEST(ModelSettingsLegs, TheSoleCornersAreFourLegsWithDerivedSides) {
     EXPECT_EQ(entry.longitudinal,
               ModelSettings::LegLongitudinalPosition::kCenter)
         << entry.name;
+    EXPECT_EQ(settings->legOfContact(i), i);
+  }
+}
+
+TEST(ModelSettingsLegs, TheShippedAnymalBStandsOnFourLegsOfOneFootEach) {
+  const absl::StatusOr<LoadedRobot> loaded =
+      loadRobot(kAnymalB.taskFile, kAnymalB.urdfFile);
+  ASSERT_TRUE(loaded.ok()) << loaded.status();
+  const absl::StatusOr<ModelSettings> settings = settingsOf(*loaded);
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  EXPECT_FALSE(settings->isBipedContactSet());
+  EXPECT_FALSE(settings->hasBipedStance());
+  EXPECT_TRUE(settings->isLeggedContactSet());
+  EXPECT_THAT(settings->contactNames,
+              ElementsAre("LF_FOOT", "RF_FOOT", "LH_FOOT", "RH_FOOT"));
+  ASSERT_EQ(settings->legs.size(), 4U);
+  const std::array<const char* absl_nonnull, 4> names = {"LF", "RF", "LH",
+                                                         "RH"};
+  const std::array<scalar_t, 4> lateralSigns = {1.0, -1.0, 1.0, -1.0};
+  const std::array<ModelSettings::LegLongitudinalPosition, 4> longitudinal = {
+      ModelSettings::LegLongitudinalPosition::kFront,
+      ModelSettings::LegLongitudinalPosition::kFront,
+      ModelSettings::LegLongitudinalPosition::kHind,
+      ModelSettings::LegLongitudinalPosition::kHind};
+  for (size_t i = 0; i < settings->legs.size(); ++i) {
+    const ModelSettings::Leg& entry = settings->legs[i];
+    EXPECT_EQ(entry.name, names[i]);
+    EXPECT_THAT(entry.contactIndices, ElementsAre(i)) << entry.name;
+    EXPECT_EQ(entry.lateralSign, lateralSigns[i]) << entry.name;
+    EXPECT_EQ(entry.longitudinal, longitudinal[i]) << entry.name;
+    // The derived hip is the abduction joint, the first below the base.
+    EXPECT_EQ(entry.hipFrameName, absl::StrCat(names[i], "_HAA")) << entry.name;
     EXPECT_EQ(settings->legOfContact(i), i);
   }
 }

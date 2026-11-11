@@ -93,7 +93,10 @@ std::string writeTemporaryFile(absl::string_view name,
 
 TEST(KeyboardCommandLimits, EveryShippedReferenceFileHasPositiveLimits) {
   for (const char* absl_nonnull file :
-       {"robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/"
+       {"robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/"
+        "command/"
+        "reference.textproto",
+        "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/"
         "reference.textproto",
         "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/"
         "command/reference.textproto",

@@ -28,7 +28,6 @@
 """The Joint Targets tab: per-joint position sliders that publish operator/joint_targets in JOINT_PD mode."""
 
 import math
-import re
 from tkinter import ttk
 import tkinter as tk
 from typing import Any
@@ -36,35 +35,9 @@ from typing import Any
 from humanoid_mpc_ipc import topics
 from remote_control import config_files
 from remote_control import operator_bus
+from remote_control.tk_app import joint_pd_tab
 from remote_control.tk_app import scrollable_frame
 from remote_control.tk_app import slider_row
-
-
-def _classify_joint_section(joint_name: str) -> str:
-    """Classify a joint name into a limb section for grouping."""
-    name_lower = joint_name.lower()
-    if re.search(r"waist|spine|torso|back", name_lower):
-        return "Torso & Spine"
-    if re.search(
-        r"left.*leg|l_leg|left.*hip|left.*knee|left.*ankle", name_lower
-    ):
-        return "Left Leg"
-    if re.search(
-        r"right.*leg|r_leg|right.*hip|right.*knee|right.*ankle", name_lower
-    ):
-        return "Right Leg"
-    if re.search(
-        r"left.*arm|l_arm|left.*shoulder|left.*elbow|left.*wrist", name_lower
-    ):
-        return "Left Arm"
-    if re.search(
-        r"right.*arm|r_arm|right.*shoulder|right.*elbow|right.*wrist",
-        name_lower,
-    ):
-        return "Right Arm"
-    if re.search(r"neck|head", name_lower):
-        return "Head & Neck"
-    return "Other Joints"
 
 
 class JointTargetsTab(ttk.Frame):
@@ -229,24 +202,15 @@ class JointTargetsTab(ttk.Frame):
             return
 
         # Prepare section frames in logical order
-        section_order = [
-            "Torso & Spine",
-            "Left Leg",
-            "Right Leg",
-            "Left Arm",
-            "Right Arm",
-            "Head & Neck",
-            "Other Joints",
-        ]
 
-        for sec in section_order:
+        for sec in joint_pd_tab.SECTION_ORDER:
             lf = ttk.LabelFrame(
                 self.scroll_container.scrollable_content, text=f"• {sec}"
             )
             self.section_frames[sec] = lf
 
         for jname in self.joint_names:
-            sec_name = _classify_joint_section(jname)
+            sec_name = joint_pd_tab.classify_joint_section(jname)
             parent_frame = self.section_frames.get(
                 sec_name, self.section_frames["Other Joints"]
             )
@@ -267,7 +231,7 @@ class JointTargetsTab(ttk.Frame):
             self.slider_rows[jname] = row
 
         # Pack only non-empty section frames
-        for sec in section_order:
+        for sec in joint_pd_tab.SECTION_ORDER:
             lf = self.section_frames[sec]
             if lf.winfo_children():
                 lf.pack(fill="x", padx=6, pady=4)

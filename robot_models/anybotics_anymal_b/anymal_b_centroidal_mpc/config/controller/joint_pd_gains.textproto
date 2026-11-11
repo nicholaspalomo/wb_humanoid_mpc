@@ -1,0 +1,39 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto
+# proto-message: humanoid_mpc_config.JointPdGainsFile
+# ANYbotics ANYmal B (12-DoF) joint proportional and derivative (PD) controller gains.
+# Units: Kp in [N*m/rad], Kd in [N*m*s/rad]
+# The same gains on all twelve joints. They hold the legs while the MPC is off (JOINT_PD) and stiffen the MPC's
+# feedforward torques against its joint targets; robot_models/tests/test_joint_pd_stability.py checks that the explicit
+# PD is stable at the simulator's step with the joint damping of urdf/anymal_b.xml. kp 400 and kd 10 come from the
+# closed-loop runs in MuJoCo (humanoid_mpc_validation, 2026-11-10_anymal_b): at kp 80 and kd 2 the trot sagged 5 cm
+# below the nominal base height and reached 0.17 m/s of a 0.5 m/s command, at kp 200 and kd 5 0.26 m/s, and at kp 400
+# and kd 10 it holds the height within 5 mm; kp 600 adds no speed.
+
+# max_joint_torque is read by the MRT joint controller, which clamps the commanded feedforward torque of every joint against
+# it, in every mode; a joint this file does not name gets default_gains' limit, which default_gains must set (the
+# controller has no gains of its own). 80 N m is the URDF's effort limit and the MuJoCo motors' forcerange, so the
+# controller and the simulator agree on what each actuator can deliver.
+default_gains {
+  kp: 400.0
+  kd: 10.0
+  max_joint_torque: 80.0
+}
+# Left front leg
+joint_gains { joint: "LF_HAA" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+joint_gains { joint: "LF_HFE" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+joint_gains { joint: "LF_KFE" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+
+# Right front leg
+joint_gains { joint: "RF_HAA" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+joint_gains { joint: "RF_HFE" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+joint_gains { joint: "RF_KFE" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+
+# Left hind leg
+joint_gains { joint: "LH_HAA" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+joint_gains { joint: "LH_HFE" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+joint_gains { joint: "LH_KFE" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+
+# Right hind leg
+joint_gains { joint: "RH_HAA" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+joint_gains { joint: "RH_HFE" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+joint_gains { joint: "RH_KFE" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }

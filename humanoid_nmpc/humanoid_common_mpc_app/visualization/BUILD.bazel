@@ -92,6 +92,8 @@ cc_library(
 
 # The shipped robot configurations the tests build their models from.
 _ROBOT_DATA = [
+    "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+    "//robot_models/anybotics_anymal_b/anymal_b_description",
     "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
     "//robot_models/drc_atlas/drc_atlas_description",
     "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",

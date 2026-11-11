@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstddef>
 #include <numbers>
@@ -38,7 +37,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "Eigen/LU"
-#include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
@@ -65,7 +63,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * the Euler root's, written here again from the equations of motion of the
  * Composite(Translation, SphericalZYX) twin of the MPC's own Pinocchio model
  * (the model loadCustomPinocchioInterface() builds, with its contact frames):
- * the feedforward torques both MRTs send.
+ * the feedforward torques both MRTs send, with a world-frame wrench at every
+ * contact of the configuration (a force alone at a 3-DoF contact).
  *
  *   free base   computeJointTorques(): the base rows of M a + n = J' W + S' tau
  * balance the base acceleration, the joint rows give tau_j. Coordinate-free
@@ -122,7 +121,7 @@ pinocchio::Model eulerRootTwin(const pinocchio::Model& model) {
 struct EquationsOfMotion {
   matrix_t massMatrix;
   vector_t nonlinearEffects;
-  /** J' W of the two world-frame wrenches at the sole frames. */
+  /** J' W of the world-frame wrenches at the contact frames. */
   vector_t externalGeneralizedForces;
 };
 
@@ -130,7 +129,8 @@ EquationsOfMotion eulerEquationsOf(
     const pinocchio::Model& model,
     const vector_t& q,
     const vector_t& v,
-    const std::array<vector6_t, 2>& wrenchFeetEwrtWorld) {
+    const ContactArray<pinocchio::FrameIndex>& contactFrames,
+    const ContactArray<vector6_t>& wrenchContactsEwrtWorld) {
   pinocchio::Data data(model);
   EquationsOfMotion equations;
   equations.massMatrix = symmetricFromUpper(pinocchio::crba(model, data, q));
@@ -138,14 +138,12 @@ EquationsOfMotion eulerEquationsOf(
   pinocchio::computeJointJacobians(model, data, q);
   pinocchio::updateFramePlacements(model, data);
   equations.externalGeneralizedForces = vector_t::Zero(model.nv);
-  const std::array<const char* absl_nonnull, 2> soles = {"foot_l_contact",
-                                                         "foot_r_contact"};
-  for (size_t foot = 0; foot < soles.size(); ++foot) {
+  for (size_t contact = 0; contact < contactFrames.size(); ++contact) {
     matrix_t jacobian = matrix_t::Zero(6, model.nv);
-    pinocchio::getFrameJacobian(model, data, model.getFrameId(soles[foot]),
+    pinocchio::getFrameJacobian(model, data, contactFrames[contact],
                                 pinocchio::LOCAL_WORLD_ALIGNED, jacobian);
     equations.externalGeneralizedForces +=
-        jacobian.transpose() * wrenchFeetEwrtWorld[foot];
+        jacobian.transpose() * wrenchContactsEwrtWorld[contact];
   }
   return equations;
 }
@@ -169,11 +167,13 @@ TEST_P(MrtTorqueChartEquivalence,
       loadCustomPinocchioInterface(*taskFile, *urdfFile, *settings);
   ASSERT_TRUE(interface.ok()) << interface.status();
   const pinocchio::Model model = interface->getModel();
-  ASSERT_TRUE(model.existFrame("foot_l_contact") &&
-              model.existFrame("foot_r_contact"));
-  ContactArray<pinocchio::FrameIndex> soleFrames(/*numContacts=*/2);
-  soleFrames[0] = model.getFrameId("foot_l_contact");
-  soleFrames[1] = model.getFrameId("foot_r_contact");
+  const size_t numContacts = settings->contactNames.size();
+  ContactArray<pinocchio::FrameIndex> contactFrames(numContacts);
+  for (size_t contact = 0; contact < numContacts; ++contact) {
+    const std::string& name = settings->contactNames[contact];
+    ASSERT_TRUE(model.existFrame(name)) << name;
+    contactFrames[contact] = model.getFrameId(name);
+  }
   const pinocchio::Model eulerModel = eulerRootTwin(model);
   ASSERT_EQ(eulerModel.nv, model.nv);
   const Eigen::Index joints = model.nv - 6;
@@ -208,11 +208,16 @@ TEST_P(MrtTorqueChartEquivalence,
         uniformVector(joints, /*halfWidth=*/1.0, generator);
     const vector_t jointAccelerations =
         uniformVector(joints, /*halfWidth=*/5.0, generator);
-    std::array<vector6_t, 2> wrenchFeetEwrtWorld;
-    for (vector6_t& wrenchFootEwrtWorld : wrenchFeetEwrtWorld) {
-      wrenchFootEwrtWorld << 50.0 * unit(generator), 50.0 * unit(generator),
+    ContactArray<vector6_t> wrenchContactsEwrtWorld(numContacts);
+    for (size_t contact = 0; contact < numContacts; ++contact) {
+      vector6_t& wrenchContactEwrtWorld = wrenchContactsEwrtWorld[contact];
+      wrenchContactEwrtWorld << 50.0 * unit(generator), 50.0 * unit(generator),
           200.0 + 100.0 * unit(generator), 10.0 * unit(generator),
           10.0 * unit(generator), 5.0 * unit(generator);
+      // A point contact carries a force and no moment.
+      if (settings->isPointContact(contact)) {
+        wrenchContactEwrtWorld.tail<3>().setZero();
+      }
     }
     const matrix3_t rateMap = eulerZyxRateToBodyRateMatrix(angles);
 
@@ -228,8 +233,8 @@ TEST_P(MrtTorqueChartEquivalence,
     vector_t eulerV(eulerModel.nv);
     eulerV << linvelBaseRtWorldEwrtWorld, eulerRates, jointVelocities;
 
-    const EquationsOfMotion euler =
-        eulerEquationsOf(eulerModel, eulerQ, eulerV, wrenchFeetEwrtWorld);
+    const EquationsOfMotion euler = eulerEquationsOf(
+        eulerModel, eulerQ, eulerV, contactFrames, wrenchContactsEwrtWorld);
     const matrix_t& m = euler.massMatrix;
     const vector_t residual =
         euler.externalGeneralizedForces - euler.nonlinearEffects;
@@ -247,14 +252,11 @@ TEST_P(MrtTorqueChartEquivalence,
         m.bottomRightCorner(joints, joints) * jointAccelerations -
         residual.tail(joints);
 
-    ContactArray<vector6_t> wrenchContactsEwrtWorld(/*numContacts=*/2);
-    wrenchContactsEwrtWorld[0] = wrenchFeetEwrtWorld[0];
-    wrenchContactsEwrtWorld[1] = wrenchFeetEwrtWorld[1];
     const vector_t jointTorques = computeJointTorques<scalar_t>(
-        q, v, jointAccelerations, wrenchContactsEwrtWorld, soleFrames,
+        q, v, jointAccelerations, wrenchContactsEwrtWorld, contactFrames,
         *interface);
     const vector_t heldJointTorques = computeBaseHeldJointTorques<scalar_t>(
-        q, v, jointAccelerations, wrenchContactsEwrtWorld, soleFrames,
+        q, v, jointAccelerations, wrenchContactsEwrtWorld, contactFrames,
         *interface);
     ASSERT_TRUE(isCloseRelative(jointTorques, eulerModelJointTorques,
                                 kJointTorqueTolerance))

@@ -181,7 +181,7 @@ own bands (`closedLoopMetricBandsFor()`): the defaults but for the tilt, 0.04 ra
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/MetricBands.h:metric_bands) -->
 
 One requirement needs no baseline: a configuration survives its walking scenario (`RobotConfiguration::walkingScenario`,
-`walk_0p5`, or `walk_0p3` for SA01 and R1). A run of it that falls fails the closed-loop test after its documents are
+`walk_0p5`, or `walk_0p3` for SA01 and R1; `walk_0p5` for ANYmal B). A run of it that falls fails the closed-loop test after its documents are
 written (`walkingSurvivalViolation()`), and the comparison with a baseline, run or archived, lists the fall as a
 violation even where the baseline fell too. A state-estimator variant is exempt: its baseline is the run of the
 configuration it varies, and a fall where that run survived already fails its comparison.
@@ -217,13 +217,28 @@ The ground-truth falls came from the simulator, not the MPC: the G1's MJCF decla
 stopped giving every joint 10 N m s/rad (082971a6), and the explicit 2 kHz PD drove each swing foot's ankle roll between
 its limits. With that damping in the MJCF, `unitree_g1` survives all three (label `2026-11-08_g1_fall_fix`).
 
+## ANYmal B
+
+`anymal_b` is the first configuration that is not a biped: ANYbotics ANYmal B on the centroidal MPC, four 3-DoF feet
+(`LF_FOOT`, `RF_FOOT`, `LH_FOOT`, `RH_FOOT`) on the shared quadruped gait file
+(`humanoid_common_mpc/config/command/quadruped_gait.textproto`, `RobotConfiguration::gaitFile`), with the ground-truth
+contact estimator and state estimator ([robot_models/anybotics_anymal_b](../../robot_models/anybotics_anymal_b/README.md)).
+It runs `standing`, `walk_0p5` and `turn_in_place_720` (`RobotConfiguration::scenarios`), must survive `walk_0p5`, and
+its solve benchmark replays `data/benchmark/states/anymal_b_walk_0p5_states.txt`. Label `2026-11-10_anymal_b`
+recorded it: it survives all three scenarios and trots at 0.42 m/s on average against the 0.5 m/s command, and the
+metrics are in [the label's README](data/closed_loop/2026-11-10_anymal_b/README.md). It is held to
+the default bands (`closedLoopMetricBandsFor()`): its runs are deterministic, two runs of one configuration giving the
+same documents, so no metric of it spreads from run to run, and `make compare-closed-loop
+CANDIDATE=2026-11-10_anymal_b BASELINE=2026-11-10_anymal_b ROBOT=anymal_b` passes with no violation and no improvement.
+
 ## Recording and comparing labels
 
 A label is a directory of documents, one per run: `make closed-loop-metrics ROBOT=<robot> LABEL=<label>` writes
 `data/closed_loop/<label>/<robot>_<scenario>.json`, and `make benchmark-mpc-solve ROBOT=<robot> LABEL=<label>` writes
-`data/benchmark/<label>/<robot>_solve_benchmark.json`. The only label checked in is the one the kalman variant's bands
-were set from; otherwise record a baseline on the code to compare
-against and a candidate on the change, on the same machine and container image, and give each label a README saying
+`data/benchmark/<label>/<robot>_solve_benchmark.json`. Three labels are checked in: `2026-11-07_kalman_variant`, the
+run the kalman variant's bands were set from; `2026-11-08_g1_fall_fix`, `unitree_g1` surviving all three of those
+scenarios once its MJCF had joint damping; and `2026-11-10_anymal_b`, the first runs of ANYmal B. Otherwise record a
+baseline on the code to compare against and a candidate on the change, on the same machine and container image, and give each label a README saying
 what it ran (the commit and the worktree state are in every document's provenance) and, for a candidate, the
 improvements its comparison found. Only the metrics documents are copied into the label; the time series and the
 `<robot>_<scenario>_comparison.txt` of each run stay in the test's outputs
@@ -280,10 +295,11 @@ untracked file listed, and the contents of every untracked file, so that an edit
 The configuration files a run depends on (`RobotConfiguration::configurationFiles()`) are the robot's typed textprotos
 of [`humanoid_mpc_config`](../humanoid_mpc_config/README.md) - `config/mpc/task.textproto`,
 `config/command/reference.textproto`, `config/controller/joint_pd_gains.textproto`, the contact planner's
-`config/mpc/contact_planning.textproto` where the robot has one, and the gait file `gait.textproto` - plus its URDF and
+`config/mpc/contact_planning.textproto` where the robot has one, and the gait file (`gait.textproto`, or
+`quadruped_gait.textproto` for ANYmal B) - plus its URDF and
 MuJoCo scene, and the provenance records the SHA-256 of each.
 
-`ROBOT` is `drc_atlas`, `engineai_sa01`, `unitree_g1`, `unitree_r1`, `unitree_g1_wb` or, for the closed-loop metrics
+`ROBOT` is `drc_atlas`, `engineai_sa01`, `unitree_g1`, `unitree_r1`, `unitree_g1_wb`, `anymal_b` or, for the closed-loop metrics
 only, `unitree_g1_kalman` (["The kalman variant"](#the-kalman-variant)). The targets run the manual tests
 `closed_loop_<robot>`, `benchmark_mpc_solve_<robot>` and `compare_closed_loop_labels` under `bazel test`, so that the machine lock of `tools/bazel`
 keeps them from running next to another build, and copy the documents into `data/`.
@@ -304,7 +320,7 @@ URDF, named in the `joint_names` note), `contact_flags` and `gui_command`. It is
 state, so states recorded with one formulation drive another through the same observation path.
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/RecordedRobotStates.cpp:recorded_state_labels) -->
 
-`contact_flags` has a column per contact of the robot's contact set, in contact order: two for a biped. The benchmark
+`contact_flags` has a column per contact of the robot's contact set, in contact order: two for a biped, four for ANYmal B. The benchmark
 replays a recording only on a robot of the same contact count (`toRobotState()` refuses another), and the closed-loop
 metrics measure the stance phases of every contact.
 
@@ -324,7 +340,7 @@ metrics measure the stance phases of every contact.
 | `test_lockstep_determinism` | smoke runs on the Unitree G1 with one solver thread agree to 1e-9, two in one process and one in a process of its own, and a run's per-solve gaps, SQP steps and swing residuals hold its document's largest (exclusive: it compiles CppAD libraries) |
 | `test_initial_state_gap` | the initial-state gap of a solve (`initialStateGapOf`): the state manifold's rotation angle wherever its layout puts the rotation block, zero without a rotation block; and the quaternion norm deviation of a solution (`maxUnitQuaternionNormDeviationOf`), the largest distance of a stored quaternion from the unit sphere, none without a node |
 | `test_driver_settings_from_config` | the GUI's command scaling from its own fields of the reference file, a limit that is absent or not positive refused by name, every configuration's reference file; the contact wrench gate of a whole task file: no block is the instantaneous gate, a refused block keeps the gate in use, every configuration's task file sets its own |
-| `test_robot_scene_gantry_hold` | the gantry hold each configuration's task file names (pinned: a change is a change of its runs), its MuJoCo scene supporting it, the robot process's mujoco backend running on it without falling back to `kinematic_teleport`; each configuration on `weld_constraint` (all six) failing the check with its scene's weld taken out |
+| `test_robot_scene_gantry_hold` | the gantry hold each configuration's task file names (pinned: a change is a change of its runs), its MuJoCo scene supporting it, the robot process's mujoco backend running on it without falling back to `kinematic_teleport`; each configuration on `weld_constraint` (all seven) failing the check with its scene's weld taken out |
 | `test_hot_field_coverage` | the reload classes of the task file's schema against each formulation's parameter updater (T8, `humanoid_mpc_config/README.md`): the centroidal and the whole-body MPC each apply exactly the `RELOAD_HOT` fields they read, neither applies a field only the other formulation, the robot process or the GUI reads, and every applied name is a field of the schema. From the updaters' static field lists: builds no MPC |
 | `test_solve_benchmark_gate` | the real-time gate on synthetic documents: a document passes against itself (one without a toolchain compares its tape counts only), each criterion fails alone, only the libraries both documents count compared one by one, a solve time of another machine, compiler, HPIPM target or image refused while the tape counts still compare; every robot's default recorded states exist |
 | `test_worktree_state` | the provenance's worktree state in throwaway git repositories: untracked contents change it, ignored files do not |

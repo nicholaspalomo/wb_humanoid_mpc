@@ -10,11 +10,14 @@ bazel run //tools/config_dump -- --robot=drc_atlas > before.txt
 bazel run //tools/config_dump -- --robot=drc_atlas | diff before.txt -
 ```
 
-The robots are the five configurations of the closed-loop validation (`RobotConfiguration`): `drc_atlas`,
-`engineai_sa01`, `unitree_g1`, `unitree_r1` (centroidal MPC) and `unitree_g1_wb` (whole-body MPC). Run one robot at a
-time: building an MPC interface loads, or the first time generates and compiles, the robot's CppAD libraries. The tool
-runs in the checkout (`$BUILD_WORKSPACE_DIRECTORY`), so it reads the checkout's files and reuses its `cppad_code_gen/`.
-The dump goes to the standard output; logs and errors go to the standard error.
+<!-- LINT.IfChange(robots) -->
+The robots are the seven configurations of the closed-loop validation (`RobotConfiguration`): `drc_atlas`,
+`engineai_sa01`, `unitree_g1`, `unitree_r1`, the quadruped `anymal_b` (centroidal MPC), `unitree_g1_wb` (whole-body MPC)
+and `unitree_g1_kalman` (`unitree_g1` with the Kalman state estimator).
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations) -->
+Run one robot at a time: building an MPC interface loads, or the first time generates and compiles, the robot's CppAD
+libraries. The tool runs in the checkout (`$BUILD_WORKSPACE_DIRECTORY`), so it reads the checkout's files and reuses its
+`cppad_code_gen/`. The dump goes to the standard output; logs and errors go to the standard error.
 
 ## What is dumped
 

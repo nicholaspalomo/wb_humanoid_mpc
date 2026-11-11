@@ -24,7 +24,7 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-"""Every robot's default stance stands on flat ground, and its MPC contact rectangle lies on the MuJoCo sole.
+"""Every robot's default stance stands on flat ground, and its MPC contacts lie on the MuJoCo feet.
 
 The default posture - the reference file's nom_pos_base_rt_surface_ewrt_world_z and default_joint_state, which the MPC returns to, and
 the task file's initial_state, which it starts from - must put each foot's contact frame on the terrain (z = 0) with the
@@ -40,14 +40,24 @@ from heel to toe, inside the 1 mm.
 The contact rectangle (task file contacts.contact_rectangle, in the contact frame) bounds the center of pressure the MPC
 may plan. The simulated foot touches the ground at its sole spheres only, so the center of pressure it can produce is
 inside the convex hull of their centers; a rectangle reaching beyond it plans a center of pressure the foot cannot hold.
-Each corner must lie inside that hull, and each sphere's bottom on the contact frame's plane (the 1 mm again), on both
-feet of every robot.
+Each corner must lie inside that hull, and each sphere's bottom on the contact frame's plane (the 1 mm again), on every
+6-DoF contact of every robot.
+
+A 3-DoF (point) contact (task file model_settings.contacts_3dof), such as a quadruped's foot, carries a force and no
+moment, so it has no sole to level and no rectangle. Its MuJoCo foot is exactly one sphere in the parent joint's body or
+a body below it, and the sphere's lowest point along the link's z axis (its center minus its radius, in the link frame)
+is the contact frame, within the 1 mm in each axis. A second sphere would be a second contact point the MPC does not
+plan for, and a sphere away from the frame puts the simulated contact where the MPC does not expect it. The contact
+frame stands on the ground in the default stances like a sole's frame; its tilt is not checked.
 
 The forward kinematics are this file's own, of the URDF that Pinocchio loads for the MPC (a contact frame is its parent
-joint's frame translated by contacts.pos_contact_rt_link_ewrt_link, unrotated, as createPinocchioModel() adds it), and the
-spheres are MuJoCo's, of the MJCF the simulator loads; the two frames are checked to coincide first.
+joint's frame translated by its pos_contact_rt_link_ewrt_link, unrotated, as createPinocchioModel() adds it), and the
+spheres are MuJoCo's, of the MJCF the simulator loads; the two frames are checked to coincide first. The contacts are
+read in the MPC's order: model_settings.contacts_3dof, each with its parent_joint_name and pos_contact_rt_link_ewrt_link,
+then the 6-DoF contacts on model_settings.contact_parent_joint_names at the shared contacts.pos_contact_rt_link_ewrt_link.
 """
 
+import dataclasses
 import math
 import os
 import unittest
@@ -69,6 +79,10 @@ FRAME_TOLERANCE_M = 1e-5
 
 # Each robot configuration: its description's URDF and MJCF, and its config directory, relative to robot_models/.
 _ROBOTS = {
+    "anymal_b": (
+        "anybotics_anymal_b/anymal_b_description/urdf/anymal_b",
+        "anybotics_anymal_b/anymal_b_centroidal_mpc/config",
+    ),
     "drc_atlas": (
         "drc_atlas/drc_atlas_description/urdf/atlas",
         "drc_atlas/drc_atlas_centroidal_mpc/config",
@@ -253,18 +267,50 @@ def _load(
     return joints, reference, task
 
 
-def _get_pos_contact_rt_link_ewrt_link(
-    task: task_file_pb2.TaskFile,
-) -> np.ndarray:
-    """Returns contacts.pos_contact_rt_link_ewrt_link, the contact frame in its parent joint's frame [m]."""
-    pos_contact_rt_link_ewrt_link = task.contacts.pos_contact_rt_link_ewrt_link
-    return np.array(
-        [
-            pos_contact_rt_link_ewrt_link.x,
-            pos_contact_rt_link_ewrt_link.y,
-            pos_contact_rt_link_ewrt_link.z,
-        ]
+@dataclasses.dataclass(frozen=True)
+class _Contact:
+    """One contact of the MPC's contact set.
+
+    Attributes:
+        parent_joint: The joint whose frame the contact frame hangs from.
+        pos_contact_rt_link_ewrt_link: The contact frame in its parent joint's frame [m], shape (3,).
+        is_point: Whether it is a 3-DoF (point) contact; otherwise a 6-DoF sole.
+    """
+
+    parent_joint: str
+    pos_contact_rt_link_ewrt_link: np.ndarray
+    is_point: bool
+
+
+def _xyz(xyz) -> np.ndarray:
+    """Returns an Xyz message as an array, shape (3,)."""
+    return np.array([xyz.x, xyz.y, xyz.z])
+
+
+def _contacts(task: task_file_pb2.TaskFile) -> list[_Contact]:
+    """Returns the task file's contacts in the MPC's order: the 3-DoF contacts, then the 6-DoF ones."""
+    contacts = [
+        _Contact(
+            parent_joint=point.parent_joint_name,
+            pos_contact_rt_link_ewrt_link=_xyz(
+                point.pos_contact_rt_link_ewrt_link
+            ),
+            is_point=True,
+        )
+        for point in task.model_settings.contacts_3dof
+    ]
+    pos_contact_rt_link_ewrt_link = _xyz(
+        task.contacts.pos_contact_rt_link_ewrt_link
     )
+    contacts.extend(
+        _Contact(
+            parent_joint=parent,
+            pos_contact_rt_link_ewrt_link=pos_contact_rt_link_ewrt_link,
+            is_point=False,
+        )
+        for parent in task.model_settings.contact_parent_joint_names
+    )
+    return contacts
 
 
 class DefaultStanceTest(unittest.TestCase):
@@ -277,7 +323,7 @@ class DefaultStanceTest(unittest.TestCase):
         pose_base_rt_world: tuple[np.ndarray, np.ndarray],
         joint_positions: dict[str, float],
     ) -> None:
-        """Asserts that both contact frames of `robot` at `pose_base_rt_world` with its joints at `joint_positions` stand.
+        """Asserts that every contact frame of `robot` at `pose_base_rt_world` with its joints at `joint_positions` stands.
 
         Args:
             robot: The robot configuration, a key of _ROBOTS.
@@ -286,29 +332,36 @@ class DefaultStanceTest(unittest.TestCase):
             joint_positions: The joint positions by name; a joint not in it is at zero.
         """
         joints, _, task = _load(robot)
-        pos_contact_rt_link_ewrt_link = _get_pos_contact_rt_link_ewrt_link(task)
-        parents = list(task.model_settings.contact_parent_joint_names)
-        self.assertEqual(len(parents), 2, f"{robot}: two feet")
-        for parent in parents:
+        contacts = _contacts(task)
+        self.assertTrue(contacts, f"{robot}: the task file has no contacts")
+        for contact in contacts:
             pos_link_rt_world_ewrt_world, rotmat_link_rt_world = (
                 _compute_pose_link_rt_world(
-                    joints, parent, pose_base_rt_world, joint_positions
+                    joints,
+                    contact.parent_joint,
+                    pose_base_rt_world,
+                    joint_positions,
                 )
             )
             pos_contact_rt_world_ewrt_world = (
                 pos_link_rt_world_ewrt_world
-                + rotmat_link_rt_world @ pos_contact_rt_link_ewrt_link
+                + rotmat_link_rt_world @ contact.pos_contact_rt_link_ewrt_link
             )
             tiltangle_link_rt_world = math.acos(
                 min(1.0, rotmat_link_rt_world[2, 2])
             )
-            label = f"{robot} {what}, the contact frame on {parent}"
+            label = (
+                f"{robot} {what}, the contact frame on {contact.parent_joint}"
+            )
             self.assertLess(
                 abs(pos_contact_rt_world_ewrt_world[2]),
                 HEIGHT_TOLERANCE_M,
                 f"{label} is {pos_contact_rt_world_ewrt_world[2] * 1000:.2f} mm"
                 " above the ground",
             )
+            # A point contact has no sole to level.
+            if contact.is_point:
+                continue
             self.assertLess(
                 math.degrees(tiltangle_link_rt_world),
                 TILT_TOLERANCE_DEG,
@@ -423,8 +476,77 @@ def _inside(point: np.ndarray, hull: np.ndarray) -> bool:
     )
 
 
+def _subtree(model: mujoco.MjModel, body: int) -> set[int]:
+    """Returns `body` and every body below it."""
+    bodies = {body}
+    for child in range(body + 1, model.nbody):
+        if model.body_parentid[child] in bodies:
+            bodies.add(child)
+    return bodies
+
+
+def _collision_spheres(model: mujoco.MjModel, bodies: set[int]) -> list[int]:
+    """Returns the geoms of `bodies` that are spheres taking part in collisions."""
+    return [
+        geom
+        for geom in range(model.ngeom)
+        if model.geom_bodyid[geom] in bodies
+        and model.geom_type[geom] == mujoco.mjtGeom.mjGEOM_SPHERE
+        and (model.geom_contype[geom] != 0 or model.geom_conaffinity[geom] != 0)
+    ]
+
+
+def _point_contact_violations(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    body: int,
+    pos_contact_rt_link_ewrt_link: np.ndarray,
+) -> list[str]:
+    """Returns why the foot of a point contact on `body` breaks the one-sphere rule (the module docstring), or nothing.
+
+    Args:
+        model: The compiled scene.
+        data: Its kinematics, already computed (mj_kinematics).
+        body: The body of the contact's parent joint.
+        pos_contact_rt_link_ewrt_link: The contact frame in that body's frame [m], shape (3,).
+    """
+    spheres = _collision_spheres(model, _subtree(model, body))
+    if len(spheres) != 1:
+        return [
+            f"{len(spheres)} collision spheres in the body and the bodies below"
+            " it; a point contact's foot is exactly one"
+        ]
+    geom = spheres[0]
+    rotmat_link_rt_world = data.xmat[body].reshape(3, 3)
+    pos_sphere_rt_contact_ewrt_link = (
+        rotmat_link_rt_world.T @ (data.geom_xpos[geom] - data.xpos[body])
+        - pos_contact_rt_link_ewrt_link
+    )
+    # The sphere's lowest point along the link's z axis, relative to the contact frame.
+    err_pos_sphere_rt_contact_ewrt_link = (
+        pos_sphere_rt_contact_ewrt_link
+        - np.array([0.0, 0.0, model.geom_size[geom][0]])
+    )
+    if np.abs(err_pos_sphere_rt_contact_ewrt_link).max() >= HEIGHT_TOLERANCE_M:
+        return [
+            "the sphere's lowest point is"
+            f" {np.round(err_pos_sphere_rt_contact_ewrt_link * 1000, 2).tolist()} mm"
+            " from the contact frame in the link's axes"
+        ]
+    return []
+
+
+# A body on a free joint with a foot below it, for the self-tests of the point-contact rule: {spheres} is replaced by
+# the foot's geoms.
+_POINT_FOOT_MJCF = """<mujoco><worldbody>
+  <body name="shank"><freejoint/><inertial pos="0 0 0" mass="1" diaginertia="0.01 0.01 0.01"/>
+    <geom type="capsule" fromto="0 0 0 0 0 -0.2" size="0.01"/>
+    {spheres}
+  </body></worldbody></mujoco>"""
+
+
 class ContactRectangleTest(unittest.TestCase):
-    """The MPC's contact rectangle of every robot against the MuJoCo soles."""
+    """The MPC's contacts of every robot against the MuJoCo feet: the soles' rectangles and the point feet's spheres."""
 
     def test_the_hull_algorithm_on_a_known_polygon(self):
         hull = _convex_hull(
@@ -439,16 +561,118 @@ class ContactRectangleTest(unittest.TestCase):
         )
         self.assertFalse(_inside(np.array([2.1, 1.0]), hull))
 
-    def test_the_rectangle_is_inside_the_sole_spheres_of_both_feet(self):
+    def _point_violations(self, spheres: str) -> list[str]:
+        """Returns the point-contact rule's findings on _POINT_FOOT_MJCF with `spheres`, the contact at (0, 0, -0.3)."""
+        model = mujoco.MjModel.from_xml_string(
+            _POINT_FOOT_MJCF.format(spheres=spheres)
+        )
+        data = mujoco.MjData(model)
+        mujoco.mj_kinematics(model, data)
+        return _point_contact_violations(
+            model, data, 1, np.array([0.0, 0.0, -0.3])
+        )
+
+    def test_the_point_rule_on_known_feet(self):
+        self.assertEqual(
+            self._point_violations(
+                '<geom type="sphere" size="0.02" pos="0 0 -0.28"/>'
+            ),
+            [],
+            "one sphere whose lowest point is the contact frame",
+        )
+        self.assertEqual(
+            self._point_violations(
+                '<body pos="0 0 -0.1"><geom type="sphere" size="0.02"'
+                ' pos="0 0 -0.18"/></body>'
+            ),
+            [],
+            "the sphere may be in a body below the contact's",
+        )
+        self.assertEqual(
+            self._point_violations(
+                '<geom type="sphere" size="0.02" pos="0 0 -0.28"/>'
+                '<geom type="sphere" size="0.02" pos="0 0 -0.28"'
+                ' contype="0" conaffinity="0"/>'
+            ),
+            [],
+            "a visual sphere takes no part in collisions",
+        )
+        self.assertTrue(
+            self._point_violations(
+                '<geom type="sphere" size="0.02" pos="0 0 -0.28"/>'
+                '<geom type="sphere" size="0.02" pos="0.05 0 -0.28"/>'
+            ),
+            "two spheres are two contact points",
+        )
+        self.assertTrue(
+            self._point_violations(
+                '<geom type="sphere" size="0.02" pos="0 0 -0.278"/>'
+            ),
+            "the lowest point 2 mm above the contact frame",
+        )
+        self.assertTrue(
+            self._point_violations(
+                '<geom type="sphere" size="0.02" pos="0.002 0 -0.28"/>'
+            ),
+            "the lowest point 2 mm beside the contact frame",
+        )
+        self.assertTrue(
+            self._point_violations(""), "a point contact without a sphere"
+        )
+
+    def _assert_sole(
+        self,
+        label: str,
+        model: mujoco.MjModel,
+        body: int,
+        pos_contact_rt_link_ewrt_link: np.ndarray,
+        pos_corners_rt_contact_ewrt_contact_xy: np.ndarray,
+    ) -> None:
+        """Asserts that the sole spheres of a 6-DoF contact on `body` are level and hold the contact rectangle."""
+        spheres = _collision_spheres(model, {body})
+        self.assertGreaterEqual(
+            len(spheres),
+            3,
+            f"{label}: a sole of contact spheres",
+        )
+        pos_spheres_rt_contact_ewrt_link = np.array(
+            [
+                model.geom_pos[geom] - pos_contact_rt_link_ewrt_link
+                for geom in spheres
+            ]
+        )
+        for geom, pos_sphere_rt_contact_ewrt_link in zip(
+            spheres, pos_spheres_rt_contact_ewrt_link
+        ):
+            # The sphere's lowest point: its center's z minus its radius.
+            min_pos_sphere_rt_contact_ewrt_link_z = (
+                pos_sphere_rt_contact_ewrt_link[2] - model.geom_size[geom][0]
+            )
+            self.assertLess(
+                abs(min_pos_sphere_rt_contact_ewrt_link_z),
+                HEIGHT_TOLERANCE_M,
+                f"{label}: a sole sphere's bottom is"
+                f" {min_pos_sphere_rt_contact_ewrt_link_z * 1000:.2f} mm off the contact frame's"
+                " plane",
+            )
+        hull = _convex_hull(pos_spheres_rt_contact_ewrt_link[:, :2])
+        for (
+            pos_corner_rt_contact_ewrt_contact_xy
+        ) in pos_corners_rt_contact_ewrt_contact_xy:
+            self.assertTrue(
+                _inside(pos_corner_rt_contact_ewrt_contact_xy, hull),
+                f"{label}: the contact rectangle's corner"
+                f" {pos_corner_rt_contact_ewrt_contact_xy.tolist()} is outside the sole spheres' hull"
+                f" {np.round(hull, 4).tolist()}",
+            )
+
+    def test_every_contact_lies_on_its_mujoco_foot(self):
         for robot in _ROBOTS:
             joints, _, task = _load(robot)
             _, mjcf, _, _ = _paths(robot)
             model = mujoco.MjModel.from_xml_path(mjcf)
             data = mujoco.MjData(model)
             mujoco.mj_kinematics(model, data)
-            pos_contact_rt_link_ewrt_link = _get_pos_contact_rt_link_ewrt_link(
-                task
-            )
             rectangle = task.contacts.contact_rectangle
             pos_corners_rt_contact_ewrt_contact_xy = np.array(
                 [
@@ -476,7 +700,8 @@ class ContactRectangleTest(unittest.TestCase):
                 data.xpos[root_body].copy(),
                 data.xmat[root_body].reshape(3, 3).copy(),
             )
-            for parent in task.model_settings.contact_parent_joint_names:
+            for contact in _contacts(task):
+                parent = contact.parent_joint
                 joint = mujoco.mj_name2id(
                     model, mujoco.mjtObj.mjOBJ_JOINT, parent
                 )
@@ -507,52 +732,25 @@ class ContactRectangleTest(unittest.TestCase):
                     FRAME_TOLERANCE_M,
                     f"{robot} {parent}: frame rotation",
                 )
-                spheres = [
-                    geom
-                    for geom in range(model.ngeom)
-                    if model.geom_bodyid[geom] == body
-                    and model.geom_type[geom] == mujoco.mjtGeom.mjGEOM_SPHERE
-                    and (
-                        model.geom_contype[geom] != 0
-                        or model.geom_conaffinity[geom] != 0
+                if contact.is_point:
+                    self.assertEqual(
+                        _point_contact_violations(
+                            model,
+                            data,
+                            body,
+                            contact.pos_contact_rt_link_ewrt_link,
+                        ),
+                        [],
+                        f"{robot} {parent}: the point contact's foot",
                     )
-                ]
-                self.assertGreaterEqual(
-                    len(spheres),
-                    3,
-                    f"{robot} {parent}: a sole of contact spheres",
+                    continue
+                self._assert_sole(
+                    f"{robot} {parent}",
+                    model,
+                    body,
+                    contact.pos_contact_rt_link_ewrt_link,
+                    pos_corners_rt_contact_ewrt_contact_xy,
                 )
-                pos_spheres_rt_contact_ewrt_link = np.array(
-                    [
-                        model.geom_pos[geom] - pos_contact_rt_link_ewrt_link
-                        for geom in spheres
-                    ]
-                )
-                for geom, pos_sphere_rt_contact_ewrt_link in zip(
-                    spheres, pos_spheres_rt_contact_ewrt_link
-                ):
-                    # The sphere's lowest point: its center's z minus its radius.
-                    min_pos_sphere_rt_contact_ewrt_link_z = (
-                        pos_sphere_rt_contact_ewrt_link[2]
-                        - model.geom_size[geom][0]
-                    )
-                    self.assertLess(
-                        abs(min_pos_sphere_rt_contact_ewrt_link_z),
-                        HEIGHT_TOLERANCE_M,
-                        f"{robot} {parent}: a sole sphere's bottom is"
-                        f" {min_pos_sphere_rt_contact_ewrt_link_z * 1000:.2f} mm off the contact frame's"
-                        " plane",
-                    )
-                hull = _convex_hull(pos_spheres_rt_contact_ewrt_link[:, :2])
-                for (
-                    pos_corner_rt_contact_ewrt_contact_xy
-                ) in pos_corners_rt_contact_ewrt_contact_xy:
-                    self.assertTrue(
-                        _inside(pos_corner_rt_contact_ewrt_contact_xy, hull),
-                        f"{robot} {parent}: the contact rectangle's corner"
-                        f" {pos_corner_rt_contact_ewrt_contact_xy.tolist()} is outside the sole spheres' hull"
-                        f" {np.round(hull, 4).tolist()}",
-                    )
 
 
 if __name__ == "__main__":

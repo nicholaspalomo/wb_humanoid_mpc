@@ -54,6 +54,23 @@ constexpr char kContactPlanningFile[] = "contact_planning.textproto";
 
 constexpr char kGaitFile[] =
     "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto";
+// The quadrupeds' gait file, the gait_file of their launch files.
+// LINT.IfChange(quadruped_gait_file)
+constexpr char kQuadrupedGaitFile[] =
+    "humanoid_nmpc/humanoid_common_mpc/config/command/quadruped_gait.textproto";
+// LINT.ThenChange(//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/launch/mpc.textproto:gait_file, //robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/launch/dummy_sim.textproto:gait_file)
+
+/**
+ * Returns `configuration` on the quadruped gait file (kQuadrupedGaitFile),
+ * running standing, walk_0p5 and turn_in_place_720 only: the other scenarios
+ * (stepping, side steps, pushes and the walk_0p3 the slower bipeds use) are
+ * tuned for the bipeds' gaits.
+ */
+RobotConfiguration onQuadrupedGait(RobotConfiguration configuration) {
+  configuration.gaitFile = kQuadrupedGaitFile;
+  configuration.scenarios = {"standing", "walk_0p5", "turn_in_place_720"};
+  return configuration;
+}
 
 /** A configuration whose MPC package keeps its files in `configDir`
  * (config/mpc, config/command, config/controller). */
@@ -136,6 +153,14 @@ std::vector<RobotConfiguration> makeConfigurations() {
           "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf",
           "robot_models/unitree_r1/unitree_r1_description/urdf/R1.xml",
           /*walkingScenario=*/"walk_0p3"),
+      onQuadrupedGait(makeConfiguration(
+          "anymal_b", MpcFormulation::kCentroidal,
+          "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config",
+          "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
+          "anymal_b.urdf",
+          "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
+          "anymal_b.xml",
+          /*walkingScenario=*/"walk_0p5")),
       makeConfiguration(
           "unitree_g1_wb", MpcFormulation::kWholeBody,
           "robot_models/unitree_g1/g1_wb_mpc/config",

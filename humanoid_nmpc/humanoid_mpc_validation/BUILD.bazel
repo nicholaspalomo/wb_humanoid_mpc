@@ -410,6 +410,8 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     # The launch files whose robot files the configurations must name (RobotConfiguration.cpp).
     data = [
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc:launch/mpc.textproto",
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc:launch/robot.textproto",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/mpc.textproto",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/robot.textproto",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc:launch/mpc.textproto",
@@ -631,6 +633,10 @@ cc_test(
 # The files each configuration runs on (RobotConfiguration.cpp).
 # LINT.IfChange(robot_configurations)
 _ROBOT_DATA = {
+    "anymal_b": [
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
+    ],
     "drc_atlas": [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
@@ -661,6 +667,12 @@ _ROBOT_DATA = {
 # The state-estimator variants (RobotConfiguration::isStateEstimatorVariant()) run another configuration's MPC on the
 # same files: the solve benchmark of that MPC is the other configuration's, so they get no benchmark_mpc_solve_ test.
 _STATE_ESTIMATOR_VARIANTS = ["unitree_g1_kalman"]
+
+# The gait files the configurations name (RobotConfiguration::gaitFile): the bipeds' and the quadrupeds'.
+_GAIT_CONFIGS = [
+    "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+    "//humanoid_nmpc/humanoid_common_mpc:quadruped_gait_config",
+]
 # LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations)
 
 # The GUI's command scaling of every configuration's reference file and the contact wrench gate of its task file's
@@ -764,7 +776,7 @@ _CLOSED_LOOP_SCENARIOS_DEPS = [
         srcs = ["test/closedLoopScenarios.cpp"],
         args = ["--robot=" + robot],
         copts = FIRST_PARTY_COPTS,
-        data = data + ["//humanoid_nmpc/humanoid_common_mpc:gait_config"] + _CLOSED_LOOP_RECORDINGS,
+        data = data + _GAIT_CONFIGS + _CLOSED_LOOP_RECORDINGS,
         tags = [
             "exclusive",
             "manual",
@@ -782,9 +794,7 @@ cc_binary(
     testonly = True,
     srcs = ["test/closedLoopScenarios.cpp"],
     copts = FIRST_PARTY_COPTS,
-    data = [
-        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
-    ] + _CLOSED_LOOP_RECORDINGS + sorted({file: None for files in _ROBOT_DATA.values() for file in files}.keys()),
+    data = _GAIT_CONFIGS + _CLOSED_LOOP_RECORDINGS + sorted({file: None for files in _ROBOT_DATA.values() for file in files}.keys()),
     deps = _CLOSED_LOOP_SCENARIOS_DEPS,
 )
 
@@ -827,9 +837,7 @@ cc_binary(
     testonly = True,
     srcs = ["exe/benchmarkMpcSolveMain.cpp"],
     copts = FIRST_PARTY_COPTS,
-    data = [
-        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
-    ] + glob(
+    data = _GAIT_CONFIGS + glob(
         [
             "data/benchmark/**/*.json",
             "data/benchmark/states/*.txt",
@@ -865,9 +873,7 @@ cc_binary(
         srcs = ["exe/benchmarkMpcSolveMain.cpp"],
         args = ["--robot=" + robot],
         copts = FIRST_PARTY_COPTS,
-        data = data + [
-            "//humanoid_nmpc/humanoid_common_mpc:gait_config",
-        ] + glob(
+        data = data + _GAIT_CONFIGS + glob(
             [
                 "data/benchmark/**/*.json",
                 "data/benchmark/states/*.txt",
