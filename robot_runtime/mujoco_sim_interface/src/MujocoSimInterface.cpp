@@ -58,6 +58,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/PhysicalConstants.h"
 
+#include "mujoco_sim_interface/BaseAccelerometer.h"
 #include "mujoco_sim_interface/MujocoContactPatch.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/Projectile.h"
@@ -451,6 +452,12 @@ absl::Status MujocoSimInterface::checkConfigNumbers(
         "sim_ragdoll_joint_damping must be non-negative and finite, got ",
         config.ragdollJointDamping, " N m s/rad"));
   }
+  if (!(config.accelerometerWindow >= 0.0) ||
+      !std::isfinite(config.accelerometerWindow)) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "the accelerometer window must be non-negative and finite, got ",
+        config.accelerometerWindow, " s"));
+  }
   if (!std::isfinite(config.autoResetMinPosBaseRtWorldEwrtWorldZ)) {
     return absl::InvalidArgumentError(
         absl::StrCat("sim_auto_reset_min_pos_base_rt_world_ewrt_world_z must "
@@ -492,6 +499,8 @@ MujocoSimInterface::MujocoSimInterface(
       robotStateInternal_(
           model::RobotState(this->getRobotDescription(),
                             /*contactSize=*/publishedContactSize(config))),
+      accelerometer_(BaseAccelerometer::windowStepsFor(
+          config.accelerometerWindow, config.dt)),
       robotJointActionInternal_(
           model::RobotJointAction(this->getRobotDescription())),
       timeStepMicro_(
@@ -702,6 +711,7 @@ void MujocoSimInterface::reset() {
   std::copy(initialQpos_.begin(), initialQpos_.end(), mujocoData_->qpos);
   std::copy(initialQvel_.begin(), initialQvel_.end(), mujocoData_->qvel);
   mj_forward(mujocoModel_.get(), mujocoData_.get());
+  restartAccelerometer();
   lastBadStateWarnings_ = 0;
   gantryWeldAnchored_ = false;
   resetEpoch_.fetch_add(1);
@@ -755,6 +765,7 @@ void MujocoSimInterface::setBaseStateForTesting(
   }
   for (int i = 0; i < kMjFreeJointDofs; ++i) mujocoData_->qvel[i] = baseQvel[i];
   mj_forward(mujocoModel_.get(), mujocoData_.get());
+  restartAccelerometer();
 }
 
 /******************************************************************************************************/
@@ -893,6 +904,14 @@ void MujocoSimInterface::setSimState(const model::RobotState& robotState) {
     mujocoData_->qvel[joint.dofAddress] =
         robotState.getJointVelocity(joint.robotJoint);
   }
+  restartAccelerometer();
+}
+
+void MujocoSimInterface::restartAccelerometer() {
+  accelerometer_.restart(
+      mujocoData_->time,
+      vector3_t(mujocoData_->qvel[kXAxisIndex], mujocoData_->qvel[kYAxisIndex],
+                mujocoData_->qvel[kZAxisIndex]));
 }
 
 /******************************************************************************************************/
@@ -938,19 +957,21 @@ void MujocoSimInterface::updateThreadSafeRobotState() {
   robotStateInternal_.setQuatBaseRtWorld(quat_base_rt_world);
   // Rotate the linear velocity from the world frame into the base frame; the
   // angular one is in the base frame already.
+  const vector3_t linvelBaseRtWorldEwrtWorld(mujocoData_->qvel[kXAxisIndex],
+                                             mujocoData_->qvel[kYAxisIndex],
+                                             mujocoData_->qvel[kZAxisIndex]);
   robotStateInternal_.setLinvelBaseRtWorldEwrtBase(
-      quat_base_rt_world.inverse() * vector3_t(mujocoData_->qvel[kXAxisIndex],
-                                               mujocoData_->qvel[kYAxisIndex],
-                                               mujocoData_->qvel[kZAxisIndex]));
+      quat_base_rt_world.inverse() * linvelBaseRtWorldEwrtWorld);
   robotStateInternal_.setAngvelBaseRtWorldEwrtBase(angvelBaseRtWorldEwrtBase);
   // The base's accelerometer: the specific force R^T (a - g) of its origin in
-  // its own frame, a the free joint's linear acceleration of the last step in
-  // the world frame (qacc, the derivative of the world-frame qvel above) and g
-  // the model's gravity. The input of the robot process's `kalman` state
-  // estimator.
-  const vector3_t linaccBaseRtWorldEwrtWorld(mujocoData_->qacc[kXAxisIndex],
-                                             mujocoData_->qacc[kYAxisIndex],
-                                             mujocoData_->qacc[kZAxisIndex]);
+  // its own frame, a the mean world-frame acceleration of the free joint over
+  // the accelerometer's window (the change of the world-frame qvel above,
+  // BaseAccelerometer; not qacc, which leaves out the joint damping MuJoCo
+  // integrates implicitly) and g the model's gravity. The input of the robot
+  // process's `kalman` state estimator.
+  accelerometer_.record(mujocoData_->time, linvelBaseRtWorldEwrtWorld);
+  const vector3_t linaccBaseRtWorldEwrtWorld =
+      accelerometer_.linaccBaseRtWorldEwrtWorld();
   const vector3_t gravityEwrtWorld(mujocoModel_->opt.gravity[kXAxisIndex],
                                    mujocoModel_->opt.gravity[kYAxisIndex],
                                    mujocoModel_->opt.gravity[kZAxisIndex]);

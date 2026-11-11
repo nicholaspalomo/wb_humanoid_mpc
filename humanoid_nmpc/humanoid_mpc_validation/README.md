@@ -176,15 +176,15 @@ is an improvement; a run that fell in the baseline is compared on survival alone
 in the baseline is not compared; one that the baseline measured and the candidate did not (null, or NaN in a run's
 document still in memory) fails, since no band can hold a value that is not there.
 
-A state-estimator variant (`unitree_g1_kalman`, below) is held to the run of the configuration it varies, within its
-own bands (`closedLoopMetricBandsFor()`): the defaults but for the tilt, 0.04 rad, and the stance-foot slip, 0.2 m.
+A state-estimator variant (`unitree_g1_kalman`, below) is held to the run of the configuration it varies, within the
+same default bands (`closedLoopMetricBandsFor()`).
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/MetricBands.h:metric_bands) -->
 
 One requirement needs no baseline: a configuration survives its walking scenario (`RobotConfiguration::walkingScenario`,
 `walk_0p5`, or `walk_0p3` for SA01 and R1; `walk_0p5` for ANYmal B). A run of it that falls fails the closed-loop test after its documents are
 written (`walkingSurvivalViolation()`), and the comparison with a baseline, run or archived, lists the fall as a
-violation even where the baseline fell too. A state-estimator variant is exempt: its baseline is the run of the
-configuration it varies, and a fall where that run survived already fails its comparison.
+violation even where the baseline fell too. A state-estimator variant is held to it as well: `unitree_g1_kalman` must
+survive `walk_0p5`.
 
 ## The kalman variant
 
@@ -197,25 +197,35 @@ base position and linear velocity. It runs `standing`, `walk_0p5` and `turn_in_p
 earlier kalman runs, so the comparison measures what the estimator costs. It has no solve benchmark and is not one of
 the MPC equivalence configurations: the estimator does not change the MPC.
 
-Its bands were set from its first run, label `2026-11-07_kalman_variant` (`data/closed_loop/2026-11-07_kalman_variant/`),
-against `unitree_g1`'s runs of the same label:
+Label `2026-11-11_g1_kalman` (`data/closed_loop/2026-11-11_g1_kalman/`, [README](data/closed_loop/2026-11-11_g1_kalman/README.md))
+holds both configurations' runs on the damped G1 scene. `unitree_g1_kalman` survives all three scenarios and is within
+`unitree_g1`'s default bands in each:
 
-| Metric | ground truth | kalman | Band |
+| Metric | standing: ground truth / kalman | walk_0p5 | turn_in_place_720 |
 |---|---|---|---|
-| `base_height.mean_m` (standing) | 0.7908 m | 0.7891 m | 5 mm (default) |
-| `base_height.rms_error_m` | 0.3 mm | 2.0 mm | 5 mm (default) |
-| `tilt.rms_rad`, `tilt.max_rad` | 0.0014, 0.0016 rad | 0.0280, 0.0301 rad | 0.04 rad |
-| `velocity.rms_error_mps` | 1.2 mm/s | 1.8 mm/s | default |
-| `yaw_rate.rms_error_radps` | 0.5 mrad/s | 4.3 mrad/s | default |
-| `stance_foot_slip.max_m` | 1e-7 m | 0.153 m | 0.2 m |
+| survived | yes / yes | yes / yes | yes / yes |
+| `base_height.mean_m` | 0.7907 / 0.7907 | 0.7446 / 0.7454 | 0.7649 / 0.7667 |
+| `base_height.rms_error_m` | 0.0004 / 0.0004 | 0.0499 / 0.0490 | 0.0270 / 0.0252 |
+| `tilt.rms_rad` | 0.0002 / 0.0002 | 0.0936 / 0.0906 | 0.0458 / 0.0462 |
+| `tilt.max_rad` | 0.0009 / 0.0009 | 0.1454 / 0.1499 | 0.0898 / 0.0920 |
+| `velocity.rms_error_mps` | 0.0005 / 0.0005 | 0.3776 / 0.3793 | 0.1312 / 0.1326 |
+| `yaw_rate.rms_error_radps` | 0.0000 / 0.0000 | 0.7707 / 0.7879 | 0.5005 / 0.5002 |
+| `stance_foot_slip.max_m` | 1e-7 / 1.2e-5 | 0.0045 / 0.0028 | 0.0027 / 0.0025 |
 
-The slip is read from the controller's observation, so on this variant it is the drift of the estimated horizontal base
-position (the feet did not move); the leaning follows the estimate. In that run both configurations fell while walking
-and turning, so those runs are compared on survival alone: `unitree_g1` fell 12.2 s into `walk_0p5` and 52.1 s into
-`turn_in_place_720` (tilt past 1 rad), `unitree_g1_kalman` 1.9 s and 1.6 s into them (the base below half its height).
-The ground-truth falls came from the simulator, not the MPC: the G1's MJCF declared no joint damping once the simulator
-stopped giving every joint 10 N m s/rad (082971a6), and the explicit 2 kHz PD drove each swing foot's ankle roll between
-its limits. With that damping in the MJCF, `unitree_g1` survives all three (label `2026-11-08_g1_fall_fix`).
+The slip is read from the controller's observation, so on this variant it includes the drift of the estimated
+horizontal base position, which the IMU and the leg kinematics cannot observe.
+
+The first runs (label `2026-11-07_kalman_variant`) drifted 0.15 m in 10 s of standing and fell 1.9 s into walking and
+turning. Two simulator faults caused it, not the filter. That scene had no joint damping, and the ankle rolls oscillated
+in step with the 2 kHz physics. The accelerometer then reported MuJoCo's `qacc` of the last step only, read once every 20
+steps by the 100 Hz cycle, so it sampled the oscillation at the same phase every cycle: a steady 4.5 m/s^2 the base did
+not have, which the filter turned into a 0.12 m/s velocity error. With the damping restored (c877a515) the standing drift
+went, but the single-step reading still aliased the contact transients of walking (1.6 to 3.2 m/s^2 of noise per
+reading), and `unitree_g1_kalman` fell 33 s into `turn_in_place_720`. Since 2026-11-11 the accelerometer reads the mean
+acceleration over the control period (`MujocoSimConfig::accelerometerWindow`, robot_runtime/mujoco_sim_interface
+README), the change of velocity the integrator applied. In `walk_0p5` the RMS error of the estimated base velocity
+dropped from 1.7, 2.7 and 2.2 cm/s (x, y, z) to 0.5, 0.7 and 1.2 cm/s, and the estimated position ended 1.5 mm from
+the true one instead of 2.2 cm.
 
 ## ANYmal B
 
@@ -235,9 +245,10 @@ CANDIDATE=2026-11-10_anymal_b BASELINE=2026-11-10_anymal_b ROBOT=anymal_b` passe
 
 A label is a directory of documents, one per run: `make closed-loop-metrics ROBOT=<robot> LABEL=<label>` writes
 `data/closed_loop/<label>/<robot>_<scenario>.json`, and `make benchmark-mpc-solve ROBOT=<robot> LABEL=<label>` writes
-`data/benchmark/<label>/<robot>_solve_benchmark.json`. Three labels are checked in: `2026-11-07_kalman_variant`, the
-run the kalman variant's bands were set from; `2026-11-08_g1_fall_fix`, `unitree_g1` surviving all three of those
-scenarios once its MJCF had joint damping; and `2026-11-10_anymal_b`, the first runs of ANYmal B. Otherwise record a
+`data/benchmark/<label>/<robot>_solve_benchmark.json`. Four labels are checked in: `2026-11-07_kalman_variant`, the
+kalman variant's first runs, on the undamped G1 scene; `2026-11-08_g1_fall_fix`, `unitree_g1` surviving all three of
+those scenarios once its MJCF had joint damping; `2026-11-10_anymal_b`, the first runs of ANYmal B; and
+`2026-11-11_g1_kalman`, `unitree_g1` and `unitree_g1_kalman` on the damped scene with the cycle-mean accelerometer. Otherwise record a
 baseline on the code to compare against and a candidate on the change, on the same machine and container image, and give each label a README saying
 what it ran (the commit and the worktree state are in every document's provenance) and, for a candidate, the
 improvements its comparison found. Only the metrics documents are copied into the label; the time series and the

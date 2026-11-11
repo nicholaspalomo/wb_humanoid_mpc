@@ -15,6 +15,17 @@ refuses.
 `initSim()` starts the viewer that `MujocoSimConfig::viewer` names (see [Viewers](#viewers)) on threads of its own, and
 `viewerStatus()` says whether it did.
 
+## The accelerometer
+
+Every published state carries the base's specific force, `R^T (a - g)` at the free joint's origin in the base frame
+(`RobotState::getSpecforceBaseRtWorldEwrtBase()`, the input of the `kalman` state estimator). `a` is the mean
+acceleration of the base over the last `round(accelerometerWindow / dt)` physics steps, at least one, taken from the
+change of the free joint's world velocity over them (`BaseAccelerometer`). MuJoCo's `qacc` would not do: it leaves out
+the joint damping the integrator applies implicitly, and a single step read once per control cycle aliases the contact
+transients of the steps between readings (20 at 2 kHz and a 100 Hz cycle). The robot backend sets the window to the robot process's control period
+(`RobotBackendOptions::controlPeriod`), so the reading a cycle takes is the velocity change of that cycle. A reset or a
+state set by hand restarts the window.
+
 ## Viewers
 
 A viewer only displays the simulation: nothing it receives (keys, mouse, or browser requests) reaches the physics,

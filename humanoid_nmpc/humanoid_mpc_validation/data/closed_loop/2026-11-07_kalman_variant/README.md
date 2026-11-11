@@ -14,3 +14,7 @@ make closed-loop-metrics ROBOT=unitree_g1_kalman LABEL=2026-11-07_kalman_variant
 (RMS 0.0280 against 0.0014 rad) and in stance-foot slip (0.153 m against 1e-7 m: the drift of the estimated base
 position, since the metric reads the controller's observation); the other metrics are within the default bands. The
 walking and turning runs are compared on survival alone, since the baseline fell.
+
+These bands are retired: label `2026-11-11_g1_kalman` holds the variant to the default bands, after two simulator
+faults behind this run's drift were found and fixed (the missing joint damping, and an accelerometer that reported a
+single step's `qacc` once per control cycle; see that label's README).

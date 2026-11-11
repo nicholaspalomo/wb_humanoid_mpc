@@ -80,11 +80,10 @@ const std::vector<MetricBand>& closedLoopMetricBands();
 
 /**
  * Returns the bands a run of `configuration` is held to:
- * closedLoopMetricBands(), but for a state-estimator variant, whose bands
- * around the documents of the configuration it varies
- * (RobotConfiguration::baselineConfiguration) allow for what the estimator
- * costs: unitree_g1_kalman's, set from its first run against unitree_g1
- * (MetricBands.cpp gives each band's measured difference).
+ * closedLoopMetricBands() for every configuration. A state-estimator variant
+ * is held by them to the documents of the configuration it varies
+ * (RobotConfiguration::baselineConfiguration): unitree_g1_kalman to
+ * unitree_g1's, which it is within (label 2026-11-11_g1_kalman).
  */
 const std::vector<MetricBand>& closedLoopMetricBandsFor(
     const RobotConfiguration& configuration);
@@ -143,10 +142,9 @@ ClosedLoopComparison compareClosedLoopMetrics(const JsonValue& candidate,
  * solve benchmark replays. `metrics` is the document of the run of `scenario`
  * by `configuration`. The sentence starts with "survival", as the violations of
  * compareClosedLoopMetrics() start with their path; std::nullopt when the run
- * survived, when `scenario` is not the walking scenario, and for a
- * state-estimator variant, which is held to the documents of the configuration
- * it varies instead (compareClosedLoopMetrics() fails a fall where that
- * baseline survived). The closed-loop test fails such a run whether or not it
+ * survived and when `scenario` is not the walking scenario. A state-estimator
+ * variant is held to it too (unitree_g1_kalman walks walk_0p5 as unitree_g1
+ * does). The closed-loop test fails such a run whether or not it
  * has a baseline, and adds the sentence to its comparison when it has one, as
  * compareArchivedClosedLoopRuns() does, so the two verdicts stay the same.
  */

@@ -282,6 +282,7 @@ TEST(MujocoRobotBackend, TheSimulatorConfigurationComesFromTheOptions) {
   options.simulator.projectile = "dodgeball";
   options.simulator.ragdollJointDamping = 12.5;
   options.simulator.autoResetMinPosBaseRtWorldEwrtWorldZ = 0.3;
+  options.controlPeriod = 0.01;
   absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> config =
       MujocoRobotBackend::makeConfig(options);
   ASSERT_TRUE(config.ok()) << config.status();
@@ -294,6 +295,8 @@ TEST(MujocoRobotBackend, TheSimulatorConfigurationComesFromTheOptions) {
   EXPECT_EQ(config->projectile, "dodgeball");
   EXPECT_DOUBLE_EQ(config->ragdollJointDamping, 12.5);
   EXPECT_DOUBLE_EQ(config->autoResetMinPosBaseRtWorldEwrtWorldZ, 0.3);
+  // The accelerometer reads the mean over the robot process's control period.
+  EXPECT_DOUBLE_EQ(config->accelerometerWindow, 0.01);
   EXPECT_TRUE(config->visualizations.empty());
   if (!config->initialState.has_value()) {
     FAIL() << "the task file sets an initial state";

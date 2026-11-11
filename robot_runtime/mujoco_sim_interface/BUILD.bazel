@@ -50,6 +50,7 @@ cc_library(
 cc_library(
     name = "mujoco_sim_interface",
     srcs = [
+        "src/BaseAccelerometer.cpp",
         "src/MujocoContactUtils.cpp",
         "src/MjRuntimeModelFields.cpp",
         "src/Projectile.cpp",
@@ -116,6 +117,23 @@ cc_library(
         "@urdf",
         "@glfw",
         "@glew",
+    ],
+)
+
+# The accelerometer's mean acceleration over its window: one step, a window of steps, a start with fewer samples, a
+# restart, a state published again without a step, and no allocation once built.
+cc_test(
+    name = "test_base_accelerometer",
+    size = "small",
+    srcs = ["test/testBaseAccelerometer.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    linkstatic = True,  # the allocation counter interposes malloc in the executable
+    deps = [
+        ":mujoco_sim_interface",
+        "//robot_runtime/robot_core",
+        "//robot_runtime/robot_realtime:allocation_counter",
+        "@eigen",
+        "@googletest//:gtest_main",
     ],
 )
 

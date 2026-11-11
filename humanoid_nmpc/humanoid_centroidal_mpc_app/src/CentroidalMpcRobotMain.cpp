@@ -341,6 +341,11 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options,
   LOG(INFO) << "initState: "
             << initState.getPosBaseRtWorldEwrtWorld().transpose();
 
+  // [Hz] The robot process's control rate.
+  const scalar_t controlFrequency =
+      models.mpcSettings().mrtDesiredFrequency_ > 0.0
+          ? models.mpcSettings().mrtDesiredFrequency_
+          : kMrtFallbackControlFrequency;
   // LINT.IfChange(robot_backend_options)
   RobotBackendOptions backendOptions;
   backendOptions.robotName = options.robotName;
@@ -354,6 +359,7 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options,
   backendOptions.contactPatchCorners =
       targetContactPatchCorners(models.config(), modelSettings);
   backendOptions.simulator = settings.simulator;
+  backendOptions.controlPeriod = 1.0 / controlFrequency;
   backendOptions.viewer = options.viewer;
   // clang-format off
   // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/ClosedLoopDriver.cpp:robot_backend_options, //humanoid_nmpc/humanoid_wb_mpc_app/src/WBMpcRobotMain.cpp:robot_backend_options)
@@ -409,8 +415,6 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options,
                    createController(robotDescription, models, linkFactory,
                                     files.pdGainsFile, settings));
 
-  const scalar_t mrtDesiredFrequency =
-      models.mpcSettings().mrtDesiredFrequency_;
   ASSIGN_OR_RETURN(
       const std::optional<multi_contact::config::MultiContactPlan> plan,
       trackedMultiContactPlan(configuration.files));
@@ -418,9 +422,7 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options,
       RobotProcess::Config config,
       robotProcessConfig(options, directory, configuration, modelSettings,
                          plan.has_value() ? &*plan : nullptr));
-  config.controlFrequency = mrtDesiredFrequency > 0.0
-                                ? mrtDesiredFrequency
-                                : kMrtFallbackControlFrequency;
+  config.controlFrequency = controlFrequency;
   config.initialState.emplace(initState);
   // Whether a caught robot is at rest is judged on the joints of the MPC model:
   // the ones JOINT_PD brings to the nominal posture and the MPC starts from.

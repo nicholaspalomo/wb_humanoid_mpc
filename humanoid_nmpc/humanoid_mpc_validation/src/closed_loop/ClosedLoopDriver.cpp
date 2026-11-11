@@ -139,6 +139,8 @@ ClosedLoopDriver::simulatorConfig() const {
       modelSettings_->contactParentJointNamesInContactOrder();
   options.numPointContacts = modelSettings_->contactNames3DoF.size();
   options.simulator = settings_.simulator;
+  // Positive: init() refuses a task file without mpc.mrt_desired_frequency.
+  options.controlPeriod = 1.0 / mrtFrequency_;
   options.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
   // clang-format off
   // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcRobotMain.cpp:robot_backend_options, //humanoid_nmpc/humanoid_wb_mpc_app/src/WBMpcRobotMain.cpp:robot_backend_options)

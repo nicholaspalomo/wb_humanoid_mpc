@@ -196,40 +196,6 @@ absl::StatusOr<ClosedLoopComparison> compareArchivedRun(
   return comparison;
 }
 
-// The kalman variant's bands that differ from closedLoopMetricBands(), from
-// its first run against unitree_g1 (label 2026-11-07_kalman_variant,
-// README.md). Only standing is compared there: unitree_g1 itself fell in
-// walk_0p5 and turn_in_place_720, which are compared on survival alone.
-/** [rad] Tilt, RMS and maximum: kalman 0.0280 and 0.0301 against 0.0014 and
- * 0.0016 standing, worse by 0.0266 and 0.0284. The MPC stabilizes the posture
- * about the estimated base position, which drifts from the true one, so the
- * robot leans to follow it. */
-constexpr double kKalmanTiltBand = 0.04;
-/** [m] Stance-foot slip: the metric reads the contact points from the
- * controller's observation, so on this variant it measures the drift of the
- * estimated base position, 0.153 m over the 10 s of standing (against 1e-7 m
- * with ground truth) while the feet stayed put; the absolute horizontal
- * position is not observable from the IMU and the leg kinematics. */
-constexpr double kKalmanSlipBand = 0.2;
-
-/**
- * unitree_g1_kalman's bands around unitree_g1's documents. The height, the
- * velocity and the yaw rate stayed within the default bands (standing: the
- * height mean 1.7 mm lower, its RMS error 1.7 mm worse, the velocity error
- * 0.6 mm/s and the yaw-rate error 3.8 mrad/s worse), so they keep them.
- */
-std::vector<MetricBand> kalmanVariantBands() {
-  std::vector<MetricBand> bands = closedLoopMetricBands();
-  for (MetricBand& band : bands) {
-    if (band.path == "tilt.rms_rad" || band.path == "tilt.max_rad") {
-      band.absolute = kKalmanTiltBand;
-    } else if (band.path == "stance_foot_slip.max_m") {
-      band.absolute = kKalmanSlipBand;
-    }
-  }
-  return bands;
-}
-
 }  // namespace
 
 const std::vector<MetricBand>& closedLoopMetricBands() {
@@ -268,10 +234,11 @@ const std::vector<MetricBand>& closedLoopMetricBands() {
 }
 
 const std::vector<MetricBand>& closedLoopMetricBandsFor(
-    const RobotConfiguration& configuration) {
-  static const absl::NoDestructor<std::vector<MetricBand>> kKalmanBands(
-      kalmanVariantBands());
-  if (configuration.isStateEstimatorVariant()) return *kKalmanBands;
+    const RobotConfiguration& /*configuration*/) {
+  // Every configuration, the kalman variant included: since the simulator's
+  // accelerometer reads the mean over the control cycle (label
+  // 2026-11-11_g1_kalman), unitree_g1_kalman is within the default bands of
+  // unitree_g1 in all three of its scenarios.
   return closedLoopMetricBands();
 }
 
@@ -358,8 +325,7 @@ std::optional<std::string> walkingSurvivalViolation(
     const RobotConfiguration& configuration,
     absl::string_view scenario,
     const JsonValue& metrics) {
-  if (configuration.isStateEstimatorVariant() ||
-      scenario != configuration.walkingScenario || survivedIn(metrics)) {
+  if (scenario != configuration.walkingScenario || survivedIn(metrics)) {
     return std::nullopt;
   }
   return absl::StrCat("survival: ", configuration.name, " fell in ", scenario,

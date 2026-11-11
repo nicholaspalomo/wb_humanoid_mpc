@@ -103,6 +103,12 @@ struct RobotBackendOptions {
   std::vector<robot::mujoco_sim_interface::ContactPatchCorners>
       contactPatchCorners;
   SimulatorSettings simulator;
+  /** [s] The robot process's control period, 1 / mpc.mrt_desired_frequency:
+   * the window of the simulator's accelerometer
+   * (MujocoSimConfig::accelerometerWindow), so that the specific force a cycle
+   * reads is the mean over the cycle. 0: the last physics step's. A hardware
+   * backend ignores it. */
+  double controlPeriod = 0.0;
   /**
    * The simulator's viewer by name, in order of preference, and the web
    * viewer's options (--viewer, --web_viewer_*,

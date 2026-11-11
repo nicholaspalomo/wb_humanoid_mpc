@@ -1,0 +1,156 @@
+{
+  "schema": "humanoid_mpc_validation.closed_loop_metrics.v2",
+  "label": "2026-11-11_g1_kalman",
+  "robot": "unitree_g1_kalman",
+  "formulation": "centroidal",
+  "scenario": "walk_0p5",
+  "provenance": {
+    "git_commit": "a0c28bfbfd6192645014072645c4374ac31fd36a",
+    "worktree_state": "21 changed paths, diff sha256 0e715c12e0eb13a9",
+    "machine": "Intel(R) Core(TM) Ultra 7 265K, 20 logical cores, 30.2 GiB",
+    "toolchain": {
+      "compiler": "13.3.0",
+      "hpipm_target": "GENERIC",
+      "container_image": "unknown"
+    },
+    "configuration_sha256": {
+      "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto": "86b53ec3cfb21cdb3866da1f6945c4d5fc6125293004b93ecbcd56eb4f84ca6d",
+      "robot_models/unitree_g1/g1_centroidal_mpc/config/command/reference.textproto": "bcc63f6b0994599720be253152764a6d86877e7ded6be7144a3f241c5c9fce29",
+      "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto": "656f852101595179bec1c5959eabb12e25407cac2b2ed0bb0fed4fdfa3acca47",
+      "robot_models/unitree_g1/g1_centroidal_mpc/config/controller/joint_pd_gains.textproto": "3fb8c7fa957f7fd2906afb139af7e29bbc9887c03c1db4077361c6a99f307bc2",
+      "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf": "7696e17b07ade3d024dc267073826b75aa74019781c95f9ac44897be1de2305c",
+      "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml": "56a1ea0bafb8ae26ff37bb11309c47f6d231883381fa7dff310c60f4cbad9caf"
+    }
+  },
+  "settings": {
+    "mpc_frequency_hz": 80,
+    "mrt_frequency_hz": 100,
+    "simulation_time_step_s": 0.0005,
+    "control_period_s": 0.01,
+    "solver_threads": 4,
+    "state_estimator": "kalman",
+    "solve_latency": "none: a solve's policy is in use from the next control cycle",
+    "joint_pd_settle_time_s": 1,
+    "entry_end_time_s": 1.029999999999942,
+    "gantry_release_time_s": 1.529999999999887,
+    "standing_time_s": 2,
+    "command_start_time_s": 3.530000000000346,
+    "command_duration_s": 17,
+    "command_limits": [2.4, 1.2, 1],
+    "command_saturated": false,
+    "scenario_description": "0.5 m/s forward for 15 s, then at rest"
+  },
+  "evaluation": {
+    "start_time_s": 3.5305000000003464,
+    "end_time_s": 20.520499999997526,
+    "control_cycles": 1700,
+    "solves": 1360
+  },
+  "survival": {
+    "survived": true,
+    "fall_time_s": null,
+    "fall_reason": ""
+  },
+  "base_height": {
+    "mean_m": 0.7453867612998338,
+    "std_m": 0.01771348525234608,
+    "rms_error_m": 0.04902517467835675
+  },
+  "tilt": {
+    "rms_rad": 0.09056546117847279,
+    "max_rad": 0.14993392040154188
+  },
+  "velocity": {
+    "rms_error_mps": 0.3793172762289338
+  },
+  "yaw_rate": {
+    "rms_error_radps": 0.7878638828650829
+  },
+  "heading": {
+    "cumulative_final_rad": 0.18578612937144257,
+    "cumulative_max_rad": 0.4281222231779716,
+    "cumulative_min_rad": -0.28459833729047535
+  },
+  "stance_foot_slip": {
+    "max_m": 0.0028085231133738197,
+    "rms_m": 0.0012843933367433901,
+    "stance_phases": 67
+  },
+  "joint_torque": {
+    "rms_nm": 11.077688996320267
+  },
+  "initial_state_gap": {
+    "max_rotation_rad": 0.05137123880117814,
+    "max_rotation_time_s": 11.470500000002527,
+    "max_norm": 0.23733305578691083
+  },
+  "quaternion_norm": {
+    "max_deviation": 2.220446049250313e-16,
+    "non_finite_solves": 0
+  },
+  "non_finite_values": 0,
+  "solve_time_ms": {
+    "total": {
+      "mean": 7.788080434558828,
+      "p50": 7.731107,
+      "p99": 10.283135,
+      "max": 11.390425
+    },
+    "lq_approximation": {
+      "mean": 4.722401155882357,
+      "p50": 4.717865,
+      "p99": 5.445471,
+      "max": 7.337026
+    },
+    "solve_qp": {
+      "mean": 2.5170353595588244,
+      "p50": 2.470405,
+      "p99": 4.714967,
+      "max": 5.684051
+    },
+    "linesearch": {
+      "mean": 0.46143066176470515,
+      "p50": 0.459329,
+      "p99": 0.688995,
+      "max": 0.839307
+    },
+    "compute_controller": {
+      "mean": 0.026035799264705894,
+      "p50": 0.025689,
+      "p99": 0.040252,
+      "max": 0.060937
+    }
+  },
+  "sqp_step": {
+    "steps": 1360,
+    "full_steps": 1358,
+    "reduced_steps": 2,
+    "zero_steps": 0,
+    "full_steps_refused_above_g_max": 2,
+    "accepted_by": {
+      "constraint": 694,
+      "dual": 666,
+      "cost": 0
+    },
+    "longest_violation_growth": 10,
+    "constraint_violation": {
+      "mean": 0.015549502858319242,
+      "p50": 0.010553305037116408,
+      "p99": 0.06281476532289294,
+      "max": 0.11318972876770958
+    },
+    "swing_normal_velocity_residual": {
+      "mean": 0.04666996018388853,
+      "p50": 0.03332241888593476,
+      "p99": 0.18623643065830542,
+      "max": 0.44924173320017946
+    }
+  },
+  "failures": {
+    "failed_solves": 0,
+    "resets_served": 0,
+    "full_resets_served": 0,
+    "simulator_resets": 0,
+    "unhealthy_cycles": 0
+  }
+}

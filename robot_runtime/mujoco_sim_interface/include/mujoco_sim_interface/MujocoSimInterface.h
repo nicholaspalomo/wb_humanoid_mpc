@@ -52,6 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco/mujoco.h"
 #include "ocs2_core/Dimensions.h"
 
+#include "mujoco_sim_interface/BaseAccelerometer.h"
 #include "mujoco_sim_interface/MujocoContactPatch.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/Projectile.h"
@@ -202,6 +203,14 @@ struct MujocoSimConfig {
   /// `sim_auto_reset_min_pos_base_rt_world_ewrt_world_z`; finite.
   double autoResetMinPosBaseRtWorldEwrtWorldZ =
       kNomAutoResetMinPosBaseRtWorldEwrtWorldZ;
+  /// [s] The window of the base's accelerometer
+  /// (RobotState::getSpecforceBaseRtWorldEwrtBase()): it reads the mean
+  /// acceleration of the base over the last round(window / dt) steps, at
+  /// least one (BaseAccelerometer). 0, the default: the last step's. The robot
+  /// backend sets it to the robot process's control period
+  /// (RobotBackendOptions::controlPeriod), so that the reading of a cycle is
+  /// the cycle's change of velocity. Non-negative and finite.
+  double accelerometerWindow = 0.0;
 
   // Contact patch of every contact point (same order) in its contact frame,
   // drawn by the viewer at the target contact pose the controller reports
@@ -681,6 +690,9 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   void setSimState(const model::RobotState& robotState);
 
   void updateThreadSafeRobotState();
+  /// Restarts the accelerometer at the base velocity and time of mujocoData_,
+  /// after the state was set without a step.
+  void restartAccelerometer();
 
   /// Simulation thread only: brings dof_damping in line with the torque switch,
   /// when it changed since the last step.
@@ -700,6 +712,10 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   MujocoSimConfig config_;
 
   model::RobotState robotStateInternal_;
+  /// The base's accelerometer over config_.accelerometerWindow, recorded by
+  /// updateThreadSafeRobotState() and restarted wherever the base state is set
+  /// by hand (setSimState(), reset(), setBaseStateForTesting()).
+  BaseAccelerometer accelerometer_;
   std::vector<mjtNum>
       initialQpos_;  // the initial position a reset returns to (nq)
   std::vector<mjtNum>

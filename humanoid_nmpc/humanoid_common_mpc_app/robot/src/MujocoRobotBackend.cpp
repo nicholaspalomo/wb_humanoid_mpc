@@ -104,6 +104,7 @@ MujocoRobotBackend::makeConfig(const RobotBackendOptions& options) {
   config.autoResetMinPosBaseRtWorldEwrtWorldZ =
       options.simulator.autoResetMinPosBaseRtWorldEwrtWorldZ;
   config.contactPatchCorners = options.contactPatchCorners;
+  config.accelerometerWindow = options.controlPeriod;
   return config;
 }
 

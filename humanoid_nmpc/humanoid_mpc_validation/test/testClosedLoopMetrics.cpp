@@ -643,11 +643,6 @@ TEST(MetricBands, AConfigurationMustSurviveItsWalkingScenario) {
         << configuration.name << ": only the walking scenario is required";
     const std::optional<std::string> violation =
         walkingSurvivalViolation(configuration, walk, fell);
-    if (configuration.isStateEstimatorVariant()) {
-      // Held to the configuration it varies through its bands instead.
-      EXPECT_FALSE(violation.has_value()) << configuration.name;
-      continue;
-    }
     ++held;
     if (!violation.has_value()) {
       ADD_FAILURE() << configuration.name << ": no survival violation";
@@ -714,65 +709,17 @@ TEST(MetricBands, AnImprovementPassesAndIsReportedAndARegressionFails) {
   }
 }
 
-TEST(MetricBands, OnlyTheStateEstimatorVariantHasBandsOfItsOwn) {
+TEST(MetricBands, EveryConfigurationIsHeldToTheDefaultBands) {
+  bool sawVariant = false;
   for (const RobotConfiguration& configuration : robotConfigurations()) {
-    const std::vector<MetricBand>& bands =
-        closedLoopMetricBandsFor(configuration);
-    if (configuration.isStateEstimatorVariant()) {
-      EXPECT_NE(&bands, &closedLoopMetricBands()) << configuration.name;
-    } else {
-      EXPECT_EQ(&bands, &closedLoopMetricBands()) << configuration.name;
-    }
+    // The kalman variant too: it is within unitree_g1's default bands since
+    // the simulator's accelerometer reads the mean over the control cycle.
+    EXPECT_EQ(&closedLoopMetricBandsFor(configuration),
+              &closedLoopMetricBands())
+        << configuration.name;
+    sawVariant = sawVariant || configuration.isStateEstimatorVariant();
   }
-}
-
-TEST(MetricBands, TheKalmanBandsWidenTheDefaultsMetricByMetric) {
-  const absl::StatusOr<RobotConfiguration> variant =
-      findRobotConfiguration("unitree_g1_kalman");
-  ASSERT_TRUE(variant.ok()) << variant.status();
-  const std::vector<MetricBand>& kalman = closedLoopMetricBandsFor(*variant);
-  const std::vector<MetricBand>& defaults = closedLoopMetricBands();
-  ASSERT_EQ(kalman.size(), defaults.size());
-  bool anyWider = false;
-  for (size_t i = 0; i < defaults.size(); ++i) {
-    // The same metrics, held the same way, never narrower.
-    EXPECT_EQ(kalman[i].path, defaults[i].path);
-    EXPECT_EQ(kalman[i].direction, defaults[i].direction) << kalman[i].path;
-    EXPECT_GE(kalman[i].relative, defaults[i].relative) << kalman[i].path;
-    EXPECT_GE(kalman[i].absolute, defaults[i].absolute) << kalman[i].path;
-    anyWider = anyWider || kalman[i].relative > defaults[i].relative ||
-               kalman[i].absolute > defaults[i].absolute;
-  }
-  EXPECT_TRUE(anyWider) << "the kalman bands are the defaults";
-}
-
-TEST(MetricBands, AKalmanRunWithinItsBandsFailsTheDefaultOnes) {
-  const absl::StatusOr<RobotConfiguration> variant =
-      findRobotConfiguration("unitree_g1_kalman");
-  ASSERT_TRUE(variant.ok()) << variant.status();
-  const std::vector<MetricBand>& kalman = closedLoopMetricBandsFor(*variant);
-  const double reference = 0.1;
-  for (size_t i = 0; i < kalman.size(); ++i) {
-    const MetricBand& band = kalman[i];
-    const double kalmanAllowed = allowedDifference(band, reference);
-    const double defaultAllowed =
-        allowedDifference(closedLoopMetricBands()[i], reference);
-    if (kalmanAllowed <= defaultAllowed) continue;
-    // Worse than the baseline by the mean of the two allowances.
-    const double value = reference + 0.5 * (kalmanAllowed + defaultAllowed);
-    const JsonValue baseline = bandedDocument(reference, band.path, reference);
-    const JsonValue candidate = bandedDocument(reference, band.path, value);
-    const ClosedLoopComparison asKalman = compareClosedLoopMetrics(
-        candidate, baseline,
-        BandOptions{.compareSolveTime = false, .bands = kalman});
-    EXPECT_TRUE(asKalman.violations.empty())
-        << band.path << ": " << describeClosedLoopComparison(asKalman);
-    const ClosedLoopComparison asDefault = compareClosedLoopMetrics(
-        candidate, baseline, BandOptions{.compareSolveTime = false});
-    ASSERT_EQ(asDefault.violations.size(), 1u) << band.path;
-    EXPECT_EQ(asDefault.violations[0].rfind(band.path, 0), 0u)
-        << asDefault.violations[0];
-  }
+  EXPECT_TRUE(sawVariant) << "no state-estimator variant to hold";
 }
 
 TEST(MetricBands, TheHeightMeanIsHeldWithinItsBandBothWays) {
@@ -1175,59 +1122,100 @@ TEST(ArchivedComparison, FailsAWalkingFallThatTheBaselineFellInToo) {
       << comparison->runs[1].comparison.violations[0];
 }
 
-TEST(ArchivedComparison, HoldsTheKalmanVariantToUnitreeG1WithinItsBands) {
-  const absl::StatusOr<RobotConfiguration> variant =
-      findRobotConfiguration("unitree_g1_kalman");
-  ASSERT_TRUE(variant.ok()) << variant.status();
-  const std::vector<MetricBand>& kalman = closedLoopMetricBandsFor(*variant);
+TEST(ArchivedComparison,
+     HoldsTheKalmanVariantToUnitreeG1WithinTheDefaultBands) {
   const JsonValue walk = walkDocument(/*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5);
-  // A metric whose kalman band is wider than its default one, moved between
-  // the two allowances.
-  std::optional<size_t> widened;
-  for (size_t i = 0; i < kalman.size() && !widened.has_value(); ++i) {
-    const JsonValue* absl_nullable value = walk.findPath(kalman[i].path);
-    if (value == nullptr || !value->isNumber()) continue;
-    if (allowedDifference(kalman[i], value->asNumber()) >
-        allowedDifference(closedLoopMetricBands()[i], value->asNumber())) {
-      widened = i;
+  // The first band with a number in the document, moved by half and by twice
+  // its allowance.
+  std::optional<MetricBand> held;
+  for (const MetricBand& band : closedLoopMetricBands()) {
+    const JsonValue* absl_nullable value = walk.findPath(band.path);
+    if (value != nullptr && value->isNumber() &&
+        band.direction == BandDirection::kNoWorse) {
+      held = band;
+      break;
     }
   }
-  if (!widened.has_value()) {
-    ADD_FAILURE() << "no kalman band is wider than its default one";
+  if (!held.has_value()) {
+    ADD_FAILURE() << "no banded number in the walk document";
     return;
   }
-  const MetricBand& band = kalman[*widened];
-  const double reference = walk.findPath(band.path)->asNumber();
-  const double moved =
-      reference +
-      0.5 * (allowedDifference(band, reference) +
-             allowedDifference(closedLoopMetricBands()[*widened], reference));
-  // The baseline label has unitree_g1's run only, the candidate the variant's.
+  const double reference = walk.findPath(held->path)->asNumber();
+  const double allowed = allowedDifference(*held, reference);
+  // The baseline label has unitree_g1's runs only, the candidate the variant's.
   const absl::StatusOr<ArchivedComparison> comparison =
       compareArchivedClosedLoopRuns(
           {.candidateDirectory = archiveLabel(
                "kalman_candidate",
                {{.robot = "unitree_g1_kalman",
+                 .scenario = "standing",
+                 .document =
+                     withNumberAt(walk, held->path, reference + 0.5 * allowed)},
+                {.robot = "unitree_g1_kalman",
                  .scenario = "walk_0p5",
-                 .document = withNumberAt(walk, band.path, moved)}}),
-           .baselineDirectory =
-               archiveLabel("kalman_baseline", {{.robot = "unitree_g1",
-                                                 .scenario = "walk_0p5",
-                                                 .document = walk}}),
+                 .document =
+                     withNumberAt(walk, held->path, reference + 2.0 * allowed)},
+                {.robot = "unitree_g1_kalman",
+                 .scenario = "turn_in_place_720",
+                 .document = fellIn(walk, "the base tilted 1.1 rad")}}),
+           .baselineDirectory = archiveLabel("kalman_baseline",
+                                             {{.robot = "unitree_g1",
+                                               .scenario = "standing",
+                                               .document = walk},
+                                              {.robot = "unitree_g1",
+                                               .scenario = "walk_0p5",
+                                               .document = walk},
+                                              {.robot = "unitree_g1",
+                                               .scenario = "turn_in_place_720",
+                                               .document = walk}}),
            .robot = "unitree_g1_kalman",
            .compareSolveTime = false});
   ASSERT_TRUE(comparison.ok()) << comparison.status();
   EXPECT_TRUE(comparison->withoutBaseline.empty());
-  ASSERT_EQ(comparison->runs.size(), 1u);
-  EXPECT_EQ(comparison->runs[0].robot, "unitree_g1_kalman");
+  ASSERT_EQ(comparison->runs.size(), 3u);
+  // Within the default band: nothing to say.
+  EXPECT_EQ(comparison->runs[0].scenario, "standing");
   EXPECT_TRUE(comparison->runs[0].comparison.violations.empty())
-      << band.path << ": "
       << describeClosedLoopComparison(comparison->runs[0].comparison);
-  // unitree_g1's own bands would refuse it.
-  EXPECT_FALSE(compareClosedLoopMetrics(withNumberAt(walk, band.path, moved),
-                                        walk, BandOptions())
-                   .violations.empty())
-      << band.path;
+  // Past it: a violation, as for unitree_g1 itself.
+  EXPECT_EQ(comparison->runs[1].scenario, "walk_0p5");
+  ASSERT_EQ(comparison->runs[1].comparison.violations.size(), 1u)
+      << describeClosedLoopComparison(comparison->runs[1].comparison);
+  EXPECT_TRUE(absl::StartsWith(comparison->runs[1].comparison.violations[0],
+                               held->path))
+      << comparison->runs[1].comparison.violations[0];
+  // A fall where unitree_g1 survived.
+  EXPECT_EQ(comparison->runs[2].scenario, "turn_in_place_720");
+  ASSERT_EQ(comparison->runs[2].comparison.violations.size(), 1u)
+      << describeClosedLoopComparison(comparison->runs[2].comparison);
+  EXPECT_TRUE(absl::StartsWith(comparison->runs[2].comparison.violations[0],
+                               "survival: the baseline survived"))
+      << comparison->runs[2].comparison.violations[0];
+}
+
+TEST(ArchivedComparison, FailsAKalmanFallInWalk0p5WhereUnitreeG1FellToo) {
+  const JsonValue walk = walkDocument(/*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5);
+  const std::string reason = "the base tilted 1.03087 rad, past 1 rad";
+  const absl::StatusOr<ArchivedComparison> comparison =
+      compareArchivedClosedLoopRuns(
+          {.candidateDirectory = archiveLabel(
+               "kalman_fell_candidate", {{.robot = "unitree_g1_kalman",
+                                          .scenario = "walk_0p5",
+                                          .document = fellIn(walk, reason)}}),
+           .baselineDirectory = archiveLabel(
+               "kalman_fell_baseline", {{.robot = "unitree_g1",
+                                         .scenario = "walk_0p5",
+                                         .document = fellIn(walk, reason)}}),
+           .robot = "unitree_g1_kalman",
+           .compareSolveTime = false});
+  ASSERT_TRUE(comparison.ok()) << comparison.status();
+  ASSERT_EQ(comparison->runs.size(), 1u);
+  // The variant must survive its walking scenario like every configuration.
+  ASSERT_EQ(comparison->runs[0].comparison.violations.size(), 1u)
+      << describeClosedLoopComparison(comparison->runs[0].comparison);
+  EXPECT_TRUE(absl::StartsWith(comparison->runs[0].comparison.violations[0],
+                               "survival: unitree_g1_kalman fell in walk_0p5"))
+      << comparison->runs[0].comparison.violations[0];
 }
 
 }  // namespace

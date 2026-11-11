@@ -27,6 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <fstream>
@@ -130,8 +131,10 @@ std::string writeTempFile(absl::string_view name,
  * projectile, publishing every step to the viewer. */
 std::unique_ptr<MujocoSimInterface> makeSim(
     std::optional<model::RobotState> initialState = std::nullopt,
-    const char* absl_nonnull scene = kScene) {
+    const char* absl_nonnull scene = kScene,
+    double accelerometerWindow = 0.0) {
   MujocoSimConfig config;
+  config.accelerometerWindow = accelerometerWindow;
   config.scenePath = writeTempFile("state_scene.xml", scene);
   config.viewer.names = {kNoViewerName};
   config.enableGantry = false;
@@ -310,6 +313,123 @@ TEST(SimFreeJoint, TheAccelerometerReadsTheSpecificForceOfTheBase) {
         1.0e-6 * (1.0 + fdSpecforceBaseRtWorldEwrtBase.norm()))
         << "sample " << sample;
   }
+}
+
+/** Sets the feed-forward effort of joint `name` to `effort` [N m], no PD. */
+void setFeedForwardEffort(MujocoSimInterface& sim,
+                          const char* absl_nonnull name,
+                          double effort) {
+  std::optional<model::JointAction>& slot =
+      sim.getRobotJointAction()[sim.getRobotDescription().getJointIndex(name)];
+  if (!slot.has_value()) {
+    FAIL() << "no action slot for " << name;
+  }
+  model::JointAction& jointAction = *slot;
+  jointAction.kp = 0.0;
+  jointAction.kd = 0.0;
+  jointAction.feed_forward_effort = effort;
+}
+
+/** Applies the feed-forward efforts `hinge` and `wrist` [N m], no PD. */
+void applyArmEfforts(MujocoSimInterface& sim, double hinge, double wrist) {
+  sim.enableTorques();
+  setFeedForwardEffort(sim, "hinge", hinge);
+  setFeedForwardEffort(sim, "wrist", wrist);
+  sim.applyJointAction();
+}
+
+vector3_t publishedLinvelBaseRtWorldEwrtWorld(MujocoSimInterface& sim) {
+  const model::RobotState state = publishedState(sim);
+  return state.getQuatBaseRtWorld() * state.getLinvelBaseRtWorldEwrtBase();
+}
+
+// MuJoCo integrates the joint damping implicitly, so its qacc, the
+// acceleration of the forces before the damping's implicit part, is not the
+// acceleration the step applied. The accelerometer reads the one it applied:
+// the change of the base velocity over the step.
+TEST(SimFreeJoint, TheAccelerometerReadsTheAccelerationOfADampedStep) {
+  std::string dampedScene(kScene);
+  for (const char* absl_nonnull joint : {"hinge", "wrist"}) {
+    const std::string declaration =
+        absl::StrCat(R"(<joint name=")", joint, R"(" type="hinge")");
+    dampedScene.replace(dampedScene.find(declaration), declaration.size(),
+                        absl::StrCat(declaration, R"( damping="5")"));
+  }
+  const std::unique_ptr<MujocoSimInterface> sim =
+      makeSim(/*initialState=*/std::nullopt, dampedScene.c_str());
+  ASSERT_NE(sim, nullptr);
+  applyArmEfforts(*sim, /*hinge=*/3.0, /*wrist=*/-2.0);
+  for (int step = 0; step < 5; ++step) {
+    const vector3_t prevLinvelBaseRtWorldEwrtWorld =
+        publishedLinvelBaseRtWorldEwrtWorld(*sim);
+    sim->simulationStep();
+    const model::RobotState after = publishedState(*sim);
+    // Zero gravity: the specific force is the acceleration.
+    const vector3_t fdSpecforceBaseRtWorldEwrtBase =
+        after.getQuatBaseRtWorld().inverse() *
+        (publishedLinvelBaseRtWorldEwrtWorld(*sim) -
+         prevLinvelBaseRtWorldEwrtWorld) /
+        kTimestep;
+    EXPECT_GT(fdSpecforceBaseRtWorldEwrtBase.norm(), 1.0e-2)
+        << "step " << step << ": the torques move the base";
+    EXPECT_LT((after.getSpecforceBaseRtWorldEwrtBase() -
+               fdSpecforceBaseRtWorldEwrtBase)
+                  .norm(),
+              1.0e-6 * (1.0 + fdSpecforceBaseRtWorldEwrtBase.norm()))
+        << "step " << step;
+  }
+}
+
+// With a window of several steps (MujocoSimConfig::accelerometerWindow, the
+// robot process's control period) the accelerometer reads the mean
+// acceleration over them: the change of the base velocity over the window, as
+// a reader of the state once per window sees it. Until the window is full, the
+// change since the simulator was built.
+TEST(SimFreeJoint, TheAccelerometerWindowReadsTheMeanOverItsSteps) {
+  constexpr int kWindowSteps = 4;
+  const std::unique_ptr<MujocoSimInterface> sim =
+      makeSim(/*initialState=*/std::nullopt, kScene,
+              /*accelerometerWindow=*/kWindowSteps * kTimestep);
+  ASSERT_NE(sim, nullptr);
+  applyArmEfforts(*sim, /*hinge=*/3.0, /*wrist=*/-2.0);
+  std::vector<vector3_t> linvelBaseRtWorldEwrtWorldSamples = {
+      publishedLinvelBaseRtWorldEwrtWorld(*sim)};
+  for (int step = 1; step <= 3 * kWindowSteps; ++step) {
+    // A varying torque, so that the mean differs from the last step's.
+    applyArmEfforts(*sim, /*hinge=*/3.0 * std::cos(static_cast<double>(step)),
+                    /*wrist=*/-2.0);
+    sim->simulationStep();
+    const model::RobotState after = publishedState(*sim);
+    linvelBaseRtWorldEwrtWorldSamples.push_back(
+        publishedLinvelBaseRtWorldEwrtWorld(*sim));
+    const int steps = std::min(step, kWindowSteps);
+    const vector3_t meanSpecforceBaseRtWorldEwrtBase =
+        after.getQuatBaseRtWorld().inverse() *
+        (linvelBaseRtWorldEwrtWorldSamples[step] -
+         linvelBaseRtWorldEwrtWorldSamples[step - steps]) /
+        (steps * kTimestep);
+    EXPECT_LT((after.getSpecforceBaseRtWorldEwrtBase() -
+               meanSpecforceBaseRtWorldEwrtBase)
+                  .norm(),
+              1.0e-6 * (1.0 + meanSpecforceBaseRtWorldEwrtBase.norm()))
+        << "step " << step;
+  }
+}
+
+TEST(SimFreeJoint, ANegativeAccelerometerWindowIsRefused) {
+  MujocoSimConfig config;
+  config.scenePath = writeTempFile("state_scene.xml", kScene);
+  config.viewer.names = {kNoViewerName};
+  config.enableGantry = false;
+  config.gantryHold = "kinematic_teleport";
+  config.accelerometerWindow = -0.01;
+  const absl::StatusOr<std::unique_ptr<MujocoSimInterface>> sim =
+      MujocoSimInterface::Create(config,
+                                 writeTempFile("state_robot.urdf", kHingeUrdf));
+  ASSERT_FALSE(sim.ok());
+  EXPECT_NE(sim.status().message().find("accelerometer window"),
+            std::string::npos)
+      << sim.status();
 }
 
 // ------------------------------------- joints and actuators
