@@ -55,6 +55,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
 #include "humanoid_common_mpc/reference_manager/ArmSwing.h"
+#include "humanoid_common_mpc/reference_manager/LegJointReference.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/arm_swing_config.nproto.h"
 
@@ -306,6 +307,18 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    */
   void configureNominalStance(const vector_t& nominalState);
 
+  /**
+   * Selects what getDesiredState() and getDesiredInput() regularize the leg
+   * joints toward (leg_joint_reference): the target's joints and zero joint
+   * velocities, the default, or the foot_motion reference, whose leg maps it
+   * derives at `nominalState`, the nominal standing posture, on a copy of the
+   * model (FootMotionLegReference). The MPC interface calls it once at
+   * start-up. InvalidArgument, with the default reference kept, when
+   * FootMotionLegReference::Create() refuses the contact set. Not thread-safe.
+   */
+  absl::Status configureLegJointReference(LegJointReference reference,
+                                          const vector_t& nominalState);
+
   /** True when the mode schedule is produced by an online contact planner
    * instead of the gait schedule. */
   virtual bool usesContactPlanning() const { return false; }
@@ -465,7 +478,9 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * `targetTrajectories` interpolated in the robot model's layout
    * (MpcRobotModelBase::getDesiredState), with the procedural arm swing about
    * the REFERENCE's heading and the base-pose heuristics
-   * (shapePoseBaseRtWorld()) applied. `targetTrajectories` is not empty. It
+   * (shapePoseBaseRtWorld()) applied, and under the foot_motion leg joint
+   * reference the leg joints that put each contact where the references put
+   * it (setFootMotionJointPositions()). `targetTrajectories` is not empty. It
    * does not depend on `state`, so that the Gauss-Newton gradient of a cost
    * that holds it constant is the cost's exact gradient; the parameter is kept
    * for the costs' calling convention.
@@ -496,6 +511,11 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * interpolated target, which must then not be empty), not in those of
    * `state`, so that the input costs' Gauss-Newton gradient, which holds the
    * reference constant, is exact.
+   *
+   * Its joint velocities are zero, unless configureLegJointReference()
+   * selected the foot_motion reference: then each leg's are those that move
+   * its contact relative to the base as the plan's references do at `time`
+   * (computeFootMotionRtBase()), from the target too.
    */
   virtual vector_t getDesiredInput(const TargetTrajectories& targetTrajectories,
                                    const vector_t& state,
@@ -801,6 +821,65 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   /// posture, in the heading frame, in contact order: the landmark of the
   /// nominal_stance anchor. Empty until configureNominalStance().
   std::vector<vector2_t> nomPosContactsRtBaseEwrtHeadingXy_;
+  /// The leg maps of the foot_motion leg joint reference; empty under the
+  /// default posture (configureLegJointReference()).
+  std::optional<FootMotionLegReference> footMotionLegReference_;
+
+  /** getDesiredInput()'s contact-force reference, with zero joint velocities.
+   */
+  vector_t getDesiredContactInput(const TargetTrajectories& targetTrajectories,
+                                  scalar_t time) const;
+
+  /** The reference base motion at a node that the foot_motion reference
+   * measures the contacts from (footMotionFrameAt()). Passive data. */
+  struct FootMotionFrame {
+    /** [m] The target's base position. */
+    vector3_t posBaseRtWorldEwrtWorld = vector3_t::Zero();
+    /** R_z(yaw)^T of the target's yaw: world axes into its heading. */
+    matrix3_t rotmatWorldRtHeading = matrix3_t::Identity();
+    /** [m/s] The target's planar velocity, in the world and in its heading. */
+    vector2_t cmdLinvelBaseRtWorldEwrtWorldXy = vector2_t::Zero();
+    vector2_t cmdLinvelBaseRtWorldEwrtHeadingXy = vector2_t::Zero();
+    /** [rad/s] The target's yaw rate. */
+    scalar_t cmdRateYawBaseRtWorld = 0.0;
+  };
+
+  /** Where a contact is relative to the base, and how it moves relative to
+   * it, by the references (computeFootMotionRtBase()). Passive data. */
+  struct FootMotionRtBase {
+    vector3_t posContactRtBaseEwrtHeading = vector3_t::Zero();
+    vector3_t linvelContactRtBaseEwrtHeading = vector3_t::Zero();
+  };
+
+  /** The target's base motion at `time`: its interpolated base pose and planar
+   * motion (MpcRobotModelBase::getRefPlanarMotion()). `targetTrajectories` is
+   * not empty. */
+  FootMotionFrame footMotionFrameAt(
+      const TargetTrajectories& targetTrajectories, scalar_t time) const;
+
+  /**
+   * Contact `contactIndex` relative to the base of `frame` at `time`, as the
+   * references place it: in stance (`inContact`) still in the world where it
+   * landed (anchorPosFootRtWorldEwrtWorldXy(): measured before the last solve,
+   * the planned foothold after it) at its nominal height below the base; in
+   * swing on its swing reference (getSwingFootReference(); without one at its
+   * nominal place under the base, moving with it) at the swing planner's height
+   * above the ground. Its velocity is its world velocity minus that of the
+   * point of the base it is at; `legs` holds the contact's nominal place.
+   */
+  FootMotionRtBase computeFootMotionRtBase(const FootMotionLegReference& legs,
+                                           size_t contactIndex,
+                                           bool inContact,
+                                           scalar_t time,
+                                           const FootMotionFrame& frame) const;
+
+  /** Writes into the leg joints of `desiredState` those of `legs` that put
+   * each contact where computeFootMotionRtBase() places it at `time`.
+   * `targetTrajectories` is not empty. */
+  void setFootMotionJointPositions(const FootMotionLegReference& legs,
+                                   const TargetTrajectories& targetTrajectories,
+                                   scalar_t time,
+                                   vector_t& desiredState) const;
 
   bool armSwingReferenceActive_ = false;
   /// The tuning of the arm swing (hot), and which way each arm joint turns

@@ -50,8 +50,8 @@ Every `.proto` file holds one message, named after the file. The task file's blo
 | `contact_wrench_gate`, `mpc_link` | `ContactWrenchGateConfig`, `MpcLinkConfig` | the robot process: touch-down shaping of the planned wrenches, the remote MPC link |
 
 The task file's scalars and lists set the formulation (`costs`, `soft_constraints`, `hard_constraints`,
-`contact_input_parameterization`, `contact_schedule_source`, `centroidal_model`, `terminal_cost_scaling`,
-`pos_surface_rt_world_ewrt_world_z`), the robot process and the simulator (`contact_estimator`, `telemetry_sinks`, `telemetry_frequency`,
+`contact_input_parameterization`, `contact_schedule_source`, `centroidal_model`, `leg_joint_reference`,
+`terminal_cost_scaling`, `pos_surface_rt_world_ewrt_world_z`), the robot process and the simulator (`contact_estimator`, `telemetry_sinks`, `telemetry_frequency`,
 `gantry_hold`, `sim_*`, `wb_mpc_feedforward`, ...), the visualization's frames and rate, and the GUI's
 `enable_online_tuning`. The other files:
 

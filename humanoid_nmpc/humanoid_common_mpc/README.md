@@ -165,7 +165,20 @@ The biped-only components refuse a contact set they cannot run on when they are 
 
 Per leg, on any legged set: `getSwingPhaseVariable(legIndex, time)` is the phase of the leg's swing, 0 in stance and 0
 to 1 from lift-off to touch-down (`gait/LegSwingPhase.h`); the foothold heuristics read the leg's side, hip and
-nominal stance point (`FootholdHeuristicContext`). `getPhaseVariable()` stays the biped's gait phase, which the arm
+nominal stance point (`FootholdHeuristicContext`).
+
+The leg joints the state and input costs regularize toward are the task file's `leg_joint_reference`
+(`reference_manager/LegJointReference.h`). `default_posture`, the default, keeps the target's joints and zero joint
+velocities. `foot_motion`, for a set of 3-DoF point contacts on separate legs (centroidal MPC), writes into
+`getDesiredState()` and `getDesiredInput()` the leg joints that put each contact where the references put it relative
+to the base: a stance contact still in the world where it landed, a swing contact on its swing reference at the swing
+planner's height. `FootMotionLegReference` maps the contact's position and velocity to the leg's joints through the
+leg's Jacobian and its derivatives at the nominal posture, to second order, so the references stay independent of the
+state. The default posture holds every leg at its nominal place and every joint still, so on a trot both terms grow
+with the stride and hold the walking speed below the command (ANYmal B: 0.45 m/s of 0.5 m/s). No robot ships
+`foot_motion`: on ANYmal B it brought the trot to the command, but the stronger joint references trigger the
+Gauss-Newton SQP's cycling with the hard swing normal-velocity rows (quaternion design README section 6, risk 12),
+measured in `robot_models/anybotics_anymal_b/README.md`, "Trot speed". `getPhaseVariable()` stays the biped's gait phase, which the arm
 swing and `periodic_orientation` read.
 
 The planner rules `no_flight` and `phase_durations` and the `no_flight` row are written over the number of feet, and

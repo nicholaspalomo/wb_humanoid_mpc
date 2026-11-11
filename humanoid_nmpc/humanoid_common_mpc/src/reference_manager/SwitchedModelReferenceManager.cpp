@@ -78,6 +78,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/reference_manager/ArmSwing.h"
+#include "humanoid_common_mpc/reference_manager/LegJointReference.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/arm_swing_config.nproto.h"
 
@@ -292,6 +293,25 @@ void SwitchedModelReferenceManager::configureNominalStance(
       pinocchioInterface, *mpcRobotModelPtr_, nominalState);
 }
 
+absl::Status SwitchedModelReferenceManager::configureLegJointReference(
+    LegJointReference reference, const vector_t& nominalState) {
+  footMotionLegReference_.reset();
+  switch (reference) {
+    case LegJointReference::kDefaultPosture:
+      return absl::OkStatus();
+    case LegJointReference::kFootMotion: {
+      ASSIGN_OR_RETURN(
+          FootMotionLegReference legs,
+          FootMotionLegReference::Create(pinocchioInterface_,
+                                         *mpcRobotModelPtr_, nominalState));
+      footMotionLegReference_ = std::move(legs);
+      return absl::OkStatus();
+    }
+  }
+  return absl::InvalidArgumentError(
+      "[SwitchedModelReferenceManager] not a leg joint reference.");
+}
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -404,10 +424,12 @@ bool SwitchedModelReferenceManager::needsMeasuredState() const {
   // yaw inertia this function's caller latches.
   const ModelSettings::NominalFootholdConfig& nominalFoothold =
       mpcRobotModelPtr_->modelSettings.nominalFootholdConfig;
+  // The foot_motion leg joint reference reads where the stance contacts
+  // stand, as the nominal foothold does.
   return nominalFoothold.nomPosLfootRtRfootEwrtHeadingY > 0.0 ||
          nominalFoothold.anchor ==
              ModelSettings::NominalFootholdAnchor::kNominalStance ||
-         !heuristicLayerPtr_->empty();
+         !heuristicLayerPtr_->empty() || footMotionLegReference_.has_value();
 }
 
 SwitchedModelReferenceManager::PlanarPoseChange
@@ -946,6 +968,12 @@ vector_t SwitchedModelReferenceManager::getDesiredState(
     mpcRobotModelPtr_->setJointAngles(xNominal, desiredJointAngles);
   }
 
+  // The legs of the foot_motion leg joint reference.
+  if (footMotionLegReference_.has_value()) {
+    setFootMotionJointPositions(*footMotionLegReference_, targetTrajectories,
+                                time, xNominal);
+  }
+
   // The base-pose seam of the locomotion heuristics; see
   // shapePoseBaseRtWorld(), which the terminal and torso costs call too.
   return shapePoseBaseRtWorld(time, xNominal);
@@ -1096,6 +1124,134 @@ vector_t SwitchedModelReferenceManager::getDesiredInput(
     const TargetTrajectories& targetTrajectories,
     const vector_t& /*state*/,
     scalar_t time) const {
+  vector_t input = getDesiredContactInput(targetTrajectories, time);
+  if (footMotionLegReference_.has_value() && !targetTrajectories.empty()) {
+    const FootMotionLegReference& legs = *footMotionLegReference_;
+    const FootMotionFrame frame = footMotionFrameAt(targetTrajectories, time);
+    Eigen::Ref<vector_t> jointVelocities = input.segment(
+        static_cast<Eigen::Index>(
+            mpcRobotModelPtr_->getJointVelocitiesStartindex()),
+        static_cast<Eigen::Index>(mpcRobotModelPtr_->getJointDim()));
+    const ContactMask contactMask = getContactFlags(time);
+    for (size_t contact = 0; contact < legs.numContacts(); ++contact) {
+      const FootMotionRtBase motion = computeFootMotionRtBase(
+          legs, contact, contactMask[contact], time, frame);
+      legs.setLegJointVelocities(contact, motion.posContactRtBaseEwrtHeading,
+                                 motion.linvelContactRtBaseEwrtHeading,
+                                 jointVelocities);
+    }
+  }
+  return input;
+}
+
+SwitchedModelReferenceManager::FootMotionFrame
+SwitchedModelReferenceManager::footMotionFrameAt(
+    const TargetTrajectories& targetTrajectories, scalar_t time) const {
+  const vector_t desiredState =
+      mpcRobotModelPtr_->getDesiredState(targetTrajectories, time);
+  const vector3_t refPlanarMotion = mpcRobotModelPtr_->getRefPlanarMotion(
+      desiredState, inertiaComEwrtWorldZz_);
+  FootMotionFrame frame;
+  frame.posBaseRtWorldEwrtWorld =
+      mpcRobotModelPtr_->getPosBaseRtWorldEwrtWorld(desiredState);
+  frame.rotmatWorldRtHeading =
+      Eigen::AngleAxis<scalar_t>(
+          -mpcRobotModelPtr_->getYawBaseRtWorld(desiredState),
+          vector3_t::UnitZ())
+          .toRotationMatrix();
+  frame.cmdLinvelBaseRtWorldEwrtWorldXy =
+      refPlanarMotion.head<kHorizontalPositionDim>();
+  frame.cmdLinvelBaseRtWorldEwrtHeadingXy =
+      (frame.rotmatWorldRtHeading *
+       vector3_t(frame.cmdLinvelBaseRtWorldEwrtWorldXy.x(),
+                 frame.cmdLinvelBaseRtWorldEwrtWorldXy.y(), 0.0))
+          .head<kHorizontalPositionDim>();
+  frame.cmdRateYawBaseRtWorld = refPlanarMotion(
+      MpcRobotModelBase<scalar_t>::kRefPlanarMotionYawRateIndex);
+  return frame;
+}
+
+SwitchedModelReferenceManager::FootMotionRtBase
+SwitchedModelReferenceManager::computeFootMotionRtBase(
+    const FootMotionLegReference& legs,
+    size_t contactIndex,
+    bool inContact,
+    scalar_t time,
+    const FootMotionFrame& frame) const {
+  const vector3_t& nomPosContactRtBaseEwrtHeading =
+      legs.getNomPosContactRtBaseEwrtHeading(contactIndex);
+  // The contact's world position and velocity by the references; the height
+  // above the ground the reference manager stands the robot on.
+  vector2_t posContactRtWorldEwrtWorldXy =
+      frame.posBaseRtWorldEwrtWorld.head<kHorizontalPositionDim>() +
+      (frame.rotmatWorldRtHeading.transpose() * nomPosContactRtBaseEwrtHeading)
+          .head<kHorizontalPositionDim>();
+  scalar_t posContactRtSurfaceEwrtWorldZ = 0.0;
+  vector3_t linvelContactRtWorldEwrtWorld = vector3_t::Zero();
+  const std::array<size_t, 1> contact = {contactIndex};
+  if (inContact) {
+    // Where it landed: measured if before the last solve, planned after it.
+    const std::optional<vector2_t> landed = anchorPosFootRtWorldEwrtWorldXy(
+        contactIndex,
+        legPreviousTouchDownTime(modeSchedule_, numContacts_, contact, time));
+    if (landed.has_value()) posContactRtWorldEwrtWorldXy = *landed;
+  } else {
+    posContactRtSurfaceEwrtWorldZ =
+        swingTrajectoryPtr_->getDesPosFootRtWorldEwrtWorldZ(contactIndex,
+                                                            time) -
+        appliedPosSurfaceRtWorldEwrtWorldZ_.load();
+    linvelContactRtWorldEwrtWorld << frame.cmdLinvelBaseRtWorldEwrtWorldXy,
+        swingTrajectoryPtr_->getDesLinvelFootRtWorldEwrtWorldZ(contactIndex,
+                                                               time);
+    if (const std::optional<SwingFootReference> swing =
+            getSwingFootReference(contactIndex, time);
+        swing.has_value()) {
+      posContactRtWorldEwrtWorldXy =
+          swing->desPosFootRtWorldEwrtWorld.head<kHorizontalPositionDim>();
+      linvelContactRtWorldEwrtWorld = swing->desLinvelFootRtWorldEwrtWorld;
+    }
+  }
+  FootMotionRtBase motion;
+  const vector2_t errPosContactRtBaseEwrtWorldXy =
+      posContactRtWorldEwrtWorldXy -
+      frame.posBaseRtWorldEwrtWorld.head<kHorizontalPositionDim>();
+  motion.posContactRtBaseEwrtHeading =
+      frame.rotmatWorldRtHeading * vector3_t(errPosContactRtBaseEwrtWorldXy.x(),
+                                             errPosContactRtBaseEwrtWorldXy.y(),
+                                             0.0);
+  motion.posContactRtBaseEwrtHeading.z() =
+      nomPosContactRtBaseEwrtHeading.z() + posContactRtSurfaceEwrtWorldZ;
+  // The contact's world velocity minus that of the point of the base it is
+  // at, in the heading.
+  motion.linvelContactRtBaseEwrtHeading =
+      frame.rotmatWorldRtHeading * linvelContactRtWorldEwrtWorld +
+      FootMotionLegReference::computeStanceLinvelContactRtBaseEwrtHeading(
+          frame.cmdLinvelBaseRtWorldEwrtHeadingXy, frame.cmdRateYawBaseRtWorld,
+          motion.posContactRtBaseEwrtHeading);
+  return motion;
+}
+
+void SwitchedModelReferenceManager::setFootMotionJointPositions(
+    const FootMotionLegReference& legs,
+    const TargetTrajectories& targetTrajectories,
+    scalar_t time,
+    vector_t& desiredState) const {
+  const FootMotionFrame frame = footMotionFrameAt(targetTrajectories, time);
+  vector_t jointPositions = mpcRobotModelPtr_->getJointAngles(desiredState);
+  const ContactMask contactMask = getContactFlags(time);
+  for (size_t contact = 0; contact < legs.numContacts(); ++contact) {
+    legs.setLegJointPositions(
+        contact,
+        computeFootMotionRtBase(legs, contact, contactMask[contact], time,
+                                frame)
+            .posContactRtBaseEwrtHeading,
+        jointPositions);
+  }
+  mpcRobotModelPtr_->setJointAngles(desiredState, jointPositions);
+}
+
+vector_t SwitchedModelReferenceManager::getDesiredContactInput(
+    const TargetTrajectories& targetTrajectories, scalar_t time) const {
   const ContactMask contactMask = getContactFlags(time);
   // Any contact set other than the biped's shares the weight among its active
   // contacts; the wrench heuristics, which are written for two feet, are

@@ -149,10 +149,11 @@ class QuaternionLayoutRobotModel final : public MpcRobotModelBase<scalar_t> {
   size_t getJointStartindex() const override {
     return getBaseStartindex() + kBaseConfigurationDim;
   }
-  // The centroidal input's joint velocities, after the contact wrenches; the
+  // The centroidal input's joint velocities, its tail after the contact inputs
+  // (inputDimension(): three per 3-DoF contact, six per 6-DoF one); the
   // whole-body state's, after q and the base velocity.
   size_t getJointVelocitiesStartindex() const override {
-    return isCentroidal() ? 6 * modelSettings.contactNames.size()
+    return isCentroidal() ? getInputDim() - getJointDim()
                           : getConfigurationDim() + kBaseVelocityDim;
   }
   size_t getContactWrenchStartIndices(size_t contactIndex) const override {

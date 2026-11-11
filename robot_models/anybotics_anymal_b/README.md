@@ -77,3 +77,45 @@ LABEL=2026-11-10_anymal_b RECORD_STATES=1`), and ANYmal B is held to the default
 three, trots at 0.42 m/s on average against the 0.5 m/s command and turns through 24.6 of the commanded 25.1 rad; the
 metrics and the solve benchmark are in
 [the label's README](../../humanoid_nmpc/humanoid_mpc_validation/data/closed_loop/2026-11-10_anymal_b/README.md).
+
+## Trot speed
+
+ANYmal B ships with its legs regularized toward the default posture (`leg_joint_reference` `default_posture`: the
+state cost's joint weight 20 and the input cost's zero joint velocities) and without a foothold heuristic, and its trot
+of `walk_0p5` reaches 0.45 m/s of the 0.5 m/s command over the last 10 s. Raising the horizontal linear momentum weight
+trades tilt for speed (0.44 m/s and 0.103 rad at 600, 0.45 m/s and 0.153 rad at 1000).
+
+The robot follows its plan: the planned CoM velocity 0.1 s ahead of each solve is within 0.0013 m/s of the measured
+one over the steady trot. The plan itself falls short. At four solves 8.0 to 8.3 s into the command, the converged
+plan's mean CoM velocity over the 1 s horizon was 0.460 to 0.463 m/s against a reference of 0.498 m/s. Adding
+1/2 400 (v_x - 0.5)^2 to the problem and solving again raised it by 0.012 m/s; the change of each term per m/s of that
+rise was:
+
+| Term | Change per m/s |
+| --- | --- |
+| input cost, joint velocities | +14.2 |
+| input cost, contact forces | +5.7 |
+| state cost, joint positions | +4.1 |
+| state cost, lateral momentum | +1.3 |
+| foot task-space costs, all four | +0.1 |
+| state cost, base position x | -1.9 |
+| state cost, forward momentum | -15.5 |
+
+The joint velocities of a trotting leg move its foot relative to the base at about the walking speed, backwards in
+stance and forwards in swing, so a zero joint-velocity reference costs more the faster the robot walks; the default
+joint positions do the same for the stride length. The joint-velocity weights are what the derivation above says, the
+diagonal of J^T (5000 I) J at the default posture with no mass scaling (1299, 1221 and 566, recomputed from the URDF
+with Pinocchio).
+
+`leg_joint_reference: "foot_motion"` (`humanoid_common_mpc/reference_manager/LegJointReference.h`) regularizes each
+leg toward the joints that put its foot where the references do. With it and `translational_stepping` at
+`forward_stance_fraction` 0.5 the trot reached 0.499 m/s over the last 10 s, with a peak tilt of 0.074 rad (0.082 on
+the default posture), and the turn in place went from 24.6 to 25.9 of the commanded 25.1 rad. It is not shipped: the
+stronger joint references trigger the Gauss-Newton SQP's cycling with the hard swing normal-velocity rows
+(`humanoid_nmpc/docs/quaternion_base_orientation/README.md`, section 6, risk 12). In the walk the solves refused 25 full
+steps above `g_max` instead of 3, the p99 of the constraint violation after the step rose from 0.023 to 0.30 and that
+of the swing normal-velocity residual from 0.16 to 1.0 m/s, and in `testMpcEquivalence_anymal_b` the iterated SQP no
+longer converges within 100 iterations and the real-time solves no longer hold the swing rows (a median residual of
+1.4 m/s). The reference can be shipped once that defect is fixed.
+
+The trot of `quadruped_gait.textproto` has no flight phase: its two diagonal modes switch at once every 0.35 s.

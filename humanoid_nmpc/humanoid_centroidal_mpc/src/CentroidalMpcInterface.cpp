@@ -145,6 +145,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_common_mpc/reference_manager/LegJointReference.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.pb.h"
@@ -999,6 +1000,12 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   // Where each contact stands at the initial posture, the landmark of the
   // nominal_stance foothold anchor.
   referenceManagerPtr_->configureNominalStance(initialState_);
+  // What the state and input costs regularize the leg joints toward
+  // (leg_joint_reference), its leg maps at the initial posture.
+  ASSIGN_OR_RETURN(const LegJointReference legJointReference,
+                   legJointReferenceFromName(task.leg_joint_reference));
+  RETURN_IF_ERROR(referenceManagerPtr_->configureLegJointReference(
+      legJointReference, initialState_));
 
   HumanoidCostConstraintFactory factory(
       &task, StateInputLayout::Mpc::kCentroidal, *referenceManagerPtr_,

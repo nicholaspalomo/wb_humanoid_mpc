@@ -59,6 +59,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 #include "humanoid_common_mpc/reference_manager/ArmSwing.h"
+#include "humanoid_common_mpc/reference_manager/LegJointReference.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h"
 #include "humanoid_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h"
 #include "humanoid_mpc_config/config_registries.nproto.h"
@@ -211,6 +212,10 @@ absl::flat_hash_map<std::string, Accepts> acceptors() {
       {"hard_constraint",
        [](absl::string_view name) {
          return stringToMpcHardConstraintType(name).ok();
+       }},
+      {"leg_joint_reference",
+       [](absl::string_view name) {
+         return legJointReferenceFromName(name).ok();
        }},
       {"locomotion_heuristic", &isLocomotionHeuristic},
       {"mpc_cost",

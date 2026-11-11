@@ -370,6 +370,7 @@ cc_library(
         "src/locomotion_heuristics/wrench/CentripetalAccelerationHeuristic.cpp",
         "src/locomotion_heuristics/wrench/ImpulseScalingHeuristic.cpp",
         "src/reference_manager/ArmSwing.cpp",
+        "src/reference_manager/LegJointReference.cpp",
         "src/reference_manager/SwitchedModelReferenceManager.cpp",
         "src/reference_manager/GaitSwitchingTable.cpp",
         "src/reference_manager/ProceduralMpcMotionManager.cpp",
@@ -646,6 +647,38 @@ cc_test(
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The foot_motion leg joint reference: its names, the leg maps of ANYmal B's point feet at the default posture and their
+# refusals, and the reference manager's state and input references with it and without it.
+cc_test(
+    name = "testLegJointReference",
+    size = "small",
+    srcs = ["test/testLegJointReference.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_b/anymal_b_description",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        ":quaternion_layout_robot_model",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_dimensions",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings:string_view",
         "@eigen",
         "@googletest//:gtest_main",

@@ -53,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 #include "humanoid_common_mpc/reference_manager/ArmSwing.h"
+#include "humanoid_common_mpc/reference_manager/LegJointReference.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h"
 #include "humanoid_mpc_config/config_registries.nproto.h"
@@ -151,6 +152,7 @@ mpc_config::ConfigRegistries collectConfigRegistries() {
       {.name = "gantry_hold",
        .names = robot::mujoco_sim_interface::gantryHoldNames()},
       {.name = "hard_constraint", .names = mpcHardConstraintNames()},
+      {.name = "leg_joint_reference", .names = legJointReferenceNames()},
       {.name = "locomotion_heuristic", .names = locomotionHeuristicNames()},
       {.name = "mpc_cost", .names = mpcCostNames()},
       {.name = "multi_contact_force_reference", .names = forceReferenceNames()},

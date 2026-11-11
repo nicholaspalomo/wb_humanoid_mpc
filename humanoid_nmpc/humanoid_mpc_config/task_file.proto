@@ -46,7 +46,7 @@ import "nproto/retired_field_options.proto";
 // Named components are strings that their registries resolve (costs, constraints, estimators, sinks, visualizations,
 // parameterizations, the centroidal model), never booleans or int codes; the retired booleans, int codes and blocks
 // below are refused with what replaced them.
-// Next ID: 62
+// Next ID: 63
 message TaskFile {
   option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::TaskFile";
   // LINT.IfChange(retired_formulation_keys)
@@ -126,7 +126,7 @@ message TaskFile {
     replacement: "the centroidal model is selected by name: centroidal_model: \"full_centroidal_dynamics\" where it was 0, \"single_rigid_body_dynamics\" where it was 1"
   };
 
-  reserved 62 to max;
+  reserved 63 to max;
   // 19 was centroidal_model_type, OCS2's int code of the centroidal model, now the name centroidal_model.
   reserved 19;
   // 44 was icp_cost_weights, the weight of the removed icp_cost.
@@ -338,6 +338,24 @@ message TaskFile {
   repeated string costs = 22 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP registry: "mpc_cost" }];
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp:mpc_cost_registry)
   NominalFootholdConfig nominal_foothold = 23 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+  // What the state and input costs regularize the leg joints toward, by name: "default_posture" (the default), the
+  // target's joint positions and zero joint velocities; or "foot_motion", the joint positions and velocities of each
+  // leg that move its contact relative to the base as the references of the plan do (a stance contact still in the
+  // world where it landed, under the commanded base twist; a swing contact along its swing reference), mapped through
+  // the leg's Jacobian at the nominal posture. "foot_motion" needs 3-DoF point contacts on separate legs. Read by the
+  // centroidal MPC only. No robot ships it: on ANYmal B it raised the trot to the command but triggered the
+  // Gauss-Newton SQP's cycling with the hard swing normal-velocity rows (design README section 6, risk 12;
+  // robot_models/anybotics_anymal_b/README.md, "Trot speed").
+  // LINT.IfChange(leg_joint_reference)
+  string leg_joint_reference = 62 [
+    default = "default_posture",
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      registry: "leg_joint_reference"
+      formulations: "centroidal"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/reference_manager/LegJointReference.cpp:leg_joint_reference_names)
   // [m] The height of the ground, shared by the swing trajectories and the contact-implicit terms.
   double pos_surface_rt_world_ewrt_world_z = 24 [default = 0.0, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m" }];
   // The contact-implicit terms and the locomotion heuristics: the centroidal MPC's (the whole-body MPC refuses the

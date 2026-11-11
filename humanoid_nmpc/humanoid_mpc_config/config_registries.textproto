@@ -127,6 +127,12 @@ registries {
 }
 
 registries {
+  name: "leg_joint_reference"
+  names: "default_posture"
+  names: "foot_motion"
+}
+
+registries {
   name: "locomotion_heuristic"
   names: "orientation_compensation"
   names: "periodic_orientation"
