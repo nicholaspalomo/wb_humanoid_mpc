@@ -84,6 +84,12 @@ class TestTheSchemaTheTabReliesOn(unittest.TestCase):
         self.assertEqual(
             joint_pd_tab.classify_joint_section("RH_KFE"), "Right Hind Leg"
         )
+        self.assertEqual(
+            joint_pd_tab.classify_joint_section("abad_L_Joint"), "Left Leg"
+        )
+        self.assertEqual(
+            joint_pd_tab.classify_joint_section("wheel_R_Joint"), "Right Leg"
+        )
         for section in (
             "Left Front Leg",
             "Right Front Leg",

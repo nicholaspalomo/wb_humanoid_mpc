@@ -242,9 +242,9 @@ TEST(GuiVelocityCommand, TheClampIsTheOneTheMpcNodeAppliesToAReceivedMessage) {
   }
 }
 
-TEST(RobotConfigurations, TheSevenConfigurationsNameTheirFiles) {
+TEST(RobotConfigurations, TheNineConfigurationsNameTheirFiles) {
   const std::vector<RobotConfiguration>& configurations = robotConfigurations();
-  ASSERT_EQ(configurations.size(), 7u);
+  ASSERT_EQ(configurations.size(), 9u);
   size_t wholeBody = 0;
   for (const RobotConfiguration& configuration : configurations) {
     EXPECT_TRUE(findRobotConfiguration(configuration.name).ok())
@@ -275,7 +275,8 @@ TEST(RobotConfigurations, OnlyTheKalmanVariantOverridesTheStateEstimator) {
 TEST(RobotConfigurations, TheBipedsRunEveryScenarioOnTheBipedGaitFile) {
   for (const RobotConfiguration& configuration : robotConfigurations()) {
     if (configuration.name == "unitree_g1_kalman" ||
-        configuration.name == "anymal_b") {
+        configuration.name == "anymal_b" || configuration.name == "tron1" ||
+        configuration.name == "anymal_c_wheels") {
       continue;
     }
     EXPECT_EQ(configuration.gaitFile,
@@ -334,6 +335,37 @@ TEST(RobotConfigurations, AnymalBTrotsOnTheQuadrupedGaitFile) {
   }
   EXPECT_FALSE(anymal->runsScenario("walk_0p3"));
   EXPECT_FALSE(anymal->runsScenario("smoke"));
+}
+
+TEST(RobotConfigurations, TheWheeledRobotsDriveOnTheirWheeledGaitFiles) {
+  // Tron1 turns by differential wheel speed; the wheeled ANYmal C turns in a
+  // trot, which the wheeled quadrupeds' gait file adds.
+  const std::vector<std::pair<std::string, std::string>> wheeledRobots = {
+      {"tron1",
+       "humanoid_nmpc/humanoid_common_mpc/config/command/"
+       "wheeled_gait.textproto"},
+      {"anymal_c_wheels",
+       "humanoid_nmpc/humanoid_common_mpc/config/command/"
+       "wheeled_quadruped_gait.textproto"}};
+  for (const std::pair<std::string, std::string>& robot : wheeledRobots) {
+    const std::string& name = robot.first;
+    const absl::StatusOr<RobotConfiguration> wheeled =
+        findRobotConfiguration(name);
+    ASSERT_TRUE(wheeled.ok()) << wheeled.status();
+    EXPECT_EQ(wheeled->formulation, MpcFormulation::kCentroidal) << name;
+    EXPECT_FALSE(wheeled->isStateEstimatorVariant()) << name;
+    EXPECT_EQ(wheeled->gaitFile, robot.second) << name;
+    EXPECT_EQ(wheeled->walkingScenario, "walk_0p5") << name;
+    const std::vector<std::string> scenarios = {"standing", "walk_0p5",
+                                                "turn_in_place_720"};
+    EXPECT_EQ(wheeled->scenarios, scenarios) << name;
+    for (const std::string& scenario : scenarios) {
+      EXPECT_TRUE(findClosedLoopScenario(scenario).ok()) << scenario;
+      EXPECT_TRUE(wheeled->runsScenario(scenario)) << name << " " << scenario;
+    }
+    EXPECT_FALSE(wheeled->runsScenario("lateral_0p2")) << name;
+    EXPECT_FALSE(wheeled->runsScenario("smoke")) << name;
+  }
 }
 
 /**

@@ -53,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_replace.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "gtest/gtest.h"
@@ -302,6 +303,45 @@ TEST(StateWeightsFromConfigTest,
       "final_state_weights");
   ASSERT_TRUE(weights.ok()) << weights.status();
   expectDiagonal(*weights, 0.5 * counting(/*size=*/16));
+}
+
+// A wheel joint of a rolling contact turns without end: a position weight on
+// it is refused, in state_weights and final_state_weights alike; a 0 is
+// accepted, and its other weights, a state value and the joint velocity
+// weights are not affected.
+TEST(StateWeightsFromConfigTest, AWheelJointTakesNoPositionWeight) {
+  StateInputLayout wheeled = smallLayout(StateInputLayout::Mpc::kCentroidal);
+  wheeled.wheelJointNames = {"b"};
+  for (const char* absl_nonnull field :
+       {"state_weights", "final_state_weights"}) {
+    SCOPED_TRACE(field);
+    const mpc_config::TaskFile task =
+        taskFile(absl::StrCat(field, " { scaling: 2 ", kCentroidalState, " }"));
+    const mpc_config::StateWeights& weights =
+        absl::string_view(field) == "state_weights" ? task.state_weights
+                                                    : task.final_state_weights;
+    expectRefused(stateWeightsFromConfig(weights, wheeled, field).status(),
+                  {absl::StrCat(field, ".joint_positions[joint=b].value is 14"),
+                   "wheel joint of a rolling contact", "set it to 0"});
+  }
+
+  const mpc_config::TaskFile zero = taskFile(absl::StrCat(
+      "state_weights { scaling: 2 ",
+      absl::StrReplaceAll(kCentroidalState, {{R"(joint: "b" value: 14)",
+                                              R"(joint: "b" value: 0)"}}),
+      " }"));
+  const absl::StatusOr<matrix_t> weights =
+      stateWeightsFromConfig(zero.state_weights, wheeled, "state_weights");
+  ASSERT_TRUE(weights.ok()) << weights.status();
+  EXPECT_EQ((*weights)(13, 13), 0.0);
+  EXPECT_EQ((*weights)(12, 12), 2.0 * 13.0);
+
+  // A state value of the wheel joint is not a weight.
+  const mpc_config::TaskFile values =
+      taskFile(absl::StrCat("initial_state { ", kCentroidalState, " }"));
+  EXPECT_TRUE(
+      stateValuesFromConfig(values.initial_state, wheeled, "initial_state")
+          .ok());
 }
 
 TEST(StateWeightsFromConfigTest, EveryElementIsTheScalingTimesItsEntry) {
@@ -1059,12 +1099,18 @@ struct ShippedTaskFile {
 };
 
 // LINT.IfChange(shipped_task_files)
-constexpr std::array<ShippedTaskFile, 6> kShippedTaskFiles = {{
+constexpr std::array<ShippedTaskFile, 8> kShippedTaskFiles = {{
     {.name = "anymal_b_centroidal_mpc",
      .taskFile = "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/"
                  "config/mpc/task.textproto",
      .urdfFile = "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
                  "anymal_b.urdf",
+     .mpc = StateInputLayout::Mpc::kCentroidal},
+    {.name = "anymal_c_wheels_centroidal_mpc",
+     .taskFile = "robot_models/anybotics_anymal_c_wheels/"
+                 "anymal_c_wheels_centroidal_mpc/config/mpc/task.textproto",
+     .urdfFile = "robot_models/anybotics_anymal_c_wheels/"
+                 "anymal_c_wheels_description/urdf/anymal_c_wheels.urdf",
      .mpc = StateInputLayout::Mpc::kCentroidal},
     {.name = "drc_atlas_centroidal_mpc",
      .taskFile = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/"
@@ -1076,6 +1122,11 @@ constexpr std::array<ShippedTaskFile, 6> kShippedTaskFiles = {{
                  "config/mpc/task.textproto",
      .urdfFile = "robot_models/engineai_sa01/engineai_sa01_description/urdf/"
                  "zq_sa01.urdf",
+     .mpc = StateInputLayout::Mpc::kCentroidal},
+    {.name = "tron1_centroidal_mpc",
+     .taskFile = "robot_models/limx_tron1/tron1_centroidal_mpc/config/mpc/"
+                 "task.textproto",
+     .urdfFile = "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf",
      .mpc = StateInputLayout::Mpc::kCentroidal},
     {.name = "g1_centroidal_mpc",
      .taskFile =

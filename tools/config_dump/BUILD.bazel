@@ -153,6 +153,29 @@ cc_test(
     ],
 )
 
+# The model settings' dump: every value of a rolling contact (kind, wheel radius, wheel-center offset) is a line.
+cc_test(
+    name = "settings_dump_test",
+    size = "small",
+    srcs = ["testSettingsDump.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_description",
+    ],
+    deps = [
+        ":settings_dump",
+        ":value_dump",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
 # Test T4 of humanoid_nmpc/humanoid_mpc_config/README.md: every value of the task, reference, PD gains and gait schemas
 # changes what the conversions make of the shipped files of a centroidal or of the whole-body configuration.
 cc_test(

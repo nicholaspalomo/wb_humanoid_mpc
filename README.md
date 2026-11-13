@@ -75,11 +75,20 @@ Both replaced a top-level boolean, now the retired fields `use_dcm_terminal_cost
 | **DRC Atlas** | Yes | - | Yes | Yes |
 | **EngineAI SA01** | Yes | - | Yes | Yes |
 | **ANYbotics ANYmal B** (quadruped) | Yes | - | Yes | Yes |
+| **LimX Dynamics Tron1** (wheel-foot biped) | Yes | - | Yes | Yes |
+| **ANYbotics ANYmal C on wheels** (wheeled quadruped) | Yes | - | Yes | Yes |
 | **1X Neo** | *Coming Soon* | *Coming Soon* | *Coming Soon* | *Coming Soon* |
 
 ANYmal B is the first robot that is not a biped: four point-contact feet on the centroidal MPC, with the shared
 quadruped gait file. The whole-body MPC accepts only two 6-DoF feet, so it has no whole-body configuration
 ([robot_models/anybotics_anymal_b/README.md](robot_models/anybotics_anymal_b/README.md)).
+
+LimX Tron1 stands and drives on two wheels: the centroidal MPC plans on one rolling contact per wheel, whose force acts
+at the wheel's lowest point and whose material there does not slip in stance
+([humanoid_nmpc/docs/rolling_contact/README.md](humanoid_nmpc/docs/rolling_contact/README.md)), with the wheeled
+bipeds' gait file ([robot_models/limx_tron1/README.md](robot_models/limx_tron1/README.md)). The wheeled ANYmal C drives
+on four rolling contacts and turns in a trot, with the wheeled quadrupeds' gait file
+([robot_models/anybotics_anymal_c_wheels/README.md](robot_models/anybotics_anymal_c_wheels/README.md)).
 
 **Unitree G1:**
 
@@ -223,7 +232,8 @@ The laptop side is launched the same way in simulation and on the robot (`launch
 
 <!-- LINT.IfChange(launch_targets) -->
 For every robot configuration - `g1` (Unitree G1, centroidal MPC), `wb-g1` (G1, whole-body MPC), `drc-atlas`, `r1`
-(Unitree R1), `sa01` (EngineAI SA01), `anymal-b` (ANYbotics ANYmal B, centroidal MPC):
+(Unitree R1), `sa01` (EngineAI SA01), `anymal-b` (ANYbotics ANYmal B, centroidal MPC), `tron1` (LimX Tron1, centroidal
+MPC), `anymal-c-wheels` (the wheeled ANYbotics ANYmal C, centroidal MPC):
 
 ```bash
 make launch-drc-atlas-sim             # MuJoCo sim: robot-sim container + MPC, GUI and Rerun bridge (run on the host);
@@ -314,7 +324,7 @@ The joystick GUI (`base_velocity_controller_gui`, [humanoid_nmpc/remote_control/
    - A slider and a numeric entry per gain of the file: the default gains and each joint's proportional ($K_p$) and derivative ($K_d$) gain.
    - **Limb grouping** organizes the joints' rows into torso and spine, left and right leg, left and right arm, and head and neck.
    - **Global scaling** multipliers ($\times 0.001 \dots \times 2.0$) scale all $K_p$ and $K_d$ gains simultaneously.
-   - **Robot model presets** switch between Unitree G1, DRC Atlas, Unitree R1, EngineAI SA01 and ANYbotics ANYmal B gain files.
+   - **Robot model presets** switch between Unitree G1, DRC Atlas, Unitree R1, EngineAI SA01, ANYbotics ANYmal B, LimX Tron1 and the wheeled ANYmal C gain files.
    - **Save** writes the laptop's file and sends the same text to the robot's store; the status line shows the
      robot's answer.
 

@@ -50,14 +50,24 @@ is the contact frame, within the 1 mm in each axis. A second sphere would be a s
 plan for, and a sphere away from the frame puts the simulated contact where the MPC does not expect it. The contact
 frame stands on the ground in the default stances like a sole's frame; its tilt is not checked.
 
+A rolling contact (task file model_settings.contacts_rolling), a wheel, carries a force at the wheel's lowest point, which
+moves over the rim as the wheel turns: its frame is the wheel center (pos_wheel_rt_link_ewrt_link on the wheel's own
+joint), and its contact point is the center a wheel radius below, on flat ground (humanoid_nmpc/docs/rolling_contact).
+That point stands on the ground in the default stances within the 1 mm. Its MuJoCo wheel is exactly one collision geom in
+the wheel joint's body and the bodies below it, a cylinder coaxial with the wheel joint's axis, centered at the wheel
+center and of the task file's wheel_radius, each within the 1 mm: another geom would roll on another radius or touch the
+ground where the MPC plans no contact.
+
 The forward kinematics are this file's own, of the URDF that Pinocchio loads for the MPC (a contact frame is its parent
 joint's frame translated by its pos_contact_rt_link_ewrt_link, unrotated, as createPinocchioModel() adds it), and the
 spheres are MuJoCo's, of the MJCF the simulator loads; the two frames are checked to coincide first. The contacts are
 read in the MPC's order: model_settings.contacts_3dof, each with its parent_joint_name and pos_contact_rt_link_ewrt_link,
-then the 6-DoF contacts on model_settings.contact_parent_joint_names at the shared contacts.pos_contact_rt_link_ewrt_link.
+then model_settings.contacts_rolling, each with its parent_joint_name, pos_wheel_rt_link_ewrt_link and wheel_radius, then
+the 6-DoF contacts on model_settings.contact_parent_joint_names at the shared contacts.pos_contact_rt_link_ewrt_link.
 """
 
 import dataclasses
+import enum
 import math
 import os
 import unittest
@@ -83,6 +93,10 @@ _ROBOTS = {
         "anybotics_anymal_b/anymal_b_description/urdf/anymal_b",
         "anybotics_anymal_b/anymal_b_centroidal_mpc/config",
     ),
+    "anymal_c_wheels": (
+        "anybotics_anymal_c_wheels/anymal_c_wheels_description/urdf/anymal_c_wheels",
+        "anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/config",
+    ),
     "drc_atlas": (
         "drc_atlas/drc_atlas_description/urdf/atlas",
         "drc_atlas/drc_atlas_centroidal_mpc/config",
@@ -90,6 +104,10 @@ _ROBOTS = {
     "engineai_sa01": (
         "engineai_sa01/engineai_sa01_description/urdf/zq_sa01",
         "engineai_sa01/engineai_sa01_centroidal_mpc/config",
+    ),
+    "tron1": (
+        "limx_tron1/tron1_description/urdf/tron1",
+        "limx_tron1/tron1_centroidal_mpc/config",
     ),
     "unitree_g1": (
         "unitree_g1/g1_description/urdf/g1_29dof",
@@ -267,19 +285,30 @@ def _load(
     return joints, reference, task
 
 
+class _ContactKind(enum.Enum):
+    """The kind of a contact of the MPC's contact set (ModelSettings::ContactKind)."""
+
+    POINT = "point"
+    ROLLING = "rolling"
+    SOLE = "sole"
+
+
 @dataclasses.dataclass(frozen=True)
 class _Contact:
     """One contact of the MPC's contact set.
 
     Attributes:
         parent_joint: The joint whose frame the contact frame hangs from.
-        pos_contact_rt_link_ewrt_link: The contact frame in its parent joint's frame [m], shape (3,).
-        is_point: Whether it is a 3-DoF (point) contact; otherwise a 6-DoF sole.
+        pos_contact_rt_link_ewrt_link: The contact frame in its parent joint's frame [m], shape (3,); a rolling
+            contact's is the wheel center.
+        kind: A 3-DoF point contact, a rolling contact (a wheel) or a 6-DoF sole.
+        wheel_radius: [m] The wheel's radius of a rolling contact; 0 for the others.
     """
 
     parent_joint: str
     pos_contact_rt_link_ewrt_link: np.ndarray
-    is_point: bool
+    kind: _ContactKind
+    wheel_radius: float = 0.0
 
 
 def _xyz(xyz) -> np.ndarray:
@@ -288,17 +317,28 @@ def _xyz(xyz) -> np.ndarray:
 
 
 def _contacts(task: task_file_pb2.TaskFile) -> list[_Contact]:
-    """Returns the task file's contacts in the MPC's order: the 3-DoF contacts, then the 6-DoF ones."""
+    """Returns the task file's contacts in the MPC's order: the point contacts, the rolling ones, then the 6-DoF ones."""
     contacts = [
         _Contact(
             parent_joint=point.parent_joint_name,
             pos_contact_rt_link_ewrt_link=_xyz(
                 point.pos_contact_rt_link_ewrt_link
             ),
-            is_point=True,
+            kind=_ContactKind.POINT,
         )
         for point in task.model_settings.contacts_3dof
     ]
+    contacts.extend(
+        _Contact(
+            parent_joint=wheel.parent_joint_name,
+            pos_contact_rt_link_ewrt_link=_xyz(
+                wheel.pos_wheel_rt_link_ewrt_link
+            ),
+            kind=_ContactKind.ROLLING,
+            wheel_radius=wheel.wheel_radius,
+        )
+        for wheel in task.model_settings.contacts_rolling
+    )
     pos_contact_rt_link_ewrt_link = _xyz(
         task.contacts.pos_contact_rt_link_ewrt_link
     )
@@ -306,7 +346,7 @@ def _contacts(task: task_file_pb2.TaskFile) -> list[_Contact]:
         _Contact(
             parent_joint=parent,
             pos_contact_rt_link_ewrt_link=pos_contact_rt_link_ewrt_link,
-            is_point=False,
+            kind=_ContactKind.SOLE,
         )
         for parent in task.model_settings.contact_parent_joint_names
     )
@@ -343,15 +383,18 @@ class DefaultStanceTest(unittest.TestCase):
                     joint_positions,
                 )
             )
+            # A rolling contact's frame is the wheel center; its contact point is the wheel's lowest point, a radius
+            # below on flat ground.
             pos_contact_rt_world_ewrt_world = (
                 pos_link_rt_world_ewrt_world
                 + rotmat_link_rt_world @ contact.pos_contact_rt_link_ewrt_link
+                - np.array([0.0, 0.0, contact.wheel_radius])
             )
             tiltangle_link_rt_world = math.acos(
                 min(1.0, rotmat_link_rt_world[2, 2])
             )
             label = (
-                f"{robot} {what}, the contact frame on {contact.parent_joint}"
+                f"{robot} {what}, the contact point on {contact.parent_joint}"
             )
             self.assertLess(
                 abs(pos_contact_rt_world_ewrt_world[2]),
@@ -359,8 +402,8 @@ class DefaultStanceTest(unittest.TestCase):
                 f"{label} is {pos_contact_rt_world_ewrt_world[2] * 1000:.2f} mm"
                 " above the ground",
             )
-            # A point contact has no sole to level.
-            if contact.is_point:
+            # A point contact has no sole to level, and a wheel turns.
+            if contact.kind != _ContactKind.SOLE:
                 continue
             self.assertLess(
                 math.degrees(tiltangle_link_rt_world),
@@ -536,6 +579,84 @@ def _point_contact_violations(
     return []
 
 
+def _collision_geoms(model: mujoco.MjModel, bodies: set[int]) -> list[int]:
+    """Returns the geoms of `bodies` that take part in collisions, of any type."""
+    return [
+        geom
+        for geom in range(model.ngeom)
+        if model.geom_bodyid[geom] in bodies
+        and (model.geom_contype[geom] != 0 or model.geom_conaffinity[geom] != 0)
+    ]
+
+
+def _rolling_contact_violations(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    joint: int,
+    pos_wheel_rt_link_ewrt_link: np.ndarray,
+    wheel_radius: float,
+) -> list[str]:
+    """Returns why the wheel of a rolling contact on `joint` breaks the one-cylinder rule (the module docstring), or nothing.
+
+    Args:
+        model: The compiled scene.
+        data: Its kinematics, already computed (mj_kinematics).
+        joint: The wheel's own joint.
+        pos_wheel_rt_link_ewrt_link: The wheel center in the joint's body frame [m], shape (3,).
+        wheel_radius: [m] The task file's wheel radius.
+    """
+    body = model.jnt_bodyid[joint]
+    geoms = _collision_geoms(model, _subtree(model, body))
+    if len(geoms) != 1:
+        return [
+            f"{len(geoms)} collision geoms in the wheel's body and the bodies"
+            " below it; a wheel is exactly one"
+        ]
+    geom = geoms[0]
+    if model.geom_type[geom] != mujoco.mjtGeom.mjGEOM_CYLINDER:
+        return ["the wheel's collision geom is not a cylinder"]
+    violations = []
+    rotmat_link_rt_world = data.xmat[body].reshape(3, 3)
+    # The cylinder's axis is its frame's z axis; the hinge's axis is in its body's frame.
+    axis_geom_ewrt_link = (
+        rotmat_link_rt_world.T @ data.geom_xmat[geom].reshape(3, 3)[:, 2]
+    )
+    axis_joint_ewrt_link = model.jnt_axis[joint] / np.linalg.norm(
+        model.jnt_axis[joint]
+    )
+    if 1.0 - abs(float(axis_geom_ewrt_link @ axis_joint_ewrt_link)) > 1e-9:
+        violations.append(
+            f"the cylinder's axis {np.round(axis_geom_ewrt_link, 4).tolist()} is"
+            f" not the wheel joint's {np.round(axis_joint_ewrt_link, 4).tolist()}"
+        )
+    err_pos_geom_rt_wheel_ewrt_link = (
+        rotmat_link_rt_world.T @ (data.geom_xpos[geom] - data.xpos[body])
+        - pos_wheel_rt_link_ewrt_link
+    )
+    if np.abs(err_pos_geom_rt_wheel_ewrt_link).max() >= HEIGHT_TOLERANCE_M:
+        violations.append(
+            "the cylinder's center is"
+            f" {np.round(err_pos_geom_rt_wheel_ewrt_link * 1000, 2).tolist()} mm"
+            " from the wheel center in the link's axes"
+        )
+    if abs(model.geom_size[geom][0] - wheel_radius) >= HEIGHT_TOLERANCE_M:
+        violations.append(
+            f"the cylinder's radius is {model.geom_size[geom][0]:.4f} m, the"
+            f" task file's wheel_radius {wheel_radius:.4f} m"
+        )
+    return violations
+
+
+# A wheel on a hinge about y below a free body, for the self-tests of the rolling-contact rule: {geoms} is replaced by
+# the wheel's geoms. The wheel center is the hinge's body origin.
+_WHEEL_MJCF = """<mujoco><worldbody>
+  <body name="shank"><freejoint/><inertial pos="0 0 0" mass="1" diaginertia="0.01 0.01 0.01"/>
+    <body name="wheel" pos="0 0 -0.3"><joint name="wheel" type="hinge" axis="0 1 0"/>
+      <inertial pos="0 0 0" mass="0.2" diaginertia="0.001 0.002 0.001"/>
+      {geoms}
+    </body>
+  </body></worldbody></mujoco>"""
+
 # A body on a free joint with a foot below it, for the self-tests of the point-contact rule: {spheres} is replaced by
 # the foot's geoms.
 _POINT_FOOT_MJCF = """<mujoco><worldbody>
@@ -546,7 +667,7 @@ _POINT_FOOT_MJCF = """<mujoco><worldbody>
 
 
 class ContactRectangleTest(unittest.TestCase):
-    """The MPC's contacts of every robot against the MuJoCo feet: the soles' rectangles and the point feet's spheres."""
+    """The MPC's contacts of every robot against the MuJoCo feet: soles' rectangles, point feet's spheres, wheels."""
 
     def test_the_hull_algorithm_on_a_known_polygon(self):
         hull = _convex_hull(
@@ -618,6 +739,64 @@ class ContactRectangleTest(unittest.TestCase):
         )
         self.assertTrue(
             self._point_violations(""), "a point contact without a sphere"
+        )
+
+    def _rolling_violations(self, geoms: str) -> list[str]:
+        """Returns the rolling-contact rule's findings on _WHEEL_MJCF with `geoms`, a 0.1 m wheel at the hinge."""
+        model = mujoco.MjModel.from_xml_string(_WHEEL_MJCF.format(geoms=geoms))
+        data = mujoco.MjData(model)
+        mujoco.mj_kinematics(model, data)
+        return _rolling_contact_violations(
+            model,
+            data,
+            mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "wheel"),
+            np.zeros(3),
+            wheel_radius=0.1,
+        )
+
+    def test_the_rolling_rule_on_known_wheels(self):
+        self.assertEqual(
+            self._rolling_violations(
+                '<geom type="cylinder" size="0.1 0.02" zaxis="0 1 0"/>'
+            ),
+            [],
+            "one cylinder on the hinge's axis, at the center, of the radius",
+        )
+        self.assertEqual(
+            self._rolling_violations(
+                '<geom type="cylinder" size="0.1 0.02" zaxis="0 -1 0"/>'
+                '<geom type="sphere" size="0.05" contype="0" conaffinity="0"/>'
+            ),
+            [],
+            "either direction of the axis, and a visual geom takes no part",
+        )
+        self.assertTrue(
+            self._rolling_violations('<geom type="cylinder" size="0.1 0.02"/>'),
+            "a cylinder about z, across the hinge",
+        )
+        self.assertTrue(
+            self._rolling_violations(
+                '<geom type="cylinder" size="0.098 0.02" zaxis="0 1 0"/>'
+            ),
+            "a radius 2 mm short of the task file's",
+        )
+        self.assertTrue(
+            self._rolling_violations(
+                '<geom type="cylinder" size="0.1 0.02" zaxis="0 1 0"'
+                ' pos="0.002 0 0"/>'
+            ),
+            "a center 2 mm off the wheel center",
+        )
+        self.assertTrue(
+            self._rolling_violations(
+                '<geom type="cylinder" size="0.1 0.02" zaxis="0 1 0"/>'
+                '<geom type="sphere" size="0.1"/>'
+            ),
+            "a second collision geom",
+        )
+        self.assertTrue(
+            self._rolling_violations('<geom type="sphere" size="0.1"/>'),
+            "a sphere does not roll about one axis",
         )
 
     def _assert_sole(
@@ -732,7 +911,20 @@ class ContactRectangleTest(unittest.TestCase):
                     FRAME_TOLERANCE_M,
                     f"{robot} {parent}: frame rotation",
                 )
-                if contact.is_point:
+                if contact.kind == _ContactKind.ROLLING:
+                    self.assertEqual(
+                        _rolling_contact_violations(
+                            model,
+                            data,
+                            joint,
+                            contact.pos_contact_rt_link_ewrt_link,
+                            contact.wheel_radius,
+                        ),
+                        [],
+                        f"{robot} {parent}: the rolling contact's wheel",
+                    )
+                    continue
+                if contact.kind == _ContactKind.POINT:
                     self.assertEqual(
                         _point_contact_violations(
                             model,

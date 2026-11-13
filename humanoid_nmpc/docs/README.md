@@ -89,6 +89,13 @@ mode number ([`humanoid_common_mpc`](../humanoid_common_mpc/README.md), "Contact
 runs on any such set; the whole-body MPC, the contact planner and the terms written for two feet run on the biped's two
 6-DoF feet and refuse any other set by name.
 
+One covers wheels:
+
+* [rolling_contact](rolling_contact/README.md) - the rolling contact of a wheel in the centroidal MPC
+  (`model_settings.contacts_rolling`): the force at the wheel's lowest point, the no-slip stance constraint and its
+  Jacobian, the swing of a wheel, the lever arm of the centroidal dynamics, the costs of the wheel joints, the limits
+  of the flat-ground model and the terms a set with a wheel refuses.
+
 And the last covers how the controller runs as processes:
 
 * [distributed_runtime](distributed_runtime/README.md) - the robot process, the MPC node and the operator tools as

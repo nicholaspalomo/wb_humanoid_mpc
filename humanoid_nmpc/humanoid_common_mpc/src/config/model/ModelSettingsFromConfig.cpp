@@ -59,6 +59,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/multibody/fwd.hpp"
 #include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
+#include "urdf_model/joint.h"
+#include "urdf_model/types.h"
+#include "urdf_world/types.h"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
 #include "humanoid_common_mpc/common/ContactArray.h"
@@ -75,6 +78,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/nominal_foothold_config.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "nproto/Textproto.h"
+#include "robot_model/UrdfContinuousJoints.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -84,6 +88,10 @@ namespace {
 constexpr char kStepWidthAnchorName[] = "step_width";
 constexpr char kNominalStanceAnchorName[] = "nominal_stance";
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/nominal_foothold_config.proto:nominal_foothold_anchor)
+
+// [m] The largest distance of a rolling contact's wheel center from its wheel
+// joint's axis that checkRollingContactJoints() accepts: rounding only.
+constexpr double kMaxWheelCenterOffAxleM = 1.0e-9;
 
 // ContactImplicitConfig holds nothing but its seven scalars, so a field added
 // to it without a line in contactImplicitFromConfig() - which would leave it at
@@ -262,18 +270,16 @@ absl::Status checkSoftTermWeight(absl::string_view field, double weight) {
 /**
  * The 3-DoF contacts of model_settings.contacts_3dof, each named, attached to a
  * named parent and at a finite translation, or InvalidArgument naming the
- * entry. `contactNames6DoF` are the 6-DoF contacts, which no 3-DoF contact may
- * share a name with. A name may be a frame of the URDF model at exactly the
- * configured placement, which the MPC then uses instead of adding one; that is
- * checked when the MPC builds its model (loadCustomPinocchioInterface()), not
- * here.
+ * entry. `names` holds the names of the 6-DoF contacts, which no 3-DoF contact
+ * may share; each name is added to it. A name may be a frame of the URDF model
+ * at exactly the configured placement, which the MPC then uses instead of
+ * adding one; that is checked when the MPC builds its model
+ * (loadCustomPinocchioInterface()), not here.
  */
 absl::StatusOr<std::vector<ModelSettings::PointContact>>
 pointContactsFromConfig(
     absl::Span<const mpc_config::ModelSettingsConfig::PointContact> config,
-    absl::Span<const std::string> contactNames6DoF) {
-  absl::flat_hash_set<std::string> names(contactNames6DoF.begin(),
-                                         contactNames6DoF.end());
+    absl::flat_hash_set<std::string>& names) {
   std::vector<ModelSettings::PointContact> contacts;
   contacts.reserve(config.size());
   for (size_t i = 0; i < config.size(); ++i) {
@@ -312,6 +318,144 @@ pointContactsFromConfig(
   return contacts;
 }
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/model_settings_config.proto:contacts_3dof)
+
+// LINT.IfChange(contacts_rolling)
+/**
+ * The rolling contacts of model_settings.contacts_rolling, each named, on a
+ * named wheel joint, with a finite wheel center and a finite positive radius,
+ * or InvalidArgument naming the entry. `taken` holds the names of the other
+ * contacts, which no rolling contact may share; each name is added to it. The
+ * wheel joints are checked against the URDF by checkRollingContactJoints().
+ */
+absl::StatusOr<std::vector<ModelSettings::PointContact>>
+rollingContactsFromConfig(
+    absl::Span<const mpc_config::ModelSettingsConfig::RollingContact> config,
+    absl::flat_hash_set<std::string>& taken) {
+  std::vector<ModelSettings::PointContact> contacts;
+  contacts.reserve(config.size());
+  for (size_t i = 0; i < config.size(); ++i) {
+    const mpc_config::ModelSettingsConfig::RollingContact& contact = config[i];
+    const std::string entry =
+        absl::StrCat("model_settings.contacts_rolling[", i, "]");
+    if (contact.name.empty() || contact.parent_joint_name.empty()) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[ModelSettings] ", entry,
+          " needs a name and a parent_joint_name: the frame of a rolling "
+          "contact hangs from the wheel's joint."));
+    }
+    if (!taken.insert(contact.name).second) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[ModelSettings] ", entry, ".name is '", contact.name,
+          "', which another contact has: every contact of the MPC is a frame "
+          "of its own."));
+    }
+    RETURN_IF_ERROR(
+        requireFinite(absl::StrCat(entry, ".pos_wheel_rt_link_ewrt_link.x"),
+                      contact.pos_wheel_rt_link_ewrt_link.x));
+    RETURN_IF_ERROR(
+        requireFinite(absl::StrCat(entry, ".pos_wheel_rt_link_ewrt_link.y"),
+                      contact.pos_wheel_rt_link_ewrt_link.y));
+    RETURN_IF_ERROR(
+        requireFinite(absl::StrCat(entry, ".pos_wheel_rt_link_ewrt_link.z"),
+                      contact.pos_wheel_rt_link_ewrt_link.z));
+    // Negated so that NaN is refused too.
+    if (!(contact.wheel_radius > 0.0) || !std::isfinite(contact.wheel_radius)) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[ModelSettings] ", entry, ".wheel_radius is ", contact.wheel_radius,
+          " m; the radius of a wheel is a finite positive length."));
+    }
+    contacts.push_back(ModelSettings::PointContact{
+        .name = contact.name,
+        .parentJointName = contact.parent_joint_name,
+        .posContactRtLinkEwrtLink =
+            vector3_t(contact.pos_wheel_rt_link_ewrt_link.x,
+                      contact.pos_wheel_rt_link_ewrt_link.y,
+                      contact.pos_wheel_rt_link_ewrt_link.z),
+        .kind = ModelSettings::ContactKind::kRolling,
+        .wheelRadius = contact.wheel_radius});
+  }
+  return contacts;
+}
+
+/**
+ * Checks that the wheel joint of every rolling contact of `settings`, whose
+ * MPC joints are set, is a continuous joint of the URDF `urdfFile` that the
+ * MPC keeps, whose axis the wheel center lies on, and the joint of no other
+ * rolling contact. A revolute joint with position limits is refused: its
+ * limits would put joint-limit barrier rows on the wheel angle.
+ * InvalidArgument naming the entry otherwise.
+ */
+absl::Status checkRollingContactJoints(const ModelSettings& settings,
+                                       absl::string_view urdfFile) {
+  ASSIGN_OR_RETURN(const urdf::ModelInterfaceSharedPtr urdfTree,
+                   robot::model::parseUrdfFileForPinocchio(urdfFile));
+  absl::flat_hash_set<std::string> wheelJoints;
+  for (size_t i = 0; i < settings.pointContacts.size(); ++i) {
+    if (!settings.isRollingContact(i)) continue;
+    const std::string& joint = settings.pointContacts[i].parentJointName;
+    const std::string entry = absl::StrCat(settings.pointContactEntry(i),
+                                           ".parent_joint_name is '", joint);
+    const urdf::JointConstSharedPtr urdfJoint = urdfTree->getJoint(joint);
+    if (urdfJoint == nullptr) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("[ModelSettings] ", entry,
+                       "', which is not a joint of the URDF ", urdfFile, "."));
+    }
+    // parseUrdfFileForPinocchio() has turned the continuous joints into
+    // revolute ones with the position limits -/+infinity, so a revolute joint
+    // with a finite limit was declared revolute in the URDF.
+    if (urdfJoint->type != urdf::Joint::REVOLUTE) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[ModelSettings] ", entry,
+          "', which is not a continuous joint: a wheel turns about its own "
+          "hinge."));
+    }
+    if (urdfJoint->limits == nullptr || !std::isinf(urdfJoint->limits->lower) ||
+        !std::isinf(urdfJoint->limits->upper)) {
+      const std::string limits =
+          urdfJoint->limits == nullptr
+              ? std::string("[none]")
+              : absl::StrCat("[", urdfJoint->limits->lower, ", ",
+                             urdfJoint->limits->upper, "]");
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[ModelSettings] ", entry,
+          "', a revolute joint with position limits ", limits,
+          ": a wheel joint is continuous, so that the joint limits do not "
+          "bound the wheel angle."));
+    }
+    // The contact frame hangs from the wheel joint and turns with it, so a
+    // wheel center off the joint's axis would circle the axle as the wheel
+    // spins, and the contact point a radius below it would move with it.
+    const vector3_t axis(urdfJoint->axis.x, urdfJoint->axis.y,
+                         urdfJoint->axis.z);
+    const vector3_t& posWheelRtLinkEwrtLink =
+        settings.pointContacts[i].posContactRtLinkEwrtLink;
+    const vector3_t offAxleComponent =
+        posWheelRtLinkEwrtLink -
+        (posWheelRtLinkEwrtLink.dot(axis) / axis.squaredNorm()) * axis;
+    // Negated so that a NaN distance is refused too.
+    if (!(offAxleComponent.norm() <= kMaxWheelCenterOffAxleM)) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[ModelSettings] ", settings.pointContactEntry(i),
+          ".pos_wheel_rt_link_ewrt_link must lie on the wheel joint's axis: "
+          "an offset off the axle turns with the wheel (",
+          offAxleComponent.norm(), " m off the axis of '", joint, "')."));
+    }
+    if (!settings.jointIndexMap.contains(joint)) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[ModelSettings] ", entry,
+          "', which model_settings.fixed_joint_names fixes: a wheel rolls "
+          "only on a joint of the MPC model."));
+    }
+    if (!wheelJoints.insert(joint).second) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[ModelSettings] ", entry,
+          "', the joint of another rolling contact: a wheel has one contact."));
+    }
+  }
+  return absl::OkStatus();
+}
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/model_settings_config.proto:contacts_rolling)
 
 /** The joints of the URDF's floating-base model `model`, in its order: every
  * joint after the universe and the floating base. */
@@ -392,7 +536,7 @@ class NeutralModel {
   std::optional<Hip> explicitHip(absl::string_view frameName) const {
     std::string frame(frameName);
     if (!model_.existFrame(frame)) return std::nullopt;
-    const pinocchio::FrameIndex frameIndex = model_.getFrameId(frame);
+    const pinocchio::FrameIndex frameIndex = hipFrameIdOf(model_, frame);
     return Hip{.frameName = std::move(frame),
                .posHipRtBaseEwrtBase = data_.oMf[frameIndex].translation()};
   }
@@ -858,9 +1002,18 @@ absl::StatusOr<ModelSettings> ModelSettings::Create(
   settings.fixedJointNames = config.fixed_joint_names;
   settings.contactNames6DoF = config.contact_names_6dof;
   settings.contactParentJointNames = config.contact_parent_joint_names;
+  // The contact order: the fixed points, the rolling contacts, then the 6-DoF
+  // contacts.
+  absl::flat_hash_set<std::string> contactNamesTaken(
+      settings.contactNames6DoF.begin(), settings.contactNames6DoF.end());
   ASSIGN_OR_RETURN(
       settings.pointContacts,
-      pointContactsFromConfig(config.contacts_3dof, settings.contactNames6DoF));
+      pointContactsFromConfig(config.contacts_3dof, contactNamesTaken));
+  ASSIGN_OR_RETURN(
+      const std::vector<ModelSettings::PointContact> rollingContacts,
+      rollingContactsFromConfig(config.contacts_rolling, contactNamesTaken));
+  settings.pointContacts.insert(settings.pointContacts.end(),
+                                rollingContacts.begin(), rollingContacts.end());
   for (const ModelSettings::PointContact& contact : settings.pointContacts) {
     settings.contactNames3DoF.push_back(contact.name);
   }
@@ -884,6 +1037,9 @@ absl::StatusOr<ModelSettings> ModelSettings::Create(
   settings.mpcModelToFullJointsIndices = mpcToFullJointIndices(
       settings.fullJointNames, settings.mpcModelJointNames);
   settings.jointIndexMap = indexMap(settings.mpcModelJointNames);
+  if (settings.hasRollingContacts()) {
+    RETURN_IF_ERROR(checkRollingContactJoints(settings, urdfFile));
+  }
   settings.contactNames = settings.contactNames3DoF;
   settings.contactNames.insert(settings.contactNames.end(),
                                settings.contactNames6DoF.begin(),
@@ -892,7 +1048,8 @@ absl::StatusOr<ModelSettings> ModelSettings::Create(
   if (settings.contactNames.size() > kMaxNumContacts) {
     return absl::InvalidArgumentError(absl::StrCat(
         "[ModelSettings] the contact set has ", settings.contactNames.size(),
-        " contacts (model_settings.contacts_3dof and contact_names_6dof); at "
+        " contacts (model_settings.contacts_3dof, contacts_rolling and "
+        "contact_names_6dof); at "
         "most ",
         kMaxNumContacts, " are supported"));
   }

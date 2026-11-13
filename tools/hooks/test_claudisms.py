@@ -77,8 +77,9 @@ class ClaudismsTest(unittest.TestCase):
             "// That's the whole point, and it quietly fails.\n"
             "// Leveraging a robust solver to dive into the realm.\n"
             "// Settled by the owner; there is a real distinction here.\n"
+            "// Its contact points ride along with the base.\n"
         )
-        self.assertEqual(len(claudisms.check_source(bad, "src/a.cpp")), 10)
+        self.assertEqual(len(claudisms.check_source(bad, "src/a.cpp")), 11)
         good = (
             "// Drains a few polls' worth of samples (a queue's worth per"
             " call).\n"

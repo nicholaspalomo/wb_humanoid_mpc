@@ -382,7 +382,13 @@ void PrintTo(const ProcessCycleRobot& robot, std::ostream* absl_nonnull os) {
   *os << robot.name;
 }
 
-// The Atlas's two 6-DoF feet and ANYmal B's four 3-DoF point contacts.
+// The Atlas's two 6-DoF feet and ANYmal B's four 3-DoF point contacts. Not
+// Tron1 or the wheeled ANYmal C: the cycle runs the kalman estimator and a
+// multi-contact plan's surfaces, and both refuse their rolling contacts (a
+// contact point that moves over the wheel, on flat ground only); their realtime
+// path is the MRT controller's, whose allocation test covers it
+// (humanoid_centroidal_mpc_test,
+// testCentroidalMpcMrtJointControllerAllocations).
 constexpr ProcessCycleRobot kProcessCycleRobots[] = {
     {.name = "drc_atlas",
      .urdfFile = kAtlasUrdf,

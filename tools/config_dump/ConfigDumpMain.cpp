@@ -64,8 +64,8 @@ ABSL_FLAG(std::string,
           robot,
           "",
           "The configuration (RobotConfiguration::name): drc_atlas, "
-          "engineai_sa01, unitree_g1, unitree_r1, anymal_b, unitree_g1_wb, "
-          "unitree_g1_kalman.");
+          "engineai_sa01, unitree_g1, unitree_r1, anymal_b, tron1, "
+          "anymal_c_wheels, unitree_g1_wb, unitree_g1_kalman.");
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations)
 // clang-format on

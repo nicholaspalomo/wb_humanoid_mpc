@@ -70,6 +70,11 @@ inline constexpr absl::string_view kGroundPenetration = "_groundPenetration";
 inline constexpr absl::string_view kNormalVelocityName = "_normalVelocity";
 inline constexpr absl::string_view kNormalVelocitySoftName =
     "_normalVelocitySoft";
+// The stance constraint of a rolling contact, which the zero_velocity entry of
+// the hard or soft list builds on a wheel in place of the stance-foot
+// constraint (RollingContactConstraintCppAd,
+// humanoid_nmpc/docs/rolling_contact/README.md).
+inline constexpr absl::string_view kRollingNoSlipName = "_rollingNoSlip";
 // The terms of a tracked multi-contact plan: the swing servo of any contact
 // (ContactSwingConstraint), the landing alignment of a 6-DoF one
 // (SwingLandingAlignmentConstraint) and the collision sphere kept out of the

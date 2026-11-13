@@ -80,6 +80,10 @@ struct StateInputLayout {
   // rest 6-DoF ones, whose input is their wrench.
   std::vector<std::string> contactNames;
   size_t numPointContacts = 0;
+  // The wheel joints of the rolling contacts
+  // (ModelSettings::rollingContactJointNames()): a wheel turns without end, so
+  // a state weight may not anchor its position (stateWeightsFromConfig()).
+  std::vector<std::string> wheelJointNames;
 };
 
 /** The layout of the MPC `mpc` of the robot model `settings`: its MPC joints,

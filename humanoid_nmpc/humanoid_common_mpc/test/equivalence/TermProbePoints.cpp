@@ -60,6 +60,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 #include "humanoid_common_mpc/common/ContactMask.h"
+#include "humanoid_common_mpc/common/ContactTermNames.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -693,8 +694,13 @@ std::optional<std::string> addSoftStanceFootConstraint(
     absl::Span<const std::string> contactNames,
     scalar_t softConstraintWeight) {
   for (const std::string& contact : contactNames) {
-    const std::string name = zeroVelocityTermName(contact);
+    // A rolling contact's zero_velocity entry is its rolling no-slip
+    // constraint, under a name of its own.
+    std::string name = zeroVelocityTermName(contact);
     size_t index = 0;
+    if (!problem.equalityConstraintPtr->getTermIndex(name, index)) {
+      name = contact_term::name(contact, contact_term::kRollingNoSlipName);
+    }
     if (!problem.equalityConstraintPtr->getTermIndex(name, index)) continue;
     if (problem.softConstraintPtr->getTermIndex(name, index)) {
       return std::nullopt;

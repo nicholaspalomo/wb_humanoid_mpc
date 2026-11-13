@@ -39,9 +39,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <numbers>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
@@ -56,6 +58,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/centroidal.hpp"
+#include "pinocchio/algorithm/jacobian.hpp"
 #include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
@@ -66,6 +69,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact/ContactPatchFrame.h"
+#include "humanoid_common_mpc/contact/RollingContact.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/gait/BipedModes.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
@@ -99,6 +103,24 @@ constexpr scalar_t kNominalStepSwingLookBack = 1.0e-9;
 /** The procedural arm swing: sin(kArmSwingRadiansPerCycle (phase -
  * phaseOffset)) v_x, times the gains (ArmSwingSettings). */
 constexpr scalar_t kArmSwingRadiansPerCycle = 2 * std::numbers::pi;
+
+/** |a x n| below which a wheel's axle counts as vertical: it has no rolling
+ * direction, and its wheel velocity reference is 0. */
+constexpr scalar_t kMinRollingDirNorm = 1.0e-6;
+
+/** Returns `offset` [m], a horizontal vector in the heading frame of yaw
+ * `yawBaseRtWorld` [rad], turned into the world and added to
+ * `posBaseRtWorldEwrtWorldXy` [m]. */
+vector2_t turnOffsetIntoWorld(const vector2_t& posBaseRtWorldEwrtWorldXy,
+                              scalar_t yawBaseRtWorld,
+                              const vector2_t& offset) {
+  const scalar_t cosYaw = std::cos(yawBaseRtWorld);
+  const scalar_t sinYaw = std::sin(yawBaseRtWorld);
+  return vector2_t(
+      posBaseRtWorldEwrtWorldXy.x() + cosYaw * offset.x() - sinYaw * offset.y(),
+      posBaseRtWorldEwrtWorldXy.y() + sinYaw * offset.x() +
+          cosYaw * offset.y());
+}
 
 /** Whether a state of the layout `layout` stores the base's body angular
  * velocity (a kZyxOrderedAngularVelocity block). */
@@ -291,6 +313,83 @@ void SwitchedModelReferenceManager::configureNominalStance(
   PinocchioInterface pinocchioInterface = pinocchioInterface_;
   nomPosContactsRtBaseEwrtHeadingXy_ = computeNomPosContactsRtBaseEwrtHeadingXy(
       pinocchioInterface, *mpcRobotModelPtr_, nominalState);
+  rollingWheelReferences_.clear();
+  if (mpcRobotModelPtr_->modelSettings.hasRollingContacts()) {
+    rollingWheelReferences_ =
+        computeRollingWheelReferences(pinocchioInterface, nominalState);
+  }
+}
+
+std::vector<SwitchedModelReferenceManager::RollingWheelReference>
+SwitchedModelReferenceManager::computeRollingWheelReferences(
+    PinocchioInterface& pinocchioInterface,
+    const vector_t& nominalState) const {
+  const ModelSettings& modelSettings = mpcRobotModelPtr_->modelSettings;
+  const pinocchio::Model& model = pinocchioInterface.getModel();
+  pinocchio::Data& data = pinocchioInterface.getData();
+  pinocchio::computeJointJacobians(
+      model, data, mpcRobotModelPtr_->getGeneralizedCoordinates(nominalState));
+  // World axes into the heading of the nominal posture.
+  const matrix3_t rotmatWorldRtHeading =
+      Eigen::AngleAxis<scalar_t>(
+          -mpcRobotModelPtr_->getYawBaseRtWorld(nominalState),
+          vector3_t::UnitZ())
+          .toRotationMatrix();
+  std::vector<RollingWheelReference> wheels;
+  for (size_t contact = 0; contact < modelSettings.pointContacts.size();
+       ++contact) {
+    if (!modelSettings.isRollingContact(contact)) continue;
+    wheels.push_back(rollingWheelReferenceOf(pinocchioInterface, contact,
+                                             rotmatWorldRtHeading));
+  }
+  return wheels;
+}
+
+SwitchedModelReferenceManager::RollingWheelReference
+SwitchedModelReferenceManager::rollingWheelReferenceOf(
+    const PinocchioInterface& pinocchioInterface,
+    size_t contact,
+    const matrix3_t& rotmatWorldRtHeading) const {
+  const ModelSettings& modelSettings = mpcRobotModelPtr_->modelSettings;
+  const pinocchio::Model& model = pinocchioInterface.getModel();
+  const std::string& wheelJoint =
+      modelSettings.pointContacts[contact].parentJointName;
+  // ModelSettings::Create() accepts a rolling contact only on a movable
+  // joint of the URDF that is not fixed, i.e. a joint of the MPC model.
+  const absl::flat_hash_map<std::string, size_t>::const_iterator joint =
+      modelSettings.jointIndexMap.find(wheelJoint);
+  ABSL_CHECK(joint != modelSettings.jointIndexMap.end())
+      << "[SwitchedModelReferenceManager] the wheel joint " << wheelJoint
+      << " of " << modelSettings.contactNames[contact]
+      << " is not a joint of the MPC model.";
+  const pinocchio::JointIndex jointId = model.getJointId(wheelJoint);
+  ABSL_CHECK(jointId < static_cast<pinocchio::JointIndex>(model.njoints))
+      << "[SwitchedModelReferenceManager] the wheel joint " << wheelJoint
+      << " is not a joint of the Pinocchio model.";
+  // The joint's own column of its world-aligned Jacobian: the angular
+  // velocity of the wheel per unit joint velocity, its axis in the world.
+  matrix_t jacobian = matrix_t::Zero(kPoseTangentDim, model.nv);
+  pinocchio::getJointJacobian(model, pinocchioInterface.getData(), jointId,
+                              pinocchio::LOCAL_WORLD_ALIGNED, jacobian);
+  const vector3_t axisWheelEwrtWorld = jacobian.block<kRotationTangentDim, 1>(
+      kPositionDim, model.joints[jointId].idx_v());
+  const vector3_t dirWheelEwrtWorld =
+      axisWheelEwrtWorld.cross(normalTerrainEwrtWorld<scalar_t>());
+  RollingWheelReference wheel;
+  wheel.contactIndex = contact;
+  wheel.wheelJointInputIndex = static_cast<Eigen::Index>(
+      mpcRobotModelPtr_->getJointVelocitiesStartindex() + joint->second);
+  if (contact < nomPosContactsRtBaseEwrtHeadingXy_.size()) {
+    wheel.nomPosContactRtBaseEwrtHeadingXy =
+        nomPosContactsRtBaseEwrtHeadingXy_[contact];
+  }
+  if (dirWheelEwrtWorld.norm() >= kMinRollingDirNorm) {
+    wheel.dirWheelEwrtHeadingXy =
+        (rotmatWorldRtHeading * dirWheelEwrtWorld.normalized())
+            .head<kHorizontalPositionDim>();
+  }
+  wheel.wheelRadius = modelSettings.wheelRadius(contact);
+  return wheel;
 }
 
 absl::Status SwitchedModelReferenceManager::configureLegJointReference(
@@ -426,10 +525,14 @@ bool SwitchedModelReferenceManager::needsMeasuredState() const {
       mpcRobotModelPtr_->modelSettings.nominalFootholdConfig;
   // The foot_motion leg joint reference reads where the stance contacts
   // stand, as the nominal foothold does.
+  // A rolling contact's stance point and its wheel velocity reference read the
+  // predicted base and the commanded yaw rate, which needs the latched yaw
+  // inertia on the centroidal state.
   return nominalFoothold.nomPosLfootRtRfootEwrtHeadingY > 0.0 ||
          nominalFoothold.anchor ==
              ModelSettings::NominalFootholdAnchor::kNominalStance ||
-         !heuristicLayerPtr_->empty() || footMotionLegReference_.has_value();
+         !heuristicLayerPtr_->empty() || footMotionLegReference_.has_value() ||
+         mpcRobotModelPtr_->modelSettings.hasRollingContacts();
 }
 
 SwitchedModelReferenceManager::PlanarPoseChange
@@ -602,9 +705,10 @@ SwitchedModelReferenceManager::nomStepPosFootRtWorldEwrtWorldXy(
       previousTouchDownTime(modeSchedule_, stanceIndex, time);
   const std::optional<vector2_t> anchorPosStanceRtWorldEwrtWorldXy =
       anchorPosFootRtWorldEwrtWorldXy(
-          stanceIndex, (stanceLanded.has_value() && *stanceLanded < time)
-                           ? stanceLanded
-                           : std::nullopt);
+          stanceIndex,
+          (stanceLanded.has_value() && *stanceLanded < time) ? stanceLanded
+                                                             : std::nullopt,
+          time);
   if (!anchorPosStanceRtWorldEwrtWorldXy.has_value()) return std::nullopt;
   const std::optional<SwingWindow> swing = swingPhaseAtTime(
       modeSchedule_, contactIndex, time - kNominalStepSwingLookBack);
@@ -628,7 +732,15 @@ SwitchedModelReferenceManager::nomStepPosFootRtWorldEwrtWorldXy(
 
 std::optional<vector2_t>
 SwitchedModelReferenceManager::anchorPosFootRtWorldEwrtWorldXy(
-    size_t contactIndex, std::optional<scalar_t> touchDownTime) const {
+    size_t contactIndex,
+    std::optional<scalar_t> touchDownTime,
+    scalar_t stanceTime) const {
+  // A rolling contact rolls with the base while it stands: after the last
+  // solve it is wherever the predicted base has taken it.
+  if (stanceTime > lastSolveTime_ &&
+      mpcRobotModelPtr_->modelSettings.isRollingContact(contactIndex)) {
+    return rollingStancePosContactRtWorldEwrtWorldXy(contactIndex, stanceTime);
+  }
   if (!touchDownTime.has_value() || *touchDownTime <= lastSolveTime_) {
     return liftoffPosContactsRtWorldEwrtWorldXy_[contactIndex];
   }
@@ -674,22 +786,62 @@ std::optional<vector2_t> SwitchedModelReferenceManager::footholdOnNominalStance(
 
 vector2_t SwitchedModelReferenceManager::computeNomPosContactRtWorldEwrtWorldXy(
     const FootholdHeuristicContext& context) {
-  const scalar_t cosYaw = std::cos(context.yawBaseRtWorld);
-  const scalar_t sinYaw = std::sin(context.yawBaseRtWorld);
-  const vector2_t& nomPosContactRtBaseEwrtHeadingXy =
-      context.nomPosContactRtBaseEwrtHeadingXy;
-  return vector2_t(context.posBaseRtWorldEwrtWorldXy.x() +
-                       cosYaw * nomPosContactRtBaseEwrtHeadingXy.x() -
-                       sinYaw * nomPosContactRtBaseEwrtHeadingXy.y(),
-                   context.posBaseRtWorldEwrtWorldXy.y() +
-                       sinYaw * nomPosContactRtBaseEwrtHeadingXy.x() +
-                       cosYaw * nomPosContactRtBaseEwrtHeadingXy.y());
+  return turnOffsetIntoWorld(context.posBaseRtWorldEwrtWorldXy,
+                             context.yawBaseRtWorld,
+                             context.nomPosContactRtBaseEwrtHeadingXy);
+}
+
+std::optional<vector2_t>
+SwitchedModelReferenceManager::rollingStancePosContactRtWorldEwrtWorldXy(
+    size_t contactIndex, scalar_t time) const {
+  if (!hasMeasuredState_ ||
+      contactIndex >= nomPosContactsRtBaseEwrtHeadingXy_.size()) {
+    return std::nullopt;
+  }
+  const PlanarBasePose predicted = predictedBaseAt(time);
+  return turnOffsetIntoWorld(predicted.posBaseRtWorldEwrtWorldXy,
+                             predicted.yawBaseRtWorld,
+                             nomPosContactsRtBaseEwrtHeadingXy_[contactIndex]);
+}
+
+std::optional<SwingFootReference>
+SwitchedModelReferenceManager::rollingStanceReference(size_t contactIndex,
+                                                      scalar_t time) const {
+  const std::optional<vector2_t> posContactRtWorldEwrtWorldXy =
+      rollingStancePosContactRtWorldEwrtWorldXy(contactIndex, time);
+  if (!posContactRtWorldEwrtWorldXy.has_value()) return std::nullopt;
+  const PlanarBasePose predicted = predictedBaseAt(time);
+  // The velocity of the moving point: the commanded base velocity plus the
+  // commanded turn about the vertical through the base.
+  const vector2_t errPosContactRtBaseEwrtWorldXy =
+      *posContactRtWorldEwrtWorldXy - predicted.posBaseRtWorldEwrtWorldXy;
+  const scalar_t cmdRateYawBaseRtWorld = getCmdRateYawBaseRtWorld(time);
+  SwingFootReference reference;
+  reference.desPosFootRtWorldEwrtWorld.head<kHorizontalPositionDim>() =
+      *posContactRtWorldEwrtWorldXy;
+  reference.desPosFootRtWorldEwrtWorld(kZAxisIndex) =
+      swingTrajectoryPtr_->getDesPosFootRtWorldEwrtWorldZ(contactIndex, time);
+  reference.desLinvelFootRtWorldEwrtWorld.head<kHorizontalPositionDim>() =
+      getCmdLinvelBaseRtWorldEwrtWorldXy(time) +
+      cmdRateYawBaseRtWorld * vector2_t(-errPosContactRtBaseEwrtWorldXy.y(),
+                                        errPosContactRtBaseEwrtWorldXy.x());
+  reference.desLinvelFootRtWorldEwrtWorld(kZAxisIndex) =
+      swingTrajectoryPtr_->getDesLinvelFootRtWorldEwrtWorldZ(contactIndex,
+                                                             time);
+  return reference;
 }
 
 std::optional<SwingFootReference>
 SwitchedModelReferenceManager::getSwingFootReference(size_t contactIndex,
                                                      scalar_t time) const {
-  if (isInContact(time, contactIndex)) return std::nullopt;
+  if (isInContact(time, contactIndex)) {
+    // A fixed contact stands still and needs no reference; a rolling one
+    // moves with the base.
+    if (!mpcRobotModelPtr_->modelSettings.isRollingContact(contactIndex)) {
+      return std::nullopt;
+    }
+    return rollingStanceReference(contactIndex, time);
+  }
   // The biped's feet keep the schedule queries written for them; a contact of
   // any other set is its own one-contact leg (LegSwingPhase.h).
   const bool bipedContactSet =
@@ -718,7 +870,9 @@ SwitchedModelReferenceManager::getSwingFootReference(size_t contactIndex,
   // whose foot has not yet landed from the swing before, the latched position
   // is where it lifted off from one step earlier, and the swing starts from
   // that earlier step's nominal target instead
-  // (anchorPosFootRtWorldEwrtWorldXy()).
+  // (anchorPosFootRtWorldEwrtWorldXy()). A rolling contact has rolled with
+  // the base until it lifts off, so a lift-off after the last solve starts
+  // from its moving stance point at the lift-off.
   const std::optional<vector2_t> desPosFootRtWorldEwrtWorldXy =
       getNomPosFootRtWorldEwrtWorldXy(contactIndex, touchDownTime);
   if (!desPosFootRtWorldEwrtWorldXy.has_value()) return std::nullopt;
@@ -728,7 +882,8 @@ SwitchedModelReferenceManager::getSwingFootReference(size_t contactIndex,
           bipedContactSet
               ? previousTouchDownTime(modeSchedule_, contactIndex, liftOffTime)
               : legPreviousTouchDownTime(modeSchedule_, numContacts_, contact,
-                                         liftOffTime));
+                                         liftOffTime),
+          liftOffTime);
   if (!liftoffPosFootRtWorldEwrtWorldXy.has_value()) return std::nullopt;
 
   // The same cubic blend the planned-foothold path uses: p'(0) = 1, p'(1) = 0,
@@ -1141,7 +1296,48 @@ vector_t SwitchedModelReferenceManager::getDesiredInput(
                                  jointVelocities);
     }
   }
+  if (!rollingWheelReferences_.empty() && !targetTrajectories.empty()) {
+    setWheelJointVelocities(targetTrajectories, time, input);
+  }
   return input;
+}
+
+void SwitchedModelReferenceManager::setWheelJointVelocities(
+    const TargetTrajectories& targetTrajectories,
+    scalar_t time,
+    vector_t& input) const {
+  // The command in the heading of the target at `time`, where the nominal
+  // geometry of the wheels is written.
+  const scalar_t refYawBaseRtWorld = mpcRobotModelPtr_->getYawBaseRtWorld(
+      mpcRobotModelPtr_->getDesiredState(targetTrajectories, time));
+  const scalar_t cosYaw = std::cos(refYawBaseRtWorld);
+  const scalar_t sinYaw = std::sin(refYawBaseRtWorld);
+  const vector2_t cmdLinvelBaseRtWorldEwrtWorldXy =
+      getCmdLinvelBaseRtWorldEwrtWorldXy(time);
+  const vector2_t cmdLinvelBaseRtWorldEwrtHeadingXy(
+      cosYaw * cmdLinvelBaseRtWorldEwrtWorldXy.x() +
+          sinYaw * cmdLinvelBaseRtWorldEwrtWorldXy.y(),
+      -sinYaw * cmdLinvelBaseRtWorldEwrtWorldXy.x() +
+          cosYaw * cmdLinvelBaseRtWorldEwrtWorldXy.y());
+  const scalar_t cmdRateYawBaseRtWorld = getCmdRateYawBaseRtWorld(time);
+  const ContactMask contactMask = getContactFlags(time);
+  for (const RollingWheelReference& wheel : rollingWheelReferences_) {
+    if (!contactMask[wheel.contactIndex]) {
+      input(wheel.wheelJointInputIndex) = 0.0;
+      continue;
+    }
+    // The commanded twist's velocity at the contact point, v + w e_z x p.
+    const vector2_t& nomPosContactRtBaseEwrtHeadingXy =
+        wheel.nomPosContactRtBaseEwrtHeadingXy;
+    const vector2_t cmdLinvelContactRtWorldEwrtHeadingXy(
+        cmdLinvelBaseRtWorldEwrtHeadingXy.x() -
+            cmdRateYawBaseRtWorld * nomPosContactRtBaseEwrtHeadingXy.y(),
+        cmdLinvelBaseRtWorldEwrtHeadingXy.y() +
+            cmdRateYawBaseRtWorld * nomPosContactRtBaseEwrtHeadingXy.x());
+    input(wheel.wheelJointInputIndex) =
+        cmdLinvelContactRtWorldEwrtHeadingXy.dot(wheel.dirWheelEwrtHeadingXy) /
+        wheel.wheelRadius;
+  }
 }
 
 SwitchedModelReferenceManager::FootMotionFrame
@@ -1193,7 +1389,8 @@ SwitchedModelReferenceManager::computeFootMotionRtBase(
     // Where it landed: measured if before the last solve, planned after it.
     const std::optional<vector2_t> landed = anchorPosFootRtWorldEwrtWorldXy(
         contactIndex,
-        legPreviousTouchDownTime(modeSchedule_, numContacts_, contact, time));
+        legPreviousTouchDownTime(modeSchedule_, numContacts_, contact, time),
+        time);
     if (landed.has_value()) posContactRtWorldEwrtWorldXy = *landed;
   } else {
     posContactRtSurfaceEwrtWorldZ =

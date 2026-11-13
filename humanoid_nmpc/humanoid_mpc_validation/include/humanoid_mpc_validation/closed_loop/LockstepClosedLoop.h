@@ -83,6 +83,10 @@ struct LockstepResult {
   GoldenFile timeSeries;
   vector_t finalObservationState;  ///< the controller's last observation, for
                                    ///< the determinism test
+  /// The control cycles of the commands in which at least one contact was out
+  /// of the simulator's measured contact: 0 for a run that never lifted a
+  /// foot or a wheel, such as a wheeled robot's drive.
+  size_t cyclesWithALiftedContact = 0;
 };
 
 /**

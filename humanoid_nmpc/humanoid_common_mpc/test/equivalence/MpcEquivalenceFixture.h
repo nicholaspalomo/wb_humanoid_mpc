@@ -268,7 +268,8 @@ class MpcEquivalenceFixture {
   std::shared_ptr<const StateManifold> eulerChartPtr() const;
   /** The oracle under the world's gravity. */
   const EulerMpcOracle& oracle() const { return *oracle_; }
-  /** An oracle of the same model under the gravity `gravityEwrtWorld`. */
+  /** An oracle of the same model under the gravity `gravityEwrtWorld`, whose
+   * rolling contacts, if any, roll on ground normal to it: the world turned. */
   absl::StatusOr<std::unique_ptr<EulerMpcOracle>> oracleUnderGravity(
       const vector3_t& gravityEwrtWorld) const;
   /** [s] The SQP's node spacing: one shooting interval. */

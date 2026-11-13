@@ -67,6 +67,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "robot_model/UrdfContinuousJoints.h"
 
 namespace ocs2::humanoid {
 
@@ -217,13 +218,13 @@ struct PointContactPlacement {
 /**
  * Resolves where `contact` hangs: at its translation from its parent, a joint
  * of the model or the frame of a joint the MPC fixes (whose placement it is
- * then composed with). `index` is the contact's entry of
- * model_settings.contacts_3dof, for the NotFound refusal when the model has
- * neither a joint nor a frame of the parent's name.
+ * then composed with). `entry` is the contact's entry of the task file
+ * (ModelSettings::pointContactEntry()), for the NotFound refusal when the model
+ * has neither a joint nor a frame of the parent's name.
  */
 absl::StatusOr<PointContactPlacement> configuredPointContactPlacement(
     const ModelSettings::PointContact& contact,
-    size_t index,
+    absl::string_view entry,
     const pinocchio::ModelTpl<scalar_t>& model) {
   const pinocchio::SE3 poseContactRtLink(matrix3_t::Identity(),
                                          contact.posContactRtLinkEwrtLink);
@@ -246,8 +247,8 @@ absl::StatusOr<PointContactPlacement> configuredPointContactPlacement(
         .placement = parent.placement * poseContactRtLink};
   }
   return absl::NotFoundError(absl::StrCat(
-      "[loadCustomPinocchioInterface] model_settings.contacts_3dof[", index,
-      "].parent_joint_name '", contact.parentJointName,
+      "[loadCustomPinocchioInterface] ", entry, ".parent_joint_name '",
+      contact.parentJointName,
       "' is neither a joint of the robot model nor a joint the MPC fixes."));
 }
 
@@ -260,7 +261,7 @@ std::string translationText(const pinocchio::SE3& placement) {
 
 /**
  * Accepts the frame `existing` of the robot model as the frame of the 3-DoF
- * contact `contact` (entry `index` of model_settings.contacts_3dof) when it
+ * contact `contact` (the task file's `entry`) when it
  * hangs from the configured joint at the configured placement: the same
  * axes within kExistingFrameAxesTolerance and the same origin within
  * kExistingFrameOriginToleranceM. AlreadyExists otherwise, with both
@@ -268,7 +269,7 @@ std::string translationText(const pinocchio::SE3& placement) {
  */
 absl::Status acceptExistingPointContactFrame(
     const ModelSettings::PointContact& contact,
-    size_t index,
+    absl::string_view entry,
     const PointContactPlacement& configured,
     const pinocchio::Frame& existing,
     const pinocchio::ModelTpl<scalar_t>& model) {
@@ -286,8 +287,7 @@ absl::Status acceptExistingPointContactFrame(
     return absl::OkStatus();
   }
   return absl::AlreadyExistsError(absl::StrCat(
-      "[loadCustomPinocchioInterface] model_settings.contacts_3dof[", index,
-      "].name '", contact.name,
+      "[loadCustomPinocchioInterface] ", entry, ".name '", contact.name,
       "' is a frame of the robot model already, on joint '",
       model.names[existing.parentJoint], "' at ",
       translationText(existing.placement),
@@ -303,20 +303,20 @@ absl::Status acceptExistingPointContactFrame(
  * Adds the frame of the 3-DoF contact `contact` to `model` at its configured
  * placement (configuredPointContactPlacement()), or adds nothing when the model
  * has a frame of the contact's name at that placement already, which the MPC
- * then uses as is (a URDF foot link). `index` is the contact's entry of
- * model_settings.contacts_3dof, for the refusals: NotFound when the model has
- * neither a joint nor a frame of the parent's, AlreadyExists when the model's
- * frame of the contact's name sits elsewhere.
+ * then uses as is (a URDF foot link). `entry` is the contact's entry of the
+ * task file (ModelSettings::pointContactEntry()), for the refusals: NotFound
+ * when the model has neither a joint nor a frame of the parent's, AlreadyExists
+ * when the model's frame of the contact's name sits elsewhere.
  */
 absl::Status addPointContactFrame(const ModelSettings::PointContact& contact,
-                                  size_t index,
+                                  absl::string_view entry,
                                   pinocchio::ModelTpl<scalar_t>& model) {
   ASSIGN_OR_RETURN(const PointContactPlacement configured,
-                   configuredPointContactPlacement(contact, index, model));
+                   configuredPointContactPlacement(contact, entry, model));
   if (model.existFrame(contact.name)) {
     const pinocchio::Frame& existing =
         model.frames[static_cast<size_t>(model.getFrameId(contact.name))];
-    return acceptExistingPointContactFrame(contact, index, configured, existing,
+    return acceptExistingPointContactFrame(contact, entry, configured, existing,
                                            model);
   }
   model.addFrame(pinocchio::Frame(contact.name, configured.parentJoint,
@@ -333,10 +333,18 @@ absl::Status addPointContactFrame(const ModelSettings::PointContact& contact,
 
 PinocchioInterface createDefaultPinocchioInterface(
     absl::string_view urdfFilePath) {
-  PinocchioInterface pinocchioInterface = getPinocchioInterfaceFromUrdfFile(
-      std::string(urdfFilePath), getBaseJointcomposite());
-
-  return pinocchioInterface;
+  // A continuous joint is built with one coordinate and no position bound
+  // (robot::model::parseUrdfFileForPinocchio()).
+  const absl::StatusOr<urdf::ModelInterfaceSharedPtr> urdfTree =
+      robot::model::parseUrdfFileForPinocchio(urdfFilePath);
+  if (urdfTree.ok()) {
+    return getPinocchioInterfaceFromUrdfModel(*urdfTree,
+                                              getBaseJointcomposite());
+  }
+  // A file that does not parse is refused as OCS2 refuses it, by its
+  // std::invalid_argument, which this function's callers catch.
+  return getPinocchioInterfaceFromUrdfFile(std::string(urdfFilePath),
+                                           getBaseJointcomposite());
 }
 
 /******************************************************************************************************/
@@ -379,6 +387,9 @@ absl::StatusOr<PinocchioInterface> buildCustomPinocchioInterface(
       jointPair.second->type = urdf::Joint::FIXED;
     }
   }
+  // The active continuous joints, a wheel's, get one coordinate and no
+  // position bound, as in every Pinocchio model of the URDF.
+  robot::model::makeContinuousJointsUnboundedRevolute(*newModel);
 
   pinocchio::ModelTpl<scalar_t> model;
   pinocchio::urdf::buildModel(newModel, getBaseJointcomposite(), model);
@@ -403,8 +414,9 @@ absl::StatusOr<PinocchioInterface> buildCustomPinocchioInterface(
     addContactPolygonFrames(rectangle, model);
   }
   for (size_t i = 0; i < modelSettings.pointContacts.size(); ++i) {
-    RETURN_IF_ERROR(
-        addPointContactFrame(modelSettings.pointContacts[i], i, model));
+    RETURN_IF_ERROR(addPointContactFrame(modelSettings.pointContacts[i],
+                                         modelSettings.pointContactEntry(i),
+                                         model));
   }
 
   if (scaleTotalMass) {

@@ -66,6 +66,10 @@ CentroidalModelInfoCppAd CentroidalModelInfo::toCppAd() const {
   cppAdInfo.qPinocchioNominal = this->qPinocchioNominal.cast<ad_scalar_t>();
   cppAdInfo.nomInertiaComEwrtBase = this->nomInertiaComEwrtBase.cast<ad_scalar_t>();
   cppAdInfo.nomPosBaseRtComEwrtBase = this->nomPosBaseRtComEwrtBase.cast<ad_scalar_t>();
+  cppAdInfo.rollingContactWheelRadii.reserve(this->rollingContactWheelRadii.size());
+  for (const scalar_t wheelRadius : this->rollingContactWheelRadii) {
+    cppAdInfo.rollingContactWheelRadii.emplace_back(wheelRadius);
+  }
 
   return cppAdInfo;
 }

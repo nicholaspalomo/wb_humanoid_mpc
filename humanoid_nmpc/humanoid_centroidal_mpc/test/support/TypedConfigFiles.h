@@ -77,6 +77,15 @@ CentroidalRobotFiles r1Files();
  * one fails the calling test and is empty. */
 CentroidalRobotFiles anymalBFiles();
 
+/** The LimX Tron1 files (robot_models/limx_tron1); a missing one fails the
+ * calling test and is empty. */
+CentroidalRobotFiles tron1Files();
+
+/** The wheeled ANYbotics ANYmal C files
+ * (robot_models/anybotics_anymal_c_wheels); a missing one fails the calling
+ * test and is empty. */
+CentroidalRobotFiles anymalCWheelsFiles();
+
 /** The typed configuration of `files` (loadCentroidalMpcConfig()). */
 absl::StatusOr<CentroidalMpcConfig> loadConfigOf(
     const CentroidalRobotFiles& files);

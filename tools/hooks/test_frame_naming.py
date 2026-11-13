@@ -128,6 +128,10 @@ class GrammarTest(unittest.TestCase):
             "kNomMinDistControlpointRtContact",
             "cmd_lnorm_linvel_base_rt_world_ewrt_heading_x",
             "cmd_max_lnorm_angvel_base_rt_world_ewrt_world_z",
+            "pos_wheel_rt_link_ewrt_link",
+            "posContactRtWheelEwrtWorld",
+            "angvelWheelRtWorldEwrtWorld",
+            "posWheelsRtWorldEwrtWorld",
         ):
             with self.subTest(name=name):
                 self.assertEqual(frame_naming.grammar_problems(name), [])

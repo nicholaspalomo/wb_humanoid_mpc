@@ -166,7 +166,51 @@ TEST_F(RobotDescriptionTest,
       RobotDescription::Create(onePath.string());
   EXPECT_EQ(robotDesc.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(robotDesc.status().message(),
-              HasSubstr("has 1 revolute and prismatic joints"));
+              HasSubstr("has 1 revolute, continuous and prismatic joints"));
+}
+
+TEST_F(RobotDescriptionTest,
+       AContinuousJointIsControllableWithUnboundedAnglesInNameOrder) {
+  const std::filesystem::path wheelPath = tempDir_ / "wheel.urdf";
+  std::ofstream wheelFile(wheelPath);
+  wheelFile << R"(<?xml version="1.0"?>
+        <robot name="wheel">
+            <link name="base_link"/>
+            <link name="knee_link"/>
+            <link name="wheel_link"/>
+            <joint name="knee_joint" type="revolute">
+                <parent link="base_link"/>
+                <child link="knee_link"/>
+                <axis xyz="0 1 0"/>
+                <limit lower="-1.0" upper="1.0" effort="80" velocity="15"/>
+            </joint>
+            <joint name="a_wheel_joint" type="continuous">
+                <parent link="knee_link"/>
+                <child link="wheel_link"/>
+                <axis xyz="0 1 0"/>
+                <limit effort="40" velocity="30"/>
+            </joint>
+        </robot>)";
+  wheelFile.close();
+
+  const absl::StatusOr<RobotDescription> robotDesc =
+      RobotDescription::Create(wheelPath.string());
+  ASSERT_TRUE(robotDesc.ok()) << robotDesc.status();
+  ASSERT_EQ(robotDesc->getNumJoints(), 2u);
+  EXPECT_EQ(robotDesc->getJointNames().front(), "a_wheel_joint");
+  const JointDescription* absl_nullable wheel =
+      robotDesc->findJointDescription("a_wheel_joint");
+  ASSERT_NE(wheel, nullptr);
+  EXPECT_EQ(wheel->id, 0u);
+  EXPECT_EQ(wheel->min_angle, std::numeric_limits<scalar_t>::lowest());
+  EXPECT_EQ(wheel->max_angle, std::numeric_limits<scalar_t>::max());
+  EXPECT_EQ(wheel->max_joint_velocity, 30.0);
+  EXPECT_EQ(wheel->max_effort, 40.0);
+  const JointDescription* absl_nullable knee =
+      robotDesc->findJointDescription("knee_joint");
+  ASSERT_NE(knee, nullptr);
+  EXPECT_EQ(knee->min_angle, -1.0);
+  EXPECT_EQ(knee->max_angle, 1.0);
 }
 
 TEST_F(RobotDescriptionTest, GetURDFName) {
@@ -286,8 +330,9 @@ using RobotDescriptionDeathTest = RobotDescriptionTest;
 TEST_F(RobotDescriptionDeathTest,
        AJointNameOrIndexTheDescriptionDoesNotHaveIsAProgrammingError) {
   const RobotDescription robotDesc = description();
-  EXPECT_DEATH(robotDesc.getJointIndex("nonexistent_joint"),
-               "has no revolute or prismatic joint 'nonexistent_joint'");
+  EXPECT_DEATH(
+      robotDesc.getJointIndex("nonexistent_joint"),
+      "has no revolute, continuous or prismatic joint 'nonexistent_joint'");
   EXPECT_DEATH(robotDesc.getJointIndices({"elbow_joint", "nonexistent_joint"}),
                "'nonexistent_joint'");
   EXPECT_DEATH(robotDesc.getJointName(/*jointIndex=*/999),

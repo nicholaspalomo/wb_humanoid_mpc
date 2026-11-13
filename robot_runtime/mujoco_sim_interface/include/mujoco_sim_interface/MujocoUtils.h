@@ -286,7 +286,10 @@ bool isInBodySubtree(const mjModel* absl_nonnull model,
  * Resolution order per contact point:
  *  1. the body driven by `contactParentJointNames[i]` when that entry is given
  * (the controller's contact frames are usually added to its own kinematic model
- * on such a joint and exist in neither the URDF nor the scene);
+ * on such a joint and exist in neither the URDF nor the scene). A rolling
+ * contact, a wheel's lowest point, names its wheel joint (continuous in the
+ * URDF, an unlimited hinge in the scene), so its body is the wheel, whose
+ * collision geom touches the ground wherever the wheel has turned to;
  *  2. a MuJoCo body named like the frame;
  *  3. the URDF walked up through fixed joints from the frame's link, since the
  * MJCF conversion merges fixed-joint children into their parent body. A link

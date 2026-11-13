@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
+#include <bit>
 #include <climits>
 #include <cstddef>
 #include <cstdint>
@@ -39,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "ocs2_core/Types.h"
@@ -183,6 +185,36 @@ bool ModelSettings::isLeggedContactSet() const {
   return true;
 }
 
+bool ModelSettings::hasRollingContacts() const {
+  for (const PointContact& point : pointContacts) {
+    if (point.kind == ContactKind::kRolling) return true;
+  }
+  return false;
+}
+
+std::string ModelSettings::pointContactEntry(size_t contactIndex) const {
+  // The fixed points come first, so a rolling contact's entry is its index
+  // among the rolling ones.
+  size_t entry = 0;
+  for (size_t i = 0; i < contactIndex; ++i) {
+    if (pointContacts[i].kind == pointContacts[contactIndex].kind) ++entry;
+  }
+  return absl::StrCat(pointContacts[contactIndex].kind == ContactKind::kRolling
+                          ? "model_settings.contacts_rolling["
+                          : "model_settings.contacts_3dof[",
+                      entry, "]");
+}
+
+std::vector<std::string> ModelSettings::rollingContactJointNames() const {
+  std::vector<std::string> joints;
+  for (const PointContact& point : pointContacts) {
+    if (point.kind == ContactKind::kRolling) {
+      joints.push_back(point.parentJointName);
+    }
+  }
+  return joints;
+}
+
 bool ModelSettings::hasBipedStance() const {
   const bool leggedNonBiped = isLeggedContactSet() && !isBipedContactSet();
   return !leggedNonBiped &&
@@ -196,6 +228,14 @@ uint64_t modelLayoutFingerprint(const ModelSettings& settings) {
   hash.addStrings(settings.mpcModelJointNames);
   hash.addStrings(settings.contactNames3DoF);
   hash.addStrings(settings.contactNames6DoF);
+  // Only a set with a rolling contact mixes in the kinds and radii, so that
+  // every other set keeps its fingerprint.
+  if (settings.hasRollingContacts()) {
+    for (const ModelSettings::PointContact& point : settings.pointContacts) {
+      hash.addWord(static_cast<uint64_t>(point.kind));
+      hash.addWord(std::bit_cast<uint64_t>(point.wheelRadius));
+    }
+  }
   // The value an unstamped message carries is never a layout's.
   return hash.value() == kUnstampedModelFingerprint
              ? kUnstampedModelFingerprint + 1

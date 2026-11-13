@@ -125,6 +125,19 @@ struct EulerMpcOracleOptions {
    * contacts first). */
   size_t numPointContacts = 0;
   OracleContactInput contactInput = OracleContactInput::kWorldWrench;
+  /**
+   * [m] The wheel radius r of each point contact that rolls
+   * (ModelSettings::wheelRadius(), humanoid_nmpc/docs/rolling_contact/
+   * README.md), 0 at a point fixed on its link; empty when no contact rolls.
+   * A rolling contact's frame is its wheel center, and its force acts at the
+   * wheel's lowest point on flat ground, r below the center along
+   * normalTerrainEwrtWorld. Centroidal only.
+   */
+  std::vector<scalar_t> rollingContactWheelRadii;
+  /** The unit normal of the flat ground the rolling contacts roll on: world z,
+   * as the MPC assumes, or that axis turned with the world in a test that
+   * turns gravity with it. */
+  vector3_t normalTerrainEwrtWorld = vector3_t::UnitZ();
   /** For kLocalBasis: each contact's 6 x n basis, one per entry of
    * contactFrameNames; ignored otherwise. */
   ContactArray<matrix_t> localBasisMatrices;
@@ -155,7 +168,9 @@ class EulerMpcOracle {
    * be built, there is no contact, more point contacts than contacts, a contact
    * frame does not exist, or a basis is not 6 rows by the same number of
    * columns on every contact; the whole body takes world-frame wrenches only,
-   * and a local basis is for a set of 6-DoF contacts only.
+   * and a local basis is for a set of 6-DoF contacts only. Rolling-contact
+   * radii must be one per point contact, finite and not negative, and are for
+   * the centroidal formulation only.
    */
   static absl::StatusOr<std::unique_ptr<EulerMpcOracle>> Create(
       const pinocchio::Model& quaternionRootModel,

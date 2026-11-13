@@ -143,6 +143,32 @@ CentroidalRobotFiles anymalBFiles() {
   };
 }
 
+CentroidalRobotFiles tron1Files() {
+  return CentroidalRobotFiles{
+      .taskFile = runfile("robot_models/limx_tron1/tron1_centroidal_mpc/config/"
+                          "mpc/task.textproto"),
+      .referenceFile =
+          runfile("robot_models/limx_tron1/tron1_centroidal_mpc/config/"
+                  "command/reference.textproto"),
+      .urdfFile =
+          runfile("robot_models/limx_tron1/tron1_description/urdf/tron1.urdf"),
+  };
+}
+
+CentroidalRobotFiles anymalCWheelsFiles() {
+  return CentroidalRobotFiles{
+      .taskFile =
+          runfile("robot_models/anybotics_anymal_c_wheels/"
+                  "anymal_c_wheels_centroidal_mpc/config/mpc/task.textproto"),
+      .referenceFile = runfile(
+          "robot_models/anybotics_anymal_c_wheels/"
+          "anymal_c_wheels_centroidal_mpc/config/command/reference.textproto"),
+      .urdfFile = runfile(
+          "robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description/"
+          "urdf/anymal_c_wheels.urdf"),
+  };
+}
+
 absl::StatusOr<CentroidalMpcConfig> loadConfigOf(
     const CentroidalRobotFiles& files) {
   return loadCentroidalMpcConfig(files.taskFile, files.referenceFile);

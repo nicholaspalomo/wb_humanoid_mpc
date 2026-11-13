@@ -40,7 +40,9 @@ namespace ocs2::humanoid {
 /**
  * Applies the foot constraint's soft weights and the pre-computation's servo
  * gain: soft_constraint_weight to the penalty of a soft zero_velocity term
- * (zeroVelocityTermName()), normal_velocity_soft_constraint_weight to the soft
+ * (zeroVelocityTermName()) and of a soft rolling no-slip term
+ * (contact_term::kRollingNoSlipName), normal_velocity_soft_constraint_weight
+ * to the soft
  * normal-velocity term (contact_term::kNormalVelocitySoftName), and
  * position_error_gain_z to every worker's HumanoidPreComputation
  * (setNormalVelocityPositionErrorGain()), which the soft normal-velocity servo

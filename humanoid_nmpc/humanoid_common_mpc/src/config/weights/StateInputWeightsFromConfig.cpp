@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -374,6 +375,31 @@ void placeStateJoints(absl::Span<const mpc_config::JointValue> entries,
 }
 
 /**
+ * Refuses a non-zero weight in `jointPositions` (the joint_positions of a state
+ * weight) on a wheel joint of the conversion's layout
+ * (StateInputLayout::wheelJointNames): the wheel's angle grows without end
+ * while the robot rolls, so a weight on it would brake the wheel toward the
+ * reference angle.
+ */
+void refuseWheelPositionWeights(
+    absl::Span<const mpc_config::JointValue> jointPositions,
+    LayoutConversion& conversion) {
+  const std::vector<std::string>& wheels = conversion.layout().wheelJointNames;
+  if (wheels.empty()) return;
+  for (const mpc_config::JointValue& entry : jointPositions) {
+    if (entry.value == 0.0 ||
+        std::find(wheels.begin(), wheels.end(), entry.joint) == wheels.end()) {
+      continue;
+    }
+    conversion.addProblem(absl::StrCat(
+        conversion.path("joint_positions"), "[joint=", entry.joint,
+        "].value is ", entry.value, ", but ", entry.joint,
+        " is the wheel joint of a rolling contact (model_settings."
+        "contacts_rolling), whose angle takes no weight: set it to 0"));
+  }
+}
+
+/**
  * Places the blocks of a state (a StateWeights or a StateValues, which share
  * their fields) in the vector of `conversion`, each at the first row of its
  * block of the same name in tuningLayoutOf() of the conversion's layout: the
@@ -538,6 +564,7 @@ absl::StatusOr<matrix_t> stateWeightsFromConfig(
       static_cast<Eigen::Index>(tuningDimension(layout)), Numbers::kWeights);
   conversion.checkNumber(weights.scaling, conversion.path("scaling"));
   placeState(weights, conversion);
+  refuseWheelPositionWeights(weights.joint_positions, conversion);
   ASSIGN_OR_RETURN(const vector_t diagonal, conversion.values());
   return scaledDiagonal(weights.scaling, diagonal);
 }

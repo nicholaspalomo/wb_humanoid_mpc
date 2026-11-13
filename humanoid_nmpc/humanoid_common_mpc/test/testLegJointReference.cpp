@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
@@ -71,7 +72,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /**
  * The foot_motion leg joint reference (LegJointReference.h): its name
  * registry, the leg maps of FootMotionLegReference on ANYbotics ANYmal B's four
- * point feet at its default posture, their refusals, and the reference
+ * point feet at its default posture, their refusals (6-DoF feet, contacts
+ * that share a leg, LimX Tron1's rolling contacts), and the reference
  * manager's state and input references with it and without it.
  */
 namespace ocs2::humanoid {
@@ -89,6 +91,10 @@ constexpr char kAtlasTaskFile[] =
     "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto";
 constexpr char kAtlasUrdfFile[] =
     "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
+constexpr char kTron1TaskFile[] =
+    "robot_models/limx_tron1/tron1_centroidal_mpc/config/mpc/task.textproto";
+constexpr char kTron1UrdfFile[] =
+    "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf";
 
 constexpr scalar_t kTolerance = 1.0e-9;
 constexpr size_t kJointsPerLeg = 3;
@@ -378,6 +384,22 @@ TEST(FootMotionLegReference, RefusesSixDofFeet) {
       FootMotionLegReference::Create(*robot->pinocchioInterface, *robot->model,
                                      robot->model->getNeutralState());
   EXPECT_EQ(legs.status().code(), absl::StatusCode::kInvalidArgument);
+}
+
+TEST(FootMotionLegReference, RefusesRollingContactsNamingTheWheel) {
+  // Tron1's wheels: each contact frame is a wheel center, whose contact point
+  // moves over the rim, not a point fixed on the shank.
+  const absl::StatusOr<mpc_config::TaskFile> task = loadTask(kTron1TaskFile);
+  ASSERT_TRUE(task.ok()) << task.status();
+  const absl::StatusOr<LoadedRobot> robot = loadRobot(*task, kTron1UrdfFile);
+  ASSERT_TRUE(robot.ok()) << robot.status();
+  ASSERT_TRUE(robot->settings->isRollingContact(0));
+  const absl::StatusOr<FootMotionLegReference> legs =
+      FootMotionLegReference::Create(*robot->pinocchioInterface, *robot->model,
+                                     robot->model->getNeutralState());
+  EXPECT_EQ(legs.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(legs.status().message(),
+              ::testing::HasSubstr("'wheel_L_contact' is a rolling one"));
 }
 
 /** A reference manager on ANYmal B after a solve at t = 0 on the nominal state

@@ -42,7 +42,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
+#include "humanoid_centroidal_mpc/constraint/RollingContactConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
+#include "humanoid_common_mpc/common/ContactTermNames.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h"
@@ -143,6 +145,20 @@ void ZeroVelocityGainsApplier::apply(HotUpdateTarget& target) {
             configureZeroVelocityConstraint(
                 softCon.get<ZeroVelocityConstraintCppAd>(), *gains,
                 twistConfig);
+          });
+      // A wheel's stance constraint takes the translation gains alone; it
+      // has no attitude rows to select (RollingContactConstraintCppAd).
+      const std::string rollingTermName =
+          contact_term::name(footName, contact_term::kRollingNoSlipName);
+      updateTermIfPresent<RollingContactConstraintCppAd>(
+          *ocp.equalityConstraintPtr, rollingTermName,
+          [&](RollingContactConstraintCppAd& constraint) {
+            constraint.setGains(twistConfig);
+          });
+      updateTermIfPresent<StateInputSoftConstraint>(
+          *ocp.softConstraintPtr, rollingTermName,
+          [&](StateInputSoftConstraint& softCon) {
+            softCon.get<RollingContactConstraintCppAd>().setGains(twistConfig);
           });
     }
   }

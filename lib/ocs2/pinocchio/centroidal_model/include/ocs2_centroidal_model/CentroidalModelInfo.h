@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ostream>
 #include <string>
 #include <type_traits>
+#include <vector>
 
 #include <ocs2_core/Types.h>
 #include <ocs2_core/automatic_differentiation/Types.h>
@@ -111,6 +112,13 @@ struct CentroidalModelInfoTpl {
   vector_t qPinocchioNominal;                   // nominal robot configuration used in the SRBD model
   matrix3_t nomInertiaComEwrtBase;           // nominal robot centroidal inertia used in the SRBD model (expressed in nominal base frame)
   vector3_t nomPosBaseRtComEwrtBase;           // nominal CoM to base position used in the SRBD model (expressed in nominal base frame)
+  /**
+   * [m] The wheel radius of each 3-DoF contact that rolls (a wheel's rolling contact, whose frame is the wheel center):
+   * its force acts at the frame's origin less the radius along world z, the wheel's lowest point on flat ground
+   * (getPosContactRtComEwrtWorld()). Empty, the default, when no contact rolls; otherwise numThreeDofContacts entries,
+   * 0 for a contact fixed on its link. An empty vector leaves every expression, and every CppAD tape, as without it.
+   */
+  std::vector<SCALAR> rollingContactWheelRadii;
 
   /**
    * The sizes above under the names of the layout-agnostic robot model (humanoid_common_mpc's MpcRobotModelBase). The

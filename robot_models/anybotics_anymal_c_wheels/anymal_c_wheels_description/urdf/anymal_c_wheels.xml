@@ -1,0 +1,275 @@
+<mujoco model="anymal_c_wheels">
+  <!-- The wheeled ANYmal C of LuanDev3/anymal_with_wheels (BSD-3-Clause, LICENSE beside urdf/), written for this
+       repository from urdf/anymal_c_wheels.urdf: one body per moving URDF link at the URDF's link frame, each with the
+       URDF's inertial lumped with those of its fixed children as Pinocchio lumps them, the URDF's collision
+       primitives and the meshes of ANYbotics' anymal_c_simple_description. README.md beside urdf/ lists every
+       difference from the URDF. -->
+  <default>
+    <default class="anymal_c_wheels">
+      <site group="3" size="0.005" rgba="1 0 0 0.66"/>
+      <joint type="hinge" damping="2"/>
+      <!-- The wheel hinges spin freely: no range, and the light damping of a bearing. -->
+      <default class="wheel">
+        <joint limited="false" damping="0.1"/>
+      </default>
+      <!-- Visual-only geoms: no collision, group 1 for rendering. -->
+      <default class="visual">
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0"/>
+      </default>
+      <!-- Collision geoms: the URDF's primitives with the contact parameters of the other robots' collision class. -->
+      <default class="collision">
+        <geom group="2" rgba="0.5 0.5 0.5 0.3" density="0" friction="1.0 0.005 0.0001" solimp="0.95 0.99 0.001"
+              solref="0.004 1.0"/>
+        <!-- One cylinder per wheel, coaxial with the wheel joint (y) and centered at the wheel center, the origin of
+             the wheel link: the rolling contact's wheel, radius 0.098 m and width 0.04 m as in the URDF. -->
+        <default class="wheel_collision">
+          <geom type="cylinder" size="0.098 0.02" quat="0.707106781 0.707106781 0 0" priority="1" condim="3"
+                rgba="0.1 0.1 0.1 1"/>
+        </default>
+      </default>
+    </default>
+  </default>
+  <compiler angle="radian" meshdir="../meshes"/>
+  <option timestep="0.001" gravity="0 0 -9.81"/>
+
+  <statistic center="0 0 0.4" extent="1.2"/>
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1" specular="0.9 0.9 0.9"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="-140" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb2="0.835 0.761 0.612" rgb1="0.639 0.722 0.8" width="512" height="512"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="random"
+             rgb1="0.25 0.3 0.35" rgb2="0.15 0.2 0.25"
+             markrgb="0.6 0.7 0.8"
+             width="512" height="512"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="2 2" reflectance="0.05"/>
+    <material name="anymal_red" rgba="0.7 0.1 0.1 1"/>
+    <material name="light_gray" rgba="0.8 0.8 0.8 1"/>
+    <material name="dark_gray" rgba="0.3 0.3 0.3 1"/>
+    <material name="tire" rgba="0.1 0.1 0.1 1"/>
+    <mesh file="base.stl"/>
+    <mesh file="top_shell.stl"/>
+    <mesh file="bottom_shell.stl"/>
+    <mesh file="remote.stl"/>
+    <mesh file="face.stl"/>
+    <mesh file="battery.stl"/>
+    <mesh file="hatch.stl"/>
+    <mesh file="drive.stl"/>
+    <mesh file="hip_l.stl"/>
+    <mesh file="hip_r.stl"/>
+    <mesh file="thigh.stl"/>
+    <mesh file="shank_l.stl"/>
+    <mesh file="shank_r.stl"/>
+  </asset>
+
+  <worldbody>
+    <light pos="1 0 3.5" dir="0 0 -1" directional="true"/>
+    <geom name="floor" size="10 10 0.05" type="plane" material="groundplane"/>
+
+    <!-- The floating base, unyawed: the URDF's base frame (x forward, y left, z up). Its inertial is that of the
+         URDF's base with every link fixed to it: the dummy base_inertia link, the shells, the faces, the battery,
+         the remote, the hatches, the IMU and the four HAA drives. -->
+    <body name="base" pos="0 0 0.7" childclass="anymal_c_wheels">
+      <inertial mass="36.98845" pos="-0.138182942 -2.80870785e-05 0.00528902189" fullinertia="0.200869595 3.36262142 3.42002186 0.0112589282 -0.0658935449 0.00121302525"/>
+      <freejoint name="floating_base_joint"/>
+      <geom class="visual" mesh="base" material="dark_gray"/>
+      <geom class="visual" mesh="top_shell" material="anymal_red"/>
+      <geom class="visual" mesh="bottom_shell" material="dark_gray"/>
+      <geom class="visual" mesh="remote" material="dark_gray"/>
+      <geom class="visual" mesh="face" material="anymal_red" pos="0.4145 0 0"/>
+      <geom class="visual" mesh="face" material="anymal_red" pos="-0.4145 0 0" quat="0 0 0 -1"/>
+      <geom class="visual" mesh="battery" material="dark_gray"/>
+      <geom class="visual" type="box" size="0.012 0.012 0.005" material="dark_gray" pos="0.2488 0.00835 0.05128" quat="0.707106781 0 0 0.707106781"/>
+      <geom class="visual" mesh="drive" material="light_gray" pos="0.2999 0.104 0" quat="0.258819045 0.965925826 0 0"/>
+      <geom class="visual" mesh="drive" material="light_gray" pos="0.2999 -0.104 0" quat="0.258819045 -0.965925826 0 0"/>
+      <geom class="visual" mesh="drive" material="light_gray" pos="-0.2999 0.104 0" quat="0 0 -0.965925826 0.258819045"/>
+      <geom class="visual" mesh="drive" material="light_gray" pos="-0.2999 -0.104 0" quat="0 0 0.965925826 0.258819045"/>
+      <geom class="visual" mesh="hatch" material="dark_gray" pos="0.116 0 0.073"/>
+      <geom class="collision" type="box" size="0.29 0.07 0.09"/>
+      <geom class="collision" type="cylinder" size="0.09 0.0725" pos="0.2175 0.07 0" quat="0.707106781 0 0.707106781 0"/>
+      <geom class="collision" type="cylinder" size="0.09 0.0725" pos="-0.2175 0.07 0" quat="0.707106781 0 0.707106781 0"/>
+      <geom class="collision" type="cylinder" size="0.09 0.0725" pos="0.2175 -0.07 0" quat="0.707106781 0 0.707106781 0"/>
+      <geom class="collision" type="cylinder" size="0.09 0.0725" pos="-0.2175 -0.07 0" quat="0.707106781 0 0.707106781 0"/>
+      <geom class="collision" type="box" size="0.055 0.07 0.09" pos="0.4695 0 0"/>
+      <geom class="collision" type="cylinder" size="0.09 0.055" pos="0.4695 0.07 0" quat="0.707106781 0 0.707106781 0"/>
+      <geom class="collision" type="cylinder" size="0.09 0.055" pos="0.4695 -0.07 0" quat="0.707106781 0 0.707106781 0"/>
+      <geom class="collision" type="box" size="0.055 0.07 0.09" pos="-0.4695 0 0" quat="0 0 0 -1"/>
+      <geom class="collision" type="cylinder" size="0.09 0.055" pos="-0.4695 -0.07 0" quat="0 0.707106781 0 -0.707106781"/>
+      <geom class="collision" type="cylinder" size="0.09 0.055" pos="-0.4695 0.07 0" quat="0 0.707106781 0 -0.707106781"/>
+      <geom class="collision" type="box" size="0.012 0.012 0.005" pos="0.2488 0.00835 0.05128" quat="0.707106781 0 0 0.707106781"/>
+      <!-- Each leg's bodies sit at the URDF's moving link frames, which the URDF's fixed drive and link frames turn
+           about the base axes (the HAA drives by 150 degrees about x): the HIP, THIGH and SHANK frames are the
+           output frames of the HAA, HFE and KFE drives, whose joints turn about their own x axes. -->
+      <body name="LF_HIP" pos="0.2999 0.104 0" quat="0.258819045 0.965925826 0 0">
+        <inertial mass="2.781" pos="0.0566606257 -0.0152939688 -0.00829784317" fullinertia="0.00329552643 0.00504434929 0.00572690385 -1.03882331e-05 0.000107062233 -0.000319491811"/>
+        <joint name="LF_HAA" axis="1 0 0" range="-0.72 0.49"/>
+        <geom class="visual" mesh="hip_l" material="anymal_red" quat="0.258819045 -0.965925826 0 0"/>
+        <geom class="visual" mesh="drive" material="light_gray" pos="0.0599 -0.0725815891 -0.041905" quat="0.183012702 -0.683012702 0.683012702 0.183012702"/>
+        <geom class="collision" type="cylinder" size="0.05 0.07" pos="0.0599 -0.0119598108 -0.006905" quat="0.353553391 0.612372436 -0.612372436 0.353553391"/>
+        <body name="LF_THIGH" pos="0.0599 -0.0725815891 -0.041905" quat="0.183012702 -0.683012702 0.683012702 0.183012702">
+          <inertial mass="3.071" pos="0.0308147183 4.64995119e-05 -0.245695734" fullinertia="0.0295637935 0.0299040493 0.00486108453 4.42919018e-05 0.00414242595 9.44799612e-05"/>
+          <joint name="LF_HFE" axis="1 0 0" range="-9.42477796 9.42477796"/>
+          <geom class="visual" mesh="thigh" material="dark_gray" quat="0.707106781 0 0 -0.707106781"/>
+          <geom class="visual" mesh="drive" material="light_gray" pos="0.1003 0 -0.285"/>
+          <geom class="collision" type="cylinder" size="0.065 0.04" pos="0.04 0 0" quat="0.5 0.5 -0.5 -0.5"/>
+          <geom class="collision" type="box" size="0.0375 0.03 0.1413135" pos="0.03 0 -0.1413135" quat="0.707106781 0 0 -0.707106781"/>
+          <geom class="collision" type="cylinder" size="0.05 0.07" pos="0.0303 0 -0.285" quat="0.707106781 0 0.707106781 0"/>
+          <body name="LF_SHANK" pos="0.1003 0 -0.285">
+            <inertial mass="0.48842" pos="0.00184154949 -0.0581607113 -0.0580337177" fullinertia="0.00873639797 0.0073652804 0.00162252513 -0.000154501479 -0.000258085325 -0.00161828821"/>
+            <joint name="LF_KFE" axis="1 0 0" range="-9.42477796 9.42477796"/>
+            <geom class="visual" mesh="shank_l" material="dark_gray" quat="0.707106781 0 0 -0.707106781"/>
+            <geom class="visual" type="cylinder" size="0.0175 0.141252" material="dark_gray" pos="0 -0.102 -0.168985" quat="0.707106781 0 0 -0.707106781"/>
+            <geom class="collision" type="cylinder" size="0.06 0.02" pos="0.02 0 0" quat="0.5 0.5 -0.5 -0.5"/>
+            <geom class="collision" type="box" size="0.057499 0.03375 0.02" pos="0.02 -0.057499 0" quat="0.5 0.5 -0.5 -0.5"/>
+            <geom class="collision" type="cylinder" size="0.0175 0.141252" pos="0 -0.102 -0.168985" quat="0.707106781 0 0 -0.707106781"/>
+            <body name="LF_wheel_link" pos="0.01 -0.102 -0.33797" quat="0.707106781 0 0 -0.707106781">
+              <inertial mass="0.2" pos="0 0 0" fullinertia="0.0013 0.0024 0.0013 0 0 0"/>
+              <joint name="LF_wheel" class="wheel" axis="0 1 0"/>
+              <geom class="visual" type="cylinder" size="0.098 0.02" material="tire" quat="0.707106781 0.707106781 0 0"/>
+              <!-- The wheel: its lowest point is the rolling contact point. -->
+              <geom name="LF_wheel_collision" class="wheel_collision"/>
+              <site name="LF_wheel_center"/>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="RF_HIP" pos="0.2999 -0.104 0" quat="0.258819045 -0.965925826 0 0">
+        <inertial mass="2.781" pos="0.0567633225 0.0152939688 -0.00829784317" fullinertia="0.00329552643 0.00504617029 0.00572872485 -1.10052614e-05 -0.000109121103 0.000319491811"/>
+        <joint name="RF_HAA" axis="1 0 0" range="-0.49 0.72"/>
+        <geom class="visual" mesh="hip_r" material="anymal_red" quat="0.258819045 0.965925826 0 0"/>
+        <geom class="visual" mesh="drive" material="light_gray" pos="0.0599 0.0725815891 -0.041905" quat="0.183012702 0.683012702 0.683012702 -0.183012702"/>
+        <geom class="collision" type="cylinder" size="0.05 0.07" pos="0.0599 0.0119598108 -0.006905" quat="0.353553391 -0.612372436 -0.612372436 -0.353553391"/>
+        <body name="RF_THIGH" pos="0.0599 0.0725815891 -0.041905" quat="0.183012702 0.683012702 0.683012702 -0.183012702">
+          <inertial mass="3.071" pos="0.0308147183 4.64995112e-05 -0.245695734" fullinertia="0.0295637935 0.0299040493 0.00486108453 4.43959018e-05 0.00414242595 0.000114793961"/>
+          <joint name="RF_HFE" axis="-1 0 0" range="-9.42477796 9.42477796"/>
+          <geom class="visual" mesh="thigh" material="dark_gray" quat="0.707106781 0 0 -0.707106781"/>
+          <geom class="visual" mesh="drive" material="light_gray" pos="0.1003 0 -0.285"/>
+          <geom class="collision" type="cylinder" size="0.065 0.04" pos="0.04 0 0" quat="0.5 0.5 0.5 0.5"/>
+          <geom class="collision" type="box" size="0.0375 0.03 0.1413135" pos="0.03 0 -0.1413135" quat="0.707106781 0 0 0.707106781"/>
+          <geom class="collision" type="cylinder" size="0.05 0.07" pos="0.0303 0 -0.285" quat="0.707106781 0 0.707106781 0"/>
+          <body name="RF_SHANK" pos="0.1003 0 -0.285">
+            <inertial mass="0.48842" pos="0.00184154949 0.0581607113 -0.0580337177" fullinertia="0.00873639797 0.0073652804 0.00162252513 0.000154501479 -0.000258085325 0.00161828821"/>
+            <joint name="RF_KFE" axis="-1 0 0" range="-9.42477796 9.42477796"/>
+            <geom class="visual" mesh="shank_r" material="dark_gray" quat="0.707106781 0 0 0.707106781"/>
+            <geom class="visual" type="cylinder" size="0.0175 0.141252" material="dark_gray" pos="0 0.102 -0.168985" quat="0.707106781 0 0 0.707106781"/>
+            <geom class="collision" type="cylinder" size="0.06 0.02" pos="0.02 0 0" quat="0.5 0.5 0.5 0.5"/>
+            <geom class="collision" type="box" size="0.057499 0.03375 0.02" pos="0.02 0.057499 0" quat="0.5 0.5 0.5 0.5"/>
+            <geom class="collision" type="cylinder" size="0.0175 0.141252" pos="0 0.102 -0.168985" quat="0.707106781 0 0 0.707106781"/>
+            <body name="RF_wheel_link" pos="0.01 0.102 -0.33797" quat="0.707106781 0 0 0.707106781">
+              <inertial mass="0.2" pos="0 0 0" fullinertia="0.0013 0.0024 0.0013 0 0 0"/>
+              <joint name="RF_wheel" class="wheel" axis="0 1 0"/>
+              <geom class="visual" type="cylinder" size="0.098 0.02" material="tire" quat="0.707106781 0.707106781 0 0"/>
+              <!-- The wheel: its lowest point is the rolling contact point. -->
+              <geom name="RF_wheel_collision" class="wheel_collision"/>
+              <site name="RF_wheel_center"/>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="LH_HIP" pos="-0.2999 0.104 0" quat="0 0 -0.965925826 0.258819045">
+        <inertial mass="2.781" pos="0.0567633225 0.0152939688 -0.00829784317" fullinertia="0.00329552643 0.00504617029 0.00572872485 -1.10052613e-05 -0.000109121103 0.000319491811"/>
+        <joint name="LH_HAA" axis="-1 0 0" range="-0.72 0.49"/>
+        <geom class="visual" mesh="hip_r" material="anymal_red" quat="0.258819045 0.965925826 0 0"/>
+        <geom class="visual" mesh="drive" material="light_gray" pos="0.0599 0.0725815891 -0.041905" quat="0.183012702 0.683012702 0.683012702 -0.183012702"/>
+        <geom class="collision" type="cylinder" size="0.05 0.07" pos="0.0599 0.0119598108 -0.006905" quat="0.353553391 -0.612372436 -0.612372436 -0.353553391"/>
+        <body name="LH_THIGH" pos="0.0599 0.0725815891 -0.041905" quat="0.183012702 0.683012702 0.683012702 -0.183012702">
+          <inertial mass="3.071" pos="0.0308147183 4.64995119e-05 -0.245695734" fullinertia="0.0295637935 0.0299040493 0.00486108453 4.43959018e-05 0.00414242595 0.000114793961"/>
+          <joint name="LH_HFE" axis="1 0 0" range="-9.42477796 9.42477796"/>
+          <geom class="visual" mesh="thigh" material="dark_gray" quat="0.707106781 0 0 -0.707106781"/>
+          <geom class="visual" mesh="drive" material="light_gray" pos="0.1003 0 -0.285"/>
+          <geom class="collision" type="cylinder" size="0.065 0.04" pos="0.04 0 0" quat="0.5 0.5 -0.5 -0.5"/>
+          <geom class="collision" type="box" size="0.0375 0.03 0.1413135" pos="0.03 0 -0.1413135" quat="0.707106781 0 0 -0.707106781"/>
+          <geom class="collision" type="cylinder" size="0.05 0.07" pos="0.0303 0 -0.285" quat="0.707106781 0 0.707106781 0"/>
+          <body name="LH_SHANK" pos="0.1003 0 -0.285">
+            <inertial mass="0.48842" pos="0.00184154949 0.0581607113 -0.0580337177" fullinertia="0.00873639797 0.0073652804 0.00162252513 0.000154501479 -0.000258085325 0.00161828821"/>
+            <joint name="LH_KFE" axis="1 0 0" range="-9.42477796 9.42477796"/>
+            <geom class="visual" mesh="shank_r" material="dark_gray" quat="0.707106781 0 0 0.707106781"/>
+            <geom class="visual" type="cylinder" size="0.0175 0.141252" material="dark_gray" pos="0 0.102 -0.168985" quat="0.707106781 0 0 -0.707106781"/>
+            <geom class="collision" type="cylinder" size="0.06 0.02" pos="0.02 0 0" quat="0.5 0.5 -0.5 -0.5"/>
+            <geom class="collision" type="box" size="0.057499 0.03375 0.02" pos="0.02 0.057499 0" quat="0.5 0.5 -0.5 -0.5"/>
+            <geom class="collision" type="cylinder" size="0.0175 0.141252" pos="0 0.102 -0.168985" quat="0.707106781 0 0 -0.707106781"/>
+            <body name="LH_wheel_link" pos="0.01 0.102 -0.33797" quat="0.707106781 0 0 -0.707106781">
+              <inertial mass="0.2" pos="0 0 0" fullinertia="0.0013 0.0024 0.0013 0 0 0"/>
+              <joint name="LH_wheel" class="wheel" axis="0 1 0"/>
+              <geom class="visual" type="cylinder" size="0.098 0.02" material="tire" quat="0.707106781 0.707106781 0 0"/>
+              <!-- The wheel: its lowest point is the rolling contact point. -->
+              <geom name="LH_wheel_collision" class="wheel_collision"/>
+              <site name="LH_wheel_center"/>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="RH_HIP" pos="-0.2999 -0.104 0" quat="0 0 0.965925826 0.258819045">
+        <inertial mass="2.781" pos="0.0566606257 -0.0152939688 -0.00829784317" fullinertia="0.00329552643 0.00504434929 0.00572690385 -1.03882331e-05 0.000107062233 -0.000319491811"/>
+        <joint name="RH_HAA" axis="-1 0 0" range="-0.49 0.72"/>
+        <geom class="visual" mesh="hip_l" material="anymal_red" quat="0.258819045 -0.965925826 0 0"/>
+        <geom class="visual" mesh="drive" material="light_gray" pos="0.0599 -0.0725815891 -0.041905" quat="0.183012702 -0.683012702 0.683012702 0.183012702"/>
+        <geom class="collision" type="cylinder" size="0.05 0.07" pos="0.0599 -0.0119598108 -0.006905" quat="0.353553391 0.612372436 -0.612372436 0.353553391"/>
+        <body name="RH_THIGH" pos="0.0599 -0.0725815891 -0.041905" quat="0.183012702 -0.683012702 0.683012702 0.183012702">
+          <inertial mass="3.071" pos="0.0308147183 4.64995112e-05 -0.245695734" fullinertia="0.0295637935 0.0299040493 0.00486108453 4.42919018e-05 0.00414242595 9.44799611e-05"/>
+          <joint name="RH_HFE" axis="-1 0 0" range="-9.42477796 9.42477796"/>
+          <geom class="visual" mesh="thigh" material="dark_gray" quat="0.707106781 0 0 -0.707106781"/>
+          <geom class="visual" mesh="drive" material="light_gray" pos="0.1003 0 -0.285"/>
+          <geom class="collision" type="cylinder" size="0.065 0.04" pos="0.04 0 0" quat="0.5 0.5 0.5 0.5"/>
+          <geom class="collision" type="box" size="0.0375 0.03 0.1413135" pos="0.03 0 -0.1413135" quat="0.707106781 0 0 0.707106781"/>
+          <geom class="collision" type="cylinder" size="0.05 0.07" pos="0.0303 0 -0.285" quat="0.707106781 0 0.707106781 0"/>
+          <body name="RH_SHANK" pos="0.1003 0 -0.285">
+            <inertial mass="0.48842" pos="0.00184154949 -0.0581607113 -0.0580337177" fullinertia="0.00873639797 0.0073652804 0.00162252513 -0.000154501479 -0.000258085325 -0.00161828821"/>
+            <joint name="RH_KFE" axis="-1 0 0" range="-9.42477796 9.42477796"/>
+            <geom class="visual" mesh="shank_l" material="dark_gray" quat="0.707106781 0 0 -0.707106781"/>
+            <geom class="visual" type="cylinder" size="0.0175 0.141252" material="dark_gray" pos="0 -0.102 -0.168985" quat="0.707106781 0 0 0.707106781"/>
+            <geom class="collision" type="cylinder" size="0.06 0.02" pos="0.02 0 0" quat="0.5 0.5 0.5 0.5"/>
+            <geom class="collision" type="box" size="0.057499 0.03375 0.02" pos="0.02 -0.057499 0" quat="0.5 0.5 0.5 0.5"/>
+            <geom class="collision" type="cylinder" size="0.0175 0.141252" pos="0 -0.102 -0.168985" quat="0.707106781 0 0 0.707106781"/>
+            <body name="RH_wheel_link" pos="0.01 -0.102 -0.33797" quat="0.707106781 0 0 0.707106781">
+              <inertial mass="0.2" pos="0 0 0" fullinertia="0.0013 0.0024 0.0013 0 0 0"/>
+              <joint name="RH_wheel" class="wheel" axis="0 1 0"/>
+              <geom class="visual" type="cylinder" size="0.098 0.02" material="tire" quat="0.707106781 0.707106781 0 0"/>
+              <!-- The wheel: its lowest point is the rolling contact point. -->
+              <geom name="RH_wheel_collision" class="wheel_collision"/>
+              <site name="RH_wheel_center"/>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <contact>
+    <exclude body1="base" body2="LF_THIGH"/>
+    <exclude body1="base" body2="RF_THIGH"/>
+    <exclude body1="base" body2="LH_THIGH"/>
+    <exclude body1="base" body2="RH_THIGH"/>
+  </contact>
+
+  <!-- One torque motor per joint (gear 1): the simulator writes each joint's torque into its ctrl, limited to the
+       URDF's effort (80 N m on every joint, wheels included). -->
+  <actuator>
+    <motor name="LF_HAA" joint="LF_HAA" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="LF_HFE" joint="LF_HFE" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="LF_KFE" joint="LF_KFE" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="LF_wheel" joint="LF_wheel" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="RF_HAA" joint="RF_HAA" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="RF_HFE" joint="RF_HFE" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="RF_KFE" joint="RF_KFE" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="RF_wheel" joint="RF_wheel" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="LH_HAA" joint="LH_HAA" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="LH_HFE" joint="LH_HFE" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="LH_KFE" joint="LH_KFE" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="LH_wheel" joint="LH_wheel" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="RH_HAA" joint="RH_HAA" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="RH_HFE" joint="RH_HFE" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="RH_KFE" joint="RH_KFE" ctrlrange="-80 80" forcerange="-80 80"/>
+    <motor name="RH_wheel" joint="RH_wheel" ctrlrange="-80 80" forcerange="-80 80"/>
+  </actuator>
+
+  <!-- Virtual gantry. A real weld the constraint solver satisfies inside mj_step, so the base is supported
+       WHILE the dynamics are integrated. MujocoSimInterface drives eq_active from the lock state and writes
+       the suspension height into the relpose translation, so the values here are only a starting point. -->
+  <equality>
+    <weld name="gantry" body1="world" body2="base" relpose="0 0 0.7 1 0 0 0" active="false"/>
+  </equality>
+</mujoco>

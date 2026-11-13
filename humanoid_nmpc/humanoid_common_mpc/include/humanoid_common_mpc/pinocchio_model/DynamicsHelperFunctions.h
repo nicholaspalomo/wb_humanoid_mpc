@@ -98,9 +98,11 @@ std::vector<VECTOR3_T<SCALAR_T>> computePosContactsRtWorldEwrtWorld(
 
 ///
 /// @brief Returns the positions of every contact of the set
-/// (ModelSettings::contactNames, in contact order) in the inertial frame.
-/// Assumes that the frame placements are up to date (e.g. updateFramePlacements
-/// has been called).
+/// (ModelSettings::contactNames, in contact order) in the inertial frame: the
+/// origin of each contact frame, and for a rolling contact the wheel's lowest
+/// point, its frame's origin less the wheel radius along world z
+/// (contact/RollingContact.h). Assumes that the frame placements are up to
+/// date (e.g. updateFramePlacements has been called).
 ///
 /// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
 /// @param pinocchioInterface Pinocchio interface.
@@ -164,12 +166,14 @@ std::vector<VECTOR3_T<SCALAR_T>> getPosLinksRtWorldEwrtWorld(
 /// Above the mean foot height rather than above the world origin, so that it is
 /// the same number on a robot standing on a box as on one standing on the
 /// floor. The contact frames are the sole centers (createPinocchioModel adds
-/// them). `feetmean` is the mean over the legs' contacts (ModelSettings::legs):
-/// on the biped contact set (ModelSettings::isBipedContactSet()) its two feet,
-/// on another set with legs every contact of a leg. On a set without legs, such
-/// as a robot sitting on a seat, it is the height above the lowest contact
-/// frame of the set instead. Updates the center of mass and the frame
-/// placements of `pinocchioInterface`'s data.
+/// them), and a rolling contact is its wheel's lowest point
+/// (getPosContactsRtWorldEwrtWorld()). `feetmean` is the mean over the legs'
+/// contacts (ModelSettings::legs): on the biped contact set
+/// (ModelSettings::isBipedContactSet()) its two feet, on another set with legs
+/// every contact of a leg. On a set without legs, such as a robot sitting on a
+/// seat, it is the height above the lowest contact frame of the set instead.
+/// Updates the center of mass and the frame placements of
+/// `pinocchioInterface`'s data.
 ///
 /// @param q Generalized coordinates
 /// (MpcRobotModelBase::getGeneralizedCoordinates of a state).
@@ -210,9 +214,9 @@ scalar_t computePosComRtFeetmeanEwrtWorldZ(
 
 ///
 /// @brief Computes the center of mass height above the lowest contact frame of
-/// the contact set: the support of a robot sitting or lying on a contact set
-/// without legs. Updates the center of
-/// mass and the frame placements of `pinocchioInterface`'s data.
+/// the contact set (for a rolling contact, its wheel's lowest point): the
+/// support of a robot sitting or lying on a contact set without legs. Updates
+/// the center of mass and the frame placements of `pinocchioInterface`'s data.
 ///
 /// @return [m] the center of mass height above the lowest contact frame.
 

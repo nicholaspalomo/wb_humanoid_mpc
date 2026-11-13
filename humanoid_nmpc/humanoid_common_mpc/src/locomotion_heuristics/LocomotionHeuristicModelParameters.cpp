@@ -128,7 +128,7 @@ absl::StatusOr<vector2_t> findPosHipRtWorldEwrtWorldXy(
                        hipFrameName, "' of leg '", modelSettings.legs[leg].name,
                        "' is not a frame of the MPC model."));
     }
-    return vector2_t(data.oMf[model.getFrameId(hipFrameName)]
+    return vector2_t(data.oMf[hipFrameIdOf(model, hipFrameName)]
                          .translation()
                          .head<kHorizontalPositionDim>());
   }

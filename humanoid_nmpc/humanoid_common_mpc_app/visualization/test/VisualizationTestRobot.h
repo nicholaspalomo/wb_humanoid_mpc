@@ -73,14 +73,17 @@ struct RobotFiles {
   std::string urdfFile;
 };
 
-/** The shipped configurations: G1 centroidal and whole-body, Atlas, SA01, R1
- * and ANYmal B (four point contacts, no 6-DoF contact). */
+/** The shipped configurations: G1 centroidal and whole-body, Atlas, SA01, R1,
+ * ANYmal B (four point contacts, no 6-DoF contact), Tron1 (two rolling
+ * contacts) and the wheeled ANYmal C (four rolling contacts). */
 RobotFiles g1CentroidalFiles();
 RobotFiles g1WholeBodyFiles();
 RobotFiles atlasFiles();
 RobotFiles sa01Files();
 RobotFiles r1Files();
 RobotFiles anymalBFiles();
+RobotFiles tron1Files();
+RobotFiles anymalCWheelsFiles();
 /** Every shipped task file, with the formulation it runs. */
 std::vector<std::pair<RobotFiles, Formulation>> shippedConfigurations();
 

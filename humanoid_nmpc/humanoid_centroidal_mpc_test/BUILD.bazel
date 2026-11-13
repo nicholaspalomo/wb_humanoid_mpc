@@ -124,6 +124,10 @@ cc_test(
         "//humanoid_nmpc/humanoid_common_mpc:gait_config",
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
         "//robot_models/anybotics_anymal_b/anymal_b_description",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_description",
     ],
     linkstatic = True,
     deps = _TEST_DEPS + [
@@ -228,5 +232,27 @@ cc_library(
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_core_types",
         "//lib/ocs2:ocs2_pinocchio_interface",
+    ],
+)
+
+# The MRT feedforward of Tron1's rolling contacts: each planned wheel force acts at the wheel's lowest point, so the
+# inverse dynamics applies it at the wheel-center frame with the moment (-r n) x f, and the wheel joint carries r
+# times the traction (humanoid_nmpc/docs/rolling_contact/README.md).
+cc_test(
+    name = "test_rolling_contact_mrt_feedforward",
+    size = "small",
+    srcs = ["src/testRollingContactMrtFeedforward.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_description",
+    ],
+    deps = _TEST_DEPS + [
+        "//humanoid_nmpc/humanoid_centroidal_mpc:typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc:scripted_policy_mpc_link",
+        "//lib/ocs2:ocs2_dimensions",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/types:span",
     ],
 )

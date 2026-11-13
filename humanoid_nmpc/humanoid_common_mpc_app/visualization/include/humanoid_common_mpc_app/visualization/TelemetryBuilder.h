@@ -309,6 +309,10 @@ class TelemetryBuilder {
   const StateManifold* absl_nonnull stateManifold_;
   // Per contact of the set, its frame of the MPC's model.
   ContactArray<pinocchio::FrameIndex> contactFrames_;
+  // [m] Per contact, the wheel radius of a rolling contact, whose frame is its
+  // wheel center and whose contact point is the wheel's lowest point; 0 for
+  // every other contact.
+  ContactArray<scalar_t> contactWheelRadii_;
   /** [1/s] sqrt(g / z0) of the DCM; nullopt without a nominal state
    * (VisualizationModel::nominalState). */
   std::optional<scalar_t> pendulumFrequency_;

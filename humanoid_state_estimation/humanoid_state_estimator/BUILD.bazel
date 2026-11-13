@@ -69,6 +69,7 @@ cc_library(
         "@abseil-cpp//absl/types:span",
         "@eigen",
         "@pinocchio",
+        "@urdf",
     ],
 )
 

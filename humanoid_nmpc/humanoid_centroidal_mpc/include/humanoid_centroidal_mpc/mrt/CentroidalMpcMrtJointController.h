@@ -487,6 +487,15 @@ class CentroidalMpcMrtJointController final
   absl::Status checkConstruction() const;
 
   /**
+   * Moves the force of each rolling contact in wrenchContactsEwrtWorld_ from
+   * the wheel's lowest point to the wheel-center frame the inverse dynamics
+   * projects it at: sets the contact's moment to (-r n) x f
+   * (torqueWheelEwrtWorld()). Leaves every other contact's wrench untouched.
+   * Allocation-free; called on the control thread.
+   */
+  void applyRollingContactLeverArms();
+
+  /**
    * Method to convert the latest observation msg to a stable desired trajectory
    * (current position, zero velocity and acceleration). The reset target of the
    * MPC link, called on the thread that serves resets.
@@ -653,6 +662,10 @@ class CentroidalMpcMrtJointController final
   /// policy wrenches, or the weight compensation), one per contact, sized at
   /// construction.
   ContactArray<vector6_t> wrenchContactsEwrtWorld_;
+  /// [m] The wheel radius of each rolling contact, in contact order; 0 for a
+  /// fixed point or a surface contact, whose wrench the controller keeps as
+  /// planned. Set at construction.
+  ContactArray<scalar_t> rollingWheelRadii_;
   ::robot::model::RobotJointAction
       holdAction_;  ///< the held action the entry ramp blends from
                     ///< (applyEntryBlend())

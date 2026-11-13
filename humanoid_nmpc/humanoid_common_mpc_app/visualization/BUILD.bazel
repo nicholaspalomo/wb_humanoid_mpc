@@ -62,6 +62,8 @@ cc_library(
         "//lib/ocs2:ocs2_robotic_tools",
         "//robot_runtime/robot_core",
         "//robot_runtime/robot_ipc",
+        # The URDF of the full model, with its continuous joints made unbounded revolute ones.
+        "//robot_runtime/robot_model",
         "//robot_runtime/robot_realtime",
         # ViewerThreadPriority alone, without the web viewer's HTTP server and JPEG libraries.
         "//robot_runtime/web_viewer:viewer_thread_priority",
@@ -83,6 +85,7 @@ cc_library(
         "@eigen",
         "@pinocchio",
         "@protobuf",
+        "@urdf",
     ],
 )
 
@@ -94,10 +97,14 @@ cc_library(
 _ROBOT_DATA = [
     "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
     "//robot_models/anybotics_anymal_b/anymal_b_description",
+    "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
+    "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
     "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
     "//robot_models/drc_atlas/drc_atlas_description",
     "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
     "//robot_models/engineai_sa01/engineai_sa01_description",
+    "//robot_models/limx_tron1/tron1_centroidal_mpc",
+    "//robot_models/limx_tron1/tron1_description",
     "//robot_models/unitree_g1/g1_centroidal_mpc",
     "//robot_models/unitree_g1/g1_description",
     "//robot_models/unitree_g1/g1_wb_mpc",

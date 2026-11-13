@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"
 
 #include "absl/status/status.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_pinocchio_interface/urdf.h"
@@ -66,6 +67,15 @@ inline constexpr pinocchio::JointIndex kFloatingBaseJoint =
 /// Precondition: 0 < joint < model.njoints.
 pinocchio::JointIndex hipJointOf(const pinocchio::Model& model,
                                  pinocchio::JointIndex joint);
+
+/// Returns the index of the frame `frameName` of `model` that a leg's hip names
+/// (ModelSettings::Leg::hipFrameName): the joint frame of that name when the
+/// model has one, otherwise the one frame of that name. A derived hip is a
+/// joint, and a URDF may give a link the name of a joint (the wheeled ANYmal
+/// C's link and joint LF_HAA), where Pinocchio's getFrameId() of the name alone
+/// throws. Precondition: model.existFrame(frameName).
+pinocchio::FrameIndex hipFrameIdOf(const pinocchio::Model& model,
+                                   absl::string_view frameName);
 
 ///
 /// \brief Checks that the actuated joints of the Pinocchio model are

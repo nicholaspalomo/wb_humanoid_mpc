@@ -29,6 +29,7 @@ bazel_indexed := cd $(current_path) && $(bazel_indexed_in_repo)
         test-all test test-heuristic-parameters derive-heuristic-parameters clean clean-all format lint fix ci-local \
         lint-tidy lint-tidy-fix \
         test-pinocchio-model-atlas test-pinocchio-model-r1 test-pinocchio-model-sa01 test-pinocchio-model-anymal-b \
+        test-pinocchio-model-tron1 test-pinocchio-model-anymal-c-wheels \
         start-vnc stop-vnc kill-sims check-zombies \
         deploy-robot robot-images udp-buffers rerun-viewer rerun-web ipc-list ipc-echo ipc-hz \
         closed-loop-metrics benchmark-mpc-solve compare-closed-loop \
@@ -164,6 +165,14 @@ test-pinocchio-model-sa01:
 test-pinocchio-model-anymal-b:
 	$(bazel_indexed) run //robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc:test_pinocchio_model
 
+## Run Pinocchio Model LimX Tron1 test
+test-pinocchio-model-tron1:
+	$(bazel_indexed) run //robot_models/limx_tron1/tron1_centroidal_mpc:test_pinocchio_model
+
+## Run Pinocchio Model wheeled ANYbotics ANYmal C test
+test-pinocchio-model-anymal-c-wheels:
+	$(bazel_indexed) run //robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc:test_pinocchio_model
+
 ############################################################
 # Utility targets
 ############################################################
@@ -259,13 +268,13 @@ validation_env = --test_env=WB_VALIDATION_GIT_COMMIT="$$commit" --test_env=WB_VA
 	--nozip_undeclared_test_outputs --cache_test_results=no --test_output=errors
 
 ## Closed-loop metrics of one robot: make closed-loop-metrics ROBOT=<robot> LABEL=<label> [SCENARIO=walk_0p5] [BASELINE=<label>] [RECORD_STATES=1]
-# ROBOT: drc_atlas, engineai_sa01, unitree_g1, unitree_r1, anymal_b (three scenarios), unitree_g1_wb or unitree_g1_kalman
+# ROBOT: drc_atlas, engineai_sa01, unitree_g1, unitree_r1, anymal_b, tron1 and anymal_c_wheels (three scenarios each), unitree_g1_wb or unitree_g1_kalman
 # (unitree_g1 with the kalman state estimator, three scenarios, held to unitree_g1's documents of BASELINE). Without SCENARIO every scenario runs. The
 # metrics land in data/closed_loop/$(LABEL)/ and the time series stay in the test's outputs; RECORD_STATES=1 also keeps
 # the walking states for the solve benchmark. With BASELINE each run's violations and improvements against it are printed
 # at the end.
 closed-loop-metrics:
-	@$(if $(and $(ROBOT),$(LABEL)),,$(error Usage: make closed-loop-metrics ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|anymal_b|unitree_g1_wb|unitree_g1_kalman LABEL=<label> [SCENARIO=<scenario>] [BASELINE=<label>] [RECORD_STATES=1]))
+	@$(if $(and $(ROBOT),$(LABEL)),,$(error Usage: make closed-loop-metrics ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|anymal_b|tron1|anymal_c_wheels|unitree_g1_wb|unitree_g1_kalman LABEL=<label> [SCENARIO=<scenario>] [BASELINE=<label>] [RECORD_STATES=1]))
 	@$(validation_provenance) outputs=.bazel/testlogs/$(VALIDATION_PKG)/closed_loop_$(ROBOT)/test.outputs; \
 	$(bazel_indexed) test //$(VALIDATION_PKG):closed_loop_$(ROBOT) $(validation_env) --test_arg=--label=$(LABEL) \
 		$(if $(SCENARIO),--test_filter='*/$(SCENARIO)') $(if $(BASELINE),--test_arg=--baseline=$(BASELINE)); status=$$?; \
@@ -282,7 +291,7 @@ closed-loop-metrics:
 # run is held to the real-time gate (SolveBenchmarkGate.h, $(VALIDATION_PKG)/README.md) against
 # data/benchmark/$(BASELINE)/.
 benchmark-mpc-solve:
-	@$(if $(and $(ROBOT),$(LABEL)),,$(error Usage: make benchmark-mpc-solve ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|anymal_b|unitree_g1_wb LABEL=<label> [STATES=<file>] [BASELINE=<label>]))
+	@$(if $(and $(ROBOT),$(LABEL)),,$(error Usage: make benchmark-mpc-solve ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|anymal_b|tron1|anymal_c_wheels|unitree_g1_wb LABEL=<label> [STATES=<file>] [BASELINE=<label>]))
 	@$(validation_provenance) outputs=.bazel/testlogs/$(VALIDATION_PKG)/benchmark_mpc_solve_$(ROBOT)/test.outputs; \
 	$(bazel_indexed) test //$(VALIDATION_PKG):benchmark_mpc_solve_$(ROBOT) $(validation_env) --test_arg=--label=$(LABEL) \
 		$(if $(STATES),--test_arg=--states=$(STATES)) $(if $(BASELINE),--test_arg=--baseline=$(BASELINE)); status=$$?; \
@@ -295,7 +304,7 @@ benchmark-mpc-solve:
 # with BASELINE holds a run (compareClosedLoopMetrics()), from the archived documents: no simulation. Prints each run's
 # violations and improvements; fails when a run has a violation.
 compare-closed-loop:
-	@$(if $(and $(CANDIDATE),$(BASELINE)),,$(error Usage: make compare-closed-loop CANDIDATE=<label> BASELINE=<label> [ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|anymal_b|unitree_g1_wb|unitree_g1_kalman]))
+	@$(if $(and $(CANDIDATE),$(BASELINE)),,$(error Usage: make compare-closed-loop CANDIDATE=<label> BASELINE=<label> [ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|anymal_b|tron1|anymal_c_wheels|unitree_g1_wb|unitree_g1_kalman]))
 	@$(bazel_indexed) test //$(VALIDATION_PKG):compare_closed_loop_labels --test_arg=--candidate=$(CANDIDATE) --test_arg=--baseline=$(BASELINE) \
 		$(if $(ROBOT),--test_arg=--robot=$(ROBOT)) --cache_test_results=no --test_output=all
 # LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations, //humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/LockstepOutputs.h:output_names, //humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/io/RunProvenance.h:provenance_environment, //humanoid_nmpc/humanoid_mpc_validation/exe/benchmarkMpcSolveMain.cpp:benchmark_paths, //humanoid_nmpc/humanoid_mpc_validation/exe/compareClosedLoopMain.cpp:comparison_paths, //humanoid_nmpc/humanoid_mpc_validation/test/closedLoopScenarios.cpp:comparison_file)
@@ -509,9 +518,19 @@ ROBOT_CONFIGURATIONS := \
 	drc-atlas:drc_atlas:robot_models/drc_atlas/drc_atlas_centroidal_mpc:centroidal:robot_models/drc_atlas/drc_atlas_description \
 	r1:unitree_r1:robot_models/unitree_r1/unitree_r1_centroidal_mpc:centroidal:robot_models/unitree_r1/unitree_r1_description \
 	sa01:engineai_sa01:robot_models/engineai_sa01/engineai_sa01_centroidal_mpc:centroidal:robot_models/engineai_sa01/engineai_sa01_description \
-	anymal-b:anymal_b:robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc:centroidal:robot_models/anybotics_anymal_b/anymal_b_description
-# The robots with a sandbox target: one per description (the whole-body G1 shares the G1's).
-SANDBOX_ROBOTS := g1 drc-atlas r1 sa01 anymal-b
+	anymal-b:anymal_b:robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc:centroidal:robot_models/anybotics_anymal_b/anymal_b_description \
+	anymal-c-wheels:anymal_c_wheels:robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc:centroidal:robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description \
+	tron1:tron1:robot_models/limx_tron1/tron1_centroidal_mpc:centroidal:robot_models/limx_tron1/tron1_description
+# The robots with a sandbox target, one per description (the whole-body G1 shares the G1's): <target name>:<description
+# package>. A description may have a sandbox before it has a robot configuration.
+SANDBOX_ROBOTS := \
+	g1:robot_models/unitree_g1/g1_description \
+	drc-atlas:robot_models/drc_atlas/drc_atlas_description \
+	r1:robot_models/unitree_r1/unitree_r1_description \
+	sa01:robot_models/engineai_sa01/engineai_sa01_description \
+	anymal-b:robot_models/anybotics_anymal_b/anymal_b_description \
+	anymal-c-wheels:robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description \
+	tron1:robot_models/limx_tron1/tron1_description
 # LINT.ThenChange(//tools/deploy/BUILD.bazel:robot_configurations, //robot_models/tests/test_launch_files.py:robot_configurations, //.devcontainer/README.md:launch_targets, //README.md:launch_targets, //Makefile:multi_contact_scenarios)
 
 field = $(word $(2),$(subst :, ,$(1)))
@@ -555,12 +574,12 @@ launch-$(call field,$(1),1)-dummy-sim-vnc: launch-$(call field,$(1),1)-dummy-sim
 launch-$(call field,$(1),1)-mpc-vnc: launch-$(call field,$(1),1)-mpc
 endef
 
-# The sandbox of one robot description ($(1) is its entry of ROBOT_CONFIGURATIONS): launch/sandbox.textproto of it.
+# The sandbox of one robot description ($(1) is its entry of SANDBOX_ROBOTS): launch/sandbox.textproto of it.
 define robot_sandbox_targets
 .PHONY: launch-$(call field,$(1),1)-sandbox launch-$(call field,$(1),1)-sandbox-vnc
 
 launch-$(call field,$(1),1)-sandbox: kill-sims
-	@$(session) laptop --launch_file $(call field,$(1),5)/launch/sandbox.textproto --build "$(sandbox_binaries)" \
+	@$(session) laptop --launch_file $(call field,$(1),2)/launch/sandbox.textproto --build "$(sandbox_binaries)" \
 		$$(rerun_sets) --set joint_source=$$(JOINT_SOURCE)
 
 launch-$(call field,$(1),1)-sandbox-vnc: override VIEWS = vnc
@@ -568,8 +587,7 @@ launch-$(call field,$(1),1)-sandbox-vnc: launch-$(call field,$(1),1)-sandbox
 endef
 
 $(foreach configuration,$(ROBOT_CONFIGURATIONS),$(eval $(call robot_launch_targets,$(configuration))))
-$(foreach configuration,$(filter $(addsuffix :%,$(SANDBOX_ROBOTS)),$(ROBOT_CONFIGURATIONS)),\
-	$(eval $(call robot_sandbox_targets,$(configuration))))
+$(foreach sandbox,$(SANDBOX_ROBOTS),$(eval $(call robot_sandbox_targets,$(sandbox))))
 # LINT.ThenChange(//.devcontainer/README.md:launch_targets, //README.md:launch_targets, //tools/deploy/test_deploy_files.py:launch_targets)
 
 # The DRC Atlas's multi-contact scenarios (humanoid_nmpc/docs/multi_contact_planning/README.md, section 8.1): <target
@@ -645,7 +663,7 @@ $(foreach scenario,$(MULTI_CONTACT_SCENARIOS),$(eval $(call multi_contact_plan_t
 ## (tools/deploy/README.md). A deployment that runs already is restarted on the new image. IMAGE_SOURCE=registry
 ## REGISTRY=ghcr.io/<owner> TAG=<branch>-arm64 deploys CI's arm64 image instead of building one here.
 deploy-robot:
-	@$(if $(ROBOT),,$(error deploy-robot needs ROBOT=<robot configuration>: anymal_b, drc_atlas, engineai_sa01, unitree_g1, unitree_g1_wb or unitree_r1))
+	@$(if $(ROBOT),,$(error deploy-robot needs ROBOT=<robot configuration>: anymal_b, anymal_c_wheels, drc_atlas, engineai_sa01, tron1, unitree_g1, unitree_g1_wb or unitree_r1))
 	@$(call udp_buffers,$(or $(network_file),$(shipped_network)),$(HOST))
 	@$(deploy_robot) deploy --robot $(ROBOT) --service $(SERVICE) $(deploy_flags)
 
@@ -662,8 +680,10 @@ robot-images:
 ## The Rerun bridge on its own, with the native viewer (rerun-viewer) or the web viewer at http://localhost:9090
 ## (rerun-web): make rerun-viewer [ROBOT=drc_atlas] [NETWORK=<file>]. Draws the robot only with ROBOT=.
 rerun_urdf_anymal_b := robot_models/anybotics_anymal_b/anymal_b_description/urdf/anymal_b.urdf
+rerun_urdf_anymal_c_wheels := robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description/urdf/anymal_c_wheels.urdf
 rerun_urdf_drc_atlas := robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf
 rerun_urdf_engineai_sa01 := robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf
+rerun_urdf_tron1 := robot_models/limx_tron1/tron1_description/urdf/tron1.urdf
 rerun_urdf_unitree_g1 := robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf
 rerun_urdf_unitree_g1_wb := $(rerun_urdf_unitree_g1)
 rerun_urdf_unitree_r1 := robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf
@@ -700,7 +720,7 @@ help:
 	@echo "  VIEWS=browser|vnc|display       where the views go (default browser): browser tabs for MuJoCo (:6090),"
 	@echo "                                  Rerun (:9090) and the GUI through noVNC (:6080); vnc (the -vnc targets): all"
 	@echo "                                  on the VNC desktop :99; display: native windows on DISPLAY, checked"
-	@echo "  launch-<robot>-sandbox[-vnc]    for <robot> in $(SANDBOX_ROBOTS): the URDF in Rerun at its nominal pose or"
+	@echo "  launch-<robot>-sandbox[-vnc]    for <robot> in $(foreach s,$(SANDBOX_ROBOTS),$(call field,$(s),1)): the URDF in Rerun at its nominal pose or"
 	@echo "                                  at a slider per joint (JOINT_SOURCE=sliders|nominal)"
 	@echo "  launch-drc-atlas-<scenario>-dummy-sim[-vnc]  for <scenario> in $(foreach c,$(MULTI_CONTACT_SCENARIOS),$(call field,$(c),1)):"
 	@echo "                                  the centroidal MPC tracking the scenario's multi-contact plan in the dummy"

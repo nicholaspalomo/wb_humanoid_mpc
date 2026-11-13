@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_state_estimator/ContactKinematics.h"
 
-#include <cmath>
 #include <cstddef>
 #include <exception>
 #include <memory>
@@ -55,8 +54,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/fwd.hpp"
 #include "pinocchio/parsers/urdf.hpp"
 #include "pinocchio/spatial/fwd.hpp"
+#include "urdf_world/types.h"
 
 #include "humanoid_common_mpc/common/Types.h"
+#include "robot_model/UrdfContinuousJoints.h"
 
 namespace ocs2::humanoid::estimation {
 
@@ -68,8 +69,6 @@ struct ContactKinematics::Model {
     /** The joint's first entry in the model's q and v. */
     int qIndex = 0;
     int vIndex = 0;
-    /** A continuous joint: q = (cos theta, sin theta). */
-    bool continuous = false;
   };
 
   // pinocchio::Model has no move constructor, so the model is copied once, from
@@ -98,10 +97,6 @@ struct ContactKinematics::Model {
 
 namespace {
 
-/** The coordinates of a continuous joint in Pinocchio's configuration vector:
- * (cos theta, sin theta). */
-constexpr int kContinuousJointCoordinates = 2;
-
 /** The universe's frame, which the fixed-base model's root link hangs from. */
 constexpr pinocchio::FrameIndex kUniverseFrame = 0;
 
@@ -116,9 +111,18 @@ std::string linkNames(const pinocchio::Model& model) {
 }
 
 absl::StatusOr<pinocchio::Model> fixedBaseModel(absl::string_view urdfFile) {
+  // A continuous joint gets one coordinate, its angle, as in every Pinocchio
+  // model of the URDF.
+  absl::StatusOr<urdf::ModelInterfaceSharedPtr> urdfTree =
+      robot::model::parseUrdfFileForPinocchio(urdfFile);
+  if (!urdfTree.ok()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("ContactKinematics: the URDF '", urdfFile,
+                     "' does not load: ", urdfTree.status().message()));
+  }
   pinocchio::Model model;
   try {  // NOLINT(exceptions): Pinocchio's URDF parser throws; converted at once
-    pinocchio::urdf::buildModel(std::string(urdfFile), model);
+    pinocchio::urdf::buildModel(*urdfTree, model);
     // NOLINTNEXTLINE(exceptions): Pinocchio's URDF parser throws; converted at once
   } catch (const std::exception& error) {
     return absl::InvalidArgumentError(
@@ -178,12 +182,37 @@ absl::StatusOr<std::vector<std::string>> childLinkNamesOfJoints(
   return links;
 }
 
+absl::Status checkFixedContactPoints(
+    absl::Span<const ContactPointSpec> contacts, absl::string_view consumer) {
+  for (const ContactPointSpec& contact : contacts) {
+    if (contact.kind == ContactPointKind::kFixed) continue;
+    const std::string name =
+        contact.contactName.empty()
+            ? absl::StrCat("on the link '", contact.linkName, "'")
+            : absl::StrCat("'", contact.contactName, "' (link '",
+                           contact.linkName, "')");
+    return absl::InvalidArgumentError(absl::StrCat(
+        consumer, ": the rolling contact ", name,
+        " is the lowest point of a wheel, which moves over the rim as the "
+        "wheel turns; ",
+        consumer,
+        " models contact points fixed on their links only "
+        "(humanoid_nmpc/docs/rolling_contact/README.md)"));
+  }
+  return absl::OkStatus();
+}
+
 absl::StatusOr<std::unique_ptr<ContactKinematics>> ContactKinematics::Create(
     absl::string_view urdfFile,
     absl::Span<const ContactPointSpec> contacts,
     absl::Span<const std::string> jointNames) {
   if (contacts.empty()) {
     return absl::InvalidArgumentError("ContactKinematics: no contact point");
+  }
+  if (absl::Status fixed =
+          checkFixedContactPoints(contacts, "ContactKinematics");
+      !fixed.ok()) {
+    return fixed;
   }
   absl::StatusOr<pinocchio::Model> model = fixedBaseModel(urdfFile);
   if (!model.ok()) return model.status();
@@ -213,8 +242,7 @@ absl::StatusOr<std::unique_ptr<ContactKinematics>> ContactKinematics::Create(
        joint < static_cast<pinocchio::JointIndex>(model->njoints); ++joint) {
     const int nq = model->nqs[joint];
     const int nv = model->nvs[joint];
-    const bool continuous = nv == 1 && nq == kContinuousJointCoordinates;
-    if (nv != 1 || (nq != 1 && !continuous)) {
+    if (nv != 1 || nq != 1) {
       return absl::InvalidArgumentError(absl::StrCat(
           "ContactKinematics: the joint '", model->names[joint], "' of '",
           urdfFile, "' has ", nq, " coordinates and ", nv,
@@ -228,8 +256,7 @@ absl::StatusOr<std::unique_ptr<ContactKinematics>> ContactKinematics::Create(
     }
     modelJoints.push_back(Model::Joint{.robotJoint = robotJoint->second,
                                        .qIndex = model->idx_qs[joint],
-                                       .vIndex = model->idx_vs[joint],
-                                       .continuous = continuous});
+                                       .vIndex = model->idx_vs[joint]});
   }
   std::unique_ptr<Model> kinematics = std::make_unique<Model>(
       *model, std::move(frames), std::move(posContactsRtLinkEwrtLink),
@@ -255,14 +282,8 @@ void ContactKinematics::update(const vector_t& jointPositions,
                                const vector_t& jointVelocities) {
   Model& kinematics = *model_;
   for (const Model::Joint& joint : kinematics.joints) {
-    const scalar_t jointPosition =
+    kinematics.q[joint.qIndex] =
         jointPositions[static_cast<Eigen::Index>(joint.robotJoint)];
-    if (joint.continuous) {
-      kinematics.q[joint.qIndex] = std::cos(jointPosition);
-      kinematics.q[joint.qIndex + 1] = std::sin(jointPosition);
-    } else {
-      kinematics.q[joint.qIndex] = jointPosition;
-    }
     kinematics.v[joint.vIndex] =
         jointVelocities[static_cast<Eigen::Index>(joint.robotJoint)];
   }

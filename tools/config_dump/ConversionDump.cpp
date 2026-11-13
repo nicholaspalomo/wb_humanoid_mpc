@@ -92,6 +92,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
 #include "humanoid_common_mpc/reference_manager/ArmSwing.h"
 #include "humanoid_common_mpc/reference_manager/GaitSwitchingTable.h"
+#include "humanoid_common_mpc/reference_manager/LegJointReference.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h"
@@ -722,6 +723,15 @@ std::string dumpConversions(const ConversionInputs& inputs,
                                   armSwing->phaseOffset});
   } else {
     addError(dump, "arm_swing", armSwing.status());
+  }
+  dump.addSection("leg_joint_reference");
+  const absl::StatusOr<LegJointReference> legJointReference =
+      legJointReferenceFromName(inputs.task.leg_joint_reference);
+  if (legJointReference.ok()) {
+    dump.addInteger("leg_joint_reference",
+                    static_cast<int64_t>(*legJointReference));
+  } else {
+    addError(dump, "leg_joint_reference", legJointReference.status());
   }
   const ModelSettings* absl_nullable modelOrNull =
       model.ok() ? &*model : nullptr;

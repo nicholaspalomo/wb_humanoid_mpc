@@ -96,6 +96,12 @@ std::vector<WeldedScene> weldedScenes() {
                 "anymal_b.xml",
        .urdf = "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
                "anymal_b.urdf"},
+      {.scene = "robot_models/limx_tron1/tron1_description/urdf/tron1.xml",
+       .urdf = "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf"},
+      {.scene = "robot_models/anybotics_anymal_c_wheels/"
+                "anymal_c_wheels_description/urdf/anymal_c_wheels.xml",
+       .urdf = "robot_models/anybotics_anymal_c_wheels/"
+               "anymal_c_wheels_description/urdf/anymal_c_wheels.urdf"},
   };
 }
 
@@ -254,7 +260,10 @@ JointDrift jointDriftUnderGravityCompensation(const WeldedScene& robot,
       << robot.scene << " fell back from " << hold;
   const mjModel* absl_nonnull scene = sim->getModel();
   const std::vector<SceneJoint> joints = sceneJoints(*sim);
-  ABSL_CHECK_GE(joints.size(), 12u) << robot.scene;
+  // Every shipped robot has at least eight joints; LimX Tron1 has the fewest,
+  // four per leg with the wheel.
+  constexpr size_t kMinSceneJoints = 8;
+  ABSL_CHECK_GE(joints.size(), kMinSceneJoints) << robot.scene;
   sim->enableTorques();
   step(*sim,
        /*steps=*/1);  // the first snapshot: the posture the robot was caught in

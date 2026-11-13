@@ -106,6 +106,8 @@ class MpcParamsTab(ttk.Frame):
         "Unitree G1 (Centroidal)": "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto",
         "EngineAI SA01 (Centroidal)": "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto",
         "ANYmal B (Centroidal)": "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/mpc/task.textproto",
+        "LimX Tron1 (Centroidal)": "robot_models/limx_tron1/tron1_centroidal_mpc/config/mpc/task.textproto",
+        "ANYmal C Wheels (Centroidal)": "robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/config/mpc/task.textproto",
     }
 
     # The task file's field that selects the contact inputs, which the labels of the contact blocks depend on.

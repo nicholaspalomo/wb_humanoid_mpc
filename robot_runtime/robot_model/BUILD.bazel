@@ -12,6 +12,7 @@ cc_library(
         "src/ContactEstimatorRegistry.cpp",
         "src/RobotDescription.cpp",
         "src/RobotState.cpp",
+        "src/UrdfContinuousJoints.cpp",
     ],
     hdrs = glob(["include/**"], allow_empty = True),
     copts = FIRST_PARTY_COPTS,
@@ -52,6 +53,23 @@ cc_test(
 
 # RobotState, RobotJointAction and their IDMapBase: the joints of the description, the checked accesses, and copies
 # that keep the capacity.
+# The continuous joints of a URDF become revolute joints without position limits, which Pinocchio builds with one
+# coordinate.
+cc_test(
+    name = "test_urdf_continuous_joints",
+    size = "small",
+    srcs = ["test/testUrdfContinuousJoints.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":robot_model",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+        "@urdf",
+    ],
+)
+
 cc_test(
     name = "test_robot_state",
     size = "small",

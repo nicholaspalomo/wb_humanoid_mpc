@@ -1182,7 +1182,7 @@ class DeployScriptTest(unittest.TestCase):
         )
 
 
-# The launch targets each robot configuration of the Makefile gets, and those of a robot with a sandbox.
+# The launch targets each robot configuration of the Makefile gets, and those of each robot of its SANDBOX_ROBOTS.
 # LINT.IfChange(launch_targets)
 CONFIGURATION_TARGETS = (
     "sim",
@@ -1233,9 +1233,14 @@ def session_command(output: str) -> str:
     return lines[0]
 
 
-def sandbox_robots(makefile: str) -> list[str]:
-    """The robots the Makefile's SANDBOX_ROBOTS gives a sandbox."""
-    return search(r"^SANDBOX_ROBOTS := (.*)$", makefile, re.M).group(1).split()
+def sandbox_robots(makefile: str) -> list[tuple[str, str]]:
+    """The (target name, description package) of each robot the Makefile's SANDBOX_ROBOTS gives a sandbox."""
+    block = search(r"^SANDBOX_ROBOTS := \\\n((?:\t.*\n)+)", makefile, re.M)
+    sandboxes = []
+    for line in block.group(1).splitlines():
+        name, description = line.strip().rstrip("\\").strip().split(":")
+        sandboxes.append((name, description))
+    return sandboxes
 
 
 def label(target: str) -> str:
@@ -1268,7 +1273,7 @@ class MakefileTest(unittest.TestCase):
                 f"launch-{configuration[0]}-{suffix}"
                 for suffix in CONFIGURATION_TARGETS
             )
-        for name in sandbox_robots(self.makefile):
+        for name, _ in sandbox_robots(self.makefile):
             self.targets.update(
                 f"launch-{name}-{suffix}" for suffix in SANDBOX_TARGETS
             )
@@ -1342,11 +1347,8 @@ class MakefileTest(unittest.TestCase):
                     self.assertEqual(
                         started - laptop - {label(t) for t in built}, set()
                     )
-        sandboxes = sandbox_robots(self.makefile)
         sandbox = {label(t) for t in self.makefile_variable("sandbox_binaries")}
-        for name, _, _, _, description in self.configurations:
-            if name not in sandboxes:
-                continue
+        for name, description in sandbox_robots(self.makefile):
             started = launch_binaries(f"{description}/launch/sandbox.textproto")
             with self.subTest(target=f"launch-{name}-sandbox"):
                 self.assertTrue(started)

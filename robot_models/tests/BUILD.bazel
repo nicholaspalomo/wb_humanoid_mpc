@@ -11,8 +11,10 @@ py_test(
     srcs = ["test_urdf_mjcf_inertial_consistency.py"],
     data = [
         "//robot_models/anybotics_anymal_b/anymal_b_description",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/limx_tron1/tron1_description",
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_r1/unitree_r1_description",
     ],
@@ -32,10 +34,14 @@ py_test(
     data = [
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
         "//robot_models/anybotics_anymal_b/anymal_b_description",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_description",
         "//robot_models/unitree_g1/g1_centroidal_mpc",
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_g1/g1_wb_mpc",
@@ -63,6 +69,8 @@ py_test(
         "//humanoid_nmpc/docs/distributed_runtime:README.md",
         "//humanoid_nmpc/humanoid_common_mpc:gait_config",
         "//humanoid_nmpc/humanoid_common_mpc:quadruped_gait_config",
+        "//humanoid_nmpc/humanoid_common_mpc:wheeled_gait_config",
+        "//humanoid_nmpc/humanoid_common_mpc:wheeled_quadruped_gait_config",
         "//humanoid_nmpc/humanoid_rerun_viewer",
         "//humanoid_nmpc/humanoid_rerun_viewer:model_sandbox",
         # The multi-contact scenarios of the DRC Atlas's multi-contact dummy sims.
@@ -74,12 +82,18 @@ py_test(
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
         "//robot_models/anybotics_anymal_b/anymal_b_description",
         "//robot_models/anybotics_anymal_b/anymal_b_description:launch/sandbox.textproto",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description:launch/sandbox.textproto",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/drc_atlas/drc_atlas_description:launch/sandbox.textproto",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_description",
         "//robot_models/engineai_sa01/engineai_sa01_description:launch/sandbox.textproto",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_description",
+        "//robot_models/limx_tron1/tron1_description:launch/sandbox.textproto",
         "//robot_models/unitree_g1/g1_centroidal_mpc",
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_g1/g1_description:launch/sandbox.textproto",
@@ -91,9 +105,26 @@ py_test(
     deps = ["//tools/launch:launch_lib"],
 )
 
+# The wheels of every wheeled robot: continuous URDF joints, and unlimited MJCF hinges whose bodies roll on one coaxial
+# collision cylinder each.
+py_test(
+    name = "test_wheels",
+    size = "small",
+    srcs = ["test_wheels.py"],
+    data = [
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
+        "//robot_models/limx_tron1/tron1_description",
+    ],
+    deps = [
+        requirement("mujoco"),
+        requirement("numpy"),
+    ],
+)
+
 # The default stance of every robot configuration (reference default and task initial state) on flat ground, by the
-# URDF's forward kinematics; the MPC contact rectangle of each 6-DoF contact inside the MJCF's sole spheres, and each
-# 3-DoF contact on the lowest point of its foot's single sphere.
+# URDF's forward kinematics; the MPC contact rectangle of each 6-DoF contact inside the MJCF's sole spheres, each 3-DoF
+# point contact on the lowest point of its foot's single sphere, and each rolling contact's lowest wheel point on the
+# ground with the wheel's single collision cylinder of its wheel radius.
 py_test(
     name = "test_default_stance",
     size = "small",
@@ -101,10 +132,14 @@ py_test(
     data = [
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
         "//robot_models/anybotics_anymal_b/anymal_b_description",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_description",
         "//robot_models/unitree_g1/g1_centroidal_mpc",
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_g1/g1_wb_mpc",
@@ -128,10 +163,14 @@ py_test(
     data = [
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
         "//robot_models/anybotics_anymal_b/anymal_b_description",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_description",
         "//robot_models/unitree_g1/g1_centroidal_mpc",
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_g1/g1_wb_mpc",

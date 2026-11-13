@@ -61,22 +61,63 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The robot backends by name: `mujoco` builds the simulator from the options
  * the robot process gathers (without a viewer here, on the Atlas scene), an
  * unknown name is refused with the available ones, and a new backend is one
- * add(). A set of point contacts only starts it too, on the ANYmal B scene.
+ * add(). A set of point contacts only starts it too, on the ANYmal B scene,
+ * and so do sets of rolling contacts, on the LimX Tron1 scene and the wheeled
+ * ANYmal C scene.
  */
 
 namespace ocs2::humanoid {
 namespace {
 
-constexpr char kAnymalBUrdf[] =
-    "robot_models/anybotics_anymal_b/anymal_b_description/urdf/anymal_b.urdf";
-constexpr char kAnymalBScene[] =
-    "robot_models/anybotics_anymal_b/anymal_b_description/urdf/anymal_b.xml";
-constexpr char kAnymalBTask[] =
-    "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/mpc/"
-    "task.textproto";
-constexpr char kAnymalBReference[] =
-    "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/command/"
-    "reference.textproto";
+/** A shipped robot's files, from the repository root (string literals). */
+struct ShippedRobotFiles {
+  const char* absl_nonnull name;
+  const char* absl_nonnull urdfFile;
+  const char* absl_nonnull sceneFile;
+  const char* absl_nonnull taskFile;
+  const char* absl_nonnull referenceFile;
+};
+
+constexpr ShippedRobotFiles kAnymalB = {
+    .name = "anymal_b",
+    .urdfFile =
+        "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
+        "anymal_b.urdf",
+    .sceneFile =
+        "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
+        "anymal_b.xml",
+    .taskFile =
+        "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/"
+        "config/mpc/task.textproto",
+    .referenceFile =
+        "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/"
+        "config/command/reference.textproto"};
+
+constexpr ShippedRobotFiles kTron1 = {
+    .name = "tron1",
+    .urdfFile = "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf",
+    .sceneFile = "robot_models/limx_tron1/tron1_description/urdf/tron1.xml",
+    .taskFile =
+        "robot_models/limx_tron1/tron1_centroidal_mpc/config/mpc/"
+        "task.textproto",
+    .referenceFile =
+        "robot_models/limx_tron1/tron1_centroidal_mpc/config/"
+        "command/reference.textproto"};
+
+constexpr ShippedRobotFiles kAnymalCWheels = {
+    .name = "anymal_c_wheels",
+    .urdfFile =
+        "robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description/"
+        "urdf/anymal_c_wheels.urdf",
+    .sceneFile =
+        "robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description/"
+        "urdf/anymal_c_wheels.xml",
+    .taskFile =
+        "robot_models/anybotics_anymal_c_wheels/"
+        "anymal_c_wheels_centroidal_mpc/config/mpc/task.textproto",
+    .referenceFile =
+        "robot_models/anybotics_anymal_c_wheels/"
+        "anymal_c_wheels_centroidal_mpc/config/command/reference.textproto"};
 
 RobotBackendOptions atlasOptions() {
   const robot::model::RobotDescription description =
@@ -101,26 +142,26 @@ RobotBackendOptions atlasOptions() {
   return options;
 }
 
-/** Returns the options of the mujoco backend on the ANYmal B scene, its robot
+/** Returns the options of the mujoco backend on the scene of `files`, the robot
  * in the default stance of its reference file (default_joint_state, every other
  * joint at zero) with the base level at nom_pos_base_rt_surface_ewrt_world_z
- * (which the file must set),
- * its four point contacts in the task file's order, and no viewer. */
-RobotBackendOptions anymalBOptions() {
+ * (which the file must set), its contacts in the task file's order, and no
+ * viewer. */
+RobotBackendOptions standingOptions(const ShippedRobotFiles& files) {
   const robot::model::RobotDescription description =
-      robot::model::RobotDescription::Create(kAnymalBUrdf).value();
+      robot::model::RobotDescription::Create(files.urdfFile).value();
   const ModelSettings modelSettings =
-      ModelSettings::Create(kAnymalBTask, kAnymalBUrdf, "centroidal_mpc_",
+      ModelSettings::Create(files.taskFile, files.urdfFile, "centroidal_mpc_",
                             /*verbose=*/false)
           .value();
   const mpc_config::ReferenceFile reference =
-      loadReferenceFile(kAnymalBReference).value();
+      loadReferenceFile(files.referenceFile).value();
   ABSL_CHECK(reference.nom_pos_base_rt_surface_ewrt_world_z.has_value())
-      << kAnymalBReference << " sets no nom_pos_base_rt_surface_ewrt_world_z";
+      << files.referenceFile << " sets no nom_pos_base_rt_surface_ewrt_world_z";
   RobotBackendOptions options;
-  options.robotName = "anymal_b";
-  options.urdfFile = kAnymalBUrdf;
-  options.mjcfFile = kAnymalBScene;
+  options.robotName = files.name;
+  options.urdfFile = files.urdfFile;
+  options.mjcfFile = files.sceneFile;
   options.initialState.emplace(description);
   options.initialState->setPosBaseRtWorldEwrtWorld(
       vector3_t(0.0, 0.0, *reference.nom_pos_base_rt_surface_ewrt_world_z));
@@ -200,7 +241,7 @@ TEST(RobotBackendRegistry, TheMujocoFootSensorsNeedTwoSixDofContacts) {
 // through its parent joint, the ground truth reads all four feet on the floor
 // once the robot stands on them, and no contact has a foot force sensor.
 TEST(RobotBackendRegistry, TheMujocoBackendStartsOnFourPointContacts) {
-  const RobotBackendOptions options = anymalBOptions();
+  const RobotBackendOptions options = standingOptions(kAnymalB);
   ASSERT_EQ(options.contactFrameNames.size(), 4u);
   ASSERT_EQ(options.numPointContacts, 4u) << "no 6-DoF contact";
 
@@ -226,6 +267,66 @@ TEST(RobotBackendRegistry, TheMujocoBackendStartsOnFourPointContacts) {
   for (size_t contact = 0; contact < 4; ++contact) {
     EXPECT_TRUE(measForceContactsEwrtWorld[contact].isZero()) << contact;
   }
+}
+
+// A set of rolling contacts (Tron1's two wheels, contacts_rolling) starts the
+// simulator: each contact resolves to its wheel's body through the wheel joint,
+// the ground truth reads both wheels on the floor, and no contact has a foot
+// force sensor.
+TEST(RobotBackendRegistry, TheMujocoBackendStartsOnTwoRollingContacts) {
+  const RobotBackendOptions options = standingOptions(kTron1);
+  ASSERT_EQ(options.contactFrameNames.size(), 2u);
+  ASSERT_EQ(options.numPointContacts, 2u) << "no 6-DoF contact";
+
+  const RobotBackendRegistry registry;
+  absl::StatusOr<std::unique_ptr<RobotBackend>> backend =
+      registry.create("mujoco", options);
+  ASSERT_TRUE(backend.ok()) << backend.status();
+  ASSERT_TRUE((*backend)->initialize().ok());
+  robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable const sim =
+      (*backend)->simulator();
+  ASSERT_NE(sim, nullptr);
+  EXPECT_TRUE(sim->hasContactDetection());
+  EXPECT_EQ(sim->getNumDetectedContactPoints(), 2u);
+  EXPECT_EQ(sim->getUnresolvedContactMask(), 0u);
+
+  // Released at its standing height, the robot rests on both wheels before it
+  // tips over (it balances only under the MPC).
+  sim->unlockGantry();
+  for (int step = 0; step < 50; ++step) sim->simulationStep();
+  EXPECT_EQ(sim->getGroundTruthContactMask(), 0b11u);
+
+  ContactArray<vector3_t> measForceContactsEwrtWorld(/*numContacts=*/2,
+                                                     vector3_t::Ones());
+  (*backend)->readMeasForceContactsEwrtWorld(measForceContactsEwrtWorld);
+  for (size_t contact = 0; contact < 2; ++contact) {
+    EXPECT_TRUE(measForceContactsEwrtWorld[contact].isZero()) << contact;
+  }
+}
+
+// Four rolling contacts (the wheeled ANYmal C's wheels, contacts_rolling) start
+// the simulator: each contact resolves to its wheel's body, and the robot
+// stands on its four wheels, which the ground truth reads on the floor.
+TEST(RobotBackendRegistry, TheMujocoBackendStartsOnFourRollingContacts) {
+  const RobotBackendOptions options = standingOptions(kAnymalCWheels);
+  ASSERT_EQ(options.contactFrameNames.size(), 4u);
+  ASSERT_EQ(options.numPointContacts, 4u) << "no 6-DoF contact";
+
+  const RobotBackendRegistry registry;
+  absl::StatusOr<std::unique_ptr<RobotBackend>> backend =
+      registry.create("mujoco", options);
+  ASSERT_TRUE(backend.ok()) << backend.status();
+  ASSERT_TRUE((*backend)->initialize().ok());
+  robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable const sim =
+      (*backend)->simulator();
+  ASSERT_NE(sim, nullptr);
+  EXPECT_TRUE(sim->hasContactDetection());
+  EXPECT_EQ(sim->getNumDetectedContactPoints(), 4u);
+  EXPECT_EQ(sim->getUnresolvedContactMask(), 0u);
+
+  sim->unlockGantry();
+  for (int step = 0; step < 50; ++step) sim->simulationStep();
+  EXPECT_EQ(sim->getGroundTruthContactMask(), 0b1111u);
 }
 
 TEST(RobotBackendRegistry, AnUnknownNameListsTheAvailableOnes) {

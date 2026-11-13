@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
+#include "ocs2_core/Dimensions.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/initialization/Initializer.h"
 #include "ocs2_core/manifold/StateManifold.h"
@@ -61,7 +62,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_sqp/SqpSettings.h"
 #include "ocs2_sqp/SqpSolver.h"
 #include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/jacobian.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/common/ContactArray.h"
@@ -71,6 +74,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/robot/ControllerSideSettingsFromConfig.h"
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
+#include "humanoid_common_mpc/contact/RollingContact.h"
 #include "humanoid_common_mpc/mrt/ContactEstimateIntake.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
@@ -85,6 +89,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
+#include "humanoid_mpc_validation/closed_loop/ClosedLoopMetrics.h"
 #include "humanoid_mpc_validation/closed_loop/DriverSettingsFromConfig.h"
 #include "humanoid_mpc_validation/closed_loop/SqpStepDiagnostics.h"
 #include "mujoco_sim_interface/CheaterSimContactEstimator.h"
@@ -250,8 +255,105 @@ ClosedLoopDriver::computePosContactsRtWorldEwrtWorld(
   for (size_t contact = 0; contact < contactFrameIds_.size(); ++contact) {
     posContactsRtWorldEwrtWorld[contact] =
         data.oMf[contactFrameIds_[contact]].translation();
+    if (modelSettings_->isRollingContact(contact)) {
+      posContactsRtWorldEwrtWorld[contact] = posContactRtWorldEwrtWorld(
+          vector3_t(posContactsRtWorldEwrtWorld[contact]),
+          modelSettings_->wheelRadius(contact),
+          normalTerrainEwrtWorld<scalar_t>());
+    }
   }
   return posContactsRtWorldEwrtWorld;
+}
+
+std::vector<ContactSlipMeasure> ClosedLoopDriver::contactSlipMeasures() const {
+  std::vector<ContactSlipMeasure> measures(contactFrameIds_.size(),
+                                           ContactSlipMeasure::kDrift);
+  for (size_t contact = 0; contact < measures.size(); ++contact) {
+    if (modelSettings_->isRollingContact(contact)) {
+      measures[contact] = ContactSlipMeasure::kMaterialSlip;
+    }
+  }
+  return measures;
+}
+
+ContactArray<Eigen::Vector3d>
+ClosedLoopDriver::computeLinvelContactsRtWorldEwrtWorld(
+    const SystemObservation& observation,
+    const robot::model::RobotState& state) {
+  if (!modelSettings_->hasRollingContacts()) {
+    return ContactArray<Eigen::Vector3d>();
+  }
+  const vector_t q =
+      measurementModel_->getGeneralizedCoordinates(observation.state);
+  const PinocchioInterface::Model& model = measurementPinocchio_->getModel();
+  PinocchioInterface::Data& data = measurementPinocchio_->getData();
+  pinocchio::forwardKinematics(model, data, q);
+  pinocchio::updateFramePlacements(model, data);
+  pinocchio::computeJointJacobians(model, data, q);
+  const BaseAndJointMotion motion = baseAndJointMotionOf(state);
+  const vector3_t posBaseRtWorldEwrtWorld =
+      measurementModel_->getPosBaseRtWorldEwrtWorld(observation.state);
+  ContactArray<Eigen::Vector3d> linvelContactsRtWorldEwrtWorld(
+      contactFrameIds_.size(), Eigen::Vector3d::Zero());
+  for (size_t contact = 0; contact < contactFrameIds_.size(); ++contact) {
+    if (!modelSettings_->isRollingContact(contact)) continue;
+    const WheelCenterMotion wheelCenter =
+        wheelCenterMotionOf(contact, motion, posBaseRtWorldEwrtWorld);
+    linvelContactsRtWorldEwrtWorld[contact] =
+        linvelContactRtWorldEwrtWorld(wheelCenter.linvelWheelRtWorldEwrtWorld,
+                                      wheelCenter.angvelWheelRtWorldEwrtWorld,
+                                      modelSettings_->wheelRadius(contact),
+                                      normalTerrainEwrtWorld<scalar_t>());
+  }
+  return linvelContactsRtWorldEwrtWorld;
+}
+
+ClosedLoopDriver::BaseAndJointMotion ClosedLoopDriver::baseAndJointMotionOf(
+    const robot::model::RobotState& state) const {
+  const matrix3_t rotmatBaseRtWorld =
+      state.getQuatBaseRtWorld().normalized().toRotationMatrix();
+  const Eigen::Index numJoints =
+      static_cast<Eigen::Index>(mpcJointIndices_.size());
+  BaseAndJointMotion motion{
+      .linvelBaseRtWorldEwrtWorld =
+          rotmatBaseRtWorld * state.getLinvelBaseRtWorldEwrtBase(),
+      .angvelBaseRtWorldEwrtWorld =
+          rotmatBaseRtWorld * state.getAngvelBaseRtWorldEwrtBase(),
+      .jointVelocities = vector_t(numJoints),
+  };
+  for (Eigen::Index joint = 0; joint < numJoints; ++joint) {
+    motion.jointVelocities(joint) =
+        state.getJointVelocity(mpcJointIndices_[static_cast<size_t>(joint)]);
+  }
+  return motion;
+}
+
+ClosedLoopDriver::WheelCenterMotion ClosedLoopDriver::wheelCenterMotionOf(
+    size_t contact,
+    const BaseAndJointMotion& motion,
+    const vector3_t& posBaseRtWorldEwrtWorld) {
+  const PinocchioInterface::Model& model = measurementPinocchio_->getModel();
+  // getFrameJacobian() takes the data mutably, though it only reads it.
+  PinocchioInterface::Data& data = measurementPinocchio_->getData();
+  matrix_t jacobian = matrix_t::Zero(kTwistDim, model.nv);
+  pinocchio::getFrameJacobian(model, data, contactFrameIds_[contact],
+                              pinocchio::LOCAL_WORLD_ALIGNED, jacobian);
+  // The joints' part of the wheel-center twist from the Jacobian's joint
+  // columns, the base's from its rigid motion: v_base + w_base x (p - p_base).
+  const Eigen::Index numJoints = motion.jointVelocities.size();
+  const vector6_t twistFromJoints =
+      jacobian.rightCols(numJoints) * motion.jointVelocities;
+  const vector3_t posWheelRtBaseEwrtWorld =
+      data.oMf[contactFrameIds_[contact]].translation() -
+      posBaseRtWorldEwrtWorld;
+  return WheelCenterMotion{
+      .linvelWheelRtWorldEwrtWorld =
+          motion.linvelBaseRtWorldEwrtWorld +
+          motion.angvelBaseRtWorldEwrtWorld.cross(posWheelRtBaseEwrtWorld) +
+          twistFromJoints.head<kPositionDim>(),
+      .angvelWheelRtWorldEwrtWorld = motion.angvelBaseRtWorldEwrtWorld +
+                                     twistFromJoints.tail<kPositionDim>(),
+  };
 }
 
 absl::Status ClosedLoopDriver::connectSimulator(
@@ -502,7 +604,7 @@ MpcLinkFactory ClosedLoopDriver::lockstepMpcLinkFactory(
   config.solverThreadName = std::string(solverName);
   config.execution = InProcessMpcLink::Execution::kCaller;
   // The observation of every solve, to the motion manager as the MPC node's
-  // server hands it over: its input carries the measured joint velocities
+  // server hands it over: its input carries the measured joint motion
   // (ProceduralMpcMotionManager::observe()). The driver owns both; the link
   // dies first.
   // LINT.IfChange(observation_hand_over)

@@ -1,0 +1,58 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/reference_file.proto
+# proto-message: humanoid_mpc_config.ReferenceFile
+ref_speed_base_rt_world: 0.5
+ref_rate_yaw_base_rt_world: 0.5
+
+# The command limits sit above the closed-loop validation's commands, a 0.5 m/s drive and a 0.5 rad/s turn in place (a
+# trot, wheeled_quadruped_gait.textproto), so that neither saturates. The wheel axles are across the base and none of them steers, so the no-slip constraint of the
+# wheels has no lateral velocity to give and a lateral command is not tracked. The lateral limit is still positive, as
+# every command limit must be (the GUI, the keyboard and the validation's driver send a command as its fraction of the
+# limit), and small: a full lateral stick asks for 0.05 m/s.
+cmd_max_linvel_base_rt_world_ewrt_heading_x: 1.0
+cmd_max_linvel_base_rt_world_ewrt_heading_y: 0.05
+cmd_max_err_pos_base_rt_surface_ewrt_world_z: 0.1
+cmd_max_angvel_base_rt_world_ewrt_world_z: 1.0
+# First-order low-pass filter on the operator's velocity command, run on the solver time ahead of the acceleration
+# ramps: break frequency f_c [Hz], time constant 1 / (2 pi f_c). 0 switches it off and the command passes through
+# unchanged, as on every other robot.
+velocity_command_filter_break_frequency: 0.0  # [Hz] command low-pass filter, 0 = off
+target_joint_state_interpolation_time_constant: 0.5
+
+# The base height of the default posture standing on flat ground: the wheel centers 0.53788 m below the base and a
+# wheel radius (0.098 m) above the ground, by the URDF's forward kinematics (robot_models/anybotics_anymal_c_wheels/
+# anymal_c_wheels_description/README.md, "Geometry for the MPC"; robot_models/tests/test_default_stance.py checks it).
+nom_pos_base_rt_surface_ewrt_world_z: 0.63588
+# The default posture: hip abduction HAA 0 on every leg, which keeps the wheels upright (the OCS2 legged_robot
+# example's -0.25 / +0.25 rad would tilt each wheel onto its edge), and the hip and knee flexion HFE and KFE signed front
+# against hind (+0.64 / -0.85 rad on the front legs, -0.64 / +0.85 rad on the hind legs), which puts each wheel center
+# below its HFE joint, at (+-0.35981, +-0.29811, -0.53788) m from the base. The center of mass is then 81 mm behind
+# the base origin, inside the rectangle of the four wheels. The wheel angles are 0: a wheel's position has no reference
+# and no weight (humanoid_nmpc/docs/rolling_contact/README.md, section 7).
+default_joint_state { joint: "LF_HAA" value: 0.0 }
+default_joint_state { joint: "LF_HFE" value: 0.64 }
+default_joint_state { joint: "LF_KFE" value: -0.85 }
+default_joint_state { joint: "LF_wheel" value: 0.0 }
+default_joint_state { joint: "RF_HAA" value: 0.0 }
+default_joint_state { joint: "RF_HFE" value: 0.64 }
+default_joint_state { joint: "RF_KFE" value: -0.85 }
+default_joint_state { joint: "RF_wheel" value: 0.0 }
+default_joint_state { joint: "LH_HAA" value: 0.0 }
+default_joint_state { joint: "LH_HFE" value: -0.64 }
+default_joint_state { joint: "LH_KFE" value: 0.85 }
+default_joint_state { joint: "LH_wheel" value: 0.0 }
+default_joint_state { joint: "RH_HAA" value: 0.0 }
+default_joint_state { joint: "RH_HFE" value: -0.64 }
+default_joint_state { joint: "RH_KFE" value: 0.85 }
+default_joint_state { joint: "RH_wheel" value: 0.0 }
+
+initial_mode_schedule {
+  mode_sequence: "STANCE"
+  mode_sequence: "STANCE"
+  event_times: 0.5
+}
+
+default_mode_sequence_template {
+  mode_sequence: "STANCE"
+  switching_times: 0.0
+  switching_times: 0.5
+}

@@ -42,9 +42,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/multibody.hpp"
 #include "pinocchio/multibody/fwd.hpp"
 #include "pinocchio/spatial/fwd.hpp"
 
@@ -59,6 +61,16 @@ pinocchio::JointIndex hipJointOf(const pinocchio::Model& model,
     joint = model.parents[joint];
   }
   return joint;
+}
+
+pinocchio::FrameIndex hipFrameIdOf(const pinocchio::Model& model,
+                                   absl::string_view frameName) {
+  // Pinocchio looks names up by const std::string&.
+  const std::string name(frameName);
+  if (model.existFrame(name, pinocchio::JOINT)) {
+    return model.getFrameId(name, pinocchio::JOINT);
+  }
+  return model.getFrameId(name);
 }
 
 /******************************************************************************************************/

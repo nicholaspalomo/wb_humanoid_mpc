@@ -76,8 +76,10 @@ class HumanoidPreComputation : public PreComputation {
     return eeNormalVelConConfigs_;
   }
   /** Whether the swing planner plans contact `contactIndex`: one of the
-   * biped's two feet, whose reference height and normal velocity configuration
-   * are here. */
+   * biped's two feet or a contact of a legged set, whose reference height and
+   * normal velocity configuration are here. The height is the contact
+   * point's; the normal velocity configuration of a rolling contact servoes
+   * its wheel center, a wheel radius above it. */
   bool hasDesPosFootRtWorldEwrtWorldZ(size_t contactIndex) const {
     return contactIndex < desPosFeetRtWorldEwrtWorldZ_.size();
   }
@@ -146,6 +148,10 @@ class HumanoidPreComputation : public PreComputation {
   std::vector<EndEffectorKinematicsLinearVelConstraint::Config>
       eeNormalVelConConfigs_;
   std::vector<scalar_t> desPosFeetRtWorldEwrtWorldZ_;
+  // [m] The wheel radius of each planned contact, 0 for one fixed on its
+  // link, which the normal-velocity reference of a rolling contact's wheel
+  // center adds to the contact point's; empty without a rolling contact.
+  std::vector<scalar_t> wheelRadii_;
   // The generalized swing planner, or null (setContactSwingPlanner()), and
   // its reference of every contact at the time of the last request(): one
   // entry per contact of the model's contact set while it is set, none

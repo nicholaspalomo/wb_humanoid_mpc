@@ -77,8 +77,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The legs of ModelSettings (model_settings.legs): the default left and right
  * legs of every shipped biped, with the hips the locomotion heuristics walk to;
  * no legs on the multi-contact Atlas; the four legs of the Atlas sole-corner
- * set with their derived sides; what a leg description may not say; and the
- * pendulum length above `feetmean`, the mean over the legs' contacts.
+ * set with their derived sides; the four legs of ANYmal B, the two wheeled
+ * legs of Tron1 and the four wheeled legs of the wheeled ANYmal C; what a leg
+ * description may not say; and the pendulum length above `feetmean`, the mean
+ * over the legs' contacts.
  */
 namespace ocs2::humanoid {
 namespace {
@@ -126,6 +128,22 @@ constexpr Robot kAnymalB = {
     .urdfFile =
         "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
         "anymal_b.urdf"};
+
+// The shipped wheeled biped, on one rolling contact per leg.
+constexpr Robot kTron1 = {
+    .taskFile =
+        "robot_models/limx_tron1/tron1_centroidal_mpc/config/mpc/"
+        "task.textproto",
+    .urdfFile = "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf"};
+
+// The shipped wheeled quadruped, on one rolling contact per leg.
+constexpr Robot kAnymalCWheels = {
+    .taskFile =
+        "robot_models/anybotics_anymal_c_wheels/"
+        "anymal_c_wheels_centroidal_mpc/config/mpc/task.textproto",
+    .urdfFile =
+        "robot_models/anybotics_anymal_c_wheels/"
+        "anymal_c_wheels_description/urdf/anymal_c_wheels.urdf"};
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/BUILD.bazel:config_test_data)
 
 // The four sole corners of the Atlas, a quadruped's leg order (as in
@@ -373,6 +391,72 @@ TEST(ModelSettingsLegs, TheShippedAnymalBStandsOnFourLegsOfOneFootEach) {
     const ModelSettings::Leg& entry = settings->legs[i];
     EXPECT_EQ(entry.name, names[i]);
     EXPECT_THAT(entry.contactIndices, ElementsAre(i)) << entry.name;
+    EXPECT_EQ(entry.lateralSign, lateralSigns[i]) << entry.name;
+    EXPECT_EQ(entry.longitudinal, longitudinal[i]) << entry.name;
+    // The derived hip is the abduction joint, the first below the base.
+    EXPECT_EQ(entry.hipFrameName, absl::StrCat(names[i], "_HAA")) << entry.name;
+    EXPECT_EQ(settings->legOfContact(i), i);
+  }
+}
+
+TEST(ModelSettingsLegs, TheShippedTron1StandsOnTwoLegsOfOneWheelEach) {
+  const absl::StatusOr<LoadedRobot> loaded =
+      loadRobot(kTron1.taskFile, kTron1.urdfFile);
+  ASSERT_TRUE(loaded.ok()) << loaded.status();
+  const absl::StatusOr<ModelSettings> settings = settingsOf(*loaded);
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  // Two rolling contacts are not the biped set of two 6-DoF feet.
+  EXPECT_FALSE(settings->isBipedContactSet());
+  EXPECT_TRUE(settings->isLeggedContactSet());
+  EXPECT_TRUE(settings->hasRollingContacts());
+  EXPECT_THAT(settings->contactNames,
+              ElementsAre("wheel_L_contact", "wheel_R_contact"));
+  ASSERT_EQ(settings->legs.size(), 2U);
+  const std::array<const char* absl_nonnull, 2> names = {"left", "right"};
+  const std::array<const char* absl_nonnull, 2> hips = {"abad_L_Joint",
+                                                        "abad_R_Joint"};
+  const std::array<scalar_t, 2> lateralSigns = {1.0, -1.0};
+  for (size_t i = 0; i < settings->legs.size(); ++i) {
+    const ModelSettings::Leg& entry = settings->legs[i];
+    EXPECT_EQ(entry.name, names[i]);
+    EXPECT_THAT(entry.contactIndices, ElementsAre(i)) << entry.name;
+    EXPECT_TRUE(settings->isRollingContact(i)) << entry.name;
+    EXPECT_EQ(entry.lateralSign, lateralSigns[i]) << entry.name;
+    // Both hips are abreast, so neither leg is in front of the other.
+    EXPECT_EQ(entry.longitudinal,
+              ModelSettings::LegLongitudinalPosition::kCenter)
+        << entry.name;
+    EXPECT_EQ(entry.hipFrameName, hips[i]) << entry.name;
+    EXPECT_EQ(settings->legOfContact(i), i);
+  }
+}
+
+TEST(ModelSettingsLegs, TheShippedAnymalCWheelsStandsOnFourLegsOfOneWheelEach) {
+  const absl::StatusOr<LoadedRobot> loaded =
+      loadRobot(kAnymalCWheels.taskFile, kAnymalCWheels.urdfFile);
+  ASSERT_TRUE(loaded.ok()) << loaded.status();
+  const absl::StatusOr<ModelSettings> settings = settingsOf(*loaded);
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  EXPECT_FALSE(settings->isBipedContactSet());
+  EXPECT_TRUE(settings->isLeggedContactSet());
+  EXPECT_TRUE(settings->hasRollingContacts());
+  EXPECT_THAT(settings->contactNames,
+              ElementsAre("LF_wheel_contact", "RF_wheel_contact",
+                          "LH_wheel_contact", "RH_wheel_contact"));
+  ASSERT_EQ(settings->legs.size(), 4U);
+  const std::array<const char* absl_nonnull, 4> names = {"LF", "RF", "LH",
+                                                         "RH"};
+  const std::array<scalar_t, 4> lateralSigns = {1.0, -1.0, 1.0, -1.0};
+  const std::array<ModelSettings::LegLongitudinalPosition, 4> longitudinal = {
+      ModelSettings::LegLongitudinalPosition::kFront,
+      ModelSettings::LegLongitudinalPosition::kFront,
+      ModelSettings::LegLongitudinalPosition::kHind,
+      ModelSettings::LegLongitudinalPosition::kHind};
+  for (size_t i = 0; i < settings->legs.size(); ++i) {
+    const ModelSettings::Leg& entry = settings->legs[i];
+    EXPECT_EQ(entry.name, names[i]);
+    EXPECT_THAT(entry.contactIndices, ElementsAre(i)) << entry.name;
+    EXPECT_TRUE(settings->isRollingContact(i)) << entry.name;
     EXPECT_EQ(entry.lateralSign, lateralSigns[i]) << entry.name;
     EXPECT_EQ(entry.longitudinal, longitudinal[i]) << entry.name;
     // The derived hip is the abduction joint, the first below the base.

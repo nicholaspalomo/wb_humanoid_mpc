@@ -207,7 +207,9 @@ INSTANTIATE_TEST_SUITE_P(
                       ShippedCentroidalRobot::kEngineAiSa01,
                       ShippedCentroidalRobot::kUnitreeG1,
                       ShippedCentroidalRobot::kUnitreeR1,
-                      ShippedCentroidalRobot::kAnymalB),
+                      ShippedCentroidalRobot::kAnymalB,
+                      ShippedCentroidalRobot::kTron1,
+                      ShippedCentroidalRobot::kAnymalCWheels),
     shippedCentroidalRobotTestName);
 
 }  // namespace

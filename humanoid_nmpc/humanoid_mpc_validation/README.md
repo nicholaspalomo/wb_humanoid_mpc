@@ -130,7 +130,7 @@ document has none of it, and a comparison skips a metric either document lacks:
 | `velocity.rms_error_mps` | the base velocity in the heading frame against the reference velocity (after the command filter and ramps) |
 | `yaw_rate.rms_error_radps` | the world yaw rate against the reference yaw rate |
 | `heading.{cumulative_final_rad, cumulative_max_rad, cumulative_min_rad}` | the twist heading, unwrapped from the first command |
-| `stance_foot_slip.{max_m, rms_m, stance_phases}` | the horizontal drift of a contact frame from its touch-down while in measured contact |
+| `stance_foot_slip.{max_m, rms_m, stance_phases}` | the horizontal drift of a contact point from its touch-down while in measured contact; for a rolling contact, whose contact point moves with its wheel, the distance the wheel material at that point slid meanwhile, the integral of its horizontal speed (`ContactSlipMeasure`) |
 | `joint_torque.rms_nm` | the commanded torque of the MPC joints |
 | `initial_state_gap.{max_rotation_rad, max_rotation_time_s, max_norm}` | `delta_x0` of each solve's first SQP iteration, as the solver records it: the observation against the node 0 it warm-started from (the previous solution after `trajectorySpread`), zero after a reset the solve served first |
 | `quaternion_norm.{max_deviation, non_finite_solves}` | `max | |xi_k| - 1 |` over the nodes of every solution; null without a solve, and the count of solves with non-finite quaternion deviations |
@@ -181,7 +181,7 @@ same default bands (`closedLoopMetricBandsFor()`).
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/MetricBands.h:metric_bands) -->
 
 One requirement needs no baseline: a configuration survives its walking scenario (`RobotConfiguration::walkingScenario`,
-`walk_0p5`, or `walk_0p3` for SA01 and R1; `walk_0p5` for ANYmal B). A run of it that falls fails the closed-loop test after its documents are
+`walk_0p5`, or `walk_0p3` for SA01 and R1; `walk_0p5`, a drive on the wheels, for Tron1 and the wheeled ANYmal C). A run of it that falls fails the closed-loop test after its documents are
 written (`walkingSurvivalViolation()`), and the comparison with a baseline, run or archived, lists the fall as a
 violation even where the baseline fell too. A state-estimator variant is held to it as well: `unitree_g1_kalman` must
 survive `walk_0p5`.
@@ -241,15 +241,52 @@ the default bands (`closedLoopMetricBandsFor()`): its runs are deterministic, tw
 same documents, so no metric of it spreads from run to run, and `make compare-closed-loop
 CANDIDATE=2026-11-10_anymal_b BASELINE=2026-11-10_anymal_b ROBOT=anymal_b` passes with no violation and no improvement.
 
+## Tron1
+
+`tron1` is the first configuration on wheels: the LimX Tron1 wheel-foot biped on the centroidal MPC, two rolling
+contacts (`wheel_L_contact`, `wheel_R_contact`, `model_settings.contacts_rolling`,
+[docs/rolling_contact](../docs/rolling_contact/README.md)) on the shared wheeled gait file
+(`humanoid_common_mpc/config/command/wheeled_gait.textproto`), with the ground-truth contact estimator and state
+estimator ([robot_models/limx_tron1](../../robot_models/limx_tron1/README.md)). It runs `standing`, `walk_0p5` and
+`turn_in_place_720`, all on the wheels: `walk_0p5` drives at 0.5 m/s on the `drive` gait and takes no step. It must
+survive `walk_0p5`, and its solve benchmark replays `data/benchmark/states/tron1_walk_0p5_states.txt`. The Kalman state
+estimator refuses a rolling contact set, so there is no Kalman variant of it. Label `2026-11-12_tron1` recorded it: it
+survives all three scenarios, drives at 0.506 m/s against the 0.5 m/s command, turns at about 0.45 rad/s against
+0.5 rad/s, and keeps both wheels in measured contact throughout; the metrics are in
+[the label's README](data/closed_loop/2026-11-12_tron1/README.md). Its stance-foot slip is the slip of the wheel
+material at the contact point (`ContactSlipMeasure::kMaterialSlip`), so it is a distance slid, not a drift: 1.2 mm in
+the 7.6 m drive and 0.46 m in the turn, where the flat 5 cm wide wheel cylinders of the MuJoCo scene scrub (the label's
+README). It is held to the default bands; `make compare-closed-loop CANDIDATE=2026-11-12_tron1
+BASELINE=2026-11-12_tron1 ROBOT=tron1` passes with no violation and no improvement.
+
+## Wheeled ANYmal C
+
+`anymal_c_wheels` is the quadruped on wheels: ANYbotics ANYmal C legs with a wheel each on the centroidal MPC, four
+rolling contacts (`LF_wheel_contact`, `RF_wheel_contact`, `LH_wheel_contact`, `RH_wheel_contact`) on the wheeled
+quadrupeds' gait file (`humanoid_common_mpc/config/command/wheeled_quadruped_gait.textproto`), with the ground-truth
+contact estimator and state estimator
+([robot_models/anybotics_anymal_c_wheels](../../robot_models/anybotics_anymal_c_wheels/README.md)). It runs `standing`,
+`walk_0p5` and `turn_in_place_720`. `walk_0p5` drives at 0.5 m/s on the `drive` gait and takes no step;
+`turn_in_place_720` turns in the gait file's `turning_trot`, because its four parallel axles cannot roll through a yaw
+([docs/rolling_contact](../docs/rolling_contact/README.md), section 8). It must survive `walk_0p5`, and its solve
+benchmark replays `data/benchmark/states/anymal_c_wheels_walk_0p5_states.txt`. The Kalman state estimator refuses a
+rolling contact set, so there is no Kalman variant of it. Label `2026-11-12_anymal_c_wheels` recorded it: it survives
+all three scenarios, drives at 0.496 m/s against the 0.5 m/s command with every wheel in measured contact throughout,
+and turns at 0.484 rad/s against 0.5 rad/s through 11.78 of 12.57 rad; the metrics, and the runs on the drive gait and
+on the plain trot that did not turn, are in [the label's README](data/closed_loop/2026-11-12_anymal_c_wheels/README.md).
+It is held to the default bands; `make compare-closed-loop CANDIDATE=2026-11-12_anymal_c_wheels
+BASELINE=2026-11-12_anymal_c_wheels ROBOT=anymal_c_wheels` passes with no violation and no improvement.
+
 ## Recording and comparing labels
 
 A label is a directory of documents, one per run: `make closed-loop-metrics ROBOT=<robot> LABEL=<label>` writes
 `data/closed_loop/<label>/<robot>_<scenario>.json`, and `make benchmark-mpc-solve ROBOT=<robot> LABEL=<label>` writes
-`data/benchmark/<label>/<robot>_solve_benchmark.json`. Four labels are checked in: `2026-11-07_kalman_variant`, the
+`data/benchmark/<label>/<robot>_solve_benchmark.json`. Six labels are checked in: `2026-11-07_kalman_variant`, the
 kalman variant's first runs, on the undamped G1 scene; `2026-11-08_g1_fall_fix`, `unitree_g1` surviving all three of
-those scenarios once its MJCF had joint damping; `2026-11-10_anymal_b`, the first runs of ANYmal B; and
-`2026-11-11_g1_kalman`, `unitree_g1` and `unitree_g1_kalman` on the damped scene with the cycle-mean accelerometer. Otherwise record a
-baseline on the code to compare against and a candidate on the change, on the same machine and container image, and give each label a README saying
+those scenarios once its MJCF had joint damping; `2026-11-10_anymal_b`, the first runs of ANYmal B;
+`2026-11-11_g1_kalman`, `unitree_g1` and `unitree_g1_kalman` on the damped scene with the cycle-mean accelerometer;
+`2026-11-12_tron1`, the first runs of Tron1; and `2026-11-12_anymal_c_wheels`, the first runs of the wheeled ANYmal C.
+Otherwise record a baseline on the code to compare against and a candidate on the change, on the same machine and container image, and give each label a README saying
 what it ran (the commit and the worktree state are in every document's provenance) and, for a candidate, the
 improvements its comparison found. Only the metrics documents are copied into the label; the time series and the
 `<robot>_<scenario>_comparison.txt` of each run stay in the test's outputs
@@ -306,11 +343,12 @@ untracked file listed, and the contents of every untracked file, so that an edit
 The configuration files a run depends on (`RobotConfiguration::configurationFiles()`) are the robot's typed textprotos
 of [`humanoid_mpc_config`](../humanoid_mpc_config/README.md) - `config/mpc/task.textproto`,
 `config/command/reference.textproto`, `config/controller/joint_pd_gains.textproto`, the contact planner's
-`config/mpc/contact_planning.textproto` where the robot has one, and the gait file (`gait.textproto`, or
-`quadruped_gait.textproto` for ANYmal B) - plus its URDF and
+`config/mpc/contact_planning.textproto` where the robot has one, and the gait file (`gait.textproto`,
+`quadruped_gait.textproto` for ANYmal B, `wheeled_gait.textproto` for Tron1 or `wheeled_quadruped_gait.textproto` for
+the wheeled ANYmal C) - plus its URDF and
 MuJoCo scene, and the provenance records the SHA-256 of each.
 
-`ROBOT` is `drc_atlas`, `engineai_sa01`, `unitree_g1`, `unitree_r1`, `unitree_g1_wb`, `anymal_b` or, for the closed-loop metrics
+`ROBOT` is `drc_atlas`, `engineai_sa01`, `unitree_g1`, `unitree_r1`, `unitree_g1_wb`, `anymal_b`, `tron1`, `anymal_c_wheels` or, for the closed-loop metrics
 only, `unitree_g1_kalman` (["The kalman variant"](#the-kalman-variant)). The targets run the manual tests
 `closed_loop_<robot>`, `benchmark_mpc_solve_<robot>` and `compare_closed_loop_labels` under `bazel test`, so that the machine lock of `tools/bazel`
 keeps them from running next to another build, and copy the documents into `data/`.
@@ -331,7 +369,7 @@ URDF, named in the `joint_names` note), `contact_flags` and `gui_command`. It is
 state, so states recorded with one formulation drive another through the same observation path.
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/RecordedRobotStates.cpp:recorded_state_labels) -->
 
-`contact_flags` has a column per contact of the robot's contact set, in contact order: two for a biped, four for ANYmal B. The benchmark
+`contact_flags` has a column per contact of the robot's contact set, in contact order: two for a biped and for Tron1's wheels, four for ANYmal B and for the wheeled ANYmal C's wheels. The benchmark
 replays a recording only on a robot of the same contact count (`toRobotState()` refuses another), and the closed-loop
 metrics measure the stance phases of every contact.
 
@@ -341,7 +379,7 @@ metrics measure the stance phases of every contact.
 |---|---|
 | `test_validation_io` | SHA-256 against the FIPS test vectors; JSON round trips (numbers bit for bit); golden files bit for bit with their provenance, every recorded file under `data/` (the recorded states, and the documents of any label) formatting back to its bytes; malformed input rejected with its position; the toolchain through a document and a golden header, read from the environment the Make targets pass, a missing or malformed one refused |
 | `test_euler_chart` | the chart's blocks where `initial_state` puts them; Phi is the Euler boundary's conversion; dPhi / dx_e and P_e against central differences, P_e = E+ dPhi on the angles; the inverse chart (the angles wrapped); the rate coupling; the singularity; malformed layouts and a zero quaternion refused |
-| `test_closed_loop_metrics` | each metric on synthetic samples with a known answer, the SQP steps of a cycle among them (growth runs, refusals above `g_max`, the rules that accepted each step); the schema test; the band directions, an improvement passed and reported, a regression failed, the height mean two-sided; the offline comparison of two labels archived from synthetic runs: the verdict of the runs as held in memory, run by run and in the order of the configurations and scenarios, the runs without a baseline named, one robot alone, the solve times only on request, and a missing directory, an unknown robot and an unreadable document refused |
+| `test_closed_loop_metrics` | each metric on synthetic samples with a known answer, a rolling wheel's slip as the distance its material slid (none while it rolls, however far its contact point goes) among them, the SQP steps of a cycle among them (growth runs, refusals above `g_max`, the rules that accepted each step); the schema test; the band directions, an improvement passed and reported, a regression failed, the height mean two-sided; the offline comparison of two labels archived from synthetic runs: the verdict of the runs as held in memory, run by run and in the order of the configurations and scenarios, the runs without a baseline named, one robot alone, the solve times only on request, and a missing directory, an unknown robot and an unreadable document refused |
 | `test_sqp_step_diagnostics` | the SQP step a solve records: the hard normal-velocity terms found by their contacts' names, their largest residual over the nodes where they are active (none without a swing), and every line-search verdict's kind |
 | `test_closed_loop_scenarios` | the scenario set, the GUI conversion and its clamp against the MPC node's, the configurations and their files against the robots' launch files, the bands (each the larger of its parts, survival, the quaternion norm) |
 | `test_lockstep_solve_schedule` | the runner's solve schedule: the pacing, a failed solve's pause and its end by a reset requested after the failure |
@@ -351,7 +389,7 @@ metrics measure the stance phases of every contact.
 | `test_lockstep_determinism` | smoke runs on the Unitree G1 with one solver thread agree to 1e-9, two in one process and one in a process of its own, and a run's per-solve gaps, SQP steps and swing residuals hold its document's largest (exclusive: it compiles CppAD libraries) |
 | `test_initial_state_gap` | the initial-state gap of a solve (`initialStateGapOf`): the state manifold's rotation angle wherever its layout puts the rotation block, zero without a rotation block; and the quaternion norm deviation of a solution (`maxUnitQuaternionNormDeviationOf`), the largest distance of a stored quaternion from the unit sphere, none without a node |
 | `test_driver_settings_from_config` | the GUI's command scaling from its own fields of the reference file, a limit that is absent or not positive refused by name, every configuration's reference file; the contact wrench gate of a whole task file: no block is the instantaneous gate, a refused block keeps the gate in use, every configuration's task file sets its own |
-| `test_robot_scene_gantry_hold` | the gantry hold each configuration's task file names (pinned: a change is a change of its runs), its MuJoCo scene supporting it, the robot process's mujoco backend running on it without falling back to `kinematic_teleport`; each configuration on `weld_constraint` (all seven) failing the check with its scene's weld taken out |
+| `test_robot_scene_gantry_hold` | the gantry hold each configuration's task file names (pinned: a change is a change of its runs), its MuJoCo scene supporting it, the robot process's mujoco backend running on it without falling back to `kinematic_teleport`; each configuration on `weld_constraint` (all nine) failing the check with its scene's weld taken out |
 | `test_hot_field_coverage` | the reload classes of the task file's schema against each formulation's parameter updater (T8, `humanoid_mpc_config/README.md`): the centroidal and the whole-body MPC each apply exactly the `RELOAD_HOT` fields they read, neither applies a field only the other formulation, the robot process or the GUI reads, and every applied name is a field of the schema. From the updaters' static field lists: builds no MPC |
 | `test_solve_benchmark_gate` | the real-time gate on synthetic documents: a document passes against itself (one without a toolchain compares its tape counts only), each criterion fails alone, only the libraries both documents count compared one by one, a solve time of another machine, compiler, HPIPM target or image refused while the tape counts still compare; every robot's default recorded states exist |
 | `test_worktree_state` | the provenance's worktree state in throwaway git repositories: untracked contents change it, ignored files do not |

@@ -66,6 +66,10 @@ constexpr std::array<absl::string_view, 2> kDescriptions = {
 
 absl::StatusOr<std::unique_ptr<StateEstimator>> createKalman(
     const StateEstimatorContext& context) {
+  // The filter's contact measurement is a point at rest on the ground at the
+  // link's own point; a wheel's lowest point is not one.
+  RETURN_IF_ERROR(
+      checkFixedContactPoints(context.contacts, "the kalman state estimator"));
   ASSIGN_OR_RETURN(
       std::unique_ptr<ContactKinematics> kinematics,
       ContactKinematics::Create(context.urdfFile, context.contacts,

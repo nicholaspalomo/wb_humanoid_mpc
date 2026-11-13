@@ -192,6 +192,7 @@ _PHYSICAL_FRAMES = frozenset(
         "controlpoint",
         "query",
         "mjbody",
+        "wheel",
     }
 )
 # The frames and points of the viewers only: the camera and the geometry of the visualization markers
@@ -221,6 +222,7 @@ _PHYSICAL_PLURAL_FRAMES: dict[str, str] = {
     "corners": "corner",
     "mjcontacts": "mjcontact",
     "generators": "generator",
+    "wheels": "wheel",
 }
 _VIEWER_PLURAL_FRAMES: dict[str, str] = {
     "arrows": "arrow",

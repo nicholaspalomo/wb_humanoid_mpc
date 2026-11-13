@@ -57,6 +57,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h"
+#include "humanoid_common_mpc/contact/RollingContact.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
@@ -106,6 +107,9 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(
       activeInStance_(settings.activeInStance),
       contactIndex_(contactIndex),
       pointContact_(modelSettings.isPointContact(contactIndex)),
+      wheelRadius_(modelSettings.isRollingContact(contactIndex)
+                       ? modelSettings.wheelRadius(contactIndex)
+                       : 0.0),
       frameID_(pinocchioInterface.getModel().getFrameId(
           modelSettings.contactNames[contactIndex])),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
@@ -114,10 +118,14 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(
   // The library name carries the residual's version, so that a library taped
   // from an earlier residual is never loaded from the cache in its place (the
   // robots ship recompileLibrariesCppAd: false): kLibraryVersionSuffix.
-  initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(),
-             kNumParameters, absl::StrCat(costName, kLibraryVersionSuffix),
-             modelSettings.modelFolderCppAd,
-             modelSettings.recompileLibrariesCppAd);
+  // A rolling contact's residual is another function:
+  // kRollingContactLibrarySuffix.
+  initialize(
+      mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(),
+      kNumParameters,
+      absl::StrCat(costName, kLibraryVersionSuffix,
+                   wheelRadius_ > 0.0 ? kRollingContactLibrarySuffix : ""),
+      modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd);
   LOG(INFO) << "Frame ID: " << frameID_;
   LOG(INFO) << "Initialized CentroidalMpcEndEffectorFootCost (active_phases: "
             << (activeInStance_ ? "swing_and_stance" : "swing")
@@ -144,6 +152,7 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(
       activeInStance_(other.activeInStance_),
       contactIndex_(other.contactIndex_),
       pointContact_(other.pointContact_),
+      wheelRadius_(other.wheelRadius_),
       frameID_(other.frameID_),
       pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
       mpcRobotModelAdPtr_(other.mpcRobotModelAdPtr_->clone()) {}
@@ -202,6 +211,13 @@ ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(
       pinocchio::updateFramePlacement(model, data, frameID_);
 
   ad_vector_t posFootRtWorldEwrtWorld = poseFootRtWorld.translation();
+  // A rolling contact tracks its contact point, the wheel's lowest point; the
+  // branch is taken at taping time, so a fixed point's tape is unchanged.
+  if (wheelRadius_ > 0.0) {
+    posFootRtWorldEwrtWorld = posContactRtWorldEwrtWorld<ad_scalar_t>(
+        posFootRtWorldEwrtWorld, ad_scalar_t(wheelRadius_),
+        normalTerrainEwrtWorld<ad_scalar_t>());
+  }
   ad_vector_t linvelFootRtWorldEwrtWorld =
       pinocchio::getFrameVelocity(model, data, frameID_, rf).linear();
   ad_matrix3_t rotmatFootRtWorld = poseFootRtWorld.rotation();

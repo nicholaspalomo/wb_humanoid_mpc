@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/strings/strip.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
@@ -1162,8 +1163,15 @@ TEST_P(QuaternionRootTermDerivatives,
   const std::optional<std::string> softStance = addSoftStanceFootConstraint(
       problem, mpc.modelSettings().contactNames,
       mpc.modelSettings().footConstraintConfig.softConstraintWeight);
+  // The wrapped constraint is a twist constraint on the centroidal MPC's fixed
+  // contacts; a rolling contact's no-slip constraint is not.
   const std::optional<std::string> softTwistConstraintName =
-      softStance.has_value() && !mpc.isWholeBody() ? softStance : std::nullopt;
+      softStance.has_value() && !mpc.isWholeBody() &&
+              twistConstraintOf(problem.equalityConstraintPtr->get(std::string(
+                  absl::StripPrefix(*softStance, "softConstraint.")))) !=
+                  nullptr
+          ? softStance
+          : std::nullopt;
 
   DerivativeTally tally;
   for (const TermProbePoint& point : points) {

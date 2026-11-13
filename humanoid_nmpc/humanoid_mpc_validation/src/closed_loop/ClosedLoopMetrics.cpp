@@ -105,11 +105,22 @@ JsonValue summarizeSample(std::vector<double> values) {
 }
 
 ClosedLoopMetrics::ClosedLoopMetrics(size_t numContacts)
-    : stance_(numContacts, StancePhase()),
-      prevPosContactsRtWorldEwrtWorldXy_(numContacts, Eigen::Vector2d::Zero()) {
-}
+    : ClosedLoopMetrics(std::vector<ContactSlipMeasure>(
+          numContacts, ContactSlipMeasure::kDrift)) {}
+
+ClosedLoopMetrics::ClosedLoopMetrics(
+    std::vector<ContactSlipMeasure> slipMeasures)
+    : slipMeasures_(std::move(slipMeasures)),
+      hasMaterialSlip_(std::find(slipMeasures_.begin(),
+                                 slipMeasures_.end(),
+                                 ContactSlipMeasure::kMaterialSlip) !=
+                       slipMeasures_.end()),
+      stance_(slipMeasures_.size(), StancePhase()),
+      prevPosContactsRtWorldEwrtWorldXy_(slipMeasures_.size(),
+                                         Eigen::Vector2d::Zero()) {}
 
 void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
+  const double previousTime = lastTime_;
   if (numCycles_ == 0) firstTime_ = sample.time;
   lastTime_ = sample.time;
   ++numCycles_;
@@ -164,25 +175,42 @@ void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
   lastHeading_ = heading;
 
   // Stance-foot slip: the horizontal drift of a contact point from where it
-  // touched down, while it stays in contact.
+  // touched down, while it stays in contact; for a rolling contact the distance
+  // its material slid meanwhile, from one sample to the next at the newer
+  // sample's speed.
   ABSL_CHECK_EQ(sample.posContactsRtWorldEwrtWorld.size(), stance_.size());
   ABSL_CHECK_EQ(sample.contactFlags.size(), stance_.size());
+  if (hasMaterialSlip_) {
+    ABSL_CHECK_EQ(sample.linvelContactsRtWorldEwrtWorld.size(), stance_.size());
+  }
   for (size_t contact = 0; contact < stance_.size(); ++contact) {
     const Eigen::Vector2d posContactRtWorldEwrtWorldXy =
         sample.posContactsRtWorldEwrtWorld[contact]
             .head<kHorizontalPositionDim>();
     StancePhase& phase = stance_[contact];
     if (sample.contactFlags[contact]) {
-      if (!phase.active) {
+      const bool touchedDown = !phase.active;
+      if (touchedDown) {
         phase.active = true;
         phase.touchdownPosContactRtWorldEwrtWorldXy =
             posContactRtWorldEwrtWorldXy;
-        phase.maxDrift = 0.0;
+        phase.maxSlip = 0.0;
+        phase.slidDistance = 0.0;
       }
-      phase.maxDrift =
-          std::max(phase.maxDrift, (posContactRtWorldEwrtWorldXy -
-                                    phase.touchdownPosContactRtWorldEwrtWorldXy)
-                                       .norm());
+      if (slipMeasures_[contact] == ContactSlipMeasure::kMaterialSlip) {
+        if (!touchedDown) {
+          phase.slidDistance += sample.linvelContactsRtWorldEwrtWorld[contact]
+                                    .head<kHorizontalPositionDim>()
+                                    .norm() *
+                                (sample.time - previousTime);
+        }
+        phase.maxSlip = phase.slidDistance;
+      } else {
+        phase.maxSlip = std::max(phase.maxSlip,
+                                 (posContactRtWorldEwrtWorldXy -
+                                  phase.touchdownPosContactRtWorldEwrtWorldXy)
+                                     .norm());
+      }
     } else if (phase.active) {
       closeStancePhase(contact, prevPosContactsRtWorldEwrtWorldXy_[contact]);
     }
@@ -198,13 +226,23 @@ void ClosedLoopMetrics::addControlCycle(const ControlCycleSample& sample) {
   if (!sample.mpcHealthy) ++unhealthyCycles_;
 }
 
+double ClosedLoopMetrics::finalSlipOf(
+    size_t contact, const Eigen::Vector2d& posContactRtWorldEwrtWorldXy) const {
+  const StancePhase& phase = stance_[contact];
+  if (slipMeasures_[contact] == ContactSlipMeasure::kMaterialSlip) {
+    return phase.slidDistance;
+  }
+  return (posContactRtWorldEwrtWorldXy -
+          phase.touchdownPosContactRtWorldEwrtWorldXy)
+      .norm();
+}
+
 void ClosedLoopMetrics::closeStancePhase(
     size_t contact, const Eigen::Vector2d& posContactRtWorldEwrtWorldXy) {
   StancePhase& phase = stance_[contact];
-  stanceFinalDrifts_.push_back((posContactRtWorldEwrtWorldXy -
-                                phase.touchdownPosContactRtWorldEwrtWorldXy)
-                                   .norm());
-  slipMax_ = std::max(slipMax_, phase.maxDrift);
+  stanceFinalSlips_.push_back(
+      finalSlipOf(contact, posContactRtWorldEwrtWorldXy));
+  slipMax_ = std::max(slipMax_, phase.maxSlip);
   phase.active = false;
 }
 
@@ -309,18 +347,16 @@ void ClosedLoopMetrics::setFall(double time, std::string reason) {
 
 JsonValue ClosedLoopMetrics::report(const ClosedLoopRunInfo& info) const {
   // The stance phases still open at the end count as ended there.
-  std::vector<double> finalDrifts = stanceFinalDrifts_;
+  std::vector<double> finalSlips = stanceFinalSlips_;
   double slipMax = slipMax_;
   for (size_t contact = 0; contact < stance_.size(); ++contact) {
     if (!stance_[contact].active) continue;
-    finalDrifts.push_back(
-        (prevPosContactsRtWorldEwrtWorldXy_[contact] -
-         stance_[contact].touchdownPosContactRtWorldEwrtWorldXy)
-            .norm());
-    slipMax = std::max(slipMax, stance_[contact].maxDrift);
+    finalSlips.push_back(
+        finalSlipOf(contact, prevPosContactsRtWorldEwrtWorldXy_[contact]));
+    slipMax = std::max(slipMax, stance_[contact].maxSlip);
   }
-  double finalDriftSquaredSum = 0.0;
-  for (const double drift : finalDrifts) finalDriftSquaredSum += drift * drift;
+  double finalSlipSquaredSum = 0.0;
+  for (const double slip : finalSlips) finalSlipSquaredSum += slip * slip;
 
   const std::optional<double> heightMean = meanOf(heightSum_, numCycles_);
   std::optional<double> heightStd;
@@ -395,12 +431,12 @@ JsonValue ClosedLoopMetrics::report(const ClosedLoopRunInfo& info) const {
 
   JsonValue& slip = document.set("stance_foot_slip", JsonValue::object());
   slip.set("max_m", JsonValue::optionalNumber(
-                        finalDrifts.empty() ? std::nullopt
-                                            : std::optional<double>(slipMax)));
+                        finalSlips.empty() ? std::nullopt
+                                           : std::optional<double>(slipMax)));
   slip.set("rms_m", JsonValue::optionalNumber(
-                        rmsOf(finalDriftSquaredSum, finalDrifts.size())));
+                        rmsOf(finalSlipSquaredSum, finalSlips.size())));
   slip.set("stance_phases",
-           JsonValue::number(static_cast<double>(finalDrifts.size())));
+           JsonValue::number(static_cast<double>(finalSlips.size())));
 
   document.set("joint_torque", JsonValue::object())
       .set("rms_nm", JsonValue::optionalNumber(

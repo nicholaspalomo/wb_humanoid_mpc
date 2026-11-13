@@ -59,13 +59,17 @@ namespace {
 /**
  * Returns the normal-velocity constraint of foot `footIndex` at time `t`: the
  * swing reference's vertical velocity, servoed towards its height with the gain
- * `positionErrorGainZ` (none at zero).
+ * `positionErrorGainZ` (none at zero). The constraint reads the contact's
+ * frame; `wheelRadius` [m] is positive for a rolling contact, whose frame is
+ * the wheel center, a wheel radius above the contact point the swing
+ * reference plans, and 0 for any other contact.
  */
 EndEffectorKinematicsLinearVelConstraint::Config normalVelocityConstraintConfig(
     const SwingTrajectoryPlanner& swingTrajectoryPlanner,
     scalar_t positionErrorGainZ,
     size_t footIndex,
-    scalar_t t) {
+    scalar_t t,
+    scalar_t wheelRadius) {
   EndEffectorKinematicsLinearVelConstraint::Config config;
   config.b =
       (vector_t(1) << -swingTrajectoryPlanner.getDesLinvelFootRtWorldEwrtWorldZ(
@@ -76,9 +80,17 @@ EndEffectorKinematicsLinearVelConstraint::Config normalVelocityConstraintConfig(
   // so that the parameter updater can retune it per worker thread while the
   // controller runs; see setNormalVelocityPositionErrorGain.
   if (!numerics::almost_eq(positionErrorGainZ, /*y=*/0.0)) {
-    config.b(0) -=
-        positionErrorGainZ *
+    const scalar_t desPosFootRtWorldEwrtWorldZ =
         swingTrajectoryPlanner.getDesPosFootRtWorldEwrtWorldZ(footIndex, t);
+    // Only a rolling contact adds its radius, so that every other contact's
+    // reference is the one it always was, bit for bit.
+    if (wheelRadius > 0.0) {
+      const scalar_t desPosWheelRtWorldEwrtWorldZ =
+          desPosFootRtWorldEwrtWorldZ + wheelRadius;
+      config.b(0) -= positionErrorGainZ * desPosWheelRtWorldEwrtWorldZ;
+    } else {
+      config.b(0) -= positionErrorGainZ * desPosFootRtWorldEwrtWorldZ;
+    }
     config.Ax =
         (matrix_t(1, kPositionDim) << 0.0, 0.0, positionErrorGainZ).finished();
   }
@@ -114,6 +126,14 @@ HumanoidPreComputation::HumanoidPreComputation(
   for (size_t i = 0; i < numPlannedFeet; ++i) {
     desPosFeetRtWorldEwrtWorldZ_[i] = 0.0;
   }
+  if (modelSettings.hasRollingContacts()) {
+    wheelRadii_.assign(numPlannedFeet, 0.0);
+    for (size_t i = 0; i < numPlannedFeet; ++i) {
+      if (modelSettings.isRollingContact(i)) {
+        wheelRadii_[i] = modelSettings.wheelRadius(i);
+      }
+    }
+  }
 }
 
 /******************************************************************************************************/
@@ -127,6 +147,7 @@ HumanoidPreComputation::HumanoidPreComputation(
       mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
       eeNormalVelConConfigs_(rhs.eeNormalVelConConfigs_),
       desPosFeetRtWorldEwrtWorldZ_(rhs.desPosFeetRtWorldEwrtWorldZ_),
+      wheelRadii_(rhs.wheelRadii_),
       contactSwingPlannerPtr_(rhs.contactSwingPlannerPtr_),
       contactSwingReferences_(rhs.contactSwingReferences_),
       // Carried across the clone the SQP solver makes per worker thread;
@@ -197,7 +218,8 @@ void HumanoidPreComputation::request(RequestSet request,
   if (request.containsAny(Request::Constraint + Request::SoftConstraint)) {
     for (size_t i = 0; i < desPosFeetRtWorldEwrtWorldZ_.size(); ++i) {
       eeNormalVelConConfigs_[i] = normalVelocityConstraintConfig(
-          *swingTrajectoryPlannerPtr_, positionErrorGainZ_, i, t);
+          *swingTrajectoryPlannerPtr_, positionErrorGainZ_, i, t,
+          i < wheelRadii_.size() ? wheelRadii_[i] : 0.0);
       desPosFeetRtWorldEwrtWorldZ_[i] =
           swingTrajectoryPlannerPtr_->getDesPosFootRtWorldEwrtWorldZ(i, t);
     }

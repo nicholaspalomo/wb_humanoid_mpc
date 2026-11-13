@@ -51,27 +51,30 @@ inline constexpr scalar_t kDerivativeTol = 1.0e-5;
  *
  * Templated on the term rather than taking a StateInputConstraint&, so that it
  * serves both the constraints and any other object exposing getValue /
- * getLinearApproximation with the same signatures.
+ * getLinearApproximation with the same signatures. Evaluates the term at
+ * `time` with `preComp`, which a term that reads its problem's
+ * pre-computation needs requested at (`time`, `state`, `input`); the
+ * perturbed evaluations reuse it.
  */
 template <typename TERM_T>
-void expectStateInputDerivativesMatchFiniteDifferences(const TERM_T& term,
-                                                       const vector_t& state,
-                                                       const vector_t& input) {
-  const PreComputation preComp;
+void expectStateInputDerivativesMatchFiniteDifferencesAt(
+    const TERM_T& term,
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) {
   const VectorFunctionLinearApproximation approximation =
-      term.getLinearApproximation(/*time=*/0.0, state, input, preComp);
+      term.getLinearApproximation(time, state, input, preComp);
   EXPECT_TRUE(approximation.f.isApprox(
-      term.getValue(/*time=*/0.0, state, input, preComp), 1.0e-12))
+      term.getValue(time, state, input, preComp), 1.0e-12))
       << "the linear approximation's value disagrees with getValue()";
 
   for (Eigen::Index index = 0; index < state.size(); ++index) {
     vector_t perturbed = state;
     perturbed(index) += kFiniteDifferenceStep;
-    const vector_t forward =
-        term.getValue(/*time=*/0.0, perturbed, input, preComp);
+    const vector_t forward = term.getValue(time, perturbed, input, preComp);
     perturbed(index) -= 2.0 * kFiniteDifferenceStep;
-    const vector_t backward =
-        term.getValue(/*time=*/0.0, perturbed, input, preComp);
+    const vector_t backward = term.getValue(time, perturbed, input, preComp);
     const vector_t numerical =
         (forward - backward) / (2.0 * kFiniteDifferenceStep);
     for (Eigen::Index row = 0; row < numerical.size(); ++row) {
@@ -83,11 +86,9 @@ void expectStateInputDerivativesMatchFiniteDifferences(const TERM_T& term,
   for (Eigen::Index index = 0; index < input.size(); ++index) {
     vector_t perturbed = input;
     perturbed(index) += kFiniteDifferenceStep;
-    const vector_t forward =
-        term.getValue(/*time=*/0.0, state, perturbed, preComp);
+    const vector_t forward = term.getValue(time, state, perturbed, preComp);
     perturbed(index) -= 2.0 * kFiniteDifferenceStep;
-    const vector_t backward =
-        term.getValue(/*time=*/0.0, state, perturbed, preComp);
+    const vector_t backward = term.getValue(time, state, perturbed, preComp);
     const vector_t numerical =
         (forward - backward) / (2.0 * kFiniteDifferenceStep);
     for (Eigen::Index row = 0; row < numerical.size(); ++row) {
@@ -96,6 +97,17 @@ void expectStateInputDerivativesMatchFiniteDifferences(const TERM_T& term,
           << "dfdu(" << row << ", " << index << ")";
     }
   }
+}
+
+/** The same check at time 0 with an empty pre-computation, for a term that
+ * reads none. */
+template <typename TERM_T>
+void expectStateInputDerivativesMatchFiniteDifferences(const TERM_T& term,
+                                                       const vector_t& state,
+                                                       const vector_t& input) {
+  const PreComputation preComp;
+  expectStateInputDerivativesMatchFiniteDifferencesAt(term, /*time=*/0.0, state,
+                                                      input, preComp);
 }
 
 /** The same check for a state-only term. */

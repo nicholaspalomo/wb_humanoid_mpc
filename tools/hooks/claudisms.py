@@ -333,7 +333,7 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         " (AGENTS.md, Avoiding Claudisms).",
     ),
     (
-        re.compile(r"\brid(?:es|ing)\s+(?:along|on)\b", re.IGNORECASE),
+        re.compile(r"\brid(?:e|es|ing)\s+(?:along|on)\b", re.IGNORECASE),
         "`{match}`: placement/motion metaphor; write `comes with` or `is"
         " attached` (AGENTS.md, Avoiding Claudisms).",
     ),

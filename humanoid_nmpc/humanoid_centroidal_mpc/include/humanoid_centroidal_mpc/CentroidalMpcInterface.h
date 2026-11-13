@@ -516,9 +516,22 @@ class CentroidalMpcInterface final : public RobotInterface {
       const ContactTermInputs& inputs,
       const EndEffectorKinematics<scalar_t>* absl_nullable eeKinematicsPtr);
 
-  std::unique_ptr<StateInputConstraint> getStanceFootConstraint(
+  /**
+   * Returns the stance constraint the zero_velocity entry builds on contact
+   * `contactPointIndex` from its frame's kinematics `eeKinematics` (copied):
+   * RollingContactConstraintCppAd on a rolling contact,
+   * ZeroVelocityConstraintCppAd on any other. InvalidArgument from
+   * RollingContactConstraintCppAd::Create().
+   */
+  absl::StatusOr<std::unique_ptr<StateInputConstraint>> getStanceFootConstraint(
       const EndEffectorKinematics<scalar_t>& eeKinematics,
       size_t contactPointIndex);
+  /**
+   * Returns the name the stance constraint of contact `contactPointIndex` is
+   * registered under, hard or soft: contact_term::kRollingNoSlipName after a
+   * rolling contact's name, zeroVelocityTermName() of any other.
+   */
+  std::string stanceConstraintTermName(size_t contactPointIndex) const;
   std::unique_ptr<StateInputConstraint> getNormalVelocityConstraint(
       const EndEffectorKinematics<scalar_t>& eeKinematics,
       size_t contactPointIndex);

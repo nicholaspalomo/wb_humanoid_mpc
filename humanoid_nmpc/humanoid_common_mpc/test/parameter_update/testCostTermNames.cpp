@@ -98,6 +98,9 @@ TEST(CostTermNames, TheContactTermsKeepTheirSuffixes) {
   EXPECT_EQ(contact_term::name("foot_l_contact",
                                contact_term::kNormalVelocitySoftName),
             "foot_l_contact_normalVelocitySoft");
+  EXPECT_EQ(
+      contact_term::name("wheel_L_contact", contact_term::kRollingNoSlipName),
+      "wheel_L_contact_rollingNoSlip");
 }
 
 }  // namespace

@@ -188,6 +188,15 @@ absl::StatusOr<FootMotionLegReference> FootMotionLegReference::Create(
           "moves 3-DoF point contacts; contact '",
           name, "' is a 6-DoF one."));
     }
+    // The leg's joints are solved from the motion of a point fixed on the
+    // foot; a rolling contact's frame is a wheel center, whose contact point
+    // moves over the rim.
+    if (settings.isRollingContact(contact)) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[FootMotionLegReference] leg_joint_reference 'foot_motion' "
+          "moves point contacts fixed on their links; contact '",
+          name, "' is a rolling one (model_settings.contacts_rolling)."));
+    }
     matrix_t jacobian = matrix_t::Zero(kTwistDim, model.nv);
     pinocchio::computeFrameJacobian(model, data, q, model.getFrameId(name),
                                     pinocchio::LOCAL_WORLD_ALIGNED, jacobian);

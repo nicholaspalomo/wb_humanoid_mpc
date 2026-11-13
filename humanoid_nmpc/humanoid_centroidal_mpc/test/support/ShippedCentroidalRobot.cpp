@@ -60,6 +60,10 @@ std::string shippedCentroidalRobotName(ShippedCentroidalRobot robot) {
       return "unitree_r1";
     case ShippedCentroidalRobot::kAnymalB:
       return "anymal_b";
+    case ShippedCentroidalRobot::kTron1:
+      return "tron1";
+    case ShippedCentroidalRobot::kAnymalCWheels:
+      return "anymal_c_wheels";
   }
   return "unknown";
 }
@@ -81,6 +85,10 @@ CentroidalRobotFiles shippedCentroidalRobotFiles(ShippedCentroidalRobot robot) {
       return r1Files();
     case ShippedCentroidalRobot::kAnymalB:
       return anymalBFiles();
+    case ShippedCentroidalRobot::kTron1:
+      return tron1Files();
+    case ShippedCentroidalRobot::kAnymalCWheels:
+      return anymalCWheelsFiles();
   }
   return CentroidalRobotFiles{};
 }
@@ -97,6 +105,16 @@ std::string shippedCentroidalRobotGaitFile(ShippedCentroidalRobot robot) {
       return "humanoid_nmpc/humanoid_common_mpc/config/command/"
              "quadruped_gait.textproto";
       // LINT.ThenChange(//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/launch/mpc.textproto:gait_file, //robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/launch/dummy_sim.textproto:gait_file, //humanoid_nmpc/humanoid_centroidal_mpc/BUILD.bazel:centroidal_mpc_loop_quadruped_gait)
+    // LINT.IfChange(wheeled_gait_file)
+    case ShippedCentroidalRobot::kTron1:
+      return "humanoid_nmpc/humanoid_common_mpc/config/command/"
+             "wheeled_gait.textproto";
+      // LINT.ThenChange(//robot_models/limx_tron1/tron1_centroidal_mpc/launch/mpc.textproto:gait_file, //robot_models/limx_tron1/tron1_centroidal_mpc/launch/dummy_sim.textproto:gait_file, //humanoid_nmpc/humanoid_centroidal_mpc/BUILD.bazel:centroidal_mpc_loop_wheeled_gait)
+    // LINT.IfChange(wheeled_quadruped_gait_file)
+    case ShippedCentroidalRobot::kAnymalCWheels:
+      return "humanoid_nmpc/humanoid_common_mpc/config/command/"
+             "wheeled_quadruped_gait.textproto";
+      // LINT.ThenChange(//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/launch/mpc.textproto:gait_file, //robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/launch/dummy_sim.textproto:gait_file, //humanoid_nmpc/humanoid_centroidal_mpc/BUILD.bazel:centroidal_mpc_loop_wheeled_quadruped_gait)
   }
   return "";
 }

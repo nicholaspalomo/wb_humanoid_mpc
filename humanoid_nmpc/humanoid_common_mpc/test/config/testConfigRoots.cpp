@@ -109,18 +109,32 @@ struct Robot {
   size_t numContacts;
 };
 
-// The gait files of the bipeds and of the quadruped.
+// The gait files of the bipeds, of the quadruped, of the wheeled biped and of
+// the wheeled quadruped.
 constexpr char kBipedGaitFile[] =
     "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto";
 // LINT.IfChange(quadruped_gait_file)
 constexpr char kQuadrupedGaitFile[] =
     "humanoid_nmpc/humanoid_common_mpc/config/command/quadruped_gait.textproto";
 // LINT.ThenChange(//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/launch/mpc.textproto:gait_file, //robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/launch/dummy_sim.textproto:gait_file, //humanoid_nmpc/humanoid_common_mpc/BUILD.bazel:config_test_data)
+// LINT.IfChange(wheeled_gait_file)
+constexpr char kWheeledGaitFile[] =
+    "humanoid_nmpc/humanoid_common_mpc/config/command/wheeled_gait.textproto";
+// LINT.ThenChange(//robot_models/limx_tron1/tron1_centroidal_mpc/launch/mpc.textproto:gait_file, //robot_models/limx_tron1/tron1_centroidal_mpc/launch/dummy_sim.textproto:gait_file, //humanoid_nmpc/humanoid_common_mpc/BUILD.bazel:config_test_data)
+// LINT.IfChange(wheeled_quadruped_gait_file)
+constexpr char kWheeledQuadrupedGaitFile[] =
+    "humanoid_nmpc/humanoid_common_mpc/config/command/"
+    "wheeled_quadruped_gait.textproto";
+// LINT.ThenChange(//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/launch/mpc.textproto:gait_file, //robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/launch/dummy_sim.textproto:gait_file, //humanoid_nmpc/humanoid_common_mpc/BUILD.bazel:config_test_data)
 constexpr size_t kBipedNumContacts = 2;
 constexpr size_t kQuadrupedNumContacts = 4;
+// Tron1's two wheels, one rolling contact each.
+constexpr size_t kTron1NumContacts = 2;
+// The wheeled ANYmal C's four wheels, one rolling contact each.
+constexpr size_t kAnymalCWheelsNumContacts = 4;
 
 // LINT.IfChange(shipped_robots)
-constexpr std::array<Robot, 6> kRobots = {{
+constexpr std::array<Robot, 8> kRobots = {{
     {.name = "drc_atlas_centroidal_mpc",
      .package = "robot_models/drc_atlas/drc_atlas_centroidal_mpc",
      .urdfFile = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
@@ -165,6 +179,22 @@ constexpr std::array<Robot, 6> kRobots = {{
      .hasContactPlanningFile = false,
      .gaitFile = kQuadrupedGaitFile,
      .numContacts = kQuadrupedNumContacts},
+    {.name = "tron1_centroidal_mpc",
+     .package = "robot_models/limx_tron1/tron1_centroidal_mpc",
+     .urdfFile = "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf",
+     .mpc = StateInputLayout::Mpc::kCentroidal,
+     .hasContactPlanningFile = false,
+     .gaitFile = kWheeledGaitFile,
+     .numContacts = kTron1NumContacts},
+    {.name = "anymal_c_wheels_centroidal_mpc",
+     .package = "robot_models/anybotics_anymal_c_wheels/"
+                "anymal_c_wheels_centroidal_mpc",
+     .urdfFile = "robot_models/anybotics_anymal_c_wheels/"
+                 "anymal_c_wheels_description/urdf/anymal_c_wheels.urdf",
+     .mpc = StateInputLayout::Mpc::kCentroidal,
+     .hasContactPlanningFile = false,
+     .gaitFile = kWheeledQuadrupedGaitFile,
+     .numContacts = kAnymalCWheelsNumContacts},
 }};
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/BUILD.bazel:config_test_data, //humanoid_nmpc/humanoid_common_mpc/test/equivalence/RootJointModelPair.cpp:equivalence_robots)

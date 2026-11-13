@@ -88,7 +88,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * entry included), the hold of WB_MPC until a policy arrives, the weight
  * compensation of WB_MPC before its first policy, and the execution of a policy
  * - on the wrench-space inputs of the G1, the basis-vector inputs of the
- * Atlas and the point-contact forces of the four ANYmal B feet. A cycle used to
+ * Atlas, the point-contact forces of the four ANYmal B feet and the rolling
+ * contacts of the two Tron1 wheels and the four wheels of the wheeled ANYmal
+ * C. A cycle used to
  * make a dozen (the joint vectors of the robot state, the contact flags, the
  * gravity compensation's workspace, a std::function), SAFETY's first cycle
  * resized its posture, Pinocchio's passes over the MPC model's composite base
@@ -228,11 +230,15 @@ void PrintTo(const ShippedRobot& robot, std::ostream* absl_nonnull os) {
 }
 
 // The G1 ships wrench-space inputs, the Atlas basis-vector inputs
-// (contact_input_parameterization), ANYmal B four 3-DoF point contacts.
+// (contact_input_parameterization), ANYmal B four 3-DoF point contacts, and
+// Tron1 two and the wheeled ANYmal C four rolling contacts, whose forces the
+// controller moves to the wheel centers every cycle.
 constexpr ShippedRobot kShippedRobots[] = {
     {.name = "unitree_g1", .files = &g1Files},
     {.name = "drc_atlas", .files = &atlasFiles},
-    {.name = "anymal_b", .files = &anymalBFiles}};
+    {.name = "anymal_b", .files = &anymalBFiles},
+    {.name = "tron1", .files = &tron1Files},
+    {.name = "anymal_c_wheels", .files = &anymalCWheelsFiles}};
 
 /** `count` control cycles, 10 ms apart from `time`, which it advances; in
  * `mode`, or in the controller's own without one. */

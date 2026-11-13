@@ -62,8 +62,27 @@ ANYMAL_B_URDF = os.path.join(
     "urdf",
     "anymal_b.urdf",
 )
+# Tron1: STL meshes upstream, shipped decimated (robot_models/limx_tron1/tron1_description), on continuous wheel joints.
+TRON1_URDF = os.path.join(
+    REPO_ROOT,
+    "robot_models",
+    "limx_tron1",
+    "tron1_description",
+    "urdf",
+    "tron1.urdf",
+)
+# The wheeled ANYmal C: COLLADA meshes upstream, shipped decimated as STL
+# (robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description), with primitive wheels and wheel adapters.
+ANYMAL_C_WHEELS_URDF = os.path.join(
+    REPO_ROOT,
+    "robot_models",
+    "anybotics_anymal_c_wheels",
+    "anymal_c_wheels_description",
+    "urdf",
+    "anymal_c_wheels.urdf",
+)
 # The shipped robots whose meshes are drawn in full.
-SHIPPED_URDFS = (SA01_URDF, ANYMAL_B_URDF)
+SHIPPED_URDFS = (SA01_URDF, ANYMAL_B_URDF, TRON1_URDF, ANYMAL_C_WHEELS_URDF)
 
 
 def blob_size(contents: rrd_contents.RrdContents, path: str) -> int:

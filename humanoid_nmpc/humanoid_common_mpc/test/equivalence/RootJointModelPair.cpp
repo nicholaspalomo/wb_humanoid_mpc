@@ -59,7 +59,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/model.hpp"                    // IWYU pragma: keep
 #include "pinocchio/parsers/urdf.hpp"
 #include "urdf_model/joint.h"
-#include "urdf_parser/urdf_parser.h"
 #include "urdf_world/types.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -69,6 +68,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_mpc_validation/chart/EulerChart.h"
 #include "robot_core/ResourcePaths.h"
+#include "robot_model/UrdfContinuousJoints.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -84,6 +84,11 @@ constexpr EquivalenceRobot kEquivalenceRobots[] = {
                  "config/mpc/task.textproto",
      .urdfFile = "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
                  "anymal_b.urdf"},
+    {.name = "anymal_c_wheels_centroidal_mpc",
+     .taskFile = "robot_models/anybotics_anymal_c_wheels/"
+                 "anymal_c_wheels_centroidal_mpc/config/mpc/task.textproto",
+     .urdfFile = "robot_models/anybotics_anymal_c_wheels/"
+                 "anymal_c_wheels_description/urdf/anymal_c_wheels.urdf"},
     {.name = "drc_atlas_centroidal_mpc",
      .taskFile = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/"
                  "task.textproto",
@@ -94,6 +99,10 @@ constexpr EquivalenceRobot kEquivalenceRobots[] = {
                  "config/mpc/task.textproto",
      .urdfFile = "robot_models/engineai_sa01/engineai_sa01_description/urdf/"
                  "zq_sa01.urdf"},
+    {.name = "tron1_centroidal_mpc",
+     .taskFile = "robot_models/limx_tron1/tron1_centroidal_mpc/config/mpc/"
+                 "task.textproto",
+     .urdfFile = "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf"},
     {.name = "g1_centroidal_mpc",
      .taskFile =
          "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto",
@@ -273,11 +282,11 @@ absl::StatusOr<std::unique_ptr<RootJointModelPair>> RootJointModelPair::Create(
                                          /*mpcName=*/"testRootJointEquivalence",
                                          /*verbose=*/false));
 
-  const urdf::ModelInterfaceSharedPtr urdfTree = urdf::parseURDFFile(urdfFile);
-  if (urdfTree == nullptr) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("the URDF ", urdfFile, " does not parse"));
-  }
+  // The tree every Pinocchio model of the repository is built from: a
+  // continuous joint (a wheel) is an unbounded revolute joint of one
+  // coordinate.
+  ASSIGN_OR_RETURN(const urdf::ModelInterfaceSharedPtr urdfTree,
+                   robot::model::parseUrdfFileForPinocchio(urdfFile));
   const urdf::ModelInterfaceSharedPtr reduced =
       reducedUrdf(*urdfTree, settings.mpcModelJointNames);
 

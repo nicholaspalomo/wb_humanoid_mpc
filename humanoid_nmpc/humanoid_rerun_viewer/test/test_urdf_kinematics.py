@@ -44,8 +44,10 @@ _RUNFILES_ROOT = os.path.join(os.environ.get("TEST_SRCDIR", ""), "_main")
 # LINT.IfChange(shipped_urdfs)
 SHIPPED_URDFS = (
     "robot_models/anybotics_anymal_b/anymal_b_description/urdf/anymal_b.urdf",
+    "robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description/urdf/anymal_c_wheels.urdf",
     "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
     "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf",
+    "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf",
     "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
     "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf",
 )
@@ -196,7 +198,8 @@ class ShippedRobotTest(unittest.TestCase):
                     tree.root_link,
                     urdf_model.load_urdf(runfile(path)).root_link,
                 )
-                self.assertGreater(len(tree.movable_joints()), 10)
+                # Tron1 has the fewest: four joints per leg.
+                self.assertGreaterEqual(len(tree.movable_joints()), 8)
                 for joint in tree.movable_joints():
                     self.assertEqual(
                         joint.clamp(tree.nominal_joint_positions()[joint.name]),
@@ -236,6 +239,34 @@ class ShippedRobotTest(unittest.TestCase):
                         float(np.linalg.norm(joint.origin_translation)),
                         places=9,
                     )
+
+    def test_the_wheels_spin_without_limits(self) -> None:
+        # Tron1's vendored URDF turns the upstream wheels, revolute with limits of +-1e6 rad, into continuous joints;
+        # the wheeled ANYmal C's are continuous upstream.
+        robots = (
+            (
+                "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf",
+                ["wheel_L_Joint", "wheel_R_Joint"],
+            ),
+            (
+                "robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description/urdf/anymal_c_wheels.urdf",
+                ["LF_wheel", "RF_wheel", "LH_wheel", "RH_wheel"],
+            ),
+        )
+        for path, expected in robots:
+            tree = urdf_kinematics.load_kinematic_tree(runfile(path))
+            wheels = [
+                joint
+                for joint in tree.movable_joints()
+                if "wheel" in joint.name
+            ]
+            self.assertCountEqual([joint.name for joint in wheels], expected)
+            for joint in wheels:
+                with self.subTest(urdf=path, joint=joint.name):
+                    self.assertEqual(joint.type, "continuous")
+                    self.assertIsNone(joint.lower)
+                    self.assertIsNone(joint.upper)
+                    self.assertEqual(joint.clamp(1.0e7), 1.0e7)
 
 
 class RefusedTest(unittest.TestCase):

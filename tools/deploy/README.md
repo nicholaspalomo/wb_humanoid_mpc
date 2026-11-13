@@ -134,7 +134,7 @@ To build arm64 yourself instead:
 <!-- LINT.IfChange(robot_environment) -->
 | Variable | Default | What |
 |---|---|---|
-| `ROBOT` | required | the robot configuration: `anymal_b`, `drc_atlas`, `engineai_sa01`, `unitree_g1`, `unitree_g1_wb`, `unitree_r1` (a script of `launch/`) |
+| `ROBOT` | required | the robot configuration: `anymal_b`, `anymal_c_wheels`, `drc_atlas`, `engineai_sa01`, `tron1`, `unitree_g1`, `unitree_g1_wb`, `unitree_r1` (a script of `launch/`) |
 | `WB_ROBOT_IMAGE` | `wb-humanoid-robot:latest` | the image |
 | `WB_ROBOT_NETWORK_SOURCE` | `./config/ipc/network.textproto` | the network file mounted read-only into the container |
 | `WB_ROBOT_CPUSET` | all | the container's cores, e.g. `2-5` |

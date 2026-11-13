@@ -317,6 +317,115 @@ TEST(ClosedLoopMetrics, APlantedFootDoesNotSlipAndASlidingOneDoes) {
               std::sqrt(0.049 * 0.049 / 3.0), 1.0e-12);
 }
 
+/** Returns `sample` with two rolling wheels whose contact points move with the
+ * base, 5 mm per cycle along x, and whose material at the ground moves at
+ * `linvelContactRtWorldEwrtWorld`. */
+ControlCycleSample onTwoWheels(
+    ControlCycleSample sample,
+    size_t k,
+    const Eigen::Vector3d& linvelContactRtWorldEwrtWorld) {
+  const double travel = 0.005 * static_cast<double>(k);
+  sample.posContactsRtWorldEwrtWorld[0] = Eigen::Vector3d(travel, 0.2, 0.0);
+  sample.posContactsRtWorldEwrtWorld[1] = Eigen::Vector3d(travel, -0.2, 0.0);
+  sample.linvelContactsRtWorldEwrtWorld =
+      ContactArray<Eigen::Vector3d>(kNumFeet, linvelContactRtWorldEwrtWorld);
+  return sample;
+}
+
+/** Returns the slip measures of two rolling wheels. */
+std::vector<ContactSlipMeasure> twoWheels() {
+  return std::vector<ContactSlipMeasure>(kNumFeet,
+                                         ContactSlipMeasure::kMaterialSlip);
+}
+
+// A wheel's contact point travels with the wheel: rolling is no slip, however
+// far the point goes.
+TEST(ClosedLoopMetrics, ARollingWheelDoesNotSlipWhereverItsContactPointGoes) {
+  ClosedLoopMetrics metrics(twoWheels());
+  for (size_t k = 0; k < 50; ++k) {
+    metrics.addControlCycle(onTwoWheels(
+        trackingSample(k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5,
+                       /*yawRate=*/0.0),
+        k, /*linvelContactRtWorldEwrtWorld=*/Eigen::Vector3d::Zero()));
+  }
+  const JsonValue report = reportOf(metrics);
+  EXPECT_EQ(numberAt(report, "stance_foot_slip.max_m"), 0.0);
+  EXPECT_EQ(numberAt(report, "stance_foot_slip.rms_m"), 0.0);
+  EXPECT_EQ(numberAt(report, "stance_foot_slip.stance_phases"), 2.0);
+
+  // Measured as fixed points, the same contact points drift 0.245 m.
+  ClosedLoopMetrics asFixedPoints(kNumFeet);
+  for (size_t k = 0; k < 50; ++k) {
+    asFixedPoints.addControlCycle(onTwoWheels(
+        trackingSample(k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5,
+                       /*yawRate=*/0.0),
+        k, /*linvelContactRtWorldEwrtWorld=*/Eigen::Vector3d::Zero()));
+  }
+  EXPECT_NEAR(numberAt(reportOf(asFixedPoints), "stance_foot_slip.max_m"),
+              0.245, 1.0e-12);
+}
+
+// A skidding wheel's slip is the distance its material slid: the integral of
+// the horizontal speed at the contact point while the wheel touches, the
+// vertical part and the time out of contact left out.
+TEST(ClosedLoopMetrics, ASkiddingWheelSlipsTheDistanceItsMaterialSlid) {
+  ClosedLoopMetrics metrics(twoWheels());
+  // 0.3 m/s sideways and 0.4 m/s forward, 0.5 m/s in all, and 1 m/s down.
+  const Eigen::Vector3d linvelContactRtWorldEwrtWorld(0.4, 0.3, -1.0);
+  for (size_t k = 0; k < 21; ++k) {
+    ControlCycleSample sample =
+        onTwoWheels(trackingSample(k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5,
+                                   /*yawRate=*/0.0),
+                    k, linvelContactRtWorldEwrtWorld);
+    // The left wheel rolls.
+    sample.linvelContactsRtWorldEwrtWorld[0].setZero();
+    metrics.addControlCycle(sample);
+  }
+  // The right wheel lifts off for a cycle, skidding in the air, and lands.
+  ControlCycleSample lifted = onTwoWheels(
+      trackingSample(/*k=*/21, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5,
+                     /*yawRate=*/0.0),
+      /*k=*/21, linvelContactRtWorldEwrtWorld);
+  lifted.linvelContactsRtWorldEwrtWorld[0].setZero();
+  lifted.contactFlags.set(/*contactIndex=*/1, /*active=*/false);
+  metrics.addControlCycle(lifted);
+  for (size_t k = 22; k < 27; ++k) {
+    ControlCycleSample sample =
+        onTwoWheels(trackingSample(k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5,
+                                   /*yawRate=*/0.0),
+                    k, linvelContactRtWorldEwrtWorld);
+    sample.linvelContactsRtWorldEwrtWorld[0].setZero();
+    metrics.addControlCycle(sample);
+  }
+  const JsonValue report = reportOf(metrics);
+  // 20 intervals of 10 ms at 0.5 m/s before the lift-off, 4 after the landing.
+  EXPECT_NEAR(numberAt(report, "stance_foot_slip.max_m"), 0.1, 1.0e-12);
+  EXPECT_EQ(numberAt(report, "stance_foot_slip.stance_phases"), 3.0)
+      << "the left wheel's one, and two of the right wheel";
+  EXPECT_NEAR(numberAt(report, "stance_foot_slip.rms_m"),
+              std::sqrt((0.1 * 0.1 + 0.02 * 0.02) / 3.0), 1.0e-12);
+  EXPECT_TRUE(validateClosedLoopMetrics(report).ok())
+      << validateClosedLoopMetrics(report);
+}
+
+// A set of one fixed foot and one wheel measures each its own way.
+TEST(ClosedLoopMetrics, AMixedSetMeasuresEachContactItsOwnWay) {
+  ClosedLoopMetrics metrics(std::vector<ContactSlipMeasure>{
+      ContactSlipMeasure::kDrift, ContactSlipMeasure::kMaterialSlip});
+  for (size_t k = 0; k < 11; ++k) {
+    ControlCycleSample sample = onTwoWheels(
+        trackingSample(k, /*cmdLinvelBaseRtWorldEwrtHeadingX=*/0.5,
+                       /*yawRate=*/0.0),
+        k, /*linvelContactRtWorldEwrtWorld=*/Eigen::Vector3d(0.1, 0.0, 0.0));
+    metrics.addControlCycle(sample);
+  }
+  // The foot drifted 50 mm with the base; the wheel slid 10 mm.
+  EXPECT_NEAR(numberAt(reportOf(metrics), "stance_foot_slip.max_m"), 0.05,
+              1.0e-12);
+  EXPECT_NEAR(numberAt(reportOf(metrics), "stance_foot_slip.rms_m"),
+              std::sqrt((0.05 * 0.05 + 0.01 * 0.01) / 2.0), 1.0e-12);
+}
+
 TEST(ClosedLoopMetrics, SolveStatisticsAreNearestRankPercentiles) {
   ClosedLoopMetrics metrics(kNumFeet);
   for (int k = 1; k <= 100; ++k) {

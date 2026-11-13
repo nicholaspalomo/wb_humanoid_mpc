@@ -300,14 +300,17 @@ std::vector<std::string> nonZeroFindings(
  * Adds to `problem` the soft form of the first stance foot's zero-velocity
  * constraint it holds as a hard equality constraint (`<foot>_zeroVelocity`: the
  * centroidal MPC's ZeroVelocityConstraintCppAd, the whole body's
- * ZeroAccelerationConstraintCppAd), wrapped as the MPC interfaces wrap it under
- * the zero_velocity soft constraint: a StateInputSoftConstraint of a copy of
- * the constraint with a QuadraticPenalty of `softConstraintWeight` (the foot
- * constraint's soft_constraint_weight). No shipped robot lists the soft form,
- * which would leave the first-order test's checks of it unexercised: the twist
- * constraint's dropped term contracted with the penalty's slope, and the whole
- * body's soft gradient. Returns the soft term's label
- * (`softConstraint.<foot>_zeroVelocity`), or nullopt when `problem` holds no
+ * ZeroAccelerationConstraintCppAd; `<contact>_rollingNoSlip` on a rolling
+ * contact, the centroidal MPC's RollingContactConstraintCppAd), wrapped as the
+ * MPC interfaces wrap it under the zero_velocity soft constraint: a
+ * StateInputSoftConstraint of a copy of the constraint with a QuadraticPenalty
+ * of `softConstraintWeight` (the foot constraint's soft_constraint_weight). No
+ * shipped robot lists the soft form, which would leave the first-order test's
+ * checks of it unexercised: the twist constraint's dropped term contracted with
+ * the penalty's slope, and the whole body's soft gradient. Returns the soft
+ * term's label
+ * (`softConstraint.<foot>_zeroVelocity` or
+ * `softConstraint.<contact>_rollingNoSlip`), or nullopt when `problem` holds no
  * hard zero-velocity constraint or already holds the soft form.
  */
 std::optional<std::string> addSoftStanceFootConstraint(

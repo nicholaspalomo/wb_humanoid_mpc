@@ -84,9 +84,10 @@ void PrintTo(const CentroidalRobot& robot, std::ostream* absl_nonnull os) {
 // Every centroidal MPC package in robot_models, as
 // tools/locomotion_heuristics/derive_parameters.py lists them (its ROBOTS and
 // UNDERIVED_ROBOTS): the shipped derived numbers of each are checked against
-// this derivation. ANYmal B's numbers are not derived by the script, and its
-// task file ships none of them, so for it the tests check the model's pendulum
-// above its four feet. The BUILD target's `data` lists the same.
+// this derivation. The numbers of ANYmal B and Tron1 are not derived by the
+// script, and their task files ship none of them, so for them the tests check
+// the model's pendulum above their four feet and two wheels' lowest points. The
+// BUILD target's `data` lists the same.
 // LINT.IfChange(nominal_pendulum_robots)
 constexpr CentroidalRobot kCentroidalRobots[] = {
     {.name = "drc_atlas",
@@ -106,6 +107,14 @@ constexpr CentroidalRobot kCentroidalRobots[] = {
      .mpcDirectory = "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
      .urdf = "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
              "anymal_b.urdf"},
+    {.name = "tron1",
+     .mpcDirectory = "robot_models/limx_tron1/tron1_centroidal_mpc",
+     .urdf = "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf"},
+    {.name = "anymal_c_wheels",
+     .mpcDirectory = "robot_models/anybotics_anymal_c_wheels/"
+                     "anymal_c_wheels_centroidal_mpc",
+     .urdf = "robot_models/anybotics_anymal_c_wheels/"
+             "anymal_c_wheels_description/urdf/anymal_c_wheels.urdf"},
 };
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/BUILD.bazel:nominal_pendulum_data, //tools/locomotion_heuristics/derive_parameters.py:derive_parameters_robots)
@@ -196,7 +205,9 @@ class NominalPendulum : public ::testing::TestWithParam<CentroidalRobot> {
   /**
    * The oracle, computed here from Pinocchio directly - forward kinematics, the
    * frames looked up by name, the center of mass of the whole model - rather
-   * than through computeProxyPosComRtFeetmeanEwrtWorldZ().
+   * than through computeProxyPosComRtFeetmeanEwrtWorldZ(). A rolling contact's
+   * frame is its wheel center; its sole is the wheel's lowest point, a wheel
+   * radius below on flat ground.
    */
   scalar_t computeIndependentPosComRtFeetmeanEwrtWorldZ() const {
     PinocchioInterface pinocchio(*pinocchioInterface_);
@@ -208,10 +219,16 @@ class NominalPendulum : public ::testing::TestWithParam<CentroidalRobot> {
     const scalar_t posComRtWorldEwrtWorldZ =
         pinocchio::centerOfMass(model, data, q)(2);
     scalar_t posFeetmeanRtWorldEwrtWorldZ = 0.0;
-    for (const std::string& frame : modelSettings_->contactNames) {
+    const size_t numContacts = modelSettings_->contactNames.size();
+    for (size_t contact = 0; contact < numContacts; ++contact) {
+      const scalar_t wheelRadius = modelSettings_->isRollingContact(contact)
+                                       ? modelSettings_->wheelRadius(contact)
+                                       : 0.0;
       posFeetmeanRtWorldEwrtWorldZ +=
-          data.oMf[model.getFrameId(frame)].translation()(2) /
-          static_cast<scalar_t>(modelSettings_->contactNames.size());
+          (data.oMf[model.getFrameId(modelSettings_->contactNames[contact])]
+               .translation()(2) -
+           wheelRadius) /
+          static_cast<scalar_t>(numContacts);
     }
     return posComRtWorldEwrtWorldZ - posFeetmeanRtWorldEwrtWorldZ;
   }

@@ -88,6 +88,10 @@ constexpr char kAtlasMultiContactTask[] =
     "task.textproto";
 constexpr char kAtlasUrdf[] =
     "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
+constexpr char kTron1Task[] =
+    "robot_models/limx_tron1/tron1_centroidal_mpc/config/mpc/task.textproto";
+constexpr char kTron1Urdf[] =
+    "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf";
 
 /** [s] The robot process's control period, 500 Hz. */
 constexpr scalar_t kDt = 0.002;
@@ -278,6 +282,54 @@ TEST(StateEstimatorContactsTest, ASeatPadOnTheRootJointIsOnTheUrdfsRootLink) {
                   .isApprox(vector3_t(-0.02, 0.0, -0.143), 1.0e-12))
       << (*kinematics)->posContactRtBaseEwrtBase(seat).transpose();
   EXPECT_LT((*kinematics)->linvelContactRtBaseEwrtBase(seat).norm(), 1.0e-12);
+}
+
+TEST(StateEstimatorContactsTest,
+     TheWheelsAreRollingContactsWhichOnlyTheGroundTruthTakes) {
+  const Robot robot = loadRobot(kTron1Task, kTron1Urdf);
+  const std::vector<estimation::ContactPointSpec> contacts =
+      contactPointsOf(robot, kTron1Urdf);
+  ASSERT_EQ(contacts.size(), 2u);
+  const std::vector<std::string> links = {"wheel_L_Link", "wheel_R_Link"};
+  for (size_t contact = 0; contact < contacts.size(); ++contact) {
+    // The wheel link, the wheel center on it (the task file's
+    // pos_wheel_rt_link_ewrt_link) and the radius.
+    EXPECT_EQ(contacts[contact].linkName, links[contact]);
+    EXPECT_EQ(contacts[contact].kind, estimation::ContactPointKind::kRolling);
+    EXPECT_EQ(contacts[contact].wheelRadius,
+              robot.modelSettings.wheelRadius(contact));
+    EXPECT_EQ(
+        contacts[contact].posContactRtLinkEwrtLink,
+        robot.modelSettings.pointContacts[contact].posContactRtLinkEwrtLink);
+    EXPECT_EQ(contacts[contact].contactName,
+              robot.modelSettings.contactNames[contact]);
+  }
+  EXPECT_EQ(contacts[0].wheelRadius, 0.127);
+  // The G1's soles stay fixed points.
+  for (const estimation::ContactPointSpec& sole :
+       contactPointsOf(loadRobot(kG1Task, kG1Urdf), kG1Urdf)) {
+    EXPECT_EQ(sole.kind, estimation::ContactPointKind::kFixed);
+    EXPECT_EQ(sole.wheelRadius, 0.0);
+  }
+
+  const estimation::StateEstimatorContext context{
+      .urdfFile = kTron1Urdf,
+      .contacts = contacts,
+      .description = &robot.description,
+      .kalman = estimation::KalmanBaseEstimator::Config()};
+  const absl::StatusOr<std::unique_ptr<estimation::StateEstimator>> kalman =
+      estimation::StateEstimatorRegistry().create(
+          estimation::kKalmanStateEstimatorName, context);
+  ASSERT_EQ(kalman.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(kalman.status().message(), "wheel_L_contact"))
+      << kalman.status();
+  EXPECT_TRUE(absl::StrContains(kalman.status().message(),
+                                "models contact points fixed on their links "
+                                "only"))
+      << kalman.status();
+  EXPECT_TRUE(estimation::StateEstimatorRegistry()
+                  .create(estimation::kGroundTruthStateEstimatorName, context)
+                  .ok());
 }
 
 TEST(StateEstimatorContactsTest, RefusesASurfaceContactWithoutAParentJoint) {

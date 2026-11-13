@@ -254,6 +254,14 @@ MpcEquivalenceFixture::Create(absl::string_view robotName) {
   const ModelSettings& settings = fixture->modelSettings();
   fixture->oracleOptions_.contactFrameNames = settings.contactNames;
   fixture->oracleOptions_.numPointContacts = settings.contactNames3DoF.size();
+  if (settings.hasRollingContacts()) {
+    for (size_t contact = 0; contact < settings.contactNames3DoF.size();
+         ++contact) {
+      fixture->oracleOptions_.rollingContactWheelRadii.push_back(
+          settings.isRollingContact(contact) ? settings.wheelRadius(contact)
+                                             : 0.0);
+    }
+  }
   fixture->eulerLayout_ = validation::eulerStateLayoutOf(stateInputLayout(
       settings, fixture->isWholeBody() ? StateInputLayout::Mpc::kWholeBody
                                        : StateInputLayout::Mpc::kCentroidal));
@@ -313,6 +321,10 @@ MpcEquivalenceFixture::oracleUnderGravity(
     const vector3_t& gravityEwrtWorld) const {
   EulerMpcOracleOptions options = oracleOptions_;
   options.gravityEwrtWorld = gravityEwrtWorld;
+  // The ground turns with the world: its normal is the one opposite gravity.
+  if (!options.rollingContactWheelRadii.empty()) {
+    options.normalTerrainEwrtWorld = -gravityEwrtWorld.normalized();
+  }
   pinocchio::Model quaternionModel;
   if (centroidal_ != nullptr) {
     quaternionModel = centroidal_->getPinocchioInterface().getModel();

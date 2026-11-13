@@ -104,7 +104,9 @@ const Eigen::Matrix<SCALAR_T, centroidal_model::kCentroidalMomentumDim, Eigen::D
     const PinocchioInterfaceTpl<SCALAR_T>& interface);
 
 /**
- * Computes the CoM to contact point position in world frame
+ * Computes the CoM to contact point position in world frame: the contact frame's origin, or for a rolling contact
+ * (CentroidalModelInfoTpl::rollingContactWheelRadii) its wheel's lowest point, the frame's origin less the wheel radius
+ * along world z.
  *
  * @param [in] interface: pinocchio robot interface containing model + data
  * @param [in] info: centroidal model information

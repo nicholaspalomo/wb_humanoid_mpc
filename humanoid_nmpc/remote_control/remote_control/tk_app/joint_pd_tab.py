@@ -95,6 +95,11 @@ def classify_joint_section(joint_name: str) -> str:
     for prefix, section in _QUADRUPED_LEG_SECTIONS.items():
         if name_lower.startswith(prefix):
             return section
+    # LimX Tron1 marks a leg's joints with an infix: abad_L_Joint ... wheel_R_Joint.
+    if re.search(r"_l_joint$", name_lower):
+        return "Left Leg"
+    if re.search(r"_r_joint$", name_lower):
+        return "Right Leg"
     if re.search(r"waist|spine|torso|back", name_lower):
         return "Torso & Spine"
     if re.search(
@@ -156,6 +161,10 @@ class JointPdGainsTab(ttk.Frame):
         "Unitree G1 (Centroidal)": "robot_models/unitree_g1/g1_centroidal_mpc/config/controller/joint_pd_gains.textproto",
         "EngineAI SA01 (Centroidal)": "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/controller/joint_pd_gains.textproto",
         "ANYmal B (Centroidal)": "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/controller/joint_pd_gains.textproto",
+        "LimX Tron1 (Centroidal)": "robot_models/limx_tron1/tron1_centroidal_mpc/config/controller/joint_pd_gains.textproto",
+        "ANYmal C Wheels (Centroidal)": (
+            "robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/config/controller/joint_pd_gains.textproto"
+        ),
     }
 
     def __init__(

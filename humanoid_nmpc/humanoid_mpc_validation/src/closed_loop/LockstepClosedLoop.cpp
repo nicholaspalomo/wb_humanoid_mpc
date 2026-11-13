@@ -248,7 +248,7 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
   uint64_t fullResetsAtCommandStart = 0;
 
   const size_t numContacts = driver->modelSettings().numContacts();
-  ClosedLoopMetrics metrics(numContacts);
+  ClosedLoopMetrics metrics(driver->contactSlipMeasures());
   LockstepResult result;
   result.recordedStates.jointNames = description.getJointNames();
   RowCollector seriesTime(/*cols=*/1);
@@ -443,6 +443,9 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
       sample.posContactsRtWorldEwrtWorld =
           driver->computePosContactsRtWorldEwrtWorld(
               driver->currentObservation());
+      sample.linvelContactsRtWorldEwrtWorld =
+          driver->computeLinvelContactsRtWorldEwrtWorld(
+              driver->currentObservation(), state);
       // The simulator's contact points are the model's contacts, in contact
       // order (ClosedLoopDriver::simulatorConfig()).
       const std::vector<bool> contacts = sim.getGroundTruthContactFlags();
@@ -450,6 +453,9 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(
       for (size_t contact = 0;
            contact < numContacts && contact < contacts.size(); ++contact) {
         sample.contactFlags.set(contact, contacts[contact]);
+      }
+      if (sample.contactFlags != ContactMask::allActive(numContacts)) {
+        ++result.cyclesWithALiftedContact;
       }
       ASSIGN_OR_RETURN(
           sample.jointTorques,

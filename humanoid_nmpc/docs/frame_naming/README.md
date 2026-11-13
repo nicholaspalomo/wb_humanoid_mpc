@@ -297,7 +297,7 @@ and frame3 the frame whose axes the components are written in. "The origin of f"
 | `crb` | the composite rigid body: the whole robot locked in its current configuration, origin at the center of mass, rotating as one rigid body; its angular velocity `angvel_crb_rt_world_ewrt_world` is I_G^-1 L_G, the locked (average) angular velocity, which no link and not `com` (axes aligned with `world`) has |
 | `heading` | origin at the base origin, z along world z, x along world x turned about z by `yaw_heading_rt_world`: the base's twist heading `yaw_base_rt_world` (`BasePlanarMotion`, the velocity command's axes), except in the contact planners with the heading model on, where it is the heading model's yaw (`ContactPlannerInput::yawHeadingRtWorld`, which starts at `initYawHeadingRtWorld`) |
 | `torso` | the upper-body link (table 4.1) |
-| `contact` | a contact frame chosen at runtime by contact index: one of the task file's `contacts_3dof` / `contact_names_6dof` |
+| `contact` | a contact frame chosen at runtime by contact index: one of the task file's `contacts_3dof` / `contacts_rolling` / `contact_names_6dof`; a rolling contact's is the wheel's lowest point (`wheel` less the radius along the ground normal), not a point of a link |
 | `mjcontact` | a MuJoCo physics contact between two geoms (`mjData::contact[i]`), not one of the controller's contact frames: origin at `mjContact::pos`, x along the contact normal from `geom[0]` to `geom[1]` (the first row of `mjContact::frame`), y and z the two tangents; the frame of `mj_contactForce` |
 | `foot` | a foot contact frame chosen at runtime by foot index |
 | `lfoot` | the left foot's contact frame, `foot_l_contact`, at the sole |
@@ -339,6 +339,7 @@ and frame3 the frame whose axes the components are written in. "The origin of f"
 | `segmentpoint` | a point of a capsule's axis segment: the one nearest a query, or one sampled along it; axes aligned with the frame it is given in |
 | `controlpoint` | an inner control point of a contact swing's cubic Bezier arc (`ContactSwingTrajectory`): the lift-off or touch-down point moved along its surface's normal, axes aligned with `world` |
 | `chordmid` | the midpoint of the straight chord of a swing traverse, from its lift-off to its touch-down, axes aligned with `world` |
+| `wheel` | a wheel's center frame, chosen at runtime by contact index: origin on the wheel's axis at its center, axes of the wheel link, which turn with the wheel (the frame a rolling contact of `contacts_rolling` hangs from its wheel joint) |
 | `mjbody` | the MuJoCo body a URDF link becomes: that link with every fixed-joint descendant the MJCF does not model as a body of its own lumped into it; origin and axes are the link's |
 | `local` | in a generic helper whose frames are its arguments, the body frame the caller passes (`rotateVectorLocalToWorld`): "some frame f" |
 
@@ -357,6 +358,7 @@ Plurals, for a container indexed by the role (frame1 only):
 | `corners` | `corner` |
 | `mjcontacts` | `mjcontact` |
 | `generators` | `generator` |
+| `wheels` | `wheel` |
 
 Subjects of a free vector besides the frames:
 
@@ -387,16 +389,20 @@ geometry of the visualization markers. No controller quantity uses them.
 
 The names of links are robot-specific and never appear in an identifier; the role does.
 
-| Role | drc_atlas | unitree_g1 | unitree_r1 | engineai_sa01 | anymal_b |
-|---|---|---|---|---|---|
-| `base` | `pelvis` | `pelvis` | `pelvis_link` | `base_link` | `base` |
-| `torso` | `utorso` | `torso_link` | `waist_yaw_link` | - | - |
-| `lfoot`, `rfoot` | `foot_l_contact`, `foot_r_contact` | `foot_l_contact`, `foot_r_contact` | `foot_l_contact`, `foot_r_contact` | `foot_l_contact`, `foot_r_contact` | - |
-| `foot`, `contact` (one per leg) | - | - | - | - | `LF_FOOT`, `RF_FOOT`, `LH_FOOT`, `RH_FOOT` |
-| `hand`, `lknee` | `hand_l_contact`, `hand_r_contact`, `knee_l_contact` (multi-contact) | - | - | - | - |
+| Role | drc_atlas | unitree_g1 | unitree_r1 | engineai_sa01 | anymal_b | tron1 | anymal_c_wheels |
+|---|---|---|---|---|---|---|---|
+| `base` | `pelvis` | `pelvis` | `pelvis_link` | `base_link` | `base` | `base_Link` | `base` |
+| `torso` | `utorso` | `torso_link` | `waist_yaw_link` | - | - | - | - |
+| `lfoot`, `rfoot` | `foot_l_contact`, `foot_r_contact` | `foot_l_contact`, `foot_r_contact` | `foot_l_contact`, `foot_r_contact` | `foot_l_contact`, `foot_r_contact` | - | - | - |
+| `foot`, `contact` (one per leg) | - | - | - | - | `LF_FOOT`, `RF_FOOT`, `LH_FOOT`, `RH_FOOT` | - | - |
+| `wheel`, `contact` (one per leg) | - | - | - | - | - | `wheel_L_contact`, `wheel_R_contact` (the frames, at the wheel centers); `contact` is each wheel's lowest point | `LF_wheel_contact`, `RF_wheel_contact`, `LH_wheel_contact`, `RH_wheel_contact` (the frames, at the wheel centers); `contact` is each wheel's lowest point |
+| `hand`, `lknee` | `hand_l_contact`, `hand_r_contact`, `knee_l_contact` (multi-contact) | - | - | - | - | - | - |
 
 ANYmal B's four point-contact feet are reached through a loop over contacts or legs, so its code names them with the
 generic `foot` and `contact`; no identifier fixes one of its legs, and the vocabulary has no per-leg word for them.
+Tron1's two wheels and the wheeled ANYmal C's four are reached the same way, as `wheel` (the center) and `contact`
+(the lowest point). Tron1's legs are `left` and `right`, but they are rolling contacts rather than the biped's 6-DoF
+feet, so `lfoot` and `rfoot` do not name them.
 
 So the C++ `pelvisAngularVelLocal` is `angvelBaseRtWorldEwrtBase`, and the proto field `desired_pelvis_height` is
 `cmd_pos_base_rt_surface_ewrt_world_z`.

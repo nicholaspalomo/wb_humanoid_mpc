@@ -68,6 +68,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact/RollingContact.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
@@ -253,7 +254,11 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config,
   // Every contact of the set, in contact order.
   const size_t numContacts = modelSettings().numContacts();
   contactFrames_.assign(numContacts, /*value=*/0);
+  contactWheelRadii_.assign(numContacts, /*value=*/0.0);
   for (size_t contact = 0; contact < numContacts; ++contact) {
+    if (modelSettings().isRollingContact(contact)) {
+      contactWheelRadii_[contact] = modelSettings().wheelRadius(contact);
+    }
     const std::string& name = modelSettings().contactNames[contact];
     if (!model.existFrame(name)) {
       return absl::InvalidArgumentError(
@@ -531,10 +536,17 @@ void TelemetryBuilder::updateBalance(Source* absl_nonnull source) {
           ? computePosDcmRtWorldEwrtWorldXy(data.com[0], data.vcom[0],
                                             *pendulumFrequency_)
           : vector2_t(vector2_t::Constant(kNotANumber));
+  // The points the contact wrenches act at: a rolling contact's force acts at
+  // its wheel's lowest point, below the wheel-center frame.
   ContactArray<vector3_t> posContactsRtWorldEwrtWorld(contactFrames_.size());
   for (size_t contact = 0; contact < contactFrames_.size(); ++contact) {
     posContactsRtWorldEwrtWorld[contact] =
         data.oMf[contactFrames_[contact]].translation();
+    if (contactWheelRadii_[contact] > 0.0) {
+      posContactsRtWorldEwrtWorld[contact] = posContactRtWorldEwrtWorld(
+          posContactsRtWorldEwrtWorld[contact], contactWheelRadii_[contact],
+          normalTerrainEwrtWorld<scalar_t>());
+    }
   }
   const std::optional<vector3_t> posZmpRtWorldEwrtWorld =
       computePosZmpRtWorldEwrtWorld(posContactsRtWorldEwrtWorld,
@@ -825,6 +837,9 @@ void TelemetryBuilder::writeBasePanels(const DecodedRobotState& measured) {
                                                   kBaseTranslationDim];
     }
   }
+  // The vertical motion of the contact frame: for a rolling contact the wheel
+  // center's, which its lowest point, a fixed r below it on flat ground, shares
+  // (contact/RollingContact.h).
   for (size_t contact = 0; contact < contactFrames_.size(); ++contact) {
     const pinocchio::FrameIndex frame = contactFrames_[contact];
     double* absl_nonnull linaccContactRtWorldEwrtWorldZ =

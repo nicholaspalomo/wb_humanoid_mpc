@@ -1,0 +1,33 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto
+# proto-message: humanoid_mpc_config.JointPdGainsFile
+# LimX Tron1 (8-DoF) joint proportional and derivative (PD) controller gains.
+# Units: Kp in [N*m/rad], Kd in [N*m*s/rad]
+# The leg joints get the gains of ANYmal B's legs, which hold them while the MPC is off (JOINT_PD) and stiffen the
+# MPC's feedforward torques against its joint targets. A wheel has no position to hold: its angle has no reference, so
+# its kp is 0 and its kd damps its speed toward the MPC's wheel velocity, with the MPC's feedforward torque on top.
+# The wheel kd of 5 comes from the closed-loop runs of label 2026-11-12_tron1: at 1 the 0.5 m/s drive ran 5 % fast.
+# robot_models/tests/test_joint_pd_stability.py checks that the explicit PD is stable at the simulator's step with the
+# joint damping of urdf/tron1.xml; a wheel's kd must stay below about 36 N m s/rad there
+# (robot_models/limx_tron1/tron1_description/README.md).
+
+# max_joint_torque is read by the MRT joint controller, which clamps the commanded feedforward torque of every joint against
+# it, in every mode; a joint this file does not name gets default_gains' limit, which default_gains must set (the
+# controller has no gains of its own). The limits are the URDF's effort limits and the MuJoCo motors' forcerange,
+# 80 N m on the legs and 40 N m on the wheels, so the controller and the simulator agree on what each actuator can
+# deliver.
+default_gains {
+  kp: 400.0
+  kd: 10.0
+  max_joint_torque: 40.0
+}
+# Left leg
+joint_gains { joint: "abad_L_Joint" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+joint_gains { joint: "hip_L_Joint" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+joint_gains { joint: "knee_L_Joint" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+joint_gains { joint: "wheel_L_Joint" kp: 0.0 kd: 5.0 max_joint_torque: 40.0 }
+
+# Right leg
+joint_gains { joint: "abad_R_Joint" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+joint_gains { joint: "hip_R_Joint" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+joint_gains { joint: "knee_R_Joint" kp: 400.0 kd: 10.0 max_joint_torque: 80.0 }
+joint_gains { joint: "wheel_R_Joint" kp: 0.0 kd: 5.0 max_joint_torque: 40.0 }

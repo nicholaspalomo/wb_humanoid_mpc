@@ -1,0 +1,48 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/reference_file.proto
+# proto-message: humanoid_mpc_config.ReferenceFile
+ref_speed_base_rt_world: 0.5
+ref_rate_yaw_base_rt_world: 0.5
+
+# The command limits sit above the closed-loop validation's commands, a 0.5 m/s drive and a 0.5 rad/s turn in place, so
+# that neither saturates. A two-wheeled robot cannot move sideways: the no-slip constraint of its wheels has no lateral
+# velocity to give, so a lateral command is not tracked. The lateral limit is still positive, as every command limit
+# must be (the GUI, the keyboard and the validation's driver send a command as its fraction of the limit), and small:
+# a full lateral stick asks for 0.05 m/s.
+cmd_max_linvel_base_rt_world_ewrt_heading_x: 1.0
+cmd_max_linvel_base_rt_world_ewrt_heading_y: 0.05
+cmd_max_err_pos_base_rt_surface_ewrt_world_z: 0.1
+cmd_max_angvel_base_rt_world_ewrt_world_z: 1.0
+# First-order low-pass filter on the operator's velocity command, run on the solver time ahead of the acceleration
+# ramps: break frequency f_c [Hz], time constant 1 / (2 pi f_c). 0 switches it off and the command passes through
+# unchanged, as on every other robot.
+velocity_command_filter_break_frequency: 0.0  # [Hz] command low-pass filter, 0 = off
+target_joint_state_interpolation_time_constant: 0.5
+
+# The base height of the default posture standing on flat ground: the wheel centers 0.6215 m below base_Link and a
+# wheel radius (0.127 m) above the ground, by the URDF's forward kinematics (robot_models/limx_tron1/tron1_description/
+# README.md, "Geometry for the MPC").
+nom_pos_base_rt_surface_ewrt_world_z: 0.7485
+# The default posture: hip abduction 0, hip flexion +0.35 / -0.35 rad and knee flexion +0.8 / -0.8 rad on the left and
+# right legs, whose joint axes are mirrored, so the two sides have opposite signs. The center of mass is then 0.6 mm
+# ahead of the wheel centers and 0.446 m above the ground. The wheel angles are 0: a wheel's position has no reference
+# and no weight (humanoid_nmpc/docs/rolling_contact/README.md, section 7).
+default_joint_state { joint: "abad_L_Joint" value: 0.0 }
+default_joint_state { joint: "hip_L_Joint" value: 0.35 }
+default_joint_state { joint: "knee_L_Joint" value: 0.8 }
+default_joint_state { joint: "wheel_L_Joint" value: 0.0 }
+default_joint_state { joint: "abad_R_Joint" value: 0.0 }
+default_joint_state { joint: "hip_R_Joint" value: -0.35 }
+default_joint_state { joint: "knee_R_Joint" value: -0.8 }
+default_joint_state { joint: "wheel_R_Joint" value: 0.0 }
+
+initial_mode_schedule {
+  mode_sequence: "STANCE"
+  mode_sequence: "STANCE"
+  event_times: 0.5
+}
+
+default_mode_sequence_template {
+  mode_sequence: "STANCE"
+  switching_times: 0.0
+  switching_times: 0.5
+}

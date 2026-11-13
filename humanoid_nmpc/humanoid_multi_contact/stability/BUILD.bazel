@@ -88,6 +88,8 @@ cc_library(
         "//humanoid_nmpc/humanoid_multi_contact/contact_set",
         "//lib/ocs2:ocs2_dimensions",
         "//lib/ocs2:ocs2_physical_constants",
+        # The URDF, with its continuous joints made unbounded revolute ones.
+        "//robot_runtime/robot_model",
         "@abseil-cpp//absl/container:flat_hash_set",
         "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/status",
@@ -97,6 +99,7 @@ cc_library(
         "@abseil-cpp//absl/types:span",
         "@eigen",
         "@pinocchio",
+        "@urdf",
     ],
 )
 

@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
+#include "humanoid_common_mpc/common/ContactTermNames.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/constraint/FootCollisionCbfConstraint.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
@@ -79,6 +80,17 @@ TEST(CostTermAndLibraryNames, TheFootCostKeepsItsTermAndLibraryNames) {
   EXPECT_EQ(absl::string_view(
                 CentroidalMpcEndEffectorFootCost::kLibraryVersionSuffix),
             "_tiltAngle");
+  // A rolling contact's library is "<wheel>_TaskSpaceKinematicsCost_tiltAngle"
+  // "_rollingContact": its position residual is the contact point.
+  EXPECT_EQ(absl::string_view(
+                CentroidalMpcEndEffectorFootCost::kRollingContactLibrarySuffix),
+            "_rollingContact");
+}
+
+TEST(CostTermAndLibraryNames, TheRollingNoSlipTermFollowsTheContactName) {
+  EXPECT_EQ(
+      contact_term::name("wheel_L_contact", contact_term::kRollingNoSlipName),
+      "wheel_L_contact_rollingNoSlip");
 }
 
 TEST(CostTermAndLibraryNames,

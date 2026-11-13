@@ -81,7 +81,10 @@ class StateEstimatorRegistry {
   /**
    * The estimator `name` names, built from `context`. InvalidArgument listing
    * the available names for an unknown one, and the errors of building it (a
-   * URDF without a contact link, a noise model out of range).
+   * URDF without a contact link, a noise model out of range). `kalman` refuses
+   * a rolling contact (ContactPointKind::kRolling) with InvalidArgument naming
+   * it: its filter models contact points fixed on their links only.
+   * `ground_truth` takes any contact set.
    */
   absl::StatusOr<std::unique_ptr<StateEstimator>> create(
       absl::string_view name, const StateEstimatorContext& context) const;

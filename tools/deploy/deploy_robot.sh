@@ -30,7 +30,7 @@ SIM_IMAGE="wb-humanoid-robot-sim"
 # LINT.ThenChange(//docker-compose.robot.yaml, //docker-compose.robot.sim.yaml, //tools/deploy/README.md, //.github/workflows/robot_arm64.yml:arm64_image_name)
 # The robot configurations, the names of the bundle's launch/<robot>.sh scripts.
 # LINT.IfChange(robot_names)
-ROBOTS="anymal_b drc_atlas engineai_sa01 unitree_g1 unitree_g1_wb unitree_r1"
+ROBOTS="anymal_b anymal_c_wheels drc_atlas engineai_sa01 tron1 unitree_g1 unitree_g1_wb unitree_r1"
 # LINT.ThenChange(//tools/deploy/BUILD.bazel:robot_configurations, //tools/deploy/test_deploy_files.py:robot_names)
 BUNDLE_TARGET="//tools/deploy:robot_bundle"
 BUNDLE_OUTPUT=".bazel/bin/tools/deploy/robot_bundle.tar"
@@ -55,8 +55,8 @@ usage() {
     cat >&2 << 'EOF'
 
 Options:
-  --robot NAME              the robot configuration (deploy): anymal_b, drc_atlas, engineai_sa01, unitree_g1,
-                            unitree_g1_wb, unitree_r1
+  --robot NAME              the robot configuration (deploy): anymal_b, anymal_c_wheels, drc_atlas,
+                            engineai_sa01, tron1, unitree_g1, unitree_g1_wb, unitree_r1
   --host HOST               the robot's computer as ssh reaches it, or localhost (default)
   --network FILE            the network file to deploy (default: config/ipc/network.textproto, on localhost only)
   --target TARGET           image: robot-runtime (default) or robot-sim, which builds both

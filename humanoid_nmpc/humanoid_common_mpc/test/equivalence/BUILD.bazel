@@ -22,10 +22,14 @@ cc_library(
     data = [
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
         "//robot_models/anybotics_anymal_b/anymal_b_description",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_description",
         "//robot_models/unitree_g1/g1_centroidal_mpc",
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_g1/g1_wb_mpc",
@@ -40,6 +44,7 @@ cc_library(
         "//humanoid_nmpc/humanoid_mpc_validation:euler_chart",
         "//lib/ocs2:ocs2_core_types",
         "//robot_runtime/robot_core:resource_paths",
+        "//robot_runtime/robot_model",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/status",
@@ -195,6 +200,10 @@ _MPC_EQUIVALENCE_ROBOTS = {
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
         "//robot_models/anybotics_anymal_b/anymal_b_description",
     ],
+    "anymal_c_wheels": [
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
+    ],
     "drc_atlas": [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
@@ -202,6 +211,10 @@ _MPC_EQUIVALENCE_ROBOTS = {
     "engineai_sa01": [
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_description",
+    ],
+    "tron1": [
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_description",
     ],
     "unitree_g1": [
         "//robot_models/unitree_g1/g1_centroidal_mpc",

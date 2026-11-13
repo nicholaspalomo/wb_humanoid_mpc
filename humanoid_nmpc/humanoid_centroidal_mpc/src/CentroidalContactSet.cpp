@@ -50,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/swing/LocomotionHeuristicsFromConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
+#include "humanoid_common_mpc/reference_manager/LegJointReference.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 
 namespace ocs2::humanoid {
@@ -96,13 +97,50 @@ constexpr std::array<MpcHardConstraintType, 1> kLeggedOnlyHardConstraints = {
 // the step_width foothold anchor with a positive step width.
 // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/test/testMixedContactSet.cpp:biped_only_terms, //humanoid_nmpc/humanoid_centroidal_mpc/test/testPointContactQuadrupedLikeSet.cpp:biped_only_terms, //humanoid_nmpc/docs/multi_contact_planning/README.md:biped_only_terms)
 
+// LINT.IfChange(rolling_refused_terms)
+/** The soft constraints refused on a set with a rolling contact: the
+ * contact-implicit terms (footprint corners and the slip of a point fixed on
+ * its link), the leg collision spheres of the biped's feet, the terms of a
+ * tracked multi-contact plan (the swing servo, the landing alignment it
+ * builds with it, and the collision sphere of a fixed contact geometry) and
+ * the center of pressure of a 6-DoF sole. */
+constexpr std::array<MpcSoftConstraintType, 8> kRollingRefusedSoftConstraints =
+    {
+        MpcSoftConstraintType::kContactComplementarity,
+        MpcSoftConstraintType::kForceWeightedSlip,
+        MpcSoftConstraintType::kGroundPenetration,
+        MpcSoftConstraintType::kFootCollision,
+        MpcSoftConstraintType::kFootCollisionCbf,
+        MpcSoftConstraintType::kContactSwing,
+        MpcSoftConstraintType::kTerrainNonPenetration,
+        MpcSoftConstraintType::kContactMomentXy,
+};
+// Beside these, checkRollingContactSet() refuses the basis-vector contact
+// inputs, the contact_planner and multi_contact_plan schedule sources and the
+// foot_motion leg joint reference.
+// LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/test/testRollingContactSet.cpp:rolling_refused_terms, //humanoid_nmpc/docs/rolling_contact/README.md:rolling_refused_terms)
+
+/** Returns the label of the kind of contact `contactIndex` of `modelSettings`
+ * for describeContactSet(): " (3-DoF)", " (rolling)" or " (6-DoF)". */
+absl::string_view contactKindLabel(const ModelSettings& modelSettings,
+                                   size_t contactIndex) {
+  switch (modelSettings.contactKind(contactIndex)) {
+    case ModelSettings::ContactKind::kPoint:
+      return " (3-DoF)";
+    case ModelSettings::ContactKind::kRolling:
+      return " (rolling)";
+    case ModelSettings::ContactKind::kSurface:
+      return " (6-DoF)";
+  }
+  return " (unknown)";
+}
+
 /** "name (3-DoF), ..." of the contacts of `modelSettings`, in input order. */
 std::string describeContactSet(const ModelSettings& modelSettings) {
   std::vector<std::string> contacts;
   for (size_t i = 0; i < modelSettings.contactNames.size(); ++i) {
-    contacts.push_back(absl::StrCat(
-        modelSettings.contactNames[i],
-        modelSettings.isPointContact(i) ? " (3-DoF)" : " (6-DoF)"));
+    contacts.push_back(absl::StrCat(modelSettings.contactNames[i],
+                                    contactKindLabel(modelSettings, i)));
   }
   return absl::StrJoin(contacts, ", ");
 }
@@ -235,6 +273,82 @@ void appendRefusedFootholdAnchor(
   }
 }
 
+/** Returns the names of the rolling contacts of `modelSettings`,
+ * comma-separated, in input order. */
+std::string describeRollingContacts(const ModelSettings& modelSettings) {
+  std::vector<std::string> contacts;
+  for (size_t i = 0; i < modelSettings.contactNames.size(); ++i) {
+    if (modelSettings.isRollingContact(i)) {
+      contacts.push_back(modelSettings.contactNames[i]);
+    }
+  }
+  return absl::StrJoin(contacts, ", ");
+}
+
+/**
+ * Appends the selections of `task` beside its soft constraints that a rolling
+ * contact cannot run: the basis-vector contact inputs (no generator set spans
+ * a point force cone), the schedule sources that place a contact on a patch
+ * of its own (the online contact planner and a tracked multi-contact plan,
+ * whose patches may tilt; a rolling contact assumes flat world-z ground), and
+ * the foot_motion leg joint reference, which moves a point fixed on its link.
+ */
+absl::Status appendRefusedRollingSelections(const mpc_config::TaskFile& task,
+                                            std::vector<std::string>& refused) {
+  ASSIGN_OR_RETURN(const ContactInputParameterization contactInputs,
+                   contactInputParameterizationFromConfig(task));
+  if (contactInputs != ContactInputParameterization::kWrench) {
+    refused.push_back(
+        absl::StrCat("contact_input_parameterization '",
+                     contactInputParameterizationName(contactInputs), "'"));
+  }
+  ASSIGN_OR_RETURN(const ContactScheduleSource contactScheduleSource,
+                   contactScheduleSourceFromConfig(task));
+  if (contactScheduleSource != ContactScheduleSource::kGaitSchedule) {
+    refused.push_back(
+        absl::StrCat("contact_schedule_source '",
+                     contactScheduleSourceName(contactScheduleSource), "'"));
+  }
+  ASSIGN_OR_RETURN(const LegJointReference legJointReference,
+                   legJointReferenceFromName(task.leg_joint_reference));
+  if (legJointReference == LegJointReference::kFootMotion) {
+    refused.push_back(absl::StrCat("leg_joint_reference '",
+                                   legJointReferenceName(legJointReference),
+                                   "'"));
+  }
+  return absl::OkStatus();
+}
+
+/**
+ * Returns OkStatus, or InvalidArgument naming the rolling contacts of
+ * `modelSettings` and every selection of `task` a rolling contact cannot run
+ * (kRollingRefusedSoftConstraints, appendRefusedRollingSelections()).
+ * Precondition: modelSettings.hasRollingContacts().
+ */
+absl::Status checkRollingContactSet(const ModelSettings& modelSettings,
+                                    const mpc_config::TaskFile& task,
+                                    const MpcFormulationTasks& tasks) {
+  std::vector<std::string> refused;
+  RETURN_IF_ERROR(appendListed<MpcSoftConstraintType>(
+      kRollingRefusedSoftConstraints, "soft_constraints",
+      [&tasks](MpcSoftConstraintType type) {
+        return tasks.hasSoftConstraint(type);
+      },
+      &mpcSoftConstraintTypeToString, refused));
+  RETURN_IF_ERROR(appendRefusedRollingSelections(task, refused));
+  if (refused.empty()) return absl::OkStatus();
+  return absl::InvalidArgumentError(absl::StrCat(
+      "[CentroidalMpcInterface] model_settings lists the rolling contacts ",
+      describeRollingContacts(modelSettings),
+      " (model_settings.contacts_rolling), and the task file selects ",
+      absl::StrJoin(refused, ", "),
+      ", which hold a contact point fixed on its link or place a contact on a "
+      "tilted patch; a rolling contact's point moves over its wheel's rim on "
+      "flat ground. Remove them "
+      "(humanoid_nmpc/docs/rolling_contact/README.md, section \"Refused "
+      "terms\")."));
+}
+
 }  // namespace
 
 absl::Status checkCentroidalContactSet(const ModelSettings& modelSettings,
@@ -244,6 +358,11 @@ absl::Status checkCentroidalContactSet(const ModelSettings& modelSettings,
   ASSIGN_OR_RETURN(
       const MpcFormulationTasks tasks,
       mpcFormulationTasksFromConfig(task, FormulationLogging::kQuiet));
+  // A rolling contact's terms first, with their own reason; the set's other
+  // checks follow as on any non-biped set.
+  if (modelSettings.hasRollingContacts()) {
+    RETURN_IF_ERROR(checkRollingContactSet(modelSettings, task, tasks));
+  }
   std::vector<std::string> refused;
   RETURN_IF_ERROR(appendListedTerms(tasks, kBipedOnlyCosts,
                                     kBipedOnlySoftConstraints,

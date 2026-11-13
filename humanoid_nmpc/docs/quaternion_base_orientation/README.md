@@ -1241,7 +1241,8 @@ changes the toolchain, so a later candidate needs a baseline re-recorded on the 
   M_jω·(dT_B/dt)·Θ̇` for the held one.
 - MPC-level suite (`testMpcEquivalence_<robot>`, one exclusive binary per robot): an Euler side built from the MPC's
   own Pinocchio model with the root swapped and the flow maps written from their definitions (`EulerMpcOracle`, O1 to
-  O4). `testMpcDynamicsEquivalence` (the flow map at 1e-9 through the chart, its Jacobians by
+  O4; a rolling contact's force acts at its wheel's lowest point, r below the wheel-center frame along the ground
+  normal, which the cases under a turned gravity turn with it). `testMpcDynamicsEquivalence` (the flow map at 1e-9 through the chart, its Jacobians by
   the chain rule, the SQP's tangent `A_t`, `B_t` against the Euler RK4 map within each map's RK4 error, pitch ±90°, yaw
   ±π), `testMpcRolloutEquivalence` (full-horizon rollouts within the summed Richardson error, halving dt shrinks the gap
   by at least 8; largest node difference 4e-12 to 6e-8, 2e-11 to 2e-8 from one state), `testMpcOrientationCostEquivalence` (the orientation rows

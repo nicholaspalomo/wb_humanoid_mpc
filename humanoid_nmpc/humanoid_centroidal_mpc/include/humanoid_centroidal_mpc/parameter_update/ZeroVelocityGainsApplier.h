@@ -45,7 +45,9 @@ namespace ocs2::humanoid {
  * twist constraint of every foot's zero_velocity term, hard (an equality
  * constraint) or soft (inside a StateInputSoftConstraint): its rows (6 with the
  * orientation, 3 without), the yaw-rate row about the contact normal and the
- * gains of footTwistConfig(). The pre-computation's copy of
+ * gains of footTwistConfig(); and their translation gains to the stance
+ * constraint of every rolling contact (RollingContactConstraintCppAd, the
+ * term contact_term::kRollingNoSlipName). The pre-computation's copy of
  * position_error_gain_z is FootConstraintSoftWeightsApplier's. Not thread-safe
  * (HotFieldApplier).
  */

@@ -72,6 +72,11 @@ void FootConstraintSoftWeightsApplier::apply(HotUpdateTarget& target) {
   // normal_velocity in every schedule-gated configuration.
   setSoftTermWeight(target.problems(), target.contactNames(),
                     kZeroVelocityTermNameSuffix, gains->softConstraintWeight);
+  // A wheel's soft stance constraint (the rolling no-slip rows) takes the
+  // same weight as a foot's.
+  setSoftTermWeight(target.problems(), target.contactNames(),
+                    contact_term::kRollingNoSlipName,
+                    gains->softConstraintWeight);
   setSoftTermWeight(target.problems(), target.contactNames(),
                     contact_term::kNormalVelocitySoftName,
                     gains->normalVelocitySoftConstraintWeight);

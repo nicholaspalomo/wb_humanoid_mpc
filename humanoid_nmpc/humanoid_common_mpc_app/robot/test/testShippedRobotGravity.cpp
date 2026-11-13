@@ -76,7 +76,7 @@ struct ShippedRobot {
 };
 
 // LINT.IfChange(shipped_robots)
-constexpr std::array<ShippedRobot, 6> kShippedRobots = {{
+constexpr std::array<ShippedRobot, 8> kShippedRobots = {{
     {.name = "anymal_b",
      .taskFile = "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/"
                  "config/mpc/task.textproto",
@@ -84,6 +84,13 @@ constexpr std::array<ShippedRobot, 6> kShippedRobots = {{
                  "anymal_b.urdf",
      .sceneFile = "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
                   "anymal_b.xml"},
+    {.name = "anymal_c_wheels",
+     .taskFile = "robot_models/anybotics_anymal_c_wheels/"
+                 "anymal_c_wheels_centroidal_mpc/config/mpc/task.textproto",
+     .urdfFile = "robot_models/anybotics_anymal_c_wheels/"
+                 "anymal_c_wheels_description/urdf/anymal_c_wheels.urdf",
+     .sceneFile = "robot_models/anybotics_anymal_c_wheels/"
+                  "anymal_c_wheels_description/urdf/anymal_c_wheels.xml"},
     {.name = "drc_atlas",
      .taskFile = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/"
                  "task.textproto",
@@ -97,6 +104,11 @@ constexpr std::array<ShippedRobot, 6> kShippedRobots = {{
                  "zq_sa01.urdf",
      .sceneFile = "robot_models/engineai_sa01/engineai_sa01_description/urdf/"
                   "zq_sa01.xml"},
+    {.name = "tron1",
+     .taskFile = "robot_models/limx_tron1/tron1_centroidal_mpc/config/mpc/"
+                 "task.textproto",
+     .urdfFile = "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf",
+     .sceneFile = "robot_models/limx_tron1/tron1_description/urdf/tron1.xml"},
     {.name = "unitree_g1",
      .taskFile =
          "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto",

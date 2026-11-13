@@ -141,6 +141,27 @@ TEST(StateEstimatorRegistryTest,
 }
 
 TEST(StateEstimatorRegistryTest,
+     KalmanRefusesARollingContactAndTheGroundTruthTakesIt) {
+  // A wheel's lowest point is no point of its link: the filter would treat the
+  // wheel center as a foot at rest on the ground.
+  const robot::model::RobotDescription description = bipedDescription();
+  StateEstimatorContext context = contextOf(description);
+  context.contacts[1].kind = ContactPointKind::kRolling;
+  context.contacts[1].wheelRadius = 0.127;
+  context.contacts[1].contactName = "wheel_R_contact";
+  const absl::StatusOr<std::unique_ptr<StateEstimator>> refused =
+      StateEstimatorRegistry().create("kalman", context);
+  ASSERT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(refused.status().message(), "wheel_R_contact"))
+      << refused.status();
+  EXPECT_TRUE(absl::StrContains(refused.status().message(),
+                                "the kalman state estimator models contact "
+                                "points fixed on their links only"))
+      << refused.status();
+  EXPECT_TRUE(StateEstimatorRegistry().create("ground_truth", context).ok());
+}
+
+TEST(StateEstimatorRegistryTest,
      KalmanEstimatesTheBaseABackendWithoutAPositionSensorDoesNotReport) {
   const robot::model::RobotDescription description = bipedDescription();
   absl::StatusOr<std::unique_ptr<StateEstimator>> created =

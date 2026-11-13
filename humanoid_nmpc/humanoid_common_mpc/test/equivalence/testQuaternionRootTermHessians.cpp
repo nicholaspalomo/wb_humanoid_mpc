@@ -627,8 +627,10 @@ absl::StatusOr<SecondOrderRule> comAndAcomRule(
       .constraintSecondOrder = nullptr};
 }
 
-/** JointLimitsSoftConstraint: v = [q_max - q; q - q_min] of the model's limits,
- * p its piecewise polynomial barrier. */
+/** JointLimitsSoftConstraint: v = [q_max - q; q - q_min] of the model's finite
+ * limits, p its piecewise polynomial barrier. A bound that is not finite (a
+ * wheel's continuous joint) has no row, as the constraint has no barrier term
+ * for it. */
 SecondOrderRule jointLimitsRule(const JointLimitsSoftConstraint& cost,
                                 const MpcEquivalenceFixture& mpc) {
   const PieceWisePolynomialBarrierPenalty::Config config = cost.getGains();
@@ -644,15 +646,30 @@ SecondOrderRule jointLimitsRule(const JointLimitsSoftConstraint& cost,
             const Eigen::Index jointDim = joints.size();
             const Eigen::Index start =
                 static_cast<Eigen::Index>(model->getJointStartindex());
+            Eigen::Index rows = 0;
+            for (Eigen::Index joint = 0; joint < jointDim; ++joint) {
+              if (std::isfinite(limits.upper(joint))) ++rows;
+              if (std::isfinite(limits.lower(joint))) ++rows;
+            }
             InnerLinearization inner{
-                .value = vector_t(2 * jointDim),
-                .stateJacobian = matrix_t::Zero(2 * jointDim, x.size()),
-                .inputJacobian = matrix_t(2 * jointDim, 0)};
-            inner.value << limits.upper - joints, joints - limits.lower;
-            inner.stateJacobian.block(0, start, jointDim, jointDim) =
-                -matrix_t::Identity(jointDim, jointDim);
-            inner.stateJacobian.block(jointDim, start, jointDim, jointDim)
-                .setIdentity();
+                .value = vector_t(rows),
+                .stateJacobian = matrix_t::Zero(rows, x.size()),
+                .inputJacobian = matrix_t(rows, 0)};
+            // The upper bounds' rows first, then the lower bounds', each in
+            // joint order: with every bound finite, [q_max - q; q - q_min].
+            Eigen::Index row = 0;
+            for (Eigen::Index joint = 0; joint < jointDim; ++joint) {
+              if (!std::isfinite(limits.upper(joint))) continue;
+              inner.value(row) = limits.upper(joint) - joints(joint);
+              inner.stateJacobian(row, start + joint) = -1.0;
+              ++row;
+            }
+            for (Eigen::Index joint = 0; joint < jointDim; ++joint) {
+              if (!std::isfinite(limits.lower(joint))) continue;
+              inner.value(row) = joints(joint) - limits.lower(joint);
+              inner.stateJacobian(row, start + joint) = 1.0;
+              ++row;
+            }
             return inner;
           },
       .outer =

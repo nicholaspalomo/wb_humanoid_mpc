@@ -412,10 +412,14 @@ cc_test(
     data = [
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc:launch/mpc.textproto",
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc:launch/robot.textproto",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc:launch/mpc.textproto",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc:launch/robot.textproto",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/mpc.textproto",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/robot.textproto",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc:launch/mpc.textproto",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc:launch/robot.textproto",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc:launch/mpc.textproto",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc:launch/robot.textproto",
         "//robot_models/unitree_g1/g1_centroidal_mpc:launch/mpc.textproto",
         "//robot_models/unitree_g1/g1_centroidal_mpc:launch/robot.textproto",
         "//robot_models/unitree_g1/g1_wb_mpc:launch/mpc.textproto",
@@ -555,6 +559,10 @@ cc_test(
     srcs = ["test/testLockstepStateEstimator.cpp"],
     copts = FIRST_PARTY_COPTS,
     data = [
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_description",
         "//robot_models/unitree_g1/g1_centroidal_mpc",
         "//robot_models/unitree_g1/g1_description",
     ],
@@ -637,6 +645,10 @@ _ROBOT_DATA = {
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
         "//robot_models/anybotics_anymal_b/anymal_b_description",
     ],
+    "anymal_c_wheels": [
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
+    ],
     "drc_atlas": [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
@@ -644,6 +656,10 @@ _ROBOT_DATA = {
     "engineai_sa01": [
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_description",
+    ],
+    "tron1": [
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_description",
     ],
     "unitree_g1": [
         "//robot_models/unitree_g1/g1_centroidal_mpc",
@@ -668,10 +684,13 @@ _ROBOT_DATA = {
 # same files: the solve benchmark of that MPC is the other configuration's, so they get no benchmark_mpc_solve_ test.
 _STATE_ESTIMATOR_VARIANTS = ["unitree_g1_kalman"]
 
-# The gait files the configurations name (RobotConfiguration::gaitFile): the bipeds' and the quadrupeds'.
+# The gait files the configurations name (RobotConfiguration::gaitFile): the bipeds', the quadrupeds' and the wheeled
+# robots'.
 _GAIT_CONFIGS = [
     "//humanoid_nmpc/humanoid_common_mpc:gait_config",
     "//humanoid_nmpc/humanoid_common_mpc:quadruped_gait_config",
+    "//humanoid_nmpc/humanoid_common_mpc:wheeled_gait_config",
+    "//humanoid_nmpc/humanoid_common_mpc:wheeled_quadruped_gait_config",
 ]
 # LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations)
 

@@ -46,8 +46,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::model {
 
-/** The limits of one revolute or prismatic joint of the URDF, and its joint
- * index. */
+/** The limits of one revolute, continuous or prismatic joint of the URDF, and
+ * its joint index. A continuous joint keeps the unbounded default angles. */
 struct JointDescription {
   joint_index_t id = 0;
   scalar_t min_angle = std::numeric_limits<scalar_t>::lowest();
@@ -68,11 +68,11 @@ struct JointDescription {
 };
 
 /**
- * The joints of a robot as its URDF describes them: the revolute and prismatic
- * joints, numbered 0 to getNumJoints() - 1 in the order of their names, which
- * is the joint index of RobotState and RobotJointAction. Built once during
- * setup; the name lookups hash, so the realtime loop works with the indices
- * instead. Immutable, and so safe to share between threads.
+ * The joints of a robot as its URDF describes them: the revolute, continuous
+ * and prismatic joints, numbered 0 to getNumJoints() - 1 in the order of their
+ * names, which is the joint index of RobotState and RobotJointAction. Built
+ * once during setup; the name lookups hash, so the realtime loop works with the
+ * indices instead. Immutable, and so safe to share between threads.
  */
 class RobotDescription {
  public:
@@ -84,7 +84,7 @@ class RobotDescription {
   /**
    * Reads the URDF at `urdfPath`. NotFound when there is no such file;
    * InvalidArgument when it does not parse or has fewer than kMinJoints or more
-   * than kMaxJoints revolute and prismatic joints.
+   * than kMaxJoints revolute, continuous and prismatic joints.
    */
   static absl::StatusOr<RobotDescription> Create(absl::string_view urdfPath);
 
@@ -107,8 +107,8 @@ class RobotDescription {
 
   bool containsJoint(absl::string_view jointName) const;
 
-  /** The joint called `jointName`, or nullptr when the URDF has no revolute or
-   * prismatic joint of that name. */
+  /** The joint called `jointName`, or nullptr when the URDF has no revolute,
+   * continuous or prismatic joint of that name. */
   const JointDescription* absl_nullable findJointDescription(
       absl::string_view jointName) const;
 

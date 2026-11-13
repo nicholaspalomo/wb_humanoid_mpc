@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <fstream>
 #include <memory>
 #include <numbers>
@@ -290,6 +291,140 @@ TEST(MujocoContactUtils, ParentJointNamesResolveFramesThatExistNowhere) {
   EXPECT_EQ(fallback[1], scene.body("r_foot"));
   ASSERT_EQ(errors.size(), 1u);
   EXPECT_NE(errors[0].find("no_such_joint"), std::string::npos);
+}
+
+// A cart on four wheels: a free chassis and four bodies on unlimited hinges
+// about y, each with one collision cylinder of radius 0.1 m coaxial with its
+// hinge, the wheel centers 0.098 m above the floor (2 mm penetration).
+constexpr char kWheelScene[] = R"(
+<mujoco>
+  <option timestep="0.001" gravity="0 0 -9.81"/>
+  <worldbody>
+    <geom name="floor" type="plane" size="20 20 0.1"/>
+    <body name="chassis" pos="0 0 0.298">
+      <freejoint/>
+      <geom type="box" size="0.2 0.2 0.02" mass="2"/>
+      <body name="wheel_lf" pos="0.15 0.25 -0.2">
+        <joint name="wheel_lf_joint" type="hinge" axis="0 1 0" limited="false"/>
+        <geom type="cylinder" size="0.1 0.02" zaxis="0 1 0" mass="0.2"/>
+      </body>
+      <body name="wheel_rf" pos="0.15 -0.25 -0.2">
+        <joint name="wheel_rf_joint" type="hinge" axis="0 1 0" limited="false"/>
+        <geom type="cylinder" size="0.1 0.02" zaxis="0 1 0" mass="0.2"/>
+      </body>
+      <body name="wheel_lh" pos="-0.15 0.25 -0.2">
+        <joint name="wheel_lh_joint" type="hinge" axis="0 1 0" limited="false"/>
+        <geom type="cylinder" size="0.1 0.02" zaxis="0 1 0" mass="0.2"/>
+      </body>
+      <body name="wheel_rh" pos="-0.15 -0.25 -0.2">
+        <joint name="wheel_rh_joint" type="hinge" axis="0 1 0" limited="false"/>
+        <geom type="cylinder" size="0.1 0.02" zaxis="0 1 0" mass="0.2"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
+)";
+
+// The cart's URDF: continuous wheel joints, and a fixed frame at one wheel's
+// center.
+constexpr char kWheelUrdf[] = R"(
+<robot name="cart">
+  <link name="chassis"/>
+  <link name="wheel_lf"/>
+  <link name="wheel_lf_center"/>
+  <link name="wheel_rf"/>
+  <link name="wheel_lh"/>
+  <link name="wheel_rh"/>
+  <joint name="wheel_lf_joint" type="continuous">
+    <parent link="chassis"/><child link="wheel_lf"/><axis xyz="0 1 0"/><limit effort="1" velocity="10"/>
+  </joint>
+  <joint name="wheel_lf_center_joint" type="fixed"><parent link="wheel_lf"/><child link="wheel_lf_center"/></joint>
+  <joint name="wheel_rf_joint" type="continuous">
+    <parent link="chassis"/><child link="wheel_rf"/><axis xyz="0 1 0"/><limit effort="1" velocity="10"/>
+  </joint>
+  <joint name="wheel_lh_joint" type="continuous">
+    <parent link="chassis"/><child link="wheel_lh"/><axis xyz="0 1 0"/><limit effort="1" velocity="10"/>
+  </joint>
+  <joint name="wheel_rh_joint" type="continuous">
+    <parent link="chassis"/><child link="wheel_rh"/><axis xyz="0 1 0"/><limit effort="1" velocity="10"/>
+  </joint>
+</robot>
+)";
+
+TEST(MujocoContactUtils,
+     ARollingContactIsItsWheelWhichTouchesTheGroundAsItRolls) {
+  char error[1000] = "";
+  const MjModelPtr model(
+      mj_loadXML(writeTempFile("wheel_scene.xml", kWheelScene).c_str(),
+                 /*vfs=*/nullptr, error, sizeof(error)));
+  ASSERT_NE(model, nullptr) << error;
+  absl::StatusOr<MjDataPtr> dataOrStatus = makeMjData(model.get());
+  ASSERT_TRUE(dataOrStatus.ok()) << dataOrStatus.status();
+  mjData* absl_nonnull data = dataOrStatus->get();
+  const std::vector<std::string> wheels = {"wheel_lf", "wheel_rf", "wheel_lh",
+                                           "wheel_rh"};
+
+  // The MPC's rolling contact frames exist only in its own model, on the wheel
+  // joints: each resolves to its wheel body. A frame at a wheel center on a
+  // fixed child of the wheel link resolves through the URDF, and a wheel link
+  // on its continuous joint resolves by its body name.
+  const std::string urdf = writeTempFile("wheel_cart.urdf", kWheelUrdf);
+  std::vector<std::string> errors;
+  const std::vector<int> bodies = resolveContactBodies(
+      model.get(), urdf,
+      {"wheel_lf_contact", "wheel_rf_contact", "wheel_lh_contact",
+       "wheel_rh_contact"},
+      {"wheel_lf_joint", "wheel_rf_joint", "wheel_lh_joint", "wheel_rh_joint"},
+      &errors);
+  EXPECT_TRUE(errors.empty());
+  ASSERT_EQ(bodies.size(), wheels.size());
+  for (size_t i = 0; i < wheels.size(); ++i) {
+    EXPECT_EQ(bodies[i], mj_name2id(model.get(), mjOBJ_BODY, wheels[i].c_str()))
+        << wheels[i];
+  }
+  const std::vector<int> byUrdf =
+      resolveContactBodies(model.get(), urdf, {"wheel_lf_center", "wheel_rf"},
+                           /*contactParentJointNames=*/{}, &errors);
+  EXPECT_EQ(byUrdf[0], bodies[0]);
+  EXPECT_EQ(byUrdf[1], bodies[1]);
+  EXPECT_TRUE(errors.empty());
+
+  // Rolling forward at 0.5 m/s, the wheels spinning at v / r: every wheel
+  // stays in contact while its cylinder turns under it.
+  constexpr double kForwardSpeed = 0.5;
+  constexpr double kWheelRadius = 0.1;
+  mj_forward(model.get(), data);
+  data->qvel[0] = kForwardSpeed;
+  const int freeDofs = 6;
+  for (int wheel = 0; wheel < 4; ++wheel) {
+    data->qvel[freeDofs + wheel] = kForwardSpeed / kWheelRadius;
+  }
+  const int settleSteps = 50;
+  const int rollSteps = 1000;
+  for (int step = 0; step < rollSteps; ++step) {
+    mj_step(model.get(), data);
+    if (step < settleSteps) continue;
+    ASSERT_EQ(groundTruthContactMask(model.get(), data, bodies,
+                                     /*minForceMjcontactEwrtMjcontactX=*/1.0),
+              0b1111u)
+        << "at step " << step;
+  }
+  // The wheels rolled: the angle each turned is the distance over the radius.
+  const int freeCoordinates = 7;
+  EXPECT_GT(data->qpos[0], 0.3) << "the cart moved forward";
+  for (int wheel = 0; wheel < 4; ++wheel) {
+    EXPECT_NEAR(data->qpos[freeCoordinates + wheel],
+                data->qpos[0] / kWheelRadius,
+                0.1 * data->qpos[0] / kWheelRadius)
+        << wheels[static_cast<size_t>(wheel)];
+  }
+
+  // Lifted clear of the floor, no wheel is in contact.
+  data->qpos[2] += 0.1;
+  mj_forward(model.get(), data);
+  EXPECT_EQ(groundTruthContactMask(model.get(), data, bodies,
+                                   /*minForceMjcontactEwrtMjcontactX=*/1.0),
+            0u);
 }
 
 TEST(MujocoContactUtils, SubtreeMembership) {

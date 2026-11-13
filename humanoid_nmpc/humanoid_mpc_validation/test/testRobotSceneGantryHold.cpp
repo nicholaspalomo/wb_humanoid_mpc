@@ -81,8 +81,10 @@ struct ExpectedHold {
 std::vector<ExpectedHold> expectedHolds() {
   return {
       {.configuration = "anymal_b", .hold = GantryHold::kWeldConstraint},
+      {.configuration = "anymal_c_wheels", .hold = GantryHold::kWeldConstraint},
       {.configuration = "drc_atlas", .hold = GantryHold::kWeldConstraint},
       {.configuration = "engineai_sa01", .hold = GantryHold::kWeldConstraint},
+      {.configuration = "tron1", .hold = GantryHold::kWeldConstraint},
       {.configuration = "unitree_g1", .hold = GantryHold::kWeldConstraint},
       {.configuration = "unitree_r1", .hold = GantryHold::kWeldConstraint},
       {.configuration = "unitree_g1_wb", .hold = GantryHold::kWeldConstraint},
@@ -203,8 +205,9 @@ TEST(RobotSceneGantryHold, EachWeldedSceneFailsTheCheckWithItsWeldTakenOut) {
                  HasSubstr("no equality named 'gantry'")))
         << configuration->sceneFile;
   }
-  EXPECT_EQ(welded, 7) << "every configuration runs on the weld: ANYmal B, "
-                          "Atlas, SA01, R1 and the three G1 configurations";
+  EXPECT_EQ(welded, 9) << "every configuration runs on the weld: ANYmal B, "
+                          "ANYmal C wheels, Tron1, Atlas, SA01, R1 and the "
+                          "three G1 configurations";
 }
 
 }  // namespace

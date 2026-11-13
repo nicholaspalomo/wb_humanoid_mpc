@@ -84,6 +84,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/config/costs/DcmTerminalCostFromConfig.h"
 #include "humanoid_centroidal_mpc/constraint/JointMimicKinematicConstraint.h"
 #include "humanoid_centroidal_mpc/constraint/NormalVelocityConstraintCppAd.h"
+#include "humanoid_centroidal_mpc/constraint/RollingContactConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/constraint/SwingLandingAlignmentConstraint.h"
 #include "humanoid_centroidal_mpc/constraint/TerrainNonPenetrationConstraint.h"
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
@@ -274,6 +275,18 @@ absl::Status CentroidalMpcInterface::setupModels() {
   centroidalModelInfo_ = centroidal_model::createCentroidalModelInfo(
       *pinocchioInterfacePtr_, centroidalModelType, defaultJointState,
       modelSettings_.contactNames3DoF, modelSettings_.contactNames6DoF);
+  // A rolling contact's force acts a wheel radius below its frame, the wheel
+  // center; a set without one keeps the empty vector and its tapes.
+  if (modelSettings_.hasRollingContacts()) {
+    centroidalModelInfo_.rollingContactWheelRadii.assign(
+        modelSettings_.contactNames3DoF.size(), 0.0);
+    for (size_t i = 0; i < modelSettings_.contactNames3DoF.size(); ++i) {
+      if (modelSettings_.isRollingContact(i)) {
+        centroidalModelInfo_.rollingContactWheelRadii[i] =
+            modelSettings_.wheelRadius(i);
+      }
+    }
+  }
 
   LOG(INFO) << "centroidalModelInfo_.numSixDofContacts: "
             << centroidalModelInfo_.numSixDofContacts;
@@ -1489,12 +1502,12 @@ absl::Status CentroidalMpcInterface::addContactConeTerms(
   if (formulationTasks.hasSoftConstraint(
           MpcSoftConstraintType::kZeroVelocity) &&
       eeKinematicsPtr) {
-    std::unique_ptr<StateInputConstraint> stanceConstraint =
-        getStanceFootConstraint(*eeKinematicsPtr, i);
+    ASSIGN_OR_RETURN(std::unique_ptr<StateInputConstraint> stanceConstraint,
+                     getStanceFootConstraint(*eeKinematicsPtr, i));
     auto penalty = std::make_unique<QuadraticPenalty>(
         modelSettings_.footConstraintConfig.softConstraintWeight);
     problemPtr_->softConstraintPtr->add(
-        zeroVelocityTermName(footName),
+        stanceConstraintTermName(i),
         std::make_unique<StateInputSoftConstraint>(std::move(stanceConstraint),
                                                    std::move(penalty)));
   }
@@ -1716,9 +1729,10 @@ absl::Status CentroidalMpcInterface::addContactHardConstraintsAndFootCosts(
   if (formulationTasks.hasHardConstraint(
           MpcHardConstraintType::kZeroVelocity) &&
       eeKinematicsPtr) {
-    problemPtr_->equalityConstraintPtr->add(
-        zeroVelocityTermName(footName),
-        getStanceFootConstraint(*eeKinematicsPtr, i));
+    ASSIGN_OR_RETURN(std::unique_ptr<StateInputConstraint> stanceConstraint,
+                     getStanceFootConstraint(*eeKinematicsPtr, i));
+    problemPtr_->equalityConstraintPtr->add(stanceConstraintTermName(i),
+                                            std::move(stanceConstraint));
   }
   if (formulationTasks.hasHardConstraint(
           MpcHardConstraintType::kNormalVelocity) &&
@@ -1780,7 +1794,17 @@ absl::Status CentroidalMpcInterface::addContactHardConstraintsAndFootCosts(
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::unique_ptr<StateInputConstraint>
+std::string CentroidalMpcInterface::stanceConstraintTermName(
+    size_t contactPointIndex) const {
+  const std::string& contactName =
+      modelSettings_.contactNames[contactPointIndex];
+  if (modelSettings_.isRollingContact(contactPointIndex)) {
+    return contact_term::name(contactName, contact_term::kRollingNoSlipName);
+  }
+  return zeroVelocityTermName(contactName);
+}
+
+absl::StatusOr<std::unique_ptr<StateInputConstraint>>
 CentroidalMpcInterface::getStanceFootConstraint(
     const EndEffectorKinematics<scalar_t>& eeKinematics,
     size_t contactPointIndex) {
@@ -1791,6 +1815,16 @@ CentroidalMpcInterface::getStanceFootConstraint(
       modelSettings_.footConstraintConfig;
   const EndEffectorKinematicsTwistConstraint::Config twistConfig =
       footTwistConfig(footConfig);
+  // A wheel rolls: its stance holds the material at the contact point still,
+  // not the wheel center (humanoid_nmpc/docs/rolling_contact/README.md).
+  if (modelSettings_.isRollingContact(contactPointIndex)) {
+    ASSIGN_OR_RETURN(
+        std::unique_ptr<RollingContactConstraintCppAd> rolling,
+        RollingContactConstraintCppAd::Create(
+            *referenceManagerPtr_, eeKinematics, contactPointIndex,
+            modelSettings_.wheelRadius(contactPointIndex), twistConfig));
+    return std::unique_ptr<StateInputConstraint>(std::move(rolling));
+  }
   const ZeroVelocityConstraintCppAd::ContactKind contactKind =
       modelSettings_.isPointContact(contactPointIndex)
           ? ZeroVelocityConstraintCppAd::ContactKind::kPoint
@@ -1801,7 +1835,7 @@ CentroidalMpcInterface::getStanceFootConstraint(
       *referenceManagerPtr_, eeKinematics, contactPointIndex, numConstraints,
       twistConfig, contactKind);
   configureZeroVelocityConstraint(*constraint, footConfig, twistConfig);
-  return constraint;
+  return std::unique_ptr<StateInputConstraint>(std::move(constraint));
 }
 
 /******************************************************************************************************/

@@ -97,22 +97,26 @@ absl::StatusOr<RobotDescription> RobotDescription::Create(
   if (!model.ok()) return model.status();
 
   // The controllable joints, numbered in the order of their names (urdf's joint
-  // map is sorted by name); fixed, continuous, floating and planar joints are
-  // skipped.
+  // map is sorted by name); fixed, floating and planar joints are skipped. A
+  // continuous joint, such as a wheel's, keeps the unbounded default angles of
+  // JointDescription: urdfdom reads no lower and upper limit for it.
   std::vector<std::string> jointNames;
   std::vector<JointDescription> joints;
   for (const std::pair<const std::string, urdf::JointSharedPtr>& entry :
        (*model)->joints_) {
     const urdf::Joint& joint = *entry.second;
+    const bool continuous = joint.type == urdf::Joint::CONTINUOUS;
     if (joint.type != urdf::Joint::REVOLUTE &&
-        joint.type != urdf::Joint::PRISMATIC) {
+        joint.type != urdf::Joint::PRISMATIC && !continuous) {
       continue;
     }
     JointDescription description;
     description.id = joints.size();
     if (joint.limits != nullptr) {
-      description.min_angle = joint.limits->lower;
-      description.max_angle = joint.limits->upper;
+      if (!continuous) {
+        description.min_angle = joint.limits->lower;
+        description.max_angle = joint.limits->upper;
+      }
       description.max_joint_velocity =
           joint.limits
               ->velocity;  // NOLINT(frame-naming): urdfdom JointLimits field, a joint-space bound
@@ -126,10 +130,11 @@ absl::StatusOr<RobotDescription> RobotDescription::Create(
         absl::StrCat("No valid joints found in URDF: ", urdfPath));
   }
   if (joints.size() < kMinJoints || joints.size() > kMaxJoints) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "The URDF ", urdfPath, " has ", joints.size(),
-        " revolute and prismatic joints; a robot description takes ",
-        kMinJoints, " to ", kMaxJoints, "."));
+    return absl::InvalidArgumentError(
+        absl::StrCat("The URDF ", urdfPath, " has ", joints.size(),
+                     " revolute, continuous and prismatic joints; a robot "
+                     "description takes ",
+                     kMinJoints, " to ", kMaxJoints, "."));
   }
   return RobotDescription(path, std::move(jointNames), std::move(joints));
 }
@@ -174,8 +179,8 @@ absl::StatusOr<std::vector<joint_index_t>> RobotDescription::findJointIndices(
     const std::optional<joint_index_t> index = findJointIndex(jointName);
     if (!index.has_value()) {
       return absl::NotFoundError(absl::StrCat(
-          "The URDF ", urdf_path_, " has no revolute or prismatic joint '",
-          jointName, "'"));
+          "The URDF ", urdf_path_,
+          " has no revolute, continuous or prismatic joint '", jointName, "'"));
     }
     jointIndices.push_back(*index);
   }
@@ -186,8 +191,9 @@ joint_index_t RobotDescription::getJointIndex(
     absl::string_view jointName) const {
   const std::optional<joint_index_t> index = findJointIndex(jointName);
   ABSL_CHECK(index.has_value())
-      << "The URDF " << urdf_path_ << " has no revolute or prismatic joint '"
-      << jointName << "'";
+      << "The URDF " << urdf_path_
+      << " has no revolute, continuous or prismatic joint '" << jointName
+      << "'";
   return *index;
 }
 

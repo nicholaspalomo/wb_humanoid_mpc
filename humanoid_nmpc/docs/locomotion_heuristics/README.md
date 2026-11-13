@@ -547,9 +547,10 @@ make derive-heuristic-parameters ROBOT=drc_atlas
 ```
 
 `ROBOT` takes `drc_atlas`, `engineai_sa01`, `unitree_g1` or `unitree_r1` - the bipeds' centroidal packages; the
-whole-body one has no layer to configure. ANYmal B's centroidal package is not derived: the formulas assume two feet
-(the foot separation, the step width, the bipeds' gait table), so the script lists it in `UNDERIVED_ROBOTS` and only
-checks its task file for the default-off rule. Calling the script directly gives the rest of its options: `--gait walk` quotes the
+whole-body one has no layer to configure. The centroidal packages of ANYmal B, Tron1 and the wheeled ANYmal C are not
+derived: the formulas assume two feet on footholds fixed in the world (the foot separation, the step width, the bipeds'
+gait table), while ANYmal B stands on four point feet, Tron1 on two wheels that roll and the wheeled ANYmal C on four. The script lists them in `UNDERIVED_ROBOTS` and
+only checks their task files for the default-off rule. Calling the script directly gives the rest of its options: `--gait walk` quotes the
 stepping leads for another cadence (the stance-proportional coefficients themselves do not depend on it), `--check` compares the shipped block against the derivation instead of printing
 it, and `--task-file` / `--urdf` / `--reference-file` take an unregistered robot.
 

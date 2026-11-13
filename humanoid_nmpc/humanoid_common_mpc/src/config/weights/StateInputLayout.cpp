@@ -47,6 +47,7 @@ StateInputLayout stateInputLayout(const ModelSettings& settings,
   layout.fixedJointNames = settings.fixedJointNames;
   layout.contactNames = settings.contactNames;
   layout.numPointContacts = settings.contactNames3DoF.size();
+  layout.wheelJointNames = settings.rollingContactJointNames();
   return layout;
 }
 

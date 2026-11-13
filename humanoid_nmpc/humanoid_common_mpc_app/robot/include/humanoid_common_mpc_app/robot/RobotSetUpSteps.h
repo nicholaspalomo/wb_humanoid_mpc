@@ -117,8 +117,10 @@ RobotProcess::Hooks robotProcessHooks(
  * estimation::kMpcRootJointName): a 3-DoF contact at its
  * posContactRtLinkEwrtLink, a 6-DoF contact at the center of its sole or
  * surface pad, contactCenterPointFromConfig() of `contacts` (the task file's
- * contacts block), which is where the MPC model's contact frame is. Parses the
- * URDF once.
+ * contacts block), which is where the MPC model's contact frame is. A rolling
+ * contact is an estimation::ContactPointKind::kRolling point on its wheel link
+ * at the wheel center, with the wheel radius, which the `kalman` estimator
+ * refuses. Each point carries its contact's name. Parses the URDF once.
  *
  * @return InvalidArgument naming a 6-DoF contact without a parent joint, the
  * errors of childLinkNamesOfJoints() and of contactCenterPointFromConfig().

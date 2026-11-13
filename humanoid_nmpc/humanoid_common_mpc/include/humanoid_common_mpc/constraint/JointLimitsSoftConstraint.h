@@ -47,7 +47,9 @@ namespace ocs2::humanoid {
 /**
  * A soft joint position limit: a piecewise polynomial barrier on the distance
  * of each MPC joint to its lower and upper position limit, added as a state
- * cost.
+ * cost. An infinite limit has no row: a continuous wheel joint, whose limits
+ * are -/+infinity (robot::model::parseUrdfFileForPinocchio()), is not held at
+ * any angle. A joint with finite limits gets exactly the terms it always had.
  *
  * The robot model must outlive it. setGains() retunes the barrier between
  * solves. Like every OCS2 term it is cloned for each solver thread, and a

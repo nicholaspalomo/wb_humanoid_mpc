@@ -61,7 +61,8 @@ namespace ocs2::humanoid {
  * The diagonal state weight matrix (tuningDimension(layout) square, on the rows
  * of tuningLayoutOf(layout)) of `weights`: Q of state_weights, Q_final of
  * final_state_weights, before the terminal scaling and before any zeroing of
- * the base pose block.
+ * the base pose block. A joint_positions weight other than 0 on a wheel joint
+ * of the layout (StateInputLayout::wheelJointNames) is refused too.
  */
 absl::StatusOr<matrix_t> stateWeightsFromConfig(
     const mpc_config::StateWeights& weights,

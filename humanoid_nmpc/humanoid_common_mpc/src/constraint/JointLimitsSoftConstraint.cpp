@@ -30,10 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 
+#include <cmath>
 #include <cstddef>
 #include <memory>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "ocs2_core/PreComputation.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
@@ -43,6 +45,74 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
+namespace {
+
+/** Which derivative of the barrier FiniteLimitBarrier evaluates. */
+enum class BarrierOrder {
+  kValue,
+  kFirstDerivative,
+  kSecondDerivative,
+};
+
+/**
+ * The barrier of an offset `hi` from a joint limit, or 0 for an infinite limit,
+ * which bounds nothing: a joint without that bound has no row. Applied entry by
+ * entry (Eigen's binaryExpr), so that the sums over the joints add the same
+ * terms in the same order as the barrier of the offsets alone did. Keeps a
+ * pointer to the penalty, which outlives it. Thread-safe as the penalty's const
+ * methods are.
+ */
+class FiniteLimitBarrier {
+ public:
+  explicit FiniteLimitBarrier(const PieceWisePolynomialBarrierPenalty& penalty,
+                              BarrierOrder order)
+      : penalty_(&penalty), order_(order) {}
+  FiniteLimitBarrier(const FiniteLimitBarrier&) = default;
+  FiniteLimitBarrier& operator=(const FiniteLimitBarrier&) = default;
+  FiniteLimitBarrier(FiniteLimitBarrier&&) noexcept = default;
+  FiniteLimitBarrier& operator=(FiniteLimitBarrier&&) noexcept = default;
+  ~FiniteLimitBarrier() = default;
+
+  scalar_t operator()(scalar_t hi, scalar_t limit) const {
+    if (!std::isfinite(limit)) return 0.0;
+    switch (order_) {
+      case BarrierOrder::kValue:
+        return penalty_->getValue(/*t=*/0.0, hi);
+      case BarrierOrder::kFirstDerivative:
+        return penalty_->getDerivative(/*t=*/0.0, hi);
+      case BarrierOrder::kSecondDerivative:
+        return penalty_->getSecondDerivative(/*t=*/0.0, hi);
+    }
+    return 0.0;
+  }
+
+ private:
+  const PieceWisePolynomialBarrierPenalty* absl_nonnull penalty_;
+  BarrierOrder order_;
+};
+
+/** Returns the sum over the joints of the barrier of `offsets` from the
+ * position bounds `limits`; an infinite bound adds nothing. */
+scalar_t sumOfFiniteLimitBarriers(
+    const vector_t& offsets,
+    const vector_t& limits,
+    const PieceWisePolynomialBarrierPenalty& penalty) {
+  return offsets
+      .binaryExpr(limits, FiniteLimitBarrier(penalty, BarrierOrder::kValue))
+      .sum();
+}
+
+/** Returns, joint by joint, the derivative `order` of the barrier of `offsets`
+ * from the position bounds `limits`; 0 at an infinite bound. */
+vector_t finiteLimitBarrierDerivatives(
+    const vector_t& offsets,
+    const vector_t& limits,
+    const PieceWisePolynomialBarrierPenalty& penalty,
+    BarrierOrder order) {
+  return offsets.binaryExpr(limits, FiniteLimitBarrier(penalty, order));
+}
+
+}  // namespace
 
 JointLimitsSoftConstraint::JointLimitsSoftConstraint(
     JointPositionLimits jointPositionLimits,
@@ -87,17 +157,12 @@ scalar_t JointLimitsSoftConstraint::getValue(
       jointPositionLimits_.upper - jointPositions;
   const vector_t lowerBoundJointPositionOffset =
       jointPositions - jointPositionLimits_.lower;
-
-  return upperBoundJointPositionOffset
-             .unaryExpr([&](scalar_t hi) {
-               return jointPositionPenaltyPtr_->getValue(/*t=*/0.0, hi);
-             })
-             .sum() +
-         lowerBoundJointPositionOffset
-             .unaryExpr([&](scalar_t hi) {
-               return jointPositionPenaltyPtr_->getValue(/*t=*/0.0, hi);
-             })
-             .sum();
+  return sumOfFiniteLimitBarriers(upperBoundJointPositionOffset,
+                                  jointPositionLimits_.upper,
+                                  *jointPositionPenaltyPtr_) +
+         sumOfFiniteLimitBarriers(lowerBoundJointPositionOffset,
+                                  jointPositionLimits_.lower,
+                                  *jointPositionPenaltyPtr_);
 }
 
 ScalarFunctionQuadraticApproximation
@@ -107,39 +172,33 @@ JointLimitsSoftConstraint::getQuadraticApproximation(
       jointPositionLimits_.upper - jointPositions;
   const vector_t lowerBoundJointPositionOffset =
       jointPositions - jointPositionLimits_.lower;
+  const PieceWisePolynomialBarrierPenalty& penalty = *jointPositionPenaltyPtr_;
 
   const size_t stateDim = mpcRobotModelPtr_->getStateDim();
   const size_t jointDim = mpcRobotModelPtr_->getJointDim();
   const size_t jointStartIndex = mpcRobotModelPtr_->getJointStartindex();
 
   ScalarFunctionQuadraticApproximation cost;
-  cost.f = upperBoundJointPositionOffset
-               .unaryExpr([&](scalar_t hi) {
-                 return jointPositionPenaltyPtr_->getValue(/*t=*/0.0, hi);
-               })
-               .sum() +
-           lowerBoundJointPositionOffset
-               .unaryExpr([&](scalar_t hi) {
-                 return jointPositionPenaltyPtr_->getValue(/*t=*/0.0, hi);
-               })
-               .sum();
+  cost.f = getValue(jointPositions);
 
   cost.dfdx = vector_t::Zero(stateDim);
   cost.dfdx.segment(jointStartIndex, jointDim) =
-      lowerBoundJointPositionOffset.unaryExpr([&](scalar_t hi) {
-        return jointPositionPenaltyPtr_->getDerivative(/*t=*/0.0, hi);
-      }) -
-      upperBoundJointPositionOffset.unaryExpr([&](scalar_t hi) {
-        return jointPositionPenaltyPtr_->getDerivative(/*t=*/0.0, hi);
-      });
+      finiteLimitBarrierDerivatives(lowerBoundJointPositionOffset,
+                                    jointPositionLimits_.lower, penalty,
+                                    BarrierOrder::kFirstDerivative) -
+      finiteLimitBarrierDerivatives(upperBoundJointPositionOffset,
+                                    jointPositionLimits_.upper, penalty,
+                                    BarrierOrder::kFirstDerivative);
 
   cost.dfdxx = matrix_t::Zero(stateDim, stateDim);
   cost.dfdxx.block(jointStartIndex, jointStartIndex, jointDim, jointDim)
-      .diagonal() = lowerBoundJointPositionOffset.unaryExpr([&](scalar_t hi) {
-    return jointPositionPenaltyPtr_->getSecondDerivative(/*t=*/0.0, hi);
-  }) + upperBoundJointPositionOffset.unaryExpr([&](scalar_t hi) {
-    return jointPositionPenaltyPtr_->getSecondDerivative(/*t=*/0.0, hi);
-  });
+      .diagonal() =
+      finiteLimitBarrierDerivatives(lowerBoundJointPositionOffset,
+                                    jointPositionLimits_.lower, penalty,
+                                    BarrierOrder::kSecondDerivative) +
+      finiteLimitBarrierDerivatives(upperBoundJointPositionOffset,
+                                    jointPositionLimits_.upper, penalty,
+                                    BarrierOrder::kSecondDerivative);
 
   return cost;
 }

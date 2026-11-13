@@ -67,6 +67,10 @@ _ROBOTS = {
         "anybotics_anymal_b/anymal_b_description/urdf/anymal_b.xml",
         "anybotics_anymal_b/anymal_b_centroidal_mpc/config/controller/joint_pd_gains.textproto",
     ),
+    "anymal_c_wheels": (
+        "anybotics_anymal_c_wheels/anymal_c_wheels_description/urdf/anymal_c_wheels.xml",
+        "anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/config/controller/joint_pd_gains.textproto",
+    ),
     "drc_atlas": (
         "drc_atlas/drc_atlas_description/urdf/atlas.xml",
         "drc_atlas/drc_atlas_centroidal_mpc/config/controller/joint_pd_gains.textproto",
@@ -86,6 +90,10 @@ _ROBOTS = {
     "unitree_r1": (
         "unitree_r1/unitree_r1_description/urdf/R1.xml",
         "unitree_r1/unitree_r1_centroidal_mpc/config/controller/joint_pd_gains.textproto",
+    ),
+    "tron1": (
+        "limx_tron1/tron1_description/urdf/tron1.xml",
+        "limx_tron1/tron1_centroidal_mpc/config/controller/joint_pd_gains.textproto",
     ),
 }
 

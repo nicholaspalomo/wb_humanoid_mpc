@@ -60,6 +60,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ContactArray.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/robot/ControllerSideSettingsFromConfig.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
@@ -287,10 +288,63 @@ class ClosedLoopDriver {
    */
   std::optional<double> maxUnitQuaternionNormDeviation() const;
 
-  /** The world positions of the MPC's contact frames at the configuration of
-   * `observation`, one per contact of the set in contact order. */
+  /** Returns the world positions of the MPC's contact points at the
+   * configuration of `observation`, one per contact of the set in contact
+   * order: a contact frame's position, or for a rolling contact its wheel's
+   * lowest point, r below the wheel-center frame
+   * (posContactRtWorldEwrtWorld() of contact/RollingContact.h). */
   ContactArray<Eigen::Vector3d> computePosContactsRtWorldEwrtWorld(
       const SystemObservation& observation);
+
+  /** Returns how the metrics measure each contact's slip, in contact order:
+   * kMaterialSlip for a rolling contact, kDrift for any other. */
+  std::vector<ContactSlipMeasure> contactSlipMeasures() const;
+
+  /**
+   * Returns the velocity of the wheel material at each rolling contact's point
+   * (linvelContactRtWorldEwrtWorld() of contact/RollingContact.h), one per
+   * contact of the set in contact order and zero for a contact that does not
+   * roll: the wheel-center frame's twist at the configuration of
+   * `observation`, moved by the simulator's base twist and joint motion
+   * of `state`. Without a rolling contact it returns an empty array and runs
+   * no kinematics.
+   */
+  ContactArray<Eigen::Vector3d> computeLinvelContactsRtWorldEwrtWorld(
+      const SystemObservation& observation,
+      const robot::model::RobotState& state);
+
+  /** The simulator's base twist in world axes and its joint motion in the
+   * MPC's joint order (mpcModelJointNames). Passive data. */
+  struct BaseAndJointMotion {
+    vector3_t linvelBaseRtWorldEwrtWorld = vector3_t::Zero();
+    vector3_t angvelBaseRtWorldEwrtWorld = vector3_t::Zero();
+    /** One entry per joint of the MPC model. */
+    vector_t jointVelocities;
+  };
+
+  /** The twist of a wheel-center frame in world axes. Passive data. */
+  struct WheelCenterMotion {
+    vector3_t linvelWheelRtWorldEwrtWorld = vector3_t::Zero();
+    vector3_t angvelWheelRtWorldEwrtWorld = vector3_t::Zero();
+  };
+
+  /** Returns the base twist of `state`, turned from base into world axes, and
+   * its joint motion in the MPC's joint order. */
+  BaseAndJointMotion baseAndJointMotionOf(
+      const robot::model::RobotState& state) const;
+
+  /**
+   * Returns the twist of the wheel-center frame of rolling contact `contact`:
+   * the joint columns of its LOCAL_WORLD_ALIGNED frame Jacobian times the
+   * joint motion of `motion`, plus the rigid motion of the base at
+   * `posBaseRtWorldEwrtWorld` [m]. Reads the kinematics and joint Jacobians
+   * that computeLinvelContactsRtWorldEwrtWorld() computed into
+   * measurementPinocchio_'s data. Allocates the 6 x nv frame Jacobian.
+   */
+  WheelCenterMotion wheelCenterMotionOf(
+      size_t contact,
+      const BaseAndJointMotion& motion,
+      const vector3_t& posBaseRtWorldEwrtWorld);
 
   // ---------------------------------------------------------------- the robot
   // process's side

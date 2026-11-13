@@ -184,6 +184,22 @@ TEST(ContactKinematicsTest, RefusesAContactWhoseLinkIsNotInTheUrdf) {
             absl::StatusCode::kInvalidArgument);
 }
 
+TEST(ContactKinematicsTest, RefusesARollingContact) {
+  // A wheel's lowest point is no point of its link; a contact without an MPC
+  // name is named by its link.
+  std::vector<ContactPointSpec> specs = specsOf({"left_foot", "right_foot"});
+  specs[0].kind = ContactPointKind::kRolling;
+  specs[0].wheelRadius = 0.1;
+  const absl::StatusOr<std::unique_ptr<ContactKinematics>> kinematics =
+      ContactKinematics::Create(test_support::kPrismaticBipedUrdf, specs,
+                                test_support::prismaticBipedJointNames());
+  ASSERT_EQ(kinematics.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(kinematics.status().message(),
+                                "the rolling contact on the link 'left_foot'"))
+      << kinematics.status();
+  EXPECT_TRUE(checkFixedContactPoints(specsOf({"left_foot"}), "test").ok());
+}
+
 TEST(ContactKinematicsTest, AJointsChildLinkIsTheLinkItPlaces) {
   const absl::StatusOr<std::vector<std::string>> links = childLinkNamesOfJoints(
       armUrdf(), {kMpcRootJointName, "spin", "tip_mount", "spin"});

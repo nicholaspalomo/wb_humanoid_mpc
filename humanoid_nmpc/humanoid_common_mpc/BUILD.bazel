@@ -437,6 +437,9 @@ cc_library(
         # The SQP settings the typed task file converts into (config/solver/SolverSettingsFromConfig.h).
         "//lib/ocs2:ocs2_sqp",
         "//robot_runtime/robot_core",
+        # The URDF of every Pinocchio model, with its continuous joints made unbounded revolute ones
+        # (robot_model/UrdfContinuousJoints.h).
+        "//robot_runtime/robot_model",
         # The typed configuration schemas and their strict parser (humanoid_nmpc/humanoid_mpc_config).
         "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
@@ -450,6 +453,7 @@ cc_library(
         "@hpipm",
         "@eigen",
         "@pinocchio",
+        "@urdf",
         "@abseil-cpp//absl/base:core_headers",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/container:btree",
@@ -486,8 +490,10 @@ cc_test(
     # LINT.IfChange(formulation_shipped_task_files_data)
     data = [
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
         "//robot_models/unitree_g1/g1_centroidal_mpc",
         "//robot_models/unitree_g1/g1_wb_mpc",
         "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
@@ -655,7 +661,8 @@ cc_test(
 )
 
 # The foot_motion leg joint reference: its names, the leg maps of ANYmal B's point feet at the default posture and their
-# refusals, and the reference manager's state and input references with it and without it.
+# refusals (the Atlas's 6-DoF feet and shared legs, Tron1's rolling contacts), and the reference manager's state and
+# input references with it and without it.
 cc_test(
     name = "testLegJointReference",
     size = "small",
@@ -666,6 +673,8 @@ cc_test(
         "//robot_models/anybotics_anymal_b/anymal_b_description",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_description",
     ],
     deps = [
         ":humanoid_common_mpc",
@@ -781,8 +790,10 @@ cc_test(
     # LINT.IfChange(shipped_centroidal_task_files_data)
     data = [
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
         "//robot_models/unitree_g1/g1_centroidal_mpc",
         "//robot_models/unitree_g1/g1_wb_mpc",
         "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
@@ -838,6 +849,49 @@ cc_test(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/types:span",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The shared gait file of the wheeled robots: stance and drive on every contact, and its switching table.
+cc_test(
+    name = "testWheeledGaitFile",
+    size = "small",
+    srcs = ["test/testWheeledGaitFile.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [":wheeled_gait_config"],
+    deps = [
+        ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core_types",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:btree",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The gait file of the wheeled quadrupeds: stance and drive on four wheels, a trot with four-wheel phases to turn, and its
+# switching table.
+cc_test(
+    name = "testWheeledQuadrupedGaitFile",
+    size = "small",
+    srcs = ["test/testWheeledQuadrupedGaitFile.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [":wheeled_quadruped_gait_config"],
+    deps = [
+        ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core_types",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:btree",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
     ],
 )
@@ -1002,8 +1056,10 @@ cc_test(
     # LINT.IfChange(shipped_pd_gains_files_data)
     data = [
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
         "//robot_models/unitree_g1/g1_centroidal_mpc",
         "//robot_models/unitree_g1/g1_wb_mpc",
         "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
@@ -1261,8 +1317,10 @@ cc_test(
     # LINT.IfChange(filter_test_data)
     data = [
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
         "//robot_models/unitree_g1/g1_centroidal_mpc",
         "//robot_models/unitree_g1/g1_wb_mpc",
         "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
@@ -2540,22 +2598,40 @@ filegroup(
     srcs = ["config/command/quadruped_gait.textproto"],
 )
 
+# The gait file of the wheeled bipeds: stance and drive, every contact in contact, whatever the contact set.
+filegroup(
+    name = "wheeled_gait_config",
+    srcs = ["config/command/wheeled_gait.textproto"],
+)
+
+# The gait file of the wheeled quadrupeds: stance and drive on four wheels, and a trot with four-wheel phases to turn.
+filegroup(
+    name = "wheeled_quadruped_gait_config",
+    srcs = ["config/command/wheeled_quadruped_gait.textproto"],
+)
+
 # ==============================================================================
 # The typed configuration files (humanoid_nmpc/humanoid_mpc_config)
 # ==============================================================================
 
-# The shipped robots' configurations and models, and the shared gait files of the bipeds and the quadruped: what
-# test/config/testConfigRoots.cpp and test/config/weights/testStateInputWeightsFromConfig.cpp load.
+# The shipped robots' configurations and models, and the shared gait files of the bipeds, the quadruped and the wheeled
+# robots: what test/config/testConfigRoots.cpp and test/config/weights/testStateInputWeightsFromConfig.cpp load.
 # LINT.IfChange(config_test_data)
 _SHIPPED_ROBOT_DATA = [
     ":gait_config",
     ":quadruped_gait_config",
+    ":wheeled_gait_config",
+    ":wheeled_quadruped_gait_config",
     "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
     "//robot_models/anybotics_anymal_b/anymal_b_description",
+    "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
+    "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
     "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
     "//robot_models/drc_atlas/drc_atlas_description",
     "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
     "//robot_models/engineai_sa01/engineai_sa01_description",
+    "//robot_models/limx_tron1/tron1_centroidal_mpc",
+    "//robot_models/limx_tron1/tron1_description",
     "//robot_models/unitree_g1/g1_centroidal_mpc",
     "//robot_models/unitree_g1/g1_description",
     "//robot_models/unitree_g1/g1_wb_mpc",
@@ -2656,6 +2732,50 @@ cc_test(
     ],
 )
 
+# The geometry of a rolling contact (contact/RollingContact.h): the wheel's lowest point and the no-slip velocity there.
+cc_test(
+    name = "testRollingContact",
+    size = "small",
+    srcs = ["test/testRollingContact.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_thirdparty",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The MPC model of Tron1 on its rolling contacts: one coordinate and no position bound per wheel joint, no joint-limit
+# row for a wheel, and the contact positions at the wheels' lowest points.
+cc_test(
+    name = "testRollingContactModel",
+    size = "small",
+    srcs = ["test/testRollingContactModel.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = ["//robot_models/limx_tron1/tron1_description"],
+    deps = [
+        ":humanoid_common_mpc",
+        ":humanoid_common_mpc_types",
+        ":quaternion_layout_robot_model",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
 # The legs of ModelSettings on every shipped robot, the multi-contact Atlas and the Atlas sole corners as four legs, the
 # refusals of model_settings.legs, and the pendulum length above the legs' contacts.
 cc_test(
@@ -2702,6 +2822,8 @@ _CONFIG_TEST_DEPS = [
     "//lib/ocs2:ocs2_oc",
     "//lib/ocs2:ocs2_pinocchio_interface",
     "//lib/ocs2:ocs2_sqp",
+    # The FNV-1a constants of the model fingerprint's oracle (test/config/model/testModelSettingsFromConfig.cpp).
+    "//tools/nproto:fnv1a64_constants",
     "//tools/nproto:nproto_runtime",
     "@abseil-cpp//absl/base:nullability",
     "@abseil-cpp//absl/container:btree",
@@ -2718,6 +2840,11 @@ _CONFIG_TEST_DEPS = [
     "@googletest//:gtest_main",
     "@pinocchio",
 ]
+
+_CONFIG_TEST_DATA = {
+    "weights": _SHIPPED_ROBOT_DATA,
+    "model": ["//robot_models/limx_tron1/tron1_description"],
+}
 
 _CONFIG_AREAS = [
     "solver",
@@ -2736,8 +2863,9 @@ _CONFIG_AREAS = [
         size = "small",
         srcs = glob(["test/config/%s/*.cpp" % area]),
         copts = FIRST_PARTY_COPTS,
-        # The weights' test converts every shipped task file (testStateInputWeightsFromConfig.cpp).
-        data = _SHIPPED_ROBOT_DATA if area == "weights" else [],
+        # The weights' test converts every shipped task file (testStateInputWeightsFromConfig.cpp); the model's builds
+        # rolling contacts on Tron1's wheels (testModelSettingsFromConfig.cpp).
+        data = _CONFIG_TEST_DATA.get(area, []),
         deps = _CONFIG_TEST_DEPS,
     )
     for area in _CONFIG_AREAS

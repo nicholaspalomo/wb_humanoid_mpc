@@ -56,6 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact/RollingContact.h"
 
 namespace ocs2::humanoid {
 
@@ -134,10 +135,22 @@ std::vector<VECTOR3_T<SCALAR_T>> getPosContactsRtWorldEwrtWorld(
       pinocchioInterface.getData();
 
   for (size_t i = 0; i < numContacts; ++i) {
-    const VECTOR3_T<SCALAR_T>& posContactRtWorldEwrtWorld =
+    const VECTOR3_T<SCALAR_T>& posLinkRtWorldEwrtWorld =
         data.oMf[getContactFrameIndex(pinocchioInterface, mpcRobotModel, i)]
             .translation();
-    posContactsRtWorldEwrtWorld.emplace_back(posContactRtWorldEwrtWorld);
+    posContactsRtWorldEwrtWorld.emplace_back(posLinkRtWorldEwrtWorld);
+  }
+  // A rolling contact's frame is its wheel center; the contact is the wheel's
+  // lowest point. Only a set with one is changed, so that every other set
+  // records the tape it always had.
+  const ModelSettings& settings = mpcRobotModel.modelSettings;
+  if (settings.hasRollingContacts()) {
+    for (size_t i = 0; i < numContacts; ++i) {
+      if (!settings.isRollingContact(i)) continue;
+      posContactsRtWorldEwrtWorld[i] = posContactRtWorldEwrtWorld<SCALAR_T>(
+          posContactsRtWorldEwrtWorld[i], SCALAR_T(settings.wheelRadius(i)),
+          normalTerrainEwrtWorld<SCALAR_T>());
+    }
   }
   return posContactsRtWorldEwrtWorld;
 }
@@ -290,12 +303,19 @@ scalar_t computePosComRtLowcontactEwrtWorldZ(
   updateFramePlacements<scalar_t>(q, pinocchioInterface);
   scalar_t minPosContactsRtWorldEwrtWorldZ =
       std::numeric_limits<scalar_t>::infinity();
-  for (size_t i = 0; i < mpcRobotModel.modelSettings.contactNames.size(); ++i) {
-    minPosContactsRtWorldEwrtWorldZ = std::min(
-        minPosContactsRtWorldEwrtWorldZ,
+  const ModelSettings& settings = mpcRobotModel.modelSettings;
+  for (size_t i = 0; i < settings.contactNames.size(); ++i) {
+    scalar_t posContactRtWorldEwrtWorldZ =
         pinocchioInterface.getData()
             .oMf[getContactFrameIndex(pinocchioInterface, mpcRobotModel, i)]
-            .translation()(kZAxisIndex));
+            .translation()(kZAxisIndex);
+    // A rolling contact's frame is its wheel center, a radius above the
+    // contact on flat ground.
+    if (settings.isRollingContact(i)) {
+      posContactRtWorldEwrtWorldZ -= settings.wheelRadius(i);
+    }
+    minPosContactsRtWorldEwrtWorldZ =
+        std::min(minPosContactsRtWorldEwrtWorldZ, posContactRtWorldEwrtWorldZ);
   }
   return posComRtWorldEwrtWorldZ - minPosContactsRtWorldEwrtWorldZ;
 }

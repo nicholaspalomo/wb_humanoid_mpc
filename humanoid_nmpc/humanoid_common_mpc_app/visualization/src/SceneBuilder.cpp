@@ -65,6 +65,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/joint.hpp"
 #include "pinocchio/parsers/urdf.hpp"
 #include "pinocchio/spatial.hpp"
+#include "urdf_world/types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -74,6 +75,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/FootCollisionConstraint.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/ContactWrenchMapper.h"
+#include "humanoid_common_mpc/contact/RollingContact.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/PinocchioFrameConversions.h"
 #include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
@@ -92,6 +94,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/spheres.pb.h"
 #include "humanoid_mpc_msgs/vector3.pb.h"
 #include "humanoid_mpc_msgs/visualization_scene.pb.h"
+#include "robot_model/UrdfContinuousJoints.h"
 
 namespace ocs2::humanoid::visualization {
 
@@ -100,15 +103,27 @@ namespace {
 using Model = PinocchioInterface::Model;
 using Data = PinocchioInterface::Data;
 
-/** The configuration entries of an unbounded revolute joint: (cos, sin) of its
- * angle. */
-constexpr int kUnboundedRevoluteJointNq = 2;
 /** The frames of the task file's collision constraint that a collision sphere
  * may be drawn at. */
 constexpr size_t kCollisionSphereFrames = 10;
 /** The line strips of the plan: the end effectors', the base's and the CoM's
  * paths. */
 constexpr size_t kPlanLineStrips = 3;
+
+/**
+ * Returns the point a contact touches the ground at, from the origin
+ * `posLinkRtWorldEwrtWorld` of its frame: the frame's origin for a fixed
+ * contact (`wheelRadius` 0), the wheel's lowest point below its center for a
+ * rolling one (contact/RollingContact.h).
+ */
+vector3_t contactPointOfFrame(const vector3_t& posLinkRtWorldEwrtWorld,
+                              scalar_t wheelRadius) {
+  if (wheelRadius > 0.0) {
+    return posContactRtWorldEwrtWorld(posLinkRtWorldEwrtWorld, wheelRadius,
+                                      normalTerrainEwrtWorld<scalar_t>());
+  }
+  return posLinkRtWorldEwrtWorld;
+}
 
 void setVector3(const vector3_t& value,
                 humanoid_mpc_msgs::Vector3* absl_nonnull message) {
@@ -219,10 +234,17 @@ absl::Status SceneBuilder::initialize(const VisualizationModel& model,
   const Model& mpcModel = pinocchioInterface_.getModel();
   collectLinkFrames(mpcModel, &mpcLinkFrames_, &mpcLinkNames_);
 
+  // A continuous joint gets one coordinate, its angle, as in the MPC's model.
+  absl::StatusOr<urdf::ModelInterfaceSharedPtr> urdfTree =
+      robot::model::parseUrdfFileForPinocchio(model.urdfFile);
+  if (!urdfTree.ok()) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "the URDF '", model.urdfFile,
+        "' does not give a Pinocchio model: ", urdfTree.status().message()));
+  }
   try {  // NOLINT(exceptions): Pinocchio's URDF parser throws; its exception becomes a Status here.
-    pinocchio::urdf::buildModel(model.urdfFile,
-                                pinocchio::JointModelFreeFlyerTpl<scalar_t>(),
-                                fullModel_);
+    pinocchio::urdf::buildModel(
+        *urdfTree, pinocchio::JointModelFreeFlyerTpl<scalar_t>(), fullModel_);
     // NOLINTNEXTLINE(exceptions): the boundary of the try above.
   } catch (const std::exception& e) {
     return absl::InvalidArgumentError(
@@ -235,12 +257,12 @@ absl::Status SceneBuilder::initialize(const VisualizationModel& model,
   for (pinocchio::JointIndex joint = kFirstJointAfterFloatingBase;
        joint < static_cast<pinocchio::JointIndex>(fullModel_.njoints);
        ++joint) {
-    const int nq = fullModel_.joints[joint].nq();
-    if (nq == 1 || nq == kUnboundedRevoluteJointNq) {
+    // One coordinate: a revolute (a continuous one included) or prismatic
+    // joint.
+    if (fullModel_.joints[joint].nq() == 1) {
       fullJoints_.push_back(
           FullModelJoint{.name = fullModel_.names[joint],
-                         .idxQ = fullModel_.joints[joint].idx_q(),
-                         .nq = nq});
+                         .idxQ = fullModel_.joints[joint].idx_q()});
     }
   }
 
@@ -257,13 +279,18 @@ absl::Status SceneBuilder::initialize(const VisualizationModel& model,
   }
   const size_t numContacts = modelSettings().contactNames.size();
   contactFrames_.assign(numContacts, 0);
+  contactWheelRadii_.assign(numContacts, 0.0);
   cornerFrames_.assign(numContacts, {});
   cornerMappers_.assign(numContacts, std::nullopt);
   for (size_t contact = 0; contact < numContacts; ++contact) {
     ASSIGN_OR_RETURN(contactFrames_[contact],
                      findFrame(mpcModel, modelSettings().contactNames[contact],
                                "contactNames"));
-    // A 3-DoF contact has no rectangle: its force is drawn at its frame.
+    // A 3-DoF contact has no rectangle: its force is drawn at its frame, or a
+    // rolling contact's at its wheel's lowest point.
+    if (modelSettings().isRollingContact(contact)) {
+      contactWheelRadii_[contact] = modelSettings().wheelRadius(contact);
+    }
     if (modelSettings().isPointContact(contact)) continue;
     const absl::StatusOr<ContactRectangle> rectangle =
         contactRectangleFromConfig(task->contacts, modelSettings(),
@@ -294,6 +321,14 @@ absl::Status SceneBuilder::initialize(const VisualizationModel& model,
     ASSIGN_OR_RETURN(const pinocchio::FrameIndex index,
                      findFrame(mpcModel, frame, kRerunPlanFramesField));
     planFrames_.push_back(index);
+    // A plan frame that is a rolling contact's is drawn at its contact point.
+    scalar_t wheelRadius = 0.0;
+    for (size_t contact = 0; contact < numContacts; ++contact) {
+      if (contactFrames_[contact] == index) {
+        wheelRadius = contactWheelRadii_[contact];
+      }
+    }
+    planFrameWheelRadii_.push_back(wheelRadius);
   }
 
   const absl::StatusOr<FootCollisionConstraint::Config> loaded =
@@ -372,14 +407,7 @@ void SceneBuilder::writeMeasuredFromSample(
         joint.sampleIndex >= sample.joint_positions.size()) {
       continue;
     }
-    const scalar_t jointPosition = sample.joint_positions[joint.sampleIndex];
-    if (joint.nq == 1) {
-      fullConfiguration_[joint.idxQ] = jointPosition;
-    } else {
-      // An unbounded revolute joint: (cos, sin) of its angle.
-      fullConfiguration_[joint.idxQ] = std::cos(jointPosition);
-      fullConfiguration_[joint.idxQ + 1] = std::sin(jointPosition);
-    }
+    fullConfiguration_[joint.idxQ] = sample.joint_positions[joint.sampleIndex];
   }
   pinocchio::forwardKinematics(fullModel_, *fullData_, fullConfiguration_);
   pinocchio::updateFramePlacements(fullModel_, *fullData_);
@@ -435,7 +463,8 @@ void SceneBuilder::writeObservationMarkers(
     const std::optional<ContactWrenchMapper<kFootCorners>>& cornerMapper =
         cornerMappers_[contact];
     if (!cornerMapper.has_value()) {
-      addContactArrow(data.oMf[frame].translation(),
+      addContactArrow(contactPointOfFrame(data.oMf[frame].translation(),
+                                          contactWheelRadii_[contact]),
                       wrenchContactEwrtWorld.head<kForceDim>(), contactArrows);
       continue;
     }
@@ -506,11 +535,12 @@ void SceneBuilder::computePlan(const PolicySnapshot& policy) {
     setVector3(robotModel_->getPosBaseRtWorldEwrtWorld(state),
                baseStrip->add_pos_strippoints_rt_world_ewrt_world());
     for (size_t frame = 0; frame < planFrames_.size(); ++frame) {
-      setVector3(
-          pinocchio::updateFramePlacement(model, data, planFrames_[frame])
-              .translation(),
-          planEndEffectors_.mutable_strips(static_cast<int>(frame))
-              ->add_pos_strippoints_rt_world_ewrt_world());
+      setVector3(contactPointOfFrame(pinocchio::updateFramePlacement(
+                                         model, data, planFrames_[frame])
+                                         .translation(),
+                                     planFrameWheelRadii_[frame]),
+                 planEndEffectors_.mutable_strips(static_cast<int>(frame))
+                     ->add_pos_strippoints_rt_world_ewrt_world());
     }
   }
 
@@ -544,10 +574,11 @@ void SceneBuilder::computePlan(const PolicySnapshot& policy) {
             model, data, robotModel_->getGeneralizedCoordinates(eventState));
         kinematicsDone = true;
       }
-      setVector3(
-          pinocchio::updateFramePlacement(model, data, contactFrames_[contact])
-              .translation(),
-          planFootholds_.add_pos_spheres_rt_world_ewrt_world());
+      setVector3(contactPointOfFrame(pinocchio::updateFramePlacement(
+                                         model, data, contactFrames_[contact])
+                                         .translation(),
+                                     contactWheelRadii_[contact]),
+                 planFootholds_.add_pos_spheres_rt_world_ewrt_world());
       setColor(scene::kContactColors[contact % scene::kContactColors.size()],
                planFootholds_.add_colors());
     }

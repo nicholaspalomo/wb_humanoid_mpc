@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -52,16 +53,45 @@ namespace ocs2::humanoid::estimation {
  */
 inline constexpr char kMpcRootJointName[] = "root_joint";
 
+/** How a contact of ContactPointSpec touches the ground. */
+enum class ContactPointKind {
+  // A point fixed on its link (a 3-DoF point, a sole's or a pad's center).
+  kFixed,
+  // The lowest point of a wheel (model_settings.contacts_rolling): the wheel
+  // center, posContactRtLinkEwrtLink on the wheel link, less wheelRadius along
+  // the ground normal. It moves over the rim as the wheel turns, so it is no
+  // point of the link (humanoid_nmpc/docs/rolling_contact/README.md).
+  kRolling,
+};
+
 /**
  * A contact point of the robot: a URDF link, which is a BODY frame of the
- * fixed-base Pinocchio model, and the point in that link's frame.
+ * fixed-base Pinocchio model, and the point in that link's frame. A rolling
+ * contact names its wheel link and the wheel center instead, with the wheel's
+ * radius.
  */
 struct ContactPointSpec {
   /** The link's name in the URDF. */
   std::string linkName;
-  /** [m] The contact point in the link's frame. */
+  /** [m] The contact point in the link's frame; for kRolling, the wheel
+   * center. */
   vector3_t posContactRtLinkEwrtLink = vector3_t::Zero();
+  ContactPointKind kind = ContactPointKind::kFixed;
+  /** [m] The wheel radius of a kRolling contact; 0 for a kFixed one. */
+  scalar_t wheelRadius = 0.0;
+  /** The MPC's name of the contact (model_settings), for messages; may be
+   * empty, and the link names the contact then. */
+  std::string contactName = "";
 };
+
+/**
+ * Returns OK when every contact of `contacts` is a point fixed on its link,
+ * and InvalidArgument naming the first rolling contact otherwise, with
+ * `consumer` (the estimator or kinematics that needs fixed points) leading the
+ * message.
+ */
+absl::Status checkFixedContactPoints(
+    absl::Span<const ContactPointSpec> contacts, absl::string_view consumer);
 
 /**
  * Returns the child link of each joint of `jointNames` in the URDF `urdfFile`,
@@ -93,9 +123,10 @@ absl::StatusOr<std::vector<std::string>> childLinkNamesOfJoints(
  *
  * The joint vectors given to update() are in the robot's joint order (the joint
  * names given to Create(), by robot joint index); a model joint the robot does
- * not name stays at its neutral position with zero velocity. Revolute and
- * prismatic joints (one coordinate) and continuous joints (Pinocchio's
- * unbounded revolute, q = (cos, sin)) are supported.
+ * not name stays at its neutral position with zero velocity. Revolute,
+ * prismatic and continuous joints are supported, each with one coordinate: a
+ * continuous joint is built as a revolute joint without position limits
+ * (robot::model::parseUrdfFileForPinocchio()).
  *
  * update() allocates nothing; the class is not thread-safe.
  */
@@ -105,7 +136,8 @@ class ContactKinematics {
    * The kinematics of `contacts` on the URDF `urdfFile`, with the joint vectors
    * in the order of `jointNames`. InvalidArgument for a URDF that does not
    * parse, a contact whose link is not in it (the message lists its links), a
-   * joint of an unsupported type, or no contact.
+   * rolling contact (ContactPointKind::kRolling, which is no point of its
+   * link), a joint of an unsupported type, or no contact.
    */
   static absl::StatusOr<std::unique_ptr<ContactKinematics>> Create(
       absl::string_view urdfFile,

@@ -76,7 +76,8 @@ robotProcessStateEstimatorContext(
  * RobotProcess::Create() builds it: `ground_truth` hands the measured state on
  * itself, `kalman` estimates the base's position and linear velocity. An
  * unknown name, contact points that cannot be placed or an estimator that
- * cannot be built is the error, prefixed with "<taskFile>: state_estimator: "
+ * cannot be built (`kalman` on a rolling contact set, which it refuses naming
+ * the contact) is the error, prefixed with "<taskFile>: state_estimator: "
  * as the robot process reports it. `description` must outlive the estimator.
  */
 absl::StatusOr<std::unique_ptr<estimation::StateEstimator>>

@@ -19,6 +19,8 @@ and a retired key is refused with what replaced it ([`humanoid_mpc_config/README
 | `.../config/controller/joint_pd_gains.textproto` | `JointPdGainsFile` | `loadJointPdGainsFile()`, `loadJointPdGains()` |
 | `config/command/gait.textproto` (this package, shared by the bipeds) | `GaitFile` | `loadGaitFile()` |
 | `config/command/quadruped_gait.textproto` (this package, shared by the quadrupeds) | `GaitFile` | `loadGaitFile()` |
+| `config/command/wheeled_gait.textproto` (this package, for the wheeled bipeds) | `GaitFile` | `loadGaitFile()` |
+| `config/command/wheeled_quadruped_gait.textproto` (this package, for the wheeled quadrupeds) | `GaitFile` | `loadGaitFile()` |
 
 The loaders are in `config/ConfigFiles.h`. Each gives the generated struct of its message
 (`ocs2::humanoid::mpc_config::<Name>`), and the conversions in `config/<area>/*FromConfig.h` turn its blocks into
@@ -47,9 +49,22 @@ makes the terms of a typed task file. Hot reloads hand typed settings to the run
 ## Contacts and modes
 
 The contact set is run-time data, `ModelSettings::contactNames`: the 3-DoF point contacts of
-`model_settings.contacts_3dof` first, then the 6-DoF contacts of `model_settings.contact_names_6dof`, which is OCS2's
-input layout. `ModelSettings::numContacts()` is its size. Any mix is valid, a set of point contacts alone included (a
-point-footed quadruped's four feet), and `ModelSettings::Create()` refuses more than `kMaxNumContacts` (32) contacts.
+`model_settings.contacts_3dof` first, then the rolling contacts of `model_settings.contacts_rolling`, then the 6-DoF
+contacts of `model_settings.contact_names_6dof`, which is OCS2's input layout. `ModelSettings::numContacts()` is its
+size. Any mix is valid, a set of point contacts alone included (a point-footed quadruped's four feet), and
+`ModelSettings::Create()` refuses more than `kMaxNumContacts` (32) contacts.
+
+A contact's kind is `ModelSettings::contactKind()`: `kPoint` (fixed on its link), `kRolling` or `kSurface`.
+`isPointContact()` is true for both force-only kinds; code that needs a point fixed on its link asks for `kPoint`. A
+rolling contact's frame is its wheel center, hung from the wheel's own joint, and the contact is the wheel's lowest
+point, the center less `wheelRadius()` along the ground normal (world z: the ground is flat).
+`contact/RollingContact.h` converts between the two, and `computePosContactsRtWorldEwrtWorld()` returns the contact
+point. A wheel's joint is a URDF `continuous` joint, which every Pinocchio model builds as a revolute joint without
+position limits (`robot::model::parseUrdfFileForPinocchio()`, robot_runtime/robot_model): one coordinate, no row in the
+joint-limit cost, and no position weight in `state_weights` or `final_state_weights` (refused). In stance the
+centroidal MPC holds a rolling contact with its no-slip constraint (`RollingContactConstraintCppAd`, term
+`<contact>_rollingNoSlip`), and `checkCentroidalContactSet()` refuses the terms that assume a point fixed on its link
+or a tilted patch (humanoid_nmpc/docs/rolling_contact/README.md, section 9).
 
 The legs group the contacts (`ModelSettings::legs`, from `model_settings.legs`). A leg has a name, the contacts at its
 end (one point foot, one wheel or one 6-DoF sole, or several), and a hip. The hip is the frame `hip_frame_name` names,
@@ -130,6 +145,27 @@ quadruped that ships with the file (label `2026-11-10_anymal_b`, `humanoid_mpc_v
 the file but not a row of the table: between stance and trot it held a 0.5 m/s command in static_walk for about 2.4 s,
 until the stride-mean speed passed the trot row's threshold, and the walk averaged 0.38 m/s. The rest of that robot's
 tuning is in its task file and PD gains.
+
+The wheeled bipeds use `config/command/wheeled_gait.textproto` (filegroup `:wheeled_gait_config`): the launch files
+of LimX Tron1 (`robot_models/limx_tron1/tron1_centroidal_mpc/launch/{mpc,dummy_sim}.textproto`) point their
+`gait_file` at it. Its contacts are the rolling contacts of the wheels (`model_settings.contacts_rolling`,
+[`rolling_contact`](../docs/rolling_contact/README.md)). Its two gaits, stance and drive, both stand on every contact
+(`STANCE`), so the file reads on any contact set, two wheels or four: the robot drives by rolling, and the no-slip
+constraint of each wheel turns the commanded base twist into wheel speeds. Its table goes from stance to drive on a
+command beyond 0.1 m/s or 0.1 rad/s, on the command alone, and back once the command is below 0.05 m/s and 0.05 rad/s
+and the stride-mean motion below 0.1 m/s and 0.1 rad/s. `testWheeledGaitFile` reads it on a two-wheel and a
+four-wheel layout and checks that a 0.5 m/s drive and a 0.5 rad/s turn select drive and rest selects stance.
+
+The wheeled quadrupeds use `config/command/wheeled_quadruped_gait.textproto` (filegroup
+`:wheeled_quadruped_gait_config`), which the launch files of the wheeled ANYmal C
+(`robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/launch/{mpc,dummy_sim}.textproto`) name. A
+quadruped's four parallel axles let the base drive straight on its wheels but not yaw: a yaw would move the front and
+hind wheels sideways, which the no-slip constraint forbids (rolling_contact section 8). The file's table is stance,
+drive and turning_trot: drive takes every linear command and a yaw-rate command up to 0.15 rad/s, and a faster yaw-rate
+command switches to turning_trot, a trot of 0.30 s diagonal swings each followed by 0.15 s on all four wheels (LF_RH,
+STANCE, RF_LH, STANCE), with thresholds set on the wheeled ANYmal C (label `2026-11-12_anymal_c_wheels`,
+`humanoid_mpc_validation`). `testWheeledQuadrupedGaitFile` reads it on a four-wheel layout and checks the gait for a
+drive, a turn and rest.
 
 A new gait starts at the first event after 70 % of the horizon (`updateGaitSchedule()`, `gait/GaitScheduleUpdater.h`).
 When the phase that ends at that event has the mode the new gait starts its cycle with (`cycleStartMode()`: its first

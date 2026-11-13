@@ -55,9 +55,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/joint/joint-free-flyer.hpp"  // IWYU pragma: keep
 #include "pinocchio/parsers/urdf.hpp"
 #include "pinocchio/spatial/fwd.hpp"
+#include "urdf_world/types.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_multi_contact/contact_set/ContactSet.h"
+#include "robot_model/UrdfContinuousJoints.h"
 
 namespace ocs2::humanoid::multi_contact {
 namespace {
@@ -88,10 +90,18 @@ RobotStanceModel::RobotStanceModel(const pinocchio::Model& model,
 
 absl::StatusOr<std::unique_ptr<RobotStanceModel>> RobotStanceModel::Create(
     absl::string_view urdfPath, const ContactSet& contacts) {
+  // A continuous joint gets one coordinate, its angle, as in the MPC's model.
+  absl::StatusOr<urdf::ModelInterfaceSharedPtr> urdfTree =
+      robot::model::parseUrdfFileForPinocchio(urdfPath);
+  if (!urdfTree.ok()) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "the URDF '", urdfPath,
+        "' does not give a Pinocchio model: ", urdfTree.status().message()));
+  }
   pinocchio::Model model;
   try {  // NOLINT(exceptions): Pinocchio's URDF parser throws; its exception becomes a Status here.
-    pinocchio::urdf::buildModel(std::string(urdfPath),
-                                pinocchio::JointModelFreeFlyer(), model);
+    pinocchio::urdf::buildModel(*urdfTree, pinocchio::JointModelFreeFlyer(),
+                                model);
     // NOLINTNEXTLINE(exceptions): the boundary of the try above.
   } catch (const std::exception& error) {
     return absl::InvalidArgumentError(

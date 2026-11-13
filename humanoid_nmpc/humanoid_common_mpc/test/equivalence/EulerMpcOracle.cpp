@@ -180,6 +180,24 @@ absl::StatusOr<std::unique_ptr<EulerMpcOracle>> EulerMpcOracle::Create(
       }
     }
   }
+  if (!options.rollingContactWheelRadii.empty()) {
+    if (options.formulation == OracleFormulation::kWholeBody) {
+      return absl::InvalidArgumentError(
+          "[EulerMpcOracle] rolling contacts are for the centroidal MPC only");
+    }
+    if (options.rollingContactWheelRadii.size() != options.numPointContacts) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[EulerMpcOracle] ", options.rollingContactWheelRadii.size(),
+          " wheel radii for ", options.numPointContacts, " point contacts"));
+    }
+    for (const scalar_t radius : options.rollingContactWheelRadii) {
+      if (!std::isfinite(radius) || radius < 0.0) {
+        return absl::InvalidArgumentError(
+            absl::StrCat("[EulerMpcOracle] a wheel radius of ", radius,
+                         " m: it must be finite and not negative"));
+      }
+    }
+  }
   twin->gravity.linear(options.gravityEwrtWorld);
   // Not std::make_unique: the constructor is private (ToTW #134).
   return absl::WrapUnique(
@@ -278,8 +296,15 @@ vector_t EulerMpcOracle::flowMap(const vector_t& eulerState,
     for (size_t contact = 0; contact < contactFrames_.size(); ++contact) {
       const vector3_t forceContactEwrtWorld =
           wrenchContactsEwrtWorld[contact].head<3>();
+      // A rolling contact's force acts at its wheel's lowest point, r below
+      // the wheel center its frame is at.
+      const scalar_t wheelRadius =
+          contact < options_.rollingContactWheelRadii.size()
+              ? options_.rollingContactWheelRadii[contact]
+              : 0.0;
       const vector3_t posContactRtComEwrtWorld =
           data.oMf[contactFrames_[contact]].translation() -
+          wheelRadius * options_.normalTerrainEwrtWorld -
           posComRtWorldEwrtWorld;
       rateCmomComRtWorldEwrtWorld.head<3>() += forceContactEwrtWorld;
       rateCmomComRtWorldEwrtWorld.tail<3>() +=

@@ -227,8 +227,10 @@ _ATLAS_DATA = [
 # LINT.IfChange(shipped_task_files)
 _SHIPPED_TASK_FILES = [
     "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
+    "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
     "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
     "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+    "//robot_models/limx_tron1/tron1_centroidal_mpc",
     "//robot_models/unitree_g1/g1_centroidal_mpc",
     "//robot_models/unitree_g1/g1_wb_mpc",
     "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
@@ -429,6 +431,8 @@ cc_test(
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_description",
         "//robot_models/unitree_g1/g1_centroidal_mpc",
         "//robot_models/unitree_g1/g1_description",
     ],
@@ -594,8 +598,10 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     data = _SHIPPED_TASK_FILES + [
         "//robot_models/anybotics_anymal_b/anymal_b_description",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/limx_tron1/tron1_description",
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_r1/unitree_r1_description",
     ],
@@ -703,10 +709,14 @@ cc_test(
     size = "small",
     srcs = ["test/testRobotBackendRegistry.cpp"],
     copts = FIRST_PARTY_COPTS,
-    # Atlas, and ANYmal B for a set of point contacts only.
+    # Atlas, ANYmal B for a set of point contacts only, and Tron1 and the wheeled ANYmal C for sets of rolling contacts.
     data = _ATLAS_DATA + [
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
         "//robot_models/anybotics_anymal_b/anymal_b_description",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
+        "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
+        "//robot_models/limx_tron1/tron1_centroidal_mpc",
+        "//robot_models/limx_tron1/tron1_description",
     ],
     deps = [
         ":robot_test_support",

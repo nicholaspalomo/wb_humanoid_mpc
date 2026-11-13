@@ -10,12 +10,17 @@ exist, the filegroups ship no side files, and each robot's joint PD gains are st
 link under a large kd needs damping in the scene (`test_joint_pd_stability.py`).
 A biped's MJCF foot is a sole of at least three spheres around the MPC's contact rectangle; a point-contact (3-DoF)
 foot, such as ANYmal B's, is a single sphere whose lowest point is the contact frame (`test_default_stance.py`).
+A wheel, such as those of Tron1 and the wheeled ANYmal C, is a continuous URDF joint and an unlimited MJCF hinge whose
+body has one collision cylinder coaxial with the joint (`test_wheels.py`); the cylinder has the task file's wheel radius
+about the wheel center, whose lowest point stands on the ground in the default stance (`test_default_stance.py`).
 
 | Robot | Packages | README |
 | --- | --- | --- |
 | ANYbotics ANYmal B | `anymal_b_description`, `anymal_b_centroidal_mpc` | [anybotics_anymal_b](anybotics_anymal_b/README.md) |
+| ANYbotics ANYmal C on wheels | `anymal_c_wheels_description`, `anymal_c_wheels_centroidal_mpc` | [anybotics_anymal_c_wheels](anybotics_anymal_c_wheels/README.md) |
 | DRC Atlas | `drc_atlas_description`, `drc_atlas_centroidal_mpc` | [drc_atlas](drc_atlas/README.md) |
 | EngineAI SA01 | `engineai_sa01_description`, `engineai_sa01_centroidal_mpc` | [engineai_sa01](engineai_sa01/README.md) |
+| LimX Dynamics Tron1 (wheel-foot) | `tron1_description`, `tron1_centroidal_mpc` | [limx_tron1](limx_tron1/README.md) |
 | Unitree G1 | `g1_description`, `g1_centroidal_mpc`, `g1_wb_mpc` | [unitree_g1](unitree_g1/README.md) |
 | Unitree R1 | `unitree_r1_description`, `unitree_r1_centroidal_mpc` | - |
 
@@ -32,8 +37,9 @@ files document every field, its unit and its default:
 | `config/command/reference.textproto` | `ReferenceFile` | the command limits and filter, the default base height and the default joint state |
 | `config/controller/joint_pd_gains.textproto` | `JointPdGainsFile` | the PD gains and torque limits of the robot's joint controller |
 
-The bipeds share the gait patterns, `humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto` (`GaitFile`), and
-the quadrupeds share `quadruped_gait.textproto` beside it. A robot that needs other gaits ships its own gait file in
+The bipeds share the gait patterns, `humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto` (`GaitFile`),
+the quadrupeds share `quadruped_gait.textproto` beside it, the wheeled bipeds use `wheeled_gait.textproto` and the
+wheeled quadrupeds `wheeled_quadruped_gait.textproto`. A robot that needs other gaits ships its own gait file in
 its package and sets the `gait_file` variable of its launch files and the validation's `RobotConfiguration::gaitFile`
 to it.
 Each file starts with the schema it is written in (`# proto-file:` and `# proto-message:`), which editors read and

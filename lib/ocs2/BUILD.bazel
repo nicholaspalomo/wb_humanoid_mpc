@@ -318,6 +318,27 @@ cc_library(
 # Tests
 # ==============================================================================
 
+# The lever arm of a rolling contact (CentroidalModelInfo::rollingContactWheelRadii) in the centroidal dynamics, in
+# double and on the CppAD scalar, and the unchanged dynamics without it.
+cc_test(
+    name = "test_rolling_contact_lever_arm",
+    size = "small",
+    srcs = ["pinocchio/centroidal_model/test/testRollingContactLeverArm.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_centroidal_model",
+        ":ocs2_core",
+        ":ocs2_core_types",
+        ":ocs2_dimensions",
+        ":ocs2_physical_constants",
+        ":ocs2_pinocchio_interface",
+        ":ocs2_thirdparty",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
 # A solver that plans what a test scripts: for tests of the code around the solver (the MPC-MRT hand-over, the resets,
 # the controllers built on MPC_MRT_Interface).
 cc_library(

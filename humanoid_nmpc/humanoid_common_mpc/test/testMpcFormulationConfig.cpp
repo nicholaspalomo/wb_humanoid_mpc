@@ -977,9 +977,12 @@ TEST(ContactScheduleSourceField, aValueThatIsNotANameIsRefused) {
 constexpr const char* absl_nonnull kShippedTaskFiles[] = {
     "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/mpc/"
     "task.textproto",
+    "robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/"
+    "config/mpc/task.textproto",
     "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto",
     "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/"
     "task.textproto",
+    "robot_models/limx_tron1/tron1_centroidal_mpc/config/mpc/task.textproto",
     "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto",
     "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto",
     "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/"

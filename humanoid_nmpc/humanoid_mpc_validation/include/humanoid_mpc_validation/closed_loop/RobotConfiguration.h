@@ -107,11 +107,12 @@ struct RobotConfiguration {
 };
 
 // LINT.IfChange(robot_configurations)
-/** drc_atlas, engineai_sa01, unitree_g1, unitree_r1, anymal_b (centroidal;
- * anymal_b on the quadruped gait file, standing, walk_0p5 and
- * turn_in_place_720 only), unitree_g1_wb (whole-body) and unitree_g1_kalman
- * (unitree_g1 with the kalman state estimator, standing, walk_0p5 and
- * turn_in_place_720 only). */
+/** drc_atlas, engineai_sa01, unitree_g1, unitree_r1, anymal_b, tron1,
+ * anymal_c_wheels (centroidal; anymal_b on the quadruped gait file, tron1 on
+ * the wheeled bipeds' and anymal_c_wheels on the wheeled quadrupeds', all three
+ * standing, walk_0p5 and turn_in_place_720 only), unitree_g1_wb
+ * (whole-body) and unitree_g1_kalman (unitree_g1 with the kalman state
+ * estimator, standing, walk_0p5 and turn_in_place_720 only). */
 const std::vector<RobotConfiguration>& robotConfigurations();
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/BUILD.bazel:robot_configurations, //Makefile:closed_loop_targets, //humanoid_nmpc/humanoid_common_mpc/test/equivalence/BUILD.bazel:mpc_equivalence_robots, //tools/config_dump/ConfigDumpMain.cpp:robot_flag, //tools/config_dump/README.md:robots)

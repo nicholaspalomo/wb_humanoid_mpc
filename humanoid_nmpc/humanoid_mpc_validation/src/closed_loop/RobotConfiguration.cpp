@@ -72,6 +72,44 @@ RobotConfiguration onQuadrupedGait(RobotConfiguration configuration) {
   return configuration;
 }
 
+// The wheeled bipeds' gait file, the gait_file of their launch files.
+// LINT.IfChange(wheeled_gait_file)
+constexpr char kWheeledGaitFile[] =
+    "humanoid_nmpc/humanoid_common_mpc/config/command/wheeled_gait.textproto";
+// LINT.ThenChange(//robot_models/limx_tron1/tron1_centroidal_mpc/launch/mpc.textproto:gait_file, //robot_models/limx_tron1/tron1_centroidal_mpc/launch/dummy_sim.textproto:gait_file)
+
+/**
+ * Returns `configuration` on the wheeled bipeds' gait file (kWheeledGaitFile),
+ * running standing, walk_0p5 (a drive on the wheels at 0.5 m/s, no steps) and
+ * turn_in_place_720 only: the other scenarios step, side-step or push the
+ * robot, and the drive gait takes no step.
+ */
+RobotConfiguration onWheeledGait(RobotConfiguration configuration) {
+  configuration.gaitFile = kWheeledGaitFile;
+  configuration.scenarios = {"standing", "walk_0p5", "turn_in_place_720"};
+  return configuration;
+}
+
+// The wheeled quadrupeds' gait file, the gait_file of their launch files.
+// LINT.IfChange(wheeled_quadruped_gait_file)
+constexpr char kWheeledQuadrupedGaitFile[] =
+    "humanoid_nmpc/humanoid_common_mpc/config/command/"
+    "wheeled_quadruped_gait.textproto";
+// LINT.ThenChange(//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/launch/mpc.textproto:gait_file, //robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/launch/dummy_sim.textproto:gait_file)
+
+/**
+ * Returns `configuration` on the wheeled quadrupeds' gait file
+ * (kWheeledQuadrupedGaitFile), running standing, walk_0p5 (a drive on the
+ * wheels at 0.5 m/s) and turn_in_place_720 (a trot) only: the other scenarios
+ * step sideways, push the robot or turn while they walk, which the drive gait
+ * cannot.
+ */
+RobotConfiguration onWheeledQuadrupedGait(RobotConfiguration configuration) {
+  configuration.gaitFile = kWheeledQuadrupedGaitFile;
+  configuration.scenarios = {"standing", "walk_0p5", "turn_in_place_720"};
+  return configuration;
+}
+
 /** A configuration whose MPC package keeps its files in `configDir`
  * (config/mpc, config/command, config/controller). */
 RobotConfiguration makeConfiguration(std::string name,
@@ -160,6 +198,21 @@ std::vector<RobotConfiguration> makeConfigurations() {
           "anymal_b.urdf",
           "robot_models/anybotics_anymal_b/anymal_b_description/urdf/"
           "anymal_b.xml",
+          /*walkingScenario=*/"walk_0p5")),
+      onWheeledGait(makeConfiguration(
+          "tron1", MpcFormulation::kCentroidal,
+          "robot_models/limx_tron1/tron1_centroidal_mpc/config",
+          "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf",
+          "robot_models/limx_tron1/tron1_description/urdf/tron1.xml",
+          /*walkingScenario=*/"walk_0p5")),
+      onWheeledQuadrupedGait(makeConfiguration(
+          "anymal_c_wheels", MpcFormulation::kCentroidal,
+          "robot_models/anybotics_anymal_c_wheels/"
+          "anymal_c_wheels_centroidal_mpc/config",
+          "robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description/"
+          "urdf/anymal_c_wheels.urdf",
+          "robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description/"
+          "urdf/anymal_c_wheels.xml",
           /*walkingScenario=*/"walk_0p5")),
       makeConfiguration(
           "unitree_g1_wb", MpcFormulation::kWholeBody,

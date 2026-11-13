@@ -11,9 +11,10 @@ bazel run //tools/config_dump -- --robot=drc_atlas | diff before.txt -
 ```
 
 <!-- LINT.IfChange(robots) -->
-The robots are the seven configurations of the closed-loop validation (`RobotConfiguration`): `drc_atlas`,
-`engineai_sa01`, `unitree_g1`, `unitree_r1`, the quadruped `anymal_b` (centroidal MPC), `unitree_g1_wb` (whole-body MPC)
-and `unitree_g1_kalman` (`unitree_g1` with the Kalman state estimator).
+The robots are the nine configurations of the closed-loop validation (`RobotConfiguration`): `drc_atlas`,
+`engineai_sa01`, `unitree_g1`, `unitree_r1`, the quadruped `anymal_b`, the wheel-foot biped `tron1` and the wheeled
+quadruped `anymal_c_wheels` (centroidal MPC), `unitree_g1_wb` (whole-body MPC) and `unitree_g1_kalman` (`unitree_g1`
+with the Kalman state estimator).
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations) -->
 Run one robot at a time: building an MPC interface loads, or the first time generates and compiles, the robot's CppAD
 libraries. The tool runs in the checkout (`$BUILD_WORKSPACE_DIRECTORY`), so it reads the checkout's files and reuses its
@@ -36,6 +37,11 @@ start-up. In order:
 | `[pd_gains]` | the MRT joint controller's PD gains, resolved over its defaults |
 | `[robot_process]`, `[visualization]`, `[keyboard_teleop]` | the robot process's, the visualization publisher's and the keyboard teleoperation's settings |
 | `[problem]` | the optimal control problem on a walking schedule (`ProblemDump.h`): every term's name, and at three points of the horizon and at its end every cost and soft-constraint term's value and quadratic approximation and the linear-quadratic approximation of the whole problem |
+
+`[model_settings]` lists each 3-DoF contact as `model_settings.pointContacts[i]`: its `name`, `parentJointName`,
+`posContactRtLinkEwrtLink.{x,y,z}`, `kind` (the value of its `ModelSettings::ContactKind` enumerator) and
+`wheelRadius`, followed by `model_settings.rollingContactJointNames`, the wheel joints, so moving a contact from
+`contacts_3dof` to `contacts_rolling` or changing a wheel shows in a diff (`settings_dump_test`).
 
 The weights are shown through the problem rather than through accessors: a weight is the Hessian of its term, whose
 diagonal is dumped element by element. A double is written `%a (%.17g)`, so that equal lines are equal bits; a matrix

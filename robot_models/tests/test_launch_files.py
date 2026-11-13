@@ -53,6 +53,11 @@ ROBOT_CONFIGURATIONS = (
         "centroidal",
     ),
     (
+        "anymal_c_wheels",
+        "robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
+        "centroidal",
+    ),
+    (
         "drc_atlas",
         "robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "centroidal",
@@ -62,6 +67,7 @@ ROBOT_CONFIGURATIONS = (
         "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
         "centroidal",
     ),
+    ("tron1", "robot_models/limx_tron1/tron1_centroidal_mpc", "centroidal"),
     ("unitree_g1", "robot_models/unitree_g1/g1_centroidal_mpc", "centroidal"),
     ("unitree_g1_wb", "robot_models/unitree_g1/g1_wb_mpc", "wb"),
     (
@@ -72,8 +78,10 @@ ROBOT_CONFIGURATIONS = (
 )
 ROBOT_DESCRIPTIONS = (
     "robot_models/anybotics_anymal_b/anymal_b_description",
+    "robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description",
     "robot_models/drc_atlas/drc_atlas_description",
     "robot_models/engineai_sa01/engineai_sa01_description",
+    "robot_models/limx_tron1/tron1_description",
     "robot_models/unitree_g1/g1_description",
     "robot_models/unitree_r1/unitree_r1_description",
 )

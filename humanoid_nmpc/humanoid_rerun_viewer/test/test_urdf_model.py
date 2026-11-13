@@ -43,8 +43,10 @@ ROBOT_MODELS = os.path.join(REPO_ROOT, "robot_models")
 # LINT.IfChange(shipped_urdfs)
 SHIPPED_URDFS = (
     "anybotics_anymal_b/anymal_b_description/urdf/anymal_b.urdf",
+    "anybotics_anymal_c_wheels/anymal_c_wheels_description/urdf/anymal_c_wheels.urdf",
     "drc_atlas/drc_atlas_description/urdf/atlas.urdf",
     "engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf",
+    "limx_tron1/tron1_description/urdf/tron1.urdf",
     "unitree_g1/g1_description/urdf/g1_29dof.urdf",
     "unitree_r1/unitree_r1_description/urdf/R1.urdf",
 )

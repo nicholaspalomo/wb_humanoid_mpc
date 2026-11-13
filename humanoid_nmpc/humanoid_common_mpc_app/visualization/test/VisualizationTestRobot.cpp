@@ -165,13 +165,39 @@ RobotFiles anymalBFiles() {
               "anymal_b.urdf"};
 }
 
+RobotFiles tron1Files() {
+  return {
+      .taskFile =
+          "robot_models/limx_tron1/tron1_centroidal_mpc/config/mpc/"
+          "task.textproto",
+      .referenceFile =
+          "robot_models/limx_tron1/tron1_centroidal_mpc/"
+          "config/command/reference.textproto",
+      .urdfFile = "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf"};
+}
+
+RobotFiles anymalCWheelsFiles() {
+  return {.taskFile =
+              "robot_models/anybotics_anymal_c_wheels/"
+              "anymal_c_wheels_centroidal_mpc/config/mpc/task.textproto",
+          .referenceFile =
+              "robot_models/anybotics_anymal_c_wheels/"
+              "anymal_c_wheels_centroidal_mpc/config/command/"
+              "reference.textproto",
+          .urdfFile =
+              "robot_models/anybotics_anymal_c_wheels/"
+              "anymal_c_wheels_description/urdf/anymal_c_wheels.urdf"};
+}
+
 std::vector<std::pair<RobotFiles, Formulation>> shippedConfigurations() {
   return {{g1CentroidalFiles(), Formulation::kCentroidal},
           {g1WholeBodyFiles(), Formulation::kWholeBody},
           {atlasFiles(), Formulation::kCentroidalBasisVectors},
           {sa01Files(), Formulation::kCentroidalBasisVectors},
           {r1Files(), Formulation::kCentroidal},
-          {anymalBFiles(), Formulation::kCentroidal}};
+          {anymalBFiles(), Formulation::kCentroidal},
+          {tron1Files(), Formulation::kCentroidal},
+          {anymalCWheelsFiles(), Formulation::kCentroidal}};
 }
 
 quaternion_t unitQuaternionOfRollPitchYaw(const vector3_t& rollPitchYaw) {

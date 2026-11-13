@@ -1,0 +1,59 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/gait_file.proto
+# proto-message: humanoid_mpc_config.GaitFile
+#
+# The gait file of the wheeled bipeds, whose contacts are the rolling contacts of their wheels
+# (model_settings.contacts_rolling, humanoid_nmpc/docs/rolling_contact/README.md). Both gaits stand on every contact:
+# a wheeled robot drives by rolling, not by stepping, so the file does not depend on how many wheels the robot has or
+# what its legs are named. STANCE is every contact of the set (mode_sequence_template_config.proto). Its drive turns the
+# base by differential wheel speed, which needs every axle on one line through the base center, as on LimX Tron1; a
+# quadruped's parallel axles cannot roll through a yaw, and the wheeled quadrupeds turn in the trot of
+# wheeled_quadruped_gait.textproto.
+gait_list: "stance"
+gait_list: "drive"
+
+# Standing in place, every wheel on the ground.
+gaits {
+  name: "stance"
+  mode_sequence: "STANCE"
+  switching_times: 0.0
+  switching_times: 0.5
+}
+
+# Driving: every wheel stays on the ground while the base moves, and the no-slip constraint of each wheel turns the
+# commanded base twist into wheel speeds. Its modes are those of stance; the gait of its own names the phase in the
+# gait switching table and in the telemetry.
+gaits {
+  name: "drive"
+  mode_sequence: "STANCE"
+  switching_times: 0.0
+  switching_times: 0.5
+}
+
+# The gaits the walking velocity command switches between (gait_switching_table_config.proto):
+# - stance takes a command within 0.1 m/s and 0.1 rad/s of rest, and leaves for drive on the command alone (error
+#   thresholds of 10), as the other gait files' stance rows do;
+# - drive takes every other command: its upper bounds of 10 m/s and 10 rad/s are above any command the reference files
+#   allow. It gives way to stance once the command is below 0.05 m/s and 0.05 rad/s and the stride-mean motion below
+#   0.1 m/s and 0.1 rad/s (its lower bounds plus its error thresholds of 0.05).
+# drive's lower bounds sit below stance's upper bounds, so that a command near one bound does not switch back and
+# forth.
+gait_switching {
+  rows {
+    gait: "stance"
+    cmd_min_linvel_base_rt_world_ewrt_heading_xy: -0.1
+    cmd_max_linvel_base_rt_world_ewrt_heading_xy: 0.1
+    cmd_min_angvel_base_rt_world_ewrt_world_z: -0.1
+    cmd_max_angvel_base_rt_world_ewrt_world_z: 0.1
+    max_err_linvel_base_rt_world_ewrt_heading_xy: 10.0
+    max_err_angvel_base_rt_world_ewrt_world_z: 10.0
+  }
+  rows {
+    gait: "drive"
+    cmd_min_linvel_base_rt_world_ewrt_heading_xy: 0.05
+    cmd_max_linvel_base_rt_world_ewrt_heading_xy: 10.0
+    cmd_min_angvel_base_rt_world_ewrt_world_z: 0.05
+    cmd_max_angvel_base_rt_world_ewrt_world_z: 10.0
+    max_err_linvel_base_rt_world_ewrt_heading_xy: 0.05
+    max_err_angvel_base_rt_world_ewrt_world_z: 0.05
+  }
+}

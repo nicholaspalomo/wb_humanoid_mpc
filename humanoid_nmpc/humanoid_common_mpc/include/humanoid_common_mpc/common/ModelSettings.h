@@ -356,19 +356,45 @@ class ModelSettings {
   std::vector<std::string> fixedJointNames;
 
   /**
-   * A 3-DoF (point) contact of model_settings.contacts_3dof: the frame
-   * * loadCustomPinocchioInterface() adds to the model at
+   * What a contact is, which decides the point its force acts at and the
+   * constraint that holds it in stance. The task file selects it by the list
+   * that names the contact (model_settings.contacts_3dof, contacts_rolling,
+   * contact_names_6dof).
+   */
+  enum class ContactKind {
+    // A force-only point fixed on its link (contacts_3dof).
+    kPoint,
+    // A force-only point at the lowest point of a wheel (contacts_rolling):
+    // the wheel center less wheelRadius along the ground normal, which moves
+    // over the rim as the wheel turns (contact/RollingContact.h).
+    kRolling,
+    // A sole or pad with a footprint, which carries a wrench
+    // (contact_names_6dof).
+    kSurface,
+  };
+
+  /**
+   * A 3-DoF contact of model_settings.contacts_3dof or contacts_rolling: the
+   * frame loadCustomPinocchioInterface() adds to the model at
    * `posContactRtLinkEwrtLink` [m] from `parentJointName`, a joint of the MPC
-   * model or one it fixes.
+   * model or one it fixes. For a kRolling contact the frame is the wheel
+   * center, `parentJointName` is the wheel's own joint (so the frame turns
+   * with the wheel; only its position and twist are read) and the force acts
+   * at the frame's origin less `wheelRadius` [m] along the ground normal.
    */
   struct PointContact {
     std::string name;
     std::string parentJointName;
     vector3_t posContactRtLinkEwrtLink = vector3_t::Zero();
+    // kPoint or kRolling, never kSurface.
+    ContactKind kind = ContactKind::kPoint;
+    // [m] The wheel's radius, positive for a kRolling contact; 0 for a kPoint.
+    scalar_t wheelRadius = 0.0;
   };
 
   // The 6-DoF contacts, and the joints they hang from, one per contact in its
-  // order; the 3-DoF contacts, and their names in the same order.
+  // order; the 3-DoF contacts (the fixed points, then the rolling ones), and
+  // their names in the same order.
   std::vector<std::string> contactNames6DoF;
   std::vector<std::string> contactNames3DoF{};
   std::vector<std::string> contactParentJointNames;
@@ -380,9 +406,10 @@ class ModelSettings {
       mpcModelToFullJointsIndices;  // an Array of indices mapping the active
                                     // joints to the full joints
   absl::flat_hash_map<std::string, size_t> jointIndexMap;
-  // Every contact, the 3-DoF ones first and the 6-DoF ones after them: the
-  // contact set, in the order of the centroidal MPC's input and of a mode
-  // number's bits (gait/MotionPhaseDefinition.h, contactIsActiveInMode()).
+  // Every contact, the 3-DoF ones first (the fixed points, then the rolling
+  // ones) and the 6-DoF ones after them: the contact set, in the order of the
+  // centroidal MPC's input and of a mode number's bits
+  // (gait/MotionPhaseDefinition.h, contactIsActiveInMode()).
   std::vector<std::string> contactNames;
 
   /** The number of contacts of the set, contactNames.size(): the size of its
@@ -398,15 +425,57 @@ class ModelSettings {
    */
   std::vector<std::string> contactParentJointNamesInContactOrder() const;
 
-  /** Whether contact `contactIndex` of contactNames is a 3-DoF one. */
+  /**
+   * Returns whether contact `contactIndex` of contactNames is a force-only
+   * 3-DoF one, fixed or rolling: it takes a force input and no moment. Code
+   * that needs a point fixed on its link asks contactKind() instead.
+   */
   bool isPointContact(size_t contactIndex) const {
     return contactIndex < contactNames3DoF.size();
   }
 
+  /** Returns the kind of contact `contactIndex` of contactNames, which must be
+   * below numContacts(). */
+  ContactKind contactKind(size_t contactIndex) const {
+    return isPointContact(contactIndex) ? pointContacts[contactIndex].kind
+                                        : ContactKind::kSurface;
+  }
+
+  /** Returns whether contact `contactIndex` of contactNames is the rolling
+   * contact of a wheel. */
+  bool isRollingContact(size_t contactIndex) const {
+    return contactKind(contactIndex) == ContactKind::kRolling;
+  }
+
+  /** Returns the wheel radius [m] of contact `contactIndex`. Precondition:
+   * isRollingContact(contactIndex). */
+  scalar_t wheelRadius(size_t contactIndex) const {
+    return pointContacts[contactIndex].wheelRadius;
+  }
+
+  /** Returns whether any contact of the set is a rolling one. Linear in the
+   * number of 3-DoF contacts. */
+  bool hasRollingContacts() const;
+
+  /**
+   * Returns the task-file entry that lists 3-DoF contact `contactIndex`, for a
+   * refusal: "model_settings.contacts_3dof[i]" for a fixed point and
+   * "model_settings.contacts_rolling[j]" for a rolling contact. Precondition:
+   * isPointContact(contactIndex).
+   */
+  std::string pointContactEntry(size_t contactIndex) const;
+
+  /**
+   * Returns the wheel joints of the rolling contacts, in contact order: the
+   * joints whose position the MPC leaves free (no position weight, no
+   * joint-limit row). Empty without rolling contacts.
+   */
+  std::vector<std::string> rollingContactJointNames() const;
+
   /**
    * Whether the contact set is the biped's: two 6-DoF feet and nothing else,
    * the set the terms written for a left and a right foot (BipedFeetArray)
-   * require. Every shipped robot's is.
+   * require. A set with a 3-DoF contact, fixed or rolling, never is.
    */
   bool isBipedContactSet() const {
     return contactNames3DoF.empty() &&
@@ -552,7 +621,9 @@ inline constexpr uint64_t kUnstampedModelFingerprint = 0;
  * exchange states, inputs and policies in (MpcObservation.model_fingerprint,
  * MpcPolicy.model_fingerprint): FNV-1a (nproto/Fnv1a64Constants.h) of the state
  * layout tag (StateLayout.h), the robot name and the MPC model's joint names,
- * 3-DoF and 6-DoF contact names in their order, each length-prefixed. Two
+ * 3-DoF and 6-DoF contact names in their order, each length-prefixed, and on a
+ * set with rolling contacts the kind and the wheel radius of each 3-DoF
+ * contact (a set without one hashes as it did before rolling contacts). Two
  * processes whose models have equal dimensions but another joint order or other
  * fixed joints have different fingerprints. Never kUnstampedModelFingerprint.
  * Cheap; call it once at start-up.

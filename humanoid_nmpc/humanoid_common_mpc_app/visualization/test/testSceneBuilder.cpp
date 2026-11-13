@@ -59,6 +59,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/spatial/fwd.hpp"
 
 #include "humanoid_common_mpc/common/BipedFeet.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/costs/CollisionConstraintFromConfig.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
@@ -857,6 +858,111 @@ INSTANTIATE_TEST_SUITE_P(
                       test::Formulation::kCentroidalBasisVectors,
                       test::Formulation::kWholeBody),
     formulationName);
+
+/** Returns the lowest point of the wheel of rolling contact `contact` at the
+ * frame placements of `reference`. */
+vector3_t posContactRtWorldEwrtWorld(const PinocchioInterface& reference,
+                                     const ModelSettings& settings,
+                                     size_t contact) {
+  return reference.getData()
+             .oMf[reference.getModel().getFrameId(
+                 settings.contactNames[contact])]
+             .translation() -
+         settings.wheelRadius(contact) * vector3_t::UnitZ();
+}
+
+// Tron1's rolling contacts (humanoid_nmpc/docs/rolling_contact/README.md):
+// their frames are the wheel centers, their forces act at the wheels' lowest
+// points, and the scene draws the forces, the planned paths and the footholds
+// there.
+TEST(SceneBuilderRollingContactTest,
+     TheWheelForcesPathsAndFootholdsAreAtTheWheelsLowestPoints) {
+  const std::unique_ptr<test::TestRobot> robot =
+      test::TestRobot::load(test::tron1Files(), test::Formulation::kCentroidal);
+  const ModelSettings& settings = robot->modelSettings();
+  ASSERT_TRUE(settings.hasRollingContacts());
+  const absl::StatusOr<VisualizationConfig> config =
+      loadVisualizationConfig(robot->taskFile(), settings);
+  ASSERT_TRUE(config.ok()) << config.status();
+  ASSERT_EQ(config->planFrames, settings.contactNames)
+      << "the plan frames default to the contact frames";
+  absl::StatusOr<std::unique_ptr<SceneBuilder>> builder =
+      SceneBuilder::Create(robot->model(), *config);
+  ASSERT_TRUE(builder.ok()) << builder.status();
+  const SystemObservation observation =
+      robot->observation(/*time=*/0.0, kBipedModeStance);
+  CommandData command;
+  PrimalSolution solution;
+  robot->makePolicy(/*startTime=*/0.0, kNodes, kForceFootEwrtWorldZ,
+                    vector2_t::Zero(), &command, &solution);
+  PolicySnapshot policy;
+  policy.assign(command, solution);
+  SceneInputs inputs;
+  inputs.observation = &observation;
+  inputs.policy = &policy;
+  inputs.policyVersion = 1;
+  humanoid_mpc_msgs::VisualizationScene scene;
+  const absl::Status status = (*builder)->build(inputs, &scene);
+  ASSERT_TRUE(status.ok()) << status;
+
+  PinocchioInterface reference = robot->makeReferencePinocchioInterface();
+
+  // The force arrows end at the contact points of the observed state.
+  forwardKinematics(reference, robot->robotModel().getGeneralizedCoordinates(
+                                   observation.state));
+  const humanoid_mpc_msgs::Arrows& contactArrows =
+      arrowsAt(scene, scene::kContactForceMarkers);
+  ASSERT_EQ(contactArrows.pos_arrows_rt_world_ewrt_world_size(),
+            static_cast<int>(settings.numContacts()));
+  for (size_t contact = 0; contact < settings.numContacts(); ++contact) {
+    const int index = static_cast<int>(contact);
+    const vector3_t posArrowheadRtWorldEwrtWorld =
+        toVector(contactArrows.pos_arrows_rt_world_ewrt_world(index)) +
+        toVector(contactArrows.pos_arrowheads_rt_arrow_ewrt_world(index));
+    EXPECT_LT((posArrowheadRtWorldEwrtWorld -
+               posContactRtWorldEwrtWorld(reference, settings, contact))
+                  .norm(),
+              kTolerance)
+        << settings.contactNames[contact];
+  }
+  EXPECT_EQ(spheresAt(scene, scene::kCenterOfPressure)
+                .pos_spheres_rt_world_ewrt_world_size(),
+            0)
+      << "the center of pressure is of the 6-DoF contacts";
+
+  // The planned paths of the contact frames are those of the contact points.
+  const humanoid_mpc_msgs::LineStrips& endEffectors =
+      lineStripsAt(scene, scene::kPlanEndEffectors);
+  ASSERT_EQ(endEffectors.strips_size(),
+            static_cast<int>(settings.numContacts()));
+  for (size_t node = 0; node < kNodes; ++node) {
+    forwardKinematics(reference, robot->robotModel().getGeneralizedCoordinates(
+                                     policy.state[node]));
+    for (size_t contact = 0; contact < settings.numContacts(); ++contact) {
+      EXPECT_LT((toVector(endEffectors.strips(static_cast<int>(contact))
+                              .pos_strippoints_rt_world_ewrt_world(
+                                  static_cast<int>(node))) -
+                 posContactRtWorldEwrtWorld(reference, settings, contact))
+                    .norm(),
+                kTolerance)
+          << settings.contactNames[contact] << " node " << node;
+    }
+  }
+
+  // The left wheel lands at 0.6 s: its foothold is its contact point then.
+  const humanoid_mpc_msgs::Spheres& footholds =
+      spheresAt(scene, scene::kPlanFootholds);
+  ASSERT_EQ(footholds.pos_spheres_rt_world_ewrt_world_size(), 1);
+  vector_t state;
+  vector_t input;
+  samplePlan(policy, robot->stateManifold(), /*time=*/0.6, &state, &input);
+  forwardKinematics(reference,
+                    robot->robotModel().getGeneralizedCoordinates(state));
+  EXPECT_LT((toVector(footholds.pos_spheres_rt_world_ewrt_world(0)) -
+             posContactRtWorldEwrtWorld(reference, settings, kContactLeftIndex))
+                .norm(),
+            kTolerance);
+}
 
 }  // namespace
 }  // namespace ocs2::humanoid::visualization

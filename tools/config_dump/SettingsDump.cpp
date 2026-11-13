@@ -97,6 +97,25 @@ void dumpModelSettings(ValueDump& dump,
                   settings.contactNames3DoF);
   dump.addStrings(joinPath(path, "contactParentJointNames"),
                   settings.contactParentJointNames);
+  for (size_t i = 0; i < settings.pointContacts.size(); ++i) {
+    const ModelSettings::PointContact& contact = settings.pointContacts[i];
+    const std::string contactPath =
+        absl::StrCat(joinPath(path, "pointContacts"), "[", i, "]");
+    dump.addString(joinPath(contactPath, "name"), contact.name);
+    dump.addString(joinPath(contactPath, "parentJointName"),
+                   contact.parentJointName);
+    dump.addDouble(joinPath(contactPath, "posContactRtLinkEwrtLink.x"),
+                   contact.posContactRtLinkEwrtLink.x());
+    dump.addDouble(joinPath(contactPath, "posContactRtLinkEwrtLink.y"),
+                   contact.posContactRtLinkEwrtLink.y());
+    dump.addDouble(joinPath(contactPath, "posContactRtLinkEwrtLink.z"),
+                   contact.posContactRtLinkEwrtLink.z());
+    dump.addInteger(joinPath(contactPath, "kind"),
+                    static_cast<int64_t>(contact.kind));
+    dump.addDouble(joinPath(contactPath, "wheelRadius"), contact.wheelRadius);
+  }
+  dump.addStrings(joinPath(path, "rollingContactJointNames"),
+                  settings.rollingContactJointNames());
   dump.addStrings(joinPath(path, "mpcModelJointNames"),
                   settings.mpcModelJointNames);
   dump.addSizes(joinPath(path, "mpcModelToFullJointsIndices"),

@@ -127,6 +127,14 @@ Eigen::Matrix<SCALAR_T, kPositionDim, 1> getPosContactRtComEwrtWorld(const Pinoc
                                                                                   const CentroidalModelInfoTpl<SCALAR_T>& info,
                                                                                   size_t contactIndex) {
   const auto& data = interface.getData();
+  // A rolling contact's frame is its wheel center: the force acts a wheel radius below it, at the wheel's lowest point.
+  // Only a model with a rolling contact takes this branch, so every other tape is the one it always was.
+  if (contactIndex < info.rollingContactWheelRadii.size() && info.rollingContactWheelRadii[contactIndex] > SCALAR_T(0.0)) {
+    Eigen::Matrix<SCALAR_T, kPositionDim, 1> posContactRtComEwrtWorld =
+        data.oMf[info.endEffectorFrameIndices[contactIndex]].translation() - data.com[0];
+    posContactRtComEwrtWorld.z() -= info.rollingContactWheelRadii[contactIndex];
+    return posContactRtComEwrtWorld;
+  }
   return (data.oMf[info.endEffectorFrameIndices[contactIndex]].translation() - data.com[0]);
 }
 

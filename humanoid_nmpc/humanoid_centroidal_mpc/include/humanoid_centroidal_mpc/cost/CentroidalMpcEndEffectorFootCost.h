@@ -85,8 +85,12 @@ namespace ocs2::humanoid {
  * A 3-DoF contact (ModelSettings::isPointContact()) has no orientation to
  * track: its rotvec and angular-velocity weights are held at zero, at
  * construction and by every setWeights() of a hot reload. The residual and
- * its CppAD library are the same for both kinds of contact; the weights are
- * parameters of the library.
+ * its CppAD library are the same for a fixed point and a 6-DoF contact; the
+ * weights are parameters of the library. A rolling contact's frame is its
+ * wheel center, so its position residual is the contact point's, the frame
+ * less the wheel radius along world z (contact/RollingContact.h), taped in a
+ * library of its own (kRollingContactLibrarySuffix); its velocity residual is
+ * the wheel center's, which the contact point shares.
  *
  * Not thread-safe; the solver clones it per worker.
  */
@@ -113,6 +117,15 @@ class CentroidalMpcEndEffectorFootCost final
    * "_tiltAngle" is the tilt angle theta u (tiltAngleToPlane()).
    */
   static constexpr char kLibraryVersionSuffix[] = "_tiltAngle";
+
+  /**
+   * Appended after kLibraryVersionSuffix to the library of a rolling contact
+   * (ModelSettings::isRollingContact()), whose position residual is the
+   * contact point, the wheel center less the wheel radius along world z: a
+   * residual of its own, so that no library of a fixed point's residual is
+   * ever loaded in its place.
+   */
+  static constexpr char kRollingContactLibrarySuffix[] = "_rollingContact";
 
   /**
    * The cost of the contact `contactIndex` with the task file's `settings`
@@ -271,6 +284,9 @@ class CentroidalMpcEndEffectorFootCost final
   size_t contactIndex_;
   // Whether the contact is a 3-DoF one, whose orientation weights stay zero.
   bool pointContact_ = false;
+  // [m] The wheel radius of a rolling contact, whose frame is the wheel
+  // center; 0 for any other contact. Taped as a constant.
+  scalar_t wheelRadius_ = 0.0;
   const pinocchio::FrameIndex frameID_;
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
   std::unique_ptr<MpcRobotModelBase<ad_scalar_t>> mpcRobotModelAdPtr_;

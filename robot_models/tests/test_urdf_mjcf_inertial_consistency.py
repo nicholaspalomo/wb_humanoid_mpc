@@ -390,8 +390,10 @@ class UrdfMjcfInertialConsistencyTest(unittest.TestCase):
         robots = [robot for robot, _, _ in _find_model_pairs()]
         for robot in (
             "anybotics_anymal_b",
+            "anybotics_anymal_c_wheels",
             "drc_atlas",
             "engineai_sa01",
+            "limx_tron1",
             "unitree_g1",
             "unitree_r1",
         ):

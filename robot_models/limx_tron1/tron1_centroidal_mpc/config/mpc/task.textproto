@@ -1,0 +1,587 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto
+# proto-message: humanoid_mpc_config.TaskFile
+# Simulation & Telemetry Configuration
+# Where the robot process sends its telemetry (robot/state), by name (TelemetrySinkRegistry.h): bus publishes it on
+# the IPC bus for the visualization publisher, the Rerun bridge and ipc_tool; no telemetry_sinks line turns the
+# telemetry off.
+# LINT.IfChange(telemetry_sinks)
+telemetry_sinks: "bus"
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h:telemetry_sink_names)
+telemetry_frequency: 100  # [Hz] robot/state, decimated from the control loop
+# MuJoCo backend of the robot process only. The viewer's contact timeline ('b' toggles it) shows, per contact point,
+# the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
+sim_contact_timeline_window: 5.0  # [s] width of the sliding window
+sim_min_force_mjcontact_ewrt_mjcontact_x: 5.0  # [N] normal force above which a contact point counts as touching (ground truth)
+# Fall recovery (SimFallRecovery, humanoid_nmpc/docs/mpc_reset/README.md). sim_max_tiltangle_base_rt_world is the tilt of the base
+# past which the simulator catches the robot on the gantry, holding it upright where it is at the gantry height,
+# switching to JOINT_PD (the whole-body MPC is overconstrained against a pinned base) and resetting the controller, which
+# holds the robot until it has planned from where the robot is now. The simulator's own resets (base below the floor
+# limit, an unstable step) are caught the same way. The remote control follows the lock and re-centers its joysticks,
+# so a stick left forward cannot keep commanding a walk into a robot hanging from the harness. The measure is the angle
+# between the base's own vertical and the world vertical, so it is heading independent: 0 upright, pi/2 on its side, pi
+# upside down. Leaving it out disables the catch and leaves a fallen robot where it lands, which is what you want when the fall
+# itself is the thing being studied. 1.0 rad (57 deg) is past any recoverable lean.
+# sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z is how far the gantry then lifts the caught robot so that its feet clear the ground: JOINT_PD brings
+# the legs back to the nominal posture, the gantry lowers the robot back onto its feet, and WB_MPC is refused until it
+# rests there. Caught at its standing height with its feet loaded where they landed, the robot hung pitched and fell
+# again within two seconds of the unlock. Leaving it out skips the sequence and accepts WB_MPC at once. Simulation only.
+sim_max_tiltangle_base_rt_world: 1.0  # [rad] positive; absent disables
+sim_gantry_catch_err_pos_base_rt_world_ewrt_world_z: 0.15  # [m] positive; absent skips the settle sequence
+# Measured contact state of the controller, by name (robot_model/ContactEstimatorRegistry.h): the MPC observation mode and
+# which planned contact wrenches the inverse dynamics projects into feedforward torques. One of:
+#   cheater_sim        the ground truth of the physics (normal force above sim_min_force_mjcontact_ewrt_mjcontact_x); required for the
+#                      phase_resetting execution rule of contact_planning.textproto
+#   robot_state        the contact flags of the RobotState (in MuJoCo the same ground truth)
+#   always_in_contact  every contact point touching: the executed schedule is taken as the measured contact state
+# LINT.IfChange(contact_estimator)
+contact_estimator: "cheater_sim"
+# LINT.ThenChange(//robot_runtime/robot_model/src/ContactEstimatorRegistry.cpp:contact_estimator_names, //robot_runtime/mujoco_sim_interface/src/CheaterSimContactEstimator.cpp:cheater_sim_contact_estimator_name)
+# How the virtual gantry holds the floating base while it is locked. Two different physical models, so the name selects
+# one rather than a boolean switching a feature on:
+#   weld_constraint    a MuJoCo weld the solver satisfies INSIDE mj_step, so the base is really supported while the
+#                      dynamics are integrated. This is what a physical gantry does, and the only setting under which
+#                      GRAVITY_COMP holds the limbs still. It needs the scene's 'gantry' weld from the world to the base
+#                      (test_robot_scene_gantry_hold checks every configuration's scene).
+#   kinematic_teleport legacy: qpos/qvel are overwritten just BEFORE mj_step, leaving the base unsupported during the
+#                      step. The robot is then in free fall while integrating, and a free-falling chain in uniform
+#                      gravity needs zero joint torque to keep its shape, so the commanded gravity torque is entirely
+#                      surplus lift: measured ~130 deg of joint drift in 3 s, into the stops. Kept only to reproduce
+#                      recorded runs.
+# LINT.IfChange(gantry_hold)
+gantry_hold: "weld_constraint"
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/MujocoSimInterface.h:gantry_hold_names)
+
+# The ball the GUI's Dodgeball tab throws, by name (robot_runtime/mujoco_sim_interface/.../Projectile.h). MuJoCo
+# compiles its model once at load and bodies cannot be added afterwards, so naming one here appends a free-floating
+# sphere to the scene BEFORE it is compiled. Until a throw arms it, it is parked 100 m above the scene with its
+# collisions off and its weight held by gravity compensation; it is parked again once it has come to rest, after ten
+# seconds in play at most, and whenever the robot is caught on the gantry.
+#
+#   dodgeball   a regulation 0.216 m sphere of 0.45 kg (the GUI's mass slider sets 0.1-5 kg per throw) that bounces
+#               back at 0.80 of the speed it arrived at. MuJoCo has no restitution parameter: it is converted to the
+#               contact damping ratio solref needs by the logarithmic decrement (0.80 gives 0.0708), and the ball's
+#               contact parameters take priority over the floor's and the robot's so that it is the bounce it gets.
+#
+# Remove the key, or set it empty, to compile the scene exactly as it is on disk. The Throw button then still works:
+# with no ball to fly, the simulator applies the momentum the ball would have ARRIVED with as a one-step force on the
+# base - a lower bound on the push, since a real ball that bounces off hands over more.
+#
+# Simulation only. It changes nothing about the MPC, and a contact with the ball is excluded from the ground-truth
+# contact mask and from the ZMP marker, so a ball against a swing foot is never mistaken for the ground.
+# LINT.IfChange(sim_projectile)
+sim_projectile: "dodgeball"
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/Projectile.cpp:projectile_names)
+
+# Viewer visualizations (each listed one starts on; the key in brackets toggles it, 'p' prints the cheatsheet). Every
+# marker is a class in robot_runtime/mujoco_sim_interface/.../visualization; the names are those of VisualizationRegistry.
+# LINT.IfChange(sim_visualizations)
+sim_visualizations: "metrics"  # render/sim FPS, real-time factor and drift (top-left text)
+sim_visualizations: "external_forces"  # arrows of the external forces applied to the bodies (pushes)
+sim_visualizations: "contact_forces"  # arrows of the physical contact forces on the robot
+sim_visualizations: "base_velocity"  # measured (red) vs commanded (green) base velocity and yaw rate at the CoM
+sim_visualizations: "contact_timeline"  # [b] barcode of planned vs ground-truth contact per contact point
+sim_visualizations: "target_contact_patches"  # [g] contact patch of every foot at the planner's target position and yaw
+# sim_visualizations: "center_of_mass"        # [o] whole-body center of mass: sphere, vertical, and its shadow on the ground
+# sim_visualizations: "zmp"                   # [z] zero moment point of the physical ground reaction, on the ground
+# sim_visualizations: "dcm"                   # [d] divergent component of motion (capture point) of the measured CoM, on the ground
+# MuJoCo's own markers, off unless listed:
+# sim_visualizations: "mj_contact_points"     # [c] markers at the physical contact points
+# sim_visualizations: "mj_contact_forces"     # [f] MuJoCo's normal and friction force arrows at the contacts
+# sim_visualizations: "mj_com"                # [m] center of mass markers of the bodies
+# sim_visualizations: "mj_inertia"            # [i] equivalent inertia ellipsoids
+# sim_visualizations: "mj_convex_hull"        # [h] convex hulls of the meshes
+# sim_visualizations: "mj_transparent"        # [t] model transparency (x-ray view)
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/visualization/VisualizationRegistry.cpp:visualization_names)
+enable_online_tuning: true  # Enable runtime parameter and gain tuning in Controller GUI
+# How the MPC parameterizes its contact inputs, by name (ContactInputParameterization.h): `wrench` (the force of each
+# 3-DoF contact, a wheel's here, and the wrench of each 6-DoF one; the default) or `basis_vectors` (the
+# scalings lambda of wrench-cone generators, which a set with a rolling contact refuses: no generator set spans a
+# wheel's force cone). It fixes the input dimension, so it takes effect at start-up only. See
+# humanoid_nmpc/docs/contact_basis_vectors/README.md.
+# LINT.IfChange(contact_input_parameterization_config)
+contact_input_parameterization: "wrench"
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names)
+# Where the mode schedule and the footholds come from, by name (MpcFormulationConfig.h): `gait_schedule` (the gait
+# schedule of the reference files; shipped here, and the default). `contact_planner` and `multi_contact_plan` place each
+# contact on a patch of its own and are refused on a set with a rolling contact, which assumes flat ground
+# (humanoid_nmpc/docs/rolling_contact/README.md). It takes effect at start-up only. See humanoid_nmpc/docs/README.md,
+# section 2.
+# LINT.IfChange(contact_schedule_source_config)
+contact_schedule_source: "gait_schedule"
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
+
+# The visualization publisher of the MPC node (humanoid_nmpc/humanoid_common_mpc_app/visualization/README.md), read at
+# start-up. rerun_scene_frequency bounds how often the Rerun scene (robots and markers) is sent; the plots follow every
+# robot/state sample. telemetry_frames are the frames whose pose, twist, acceleration and wrench are plotted, measured,
+# reference and plan; rerun_plan_frames (the contact frames when absent) those whose planned paths the scene draws.
+rerun_scene_frequency: 30  # [Hz] viz/scene at most this often
+# Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench): the base, the URDF's root
+# link, and the two wheels, the URDF's wheel links.
+telemetry_frames: "base_Link"
+telemetry_frames: "wheel_L_Link"
+telemetry_frames: "wheel_R_Link"
+
+# The full centroidal dynamics, as on the other robots.
+centroidal_model: "full_centroidal_dynamics"  # or "single_rigid_body_dynamics"
+
+# MPC Problem Formulation Tasks. The terms of two rolling contacts (humanoid_nmpc/docs/rolling_contact/README.md):
+# zero_velocity builds the rolling no-slip constraint on each wheel in stance, normal_velocity servoes the height of a
+# wheel in swing, and friction_force_cone keeps each wheel's force in its friction cone. The terms written for two
+# 6-DoF feet and the terms that hold a contact point fixed on its link are refused on this set by name
+# (checkCentroidalContactSet()). task_space_foot_cost is not listed: every gait of the wheeled gait file keeps both
+# wheels on the ground, and in stance the no-slip rows already decide how each wheel moves.
+hard_constraints: "zero_wrench"
+hard_constraints: "zero_velocity"
+hard_constraints: "normal_velocity"
+soft_constraints: "joint_limits"
+soft_constraints: "friction_force_cone"
+costs: "state_quadratic_cost"
+costs: "input_quadratic_cost"
+
+# A wheel that leaves the ground lands where it stands at the nominal posture, below its hip, relative to the base
+# predicted at its touch-down (nominal_foothold_config.proto); the biped's step_width anchor is refused on this set.
+nominal_foothold {
+  anchor: "nominal_stance"
+}
+
+# A legs-only robot: no arm joints to swing.
+arm_swing {
+  generator: "none"
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# Locomotion heuristics: the regularization heuristics of Gerardo Bledt, "Regularized Predictive Control Framework
+# for Robust Dynamic Legged Locomotion", MIT 2020, Appendix C. Derivations, a block diagram and the seam of every  # NOLINT(claudisms): cited paper title
+# name below are in humanoid_nmpc/docs/locomotion_heuristics/README.md.
+#
+# The heuristics shape references that the costs this file lists regularize against; none adds a term to the optimal
+# control problem. Three channels, three lists:
+#
+#   base_pose  the roll, pitch and height of the base-pose reference that the state_weights of eulerzyx_base_rt_world (roll,
+#              pitch) and pos_base_rt_world_ewrt_world (z) track, shaped per shooting node in
+#              SwitchedModelReferenceManager::shapePoseBaseRtWorld(). Without a heuristic that reference has zero roll
+#              and pitch.
+#   foothold   the landing target of a swinging contact, shaped in getNomPosFootRtWorldEwrtWorldXy(). Tron1's gaits keep
+#              both wheels on the ground, so no landing target is ever read.
+#   wrench     the contact-force reference the input costs regularize against, shaped in getDesiredInput(): otherwise
+#              m*g split evenly over the contacts the mode schedule calls stance contacts, purely vertical.
+#
+# ALL THREE LISTS ARE EMPTY. The centroidal MPC refuses the base_pose and wrench families on any set other than the
+# biped's two feet (checkCentroidalContactSet()): they read the biped's gait phase and a left and a right foot. The
+# foothold family runs on a legged set, and this robot's two legs are left and right, but it places swinging contacts
+# only. The blocks are kept so that the file carries every parameter of the schema, each at the value that makes it a
+# no-op, and so that the refusal names a heuristic if one is uncommented.
+#
+# Orientation sign: the heuristic offsets are ZYX Euler angles of the base at the Euler boundary, about a z-up world,
+# so a POSITIVE pitch puts the nose DOWN.
+locomotion_heuristics {
+  # Each list ships empty, its candidate names commented out below, one line per entry.
+  # base_pose_heuristics: "orientation_compensation"   # H_Theta(pdot): roll from lateral speed, pitch from forward speed
+  # base_pose_heuristics: "periodic_orientation"       # H_Theta(Phi):  roll/pitch limit cycle in the gait phase
+  # base_pose_heuristics: "height_compensation"        # H_z(v):        base height against speed
+  # foothold_heuristics: "hip_centered_stepping"      # H_r(Theta):        foot under its own hip
+  # foothold_heuristics: "capture_point"              # H_r(pdot, Phi):    step into the velocity ERROR
+  # foothold_heuristics: "translational_stepping"     # H_r(pdot):         step in the direction of travel
+  # foothold_heuristics: "in_place_turning"           # H_r(psidot):       step along the turn arc
+  # foothold_heuristics: "high_speed_turning"         # H_r(pdot x omega): step outward along the turn radius
+  # wrench_heuristics: "impulse_scaling"            # H_f(Phi):            stance force scaled by 1 / duty factor
+  # wrench_heuristics: "centripetal_acceleration"   # H_f(Theta x pdot):   the horizontal force of a turn
+
+  # ---- one parameter block per heuristic, keyed by the heuristic's own registry name; the equations and the meaning
+  # of each coefficient are in humanoid_nmpc/docs/locomotion_heuristics/README.md ----
+
+  # H_Theta(pdot) = a1 * pdot + a0  (Table C.2, equations 4.11 and 4.12).
+  orientation_compensation_parameters {
+    roll_per_lateral_velocity_gain: 0.0  # a1 [rad s/m] roll reference per commanded lateral speed
+    offset_eulerzyx_base_rt_world_roll: 0.0  # a0 [rad] standing roll trim
+    pitch_per_forward_velocity_gain: 0.0  # a1 [rad s/m] pitch per commanded forward speed
+    offset_eulerzyx_base_rt_world_pitch: 0.0  # a0 [rad] standing pitch trim
+    max_offset_eulerzyx_base_rt_world: 0.35  # [rad] each of roll and pitch is clamped to +/- this
+  }
+
+  # H_Theta(Phi) = b1 * sin(c1 * Phi + d1)  (Table C.2, equation 4.13), with Phi the biped's gait phase in [0, 1).
+  periodic_orientation_parameters {
+    amplitude_eulerzyx_base_rt_world_roll: 0.0  # b1 [rad]
+    roll_phase_rate: 6.2831853  # c1 [rad per unit phase]; 2*pi = one period per left-right cycle
+    roll_phase_offset: 0.0  # d1 [rad]
+    amplitude_eulerzyx_base_rt_world_pitch: 0.0  # b1 [rad]
+    pitch_phase_rate: 12.5663706  # c1 [rad per unit phase]; 4*pi = one period per step
+    pitch_phase_offset: 0.0  # d1 [rad]
+  }
+
+  # H_z(v) = a2*v^2 + a1*v + a0  (Table C.2), an OFFSET to the reference height.
+  height_compensation {
+    height_per_speed_squared_gain: 0.0  # a2 [m s^2/m^2]
+    height_per_speed_gain: 0.0  # a1 [m s/m]
+    offset_pos_base_rt_world_ewrt_world_z: 0.0  # a0 [m]
+    max_offset_pos_base_rt_world_ewrt_world_z: 0.05  # [m] clamped to +/- this
+  }
+
+  # H_r(Theta) = PTP(R(Theta) * r_hip)  (Table C.1): the contact under its own hip. r_hip is derived from the robot
+  # model at start-up; these two scales stretch it.
+  hip_centered_stepping {
+    lateral_scale: 1.0  # multiplies the model's hip lateral offset; 0 removes the lateral part
+    longitudinal_scale: 1.0  # multiplies the model's hip fore-aft offset
+  }
+
+  # H_r(pdot, Phi) = gain * sqrt(p_z / g) * (pdot - pdot_d)  (Table C.1): the capture-point offset of the velocity
+  # error.
+  capture_point {
+    gain: 1.0  # 1.0 is the textbook capture point
+    # override_pos_com_rt_feetmean_ewrt_world_z is absent: the CoM height measured at each solve.
+    max_norm_offset_pos_foot_rt_world_ewrt_world_xy: 0.25  # [m] clamped in magnitude
+  }
+
+  # H_r(pdot) = a1 * pdot + a0  (Table C.2): step in the direction of travel, in the base's yaw frame.
+  translational_stepping {
+    forward_per_forward_velocity_gain: 0.0  # a1 [m s/m]
+    forward_stance_fraction: 0.0  # [-] adds this times the upcoming stance duration to a1
+    offset_pos_foot_rt_world_ewrt_heading_x: 0.0  # a0 [m]
+    lateral_per_lateral_velocity_gain: 0.0  # a1 [m s/m]
+    lateral_stance_fraction: 0.0  # [-] the same on the lateral axis
+    offset_pos_foot_rt_world_ewrt_heading_y: 0.0  # a0 [m] applied to this contact's own side
+  }
+
+  # H_r(psidot) = a1 * psidot + a0  (Table C.2): step along the turn arc while turning on the spot.
+  in_place_turning {
+    forward_per_yaw_rate: 0.0  # a1 [m s/rad]; positive leads each hip into the turn
+    forward_stance_lever: 0.0  # [m/rad] adds this times the upcoming stance duration to a1
+    offset_pos_foot_rt_world_ewrt_heading_x: 0.0  # a0 [m]
+    lateral_per_yaw_rate: 0.0  # a1 [m s/rad]
+    offset_pos_foot_rt_world_ewrt_heading_y: 0.0  # a0 [m] applied to this contact's own side
+  }
+
+  # H_r(pdot x omega) = a1 * (pdot x omega) + a0  (Table C.2): out along the turn radius at speed.
+  high_speed_turning {
+    forward_per_cross_term: 0.0  # a1 [m s^2/(m rad)] on   v_y * psidot
+    offset_pos_foot_rt_world_ewrt_heading_x: 0.0  # a0 [m]
+    lateral_per_cross_term: 0.0  # a1 [m s^2/(m rad)] on  -v_x * psidot
+    offset_pos_foot_rt_world_ewrt_heading_y: 0.0  # a0 [m] applied to this contact's own side
+  }
+
+  # H_f(Phi) = m*g / (F * beta)  (Table C.1): the vertical stance force of a contact on the ground for a fraction beta
+  # of the gait cycle.
+  impulse_scaling {
+    scale: 1.0  # blends between the weight-compensating reference (0) and Bledt's W/(F*beta) (1); must be >= 0
+    minimum_duty_factor: 0.2  # beta is clamped up to this
+    maximum_weight_compensation_ratio: 2.0  # the reference is clamped to this many times weight compensation
+  }
+
+  # H_f(Theta x pdot) = m * omega x pdot  (Table C.1): the horizontal force that holds the robot on a circular path,
+  # shared over the stance contacts.
+  centripetal_acceleration_parameters {
+    scale: 1.0  # scales m * omega x v; 0 disables it
+    # max_force_com_ewrt_world_xy is absent: max_wnorm_force_com_ewrt_world_xy clamps the total over the stance contacts.
+    max_wnorm_force_com_ewrt_world_xy: 0.2  # the clamp on the total as a fraction of body weight
+  }
+}
+
+interface {
+  verbose: true  # show the loaded parameters
+}
+
+model_settings {
+  robot_name: "tron1"
+
+  # The stance and swing gains. On a rolling contact zero_velocity builds the no-slip rows, which take the translation
+  # gains alone: linear_velocity_error_gain_xy on the material velocity at the contact point, linear_velocity_error_gain_z
+  # and position_error_gain_z on its height (RollingContactConstraintCppAd). The orientation gains have no row to act
+  # on, and "position" says that the stance constraint has translation rows only.
+  foot_constraint {
+    position_error_gain_z: 5.0
+    orientation_error_gain: 20.0
+    linear_velocity_error_gain_z: 1.0
+    linear_velocity_error_gain_xy: 1.0
+    angular_velocity_error_gain: 1.0
+    linear_acceleration_error_gain_z: 0.0
+    linear_acceleration_error_gain_xy: 0.0
+    angular_acceleration_error_gain: 0.0
+    stance_constraint: "position"
+  }
+
+  phase_transition_stance_time: 0.0
+
+  verbose_cpp_ad: true
+  recompile_libraries_cpp_ad: false
+
+  # The two wheels, rolling contacts in the contact order left, right (mode bits left = 2, right = 1). Each contact's
+  # frame is its wheel center, which the MPC adds to the wheel link of the wheel's own joint: the center of the URDF's
+  # wheel collision cylinder, 7.07 mm outboard of the joint frame along the axle. The force acts a wheel radius below
+  # it, at the wheel's lowest point (humanoid_nmpc/docs/rolling_contact/README.md).
+  contacts_rolling {
+    name: "wheel_L_contact"
+    parent_joint_name: "wheel_L_Joint"
+    pos_wheel_rt_link_ewrt_link { x: 0.0 y: 0.00707 z: 0.0 }
+    wheel_radius: 0.127
+  }
+  contacts_rolling {
+    name: "wheel_R_contact"
+    parent_joint_name: "wheel_R_Joint"
+    pos_wheel_rt_link_ewrt_link { x: 0.0 y: -0.00707 z: 0.0 }
+    wheel_radius: 0.127
+  }
+
+  # One leg per wheel. A set of rolling contacts is never the biped's, so the legs are named here; each hip is derived
+  # (abad_L_Joint and abad_R_Joint, the first joint below the base), and so is its side.
+  legs { name: "left" contacts: "wheel_L_contact" }
+  legs { name: "right" contacts: "wheel_R_contact" }
+}
+
+# The swing of a wheel that leaves the ground, which none of the shipped gaits does: the values of the ANYmal B task
+# file, a 0.1 m apex of the contact point, lifting off at 0.2 m/s and touching down at -0.4 m/s. normal_velocity servoes
+# the wheel center a wheel radius above this profile.
+swing_trajectory_config {
+  liftoff_linvel_foot_rt_world_ewrt_world_z: 0.2
+  touchdown_linvel_foot_rt_world_ewrt_world_z: -0.4
+  apex_pos_foot_rt_swingend_ewrt_world_z: 0.1
+  touchdown_pos_foot_rt_surface_ewrt_world_z: 0.0
+  swing_time_scale: 0.15
+  impact_proximity_factor_liftoff_slope: 0.0
+  impact_proximity_factor_touchdown_slope: 0.0
+  impact_proximity_factor_mid_point_value: 0.1
+}
+
+# multiple_shooting settings, those of ANYmal B.
+multiple_shooting {
+  n_threads: 4
+  dt: 0.015
+  sqp_iteration: 1
+  delta_tol: 1e-4
+  g_max: 1e-2
+  g_min: 1e-6
+  project_state_input_equality_constraints: true
+  print_solver_statistics: true
+  print_solver_status: false
+  print_linesearch: false
+  use_feedback_policy: false
+  integrator_type: "RK4"
+  thread_priority: 50
+}
+
+# Rollout settings
+rollout {
+  abs_tol_ode: 5e-5
+  rel_tol_ode: 5e-3
+  time_step: 0.015
+  integrator_type: "ODE45"
+  max_num_steps_per_second: 10000
+  check_numerical_stability: false
+}
+
+mpc {
+  time_horizon: 1.0  # [s]
+  # solution_time_window is absent: every policy carries the whole horizon.
+  cold_start: false
+
+  debug_print: false
+
+  mpc_desired_frequency: 80  # [Hz]
+  mrt_desired_frequency: 100  # [Hz]
+}
+
+# The default posture of config/command/reference.textproto standing on flat ground: the base height puts the two wheels
+# on the ground by the URDF's forward kinematics.
+initial_state {
+  # Normalized Centroidal Momentum: [linear, angular]
+  mnorm_linmom_com_rt_world_ewrt_world {
+    x: 0.0  # h_com_x / robotMass
+    y: 0.0  # h_com_y / robotMass
+    z: 0.0  # h_com_z / robotMass
+  }
+  mnorm_angmom_com_rt_world_ewrt_world {
+    x: 0.0  # L_x / robotMass
+    y: 0.0  # L_y / robotMass
+    z: 0.0  # L_z / robotMass
+  }
+
+  # Base Pose: [position, orientation]
+  pos_base_rt_world_ewrt_world {
+    x: 0.0  # p_base_x
+    y: 0.0  # p_base_y
+    z: 0.7485  # p_base_z, the nom_pos_base_rt_surface_ewrt_world_z of config/command/reference.textproto
+  }
+  eulerzyx_base_rt_world {
+    yaw: 0.0  # theta_base_z
+    pitch: 0.0  # theta_base_y
+    roll: 0.0  # theta_base_x
+  }
+
+  # Joint Positions:
+  joint_positions { joint: "abad_L_Joint" value: 0.0 }
+  joint_positions { joint: "hip_L_Joint" value: 0.35 }
+  joint_positions { joint: "knee_L_Joint" value: 0.8 }
+  joint_positions { joint: "wheel_L_Joint" value: 0.0 }
+  joint_positions { joint: "abad_R_Joint" value: 0.0 }
+  joint_positions { joint: "hip_R_Joint" value: -0.35 }
+  joint_positions { joint: "knee_R_Joint" value: -0.8 }
+  joint_positions { joint: "wheel_R_Joint" value: 0.0 }
+}
+
+# The state weights. The momenta are normalized by the mass, so the weights do not depend on it; the momentum, base
+# pose and leg joint weights are those of ANYmal B's task file. A wheel's position takes no weight: it has no
+# reference, and start-up refuses any other value (humanoid_nmpc/docs/rolling_contact/README.md, section 7).
+state_weights {
+  scaling: 1
+
+  # Normalized Centroidal Momentum: [linear, angular]
+  mnorm_linmom_com_rt_world_ewrt_world {
+    x: 400.0  # h_com_x / robotMass
+    y: 400.0  # h_com_y / robotMass
+    z: 30.0  # h_com_z / robotMass
+  }
+  mnorm_angmom_com_rt_world_ewrt_world {
+    x: 5.0  # L_x / robotMass
+    y: 10.0  # L_y / robotMass
+    z: 10.0  # L_z / robotMass
+  }
+
+  # Base Pose: [position, orientation]
+  pos_base_rt_world_ewrt_world {
+    x: 500.0  # p_base_x
+    y: 500.0  # p_base_y
+    z: 500.0  # p_base_z
+  }
+  eulerzyx_base_rt_world {
+    yaw: 1000.0  # theta_base_z
+    pitch: 200.0  # theta_base_y
+    roll: 200.0  # theta_base_x
+  }
+
+  # Joint Positions
+  joint_positions { joint: "abad_L_Joint" value: 20.0 }
+  joint_positions { joint: "hip_L_Joint" value: 20.0 }
+  joint_positions { joint: "knee_L_Joint" value: 20.0 }
+  joint_positions { joint: "wheel_L_Joint" value: 0.0 }
+  joint_positions { joint: "abad_R_Joint" value: 20.0 }
+  joint_positions { joint: "hip_R_Joint" value: 20.0 }
+  joint_positions { joint: "knee_R_Joint" value: 20.0 }
+  joint_positions { joint: "wheel_R_Joint" value: 0.0 }
+}
+
+# The input weights (scaling 1e-3):
+# - Contact forces: ANYmal B's per-axis weight of the OCS2 ANYmal C example, 1 per axis on ANYmal C (52.135 kg) scaled
+#   by (52.135 kg / 22.273 kg)^2 = 5.479, so that a force in units of the body weight costs on Tron1 what it costs on
+#   ANYmal C.
+# - Leg joint velocities: 1000 on each joint, the order of ANYmal B's diagonal (566 to 1299).
+# - Wheel joint velocities: 10, so that the no-slip rows, not the cost, decide how fast a wheel turns; the cost only
+#   regularizes the spin a wheel in stance does not need.
+input_weights {
+  scaling: 1e-3
+
+  # The force [N] of each rolling contact; a rolling contact has no moment.
+  contact_wrenches {
+    contact: "wheel_L_contact"
+    force {
+      x: 5.479
+      y: 5.479
+      z: 5.479
+    }
+  }
+  contact_wrenches {
+    contact: "wheel_R_contact"
+    force {
+      x: 5.479
+      y: 5.479
+      z: 5.479
+    }
+  }
+
+  # Joint Velocities
+  joint_velocities { joint: "abad_L_Joint" value: 1000.0 }
+  joint_velocities { joint: "hip_L_Joint" value: 1000.0 }
+  joint_velocities { joint: "knee_L_Joint" value: 1000.0 }
+  joint_velocities { joint: "wheel_L_Joint" value: 10.0 }
+  joint_velocities { joint: "abad_R_Joint" value: 1000.0 }
+  joint_velocities { joint: "hip_R_Joint" value: 1000.0 }
+  joint_velocities { joint: "knee_R_Joint" value: 1000.0 }
+  joint_velocities { joint: "wheel_R_Joint" value: 10.0 }
+}
+
+# The weights of terminal_cost, which this file does not list: the state weights above, so that listing it weighs the
+# end of the horizon as every node. The wheel positions take no weight here either.
+terminal_cost_scaling: 1
+final_state_weights {
+  scaling: 1
+
+  # Normalized Centroidal Momentum: [linear, angular]
+  mnorm_linmom_com_rt_world_ewrt_world {
+    x: 400.0  # h_com_x / robotMass
+    y: 400.0  # h_com_y / robotMass
+    z: 30.0  # h_com_z / robotMass
+  }
+  mnorm_angmom_com_rt_world_ewrt_world {
+    x: 5.0  # L_x / robotMass
+    y: 10.0  # L_y / robotMass
+    z: 10.0  # L_z / robotMass
+  }
+
+  # Base Pose: [position, orientation]
+  pos_base_rt_world_ewrt_world {
+    x: 500.0  # p_base_x
+    y: 500.0  # p_base_y
+    z: 500.0  # p_base_z
+  }
+  eulerzyx_base_rt_world {
+    yaw: 1000.0  # theta_base_z
+    pitch: 200.0  # theta_base_y
+    roll: 200.0  # theta_base_x
+  }
+
+  # Joint Positions
+  joint_positions { joint: "abad_L_Joint" value: 20.0 }
+  joint_positions { joint: "hip_L_Joint" value: 20.0 }
+  joint_positions { joint: "knee_L_Joint" value: 20.0 }
+  joint_positions { joint: "wheel_L_Joint" value: 0.0 }
+  joint_positions { joint: "abad_R_Joint" value: 20.0 }
+  joint_positions { joint: "hip_R_Joint" value: 20.0 }
+  joint_positions { joint: "knee_R_Joint" value: 20.0 }
+  joint_positions { joint: "wheel_R_Joint" value: 0.0 }
+}
+
+contacts {
+  # The friction cone of each wheel's force, the coefficient ANYmal B's feet use. A rolling contact has no support
+  # polygon, so the file has no contact_rectangle, and pos_contact_rt_link_ewrt_link, the 6-DoF contacts' sole center,
+  # does not apply.
+  friction_force_cone_soft_constraint {
+    friction_coefficient: 0.5
+    # relaxed log barrier parameters
+    mu: 0.1
+    delta: 5.0
+  }
+}
+
+# The joint-limit barrier of the leg joints; the wheel joints have no finite limit and no row.
+joint_limits {
+  # relaxed log barrier parameters
+  mu: 1200.0
+  delta: 0.1
+}
+
+# The weights of task_space_foot_cost, which this file does not list (see the cost list above): a rolling contact's
+# position residual is its contact point, a wheel radius below the wheel center, and only its horizontal position would
+# be weighed.
+task_space_foot_cost {
+  # Unused here: it weighs a swing contact's velocity only when the contact has no landing target, and nominal_stance
+  # gives every swing contact one.
+  swing_velocity_reference_weight: 2.25
+  weights {
+    pos_x: 100.0
+    pos_y: 100.0
+    pos_z: 0.0
+    rotvec_x: 0.0
+    rotvec_y: 0.0
+    rotvec_z: 0.0
+    linvel_x: 0.0
+    linvel_y: 0.0
+    linvel_z: 0.0
+    angvel_x: 0.0
+    angvel_y: 0.0
+    angvel_z: 0.0
+    linacc_x: 0.0
+    linacc_y: 0.0
+    linacc_z: 0.0
+    angacc_x: 0.0
+    angacc_y: 0.0
+    angacc_z: 0.0
+  }
+}

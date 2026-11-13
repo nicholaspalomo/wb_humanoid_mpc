@@ -200,6 +200,14 @@ Its `-vnc` twin is the same target with `VIEWS=vnc`: everything on the VNC deskt
 | `make launch-anymal-b-dummy-sim-vnc` | ANYbotics ANYmal B centroidal MPC - dummy sim |
 | `make launch-anymal-b-sandbox-vnc` | ANYbotics ANYmal B URDF in Rerun, a slider per joint |
 | `make launch-anymal-b-mpc-vnc NETWORK=<file>` | ANYbotics ANYmal B centroidal MPC - the laptop side against the robot |
+| `make launch-anymal-c-wheels-sim-vnc` | Wheeled ANYbotics ANYmal C centroidal MPC - MuJoCo sim |
+| `make launch-anymal-c-wheels-dummy-sim-vnc` | Wheeled ANYbotics ANYmal C centroidal MPC - dummy sim |
+| `make launch-anymal-c-wheels-sandbox-vnc` | Wheeled ANYbotics ANYmal C URDF in Rerun, a slider per joint |
+| `make launch-anymal-c-wheels-mpc-vnc NETWORK=<file>` | Wheeled ANYbotics ANYmal C centroidal MPC - the laptop side against the robot |
+| `make launch-tron1-sim-vnc` | LimX Dynamics Tron1 centroidal MPC - MuJoCo sim |
+| `make launch-tron1-dummy-sim-vnc` | LimX Dynamics Tron1 centroidal MPC - dummy sim |
+| `make launch-tron1-sandbox-vnc` | LimX Dynamics Tron1 URDF in Rerun, a slider per joint |
+| `make launch-tron1-mpc-vnc NETWORK=<file>` | LimX Dynamics Tron1 centroidal MPC - the laptop side against the robot |
 <!-- LINT.ThenChange(//Makefile:launch_targets, //Makefile:robot_configurations) -->
 
 The DRC Atlas's multi-contact scenarios (humanoid_nmpc/docs/multi_contact_planning/README.md) have a dummy sim each:

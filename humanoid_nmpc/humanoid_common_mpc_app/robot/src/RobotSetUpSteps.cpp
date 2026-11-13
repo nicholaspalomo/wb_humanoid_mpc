@@ -167,9 +167,17 @@ stateEstimatorContacts(const ModelSettings& modelSettings,
                                                     static_cast<int>(contact)));
       posContactRtLinkEwrtLink = center.posContactRtLinkEwrtLink;
     }
+    // A rolling contact is its wheel: the wheel link, the wheel center on it
+    // and the radius, from which an estimator finds the lowest point (or
+    // refuses the contact, as the Kalman estimator does).
+    const bool rolling = modelSettings.isRollingContact(contact);
     points.push_back(estimation::ContactPointSpec{
         .linkName = links[contact],
-        .posContactRtLinkEwrtLink = posContactRtLinkEwrtLink});
+        .posContactRtLinkEwrtLink = posContactRtLinkEwrtLink,
+        .kind = rolling ? estimation::ContactPointKind::kRolling
+                        : estimation::ContactPointKind::kFixed,
+        .wheelRadius = rolling ? modelSettings.wheelRadius(contact) : 0.0,
+        .contactName = modelSettings.contactNames[contact]});
   }
   return points;
 }

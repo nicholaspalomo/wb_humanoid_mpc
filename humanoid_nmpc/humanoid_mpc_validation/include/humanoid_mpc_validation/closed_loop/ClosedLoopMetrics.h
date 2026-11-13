@@ -42,6 +42,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::validation {
 
+/**
+ * How the stance-foot slip of a contact is measured. A point fixed on a link
+ * stays where it touched down while it does not slip, so its slip is how far it
+ * drifted from there. The contact point of a wheel moves with the wheel
+ * (humanoid_nmpc/docs/rolling_contact/README.md), so its slip is the distance
+ * the wheel material at the contact point slid over the ground: the integral of
+ * the horizontal speed of that material, zero while the wheel rolls.
+ */
+enum class ContactSlipMeasure {
+  kDrift,         ///< a contact point fixed on its link
+  kMaterialSlip,  ///< a rolling contact
+};
+
 /** What the lockstep loop measures at one control cycle of a scenario's
  * commands. */
 struct ControlCycleSample {
@@ -63,6 +76,11 @@ struct ControlCycleSample {
   /// [m] world, per contact of the robot's set in contact order; as many as
   /// the ClosedLoopMetrics was made for.
   ContactArray<Eigen::Vector3d> posContactsRtWorldEwrtWorld;
+  /// [m/s] world, per contact of the set in contact order: the velocity of
+  /// the material at a rolling contact's point, v_wheel + w_wheel x (-r e_z),
+  /// the simulator's ground truth. Read only for the contacts measured by
+  /// ContactSlipMeasure::kMaterialSlip, and empty when there is none.
+  ContactArray<Eigen::Vector3d> linvelContactsRtWorldEwrtWorld;
   /// Measured: the simulator's ground truth, per contact of the set.
   ContactMask contactFlags;
   Eigen::VectorXd
@@ -178,7 +196,8 @@ struct ClosedLoopRunInfo {
  *  - heading: the twist heading unwrapped from the first command on, at the end
  * and at its extremes;
  *  - stance-foot slip: the horizontal drift of a contact point while it stays
- * in measured contact;
+ * in measured contact, or, for a rolling contact, the distance its wheel slid
+ * meanwhile (ContactSlipMeasure);
  *  - joint torque RMS;
  *  - the largest rotation part and norm of the initial-state gap, and when the
  * rotation part peaked;
@@ -201,10 +220,17 @@ struct ClosedLoopRunInfo {
  */
 class ClosedLoopMetrics {
  public:
-  /** Metrics of a robot of `numContacts` contacts
-   * (ModelSettings::numContacts(), at most kMaxNumContacts): every control
-   * cycle's sample carries that many contact positions and flags. */
+  /**
+   * Creates the metrics of a robot whose contacts' slip is measured as
+   * `slipMeasures` says, one ContactSlipMeasure per contact in contact order
+   * (at most kMaxNumContacts); every control cycle's sample carries that many
+   * contact positions and flags, and the samples of a set with a
+   * kMaterialSlip contact carry its material velocity as well. The
+   * `numContacts` overload (ModelSettings::numContacts()) measures every
+   * contact as kDrift, for a set of points fixed on their links.
+   */
   explicit ClosedLoopMetrics(size_t numContacts);
+  explicit ClosedLoopMetrics(std::vector<ContactSlipMeasure> slipMeasures);
 
   /** Adds one control cycle. Aborts on a sample of another contact count than
    * the metrics', a bug of the loop that collects them. */
@@ -227,11 +253,20 @@ class ClosedLoopMetrics {
     bool active = false;
     Eigen::Vector2d touchdownPosContactRtWorldEwrtWorldXy =
         Eigen::Vector2d::Zero();
-    double maxDrift = 0.0;
+    /// [m] The stance phase's slip so far: for kDrift the largest distance
+    /// from touchdownPosContactRtWorldEwrtWorldXy, for kMaterialSlip
+    /// slidDistance.
+    double maxSlip = 0.0;
+    /// [m] kMaterialSlip: the distance slid since touch-down; 0 for kDrift.
+    double slidDistance = 0.0;
   };
 
   void closeStancePhase(size_t contact,
                         const Eigen::Vector2d& posContactRtWorldEwrtWorldXy);
+  /** Returns the slip a stance phase of `contact` ended with: its drift from
+   * touch-down to `posContactRtWorldEwrtWorldXy`, or the distance it slid. */
+  double finalSlipOf(size_t contact,
+                     const Eigen::Vector2d& posContactRtWorldEwrtWorldXy) const;
   /** Counts the SQP step of a solve and extends or ends the run of growing
    * constraint violations. */
   void addSqpStep(const SqpStepSample& step);
@@ -259,9 +294,13 @@ class ClosedLoopMetrics {
   double cumulativeHeadingMin_ = 0.0;
 
   // Per contact of the set, sized at construction.
+  std::vector<ContactSlipMeasure> slipMeasures_;
+  bool hasMaterialSlip_ = false;  ///< a contact is measured by kMaterialSlip
   ContactArray<StancePhase> stance_;
   ContactArray<Eigen::Vector2d> prevPosContactsRtWorldEwrtWorldXy_;
-  std::vector<double> stanceFinalDrifts_;
+  // [m] Per ended stance phase, finalSlipOf(): drift for kDrift, slid distance
+  // for kMaterialSlip.
+  std::vector<double> stanceFinalSlips_;
   double slipMax_ = 0.0;
 
   double jointTorqueSquaredSum_ = 0.0;

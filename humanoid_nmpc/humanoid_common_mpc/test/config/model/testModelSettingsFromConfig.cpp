@@ -28,9 +28,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <bit>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <string>
 #include <utility>
@@ -61,6 +64,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.pb.h"
 #include "humanoid_mpc_config/task_file.pb.h"
+#include "nproto/Fnv1a64Constants.h"
 #include "nproto/Textproto.h"
 
 /**
@@ -159,11 +163,12 @@ std::string describe(const ModelSettings::ContactImplicitConfig& config) {
 std::string describe(absl::Span<const ModelSettings::PointContact> contacts) {
   std::vector<std::string> described;
   for (const ModelSettings::PointContact& contact : contacts) {
-    described.push_back(
-        absl::StrCat(contact.name, "@", contact.parentJointName, "+",
-                     text(contact.posContactRtLinkEwrtLink.x()), ",",
-                     text(contact.posContactRtLinkEwrtLink.y()), ",",
-                     text(contact.posContactRtLinkEwrtLink.z())));
+    described.push_back(absl::StrCat(
+        contact.name, "@", contact.parentJointName, "+",
+        text(contact.posContactRtLinkEwrtLink.x()), ",",
+        text(contact.posContactRtLinkEwrtLink.y()), ",",
+        text(contact.posContactRtLinkEwrtLink.z()), ":",
+        static_cast<int>(contact.kind), "/", text(contact.wheelRadius)));
   }
   return absl::StrJoin(described, ";");
 }
@@ -827,6 +832,361 @@ TEST(ModelSettingsFromConfig, NumContactsCountsEveryContactOfTheSet) {
   ASSERT_TRUE(biped.ok()) << biped.status();
   EXPECT_EQ(biped->numContacts(), 2U);
   EXPECT_TRUE(biped->isBipedContactSet());
+}
+
+// The rolling contacts on the LimX Tron1 wheel-foot biped, whose wheels turn
+// on the continuous joints wheel_L_Joint and wheel_R_Joint.
+constexpr char kTron1UrdfFile[] =
+    "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf";
+// [m] Tron1's wheel radius, and the wheel center's offset along the wheel
+// joint's axis.
+constexpr double kTron1WheelRadius = 0.127;
+constexpr double kTron1PosWheelRtLinkEwrtLinkY = 0.00707;
+
+/** `relativePath` in the test's runfiles. */
+std::string runfilesPath(absl::string_view relativePath) {
+  const char* absl_nullable directory = std::getenv("TEST_SRCDIR");
+  return directory == nullptr
+             ? std::string(relativePath)
+             : absl::StrCat(directory, "/_main/", relativePath);
+}
+
+/** A rolling contact `name` on the wheel joint `joint`, with Tron1's wheel. */
+mpc_config::ModelSettingsConfig::RollingContact tron1Wheel(
+    absl::string_view name, absl::string_view joint, double side) {
+  mpc_config::ModelSettingsConfig::RollingContact contact;
+  contact.name = std::string(name);
+  contact.parent_joint_name = std::string(joint);
+  contact.pos_wheel_rt_link_ewrt_link.y = side * kTron1PosWheelRtLinkEwrtLinkY;
+  contact.wheel_radius = kTron1WheelRadius;
+  return contact;
+}
+
+/** A leg `name` ending in `contacts`. */
+mpc_config::ModelSettingsConfig::Leg legOf(absl::string_view name,
+                                           std::vector<std::string> contacts) {
+  mpc_config::ModelSettingsConfig::Leg leg;
+  leg.name = std::string(name);
+  leg.contacts = std::move(contacts);
+  return leg;
+}
+
+/** Tron1 on its two wheels, the legs "left" and "right". */
+mpc_config::TaskFile tron1Task() {
+  mpc_config::TaskFile task;
+  task.model_settings.robot_name = "tron1";
+  task.model_settings.contacts_rolling = {
+      tron1Wheel("wheel_L_contact", "wheel_L_Joint", /*side=*/1.0),
+      tron1Wheel("wheel_R_contact", "wheel_R_Joint", /*side=*/-1.0)};
+  task.model_settings.legs = {legOf("left", {"wheel_L_contact"}),
+                              legOf("right", {"wheel_R_contact"})};
+  return task;
+}
+
+absl::StatusOr<ModelSettings> tron1Settings(const mpc_config::TaskFile& task) {
+  return ModelSettings::Create(task, runfilesPath(kTron1UrdfFile), "test_",
+                               /*verbose=*/false);
+}
+
+TEST(ModelSettingsFromConfig, TheWheelsOfTron1AreRollingForceOnlyContacts) {
+  const absl::StatusOr<ModelSettings> settings = tron1Settings(tron1Task());
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  EXPECT_THAT(settings->contactNames,
+              ::testing::ElementsAre("wheel_L_contact", "wheel_R_contact"));
+  EXPECT_EQ(settings->contactNames3DoF, settings->contactNames);
+  EXPECT_TRUE(settings->hasRollingContacts());
+  EXPECT_FALSE(settings->isBipedContactSet());
+  for (size_t i = 0; i < settings->numContacts(); ++i) {
+    SCOPED_TRACE(i);
+    EXPECT_TRUE(settings->isPointContact(i)) << "a force-only contact";
+    EXPECT_EQ(settings->contactKind(i), ModelSettings::ContactKind::kRolling);
+    EXPECT_TRUE(settings->isRollingContact(i));
+    EXPECT_EQ(settings->wheelRadius(i), kTron1WheelRadius);
+    EXPECT_EQ(settings->pointContactEntry(i),
+              absl::StrCat("model_settings.contacts_rolling[", i, "]"));
+  }
+  EXPECT_EQ(settings->pointContacts[0].posContactRtLinkEwrtLink,
+            vector3_t(0.0, kTron1PosWheelRtLinkEwrtLinkY, 0.0));
+  EXPECT_EQ(settings->pointContacts[1].parentJointName, "wheel_R_Joint");
+  EXPECT_THAT(settings->rollingContactJointNames(),
+              ::testing::ElementsAre("wheel_L_Joint", "wheel_R_Joint"));
+  // The wheels are MPC joints, read off the URDF as any joint is.
+  EXPECT_TRUE(settings->jointIndexMap.contains("wheel_L_Joint"));
+  EXPECT_EQ(settings->mpc_joint_dim, 8U);
+
+  // The legs end in the rolling contacts, their hips derived from the wheels'
+  // joints.
+  ASSERT_EQ(settings->legs.size(), 2U);
+  EXPECT_TRUE(settings->isLeggedContactSet());
+  EXPECT_EQ(settings->legs[0].hipFrameName, "abad_L_Joint");
+  EXPECT_EQ(settings->legs[0].lateralSign, 1.0);
+  EXPECT_EQ(settings->legs[1].hipFrameName, "abad_R_Joint");
+  EXPECT_EQ(settings->legs[1].lateralSign, -1.0);
+}
+
+TEST(ModelSettingsFromConfig,
+     TheRollingContactsFollowTheFixedPointsAndPrecedeTheSurfaces) {
+  mpc_config::TaskFile task = tron1Task();
+  mpc_config::ModelSettingsConfig::PointContact knee;
+  knee.name = "knee_L_point";
+  knee.parent_joint_name = "knee_L_Joint";
+  task.model_settings.contacts_3dof = {knee};
+  task.model_settings.contact_names_6dof = {"sole"};
+  task.model_settings.contact_parent_joint_names = {"knee_R_Joint"};
+  task.model_settings.legs = {};
+  const absl::StatusOr<ModelSettings> settings = tron1Settings(task);
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  EXPECT_THAT(settings->contactNames,
+              ::testing::ElementsAre("knee_L_point", "wheel_L_contact",
+                                     "wheel_R_contact", "sole"));
+  EXPECT_EQ(settings->contactKind(0), ModelSettings::ContactKind::kPoint);
+  EXPECT_EQ(settings->contactKind(1), ModelSettings::ContactKind::kRolling);
+  EXPECT_EQ(settings->contactKind(2), ModelSettings::ContactKind::kRolling);
+  EXPECT_EQ(settings->contactKind(3), ModelSettings::ContactKind::kSurface);
+  EXPECT_EQ(settings->pointContacts[0].wheelRadius, 0.0);
+  EXPECT_EQ(settings->pointContactEntry(0), "model_settings.contacts_3dof[0]");
+  EXPECT_EQ(settings->pointContactEntry(2),
+            "model_settings.contacts_rolling[1]");
+  EXPECT_THAT(settings->contactParentJointNamesInContactOrder(),
+              ::testing::ElementsAre("knee_L_Joint", "wheel_L_Joint",
+                                     "wheel_R_Joint", "knee_R_Joint"));
+}
+
+TEST(ModelSettingsFromConfig, ASetWithoutRollingContactsHasNone) {
+  const absl::StatusOr<ModelSettings> settings = ModelSettings::Create(
+      taskWithPointContacts(/*numPointContacts=*/2), twoJointUrdf(), "test_",
+      /*verbose=*/false);
+  ASSERT_TRUE(settings.ok()) << settings.status();
+  EXPECT_FALSE(settings->hasRollingContacts());
+  EXPECT_TRUE(settings->rollingContactJointNames().empty());
+  EXPECT_EQ(settings->contactKind(0), ModelSettings::ContactKind::kPoint);
+  EXPECT_EQ(settings->contactKind(2), ModelSettings::ContactKind::kSurface);
+  EXPECT_FALSE(settings->isRollingContact(0));
+}
+
+/** A change to Tron1's first wheel, and what the refusal says. */
+struct RollingContactCase {
+  const char* absl_nonnull description;
+  void (*absl_nonnull change)(mpc_config::TaskFile& task);
+  const char* absl_nonnull message;
+};
+
+TEST(ModelSettingsFromConfig, ARollingContactThatDoesNotHoldIsRefused) {
+  const std::vector<RollingContactCase> cases = {
+      {.description = "no name",
+       .change =
+           [](mpc_config::TaskFile& task) {
+             task.model_settings.contacts_rolling[0].name = "";
+           },
+       .message = "contacts_rolling[0] needs a name and a parent_joint_name"},
+      {.description = "no joint",
+       .change =
+           [](mpc_config::TaskFile& task) {
+             task.model_settings.contacts_rolling[0].parent_joint_name = "";
+           },
+       .message = "contacts_rolling[0] needs a name and a parent_joint_name"},
+      {.description = "the name of a 6-DoF contact",
+       .change =
+           [](mpc_config::TaskFile& task) {
+             task.model_settings.contact_names_6dof = {"wheel_L_contact"};
+           },
+       .message = "contacts_rolling[0].name is 'wheel_L_contact', which "
+                  "another contact has"},
+      {.description = "the name of a 3-DoF contact",
+       .change =
+           [](mpc_config::TaskFile& task) {
+             mpc_config::ModelSettingsConfig::PointContact point;
+             point.name = "wheel_R_contact";
+             point.parent_joint_name = "knee_R_Joint";
+             task.model_settings.contacts_3dof = {point};
+           },
+       .message = "contacts_rolling[1].name is 'wheel_R_contact', which "
+                  "another contact has"},
+      {.description = "zero radius",
+       .change =
+           [](mpc_config::TaskFile& task) {
+             task.model_settings.contacts_rolling[0].wheel_radius = 0.0;
+           },
+       .message = "contacts_rolling[0].wheel_radius is 0 m"},
+      {.description = "negative radius",
+       .change =
+           [](mpc_config::TaskFile& task) {
+             task.model_settings.contacts_rolling[0].wheel_radius = -0.1;
+           },
+       .message = "contacts_rolling[0].wheel_radius is -0.1 m"},
+      {.description = "NaN radius",
+       .change =
+           [](mpc_config::TaskFile& task) {
+             task.model_settings.contacts_rolling[1].wheel_radius =
+                 std::numeric_limits<double>::quiet_NaN();
+           },
+       .message = "contacts_rolling[1].wheel_radius is nan m"},
+      {.description = "infinite radius",
+       .change =
+           [](mpc_config::TaskFile& task) {
+             task.model_settings.contacts_rolling[1].wheel_radius =
+                 std::numeric_limits<double>::infinity();
+           },
+       .message = "contacts_rolling[1].wheel_radius is inf m"},
+      {.description = "NaN wheel center",
+       .change =
+           [](mpc_config::TaskFile& task) {
+             task.model_settings.contacts_rolling[0]
+                 .pos_wheel_rt_link_ewrt_link.z =
+                 std::numeric_limits<double>::quiet_NaN();
+           },
+       .message = "contacts_rolling[0].pos_wheel_rt_link_ewrt_link.z"},
+      {.description = "a wheel center off the wheel joint's axis",
+       .change =
+           [](mpc_config::TaskFile& task) {
+             task.model_settings.contacts_rolling[1]
+                 .pos_wheel_rt_link_ewrt_link.x = 0.01;
+           },
+       .message = "contacts_rolling[1].pos_wheel_rt_link_ewrt_link must lie "
+                  "on the wheel joint's axis: an offset off the axle turns "
+                  "with the wheel"},
+      {.description = "a joint the URDF does not have",
+       .change =
+           [](mpc_config::TaskFile& task) {
+             task.model_settings.contacts_rolling[0].parent_joint_name = "axle";
+           },
+       .message = "contacts_rolling[0].parent_joint_name is 'axle', which is "
+                  "not a joint of the URDF"},
+      {.description = "a fixed URDF joint",
+       .change =
+           [](mpc_config::TaskFile& task) {
+             task.model_settings.contacts_rolling[0].parent_joint_name =
+                 "limx_imu_joint";
+           },
+       .message = "contacts_rolling[0].parent_joint_name is 'limx_imu_joint', "
+                  "which is not a continuous joint"},
+      {.description = "a joint the MPC fixes",
+       .change =
+           [](mpc_config::TaskFile& task) {
+             task.model_settings.fixed_joint_names = {"wheel_R_Joint"};
+           },
+       .message = "contacts_rolling[1].parent_joint_name is 'wheel_R_Joint', "
+                  "which model_settings.fixed_joint_names fixes"},
+      {.description = "two contacts on one wheel",
+       .change =
+           [](mpc_config::TaskFile& task) {
+             task.model_settings.contacts_rolling[1].parent_joint_name =
+                 "wheel_L_Joint";
+           },
+       .message = "contacts_rolling[1].parent_joint_name is 'wheel_L_Joint', "
+                  "the joint of another rolling contact"},
+  };
+  for (const RollingContactCase& entry : cases) {
+    SCOPED_TRACE(entry.description);
+    mpc_config::TaskFile task = tron1Task();
+    entry.change(task);
+    const absl::StatusOr<ModelSettings> settings = tron1Settings(task);
+    ASSERT_FALSE(settings.ok());
+    EXPECT_EQ(settings.status().code(), absl::StatusCode::kInvalidArgument);
+    EXPECT_THAT(settings.status().message(), HasSubstr(entry.message));
+  }
+}
+
+/**
+ * Tron1's URDF with wheel_L_Joint declared as the upstream description does, a
+ * revolute joint with position limits, written to the test's scratch
+ * directory; an empty path when the shipped URDF does not read as expected.
+ */
+std::string tron1UrdfWithLimitedRevoluteWheel() {
+  std::ifstream input(runfilesPath(kTron1UrdfFile));
+  std::string urdf((std::istreambuf_iterator<char>(input)),
+                   std::istreambuf_iterator<char>());
+  constexpr absl::string_view kContinuousWheel =
+      R"(<joint name="wheel_L_Joint" type="continuous">)";
+  const size_t joint = urdf.find(kContinuousWheel);
+  if (joint == std::string::npos) return "";
+  urdf.replace(joint, kContinuousWheel.size(),
+               R"(<joint name="wheel_L_Joint" type="revolute">)");
+  const size_t limitBegin = urdf.find("<limit ", joint);
+  const size_t limitEnd = urdf.find("/>", limitBegin);
+  if (limitBegin == std::string::npos || limitEnd == std::string::npos) {
+    return "";
+  }
+  urdf.replace(
+      limitBegin, limitEnd + 2 - limitBegin,
+      R"(<limit lower="-100" upper="100" effort="40" velocity="40" />)");
+  const std::string path =
+      absl::StrCat(::testing::TempDir(), "/tron1_limited_wheel.urdf");
+  std::ofstream(path) << urdf;
+  return path;
+}
+
+TEST(ModelSettingsFromConfig, ARollingContactOnALimitedRevoluteJointIsRefused) {
+  const std::string urdfFile = tron1UrdfWithLimitedRevoluteWheel();
+  ASSERT_FALSE(urdfFile.empty());
+  const absl::StatusOr<ModelSettings> settings =
+      ModelSettings::Create(tron1Task(), urdfFile, "test_", /*verbose=*/false);
+  ASSERT_FALSE(settings.ok());
+  EXPECT_EQ(settings.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(settings.status().message(),
+              HasSubstr("contacts_rolling[0].parent_joint_name is "
+                        "'wheel_L_Joint', a revolute joint with position "
+                        "limits [-100, 100]: a wheel joint is continuous"));
+}
+
+/** FNV-1a 64 over words and length-prefixed strings, written out as
+ * ModelSettings.cpp's hash: add, then read value(). Not thread-safe. */
+class OracleHash {
+ public:
+  void addWord(uint64_t word) {
+    for (int octet = 0; octet < nproto::kFnvWordOctets; ++octet) {
+      hash_ ^= (word >> (CHAR_BIT * octet)) & nproto::kFnvOctetMask;
+      hash_ *= nproto::kFnvPrime;
+    }
+  }
+  void addString(absl::string_view text) {
+    addWord(text.size());
+    for (const char character : text) {
+      hash_ ^= static_cast<uint64_t>(static_cast<unsigned char>(character));
+      hash_ *= nproto::kFnvPrime;
+    }
+  }
+  void addStrings(absl::Span<const std::string> texts) {
+    addWord(texts.size());
+    for (const std::string& text : texts) addString(text);
+  }
+  uint64_t value() const { return hash_; }
+
+ private:
+  uint64_t hash_ = nproto::kFnvOffsetBasis;
+};
+
+/** The fingerprint ModelSettings had before rolling contacts: the state layout
+ * tag, the robot name and the joint, 3-DoF and 6-DoF contact names. */
+uint64_t fingerprintWithoutContactKinds(const ModelSettings& settings) {
+  OracleHash hash;
+  hash.addString(kStateLayoutTag);
+  hash.addString(settings.robotName);
+  hash.addStrings(settings.mpcModelJointNames);
+  hash.addStrings(settings.contactNames3DoF);
+  hash.addStrings(settings.contactNames6DoF);
+  return hash.value();
+}
+
+TEST(ModelSettingsFromConfig,
+     OnlyARollingSetMixesItsContactKindsIntoTheFingerprint) {
+  const absl::StatusOr<ModelSettings> points = ModelSettings::Create(
+      taskWithPointContacts(/*numPointContacts=*/2), twoJointUrdf(), "test_",
+      /*verbose=*/false);
+  ASSERT_TRUE(points.ok()) << points.status();
+  EXPECT_EQ(modelLayoutFingerprint(*points),
+            fingerprintWithoutContactKinds(*points));
+
+  const absl::StatusOr<ModelSettings> wheels = tron1Settings(tron1Task());
+  ASSERT_TRUE(wheels.ok()) << wheels.status();
+  EXPECT_NE(modelLayoutFingerprint(*wheels),
+            fingerprintWithoutContactKinds(*wheels));
+  mpc_config::TaskFile otherRadius = tron1Task();
+  otherRadius.model_settings.contacts_rolling[1].wheel_radius = 0.1;
+  const absl::StatusOr<ModelSettings> otherWheels = tron1Settings(otherRadius);
+  ASSERT_TRUE(otherWheels.ok()) << otherWheels.status();
+  EXPECT_NE(modelLayoutFingerprint(*wheels),
+            modelLayoutFingerprint(*otherWheels));
 }
 
 }  // namespace

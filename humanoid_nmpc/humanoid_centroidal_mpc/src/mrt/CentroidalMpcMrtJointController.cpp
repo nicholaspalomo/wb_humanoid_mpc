@@ -76,6 +76,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/robot/JointPdGainsFromConfig.h"
+#include "humanoid_common_mpc/contact/RollingContact.h"
 #include "humanoid_common_mpc/gait/ModeScheduleSwitchTimes.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/ControlMode.h"
@@ -252,6 +253,13 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(
   zeroJointAccelerations_ = vector_t::Zero(effectiveModelPtr_->getJointDim());
   wrenchContactsEwrtWorld_.assign(modelSettings.numContacts(),
                                   vector6_t::Zero());
+  // The wheel radius of each rolling contact, 0 for every other contact.
+  rollingWheelRadii_.assign(modelSettings.numContacts(), /*value=*/0.0);
+  for (size_t i = 0; i < modelSettings.numContacts(); ++i) {
+    if (modelSettings.isRollingContact(i)) {
+      rollingWheelRadii_[i] = modelSettings.wheelRadius(i);
+    }
+  }
   safetyHoldMpcJointPositions_ = vector_t::Zero(mpcJointIndices_.size());
   safetyHoldOtherJointPositions_ = vector_t::Zero(otherJointIndices_.size());
   nominalJointPositions_.reserve(robotDescription.getNumJoints());
@@ -260,6 +268,23 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
+
+void CentroidalMpcMrtJointController::applyRollingContactLeverArms() {
+  // A rolling contact's frame is the wheel center (ModelSettings::PointContact)
+  // while its force acts at the wheel's lowest point: the wrench at the frame
+  // gains the moment (-r n) x f, whose component about the axle the wheel
+  // joint's feedforward torque then includes (docs/rolling_contact/README.md).
+  // A fixed point contact (radius 0) is left as it is.
+  const vector3_t normalSurfaceEwrtWorld = normalTerrainEwrtWorld<scalar_t>();
+  for (size_t i = 0; i < wrenchContactsEwrtWorld_.size(); ++i) {
+    if (rollingWheelRadii_[i] > 0.0) {
+      const vector3_t forceContactEwrtWorld =
+          wrenchContactsEwrtWorld_[i].head<kForceDim>();
+      wrenchContactsEwrtWorld_[i].tail<kTorqueDim>() = torqueWheelEwrtWorld(
+          forceContactEwrtWorld, rollingWheelRadii_[i], normalSurfaceEwrtWorld);
+    }
+  }
+}
 
 absl::Status CentroidalMpcMrtJointController::checkConstruction() const {
   if (mpcLink_ == nullptr) {
@@ -751,6 +776,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(
               mpcPolicyInput, rotmatContactsRtWorld[i], /*contactIndex=*/i);
     }
     contactWrenchGate_.apply(wrenchContactsEwrtWorld_);
+    applyRollingContactLeverArms();
 
     // Evaluate inverse dynamics using measured robot state for physical
     // consistency: the measurement's q and v, of which the observation is made
@@ -805,6 +831,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(
             robotWeight_ / static_cast<scalar_t>(numActiveContacts);
       }
     }
+    applyRollingContactLeverArms();
     const vector_t& weightCompensatingJointTorques =
         rigidBodyDynamics_->heldBaseJointTorques(qPinocchio_, vPinocchio_,
                                                  zeroJointAccelerations_,

@@ -157,8 +157,7 @@ class SceneBuilder {
    * it. */
   struct FullModelJoint {
     std::string name;
-    int idxQ;
-    int nq;
+    int idxQ = 0;
     /** Index into the sample's joint arrays; -1 when the sample does not carry
      * the joint. */
     int sampleIndex = -1;
@@ -206,10 +205,17 @@ class SceneBuilder {
   // mapper of its wrench to their forces (empty for a 3-DoF contact, whose
   // force is drawn at its frame).
   std::vector<pinocchio::FrameIndex> contactFrames_;
+  // [m] The wheel radius of a rolling contact, whose frame is its wheel center
+  // and whose force and footholds are drawn at the wheel's lowest point; 0 for
+  // every other contact.
+  std::vector<scalar_t> contactWheelRadii_;
   std::vector<std::array<pinocchio::FrameIndex, kFootCorners>> cornerFrames_;
   std::vector<std::optional<ContactWrenchMapper<kFootCorners>>> cornerMappers_;
   std::vector<CollisionSphere> collisionSpheres_;
   std::vector<pinocchio::FrameIndex> planFrames_;
+  // [m] Per plan frame, the wheel radius of the rolling contact it is the
+  // frame of, whose path is drawn at the contact point; 0 for any other frame.
+  std::vector<scalar_t> planFrameWheelRadii_;
 
   // The plan of the policy of planVersion_.
   bool hasPlan_ = false;

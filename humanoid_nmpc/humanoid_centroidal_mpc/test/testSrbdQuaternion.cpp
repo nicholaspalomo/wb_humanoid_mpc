@@ -280,11 +280,26 @@ TEST_P(
         0.02 * vector3_t(uniform(generator), uniform(generator),
                          uniform(generator)),
         vector3_t(0.3, -1.2, 0.85), xi, srbdInfo.qPinocchioNominal.tail(joints);
+    // Random contact forces and wrenches, with half the weight on the first
+    // contact and half on the first of the second half (the right foot of a
+    // biped, a hind foot of a quadruped, Tron1's right wheel), and the joint
+    // velocities zero.
     vector_t input =
         vector_t::Zero(static_cast<Eigen::Index>(srbdInfo.inputDim));
-    for (Eigen::Index i = 0; i < 12; ++i) input(i) = 50.0 * uniform(generator);
+    const Eigen::Index contactInputs = static_cast<Eigen::Index>(
+        3 * srbdInfo.numThreeDofContacts + 6 * srbdInfo.numSixDofContacts);
+    for (Eigen::Index i = 0; i < contactInputs; ++i) {
+      input(i) = 50.0 * uniform(generator);
+    }
+    const size_t secondHalf =
+        srbdInfo.numThreeDofContacts / 2 + srbdInfo.numSixDofContacts / 2;
+    const Eigen::Index secondHalfStart = static_cast<Eigen::Index>(
+        secondHalf < srbdInfo.numThreeDofContacts
+            ? 3 * secondHalf
+            : 3 * srbdInfo.numThreeDofContacts +
+                  6 * (secondHalf - srbdInfo.numThreeDofContacts));
     input(2) += 0.5 * srbdInfo.robotMass * 9.81;
-    input(8) += 0.5 * srbdInfo.robotMass * 9.81;
+    input(secondHalfStart + 2) += 0.5 * srbdInfo.robotMass * 9.81;
     const vector_t fullFlow =
         centroidalFlowOf(*full->pinocchioInterface, *full->info, state, input);
     const vector_t srbdFlow =
@@ -346,7 +361,9 @@ INSTANTIATE_TEST_SUITE_P(
                       ShippedCentroidalRobot::kEngineAiSa01,
                       ShippedCentroidalRobot::kUnitreeG1,
                       ShippedCentroidalRobot::kUnitreeR1,
-                      ShippedCentroidalRobot::kAnymalB),
+                      ShippedCentroidalRobot::kAnymalB,
+                      ShippedCentroidalRobot::kTron1,
+                      ShippedCentroidalRobot::kAnymalCWheels),
     shippedCentroidalRobotTestName);
 
 }  // namespace

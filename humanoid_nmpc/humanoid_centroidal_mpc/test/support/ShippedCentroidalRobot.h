@@ -56,12 +56,14 @@ enum class ShippedCentroidalRobot {
   kEngineAiSa01,
   kUnitreeG1,
   kUnitreeR1,
-  kAnymalB
+  kAnymalB,
+  kTron1,
+  kAnymalCWheels
 };
 // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/BUILD.bazel:shipped_centroidal_robot_data)
 
 /** The configuration's name for a test case: "drc_atlas", "engineai_sa01",
- * "unitree_g1", "unitree_r1", "anymal_b". */
+ * "unitree_g1", "unitree_r1", "anymal_b", "tron1", "anymal_c_wheels". */
 std::string shippedCentroidalRobotName(ShippedCentroidalRobot robot);
 
 /** The test-case name of a parameterized test over the shipped configurations.
@@ -73,8 +75,11 @@ std::string shippedCentroidalRobotTestName(
 CentroidalRobotFiles shippedCentroidalRobotFiles(ShippedCentroidalRobot robot);
 
 /** The gait file the configuration is launched with, relative to the
- * repository root: the quadruped gait file for ANYmal B, the biped gait file
- * for the others (the data of //humanoid_nmpc/humanoid_common_mpc:gait_config).
+ * repository root: the quadruped gait file for ANYmal B, the wheeled bipeds'
+ * for Tron1, the wheeled quadrupeds' for the wheeled ANYmal C and the biped
+ * gait file for the others (the data of
+ * //humanoid_nmpc/humanoid_common_mpc:gait_config, :quadruped_gait_config,
+ * :wheeled_gait_config and :wheeled_quadruped_gait_config).
  */
 std::string shippedCentroidalRobotGaitFile(ShippedCentroidalRobot robot);
 

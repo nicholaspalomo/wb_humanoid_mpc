@@ -101,12 +101,19 @@ constexpr ShippedTaskFile kShippedTaskFiles[] = {
     {.robot = "anymal_b",
      .relativePath = "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/"
                      "config/mpc/task.textproto"},
+    {.robot = "anymal_c_wheels",
+     .relativePath =
+         "robot_models/anybotics_anymal_c_wheels/"
+         "anymal_c_wheels_centroidal_mpc/config/mpc/task.textproto"},
     {.robot = "drc_atlas",
      .relativePath = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/"
                      "mpc/task.textproto"},
     {.robot = "engineai_sa01",
      .relativePath = "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/"
                      "config/mpc/task.textproto"},
+    {.robot = "tron1",
+     .relativePath = "robot_models/limx_tron1/tron1_centroidal_mpc/config/mpc/"
+                     "task.textproto"},
     {.robot = "unitree_g1",
      .relativePath =
          "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto"},

@@ -9,9 +9,10 @@ import "nproto/retired_field_options.proto";
 
 // The robot model the MPC is formulated on (the task file's model_settings block, ModelSettings): the robot's name, the
 // gains of the foot constraints, the CppAD flags, the joints the MPC leaves out, the 6-DoF contacts and the joints they
-// are attached to, the 3-DoF contacts, the legs, and the joints of the procedural arm swing. Joints and contacts are URDF
-// and Pinocchio names; ModelSettings::Create() reads the rest of the model, the joints and their order, off the URDF.
-// Next ID: 12
+// are attached to, the 3-DoF contacts, the rolling contacts of the wheels, the legs, and the joints of the procedural arm
+// swing. Joints and contacts are URDF and Pinocchio names; ModelSettings::Create() reads the rest of the model, the
+// joints and their order, off the URDF.
+// Next ID: 13
 message ModelSettingsConfig {
   option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::ModelSettingsConfig";
   // The folder used to be a key that nothing read; the old loader warned about it.
@@ -20,7 +21,7 @@ message ModelSettingsConfig {
     replacement: "the CppAD libraries are built under cppad_code_gen/cppad_<mpc><robot_name>, derived from the robot (the centroidal MPC adds a sub-folder per contact input parameterization); delete the key"
   };
 
-  reserved 12 to max;
+  reserved 13 to max;
 
   // The gains of the swing- and stance-foot constraints, the weights of their soft forms and the rows of the stance
   // constraint (ModelSettings::FootConstraintConfig).
@@ -144,10 +145,10 @@ message ModelSettingsConfig {
     Xyz pos_contact_rt_link_ewrt_link = 3 [(humanoid_mpc_config.tuning) = { unit: "m" }];
   }
 
-  // The 3-DoF contacts; none by default, as every shipped robot is a biped on its two 6-DoF feet. They come before the
-  // 6-DoF contacts in the centroidal MPC's input (the force of each, then the wrench of each 6-DoF contact, then the
-  // joint velocities) and in a mode number's bits. A contact set other than two 6-DoF feet runs on the centroidal MPC
-  // only, which refuses the terms written for two feet.
+  // The 3-DoF contacts fixed on their links, such as a quadruped's point feet; none by default. They come first in the
+  // centroidal MPC's input (the force of each, then the force of each rolling contact, then the wrench of each 6-DoF
+  // contact, then the joint velocities) and in a mode number's bits. A contact set other than two 6-DoF feet runs on the
+  // centroidal MPC only, which refuses the terms written for two feet.
   // LINT.IfChange(contacts_3dof)
   repeated PointContact contacts_3dof = 10 [
     (humanoid_mpc_config.tuning) = {
@@ -155,6 +156,38 @@ message ModelSettingsConfig {
     }
   ];
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/model/ModelSettingsFromConfig.cpp:contacts_3dof)
+
+  // The rolling contact of a wheel (ModelSettings::ContactKind::kRolling): a 3-DoF contact at the wheel's lowest point,
+  // the wheel center less wheel_radius along the ground normal, which moves over the wheel's rim as it turns. The MPC adds
+  // a frame `name` at the wheel center to the wheel's link and reads its position and twist only
+  // (humanoid_nmpc/docs/rolling_contact/README.md). The ground is flat, with world z as its normal.
+  // Next ID: 5
+  message RollingContact {
+    reserved 5 to max;
+
+    // The frame's name, unique among the contacts.
+    string name = 1 [default = ""];
+    // The wheel's own joint, a continuous joint of the MPC model (not one of fixed_joint_names; a revolute joint with
+    // position limits is refused): the frame hangs from its child link, the wheel, and turns with it. Its position
+    // takes no weight in state_weights and final_state_weights, and the joint-limit constraint has no row for it.
+    string parent_joint_name = 2 [default = ""];
+    // [m] The wheel center relative to the frame of parent_joint_name, in that frame's axes; zero when the joint sits
+    // at the wheel center. It lies on the joint's axis, since the frame turns with the wheel and an
+    // offset off the axle would circle it.
+    Xyz pos_wheel_rt_link_ewrt_link = 3 [(humanoid_mpc_config.tuning) = { unit: "m" }];
+    // [m] The radius of the wheel's rim, finite and positive.
+    double wheel_radius = 4 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m" }];
+  }
+
+  // The rolling contacts; none by default. They follow contacts_3dof and come before the 6-DoF contacts in the input
+  // (a force each) and in a mode number's bits.
+  // LINT.IfChange(contacts_rolling)
+  repeated RollingContact contacts_rolling = 12 [
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "the contacts of the robot model: they fix the problem's dimensions"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/model/ModelSettingsFromConfig.cpp:contacts_rolling)
 
   // A leg of the robot (ModelSettings::Leg): the contacts at its end and the frame of its hip. Its lateral side and its
   // front or hind position are derived from the hip's position relative to the base at the model's neutral
@@ -167,8 +200,9 @@ message ModelSettingsConfig {
     // LF or RF on a set that stands on the biped's two feet (whose gait files read them as the feet), and unique among
     // the legs.
     string name = 1 [default = ""];
-    // The contacts at the leg's end, by name: one or more of the contact set's contacts (contacts_3dof and
-    // contact_names_6dof), each in at most one leg. One contact for a point foot or a wheel, or a 6-DoF sole.
+    // The contacts at the leg's end, by name: one or more of the contact set's contacts (contacts_3dof,
+    // contacts_rolling and contact_names_6dof), each in at most one leg. One contact for a point foot or a wheel, or a
+    // 6-DoF sole.
     repeated string contacts = 2;
     // A frame of the URDF model; empty: derived, the first joint below the floating base on the way from the parent
     // joint of the leg's first contact to the base.

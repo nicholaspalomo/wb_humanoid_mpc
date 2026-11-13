@@ -298,12 +298,18 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   /**
    * Derives where each contact stands relative to the base at `nominalState`,
    * the nominal standing posture, in the heading frame
-   * (computeNomPosContactsRtBaseEwrtHeadingXy()): the landmark of the
-   * `nominal_stance` anchor of nominal_foothold.anchor. The MPC interfaces call
-   * it once at start-up, beside configureArmSwing(); until then the anchor has
-   * no landmark and getNomPosFootRtWorldEwrtWorldXy() returns nothing on it. It
-   * runs the forward kinematics on a copy of the model, so nothing this manager
-   * evaluates later reads its result from the model's data. Not thread-safe.
+   * (computeNomPosContactsRtBaseEwrtHeadingXy(); the contact point, not the
+   * wheel center, for a rolling contact): the landmark of the
+   * `nominal_stance` anchor of nominal_foothold.anchor and of a rolling
+   * contact in stance. On a set with rolling contacts it also derives, for
+   * each, the rolling direction of its wheel in the heading frame at that
+   * posture and the input row of its wheel joint velocity, which
+   * getDesiredInput() reads. The MPC interfaces call it once at start-up,
+   * beside configureArmSwing(); until then the anchor has no landmark,
+   * getNomPosFootRtWorldEwrtWorldXy() returns nothing on it and the wheel
+   * velocity references are zero. It runs the forward kinematics on a copy of
+   * the model, so nothing this manager evaluates later reads its result from
+   * the model's data. Not thread-safe.
    */
   void configureNominalStance(const vector_t& nominalState);
 
@@ -330,7 +336,21 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * lift-off point is the position measured in contact at the last solve when
    * the foot's previous touch-down was at or before that solve, and that
    * touch-down's nominal target when it lies later in the horizon
-   * (anchorPosFootRtWorldEwrtWorldXy()).
+   * (anchorPosFootRtWorldEwrtWorldXy()). A rolling contact
+   * (ModelSettings::isRollingContact()) rolls with the base while it stands,
+   * so a swing of it that lifts off after the last solve starts from its
+   * moving stance point at the lift-off
+   * (rollingStancePosContactRtWorldEwrtWorldXy()).
+   *
+   * In stance it is empty for a fixed contact. For a rolling contact in
+   * stance it is the moving stance point at `time`, the predicted base plus
+   * the contact's nominal-stance offset turned by the predicted yaw, at the
+   * swing planner's height (the ground), moving at the commanded twist's
+   * velocity at that point, v_cmd + w_cmd e_z x (p - p_base); empty before
+   * the first solve and before configureNominalStance(). It is what
+   * task_space_foot_cost tracks in stance under active_phases
+   * "swing_and_stance", which keeps the wheels under their nominal places
+   * while the robot drives.
    *
    * Present when `nominal_foothold.nom_pos_lfoot_rt_rfoot_ewrt_heading_y` is
    * positive, when any foothold heuristic is listed, or with the
@@ -382,7 +402,9 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * placement comes from the base predicted at touch-down, which is advanced by
    * the velocity command. With foothold heuristics listed that same point is
    * their anchor, unless hip_centered_stepping measures the offsets from the
-   * predicted base instead. It needs no step width.
+   * predicted base instead. It needs no step width. The target of a rolling
+   * contact is its contact point; once it has landed it rolls on with the base
+   * (getSwingFootReference()), so it is a landmark only for its own swing.
    */
   std::optional<vector2_t> getNomPosFootRtWorldEwrtWorldXy(size_t contactIndex,
                                                            scalar_t time) const;
@@ -516,6 +538,21 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * selected the foot_motion reference: then each leg's are those that move
    * its contact relative to the base as the plan's references do at `time`
    * (computeFootMotionRtBase()), from the target too.
+   *
+   * On a set with rolling contacts the velocity of each rolling contact's
+   * wheel joint is the rolling speed of the commanded twist at its contact
+   * point while it is in stance at `time`,
+   *   qdot_ref = ((v_cmd + w_cmd e_z x p_contact_rt_base) . t) / r,
+   * with v_cmd and w_cmd getCmdLinvelBaseRtWorldEwrtWorldXy() and
+   * getCmdRateYawBaseRtWorld() at `time`, r the wheel radius, and
+   * p_contact_rt_base and the rolling direction t = normalize(a x n) (a the
+   * wheel joint axis, n the ground normal; t is where the wheel center goes
+   * for a positive joint velocity) those of the nominal posture turned to the
+   * heading of the target at `time`, which on a level target with the nominal
+   * joints is the target configuration's (configureNominalStance()). A wheel
+   * in swing gets 0. The foot_motion reference is refused on such a set
+   * (FootMotionLegReference::Create()), so the two never write the same row.
+   * docs/rolling_contact/README.md section 7 derives it.
    */
   virtual vector_t getDesiredInput(const TargetTrajectories& targetTrajectories,
                                    const vector_t& state,
@@ -787,7 +824,9 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    */
   std::optional<vector3_t> targetPlanarCommandAt(scalar_t time) const;
   /** True while anything downstream needs captureMeasuredState() to do its
-   * work; see that function. */
+   * work: the nominal foothold, a listed heuristic, the foot_motion leg joint
+   * reference, or a rolling contact, whose stance point and wheel velocity
+   * reference read the predicted base and the commanded yaw rate. */
   bool needsMeasuredState() const;
   /**
    * The context the foothold heuristics are evaluated with for a touch-down at
@@ -824,6 +863,83 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   /// The leg maps of the foot_motion leg joint reference; empty under the
   /// default posture (configureLegJointReference()).
   std::optional<FootMotionLegReference> footMotionLegReference_;
+
+  /** What getDesiredInput() needs of one rolling contact to turn the commanded
+   * twist into its wheel joint velocity reference, derived at the nominal
+   * posture (configureNominalStance()). Passive data. */
+  struct RollingWheelReference {
+    /** The rolling contact, an index of ModelSettings::contactNames. */
+    size_t contactIndex = 0;
+    /** The input row of the velocity of the contact's wheel joint. */
+    Eigen::Index wheelJointInputIndex = 0;
+    /** [m] Where the contact point stands relative to the base at the nominal
+     * posture, in the heading frame. */
+    vector2_t nomPosContactRtBaseEwrtHeadingXy = vector2_t::Zero();
+    /** The rolling direction t = normalize(a x n) of the wheel at the nominal
+     * posture, a the wheel joint axis and n the ground normal, in the heading
+     * frame: the direction the wheel center moves for a positive wheel joint
+     * velocity. Zero for an axle within kMinRollingDirNorm of vertical, whose
+     * reference is then 0. */
+    vector2_t dirWheelEwrtHeadingXy = vector2_t::Zero();
+    /** [m] The wheel radius, > 0. */
+    scalar_t wheelRadius = 0.0;
+  };
+  /// One entry per rolling contact, in contact order; empty on a set without
+  /// one and until configureNominalStance().
+  std::vector<RollingWheelReference> rollingWheelReferences_;
+
+  /**
+   * Returns the wheel joint velocity reference geometry of every rolling
+   * contact at `nominalState`, the nominal standing posture, from
+   * nomPosContactsRtBaseEwrtHeadingXy_ and the wheel joint axes of the model
+   * `pinocchioInterface` (a copy, whose data it overwrites).
+   */
+  std::vector<RollingWheelReference> computeRollingWheelReferences(
+      PinocchioInterface& pinocchioInterface,
+      const vector_t& nominalState) const;
+
+  /**
+   * Returns the wheel joint velocity reference geometry of rolling contact
+   * `contact` from the joint Jacobians already computed in the data of
+   * `pinocchioInterface` (computeRollingWheelReferences()), with
+   * `rotmatWorldRtHeading` turning world axes into the heading of the nominal
+   * posture. Dies when the contact's wheel joint is not a joint of the MPC
+   * model, which ModelSettings::Create() rules out.
+   */
+  RollingWheelReference rollingWheelReferenceOf(
+      const PinocchioInterface& pinocchioInterface,
+      size_t contact,
+      const matrix3_t& rotmatWorldRtHeading) const;
+
+  /**
+   * Writes into `input` the wheel joint velocity reference of each rolling
+   * contact at `time`: in stance, the rolling speed of the commanded twist at
+   * its contact point, ((v_cmd + w_cmd e_z x p) . t) / r with p and t those of
+   * rollingWheelReferences_ turned to the heading of `targetTrajectories` at
+   * `time` (not empty); in swing, 0.
+   */
+  void setWheelJointVelocities(const TargetTrajectories& targetTrajectories,
+                               scalar_t time,
+                               vector_t& input) const;
+
+  /**
+   * Returns where rolling contact `contactIndex` stands [m] while it is in
+   * stance at `time`: the base predicted at `time` (predictedBaseAt()) plus
+   * the contact's nominal-stance offset (nomPosContactsRtBaseEwrtHeadingXy_)
+   * turned by the predicted yaw. nullopt before the first solve and before
+   * configureNominalStance().
+   */
+  std::optional<vector2_t> rollingStancePosContactRtWorldEwrtWorldXy(
+      size_t contactIndex, scalar_t time) const;
+
+  /**
+   * Returns the stance reference of rolling contact `contactIndex` at `time`
+   * (getSwingFootReference() in stance): its moving stance point at the swing
+   * planner's height, and the velocity of that point under the commanded
+   * twist. nullopt where rollingStancePosContactRtWorldEwrtWorldXy() is.
+   */
+  std::optional<SwingFootReference> rollingStanceReference(size_t contactIndex,
+                                                           scalar_t time) const;
 
   /** getDesiredInput()'s contact-force reference, with zero joint velocities.
    */
@@ -900,18 +1016,25 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    */
   absl::Status checkArmSwingContactSet(const ArmSwingSettings& settings) const;
   /**
-   * Returns where foot `contactIndex` stands [m] after its touch-down at
-   * `touchDownTime`: the position latched for it at the last solve
-   * (liftoffPosContactsRtWorldEwrtWorldXy_) when `touchDownTime` is absent or
-   * at or before that solve, otherwise getNomPosFootRtWorldEwrtWorldXy() of
-   * that touch-down, the foot's own nominal target. nullopt when that target is
-   * nullopt. The two functions recurse into each other only on the nominal-step
-   * path, and each nested call asks about a strictly earlier touch-down, so the
-   * depth is at most the number of touch-downs between the last solve and the
-   * first call's time; each level costs a walk of the mode schedule.
+   * Returns where foot `contactIndex` stands [m] at `stanceTime`, in the stance
+   * that began with its touch-down at `touchDownTime`: the position latched for
+   * it at the last solve (liftoffPosContactsRtWorldEwrtWorldXy_) when
+   * `touchDownTime` is absent or at or before that solve, otherwise
+   * getNomPosFootRtWorldEwrtWorldXy() of that touch-down, the foot's own
+   * nominal target. nullopt when that target is nullopt. A fixed contact does
+   * not move in stance, so `stanceTime` is not read for it. A rolling contact
+   * moves with the base: at a `stanceTime` after the last solve it stands at
+   * rollingStancePosContactRtWorldEwrtWorldXy(), and before it at the latched
+   * position. The two functions recurse into each other only on the
+   * nominal-step path, and each nested call asks about a strictly earlier
+   * touch-down, so the depth is at most the number of touch-downs between the
+   * last solve and the first call's time; each level costs a walk of the mode
+   * schedule.
    */
   std::optional<vector2_t> anchorPosFootRtWorldEwrtWorldXy(
-      size_t contactIndex, std::optional<scalar_t> touchDownTime) const;
+      size_t contactIndex,
+      std::optional<scalar_t> touchDownTime,
+      scalar_t stanceTime) const;
 
   /**
    * Returns the nominal step [m] of foot `contactIndex` touching down at

@@ -53,7 +53,15 @@ namespace ocs2::humanoid {
  * that model_settings.legs describes (ModelSettings::isLeggedContactSet()) and
  * are refused on a set without legs. contact_input_parameterization
  * "basis_vectors" runs on a set of 6-DoF contacts of any count and is refused
- * on a set with a 3-DoF contact, for which no generator set exists.
+ * on a set with a 3-DoF contact, for which no generator set exists. On a set
+ * with a rolling contact (model_settings.contacts_rolling) the terms that hold
+ * a point fixed on its link or place a contact on a tilted patch are refused
+ * first, with one InvalidArgument naming the rolling contacts and the terms:
+ * the contact-implicit terms, foot_collision and foot_collision_cbf,
+ * contact_swing, terrain_non_penetration and contact_moment_xy, the
+ * basis_vectors contact inputs, the contact_planner and multi_contact_plan
+ * schedule sources and the foot_motion leg joint reference
+ * (humanoid_nmpc/docs/rolling_contact/README.md).
  *
  * @return OkStatus, or one InvalidArgument naming the contact set and every
  * refused selection by its key; the errors of the conversions it reads the

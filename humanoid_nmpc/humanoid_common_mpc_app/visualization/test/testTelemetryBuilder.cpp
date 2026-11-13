@@ -274,7 +274,8 @@ vector3_t computeTorqueLocalEwrtWorld(
 /**
  * Expects the plan's ZMP of `series` at `time` to be the point about which the
  * contact moment of every contact of `robot`'s set, at the policy's state and
- * input, is vertical.
+ * input, is vertical. A rolling contact's force acts at its wheel's lowest
+ * point, its frame less the wheel radius in z.
  */
 void expectZmpOfThePlan(const test::TestRobot& robot,
                         const PolicySnapshot& policy,
@@ -299,6 +300,10 @@ void expectZmpOfThePlan(const test::TestRobot& robot,
             .oMf[reference.getModel().getFrameId(
                 robot.modelSettings().contactNames[contact])]
             .translation();
+    if (robot.modelSettings().isRollingContact(contact)) {
+      posContactsRtWorldEwrtWorld[contact].z() -=
+          robot.modelSettings().wheelRadius(contact);
+    }
     wrenchContactsEwrtWorld[contact] =
         model.getWrenchContactEwrtWorld(state, input, contact);
     forceWorldEwrtWorldZ +=
@@ -1326,6 +1331,42 @@ TEST(TelemetryBuilderContactSet, PlotsEveryContactInContactOrder) {
                                 state, input, /*contactIndex=*/3),
                             kTolerance));
   expectZmpOfThePlan(*atlas, policy, series, /*time=*/0.1);
+}
+
+// Tron1's wheel forces act at the wheels' lowest points, a radius below the
+// contact frames at the wheel centers: the plan's ZMP is the point about which
+// their moment is vertical, and the forward forces of the policy move it from
+// where forces at the wheel centers would put it.
+TEST(TelemetryBuilderContactSet,
+     TheZmpOfRollingContactsIsOfTheirContactPoints) {
+  const std::unique_ptr<test::TestRobot> tron1 =
+      test::TestRobot::load(test::tron1Files(), test::Formulation::kCentroidal);
+  ASSERT_TRUE(tron1->modelSettings().hasRollingContacts());
+  const absl::StatusOr<VisualizationConfig> config =
+      loadVisualizationConfig(tron1->taskFile(), tron1->modelSettings());
+  ASSERT_TRUE(config.ok()) << config.status();
+  absl::StatusOr<std::unique_ptr<TelemetryBuilder>> builder =
+      TelemetryBuilder::Create(tron1->model(), *config);
+  ASSERT_TRUE(builder.ok()) << builder.status();
+  CommandData command;
+  PrimalSolution solution;
+  tron1->makePolicy(/*startTime=*/0.0, /*nodes=*/11,
+                    /*forceFootEwrtWorldZ=*/100.0, vector2_t::Zero(), &command,
+                    &solution);
+  PolicySnapshot policy;
+  policy.assign(command, solution);
+  const SystemObservation observation =
+      tron1->observation(/*time=*/0.0, kBipedModeStance);
+  const humanoid_mpc_msgs::RobotStateSample proto = tron1->robotState(
+      /*time=*/0.1, vector3_t(0.0, 0.0, 0.75), vector3_t::Zero());
+  RobotStateDecoder decoder(tron1->robotModel());
+  msgs::RobotStateSample sample;
+  ASSERT_TRUE(msgs::FromProto(proto, &sample).ok());
+  DecodedRobotState measured;
+  ASSERT_TRUE(decoder.decode(sample, &measured).ok());
+  const humanoid_mpc_msgs::TelemetrySeries& series =
+      (*builder)->build(measured, &observation, &policy);
+  expectZmpOfThePlan(*tron1, policy, series, /*time=*/0.1);
 }
 
 }  // namespace

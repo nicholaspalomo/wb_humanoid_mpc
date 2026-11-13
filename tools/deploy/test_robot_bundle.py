@@ -48,8 +48,10 @@ BINARIES = (
 # LINT.IfChange(robot_configurations)
 ROBOTS = (
     "anymal_b",
+    "anymal_c_wheels",
     "drc_atlas",
     "engineai_sa01",
+    "tron1",
     "unitree_g1",
     "unitree_g1_wb",
     "unitree_r1",

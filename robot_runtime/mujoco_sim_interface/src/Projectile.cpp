@@ -236,7 +236,7 @@ const std::vector<std::string>& availableProjectiles() {
   static const absl::NoDestructor<std::vector<std::string>> kNames(
       std::vector<std::string>{"dodgeball"});
   // clang-format off
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:sim_projectile, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:sim_projectile, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:sim_projectile, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto:sim_projectile, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto:sim_projectile, //robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/mpc/task.textproto:sim_projectile, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:sim_projectile)
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:sim_projectile, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:sim_projectile, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:sim_projectile, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto:sim_projectile, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto:sim_projectile, //robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/mpc/task.textproto:sim_projectile, //robot_models/limx_tron1/tron1_centroidal_mpc/config/mpc/task.textproto:sim_projectile, //robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/config/mpc/task.textproto:sim_projectile, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:sim_projectile)
   // clang-format on
   return *kNames;
 }

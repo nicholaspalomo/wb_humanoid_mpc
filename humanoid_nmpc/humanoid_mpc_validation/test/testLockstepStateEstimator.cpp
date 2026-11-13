@@ -74,6 +74,26 @@ constexpr char kTaskFile[] =
     "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto";
 constexpr char kUrdfFile[] =
     "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf";
+/** A shipped robot on rolling contacts and the first of its wheels. */
+struct WheeledRobot {
+  std::string taskFile;
+  std::string urdfFile;
+  std::string firstRollingContact;
+};
+
+std::vector<WheeledRobot> wheeledRobots() {
+  return {
+      {.taskFile = "robot_models/limx_tron1/tron1_centroidal_mpc/config/mpc/"
+                   "task.textproto",
+       .urdfFile = "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf",
+       .firstRollingContact = "wheel_L_contact"},
+      {.taskFile = "robot_models/anybotics_anymal_c_wheels/"
+                   "anymal_c_wheels_centroidal_mpc/config/mpc/task.textproto",
+       .urdfFile = "robot_models/anybotics_anymal_c_wheels/"
+                   "anymal_c_wheels_description/urdf/anymal_c_wheels.urdf",
+       .firstRollingContact = "LF_wheel_contact"},
+  };
+}
 /** [m] The base height of the probe state. */
 constexpr double kBaseHeight = 0.75;
 
@@ -235,6 +255,46 @@ TEST(LockstepStateEstimator, APointContactIsAtItsOffsetFromItsOwnParentJoint) {
             vector3_t(0.035, 0.0, -0.035));
   EXPECT_EQ(context->contacts[2].posContactRtLinkEwrtLink,
             vector3_t(0.035, 0.0, -0.035));
+}
+
+TEST(LockstepStateEstimator, KalmanRefusesTheWheelsOfARollingContactSet) {
+  // Tron1's two and the wheeled ANYmal C's four rolling contacts: the wheels'
+  // lowest points are no points of their links, which the Kalman filter's
+  // contact measurement needs.
+  for (const WheeledRobot& robot : wheeledRobots()) {
+    const std::string taskFile = runfilePath(robot.taskFile);
+    const std::string urdfFile = runfilePath(robot.urdfFile);
+    const mpc_config::TaskFile task = loadTaskFile(taskFile).value();
+    const ModelSettings modelSettings =
+        ModelSettings::Create(task, urdfFile, "lockstep_state_estimator_test_",
+                              /*verbose=*/false)
+            .value();
+    ASSERT_TRUE(modelSettings.hasRollingContacts()) << taskFile;
+    const robot::model::RobotDescription description =
+        robot::model::RobotDescription::Create(urdfFile).value();
+    RobotProcessSettings settings;
+    settings.stateEstimator =
+        std::string(estimation::kKalmanStateEstimatorName);
+    const absl::StatusOr<std::unique_ptr<estimation::StateEstimator>> kalman =
+        createRobotProcessStateEstimator(settings, modelSettings, task.contacts,
+                                         urdfFile, taskFile, &description);
+    ASSERT_EQ(kalman.status().code(), absl::StatusCode::kInvalidArgument)
+        << taskFile;
+    EXPECT_TRUE(absl::StartsWith(kalman.status().message(),
+                                 absl::StrCat(taskFile, ": state_estimator: ")))
+        << kalman.status();
+    EXPECT_TRUE(
+        absl::StrContains(kalman.status().message(), robot.firstRollingContact))
+        << kalman.status();
+    // The sim default, which the lockstep runs of the wheeled robots use.
+    settings.stateEstimator =
+        std::string(estimation::kGroundTruthStateEstimatorName);
+    const absl::StatusOr<std::unique_ptr<estimation::StateEstimator>>
+        groundTruth = createRobotProcessStateEstimator(settings, modelSettings,
+                                                       task.contacts, urdfFile,
+                                                       taskFile, &description);
+    EXPECT_TRUE(groundTruth.ok()) << groundTruth.status();
+  }
 }
 
 TEST(LockstepStateEstimator, AConfigurationsEstimatorReplacesTheTaskFiles) {
