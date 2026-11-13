@@ -1,7 +1,7 @@
 # The dev image: Ubuntu 24.04 with the toolchain, the system libraries the Bazel build wraps (bazel/system_libs.bzl),
 # Pinocchio from robotpkg, and a VNC desktop for the MuJoCo viewer and the operator GUI. There is no ROS: the processes
 # talk over Cyclone DDS + Protocol Buffers, which Bazel builds from the BCR, and draw with Rerun
-# (humanoid_nmpc/docs/distributed_runtime).
+# (legged_nmpc/docs/distributed_runtime).
 
 # LINT.IfChange(ubuntu_release)
 # The Ubuntu release the image, CI and the local CI emulator build on.
@@ -152,7 +152,7 @@ USER ${USER_ID}
 # not one: @cyclonedds//:ddsc is linked statically into the binaries, as protobuf and Abseil are), tc for NETEM,
 # and nothing to build or view with: no compiler, no Bazel, no Python, no VNC, no Mesa. robot-sim is robot-runtime plus
 # the GL of the MuJoCo viewer, for simulation on the laptop, which runs the robot's image
-# (humanoid_nmpc/docs/distributed_runtime/README.md, "Deployment"). tools/deploy/deploy_robot.sh builds them, with the
+# (legged_nmpc/docs/distributed_runtime/README.md, "Deployment"). tools/deploy/deploy_robot.sh builds them, with the
 # bundle as the build context `bundle`, a directory holding robot_bundle.tar:
 #
 #   docker build -f docker/Dockerfile --target robot-runtime --build-context bundle=.deploy/context \

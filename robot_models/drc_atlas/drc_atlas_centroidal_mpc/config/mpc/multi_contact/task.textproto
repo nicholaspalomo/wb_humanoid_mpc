@@ -1,11 +1,11 @@
-# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto
-# proto-message: humanoid_mpc_config.TaskFile
-# The DRC Atlas's centroidal MPC tracking an offline multi-contact plan (humanoid_nmpc/docs/multi_contact_planning/
+# proto-file: legged_nmpc/legged_mpc_config/task_file.proto
+# proto-message: legged_mpc_config.TaskFile
+# The DRC Atlas's centroidal MPC tracking an offline multi-contact plan (legged_nmpc/docs/multi_contact_planning/
 # README.md, section 7.2): the dummy sims of the multi-contact scenarios (make launch-drc-atlas-<scenario>-dummy-sim).
 # Every one of the seventeen contact candidates of contact_set.textproto beside this file is a contact of the model: the
 # twelve point candidates are its 3-DoF contacts and the five surface candidates its 6-DoF contacts, the feet last so
 # that the biped's mode numbers keep their meaning. Their names, parent joints, offsets and pads are those of the contact
-# set; //humanoid_nmpc/humanoid_centroidal_mpc:test_multi_contact_task_file checks them. The wrists are unlocked (design
+# set; //legged_nmpc/legged_centroidal_mpc:test_multi_contact_task_file checks them. The wrists are unlocked (design
 # section 11, decision 2), so that a hand can turn to face a surface.
 #
 # The plan is the reference: its stances are the mode schedule, its states the targets, its contact phases the patches
@@ -17,11 +17,11 @@ centroidal_model: "full_centroidal_dynamics"
 contact_input_parameterization: "wrench"
 # LINT.IfChange(multi_contact_plan_source)
 contact_schedule_source: "multi_contact_plan"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
 
 multi_contact_plan {
-  scenario_file: "humanoid_nmpc/humanoid_multi_contact/scenarios/config/box_climb.textproto"
-  plan_file: "humanoid_nmpc/humanoid_multi_contact/app/testdata/box_climb_sway.textproto"
+  scenario_file: "legged_nmpc/legged_multi_contact/scenarios/config/box_climb.textproto"
+  plan_file: "legged_nmpc/legged_multi_contact/app/testdata/box_climb_sway.textproto"
   # The plan's clock stops 0.1 s before a contact change until every contact of the stance touches its patch within
   # 1 cm and the CoM is within 3 cm of the plan's.
   clock_hold { lead: 0.1 max_norm_pos_contact_rt_surface_ewrt_surface_z: 0.01 max_norm_err_pos_com_rt_world_ewrt_world_xy: 0.03 }

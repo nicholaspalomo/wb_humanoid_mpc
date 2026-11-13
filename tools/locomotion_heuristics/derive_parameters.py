@@ -28,7 +28,7 @@
 
 """Derives a robot's `locomotion_heuristics` parameter block from its URDF, its task file and its gait schedule.
 
-The coefficients of Bledt's regularization heuristics (humanoid_nmpc/docs/locomotion_heuristics/README.md) are not
+The coefficients of Bledt's regularization heuristics (legged_nmpc/docs/locomotion_heuristics/README.md) are not
 free numbers: most of them follow from the robot's mass and geometry, from the cadence of the gait it is walking
 with, and from the command limits the operator can reach. This script does that arithmetic, so that the block in a
 robot's `config/mpc/task.textproto` can be regenerated rather than maintained by hand, and so that the derivation of
@@ -118,14 +118,14 @@ UNDERIVED_ROBOTS: dict[str, str] = {
     "tron1": "robot_models/limx_tron1/tron1_centroidal_mpc",
     "anymal_c_wheels": "robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",
 }
-# LINT.ThenChange(//humanoid_nmpc/docs/locomotion_heuristics/README.md:derive_parameters_usage, //Makefile:derive_heuristic_parameters_usage, //humanoid_nmpc/humanoid_centroidal_mpc/test/testNominalPendulum.cpp:nominal_pendulum_robots)
+# LINT.ThenChange(//legged_nmpc/docs/locomotion_heuristics/README.md:derive_parameters_usage, //Makefile:derive_heuristic_parameters_usage, //legged_nmpc/legged_centroidal_mpc/test/testNominalPendulum.cpp:nominal_pendulum_robots)
 
 # [m/s^2] The robot models' gravity: Pinocchio's default, which every shipped URDF and MuJoCo scene keeps
-# (humanoid_common_mpc_app/robot testShippedRobotGravity), and which the MPC reads from the model.
+# (legged_common_mpc_app/robot testShippedRobotGravity), and which the MPC reads from the model.
 GRAVITY = 9.81
 
 # The gait table every centroidal MPC reads, from the repository root.
-GAIT_FILE = "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto"
+GAIT_FILE = "legged_nmpc/legged_common_mpc/config/command/gait.textproto"
 
 # The fields of the reference, task and contact-planning files derive_parameters() reads, which the schema-less reader
 # sees only where a file writes them: the reference's command limits, which the stack requires (an absent one is
@@ -144,12 +144,12 @@ FOOT_SEPARATION_DEFAULTS = {
 }
 HLIP_STEP_WIDTH_DEFAULT = 0.25
 NOMINAL_FOOTHOLD_STEP_WIDTH_DEFAULT = 0.0
-# LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/reference_file.proto:derive_parameters_command_limits, //humanoid_nmpc/humanoid_mpc_config/reference_file.proto:derive_parameters_base_height, //humanoid_nmpc/humanoid_mpc_config/contact_planning_file.proto:derive_parameters_foot_separation, //humanoid_nmpc/humanoid_mpc_config/contact_planning_file.proto:derive_parameters_hlip_step_width, //humanoid_nmpc/humanoid_mpc_config/nominal_foothold_config.proto:derive_parameters_step_width)
+# LINT.ThenChange(//legged_nmpc/legged_mpc_config/reference_file.proto:derive_parameters_command_limits, //legged_nmpc/legged_mpc_config/reference_file.proto:derive_parameters_base_height, //legged_nmpc/legged_mpc_config/contact_planning_file.proto:derive_parameters_foot_separation, //legged_nmpc/legged_mpc_config/contact_planning_file.proto:derive_parameters_hlip_step_width, //legged_nmpc/legged_mpc_config/nominal_foothold_config.proto:derive_parameters_step_width)
 
 # The contact planner's file of a robot, beside its task file.
 # LINT.IfChange(contact_planning_file_name)
 CONTACT_PLANNING_FILE = "config/mpc/contact_planning.textproto"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/ConfigFiles.h:contact_planning_file_name)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/config/ConfigFiles.h:contact_planning_file_name)
 
 # The cost of the task file's `costs` list that replaces base-pose tracking with CoM + ACoM tracking, and the retired
 # top-level boolean it replaced. MpcFormulationConfig.cpp normalizes cost names the same way (case, '_', '-' and ' '
@@ -157,7 +157,7 @@ CONTACT_PLANNING_FILE = "config/mpc/contact_planning.textproto"
 # LINT.IfChange(com_and_acom_tracking_cost_name)
 COM_AND_ACOM_TRACKING_COST = "com_and_acom_tracking_cost"
 RETIRED_ACOM_KEY = "use_com_and_acom_tracking"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp:com_and_acom_tracking_cost_name)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc/src/common/MpcFormulationConfig.cpp:com_and_acom_tracking_cost_name)
 
 # The top-level key that names the contact input parameterization, the name whose contact input lives in the local
 # contact frame, and the retired boolean it replaced (which the MPC refuses at start-up, whatever its value).
@@ -165,7 +165,7 @@ RETIRED_ACOM_KEY = "use_com_and_acom_tracking"
 CONTACT_INPUT_PARAMETERIZATION_KEY = "contact_input_parameterization"
 BASIS_VECTOR_CONTACT_INPUTS = "basis_vectors"
 RETIRED_BASIS_KEY = "use_contact_basis_vector_inputs"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names)
 
 # The top-level key that names where the mode schedule and the footholds come from, the name of the online contact
 # planner (which supplies the footholds itself, so a foothold heuristic is refused beside it), the name of the gait
@@ -176,14 +176,14 @@ CONTACT_SCHEDULE_SOURCE_KEY = "contact_schedule_source"
 CONTACT_PLANNER_SCHEDULE_SOURCE = "contact_planner"
 GAIT_SCHEDULE_SOURCE = "gait_schedule"
 RETIRED_CONTACT_PLANNING_KEY = "use_contact_planning"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
 
 # The cost of the task file's `costs` list that ends the horizon on the DCM (capture point), and the retired top-level
 # boolean it replaced (which the MPC refuses at start-up, whatever its value).
 # LINT.IfChange(retired_formulation_keys)
 DCM_TERMINAL_COST = "dcm_terminal_cost"
 RETIRED_DCM_TERMINAL_COST_KEY = "use_dcm_terminal_cost"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto:retired_formulation_keys)
+# LINT.ThenChange(//legged_nmpc/legged_mpc_config/task_file.proto:retired_formulation_keys)
 
 # ---------------------------------------------------------------------------------------------------------------
 # Assumptions the sized-from-the-command-limits group rests on. They are constants HERE, and printed with the
@@ -259,7 +259,7 @@ class RobotGeometry:
 
 @dataclasses.dataclass
 class GaitCadence:
-    """The timing of one named gait of `humanoid_common_mpc/config/command/gait.textproto`."""
+    """The timing of one named gait of `legged_common_mpc/config/command/gait.textproto`."""
 
     name: str
     stride_duration: float  # [s] one full left-right cycle
@@ -364,7 +364,7 @@ def derive_geometry(
     center of mass above the MEAN height of the contact frames (the sole centers). It is the one pendulum length of this
     controller - a `dcm_terminal_cost` or a contact_planning.textproto `shared` block without
     `nom_pos_com_rt_feetmean_ewrt_world_z` resolves to it at start-up - and
-    humanoid_centroidal_mpc:testNominalPendulum checks that every derived number a task file ships agrees with the C++
+    legged_centroidal_mpc:testNominalPendulum checks that every derived number a task file ships agrees with the C++
     side of it.
 
     Mirrors it deliberately, including the walk up the kinematic tree to the last joint before the floating base:
@@ -1224,7 +1224,7 @@ def derive_parameters(
             cmd_max_wnorm_force_com_ewrt_world_xy,
         )
     )
-    # LINT.ThenChange(//tools/locomotion_heuristics/test_derive_parameters.py:expected_heuristic_names, //humanoid_nmpc/humanoid_mpc_config/locomotion_heuristics_config.proto:locomotion_heuristic_keys)
+    # LINT.ThenChange(//tools/locomotion_heuristics/test_derive_parameters.py:expected_heuristic_names, //legged_nmpc/legged_mpc_config/locomotion_heuristics_config.proto:locomotion_heuristic_keys)
     return out, notes
 
 
@@ -1376,7 +1376,7 @@ def formulation_warnings(task: dict) -> list[str]:
 
 # LINT.IfChange(parameter_block_names)
 #: The heuristics whose parameter block is not named after them alone: their names hold a frame-dependent quantity
-#: word (humanoid_nmpc/docs/frame_naming/README.md), so their blocks take `_parameters`.
+#: word (legged_nmpc/docs/frame_naming/README.md), so their blocks take `_parameters`.
 _SUFFIXED_PARAMETER_BLOCKS = frozenset(
     {
         "orientation_compensation",
@@ -1384,7 +1384,7 @@ _SUFFIXED_PARAMETER_BLOCKS = frozenset(
         "centripetal_acceleration",
     }
 )
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicFormulation.cpp:parameter_block_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc/src/locomotion_heuristics/LocomotionHeuristicFormulation.cpp:parameter_block_names)
 
 
 def parameter_block_name(name: str) -> str:

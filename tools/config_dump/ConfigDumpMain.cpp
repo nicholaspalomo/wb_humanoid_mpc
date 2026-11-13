@@ -55,8 +55,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/log.h"
 #include "absl/status/statusor.h"
 
-#include "humanoid_common_mpc_app/node/ExitCodes.h"
-#include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
+#include "legged_common_mpc_app/node/ExitCodes.h"
+#include "legged_mpc_validation/closed_loop/RobotConfiguration.h"
 #include "tools/config_dump/StackDump.h"
 
 // LINT.IfChange(robot_flag)
@@ -67,7 +67,7 @@ ABSL_FLAG(std::string,
           "engineai_sa01, unitree_g1, unitree_r1, anymal_b, tron1, "
           "anymal_c_wheels, unitree_g1_wb, unitree_g1_kalman.");
 // clang-format off
-// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations)
+// LINT.ThenChange(//legged_nmpc/legged_mpc_validation/include/legged_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations)
 // clang-format on
 
 int main(int argc, char* absl_nonnull* absl_nonnull argv) {
@@ -80,23 +80,23 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
     LOG(ERROR)
         << "run it with `bazel run`, which sets BUILD_WORKSPACE_DIRECTORY: the "
            "dump reads the checkout's files.";
-    return ocs2::humanoid::node::kUsageErrorExitCode;
+    return ocs2::legged::node::kUsageErrorExitCode;
   }
   std::error_code error;
   std::filesystem::current_path(workspace, error);
   if (error) {
     LOG(ERROR) << "cannot change into " << workspace << ": " << error.message();
-    return ocs2::humanoid::node::kUsageErrorExitCode;
+    return ocs2::legged::node::kUsageErrorExitCode;
   }
-  const absl::StatusOr<ocs2::humanoid::validation::RobotConfiguration>
-      configuration = ocs2::humanoid::validation::findRobotConfiguration(
+  const absl::StatusOr<ocs2::legged::validation::RobotConfiguration>
+      configuration = ocs2::legged::validation::findRobotConfiguration(
           absl::GetFlag(FLAGS_robot));
   if (!configuration.ok()) {
     LOG(ERROR) << configuration.status();
-    return ocs2::humanoid::node::kUsageErrorExitCode;
+    return ocs2::legged::node::kUsageErrorExitCode;
   }
   const absl::StatusOr<std::string> dump =
-      ocs2::humanoid::config_dump::dumpConfiguration(*configuration);
+      ocs2::legged::config_dump::dumpConfiguration(*configuration);
   if (!dump.ok()) {
     LOG(ERROR) << configuration->name << ": " << dump.status();
     return 1;

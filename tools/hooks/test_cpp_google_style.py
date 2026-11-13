@@ -413,12 +413,12 @@ class MacroNamingTest(unittest.TestCase):
     def test_include_guards(self):
         for source in [
             (
-                "#ifndef HUMANOID_NMPC_FOO_INCLUDE_FOO_FOO_H_\n#define"
-                " HUMANOID_NMPC_FOO_INCLUDE_FOO_FOO_H_\nint x;\n#endif\n"
+                "#ifndef LEGGED_NMPC_FOO_INCLUDE_FOO_FOO_H_\n#define"
+                " LEGGED_NMPC_FOO_INCLUDE_FOO_FOO_H_\nint x;\n#endif\n"
             ),
             (
-                "// A comment first.\n#if !defined(HUMANOID_FOO_H_)\n#define"
-                " HUMANOID_FOO_H_\n#endif\n"
+                "// A comment first.\n#if !defined(LEGGED_FOO_H_)\n#define"
+                " LEGGED_FOO_H_\n#endif\n"
             ),
         ]:
             with self.subTest(source=source):
@@ -426,9 +426,9 @@ class MacroNamingTest(unittest.TestCase):
                 self.assertEqual(len(findings), 1, findings)
                 self.assertIn("#pragma once", findings[0].message)
         for source in [
-            "#pragma once\n#define HUMANOID_FOO 1\n",
+            "#pragma once\n#define LEGGED_FOO 1\n",
             (
-                "#pragma once\n#ifndef HUMANOID_FOO\n#define HUMANOID_FOO"
+                "#pragma once\n#ifndef LEGGED_FOO\n#define LEGGED_FOO"
                 " 1\n#endif\n"
             ),
         ]:

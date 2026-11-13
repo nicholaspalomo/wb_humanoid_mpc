@@ -36,7 +36,7 @@ namespace ocs2 {
 
 // LINT.IfChange(sensitivity_integrator_types)
 enum class SensitivityIntegratorType { EULER, RK2, RK4 };
-// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/solver/SolverSettingsFromConfig.cpp:sensitivity_integrators)
+// LINT.ThenChange(//legged_nmpc/legged_common_mpc/src/config/solver/SolverSettingsFromConfig.cpp:sensitivity_integrators)
 
 namespace sensitivity_integrator {
 

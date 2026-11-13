@@ -1,0 +1,156 @@
+{
+  "schema": "legged_mpc_validation.closed_loop_metrics.v2",
+  "label": "2026-11-13_legged_rename",
+  "robot": "anymal_b",
+  "formulation": "centroidal",
+  "scenario": "standing",
+  "provenance": {
+    "git_commit": "54ce1bff8cda32cc7aa7d7b993d346ce66355cb3",
+    "worktree_state": "1987 changed paths, diff sha256 728b364bf6b4755d",
+    "machine": "Intel(R) Core(TM) Ultra 7 265K, 20 logical cores, 30.2 GiB",
+    "toolchain": {
+      "compiler": "13.3.0",
+      "hpipm_target": "GENERIC",
+      "container_image": "unknown"
+    },
+    "configuration_sha256": {
+      "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/mpc/task.textproto": "2634c9252ee8726ae117eebe5688d608a3115180dce608ae2547732353997bcb",
+      "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/command/reference.textproto": "a2ef70fcab26ff1974349ad1a09401bc7feadb6dcb43bd0de670730cc98a71ed",
+      "legged_nmpc/legged_common_mpc/config/command/quadruped_gait.textproto": "6ad2f6e372ecfbeee4f86d1993e2f668a466cb02c860b2eb90bc50499dbed233",
+      "robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/controller/joint_pd_gains.textproto": "29bc4c4c440bfc67badac317a00007047061300dd27ebfd8d216002e9bc4c272",
+      "robot_models/anybotics_anymal_b/anymal_b_description/urdf/anymal_b.urdf": "aea666b4471e25b76a024113f5c342dd2abefb2192c6f9cb097f8e62d074ee90",
+      "robot_models/anybotics_anymal_b/anymal_b_description/urdf/anymal_b.xml": "6b27a4ecd5c89c3164c568de18fdaea00ba3307a69850780a5b473d249e269f3"
+    }
+  },
+  "settings": {
+    "mpc_frequency_hz": 80,
+    "mrt_frequency_hz": 100,
+    "simulation_time_step_s": 0.0005,
+    "control_period_s": 0.01,
+    "solver_threads": 4,
+    "state_estimator": "ground_truth",
+    "solve_latency": "none: a solve's policy is in use from the next control cycle",
+    "joint_pd_settle_time_s": 1,
+    "entry_end_time_s": 1.029999999999942,
+    "gantry_release_time_s": 1.529999999999887,
+    "standing_time_s": 2,
+    "command_start_time_s": 3.530000000000346,
+    "command_duration_s": 10,
+    "command_limits": [1, 0.5, 1],
+    "command_saturated": false,
+    "scenario_description": "at rest for 10 s"
+  },
+  "evaluation": {
+    "start_time_s": 3.5305000000003464,
+    "end_time_s": 13.520500000005033,
+    "control_cycles": 1000,
+    "solves": 800
+  },
+  "survival": {
+    "survived": true,
+    "fall_time_s": null,
+    "fall_reason": ""
+  },
+  "base_height": {
+    "mean_m": 0.5170964244554513,
+    "std_m": 9.610147976920349e-06,
+    "rms_error_m": 0.007396430698664903
+  },
+  "tilt": {
+    "rms_rad": 0.0002569918979843085,
+    "max_rad": 0.00026103921168635374
+  },
+  "velocity": {
+    "rms_error_mps": 1.942157847216152e-05
+  },
+  "yaw_rate": {
+    "rms_error_radps": 1.9454303730600807e-07
+  },
+  "heading": {
+    "cumulative_final_rad": -2.518187691119596e-07,
+    "cumulative_max_rad": 0,
+    "cumulative_min_rad": -4.285504024788619e-07
+  },
+  "stance_foot_slip": {
+    "max_m": 0.0020174195094620714,
+    "rms_m": 0.002010502194429083,
+    "stance_phases": 4
+  },
+  "joint_torque": {
+    "rms_nm": 7.308819799891945
+  },
+  "initial_state_gap": {
+    "max_rotation_rad": 4.842159691523631e-06,
+    "max_rotation_time_s": 6.520499999999106,
+    "max_norm": 0.011412334133904646
+  },
+  "quaternion_norm": {
+    "max_deviation": 1.1102230246251565e-16,
+    "non_finite_solves": 0
+  },
+  "non_finite_values": 0,
+  "solve_time_ms": {
+    "total": {
+      "mean": 3.6735392074999997,
+      "p50": 3.613438,
+      "p99": 5.080082,
+      "max": 5.463813
+    },
+    "lq_approximation": {
+      "mean": 2.328867497500005,
+      "p50": 2.326248,
+      "p99": 2.817772,
+      "max": 3.309633
+    },
+    "solve_qp": {
+      "mean": 1.0082992299999995,
+      "p50": 0.970852,
+      "p99": 2.121789,
+      "max": 2.168398
+    },
+    "linesearch": {
+      "mean": 0.25727645124999987,
+      "p50": 0.24749,
+      "p99": 0.400946,
+      "max": 0.506318
+    },
+    "compute_controller": {
+      "mean": 0.025080964999999993,
+      "p50": 0.024154,
+      "p99": 0.046157,
+      "max": 0.063491
+    }
+  },
+  "sqp_step": {
+    "steps": 800,
+    "full_steps": 800,
+    "reduced_steps": 0,
+    "zero_steps": 0,
+    "full_steps_refused_above_g_max": 0,
+    "accepted_by": {
+      "constraint": 0,
+      "dual": 800,
+      "cost": 0
+    },
+    "longest_violation_growth": 1,
+    "constraint_violation": {
+      "mean": 1.9941362342660412e-06,
+      "p50": 1.0249372350586126e-06,
+      "p99": 4.418478368685319e-06,
+      "max": 4.493488547141429e-06
+    },
+    "swing_normal_velocity_residual": {
+      "mean": null,
+      "p50": null,
+      "p99": null,
+      "max": null
+    }
+  },
+  "failures": {
+    "failed_solves": 0,
+    "resets_served": 0,
+    "full_resets_served": 0,
+    "simulator_resets": 0,
+    "unhealthy_cycles": 0
+  }
+}

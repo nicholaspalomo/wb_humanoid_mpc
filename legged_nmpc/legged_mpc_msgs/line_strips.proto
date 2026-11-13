@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package legged_mpc_msgs;
+
+import "legged_mpc_msgs/line_strip.proto";
+import "nproto/options.proto";
+
+// The package before the humanoid -> legged rename, which the header of a file saved before it gives.
+option (nproto.former_package) = "humanoid_mpc_msgs";
+
+// Polylines (Rerun LineStrips3D).
+// Next ID: 4
+message LineStrips {
+  option (nproto.generate_struct) = "ocs2::legged::msgs::LineStrips";
+
+  reserved 4 to max;
+
+  string path = 1;
+  repeated LineStrip strips = 2;
+  float radius = 3;
+}

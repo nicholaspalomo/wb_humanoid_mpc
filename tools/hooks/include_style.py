@@ -29,7 +29,7 @@
 
 `include-style` (Google C++ style, Names and order of includes): only C and C++ standard library headers and
 POSIX/Linux system headers use angle brackets; everything else, third-party libraries included, uses quotes and its
-full path (`#include "pinocchio/fwd.hpp"`, `#include "humanoid_common_mpc/common/Types.h"`). A first-party header is
+full path (`#include "pinocchio/fwd.hpp"`, `#include "legged_common_mpc/common/Types.h"`). A first-party header is
 never included by its bare file name. The fix rewrites the brackets; clang-format then regroups the includes.
 
 For Abseil the brackets are a build error waiting to happen, not only a style matter, and the finding says so. Bazel

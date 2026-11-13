@@ -1,0 +1,80 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#pragma once
+
+#include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
+
+#include "legged_common_mpc/command/NormalizedWalkingVelocityCommand.h"
+#include "legged_mpc_msgs/walking_velocity_command.pb.h"
+
+namespace ocs2::legged::node {
+
+/**
+ * The ranges of operator/walking_velocity_command
+ * (legged_mpc_msgs/walking_velocity_command.proto): the velocities are
+ * normalized, and ProceduralMpcMotionManager scales them by the command limits
+ * of reference.textproto.
+ */
+inline constexpr scalar_t kCmdMaxLnormLinvelBaseRtWorldEwrtHeadingXy = 1.0;
+inline constexpr scalar_t kCmdMaxLnormAngvelBaseRtWorldEwrtWorldZ = 1.0;
+/** [m] The pelvis height of the command is absolute, above the ground. */
+inline constexpr scalar_t kCmdMinPosBaseRtSurfaceEwrtWorldZ = 0.2;
+inline constexpr scalar_t kCmdMaxPosBaseRtSurfaceEwrtWorldZ = 1.0;
+
+/**
+ * `command` within the ranges above: each planar velocity component clamped to
+ * [-kCmdMaxLnormLinvelBaseRtWorldEwrtHeadingXy,
+ * kCmdMaxLnormLinvelBaseRtWorldEwrtHeadingXy], the yaw rate to
+ * [-kCmdMaxLnormAngvelBaseRtWorldEwrtWorldZ,
+ * kCmdMaxLnormAngvelBaseRtWorldEwrtWorldZ], the pelvis height to
+ * [kCmdMinPosBaseRtSurfaceEwrtWorldZ, kCmdMaxPosBaseRtSurfaceEwrtWorldZ]. A
+ * value that is not finite passes std::clamp() unchanged;
+ * walkingVelocityCommandFromProto() refuses it before it gets here. The
+ * lockstep closed loop (legged_nmpc/legged_mpc_validation) clamps the GUI's
+ * messages with this, so that the clamp has one home.
+ */
+NormalizedWalkingVelocityCommand clampWalkingVelocityCommand(
+    const NormalizedWalkingVelocityCommand& command);
+
+/**
+ * The operator's normalized command of an operator/walking_velocity_command
+ * message, for
+ * ProceduralMpcMotionManager::setAndScaleVelocityCommand():
+ * clampWalkingVelocityCommand() of its values.
+ *
+ * InvalidArgument naming the field when a value is not finite: a NaN would pass
+ * std::clamp() unchanged and reach every target trajectory of the MPC.
+ */
+absl::StatusOr<NormalizedWalkingVelocityCommand>
+walkingVelocityCommandFromProto(
+    const legged_mpc_msgs::WalkingVelocityCommand& message);
+
+}  // namespace ocs2::legged::node

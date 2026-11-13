@@ -33,9 +33,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/statusor.h"
 
-#include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
+#include "legged_mpc_validation/closed_loop/RobotConfiguration.h"
 
-namespace ocs2::humanoid::config_dump {
+namespace ocs2::legged::config_dump {
 
 /**
  * Every value the start-up of `configuration`'s stack builds from its files, as
@@ -52,4 +52,4 @@ namespace ocs2::humanoid::config_dump {
 absl::StatusOr<std::string> dumpConfiguration(
     const validation::RobotConfiguration& configuration);
 
-}  // namespace ocs2::humanoid::config_dump
+}  // namespace ocs2::legged::config_dump

@@ -27,7 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// Writes humanoid_nmpc/humanoid_mpc_config/config_registries.textproto in the
+// Writes legged_nmpc/legged_mpc_config/config_registries.textproto in the
 // checkout from the linked registries (tools/config_registries/README.md):
 //
 //   bazel run //tools/config_registries:print_config_registries
@@ -47,7 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/initialize.h"
 #include "absl/log/log.h"
 
-#include "humanoid_common_mpc_app/node/ExitCodes.h"
+#include "legged_common_mpc_app/node/ExitCodes.h"
 #include "tools/config_registries/ConfigRegistries.h"
 
 int main(int argc, char* absl_nonnull* absl_nonnull argv) {
@@ -59,15 +59,15 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
     LOG(ERROR)
         << "run it with `bazel run`, which sets BUILD_WORKSPACE_DIRECTORY: it "
            "writes a file of the checkout.";
-    return ocs2::humanoid::node::kUsageErrorExitCode;
+    return ocs2::legged::node::kUsageErrorExitCode;
   }
   const std::string path =
       (std::filesystem::path(workspace) /
-       ocs2::humanoid::config_registries::kConfigRegistriesFile)
+       ocs2::legged::config_registries::kConfigRegistriesFile)
           .string();
   const std::string text =
-      ocs2::humanoid::config_registries::configRegistriesText(
-          ocs2::humanoid::config_registries::collectConfigRegistries());
+      ocs2::legged::config_registries::configRegistriesText(
+          ocs2::legged::config_registries::collectConfigRegistries());
   std::ofstream file(path, std::ios::binary | std::ios::trunc);
   file << text;
   file.close();

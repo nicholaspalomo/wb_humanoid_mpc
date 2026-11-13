@@ -1,11 +1,11 @@
-# proto-file: humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto
-# proto-message: humanoid_mpc_config.JointPdGainsFile
+# proto-file: legged_nmpc/legged_mpc_config/joint_pd_gains_file.proto
+# proto-message: legged_mpc_config.JointPdGainsFile
 # ANYbotics ANYmal B (12-DoF) joint proportional and derivative (PD) controller gains.
 # Units: Kp in [N*m/rad], Kd in [N*m*s/rad]
 # The same gains on all twelve joints. They hold the legs while the MPC is off (JOINT_PD) and stiffen the MPC's
 # feedforward torques against its joint targets; robot_models/tests/test_joint_pd_stability.py checks that the explicit
 # PD is stable at the simulator's step with the joint damping of urdf/anymal_b.xml. kp 400 and kd 10 come from the
-# closed-loop runs in MuJoCo (humanoid_mpc_validation, 2026-11-10_anymal_b): at kp 80 and kd 2 the trot sagged 5 cm
+# closed-loop runs in MuJoCo (legged_mpc_validation, 2026-11-10_anymal_b): at kp 80 and kd 2 the trot sagged 5 cm
 # below the nominal base height and reached 0.17 m/s of a 0.5 m/s command, at kp 200 and kd 5 0.26 m/s, and at kp 400
 # and kd 10 it holds the height within 5 mm; kp 600 adds no speed.
 

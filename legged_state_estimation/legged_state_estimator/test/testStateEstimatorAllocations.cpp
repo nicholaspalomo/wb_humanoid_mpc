@@ -1,0 +1,158 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+// The realtime property of the state estimators: once built, the kalman
+// estimator's estimate() and reset() make no heap allocation, through stance
+// changes, with the contact-trust ramp off and on. A target of its own, because
+// the allocation counter replaces malloc for the whole binary.
+
+#include <cstddef>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "absl/status/statusor.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+
+#include "legged_state_estimation/legged_state_estimator/test/AllocationCounter.h"
+#include "legged_state_estimation/legged_state_estimator/test/MeasuredState.h"
+#include "legged_state_estimation/legged_state_estimator/test/WalkingTrajectory.h"
+#include "legged_state_estimator/ContactEstimationInputs.h"
+#include "legged_state_estimator/ContactKinematics.h"
+#include "legged_state_estimator/KalmanBaseEstimator.h"
+#include "legged_state_estimator/StateEstimator.h"
+#include "legged_state_estimator/StateEstimatorRegistry.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
+
+namespace ocs2::legged::estimation {
+namespace {
+
+constexpr scalar_t kDt = 0.002;
+
+/** The prismatic biped's feet, as contact points at their links' origins. */
+std::vector<ContactPointSpec> footContacts() {
+  std::vector<ContactPointSpec> contacts;
+  for (const std::string& link : test_support::prismaticBipedFootLinks()) {
+    contacts.push_back(ContactPointSpec{.linkName = link});
+  }
+  return contacts;
+}
+
+/**
+ * Runs the kalman estimator of `config` over a walk with stance changes, a
+ * reset, contact heights cleared and set again and planned switch times set
+ * and cleared, and expects no heap allocation.
+ */
+void expectEstimatesAndResetsWithoutAllocating(
+    const KalmanBaseEstimator::Config& config) {
+  const absl::StatusOr<robot::model::RobotDescription> description =
+      robot::model::RobotDescription::Create(test_support::kPrismaticBipedUrdf);
+  ASSERT_TRUE(description.ok()) << description.status();
+  absl::StatusOr<std::unique_ptr<StateEstimator>> created =
+      StateEstimatorRegistry().create(
+          "kalman",
+          StateEstimatorContext{.urdfFile = test_support::kPrismaticBipedUrdf,
+                                .contacts = footContacts(),
+                                .description = &*description,
+                                .kalman = config});
+  ASSERT_TRUE(created.ok()) << created.status();
+  StateEstimator& estimator = **created;
+  robot::model::RobotState measured(*description);
+  // The samples are computed before counting: the trajectory generator
+  // allocates.
+  constexpr int kSteps = 1000;
+  std::vector<test_support::WalkingSample> samples;
+  for (int step = 0; step <= kSteps; ++step) {
+    samples.push_back(test_support::walkingSample(step * kDt));
+  }
+  // The robot process's contact inputs, sized once: flat ground, with one
+  // contact's height cleared and set again every step below.
+  ContactEstimationInputs contactInputs(test_support::kNumFeet);
+  test_support::writeMeasuredState(samples[0], measured);
+  estimator.reset(measured);
+  // One step first, so that the estimated state owns its storage as every later
+  // one does.
+  test_support::writeMeasuredState(samples[1], measured);
+  estimator.estimate(measured, contactInputs);
+
+  bool sawStanceChange = false;
+  bool sawContactEstimates = false;
+  const size_t before = heapAllocationCount();
+  for (int step = 2; step <= kSteps; ++step) {
+    sawStanceChange = sawStanceChange || samples[step].contactFlags !=
+                                             samples[step - 1].contactFlags;
+    test_support::writeMeasuredState(samples[step], measured);
+    // Every other step without the left foot's height row.
+    if (step % 2 == 0) {
+      contactInputs.clearNomPosContactRtWorldEwrtWorldZ(0);
+    } else {
+      contactInputs.setAllNomPosContactsRtWorldEwrtWorldZ(0.0);
+    }
+    // The planned switch times, as the robot process writes them: known in
+    // two steps of three, inside and outside the ramp's window.
+    if (step % 3 == 0) {
+      contactInputs.clearPlannedContactSwitchTimes();
+    } else {
+      for (size_t contact = 0; contact < contactInputs.numContacts();
+           ++contact) {
+        contactInputs.setPlannedContactSwitchTimes(
+            contact, /*timeSinceSwitch=*/0.001 * (step % 100),
+            /*timeToSwitch=*/0.002 * (step % 50));
+      }
+    }
+    estimator.estimate(measured, contactInputs);
+    sawContactEstimates = sawContactEstimates ||
+                          estimator.estPosContactsRtWorldEwrtWorld().size() ==
+                              test_support::kNumFeet;
+    if (step == kSteps / 2) estimator.reset(measured);
+  }
+  const size_t allocations = heapAllocationCount() - before;
+  EXPECT_TRUE(sawStanceChange) << "the run covers lift-offs and touch-downs";
+  EXPECT_TRUE(sawContactEstimates);
+  EXPECT_EQ(allocations, 0u);
+  EXPECT_EQ(estimator.failedUpdates(), 0u);
+}
+
+TEST(StateEstimatorAllocationTest,
+     TheKalmanEstimatorEstimatesAndResetsWithoutAllocating) {
+  expectEstimatesAndResetsWithoutAllocating(KalmanBaseEstimator::Config());
+}
+
+TEST(StateEstimatorAllocationTest,
+     TheContactTrustRampRewritesTheNoiseWithoutAllocating) {
+  KalmanBaseEstimator::Config config;
+  config.contactTrustRampDuration = 0.05;
+  config.contactTrustRampMaxScale = 4.0;
+  expectEstimatesAndResetsWithoutAllocating(config);
+}
+
+}  // namespace
+}  // namespace ocs2::legged::estimation

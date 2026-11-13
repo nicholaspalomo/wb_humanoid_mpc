@@ -51,7 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::ipc {
 
 /**
- * The DDS bus of humanoid_nmpc/docs/distributed_runtime/README.md:
+ * The DDS bus of legged_nmpc/docs/distributed_runtime/README.md:
  * publish/subscribe over Cyclone DDS, without a broker and without ROS. Every
  * bus topic is a DDS topic of the same name whose samples are one
  * robot_ipc::Envelope (WireProtocol.h): the wire protocol's version, the

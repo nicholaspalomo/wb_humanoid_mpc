@@ -65,7 +65,7 @@ services:
       WB_ROBOT_REALTIME_PRIORITY: ${WB_ROBOT_REALTIME_PRIORITY:-}
       WB_ROBOT_REALTIME_CORES: ${WB_ROBOT_REALTIME_CORES:-}
       WB_ROBOT_BACKEND_CORES: ${WB_ROBOT_BACKEND_CORES:-}
-      # The robot's persistent copies of this configuration (humanoid_nmpc/humanoid_common_mpc_app/robot/README.md, "The
+      # The robot's persistent copies of this configuration (legged_nmpc/legged_common_mpc_app/robot/README.md, "The
       # configuration store"): the GUI's saves are written there, and the robot reads its files from there, seeded from
       # the image's bundle.
       WB_ROBOT_CONFIG_STORE_DIR: /var/lib/wb-humanoid-robot/config/${ROBOT}

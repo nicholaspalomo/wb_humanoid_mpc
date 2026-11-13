@@ -273,9 +273,9 @@ class LaunchFilesTest(unittest.TestCase):
     ) -> None:
         for _, package, formulation in ROBOT_CONFIGURATIONS:
             prefix = (
-                "humanoid_centroidal_mpc"
+                "legged_centroidal_mpc"
                 if formulation == "centroidal"
-                else "humanoid_wb_mpc"
+                else "legged_wb_mpc"
             )
             programs: dict[str, tuple[tuple[str, str], ...]] = {}
             for name in MPC_LAUNCH_FILES:
@@ -294,7 +294,7 @@ class LaunchFilesTest(unittest.TestCase):
                     (
                         ("laptop", f"{prefix}_node"),
                         ("laptop", "base_velocity_controller_gui"),
-                        ("laptop", "humanoid_rerun_viewer"),
+                        ("laptop", "legged_rerun_viewer"),
                     ),
                 )
                 self.assertEqual(
@@ -303,7 +303,7 @@ class LaunchFilesTest(unittest.TestCase):
                         ("laptop", f"{prefix}_node"),
                         ("laptop", f"{prefix}_dummy_sim"),
                         ("laptop", "base_velocity_controller_gui"),
-                        ("laptop", "humanoid_rerun_viewer"),
+                        ("laptop", "legged_rerun_viewer"),
                     ),
                 )
         for description in ROBOT_DESCRIPTIONS:
@@ -318,7 +318,7 @@ class LaunchFilesTest(unittest.TestCase):
                     ],
                     [
                         ("laptop", "model_sandbox"),
-                        ("laptop", "humanoid_rerun_viewer"),
+                        ("laptop", "legged_rerun_viewer"),
                     ],
                 )
 
@@ -336,9 +336,9 @@ class LaunchFilesTest(unittest.TestCase):
                         for process in launch.processes
                     ],
                     [
-                        ("laptop", "humanoid_centroidal_mpc_node"),
-                        ("laptop", "humanoid_centroidal_mpc_dummy_sim"),
-                        ("laptop", "humanoid_rerun_viewer"),
+                        ("laptop", "legged_centroidal_mpc_node"),
+                        ("laptop", "legged_centroidal_mpc_dummy_sim"),
+                        ("laptop", "legged_rerun_viewer"),
                     ],
                 )
                 scenario_file = launch.variables["scenario_file"]
@@ -466,10 +466,10 @@ class LaunchFilesTest(unittest.TestCase):
     def test_the_distributed_readme_lists_the_flags_each_binary_defines(
         self,
     ) -> None:
-        # humanoid_nmpc/docs/distributed_runtime/README.md, "Configuration": the flags every binary takes and those the
+        # legged_nmpc/docs/distributed_runtime/README.md, "Configuration": the flags every binary takes and those the
         # robot binaries add, against the flags each binary defines in the repository's sources.
         path = os.path.join(
-            RUNFILES, "humanoid_nmpc/docs/distributed_runtime/README.md"
+            RUNFILES, "legged_nmpc/docs/distributed_runtime/README.md"
         )
         with open(path, encoding="utf-8") as stream:
             block = re.search(
@@ -522,7 +522,7 @@ class LaunchFilesTest(unittest.TestCase):
                     name = os.path.basename(program)
                     # The centroidal robot binary links the same plan flags, for the surfaces its state
                     # estimator's contacts stand on.
-                    if name.startswith("humanoid_centroidal_mpc"):
+                    if name.startswith("legged_centroidal_mpc"):
                         own = centroidal
                     # Exactly: a flag the README lists that the binary lacks, or one the binary defines that the
                     # README leaves out, both fail.

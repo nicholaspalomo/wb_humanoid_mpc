@@ -32,7 +32,7 @@ import unittest
 from tools.hooks import check_test_support
 from tools.hooks import euler_boundary
 
-_COST = "humanoid_nmpc/humanoid_common_mpc/src/cost/StateInputQuadraticCost.cpp"
+_COST = "legged_nmpc/legged_common_mpc/src/cost/StateInputQuadraticCost.cpp"
 
 
 def _found(source: str, path: str = _COST) -> list[tuple[int, int]]:
@@ -59,9 +59,9 @@ class EulerBoundaryTest(unittest.TestCase):
     def test_the_euler_headers_are_flagged(self):
         source = (
             "#include"
-            ' "humanoid_common_mpc/orientation/EulerBoundary.h"\n#include'
+            ' "legged_common_mpc/orientation/EulerBoundary.h"\n#include'
             ' "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"\n#include'
-            ' "humanoid_common_mpc/orientation/BaseOrientation.h"\n#include'
+            ' "legged_common_mpc/orientation/BaseOrientation.h"\n#include'
             ' "my/EulerBoundary.h"\n'
         )
         self.assertEqual(_found(source), [(1, 11), (2, 11)])
@@ -69,17 +69,17 @@ class EulerBoundaryTest(unittest.TestCase):
     def test_every_formulation_directory_and_robot_model_header_is_read(self):
         source = "const vector3_t a = eulerZyxFromQuaternion(xi);\n"
         for path in (
-            "humanoid_nmpc/humanoid_centroidal_mpc/src/dynamics/CentroidalDynamicsAD.cpp",
-            "humanoid_nmpc/humanoid_wb_mpc/include/humanoid_wb_mpc/cost/X.h",
-            "humanoid_nmpc/humanoid_common_mpc/src/constraint/sub/Y.cpp",
-            "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/end_effector/Z.h",
-            "humanoid_nmpc/humanoid_common_mpc/src/acom/AngularCenterOfMass.cpp",
-            "humanoid_nmpc/humanoid_centroidal_mpc/src/parameter_update/BasisInputsCostApplier.cpp",
-            "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcRobotModelBase.h",
-            "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/BasisInputsModelDecorator.h",
-            "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/BasisInputsMappingDecorator.h",
-            "humanoid_nmpc/humanoid_centroidal_mpc/include/humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h",
-            "humanoid_nmpc/humanoid_wb_mpc/include/humanoid_wb_mpc/common/WBAccelMpcRobotModel.h",
+            "legged_nmpc/legged_centroidal_mpc/src/dynamics/CentroidalDynamicsAD.cpp",
+            "legged_nmpc/legged_wb_mpc/include/legged_wb_mpc/cost/X.h",
+            "legged_nmpc/legged_common_mpc/src/constraint/sub/Y.cpp",
+            "legged_nmpc/legged_common_mpc/include/legged_common_mpc/end_effector/Z.h",
+            "legged_nmpc/legged_common_mpc/src/acom/AngularCenterOfMass.cpp",
+            "legged_nmpc/legged_centroidal_mpc/src/parameter_update/BasisInputsCostApplier.cpp",
+            "legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/MpcRobotModelBase.h",
+            "legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/BasisInputsModelDecorator.h",
+            "legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/BasisInputsMappingDecorator.h",
+            "legged_nmpc/legged_centroidal_mpc/include/legged_centroidal_mpc/common/CentroidalMpcRobotModel.h",
+            "legged_nmpc/legged_wb_mpc/include/legged_wb_mpc/common/WBAccelMpcRobotModel.h",
         ):
             with self.subTest(path=path):
                 self.assertEqual(_found(source, path), [(1, 21)])
@@ -94,21 +94,21 @@ class EulerBoundaryTest(unittest.TestCase):
         )
         clean = "const vector4_t xi = model.getBaseOrientation(state);\n"
         for path in (
-            "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h",
-            "humanoid_nmpc/humanoid_common_mpc/src/pinocchio_model/DynamicsHelperFunctions.cpp",
-            "humanoid_nmpc/humanoid_wb_mpc/src/pinocchio_model/X.cpp",
-            "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/contact/FootprintCornerHeights.h",
-            "humanoid_nmpc/humanoid_common_mpc/src/contact/FootprintCornerHeights.cpp",
-            "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/HumanoidPreComputation.h",
-            "humanoid_nmpc/humanoid_common_mpc/src/HumanoidPreComputation.cpp",
+            "legged_nmpc/legged_common_mpc/include/legged_common_mpc/pinocchio_model/DynamicsHelperFunctions.h",
+            "legged_nmpc/legged_common_mpc/src/pinocchio_model/DynamicsHelperFunctions.cpp",
+            "legged_nmpc/legged_wb_mpc/src/pinocchio_model/X.cpp",
+            "legged_nmpc/legged_common_mpc/include/legged_common_mpc/contact/FootprintCornerHeights.h",
+            "legged_nmpc/legged_common_mpc/src/contact/FootprintCornerHeights.cpp",
+            "legged_nmpc/legged_common_mpc/include/legged_common_mpc/LeggedPreComputation.h",
+            "legged_nmpc/legged_common_mpc/src/LeggedPreComputation.cpp",
             "lib/ocs2/pinocchio/centroidal_model/src/ModelHelperFunctions.cpp",
             "lib/ocs2/pinocchio/centroidal_model/include/ocs2_centroidal_model/implementation/ModelHelperFunctionsImpl.h",
             # The whole-body precomputation the swing-foot constraints read their configs from, the heading-tilt
             # residual, and the end-effector kinematics the centroidal MPC tapes.
-            "humanoid_nmpc/humanoid_wb_mpc/include/humanoid_wb_mpc/WBMpcPreComputation.h",
-            "humanoid_nmpc/humanoid_wb_mpc/src/WBMpcPreComputation.cpp",
-            "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/orientation/BaseOrientation.h",
-            "humanoid_nmpc/humanoid_common_mpc/src/orientation/BaseOrientation.cpp",
+            "legged_nmpc/legged_wb_mpc/include/legged_wb_mpc/WBMpcPreComputation.h",
+            "legged_nmpc/legged_wb_mpc/src/WBMpcPreComputation.cpp",
+            "legged_nmpc/legged_common_mpc/include/legged_common_mpc/orientation/BaseOrientation.h",
+            "legged_nmpc/legged_common_mpc/src/orientation/BaseOrientation.cpp",
             "lib/ocs2/pinocchio/pinocchio_interface/include/ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h",
             "lib/ocs2/pinocchio/pinocchio_interface/src/PinocchioEndEffectorKinematicsCppAd.cpp",
         ):
@@ -120,8 +120,8 @@ class EulerBoundaryTest(unittest.TestCase):
         source = "const vector3_t a = eulerZyxFromQuaternion(xi);\n"
         for path in (
             # contact_planning/ is not contact/: the planner turns its heading command into Euler targets.
-            "humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanner.cpp",
-            "humanoid_nmpc/humanoid_common_mpc/src/HumanoidPreComputationTest.cpp",
+            "legged_nmpc/legged_common_mpc/src/contact_planning/ContactPlanner.cpp",
+            "legged_nmpc/legged_common_mpc/src/LeggedPreComputationTest.cpp",
             "lib/ocs2/pinocchio/pinocchio_interface/src/PinocchioInterface.cpp",
             "lib/ocs2/robotic_tools/src/common/RotationTransforms.cpp",
         ):
@@ -131,18 +131,18 @@ class EulerBoundaryTest(unittest.TestCase):
     def test_the_conversion_points_comments_and_strings_are_not_read(self):
         source = "const vector3_t a = eulerZyxFromQuaternion(xi);\n"
         for path in (
-            "humanoid_nmpc/humanoid_common_mpc/src/reference_manager/SwitchedModelReferenceManager.cpp",
-            "humanoid_nmpc/humanoid_common_mpc/src/orientation/EulerBoundary.cpp",
-            "humanoid_nmpc/humanoid_centroidal_mpc/src/command/CentroidalMpcTargetTrajectoriesCalculator.cpp",
-            "humanoid_nmpc/humanoid_common_mpc_app/visualization/src/TelemetryBuilder.cpp",
-            "humanoid_nmpc/humanoid_common_mpc/test/cost/testCost.cpp",
+            "legged_nmpc/legged_common_mpc/src/reference_manager/SwitchedModelReferenceManager.cpp",
+            "legged_nmpc/legged_common_mpc/src/orientation/EulerBoundary.cpp",
+            "legged_nmpc/legged_centroidal_mpc/src/command/CentroidalMpcTargetTrajectoriesCalculator.cpp",
+            "legged_nmpc/legged_common_mpc_app/visualization/src/TelemetryBuilder.cpp",
+            "legged_nmpc/legged_common_mpc/test/cost/testCost.cpp",
             "lib/ocs2/core/src/cost/QuadraticStateCost.cpp",
         ):
             with self.subTest(path=path):
                 self.assertEqual(_found(source, path), [])
         comments = (
             "// eulerZyxFromQuaternion() is the display's, not the cost's.\n"
-            '/* #include "humanoid_common_mpc/orientation/EulerBoundary.h" */\n'
+            '/* #include "legged_common_mpc/orientation/EulerBoundary.h" */\n'
             'const char kName[] = "getBaseOrientationEulerZyx";\n'
             "const vector4_t xi = model.getBaseOrientation(state);\n"
         )

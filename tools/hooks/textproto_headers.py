@@ -31,8 +31,8 @@
 A configuration file is a textproto of one message (tools/nproto/README.md, "Textproto configuration files"), and it
 says which in its first lines:
 
-    # proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto
-    # proto-message: humanoid_mpc_config.TaskFile
+    # proto-file: legged_nmpc/legged_mpc_config/task_file.proto
+    # proto-message: legged_mpc_config.TaskFile
 
 The check fails when the leading comment block (the comment lines before the first line that is neither blank nor a
 comment) lacks either line, when the proto-file is not a file of the repository (its path from the repository root),
@@ -71,8 +71,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _EXAMPLE = (
     "'# proto-file: <the .proto file, from the repository root>' and '#"
     " proto-message: <package>.<Message>', e.g. '# proto-file:"
-    " humanoid_nmpc/humanoid_mpc_config/task_file.proto' and '# proto-message:"
-    " humanoid_mpc_config.TaskFile'"
+    " legged_nmpc/legged_mpc_config/task_file.proto' and '# proto-message:"
+    " legged_mpc_config.TaskFile'"
 )
 
 

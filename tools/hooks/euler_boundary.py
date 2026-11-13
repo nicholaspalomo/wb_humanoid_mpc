@@ -28,11 +28,11 @@
 """Keeps the Euler angles at the boundary of the MPC's formulation.
 
 The formulation reads the base orientation only as a unit quaternion; Euler angles live at the conversion points of
-humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 4.2 (the tuning, the references and heuristics, the
-display), all of which go through humanoid_common_mpc/orientation/EulerBoundary.h or the robot models' `*EulerZyx`
+legged_nmpc/docs/quaternion_base_orientation/README.md, section 4.2 (the tuning, the references and heuristics, the
+display), all of which go through legged_common_mpc/orientation/EulerBoundary.h or the robot models' `*EulerZyx`
 accessors. This check keeps the Euler API out of the code that must not convert:
 
-  euler-boundary  in the formulation directories of humanoid_nmpc/ - `<package>/src/<dir>/**` and
+  euler-boundary  in the formulation directories of legged_nmpc/ - `<package>/src/<dir>/**` and
                   `<package>/include/<package>/<dir>/**` for <dir> one of FORMULATION_DIRS (the dynamics, the costs and
                   constraints, the end-effector kinematics, the ACoM, the parameter updaters, and the helpers the
                   CppAD tapes are recorded through: the Pinocchio model's kinematics and dynamics, the foot contact
@@ -59,6 +59,7 @@ import re
 from tools.hooks import check_types
 from tools.hooks import cpp_source
 from tools.hooks import lint_files
+from tools.hooks import repo_layout
 
 NAME = "euler-boundary"
 
@@ -78,17 +79,19 @@ FORMULATION_DIRS = (
 # swing-foot constraint configs from, the heading-tilt residual, and the end-effector kinematics the centroidal MPC
 # tapes (only those files of lib/ocs2/pinocchio/pinocchio_interface/, whose other files are not taped).
 FORMULATION_FILES = (
-    "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/HumanoidPreComputation.h",
-    "humanoid_nmpc/humanoid_common_mpc/src/HumanoidPreComputation.cpp",
-    "humanoid_nmpc/humanoid_wb_mpc/include/humanoid_wb_mpc/WBMpcPreComputation.h",
-    "humanoid_nmpc/humanoid_wb_mpc/src/WBMpcPreComputation.cpp",
-    "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/orientation/BaseOrientation.h",
-    "humanoid_nmpc/humanoid_common_mpc/src/orientation/BaseOrientation.cpp",
-    "lib/ocs2/pinocchio/pinocchio_interface/include/ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h",
-    "lib/ocs2/pinocchio/pinocchio_interface/src/PinocchioEndEffectorKinematicsCppAd.cpp",
+    repo_layout.COMMON_MPC_INCLUDE_DIR + "LeggedPreComputation.h",
+    repo_layout.COMMON_MPC_PACKAGE + "src/LeggedPreComputation.cpp",
+    repo_layout.WB_MPC_INCLUDE_DIR + "WBMpcPreComputation.h",
+    repo_layout.WB_MPC_PACKAGE + "src/WBMpcPreComputation.cpp",
+    repo_layout.COMMON_MPC_INCLUDE_DIR + "orientation/BaseOrientation.h",
+    repo_layout.COMMON_MPC_PACKAGE + "src/orientation/BaseOrientation.cpp",
+    repo_layout.LIB_OCS2_DIR
+    + "pinocchio/pinocchio_interface/include/ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h",
+    repo_layout.LIB_OCS2_DIR
+    + "pinocchio/pinocchio_interface/src/PinocchioEndEffectorKinematicsCppAd.cpp",
 )
 # Trees of lib/ocs2 the MPCs tape: the centroidal model's flow map, mapping and kinematics.
-FORMULATION_TREES = ("lib/ocs2/pinocchio/centroidal_model/",)
+FORMULATION_TREES = (repo_layout.LIB_OCS2_DIR + "pinocchio/centroidal_model/",)
 # The robot-model headers: in scope by name; their Euler boundary accessors are marked.
 ROBOT_MODEL_HEADERS = (
     "MpcRobotModelBase.h",
@@ -97,10 +100,10 @@ ROBOT_MODEL_HEADERS = (
     "CentroidalMpcRobotModel.h",
     "WBAccelMpcRobotModel.h",
 )
-# LINT.ThenChange(//humanoid_nmpc/docs/quaternion_base_orientation/README.md:euler_boundary, //AGENTS.md:orientation_rules)
+# LINT.ThenChange(//legged_nmpc/docs/quaternion_base_orientation/README.md:euler_boundary, //AGENTS.md:orientation_rules)
 
 _FORMULATION_PATH = re.compile(
-    rf"^humanoid_nmpc/(?:.*/)?(?:src|include/[^/]+)/(?:{'|'.join(FORMULATION_DIRS)})/"
+    rf"^{re.escape(repo_layout.NMPC_DIR)}(?:.*/)?(?:src|include/[^/]+)/(?:{'|'.join(FORMULATION_DIRS)})/"
 )
 _EULER_IDENTIFIER = re.compile(
     r"euler_?(?:angles_?)?zyx|zyx_?euler_?angles", re.IGNORECASE
@@ -117,7 +120,7 @@ def in_scope(path: str) -> bool:
     path = lint_files.normalize(path)
     if path in FORMULATION_FILES or path.startswith(FORMULATION_TREES):
         return True
-    if not path.startswith("humanoid_nmpc/"):
+    if not path.startswith(repo_layout.NMPC_DIR):
         return False
     return (
         bool(_FORMULATION_PATH.match(path))
@@ -176,10 +179,10 @@ CHECKS = [
         description=(
             "no Euler API (`EulerZyx`, `EulerAnglesZyx`, `ZyxEulerAngles`,"
             " RotationDerivativesTransforms.h, orientation/EulerBoundary.h) in"
-            " the formulation directories and files of humanoid_nmpc/, the"
+            " the formulation directories and files of legged_nmpc/, the"
             " taped trees of lib/ocs2 or the robot-model headers but at their"
             " marked boundary accessors"
-            " (humanoid_nmpc/docs/quaternion_base_orientation/README.md,"
+            " (legged_nmpc/docs/quaternion_base_orientation/README.md,"
             " section 4.2)."
         ),
         hint=(

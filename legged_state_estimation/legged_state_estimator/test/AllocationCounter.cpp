@@ -1,0 +1,78 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include "legged_state_estimation/legged_state_estimator/test/AllocationCounter.h"
+
+#include <atomic>
+#include <cstddef>
+#include <cstdlib>  // glibc's declarations of the functions this file defines.
+
+#include "absl/base/nullability.h"
+
+namespace {
+
+// Constant-initialized, so that it is ready before the first allocation of
+// static initialization.
+constinit std::atomic<size_t> allocations_since_start{0};
+
+}  // namespace
+
+// glibc's own entry points. Defining malloc, calloc and realloc in the binary
+// interposes them on every caller in the process; free needs no counting and
+// stays glibc's. The parameters carry the C library's names (nmemb, ptr):
+// glibc declares them as __nmemb and __ptr, and a definition must not name them
+// differently (readability-inconsistent-declaration-parameter-name).
+extern "C" {
+void* absl_nullable __libc_malloc(size_t size);
+void* absl_nullable __libc_calloc(size_t nmemb, size_t size);
+void* absl_nullable __libc_realloc(void* absl_nullable ptr, size_t size);
+
+void* absl_nullable malloc(size_t size) noexcept {
+  ++allocations_since_start;
+  return __libc_malloc(size);
+}
+
+void* absl_nullable calloc(size_t nmemb, size_t size) noexcept {
+  ++allocations_since_start;
+  return __libc_calloc(nmemb, size);
+}
+
+void* absl_nullable realloc(void* absl_nullable ptr, size_t size) noexcept {
+  ++allocations_since_start;
+  return __libc_realloc(ptr, size);
+}
+}
+
+namespace ocs2::legged::estimation {
+
+size_t heapAllocationCount() {
+  return allocations_since_start.load();
+}
+
+}  // namespace ocs2::legged::estimation

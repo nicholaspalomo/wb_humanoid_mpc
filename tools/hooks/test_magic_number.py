@@ -38,7 +38,7 @@ from tools.hooks import lint_files
 from tools.hooks import magic_number
 
 _NAME = magic_number.NAME
-_PATH = "humanoid_nmpc/humanoid_common_mpc/src/cost/SomeCost.cpp"
+_PATH = "legged_nmpc/legged_common_mpc/src/cost/SomeCost.cpp"
 _CC_RULE_SUFFIXES = ("cc_binary", "cc_library", "cc_test")
 _SOURCE_ATTRIBUTES = ("srcs", "hdrs", "textual_hdrs")
 
@@ -66,7 +66,7 @@ def _rule_name(call: ast.Call) -> str:
 
 
 def _is_cc_rule(name: str) -> bool:
-    """True for a C++ rule, or a macro named after one (`humanoid_cc_test`)."""
+    """True for a C++ rule, or a macro named after one (`legged_cc_test`)."""
     return name.endswith(_CC_RULE_SUFFIXES)
 
 
@@ -441,7 +441,7 @@ class NamedConstantTest(unittest.TestCase):
             # Only the declarators named kName are constants, and a macro call in front of one is not part of it.
             "const int kA = 2, b = 5;\n": ["5"],
             "constexpr int value = 3, kOther = 4;\n": ["3"],
-            "HUMANOID_SOMETHING(3)\nconstexpr int kAfter = 4;\n": ["3"],
+            "LEGGED_SOMETHING(3)\nconstexpr int kAfter = 4;\n": ["3"],
         }
         for source, expected in cases.items():
             with self.subTest(source=source):
@@ -540,8 +540,8 @@ class ContextTest(unittest.TestCase):
         self,
     ):
         source = (
-            "#define HUMANOID_SIZE 3\n"
-            "#define HUMANOID_SUM(a) \\\n"
+            "#define LEGGED_SIZE 3\n"
+            "#define LEGGED_SUM(a) \\\n"
             "  ((a) + 4)\n"
             "#if EIGEN_VERSION_AT_LEAST(3, 4, 0)\n"
             "#endif\n"
@@ -600,30 +600,30 @@ class ScopeTest(unittest.TestCase):
     def test_production_code_of_the_repository_and_of_ocs2_is_read(self):
         for path in (
             _PATH,
-            "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/Types.h",
+            "legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/Types.h",
             "robot_runtime/robot_core/include/robot_core/TripleBuffer.h",
             "tools/config_dump/ProblemDump.cpp",
             "lib/ocs2/core/include/ocs2_core/Types.h",
             "lib/ocs2/core/src/integration/RungeKuttaDormandPrince5.cpp",
-            "humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/ClosedLoopMetrics.cpp",
+            "legged_nmpc/legged_mpc_validation/src/closed_loop/ClosedLoopMetrics.cpp",
         ):
             with self.subTest(path=path):
                 self.assertEqual(_found("x = 3;\n", path), ["3"])
 
     def test_tests_benchmarks_test_only_code_and_other_files_are_not_read(self):
         for path in (
-            "humanoid_nmpc/humanoid_common_mpc/test/testSomeCost.cpp",
-            "humanoid_nmpc/humanoid_common_mpc/test/support/LayoutRobotModel.h",
-            "humanoid_nmpc/humanoid_centroidal_mpc_test/include/x/Helpers.h",
+            "legged_nmpc/legged_common_mpc/test/testSomeCost.cpp",
+            "legged_nmpc/legged_common_mpc/test/support/LayoutRobotModel.h",
+            "legged_nmpc/legged_centroidal_mpc_test/include/x/Helpers.h",
             "tools/config_dump/testValueDump.cpp",
             "robot_runtime/robot_ipc/src/codec_test.cc",
             "tools/nproto/testdata/Fixture.h",
             "lib/ocs2/core/test/testTypes.cpp",
-            "humanoid_state_estimation/humanoid_state_estimator/benchmark/benchmarkKalmanFilter.cpp",
-            "humanoid_nmpc/humanoid_mpc_validation/src/benchmark/MpcSolveBenchmark.cpp",
-            "humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/LockstepClosedLoop.cpp",
+            "legged_state_estimation/legged_state_estimator/benchmark/benchmarkKalmanFilter.cpp",
+            "legged_nmpc/legged_mpc_validation/src/benchmark/MpcSolveBenchmark.cpp",
+            "legged_nmpc/legged_mpc_validation/src/closed_loop/LockstepClosedLoop.cpp",
             "robot_runtime/web_viewer/src/JpegDecoder.cpp",
-            "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/acom/AcomSirenWeightsG1.h",
+            "legged_nmpc/legged_common_mpc/include/legged_common_mpc/acom/AcomSirenWeightsG1.h",
             "tools/clang_tidy/testdata/nullability/Fixture.cpp",
             "lib/ocs2/thirdparty/include/cppad/cppad.hpp",
             "lib/vendored/Foo.cpp",

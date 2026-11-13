@@ -74,7 +74,7 @@ check-zombies:
 build-all:
 	$(source_env) && $(bazel_indexed) build //...
 
-## Build a single target: make build PKG=//humanoid_nmpc/humanoid_common_mpc
+## Build a single target: make build PKG=//legged_nmpc/legged_common_mpc
 build:
 	@$(if $(PKG),$(bazel_indexed) build $(PKG),@echo "Usage: make build PKG=//path/to:target")
 
@@ -109,7 +109,7 @@ test-all:
 ci-local:
 	@tools/ci_local.sh
 
-## Run a single test: make test PKG=//humanoid_nmpc/humanoid_centroidal_mpc_test:test_pinocchio_frame_conversions
+## Run a single test: make test PKG=//legged_nmpc/legged_centroidal_mpc_test:test_pinocchio_frame_conversions
 test:
 	@$(if $(PKG),$(bazel_indexed) test $(PKG),@echo "Usage: make test PKG=//path/to:test_target")
 
@@ -119,35 +119,35 @@ run-ocs2-tests:
 
 ## Run MPC tests
 run-mpc-tests:
-	$(bazel_indexed) test //humanoid_nmpc/...
+	$(bazel_indexed) test //legged_nmpc/...
 
 ## Run MuJoCo Playground RL tests
 test-rl:
-	$(bazel_indexed) test //humanoid_learning/...
+	$(bazel_indexed) test //legged_learning/...
 
 ## Run MuJoCo Playground RL PPO Training
 train-rl:
-	$(bazel_indexed) run //humanoid_learning/training:train_ppo
+	$(bazel_indexed) run //legged_learning/training:train_ppo
 
 ## Train Cartpole RL example with visual progress rendering
 train-cartpole:
-	$(bazel_indexed) run //humanoid_learning/examples:train_cartpole
+	$(bazel_indexed) run //legged_learning/examples:train_cartpole
 
 ## Train Cartpole RL with interactive 3D MuJoCo Viewer in VNC
 train-cartpole-vnc: start-vnc
-	$(VNC_GL_ENV) && $(bazel_indexed) run //humanoid_learning/examples:train_cartpole -- --vnc
+	$(VNC_GL_ENV) && $(bazel_indexed) run //legged_learning/examples:train_cartpole -- --vnc
 
 ## Behavioral Cloning pretraining on MPC demos
 train-bc:
-	$(bazel_indexed) run //humanoid_learning/training:bc_warmstart
+	$(bazel_indexed) run //legged_learning/training:bc_warmstart
 
 ## Export recorded MPC trajectories to HDF5 demos
 export-rollouts:
-	python3 humanoid_nmpc/humanoid_common_mpc_pyutils/humanoid_common_mpc_pyutils/export_rollouts.py
+	python3 legged_nmpc/legged_common_mpc_pyutils/legged_common_mpc_pyutils/export_rollouts.py
 
 ## Lock / Update RL pip dependencies
 lock-rl-deps:
-	$(bazel_indexed) run //humanoid_learning:requirements.update
+	$(bazel_indexed) run //legged_learning:requirements.update
 
 ## Run Pinocchio Model Atlas test
 test-pinocchio-model-atlas:
@@ -202,7 +202,7 @@ lint:
 # rewrites `// Next ID` comments), so build and test afterwards. clang-tidy's fix-its need a build and run only when
 # TIDY_CHECKS names them (make lint-tidy-fix). Without them the target runs no compiler.
 ## Apply every automatic lint fix, then lint what is left to fix by hand (build and test afterwards):
-## make fix [TIDY_CHECKS='<glob>' [PKG=//humanoid_nmpc/...]]
+## make fix [TIDY_CHECKS='<glob>' [PKG=//legged_nmpc/...]]
 fix:
 	@python3 -m tools.hooks.lint_code --fix-only
 	@python3 -m tools.hooks.format_code
@@ -220,7 +220,7 @@ clang_tidy_bep := bep="$(or $(CLANG_TIDY_BEP),.bazel/clang_tidy_bep.$$$$.json)"
 clang_tidy_bep_cleanup := $(if $(CLANG_TIDY_BEP),,rm -f "$$bep";)
 
 ## Lint C++ with clang-tidy as a Bazel aspect (RAM-bounded, machine lock), its self-test included:
-## make lint-tidy [PKG=//humanoid_nmpc/...]
+## make lint-tidy [PKG=//legged_nmpc/...]
 lint-tidy:
 	@$(source_env) && mkdir -p .bazel && status=0 && $(clang_tidy_bep); \
 	$(bazel_indexed) build --config=clang-tidy --keep_going --build_event_json_file="$$bep" \
@@ -229,7 +229,7 @@ lint-tidy:
 	$(clang_tidy_bep_cleanup) exit $$status
 
 ## Apply clang-tidy's fix-its, all or nothing per diagnostic, and clang-format the edited files; build afterwards:
-## make lint-tidy-fix CHECKS='modernize-use-override' [PKG=//humanoid_nmpc/...] [PATHS="dir ..."]
+## make lint-tidy-fix CHECKS='modernize-use-override' [PKG=//legged_nmpc/...] [PATHS="dir ..."]
 lint-tidy-fix:
 	@$(if $(CHECKS),,$(error lint-tidy-fix needs CHECKS=<glob>, e.g. CHECKS=modernize-use-override))
 	@$(source_env) && mkdir -p .bazel && status=0 && $(clang_tidy_bep); \
@@ -241,7 +241,7 @@ lint-tidy-fix:
 # LINT.ThenChange(//.bazelrc:clang_tidy_config, //AGENTS.md:style_commands)
 
 ############################################################
-# Closed-loop metrics and the solve benchmark (humanoid_nmpc/humanoid_mpc_validation/README.md)
+# Closed-loop metrics and the solve benchmark (legged_nmpc/legged_mpc_validation/README.md)
 ############################################################
 # Both run under `bazel test`, so that tools/bazel's machine lock keeps them from running next to another build: each
 # run compiles CppAD libraries and simulates for minutes. One robot at a time. The commit, the worktree state, the
@@ -249,7 +249,7 @@ lint-tidy-fix:
 # cannot see the checkout, and VALIDATION_CONTAINER_IMAGE (the container cannot see its image) from the host:
 # VALIDATION_CONTAINER_IMAGE=$(docker inspect --format '{{.Image}}' <container>), else the documents say unknown.
 # LINT.IfChange(closed_loop_targets)
-VALIDATION_PKG := humanoid_nmpc/humanoid_mpc_validation
+VALIDATION_PKG := legged_nmpc/legged_mpc_validation
 # Both are computed in the recipe, by the bash that already runs it: a $(shell) starts a bash of its own, which in the dev
 # container prints the environment banner (BASH_ENV) into the value, before any `| tail` can drop it. The worktree state
 # hashes the diff, the status and the contents of every untracked file ($(VALIDATION_PKG)/tools/worktree_state.sh); POSIX
@@ -307,14 +307,14 @@ compare-closed-loop:
 	@$(if $(and $(CANDIDATE),$(BASELINE)),,$(error Usage: make compare-closed-loop CANDIDATE=<label> BASELINE=<label> [ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|anymal_b|tron1|anymal_c_wheels|unitree_g1_wb|unitree_g1_kalman]))
 	@$(bazel_indexed) test //$(VALIDATION_PKG):compare_closed_loop_labels --test_arg=--candidate=$(CANDIDATE) --test_arg=--baseline=$(BASELINE) \
 		$(if $(ROBOT),--test_arg=--robot=$(ROBOT)) --cache_test_results=no --test_output=all
-# LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations, //humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/LockstepOutputs.h:output_names, //humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/io/RunProvenance.h:provenance_environment, //humanoid_nmpc/humanoid_mpc_validation/exe/benchmarkMpcSolveMain.cpp:benchmark_paths, //humanoid_nmpc/humanoid_mpc_validation/exe/compareClosedLoopMain.cpp:comparison_paths, //humanoid_nmpc/humanoid_mpc_validation/test/closedLoopScenarios.cpp:comparison_file)
+# LINT.ThenChange(//legged_nmpc/legged_mpc_validation/include/legged_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations, //legged_nmpc/legged_mpc_validation/include/legged_mpc_validation/closed_loop/LockstepOutputs.h:output_names, //legged_nmpc/legged_mpc_validation/include/legged_mpc_validation/io/RunProvenance.h:provenance_environment, //legged_nmpc/legged_mpc_validation/exe/benchmarkMpcSolveMain.cpp:benchmark_paths, //legged_nmpc/legged_mpc_validation/exe/compareClosedLoopMain.cpp:comparison_paths, //legged_nmpc/legged_mpc_validation/test/closedLoopScenarios.cpp:comparison_file)
 
-## Check the locomotion-heuristic coefficients against the robots' URDFs (humanoid_nmpc/docs/locomotion_heuristics)
+## Check the locomotion-heuristic coefficients against the robots' URDFs (legged_nmpc/docs/locomotion_heuristics)
 # Not a bazel target: Pinocchio reaches Python through robotpkg's bindings in /opt/openrobots (setup_env.sh puts them on
 # PYTHONPATH), which bazel's hermetic toolchain cannot see.
 # The script reads the configuration textprotos with config_textproto (the standard library only, so the system Python
 # of robotpkg's pinocchio can run it), which lives under its Bazel import root.
-HEURISTICS_PYTHONPATH := $(CURDIR)/humanoid_nmpc/humanoid_mpc_config/python$(if $(PYTHONPATH),:$(PYTHONPATH))
+HEURISTICS_PYTHONPATH := $(CURDIR)/legged_nmpc/legged_mpc_config/python$(if $(PYTHONPATH),:$(PYTHONPATH))
 test-heuristic-parameters:
 	@PYTHONPATH="$(HEURISTICS_PYTHONPATH)" python3 -m unittest discover -s tools/locomotion_heuristics -p "test_*.py" -v
 
@@ -361,7 +361,7 @@ VNC_GL_ENV := export DISPLAY=:99 && \
 
 
 ############################################################
-# Launch and deployment (humanoid_nmpc/docs/distributed_runtime/README.md, tools/deploy/README.md)
+# Launch and deployment (legged_nmpc/docs/distributed_runtime/README.md, tools/deploy/README.md)
 ############################################################
 # Simulation runs the hardware topology. The robot side - the robot process, with MuJoCo as its backend - runs in the
 # robot-sim container: the robot's own image (robot-runtime) and compose file (docker-compose.robot.yaml), with its
@@ -406,7 +406,7 @@ VNC_GL_ENV := export DISPLAY=:99 && \
 #   PLOT_CONFIG=<file>                        the plot configuration: the Rerun bridge's plots and, for -sim, the robot
 #                                             process's MuJoCo viewer without VIEWER= (its mujoco_viewer); a file of
 #                                             the checkout, relative to it or absolute inside it (default:
-#                                             humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto)
+#                                             legged_nmpc/legged_rerun_viewer/config/plot_config.textproto)
 #
 # The sandbox: the model sandbox publishes the URDF's link poses at the nominal joint positions, or at those of its Tk
 # window with a slider per joint, and the Rerun bridge draws them. It draws no TF frames, interactive markers or
@@ -447,8 +447,8 @@ NETWORK ?=
 JOINT_SOURCE ?= sliders
 RRD_PATH ?=
 # LINT.IfChange(plot_config_variable)
-PLOT_CONFIG ?= humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto
-# LINT.ThenChange(//tools/deploy/session.sh:default_plot_config, //humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/cli.py:default_plot_config, //docker-compose.robot.sim.yaml:sim_plot_config_mount)
+PLOT_CONFIG ?= legged_nmpc/legged_rerun_viewer/config/plot_config.textproto
+# LINT.ThenChange(//tools/deploy/session.sh:default_plot_config, //legged_nmpc/legged_rerun_viewer/python/legged_rerun_viewer/cli.py:default_plot_config, //docker-compose.robot.sim.yaml:sim_plot_config_mount)
 # The Rerun bridge's sink, and the recording of RERUN_SINK=save: relative to the checkout, where the bridge runs, or
 # absolute inside it, which is made relative; an absolute path outside it is the dev container's own (/tmp/walk.rrd is
 # in the dev container's filesystem when make runs on the host). PLOT_CONFIG is a file of the checkout (checkout_relative).
@@ -502,12 +502,12 @@ deploy_flags = --host $(HOST) --deploy_dir $(DEPLOY_DIR) \
 # The laptop side's binaries, per formulation, and the bridge and the GUI every launch file starts: the processes of the
 # launch files (mpc.textproto, dummy_sim.textproto, sandbox.textproto), which the launch targets build first.
 # LINT.IfChange(launch_binaries)
-laptop_binaries := //humanoid_nmpc/remote_control:base_velocity_controller_gui //humanoid_nmpc/humanoid_rerun_viewer
-mpc_binaries_centroidal := //humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_node
-dummy_binaries_centroidal := $(mpc_binaries_centroidal) //humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_dummy_sim
-mpc_binaries_wb := //humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_node
-dummy_binaries_wb := $(mpc_binaries_wb) //humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_dummy_sim
-sandbox_binaries := //humanoid_nmpc/humanoid_rerun_viewer:model_sandbox //humanoid_nmpc/humanoid_rerun_viewer
+laptop_binaries := //legged_nmpc/remote_control:base_velocity_controller_gui //legged_nmpc/legged_rerun_viewer
+mpc_binaries_centroidal := //legged_nmpc/legged_centroidal_mpc_app:legged_centroidal_mpc_node
+dummy_binaries_centroidal := $(mpc_binaries_centroidal) //legged_nmpc/legged_centroidal_mpc_app:legged_centroidal_mpc_dummy_sim
+mpc_binaries_wb := //legged_nmpc/legged_wb_mpc_app:legged_wb_mpc_node
+dummy_binaries_wb := $(mpc_binaries_wb) //legged_nmpc/legged_wb_mpc_app:legged_wb_mpc_dummy_sim
+sandbox_binaries := //legged_nmpc/legged_rerun_viewer:model_sandbox //legged_nmpc/legged_rerun_viewer
 # LINT.ThenChange(//tools/deploy/test_deploy_files.py:launch_binaries)
 
 # The robot configurations: <target name> <deployment name (ROBOT=)> <MPC package> <formulation> <description package>.
@@ -590,8 +590,8 @@ $(foreach configuration,$(ROBOT_CONFIGURATIONS),$(eval $(call robot_launch_targe
 $(foreach sandbox,$(SANDBOX_ROBOTS),$(eval $(call robot_sandbox_targets,$(sandbox))))
 # LINT.ThenChange(//.devcontainer/README.md:launch_targets, //README.md:launch_targets, //tools/deploy/test_deploy_files.py:launch_targets)
 
-# The DRC Atlas's multi-contact scenarios (humanoid_nmpc/docs/multi_contact_planning/README.md, section 8.1): <target
-# name>:<scenario> for the scenario file humanoid_nmpc/humanoid_multi_contact/scenarios/config/<scenario>.textproto,
+# The DRC Atlas's multi-contact scenarios (legged_nmpc/docs/multi_contact_planning/README.md, section 8.1): <target
+# name>:<scenario> for the scenario file legged_nmpc/legged_multi_contact/scenarios/config/<scenario>.textproto,
 # whose plan is $(MULTI_CONTACT_PLAN_DIR)/<scenario>.binpb (the offline planner's output, `make plan-drc-atlas-<target
 # name>`). The rows of the plan and playback targets of the planner may reuse this table.
 # LINT.IfChange(multi_contact_scenarios)
@@ -603,10 +603,10 @@ MULTI_CONTACT_SCENARIOS := \
 	car-egress:car_egress \
 	get-up-supine:get_up_supine \
 	get-up-prone:get_up_prone
-MULTI_CONTACT_PLAN_DIR := humanoid_nmpc/humanoid_multi_contact/plans
+MULTI_CONTACT_PLAN_DIR := legged_nmpc/legged_multi_contact/plans
 multi_contact_launch_file := robot_models/drc_atlas/drc_atlas_centroidal_mpc/launch/multi_contact_dummy_sim.textproto
 # The binaries of the multi-contact launch file: the centroidal dummy sim's and the Rerun bridge.
-multi_contact_binaries := $(dummy_binaries_centroidal) //humanoid_nmpc/humanoid_rerun_viewer
+multi_contact_binaries := $(dummy_binaries_centroidal) //legged_nmpc/legged_rerun_viewer
 # LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/launch/multi_contact_dummy_sim.textproto:multi_contact_plan_dir, //tools/deploy/BUILD.bazel:robot_configurations, //robot_models/tests/test_launch_files.py:multi_contact_scenarios, //tools/deploy/test_deploy_files.py:multi_contact_targets, //README.md:multi_contact_targets, //.devcontainer/README.md:multi_contact_targets, //Makefile:robot_configurations)
 
 # LINT.IfChange(multi_contact_targets)
@@ -641,8 +641,8 @@ $(foreach scenario,$(MULTI_CONTACT_SCENARIOS),$(eval $(call multi_contact_dummy_
 # scenario's own (its `planner` field); MULTI_CONTACT_PLANNER=<name> overrides it (stance_graph, contact_invariant or
 # stance_graph_then_contact_invariant).
 MULTI_CONTACT_PLANNER ?=
-multi_contact_app := //humanoid_nmpc/humanoid_multi_contact/app
-multi_contact_scenario_file = humanoid_nmpc/humanoid_multi_contact/scenarios/config/$(1).textproto
+multi_contact_app := //legged_nmpc/legged_multi_contact/app
+multi_contact_scenario_file = legged_nmpc/legged_multi_contact/scenarios/config/$(1).textproto
 multi_contact_plan_file = $(MULTI_CONTACT_PLAN_DIR)/$(1).binpb
 define multi_contact_plan_targets
 .PHONY: plan-drc-atlas-$(call field,$(1),1) playback-drc-atlas-$(call field,$(1),1)
@@ -655,7 +655,7 @@ playback-drc-atlas-$(call field,$(1),1):
 endef
 
 $(foreach scenario,$(MULTI_CONTACT_SCENARIOS),$(eval $(call multi_contact_plan_targets,$(scenario))))
-# LINT.ThenChange(//README.md:multi_contact_plan_targets, //humanoid_nmpc/humanoid_multi_contact/README.md:multi_contact_plan_targets)
+# LINT.ThenChange(//README.md:multi_contact_plan_targets, //legged_nmpc/legged_multi_contact/README.md:multi_contact_plan_targets)
 
 ## Deploy the robot side to the robot's computer: make deploy-robot ROBOT=drc_atlas HOST=<ssh host> NETWORK=<file>
 ## [SERVICE=install|enable] [REGISTRY=<registry>] [PLATFORM=linux/arm64] [BACKEND=<backend name>] [MEMORY_LIMIT=4g]
@@ -689,11 +689,11 @@ rerun_urdf_unitree_g1_wb := $(rerun_urdf_unitree_g1)
 rerun_urdf_unitree_r1 := robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf
 rerun_flags = $(if $(ROBOT),--urdf=$(rerun_urdf_$(ROBOT))) $(if $(NETWORK),--network_config=$(network_file))
 rerun-viewer:
-	@$(dev_run) '$(bazel_indexed_in_repo) run //humanoid_nmpc/humanoid_rerun_viewer -- $(rerun_flags) --rerun_sink=spawn'
+	@$(dev_run) '$(bazel_indexed_in_repo) run //legged_nmpc/legged_rerun_viewer -- $(rerun_flags) --rerun_sink=spawn'
 
 rerun-web:
 	@echo "Rerun web viewer: http://localhost:9090/?url=rerun+http://localhost:9876/proxy"
-	@$(dev_run) '$(bazel_indexed_in_repo) run //humanoid_nmpc/humanoid_rerun_viewer -- $(rerun_flags) --rerun_sink=serve_web'
+	@$(dev_run) '$(bazel_indexed_in_repo) run //legged_nmpc/legged_rerun_viewer -- $(rerun_flags) --rerun_sink=serve_web'
 
 ## Inspect the bus (tools/ipc): make ipc-list, make ipc-echo TOPIC=mpc/status, make ipc-hz TOPIC=robot/mpc_observation
 ipc_network = $(if $(NETWORK),--network_config=$(network_file))
@@ -733,7 +733,7 @@ help:
 	@echo "            udp-buffers [NETWORK=] [HOST=]: the kernel's UDP buffer limits the network file asks for (sudo,"
 	@echo "            once per machine; the launch and deploy targets run it first)"
 	@echo "Viewers and the bus: rerun-viewer, rerun-web [ROBOT=] [NETWORK=], ipc-list, ipc-echo TOPIC=, ipc-hz TOPIC="
-	@echo "Validation (humanoid_nmpc/humanoid_mpc_validation): closed-loop-metrics ROBOT= LABEL= [SCENARIO=] [BASELINE=]"
+	@echo "Validation (legged_nmpc/legged_mpc_validation): closed-loop-metrics ROBOT= LABEL= [SCENARIO=] [BASELINE=]"
 	@echo "            [RECORD_STATES=1] [VALIDATION_CONTAINER_IMAGE=], benchmark-mpc-solve ROBOT= LABEL= [STATES=] [BASELINE=],"
 	@echo "            compare-closed-loop CANDIDATE= BASELINE= [ROBOT=]"
 	@echo "Clean-up: kill-sims, check-zombies"

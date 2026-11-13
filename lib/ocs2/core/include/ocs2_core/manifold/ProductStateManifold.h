@@ -44,7 +44,7 @@ namespace ocs2 {
 
 /**
  * A product of Euclidean and unit-quaternion factors, laid out in the state vector in the order given, e.g. the
- * centroidal humanoid state [E(9), Q, E(nj)] or the whole-body one [E(3), Q, E(2 nj + 6)].
+ * centroidal legged MPC state [E(9), Q, E(nj)] or the whole-body one [E(3), Q, E(2 nj + 6)].
  *
  * On a unit-quaternion block (README section 2.4):
  *   retract(xi, d, alpha)  = normalize(xi (x) Exp(alpha d)),

@@ -38,33 +38,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 
-#include "humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
-#include "humanoid_centroidal_mpc/multi_contact/PlanPlayback.h"
-#include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
-#include "humanoid_common_mpc/common/ContactInputParameterization.h"
-#include "humanoid_common_mpc/common/MpcFormulationConfig.h"
-#include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
-#include "humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h"
-#include "humanoid_common_mpc/config/model/ModelSettingsFromConfig.h"
-#include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
-#include "humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h"
-#include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
-#include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
-#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
-#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
-#include "humanoid_common_mpc/reference_manager/ArmSwing.h"
-#include "humanoid_common_mpc/reference_manager/LegJointReference.h"
-#include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
-#include "humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h"
-#include "humanoid_mpc_config/config_registries.nproto.h"
-#include "humanoid_state_estimator/StateEstimatorRegistry.h"
+#include "legged_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
+#include "legged_centroidal_mpc/multi_contact/PlanPlayback.h"
+#include "legged_common_mpc/common/BasisInputsCostTransform.h"
+#include "legged_common_mpc/common/ContactInputParameterization.h"
+#include "legged_common_mpc/common/MpcFormulationConfig.h"
+#include "legged_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
+#include "legged_common_mpc/config/costs/TaskSpaceCostFromConfig.h"
+#include "legged_common_mpc/config/model/ModelSettingsFromConfig.h"
+#include "legged_common_mpc/config/model/MpcFormulationFromConfig.h"
+#include "legged_common_mpc/config/solver/SolverSettingsFromConfig.h"
+#include "legged_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
+#include "legged_common_mpc/contact_planning/ContactPlannerFactory.h"
+#include "legged_common_mpc/contact_planning/ContactPlanningFormulation.h"
+#include "legged_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
+#include "legged_common_mpc/reference_manager/ArmSwing.h"
+#include "legged_common_mpc/reference_manager/LegJointReference.h"
+#include "legged_common_mpc_app/robot/RobotProcessSettings.h"
+#include "legged_common_mpc_app/robot/TelemetrySinkRegistry.h"
+#include "legged_mpc_config/config_registries.nproto.h"
+#include "legged_state_estimator/StateEstimatorRegistry.h"
 #include "mujoco_sim_interface/CheaterSimContactEstimator.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/Projectile.h"
 #include "mujoco_sim_interface/visualization/VisualizationRegistry.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 
-namespace ocs2::humanoid::config_registries {
+namespace ocs2::legged::config_registries {
 namespace {
 
 using Registry = mpc_config::ConfigRegistries::Registry;
@@ -132,7 +132,7 @@ std::vector<std::string> visualizationNames() {
 }  // namespace
 
 mpc_config::ConfigRegistries collectConfigRegistries() {
-  // The registry names of the schemas' (humanoid_mpc_config.tuning) options,
+  // The registry names of the schemas' (legged_mpc_config.tuning) options,
   // each with its registry's names.
   // LINT.IfChange(registry_names)
   std::vector<Registry> registries = {
@@ -172,7 +172,7 @@ mpc_config::ConfigRegistries collectConfigRegistries() {
       {.name = "visualization", .names = visualizationNames()},
       {.name = "wb_mpc_feedforward", .names = wbMpcFeedforwardNames()},
   };
-  // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/tuning_options.proto:registry)
+  // LINT.ThenChange(//legged_nmpc/legged_mpc_config/tuning_options.proto:registry)
   std::sort(registries.begin(), registries.end(),
             [](const Registry& lhs, const Registry& rhs) {
               return lhs.name < rhs.name;
@@ -186,12 +186,12 @@ std::string configRegistriesText(
     const mpc_config::ConfigRegistries& registries) {
   std::string text =
       "# proto-file: "
-      "humanoid_nmpc/humanoid_mpc_config/config_registries.proto\n"
-      "# proto-message: humanoid_mpc_config.ConfigRegistries\n"
+      "legged_nmpc/legged_mpc_config/config_registries.proto\n"
+      "# proto-message: legged_mpc_config.ConfigRegistries\n"
       "#\n"
       "# The names each registry of the stack accepts: the choices the tuning "
       "GUI offers for a string field whose\n"
-      "# (humanoid_mpc_config.tuning) option names a registry. Written from "
+      "# (legged_mpc_config.tuning) option names a registry. Written from "
       "the registries by\n"
       "# `bazel run //tools/config_registries:print_config_registries`; do not "
       "edit it by hand:\n"
@@ -208,4 +208,4 @@ std::string configRegistriesText(
   return text;
 }
 
-}  // namespace ocs2::humanoid::config_registries
+}  // namespace ocs2::legged::config_registries

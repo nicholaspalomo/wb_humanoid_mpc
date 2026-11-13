@@ -1,0 +1,261 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
+Copyright (c) 2024, 1X Technologies. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#pragma once
+
+#include <cstddef>
+#include <memory>
+#include <optional>
+
+#include "absl/base/nullability.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
+
+#include "legged_common_mpc/common/Types.h"
+
+namespace ocs2::legged {
+
+/**
+ * 1 + v.n below this value: the end-effector normal v points (almost) away from
+ * the plane normal n, where the orientation error with respect to the plane is
+ * not differentiable, and its rates fall back to half the angular velocity and
+ * acceleration (kUnitQuaternionHalfAngleFactor):
+ * getTiltRateMap() here, and the whole-body MPC's
+ * stance rates (legged_wb_mpc/end_effector/OrientationErrorWrtPlaneRates.h).
+ */
+inline constexpr scalar_t kPlaneNormalAntiParallelThreshold = 1.0e-6;
+
+/**
+ * Where the orientation rows of Ax and the angular velocity rows of Av start in
+ * the full 6D pose rows of an EndEffectorKinematicsTwistConstraint::Config:
+ * after the position and linear velocity rows x, y, z.
+ */
+inline constexpr int kTwistConstraintOrientationRowsStartIndex = kPositionDim;
+
+/**
+ * Defines a linear constraint on an end-effector position (xee) and linear
+ * velocity (vee). g(xee, vee) = Ax * xee + Av * vee + b
+ * - For defining constraint of type g(xee), set Av to matrix_t(0, 0)
+ * - For defining constraint of type g(vee), set Ax to matrix_t(0, 0)
+ *
+ * When the orientation columns of Av are active, the angular velocity is mapped
+ * through getTiltRateMap() so that the constraint expresses a proper PD law:
+ * Kp * tiltEesRtSurfaceEwrtWorld + Kd * d(tiltEesRtSurfaceEwrtWorld)/dt = 0
+ * rather than mixing the tilt with raw angular velocity.
+ *
+ * The tilt relative to a surface only measures the tilt of the end-effector
+ * normal, so it has two degrees of freedom and its rate alone
+ * leaves the rotation about the contact normal unconstrained. The mapping
+ * therefore also carries the rotation rate about the end-effector normal in the
+ * plane-normal direction, which for a stance foot is what stops it from
+ * pivoting on the spot. See getTiltRateMap().
+ *
+ * Not thread-safe: its end-effector kinematics evaluate on the Pinocchio data
+ * of one worker's PreComputation, so the solver gives each worker thread its
+ * own clone().
+ */
+class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
+ public:
+  /**
+   * Coefficients of the linear constraints of the form:
+   * g(xee, vee) = Ax * xee + Av * vee + b = 0
+   */
+  struct Config {
+    vector_t b;
+    matrix_t Ax;
+    matrix_t Av;
+  };
+
+  /**
+   * Constructor
+   * @param [in] endEffectorKinematics: The kinematic interface to the target
+   * end-effector.
+   * @param [in] numConstraints: The number of constraints {3, 6}. 3 =
+   * translation-only, 6 = full pose.
+   * @param [in] config: The constraint coefficients, g(xee, vee) = Ax * xee +
+   * Av * vee + b
+   */
+  EndEffectorKinematicsTwistConstraint(
+      const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
+      size_t numConstraints,
+      Config config = Config());
+
+  ~EndEffectorKinematicsTwistConstraint() override = default;
+  EndEffectorKinematicsTwistConstraint& operator=(
+      const EndEffectorKinematicsTwistConstraint&) = delete;
+  EndEffectorKinematicsTwistConstraint(EndEffectorKinematicsTwistConstraint&&) =
+      delete;
+  EndEffectorKinematicsTwistConstraint& operator=(
+      EndEffectorKinematicsTwistConstraint&&) = delete;
+  EndEffectorKinematicsTwistConstraint* absl_nonnull clone() const override {
+    return new EndEffectorKinematicsTwistConstraint(*this);
+  }
+
+  /**
+   * Sets new constraint coefficients, unchecked (the pre-computation sets them
+   * on every evaluation): the full 6D pose rows, `config.b` with 6 and each of
+   * Ax and Av empty or 6 x 6, not both empty; the constraint slices them.
+   */
+  void configure(Config&& config);
+  /** Sets a new constraint coefficients. */
+  void configure(const Config& config) { this->configure(Config(config)); }
+  /** Gets a reference of the config to allow to modify it. */
+  Config& getConfig() { return config_; }
+
+  /** Sets the number of constraint rows (3 = translation-only, 6 = full pose).
+   */
+  void setNumConstraints(size_t numConstraints) {
+    numConstraints_ = numConstraints;
+  }
+
+  /**
+   * Adds the rotation rate about the end-effector normal to the plane-normal
+   * row of the orientation block. Off by default: it makes a 6D constraint pin
+   * all six degrees of freedom, which is correct but removes one input degree
+   * of freedom per stance foot from a controller tuned without it. See
+   * getTiltRateMap().
+   */
+  void setConstrainYawRateAboutNormal(bool constrain) {
+    constrainYawRateAboutNormal_ = constrain;
+  }
+  bool getConstrainYawRateAboutNormal() const {
+    return constrainYawRateAboutNormal_;
+  }
+
+  /** Sets the ground contact plane normal (default: {0, 0, 1} for flat ground).
+   */
+  void setNormalTerrainEwrtWorld(const vector3_t& normalTerrainEwrtWorld) {
+    normalTerrainEwrtWorld_ = normalTerrainEwrtWorld.normalized();
+  }
+
+  /** Gets the current ground contact plane normal. */
+  const vector3_t& getNormalTerrainEwrtWorld() const {
+    return normalTerrainEwrtWorld_;
+  }
+
+  /**
+   * Writes the rows in the frame of a contact patch, p_R_w =
+   * `rotmatWorldRtSurface` (ContactPatchFrame.h): the position, the velocity,
+   * the orientation error and its rate are rotated into the patch frame before
+   * the gains apply, and the orientation error is taken with respect to the
+   * patch's plane, whose normal (the last row of p_R_w) replaces the ground
+   * plane normal. b then holds the patch-frame references, so b_z is minus the
+   * z gain times the patch's normal offset. The rotation is a parameter, set
+   * between evaluations: it is never recorded on the kinematics' tape.
+   */
+  void setRotmatWorldRtSurface(const matrix3_t& rotmatWorldRtSurface) {
+    rotmatWorldRtSurface_ = rotmatWorldRtSurface;
+  }
+
+  /** Writes the rows in the world frame again, about the ground plane normal:
+   * the default. */
+  void clearRotmatWorldRtSurface() { rotmatWorldRtSurface_.reset(); }
+
+  const std::optional<matrix3_t>& getRotmatWorldRtSurface() const {
+    return rotmatWorldRtSurface_;
+  }
+
+  /** Returns the end-effector kinematics the constraint evaluates, owned by the
+   * constraint and valid for its lifetime. */
+  const EndEffectorKinematics<scalar_t>& getEndEffectorKinematics() const {
+    return *endEffectorKinematicsPtr_;
+  }
+
+  size_t getNumConstraints(scalar_t /*time*/) const override {
+    return numConstraints_;
+  }
+  vector_t getValue(scalar_t time,
+                    const vector_t& state,
+                    const vector_t& input,
+                    const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const PreComputation& preComp) const override;
+
+  /**
+   * The 3x3 matrix M that maps the end-effector angular velocity omega - world
+   * frame, the angular part of getTwistEesRtWorldEwrtWorld() - to the rate
+   * of the orientation constraint residual at `state`.
+   *
+   * With v the end-effector normal (R * e_z) and n the plane normal, the
+   * orientation error of rotationMatrixDistanceToPlane is e = -(v x n) / sqrt(2
+   * (1 + v.n)), whose analytic derivative is
+   *
+   *   de/d(omega) = [ (v.n) I - v n^T ] / sqrt(2 (1 + v.n)) + (v x n)(v x n)^T
+   * / (2 (1 + v.n))^(3/2).
+   *
+   * That matrix has rank two: e is always perpendicular to n, and rotating
+   * about v does not change v, so a rotation about the end-effector normal maps
+   * to zero. Used on its own it would leave a stance foot free to pivot about
+   * the contact normal. When setConstrainYawRateAboutNormal() is set, the term
+   * 0.5 * n * v^T is added, which puts the rotation rate about the end-effector
+   * normal into the plane-normal row with the same half-angle scaling the tilt
+   * rows have, making the result full rank.
+   *
+   * getLinearApproximation() holds M at its value at the linearization point,
+   * so the state Jacobian it reports lacks Av_ang (dM/dx) omega, which vanishes
+   * where the foot does not turn; its input Jacobian is exact. Public for
+   * testQuaternionRootTermDerivatives, which differences M to check that this
+   * term is the whole difference from the derivative, and that the tilt rows of
+   * M omega are the rate of the residual along the flow map.
+   */
+  matrix3_t getTiltRateMap(const vector_t& state) const;
+
+ private:
+  EndEffectorKinematicsTwistConstraint(
+      const EndEffectorKinematicsTwistConstraint& rhs);
+
+  /** The normal the orientation error is taken about: the patch's when a
+   * patch rotation is set, the ground plane's otherwise. */
+  vector3_t getNormalSurfaceEwrtWorld() const;
+
+  /**
+   * `gains` (rows of Ax or Av over the pose or twist [linear, angular]) times
+   * blockdiag(p_R_w, p_R_w): the gains of the world-frame quantities that the
+   * patch-frame rows apply to. Requires a patch rotation.
+   */
+  matrix_t inPatchFrame(const matrix_t& gains) const;
+
+  vector3_t normalTerrainEwrtWorld_;
+  // p_R_w of the patch the rows are written in; empty: the world frame.
+  std::optional<matrix3_t> rotmatWorldRtSurface_;
+  bool constrainYawRateAboutNormal_ = false;
+  std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;
+  size_t numConstraints_;
+  Config config_;
+};
+
+}  // namespace ocs2::legged

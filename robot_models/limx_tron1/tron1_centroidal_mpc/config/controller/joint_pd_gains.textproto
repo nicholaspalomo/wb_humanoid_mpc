@@ -1,5 +1,5 @@
-# proto-file: humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto
-# proto-message: humanoid_mpc_config.JointPdGainsFile
+# proto-file: legged_nmpc/legged_mpc_config/joint_pd_gains_file.proto
+# proto-message: legged_mpc_config.JointPdGainsFile
 # LimX Tron1 (8-DoF) joint proportional and derivative (PD) controller gains.
 # Units: Kp in [N*m/rad], Kd in [N*m*s/rad]
 # The leg joints get the gains of ANYmal B's legs, which hold them while the MPC is off (JOINT_PD) and stiffen the

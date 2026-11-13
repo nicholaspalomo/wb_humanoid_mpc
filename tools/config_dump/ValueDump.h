@@ -37,7 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 
-namespace ocs2::humanoid::config_dump {
+namespace ocs2::legged::config_dump {
 
 /**
  * The values of a loaded configuration as text, one line per value
@@ -102,4 +102,4 @@ uint64_t matrixHash(const Eigen::Ref<const Eigen::MatrixXd>& matrix);
 /** `prefix.name`, or `name` for an empty prefix: the paths of nested values. */
 std::string joinPath(absl::string_view prefix, absl::string_view name);
 
-}  // namespace ocs2::humanoid::config_dump
+}  // namespace ocs2::legged::config_dump

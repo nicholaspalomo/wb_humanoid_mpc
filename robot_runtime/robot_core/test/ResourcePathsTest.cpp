@@ -162,10 +162,10 @@ TEST(ResourcePathsTest,
 TEST(ResourcePathsTest,
      TheMissingDataDependencyIsThePackageInFrontOfTheDataDirectory) {
   const absl::StatusOr<std::string> config = resolveResourcePath(
-      "humanoid_nmpc/humanoid_common_mpc/config/command/not_shipped.textproto");
+      "legged_nmpc/legged_common_mpc/config/command/not_shipped.textproto");
   EXPECT_TRUE(absl::StrContains(
       config.status().message(),
-      "Add the target of //humanoid_nmpc/humanoid_common_mpc that holds it"))
+      "Add the target of //legged_nmpc/legged_common_mpc that holds it"))
       << config.status();
 
   // Without a data directory in the path: the parent of a file, or a directory

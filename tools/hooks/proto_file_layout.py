@@ -41,14 +41,14 @@ Every top-level message or enum also names the C++ type nproto generates for it,
 
     // Next ID: 4
     message Vector3 {
-      option (nproto.generate_struct) = "ocs2::humanoid::msgs::Vector3";
+      option (nproto.generate_struct) = "ocs2::legged::msgs::Vector3";
 
       reserved 4 to max;
       ...
     }
 
     enum ControllerType {
-      option (nproto.generate_enum) = "ocs2::humanoid::msgs::ControllerType";
+      option (nproto.generate_enum) = "ocs2::legged::msgs::ControllerType";
       ...
     }
 
@@ -383,7 +383,7 @@ def check_struct_option(
                 own.line,
                 f"'{own.value}' is not a fully qualified C++ name ending in"
                 f" ::{definition.name} (e.g."
-                f' "ocs2::humanoid::msgs::{definition.name}")',
+                f' "ocs2::legged::msgs::{definition.name}")',
             )
         )
     if NPROTO_OPTIONS_IMPORT not in imports(source):

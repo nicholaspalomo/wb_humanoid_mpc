@@ -1,0 +1,123 @@
+/******************************************************************************
+Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
+Copyright (c) 2024, 1X Technologies. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#pragma once
+
+// Pinocchio forward declarations must be included first
+#include "pinocchio/fwd.hpp"
+
+#include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_pinocchio_interface/urdf.h"
+#include "pinocchio/multibody/fwd.hpp"
+
+#include "legged_common_mpc/common/ModelSettings.h"
+#include "legged_common_mpc/common/Types.h"
+
+namespace ocs2::legged {
+
+/** Whether a function of this file logs what it reads and does. */
+enum class Verbosity {
+  kQuiet,
+  kVerbose,
+};
+
+/// The first joint of a floating-base Pinocchio model after the universe (joint
+/// 0) and the floating-base root (joint 1): the first actuated joint.
+inline constexpr pinocchio::JointIndex kFirstJointAfterFloatingBase = 2;
+
+/// The floating base's root joint of such a model (joint 1).
+inline constexpr pinocchio::JointIndex kFloatingBaseJoint =
+    kFirstJointAfterFloatingBase - 1;
+
+/// Returns the hip of the limb `joint` belongs to in a floating-base model: the
+/// first joint below the floating base on the way from `joint` up the tree,
+/// however the URDF names it. `joint` itself when it is a child of the floating
+/// base, and the floating base when `joint` is it. The one walk the legs of
+/// ModelSettings and the hips of LocomotionHeuristicModelParameters share.
+/// Precondition: 0 < joint < model.njoints.
+pinocchio::JointIndex hipJointOf(const pinocchio::Model& model,
+                                 pinocchio::JointIndex joint);
+
+/// Returns the index of the frame `frameName` of `model` that a leg's hip names
+/// (ModelSettings::Leg::hipFrameName): the joint frame of that name when the
+/// model has one, otherwise the one frame of that name. A derived hip is a
+/// joint, and a URDF may give a link the name of a joint (the wheeled ANYmal
+/// C's link and joint LF_HAA), where Pinocchio's getFrameId() of the name alone
+/// throws. Precondition: model.existFrame(frameName).
+pinocchio::FrameIndex hipFrameIdOf(const pinocchio::Model& model,
+                                   absl::string_view frameName);
+
+///
+/// \brief Checks that the actuated joints of the Pinocchio model are
+/// ModelSettings::mpcModelJointNames, in that order.
+///
+/// Every MPC quantity indexed by joint - the state, the joint limits, the joint
+/// weights - takes the model's joint order to be ModelSettings'. This check
+/// used to be an assert(), which the optimized build compiles out, so it never
+/// ran.
+///
+/// \param[in] pinocchioInterface: The Pinocchio interface of the MPC model.
+/// \param[in] modelSettings: The model settings whose mpcModelJointNames the
+/// model must match. \return InvalidArgument naming the first MPC joint that
+/// differs (or that has no counterpart), and the
+///         model_settings.fixed_joint_names it is derived with; OkStatus
+///         otherwise.
+///
+
+[[nodiscard]] absl::Status checkPinocchioJointNaming(
+    const PinocchioInterface& pinocchioInterface,
+    const ModelSettings& modelSettings,
+    Verbosity verbosity = Verbosity::kQuiet);
+
+///
+/// \brief Reads the position limits of the MPC joints from the Pinocchio model.
+///
+/// \param[in] pinocchioInterface: The Pinocchio interface of the MPC model. Its
+/// joints must match ModelSettings
+///                                (checkPinocchioJointNaming); this is CHECKed,
+///                                because the limits are read by position.
+///
+/// \return The lower and upper position limits of the MPC joints.
+
+JointPositionLimits readPinocchioJointLimits(
+    const PinocchioInterface& pinocchioInterface,
+    const ModelSettings& modelSettings,
+    Verbosity verbosity = Verbosity::kVerbose);
+
+/** Scales every body's mass and rotational inertia of `model` by one factor so
+ * that the total mass is `targetRobotMass`. */
+void scalePinocchioModelInertia(pinocchio::ModelTpl<scalar_t>& model,
+                                scalar_t targetRobotMass,
+                                Verbosity verbosity = Verbosity::kVerbose);
+
+}  // namespace ocs2::legged

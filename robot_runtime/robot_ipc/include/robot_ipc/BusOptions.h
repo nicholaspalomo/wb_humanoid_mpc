@@ -39,7 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::ipc {
 
 /** How Bus::Create() sets up a bus. The defaults suit every process of the
- * humanoid runtime. */
+ * legged MPC's runtime. */
 struct BusOptions {
   /**
    * The node this process publishes as: the bus uses its node's network

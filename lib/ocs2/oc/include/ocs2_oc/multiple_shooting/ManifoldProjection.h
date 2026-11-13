@@ -39,7 +39,7 @@ namespace multiple_shooting {
 
 /*
  * The pull-backs that turn the ambient transcription of a node into its transcription on the state manifold
- * (humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.7). Costs, constraints and dynamics return
+ * (legged_nmpc/docs/quaternion_base_orientation/README.md, section 2.7). Costs, constraints and dynamics return
  * derivatives with respect to the stored (ambient) state x; the QP is posed in the tangent dx with x (+) dx. Every map
  * works in place on the non-Euclidean rows and columns only. The retraction-curvature term of the cost Hessian,
  * -1/4 (grad_xi l . xi) I on a quaternion block, is not added: it vanishes for terms that see the quaternion only through

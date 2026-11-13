@@ -27,7 +27,7 @@
 
 """The code nproto generates follows the repository's C++ rules (tools/nproto/README.md).
 
-Over every file generated for nproto's test protos, for humanoid_mpc_msgs and for humanoid_mpc_config:
+Over every file generated for nproto's test protos, for legged_mpc_msgs and for legged_mpc_config:
 - it is clang-format clean under the repository's .clang-format;
 - every lint check of the registry (tools/hooks/checks.py) that reads C++ finds nothing in it, as in the hand-written
   code: `no-auto`, `pointer-nullability` (every raw pointer, the output parameters of ToProto() / FromProto(), carries
@@ -81,8 +81,7 @@ class GeneratedCodeTest(unittest.TestCase):
         names = [os.path.relpath(path, RUNFILES) for path in generated_files()]
         self.assertTrue(
             any(
-                "humanoid_mpc_msgs/mpc_policy.nproto.h" in name
-                for name in names
+                "legged_mpc_msgs/mpc_policy.nproto.h" in name for name in names
             ),
             names,
         )
@@ -106,8 +105,7 @@ class GeneratedCodeTest(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                "humanoid_mpc_config/task_file.nproto.h" in name
-                for name in names
+                "legged_mpc_config/task_file.nproto.h" in name for name in names
             ),
             names,
         )

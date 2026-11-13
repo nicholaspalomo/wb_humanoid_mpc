@@ -7,7 +7,7 @@
 //
 //   // Next ID: 4
 //   message Vector3 {
-//     option (nproto.generate_struct) = "ocs2::humanoid::msgs::Vector3";
+//     option (nproto.generate_struct) = "ocs2::legged::msgs::Vector3";
 //
 //     reserved 4 to max;
 //
@@ -16,15 +16,16 @@
 //   }
 //
 //   enum ControllerType {
-//     option (nproto.generate_enum) = "ocs2::humanoid::msgs::ControllerType";
+//     option (nproto.generate_enum) = "ocs2::legged::msgs::ControllerType";
 //     ...
 //   }
 //
 // Types nested in a message are generated as nested C++ types of its struct (TargetContactPatch::Kind) and carry no
 // option of their own. The two options have different names because an extension's name is unique in its package.
 //
-// A message field can also ask for presence (optional_message below), and a message can name the fields it no longer
-// has (retired_field_options.proto, which needs the RetiredField message of retired_field.proto and so lives apart).
+// A message field can also ask for presence (optional_message below), a message can name the fields it no longer has
+// (retired_field_options.proto, which needs the RetiredField message of retired_field.proto and so lives apart), and a
+// file can name the package its messages had before a rename (former_package below).
 syntax = "proto3";
 
 package nproto;
@@ -53,3 +54,13 @@ extend google.protobuf.FieldOptions {
   bool optional_message = 52004;
 }
 // LINT.ThenChange(//tools/nproto/nproto_generator.py:option_names, //tools/hooks/proto_file_layout.py, //tools/nproto/retired_field_options.proto:retired_options)
+
+// LINT.IfChange(former_package)
+extend google.protobuf.FileOptions {
+  // The package this file's messages had before a rename; a textproto header naming <former_package>.<Message> is read
+  // as <package>.<Message>, so that a configuration file saved before the rename still loads (tools/nproto/README.md,
+  // "Renamed packages"): `option (nproto.former_package) = "humanoid_mpc_config";`. Set at file scope, after the
+  // imports. The repository's own files name the current package (textproto-header).
+  string former_package = 52006;
+}
+// LINT.ThenChange(//tools/nproto/src/Textproto.cpp:former_package, //tools/nproto/nproto_textproto.py:former_package)

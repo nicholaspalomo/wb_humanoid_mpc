@@ -1,0 +1,571 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""Training pipeline for Angular Center of Mass (aCOM) using JAX and Optax.
+
+Optimizes the SIREN network parameters by minimizing the Frobenius norm error
+between the map from joint velocities to the ACoM attitude's angular velocity,
+J_l(Delta_theta) J_Delta_theta, and the locked-inertia normalized CMM
+Abar_omega,j = I_G^-1 A_omega,j, both in base axes (README.md section 1.2).
+"""
+
+from collections.abc import Callable
+import os
+import time
+from typing import TypeAlias
+
+import jax
+import jax.numpy as jnp
+import matplotlib
+
+# The diagnostic figures are rendered off-screen, so the backend is chosen before pyplot is first imported.
+matplotlib.use("Agg")
+# pylint: disable=wrong-import-position  # pyplot is imported after matplotlib.use() above.
+import matplotlib.pyplot as plt
+import numpy as np
+import optax
+import tensorboardX
+
+from legged_learning.acom import models
+
+# pylint: enable=wrong-import-position
+
+# Fraction of the dataset used for training; the remainder is the validation set.
+_TRAIN_SPLIT_FRACTION = 0.85
+
+# Decoupled AdamW weight decay. Kept small because it also shrinks the readout
+# layer, which directly scales the learned Jacobian and therefore biases the
+# Frobenius objective toward zero.
+_WEIGHT_DECAY = 1e-4
+
+# The jitted training and evaluation steps of create_train_step.
+_TrainStep: TypeAlias = Callable[
+    [models.SirenParams, optax.OptState, jax.Array, jax.Array],
+    tuple[
+        models.SirenParams,
+        optax.OptState,
+        jax.Array,
+        dict[str, jax.Array],
+        models.SirenParams,
+        jax.Array,
+    ],
+]
+_EvalStep: TypeAlias = Callable[
+    [models.SirenParams, jax.Array, jax.Array],
+    tuple[jax.Array, dict[str, jax.Array]],
+]
+
+
+def create_train_step(
+    model: models.SirenACOM,
+    optimizer: optax.GradientTransformation,
+    reg_weight: float = 1e-4,
+) -> tuple[_TrainStep, _EvalStep]:
+    """Creates a JIT-compiled training step function."""
+    # pylint: disable=invalid-name  # target_A_bar: the notation of Chen et al., IROS 2023 (README.md).
+
+    # Vectorized Jacobian and forward evaluation over batch
+    v_jacobian = jax.vmap(model.jacobian_qj, in_axes=(None, 0))
+    v_forward = jax.vmap(model.forward, in_axes=(None, 0))
+    v_left_jacobian = jax.vmap(models.so3_left_jacobian)
+
+    def loss_fn(
+        params: models.SirenParams, q_batch: jax.Array, target_A_bar: jax.Array
+    ) -> tuple[jax.Array, dict[str, jax.Array]]:
+        # Delta_theta: (B, 3) and J_Delta_theta: (B, 3, n_j).
+        batch_rotvec_acom_rt_base = v_forward(params, q_batch)
+        jacobians = v_jacobian(params, q_batch)
+
+        # What the runtime's composition xi (x) Exp(Delta_theta) turns joint velocities into, in base axes:
+        # J_l(Delta_theta) J_Delta_theta (models.SirenACOM.acom_joint_rate_jacobian). Fitting J_Delta_theta alone
+        # would be right only at Delta_theta = 0, and the shipped networks' offsets average 20 to 35 degrees.
+        rate_jacobians = jnp.einsum(
+            "bij,bjk->bik",
+            v_left_jacobian(batch_rotvec_acom_rt_base),
+            jacobians,
+        )
+        frob_loss = jnp.mean(
+            jnp.sum(jnp.square(rate_jacobians - target_A_bar), axis=(-2, -1))
+        )
+        # The error of J_Delta_theta alone, reported and not optimized.
+        jacobian_frob = jnp.mean(
+            jnp.sum(jnp.square(jacobians - target_A_bar), axis=(-2, -1))
+        )
+
+        # Regularization on offset magnitude (keep Delta_theta centered near zero)
+        reg_loss = reg_weight * jnp.mean(
+            jnp.sum(jnp.square(batch_rotvec_acom_rt_base), axis=-1)
+        )
+
+        # The relative error the C++ acceptance test grades, ||J_l J - Abar||_F / ||Abar||_F, per sample.
+        relative_errors = jnp.linalg.norm(
+            rate_jacobians - target_A_bar, axis=(-2, -1)
+        ) / jnp.linalg.norm(target_A_bar, axis=(-2, -1))
+
+        total_loss = frob_loss + reg_loss
+        return total_loss, {
+            "frob_loss": frob_loss,
+            "jacobian_frob": jacobian_frob,
+            "reg_loss": reg_loss,
+            "relative_errors": relative_errors,
+            "rate_jacobians": rate_jacobians,
+            "jacobians": jacobians,
+            "batch_rotvec_acom_rt_base": batch_rotvec_acom_rt_base,
+        }
+
+    @jax.jit
+    def train_step(
+        params: models.SirenParams,
+        opt_state: optax.OptState,
+        q_batch: jax.Array,
+        target_A_bar: jax.Array,
+    ) -> tuple[
+        models.SirenParams,
+        optax.OptState,
+        jax.Array,
+        dict[str, jax.Array],
+        models.SirenParams,
+        jax.Array,
+    ]:
+        (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(
+            params, q_batch, target_A_bar
+        )
+        # Compute global gradient L2 norm
+        grad_norm_sq = sum(
+            jnp.sum(jnp.square(w_g)) + jnp.sum(jnp.square(b_g))
+            for w_g, b_g in grads
+        )
+        grad_norm = jnp.sqrt(grad_norm_sq)
+        updates, opt_state = optimizer.update(grads, opt_state, params)
+        params = optax.apply_updates(params, updates)
+        return params, opt_state, loss, aux, grads, grad_norm
+
+    @jax.jit
+    def eval_step(
+        params: models.SirenParams, q_batch: jax.Array, target_A_bar: jax.Array
+    ) -> tuple[jax.Array, dict[str, jax.Array]]:
+        loss, aux = loss_fn(params, q_batch, target_A_bar)
+        return loss, aux
+
+    return train_step, eval_step
+
+
+def create_jacobian_diagnostic_figure(  # pylint: disable=invalid-name  # target_A_bar: Chen et al., IROS 2023.
+    target_A_bar: np.ndarray, pred_jacobian: np.ndarray
+) -> plt.Figure:
+    """Creates a 3-panel heatmap comparing the target connection with the network's J_l(Delta_theta) J_Delta_theta."""
+    diff = np.abs(pred_jacobian - target_A_bar)
+
+    fig, axes = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
+    vmax = max(
+        float(np.max(np.abs(target_A_bar))),
+        float(np.max(np.abs(pred_jacobian))),
+    )
+    vmin = -vmax
+
+    im0 = axes[0].imshow(
+        target_A_bar, aspect="auto", cmap="coolwarm", vmin=vmin, vmax=vmax
+    )
+    axes[0].set_title(
+        "Ground Truth Connection $\\bar{\\mathbf{A}}_{\\omega, j}(\\mathbf{q})$"
+    )
+    axes[0].set_yticks([0, 1, 2])
+    axes[0].set_yticklabels(["Roll", "Pitch", "Yaw"])
+    plt.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+
+    im1 = axes[1].imshow(
+        pred_jacobian, aspect="auto", cmap="coolwarm", vmin=vmin, vmax=vmax
+    )
+    axes[1].set_title(
+        "SIREN rate map $\\mathbf{J}_l(\\Delta\\theta)"
+        " \\mathbf{J}_{\\Delta\\theta}(\\mathbf{q}_j)$"
+    )
+    axes[1].set_yticks([0, 1, 2])
+    axes[1].set_yticklabels(["Roll", "Pitch", "Yaw"])
+    plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+
+    im2 = axes[2].imshow(diff, aspect="auto", cmap="viridis")
+    axes[2].set_title(
+        "Absolute Error $|\\mathbf{J}_l \\mathbf{J}_{\\Delta\\theta} -"
+        " \\bar{\\mathbf{A}}_{\\omega, j}|$"
+    )
+    axes[2].set_yticks([0, 1, 2])
+    axes[2].set_yticklabels(["Roll", "Pitch", "Yaw"])
+    axes[2].set_xlabel("Joint Index")
+    plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+
+    plt.tight_layout()
+    return fig
+
+
+def train_acom(
+    dataset: dict[str, np.ndarray],
+    in_dim: int,
+    hidden_dim: int = 64,
+    num_layers: int = 2,  # sine layers; 2 is the only count the C++ evaluator loads
+    omega_0: float = 30.0,
+    learning_rate: float = 1e-3,
+    num_epochs: int = 50,
+    batch_size: int = 256,
+    reg_weight: float = 1e-4,
+    seed: int = 42,
+    verbose: bool = True,
+    log_dir: str | None = None,
+    log_histograms: bool = True,
+    histogram_freq: int = 10,
+    log_figures: bool = True,
+) -> tuple[models.SirenACOM, models.SirenParams, dict[str, list[float]]]:
+    """Trains a SIREN aCOM model with TensorBoard logging."""
+    # pylint: disable=invalid-name  # A_train, A_val, ...: A_bar of Chen et al., IROS 2023 (README.md).
+    # Initialize TensorBoard SummaryWriter if log_dir provided
+    writer: tensorboardX.SummaryWriter | None = None
+    if log_dir is not None:
+        os.makedirs(log_dir, exist_ok=True)
+        writer = tensorboardX.SummaryWriter(log_dir=log_dir)
+        if verbose:
+            print(f"Logging TensorBoard metrics to: {log_dir}")
+
+    # Shuffle before splitting so the split does not depend on how the caller
+    # happened to order the dataset.
+    num_samples = dataset["q_joints"].shape[0]
+    num_train = int(_TRAIN_SPLIT_FRACTION * num_samples)
+    rng = jax.random.PRNGKey(seed)
+    rng, k_split = jax.random.split(rng)
+    order = np.asarray(jax.random.permutation(k_split, num_samples))
+
+    q_all = np.asarray(dataset["q_joints"])[order]
+    A_all = np.asarray(dataset["A_bar_omega"])[order]
+
+    q_train = jnp.array(q_all[:num_train])
+    A_train = jnp.array(A_all[:num_train])
+
+    q_val = jnp.array(q_all[num_train:])
+    A_val = jnp.array(A_all[num_train:])
+
+    # Initialize model
+    model = models.SirenACOM(
+        in_dim=in_dim,
+        hidden_dim=hidden_dim,
+        num_layers=num_layers,
+        out_dim=3,
+        omega_0=omega_0,
+    )
+    rng, k_init = jax.random.split(rng)
+    params = model.init_params(k_init)
+
+    # Optimizer with cosine decay schedule
+    steps_per_epoch = max(1, num_train // batch_size)
+    total_steps = num_epochs * steps_per_epoch
+    lr_schedule = optax.cosine_decay_schedule(
+        init_value=learning_rate, decay_steps=total_steps, alpha=0.01
+    )
+    optimizer = optax.adamw(
+        learning_rate=lr_schedule, weight_decay=_WEIGHT_DECAY
+    )
+    opt_state = optimizer.init(params)
+
+    train_step_fn, eval_step_fn = create_train_step(
+        model, optimizer, reg_weight=reg_weight
+    )
+
+    history: dict[str, list[float]] = {
+        "train_loss": [],
+        "train_frob": [],
+        "train_reg": [],
+        "grad_norm": [],
+        "val_loss": [],
+        "val_frob": [],
+        "val_reg": [],
+        "val_rmse": [],
+        "val_jacobian_frob": [],
+        "val_mean_relative_error": [],
+        "val_worst_relative_error": [],
+    }
+
+    # The parameters at the lowest validation Frobenius loss, kept alongside the running ones.
+    #
+    # The learning-rate schedule is cosine-annealed over exactly num_epochs, so a run that is allowed to finish ends on
+    # its own converged iterate and the best and the last are usually within evaluation noise of each other - on the
+    # shipped Atlas recipe the gap is under 0.1 % of RMSE, against a 1.8 % spread across seeds. The point of keeping
+    # the best is not to beat that noise; it is that a run which diverges, is interrupted, or is given an architecture
+    # that trains unstably no longer exports whatever the final epoch happened to hold. Both numbers are reported at
+    # the end so the gap is visible rather than assumed.
+    best_val_frob = float("inf")
+    best_epoch = -1
+    best_params = jax.tree_util.tree_map(np.array, params)
+
+    start_time = time.time()
+    for epoch in range(num_epochs):
+        epoch_start = time.time()
+
+        # Shuffle training set
+        rng, k_perm = jax.random.split(rng)
+        perm = jax.random.permutation(k_perm, num_train)
+        q_train_shuffled = q_train[perm]
+        A_train_shuffled = A_train[perm]
+
+        train_losses = []
+        train_frobs = []
+        train_regs = []
+        train_grad_norms = []
+        last_grads = None
+
+        # The trailing partial batch is dropped; the per-epoch reshuffle above
+        # means no sample is permanently excluded.
+        for step in range(steps_per_epoch):
+            start_idx = step * batch_size
+            q_batch = q_train_shuffled[start_idx : start_idx + batch_size]
+            A_batch = A_train_shuffled[start_idx : start_idx + batch_size]
+
+            params, opt_state, loss_val, aux, grads, grad_norm = train_step_fn(
+                params, opt_state, q_batch, A_batch
+            )
+            train_losses.append(float(loss_val))
+            train_frobs.append(float(aux["frob_loss"]))
+            train_regs.append(float(aux["reg_loss"]))
+            train_grad_norms.append(float(grad_norm))
+            last_grads = grads
+
+        # Validation evaluation
+        val_loss, val_aux = eval_step_fn(params, q_val, A_val)
+
+        avg_train_loss = float(np.mean(train_losses))
+        avg_train_frob = float(np.mean(train_frobs))
+        avg_train_reg = float(np.mean(train_regs))
+        avg_grad_norm = float(np.mean(train_grad_norms))
+
+        avg_val_loss = float(val_loss)
+        avg_val_frob = float(val_aux["frob_loss"])
+        avg_val_reg = float(val_aux["reg_loss"])
+        val_jacobian_frob = float(val_aux["jacobian_frob"])
+        val_relative_errors = np.array(val_aux["relative_errors"])
+        val_mean_relative_error = float(np.mean(val_relative_errors))
+        val_worst_relative_error = float(np.max(val_relative_errors))
+
+        # Calculate RMSE per Jacobian entry (in rad/s per rad/s)
+        val_rmse = float(
+            np.sqrt(avg_val_frob / A_val.shape[-2] / A_val.shape[-1])
+        )
+
+        if avg_val_frob < best_val_frob:
+            best_val_frob = avg_val_frob
+            best_epoch = epoch
+            best_params = jax.tree_util.tree_map(np.array, params)
+
+        # Per-axis decomposition on validation set
+        val_jacobians = np.array(val_aux["rate_jacobians"])
+        val_targets = np.array(A_val)
+        axis_diff = val_jacobians - val_targets
+        rate_map_err_x = float(
+            np.mean(np.sum(np.square(axis_diff[:, 0, :]), axis=-1))
+        )
+        rate_map_err_y = float(
+            np.mean(np.sum(np.square(axis_diff[:, 1, :]), axis=-1))
+        )
+        rate_map_err_z = float(
+            np.mean(np.sum(np.square(axis_diff[:, 2, :]), axis=-1))
+        )
+
+        # aCOM offset statistics
+        val_rotvec_acom_rt_base = np.array(val_aux["batch_rotvec_acom_rt_base"])
+        # [deg] The rotation angle of the aCOM frame from the base, per validation sample.
+        norm_rotvec_acom_rt_base_samples = np.rad2deg(
+            np.linalg.norm(val_rotvec_acom_rt_base, axis=-1)
+        )
+        mean_norm_rotvec_acom_rt_base = float(
+            np.mean(norm_rotvec_acom_rt_base_samples)
+        )
+        max_norm_rotvec_acom_rt_base = float(
+            np.max(norm_rotvec_acom_rt_base_samples)
+        )
+
+        # Learning rate and execution time. The schedule is sampled at the step
+        # count reached by the end of this epoch, which is what the weights the
+        # metrics above were computed from actually saw.
+        current_lr = float(lr_schedule((epoch + 1) * steps_per_epoch))
+        epoch_time_ms = (time.time() - epoch_start) * 1000.0
+        throughput = float(num_train / (epoch_time_ms / 1000.0))
+
+        history["train_loss"].append(avg_train_loss)
+        history["train_frob"].append(avg_train_frob)
+        history["train_reg"].append(avg_train_reg)
+        history["grad_norm"].append(avg_grad_norm)
+        history["val_loss"].append(avg_val_loss)
+        history["val_frob"].append(avg_val_frob)
+        history["val_reg"].append(avg_val_reg)
+        history["val_rmse"].append(val_rmse)
+        history["val_jacobian_frob"].append(val_jacobian_frob)
+        history["val_mean_relative_error"].append(val_mean_relative_error)
+        history["val_worst_relative_error"].append(val_worst_relative_error)
+
+        # Log to TensorBoard
+        if writer is not None:
+            # Loss metrics
+            writer.add_scalar("loss/train_total", avg_train_loss, epoch)
+            writer.add_scalar("loss/train_frobenius", avg_train_frob, epoch)
+            writer.add_scalar("loss/train_regularization", avg_train_reg, epoch)
+            writer.add_scalar("loss/val_total", avg_val_loss, epoch)
+            writer.add_scalar("loss/val_frobenius", avg_val_frob, epoch)
+            writer.add_scalar("loss/val_regularization", avg_val_reg, epoch)
+            writer.add_scalar("loss/val_rmse_rad_per_rad", val_rmse, epoch)
+            writer.add_scalar(
+                "loss/val_relative_error_mean", val_mean_relative_error, epoch
+            )
+            writer.add_scalar(
+                "loss/val_relative_error_worst", val_worst_relative_error, epoch
+            )
+            # J_Delta_theta alone against the target: what the loss fitted before it composed J_l(Delta_theta).
+            writer.add_scalar(
+                "diagnostics/val_jacobian_alone_frobenius",
+                val_jacobian_frob,
+                epoch,
+            )
+
+            # Gradient metrics
+            writer.add_scalar("gradients/global_l2_norm", avg_grad_norm, epoch)
+            if last_grads is not None:
+                for layer_idx, (w_g, b_g) in enumerate(last_grads):
+                    w_norm = float(np.linalg.norm(np.array(w_g)))
+                    b_norm = float(np.linalg.norm(np.array(b_g)))
+                    writer.add_scalar(
+                        f"gradients/layer_{layer_idx}_weight_norm",
+                        w_norm,
+                        epoch,
+                    )
+                    writer.add_scalar(
+                        f"gradients/layer_{layer_idx}_bias_norm", b_norm, epoch
+                    )
+
+            # Per-axis error metrics
+            writer.add_scalar(
+                "error_axes/roll_x_frob_loss", rate_map_err_x, epoch
+            )
+            writer.add_scalar(
+                "error_axes/pitch_y_frob_loss", rate_map_err_y, epoch
+            )
+            writer.add_scalar(
+                "error_axes/yaw_z_frob_loss", rate_map_err_z, epoch
+            )
+
+            # Optimization and performance
+            writer.add_scalar("optim/learning_rate", current_lr, epoch)
+            writer.add_scalar(
+                "stats/mean_acom_offset_deg",
+                mean_norm_rotvec_acom_rt_base,
+                epoch,
+            )
+            writer.add_scalar(
+                "stats/max_acom_offset_deg", max_norm_rotvec_acom_rt_base, epoch
+            )
+            writer.add_scalar("perf/epoch_time_ms", epoch_time_ms, epoch)
+            writer.add_scalar(
+                "perf/throughput_samples_per_sec", throughput, epoch
+            )
+
+            # Weight, bias, and gradient histograms
+            if log_histograms and (
+                epoch % histogram_freq == 0 or epoch == num_epochs - 1
+            ):
+                for layer_idx, (w, b) in enumerate(params):
+                    writer.add_histogram(
+                        f"weights/layer_{layer_idx}_weight", np.array(w), epoch
+                    )
+                    writer.add_histogram(
+                        f"weights/layer_{layer_idx}_bias", np.array(b), epoch
+                    )
+
+                if last_grads is not None:
+                    for layer_idx, (w_g, b_g) in enumerate(last_grads):
+                        writer.add_histogram(
+                            f"gradients/layer_{layer_idx}_weight",
+                            np.array(w_g),
+                            epoch,
+                        )
+                        writer.add_histogram(
+                            f"gradients/layer_{layer_idx}_bias",
+                            np.array(b_g),
+                            epoch,
+                        )
+
+                writer.add_histogram(
+                    "activations/val_offset_roll_deg",
+                    np.rad2deg(val_rotvec_acom_rt_base[:, 0]),
+                    epoch,
+                )
+                writer.add_histogram(
+                    "activations/val_offset_pitch_deg",
+                    np.rad2deg(val_rotvec_acom_rt_base[:, 1]),
+                    epoch,
+                )
+                writer.add_histogram(
+                    "activations/val_offset_yaw_deg",
+                    np.rad2deg(val_rotvec_acom_rt_base[:, 2]),
+                    epoch,
+                )
+
+            # Diagnostic heatmap figures
+            if log_figures and (
+                epoch == 0 or epoch % 25 == 0 or epoch == num_epochs - 1
+            ):
+                fig = create_jacobian_diagnostic_figure(
+                    target_A_bar=val_targets[0], pred_jacobian=val_jacobians[0]
+                )
+                writer.add_figure("diagnostics/jacobian_heatmap", fig, epoch)
+                plt.close(fig)
+
+        if verbose and (epoch % 10 == 0 or epoch == num_epochs - 1):
+            elapsed = time.time() - start_time
+            print(
+                f"Epoch {epoch:3d}/{num_epochs} | Train:"
+                f" {avg_train_loss:.5f} (Frob: {avg_train_frob:.5f}) | Val:"
+                f" {avg_val_loss:.5f} (RMSE: {val_rmse:.4f}, rel:"
+                f" {val_mean_relative_error:.3f} mean,"
+                f" {val_worst_relative_error:.3f} worst) | GradNorm:"
+                f" {avg_grad_norm:.4f} | Time: {elapsed:.1f}s"
+            )
+
+    if writer is not None:
+        writer.flush()
+        writer.close()
+
+    final_val_frob = (
+        history["val_frob"][-1] if history["val_frob"] else float("inf")
+    )
+    if verbose:
+        print(
+            f"Best validation Frobenius loss {best_val_frob:.7f} at epoch"
+            f" {best_epoch}, final {final_val_frob:.7f} at epoch"
+            f" {num_epochs - 1} (gap"
+            f" {100.0 * (final_val_frob - best_val_frob) / max(best_val_frob, 1e-12):.2f}%)."
+            " Exporting the best."
+        )
+
+    history["best_val_frob"] = [best_val_frob]
+    history["best_epoch"] = [best_epoch]
+    # The best parameters are returned as JAX arrays so the caller cannot tell them apart from the running ones.
+    best_params = jax.tree_util.tree_map(jnp.asarray, best_params)
+    return model, best_params, history

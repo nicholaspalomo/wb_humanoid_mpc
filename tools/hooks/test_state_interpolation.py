@@ -32,7 +32,7 @@ import unittest
 from tools.hooks import check_test_support
 from tools.hooks import state_interpolation
 
-_PATH = "humanoid_nmpc/humanoid_common_mpc/src/reference_manager/SwitchedModelReferenceManager.cpp"
+_PATH = "legged_nmpc/legged_common_mpc/src/reference_manager/SwitchedModelReferenceManager.cpp"
 
 
 def _found(source: str, path: str = _PATH) -> list[tuple[int, int]]:
@@ -101,7 +101,7 @@ class LinearInterpolationTest(unittest.TestCase):
         source = (
             "using LinearInterpolation::index_alpha_t;\n"
             "using ocs2::LinearInterpolation::timeSegment;\n"
-            "namespace oc = ocs2::humanoid;\n"
+            "namespace oc = ocs2::legged;\n"
             "using namespace_alias = LinearInterpolation;\n"
         )
         self.assertEqual(_found(source), [])
@@ -112,8 +112,8 @@ class LinearInterpolationTest(unittest.TestCase):
             " states);\n"
         )
         for path in (
-            "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcRobotModelBase.h",
-            "humanoid_nmpc/humanoid_wb_mpc/include/humanoid_wb_mpc/common/WBAccelMpcRobotModel.h",
+            "legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/MpcRobotModelBase.h",
+            "legged_nmpc/legged_wb_mpc/include/legged_wb_mpc/common/WBAccelMpcRobotModel.h",
             "robot_runtime/robot_model/src/RobotState.cpp",
             "lib/ocs2/core/src/misc/LinearInterpolation.cpp",
         ):

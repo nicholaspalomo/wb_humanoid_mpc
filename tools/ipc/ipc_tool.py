@@ -34,9 +34,9 @@
 
 Every subcommand takes --network_config (default config/ipc/network.textproto, relative to the directory the tool was
 started from or the repository root). The tool only receives: it joins the network file's DDS domain as a subscriber
-(humanoid_nmpc/docs/distributed_runtime/README.md), so it sees every topic whichever process publishes it, and decodes
+(legged_nmpc/docs/distributed_runtime/README.md), so it sees every topic whichever process publishes it, and decodes
 payloads by the type name their envelope carries with the default descriptor pool, into which it imports every
-humanoid_mpc_msgs and humanoid_mpc_config module.
+legged_mpc_msgs and legged_mpc_config module.
 
 Exit status: 0 on success, 1 when the expected messages did not arrive, 2 for a usage or configuration error.
 """

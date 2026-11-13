@@ -31,8 +31,8 @@ A state stores the base orientation as a unit quaternion, which a linear interpo
 unit sphere and, between a quaternion and its negative, through zero. The robot models interpolate states on the
 manifold - slerp on the quaternion block, linear elsewhere (`MpcRobotModelBase::getDesiredState(targets, time)`,
 `interpolateStateTrajectory`) - and the policy and the rollouts through the problem's `StateManifold`
-(humanoid_nmpc/docs/quaternion_base_orientation/README.md, sections 2.7 and 2.9). This check flags the two linear
-interpolations of a state under humanoid_nmpc/ that bypass them:
+(legged_nmpc/docs/quaternion_base_orientation/README.md, sections 2.7 and 2.9). This check flags the two linear
+interpolations of a state under legged_nmpc/ that bypass them:
 
   state-interpolation  - a member call `.getDesiredState(t)` or `->getDesiredState(t)` with one argument: OCS2's
                          TargetTrajectories::getDesiredState(), which interpolates the state trajectory linearly. The
@@ -58,15 +58,16 @@ from tools.hooks import check_types
 from tools.hooks import cpp_source
 from tools.hooks import euler_boundary
 from tools.hooks import lint_files
+from tools.hooks import repo_layout
 
 NAME = "state-interpolation"
 
 
 def in_scope(path: str) -> bool:
-    """True for a file under humanoid_nmpc/ other than a robot-model header (`path` relative to the repository root)."""
+    """True for a file under legged_nmpc/ other than a robot-model header (`path` relative to the repository root)."""
     path = lint_files.normalize(path)
     return (
-        path.startswith("humanoid_nmpc/")
+        path.startswith(repo_layout.NMPC_DIR)
         and path.rsplit("/", 1)[-1] not in euler_boundary.ROBOT_MODEL_HEADERS
     )
 
@@ -184,11 +185,11 @@ CHECKS = [
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=_findings,
         description=(
-            "no linear interpolation of a state trajectory under humanoid_nmpc/"
+            "no linear interpolation of a state trajectory under legged_nmpc/"
             " outside the robot models: no one-argument getDesiredState(t), no"
             " LinearInterpolation::interpolate of anything but inputs, and no"
             " using-declaration or alias that hides that call"
-            " (humanoid_nmpc/docs/quaternion_base_orientation/README.md,"
+            " (legged_nmpc/docs/quaternion_base_orientation/README.md,"
             " section 2.9)."
         ),
         hint=(

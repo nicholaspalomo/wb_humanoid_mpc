@@ -29,9 +29,9 @@ cc_binary(
         "//robot_models/engineai_sa01/engineai_sa01_description",
     ],
     deps = [
-        "//humanoid_nmpc/humanoid_common_mpc",
-        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
-        "//humanoid_nmpc/humanoid_centroidal_mpc",
+        "//legged_nmpc/legged_common_mpc",
+        "//legged_nmpc/legged_mpc_config:config_nproto",
+        "//legged_nmpc/legged_centroidal_mpc",
         "//lib/ocs2:ocs2_pinocchio_interface",
         "//lib/ocs2:ocs2_centroidal_model",
         "//lib/ocs2:ocs2_core",

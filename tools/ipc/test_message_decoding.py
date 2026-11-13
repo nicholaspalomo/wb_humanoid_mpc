@@ -36,16 +36,16 @@ from google.protobuf import json_format
 from google.protobuf import message
 from google.protobuf import message_factory
 from google.protobuf import text_format
-from humanoid_mpc_config import joint_pd_gains_file_pb2
-from humanoid_mpc_config import mpc_parameter_update_pb2
-from humanoid_mpc_msgs import config_file_kind_pb2
-from humanoid_mpc_msgs import config_file_save_pb2
-from humanoid_mpc_msgs import controller_type_pb2
-from humanoid_mpc_msgs import dodgeball_throw_pb2
-from humanoid_mpc_msgs import joint_targets_pb2
-from humanoid_mpc_msgs import mpc_policy_pb2
-from humanoid_mpc_msgs import mpc_solver_status_pb2
-from humanoid_mpc_msgs import mpc_status_pb2
+from legged_mpc_config import joint_pd_gains_file_pb2
+from legged_mpc_config import mpc_parameter_update_pb2
+from legged_mpc_msgs import config_file_kind_pb2
+from legged_mpc_msgs import config_file_save_pb2
+from legged_mpc_msgs import controller_type_pb2
+from legged_mpc_msgs import dodgeball_throw_pb2
+from legged_mpc_msgs import joint_targets_pb2
+from legged_mpc_msgs import mpc_policy_pb2
+from legged_mpc_msgs import mpc_solver_status_pb2
+from legged_mpc_msgs import mpc_status_pb2
 
 import message_decoding
 
@@ -113,10 +113,10 @@ class ImportMessageModulesTest(unittest.TestCase):
         self,
     ) -> None:
         modules = message_decoding.import_message_modules()
-        self.assertIn("humanoid_mpc_msgs.mpc_policy_pb2", modules)
+        self.assertIn("legged_mpc_msgs.mpc_policy_pb2", modules)
         # The tuning GUI's payloads are configuration files (operator/mpc_parameters, operator/pd_gains).
-        self.assertIn("humanoid_mpc_config.mpc_parameter_update_pb2", modules)
-        self.assertIn("humanoid_mpc_config.joint_pd_gains_file_pb2", modules)
+        self.assertIn("legged_mpc_config.mpc_parameter_update_pb2", modules)
+        self.assertIn("legged_mpc_config.joint_pd_gains_file_pb2", modules)
         self.assertTrue(all(name.endswith("_pb2") for name in modules))
         for module_name in modules:
             module = __import__(module_name, fromlist=["DESCRIPTOR"])
@@ -133,7 +133,7 @@ class DecodeTest(unittest.TestCase):
     def test_a_payload_decodes_as_the_type_its_envelope_names(self) -> None:
         status = mpc_status_pb2.MpcStatus(observation_time=1.5, resets_served=2)
         decoded = message_decoding.decode(
-            "humanoid_mpc_msgs.MpcStatus", status.SerializeToString()
+            "legged_mpc_msgs.MpcStatus", status.SerializeToString()
         )
         self.assertEqual(decoded, status)
 
@@ -146,7 +146,7 @@ class DecodeTest(unittest.TestCase):
         update.task.contact_wrench_gate.ramp_time = 0.04
         update.config_path = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto"
         decoded = message_decoding.decode(
-            "humanoid_mpc_config.MpcParameterUpdate", update.SerializeToString()
+            "legged_mpc_config.MpcParameterUpdate", update.SerializeToString()
         )
         self.assertEqual(decoded, update)
         self.assertIn(
@@ -170,7 +170,7 @@ class DecodeTest(unittest.TestCase):
             sequence=7,
         )
         decoded = message_decoding.decode(
-            "humanoid_mpc_msgs.ConfigFileSave", save.SerializeToString()
+            "legged_mpc_msgs.ConfigFileSave", save.SerializeToString()
         )
         self.assertEqual(decoded, save)
         self.assertEqual(
@@ -180,7 +180,7 @@ class DecodeTest(unittest.TestCase):
 
     def test_an_unknown_type_name_raises(self) -> None:
         with self.assertRaises(message_decoding.UnknownMessageTypeError):
-            message_decoding.decode("humanoid_mpc_msgs.NoSuchMessage", b"")
+            message_decoding.decode("legged_mpc_msgs.NoSuchMessage", b"")
 
 
 class MessageToPythonTest(unittest.TestCase):
@@ -211,7 +211,7 @@ class MessageToPythonTest(unittest.TestCase):
                 policy = make_policy()
                 policy.controller_type = number
                 decoded = message_decoding.decode(
-                    "humanoid_mpc_msgs.MpcPolicy", policy.SerializeToString()
+                    "legged_mpc_msgs.MpcPolicy", policy.SerializeToString()
                 )
                 self.assertEqual(
                     message_decoding.message_to_python(decoded)[
@@ -226,7 +226,7 @@ class MessageToPythonTest(unittest.TestCase):
         policy = make_policy()
         policy.controller_type = 7  # An open enum: a newer sender's code.
         decoded = message_decoding.decode(
-            "humanoid_mpc_msgs.MpcPolicy", policy.SerializeToString()
+            "legged_mpc_msgs.MpcPolicy", policy.SerializeToString()
         )
         self.assertEqual(
             message_decoding.message_to_python(decoded)["controller_type"], 7

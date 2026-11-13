@@ -1,0 +1,122 @@
+/******************************************************************************
+Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
+Copyright (c) 2024, 1X Technologies. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include "legged_common_mpc/swing_foot_planner/CubicSpline.h"
+
+#include "ocs2_core/Types.h"
+
+namespace ocs2::legged {
+namespace {
+
+/**
+ * The degree of the spline, the factor its cubic term's derivative brings in
+ * (d(t^3)/dt = 3 t^2), and with it the Hermite coefficients that the end
+ * velocity condition p'(1) = c1 + 2 c2 + 3 c3 gives.
+ */
+constexpr scalar_t kCubicDegree = 3.0;
+/** The factor of the cubic term's second derivative, d^2(t^3)/dt^2 = 6 t. */
+constexpr scalar_t kCubicSecondDerivativeFactor = 6.0;
+
+}  // namespace
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+CubicSpline::CubicSpline(Node start, Node end) {
+  t0_ = start.time;
+  t1_ = end.time;
+  dt_ = end.time - start.time;
+
+  scalar_t dp = end.value - start.value;
+  scalar_t dv = end.derivative - start.derivative;
+
+  dc0_ = 0.0;
+  dc1_ = start.derivative;
+  dc2_ = -(kCubicDegree * start.derivative + dv);
+  dc3_ = (2.0 * start.derivative + dv);
+
+  c0_ = dc0_ * dt_ + start.value;
+  c1_ = dc1_ * dt_;
+  c2_ = dc2_ * dt_ + kCubicDegree * dp;
+  c3_ = dc3_ * dt_ - 2.0 * dp;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+scalar_t CubicSpline::value(scalar_t time) const {
+  scalar_t tn = normalizedTime(time);
+  return c3_ * tn * tn * tn + c2_ * tn * tn + c1_ * tn + c0_;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+scalar_t CubicSpline::derivative(scalar_t time) const {
+  scalar_t tn = normalizedTime(time);
+  return (kCubicDegree * c3_ * tn * tn + 2.0 * c2_ * tn + c1_) / dt_;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+scalar_t CubicSpline::secondDerivative(scalar_t time) const {
+  scalar_t tn = normalizedTime(time);
+  return (kCubicSecondDerivativeFactor * c3_ * tn + 2.0 * c2_) / (dt_ * dt_);
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+scalar_t CubicSpline::startTimeDerivative(scalar_t t) const {
+  scalar_t tn = normalizedTime(t);
+  scalar_t dCoff = -(dc3_ * tn * tn * tn + dc2_ * tn * tn + dc1_ * tn + dc0_);
+  scalar_t dTn = -(t1_ - t) / (dt_ * dt_);
+  return derivative(t) * dt_ * dTn + dCoff;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+scalar_t CubicSpline::finalTimeDerivative(scalar_t t) const {
+  scalar_t tn = normalizedTime(t);
+  scalar_t dCoff = (dc3_ * tn * tn * tn + dc2_ * tn * tn + dc1_ * tn + dc0_);
+  scalar_t dTn = -(t - t0_) / (dt_ * dt_);
+  return derivative(t) * dt_ * dTn + dCoff;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+scalar_t CubicSpline::normalizedTime(scalar_t t) const {
+  return (t - t0_) / dt_;
+}
+
+}  // namespace ocs2::legged

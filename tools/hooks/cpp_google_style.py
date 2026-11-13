@@ -771,7 +771,7 @@ def check_ctad(source: str, path: str) -> list[check_types.Finding]:
 # macro-naming
 # ----------------------------------------------------------------------------------------------------------------------
 MACRO_NAMING = "macro-naming"
-MACRO_PREFIXES = ("ROBOT_IPC_", "NPROTO_", "HUMANOID_", "WBMPC_")
+MACRO_PREFIXES = ("ROBOT_IPC_", "NPROTO_", "LEGGED_", "WBMPC_")
 # The status macros keep the names Google uses (AGENTS.md); STATUS_MACROS_ and ASSIGN_OR_RETURN_IMPL are their helpers.
 _ALLOWED_MACROS = re.compile(
     r"^(RETURN_IF_ERROR|ASSIGN_OR_RETURN|ASSIGN_OR_RETURN_IMPL|STATUS_MACROS_\w+)$"

@@ -1,9 +1,9 @@
 # robot_realtime
 
 The building blocks of the robot process's **realtime thread** (see
-[`humanoid_nmpc/docs/distributed_runtime/README.md`](../../humanoid_nmpc/docs/distributed_runtime/README.md), "The
+[`legged_nmpc/docs/distributed_runtime/README.md`](../../legged_nmpc/docs/distributed_runtime/README.md), "The
 realtime thread"). The library is `//robot_runtime/robot_realtime`, the namespace is `robot::realtime`, and it depends
-only on Abseil: no protobuf and nothing from `humanoid_nmpc`.
+only on Abseil: no protobuf and nothing from `legged_nmpc`.
 
 | Header | What it gives the realtime thread |
 |---|---|
@@ -38,7 +38,7 @@ allocation part by counting every `malloc` of the process.
 - **`LoopTimingStats`** accumulates integer nanoseconds. When a reporting window closes, it condenses them into a
   `LoopTimingSnapshot`. The snapshot is trivially copyable, so it goes to the communication thread through a
   `robot::TripleBuffer<LoopTimingSnapshot>`. `LoopTimingSnapshot.h` shows which snapshot field fills which
-  `humanoid_mpc_msgs.LoopTiming` field. The communication thread does that conversion, so this package stays free of
+  `legged_mpc_msgs.LoopTiming` field. The communication thread does that conversion, so this package stays free of
   protobuf.
 
 ```cpp
@@ -95,8 +95,8 @@ code of the first step that failed and names every step that failed. `lockProces
 
 `:allocation_counter` (testonly) interposes glibc's `malloc`, `calloc`, `realloc`, `aligned_alloc`, `memalign` and
 `posix_memalign` to count every heap allocation of a test binary. It began as a copy of the state estimator's counter
-(`humanoid_state_estimation/humanoid_state_estimator/test/AllocationCounter.h`) and also counts aligned allocations.
+(`legged_state_estimation/legged_state_estimator/test/AllocationCounter.h`) and also counts aligned allocations.
 A binary can link only one of the two. `heapAllocationCount()` counts the whole process;
 `heapAllocationCountOnThisThread()` counts the calling thread's allocations alone, for a call on a realtime thread while
 other threads of the process (a bus's IO thread, a solver) allocate beside it, as
-`//humanoid_nmpc/humanoid_mpc_ipc:test_remote_mpc_link_allocations` does.
+`//legged_nmpc/legged_mpc_ipc:test_remote_mpc_link_allocations` does.

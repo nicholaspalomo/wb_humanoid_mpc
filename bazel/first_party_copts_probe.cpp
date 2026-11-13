@@ -65,8 +65,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "turbojpeg.h"  // NOLINT(build/include_subdir): libjpeg-turbo installs turbojpeg.h without a directory
 #include "urdf_parser/urdf_parser.h"  // IWYU pragma: keep
 
-#include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
-#include "humanoid_mpc_msgs/robot_state_sample.pb.h"
+#include "legged_mpc_msgs/robot_state_sample.nproto.h"
+#include "legged_mpc_msgs/robot_state_sample.pb.h"
 
 namespace wb_humanoid_mpc::copts_probe {
 namespace {
@@ -93,9 +93,9 @@ int instantiateThirdPartyTemplates() {
   pinocchio::Data data(model);
   pinocchio::updateFramePlacements(model, data);
 
-  const humanoid_mpc_msgs::RobotStateSample message;
+  const legged_mpc_msgs::RobotStateSample message;
   const std::string serialized = message.SerializeAsString();
-  ocs2::humanoid::msgs::RobotStateSample sample;
+  ocs2::legged::msgs::RobotStateSample sample;
 
   const dds_duration_t timeout = DDS_MSECS(serialized.size());
   const CppAD::cg::CG<double> constant(1.0);

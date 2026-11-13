@@ -39,7 +39,7 @@ module robot_ipc {
     uint32 protocol_version;
     // 1, 2, 3, ... per writer (one bus publishing one topic): a gap is a sample the reader never took.
     uint64 sequence_number;
-    // The full protobuf type name of the payload, e.g. "humanoid_mpc_msgs.MpcPolicy".
+    // The full protobuf type name of the payload, e.g. "legged_mpc_msgs.MpcPolicy".
     string type_name;
     // The serialized protobuf message.
     sequence<octet> payload;

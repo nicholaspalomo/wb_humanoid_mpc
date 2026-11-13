@@ -85,7 +85,7 @@ class Envelope(cyclonedds.idl.IdlStruct, typename=ENVELOPE_TYPE_NAME):  # type: 
     Attributes:
         protocol_version: WIRE_PROTOCOL_VERSION of the publisher; a bus refuses another version.
         sequence_number: 1, 2, 3, ... per writer (one bus publishing one topic): a gap is a sample the reader missed.
-        type_name: the full protobuf type name of the payload, e.g. "humanoid_mpc_msgs.MpcPolicy".
+        type_name: the full protobuf type name of the payload, e.g. "legged_mpc_msgs.MpcPolicy".
         payload: the serialized protobuf message. Declared a sequence<octet> for the type information, held as bytes.
     """
 

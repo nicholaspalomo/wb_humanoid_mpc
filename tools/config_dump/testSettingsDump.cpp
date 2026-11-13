@@ -39,11 +39,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "legged_common_mpc/common/ModelSettings.h"
 #include "tools/config_dump/SettingsDump.h"
 #include "tools/config_dump/ValueDump.h"
 
-namespace ocs2::humanoid::config_dump {
+namespace ocs2::legged::config_dump {
 namespace {
 
 using ::testing::HasSubstr;
@@ -124,4 +124,4 @@ TEST(SettingsDumpTest, EveryValueOfARollingContactChangesTheDump) {
 }
 
 }  // namespace
-}  // namespace ocs2::humanoid::config_dump
+}  // namespace ocs2::legged::config_dump

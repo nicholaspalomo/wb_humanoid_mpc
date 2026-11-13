@@ -28,7 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // The status macros of robot_ipc's own sources. robot_runtime does not depend
-// on humanoid_nmpc, whose humanoid_common_mpc/common/StatusMacros.h defines the
+// on legged_nmpc, whose legged_common_mpc/common/StatusMacros.h defines the
 // unprefixed RETURN_IF_ERROR, so these carry a prefix that cannot clash with it
 // in a translation unit that includes both. Private to the library: not in
 // include/.

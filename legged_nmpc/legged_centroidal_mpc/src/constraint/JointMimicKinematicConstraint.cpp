@@ -1,0 +1,165 @@
+/******************************************************************************
+Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
+Copyright (c) 2024, 1X Technologies. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include "legged_centroidal_mpc/constraint/JointMimicKinematicConstraint.h"
+
+#include <memory>
+#include <string>
+#include <utility>
+
+#include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/ConstraintOrder.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+
+#include "legged_common_mpc/common/MpcRobotModelBase.h"
+#include "legged_common_mpc/common/StatusMacros.h"
+
+namespace ocs2::legged {
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+absl::StatusOr<std::unique_ptr<JointMimicKinematicConstraint>>
+JointMimicKinematicConstraint::Create(
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    std::string parentJointName,
+    std::string childJointName,
+    scalar_t multiplier,
+    scalar_t positionGain) {
+  // Negated, so that NaN is refused too.
+  if (!(positionGain > 0.0)) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[JointMimicKinematicConstraint] the positionGain of the mimic joint ",
+        childJointName, " must be positive, got ", positionGain));
+  }
+  Config config;
+  ASSIGN_OR_RETURN(config.parentJointIndex,
+                   mpcRobotModel.findJointIndex(parentJointName));
+  ASSIGN_OR_RETURN(config.childJointIndex,
+                   mpcRobotModel.findJointIndex(childJointName));
+  config.parentJointName = std::move(parentJointName);
+  config.childJointName = std::move(childJointName);
+  config.multiplier = multiplier;
+  config.positionGain = positionGain;
+  // The constructor is private, so std::make_unique cannot reach it.
+  return absl::WrapUnique(
+      new JointMimicKinematicConstraint(mpcRobotModel, std::move(config)));
+}
+
+JointMimicKinematicConstraint::JointMimicKinematicConstraint(
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel, Config config)
+    : StateInputConstraint(ConstraintOrder::Linear),
+      mpcRobotModelPtr_(&mpcRobotModel),
+      config_(std::move(config)) {}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+// isActive_ is copied deliberately: the SQP solver clones the whole problem
+// once per worker thread, and a copy constructor that dropped this flag
+// silently reverted a deactivated term to active.
+JointMimicKinematicConstraint::JointMimicKinematicConstraint(
+    const JointMimicKinematicConstraint& rhs) = default;
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+bool JointMimicKinematicConstraint::isActive(scalar_t /*time*/) const {
+  return isActive_;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+vector_t JointMimicKinematicConstraint::getValue(
+    scalar_t /*time*/,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& /*preComp*/) const {
+  vector_t jointAngles = mpcRobotModelPtr_->getJointAngles(state);
+  vector_t jointVelocities =
+      mpcRobotModelPtr_->getJointVelocities(state, input);
+  scalar_t jointPositionError =
+      config_.multiplier * jointAngles[config_.parentJointIndex] -
+      jointAngles[config_.childJointIndex];
+  scalar_t jointVelocityError =
+      config_.multiplier * jointVelocities[config_.parentJointIndex] -
+      jointVelocities[config_.childJointIndex];
+
+  vector_t value(1);
+  value << (config_.positionGain * jointPositionError + jointVelocityError);
+
+  return value;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+VectorFunctionLinearApproximation
+JointMimicKinematicConstraint::getLinearApproximation(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
+  VectorFunctionLinearApproximation linearApproximation =
+      VectorFunctionLinearApproximation::Zero(getNumConstraints(time),
+                                              state.size(), input.size());
+
+  linearApproximation.f = getValue(time, state, input, preComp);
+
+  linearApproximation.dfdx(/*row=*/0, mpcRobotModelPtr_->getJointStartindex() +
+                                          config_.parentJointIndex) =
+      config_.positionGain * config_.multiplier;
+  linearApproximation.dfdx(/*row=*/0, mpcRobotModelPtr_->getJointStartindex() +
+                                          config_.childJointIndex) =
+      -config_.positionGain;
+
+  // Joint velocities live at getJointVelocitiesStartindex() in the input vector
+  // (this differs from the joint position start index in the state vector when
+  // basis-vector contact inputs are used).
+  linearApproximation.dfdu(/*row=*/0,
+                           mpcRobotModelPtr_->getJointVelocitiesStartindex() +
+                               config_.parentJointIndex) = config_.multiplier;
+  linearApproximation.dfdu(/*row=*/0,
+                           mpcRobotModelPtr_->getJointVelocitiesStartindex() +
+                               config_.childJointIndex) = -1;
+
+  return linearApproximation;
+}
+
+}  // namespace ocs2::legged

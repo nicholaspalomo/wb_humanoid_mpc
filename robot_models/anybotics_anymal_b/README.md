@@ -35,7 +35,7 @@ stay empty for this robot: its contact force series are named after the contacts
 
 The MPC plans on four 3-DoF contacts, `LF_FOOT`, `RF_FOOT`, `LH_FOOT` and `RH_FOOT` in that order, which are the URDF's
 own `FOOT` links on the `<leg>_KFE` joints, with one leg of the same name per foot (`LF`, `RF`, `LH`, `RH`). The gaits
-are those of the shared quadruped gait file, `humanoid_nmpc/humanoid_common_mpc/config/command/quadruped_gait.textproto`
+are those of the shared quadruped gait file, `legged_nmpc/legged_common_mpc/config/command/quadruped_gait.textproto`
 (mode bits LF = 8, RF = 4, LH = 2, RH = 1). The terms are the state and input costs, the hard `zero_wrench`,
 `zero_velocity` and `normal_velocity` constraints, the soft joint-limit and friction-cone constraints, and
 `task_space_foot_cost`, which lands each swing foot at its nominal stance below the hip (`nominal_foothold` anchor
@@ -43,7 +43,7 @@ are those of the shared quadruped gait file, `humanoid_nmpc/humanoid_common_mpc/
 
 The weights, the friction coefficient, the horizon, the time step, the swing and the default posture start from the
 OCS2 `legged_robot` example of ANYmal C (`ocs2_legged_robot/config/mpc/task.info`). The headless closed loop in MuJoCo
-(`humanoid_nmpc/humanoid_mpc_validation`, label `2026-11-10_anymal_b`) changed four things from that start: the joint
+(`legged_nmpc/legged_mpc_validation`, label `2026-11-10_anymal_b`) changed four things from that start: the joint
 PD gains (kp 80 and kd 2 let the trot sag 5 cm and reach 0.17 m/s of a 0.5 m/s command), the horizontal linear
 momentum weight (0.34 m/s at 15, 0.42 m/s at 400), the yaw weight and the foot task-space cost (without it the trot
 drifted 0.30 rad off its heading over a 15 s walk):
@@ -70,13 +70,13 @@ written for two feet by name (`checkCentroidalContactSet()`).
 
 ## Validation
 
-The headless lockstep closed loop in MuJoCo (`humanoid_nmpc/humanoid_mpc_validation`, configuration `anymal_b`) runs
+The headless lockstep closed loop in MuJoCo (`legged_nmpc/legged_mpc_validation`, configuration `anymal_b`) runs
 `standing`, `walk_0p5` and `turn_in_place_720`, and fails when the robot falls in `walk_0p5`. Label
 `2026-11-10_anymal_b` recorded the shipped configuration (`make closed-loop-metrics ROBOT=anymal_b
 LABEL=2026-11-10_anymal_b RECORD_STATES=1`), and ANYmal B is held to the default bands around it. It survives all
 three, trots at 0.42 m/s on average against the 0.5 m/s command and turns through 24.6 of the commanded 25.1 rad; the
 metrics and the solve benchmark are in
-[the label's README](../../humanoid_nmpc/humanoid_mpc_validation/data/closed_loop/2026-11-10_anymal_b/README.md).
+[the label's README](../../legged_nmpc/legged_mpc_validation/data/closed_loop/2026-11-10_anymal_b/README.md).
 
 ## Trot speed
 
@@ -107,12 +107,12 @@ joint positions do the same for the stride length. The joint-velocity weights ar
 diagonal of J^T (5000 I) J at the default posture with no mass scaling (1299, 1221 and 566, recomputed from the URDF
 with Pinocchio).
 
-`leg_joint_reference: "foot_motion"` (`humanoid_common_mpc/reference_manager/LegJointReference.h`) regularizes each
+`leg_joint_reference: "foot_motion"` (`legged_common_mpc/reference_manager/LegJointReference.h`) regularizes each
 leg toward the joints that put its foot where the references do. With it and `translational_stepping` at
 `forward_stance_fraction` 0.5 the trot reached 0.499 m/s over the last 10 s, with a peak tilt of 0.074 rad (0.082 on
 the default posture), and the turn in place went from 24.6 to 25.9 of the commanded 25.1 rad. It is not shipped: the
 stronger joint references trigger the Gauss-Newton SQP's cycling with the hard swing normal-velocity rows
-(`humanoid_nmpc/docs/quaternion_base_orientation/README.md`, section 6, risk 12). In the walk the solves refused 25 full
+(`legged_nmpc/docs/quaternion_base_orientation/README.md`, section 6, risk 12). In the walk the solves refused 25 full
 steps above `g_max` instead of 3, the p99 of the constraint violation after the step rose from 0.023 to 0.30 and that
 of the swing normal-velocity residual from 0.16 to 1.0 m/s, and in `testMpcEquivalence_anymal_b` the iterated SQP no
 longer converges within 100 iterations and the real-time solves no longer hold the swing rows (a median residual of

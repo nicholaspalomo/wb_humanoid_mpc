@@ -15,7 +15,7 @@ extend google.protobuf.MessageOptions {
   // "'<name>' is retired: <replacement>".
   repeated RetiredField retired_field = 52003;
   // Appended to every unknown-field error of the message, for a whole layout that moved: "the flat keys of the
-  // contact planner moved into the planner, shared and hlip blocks (humanoid_nmpc/docs/...)".
+  // contact planner moved into the planner, shared and hlip blocks (legged_nmpc/docs/...)".
   string retired_layout_hint = 52005;
 }
 // LINT.ThenChange(//tools/nproto/src/Textproto.cpp:retired_options, //tools/nproto/nproto_textproto.py:retired_options, //tools/nproto/nproto_generator.py:option_names)

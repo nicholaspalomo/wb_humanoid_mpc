@@ -1,7 +1,7 @@
 # tools/launch
 
 Starts the processes of a launch file on one machine and stops them together: the launcher of the distributed runtime
-([`humanoid_nmpc/docs/distributed_runtime/README.md`](../../humanoid_nmpc/docs/distributed_runtime/README.md)).
+([`legged_nmpc/docs/distributed_runtime/README.md`](../../legged_nmpc/docs/distributed_runtime/README.md)).
 
 ```bash
 bazel run //tools/launch -- tools/launch/examples/example.launch.textproto                  # every process
@@ -63,7 +63,7 @@ shutdown {                     # optional; --sigint_grace_period / --sigterm_gra
 processes {                    # at least one; started in this order, each after its delay
   name: "mpc"                  # unique; letters, digits, '_', '.', '-'
   machine: MACHINE_LAPTOP      # MACHINE_ROBOT | MACHINE_LAPTOP
-  command: [".bazel/bin/humanoid_nmpc/...", "--task_file={task_file}"]   # program and arguments: no shell parsing
+  command: [".bazel/bin/legged_nmpc/...", "--task_file={task_file}"]   # program and arguments: no shell parsing
   env { name: "DISPLAY" value: ":99" }   # optional, repeated: added to the launcher's environment
   required: true               # optional (false): when it exits, everything stops
   terminal: false              # optional (false): run inside --terminal_command (keyboard teleoperation)
@@ -102,7 +102,7 @@ processes {                    # at least one; started in this order, each after
 [`examples/example.launch.textproto`](examples/example.launch.textproto) uses every field with placeholder shell
 commands; the tests run it. The robots' own launch files are in `robot_models/<robot>/<package>/launch/`
 (`robot.textproto`, `mpc.textproto`, `dummy_sim.textproto`, and `sandbox.textproto` of each description;
-[`humanoid_nmpc/docs/distributed_runtime/README.md`](../../humanoid_nmpc/docs/distributed_runtime/README.md),
+[`legged_nmpc/docs/distributed_runtime/README.md`](../../legged_nmpc/docs/distributed_runtime/README.md),
 "Launching"), and the Makefile's `launch-<robot>-*` targets run them.
 
 ## Exporting a machine as a script

@@ -38,7 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*
  * Unit-quaternion algebra for a rotation stored in a state vector.
  *
- * Conventions (humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.1):
+ * Conventions (legged_nmpc/docs/quaternion_base_orientation/README.md, section 2.1):
  *  - A quaternion is a coefficient vector xi = (x, y, z, w), the order of Eigen's coeffs() and of Pinocchio's
  *    configuration vector, with the Hamilton product. Build quaternions from coefficient vectors only: Eigen's
  *    four-scalar constructor takes (w, x, y, z).

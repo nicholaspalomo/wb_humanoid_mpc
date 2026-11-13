@@ -4,7 +4,7 @@ This guide explains how to see the GUI apps running inside the dev container on 
 
 - **The VNC desktop (display `:99`)** shows the Tk operator GUI ("Robot Base Controller & Tuning"), and with `VIEWS=vnc` the MuJoCo window and Rerun's native viewer too, in a browser tab, through noVNC (`http://localhost:6080/vnc.html`).
 - **The MuJoCo web viewer**, the default of `make launch-<robot>-sim`, draws the simulation in a browser tab of its own at `http://localhost:6090`, without a display (see [MuJoCo Web Viewer](#mujoco-web-viewer) below).
-- **Rerun** shows the robot's state, the MPC's plan and the plots of the telemetry. By default it streams to a web viewer in your host browser at `http://localhost:9090` (see [Rerun](#rerun) below and `humanoid_nmpc/docs/distributed_runtime/README.md`).
+- **Rerun** shows the robot's state, the MPC's plan and the plots of the telemetry. By default it streams to a web viewer in your host browser at `http://localhost:9090` (see [Rerun](#rerun) below and `legged_nmpc/docs/distributed_runtime/README.md`).
 
 ## Views: Browser Tabs or the VNC Desktop
 
@@ -109,7 +109,7 @@ The UDP range `7410`-`7449` holds the DDS ports of the 20 processes one machine 
 ## Rerun
 
 <!-- LINT.IfChange(rerun_ports) -->
-The Rerun bridge (`humanoid_nmpc/humanoid_rerun_viewer`) maps the bus's messages onto Rerun. With `VIEWS=browser`, the default, it runs with `--rerun_sink serve_web`. It serves the web viewer on port `9090` and the recording on port `9876` (gRPC), both published, so you only need to open `http://localhost:9090/?url=rerun+http://localhost:9876/proxy` in your host browser (or enter `rerun+http://localhost:9876/proxy` if prompted for the server address). A native viewer on the host reads the same recording from `rerun+http://localhost:9876/proxy`. With `VIEWS=vnc` (or `RERUN_SINK=spawn`), the bridge instead opens the native viewer on `:99`, where it draws through Mesa's software GL and occupies the top of the left pane.
+The Rerun bridge (`legged_nmpc/legged_rerun_viewer`) maps the bus's messages onto Rerun. With `VIEWS=browser`, the default, it runs with `--rerun_sink serve_web`. It serves the web viewer on port `9090` and the recording on port `9876` (gRPC), both published, so you only need to open `http://localhost:9090/?url=rerun+http://localhost:9876/proxy` in your host browser (or enter `rerun+http://localhost:9876/proxy` if prompted for the server address). A native viewer on the host reads the same recording from `rerun+http://localhost:9876/proxy`. With `VIEWS=vnc` (or `RERUN_SINK=spawn`), the bridge instead opens the native viewer on `:99`, where it draws through Mesa's software GL and occupies the top of the left pane.
 <!-- LINT.ThenChange(//docker-compose.bridge.yaml:rerun_ports, //.devcontainer/devcontainer.json:rerun_ports) -->
 
 ## MuJoCo Web Viewer
@@ -117,7 +117,7 @@ The Rerun bridge (`humanoid_nmpc/humanoid_rerun_viewer`) maps the bus's messages
 <!-- LINT.IfChange(web_viewer_port) -->
 The robot process draws the MuJoCo simulation in a browser tab by default, instead of a window on `:99`: a `-sim`
 target opens it at `http://localhost:6090` (the target prints the URL). The plot configuration chooses the viewer by
-name (`mujoco_viewer` in `humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto`, or the file `PLOT_CONFIG=`
+name (`mujoco_viewer` in `legged_nmpc/legged_rerun_viewer/config/plot_config.textproto`, or the file `PLOT_CONFIG=`
 names), and `VIEWER=` overrides it:
 
 ```bash
@@ -210,7 +210,7 @@ Its `-vnc` twin is the same target with `VIEWS=vnc`: everything on the VNC deskt
 | `make launch-tron1-mpc-vnc NETWORK=<file>` | LimX Dynamics Tron1 centroidal MPC - the laptop side against the robot |
 <!-- LINT.ThenChange(//Makefile:launch_targets, //Makefile:robot_configurations) -->
 
-The DRC Atlas's multi-contact scenarios (humanoid_nmpc/docs/multi_contact_planning/README.md) have a dummy sim each:
+The DRC Atlas's multi-contact scenarios (legged_nmpc/docs/multi_contact_planning/README.md) have a dummy sim each:
 the centroidal MPC tracking the scenario's offline plan, with the terrain in Rerun.
 
 <!-- LINT.IfChange(multi_contact_targets) -->
@@ -264,7 +264,7 @@ export GALLIUM_DRIVER=llvmpipe
 export MESA_GL_VERSION_OVERRIDE=3.3
 
 # 4. Launch whatever you want, e.g. the processes of a launch file
-#    (humanoid_nmpc/docs/distributed_runtime/README.md, "Launching")
+#    (legged_nmpc/docs/distributed_runtime/README.md, "Launching")
 ```
 
 > **Note:** The launch targets start the VNC desktop and point `DISPLAY` at it themselves (`VIEWS=browser|vnc`). The manual exports above are only needed for programs you start yourself.

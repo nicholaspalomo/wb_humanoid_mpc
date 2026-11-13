@@ -52,7 +52,7 @@ frame stands on the ground in the default stances like a sole's frame; its tilt 
 
 A rolling contact (task file model_settings.contacts_rolling), a wheel, carries a force at the wheel's lowest point, which
 moves over the rim as the wheel turns: its frame is the wheel center (pos_wheel_rt_link_ewrt_link on the wheel's own
-joint), and its contact point is the center a wheel radius below, on flat ground (humanoid_nmpc/docs/rolling_contact).
+joint), and its contact point is the center a wheel radius below, on flat ground (legged_nmpc/docs/rolling_contact).
 That point stands on the ground in the default stances within the 1 mm. Its MuJoCo wheel is exactly one collision geom in
 the wheel joint's body and the bodies below it, a cylinder coaxial with the wheel joint's axis, centered at the wheel
 center and of the task file's wheel_radius, each within the 1 mm: another geom would roll on another radius or touch the
@@ -73,8 +73,8 @@ import os
 import unittest
 from xml.etree import ElementTree
 
-from humanoid_mpc_config import reference_file_pb2
-from humanoid_mpc_config import task_file_pb2
+from legged_mpc_config import reference_file_pb2
+from legged_mpc_config import task_file_pb2
 import mujoco
 import numpy as np
 

@@ -1,0 +1,110 @@
+/******************************************************************************
+Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
+Copyright (c) 2024, 1X Technologies. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#pragma once
+
+#include <array>
+#include <cstddef>
+
+#include "absl/log/absl_check.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+
+#include "legged_common_mpc/common/Types.h"
+#include "legged_common_mpc/contact/ContactPolygon.h"
+
+namespace ocs2::legged {
+
+///
+/// \brief Maps a contact wrench to a set of forces, applied in each corner of
+/// the contact polygon, that is equivalent to it and has the smallest sum of l2
+/// norms: what the viewer draws of a foot's planned wrench.
+///
+/// \param[in] contactPolygon A contact polygon specifying all the corners of
+/// the polygon in the local foot frame.
+///
+/// Immutable after construction, so concurrent reads are safe.
+template <int N_POLYGON_POINTS>
+class ContactWrenchMapper {
+ public:
+  ContactWrenchMapper(const ContactWrenchMapper&) = default;
+  ContactWrenchMapper& operator=(const ContactWrenchMapper&) = default;
+  ContactWrenchMapper(ContactWrenchMapper&&) = default;
+  ContactWrenchMapper& operator=(ContactWrenchMapper&&) = default;
+  ~ContactWrenchMapper() = default;
+
+  explicit ContactWrenchMapper(const ContactPolygon& contactPolygon) {
+    ABSL_CHECK_EQ(
+        static_cast<size_t>(N_POLYGON_POINTS),
+        static_cast<size_t>(contactPolygon.getNumberOfContactPoints()))
+        << "ContactWrenchMapper: the contact polygon has another number of "
+           "points than the template";
+
+    // The wrench [force, moment] of the corner forces: A f.
+    Eigen::Matrix<scalar_t, kWrenchDim, kCornerForcesDim> A =
+        Eigen::Matrix<scalar_t, kWrenchDim, kCornerForcesDim>::Zero();
+    for (int i = 0; i < N_POLYGON_POINTS; ++i) {
+      A.block(0, kForceDim * i, kForceDim, kForceDim) = matrix3_t::Identity();
+      A.block(kForceDim, kForceDim * i, kTorqueDim, kForceDim) =
+          contactPolygon.getCrossProductMatrixPosCornerRtContactEwrtContact(i);
+    }
+    mapWrenchToVisualizationForces_ =
+        A.transpose() * (A * A.transpose()).inverse();
+  }
+
+  /// \brief Converts a contact wrench into an a set of equivalent contact
+  /// forces at the corner of the contact polygon
+  ///
+  /// \param[in] wrenchContactEwrtContact Expressed in the local contact frame
+  ///
+  /// \param[out] forceCornersEwrtContact vector of 3D contact forces
+
+  std::array<vector3_t, N_POLYGON_POINTS> computeForceCornersEwrtContact(
+      const vector6_t& wrenchContactEwrtContact) const {
+    std::array<vector3_t, N_POLYGON_POINTS> forceCornersEwrtContact;
+    Eigen::Matrix<scalar_t, kCornerForcesDim, 1>
+        stackedForceCornersEwrtContact =
+            mapWrenchToVisualizationForces_ * wrenchContactEwrtContact;
+    for (int i = 0; i < N_POLYGON_POINTS; ++i) {
+      forceCornersEwrtContact[i]
+          << (stackedForceCornersEwrtContact.segment(kForceDim * i, kForceDim));
+    }
+    return forceCornersEwrtContact;
+  }
+
+ private:
+  /** The entries of the stacked corner forces f, one force per corner. */
+  static constexpr int kCornerForcesDim = kForceDim * N_POLYGON_POINTS;
+
+  Eigen::Matrix<scalar_t, kCornerForcesDim, kWrenchDim>
+      mapWrenchToVisualizationForces_;
+};
+
+}  // namespace ocs2::legged

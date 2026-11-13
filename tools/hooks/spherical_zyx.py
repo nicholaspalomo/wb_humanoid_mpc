@@ -28,12 +28,12 @@
 """Keeps the Euler root joint out of the MPC: no `SphericalZYX` in the MPC's code.
 
 The MPC's floating base is Pinocchio's Composite(Translation, Spherical) root on a unit-quaternion state
-(humanoid_nmpc/docs/quaternion_base_orientation/README.md, sections 2.2 and 4.1). The SphericalZYX root it replaced
+(legged_nmpc/docs/quaternion_base_orientation/README.md, sections 2.2 and 4.1). The SphericalZYX root it replaced
 parameterizes the attitude by Euler angles, whose rates are singular at a pitch of ±90° and whose yaw wraps; a model
 built on it again would bring the singular velocity map, and its gimbal-locked mass matrix, back into the dynamics.
 
   spherical-zyx  an identifier containing `SphericalZYX` (`JointModelSphericalZYX`, `JointModelSphericalZYXTpl`, ...)
-                 in the C++ code of humanoid_nmpc/, robot_runtime/ and lib/ocs2/pinocchio/centroidal_model/. Comments
+                 in the C++ code of legged_nmpc/, robot_runtime/ and lib/ocs2/pinocchio/centroidal_model/. Comments
                  and string literals are not read: they may name the old root.
 
 The equivalence tests build the Euler root on purpose, as the oracle the quaternion root is compared with; each such
@@ -45,14 +45,15 @@ line says so with `NOLINT(spherical-zyx): <reason>`.
 from tools.hooks import check_types
 from tools.hooks import cpp_source
 from tools.hooks import lint_files
+from tools.hooks import repo_layout
 
 NAME = "spherical-zyx"
 
 # The directories whose models must use the quaternion root.
 DIRS = (
-    "humanoid_nmpc/",
-    "robot_runtime/",
-    "lib/ocs2/pinocchio/centroidal_model/",
+    repo_layout.NMPC_DIR,
+    repo_layout.ROBOT_RUNTIME_DIR,
+    repo_layout.LIB_OCS2_DIR + "pinocchio/centroidal_model/",
 )
 _BANNED = "SphericalZYX"
 
@@ -81,17 +82,17 @@ CHECKS = [
         scope=lint_files.Scope.FIRST_PARTY_AND_OCS2,
         check_source=_findings,
         description=(
-            "no SphericalZYX root joint in humanoid_nmpc/, robot_runtime/ or"
+            "no SphericalZYX root joint in legged_nmpc/, robot_runtime/ or"
             " lib/ocs2/pinocchio/centroidal_model/: the base is a unit"
             " quaternion"
-            " (humanoid_nmpc/docs/quaternion_base_orientation/README.md)."
+            " (legged_nmpc/docs/quaternion_base_orientation/README.md)."
         ),
         hint=(
             "Build the root as pinocchio::JointModelComposite of"
             " JointModelTranslation and JointModelSpherical"
-            " (humanoid_common_mpc/pinocchio_model/createPinocchioModel.cpp);"
+            " (legged_common_mpc/pinocchio_model/createPinocchioModel.cpp);"
             " read Euler angles through"
-            " humanoid_common_mpc/orientation/EulerBoundary.h."
+            " legged_common_mpc/orientation/EulerBoundary.h."
         ),
     ),
 ]

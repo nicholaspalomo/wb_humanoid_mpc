@@ -81,7 +81,7 @@ Eigen::Quaternion<SCALAR_T> getQuaternionFromEulerAnglesZyx(const Eigen::Matrix<
 
 /**
  * The floor of the squared norm |a x b|^2 + (1 + a.b)^2 = 2 (1 + a.b) that getQuaternionFromUnitVectors() normalizes by:
- * twice the anti-parallel threshold 1 + a.b < 1e-6 of the humanoid MPC's end-effector tilt relative to a surface
+ * twice the anti-parallel threshold 1 + a.b < 1e-6 of the legged MPC's end-effector tilt relative to a surface
  * (tiltEesRtSurfaceEwrtWorld, kPlaneNormalAntiParallelThreshold), below which the shortest arc is not differentiable.
  */
 inline constexpr scalar_t kShortestArcSquaredNormFloor = 2.0e-6;

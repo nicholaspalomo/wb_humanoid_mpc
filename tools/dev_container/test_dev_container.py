@@ -27,7 +27,7 @@
 
 """Pins what the ROS-free dev container, its image and CI's copy of its setup provide.
 
-The processes talk over Cyclone DDS + Protocol Buffers and draw with Rerun (humanoid_nmpc/docs/distributed_runtime), so the
+The processes talk over Cyclone DDS + Protocol Buffers and draw with Rerun (legged_nmpc/docs/distributed_runtime), so the
 image is plain Ubuntu with Pinocchio from robotpkg and one VNC display for the MuJoCo viewer and the operator GUI. These
 tests keep ROS from coming back through the image, CI or the container definition; keep the image, CI and the local CI
 emulator on one base, one Pinocchio and one environment; and keep the ports the processes listen on published. They

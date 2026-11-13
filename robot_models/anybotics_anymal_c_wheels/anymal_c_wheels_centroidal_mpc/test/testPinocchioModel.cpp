@@ -51,10 +51,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/multibody/fwd.hpp"
 
-#include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_common_mpc/config/ConfigFiles.h"
-#include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
-#include "humanoid_mpc_config/task_file.nproto.h"
+#include "legged_common_mpc/common/ModelSettings.h"
+#include "legged_common_mpc/config/ConfigFiles.h"
+#include "legged_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "legged_mpc_config/task_file.nproto.h"
 #include "robot_core/ResourcePaths.h"
 
 /**
@@ -65,7 +65,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * configuration coordinate per joint.
  */
 
-namespace ocs2::humanoid {
+namespace ocs2::legged {
 namespace {
 
 // Relative to the repository root.
@@ -237,7 +237,7 @@ int printModels() {
 }
 
 }  // namespace
-}  // namespace ocs2::humanoid
+}  // namespace ocs2::legged
 
 int main() {
   // Route Abseil log records to stderr. Without InitializeLog() Abseil warns
@@ -246,7 +246,7 @@ int main() {
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   try {
-    return ocs2::humanoid::printModels();
+    return ocs2::legged::printModels();
   } catch (const std::exception&
                error) {  // Pinocchio reports a URDF it cannot read by throwing.
     LOG(ERROR) << error.what();

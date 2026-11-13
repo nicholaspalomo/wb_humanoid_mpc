@@ -28,7 +28,7 @@
 
 """robot_ipc: the Cyclone DDS bus of the distributed runtime, in Python (the twin of robot_runtime/robot_ipc in C++).
 
-See robot_runtime/robot_ipc/README.md and humanoid_nmpc/docs/distributed_runtime/README.md.
+See robot_runtime/robot_ipc/README.md and legged_nmpc/docs/distributed_runtime/README.md.
 """
 
 from robot_ipc import bus

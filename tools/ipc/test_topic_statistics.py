@@ -134,10 +134,10 @@ class TopicCensusTest(unittest.TestCase):
         for receive_time in (0.0, 0.5, 1.0):
             census.add(
                 "robot/state",
-                "humanoid_mpc_msgs.RobotStateSample",
+                "legged_mpc_msgs.RobotStateSample",
                 receive_time,
             )
-        census.add("mpc/status", "humanoid_mpc_msgs.MpcStatus", 0.2)
+        census.add("mpc/status", "legged_mpc_msgs.MpcStatus", 0.2)
         summaries = census.summaries()
         self.assertEqual(
             [summary.topic for summary in summaries],
@@ -152,16 +152,16 @@ class TopicCensusTest(unittest.TestCase):
 
     def test_a_topic_with_two_types_lists_both(self) -> None:
         census = topic_statistics.TopicCensus()
-        census.add("operator/fsm_command", "humanoid_mpc_msgs.FsmCommand", 0.0)
+        census.add("operator/fsm_command", "legged_mpc_msgs.FsmCommand", 0.0)
         census.add(
             "operator/fsm_command",
-            "humanoid_mpc_msgs.WalkingVelocityCommand",
+            "legged_mpc_msgs.WalkingVelocityCommand",
             0.1,
         )
         table = topic_statistics.format_census(census.summaries())
         self.assertIn(
-            "humanoid_mpc_msgs.FsmCommand,"
-            " humanoid_mpc_msgs.WalkingVelocityCommand",
+            "legged_mpc_msgs.FsmCommand,"
+            " legged_mpc_msgs.WalkingVelocityCommand",
             table,
         )
 

@@ -1,0 +1,81 @@
+# ==============================================================================
+# Legged Learning - Tests
+# ==============================================================================
+
+load("@rl_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_test")
+
+package(default_visibility = ["//visibility:public"])
+
+py_test(
+    name = "test_rl_imports",
+    size = "medium",
+    srcs = ["test_rl_imports.py"],
+    deps = [
+        "//legged_learning/envs",
+        "//legged_learning/training:training_lib",
+        requirement("absl-py"),
+        requirement("brax"),
+        requirement("flax"),
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("mujoco"),
+        requirement("mujoco-mjx"),
+        requirement("numpy"),
+        requirement("onnx"),
+        requirement("optax"),
+        requirement("playground"),
+    ],
+)
+
+# The heading-frame tracking, observation, seeded reset and time steps of the base environment.
+py_test(
+    name = "test_base_env",
+    size = "medium",
+    srcs = ["test_base_env.py"],
+    deps = [
+        "//legged_learning/envs",
+        requirement("brax"),
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("mujoco"),
+        requirement("mujoco-mjx"),
+        requirement("numpy"),
+    ],
+)
+
+# The actor-critic network, the behavioral cloning warmstart and the ONNX export of its policy.
+py_test(
+    name = "test_actor_critic",
+    size = "medium",
+    srcs = ["test_actor_critic.py"],
+    deps = [
+        "//legged_learning/export:export_lib",
+        "//legged_learning/training:training_lib",
+        requirement("flax"),
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("numpy"),
+        requirement("onnx"),
+        requirement("optax"),
+    ],
+)
+
+py_test(
+    name = "test_cartpole",
+    size = "medium",
+    srcs = ["test_cartpole.py"],
+    deps = [
+        "//legged_learning/examples:examples_lib",
+        requirement("brax"),
+        requirement("flax"),
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("matplotlib"),
+        requirement("mujoco"),
+        requirement("mujoco-mjx"),
+        requirement("numpy"),
+        requirement("optax"),
+        requirement("pillow"),
+    ],
+)

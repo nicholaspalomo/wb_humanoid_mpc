@@ -176,6 +176,7 @@ cc_test(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
+        "@protobuf",
     ],
 )
 
@@ -226,7 +227,7 @@ py_test(
     deps = ["//tools/nproto:nproto_layout"],
 )
 
-# The generated code of the test protos, of humanoid_mpc_msgs and of humanoid_mpc_config is clang-format clean and
+# The generated code of the test protos, of legged_mpc_msgs and of legged_mpc_config is clang-format clean and
 # follows the repository's rules: every C++ lint check of the registry finds nothing, and the struct headers include no
 # protobuf.
 py_test(
@@ -236,8 +237,8 @@ py_test(
     data = [
         ":test_nproto_files",
         "//:.clang-format",
-        "//humanoid_nmpc/humanoid_mpc_config:config_nproto_files",
-        "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto_files",
+        "//legged_nmpc/legged_mpc_config:config_nproto_files",
+        "//legged_nmpc/legged_mpc_msgs:messages_nproto_files",
     ],
     deps = [
         "//tools/hooks:checks",

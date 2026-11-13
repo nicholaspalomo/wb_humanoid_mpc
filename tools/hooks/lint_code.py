@@ -34,7 +34,7 @@ Run it from the repository root as a module:
     python3 -m tools.hooks.lint_code --git-staged          # the files staged for commit (the pre-commit hook)
     python3 -m tools.hooks.lint_code --only no-auto,boost  # some checks or steps only
     python3 -m tools.hooks.lint_code --paths robot_runtime --only pointer-nullability --summary
-    python3 -m tools.hooks.lint_code --fix --only float-literal --paths humanoid_nmpc/humanoid_wb_mpc
+    python3 -m tools.hooks.lint_code --fix --only float-literal --paths legged_nmpc/legged_wb_mpc
     python3 -m tools.hooks.lint_code --fix-only            # every automatic fix, no lint run (the first step of make fix)
     python3 -m tools.hooks.lint_code --fix-only --git-staged   # the same on the staged files (the pre-commit hook)
 

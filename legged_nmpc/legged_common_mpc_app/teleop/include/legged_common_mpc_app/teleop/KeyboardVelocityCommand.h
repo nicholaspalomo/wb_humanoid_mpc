@@ -1,0 +1,108 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#pragma once
+
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
+
+#include "legged_common_mpc/common/Types.h"
+#include "legged_mpc_msgs/walking_velocity_command.pb.h"
+
+namespace ocs2::legged::teleop {
+
+/**
+ * The command limits of the robot's reference file, as the MPC reads them
+ * (TargetTrajectoriesCalculatorBase): the keyboard command is clamped to them
+ * and normalized by them, and the MPC scales the normalized command back by its
+ * own copy, so the two must be the same numbers.
+ */
+struct KeyboardCommandLimits {
+  /** The entries of a keyboard command and of `limits`, in this order, and
+   * their count. */
+  static constexpr int kVelocityXIndex = 0;
+  static constexpr int kVelocityYIndex = 1;
+  static constexpr int kBaseHeightChangeIndex = 2;
+  static constexpr int kYawRateIndex = 3;
+  static constexpr int kNumEntries = kYawRateIndex + 1;
+
+  /** The defaults of the entries of `limits`, in their order and units, and of
+   * nomPosBaseRtSurfaceEwrtWorldZ [m]. */
+  static constexpr scalar_t kNomCmdMaxLinvelBaseRtWorldEwrtHeadingX = 0.5;
+  static constexpr scalar_t kNomCmdMaxLinvelBaseRtWorldEwrtHeadingY = 0.3;
+  static constexpr scalar_t kNomCmdMaxErrPosBaseRtSurfaceEwrtWorldZ = 0.4;
+  static constexpr scalar_t kNomCmdMaxAngvelBaseRtWorldEwrtWorldZ = 0.5;
+  static constexpr scalar_t kNomPosBaseRtSurfaceEwrtWorldZ = 0.7;
+
+  /** [v_x m/s, v_y m/s, pelvis height change m, yaw rate rad/s]:
+   * cmd_max_linvel_base_rt_world_ewrt_heading_x,
+   * cmd_max_linvel_base_rt_world_ewrt_heading_y,
+   * cmd_max_err_pos_base_rt_surface_ewrt_world_z,
+   * cmd_max_angvel_base_rt_world_ewrt_world_z. */
+  vector4_t limits = vector4_t(kNomCmdMaxLinvelBaseRtWorldEwrtHeadingX,
+                               kNomCmdMaxLinvelBaseRtWorldEwrtHeadingY,
+                               kNomCmdMaxErrPosBaseRtSurfaceEwrtWorldZ,
+                               kNomCmdMaxAngvelBaseRtWorldEwrtWorldZ);
+  /** [m] nom_pos_base_rt_surface_ewrt_world_z: the pelvis height a zero height
+   * change commands.
+   */
+  scalar_t nomPosBaseRtSurfaceEwrtWorldZ = kNomPosBaseRtSurfaceEwrtWorldZ;
+};
+
+/**
+ * The command limits of the reference file `referenceFile` (a robot's
+ * config/command/reference.textproto, read strictly: loadReferenceFile(), then
+ * keyboardCommandLimitsFromConfig()). Every limit is required, as the MPC
+ * requires it.
+ *
+ * @return NotFound when the file does not exist; the errors of
+ * loadReferenceFile(), which name the file, the line and the column; and
+ * InvalidArgument naming the file and the field when one is missing, is not a
+ * finite number or, for the four limits, is not positive.
+ */
+absl::StatusOr<KeyboardCommandLimits> loadKeyboardCommandLimits(
+    absl::string_view referenceFile);
+
+/**
+ * The command of one typed line, "v_x v_y delta_height yaw_rate" separated by
+ * white space, of the PELVIS: words left out are 0 and words past the fourth
+ * are ignored. InvalidArgument naming the word that is not a finite number.
+ */
+absl::StatusOr<vector4_t> parseKeyboardCommandLine(absl::string_view line);
+
+/**
+ * The operator/walking_velocity_command of `command`: clamped to +-limits, the
+ * velocities normalized by their limits, the pelvis height
+ * nom_pos_base_rt_surface_ewrt_world_z plus the clamped change.
+ */
+legged_mpc_msgs::WalkingVelocityCommand keyboardCommandToMessage(
+    const vector4_t& command, const KeyboardCommandLimits& limits);
+
+}  // namespace ocs2::legged::teleop

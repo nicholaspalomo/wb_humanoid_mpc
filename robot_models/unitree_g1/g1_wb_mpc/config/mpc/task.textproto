@@ -1,18 +1,18 @@
-# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto
-# proto-message: humanoid_mpc_config.TaskFile
+# proto-file: legged_nmpc/legged_mpc_config/task_file.proto
+# proto-message: legged_mpc_config.TaskFile
 # Simulation & Telemetry Configuration
 # Where the robot process sends its telemetry (robot/state), by name (TelemetrySinkRegistry.h): bus publishes it on
 # the IPC bus for the visualization publisher, the Rerun bridge and ipc_tool; no telemetry_sinks line turns the
 # telemetry off.
 # LINT.IfChange(telemetry_sinks)
 telemetry_sinks: "bus"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h:telemetry_sink_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/include/legged_common_mpc_app/robot/TelemetrySinkRegistry.h:telemetry_sink_names)
 telemetry_frequency: 100  # [Hz] robot/state, decimated from the control loop
 # MuJoCo backend of the robot process only. The viewer's contact timeline ('b' toggles it) shows, per contact point,
 # the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
 sim_contact_timeline_window: 5.0  # [s] width of the sliding window
 sim_min_force_mjcontact_ewrt_mjcontact_x: 5.0  # [N] normal force above which a contact point counts as touching (ground truth)
-# Fall recovery (SimFallRecovery, humanoid_nmpc/docs/mpc_reset/README.md). sim_max_tiltangle_base_rt_world is the tilt of the base
+# Fall recovery (SimFallRecovery, legged_nmpc/docs/mpc_reset/README.md). sim_max_tiltangle_base_rt_world is the tilt of the base
 # past which the simulator catches the robot on the gantry, holding it upright where it is at the gantry height,
 # switching to JOINT_PD (the whole-body MPC is overconstrained against a pinned base) and resetting the controller, which
 # holds the robot until it has planned from where the robot is now. The simulator's own resets (base below the floor
@@ -54,10 +54,10 @@ gantry_hold: "weld_constraint"
 # Where the mode schedule and the footholds come from, by name (MpcFormulationConfig.h). The whole-body MPC builds the
 # gait schedule's reference manager only, so `gait_schedule` (the default) is the one name it accepts: it refuses
 # `contact_planner`, the online contact planner, which is implemented for the centroidal MPC only. It replaced the
-# useContactPlanning key, which start-up refuses. See humanoid_nmpc/docs/README.md, section 2.
+# useContactPlanning key, which start-up refuses. See legged_nmpc/docs/README.md, section 2.
 # LINT.IfChange(contact_schedule_source_config)
 contact_schedule_source: "gait_schedule"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
 
 # The ball the GUI's Dodgeball tab throws, by name (robot_runtime/mujoco_sim_interface/.../Projectile.h). MuJoCo
 # compiles its model once at load and bodies cannot be added afterwards, so naming one here appends a free-floating
@@ -102,7 +102,7 @@ sim_visualizations: "target_contact_patches"  # [g] contact patch of every foot 
 # LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/visualization/VisualizationRegistry.cpp:visualization_names)
 enable_online_tuning: true  # Enable runtime parameter and gain tuning in Controller GUI
 
-# The visualization publisher of the MPC node (humanoid_nmpc/humanoid_common_mpc_app/visualization/README.md), read at
+# The visualization publisher of the MPC node (legged_nmpc/legged_common_mpc_app/visualization/README.md), read at
 # start-up. rerun_scene_frequency bounds how often the Rerun scene (robots and markers) is sent; the plots follow every
 # robot/state sample. telemetry_frames are the frames whose pose, twist, acceleration and wrench are plotted, measured,
 # reference and plan; rerun_plan_frames (the contact frames when absent) those whose planned paths the scene draws.
@@ -131,7 +131,7 @@ costs: "input_quadratic_cost"
 costs: "terminal_cost"
 costs: "task_space_foot_cost"
 
-# Locomotion heuristics (Bledt RPC, humanoid_nmpc/docs/locomotion_heuristics/README.md) are NOT configurable here.
+# Locomotion heuristics (Bledt RPC, legged_nmpc/docs/locomotion_heuristics/README.md) are NOT configurable here.
 #
 # They are built and installed by CentroidalMpcInterface::setupLocomotionHeuristics(), and WBMpcInterface has no
 # counterpart, so nothing in the whole-body path ever reads a `locomotion_heuristics` block. A block in this file
@@ -159,7 +159,7 @@ model_settings {
     linear_velocity_error_gain_xy: 20.0
     # The angular gains multiply the rate and the acceleration of the orientation error (the sine of half the tilt;
     # along the ground normal, half the rotation rate about the foot normal), not the foot's angular velocity and
-    # acceleration: at a level foot these are w / 2 and alpha / 2 + (n.w)(n x w) / 2 (humanoid_nmpc/docs/
+    # acceleration: at a level foot these are w / 2 and alpha / 2 + (n.w)(n x w) / 2 (legged_nmpc/docs/
     # quaternion_base_orientation/README.md, section 2.8.6). Twice the 20 and 1 the gains had on w and alpha reproduce
     # the former law at a level foot up to (n.w)(n x w), times the former acceleration gain of 1, which is zero at rest.
     angular_velocity_error_gain: 40.0

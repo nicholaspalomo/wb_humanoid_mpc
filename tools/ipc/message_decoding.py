@@ -27,7 +27,7 @@
 
 """Decodes bus payloads by their full protobuf type name and prints them as protobuf text format or JSON.
 
-The envelope of every bus message names its type (`humanoid_mpc_msgs.MpcPolicy`), so a payload decodes without a
+The envelope of every bus message names its type (`legged_mpc_msgs.MpcPolicy`), so a payload decodes without a
 topic registry: once every generated module of the message packages is imported, the default descriptor pool knows
 every type, and the message factory builds the class from the descriptor.
 """
@@ -48,10 +48,10 @@ from google.protobuf import message_factory
 from google.protobuf import text_format
 
 # The Python packages of the messages on the bus: the bus messages, and the configuration files the tuning GUI publishes
-# whole on operator/mpc_parameters and operator/pd_gains (humanoid_mpc_config.MpcParameterUpdate, JointPdGainsFile).
+# whole on operator/mpc_parameters and operator/pd_gains (legged_mpc_config.MpcParameterUpdate, JointPdGainsFile).
 # LINT.IfChange(message_packages)
-MESSAGE_PACKAGES: tuple[str, ...] = ("humanoid_mpc_msgs", "humanoid_mpc_config")
-# LINT.ThenChange(//humanoid_nmpc/remote_control/test/test_operator_topics.py)
+MESSAGE_PACKAGES: tuple[str, ...] = ("legged_mpc_msgs", "legged_mpc_config")
+# LINT.ThenChange(//legged_nmpc/remote_control/test/test_operator_topics.py)
 GENERATED_MODULE_SUFFIX = "_pb2"
 
 

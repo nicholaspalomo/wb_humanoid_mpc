@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package legged_mpc_msgs;
+
+import "nproto/options.proto";
+
+// The package before the humanoid -> legged rename, which the header of a file saved before it gives.
+option (nproto.former_package) = "humanoid_mpc_msgs";
+
+// Next ID: 4
+message Vector3 {
+  option (nproto.generate_struct) = "ocs2::legged::msgs::Vector3";
+
+  reserved 4 to max;
+
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}

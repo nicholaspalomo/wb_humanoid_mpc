@@ -14,8 +14,8 @@ This directory holds two Bazel packages:
 | [`anymal_c_wheels_centroidal_mpc`](anymal_c_wheels_centroidal_mpc/README.md) | the centroidal MPC configuration: `config/mpc/task.textproto`, `config/command/reference.textproto` and `config/controller/joint_pd_gains.textproto`, the launch files `launch/{robot,mpc,dummy_sim}.textproto`, and the Pinocchio playground `test_pinocchio_model` |
 
 The centroidal MPC plans on one rolling contact per wheel (`model_settings.contacts_rolling`,
-[`rolling_contact`](../../humanoid_nmpc/docs/rolling_contact/README.md)) with the wheeled quadrupeds' gait file
-`humanoid_nmpc/humanoid_common_mpc/config/command/wheeled_quadruped_gait.textproto`: it drives on its four wheels and
+[`rolling_contact`](../../legged_nmpc/docs/rolling_contact/README.md)) with the wheeled quadrupeds' gait file
+`legged_nmpc/legged_common_mpc/config/command/wheeled_quadruped_gait.textproto`: it drives on its four wheels and
 turns in a trot. The state and input weights start from
 ANYmal B's and the OCS2 example's ANYmal C: the momentum and base-pose weights as they are, the force weights scaled by
 the square of the mass ratio to the OCS2 example's ANYmal C, the leg joint velocity weights from the wheel Jacobians,
@@ -43,7 +43,7 @@ fixed in the world.
 
 ## Validation
 
-The headless lockstep closed loop in MuJoCo (`humanoid_nmpc/humanoid_mpc_validation`, configuration
+The headless lockstep closed loop in MuJoCo (`legged_nmpc/legged_mpc_validation`, configuration
 `anymal_c_wheels`) runs `standing`, `walk_0p5` (a 0.5 m/s drive on the wheels, on the `drive` gait) and
 `turn_in_place_720` (on the `turning_trot`), and fails when the robot falls in `walk_0p5`. Label
 `2026-11-12_anymal_c_wheels` recorded the shipped configuration (`make closed-loop-metrics ROBOT=anymal_c_wheels
@@ -51,8 +51,8 @@ LABEL=2026-11-12_anymal_c_wheels RECORD_STATES=1`), and the robot is held to the
 still, drives at 0.496 m/s against the 0.5 m/s command with every wheel in measured contact throughout, and turns at
 0.484 rad/s against 0.5 rad/s through 11.78 of the commanded 12.57 rad. The metrics, the solve benchmark and the runs
 that did not turn (on the drive gait, with a soft no-slip constraint and on a trot without four-wheel phases) are in
-[the label's README](../../humanoid_nmpc/humanoid_mpc_validation/data/closed_loop/2026-11-12_anymal_c_wheels/README.md).
-`humanoid_nmpc/humanoid_centroidal_mpc:testAnymalCWheelsLockstepLoop` runs a shorter drive and turn in the same loop.
+[the label's README](../../legged_nmpc/legged_mpc_validation/data/closed_loop/2026-11-12_anymal_c_wheels/README.md).
+`legged_nmpc/legged_centroidal_mpc:testAnymalCWheelsLockstepLoop` runs a shorter drive and turn in the same loop.
 
 The closed-loop runs set three values of the configuration: the gait file (`wheeled_quadruped_gait.textproto` instead
 of the wheeled bipeds' `wheeled_gait.textproto`, whose drive gait cannot yaw a base on four parallel axles),

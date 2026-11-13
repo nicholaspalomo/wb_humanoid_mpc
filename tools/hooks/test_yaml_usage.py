@@ -45,8 +45,8 @@ class ConfigYamlTest(unittest.TestCase):
     def test_a_yaml_file_in_a_configuration_directory_is_flagged(self):
         for path in (
             "robot_models/my_robot/my_robot_mpc/config/mpc/task.yaml",
-            "humanoid_nmpc/humanoid_common_mpc/config/command/gait.yml",
-            "humanoid_nmpc/x/TASK.YAML",
+            "legged_nmpc/legged_common_mpc/config/command/gait.yml",
+            "legged_nmpc/x/TASK.YAML",
         ):
             with self.subTest(path=path):
                 self.assertEqual(
@@ -137,7 +137,7 @@ class YamlCppTest(unittest.TestCase):
 class RepositoryTest(unittest.TestCase):
     def test_the_check_lists_the_configuration_directories(self):
         self.assertEqual(
-            yaml_usage.CONFIG_DIRS, ("robot_models/", "humanoid_nmpc/")
+            yaml_usage.CONFIG_DIRS, ("robot_models/", "legged_nmpc/")
         )
 
 

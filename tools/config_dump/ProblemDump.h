@@ -35,11 +35,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
-#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
-#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "legged_common_mpc/common/MpcRobotModelBase.h"
+#include "legged_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "tools/config_dump/ValueDump.h"
 
-namespace ocs2::humanoid::config_dump {
+namespace ocs2::legged::config_dump {
 
 /**
  * The optimal control problem `problem` as the solver sees it, with its weights
@@ -63,4 +63,4 @@ void dumpProblem(ValueDump& dump,
                  const vector_t& initialState,
                  const MpcRobotModelBase<scalar_t>& robotModel);
 
-}  // namespace ocs2::humanoid::config_dump
+}  // namespace ocs2::legged::config_dump

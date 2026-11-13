@@ -4,7 +4,7 @@ load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 # tools/config_registries - the names each registry of the stack accepts, collected from the linked registries into the
-# committed humanoid_nmpc/humanoid_mpc_config/config_registries.textproto, which the tuning GUI offers as the choices
+# committed legged_nmpc/legged_mpc_config/config_registries.textproto, which the tuning GUI offers as the choices
 # of a registry string (README.md):
 #
 #   bazel run //tools/config_registries:print_config_registries
@@ -18,12 +18,12 @@ cc_library(
     hdrs = ["ConfigRegistries.h"],
     copts = FIRST_PARTY_COPTS,
     deps = [
-        "//humanoid_nmpc/humanoid_centroidal_mpc",
-        "//humanoid_nmpc/humanoid_common_mpc",
-        "//humanoid_nmpc/humanoid_common_mpc:contact_planning_core",
-        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
-        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
-        "//humanoid_state_estimation/humanoid_state_estimator:state_estimator",
+        "//legged_nmpc/legged_centroidal_mpc",
+        "//legged_nmpc/legged_common_mpc",
+        "//legged_nmpc/legged_common_mpc:contact_planning_core",
+        "//legged_nmpc/legged_common_mpc_app/robot:robot_process",
+        "//legged_nmpc/legged_mpc_config:config_nproto",
+        "//legged_state_estimation/legged_state_estimator:state_estimator",
         "//robot_runtime/mujoco_sim_interface",
         "//robot_runtime/robot_model",
         "@abseil-cpp//absl/strings",
@@ -38,7 +38,7 @@ cc_binary(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":config_registries",
-        "//humanoid_nmpc/humanoid_common_mpc_app/node:exit_codes",
+        "//legged_nmpc/legged_common_mpc_app/node:exit_codes",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/flags:parse",
         "@abseil-cpp//absl/log",
@@ -53,16 +53,16 @@ cc_test(
     size = "small",
     srcs = ["testConfigRegistries.cpp"],
     copts = FIRST_PARTY_COPTS,
-    data = ["//humanoid_nmpc/humanoid_mpc_config:config_registries.textproto"],
+    data = ["//legged_nmpc/legged_mpc_config:config_registries.textproto"],
     deps = [
         ":config_registries",
-        "//humanoid_nmpc/humanoid_centroidal_mpc",
-        "//humanoid_nmpc/humanoid_common_mpc",
-        "//humanoid_nmpc/humanoid_common_mpc:contact_planning_core",
-        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
-        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
-        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
-        "//humanoid_state_estimation/humanoid_state_estimator:state_estimator",
+        "//legged_nmpc/legged_centroidal_mpc",
+        "//legged_nmpc/legged_common_mpc",
+        "//legged_nmpc/legged_common_mpc:contact_planning_core",
+        "//legged_nmpc/legged_common_mpc_app/robot:robot_process",
+        "//legged_nmpc/legged_mpc_config:config_cc_proto",
+        "//legged_nmpc/legged_mpc_config:config_nproto",
+        "//legged_state_estimation/legged_state_estimator:state_estimator",
         "//robot_runtime/mujoco_sim_interface",
         "//robot_runtime/robot_model",
         "//tools/nproto:nproto_runtime",

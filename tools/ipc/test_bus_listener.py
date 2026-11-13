@@ -39,7 +39,7 @@ import bus_listener
 import bus_test_publisher
 import robot_ipc
 
-TYPE_NAME = "humanoid_mpc_msgs.FsmCommand"
+TYPE_NAME = "legged_mpc_msgs.FsmCommand"
 # Generous: a loaded CI machine may take a while to discover, and a passing test returns as soon as it receives.
 RECEIVE_TIMEOUT_S = 10.0
 

@@ -1,5 +1,5 @@
-# proto-file: humanoid_nmpc/humanoid_mpc_config/reference_file.proto
-# proto-message: humanoid_mpc_config.ReferenceFile
+# proto-file: legged_nmpc/legged_mpc_config/reference_file.proto
+# proto-message: legged_mpc_config.ReferenceFile
 ref_speed_base_rt_world: 0.5
 ref_rate_yaw_base_rt_world: 0.5
 

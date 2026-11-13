@@ -54,6 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "google/protobuf/message.h"
 #include "google/protobuf/text_format.h"
 
+#include "nproto/options.pb.h"
 #include "nproto/retired_field.pb.h"
 #include "nproto/retired_field_options.pb.h"
 
@@ -348,6 +349,50 @@ std::string formatProblem(absl::string_view text,
 
 }  // namespace
 
+// LINT.IfChange(former_package)
+bool HeaderNamesMessage(absl::string_view headerName,
+                        const google::protobuf::Descriptor& descriptor) {
+  const absl::string_view fullName = descriptor.full_name();
+  if (headerName == fullName) {
+    return true;
+  }
+  const google::protobuf::FileDescriptor* absl_nonnull file = descriptor.file();
+  const absl::string_view package = file->package();
+  const std::string& formerPackage =
+      file->options().GetExtension(former_package);
+  if (formerPackage.empty() || package.empty()) {
+    return false;
+  }
+  // The name below the package, with its leading dot: ".TaskFile".
+  const absl::string_view nameInPackage = fullName.substr(package.size());
+  return absl::ConsumePrefix(&headerName, formerPackage) &&
+         headerName == nameInPackage;
+}
+
+std::string CanonicalHeaderText(
+    absl::string_view text, const google::protobuf::Descriptor& descriptor) {
+  const std::optional<HeaderMessage> header = headerMessage(text);
+  const absl::string_view fullName = descriptor.full_name();
+  if (!header.has_value() || header->fullName == fullName ||
+      !HeaderNamesMessage(header->fullName, descriptor)) {
+    return std::string(text);
+  }
+  // The header's line exists: headerMessage() read it.
+  size_t lineStart = 0;
+  for (int line = kFirstLine; line < header->line; ++line) {
+    lineStart = text.find('\n', lineStart) + 1;
+  }
+  const size_t lineEnd = text.find('\n', lineStart);
+  const absl::string_view headerLine =
+      lineEnd == absl::string_view::npos
+          ? text.substr(lineStart)
+          : text.substr(lineStart, lineEnd - lineStart);
+  const size_t nameStart = lineStart + headerLine.find(header->fullName);
+  return absl::StrCat(text.substr(0, nameStart), fullName,
+                      text.substr(nameStart + header->fullName.size()));
+}
+// LINT.ThenChange(//tools/nproto/options.proto:former_package, //tools/nproto/nproto_textproto.py:former_package)
+
 absl::Status CheckProtoMessageHeader(
     absl::string_view text,
     absl::string_view sourceName,
@@ -369,7 +414,8 @@ absl::Status ParseTextprotoInto(
   const google::protobuf::Descriptor* absl_nonnull descriptor =
       message->GetDescriptor();
   const std::optional<HeaderMessage> header = headerMessage(text);
-  if (header.has_value() && header->fullName != descriptor->full_name()) {
+  if (header.has_value() &&
+      !HeaderNamesMessage(header->fullName, *descriptor)) {
     return absl::InvalidArgumentError(absl::StrCat(
         sourceName, ":", header->line, ":1: ", sourceName, " is a ",
         header->fullName, " (its '# proto-message:' header), not a ",

@@ -69,10 +69,10 @@ namespace nproto {
  * "'<name>' is retired: <replacement>"; otherwise the unknown-field error says
  * "Did you mean ..." when the snake-cased name is a field, and ends with the
  * message's (nproto.retired_layout_hint). A `text` whose leading comment block
- * names another message (`# proto-message: pkg.Other`) is refused before it is
- * parsed. A `text` without the header parses: it is text from memory (a bus
- * payload, a test); a file must have one (ParseTextprotoFileInto(),
- * CheckProtoMessageHeader()).
+ * names another message (`# proto-message: pkg.Other`, HeaderNamesMessage()) is
+ * refused before it is parsed. A `text` without the header parses: it is text
+ * from memory (a bus payload, a test); a file must have one
+ * (ParseTextprotoFileInto(), CheckProtoMessageHeader()).
  */
 absl::Status ParseTextprotoInto(
     absl::string_view text,
@@ -80,14 +80,38 @@ absl::Status ParseTextprotoInto(
     google::protobuf::Message* absl_nonnull message);
 
 /**
+ * Whether `headerName`, the full name a `# proto-message:` header gives, names
+ * the message `descriptor`: its full name, or, when the message's file sets
+ * (nproto.former_package), the full name it had in that package
+ * (`humanoid_mpc_config.TaskFile` for `legged_mpc_config.TaskFile`), so that a
+ * file saved before a package rename still loads (tools/nproto/README.md,
+ * "Renamed packages"). Any other name is another message.
+ */
+bool HeaderNamesMessage(absl::string_view headerName,
+                        const google::protobuf::Descriptor& descriptor);
+
+/**
+ * Returns `text` with a `# proto-message:` header that gives the former full
+ * name of `descriptor` (HeaderNamesMessage()) rewritten to its current one.
+ * Every other byte, and a text whose header gives the current name, another
+ * message or nothing, is returned as it is. The twin of Python's
+ * nproto_textproto.canonical_header_text(): what a save writes, and the form in
+ * which the robot's configuration store compares a stored file with its seed,
+ * so that a header-only rename is no change. Costs one copy of `text`.
+ */
+std::string CanonicalHeaderText(absl::string_view text,
+                                const google::protobuf::Descriptor& descriptor);
+
+/**
  * Checks that the textproto `text` of a configuration file names its schema:
  * InvalidArgument
  * "<sourceName>:1:1: <sourceName> names no schema: ..." when its leading
  * comment block has no `# proto-message:` line (tools/nproto/README.md,
  * "Textproto configuration files"); `descriptor` is the message the error
- * suggests. Whether the line names `descriptor` is ParseTextprotoInto()'s
- * check. For text that is, or becomes, a file: a file without the header could
- * be read as any message whose fields it happens to match.
+ * suggests. Whether the line names `descriptor` (HeaderNamesMessage()) is
+ * ParseTextprotoInto()'s check. For text that is, or becomes, a file: a file
+ * without the header could be read as any message whose fields it happens to
+ * match.
  */
 absl::Status CheckProtoMessageHeader(
     absl::string_view text,

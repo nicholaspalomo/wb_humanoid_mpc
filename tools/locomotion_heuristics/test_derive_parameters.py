@@ -35,14 +35,14 @@ reads back as exactly what was derived, and that every key the script prints is 
 
 Three classes, split by what they need:
   * ShippedConfigurationTest reads the shipped task files and gait table with the standard library alone (the
-    textproto reader of humanoid_mpc_config/python, config_textproto.textproto_document): the default-off rule, the key
+    textproto reader of legged_mpc_config/python, config_textproto.textproto_document): the default-off rule, the key
     tables, the friction cone, the gait cadence and the speed ladder.
   * DerivationPropertiesTest runs derive_parameters() and the output helpers against a synthetic geometry, so no URDF
     is parsed.
   * DeriveParametersTest builds the real models with pinocchio, and is skipped where pinocchio is not importable.
 The first two run on any interpreter with numpy (the script imports numpy). That is what keeps the default-off guard
 for SA01, G1 and R1 alive outside the dev container, where the third class is skipped. The files' key names are the
-schemas' (humanoid_nmpc/humanoid_mpc_config/*.proto), which the tests read as text.
+schemas' (legged_nmpc/legged_mpc_config/*.proto), which the tests read as text.
 """
 
 import contextlib
@@ -65,20 +65,20 @@ SCRIPT = os.path.join(
     REPO_ROOT, "tools", "locomotion_heuristics", "derive_parameters.py"
 )
 GAIT_FILE = os.path.join(
-    REPO_ROOT, "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto"
+    REPO_ROOT, "legged_nmpc/legged_common_mpc/config/command/gait.textproto"
 )
-CONFIG_SCHEMAS = os.path.join(REPO_ROOT, "humanoid_nmpc/humanoid_mpc_config")
+CONFIG_SCHEMAS = os.path.join(REPO_ROOT, "legged_nmpc/legged_mpc_config")
 TASK_FILE_SCHEMA = os.path.join(CONFIG_SCHEMAS, "task_file.proto")
 HEURISTICS_SCHEMA = os.path.join(
     CONFIG_SCHEMAS, "locomotion_heuristics_config.proto"
 )
 LOADER_SOURCE = os.path.join(
     REPO_ROOT,
-    "humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicConfig.cpp",
+    "legged_nmpc/legged_common_mpc/src/locomotion_heuristics/LocomotionHeuristicConfig.cpp",
 )
 GAIT_SWITCHING_TABLE_SOURCE = os.path.join(
     REPO_ROOT,
-    "humanoid_nmpc/humanoid_common_mpc/src/reference_manager/GaitSwitchingTable.cpp",
+    "legged_nmpc/legged_common_mpc/src/reference_manager/GaitSwitchingTable.cpp",
 )
 
 # The names of Bledt's Appendix C by list, which is also what LocomotionHeuristicFormulation registers.
@@ -98,7 +98,7 @@ EXPECTED_HEURISTIC_NAMES = {
     ),
     "wrench_heuristics": ("impulse_scaling", "centripetal_acceleration"),
 }
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicFormulation.cpp:known_heuristic_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc/src/locomotion_heuristics/LocomotionHeuristicFormulation.cpp:known_heuristic_names)
 
 ALL_HEURISTIC_NAMES = tuple(
     itertools.chain.from_iterable(EXPECTED_HEURISTIC_NAMES.values())
@@ -117,7 +117,7 @@ FRICTION_CONES = (
 #: added there fails that test until it is added here.
 # LINT.IfChange(speed_ladder)
 SPEED_LADDER = ("slow_walk", "walk", "slower_trot", "slow_trot", "trot", "run")
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/reference_manager/GaitSwitchingTable.cpp:default_gait_switching_table)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc/src/reference_manager/GaitSwitchingTable.cpp:default_gait_switching_table)
 
 #: Which feet each mode name of the gait file puts IN CONTACT, as (left, right). The names say which foot is DOWN - `LF`
 #: is left stance, right swing - and FLY carries neither. The test's own reading, independent of the script's.
@@ -343,7 +343,7 @@ def _schema_table():
 
 
 def _task_file_fields():
-    """The field names of humanoid_mpc_config.TaskFile, read off task_file.proto."""
+    """The field names of legged_mpc_config.TaskFile, read off task_file.proto."""
     return set(
         re.findall(
             r"^  (?:repeated )?\w+ (\w+) = \d+",
@@ -354,7 +354,7 @@ def _task_file_fields():
 
 
 def _retired_task_file_fields():
-    """The retired field names of humanoid_mpc_config.TaskFile (its retired_field options)."""
+    """The retired field names of legged_mpc_config.TaskFile (its retired_field options)."""
     return set(
         re.findall(
             r'option \(nproto\.retired_field\) = \{\s*name: "(\w+)"',
@@ -737,7 +737,7 @@ class FormulationWarningsTest(unittest.TestCase):
 
     MPC_FORMULATION_CONFIG = os.path.join(
         REPO_ROOT,
-        "humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp",
+        "legged_nmpc/legged_common_mpc/src/common/MpcFormulationConfig.cpp",
     )
 
     def test_the_cost_name_is_the_one_the_cpp_registry_prints(self):
@@ -830,7 +830,7 @@ class ContactInputParameterizationReportTest(unittest.TestCase):
 
     CONTACT_INPUT_PARAMETERIZATION_HEADER = os.path.join(
         REPO_ROOT,
-        "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ContactInputParameterization.h",
+        "legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/ContactInputParameterization.h",
     )
 
     def test_the_names_are_the_ones_the_schema_and_the_cpp_registry_read(self):
@@ -914,7 +914,7 @@ class ContactScheduleSourceReportTest(unittest.TestCase):
 
     MPC_FORMULATION_CONFIG_HEADER = os.path.join(
         REPO_ROOT,
-        "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcFormulationConfig.h",
+        "legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/MpcFormulationConfig.h",
     )
 
     def test_the_names_are_the_ones_the_schema_and_the_cpp_registry_read(self):
@@ -993,7 +993,7 @@ class DcmTerminalCostReportTest(unittest.TestCase):
 
     MPC_FORMULATION_CONFIG = os.path.join(
         REPO_ROOT,
-        "humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp",
+        "legged_nmpc/legged_common_mpc/src/common/MpcFormulationConfig.cpp",
     )
 
     def test_the_names_are_the_ones_the_cpp_registry_reads(self):
@@ -2150,7 +2150,7 @@ class DeriveParametersTest(_DerivedBlockAssertions):
         # numbers the task files write out - capture_point.override_pos_com_rt_feetmean_ewrt_world_z and
         # high_speed_turning's z / g - are derived from it. This pins, per robot, that
         # the numbers a task file SHIPS are the ones this script derives from the model within their printed rounding;
-        # humanoid_centroidal_mpc:testNominalPendulum pins the same shipped numbers against the C++ derivation, so the two
+        # legged_centroidal_mpc:testNominalPendulum pins the same shipped numbers against the C++ derivation, so the two
         # derivations agree wherever a robot ships a derived number. A zero is not a derived number (it is "derive it"),
         # and a positive LIP height is an override, which must still be within a few percent of the model.
         checked = 0

@@ -44,7 +44,7 @@ namespace robot::realtime {
  * benchmark binaries, and only with glibc.
  *
  * Copied from
- * humanoid_state_estimation/humanoid_state_estimator/test/AllocationCounter.h,
+ * legged_state_estimation/legged_state_estimator/test/AllocationCounter.h,
  * which counts the first three only, so that robot_runtime does not depend on
  * the estimator; the estimator's binaries can move to this target. A binary
  * must link only one of the two, since both define malloc.

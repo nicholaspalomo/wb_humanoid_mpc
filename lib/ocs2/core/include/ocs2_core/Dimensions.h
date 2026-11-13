@@ -59,7 +59,7 @@ inline constexpr int kRotationTangentDim = 3;
 
 /**
  * The coefficients of a unit quaternion. The indices below are those of the storage order (x, y, z, w) of Eigen's
- * coeffs(), of Pinocchio's configuration and of the MPC's state (humanoid_nmpc/docs/quaternion_base_orientation/
+ * coeffs(), of Pinocchio's configuration and of the MPC's state (legged_nmpc/docs/quaternion_base_orientation/
  * README.md, section 2.1); MuJoCo stores (w, x, y, z), which they do not describe.
  */
 inline constexpr int kQuaternionCoefficients = 4;

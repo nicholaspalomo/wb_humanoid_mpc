@@ -27,7 +27,7 @@
 
 """Names every frame-dependent quantity by its frames: `<quantity>_<frame1>_rt_<frame2>_ewrt_<frame3>`.
 
-The convention is humanoid_nmpc/docs/frame_naming/README.md; this module holds its vocabulary (the quantities, the
+The convention is legged_nmpc/docs/frame_naming/README.md; this module holds its vocabulary (the quantities, the
 frames, the qualifiers and the suffixes), which the README's tables list, and the check that measures the rename:
 
   frame-naming  in C++, Python and .proto (first-party code and lib/ocs2 without lib/ocs2/thirdparty):
@@ -53,27 +53,28 @@ import tokenize
 from tools.hooks import check_types
 from tools.hooks import cpp_source
 from tools.hooks import lint_files
+from tools.hooks import repo_layout
 
 NAME = "frame-naming"
-README = "humanoid_nmpc/docs/frame_naming/README.md"
+README = repo_layout.FRAME_NAMING_README
 
 # LINT.IfChange(dirs)
 # The code that computes with frames: the robotics code, and the tools that read its messages and configurations. The
 # lint machinery and the proto generator (tools/hooks, tools/nproto, ...) are not read: a `position` there is an offset
 # into a text.
 DIRS = (
-    "lib/ocs2/",
-    "humanoid_nmpc/",
-    "robot_runtime/",
-    "humanoid_state_estimation/",
-    "robot_models/",
-    "humanoid_learning/",
+    repo_layout.LIB_OCS2_DIR,
+    repo_layout.NMPC_DIR,
+    repo_layout.ROBOT_RUNTIME_DIR,
+    repo_layout.STATE_ESTIMATION_DIR,
+    repo_layout.ROBOT_MODELS_DIR,
+    repo_layout.LEARNING_DIR,
     "tools/config_dump/",
     "tools/config_registries/",
     "tools/locomotion_heuristics/",
     "tools/ipc/",
 )
-# LINT.ThenChange(//humanoid_nmpc/docs/frame_naming/README.md:units)
+# LINT.ThenChange(//legged_nmpc/docs/frame_naming/README.md:units)
 
 # The suffixes of the files nproto generates (tools/nproto). Their names are copied from the .proto fields, which the
 # check reads, so the generated code is held to the convention through its .proto (README section 1).
@@ -130,7 +131,7 @@ QUANTITIES: dict[str, str] = {
     "dir": FREE,
     "gravity": FREE,
 }
-# LINT.ThenChange(//humanoid_nmpc/docs/frame_naming/README.md:quantities)
+# LINT.ThenChange(//legged_nmpc/docs/frame_naming/README.md:quantities)
 
 # The quantities whose frame1 is a reference point rather than a moving frame (README section 2.3): the angular
 # momentum about the world origin relative to the world is `angmom_world_rt_world_ewrt_world`.
@@ -196,7 +197,7 @@ _PHYSICAL_FRAMES = frozenset(
     }
 )
 # The frames and points of the viewers only: the camera and the geometry of the visualization markers
-# (humanoid_mpc_msgs' Arrows and LineStrip). No controller quantity names them. The README's viewer table defines each
+# (legged_mpc_msgs' Arrows and LineStrip). No controller quantity names them. The README's viewer table defines each
 # one.
 _VIEWER_FRAMES = frozenset(
     {
@@ -232,7 +233,7 @@ _VIEWER_PLURAL_FRAMES: dict[str, str] = {
 PLURAL_FRAMES: dict[str, str] = _PHYSICAL_PLURAL_FRAMES | _VIEWER_PLURAL_FRAMES
 # What a free vector may belong to besides a frame.
 FREE_SUBJECTS = frozenset({"terrain", "joint"})
-# LINT.ThenChange(//humanoid_nmpc/docs/frame_naming/README.md:frames)
+# LINT.ThenChange(//legged_nmpc/docs/frame_naming/README.md:frames)
 
 # LINT.IfChange(qualifiers)
 # The qualifiers, in the order they are written when a name has several.
@@ -285,7 +286,7 @@ QUALIFIER_SYNONYMS: dict[str, str] = {
     "derivative": "rate",
     "target": "des (a planner's output) or ref (the MPC's TargetTrajectories)",
 }
-# LINT.ThenChange(//humanoid_nmpc/docs/frame_naming/README.md:qualifiers)
+# LINT.ThenChange(//legged_nmpc/docs/frame_naming/README.md:qualifiers)
 
 # LINT.IfChange(suffixes)
 # The suffixes after the frames: the components of a vector in frame3's axes, the coefficient order of a quaternion,
@@ -296,7 +297,7 @@ QUATERNION_LAYOUTS = frozenset({"xyzw", "wxyz"})
 EULER_ANGLES = frozenset({"yaw", "pitch", "roll"})
 INERTIA_ENTRIES = frozenset({"xx", "yy", "zz"})
 CONTAINER_SUFFIXES = frozenset({"traj", "samples", "size"})
-# LINT.ThenChange(//humanoid_nmpc/docs/frame_naming/README.md:suffixes)
+# LINT.ThenChange(//legged_nmpc/docs/frame_naming/README.md:suffixes)
 
 # LINT.IfChange(legacy_words)
 # Words of a legacy name: a frame-dependent quantity named without its frames.
@@ -459,7 +460,7 @@ REPRESENTATION_WORDS = frozenset(
         "vectors",
     }
 )
-# LINT.ThenChange(//humanoid_nmpc/docs/frame_naming/README.md:exemptions)
+# LINT.ThenChange(//legged_nmpc/docs/frame_naming/README.md:exemptions)
 
 # Third-party API names that hold a legacy word: Eigen, Pinocchio, MuJoCo and the Python libraries. A name that one of
 # these namespaces or modules qualifies (`pinocchio::`, `np.`) is not read at all.

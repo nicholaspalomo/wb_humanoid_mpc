@@ -6,12 +6,12 @@ realtime code, the MPC and the tools then work with Eigen vectors, `std::vector`
 stays at the edge: the bus serializes the protobuf message, and the code around it fills or reads the struct.
 
 ```text
-  humanoid_mpc_msgs/mpc_policy.proto
+  legged_mpc_msgs/mpc_policy.proto
         |  protoc + protoc-gen-nproto (nproto_cc_library)
         v
-  mpc_policy.nproto.h      struct ocs2::humanoid::msgs::MpcPolicy: Eigen and std types, no protobuf include
-  mpc_policy.nproto.pb.h   ToProto(const MpcPolicy&, humanoid_mpc_msgs::MpcPolicy* absl_nonnull)
-  mpc_policy.nproto.pb.cc  FromProto(const humanoid_mpc_msgs::MpcPolicy&, MpcPolicy* absl_nonnull) -> absl::Status
+  mpc_policy.nproto.h      struct ocs2::legged::msgs::MpcPolicy: Eigen and std types, no protobuf include
+  mpc_policy.nproto.pb.h   ToProto(const MpcPolicy&, legged_mpc_msgs::MpcPolicy* absl_nonnull)
+  mpc_policy.nproto.pb.cc  FromProto(const legged_mpc_msgs::MpcPolicy&, MpcPolicy* absl_nonnull) -> absl::Status
 ```
 
 The generated conversions are realtime-safe: converting into a struct or a message that already has the value's
@@ -28,7 +28,7 @@ import "nproto/options.proto";
 
 // Next ID: 4
 message Vector3 {
-  option (nproto.generate_struct) = "ocs2::humanoid::msgs::Vector3";
+  option (nproto.generate_struct) = "ocs2::legged::msgs::Vector3";
 
   reserved 4 to max;
 
@@ -38,7 +38,7 @@ message Vector3 {
 }
 
 enum ControllerType {
-  option (nproto.generate_enum) = "ocs2::humanoid::msgs::ControllerType";
+  option (nproto.generate_enum) = "ocs2::legged::msgs::ControllerType";
 
   CONTROLLER_TYPE_UNKNOWN = 0;
   ...
@@ -46,15 +46,16 @@ enum ControllerType {
 ```
 
 - `nproto.generate_struct` is a `MessageOptions` extension (number 52001), `nproto.generate_enum` an `EnumOptions`
-  extension (52002); a file-level option does not exist. The other options of nproto are `nproto.optional_message`
-  (`FieldOptions`, 52004; [the type mapping](#the-type-mapping)) and the retired-field options `nproto.retired_field`
-  (52003) and `nproto.retired_layout_hint` (52005) of `retired_field_options.proto` ([Retired fields](#retired-fields)).
+  extension (52002); no file-level option names a struct. The other options of nproto are `nproto.optional_message`
+  (`FieldOptions`, 52004; [the type mapping](#the-type-mapping)), the retired-field options `nproto.retired_field`
+  (52003) and `nproto.retired_layout_hint` (52005) of `retired_field_options.proto` ([Retired fields](#retired-fields)),
+  and the file option `nproto.former_package` (`FileOptions`, 52006; [Renamed packages](#renamed-packages)).
 - The value is a fully qualified C++ name. Everything before the last `::` is the namespace of the generated code; the
   last component must be the definition's own name.
-- The struct needs a namespace of its own: a name equal to protobuf's own C++ class (`humanoid_mpc_msgs::Vector3` for
-  package `humanoid_mpc_msgs`) is refused, as it would collide.
+- The struct needs a namespace of its own: a name equal to protobuf's own C++ class (`legged_mpc_msgs::Vector3` for
+  package `legged_mpc_msgs`) is refused, as it would collide.
 - Nested types carry no option: a message's nested messages and enums become nested C++ types of its struct:
-  `humanoid_mpc_msgs.TargetContactPatch.Kind` is `ocs2::humanoid::msgs::TargetContactPatch::Kind`.
+  `legged_mpc_msgs.TargetContactPatch.Kind` is `ocs2::legged::msgs::TargetContactPatch::Kind`.
 
 ## Using it from Bazel
 
@@ -64,7 +65,7 @@ load("//tools/nproto:nproto.bzl", "nproto_cc_library")
 proto_library(
     name = "messages_proto",
     srcs = glob(["*.proto"]),
-    strip_import_prefix = "/humanoid_nmpc",
+    strip_import_prefix = "/legged_nmpc",
     deps = ["//tools/nproto:options_proto"],
 )
 
@@ -92,8 +93,8 @@ The include paths follow the proto import paths:
 
 | Include | What it declares | Depends on |
 |---|---|---|
-| `"humanoid_mpc_msgs/mpc_policy.nproto.h"` | the struct, its nested types and `operator==` / `operator!=` | Eigen, the standard library and, for a map field, `absl/container/btree_map.h` |
-| `"humanoid_mpc_msgs/mpc_policy.nproto.pb.h"` | `ToProto()` / `FromProto()` of the struct and of every nested type | the protobuf code, Abseil |
+| `"legged_mpc_msgs/mpc_policy.nproto.h"` | the struct, its nested types and `operator==` / `operator!=` | Eigen, the standard library and, for a map field, `absl/container/btree_map.h` |
+| `"legged_mpc_msgs/mpc_policy.nproto.pb.h"` | `ToProto()` / `FromProto()` of the struct and of every nested type | the protobuf code, Abseil |
 
 The protos of protobuf itself (descriptor.proto, the well-known types) and `options.proto` get no structs (the
 `denylisted_protos` of `:nproto_toolchain`), so a message cannot hold a `google.protobuf.Timestamp`; the plugin says
@@ -185,15 +186,15 @@ absl::Status FromProto(ProtoEnum proto, Enum* absl_nonnull value);
 - `FromProto()` overwrites every member of the struct. It fails only where the struct cannot hold the value: an enum
   number its enum does not define (open enums accept any number on the wire). The error is InvalidArgument and names
   the field path: `annotations.target_contact_patches[1].kind: 9 is not a value of
-  humanoid_mpc_msgs.TargetContactPatch.Kind`; map keys appear as `[7]` or `["name"]`. On error the struct is partially
+  legged_mpc_msgs.TargetContactPatch.Kind`; map keys appear as `[7]` or `["name"]`. On error the struct is partially
   written. Building the error message allocates, which only an error does.
 
 ```cpp
-#include "humanoid_mpc_msgs/mpc_policy.nproto.pb.h"
+#include "legged_mpc_msgs/mpc_policy.nproto.pb.h"
 
 // Kept by the communication thread, so that their buffers survive from one policy to the next.
-humanoid_mpc_msgs::MpcPolicy message;
-ocs2::humanoid::msgs::MpcPolicy policy;
+legged_mpc_msgs::MpcPolicy message;
+ocs2::legged::msgs::MpcPolicy policy;
 
 if (message.ParseFromString(payload)) {
   const absl::Status status = FromProto(message, &policy);  // no allocation once sized
@@ -226,19 +227,19 @@ same map keys, the same oneof alternatives and the same optional members present
 property for a message type with the malloc-counting `//robot_runtime/robot_realtime:allocation_counter`: it converts
 a message of test values into a struct and back, then converts a second message of the same shape into the same
 objects and counts the allocations of that second `FromProto()` and `ToProto()`. `:test_nproto_allocations` runs it
-over the test protos, and `//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto_allocations_test` over the messages of the
+over the test protos, and `//legged_nmpc/legged_mpc_msgs:messages_nproto_allocations_test` over the messages of the
 realtime loop and the MPC link, a 60-node policy included. Parsing and serializing the protobuf message itself are
 protobuf's and are not covered here.
 
 ## Textproto configuration files
 
 Every configuration file the repository reads is a `.textproto` of a message with a schema, one message per file (the
-MPC's hyperparameter files are the schemas of humanoid_nmpc/humanoid_mpc_config, whose README says how to add and retire
+MPC's hyperparameter files are the schemas of legged_nmpc/legged_mpc_config, whose README says how to add and retire
 a field). The file names its schema in its first lines:
 
 ```textproto
-# proto-file: humanoid_nmpc/humanoid_mpc_msgs/vector3.proto
-# proto-message: humanoid_mpc_msgs.Vector3
+# proto-file: legged_nmpc/legged_mpc_msgs/vector3.proto
+# proto-message: legged_mpc_msgs.Vector3
 
 x: 1.5
 y: -0.25
@@ -262,8 +263,8 @@ std::string WriteTextprotoFile(const google::protobuf::Message& message);  // th
 ```
 
 - A file whose leading comment block names another message (`# proto-message: pkg.Other`) is refused before it is
-  parsed: `config/reference.textproto:2:1: config/reference.textproto is a humanoid_mpc_config.ReferenceFile (its '#
-  proto-message:' header), not a humanoid_mpc_config.TaskFile`. A file without the header is refused too
+  parsed: `config/reference.textproto:2:1: config/reference.textproto is a legged_mpc_config.ReferenceFile (its '#
+  proto-message:' header), not a legged_mpc_config.TaskFile`. A file without the header is refused too
   (`ParseTextprotoFile()`, `LoadTextprotoFile()`, `ParseTextprotoFileInto()` and `CheckProtoMessageHeader()`; Python's
   `load_textproto()` and `check_proto_message_header()`; `WriteTextprotoFile()` and Python's `file_text()` write a
   file's text with it): `task.textproto:1:1: task.textproto names no schema: ...`,
@@ -303,7 +304,7 @@ import "nproto/retired_field_options.proto";
 
 // Next ID: 40
 message TaskFile {
-  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::TaskFile";
+  option (nproto.generate_struct) = "ocs2::legged::mpc_config::TaskFile";
   option (nproto.retired_field) = { name: "use_dcm_terminal_cost" replacement: "list dcm_terminal_cost under costs" };
 
   reserved 40 to max;
@@ -326,13 +327,45 @@ message TaskFile {
 The options live in `:options_proto` with `options.proto`, which nproto generates no structs for: `RetiredField` is
 only read as an option.
 
+### Renamed packages
+
+Renaming a proto package renames every message in it, and a configuration file saved before the rename, on a robot or
+in an operator's copy, still gives the old name in its `# proto-message:` header. The file option
+`(nproto.former_package)` names the package the file's messages had before the rename:
+
+```proto
+package legged_mpc_config;
+
+import "nproto/options.proto";
+
+option (nproto.former_package) = "humanoid_mpc_config";
+```
+
+- A header naming `<former_package>.<Message>` is then read as `<package>.<Message>`: `# proto-message:
+  humanoid_mpc_config.TaskFile` loads into `legged_mpc_config.TaskFile`. The fields and the wire format are unchanged,
+  so the file means the same either way. `nproto::HeaderNamesMessage()` and Python's `header_names_message()` decide it
+  for the parsers and for every other reader of the header (the operator tools' file kinds, the session's plot
+  configuration check in tools/deploy/session.sh).
+- Any other name is still another message, refused with the same error, and a file without the option accepts its
+  current names only.
+- Python's `canonical_header_text()` and C++'s `nproto::CanonicalHeaderText()` rewrite such a header to the current
+  name. `textproto_save` applies it to every file it changes, so the next save of an old file writes the new header,
+  and the robot's configuration store compares a stored file's `.seed` marker with the bundle in that form, so a bundle
+  whose only change is the renamed header keeps the robot's saved copies (tools/deploy/README.md).
+- `make lint` keeps requiring the current name in the repository's own files (`textproto-header`). Schema fingerprints
+  hash names and wire layout but no option, so setting the option leaves them as they were.
+
+The packages of legged_nmpc that were `humanoid_*` before the rename to `legged_*` (`legged_mpc_config`,
+`legged_mpc_msgs`, `legged_multi_contact`, `legged_rerun_viewer_proto`) set it in every file that defines a message or
+an enum.
+
 ### Python
 
 `:nproto_textproto` (`import nproto_textproto`) is the same parser for Python, on
 `google.protobuf.text_format`:
 
 ```python
-from humanoid_mpc_config import task_file_pb2
+from legged_mpc_config import task_file_pb2
 import nproto_textproto
 
 task = nproto_textproto.load_textproto("config/mpc/task.textproto", task_file_pb2.TaskFile)
@@ -386,7 +419,7 @@ protoc passes custom options to a plugin as extension fields of `MessageOptions`
 
 | Path | What |
 |---|---|
-| `options.proto` | the struct options and `optional_message` (`:options_proto`, `:options_py_proto`, `:options_cc_proto`) |
+| `options.proto` | the struct options, `optional_message` and `former_package` (`:options_proto`, `:options_py_proto`, `:options_cc_proto`) |
 | `retired_field.proto`, `retired_field_options.proto` | the retired-field options and their message, in the same library |
 | `nproto_generator.py`, `protoc_gen_nproto.py` | the generator and the protoc plugin (`:nproto_generator`, `:protoc-gen-nproto`) |
 | `nproto_layout.py` | clang-format's line breaking, for the generator's lines (`:nproto_layout`) |
@@ -398,8 +431,8 @@ protoc passes custom options to a plugin as extension fields of `MessageOptions`
 | `test/` | test protos for every mapping (one message or enum per file; `test/other/` is another proto and Bazel package) and the tests |
 
 ```bash
-bazel test //tools/nproto/... //humanoid_nmpc/humanoid_mpc_msgs:messages_nproto_test \
-    //humanoid_nmpc/humanoid_mpc_msgs:messages_nproto_allocations_test
+bazel test //tools/nproto/... //legged_nmpc/legged_mpc_msgs:messages_nproto_test \
+    //legged_nmpc/legged_mpc_msgs:messages_nproto_allocations_test
 ```
 
 - `:test_nproto`: the member type of every kind of field, defaults (proto3, proto2 and edition 2023), equality,
@@ -409,15 +442,15 @@ bazel test //tools/nproto/... //humanoid_nmpc/humanoid_mpc_msgs:messages_nproto_
 - `:test_struct_headers`: the struct headers alone compile under `-Wpedantic -Werror` without protobuf, and without
   any Abseil header but `absl/container/btree_map.h`.
 - `:test_textproto`: a good file, unknown fields, type errors and other mistakes with their line and column, retired
-  fields in both spellings, suggestions and layout hints, the header check, a missing file, a conversion error, and
-  `WriteTextproto()` round trips.
+  fields in both spellings, suggestions and layout hints, the header check (a renamed package's former name included,
+  `renamed.proto`), a missing file, a conversion error, and `WriteTextproto()` round trips.
 - `//tools/nproto/test:test_nproto_textproto`: the same for the Python parser, plus deprecated fields.
 - `:test_nproto_generator`: the generator's output and every error above (the misplaced `optional_message` and the bad
   retired names included), on requests built in the test, and the plugin binary speaking protoc's protocol.
 - `:test_nproto_layout`: the line breaking of `nproto_layout.py`, on lines whose layout clang-format decided.
 - `:test_generated_code`: the generated code of the test protos (`long_names.proto` among them, whose names make every
-  kind of line wrap), of `humanoid_mpc_msgs` and of `humanoid_mpc_config` is clang-format clean, the repository's C++ lint checks (`no-auto`, `pointer-nullability`, `magic-number`, ...)
+  kind of line wrap), of `legged_mpc_msgs` and of `legged_mpc_config` is clang-format clean, the repository's C++ lint checks (`no-auto`, `pointer-nullability`, `magic-number`, ...)
   find nothing in it (`make lint` never sees `bazel-out`), its output parameters are `absl_nonnull`, and its struct
   headers include neither protobuf nor any Abseil header but `absl/container/btree_map.h`.
 - `ExpectRoundTrips<Struct, Proto>()` (`:proto_test_values`) is the round-trip check any package can run over its own
-  messages, as `//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto_test` does for every message there.
+  messages, as `//legged_nmpc/legged_mpc_msgs:messages_nproto_test` does for every message there.

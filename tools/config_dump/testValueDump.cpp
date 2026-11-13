@@ -39,7 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "tools/config_dump/ValueDump.h"
 
-namespace ocs2::humanoid::config_dump {
+namespace ocs2::legged::config_dump {
 namespace {
 
 /** The next double after `value` towards +infinity: one bit of difference. */
@@ -155,4 +155,4 @@ TEST(ValueDumpTest, AFingerprintHashesEqualValuesEqually) {
 }
 
 }  // namespace
-}  // namespace ocs2::humanoid::config_dump
+}  // namespace ocs2::legged::config_dump

@@ -33,13 +33,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/strings/string_view.h"
 
-#include "humanoid_common_mpc/config/weights/StateInputLayout.h"
-#include "humanoid_mpc_config/gait_file.nproto.h"
-#include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
-#include "humanoid_mpc_config/reference_file.nproto.h"
-#include "humanoid_mpc_config/task_file.nproto.h"
+#include "legged_common_mpc/config/weights/StateInputLayout.h"
+#include "legged_mpc_config/gait_file.nproto.h"
+#include "legged_mpc_config/joint_pd_gains_file.nproto.h"
+#include "legged_mpc_config/reference_file.nproto.h"
+#include "legged_mpc_config/task_file.nproto.h"
 
-namespace ocs2::humanoid::config_dump {
+namespace ocs2::legged::config_dump {
 
 /** The configuration files of an MPC that its typed conversions read, parsed.
  * The contact planner's is not one of them. */
@@ -72,4 +72,4 @@ std::string dumpConversions(const ConversionInputs& inputs,
                             absl::string_view urdfFile,
                             StateInputLayout::Mpc mpc);
 
-}  // namespace ocs2::humanoid::config_dump
+}  // namespace ocs2::legged::config_dump

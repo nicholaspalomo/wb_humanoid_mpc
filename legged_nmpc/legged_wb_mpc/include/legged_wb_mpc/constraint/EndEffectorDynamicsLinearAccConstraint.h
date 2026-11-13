@@ -1,0 +1,135 @@
+/******************************************************************************
+Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
+Copyright (c) 2024, 1X Technologies. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#pragma once
+
+#include <cstddef>
+#include <memory>
+
+#include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+
+#include "legged_wb_mpc/end_effector/EndEffectorDynamics.h"
+
+namespace ocs2::legged {
+
+/**
+ * Defines a linear constraint on an end effector's position, linear velocity
+ * and linear acceleration in the world:
+ * g = Ax * posEeRtWorldEwrtWorld + Av * linvelEeRtWorldEwrtWorld
+ *     + Aa * linaccEeRtWorldEwrtWorld + b
+ *
+ * Not thread-safe: its end-effector dynamics evaluate on the Pinocchio data of
+ * one worker's PreComputation, so the solver gives each worker thread its own
+ * clone().
+ */
+class EndEffectorDynamicsLinearAccConstraint final
+    : public StateInputConstraint {
+ public:
+  /**
+   * Coefficients of the linear constraints of the form:
+   * g = Ax * posEeRtWorldEwrtWorld + Av * linvelEeRtWorldEwrtWorld
+   *     + Aa * linaccEeRtWorldEwrtWorld + b
+   */
+  struct Config {
+    vector_t b;
+    matrix_t Ax;  // End effector position
+    matrix_t Av;  // End Effector linear velocity
+    matrix_t Aa;  // End Effector linear acceleration
+  };
+
+  /**
+   * Makes the constraint on the end effector of `endEffectorDynamics`, which it
+   * clones.
+   * @param [in] endEffectorDynamics: The dynamics interface to the target
+   * end-effector; it has exactly one end effector.
+   * @param [in] numConstraints: The number of constraints {1, 2, 3}
+   * @param [in] config: The constraint coefficients, g = Ax *
+   * posEeRtWorldEwrtWorld + Av * linvelEeRtWorldEwrtWorld + Aa *
+   * linaccEeRtWorldEwrtWorld + b
+   * @return InvalidArgument naming the end effectors when `endEffectorDynamics`
+   * has other than one.
+   */
+  static absl::StatusOr<std::unique_ptr<EndEffectorDynamicsLinearAccConstraint>>
+  Create(const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
+         size_t numConstraints,
+         Config config = Config());
+
+  ~EndEffectorDynamicsLinearAccConstraint() override = default;
+  EndEffectorDynamicsLinearAccConstraint& operator=(
+      const EndEffectorDynamicsLinearAccConstraint&) = delete;
+  EndEffectorDynamicsLinearAccConstraint(
+      EndEffectorDynamicsLinearAccConstraint&&) = delete;
+  EndEffectorDynamicsLinearAccConstraint& operator=(
+      EndEffectorDynamicsLinearAccConstraint&&) = delete;
+  EndEffectorDynamicsLinearAccConstraint* absl_nonnull clone() const override {
+    return new EndEffectorDynamicsLinearAccConstraint(*this);
+  }
+
+  /**
+   * Sets new constraint coefficients, unchecked (the pre-computation sets them
+   * on every evaluation): `config.b` has getNumConstraints() rows, and each of
+   * Ax, Av and Aa is empty or getNumConstraints() x 3, at least one of Ax and
+   * Av not empty.
+   */
+  void configure(Config&& config);
+  /** Sets a new constraint coefficients. */
+  void configure(const Config& config) { this->configure(Config(config)); }
+
+  size_t getNumConstraints(scalar_t /*time*/) const override {
+    return numConstraints_;
+  }
+  vector_t getValue(scalar_t time,
+                    const vector_t& state,
+                    const vector_t& input,
+                    const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const PreComputation& preComp) const override;
+
+ private:
+  EndEffectorDynamicsLinearAccConstraint(
+      const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
+      size_t numConstraints,
+      Config config);
+  EndEffectorDynamicsLinearAccConstraint(
+      const EndEffectorDynamicsLinearAccConstraint& rhs);
+
+  std::unique_ptr<EndEffectorDynamics<scalar_t>> endEffectorDynamicsPtr_;
+  const size_t numConstraints_;
+  Config config_;
+};
+
+}  // namespace ocs2::legged

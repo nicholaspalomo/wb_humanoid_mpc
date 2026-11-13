@@ -29,8 +29,8 @@
 
 Eigen's `Quaternion(w, x, y, z)` takes the scalar part FIRST, while its `coeffs()`, its constructor from a 4-vector and
 every quaternion block of the MPC's state store (x, y, z, w), the scalar part LAST
-(humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.1). A four-scalar construction with the state's
-order silently builds another rotation. This check flags it under humanoid_nmpc/:
+(legged_nmpc/docs/quaternion_base_orientation/README.md, section 2.1). A four-scalar construction with the state's
+order silently builds another rotation. This check flags it under legged_nmpc/:
 
   quaternion-scalar-constructor  a construction of `quaternion_t`, `ad_quaternion_t`, `QUATERNION_T<...>`,
                                  `Eigen::Quaternion<...>`, `Eigen::Quaterniond` or `Eigen::Quaternionf` from four
@@ -49,6 +49,7 @@ Build it from the coefficient vector instead, in the storage order: `quaternion_
 from tools.hooks import check_types
 from tools.hooks import cpp_source
 from tools.hooks import lint_files
+from tools.hooks import repo_layout
 
 NAME = "quaternion-scalar-constructor"
 
@@ -63,10 +64,10 @@ _KEYWORDS_OF_A_DECLARATION = frozenset(
 
 
 def in_scope(path: str) -> bool:
-    """True for a file under humanoid_nmpc/ outside an orientation/ directory (`path` relative to the root)."""
+    """True for a file under legged_nmpc/ outside an orientation/ directory (`path` relative to the root)."""
     path = lint_files.normalize(path)
     return (
-        path.startswith("humanoid_nmpc/")
+        path.startswith(repo_layout.NMPC_DIR)
         and "orientation" not in path.split("/")[:-1]
     )
 
@@ -207,15 +208,15 @@ CHECKS = [
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=_findings,
         description=(
-            "no quaternion built from four scalars under humanoid_nmpc/ outside"
+            "no quaternion built from four scalars under legged_nmpc/ outside"
             " orientation/: Eigen's (w, x, y, z) order is not the state's (x,"
             " y, z, w)"
-            " (humanoid_nmpc/docs/quaternion_base_orientation/README.md)."
+            " (legged_nmpc/docs/quaternion_base_orientation/README.md)."
         ),
         hint=(
             "Build the quaternion from its coefficient vector in the storage"
             " order, quaternion_t(vector4_t(x, y, z, w)), or use a helper of"
-            " humanoid_common_mpc/orientation/."
+            " legged_common_mpc/orientation/."
         ),
     ),
 ]

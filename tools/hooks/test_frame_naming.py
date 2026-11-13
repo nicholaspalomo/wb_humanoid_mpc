@@ -34,9 +34,9 @@ from tools.hooks import check_test_support
 from tools.hooks import frame_naming
 from tools.hooks import lint_code
 
-_CPP = "humanoid_nmpc/humanoid_common_mpc/src/a.cpp"
-_PY = "humanoid_nmpc/remote_control/remote_control/a.py"
-_PROTO = "humanoid_nmpc/humanoid_mpc_msgs/a.proto"
+_CPP = "legged_nmpc/legged_common_mpc/src/a.cpp"
+_PY = "legged_nmpc/remote_control/remote_control/a.py"
+_PROTO = "legged_nmpc/legged_mpc_msgs/a.proto"
 _OCS2 = "lib/ocs2/pinocchio/centroidal_model/src/a.cpp"
 
 
@@ -288,7 +288,7 @@ class LegacyTest(unittest.TestCase):
             "matrix3_t g = quaternionRotationMatrix(q);\n"
             "matrix_t a = getCentroidalMomentumMatrix(interface);\n"
             "matrix6_t b = computeFloatingBaseCentroidalMomentumMatrixInverse(a);\n"
-            "#define HUMANOID_BASE_POSITION 1\n"
+            "#define LEGGED_BASE_POSITION 1\n"
             "// basePosition in a comment\n"
             'const char kName[] = "base_position";\n'
             "vector3_t posBaseRtWorldEwrtWorld;\n"
@@ -303,7 +303,7 @@ class LegacyTest(unittest.TestCase):
 
     def test_python_imports_modules_and_tests_are_not_flagged(self):
         source = (
-            "from humanoid_mpc_msgs import walking_velocity_command_pb2\n"
+            "from legged_mpc_msgs import walking_velocity_command_pb2\n"
             "import numpy as np\n"
             "r = scipy.spatial.transform.Rotation.from_quat(q)\n"
             "def test_base_position_is_read(self):\n"
@@ -581,11 +581,11 @@ class ScopeTest(unittest.TestCase):
     def test_the_code_nproto_generates_is_not_read(self):
         # Its names are the .proto fields', which the check reads.
         source = "Vector3 position;\nvoid set_position(double position);\n"
-        generated = "humanoid_nmpc/humanoid_mpc_msgs/_virtual_imports/msgs/pose"
+        generated = "legged_nmpc/legged_mpc_msgs/_virtual_imports/msgs/pose"
         for suffix in (".nproto.h", ".nproto.pb.h", ".nproto.pb.cc"):
             self.assertEqual(_names(source, generated + suffix), [], suffix)
         self.assertEqual(
-            _names(source, "humanoid_nmpc/humanoid_mpc_msgs/src/Pose.cpp"),
+            _names(source, "legged_nmpc/legged_mpc_msgs/src/Pose.cpp"),
             ["position", "set_position", "position"],
         )
 

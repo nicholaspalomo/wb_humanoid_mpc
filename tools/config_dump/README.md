@@ -15,7 +15,7 @@ The robots are the nine configurations of the closed-loop validation (`RobotConf
 `engineai_sa01`, `unitree_g1`, `unitree_r1`, the quadruped `anymal_b`, the wheel-foot biped `tron1` and the wheeled
 quadruped `anymal_c_wheels` (centroidal MPC), `unitree_g1_wb` (whole-body MPC) and `unitree_g1_kalman` (`unitree_g1`
 with the Kalman state estimator).
-<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations) -->
+<!-- LINT.ThenChange(//legged_nmpc/legged_mpc_validation/include/legged_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations) -->
 Run one robot at a time: building an MPC interface loads, or the first time generates and compiles, the robot's CppAD
 libraries. The tool runs in the checkout (`$BUILD_WORKSPACE_DIRECTORY`), so it reads the checkout's files and reuses its
 `cppad_code_gen/`. The dump goes to the standard output; logs and errors go to the standard error.
@@ -50,7 +50,7 @@ too large to read is written as its fingerprint, its size, nonzeros, sum and a h
 one: a flipped sign of a zero, which the fingerprint could not show, is no difference of value.
 
 The contact planner's configuration is not dumped: no shipped robot plans its contacts, so its file is not part of
-what any stack builds (its conversion's own tests, humanoid_common_mpc/test/config/contact_planning/, check it).
+what any stack builds (its conversion's own tests, legged_common_mpc/test/config/contact_planning/, check it).
 
 Nothing compares a dump with a recorded one: a recorded dump pins tuned values, which the tests of the configuration
-must not (humanoid_nmpc/humanoid_mpc_config/README.md, "Tests").
+must not (legged_nmpc/legged_mpc_config/README.md, "Tests").

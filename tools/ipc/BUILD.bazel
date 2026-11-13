@@ -6,7 +6,7 @@ load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 #   bazel run //tools/ipc:ipc_tool -- list | echo <topic> | hz <topic>
 #
 # The tool only receives: a subscribe-only robot_ipc.Bus on the network file's DDS domain
-# (humanoid_nmpc/docs/distributed_runtime/README.md).
+# (legged_nmpc/docs/distributed_runtime/README.md).
 
 package(default_visibility = ["//visibility:public"])
 
@@ -23,8 +23,8 @@ py_library(
     deps = [
         # The bus messages, and the configuration files the tuning GUI publishes whole (MpcParameterUpdate,
         # JointPdGainsFile).
-        "//humanoid_nmpc/humanoid_mpc_config:config_py_proto",
-        "//humanoid_nmpc/humanoid_mpc_msgs:messages_py_proto",
+        "//legged_nmpc/legged_mpc_config:config_py_proto",
+        "//legged_nmpc/legged_mpc_msgs:messages_py_proto",
         # The network file's loader and the subscribe-only bus.
         "//robot_runtime/robot_ipc:robot_ipc_py",
         requirement("protobuf"),

@@ -1,0 +1,704 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""Cartpole Reinforcement Learning Tutorial using Google Brax PPO & MuJoCo MJX.
+
+Demonstrates:
+  1. Defining an MJCF model in MuJoCo.
+  2. Subclassing brax.envs.base.PipelineEnv for GPU-accelerated MJX physics.
+  3. Training a continuous PPO actor-critic policy via brax.training.agents.ppo.
+  4. Visualizing training progress with high-contrast animated GIFs and live 3D VNC playback.
+"""
+
+import argparse
+from collections.abc import Callable
+import dataclasses
+import os
+import sys
+import time
+from typing import Any, TypeAlias
+
+# Configure OpenGL backend: GLX for interactive VNC/GUI window, OSMesa for headless background rendering. MuJoCo reads
+# MUJOCO_GL when it is first imported, and pyplot its backend, so both are set before the imports below.
+if "--vnc" in sys.argv or "--gui" in sys.argv:
+    os.environ["MUJOCO_GL"] = "glx"
+elif "MUJOCO_GL" not in os.environ:
+    os.environ["MUJOCO_GL"] = "osmesa"
+
+# pylint: disable=wrong-import-position  # MUJOCO_GL is set above, before MuJoCo is imported.
+from brax.envs import base as brax_base
+from brax.training.agents.ppo import train as ppo
+import jax
+import jax.numpy as jnp
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import mujoco
+from mujoco import mjx
+import numpy as np
+from PIL import Image
+
+# pylint: disable-next=unused-import  # Installs the JAX polyfill Brax PPO needs (examples/__init__.py).
+import legged_learning.examples
+
+# pylint: enable=wrong-import-position
+
+# A policy's inference function, as Brax PPO makes it: (observation, key) -> (action, extras).
+InferenceFn: TypeAlias = Callable[
+    [np.ndarray, jax.Array], tuple[jax.Array, Any]
+]
+
+# ==============================================================================
+# 1. Cartpole MJCF XML Model Definition
+# ==============================================================================
+CARTPOLE_XML = """
+<mujoco model="cartpole">
+    <compiler angle="radian"/>
+    <option timestep="0.01" integrator="RK4"/>
+    <visual>
+        <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+        <global azimuth="120" elevation="-20"/>
+    </visual>
+    <worldbody>
+        <light diffuse=".8 .8 .8" pos="0 0 4" dir="0 0 -1"/>
+        <geom name="rail" type="capsule" fromto="-2.4 0 0 2.4 0 0" size="0.02" rgba="0.4 0.4 0.45 1" contype="0" conaffinity="0"/>
+        <geom name="floor" type="plane" size="5 5 0.1" pos="0 0 -0.5" rgba="0.12 0.14 0.18 1"/>
+        <camera name="track_cam" pos="0 -3.0 1.0" xyaxes="1 0 0 0 0.3 1" mode="fixed"/>
+
+        <body name="cart" pos="0 0 0">
+            <joint name="slider" type="slide" axis="1 0 0" range="-2.4 2.4" limited="true" damping="0.1"/>
+            <geom name="cart_geom" type="box" size="0.2 0.12 0.06" rgba="0.2 0.6 0.85 1" mass="1.0"/>
+            <body name="pole" pos="0 0 0">
+                <joint name="hinge" type="hinge" axis="0 1 0" range="-3.14159 3.14159" damping="0.01"/>
+                <geom name="pole_geom" type="capsule" fromto="0 0 0 0 0 0.6" size="0.03" rgba="0.95 0.45 0.2 1" mass="0.1"/>
+                <site name="tip" pos="0 0 0.6" size="0.04" rgba="1 0.2 0.2 1"/>
+            </body>
+        </body>
+    </worldbody>
+    <actuator>
+        <motor name="slide_motor" joint="slider" gear="10" ctrlrange="-1 1"/>
+    </actuator>
+</mujoco>
+"""
+
+
+# The rendered rollout keeps every second simulation step as a GIF frame.
+_FRAME_STRIDE = 2
+# Milliseconds per second: a GIF's frame duration is in milliseconds.
+_MILLISECONDS_PER_SECOND = 1000.0
+
+
+def cartpole_observation(qpos: Any, qvel: Any) -> jax.Array:
+    """Returns the observation (x, sin theta, cos theta, x_dot, theta_dot) of the state, MJX's or MuJoCo's."""
+    theta = qpos[1]
+    return jnp.array(
+        [qpos[0], jnp.sin(theta), jnp.cos(theta), qvel[0], qvel[1]]
+    )
+
+
+def cartpole_done(qpos: Any) -> jax.Array:
+    """Returns 1.0 when the cart has left the rail or the pole has fallen, else 0.0."""
+    out_of_bounds = jnp.abs(qpos[0]) > 2.2
+    fallen = jnp.cos(qpos[1]) < 0.2
+    return jnp.where(out_of_bounds | fallen, 1.0, 0.0)
+
+
+def cartpole_reward(qpos: Any, qvel: Any, ctrl: Any, done: Any) -> jax.Array:
+    """Returns the reward for being upright near the center, less the penalties for spinning, effort and falling."""
+    upright_reward = jnp.clip(jnp.cos(qpos[1]), 0.0, 1.0)
+    center_penalty = 0.05 * jnp.square(qpos[0])
+    spin_penalty = 0.005 * jnp.square(qvel[1])
+    ctrl_penalty = 0.005 * jnp.sum(jnp.square(ctrl))
+    fall_penalty = jnp.where(done > 0.5, -1.0, 0.0)
+    return (
+        upright_reward
+        - center_penalty
+        - spin_penalty
+        - ctrl_penalty
+        + fall_penalty
+    )
+
+
+def gif_frame_duration_ms(timestep: float) -> int:
+    """Returns the duration of one GIF frame [ms] that plays the rollout of `timestep` [s] steps at real time.
+
+    A GIF stores durations in hundredths of a second, so a stride of a whole number of hundredths plays exactly.
+    """
+    return round(_FRAME_STRIDE * timestep * _MILLISECONDS_PER_SECOND)
+
+
+# ==============================================================================
+# 2. Brax Pipeline Environment for Cartpole
+# ==============================================================================
+class CartpoleBraxEnv(brax_base.PipelineEnv):
+    """Cartpole Environment inheriting from Brax PipelineEnv for GPU-accelerated MJX."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.mj_model = mujoco.MjModel.from_xml_string(CARTPOLE_XML)
+        mjx_model = mjx.put_model(self.mj_model)
+        super().__init__(sys=mjx_model, n_frames=1, **kwargs)
+
+    @property
+    def action_size(self) -> int:
+        return self.sys.nu
+
+    @property
+    def observation_size(self) -> int:
+        return 5
+
+    def reset(self, rng: jax.Array) -> brax_base.State:
+        """Resets the cartpole state with initial tilt perturbation."""
+        rng_cart, rng_pole = jax.random.split(rng)
+        init_x = jax.random.uniform(rng_cart, (), minval=-0.2, maxval=0.2)
+        init_theta = jax.random.uniform(rng_pole, (), minval=-0.4, maxval=0.4)
+
+        qpos = jnp.array([init_x, init_theta])
+        qvel = jnp.zeros(2)
+        pipeline_state = self.pipeline_init(qpos, qvel)
+
+        obs = self._get_obs(pipeline_state)
+        reward = jnp.zeros(())
+        done = jnp.zeros(())
+        metrics = {
+            "reward": reward,
+            "upright": jnp.clip(jnp.cos(init_theta), 0.0, 1.0),
+            "cart_x": init_x,
+        }
+        return brax_base.State(pipeline_state, obs, reward, done, metrics)
+
+    def step(
+        self, state: brax_base.State, action: jax.Array
+    ) -> brax_base.State:
+        """Applies action and integrates physics forward using MJX."""
+        ctrl = jnp.clip(action, -1.0, 1.0)
+        pipeline_state = self.pipeline_step(state.pipeline_state, ctrl)
+
+        obs = self._get_obs(pipeline_state)
+        done = self._is_done(pipeline_state)
+        reward = self._compute_reward(pipeline_state, ctrl, done)
+
+        metrics = {
+            "reward": reward,
+            "upright": jnp.clip(jnp.cos(pipeline_state.qpos[1]), 0.0, 1.0),
+            "cart_x": pipeline_state.qpos[0],
+        }
+        return state.replace(
+            pipeline_state=pipeline_state,
+            obs=obs,
+            reward=reward,
+            done=done,
+            metrics=metrics,
+        )
+
+    def _get_obs(self, pipeline_state: mjx.Data) -> jax.Array:
+        return cartpole_observation(pipeline_state.qpos, pipeline_state.qvel)
+
+    def _compute_reward(
+        self, pipeline_state: mjx.Data, ctrl: jax.Array, done: jax.Array
+    ) -> jax.Array:
+        """The reward for being upright near the center, less the penalties for spinning, effort and falling."""
+        return cartpole_reward(
+            pipeline_state.qpos, pipeline_state.qvel, ctrl, done
+        )
+
+    def _is_done(self, pipeline_state: mjx.Data) -> jax.Array:
+        return cartpole_done(pipeline_state.qpos)
+
+
+# ==============================================================================
+# 3. Rendering & Visualization Helper
+# ==============================================================================
+@dataclasses.dataclass
+class PolicyRollout:
+    """One episode of a policy in MuJoCo.
+
+    Attributes:
+        score: The episode's return as training scores it: the sum of the environment's reward over the steps, up to
+            and including the one that ends the episode (cartpole_done()).
+        joint_positions: The joint positions (x, theta) at the start of every step, one per step.
+    """
+
+    score: float
+    joint_positions: list[np.ndarray]
+
+
+def rollout_policy(
+    mj_model: mujoco.MjModel, inference_fn: InferenceFn, num_steps: int
+) -> PolicyRollout:
+    """Rolls out a policy in MuJoCo from a tilt of 0.35 rad for at most `num_steps` steps, ending where training does.
+
+    Args:
+        mj_model: The cartpole's model.
+        inference_fn: The policy; evaluation_policy() makes the deterministic one the score of training evaluates.
+        num_steps: The episode's length in control steps, as training's --episode_length.
+
+    Returns:
+        The episode's score and the joint positions it passed through.
+    """
+    data = mujoco.MjData(mj_model)
+    data.qpos[0] = 0.0
+    data.qpos[1] = 0.35
+    data.qvel[:] = 0.0
+    mujoco.mj_forward(mj_model, data)
+
+    rollout = PolicyRollout(score=0.0, joint_positions=[])
+    rng = jax.random.PRNGKey(0)
+    for _ in range(num_steps):
+        rollout.joint_positions.append(np.array(data.qpos))
+        obs = np.asarray(
+            cartpole_observation(data.qpos, data.qvel), dtype=np.float32
+        )
+        rng, act_rng = jax.random.split(rng)
+        action, _ = inference_fn(obs, act_rng)
+        ctrl = np.clip(np.asarray(action), -1.0, 1.0)
+
+        data.ctrl[:] = ctrl
+        mujoco.mj_step(mj_model, data)
+
+        done = cartpole_done(data.qpos)
+        rollout.score += float(
+            cartpole_reward(data.qpos, data.qvel, ctrl, done)
+        )
+        if float(done) > 0.5:
+            break
+    return rollout
+
+
+def render_policy_rollout(
+    mj_model: mujoco.MjModel,
+    inference_fn: InferenceFn,
+    output_gif_path: str,
+    num_steps: int = 200,
+) -> float:
+    """Rolls out a policy (rollout_policy()) and renders it as a GIF that plays at real time.
+
+    Args:
+        mj_model: The cartpole's model.
+        inference_fn: The policy; evaluation_policy() makes the deterministic one the score of training evaluates.
+        output_gif_path: The GIF to write; its directory is created.
+        num_steps: The episode's length in control steps, as training's --episode_length.
+
+    Returns:
+        The episode's score, PolicyRollout.score.
+    """
+    rollout = rollout_policy(mj_model, inference_fn, num_steps)
+    frames: list[Image.Image] = []
+
+    # Try native MuJoCo 3D renderer
+    renderer = None
+    try:
+        renderer = mujoco.Renderer(mj_model, height=360, width=480)
+    # The 3D renderer needs an OpenGL context, whose failures differ by platform; the 2D fallback below takes over.
+    # pylint: disable-next=broad-exception-caught  # The 2D fallback takes over.
+    except Exception:
+        renderer = None
+
+    data = mujoco.MjData(mj_model)
+    for joint_positions in rollout.joint_positions[::_FRAME_STRIDE]:
+        if renderer is None:
+            break
+        data.qpos[:] = joint_positions
+        mujoco.mj_forward(mj_model, data)
+        try:
+            renderer.update_scene(data, camera="track_cam")
+            frames.append(Image.fromarray(renderer.render()))
+        # A lost OpenGL context fails differently by platform; the 2D fallback below takes over.
+        # pylint: disable-next=broad-exception-caught  # The 2D fallback takes over.
+        except Exception:
+            renderer = None
+            frames = []
+
+    cart_xs = [
+        float(joint_positions[0]) for joint_positions in rollout.joint_positions
+    ]
+    thetas = [
+        float(joint_positions[1]) for joint_positions in rollout.joint_positions
+    ]
+    # Fallback to high-contrast 2D Matplotlib vector renderer if 3D OpenGL is unavailable
+    if not frames and cart_xs:
+        pole_length = 0.6
+        fig, ax = plt.subplots(figsize=(6, 3.5), dpi=100)
+        for i in range(0, len(cart_xs), _FRAME_STRIDE):
+            cx = cart_xs[i]
+            th = thetas[i]
+            px = cx + pole_length * np.sin(th)
+            py = pole_length * np.cos(th)
+
+            ax.clear()
+            ax.set_facecolor("#1e222d")
+            fig.patch.set_facecolor("#12141a")
+
+            ax.plot([-2.4, 2.4], [0, 0], color="#475569", linewidth=4)
+            cart_patch = plt.Rectangle(
+                (cx - 0.2, -0.06), 0.4, 0.12, color="#38bdf8", zorder=3
+            )
+            ax.add_patch(cart_patch)
+            ax.plot(
+                [cx, px],
+                [0, py],
+                color="#f97316",
+                linewidth=6,
+                solid_capstyle="round",
+                zorder=4,
+            )
+            ax.plot(
+                px,
+                py,
+                "o",
+                color="#ef4444",
+                markersize=10,
+                markeredgecolor="white",
+                zorder=5,
+            )
+
+            ax.set_xlim(-2.8, 2.8)
+            ax.set_ylim(-0.5, 1.0)
+            ax.set_aspect("equal")
+            ax.axis("off")
+            ax.set_title(
+                f"Cartpole Visualizer (Step {i}/{num_steps})",
+                color="#94a3b8",
+                fontsize=10,
+            )
+
+            fig.canvas.draw()
+            rgba = np.asarray(fig.canvas.buffer_rgba())
+            frames.append(Image.fromarray(rgba[:, :, :3]))
+        plt.close(fig)
+
+    os.makedirs(
+        os.path.dirname(os.path.abspath(output_gif_path)), exist_ok=True
+    )
+    if frames:
+        frames[0].save(
+            output_gif_path,
+            save_all=True,
+            append_images=frames[1:],
+            duration=gif_frame_duration_ms(mj_model.opt.timestep),
+            loop=0,
+        )
+    return rollout.score
+
+
+def evaluation_policy(
+    make_inference_fn: Callable[..., InferenceFn], params: Any
+) -> InferenceFn:
+    """Returns the deterministic policy of trained parameters, the one Brax PPO's evaluations score: tanh of its mean."""
+    return make_inference_fn(params, deterministic=True)
+
+
+def plot_training_curves(
+    metrics_history: dict[str, list[float]], output_plot_path: str
+) -> None:
+    """Saves updated reward and loss curves to a PNG image."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+
+    # Evaluation Return / Score Plot
+    eval_steps = metrics_history.get("eval_steps", [])
+    eval_scores = metrics_history.get("eval_scores", [])
+    if eval_steps and eval_scores:
+        ax1.plot(
+            eval_steps,
+            eval_scores,
+            "o-",
+            color="#2563eb",
+            linewidth=2,
+        )
+    ax1.set_title(
+        "Evaluation Episode Return",
+        fontsize=12,
+        fontweight="bold",
+        color="#1e293b",
+    )
+    ax1.set_xlabel("Environment Steps")
+    ax1.set_ylabel("Cumulative Return")
+    ax1.grid(True, linestyle="--", alpha=0.6)
+
+    # Loss Plot
+    loss_steps = metrics_history.get("loss_steps", [])
+    loss_vals = metrics_history.get("loss", [])
+    if loss_steps and loss_vals:
+        ax2.plot(
+            loss_steps,
+            loss_vals,
+            "s-",
+            color="#dc2626",
+            linewidth=2,
+        )
+    ax2.set_title(
+        "PPO Total Loss", fontsize=12, fontweight="bold", color="#1e293b"
+    )
+    ax2.set_xlabel("Environment Steps")
+    ax2.set_ylabel("Loss")
+    ax2.grid(True, linestyle="--", alpha=0.6)
+
+    plt.tight_layout()
+    os.makedirs(
+        os.path.dirname(os.path.abspath(output_plot_path)), exist_ok=True
+    )
+    plt.savefig(output_plot_path, dpi=120)
+    plt.close(fig)
+
+
+# ==============================================================================
+# 4. Main Brax PPO Training Loop with Visualization Callback
+# ==============================================================================
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Cartpole Brax MJX PPO Training with Visualization"
+    )
+    parser.add_argument(
+        "--num_envs",
+        type=int,
+        default=64,
+        help="Number of parallel environments",
+    )
+    parser.add_argument(
+        "--total_timesteps",
+        type=int,
+        default=50_000,
+        help="Total environment steps",
+    )
+    parser.add_argument(
+        "--num_evals",
+        type=int,
+        default=10,
+        help="Number of evaluation checkpoints",
+    )
+    parser.add_argument(
+        "--episode_length", type=int, default=200, help="Episode length"
+    )
+    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
+    parser.add_argument(
+        "--gamma", type=float, default=0.99, help="Discount factor"
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="cartpole_renders",
+        help="Output directory",
+    )
+    parser.add_argument(
+        "--vnc",
+        action="store_true",
+        help="Launch live interactive 3D MuJoCo viewer in VNC (DISPLAY=:99)",
+    )
+    parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="Launch live interactive 3D MuJoCo viewer in GUI",
+    )
+    args = parser.parse_args()
+
+    # Resolve output directory relative to workspace root if invoked via Bazel
+    workspace_dir = os.environ.get(
+        "BUILD_WORKSPACE_DIRECTORY", os.path.abspath(".")
+    )
+    if not os.path.isabs(args.output_dir):
+        args.output_dir = os.path.join(workspace_dir, args.output_dir)
+
+    print("=" * 70)
+    print("Google Brax & MuJoCo MJX Cartpole PPO Training")
+    print(f"   Parallel Envs:       {args.num_envs}")
+    print(f"   Total Timesteps:     {args.total_timesteps:,}")
+    print(f"   Evaluation Epochs:   {args.num_evals}")
+    print(f"   Episode Length:      {args.episode_length}")
+    print(f"   Output Directory:    {os.path.abspath(args.output_dir)}")
+    if args.vnc or args.gui:
+        print("   Live 3D Viewer:      ENABLED (Opening in VNC / GUI Display)")
+    print("=" * 70)
+
+    env = CartpoleBraxEnv()
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    # Initialize live passive 3D MuJoCo viewer if requested
+    viewer = None
+    eval_data = None
+    if args.vnc or args.gui:
+        try:
+            # pylint: disable-next=import-outside-toplevel  # The viewer needs GLFW and a display: only --vnc / --gui.
+            from mujoco import viewer as mujoco_viewer
+
+            if args.vnc and "DISPLAY" not in os.environ:
+                os.environ["DISPLAY"] = ":99"
+            eval_data = mujoco.MjData(env.mj_model)
+            eval_data.qpos[0] = 0.0
+            eval_data.qpos[1] = 0.35
+            eval_data.qvel[:] = 0.0
+            mujoco.mj_forward(env.mj_model, eval_data)
+            viewer = mujoco_viewer.launch_passive(env.mj_model, eval_data)
+            viewer.sync()
+            print("Live 3D MuJoCo Viewer initialized on display :99!")
+        # The live viewer is optional; GLFW and the display fail differently by platform, and training goes on without it.
+        # pylint: disable-next=broad-exception-caught  # The live viewer is optional.
+        except Exception as e:
+            print(f"Warning: Could not launch live 3D viewer: {e}")
+            viewer = None
+
+    metrics_history: dict[str, list[float]] = {
+        "eval_steps": [],
+        "eval_scores": [],
+        "loss_steps": [],
+        "loss": [],
+    }
+
+    t_last = time.time()
+
+    def progress_callback(num_steps: int, metrics: dict[str, float]) -> None:
+        nonlocal t_last
+        dt = time.time() - t_last
+        t_last = time.time()
+
+        eval_reward = float(
+            metrics.get("eval/episode_reward", metrics.get("eval/reward", 0.0))
+        )
+        loss_val = float(metrics.get("training/total_loss", 0.0))
+
+        metrics_history["eval_steps"].append(num_steps)
+        metrics_history["eval_scores"].append(eval_reward)
+        if loss_val != 0.0:
+            metrics_history["loss_steps"].append(num_steps)
+            metrics_history["loss"].append(loss_val)
+
+        pole_icon = (
+            "UP"
+            if eval_reward > 100.0
+            else ("BALANCING" if eval_reward > 20.0 else "FALLEN")
+        )
+        print(
+            f"Step {num_steps:>6d} | Eval Reward: {eval_reward:>+7.2f} | Loss:"
+            f" {loss_val:.4f} | {pole_icon} | {dt*1000:.1f}ms"
+        )
+
+        plot_path = os.path.join(args.output_dir, "training_curves.png")
+        plot_training_curves(metrics_history, plot_path)
+
+    print("\nLaunching Brax PPO Training Loop...\n")
+
+    # Run Brax PPO training
+    make_inference_fn, params, _ = ppo.train(
+        environment=env,
+        num_timesteps=args.total_timesteps,
+        num_evals=args.num_evals,
+        reward_scaling=1.0,
+        episode_length=args.episode_length,
+        normalize_observations=True,
+        action_repeat=1,
+        unroll_length=20,
+        num_minibatches=16,
+        num_updates_per_batch=4,
+        discounting=args.gamma,
+        learning_rate=args.lr,
+        entropy_cost=1e-2,
+        num_envs=args.num_envs,
+        batch_size=32,
+        seed=42,
+        progress_fn=progress_callback,
+    )
+
+    inference_fn = evaluation_policy(make_inference_fn, params)
+
+    # Render final policy rollout
+    final_gif_path = os.path.join(args.output_dir, "cartpole_latest.gif")
+    eval_score = render_policy_rollout(
+        env.mj_model,
+        inference_fn,
+        final_gif_path,
+        num_steps=args.episode_length,
+    )
+    print(
+        f"\n[Final Visualization Saved] -> {final_gif_path} (Return of the"
+        " deterministic policy from a 0.35 rad tilt, scored as training's"
+        f" evaluations: {eval_score:.1f})"
+    )
+
+    # Live 3D playback in VNC if viewer is active
+    if viewer is not None and viewer.is_running() and eval_data is not None:
+        print("Running live playback in 3D MuJoCo viewer...")
+        with viewer.lock():
+            eval_data.qpos[0] = 0.0
+            eval_data.qpos[1] = 0.35
+            eval_data.qvel[:] = 0.0
+            mujoco.mj_forward(env.mj_model, eval_data)
+        viewer.sync()
+
+        rng_eval = jax.random.PRNGKey(123)
+        for _ in range(150):
+            if not viewer.is_running():
+                break
+            obs_eval = np.asarray(
+                cartpole_observation(eval_data.qpos, eval_data.qvel),
+                dtype=np.float32,
+            )
+            rng_eval, act_rng = jax.random.split(rng_eval)
+            action, _ = inference_fn(obs_eval, act_rng)
+            with viewer.lock():
+                eval_data.ctrl[0] = np.clip(
+                    float(np.array(action)[0]), -1.0, 1.0
+                )
+                mujoco.mj_step(env.mj_model, eval_data)
+            viewer.sync()
+            time.sleep(
+                env.mj_model.opt.timestep
+            )  # About real time: the step itself is quick.
+
+    if viewer is not None:
+        try:
+            if viewer.is_running():
+                viewer.close()
+        # Closing the viewer at the end of the run must not fail it; GLFW teardown errors differ by platform.
+        # pylint: disable-next=broad-exception-caught  # Closing must not fail the run.
+        except Exception:
+            pass
+        viewer = None
+
+    print(f'\n{"=" * 70}')
+    print("Brax PPO Training Completed Successfully!")
+    print(
+        "All animated GIFs and metric plots saved in:"
+        f" {os.path.abspath(args.output_dir)}/"
+    )
+    print(
+        "   - Latest Animation:"
+        f" {os.path.join(args.output_dir, 'cartpole_latest.gif')}"
+    )
+    print(
+        "   - Training Curves: "
+        f" {os.path.join(args.output_dir, 'training_curves.png')}"
+    )
+    print("=" * 70)
+
+    # Clean exit for VNC/GUI to prevent GLFW/Mesa background thread teardown crash
+    if args.vnc or args.gui:
+        sys.stdout.flush()
+        # pylint: disable-next=protected-access  # os._exit skips the teardown that crashes.
+        os._exit(0)
+
+
+if __name__ == "__main__":
+    main()

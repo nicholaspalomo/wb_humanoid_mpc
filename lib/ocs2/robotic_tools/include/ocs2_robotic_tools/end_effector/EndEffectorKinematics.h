@@ -96,7 +96,7 @@ class EndEffectorKinematics {
    * @return array of tilts tiltEesRtSurfaceEwrtWorld
    */
   // The plane orientation error is the tilt of each end effector relative to its plane (the quantity `tilt` of
-  // humanoid_nmpc/docs/frame_naming/README.md): rotationMatrixDistanceToPlane(), the vector part, axis * sin(angle / 2),
+  // legged_nmpc/docs/frame_naming/README.md): rotationMatrixDistanceToPlane(), the vector part, axis * sin(angle / 2),
   // of the shortest-arc rotation from the plane normal to the end effector's z axis, in the world frame's axes.
   virtual std::vector<vector3_t> getTiltEesRtSurfaceEwrtWorld(const vector_t& state, const std::vector<vector3_t>& normalSurfacesEwrtWorld) const = 0;
 

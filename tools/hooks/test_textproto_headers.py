@@ -87,7 +87,7 @@ class TextprotoHeaderTest(unittest.TestCase):
         )
         self.assertIn(
             "e.g. '# proto-file:"
-            " humanoid_nmpc/humanoid_mpc_config/task_file.proto'",
+            " legged_nmpc/legged_mpc_config/task_file.proto'",
             found[0][1],
         )
 

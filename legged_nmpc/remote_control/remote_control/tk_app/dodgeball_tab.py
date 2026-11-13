@@ -1,0 +1,346 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""The Dodgeball tab: throw a ball at the robot and watch what the controller does about it."""
+
+import math
+from tkinter import ttk
+import tkinter as tk
+from typing import Any
+
+from legged_mpc_msgs import dodgeball_throw_pb2
+
+from legged_mpc_ipc import topics
+from remote_control import operator_bus
+from remote_control.tk_app import dodgeball
+from remote_control.tk_app import slider_row
+
+
+class DodgeballTab(ttk.Frame):
+    """Throws a dodgeball at the robot's base, for testing push recovery without leaving the GUI.
+
+    A disturbance is the one thing a locomotion controller is hardest to evaluate without, and until now the only way
+    to push this robot in simulation was to reach into MuJoCo by hand. The five sliders say where the ball comes from,
+    how fast and how heavy it is, the checkbox randomizes the direction so that a sweep is not unconsciously always
+    thrown from the same side, and the button throws it. The ball is always aimed at the base - there is no aiming error to tune,
+    because a disturbance the operator can miss with is a disturbance that cannot be repeated.
+
+    ALL OF THE GEOMETRY IS IN `dodgeball.py`, not here. This class reads the widgets, hands the five numbers to that
+    module and publishes what comes back; everything that could be wrong about an angle convention or the gravity
+    compensation is a pure function over there, and is unit-tested in test/test_dodgeball.py. What is left here is
+    Tk, which the tests in this package do not exercise.
+
+    Args:
+        parent: the notebook the tab is added to.
+        throw_publisher: the publisher of operator/dodgeball_throw; None: a throw is computed but not sent.
+        **kwargs: the options of the tab's ttk.Frame.
+    """
+
+    # The topic the tab's publisher publishes throws on (operator_bus.OperatorBus.dodgeball_throw), which the simulator
+    # reads.
+    # LINT.IfChange(dodgeball_topic_name)
+    TOPIC_NAME = topics.OPERATOR_DODGEBALL_THROW
+    # LINT.ThenChange(//legged_nmpc/legged_mpc_ipc/python/legged_mpc_ipc/topics.py:topics)
+
+    def __init__(
+        self,
+        parent: tk.Misc,
+        throw_publisher: operator_bus.TopicPublisher | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(parent, **kwargs)
+        self.configure(style="TFrame")
+
+        self.throw_publisher = throw_publisher
+        self.status_var = tk.StringVar(value="")
+
+        header = ttk.Frame(self)
+        header.pack(fill="x", padx=10, pady=(10, 4))
+        ttk.Label(
+            header,
+            text="Dodgeball",
+            font=("Helvetica", 12, "bold"),
+        ).pack(side="left")
+        ttk.Label(
+            header,
+            text="Throws a ball at the robot's base. Simulator only.",
+            font=("Helvetica", 9),
+        ).pack(side="left", padx=(10, 0))
+
+        body = ttk.Frame(self)
+        body.pack(fill="x", padx=10, pady=(4, 4))
+
+        # The two ANGLES, which the randomize checkbox drives, and the three magnitudes the operator always owns. Kept
+        # in that order so that the pair the checkbox disables is contiguous on screen.
+        self.azimuth_row = slider_row.SliderRow(
+            body,
+            name="Azimuth (about z)",
+            initial_value=0.0,
+            min_val=dodgeball.AZIMUTH_RANGE_DEG[0],
+            max_val=dodgeball.AZIMUTH_RANGE_DEG[1],
+            unit="deg",
+            on_change=self._on_slider_change,
+            label_width=22,
+            clamp_to_range=True,
+        )
+        self.azimuth_row.pack(fill="x", pady=2)
+
+        self.elevation_row = slider_row.SliderRow(
+            body,
+            name="Elevation (about x-y)",
+            initial_value=10.0,
+            min_val=dodgeball.ELEVATION_RANGE_DEG[0],
+            max_val=dodgeball.ELEVATION_RANGE_DEG[1],
+            unit="deg",
+            on_change=self._on_slider_change,
+            label_width=22,
+            clamp_to_range=True,
+        )
+        self.elevation_row.pack(fill="x", pady=2)
+
+        self.distance_row = slider_row.SliderRow(
+            body,
+            name="Spawn distance",
+            initial_value=3.0,
+            min_val=dodgeball.DISTANCE_RANGE_M[0],
+            max_val=dodgeball.DISTANCE_RANGE_M[1],
+            unit="m",
+            on_change=self._on_slider_change,
+            label_width=22,
+            clamp_to_range=True,
+        )
+        self.distance_row.pack(fill="x", pady=2)
+
+        self.speed_row = slider_row.SliderRow(
+            body,
+            name="Start velocity",
+            initial_value=8.0,
+            min_val=dodgeball.SPEED_RANGE_MPS[0],
+            max_val=dodgeball.SPEED_RANGE_MPS[1],
+            unit="m/s",
+            on_change=self._on_slider_change,
+            label_width=22,
+            clamp_to_range=True,
+        )
+        self.speed_row.pack(fill="x", pady=2)
+
+        self.mass_row = slider_row.SliderRow(
+            body,
+            name="Ball mass",
+            initial_value=dodgeball.DEFAULT_BALL_MASS_KG,
+            min_val=dodgeball.MASS_RANGE_KG[0],
+            max_val=dodgeball.MASS_RANGE_KG[1],
+            unit="kg",
+            on_change=self._on_slider_change,
+            label_width=22,
+            clamp_to_range=True,
+        )
+        self.mass_row.pack(fill="x", pady=2)
+
+        controls = ttk.Frame(self)
+        controls.pack(fill="x", padx=10, pady=(8, 4))
+
+        # Randomizes the two ANGLES only. The distance, the speed and the mass stay where the operator put them
+        # because those three are what makes one throw comparable with the next: randomizing them as well would turn
+        # a sweep into anecdotes.
+        self.randomize_var = tk.BooleanVar(value=False)
+        self.randomize_check = ttk.Checkbutton(
+            controls,
+            text="Randomize direction on every throw (azimuth and elevation)",
+            variable=self.randomize_var,
+            command=self._on_randomize_toggle,
+        )
+        self.randomize_check.pack(side="left")
+
+        self.throw_button = ttk.Button(
+            controls,
+            text="Throw dodgeball",
+            command=self.throw,
+        )
+        self.throw_button.pack(side="right")
+
+        # What the current sliders would actually do, updated as they move: the flight time and the momentum are the
+        # two numbers that decide whether a throw is a nudge or a knockdown, and neither is obvious from the sliders.
+        self.preview_var = tk.StringVar(value="")
+        ttk.Label(
+            self,
+            textvariable=self.preview_var,
+            font=("Courier", 9),
+        ).pack(fill="x", padx=10, pady=(0, 2))
+
+        self.status_label = ttk.Label(
+            self,
+            textvariable=self.status_var,
+            font=("Helvetica", 9),
+        )
+        self.status_label.pack(fill="x", padx=10, pady=(0, 10))
+
+        self._update_preview()
+
+    # ---------------------------------------------------------------------------------------------------------
+    # Reading the widgets
+    # ---------------------------------------------------------------------------------------------------------
+
+    def current_throw(self) -> dodgeball.DodgeballThrow:
+        """The throw the five sliders currently describe, clamped into range."""
+        return dodgeball.DodgeballThrow(
+            cmd_azimuth_ball_rt_base_ewrt_heading=self.azimuth_row.get_value(),
+            cmd_elevation_ball_rt_base_ewrt_heading=self.elevation_row.get_value(),
+            cmd_dist_ball_rt_base=self.distance_row.get_value(),
+            cmd_speed_ball_rt_world=self.speed_row.get_value(),
+            mass_kg=self.mass_row.get_value(),
+        ).clamped()
+
+    def _on_slider_change(self, name: str, value: float | None) -> None:
+        del name, value  # Unused: the preview reads every slider.
+        self._update_preview()
+
+    def _on_randomize_toggle(self) -> None:
+        """Grays the two angle sliders out while they are being randomized, so the display cannot lie.
+
+        Without this the sliders would keep showing whatever they were last left at while every throw came from
+        somewhere else, which is the kind of small dishonesty that costs an afternoon.
+        """
+        state = "disabled" if self.randomize_var.get() else "normal"
+        self.azimuth_row.set_state(state)
+        self.elevation_row.set_state(state)
+        self._update_preview()
+
+    def _update_preview(self) -> None:
+        self.preview_var.set(self.preview_text(self.current_throw()))
+
+    def preview_text(self, throw: dodgeball.DodgeballThrow) -> str:
+        """What the current sliders will actually do: the launch speed, the flight, and the momentum on arrival.
+
+        Those decide whether a throw is a nudge or a knockdown, and none of them is the number on a slider: the launch
+        speed is raised when the slider's is too slow to reach the base, and the ball arrives faster or slower than it
+        left depending on whether it was thrown from above or below.
+
+        Args:
+            throw: the throw to describe.
+
+        Returns:
+            One line: the direction (or that it is randomized), the launch speed, the flight time and the momentum.
+        """
+        direction = "direction randomized"
+        if not self.randomize_var.get():
+            direction = "%+.0f / %+.0f deg" % (
+                throw.cmd_azimuth_ball_rt_base_ewrt_heading,
+                throw.cmd_elevation_ball_rt_base_ewrt_heading,
+            )
+        launch_speed_ball_rt_world = (
+            dodgeball.compute_launch_speed_ball_rt_world(throw)
+        )
+        raised = ""
+        if launch_speed_ball_rt_world > throw.cmd_speed_ball_rt_world + 1e-9:
+            raised = (
+                " (raised from %.1f: too slow to reach the base)"
+                % throw.cmd_speed_ball_rt_world
+            )
+        arrival_speed_ball_rt_world = math.hypot(
+            *dodgeball.compute_arrival_linvel_ball_rt_world_ewrt_heading(throw)
+        )
+        return (
+            "%s  |  %.1f m/s launch%s  |  %.2f s  |  %.2f kg x %.1f m/s ="
+            " %.2f N s"
+            % (
+                direction,
+                launch_speed_ball_rt_world,
+                raised,
+                dodgeball.flight_time(throw),
+                throw.mass_kg,
+                arrival_speed_ball_rt_world,
+                dodgeball.compute_impact_norm_linmom_ball_rt_world_ewrt_world(
+                    throw
+                ),
+            )
+        )
+
+    # ---------------------------------------------------------------------------------------------------------
+    # Throwing
+    # ---------------------------------------------------------------------------------------------------------
+
+    def throw(self) -> dodgeball_throw_pb2.DodgeballThrow:
+        """Throws one ball, and returns the message that was published (or would have been).
+
+        Returning it is what lets a test drive the button and assert on the result without a bus; the GUI itself
+        ignores the return value.
+
+        Returns:
+            The message of the throw (dodgeball.throw_message), whether or not it could be published.
+        """
+        if self.randomize_var.get():
+            (
+                cmd_azimuth_ball_rt_base_ewrt_heading,
+                cmd_elevation_ball_rt_base_ewrt_heading,
+            ) = dodgeball.sample_random_angles()
+            # [deg] Written back to the sliders even while they are disabled, so that the record of what was thrown is
+            # on screen rather than only in the topic.
+            self.azimuth_row.set_value(cmd_azimuth_ball_rt_base_ewrt_heading)
+            self.elevation_row.set_value(
+                cmd_elevation_ball_rt_base_ewrt_heading
+            )
+
+        throw = self.current_throw()
+        payload = dodgeball.throw_message(throw)
+
+        if self.throw_publisher is None:
+            self._show_status(
+                "No publisher: the throw was computed but not sent.", error=True
+            )
+            return payload
+
+        try:
+            self.throw_publisher.publish(payload)
+        # pylint: disable-next=broad-exception-caught  # A Tk callback must not raise.
+        except Exception as error:
+            print(f"[DodgeballTab] ERROR publishing a throw: {error}")
+            self._show_status(f"Error publishing: {error}", error=True)
+            return payload
+
+        self._show_status(
+            "Thrown: %.2f kg from %+.0f / %+.0f deg at %.1f m, launched at %.1f"
+            " m/s - arrives in %.2f s."
+            % (
+                throw.mass_kg,
+                throw.cmd_azimuth_ball_rt_base_ewrt_heading,
+                throw.cmd_elevation_ball_rt_base_ewrt_heading,
+                throw.cmd_dist_ball_rt_base,
+                dodgeball.compute_launch_speed_ball_rt_world(throw),
+                dodgeball.flight_time(throw),
+            )
+        )
+        self._update_preview()
+        return payload
+
+    def _show_status(self, msg: str, error: bool = False) -> None:
+        # Through the label's textvariable, not configure(text=...): a ttk label bound to a variable copies the
+        # variable back over any text set directly, so that message would vanish before it was ever drawn.
+        color = "#e74c3c" if error else "#27ae60"
+        self.status_label.configure(foreground=color)
+        self.status_var.set(msg)
+        self.after(5000, lambda: self.status_var.set(""))

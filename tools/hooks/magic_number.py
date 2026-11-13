@@ -59,27 +59,34 @@ from typing import NamedTuple
 from tools.hooks import check_types
 from tools.hooks import cpp_source
 from tools.hooks import lint_files
+from tools.hooks import repo_layout
 
 NAME = "magic-number"
 
 # The sources of the `testonly = True` C++ targets outside the test directories lint_files.is_test_path() knows: single
 # files, or whole directories ending in `/`. test_magic_number.py keeps the list in step with the BUILD files.
 TEST_ONLY_SOURCES = (
-    "humanoid_nmpc/humanoid_mpc_validation/exe/benchmarkMpcSolveMain.cpp",
-    "humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/CentroidalClosedLoopDriver.h",
-    "humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/ClosedLoopDriver.h",
-    "humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/LockstepClosedLoop.h",
-    "humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/LockstepOutputs.h",
-    "humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/TimeSeriesLabels.h",
-    "humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/WholeBodyClosedLoopDriver.h",
-    "humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/CentroidalClosedLoopDriver.cpp",
-    "humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/ClosedLoopDriver.cpp",
-    "humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/ClosedLoopDriverFactory.cpp",
-    "humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/LockstepClosedLoop.cpp",
-    "humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/LockstepOutputs.cpp",
-    "humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/WholeBodyClosedLoopDriver.cpp",
-    "robot_runtime/web_viewer/include/web_viewer/JpegDecoder.h",
-    "robot_runtime/web_viewer/src/JpegDecoder.cpp",
+    repo_layout.VALIDATION_PACKAGE + "exe/benchmarkMpcSolveMain.cpp",
+    repo_layout.VALIDATION_INCLUDE_DIR
+    + "closed_loop/CentroidalClosedLoopDriver.h",
+    repo_layout.VALIDATION_INCLUDE_DIR + "closed_loop/ClosedLoopDriver.h",
+    repo_layout.VALIDATION_INCLUDE_DIR + "closed_loop/LockstepClosedLoop.h",
+    repo_layout.VALIDATION_INCLUDE_DIR + "closed_loop/LockstepOutputs.h",
+    repo_layout.VALIDATION_INCLUDE_DIR + "closed_loop/TimeSeriesLabels.h",
+    repo_layout.VALIDATION_INCLUDE_DIR
+    + "closed_loop/WholeBodyClosedLoopDriver.h",
+    repo_layout.VALIDATION_PACKAGE
+    + "src/closed_loop/CentroidalClosedLoopDriver.cpp",
+    repo_layout.VALIDATION_PACKAGE + "src/closed_loop/ClosedLoopDriver.cpp",
+    repo_layout.VALIDATION_PACKAGE
+    + "src/closed_loop/ClosedLoopDriverFactory.cpp",
+    repo_layout.VALIDATION_PACKAGE + "src/closed_loop/LockstepClosedLoop.cpp",
+    repo_layout.VALIDATION_PACKAGE + "src/closed_loop/LockstepOutputs.cpp",
+    repo_layout.VALIDATION_PACKAGE
+    + "src/closed_loop/WholeBodyClosedLoopDriver.cpp",
+    repo_layout.ROBOT_RUNTIME_DIR
+    + "web_viewer/include/web_viewer/JpegDecoder.h",
+    repo_layout.ROBOT_RUNTIME_DIR + "web_viewer/src/JpegDecoder.cpp",
 )
 
 # Directories of benchmarks, which are not production code either.
@@ -314,7 +321,7 @@ def _named_constant_ranges(
     a `*`, a `&` or a `::`, before an initializer, an array bound, another declarator or the end) is a named constant,
     the declaration's specifiers and template header included for the first one. What stands in front of the
     declaration is not part of it: a label (`case 2:`), or a macro call or an attribute with arguments
-    (`HUMANOID_MACRO(3)`, `alignas(64)`). A statement that a keyword starts (`return`, `if constexpr (...)`, `typedef`)
+    (`LEGGED_MACRO(3)`, `alignas(64)`). A statement that a keyword starts (`return`, `if constexpr (...)`, `typedef`)
     declares no constant, and a `const` or a `kName` inside a template argument list is the type's, not the
     declaration's.
 

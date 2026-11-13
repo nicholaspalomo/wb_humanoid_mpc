@@ -1,18 +1,18 @@
-# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto
-# proto-message: humanoid_mpc_config.TaskFile
+# proto-file: legged_nmpc/legged_mpc_config/task_file.proto
+# proto-message: legged_mpc_config.TaskFile
 # Simulation & Telemetry Configuration
 # Where the robot process sends its telemetry (robot/state), by name (TelemetrySinkRegistry.h): bus publishes it on
 # the IPC bus for the visualization publisher, the Rerun bridge and ipc_tool; no telemetry_sinks line turns the
 # telemetry off.
 # LINT.IfChange(telemetry_sinks)
 telemetry_sinks: "bus"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h:telemetry_sink_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/include/legged_common_mpc_app/robot/TelemetrySinkRegistry.h:telemetry_sink_names)
 telemetry_frequency: 100  # [Hz] robot/state, decimated from the control loop
 # MuJoCo backend of the robot process only. The viewer's contact timeline ('b' toggles it) shows, per contact point,
 # the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
 sim_contact_timeline_window: 5  # [s] width of the sliding window
 sim_min_force_mjcontact_ewrt_mjcontact_x: 5  # [N] normal force above which a contact point counts as touching (ground truth)
-# Fall recovery (SimFallRecovery, humanoid_nmpc/docs/mpc_reset/README.md). sim_max_tiltangle_base_rt_world is the tilt of the base
+# Fall recovery (SimFallRecovery, legged_nmpc/docs/mpc_reset/README.md). sim_max_tiltangle_base_rt_world is the tilt of the base
 # past which the simulator catches the robot on the gantry, holding it upright where it is at the gantry height,
 # switching to JOINT_PD (the whole-body MPC is overconstrained against a pinned base) and resetting the controller, which
 # holds the robot until it has planned from where the robot is now. The simulator's own resets (base below the floor
@@ -99,10 +99,10 @@ enable_online_tuning: true  # Enable runtime parameter and gain tuning in Contro
 #                  the lambda >= 0 barrier (contacts.basis_non_negativity_barrier), and contacts.basis_generator_set and
 #                  contacts.basis_regularization choose B and the regularization of the input cost (shipped here)
 # It fixes the input dimension, so it takes effect at start-up only.
-# See humanoid_nmpc/docs/contact_basis_vectors/README.md.
+# See legged_nmpc/docs/contact_basis_vectors/README.md.
 # LINT.IfChange(contact_input_parameterization_config)
 contact_input_parameterization: "basis_vectors"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names)
 # CoM + Angular Center of Mass (ACoM) tracking in place of base-pose tracking is the cost com_and_acom_tracking_cost,
 # listed in `costs` below (it replaced the useComAndAcomTracking key, which the loader now refuses). Likewise the DCM
 # (capture point) terminal cost is the entry dcm_terminal_cost of `costs`, in place of terminal_cost (it replaced the
@@ -116,10 +116,10 @@ contact_input_parameterization: "basis_vectors"
 #                    planned footholds carry no weight in the MPC (CentroidalMpcInterface warns at start-up).
 # It replaced the useContactPlanning key, which start-up now refuses, and takes effect at start-up only. The planner's
 # parameters are contact_planning.textproto next to this file (hot-reloaded and edited by the
-# tuning GUI like this file). See humanoid_nmpc/docs/README.md, section 2.
+# tuning GUI like this file). See legged_nmpc/docs/README.md, section 2.
 # LINT.IfChange(contact_schedule_source_config)
 contact_schedule_source: "gait_schedule"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
 
 # Weights for CoM and ACoM tracking (read while com_and_acom_tracking_cost is listed in `costs`).
 #
@@ -157,7 +157,7 @@ acom_weights {
   roll: 50  # theta_acom_x / roll (matches theta_base_x)
 }
 
-# The visualization publisher of the MPC node (humanoid_nmpc/humanoid_common_mpc_app/visualization/README.md), read at
+# The visualization publisher of the MPC node (legged_nmpc/legged_common_mpc_app/visualization/README.md), read at
 # start-up. rerun_scene_frequency bounds how often the Rerun scene (robots and markers) is sent; the plots follow every
 # robot/state sample. telemetry_frames are the frames whose pose, twist, acceleration and wrench are plotted, measured,
 # reference and plan; rerun_plan_frames (the contact frames when absent) those whose planned paths the scene draws.
@@ -175,10 +175,10 @@ centroidal_model: "full_centroidal_dynamics"  # or "single_rigid_body_dynamics"
 # forced to zero and the stance foot is held still, both from the schedule the contact planner produced, so the MPC cannot
 # depart from that schedule. The contact-implicit alternative below replaces those two with the relaxed complementarity
 # conditions of rigid contact and lets the solver decide where each foot carries load, which is the second half of
-# arXiv:2502.15630 (humanoid_nmpc/docs/contact_implicit_mpc/README.md). It changes the closed loop, so it is off until it
+# arXiv:2502.15630 (legged_nmpc/docs/contact_implicit_mpc/README.md). It changes the closed loop, so it is off until it
 # has been validated in MuJoCo: to switch, drop zero_wrench, zero_velocity AND normal_velocity below and add the four
 # entries marked `contact-implicit` (normal_velocity among them) to soft_constraints;
-# humanoid_nmpc/docs/contact_implicit_mpc/README.md section 5 lists what else has to be set. The MPC's start-up
+# legged_nmpc/docs/contact_implicit_mpc/README.md section 5 lists what else has to be set. The MPC's start-up
 # (mpcFormulationTasksFromConfig) refuses the half-way combinations.
 #
 # normal_velocity has to go from hard_constraints with the other two. It is a HARD equality on the contact frame's
@@ -215,7 +215,7 @@ soft_constraints: "contact_wrench_cone"  # wrench inputs: friction, CoP and tors
 # soft_constraints: "force_weighted_slip"             # contact-implicit: f_n * v_xy = 0, a loaded foot is held still
 # soft_constraints: "ground_penetration"              # contact-implicit: h >= 0; the three contact-implicit terms are listed together
                                   #   or not at all
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp:soft_constraint_registry, //humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp:soft_constraint_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc/src/common/MpcFormulationConfig.cpp:soft_constraint_registry, //legged_nmpc/legged_common_mpc/src/common/MpcFormulationConfig.cpp:soft_constraint_names)
 
 # The nominal foothold reference, used only under contact_schedule_source: gait_schedule. Without a contact planner the
 # swing foot has no horizontal target at all - the foot cost switches its xy position weights off - and the only thing
@@ -267,7 +267,7 @@ contact_implicit {
   # between a foot in flight and a foot carrying all 160 kg. Even at 50, a swing foot leaking 50 N was held in z more
   # than a thousand times as stiffly as by pos_z - and since f_n h = 0 is satisfied just as well by putting the foot
   # down as by taking the force off it, the cheapest way to pay was to land early. See
-  # humanoid_nmpc/docs/contact_implicit_mpc/README.md.
+  # legged_nmpc/docs/contact_implicit_mpc/README.md.
   complementarity_weight: 50  # the price of carrying full body weight at the reference height
   slip_weight: 150  # the price of sliding at the reference speed under full body weight
   # Weight of the one-sided quadratic hinge on h >= 0: the cost is penetration_weight * h^2 / 2 below the ground and
@@ -308,7 +308,7 @@ contact_implicit {
 costs: "state_quadratic_cost"
 # Regulates the whole-body CoM and the ACoM (com_weights, acom_weights) instead of the base pose: Q's and final_state_weights's base-pose
 # blocks are zeroed and the procedural arm swing is off. Atlas's is the one validated ACoM network
-# (robot_models/drc_atlas/README.md); centroidal MPC only (humanoid_learning/acom/README.md, section 4).
+# (robot_models/drc_atlas/README.md); centroidal MPC only (legged_learning/acom/README.md, section 4).
 costs: "com_and_acom_tracking_cost"
 costs: "input_quadratic_cost"
 # The horizon ends on the DCM (capture point) viability cost (the dcm_terminal_cost block). Its alternative is
@@ -321,7 +321,7 @@ costs: "external_torque_cost"
 # ---------------------------------------------------------------------------------------------------------------
 # Locomotion heuristics: the regularization heuristics of Gerardo Bledt, "Regularized Predictive Control Framework
 # for Robust Dynamic Legged Locomotion", MIT 2020, Appendix C. Derivations, a block diagram and the seam of every  # NOLINT(claudisms): cited paper title
-# name below are in humanoid_nmpc/docs/locomotion_heuristics/README.md.
+# name below are in legged_nmpc/docs/locomotion_heuristics/README.md.
 #
 # This is a reference-SHAPING layer, not a new cost family. Nothing here adds a term to the optimal control problem:
 # every name modifies a reference that a cost this file ALREADY lists regularizes against, which is what RPC means
@@ -656,7 +656,7 @@ model_settings {
   # The key the ACoM network registry dispatches on (AngularCenterOfMass.cpp), and the robot train_main.py trains for.
   # LINT.IfChange(acom_robot_name)
   robot_name: "atlas"
-  # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/acom/AngularCenterOfMass.cpp:acom_robot_dispatch, //humanoid_learning/acom/train_main.py:robot_paths)
+  # LINT.ThenChange(//legged_nmpc/legged_common_mpc/src/acom/AngularCenterOfMass.cpp:acom_robot_dispatch, //legged_learning/acom/train_main.py:robot_paths)
 
   foot_constraint {
     # Swing: the only regulation of the swing-foot height is the normal-velocity constraint
@@ -767,7 +767,7 @@ swing_trajectory_config {
   # the "decent tuning for DRC atlas" commit and is 0.04 since, a clearance margin for the sole center, whose toe sits
   # 0.12 m ahead (above). With phase_resetting not listed in contact_planning.textproto's execution rules, the foot
   # switches to stance at the scheduled time whether or not it has reached the ground, so the margin is closed in
-  # stance, not by a ground search; the SQP analysis of humanoid_nmpc/docs/quaternion_base_orientation/README.md
+  # stance, not by a ground search; the SQP analysis of legged_nmpc/docs/quaternion_base_orientation/README.md
   # (finding 12) was run with this value.
   touchdown_pos_foot_rt_surface_ewrt_world_z: 0.04
   # Swings shorter than this are scaled down in height AND velocity by swingDuration / swing_time_scale
@@ -1271,7 +1271,7 @@ contacts {
     friction_coefficient: 0.5
     # [m] Read only by the online contact planner (its per-foot yaw torque budget per newton, capped at the cone's
     # torsion limit). The cone's own torsion limit follows from friction_coefficient at the footprint corners
-    # (humanoid_nmpc/docs/contact_basis_vectors/README.md, section 2).
+    # (legged_nmpc/docs/contact_basis_vectors/README.md, section 2).
     torsional_friction_coefficient: 0.05
     min_force_contact_ewrt_contact_z: 5
     grip_force_contact_ewrt_contact_z: 0
@@ -1289,10 +1289,10 @@ contacts {
   #                                     approximation of the cone above (shipped)
   #   exact_wrench_cone                 4N generators spanning exactly that cone (16 scalings per foot for N = 4)
   # It fixes the input dimension, so it takes effect at start-up only. exact_wrench_cone has not been validated in
-  # closed loop yet. See humanoid_nmpc/docs/contact_basis_vectors/README.md.
+  # closed loop yet. See legged_nmpc/docs/contact_basis_vectors/README.md.
   # LINT.IfChange(basis_generator_set_config)
   basis_generator_set: "conservative_inner_approximation"
-  # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h:basis_generator_set_names)
+  # LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/contact/ContactWrenchConeBasisMatrix.h:basis_generator_set_names)
 
   # Barrier penalty enforcing lambda >= 0 for basis-vector contact inputs (contact_input_parameterization: basis_vectors).
   # Under that parameterization this barrier IS the contact wrench cone, so it is built for every contact whatever
@@ -1315,11 +1315,11 @@ contacts {
   #   null_space     S = I - B^+ B: only the lambda that produce no wrench are penalized, and R acts unchanged on the
   #                  wrench. Not validated in closed loop yet.
   # Both are hot-reloaded; a reload naming an unknown shape, or leaving the lambda block indefinite, is refused and the
-  # running R kept. See humanoid_nmpc/docs/contact_basis_vectors/README.md, section 5.
+  # running R kept. See legged_nmpc/docs/contact_basis_vectors/README.md, section 5.
   basis_scaling_regularization: 0.0001
   # LINT.IfChange(basis_regularization_config)
   basis_regularization: "full_diagonal"
-  # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/BasisInputsCostTransform.h:basis_regularization_names)
+  # LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/BasisInputsCostTransform.h:basis_regularization_names)
 
   friction_force_cone_soft_constraint {
     friction_coefficient: 0.5

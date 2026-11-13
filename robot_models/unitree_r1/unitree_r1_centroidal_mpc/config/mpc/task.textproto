@@ -1,18 +1,18 @@
-# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto
-# proto-message: humanoid_mpc_config.TaskFile
+# proto-file: legged_nmpc/legged_mpc_config/task_file.proto
+# proto-message: legged_mpc_config.TaskFile
 # Simulation & Telemetry Configuration
 # Where the robot process sends its telemetry (robot/state), by name (TelemetrySinkRegistry.h): bus publishes it on
 # the IPC bus for the visualization publisher, the Rerun bridge and ipc_tool; no telemetry_sinks line turns the
 # telemetry off.
 # LINT.IfChange(telemetry_sinks)
 telemetry_sinks: "bus"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h:telemetry_sink_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/include/legged_common_mpc_app/robot/TelemetrySinkRegistry.h:telemetry_sink_names)
 telemetry_frequency: 100  # [Hz] robot/state, decimated from the control loop
 # MuJoCo backend of the robot process only. The viewer's contact timeline ('b' toggles it) shows, per contact point,
 # the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
 sim_contact_timeline_window: 5.0  # [s] width of the sliding window
 sim_min_force_mjcontact_ewrt_mjcontact_x: 5.0  # [N] normal force above which a contact point counts as touching (ground truth)
-# Fall recovery (SimFallRecovery, humanoid_nmpc/docs/mpc_reset/README.md). sim_max_tiltangle_base_rt_world is the tilt of the base
+# Fall recovery (SimFallRecovery, legged_nmpc/docs/mpc_reset/README.md). sim_max_tiltangle_base_rt_world is the tilt of the base
 # past which the simulator catches the robot on the gantry, holding it upright where it is at the gantry height,
 # switching to JOINT_PD (the whole-body MPC is overconstrained against a pinned base) and resetting the controller, which
 # holds the robot until it has planned from where the robot is now. The simulator's own resets (base below the floor
@@ -97,20 +97,20 @@ enable_online_tuning: true  # Enable runtime parameter and gain tuning in Contro
 # wrench, with the contact wrench cone a soft constraint of the lists below; the default) or `basis_vectors` (the
 # scalings lambda of wrench-cone generators built from contacts.contact_wrench_cone_soft_constraint, which this file
 # does not carry). It fixes the input dimension, so it takes effect at start-up only. See
-# humanoid_nmpc/docs/contact_basis_vectors/README.md.
+# legged_nmpc/docs/contact_basis_vectors/README.md.
 # LINT.IfChange(contact_input_parameterization_config)
 contact_input_parameterization: "wrench"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names)
 # Where the mode schedule and the footholds come from, by name (MpcFormulationConfig.h): `gait_schedule` (the gait
 # schedule of the reference files, with the nominal footholds; shipped here, and the default) or `contact_planner` (the
 # online contact planner that planner.type in a contact_planning.textproto next to this file names, which this robot does
 # not carry). It replaced the useContactPlanning key, which start-up now refuses, and takes effect at start-up only.
-# See humanoid_nmpc/docs/README.md, section 2.
+# See legged_nmpc/docs/README.md, section 2.
 # LINT.IfChange(contact_schedule_source_config)
 contact_schedule_source: "gait_schedule"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
 
-# The visualization publisher of the MPC node (humanoid_nmpc/humanoid_common_mpc_app/visualization/README.md), read at
+# The visualization publisher of the MPC node (legged_nmpc/legged_common_mpc_app/visualization/README.md), read at
 # start-up. rerun_scene_frequency bounds how often the Rerun scene (robots and markers) is sent; the plots follow every
 # robot/state sample. telemetry_frames are the frames whose pose, twist, acceleration and wrench are plotted, measured,
 # reference and plan; rerun_plan_frames (the contact frames when absent) those whose planned paths the scene draws.
@@ -143,7 +143,7 @@ costs: "external_torque_cost"
 # ---------------------------------------------------------------------------------------------------------------
 # Locomotion heuristics: the regularization heuristics of Gerardo Bledt, "Regularized Predictive Control Framework
 # for Robust Dynamic Legged Locomotion", MIT 2020, Appendix C. Derivations, a block diagram and the seam of every  # NOLINT(claudisms): cited paper title
-# name below are in humanoid_nmpc/docs/locomotion_heuristics/README.md.
+# name below are in legged_nmpc/docs/locomotion_heuristics/README.md.
 #
 # This is a reference-SHAPING layer, not a new cost family. Nothing here adds a term to the optimal control problem:
 # every name modifies a reference that a cost this file ALREADY lists regularizes against, which is what RPC means

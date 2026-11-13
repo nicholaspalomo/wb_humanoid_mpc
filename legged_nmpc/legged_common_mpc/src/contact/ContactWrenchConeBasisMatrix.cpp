@@ -1,0 +1,523 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include "legged_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "Eigen/QR"
+#include "Eigen/SVD"
+#include "absl/log/absl_check.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
+#include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+
+#include "legged_common_mpc/common/StatusMacros.h"
+#include "legged_common_mpc/common/Types.h"
+#include "legged_common_mpc/constraint/ContactWrenchConeConstraint.h"
+#include "legged_common_mpc/contact/ContactPolygon.h"
+#include "legged_common_mpc/contact/ContactRectangle.h"
+#include "nproto/Fnv1a64Constants.h"
+
+namespace ocs2::legged {
+
+namespace {
+
+constexpr size_t kNumConservativeExtraGenerators =
+    7;  // 1 normal + 4 CoP corners + 2 torsional
+
+constexpr scalar_t kPatchInsideTolerance =
+    1.0e-9;  // [m] slack when checking that the patch point is on the footprint
+constexpr scalar_t kConeFeasibilityTolerance =
+    1.0e-9;  // slack of the generator feasibility self-check
+constexpr scalar_t kPseudoInverseRelativeTolerance = 1.0e-6;
+constexpr scalar_t kNonNegativeRelativeTolerance =
+    1.0e-12;  // how negative B+ W may be and still count as non-negative
+constexpr scalar_t kNnlsRelativeTolerance =
+    1.0e-12;  // Lawson-Hanson optimality tolerance, relative to |A| |b|
+constexpr size_t kNnlsIterationsPerColumn = 5;
+
+constexpr absl::string_view kContactRectanglePrefix =
+    "contacts.contact_rectangle.";
+
+constexpr scalar_t kHashZeroThreshold =
+    1.0e-12;  // entries below this magnitude are hashed as zero
+
+/**
+ * Wrench of a force applied at the planar point `point` of the contact frame,
+ * plus a torsion about the contact normal. The moment is taken about the
+ * contact frame origin.
+ */
+vector6_t generatorWrenchAt(const vector2_t& point,
+                            const vector3_t& generatorForce,
+                            scalar_t torsion) {
+  vector6_t generatorWrench;
+  generatorWrench.head<kForceDim>() = generatorForce;
+  generatorWrench.tail<kTorqueDim>() =
+      vector3_t(point.x(), point.y(), 0.0).cross(generatorForce) +
+      vector3_t(0.0, 0.0, torsion);
+  return generatorWrench;
+}
+
+/** The N + 7 set, see kConservativeInnerApproximationGeneratorSet. */
+absl::StatusOr<matrix_t> buildConservativeInnerApproximation(
+    const ContactWrenchConeConstraint::Config& config,
+    const ContactRectangle& contactRectangle) {
+  const PolygonBounds& bounds = contactRectangle.getBounds();
+  const vector3_t posPatchpointRtContactEwrtContact =
+      computePosPatchpointRtContactEwrtContact(config, contactRectangle);
+  if (posPatchpointRtContactEwrtContact.x() <
+          bounds.min_pos_corners_rt_contact_ewrt_contact_x -
+              kPatchInsideTolerance ||
+      posPatchpointRtContactEwrtContact.x() >
+          bounds.max_pos_corners_rt_contact_ewrt_contact_x +
+              kPatchInsideTolerance ||
+      posPatchpointRtContactEwrtContact.y() <
+          bounds.min_pos_corners_rt_contact_ewrt_contact_y -
+              kPatchInsideTolerance ||
+      posPatchpointRtContactEwrtContact.y() >
+          bounds.max_pos_corners_rt_contact_ewrt_contact_y +
+              kPatchInsideTolerance) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[ContactWrenchConeBasisMatrix] the patch point (",
+        posPatchpointRtContactEwrtContact.x(), ", ",
+        posPatchpointRtContactEwrtContact.y(), ") lies outside ",
+        kContactRectanglePrefix,
+        "{min_pos_corners_rt_contact_ewrt_contact_x, "
+        "max_pos_corners_rt_contact_ewrt_contact_x, "
+        "min_pos_corners_rt_contact_ewrt_contact_y, "
+        "max_pos_corners_rt_contact_ewrt_contact_y} = [",
+        bounds.min_pos_corners_rt_contact_ewrt_contact_x, ", ",
+        bounds.max_pos_corners_rt_contact_ewrt_contact_x, "] x [",
+        bounds.min_pos_corners_rt_contact_ewrt_contact_y, ", ",
+        bounds.max_pos_corners_rt_contact_ewrt_contact_y, "]. The '",
+        kConservativeInnerApproximationGeneratorSet,
+        "' generator set applies its friction and torsion rays at that point, "
+        "so they would leave the footprint; enlarge the "
+        "footprint, move the patch offset onto it, or set ",
+        kBasisGeneratorSetKey, ": ", kExactWrenchConeGeneratorSet, "."));
+  }
+  const vector2_t posPatchpointRtContactEwrtContactXy(
+      posPatchpointRtContactEwrtContact.x(),
+      posPatchpointRtContactEwrtContact.y());
+  // The torsion a unit normal force at the patch point can carry, from the
+  // cone's own rows: the corner friction decides it, not a separate
+  // coefficient. A patch point on the footprint boundary is clamped onto it
+  // first.
+  const vector2_t clampedPosPatchpointRtContactEwrtContactXy(
+      std::clamp(posPatchpointRtContactEwrtContactXy.x(),
+                 bounds.min_pos_corners_rt_contact_ewrt_contact_x,
+                 bounds.max_pos_corners_rt_contact_ewrt_contact_x),
+      std::clamp(posPatchpointRtContactEwrtContactXy.y(),
+                 bounds.min_pos_corners_rt_contact_ewrt_contact_y,
+                 bounds.max_pos_corners_rt_contact_ewrt_contact_y));
+  const std::optional<TorsionInterval> torsionLimits =
+      computeLimitsPerNewtonTorqueContactEwrtContactZ(
+          buildLocalWrenchConeRows(config, contactRectangle),
+          clampedPosPatchpointRtContactEwrtContactXy);
+  if (!torsionLimits.has_value()) {
+    return absl::InternalError(
+        "[ContactWrenchConeBasisMatrix] a unit normal force at the patch point "
+        "is outside the wrench cone");
+  }
+  if (torsionLimits->upper - torsionLimits->lower <= kPatchInsideTolerance) {
+    // On a corner the whole load sits on one corner force, whose friction has
+    // no lever arm: the torsion rays would carry no torsion and the set would
+    // not span the yaw moment at all.
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[ContactWrenchConeBasisMatrix] the patch point (",
+        posPatchpointRtContactEwrtContact.x(), ", ",
+        posPatchpointRtContactEwrtContact.y(), ") is a corner of ",
+        kContactRectanglePrefix,
+        "{min_pos_corners_rt_contact_ewrt_contact_x, "
+        "max_pos_corners_rt_contact_ewrt_contact_x, "
+        "min_pos_corners_rt_contact_ewrt_contact_y, "
+        "max_pos_corners_rt_contact_ewrt_contact_y}, where a normal force can "
+        "carry no "
+        "torsion, so the '",
+        kConservativeInnerApproximationGeneratorSet,
+        "' generator set would not span the yaw moment; move the patch offset "
+        "off the corner or set ",
+        kBasisGeneratorSetKey, ": ", kExactWrenchConeGeneratorSet, "."));
+  }
+
+  const size_t numDirections = config.numBasisVectors;
+  matrix_t basis = matrix_t::Zero(
+      kWrenchDim, static_cast<Eigen::Index>(numDirections +
+                                            kNumConservativeExtraGenerators));
+  Eigen::Index column = 0;
+  // 1. Friction-pyramid edges at the patch point.
+  for (const vector3_t& edge : frictionPyramidEdges(config)) {
+    basis.col(column++) = generatorWrenchAt(
+        clampedPosPatchpointRtContactEwrtContactXy, edge, /*torsion=*/0.0);
+  }
+  // 2. A pure normal force at the patch point.
+  basis.col(column++) =
+      generatorWrenchAt(clampedPosPatchpointRtContactEwrtContactXy,
+                        vector3_t::UnitZ(), /*torsion=*/0.0);
+  // 3. A unit normal force at each footprint corner, which puts the center of
+  // pressure on that corner.
+  for (const vector2_t& posCornerRtContactEwrtContactXy :
+       computePosCornersRtContactEwrtContactXy(contactRectangle)) {
+    basis.col(column++) =
+        generatorWrenchAt(posCornerRtContactEwrtContactXy, vector3_t::UnitZ(),
+                          /*torsion=*/0.0);
+  }
+  // 4. A unit normal force at the patch point with the torsional limit of
+  // either sign.
+  basis.col(column++) =
+      generatorWrenchAt(clampedPosPatchpointRtContactEwrtContactXy,
+                        vector3_t::UnitZ(), torsionLimits->upper);
+  basis.col(column++) =
+      generatorWrenchAt(clampedPosPatchpointRtContactEwrtContactXy,
+                        vector3_t::UnitZ(), torsionLimits->lower);
+  ABSL_CHECK_EQ(column, basis.cols())
+      << "ContactWrenchConeBasisMatrix: a generator set filled another number "
+         "of columns than it has";
+  return basis;
+}
+
+/**
+ * The 4N set, see kExactWrenchConeGeneratorSet: the corner generators the
+ * wrench cone is defined by (cornerContactWrenchGenerators), whose conic hull
+ * the rows of buildLocalWrenchConeRows describe.
+ */
+absl::StatusOr<matrix_t> buildExactWrenchCone(
+    const ContactWrenchConeConstraint::Config& config,
+    const ContactRectangle& contactRectangle) {
+  return cornerContactWrenchGenerators(config, contactRectangle);
+}
+
+struct GeneratorSetEntry {
+  // NOLINTNEXTLINE(totw-view-member): every entry is a string literal of a constexpr registry, alive for the whole program.
+  absl::string_view name;
+  BasisGeneratorSetBuilder builder;
+};
+
+// LINT.IfChange(basis_generator_set_registry)
+constexpr std::array<GeneratorSetEntry, 2> kGeneratorSetRegistry = {{
+    {.name = kConservativeInnerApproximationGeneratorSet,
+     .builder = &buildConservativeInnerApproximation},
+    {.name = kExactWrenchConeGeneratorSet, .builder = &buildExactWrenchCone},
+}};
+// LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/contact/ContactWrenchConeBasisMatrix.h:basis_generator_set_names)
+
+/**
+ * The configuration checks every generator set shares, with messages naming the
+ * key to change: the cone's own (ContactWrenchConeConstraint::validateConfig,
+ * the one definition of its ranges) and the footprint's
+ * (ContactWrenchConeConstraint::validateFootprint: finite, positive length and
+ * width).
+ */
+absl::Status validateConeConfiguration(
+    const ContactWrenchConeConstraint::Config& config,
+    const ContactRectangle& contactRectangle) {
+  RETURN_IF_ERROR(ContactWrenchConeConstraint::validateConfig(config));
+  return ContactWrenchConeConstraint::validateFootprint(contactRectangle);
+}
+
+matrix_t pseudoInverse(const matrix_t& matrix) {
+  const Eigen::JacobiSVD<matrix_t> svd(
+      matrix, Eigen::ComputeThinU | Eigen::ComputeThinV);
+  const vector_t& singularValues = svd.singularValues();
+  const scalar_t tolerance =
+      kPseudoInverseRelativeTolerance * singularValues(0);
+  vector_t singularValuesInverse = vector_t::Zero(singularValues.size());
+  for (Eigen::Index i = 0; i < singularValues.size(); ++i) {
+    if (singularValues(i) > tolerance) {
+      singularValuesInverse(i) = 1.0 / singularValues(i);
+    }
+  }
+  return svd.matrixV() * singularValuesInverse.asDiagonal() *
+         svd.matrixU().transpose();
+}
+
+/** Least-squares solution restricted to the columns flagged in `passive`,
+ * scattered back to the full length. */
+vector_t solvePassiveLeastSquares(const matrix_t& A,
+                                  const vector_t& b,
+                                  const std::vector<bool>& passive) {
+  std::vector<Eigen::Index> passiveColumns;
+  for (Eigen::Index j = 0; j < A.cols(); ++j) {
+    if (passive[static_cast<size_t>(j)]) {
+      passiveColumns.push_back(j);
+    }
+  }
+  matrix_t Apassive(A.rows(), static_cast<Eigen::Index>(passiveColumns.size()));
+  for (size_t i = 0; i < passiveColumns.size(); ++i) {
+    Apassive.col(static_cast<Eigen::Index>(i)) = A.col(passiveColumns[i]);
+  }
+  const vector_t zPassive = Apassive.completeOrthogonalDecomposition().solve(b);
+  vector_t z = vector_t::Zero(A.cols());
+  for (size_t i = 0; i < passiveColumns.size(); ++i) {
+    z(passiveColumns[i]) = zPassive(static_cast<Eigen::Index>(i));
+  }
+  return z;
+}
+
+}  // namespace
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+std::vector<std::string> basisGeneratorSetNames() {
+  std::vector<std::string> names;
+  names.reserve(kGeneratorSetRegistry.size());
+  for (const GeneratorSetEntry& entry : kGeneratorSetRegistry) {
+    names.emplace_back(entry.name);
+  }
+  return names;
+}
+
+absl::StatusOr<BasisGeneratorSetBuilder> getBasisGeneratorSetBuilder(
+    absl::string_view name) {
+  for (const GeneratorSetEntry& entry : kGeneratorSetRegistry) {
+    if (entry.name == name) {
+      return entry.builder;
+    }
+  }
+  return absl::InvalidArgumentError(
+      absl::StrCat("[ContactWrenchConeBasisMatrix] unknown ",
+                   kBasisGeneratorSetKey, " '", name, "'; valid names are: ",
+                   absl::StrJoin(basisGeneratorSetNames(), ", "), "."));
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+absl::StatusOr<ContactWrenchConeBasisMatrix>
+ContactWrenchConeBasisMatrix::Create(
+    const ContactWrenchConeConstraint::Config& config,
+    const ContactRectangle& contactRectangle,
+    absl::string_view generatorSet) {
+  const absl::StatusOr<BasisGeneratorSetBuilder> builder =
+      getBasisGeneratorSetBuilder(generatorSet);
+  if (!builder.ok()) {
+    return builder.status();
+  }
+  RETURN_IF_ERROR(validateConeConfiguration(config, contactRectangle));
+  absl::StatusOr<matrix_t> basis = (*builder)(config, contactRectangle);
+  if (!basis.ok()) {
+    return basis.status();
+  }
+
+  // Guard the invariant the whole formulation rests on: a non-negative
+  // combination of the generators is inside the cone if and only if every
+  // generator is. A violation here would silently remove the friction or
+  // torsion limit from the MPC, because the explicit cone constraint is dropped
+  // when basis-vector inputs are active.
+  const ContactWrenchConeRows coneRows =
+      buildLocalWrenchConeRows(config, contactRectangle);
+  for (Eigen::Index j = 0; j < basis->cols(); ++j) {
+    const vector_t rowValues = coneRows.evaluateCone(vector6_t(basis->col(j)));
+    if (rowValues.minCoeff() < -kConeFeasibilityTolerance) {
+      Eigen::Index worstRow = 0;
+      rowValues.minCoeff(&worstRow);
+      return absl::InternalError(absl::StrCat(
+          "[ContactWrenchConeBasisMatrix] generator ", j, " of the '",
+          generatorSet, "' set lies outside the contact wrench cone: row ",
+          worstRow, " evaluates to ", rowValues(worstRow),
+          ". This is a bug in the generator set, not a configuration error."));
+    }
+  }
+  return ContactWrenchConeBasisMatrix(std::string(generatorSet),
+                                      *std::move(basis));
+}
+
+ContactWrenchConeBasisMatrix::ContactWrenchConeBasisMatrix(
+    std::string generatorSet, matrix_t basisMatrix)
+    : generatorSet_(std::move(generatorSet)),
+      B_local_(std::move(basisMatrix)),
+      B_pinv_local_(pseudoInverse(B_local_)) {
+  nullSpaceProjector_ = matrix_t::Identity(B_local_.cols(), B_local_.cols()) -
+                        B_pinv_local_ * B_local_;
+  // Symmetrize away the round-off, so that the projector can go straight into a
+  // quadratic cost.
+  nullSpaceProjector_ =
+      (0.5 * (nullSpaceProjector_ + nullSpaceProjector_.transpose())).eval();
+}
+
+vector_t ContactWrenchConeBasisMatrix::solveNonNegativeScalings(
+    const vector6_t& wrenchContactEwrtContact) const {
+  return solveNonNegativeBasisScalings(B_local_, B_pinv_local_,
+                                       wrenchContactEwrtContact);
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+vector_t solveNonNegativeLeastSquares(const matrix_t& A, const vector_t& b) {
+  const Eigen::Index numColumns = A.cols();
+  vector_t x = vector_t::Zero(numColumns);
+  if (numColumns == 0) {
+    return x;
+  }
+  // Stationarity tolerance of the gradient A^T (b - A x), relative to the scale
+  // of the problem.
+  const scalar_t gradientTolerance =
+      kNnlsRelativeTolerance *
+      std::max<scalar_t>(1.0, A.cwiseAbs().maxCoeff()) *
+      std::max<scalar_t>(1.0, b.norm());
+  std::vector<bool> passive(static_cast<size_t>(numColumns), false);
+  // A column whose least-squares coefficient came out non-positive right after
+  // it entered the passive set is left out until the next outer step, which is
+  // the textbook guard against cycling on round-off.
+  std::vector<bool> blocked(static_cast<size_t>(numColumns), false);
+
+  const size_t maxIterations =
+      kNnlsIterationsPerColumn * static_cast<size_t>(numColumns);
+  for (size_t iteration = 0; iteration < maxIterations; ++iteration) {
+    const vector_t gradient = A.transpose() * (b - A * x);
+    Eigen::Index entering = -1;
+    scalar_t largestGradient = gradientTolerance;
+    for (Eigen::Index j = 0; j < numColumns; ++j) {
+      const size_t jj = static_cast<size_t>(j);
+      if (!passive[jj] && !blocked[jj] && gradient(j) > largestGradient) {
+        largestGradient = gradient(j);
+        entering = j;
+      }
+    }
+    if (entering < 0) {
+      break;
+    }
+    std::fill(blocked.begin(), blocked.end(), false);
+    passive[static_cast<size_t>(entering)] = true;
+
+    // Inner loop: step towards the unconstrained least-squares solution on the
+    // passive set, dropping every column whose coefficient would turn negative,
+    // until that solution is strictly positive.
+    for (size_t inner = 0; inner < static_cast<size_t>(numColumns) + 1;
+         ++inner) {
+      const vector_t z = solvePassiveLeastSquares(A, b, passive);
+      if (z(entering) <= 0.0 && passive[static_cast<size_t>(entering)] &&
+          x(entering) <= 0.0) {
+        // Round-off: the entering column does not actually reduce the residual.
+        // Undo it and try another one.
+        passive[static_cast<size_t>(entering)] = false;
+        blocked[static_cast<size_t>(entering)] = true;
+        break;
+      }
+      bool allPositive = true;
+      scalar_t step = 1.0;
+      for (Eigen::Index j = 0; j < numColumns; ++j) {
+        if (passive[static_cast<size_t>(j)] && z(j) <= 0.0) {
+          allPositive = false;
+          step = std::min(step, x(j) / (x(j) - z(j)));
+        }
+      }
+      if (allPositive) {
+        x = z;
+        break;
+      }
+      x += step * (z - x);
+      for (Eigen::Index j = 0; j < numColumns; ++j) {
+        if (passive[static_cast<size_t>(j)] && x(j) <= 0.0) {
+          passive[static_cast<size_t>(j)] = false;
+          x(j) = 0.0;
+        } else if (passive[static_cast<size_t>(j)] && z(j) <= 0.0 &&
+                   x(j) <= kNnlsRelativeTolerance *
+                               std::max<scalar_t>(1.0, x.norm())) {
+          passive[static_cast<size_t>(j)] = false;
+          x(j) = 0.0;
+        }
+      }
+    }
+  }
+  return x.cwiseMax(0.0);
+}
+
+vector_t solveNonNegativeBasisScalings(
+    const matrix_t& basisMatrix,
+    const matrix_t& basisPseudoInverse,
+    const vector_t& wrenchContactEwrtContact) {
+  const vector_t minimumNorm = basisPseudoInverse * wrenchContactEwrtContact;
+  const scalar_t tolerance =
+      kNonNegativeRelativeTolerance *
+      std::max<scalar_t>(1.0, minimumNorm.cwiseAbs().maxCoeff());
+  if (minimumNorm.size() == 0 || minimumNorm.minCoeff() >= -tolerance) {
+    return minimumNorm.cwiseMax(0.0);
+  }
+  return solveNonNegativeLeastSquares(basisMatrix, wrenchContactEwrtContact);
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+uint64_t basisContentHash(absl::Span<const matrix_t> localBasisMatrices) {
+  std::string serialized;
+  for (const matrix_t& basis : localBasisMatrices) {
+    absl::StrAppend(&serialized, basis.rows(), "x", basis.cols(), ":");
+    for (Eigen::Index row = 0; row < basis.rows(); ++row) {
+      for (Eigen::Index column = 0; column < basis.cols(); ++column) {
+        // Entries that are zero up to round-off (a cosine of pi / 2, say) print
+        // as zero, and adding zero turns -0.0 into 0.0, so that neither the
+        // last bits of a libm nor the sign of a zero can change the key.
+        const scalar_t entry = std::abs(basis(row, column)) < kHashZeroThreshold
+                                   ? 0.0
+                                   : basis(row, column);
+        absl::StrAppend(&serialized, absl::StrFormat("%.12g", entry + 0.0),
+                        ",");
+      }
+    }
+    absl::StrAppend(&serialized, ";");
+  }
+  uint64_t hash = nproto::kFnvOffsetBasis;
+  for (const char character : serialized) {
+    hash ^= static_cast<uint64_t>(static_cast<unsigned char>(character));
+    hash *= nproto::kFnvPrime;
+  }
+  return hash;
+}
+
+std::string basisInputsLibraryKey(
+    absl::Span<const matrix_t> localBasisMatrices) {
+  return absl::StrCat(
+      "basis", localBasisMatrices[0].cols(), "_",
+      absl::Hex(basisContentHash(localBasisMatrices), absl::kZeroPad16));
+}
+
+}  // namespace ocs2::legged

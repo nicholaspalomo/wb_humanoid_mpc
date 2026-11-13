@@ -42,13 +42,13 @@ import tempfile
 import unittest
 
 from google.protobuf import text_format
-from humanoid_mpc_msgs import mpc_status_pb2
+from legged_mpc_msgs import mpc_status_pb2
 
 import bus_listener
 import bus_test_publisher
 import ipc_tool
 
-STATUS_TYPE = "humanoid_mpc_msgs.MpcStatus"
+STATUS_TYPE = "legged_mpc_msgs.MpcStatus"
 # A passing test returns as soon as it has its messages; the timeout only bounds a failing one.
 TIMEOUT_S = "10"
 
@@ -282,7 +282,7 @@ class ListTest(IpcToolTestCase):
             robot.start(
                 [
                     bus_test_publisher.message(
-                        robot_topic, "humanoid_mpc_msgs.LoopTiming", b""
+                        robot_topic, "legged_mpc_msgs.LoopTiming", b""
                     )
                 ]
             )
@@ -295,7 +295,7 @@ class ListTest(IpcToolTestCase):
             )
         self.assertEqual(code, ipc_tool.EXIT_OK, err)
         lines = {line.split()[0]: line.split() for line in out.splitlines()[1:]}
-        self.assertEqual(lines[robot_topic][1], "humanoid_mpc_msgs.LoopTiming")
+        self.assertEqual(lines[robot_topic][1], "legged_mpc_msgs.LoopTiming")
         self.assertEqual(lines[mpc_topic][1], STATUS_TYPE)
 
     def test_a_silent_bus_exits_with_status_one(self) -> None:

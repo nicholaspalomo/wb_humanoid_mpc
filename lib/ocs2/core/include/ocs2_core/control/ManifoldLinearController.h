@@ -117,7 +117,7 @@ class ManifoldLinearController final : public ControllerBase {
 
   /**
    * Keeps the first `length` nodes - time stamps, anchor states, nominal inputs and gains - and drops the rest, as a
-   * solution time window cuts a policy (humanoid_mpc_ipc's trimToSolutionWindow()). A length of size() or more keeps
+   * solution time window cuts a policy (legged_mpc_ipc's trimToSolutionWindow()). A length of size() or more keeps
    * every node. The law on the kept nodes is unchanged, and so is the state manifold.
    */
   void keepFirst(size_t length);

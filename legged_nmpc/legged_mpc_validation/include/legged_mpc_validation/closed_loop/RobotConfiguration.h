@@ -1,0 +1,126 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#pragma once
+
+#include <string>
+#include <vector>
+
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+
+namespace ocs2::legged::validation {
+
+/** Which MPC a configuration runs. */
+enum class MpcFormulation {
+  kCentroidal,  ///< legged_centroidal_mpc
+  kWholeBody,   ///< legged_wb_mpc
+};
+
+/** "centroidal" or "whole_body", as the metrics documents name a formulation.
+ */
+std::string formulationName(MpcFormulation formulation);
+
+/**
+ * One of the configurations the closed-loop metrics run: the files the robot's
+ * launch files pass to its robot binary and its MPC node
+ * (robot_models/<robot>/<package>/launch/robot.textproto and mpc.textproto), as
+ * paths relative to the workspace root, which is the working directory of a
+ * Bazel test. A state-estimator variant (isStateEstimatorVariant()) runs the
+ * files of another configuration with another state estimator: its MPC is that
+ * configuration's, so the solve benchmark and the MPC equivalence suites leave
+ * it out.
+ */
+struct RobotConfiguration {
+  std::string name;  ///< the registry name, e.g. drc_atlas
+  MpcFormulation formulation = MpcFormulation::kCentroidal;
+  std::string taskFile;
+  std::string referenceFile;
+  std::string gaitFile;
+  std::string urdfFile;
+  std::string sceneFile;  ///< the MuJoCo scene
+  std::string pdGainsFile;
+  /// The walking scenario the robot survives, whose recorded states the solve
+  /// benchmark replays by default: walk_0p5, or walk_0p3 for a robot that falls
+  /// at 0.5 m/s (EngineAI SA01 and Unitree R1). The closed-loop test fails a
+  /// run of it that falls (walkingSurvivalViolation()), but on a
+  /// state-estimator variant.
+  std::string walkingScenario = "walk_0p5";
+  /// The robot process's state estimator (StateEstimatorRegistry name) the run
+  /// uses in place of the task file's state_estimator; empty: the task file's.
+  /// Set only on a state-estimator variant.
+  std::string stateEstimator;
+  /// The scenarios the run covers (ClosedLoopScenario::name); empty: every one.
+  std::vector<std::string> scenarios;
+  /// The configuration whose documents in a baseline label a run is compared
+  /// with; empty: this one's own. A state-estimator variant is held to the
+  /// configuration it varies, within the bands closedLoopMetricBandsFor() gives
+  /// it.
+  std::string baselineConfiguration;
+
+  /** Returns whether this configuration runs another's files with another
+   * state estimator (stateEstimator is set). */
+  bool isStateEstimatorVariant() const { return !stateEstimator.empty(); }
+
+  /** Whether the run covers `scenario`: every scenario when `scenarios` is
+   * empty. */
+  bool runsScenario(absl::string_view scenario) const;
+
+  /** Returns the configuration name a baseline label's documents are looked
+   * up under: baselineConfiguration, or `name` when it is empty. */
+  const std::string& baselineName() const {
+    return baselineConfiguration.empty() ? name : baselineConfiguration;
+  }
+
+  /**
+   * Every file the run depends on, whose hashes go into the provenance: the
+   * files above and the contact_planning.textproto beside the task file, when
+   * there is one.
+   */
+  std::vector<std::string> configurationFiles() const;
+};
+
+// LINT.IfChange(robot_configurations)
+/** drc_atlas, engineai_sa01, unitree_g1, unitree_r1, anymal_b, tron1,
+ * anymal_c_wheels (centroidal; anymal_b on the quadruped gait file, tron1 on
+ * the wheeled bipeds' and anymal_c_wheels on the wheeled quadrupeds', all three
+ * standing, walk_0p5 and turn_in_place_720 only), unitree_g1_wb
+ * (whole-body) and unitree_g1_kalman (unitree_g1 with the kalman state
+ * estimator, standing, walk_0p5 and turn_in_place_720 only). */
+const std::vector<RobotConfiguration>& robotConfigurations();
+// clang-format off
+// LINT.ThenChange(//legged_nmpc/legged_mpc_validation/BUILD.bazel:robot_configurations, //Makefile:closed_loop_targets, //legged_nmpc/legged_common_mpc/test/equivalence/BUILD.bazel:mpc_equivalence_robots, //tools/config_dump/ConfigDumpMain.cpp:robot_flag, //tools/config_dump/README.md:robots)
+// clang-format on
+
+/** The configuration named `name`; NotFound listing the names when there is
+ * none. */
+absl::StatusOr<RobotConfiguration> findRobotConfiguration(
+    absl::string_view name);
+
+}  // namespace ocs2::legged::validation

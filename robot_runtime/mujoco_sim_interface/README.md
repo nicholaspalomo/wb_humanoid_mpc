@@ -40,7 +40,7 @@ the controller, the gantry or its weld. It is selected by registry name (`includ
 <!-- LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/viewer/ViewerNames.h:viewer_names) -->
 
 `MujocoSimConfig::viewer.names` (the robot app's `--viewer`, or without it the `mujoco_viewer` of its `--plot_config`,
-the plot configuration the Rerun bridge reads too: `humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto`
+the plot configuration the Rerun bridge reads too: `legged_nmpc/legged_rerun_viewer/config/plot_config.textproto`
 names `web`, and `make launch-<robot>-sim VIEWER=glfw` brings back the window) is a preference list: `initSim()`
 creates and starts each viewer in turn, destroys one that fails before it tries the next (so a port it bound is free
 again), and keeps the first that starts. `web` alone refuses to run without the web viewer (`viewerStatus()` is a FailedPrecondition naming
@@ -199,7 +199,7 @@ The simulator anchors it where the robot is caught and writes the gantry height 
 file are only a starting point. `checkSceneSupportsGantryHold()` checks a compiled scene against a hold; a simulator
 whose scene cannot hold the robot by the weld logs an ERROR saying why and falls back to `kinematic_teleport`
 (`MujocoSimInterface::gantryHold()` is the hold it runs on). Every shipped scene declares the weld (Atlas, SA01, G1 and
-R1), and every task file names `weld_constraint`. `//humanoid_nmpc/humanoid_mpc_validation:test_robot_scene_gantry_hold`
+R1), and every task file names `weld_constraint`. `//legged_nmpc/legged_mpc_validation:test_robot_scene_gantry_hold`
 checks every robot configuration's scene against its task file, and that the robot process's simulator runs on that
 hold. `test_mujoco_sim_interface_gantry` holds each scene's robot by its weld, and checks that gravity-compensating
 torques keep its limbs where they were caught, as GRAVITY_COMP does on a physical gantry, and that on

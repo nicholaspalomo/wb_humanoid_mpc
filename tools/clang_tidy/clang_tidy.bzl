@@ -1,7 +1,7 @@
 """clang-tidy as a Bazel aspect (tools/clang_tidy/README.md).
 
-    bazel build --config=clang-tidy //humanoid_nmpc/...      # the checks of //:.clang-tidy (make lint-tidy)
-    bazel build --config=clang-tidy-fix //humanoid_nmpc/...  # the same, with the fix-its (make lint-tidy-fix)
+    bazel build --config=clang-tidy //legged_nmpc/...      # the checks of //:.clang-tidy (make lint-tidy)
+    bazel build --config=clang-tidy-fix //legged_nmpc/...  # the same, with the fix-its (make lint-tidy-fix)
 
 clang-tidy parses C++ as a compiler does, so it runs only as Bazel actions: inside .bazelrc's RAM-bounded --jobs and
 tools/bazel's machine lock, never by hand (AGENTS.md, "Builds share one machine's memory").
@@ -50,9 +50,9 @@ EXCLUDED_PACKAGES = VENDORED_PACKAGES + FIXTURE_PACKAGES
 # Generated sources checked into the tree. Their generator is held to the rules instead.
 # LINT.IfChange(generated_files)
 GENERATED_FILES = [
-    "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/acom/AcomSirenWeightsAtlas.h",
-    "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/acom/AcomSirenWeightsG1.h",
-    "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/acom/AcomSirenWeightsSa01.h",
+    "legged_nmpc/legged_common_mpc/include/legged_common_mpc/acom/AcomSirenWeightsAtlas.h",
+    "legged_nmpc/legged_common_mpc/include/legged_common_mpc/acom/AcomSirenWeightsG1.h",
+    "legged_nmpc/legged_common_mpc/include/legged_common_mpc/acom/AcomSirenWeightsSa01.h",
 ]
 # LINT.ThenChange(//tools/hooks/lint_files.py:generated_files)
 
@@ -61,7 +61,7 @@ GENERATED_FILES = [
 # anchored, so that generated headers under bazel-out/, external repositories and lib/ never match. A header found
 # through `-iquote .` is named `./<path>`.
 # LINT.IfChange(header_filter)
-FIRST_PARTY_HEADER_FILTER = "^(\\./)?(bazel|humanoid_nmpc|humanoid_state_estimation|robot_models|robot_runtime|tools)/"
+FIRST_PARTY_HEADER_FILTER = "^(\\./)?(bazel|legged_nmpc|legged_state_estimation|robot_models|robot_runtime|tools)/"
 # LINT.ThenChange(//tools/clang_tidy/test_clang_tidy_config.py:header_filter)
 OWN_FILE_ONLY_HEADER_FILTER = "^$"
 

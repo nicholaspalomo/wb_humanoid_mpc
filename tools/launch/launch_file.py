@@ -36,7 +36,7 @@ A launch file is a textproto of launch_proto.LaunchFile (proto/launch_file.proto
     processes {
       name: "mpc"
       machine: MACHINE_LAPTOP                  # MACHINE_ROBOT | MACHINE_LAPTOP
-      command: [".bazel/bin/humanoid_nmpc/...", "--task_file={config_dir}/mpc/task.textproto"]
+      command: [".bazel/bin/legged_nmpc/...", "--task_file={config_dir}/mpc/task.textproto"]
       env { name: "DISPLAY" value: ":99" }
       required: true                           # when it exits, everything stops
       terminal: false                          # run inside a terminal emulator (keyboard teleoperation)

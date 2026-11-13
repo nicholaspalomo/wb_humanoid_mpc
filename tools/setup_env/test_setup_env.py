@@ -147,11 +147,11 @@ class SetupEnvTest(unittest.TestCase):
     ) -> None:
         python_path = self.environment()["PYTHONPATH"].split(":")
         self.assertIn(
-            os.path.join(self.workspace, "humanoid_learning"), python_path
+            os.path.join(self.workspace, "legged_learning"), python_path
         )
         self.assertIn(
             os.path.join(
-                self.workspace, "humanoid_nmpc", "humanoid_common_mpc_pyutils"
+                self.workspace, "legged_nmpc", "legged_common_mpc_pyutils"
             ),
             python_path,
         )

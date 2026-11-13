@@ -163,7 +163,7 @@ class CppAdInterface {
 
   /**
    * Called with every interface whose library createModels() or loadModels() has just made ready, copies included, for
-   * the tools that measure the generated code: the solve benchmark of humanoid_mpc_validation records the tape
+   * the tools that measure the generated code: the solve benchmark of legged_mpc_validation records the tape
    * operation count (getTapeOperationCount()) of every library a problem builds, which the problem's terms do not
    * expose. None is installed by default, and then nothing happens. The observer runs on the thread that builds the
    * interface and must not throw. Install it before the problem is built and remove it (an empty function) once that

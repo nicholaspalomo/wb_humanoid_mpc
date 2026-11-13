@@ -71,17 +71,17 @@ NEVER_ENABLED = (
 # Paths a .cpp action's header filter must and must not show diagnostics of.
 # LINT.IfChange(header_filter)
 FIRST_PARTY_HEADERS = (
-    "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/Types.h",
+    "legged_nmpc/legged_common_mpc/include/legged_common_mpc/Types.h",
     "./tools/clang_tidy/testdata/MemberInit.h",
     "robot_runtime/robot_core/include/robot_core/ResourcePaths.h",
 )
 OTHER_HEADERS = (
     "lib/ocs2/core/include/ocs2_core/Types.h",
     "external/abseil-cpp+/absl/status/status.h",
-    "bazel-out/k8-opt/bin/humanoid_nmpc/humanoid_mpc_msgs/humanoid_mpc_msgs/mpc_policy.pb.h",
-    "bazel-out/k8-opt/bin/humanoid_nmpc/x/_virtual_includes/x/Foo.h",
+    "bazel-out/k8-opt/bin/legged_nmpc/legged_mpc_msgs/legged_mpc_msgs/mpc_policy.pb.h",
+    "bazel-out/k8-opt/bin/legged_nmpc/x/_virtual_includes/x/Foo.h",
     "/usr/include/eigen3/Eigen/Core",
-    "xhumanoid_nmpc/Foo.h",
+    "xlegged_nmpc/Foo.h",
 )
 # LINT.ThenChange(//tools/clang_tidy/clang_tidy.bzl:header_filter)
 
@@ -178,7 +178,7 @@ class ConfigurationTest(unittest.TestCase):
             self.assertIn(header, ignored)
         # The include rules are the repository's: a whole first-party tree or a public Abseil header is never ignored.
         for header in ignored:
-            self.assertNotRegex(header, r"^(humanoid_|robot_|ocs2_|absl/\.\*$)")
+            self.assertNotRegex(header, r"^(legged_|robot_|ocs2_|absl/\.\*$)")
         # clangd's unused-includes diagnostic is the same analysis, so the editor and make lint-tidy agree.
         clangd = next(
             yaml.safe_load_all(
@@ -222,7 +222,7 @@ class AspectFileListsTest(unittest.TestCase):
     ):
         root = check_test_support.source_tree_root()
         directories = lint_files.cpp_top_level_dirs(root)
-        self.assertIn("humanoid_nmpc", directories)
+        self.assertIn("legged_nmpc", directories)
         for directory in directories:
             self.assertRegex(os.path.join(directory, "Foo.h"), _header_filter())
 

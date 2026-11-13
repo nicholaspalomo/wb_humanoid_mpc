@@ -10,7 +10,7 @@
 #   - PATH: the Bazel-built binaries (.bazel/bin) and robotpkg's tools (/opt/openrobots/bin);
 #   - PYTHONPATH: robotpkg's Pinocchio bindings, for the tools that run under the system Python rather than under
 #     Bazel's hermetic one (tools/locomotion_heuristics, the notebooks), and the checkout's Python packages that those
-#     tools import (humanoid_learning, humanoid_common_mpc_pyutils);
+#     tools import (legged_learning, legged_common_mpc_pyutils);
 #   - the display defaults of the VNC desktop and of software GL (.devcontainer/start_vnc.sh).
 #
 # LD_LIBRARY_PATH is left alone. Robotpkg's libraries and Python modules find each other through their own RUNPATH,
@@ -47,7 +47,7 @@ unset _robotpkg_site_packages
 # LINT.ThenChange(//docker/Dockerfile:robotpkg_environment)
 
 export PATH="${_BAZEL_SYMLINKS}/bin:${_ROBOTPKG_PREFIX}/bin:${PATH:-/usr/bin:/bin}"
-export PYTHONPATH="${SCRIPT_DIR}/humanoid_learning:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_pyutils${_ROBOTPKG_PYTHONPATH:+:${_ROBOTPKG_PYTHONPATH}}${PYTHONPATH:+:${PYTHONPATH}}"
+export PYTHONPATH="${SCRIPT_DIR}/legged_learning:${SCRIPT_DIR}/legged_nmpc/legged_common_mpc_pyutils${_ROBOTPKG_PYTHONPATH:+:${_ROBOTPKG_PYTHONPATH}}${PYTHONPATH:+:${PYTHONPATH}}"
 
 # ==============================================================================
 # Display

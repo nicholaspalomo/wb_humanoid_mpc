@@ -17,7 +17,7 @@
 # it is seeded from the checkout at every start (WB_ROBOT_CONFIG_SEED=every_start), so the simulated robot starts on the
 # checkout's files. While it runs, the GUI's Save reaches it over the bus (operator/config_save), as on the robot, and so
 # do the live updates (operator/pd_gains, operator/mpc_parameters); an editor's save of a checkout file reaches it at the
-# next start, or at once with `bazel run //humanoid_nmpc/remote_control:push_robot_config -- <file>`.
+# next start, or at once with `bazel run //legged_nmpc/remote_control:push_robot_config -- <file>`.
 # ==============================================================================
 
 services:
@@ -36,10 +36,10 @@ services:
       # The checkout's plot configuration, whose mujoco_viewer names the viewer unless WB_ROBOT_VIEWER does; by default
       # the shipped one (the Makefile's PLOT_CONFIG).
       - type: bind
-        source: ${WB_ROBOT_SIM_PLOT_CONFIG:-./humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto}
+        source: ${WB_ROBOT_SIM_PLOT_CONFIG:-./legged_nmpc/legged_rerun_viewer/config/plot_config.textproto}
         target: /etc/wb-humanoid-robot/plot_config.textproto
         read_only: true
-      # LINT.ThenChange(//tools/deploy/session.sh:sim_plot_config, //tools/deploy/session.sh:default_plot_config, //Makefile:plot_config_variable, //humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/cli.py:default_plot_config, //tools/deploy/test_deploy_files.py:sim_plot_config_mount)
+      # LINT.ThenChange(//tools/deploy/session.sh:sim_plot_config, //tools/deploy/session.sh:default_plot_config, //Makefile:plot_config_variable, //legged_nmpc/legged_rerun_viewer/python/legged_rerun_viewer/cli.py:default_plot_config, //tools/deploy/test_deploy_files.py:sim_plot_config_mount)
       # LINT.IfChange(robot_config_store)
       # In place of the base file's bind mount of the same target: a volume of this compose project, which survives
       # `down`.

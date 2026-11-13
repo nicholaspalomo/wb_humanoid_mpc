@@ -110,7 +110,7 @@ std::vector<std::string> gantryHoldNames();
 /// not match.
 absl::StatusOr<GantryHold> gantryHoldFromName(absl::string_view name);
 // clang-format off
-// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/limx_tron1/tron1_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:gantry_hold)
+// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/limx_tron1/tron1_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc/config/mpc/task.textproto:gantry_hold, //legged_nmpc/legged_mpc_config/task_file.proto:gantry_hold)
 // clang-format on
 
 /**
@@ -320,7 +320,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
    * of the plant that no controller can observe from the state alone, so a
    * control loop compares this against the value it saw in its PREVIOUS cycle
    * and resets its controller when it moves (SimFallRecovery in
-   * humanoid_common_mpc_app/robot). Both automatic resets also lock the gantry,
+   * legged_common_mpc_app/robot). Both automatic resets also lock the gantry,
    * but they do it on the simulation thread at any moment of the control cycle,
    * and when the gantry was locked already they change nothing else a loop
    * could see: watching the lock alone misses them, and only this count reports
@@ -478,7 +478,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
    * and the ball's mass.
    *
    * The geometry is computed in the GUI and NOT recomputed here - see
-   * humanoid_nmpc/remote_control/remote_control/tk_app/dodgeball.py, which owns
+   * legged_nmpc/remote_control/remote_control/tk_app/dodgeball.py, which owns
    * the angle conventions and the gravity compensation and is unit-tested. This
    * struct is the wire format between the two.
    */

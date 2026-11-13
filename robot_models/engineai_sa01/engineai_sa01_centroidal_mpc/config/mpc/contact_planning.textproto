@@ -1,11 +1,11 @@
-# proto-file: humanoid_nmpc/humanoid_mpc_config/contact_planning_file.proto
-# proto-message: humanoid_mpc_config.ContactPlanningFile
+# proto-file: legged_nmpc/legged_mpc_config/contact_planning_file.proto
+# proto-message: legged_mpc_config.ContactPlanningFile
 # Online contact planner of the EngineAI SA01, read when task.textproto selects
 # contact_schedule_source: contact_planner. SA01 ships contact_schedule_source: gait_schedule, so nothing here is read yet -
 # the file ships parameterized for SA01's geometry so that enabling the planner is a change in task.textproto
 # (contact_schedule_source, and the foot position weights described at the end of this header) rather than a tuning
 # exercise. ContactPlanningConfig::warnings() is empty for this file, and
-# humanoid_centroidal_mpc:testShippedContactPlanningFiles holds it so.
+# legged_centroidal_mpc:testShippedContactPlanningFiles holds it so.
 #
 # This file lives next to task.textproto (CentroidalMpcInterface looks for contact_planning.textproto in the task file's
 # directory); the parameter updater reloads it whenever it is saved, like task.textproto, and the tuning GUI edits it in
@@ -21,11 +21,11 @@
 # `planner.type` chooses the planner and therefore which of the blocks below are read at all.
 #
 #   hlip      the closed-form reduced-order stepper of arXiv:2502.15630 (the planner selected here; see
-#             humanoid_nmpc/docs/hlip_contact_planner/README.md). A fixed cadence of alternating single supports and a
+#             legged_nmpc/docs/hlip_contact_planner/README.md). A fixed cadence of alternating single supports and a
 #             foothold from the H-LIP deadbeat step-to-step controller. Nothing is optimized, nothing is searched and
 #             no gain is tuned. Reads `planner`, `shared`, `hlip`, the `execution` list and whether `dynamics` lists
 #             heading_double_integrator.
-#   lip_miqp  the mixed-integer program (LipContactPlanner, humanoid_nmpc/docs/README.md section 2). A Linear
+#   lip_miqp  the mixed-integer program (LipContactPlanner, legged_nmpc/docs/README.md section 2). A Linear
 #             Inverted Pendulum on a coarse grid, one contact binary per node and foot, solved by branch-and-bound
 #             over HPIPM relaxations. Reads `planner`, `shared`, the term lists and one parameter block per listed
 #             term. It is also what a robot gets whose file omits planner.type: the library defaults are its

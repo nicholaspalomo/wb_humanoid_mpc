@@ -1,0 +1,65 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#pragma once
+
+#include <string>
+
+#include "ocs2_core/reference/ModeSchedule.h"
+
+#include "legged_common_mpc/common/BipedFeet.h"
+#include "legged_common_mpc/common/Types.h"
+#include "legged_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "legged_common_mpc/contact_planning/execution/ExecutionContext.h"
+#include "legged_common_mpc/contact_planning/execution/ExecutionRule.h"
+
+namespace ocs2::legged {
+
+/**
+ * `dcm_step_adjustment`: the planned landing spot of every swing in flight is
+ * shifted by the DCM (capture point) error between the measured center of mass
+ * and the NMPC's prediction, propagated to touch-down and clipped to the
+ * planner's reachable region.
+ *
+ * Not thread-safe, like every ContactPlanningTerm: the planner that owns it
+ * configures and evaluates it from one thread at a time.
+ */
+class DcmStepAdjustmentRule final : public ExecutionRule {
+ public:
+  std::string describe() const override;
+  void configure(const ContactPlanningConfig& config) override;
+  bool needsPredictedTrajectory() const override { return true; }
+  BipedFeetArray<vector2_t> correctFootholds(
+      const ExecutionContext& ctx, const ModeSchedule& schedule) const override;
+
+ private:
+  DcmStepAdjustmentParameters params_;
+};
+
+}  // namespace ocs2::legged

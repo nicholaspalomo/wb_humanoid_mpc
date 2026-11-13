@@ -1,0 +1,69 @@
+edition = "2023";
+
+package legged_mpc_config;
+
+import "legged_mpc_config/config_options.proto";
+import "nproto/options.proto";
+
+// The package before the humanoid -> legged rename, which the header of a file saved before it gives.
+option (nproto.former_package) = "humanoid_mpc_config";
+
+// The gaits the procedural motion manager switches between as the walking velocity command changes, the gait file's
+// gait_switching block (gait_file.proto). The manager starts in the first row, which must be "stance" (the gait the
+// reference file's initial STANCE runs), and switches to the row after or the row before, one row at a time:
+//
+//   gait_switching {
+//     rows {
+//       gait: "stance"
+//       cmd_min_linvel_base_rt_world_ewrt_heading_xy: -0.1
+//       ...
+//     }
+//     rows {
+//       gait: "trot"
+//       ...
+//     }
+//   }
+//
+// It switches to the next (faster) gait when the command exceeds one of the row's cmd_max_* bounds and the stride-mean
+// motion of the base exceeds that bound less the row's max_err_*; it switches back to the previous gait when the
+// command is below all of the row's cmd_min_* bounds and the stride-mean motion is below each of them plus the row's
+// max_err_*. The linear bounds apply to the forward and to the sideways component alike, both in the heading frame, and
+// the commands are the scaled ones (the reference file's cmd_max_* limits times the operator's normalized command).
+// gaitModeStatesFromConfig() (legged_common_mpc/reference_manager/GaitSwitchingTable.h) reads it; a gait file without
+// the block gets the table of defaultGaitModeStates(), the bipeds' gaits of gait.textproto.
+// Next ID: 2
+message GaitSwitchingTableConfig {
+  option (nproto.generate_struct) = "ocs2::legged::mpc_config::GaitSwitchingTableConfig";
+
+  reserved 2 to max;
+
+  // One gait of the table with its switching thresholds. Every threshold is required.
+  // Next ID: 8
+  message Row {
+    reserved 8 to max;
+
+    // A gait of the gait file's gait_list, each named by one row only.
+    string gait = 1 [default = ""];
+    // [m/s] Below this forward and sideways command (and stride-mean speed, plus
+    // max_err_linvel_base_rt_world_ewrt_heading_xy) the manager switches to the row before.
+    double cmd_min_linvel_base_rt_world_ewrt_heading_xy = 2 [(legged_mpc_config.tuning) = { unit: "m/s" }];
+    // [m/s] Above this forward or sideways command (and stride-mean speed, less
+    // max_err_linvel_base_rt_world_ewrt_heading_xy) the manager switches to the row after. At least
+    // cmd_min_linvel_base_rt_world_ewrt_heading_xy.
+    double cmd_max_linvel_base_rt_world_ewrt_heading_xy = 3 [(legged_mpc_config.tuning) = { unit: "m/s" }];
+    // [rad/s] Below this yaw-rate command (and stride-mean yaw rate, plus max_err_angvel_base_rt_world_ewrt_world_z) the
+    // manager switches to the row before.
+    double cmd_min_angvel_base_rt_world_ewrt_world_z = 4 [(legged_mpc_config.tuning) = { unit: "rad/s" }];
+    // [rad/s] Above this yaw-rate command (and stride-mean yaw rate, less max_err_angvel_base_rt_world_ewrt_world_z) the
+    // manager switches to the row after. At least cmd_min_angvel_base_rt_world_ewrt_world_z.
+    double cmd_max_angvel_base_rt_world_ewrt_world_z = 5 [(legged_mpc_config.tuning) = { unit: "rad/s" }];
+    // [m/s] How far the stride-mean speed may lag the linear bounds and still let the gait change. A large value lets
+    // the gait change on the command alone.
+    double max_err_linvel_base_rt_world_ewrt_heading_xy = 6 [(legged_mpc_config.tuning) = { unit: "m/s" }];
+    // [rad/s] How far the stride-mean yaw rate may lag the yaw-rate bounds and still let the gait change.
+    double max_err_angvel_base_rt_world_ewrt_world_z = 7 [(legged_mpc_config.tuning) = { unit: "rad/s" }];
+  }
+
+  // The gaits, slowest first, at least one.
+  repeated Row rows = 1;
+}

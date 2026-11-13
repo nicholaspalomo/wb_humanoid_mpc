@@ -47,7 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "nproto/Fnv1a64Constants.h"
 
-namespace ocs2::humanoid::config_dump {
+namespace ocs2::legged::config_dump {
 namespace {
 
 /** `hash` with the eight bytes of `word` folded in, lowest byte first. */
@@ -175,4 +175,4 @@ std::string joinPath(absl::string_view prefix, absl::string_view name) {
   return prefix.empty() ? std::string(name) : absl::StrCat(prefix, ".", name);
 }
 
-}  // namespace ocs2::humanoid::config_dump
+}  // namespace ocs2::legged::config_dump

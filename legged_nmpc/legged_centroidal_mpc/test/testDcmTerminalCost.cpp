@@ -1,0 +1,724 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
+
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <limits>
+#include <memory>
+#include <numbers>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/match.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/PhysicalConstants.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/CppAdInterface.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody.hpp"
+
+#include "legged_centroidal_mpc/CentroidalMpcConfig.h"
+#include "legged_centroidal_mpc/common/CentroidalMpcRobotModel.h"
+#include "legged_centroidal_mpc/config/costs/DcmTerminalCostFromConfig.h"
+#include "legged_centroidal_mpc/cost/DcmTerminalCost.h"
+#include "legged_common_mpc/common/BipedFeet.h"
+#include "legged_common_mpc/common/ModelSettings.h"
+#include "legged_common_mpc/common/Types.h"
+#include "legged_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
+#include "legged_common_mpc/gait/BipedModes.h"
+#include "legged_common_mpc/gait/GaitSchedule.h"
+#include "legged_common_mpc/gait/ModeSequenceTemplate.h"
+#include "legged_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "legged_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "legged_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "legged_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "legged_mpc_config/dcm_terminal_cost_config.nproto.h"
+#include "legged_nmpc/legged_common_mpc/test/support/StatusTestMacros.h"
+#include "support/TypedConfigFiles.h"
+
+namespace ocs2::legged {
+
+namespace {
+
+constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+
+/** A reference manager with a planned DCM of its own choosing, so that the cost
+ * can be shown what it does under a plan. */
+class PlannedDcmReferenceManager final : public SwitchedModelReferenceManager {
+ public:
+  using SwitchedModelReferenceManager::SwitchedModelReferenceManager;
+  std::optional<PlannedDcm> getPlannedDcm(scalar_t /*time*/) const override {
+    return planned;
+  }
+  std::optional<PlannedDcm> planned;
+};
+
+}  // namespace
+
+class DcmTerminalCostTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    const CentroidalRobotFiles files = atlasFiles();
+    urdfFile_ = files.urdfFile;
+    absl::StatusOr<CentroidalMpcConfig> config = loadConfigOf(files);
+    ASSERT_TRUE(config.ok()) << config.status();
+    atlas_ = *std::move(config);
+
+    modelSettings_ = std::make_unique<ModelSettings>(checkedValue(
+        ModelSettings::Create(atlas_.task, urdfFile_, "testDcmTerminalCost_",
+                              /*verbose=*/false)));
+    pinocchioInterface_ = std::make_unique<PinocchioInterface>(checkedValue(
+        loadCustomPinocchioInterface(atlas_.task, urdfFile_, *modelSettings_,
+                                     /*scaleTotalMass=*/false)));
+    LEGGED_ASSERT_OK_AND_ASSIGN(
+        info_,
+        centroidalModelInfoOf(atlas_, *pinocchioInterface_, *modelSettings_));
+    robotModel_ = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(
+        *modelSettings_, *pinocchioInterface_, info_);
+    robotModelAd_ = std::make_unique<CentroidalMpcRobotModel<ad_scalar_t>>(
+        *modelSettings_, pinocchioInterface_->toCppAd(), info_.toCppAd());
+
+    std::unique_ptr<SwingTrajectoryPlanner> swingPlanner(
+        new SwingTrajectoryPlanner(
+            checkedValue(swingTrajectorySettingsFromConfig(
+                atlas_.task.swing_trajectory_config)),
+            kNumFeet));
+    LEGGED_ASSERT_OK_AND_ASSIGN(
+        std::shared_ptr<GaitSchedule> gaitSchedule,
+        GaitSchedule::Create(atlas_.reference, *modelSettings_,
+                             /*verbose=*/false));
+    referenceManager_ = std::make_shared<SwitchedModelReferenceManager>(
+        std::move(gaitSchedule), std::move(swingPlanner), *pinocchioInterface_,
+        *robotModel_);
+    // Right-foot single support on [1.0, 1.5) (and [2.0, 2.5)): the reference
+    // manager rebuilds its schedule from the gait schedule on every
+    // preSolverRun, so the phase has to be inserted there.
+    referenceManager_->getGaitSchedule()->insertModeSequenceTemplate(
+        ModeSequenceTemplate({0.0, 0.5, 1.0}, {kBipedModeRf, kBipedModeStance}),
+        /*startTime=*/1.0, /*finalTime=*/3.0);
+    LEGGED_ASSERT_OK_AND_ASSIGN(initialState_,
+                                initialStateOnModel(atlas_.task, *robotModel_));
+    // The reference manager needs one preSolverRun to swap in the buffered mode
+    // schedule.
+    referenceManager_->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0,
+                                    initialState_, kBipedModeStance);
+
+    // An explicit height: the tests below are about the cost's arithmetic, on a
+    // pendulum they choose.
+    config_.nomPosComRtFeetmeanEwrtWorldZ = 0.85;
+    config_.weights = vector2_t(400.0, 100.0);
+    config_.velocityCommandOffsetFactor = 1.0;
+    config_.supportBlendTime = 0.1;
+    modelSettings_->recompileLibrariesCppAd = false;
+    modelNomPosComRtFeetmeanEwrtWorldZ_ =
+        computeIndependentPosComRtFeetmeanEwrtWorldZ(initialState_);
+    cost_ = createCost(*referenceManager_, config_);
+    ASSERT_NE(cost_, nullptr);
+  }
+
+  std::unique_ptr<DcmTerminalCost> createCost(
+      const SwitchedModelReferenceManager& referenceManager,
+      const DcmTerminalCost::Config& config) {
+    absl::StatusOr<std::unique_ptr<DcmTerminalCost>> created =
+        DcmTerminalCost::Create(referenceManager, config,
+                                modelNomPosComRtFeetmeanEwrtWorldZ_,
+                                *pinocchioInterface_, *robotModelAd_,
+                                "testDcmTerminalCost", *modelSettings_);
+    EXPECT_TRUE(created.ok()) << created.status();
+    return created.ok() ? *std::move(created) : nullptr;
+  }
+
+  /**
+   * The model's center of mass above the mean height of its contact frames at
+   * `state`, computed here from Pinocchio directly - forward kinematics and the
+   * frames looked up by name - rather than through
+   * computeProxyPosComRtFeetmeanEwrtWorldZ().
+   */
+  scalar_t computeIndependentPosComRtFeetmeanEwrtWorldZ(
+      const vector_t& state) const {
+    PinocchioInterface pinocchio(*pinocchioInterface_);
+    const pinocchio::ModelTpl<scalar_t>& model = pinocchio.getModel();
+    pinocchio::DataTpl<scalar_t>& data = pinocchio.getData();
+    const vector_t q = robotModel_->getGeneralizedCoordinates(state);
+    pinocchio::forwardKinematics(model, data, q);
+    pinocchio::updateFramePlacements(model, data);
+    const scalar_t posComRtWorldEwrtWorldZ =
+        pinocchio::centerOfMass(model, data, q)(2);
+    scalar_t posFeetmeanRtWorldEwrtWorldZ = 0.0;
+    for (const std::string& frame : modelSettings_->contactNames) {
+      posFeetmeanRtWorldEwrtWorldZ +=
+          data.oMf[model.getFrameId(frame)].translation()(2) /
+          static_cast<scalar_t>(modelSettings_->contactNames.size());
+    }
+    return posComRtWorldEwrtWorldZ - posFeetmeanRtWorldEwrtWorldZ;
+  }
+
+  vector2_t computeMeanPosContactRtWorldEwrtWorldXy(
+      const vector_t& state, const BipedFeetArray<bool>& contacts) const {
+    const vector_t q = robotModel_->getGeneralizedCoordinates(state);
+    PinocchioInterface pinocchio(*pinocchioInterface_);
+    const std::vector<vector3_t> posContactsRtWorldEwrtWorld =
+        computePosContactsRtWorldEwrtWorld<scalar_t>(q, pinocchio,
+                                                     *robotModel_);
+    vector2_t meanPosContactRtWorldEwrtWorldXy = vector2_t::Zero();
+    int count = 0;
+    for (size_t i = 0; i < kNumFeet; ++i) {
+      if (contacts[i]) {
+        meanPosContactRtWorldEwrtWorldXy +=
+            posContactsRtWorldEwrtWorld[i].head<2>();
+        ++count;
+      }
+    }
+    return meanPosContactRtWorldEwrtWorldXy / static_cast<scalar_t>(count);
+  }
+
+  vector2_t computePosComRtWorldEwrtWorldXy(const vector_t& state) const {
+    PinocchioInterface pinocchio(*pinocchioInterface_);
+    const vector_t q = robotModel_->getGeneralizedCoordinates(state);
+    pinocchio::centerOfMass(pinocchio.getModel(), pinocchio.getData(), q,
+                            /*computeSubtreeComs=*/false);
+    return pinocchio.getData().com[0].head<2>();
+  }
+
+  std::string urdfFile_;
+  // The typed DRC Atlas files.
+  CentroidalMpcConfig atlas_;
+  std::unique_ptr<ModelSettings> modelSettings_;
+  std::unique_ptr<PinocchioInterface> pinocchioInterface_;
+  CentroidalModelInfo info_;
+  std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> robotModel_;
+  std::unique_ptr<CentroidalMpcRobotModel<ad_scalar_t>> robotModelAd_;
+  std::shared_ptr<SwitchedModelReferenceManager> referenceManager_;
+  vector_t initialState_;
+  scalar_t modelNomPosComRtFeetmeanEwrtWorldZ_ = 0.0;
+  DcmTerminalCost::Config config_;
+  std::unique_ptr<DcmTerminalCost> cost_;
+};
+
+TEST_F(DcmTerminalCostTest, DcmErrorMatchesAnalyticDefinition) {
+  const TargetTrajectories emptyTargets;
+  // Double support at t = 0.5: support center is the mean of both feet.
+  vector_t state = initialState_;
+  state(0) = 0.3;   // v_com_x
+  state(1) = -0.1;  // v_com_y
+  const vector_t params = cost_->getParameters(/*time=*/0.5, emptyTargets);
+  EXPECT_DOUBLE_EQ(params(0), 1.0);
+  EXPECT_DOUBLE_EQ(params(1), 1.0);
+  const scalar_t omega = std::sqrt(9.81 / 0.85);
+  EXPECT_NEAR(params(2), omega, 1.0e-12);
+  const vector2_t expected =
+      computePosComRtWorldEwrtWorldXy(state) + state.head<2>() / omega -
+      computeMeanPosContactRtWorldEwrtWorldXy(state, {true, true});
+  const vector2_t errPosDcmRtWorldEwrtWorldXy =
+      cost_->computeErrPosDcmRtWorldEwrtWorldXy(state, params);
+  EXPECT_LT((errPosDcmRtWorldEwrtWorldXy - expected).norm(), 1.0e-6)
+      << "error " << errPosDcmRtWorldEwrtWorldXy.transpose() << " expected "
+      << expected.transpose();
+
+  // Value consistent with the weights.
+  const scalar_t value =
+      cost_->getValue(/*time=*/0.5, state, emptyTargets, PreComputation());
+  EXPECT_NEAR(value,
+              0.5 * (400.0 * expected(0) * expected(0) +
+                     100.0 * expected(1) * expected(1)),
+              1.0e-6);
+}
+
+TEST_F(DcmTerminalCostTest, SingleSupportUsesStanceFoot) {
+  const TargetTrajectories emptyTargets;
+  const vector_t& state = initialState_;
+  // Right foot single support on [1.0, 1.5).
+  ASSERT_EQ(referenceManager_->getModeSchedule().modeAtTime(1.25),
+            kBipedModeRf);
+  const vector_t paramsRf = cost_->getParameters(/*time=*/1.25, emptyTargets);
+  EXPECT_DOUBLE_EQ(paramsRf(0), 0.0);
+  EXPECT_DOUBLE_EQ(paramsRf(1), 1.0);
+  const vector2_t rfErrPosDcmRtWorldEwrtWorldXy =
+      cost_->computeErrPosDcmRtWorldEwrtWorldXy(state, paramsRf);
+  const vector2_t expectedRf =
+      computePosComRtWorldEwrtWorldXy(state) -
+      computeMeanPosContactRtWorldEwrtWorldXy(state, {false, true});
+  EXPECT_LT((rfErrPosDcmRtWorldEwrtWorldXy - expectedRf).norm(), 1.0e-6);
+  // Versus double support: the two references differ by half the foot
+  // separation (laterally ~0.1 m for Atlas).
+  const vector2_t errorDs = cost_->computeErrPosDcmRtWorldEwrtWorldXy(
+      state, cost_->getParameters(/*time=*/0.5, emptyTargets));
+  EXPECT_GT(std::abs(rfErrPosDcmRtWorldEwrtWorldXy(1) - errorDs(1)), 0.05);
+}
+
+TEST_F(DcmTerminalCostTest, SupportWeightsBlendThroughTransitions) {
+  // Right-foot single support on [1.0, 1.5): the left foot's weight ramps out
+  // before 1.0 and back in after 1.5, the right foot keeps weight 1 (its
+  // contact phase spans the whole interval).
+  EXPECT_NEAR(cost_->computeSupportWeights(0.5)(0), 1.0, 1.0e-12);
+  EXPECT_NEAR(cost_->computeSupportWeights(0.95)(0), 0.5, 1.0e-9);
+  EXPECT_NEAR(cost_->computeSupportWeights(1.25)(0), 0.0, 1.0e-12);
+  EXPECT_NEAR(cost_->computeSupportWeights(1.55)(0), 0.5, 1.0e-9);
+  EXPECT_NEAR(cost_->computeSupportWeights(1.7)(0), 1.0, 1.0e-12);
+  for (const scalar_t t : {0.5, 0.95, 1.25, 1.55, 1.7}) {
+    EXPECT_NEAR(cost_->computeSupportWeights(t)(1), 1.0, 1.0e-12) << "t=" << t;
+  }
+  // The reference is continuous across the transition: parameters at 0.999
+  // and 1.001 are close.
+  const TargetTrajectories emptyTargets;
+  const vector2_t before = cost_->computeErrPosDcmRtWorldEwrtWorldXy(
+      initialState_, cost_->getParameters(/*time=*/0.999, emptyTargets));
+  const vector2_t after = cost_->computeErrPosDcmRtWorldEwrtWorldXy(
+      initialState_, cost_->getParameters(/*time=*/1.001, emptyTargets));
+  EXPECT_LT((before - after).norm(), 5.0e-3);
+  // Blending off reproduces the hard switch.
+  DcmTerminalCost::Config hard = config_;
+  hard.supportBlendTime = 0.0;
+  ASSERT_EQ(cost_->setConfig(hard), absl::OkStatus());
+  EXPECT_NEAR(cost_->computeSupportWeights(0.95)(0), 1.0, 1.0e-12);
+  EXPECT_NEAR(cost_->computeSupportWeights(1.05)(0), 0.0, 1.0e-12);
+  ASSERT_EQ(cost_->setConfig(config_), absl::OkStatus());
+}
+
+TEST_F(DcmTerminalCostTest, VelocityCommandShiftsReference) {
+  const scalar_t omega = cost_->omega();
+  vector_t targetState = vector_t::Zero(info_.stateDim);
+  targetState(0) = 0.4;
+  const TargetTrajectories targets({0.0}, {targetState},
+                                   {vector_t::Zero(info_.inputDim)});
+  const vector2_t withCommand = cost_->computeErrPosDcmRtWorldEwrtWorldXy(
+      initialState_, cost_->getParameters(/*time=*/0.5, targets));
+  const vector2_t without = cost_->computeErrPosDcmRtWorldEwrtWorldXy(
+      initialState_, cost_->getParameters(/*time=*/0.5, TargetTrajectories()));
+  EXPECT_NEAR(withCommand(0) - without(0), -0.4 / omega, 1.0e-9);
+  EXPECT_NEAR(withCommand(1) - without(1), 0.0, 1.0e-9);
+
+  DcmTerminalCost::Config noOffset = config_;
+  noOffset.velocityCommandOffsetFactor = 0.0;
+  ASSERT_EQ(cost_->setConfig(noOffset), absl::OkStatus());
+  const vector2_t pureCapturability = cost_->computeErrPosDcmRtWorldEwrtWorldXy(
+      initialState_, cost_->getParameters(/*time=*/0.5, targets));
+  EXPECT_LT((pureCapturability - without).norm(), 1.0e-9);
+}
+
+TEST_F(DcmTerminalCostTest, GaussNewtonApproximationMatchesFiniteDifferences) {
+  vector_t state = initialState_;
+  state(0) = 0.25;
+  state(1) = -0.15;
+  vector3_t eulerzyxBaseRtWorld = robotModel_->getEulerzyxBaseRtWorld(state);
+  eulerzyxBaseRtWorld(0) = 0.2;  // base yaw
+  eulerzyxBaseRtWorld(1) = 0.1;  // base pitch
+  robotModel_->setEulerzyxBaseRtWorld(state, eulerzyxBaseRtWorld);
+  state(13) = 0.3;  // a torso joint
+  const TargetTrajectories emptyTargets;
+  const ScalarFunctionQuadraticApproximation approximation =
+      cost_->getQuadraticApproximation(/*time=*/0.5, state, emptyTargets,
+                                       PreComputation());
+  ASSERT_EQ(approximation.dfdx.size(), state.size());
+  ASSERT_EQ(approximation.dfdxx.rows(), state.size());
+  EXPECT_NEAR(
+      approximation.f,
+      cost_->getValue(/*time=*/0.5, state, emptyTargets, PreComputation()),
+      1.0e-9);
+
+  const scalar_t h = 1.0e-6;
+  for (Eigen::Index i = 0; i < state.size(); ++i) {
+    vector_t plus = state;
+    vector_t minus = state;
+    plus(i) += h;
+    minus(i) -= h;
+    const scalar_t fd =
+        (cost_->getValue(/*time=*/0.5, plus, emptyTargets, PreComputation()) -
+         cost_->getValue(/*time=*/0.5, minus, emptyTargets, PreComputation())) /
+        (2.0 * h);
+    EXPECT_NEAR(approximation.dfdx(i), fd, 1.0e-4 * std::max(1.0, std::abs(fd)))
+        << "gradient entry " << i;
+  }
+  const Eigen::SelfAdjointEigenSolver<matrix_t> eigen(approximation.dfdxx);
+  EXPECT_GE(eigen.eigenvalues().minCoeff(), -1.0e-9);
+}
+
+TEST_F(DcmTerminalCostTest,
+       AnUnsetComHeightIsTheModelsPendulumAndAPositiveOneIsAnOverride) {
+  // The model's pendulum, computed in this test independently of
+  // computeProxyPosComRtFeetmeanEwrtWorldZ(); a humanoid's center of mass
+  // stands somewhere between half a meter and a meter and a half above its
+  // soles.
+  ASSERT_GT(modelNomPosComRtFeetmeanEwrtWorldZ_, 0.5);
+  ASSERT_LT(modelNomPosComRtFeetmeanEwrtWorldZ_, 1.5);
+  DcmTerminalCost::Config derived = config_;
+  derived.nomPosComRtFeetmeanEwrtWorldZ.reset();
+  absl::StatusOr<std::unique_ptr<DcmTerminalCost>> created =
+      DcmTerminalCost::Create(*referenceManager_, derived,
+                              modelNomPosComRtFeetmeanEwrtWorldZ_,
+                              *pinocchioInterface_, *robotModelAd_,
+                              "testDcmTerminalCost", *modelSettings_);
+  ASSERT_TRUE(created.ok()) << created.status();
+  const std::unique_ptr<DcmTerminalCost> cost = *std::move(created);
+  EXPECT_THAT(
+      cost->getConfig().nomPosComRtFeetmeanEwrtWorldZ,
+      ::testing::Optional(::testing::DoubleNear(
+          modelNomPosComRtFeetmeanEwrtWorldZ_, /*max_abs_error=*/1.0e-12)))
+      << "unset means the model's center of mass above its feet";
+  EXPECT_NEAR(cost->getParameters(/*time=*/0.5, TargetTrajectories())(2),
+              std::sqrt(9.81 / modelNomPosComRtFeetmeanEwrtWorldZ_), 1.0e-12);
+
+  // Positive control: an explicit height is used as given, and the model's is
+  // still what a later unset one means - a hot reload
+  // (MpcParameterUpdaterModule) hands the block to setConfig() exactly as the
+  // file writes it.
+  DcmTerminalCost::Config explicitHeight = derived;
+  explicitHeight.nomPosComRtFeetmeanEwrtWorldZ = 0.9;
+  ASSERT_EQ(cost->setConfig(explicitHeight), absl::OkStatus());
+  EXPECT_NEAR(cost->getParameters(/*time=*/0.5, TargetTrajectories())(2),
+              std::sqrt(9.81 / 0.9), 1.0e-12);
+  ASSERT_GT(std::abs(0.9 - modelNomPosComRtFeetmeanEwrtWorldZ_), 0.05)
+      << "the override must differ from the model, or the checks above prove "
+         "nothing";
+  ASSERT_EQ(cost->setConfig(derived), absl::OkStatus());
+  EXPECT_THAT(
+      cost->getConfig().nomPosComRtFeetmeanEwrtWorldZ,
+      ::testing::Optional(::testing::DoubleNear(
+          modelNomPosComRtFeetmeanEwrtWorldZ_, /*max_abs_error=*/1.0e-12)));
+  EXPECT_NEAR(cost->getModelNomPosComRtFeetmeanEwrtWorldZ(),
+              modelNomPosComRtFeetmeanEwrtWorldZ_, 1.0e-12);
+}
+
+TEST_F(DcmTerminalCostTest, ThePendulumRunsOnTheGravityOfTheModel) {
+  // The shipped model's gravity is the one the centroidal dynamics use.
+  EXPECT_EQ(cost_->getModelGravityMagnitude(), kGravityMagnitude);
+  EXPECT_EQ(cost_->getConfig().gravityMagnitude, kGravityMagnitude);
+
+  // A model under another gravity: omega follows the model, whatever gravity
+  // the configuration carries, at creation and on every setConfig().
+  constexpr scalar_t kMarsGravity = 3.71;  // [m/s^2]
+  if (!config_.nomPosComRtFeetmeanEwrtWorldZ.has_value()) {
+    FAIL() << "the fixture's configuration sets "
+              "nom_pos_com_rt_feetmean_ewrt_world_z";
+  }
+  const scalar_t nomPosComRtFeetmeanEwrtWorldZ =
+      *config_.nomPosComRtFeetmeanEwrtWorldZ;
+  pinocchio::ModelTpl<scalar_t> marsModel = pinocchioInterface_->getModel();
+  marsModel.gravity.linear(vector3_t(0.0, 0.0, -kMarsGravity));
+  const PinocchioInterface mars(marsModel);
+  DcmTerminalCost::Config earthly = config_;
+  earthly.gravityMagnitude = kGravityMagnitude;
+  absl::StatusOr<std::unique_ptr<DcmTerminalCost>> created =
+      DcmTerminalCost::Create(
+          *referenceManager_, earthly, modelNomPosComRtFeetmeanEwrtWorldZ_,
+          mars, *robotModelAd_, "testDcmTerminalCost", *modelSettings_);
+  ASSERT_TRUE(created.ok()) << created.status();
+  const std::unique_ptr<DcmTerminalCost> cost = *std::move(created);
+  EXPECT_EQ(cost->getConfig().gravityMagnitude, kMarsGravity);
+  EXPECT_NEAR(cost->getParameters(/*time=*/0.5, TargetTrajectories())(2),
+              std::sqrt(kMarsGravity / nomPosComRtFeetmeanEwrtWorldZ), 1.0e-12);
+  ASSERT_EQ(cost->setConfig(earthly), absl::OkStatus());
+  EXPECT_NEAR(cost->getParameters(/*time=*/0.5, TargetTrajectories())(2),
+              std::sqrt(kMarsGravity / nomPosComRtFeetmeanEwrtWorldZ), 1.0e-12)
+      << "a reload must not bring a gravity of its own";
+
+  // A gravity that does not point down gives no pendulum.
+  pinocchio::ModelTpl<scalar_t> sidewaysModel = pinocchioInterface_->getModel();
+  sidewaysModel.gravity.linear(vector3_t(kGravityMagnitude, 0.0, 0.0));
+  const PinocchioInterface sideways(sidewaysModel);
+  EXPECT_EQ(DcmTerminalCost::Create(*referenceManager_, config_,
+                                    modelNomPosComRtFeetmeanEwrtWorldZ_,
+                                    sideways, *robotModelAd_,
+                                    "testDcmTerminalCost", *modelSettings_)
+                .status()
+                .code(),
+            absl::StatusCode::kInvalidArgument);
+}
+
+TEST_F(DcmTerminalCostTest,
+       ARejectedConfigurationNamesItsKeyAndKeepsTheRunningOne) {
+  DcmTerminalCost::Config negativeWeight = config_;
+  negativeWeight.weights(1) = -1.0;
+  const absl::Status weight = cost_->setConfig(negativeWeight);
+  EXPECT_EQ(weight.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(weight.message(), "dcm_terminal_cost.weight_y"))
+      << weight;
+  EXPECT_DOUBLE_EQ(cost_->getConfig().weights(1), config_.weights(1))
+      << "a refused configuration must leave the running one in force";
+
+  DcmTerminalCost::Config negativeHeight = config_;
+  negativeHeight.nomPosComRtFeetmeanEwrtWorldZ = -0.9;
+  const absl::Status height = cost_->setConfig(negativeHeight);
+  EXPECT_EQ(height.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(
+      height.message(),
+      "dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z"))
+      << height;
+  EXPECT_EQ(cost_->getConfig().nomPosComRtFeetmeanEwrtWorldZ,
+            config_.nomPosComRtFeetmeanEwrtWorldZ);
+
+  // A model that gives no pendulum cannot stand in for the unset
+  // nomPosComRtFeetmeanEwrtWorldZ of a block without
+  // nom_pos_com_rt_feetmean_ewrt_world_z.
+  DcmTerminalCost::Config derived = config_;
+  derived.nomPosComRtFeetmeanEwrtWorldZ.reset();
+  const absl::StatusOr<DcmTerminalCost::Config> noModel =
+      DcmTerminalCost::resolveConfig(
+          derived,
+          /*modelNomPosComRtFeetmeanEwrtWorldZ=*/0.0,
+          /*modelGravityMagnitude=*/kGravityMagnitude);
+  EXPECT_EQ(noModel.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(
+      noModel.status().message(),
+      "dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z"))
+      << noModel.status();
+  EXPECT_TRUE(DcmTerminalCost::resolveConfig(
+                  derived, /*modelNomPosComRtFeetmeanEwrtWorldZ=*/1.0,
+                  /*modelGravityMagnitude=*/kGravityMagnitude)
+                  .ok())
+      << "the control: the same configuration with a model";
+}
+
+TEST_F(DcmTerminalCostTest,
+       TheConversionReadsTheBlockAsWrittenAndNamesAFieldItRefuses) {
+  const absl::StatusOr<DcmTerminalCost::Config> shipped =
+      dcmTerminalCostConfigFromConfig(atlas_.task.dcm_terminal_cost);
+  ASSERT_TRUE(shipped.ok()) << shipped.status();
+  EXPECT_GT(shipped->weights(0), 0.0);
+  EXPECT_TRUE(!shipped->nomPosComRtFeetmeanEwrtWorldZ.has_value() ||
+              *shipped->nomPosComRtFeetmeanEwrtWorldZ > 0.0)
+      << "unset (the model's) or an explicit height";
+
+  mpc_config::DcmTerminalCostConfig notANumber;
+  notANumber.nom_pos_com_rt_feetmean_ewrt_world_z =
+      std::numeric_limits<scalar_t>::quiet_NaN();
+  notANumber.weight_x = 10.0;
+  const absl::StatusOr<DcmTerminalCost::Config> refusedHeight =
+      dcmTerminalCostConfigFromConfig(notANumber);
+  EXPECT_EQ(refusedHeight.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(
+      refusedHeight.status().message(),
+      "dcm_terminal_cost.nom_pos_com_rt_feetmean_ewrt_world_z"))
+      << refusedHeight.status();
+
+  const absl::StatusOr<DcmTerminalCost::Config> derived =
+      dcmTerminalCostConfigFromConfig(mpc_config::DcmTerminalCostConfig{});
+  ASSERT_TRUE(derived.ok()) << derived.status();
+  EXPECT_FALSE(derived->nomPosComRtFeetmeanEwrtWorldZ.has_value())
+      << "the conversion leaves it unset for the cost to resolve against the "
+         "model";
+}
+
+TEST_F(DcmTerminalCostTest, UnderAPlanTheRobotsDcmIsTakenOnThePlansPendulum) {
+  std::shared_ptr<PlannedDcmReferenceManager> planning =
+      std::make_shared<PlannedDcmReferenceManager>(
+          checkedValue(GaitSchedule::Create(atlas_.reference, *modelSettings_,
+                                            /*verbose=*/false)),
+          std::make_unique<SwingTrajectoryPlanner>(
+              checkedValue(swingTrajectorySettingsFromConfig(
+                  atlas_.task.swing_trajectory_config)),
+              kNumFeet),
+          *pinocchioInterface_, *robotModel_);
+  planning->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, initialState_,
+                         kBipedModeStance);
+  const std::unique_ptr<DcmTerminalCost> cost = createCost(*planning, config_);
+  ASSERT_NE(cost, nullptr);
+
+  // Control: without a plan the cost measures the DCM on its own pendulum.
+  const scalar_t ownOmega = cost->omega();
+  vector_t parameters = cost->getParameters(/*time=*/0.5, TargetTrajectories());
+  EXPECT_NEAR(parameters(2), ownOmega, 1.0e-12);
+  EXPECT_EQ(parameters(8), 0.0);
+
+  // A plan made on another pendulum: its DCM is only its DCM with its own
+  // omega, so the robot's is taken with that one too, and the residual compares
+  // two points of one pendulum.
+  SwitchedModelReferenceManager::PlannedDcm plan;
+  plan.desPosDcmRtWorldEwrtWorldXy = vector2_t(0.12, -0.04);
+  plan.omega = 2.5;
+  ASSERT_GT(std::abs(plan.omega - ownOmega), 0.5);
+  planning->planned = plan;
+  parameters = cost->getParameters(/*time=*/0.5, TargetTrajectories());
+  EXPECT_NEAR(parameters(2), plan.omega, 1.0e-12)
+      << "the robot's DCM must be taken on the plan's pendulum, not the cost's";
+  EXPECT_EQ(parameters(8), 1.0);
+  EXPECT_NEAR(parameters(9), plan.desPosDcmRtWorldEwrtWorldXy(0), 1.0e-12);
+  EXPECT_NEAR(parameters(10), plan.desPosDcmRtWorldEwrtWorldXy(1), 1.0e-12);
+  vector_t state = initialState_;
+  state(0) = 0.3;
+  state(1) = -0.2;
+  const vector2_t expected = computePosComRtWorldEwrtWorldXy(state) +
+                             state.head<2>() / plan.omega -
+                             plan.desPosDcmRtWorldEwrtWorldXy;
+  EXPECT_LT(
+      (cost->computeErrPosDcmRtWorldEwrtWorldXy(state, parameters) - expected)
+          .norm(),
+      1.0e-6);
+}
+
+// weight_x and weight_y weigh the longitudinal and the lateral DCM error, the
+// error in the heading frame of the target at the terminal time, and not its
+// world x and y: a robot that has turned keeps the trade-off it was tuned with.
+TEST_F(DcmTerminalCostTest, TheWeightsActOnTheErrorInTheHeadingFrame) {
+  vector_t state = initialState_;
+  state(0) = 0.3;   // v_com_x
+  state(1) = -0.1;  // v_com_y
+  const vector2_t errPosDcmRtWorldEwrtWorldXy =
+      cost_->computeErrPosDcmRtWorldEwrtWorldXy(
+          state, cost_->getParameters(/*time=*/0.5, TargetTrajectories()));
+  // The two world components differ, so swapped weights change the value.
+  ASSERT_GT(
+      std::abs(errPosDcmRtWorldEwrtWorldXy(0) * errPosDcmRtWorldEwrtWorldXy(0) -
+               errPosDcmRtWorldEwrtWorldXy(1) * errPosDcmRtWorldEwrtWorldXy(1)),
+      1.0e-4)
+      << errPosDcmRtWorldEwrtWorldXy.transpose();
+
+  for (const scalar_t refYawHeadingRtWorld :
+       {0.0, std::numbers::pi / 2.0, std::numbers::pi / 4.0, -2.0}) {
+    // A target at rest (no velocity offset of the reference) heading
+    // refYawHeadingRtWorld.
+    vector_t targetState = initialState_;
+    targetState.head<2>().setZero();
+    robotModel_->setQuatBaseRtWorldXyzw(
+        targetState, vector4_t(0.0, 0.0, std::sin(refYawHeadingRtWorld / 2.0),
+                               std::cos(refYawHeadingRtWorld / 2.0)));
+    const TargetTrajectories targets({0.0}, {targetState},
+                                     {vector_t::Zero(info_.inputDim)});
+    const vector_t parameters = cost_->getParameters(/*time=*/0.5, targets);
+    // The reference itself does not turn with the heading.
+    EXPECT_LT((cost_->computeErrPosDcmRtWorldEwrtWorldXy(state, parameters) -
+               errPosDcmRtWorldEwrtWorldXy)
+                  .norm(),
+              1.0e-9)
+        << "yaw " << refYawHeadingRtWorld;
+
+    const scalar_t cosYaw = std::cos(refYawHeadingRtWorld);
+    const scalar_t sinYaw = std::sin(refYawHeadingRtWorld);
+    const scalar_t errLongitudinal = cosYaw * errPosDcmRtWorldEwrtWorldXy(0) +
+                                     sinYaw * errPosDcmRtWorldEwrtWorldXy(1);
+    const scalar_t errLateral = -sinYaw * errPosDcmRtWorldEwrtWorldXy(0) +
+                                cosYaw * errPosDcmRtWorldEwrtWorldXy(1);
+    EXPECT_NEAR(cost_->getValue(/*time=*/0.5, state, targets, PreComputation()),
+                0.5 * (400.0 * errLongitudinal * errLongitudinal +
+                       100.0 * errLateral * errLateral),
+                1.0e-9)
+        << "yaw " << refYawHeadingRtWorld;
+
+    // Its Gauss-Newton approximation is taken in the same axes.
+    const ScalarFunctionQuadraticApproximation approximation =
+        cost_->getQuadraticApproximation(/*time=*/0.5, state, targets,
+                                         PreComputation());
+    const matrix_t jacobian =
+        cost_->computeJacobianErrPosDcmRtWorldEwrtWorldXy(state, parameters);
+    matrix_t rotmatWorldRtHeading(2, 2);
+    rotmatWorldRtHeading << cosYaw, sinYaw, -sinYaw, cosYaw;
+    const matrix_t weightedJacobian =
+        vector2_t(20.0, 10.0).asDiagonal() * rotmatWorldRtHeading * jacobian;
+    EXPECT_LT(
+        (approximation.dfdxx - weightedJacobian.transpose() * weightedJacobian)
+            .norm(),
+        1.0e-6 * std::max(1.0, approximation.dfdxx.norm()))
+        << "yaw " << refYawHeadingRtWorld;
+  }
+
+  // Equal weights do not depend on the heading.
+  DcmTerminalCost::Config isotropic = config_;
+  isotropic.weights = vector2_t(250.0, 250.0);
+  ASSERT_EQ(cost_->setConfig(isotropic), absl::OkStatus());
+  vector_t turned = initialState_;
+  turned.head<2>().setZero();
+  robotModel_->setQuatBaseRtWorldXyzw(
+      turned, vector4_t(0.0, 0.0, std::sin(0.6), std::cos(0.6)));
+  EXPECT_NEAR(
+      cost_->getValue(
+          /*time=*/0.5, state,
+          TargetTrajectories({0.0}, {turned}, {vector_t::Zero(info_.inputDim)}),
+          PreComputation()),
+      0.5 * 250.0 * errPosDcmRtWorldEwrtWorldXy.squaredNorm(), 1.0e-9);
+  ASSERT_EQ(cost_->setConfig(config_), absl::OkStatus());
+}
+
+namespace {
+
+/**
+ * Records the tape operation count of every library made ready while it is
+ * alive, each count a fresh taping of the library's function. Installs the
+ * process-wide library observer: one at a time, on the test's thread.
+ */
+class TapeOperationRecorder {
+ public:
+  TapeOperationRecorder() {
+    CppAdInterface::setLibraryObserver([this](const CppAdInterface& library) {
+      counts_.push_back(library.getTapeOperationCount());
+    });
+  }
+  ~TapeOperationRecorder() {
+    CppAdInterface::setLibraryObserver(CppAdInterface::LibraryObserver());
+  }
+  TapeOperationRecorder(const TapeOperationRecorder&) = delete;
+  TapeOperationRecorder& operator=(const TapeOperationRecorder&) = delete;
+
+  const std::vector<size_t>& counts() const { return counts_; }
+
+ private:
+  std::vector<size_t> counts_;
+};
+
+}  // namespace
+
+// The library's function holds what the residual reads, not the cost: a copy of
+// a copy re-tapes it after the cost they were made of is gone, and tapes what
+// that cost taped.
+TEST_F(DcmTerminalCostTest,
+       ACopyRetapesTheResidualAfterTheCostItWasCopiedFromIsGone) {
+  vector_t state = initialState_;
+  state(0) = 0.3;
+  state(1) = -0.2;
+  const vector_t parameters =
+      cost_->getParameters(/*time=*/0.5, TargetTrajectories());
+  const vector2_t errPosDcmRtWorldEwrtWorldXy =
+      cost_->computeErrPosDcmRtWorldEwrtWorldXy(state, parameters);
+
+  const TapeOperationRecorder recorder;
+  std::unique_ptr<DcmTerminalCost> copy(cost_->clone());
+  cost_.reset();
+  const std::unique_ptr<DcmTerminalCost> copyOfCopy(copy->clone());
+  copy.reset();
+  ASSERT_EQ(recorder.counts().size(), 2u)
+      << "the library reloaded by each copy";
+  EXPECT_GT(recorder.counts()[0], 0u);
+  EXPECT_EQ(recorder.counts()[1], recorder.counts()[0]);
+  EXPECT_EQ(copyOfCopy->computeErrPosDcmRtWorldEwrtWorldXy(state, parameters),
+            errPosDcmRtWorldEwrtWorldXy);
+}
+
+}  // namespace ocs2::legged

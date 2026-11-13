@@ -1,6 +1,6 @@
 # Whole-Body Humanoid MPC
 
-This repository contains a Whole-Body Nonlinear Model Predictive Controller (NMPC) for humanoid loco-manipulation control. This approach directly optimizes through the **full-order torque-level dynamics in real time** to generate dynamic humanoid behaviors, building upon an extended and updated version of [OCS2](https://github.com/leggedrobotics/ocs2) integrated natively into a **Bazel monorepo**.
+This repository contains a Whole-Body Nonlinear Model Predictive Controller (NMPC) for the loco-manipulation control of humanoids and other legged robots: bipeds, quadrupeds and wheeled-legged robots. This approach directly optimizes through the **full-order torque-level dynamics in real time** to generate dynamic humanoid behaviors, building upon an extended and updated version of [OCS2](https://github.com/leggedrobotics/ocs2) integrated natively into a **Bazel monorepo**.
 
 **Interactive Velocity and Base Height Control via Joystick:**
 
@@ -62,9 +62,9 @@ The reference layer decides *when* and *where* the feet touch the ground, the NM
 | Selection | What it does |
 | --- | --- |
 | `dcm_terminal_cost` in `costs` | Ends the horizon with a Divergent Component of Motion (capture point) viability cost instead of the quadratic terminal cost `terminal_cost` on `final_state_weights`; the two are alternatives, and start-up refuses a list that names both. Keeps the horizon end capturable for any gait cadence. |
-| `contact_schedule_source: "contact_planner"` | Replaces the periodic gait schedule (`gait_schedule`, the default, which every robot ships) with an online contact planner, selected by `planner.type` in `config/mpc/contact_planning.textproto`: the closed-form H-LIP stepper (`hlip`, both shipped robots; [humanoid_nmpc/docs/hlip_contact_planner/README.md](humanoid_nmpc/docs/hlip_contact_planner/README.md)) or the mixed-integer program (`lip_miqp`: LIP model, branch-and-bound over HPIPM relaxations). It chooses the contact sequence, the switching times and the footholds from the current state and the velocity command. Optional, off by default: the executed schedule can adapt to measured early / late touch-downs and the landing targets can follow the capture point (the `phase_resetting` and `dcm_step_adjustment` rules of the planner's `execution` list). The planner is assembled from named terms listed in `config/mpc/contact_planning.textproto`, like the NMPC from the task file's lists. |
+| `contact_schedule_source: "contact_planner"` | Replaces the periodic gait schedule (`gait_schedule`, the default, which every robot ships) with an online contact planner, selected by `planner.type` in `config/mpc/contact_planning.textproto`: the closed-form H-LIP stepper (`hlip`, both shipped robots; [legged_nmpc/docs/hlip_contact_planner/README.md](legged_nmpc/docs/hlip_contact_planner/README.md)) or the mixed-integer program (`lip_miqp`: LIP model, branch-and-bound over HPIPM relaxations). It chooses the contact sequence, the switching times and the footholds from the current state and the velocity command. Optional, off by default: the executed schedule can adapt to measured early / late touch-downs and the landing targets can follow the capture point (the `phase_resetting` and `dcm_step_adjustment` rules of the planner's `execution` list). The planner is assembled from named terms listed in `config/mpc/contact_planning.textproto`, like the NMPC from the task file's lists. |
 
-Both replaced a top-level boolean, now the retired fields `use_dcm_terminal_cost` and `use_contact_planning`: a task file that still carries one is refused when it is read, with a message naming its replacement. The formulation and the math of both features are described in [humanoid_nmpc/docs/README.md](humanoid_nmpc/docs/README.md).
+Both replaced a top-level boolean, now the retired fields `use_dcm_terminal_cost` and `use_contact_planning`: a task file that still carries one is refused when it is read, with a message naming its replacement. The formulation and the math of both features are described in [legged_nmpc/docs/README.md](legged_nmpc/docs/README.md).
 
 ## Supported Robot Models
 
@@ -85,7 +85,7 @@ quadruped gait file. The whole-body MPC accepts only two 6-DoF feet, so it has n
 
 LimX Tron1 stands and drives on two wheels: the centroidal MPC plans on one rolling contact per wheel, whose force acts
 at the wheel's lowest point and whose material there does not slip in stance
-([humanoid_nmpc/docs/rolling_contact/README.md](humanoid_nmpc/docs/rolling_contact/README.md)), with the wheeled
+([legged_nmpc/docs/rolling_contact/README.md](legged_nmpc/docs/rolling_contact/README.md)), with the wheeled
 bipeds' gait file ([robot_models/limx_tron1/README.md](robot_models/limx_tron1/README.md)). The wheeled ANYmal C drives
 on four rolling contacts and turns in a trot, with the wheeled quadrupeds' gait file
 ([robot_models/anybotics_anymal_c_wheels/README.md](robot_models/anybotics_anymal_c_wheels/README.md)).
@@ -113,7 +113,12 @@ cd ~/workspace/wb_humanoid_mpc
 > `/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc`, where `.devcontainer/devcontainer.json` opens the workspace too. The
 > launch targets and the editor's clangd (`tools/ide/README.md`) reach the container's checkout through the same mount.
 
-> **Note:** The repository uses **Bazel 9.x** with `bzlmod` for hermetic dependency management. There is no ROS: the robot, the MPC and the operator tools are separate processes on a Cyclone DDS + Protocol Buffers bus (plain DDS, no ROS middleware), and Rerun draws the robot, the plan and the plots ([humanoid_nmpc/docs/distributed_runtime/README.md](humanoid_nmpc/docs/distributed_runtime/README.md)).
+> **Note:** The packages are named `legged_*` (`legged_nmpc`, `legged_state_estimation`, `legged_learning`, the C++
+> namespace `ocs2::legged`), since the controllers run quadrupeds and wheeled robots too. The repository, the Bazel
+> module `wb_humanoid_mpc` and the container mount `/wb_humanoid_mpc_ws` keep their names: renaming them would break
+> existing checkouts and dev setups.
+
+> **Note:** The repository uses **Bazel 9.x** with `bzlmod` for hermetic dependency management. There is no ROS: the robot, the MPC and the operator tools are separate processes on a Cyclone DDS + Protocol Buffers bus (plain DDS, no ROS middleware), and Rerun draws the robot, the plan and the plots ([legged_nmpc/docs/distributed_runtime/README.md](legged_nmpc/docs/distributed_runtime/README.md)).
 
 ### 2. Environment Setup
 
@@ -193,7 +198,7 @@ make clean-all    # Deep clean including external caches
 The robot and the MPC are separate processes on a Cyclone DDS + Protocol Buffers bus, as on hardware: the **robot process**
 (the realtime loop: MuJoCo as its backend, the MRT joint controller, the FSM) runs on the robot's computer, the **MPC
 node**, the **remote-control GUI** and the **Rerun bridge** on the laptop
-([architecture](humanoid_nmpc/docs/distributed_runtime/README.md)). Simulation mirrors that: `make launch-<robot>-sim`
+([architecture](legged_nmpc/docs/distributed_runtime/README.md)). Simulation mirrors that: `make launch-<robot>-sim`
 starts the robot process in the `robot-sim` container (the robot's own slim image and compose file, with its
 `SCHED_FIFO` and locked memory, plus only the MuJoCo viewer's GL) and the laptop side in the dev container, over the
 remote MPC link. Starting a container takes the host's Docker, so run the `-sim` targets **on the host** (Linux); they
@@ -225,7 +230,7 @@ The laptop side is launched the same way in simulation and on the robot (`launch
   run; use `make launch-<robot>-dummy-sim` and the sandbox targets, which run entirely in the dev container.
 - **The MuJoCo web viewer** renders offscreen without an X server or VNC. Without `VIEWS=` on the command line the plot
   configuration chooses the viewer (`mujoco_viewer: "web"` in
-  [`plot_config.textproto`](humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto); `PLOT_CONFIG=` selects
+  [`plot_config.textproto`](legged_nmpc/legged_rerun_viewer/config/plot_config.textproto); `PLOT_CONFIG=` selects
   another file). See the [Visualization Guide](.devcontainer/README.md#mujoco-web-viewer).
 
 ### Launch Targets
@@ -261,7 +266,7 @@ make launch-drc-atlas-robot HOST=<robot ssh host>                    # or the ro
 <!-- LINT.ThenChange(//Makefile:launch_targets, //Makefile:robot_configurations) -->
 
 The DRC Atlas's multi-contact scenarios (stairs, climbing onto a box, car egress, getting up;
-[humanoid_nmpc/docs/multi_contact_planning](humanoid_nmpc/docs/multi_contact_planning/README.md)) each have a dummy sim
+[legged_nmpc/docs/multi_contact_planning](legged_nmpc/docs/multi_contact_planning/README.md)) each have a dummy sim
 of the centroidal MPC tracking the scenario's offline plan, with the terrain in Rerun:
 
 <!-- LINT.IfChange(multi_contact_targets) -->
@@ -279,7 +284,7 @@ Their plans come from the offline planner, and each plan plays back kinematicall
 <!-- LINT.IfChange(multi_contact_plan_targets) -->
 ```bash
 make plan-drc-atlas-box-climb       # plan the scenario with its own planner (MULTI_CONTACT_PLANNER=<name> overrides it):
-                                    # humanoid_nmpc/humanoid_multi_contact/plans/box_climb.binpb
+                                    # legged_nmpc/legged_multi_contact/plans/box_climb.binpb
 make playback-drc-atlas-box-climb   # play the plan in Rerun (RERUN_SINK=, default serve_web: http://localhost:9090)
 ```
 <!-- LINT.ThenChange(//Makefile:multi_contact_plan_targets) -->
@@ -299,9 +304,9 @@ Simulations launch in a safe **Zero-Torque Mode** suspended on a virtual gantry 
 | `WB_MPC` / `MPC_ACTIVE` | Active Whole-Body / Centroidal MPC solver closed-loop control. |
 | `LOCK_GANTRY` / `UNLOCK_GANTRY` | Suspends or releases the virtual gantry holding the floating base. |
 
-State transitions travel on the IPC bus (`humanoid_nmpc/humanoid_mpc_ipc/include/humanoid_mpc_ipc/Topics.h`):
-- The **command topic** is `operator/fsm_command` (`humanoid_mpc_msgs.FsmCommand`: the command and a sequence number).
-- The **state topic** is `robot/fsm_state` (`humanoid_mpc_msgs.FsmState`: `mode`, `gantry_locked`, `controller_resets`, `mpc_healthy`), published on every change and at 2 Hz, so a GUI that starts late learns the current state (the remote control re-centers its joysticks on a transition into a passive mode, a new lock and a new reset; see [humanoid_nmpc/remote_control/README.md](humanoid_nmpc/remote_control/README.md)).
+State transitions travel on the IPC bus (`legged_nmpc/legged_mpc_ipc/include/legged_mpc_ipc/Topics.h`):
+- The **command topic** is `operator/fsm_command` (`legged_mpc_msgs.FsmCommand`: the command and a sequence number).
+- The **state topic** is `robot/fsm_state` (`legged_mpc_msgs.FsmState`: `mode`, `gantry_locked`, `controller_resets`, `mpc_healthy`), published on every change and at 2 Hz, so a GUI that starts late learns the current state (the remote control re-centers its joysticks on a transition into a passive mode, a new lock and a new reset; see [legged_nmpc/remote_control/README.md](legged_nmpc/remote_control/README.md)).
 
 ### Teleoperation & Root Height Control
 - Use the **Robot Base Controller GUI** or connect an **Xbox Controller** to command velocity vectors ($v_x, v_y, \omega_z$).
@@ -311,7 +316,7 @@ State transitions travel on the IPC bus (`humanoid_nmpc/humanoid_mpc_ipc/include
 
 ### Interactive Controller GUI & Parameter Tuning Tabs
 
-The joystick GUI (`base_velocity_controller_gui`, [humanoid_nmpc/remote_control/README.md](humanoid_nmpc/remote_control/README.md)) features a dark-themed tabbed interface:
+The joystick GUI (`base_velocity_controller_gui`, [legged_nmpc/remote_control/README.md](legged_nmpc/remote_control/README.md)) features a dark-themed tabbed interface:
 
 1. **Base Controller**
    - Command planar velocities ($v_x, v_y, \omega_z$) via interactive virtual joysticks or physical Xbox gamepad.
@@ -341,7 +346,7 @@ The joystick GUI (`base_velocity_controller_gui`, [humanoid_nmpc/remote_control/
 
 4. **Joint Targets** provides a position slider per joint, starting from the reference file's `default_joint_state` and published in `JOINT_PD` only.
 5. **Command Limits (`reference.textproto`)** exposes the velocity command limits and reference defaults, which the running MPC reloads when the file is saved; Save also sends the file to the robot's store, which the robot reads at its next start.
-6. **Dodgeball** aims and throws a ball at the robot in simulation ([humanoid_nmpc/docs/dodgeball/README.md](humanoid_nmpc/docs/dodgeball/README.md)).
+6. **Dodgeball** aims and throws a ball at the robot in simulation ([legged_nmpc/docs/dodgeball/README.md](legged_nmpc/docs/dodgeball/README.md)).
 
 The tuning tabs are built from the schemas of their files, so a hyperparameter added to a schema appears in the GUI
 with no GUI code. How they publish and save is described in the next section.
@@ -349,7 +354,7 @@ with no GUI code. How they publish and save is described in the next section.
 ### Configuration Files and Tuning (textproto)
 
 Every hyperparameter of the MPC, the robot's controller and the tuning GUI is stored in a typed textproto, parsed strictly
-into the message of its schema in [humanoid_nmpc/humanoid_mpc_config](humanoid_nmpc/humanoid_mpc_config/README.md):
+into the message of its schema in [legged_nmpc/legged_mpc_config](legged_nmpc/legged_mpc_config/README.md):
 
 | File | Message | What it sets |
 |---|---|---|
@@ -357,14 +362,14 @@ into the message of its schema in [humanoid_nmpc/humanoid_mpc_config](humanoid_n
 | `.../config/command/reference.textproto` | `ReferenceFile` | the command limits and filters, the default base height and joint state, the initial gait |
 | `.../config/controller/joint_pd_gains.textproto` | `JointPdGainsFile` | the PD gains and torque limits of the MRT joint controllers |
 | `.../config/mpc/contact_planning.textproto` | `ContactPlanningFile` | the online contact planner (DRC Atlas and EngineAI SA01) |
-| `humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto` | `GaitFile` | the gaits of the procedural motion manager, shared by every robot |
+| `legged_nmpc/legged_common_mpc/config/command/gait.textproto` | `GaitFile` | the gaits of the procedural motion manager, shared by every robot |
 
 Each file specifies its schema in its first two lines, which the parsers check and `make lint` requires. The task file
 starts with the runtime flags of the robot process and the GUI:
 
 ```textproto
-# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto
-# proto-message: humanoid_mpc_config.TaskFile
+# proto-file: legged_nmpc/legged_mpc_config/task_file.proto
+# proto-message: legged_mpc_config.TaskFile
 telemetry_sinks: "bus"         # where the robot process sends robot/state, by name; no telemetry_sinks line turns it off
 telemetry_frequency: 100       # [Hz] robot/state, decimated from the control loop
 enable_online_tuning: true     # Enable runtime parameter and gain tuning in Controller GUI
@@ -374,13 +379,13 @@ telemetry_frames: "foot_r_contact"
 telemetry_frames: "pelvis"
 ```
 
-- **`telemetry_sinks`** lists the telemetry sinks of the robot process by name (`humanoid_nmpc/humanoid_common_mpc_app/robot/README.md`): `bus` publishes every sample on `robot/state`; a file without a `telemetry_sinks` line turns the telemetry off, and the realtime loop then samples nothing. The retired boolean `enable_telemetry` is refused with this replacement.
+- **`telemetry_sinks`** lists the telemetry sinks of the robot process by name (`legged_nmpc/legged_common_mpc_app/robot/README.md`): `bus` publishes every sample on `robot/state`; a file without a `telemetry_sinks` line turns the telemetry off, and the realtime loop then samples nothing. The retired boolean `enable_telemetry` is refused with this replacement.
 - **`enable_online_tuning`**, when `false`, disables all sliders, quick multipliers, and save buttons in the **Joint PD Gains**, **MPC Parameters**, and **Command Limits** tabs, displaying an orange safety badge `Online Tuning Disabled`.
 - **`telemetry_frames`** is an optional targeted list of Pinocchio frames to monitor. The telemetry engine automatically computes forward kinematics, spatial twists, frame accelerations, and contact wrenches for both measured and MPC desired states.
 
 Weights and states are addressed by name, never by index. Momenta, positions and velocities are `{x y z}` blocks, the
 base orientation is tuned in Euler angles `{yaw pitch roll}` (the MPC's state stores a unit quaternion, and one layer
-maps the angles onto it: [quaternion_base_orientation](humanoid_nmpc/docs/quaternion_base_orientation/README.md)), and
+maps the angles onto it: [quaternion_base_orientation](legged_nmpc/docs/quaternion_base_orientation/README.md)), and
 joints are named entries; every joint of the MPC model is listed exactly once, and a missing, unknown or fixed joint is
 refused by name:
 
@@ -417,13 +422,13 @@ whole-body, polls the task, reference and contact-planning files about once a se
 field as taking effect at the next start. The robot process reads its own copies from its persistent store: it watches
 the stored task file for its controller-side settings (`contact_estimator`, `contact_wrench_gate`), and the MRT joint
 controllers watch the stored PD gains file. An editor's save therefore reaches the MPC at once and a running robot at
-its next start, or at once with `bazel run //humanoid_nmpc/remote_control:push_robot_config -- <file>`. A reload is
+its next start, or at once with `bazel run //legged_nmpc/remote_control:push_robot_config -- <file>`. A reload is
 complete: a field or block it leaves out takes its default, as at start-up, not the value that was running. A
 file that does not parse is logged and the running values stay, and so do those of a block whose conversion is
 refused.
 
 **Tuning in the GUI.** The MPC Parameters and Joint PD Gains tabs publish every change, debounced, as the edited
-file (`humanoid_mpc_config.MpcParameterUpdate` on `operator/mpc_parameters`, `humanoid_mpc_config.JointPdGainsFile` on
+file (`legged_mpc_config.MpcParameterUpdate` on `operator/mpc_parameters`, `legged_mpc_config.JointPdGainsFile` on
 `operator/pd_gains`) after parsing the edited text strictly, so an edit the schema would refuse is reported on the tab
 and never sent. Nothing is written to disk until **Save**, which
 changes only the values that were edited and keeps every other byte of the file (comments, blank lines, `LINT`
@@ -431,25 +436,25 @@ directives, the spelling of the values not edited), replaces the file atomically
 of it, and keeps the file as it was before the first save as `<file>.bak`. Save then delivers the text it
 wrote to the robot's persistent store (`operator/config_save`), which checks it as at start-up, stores it atomically
 and answers; the tab shows "Saved on the laptop and on the robot", the robot's refusal, or that the robot's copy is
-unknown when it did not answer ([humanoid_nmpc/remote_control/README.md](humanoid_nmpc/remote_control/README.md)).
+unknown when it did not answer ([legged_nmpc/remote_control/README.md](legged_nmpc/remote_control/README.md)).
 **↺ Reset All** returns to the file as loaded or last saved, and publishes it.
 
 **Adding a hyperparameter** takes a field in its schema, with its default and, where the GUI's defaults do not fit,
 its `tuning` options (slider range, unit, reload class, or the reason it gets no widget), and its conversion in C++;
-the GUI shows it with no GUI code ([humanoid_nmpc/humanoid_mpc_config/README.md](humanoid_nmpc/humanoid_mpc_config/README.md),
-[humanoid_nmpc/remote_control/README.md](humanoid_nmpc/remote_control/README.md)).
+the GUI shows it with no GUI code ([legged_nmpc/legged_mpc_config/README.md](legged_nmpc/legged_mpc_config/README.md),
+[legged_nmpc/remote_control/README.md](legged_nmpc/remote_control/README.md)).
 
 ### Real-Time Visualization & Telemetry (Rerun)
 
-The Rerun bridge (`humanoid_nmpc/humanoid_rerun_viewer`) draws the robot, the MPC's plan and the telemetry plots in
+The Rerun bridge (`legged_nmpc/legged_rerun_viewer`) draws the robot, the MPC's plan and the telemetry plots in
 [Rerun](https://rerun.io). It only subscribes to the bus, so it runs on any machine of the network file:
 
 ```bash
 # Native viewer (in the container it opens on the VNC desktop)
-bazel run //humanoid_nmpc/humanoid_rerun_viewer -- --urdf robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf
+bazel run //legged_nmpc/legged_rerun_viewer -- --urdf robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf
 
 # Web viewer at http://localhost:9090
-bazel run //humanoid_nmpc/humanoid_rerun_viewer -- --urdf <robot.urdf> --rerun_sink serve_web
+bazel run //legged_nmpc/legged_rerun_viewer -- --urdf <robot.urdf> --rerun_sink serve_web
 ```
 *(Or click **Open Rerun viewer** in the Base Controller GUI.)*
 
@@ -470,13 +475,13 @@ frame of `telemetry_frames`, both contact wrenches and the MPC observation, and 
 #### Telemetry on the Bus
 | Topic | Message | Description |
 |---|---|---|
-| `robot/state` | `humanoid_mpc_msgs.RobotStateSample` | the robot process's measured state, joint actions and contact wrenches, every telemetry period (`telemetry_sinks: "bus"`) |
-| `viz/telemetry` | `humanoid_mpc_msgs.TelemetrySeries` | the plots' series, one message per `robot/state` sample, from the MPC node's visualization publisher |
-| `viz/scene` | `humanoid_mpc_msgs.VisualizationScene` | the robot instances (measured, terminal state, terminal target) and the markers of the plan |
-| `robot/mpc_observation` | `humanoid_mpc_msgs.MpcObservation` | the observation the MPC solves from (`mpc_observation_logger` records it to CSV) |
+| `robot/state` | `legged_mpc_msgs.RobotStateSample` | the robot process's measured state, joint actions and contact wrenches, every telemetry period (`telemetry_sinks: "bus"`) |
+| `viz/telemetry` | `legged_mpc_msgs.TelemetrySeries` | the plots' series, one message per `robot/state` sample, from the MPC node's visualization publisher |
+| `viz/scene` | `legged_mpc_msgs.VisualizationScene` | the robot instances (measured, terminal state, terminal target) and the markers of the plan |
+| `robot/mpc_observation` | `legged_mpc_msgs.MpcObservation` | the observation the MPC solves from (`mpc_observation_logger` records it to CSV) |
 | `mpc/status`, `robot/loop_timing`, `robot/fsm_state` | `MpcStatus`, `LoopTiming`, `FsmState` | the solver's health, the realtime loop's timing and the FSM |
 
-The entity paths and series names are tabulated in [the bridge's README](humanoid_nmpc/humanoid_rerun_viewer/README.md);
+The entity paths and series names are tabulated in [the bridge's README](legged_nmpc/legged_rerun_viewer/README.md);
 `bazel run //tools/ipc:ipc_tool -- list` shows what is on the bus.
 
 ### MuJoCo 3D Viewer Hotkeys & Controls
@@ -521,10 +526,10 @@ make train-acom-jupyter
 
 open **`http://localhost:8888`**, and load [`notebooks/train_acom_siren.ipynb`](notebooks/train_acom_siren.ipynb). It
 trains the network for one robot and exports the C++ weight header `AcomSirenWeights<Robot>.h`; it is a thin driver over
-`humanoid_learning/acom/train_main.py`, which does the same from the command line. Only the DRC Atlas network is
-validated for closed-loop use - see [`humanoid_learning/acom/README.md`](humanoid_learning/acom/README.md).
+`legged_learning/acom/train_main.py`, which does the same from the command line. Only the DRC Atlas network is
+validated for closed-loop use - see [`legged_learning/acom/README.md`](legged_learning/acom/README.md).
 
-## Reinforcement Learning with MuJoCo Playground (`humanoid_learning`)
+## Reinforcement Learning with MuJoCo Playground (`legged_learning`)
 
 The repository includes a GPU-accelerated RL and imitation learning pipeline built on **Google DeepMind's [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground)**, **MJX**, **JAX**, and **Brax**.
 
@@ -559,7 +564,7 @@ make test-rl
 # Launch PPO Policy Training (MJX / Playground)
 make train-rl
 # Or with customized parameters:
-bazel run //humanoid_learning/training:train_ppo -- --num_envs=4096 --total_timesteps=10000000
+bazel run //legged_learning/training:train_ppo -- --num_envs=4096 --total_timesteps=10000000
 
 # Export recorded MPC rollouts to HDF5 demonstration datasets
 make export-rollouts
@@ -568,7 +573,7 @@ make export-rollouts
 make train-bc
 
 # Export trained policy to ONNX format for C++ deployment
-bazel run //humanoid_learning/export:export_onnx -- --checkpoint_path=checkpoints/bc_policy.npz --output_path=models/humanoid_policy.onnx
+bazel run //legged_learning/export:export_onnx -- --checkpoint_path=checkpoints/bc_policy.npz --output_path=models/legged_policy.onnx
 ```
 
 </details>

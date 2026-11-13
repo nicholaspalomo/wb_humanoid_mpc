@@ -220,7 +220,7 @@ class ScopeTest(unittest.TestCase):
         linted = set(_actions("generated_header_arguments"))
         self.assertTrue(
             any(
-                path.startswith("humanoid_nmpc/humanoid_common_mpc/include/")
+                path.startswith("legged_nmpc/legged_common_mpc/include/")
                 for path in linted
             )
         )

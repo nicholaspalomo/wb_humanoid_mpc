@@ -1,9 +1,9 @@
-# proto-file: humanoid_nmpc/humanoid_multi_contact/contact_set/contact_set.proto
-# proto-message: humanoid_multi_contact.ContactSet
-# The contact candidates of the DRC Atlas for multi-contact planning (humanoid_nmpc/docs/multi_contact_planning/
+# proto-file: legged_nmpc/legged_multi_contact/contact_set/contact_set.proto
+# proto-message: legged_multi_contact.ContactSet
+# The contact candidates of the DRC Atlas for multi-contact planning (legged_nmpc/docs/multi_contact_planning/
 # README.md, section 3.1), in the order that numbers the bits of a contact mode. The offsets and radii are those of the
 # collision geoms of robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml, whose body frames are the URDF's
-# joint frames; //humanoid_nmpc/humanoid_multi_contact/stability:robot_stance_model_test checks every parent joint
+# joint frames; //legged_nmpc/legged_multi_contact/stability:robot_stance_model_test checks every parent joint
 # against atlas.urdf.
 #
 # A pad's frame has z = -normal_pad_ewrt_link (the terrain's normal when the pad rests on it) and x = x_axis_pad_ewrt_link; a surface
@@ -34,7 +34,7 @@ candidates {
 # LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/multi_contact/task.textproto:multi_contact_candidates)
 
 # Every other candidate is a contact of the multi-contact task file too (task.textproto beside this file), with the
-# same parent, offset and pad: //humanoid_nmpc/humanoid_centroidal_mpc:test_multi_contact_task_file checks them.
+# same parent, offset and pad: //legged_nmpc/legged_centroidal_mpc:test_multi_contact_task_file checks them.
 # LINT.IfChange(other_candidates)
 
 # The front of the shin capsule (l_lleg / r_lleg: radius 0.055, from the knee down to z = -0.42), 6 cm below the knee.

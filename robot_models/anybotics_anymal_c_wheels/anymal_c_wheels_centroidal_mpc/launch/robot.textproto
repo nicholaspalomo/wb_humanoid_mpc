@@ -2,7 +2,7 @@
 # proto-message: launch_proto.LaunchFile
 #
 # The robot side of the wheeled ANYbotics ANYmal C, centroidal MPC: the robot process, which runs on the robot's realtime computer
-# (humanoid_nmpc/docs/distributed_runtime/README.md, "Deployment"). Its backend is chosen by name; until a hardware
+# (legged_nmpc/docs/distributed_runtime/README.md, "Deployment"). Its backend is chosen by name; until a hardware
 # backend exists it is the MuJoCo simulator, which simulation runs in the same topology.
 #
 #   make launch-anymal-c-wheels-sim    # with mpc.textproto, the robot side in the robot-sim container
@@ -21,7 +21,7 @@ variables { name: "reference_file" value: "{config_dir}/command/reference.textpr
 variables { name: "urdf_file" value: "{robot_dir}/anymal_c_wheels_description/urdf/anymal_c_wheels.urdf" }
 variables { name: "mjcf_file" value: "{robot_dir}/anymal_c_wheels_description/urdf/anymal_c_wheels.xml" }
 variables { name: "network_file" value: "config/ipc/network.textproto" }
-# The robot backend, by name (humanoid_nmpc/humanoid_common_mpc_app/robot/README.md, "The backends").
+# The robot backend, by name (legged_nmpc/legged_common_mpc_app/robot/README.md, "The backends").
 variables { name: "backend" value: "mujoco" }
 # The MuJoCo backend's viewer, by name: glfw (window on DISPLAY), web (browser, http://localhost:{web_viewer_port}),
 # none; web,none falls back to none (robot_runtime/mujoco_sim_interface/README.md). Empty: the mujoco_viewer of
@@ -29,7 +29,7 @@ variables { name: "backend" value: "mujoco" }
 # image, which has no GL, sets none.
 variables { name: "viewer" value: "" }
 # The plot configuration, the Rerun bridge's of mpc.textproto: read only when viewer is empty, for its mujoco_viewer.
-variables { name: "plot_config" value: "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto" }
+variables { name: "plot_config" value: "legged_nmpc/legged_rerun_viewer/config/plot_config.textproto" }
 # The web viewer's address (127.0.0.1: this machine only; 0.0.0.0: every interface, as a bridge network needs, with no
 # authentication), its port, and the host names besides localhost its page answers under (a comma list).
 variables { name: "web_viewer_address" value: "127.0.0.1" }
@@ -43,7 +43,7 @@ variables { name: "realtime_priority" value: "80" }
 variables { name: "realtime_cores" value: "default" }
 variables { name: "backend_cores" value: "default" }
 # The persistent copies of the configuration, where the GUI's saves go and the robot reads its files from (seeded from
-# the files above); empty = read them in place. The robot images set it (humanoid_nmpc/humanoid_common_mpc_app/robot/
+# the files above); empty = read them in place. The robot images set it (legged_nmpc/legged_common_mpc_app/robot/
 # README.md, "The configuration store").
 variables { name: "config_store_dir" value: "" }
 # When a stored copy is replaced by the bundled file: when_bundle_changes, every_start or never.
@@ -54,7 +54,7 @@ processes {
   name: "robot"
   machine: MACHINE_ROBOT
   command: [
-    "{bin_dir}/humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_robot",
+    "{bin_dir}/legged_nmpc/legged_centroidal_mpc_app/legged_centroidal_mpc_robot",
     "--robot_name=anymal_c_wheels",
     "--task_file={task_file}",
     "--reference_file={reference_file}",

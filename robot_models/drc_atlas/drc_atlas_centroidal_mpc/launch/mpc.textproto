@@ -2,7 +2,7 @@
 # proto-message: launch_proto.LaunchFile
 #
 # The laptop side of the DRC Atlas, centroidal MPC: the MPC node, the remote-control GUI and the Rerun bridge
-# (humanoid_nmpc/docs/distributed_runtime/README.md). The robot side is robot.textproto, as a separate process on the
+# (legged_nmpc/docs/distributed_runtime/README.md). The robot side is robot.textproto, as a separate process on the
 # robot's computer or, in simulation, in the robot-sim container on this one.
 #
 #   make launch-drc-atlas-sim    # with the robot side in the robot-sim container
@@ -15,16 +15,16 @@ variables { name: "config_dir" value: "{robot_dir}/drc_atlas_centroidal_mpc/conf
 variables { name: "task_file" value: "{config_dir}/mpc/task.textproto" }
 variables { name: "reference_file" value: "{config_dir}/command/reference.textproto" }
 variables { name: "urdf_file" value: "{robot_dir}/drc_atlas_description/urdf/atlas.urdf" }
-variables { name: "gait_file" value: "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto" }
+variables { name: "gait_file" value: "legged_nmpc/legged_common_mpc/config/command/gait.textproto" }
 # The bus's network file: the shipped one is every node on this machine (config/ipc/network.textproto).
 variables { name: "network_file" value: "config/ipc/network.textproto" }
-# The Rerun bridge's sink, by name (humanoid_nmpc/humanoid_rerun_viewer/README.md): spawn, connect, serve_web, save;
+# The Rerun bridge's sink, by name (legged_nmpc/legged_rerun_viewer/README.md): spawn, connect, serve_web, save;
 # save writes the recording to rrd_path.
 variables { name: "rerun_sink" value: "serve_web" }
 variables { name: "rrd_path" value: "" }
-variables { name: "plot_config" value: "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto" }
+variables { name: "plot_config" value: "legged_nmpc/legged_rerun_viewer/config/plot_config.textproto" }
 # Whether the GUI publishes the walking command: publish, or off to leave it to a teleoperation publisher
-# (humanoid_nmpc/remote_control/README.md).
+# (legged_nmpc/remote_control/README.md).
 variables { name: "gui_walking_commands" value: "publish" }
 
 # The processes: their binaries are those the Makefile's launch target of this file builds first.
@@ -33,7 +33,7 @@ processes {
   name: "mpc"
   machine: MACHINE_LAPTOP
   command: [
-    "{bin_dir}/humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_node",
+    "{bin_dir}/legged_nmpc/legged_centroidal_mpc_app/legged_centroidal_mpc_node",
     "--robot_name=drc_atlas",
     "--task_file={task_file}",
     "--reference_file={reference_file}",
@@ -48,7 +48,7 @@ processes {
   name: "gui"
   machine: MACHINE_LAPTOP
   command: [
-    "{bin_dir}/humanoid_nmpc/remote_control/base_velocity_controller_gui",
+    "{bin_dir}/legged_nmpc/remote_control/base_velocity_controller_gui",
     "--task_file={task_file}",
     "--reference_file={reference_file}",
     "--urdf_file={urdf_file}",
@@ -62,7 +62,7 @@ processes {
   name: "rerun"
   machine: MACHINE_LAPTOP
   command: [
-    "{bin_dir}/humanoid_nmpc/humanoid_rerun_viewer/humanoid_rerun_viewer",
+    "{bin_dir}/legged_nmpc/legged_rerun_viewer/legged_rerun_viewer",
     "--urdf={urdf_file}",
     "--network_config={network_file}",
     "--rerun_sink={rerun_sink}",

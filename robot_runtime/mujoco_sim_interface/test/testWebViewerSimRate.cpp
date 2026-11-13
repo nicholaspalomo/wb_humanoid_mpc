@@ -282,7 +282,7 @@ TEST(WebViewerSimRate, TheWebViewerOnThePhysicsCoreDoesNotDelayThePhysics) {
                         allowed[allowed.size() - 1]}});
 }
 // clang-format off
-// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ThreadAffinity.h:viewer_cores, //robot_runtime/mujoco_sim_interface/BUILD.bazel:sim_rate_targets)
+// LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/ThreadAffinity.h:viewer_cores, //robot_runtime/mujoco_sim_interface/BUILD.bazel:sim_rate_targets)
 // clang-format on
 
 }  // namespace

@@ -226,7 +226,7 @@ class GeneralIncludeStyleTest(unittest.TestCase):
             len(self.findings('#include "VisualizationTestRobot.h"\n')), 1
         )
         self.assertEqual(
-            self.findings('#include "humanoid_common_mpc/common/Types.h"\n'), []
+            self.findings('#include "legged_common_mpc/common/Types.h"\n'), []
         )
 
     def test_flat_third_party_headers_need_no_directory(self):

@@ -9,6 +9,32 @@ load("@rules_python//python:pip.bzl", "compile_pip_requirements")
 # ----------------------------------------------------------------------------------------------------------------------
 # Shared infrastructure
 # ----------------------------------------------------------------------------------------------------------------------
+# The repository paths the checks scope by (repo_layout.py); test_repo_layout checks that they exist.
+py_library(
+    name = "repo_layout",
+    srcs = ["repo_layout.py"],
+)
+
+# Every path the checks scope by, CI's target patterns and the clang-tidy header filter name what exists. It reads the
+# modules of this package from the checkout, which MODULE.bazel's runfiles link leads to.
+py_test(
+    name = "test_repo_layout",
+    size = "small",
+    srcs = ["test_repo_layout.py"],
+    # LINT.IfChange(repo_layout_data)
+    data = [
+        "//:.github/workflows/build_test.yml",
+        "//:.github/workflows/robot_arm64.yml",
+        "//:MODULE.bazel",
+        "//tools/clang_tidy:clang_tidy.bzl",
+    ],
+    # LINT.ThenChange(//tools/hooks/test_repo_layout.py:repo_layout_data)
+    deps = [
+        ":check_test_support",
+        ":repo_layout",
+    ],
+)
+
 py_library(
     name = "lint_files",
     srcs = ["lint_files.py"],
@@ -20,6 +46,7 @@ py_library(
         "//tools/ide:__pkg__",
         "//tools/nproto/test:__pkg__",
     ],
+    deps = [":repo_layout"],
 )
 
 py_library(
@@ -361,6 +388,7 @@ py_library(
         ":cpp_source",
         ":lint_files",
         ":nolint",
+        ":repo_layout",
     ],
 )
 
@@ -374,7 +402,7 @@ py_test(
     ],
 )
 
-# The base orientation's checks (AGENTS.md, humanoid_nmpc/docs/quaternion_base_orientation/README.md): the Euler root
+# The base orientation's checks (AGENTS.md, legged_nmpc/docs/quaternion_base_orientation/README.md): the Euler root
 # joint, the Euler API outside its boundary, linear interpolation of states and four-scalar quaternion construction.
 py_library(
     name = "spherical_zyx",
@@ -383,6 +411,7 @@ py_library(
         ":check_types",
         ":cpp_source",
         ":lint_files",
+        ":repo_layout",
     ],
 )
 
@@ -396,7 +425,7 @@ py_test(
     ],
 )
 
-# Frame-dependent quantities are named by their frames (humanoid_nmpc/docs/frame_naming/README.md).
+# Frame-dependent quantities are named by their frames (legged_nmpc/docs/frame_naming/README.md).
 py_library(
     name = "frame_naming",
     srcs = ["frame_naming.py"],
@@ -404,6 +433,7 @@ py_library(
         ":check_types",
         ":cpp_source",
         ":lint_files",
+        ":repo_layout",
     ],
 )
 
@@ -411,7 +441,7 @@ py_test(
     name = "test_frame_naming",
     size = "small",
     srcs = ["test_frame_naming.py"],
-    data = ["//humanoid_nmpc/docs/frame_naming:README.md"],
+    data = ["//legged_nmpc/docs/frame_naming:README.md"],
     deps = [
         ":check_test_support",
         ":frame_naming",
@@ -426,6 +456,7 @@ py_library(
         ":check_types",
         ":cpp_source",
         ":lint_files",
+        ":repo_layout",
     ],
 )
 
@@ -447,6 +478,7 @@ py_library(
         ":cpp_source",
         ":euler_boundary",
         ":lint_files",
+        ":repo_layout",
     ],
 )
 
@@ -467,6 +499,7 @@ py_library(
         ":check_types",
         ":cpp_source",
         ":lint_files",
+        ":repo_layout",
     ],
 )
 
@@ -486,7 +519,7 @@ py_library(
     srcs = ["pointer_nullability.py"],
     # Generators are held to the rules through their output: the test of the aCOM weight header exporter runs this check
     # over what it generates (the nproto generator's test runs the whole registry, :checks).
-    visibility = ["//humanoid_learning/acom/tests:__pkg__"],
+    visibility = ["//legged_learning/acom/tests:__pkg__"],
     deps = [
         ":check_types",
         ":cpp_source",
@@ -621,6 +654,7 @@ py_library(
         ":check_types",
         ":cpp_source",
         ":lint_files",
+        ":repo_layout",
     ],
 )
 

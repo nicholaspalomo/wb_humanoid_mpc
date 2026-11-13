@@ -7,7 +7,7 @@ loop by hand.
 
 | Command | What it does |
 |---|---|
-| `make lint-tidy [PKG=//humanoid_nmpc/...]` | Lints with the checks of `//:.clang-tidy`, runs the self-test, prints the findings and fails on any. CI's build job runs it after the tests. |
+| `make lint-tidy [PKG=//legged_nmpc/...]` | Lints with the checks of `//:.clang-tidy`, runs the self-test, prints the findings and fails on any. CI's build job runs it after the tests. |
 | `make lint-tidy-fix CHECKS='<glob>' [PKG=...] [PATHS=...]` | Applies the fix-its of the matching checks and clang-formats the edited files. Build afterwards. |
 
 `.clang-tidy` is the only configuration, and every check in it is enforced: there is no list of checks still being
@@ -15,8 +15,8 @@ adopted and no baseline of findings (`tools/hooks/test_lint_enforcement.py`). To
 keep its build event file and ask the collector for counts, or for the findings of some directories only:
 
 ```bash
-make lint-tidy PKG=//humanoid_nmpc/humanoid_wb_mpc/... CLANG_TIDY_BEP=.bazel/wb_mpc_tidy.json
-python3 -m tools.clang_tidy.clang_tidy_report .bazel/wb_mpc_tidy.json --summary --paths humanoid_nmpc/humanoid_wb_mpc
+make lint-tidy PKG=//legged_nmpc/legged_wb_mpc/... CLANG_TIDY_BEP=.bazel/wb_mpc_tidy.json
+python3 -m tools.clang_tidy.clang_tidy_report .bazel/wb_mpc_tidy.json --summary --paths legged_nmpc/legged_wb_mpc
 ```
 
 clang-tidy 21 comes from apt.llvm.org (`docker/install_llvm_tools.sh tidy`); the dev image and CI's build job install it

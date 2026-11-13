@@ -1,0 +1,254 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include "legged_common_mpc/config/reference/ReferenceFromConfig.h"
+
+#include <cmath>
+#include <cstddef>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "Eigen/Core"
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
+#include "ocs2_core/Types.h"
+
+#include "legged_common_mpc/common/StatusMacros.h"
+#include "legged_common_mpc/config/ConfigValueChecks.h"
+#include "legged_common_mpc/config/reference/ReferenceSettings.h"
+#include "legged_common_mpc/reference_manager/BreakFrequencyAlphaFilter.h"
+#include "legged_mpc_config/joint_value.nproto.h"
+#include "legged_mpc_config/reference_file.nproto.h"
+
+namespace ocs2::legged {
+namespace {
+
+/** The range a number of the reference file must lie in (each refuses NaN and
+ * infinities). */
+enum class Range {
+  // > 0: a speed a distance or an angle is divided by, a command limit the
+  // teleoperation normalizes by, a height.
+  kPositive,
+  // >= 0: a bound of a symmetric clamp (std::clamp(x, -bound, bound) is
+  // undefined for a negative one).
+  kNonNegative,
+  // Any finite number: an acceleration limit, whose ramp is off at 0 or below.
+  kFinite,
+};
+
+/** `value` of the reference file's `field`; InvalidArgument naming the field
+ * unless it lies in `range`. */
+absl::StatusOr<scalar_t> inRange(absl::string_view field,
+                                 double value,
+                                 Range range) {
+  switch (range) {
+    case Range::kPositive:
+      RETURN_IF_ERROR(requirePositive(field, value));
+      return value;
+    case Range::kNonNegative:
+      RETURN_IF_ERROR(requireNonNegative(field, value));
+      return value;
+    case Range::kFinite:
+      RETURN_IF_ERROR(requireFinite(field, value));
+      return value;
+  }
+  return absl::InternalError(absl::StrCat(field, ": no such range"));
+}
+
+/** The value of the reference file's `field`, which the MPC requires;
+ * InvalidArgument naming it when it is absent. */
+absl::StatusOr<scalar_t> required(absl::string_view field,
+                                  std::optional<double> value,
+                                  Range range) {
+  if (!value.has_value()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat(field, " is absent; the reference file must give it"));
+  }
+  return inRange(field, *value, range);
+}
+
+// What the reloaders of a reference file apply (hotReferenceFileFields()).
+// LINT.IfChange(hot_reference_file_fields)
+constexpr absl::string_view kHotReferenceFileFields[] = {
+    "ref_speed_base_rt_world",
+    "ref_rate_yaw_base_rt_world",
+    "cmd_max_linvel_base_rt_world_ewrt_heading_x",
+    "cmd_max_linvel_base_rt_world_ewrt_heading_y",
+    "cmd_max_err_pos_base_rt_surface_ewrt_world_z",
+    "cmd_max_angvel_base_rt_world_ewrt_world_z",
+    "cmd_max_linacc_base_rt_world_ewrt_heading_xy",
+    "cmd_max_angacc_base_rt_world_ewrt_world_z",
+    "velocity_command_filter_break_frequency",
+    "nom_pos_base_rt_surface_ewrt_world_z",
+};
+// clang-format off
+// LINT.ThenChange(//legged_nmpc/legged_common_mpc/src/command/TargetTrajectoriesCalculatorBase.cpp:apply_command_limits, //legged_nmpc/legged_common_mpc/src/reference_manager/ProceduralMpcMotionManager.cpp:apply_command_limits, //legged_nmpc/legged_mpc_config/reference_file.proto)
+// clang-format on
+
+}  // namespace
+
+absl::Span<const absl::string_view> hotReferenceFileFields() {
+  return absl::MakeConstSpan(kHotReferenceFileFields);
+}
+
+absl::StatusOr<ReferenceSettings> referenceSettingsFromConfig(
+    const mpc_config::ReferenceFile& file) {
+  ReferenceSettings settings;
+  ASSIGN_OR_RETURN(settings.refSpeedBaseRtWorld,
+                   required("ref_speed_base_rt_world",
+                            file.ref_speed_base_rt_world, Range::kPositive));
+  ASSIGN_OR_RETURN(settings.refRateYawBaseRtWorld,
+                   required("ref_rate_yaw_base_rt_world",
+                            file.ref_rate_yaw_base_rt_world, Range::kPositive));
+  ASSIGN_OR_RETURN(settings.cmdMaxLinvelBaseRtWorldEwrtHeadingX,
+                   required("cmd_max_linvel_base_rt_world_ewrt_heading_x",
+                            file.cmd_max_linvel_base_rt_world_ewrt_heading_x,
+                            Range::kPositive));
+  ASSIGN_OR_RETURN(settings.cmdMaxLinvelBaseRtWorldEwrtHeadingY,
+                   required("cmd_max_linvel_base_rt_world_ewrt_heading_y",
+                            file.cmd_max_linvel_base_rt_world_ewrt_heading_y,
+                            Range::kPositive));
+  ASSIGN_OR_RETURN(settings.cmdMaxErrPosBaseRtSurfaceEwrtWorldZ,
+                   required("cmd_max_err_pos_base_rt_surface_ewrt_world_z",
+                            file.cmd_max_err_pos_base_rt_surface_ewrt_world_z,
+                            Range::kNonNegative));
+  ASSIGN_OR_RETURN(settings.cmdMaxAngvelBaseRtWorldEwrtWorldZ,
+                   required("cmd_max_angvel_base_rt_world_ewrt_world_z",
+                            file.cmd_max_angvel_base_rt_world_ewrt_world_z,
+                            Range::kPositive));
+  ASSIGN_OR_RETURN(settings.cmdMaxLinaccBaseRtWorldEwrtHeadingXy,
+                   inRange("cmd_max_linacc_base_rt_world_ewrt_heading_xy",
+                           file.cmd_max_linacc_base_rt_world_ewrt_heading_xy,
+                           Range::kFinite));
+  ASSIGN_OR_RETURN(
+      settings.cmdMaxAngaccBaseRtWorldEwrtWorldZ,
+      inRange("cmd_max_angacc_base_rt_world_ewrt_world_z",
+              file.cmd_max_angacc_base_rt_world_ewrt_world_z, Range::kFinite));
+  settings.velocityCommandFilterBreakFrequency =
+      file.velocity_command_filter_break_frequency;
+  if (const absl::Status valid =
+          BreakFrequencyAlphaFilter::validateBreakFrequency(
+              settings.velocityCommandFilterBreakFrequency);
+      !valid.ok()) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "velocity_command_filter_break_frequency is invalid: ", valid.message(),
+        " Give the break frequency of the command filter in Hz, or 0 to switch "
+        "it off."));
+  }
+  if (file.target_joint_state_interpolation_time_constant.has_value()) {
+    ASSIGN_OR_RETURN(
+        settings.targetJointStateInterpolationTimeConstant,
+        inRange("target_joint_state_interpolation_time_constant",
+                *file.target_joint_state_interpolation_time_constant,
+                Range::kPositive));
+  }
+  ASSIGN_OR_RETURN(
+      settings.nomPosBaseRtSurfaceEwrtWorldZ,
+      required("nom_pos_base_rt_surface_ewrt_world_z",
+               file.nom_pos_base_rt_surface_ewrt_world_z, Range::kPositive));
+  return settings;
+}
+
+absl::StatusOr<vector_t> defaultJointStateFromConfig(
+    const mpc_config::ReferenceFile& file,
+    absl::Span<const std::string> mpcJointNames,
+    absl::Span<const std::string> fixedJointNames) {
+  absl::flat_hash_map<std::string, size_t> indices;
+  for (size_t i = 0; i < mpcJointNames.size(); ++i) {
+    indices.emplace(mpcJointNames[i], i);
+  }
+  const absl::flat_hash_set<std::string> fixed(fixedJointNames.begin(),
+                                               fixedJointNames.end());
+
+  vector_t state =
+      vector_t::Zero(static_cast<Eigen::Index>(mpcJointNames.size()));
+  std::vector<bool> given(mpcJointNames.size(), false);
+  std::vector<std::string> twice;
+  std::vector<std::string> fixedNamed;
+  std::vector<std::string> unknown;
+  for (const mpc_config::JointValue& entry : file.default_joint_state) {
+    const absl::flat_hash_map<std::string, size_t>::const_iterator found =
+        indices.find(entry.joint);
+    if (found == indices.end()) {
+      (fixed.contains(entry.joint) ? fixedNamed : unknown)
+          .push_back(entry.joint);
+      continue;
+    }
+    if (given[found->second]) {
+      twice.push_back(entry.joint);
+      continue;
+    }
+    if (!std::isfinite(entry.value)) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("default_joint_state of ", entry.joint, " is ",
+                       entry.value, "; it must be a finite number"));
+    }
+    state(static_cast<Eigen::Index>(found->second)) = entry.value;
+    given[found->second] = true;
+  }
+  std::vector<std::string> missing;
+  for (size_t i = 0; i < mpcJointNames.size(); ++i) {
+    if (!given[i]) missing.push_back(mpcJointNames[i]);
+  }
+
+  std::vector<std::string> problems;
+  if (!missing.empty()) {
+    problems.push_back(
+        absl::StrCat("misses the MPC joints ", absl::StrJoin(missing, ", ")));
+  }
+  if (!twice.empty()) {
+    problems.push_back(
+        absl::StrCat("names more than once ", absl::StrJoin(twice, ", ")));
+  }
+  if (!fixedNamed.empty()) {
+    problems.push_back(absl::StrCat("names the joints ",
+                                    absl::StrJoin(fixedNamed, ", "),
+                                    ", which the task file fixes"));
+  }
+  if (!unknown.empty()) {
+    problems.push_back(absl::StrCat("names ", absl::StrJoin(unknown, ", "),
+                                    ", which the MPC model does not have"));
+  }
+  if (!problems.empty()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("default_joint_state ", absl::StrJoin(problems, "; "),
+                     ". It gives every joint of the MPC model exactly once: ",
+                     absl::StrJoin(mpcJointNames, ", "), "."));
+  }
+  return state;
+}
+
+}  // namespace ocs2::legged

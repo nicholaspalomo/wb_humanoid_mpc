@@ -38,7 +38,7 @@ namespace nproto {
  * the hash of the values that must be the same across processes and builds,
  * which absl::Hash deliberately is not - the schema fingerprints (Schema.h),
  * the fingerprints of the configuration dumps (tools/config_dump) and the
- * humanoid MPC's footprint fingerprints and basis-library keys. A hash starts
+ * legged MPC's footprint fingerprints and basis-library keys. A hash starts
  * at kFnvOffsetBasis; each octet is XORed into it, and the hash is then
  * multiplied by kFnvPrime. A 64-bit word is folded in as its kFnvWordOctets
  * octets, the least significant first, each the word shifted down and masked

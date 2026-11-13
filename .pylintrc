@@ -94,7 +94,7 @@ disable=R,
         consider-using-f-string,
         # The not-form rejects NaN: `not value >= 0.0` is True for NaN, while the suggested `value < 0.0` is False, so the
         # rewrite would let NaN through the validators (tools/ipc/ipc_tool.py, tools/launch/launch_cli.py,
-        # humanoid_rerun_viewer/model_sandbox.py).
+        # legged_rerun_viewer/model_sandbox.py).
         unnecessary-negation,
 
 # After disable=, or pylint drops it. An enable= of a message overrides its disable=, so consider-using-with and the

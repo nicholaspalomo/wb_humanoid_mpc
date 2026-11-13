@@ -10,5 +10,5 @@ The solver records what it did and lets nothing in the solve read it back: `getI
 last solve's first iteration, and `getIterationRecords()` every iteration of the last solve - the performance the line
 search started from, the full step's verdict (`StepInfo::fullStepType`, `fullStepConstraintViolation`: a refused
 `CONSTRAINT` full step was above `g_max`), the step taken and the convergence test after it. The closed-loop metrics of
-`humanoid_nmpc/humanoid_mpc_validation` sample a solve's step from them, and the equivalence suites' convergence test
+`legged_nmpc/legged_mpc_validation` sample a solve's step from them, and the equivalence suites' convergence test
 reads the iterations of a solve (`test_sqp_live_settings` holds the records to the iterations log).

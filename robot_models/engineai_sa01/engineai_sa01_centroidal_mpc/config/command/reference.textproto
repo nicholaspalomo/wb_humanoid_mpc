@@ -1,5 +1,5 @@
-# proto-file: humanoid_nmpc/humanoid_mpc_config/reference_file.proto
-# proto-message: humanoid_mpc_config.ReferenceFile
+# proto-file: legged_nmpc/legged_mpc_config/reference_file.proto
+# proto-message: legged_mpc_config.ReferenceFile
 # EngineAI SA01 command reference limits and nominal posture.
 #
 # Every length here is derived from the URDF (robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf):

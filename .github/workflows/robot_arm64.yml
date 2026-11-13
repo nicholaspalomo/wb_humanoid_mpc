@@ -127,7 +127,7 @@ jobs:
       - name: Test the Robot Side
         run: |
           bazel test --build_tests_only --test_lang_filters=cc \
-            //robot_runtime/... //humanoid_nmpc/humanoid_common_mpc_app/robot/...
+            //robot_runtime/... //legged_nmpc/legged_common_mpc_app/robot/...
 
       # As build_test.yml: also after a failed or canceled build, trimmed past 6 GB to what this build used.
       - name: Trim the Bazel Disk Cache

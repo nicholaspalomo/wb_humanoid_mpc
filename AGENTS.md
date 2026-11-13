@@ -118,9 +118,12 @@ a reason to restyle unrelated code in the same change.
   `PascalCase.h` / `PascalCase.cpp` and tests `testThing.cpp`. OCS2's lowercase type aliases (`scalar_t`, `vector_t`)
   and `SCALAR_T` template parameters stay.
 - **Header guards** are `#pragma once`, not `#define` guards.
-- **Namespaces.** First-party code lives in `ocs2::humanoid` and `robot::`, not under a project-owned top-level name.
+- **Namespaces.** First-party code lives in `ocs2::legged` and `robot::`, not under a project-owned top-level name.
   Never name a nested namespace `testing`, `std`, `absl` or `util` (ToTW #130), nor `Eigen` or `pinocchio`.
-  Implementation details may live in a nested `internal` namespace, as `nproto::internal` does.
+  Implementation details may live in a nested `internal` namespace, as `nproto::internal` does. Packages, proto
+  packages and macros say `legged`, not `humanoid`, unless the code is about a humanoid robot; the repository, the Bazel
+  module `wb_humanoid_mpc` and the deploy names `wb-humanoid-robot` keep their names, since existing setups and
+  deployed machines use them.
 - **Exceptions.** First-party code does not throw; it returns `absl::Status` / `absl::StatusOr`. Two boundaries keep
   exceptions, each with a `NOLINT(exceptions): <reason>`: an override of an OCS2 virtual function that has no status
   channel may throw, and a call into a library that throws (Pinocchio, OCS2's solvers) is wrapped in
@@ -130,9 +133,9 @@ a reason to restyle unrelated code in the same change.
 - **OCS2 class hierarchies** keep their protected data members, `std::shared_ptr` parameters and owning
   `T* absl_nonnull clone() const` returns, because the OCS2 base classes define them. New class hierarchies have private
   data and hand over ownership with `std::unique_ptr`.
-- **Status macros.** `RETURN_IF_ERROR` and `ASSIGN_OR_RETURN` (`humanoid_common_mpc/common/StatusMacros.h`) keep the
+- **Status macros.** `RETURN_IF_ERROR` and `ASSIGN_OR_RETURN` (`legged_common_mpc/common/StatusMacros.h`) keep the
   names Google uses for them. Every other macro defined in a header starts with its library's prefix (`ROBOT_IPC_`,
-  `NPROTO_`, `HUMANOID_`, `WBMPC_`), and a macro defined in a `.cpp` file is `#undef`ined at the end of it.
+  `NPROTO_`, `LEGGED_`, `WBMPC_`), and a macro defined in a `.cpp` file is `#undef`ined at the end of it.
 - **Braces.** A controlled statement without braces fits on the line of its condition; the guide's two-line braceless
   form is not used, and `if ... else` always has braces.
 - **Includes.** Only C and C++ standard library headers and POSIX/Linux system headers use angle brackets. Everything
@@ -186,12 +189,12 @@ Enforced by:
     `absl-view-type`; tools/hooks/cpp_abseil.py lists the exemptions);
 - the GCC warnings of `bazel/copts.bzl`.
 
-Protocol Buffers and dependencies are enforced by the checks in `tools/hooks` too (humanoid_mpc_msgs/README.md):
+Protocol Buffers and dependencies are enforced by the checks in `tools/hooks` too (legged_mpc_msgs/README.md):
 <!-- LINT.IfChange(protobuf_rules) -->
 - the project is Boost-free: only the `@pinocchio` target depends on Boost (`boost`);
 - the project is YAML-free: no `#include` of a `yaml-cpp/` header and no `@yaml_cpp` label (`yaml-cpp`), and no `.yaml`
-  or `.yml` file under `robot_models/` or `humanoid_nmpc/`, whose configuration files are typed textprotos
-  (`config-yaml`, humanoid_nmpc/humanoid_mpc_config/README.md);
+  or `.yml` file under `robot_models/` or `legged_nmpc/`, whose configuration files are typed textprotos
+  (`config-yaml`, legged_nmpc/legged_mpc_config/README.md);
 - one top-level message or enum per `.proto` file, named after it, with its nproto option, and no message reserves a
   field name - `reserved "old";` or `reserved old;` - which protobuf's C++ text parser would silently skip: a retired
   field is listed in `(nproto.retired_field)` instead (`proto-file-layout`, tools/nproto/README.md);
@@ -201,22 +204,22 @@ Protocol Buffers and dependencies are enforced by the checks in `tools/hooks` to
   `# proto-message: <package>.<Message>`, and the schema exists (`textproto-header`).
 <!-- LINT.ThenChange(//tools/hooks/checks.py:registry) -->
 
-The base orientation is a unit quaternion (humanoid_nmpc/docs/quaternion_base_orientation/README.md), and the checks in
+The base orientation is a unit quaternion (legged_nmpc/docs/quaternion_base_orientation/README.md), and the checks in
 `tools/hooks` keep its Euler parameterization at the boundary of the formulation:
 <!-- LINT.IfChange(orientation_rules) -->
-- no `SphericalZYX` root joint in the C++ of `humanoid_nmpc/`, `robot_runtime/` and
+- no `SphericalZYX` root joint in the C++ of `legged_nmpc/`, `robot_runtime/` and
   `lib/ocs2/pinocchio/centroidal_model/` (`spherical-zyx`);
 - no Euler API - an identifier containing `EulerZyx`, `EulerAnglesZyx` or `ZyxEulerAngles` in any capitalization, or an
   `#include` of `RotationDerivativesTransforms.h` or `orientation/EulerBoundary.h` - in the formulation directories of
-  `humanoid_nmpc/` (`dynamics`, `cost`, `constraint`, `end_effector`, `acom`, `parameter_update`, `pinocchio_model` and
-  `contact` below `src/` and `include/<package>/`), in the formulation files (`HumanoidPreComputation`,
+  `legged_nmpc/` (`dynamics`, `cost`, `constraint`, `end_effector`, `acom`, `parameter_update`, `pinocchio_model` and
+  `contact` below `src/` and `include/<package>/`), in the formulation files (`LeggedPreComputation`,
   `WBMpcPreComputation`, `orientation/BaseOrientation` and lib/ocs2's `PinocchioEndEffectorKinematicsCppAd`), in
   `lib/ocs2/pinocchio/centroidal_model/` and in the robot-model headers, whose Euler boundary accessors carry
   `NOLINT(euler-boundary): Euler boundary accessor (design section 4.2)` (`euler-boundary`; the full list is in
   `tools/hooks/euler_boundary.py`);
-- no linear interpolation of a state trajectory under `humanoid_nmpc/` outside the robot models: no one-argument
+- no linear interpolation of a state trajectory under `legged_nmpc/` outside the robot models: no one-argument
   `getDesiredState(t)` and no `LinearInterpolation::interpolate` of anything but inputs (`state-interpolation`);
-- no quaternion built from four scalars under `humanoid_nmpc/` outside `orientation/`, since Eigen's constructor takes
+- no quaternion built from four scalars under `legged_nmpc/` outside `orientation/`, since Eigen's constructor takes
   `(w, x, y, z)` and the state stores `(x, y, z, w)` (`quaternion-scalar-constructor`).
 <!-- LINT.ThenChange(//tools/hooks/checks.py:registry) -->
 
@@ -409,7 +412,7 @@ Not applied:
   superseded by #112; the removed spellings `absl::make_unique`, `absl::Nullable<>` and `absl::optional`; #90 (retired
   flags). #117's sink-parameter advice still applies (above); only its copy-elision background is superseded.
 - Not used here: #59, #198, #229.
-- Only partly applicable: #130's "one top-level namespace per project"; the code lives in `ocs2::humanoid`.
+- Only partly applicable: #130's "one top-level namespace per project"; the code lives in `ocs2::legged`.
 
 #### Python: where this repository departs from the Google Python Style Guide
 
@@ -491,7 +494,7 @@ Agent rules:
 
 Every physical quantity that depends on frames is named by them: `rt` is "(with) respect to" and `ewrt` "expressed
 with respect to", so `pos_lfoot_rt_world_ewrt_base` is the left foot's position relative to the world, in base axes.
-humanoid_nmpc/docs/frame_naming/README.md is the convention: the grammar and its spelling per kind of identifier. A
+legged_nmpc/docs/frame_naming/README.md is the convention: the grammar and its spelling per kind of identifier. A
 new name keeps the case style of the identifier it replaces, with the same words: a camelCase C++ local, parameter,
 member or function stays camelCase (`comToBasePositionNominal` becomes `nomPosBaseRtComEwrtBase`, `getBasePosition`
 becomes `getPosBaseRtWorldEwrtWorld`, members keep the trailing `_`), a constant is `kNomPosBaseRtComEwrtBase`, and a
@@ -537,7 +540,7 @@ Enforced by the checks in `tools/hooks`:
   stages the changes of the staged files and then runs `python3 -m tools.hooks.lint_code --git-staged`. A finding left
   after that has no automatic fix and blocks the commit until it is fixed by hand. A partially staged file is never
   re-staged; when a fix or the formatter changes it, the commit stops for the user to stage the changes.
-- `make lint-tidy [PKG=//humanoid_nmpc/...]` runs clang-tidy. CI runs it after the tests.
+- `make lint-tidy [PKG=//legged_nmpc/...]` runs clang-tidy. CI runs it after the tests.
   - clang-tidy is a compiler front end. It runs only through `make lint-tidy`, a Bazel aspect inside the machine lock
     and the RAM-bounded `--jobs`.
   - The image contains a clang compiler because the clang-tidy packages depend on it. Never run `clang`, `clang++`,

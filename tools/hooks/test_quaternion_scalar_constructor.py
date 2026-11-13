@@ -33,7 +33,9 @@ from tools.hooks import check_test_support
 from tools.hooks import quaternion_scalar_constructor
 
 _NAME = quaternion_scalar_constructor.NAME
-_PATH = "humanoid_nmpc/humanoid_common_mpc_app/visualization/src/RobotStateDecoder.cpp"
+_PATH = (
+    "legged_nmpc/legged_common_mpc_app/visualization/src/RobotStateDecoder.cpp"
+)
 
 
 def _found(source: str, path: str = _PATH) -> list[tuple[int, int]]:
@@ -99,8 +101,8 @@ class QuaternionScalarConstructorTest(unittest.TestCase):
     def test_the_orientation_directory_and_other_trees_are_not_read(self):
         source = "quaternion_t a(w, x, y, z);\n"
         for path in (
-            "humanoid_nmpc/humanoid_common_mpc/src/orientation/BaseOrientation.cpp",
-            "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/orientation/EulerBoundary.h",
+            "legged_nmpc/legged_common_mpc/src/orientation/BaseOrientation.cpp",
+            "legged_nmpc/legged_common_mpc/include/legged_common_mpc/orientation/EulerBoundary.h",
             "robot_runtime/mujoco_sim_interface/src/MujocoSimInterface.cpp",
             "lib/ocs2/core/src/manifold/UnitQuaternionMath.cpp",
         ):

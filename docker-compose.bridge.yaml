@@ -33,7 +33,7 @@ services:
       # (--rerun_sink serve_web).
       - "9876:9876/tcp"
       - "9090:9090/tcp"
-      # LINT.ThenChange(//.devcontainer/devcontainer.json:rerun_ports, //.devcontainer/README.md:rerun_ports, //humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/rerun_sinks.py:sink_defaults)
+      # LINT.ThenChange(//.devcontainer/devcontainer.json:rerun_ports, //.devcontainer/README.md:rerun_ports, //legged_nmpc/legged_rerun_viewer/python/legged_rerun_viewer/rerun_sinks.py:sink_defaults)
       # LINT.IfChange(vnc_ports)
       # VNC and noVNC for the desktop on display :99 (the MuJoCo viewer and the operator GUI)
       - "5901:5901"

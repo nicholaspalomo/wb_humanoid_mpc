@@ -27,7 +27,7 @@ about the wheel center, whose lowest point stands on the ground in the default s
 ## Configuration files
 
 The hyperparameters of an MPC package are typed textprotos in its `config/`, each one message of
-`humanoid_nmpc/humanoid_mpc_config`. That package's README lists the schemas and their conventions, and its `.proto`
+`legged_nmpc/legged_mpc_config`. That package's README lists the schemas and their conventions, and its `.proto`
 files document every field, its unit and its default:
 
 | File | Message | What it sets |
@@ -37,7 +37,7 @@ files document every field, its unit and its default:
 | `config/command/reference.textproto` | `ReferenceFile` | the command limits and filter, the default base height and the default joint state |
 | `config/controller/joint_pd_gains.textproto` | `JointPdGainsFile` | the PD gains and torque limits of the robot's joint controller |
 
-The bipeds share the gait patterns, `humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto` (`GaitFile`),
+The bipeds share the gait patterns, `legged_nmpc/legged_common_mpc/config/command/gait.textproto` (`GaitFile`),
 the quadrupeds share `quadruped_gait.textproto` beside it, the wheeled bipeds use `wheeled_gait.textproto` and the
 wheeled quadrupeds `wheeled_quadruped_gait.textproto`. A robot that needs other gaits ships its own gait file in
 its package and sets the `gait_file` variable of its launch files and the validation's `RobotConfiguration::gaitFile`
@@ -49,7 +49,7 @@ path, in the `config/` layout above.
 
 ## Tuning
 
-Edit a file and save it, or move the sliders of the tuning GUI (`humanoid_nmpc/remote_control/README.md`, "Tuning the
+Edit a file and save it, or move the sliders of the tuning GUI (`legged_nmpc/remote_control/README.md`, "Tuning the
 configuration").
 
 - A file is parsed strictly: an unknown or misspelled field, a value of the wrong type or a field given
@@ -58,18 +58,18 @@ configuration").
 - Weights and states name what they weigh, never an index: `{x y z}` blocks
   (`state_weights { pos_base_rt_world_ewrt_world { x: 0 y: 0 z: 0 } }`), the base orientation as Euler angles
   (`eulerzyx_base_rt_world { yaw: 0 pitch: 0 roll: 85 }`, which one layer maps onto the MPC's unit-quaternion state:
-  humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.10), and every joint of the MPC model exactly once, in any order
+  legged_nmpc/docs/quaternion_base_orientation/README.md, section 2.10), and every joint of the MPC model exactly once, in any order
   (`joint_positions { joint: "back_bkz" value: 5 }`). A block that names a joint the model does not have, or misses
   one, is refused with the joint's name.
 - The schemas mark each field `RELOAD_HOT` or `RELOAD_START_UP`
-  (`humanoid_nmpc/humanoid_mpc_config/tuning_options.proto`). A running MPC, centroidal or whole-body, polls its task
+  (`legged_nmpc/legged_mpc_config/tuning_options.proto`). A running MPC, centroidal or whole-body, polls its task
   file, its contact planner's file and its reference file about once a second, applies the hot fields, and logs every
   changed start-up field of the task file that it reads as taking effect at its next start. The robot process reloads
   `joint_pd_gains.textproto` and the task file's `contact_estimator` and `contact_wrench_gate` while it runs, from its
   own stored copies (`tools/deploy/README.md`, "The stored configuration"): the bundled files seed them, a deploy
   that changes a file reaches them, and the GUI's **Save** writes them over the bus. In `make launch-<robot>-sim` they
   are seeded from the checkout at every start; an editor's save of a checkout file reaches the running robot process
-  at its next start, or at once with `bazel run //humanoid_nmpc/remote_control:push_robot_config -- <file>`
+  at its next start, or at once with `bazel run //legged_nmpc/remote_control:push_robot_config -- <file>`
   (`tools/deploy/README.md`, "Simulation").
 - In the GUI, the MPC Parameters, Joint PD Gains and Command Limits tabs are rendered from the schemas, so a field
   added to a schema (with its conversion in C++) appears on its tab without GUI code. A slider moved on the first two
@@ -81,5 +81,5 @@ configuration").
   sends the exact text it wrote of each file the robot reads to the robot process (`operator/config_save`), which
   checks it as it would at start-up, stores it and answers: the tab says whether the robot saved it, found it
   unchanged, refused it (and why), or did not answer
-  (`humanoid_nmpc/docs/distributed_runtime/README.md`, "Saving the configuration").
+  (`legged_nmpc/docs/distributed_runtime/README.md`, "Saving the configuration").
   **Reset All** returns to the file as loaded or last saved, and publishes it.

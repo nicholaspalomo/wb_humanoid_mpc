@@ -1,0 +1,497 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+// The LP wrapper, the convex polygon helpers, static equilibrium on stances
+// with closed-form answers (design section 9) and the contact wrench cone
+// check.
+
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <limits>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "Eigen/Geometry"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/match.h"
+#include "absl/types/span.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/Dimensions.h"
+
+#include "legged_multi_contact/contact_set/ContactSet.h"
+#include "legged_multi_contact/stability/ContactWrenchConeCheck.h"
+#include "legged_multi_contact/stability/ConvexPolygon.h"
+#include "legged_multi_contact/stability/LinearProgram.h"
+#include "legged_multi_contact/stability/Stance.h"
+#include "legged_multi_contact/stability/StaticEquilibrium.h"
+
+namespace ocs2::legged::multi_contact {
+namespace {
+
+constexpr double kFriction = 0.7;
+// The DRC Atlas's soles, 0.24 x 0.11 m, about their centers.
+constexpr double kSoleHalfLength = 0.12;
+constexpr double kSoleHalfWidth = 0.055;
+constexpr double kFootY = 0.1115;
+constexpr double kFootX = 0.04;
+
+StanceContact foot(std::string name, double y) {
+  return StanceContact{
+      .name = std::move(name),
+      .kind = ContactKind::kSurface,
+      .posPadRtWorldEwrtWorld = Eigen::Vector3d(kFootX, y, 0.0),
+      .rotmatSurfaceRtWorld = Eigen::Matrix3d::Identity(),
+      .friction = kFriction,
+      .rectangle =
+          ContactRectangle{.minPosCornersRtPadEwrtPadX = -kSoleHalfLength,
+                           .maxPosCornersRtPadEwrtPadX = kSoleHalfLength,
+                           .minPosCornersRtPadEwrtPadY = -kSoleHalfWidth,
+                           .maxPosCornersRtPadEwrtPadY = kSoleHalfWidth}};
+}
+
+/** A point contact whose cone's z axis is `normal`. */
+StanceContact point(std::string name,
+                    const Eigen::Vector3d& posPadRtWorldEwrtWorld,
+                    const Eigen::Vector3d& normal) {
+  Eigen::Matrix3d rotmatSurfaceRtWorld;
+  rotmatSurfaceRtWorld.col(2) = normal.normalized();
+  rotmatSurfaceRtWorld.col(0) = rotmatSurfaceRtWorld.col(2).unitOrthogonal();
+  rotmatSurfaceRtWorld.col(1) =
+      rotmatSurfaceRtWorld.col(2).cross(rotmatSurfaceRtWorld.col(0));
+  return StanceContact{.name = std::move(name),
+                       .kind = ContactKind::kPoint,
+                       .posPadRtWorldEwrtWorld = posPadRtWorldEwrtWorld,
+                       .rotmatSurfaceRtWorld = rotmatSurfaceRtWorld,
+                       .friction = kFriction,
+                       .rectangle = std::nullopt};
+}
+
+Stance twoFeet() {
+  return {foot("left", kFootY), foot("right", -kFootY)};
+}
+
+StaticEquilibrium equilibriumOf(const Stance& stance) {
+  absl::StatusOr<StaticEquilibrium> equilibrium =
+      StaticEquilibrium::Create(stance, StaticEquilibriumOptions());
+  EXPECT_TRUE(equilibrium.ok()) << equilibrium.status();
+  return *std::move(equilibrium);
+}
+
+std::vector<Eigen::Vector2d> polygonOf(const Stance& stance) {
+  const absl::StatusOr<std::vector<Eigen::Vector2d>> polygon =
+      equilibriumOf(stance).supportPolygon();
+  EXPECT_TRUE(polygon.ok()) << polygon.status();
+  return polygon.ok() ? *polygon : std::vector<Eigen::Vector2d>();
+}
+
+/** staticMargin() at `posComRtWorldEwrtWorldXy`, or a failed expectation and
+ * NaN for an empty polygon: bugprone-unchecked-optional-access does not see
+ * googletest's ASSERTs. */
+double marginOf(
+    absl::Span<const Eigen::Vector2d> supportPosComRtWorldEwrtWorldXySamples,
+    const Eigen::Vector2d& posComRtWorldEwrtWorldXy) {
+  const std::optional<double> margin = staticMargin(
+      supportPosComRtWorldEwrtWorldXySamples, posComRtWorldEwrtWorldXy);
+  if (!margin.has_value()) {
+    ADD_FAILURE() << "the support polygon is empty";
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  return *margin;
+}
+
+double polygonArea(absl::Span<const Eigen::Vector2d> polygon) {
+  double area = 0.0;
+  for (size_t i = 0; i < polygon.size(); ++i) {
+    const Eigen::Vector2d& a = polygon[i];
+    const Eigen::Vector2d& b = polygon[(i + 1) % polygon.size()];
+    area += 0.5 * (a.x() * b.y() - a.y() * b.x());
+  }
+  return area;
+}
+
+TEST(LinearProgramTest, SolvesASmallProgram) {
+  // min -x0 - 2 x1 s.t. x0 + x1 <= 1, x0 = 0.3, x >= 0: x = (0.3, 0.7).
+  LinearProgram program = LinearProgram::Unconstrained(2);
+  program.cost << -1.0, -2.0;
+  program.lowerBound.setZero();
+  program.equalityMatrix.resize(1, 2);
+  program.equalityMatrix << 1.0, 0.0;
+  program.equalityVector = Eigen::VectorXd::Constant(1, 0.3);
+  program.inequalityMatrix.resize(1, 2);
+  program.inequalityMatrix << 1.0, 1.0;
+  program.inequalityLower =
+      Eigen::VectorXd::Constant(1, -std::numeric_limits<double>::infinity());
+  program.inequalityUpper = Eigen::VectorXd::Ones(1);
+  const absl::StatusOr<LinearProgramSolution> solution =
+      solveLinearProgram(program);
+  ASSERT_TRUE(solution.ok()) << solution.status();
+  EXPECT_NEAR(solution->x(0), 0.3, 1.0e-7);
+  EXPECT_NEAR(solution->x(1), 0.7, 1.0e-7);
+  EXPECT_NEAR(solution->objective, -1.7, 1.0e-7);
+
+  program.lowerBound(0) = 1.0;
+  program.upperBound(0) = 0.0;
+  EXPECT_EQ(solveLinearProgram(program).status().code(),
+            absl::StatusCode::kInvalidArgument);
+}
+
+TEST(LinearProgramTest, IndependentRows) {
+  Eigen::MatrixXd matrix(4, 3);
+  matrix << 1.0, 0.0, 0.0,  //
+      2.0, 0.0, 0.0,        //
+      0.0, 1.0, 1.0,        //
+      1.0, 1.0, 1.0;
+  const Eigen::VectorXi rows =
+      independentRows(matrix, /*relativeTolerance=*/1.0e-10);
+  EXPECT_EQ(rows.size(), 2);
+}
+
+TEST(ConvexPolygonTest, HullAndSignedDistance) {
+  const std::vector<Eigen::Vector2d> points = {
+      Eigen::Vector2d(1.0, 1.0),         Eigen::Vector2d(-1.0, 1.0),
+      Eigen::Vector2d(0.0, 0.0),         Eigen::Vector2d(-1.0, -1.0),
+      Eigen::Vector2d(1.0, -1.0),        Eigen::Vector2d(1.0, 0.0),
+      Eigen::Vector2d(1.0, 1.0 + 1.0e-9)};
+  const std::vector<Eigen::Vector2d> hull =
+      convexHull(points, /*tolerance=*/1.0e-7);
+  ASSERT_EQ(hull.size(), 4u);
+  EXPECT_NEAR(polygonArea(hull), 4.0, 1.0e-12);
+  EXPECT_NEAR(signedDistanceToConvexPolygon(hull, Eigen::Vector2d(0.5, 0.0)),
+              0.5, 1.0e-12);
+  EXPECT_NEAR(signedDistanceToConvexPolygon(hull, Eigen::Vector2d(2.0, 2.0)),
+              -std::sqrt(2.0), 1.0e-12);
+  const std::vector<Eigen::Vector2d> segment =
+      convexHull({Eigen::Vector2d(0.0, 0.0), Eigen::Vector2d(1.0, 0.0),
+                  Eigen::Vector2d(2.0, 0.0)},
+                 /*tolerance=*/1.0e-7);
+  ASSERT_EQ(segment.size(), 2u);
+  EXPECT_NEAR(signedDistanceToConvexPolygon(segment, Eigen::Vector2d(1.0, 0.5)),
+              -0.5, 1.0e-12);
+}
+
+TEST(StaticEquilibriumTest, TwoFlatFeetGiveTheHullOfTheSoles) {
+  const std::vector<Eigen::Vector2d> polygon = polygonOf(twoFeet());
+  ASSERT_GE(polygon.size(), 4u);
+  // The convex hull of the two soles: a rectangle, exactly (on flat ground the
+  // cones' linearization does not matter).
+  const double xMin = kFootX - kSoleHalfLength;
+  const double xMax = kFootX + kSoleHalfLength;
+  const double yMax = kFootY + kSoleHalfWidth;
+  const std::vector<Eigen::Vector2d> hull = {
+      Eigen::Vector2d(xMin, -yMax), Eigen::Vector2d(xMax, -yMax),
+      Eigen::Vector2d(xMax, yMax), Eigen::Vector2d(xMin, yMax)};
+  for (const Eigen::Vector2d& vertex : polygon) {
+    EXPECT_NEAR(signedDistanceToConvexPolygon(hull, vertex), 0.0, 1.0e-6)
+        << vertex.transpose();
+  }
+  EXPECT_NEAR(polygonArea(polygon), polygonArea(hull), 1.0e-6);
+  const std::optional<double> margin =
+      staticMargin(polygon, Eigen::Vector2d(kFootX, 0.0));
+  // An if, not ASSERT_TRUE, here and below: bugprone-unchecked-optional-access
+  // sees a check only through an if.
+  if (!margin.has_value()) {
+    FAIL() << "margin has no value";
+  }
+  EXPECT_NEAR(*margin, kSoleHalfLength, 1.0e-6);
+  // The feasibility LP agrees.
+  const StaticEquilibrium equilibrium = equilibriumOf(twoFeet());
+  EXPECT_LT(*equilibrium.equilibriumResidual(Eigen::Vector2d(kFootX, 0.1)),
+            1.0e-6);
+  EXPECT_GT(*equilibrium.equilibriumResidual(Eigen::Vector2d(xMax + 0.02, 0.0)),
+            1.0e-3);
+}
+
+TEST(StaticEquilibriumTest, MarginSignFlipsAtTheBoundary) {
+  const std::vector<Eigen::Vector2d> polygon = polygonOf(twoFeet());
+  const double toe = kFootX + kSoleHalfLength;
+  EXPECT_NEAR(marginOf(polygon, Eigen::Vector2d(toe - 0.005, 0.0)), 0.005,
+              1.0e-6);
+  EXPECT_NEAR(marginOf(polygon, Eigen::Vector2d(toe, 0.0)), 0.0, 1.0e-6);
+  EXPECT_NEAR(marginOf(polygon, Eigen::Vector2d(toe + 0.005, 0.0)), -0.005,
+              1.0e-6);
+  const StaticEquilibrium equilibrium = equilibriumOf(twoFeet());
+  EXPECT_LT(*equilibrium.equilibriumResidual(Eigen::Vector2d(toe - 0.005, 0.0)),
+            1.0e-6);
+  EXPECT_GT(*equilibrium.equilibriumResidual(Eigen::Vector2d(toe + 0.005, 0.0)),
+            1.0e-4);
+}
+
+TEST(StaticEquilibriumTest, AHandOnAWallWidensTheRegionTowardTheWall) {
+  const std::vector<Eigen::Vector2d> feetOnly = polygonOf(twoFeet());
+  Stance withHand = twoFeet();
+  // A wall in front at x = 0.5, its normal toward the robot, the hand at 1.2 m.
+  withHand.push_back(
+      point("hand", Eigen::Vector3d(0.5, 0.0, 1.2), -Eigen::Vector3d::UnitX()));
+  const std::vector<Eigen::Vector2d> widened = polygonOf(withHand);
+  ASSERT_GE(widened.size(), 3u);
+  double feetMaxX = -1.0;
+  double feetMinX = 1.0;
+  for (const Eigen::Vector2d& vertex : feetOnly) {
+    feetMaxX = std::max(feetMaxX, vertex.x());
+    feetMinX = std::min(feetMinX, vertex.x());
+  }
+  double widenedMaxX = -1.0;
+  double widenedMinX = 1.0;
+  for (const Eigen::Vector2d& vertex : widened) {
+    widenedMaxX = std::max(widenedMaxX, vertex.x());
+    widenedMinX = std::min(widenedMinX, vertex.x());
+  }
+  // Forward, toward the wall, and not backward: pushing on the wall can only
+  // move the weight forward.
+  EXPECT_GT(widenedMaxX, feetMaxX + 0.05);
+  EXPECT_NEAR(widenedMinX, feetMinX, 1.0e-6);
+  // A CoM past the toes is in equilibrium with the hand, not without it.
+  const Eigen::Vector2d leaning(feetMaxX + 0.04, 0.0);
+  EXPECT_LT(marginOf(feetOnly, leaning), 0.0);
+  EXPECT_GT(marginOf(widened, leaning), 0.0);
+  EXPECT_LT(*equilibriumOf(withHand).equilibriumResidual(leaning), 1.0e-6);
+}
+
+TEST(StaticEquilibriumTest, OnePointHoldsOnlyTheCenterOfMassAboveIt) {
+  for (const Eigen::Vector3d& normal :
+       {Eigen::Vector3d(Eigen::Vector3d::UnitZ()),
+        Eigen::Vector3d(std::sin(0.35), 0.0, std::cos(0.35))}) {
+    const Eigen::Vector3d posPadRtWorldEwrtWorld(0.3, -0.2, 0.5);
+    const Stance stance = {point("knee", posPadRtWorldEwrtWorld, normal)};
+    const StaticEquilibrium equilibrium = equilibriumOf(stance);
+    const Eigen::Vector2d above = posPadRtWorldEwrtWorld.head<2>();
+    EXPECT_LT(*equilibrium.equilibriumResidual(above), 1.0e-6);
+    EXPECT_GT(*equilibrium.equilibriumResidual(
+                  Eigen::Vector2d(above + Eigen::Vector2d(0.01, 0.0))),
+              1.0e-4);
+    EXPECT_GT(*equilibrium.equilibriumResidual(
+                  Eigen::Vector2d(above + Eigen::Vector2d(0.0, -0.01))),
+              1.0e-4);
+    const std::vector<Eigen::Vector2d> polygon = polygonOf(stance);
+    ASSERT_FALSE(polygon.empty());
+    for (const Eigen::Vector2d& vertex : polygon) {
+      EXPECT_LT((vertex - above).norm(), 1.0e-5);
+    }
+    EXPECT_LE(marginOf(polygon, above), 1.0e-5);
+    EXPECT_NEAR(marginOf(polygon, Eigen::Vector2d(above.x() + 0.01, above.y())),
+                -0.01, 1.0e-5);
+  }
+}
+
+TEST(StaticEquilibriumTest, TheRefinedPolygonKeepsACornerBetweenTwoDirections) {
+  // The roll of the get-up from the back: two points along the edge of the
+  // torso box, a little off the world's x axis, and a sole far ahead. The
+  // corner at the inner point lies between two of the sixteen margin
+  // directions, so the sampled hull cuts it off; the refined one keeps it.
+  constexpr double kYaw = 0.01;
+  const Eigen::Vector3d edgeDirEwrtWorld(std::cos(kYaw), std::sin(kYaw), 0.0);
+  const Eigen::Vector3d outerPosPadRtWorldEwrtWorld(-0.78, -0.22, 0.0);
+  const Eigen::Vector3d innerPosPadRtWorldEwrtWorld =
+      outerPosPadRtWorldEwrtWorld + 0.54 * edgeDirEwrtWorld;
+  StanceContact sole = foot("foot", kFootY);
+  sole.posPadRtWorldEwrtWorld = Eigen::Vector3d(0.573, 0.111, 0.0);
+  const Stance stance = {
+      point("outer", outerPosPadRtWorldEwrtWorld, Eigen::Vector3d::UnitZ()),
+      point("inner", innerPosPadRtWorldEwrtWorld, Eigen::Vector3d::UnitZ()),
+      sole};
+  const std::vector<Eigen::Vector2d> sampled = polygonOf(stance);
+  StaticEquilibriumOptions options;
+  options.supportPolygon = SupportPolygon::kRefined;
+  const absl::StatusOr<StaticEquilibrium> equilibrium =
+      StaticEquilibrium::Create(stance, options);
+  ASSERT_TRUE(equilibrium.ok()) << equilibrium.status();
+  const absl::StatusOr<std::vector<Eigen::Vector2d>> refined =
+      equilibrium->supportPolygon();
+  ASSERT_TRUE(refined.ok()) << refined.status();
+  const Eigen::Vector2d posCornerRtWorldEwrtWorldXy =
+      innerPosPadRtWorldEwrtWorld.head<2>();
+  EXPECT_LT(marginOf(sampled, posCornerRtWorldEwrtWorldXy), -0.01);
+  EXPECT_GT(marginOf(*refined, posCornerRtWorldEwrtWorldXy),
+            -kRefinementTolerance);
+  EXPECT_GT(polygonArea(*refined), polygonArea(sampled));
+  // Every refined vertex is in equilibrium: the hull is still inside.
+  for (const Eigen::Vector2d& vertex : *refined) {
+    EXPECT_LT(*equilibrium->equilibriumResidual(vertex), 1.0e-6);
+  }
+}
+
+TEST(StaticEquilibriumTest, TheSupportPolygonIsSelectedByName) {
+  EXPECT_EQ(*supportPolygonOf("sampled"), SupportPolygon::kSampled);
+  EXPECT_EQ(*supportPolygonOf("refined"), SupportPolygon::kRefined);
+  const absl::StatusOr<SupportPolygon> unknown = supportPolygonOf("exact");
+  EXPECT_EQ(unknown.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(unknown.status().message(), "sampled, refined"))
+      << unknown.status();
+}
+
+TEST(StaticEquilibriumTest, AWallAloneHoldsNothing) {
+  const Stance stance = {
+      point("hand", Eigen::Vector3d(0.5, 0.0, 1.2), -Eigen::Vector3d::UnitX())};
+  EXPECT_TRUE(polygonOf(stance).empty());
+  EXPECT_FALSE(staticMargin(/*supportPosComRtWorldEwrtWorldXySamples=*/{},
+                            Eigen::Vector2d::Zero())
+                   .has_value());
+}
+
+TEST(StaticEquilibriumTest, RefusesInvalidStances) {
+  EXPECT_FALSE(
+      StaticEquilibrium::Create(Stance(), StaticEquilibriumOptions()).ok());
+  StanceContact frictionless = foot("left", /*y=*/0.0);
+  frictionless.friction = 0.0;
+  EXPECT_FALSE(
+      StaticEquilibrium::Create({frictionless}, StaticEquilibriumOptions())
+          .ok());
+  StanceContact noRectangle = foot("left", /*y=*/0.0);
+  noRectangle.rectangle.reset();
+  EXPECT_FALSE(
+      StaticEquilibrium::Create({noRectangle}, StaticEquilibriumOptions())
+          .ok());
+  StaticEquilibriumOptions twoEdges;
+  twoEdges.frictionConeEdges = 2;
+  EXPECT_FALSE(StaticEquilibrium::Create(twoFeet(), twoEdges).ok());
+}
+
+/** Whether the stance can accelerate a CoM of `mass` at
+ * `posComRtWorldEwrtWorld` by `linaccComRtWorldEwrtWorld` without turning it.
+ */
+bool coneHolds(const StaticEquilibrium& equilibrium,
+               double mass,
+               const Eigen::Vector3d& posComRtWorldEwrtWorld,
+               const Eigen::Vector3d& linaccComRtWorldEwrtWorld) {
+  const absl::StatusOr<ContactWrenchConeResult> result = checkContactWrenchCone(
+      equilibrium, mass, posComRtWorldEwrtWorld,
+      CentroidalMomentumRate{.linear = mass * linaccComRtWorldEwrtWorld,
+                             .angular = Eigen::Vector3d::Zero()});
+  EXPECT_TRUE(result.ok()) << result.status();
+  return result.ok() && result->feasible;
+}
+
+/** A contact of a stance HPIPM stalled on, its numbers as printed with 17
+ * digits: `rotmatSurfaceRtWorld` column-major. */
+StanceContact contactOf(std::string name,
+                        ContactKind kind,
+                        const Eigen::Vector3d& posPadRtWorldEwrtWorld,
+                        absl::Span<const double> rotmatSurfaceRtWorld) {
+  StanceContact contact{
+      .name = std::move(name),
+      .kind = kind,
+      .posPadRtWorldEwrtWorld = posPadRtWorldEwrtWorld,
+      .rotmatSurfaceRtWorld =
+          Eigen::Map<const Eigen::Matrix3d>(rotmatSurfaceRtWorld.data()),
+      .friction = 0.80000000000000004};
+  if (kind == ContactKind::kSurface) {
+    contact.rectangle =
+        ContactRectangle{.minPosCornersRtPadEwrtPadX = -kSoleHalfLength,
+                         .maxPosCornersRtPadEwrtPadX = kSoleHalfLength,
+                         .minPosCornersRtPadEwrtPadY = -kSoleHalfWidth,
+                         .maxPosCornersRtPadEwrtPadY = kSoleHalfWidth};
+  }
+  return contact;
+}
+
+TEST(StaticEquilibriumTest, AnLpHpipmStallsOnIsSolvedWithBoundedScalings) {
+  // Atlas on the box with both feet and the left hand, between two knots of a
+  // box_climb plan: HPIPM runs out of iterations on the L1 residual of the
+  // static wrench, whose optimal set the internal forces between the contacts
+  // leave unbounded.
+  const Stance stance = {
+      contactOf("foot_l_contact", ContactKind::kSurface,
+                Eigen::Vector3d(0.59996856838535328, 0.15001729080766199,
+                                0.59992317586488852),
+                {0.89298812528693605, -0.45008022406735848, 0,
+                 0.45008022406735848, 0.89298812528693605, -0, 0, 0, 1}),
+      contactOf("foot_r_contact", ContactKind::kSurface,
+                Eigen::Vector3d(0.65002010944985522, -0.14994606512730235,
+                                0.59987936446924206),
+                {0.98018106911343661, 0.19810368939431802, 0,
+                 -0.19810368939431802, 0.98018106911343661, 0, 0, 0, 1}),
+      contactOf("hand_l_contact", ContactKind::kPoint,
+                Eigen::Vector3d(0.84984881475237917, 0.2499602823575684,
+                                0.59980264626403712),
+                {-0.99849818425927506, -0.054784815696785602, 0,
+                 0.054784815696785602, -0.99849818425927506, 0, 0, 0, 1})};
+  Wrench wnormWrenchStanceEwrtWorld;
+  wnormWrenchStanceEwrtWorld << 0, 0, 1, 0.056193997562106593,
+      -0.081064886834193994, 0;
+  const StaticEquilibrium equilibrium = equilibriumOf(stance);
+  // The residual's LP as it is: HPIPM stalls.
+  const int generators = equilibrium.generators().size();
+  LinearProgram program =
+      LinearProgram::Unconstrained(generators + kWrenchDim + kWrenchDim);
+  program.cost.tail(kWrenchDim + kWrenchDim).setOnes();
+  program.lowerBound.setZero();
+  program.equalityMatrix.resize(kWrenchDim, program.cost.size());
+  program.equalityMatrix << equilibrium.generators().generatorWrenches,
+      Eigen::MatrixXd::Identity(kWrenchDim, kWrenchDim),
+      -Eigen::MatrixXd::Identity(kWrenchDim, kWrenchDim);
+  program.equalityVector = wnormWrenchStanceEwrtWorld;
+  EXPECT_FALSE(solveLinearProgram(program).ok());
+  // The residual retries with the scalings bounded, and finds the CoM, 5 cm
+  // inside the support polygon, in equilibrium.
+  const absl::StatusOr<double> residual =
+      equilibrium.computeResidualWnormWrenchStanceEwrtWorld(
+          wnormWrenchStanceEwrtWorld);
+  ASSERT_TRUE(residual.ok()) << residual.status();
+  EXPECT_LE(*residual, StaticEquilibriumOptions().feasibilityTolerance);
+}
+
+TEST(ContactWrenchConeTest, AFastAccelerationFailsAndASlowOnePasses) {
+  constexpr double kMass = 100.0;
+  const Eigen::Vector3d posComRtWorldEwrtWorld(kFootX, 0.0, 0.9);
+  const StaticEquilibrium equilibrium = equilibriumOf(twoFeet());
+  EXPECT_TRUE(coneHolds(equilibrium, kMass, posComRtWorldEwrtWorld,
+                        Eigen::Vector3d::Zero()));
+  // 8 m/s^2 forward needs the center of pressure 0.9 * 8 / 9.81 = 0.73 m ahead
+  // of the CoM; 0.5 m/s^2 only 0.046 m, within the 0.12 m of the soles.
+  EXPECT_FALSE(coneHolds(equilibrium, kMass, posComRtWorldEwrtWorld,
+                         Eigen::Vector3d(8.0, 0.0, 0.0)));
+  EXPECT_TRUE(coneHolds(equilibrium, kMass, posComRtWorldEwrtWorld,
+                        Eigen::Vector3d(0.5, 0.0, 0.0)));
+  // Falling faster than gravity needs the ground to pull.
+  EXPECT_FALSE(coneHolds(equilibrium, kMass, posComRtWorldEwrtWorld,
+                         Eigen::Vector3d(0.0, 0.0, -12.0)));
+  // A spin about z within the torsional friction of the soles passes, a
+  // violent one fails.
+  const absl::StatusOr<ContactWrenchConeResult> spin = checkContactWrenchCone(
+      equilibrium, kMass, posComRtWorldEwrtWorld,
+      CentroidalMomentumRate{.linear = Eigen::Vector3d::Zero(),
+                             .angular = Eigen::Vector3d(0.0, 0.0, 2000.0)});
+  ASSERT_TRUE(spin.ok());
+  EXPECT_FALSE(spin->feasible);
+  // With no rate, the required wrench is the static one.
+  EXPECT_LT((computeRequiredWnormWrenchStanceEwrtWorld(
+                 kMass, posComRtWorldEwrtWorld, CentroidalMomentumRate(),
+                 equilibrium.generators().posStanceRtWorldEwrtWorld) -
+             equilibrium.computeStaticWnormWrenchStanceEwrtWorld(
+                 posComRtWorldEwrtWorld.head<2>()))
+                .norm(),
+            1.0e-12);
+}
+
+}  // namespace
+}  // namespace ocs2::legged::multi_contact

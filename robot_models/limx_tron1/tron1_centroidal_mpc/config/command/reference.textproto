@@ -1,5 +1,5 @@
-# proto-file: humanoid_nmpc/humanoid_mpc_config/reference_file.proto
-# proto-message: humanoid_mpc_config.ReferenceFile
+# proto-file: legged_nmpc/legged_mpc_config/reference_file.proto
+# proto-message: legged_mpc_config.ReferenceFile
 ref_speed_base_rt_world: 0.5
 ref_rate_yaw_base_rt_world: 0.5
 
@@ -25,7 +25,7 @@ nom_pos_base_rt_surface_ewrt_world_z: 0.7485
 # The default posture: hip abduction 0, hip flexion +0.35 / -0.35 rad and knee flexion +0.8 / -0.8 rad on the left and
 # right legs, whose joint axes are mirrored, so the two sides have opposite signs. The center of mass is then 0.6 mm
 # ahead of the wheel centers and 0.446 m above the ground. The wheel angles are 0: a wheel's position has no reference
-# and no weight (humanoid_nmpc/docs/rolling_contact/README.md, section 7).
+# and no weight (legged_nmpc/docs/rolling_contact/README.md, section 7).
 default_joint_state { joint: "abad_L_Joint" value: 0.0 }
 default_joint_state { joint: "hip_L_Joint" value: 0.35 }
 default_joint_state { joint: "knee_L_Joint" value: 0.8 }

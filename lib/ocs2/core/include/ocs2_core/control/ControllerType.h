@@ -39,8 +39,8 @@ namespace ocs2 {
  */
 // LINT.IfChange(controller_types)
 enum class ControllerType { UNKNOWN, FEEDFORWARD, LINEAR, MANIFOLD_LINEAR };
-// The values are not a wire format: humanoid_mpc_msgs/controller_type.proto has its own codes (MANIFOLD_LINEAR is
-// CONTROLLER_TYPE_MANIFOLD_LINEAR = 3 there), and humanoid_mpc_ipc's policy conversions map the two.
-// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_msgs/controller_type.proto:controller_types)
+// The values are not a wire format: legged_mpc_msgs/controller_type.proto has its own codes (MANIFOLD_LINEAR is
+// CONTROLLER_TYPE_MANIFOLD_LINEAR = 3 there), and legged_mpc_ipc's policy conversions map the two.
+// LINT.ThenChange(//legged_nmpc/legged_mpc_msgs/controller_type.proto:controller_types)
 
 }  // namespace ocs2

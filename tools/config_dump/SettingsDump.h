@@ -40,17 +40,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_oc/rollout/RolloutSettings.h"
 #include "ocs2_sqp/SqpSettings.h"
 
-#include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
-#include "humanoid_common_mpc/mrt/JointPdGains.h"
-#include "humanoid_common_mpc/reference_manager/GaitSwitchingTable.h"
-#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
-#include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
-#include "humanoid_common_mpc_app/teleop/KeyboardVelocityCommand.h"
-#include "humanoid_common_mpc_app/visualization/VisualizationConfig.h"
+#include "legged_common_mpc/common/ModelSettings.h"
+#include "legged_common_mpc/gait/ModeSequenceTemplate.h"
+#include "legged_common_mpc/mrt/JointPdGains.h"
+#include "legged_common_mpc/reference_manager/GaitSwitchingTable.h"
+#include "legged_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "legged_common_mpc_app/robot/RobotProcessSettings.h"
+#include "legged_common_mpc_app/teleop/KeyboardVelocityCommand.h"
+#include "legged_common_mpc_app/visualization/VisualizationConfig.h"
 #include "tools/config_dump/ValueDump.h"
 
-namespace ocs2::humanoid::config_dump {
+namespace ocs2::legged::config_dump {
 
 // Every value of a settings struct the start-up of the stack builds, one line
 // each, under the path `path`.
@@ -96,4 +96,4 @@ void dumpKeyboardCommandLimits(ValueDump& dump,
                                absl::string_view path,
                                const teleop::KeyboardCommandLimits& limits);
 
-}  // namespace ocs2::humanoid::config_dump
+}  // namespace ocs2::legged::config_dump

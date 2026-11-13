@@ -46,7 +46,7 @@ The pose is the scene's qpos0, the base lifted clear of the ground, which is whe
 import os
 import unittest
 
-from humanoid_mpc_config import joint_pd_gains_file_pb2
+from legged_mpc_config import joint_pd_gains_file_pb2
 import mujoco
 import numpy as np
 

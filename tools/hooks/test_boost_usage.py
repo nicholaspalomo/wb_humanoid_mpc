@@ -418,7 +418,7 @@ class BazelrcTest(unittest.TestCase):
                 ("define", "-DBOOST_VARIANT_LIMIT_TYPES=50"),
             ),
             (
-                "build --per_file_copt=//humanoid_nmpc/.*@-DBOOST_X",
+                "build --per_file_copt=//legged_nmpc/.*@-DBOOST_X",
                 ("define", "-DBOOST_X"),
             ),
             ("build --host_copt=-D BOOST_X", ("define", "-D BOOST_X")),
@@ -574,7 +574,7 @@ class MessageTest(unittest.TestCase):
 class ScopeTest(unittest.TestCase):
     def test_kinds_of_file(self):
         for path, kind in [
-            ("humanoid_nmpc/x/src/A.cpp", boost_usage.CPP),
+            ("legged_nmpc/x/src/A.cpp", boost_usage.CPP),
             (
                 "lib/ocs2/core/include/ocs2_core/integration/steppers.h",
                 boost_usage.CPP,

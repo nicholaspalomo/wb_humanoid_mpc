@@ -53,13 +53,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_oc/approximate_model/LinearQuadraticApproximator.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
-#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
-#include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/gait/BipedModes.h"
-#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "legged_common_mpc/common/MpcRobotModelBase.h"
+#include "legged_common_mpc/common/Types.h"
+#include "legged_common_mpc/gait/BipedModes.h"
+#include "legged_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "tools/config_dump/ValueDump.h"
 
-namespace ocs2::humanoid::config_dump {
+namespace ocs2::legged::config_dump {
 namespace {
 
 // The points of the horizon the problem is approximated at: in the first double
@@ -288,4 +288,4 @@ void dumpProblem(ValueDump& dump,
                  *copy.finalSoftConstraintPtr, kFinalTime, finalState, copy);
 }
 
-}  // namespace ocs2::humanoid::config_dump
+}  // namespace ocs2::legged::config_dump

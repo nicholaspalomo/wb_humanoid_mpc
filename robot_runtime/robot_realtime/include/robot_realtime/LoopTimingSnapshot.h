@@ -42,7 +42,7 @@ namespace robot::realtime {
  * the communication thread through a robot::TripleBuffer<LoopTimingSnapshot>
  * without allocating. Times are in seconds, as in the message.
  *
- * Onto humanoid_mpc_msgs.LoopTiming (loop_timing.proto), which the
+ * Onto legged_mpc_msgs.LoopTiming (loop_timing.proto), which the
  * communication thread fills: target_period_s    <- targetPeriodS cycles <-
  * totalCycles mean_period_s      <- meanPeriodS max_period_s       <-
  * maxPeriodS max_compute_time_s <- maxComputeTimeS overruns           <-

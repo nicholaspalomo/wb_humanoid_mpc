@@ -5,7 +5,7 @@
 //
 //   // Next ID: 4
 //   message TaskFile {
-//     option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::TaskFile";
+//     option (nproto.generate_struct) = "ocs2::legged::mpc_config::TaskFile";
 //     option (nproto.retired_field) = { name: "use_dcm_terminal_cost" replacement: "list dcm_terminal_cost under costs" };
 //
 //     reserved 4 to max;

@@ -109,7 +109,7 @@ class FirstPartyTreeTest(unittest.TestCase):
         source = (
             "from __future__ import annotations\nfrom typing import List\nfrom"
             " collections.abc import Callable\nfrom typing_extensions import"
-            " override\nfrom humanoid_mpc_msgs import mpc_policy_pb2\nfrom"
+            " override\nfrom legged_mpc_msgs import mpc_policy_pb2\nfrom"
             " google.protobuf import text_format\n"
         )
         self.assertEqual(self.names(source), [])

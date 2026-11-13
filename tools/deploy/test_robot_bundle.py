@@ -42,8 +42,8 @@ BUNDLE = os.path.join(
     os.environ["TEST_SRCDIR"], "_main", "tools", "deploy", "robot_bundle.tar"
 )
 BINARIES = (
-    "bin/humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_robot",
-    "bin/humanoid_nmpc/humanoid_wb_mpc_app/humanoid_wb_mpc_robot",
+    "bin/legged_nmpc/legged_centroidal_mpc_app/legged_centroidal_mpc_robot",
+    "bin/legged_nmpc/legged_wb_mpc_app/legged_wb_mpc_robot",
 )
 # LINT.IfChange(robot_configurations)
 ROBOTS = (
@@ -206,7 +206,7 @@ class RobotBundleTest(unittest.TestCase):
                         "controller",
                         "joint_pd_gains.textproto",
                     )
-                    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/ConfigFiles.h:config_layout)
+                    # LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/config/ConfigFiles.h:config_layout)
                     self.assertTrue(
                         os.path.isfile(os.path.join(copy, gains)), gains
                     )
@@ -216,7 +216,7 @@ class RobotBundleTest(unittest.TestCase):
                     self.assertEqual(flags["--viewer"], "")
                     self.assertEqual(
                         flags["--plot_config"],
-                        "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto",
+                        "legged_nmpc/legged_rerun_viewer/config/plot_config.textproto",
                     )
                     self.assertEqual(flags["--web_viewer_address"], "127.0.0.1")
                     # Without a store directory the robot reads the bundle's files in place; the images set one.
@@ -225,9 +225,9 @@ class RobotBundleTest(unittest.TestCase):
                         flags["--config_seed"], "when_bundle_changes"
                     )
                     formulation = (
-                        "humanoid_wb_mpc"
+                        "legged_wb_mpc"
                         if robot.endswith("_wb")
-                        else "humanoid_centroidal_mpc"
+                        else "legged_centroidal_mpc"
                     )
                     self.assertTrue(
                         program.endswith(f"/{formulation}_robot"), program

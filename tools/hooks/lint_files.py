@@ -46,22 +46,24 @@ import os
 import re
 import subprocess
 
+from tools.hooks import repo_layout
+
 # Third-party code the repository vendors. lib/ocs2 is this project's own fork of OCS2: the nullability rules and the
 # Boost check cover it (FIRST_PARTY_AND_OCS2), the style checks do not.
 # LINT.IfChange(vendored_dirs)
 VENDORED_DIRS = ("lib/", "tools/ifttt-lint/")
 # LINT.ThenChange(//tools/clang_tidy/clang_tidy.bzl:excluded_packages)
 # The CppAD, CppADCodeGen and iit copies inside the OCS2 fork, which no rule of this repository covers.
-OCS2_DIR = "lib/ocs2/"
-OCS2_THIRDPARTY_DIR = "lib/ocs2/thirdparty/"
+OCS2_DIR = repo_layout.LIB_OCS2_DIR
+OCS2_THIRDPARTY_DIR = OCS2_DIR + "thirdparty/"
 
-# Generated sources checked into the tree: the ACoM SIREN weight headers (humanoid_learning/acom writes them).
+# Generated sources checked into the tree: the ACoM SIREN weight headers (legged_learning/acom writes them).
 # LINT.IfChange(generated_files)
 GENERATED_FILES = frozenset(
     {
-        "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/acom/AcomSirenWeightsAtlas.h",
-        "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/acom/AcomSirenWeightsG1.h",
-        "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/acom/AcomSirenWeightsSa01.h",
+        repo_layout.COMMON_MPC_INCLUDE_DIR + "acom/AcomSirenWeightsAtlas.h",
+        repo_layout.COMMON_MPC_INCLUDE_DIR + "acom/AcomSirenWeightsG1.h",
+        repo_layout.COMMON_MPC_INCLUDE_DIR + "acom/AcomSirenWeightsSa01.h",
     }
 )
 # LINT.ThenChange(//tools/clang_tidy/clang_tidy.bzl:generated_files)
@@ -153,7 +155,7 @@ def is_test_path(path: str) -> bool:
     """True for a test or test support file.
 
     That is a file in a `test`, `tests`, `testdata` or `testing` directory or in a package directory ending in `_test`
-    (humanoid_centroidal_mpc_test), or one named like a test: testFoo.cpp, test_foo.py, FooTest.cpp, foo_test.py,
+    (legged_centroidal_mpc_test), or one named like a test: testFoo.cpp, test_foo.py, FooTest.cpp, foo_test.py,
     conftest.py.
 
     Args:
@@ -293,7 +295,7 @@ def python_import_roots(root: str) -> list[str]:
 def python_first_party_packages(root: str) -> list[str]:
     """The first-party top-level Python packages and modules: what isort groups as first party.
 
-    These are the packages and modules directly under each Bazel import root, plus `humanoid_learning` and `tools`,
+    These are the packages and modules directly under each Bazel import root, plus `legged_learning` and `tools`,
     which are imported from the repository root.
 
     Args:
@@ -302,7 +304,7 @@ def python_first_party_packages(root: str) -> list[str]:
     Returns:
       The sorted names.
     """
-    names = {"humanoid_learning", "tools"}
+    names = {repo_layout.LEARNING_DIR.rstrip("/"), "tools"}
     for import_root in python_import_roots(root):
         directory = os.path.join(root, import_root)
         if not os.path.isdir(directory):

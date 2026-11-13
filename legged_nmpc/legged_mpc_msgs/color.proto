@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package legged_mpc_msgs;
+
+import "nproto/options.proto";
+
+// The package before the humanoid -> legged rename, which the header of a file saved before it gives.
+option (nproto.former_package) = "humanoid_mpc_msgs";
+
+// RGBA in [0, 1].
+// Next ID: 5
+message Color {
+  option (nproto.generate_struct) = "ocs2::legged::msgs::Color";
+
+  reserved 5 to max;
+
+  float r = 1;
+  float g = 2;
+  float b = 3;
+  float a = 4;
+}

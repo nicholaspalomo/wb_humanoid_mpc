@@ -181,7 +181,7 @@ std::string formatNetworkConfig(const NetworkConfig& config);
 /**
  * The shipped network file, config/ipc/network.textproto: robot, mpc, operator,
  * teleop, visualization and config_push on 127.0.0.1 in domain 0, with the QoS
- * of every topic of humanoid_mpc_ipc/Topics.h.
+ * of every topic of legged_mpc_ipc/Topics.h.
  */
 NetworkConfig localhostNetworkConfig();
 

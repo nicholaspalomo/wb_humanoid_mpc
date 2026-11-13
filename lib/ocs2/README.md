@@ -9,11 +9,11 @@ OCS2 is a C++ toolbox tailored for Optimal Control for Switched Systems (OCS2). 
 * SQP: Multiple-shooting algorithm based on HPIPM
 * PISOC: Path integral stochastic optimal control
 
-This fork keeps only the SQP, the solver the humanoid NMPC runs (see "What this fork leaves out").
+This fork keeps only the SQP, the solver the legged NMPC runs (see "What this fork leaves out").
 
 ![legged-robot](https://leggedrobotics.github.io/ocs2/_static/gif/legged_robot.gif)
 
-OCS2 handles general path constraints through Augmented Lagrangian or relaxed barrier methods. To facilitate the application of OCS2 in robotic tasks, it provides the user with additional tools to set up the system dynamics (such as kinematic or dynamic models) and cost/constraints (such as self-collision avoidance and end-effector tracking) from a URDF model. The library also provides an automatic differentiation tool to calculate derivatives of the system dynamics, constraints, and cost. Upstream OCS2 also ships ROS interfaces for deployment on robots; this fork has none, and the humanoid NMPC talks over its own IPC bus instead (`humanoid_nmpc/docs/distributed_runtime/README.md`). The toolbox's efficient and numerically stable implementations and user-friendly interface enable employing it on numerous robotic applications with limited onboard computation power.
+OCS2 handles general path constraints through Augmented Lagrangian or relaxed barrier methods. To facilitate the application of OCS2 in robotic tasks, it provides the user with additional tools to set up the system dynamics (such as kinematic or dynamic models) and cost/constraints (such as self-collision avoidance and end-effector tracking) from a URDF model. The library also provides an automatic differentiation tool to calculate derivatives of the system dynamics, constraints, and cost. Upstream OCS2 also ships ROS interfaces for deployment on robots; this fork has none, and the legged NMPC talks over its own IPC bus instead (`legged_nmpc/docs/distributed_runtime/README.md`). The toolbox's efficient and numerically stable implementations and user-friendly interface enable employing it on numerous robotic applications with limited onboard computation power.
 
 For more information refer to the project's [Documentation Page](https://leggedrobotics.github.io/ocs2/) 
 
@@ -22,21 +22,21 @@ For more information refer to the project's [Documentation Page](https://leggedr
 The fork carries only the packages this repository builds (`lib/ocs2/BUILD.bazel`), and it does not depend on Boost:
 the integrators are native ports of the odeint loops OCS2 used. It reads no configuration files: the settings structs
 (`mpc::Settings`, `rollout::Settings`, `sqp::Settings`, ...) are filled by the caller, which in this repository converts
-them from the typed textprotos of `humanoid_nmpc/humanoid_mpc_config`, and the upstream `LoadData` loaders, the
+them from the typed textprotos of `legged_nmpc/legged_mpc_config`, and the upstream `LoadData` loaders, the
 `loadSettings` functions and the property tree they read into are removed. The upstream code that was never built here,
 or that nothing here uses, is removed rather than ported:
 
 - loopshaping, throughout `core`, `oc`, `mpc` and `robotic_tools`;
 - every ROS package: the ROS 1 `msgs` and `ros_interfaces` and their ROS 2 ports (`MPC_ROS_Interface`,
   `MRT_ROS_Interface`, `MRT_ROS_Dummy_Loop`, `DummyObserver`, the visualization helpers and the messages), which the
-  IPC bus replaces (`humanoid_nmpc/humanoid_mpc_ipc`), and every package of `robotic_examples`, `raisim`, `mpcnet` and
+  IPC bus replaces (`legged_nmpc/legged_mpc_ipc`), and every package of `robotic_examples`, `raisim`, `mpcnet` and
   `perceptive`, including their ROS launch files;
 - the solvers `frank_wolfe`, `ipm` and `slp`, `pinocchio/self_collision`, `self_collision_visualization` and
   `sphere_approximation`, and `python_interface`;
 - the Boost INFO configuration format and `misc/Log.h`;
 - the DDP solvers, `ddp` (`GaussNewtonDDP` with `SLQ` and `ILQR`, `GaussNewtonDDP_MPC`, `ContinuousTimeLqr`, the
   Riccati equations and the search strategies; `ddp/unsupported` and `DDP_DataCollector` went first), which nothing
-  here ran: the humanoid NMPC runs the SQP. With them went the dense reference QP solver of `test_tools/qp_solver`,
+  here ran: the legged NMPC runs the SQP. With them went the dense reference QP solver of `test_tools/qp_solver`,
   which only they and their tests used (the SQP depended on it without including it), their two tests (the hybrid
   bouncing-mass SLQ test and the state-manifold guard of `GaussNewtonDDP`), `core/initialization/OperatingPoints.h`,
   which only the bouncing-mass test included, and `core/model_data/ModelDataLinearInterpolation.h`, the `ModelData`
@@ -117,8 +117,8 @@ taped and generated as before.
 
 ## What this fork adds: states on a manifold
 
-The humanoid MPCs store the base orientation as a unit quaternion, so the fork's SQP solves in the tangent of a state
-manifold (`humanoid_nmpc/docs/quaternion_base_orientation/README.md`, sections 2.4 and 2.7). A null manifold, the
+The legged MPCs store the base orientation as a unit quaternion, so the fork's SQP solves in the tangent of a state
+manifold (`legged_nmpc/docs/quaternion_base_orientation/README.md`, sections 2.4 and 2.7). A null manifold, the
 default, leaves every flat code path bit for bit as it was (`test_sqp_flat_parity`).
 
 - `core/.../manifold/`: `StateManifold` (`retract`, `difference`, `interpolate`, `project`, the allocation-free
@@ -144,7 +144,7 @@ The SQP keeps what its last solve did, which nothing in the solve reads back (`t
 - `SqpSolver::getIterationRecords()`: every iteration of the last solve, in order (`sqp::IterationRecord`): the line
   search's baseline, the step it took (its size and type, the full step's type and constraint metric, the performance
   after it) and the convergence test after it. The closed-loop metrics and the equivalence suites' convergence tests read
-  it (`humanoid_nmpc/humanoid_mpc_validation`, `SqpStepDiagnostics.h`).
+  it (`legged_nmpc/legged_mpc_validation`, `SqpStepDiagnostics.h`).
 - `SqpSolver::getInitialStateGap()`: delta_x0 of the first iteration of the last solve, the initial-state gap the QP
   eliminates, in the tangent of the state manifold when there is one.
 
@@ -169,7 +169,7 @@ upstream the spreading took the node after the post-event sample for it:
 (`stampPostEventSamplesAtIntervalStart()`: `getIntervalStart()` of a post-event node, the event time plus `weakEpsilon`,
 at most the next sample's time), where a rollout puts it. Only the warm start changes: the published solution, and with
 it the MRT's policy and the IPC's, keeps one time per event. It changes the closed loop of every robot (the real-time
-claim of `testMpcSqpConvergence`, `humanoid_nmpc/docs/quaternion_base_orientation/README.md`, section 6, risk 12). The
+claim of `testMpcSqpConvergence`, `legged_nmpc/docs/quaternion_base_orientation/README.md`, section 6, risk 12). The
 test is `test_trajectory_spreading`; `test_sqp_flat_parity` keeps its recording from before the manifold support by
 handing the solver its last solution without the post-event indices the stamp reads, which is the warm start the
 recorded solver built.

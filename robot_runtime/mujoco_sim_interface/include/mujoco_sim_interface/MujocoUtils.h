@@ -127,7 +127,7 @@ inline constexpr int kMjBodyInvweightSize = 2;
 // LINT.IfChange(contact_mask_capacity)
 inline constexpr int kContactMaskCapacity =
     std::numeric_limits<uint32_t>::digits;
-// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ContactArray.h:max_num_contacts)
+// LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/ContactArray.h:max_num_contacts)
 
 /** Deletes an mjModel, so that a std::unique_ptr owns it (MjModelPtr). */
 struct MjModelDeleter {
@@ -408,7 +408,7 @@ std::array<mjtNum, ocs2::kPositionDim> computeMeasForceFootEwrtWorld(
     const mjModel* absl_nonnull model,
     const mjData* absl_nonnull data,
     int sensorId);
-// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_msgs/robot_state_sample.proto:meas_wrench_contacts_ewrt_world)
+// LINT.ThenChange(//legged_nmpc/legged_mpc_msgs/robot_state_sample.proto:meas_wrench_contacts_ewrt_world)
 
 /** Whether `sensorId` is a `<force>` sensor on a site, as
  * computeMeasForceFootEwrtWorld() needs. */
@@ -428,7 +428,7 @@ struct VerticalTwist {
  * The twist about the world z axis of a MuJoCo quaternion (w, x, y, z), from
  * its w and z (the tilt components x, y do not enter it): the rotation
  * verticalTwistFromQuaternion() of
- * humanoid_common_mpc/orientation/BaseOrientation.h gives (design
+ * legged_common_mpc/orientation/BaseOrientation.h gives (design
  * section 2.8.1), brought to w >= 0 (w = 0 < z at a heading of pi): (w, z) /
  * |(w, z)| for w > 0. It is computed from the angle atan2(z, w) rather than by
  * the division, so it is continuous down to an upside-down attitude |(w, z)| =

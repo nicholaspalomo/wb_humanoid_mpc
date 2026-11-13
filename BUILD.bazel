@@ -4,7 +4,7 @@
 
 package(default_visibility = ["//visibility:public"])
 
-# The ACoM training notebook behind `make train-acom-jupyter`; //humanoid_learning/acom/tests:test_acom runs it.
+# The ACoM training notebook behind `make train-acom-jupyter`; //legged_learning/acom/tests:test_acom runs it.
 exports_files(["notebooks/train_acom_siren.ipynb"])
 
 # The files //tools/resource_limits:test_resource_limits pins: RAM-bounded Bazel parallelism, the container's memory cap,

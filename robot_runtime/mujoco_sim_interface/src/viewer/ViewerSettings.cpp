@@ -216,7 +216,7 @@ absl::Status checkViewerNames(absl::Span<const std::string> names) {
   }
   return absl::OkStatus();
 }
-// LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/plot_config.py:viewer_list_rules)
+// LINT.ThenChange(//legged_nmpc/legged_rerun_viewer/python/legged_rerun_viewer/plot_config.py:viewer_list_rules)
 
 absl::StatusOr<std::vector<std::string>> parseViewerNames(
     absl::string_view list) {

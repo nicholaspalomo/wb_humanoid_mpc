@@ -29,7 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Test values for any protobuf message, and the round-trip checks every nproto
 // struct passes. Shared by nproto's own tests and by the tests of the packages
-// that use nproto (humanoid_nmpc/humanoid_mpc_msgs).
+// that use nproto (legged_nmpc/legged_mpc_msgs).
 
 #pragma once
 

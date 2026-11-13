@@ -172,7 +172,7 @@ message Point {
     def test_the_options_of_the_body_come_before_the_reservation(self):
         source = """// Next ID: 4
 message Vector3 {
-  option (nproto.generate_struct) = "ocs2::humanoid::msgs::Vector3";
+  option (nproto.generate_struct) = "ocs2::legged::msgs::Vector3";
 
   reserved 4 to max;
 
@@ -183,15 +183,15 @@ message Vector3 {
 """
         self.assertEqual(violations(source), [])
         two_options = source.replace(
-            '"ocs2::humanoid::msgs::Vector3";\n',
-            '"ocs2::humanoid::msgs::Vector3";\n  option deprecated = true;\n',
+            '"ocs2::legged::msgs::Vector3";\n',
+            '"ocs2::legged::msgs::Vector3";\n  option deprecated = true;\n',
         )
         self.assertEqual(violations(two_options), [])
 
     def test_options_with_aggregate_values_are_leading_options_too(self):
         source = """// Next ID: 2
 message TaskFile {
-  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::TaskFile";
+  option (nproto.generate_struct) = "ocs2::legged::mpc_config::TaskFile";
   option (nproto.retired_field) = { name: "use_old" replacement: "write new" };
   option (nproto.retired_field) = {
     name: "legacy"
@@ -381,7 +381,7 @@ message Point {
 
     def test_inserts_the_reservation_after_the_nproto_option(self):
         source = """message Vector3 {
-  option (nproto.generate_struct) = "ocs2::humanoid::msgs::Vector3";
+  option (nproto.generate_struct) = "ocs2::legged::msgs::Vector3";
 
   double x = 1;
   double y = 2;
@@ -393,7 +393,7 @@ message Point {
             fixed,
             """// Next ID: 4
 message Vector3 {
-  option (nproto.generate_struct) = "ocs2::humanoid::msgs::Vector3";
+  option (nproto.generate_struct) = "ocs2::legged::msgs::Vector3";
 
   reserved 4 to max;
 

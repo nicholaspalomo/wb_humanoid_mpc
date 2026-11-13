@@ -1,0 +1,299 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#pragma once
+
+#include <cstddef>
+
+#include "Eigen/Core"
+#include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
+
+#include "legged_common_mpc/common/ModelSettings.h"
+#include "legged_common_mpc/common/MpcRobotModelBase.h"
+#include "legged_common_mpc/common/Types.h"
+#include "legged_common_mpc/config/weights/StateInputLayout.h"
+#include "legged_common_mpc/orientation/EulerBoundary.h"
+
+namespace ocs2::legged::test {
+
+/**
+ * A robot model that is nothing but the dimensions of a StateInputLayout - the
+ * state and input sizes of a centroidal or whole-body MPC of a robot's
+ * ModelSettings - for tests of what is built from the configuration (the
+ * factory's weights, the reference manager, the target calculator, the motion
+ * manager) without a robot model package and its CppAD libraries. What depends
+ * only on the layout is real, on the quaternion layout of both MPCs (design
+ * section 2.3 of legged_nmpc/docs/quaternion_base_orientation/README.md): the
+ * dimensions (nx = n_t + 1, nq = 7 + nj, nv = 6 + nj) and start indices,
+ * getTuningLayout() (tuningLayoutOf() placed with
+ * kQuaternionOrientationStateDim), stateFromTuning() and tuningFromState()
+ * (stateFromTuningLayout(), tuningLayoutFromState()),
+ * interpolateStateTrajectory() (linear, the orientation slerped) and
+ * getNeutralState() (the identity orientation). Every accessor of the state's
+ * values returns the neutral state's values - zeros, the identity orientation
+ * and heading 0 - whatever the state, and so a zero Jacobian, and every setter
+ * does nothing. `modelSettings` is retained and must outlive the model. Its
+ * const functions are safe to call concurrently.
+ */
+template <typename SCALAR_T>
+class LayoutRobotModel final : public MpcRobotModelBase<SCALAR_T> {
+ public:
+  LayoutRobotModel(const ModelSettings& modelSettings,
+                   StateInputLayout::Mpc mpc)
+      : MpcRobotModelBase<SCALAR_T>(
+            modelSettings,
+            MpcRobotModelDimensions{
+                .stateDim =
+                    tuningDimension(stateInputLayout(modelSettings, mpc)) + 1,
+                .inputDim =
+                    inputDimension(stateInputLayout(modelSettings, mpc)),
+                .configurationDim =
+                    kBaseConfigurationDim + modelSettings.mpc_joint_dim,
+                .velocityDim = kBaseVelocityDim + modelSettings.mpc_joint_dim},
+            placeTuningLayout(
+                tuningLayoutOf(stateInputLayout(modelSettings, mpc)))),
+        mpc_(mpc) {}
+
+  LayoutRobotModel* absl_nonnull clone() const override {
+    return new LayoutRobotModel(this->modelSettings, mpc_);
+  }
+
+  size_t getBaseStartindex() const override {
+    return mpc_ == StateInputLayout::Mpc::kCentroidal ? 6 : 0;
+  }
+  size_t getBaseOrientationStartIndex() const override {
+    return mpc_ == StateInputLayout::Mpc::kCentroidal ? 9 : 3;
+  }
+  size_t getJointStartindex() const override {
+    return mpc_ == StateInputLayout::Mpc::kCentroidal ? 13 : 7;
+  }
+  // The centroidal input's joint velocities, after the contact wrenches; the
+  // whole-body state's, after q and the base velocity.
+  size_t getJointVelocitiesStartindex() const override {
+    return mpc_ == StateInputLayout::Mpc::kCentroidal
+               ? 6 * this->modelSettings.contactNames.size()
+               : this->getConfigurationDim() + kBaseVelocityDim;
+  }
+  size_t getContactWrenchStartIndices(size_t contactIndex) const override {
+    return 6 * contactIndex;
+  }
+
+  VECTOR_T<SCALAR_T> getGeneralizedCoordinates(
+      const VECTOR_T<SCALAR_T>& /*state*/) const override {
+    VECTOR_T<SCALAR_T> q =
+        VECTOR_T<SCALAR_T>::Zero(this->getConfigurationDim());
+    q(6) = SCALAR_T(
+        1.0);  // q = [p_W, xi = (x, y, z, w), q_j] of the identity orientation.
+    return q;
+  }
+  VECTOR3_T<SCALAR_T> getPosBaseRtWorldEwrtWorld(
+      const VECTOR_T<SCALAR_T>& /*state*/) const override {
+    return VECTOR3_T<SCALAR_T>::Zero();
+  }
+  StoredLinvelPoint getStoredLinvelPoint() const override {
+    return StoredLinvelPoint::kCenterOfMass;
+  }
+  VECTOR3_T<SCALAR_T> getLinvelComRtWorldEwrtWorld(
+      const VECTOR_T<SCALAR_T>& /*state*/) const override {
+    return VECTOR3_T<SCALAR_T>::Zero();
+  }
+  VECTOR3_T<SCALAR_T> getLinvelBaseRtWorldEwrtWorld(
+      const VECTOR_T<SCALAR_T>& /*state*/) const override {
+    return VECTOR3_T<SCALAR_T>::Zero();
+  }
+  VECTOR_T<SCALAR_T> getJointAngles(
+      const VECTOR_T<SCALAR_T>& /*state*/) const override {
+    return VECTOR_T<SCALAR_T>::Zero(this->getJointDim());
+  }
+  VECTOR_T<SCALAR_T> getJointVelocities(
+      const VECTOR_T<SCALAR_T>& /*state*/,
+      const VECTOR_T<SCALAR_T>& /*input*/) const override {
+    return VECTOR_T<SCALAR_T>::Zero(this->getJointDim());
+  }
+  VECTOR_T<SCALAR_T> getGeneralizedVelocities(
+      const VECTOR_T<SCALAR_T>& /*state*/,
+      const VECTOR_T<SCALAR_T>& /*input*/) override {
+    return VECTOR_T<SCALAR_T>::Zero(this->getVelocityDim());
+  }
+
+  void setGeneralizedCoordinates(
+      VECTOR_T<SCALAR_T>& /*state*/,
+      const VECTOR_T<SCALAR_T>& /*generalizedCorrdinates*/) const override {}
+  void setPosBaseRtWorldEwrtWorld(
+      VECTOR_T<SCALAR_T>& /*state*/,
+      const VECTOR3_T<SCALAR_T>& /*posBaseRtWorldEwrtWorld*/) const override {}
+  void setLinvelComRtWorldEwrtWorld(
+      VECTOR_T<SCALAR_T>& /*state*/,
+      const VECTOR3_T<SCALAR_T>& /*linvelComRtWorldEwrtWorld*/) const override {
+  }
+  void setLinvelBaseRtWorldEwrtWorld(
+      VECTOR_T<SCALAR_T>& /*state*/,
+      const VECTOR3_T<SCALAR_T>& /*linvelBaseRtWorldEwrtWorld*/)
+      const override {}
+  void setJointAngles(
+      VECTOR_T<SCALAR_T>& /*state*/,
+      const VECTOR_T<SCALAR_T>& /*jointAngles*/) const override {}
+  void setJointVelocities(
+      VECTOR_T<SCALAR_T>& /*state*/,
+      VECTOR_T<SCALAR_T>& /*input*/,
+      const VECTOR_T<SCALAR_T>& /*jointVelocities*/) const override {}
+  void adaptPosBaseRtWorldEwrtWorldZ(
+      VECTOR_T<SCALAR_T>& /*state*/,
+      scalar_t /*errPosBaseRtWorldEwrtWorldZ*/) const override {}
+
+  VECTOR4_T<SCALAR_T> getQuatBaseRtWorldXyzw(
+      const VECTOR_T<SCALAR_T>& /*state*/) const override {
+    return VECTOR4_T<SCALAR_T>(SCALAR_T(0.0), SCALAR_T(0.0), SCALAR_T(0.0),
+                               SCALAR_T(1.0));
+  }
+  void setQuatBaseRtWorldXyzw(
+      vector_t& /*state*/,
+      const vector4_t& /*quatBaseRtWorldXyzw*/) const override {}
+  scalar_t getYawBaseRtWorld(const vector_t& /*state*/) const override {
+    return 0.0;
+  }
+  vector6_t getPoseeulerzyxBaseRtWorld(
+      const vector_t& /*state*/) const override {
+    return vector6_t::Zero();
+  }
+  void setPoseeulerzyxBaseRtWorld(
+      vector_t& /*state*/,
+      const vector6_t& /*poseeulerzyxBaseRtWorld*/) const override {}
+  vector3_t getEulerzyxBaseRtWorld(const vector_t& /*state*/) const override {
+    return vector3_t::Zero();
+  }
+  void setEulerzyxBaseRtWorld(
+      vector_t& /*state*/,
+      const vector3_t& /*eulerzyxBaseRtWorld*/) const override {}
+  vector3_t getAngvelBaseRtWorldEwrtBase(
+      const vector_t& /*state*/) const override {
+    return vector3_t::Zero();
+  }
+  void setAngvelBaseRtWorldEwrtBase(
+      vector_t& /*state*/,
+      const vector3_t& /*angvelBaseRtWorldEwrtBase*/) const override {}
+  void setTurnAngvelBaseRtWorldEwrtBase(
+      vector_t& /*state*/,
+      scalar_t /*angvelBaseRtWorldEwrtWorldZ*/) const override {}
+  BaseAngularVelocityJacobian getJacobianAngvelBaseRtWorldEwrtBase(
+      const vector_t& /*state*/) const override {
+    return BaseAngularVelocityJacobian{
+        .orientationSlots = matrix_t::Zero(3, kQuaternionOrientationStateDim),
+        .angularVelocitySlots = matrix3_t::Zero()};
+  }
+  vector6_t getTwistBaseRtWorldEwrtWorld(
+      const vector_t& /*state*/,
+      const vector_t& /*jointVelocities*/) const override {
+    return vector6_t::Zero();
+  }
+  vector3_t getRefPlanarMotion(
+      const vector_t& /*targetState*/,
+      scalar_t /*inertiaComEwrtWorldZz*/) const override {
+    return vector3_t::Zero();
+  }
+  absl::StatusOr<vector_t> stateFromTuning(
+      const vector_t& tuningVector) const override {
+    return stateFromTuningLayout(tuningVector, this->getTuningLayout());
+  }
+  absl::StatusOr<vector_t> tuningFromState(
+      const vector_t& state) const override {
+    return tuningLayoutFromState(state, this->getTuningLayout());
+  }
+  vector_t interpolateStateTrajectory(
+      scalar_t time,
+      const scalar_array_t& times,
+      const vector_array_t& states) const override {
+    return this->interpolateWithSlerpedQuatBaseRtWorld(time, times, states);
+  }
+  vector_t getNeutralState() const override {
+    vector_t state = vector_t::Zero(this->getStateDim());
+    state.segment<4>(static_cast<Eigen::Index>(
+        getBaseOrientationStartIndex())) = vector4_t(0.0, 0.0, 0.0, 1.0);
+    return state;
+  }
+  matrix_t getBaseRotationTangentJacobian(
+      const vector_t& /*state*/) const override {
+    return matrix_t::Zero(3, kQuaternionOrientationStateDim);
+  }
+  matrix_t getPinocchioTangentJacobian(
+      const vector_t& /*state*/) const override {
+    return matrix_t::Zero(this->getVelocityDim(), this->getStateDim());
+  }
+  void fillGeneralizedCoordinatesFromMeasurement(
+      const vector3_t& /*posBaseRtWorldEwrtWorld*/,
+      const vector4_t& /*quatBaseRtWorldXyzw*/,
+      const vector_t& /*jointPositions*/,
+      Eigen::Ref<vector_t> q) const override {
+    q.setZero();
+    q(6) = 1.0;
+  }
+  void fillGeneralizedVelocitiesFromMeasurement(
+      const vector4_t& /*quatBaseRtWorldXyzw*/,
+      const vector3_t& /*linvelBaseRtWorldEwrtBase*/,
+      const vector3_t& /*angvelBaseRtWorldEwrtBase*/,
+      const vector_t& /*jointVelocities*/,
+      Eigen::Ref<vector_t> v) const override {
+    v.setZero();
+  }
+
+  VECTOR6_T<SCALAR_T> getWrenchContactEwrtParam(
+      const VECTOR_T<SCALAR_T>& /*input*/,
+      size_t /*contactIndex*/) const override {
+    return VECTOR6_T<SCALAR_T>::Zero();
+  }
+  VECTOR3_T<SCALAR_T> getForceContactEwrtParam(
+      const VECTOR_T<SCALAR_T>& /*input*/,
+      size_t /*contactIndex*/) const override {
+    return VECTOR3_T<SCALAR_T>::Zero();
+  }
+  VECTOR3_T<SCALAR_T> getTorqueContactEwrtParam(
+      const VECTOR_T<SCALAR_T>& /*input*/,
+      size_t /*contactIndex*/) const override {
+    return VECTOR3_T<SCALAR_T>::Zero();
+  }
+  void setWrenchContactEwrtParam(
+      VECTOR_T<SCALAR_T>& /*input*/,
+      const VECTOR6_T<SCALAR_T>& /*wrenchContactEwrtParam*/,
+      size_t /*contactIndex*/) const override {}
+  void setForceContactEwrtParam(
+      VECTOR_T<SCALAR_T>& /*input*/,
+      const VECTOR3_T<SCALAR_T>& /*forceContactEwrtParam*/,
+      size_t /*contactIndex*/) const override {}
+  void setTorqueContactEwrtParam(
+      VECTOR_T<SCALAR_T>& /*input*/,
+      const VECTOR3_T<SCALAR_T>& /*torqueContactEwrtParam*/,
+      size_t /*contactIndex*/) const override {}
+
+ private:
+  StateInputLayout::Mpc mpc_;
+};
+
+}  // namespace ocs2::legged::test

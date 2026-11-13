@@ -121,7 +121,7 @@ struct CentroidalModelInfoTpl {
   std::vector<SCALAR> rollingContactWheelRadii;
 
   /**
-   * The sizes above under the names of the layout-agnostic robot model (humanoid_common_mpc's MpcRobotModelBase). The
+   * The sizes above under the names of the layout-agnostic robot model (legged_common_mpc's MpcRobotModelBase). The
    * root joint is Composite(Translation, Spherical): q stores the base orientation as the unit quaternion xi = (x, y, z, w)
    * and v its body angular velocity w_B, so nq = nv + 1 and the state has one entry more than its tangent.
    */

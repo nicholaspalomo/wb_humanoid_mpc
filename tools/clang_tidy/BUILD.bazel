@@ -89,7 +89,7 @@ clang_tidy_args(
 clang_tidy_args(
     name = "generated_header_arguments",
     scope = "repository",
-    targets = ["//humanoid_nmpc/humanoid_common_mpc"],
+    targets = ["//legged_nmpc/legged_common_mpc"],
 )
 
 py_test(

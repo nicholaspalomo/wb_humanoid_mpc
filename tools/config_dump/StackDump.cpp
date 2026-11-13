@@ -46,35 +46,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_oc/rollout/RolloutSettings.h"
 #include "ocs2_sqp/SqpSettings.h"
 
-#include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
-#include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
-#include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
-#include "humanoid_common_mpc/command/BasePlanarMotion.h"
-#include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
-#include "humanoid_common_mpc/common/ContactInputParameterization.h"
-#include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_common_mpc/common/MpcFormulationConfig.h"
-#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
-#include "humanoid_common_mpc/common/StatusMacros.h"
-#include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
-#include "humanoid_common_mpc/mrt/MpcLink.h"
-#include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
-#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
-#include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
-#include "humanoid_common_mpc_app/teleop/KeyboardVelocityCommand.h"
-#include "humanoid_common_mpc_app/visualization/VisualizationConfig.h"
-#include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
-#include "humanoid_wb_mpc/WBMpcInterface.h"
-#include "humanoid_wb_mpc/command/WBMpcTargetTrajectoriesCalculator.h"
-#include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
-#include "humanoid_wb_mpc/mrt/WBMpcMrtJointController.h"
+#include "legged_centroidal_mpc/CentroidalMpcInterface.h"
+#include "legged_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
+#include "legged_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
+#include "legged_common_mpc/command/BasePlanarMotion.h"
+#include "legged_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
+#include "legged_common_mpc/common/ContactInputParameterization.h"
+#include "legged_common_mpc/common/ModelSettings.h"
+#include "legged_common_mpc/common/MpcFormulationConfig.h"
+#include "legged_common_mpc/common/MpcRobotModelBase.h"
+#include "legged_common_mpc/common/StatusMacros.h"
+#include "legged_common_mpc/common/Types.h"
+#include "legged_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
+#include "legged_common_mpc/mrt/MpcLink.h"
+#include "legged_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
+#include "legged_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "legged_common_mpc_app/robot/RobotProcessSettings.h"
+#include "legged_common_mpc_app/teleop/KeyboardVelocityCommand.h"
+#include "legged_common_mpc_app/visualization/VisualizationConfig.h"
+#include "legged_mpc_validation/closed_loop/RobotConfiguration.h"
+#include "legged_wb_mpc/WBMpcInterface.h"
+#include "legged_wb_mpc/command/WBMpcTargetTrajectoriesCalculator.h"
+#include "legged_wb_mpc/common/WBAccelMpcRobotModel.h"
+#include "legged_wb_mpc/mrt/WBMpcMrtJointController.h"
 #include "robot_model/RobotDescription.h"
 #include "tools/config_dump/ProblemDump.h"
 #include "tools/config_dump/SettingsDump.h"
 #include "tools/config_dump/ValueDump.h"
 
-namespace ocs2::humanoid::config_dump {
+namespace ocs2::legged::config_dump {
 namespace {
 
 /**
@@ -381,4 +381,4 @@ absl::StatusOr<std::string> dumpConfiguration(
   return dump.text();
 }
 
-}  // namespace ocs2::humanoid::config_dump
+}  // namespace ocs2::legged::config_dump

@@ -52,20 +52,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_sqp/SqpSettings.h"
 
 #include "hpipm_interface/HpipmInterfaceSettings.h"
-#include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_common_mpc/config/model/ModelSettingsFromConfig.h"
-#include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
-#include "humanoid_common_mpc/mrt/JointPdGains.h"
-#include "humanoid_common_mpc/reference_manager/GaitSwitchingTable.h"
-#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
-#include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
-#include "humanoid_common_mpc_app/robot/SimFallRecovery.h"
-#include "humanoid_common_mpc_app/teleop/KeyboardVelocityCommand.h"
-#include "humanoid_common_mpc_app/visualization/VisualizationConfig.h"
-#include "humanoid_state_estimator/KalmanBaseEstimator.h"
+#include "legged_common_mpc/common/ModelSettings.h"
+#include "legged_common_mpc/config/model/ModelSettingsFromConfig.h"
+#include "legged_common_mpc/gait/ModeSequenceTemplate.h"
+#include "legged_common_mpc/mrt/JointPdGains.h"
+#include "legged_common_mpc/reference_manager/GaitSwitchingTable.h"
+#include "legged_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "legged_common_mpc_app/robot/RobotProcessSettings.h"
+#include "legged_common_mpc_app/robot/SimFallRecovery.h"
+#include "legged_common_mpc_app/teleop/KeyboardVelocityCommand.h"
+#include "legged_common_mpc_app/visualization/VisualizationConfig.h"
+#include "legged_state_estimator/KalmanBaseEstimator.h"
 #include "tools/config_dump/ValueDump.h"
 
-namespace ocs2::humanoid::config_dump {
+namespace ocs2::legged::config_dump {
 namespace {
 
 void dumpOptionalDouble(ValueDump& dump,
@@ -499,4 +499,4 @@ void dumpKeyboardCommandLimits(ValueDump& dump,
                  limits.nomPosBaseRtSurfaceEwrtWorldZ);
 }
 
-}  // namespace ocs2::humanoid::config_dump
+}  // namespace ocs2::legged::config_dump

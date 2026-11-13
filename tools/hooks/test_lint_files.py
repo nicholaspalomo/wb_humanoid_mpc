@@ -39,7 +39,7 @@ from tools.hooks import lint_files
 class ScopeTest(unittest.TestCase):
     def test_first_party(self):
         for path, expected in [
-            ("humanoid_nmpc/x/src/A.cpp", True),
+            ("legged_nmpc/x/src/A.cpp", True),
             ("tools/hooks/lint_code.py", True),
             ("lib/ocs2/core/src/A.cpp", False),
             ("lib/mujoco_vendor/BUILD.bazel", False),
@@ -56,7 +56,7 @@ class ScopeTest(unittest.TestCase):
     def test_first_party_and_ocs2(self):
         scope = lint_files.Scope.FIRST_PARTY_AND_OCS2
         self.assertTrue(lint_files.in_scope("lib/ocs2/core/src/A.cpp", scope))
-        self.assertTrue(lint_files.in_scope("humanoid_nmpc/x/A.h", scope))
+        self.assertTrue(lint_files.in_scope("legged_nmpc/x/A.h", scope))
         self.assertFalse(
             lint_files.in_scope(
                 "lib/ocs2/thirdparty/include/cppad/a.hpp", scope
@@ -104,12 +104,12 @@ class ScopeTest(unittest.TestCase):
 
     def test_test_paths(self):
         for path in [
-            "humanoid_nmpc/humanoid_common_mpc/test/testContactPlan.cpp",
-            "humanoid_nmpc/humanoid_centroidal_mpc_test/src/Support.cpp",
-            "humanoid_nmpc/humanoid_centroidal_mpc_test/include/x/CentroidalTestingModelInterface.h",
+            "legged_nmpc/legged_common_mpc/test/testContactPlan.cpp",
+            "legged_nmpc/legged_centroidal_mpc_test/src/Support.cpp",
+            "legged_nmpc/legged_centroidal_mpc_test/include/x/CentroidalTestingModelInterface.h",
             "robot_runtime/robot_core/src/TripleBufferTest.cpp",
             "tools/hooks/test_lint_code.py",
-            "humanoid_learning/tests/x.py",
+            "legged_learning/tests/x.py",
             "a/conftest.py",
             "a/foo_test.py",
             "tools/clang_tidy/testdata/Bad.cpp",
@@ -119,7 +119,7 @@ class ScopeTest(unittest.TestCase):
         for path in [
             "tools/ipc/bus_test_publisher.py",
             "robot_runtime/robot_model/src/ContactEstimatorRegistry.cpp",
-            "humanoid_nmpc/x/src/Latest.cpp",
+            "legged_nmpc/x/src/Latest.cpp",
             "tools/hooks/lint_code.py",
         ]:
             with self.subTest(path=path):
@@ -222,7 +222,7 @@ class BuildFilesTest(unittest.TestCase):
         ):
             packages = lint_files.python_first_party_packages(self.root)
         for name in [
-            "humanoid_learning",
+            "legged_learning",
             "tools",
             "mod_a",
             "subpackage",

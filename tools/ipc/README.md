@@ -2,7 +2,7 @@
 
 Inspects the Cyclone DDS bus of the distributed runtime from the command line: the topics it carries, their messages and
 their rates.
-The bus itself is described in [`humanoid_nmpc/docs/distributed_runtime/README.md`](../../humanoid_nmpc/docs/distributed_runtime/README.md).
+The bus itself is described in [`legged_nmpc/docs/distributed_runtime/README.md`](../../legged_nmpc/docs/distributed_runtime/README.md).
 
 ```bash
 bazel run //tools/ipc:ipc_tool -- list                                  # topics seen within 2 s: type, count, rate
@@ -29,7 +29,7 @@ writer was discovered; `echo` and `hz` subscribe to the one topic they are given
 Every topic is a DDS topic of the same name whose samples are one `robot_ipc::Envelope`: the wire protocol's version
 (`kWireProtocolVersion`, `robot_runtime/robot_ipc/include/robot_ipc/WireProtocol.h`), the writer's sequence number,
 the full protobuf type name and the payload; a sample of another protocol version is counted as malformed and skipped.
-The tool imports every generated module of `humanoid_mpc_msgs` and of `humanoid_mpc_config` (the configuration files
+The tool imports every generated module of `legged_mpc_msgs` and of `legged_mpc_config` (the configuration files
 the tuning GUI publishes whole on `operator/mpc_parameters` and `operator/pd_gains`), so the protobuf default descriptor
 pool knows every message, and decodes a payload by the type name its envelope carries. A message of a type outside
 those packages is described (`# type: unknown message type, N bytes`) rather than decoded.

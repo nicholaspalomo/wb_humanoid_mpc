@@ -18,7 +18,7 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "abseil-cpp", version = "20250814.1")
 
 # ==============================================================================
-# IPC: Protocol Buffers messages over Cyclone DDS (humanoid_nmpc/docs/distributed_runtime)
+# IPC: Protocol Buffers messages over Cyclone DDS (legged_nmpc/docs/distributed_runtime)
 # ==============================================================================
 # Bazel 9 with protobuf >= 34 uses the prebuilt protoc of the release (the prefer_prebuilt_protoc flag defaults to
 # true), so protoc itself is not compiled. The C++ generator (protoc-gen-cpp) and the C++ runtime are, so that the
@@ -71,7 +71,7 @@ pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
 pip.parse(
     hub_name = "rl_deps",
     python_version = "3.11",
-    requirements_lock = "//humanoid_learning:requirements_lock.txt",
+    requirements_lock = "//legged_learning:requirements_lock.txt",
 )
 
 # rerun-sdk installs its packages under site-packages/rerun_sdk/ and puts that directory on sys.path with

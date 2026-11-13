@@ -148,7 +148,7 @@ class LintTidyTargetsTest(unittest.TestCase):
     ) -> int:
         """Runs `make <target>` in the scratch checkout and returns its exit status."""
         completed = subprocess.run(
-            ["make", "--no-print-directory", target, "PKG=//humanoid_nmpc/..."]
+            ["make", "--no-print-directory", target, "PKG=//legged_nmpc/..."]
             + list(variables),
             cwd=self.checkout,
             env={**self.environment, **environment},

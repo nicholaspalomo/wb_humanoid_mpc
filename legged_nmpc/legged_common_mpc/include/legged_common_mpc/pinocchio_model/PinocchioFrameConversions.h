@@ -1,0 +1,257 @@
+/******************************************************************************
+Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
+Copyright (c) 2024, 1X Technologies. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#pragma once
+
+#include "pinocchio/fwd.hpp"
+
+#include "ocs2_core/Dimensions.h"
+#include "pinocchio/multibody/fwd.hpp"
+
+#include "legged_common_mpc/common/Types.h"
+
+namespace ocs2::legged {
+
+///
+/// @brief Returns rotation matrix from local to world frame
+/// Assumes that the frame placements are up to date (e.g. updateFramePlacements
+/// has been called).
+///
+/// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
+/// @param Pinocchio interface data member.
+/// @param Local frame index of the local frame.
+///
+/// @return 3x3 rotation matrix corresponding to the passive rotation from local
+/// frame to world frame.
+
+template <typename SCALAR_T>
+inline const MATRIX3_T<SCALAR_T>& getRotmatLinkRtWorld(
+    const pinocchio::DataTpl<SCALAR_T>& data,
+    const pinocchio::FrameIndex localFrameIndex) {
+  return data.oMf[localFrameIndex].rotation();
+}
+
+///
+/// @brief Transforms a 3D vector from world to local frame
+/// Assumes that the frame placements are up to date (e.g. updateFramePlacements
+/// has been called).
+///
+/// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
+/// @param 3D vector expressed in world frame.
+/// @param Pinocchio interface.
+/// @param Local frame index of the local frame.
+///
+/// @return vector converted into local frame.
+
+template <typename SCALAR_T>
+inline VECTOR3_T<SCALAR_T> rotateVectorWorldToLocal(
+    const VECTOR3_T<SCALAR_T>& worldComponents,
+    const pinocchio::DataTpl<SCALAR_T>& data,
+    const pinocchio::FrameIndex& localFrameIndex) {
+  const MATRIX3_T<SCALAR_T>& rotmatWorldRtLocal =
+      getRotmatLinkRtWorld(data, localFrameIndex).transpose();
+  return rotmatWorldRtLocal * worldComponents;
+}
+
+///
+/// @brief Transforms a 3D vector from local to world frame
+/// Assumes that the frame placements are up to date (e.g. updateFramePlacements
+/// has been called).
+///
+/// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
+/// @param 3D vector expressed in local frame.
+/// @param Pinocchio interface.
+/// @param Local frame index of the local frame.
+///
+/// @return vector converted into world frame.
+
+template <typename SCALAR_T>
+inline VECTOR3_T<SCALAR_T> rotateVectorLocalToWorld(
+    const VECTOR3_T<SCALAR_T>& localComponents,
+    const pinocchio::DataTpl<SCALAR_T>& data,
+    const pinocchio::FrameIndex& localFrameIndex) {
+  const MATRIX3_T<SCALAR_T>& rotmatLocalRtWorld =
+      getRotmatLinkRtWorld(data, localFrameIndex);
+  return rotmatLocalRtWorld * localComponents;
+}
+
+///
+/// @brief Transforms a 6D vector from world to local frame
+/// Assumes that the frame placements are up to date (e.g. updateFramePlacements
+/// has been called).
+///
+/// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
+/// @param 6D vector expressed in world frame.
+/// @param Pinocchio interface.
+/// @param Local frame index of the local frame.
+///
+/// @return vector converted into local frame.
+
+template <typename SCALAR_T>
+inline VECTOR6_T<SCALAR_T> rotateVectorWorldToLocal(
+    const VECTOR6_T<SCALAR_T>& worldComponents,
+    const pinocchio::DataTpl<SCALAR_T>& data,
+    const pinocchio::FrameIndex& localFrameIndex) {
+  // A spatial vector - a twist, or a wrench - is two vectors of space, each
+  // rotated on its own.
+  VECTOR6_T<SCALAR_T> localComponents(kTwistDim);
+  localComponents.head(kPositionDim) = rotateVectorWorldToLocal(
+      VECTOR3_T<SCALAR_T>(worldComponents.head(kPositionDim)), data,
+      localFrameIndex),
+  localComponents.tail(kPositionDim) = rotateVectorWorldToLocal(
+      VECTOR3_T<SCALAR_T>(worldComponents.tail(kPositionDim)), data,
+      localFrameIndex);
+  return localComponents;
+}
+
+///
+/// @brief Transforms a 6D vector from local to world frame
+/// Assumes that the frame placements are up to date (e.g. updateFramePlacements
+/// has been called).
+///
+/// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
+/// @param 6D vector expressed in local frame.
+/// @param Pinocchio interface.
+/// @param Local frame index of the local frame.
+///
+/// @return vector converted into world frame.
+
+template <typename SCALAR_T>
+inline VECTOR6_T<SCALAR_T> rotateVectorLocalToWorld(
+    const VECTOR6_T<SCALAR_T>& localComponents,
+    const pinocchio::DataTpl<SCALAR_T>& data,
+    const pinocchio::FrameIndex& localFrameIndex) {
+  // A spatial vector - a twist, or a wrench - is two vectors of space, each
+  // rotated on its own.
+  VECTOR6_T<SCALAR_T> worldComponents(kTwistDim);
+  worldComponents.head(kPositionDim) = rotateVectorLocalToWorld(
+      VECTOR3_T<SCALAR_T>(localComponents.head(kPositionDim)), data,
+      localFrameIndex),
+  worldComponents.tail(kPositionDim) = rotateVectorLocalToWorld(
+      VECTOR3_T<SCALAR_T>(localComponents.tail(kPositionDim)), data,
+      localFrameIndex);
+  return worldComponents;
+}
+
+///
+/// @brief Returns transformation matrix from local to world frame
+/// Assumes that the frame placements are up to date (e.g. updateFramePlacements
+/// has been called).
+///
+/// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
+/// @param Pinocchio interface.
+/// @param Local frame index of the local frame.
+///
+/// @return 4x4 matrix corresponding to the transformation from local to world
+/// frame.
+
+template <typename SCALAR_T>
+inline MATRIX4_T<SCALAR_T> getTransformationMatrixLocalToWorld(
+    const pinocchio::DataTpl<SCALAR_T>& data,
+    const pinocchio::FrameIndex localFrameIndex) {
+  return data.oMf[localFrameIndex].toHomogeneousMatrix_impl();
+}
+
+///
+/// @brief Returns transformation matrix from world to local frame
+/// Assumes that the frame placements are up to date (e.g. updateFramePlacements
+/// has been called).
+///
+/// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
+/// @param Pinocchio interface.
+/// @param Local frame index of the local frame.
+///
+/// @return 4x4 matrix corresponding to the transformation from world to local
+/// frame.
+
+template <typename SCALAR_T>
+inline MATRIX4_T<SCALAR_T> getTransformationMatrixWorldToLocal(
+    const pinocchio::DataTpl<SCALAR_T>& data,
+    const pinocchio::FrameIndex localFrameIndex) {
+  MATRIX4_T<SCALAR_T> transformWorldToLocal = MATRIX4_T<SCALAR_T>::Identity();
+  // [R^T, -R^T p; 0, 1]: the rotation block and the translation column of the
+  // homogeneous transform.
+  transformWorldToLocal.block(0, 0, kPositionDim, kPositionDim) =
+      data.oMf[localFrameIndex].rotation().transpose();
+  transformWorldToLocal.block(0, kPositionDim, kPositionDim, 1) =
+      -data.oMf[localFrameIndex].rotation().transpose() *
+      data.oMf[localFrameIndex].translation();
+  return transformWorldToLocal;
+}
+
+///
+/// @brief Transforms a 3D vector from local to world frame
+/// Assumes that the frame placements are up to date (e.g. updateFramePlacements
+/// has been called).
+///
+/// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
+/// @param 3D vector expressed in local frame.
+/// @param Pinocchio interface.
+/// @param Local frame index of the local frame.
+///
+/// @return vector converted into world frame.
+
+template <typename SCALAR_T>
+inline VECTOR3_T<SCALAR_T> transformPointLocalToWorld(
+    const VECTOR3_T<SCALAR_T>& posQueryRtLocalEwrtLocal,
+    const pinocchio::DataTpl<SCALAR_T>& data,
+    const pinocchio::FrameIndex& localFrameIndex) {
+  VECTOR4_T<SCALAR_T> homogeniousPoint;
+  homogeniousPoint << posQueryRtLocalEwrtLocal, 1.0;
+  return (getTransformationMatrixLocalToWorld(data, localFrameIndex) *
+          homogeniousPoint)
+      .head(kPositionDim);
+}
+
+///
+/// @brief Transforms a 3D vector from world to local frame
+/// Assumes that the frame placements are up to date (e.g. updateFramePlacements
+/// has been called).
+///
+/// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
+/// @param 3D vector expressed in world frame.
+/// @param Pinocchio interface.
+/// @param Local frame index of the local frame.
+///
+/// @return vector converted into local frame.
+
+template <typename SCALAR_T>
+inline VECTOR3_T<SCALAR_T> transformPointWorldToLocal(
+    const VECTOR3_T<SCALAR_T>& posQueryRtWorldEwrtWorld,
+    const pinocchio::DataTpl<SCALAR_T>& data,
+    const pinocchio::FrameIndex& localFrameIndex) {
+  VECTOR4_T<SCALAR_T> homogeniousPoint;
+  homogeniousPoint << posQueryRtWorldEwrtWorld, 1.0;
+  return (getTransformationMatrixWorldToLocal(data, localFrameIndex) *
+          homogeniousPoint)
+      .head(kPositionDim);
+}
+
+}  // namespace ocs2::legged

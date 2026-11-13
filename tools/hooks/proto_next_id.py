@@ -33,7 +33,7 @@ every number from it on:
     // One MPC solution.
     // Next ID: 15
     message MpcPolicy {
-      option (nproto.generate_struct) = "ocs2::humanoid::msgs::MpcPolicy";
+      option (nproto.generate_struct) = "ocs2::legged::msgs::MpcPolicy";
 
       reserved 15 to max;
 

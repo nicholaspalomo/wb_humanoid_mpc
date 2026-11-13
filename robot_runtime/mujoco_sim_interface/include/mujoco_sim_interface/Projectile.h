@@ -93,7 +93,7 @@ absl::StatusOr<Projectile> projectileFromName(absl::string_view name);
 /**
  * The coefficient of restitution e(zeta) of a contact that is a linear
  * spring-damper of damping ratio `dampRatio` and can only push:
- * humanoid_nmpc/docs/dodgeball/README.md, "Restitution, and why MuJoCo does not
+ * legged_nmpc/docs/dodgeball/README.md, "Restitution, and why MuJoCo does not
  * have it".
  *
  * MuJoCo has no restitution parameter. A contact of `solref = (timeconst,
@@ -237,7 +237,7 @@ void setProjectileCollisionEnabled(mjModel* absl_nullable model,
 // LINT.IfChange(projectile_mass_range)
 inline constexpr double kMinProjectileMass = 0.1;
 inline constexpr double kMaxProjectileMass = 5.0;
-// LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/tk_app/dodgeball.py:dodgeball_mass_range)
+// LINT.ThenChange(//legged_nmpc/remote_control/remote_control/tk_app/dodgeball.py:dodgeball_mass_range)
 
 /** `mass` clamped to [kMinProjectileMass, kMaxProjectileMass]; NaN, which every
  * comparison lets through, maps to the minimum. */

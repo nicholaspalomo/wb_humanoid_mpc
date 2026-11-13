@@ -69,12 +69,18 @@ the vendored directories (`lib/`, `tools/ifttt-lint/`), the checked-in generated
 only the spelling checks read, test paths, and the Python import roots. `cpp_source.py` is the shared C++ tokenizer and
 comment / string masker; use it rather than regular expressions over raw source.
 
+The repository paths a check scopes by (the top-level directories, the NMPC packages it names, the design documents)
+are constants of `repo_layout.py`, and the checks and `lint_files.py` build their directory and file lists from them, so
+moving a directory is one change there. `test_repo_layout.py` fails when a path of `repo_layout.py`, a path literal of
+another module here, a `//<package>/...` pattern of the CI workflows or a directory of the clang-tidy header filter
+names something that does not exist.
+
 The modules: `argument_comments`, `include_style`, `boost_usage`, `american_spelling`, `proto_file_layout`,
 `proto_next_id`, `textproto_headers`, `yaml_usage`, `pointer_nullability`, `no_auto`, `cpp_google_style`, `cpp_totw`,
 `cpp_abseil` (the Abseil types chosen over their standard library counterparts), `magic_number`, `todo_format`,
 `inclusive_language`, `claudisms`, `license_header`, `python_imports`, `python_docstrings`, `python_language`, the base
 orientation's `spherical_zyx`, `euler_boundary`, `state_interpolation` and `quaternion_scalar_constructor`, and
-`frame_naming` (humanoid_nmpc/docs/frame_naming/README.md). `python3 -m tools.hooks.lint_code --only <name>` runs one check; the names and
+`frame_naming` (legged_nmpc/docs/frame_naming/README.md). `python3 -m tools.hooks.lint_code --only <name>` runs one check; the names and
 descriptions are in each module's `CHECKS`.
 
 `magic_number` (`magic-number`) reads production C++ only: the first-party code and lib/ocs2 without
@@ -133,10 +139,10 @@ per-module section in `mypy.ini` and no second clang-tidy configuration. A justi
 While you fix the findings of a new check, narrow the runs:
 
 ```bash
-python3 -m tools.hooks.lint_code --only no-auto,totw-at --paths humanoid_nmpc/humanoid_wb_mpc   # iterate
+python3 -m tools.hooks.lint_code --only no-auto,totw-at --paths legged_nmpc/legged_wb_mpc   # iterate
 python3 -m tools.hooks.lint_code --only exceptions --summary                                 # progress
 python3 -m tools.hooks.lint_code --only float-literal --fix --paths robot_runtime            # safe rewrites
-make lint-tidy PKG=//humanoid_nmpc/humanoid_wb_mpc/...                                       # clang-tidy
+make lint-tidy PKG=//legged_nmpc/legged_wb_mpc/...                                       # clang-tidy
 ```
 
 ## Tests

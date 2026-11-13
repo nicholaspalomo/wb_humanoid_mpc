@@ -28,10 +28,10 @@
 
 """Keeps YAML out of the MPC's configuration: no YAML file where the configuration lives, and no yaml-cpp.
 
-The MPC's hyperparameter files are typed textprotos (humanoid_nmpc/humanoid_mpc_config/README.md), read strictly into
+The MPC's hyperparameter files are typed textprotos (legged_nmpc/legged_mpc_config/README.md), read strictly into
 the structs nproto generates from their schemas. Two checks keep the YAML that they replaced from coming back:
 
-  config-yaml  a `.yaml` or `.yml` file under robot_models/ or humanoid_nmpc/, where the configuration files live. A
+  config-yaml  a `.yaml` or `.yml` file under robot_models/ or legged_nmpc/, where the configuration files live. A
                YAML file there would be read by nothing, or by a loader that is not the typed one. Git-ignored files
                are not files of the repository, so the linter never sees them.
   yaml-cpp     an #include (or #include_next) of a header under yaml-cpp/, in quotes or angle brackets, in C++; and a
@@ -49,12 +49,13 @@ from tools.hooks import check_types
 from tools.hooks import cpp_source
 from tools.hooks import lint_files
 from tools.hooks import nolint
+from tools.hooks import repo_layout
 
 CONFIG_YAML = "config-yaml"
 YAML_CPP = "yaml-cpp"
 
 # The directories that hold the MPC's configuration files.
-CONFIG_DIRS = ("robot_models/", "humanoid_nmpc/")
+CONFIG_DIRS = (repo_layout.ROBOT_MODELS_DIR, repo_layout.NMPC_DIR)
 YAML_EXTENSIONS = (".yaml", ".yml")
 
 _INCLUDE = re.compile(
@@ -93,7 +94,7 @@ def _config_yaml_findings(source: str, path: str) -> list[check_types.Finding]:
             1,
             CONFIG_YAML,
             "a YAML file where the MPC's configuration lives; its files are"
-            " typed textprotos (humanoid_nmpc/humanoid_mpc_config/README.md),"
+            " typed textprotos (legged_nmpc/legged_mpc_config/README.md),"
             " and nothing reads YAML.",
         )
     ]
@@ -157,13 +158,13 @@ CHECKS = [
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=_config_yaml_findings,
         description=(
-            "no .yaml or .yml file under robot_models/ or humanoid_nmpc/: the"
+            "no .yaml or .yml file under robot_models/ or legged_nmpc/: the"
             " MPC's configuration files are typed textprotos"
-            " (humanoid_nmpc/humanoid_mpc_config)."
+            " (legged_nmpc/legged_mpc_config)."
         ),
         hint=(
             "Write the configuration as a textproto of its schema"
-            " (humanoid_nmpc/humanoid_mpc_config/README.md)."
+            " (legged_nmpc/legged_mpc_config/README.md)."
         ),
     ),
     check_types.Check(
@@ -180,7 +181,7 @@ CHECKS = [
         ),
         hint=(
             "Read configuration through its typed textproto"
-            " (humanoid_common_mpc/config/ConfigFiles.h,"
+            " (legged_common_mpc/config/ConfigFiles.h,"
             " nproto::LoadTextprotoFile())."
         ),
     ),

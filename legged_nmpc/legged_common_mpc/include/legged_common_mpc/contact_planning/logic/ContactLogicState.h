@@ -1,0 +1,149 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#pragma once
+
+#include <cstddef>
+#include <optional>
+
+#include "absl/base/nullability.h"
+#include "ocs2_core/Types.h"
+
+#include "legged_common_mpc/common/BipedFeet.h"
+#include "legged_common_mpc/contact_planning/ContactPlan.h"
+#include "legged_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "legged_common_mpc/contact_planning/MixedIntegerOcpQp.h"
+
+namespace ocs2::legged {
+
+/**
+ * Pre-computation of the contact logic layer, built once per plan from the
+ * input and the grid: the node clocks of the phases (with the conservative
+ * rounding of a phase that started off-grid), the duration limits in nodes, the
+ * committed prefix, and the previous plan for the assignment costs. The rules
+ * and the assignment costs read from it; the helpers on a live assignment
+ * (stateBefore, contactAge, latestTouchDownNode) read the assignment as it is
+ * at the time of the call, which is what the coupling between the rules relies
+ * on (an overdue foot yields to what the other rules, and the same rule earlier
+ * in the same pass, have already fixed). There is deliberately no per-pass
+ * snapshot of the prefix: a snapshot taken before a pass misses what the pass
+ * itself fixes, which is exactly how the maximum-contact rule once forced a
+ * lift-off inside a double-support hold it could not see.
+ *
+ * The binaries are laid out node-major: index kNumFeet * node + foot
+ * (contactBinaryIndex). kNumFeet is the planner's foot count, the size of its
+ * per-foot input (ContactPlannerInput) and of its variable layout: two, for
+ * both planners are written for a biped and are built only for the biped's two
+ * 6-DoF feet (makeContactPlanner(), checkTwoContactCount()). The rules written
+ * over the number of feet read it through numFeet().
+ *
+ * Passive data, read-only once make() has built it, so concurrent calls of its
+ * const helpers are safe. `input` and `previousAssignment` must outlive it.
+ */
+struct ContactLogicState {
+  /** How a phase duration in fractional nodes is rounded to whole nodes. */
+  enum class NodeRounding {
+    kDown,  // conservative for a minimum-duration rule
+    kUp,    // conservative for a maximum-duration rule
+  };
+
+  // [nodes] initialTouchDownNode without a double support in progress: a
+  // touch-down too far in the past to hold anything.
+  static constexpr scalar_t kNoTouchDownNode = -1000.0;
+
+  const ContactPlannerInput* absl_nullable input = nullptr;
+  int numNodes = 0;
+  scalar_t dt = PlannerSettings::kDefaultNodeDuration;
+  int nSwingMin = 1, nSwingMax = 1, nContactMin = 1, nContactMax = 0,
+      nDoubleSupportHold = 0;
+  scalar_t minDoubleSupportNodes =
+      0.0;  // fractional, minDoubleSupportDuration / dt
+  int numCommitted = 0;
+  scalar_t initialTouchDownNode =
+      kNoTouchDownNode;  // touch-down node of a double support already in
+                         // progress at planning time
+  // Previous plan, for the plan-consistency cost: empty / null when there is no
+  // usable one.
+  std::optional<int> previousPlanShift;
+  const MiqpAssignment* absl_nullable previousAssignment = nullptr;
+
+  static constexpr size_t kNumFeet = static_cast<size_t>(kBipedFootCount);
+  static constexpr int kBinariesPerNode = static_cast<int>(kNumFeet);
+  /** The number of feet the binaries of a node cover, kNumFeet. */
+  static constexpr size_t numFeet() { return kNumFeet; }
+  static int contactBinaryIndex(int node, size_t foot) {
+    return kBinariesPerNode * node + static_cast<int>(foot);
+  }
+  int numBinaries() const { return kBinariesPerNode * numNodes; }
+
+  static ContactLogicState make(
+      const ContactPlannerInput& input,
+      const ContactPlanningConfig& config,
+      std::optional<int> previousPlanShift,
+      const MiqpAssignment* absl_nullable previousAssignment);
+
+  /**
+   * Nodes already spent in the phase active at planning time, rounded as
+   * `rounding` says.
+   */
+  int initialPhaseNodes(size_t foot, NodeRounding rounding) const;
+  /**
+   * Time at which a phase that switches at node k begins: the node start,
+   * except along the committed prefix, where the executed schedule knows the
+   * real event time (input.committedPhaseStartTimes).
+   */
+  scalar_t switchTime(int k, size_t foot) const;
+  /** Switch time of node k in node units from the grid start (k itself for a
+   * switch at the node start). */
+  scalar_t switchNode(int k, size_t foot) const;
+  /** Nodes spent in the phase that switched at node k, at the start of node k +
+   * 1 (rounded like initialPhaseNodes). */
+  int switchedPhaseNodes(int k, size_t foot, NodeRounding rounding) const;
+  /** Whether a foot in contact at node k is held down by the minimum double
+   * support after a touch-down at `latestTouchDownNode`. */
+  bool heldAfterTouchDown(int k, scalar_t latestTouchDownNode) const;
+  /** Contact state of a foot just before `node` along the fixed prefix: 1 in
+   * contact, 0 in the air, -1 unknown. */
+  int stateBefore(const MiqpAssignment& a, size_t foot, int node) const;
+  /** Elapsed contact nodes (rounded up) of a foot along the fixed prefix at
+   * `node`; -1 while the prefix is not fixed. */
+  int contactAge(const MiqpAssignment& a, size_t foot, int node) const;
+  /**
+   * The latest touch-down of either foot at a node <= `node` (switchNode
+   * units), read from the live assignment along each foot's fixed prefix, or
+   * initialTouchDownNode when there is none. A foot's walk stops at its first
+   * free binary, and a free binary can only ADD a touch-down, so on a partial
+   * assignment this is a lower bound of what every completion gives. It is
+   * exact once both feet are fixed through node - 1 and every foot that is in
+   * the air before `node` is fixed at `node` as well.
+   */
+  scalar_t latestTouchDownNode(const MiqpAssignment& a, int node) const;
+};
+
+}  // namespace ocs2::legged

@@ -245,14 +245,14 @@ class FunctionTest(LayoutTestCase):
     def test_parameters_align_after_the_parenthesis_one_per_line(self):
         self.assertWraps(
             "void ToProto(const ConfigFileSaveStatusResultVeryLongName& value, "
-            "::humanoid_mpc_msgs::ConfigFileSave_Result* absl_nonnull proto) {",
+            "::legged_mpc_msgs::ConfigFileSave_Result* absl_nonnull proto) {",
             [
                 (
                     "void ToProto(const ConfigFileSaveStatusResultVeryLongName&"
                     " value,"
                 ),
                 (
-                    "             ::humanoid_mpc_msgs::ConfigFileSave_Result*"
+                    "             ::legged_mpc_msgs::ConfigFileSave_Result*"
                     " absl_nonnull proto) {"
                 ),
             ],
@@ -262,15 +262,15 @@ class FunctionTest(LayoutTestCase):
     def test_parameters_move_after_the_parenthesis_when_they_do_not_align(self):
         self.assertWraps(
             "absl::Status FromProto(const"
-            " ::humanoid_mpc_msgs::TargetContactPatch_Pose& proto,"
-            " TargetContactPatch::Pose* absl_nonnull value);",
+            " ::legged_mpc_msgs::TargetContactPatch_Placement& proto,"
+            " TargetContactPatch::Placement* absl_nonnull value);",
             [
                 "absl::Status FromProto(",
                 (
-                    "    const ::humanoid_mpc_msgs::TargetContactPatch_Pose&"
+                    "    const ::legged_mpc_msgs::TargetContactPatch_Placement&"
                     " proto,"
                 ),
-                "    TargetContactPatch::Pose* absl_nonnull value);",
+                "    TargetContactPatch::Placement* absl_nonnull value);",
             ],
             FUNCTION,
         )

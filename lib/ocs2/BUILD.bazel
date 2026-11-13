@@ -515,7 +515,7 @@ cc_test(
 )
 
 # ==============================================================================
-# State manifold (humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.4 and 2.7)
+# State manifold (legged_nmpc/docs/quaternion_base_orientation/README.md, section 2.4 and 2.7)
 # ==============================================================================
 
 # A rigid body with a unit-quaternion attitude and taped (CppAD, no code generation) nonlinear terms on it, for the

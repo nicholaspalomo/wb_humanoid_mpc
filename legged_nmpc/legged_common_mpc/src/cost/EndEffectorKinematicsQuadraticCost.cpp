@@ -1,0 +1,216 @@
+/******************************************************************************
+Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
+Copyright (c) 2024, 1X Technologies. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
+
+#include "legged_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
+
+#include <string>
+
+#include "absl/base/nullability.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/cost/StateInputGaussNewtonCostAd.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/data.hpp"  // IWYU pragma: keep
+#include "pinocchio/multibody/fwd.hpp"
+#include "pinocchio/multibody/model.hpp"  // IWYU pragma: keep
+#include "pinocchio/spatial.hpp"
+
+#include "legged_common_mpc/common/ModelSettings.h"
+#include "legged_common_mpc/common/MpcRobotModelBase.h"
+#include "legged_common_mpc/common/Types.h"
+#include "legged_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
+#include "legged_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+
+namespace ocs2::legged {
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(
+    const EndEffectorKinematicsWeights& weights,
+    const PinocchioInterface& pinocchioInterface,
+    const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
+    const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
+    absl::string_view endEffectorName,
+    const ModelSettings& modelSettings,
+    const SwitchedModelReferenceManager* absl_nullable referenceManager)
+    : StateInputCostGaussNewtonAd(),
+      sqrtWeights_(weights.toVector().cwiseSqrt()),
+      pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
+      endEffectorKinematicsPtr_(endEffectorKinematics.clone()),
+      mpcRobotModelADPtr_(mpcRobotModelAD.clone()),
+      referenceManagerPtr_(referenceManager) {
+  LOG(INFO) << "Initialized EndEffectorKinematicsQuadraticCost with weights: "
+            << weights.toVector().transpose();
+  LOG(INFO) << "Frame name: " << endEffectorName;
+  frameID_ =
+      pinocchioInterface.getModel().getFrameId(std::string(endEffectorName));
+  LOG(INFO) << "Frame ID: " << frameID_;
+  LOG(INFO) << "State dim: " << mpcRobotModelADPtr_->getStateDim();
+  LOG(INFO) << "Input dim: " << mpcRobotModelADPtr_->getInputDim();
+  LOG(INFO) << "Parameters dim: " << n_parameters_;
+
+  // The library name carries the version of the residual, so that a library
+  // taped from an earlier one is never loaded from the cache in its place (the
+  // robots ship recompile_libraries_cpp_ad: false): "_logMap" is the
+  // orientation error Log(q_ref (x) q^-1) of computeTaskSpaceErrors(), which
+  // replaced the vector part of the error quaternion.
+  initialize(mpcRobotModelADPtr_->getStateDim(),
+             mpcRobotModelADPtr_->getInputDim(), n_parameters_,
+             absl::StrCat(endEffectorName, "_KinematicsQuadraticCost_logMap"),
+             modelSettings.modelFolderCppAd,
+             modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(
+    const EndEffectorKinematicsQuadraticCost& other)
+    : StateInputCostGaussNewtonAd(other),
+      sqrtWeights_(other.sqrtWeights_),
+      n_parameters_(other.n_parameters_),
+      frameID_(other.frameID_),
+      pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
+      endEffectorKinematicsPtr_(other.endEffectorKinematicsPtr_->clone()),
+      mpcRobotModelADPtr_(other.mpcRobotModelADPtr_->clone()),
+      // isActive_ is copied deliberately: the SQP solver clones the whole
+      // problem once per worker thread, and a copy constructor that dropped
+      // this flag silently reverted a deactivated term to active.
+      isActive_(other.isActive_),
+      referenceManagerPtr_(other.referenceManagerPtr_) {}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+vector_t EndEffectorKinematicsQuadraticCost::getParameters(
+    scalar_t time,
+    const TargetTrajectories& targetTrajectories,
+    const PreComputation& /*preComputation*/) const {
+  // Interpolate reference (in the robot model's state layout), with the base
+  // pose shaped the way the base-pose costs shape it when this link follows the
+  // base.
+  const vector_t xTarget =
+      mpcRobotModelADPtr_->getDesiredState(targetTrajectories, time);
+  const vector_t xRef =
+      referenceManagerPtr_ != nullptr
+          ? referenceManagerPtr_->shapePoseBaseRtWorld(time, xTarget)
+          : xTarget;
+  const vector_t uRef = targetTrajectories.getDesiredInput(time);
+
+  vector_t parameters(n_parameters_);
+  parameters << getReferenceCostElement(xRef, uRef, *endEffectorKinematicsPtr_)
+                    .getValues(),
+      sqrtWeights_;
+  return parameters;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+EndEffectorKinematicsCostElement<scalar_t>
+EndEffectorKinematicsQuadraticCost::getReferenceCostElement(
+    const vector_t& state,
+    const vector_t& input,
+    const EndEffectorKinematics<scalar_t>& endEffectorKinematics) {
+  EndEffectorKinematicsCostElement<scalar_t> costElement;
+  costElement.setPosEeRtWorldEwrtWorld(
+      endEffectorKinematics.getPosEesRtWorldEwrtWorld(state)[0]);
+  costElement.setQuatEeRtWorld(
+      endEffectorKinematics.getQuatEesRtWorld(state)[0]);
+  costElement.setLinvelEeRtWorldEwrtWorld(
+      endEffectorKinematics.getLinvelEesRtWorldEwrtWorld(state, input)[0]);
+  costElement.setAngvelEeRtWorldEwrtWorld(
+      endEffectorKinematics.getAngvelEesRtWorldEwrtWorld(state, input)[0]);
+  return costElement;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+ad_vector_t EndEffectorKinematicsQuadraticCost::costVectorFunction(
+    ad_scalar_t /*time*/,
+    const ad_vector_t& state,
+    const ad_vector_t& input,
+    const ad_vector_t& parameters) {
+  const pinocchio::ReferenceFrame rf =
+      pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
+
+  const PinocchioInterfaceCppAd::Model& model =
+      pinocchioInterfaceCppAd_.getModel();
+  PinocchioInterfaceCppAd::Data& data = pinocchioInterfaceCppAd_.getData();
+
+  const ad_vector_t q = mpcRobotModelADPtr_->getGeneralizedCoordinates(state);
+  const ad_vector_t v =
+      mpcRobotModelADPtr_->getGeneralizedVelocities(state, input);
+  pinocchio::forwardKinematics(model, data, q, v);
+  const pinocchio::SE3Tpl<ad_scalar_t> poseEeRtWorld =
+      pinocchio::updateFramePlacement(model, data, frameID_);
+
+  ad_vector_t posEeRtWorldEwrtWorld = poseEeRtWorld.translation();
+  ad_vector_t linvelEeRtWorldEwrtWorld =
+      pinocchio::getFrameVelocity(model, data, frameID_, rf).linear();
+  ad_quaternion_t quatEeRtWorld = matrixToQuaternion(poseEeRtWorld.rotation());
+  ad_vector_t angvelEeRtWorldEwrtWorld =
+      pinocchio::getFrameVelocity(model, data, frameID_, rf).angular();
+  ad_vector_t taskSpaceVec(kEndEffectorCostElementDim);
+  taskSpaceVec << posEeRtWorldEwrtWorld, quatEeRtWorld.coeffs(),
+      linvelEeRtWorldEwrtWorld, angvelEeRtWorldEwrtWorld;
+  // ad_vector_t errors = ad_vector_t::Zero(12);
+  ad_vector_t errors = computeTaskSpaceErrors(
+      EndEffectorKinematicsCostElement<ad_scalar_t>(taskSpaceVec),
+      EndEffectorKinematicsCostElement<ad_scalar_t>(
+          parameters.head(kEndEffectorCostElementDim)));
+
+  // EndEffectorKinematicsWeights vector element
+  const ad_vector_t sqrtWeightParams =
+      parameters.segment<kEndEffectorTaskSpaceErrorDim>(
+          kEndEffectorCostElementDim);
+
+  return errors.cwiseProduct(sqrtWeightParams);
+}
+
+}  // namespace ocs2::legged

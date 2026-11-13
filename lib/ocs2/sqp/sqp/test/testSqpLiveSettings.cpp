@@ -28,7 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 /*
- * SqpSolver::setLiveSettings(), the narrow live retuning of the SQP solver (the parameter updater of humanoid_nmpc):
+ * SqpSolver::setLiveSettings(), the narrow live retuning of the SQP solver (the parameter updater of legged_nmpc):
  * the four live settings reach both the settings and the filter line search, which copies g_max and g_min at
  * construction, so that a solve after setLiveSettings() is the solve of a solver constructed with those values, bit for
  * bit; and no other setting changes. And SqpSolver::getIterationRecords(), what the line search those settings steer

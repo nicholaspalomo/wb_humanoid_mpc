@@ -28,7 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 /*
- * The library observer of CppAdInterface: the solve benchmark of humanoid_mpc_validation installs one to record the tape
+ * The library observer of CppAdInterface: the solve benchmark of legged_mpc_validation installs one to record the tape
  * operation count of every library a problem builds, which the problem's terms keep private. Without an observer
  * nothing happens; with one, every library made ready - generated, loaded, or reloaded by a copy - is handed to it,
  * and removing it stops the calls.

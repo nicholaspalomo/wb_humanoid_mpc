@@ -1,7 +1,7 @@
 # proto-file: robot_runtime/robot_ipc/proto/network_config.proto
 # proto-message: robot_ipc_proto.NetworkConfig
 #
-# An example network file for the hardware split (humanoid_nmpc/docs/distributed_runtime/README.md, "Deployment"):
+# An example network file for the hardware split (legged_nmpc/docs/distributed_runtime/README.md, "Deployment"):
 # the robot process on the robot's computer, the MPC node, the GUI and the teleoperation on the laptop. Copy it, put the
 # two machines' addresses in `host`, and give the same file to both sides:
 #

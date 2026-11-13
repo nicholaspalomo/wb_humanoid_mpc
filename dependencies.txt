@@ -11,7 +11,7 @@
 #   on the compiler's default include path lets a target that misses a Bazel dependency compile against the wrong release
 #   (tools/hooks/test_include_style.py).
 # - ROS: the processes talk over Cyclone DDS + Protocol Buffers and draw with Rerun
-#   (humanoid_nmpc/docs/distributed_runtime).
+#   (legged_nmpc/docs/distributed_runtime).
 
 # Toolchain. cmake also builds blasfeo and hpipm in their repository rules (bazel/system_libs.bzl).
 clang-format
@@ -41,7 +41,7 @@ libxcursor-dev
 libxi-dev
 libxrandr-dev
 # The X server the Tk tests of remote_control start for themselves where the caller has no display, as in CI, so that
-# they run there instead of being skipped (humanoid_nmpc/remote_control/test/operator_test_support.py).
+# they run there instead of being skipped (legged_nmpc/remote_control/test/operator_test_support.py).
 xvfb
 
 # The system Python 3.12: tools/locomotion_heuristics (with robotpkg's Pinocchio), the hooks and black in tools/hooks,

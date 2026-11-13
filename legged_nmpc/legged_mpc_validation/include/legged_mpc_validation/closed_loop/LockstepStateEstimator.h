@@ -1,0 +1,92 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#pragma once
+
+#include <memory>
+
+#include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+
+#include "legged_common_mpc/common/ModelSettings.h"
+#include "legged_common_mpc_app/robot/RobotProcessSettings.h"
+#include "legged_mpc_config/contacts_config.nproto.h"
+#include "legged_state_estimator/StateEstimator.h"
+#include "legged_state_estimator/StateEstimatorRegistry.h"
+#include "robot_model/RobotDescription.h"
+
+namespace ocs2::legged::validation {
+
+/**
+ * Returns `settings` with its state_estimator replaced by `stateEstimator`
+ * when that is not empty (RobotConfiguration::stateEstimator), and unchanged
+ * otherwise. Only the estimator's name changes: its noise model stays the
+ * task file's `kalman_state_estimator` block.
+ */
+RobotProcessSettings withStateEstimator(RobotProcessSettings settings,
+                                        absl::string_view stateEstimator);
+
+/**
+ * Returns the context the robot process builds its state estimator from
+ * (RobotProcess::Create()): the URDF `urdfFile`, the contact points of
+ * `modelSettings` and of the task file's contacts block `contacts`
+ * (stateEstimatorContacts(), as robotProcessConfig() passes them to the robot
+ * process), the robot `description`, which is retained in the result and must
+ * outlive every estimator built from it, and the `kalman` noise model of
+ * `settings`. The errors of stateEstimatorContacts().
+ */
+absl::StatusOr<estimation::StateEstimatorContext>
+robotProcessStateEstimatorContext(
+    const RobotProcessSettings& settings,
+    const ModelSettings& modelSettings,
+    const mpc_config::ContactsConfig& contacts,
+    absl::string_view urdfFile,
+    const robot::model::RobotDescription* absl_nonnull description);
+
+/**
+ * Builds the state estimator the task file's `state_estimator` names
+ * (settings.stateEstimator) with robotProcessStateEstimatorContext(), as
+ * RobotProcess::Create() builds it: `ground_truth` hands the measured state on
+ * itself, `kalman` estimates the base's position and linear velocity. An
+ * unknown name, contact points that cannot be placed or an estimator that
+ * cannot be built (`kalman` on a rolling contact set, which it refuses naming
+ * the contact) is the error, prefixed with "<taskFile>: state_estimator: "
+ * as the robot process reports it. `description` must outlive the estimator.
+ */
+absl::StatusOr<std::unique_ptr<estimation::StateEstimator>>
+createRobotProcessStateEstimator(
+    const RobotProcessSettings& settings,
+    const ModelSettings& modelSettings,
+    const mpc_config::ContactsConfig& contacts,
+    absl::string_view urdfFile,
+    absl::string_view taskFile,
+    const robot::model::RobotDescription* absl_nonnull description);
+
+}  // namespace ocs2::legged::validation

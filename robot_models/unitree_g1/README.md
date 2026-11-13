@@ -32,7 +32,7 @@ make deploy-robot ROBOT=unitree_g1 HOST=<robot> NETWORK=<file>     # or ROBOT=un
 Each has a `-vnc` variant (`make launch-g1-sim-vnc`) that starts the VNC server first; see `.devcontainer/README.md`.
 The launch files are `g1_centroidal_mpc/launch/` and `g1_wb_mpc/launch/` (`robot.textproto`, `mpc.textproto`,
 `dummy_sim.textproto`) and `g1_description/launch/sandbox.textproto`
-(`humanoid_nmpc/docs/distributed_runtime/README.md`, "Launching").
+(`legged_nmpc/docs/distributed_runtime/README.md`, "Launching").
 
 ## ACoM tracking: the network exists but is NOT VALIDATED
 
@@ -48,7 +48,7 @@ from the target than no network at all; at G1's nominal stance it is 36 % off. `
 only guard against it getting worse, and fails if `com_and_acom_tracking_cost` is listed while G1 is marked unvalidated
 there.
 
-Enabling it means retraining (`bazel run //humanoid_learning/acom:train_main -- --robot g1 --install_header`) until the
-header meets Atlas's acceptance bounds, then marking it validated in the test. See `humanoid_learning/acom/README.md`,
+Enabling it means retraining (`bazel run //legged_learning/acom:train_main -- --robot g1 --install_header`) until the
+header meets Atlas's acceptance bounds, then marking it validated in the test. See `legged_learning/acom/README.md`,
 section 6.3.
-<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots) -->
+<!-- LINT.ThenChange(//legged_nmpc/legged_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots) -->

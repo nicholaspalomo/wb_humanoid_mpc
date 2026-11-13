@@ -49,7 +49,7 @@ namespace manifold_test {
  *   state  x = [p (3, world), xi (4, x y z w), omega (3, body)]   (without the position: x = [xi, omega])
  *   input  u = [v (3, body velocity), tau (3, body torque)]       (without the position: u = tau)
  *   p' = R(xi / |xi|) v,  xi' = 0.5 G(xi) omega,  omega' = I^-1 (tau - omega x I omega).
- * As in the humanoid flow maps, every function sees the quaternion through xi / |xi| except the kinematic row, which
+ * As in the legged MPCs' flow maps, every function sees the quaternion through xi / |xi| except the kinematic row, which
  * uses the raw xi; the vector field is then tangent to the sphere through xi.
  *
  * The jump map rotates the body by a fixed quaternion (xi+ = xi (x) q) and halves the angular velocity.

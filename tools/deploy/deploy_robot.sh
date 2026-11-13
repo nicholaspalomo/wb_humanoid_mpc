@@ -43,7 +43,7 @@ IMAGE_SOURCES="build registry"
 TARGETS="robot-runtime robot-sim"
 # LINT.IfChange(config_seed_policies)
 CONFIG_SEEDS="when_bundle_changes every_start never"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotConfigDirectory.h:config_seed_policies)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/include/legged_common_mpc_app/robot/RobotConfigDirectory.h:config_seed_policies)
 # The robot's persistent configuration in the deployment directory, which compose binds into the container
 # (WB_ROBOT_CONFIG_SOURCE, docker-compose.robot.yaml); a deploy creates it and never empties it.
 # LINT.IfChange(robot_config_dir)
@@ -206,7 +206,7 @@ image_name() {
 
 # The architecture of the bundle's robot binary, from its ELF header (e_machine): amd64 or arm64.
 bundle_architecture() {
-    local binary="bin/humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_robot"
+    local binary="bin/legged_nmpc/legged_centroidal_mpc_app/legged_centroidal_mpc_robot"
     local machine
     machine="$(tar -xOf "${CONTEXT_DIR}/robot_bundle.tar" "${binary}" | head -c 20 | od -An -tx1 -j18 -N2 | tr -d ' \n')"
     case "${machine}" in

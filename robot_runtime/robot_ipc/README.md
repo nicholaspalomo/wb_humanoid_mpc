@@ -1,9 +1,9 @@
 # robot_ipc
 
 The Cyclone DDS bus of the distributed runtime, in C++ (`robot::ipc`, target `:robot_ipc`) and in Python
-(`import robot_ipc`, target `:robot_ipc_py`). The design, the processes and the topics of the humanoid are in
-[`humanoid_nmpc/docs/distributed_runtime/README.md`](../../humanoid_nmpc/docs/distributed_runtime/README.md); this
-package is generic and knows none of its messages (the shipped network file only names the humanoid's topics to give
+(`import robot_ipc`, target `:robot_ipc_py`). The design, the processes and the topics of the MPC are in
+[`legged_nmpc/docs/distributed_runtime/README.md`](../../legged_nmpc/docs/distributed_runtime/README.md); this
+package is generic and knows none of its messages (the shipped network file only names the MPC's topics to give
 each its quality of service).
 
 It uses [Eclipse Cyclone DDS](https://cyclonedds.io) directly: the C library `ddsc` of the BCR module `cyclonedds`
@@ -35,7 +35,7 @@ flowchart LR
   @final struct Envelope {
     uint32 protocol_version;   // kWireProtocolVersion, 2
     uint64 sequence_number;    // 1, 2, 3, ... per writer
-    string type_name;          // e.g. "humanoid_mpc_msgs.MpcPolicy"
+    string type_name;          // e.g. "legged_mpc_msgs.MpcPolicy"
     sequence<octet> payload;   // the serialized protobuf message
   };
   ```
@@ -118,9 +118,9 @@ robot::ipc::BusOptions options;
 options.nodeName = "mpc";
 options.network = std::move(network);
 ASSIGN_OR_RETURN(std::unique_ptr<robot::ipc::Bus> bus, robot::ipc::Bus::Create(std::move(options)));
-RETURN_IF_ERROR(bus->subscribe<humanoid_mpc_msgs::MpcObservation>(
+RETURN_IF_ERROR(bus->subscribe<legged_mpc_msgs::MpcObservation>(
     "robot/mpc_observation", robot::ipc::Delivery::kLatest,
-    [](const humanoid_mpc_msgs::MpcObservation& observation) { /* on the IO thread */ }));
+    [](const legged_mpc_msgs::MpcObservation& observation) { /* on the IO thread */ }));
 RETURN_IF_ERROR(bus->start());
 bus->publish("mpc/policy", policy).IgnoreError();  // ResourceExhausted when the queue is full
 ```
@@ -146,7 +146,7 @@ built into the library (`:localhost_network_text`).
 
 ```python
 import robot_ipc
-from humanoid_mpc_msgs import mpc_status_pb2
+from legged_mpc_msgs import mpc_status_pb2
 
 network = robot_ipc.load_network_config("config/ipc/network.textproto")
 bus = robot_ipc.Bus("operator", network)

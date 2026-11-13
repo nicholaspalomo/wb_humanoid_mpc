@@ -1,10 +1,10 @@
-# proto-file: humanoid_nmpc/humanoid_mpc_config/reference_file.proto
-# proto-message: humanoid_mpc_config.ReferenceFile
+# proto-file: legged_nmpc/legged_mpc_config/reference_file.proto
+# proto-message: legged_mpc_config.ReferenceFile
 # The reference file of the DRC Atlas's multi-contact task file (task.textproto beside it), which tracks an offline plan
 # (contact_schedule_source: "multi_contact_plan"): the plan is the reference, so the velocity command, the command
 # limits and the gait schedule below are only read as the MPC's defaults. It is the shipped
 # ../../command/reference.textproto with the four wrist joints, which the multi-contact model unlocks (design section
-# 11, decision 2, humanoid_nmpc/docs/multi_contact_planning/README.md).
+# 11, decision 2, legged_nmpc/docs/multi_contact_planning/README.md).
 ref_speed_base_rt_world: 0.5
 ref_rate_yaw_base_rt_world: 0.5
 

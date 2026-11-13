@@ -39,8 +39,8 @@ alternatives of one oneof, a field number instead of a name, a deprecated field 
 The schema answers what it can, with the C++ parser's words: a field the message lists as an (nproto.retired_field) is
 "'<name>' is retired: <replacement>"; otherwise an unknown field says "Did you mean ..." when its snake-cased name is a
 field, and ends with the message's (nproto.retired_layout_hint). A text whose leading comment block names another
-message (`# proto-message: pkg.Other`) is refused before it is parsed, and a file (load_textproto()) whose leading
-comment block names no message at all is refused too (check_proto_message_header()).
+message (`# proto-message: pkg.Other`, header_names_message()) is refused before it is parsed, and a file
+(load_textproto()) whose leading comment block names no message at all is refused too (check_proto_message_header()).
 
 The C++ parser reports every problem of a text; this one, built on google.protobuf.text_format, reports the first.
 """
@@ -54,6 +54,7 @@ from google.protobuf import descriptor_pb2
 from google.protobuf import descriptor_pool
 from google.protobuf import message as message_module
 from google.protobuf import text_format
+from nproto import options_pb2
 from nproto import retired_field_options_pb2
 
 MessageT = TypeVar("MessageT", bound=message_module.Message)
@@ -115,6 +116,72 @@ def header_message(text: str) -> tuple[int, str] | None:
         if comment.startswith(PROTO_MESSAGE_HEADER):
             return number, comment[len(PROTO_MESSAGE_HEADER) :].strip()
     return None
+
+
+# LINT.IfChange(former_package)
+def former_package(descriptor: descriptor_module.Descriptor) -> str:
+    """The (nproto.former_package) of the file of the message `descriptor`; empty when it sets none."""
+    options = descriptor_pb2.FileOptions.FromString(
+        descriptor.file.GetOptions().SerializeToString()
+    )
+    return str(options.Extensions[options_pb2.former_package])
+
+
+def header_names_message(
+    header_name: str, descriptor: descriptor_module.Descriptor
+) -> bool:
+    """Whether `header_name`, the full name of a `# proto-message:` header, names the message `descriptor`.
+
+    The twin of nproto::HeaderNamesMessage(): the message's full name, or, when its file sets (nproto.former_package),
+    the full name it had in that package (`humanoid_mpc_config.TaskFile` for `legged_mpc_config.TaskFile`), so that a
+    file saved before a package rename still loads (tools/nproto/README.md, "Renamed packages").
+
+    Args:
+      header_name: The full name the header gives.
+      descriptor: The message.
+
+    Returns:
+      True for the message's current or former full name, False for any other name.
+    """
+    full_name = descriptor.full_name
+    if header_name == full_name:
+        return True
+    former = former_package(descriptor)
+    package = descriptor.file.package
+    if not former or not package:
+        return False
+    return header_name == former + full_name[len(package) :]
+
+
+def canonical_header_text(
+    text: str, descriptor: descriptor_module.Descriptor
+) -> str:
+    """`text` with a `# proto-message:` header that gives the former full name of `descriptor` naming its current one.
+
+    What a save writes, so that a file saved before a package rename gets the new header the next time it is written.
+    Every other byte, and a text whose header names the current name, another message or nothing, stays as it is.
+
+    Args:
+      text: The textproto of a `descriptor` message.
+      descriptor: The message.
+
+    Returns:
+      The text, its header line rewritten when it gave the former name.
+    """
+    header = header_message(text)
+    if (
+        header is None
+        or header[1] == descriptor.full_name
+        or not header_names_message(header[1], descriptor)
+    ):
+        return text
+    lines = text.split("\n")
+    index = header[0] - 1
+    lines[index] = lines[index].replace(header[1], descriptor.full_name, 1)
+    return "\n".join(lines)
+
+
+# LINT.ThenChange(//tools/nproto/options.proto:former_package, //tools/nproto/src/Textproto.cpp:former_package)
 
 
 def _message_options(
@@ -316,7 +383,9 @@ def parse_textproto(
     """
     full_name = message.DESCRIPTOR.full_name
     header = header_message(text)
-    if header is not None and header[1] != full_name:
+    if header is not None and not header_names_message(
+        header[1], message.DESCRIPTOR
+    ):
         raise TextprotoError(
             f"{source}:{header[0]}:1: {source} is a {header[1]} (its '#"
             f" proto-message:' header), not a {full_name}"
@@ -382,7 +451,7 @@ def check_proto_message_header(
 
     The twin of nproto::CheckProtoMessageHeader(). A file that names no message could be read as any message whose
     fields it matches; text from memory (a bus payload, a test's string) is parsed with parse_textproto() alone.
-    Whether the line names the message of `message` is parse_textproto()'s check.
+    Whether the line names the message of `message` (header_names_message()) is parse_textproto()'s check.
 
     Args:
       text: The file's text.

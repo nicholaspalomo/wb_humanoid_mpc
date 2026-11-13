@@ -1,5 +1,5 @@
-# proto-file: humanoid_nmpc/humanoid_mpc_config/contact_planning_file.proto
-# proto-message: humanoid_mpc_config.ContactPlanningFile
+# proto-file: legged_nmpc/legged_mpc_config/contact_planning_file.proto
+# proto-message: legged_mpc_config.ContactPlanningFile
 # Online contact planner of the DRC Atlas, read when task.textproto selects
 # contact_schedule_source: contact_planner (Atlas ships gait_schedule). This file lives next to task.textproto
 # (CentroidalMpcInterface looks for contact_planning.textproto in the task file's directory); the parameter updater reloads
@@ -8,12 +8,12 @@
 # `planner.type` chooses the planner and therefore which of the blocks below are read at all.
 #
 #   hlip      the closed-form reduced-order stepper of arXiv:2502.15630 (the planner selected here; see
-#             humanoid_nmpc/docs/hlip_contact_planner/README.md). A fixed cadence of alternating single supports and a
+#             legged_nmpc/docs/hlip_contact_planner/README.md). A fixed cadence of alternating single supports and a
 #             foothold from the H-LIP deadbeat step-to-step controller. Nothing is optimized, nothing is searched and
 #             no gain is tuned: the reduced model proposes a nominal gait and the whole-body MPC is free to leave it.
 #             Reads `planner`, `shared`, `hlip`, the `execution` list and whether `dynamics` lists
 #             heading_double_integrator.
-#   lip_miqp  the mixed-integer program (LipContactPlanner, humanoid_nmpc/docs/README.md section 2). A Linear Inverted
+#   lip_miqp  the mixed-integer program (LipContactPlanner, legged_nmpc/docs/README.md section 2). A Linear Inverted
 #             Pendulum on a coarse grid, one contact binary per node and foot, solved by branch-and-bound over HPIPM
 #             relaxations. Reads `planner`, `shared`, the term lists and one parameter block per listed term. It is
 #             also what a robot gets whose file omits planner.type: the library defaults are its configuration.
@@ -24,7 +24,7 @@
 # configured with at start-up and after every reload that changes what it prints (ContactPlannerModule::reloadSummary).
 planner {  # which planner, grid, commit window, solver budget, threading
   # Which contact planner runs (ContactPlannerFactory). `hlip` is the closed-form reduced-order stepper of
-  # arXiv:2502.15630 (humanoid_nmpc/docs/hlip_contact_planner/README.md): a fixed cadence and the H-LIP deadbeat step,
+  # arXiv:2502.15630 (legged_nmpc/docs/hlip_contact_planner/README.md): a fixed cadence and the H-LIP deadbeat step,
   # nothing is optimized, and of the blocks below it reads `shared`, `hlip`, the `execution` list and whether
   # `dynamics` lists heading_double_integrator. `lip_miqp` is the mixed-integer program, which reads the term lists
   # and every per-term block and ignores the `hlip` block.

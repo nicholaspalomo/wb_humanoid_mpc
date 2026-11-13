@@ -98,12 +98,12 @@ CONFIG_STORE_TARGET = "/var/lib/wb-humanoid-robot/config"
 SIM_PLOT_CONFIG_TARGET = "/etc/wb-humanoid-robot/plot_config.textproto"
 # The shipped plot configuration, and the header that makes a file one the robot reads its viewer from.
 SHIPPED_PLOT_CONFIG = (
-    "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto"
+    "legged_nmpc/legged_rerun_viewer/config/plot_config.textproto"
 )
 PLOT_CONFIG_HEADER = (
     "# proto-file:"
-    " humanoid_nmpc/humanoid_rerun_viewer/proto/plot_config.proto\n#"
-    " proto-message: humanoid_rerun_viewer_proto.PlotConfig\n"
+    " legged_nmpc/legged_rerun_viewer/proto/plot_config.proto\n#"
+    " proto-message: legged_rerun_viewer_proto.PlotConfig\n"
 )
 # Stand-ins for what a sim session runs, which record their command lines to SESSION_LOG: Docker, with the network file,
 # the viewer and the plot configuration it would give the robot container, has nothing running, answers `compose logs`
@@ -619,7 +619,7 @@ class ComposeTest(unittest.TestCase):
         self.assertIs(mount["read_only"], True)
         self.assertEqual(
             mount["source"],
-            "${WB_ROBOT_SIM_PLOT_CONFIG:-./humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto}",
+            "${WB_ROBOT_SIM_PLOT_CONFIG:-./legged_nmpc/legged_rerun_viewer/config/plot_config.textproto}",
         )
         self.assertEqual(
             sim["environment"]["WB_ROBOT_PLOT_CONFIG"], SIM_PLOT_CONFIG_TARGET
@@ -2037,6 +2037,42 @@ class SessionTest(unittest.TestCase):
         )
         self.assertNotIn("localhost:6090", result.stdout, "its viewer is none")
 
+    def test_a_plot_configuration_saved_before_the_rename_is_read(
+        self,
+    ) -> None:
+        # A plot configuration saved before the humanoid -> legged rename names the message's former package
+        # (nproto.former_package of plot_config.proto), which the robot's parser accepts: so does the session.
+        old_header = PLOT_CONFIG_HEADER.replace(
+            "legged_rerun_viewer_proto.PlotConfig",
+            "humanoid_rerun_viewer_proto.PlotConfig",
+        )
+        self.assertNotEqual(old_header, PLOT_CONFIG_HEADER)
+        checkout = self.fake_checkout(
+            {"plots/old.textproto": f'{old_header}mujoco_viewer: "none"\n'}
+        )
+        result, recorded = self.run_sim(
+            checkout, "--plot_config", "plots/old.textproto"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self.robot_container(recorded),
+            ("", f"{HOST_CHECKOUT}/plots/old.textproto"),
+        )
+        # Another package is still refused.
+        checkout = self.fake_checkout(
+            {
+                "plots/other.textproto": (
+                    "# proto-message: other_package.PlotConfig\n"
+                    'mujoco_viewer: "none"\n'
+                )
+            }
+        )
+        refused, recorded = self.run_sim(
+            checkout, "--plot_config", "plots/other.textproto"
+        )
+        self.assertEqual(refused.returncode, 2)
+        self.assertEqual(recorded, [], "nothing was built, stopped or started")
+
     def test_a_plot_configuration_the_robot_cannot_read_is_refused_before_anything_starts(
         self,
     ) -> None:
@@ -2051,7 +2087,7 @@ class SessionTest(unittest.TestCase):
         self.assertEqual(refused.returncode, 2)
         self.assertIn(
             "does not declare '# proto-message:"
-            " humanoid_rerun_viewer_proto.PlotConfig'",
+            " legged_rerun_viewer_proto.PlotConfig'",
             refused.stderr,
         )
         self.assertIn("VIEWER=web|glfw|none", refused.stderr)

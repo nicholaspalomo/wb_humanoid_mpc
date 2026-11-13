@@ -90,7 +90,7 @@ class SqpSolver : public SolverBase {
 
   /**
    * The settings that may change between two solves, which a live retuning of the solver writes (the parameter updater
-   * of humanoid_nmpc). Every other setting was used at construction to build an object of the solver (the thread pool,
+   * of legged_nmpc). Every other setting was used at construction to build an object of the solver (the thread pool,
    * HPIPM, the logger, the discretizers) and cannot follow a change, so it cannot be passed here.
    */
   struct LiveSettings {

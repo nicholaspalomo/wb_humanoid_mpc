@@ -31,12 +31,12 @@ Every .proto file of the repository defines one top-level message or enum, and t
 nproto generates for it with an option, the first statement of its body (tools/nproto/README.md):
 
     message Vector3 {
-      option (nproto.generate_struct) = "ocs2::humanoid::msgs::Vector3";
+      option (nproto.generate_struct) = "ocs2::legged::msgs::Vector3";
       ...
     }
 
     enum ControllerType {
-      option (nproto.generate_enum) = "ocs2::humanoid::msgs::ControllerType";
+      option (nproto.generate_enum) = "ocs2::legged::msgs::ControllerType";
       ...
     }
 
@@ -239,7 +239,7 @@ def enumerator_name(value_name: str, prefix: str) -> str:
 
 
 def output_stem(proto_file_name: str) -> str:
-    """`humanoid_mpc_msgs/mpc_policy.proto` -> `humanoid_mpc_msgs/mpc_policy`, the stem of every generated file."""
+    """`legged_mpc_msgs/mpc_policy.proto` -> `legged_mpc_msgs/mpc_policy`, the stem of every generated file."""
     if proto_file_name.endswith(".proto"):
         return proto_file_name[: -len(".proto")]
     return proto_file_name
@@ -450,9 +450,9 @@ def _fit_comments(content: str) -> str:
 class TypeInfo:
     """Where the struct of one message or enum lives and what protobuf calls it in C++."""
 
-    # ("ocs2", "humanoid", "msgs", "TargetContactPatch", "Kind")
+    # ("ocs2", "legged", "msgs", "TargetContactPatch", "Kind")
     struct_path: tuple[str, ...]
-    proto_class: str  # "::humanoid_mpc_msgs::TargetContactPatch_Kind"
+    proto_class: str  # "::legged_mpc_msgs::TargetContactPatch_Kind"
     file_name: str
 
 

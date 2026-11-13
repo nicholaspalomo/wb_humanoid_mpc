@@ -1,5 +1,5 @@
-# proto-file: humanoid_nmpc/humanoid_mpc_config/reference_file.proto
-# proto-message: humanoid_mpc_config.ReferenceFile
+# proto-file: legged_nmpc/legged_mpc_config/reference_file.proto
+# proto-message: legged_mpc_config.ReferenceFile
 ref_speed_base_rt_world: 0.5
 ref_rate_yaw_base_rt_world: 0.5
 
@@ -27,7 +27,7 @@ nom_pos_base_rt_surface_ewrt_world_z: 0.63588
 # against hind (+0.64 / -0.85 rad on the front legs, -0.64 / +0.85 rad on the hind legs), which puts each wheel center
 # below its HFE joint, at (+-0.35981, +-0.29811, -0.53788) m from the base. The center of mass is then 81 mm behind
 # the base origin, inside the rectangle of the four wheels. The wheel angles are 0: a wheel's position has no reference
-# and no weight (humanoid_nmpc/docs/rolling_contact/README.md, section 7).
+# and no weight (legged_nmpc/docs/rolling_contact/README.md, section 7).
 default_joint_state { joint: "LF_HAA" value: 0.0 }
 default_joint_state { joint: "LF_HFE" value: 0.64 }
 default_joint_state { joint: "LF_KFE" value: -0.85 }

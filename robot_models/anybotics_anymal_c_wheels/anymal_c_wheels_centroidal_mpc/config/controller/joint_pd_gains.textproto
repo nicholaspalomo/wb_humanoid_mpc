@@ -1,5 +1,5 @@
-# proto-file: humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto
-# proto-message: humanoid_mpc_config.JointPdGainsFile
+# proto-file: legged_nmpc/legged_mpc_config/joint_pd_gains_file.proto
+# proto-message: legged_mpc_config.JointPdGainsFile
 # Wheeled ANYbotics ANYmal C (16-DoF) joint proportional and derivative (PD) controller gains.
 # Units: Kp in [N*m/rad], Kd in [N*m*s/rad]
 # The leg joints get the gains of ANYmal B's legs, which hold them while the MPC is off (JOINT_PD) and stiffen the
@@ -8,7 +8,7 @@
 # robot_models/tests/test_joint_pd_stability.py checks that the explicit PD is stable at the simulator's step with the
 # joint damping of urdf/anymal_c_wheels.xml; a wheel's kd must stay below about 9 N m s/rad there
 # (robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_description/README.md, "The MuJoCo model"). The wheels' kd of
-# 4 N m s/rad is from the closed-loop runs (humanoid_mpc_validation, label 2026-11-12_anymal_c_wheels): at 1 N m s/rad
+# 4 N m s/rad is from the closed-loop runs (legged_mpc_validation, label 2026-11-12_anymal_c_wheels): at 1 N m s/rad
 # the 0.5 m/s drive held 0.488 m/s, at 4 N m s/rad 0.496 m/s; a turning trot with no four-wheel phase fell at
 # 8 N m s/rad.
 

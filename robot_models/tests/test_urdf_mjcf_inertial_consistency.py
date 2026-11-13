@@ -28,7 +28,7 @@
 
 Both must describe the same robot. Where they disagree, the controller computes its dynamics for one machine and
 applies the result to a different one, and the error is silent - nothing crashes, the robot simply behaves as if it
-were being pushed by a force nobody commanded. The aCOM network is trained on the MJCF (humanoid_learning/acom) and
+were being pushed by a force nobody commanded. The aCOM network is trained on the MJCF (legged_learning/acom) and
 graded against Pinocchio on the URDF, so a disagreement also becomes a fit error no training can remove.
 
 This test was written after exactly that. The EngineAI SA01 MJCF carried the center of mass of each ankle-pitch link at

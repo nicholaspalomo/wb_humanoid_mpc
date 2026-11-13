@@ -1,0 +1,198 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include "legged_common_mpc/contact_planning/constraint/ZmpSupportRegionConstraint.h"
+
+#include <array>
+#include <cmath>
+#include <cstddef>
+#include <string>
+
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
+#include "ocs2_core/Dimensions.h"
+#include "ocs2_core/Types.h"
+
+#include "legged_common_mpc/common/BipedFeet.h"
+#include "legged_common_mpc/common/TwoContactCount.h"
+#include "legged_common_mpc/common/Types.h"
+#include "legged_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "legged_common_mpc/contact_planning/problem/ContactPlanningContext.h"
+#include "legged_common_mpc/contact_planning/problem/LipCoefficients.h"
+#include "legged_common_mpc/contact_planning/problem/LipIndices.h"
+#include "legged_common_mpc/contact_planning/problem/RowBuilder.h"
+
+namespace ocs2::legged {
+
+namespace {
+/**
+ * Appends +-e_j'(zmp - p_i) in the frame `frame` to the state and input
+ * coefficients `xc` and `uc`, with the sign folded in: j is `axis`, i `foot`.
+ */
+void zmpMinusFoot(const LipIndices& idx,
+                  const std::array<vector2_t, kHorizontalPositionDim>& frame,
+                  size_t foot,
+                  int axis,
+                  scalar_t sign,
+                  Coefficients& xc,
+                  Coefficients& uc) {
+  for (int w = 0; w < kHorizontalPositionDim; ++w) {
+    xc.emplace_back(idx.posFeetRtWorldEwrtWorld[foot][w],
+                    -sign * frame[static_cast<size_t>(axis)](w));
+    uc.emplace_back(idx.posZmpRtWorldEwrtWorld[w],
+                    sign * frame[static_cast<size_t>(axis)](w));
+  }
+}
+}  // namespace
+
+absl::Status ZmpSupportRegionConstraint::validateContactSet(
+    size_t numContacts) const {
+  return checkTwoContactCount(/*component=*/"ZmpSupportRegionConstraint",
+                              numContacts);
+}
+
+std::string ZmpSupportRegionConstraint::describe() const {
+  return absl::StrCat(
+      "zmp in the support region, box half-widths (",
+      maxNormPosZmpRtFootEwrtFootX_, ", ", maxNormPosZmpRtFootEwrtFootY_,
+      ") m around the stance foot / between both feet, big-M disjunction, ",
+      penaltyText());
+}
+
+void ZmpSupportRegionConstraint::configure(
+    const ContactPlanningConfig& config) {
+  maxNormPosZmpRtFootEwrtFootX_ =
+      config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootX;
+  maxNormPosZmpRtFootEwrtFootY_ =
+      config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootY;
+  maxNormPosZmpRtFeetmeanEwrtHeadingX_ =
+      config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootX;
+  maxOutwardPosZmpRtFootEwrtHeadingY_ =
+      config.zmpSupportRegion.maxNormPosZmpRtFootEwrtFootY;
+  configurePenalty(config, config.zmpSupportRegion.slack);
+}
+
+void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx,
+                                         int node,
+                                         RowBuilder& rows) const {
+  const scalar_t M = ctx.bigM;
+  const std::array<vector2_t, kHorizontalPositionDim>& rotmatHeadingRtWorld =
+      ctx.getRotmatHeadingRtWorld(node);
+  const std::array<scalar_t, kHorizontalPositionDim>
+      maxNormPosZmpRtFootEwrtFoot{maxNormPosZmpRtFootEwrtFootX_,
+                                  maxNormPosZmpRtFootEwrtFootY_};
+  // Single-support boxes, in the stance foot's own footprint frame:
+  // +-e_j(psi_i)'(zmp - p_i) <= r_j + M (1 - c_i) + M c_other. The box is the
+  // footprint, so it turns with the foot and not with the heading: the heading
+  // model lets a stance foot sit up to the hip yaw range away from the heading,
+  // and a box aligned with the heading then admitted ZMPs past the footprint's
+  // corners and refused ones inside it. psi_i is a decision variable, so the
+  // frame is the foot's NOMINAL yaw psi_n
+  // (ContactPlanningContext::rotmatFeetRtWorldTraj), the linearization of
+  // e_j(psi)'(zmp - p_i) about (psi_n, zmp - p_i = 0): its first-order heading
+  // term (e_j'(psi_n) . 0) (psi - psi_n) vanishes, and what is left out is the
+  // product |zmp - p_i| |psi_i - psi_n| <= |r| |psi_i - psi_n|, which the
+  // heading re-linearization drives to zero. A stance foot's yaw is pinned
+  // while it is down (foot_yaw_pinned_in_contact), so for the foot standing at
+  // planning time the nominal is its measured yaw and the box is exact.
+  for (size_t foot = 0; foot < static_cast<size_t>(kBipedFootCount); ++foot) {
+    const size_t other = 1 - foot;
+    const std::array<vector2_t, kHorizontalPositionDim>& rotmatFootRtWorld =
+        ctx.getRotmatFootRtWorld(node, foot);
+    for (int axis = 0; axis < kHorizontalPositionDim; ++axis) {
+      for (const scalar_t sign : {1.0, -1.0}) {
+        Coefficients xc;
+        Coefficients uc;
+        zmpMinusFoot(idx_, rotmatFootRtWorld, foot, axis, sign, xc, uc);
+        uc.emplace_back(idx_.contact[foot], M);
+        uc.emplace_back(idx_.contact[other], -M);
+        rows.addSoft(xc, uc, -kLipLooseBound,
+                     maxNormPosZmpRtFootEwrtFoot[static_cast<size_t>(axis)] + M,
+                     penalty_);
+      }
+    }
+  }
+  // Double support, in the heading frame (the region is the bounding box of the
+  // two feet, see the class comment, and no single foot's frame is the right
+  // one for it): +-e_x'(zmp - (p_L + p_R) / 2) <= r_x + M (1 - c_L) + M (1 -
+  // c_R).
+  for (const scalar_t sign : {1.0, -1.0}) {
+    Coefficients xc;
+    Coefficients uc;
+    for (int w = 0; w < kHorizontalPositionDim; ++w) {
+      xc.emplace_back(idx_.posFeetRtWorldEwrtWorld[0][w],
+                      -0.5 * sign * rotmatHeadingRtWorld[0](w));
+      xc.emplace_back(idx_.posFeetRtWorldEwrtWorld[1][w],
+                      -0.5 * sign * rotmatHeadingRtWorld[0](w));
+      uc.emplace_back(idx_.posZmpRtWorldEwrtWorld[w],
+                      sign * rotmatHeadingRtWorld[0](w));
+    }
+    uc.emplace_back(idx_.contact[0], M);
+    uc.emplace_back(idx_.contact[1], M);
+    rows.addSoft(xc, uc, -kLipLooseBound,
+                 maxNormPosZmpRtFeetmeanEwrtHeadingX_ + 2.0 * M, penalty_);
+  }
+  // Double support, lateral axis: upper bound from the left foot, lower bound
+  // from the right foot.
+  //
+  // Both are relaxed by BOTH binaries, exactly like the heading row above, so
+  // that they bind only in double support. They used to carry one big-M each,
+  // which left one of the two active throughout single support: standing on the
+  // left foot, `e_y'(zmp - p_L) <= r_y` is not relaxed by c_L = 1 and states
+  // precisely what that foot's own single-support box already states. The bound
+  // was therefore correct but duplicated, and since these are SOFT rows the
+  // duplicate is not free - a lateral excursion past the support foot paid its
+  // slack penalty twice on the outward side and once everywhere else,
+  // making the lateral ZMP cost asymmetric in single support, which is most of
+  // a stride. Relaxing by the other foot as well removes the duplicate without
+  // loosening anything: in single support the surviving constraint is the
+  // single-support box, which is the same inequality.
+  {
+    Coefficients xc;
+    Coefficients uc;  // e_y'(zmp - p_L) <= r + M (1 - c_L) + M (1 - c_R)
+    zmpMinusFoot(idx_, rotmatHeadingRtWorld, /*foot=*/0, /*axis=*/1,
+                 /*sign=*/1.0, xc, uc);
+    uc.emplace_back(idx_.contact[0], M);
+    uc.emplace_back(idx_.contact[1], M);
+    rows.addSoft(xc, uc, -kLipLooseBound,
+                 maxOutwardPosZmpRtFootEwrtHeadingY_ + 2.0 * M, penalty_);
+  }
+  {
+    Coefficients xc;
+    Coefficients uc;  // -e_y'(zmp - p_R) <= r + M (1 - c_L) + M (1 - c_R)
+    zmpMinusFoot(idx_, rotmatHeadingRtWorld, /*foot=*/1, /*axis=*/1,
+                 /*sign=*/-1.0, xc, uc);
+    uc.emplace_back(idx_.contact[0], M);
+    uc.emplace_back(idx_.contact[1], M);
+    rows.addSoft(xc, uc, -kLipLooseBound,
+                 maxOutwardPosZmpRtFootEwrtHeadingY_ + 2.0 * M, penalty_);
+  }
+}
+
+}  // namespace ocs2::legged

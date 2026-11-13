@@ -11,12 +11,12 @@
 variables { name: "bin_dir" value: ".bazel/bin" }
 variables { name: "urdf_file" value: "robot_models/limx_tron1/tron1_description/urdf/tron1.urdf" }
 variables { name: "network_file" value: "config/ipc/network.textproto" }
-# Where the joint positions come from, by name (humanoid_nmpc/humanoid_rerun_viewer/README.md, "The model sandbox"):
+# Where the joint positions come from, by name (legged_nmpc/legged_rerun_viewer/README.md, "The model sandbox"):
 # sliders (a Tk window with one slider per joint) or nominal (every joint at 0, clamped to its limits).
 variables { name: "joint_source" value: "sliders" }
 variables { name: "rerun_sink" value: "serve_web" }
 variables { name: "rrd_path" value: "" }
-variables { name: "plot_config" value: "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto" }
+variables { name: "plot_config" value: "legged_nmpc/legged_rerun_viewer/config/plot_config.textproto" }
 
 # The processes: their binaries are those the Makefile's launch target of this file builds first.
 # LINT.IfChange(processes)
@@ -24,7 +24,7 @@ processes {
   name: "model_sandbox"
   machine: MACHINE_LAPTOP
   command: [
-    "{bin_dir}/humanoid_nmpc/humanoid_rerun_viewer/model_sandbox",
+    "{bin_dir}/legged_nmpc/legged_rerun_viewer/model_sandbox",
     "--urdf={urdf_file}",
     "--network_config={network_file}",
     "--joint_source={joint_source}"
@@ -36,7 +36,7 @@ processes {
   name: "rerun"
   machine: MACHINE_LAPTOP
   command: [
-    "{bin_dir}/humanoid_nmpc/humanoid_rerun_viewer/humanoid_rerun_viewer",
+    "{bin_dir}/legged_nmpc/legged_rerun_viewer/legged_rerun_viewer",
     "--urdf={urdf_file}",
     "--network_config={network_file}",
     "--rerun_sink={rerun_sink}",

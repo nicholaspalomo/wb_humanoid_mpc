@@ -1,0 +1,403 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdlib>
+#include <iterator>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
+
+#include "legged_common_mpc/acom/AcomSirenWeightsAtlas.h"
+#include "legged_common_mpc/acom/AngularCenterOfMass.h"
+#include "legged_common_mpc/common/Types.h"
+
+namespace ocs2::legged {
+
+namespace {
+
+/// Seed for Eigen's Random, so a marginal finite-difference failure is
+/// reproducible instead of flaky.
+constexpr unsigned int kRandomSeed = 0;
+
+/** A unit quaternion of the rotation by `angle` about the unit axis `axis`, as
+ * coefficients (x, y, z, w). */
+vector4_t quaternionFromAxisAngle(const vector3_t& axis, scalar_t angle) {
+  return quaternionExp(vector3_t(angle * axis.normalized()));
+}
+
+/** The body rotation vector Log(a^-1 (x) b) that takes the unit quaternion a to
+ * b. */
+vector3_t bodyRotationBetween(const vector4_t& a, const vector4_t& b) {
+  return quaternionLog(quaternionProduct(quaternionConjugate(a), b));
+}
+
+}  // namespace
+
+class AngularCenterOfMassTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    std::srand(kRandomSeed);
+    const std::vector<std::string> jointNames(
+        std::begin(acom::AcomSirenWeightsAtlas::joint_names),
+        std::end(acom::AcomSirenWeightsAtlas::joint_names));
+    absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom =
+        AngularCenterOfMass::Create("atlas", jointNames);
+    ASSERT_TRUE(acom.ok()) << acom.status();
+    acomPtr_ = *std::move(acom);
+  }
+
+  std::unique_ptr<AngularCenterOfMass> acomPtr_;
+};
+
+/**
+ * Verifies that the forward pass produces the correct output shape
+ * and that calling it twice with the same input gives identical results.
+ */
+TEST_F(AngularCenterOfMassTest, ForwardPassDeterministic) {
+  const size_t inputDim = acomPtr_->getInputDim();
+  vector_t qJoints = vector_t::Random(inputDim);
+
+  vector3_t rotvecAcomRtBase = acomPtr_->computeRotvecAcomRtBase(qJoints);
+  vector3_t repeatedRotvecAcomRtBase =
+      acomPtr_->computeRotvecAcomRtBase(qJoints);
+
+  EXPECT_EQ(rotvecAcomRtBase.size(), 3);
+  EXPECT_TRUE(rotvecAcomRtBase.isApprox(repeatedRotvecAcomRtBase, 1.0e-15))
+      << "Forward pass is not deterministic.";
+}
+
+/**
+ * Verifies that the zero-input configuration produces a finite output
+ * (no NaN or Inf from the sin activations).
+ */
+TEST_F(AngularCenterOfMassTest, ZeroInputProducesFiniteOutput) {
+  const size_t inputDim = acomPtr_->getInputDim();
+  vector_t qJoints = vector_t::Zero(inputDim);
+
+  vector3_t rotvecAcomRtBase = acomPtr_->computeRotvecAcomRtBase(qJoints);
+  EXPECT_TRUE(rotvecAcomRtBase.allFinite())
+      << "Output contains NaN or Inf at zero input.";
+
+  matrix_t jacobian = acomPtr_->computeJacobianRotvecAcomRtBase(qJoints);
+  EXPECT_TRUE(jacobian.allFinite())
+      << "Jacobian contains NaN or Inf at zero input.";
+}
+
+/**
+ * Core test: verifies the exact analytical Jacobian from the chain rule
+ * matches a central finite-difference approximation of the forward pass.
+ */
+TEST_F(AngularCenterOfMassTest, AnalyticalJacobianMatchesFiniteDifference) {
+  const size_t inputDim = acomPtr_->getInputDim();
+  vector_t qJoints = vector_t::Random(inputDim);
+
+  // Analytical Jacobian
+  matrix_t jacobian_analytical =
+      acomPtr_->computeJacobianRotvecAcomRtBase(qJoints);
+
+  EXPECT_EQ(jacobian_analytical.rows(), 3);
+  EXPECT_EQ(jacobian_analytical.cols(), static_cast<int>(inputDim));
+
+  // Finite difference test
+  const scalar_t eps = 1.0e-6;
+  matrix_t jacobian_fd = matrix_t::Zero(3, inputDim);
+
+  for (size_t i = 0; i < inputDim; ++i) {
+    vector_t q_plus = qJoints;
+    q_plus(i) += eps;
+    vector3_t plusRotvecAcomRtBase = acomPtr_->computeRotvecAcomRtBase(q_plus);
+
+    vector_t q_minus = qJoints;
+    q_minus(i) -= eps;
+    vector3_t minusRotvecAcomRtBase =
+        acomPtr_->computeRotvecAcomRtBase(q_minus);
+
+    jacobian_fd.col(i) =
+        (plusRotvecAcomRtBase - minusRotvecAcomRtBase) / (2.0 * eps);
+  }
+
+  EXPECT_TRUE(jacobian_analytical.isApprox(jacobian_fd, 1.0e-4))
+      << "Analytical Jacobian does not match Finite Difference approximation.\n"
+      << "Max abs error: "
+      << (jacobian_analytical - jacobian_fd).cwiseAbs().maxCoeff();
+}
+
+/**
+ * The ACoM attitude is the base orientation composed with the network's
+ * rotation, xi_a = xi_hat (x) Exp(Delta_theta): a unit quaternion, read through
+ * the safe normalization of xi (any positive scale gives the same attitude), in
+ * the hemisphere of xi.
+ */
+TEST_F(AngularCenterOfMassTest,
+       AcomAttitudeIsTheBaseComposedWithTheJointRotation) {
+  const vector_t qJoints =
+      vector_t::Random(static_cast<Eigen::Index>(acomPtr_->getInputDim()));
+  const vector4_t quatBaseRtWorldXyzw =
+      quaternionFromAxisAngle(vector3_t(0.3, -0.5, 0.8), /*angle=*/1.1);
+  const vector3_t rotvecAcomRtBase = acomPtr_->computeRotvecAcomRtBase(qJoints);
+  ASSERT_GT(rotvecAcomRtBase.norm(), 1.0e-3)
+      << "the joints must rotate the ACoM for this to tell it from the base";
+
+  const vector4_t quatAcomRtWorldXyzw =
+      acomPtr_->computeQuatAcomRtWorldXyzw(quatBaseRtWorldXyzw, qJoints);
+  EXPECT_LT(
+      (quatAcomRtWorldXyzw -
+       quaternionProduct(quatBaseRtWorldXyzw, quaternionExp(rotvecAcomRtBase)))
+          .norm(),
+      1.0e-15);
+  EXPECT_NEAR(quatAcomRtWorldXyzw.norm(), 1.0, 1.0e-15);
+  EXPECT_LT((acomPtr_->computeQuatAcomRtWorldXyzw(2.5 * quatBaseRtWorldXyzw,
+                                                  qJoints) -
+             quatAcomRtWorldXyzw)
+                .norm(),
+            1.0e-15)
+      << "the scale of xi must not matter";
+  EXPECT_EQ(acomPtr_->computeQuatAcomRtWorldXyzw(-quatBaseRtWorldXyzw, qJoints),
+            -quatAcomRtWorldXyzw)
+      << "-xi is the same rotation, in the other hemisphere";
+  // At the identity base the ACoM is the network's rotation itself.
+  EXPECT_LT((acomPtr_->computeQuatAcomRtWorldXyzw(vector4_t(0.0, 0.0, 0.0, 1.0),
+                                                  qJoints) -
+             quaternionExp(rotvecAcomRtBase))
+                .norm(),
+            1.0e-15);
+}
+
+/**
+ * A rotation of the whole robot rotates the ACoM one for one, whatever the
+ * joints: xi_a(q (x) xi) = q (x) xi_a(xi). This is the floating-base
+ * equivariance the additive Euler rule only had to first order away from a
+ * level base.
+ */
+TEST_F(AngularCenterOfMassTest, AWholeBodyRotationRotatesTheAcomOneForOne) {
+  const vector_t qJoints =
+      vector_t::Random(static_cast<Eigen::Index>(acomPtr_->getInputDim()));
+  const vector4_t quatBaseRtWorldXyzw =
+      quaternionFromAxisAngle(vector3_t(0.1, 0.9, -0.2), /*angle=*/0.7);
+  const std::array<vector4_t, 2> premultipliers = {
+      quaternionFromAxisAngle(vector3_t::UnitZ(), /*angle=*/2.9),
+      quaternionFromAxisAngle(vector3_t(1.0, -1.0, 0.5), /*angle=*/1.3)};
+  for (const vector4_t& premultiplier : premultipliers) {
+    EXPECT_LT(
+        (acomPtr_->computeQuatAcomRtWorldXyzw(
+             quaternionProduct(premultiplier, quatBaseRtWorldXyzw), qJoints) -
+         quaternionProduct(premultiplier, acomPtr_->computeQuatAcomRtWorldXyzw(
+                                              quatBaseRtWorldXyzw, qJoints)))
+            .norm(),
+        1.0e-14);
+  }
+}
+
+/**
+ * The two blocks of the tangent Jacobian are the adjoint R(Delta_theta)^T on
+ * the base and the right Jacobian of SO(3) times the network's joint Jacobian
+ * on the joints.
+ */
+TEST_F(AngularCenterOfMassTest,
+       TangentJacobianBlocksAreTheAdjointAndTheRightJacobian) {
+  const vector_t qJoints =
+      vector_t::Random(static_cast<Eigen::Index>(acomPtr_->getInputDim()));
+  const vector3_t rotvecAcomRtBase = acomPtr_->computeRotvecAcomRtBase(qJoints);
+  const AcomAttitudeTangentJacobian jacobian =
+      acomPtr_->acomAttitudeTangentJacobian(qJoints);
+  // Bit for bit: the one-pass evaluation reproduces
+  // computeRotvecAcomRtBase()'s operations.
+  EXPECT_EQ(jacobian.baseTangent,
+            matrix3_t(quaternionRotationMatrix(quaternionExp(rotvecAcomRtBase))
+                          .transpose()));
+  ASSERT_EQ(jacobian.jointAngles.rows(), 3);
+  ASSERT_EQ(jacobian.jointAngles.cols(),
+            static_cast<Eigen::Index>(acomPtr_->getInputDim()));
+  EXPECT_LT((jacobian.jointAngles -
+             so3RightJacobian(rotvecAcomRtBase) *
+                 acomPtr_->computeJacobianRotvecAcomRtBase(qJoints))
+                .norm(),
+            1.0e-14);
+}
+
+/**
+ * The tangent Jacobian is the derivative of the attitude: a body rotation dphi
+ * of the base moves the ACoM by R(Delta_theta)^T dphi in its own frame,
+ * exactly, and a joint step by J_r J_Delta_theta dq to first order. Checked by
+ * central differences of the body rotation between the perturbed and the
+ * unperturbed attitude.
+ */
+TEST_F(AngularCenterOfMassTest,
+       TangentJacobianMatchesFiniteDifferencesOfTheAttitude) {
+  const Eigen::Index inputDim =
+      static_cast<Eigen::Index>(acomPtr_->getInputDim());
+  const vector_t qJoints = vector_t::Random(inputDim);
+  const vector4_t quatBaseRtWorldXyzw =
+      quaternionFromAxisAngle(vector3_t(-0.4, 0.2, 0.9), /*angle=*/2.2);
+  const vector4_t quatAcomRtWorldXyzw =
+      acomPtr_->computeQuatAcomRtWorldXyzw(quatBaseRtWorldXyzw, qJoints);
+  const AcomAttitudeTangentJacobian jacobian =
+      acomPtr_->acomAttitudeTangentJacobian(qJoints);
+  constexpr scalar_t kStep = 1.0e-6;
+
+  for (Eigen::Index axis = 0; axis < 3; ++axis) {
+    const vector3_t step = kStep * vector3_t::Unit(axis);
+    const vector3_t plus = bodyRotationBetween(
+        quatAcomRtWorldXyzw,
+        acomPtr_->computeQuatAcomRtWorldXyzw(
+            quaternionProduct(quatBaseRtWorldXyzw, quaternionExp(step)),
+            qJoints));
+    const vector3_t minus = bodyRotationBetween(
+        quatAcomRtWorldXyzw,
+        acomPtr_->computeQuatAcomRtWorldXyzw(
+            quaternionProduct(quatBaseRtWorldXyzw,
+                              quaternionExp(vector3_t(-step))),
+            qJoints));
+    EXPECT_LT(((plus - minus) / (2.0 * kStep) - jacobian.baseTangent.col(axis))
+                  .norm(),
+              1.0e-8)
+        << "base axis " << axis;
+  }
+  const scalar_t scale =
+      std::max(1.0, jacobian.jointAngles.cwiseAbs().maxCoeff());
+  for (Eigen::Index joint = 0; joint < inputDim; ++joint) {
+    vector_t plusJoints = qJoints;
+    vector_t minusJoints = qJoints;
+    plusJoints(joint) += kStep;
+    minusJoints(joint) -= kStep;
+    const vector3_t plus = bodyRotationBetween(
+        quatAcomRtWorldXyzw,
+        acomPtr_->computeQuatAcomRtWorldXyzw(quatBaseRtWorldXyzw, plusJoints));
+    const vector3_t minus = bodyRotationBetween(
+        quatAcomRtWorldXyzw,
+        acomPtr_->computeQuatAcomRtWorldXyzw(quatBaseRtWorldXyzw, minusJoints));
+    EXPECT_LT(((plus - minus) / (2.0 * kStep) - jacobian.jointAngles.col(joint))
+                  .norm(),
+              1.0e-5 * scale)
+        << "joint " << joint;
+  }
+}
+
+/** Verifies that loadWeights rejects an incorrect number of layers and leaves
+ * the loaded network as it was. */
+TEST_F(AngularCenterOfMassTest, LoadWeightsRejectsWrongLayerCount) {
+  const size_t inputDim = acomPtr_->getInputDim();
+  constexpr int kArbitraryWidth = 8;
+  std::vector<SirenLayerWeights> tooFew;
+  tooFew.push_back({matrix_t::Zero(kArbitraryWidth, inputDim),
+                    vector_t::Zero(kArbitraryWidth)});
+  const vector_t qJoints = vector_t::Constant(inputDim, 0.1);
+  const vector3_t prevRotvecAcomRtBase =
+      acomPtr_->computeRotvecAcomRtBase(qJoints);
+
+  const absl::Status refused = acomPtr_->loadWeights(tooFew);
+  EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(refused.message(), ::testing::HasSubstr("layers"));
+  EXPECT_TRUE(acomPtr_->computeRotvecAcomRtBase(qJoints).isApprox(
+      prevRotvecAcomRtBase, 0.0))
+      << "a refused load changed the network";
+}
+
+// The evaluation guards are ABSL_CHECKs: a broken invariant ends the process
+// with its message.
+using AngularCenterOfMassDeathTest = AngularCenterOfMassTest;
+
+/**
+ * Verifies that a joint vector of the wrong length is rejected rather than read
+ * out of bounds. Eigen's own size assertions are compiled out in opt builds, so
+ * this guard is the only thing standing between a stale weights header and
+ * silent memory corruption inside the MPC.
+ */
+TEST_F(AngularCenterOfMassDeathTest, RejectsWrongJointVectorSize) {
+  const size_t inputDim = acomPtr_->getInputDim();
+  const vector_t tooShort = vector_t::Zero(inputDim - 1);
+  const vector_t tooLong = vector_t::Zero(inputDim + 1);
+
+  EXPECT_DEATH(acomPtr_->computeRotvecAcomRtBase(tooShort),
+               "wrong number of joint positions");
+  EXPECT_DEATH(acomPtr_->computeRotvecAcomRtBase(tooLong),
+               "wrong number of joint positions");
+  EXPECT_DEATH(acomPtr_->computeJacobianRotvecAcomRtBase(tooShort),
+               "wrong number of joint positions");
+  EXPECT_DEATH(acomPtr_->computeJacobianRotvecAcomRtBase(tooLong),
+               "wrong number of joint positions");
+}
+
+/** The attitude and its tangent Jacobian go through the same joint-vector guard
+ * as the network. */
+TEST_F(AngularCenterOfMassDeathTest, TheAttitudeRejectsAWrongJointVectorSize) {
+  const vector_t tooShort =
+      vector_t::Zero(static_cast<Eigen::Index>(acomPtr_->getInputDim() - 1));
+  EXPECT_DEATH(acomPtr_->computeQuatAcomRtWorldXyzw(
+                   vector4_t(0.0, 0.0, 0.0, 1.0), tooShort),
+               "wrong number of joint positions");
+  EXPECT_DEATH(acomPtr_->acomAttitudeTangentJacobian(tooShort),
+               "wrong number of joint positions");
+}
+
+/**
+ * An evaluator built through the raw constructor has no weights until
+ * loadWeights is called. It must say so instead of silently returning a zero
+ * offset, which in an MPC cost is indistinguishable from a zero tracking
+ * weight.
+ */
+TEST(AngularCenterOfMassUnloadedDeathTest, EvaluatingWithoutWeightsDies) {
+  const AngularCenterOfMass unloaded(/*inputDim=*/6, /*numLayers=*/2);
+  EXPECT_DEATH(unloaded.computeRotvecAcomRtBase(vector_t::Zero(6)),
+               "no weights loaded");
+  EXPECT_DEATH(unloaded.computeJacobianRotvecAcomRtBase(vector_t::Zero(6)),
+               "no weights loaded");
+}
+
+/**
+ * The trained weights must be indexed by the same joints, in the same order, as
+ * the Pinocchio model the MPC builds. The generated header records that
+ * ordering so it can be checked here rather than discovered as degraded
+ * tracking.
+ */
+TEST_F(AngularCenterOfMassTest, WeightsRecordJointOrdering) {
+  const size_t inputDim = acomPtr_->getInputDim();
+  ASSERT_EQ(inputDim, acom::AcomSirenWeightsAtlas::input_dim);
+  for (size_t i = 0; i < inputDim; ++i) {
+    EXPECT_NE(acom::AcomSirenWeightsAtlas::joint_names[i], nullptr);
+  }
+  // The torso chain must run parent to child, which is Pinocchio's ordering and
+  // not the alphabetical order the Atlas URDF happens to list its joints in.
+  EXPECT_STREQ(acom::AcomSirenWeightsAtlas::joint_names[0], "back_bkz");
+  EXPECT_STREQ(acom::AcomSirenWeightsAtlas::joint_names[1], "back_bky");
+  EXPECT_STREQ(acom::AcomSirenWeightsAtlas::joint_names[2], "back_bkx");
+}
+
+}  // namespace ocs2::legged

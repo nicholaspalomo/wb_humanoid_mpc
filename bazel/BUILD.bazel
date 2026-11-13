@@ -20,8 +20,8 @@ cc_library(
     hdrs = ["first_party_copts_probe.h"],
     copts = FIRST_PARTY_COPTS + ["-Werror"],
     deps = [
-        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
-        "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+        "//legged_nmpc/legged_mpc_msgs:messages_cc_proto",
+        "//legged_nmpc/legged_mpc_msgs:messages_nproto",
         "//lib/mujoco_vendor",
         "//lib/ocs2:ocs2_core",
         "//robot_runtime/mujoco_sim_interface:egl_headers",

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The launch sessions of the Makefile's launch targets (humanoid_nmpc/docs/distributed_runtime/README.md, "Deployment"):
+# The launch sessions of the Makefile's launch targets (legged_nmpc/docs/distributed_runtime/README.md, "Deployment"):
 #
 #   session.sh sim --robot drc_atlas --launch_file <robot>/launch/mpc.textproto --build "<bazel targets>" \
 #       [--netem "delay 3ms 1ms loss 0.5%"] [--viewer glfw|web|none] [--plot_config <file>] [--set name=value ...] \
@@ -62,14 +62,15 @@ usage() {
 
 # The shipped plot configuration, the Rerun bridge's default too.
 # LINT.IfChange(default_plot_config)
-DEFAULT_PLOT_CONFIG="humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto"
-# LINT.ThenChange(//Makefile:plot_config_variable, //humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/cli.py:default_plot_config, //docker-compose.robot.sim.yaml:sim_plot_config_mount)
+DEFAULT_PLOT_CONFIG="legged_nmpc/legged_rerun_viewer/config/plot_config.textproto"
+# LINT.ThenChange(//Makefile:plot_config_variable, //legged_nmpc/legged_rerun_viewer/python/legged_rerun_viewer/cli.py:default_plot_config, //docker-compose.robot.sim.yaml:sim_plot_config_mount)
 # The launch targets' build, which also refreshes the editor's compilation database (tools/ide/README.md).
 BUILD_AND_INDEX="python3 -m tools.ide.compile_commands --after bazel build"
 
 # Whether the file $1 names the message the robot reads it into: the first `# proto-message:` line of its leading
 # comment block (the comment lines before the first that is neither blank nor a comment), read as the textproto
-# parsers read it.
+# parsers read it. The message's name before the humanoid -> legged rename counts too, as the parsers accept it
+# (the file option nproto.former_package of plot_config.proto).
 # LINT.IfChange(plot_config_header)
 declares_plot_config() {
     awk '
@@ -81,14 +82,14 @@ declares_plot_config() {
             if (line ~ /^proto-message:/) {
                 sub(/^proto-message:[[:space:]]*/, "", line)
                 sub(/[[:space:]]*$/, "", line)
-                found = line == "humanoid_rerun_viewer_proto.PlotConfig"
+                found = line == "legged_rerun_viewer_proto.PlotConfig" || line == "humanoid_rerun_viewer_proto.PlotConfig"
                 exit
             }
         }
         END { exit !found }
     ' "$1"
 }
-# LINT.ThenChange(//tools/hooks/textproto_headers.py:header_lines)
+# LINT.ThenChange(//tools/hooks/textproto_headers.py:header_lines, //legged_nmpc/legged_rerun_viewer/proto/plot_config.proto:former_package)
 
 # The views --views names (the Makefile's VIEWS).
 # LINT.IfChange(views)
@@ -99,7 +100,7 @@ VIEWS_NAMES="browser vnc display"
 VNC_DISPLAY=":99"
 NOVNC_URL="http://localhost:6080/vnc.html"
 RERUN_WEB_URL="http://localhost:9090/?url=rerun+http://localhost:9876/proxy"
-# LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/rerun_sinks.py:sink_defaults, //.devcontainer/README.md:views)
+# LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //legged_nmpc/legged_rerun_viewer/python/legged_rerun_viewer/rerun_sinks.py:sink_defaults, //.devcontainer/README.md:views)
 
 compose_files=(-f docker-compose.robot.yaml -f docker-compose.robot.sim.yaml)
 
@@ -345,7 +346,7 @@ fi
 # bridge reads too, would end its start, after the build and the stop of the running simulation.
 if [ -z "${viewer}" ] && ! declares_plot_config "${robot_plot_config}"; then
     echo "session.sh: --plot_config ${robot_plot_config} does not declare '# proto-message:" \
-        "humanoid_rerun_viewer_proto.PlotConfig' in its leading comment block: without --viewer the robot reads its" \
+        "legged_rerun_viewer_proto.PlotConfig' in its leading comment block: without --viewer the robot reads its" \
         "MuJoCo viewer (mujoco_viewer) from it, which only a PlotConfig textproto names. Give it the header of" \
         "${DEFAULT_PLOT_CONFIG}, or name the viewer: make ... VIEWER=web|glfw|none" >&2
     exit 2
@@ -422,7 +423,7 @@ starts_web_viewer() {
     grep -Eq '^[[:space:]]*mujoco_viewer:.*"web"' "${robot_plot_config}" ||
         ! grep -Eq '^[[:space:]]*mujoco_viewer:' "${robot_plot_config}"
 }
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotAppOptions.h:default_viewer)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/include/legged_common_mpc_app/robot/RobotAppOptions.h:default_viewer)
 if starts_web_viewer; then
     # The robot container is on the host's network, and the viewer binds its loopback (--web_viewer_address).
     # LINT.IfChange(web_viewer_port)

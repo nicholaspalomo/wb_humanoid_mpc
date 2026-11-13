@@ -1,5 +1,5 @@
-# proto-file: humanoid_nmpc/humanoid_mpc_config/joint_pd_gains_file.proto
-# proto-message: humanoid_mpc_config.JointPdGainsFile
+# proto-file: legged_nmpc/legged_mpc_config/joint_pd_gains_file.proto
+# proto-message: legged_mpc_config.JointPdGainsFile
 # Unitree G1 (29-DoF) Joint Proportional and Derivative (PD) Controller Gains
 # Units: Kp in [N*m/rad], Kd in [N*m*s/rad]
 

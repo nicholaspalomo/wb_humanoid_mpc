@@ -1552,7 +1552,7 @@ bool MujocoSimInterface::throwStagedDodgeball(const DodgeballThrow& staged) {
   // spawn search and the scheduled impact follow the path the ball actually
   // takes. The GUI aims with its own constant
   // (remote_control/tk_app/dodgeball.py GRAVITY), which every shipped scene
-  // matches (humanoid_common_mpc_app/robot testShippedRobotGravity).
+  // matches (legged_common_mpc_app/robot testShippedRobotGravity).
   const double gravityMagnitude = -mujocoModel_->opt.gravity[kZAxisIndex];
 
   // The GUI computed the whole throw in the robot's own yaw frame, so rotating

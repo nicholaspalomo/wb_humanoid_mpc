@@ -32,7 +32,9 @@ import unittest
 from tools.hooks import check_test_support
 from tools.hooks import spherical_zyx
 
-_PATH = "humanoid_nmpc/humanoid_common_mpc/src/pinocchio_model/createPinocchioModel.cpp"
+_PATH = (
+    "legged_nmpc/legged_common_mpc/src/pinocchio_model/createPinocchioModel.cpp"
+)
 
 
 def _found(source: str, path: str = _PATH) -> list[tuple[int, int]]:
@@ -54,7 +56,7 @@ class SphericalZyxTest(unittest.TestCase):
     def test_every_directory_of_the_rule_is_read(self):
         source = "pinocchio::JointModelSphericalZYX joint;\n"
         for path in (
-            "humanoid_nmpc/humanoid_wb_mpc/test/testX.cpp",
+            "legged_nmpc/legged_wb_mpc/test/testX.cpp",
             "robot_runtime/robot_model/src/RobotState.cpp",
             "lib/ocs2/pinocchio/centroidal_model/src/FactoryFunctions.cpp",
         ):
@@ -102,7 +104,7 @@ class RepositoryTest(unittest.TestCase):
         self.assertEqual(
             spherical_zyx.DIRS,
             (
-                "humanoid_nmpc/",
+                "legged_nmpc/",
                 "robot_runtime/",
                 "lib/ocs2/pinocchio/centroidal_model/",
             ),

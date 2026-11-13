@@ -27,7 +27,7 @@
 
 """A receive-only client of the IPC bus: a robot_ipc.Bus that only subscribes, on the network file's DDS domain.
 
-The bus (humanoid_nmpc/docs/distributed_runtime/README.md) has no broker: every topic is a DDS topic of the same name
+The bus (legged_nmpc/docs/distributed_runtime/README.md) has no broker: every topic is a DDS topic of the same name
 whose samples are one robot_ipc::Envelope (the wire protocol's version, the writer's sequence number, the full
 protobuf type name and the serialized message). The listener joins the domain of the network file as a subscriber, with
 discovery sent to the host of every node, so it sees every topic whichever process publishes it; listening to every

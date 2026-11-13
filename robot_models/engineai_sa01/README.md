@@ -27,7 +27,7 @@ make test-pinocchio-model-sa01  # print the Pinocchio model, joint order and con
 Each has a `-vnc` variant (`make launch-sa01-sim-vnc`) that starts the VNC server and the Mesa software GL environment
 first; see `.devcontainer/README.md`. The launch files are `engineai_sa01_centroidal_mpc/launch/` (`robot.textproto`,
 `mpc.textproto`, `dummy_sim.textproto`) and `engineai_sa01_description/launch/sandbox.textproto`
-(`humanoid_nmpc/docs/distributed_runtime/README.md`, "Launching").
+(`legged_nmpc/docs/distributed_runtime/README.md`, "Launching").
 
 ## Kinematics
 
@@ -121,7 +121,7 @@ source, and two entries of the `costs` list:
 <!-- LINT.IfChange(sa01_formulation_toggles) -->
 | Field or entry | State | Notes |
 | --- | --- | --- |
-| `contact_input_parameterization` | **`basis_vectors`** | the MPC optimizes basis-vector scalings instead of wrenches (11 per foot, the default `conservative_inner_approximation` generator set); `basis_generator_set`, `basis_non_negativity_barrier`, `basis_scaling_regularization` and `basis_regularization` are set in `contacts`; see [contact_basis_vectors](../../humanoid_nmpc/docs/contact_basis_vectors/README.md). It replaced the `use_contact_basis_vector_inputs` toggle, which the parser now refuses |
+| `contact_input_parameterization` | **`basis_vectors`** | the MPC optimizes basis-vector scalings instead of wrenches (11 per foot, the default `conservative_inner_approximation` generator set); `basis_generator_set`, `basis_non_negativity_barrier`, `basis_scaling_regularization` and `basis_regularization` are set in `contacts`; see [contact_basis_vectors](../../legged_nmpc/docs/contact_basis_vectors/README.md). It replaced the `use_contact_basis_vector_inputs` toggle, which the parser now refuses |
 | `dcm_terminal_cost` in `costs` | **listed** | the horizon ends with the DCM viability cost, parameterized with SA01's real CoM height, in place of the quadratic `terminal_cost` (`final_state_weights`), which is not listed: start-up refuses a list that names both. It replaced the `use_dcm_terminal_cost` toggle, which the parser now refuses |
 | `contact_schedule_source` | `gait_schedule` | the online contact planner is `contact_planner`, one line; `contact_planning.textproto` carries SA01's cadence, step widths and reach, and `task_space_foot_cost.weights.pos_x / pos_y` must be raised off 0 at the same time so the planned footholds reach something. It replaced the `use_contact_planning` toggle, which the parser now refuses |
 | `com_and_acom_tracking_cost` in `costs` | not listed, **network NOT VALIDATED** | see below; it replaced the `use_com_and_acom_tracking` toggle, which the parser now refuses |
@@ -140,15 +140,15 @@ all, and at the nominal crouch it is 55 % off and predicts the dominant walking 
 under a third of its true size (0.18 against 0.62).
 `testAcomAngularVelocityConsistency` grades the header against its own measured bounds, which only guard against it
 getting worse, and fails if `com_and_acom_tracking_cost` or `heading_double_integrator` is listed while SA01 is marked
-unvalidated there. Enabling it means retraining (`bazel run //humanoid_learning/acom:train_main -- --robot sa01
+unvalidated there. Enabling it means retraining (`bazel run //legged_learning/acom:train_main -- --robot sa01
 --install_header`) until the header meets Atlas's bounds, then marking it validated in the test. See
-`humanoid_learning/acom/README.md`, section 6.3.
+`legged_learning/acom/README.md`, section 6.3.
 
 The same network is why `contact_planning.textproto` leaves `heading_double_integrator` out of its `dynamics` list:
 the planner's heading model is the ACoM. Because ACoM tracking is off, the base-pose weights of `state_weights`
 (`pos_base_rt_world_ewrt_world`, `eulerzyx_base_rt_world`) are live and `com_weights` / `acom_weights` are absent rather than present and
 dead; turning it on means writing them.
-<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots) -->
+<!-- LINT.ThenChange(//legged_nmpc/legged_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots) -->
 
 ### Arm swing
 

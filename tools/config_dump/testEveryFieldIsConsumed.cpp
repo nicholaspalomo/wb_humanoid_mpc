@@ -28,7 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // Every value of the configuration schemas reaches what the stack makes of the
-// files: the permanent test T4 of humanoid_nmpc/humanoid_mpc_config/README.md
+// files: the permanent test T4 of legged_nmpc/legged_mpc_config/README.md
 // ("Tests"). For each scalar of the task, reference, PD gains and gait files -
 // every field of every block, every element of every list the shipped files
 // fill, each block the files leave out at its defaults - the test changes the
@@ -38,7 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // make changes, on the shipped files of a centroidal or of the whole-body
 // configuration. A field added to a schema without its conversion fails here,
 // naming it. The contact planner's file has a walk of its own
-// (humanoid_common_mpc/test/config/contact_planning).
+// (legged_common_mpc/test/config/contact_planning).
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
@@ -63,27 +63,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "google/protobuf/message.h"
 #include "gtest/gtest.h"
 
-#include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_common_mpc/config/weights/StateInputLayout.h"
-#include "humanoid_mpc_config/config_options.pb.h"
-#include "humanoid_mpc_config/config_registries.nproto.h"
-#include "humanoid_mpc_config/gait_file.nproto.pb.h"
-#include "humanoid_mpc_config/gait_file.pb.h"
-#include "humanoid_mpc_config/joint_pd_gains_file.nproto.pb.h"
-#include "humanoid_mpc_config/joint_pd_gains_file.pb.h"
-#include "humanoid_mpc_config/joint_value.pb.h"
-#include "humanoid_mpc_config/reference_file.nproto.pb.h"
-#include "humanoid_mpc_config/reference_file.pb.h"
-#include "humanoid_mpc_config/task_file.nproto.h"
-#include "humanoid_mpc_config/task_file.nproto.pb.h"
-#include "humanoid_mpc_config/task_file.pb.h"
-#include "humanoid_mpc_config/tuning_options.pb.h"
-#include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
+#include "legged_common_mpc/common/ModelSettings.h"
+#include "legged_common_mpc/config/weights/StateInputLayout.h"
+#include "legged_mpc_config/config_options.pb.h"
+#include "legged_mpc_config/config_registries.nproto.h"
+#include "legged_mpc_config/gait_file.nproto.pb.h"
+#include "legged_mpc_config/gait_file.pb.h"
+#include "legged_mpc_config/joint_pd_gains_file.nproto.pb.h"
+#include "legged_mpc_config/joint_pd_gains_file.pb.h"
+#include "legged_mpc_config/joint_value.pb.h"
+#include "legged_mpc_config/reference_file.nproto.pb.h"
+#include "legged_mpc_config/reference_file.pb.h"
+#include "legged_mpc_config/task_file.nproto.h"
+#include "legged_mpc_config/task_file.nproto.pb.h"
+#include "legged_mpc_config/task_file.pb.h"
+#include "legged_mpc_config/tuning_options.pb.h"
+#include "legged_mpc_validation/closed_loop/RobotConfiguration.h"
 #include "nproto/Textproto.h"
 #include "tools/config_dump/ConversionDump.h"
 #include "tools/config_registries/ConfigRegistries.h"
 
-namespace ocs2::humanoid::config_dump {
+namespace ocs2::legged::config_dump {
 namespace {
 
 using google::protobuf::Descriptor;
@@ -231,7 +231,7 @@ std::vector<std::string> registryNames(absl::string_view registry) {
  * a field without one. */
 std::string otherName(const FieldDescriptor& field, absl::string_view current) {
   const std::string& registry =
-      field.options().GetExtension(humanoid_mpc_config::tuning).registry();
+      field.options().GetExtension(legged_mpc_config::tuning).registry();
   for (const std::string& name : registryNames(registry)) {
     if (name != current) return name;
   }
@@ -320,7 +320,7 @@ void growList(Message& message, const FieldDescriptor& field) {
       std::string added = "a_name_of_no_registry";
       for (const std::string& name :
            registryNames(field.options()
-                             .GetExtension(humanoid_mpc_config::tuning)
+                             .GetExtension(legged_mpc_config::tuning)
                              .registry())) {
         if (!present.contains(name)) {
           added = name;
@@ -362,32 +362,32 @@ void change(const Leaf& leaf, Message& file) {
 /** The shipped files of a configuration, as protobuf messages: what the walk
  * changes one value of at a time. */
 struct Files {
-  humanoid_mpc_config::TaskFile task;
-  humanoid_mpc_config::ReferenceFile reference;
-  humanoid_mpc_config::JointPdGainsFile pdGains;
-  humanoid_mpc_config::GaitFile gait;
+  legged_mpc_config::TaskFile task;
+  legged_mpc_config::ReferenceFile reference;
+  legged_mpc_config::JointPdGainsFile pdGains;
+  legged_mpc_config::GaitFile gait;
 };
 
 absl::StatusOr<Files> loadFiles(
     const validation::RobotConfiguration& configuration) {
   Files files;
-  absl::StatusOr<humanoid_mpc_config::TaskFile> task =
-      nproto::ParseTextprotoFile<humanoid_mpc_config::TaskFile>(
+  absl::StatusOr<legged_mpc_config::TaskFile> task =
+      nproto::ParseTextprotoFile<legged_mpc_config::TaskFile>(
           configuration.taskFile);
   if (!task.ok()) return task.status();
   files.task = *std::move(task);
-  absl::StatusOr<humanoid_mpc_config::ReferenceFile> reference =
-      nproto::ParseTextprotoFile<humanoid_mpc_config::ReferenceFile>(
+  absl::StatusOr<legged_mpc_config::ReferenceFile> reference =
+      nproto::ParseTextprotoFile<legged_mpc_config::ReferenceFile>(
           configuration.referenceFile);
   if (!reference.ok()) return reference.status();
   files.reference = *std::move(reference);
-  absl::StatusOr<humanoid_mpc_config::JointPdGainsFile> pdGains =
-      nproto::ParseTextprotoFile<humanoid_mpc_config::JointPdGainsFile>(
+  absl::StatusOr<legged_mpc_config::JointPdGainsFile> pdGains =
+      nproto::ParseTextprotoFile<legged_mpc_config::JointPdGainsFile>(
           configuration.pdGainsFile);
   if (!pdGains.ok()) return pdGains.status();
   files.pdGains = *std::move(pdGains);
-  absl::StatusOr<humanoid_mpc_config::GaitFile> gait =
-      nproto::ParseTextprotoFile<humanoid_mpc_config::GaitFile>(
+  absl::StatusOr<legged_mpc_config::GaitFile> gait =
+      nproto::ParseTextprotoFile<legged_mpc_config::GaitFile>(
           configuration.gaitFile);
   if (!gait.ok()) return gait.status();
   files.gait = *std::move(gait);
@@ -412,7 +412,7 @@ absl::Status weighEveryJointTorque(
       task, configuration.urdfFile, "wb_mpc_", /*verbose=*/false);
   if (!model.ok()) return model.status();
   for (const std::string& joint : model->mpcModelJointNames) {
-    humanoid_mpc_config::JointValue* absl_nonnull weight =
+    legged_mpc_config::JointValue* absl_nonnull weight =
         files.task.mutable_joint_torque_weights()->add_joints();
     weight->set_joint(joint);
     weight->set_value(1.0);
@@ -452,13 +452,13 @@ std::vector<std::string> errorLines(absl::string_view dump) {
 /** The file of `files` a walk changes: the message with descriptor
  * `descriptor`. */
 Message& fileOf(Files& files, const Descriptor& descriptor) {
-  if (&descriptor == humanoid_mpc_config::ReferenceFile::descriptor()) {
+  if (&descriptor == legged_mpc_config::ReferenceFile::descriptor()) {
     return files.reference;
   }
-  if (&descriptor == humanoid_mpc_config::JointPdGainsFile::descriptor()) {
+  if (&descriptor == legged_mpc_config::JointPdGainsFile::descriptor()) {
     return files.pdGains;
   }
-  if (&descriptor == humanoid_mpc_config::GaitFile::descriptor()) {
+  if (&descriptor == legged_mpc_config::GaitFile::descriptor()) {
     return files.gait;
   }
   return files.task;
@@ -494,10 +494,10 @@ TEST(EveryFieldIsConsumedTest,
         << ": the model settings convert, which the weights and the contacts "
            "are built on";
     for (const Descriptor* absl_nonnull schema :
-         {humanoid_mpc_config::TaskFile::descriptor(),
-          humanoid_mpc_config::ReferenceFile::descriptor(),
-          humanoid_mpc_config::JointPdGainsFile::descriptor(),
-          humanoid_mpc_config::GaitFile::descriptor()}) {
+         {legged_mpc_config::TaskFile::descriptor(),
+          legged_mpc_config::ReferenceFile::descriptor(),
+          legged_mpc_config::JointPdGainsFile::descriptor(),
+          legged_mpc_config::GaitFile::descriptor()}) {
       Files walked = *files;
       std::vector<Leaf> leaves;
       std::vector<Step> path;
@@ -539,4 +539,4 @@ TEST(EveryFieldIsConsumedTest,
 }
 
 }  // namespace
-}  // namespace ocs2::humanoid::config_dump
+}  // namespace ocs2::legged::config_dump

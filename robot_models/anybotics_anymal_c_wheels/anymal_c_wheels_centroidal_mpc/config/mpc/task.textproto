@@ -1,18 +1,18 @@
-# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto
-# proto-message: humanoid_mpc_config.TaskFile
+# proto-file: legged_nmpc/legged_mpc_config/task_file.proto
+# proto-message: legged_mpc_config.TaskFile
 # Simulation & Telemetry Configuration
 # Where the robot process sends its telemetry (robot/state), by name (TelemetrySinkRegistry.h): bus publishes it on
 # the IPC bus for the visualization publisher, the Rerun bridge and ipc_tool; no telemetry_sinks line turns the
 # telemetry off.
 # LINT.IfChange(telemetry_sinks)
 telemetry_sinks: "bus"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h:telemetry_sink_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/include/legged_common_mpc_app/robot/TelemetrySinkRegistry.h:telemetry_sink_names)
 telemetry_frequency: 100  # [Hz] robot/state, decimated from the control loop
 # MuJoCo backend of the robot process only. The viewer's contact timeline ('b' toggles it) shows, per contact point,
 # the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
 sim_contact_timeline_window: 5.0  # [s] width of the sliding window
 sim_min_force_mjcontact_ewrt_mjcontact_x: 5.0  # [N] normal force above which a contact point counts as touching (ground truth)
-# Fall recovery (SimFallRecovery, humanoid_nmpc/docs/mpc_reset/README.md). sim_max_tiltangle_base_rt_world is the tilt of the base
+# Fall recovery (SimFallRecovery, legged_nmpc/docs/mpc_reset/README.md). sim_max_tiltangle_base_rt_world is the tilt of the base
 # past which the simulator catches the robot on the gantry, holding it upright where it is at the gantry height,
 # switching to JOINT_PD (the whole-body MPC is overconstrained against a pinned base) and resetting the controller, which
 # holds the robot until it has planned from where the robot is now. The simulator's own resets (base below the floor
@@ -97,20 +97,20 @@ enable_online_tuning: true  # Enable runtime parameter and gain tuning in Contro
 # 3-DoF contact, a wheel's here, and the wrench of each 6-DoF one; the default) or `basis_vectors` (the
 # scalings lambda of wrench-cone generators, which a set with a rolling contact refuses: no generator set spans a
 # wheel's force cone). It fixes the input dimension, so it takes effect at start-up only. See
-# humanoid_nmpc/docs/contact_basis_vectors/README.md.
+# legged_nmpc/docs/contact_basis_vectors/README.md.
 # LINT.IfChange(contact_input_parameterization_config)
 contact_input_parameterization: "wrench"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names)
 # Where the mode schedule and the footholds come from, by name (MpcFormulationConfig.h): `gait_schedule` (the gait
 # schedule of the reference files; shipped here, and the default). `contact_planner` and `multi_contact_plan` place each
 # contact on a patch of its own and are refused on a set with a rolling contact, which assumes flat ground
-# (humanoid_nmpc/docs/rolling_contact/README.md). It takes effect at start-up only. See humanoid_nmpc/docs/README.md,
+# (legged_nmpc/docs/rolling_contact/README.md). It takes effect at start-up only. See legged_nmpc/docs/README.md,
 # section 2.
 # LINT.IfChange(contact_schedule_source_config)
 contact_schedule_source: "gait_schedule"
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
+# LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
 
-# The visualization publisher of the MPC node (humanoid_nmpc/humanoid_common_mpc_app/visualization/README.md), read at
+# The visualization publisher of the MPC node (legged_nmpc/legged_common_mpc_app/visualization/README.md), read at
 # start-up. rerun_scene_frequency bounds how often the Rerun scene (robots and markers) is sent; the plots follow every
 # robot/state sample. telemetry_frames are the frames whose pose, twist, acceleration and wrench are plotted, measured,
 # reference and plan; rerun_plan_frames (the contact frames when absent) those whose planned paths the scene draws.
@@ -127,7 +127,7 @@ telemetry_frames: "RH_wheel_link"
 # rigid body dynamics, which this file can select instead.
 centroidal_model: "full_centroidal_dynamics"  # or "single_rigid_body_dynamics"
 
-# MPC Problem Formulation Tasks. The terms of four rolling contacts (humanoid_nmpc/docs/rolling_contact/README.md):
+# MPC Problem Formulation Tasks. The terms of four rolling contacts (legged_nmpc/docs/rolling_contact/README.md):
 # zero_velocity builds the rolling no-slip constraint on each wheel in stance, normal_velocity servoes the height of a
 # wheel in swing, and friction_force_cone keeps each wheel's force in its friction cone. The terms written for two
 # 6-DoF feet and the terms that hold a contact point fixed on its link are refused on this set by name
@@ -157,7 +157,7 @@ arm_swing {
 # ---------------------------------------------------------------------------------------------------------------
 # Locomotion heuristics: the regularization heuristics of Gerardo Bledt, "Regularized Predictive Control Framework
 # for Robust Dynamic Legged Locomotion", MIT 2020, Appendix C. Derivations, a block diagram and the seam of every  # NOLINT(claudisms): cited paper title
-# name below are in humanoid_nmpc/docs/locomotion_heuristics/README.md.
+# name below are in legged_nmpc/docs/locomotion_heuristics/README.md.
 #
 # The heuristics shape references that the costs this file lists regularize against; none adds a term to the optimal
 # control problem. Three channels, three lists:
@@ -192,7 +192,7 @@ locomotion_heuristics {
   # wrench_heuristics: "centripetal_acceleration"   # H_f(Theta x pdot):   the horizontal force of a turn
 
   # ---- one parameter block per heuristic, keyed by the heuristic's own registry name; the equations and the meaning
-  # of each coefficient are in humanoid_nmpc/docs/locomotion_heuristics/README.md ----
+  # of each coefficient are in legged_nmpc/docs/locomotion_heuristics/README.md ----
 
   # H_Theta(pdot) = a1 * pdot + a0  (Table C.2, equations 4.11 and 4.12).
   orientation_compensation_parameters {
@@ -312,7 +312,7 @@ model_settings {
   # Each contact's frame is its wheel center, which the MPC adds to the wheel link of the wheel's own joint
   # <leg>_wheel: the wheel link's origin, where the URDF puts the wheel's inertial and collision cylinder, so the offset
   # is zero. The force acts a wheel radius below it, at the wheel's lowest point
-  # (humanoid_nmpc/docs/rolling_contact/README.md).
+  # (legged_nmpc/docs/rolling_contact/README.md).
   contacts_rolling {
     name: "LF_wheel_contact"
     parent_joint_name: "LF_wheel"
@@ -448,7 +448,7 @@ initial_state {
 # The state weights, those of ANYmal B's task file (the OCS2 legged_robot example's ANYmal C, task.info, Q, with the
 # horizontal linear momentum and the yaw raised in ANYmal B's closed-loop runs): the momenta are normalized by the mass,
 # so the weights do not depend on it. A wheel's position takes no weight: it has no reference, and start-up refuses any
-# other value (humanoid_nmpc/docs/rolling_contact/README.md, section 7).
+# other value (legged_nmpc/docs/rolling_contact/README.md, section 7).
 state_weights {
   scaling: 1
 

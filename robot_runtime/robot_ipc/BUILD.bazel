@@ -8,9 +8,9 @@ load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("@rules_python//python:defs.bzl", "py_library", "py_test")
 load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
-# robot_ipc - the Cyclone DDS bus of the distributed runtime (humanoid_nmpc/docs/distributed_runtime/README.md), in C++
-# and in Python. Generic: it knows nothing of the humanoid's messages, which live in humanoid_nmpc; the shipped
-# network file names the humanoid's topics only to give each its quality of service.
+# robot_ipc - the Cyclone DDS bus of the distributed runtime (legged_nmpc/docs/distributed_runtime/README.md), in C++
+# and in Python. Generic: it knows nothing of the MPC's messages, which live in legged_nmpc; the shipped
+# network file names the MPC's topics only to give each its quality of service.
 
 package(default_visibility = ["//visibility:public"])
 

@@ -18,10 +18,10 @@ Four rolling contacts in the order `LF_wheel_contact`, `RF_wheel_contact`, `LH_w
 (`model_settings.contacts_rolling`), one per wheel, each on its wheel's own joint `<leg>_wheel` at the wheel center,
 the origin of the wheel link, with a wheel radius of 0.098 m. Each is on a leg of its own, `LF`, `RF`, `LH` and `RH`.
 The force of a wheel acts at its lowest point, and in stance the wheel's material there does not slip
-([`rolling_contact`](../../../humanoid_nmpc/docs/rolling_contact/README.md)).
+([`rolling_contact`](../../../legged_nmpc/docs/rolling_contact/README.md)).
 
 There is no gait file in this package. The wheeled quadrupeds' gait file
-`humanoid_nmpc/humanoid_common_mpc/config/command/wheeled_quadruped_gait.textproto` has stance, drive (both on every
+`legged_nmpc/legged_common_mpc/config/command/wheeled_quadruped_gait.textproto` has stance, drive (both on every
 wheel) and turning_trot, and a `gait_switching` table from stance to drive on a linear command and on to turning_trot
 on a yaw-rate command above 0.15 rad/s.
 
@@ -38,7 +38,7 @@ joint-limit row, and the input cost weighs their velocities at 10 against the le
 so that the no-slip rows decide how fast a wheel turns.
 
 The centroidal MPC is the only formulation configured. The whole-body MPC refuses any contact set other than two 6-DoF
-feet (`humanoid_nmpc/humanoid_wb_mpc/src/WBMpcInterface.cpp`, `ModelSettings::isBipedContactSet()`), so this robot has
+feet (`legged_nmpc/legged_wb_mpc/src/WBMpcInterface.cpp`, `ModelSettings::isBipedContactSet()`), so this robot has
 no whole-body package.
 
 ## Running it
@@ -50,11 +50,11 @@ make launch-anymal-c-wheels-sandbox          # the URDF in Rerun, a slider per j
 make test-pinocchio-model-anymal-c-wheels    # print the Pinocchio model built from task.textproto
 ```
 
-The launch files read `humanoid_nmpc/humanoid_common_mpc/config/command/wheeled_quadruped_gait.textproto`. The robot
+The launch files read `legged_nmpc/legged_common_mpc/config/command/wheeled_quadruped_gait.textproto`. The robot
 process runs the simulator's ground-truth state estimator: the kalman estimator refuses rolling contacts.
 
 The weights are ANYmal B's and the OCS2 example's, as the task file says. The closed-loop runs of label
-`2026-11-12_anymal_c_wheels` (`humanoid_nmpc/humanoid_mpc_validation`) set the gait file, `task_space_foot_cost` in the
+`2026-11-12_anymal_c_wheels` (`legged_nmpc/legged_mpc_validation`) set the gait file, `task_space_foot_cost` in the
 cost list and the wheel kd of 4 N m s/rad (1 N m s/rad, the description's drop test's, drove at 0.488 m/s against the
-0.5 m/s command); [the label's README](../../../humanoid_nmpc/humanoid_mpc_validation/data/closed_loop/2026-11-12_anymal_c_wheels/README.md)
+0.5 m/s command); [the label's README](../../../legged_nmpc/legged_mpc_validation/data/closed_loop/2026-11-12_anymal_c_wheels/README.md)
 has the runs that set them.

@@ -26,7 +26,7 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-@package humanoid_centroidal_mpc
+@package legged_centroidal_mpc
 
 @author Manuel Yves Galliker
 Contact:  manuel.galliker@1x.tech
@@ -54,11 +54,11 @@ Contact:  manuel.galliker@1x.tech
 #include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/multibody/fwd.hpp"
 
-#include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_common_mpc/common/Types.h"
-#include "humanoid_common_mpc/config/ConfigFiles.h"
-#include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
-#include "humanoid_mpc_config/task_file.nproto.h"
+#include "legged_common_mpc/common/ModelSettings.h"
+#include "legged_common_mpc/common/Types.h"
+#include "legged_common_mpc/config/ConfigFiles.h"
+#include "legged_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "legged_mpc_config/task_file.nproto.h"
 #include "robot_core/ResourcePaths.h"
 
 /**
@@ -67,7 +67,7 @@ Contact:  manuel.galliker@1x.tech
  * builds, and the placement of the contact frames.
  */
 
-namespace ocs2::humanoid {
+namespace ocs2::legged {
 namespace {
 
 // Relative to the repository root.
@@ -226,7 +226,7 @@ int printModels() {
 }
 
 }  // namespace
-}  // namespace ocs2::humanoid
+}  // namespace ocs2::legged
 
 int main() {
   // Route Abseil log records to stderr. Without InitializeLog() Abseil warns
@@ -235,7 +235,7 @@ int main() {
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   try {
-    return ocs2::humanoid::printModels();
+    return ocs2::legged::printModels();
   } catch (const std::exception&
                error) {  // Pinocchio reports a URDF it cannot read by throwing.
     LOG(ERROR) << error.what();

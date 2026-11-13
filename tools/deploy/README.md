@@ -1,7 +1,7 @@
 # tools/deploy
 
 The robot side of the distributed runtime
-([`humanoid_nmpc/docs/distributed_runtime/README.md`](../../humanoid_nmpc/docs/distributed_runtime/README.md),
+([`legged_nmpc/docs/distributed_runtime/README.md`](../../legged_nmpc/docs/distributed_runtime/README.md),
 "Deployment") as something a robot computer runs: one Bazel bundle, a slim Docker image built from it, a compose file
 with the realtime settings, and a systemd unit that starts it at boot. Simulation on the laptop runs the same image and
 compose file, with the MuJoCo viewer added.
@@ -20,6 +20,13 @@ make launch-drc-atlas-mpc NETWORK=my_network.textproto          # the laptop sid
 make launch-drc-atlas-sim                                       # both on this machine, the robot side in robot-sim
 ```
 
+The deploy names keep the word humanoid after the rename of the packages to `legged_*`: the image and compose project
+`wb-humanoid-robot` (and `wb-humanoid-robot-sim`), the unit `wb-humanoid-robot@.service`, `/etc/wb-humanoid-robot`,
+`/var/lib/wb-humanoid-robot` and `/opt/wb-humanoid-robot`. They exist on deployed machines, and renaming them would
+orphan the stored configuration and the enabled unit there. The bundle's paths did change, to `bin/legged_nmpc/...`
+(below). The IPC messages carry their proto full names, which changed with the packages, so a robot deployed before the
+rename cannot talk to a laptop built after it: deploy the robot and the laptop together.
+
 ## The bundle
 
 `//tools/deploy:robot_bundle` (`robot_bundle.bzl`, packed by `pack_bundle.py`) is one deterministic tar: the image has
@@ -28,8 +35,8 @@ files sit at their repository paths, where the launch files name them.
 
 | Path | What |
 |---|---|
-| `bin/humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_robot` (+ `.runfiles/`) | the centroidal robot binary; its runfiles hold `libmujoco` |
-| `bin/humanoid_nmpc/humanoid_wb_mpc_app/humanoid_wb_mpc_robot` (+ `.runfiles/`) | the whole-body robot binary |
+| `bin/legged_nmpc/legged_centroidal_mpc_app/legged_centroidal_mpc_robot` (+ `.runfiles/`) | the centroidal robot binary; its runfiles hold `libmujoco` |
+| `bin/legged_nmpc/legged_wb_mpc_app/legged_wb_mpc_robot` (+ `.runfiles/`) | the whole-body robot binary |
 | `bin/robot_entrypoint.sh`, `bin/netem.sh`, `bin/collect_runtime_libraries.sh` | the image's entry point, NETEM, the library check |
 | `launch/<robot>.sh` | the robot side of each robot configuration: its `launch/robot.textproto` exported with `//tools/launch:export_script` |
 | `robot_models/...` | every robot's configuration and description (the task, reference and PD gains textprotos, URDF, MJCF, meshes), without the git-ignored `.bak` side files (`bazel/robot_files.bzl`) |
@@ -142,7 +149,7 @@ To build arm64 yourself instead:
 | `WB_ROBOT_RESTART` | `unless-stopped` | the restart policy |
 | `WB_ROBOT_BACKEND` | `mujoco` | the robot backend, by name |
 | `WB_ROBOT_VIEWER` | `none` in robot-runtime unless `WB_ROBOT_PLOT_CONFIG` is set; otherwise the plot configuration's `mujoco_viewer` (`web` by default) | the MuJoCo viewer by name, or a list tried in order: `glfw` (a window on `DISPLAY`), `web` (a page at `http://localhost:6090`), `none`; `web,none` falls back to none |
-| `WB_ROBOT_PLOT_CONFIG` | the shipped `humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto` (simulation: the checkout's `PLOT_CONFIG`, mounted at `/etc/wb-humanoid-robot/plot_config.textproto`) | the plot configuration whose `mujoco_viewer` names the viewer while `WB_ROBOT_VIEWER` is empty; read strictly at start-up, and a bad file or name is refused |
+| `WB_ROBOT_PLOT_CONFIG` | the shipped `legged_nmpc/legged_rerun_viewer/config/plot_config.textproto` (simulation: the checkout's `PLOT_CONFIG`, mounted at `/etc/wb-humanoid-robot/plot_config.textproto`) | the plot configuration whose `mujoco_viewer` names the viewer while `WB_ROBOT_VIEWER` is empty; read strictly at start-up, and a bad file or name is refused |
 | `WB_ROBOT_WEB_VIEWER_ADDRESS`, `WB_ROBOT_WEB_VIEWER_PORT` | `127.0.0.1`, `6090` | where the `web` viewer listens; `0.0.0.0` serves every interface, without authentication |
 | `WB_ROBOT_WEB_VIEWER_ALLOWED_HOSTS` | none | the host names besides localhost the `web` viewer answers under, a comma list |
 | `WB_ROBOT_VIEWER_CORES` | `default` | cores of the `web` viewer's threads: `default` (`ThreadAffinity.h`'s viewer cores: never the realtime thread's or the MPC's, and the physics' only when no core is left over), `none`, or a list |
@@ -242,17 +249,17 @@ when the kernel caps it, and the bus works, with more retransmissions of large p
   robot process logs every realtime setting it was refused.
 
 The robot process starts in ZERO_TORQUE whatever the MPC does, and holds JOINT_PD while the MPC link is down; start
-order does not matter (humanoid_nmpc/docs/distributed_runtime/README.md, "Deployment").
+order does not matter (legged_nmpc/docs/distributed_runtime/README.md, "Deployment").
 
 Deploy the robot, the MPC node and the operator GUI from one commit. The robot process and the MPC node refuse, log
-and count the tuning GUI's payloads of another schema version (humanoid_nmpc/humanoid_mpc_config/README.md, "Version
+and count the tuning GUI's payloads of another schema version (legged_nmpc/legged_mpc_config/README.md, "Version
 skew"), so a GUI built from another commit tunes nothing: the robot runs its files.
 
 ## The stored configuration
 
 The tuning GUI's **Save** writes two copies: the laptop's file, which the MPC node reads, and the robot's, which it sends
 over the bus (`operator/config_save`) to the robot process, which checks it as it would check the file at start-up and
-stores it (humanoid_nmpc/docs/distributed_runtime/README.md, "Saving the configuration"). The robot's copies live in its
+stores it (legged_nmpc/docs/distributed_runtime/README.md, "Saving the configuration"). The robot's copies live in its
 store, `/var/lib/wb-humanoid-robot/config/<ROBOT>/` in the container, the host's `~/wb-humanoid-robot/robot_config/<ROBOT>/`
 by default, and outlive the container, a restart and a redeploy:
 
@@ -265,7 +272,7 @@ by default, and outlive the container, a restart and a redeploy:
 | `<file>.rejected` | a stored copy the robot did not start with where the bundle's started, replaced by the bundle's |
 | `mpc/contact_planning.textproto` | the bundle's contact planner's file, copied at every start; no save writes it |
 | `.booting` | a start that is not confirmed yet (below); one left there makes the next start fall back to the bundle, unless the machine booted in between |
-<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotConfigDirectory.cpp:config_store_layout, //humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/StoredConfigFileKinds.h:stored_config_backup_suffix) -->
+<!-- LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/src/RobotConfigDirectory.cpp:config_store_layout, //legged_nmpc/legged_common_mpc_app/robot/include/legged_common_mpc_app/robot/StoredConfigFileKinds.h:stored_config_backup_suffix) -->
 
 The image's bundle - built from the checkout the deploy ran in - is the seed. At every start the robot process copies a
 missing file from it and applies the seed policy (`CONFIG_SEED=`, `WB_ROBOT_CONFIG_SEED`):
@@ -276,7 +283,12 @@ missing file from it and applies the seed policy (`CONFIG_SEED=`, `WB_ROBOT_CONF
 | `when_bundle_changes` (default) | when the bundle's file differs from the one it was seeded from: a deploy that changed the file reaches the robot, a restart without one keeps the robot's saves |
 | `every_start` | at every start: a save lasts until the next start (the simulation's default) |
 | `never` | never once there: only a save changes it |
-<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotConfigDirectory.h:config_seed_policies) -->
+<!-- LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/include/legged_common_mpc_app/robot/RobotConfigDirectory.h:config_seed_policies) -->
+
+The files are compared with their `# proto-message:` headers naming the current package: a header that still gives the
+name from before the `humanoid_*` to `legged_*` rename (`humanoid_mpc_config.TaskFile`) is no change
+(`nproto::CanonicalHeaderText()`, tools/nproto/README.md, "Renamed packages"). The first deploy after that rename
+therefore keeps the robot's saves under `when_bundle_changes`, and the `.seed` markers get the new bytes.
 
 A stored configuration never keeps the robot from starting: a start that fails on stored copies is tried on the
 bundle's files, touching none of them; when the bundle starts, the stored copies are renamed `.rejected` and the robot
@@ -286,16 +298,16 @@ unless the machine booted in between (a power cut is not the files' fault). `.re
 
 <!-- LINT.IfChange(boot_confirmation_time) -->
 A start is confirmed once its realtime loop has run 10 s.
-<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotStartup.h:boot_confirmation_time) -->
+<!-- LINT.ThenChange(//legged_nmpc/legged_common_mpc_app/robot/include/legged_common_mpc_app/robot/RobotStartup.h:boot_confirmation_time) -->
 
 - Reset the store to the bundle: `docker compose --project-directory ~/wb-humanoid-robot run --rm --entrypoint sh robot
   -c 'rm -rf /var/lib/wb-humanoid-robot/config/$ROBOT'`, then start the robot again (or deploy with `CONFIG_SEED=every_start`
   once).
-- Re-send a file edited on the laptop without the GUI: `bazel run //humanoid_nmpc/remote_control:push_robot_config --
+- Re-send a file edited on the laptop without the GUI: `bazel run //legged_nmpc/remote_control:push_robot_config --
   <file>`, which publishes it as the bus node `config_push` and prints the robot's answer. A deployment's own network
   file needs that node only for this tool.
 - Anything that can publish on the bus can now replace the robot's three configuration files, as it can already
-  command its FSM: keep the bus on the robot's private network (humanoid_nmpc/docs/distributed_runtime/README.md, "Trust
+  command its FSM: keep the bus on the robot's private network (legged_nmpc/docs/distributed_runtime/README.md, "Trust
   model").
 
 ## NETEM
@@ -350,12 +362,13 @@ the stored `joint_pd_gains.textproto` and the task file's controller-side fields
 watcher, and the simulated robot at its next start or at once with `push_robot_config`. `WB_ROBOT_CONFIG_SEED=when_bundle_changes`
 runs the robot's own policy. The MuJoCo viewer is chosen by name: the `mujoco_viewer` of the plot configuration
 (`PLOT_CONFIG=`, `session.sh --plot_config`; a file of the checkout, by default the shipped
-`humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto`, mounted read-only at
+`legged_nmpc/legged_rerun_viewer/config/plot_config.textproto`, mounted read-only at
 `/etc/wb-humanoid-robot/plot_config.textproto`), unless `VIEWER=` (`session.sh --viewer`, `WB_ROBOT_VIEWER`) names one.
 The laptop side's Rerun bridge reads the same file, by its path relative to the checkout (an absolute path inside the
 checkout is made relative for both sides, since the dev container mounts the checkout elsewhere). Without `VIEWER=` the
-session refuses a file that does not declare `# proto-message: humanoid_rerun_viewer_proto.PlotConfig` in its leading
-comment block before it builds or stops anything, and it says which file the robot reads as
+session refuses a file that does not declare `# proto-message: legged_rerun_viewer_proto.PlotConfig` in its leading
+comment block before it builds or stops anything (a file saved before the package rename may give the former name,
+`humanoid_rerun_viewer_proto.PlotConfig`, which the robot's parser also reads: tools/nproto/README.md, "Renamed packages"), and it says which file the robot reads as
 `/etc/wb-humanoid-robot/plot_config.textproto`, the path the robot's errors give.
 `web`, the shipped file's, renders offscreen (EGL, Mesa's llvmpipe in robot-sim: about 16 frames per second for the
 DRC Atlas at 1280x720) and serves the view at `http://localhost:6090` - the container is on the host's network, so no

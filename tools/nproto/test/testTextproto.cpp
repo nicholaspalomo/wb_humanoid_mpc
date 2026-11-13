@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // ToProto() / FromProto() that the test templates call by argument-dependent
 // lookup, which include-cleaner does not attribute to them.
 
+#include <array>
 #include <cstdlib>
 #include <fstream>
 #include <string>
@@ -47,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/descriptor.h"
 #include "gtest/gtest.h"
 
 #include "nproto/Textproto.h"
@@ -56,6 +58,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "tools/nproto/test/oneofs.nproto.h"
 #include "tools/nproto/test/oneofs.nproto.pb.h"  // IWYU pragma: keep
 #include "tools/nproto/test/oneofs.pb.h"
+#include "tools/nproto/test/renamed.pb.h"
 #include "tools/nproto/test/repeated_fields.pb.h"
 #include "tools/nproto/test/retired.pb.h"
 #include "tools/nproto/test/scalars.nproto.h"
@@ -302,6 +305,86 @@ TEST(HeaderTest, OnlyTheLeadingCommentBlockIsTheHeader) {
           "# A comment.\n\nradius: 1\n# proto-message: nproto_test.Scalars\n",
           "later.textproto");
   EXPECT_TRUE(later.ok()) << later.status();
+}
+
+// A header that gives the full name a message had before its package was
+// renamed (nproto.former_package of renamed.proto).
+constexpr char kFormerHeaderText[] =
+    "# proto-message: nproto_former_test.Renamed\ngain: 2.5\n";
+constexpr char kCurrentHeaderText[] =
+    "# proto-message: nproto_test.Renamed\ngain: 2.5\n";
+
+constexpr absl::string_view kRenamedHeaderTexts[] = {kFormerHeaderText,
+                                                     kCurrentHeaderText};
+
+TEST(FormerPackageTest, TheOldAndTheNewHeaderLoad) {
+  for (const absl::string_view text : kRenamedHeaderTexts) {
+    const absl::StatusOr<nproto_test::Renamed> proto =
+        ParseTextproto<nproto_test::Renamed>(text, "renamed.textproto");
+    ASSERT_TRUE(proto.ok()) << proto.status();
+    EXPECT_EQ(proto->gain(), 2.5);
+  }
+  const absl::StatusOr<nproto_test::Renamed> file =
+      ParseTextprotoFile<nproto_test::Renamed>(
+          temporaryFile("renamed.textproto", kFormerHeaderText));
+  ASSERT_TRUE(file.ok()) << file.status();
+  EXPECT_EQ(file->gain(), 2.5);
+}
+
+TEST(FormerPackageTest, AnUnrelatedPackageIsRefused) {
+  const absl::StatusOr<nproto_test::Renamed> other =
+      ParseTextproto<nproto_test::Renamed>(
+          "# proto-message: other_package.Renamed\ngain: 1\n",
+          "other.textproto");
+  EXPECT_EQ(other.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(other.status().message(),
+            "other.textproto:1:1: other.textproto is a other_package.Renamed "
+            "(its '# proto-message:' header), not a nproto_test.Renamed");
+  const google::protobuf::Descriptor& renamed =
+      *nproto_test::Renamed::descriptor();
+  EXPECT_TRUE(HeaderNamesMessage("nproto_former_test.Renamed", renamed));
+  EXPECT_TRUE(HeaderNamesMessage("nproto_test.Renamed", renamed));
+  EXPECT_FALSE(HeaderNamesMessage("nproto_former_test.Scalars", renamed));
+  EXPECT_FALSE(HeaderNamesMessage("nproto_former_testRenamed", renamed));
+  EXPECT_FALSE(HeaderNamesMessage("nproto_former_test.Renamed.Inner", renamed));
+  EXPECT_FALSE(HeaderNamesMessage("nproto_former.Renamed", renamed));
+}
+
+TEST(FormerPackageTest, TheCanonicalHeaderTextGivesTheCurrentName) {
+  const google::protobuf::Descriptor& renamed =
+      *nproto_test::Renamed::descriptor();
+  EXPECT_EQ(
+      CanonicalHeaderText(
+          "# A comment.\n#  proto-message:  nproto_former_test.Renamed "
+          "\ngain: 2.5\n",
+          renamed),
+      "# A comment.\n#  proto-message:  nproto_test.Renamed \ngain: 2.5\n");
+  EXPECT_EQ(CanonicalHeaderText("# proto-message: nproto_former_test.Renamed",
+                                renamed),
+            "# proto-message: nproto_test.Renamed");
+  // The current name, another message, no header and a header-like comment
+  // after the first field stay as they are.
+  const std::array<absl::string_view, 4> unchanged = {
+      "# proto-message: nproto_test.Renamed\ngain: 1\n",
+      "# proto-message: other_package.Renamed\ngain: 1\n", "gain: 1\n",
+      "gain: 1\n# proto-message: nproto_former_test.Renamed\n"};
+  for (const absl::string_view text : unchanged) {
+    EXPECT_EQ(CanonicalHeaderText(text, renamed), text);
+  }
+}
+
+TEST(FormerPackageTest, AFileWithoutTheOptionRefusesTheOldName) {
+  const absl::StatusOr<nproto_test::Scalars> old =
+      ParseTextproto<nproto_test::Scalars>(
+          "# proto-message: nproto_former_test.Scalars\nint32_value: 1\n",
+          "scalars.textproto");
+  EXPECT_EQ(old.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(old.status().message(),
+            "scalars.textproto:1:1: scalars.textproto is a "
+            "nproto_former_test.Scalars (its '# proto-message:' header), not a "
+            "nproto_test.Scalars");
+  EXPECT_FALSE(HeaderNamesMessage("nproto_former_test.Scalars",
+                                  *nproto_test::Scalars::descriptor()));
 }
 
 TEST(TextprotoTest, AMissingFileIsNotFound) {

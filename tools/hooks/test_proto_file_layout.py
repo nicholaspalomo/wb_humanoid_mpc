@@ -38,14 +38,12 @@ IMPORT = 'import "nproto/options.proto";\n'
 def struct(name):
     """The first statement of a message's body: its nproto option."""
     return (
-        f'  option (nproto.generate_struct) = "ocs2::humanoid::msgs::{name}";\n'
+        f'  option (nproto.generate_struct) = "ocs2::legged::msgs::{name}";\n'
     )
 
 
 def enum(name):
-    return (
-        f'  option (nproto.generate_enum) = "ocs2::humanoid::msgs::{name}";\n'
-    )
+    return f'  option (nproto.generate_enum) = "ocs2::legged::msgs::{name}";\n'
 
 
 def message(name, body=""):
@@ -77,8 +75,8 @@ class SnakeCaseTest(unittest.TestCase):
 class OneDefinitionPerFileTest(unittest.TestCase):
     def test_one_message_named_after_its_file(self):
         source = f"""syntax = "proto3";
-package humanoid_mpc_msgs;
-import "humanoid_mpc_msgs/vector.proto";
+package legged_mpc_msgs;
+import "legged_mpc_msgs/vector.proto";
 {IMPORT}
 // Next ID: 2
 message MpcPolicy {{
@@ -96,9 +94,7 @@ message MpcPolicy {{
   Nested nested = 1;
 }}
 """
-        self.assertEqual(
-            lines(source, "humanoid_mpc_msgs/mpc_policy.proto"), []
-        )
+        self.assertEqual(lines(source, "legged_mpc_msgs/mpc_policy.proto"), [])
 
     def test_an_enum_or_a_service_counts_as_the_one_definition(self):
         source = (
@@ -199,13 +195,24 @@ class NprotoOptionTest(unittest.TestCase):
     def test_the_option_at_file_scope_is_moved_into_the_message(self):
         source = (
             IMPORT + "option (nproto.generate_struct) ="
-            ' "ocs2::humanoid::msgs::Point";\n' + "message Point {}\n"
+            ' "ocs2::legged::msgs::Point";\n' + "message Point {}\n"
         )
         found = texts(source, "point.proto")
         self.assertEqual(len(found), 1)
         self.assertIn(
             "declared at file scope; move it into message Point", found[0]
         )
+
+    def test_the_file_option_former_package_is_not_a_struct_option(self):
+        # (nproto.former_package) is a FileOptions extension: it belongs at file scope.
+        source = (
+            IMPORT
+            + 'option (nproto.former_package) = "humanoid_mpc_msgs";\n'
+            + "// Next ID: 1\nmessage Point {\n"
+            + struct("Point")
+            + "  reserved 1 to max;\n}\n"
+        )
+        self.assertEqual(lines(source, "point.proto"), [])
 
     def test_the_option_must_be_the_first_statement(self):
         source = (
@@ -257,7 +264,7 @@ class NprotoOptionTest(unittest.TestCase):
 
     def test_the_value_must_be_a_cpp_qualified_name(self):
         for value in (
-            "ocs2.humanoid.Point",
+            "ocs2.legged.Point",
             "ocs2::::Point",
             "1ocs2::Point",
             "",

@@ -1,7 +1,7 @@
 # proto-file: robot_runtime/robot_ipc/proto/network_config.proto
 # proto-message: robot_ipc_proto.NetworkConfig
 #
-# The DDS network of the bus (robot_runtime/robot_ipc, humanoid_nmpc/docs/distributed_runtime/README.md): every
+# The DDS network of the bus (robot_runtime/robot_ipc, legged_nmpc/docs/distributed_runtime/README.md): every
 # process on this machine, over the loopback interface. The bus generates its Cyclone DDS configuration from this file
 # (robot_ipc/DomainConfig.h); there is no XML file and no CYCLONEDDS_URI.
 #
@@ -27,7 +27,7 @@ nodes { name: "mpc"          host: "127.0.0.1" }  # the MPC node, with its visua
 nodes { name: "operator"     host: "127.0.0.1" }  # the remote_control GUI
 nodes { name: "teleop"       host: "127.0.0.1" }  # keyboard / Xbox teleoperation
 nodes { name: "config_push"  host: "127.0.0.1" }  # push_robot_config: a configuration file to the robot
-# LINT.ThenChange(//config/ipc/two_machine.example.textproto:two_machine_nodes, //humanoid_nmpc/remote_control/remote_control/operator_bus.py:operator_nodes)
+# LINT.ThenChange(//config/ipc/two_machine.example.textproto:two_machine_nodes, //legged_nmpc/remote_control/remote_control/operator_bus.py:operator_nodes)
 
 # LINT.IfChange(topic_qos)
 topics { name: "robot/mpc_observation"             qos_profile: "latest"           publishers: "robot" }
@@ -46,7 +46,7 @@ topics { name: "operator/pd_gains"                 qos_profile: "reliable_latest
 topics { name: "operator/joint_targets"            qos_profile: "reliable_latest"  publishers: "operator" }
 topics { name: "operator/dodgeball_throw"          qos_profile: "reliable_events"  publishers: "operator" }
 topics { name: "operator/config_save"              qos_profile: "reliable_events"  publishers: ["operator", "config_push"] }
-# LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_ipc/include/humanoid_mpc_ipc/Topics.h:topics, //config/ipc/two_machine.example.textproto:two_machine_topics, //humanoid_nmpc/docs/distributed_runtime/README.md:topic_table)
+# LINT.ThenChange(//legged_nmpc/legged_mpc_ipc/include/legged_mpc_ipc/Topics.h:topics, //config/ipc/two_machine.example.textproto:two_machine_topics, //legged_nmpc/docs/distributed_runtime/README.md:topic_table)
 
 # Loopback carries a policy in a few datagrams; the receive buffer holds several of them.
 transport { max_message_size_bytes: 65500 socket_receive_buffer_bytes: 8388608 }

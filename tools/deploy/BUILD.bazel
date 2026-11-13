@@ -86,14 +86,14 @@ py_binary(
 robot_bundle(
     name = "robot_bundle",
     binaries = [
-        "//humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_robot",
-        "//humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_robot",
+        "//legged_nmpc/legged_centroidal_mpc_app:legged_centroidal_mpc_robot",
+        "//legged_nmpc/legged_wb_mpc_app:legged_wb_mpc_robot",
     ],
     data = [
         "//config/ipc:network.textproto",
         "//config/ipc:two_machine.example.textproto",
-        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
-        "//humanoid_nmpc/humanoid_rerun_viewer:plot_config",
+        "//legged_nmpc/legged_common_mpc:gait_config",
+        "//legged_nmpc/legged_rerun_viewer:plot_config",
         "//robot_models/anybotics_anymal_b/anymal_b_centroidal_mpc",
         "//robot_models/anybotics_anymal_b/anymal_b_description",
         "//robot_models/anybotics_anymal_c_wheels/anymal_c_wheels_centroidal_mpc",

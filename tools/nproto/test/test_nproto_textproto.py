@@ -49,6 +49,7 @@ import nproto_textproto
 # where the linters cannot see them: imported by name.
 defaults_pb2 = importlib.import_module("tools.nproto.test.defaults_pb2")
 oneofs_pb2 = importlib.import_module("tools.nproto.test.oneofs_pb2")
+renamed_pb2 = importlib.import_module("tools.nproto.test.renamed_pb2")
 retired_pb2 = importlib.import_module("tools.nproto.test.retired_pb2")
 scalars_pb2 = importlib.import_module("tools.nproto.test.scalars_pb2")
 
@@ -356,6 +357,99 @@ class HeaderTest(ParserTestCase):
                 (2, "nproto_test.Scalars"),
             )
         self.assertTrue(os.path.isfile(SCALARS_FILE))
+
+
+class FormerPackageTest(ParserTestCase):
+    """A header that gives the full name a message had before its package was renamed (nproto.former_package)."""
+
+    OLD = "# proto-message: nproto_former_test.Renamed\ngain: 2.5\n"
+    NEW = "# proto-message: nproto_test.Renamed\ngain: 2.5\n"
+
+    def test_the_old_and_the_new_header_load(self):
+        for text in (self.OLD, self.NEW):
+            with self.subTest(text=text):
+                message = renamed_pb2.Renamed()
+                nproto_textproto.parse_textproto(
+                    text, message, "renamed.textproto"
+                )
+                self.assertEqual(message.gain, 2.5)
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "renamed.textproto")
+            with open(path, "w", encoding="utf-8") as file:
+                file.write(self.OLD)
+            self.assertEqual(
+                nproto_textproto.load_textproto(path, renamed_pb2.Renamed).gain,
+                2.5,
+            )
+
+    def test_an_unrelated_package_is_refused(self):
+        self.assertEqual(
+            self.error(
+                "# proto-message: other_package.Renamed\ngain: 1\n",
+                renamed_pb2.Renamed(),
+                "other.textproto",
+            ),
+            "other.textproto:1:1: other.textproto is a other_package.Renamed"
+            " (its '# proto-message:' header), not a nproto_test.Renamed",
+        )
+        for name in (
+            "nproto_former_test.Scalars",
+            "nproto_former_testRenamed",
+            "nproto_former_test.Renamed.Inner",
+            "nproto_former.Renamed",
+        ):
+            with self.subTest(name=name):
+                self.assertFalse(
+                    nproto_textproto.header_names_message(
+                        name, renamed_pb2.Renamed.DESCRIPTOR
+                    )
+                )
+
+    def test_a_file_without_the_option_refuses_the_old_name(self):
+        self.assertEqual(
+            nproto_textproto.former_package(scalars_pb2.Scalars.DESCRIPTOR), ""
+        )
+        self.assertEqual(
+            self.error(
+                "# proto-message: nproto_former_test.Scalars\nint32_value: 1\n",
+                scalars_pb2.Scalars(),
+                "scalars.textproto",
+            ),
+            "scalars.textproto:1:1: scalars.textproto is a"
+            " nproto_former_test.Scalars (its '# proto-message:' header), not"
+            " a nproto_test.Scalars",
+        )
+
+    def test_the_option_is_readable(self):
+        self.assertEqual(
+            nproto_textproto.former_package(renamed_pb2.Renamed.DESCRIPTOR),
+            "nproto_former_test",
+        )
+        self.assertTrue(
+            nproto_textproto.header_names_message(
+                "nproto_former_test.Renamed", renamed_pb2.Renamed.DESCRIPTOR
+            )
+        )
+
+    def test_the_canonical_header_text_gives_the_current_name(self):
+        descriptor = renamed_pb2.Renamed.DESCRIPTOR
+        old = "# A comment.\n#  proto-message:  nproto_former_test.Renamed \ngain: 2.5\n"
+        self.assertEqual(
+            nproto_textproto.canonical_header_text(old, descriptor),
+            "# A comment.\n#  proto-message:  nproto_test.Renamed \ngain: 2.5\n",
+        )
+        # The current name, another message, no header and a header-like comment after the first field stay.
+        for text in (
+            self.NEW,
+            "# proto-message: other_package.Renamed\ngain: 1\n",
+            "gain: 1\n",
+            "gain: 1\n# proto-message: nproto_former_test.Renamed\n",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(
+                    nproto_textproto.canonical_header_text(text, descriptor),
+                    text,
+                )
 
 
 class FileHeaderTest(unittest.TestCase):

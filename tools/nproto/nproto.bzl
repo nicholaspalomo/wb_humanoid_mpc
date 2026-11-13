@@ -16,8 +16,8 @@ cc_proto_library. The protos of protobuf itself (the well-known types, descripto
 options.proto get no structs (the :nproto_toolchain's denylisted_protos).
 
 The rule provides a CcInfo, so it is a dependency of cc_library, cc_binary and cc_test like any cc_library. Its
-headers follow the proto import path: "humanoid_mpc_msgs/mpc_policy.nproto.h" for the struct and
-"humanoid_mpc_msgs/mpc_policy.nproto.pb.h" for the conversions. The output group `nproto_files` holds every generated
+headers follow the proto import path: "legged_mpc_msgs/mpc_policy.nproto.h" for the struct and
+"legged_mpc_msgs/mpc_policy.nproto.pb.h" for the conversions. The output group `nproto_files` holds every generated
 file of the graph, for tests that inspect the generated code.
 """
 

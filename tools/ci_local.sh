@@ -27,7 +27,7 @@ CI_ENVIRONMENT=(-e DEBIAN_FRONTEND=noninteractive -e TZ=Etc/UTC)
 # GitHub sets CI=true in every job, its container's included. What runs differently in CI reads it: the Makefile's
 # builds leave the editor's compile_commands.json alone (tools/ide/README.md), and the tests that inherit it through
 # env_inherit - //robot_runtime/mujoco_sim_interface:test_glfw_mujoco_viewer,
-# //humanoid_nmpc/humanoid_rerun_viewer:test_model_sandbox and the Tk tests of //humanoid_nmpc/remote_control (_TK_ENV) -
+# //legged_nmpc/legged_rerun_viewer:test_model_sandbox and the Tk tests of //legged_nmpc/remote_control (_TK_ENV) -
 # fail without Xvfb instead of skipping, as on GitHub (dependencies.txt installs it).
 GITHUB_ENVIRONMENT=(-e CI=true)
 

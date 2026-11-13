@@ -45,33 +45,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
-#include "humanoid_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
-#include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
-#include "humanoid_common_mpc/common/ContactInputParameterization.h"
-#include "humanoid_common_mpc/common/MpcFormulationConfig.h"
-#include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
-#include "humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h"
-#include "humanoid_common_mpc/config/model/ModelSettingsFromConfig.h"
-#include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
-#include "humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h"
-#include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
-#include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
-#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
-#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
-#include "humanoid_common_mpc/reference_manager/ArmSwing.h"
-#include "humanoid_common_mpc/reference_manager/LegJointReference.h"
-#include "humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h"
-#include "humanoid_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h"
-#include "humanoid_mpc_config/config_registries.nproto.h"
-#include "humanoid_mpc_config/config_registries.nproto.pb.h"  // IWYU pragma: keep
-#include "humanoid_mpc_config/config_registries.pb.h"
-#include "humanoid_mpc_config/contact_planning_file.nproto.h"
-#include "humanoid_mpc_config/model_settings_config.nproto.h"
-#include "humanoid_mpc_config/multi_contact_plan_config.nproto.h"
-#include "humanoid_mpc_config/rollout_settings_config.nproto.h"
-#include "humanoid_mpc_config/sqp_settings_config.nproto.h"
-#include "humanoid_mpc_config/task_file.nproto.h"
-#include "humanoid_state_estimator/StateEstimatorRegistry.h"
+#include "legged_centroidal_mpc/multi_contact/MultiContactPlanSource.h"
+#include "legged_common_mpc/common/BasisInputsCostTransform.h"
+#include "legged_common_mpc/common/ContactInputParameterization.h"
+#include "legged_common_mpc/common/MpcFormulationConfig.h"
+#include "legged_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
+#include "legged_common_mpc/config/costs/TaskSpaceCostFromConfig.h"
+#include "legged_common_mpc/config/model/ModelSettingsFromConfig.h"
+#include "legged_common_mpc/config/model/MpcFormulationFromConfig.h"
+#include "legged_common_mpc/config/solver/SolverSettingsFromConfig.h"
+#include "legged_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
+#include "legged_common_mpc/contact_planning/ContactPlannerFactory.h"
+#include "legged_common_mpc/contact_planning/ContactPlanningFormulation.h"
+#include "legged_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
+#include "legged_common_mpc/reference_manager/ArmSwing.h"
+#include "legged_common_mpc/reference_manager/LegJointReference.h"
+#include "legged_common_mpc_app/robot/TelemetrySinkRegistry.h"
+#include "legged_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h"
+#include "legged_mpc_config/config_registries.nproto.h"
+#include "legged_mpc_config/config_registries.nproto.pb.h"  // IWYU pragma: keep
+#include "legged_mpc_config/config_registries.pb.h"
+#include "legged_mpc_config/contact_planning_file.nproto.h"
+#include "legged_mpc_config/model_settings_config.nproto.h"
+#include "legged_mpc_config/multi_contact_plan_config.nproto.h"
+#include "legged_mpc_config/rollout_settings_config.nproto.h"
+#include "legged_mpc_config/sqp_settings_config.nproto.h"
+#include "legged_mpc_config/task_file.nproto.h"
+#include "legged_state_estimator/StateEstimatorRegistry.h"
 #include "mujoco_sim_interface/CheaterSimContactEstimator.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/Projectile.h"
@@ -80,7 +80,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/ContactEstimatorRegistry.h"
 #include "tools/config_registries/ConfigRegistries.h"
 
-namespace ocs2::humanoid::config_registries {
+namespace ocs2::legged::config_registries {
 namespace {
 
 using Registry = mpc_config::ConfigRegistries::Registry;
@@ -276,7 +276,7 @@ TEST(ConfigRegistriesFileTest, IsWhatPrintConfigRegistriesWrites) {
 TEST(ConfigRegistriesFileTest, ParsesStrictlyIntoTheRegistries) {
   const absl::StatusOr<mpc_config::ConfigRegistries> file =
       nproto::LoadTextprotoFile<mpc_config::ConfigRegistries,
-                                humanoid_mpc_config::ConfigRegistries>(
+                                legged_mpc_config::ConfigRegistries>(
           kConfigRegistriesFile);
   ASSERT_TRUE(file.ok()) << file.status();
   EXPECT_TRUE(*file == collectConfigRegistries()) << kWriteIt;
@@ -323,4 +323,4 @@ TEST(ConfigRegistriesTest, EveryNameARegistryOffersIsOneItAccepts) {
 }
 
 }  // namespace
-}  // namespace ocs2::humanoid::config_registries
+}  // namespace ocs2::legged::config_registries

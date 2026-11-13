@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package legged_mpc_msgs;
+
+import "legged_mpc_msgs/vector3.proto";
+import "nproto/options.proto";
+
+// The package before the humanoid -> legged rename, which the header of a file saved before it gives.
+option (nproto.former_package) = "humanoid_mpc_msgs";
+
+// Force and torque, in that order; the field that holds a Wrench names its point and frame.
+// Next ID: 3
+message Wrench {
+  option (nproto.generate_struct) = "ocs2::legged::msgs::Wrench";
+
+  reserved 3 to max;
+
+  Vector3 force = 1;  // NOLINT(frame-naming): a component of a frame-generic value; the enclosing field names the frames
+  Vector3 torque = 2;  // NOLINT(frame-naming): a component of a frame-generic value; the enclosing field names the frames
+}

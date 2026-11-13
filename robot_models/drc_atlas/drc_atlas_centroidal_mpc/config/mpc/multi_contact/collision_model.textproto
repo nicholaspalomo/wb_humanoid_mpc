@@ -1,9 +1,9 @@
-# proto-file: humanoid_nmpc/humanoid_multi_contact/collision/collision_model.proto
-# proto-message: humanoid_multi_contact.CollisionModel
-# The environment collision model of the DRC Atlas for multi-contact planning (humanoid_nmpc/docs/
+# proto-file: legged_nmpc/legged_multi_contact/collision/collision_model.proto
+# proto-message: legged_multi_contact.CollisionModel
+# The environment collision model of the DRC Atlas for multi-contact planning (legged_nmpc/docs/
 # multi_contact_planning/README.md, section 5.4): the collision geoms of the pelvis, the torso, the head, the arms, the
 # legs and the soles of robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml, each in the frame of the joint of
-# its MJCF body (Atlas's body frames are its URDF joint frames). //humanoid_nmpc/humanoid_multi_contact/collision:
+# its MJCF body (Atlas's body frames are its URDF joint frames). //legged_nmpc/legged_multi_contact/collision:
 # test_collision_model_mjcf compares every link with the geom of its mjcf_body.
 
 robot: "drc_atlas"
