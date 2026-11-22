@@ -81,8 +81,9 @@ constexpr char kWheeledGaitFile[] =
 /**
  * Returns `configuration` on the wheeled bipeds' gait file (kWheeledGaitFile),
  * running standing, walk_0p5 (a drive on the wheels at 0.5 m/s, no steps) and
- * turn_in_place_720 only: the other scenarios step, side-step or push the
- * robot, and the drive gait takes no step.
+ * turn_in_place_720 (on differential wheel speed, no steps) only: the other
+ * scenarios step, push the robot, or side-step at 0.2 m/s, above Tron1's
+ * lateral command limit (testTron1LockstepLoop steps sideways at 0.1 m/s).
  */
 RobotConfiguration onWheeledGait(RobotConfiguration configuration) {
   configuration.gaitFile = kWheeledGaitFile;
@@ -100,13 +101,14 @@ constexpr char kWheeledQuadrupedGaitFile[] =
 /**
  * Returns `configuration` on the wheeled quadrupeds' gait file
  * (kWheeledQuadrupedGaitFile), running standing, walk_0p5 (a drive on the
- * wheels at 0.5 m/s) and turn_in_place_720 (a trot) only: the other scenarios
- * step sideways, push the robot or turn while they walk, which the drive gait
- * cannot.
+ * wheels at 0.5 m/s, no steps), turn_in_place_720 and lateral_0p2 (both on the
+ * event-driven steps of its rolling_lateral_debt) only: the other scenarios
+ * push the robot or are tuned for the bipeds' gaits.
  */
 RobotConfiguration onWheeledQuadrupedGait(RobotConfiguration configuration) {
   configuration.gaitFile = kWheeledQuadrupedGaitFile;
-  configuration.scenarios = {"standing", "walk_0p5", "turn_in_place_720"};
+  configuration.scenarios = {"standing", "walk_0p5", "turn_in_place_720",
+                             "lateral_0p2"};
   return configuration;
 }
 

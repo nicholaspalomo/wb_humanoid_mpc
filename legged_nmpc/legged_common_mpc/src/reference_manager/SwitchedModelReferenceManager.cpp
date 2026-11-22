@@ -74,6 +74,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "legged_common_mpc/gait/BipedModes.h"
 #include "legged_common_mpc/gait/GaitSchedule.h"
 #include "legged_common_mpc/gait/LegSwingPhase.h"
+#include "legged_common_mpc/gait/RollingStepScheduler.h"
 #include "legged_common_mpc/locomotion_heuristics/BasePoseHeuristic.h"
 #include "legged_common_mpc/locomotion_heuristics/FootholdHeuristic.h"
 #include "legged_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
@@ -317,6 +318,14 @@ void SwitchedModelReferenceManager::configureNominalStance(
   if (mpcRobotModelPtr_->modelSettings.hasRollingContacts()) {
     rollingWheelReferences_ =
         computeRollingWheelReferences(pinocchioInterface, nominalState);
+  }
+  rollingContactGeometry_.clear();
+  for (const RollingWheelReference& wheel : rollingWheelReferences_) {
+    rollingContactGeometry_.push_back(RollingContactGeometry{
+        .contactIndex = wheel.contactIndex,
+        .nomPosContactRtBaseEwrtHeadingXy =
+            wheel.nomPosContactRtBaseEwrtHeadingXy,
+        .dirWheelEwrtHeadingXy = wheel.dirWheelEwrtHeadingXy});
   }
 }
 

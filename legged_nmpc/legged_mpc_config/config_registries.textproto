@@ -113,6 +113,12 @@ registries {
 }
 
 registries {
+  name: "gait_scheduler"
+  names: "gait_switching_table"
+  names: "rolling_lateral_debt"
+}
+
+registries {
   name: "gantry_hold"
   names: "weld_constraint"
   names: "kinematic_teleport"

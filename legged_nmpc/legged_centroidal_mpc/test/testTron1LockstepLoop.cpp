@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
@@ -38,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
+#include "legged_common_mpc/common/Types.h"
 #include "legged_mpc_validation/closed_loop/ClosedLoopMetrics.h"
 #include "legged_mpc_validation/closed_loop/ClosedLoopScenario.h"
 #include "legged_mpc_validation/closed_loop/LockstepClosedLoop.h"
@@ -51,14 +54,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * centroidal MPC in the headless MuJoCo lockstep loop of
  * legged_mpc_validation (LockstepClosedLoop), with the wheeled gait file and
  * the ground-truth contact estimator of its task file: it stands, drives
- * forward on its wheels and turns in place. The robot survives, every solve
- * succeeds, every planned quaternion stays unit, the base goes forward and
- * turns by more than half of what it is told, and both wheels stay in the
- * simulator's measured contact throughout: the drive gait takes no step. Unlike
- * testAnymalBLockstepLoop, whose plant is the projected rollout of the policy,
- * this plant is the simulator, so it checks the wheels' balance and their
- * no-slip constraint against MuJoCo's contacts. Generates Tron1's CppAD
- * libraries on a cold cache.
+ * forward on its wheels and turns in place, and it steps sideways one wheel at
+ * a time in the event-driven steps of the gait file's rolling_lateral_debt,
+ * alone and while it drives. The robot survives, every solve succeeds, every
+ * planned quaternion stays unit, the base goes forward and turns by more than
+ * half of what it is told, and both wheels stay in the simulator's measured
+ * contact throughout the drive and the turn: neither builds a lateral debt, so
+ * neither takes a step. Unlike testAnymalBLockstepLoop, whose plant is the
+ * projected rollout of the policy, this plant is the simulator, so it checks
+ * the wheels' balance and their no-slip constraint against MuJoCo's contacts.
+ * Generates Tron1's CppAD libraries on a cold cache.
  */
 
 namespace ocs2::legged {
@@ -92,6 +97,20 @@ constexpr double kMinDriveDistance = 1.0;
 constexpr double kMinTurnAngle = 1.0;
 // Tron1's two wheels, each in one stance phase that never ends.
 constexpr double kNumWheels = 2.0;
+constexpr double kSideStepDuration = 4.0;  // [s]
+// [m/s] The sideways command alone, and the forward and sideways command of
+// the drive that steps sideways.
+constexpr double kCmdLinvelBaseRtWorldEwrtHeadingY = 0.1;
+constexpr double kCmdDriveLinvelX = 0.3;
+constexpr double kCmdDriveLinvelY = 0.1;
+// The share of a commanded displacement a run makes at least: the command ramps
+// up from rest and the steps start after the first debt. The sideways run went
+// 0.31 of 0.4 m, the drive that steps sideways 1.13 of 1.2 m forward and 0.40
+// of 0.4 m sideways.
+constexpr double kMinTrackedShare = 0.5;
+// [rad] The base tilt the steps keep below; the runs peaked at 0.09 and 0.11
+// rad, and swings of 0.25 s instead of 0.12 s at 0.78 rad.
+constexpr double kMaxStepTilt = 0.2;
 
 /** The number at `path` of the metrics document; NaN after a failed
  * expectation. */
@@ -100,6 +119,97 @@ double numberAt(const JsonValue& metrics, absl::string_view path) {
   EXPECT_NE(value, nullptr) << path;
   if (value == nullptr || !value->isNumber()) return std::nan("");
   return value->asNumber();
+}
+
+/** Expects the run to survive with every solve successful and finite. */
+void expectHealthyRun(const JsonValue& metrics) {
+  const JsonValue* absl_nullable survived =
+      metrics.findPath("survival.survived");
+  ASSERT_NE(survived, nullptr);
+  ASSERT_TRUE(survived->isBool());
+  EXPECT_TRUE(survived->asBool());
+  EXPECT_EQ(numberAt(metrics, "failures.failed_solves"), 0.0);
+  EXPECT_EQ(numberAt(metrics, "failures.simulator_resets"), 0.0);
+  EXPECT_EQ(numberAt(metrics, "non_finite_values"), 0.0);
+  EXPECT_LE(numberAt(metrics, "quaternion_norm.max_deviation"), kMaxNormError);
+}
+
+/** Runs `segments` after the standing time on the shipped configuration. */
+absl::StatusOr<LockstepResult> runScenario(
+    absl::string_view name, std::vector<CommandSegment> segments) {
+  const absl::StatusOr<RobotConfiguration> configuration =
+      validation::findRobotConfiguration("tron1");
+  if (!configuration.ok()) return configuration.status();
+  ClosedLoopScenario scenario;
+  scenario.name = std::string(name);
+  scenario.description = std::string(name);
+  scenario.standingTime = kStandingTime;
+  scenario.segments = std::move(segments);
+  const LockstepClosedLoop closedLoop(*configuration, LockstepOptions());
+  ClosedLoopRunInfo info;
+  info.label = absl::StrCat("tron1_lockstep_loop_", name);
+  return closedLoop.run(scenario, info);
+}
+
+/** Returns [m] the base's displacement over the run, in world axes; the run
+ * starts at zero yaw. NaN after a failed expectation. */
+vector2_t baseDisplacementOf(const LockstepResult& run) {
+  const golden_matrix_t* absl_nullable posBaseRtWorldEwrtWorld =
+      run.timeSeries.find(validation::time_series::kPosBaseRtWorldEwrtWorld);
+  EXPECT_NE(posBaseRtWorldEwrtWorld, nullptr);
+  if (posBaseRtWorldEwrtWorld == nullptr ||
+      posBaseRtWorldEwrtWorld->rows() == 0) {
+    return vector2_t::Constant(std::nan(""));
+  }
+  return (posBaseRtWorldEwrtWorld->bottomRows<1>() -
+          posBaseRtWorldEwrtWorld->topRows<1>())
+      .leftCols<2>()
+      .transpose();
+}
+
+/** Records the displacement and the tilt of `run`. */
+void recordSteps(const LockstepResult& run, const vector2_t& displacement) {
+  ::testing::Test::RecordProperty("side_displacement",
+                                  absl::StrCat(displacement.y()));
+  ::testing::Test::RecordProperty("forward_displacement",
+                                  absl::StrCat(displacement.x()));
+  ::testing::Test::RecordProperty(
+      "tilt_max", absl::StrCat(numberAt(run.metrics, "tilt.max_rad")));
+}
+
+TEST(Tron1LockstepLoop, StepsSidewaysOneWheelAtATime) {
+  const absl::StatusOr<LockstepResult> run = runScenario(
+      "stand_side_step", {CommandSegment{.duration = kSideStepDuration,
+                                         .cmdLinvelBaseRtWorldEwrtHeadingY =
+                                             kCmdLinvelBaseRtWorldEwrtHeadingY},
+                          CommandSegment{.duration = kRestDuration}});
+  ASSERT_TRUE(run.ok()) << run.status();
+  expectHealthyRun(run->metrics);
+  EXPECT_GT(run->cyclesWithALiftedContact, 0U);
+  const vector2_t displacement = baseDisplacementOf(*run);
+  EXPECT_GT(displacement.y(), kMinTrackedShare * kSideStepDuration *
+                                  kCmdLinvelBaseRtWorldEwrtHeadingY);
+  EXPECT_LT(numberAt(run->metrics, "tilt.max_rad"), kMaxStepTilt);
+  recordSteps(*run, displacement);
+}
+
+TEST(Tron1LockstepLoop, DrivesForwardWhileItStepsSideways) {
+  const absl::StatusOr<LockstepResult> run = runScenario(
+      "stand_drive_side_step",
+      {CommandSegment{.duration = kSideStepDuration,
+                      .cmdLinvelBaseRtWorldEwrtHeadingX = kCmdDriveLinvelX,
+                      .cmdLinvelBaseRtWorldEwrtHeadingY = kCmdDriveLinvelY},
+       CommandSegment{.duration = kRestDuration}});
+  ASSERT_TRUE(run.ok()) << run.status();
+  expectHealthyRun(run->metrics);
+  EXPECT_GT(run->cyclesWithALiftedContact, 0U);
+  const vector2_t displacement = baseDisplacementOf(*run);
+  EXPECT_GT(displacement.x(),
+            kMinTrackedShare * kSideStepDuration * kCmdDriveLinvelX);
+  EXPECT_GT(displacement.y(),
+            kMinTrackedShare * kSideStepDuration * kCmdDriveLinvelY);
+  EXPECT_LT(numberAt(run->metrics, "tilt.max_rad"), kMaxStepTilt);
+  recordSteps(*run, displacement);
 }
 
 TEST(Tron1LockstepLoop, StandsDrivesForwardAndTurnsInPlaceOnItsWheels) {

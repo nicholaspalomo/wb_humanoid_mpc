@@ -5,7 +5,9 @@ abduction/adduction (`abad`, about the base's x axis), hip flexion (`hip`, y), k
 (`wheel`, y) at the end of the shank, on legs named after the URDF's `L` and `R` (left and right). Each wheel is a
 0.127 m hub-motor wheel on a continuous joint, so the robot stands and drives on its two wheels as a wheeled inverted
 pendulum: it balances in pitch by moving the wheels under its center of mass and turns by driving them at different
-speeds.
+speeds. A wheel cannot roll sideways, so a sideways command makes it step one wheel at a time (the
+`rolling_lateral_debt` scheduler,
+[section 10](../../legged_nmpc/docs/rolling_contact/README.md#10-event-driven-steps) of the rolling-contact design).
 
 This directory holds two Bazel packages:
 
@@ -51,7 +53,10 @@ MPC balances it on its two rolling contacts in all three: it stands still, drive
 command, turns at about 0.45 rad/s against 0.5 rad/s, and keeps both wheels in measured contact throughout. The metrics,
 the solve benchmark and why the turn falls short (the flat wheel cylinders of the MuJoCo scene scrub) are in
 [the label's README](../../legged_nmpc/legged_mpc_validation/data/closed_loop/2026-11-12_tron1/README.md).
-`legged_nmpc/legged_centroidal_mpc:testTron1LockstepLoop` runs a shorter stand, drive and turn in the same loop.
+Label `2026-11-22_wheel_steps` reran the three on the event-driven steps with no violation: none of them builds lateral
+debt, so Tron1 takes no step in them. `legged_nmpc/legged_centroidal_mpc:testTron1LockstepLoop` runs a shorter stand,
+drive and turn in the same loop, and two runs that step one wheel at a time: 0.1 m/s sideways, and 0.3 m/s forward with
+0.1 m/s sideways.
 
 The closed-loop runs set one value of the configuration: the wheel kd of `config/controller/joint_pd_gains.textproto`,
 raised from 1 to 5 N m s/rad. At 1 the drive ran at 0.524 m/s against the 0.5 m/s command, with a tilt RMS of 0.0104

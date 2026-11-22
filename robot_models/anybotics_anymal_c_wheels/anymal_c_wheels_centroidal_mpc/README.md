@@ -21,17 +21,23 @@ The force of a wheel acts at its lowest point, and in stance the wheel's materia
 ([`rolling_contact`](../../../legged_nmpc/docs/rolling_contact/README.md)).
 
 There is no gait file in this package. The wheeled quadrupeds' gait file
-`legged_nmpc/legged_common_mpc/config/command/wheeled_quadruped_gait.textproto` has stance, drive (both on every
-wheel) and turning_trot, and a `gait_switching` table from stance to drive on a linear command and on to turning_trot
-on a yaw-rate command above 0.15 rad/s.
+`legged_nmpc/legged_common_mpc/config/command/wheeled_quadruped_gait.textproto` selects the event-driven steps of its
+`rolling_lateral_debt` block (`gait_scheduler`): the robot rolls on all four wheels and steps a diagonal pair where the
+command builds a lateral debt of 5 cm at one of its wheels. It also has stance, drive (both on every wheel) and
+turning_trot, and a `gait_switching` table from stance to drive on a linear command and on to turning_trot on a
+yaw-rate command above 0.15 rad/s, which `gait_scheduler: "gait_switching_table"` brings back.
 
 None of the four wheels steers: every axle is the base's y axis at the default posture. Driving forward is rolling.
 A turn of the base moves each wheel center sideways at the yaw rate times its distance from the base along x, 0.36 m,
 which the lateral no-slip row of the wheel forbids; the legs can give that motion only within their HAA range, and a
-turn by sliding the wheels sideways (skid steering) needs a slip model the formulation does not have. The robot turns
-in turning_trot instead: diagonal pairs of wheels swing for 0.30 s, each swing followed by 0.15 s on all four wheels,
-and `task_space_foot_cost` places each swinging wheel at its nominal place turned with the base
-(`nominal_foothold` anchor `nominal_stance`). In stance a wheel may still roll along its heading.
+turn by sliding the wheels sideways (skid steering) needs a slip model the formulation does not have. A sideways
+command moves every wheel along its axle, which no wheel rolls either. The robot steps instead
+([`rolling_contact`](../../../legged_nmpc/docs/rolling_contact/README.md), section 10): a diagonal pair of wheels
+swings for 0.30 s where the turn or the sideways command has moved the nominal place of one of its wheels 5 cm along
+the axle since it landed, each swing followed by at least 0.15 s on all four wheels, and `task_space_foot_cost` places
+each swinging wheel at its nominal place turned with the base (`nominal_foothold` anchor `nominal_stance`). A forward
+command builds no debt, so the robot drives without stepping, and a forward command with a turn or a sideways
+command rolls and steps at once. In stance a wheel may still roll along its heading.
 
 The wheel joints are continuous: their position has no weight in `state_weights` and `final_state_weights` and no
 joint-limit row, and the input cost weighs their velocities at 10 against the leg joints' 623 to 1635 (scaling 1e-3),

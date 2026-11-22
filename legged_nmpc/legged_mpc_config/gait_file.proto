@@ -5,6 +5,7 @@ package legged_mpc_config;
 import "legged_mpc_config/config_options.proto";
 import "legged_mpc_config/gait_switching_table_config.proto";
 import "legged_mpc_config/mode_sequence_template_config.proto";
+import "legged_mpc_config/rolling_step_scheduler_config.proto";
 import "nproto/options.proto";
 import "nproto/retired_field_options.proto";
 
@@ -28,8 +29,9 @@ option (nproto.former_package) = "humanoid_mpc_config";
 //
 // gait_list names every gait of gaits exactly once: a gait it does not name, or a name with no gait, is refused.
 // gait_switching, optional, is the table of the gaits the velocity command selects; every gait it names must be in the
-// file.
-// Next ID: 4
+// file. gait_scheduler, optional, names what writes the mode schedule: the gait switching table, or the event-driven
+// steps of rolling_lateral_debt.
+// Next ID: 6
 message GaitFile {
   option (nproto.generate_struct) = "ocs2::legged::mpc_config::GaitFile";
   option (nproto.retired_field) = {
@@ -38,7 +40,7 @@ message GaitFile {
   };
   option (nproto.retired_layout_hint) = "Each gait is a block gaits { name: \"<name>\" mode_sequence: ... switching_times: ... } that gait_list names, not a block per gait name.";
 
-  reserved 4 to max;
+  reserved 6 to max;
 
   // The gaits by name, each once (formerly list).
   repeated string gait_list = 1 [
@@ -64,6 +66,27 @@ message GaitFile {
     (legged_mpc_config.tuning) = {
       reload: RELOAD_START_UP
       exclude_reason: "the gait switching table, read once at start-up: the GUI has no gait tab, edit the gait file"
+    }
+  ];
+  // What writes the mode schedule, by name: "gait_switching_table" inserts the gait that gait_switching selects;
+  // "rolling_lateral_debt" plans the steps of a robot on rolling contacts from the lateral debt of its wheels
+  // (rolling_lateral_debt), and the gait switching table then selects no gait.
+  // LINT.IfChange(gait_scheduler_names)
+  string gait_scheduler = 4 [
+    default = "gait_switching_table",
+    (legged_mpc_config.tuning) = {
+      registry: "gait_scheduler"
+      reload: RELOAD_START_UP
+      exclude_reason: "the gait scheduler, read once at start-up: the GUI has no gait tab, edit the gait file"
+    }
+  ];
+  // LINT.ThenChange(//legged_nmpc/legged_common_mpc/include/legged_common_mpc/gait/RollingStepScheduler.h:gait_scheduler_names)
+  // The steps of gait_scheduler: "rolling_lateral_debt", which it requires; refused with any other scheduler.
+  RollingStepSchedulerConfig rolling_lateral_debt = 5 [
+    (nproto.optional_message) = true,
+    (legged_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      exclude_reason: "the event-driven steps, read once at start-up: the GUI has no gait tab, edit the gait file"
     }
   ];
 }

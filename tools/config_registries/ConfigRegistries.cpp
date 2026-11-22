@@ -51,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "legged_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "legged_common_mpc/contact_planning/ContactPlannerFactory.h"
 #include "legged_common_mpc/contact_planning/ContactPlanningFormulation.h"
+#include "legged_common_mpc/gait/RollingStepScheduler.h"
 #include "legged_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 #include "legged_common_mpc/reference_manager/ArmSwing.h"
 #include "legged_common_mpc/reference_manager/LegJointReference.h"
@@ -149,6 +150,7 @@ mpc_config::ConfigRegistries collectConfigRegistries() {
       {.name = "contact_schedule_source",
        .names = contactScheduleSourceNames()},
       {.name = "foot_cost_phases", .names = footCostPhasesNames()},
+      {.name = "gait_scheduler", .names = gaitSchedulerNames()},
       {.name = "gantry_hold",
        .names = robot::mujoco_sim_interface::gantryHoldNames()},
       {.name = "hard_constraint", .names = mpcHardConstraintNames()},

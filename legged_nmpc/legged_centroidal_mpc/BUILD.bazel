@@ -1970,8 +1970,9 @@ cc_test(
 )
 
 # The shipped Tron1 on its centroidal MPC in the headless MuJoCo lockstep loop of legged_mpc_validation, on the
-# wheeled gait file: it stands, drives forward and turns in place, survives with every solve successful and every
-# quaternion unit, and keeps both wheels in measured contact throughout. Generates Tron1's CppAD libraries.
+# wheeled gait file: it stands, drives forward and turns in place with both wheels in measured contact throughout, and
+# steps sideways one wheel at a time, alone and while it drives, surviving with every solve successful and every
+# quaternion unit. Generates Tron1's CppAD libraries.
 cc_test(
     name = "testTron1LockstepLoop",
     size = "large",
@@ -1980,6 +1981,7 @@ cc_test(
     data = _TRON1_DATA + ["//legged_nmpc/legged_common_mpc:wheeled_gait_config"],
     tags = ["exclusive"],
     deps = [
+        "//legged_nmpc/legged_common_mpc:legged_common_mpc_types",
         "//legged_nmpc/legged_mpc_validation:closed_loop_metrics",
         "//legged_nmpc/legged_mpc_validation:lockstep_closed_loop",
         "//legged_nmpc/legged_mpc_validation:validation_io",
@@ -1987,14 +1989,16 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
     ],
 )
 
 # The shipped wheeled ANYmal C on its centroidal MPC in the headless MuJoCo lockstep loop of legged_mpc_validation, on
-# the wheeled quadrupeds' gait file: it drives forward with every wheel in measured contact throughout and turns in place
-# in a trot, survives with every solve successful and every quaternion unit. Generates the robot's CppAD libraries.
+# the wheeled quadrupeds' gait file: it drives forward with every wheel in measured contact throughout, turns in place,
+# steps sideways and drives while it steps sideways on the event-driven steps, and survives with every solve successful
+# and every quaternion unit. Generates the robot's CppAD libraries.
 cc_test(
     name = "testAnymalCWheelsLockstepLoop",
     size = "large",
@@ -2007,6 +2011,7 @@ cc_test(
     ],
     tags = ["exclusive"],
     deps = [
+        "//legged_nmpc/legged_common_mpc:legged_common_mpc_types",
         "//legged_nmpc/legged_mpc_validation:closed_loop_metrics",
         "//legged_nmpc/legged_mpc_validation:lockstep_closed_loop",
         "//legged_nmpc/legged_mpc_validation:validation_io",
@@ -2014,6 +2019,7 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
     ],

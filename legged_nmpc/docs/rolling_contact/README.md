@@ -9,7 +9,8 @@ point from slipping, while the wheel itself rolls. A task file selects it by lis
 on two rolling contacts, and the wheeled ANYmal C (`robot_models/anybotics_anymal_c_wheels`) on four.
 
 This document derives the geometry, the stance constraint and its Jacobian, the swing, the change in the centroidal
-dynamics and the costs of the wheel joints, and it lists what the formulation does not cover.
+dynamics and the costs of the wheel joints, lists what the formulation does not cover, and describes the event-driven
+steps that move a wheeled robot where its wheels cannot roll.
 
 ## 1. Geometry
 
@@ -108,8 +109,9 @@ which `LeggedPreComputation` builds by adding the radius to the reference height
 `task_space_foot_cost` compares the contact point $\mathbf{p}_w - r\,\mathbf{n}$ with its reference (its CppAD library
 is named with the suffix `_rollingContact`, so that no library of a fixed point's residual is loaded in its place). The
 wheel center and the point below it share their velocity, so the velocity residuals are the wheel center's. The shipped
-wheeled gait file (`legged_common_mpc/config/command/wheeled_gait.textproto`) keeps every wheel on the ground; the
-wheeled quadrupeds' gait file (`wheeled_quadruped_gait.textproto`) swings the wheels in a trot to turn (section 8).
+wheeled gait files (`legged_common_mpc/config/command/wheeled_gait.textproto` for Tron1,
+`wheeled_quadruped_gait.textproto` for the wheeled ANYmal C) keep every wheel on the ground while the robot drives, and
+swing a wheel where the command asks for motion the wheels cannot roll (section 10).
 `testRollingContactSwing` covers a wheel in swing, and `testAnymalCWheelsLockstepLoop` turns the wheeled ANYmal C on it
 in MuJoCo.
 
@@ -181,9 +183,10 @@ to the leg joints' let the no-slip rows, not the cost, decide how fast a wheel t
   $(x_c, y_c)$ from the base center moves at $\omega(-y_c, x_c)$ when the base yaws at $\omega$, and its contact point
   may move only along its heading. On Tron1 both axles lie on one line through the center ($x_c \approx 0$), so a
   differential wheel speed turns it in place. On the wheeled ANYmal C the four axles are parallel and $x_c = \pm 0.36$
-  m, so a yaw would move every wheel sideways at $0.36\,\omega$: the drive gait goes straight, and the robot turns in a
-  trot (`wheeled_quadruped_gait.textproto`), in which a stance wheel pivots about its contact point and rolls along its
-  heading while the stance legs turn the base, and each swing re-places a wheel. Skid steering, which turns a four-wheel base by sliding its wheels sideways, needs a slip
+  m, so a yaw would move every wheel sideways at $0.36\,\omega$: the robot drives straight on its wheels and turns
+  by stepping (section 10), in which a stance wheel pivots about its contact point and rolls along its heading while
+  the stance legs turn the base, and each swing re-places a wheel. Neither robot rolls sideways, since no wheel
+  steers. Skid steering, which turns a four-wheel base by sliding its wheels sideways, needs a slip
   model this formulation does not have: with `zero_velocity` as a soft constraint the solver plans the sideways slip,
   but the plan's wheel speeds are the rolling speeds, and in MuJoCo the base turned through 0.56 rad of a 12.6 rad
   command (`legged_mpc_validation`, label `2026-11-12_anymal_c_wheels`).
@@ -211,7 +214,60 @@ The terms the centroidal MPC refuses on every set other than the biped's (`exter
 `knee_joint_mimic` and the base-pose and wrench heuristics) are refused on a rolling set as well. The whole-body MPC
 runs on the biped's two 6-DoF feet only and refuses a rolling set with every other non-biped set.
 
-## 10. Runtime
+## 10. Event-driven steps
+
+A wheel's contact point may move only along the wheel's heading $\mathbf{t}$ (section 2). The commanded base twist
+$(\mathbf{v}, \omega)$ moves the nominal place of contact $i$, which stands at $\mathbf{d}_i$ from the mean of the
+contacts' nominal places in the heading frame (section 5), at $\mathbf{v} + \omega\,\mathbf{e}_z \times \mathbf{d}_i$.
+The turn is about that mean rather than the base: Tron1's axle passes a few centimeters off its base, and about the base
+a turn in place would move both wheels sideways, while about the axle they only roll and the base circles the axle by
+the offset. The part of that velocity
+along the axle, $\mathbf{a}_i = \mathbf{e}_z \times \mathbf{t}_i$, is what no rolling covers:
+
+$$\dot{e}_i = \left(\mathbf{v} + \omega\,\mathbf{e}_z \times \mathbf{d}_i\right) \cdot \mathbf{a}_i.$$
+
+$e_i$ is the lateral debt of the wheel, the distance its nominal place has moved along its axle since the wheel last
+landed (`RollingStepScheduler::lateralDebtRate()`). The gait file's `gait_scheduler: "rolling_lateral_debt"` has
+`RollingStepScheduler` (`legged_common_mpc/gait/`) write the mode schedule from it, in place of the gait switching table
+(`rolling_step_scheduler_config.proto`):
+
+- A step group (a wheel of Tron1, a diagonal pair of the wheeled ANYmal C) swings for `swing_duration` where the debt
+  of one of its contacts reaches `max_lateral_debt`. It lands at its nominal foothold (section 5), so its debt is zero
+  again.
+- The groups swing one at a time, with `min_stance_duration` on every wheel between two swings. Of two groups due
+  together, the one whose nominal places stand furthest ahead in the direction they move swings first: Tron1 steps
+  with the wheel on the side it moves to, then with the other.
+- The debts are integrated from the filtered command since each touchdown, open loop. Each solve predicts them over
+  the horizon with its command and plans every swing the horizon holds, so the solver sees a swing a horizon ahead and
+  moves the center of mass over the stance wheels in time. No swing is planned sooner than `min_lift_off_lead` after the
+  solve: the schedule a solve writes is the next solve's (ProceduralMpcMotionManager). A swing that lifts off within
+  `commit_window` of a solve is committed and keeps its times whatever the command does; the others are planned again
+  at every solve.
+- A command faster than the steps can follow delays each swing to the end of the stance after the last one. The steps
+  then follow each other back to back, and each one clears a debt above the bound: the step length grows with the
+  speed until the leg's reach limits the tracking.
+
+The rates of the shipped robots, from their geometry:
+
+| Command | Tron1, $\mathbf{d}_i = (0, \pm y)$ | Wheeled ANYmal C, $\mathbf{d}_i = (\pm 0.36, \pm y)$ m |
+| --- | --- | --- |
+| $v_x$ | 0, rolls | 0, rolls |
+| $v_y$ | $v_y$ on both wheels, steps | $v_y$ on every wheel, steps |
+| $\omega$ | 0, turns by differential wheel speed | $\pm 0.36\,\omega$, front against hind, steps |
+
+So a straight drive, and a turn of Tron1 alone or with a drive, never steps, and every other command combines rolling
+with steps: the wheels roll the part of each contact's motion along its heading, and the steps take the rest. The
+wheeled ANYmal C's front and hind wheels build their debts in opposite directions in a turn, and each diagonal pair has
+one of each, so the pairs swing in turn.
+
+What it does not do: the debt is the commanded one, so a push that moves the base sideways builds none, and a wheel
+that the base drags out of its nominal place by a tracking error steps only on the command's schedule. A wheel lands
+at its nominal place, so the debt between two steps lags behind by up to the bound; a landing that leads by the debt
+the next stance will build would center it. `gait_scheduler: "gait_switching_table"` switches back to the gait table,
+whose gaits keep every wheel on the ground, except the wheeled ANYmal C's `turning_trot`, which trots through every
+yaw-rate command above 0.15 rad/s.
+
+## 11. Runtime
 
 The robot process applies the plan through inverse dynamics at the contact frames, so a rolling contact's force has to
 be moved from the wheel's lowest point to the wheel center first. `CentroidalMpcMrtJointController` sets the moment of
@@ -238,7 +294,7 @@ The other runtime consumers of the contact set treat a rolling contact as follow
   lowest point, and the telemetry computes the ZMP from the lowest points. The vertical velocity and acceleration
   plots of a contact are those of its frame, which a rolling contact's lowest point shares on flat ground.
 
-## 11. Code and tests
+## 12. Code and tests
 
 | What | Where |
 | --- | --- |
@@ -247,6 +303,7 @@ The other runtime consumers of the contact set treat a rolling contact as follow
 | Stance constraint | `legged_centroidal_mpc/constraint/RollingContactConstraintCppAd.h`, `testRollingContactConstraint` |
 | Swing reference offset | `legged_common_mpc/LeggedPreComputation.cpp`, `testRollingContactSwing` |
 | Stance references, wheel velocity reference | `legged_common_mpc/reference_manager/SwitchedModelReferenceManager.cpp`, `testRollingContactReferences` |
+| Event-driven steps | `legged_common_mpc/gait/RollingStepScheduler.h`, `ProceduralMpcMotionManager.cpp`, `testRollingStepScheduler`, `testRollingStepSchedulerConfig`, `testTron1LockstepLoop`, `testAnymalCWheelsLockstepLoop` |
 | Lever arm | `lib/ocs2/pinocchio/centroidal_model` (`rollingContactWheelRadii`), `testRollingContactLeverArm`, `testRollingContactSet` |
 | Refused terms | `legged_centroidal_mpc/src/CentroidalContactSet.cpp`, `testRollingContactSet` |
 | Wheel joints | `robot_model/UrdfContinuousJoints.h`, `StateInputWeightsFromConfig.cpp`, `JointLimitsSoftConstraint.cpp`, `testRollingContactModel` |

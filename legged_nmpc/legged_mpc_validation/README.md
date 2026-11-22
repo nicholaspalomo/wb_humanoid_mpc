@@ -248,7 +248,10 @@ contacts (`wheel_L_contact`, `wheel_R_contact`, `model_settings.contacts_rolling
 [docs/rolling_contact](../docs/rolling_contact/README.md)) on the shared wheeled gait file
 (`legged_common_mpc/config/command/wheeled_gait.textproto`), with the ground-truth contact estimator and state
 estimator ([robot_models/limx_tron1](../../robot_models/limx_tron1/README.md)). It runs `standing`, `walk_0p5` and
-`turn_in_place_720`, all on the wheels: `walk_0p5` drives at 0.5 m/s on the `drive` gait and takes no step. It must
+`turn_in_place_720`, all on the wheels: `walk_0p5` drives at 0.5 m/s and takes no step. A sideways command steps one
+wheel at a time (the gait file's `rolling_lateral_debt` scheduler, [docs/rolling_contact](../docs/rolling_contact/README.md),
+section 10); a drive or a turn in place builds no lateral debt, and label `2026-11-22_wheel_steps` matches the runs below
+with no violation. It must
 survive `walk_0p5`, and its solve benchmark replays `data/benchmark/states/tron1_walk_0p5_states.txt`. The Kalman state
 estimator refuses a rolling contact set, so there is no Kalman variant of it. Label `2026-11-12_tron1` recorded it: it
 survives all three scenarios, drives at 0.506 m/s against the 0.5 m/s command, turns at about 0.45 rad/s against
@@ -266,14 +269,18 @@ rolling contacts (`LF_wheel_contact`, `RF_wheel_contact`, `LH_wheel_contact`, `R
 quadrupeds' gait file (`legged_common_mpc/config/command/wheeled_quadruped_gait.textproto`), with the ground-truth
 contact estimator and state estimator
 ([robot_models/anybotics_anymal_c_wheels](../../robot_models/anybotics_anymal_c_wheels/README.md)). It runs `standing`,
-`walk_0p5` and `turn_in_place_720`. `walk_0p5` drives at 0.5 m/s on the `drive` gait and takes no step;
-`turn_in_place_720` turns in the gait file's `turning_trot`, because its four parallel axles cannot roll through a yaw
-([docs/rolling_contact](../docs/rolling_contact/README.md), section 8). It must survive `walk_0p5`, and its solve
+`walk_0p5`, `turn_in_place_720` and `lateral_0p2`. `walk_0p5` drives at 0.5 m/s and takes no step; its four parallel
+axles cannot roll through a yaw or sideways, so `turn_in_place_720` and `lateral_0p2` step a diagonal pair at a time
+where the wheels' lateral debt reaches 5 cm (the gait file's `rolling_lateral_debt` scheduler,
+[docs/rolling_contact](../docs/rolling_contact/README.md), section 10). It must survive `walk_0p5`, and its solve
 benchmark replays `data/benchmark/states/anymal_c_wheels_walk_0p5_states.txt`. The Kalman state estimator refuses a
 rolling contact set, so there is no Kalman variant of it. Label `2026-11-12_anymal_c_wheels` recorded it: it survives
 all three scenarios, drives at 0.496 m/s against the 0.5 m/s command with every wheel in measured contact throughout,
 and turns at 0.484 rad/s against 0.5 rad/s through 11.78 of 12.57 rad; the metrics, and the runs on the drive gait and
 on the plain trot that did not turn, are in [the label's README](data/closed_loop/2026-11-12_anymal_c_wheels/README.md).
+That turn was on the gait file's `turning_trot`; label `2026-11-22_wheel_steps` recorded the event-driven steps: it turns
+through 11.97 rad with no violation of that baseline, and `lateral_0p2` survives with a velocity RMS error of
+0.042 m/s ([its README](data/closed_loop/2026-11-22_wheel_steps/README.md)).
 It is held to the default bands; `make compare-closed-loop CANDIDATE=2026-11-12_anymal_c_wheels
 BASELINE=2026-11-12_anymal_c_wheels ROBOT=anymal_c_wheels` passes with no violation and no improvement.
 
@@ -281,14 +288,15 @@ BASELINE=2026-11-12_anymal_c_wheels ROBOT=anymal_c_wheels` passes with no violat
 
 A label is a directory of documents, one per run: `make closed-loop-metrics ROBOT=<robot> LABEL=<label>` writes
 `data/closed_loop/<label>/<robot>_<scenario>.json`, and `make benchmark-mpc-solve ROBOT=<robot> LABEL=<label>` writes
-`data/benchmark/<label>/<robot>_solve_benchmark.json`. Seven labels are checked in: `2026-11-07_kalman_variant`, the
+`data/benchmark/<label>/<robot>_solve_benchmark.json`. Nine labels are checked in: `2026-11-07_kalman_variant`, the
 kalman variant's first runs, on the undamped G1 scene; `2026-11-08_g1_fall_fix`, `unitree_g1` surviving all three of
 those scenarios once its MJCF had joint damping; `2026-11-10_anymal_b`, the first runs of ANYmal B;
 `2026-11-11_g1_kalman`, `unitree_g1` and `unitree_g1_kalman` on the damped scene with the cycle-mean accelerometer;
-`2026-11-12_tron1`, the first runs of Tron1; `2026-11-12_anymal_c_wheels`, the first runs of the wheeled ANYmal C; and
+`2026-11-12_tron1`, the first runs of Tron1; `2026-11-12_anymal_c_wheels`, the first runs of the wheeled ANYmal C;
 `2026-11-13_legged_rename`, five of those configurations rerun after the rename of the packages from `humanoid_*` to
 `legged_*`, each equal to its baseline
-([its README](data/closed_loop/2026-11-13_legged_rename/README.md)).
+([its README](data/closed_loop/2026-11-13_legged_rename/README.md)); and `2026-11-22_wheel_steps`, the two wheeled
+configurations on the event-driven steps ([its README](data/closed_loop/2026-11-22_wheel_steps/README.md)).
 Otherwise record a baseline on the code to compare against and a candidate on the change, on the same machine and container image, and give each label a README saying
 what it ran (the commit and the worktree state are in every document's provenance) and, for a candidate, the
 improvements its comparison found. Only the metrics documents are copied into the label; the time series and the
