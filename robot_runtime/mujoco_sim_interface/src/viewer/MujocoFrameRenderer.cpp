@@ -192,12 +192,12 @@ void MujocoFrameRenderer::renderScene(const mjrRect& viewport) {
 void MujocoFrameRenderer::moveCamera(mjtMouse action,
                                      double relativeDx,
                                      double relativeDy) {
-  mjv_moveCamera(model_, action, relativeDx, relativeDy, &scene_, &camera_);
+  mjv_moveCamera(model_, action, relativeDx, relativeDy, &camera_);
 }
 
 void MujocoFrameRenderer::scroll(double notches) {
   mjv_moveCamera(model_, mjMOUSE_ZOOM, /*reldx=*/0.0,
-                 -kScrollZoomPerNotch * notches, &scene_, &camera_);
+                 -kScrollZoomPerNotch * notches, &camera_);
 }
 
 void MujocoFrameRenderer::handleKey(char key) {

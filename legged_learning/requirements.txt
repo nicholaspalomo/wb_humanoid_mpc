@@ -10,8 +10,8 @@ lxml
 matplotlib
 mediapy
 ml_collections
-mujoco>=3.2.0
-mujoco-mjx>=3.2.0
+mujoco>=4.0.1
+mujoco-mjx>=4.0.1
 numpy
 onnx
 optax

@@ -325,6 +325,27 @@ absl::Status addProjectileToSpec(mjSpec* absl_nullable spec,
         " and rolling friction ", projectile.rollingFriction, "."));
   }
 
+  // MuJoCo 4 compiles a scene with two bodies of one name, after which
+  // mj_name2id finds only one of them, so a clash is refused here.
+  const std::string name(bodyName);
+  struct NamedElement {
+    mjtObj type = mjOBJ_UNKNOWN;
+    std::string name;
+  };
+  const NamedElement projectileElements[] = {
+      {.type = mjOBJ_BODY, .name = name},
+      {.type = mjOBJ_JOINT, .name = absl::StrCat(name, "_free_joint")},
+      {.type = mjOBJ_GEOM, .name = absl::StrCat(name, "_geom")},
+  };
+  for (const NamedElement& element : projectileElements) {
+    if (mjs_findElement(spec, element.type, element.name.c_str()) != nullptr) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "addProjectileToSpec: the scene already has an element named '",
+          element.name, "', a name the '", projectile.name,
+          "' projectile needs; rename it."));
+    }
+  }
+
   mjsBody* absl_nullable world = mjs_findBody(spec, "world");
   if (world == nullptr) {
     return absl::NotFoundError(
@@ -338,7 +359,6 @@ absl::Status addProjectileToSpec(mjSpec* absl_nullable spec,
   if (ball == nullptr) {
     return absl::InternalError("addProjectileToSpec: mjs_addBody failed.");
   }
-  const std::string name(bodyName);
   mjs_setName(ball->element, name.c_str());
   for (int axis = 0; axis < kPositionDim; ++axis) {
     ball->pos[axis] =  // NOLINT(frame-naming): MuJoCo's mjsBody::pos

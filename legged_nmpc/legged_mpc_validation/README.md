@@ -288,15 +288,17 @@ BASELINE=2026-11-12_anymal_c_wheels ROBOT=anymal_c_wheels` passes with no violat
 
 A label is a directory of documents, one per run: `make closed-loop-metrics ROBOT=<robot> LABEL=<label>` writes
 `data/closed_loop/<label>/<robot>_<scenario>.json`, and `make benchmark-mpc-solve ROBOT=<robot> LABEL=<label>` writes
-`data/benchmark/<label>/<robot>_solve_benchmark.json`. Nine labels are checked in: `2026-11-07_kalman_variant`, the
+`data/benchmark/<label>/<robot>_solve_benchmark.json`. Ten labels are checked in: `2026-11-07_kalman_variant`, the
 kalman variant's first runs, on the undamped G1 scene; `2026-11-08_g1_fall_fix`, `unitree_g1` surviving all three of
 those scenarios once its MJCF had joint damping; `2026-11-10_anymal_b`, the first runs of ANYmal B;
 `2026-11-11_g1_kalman`, `unitree_g1` and `unitree_g1_kalman` on the damped scene with the cycle-mean accelerometer;
 `2026-11-12_tron1`, the first runs of Tron1; `2026-11-12_anymal_c_wheels`, the first runs of the wheeled ANYmal C;
 `2026-11-13_legged_rename`, five of those configurations rerun after the rename of the packages from `humanoid_*` to
 `legged_*`, each equal to its baseline
-([its README](data/closed_loop/2026-11-13_legged_rename/README.md)); and `2026-11-22_wheel_steps`, the two wheeled
-configurations on the event-driven steps ([its README](data/closed_loop/2026-11-22_wheel_steps/README.md)).
+([its README](data/closed_loop/2026-11-13_legged_rename/README.md)); `2026-11-22_wheel_steps`, the two wheeled
+configurations on the event-driven steps ([its README](data/closed_loop/2026-11-22_wheel_steps/README.md)); and
+`2026-11-23_mujoco4`, the five configurations on MuJoCo 4.0.1, within the bands of their baselines
+([its README](data/closed_loop/2026-11-23_mujoco4/README.md)).
 Otherwise record a baseline on the code to compare against and a candidate on the change, on the same machine and container image, and give each label a README saying
 what it ran (the commit and the worktree state are in every document's provenance) and, for a candidate, the
 improvements its comparison found. Only the metrics documents are copied into the label; the time series and the

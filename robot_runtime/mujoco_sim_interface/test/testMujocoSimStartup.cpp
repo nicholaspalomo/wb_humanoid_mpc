@@ -288,14 +288,15 @@ TEST(GantryHoldScene, TheSimulatorHoldsByTheWeldOnlyWhereTheSceneDeclaresIt) {
 }
 
 TEST(MujocoSimInterfaceCreate,
-     ASceneThatDoesNotCompileWithTheProjectileIsAnInvalidArgument) {
+     ASceneWithABodyOfTheProjectilesNameIsAnInvalidArgument) {
   MujocoSimConfig config = hingeConfig();
   config.scenePath = writeTempFile("startup_projectile_name_scene.xml",
                                    kSceneWithAProjectileName);
   config.projectile = "dodgeball";
   EXPECT_THAT(MujocoSimInterface::Create(config, hingeUrdf()).status(),
               StatusIs(absl::StatusCode::kInvalidArgument,
-                       HasSubstr("Could not compile the MuJoCo scene")));
+                       HasSubstr("already has an element named "
+                                 "'sim_projectile'")));
 }
 
 TEST(MujocoSimInterfaceCreate, AMissingUrdfIsANotFoundThatNamesIt) {

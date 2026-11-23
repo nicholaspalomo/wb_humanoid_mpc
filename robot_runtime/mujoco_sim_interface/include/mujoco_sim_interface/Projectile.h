@@ -174,7 +174,9 @@ double projectileContactTimeConstant(double dampRatio);
 
 /**
  * Appends `projectile` to `spec` as a free-floating sphere, parked out of play
- * until thrown.
+ * until thrown. Fails with InvalidArgument where the scene already has a body
+ * named `bodyName`, a joint `<bodyName>_free_joint` or a geom
+ * `<bodyName>_geom`.
  *
  * APPENDED LAST. It must be the LAST body in the world, because
  * several things in this simulator take the FIRST body with a free joint to

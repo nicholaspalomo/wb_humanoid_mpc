@@ -550,6 +550,41 @@ TEST(AddProjectileToSpec,
           .ok());
 }
 
+TEST(AddProjectileToSpec, RejectsASceneWithAnElementOfOneOfTheBallsNames) {
+  // MuJoCo 4 compiles a scene with two bodies of one name, so the clash is
+  // refused before the ball is added.
+  struct Clash {
+    const char* absl_nonnull element;
+    const char* absl_nonnull name;
+  };
+  const std::array<Clash, 3> clashes = {{
+      {.element = R"(<body name="sim_projectile"><geom size="0.1"/></body>)",
+       .name = "sim_projectile"},
+      {.element = R"(<body><joint name="sim_projectile_free_joint"/>)"
+                  R"(<geom size="0.1"/></body>)",
+       .name = "sim_projectile_free_joint"},
+      {.element = R"(<geom name="sim_projectile_geom" size="0.1"/>)",
+       .name = "sim_projectile_geom"},
+  }};
+  for (const Clash& clash : clashes) {
+    const std::string path =
+        writeTempFile("projectile_clash.xml",
+                      absl::StrCat("<mujoco><worldbody>", clash.element,
+                                   "</worldbody></mujoco>"));
+    char error[1000] = {0};
+    mjSpec* absl_nullable spec =
+        mj_parseXML(path.c_str(), /*vfs=*/nullptr, error, sizeof(error));
+    ASSERT_NE(spec, nullptr) << error;
+    const absl::Status added =
+        addProjectileToSpec(spec, dodgeball(), "sim_projectile");
+    mj_deleteSpec(spec);
+    EXPECT_EQ(added.code(), absl::StatusCode::kInvalidArgument) << clash.name;
+    EXPECT_NE(added.message().find(absl::StrCat("'", clash.name, "'")),
+              absl::string_view::npos)
+        << added;
+  }
+}
+
 /*=================================== the bounce the ball actually gets
  * =================================*/
 

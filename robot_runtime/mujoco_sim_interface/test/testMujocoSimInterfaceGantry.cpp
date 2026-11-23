@@ -290,9 +290,12 @@ JointDrift jointDriftUnderGravityCompensation(const WeldedScene& robot,
       std::optional<model::JointAction>& slot = action[joint.robotJoint];
       ABSL_CHECK(slot.has_value());
       slot->kp = 0.0;
-      slot->kd = kDampingPerStep *
-                 state.data->qM[scene->dof_Madr[joint.dofAddress]] /
-                 scene->opt.timestep;
+      // The joint's diagonal of the inertia matrix: the last entry of its row
+      // of mjData::M, whose rows hold the lower triangle in column order.
+      const int dof = joint.dofAddress;
+      const double inertia =
+          state.data->M[scene->M_rowadr[dof] + scene->M_rownnz[dof] - 1];
+      slot->kd = kDampingPerStep * inertia / scene->opt.timestep;
       slot->feed_forward_effort = state.data->qfrc_bias[joint.dofAddress];
     }
     sim->applyJointAction();

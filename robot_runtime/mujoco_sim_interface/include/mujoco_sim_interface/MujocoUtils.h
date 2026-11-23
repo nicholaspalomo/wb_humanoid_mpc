@@ -150,7 +150,7 @@ using MjSpecPtr = std::unique_ptr<mjSpec, MjSpecDeleter>;
 
 /**
  * The simulation data of `model`, owned. Fails with InternalError where
- * mj_makeData returns null. MuJoCo 3.3 aborts by itself when it cannot
+ * mj_makeData returns null. MuJoCo 4.0 aborts by itself when it cannot
  * allocate, so that is not expected, but its API does not promise a non-null
  * result.
  */
